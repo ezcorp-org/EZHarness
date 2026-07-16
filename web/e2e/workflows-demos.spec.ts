@@ -11,10 +11,11 @@ import { makeWorkflow, makeAgent } from "./fixtures/data.js";
 
 const demoDeterministic = makeWorkflow({
 	name: "demo-deterministic",
-	description: "Zero-LLM reshape + gate; identical input ⇒ identical output.",
+	description: "Zero-LLM reshape + gate + publish; identical input ⇒ identical output.",
 	steps: [
 		{ name: "compose", kind: "transform", output: { headline: "Report on {{$input.topic}}" } },
-		{ name: "assert-composed", kind: "gate", condition: { ref: "$steps.compose.output.headline", op: "contains", value: "Report on" } },
+		{ name: "assert-composed", kind: "gate", dependsOn: ["compose"], condition: { ref: "$steps.compose.output.headline", op: "contains", value: "Report on" } },
+		{ name: "publish", kind: "transform", dependsOn: ["assert-composed"], output: { headline: "$steps.compose.output.headline" } },
 	] as any,
 });
 
@@ -70,14 +71,15 @@ test.describe("Workflow demos — run through the UI", () => {
 					steps: [
 						{ stepName: "compose", runId: "", status: "success" },
 						{ stepName: "assert-composed", runId: "", status: "success" },
+						{ stepName: "publish", runId: "", status: "success" },
 					],
 				},
 			},
 		});
 
 		await expect(page.getByRole("heading", { name: "Run History" })).toBeVisible();
-		// Both steps plus the run itself render "success".
-		await expect(page.getByText("success", { exact: true })).toHaveCount(3);
+		// All three steps plus the run itself render "success".
+		await expect(page.getByText("success", { exact: true })).toHaveCount(4);
 	});
 
 	test("demo-loop-counter reports iterations: 3 for its looped step", async ({ page, mockApi, emitSse }) => {

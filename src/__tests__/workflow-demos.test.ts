@@ -59,11 +59,15 @@ describe("shipped demo workflows", () => {
     const b = await wf.runWorkflow(demo("demo-deterministic"), { topic: "workflows" });
     expect(a.status).toBe("success");
     expect(b.status).toBe("success");
-    // Gate is the last step ⇒ the run result is { passed: true }.
-    expect(a.result?.output).toEqual({ passed: true });
+    // The final `publish` transform re-emits the composed object, so the run
+    // result carries meaningful content (not the gate's bare { passed: true }).
+    expect(a.result?.output).toEqual({
+      slug: "workflows-report",
+      headline: "Report on workflows",
+    });
     // Determinism: the whole run result is byte-identical across two runs of
     // the same input (a transform/gate-only workflow is a pure function — no
-    // LLM, no I/O, no clock).
+    // LLM, no I/O, no clock) — now over meaningful composed content.
     expect(JSON.stringify(a.result)).toBe(JSON.stringify(b.result));
     // The intermediate compose step is present and byte-identical too.
     const composeA = a.steps.find((s) => s.stepName === "compose");

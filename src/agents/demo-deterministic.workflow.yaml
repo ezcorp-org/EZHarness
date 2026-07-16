@@ -18,6 +18,11 @@ steps:
       headline: "Report on {{$input.topic}}"
   - name: assert-composed
     kind: gate
+    # Explicit dependency: once any step declares `dependsOn` the executor
+    # switches to topological batching, so pin the order that the no-dep
+    # sequential path used to give (compose → assert → publish).
+    dependsOn:
+      - compose
     condition:
       all:
         - ref: "$steps.compose.output.headline"
@@ -25,3 +30,13 @@ steps:
           value: "Report on"
         - ref: "$steps.compose.output.slug"
           op: exists
+  - name: publish
+    kind: transform
+    # Runs after the gate so the workflow's final result carries the composed
+    # object (not the gate's bare `{ passed: true }`), giving the
+    # reproducibility check meaningful content to byte-compare.
+    dependsOn:
+      - assert-composed
+    output:
+      slug: "$steps.compose.output.slug"
+      headline: "$steps.compose.output.headline"

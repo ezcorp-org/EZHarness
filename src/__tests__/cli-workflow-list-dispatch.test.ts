@@ -104,7 +104,7 @@ describe("cli help usage", () => {
 });
 
 describe("cli workflow:run dispatch", () => {
-  test("runs a transform-only workflow and prints its result JSON", async () => {
+  test("runs a successful workflow, prints its result JSON, and exits 0", async () => {
     dbWorkflows = [
       {
         name: "det",
@@ -112,10 +112,25 @@ describe("cli workflow:run dispatch", () => {
         steps: [{ name: "shape", kind: "transform", output: { greeting: "hello" } } as unknown],
       },
     ];
-    await cli(["workflow", "run", "det"]);
+    const code = await captureExit(() => cli(["workflow", "run", "det"]));
+    expect(code).toBe(0);
     const out = logs.join("\n");
     expect(out).toContain("greeting");
     expect(out).toContain("hello");
+  });
+
+  test("exits 1 (loud failure) when the run finishes with an error status", async () => {
+    // A transform with an unresolvable strict `$steps` ref fails the run, so
+    // it settles `status: "error"` → the CLI must exit non-zero.
+    dbWorkflows = [
+      {
+        name: "boom",
+        description: "fails",
+        steps: [{ name: "bad", kind: "transform", output: { x: "$steps.nope.output" } } as unknown],
+      },
+    ];
+    const code = await captureExit(() => cli(["workflow", "run", "boom"]));
+    expect(code).toBe(1);
   });
 
   test("errors and exits when no workflow name is given", async () => {

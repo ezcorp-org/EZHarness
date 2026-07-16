@@ -132,7 +132,7 @@ All routes are registered in `src/api-registry.ts` (category `workflows`) and ga
 
 Three committed demos double as executable documentation and test fixtures:
 
-- `demo-deterministic.workflow.yaml` — transforms + gate only, zero LLM. Identical input ⇒ identical output.
+- `demo-deterministic.workflow.yaml` — zero-LLM `transform` → `gate` → `transform`: a compose step reshapes the input, a gate asserts the composed fields, and a final `publish` transform re-emits the composed object so the run result carries meaningful content. Identical input ⇒ byte-identical output.
 - `demo-loop-counter.workflow.yaml` — a `transform` loop that counts to 3 (`iterations: 3`) using `$loop.iteration` / `$loop.last`; passing `neverStop: true` makes the until-condition unreachable and exercises the loud `onExhausted: "fail"` path.
 - `demo-mixed.workflow.yaml` — an `agent` step (`summarizer`) → `transform` reshape → `gate` assertion.
 

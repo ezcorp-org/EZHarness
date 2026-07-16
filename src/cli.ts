@@ -544,12 +544,15 @@ export async function cli(args: string[]): Promise<void> {
 
       const projectId = await resolveProjectId(parsed.project);
 
-      try {
-        const run = await workflowExec.runWorkflow(workflow, parsed.input ?? {}, projectId);
-        console.log(JSON.stringify(run.result, null, 2));
-      } finally {
-        disconnect();
-      }
+      const run = await workflowExec
+        .runWorkflow(workflow, parsed.input ?? {}, projectId)
+        .finally(disconnect);
+      console.log(JSON.stringify(run.result, null, 2));
+      // Exit with a meaningful code — 0 on success, 1 on error/cancelled
+      // (loud-failure semantics). This also releases the run harness's live
+      // handles (event bus, executor, DB) that would otherwise keep the event
+      // loop alive and hang the process after the result is printed.
+      process.exit(run.status === "success" ? 0 : 1);
       break;
     }
 
