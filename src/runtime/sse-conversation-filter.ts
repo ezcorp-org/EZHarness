@@ -99,6 +99,8 @@ export const DIRECT_CARRIER_EVENT_TYPES: ReadonlySet<keyof AgentEvents> = new Se
   // one as requiring the scope filter.
   "loops:approval_pending",
   "loops:approval_resolved",
+  // Loops auto-disable notice — same optional-carrier semantics.
+  "loops:auto_disabled",
   // NOTE — "ext:page-state" (Extension Pages Hub) is INTENTIONALLY
   // ABSENT: the mediator strips the page tree before emitting, so the
   // event carries only {extensionId, extensionName, pageId} — a

@@ -134,6 +134,13 @@ export interface LoopApprovalResolvedEvent {
   decision: "approved" | "declined";
   conversationId?: string;
 }
+/** User-visible notice that a loop auto-disabled after N consecutive
+ *  permanent errors — a stop is never silent. */
+export interface LoopAutoDisabledEvent {
+  loopId: string;
+  consecutiveErrors: number;
+  conversationId?: string;
+}
 
 /** The subscribable event types and their payload shapes. Key names
  *  MUST match `DIRECT_CARRIER_EVENT_TYPES` on the host. */
@@ -153,6 +160,7 @@ export interface SubscribableEventMap {
   "task:assignment_update": TaskAssignmentUpdateEvent;
   "loops:approval_pending": LoopApprovalPendingEvent;
   "loops:approval_resolved": LoopApprovalResolvedEvent;
+  "loops:auto_disabled": LoopAutoDisabledEvent;
 }
 
 export type SubscribableEvent = keyof SubscribableEventMap;

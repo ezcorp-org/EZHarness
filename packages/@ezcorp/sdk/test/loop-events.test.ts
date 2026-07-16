@@ -86,3 +86,21 @@ describe("LoopEvents.emitApprovalResolved", () => {
     });
   });
 });
+
+describe("LoopEvents.emitAutoDisabled", () => {
+  test("emits v1 auto_disabled with the loop id + error count (no runId)", async () => {
+    const { calls } = stubRequest();
+    await new LoopEvents().emitAutoDisabled({ loopId: "flaky", consecutiveErrors: 5 });
+    expect(calls[0]!.params).toEqual({
+      v: 1,
+      type: "auto_disabled",
+      payload: { loopId: "flaky", consecutiveErrors: 5 },
+    });
+  });
+
+  test("threads conversationId when present", async () => {
+    const { calls } = stubRequest();
+    await new LoopEvents().emitAutoDisabled({ loopId: "flaky", consecutiveErrors: 3, conversationId: "c1" });
+    expect((calls[0]!.params.payload as Record<string, unknown>).conversationId).toBe("c1");
+  });
+});

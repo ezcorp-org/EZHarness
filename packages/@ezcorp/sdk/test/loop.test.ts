@@ -37,7 +37,9 @@ import {
   _setLlmFactoryForTests,
   _setStoreFactoryForTests,
   _setCheckFetchForTests,
+  _setLoopEventsForTests,
 } from "../src/runtime/loop";
+import type { LoopEvents } from "../src/runtime/loop-events";
 import type { LoopCheckContext } from "../src/runtime/loop-types";
 import { Llm } from "../src/runtime/llm";
 import { createLoopRunStore } from "../src/runtime/loop-store";
@@ -123,6 +125,14 @@ beforeEach(() => {
   _setSettingsResolverForTests(async () => ({}));
   _setStoreFactoryForTests((<O,>(loopId: string, contract: unknown) =>
     createLoopRunStore<O>(loopId, contract as never, makeKv())) as never);
+  // No-op approval-event emitter — the auto-disable path now emits a nudge
+  // via the reverse RPC, which would hang against the channel's default
+  // (no host) request timeout. Tests that assert emissions inject their own.
+  _setLoopEventsForTests({
+    emitApprovalPending: async () => {},
+    emitApprovalResolved: async () => {},
+    emitAutoDisabled: async () => {},
+  } as unknown as LoopEvents);
 });
 
 afterEach(() => {
@@ -133,6 +143,7 @@ afterEach(() => {
   _setSpawnForTests(null);
   _setStoreFactoryForTests(null);
   _setCheckFetchForTests(null);
+  _setLoopEventsForTests(null);
 });
 
 /** Invoke a captured `ezcorp/event/<event>` handler with a payload. */

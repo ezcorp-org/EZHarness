@@ -8,6 +8,8 @@
  *
  *   - `approval_pending`  → emits `loops:approval_pending`
  *   - `approval_resolved` → emits `loops:approval_resolved`
+ *   - `auto_disabled`     → emits `loops:auto_disabled` (user-visible notice
+ *                           when a loop auto-disables — never a silent stop)
  *
  * This is deliberately SEPARATE from `ezcorp/emit-task-event`: task events are
  * FORCED to the host's `currentConversationId` and rejected when the context is
@@ -67,12 +69,10 @@ export async function handleEmitLoopEventRpc(
     return rpcError(req.id, -32602, "Invalid payload: expected an object");
   }
 
-  const { loopId, runId, conversationId } = payload;
+  const { loopId, conversationId } = payload;
+  // loopId + conversationId shape are common to every event type.
   if (!isString(loopId) || loopId.length === 0) {
     return rpcError(req.id, -32602, "payload.loopId is required");
-  }
-  if (!isString(runId) || runId.length === 0) {
-    return rpcError(req.id, -32602, "payload.runId is required");
   }
   if (conversationId !== undefined && !isString(conversationId)) {
     return rpcError(req.id, -32602, "payload.conversationId must be a string when present");
@@ -83,17 +83,30 @@ export async function handleEmitLoopEventRpc(
       ? { conversationId }
       : {};
 
-  if (type === "approval_pending") {
-    ctx.bus?.emit("loops:approval_pending", { loopId, runId, ...conv });
-    return rpcResult(req.id, { ok: true });
-  }
-
-  if (type === "approval_resolved") {
+  // The approval events carry a runId; the auto-disable notice does not.
+  if (type === "approval_pending" || type === "approval_resolved") {
+    const runId = payload.runId;
+    if (!isString(runId) || runId.length === 0) {
+      return rpcError(req.id, -32602, "payload.runId is required");
+    }
+    if (type === "approval_pending") {
+      ctx.bus?.emit("loops:approval_pending", { loopId, runId, ...conv });
+      return rpcResult(req.id, { ok: true });
+    }
     const decision = payload.decision;
     if (decision !== "approved" && decision !== "declined") {
       return rpcError(req.id, -32602, "payload.decision must be 'approved' | 'declined'");
     }
     ctx.bus?.emit("loops:approval_resolved", { loopId, runId, decision, ...conv });
+    return rpcResult(req.id, { ok: true });
+  }
+
+  if (type === "auto_disabled") {
+    const consecutiveErrors = payload.consecutiveErrors;
+    if (typeof consecutiveErrors !== "number" || !Number.isFinite(consecutiveErrors)) {
+      return rpcError(req.id, -32602, "payload.consecutiveErrors must be a finite number");
+    }
+    ctx.bus?.emit("loops:auto_disabled", { loopId, consecutiveErrors, ...conv });
     return rpcResult(req.id, { ok: true });
   }
 

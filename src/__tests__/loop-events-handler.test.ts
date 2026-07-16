@@ -95,6 +95,32 @@ describe("handleEmitLoopEventRpc — validation", () => {
     );
     expect(resp.error?.message).toMatch(/decision/);
   });
+
+  test("auto_disabled with a non-number consecutiveErrors → -32602", async () => {
+    const r1 = await handleEmitLoopEventRpc(
+      ext(),
+      rpc({ v: 1, type: "auto_disabled", payload: { loopId: "l", consecutiveErrors: "five" } }),
+      ctx(),
+    );
+    expect(r1.error?.message).toMatch(/consecutiveErrors/);
+    const r2 = await handleEmitLoopEventRpc(
+      ext(),
+      rpc({ v: 1, type: "auto_disabled", payload: { loopId: "l", consecutiveErrors: Infinity } }),
+      ctx(),
+    );
+    expect(r2.error?.message).toMatch(/consecutiveErrors/);
+  });
+
+  test("auto_disabled does NOT require a runId", async () => {
+    const { bus, calls } = makeBus();
+    const resp = await handleEmitLoopEventRpc(
+      ext(),
+      rpc({ v: 1, type: "auto_disabled", payload: { loopId: "flaky", consecutiveErrors: 5 } }),
+      ctx(bus),
+    );
+    expect(resp.result).toEqual({ ok: true });
+    expect(calls[0]).toEqual({ event: "loops:auto_disabled", payload: { loopId: "flaky", consecutiveErrors: 5 } });
+  });
 });
 
 describe("handleEmitLoopEventRpc — happy paths", () => {
@@ -141,6 +167,16 @@ describe("handleEmitLoopEventRpc — happy paths", () => {
       event: "loops:approval_resolved",
       payload: { loopId: "docs", runId: "r1", decision: "declined", conversationId: "c1" },
     });
+  });
+
+  test("auto_disabled threads a conversationId", async () => {
+    const { bus, calls } = makeBus();
+    await handleEmitLoopEventRpc(
+      ext(),
+      rpc({ v: 1, type: "auto_disabled", payload: { loopId: "flaky", consecutiveErrors: 2, conversationId: "c1" } }),
+      ctx(bus),
+    );
+    expect(calls[0]!.payload).toEqual({ loopId: "flaky", consecutiveErrors: 2, conversationId: "c1" });
   });
 
   test("a missing bus is a clean no-op emit (still ok)", async () => {

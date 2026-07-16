@@ -19,20 +19,31 @@ import { getChannel } from "./channel";
 import type { ApprovalDecision } from "./loop-types";
 
 /** The wire shape the host `handleEmitLoopEventRpc` validates. */
-export interface EmitLoopEventParams {
-  v: 1;
-  type: "approval_pending" | "approval_resolved";
-  payload: {
-    loopId: string;
-    runId: string;
-    /** Present only on `approval_resolved`. */
-    decision?: ApprovalDecision;
-    /** Optional owning conversation — when set the host scopes SSE delivery
-     *  to that conversation's owner; when absent the content-free nudge
-     *  broadcasts to every authenticated subscriber. */
-    conversationId?: string;
-  };
-}
+export type EmitLoopEventParams =
+  | {
+      v: 1;
+      type: "approval_pending" | "approval_resolved";
+      payload: {
+        loopId: string;
+        runId: string;
+        /** Present only on `approval_resolved`. */
+        decision?: ApprovalDecision;
+        /** Optional owning conversation — when set the host scopes SSE
+         *  delivery to that conversation's owner; when absent the content-free
+         *  nudge broadcasts to every authenticated subscriber. */
+        conversationId?: string;
+      };
+    }
+  | {
+      v: 1;
+      type: "auto_disabled";
+      payload: {
+        loopId: string;
+        /** Consecutive permanent errors that tripped auto-disable. */
+        consecutiveErrors: number;
+        conversationId?: string;
+      };
+    };
 
 export class LoopEvents {
   async emitApprovalPending(payload: {
@@ -66,6 +77,26 @@ export class LoopEvents {
         loopId: payload.loopId,
         runId: payload.runId,
         decision: payload.decision,
+        ...(payload.conversationId !== undefined
+          ? { conversationId: payload.conversationId }
+          : {}),
+      },
+    } satisfies EmitLoopEventParams);
+  }
+
+  /** User-visible notice that a loop auto-disabled after N consecutive
+   *  permanent errors — never a silent stop. */
+  async emitAutoDisabled(payload: {
+    loopId: string;
+    consecutiveErrors: number;
+    conversationId?: string;
+  }): Promise<void> {
+    await getChannel().request<{ ok: true }>("ezcorp/emit-loop-event", {
+      v: 1,
+      type: "auto_disabled",
+      payload: {
+        loopId: payload.loopId,
+        consecutiveErrors: payload.consecutiveErrors,
         ...(payload.conversationId !== undefined
           ? { conversationId: payload.conversationId }
           : {}),

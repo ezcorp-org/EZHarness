@@ -641,13 +641,25 @@ async function handleFailure(
     disabled: meta.disabled || decision.shouldDisable,
   };
   await reg.store.setMeta(nextMeta);
-  if (decision.shouldDisable && reg.contract.onAutoDisable) {
+  if (decision.shouldDisable) {
+    // Emit a user-visible notice — an auto-disable is NEVER a silent stop.
+    // Best-effort; independent of (and before) the author's onAutoDisable hook.
     try {
-      await reg.contract.onAutoDisable(
-        autoDisableContext(reg.id, decision, err),
-      );
+      await loopEventsImpl.emitAutoDisabled({
+        loopId: reg.id,
+        consecutiveErrors: decision.consecutiveErrors,
+      });
     } catch {
-      // Notification failure must not mask the original error.
+      // The notice is best-effort; the disabled latch is the durable signal.
+    }
+    if (reg.contract.onAutoDisable) {
+      try {
+        await reg.contract.onAutoDisable(
+          autoDisableContext(reg.id, decision, err),
+        );
+      } catch {
+        // Notification failure must not mask the original error.
+      }
     }
   }
   return { kind: "error", detail: err instanceof Error ? err.message : String(err) };

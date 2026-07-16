@@ -577,4 +577,16 @@ export interface AgentEvents {
     decision: "approved" | "declined";
     conversationId?: string;
   };
+  /**
+   * Loops EZ Mode Phase 2 — a loop auto-disabled after N consecutive
+   * permanent errors. A user-visible notice so a stop is never silent
+   * (inbox/toast surface). Content-carrying but non-sensitive (loop id +
+   * error count). Optional conversationId scopes delivery like the approval
+   * events; a global loop broadcasts.
+   */
+  "loops:auto_disabled": {
+    loopId: string;
+    consecutiveErrors: number;
+    conversationId?: string;
+  };
 }

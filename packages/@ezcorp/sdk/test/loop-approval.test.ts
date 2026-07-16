@@ -69,10 +69,11 @@ function makeKv() {
 // ── Recording LoopEvents ────────────────────────────────────────────
 
 interface EmitCall {
-  type: "pending" | "resolved";
+  type: "pending" | "resolved" | "auto_disabled";
   loopId: string;
-  runId: string;
+  runId?: string;
   decision?: "approved" | "declined";
+  consecutiveErrors?: number;
   conversationId?: string;
 }
 
@@ -94,6 +95,9 @@ function recordingEvents(opts: { throwOn?: "pending" | "resolved" } = {}): {
     }) {
       if (opts.throwOn === "resolved") throw new Error("emit boom");
       calls.push({ type: "resolved", ...p });
+    },
+    async emitAutoDisabled(p: { loopId: string; consecutiveErrors: number; conversationId?: string }) {
+      calls.push({ type: "auto_disabled", ...p });
     },
   } as unknown as LoopEvents;
   return { events, calls };
@@ -574,6 +578,37 @@ describe("deferred → proposal composition", () => {
     await dispatchAssignmentUpdate(completeEvt);
     const reg = _getRegisteredLoop("dd")!;
     expect((await reg.store.list())[0]!.status).toBe("completed");
+  });
+});
+
+// ── auto-disable notification ───────────────────────────────────────
+
+describe("auto-disable emits a user-visible notice", () => {
+  test("tripping autoDisableAfter emits loops:auto_disabled (never a silent stop)", async () => {
+    const { events, calls } = recordingEvents();
+    _setLoopEventsForTests(events);
+    const onDisable: number[] = [];
+    defineLoop({
+      id: "flaky",
+      trigger: { kind: "event", event: "run:complete" },
+      contract: {
+        states: ["done"],
+        failure: {
+          classify: () => "permanent",
+          autoDisableAfter: 2,
+          onAutoDisable: (ctx) => { onDisable.push(ctx.consecutiveErrors); },
+        },
+      },
+      act: async () => {
+        throw new Error("always fails");
+      },
+    });
+    await fireEvent("run:complete", {}); // error 1
+    await fireEvent("run:complete", {}); // error 2 → trips auto-disable
+    const notice = calls.find((c) => c.type === "auto_disabled");
+    expect(notice).toMatchObject({ type: "auto_disabled", loopId: "flaky", consecutiveErrors: 2 });
+    // The author's onAutoDisable hook still ran too.
+    expect(onDisable).toEqual([2]);
   });
 });
 

@@ -38,14 +38,15 @@ afterEach(() => {
 });
 
 describe("DIRECT_CARRIER_EVENT_TYPES", () => {
-  test("enumerates the direct-carrier event types (13 from prereqs audit + ask-user:answer + ez:client-tool + extensions:installed + goal:update + the two briefing events + conversation:tree-changed + the two loops approval events; Phase 5's orchestrator:human_* removed by ask-user migration)", () => {
-    // 21 entries: 13 from the prereqs audit + ez:client-tool (Phase 48
+  test("enumerates the direct-carrier event types (13 from prereqs audit + ask-user:answer + ez:client-tool + extensions:installed + goal:update + the two briefing events + conversation:tree-changed + the three loops events; Phase 5's orchestrator:human_* removed by ask-user migration)", () => {
+    // 22 entries: 13 from the prereqs audit + ez:client-tool (Phase 48
     // Wave 3) + extensions:installed (agent-install-ux-polish Phase 2)
     // + goal:update (/goal Phase 2, FR-20) + conversation:created +
     // briefing:delivered (Daily Briefing Phase 1) + conversation:tree-changed
     // (Sessions P4 rewind/checkpoint) + loops:approval_pending +
-    // loops:approval_resolved (Loops EZ Mode Phase 2 — optional carriers).
-    expect(DIRECT_CARRIER_EVENT_TYPES.size).toBe(21);
+    // loops:approval_resolved + loops:auto_disabled (Loops EZ Mode Phase 2 —
+    // optional carriers).
+    expect(DIRECT_CARRIER_EVENT_TYPES.size).toBe(22);
     for (const name of [
       "run:complete", "run:error", "run:cancel", "run:turn_saved",
       "tool:start", "tool:complete", "tool:error",
@@ -60,6 +61,7 @@ describe("DIRECT_CARRIER_EVENT_TYPES", () => {
       "conversation:tree-changed",
       "loops:approval_pending",
       "loops:approval_resolved",
+      "loops:auto_disabled",
     ]) {
       expect(DIRECT_CARRIER_EVENT_TYPES.has(name as never)).toBe(true);
     }

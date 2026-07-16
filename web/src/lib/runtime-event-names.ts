@@ -44,6 +44,9 @@ export const RUNTIME_EVENT_NAMES = [
   // scope; global loops broadcast.
   "loops:approval_pending",
   "loops:approval_resolved",
+  // Loop auto-disabled after N consecutive errors — a user-visible notice
+  // (never a silent stop).
+  "loops:auto_disabled",
 ] as const;
 
 export type RuntimeEventName = (typeof RUNTIME_EVENT_NAMES)[number];
