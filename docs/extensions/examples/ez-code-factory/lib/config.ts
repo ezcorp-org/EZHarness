@@ -55,6 +55,10 @@ export const DEFAULT_AUTO_FIX_LIMITS: Record<PipelineStep, number> = {
   ci: 3,
 };
 
+/** The CI monitor's idle timeout when unset: 7 days. Verbatim DefaultCITimeout.
+ *  A NEGATIVE value means "never self-terminate" (poll until merged/closed). */
+export const DEFAULT_CI_TIMEOUT_MS = 7 * 24 * 60 * 60 * 1000;
+
 /** Resolved, validated pipeline configuration. */
 export interface PipelineConfig {
   /** Per-step auto-fix cap (>= 0). */
@@ -65,6 +69,9 @@ export interface PipelineConfig {
   ignorePatterns: string[];
   /** Default branch the pipeline rebases onto / diffs against. */
   defaultBranch: string;
+  /** CI monitor idle timeout in ms. `< 0` = unlimited (poll until merged/
+   *  closed); the default is 7 days. Re-armed when the base branch advances. */
+  ciTimeoutMs: number;
 }
 
 /** The all-defaults config (no settings applied). */
@@ -74,6 +81,7 @@ export function defaultPipelineConfig(): PipelineConfig {
     gateRemote: GATE_REMOTE,
     ignorePatterns: [],
     defaultBranch: "main",
+    ciTimeoutMs: DEFAULT_CI_TIMEOUT_MS,
   };
 }
 
@@ -143,5 +151,19 @@ export function resolvePipelineConfig(settings: unknown): PipelineConfig {
   if (typeof s.defaultBranch === "string" && s.defaultBranch.trim() !== "") {
     cfg.defaultBranch = s.defaultBranch.trim();
   }
+  cfg.ciTimeoutMs = resolveCiTimeoutMs(s.ciTimeoutHours);
   return cfg;
+}
+
+/**
+ * Resolve the CI idle-timeout setting (declared in HOURS for the settings UI)
+ * into ms. A NEGATIVE value means "unlimited" (`-1` sentinel → poll forever);
+ * `0`, absent, or a non-finite value falls back to the 7-day default; a positive
+ * value is hours→ms. Mirrors upstream's `<0 = unlimited, 0 = default` semantics.
+ */
+function resolveCiTimeoutMs(raw: unknown): number {
+  if (typeof raw !== "number" || !Number.isFinite(raw)) return DEFAULT_CI_TIMEOUT_MS;
+  if (raw < 0) return -1;
+  if (raw === 0) return DEFAULT_CI_TIMEOUT_MS;
+  return Math.floor(raw * 60 * 60 * 1000);
 }

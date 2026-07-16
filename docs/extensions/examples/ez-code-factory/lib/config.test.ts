@@ -3,6 +3,7 @@ import {
   PIPELINE_STEPS,
   IMPLEMENTED_STEPS,
   DEFAULT_AUTO_FIX_LIMITS,
+  DEFAULT_CI_TIMEOUT_MS,
   defaultPipelineConfig,
   autoFixLimit,
   resolvePipelineConfig,
@@ -118,5 +119,22 @@ describe("resolvePipelineConfig", () => {
   test("comma-separated ignorePatterns string is split, trimmed, emptied-out", () => {
     const cfg = resolvePipelineConfig({ ignorePatterns: " *.snap , , dist/** ,, " });
     expect(cfg.ignorePatterns).toEqual(["*.snap", "dist/**"]);
+  });
+
+  // ── CI idle-timeout (declared in HOURS in the UI) ────────────────────
+  test("ciTimeoutMs defaults to 7 days", () => {
+    expect(defaultPipelineConfig().ciTimeoutMs).toBe(DEFAULT_CI_TIMEOUT_MS);
+    expect(resolvePipelineConfig({}).ciTimeoutMs).toBe(DEFAULT_CI_TIMEOUT_MS);
+  });
+  test("positive ciTimeoutHours → ms", () => {
+    expect(resolvePipelineConfig({ ciTimeoutHours: 2 }).ciTimeoutMs).toBe(2 * 60 * 60 * 1000);
+  });
+  test("negative ciTimeoutHours → unlimited sentinel (-1)", () => {
+    expect(resolvePipelineConfig({ ciTimeoutHours: -1 }).ciTimeoutMs).toBe(-1);
+  });
+  test("zero / non-finite ciTimeoutHours → default", () => {
+    expect(resolvePipelineConfig({ ciTimeoutHours: 0 }).ciTimeoutMs).toBe(DEFAULT_CI_TIMEOUT_MS);
+    expect(resolvePipelineConfig({ ciTimeoutHours: Number.NaN }).ciTimeoutMs).toBe(DEFAULT_CI_TIMEOUT_MS);
+    expect(resolvePipelineConfig({ ciTimeoutHours: "6" }).ciTimeoutMs).toBe(DEFAULT_CI_TIMEOUT_MS);
   });
 });
