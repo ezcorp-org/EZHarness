@@ -14,6 +14,15 @@
 #     before it touches a filename, a git ref, a URL, or the PR comment.
 #   * The orphan branch is built in a throwaway `git init` dir from the
 #     re-validated, staged tree — never by checking out the repo.
+#   * The gallery is diff-scoped: a `gh api .../pulls/<pr>/files` step lists the
+#     PR's changed files so the publisher can float shots whose OWN spec file was
+#     touched to the top and fold the covers-union remainder. That list is
+#     TRUSTED GitHub-API data (not the untrusted artifact), and the ONLY value
+#     interpolated into the fetch is the digits-only `pr` output that publish.ts
+#     already validated (`validatePrNumber`) — no ref / path / command injection.
+#     `changed-files.txt` is still handed to publish.ts as UNTRUSTED input: the
+#     partition is PRESENTATION-only (every field re-sanitized), never a trust
+#     decision, and a missing/failed fetch just renders the full gallery.
 #   * EVERYTHING is fail-soft: a publish error must never affect WF1's required
 #     status (WF1 already concluded by the time this runs).
 name: Visual evidence publish
@@ -84,6 +93,26 @@ jobs:
           EVIDENCE_COMMENT_FILE: comment-body.md
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: bun scripts/visual-evidence/publish.ts
+      # Fetch the PR's changed-file list (TRUSTED GitHub-API data — NOT the
+      # untrusted artifact) so pass-2 can float shots whose own spec file is in
+      # the diff to the top and fold the covers-union remainder. The ONLY
+      # interpolated value is `steps.stage.outputs.pr`, passed via env — it was
+      # already validated `^[0-9]+$` by publish.ts (validatePrNumber) before being
+      # emitted, so no ref/path/command injection is possible. `changed-files.txt`
+      # is still consumed as UNTRUSTED by publish.ts (presentation-only partition).
+      # Fail-soft: on any error pass-2 simply renders the full sorted+capped gallery.
+      - name: Fetch PR changed files
+        id: changed
+        if: steps.stage.outcome == 'success' && steps.stage.outputs.pr != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR: ${{ steps.stage.outputs.pr }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${REPO}/pulls/${PR}/files" --paginate --jq '.[].filename' > changed-files.txt
+          echo "Wrote $(wc -l < changed-files.txt) changed path(s) to changed-files.txt."
       # Build the orphan branch in a THROWAWAY git repo (git init — never a
       # checkout of this repo) from the staged tree, then capture the new commit
       # sha so the gallery URLs are immutable.
@@ -114,7 +143,9 @@ jobs:
             "https://x-access-token:${GH_TOKEN}@github.com/${REPO}" \
             "HEAD:refs/heads/${BRANCH}"
       # PASS 2: regenerate the comment body with the IMMUTABLE commit sha now
-      # baked into every raw.githubusercontent.com URL.
+      # baked into every raw.githubusercontent.com URL. EVIDENCE_CHANGED_FILES (if
+      # the fetch step produced it) diff-scopes the gallery — absent/unreadable
+      # leaves publish.ts on the full P1 layout.
       - name: Render final comment
         id: render
         if: steps.stage.outcome == 'success'
@@ -124,6 +155,7 @@ jobs:
           EVIDENCE_STAGE_DIR: evidence-stage
           EVIDENCE_COMMENT_FILE: comment-body.md
           EVIDENCE_COMMIT_SHA: ${{ steps.push.outputs.commit_sha }}
+          EVIDENCE_CHANGED_FILES: changed-files.txt
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: bun scripts/visual-evidence/publish.ts
       # Upsert the sticky comment (find by marker → PATCH, else POST). When zero
