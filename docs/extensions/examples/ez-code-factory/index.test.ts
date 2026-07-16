@@ -473,9 +473,13 @@ describe("handleRespond", () => {
     }
   });
 
-  test("a throw inside resume is caught + logged by the handler", async () => {
+  test("a throw inside resume is caught + logged; the still-parked run keeps its worktree", async () => {
     _setProjectRootForTests(() => "/proj");
-    _setShellForTests(okShell);
+    const removed: string[] = [];
+    _setShellForTests(async (cmd) => {
+      if (cmd.includes("worktree") && cmd.includes("remove")) removed.push(cmd.join(" "));
+      return { exitCode: 0, stdout: "", stderr: "" };
+    });
     const store = memStore();
     _setStoreForTests(store);
     await seedParkedRun(store);
@@ -490,6 +494,9 @@ describe("handleRespond", () => {
     try {
       await handleRespond({ source: "hub", pageId: "dashboard", userId: "u", payload: RESPOND_PAYLOAD });
       expect(stderr.join("")).toContain("respond handler error");
+      // The run never left awaiting_approval → its kept worktree survives.
+      expect((await store.getRun("run-parked"))!.status).toBe("awaiting_approval");
+      expect(removed.length).toBe(0);
     } finally {
       spy.mockRestore();
     }
@@ -509,6 +516,32 @@ describe("production pipeline wiring (default runners)", () => {
     // without ever dispatching an agent.
     await handlePushReceived({ source: "hub", pageId: "dashboard", userId: "u", payload: VALID_PUSH });
     expect([...store.runs.values()][0]!.status).toBe("completed");
+  });
+
+  test("CRITICAL regression: a stale respond to the WRONG step is rejected side-effect-free — run stays parked, kept worktree survives", async () => {
+    _setProjectRootForTests(() => "/proj");
+    const removed: string[] = [];
+    _setShellForTests(async (cmd) => {
+      if (cmd.includes("worktree") && cmd.includes("remove")) removed.push(cmd.join(" "));
+      return { exitCode: 0, stdout: "", stderr: "" };
+    });
+    const store = memStore();
+    _setStoreForTests(store);
+    await seedParkedRun(store); // parked at review
+    _setPushPageForTests(() => {});
+    // The DEFAULT respond runner drives the real respondToGate, which REJECTS
+    // an approve aimed at a step that is not awaiting approval ("rebase").
+    await handleRespond({
+      source: "hub",
+      pageId: "dashboard",
+      userId: "u",
+      payload: { runId: "run-parked", step: "rebase", action: "approve" },
+    });
+    const run = (await store.getRun("run-parked"))!;
+    expect(run.status).toBe("awaiting_approval");
+    expect(run.worktreePath).not.toBeNull();
+    // The rejected respond must NOT tear the kept worktree down.
+    expect(removed.length).toBe(0);
   });
 
   test("default respond runner drives respondToGate (abort → aborted, no agent/jail)", async () => {

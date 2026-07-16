@@ -16,7 +16,10 @@ import {
   worktreePathFor,
   createRunStore,
   runGateLifecycle,
+  resumeGateLifecycle,
+  isTerminalRunStatus,
   type RunRecord,
+  type RunStatus,
   type RunStore,
   type StepResultRecord,
   type StepRoundRecord,
@@ -694,5 +697,147 @@ describe("runGateLifecycle (real git)", () => {
     expect(res.ok).toBe(true);
     expect(existsSync(fixture)).toBe(true);
     expect(readFileSync(fixture, "utf8")).toBe("precious");
+  });
+});
+
+// ── resumeGateLifecycle (teardown keys off the PERSISTED status) ────
+
+describe("isTerminalRunStatus", () => {
+  test("completed/failed/aborted are terminal; every other status is not", () => {
+    const expected: Record<RunStatus, boolean> = {
+      created: false,
+      worktree_ready: false,
+      running: false,
+      awaiting_approval: false,
+      completed: true,
+      failed: true,
+      aborted: true,
+    };
+    for (const [status, terminal] of Object.entries(expected)) {
+      expect(isTerminalRunStatus(status as RunStatus)).toBe(terminal);
+    }
+  });
+});
+
+describe("resumeGateLifecycle (real git)", () => {
+  /** Drive a push through runGateLifecycle with a pipeline that PARKS, leaving
+   *  the run awaiting_approval with its worktree kept on disk (the real M1
+   *  parked shape a respond later resumes). */
+  async function seedParkedLifecycle(store: RunStore & { runs: Map<string, RunRecord> }) {
+    const { gateDir, sha, repoId } = await seedGate();
+    const res = await runGateLifecycle(
+      { repoId, branch: "feat/x", ref: "refs/heads/feat/x", newSha: sha },
+      {
+        gateDir,
+        tmpBase: join(root, "tmp-resume"),
+        store,
+        run: productionHostRunner,
+        runPipeline: async ({ runId }) => {
+          await store.updateRun(runId, { status: "awaiting_approval" });
+          return { parked: true };
+        },
+      },
+    );
+    expect(res.status).toBe("awaiting_approval");
+    expect(existsSync(res.worktreePath)).toBe(true);
+    return { gateDir, runId: res.runId, worktreePath: res.worktreePath };
+  }
+
+  test("CRITICAL regression: a REJECTED respond is side-effect-free — the kept worktree survives and a later correct respond still resumes", async () => {
+    const store = memStore();
+    const { gateDir, runId, worktreePath } = await seedParkedLifecycle(store);
+
+    // A stale dashboard responds to the wrong step: respondToGate REJECTS it
+    // ({status:"failed"}) without touching the run — which stays parked.
+    const rejected = await resumeGateLifecycle(runId, {
+      gateDir,
+      store,
+      run: productionHostRunner,
+      respond: async () => ({ parked: false }),
+    });
+    expect(rejected).toEqual({ status: "awaiting_approval", parked: true });
+    // The kept worktree MUST survive a rejected respond…
+    expect(existsSync(worktreePath)).toBe(true);
+    expect(store.runs.get(runId)!.worktreePath).toBe(worktreePath);
+
+    // …so the RIGHT respond can still resume the run to a terminal state,
+    // which is what finally releases the checkout.
+    const changes: string[] = [];
+    const resumed = await resumeGateLifecycle(runId, {
+      gateDir,
+      store,
+      run: productionHostRunner,
+      onChange: () => void changes.push("x"),
+      respond: async () => {
+        await store.updateRun(runId, { status: "completed" });
+        return { parked: false };
+      },
+    });
+    expect(resumed).toEqual({ status: "completed", parked: false });
+    expect(existsSync(worktreePath)).toBe(false);
+    expect(changes.length).toBe(1);
+  });
+
+  test("a respond that THROWS while the run is still parked keeps the worktree", async () => {
+    const store = memStore();
+    const { gateDir, runId, worktreePath } = await seedParkedLifecycle(store);
+    await expect(
+      resumeGateLifecycle(runId, {
+        gateDir,
+        store,
+        run: productionHostRunner,
+        respond: async () => {
+          throw new Error("respond boom");
+        },
+      }),
+    ).rejects.toThrow("respond boom");
+    // Still parked → the kept worktree survives the throw.
+    expect(store.runs.get(runId)!.status).toBe("awaiting_approval");
+    expect(existsSync(worktreePath)).toBe(true);
+  });
+
+  test("an unreadable store at teardown time KEEPS the worktree (doubt = keep)", async () => {
+    const base = memStore();
+    const { gateDir, runId, worktreePath } = await seedParkedLifecycle(base);
+    // getRun succeeds for the initial load, then the store goes dark for the
+    // post-respond re-read — teardown must not fire on an unknown state.
+    let reads = 0;
+    const store: RunStore & { runs: Map<string, RunRecord> } = {
+      ...base,
+      async getRun(id) {
+        reads += 1;
+        if (reads > 1) throw new Error("storage dark");
+        return base.getRun(id);
+      },
+    };
+    const res = await resumeGateLifecycle(runId, {
+      gateDir,
+      store,
+      run: productionHostRunner,
+      respond: async () => {
+        await base.updateRun(runId, { status: "completed" });
+        return { parked: false };
+      },
+    });
+    // Unknown persisted state → report failed, but KEEP the checkout: a leaked
+    // worktree is recoverable, a destroyed kept one is not.
+    expect(res).toEqual({ status: "failed", parked: false });
+    expect(existsSync(worktreePath)).toBe(true);
+  });
+
+  test("a persisted aborted state releases the worktree", async () => {
+    const store = memStore();
+    const { gateDir, runId, worktreePath } = await seedParkedLifecycle(store);
+    const res = await resumeGateLifecycle(runId, {
+      gateDir,
+      store,
+      run: productionHostRunner,
+      respond: async () => {
+        await store.updateRun(runId, { status: "aborted" });
+        return { parked: false };
+      },
+    });
+    expect(res).toEqual({ status: "aborted", parked: false });
+    expect(existsSync(worktreePath)).toBe(false);
   });
 });

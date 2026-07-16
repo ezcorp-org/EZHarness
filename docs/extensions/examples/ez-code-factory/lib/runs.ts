@@ -34,6 +34,15 @@ export type RunStatus =
   | "failed"
   | "aborted";
 
+/** Statuses from which no respond can ever resume a run. Only these release a
+ *  kept worktree — everything else (awaiting_approval, running, …) keeps it. */
+const TERMINAL_RUN_STATUSES: ReadonlySet<RunStatus> = new Set(["completed", "failed", "aborted"]);
+
+/** Whether a run has reached a terminal state (completed/failed/aborted). */
+export function isTerminalRunStatus(status: RunStatus): boolean {
+  return TERMINAL_RUN_STATUSES.has(status);
+}
+
 /** One intercepted push. Mirrors the upstream `runs` table (M0 subset). */
 export interface RunRecord {
   id: string;
@@ -652,15 +661,19 @@ export interface ResumeDeps {
   store: RunStore;
   run: ShellRunner;
   onChange?: () => Promise<void> | void;
-  /** Apply the respond action to the parked run; returns whether it re-parked. */
-  respond: (ctx: { runId: string; worktreePath: string }) => Promise<{ parked: boolean }>;
+  /** Apply the respond action to the parked run. Its RESULT is deliberately
+   *  untrusted: worktree teardown keys off the run's PERSISTED status only. */
+  respond: (ctx: { runId: string; worktreePath: string }) => Promise<unknown>;
 }
 
 /**
  * Resume a parked run when a `respond` event (approve/fix/skip/abort) arrives.
  * Reattaches the run's kept worktree, applies the action via the executor, and
- * tears the worktree down once the run reaches a terminal state (a re-park keeps
- * it). Returns the run's status, or null when the run/worktree is unavailable.
+ * tears the worktree down once the run's PERSISTED status is terminal (a
+ * re-park keeps it). A REJECTED respond (stale dashboard, wrong step) reports
+ * failure without touching the run — it stays awaiting_approval and MUST be
+ * side-effect-free here, so teardown never keys off the respond result.
+ * Returns the run's status, or null when the run/worktree is unavailable.
  */
 export async function resumeGateLifecycle(
   runId: string,
@@ -670,17 +683,26 @@ export async function resumeGateLifecycle(
   if (!rec || !rec.worktreePath) return null;
   const wtPath = rec.worktreePath;
   return withLock(`${rec.repoId}:${rec.branch}`, async () => {
-    let parked = false;
+    let after: RunRecord | null = null;
     try {
-      const result = await deps.respond({ runId, worktreePath: wtPath });
-      parked = result.parked;
+      await deps.respond({ runId, worktreePath: wtPath });
     } finally {
-      if (!parked) {
+      // Teardown keys off the run's PERSISTED status — never the respond
+      // result. A rejected respond leaves the run parked (awaiting_approval);
+      // destroying its kept worktree would strand the run with nothing left
+      // to resume. Only a persisted terminal state releases the checkout —
+      // and on doubt (store unreadable mid-teardown) we keep it: a leaked
+      // worktree is recoverable, the human's kept one is not.
+      try {
+        after = await deps.store.getRun(runId);
+      } catch {
+        after = null;
+      }
+      if (after && isTerminalRunStatus(after.status)) {
         await removeWorktree(deps.run, deps.gateDir, wtPath);
       }
     }
-    const after = await deps.store.getRun(runId);
     if (deps.onChange) await deps.onChange();
-    return { status: after?.status ?? "failed", parked };
+    return { status: after?.status ?? "failed", parked: after?.status === "awaiting_approval" };
   });
 }
