@@ -68,7 +68,7 @@ describe("ExtensionStateMediator — security", () => {
         "run:start",
         "run:error",
         "run:cancel",
-        "pipeline:start",
+        "workflow:start",
         "tool:start",
         "orchestrator:human_input",
       ];

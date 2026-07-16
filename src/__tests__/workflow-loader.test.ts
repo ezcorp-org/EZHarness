@@ -1,11 +1,11 @@
 import { describe, test, expect, afterAll } from "bun:test";
-import { loadYamlPipelines } from "../runtime/pipeline-loader";
+import { loadYamlWorkflows } from "../runtime/workflow-loader";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 // Create a temp directory for all tests, cleaned up afterwards
-const dir = mkdtempSync(join(tmpdir(), "pipeline-loader-test-"));
+const dir = mkdtempSync(join(tmpdir(), "workflow-loader-test-"));
 
 afterAll(() => {
   rmSync(dir, { recursive: true, force: true });
@@ -19,22 +19,22 @@ function writeYaml(filename: string, content: string) {
 
 // ── Tests ─────────────────────────────────────────────────────────────
 
-describe("loadYamlPipelines", () => {
+describe("loadYamlWorkflows", () => {
   test("returns empty array for empty directory", async () => {
-    const emptyDir = mkdtempSync(join(tmpdir(), "pipeline-empty-"));
+    const emptyDir = mkdtempSync(join(tmpdir(), "workflow-empty-"));
     try {
-      const pipelines = await loadYamlPipelines(emptyDir);
-      expect(pipelines).toEqual([]);
+      const workflows = await loadYamlWorkflows(emptyDir);
+      expect(workflows).toEqual([]);
     } finally {
       rmSync(emptyDir, { recursive: true, force: true });
     }
   });
 
-  test("loads a valid pipeline YAML file", async () => {
+  test("loads a valid *.workflow.yaml file", async () => {
     writeYaml(
-      "review.pipeline.yaml",
+      "review.workflow.yaml",
       `name: review
-description: Code review pipeline
+description: Code review workflow
 steps:
   - name: analyze
     agent: code-analyzer
@@ -45,12 +45,12 @@ steps:
 `,
     );
 
-    const pipelines = await loadYamlPipelines(dir);
+    const workflows = await loadYamlWorkflows(dir);
 
-    const review = pipelines.find((p) => p.name === "review");
+    const review = workflows.find((p) => p.name === "review");
     expect(review).toBeDefined();
     expect(review!.name).toBe("review");
-    expect(review!.description).toBe("Code review pipeline");
+    expect(review!.description).toBe("Code review workflow");
     expect(review!.steps).toHaveLength(2);
     expect(review!.steps[0]!.name).toBe("analyze");
     expect(review!.steps[0]!.agent).toBe("code-analyzer");
@@ -58,9 +58,24 @@ steps:
     expect(review!.steps[1]!.dependsOn).toEqual(["analyze"]);
   });
 
+  test("loads a legacy *.pipeline.yaml file (deprecated glob still supported)", async () => {
+    const legacyDir = mkdtempSync(join(tmpdir(), "workflow-legacy-"));
+    try {
+      writeFileSync(
+        join(legacyDir, "old.pipeline.yaml"),
+        `name: legacy\nsteps:\n  - name: s\n    agent: a\n`,
+        "utf8",
+      );
+      const workflows = await loadYamlWorkflows(legacyDir);
+      expect(workflows.find((w) => w.name === "legacy")).toBeDefined();
+    } finally {
+      rmSync(legacyDir, { recursive: true, force: true });
+    }
+  });
+
   test("defaults description to empty string when omitted", async () => {
     writeYaml(
-      "no-desc.pipeline.yaml",
+      "no-desc.workflow.yaml",
       `name: nodesc
 steps:
   - name: step1
@@ -68,16 +83,16 @@ steps:
 `,
     );
 
-    const pipelines = await loadYamlPipelines(dir);
+    const workflows = await loadYamlWorkflows(dir);
 
-    const p = pipelines.find((p) => p.name === "nodesc");
+    const p = workflows.find((p) => p.name === "nodesc");
     expect(p).toBeDefined();
     expect(p!.description).toBe("");
   });
 
-  test("skips pipeline missing required name field", async () => {
+  test("skips workflow missing required name field", async () => {
     writeYaml(
-      "no-name.pipeline.yaml",
+      "no-name.workflow.yaml",
       `description: Missing name
 steps:
   - name: step1
@@ -85,60 +100,73 @@ steps:
 `,
     );
 
-    const pipelines = await loadYamlPipelines(dir);
+    const workflows = await loadYamlWorkflows(dir);
 
-    // No pipeline with undefined name should appear
-    const bad = pipelines.find((p) => p.description === "Missing name");
+    const bad = workflows.find((p) => p.description === "Missing name");
     expect(bad).toBeUndefined();
   });
 
-  test("skips pipeline with no steps array", async () => {
+  test("skips workflow with no steps array", async () => {
     writeYaml(
-      "no-steps.pipeline.yaml",
+      "no-steps.workflow.yaml",
       `name: nosteps
 description: Has no steps field
 `,
     );
 
-    const pipelines = await loadYamlPipelines(dir);
+    const workflows = await loadYamlWorkflows(dir);
 
-    const bad = pipelines.find((p) => p.name === "nosteps");
+    const bad = workflows.find((p) => p.name === "nosteps");
     expect(bad).toBeUndefined();
   });
 
-  test("skips pipeline with empty steps array", async () => {
+  test("skips workflow with empty steps array", async () => {
     writeYaml(
-      "empty-steps.pipeline.yaml",
+      "empty-steps.workflow.yaml",
       `name: emptysteps
 description: Steps array is empty
 steps: []
 `,
     );
 
-    const pipelines = await loadYamlPipelines(dir);
+    const workflows = await loadYamlWorkflows(dir);
 
-    const bad = pipelines.find((p) => p.name === "emptysteps");
+    const bad = workflows.find((p) => p.name === "emptysteps");
     expect(bad).toBeUndefined();
   });
 
-  test("skips pipeline where steps is not an array", async () => {
+  test("skips a workflow that fails definition-time validation (transform without output)", async () => {
     writeYaml(
-      "steps-not-array.pipeline.yaml",
+      "bad-transform.workflow.yaml",
+      `name: badtransform
+steps:
+  - name: shape
+    kind: transform
+`,
+    );
+
+    const workflows = await loadYamlWorkflows(dir);
+    expect(workflows.find((p) => p.name === "badtransform")).toBeUndefined();
+  });
+
+  test("skips workflow where steps is not an array", async () => {
+    writeYaml(
+      "steps-not-array.workflow.yaml",
       `name: stepsnotarray
 description: Steps is a string, not array
 steps: "do something"
 `,
     );
 
-    const pipelines = await loadYamlPipelines(dir);
+    const workflows = await loadYamlWorkflows(dir);
 
-    const bad = pipelines.find((p) => p.name === "stepsnotarray");
+    const bad = workflows.find((p) => p.name === "stepsnotarray");
     expect(bad).toBeUndefined();
   });
 
   test("skips malformed YAML without throwing", async () => {
     writeYaml(
-      "malformed.pipeline.yaml",
+      "malformed.workflow.yaml",
       `name: [this is not valid yaml
 steps:
   - ???: bad: yaml: {{{
@@ -146,12 +174,12 @@ steps:
     );
 
     // Should not throw; malformed files are skipped
-    const pipelines = await loadYamlPipelines(dir);
-    const bad = pipelines.find((p) => p.name === "malformed");
+    const workflows = await loadYamlWorkflows(dir);
+    const bad = workflows.find((p) => p.name === "malformed");
     expect(bad).toBeUndefined();
   });
 
-  test("only matches *.pipeline.yaml files, not other YAML files", async () => {
+  test("only matches workflow/pipeline suffixes, not other YAML files", async () => {
     writeYaml(
       "ignored.yaml",
       `name: shouldbeignored
@@ -169,30 +197,30 @@ steps:
 `,
     );
 
-    const pipelines = await loadYamlPipelines(dir);
+    const workflows = await loadYamlWorkflows(dir);
 
-    expect(pipelines.find((p) => p.name === "shouldbeignored")).toBeUndefined();
-    expect(pipelines.find((p) => p.name === "alsoignored")).toBeUndefined();
+    expect(workflows.find((p) => p.name === "shouldbeignored")).toBeUndefined();
+    expect(workflows.find((p) => p.name === "alsoignored")).toBeUndefined();
   });
 
-  test("loads multiple valid pipeline files", async () => {
-    const multiDir = mkdtempSync(join(tmpdir(), "pipeline-multi-"));
+  test("loads multiple valid workflow files", async () => {
+    const multiDir = mkdtempSync(join(tmpdir(), "workflow-multi-"));
     try {
       writeFileSync(
-        join(multiDir, "alpha.pipeline.yaml"),
+        join(multiDir, "alpha.workflow.yaml"),
         `name: alpha\nsteps:\n  - name: a\n    agent: agent-a\n`,
         "utf8",
       );
       writeFileSync(
-        join(multiDir, "beta.pipeline.yaml"),
+        join(multiDir, "beta.workflow.yaml"),
         `name: beta\nsteps:\n  - name: b\n    agent: agent-b\n`,
         "utf8",
       );
 
-      const pipelines = await loadYamlPipelines(multiDir);
+      const workflows = await loadYamlWorkflows(multiDir);
 
-      expect(pipelines).toHaveLength(2);
-      const names = pipelines.map((p) => p.name).sort();
+      expect(workflows).toHaveLength(2);
+      const names = workflows.map((p) => p.name).sort();
       expect(names).toEqual(["alpha", "beta"]);
     } finally {
       rmSync(multiDir, { recursive: true, force: true });
@@ -201,7 +229,7 @@ steps:
 
   test("loads inputSchema when present", async () => {
     writeYaml(
-      "with-schema.pipeline.yaml",
+      "with-schema.workflow.yaml",
       `name: withschema
 steps:
   - name: process
@@ -214,9 +242,9 @@ inputSchema:
 `,
     );
 
-    const pipelines = await loadYamlPipelines(dir);
+    const workflows = await loadYamlWorkflows(dir);
 
-    const p = pipelines.find((p) => p.name === "withschema");
+    const p = workflows.find((p) => p.name === "withschema");
     expect(p).toBeDefined();
     expect(p!.inputSchema).toBeDefined();
     expect(p!.inputSchema!["repoUrl"]!.type).toBe("string");
@@ -225,7 +253,7 @@ inputSchema:
 
   test("loads step input mappings when present", async () => {
     writeYaml(
-      "step-inputs.pipeline.yaml",
+      "step-inputs.workflow.yaml",
       `name: stepinputs
 steps:
   - name: fetch
@@ -239,33 +267,33 @@ steps:
 `,
     );
 
-    const pipelines = await loadYamlPipelines(dir);
+    const workflows = await loadYamlWorkflows(dir);
 
-    const p = pipelines.find((p) => p.name === "stepinputs");
+    const p = workflows.find((p) => p.name === "stepinputs");
     expect(p).toBeDefined();
     // biome-ignore lint/suspicious/noTemplateCurlyInString: literal template placeholder under test
     expect(p!.steps[0]!.input).toEqual({ url: "${repoUrl}" });
     expect(p!.steps[1]!.dependsOn).toEqual(["fetch"]);
   });
 
-  test("valid pipelines are not affected by co-located invalid files", async () => {
-    const mixedDir = mkdtempSync(join(tmpdir(), "pipeline-mixed-"));
+  test("valid workflows are not affected by co-located invalid files", async () => {
+    const mixedDir = mkdtempSync(join(tmpdir(), "workflow-mixed-"));
     try {
       writeFileSync(
-        join(mixedDir, "good.pipeline.yaml"),
+        join(mixedDir, "good.workflow.yaml"),
         `name: good\nsteps:\n  - name: s\n    agent: a\n`,
         "utf8",
       );
       writeFileSync(
-        join(mixedDir, "bad.pipeline.yaml"),
+        join(mixedDir, "bad.workflow.yaml"),
         `name: [broken yaml`,
         "utf8",
       );
 
-      const pipelines = await loadYamlPipelines(mixedDir);
+      const workflows = await loadYamlWorkflows(mixedDir);
 
-      expect(pipelines).toHaveLength(1);
-      expect(pipelines[0]!.name).toBe("good");
+      expect(workflows).toHaveLength(1);
+      expect(workflows[0]!.name).toBe("good");
     } finally {
       rmSync(mixedDir, { recursive: true, force: true });
     }
