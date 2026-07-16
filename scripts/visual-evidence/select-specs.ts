@@ -12,29 +12,39 @@
  *       soft → NO comment. This is the DECIDED zero-shot behaviour for a PR
  *       that touches nothing user-visible (and, as an intended side effect, for
  *       `push` to main, whose base...HEAD diff is empty).
- *   - one or more specs changed                          → run just those specs
- *       (`some`). Output is the changed spec paths, converted to
- *       Playwright-rootDir-relative form (`e2e/x.spec.ts`, rootDir = web/) so
- *       they can be passed as positional args to `playwright test`, sorted +
- *       deduped. Phase 2 widens this to the union with covering specs.
+ *   - one or more specs changed                          → run the union
+ *       (`some`) of the changed specs AND every @evidence spec whose covers-map
+ *       globs render a changed visual file — so a component edit that ships with
+ *       its own spec still re-captures the OTHER specs that render it. Output is
+ *       Playwright-rootDir-relative (`e2e/x.spec.ts`, rootDir = web/) positional
+ *       args, sorted + deduped. Union requires the covers map; without it (bad
+ *       JSON) the set degrades to just the changed specs.
  *   - visual file(s) changed but NO spec changed         → __ALL__ (fail-open)
  *       Only reachable when the hard gate was bypassed via the maintainer-only
  *       `evidence-exempt` label (otherwise the gate would have failed the PR).
  *       We can't know which spec renders the change, so run the whole suite.
  *
- * DRY: the "what is a visual surface" / "what is a spec" definitions live once
- * in `../check-visual-evidence.ts` (the hard gate) and are imported here — the
- * selector must never drift from the gate's globs. `REPO_ROOT` (for the git
- * cwd) is the same shared value the gate uses.
+ * DRY: the "what is a visual surface" / "what is a spec" / "which specs cover
+ * this file" definitions all live once in `../check-visual-evidence.ts` (the
+ * hard gate) and are imported here — the selector must never drift from the
+ * gate's globs or covers map. `REPO_ROOT` (for the git cwd) is the same shared
+ * value the gate uses.
  *
  * `main()` is fail-OPEN: on ANY git/parse error it prints `__ALL__` and exits 0.
  * A capture selector that errored must never silently skip evidence — worst
  * case we over-capture. The ci.yml wrapper independently defaults an empty /
  * failed run to __ALL__ too, so this is belt-and-suspenders.
  *
- * Pure helpers are exported for unit testing; `main()` wires git + env.
+ * Pure helpers are exported for unit testing; `main()` wires git + env + the
+ * covers map.
  */
-import { isSpecFile, isVisualSurfaceFile } from "../check-visual-evidence.ts";
+import {
+  type CoversMap,
+  coveringSpecsForFile,
+  isSpecFile,
+  isVisualSurfaceFile,
+  loadCoversMap,
+} from "../check-visual-evidence.ts";
 import { REPO_ROOT } from "../coverage-config.ts";
 
 /** Outcome of {@link selectEvidenceSpecs}: skip all, run all, or run a subset. */
@@ -58,8 +68,15 @@ export function toWebRelativeSpecPath(path: string): string {
  * Pure decision: given the PR's changed files (already ACMR-filtered by the
  * caller's git diff, so deletions never appear), pick which `@evidence` specs
  * the capture lane should run. See the module header for the full contract.
+ *
+ * `coversMap` is optional: when supplied, the `some` set is widened to the
+ * union of the changed specs AND every spec whose covers globs render a changed
+ * visual file. Omitted (or a failed load) → just the changed specs, unchanged.
  */
-export function selectEvidenceSpecs(changedFiles: readonly string[]): SelectResult {
+export function selectEvidenceSpecs(
+  changedFiles: readonly string[],
+  coversMap?: CoversMap | null,
+): SelectResult {
   const changedSpecs = changedFiles.filter(isSpecFile);
   const changedVisual = changedFiles.filter(isVisualSurfaceFile);
 
@@ -67,11 +84,19 @@ export function selectEvidenceSpecs(changedFiles: readonly string[]): SelectResu
     return { mode: "none" };
   }
   if (changedSpecs.length > 0) {
-    const specs = Array.from(new Set(changedSpecs.map(toWebRelativeSpecPath))).sort();
-    return { mode: "some", specs };
+    const specs = new Set(changedSpecs.map(toWebRelativeSpecPath));
+    if (coversMap) {
+      for (const file of changedVisual) {
+        for (const spec of coveringSpecsForFile(file, coversMap)) {
+          specs.add(toWebRelativeSpecPath(spec));
+        }
+      }
+    }
+    return { mode: "some", specs: Array.from(specs).sort() };
   }
   // Visual surface changed but no spec did — only possible past the hard gate
-  // via `evidence-exempt`. Can't map the change to a spec → run everything.
+  // via `evidence-exempt`. Can't attribute the change to a changed spec → run
+  // everything (the covers map does not re-scope the fail-open branch).
   return { mode: "all" };
 }
 
@@ -98,7 +123,8 @@ async function main(): Promise<void> {
   try {
     const base = process.env.BASE_REF || "origin/main";
     const changed = await readChangedFiles(base);
-    const result = selectEvidenceSpecs(changed);
+    const coversMap = await loadCoversMap();
+    const result = selectEvidenceSpecs(changed, coversMap);
     if (result.mode === "none") {
       console.log("__NONE__");
     } else if (result.mode === "all") {

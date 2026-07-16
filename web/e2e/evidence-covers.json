@@ -1,0 +1,127 @@
+{
+  "web/e2e/auto-model-routing.spec.ts": [
+    "web/src/lib/components/ChatMessage.svelte",
+    "web/src/lib/components/ModelSelector.svelte",
+    "web/src/routes/(app)/project/[id]/chat/[convId]/+page.svelte"
+  ],
+  "web/e2e/cache-stats-pill.spec.ts": [
+    "web/src/lib/components/ChatMessage.svelte",
+    "web/src/routes/(app)/project/[id]/chat/[convId]/+page.svelte"
+  ],
+  "web/e2e/composer-suggestions.spec.ts": [
+    "web/src/lib/components/SuggestionPopover.svelte",
+    "web/src/lib/components/ChatInput.svelte",
+    "web/src/lib/components/InlineToolForm.svelte",
+    "web/src/lib/components/ToolPicker.svelte"
+  ],
+  "web/e2e/conversation-list-sidebar-nav.spec.ts": [
+    "web/src/lib/components/ConversationList.svelte",
+    "web/src/lib/components/chat/ChatHeader.svelte",
+    "web/src/routes/(app)/project/[id]/chat/[convId]/+page.svelte"
+  ],
+  "web/e2e/dev-badge.spec.ts": [
+    "web/src/lib/components/DevBadge.svelte",
+    "web/src/routes/+layout.svelte",
+    "web/src/routes/(app)/account/+page.svelte"
+  ],
+  "web/e2e/extension-secret-settings.spec.ts": [
+    "web/src/lib/components/SchemaForm.svelte",
+    "web/src/routes/(app)/extensions/[id]/SettingsPanel.svelte",
+    "web/src/routes/(app)/extensions/[id]/+page.svelte"
+  ],
+  "web/e2e/extensions-sort.spec.ts": [
+    "web/src/routes/(app)/extensions/+page.svelte"
+  ],
+  "web/e2e/ez-clear-conversation.spec.ts": [
+    "web/src/lib/components/ez/**",
+    "web/src/routes/(app)/project/[id]/chat/+page.svelte"
+  ],
+  "web/e2e/ez-tool-list.spec.ts": [
+    "web/src/lib/components/ez/**",
+    "web/src/lib/components/settings/ModesSection.svelte",
+    "web/src/lib/components/ModeFormModal.svelte",
+    "web/src/routes/(app)/settings/personalization/+page.svelte",
+    "web/src/routes/(app)/project/[id]/chat/+page.svelte"
+  ],
+  "web/e2e/feature-index-scan.spec.ts": [
+    "web/src/lib/components/FeatureIndex.svelte",
+    "web/src/routes/(app)/project/[id]/settings/+page.svelte"
+  ],
+  "web/e2e/github-projects-connect.spec.ts": [
+    "web/src/routes/(app)/project/[id]/integrations/github-projects/+page.svelte",
+    "web/src/routes/(app)/extensions/[id]/+page.svelte",
+    "web/src/routes/(app)/project/[id]/settings/+page.svelte",
+    "web/src/lib/components/ModelSelector.svelte"
+  ],
+  "web/e2e/github-projects-hub.spec.ts": [
+    "web/src/routes/(app)/hub/[pageId]/+page.svelte",
+    "web/src/lib/components/hub/*.svelte"
+  ],
+  "web/e2e/graded-card-scanner.spec.ts": [
+    "docs/extensions/examples/graded-card-scanner/app/**"
+  ],
+  "web/e2e/openrouter-provider.spec.ts": [
+    "web/src/lib/components/ProviderSettings.svelte",
+    "web/src/lib/components/settings/PreferenceOrderSection.svelte",
+    "web/src/routes/(app)/settings/models/+page.svelte"
+  ],
+  "web/e2e/preprocess-grade-delta.spec.ts": [
+    "web/src/lib/components/tool-cards/GradeDeltaCard.svelte",
+    "web/src/lib/components/tool-cards/DefaultCard.svelte",
+    "web/src/lib/components/ChatMessage.svelte",
+    "web/src/routes/(app)/project/[id]/chat/[convId]/+page.svelte"
+  ],
+  "web/e2e/project-active-context-logo.spec.ts": [
+    "web/src/routes/(app)/+layout.svelte",
+    "web/src/routes/(app)/project/[id]/chat/[convId]/+page.svelte"
+  ],
+  "web/e2e/project-hub.spec.ts": [
+    "web/src/routes/(app)/project/[id]/hub/[pageId]/+page.svelte",
+    "web/src/lib/components/hub/*.svelte",
+    "web/src/routes/(app)/extensions/[id]/+page.svelte"
+  ],
+  "web/e2e/rbac-permissions.spec.ts": [
+    "web/src/routes/(app)/settings/permissions/+page.svelte",
+    "web/src/routes/(app)/settings/+layout.svelte"
+  ],
+  "web/e2e/resume-last-path.spec.ts": [
+    "web/src/routes/+page.svelte",
+    "web/src/routes/+layout.svelte",
+    "web/src/app.css",
+    "web/src/routes/(app)/project/[id]/chat/[convId]/+page.svelte"
+  ],
+  "web/e2e/session-ab-retry.spec.ts": [
+    "web/src/lib/components/ChatMessage.svelte",
+    "web/src/lib/components/BranchNavigator.svelte",
+    "web/src/lib/components/ChatThread.svelte",
+    "web/src/routes/(app)/project/[id]/chat/[convId]/+page.svelte"
+  ],
+  "web/e2e/session-rewind-checkpoint.spec.ts": [
+    "web/src/lib/components/MessageToolbar.svelte",
+    "web/src/lib/components/BranchNavigator.svelte",
+    "web/src/lib/components/ChatMessage.svelte",
+    "web/src/routes/(app)/project/[id]/chat/[convId]/+page.svelte"
+  ],
+  "web/e2e/task-panel-schema-badge.spec.ts": [
+    "web/src/lib/components/AssignmentPill.svelte",
+    "web/src/lib/components/TaskPanel.svelte",
+    "web/src/routes/(app)/project/[id]/chat/[convId]/+page.svelte"
+  ],
+  "web/e2e/topic-contexts.spec.ts": [
+    "web/src/lib/components/chat/**",
+    "web/src/lib/components/settings/TopicContextsSection.svelte",
+    "web/src/lib/components/ModelSelector.svelte",
+    "web/src/routes/(app)/project/[id]/chat/[convId]/+page.svelte",
+    "web/src/routes/(app)/settings/personalization/+page.svelte"
+  ],
+  "web/e2e/user-commands.spec.ts": [
+    "web/src/routes/(app)/commands/**",
+    "web/src/lib/components/CommandCard.svelte",
+    "web/src/lib/components/CommandForm.svelte",
+    "web/src/routes/(app)/+layout.svelte"
+  ],
+  "web/e2e/visual-evidence.spec.ts": [
+    "web/src/app.css",
+    "web/src/routes/(app)/hub/+page.svelte"
+  ]
+}
