@@ -157,8 +157,9 @@ export interface LoopApproval {
   mode?: ApprovalMode;
   /** Auto-decline a parked proposal older than this many days (the parked
    *  proposals "rot" mitigation). The staleness sweep runs `discard` and
-   *  writes a `declined` label with `decidedBy: "system"`. `0` / undefined
-   *  = never auto-decline (default `DEFAULT_STALE_AFTER_DAYS`). */
+   *  writes a `declined` label with `decidedBy: "system"`. Defaults to
+   *  `DEFAULT_STALE_AFTER_DAYS` (7) when UNDEFINED — the sweep is ON by
+   *  default; set `0` to DISABLE the sweep (never auto-decline). */
   staleAfterDays?: number;
 }
 

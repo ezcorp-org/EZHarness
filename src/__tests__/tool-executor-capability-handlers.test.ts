@@ -335,7 +335,14 @@ describe("ToolExecutor.resolveReverseRpcMeta provenance ladder (via handlePiMemo
   function execWith(granted: ExtensionPermissions): InstanceType<typeof ToolExecutor> {
     return new ToolExecutor(makeRegistry(granted), createStubPermissionEngine());
   }
-  const GRANT: ExtensionPermissions = { memory: "read", grantedAt: {} } as ExtensionPermissions;
+  // A structurally VALID memory grant (the provenance ladder doesn't care
+  // about memory semantics; it just needs a granted extension to clear the
+  // registry guard). Prior code used `{ memory: "read" }`, an unsound cast
+  // (`memory` is an object, not the string "read").
+  const GRANT: ExtensionPermissions = {
+    memory: { access: "read", maxWritesPerDay: 100, selfOnly: true },
+    grantedAt: {},
+  };
 
   beforeEach(() => _resetCallProvenanceForTests());
   afterEach(() => _resetCallProvenanceForTests());
@@ -413,6 +420,9 @@ describe("ToolExecutor.resolveReverseRpcMeta provenance ladder (via handlePiMemo
       EXT_ID,
       rpc("ezcorp/fs.read", { v: 1, path: "notes.txt" }),
     );
+    // `handlePiFsRead` returns `FsRpcResponse = JsonRpcResponse | StreamedResponse`;
+    // narrow away the streamed variant (which has no `.error`) before asserting.
+    if ("streamed" in resp) throw new Error("expected a JSON-RPC error response, got a stream");
     expect(resp.error?.code).toBe(-32602);
   });
 });

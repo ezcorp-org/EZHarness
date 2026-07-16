@@ -377,6 +377,61 @@ failure) rather than letting one loop silently overwrite the other.
 
 ---
 
+## Proactive approvals (Phase 2)
+
+When `contract.approval` is present (Phase 2 ships **only** `mode: "proactive"`;
+declaring any other mode fails loudly at construction), an `act` — or a deferred
+completion's `onComplete` — may return a `proposal` `ActResult`. That parks the
+run in the primitive-owned, non-terminal `awaiting_approval` state carrying a
+plain-data snapshot; the `finalize`/`discard` closures live in an in-memory
+registry (never persisted). A human then resolves it via the primitive-owned
+`approveRun` / `declineRun`, which own the state transitions and append the
+LOCKED eval-signal label — governance can't be forgotten or faked per-loop.
+
+### `decidedBy` is host-stamped — never trusted from extension code
+
+`approveRun(loopId, runId, decidedBy)` and `declineRun(loopId, runId, decidedBy,
+note?)` stamp `decidedBy` **verbatim** onto the approval label (the held-out eval
+signal) and the `loops:approval_resolved` audit mirror. It is therefore an
+authorization-critical identity: it **MUST** be supplied by the host-side
+approval route from the authenticated session, and **never** read from
+extension-supplied input (a compromised loop could otherwise attribute a
+decision to another user). Extension code has no path to call these with a
+caller-chosen identity. `TODO(phase-3)`: the host approval route stamps
+`decidedBy` from the request's authenticated user id; the `"system"` sentinel is
+reserved for the staleness auto-decline only.
+
+### Staleness sweep — and its honest limits
+
+A parked proposal older than `approval.staleAfterDays` (default 7; set `0` to
+disable) auto-declines with a `declined` label stamped `decidedBy: "system"`.
+Two paths run it:
+
+- **Opportunistic** — at the top of every fire of the owning loop.
+- **Fire-independent** — an hourly interval, armed once when the first loop is
+  defined, sweeps *every* registered loop so a loop whose trigger goes quiet
+  still reaps rotted proposals.
+
+Limits, stated plainly: the interval runs **only while the subprocess is
+resident**. If the subprocess is down (or was never started) no sweep happens
+until the loop's next fire or the next subprocess start catches up. The sweep is
+in-process and is **not** gated by the host loops kill switch.
+
+### The loops kill switch — what it does and does not freeze
+
+The operator's global kill switch (Settings → **Loops Safety**) suspends, while
+engaged: **scheduled** cron fires (including a manual "fire now"), and **all**
+extension **event deliveries** — including non-loop extensions. Dropped
+deliveries are **lost** (there is no replay) and cron rows **stay due** (they
+fire on catch-up once resumed). It does **not** freeze **manual tool fires** — a
+loop's `manual` `tool` trigger invoked directly by an agent runs through the
+ordinary extension tool-call path, which is indistinguishable from any other
+tool call at the host boundary and so carries no clean seam to gate. Parked
+`awaiting_approval` runs are always kept (they hold no compute; a human still
+resolves them).
+
+---
+
 ## What stays bespoke
 
 The primitive deliberately does **not** absorb single-loop concerns

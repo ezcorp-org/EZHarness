@@ -101,6 +101,27 @@ describe("resolveContract", () => {
     expect(c.onAutoDisable).toBe(onAutoDisable);
     expect(c.idempotencyKey).toBe(idempotencyKey);
   });
+
+  test("approval present → injects the owned states + defaults mode/staleAfterDays", () => {
+    const c = resolveContract({ states: ["reviewed"], approval: {} });
+    expect(c.approval).toEqual({ mode: "proactive", staleAfterDays: 7 });
+    // The primitive-owned approval states are injected into the vocabulary.
+    expect(c.states).toContain("awaiting_approval");
+    expect(c.states).toContain("finalizing");
+    expect(c.terminal).toContain("approved");
+    expect(c.terminal).toContain("declined");
+  });
+
+  test("approval staleAfterDays=0 is preserved (sweep disabled), not defaulted", () => {
+    const c = resolveContract({ approval: { staleAfterDays: 0 } });
+    expect(c.approval?.staleAfterDays).toBe(0);
+  });
+
+  test("an unknown approval.mode throws LOUDLY at construction (Phase 7/8 guard)", () => {
+    expect(() =>
+      resolveContract({ approval: { mode: "autopilot" as never } }),
+    ).toThrow(/approval\.mode "autopilot" is not supported/);
+  });
 });
 
 // ── status predicates ───────────────────────────────────────────────
@@ -482,6 +503,28 @@ describe("trimRetention", () => {
     ];
     const out = trimRetention(runs, c);
     expect(out.map((r) => r.id)).toEqual(["o1", "o2", "o3"]);
+  });
+
+  test("PARKED runs (awaiting_approval / finalizing) are non-terminal → never evicted", () => {
+    // An approval contract makes awaiting_approval/finalizing valid non-terminal
+    // states. Retention evicts only TERMINAL runs, so a parked proposal is
+    // never dropped out from under a pending human decision — even when it is
+    // the oldest and the budget is exceeded by the terminal runs.
+    const c = resolveContract({
+      states: ["reviewed"],
+      terminal: ["reviewed"],
+      approval: { mode: "proactive" },
+      retention: { maxRuns: 1 },
+    });
+    const runs = [
+      run("approved-new", "approved", "2026-01-04T00:00:00Z"),
+      run("parked-await", "awaiting_approval", "2026-01-01T00:00:00Z"),
+      run("parked-final", "finalizing", "2026-01-02T00:00:00Z"),
+    ];
+    const out = trimRetention(runs, c);
+    // Over budget by 2, but only the terminal `approved` run is an eviction
+    // candidate; both parked runs survive.
+    expect(out.map((r) => r.id).sort()).toEqual(["parked-await", "parked-final"]);
   });
 });
 

@@ -21,8 +21,9 @@
 // all tiny in-memory fakes so we can run the full dispatcher code path
 // without PGlite. Audit writes are captured by mocking `insertAuditEntry`.
 
-import { test, expect, describe, beforeEach, afterEach, mock } from "bun:test";
+import { test, expect, describe, beforeEach, afterEach, afterAll, mock } from "bun:test";
 import { EventBus } from "../runtime/events";
+import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import type { AgentEvents } from "../types";
 
 // Capture audit writes without a real DB.
@@ -39,6 +40,19 @@ mock.module("../db/queries/audit-log", () => ({
   listAuditLog: async () => [],
   listAuditForExtension: async () => [],
 }));
+
+// Controllable global loops kill switch. Default OFF so every existing test
+// keeps its fail-open delivery behavior; a single ENGAGED test flips it on.
+let killSwitchEngaged = false;
+mock.module("../extensions/loops-kill-switch", () => ({
+  loopsKillSwitchEngaged: async () => killSwitchEngaged,
+  LOOPS_KILL_SWITCH_KEY: "loops:kill_switch",
+}));
+
+// Restore the module-mock overlays after this file so — even though the CI
+// runner isolates each spec in its own process — a shared-process run never
+// leaks the loops-kill-switch / audit-log overlays into a sibling file.
+afterAll(() => restoreModuleMocks());
 
 const { EventSubscriptionDispatcher } = await import("../extensions/event-subscription-dispatcher");
 
@@ -103,10 +117,36 @@ describe("EventSubscriptionDispatcher — kill-switch", () => {
   beforeEach(() => {
     prevEnv = process.env["EZCORP_DISABLE_CAPABILITY_TOOLS"];
     auditCalls.length = 0;
+    killSwitchEngaged = false;
   });
   afterEach(() => {
     if (prevEnv === undefined) delete process.env["EZCORP_DISABLE_CAPABILITY_TOOLS"];
     else process.env["EZCORP_DISABLE_CAPABILITY_TOOLS"] = prevEnv;
+    killSwitchEngaged = false;
+  });
+
+  test("ENGAGED global loops kill switch suppresses dispatch to subscribers (no delivery)", async () => {
+    // Auditor gap #1: the dispatch-time gate (`loopsKillSwitchEngaged → true`
+    // at event-subscription-dispatcher.ts) must DROP the delivery. Prior tests
+    // only exercised the not-engaged (fail-open) path.
+    killSwitchEngaged = true;
+    const bus = new EventBus<AgentEvents>();
+    const proc = mockProc();
+    const dispatcher = new EventSubscriptionDispatcher(
+      bus,
+      mockRegistry(new Map([["ext-a", proc]])),
+      wireLookup({ "c1": ["ext-a"] }),
+    );
+    dispatcher.registerExtension("ext-a", ["task:snapshot"]);
+    dispatcher.start();
+
+    bus.emit("task:snapshot", snapshotPayload("c1") as AgentEvents["task:snapshot"]);
+    await new Promise((r) => setTimeout(r, 20));
+
+    // Suspended: the wired, in-budget subscriber still receives NOTHING.
+    expect(proc.calls).toHaveLength(0);
+    // A kill-switch suspension is not a rate-limit drop — no audit row.
+    expect(auditCalls).toHaveLength(0);
   });
 
   test("start() is a no-op when EZCORP_DISABLE_CAPABILITY_TOOLS=1", () => {

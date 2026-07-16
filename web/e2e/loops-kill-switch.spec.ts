@@ -3,8 +3,11 @@
  *
  * The `/settings/admin` Loops Safety section shows the current state
  * (Running / Suspended) and a single confirm-gated toggle. Engaging the
- * switch requires a confirm (it suspends ALL scheduled + event-driven loop
- * fires); resuming applies immediately. The toggle PUTs the persisted
+ * switch requires a confirm — the copy states the honest scope: it suspends
+ * scheduled fires (and "fire now") plus ALL extension event deliveries
+ * (including non-loop extensions; dropped deliveries are lost, cron rows stay
+ * due), while manual tool fires stay live and parked approvals are kept.
+ * Resuming applies immediately. The toggle PUTs the persisted
  * `loops:kill_switch` setting — the same key the host schedule daemon +
  * event dispatcher read to gate fires.
  *

@@ -418,7 +418,7 @@ export class ScheduleDaemon {
         }
         await completion("ok");
       } catch (err) {
-        await this.handleFireError(schedule, fireId, firedAt, err, attempt);
+        await this.handleFireError(schedule, fireId, err, attempt);
       }
     } else {
       // No registry / not running — mark as ok so the daemon doesn't
@@ -453,7 +453,6 @@ export class ScheduleDaemon {
   private async handleFireError(
     schedule: typeof extensionSchedules.$inferSelect,
     fireId: string,
-    firedAt: Date,
     err: unknown,
     attempt: number,
   ): Promise<void> {

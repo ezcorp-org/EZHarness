@@ -105,8 +105,8 @@
 	<SettingsSection
 		id="loops"
 		title="Loops Safety"
-		tooltip="The global kill switch suspends every scheduled and event-driven loop fire. Runs already parked awaiting your approval are kept — only new fires stop."
-		description="Emergency stop for all automated loops."
+		tooltip="While engaged, the kill switch suspends scheduled fires (and 'fire now') plus ALL extension event deliveries — including non-loop extensions. Dropped deliveries are lost and cron rows stay due. Parked approvals are kept. Manual tool fires an agent triggers directly stay live."
+		description="Emergency stop for scheduled + event-driven loop fires."
 	>
 		<div class="space-y-3" data-testid="loops-kill-switch">
 			<p class="text-xs text-[var(--color-text-secondary)]">
@@ -124,8 +124,10 @@
 					class="rounded-md border border-red-500/40 bg-red-500/5 p-3"
 				>
 					<p class="mb-2 text-xs text-[var(--color-text-secondary)]">
-						This suspends ALL scheduled and event-driven loop fires. Parked approvals
-						are kept. Continue?
+						This suspends scheduled fires (and "fire now") plus ALL extension event
+						deliveries — including non-loop extensions. Dropped events are lost and
+						cron rows stay due. Parked approvals are kept; manual tool fires an agent
+						triggers stay live. Continue?
 					</p>
 					<div class="flex items-center gap-2">
 						<button

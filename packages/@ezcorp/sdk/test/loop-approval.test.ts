@@ -24,6 +24,8 @@ import {
   approveRun,
   declineRun,
   sweepStaleProposals,
+  sweepAllStaleProposals,
+  getLoopTools,
   _getRegisteredLoop,
   __resetLoopsForTests,
   _setSettingsResolverForTests,
@@ -178,7 +180,7 @@ function defineApprovalLoop(opts: {
     ...(opts.artifact
       ? {
           log: {
-            artifact: (run: unknown, outcome: unknown) => {
+            artifact: (_run: unknown, outcome: unknown) => {
               artifacts.push(outcome);
               return { path: "out.md", body: JSON.stringify(outcome) };
             },
@@ -628,5 +630,294 @@ describe("manual trigger + label isolation", () => {
     expect(run).not.toHaveProperty("labels");
     expect(await reg.store.listSkips()).toEqual([]);
     expect(await reg.store.listLabels()).toHaveLength(1);
+  });
+});
+
+// ── dispatchAssignmentUpdate — parked / closed guard (idempotency) ───
+
+describe("dispatchAssignmentUpdate — parked / closed guard", () => {
+  const completeEvt: TaskAssignmentUpdateEvent = {
+    conversationId: "c1",
+    taskId: "t1",
+    assignment: {
+      id: "a1",
+      agentConfigId: "cfg",
+      agentName: "coder",
+      isTeam: false,
+      status: "completed",
+      assignedAt: "2026-07-16T00:00:00Z",
+      agentRunId: "agent-1",
+      resultPreview: "done",
+    },
+  };
+
+  function defineDeferredApproval(
+    onComplete: (ctx: { run: unknown; status: string; resultPreview?: string }) => Promise<ActResult>,
+    id = "dg",
+  ) {
+    defineLoop({
+      id,
+      trigger: { kind: "event", event: "run:complete" },
+      contract: {
+        states: ["dispatched", "completed", "failed"],
+        terminal: ["completed", "failed"],
+        approval: {},
+      },
+      act: async (): Promise<ActResult> => ({
+        kind: "deferred",
+        runId: "agent-1",
+        status: "dispatched",
+        awaitEvent: "task:assignment_update",
+      }),
+      onComplete,
+    });
+  }
+
+  test("a DUPLICATE terminal assignment_update while parked is a no-op (onComplete not re-run, no duplicate nudge)", async () => {
+    const { events, calls } = recordingEvents();
+    _setLoopEventsForTests(events);
+    let onCompleteCalls = 0;
+    defineDeferredApproval(async () => {
+      onCompleteCalls++;
+      return { kind: "proposal", status: "pr", proposal: PROPOSAL, finalize: async () => ({ ok: true }) };
+    });
+    await fireEvent("run:complete", {});
+    await dispatchAssignmentUpdate(completeEvt); // parks
+    await dispatchAssignmentUpdate(completeEvt); // duplicate while parked
+
+    const reg = _getRegisteredLoop("dg")!;
+    const runs = await reg.store.list();
+    expect(runs).toHaveLength(1);
+    expect(runs[0]!.status).toBe(AWAITING_APPROVAL);
+    expect(onCompleteCalls).toBe(1); // NOT re-run
+    expect(calls.filter((c) => c.type === "pending")).toHaveLength(1); // no duplicate nudge
+  });
+
+  test("a LATE assignment_update during finalizing is a no-op (never flipped to terminal without a decision)", async () => {
+    _setLoopEventsForTests(recordingEvents().events);
+    defineDeferredApproval(async () => ({
+      kind: "proposal",
+      status: "pr",
+      proposal: PROPOSAL,
+      finalize: async () => ({ ok: true }),
+    }));
+    await fireEvent("run:complete", {});
+    await dispatchAssignmentUpdate(completeEvt); // parks (awaiting_approval)
+    const reg = _getRegisteredLoop("dg")!;
+    const runId = (await reg.store.list())[0]!.id;
+    // Simulate an in-flight approve: move the run to `finalizing`.
+    await reg.store.transitionIf(runId, AWAITING_APPROVAL, { status: FINALIZING, eventStatus: FINALIZING });
+
+    await dispatchAssignmentUpdate(completeEvt); // LATE event during finalizing
+    expect((await reg.store.get(runId))!.status).toBe(FINALIZING); // unchanged
+  });
+
+  test("a duplicate assignment_update for an already-terminal run appends nothing", async () => {
+    _setLoopEventsForTests(recordingEvents().events);
+    // A deferred loop WITHOUT approval → default terminalize on completion.
+    defineLoop({
+      id: "dt",
+      trigger: { kind: "event", event: "run:complete" },
+      contract: { states: ["dispatched", "completed", "failed"], terminal: ["completed", "failed"] },
+      act: async (): Promise<ActResult> => ({
+        kind: "deferred",
+        runId: "agent-1",
+        status: "dispatched",
+        awaitEvent: "task:assignment_update",
+      }),
+    });
+    await fireEvent("run:complete", {});
+    await dispatchAssignmentUpdate(completeEvt); // terminalizes → completed
+    const reg = _getRegisteredLoop("dt")!;
+    const first = (await reg.store.list())[0]!;
+    expect(first.status).toBe("completed");
+    const eventCount = first.events.length;
+
+    await dispatchAssignmentUpdate(completeEvt); // duplicate on the terminal run
+    const second = (await reg.store.list())[0]!;
+    expect(second.status).toBe("completed");
+    expect(second.events.length).toBe(eventCount); // no extra event-log entry
+  });
+
+  test("a LOST CAS on the terminalize (concurrent resolver moved the run) is a clean no-op", async () => {
+    _setLoopEventsForTests(recordingEvents().events);
+    // Wrap the store so the terminalize's compare-and-set always loses,
+    // simulating a concurrent resolver that advanced the run between the
+    // guard read and the transition.
+    _setStoreFactoryForTests((<O,>(loopId: string, contract: unknown) => {
+      const base = createLoopRunStore<O>(loopId, contract as never, makeKv());
+      return { ...base, transitionIf: async () => null };
+    }) as never);
+    defineLoop({
+      id: "cas",
+      trigger: { kind: "event", event: "run:complete" },
+      contract: { states: ["dispatched", "completed", "failed"], terminal: ["completed", "failed"] },
+      act: async (): Promise<ActResult> => ({
+        kind: "deferred",
+        runId: "agent-1",
+        status: "dispatched",
+        awaitEvent: "task:assignment_update",
+      }),
+    });
+    await fireEvent("run:complete", {});
+    const reg = _getRegisteredLoop("cas")!;
+    expect((await reg.store.list())[0]!.status).toBe("dispatched");
+
+    await dispatchAssignmentUpdate(completeEvt); // CAS loses → no-op
+    expect((await reg.store.list())[0]!.status).toBe("dispatched"); // unchanged
+  });
+});
+
+// ── re-park idempotency (duplicate fire on a parked run) ────────────
+
+describe("runFire proposal — duplicate fire keeps the original snapshot + closures", () => {
+  test("a duplicate fire (same idempotencyKey) on a parked run does not re-park or re-bind closures", async () => {
+    const { events, calls } = recordingEvents();
+    _setLoopEventsForTests(events);
+    let fireSeq = 0;
+    defineLoop({
+      id: "idem",
+      trigger: { kind: "event", event: "run:complete" },
+      contract: {
+        states: ["reviewed"],
+        terminal: ["reviewed"],
+        approval: { mode: "proactive" },
+        idempotencyKey: () => "same-key",
+      },
+      act: async (): Promise<ActResult> => {
+        const seq = ++fireSeq;
+        return {
+          kind: "proposal",
+          status: "pr",
+          proposal: { ...PROPOSAL, ref: `pr/${seq}` },
+          finalize: async () => ({ fromFire: seq }),
+        };
+      },
+    });
+    await fireEvent("run:complete", {}); // fire 1 → parks (pr/1, closure → fromFire:1)
+    await fireEvent("run:complete", {}); // fire 2 → duplicate open run → no re-park
+
+    const reg = _getRegisteredLoop("idem")!;
+    const runs = await reg.store.list();
+    expect(runs).toHaveLength(1);
+    // ORIGINAL snapshot retained (not overwritten by fire 2's pr/2).
+    expect(runs[0]!.proposal!.ref).toBe("pr/1");
+    // Exactly one pending nudge (no duplicate).
+    expect(calls.filter((c) => c.type === "pending")).toHaveLength(1);
+    // Approving invokes fire 1's closure, not fire 2's.
+    const res = await approveRun("idem", runs[0]!.id, "alice");
+    expect(res.ok).toBe(true);
+    expect((await reg.store.get(runs[0]!.id))!.outcome).toEqual({ fromFire: 1 });
+  });
+});
+
+// ── label-append failure — verifyManually + decline escape hatch ────
+
+describe("approve — label-append failure never wedges the run in finalizing", () => {
+  test("a failed label append flags verifyManually and lets a human decline the finalizing run", async () => {
+    _setLoopEventsForTests(recordingEvents().events);
+    // A store whose FIRST appendLabel throws (a transient store blip), then
+    // recovers — the approve's label write fails, the later decline's succeeds.
+    let labelCalls = 0;
+    _setStoreFactoryForTests((<O,>(loopId: string, contract: unknown) => {
+      const base = createLoopRunStore<O>(loopId, contract as never, makeKv());
+      return {
+        ...base,
+        appendLabel: async (entry: Parameters<typeof base.appendLabel>[0]) => {
+          labelCalls++;
+          if (labelCalls === 1) throw new Error("label store down (transient)");
+          return base.appendLabel(entry);
+        },
+      };
+    }) as never);
+
+    defineApprovalLoop();
+    await fireEvent("run:complete", {});
+    const reg = _getRegisteredLoop("docs")!;
+    const runId = (await reg.store.list())[0]!.id;
+
+    const approve = await approveRun("docs", runId, "alice");
+    expect(approve).toEqual({ ok: false, reason: "label_append_failed" });
+    const stuck = await reg.store.get(runId);
+    expect(stuck!.status).toBe(FINALIZING);
+    expect(stuck!.verifyManually).toBe(true);
+
+    // Escape hatch: a human can decline the flagged finalizing run (the label
+    // store has recovered, so the decline's own label write succeeds).
+    const decline = await declineRun("docs", runId, "alice", "manual cleanup");
+    expect(decline).toEqual({ ok: true, runId, decision: "declined" });
+    expect((await reg.store.get(runId))!.status).toBe("declined");
+  });
+
+  test("a finalizing run WITHOUT the verifyManually flag is NOT declinable", async () => {
+    _setLoopEventsForTests(recordingEvents().events);
+    defineApprovalLoop();
+    await fireEvent("run:complete", {});
+    const reg = _getRegisteredLoop("docs")!;
+    const runId = (await reg.store.list())[0]!.id;
+    // Move to finalizing WITHOUT the verifyManually flag (a legitimate
+    // in-flight finalize).
+    await reg.store.transitionIf(runId, AWAITING_APPROVAL, { status: FINALIZING, eventStatus: FINALIZING });
+    expect(await declineRun("docs", runId, "bob")).toEqual({ ok: false, reason: "finalizing" });
+  });
+});
+
+// ── fire-independent staleness sweep ────────────────────────────────
+
+describe("sweepAllStaleProposals — reaps every registered loop", () => {
+  test("one pass auto-declines stale parked proposals across all loops", async () => {
+    _setLoopEventsForTests(recordingEvents().events);
+    defineApprovalLoop({ id: "sa", staleAfterDays: 7 });
+    defineApprovalLoop({ id: "sb", staleAfterDays: 7 });
+    const regA = _getRegisteredLoop("sa")!;
+    const regB = _getRegisteredLoop("sb")!;
+    await regA.store.claim({ id: "ra", loopId: "sa", status: AWAITING_APPROVAL, proposal: PROPOSAL });
+    await regB.store.claim({ id: "rb", loopId: "sb", status: AWAITING_APPROVAL, proposal: PROPOSAL });
+
+    // A clock 8 days ahead crosses the 7-day horizon for both.
+    const future = Date.now() + 8 * 24 * 60 * 60 * 1000;
+    expect(await sweepAllStaleProposals(future)).toBe(2);
+    expect((await regA.store.get("ra"))!.status).toBe("declined");
+    expect((await regB.store.get("rb"))!.status).toBe("declined");
+  });
+
+  test("a loop without approval is skipped by the sweep", async () => {
+    _setLoopEventsForTests(recordingEvents().events);
+    defineLoop({
+      id: "noappr",
+      trigger: { kind: "event", event: "run:complete" },
+      contract: { states: ["done"] },
+      act: async (): Promise<ActResult> => ({ kind: "terminal", status: "done", outcome: {} }),
+    });
+    // No approval → nothing to sweep, and the pass never throws.
+    expect(await sweepAllStaleProposals(Date.now() + 10 * 24 * 60 * 60 * 1000)).toBe(0);
+  });
+});
+
+// ── kill-switch honesty — manual tool fires stay live ───────────────
+
+describe("kill-switch honesty — manual tool fires stay live", () => {
+  test("a manual-trigger tool fire runs unconditionally (the SDK holds no host-kill-switch state)", async () => {
+    // Documents the Phase-2 kill-switch limit surfaced in the admin UI + docs:
+    // scheduled + event fires are host-gated, but a manual `tool` trigger runs
+    // through the ordinary tool-call path — indistinguishable from any other
+    // tool call at the host boundary, so there is no clean seam to gate it.
+    // The SDK loop primitive holds no host-switch state, so the fire runs.
+    _setLoopEventsForTests(recordingEvents().events);
+    let acted = 0;
+    defineLoop({
+      id: "manual",
+      trigger: { kind: "manual", tool: "run_manual" },
+      contract: { states: ["done"] },
+      act: async (): Promise<ActResult> => {
+        acted++;
+        return { kind: "terminal", status: "done", outcome: { ok: true } };
+      },
+    });
+    const handler = getLoopTools()["run_manual"]!;
+    await handler({}, undefined);
+    expect(acted).toBe(1);
+    const reg = _getRegisteredLoop("manual")!;
+    expect((await reg.store.list())[0]!.status).toBe("done");
   });
 });

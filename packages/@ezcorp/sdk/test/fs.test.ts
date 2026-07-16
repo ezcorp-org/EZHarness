@@ -149,11 +149,18 @@ describe("atomicWrite", () => {
     const spy = spyOn(Bun, "write").mockImplementation(() => {
       throw new Error("synthetic write failure");
     });
+    // Explicit try/catch (not `await expect(...).rejects.toThrow()`): bun-types
+    // type `toThrow()` as `void`, so awaiting it reads as an ineffective await.
+    // This form awaits the real promise and asserts on the caught error.
+    let caught: unknown;
     try {
-      await expect(atomicWrite(target, "doomed")).rejects.toThrow("synthetic write failure");
+      await atomicWrite(target, "doomed");
+    } catch (err) {
+      caught = err;
     } finally {
       spy.mockRestore();
     }
+    expect((caught as Error | undefined)?.message).toContain("synthetic write failure");
     // Target was never written; no `*.tmp-*` sibling should be left.
     expect(existsSync(target)).toBe(false);
     const stale = readdirSync(workDir).filter((f) => f.startsWith("out.txt.tmp-"));
@@ -194,11 +201,17 @@ describe("atomicRead", () => {
       },
     } as unknown as ReturnType<typeof Bun.file>;
     const spy = spyOn(Bun, "file").mockImplementation(() => fakeFile);
+    // Explicit try/catch — see the atomicWrite failure test for why the
+    // `await expect(...).rejects.toThrow()` form is avoided here.
+    let caught: unknown;
     try {
-      await expect(atomicRead(target)).rejects.toThrow("EACCES: synthesized");
+      await atomicRead(target);
+    } catch (err) {
+      caught = err;
     } finally {
       spy.mockRestore();
     }
+    expect((caught as Error | undefined)?.message).toContain("EACCES: synthesized");
   });
 });
 

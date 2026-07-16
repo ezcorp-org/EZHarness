@@ -79,6 +79,19 @@ export function resolveContract<Input>(
   // Approval: inject the primitive-owned states so `transition` accepts
   // them without the extension re-declaring the governance vocabulary.
   const hasApproval = contract.approval !== undefined;
+  // Reject an unknown approval mode LOUDLY at construction. Phase 2 ships ONLY
+  // `"proactive"`; `"plan"` (Phase 7) and `"autopilot"` (Phase 8) are not in
+  // the union yet. A loop that declares an unsupported mode is a
+  // misconfiguration that MUST fail install rather than silently degrade to
+  // proactive — this guards the Phase 7/8 graduation surface.
+  if (hasApproval) {
+    const mode = contract.approval!.mode ?? "proactive";
+    if (mode !== "proactive") {
+      throw new Error(
+        `[@ezcorp/sdk] defineLoop: contract.approval.mode "${mode}" is not supported — only "proactive" is available in this phase`,
+      );
+    }
+  }
   const states = hasApproval
     ? dedupe([...declaredStates, ...APPROVAL_STATES])
     : declaredStates;
