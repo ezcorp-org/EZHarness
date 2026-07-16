@@ -24,6 +24,8 @@ export const RUNTIME_EVENT_NAMES = [
   "conversation:created",
   "conversation:tree-changed",
   "github-projects:proposal-update",
+  "loops:approval_pending",
+  "loops:approval_resolved",
 ] as const;
 
 export type RuntimeEventName = (typeof RUNTIME_EVENT_NAMES)[number];

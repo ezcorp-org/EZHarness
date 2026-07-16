@@ -554,4 +554,27 @@ export interface AgentEvents {
     conversationId: string;
     currentLeaf: string | null;
   };
+  /**
+   * Loops EZ Mode Phase 2 — a loop run PARKED awaiting a human approve/decline
+   * (`approval_pending`) or was RESOLVED (`approval_resolved`). Both are
+   * CONTENT-FREE invalidation nudges (loopId + runId, + `decision` on resolve)
+   * — the web badge/inbox re-fetches the authorized dashboard on receipt; the
+   * proposal body NEVER rides the event. `conversationId` is OPTIONAL: present
+   * when the loop is conversation-wired (SSE scopes delivery to that owner via
+   * the standard conv-scope branch), absent for a global-scope loop (the nudge
+   * broadcasts to every authenticated subscriber, like `ext:page-state` /
+   * `github-projects:proposal-update`). Listed in `DIRECT_CARRIER_EVENT_TYPES`
+   * as optional carriers (fail-open, mirroring `run:complete`).
+   */
+  "loops:approval_pending": {
+    loopId: string;
+    runId: string;
+    conversationId?: string;
+  };
+  "loops:approval_resolved": {
+    loopId: string;
+    runId: string;
+    decision: "approved" | "declined";
+    conversationId?: string;
+  };
 }

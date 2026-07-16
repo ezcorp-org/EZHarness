@@ -38,13 +38,14 @@ afterEach(() => {
 });
 
 describe("DIRECT_CARRIER_EVENT_TYPES", () => {
-  test("enumerates the direct-carrier event types (13 from prereqs audit + ask-user:answer + ez:client-tool + extensions:installed + goal:update + the two briefing events + conversation:tree-changed; Phase 5's orchestrator:human_* removed by ask-user migration)", () => {
-    // 19 entries: 13 from the prereqs audit + ez:client-tool (Phase 48
+  test("enumerates the direct-carrier event types (13 from prereqs audit + ask-user:answer + ez:client-tool + extensions:installed + goal:update + the two briefing events + conversation:tree-changed + the two loops approval events; Phase 5's orchestrator:human_* removed by ask-user migration)", () => {
+    // 21 entries: 13 from the prereqs audit + ez:client-tool (Phase 48
     // Wave 3) + extensions:installed (agent-install-ux-polish Phase 2)
     // + goal:update (/goal Phase 2, FR-20) + conversation:created +
     // briefing:delivered (Daily Briefing Phase 1) + conversation:tree-changed
-    // (Sessions P4 rewind/checkpoint).
-    expect(DIRECT_CARRIER_EVENT_TYPES.size).toBe(19);
+    // (Sessions P4 rewind/checkpoint) + loops:approval_pending +
+    // loops:approval_resolved (Loops EZ Mode Phase 2 — optional carriers).
+    expect(DIRECT_CARRIER_EVENT_TYPES.size).toBe(21);
     for (const name of [
       "run:complete", "run:error", "run:cancel", "run:turn_saved",
       "tool:start", "tool:complete", "tool:error",
@@ -57,6 +58,8 @@ describe("DIRECT_CARRIER_EVENT_TYPES", () => {
       "conversation:created",
       "briefing:delivered",
       "conversation:tree-changed",
+      "loops:approval_pending",
+      "loops:approval_resolved",
     ]) {
       expect(DIRECT_CARRIER_EVENT_TYPES.has(name as never)).toBe(true);
     }
@@ -371,6 +374,48 @@ describe("shouldDeliverEvent — pass-through tier", () => {
       get,
     );
     expect(deliver).toBe(true);
+  });
+
+  test("loops:approval_* — conversation-wired nudge is scoped to the owner", async () => {
+    const owned = makeGetConversation({ "conv-A": { userId: "user-1" } });
+    // owner receives it
+    expect(
+      await shouldDeliverEvent(
+        "loops:approval_pending",
+        { loopId: "docs", runId: "r1", conversationId: "conv-A" },
+        { userId: "user-1" },
+        owned,
+      ),
+    ).toBe(true);
+    // a non-owner does NOT
+    expect(
+      await shouldDeliverEvent(
+        "loops:approval_resolved",
+        { loopId: "docs", runId: "r1", decision: "approved", conversationId: "conv-A" },
+        { userId: "user-2" },
+        owned,
+      ),
+    ).toBe(false);
+  });
+
+  test("loops:approval_* — a global-scope nudge (no conversationId) broadcasts (content-free)", async () => {
+    const get = makeGetConversation({});
+    expect(
+      await shouldDeliverEvent(
+        "loops:approval_pending",
+        { loopId: "docs", runId: "r1" },
+        { userId: "user-1" },
+        get,
+      ),
+    ).toBe(true);
+    expect(
+      await shouldDeliverEvent(
+        "loops:approval_resolved",
+        { loopId: "docs", runId: "r1", decision: "declined" },
+        { userId: "user-9" },
+        get,
+      ),
+    ).toBe(true);
   });
 
   test("passes ext:page-state events (content-free Hub invalidation signal — broadcast by design)", async () => {
