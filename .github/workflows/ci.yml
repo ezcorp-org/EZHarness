@@ -480,6 +480,13 @@ jobs:
             mapfile -t SPECS < "$SPECS_FILE"
             EZCORP_E2E_EVIDENCE=1 bunx playwright test --project=chromium --grep @evidence "${SPECS[@]}" || true
           fi
+      # When capture was skipped (__NONE__), building the manifest anyway would
+      # CREATE web/blob-report/ (an empty-shots manifest), the artifact would
+      # upload, and WF2 would post the ⚠️ "no screenshot" comment on a PR that
+      # legitimately has nothing visual. Honor the sentinel: no manifest → no
+      # artifact → WF2 bails soft → no comment at all. A capture that RAN but
+      # produced no shots still writes an empty manifest, so the ⚠️ comment
+      # keeps flagging genuinely broken captures.
       - name: Build evidence manifest
         continue-on-error: true
         env:
@@ -487,7 +494,12 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           RUN_ID: ${{ github.run_id }}
           EVIDENCE_MANIFEST: web/blob-report/manifest.json
-        run: bun scripts/visual-evidence/build-manifest.ts
+        run: |
+          if [ -f "$RUNNER_TEMP/evidence-specs.txt" ] && grep -qx '__NONE__' "$RUNNER_TEMP/evidence-specs.txt"; then
+            echo "capture was skipped (non-visual diff) — no manifest, no artifact, no comment"
+            exit 0
+          fi
+          bun scripts/visual-evidence/build-manifest.ts
       - name: Upload visual evidence
         continue-on-error: true
         uses: actions/upload-artifact@v4
