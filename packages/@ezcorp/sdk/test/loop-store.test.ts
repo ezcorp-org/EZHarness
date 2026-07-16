@@ -14,9 +14,11 @@ import { describe, expect, test } from "bun:test";
 import {
   createLoopRunStore,
   cursorKey,
+  DEFAULT_MAX_SKIPS,
   indexKey,
   metaKey,
   runKey,
+  skipsKey,
 } from "../src/runtime/loop-store";
 import { resolveContract } from "../src/runtime/loop-core";
 import type { StorageScope } from "../src/runtime/storage";
@@ -96,6 +98,7 @@ describe("key grammar", () => {
     expect(indexKey("ezc")).toBe("loop:ezc:index");
     expect(metaKey("ezc")).toBe("loop:ezc:meta");
     expect(cursorKey("ezc")).toBe("loop:ezc:cursor");
+    expect(skipsKey("ezc")).toBe("loop:ezc:skips");
   });
 });
 
@@ -309,6 +312,87 @@ describe("cursor — durable check marker", () => {
       hash: "deadbeef",
       at: "2026-07-16T00:00:00Z",
     });
+  });
+});
+
+describe("skip journal — durable decline audit", () => {
+  test("unset journal reads empty", async () => {
+    const kv = makeKv();
+    const store = createLoopRunStore("ezc", CONTRACT, kv.factory);
+    expect(await store.listSkips()).toEqual([]);
+  });
+
+  test("recordSkip appends newest-first under loop:<id>:skips", async () => {
+    const kv = makeKv();
+    const store = createLoopRunStore("ezc", CONTRACT, kv.factory);
+    await store.recordSkip({ at: "t1", reason: "no_new_commits", trigger: "cron", logLines: [] });
+    await store.recordSkip({ at: "t2", reason: "settings_disabled", trigger: "event", logLines: ["[info] hi"] });
+    const skips = await store.listSkips();
+    expect(skips.map((s) => s.reason)).toEqual(["settings_disabled", "no_new_commits"]);
+    // Persisted to the dedicated skips key — never mixed into runs/meta/cursor.
+    expect(Array.isArray(kv.map.get("loop:ezc:skips"))).toBe(true);
+    expect(kv.map.has("loop:ezc:index")).toBe(false);
+  });
+
+  test("reason + trigger + logLines round-trip", async () => {
+    const kv = makeKv();
+    const store = createLoopRunStore("ezc", CONTRACT, kv.factory);
+    await store.recordSkip({
+      at: "2026-07-16T00:00:00Z",
+      reason: "no_new_commits",
+      trigger: "manual",
+      logLines: ["[info] checked", "[warn] nothing new"],
+    });
+    expect((await store.listSkips())[0]).toEqual({
+      at: "2026-07-16T00:00:00Z",
+      reason: "no_new_commits",
+      trigger: "manual",
+      logLines: ["[info] checked", "[warn] nothing new"],
+    });
+  });
+
+  test("caps at DEFAULT_MAX_SKIPS, evicting the oldest", async () => {
+    const kv = makeKv();
+    const store = createLoopRunStore("ezc", CONTRACT, kv.factory);
+    for (let i = 0; i < DEFAULT_MAX_SKIPS + 10; i++) {
+      await store.recordSkip({ at: `t${i}`, reason: `r${i}`, trigger: "cron", logLines: [] });
+    }
+    const skips = await store.listSkips();
+    expect(skips.length).toBe(DEFAULT_MAX_SKIPS);
+    // Newest-first: the most recent write is at the head; the oldest 10 evicted.
+    expect(skips[0]!.reason).toBe(`r${DEFAULT_MAX_SKIPS + 9}`);
+    expect(skips.at(-1)!.reason).toBe("r10");
+  });
+});
+
+describe("cursor + skip journal — withLock serializes writes", () => {
+  test("two simultaneous setCursor calls serialize; the second value wins", async () => {
+    // Mirror of the claim() lock test: gate the FIRST cursor write so the
+    // second call starts while the first is mid-flight. Without withLock the
+    // interleaving would be nondeterministic; withLock forces them end-to-end,
+    // so the SECOND set (which ran after the first released) is the final value.
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    let gatedOnce = false;
+    const kv = makeKv({
+      beforeSet: async (key) => {
+        if (!gatedOnce && key === "loop:ezc:cursor") {
+          gatedOnce = true;
+          await gate;
+        }
+      },
+    });
+    const store = createLoopRunStore("ezc", CONTRACT, kv.factory);
+
+    const p1 = store.setCursor("first");
+    const p2 = store.setCursor("second");
+    await new Promise((r) => setTimeout(r, 10));
+    release();
+    await Promise.all([p1, p2]);
+
+    expect(await store.getCursor<string>()).toBe("second");
   });
 });
 

@@ -359,6 +359,24 @@ describe("validateCheckResult", () => {
     const r = { proceed: false, reason: 42 as unknown as string } as CheckResult;
     expect(validateCheckResult(r)).toContain("reason");
   });
+
+  test("a non-object result is rejected (runtime junk, not a CheckResult)", () => {
+    expect(validateCheckResult("nope" as unknown as CheckResult)).toContain("object");
+    expect(validateCheckResult(42 as unknown as CheckResult)).toContain("object");
+  });
+
+  test("a null result is rejected", () => {
+    expect(validateCheckResult(null as unknown as CheckResult)).toContain("object");
+  });
+
+  test("a non-boolean proceed is rejected (a truthy non-bool must NOT act)", () => {
+    expect(
+      validateCheckResult({ proceed: "yes" } as unknown as CheckResult),
+    ).toContain("boolean");
+    expect(
+      validateCheckResult({ reason: "x" } as unknown as CheckResult),
+    ).toContain("boolean");
+  });
 });
 
 // ── idempotency: dupe = no-op ───────────────────────────────────────

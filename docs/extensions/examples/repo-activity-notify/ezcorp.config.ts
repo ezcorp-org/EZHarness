@@ -29,13 +29,13 @@ export default defineExtension({
       description: "Notice new commits on the active repo.",
       default: true,
     },
-    repoPath: {
+    repo_path: {
       type: "text",
       label: "Repository path (override)",
       description: "Absolute path to the git repo to watch. Defaults to the active project.",
       default: "",
     },
-    conversationId: {
+    conversation_id: {
       type: "text",
       label: "Notify conversation id",
       description: "Conversation the one-line notice is appended to. Blank = artifact-only.",

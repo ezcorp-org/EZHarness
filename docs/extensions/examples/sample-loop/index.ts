@@ -56,11 +56,15 @@ export async function summarizeCheck(
 export async function summarizeAct(
   ctx: LoopActContext<{ conversationId?: string }>,
 ): Promise<ActResult<SummaryOutcome>> {
+  // `summarizeCheck` owns the `settings_disabled` + `no_conversation` gates,
+  // so in the trigger → check → act pipeline this never runs on a disabled
+  // loop or a conversation-less event — the duplicate `settings_disabled`
+  // gate that used to sit here is gone. The narrow below stays: it proves
+  // `conversationId` is a string for `recentMessages`/the outcome (removing
+  // it would force a non-null assertion), and it keeps `act` safe if a caller
+  // ever invokes it without the check.
   const conversationId = ctx.input.conversationId;
   if (!conversationId) return { kind: "skip", reason: "no_conversation" };
-  if (ctx.settings.enabled === false) {
-    return { kind: "skip", reason: "settings_disabled" };
-  }
 
   // The primitive hands you a formatted last-20-message slice + a
   // host-brokered LLM (the token never reaches this code).

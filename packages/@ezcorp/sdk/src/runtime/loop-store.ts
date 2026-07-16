@@ -44,6 +44,26 @@ export interface LoopMeta {
 
 const EMPTY_META: LoopMeta = { consecutiveErrors: 0, disabled: false };
 
+/** Cap on the per-loop skip journal (newest-first). Bounds the single
+ *  `loop:<id>:skips` array so a chatty decline (e.g. an hourly cron that
+ *  keeps skipping) can't grow the key without limit. */
+export const DEFAULT_MAX_SKIPS = 50;
+
+/** One durable entry in the per-loop skip journal. A `proceed:false` check,
+ *  an act `skip`, or a rejected event filter is recorded here so the decline
+ *  has a durable audit trace even when the trigger (cron/event) discards the
+ *  `FireResult`. */
+export interface LoopSkipEntry {
+  /** ISO timestamp of the skip. */
+  at: string;
+  /** The decline reason (check reason, act skip reason, `filter_rejected`, …). */
+  reason: string;
+  /** The trigger kind that fired (`cron` | `event` | `manual`). */
+  trigger: string;
+  /** Any audit-log lines the fire accumulated before declining. */
+  logLines: string[];
+}
+
 /** The `next`-state shape a transition applies. Mirrors `coreTransition`'s
  *  second parameter without the `Parameters<>` indirection (which breaks
  *  generic inference across the two `LoopRunState` instantiations). */
@@ -95,6 +115,14 @@ export interface LoopRunStore<Outcome = unknown> {
    *  truthiness. */
   getCursor<T = unknown>(): Promise<T | undefined>;
   setCursor<T = unknown>(value: T): Promise<void>;
+  /** Append a decline to the capped per-loop skip journal
+   *  (`loop:<id>:skips`, newest-first, cap `DEFAULT_MAX_SKIPS`). Serialized
+   *  under the store lock so a concurrent fire can't clobber it. Gives a
+   *  `proceed:false` check / act `skip` / rejected filter a durable audit
+   *  trace even when the cron/event trigger discards the `FireResult`. */
+  recordSkip(entry: LoopSkipEntry): Promise<void>;
+  /** Read the skip journal, newest-first. */
+  listSkips(): Promise<LoopSkipEntry[]>;
 }
 
 /** Storage key helpers — single source of the key grammar. */
@@ -109,6 +137,9 @@ export function metaKey(loopId: string): string {
 }
 export function cursorKey(loopId: string): string {
   return `loop:${loopId}:cursor`;
+}
+export function skipsKey(loopId: string): string {
+  return `loop:${loopId}:skips`;
 }
 function lockKey(loopId: string, scope: StorageScope): string {
   return `loop-store:${loopId}:${scope}`;
@@ -248,6 +279,22 @@ export function createLoopRunStore<Outcome = unknown>(
       await withLock(lk, async () => {
         await storage.set(cursorKey(loopId), value);
       });
+    },
+
+    async recordSkip(entry) {
+      await withLock(lk, async () => {
+        const res = await storage.get<LoopSkipEntry[]>(skipsKey(loopId));
+        const prev = Array.isArray(res.value) ? res.value : [];
+        // Newest-first, capped — the read-modify-write is safe because it's
+        // bounded (≤ DEFAULT_MAX_SKIPS) and runs under the store lock.
+        const next = [entry, ...prev].slice(0, DEFAULT_MAX_SKIPS);
+        await storage.set(skipsKey(loopId), next);
+      });
+    },
+
+    async listSkips() {
+      const res = await storage.get<LoopSkipEntry[]>(skipsKey(loopId));
+      return Array.isArray(res.value) ? res.value : [];
     },
   };
 }

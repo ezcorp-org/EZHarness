@@ -105,7 +105,7 @@ describe("repo-activity-notify — real subprocess", () => {
     mkdirSync(join(projectRoot, ".ezcorp", "extension-data"), { recursive: true });
     // Keep EZCORP_PROJECT_ROOT UNSET (setting it trips the bwrap wrap that
     // can't run in this container). The loop resolves the repo from the
-    // configured `repoPath` setting; the artifact dir falls back to cwd.
+    // configured `repo_path` setting; the artifact dir falls back to cwd.
     originalCwd = process.cwd();
     process.chdir(projectRoot);
     await seedRepo(projectRoot);
@@ -139,7 +139,7 @@ describe("repo-activity-notify — real subprocess", () => {
       if (req.method === "ezcorp/invoke") {
         const tool = (params as { tool?: string }).tool;
         if (tool === "runtime.settings.getMine") {
-          return ok(req.id, { enabled: true, conversationId: "conv-e2e", repoPath: projectRoot });
+          return ok(req.id, { enabled: true, conversation_id: "conv-e2e", repo_path: projectRoot });
         }
         if (tool === "runtime.conversations.getMessages") {
           return ok(req.id, {

@@ -142,7 +142,16 @@ let storeFactory: StoreFactory | null = null;
 // The `check` stage's host-mediated fetch. Defaults to the sandbox-wrapped
 // global `fetch` (network-grant-gated by the preload); tests inject a stub
 // to observe the check's external-data surface without a live network.
-let checkFetchImpl: typeof fetch = fetch;
+// Lazy binding: resolve the CURRENT global `fetch` at CALL time, not at
+// module-eval. The sandbox preload wraps `globalThis.fetch` to gate it against
+// the loop's network grant; if that wrap lands after this module loads, a
+// module-eval capture (`= fetch`) would freeze the un-wrapped reference. The
+// thin `(...a) => fetch(...a)` forwards to whatever `fetch` is bound at call
+// time. (`as typeof fetch` re-adds the `preconnect` surface the wrapper doesn't
+// forward — a check only ever *calls* fetch.)
+const defaultCheckFetch: typeof fetch = ((...args: Parameters<typeof fetch>) =>
+  fetch(...args)) as typeof fetch;
+let checkFetchImpl: typeof fetch = defaultCheckFetch;
 
 /** @internal test-only — override the settings resolver. */
 export function _setSettingsResolverForTests(fn: SettingsResolver | null): void {
@@ -166,7 +175,7 @@ export function _setStoreFactoryForTests(fn: StoreFactory | null): void {
 }
 /** @internal test-only — override the check stage's host-mediated fetch. */
 export function _setCheckFetchForTests(fn: typeof fetch | null): void {
-  checkFetchImpl = fn ?? fetch;
+  checkFetchImpl = fn ?? defaultCheckFetch;
 }
 
 // ── Registry (multi-loop-per-extension) ─────────────────────────────
@@ -369,13 +378,31 @@ async function runFire(
   trigger: LoopTrigger,
   meta: FireMeta,
 ): Promise<FireResult> {
+  // Durable skip journal: a decline (check `proceed:false`, act `skip`, a
+  // rejected event filter) is recorded at `loop:<id>:skips` so it has an audit
+  // trace even when the cron/event trigger discards the `FireResult`. Records
+  // for ALL trigger kinds (the trigger handlers never see the skip; runFire
+  // owns the journaling uniformly).
+  const journalSkip = (reason: string, lines: string[]): Promise<void> =>
+    reg.store.recordSkip({
+      at: new Date().toISOString(),
+      reason,
+      trigger: trigger.kind,
+      logLines: lines,
+    });
+
   // Auto-disable latch: a disabled loop skips every fire (it stays
   // registered so a settings flip / restart can re-enable it).
   const initialMeta = await reg.store.getMeta();
   if (initialMeta.disabled) {
+    // NOT journaled: a disabled loop declines EVERY fire, so recording each
+    // would evict useful entries from the capped journal. The disabled latch
+    // (`loop:<id>:meta`) is itself the durable signal.
     return { kind: "skip", reason: "auto_disabled" };
   }
   if (meta.preSkip) {
+    // Event pre-gate decline (`filter_rejected`) — no audit-log lines yet.
+    await journalSkip(meta.preSkip, []);
     return { kind: "skip", reason: meta.preSkip };
   }
 
@@ -415,17 +442,21 @@ async function runFire(
     let checkResult: CheckResult;
     try {
       checkResult = await reg.def.check(checkCtx);
+      // Validate INSIDE the fail-soft boundary: a malformed result (or any
+      // throw while reading it) is classified like a thrown check via
+      // `handleFailure`, never re-thrown to the fire-and-forget host.
+      const invalidCheck = validateCheckResult(checkResult);
+      if (invalidCheck) {
+        return handleFailure(reg, new Error(invalidCheck));
+      }
     } catch (err) {
       return handleFailure(reg, err);
     }
-    const invalidCheck = validateCheckResult(checkResult);
-    if (invalidCheck) {
-      return handleFailure(reg, new Error(invalidCheck));
-    }
     if (checkResult.proceed === false) {
       // A non-throwing check is a healthy fire even when it declines —
-      // reset the consecutive-error counter, then record the skip.
+      // reset the consecutive-error counter, then journal the skip.
       await resetErrorsIfNeeded(reg, initialMeta);
+      await journalSkip(checkResult.reason, logLines);
       return { kind: "skip", reason: checkResult.reason };
     }
     // `proceed:true` with an explicit `input` REPLACES what `act` sees.
@@ -453,15 +484,21 @@ async function runFire(
     return handleFailure(reg, err);
   }
 
-  // Any act that succeeded resets the consecutive-error counter.
-  await resetErrorsIfNeeded(reg, initialMeta);
-
+  // Validate BEFORE resetting the error counter: an invalid act result is a
+  // failure, so it must accumulate toward auto-disable. Resetting first would
+  // reset-then-increment to 1 on every fire — the counter could never reach
+  // `autoDisableAfter`, so a permanently-broken act would never disable.
   const invalid = validateActResult(result, reg.contract);
   if (invalid) {
     return handleFailure(reg, new Error(invalid));
   }
 
+  // A VALID act result (terminal/deferred/skip) resets the consecutive-error
+  // counter — the fire was healthy.
+  await resetErrorsIfNeeded(reg, initialMeta);
+
   if (result.kind === "skip") {
+    await journalSkip(result.reason, logLines);
     return { kind: "skip", reason: result.reason };
   }
 

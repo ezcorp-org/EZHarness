@@ -30,6 +30,7 @@ import {
   type NotifyInput,
 } from "./index";
 import config from "./ezcorp.config";
+import { validateManifestV2 } from "../../../../src/extensions/manifest";
 
 afterEach(() => {
   _setGitHeadForTests(null);
@@ -63,7 +64,7 @@ function makeCheckCtx(
         cursorValue = v;
       },
     },
-    fetch: (async () => new Response("")) as typeof fetch,
+    fetch: (async () => new Response("")) as unknown as typeof fetch,
     log: (msg) => logs.push(msg),
   };
   return { ctx, getCursor: () => cursorValue, logs };
@@ -181,20 +182,20 @@ describe("checkRepoActivity", () => {
 
   test("no git HEAD → skip (no_git_head)", async () => {
     _setGitHeadForTests(async () => null);
-    const { ctx } = makeCheckCtx({ settings: { repoPath: "/tmp/whatever" } });
+    const { ctx } = makeCheckCtx({ settings: { repo_path: "/tmp/whatever" } });
     expect(await checkRepoActivity(ctx)).toEqual({ proceed: false, reason: "no_git_head" });
   });
 
   test("cursor already at HEAD → skip (no_new_commits)", async () => {
     _setGitHeadForTests(async () => ({ hash: "same-hash", subject: "s" }));
-    const { ctx, getCursor } = makeCheckCtx({ settings: { repoPath: "/r" }, cursor: "same-hash" });
+    const { ctx, getCursor } = makeCheckCtx({ settings: { repo_path: "/r" }, cursor: "same-hash" });
     expect(await checkRepoActivity(ctx)).toEqual({ proceed: false, reason: "no_new_commits" });
     expect(getCursor()).toBe("same-hash"); // unchanged
   });
 
   test("first-ever commit → proceed + cursor set + enrichment (no previousHash)", async () => {
     _setGitHeadForTests(async () => ({ hash: "h1", subject: "feat: x" }));
-    const { ctx, getCursor, logs } = makeCheckCtx({ settings: { repoPath: "/r" } });
+    const { ctx, getCursor, logs } = makeCheckCtx({ settings: { repo_path: "/r" } });
     const result = await checkRepoActivity(ctx);
     expect(result).toEqual({ proceed: true, input: { hash: "h1", subject: "feat: x" } });
     expect(getCursor()).toBe("h1");
@@ -203,7 +204,7 @@ describe("checkRepoActivity", () => {
 
   test("new commit after a prior one → proceed carries previousHash", async () => {
     _setGitHeadForTests(async () => ({ hash: "h2", subject: "fix: y" }));
-    const { ctx, getCursor } = makeCheckCtx({ settings: { repoPath: "/r" }, cursor: "h1" });
+    const { ctx, getCursor } = makeCheckCtx({ settings: { repo_path: "/r" }, cursor: "h1" });
     const result = await checkRepoActivity(ctx);
     expect(result).toEqual({
       proceed: true,
@@ -212,7 +213,7 @@ describe("checkRepoActivity", () => {
     expect(getCursor()).toBe("h2");
   });
 
-  test("blank repoPath falls back to the project root env", async () => {
+  test("blank repo_path falls back to the project root env", async () => {
     let seenPath: string | undefined;
     _setGitHeadForTests(async (p) => {
       seenPath = p;
@@ -242,7 +243,7 @@ describe("notifyAct", () => {
     });
     const { ctx } = makeActCtx({
       input: { hash: "abcdef1234", subject: "feat: cool" },
-      settings: { conversationId: "conv-1" },
+      settings: { conversation_id: "conv-1" },
       messages: [{ id: "m-parent", role: "assistant", content: "prior" }],
     });
     const result = await notifyAct(ctx);
@@ -275,7 +276,7 @@ describe("notifyAct", () => {
     const result = (await notifyAct(ctx)) as { outcome: { appended: boolean } };
     expect(result.outcome.appended).toBe(false);
     expect(calls).toBe(0);
-    expect(logs.join(" ")).toContain("no conversationId");
+    expect(logs.join(" ")).toContain("no conversation configured");
   });
 
   test("conversation with no anchorable message → artifact-only (warns)", async () => {
@@ -284,7 +285,7 @@ describe("notifyAct", () => {
       calls++;
       return {};
     });
-    const { ctx, logs } = makeActCtx({ settings: { conversationId: "conv-1" }, messages: [] });
+    const { ctx, logs } = makeActCtx({ settings: { conversation_id: "conv-1" }, messages: [] });
     const result = (await notifyAct(ctx)) as { outcome: { appended: boolean } };
     expect(result.outcome.appended).toBe(false);
     expect(calls).toBe(0);
@@ -302,7 +303,7 @@ describe("notifyAct", () => {
     }) as typeof ch.request);
     const { ctx } = makeActCtx({
       input: { hash: "0011223344", subject: "docs: note" },
-      settings: { conversationId: "conv-9" },
+      settings: { conversation_id: "conv-9" },
       messages: [{ id: "m-a", role: "user", content: "q" }],
     });
     await notifyAct(ctx);
@@ -316,6 +317,20 @@ describe("notifyAct", () => {
 describe("registration + manifest", () => {
   test("defineRepoActivityNotifyLoop registers without throwing", () => {
     expect(() => defineRepoActivityNotifyLoop()).not.toThrow();
+  });
+
+  test("the manifest passes validateManifestV2 (snake_case settings keys)", () => {
+    // The host validates every manifest through validateManifestV2 at load
+    // time; a camelCase settings key (repoPath / conversationId) FAILS
+    // SETTINGS_KEY_REGEX so the extension would never load — the unit suite
+    // above exercises the config readers directly and would NOT catch it.
+    const result = validateManifestV2(config);
+    expect(result.errors).toEqual([]);
+    expect(result.valid).toBe(true);
+    // The keys the readers depend on are the snake_case ones.
+    expect(Object.keys(config.settings ?? {})).toEqual(
+      expect.arrayContaining(["enabled", "repo_path", "conversation_id"]),
+    );
   });
 
   test("manifest declares the read-only grants (no llm / no spawnAgents)", () => {

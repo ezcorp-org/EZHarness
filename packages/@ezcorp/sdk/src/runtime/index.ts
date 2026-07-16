@@ -199,7 +199,12 @@ export {
 // own dispatch/track flow on the loop-store substrate rather than the full
 // `defineLoop` facade.
 export { createLoopRunStore } from "./loop-store";
-export type { LoopRunStore, LoopMeta, LoopTransitionInput } from "./loop-store";
+export type {
+  LoopRunStore,
+  LoopMeta,
+  LoopTransitionInput,
+  LoopSkipEntry,
+} from "./loop-store";
 export type {
   LoopTrigger,
   LoopContract,

@@ -139,8 +139,8 @@ export async function checkRepoActivity(
     return { proceed: false, reason: "settings_disabled" };
   }
   const repoPath =
-    typeof ctx.settings.repoPath === "string" && ctx.settings.repoPath.length > 0
-      ? ctx.settings.repoPath
+    typeof ctx.settings.repo_path === "string" && ctx.settings.repo_path.length > 0
+      ? ctx.settings.repo_path
       : (process.env.EZCORP_PROJECT_ROOT ?? process.cwd());
 
   const head = await gitHeadImpl(repoPath);
@@ -179,7 +179,7 @@ export async function notifyAct(
   const notice = `repo-activity-notify: new commit ${hash.slice(0, 8)} — ${subject}`;
 
   const conversationId =
-    typeof ctx.settings.conversationId === "string" ? ctx.settings.conversationId : "";
+    typeof ctx.settings.conversation_id === "string" ? ctx.settings.conversation_id : "";
 
   let appended = false;
   if (conversationId) {
@@ -200,7 +200,7 @@ export async function notifyAct(
       ctx.log("no message to anchor the notice; artifact-only", "warn");
     }
   } else {
-    ctx.log("no conversationId configured; artifact-only", "warn");
+    ctx.log("no conversation configured; artifact-only", "warn");
   }
 
   return {
@@ -225,7 +225,20 @@ export function defineRepoActivityNotifyLoop(): void {
       { kind: "cron", cron: "0 * * * *" },
       { kind: "manual", tool: "check_repo_activity" },
     ],
-    contract: { states: ["done"], scope: "global", retention: { maxRuns: 50 } },
+    contract: {
+      states: ["done"],
+      scope: "global",
+      retention: { maxRuns: 50 },
+      // At-most-once notice semantics. The cursor advances in `check` (the
+      // moment a new HEAD is seen); if `act` then fails to append the notice,
+      // that commit's notice is LOST — the next fire sees the already-advanced
+      // cursor and skips (`no_new_commits`). That is by design for a read-only
+      // trust probe: never DUPLICATE a notice (at-most-once) is worth more than
+      // never MISS one (at-least-once), which would risk re-notifying on every
+      // sweep after a transient append failure. `maxConcurrent: 1` keeps a slow
+      // sweep from overlapping the manual trigger and double-advancing.
+      concurrency: { maxConcurrent: 1 },
+    },
     // The deterministic gate: only proceed to act on a genuinely new commit.
     check: checkRepoActivity,
     act: notifyAct,

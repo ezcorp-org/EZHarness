@@ -198,6 +198,30 @@ export type LoopCheck<Input = unknown> = (
   ctx: LoopCheckContext<Input>,
 ) => Promise<CheckResult<Input>>;
 
+// ── Compile-time firewall (CI-enforced) ─────────────────────────────
+//
+// Determinism-by-construction is only a firewall if something FAILS THE
+// BUILD when it's breached. `LoopCheckContext` must NEVER expose `llm`,
+// `spawn`, or `recentMessages` — the check stage structurally cannot invoke
+// a model or dispatch an agent. The runtime FIREWALL test asserts the shape,
+// and a type-level `Absent<…>` assertion lived in loop.test.ts — but
+// `tsconfig.typecheck.json` excludes `**/*.test.ts`, so CI `tsc` never
+// compiled it (the guard was inert on the merge path).
+//
+// This assertion lives in `src/**`, which `tsconfig.typecheck.json` DOES
+// compile, so CI `tsc` is the enforcement point: if any forbidden key leaks
+// into `LoopCheckContext`, `_Absent<K>` resolves to `false`, the
+// `_ExpectTrue<…>` constraint is violated, and the build fails with TS2344.
+// Pure types — zero runtime cost, and exported so no lint/dead-code pass can
+// elide it. (Not re-exported from the runtime barrel; internal to the SDK.)
+type _ExpectTrue<T extends true> = T;
+type _Absent<K extends string> = K extends keyof LoopCheckContext ? false : true;
+export type _LoopCheckFirewall = [
+  _ExpectTrue<_Absent<"llm">>,
+  _ExpectTrue<_Absent<"spawn">>,
+  _ExpectTrue<_Absent<"recentMessages">>,
+];
+
 // ── act ──────────────────────────────────────────────────────────────
 
 export type ActResult<Outcome = unknown> =

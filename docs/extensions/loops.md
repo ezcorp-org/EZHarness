@@ -126,14 +126,19 @@ type CheckResult<Input> =
   | { proceed: false; reason: string };   // logged skip, NOT an error
 ```
 
-Runs **between the dup gate and `act`** — the "does the AI process even need
-to run?" decision, made in deterministic code. Return `proceed: false` and
-the fire is a first-class `skip` (with `reason` in the audit log); return
-`proceed: true` and `act` runs — optionally on an **enriched `input`** the
-check resolved (e.g. the git commit a git-cursor check found), so `act`
-never re-derives it. Omitting `check` is `proceed: true` — existing loops
-are unchanged. A **thrown** `check` is classified by `contract.failure`
-exactly like a thrown `act`. See [The check stage](#the-check-stage).
+Runs **before `act`** — the "does the AI process even need to run?" decision,
+made in deterministic code. (The idempotency/dup gate is NOT before `check`; it
+is applied at claim time, **after** `act`, and is effectively deferred-only —
+see [The check stage](#the-check-stage).) Return `proceed: false` and the fire
+is a first-class `skip` (with `reason` in the audit log **and** a durable
+entry in the skip journal); return `proceed: true` and `act` runs — optionally
+on an **enriched `input`** the check resolved (e.g. the git commit a git-cursor
+check found), so `act` never re-derives it. That enriched input is what the run
+**persists** and what **`contract.idempotencyKey` is computed from** (so a check
+that resolves the canonical work id dedups on it). Omitting `check` is
+`proceed: true` — existing loops are unchanged. A **thrown** `check` is
+classified by `contract.failure` exactly like a thrown `act`. See
+[The check stage](#the-check-stage).
 
 ### `act` — the loop body (terminal **or** deferred)
 
@@ -238,8 +243,16 @@ The `check` stage is the vision's "deterministic code runs → decides whether
 the AI process runs". The fire pipeline is:
 
 ```
-trigger → (idempotency / dup gate) → check → act
+trigger → check → act → (claim-time idempotency / dup gate)
 ```
+
+The idempotency/dup gate is applied **at claim time — after `act`** (inside the
+run store's `claim`), not before `check`. A duplicate key is a no-op only when
+it matches a still-**open** (non-terminal) run, so the dedup is effectively
+**deferred-only**: a terminal loop resolves within the fire and never leaves an
+open run for a later fire to collide with. The key is computed from the
+**enriched** input (post-`check`), so a check that resolves the canonical work
+id (e.g. a git hash) is what the dedup keys on.
 
 `check` receives a purpose-built context — and what it does **not** carry is
 the point:
@@ -269,7 +282,7 @@ deterministic marker a git-cursor / threshold check reads and advances:
 
 ```ts
 check: async (ctx) => {
-  const head = await readGitHead(ctx.settings.repoPath);      // deterministic exec
+  const head = await readGitHead(ctx.settings.repo_path);     // deterministic exec
   if (!head) return { proceed: false, reason: "no_git_head" };
   if ((await ctx.cursor.get<string>()) === head.hash) {
     return { proceed: false, reason: "no_new_commits" };       // logged skip
@@ -285,6 +298,33 @@ truthiness). The runnable reference is
 [`examples/repo-activity-notify`](examples/repo-activity-notify/index.ts) — a
 read-only "check → notify" loop that appends a one-line notice when it sees a
 new commit and skips (with a reason) when it doesn't.
+
+### What persists on a skip — the skip journal
+
+A decline is not silent. Every skip that carries a decision — a `check`
+`proceed: false`, an `act` `{ kind: "skip" }`, or a **rejected event `filter`**
+(`filter_rejected`) — is appended to a durable, capped per-loop **skip journal**
+at `loop:<id>:skips` (Storage, same scope as the contract, newest-first, cap
+**50**, written under `withLock`). Each entry records:
+
+```ts
+interface LoopSkipEntry {
+  at: string;        // ISO timestamp
+  reason: string;    // the decline reason
+  trigger: string;   // "cron" | "event" | "manual"
+  logLines: string[];// audit-log lines the fire accumulated before declining
+}
+```
+
+This holds for **all** trigger kinds — the cron/event handlers discard the
+`FireResult`, so without the journal a scheduled skip would leave no trace; the
+primitive journals inside the fire so the record is uniform. Read it back with
+the store accessor `store.listSkips()`.
+
+The one skip that is **not** journaled is `auto_disabled`: a disabled loop
+declines every fire, so recording each would evict useful entries from the
+capped journal — the disabled latch (`loop:<id>:meta`) is itself the durable
+signal.
 
 ## Invariant — durable state is transactional; the filesystem is artifacts only
 
