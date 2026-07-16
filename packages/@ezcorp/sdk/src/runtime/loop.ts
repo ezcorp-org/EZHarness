@@ -25,21 +25,30 @@ import { Llm } from "./llm";
 import { invoke } from "./invoke";
 import { spawnAssignment } from "./spawn";
 import {
+  APPROVED,
+  AWAITING_APPROVAL,
+  DECLINED,
+  FINALIZING,
   autoDisableContext,
   classifyFailure,
+  isProposalStale,
   resolveContract,
   validateActResult,
   validateCheckResult,
 } from "./loop-core";
 import { createLoopRunStore, type LoopRunStore } from "./loop-store";
 import { wireLog, runTerminalLog } from "./loop-log";
+import { LoopEvents } from "./loop-events";
 import type {
   ActResult,
+  ApprovalDecision,
   CheckResult,
   LoopActContext,
   LoopCheckContext,
+  LoopCompleteContext,
   LoopDefinition,
   LoopMessage,
+  LoopProposal,
   LoopRunState,
   LoopSettings,
   LoopTrigger,
@@ -139,6 +148,10 @@ let messagesResolverImpl: MessagesResolver = defaultMessagesResolver;
 let spawnImpl: typeof spawnAssignment = spawnAssignment;
 let llmFactory: () => Llm = () => new Llm();
 let storeFactory: StoreFactory | null = null;
+// The approval-event emitter (reverse RPC → host bus). Defaults to the
+// channel-backed client; tests inject a spy to observe the content-free
+// nudge without a live pipe.
+let loopEventsImpl: LoopEvents = new LoopEvents();
 // The `check` stage's host-mediated fetch. Defaults to the sandbox-wrapped
 // global `fetch` (network-grant-gated by the preload); tests inject a stub
 // to observe the check's external-data surface without a live network.
@@ -177,6 +190,10 @@ export function _setStoreFactoryForTests(fn: StoreFactory | null): void {
 export function _setCheckFetchForTests(fn: typeof fetch | null): void {
   checkFetchImpl = fn ?? defaultCheckFetch;
 }
+/** @internal test-only — override the approval-event emitter. */
+export function _setLoopEventsForTests(fn: LoopEvents | null): void {
+  loopEventsImpl = fn ?? new LoopEvents();
+}
 
 // ── Registry (multi-loop-per-extension) ─────────────────────────────
 //
@@ -197,6 +214,26 @@ interface RegisteredLoop {
 const registry = new Map<string, RegisteredLoop>();
 let assignmentHandlerInstalled = false;
 
+// ── Proposal-closure registry (in-memory, NOT persisted) ────────────
+//
+// A parked proposal's `finalize`/`discard` are closures — they cannot be
+// JSON-serialized into Storage, so they live here keyed by
+// `<loopId>:<runId>` only for the lifetime of the extension subprocess. A
+// process restart loses them: a subsequent approve then finds NO closure and
+// refuses to finalize (surfacing "verify manually" / leaving the run for the
+// staleness sweep) — which is exactly the fail-safe the exactly-once
+// guarantee wants. `finalize` is never invoked without its closure, so it can
+// never double-act across a restart.
+interface ProposalClosures {
+  finalize: () => Promise<unknown>;
+  discard?: () => Promise<void>;
+}
+const proposalClosures = new Map<string, ProposalClosures>();
+
+function closureKey(loopId: string, runId: string): string {
+  return `${loopId}:${runId}`;
+}
+
 /** Accumulated manual-trigger tool handlers across every loop in this
  *  extension. Exposed via `getLoopTools()` so an extension that hand-writes
  *  its own tools can merge them into a single `createToolDispatcher`. */
@@ -214,6 +251,7 @@ export function getLoopTools(): Record<string, ToolHandler> {
 export function __resetLoopsForTests(): void {
   registry.clear();
   assignmentHandlerInstalled = false;
+  proposalClosures.clear();
   for (const k of Object.keys(loopToolHandlers)) delete loopToolHandlers[k];
 }
 
@@ -365,6 +403,7 @@ type FireResult =
   | { kind: "skip"; reason: string }
   | { kind: "terminal"; runId: string; status: string }
   | { kind: "deferred"; runId: string; status: string }
+  | { kind: "proposal"; runId: string; status: string }
   | { kind: "error"; detail: string };
 
 /**
@@ -390,6 +429,16 @@ async function runFire(
       trigger: trigger.kind,
       logLines: lines,
     });
+
+  // Opportunistic staleness sweep: auto-decline any parked proposal that has
+  // rotted past the horizon. Best-effort — never blocks/fails the fire.
+  if (reg.contract.approval) {
+    try {
+      await sweepStaleProposals(reg.id);
+    } catch {
+      // A sweep failure must never fail the fire.
+    }
+  }
 
   // Auto-disable latch: a disabled loop skips every fire (it stays
   // registered so a settings flip / restart can re-enable it).
@@ -522,6 +571,28 @@ async function runFire(
     return { kind: "terminal", runId: run.id, status: result.status };
   }
 
+  if (result.kind === "proposal") {
+    // Gated output: park the run in the primitive-owned `awaiting_approval`
+    // state carrying the proposal SNAPSHOT (plain data). The finalize/discard
+    // closures go to the in-memory registry (never persisted); a human
+    // approve/decline resolves the run via `approveRun`/`declineRun`.
+    const key = idemKey(reg, effectiveInput);
+    const label = logLines[0] ?? `parked: ${result.status}`;
+    const { run } = await reg.store.claim({
+      id: meta.fireId,
+      loopId: reg.id,
+      status: AWAITING_APPROVAL,
+      input: effectiveInput,
+      proposal: result.proposal,
+      ...(key ? { idempotencyKey: key } : {}),
+      note: label,
+    });
+    storeClosures(reg.id, run.id, result.finalize, result.discard);
+    await emitApprovalPending(reg, run);
+    await reg.pushDashboard?.();
+    return { kind: "proposal", runId: run.id, status: AWAITING_APPROVAL };
+  }
+
   // Deferred: open a non-terminal run keyed by the spawned runId.
   const note = logLines[0];
   const deferredKey = idemKey(reg, effectiveInput);
@@ -593,6 +664,262 @@ async function afterTerminal(
   await runTerminalLog(reg, run, outcome);
 }
 
+// ── Approval resolution (primitive-owned) ────────────────────────────
+//
+// The primitive OWNS approve/decline + the state transitions; extensions
+// only supply the `finalize`/`discard` closures. `approveRun`/`declineRun`
+// are what a dashboard row-action (Phase 3) or a host route invokes — never
+// re-implemented per loop, so governance + the LOCKED label capture can't be
+// forgotten or faked.
+
+function storeClosures(
+  loopId: string,
+  runId: string,
+  finalize: () => Promise<unknown>,
+  discard?: () => Promise<void>,
+): void {
+  proposalClosures.set(closureKey(loopId, runId), {
+    finalize,
+    ...(discard ? { discard } : {}),
+  });
+}
+
+/** Emit the content-free approval-pending nudge (best-effort — an emit
+ *  failure must never fail the fire or leave the run unparked). */
+async function emitApprovalPending(
+  reg: RegisteredLoop,
+  run: LoopRunState,
+): Promise<void> {
+  try {
+    await loopEventsImpl.emitApprovalPending({
+      loopId: reg.id,
+      runId: run.id,
+      ...(run.subConversationId ? { conversationId: run.subConversationId } : {}),
+    });
+  } catch {
+    // Content-free nudge; the authorized dashboard/GET is the source of truth.
+  }
+}
+
+async function emitApprovalResolved(
+  reg: RegisteredLoop,
+  run: LoopRunState,
+  decision: ApprovalDecision,
+): Promise<void> {
+  try {
+    await loopEventsImpl.emitApprovalResolved({
+      loopId: reg.id,
+      runId: run.id,
+      decision,
+      ...(run.subConversationId ? { conversationId: run.subConversationId } : {}),
+    });
+  } catch {
+    // Best-effort mirror; the audit stream + label store are authoritative.
+  }
+}
+
+/** Append the LOCKED eval-signal label for a resolution. Written ONLY here
+ *  (the single approval-resolution path). */
+async function appendApprovalLabel(
+  reg: RegisteredLoop,
+  run: LoopRunState,
+  proposal: LoopProposal,
+  decision: ApprovalDecision,
+  decidedBy: string,
+  note?: string,
+): Promise<void> {
+  await reg.store.appendLabel({
+    loopId: reg.id,
+    runId: run.id,
+    proposalSnapshot: proposal,
+    decision,
+    decidedBy,
+    decidedAt: new Date().toISOString(),
+    ...(note ? { note } : {}),
+    loopConfigVersion: reg.contract.configVersion,
+  });
+}
+
+export type ApprovalResolution =
+  | { ok: true; runId: string; decision: "approved"; finalized: boolean; verifyManually?: boolean }
+  | { ok: true; runId: string; decision: "declined" }
+  | { ok: false; reason: string };
+
+/**
+ * Approve a parked proposal — the primitive-owned transition. Records
+ * finalize-intent (`awaiting_approval → finalizing`) BEFORE invoking
+ * `finalize`, so a crash between the intent and completion leaves the run in
+ * `finalizing` (re-entry surfaces "verify manually", NEVER a re-invoke). The
+ * approval label (the eval signal) is appended at decision time regardless of
+ * the finalize outcome.
+ */
+export async function approveRun(
+  loopId: string,
+  runId: string,
+  decidedBy: string,
+): Promise<ApprovalResolution> {
+  const reg = registry.get(loopId);
+  if (!reg) return { ok: false, reason: "unknown_loop" };
+  const run = await reg.store.get(runId);
+  if (!run) return { ok: false, reason: "unknown_run" };
+  if (run.status === APPROVED || run.status === DECLINED) {
+    return { ok: false, reason: "already_resolved" };
+  }
+  if (run.status === FINALIZING) {
+    // A finalize is already in flight (or crashed) — never re-invoke.
+    return { ok: false, reason: "finalizing" };
+  }
+  if (run.status !== AWAITING_APPROVAL) {
+    return { ok: false, reason: "not_parked" };
+  }
+  if (!run.proposal) return { ok: false, reason: "no_proposal" };
+
+  const closures = proposalClosures.get(closureKey(loopId, runId));
+  if (!closures) {
+    // Process restarted → the finalize closure is gone. Flag the run for
+    // manual verification and leave it (the staleness sweep will reap it).
+    // Never fabricate a finalize.
+    await reg.store.transitionIf(runId, AWAITING_APPROVAL, {
+      status: AWAITING_APPROVAL,
+      eventStatus: "closures_lost",
+      verifyManually: true,
+      note: "approve after restart — finalize closure lost; verify manually",
+    });
+    return { ok: false, reason: "closures_lost" };
+  }
+
+  // CAS: record finalize-intent. Only the winner of the flip proceeds — a
+  // concurrent approve reads `finalizing` and bails, so `finalize` runs once
+  // and the label is appended once.
+  const parked = await reg.store.transitionIf(runId, AWAITING_APPROVAL, {
+    status: FINALIZING,
+    eventStatus: FINALIZING,
+    note: `approved by ${decidedBy}`,
+  });
+  if (!parked) return { ok: false, reason: "already_resolved" };
+
+  const proposal = run.proposal;
+  await appendApprovalLabel(reg, parked, proposal, "approved", decidedBy);
+  await emitApprovalResolved(reg, parked, "approved");
+
+  let outcome: unknown;
+  let finalizeError: unknown;
+  try {
+    outcome = await closures.finalize();
+  } catch (err) {
+    finalizeError = err;
+  }
+  proposalClosures.delete(closureKey(loopId, runId));
+
+  if (finalizeError) {
+    // finalize threw — the side effect may be partial. Stay in `finalizing`,
+    // flag verify-manually, never re-invoke.
+    await reg.store.transitionIf(runId, FINALIZING, {
+      status: FINALIZING,
+      eventStatus: "finalize_failed",
+      verifyManually: true,
+      note: finalizeError instanceof Error ? finalizeError.message : String(finalizeError),
+    });
+    return { ok: true, runId, decision: "approved", finalized: false, verifyManually: true };
+  }
+
+  const finalRun = await reg.store.transitionIf(runId, FINALIZING, {
+    status: APPROVED,
+    eventStatus: APPROVED,
+    outcome,
+  });
+  if (finalRun) await afterTerminal(reg, finalRun, outcome);
+  return { ok: true, runId, decision: "approved", finalized: true };
+}
+
+/**
+ * Decline a parked proposal — the primitive-owned transition. Flips
+ * `awaiting_approval → declined` (terminal) atomically, appends the
+ * `declined` label, emits the resolved nudge, then runs `discard`
+ * best-effort (cleanup failure never un-declines). `decidedBy: "system"`
+ * marks a staleness auto-decline.
+ */
+export async function declineRun(
+  loopId: string,
+  runId: string,
+  decidedBy: string,
+  note?: string,
+): Promise<ApprovalResolution> {
+  const reg = registry.get(loopId);
+  if (!reg) return { ok: false, reason: "unknown_loop" };
+  const run = await reg.store.get(runId);
+  if (!run) return { ok: false, reason: "unknown_run" };
+  if (run.status === APPROVED || run.status === DECLINED) {
+    return { ok: false, reason: "already_resolved" };
+  }
+  if (run.status !== AWAITING_APPROVAL) {
+    return { ok: false, reason: "not_parked" };
+  }
+  if (!run.proposal) return { ok: false, reason: "no_proposal" };
+
+  const declined = await reg.store.transitionIf(runId, AWAITING_APPROVAL, {
+    status: DECLINED,
+    eventStatus: DECLINED,
+    note: note ? `declined by ${decidedBy}: ${note}` : `declined by ${decidedBy}`,
+  });
+  if (!declined) return { ok: false, reason: "already_resolved" };
+
+  await appendApprovalLabel(reg, declined, run.proposal, "declined", decidedBy, note);
+  await emitApprovalResolved(reg, declined, "declined");
+
+  const closures = proposalClosures.get(closureKey(loopId, runId));
+  proposalClosures.delete(closureKey(loopId, runId));
+  if (closures?.discard) {
+    try {
+      await closures.discard();
+    } catch {
+      // Cleanup is best-effort — a discard failure never un-declines the run.
+    }
+  }
+  await afterTerminal(reg, declined, declined.outcome);
+  return { ok: true, runId, decision: "declined" };
+}
+
+/**
+ * Auto-decline every parked proposal that has rotted past the loop's
+ * staleness horizon (`contract.approval.staleAfterDays`). Runs opportunistically
+ * at the top of each fire and is exported for a periodic host sweep. Returns
+ * the number auto-declined. Best-effort — never throws.
+ */
+export async function sweepStaleProposals(
+  loopId: string,
+  nowMs: number = Date.now(),
+): Promise<number> {
+  const reg = registry.get(loopId);
+  if (!reg?.contract.approval) return 0;
+  const staleAfterDays = reg.contract.approval.staleAfterDays;
+  if (staleAfterDays <= 0) return 0;
+  let count = 0;
+  const runs = await reg.store.list();
+  for (const run of runs) {
+    if (!isProposalStale(run, staleAfterDays, nowMs)) continue;
+    const res = await declineRun(
+      loopId,
+      run.id,
+      "system",
+      "auto-declined: parked proposal exceeded staleness horizon",
+    );
+    if (res.ok) count++;
+  }
+  return count;
+}
+
+/** @internal test-only — seed a proposal closure (e.g. to simulate a
+ *  restart's lost closure by NOT seeding, or to inject a spy finalize). */
+export function _setProposalClosuresForTests(
+  loopId: string,
+  runId: string,
+  closures: ProposalClosures | null,
+): void {
+  if (closures) proposalClosures.set(closureKey(loopId, runId), closures);
+  else proposalClosures.delete(closureKey(loopId, runId));
+}
+
 // ── Deferred completion: task:assignment_update ─────────────────────
 
 function ensureAssignmentHandler(): void {
@@ -624,6 +951,21 @@ export async function dispatchAssignmentUpdate(
     );
     if (!match) continue;
     const nextStatus = mapAssignmentStatus(a.status, reg.contract);
+
+    // Deferred → proposal composition: when a deferred run reaches a terminal
+    // host status AND the loop declares `onComplete` + `approval`, let
+    // `onComplete` turn the spawned agent's completion into a proposal (park)
+    // or a terminal result — instead of terminalizing directly.
+    if (
+      isTerminalStatus(nextStatus, reg.contract) &&
+      reg.def.onComplete &&
+      reg.contract.approval
+    ) {
+      const handled = await runOnComplete(reg, match, nextStatus, a.resultPreview);
+      if (handled) return;
+      // Fall through to the default terminalize when onComplete opted out.
+    }
+
     const updated = await reg.store.transition(match.id, {
       status: nextStatus,
       ...(a.resultPreview ? { note: a.resultPreview } : {}),
@@ -637,6 +979,71 @@ export async function dispatchAssignmentUpdate(
     // match.
     return;
   }
+}
+
+/**
+ * Run a deferred loop's `onComplete` at the completion boundary and act on
+ * its result:
+ *   - `proposal` → park the run in `awaiting_approval` with the snapshot +
+ *     store the finalize/discard closures + emit the pending nudge.
+ *   - `terminal` → transition to the terminal status + outcome + artifact/log.
+ *   - anything else / a throw / an invalid proposal → return false so the
+ *     caller terminalizes with the default status (no strand).
+ * Returns true when it fully handled the completion.
+ */
+async function runOnComplete(
+  reg: RegisteredLoop,
+  run: LoopRunState,
+  mappedStatus: string,
+  resultPreview?: string,
+): Promise<boolean> {
+  const onComplete = reg.def.onComplete;
+  if (!onComplete) return false;
+  const settings = await settingsResolverImpl();
+  const notes: string[] = [];
+  const ctx: LoopCompleteContext = {
+    run,
+    status: mappedStatus,
+    ...(resultPreview !== undefined ? { resultPreview } : {}),
+    settings,
+    log: (msg: string) => notes.push(msg),
+  };
+  let result: ActResult;
+  try {
+    result = await onComplete(ctx);
+  } catch {
+    // Never strand the run: fall back to the default terminalize.
+    return false;
+  }
+
+  if (result.kind === "proposal") {
+    if (validateActResult(result, reg.contract) !== null) return false;
+    const parked = await reg.store.transition(run.id, {
+      status: AWAITING_APPROVAL,
+      eventStatus: result.status,
+      proposal: result.proposal,
+      ...(notes[0] ? { note: notes[0] } : {}),
+    });
+    if (!parked) return false;
+    storeClosures(reg.id, run.id, result.finalize, result.discard);
+    await emitApprovalPending(reg, parked);
+    await reg.pushDashboard?.();
+    return true;
+  }
+
+  if (result.kind === "terminal") {
+    if (validateActResult(result, reg.contract) !== null) return false;
+    const done = await reg.store.transition(run.id, {
+      status: result.status,
+      outcome: result.outcome,
+      ...(notes[0] ? { note: notes[0] } : {}),
+    });
+    if (done) await afterTerminal(reg, done, result.outcome);
+    return true;
+  }
+
+  // skip / deferred / invalid → default terminalize.
+  return false;
 }
 
 /**

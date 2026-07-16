@@ -26,6 +26,7 @@ import {
 } from "./loop-core";
 import type { NewRunInput } from "./loop-core";
 import type {
+  LoopApprovalLabel,
   LoopContract,
   LoopRunState,
   ResolvedContract,
@@ -80,6 +81,10 @@ export interface LoopTransitionInput<Outcome = unknown> {
   externalAssignmentId?: string;
   externalTaskId?: string;
   subConversationId?: string;
+  /** Set/replace the proposal snapshot (deferred completion → park). */
+  proposal?: import("./loop-types").LoopProposal;
+  /** Flag the run for manual verification (finalizing crash re-entry). */
+  verifyManually?: boolean;
 }
 
 export interface LoopRunStore<Outcome = unknown> {
@@ -99,6 +104,21 @@ export interface LoopRunStore<Outcome = unknown> {
    *  events). */
   transition(
     runId: string,
+    next: LoopTransitionInput<Outcome>,
+  ): Promise<LoopRunState<Outcome> | null>;
+  /**
+   * Compare-and-set transition: apply `next` ONLY when the run's current
+   * status is exactly `expectedStatus`, resolved under the store lock.
+   * Returns the updated run, or null when the run is missing OR its status
+   * no longer matches (a concurrent resolver already moved it). This is the
+   * atomic guard the approval path uses — only the caller that flips
+   * `awaiting_approval → finalizing`/`declined` proceeds to finalize/label,
+   * so a double approve/decline can neither re-invoke `finalize` nor
+   * double-append a label.
+   */
+  transitionIf(
+    runId: string,
+    expectedStatus: string,
     next: LoopTransitionInput<Outcome>,
   ): Promise<LoopRunState<Outcome> | null>;
   /** Read one run, or null. */
@@ -123,6 +143,18 @@ export interface LoopRunStore<Outcome = unknown> {
   recordSkip(entry: LoopSkipEntry): Promise<void>;
   /** Read the skip journal, newest-first. */
   listSkips(): Promise<LoopSkipEntry[]>;
+  /**
+   * Append ONE approval label to the per-loop, append-only label store
+   * (`loop:<id>:labels`, oldest-first — the LOCKED eval signal). Written
+   * ONLY by the primitive's approval-resolution path; serialized under the
+   * store lock. NEVER capped and NEVER retention-evicted: this history is
+   * the held-out signal Phase 9's evolve loop optimizes against, so it must
+   * stay complete. No accessor mutates or removes an entry.
+   */
+  appendLabel(entry: LoopApprovalLabel): Promise<void>;
+  /** Read the append-only label store, oldest-first (chronological). This
+   *  is the ONLY read accessor — there is no delete/overwrite path. */
+  listLabels(): Promise<LoopApprovalLabel[]>;
 }
 
 /** Storage key helpers — single source of the key grammar. */
@@ -140,6 +172,9 @@ export function cursorKey(loopId: string): string {
 }
 export function skipsKey(loopId: string): string {
   return `loop:${loopId}:skips`;
+}
+export function labelsKey(loopId: string): string {
+  return `loop:${loopId}:labels`;
 }
 function lockKey(loopId: string, scope: StorageScope): string {
   return `loop-store:${loopId}:${scope}`;
@@ -247,6 +282,26 @@ export function createLoopRunStore<Outcome = unknown>(
       });
     },
 
+    async transitionIf(runId, expectedStatus, next) {
+      return withLock(lk, async () => {
+        const run = await readRun(runId);
+        if (!run) return null;
+        // The compare is resolved HERE, under the lock, from the fresh read
+        // — so two concurrent resolvers can't both pass the gate.
+        if (run.status !== expectedStatus) return null;
+        const now = new Date().toISOString();
+        const resolvedStatus = next.status ?? run.status;
+        const updated = coreTransition(
+          run,
+          { ...next, status: resolvedStatus },
+          resolved,
+          now,
+        );
+        await storage.set(runKey(loopId, runId), updated);
+        return updated;
+      });
+    },
+
     async get(runId) {
       return readRun(runId);
     },
@@ -294,6 +349,21 @@ export function createLoopRunStore<Outcome = unknown>(
 
     async listSkips() {
       const res = await storage.get<LoopSkipEntry[]>(skipsKey(loopId));
+      return Array.isArray(res.value) ? res.value : [];
+    },
+
+    async appendLabel(entry) {
+      await withLock(lk, async () => {
+        const res = await storage.get<LoopApprovalLabel[]>(labelsKey(loopId));
+        const prev = Array.isArray(res.value) ? res.value : [];
+        // Append-only, oldest-first, NEVER capped: this is the held-out
+        // eval signal — completeness beats bounded size.
+        await storage.set(labelsKey(loopId), [...prev, entry]);
+      });
+    },
+
+    async listLabels() {
+      const res = await storage.get<LoopApprovalLabel[]>(labelsKey(loopId));
       return Array.isArray(res.value) ? res.value : [];
     },
   };
