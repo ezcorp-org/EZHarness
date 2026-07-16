@@ -22,6 +22,10 @@
 /scripts/gate-integrity.ts          @arch1tect0x
 /scripts/check-visual-evidence.ts   @arch1tect0x
 /scripts/visual-evidence/           @arch1tect0x
+# The covers map controls visual-gate strictness (which spec must change for a
+# given component edit) — narrowing it in the same PR as a component change
+# would silently weaken the gate, so it is human-owned like the gate itself.
+/web/e2e/evidence-covers.json       @arch1tect0x
 /scripts/test-coverage.sh           @arch1tect0x
 /scripts/test.sh                    @arch1tect0x
 /scripts/lib/test-file-sets.sh      @arch1tect0x

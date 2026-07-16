@@ -12,20 +12,42 @@
  * Follows the `src/__tests__/gate-scripts.test.ts` convention (pure exported
  * functions exercised in isolation).
  */
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join as joinPath, resolve as resolvePath } from "node:path";
 import {
   parseReportJsonl,
   sanitize as sanitizeManifest,
 } from "../../scripts/visual-evidence/build-manifest.ts";
 import {
   COMMENT_MARKER,
+  MAX_INLINE_SHOTS,
   buildGalleryMarkdown,
+  buildSkippedMarkdown,
+  isChangedShotSpec,
   isPng,
   isSafeRelPath,
+  parseChangedSpecPaths,
   safeSegment,
   sanitizeLabel,
   validatePrNumber,
 } from "../../scripts/visual-evidence/publish.ts";
+
+// Shared gallery fixtures (used by both buildGalleryMarkdown describe blocks).
+const base = {
+  repo: "ezcorp-org/EZCorp",
+  branch: "evidence/pr-42",
+  commitSha: "abc123def456",
+  pr: 42,
+  runId: 99,
+};
+const countImages = (md: string): number => (md.match(/!\[evidence\]\(/g) ?? []).length;
+const makeShots = (n: number) =>
+  Array.from({ length: n }, (_, i) => {
+    const idx = String(i).padStart(2, "0");
+    return { spec: `web/e2e/s${idx}.spec.ts`, label: `shot ${idx}`, file: `${idx}.png` };
+  });
 
 // ── sanitizeLabel ────────────────────────────────────────────────────────────
 describe("publish: sanitizeLabel", () => {
@@ -154,14 +176,6 @@ describe("publish: safeSegment", () => {
 
 // ── buildGalleryMarkdown ─────────────────────────────────────────────────────
 describe("publish: buildGalleryMarkdown", () => {
-  const base = {
-    repo: "ezcorp-org/EZCorp",
-    branch: "evidence/pr-42",
-    commitSha: "abc123def456",
-    pr: 42,
-    runId: 99,
-  };
-
   test("contains marker + immutable SHA URL per shot", () => {
     const md = buildGalleryMarkdown({
       ...base,
@@ -195,6 +209,252 @@ describe("publish: buildGalleryMarkdown", () => {
     expect(md).toContain("⚠️");
     expect(md).toContain("@evidence");
     expect(md).not.toContain("![evidence](");
+  });
+
+  test("renders shots in deterministic (spec, label) order regardless of input order", () => {
+    const shots = [
+      { spec: "web/e2e/b.spec.ts", label: "zulu", file: "3.png" },
+      { spec: "web/e2e/a.spec.ts", label: "zulu", file: "2.png" },
+      { spec: "web/e2e/a.spec.ts", label: "alpha", file: "1.png" },
+    ];
+    const md = buildGalleryMarkdown({ ...base, shots });
+    // Expected sort: a/alpha, a/zulu, b/zulu.
+    const iAlpha = md.indexOf("alpha");
+    const iAZulu = md.indexOf("zulu");
+    const iBSpec = md.indexOf("web-e2e-b.spec.ts");
+    expect(iAlpha).toBeGreaterThan(-1);
+    expect(iAlpha).toBeLessThan(iAZulu);
+    expect(iAZulu).toBeLessThan(iBSpec);
+    // Order is a pure function of the SET, not the input array order.
+    const reversed = buildGalleryMarkdown({ ...base, shots: [...shots].reverse() });
+    expect(reversed).toBe(md);
+  });
+
+  test("exactly MAX_INLINE_SHOTS renders all inline with no <details> block", () => {
+    const md = buildGalleryMarkdown({ ...base, shots: makeShots(MAX_INLINE_SHOTS) });
+    expect(countImages(md)).toBe(MAX_INLINE_SHOTS);
+    expect(md).not.toContain("<details>");
+    expect(md).not.toContain("</details>");
+  });
+
+  test("MAX_INLINE_SHOTS + 1 folds the overflow into one <details> block", () => {
+    const md = buildGalleryMarkdown({ ...base, shots: makeShots(MAX_INLINE_SHOTS + 1) });
+    // Every shot still linked (12 inline + 1 folded).
+    expect(countImages(md)).toBe(MAX_INLINE_SHOTS + 1);
+    // Exactly one details block, summary counts the remainder.
+    expect((md.match(/<details>/g) ?? []).length).toBe(1);
+    expect((md.match(/<\/details>/g) ?? []).length).toBe(1);
+    expect(md).toContain("<details><summary>1 more screenshot(s)</summary>");
+    // The details block opens AFTER the 12 inline images.
+    const detailsAt = md.indexOf("<details>");
+    const inlineImages = (md.slice(0, detailsAt).match(/!\[evidence\]\(/g) ?? []).length;
+    expect(inlineImages).toBe(MAX_INLINE_SHOTS);
+    // The overflow shot (s12) is rendered inside the folded block.
+    expect(md.slice(detailsAt)).toContain("web-e2e-s12.spec.ts");
+    // A blank line follows the summary so GitHub parses the enclosed markdown.
+    expect(md).toContain("<details><summary>1 more screenshot(s)</summary>\n\n");
+  });
+
+  test("large overflow summary reports the correct remainder count", () => {
+    const md = buildGalleryMarkdown({ ...base, shots: makeShots(MAX_INLINE_SHOTS + 5) });
+    expect(md).toContain("<details><summary>5 more screenshot(s)</summary>");
+    expect(countImages(md)).toBe(MAX_INLINE_SHOTS + 5);
+  });
+});
+
+// ── parseChangedSpecPaths (P3) ───────────────────────────────────────────────
+describe("publish: parseChangedSpecPaths", () => {
+  test("keeps only web/e2e spec paths, drops non-spec / non-e2e / blank lines", () => {
+    const content = [
+      "web/e2e/dash.spec.ts",
+      "web/src/lib/components/chat/Foo.svelte",
+      "src/runtime/foo.ts",
+      "web/e2e/nested/deep.spec.ts",
+      "web/e2e/helpers.ts", // under e2e but not a *.spec.ts
+      "docs/x.md",
+      "",
+    ].join("\n");
+    expect(parseChangedSpecPaths(content)).toEqual([
+      "web/e2e/dash.spec.ts",
+      "web/e2e/nested/deep.spec.ts",
+    ]);
+  });
+
+  test("blank / whitespace-only content → []", () => {
+    expect(parseChangedSpecPaths("")).toEqual([]);
+    expect(parseChangedSpecPaths("   \n  \n")).toEqual([]);
+  });
+
+  test("trims surrounding whitespace and a trailing CR on each line", () => {
+    expect(parseChangedSpecPaths("  web/e2e/a.spec.ts\r\n")).toEqual(["web/e2e/a.spec.ts"]);
+  });
+});
+
+// ── isChangedShotSpec (P3) ───────────────────────────────────────────────────
+describe("publish: isChangedShotSpec", () => {
+  const changed = ["web/e2e/dash.spec.ts", "web/e2e/nested/deep.spec.ts"];
+
+  test("matches the repo-relative shape (equal paths)", () => {
+    expect(isChangedShotSpec("web/e2e/dash.spec.ts", changed)).toBe(true);
+    expect(isChangedShotSpec("web/e2e/nested/deep.spec.ts", changed)).toBe(true);
+  });
+
+  test("matches the rootDir-relative manifest shape via segment-suffix", () => {
+    expect(isChangedShotSpec("e2e/dash.spec.ts", changed)).toBe(true);
+    expect(isChangedShotSpec("e2e/nested/deep.spec.ts", changed)).toBe(true);
+  });
+
+  test("does NOT match a different spec or a partial-segment collision", () => {
+    expect(isChangedShotSpec("e2e/other.spec.ts", changed)).toBe(false);
+    // segment-aligned: `mydash.spec.ts` must not match `dash.spec.ts`.
+    expect(isChangedShotSpec("e2e/mydash.spec.ts", changed)).toBe(false);
+  });
+
+  test("empty shot spec or empty changed list → false", () => {
+    expect(isChangedShotSpec("", changed)).toBe(false);
+    expect(isChangedShotSpec("e2e/dash.spec.ts", [])).toBe(false);
+  });
+});
+
+// ── buildGalleryMarkdown: diff-scoped partition (P3) ──────────────────────────
+describe("publish: buildGalleryMarkdown diff-scoped partition", () => {
+  test("floats the changed spec inline and folds the rest into <details>", () => {
+    const shots = [
+      { spec: "web/e2e/dash.spec.ts", label: "dash", file: "1.png" },
+      { spec: "web/e2e/chat.spec.ts", label: "chat", file: "2.png" },
+      { spec: "web/e2e/settings.spec.ts", label: "settings", file: "3.png" },
+    ];
+    const md = buildGalleryMarkdown({ ...base, shots, changedSpecs: ["web/e2e/chat.spec.ts"] });
+    const detailsAt = md.indexOf("<details>");
+    expect(detailsAt).toBeGreaterThan(-1);
+    const head = md.slice(0, detailsAt);
+    const tail = md.slice(detailsAt);
+    // Only chat's spec was in the diff → chat inline, dash + settings folded.
+    expect(head).toContain("web-e2e-chat.spec.ts");
+    expect(head).not.toContain("web-e2e-dash.spec.ts");
+    expect(head).not.toContain("web-e2e-settings.spec.ts");
+    expect(tail).toContain("web-e2e-dash.spec.ts");
+    expect(tail).toContain("web-e2e-settings.spec.ts");
+    // P3 summary title + remainder count.
+    expect(md).toContain("<details><summary>2 more screenshot(s) from the full suite</summary>");
+    // Every shot still linked (1 inline + 2 folded).
+    expect(countImages(md)).toBe(3);
+  });
+
+  test("matches the rootDir-relative manifest shape via rawSpec (main()'s shape)", () => {
+    // main() stores spec=safeSegment(original) + rawSpec=original. A rootDir-
+    // relative rawSpec must still match a repo-relative changed path.
+    const shots = [
+      { spec: "e2e-dash.spec.ts", rawSpec: "e2e/dash.spec.ts", label: "dash", file: "1.png" },
+      { spec: "e2e-chat.spec.ts", rawSpec: "e2e/chat.spec.ts", label: "chat", file: "2.png" },
+    ];
+    const md = buildGalleryMarkdown({ ...base, shots, changedSpecs: ["web/e2e/dash.spec.ts"] });
+    const detailsAt = md.indexOf("<details>");
+    expect(detailsAt).toBeGreaterThan(-1);
+    expect(md.slice(0, detailsAt)).toContain("e2e-dash.spec.ts");
+    expect(md.slice(detailsAt)).toContain("e2e-chat.spec.ts");
+    expect(md).toContain("<details><summary>1 more screenshot(s) from the full suite</summary>");
+  });
+
+  test("no changedSpecs (undefined) OR empty list → byte-identical to the P1 body", () => {
+    const shots = makeShots(20); // > MAX_INLINE_SHOTS so the details path is exercised
+    const p1 = buildGalleryMarkdown({ ...base, shots });
+    expect(buildGalleryMarkdown({ ...base, shots, changedSpecs: undefined })).toBe(p1);
+    expect(buildGalleryMarkdown({ ...base, shots, changedSpecs: [] })).toBe(p1);
+    // The P1 summary title is preserved (no "from the full suite" suffix).
+    expect(p1).toContain("more screenshot(s)</summary>");
+    expect(p1).not.toContain("from the full suite");
+  });
+
+  test("changedSpecs present but NOTHING matches → P1 layout (no partition, fail-soft)", () => {
+    const shots = makeShots(15); // > cap so a details block exists in P1 too
+    const p1 = buildGalleryMarkdown({ ...base, shots });
+    const noMatch = buildGalleryMarkdown({
+      ...base,
+      shots,
+      changedSpecs: ["web/e2e/does-not-exist.spec.ts"],
+    });
+    expect(noMatch).toBe(p1);
+    expect(noMatch).not.toContain("from the full suite");
+  });
+
+  test("MAX_INLINE_SHOTS cap applies to the changed section; overflow is changed-first then rest", () => {
+    const changedShots = Array.from({ length: 14 }, (_, i) => {
+      const idx = String(i).padStart(2, "0");
+      return { spec: `web/e2e/c${idx}.spec.ts`, label: `c ${idx}`, file: `c${idx}.png` };
+    });
+    const otherShots = Array.from({ length: 3 }, (_, i) => {
+      const idx = String(i).padStart(2, "0");
+      return { spec: `web/e2e/z${idx}.spec.ts`, label: `z ${idx}`, file: `z${idx}.png` };
+    });
+    const changedSpecs = changedShots.map((s) => s.spec);
+    const md = buildGalleryMarkdown({
+      ...base,
+      // interleave so the result can't accidentally rely on input order
+      shots: [...otherShots, ...changedShots],
+      changedSpecs,
+    });
+    const detailsAt = md.indexOf("<details>");
+    const head = md.slice(0, detailsAt);
+    const tail = md.slice(detailsAt);
+    // Exactly MAX_INLINE_SHOTS *changed* shots inline; no unchanged shot inline.
+    expect((head.match(/!\[evidence\]\(/g) ?? []).length).toBe(MAX_INLINE_SHOTS);
+    expect(head).not.toContain("web-e2e-z00.spec.ts");
+    // Overflow = (14 - 12) changed-overflow + 3 unchanged = 5.
+    expect(md).toContain("<details><summary>5 more screenshot(s) from the full suite</summary>");
+    // Changed-overflow (c12, c13) precede the unchanged z-shots in the fold.
+    const iC12 = tail.indexOf("web-e2e-c12.spec.ts");
+    const iC13 = tail.indexOf("web-e2e-c13.spec.ts");
+    const iZ00 = tail.indexOf("web-e2e-z00.spec.ts");
+    expect(iC12).toBeGreaterThan(-1);
+    expect(iZ00).toBeGreaterThan(-1);
+    expect(iC12).toBeLessThan(iZ00);
+    expect(iC13).toBeLessThan(iZ00);
+    // All 17 shots linked.
+    expect(countImages(md)).toBe(17);
+  });
+
+  test("a hostile shot spec that self-promotes to inline stays inert plain text", () => {
+    const shots = [
+      // rawSpec matches the changed path → this shot floats into the inline
+      // section; its `spec` carries a markdown-breakout payload to prove the
+      // inline render path still neutralizes it (renderShot → sanitizeLabel).
+      { spec: "x)](http://evil).spec.ts", rawSpec: "web/e2e/x.spec.ts", label: "shot", file: "1.png" },
+      { spec: "web/e2e/other.spec.ts", label: "other", file: "2.png" },
+    ];
+    const md = buildGalleryMarkdown({ ...base, shots, changedSpecs: ["web/e2e/x.spec.ts"] });
+    const detailsAt = md.indexOf("<details>");
+    expect(detailsAt).toBeGreaterThan(-1);
+    const head = md.slice(0, detailsAt);
+    // No markdown breakout survived anywhere in the body.
+    expect(md).not.toContain("(http://evil)");
+    expect(md).not.toContain("](http://evil");
+    // The hostile spec self-promoted (it's in the inline section) but is inert,
+    // sanitized text in a code span — never a live link.
+    expect(head).toContain("x-http-evil-.spec.ts");
+  });
+
+  test("hyphen-collapsed spec WITHOUT rawSpec cannot partition — rawSpec is load-bearing", () => {
+    // main()'s staging ALWAYS sets rawSpec; this pins why: the safeSegment'd
+    // spec has no path separators left, so suffix-matching is impossible and a
+    // refactor that drops rawSpec silently degrades to the unpartitioned body.
+    const shots = [
+      { spec: "web-e2e-dash.spec.ts", label: "dash", file: "1.png" },
+      { spec: "web-e2e-chat.spec.ts", label: "chat", file: "2.png" },
+    ];
+    const md = buildGalleryMarkdown({ ...base, shots, changedSpecs: ["web/e2e/dash.spec.ts"] });
+    expect(md).not.toContain("from the full suite");
+  });
+});
+
+// ── buildSkippedMarkdown ─────────────────────────────────────────────────────
+describe("publish: buildSkippedMarkdown", () => {
+  test("carries the sticky marker (so upsert can find/replace) and no images or ⚠️", () => {
+    const md = buildSkippedMarkdown();
+    expect(md).toContain(COMMENT_MARKER);
+    expect(md).toContain("No user-visible changes");
+    expect(md).not.toContain("![evidence](");
+    expect(md).not.toContain("⚠️");
   });
 });
 
@@ -293,4 +553,103 @@ describe("build-manifest: parseReportJsonl", () => {
   test("empty input → no shots", () => {
     expect(parseReportJsonl("")).toEqual([]);
   });
+});
+
+// ── main(): staging → markdown integration (subprocess) ─────────────────────
+// The pure-fn tests above hand-build shots; this block runs the REAL main()
+// over a crafted artifact dir so the staging loop's shapes (safeSegment'd spec
+// + rawSpec) — not fixture approximations — feed buildGalleryMarkdown. Pins
+// the skipped/update-only path and the partition path end to end.
+describe("publish: main() integration", () => {
+	const PUBLISH = joinPath(resolvePath(import.meta.dir, "..", ".."), "scripts/visual-evidence/publish.ts");
+	// Smallest valid PNG (1x1 RGB), enough to pass the magic-byte + stage checks.
+	const PNG = Buffer.from(
+		"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+		"base64",
+	);
+
+	const sandboxes: string[] = [];
+	afterEach(() => {
+		for (const dir of sandboxes.splice(0)) rmSync(dir, { recursive: true, force: true });
+	});
+
+	async function runMain(opts: {
+		manifest: unknown;
+		pngs?: string[];
+		changedFiles?: string;
+	}): Promise<{ body: string; outputs: string }> {
+		const root = mkdtempSync(joinPath(tmpdir(), "evpub-"));
+		sandboxes.push(root);
+		const artifact = joinPath(root, "artifact");
+		mkdirSync(joinPath(artifact, "extracted"), { recursive: true });
+		await Bun.write(joinPath(artifact, "manifest.json"), JSON.stringify(opts.manifest));
+		for (const rel of opts.pngs ?? []) await Bun.write(joinPath(artifact, rel), PNG);
+		const env: Record<string, string> = {
+			...process.env,
+			EVIDENCE_ARTIFACT_DIR: artifact,
+			EVIDENCE_STAGE_DIR: joinPath(root, "stage"),
+			EVIDENCE_COMMENT_FILE: joinPath(root, "comment.md"),
+			EVIDENCE_COMMIT_SHA: "cafef00d",
+			GITHUB_OUTPUT: joinPath(root, "outputs.txt"),
+		};
+		if (opts.changedFiles !== undefined) {
+			await Bun.write(joinPath(root, "changed.txt"), opts.changedFiles);
+			env.EVIDENCE_CHANGED_FILES = joinPath(root, "changed.txt");
+		} else {
+			delete env.EVIDENCE_CHANGED_FILES;
+		}
+		const proc = Bun.spawn(["bun", PUBLISH], { cwd: root, env, stdout: "pipe", stderr: "pipe" });
+		await proc.exited;
+		const body = await Bun.file(joinPath(root, "comment.md")).text().catch(() => "");
+		const outputs = await Bun.file(joinPath(root, "outputs.txt")).text().catch(() => "");
+		return { body, outputs };
+	}
+
+	test("skipped manifest with zero shots → neutral body + update_only=1", async () => {
+		const { body, outputs } = await runMain({
+			manifest: { pr: 7, headSha: "abc", runId: 3, shots: [], skipped: true },
+		});
+		expect(body).toContain(COMMENT_MARKER);
+		expect(body).toContain("No user-visible changes");
+		expect(body).not.toContain("⚠️");
+		expect(outputs).toContain("update_only<<");
+		expect(outputs).toMatch(/update_only<<[^\n]+\n1\n/);
+	});
+
+	test("hostile skipped=true WITH shots still renders the normal gallery (not update-only)", async () => {
+		const { body, outputs } = await runMain({
+			manifest: {
+				pr: 7,
+				headSha: "abc",
+				runId: 3,
+				skipped: true,
+				shots: [{ spec: "e2e/dash.spec.ts", label: "dash", file: "extracted/a.png" }],
+			},
+			pngs: ["extracted/a.png"],
+		});
+		expect(body).toContain("![evidence](");
+		expect(body).not.toContain("No user-visible changes");
+		expect(outputs).toMatch(/update_only<<[^\n]+\n\n/);
+	});
+
+	test("real staging shapes partition against a changed-files list (rawSpec end to end)", async () => {
+		const { body } = await runMain({
+			manifest: {
+				pr: 7,
+				headSha: "abc",
+				runId: 3,
+				shots: [
+					{ spec: "e2e/dash.spec.ts", label: "dash", file: "extracted/a.png" },
+					{ spec: "e2e/chat.spec.ts", label: "chat", file: "extracted/b.png" },
+				],
+			},
+			pngs: ["extracted/a.png", "extracted/b.png"],
+			changedFiles: "web/e2e/dash.spec.ts\nweb/src/lib/components/Chat.svelte\n",
+		});
+		const detailsAt = body.indexOf("<details>");
+		expect(detailsAt).toBeGreaterThan(-1);
+		expect(body.slice(0, detailsAt)).toContain("e2e-dash.spec.ts");
+		expect(body.slice(detailsAt)).toContain("e2e-chat.spec.ts");
+		expect(body).toContain("1 more screenshot(s) from the full suite");
+	});
 });
