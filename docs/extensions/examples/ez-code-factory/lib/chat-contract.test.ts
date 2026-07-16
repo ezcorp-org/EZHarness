@@ -3,6 +3,7 @@ import {
   RELAY_DIRECTIVE,
   crossCheckFindingIds,
   enforceNamedApproval,
+  enforceRespondContract,
   formatGateRelay,
 } from "./chat-contract";
 import type { Finding, Findings } from "./runs";
@@ -193,5 +194,50 @@ describe("crossCheckFindingIds", () => {
   test("skip and abort are never cross-checked", () => {
     expect(crossCheckFindingIds("skip", ["ghost"], []).ok).toBe(true);
     expect(crossCheckFindingIds("abort", ["ghost"], []).ok).toBe(true);
+  });
+});
+
+// ── (b3) the shared respond chokepoint (chat tool + Hub action) ─────────
+
+describe("enforceRespondContract", () => {
+  const askUser = finding({ id: "a1", action: "ask-user" });
+
+  test("a blanket ids-free approve of a gate WITH ask-user findings is rejected (enforceNamedApproval leg)", () => {
+    const g = enforceRespondContract("approve", [], false, [askUser]);
+    expect(g.ok).toBe(false);
+    expect(g.error).toContain("must name the explicit findingIds");
+  });
+
+  test("a named id NOT on the parked step is rejected (crossCheck leg)", () => {
+    const g = enforceRespondContract("approve", ["ghost"], false, [askUser]);
+    expect(g.ok).toBe(false);
+    expect(g.error).toContain("not in the parked");
+  });
+
+  test("a fix naming a junk id over an EMPTY parked set is rejected (crossCheck via fix)", () => {
+    const g = enforceRespondContract("fix", ["f1"], false, []);
+    expect(g.ok).toBe(false);
+    expect(g.error).toContain("not in the parked");
+  });
+
+  test("a named id that exists on the parked step is allowed", () => {
+    expect(enforceRespondContract("approve", ["a1"], false, [askUser]).ok).toBe(true);
+  });
+
+  test("a CLEAN gate (no ask-user findings) accepts an ids-free approve without consent", () => {
+    const g = enforceRespondContract("approve", [], false, [finding({ id: "n1", action: "no-op" })]);
+    expect(g.ok).toBe(true);
+    expect(g.consentAllUsed).toBeFalsy();
+  });
+
+  test("standing consent over an ask-user gate is allowed AND flags consentAllUsed", () => {
+    const g = enforceRespondContract("approve", [], true, [askUser]);
+    expect(g.ok).toBe(true);
+    expect(g.consentAllUsed).toBe(true);
+  });
+
+  test("skip/abort short-circuit ok even with junk ids", () => {
+    expect(enforceRespondContract("skip", ["ghost"], false, [askUser]).ok).toBe(true);
+    expect(enforceRespondContract("abort", ["ghost"], false, []).ok).toBe(true);
   });
 });

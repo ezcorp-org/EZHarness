@@ -46,6 +46,7 @@ import {
   type ChatToolDeps,
   type ChatToolOutcome,
 } from "./lib/chat-tools";
+import { enforceRespondContract } from "./lib/chat-contract";
 import { createIntentCache, makeConversationIntentInferrer } from "./lib/intent-infer";
 import { join } from "node:path";
 import { buildDashboard, normalizeRespondPayload, parseRunIdPayload, type RunDetail } from "./lib/page";
@@ -566,7 +567,10 @@ export async function handlePushReceived(event: PageActionEvent): Promise<void> 
 /** `respond` Hub action — answers a parked gate (approve/fix/skip/abort). The
  *  payload is attacker-reachable via the events route; validate every field.
  *  The verbatim ask-user relay + no-blanket-approval rules are enforced
- *  structurally by the executor's respond semantics, not prose (decision #4). */
+ *  structurally: the no-blanket-approval chokepoint (`enforceRespondContract`,
+ *  the SAME helper the chat `code_factory_respond` tool runs) is applied here
+ *  too, so a raw events POST cannot bypass the locked invariant (spec §1 inv2)
+ *  by driving the Hub surface instead of the chat surface (decision #4). */
 export async function handleRespond(event: PageActionEvent): Promise<void> {
   try {
     const projectRoot = projectRootImpl();
@@ -578,7 +582,8 @@ export async function handleRespond(event: PageActionEvent): Promise<void> {
     // into M1's canonical findingIds[]/instructions{} shape, then validate via
     // the single M1 validator. A harness POST that already sends the canonical
     // shape passes through untouched.
-    const respond = parseRespondPayload(normalizeRespondPayload(event.payload));
+    const normalized = normalizeRespondPayload(event.payload);
+    const respond = parseRespondPayload(normalized);
     if (!respond) {
       process.stderr.write("ez-code-factory: respond with invalid payload — ignored\n");
       return;
@@ -595,6 +600,32 @@ export async function handleRespond(event: PageActionEvent): Promise<void> {
     if (!rec) {
       process.stderr.write(`ez-code-factory: respond for unknown run ${respond.runId} — ignored\n`);
       return;
+    }
+    // CONTRACT-IN-CODE (spec §1 inv2): the SAME no-blanket-approval chokepoint the
+    // chat `code_factory_respond` tool runs — enforced AFTER RBAC, BEFORE any
+    // mutation, against the parked step's REAL findings. A raw events POST that
+    // omits findingIds cannot bulk-clear a gate carrying ask-user findings (a
+    // clean gate still approves ids-free; a `consentAll:true` in the untrusted
+    // payload still bypasses, but is logged for audit; skip/abort are unaffected;
+    // a named id that is not on the parked step is rejected). A refused respond
+    // is a side-effect-free no-op — the run stays parked, its worktree kept.
+    const stepResult = await getStore().getStepResult(respond.runId, respond.step);
+    const parkedItems = stepResult?.findings.items ?? [];
+    const consentAll =
+      !!normalized &&
+      typeof normalized === "object" &&
+      (normalized as Record<string, unknown>).consentAll === true;
+    const approval = enforceRespondContract(respond.action, respond.findingIds, consentAll, parkedItems);
+    if (!approval.ok) {
+      process.stderr.write(`ez-code-factory: respond refused — ${approval.error}\n`);
+      return;
+    }
+    if (approval.consentAllUsed) {
+      process.stderr.write(
+        `ez-code-factory: respond consentAll bypass — run=${respond.runId} step=${respond.step} ` +
+          `action=${respond.action} cleared a gate with ` +
+          `${parkedItems.filter((f) => f.action === "ask-user").length} ask-user finding(s) WITHOUT named ids\n`,
+      );
     }
     const gDir = gateDirFor(projectRoot, rec.repoId);
     const result = await resumeGateLifecycle(respond.runId, {

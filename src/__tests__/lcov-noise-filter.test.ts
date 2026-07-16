@@ -126,17 +126,6 @@ describe("isNoiseLine — positive matches (noise)", () => {
     expect(isNoiseLine("}`")).toBe(true);
   });
 
-  test("type-literal `typeof` member inside a multi-line cast", () => {
-    expect(isNoiseLine("      { buildSandboxArgv: typeof BuildSandboxArgvFn },")).toBe(true);
-    expect(isNoiseLine("      { getSandboxTier: typeof GetSandboxTierFn },")).toBe(true);
-    expect(isNoiseLine("  { foo?: typeof mod.Bar }")).toBe(true);
-  });
-
-  test("a runtime object literal with a CALL value is NOT a type-literal member", () => {
-    // `typeof`-query type members only; a value object with a call keeps its DA.
-    expect(isNoiseLine("      { handler: makeHandler() },")).toBe(false);
-    expect(isNoiseLine("      { value: computeThing() },")).toBe(false);
-  });
 });
 
 describe("isNoiseLine — negative matches (real executable code)", () => {

@@ -424,27 +424,92 @@ async function seedParkedRun(store: RunStore & { runs: Map<string, RunRecord> })
   return id;
 }
 
+/** Build a Finding with sensible defaults. Shared fixture reused by the
+ *  no-blanket-approval (respond-contract) tests + the M6 hardening tests. */
+function mkFinding(over: Partial<Finding>): Finding {
+  return {
+    id: over.id ?? "f",
+    severity: over.severity ?? "warning",
+    file: over.file ?? "src/x.ts",
+    line: over.line ?? null,
+    description: over.description ?? "desc",
+    action: over.action ?? "auto-fix",
+    source: over.source ?? "agent",
+    userInstructions: over.userInstructions ?? "",
+    category: over.category ?? "",
+  };
+}
+
+/** A `run-parked` review step result carrying `items`. Reused to seed a parked
+ *  gate with real finding ids (so the respond-contract cross-check has real ids
+ *  to validate against) across the respond-contract + M6 test blocks. */
+function reviewStep(items: Finding[], status: StepStatus, autoFixLimit = 0): StepResultRecord {
+  return {
+    runId: "run-parked",
+    step: "review",
+    status,
+    findings: { items, summary: "", tested: [], testingSummary: "", artifacts: [], riskLevel: "", riskRationale: "" },
+    agentPid: null,
+    autoFixLimit,
+    round: 1,
+    autoFixAttempts: 0,
+    executionMs: 0,
+    fixSummary: null,
+  };
+}
+
 const RESPOND_PAYLOAD = { runId: "run-parked", step: "review", action: "approve" };
 
 describe("handleRespond", () => {
-  test("ignores respond with no active project", async () => {
+  test("ignores respond with no active project (no-op: runner not called, run unmutated)", async () => {
     _setProjectRootForTests(() => undefined);
-    _setStoreForTests(memStore());
-    await handleRespond({ source: "hub", pageId: "dashboard", userId: "u", payload: RESPOND_PAYLOAD });
-    // No throw; nothing to assert beyond the guard being hit.
-    expect(true).toBe(true);
+    const store = memStore();
+    _setStoreForTests(store);
+    await seedParkedRun(store); // a parked run that must survive the no-op untouched
+    let runnerCalls = 0;
+    _setRespondRunnerForTests(() => async () => {
+      runnerCalls++;
+      return { parked: false };
+    });
+    const cap = captureStderr();
+    try {
+      await handleRespond({ source: "hub", pageId: "dashboard", userId: "u", payload: RESPOND_PAYLOAD });
+    } finally {
+      cap.restore();
+    }
+    // The project-root guard short-circuits BEFORE any resume — observable no-op:
+    // the expected stderr line, the resume runner never fired, the run unchanged.
+    expect(cap.text()).toContain("no EZCORP_PROJECT_ROOT");
+    expect(runnerCalls).toBe(0);
+    expect((await store.getRun("run-parked"))!.status).toBe("awaiting_approval");
   });
 
-  test("ignores an invalid respond payload", async () => {
+  test("ignores an invalid respond payload (no-op: runner not called, nothing mutated)", async () => {
     _setProjectRootForTests(() => "/proj");
-    _setStoreForTests(memStore());
-    await handleRespond({
-      source: "hub",
-      pageId: "dashboard",
-      userId: "u",
-      payload: { runId: "x", step: "bogus", action: "approve" },
+    const store = memStore();
+    _setStoreForTests(store);
+    await seedParkedRun(store);
+    let runnerCalls = 0;
+    _setRespondRunnerForTests(() => async () => {
+      runnerCalls++;
+      return { parked: false };
     });
-    expect(true).toBe(true);
+    const cap = captureStderr();
+    try {
+      await handleRespond({
+        source: "hub",
+        pageId: "dashboard",
+        userId: "u",
+        payload: { runId: "x", step: "bogus", action: "approve" }, // unknown step → parse rejects
+      });
+    } finally {
+      cap.restore();
+    }
+    // parseRespondPayload rejects the unknown step → the handler no-ops: the
+    // expected stderr line, the resume runner never fired, the seeded run intact.
+    expect(cap.text()).toContain("invalid payload");
+    expect(runnerCalls).toBe(0);
+    expect((await store.getRun("run-parked"))!.status).toBe("awaiting_approval");
   });
 
   test("ignores respond for an unknown run", async () => {
@@ -568,6 +633,10 @@ describe("handleRespond", () => {
     const store = memStore();
     _setStoreForTests(store);
     await seedParkedRun(store);
+    // The parked review step must actually carry the finding being fixed, or the
+    // no-blanket-approval cross-check rejects the named id as a junk (non-existent)
+    // finding. Seed a real `f1` so this test isolates the normalize→parse concern.
+    await store.putStepResult(reviewStep([mkFinding({ id: "f1", action: "auto-fix" })], "awaiting_approval"));
     let captured: ParsedRespond | null = null;
     // The respond-runner factory receives the PARSED respond — capture it to
     // prove normalizeRespondPayload folded the flat scalar shape the Hub emits
@@ -592,6 +661,136 @@ describe("handleRespond", () => {
       findingIds: ["f1"],
       instructions: { f1: "prefer a guard" },
     });
+  });
+});
+
+describe("handleRespond — no-blanket-approval on the Hub/events path (spec §1 inv2)", () => {
+  // The Hub `respond` action shares the SAME enforceRespondContract chokepoint as
+  // the chat `code_factory_respond` tool: a raw events POST must NOT be able to
+  // bulk-clear a gate carrying ask-user findings by omitting findingIds. Each
+  // test seeds a run parked at the review gate WITH ask-user findings, wires a
+  // respond runner that would mutate + tear down if it ran, and asserts the
+  // observable no-op (or pass-through) on the store + runner spy.
+
+  /** Drive one Hub respond; report whether the resume runner fired + stderr. */
+  async function driveRespond(
+    store: RunStore & { runs: Map<string, RunRecord> },
+    payload: Record<string, unknown>,
+  ): Promise<{ runnerCalls: number; removed: string[]; stderr: string }> {
+    _setProjectRootForTests(() => "/proj");
+    const removed: string[] = [];
+    _setShellForTests(async (cmd) => {
+      if (cmd.includes("worktree") && cmd.includes("remove")) removed.push(cmd.join(" "));
+      return { exitCode: 0, stdout: "", stderr: "" };
+    });
+    _setStoreForTests(store);
+    let runnerCalls = 0;
+    _setRespondRunnerForTests(() => async ({ runId }) => {
+      runnerCalls++;
+      await store.updateRun(runId, { status: "completed" });
+      return { parked: false };
+    });
+    const cap = captureStderr();
+    try {
+      await handleRespond({ source: "hub", pageId: "dashboard", userId: "u", payload });
+    } finally {
+      cap.restore();
+    }
+    return { runnerCalls, removed, stderr: cap.text() };
+  }
+
+  test("REJECTS a blanket (ids-free) approve of a gate WITH ask-user findings — no mutation, run stays parked", async () => {
+    const store = memStore();
+    await seedParkedRun(store);
+    await store.putStepResult(reviewStep([mkFinding({ id: "a1", action: "ask-user" })], "awaiting_approval"));
+    const { runnerCalls, removed, stderr } = await driveRespond(store, {
+      runId: "run-parked",
+      step: "review",
+      action: "approve", // no findingIds → would blanket-clear the ask-user gate
+    });
+    // Refused BEFORE the resume runner: no mutation, the kept worktree survives.
+    expect(runnerCalls).toBe(0);
+    expect(removed.length).toBe(0);
+    expect(stderr).toContain("respond refused");
+    expect(stderr).toContain("must name the explicit findingIds");
+    const run = (await store.getRun("run-parked"))!;
+    expect(run.status).toBe("awaiting_approval");
+    expect(run.worktreePath).not.toBeNull();
+  });
+
+  test("ALLOWS a named-id approve of the same ask-user gate (drives the resume runner)", async () => {
+    const store = memStore();
+    await seedParkedRun(store);
+    await store.putStepResult(reviewStep([mkFinding({ id: "a1", action: "ask-user" })], "awaiting_approval"));
+    // Capture the parsed respond to prove the named id rode through to the runner
+    // ([] until it fires, so a wrongly-rejected respond fails the toEqual below).
+    let capturedIds: string[] = [];
+    _setProjectRootForTests(() => "/proj");
+    _setShellForTests(okShell);
+    _setStoreForTests(store);
+    _setRespondRunnerForTests((_pr, _gd, respond) => async ({ runId }) => {
+      capturedIds = respond!.findingIds;
+      await store.updateRun(runId, { status: "completed" });
+      return { parked: false };
+    });
+    await handleRespond({
+      source: "hub",
+      pageId: "dashboard",
+      userId: "u",
+      payload: { runId: "run-parked", step: "review", action: "approve", findingIds: ["a1"] },
+    });
+    expect(capturedIds).toEqual(["a1"]);
+    expect((await store.getRun("run-parked"))!.status).toBe("completed");
+  });
+
+  test("REJECTS an approve naming a finding id that is NOT on the parked step (junk id) — no mutation", async () => {
+    const store = memStore();
+    await seedParkedRun(store);
+    await store.putStepResult(reviewStep([mkFinding({ id: "a1", action: "ask-user" })], "awaiting_approval"));
+    const { runnerCalls, removed, stderr } = await driveRespond(store, {
+      runId: "run-parked",
+      step: "review",
+      action: "approve",
+      findingIds: ["ghost"], // not among the parked step's real findings
+    });
+    expect(runnerCalls).toBe(0);
+    expect(removed.length).toBe(0);
+    expect(stderr).toContain("not in the parked");
+    expect((await store.getRun("run-parked"))!.status).toBe("awaiting_approval");
+  });
+
+  test("consentAll:true in the raw payload bypasses the block AND is audit-logged", async () => {
+    const store = memStore();
+    await seedParkedRun(store);
+    await store.putStepResult(
+      reviewStep(
+        [mkFinding({ id: "a1", action: "ask-user" }), mkFinding({ id: "a2", action: "ask-user" })],
+        "awaiting_approval",
+      ),
+    );
+    const { runnerCalls, stderr } = await driveRespond(store, {
+      runId: "run-parked",
+      step: "review",
+      action: "approve",
+      consentAll: true, // standing consent → the ids-free clear proceeds, logged
+    });
+    expect(runnerCalls).toBe(1);
+    expect((await store.getRun("run-parked"))!.status).toBe("completed");
+    expect(stderr).toContain("consentAll bypass");
+    expect(stderr).toContain("2 ask-user finding");
+  });
+
+  test("a CLEAN gate (no ask-user findings) still accepts an ids-free approve (de-normalization intact)", async () => {
+    const store = memStore();
+    await seedParkedRun(store); // review step seeded with emptyFindings() → clean
+    const { runnerCalls, stderr } = await driveRespond(store, {
+      runId: "run-parked",
+      step: "review",
+      action: "approve", // ids-free, but nothing was withheld → allowed
+    });
+    expect(runnerCalls).toBe(1);
+    expect(stderr).not.toContain("respond refused");
+    expect((await store.getRun("run-parked"))!.status).toBe("completed");
   });
 });
 
@@ -1462,37 +1661,7 @@ describe("chat-entry tool handlers", () => {
 });
 
 // ── M6 hardening ────────────────────────────────────────────────────
-
-/** Build a Finding with sensible defaults. */
-function mkFinding(over: Partial<Finding>): Finding {
-  return {
-    id: over.id ?? "f",
-    severity: over.severity ?? "warning",
-    file: over.file ?? "src/x.ts",
-    line: over.line ?? null,
-    description: over.description ?? "desc",
-    action: over.action ?? "auto-fix",
-    source: over.source ?? "agent",
-    userInstructions: over.userInstructions ?? "",
-    category: over.category ?? "",
-  };
-}
-
-/** A `run-parked` review step result carrying `items`. */
-function reviewStep(items: Finding[], status: StepStatus, autoFixLimit = 0): StepResultRecord {
-  return {
-    runId: "run-parked",
-    step: "review",
-    status,
-    findings: { items, summary: "", tested: [], testingSummary: "", artifacts: [], riskLevel: "", riskRationale: "" },
-    agentPid: null,
-    autoFixLimit,
-    round: 1,
-    autoFixAttempts: 0,
-    executionMs: 0,
-    fixSummary: null,
-  };
-}
+// (Shared fixtures `mkFinding` + `reviewStep` are defined near `seedParkedRun`.)
 
 describe("RBAC on triage actions (M6)", () => {
   test("handleRespond proceeds when `respond-gate` is granted", async () => {

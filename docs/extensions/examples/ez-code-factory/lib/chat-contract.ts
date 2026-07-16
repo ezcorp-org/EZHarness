@@ -186,3 +186,38 @@ export function crossCheckFindingIds(
       `approving or fixing (do not invent ids).`,
   };
 }
+
+// ── (b3) the shared respond chokepoint ──────────────────────────────
+
+/**
+ * The SINGLE no-blanket-approval enforcement point every mutating `respond`
+ * (approve/fix) must clear before a run is touched — shared VERBATIM by the
+ * chat `code_factory_respond` tool AND the Hub/events `respond` action so the
+ * locked invariant (spec §1 inv2) cannot be bypassed by driving one surface
+ * instead of the other. Derives the ask-user count + the known finding ids
+ * from the parked step's REAL findings (an absent/empty step → a clean, empty
+ * set), then runs the two guards IN ORDER:
+ *   1. `enforceNamedApproval` — no ids-free clear of a gate WITH ask-user
+ *      findings (a clean gate approves ids-free; consentAll bypasses + is
+ *      flagged for audit; skip/abort are unaffected);
+ *   2. `crossCheckFindingIds` — every NAMED id must exist on the parked step.
+ * Returns the first failure, or the (possibly `consentAllUsed`-flagged) pass.
+ * Pure — the caller performs the mutation only when `ok` is true.
+ */
+export function enforceRespondContract(
+  action: RespondAction,
+  findingIds: string[] | undefined,
+  consentAll: boolean | undefined,
+  parkedFindings: readonly Finding[],
+): ApprovalGuard {
+  const askUserCount = parkedFindings.filter((f) => f.action === "ask-user").length;
+  const guard = enforceNamedApproval(action, findingIds, consentAll, askUserCount);
+  if (!guard.ok) return guard;
+  const xcheck = crossCheckFindingIds(
+    action,
+    findingIds,
+    parkedFindings.map((f) => f.id),
+  );
+  if (!xcheck.ok) return xcheck;
+  return guard;
+}

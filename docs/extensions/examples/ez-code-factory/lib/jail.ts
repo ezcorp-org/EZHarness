@@ -39,13 +39,17 @@ export function jailRwPaths(worktree: string, gateDir: string): string[] {
  */
 export function makeJailedShell(gateDir: string, projectRoot: string): ShellRunner {
   return async (cmd, cwd): Promise<ShellResult> => {
-    const [{ buildSandboxArgv }, { getSandboxTier }] = (await Promise.all([
+    // Lazy dynamic imports (still concurrent), each cast on its OWN line so the
+    // type annotation never spans a multi-line `as [ … ]` tuple — a multi-line
+    // type-only construct emits no JS and gets span-filled with phantom zero-hit
+    // DA records under bun's shard→merge coverage. A single-line cast per import
+    // keeps every line here executable + credited.
+    const [argvMod, tierMod] = await Promise.all([
       import("../../../../../src/extensions/sandbox/build-sandbox-argv"),
       import("../../../../../src/extensions/sandbox/capability-probe"),
-    ])) as [
-      { buildSandboxArgv: typeof BuildSandboxArgvFn },
-      { getSandboxTier: typeof GetSandboxTierFn },
-    ];
+    ]);
+    const { buildSandboxArgv } = argvMod as { buildSandboxArgv: typeof BuildSandboxArgvFn };
+    const { getSandboxTier } = tierMod as { getSandboxTier: typeof GetSandboxTierFn };
     const rwPaths = jailRwPaths(cwd, gateDir);
     const built = buildSandboxArgv({
       tier: getSandboxTier(),

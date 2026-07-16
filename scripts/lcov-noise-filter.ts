@@ -172,18 +172,6 @@ const MODIFIER_FIELD_DECL =
 // the no-brace + no-`=` guard keeps this from ever matching real code.
 const METHOD_SIGNATURE = /^\s*\w+\s*\([^{]*\)\s*:\s*[^={]+;\s*$/;
 
-// Type-literal member inside a multi-line type cast / tuple type, on its own
-// line: `{ buildSandboxArgv: typeof BuildSandboxArgvFn },`. This is the body of
-// an `as [ … ]` / `as { … }` type expression — pure type, erased at compile
-// time, emits no JS. The `typeof <Name>` type-query keyword is the
-// discriminator: a runtime object literal would carry a value (`{ k: fn() }`)
-// or a non-type-query value, and the strict shape here (one `ident: typeof
-// QualifiedName` between braces, optional trailing comma, nothing else) plus
-// the zero-hit guard keeps this from ever stripping a real object literal that
-// ran. Bun span-fills these type lines with a phantom zero-hit DA from a shard
-// that imports the module but never runs the enclosing function.
-const TYPE_LITERAL_TYPEOF_MEMBER = /^\s*\{\s*\w+\??:\s*typeof\s+[\w.]+\s*\}\s*,?\s*$/;
-
 // Bare switch-case label on its own line: `case "applied":`, `default:`.
 // The dispatch is a single operation on the `switch (...)` line; the label
 // position itself compiles to no standalone JS, so bun's sourcemap
@@ -214,6 +202,10 @@ const SWITCH_LABEL = /^\s*(case\s+.+|default)\s*:\s*$/;
  * a-template line is *definitionally* string content with no JS, flagging it
  * is sound; the caller still restricts stripping to zero-hit entries, so this
  * can only raise a file's coverage, never lower it.
+ *
+ * Not modelled: a backtick inside a regex literal (`/`/`) — the scanner has no
+ * regex-literal state, so such a backtick is read as a template delimiter. The
+ * zero-hit guard still bounds any misclassification to lines bun never ran.
  */
 export function templateInteriorProseLines(lines: string[]): Set<number> {
   const out = new Set<number>();
@@ -300,7 +292,6 @@ export function isNoiseLine(text: string): boolean {
   if (INTERFACE_DECL.test(text)) return true;
   if (CLASS_DECL.test(text)) return true;
   if (METHOD_SIGNATURE.test(text)) return true;
-  if (TYPE_LITERAL_TYPEOF_MEMBER.test(text)) return true;
   if (MODIFIER_FIELD_DECL.test(text) && ENDS_WITH_TYPE_TERMINATOR.test(text)) {
     // Reject if there's a value assignment (`=` outside an `=>` arrow) — a
     // modifier-prefixed field WITH an initializer (`private x = foo();`)

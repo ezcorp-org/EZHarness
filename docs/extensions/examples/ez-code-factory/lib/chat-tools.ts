@@ -26,8 +26,7 @@ import {
 } from "./runs";
 import type { ShellRunner } from "./shell";
 import {
-  crossCheckFindingIds,
-  enforceNamedApproval,
+  enforceRespondContract,
   formatGateRelay,
   type GateRelay,
 } from "./chat-contract";
@@ -359,15 +358,19 @@ export async function respondChatTool(
   const stepResult = await deps.store.getStepResult(respond.runId, respond.step);
   const parkedItems = stepResult?.findings.items ?? [];
   const askUserCount = parkedItems.filter((f) => f.action === "ask-user").length;
-  const knownIds = parkedItems.map((f) => f.id);
 
-  // CONTRACT-IN-CODE (1): no bulk auto-approve — but a clean gate approves
-  // ids-free (de-normalizes consentAll off the happy path).
-  const guard = enforceNamedApproval(respond.action, respond.findingIds, args.consentAll === true, askUserCount);
+  // CONTRACT-IN-CODE (spec §1 inv2): the SHARED no-blanket-approval chokepoint
+  // — no bulk auto-approve of a gate WITH ask-user findings (a clean gate
+  // approves ids-free; consentAll bypasses + is flagged), and every named id
+  // must exist on the parked step. The Hub/events respond path runs the SAME
+  // helper, so neither surface can bypass the locked invariant.
+  const guard = enforceRespondContract(
+    respond.action,
+    respond.findingIds,
+    args.consentAll === true,
+    parkedItems,
+  );
   if (!guard.ok) return { ok: false, error: guard.error! };
-  // CONTRACT-IN-CODE (2): named ids must reference findings that actually exist.
-  const xcheck = crossCheckFindingIds(respond.action, respond.findingIds, knownIds);
-  if (!xcheck.ok) return { ok: false, error: xcheck.error! };
   // AUDIT: a standing-consent bulk clear is never silent — log it + mark it.
   if (guard.consentAllUsed) {
     log(
