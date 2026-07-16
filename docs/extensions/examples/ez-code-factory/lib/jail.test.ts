@@ -112,5 +112,9 @@ describe("makeJailedShell (landlock containment)", () => {
         rmSync(base, { recursive: true, force: true });
       }
     },
+    // Real landlock-jailed subprocess work (init/clone/commit/push/worktree +
+    // several jailed git invocations) genuinely takes ~6s — above bun's 5s
+    // default. An explicit timeout keeps it from flaking under load / coverage.
+    30000,
   );
 });
