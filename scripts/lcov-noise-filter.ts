@@ -172,6 +172,18 @@ const MODIFIER_FIELD_DECL =
 // the no-brace + no-`=` guard keeps this from ever matching real code.
 const METHOD_SIGNATURE = /^\s*\w+\s*\([^{]*\)\s*:\s*[^={]+;\s*$/;
 
+// Type-literal member inside a multi-line type cast / tuple type, on its own
+// line: `{ buildSandboxArgv: typeof BuildSandboxArgvFn },`. This is the body of
+// an `as [ … ]` / `as { … }` type expression — pure type, erased at compile
+// time, emits no JS. The `typeof <Name>` type-query keyword is the
+// discriminator: a runtime object literal would carry a value (`{ k: fn() }`)
+// or a non-type-query value, and the strict shape here (one `ident: typeof
+// QualifiedName` between braces, optional trailing comma, nothing else) plus
+// the zero-hit guard keeps this from ever stripping a real object literal that
+// ran. Bun span-fills these type lines with a phantom zero-hit DA from a shard
+// that imports the module but never runs the enclosing function.
+const TYPE_LITERAL_TYPEOF_MEMBER = /^\s*\{\s*\w+\??:\s*typeof\s+[\w.]+\s*\}\s*,?\s*$/;
+
 // Bare switch-case label on its own line: `case "applied":`, `default:`.
 // The dispatch is a single operation on the `switch (...)` line; the label
 // position itself compiles to no standalone JS, so bun's sourcemap
@@ -180,6 +192,91 @@ const METHOD_SIGNATURE = /^\s*\w+\s*\([^{]*\)\s*:\s*[^={]+;\s*$/;
 // carries no body brace / arrow / statement. Zero-hit-only, so a label
 // bun *did* credit with a hit is never stripped.
 const SWITCH_LABEL = /^\s*(case\s+.+|default)\s*:\s*$/;
+
+/**
+ * Identify lines that fall ENTIRELY inside a multi-line template literal's
+ * string content — the pure-prose body of a `` `…` `` that spans several
+ * lines (e.g. an LLM prompt builder: `Context:` / `Rules:` / `- do X`).
+ *
+ * Such a line is string data, not code: it compiles to no standalone JS, so
+ * when a shard imports the module but never runs the builder, bun span-fills
+ * the whole template body with phantom `DA:<line>,0`. A single-line filter
+ * can't catch these (they have no distinguishing token — they're free prose),
+ * so this is a STATEFUL scan across the file.
+ *
+ * The scanner is quote/comment/interpolation aware — it tracks `"`, `'`,
+ * `` ` ``, `//`, `/* *​/`, and `${…}` interpolation nesting (an interpolation
+ * is real CODE, so a `${expr}` line is NOT flagged) — and marks a line only
+ * when it BEGINS in template string content AND never leaves it for the whole
+ * line (no closing backtick, no interpolation opener). A line that opens an
+ * interpolation, closes the template, or starts the template all carry code
+ * and are left to `isNoiseLine` + the zero-hit guard. Because a fully-inside-
+ * a-template line is *definitionally* string content with no JS, flagging it
+ * is sound; the caller still restricts stripping to zero-hit entries, so this
+ * can only raise a file's coverage, never lower it.
+ */
+export function templateInteriorProseLines(lines: string[]): Set<number> {
+  const out = new Set<number>();
+  let state: "code" | "dq" | "sq" | "template" | "block" = "code";
+  const interp: number[] = []; // brace depth within each active `${…}`
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] ?? "";
+    const startedInTemplate = state === "template";
+    let stayedInTemplate = startedInTemplate;
+    for (let c = 0; c < line.length; c++) {
+      const ch = line[c];
+      const nx = line[c + 1];
+      if (state === "code") {
+        stayedInTemplate = false;
+        if (ch === "/" && nx === "/") break; // line comment → rest of line is inert
+        if (ch === "/" && nx === "*") {
+          state = "block";
+          c++;
+        } else if (ch === '"') state = "dq";
+        else if (ch === "'") state = "sq";
+        else if (ch === "`") state = "template";
+        else if (interp.length > 0) {
+          const top = interp.length - 1;
+          const depth = interp[top] ?? 0;
+          if (ch === "{") interp[top] = depth + 1;
+          else if (ch === "}") {
+            if (depth === 0) {
+              interp.pop();
+              state = "template";
+            } else interp[top] = depth - 1;
+          }
+        }
+      } else if (state === "template") {
+        if (ch === "\\") c++; // escape
+        else if (ch === "`") {
+          state = "code";
+          stayedInTemplate = false;
+        } else if (ch === "$" && nx === "{") {
+          interp.push(0);
+          state = "code";
+          stayedInTemplate = false;
+          c++;
+        }
+      } else if (state === "dq") {
+        stayedInTemplate = false;
+        if (ch === "\\") c++;
+        else if (ch === '"') state = "code";
+      } else if (state === "sq") {
+        stayedInTemplate = false;
+        if (ch === "\\") c++;
+        else if (ch === "'") state = "code";
+      } else if (state === "block") {
+        stayedInTemplate = false;
+        if (ch === "*" && nx === "/") {
+          state = "code";
+          c++;
+        }
+      }
+    }
+    if (startedInTemplate && stayedInTemplate && state === "template") out.add(i + 1);
+  }
+  return out;
+}
 
 /**
  * Return true if the line text is non-executable noise per the criteria
@@ -203,6 +300,7 @@ export function isNoiseLine(text: string): boolean {
   if (INTERFACE_DECL.test(text)) return true;
   if (CLASS_DECL.test(text)) return true;
   if (METHOD_SIGNATURE.test(text)) return true;
+  if (TYPE_LITERAL_TYPEOF_MEMBER.test(text)) return true;
   if (MODIFIER_FIELD_DECL.test(text) && ENDS_WITH_TYPE_TERMINATOR.test(text)) {
     // Reject if there's a value assignment (`=` outside an `=>` arrow) — a
     // modifier-prefixed field WITH an initializer (`private x = foo();`)
@@ -236,6 +334,9 @@ export function isNoiseLine(text: string): boolean {
  * file for every DA record.
  */
 const srcCache = new Map<string, string[] | null>();
+/** Per-file cache of the template-interior prose line numbers (computed once
+ *  from the source, reused across every DA record in a multi-pass merge). */
+const proseCache = new Map<string, Set<number>>();
 
 async function readSrcLines(path: string): Promise<string[] | null> {
   const cached = srcCache.get(path);
@@ -263,11 +364,18 @@ export async function filterNoiseDA(
 ): Promise<Array<[number, number]>> {
   const src = await readSrcLines(absSrcPath);
   if (!src) return entries;
+  let prose = proseCache.get(absSrcPath);
+  if (prose === undefined) {
+    prose = templateInteriorProseLines(src);
+    proseCache.set(absSrcPath, prose);
+  }
   const kept: Array<[number, number]> = [];
   for (const [lineNo, hits] of entries) {
     if (hits === 0) {
       const text = src[lineNo - 1] ?? "";
-      if (isNoiseLine(text)) continue;
+      // Strip a zero-hit line that is either single-line noise OR pure prose
+      // inside a multi-line template literal (both compile to no JS).
+      if (isNoiseLine(text) || prose.has(lineNo)) continue;
     }
     kept.push([lineNo, hits]);
   }
