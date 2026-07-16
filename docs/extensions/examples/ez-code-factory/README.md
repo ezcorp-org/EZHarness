@@ -132,10 +132,9 @@ checks:
   It does NOT hold those resources for days waiting on a human merge. The run is
   not failed and not fully completed — a **Re-check PR state** button on the
   dashboard (or any `ez-code-factory:reconcile` POST) re-reads the PR state and
-  completes the run once it merges/closes. Re-check is **manual** today; a
-  periodic auto-sweep that reconciles parked/rested runs without a click lands in
-  M6, together with supersede-on-new-push and reclaiming a genuinely
-  failing/pending CI held until the idle timeout.
+  completes the run once it merges/closes. In addition to the manual button, a
+  **periodic reconcile sweep** (M6, a `*/15 * * * *` cron) re-checks every
+  rested/parked run without a click — see "M6 hardening" below.
 - **Skip-not-fail.** pr/ci quietly skip on the default branch, on a non-GitHub
   upstream, or when `gh` is unauthenticated **or not installed**. `gh` is NOT in
   the base container image — operators who want PR/CI must make `gh` available on
@@ -159,6 +158,38 @@ needs auth. Two options:
 An env name matching `/_TOKEN$/i` is refused for a `permissions.env` grant at
 install — the `type:"secret"` setting is the supported path, so no token env is
 declared in the manifest.
+
+## M6 hardening
+
+The final milestone adds the production-hardening deferred across M1–M5. See
+[docs/features/extensions/ez-code-factory.md](../../../features/extensions/ez-code-factory.md)
+for the feature-level reference.
+
+- **RBAC on the triage actions.** Two custom `permissions.rbacScopes` +
+  `extension_rbac_grants` gate the gate-triage verbs (deny-by-default; admins
+  hold every scope): **`respond-gate`** for approve/fix/skip/abort (the
+  `code_factory_respond` tool — host-enforced via `rbacScope` — and the Hub
+  `respond` action), and **`yolo`** (its own, broader scope) for the autopilot.
+  An ungranted action is refused clearly (a `toolError` in chat, a logged no-op
+  on the Hub) and never mutates the run. `reconcile` stays ungated (read-only +
+  driven by the background sweep, which has no acting user).
+- **Yolo fix-once.** The autopilot now FIXES a gate's actionable auto-fix
+  findings once, then APPROVES — but STOPS on any `ask-user` finding instead of
+  blanket-approving it.
+- **Periodic reconcile sweep.** A `*/15 * * * *` cron polls every
+  `checks_passed` / CI-parked run and completes the ones whose PR merged/closed —
+  read-only per run, bounded, deterministic (injected clock), with a heartbeat
+  the doctor reports.
+- **Supersede-on-new-push.** A new push to a branch with an in-flight prior run
+  cancels it (marked `aborted`, worktree reaped), then starts the new run.
+  Different branches stay concurrent.
+- **Crash recovery.** On (re)start the extension re-derives parked state from
+  Storage (recoverable only if the gate row is fully recorded and every prior
+  step completed/skipped; otherwise fail closed) and reaps orphaned worktrees —
+  never a live parked run's.
+- **`code_factory_doctor`.** A read-only health report: gate initialized?, hook
+  managed?, gh available + authenticated?, token set?, default-branch fetch
+  reachable?, reconcile-sweep heartbeat.
 
 ## Permissions
 
