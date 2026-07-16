@@ -832,3 +832,95 @@ describe("WorkflowExecutor — loops", () => {
     expect(aborted).toBe(true);
   });
 });
+
+// ── Terminal step status: a non-agent step (gate/transform/loop) that fails
+//    must never be left "running" — only agent steps mirror their AgentRun
+//    status, so the executor terminalizes the rest. ───────────────────────
+
+describe("WorkflowExecutor — terminal step status on failure", () => {
+  test("a failed gate marks its step run 'error' (not left running)", async () => {
+    const { workflow } = setup([]);
+    const def: WorkflowDefinition = {
+      name: "gate-terminal",
+      description: "t",
+      steps: [
+        {
+          name: "assert",
+          kind: "gate",
+          condition: { ref: "$input.value", op: "gt", value: 100 },
+        },
+      ],
+    };
+    const run = await workflow.runWorkflow(def, { value: 5 });
+    expect(run.status).toBe("error");
+    expect(run.steps[0]!.status).toBe("error");
+  });
+
+  test("a transform strict-ref failure marks its step run 'error'", async () => {
+    const { workflow } = setup([]);
+    const def: WorkflowDefinition = {
+      name: "transform-terminal",
+      description: "t",
+      steps: [
+        {
+          name: "shape",
+          kind: "transform",
+          output: { x: "$steps.nope.output" },
+        },
+      ],
+    };
+    const run = await workflow.runWorkflow(def, {});
+    expect(run.status).toBe("error");
+    expect(run.steps[0]!.status).toBe("error");
+  });
+
+  test("loop exhaustion (onExhausted:'fail') marks the looped step 'error'", async () => {
+    const { workflow } = setup([]);
+    const def: WorkflowDefinition = {
+      name: "loop-terminal",
+      description: "t",
+      steps: [
+        {
+          name: "never",
+          kind: "transform",
+          output: { n: "$loop.iteration" },
+          loop: {
+            maxIterations: 2,
+            until: { ref: "$result.output.n", op: "gte", value: 999 },
+          },
+        },
+      ],
+    };
+    const run = await workflow.runWorkflow(def, {});
+    expect(run.status).toBe("error");
+    expect(run.steps[0]!.status).toBe("error");
+  });
+
+  test("cancelling an in-flight step marks it 'cancelled' (terminal)", async () => {
+    let aborted = false;
+    const { bus, workflow } = setup([
+      blockingAgent("blocker", () => {
+        aborted = true;
+      }),
+    ]);
+    const def: WorkflowDefinition = {
+      name: "cancel-terminal",
+      description: "t",
+      steps: [{ name: "s1", agent: "blocker" }],
+    };
+    const started = new Promise<void>((resolve) => {
+      const off = bus.on("run:start", () => {
+        off();
+        resolve();
+      });
+    });
+    const controller = new AbortController();
+    const runPromise = workflow.runWorkflow(def, {}, undefined, undefined, controller.signal);
+    await started;
+    controller.abort();
+    const run = await runPromise;
+    expect(run.status).toBe("cancelled");
+    expect(aborted).toBe(true);
+    expect(run.steps[0]!.status).toBe("cancelled");
+  });
+});

@@ -95,7 +95,17 @@ export function evaluateCondition(
     };
   }
 
-  // Leaf condition.
+  // Leaf condition. Defense-in-depth: definition-time validation
+  // (`validateCondition`) should already have rejected a malformed leaf, but
+  // a hand-edited YAML / legacy DB row could still smuggle one in. Guard
+  // here so the ref resolver never dies with a raw
+  // `TypeError: undefined is not an object (evaluating 'ref.startsWith')`.
+  const leaf = cond as { ref?: unknown; op?: unknown; value?: unknown };
+  if (typeof leaf.ref !== "string" || typeof leaf.op !== "string") {
+    throw new Error(
+      `Malformed condition leaf: expected a string "ref" and "op", got ${fmt(cond)}`,
+    );
+  }
   const actual = resolveConditionRef(cond.ref, ctx);
   const passed = applyOp(cond.op, actual, cond.value);
   const rhs = cond.op === "exists" || cond.op === "truthy" ? "" : ` ${fmt(cond.value)}`;

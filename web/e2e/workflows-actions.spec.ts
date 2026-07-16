@@ -144,6 +144,19 @@ test.describe("Workflows — interactions and rendering gaps", () => {
 		await page.getByLabel("JSON Input").fill("{}");
 		await page.getByRole("button", { name: "Run Workflow" }).click();
 
+		// Register the run via start before the terminal event updates it.
+		await emitSse({
+			type: "workflow:start",
+			data: {
+				workflowRun: {
+					id: "run-loop123",
+					workflowName: "loopy",
+					status: "running",
+					startedAt: Date.now(),
+					steps: [],
+				},
+			},
+		});
 		await emitSse({
 			type: "workflow:complete",
 			data: {
@@ -209,7 +222,7 @@ test.describe("Workflows — interactions and rendering gaps", () => {
 
 	// ── Delete from detail page ─────────────────────────────────────
 
-	test("delete workflow confirms, fires DELETE, and navigates to list", async ({ page, mockApi }) => {
+	test("delete workflow confirms inline (two-step), fires DELETE, and navigates to list", async ({ page, mockApi }) => {
 		await mockApi({
 			workflows: [makeWorkflow({ name: "deleteme" })],
 		});
@@ -223,10 +236,12 @@ test.describe("Workflows — interactions and rendering gaps", () => {
 			return route.fallback();
 		});
 
-		page.on("dialog", (dialog) => dialog.accept());
-
 		await page.goto("/workflows/deleteme");
+		// First click arms the inline confirm (no native dialog — see PR #112).
 		await page.getByRole("button", { name: "Delete" }).click();
+		await expect(page.getByRole("button", { name: "Confirm delete?" })).toBeVisible();
+		// Second click performs the delete.
+		await page.getByRole("button", { name: "Confirm delete?" }).click();
 
 		await expect(page).toHaveURL(/\/workflows$/, { timeout: 5000 });
 		expect(deleteHit).toBe(true);

@@ -24,6 +24,17 @@
 	let submitting = $state(false);
 	let errorMsg = $state("");
 
+	// Inline click-to-confirm for the destructive delete. We deliberately do
+	// NOT use native `window.confirm()`: browsers silently suppress repeated
+	// page dialogs (and some embedded/webview contexts block them outright), so
+	// `confirm()` returns false with no visible prompt and Delete becomes a
+	// silent no-op (see PR #112). The two-step confirm mirrors the codebase's
+	// existing dialog-free pattern: the first click arms a "Confirm delete?"
+	// affordance that auto-resets, a second click performs the delete.
+	const DELETE_CONFIRM_MS = 3000;
+	let deleteConfirming = $state(false);
+	let deleteConfirmTimer: ReturnType<typeof setTimeout> | undefined;
+
 	async function handleRun() {
 		if (!workflowName) return;
 		submitting = true;
@@ -38,8 +49,25 @@
 		}
 	}
 
-	async function handleDelete() {
-		if (!workflowName || !confirm(`Delete workflow "${workflowName}"?`)) return;
+	function handleDeleteClick() {
+		if (!workflowName) return;
+		if (!deleteConfirming) {
+			// First click arms the confirm; auto-reset after the window.
+			deleteConfirming = true;
+			if (deleteConfirmTimer) clearTimeout(deleteConfirmTimer);
+			deleteConfirmTimer = setTimeout(() => {
+				deleteConfirming = false;
+			}, DELETE_CONFIRM_MS);
+			return;
+		}
+		// Second click within the window performs the delete.
+		if (deleteConfirmTimer) clearTimeout(deleteConfirmTimer);
+		deleteConfirming = false;
+		void performDelete();
+	}
+
+	async function performDelete() {
+		if (!workflowName) return;
 		await deleteWorkflow(workflowName);
 		refreshWorkflows();
 		goto("/workflows");
@@ -61,10 +89,11 @@
 					{/if}
 				</div>
 				<button
-					onclick={handleDelete}
+					onclick={handleDeleteClick}
+					data-confirming={deleteConfirming}
 					class="rounded-md bg-red-600/20 px-3 py-1 text-sm text-red-400 hover:bg-red-600/30"
 				>
-					Delete
+					{deleteConfirming ? "Confirm delete?" : "Delete"}
 				</button>
 			</div>
 

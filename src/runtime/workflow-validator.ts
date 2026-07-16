@@ -1,4 +1,9 @@
-import type { WorkflowDefinition, WorkflowStep, WorkflowStepKind } from "../types";
+import type {
+  WorkflowConditionOp,
+  WorkflowDefinition,
+  WorkflowStep,
+  WorkflowStepKind,
+} from "../types";
 
 /** Server-side clamp bounds. Loop budgets are clamped (not rejected) for
  *  out-of-range integers; retries clamp to the historical 0..2. */
@@ -8,9 +13,76 @@ export const RETRIES_CEILING = 2;
 
 const VALID_KINDS: readonly WorkflowStepKind[] = ["agent", "transform", "gate"];
 
+/** The 9 leaf operators. Kept here (not just in the union type) so the
+ *  definition-time validator can reject an unknown `op` before it reaches
+ *  the evaluator. */
+export const VALID_CONDITION_OPS: readonly WorkflowConditionOp[] = [
+  "eq",
+  "neq",
+  "gt",
+  "gte",
+  "lt",
+  "lte",
+  "contains",
+  "exists",
+  "truthy",
+];
+
+/**
+ * Validate a condition tree's SHAPE at definition time (not its runtime
+ * truth). Dispatch mirrors the evaluator ({@link evaluateCondition}):
+ * `all`/`any` must be non-empty arrays, `not` must be an object, otherwise
+ * it is a leaf which needs a non-empty string `ref` and an `op` from the
+ * 9-op enum. Recursive. Returns human-readable errors, each prefixed with
+ * `label` (e.g. `Step "check" condition`). Empty ⇒ valid shape. Without
+ * this a `condition: {}` passes create and then dies at run with a raw
+ * `TypeError` inside the ref resolver.
+ */
+export function validateCondition(cond: unknown, label: string): string[] {
+  if (cond === null || typeof cond !== "object") {
+    return [`${label} must be an object`];
+  }
+  const c = cond as Record<string, unknown>;
+
+  if ("all" in c || "any" in c) {
+    const key = "all" in c ? "all" : "any";
+    const arr = c[key];
+    if (!Array.isArray(arr) || arr.length === 0) {
+      return [`${label} "${key}" must be a non-empty array`];
+    }
+    return arr.flatMap((child, i) =>
+      validateCondition(child, `${label} ${key}[${i}]`),
+    );
+  }
+
+  if ("not" in c) {
+    return validateCondition(c.not, `${label} not`);
+  }
+
+  // Leaf.
+  const errors: string[] = [];
+  if (typeof c.ref !== "string" || c.ref.trim() === "") {
+    errors.push(`${label} leaf requires a non-empty string "ref"`);
+  }
+  if (
+    typeof c.op !== "string" ||
+    !VALID_CONDITION_OPS.includes(c.op as WorkflowConditionOp)
+  ) {
+    errors.push(
+      `${label} leaf has an invalid or missing "op" (expected one of: ${VALID_CONDITION_OPS.join(", ")})`,
+    );
+  }
+  return errors;
+}
+
 /** Clamp a loop's declared `maxIterations` to the supported 1..25 range.
- *  Callers validate integer-ness first; this only bounds the value. */
+ *  Callers validate integer-ness first; this only bounds the value. A
+ *  non-finite value (`NaN`, `±Infinity`) is malformed input — clamp it to
+ *  the floor of 1 rather than let `NaN` short-circuit the loop into a silent
+ *  zero-iteration pass (or `Infinity` run the full ceiling of expensive
+ *  agent iterations). */
 export function clampMaxIterations(n: number): number {
+  if (!Number.isFinite(n)) return MAX_ITERATIONS_FLOOR;
   const floored = Math.floor(n);
   if (floored < MAX_ITERATIONS_FLOOR) return MAX_ITERATIONS_FLOOR;
   if (floored > MAX_ITERATIONS_CEILING) return MAX_ITERATIONS_CEILING;
@@ -81,6 +153,9 @@ export function validateWorkflow(def: WorkflowDefinition): string[] {
     if (kind === "gate" && !step.condition) {
       errors.push(`Step "${name}" (kind "gate") requires a "condition"`);
     }
+    if (kind === "gate" && step.condition) {
+      errors.push(...validateCondition(step.condition, `Step "${name}" condition`));
+    }
 
     if (step.dependsOn) {
       for (const dep of step.dependsOn) {
@@ -100,6 +175,11 @@ export function validateWorkflow(def: WorkflowDefinition): string[] {
       const m = step.loop.maxIterations;
       if (typeof m !== "number" || !Number.isInteger(m)) {
         errors.push(`Step "${name}" loop requires an integer "maxIterations"`);
+      }
+      if (step.loop.until) {
+        errors.push(
+          ...validateCondition(step.loop.until, `Step "${name}" loop until`),
+        );
       }
     }
   }

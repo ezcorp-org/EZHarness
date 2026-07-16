@@ -1,6 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import {
   validateWorkflow,
+  validateCondition,
   clampMaxIterations,
   clampRetries,
   stepKind,
@@ -16,6 +17,14 @@ describe("clampMaxIterations", () => {
     expect(clampMaxIterations(100)).toBe(MAX_ITERATIONS_CEILING);
     expect(clampMaxIterations(3)).toBe(3);
     expect(clampMaxIterations(3.9)).toBe(3);
+  });
+
+  test("a non-finite value clamps to the floor (never a zero-iteration pass)", () => {
+    // NaN would otherwise short-circuit `i <= NaN` into zero iterations —
+    // a silent pass. Infinity would otherwise run the full ceiling.
+    expect(clampMaxIterations(Number.NaN)).toBe(MAX_ITERATIONS_FLOOR);
+    expect(clampMaxIterations(Number.POSITIVE_INFINITY)).toBe(MAX_ITERATIONS_FLOOR);
+    expect(clampMaxIterations(Number.NEGATIVE_INFINITY)).toBe(MAX_ITERATIONS_FLOOR);
   });
 });
 
@@ -145,5 +154,96 @@ describe("validateWorkflow — dependency + loop rejections", () => {
 
   test("out-of-range but integer maxIterations is NOT a validation error (clamped at run time)", () => {
     expect(validateWorkflow(def([{ name: "s", agent: "x", loop: { maxIterations: 100 } }]))).toEqual([]);
+  });
+});
+
+describe("validateCondition — shape validation", () => {
+  test("a well-formed leaf / tree returns no errors", () => {
+    expect(validateCondition({ ref: "$input.n", op: "gte", value: 3 }, "cond")).toEqual([]);
+    expect(
+      validateCondition(
+        {
+          all: [
+            { ref: "$input.a", op: "exists" },
+            { any: [{ ref: "$input.b", op: "truthy" }] },
+            { not: { ref: "$input.c", op: "eq", value: 1 } },
+          ],
+        },
+        "cond",
+      ),
+    ).toEqual([]);
+  });
+
+  test("a non-object condition is rejected", () => {
+    expect(validateCondition(null, "cond")).toContain("cond must be an object");
+    expect(validateCondition("nope", "cond")).toContain("cond must be an object");
+  });
+
+  test("`all` / `any` must be non-empty arrays", () => {
+    expect(validateCondition({ all: [] }, "cond")).toContain(
+      'cond "all" must be a non-empty array',
+    );
+    expect(validateCondition({ any: "x" as unknown }, "cond")).toContain(
+      'cond "any" must be a non-empty array',
+    );
+  });
+
+  test("recurses into `not` and reports the nested label", () => {
+    expect(validateCondition({ not: { op: "eq" } }, "cond")).toContain(
+      'cond not leaf requires a non-empty string "ref"',
+    );
+  });
+
+  test("a leaf needs a non-empty string ref", () => {
+    expect(validateCondition({ op: "eq", value: 1 }, "cond")).toContain(
+      'cond leaf requires a non-empty string "ref"',
+    );
+    expect(validateCondition({ ref: "  ", op: "eq" }, "cond")).toContain(
+      'cond leaf requires a non-empty string "ref"',
+    );
+  });
+
+  test("a leaf rejects an unknown or missing op", () => {
+    const errs = validateCondition({ ref: "$input.n", op: "startsWith" }, "cond");
+    expect(errs.some((e) => e.includes('leaf has an invalid or missing "op"'))).toBe(true);
+    expect(
+      validateCondition({ ref: "$input.n" }, "cond").some((e) =>
+        e.includes('leaf has an invalid or missing "op"'),
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("validateWorkflow — condition + loop-until shape (repro: empty condition)", () => {
+  test("a gate with an empty condition object is rejected at definition time", () => {
+    // Regression: `condition: {}` used to pass create then die at run with a
+    // raw `TypeError` inside the ref resolver.
+    const errs = validateWorkflow(def([{ name: "g", kind: "gate", condition: {} as never }]));
+    expect(errs.some((e) => e.includes('Step "g" condition leaf requires'))).toBe(true);
+  });
+
+  test("a gate with an unknown op is rejected", () => {
+    const errs = validateWorkflow(
+      def([{ name: "g", kind: "gate", condition: { ref: "$input.n", op: "bogus" as never } }]),
+    );
+    expect(errs.some((e) => e.includes('Step "g" condition leaf has an invalid or missing "op"'))).toBe(
+      true,
+    );
+  });
+
+  test("a loop until with a malformed condition is rejected", () => {
+    const errs = validateWorkflow(
+      def([
+        {
+          name: "s",
+          kind: "transform",
+          output: { n: "$loop.iteration" },
+          loop: { maxIterations: 3, until: { op: "gte", value: 3 } as never },
+        },
+      ]),
+    );
+    expect(errs.some((e) => e.includes('Step "s" loop until leaf requires a non-empty string "ref"'))).toBe(
+      true,
+    );
   });
 });

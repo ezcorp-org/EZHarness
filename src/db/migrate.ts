@@ -114,10 +114,13 @@ export async function migrate(db: any): Promise<void> {
   // Ordered BEFORE the CREATE below so a fresh install builds
   // `workflow_definitions` directly and this rename finds nothing to do.
   {
-    const tbls = (await db.execute(sql`
-      SELECT to_regclass('public.pipeline_definitions') AS old_tbl,
-             to_regclass('public.workflow_definitions') AS new_tbl
-    `)) as { rows: Array<{ old_tbl: string | null; new_tbl: string | null }> };
+    // Single-line SELECT: a multi-line `sql` template leaves the interior
+    // column line as an orphan coverable line that never receives an
+    // execution hit (Bun attributes the whole statement to its first line),
+    // which the patch-coverage gate then flags as an uncovered change.
+    const tbls = (await db.execute(
+      sql`SELECT to_regclass('public.pipeline_definitions') AS old_tbl, to_regclass('public.workflow_definitions') AS new_tbl`,
+    )) as { rows: Array<{ old_tbl: string | null; new_tbl: string | null }> };
     const row = tbls.rows[0];
     if (row?.old_tbl && !row?.new_tbl) {
       await db.execute(sql`ALTER TABLE pipeline_definitions RENAME TO workflow_definitions`);

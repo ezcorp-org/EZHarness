@@ -103,3 +103,20 @@ describe("evaluateCondition — reason formatting", () => {
     expect(evalLeaf({ ref: "$input.a", op: "eq", value: 1 }, { a: { x: 1 } }).reason).toContain('{"x":1}');
   });
 });
+
+describe("evaluateCondition — malformed leaf (defense-in-depth)", () => {
+  test("throws a descriptive error instead of a raw TypeError when ref/op are missing", () => {
+    // Definition-time validation should reject these, but a hand-edited YAML
+    // or legacy DB row could smuggle a malformed leaf past it. Previously this
+    // died with `TypeError: undefined is not an object (evaluating 'ref.startsWith')`.
+    expect(() => evaluateCondition({} as unknown as WorkflowCondition, ctx())).toThrow(
+      /Malformed condition leaf/,
+    );
+    expect(() =>
+      evaluateCondition({ op: "eq", value: 1 } as unknown as WorkflowCondition, ctx()),
+    ).toThrow(/Malformed condition leaf/);
+    expect(() =>
+      evaluateCondition({ ref: "$input.a" } as unknown as WorkflowCondition, ctx()),
+    ).toThrow(/Malformed condition leaf/);
+  });
+});

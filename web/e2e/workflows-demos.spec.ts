@@ -44,6 +44,20 @@ test.describe("Workflow demos — run through the UI", () => {
 		await page.getByLabel("JSON Input").fill('{"topic": "workflows"}');
 		await page.getByRole("button", { name: "Run Workflow" }).click();
 
+		// Real executor emits start (registers the run) before the terminal
+		// event updates it — mirror that order so the run is in the store.
+		await emitSse({
+			type: "workflow:start",
+			data: {
+				workflowRun: {
+					id: "wr-det-9999",
+					workflowName: "demo-deterministic",
+					status: "running",
+					startedAt: Date.now(),
+					steps: [],
+				},
+			},
+		});
 		await emitSse({
 			type: "workflow:complete",
 			data: {
@@ -79,6 +93,18 @@ test.describe("Workflow demos — run through the UI", () => {
 		await page.getByRole("button", { name: "Run Workflow" }).click();
 
 		await emitSse({
+			type: "workflow:start",
+			data: {
+				workflowRun: {
+					id: "wr-loop-777",
+					workflowName: "demo-loop-counter",
+					status: "running",
+					startedAt: Date.now(),
+					steps: [],
+				},
+			},
+		});
+		await emitSse({
 			type: "workflow:complete",
 			data: {
 				workflowRun: {
@@ -108,14 +134,14 @@ test.describe("Workflow demos — run through the UI", () => {
 		await expect(page.getByText("demo-loop-counter")).toBeVisible();
 		await captureEvidence(page, testInfo, "workflows-list");
 
-		// 2) Builder (New Workflow) with the new step-kind fields.
+		// 2) Builder (New Workflow) with the new step-kind fields. Assert we
+		//    actually landed on the builder (rather than silently skipping the
+		//    evidence capture when the route redirects elsewhere).
 		const newResp = await page.goto("/workflows/new");
-		const newUrl = newResp ? new URL(newResp.url()).pathname : "";
-		if (newUrl === "/workflows/new") {
-			await expect(page.getByRole("heading", { name: "New Workflow" })).toBeVisible();
-			await expect(page.getByLabel("Kind")).toBeVisible();
-			await captureEvidence(page, testInfo, "workflows-new-builder");
-		}
+		expect(newResp ? new URL(newResp.url()).pathname : "").toBe("/workflows/new");
+		await expect(page.getByRole("heading", { name: "New Workflow" })).toBeVisible();
+		await expect(page.getByLabel("Kind")).toBeVisible();
+		await captureEvidence(page, testInfo, "workflows-new-builder");
 
 		// 3) Run-detail view with a completed loop run (per-step status + iterations).
 		await page.route("**/api/workflows/demo-loop-counter/run", (route) =>
@@ -126,6 +152,18 @@ test.describe("Workflow demos — run through the UI", () => {
 		await page.goto("/workflows/demo-loop-counter");
 		await page.getByLabel("JSON Input").fill("{}");
 		await page.getByRole("button", { name: "Run Workflow" }).click();
+		await emitSse({
+			type: "workflow:start",
+			data: {
+				workflowRun: {
+					id: "wr-ev-42",
+					workflowName: "demo-loop-counter",
+					status: "running",
+					startedAt: Date.now(),
+					steps: [],
+				},
+			},
+		});
 		await emitSse({
 			type: "workflow:complete",
 			data: {

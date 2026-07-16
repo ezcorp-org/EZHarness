@@ -30,6 +30,15 @@ describe("getNestedValue", () => {
     expect(getNestedValue(null, "a")).toBeUndefined();
     expect(getNestedValue(42, "a")).toBeUndefined();
   });
+  test("only traverses own properties — never the prototype chain", () => {
+    // A crafted ref path must not walk into inherited segments.
+    expect(getNestedValue({ a: { b: 1 } }, "a.__proto__")).toBeUndefined();
+    expect(getNestedValue({ a: {} }, "a.constructor")).toBeUndefined();
+    expect(getNestedValue({}, "toString")).toBeUndefined();
+    // Own properties still resolve (including array indices + length).
+    expect(getNestedValue({ arr: [10, 20] }, "arr.1")).toBe(20);
+    expect(getNestedValue({ arr: [10, 20] }, "arr.length")).toBe(2);
+  });
 });
 
 describe("resolveInputRef", () => {

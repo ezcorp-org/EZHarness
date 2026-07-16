@@ -149,6 +149,11 @@ run_legs() {
   VITEST_COV="$TMPDIR/cov_vitest"
   VITEST_EXIT=0
   ( cd web && npx vitest run \
+      src/__tests__/api-workflows.server.test.ts \
+      src/__tests__/api-workflows-name.server.test.ts \
+      src/__tests__/api-workflows-name-run.server.test.ts \
+      src/__tests__/pipelines-redirect.server.test.ts \
+      src/lib/components/WorkflowStepForm.component.test.ts \
       src/__tests__/deep-link-resolve.unit.test.ts \
       src/lib/components/goal-row-logic.unit.test.ts \
       src/lib/components/UpdateBanner.component.test.ts \
@@ -337,7 +342,13 @@ run_legs() {
       --coverage.include='src/routes/api/conversations/[id]/topics/[topicId]/extract/schema.ts' \
       --coverage.include='src/routes/api/contexts/+server.ts' \
       --coverage.include='src/routes/api/contexts/[id]/+server.ts' \
-      --coverage.include='src/routes/api/context-types/+server.ts' ) || VITEST_EXIT=$?
+      --coverage.include='src/routes/api/context-types/+server.ts' \
+      --coverage.include='src/routes/api/workflows/+server.ts' \
+      --coverage.include='src/routes/api/workflows/schema.ts' \
+      --coverage.include='src/routes/api/workflows/[name]/+server.ts' \
+      --coverage.include='src/routes/api/workflows/[name]/run/+server.ts' \
+      --coverage.include='src/routes/**/pipelines/+page.server.ts' \
+      --coverage.include='src/lib/components/WorkflowStepForm.svelte' ) || VITEST_EXIT=$?
   # vitest (run from web/) emits SF paths web/-relative — re-root so merge-lcov.ts
   # resolves them against the repo root and the web/src/... threshold keys match.
   if [ -f "$VITEST_COV/lcov.info" ]; then

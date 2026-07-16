@@ -205,7 +205,9 @@ test.describe.skip("Landing page", () => {
 		await expect(trigger).toContainText("Project B");
 	});
 
-	test("/agents and /pipelines still load without console errors", async ({
+	// `/pipelines` is the legacy path — it now 308-redirects to `/workflows`;
+	// this smoke-checks that the redirect target loads without console errors.
+	test("/agents and /pipelines (legacy redirect) load without console errors", async ({
 		page,
 		mockApi,
 	}) => {

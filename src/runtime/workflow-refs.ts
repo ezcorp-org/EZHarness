@@ -36,11 +36,15 @@ export interface RefContext {
  *  lenient exception — `$loop.last` on iteration 1). */
 export const OMIT = Symbol("omit");
 
-/** Walk a `.`-separated path, returning `undefined` on any missing hop. */
+/** Walk a `.`-separated path, returning `undefined` on any missing hop.
+ *  Only OWN properties are traversed — a crafted ref path naming
+ *  `__proto__` / `constructor` / any inherited segment resolves to
+ *  `undefined` rather than walking the prototype chain. */
 export function getNestedValue(obj: unknown, path: string): unknown {
   let current: unknown = obj;
   for (const key of path.split(".")) {
     if (current == null || typeof current !== "object") return undefined;
+    if (!Object.hasOwn(current, key)) return undefined;
     current = (current as Record<string, unknown>)[key];
   }
   return current;

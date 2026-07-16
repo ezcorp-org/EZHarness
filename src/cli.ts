@@ -313,27 +313,34 @@ export function parseArgs(args: string[]): ParsedArgs {
 // ── Usage text ──────────────────────────────────────────────────────
 
 function printUsage(): void {
-  console.log(`
-EZCorp - AI Platform
-
-Usage:
-  ezcorp list                                          List available agents
-  ezcorp run <agent> [--input '{}'] [--project <name>] Run an agent
-  ezcorp workflow list                                 List workflows
-  ezcorp workflow run <name> [--input '{}'] [--project <name>] Run a workflow
-  ezcorp ext init <name> [--type tool|skill|agent|multi] Create new extension project
-  ezcorp ext install <source> [--yes]                   Install extension from git
-  ezcorp ext update [name]                              Update extension(s)
-  ezcorp ext list                                       List installed extensions
-  ezcorp ext remove <name>                              Remove an extension
-  ezcorp ext info <name>                                Show extension details
-  ezcorp ext dev [dir]                                  Start dev server with hot reload
-  ezcorp ext test [dir] [--filter <name>]               Run extension tests in sandbox
-  ezcorp ext publish [--token <token>]                  Publish extension to marketplace
-  ezcorp serve [--port 3001]                           Start API server
-  ezcorp key mint [--scopes read,chat] [--user <email|id>] [--name <label>]  Mint a remote-control API key
-  ezcorp help                                          Show this help
-`.trim());
+  // Built as an array-join rather than a single multi-line template: Bun's
+  // line coverage attributes a whole multi-line template to its opening line,
+  // leaving every interior line an uncoverable phantom that the patch gate
+  // flags whenever a command line is added. Array elements are each their own
+  // covered expression.
+  console.log(
+    [
+      "EZCorp - AI Platform",
+      "",
+      "Usage:",
+      "  ezcorp list                                          List available agents",
+      "  ezcorp run <agent> [--input '{}'] [--project <name>] Run an agent",
+      "  ezcorp workflow list                                 List workflows",
+      "  ezcorp workflow run <name> [--input '{}'] [--project <name>] Run a workflow",
+      "  ezcorp ext init <name> [--type tool|skill|agent|multi] Create new extension project",
+      "  ezcorp ext install <source> [--yes]                   Install extension from git",
+      "  ezcorp ext update [name]                              Update extension(s)",
+      "  ezcorp ext list                                       List installed extensions",
+      "  ezcorp ext remove <name>                              Remove an extension",
+      "  ezcorp ext info <name>                                Show extension details",
+      "  ezcorp ext dev [dir]                                  Start dev server with hot reload",
+      "  ezcorp ext test [dir] [--filter <name>]               Run extension tests in sandbox",
+      "  ezcorp ext publish [--token <token>]                  Publish extension to marketplace",
+      "  ezcorp serve [--port 3001]                           Start API server",
+      "  ezcorp key mint [--scopes read,chat] [--user <email|id>] [--name <label>]  Mint a remote-control API key",
+      "  ezcorp help                                          Show this help",
+    ].join("\n"),
+  );
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────
@@ -353,7 +360,7 @@ async function resolveProjectId(projectName: string | undefined): Promise<string
 }
 
 /**
- * Common harness for `run` and `pipeline:run` commands: open the DB,
+ * Common harness for the `run` and `workflow:run` commands: open the DB,
  * load agents (incl. DB-backed ones), wire up an event bus + executor,
  * and start streaming events to the terminal. Caller is responsible for
  * `disconnect()` in a finally block.

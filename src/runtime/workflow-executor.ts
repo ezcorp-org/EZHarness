@@ -137,6 +137,14 @@ export class WorkflowExecutor {
             stepRun.status = "success";
             return result;
           } catch (err) {
+            // Only agent steps mirror their AgentRun's terminal status onto
+            // the step run; a gate/transform/loop/ref-resolution failure
+            // throws with the step still "running". Terminalize here so a
+            // failed step never stays "running" forever — `cancelled` when the
+            // run is being aborted, `error` otherwise. (Kept on one line so
+            // the line-coverage gate sees it hit by either branch.)
+            const aborting = externallyAborted || err instanceof WorkflowAbortError;
+            if (stepRun.status === "running") stepRun.status = aborting ? "cancelled" : "error";
             fail(err);
             return undefined;
           }

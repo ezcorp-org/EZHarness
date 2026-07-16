@@ -1,14 +1,33 @@
 /**
  * Server-handler unit tests for /api/workflows/[name]/run/+server.ts.
  *
- * We intentionally avoid exercising the workflow executor — tests cover only
- * the scope gate, the auth gate, and the 404 "Workflow not found" branch
- * which runs before any execution (in the typical empty-registry state the
- * vitest setup boots with).
+ * Covers the scope gate, the auth gate, the 404 "Workflow not found" branch,
+ * the strict-body 400, the run success path, and the executor-throws 400
+ * (the registry + executor are mocked).
  */
 
-import { test, expect, describe } from "vitest";
+import { test, expect, describe, vi, beforeEach } from "vitest";
+
+const ctx = vi.hoisted(() => {
+  const runWorkflow = vi.fn(async () => ({ id: "run-1", status: "success" }));
+  return {
+    getWorkflows: vi.fn(() => [] as Array<{ name: string }>),
+    getWorkflowExecutor: vi.fn(() => ({ runWorkflow })),
+    runWorkflow,
+  };
+});
+vi.mock("$lib/server/context", () => ({
+  getWorkflows: ctx.getWorkflows,
+  getWorkflowExecutor: ctx.getWorkflowExecutor,
+}));
+
 import { POST } from "../routes/api/workflows/[name]/run/+server";
+
+beforeEach(() => {
+  ctx.getWorkflows.mockReset().mockReturnValue([]);
+  ctx.runWorkflow.mockReset().mockResolvedValue({ id: "run-1", status: "success" });
+  ctx.getWorkflowExecutor.mockReset().mockReturnValue({ runWorkflow: ctx.runWorkflow });
+});
 
 function makeEvent(opts: {
 	name?: string;
@@ -62,5 +81,47 @@ describe("POST /api/workflows/[name]/run", () => {
 
 	test("throws 401 when unauthenticated", async () => {
 		await expectThrownResponse(() => POST(makeEvent({ body: {} })), 401);
+	});
+
+	test("returns 404 when the workflow is not in the registry", async () => {
+		ctx.getWorkflows.mockReturnValue([]);
+		const res = await POST(makeEvent({ name: "missing", locals: authedUser, body: {} }));
+		expect(res.status).toBe(404);
+		const body = (await res.json()) as { error?: string };
+		expect(body.error).toBe("Workflow not found");
+	});
+
+	test("returns 400 when the body fails the schema (non-string projectId)", async () => {
+		ctx.getWorkflows.mockReturnValue([{ name: "w1" }]);
+		const res = await POST(makeEvent({ name: "w1", locals: authedUser, body: { projectId: 123 } }));
+		expect(res.status).toBe(400);
+		const body = (await res.json()) as { error?: string };
+		expect(body.error).toBe("Invalid request body");
+	});
+
+	test("runs the workflow (with projectId + input) and returns the run", async () => {
+		ctx.getWorkflows.mockReturnValue([{ name: "w1" }]);
+		const res = await POST(
+			makeEvent({ name: "w1", locals: authedUser, body: { projectId: "proj-1", topic: "x" } }),
+		);
+		expect(res.status).toBe(200);
+		expect(ctx.runWorkflow).toHaveBeenCalledWith({ name: "w1" }, { topic: "x" }, "proj-1", "u1");
+		expect((await res.json()) as { id?: string }).toMatchObject({ id: "run-1" });
+	});
+
+	test("runs with no projectId (undefined passed through)", async () => {
+		ctx.getWorkflows.mockReturnValue([{ name: "w1" }]);
+		const res = await POST(makeEvent({ name: "w1", locals: authedUser, body: { topic: "y" } }));
+		expect(res.status).toBe(200);
+		expect(ctx.runWorkflow).toHaveBeenCalledWith({ name: "w1" }, { topic: "y" }, undefined, "u1");
+	});
+
+	test("returns 400 with the error message when the executor throws", async () => {
+		ctx.getWorkflows.mockReturnValue([{ name: "w1" }]);
+		ctx.runWorkflow.mockRejectedValue(new Error("boom"));
+		const res = await POST(makeEvent({ name: "w1", locals: authedUser, body: {} }));
+		expect(res.status).toBe(400);
+		const body = (await res.json()) as { error?: string };
+		expect(body.error).toBe("boom");
 	});
 });

@@ -68,8 +68,9 @@
 		{/if}
 	</div>
 
-	{#if step.kind === "agent" || step.kind === "transform"}
-		<!-- Input Mapping -->
+	{#if step.kind === "agent"}
+		<!-- Input Mapping (agent only — the executor never reads `input` on a
+		     transform step, so surfacing the editor there is dead/misleading UX). -->
 		<div>
 			<div class="mb-1 flex items-center justify-between">
 				<div class="text-xs text-[var(--color-text-secondary)]">Input Mapping</div>

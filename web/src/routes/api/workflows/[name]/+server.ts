@@ -1,5 +1,4 @@
 import { json } from "@sveltejs/kit";
-import { z } from "zod";
 import { errorJson } from "$lib/server/http-errors";
 import * as workflowQueries from "$server/db/queries/workflows";
 import { getWorkflows, reloadWorkflows } from "$lib/server/context";
@@ -8,35 +7,14 @@ import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import type { RequestHandler } from "./$types";
 import type { WorkflowDefinition } from "$server/types";
+import { workflowBodySchema } from "../schema";
 
 // Boundary validation for workflow update. The update is partial —
 // `updateWorkflow` reads only name/description/inputSchema/steps and
-// merges. `.strict()` rejects unknown top-level fields. The 400
-// "Invalid request body" surfaces malformed bodies; existing 404
-// branches still drive their messages downstream. When `steps` are
-// supplied they are re-validated (definition-time rules).
-const workflowStepSchema = z
-  .object({
-    name: z.string().optional(),
-    kind: z.enum(["agent", "transform", "gate"]).optional(),
-    agent: z.string().optional(),
-    input: z.record(z.string(), z.string()).optional(),
-    retries: z.number().optional(),
-    output: z.record(z.string(), z.string()).optional(),
-    condition: z.unknown().optional(),
-    dependsOn: z.array(z.string()).optional(),
-    loop: z.unknown().optional(),
-  })
-  .loose();
-
-const putBodySchema = z
-  .object({
-    name: z.string().optional(),
-    description: z.string().optional(),
-    inputSchema: z.record(z.string(), z.unknown()).optional(),
-    steps: z.array(workflowStepSchema).optional(),
-  })
-  .strict();
+// merges. The shared `workflowBodySchema` (`.strict()`) rejects unknown
+// top-level fields; the 400 "Invalid request body" surfaces malformed
+// bodies while existing 404 branches drive their messages downstream. When
+// `steps` are supplied they are re-validated (definition-time rules).
 
 export const GET: RequestHandler = async ({ params, locals }) => {
   const scopeErr = requireScope(locals, "read");
@@ -51,7 +29,7 @@ export const PUT: RequestHandler = async ({ request, params, locals }) => {
   const scopeErr = requireScope(locals, "chat");
   if (scopeErr) return scopeErr;
   requireAuth(locals);
-  const parsed = putBodySchema.safeParse(await request.json().catch(() => ({})));
+  const parsed = workflowBodySchema.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) {
     return errorJson(400, "Invalid request body");
   }
