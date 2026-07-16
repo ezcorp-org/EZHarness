@@ -13,6 +13,7 @@ import {
   sanitizedPreviousFindingsForPrompt,
   REVIEW_FINDINGS_SCHEMA,
   COMMIT_SUMMARY_SCHEMA,
+  PR_CONTENT_SCHEMA,
 } from "./prompts";
 import { serializeFindings, deserializeFindings, type StepRoundRecord } from "./runs";
 
@@ -263,5 +264,8 @@ describe("schemas", () => {
   });
   test("commit-summary schema requires summary", () => {
     expect(COMMIT_SUMMARY_SCHEMA.required).toEqual(["summary"]);
+  });
+  test("pr-content schema requires title + body", () => {
+    expect(PR_CONTENT_SCHEMA.required).toEqual(["title", "body"]);
   });
 });

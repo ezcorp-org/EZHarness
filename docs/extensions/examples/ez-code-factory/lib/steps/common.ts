@@ -14,7 +14,9 @@ import type { AgentDispatcher, DispatchOptions, DispatchResult, SessionRole } fr
 import type { PipelineConfig } from "../config";
 import { EMPTY_TREE_SHA, isZeroSHA, makeGit, shortSHA, type Git } from "../git";
 import type { PipelineStep } from "../config";
+import type { GhRunner } from "../github";
 import type { RepoConfig } from "../repo-config";
+import type { StepWithRounds } from "../runs";
 import type { ShellRunner } from "../shell";
 
 // ── Run-scoped in-memory hand-off (pipeline/shared.go) ──────────────
@@ -83,6 +85,9 @@ export interface RunView {
   baseSha: string;
   intent: string | null;
   intentSource: string | null;
+  /** The PR URL the PR step opened/updated, or null. Read by the CI step to
+   *  poll checks + reconcile a stale gate; set via StepContext.updatePrUrl. */
+  prUrl: string | null;
 }
 
 /** Repo facts a step needs. `workingPath` is the project root (for the bundled-
@@ -119,9 +124,24 @@ export interface StepContext {
   jailedGit: Git;
   /** The raw host runner (for non-git checks like `test -d`, and gitAt). */
   hostRunner: ShellRunner;
+  /** GitHub CLI runner (pr/ci steps) — `gh <args>` in the worktree with the
+   *  GH_TOKEN secret injected. Behind the same injectable seam as hostRunner so
+   *  tests fake it (spec §11 determinism). */
+  gh: GhRunner;
+  /** Injected clock (ms) driving the CI poll loop's pacing + idle timeout —
+   *  deterministic in tests (no wall-clock). */
+  now: () => number;
+  /** Injected poll wait — the CI loop's only sleep. A test fake resolves
+   *  immediately (advancing the injected clock), so no real time passes. */
+  sleep: (ms: number) => Promise<void>;
   log: (message: string) => void;
   /** Persist an advanced head SHA (updates the run record). */
   updateHeadSha: (sha: string) => Promise<void>;
+  /** Persist the PR URL the PR step opened/updated (updates the run record). */
+  updatePrUrl: (url: string) => Promise<void>;
+  /** Load every pipeline step's result + rounds (the PR step reads the whole
+   *  history to build the deterministic Risk/Testing/Pipeline body sections). */
+  loadStepHistory: () => Promise<StepWithRounds[]>;
 }
 
 /** Bind read-only host git to an arbitrary dir (e.g. the working repo for the
@@ -162,10 +182,20 @@ export interface StepOutcome {
   fixSummary?: string;
 }
 
-/** Every step implements a name + an execute. */
+/** The result of an opt-in reconcile poll: whether external truth (a merged /
+ *  closed PR) resolved the stale parked gate. */
+export interface ReconcileResult {
+  resolved: boolean;
+}
+
+/** Every step implements a name + an execute. A step MAY additionally implement
+ *  `reconcileApprovalGate` (opt-in, spec §1): a read-only, bounded poll that
+ *  checks whether external truth has superseded a stale parked gate (the CI
+ *  step resolves a gate once its PR is merged/closed). */
 export interface Step {
   name: PipelineStep;
   execute(sctx: StepContext): Promise<StepOutcome>;
+  reconcileApprovalGate?(sctx: StepContext): Promise<ReconcileResult>;
 }
 
 /** True when the run's intent is authoritative acceptance criteria. */

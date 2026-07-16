@@ -75,6 +75,9 @@ export interface RunRecord {
    *  reused by every respond (spec §1 invariant 1). Absent until resolved (M0/M1
    *  runs, or before the first pipeline start). */
   repoConfig?: RepoConfig;
+  /** The pull-request URL the PR step opened/updated (M4). Null until the PR
+   *  step runs; the CI step reads it to poll checks + reconcile a stale gate. */
+  prUrl?: string | null;
   error?: string;
 }
 
@@ -133,6 +136,14 @@ export interface StepRoundRecord {
   fixSummary: string | null;
   /** Round wall-clock ms. */
   durationMs: number;
+}
+
+/** A step result paired with its ordered rounds — the PR step reads the whole
+ *  pipeline's history (every step + its rounds) to build the deterministic
+ *  Risk/Testing/Pipeline body sections. */
+export interface StepWithRounds {
+  result: StepResultRecord;
+  rounds: StepRoundRecord[];
 }
 
 // ── Findings model (the safety contract — ported field-for-field) ───

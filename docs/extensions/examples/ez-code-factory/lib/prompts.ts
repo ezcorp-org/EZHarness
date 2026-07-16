@@ -395,6 +395,23 @@ export const COMMIT_SUMMARY_SCHEMA = {
   required: ["summary"],
 } as const;
 
+/** PR-content schema: a conventional-commit title + a `## What Changed` body.
+ *  Verbatim prContentSchema. */
+export const PR_CONTENT_SCHEMA = {
+  type: "object",
+  properties: {
+    title: {
+      type: "string",
+      description: "Conventional commit PR title, e.g. fix(scope): short description",
+    },
+    body: {
+      type: "string",
+      description: "GitHub-flavored markdown body starting with ## What Changed. Plain text, NOT JSON.",
+    },
+  },
+  required: ["title", "body"],
+} as const;
+
 /** The per-finding item shape shared by every findings schema. */
 const FINDING_ITEM_SCHEMA = {
   type: "object",

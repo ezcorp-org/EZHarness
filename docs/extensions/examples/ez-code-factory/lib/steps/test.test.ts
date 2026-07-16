@@ -84,6 +84,7 @@ describe("testStep", () => {
         baseSha: base,
         intent: null,
         intentSource: null,
+        prUrl: null,
         ...over.run,
       },
       repo: { defaultBranch: "main", workingPath: "" },
@@ -97,8 +98,13 @@ describe("testStep", () => {
       hostGit: makeGit(hostRunner, dir),
       jailedGit: makeGit(hostRunner, dir),
       hostRunner,
+      gh: async () => ({ exitCode: 127, stdout: "", stderr: "" }),
+      now: () => 0,
+      sleep: async () => {},
       log: (m) => logs.push(m),
       updateHeadSha: async () => {},
+      updatePrUrl: async () => {},
+      loadStepHistory: async () => [],
     };
     return { ctx, logs };
   }

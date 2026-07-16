@@ -44,6 +44,8 @@ import {
   normalizeFindingsJSON,
 } from "./findings";
 import { makeRunShared, type RunShared, type RunView, type Step, type StepContext, type StepOutcome } from "./steps/common";
+import type { GhRunner } from "./github";
+import type { StepWithRounds } from "./runs";
 import { intentStep } from "./steps/intent";
 import { rebaseStep } from "./steps/rebase";
 import { reviewStep } from "./steps/review";
@@ -95,6 +97,12 @@ export interface ExecutorDeps {
   resolveRepoConfig?: () => Promise<RepoConfig>;
   /** Injected clock (ms) so parked-time + round durations are deterministic. */
   now: () => number;
+  /** GitHub CLI runner (pr/ci). Defaults to a stub that reports gh unavailable,
+   *  so a run whose deployment never wired gh SKIPS pr/ci (skip-not-fail). */
+  gh?: GhRunner;
+  /** CI poll-loop sleep seam (deterministic in tests). Defaults to a real
+   *  setTimeout in production. */
+  sleep?: (ms: number) => Promise<void>;
   /** Called after each persisted change (dashboard refresh). Optional. */
   onChange?: () => Promise<void> | void;
   /** Per-step log sink. Optional. */
@@ -179,7 +187,27 @@ function buildRunView(rec: RunRecord): RunView {
     baseSha: rec.baseSha,
     intent: rec.intent,
     intentSource: rec.intentSource,
+    prUrl: rec.prUrl ?? null,
   };
+}
+
+/** A gh runner used when the deployment never wired one: every call reports a
+ *  non-zero exit, so `host.available()` fails and pr/ci SKIP (skip-not-fail). */
+const unavailableGh: GhRunner = async () => ({ exitCode: 127, stdout: "", stderr: "gh not wired" });
+
+/** Real poll wait (production default) — the only wall-clock sleep. */
+const realSleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Load every pipeline step's persisted result + rounds (PR-body assembly). */
+async function loadStepHistory(deps: ExecutorDeps, runId: string): Promise<StepWithRounds[]> {
+  const out: StepWithRounds[] = [];
+  for (const step of PIPELINE_STEPS) {
+    const result = await deps.store.getStepResult(runId, step);
+    if (!result) continue;
+    const rounds = await deps.store.getStepRounds(runId, step);
+    out.push({ result, rounds });
+  }
+  return out;
 }
 
 function buildStepContext(
@@ -208,10 +236,18 @@ function buildStepContext(
     hostGit: makeGit(deps.hostRunner, deps.worktree),
     jailedGit: makeGit(deps.jailedRunner, deps.worktree),
     hostRunner: deps.hostRunner,
+    gh: deps.gh ?? unavailableGh,
+    now: deps.now,
+    sleep: deps.sleep ?? realSleep,
     log: (m) => deps.log?.(run.id, step, m),
     updateHeadSha: async (sha) => {
       await deps.store.updateRun(run.id, { headSha: sha });
     },
+    updatePrUrl: async (url) => {
+      await deps.store.updateRun(run.id, { prUrl: url });
+      run.prUrl = url;
+    },
+    loadStepHistory: () => loadStepHistory(deps, run.id),
   };
 }
 

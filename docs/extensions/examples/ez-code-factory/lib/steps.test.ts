@@ -100,6 +100,7 @@ function makeCtx(worktree: string, headSha: string, over: CtxOverrides = {}): {
       baseSha: headSha,
       intent: null,
       intentSource: null,
+      prUrl: null,
       ...over.run,
     },
     repo: { defaultBranch: "main", workingPath: "", ...over.repo },
@@ -113,10 +114,15 @@ function makeCtx(worktree: string, headSha: string, over: CtxOverrides = {}): {
     hostGit: makeGit(hostRunner, worktree),
     jailedGit: makeGit(jailedRunner, worktree),
     hostRunner,
+    gh: async () => ({ exitCode: 127, stdout: "", stderr: "gh not wired" }),
+    now: () => 0,
+    sleep: async () => {},
     log: (m) => logs.push(m),
     updateHeadSha: async (sha) => {
       headUpdates.push(sha);
     },
+    updatePrUrl: async () => {},
+    loadStepHistory: async () => [],
   };
   return { ctx, logs, headUpdates };
 }

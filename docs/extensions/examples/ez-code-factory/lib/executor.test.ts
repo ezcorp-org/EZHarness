@@ -616,6 +616,32 @@ describe("trusted-branch repo-config threading", () => {
   });
 });
 
+// ── StepContext seams (pr/ci plumbing) ──────────────────────────────
+
+describe("StepContext seams", () => {
+  test("exposes default gh/sleep + persists prUrl + loads step history", async () => {
+    const store = memStore();
+    const id = await seedRun(store);
+    let ghExit = -1;
+    let historyLen = -1;
+    const probe: Step = {
+      name: "intent",
+      async execute(sctx) {
+        ghExit = (await sctx.gh(["auth", "status"])).exitCode; // default unavailableGh
+        await sctx.sleep(0); // default realSleep
+        await sctx.updatePrUrl("https://github.com/o/n/pull/1");
+        historyLen = (await sctx.loadStepHistory()).length;
+        return {};
+      },
+    };
+    const deps = makeDeps(store, registry({ intent: probe }), { t: 0 });
+    await startPipeline(id, deps);
+    expect(ghExit).toBe(127); // gh not wired → pr/ci would skip-not-fail
+    expect(historyLen).toBeGreaterThanOrEqual(1); // at least the intent step result
+    expect((await store.getRun(id))!.prUrl).toBe("https://github.com/o/n/pull/1");
+  });
+});
+
 // ── real registry wiring ────────────────────────────────────────────
 
 describe("STEP_REGISTRY (production wiring)", () => {
