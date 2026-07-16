@@ -7,7 +7,7 @@
 // A mutable stub for `getSetting` drives the switch state without a DB — the
 // gated code paths all return BEFORE any DB work when engaged.
 
-import { test, expect, describe, mock, beforeEach, afterAll } from "bun:test";
+import { test, expect, describe, mock, beforeEach, afterEach, afterAll } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 
 let settingValue: unknown;
@@ -30,6 +30,15 @@ const { loopsKillSwitchEngaged, LOOPS_KILL_SWITCH_KEY } = await import(
 const { ScheduleDaemon } = await import("../extensions/schedule-daemon");
 
 beforeEach(() => {
+  settingValue = undefined;
+  shouldThrow = false;
+});
+
+// Leave the stub in its benign default after every test — belt-and-braces so
+// the mocked getSetting never reads back an engaged switch if this module's
+// mock ever outlives the file (the CI runner isolates per file via
+// scripts/test.sh, but the reset is free insurance).
+afterEach(() => {
   settingValue = undefined;
   shouldThrow = false;
 });
