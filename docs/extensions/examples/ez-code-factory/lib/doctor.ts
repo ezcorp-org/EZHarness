@@ -5,7 +5,7 @@
 //   - gate initialized?      (the bare gate repo exists)
 //   - hook installed+managed? (our marker is in the post-receive hook)
 //   - gh available+authed?    (pr/ci can talk to GitHub)
-//   - token set?              (the encrypted githubToken secret is present)
+//   - token set?              (the encrypted github_token secret is present)
 //   - default branch fetch?   (the gate has an origin to rebase/PR against)
 //   - reconcile sweep healthy? (the background loop has fired)
 //
@@ -90,18 +90,19 @@ async function checkGh(deps: DoctorDeps): Promise<DoctorCheck> {
   const detail =
     r.exitCode === 127
       ? "gh CLI not found on PATH — pr/ci steps will skip (install gh to enable them)"
-      : "gh CLI is not authenticated — pr/ci steps will skip (set the githubToken secret or run gh auth login)";
+      : "gh CLI is not authenticated — pr/ci steps will skip (set the GitHub token secret or run gh auth login)";
   return { name: "gh", status: "warn", detail };
 }
 
-/** GitHub token set? (env override or the encrypted githubToken secret). */
+/** GitHub token set? (env override or the encrypted github_token secret). The
+ *  detail NEVER echoes the resolved token value — only whether one is present. */
 async function checkToken(deps: DoctorDeps): Promise<DoctorCheck> {
   const token = await deps.resolveToken();
-  if (token !== null) return { name: "token", status: "ok", detail: "githubToken configured" };
+  if (token !== null) return { name: "token", status: "ok", detail: "GitHub token configured" };
   return {
     name: "token",
     status: "warn",
-    detail: "no githubToken secret set — gh falls back to its own ambient auth (gh auth login)",
+    detail: "no GitHub token secret set — gh falls back to its own ambient auth (gh auth login)",
   };
 }
 

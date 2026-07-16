@@ -47,7 +47,7 @@ import {
 } from "./index";
 import type { ChatToolDeps } from "./lib/chat-tools";
 import { gateDir as gateDirFor, GATE_REMOTE, HOOK_MARKER } from "./lib/gate";
-import { SWEEP_CRON } from "./lib/sweep";
+import { SWEEP_CRON, type SweepHeartbeat } from "./lib/sweep";
 import { productionHostRunner, type ShellRunner } from "./lib/shell";
 import { emptyFindings } from "./lib/runs";
 import type { Finding, ParsedRespond, RunRecord, RunStore, StepResultRecord, StepRoundRecord, StepStatus } from "./lib/runs";
@@ -998,7 +998,7 @@ describe("settings live-read", () => {
     // Resolve it so the try branch of defaultSettingsRead runs; other store
     // reads also route through request and get an empty result.
     spyOn(ch, "request").mockImplementation((async (method: string) => {
-      if (method === "ezcorp/invoke") return { defaultBranch: "main" };
+      if (method === "ezcorp/invoke") return { default_branch: "main" };
       return { value: null, exists: false };
     }) as HostChannel["request"]);
     _setProjectRootForTests(() => "/proj");
@@ -1039,7 +1039,7 @@ describe("settings live-read", () => {
   });
 
   test("a NON-default settings value flows through resolveLiveConfig into the pipeline", async () => {
-    // `autofixCap` is the flat settings knob for rebase/test/document/lint/ci
+    // `autofix_cap` is the flat settings knob for rebase/test/document/lint/ci
     // (default 3). A mutation making resolveLiveConfig ignore the stub (always
     // `resolvePipelineConfig({})`) drops the read (fails (a)) and/or leaves the
     // recorded cap at 3 (fails (b)) — so this locks the live read, not just that
@@ -1048,7 +1048,7 @@ describe("settings live-read", () => {
     let getMineCalls = 0;
     _setSettingsReadForTests(async () => {
       getMineCalls++;
-      return { autofixCap: NON_DEFAULT_CAP };
+      return { autofix_cap: NON_DEFAULT_CAP };
     });
     _setProjectRootForTests(() => "/proj");
     _setTmpBaseForTests(() => "/tmp/ext");
@@ -1743,10 +1743,27 @@ describe("reconcile sweep wiring (M6)", () => {
     _setShellForTests(okShell);
     const store = memStore();
     _setStoreForTests(store);
-    _setHeartbeatKVForTests(() => ({ async read() { return null; }, async write() {} }));
+    // Seed a TERMINAL run so "scanned 0" is a real assertion — the sweep walked
+    // the run list and correctly filtered a non-reconcilable run, not just an
+    // empty store.
+    await store.createRun({
+      id: "done", repoId: "0123456789ab", branch: "feat/x", ref: "refs/heads/feat/x",
+      headSha: "abc", baseSha: "0".repeat(40), status: "completed", worktreePath: null,
+      createdAt: "t", updatedAt: "t", parkedMs: 0, awaitingAgentSince: null, intent: null, intentSource: null,
+    });
+    let wrote = 0;
+    let lastHeartbeat: SweepHeartbeat | null = null;
+    _setHeartbeatKVForTests(() => ({
+      async read() { return null; },
+      async write(hb) { wrote++; lastHeartbeat = hb; },
+    }));
     await handleScheduleFire({ cron: SWEEP_CRON, scheduledAt: "t", firedAt: "t", fireId: "f", catchUp: false, retry: false, attempt: 1 });
-    // No throw + no reconcilable runs → a clean no-op fire.
-    expect(true).toBe(true);
+    // The fire actually ran a sweep to completion: it recorded exactly one
+    // heartbeat, and with no RECONCILABLE runs the summary is all-zeros (the
+    // terminal run was skipped, never scanned).
+    expect(wrote).toBe(1);
+    expect(lastHeartbeat).not.toBeNull();
+    expect(lastHeartbeat!.summary).toEqual({ scanned: 0, advanced: 0, stillParked: 0, skipped: 0 });
   });
 });
 

@@ -339,7 +339,13 @@ describe("buildRunDetail (parked gate)", () => {
     const yolo = buttons.find((b) => b.label.startsWith("Yolo"))!;
     expect(yolo.action.event).toBe("ez-code-factory:yolo");
     expect(yolo.action.payload).toEqual({ runId: "run-parked", step: "review" });
-    expect(yolo.action.confirm).toContain("auto-approve");
+    // The label + confirm describe the M6 fix-once autopilot accurately: it
+    // auto-fixes once then approves, but STOPS at an ask-user gate (it never
+    // blanket-bypasses human review).
+    expect(yolo.label).toContain("fix once");
+    expect(yolo.action.confirm).toContain("auto-fix");
+    expect(yolo.action.confirm).toContain("STOP");
+    expect(yolo.action.confirm).toContain("ask-user");
 
     // The intent stat hint surfaces the explicit intent.
     const statusStats = inside.find(

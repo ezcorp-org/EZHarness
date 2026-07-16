@@ -123,7 +123,7 @@ checks:
   Oversized bodies shed content in priority order (drop Testing → drop the
   oldest Pipeline rounds → hard-truncate) to stay under GitHub's 63,488-byte cap.
 - **CI is polled with an injected clock** (30s → 60s → 120s), with an idle
-  timeout (default 7 days, `ciTimeoutHours` setting; `-1` = never) that re-arms
+  timeout (default 7 days, `ci_timeout_hours` setting; `-1` = never) that re-arms
   whenever the base branch advances. On failure it fetches the failed logs,
   drives an agent fix, guarded-force-pushes, and resumes (cap 3).
 - **Green checks rest, they don't babysit.** The instant every reported check

@@ -145,8 +145,11 @@ Storage:
 A new push to a branch with an in-flight prior run (parked or resting) cancels it
 (`supersedePriorRuns` in `lib/runs.ts`): the prior run is marked `aborted` with a
 persisted "superseded" reason and its worktree reaped, then the new run starts.
-Different branches stay fully concurrent (the per-`(repo,branch)` mutex is the
-bounded wait for a genuinely running prior segment).
+Different branches stay fully concurrent. Within a branch the per-`(repo,branch)`
+mutex is an unbounded FIFO chain (no timed cap): a new push waits behind a
+genuinely running prior segment until it reaches its next park/finish yield point
+before superseding it — so a running agent is never killed mid-execution; only a
+prior run that has already parked/rested is aborted.
 
 ## Diagnostics — `code_factory_doctor`
 
@@ -158,7 +161,7 @@ A read-only report (`lib/doctor.ts`) with one line per check — `ok`
 | `gate` | fail: no bare gate repo (run `init_gate`) |
 | `hook` | fail: no post-receive hook · warn: a foreign (unmanaged) hook |
 | `gh` | warn: gh not on PATH, or unauthenticated (pr/ci skip) |
-| `token` | warn: no `githubToken` secret (gh uses ambient auth) |
+| `token` | warn: no `github_token` secret (gh uses ambient auth) |
 | `default-branch` | warn: gate has no origin remote (cannot fetch / PR) |
 | `reconcile-sweep` | warn: the sweep has not fired since boot |
 

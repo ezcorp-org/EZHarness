@@ -263,8 +263,10 @@ export function appendRunDetail(page: PageBuilder, detail: RunDetail): void {
     appendLogPanel(section, parked, parked.findings);
 
     // Step-level controls. Approve continues; skip marks the step skipped;
-    // abort cancels the run; yolo auto-approves every remaining gate. Skip and
-    // abort confirm; yolo confirms (it's a bulk auto-approve).
+    // abort cancels the run; yolo runs the fix-once autopilot — it auto-fixes
+    // each remaining gate's `auto-fix` findings ONCE, then approves, but STOPS at
+    // the first gate carrying an `ask-user` finding (a human decision it will not
+    // make). Skip, abort, and yolo confirm.
     section.button("Approve step", stepAction(run.id, step, "approve"), "primary");
     // CI gate only: re-check the PR state (read-only reconcile). Completes the run
     // once its PR merges/closes; leaves it parked/resting while still open. This is
@@ -283,11 +285,11 @@ export function appendRunDetail(page: PageBuilder, detail: RunDetail): void {
       "secondary",
     );
     section.button(
-      "Yolo — auto-approve remaining gates",
+      "Yolo — fix once, then approve remaining gates",
       {
         event: YOLO_EVENT,
         payload: { runId: run.id, step },
-        confirm: `Yolo: auto-approve every remaining gate for run ${run.id}? This bypasses per-gate human review.`,
+        confirm: `Yolo for run ${run.id}: auto-fix each remaining gate's findings once and approve — but STOP at any gate that needs a human decision (an ask-user finding). Continue?`,
       },
       "secondary",
     );

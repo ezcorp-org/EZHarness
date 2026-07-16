@@ -86,8 +86,10 @@ export const PUSH_RECEIVED_ACTION = `${EXTENSION_NAME}:${TRIGGER_EVENT}`;
 /** The gate action the M2 approval UI (and any harness) drives to answer a
  *  parked gate: `{ runId, step, action: approve|fix|skip|abort, … }`. */
 export const RESPOND_ACTION = `${EXTENSION_NAME}:respond`;
-/** The M2 "yolo" action: auto-approve every remaining gate of one run in a
- *  single click (`{ runId, step }`). Bypasses per-gate human review. */
+/** The "yolo" action: the M6 fix-once autopilot for one run (`{ runId, step }`).
+ *  For each remaining gate it auto-fixes findings ONCE then approves, but STOPS
+ *  at the first gate carrying an `ask-user` finding — it does NOT blanket-bypass
+ *  per-gate human review. */
 export const YOLO_ACTION = `${EXTENSION_NAME}:yolo`;
 /** The M4 "reconcile" action: re-check a run parked at the CI gate — a read-only
  *  ReconcileApprovalGate poll that auto-resolves the gate when its PR has
@@ -139,7 +141,7 @@ export function _setPushPageForTests(fn: typeof pushPage | null): void {
 
 // ── GitHub-token seam (the pr/ci steps' gh auth) ──────────────────────
 //
-// The `type:"secret"` `githubToken` setting is stored ENCRYPTED in user-scoped
+// The `type:"secret"` `github_token` setting is stored ENCRYPTED in user-scoped
 // Storage under `github-token`; the SDK Storage read decrypts it transparently.
 // `resolveProductionGhToken` resolves it (env override → stored secret → null)
 // each time the gh runner needs it, so a rotated token takes effect without a
@@ -163,6 +165,13 @@ export function resolveProductionGhToken(): Promise<string | null> {
 // token — a Hub click mints onBehalfOf = the clicking user). The chat respond
 // tool + the Hub respond/yolo actions enforce it via `guardScope`; the seam lets
 // tests drive both the granted + refused paths with a fake.
+//
+// NOTE (project-coordinate asymmetry, fail-CLOSED nit): a Hub respond/yolo click
+// carries no conversation, so the host resolves the grant at the NULL-project
+// coordinate — only an admin / all-projects grant satisfies it — whereas the
+// chat `code_factory_respond` tool resolves at the CONVERSATION's project, so a
+// project-scoped grant satisfies it. Asymmetric, but the Hub path demands the
+// STRICTLY broader grant, never the narrower one — so it fails closed, never open.
 
 const defaultRbacCheck: RbacCheck = (scope) => new Rbac().check(scope);
 let rbacCheckImpl: RbacCheck = defaultRbacCheck;
@@ -244,7 +253,7 @@ function buildExecutorDeps(
     hostRunner: shellImpl,
     jailedRunner: makeJailedShell(gateDir, projectRoot),
     // The pr/ci steps shell `gh` in the worktree with GH_TOKEN injected from the
-    // encrypted `githubToken` secret (skip-not-fail when gh is unauthenticated).
+    // encrypted `github_token` secret (skip-not-fail when gh is unauthenticated).
     gh: makeGhRunner(shellImpl, worktreePath, resolveProductionGhToken),
     // SECURITY (spec §1 invariant 1): resolve the trusted-branch-gated repo
     // config from the freshly-fetched default branch BEFORE any agent runs. The
@@ -666,7 +675,8 @@ async function runYoloAutopilot(runId: string, projectRoot: string): Promise<voi
   }
 }
 
-/** `yolo` Hub action — auto-approve every remaining gate of one run. The
+/** `yolo` Hub action — run the fix-once autopilot over a run's remaining gates
+ *  (auto-fix findings once, then approve; STOP at any `ask-user` gate). The
  *  payload is attacker-reachable via the events route; validate the runId. */
 export async function handleYolo(event: PageActionEvent): Promise<void> {
   try {
@@ -681,8 +691,9 @@ export async function handleYolo(event: PageActionEvent): Promise<void> {
       return;
     }
     // RBAC (M6): yolo has its OWN scope (`yolo`) — strictly broader than a single
-    // approve, since the autopilot clears every remaining gate of a run. A denied
-    // yolo is a no-op with a clear refusal line, not a 500.
+    // approve, since the autopilot fixes-once-then-approves across every remaining
+    // gate of a run (stopping only at an ask-user gate). A denied yolo is a no-op
+    // with a clear refusal line, not a 500.
     const guard = await guardScope(rbacCheckImpl, YOLO_SCOPE, "run the yolo autopilot");
     if (!guard.ok) {
       process.stderr.write(`ez-code-factory: yolo refused — ${guard.error}\n`);

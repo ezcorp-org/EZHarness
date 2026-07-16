@@ -117,11 +117,11 @@ function parkedTree() {
 					},
 					{
 						type: "button",
-						label: "Yolo — auto-approve remaining gates",
+						label: "Yolo — fix once, then approve remaining gates",
 						action: {
 							event: "ez-code-factory:yolo",
 							payload: { runId: RUN_ID, step: "review" },
-							confirm: `Yolo: auto-approve every remaining gate for run ${RUN_ID}?`,
+							confirm: `Yolo for run ${RUN_ID}: auto-fix each remaining gate's findings once and approve — but STOP at any gate that needs a human decision (an ask-user finding). Continue?`,
 						},
 						style: "secondary",
 					},

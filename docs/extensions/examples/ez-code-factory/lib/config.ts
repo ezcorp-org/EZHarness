@@ -93,7 +93,7 @@ export function autoFixLimit(config: PipelineConfig, step: PipelineStep): number
   return config.autoFixLimits[step];
 }
 
-/** The auto-fixing steps the single flat `autofixCap` UI knob controls (review
+/** The auto-fixing steps the single flat `autofix_cap` UI knob controls (review
  *  has its own knob; intent/push/pr never run an auto-fix loop). */
 const OTHER_AUTOFIX_STEPS = ["rebase", "test", "document", "lint", "ci"] as const satisfies readonly PipelineStep[];
 
@@ -113,14 +113,16 @@ function toNonNegativeInt(v: unknown, fallback: number): number {
  * Recognized keys — both the structured form (programmatic callers / tests) and
  * the flat scalar form the extension page's settings UI declares (SettingsField
  * has no array/object type, so the page can only emit scalars — see
- * ezcorp.config.ts). Every declared settings key is consumed here, so none is a
- * silently-dead knob; index.ts wires the live read in M2.
- *   - `autoFix.<step>`   : number   per-step cap override (>= 0) — structured
- *   - `reviewAutofixCap` : number   flat review cap (0 = always ask a human)
- *   - `autofixCap`       : number   flat cap for rebase/test/document/lint/ci
- *   - `gateRemote`       : string   non-empty remote name
- *   - `ignorePatterns`   : string[] OR comma-separated string of review globs
- *   - `defaultBranch`    : string   non-empty branch name
+ * ezcorp.config.ts). The flat scalar keys are snake_case to match the manifest's
+ * SETTINGS_KEY_REGEX (a camelCase manifest key fails validateManifestV2). Every
+ * declared settings key is consumed here, so none is a silently-dead knob.
+ *   - `autoFix.<step>`     : number   per-step cap override (>= 0) — structured
+ *   - `review_autofix_cap` : number   flat review cap (0 = always ask a human)
+ *   - `autofix_cap`        : number   flat cap for rebase/test/document/lint/ci
+ *   - `gate_remote`        : string   non-empty remote name
+ *   - `ignore_patterns`    : string[] OR comma-separated string of review globs
+ *   - `default_branch`     : string   non-empty branch name
+ *   - `ci_timeout_hours`   : number   CI idle timeout in hours (-1 = unlimited)
  */
 export function resolvePipelineConfig(settings: unknown): PipelineConfig {
   const cfg = defaultPipelineConfig();
@@ -137,24 +139,24 @@ export function resolvePipelineConfig(settings: unknown): PipelineConfig {
     }
   }
   // Flat cap knobs from the settings UI (a sentinel < 0 means "leave default").
-  const reviewCap = toNonNegativeInt(s.reviewAutofixCap, -1);
+  const reviewCap = toNonNegativeInt(s.review_autofix_cap, -1);
   if (reviewCap >= 0) cfg.autoFixLimits.review = reviewCap;
-  const otherCap = toNonNegativeInt(s.autofixCap, -1);
+  const otherCap = toNonNegativeInt(s.autofix_cap, -1);
   if (otherCap >= 0) for (const step of OTHER_AUTOFIX_STEPS) cfg.autoFixLimits[step] = otherCap;
 
-  if (typeof s.gateRemote === "string" && s.gateRemote.trim() !== "") {
-    cfg.gateRemote = s.gateRemote.trim();
+  if (typeof s.gate_remote === "string" && s.gate_remote.trim() !== "") {
+    cfg.gateRemote = s.gate_remote.trim();
   }
-  if (Array.isArray(s.ignorePatterns)) {
-    cfg.ignorePatterns = s.ignorePatterns.filter((x): x is string => typeof x === "string");
-  } else if (typeof s.ignorePatterns === "string") {
+  if (Array.isArray(s.ignore_patterns)) {
+    cfg.ignorePatterns = s.ignore_patterns.filter((x): x is string => typeof x === "string");
+  } else if (typeof s.ignore_patterns === "string") {
     // Comma-separated text field (the UI form): split, trim, drop empties.
-    cfg.ignorePatterns = s.ignorePatterns.split(",").map((p) => p.trim()).filter((p) => p !== "");
+    cfg.ignorePatterns = s.ignore_patterns.split(",").map((p) => p.trim()).filter((p) => p !== "");
   }
-  if (typeof s.defaultBranch === "string" && s.defaultBranch.trim() !== "") {
-    cfg.defaultBranch = s.defaultBranch.trim();
+  if (typeof s.default_branch === "string" && s.default_branch.trim() !== "") {
+    cfg.defaultBranch = s.default_branch.trim();
   }
-  cfg.ciTimeoutMs = resolveCiTimeoutMs(s.ciTimeoutHours);
+  cfg.ciTimeoutMs = resolveCiTimeoutMs(s.ci_timeout_hours);
   return cfg;
 }
 

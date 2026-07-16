@@ -235,9 +235,11 @@ export default defineExtension({
   ],
 
   // Settings v0 (M1): per-step auto-fix caps + the gate remote name + review
-  // ignore globs + default branch. The KEY NAMES here match exactly what
-  // lib/config.ts `resolvePipelineConfig` consumes (gateRemote / defaultBranch /
-  // reviewAutofixCap / autofixCap / ignorePatterns), so no knob is silently
+  // ignore globs + default branch. The KEY NAMES here are snake_case (the
+  // manifest's SETTINGS_KEY_REGEX requires it — a camelCase key fails
+  // validateManifestV2 and the extension won't install) and match exactly what
+  // lib/config.ts `resolvePipelineConfig` consumes (gate_remote / default_branch /
+  // review_autofix_cap / autofix_cap / ignore_patterns), so no knob is silently
   // dead — each is validated + clamped there, falling back to defaults (review
   // cap 0 = always parks, others 3) on absent/invalid values. `SettingsField`
   // only renders scalars (no array/object type), so per-step caps collapse to
@@ -247,23 +249,23 @@ export default defineExtension({
   // read is wired in M2. No repo-file config yet — trusted-branch
   // `.no-mistakes.yaml`-equivalent reads land in M3.
   settings: {
-    gateRemote: { type: "text", label: "Gate remote name", default: "gate" },
-    defaultBranch: { type: "text", label: "Default branch", default: "main" },
-    reviewAutofixCap: {
+    gate_remote: { type: "text", label: "Gate remote name", default: "gate" },
+    default_branch: { type: "text", label: "Default branch", default: "main" },
+    review_autofix_cap: {
       type: "number",
       label: "Review auto-fix cap (0 = always ask a human)",
       min: 0,
       max: 10,
       default: 0,
     },
-    autofixCap: {
+    autofix_cap: {
       type: "number",
       label: "Auto-fix cap for other steps (rebase/test/document/lint/ci)",
       min: 0,
       max: 10,
       default: 3,
     },
-    ignorePatterns: {
+    ignore_patterns: {
       type: "text",
       label: "Review ignore globs (comma-separated, e.g. *.snap, dist/**)",
       default: "",
@@ -271,7 +273,7 @@ export default defineExtension({
     // CI monitor idle timeout, declared in HOURS for the UI (resolvePipelineConfig
     // converts to ms: < 0 = unlimited/poll-until-merged, 0/blank = the 7-day
     // default, > 0 = that many hours).
-    ciTimeoutHours: {
+    ci_timeout_hours: {
       type: "number",
       label: "CI monitor idle timeout in hours (-1 = never time out)",
       min: -1,
@@ -285,7 +287,7 @@ export default defineExtension({
     // supported path. Scopes: a classic PAT needs `repo`; a fine-grained PAT
     // needs Pull requests (write) + Checks (read) + Actions (read). See README
     // "GitHub token setup".
-    githubToken: {
+    github_token: {
       type: "secret",
       label: "GitHub token (classic: repo — or fine-grained: PRs write + Checks/Actions read)",
       description:
@@ -325,9 +327,10 @@ export default defineExtension({
     filesystem: ["$CWD"],
     // Hub actions via the generic extension-events route: `push-received` (the
     // post-receive hook's trigger), `respond` (the approve/fix/skip/abort gate
-    // action), and `yolo` (M2 — auto-approve every remaining gate of a run in
-    // one click). Declaring each event both wires the page action and lets the
-    // events route accept its POST (the route 404s undeclared events).
+    // action), and `yolo` (the fix-once autopilot — auto-fix each remaining gate
+    // once then approve, stopping at any ask-user gate). Declaring each event both
+    // wires the page action and lets the events route accept its POST (the route
+    // 404s undeclared events).
     eventSubscriptions: [
       "ez-code-factory:push-received",
       "ez-code-factory:respond",

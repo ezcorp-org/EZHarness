@@ -79,27 +79,27 @@ describe("resolvePipelineConfig", () => {
     const cfg = resolvePipelineConfig({ autoFix: 42 });
     expect(cfg.autoFixLimits).toEqual(DEFAULT_AUTO_FIX_LIMITS);
   });
-  test("overrides gateRemote / ignorePatterns / defaultBranch", () => {
+  test("overrides gate_remote / ignore_patterns / default_branch", () => {
     const cfg = resolvePipelineConfig({
-      gateRemote: "  factory  ",
-      ignorePatterns: ["*.snap", 42, "dist/**"],
-      defaultBranch: "  trunk ",
+      gate_remote: "  factory  ",
+      ignore_patterns: ["*.snap", 42, "dist/**"],
+      default_branch: "  trunk ",
     });
     expect(cfg.gateRemote).toBe("factory");
     expect(cfg.ignorePatterns).toEqual(["*.snap", "dist/**"]);
     expect(cfg.defaultBranch).toBe("trunk");
   });
   test("blank string overrides are rejected", () => {
-    const cfg = resolvePipelineConfig({ gateRemote: "   ", defaultBranch: "" });
+    const cfg = resolvePipelineConfig({ gate_remote: "   ", default_branch: "" });
     expect(cfg.gateRemote).toBe(GATE_REMOTE);
     expect(cfg.defaultBranch).toBe("main");
   });
 
   // ── flat UI-settings knobs (the keys ezcorp.config.ts declares) ─────
-  test("flat reviewAutofixCap + autofixCap knobs set the per-step caps", () => {
-    const cfg = resolvePipelineConfig({ reviewAutofixCap: 2, autofixCap: 5 });
+  test("flat review_autofix_cap + autofix_cap knobs set the per-step caps", () => {
+    const cfg = resolvePipelineConfig({ review_autofix_cap: 2, autofix_cap: 5 });
     expect(cfg.autoFixLimits.review).toBe(2);
-    // autofixCap fans out to rebase/test/document/lint/ci only …
+    // autofix_cap fans out to rebase/test/document/lint/ci only …
     for (const step of ["rebase", "test", "document", "lint", "ci"] as const) {
       expect(cfg.autoFixLimits[step]).toBe(5);
     }
@@ -109,17 +109,17 @@ describe("resolvePipelineConfig", () => {
     expect(cfg.autoFixLimits.pr).toBe(0);
   });
   test("invalid/negative flat cap knobs leave defaults untouched", () => {
-    const cfg = resolvePipelineConfig({ reviewAutofixCap: -1, autofixCap: "nope" });
+    const cfg = resolvePipelineConfig({ review_autofix_cap: -1, autofix_cap: "nope" });
     expect(cfg.autoFixLimits.review).toBe(0); // default
     expect(cfg.autoFixLimits.rebase).toBe(3); // default
   });
-  test("a flat autofixCap of 0 is honored (not treated as unset)", () => {
-    const cfg = resolvePipelineConfig({ autofixCap: 0 });
+  test("a flat autofix_cap of 0 is honored (not treated as unset)", () => {
+    const cfg = resolvePipelineConfig({ autofix_cap: 0 });
     expect(cfg.autoFixLimits.rebase).toBe(0);
     expect(cfg.autoFixLimits.ci).toBe(0);
   });
-  test("comma-separated ignorePatterns string is split, trimmed, emptied-out", () => {
-    const cfg = resolvePipelineConfig({ ignorePatterns: " *.snap , , dist/** ,, " });
+  test("comma-separated ignore_patterns string is split, trimmed, emptied-out", () => {
+    const cfg = resolvePipelineConfig({ ignore_patterns: " *.snap , , dist/** ,, " });
     expect(cfg.ignorePatterns).toEqual(["*.snap", "dist/**"]);
   });
 
@@ -128,15 +128,15 @@ describe("resolvePipelineConfig", () => {
     expect(defaultPipelineConfig().ciTimeoutMs).toBe(DEFAULT_CI_TIMEOUT_MS);
     expect(resolvePipelineConfig({}).ciTimeoutMs).toBe(DEFAULT_CI_TIMEOUT_MS);
   });
-  test("positive ciTimeoutHours → ms", () => {
-    expect(resolvePipelineConfig({ ciTimeoutHours: 2 }).ciTimeoutMs).toBe(2 * 60 * 60 * 1000);
+  test("positive ci_timeout_hours → ms", () => {
+    expect(resolvePipelineConfig({ ci_timeout_hours: 2 }).ciTimeoutMs).toBe(2 * 60 * 60 * 1000);
   });
-  test("negative ciTimeoutHours → unlimited sentinel (-1)", () => {
-    expect(resolvePipelineConfig({ ciTimeoutHours: -1 }).ciTimeoutMs).toBe(-1);
+  test("negative ci_timeout_hours → unlimited sentinel (-1)", () => {
+    expect(resolvePipelineConfig({ ci_timeout_hours: -1 }).ciTimeoutMs).toBe(-1);
   });
-  test("zero / non-finite ciTimeoutHours → default", () => {
-    expect(resolvePipelineConfig({ ciTimeoutHours: 0 }).ciTimeoutMs).toBe(DEFAULT_CI_TIMEOUT_MS);
-    expect(resolvePipelineConfig({ ciTimeoutHours: Number.NaN }).ciTimeoutMs).toBe(DEFAULT_CI_TIMEOUT_MS);
-    expect(resolvePipelineConfig({ ciTimeoutHours: "6" }).ciTimeoutMs).toBe(DEFAULT_CI_TIMEOUT_MS);
+  test("zero / non-finite ci_timeout_hours → default", () => {
+    expect(resolvePipelineConfig({ ci_timeout_hours: 0 }).ciTimeoutMs).toBe(DEFAULT_CI_TIMEOUT_MS);
+    expect(resolvePipelineConfig({ ci_timeout_hours: Number.NaN }).ciTimeoutMs).toBe(DEFAULT_CI_TIMEOUT_MS);
+    expect(resolvePipelineConfig({ ci_timeout_hours: "6" }).ciTimeoutMs).toBe(DEFAULT_CI_TIMEOUT_MS);
   });
 });

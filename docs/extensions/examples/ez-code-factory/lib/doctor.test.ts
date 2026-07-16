@@ -112,6 +112,15 @@ describe("runDoctor", () => {
     expect(check(report, "token").detail).toContain("ambient auth");
   });
 
+  test("token check NEVER echoes the resolved token value (no-leak guard)", async () => {
+    const secret = "ghp_super_secret_value_do_not_leak_1234567890";
+    const report = await runDoctor(deps({ resolveToken: async () => secret }));
+    const token = check(report, "token");
+    expect(token.status).toBe("ok");
+    // The detail reports presence, never the plaintext token (log/report leak guard).
+    expect(token.detail).not.toContain(secret);
+  });
+
   test("no origin → warn (cannot fetch default branch / open PRs)", async () => {
     const report = await runDoctor(deps({ shell: { origin: null } }));
     expect(check(report, "default-branch").status).toBe("warn");

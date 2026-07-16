@@ -627,9 +627,12 @@ export interface SupersedeDeps {
  * touched, and runs on OTHER branches stay untouched (fully concurrent).
  *
  * Called INSIDE the per-(repo,branch) `withLock`, so a genuinely RUNNING prior
- * run cannot coexist here — the lock already made the new push WAIT (the bounded
- * wait) until that run parked/finished and released the lock. Returns the ids of
- * the runs it superseded.
+ * run cannot coexist here. That lock is an UNBOUNDED FIFO chain (no timed cap):
+ * the new push's lifecycle waits behind the prior run's critical section until
+ * it parks/rests/finishes and releases the lock — so supersede only ever aborts
+ * a prior run that has already yielded (parked at a gate or resting at
+ * checks_passed), never killing an agent mid-execution. Returns the ids of the
+ * runs it superseded.
  */
 export async function supersedePriorRuns(
   deps: SupersedeDeps,
