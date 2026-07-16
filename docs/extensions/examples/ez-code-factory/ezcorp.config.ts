@@ -51,6 +51,124 @@ export default defineExtension({
         },
       },
     },
+    {
+      name: "code_factory_run",
+      description:
+        "Trigger a code-factory gate run for the active project's current branch: " +
+        "stage the branch into the local gate repo and run the fixed review/test/" +
+        "document/lint/PR/CI pipeline, parking for human approval at each gate. " +
+        "Pass `intent` to state the goal EXPLICITLY (treated as AUTHORITATIVE " +
+        "acceptance criteria the change must satisfy). Omit `intent` and it is " +
+        "INFERRED from THIS conversation (a low-confidence hint) — so discuss what " +
+        "you want first, then run. CONTRACT: when the run parks on an `ask-user` " +
+        "finding, the result carries a `mustRelayVerbatim` flag + the findings — you " +
+        "MUST relay those findings to the user verbatim and STOP; never approve on " +
+        "the user's behalf. Poll `code_factory_status` and answer with " +
+        "`code_factory_respond`. Run `init_gate` once first.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          intent: {
+            type: "string",
+            description:
+              "OPTIONAL explicit goal for the change — authoritative acceptance " +
+              "criteria. Omit to infer a hint from the current conversation.",
+          },
+          branch: {
+            type: "string",
+            description:
+              "OPTIONAL branch to run the gate on. Omit to use the project's " +
+              "currently checked-out branch.",
+          },
+        },
+      },
+      suggestExamples: [
+        "run the code factory on my branch",
+        "gate this change and review it before pushing",
+        "start a code-factory run for what we just built",
+      ],
+    },
+    {
+      name: "code_factory_status",
+      description:
+        "Report a gate run's current state: the pipeline step statuses, the parked " +
+        "step, and its findings. Pass `runId` for a specific run, or omit it for the " +
+        "most recent run. CONTRACT: when the parked gate has `ask-user` findings the " +
+        "result sets `mustRelayVerbatim:true` and lists them under `askUserFindings` " +
+        "with a `relayDirective` — relay those findings to the user WORD FOR WORD and " +
+        "STOP; do not paraphrase, summarize, or decide for them. `agentDiscretion" +
+        "Findings` (auto-fix / no-op) are informational.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          runId: {
+            type: "string",
+            description: "OPTIONAL run id. Omit to report the most recent run.",
+          },
+        },
+      },
+      suggestExamples: [
+        "what's the status of my code-factory run",
+        "show the current gate findings",
+      ],
+    },
+    {
+      name: "code_factory_respond",
+      description:
+        "Answer a parked gate: `approve` (accept the step), `fix` (re-run the step on " +
+        "selected findings with optional instructions), `skip` (skip the step), or " +
+        "`abort` (cancel the run). CONTRACT — NO BLANKET APPROVAL: `approve` and " +
+        "`fix` are REJECTED unless you pass the explicit `findingIds` you are acting " +
+        "on (proof you surfaced them to the user), or set `consentAll:true` ONLY with " +
+        "the user's explicit standing consent. Always call `code_factory_status` and " +
+        "relay `ask-user` findings verbatim BEFORE approving anything.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          runId: { type: "string", description: "The run to act on (required)." },
+          step: {
+            type: "string",
+            description:
+              "The parked pipeline step (intent|rebase|review|test|document|lint|push|pr|ci).",
+          },
+          action: {
+            type: "string",
+            enum: ["approve", "fix", "skip", "abort"],
+            description: "The gate action.",
+          },
+          findingIds: {
+            type: "array",
+            items: { type: "string" },
+            description:
+              "Finding ids this approve/fix acts on. REQUIRED for approve/fix unless " +
+              "consentAll is true.",
+          },
+          instructions: {
+            type: "object",
+            description: "OPTIONAL per-finding fix instructions, keyed by finding id.",
+          },
+          consentAll: {
+            type: "boolean",
+            description:
+              "Set true ONLY with the user's explicit standing consent to clear every " +
+              "finding of this gate without naming ids.",
+          },
+        },
+        required: ["runId", "step", "action"],
+      },
+      suggestExamples: [
+        "approve the review gate findings we discussed",
+        "fix the findings the user selected",
+        "skip the document step on this run",
+      ],
+    },
+  ],
+
+  // Extension-level composer suggestions — surface the code-factory gate as a
+  // whole when the user's intent spans it rather than one specific tool.
+  suggestExamples: [
+    "gate my change through code review before merging",
+    "run an automated review/test/lint pipeline on this branch",
   ],
 
   // Hub page declaration (Extension Pages Hub). Declaring the page IS the

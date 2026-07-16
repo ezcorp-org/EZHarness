@@ -609,6 +609,28 @@ describe("runGateLifecycle (real git)", () => {
     expect(changes.length).toBeGreaterThan(0);
   });
 
+  test("threads an explicit intentSource (M5 inferred hint) onto the run record", async () => {
+    const { gateDir, sha, repoId } = await seedGate();
+    const store = memStore();
+    const res = await runGateLifecycle(
+      { repoId, branch: "feat/x", ref: "refs/heads/feat/x", newSha: sha, intent: "inferred goal", intentSource: "conversation" },
+      { gateDir, tmpBase: join(root, "tmp-src"), store, run: productionHostRunner },
+    );
+    const run = store.runs.get(res.runId)!;
+    expect(run.intent).toBe("inferred goal");
+    expect(run.intentSource).toBe("conversation");
+  });
+
+  test("an explicit push intent with no source defaults to agent (authoritative)", async () => {
+    const { gateDir, sha, repoId } = await seedGate();
+    const store = memStore();
+    const res = await runGateLifecycle(
+      { repoId, branch: "feat/x", ref: "refs/heads/feat/x", newSha: sha, intent: "explicit goal" },
+      { gateDir, tmpBase: join(root, "tmp-agent"), store, run: productionHostRunner },
+    );
+    expect(store.runs.get(res.runId)!.intentSource).toBe("agent");
+  });
+
   test("a pipeline that reaches a terminal state (not parked) tears the worktree down here", async () => {
     const { gateDir, sha, repoId } = await seedGate();
     const store = memStore();

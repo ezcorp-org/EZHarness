@@ -34,7 +34,12 @@ import {
   _setReconcileRunnerForTests,
   _setTokenStorageForTests,
   resolveProductionGhToken,
+  codeFactoryRunTool,
+  codeFactoryStatusTool,
+  codeFactoryRespondTool,
+  _setChatToolDepsForTests,
 } from "./index";
+import type { ChatToolDeps } from "./lib/chat-tools";
 import { gateDir as gateDirFor, GATE_REMOTE } from "./lib/gate";
 import { productionHostRunner, type ShellRunner } from "./lib/shell";
 import { emptyFindings } from "./lib/runs";
@@ -129,6 +134,7 @@ afterEach(() => {
   _setReconcileRunnerForTests(null);
   _setTokenStorageForTests(null);
   _setSettingsReadForTests(null);
+  _setChatToolDepsForTests(null);
 });
 
 /** A fake pipeline runner that drives the run to a chosen terminal/parked state
@@ -938,7 +944,12 @@ describe("register / start", () => {
       expect(methods.has(`ezcorp/event/${YOLO_ACTION}`)).toBe(true);
       expect(methods.has(`ezcorp/event/${RECONCILE_ACTION}`)).toBe(true);
       expect(methods.has("tools/call")).toBe(true);
-      expect(Object.keys(tools)).toEqual(["init_gate"]);
+      expect(Object.keys(tools)).toEqual([
+        "init_gate",
+        "code_factory_run",
+        "code_factory_status",
+        "code_factory_respond",
+      ]);
     } finally {
       ch.onRequest = original;
     }
@@ -1316,5 +1327,100 @@ describe("handleYolo", () => {
     } finally {
       stderr.restore();
     }
+  });
+});
+
+// ── chat-entry tools (M5) ───────────────────────────────────────────
+
+describe("chat-entry tool handlers", () => {
+  /** A minimal fake deps set so the handler→outcome mapping is exercised
+   *  without the production git/lifecycle wiring. */
+  function fakeChatDeps(): ChatToolDeps {
+    const store = memStore();
+    return {
+      projectRoot: "/proj",
+      gateDir: "/gate",
+      repoId: "0123456789ab",
+      defaultBranch: "main",
+      run: okShell,
+      store,
+      triggerRun: async () => ({ ok: true, runId: "rX", worktreePath: "", status: "completed" }),
+      resumeRun: async () => ({ status: "completed", parked: false }),
+      inferIntent: async () => null,
+    };
+  }
+
+  test("each tool errors with no active project", async () => {
+    _setProjectRootForTests(() => undefined);
+    for (const tool of [codeFactoryRunTool, codeFactoryStatusTool, codeFactoryRespondTool]) {
+      const res = await tool({});
+      expect(res.isError).toBe(true);
+      expect(res.content[0]!.text).toContain("EZCORP_PROJECT_ROOT unset");
+    }
+  });
+
+  test("status maps an ok outcome to a tool result", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setChatToolDepsForTests(async () => fakeChatDeps());
+    const res = await codeFactoryStatusTool({});
+    expect(res.isError).toBe(false);
+    expect(JSON.parse(res.content[0]!.text).runs).toEqual([]);
+  });
+
+  test("status maps an error outcome to a tool error", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setChatToolDepsForTests(async () => fakeChatDeps());
+    const res = await codeFactoryStatusTool({ runId: "missing" });
+    expect(res.isError).toBe(true);
+    expect(res.content[0]!.text).toContain("unknown run");
+  });
+
+  test("respond enforces no-blanket-approval end to end", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setChatToolDepsForTests(async () => fakeChatDeps());
+    const res = await codeFactoryRespondTool({ runId: "r1", step: "review", action: "approve" });
+    expect(res.isError).toBe(true);
+    expect(res.content[0]!.text).toContain("must name the explicit findingIds");
+  });
+
+  test("DEFAULT wiring: code_factory_run triggers a run via runGateLifecycle", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setTmpBaseForTests(() => "/tmp/ext");
+    _setPushPageForTests(() => {});
+    // Resolve branch=main, project head, no prior gate tip, empty diff, fetch ok.
+    const chatShell: ShellRunner = async (cmd) => {
+      const c = cmd.join(" ");
+      if (c.includes("symbolic-ref")) return { exitCode: 0, stdout: "main\n", stderr: "" };
+      if (c.includes("rev-parse") && c.includes("refs/heads/main^{commit}")) return { exitCode: 1, stdout: "", stderr: "" };
+      if (c.includes("rev-parse") && c.includes("main^{commit}")) return { exitCode: 0, stdout: `${"a".repeat(40)}\n`, stderr: "" };
+      return { exitCode: 0, stdout: "", stderr: "" };
+    };
+    _setShellForTests(chatShell);
+    const store = memStore();
+    _setStoreForTests(store);
+    _setRunPipelineForTests(fakePipeline(store, "completed"));
+    // No _setChatToolDepsForTests → the DEFAULT defaultBuildChatToolDeps runs
+    // (its triggerRun + inferIntent + intent-cache + spawn-dispatcher wiring).
+    const res = await codeFactoryRunTool({});
+    expect(res.isError).toBe(false);
+    const out = JSON.parse(res.content[0]!.text);
+    expect(out.triggered).toBe(true);
+    expect(out.status).toBe("completed");
+  });
+
+  test("DEFAULT wiring: code_factory_respond drives resumeGateLifecycle (abort)", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setShellForTests(okShell);
+    _setPushPageForTests(() => {});
+    const store = memStore();
+    _setStoreForTests(store);
+    await seedParkedRun(store); // parked at review, worktree kept
+    // No _setChatToolDepsForTests + no _setRespondRunnerForTests → the DEFAULT
+    // resumeRun (resumeGateLifecycle + the real respondToGate abort path) runs.
+    const res = await codeFactoryRespondTool({ runId: "run-parked", step: "review", action: "abort" });
+    expect(res.isError).toBe(false);
+    const out = JSON.parse(res.content[0]!.text);
+    expect(out.applied).toBe(true);
+    expect(out.status).toBe("aborted");
   });
 });

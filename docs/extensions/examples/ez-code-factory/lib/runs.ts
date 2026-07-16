@@ -420,6 +420,12 @@ export interface PushReceived {
    *  degrades to skipped). Authoritative acceptance criteria when present (M1);
    *  sanitized before it ever enters an agent prompt (prompts.ts). */
   intent?: string | null;
+  /** Provenance of `intent`. Absent/undefined on the push path → defaults to
+   *  "agent" (explicit/authoritative). The M5 chat-entry `code_factory_run` sets
+   *  this to "conversation" for an INFERRED intent so the pipeline frames it as a
+   *  HINT (intentIsAuthoritative checks `=== "agent"`). Ignored when `intent` is
+   *  null. */
+  intentSource?: string | null;
 }
 
 /** Max accepted length of an explicit intent push option (defence in depth —
@@ -640,7 +646,10 @@ export async function runGateLifecycle(
         parkedMs: 0,
         awaitingAgentSince: null,
         intent,
-        intentSource: intent ? "agent" : null,
+        // Provenance: explicit push intent (and the default) is "agent"
+        // (authoritative); the M5 chat trigger passes "conversation" for an
+        // inferred HINT. Null when there is no intent.
+        intentSource: intent ? (push.intentSource ?? "agent") : null,
       };
       await store.createRun(record);
       await notify();

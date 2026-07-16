@@ -16,6 +16,7 @@ import {
   createToolDispatcher,
   definePage,
   getChannel,
+  getToolContext,
   invoke,
   pushPage,
   Storage,
@@ -32,8 +33,17 @@ import {
   EXTENSION_NAME,
   DEFAULT_BASE_URL,
   gateDir as gateDirFor,
+  repoId as repoIdFor,
   initGate,
 } from "./lib/gate";
+import {
+  runChatTool,
+  statusChatTool,
+  respondChatTool,
+  type ChatToolDeps,
+  type ChatToolOutcome,
+} from "./lib/chat-tools";
+import { createIntentCache, makeConversationIntentInferrer } from "./lib/intent-infer";
 import { join } from "node:path";
 import { buildDashboard, normalizeRespondPayload, parseRunIdPayload, type RunDetail } from "./lib/page";
 import {
@@ -263,6 +273,102 @@ let makeReconcileRunnerImpl = defaultReconcileRunner;
 export function _setReconcileRunnerForTests(fn: typeof defaultReconcileRunner | null): void {
   makeReconcileRunnerImpl = fn ?? defaultReconcileRunner;
 }
+
+// ── Chat-entry tools (M5) — run / status / respond ───────────────────
+//
+// The /no-mistakes-skill equivalent as pure-extension LLM-callable tools. Thin
+// wiring only: the validated orchestration + the contract-in-code (verbatim
+// ask-user relay + no-blanket-approval) live in lib/chat-tools.ts +
+// lib/chat-contract.ts; intent inference in lib/intent-infer.ts. Every backend
+// touch reuses the M0/M1/M2 entry points (runGateLifecycle / resumeGateLifecycle
+// via the same respond runner + the trusted-config-gated executor).
+
+/**
+ * Assemble the chat-tool deps for the active project (production wiring). The
+ * intent inferrer reads the CURRENT conversation via `runtime.conversations.
+ * getMessages` (auth-scoped to the tool's own conversation) and summarizes with
+ * a native spawn-assignment agent; `dispatch` is the dispatcher's method (its
+ * body lives + is covered in lib/agent.ts). One shared `log` closure feeds both
+ * the tool + the inferrer. Async because the live pipeline config (default
+ * branch) is settings-resolved. */
+async function defaultBuildChatToolDeps(projectRoot: string): Promise<ChatToolDeps> {
+  const id = repoIdFor(projectRoot);
+  const gDir = gateDirFor(projectRoot, id);
+  const config = await resolveLiveConfig();
+  const evidenceDir = join(tmpBaseImpl(), "ez-code-factory-evidence");
+  const log = (message: string): void => {
+    process.stderr.write(`ez-code-factory[chat]: ${message}\n`);
+  };
+  return {
+    projectRoot,
+    gateDir: gDir,
+    repoId: id,
+    defaultBranch: config.defaultBranch,
+    run: shellImpl,
+    store: getStore(),
+    triggerRun: (push) =>
+      runGateLifecycle(push, {
+        gateDir: gDir,
+        tmpBase: tmpBaseImpl(),
+        store: getStore(),
+        run: shellImpl,
+        onChange: refreshDashboard,
+        runPipeline: makeRunPipelineImpl(projectRoot, gDir),
+      }),
+    resumeRun: (runId, respond) =>
+      resumeGateLifecycle(runId, {
+        gateDir: gDir,
+        store: getStore(),
+        run: shellImpl,
+        onChange: refreshDashboard,
+        respond: makeRespondRunnerImpl(projectRoot, gDir, respond),
+      }),
+    inferIntent: makeConversationIntentInferrer({
+      getConversationId: () => getToolContext()?.conversationId ?? null,
+      invoke,
+      dispatch: makeSpawnDispatcher({ evidenceDir }).dispatch,
+      cache: createIntentCache("global"),
+      projectRoot,
+      log,
+    }),
+    log,
+  };
+}
+
+let buildChatToolDepsImpl = defaultBuildChatToolDeps;
+export function _setChatToolDepsForTests(
+  fn: ((projectRoot: string) => Promise<ChatToolDeps>) | null,
+): void {
+  buildChatToolDepsImpl = fn ?? defaultBuildChatToolDeps;
+}
+
+/** Shared handler shell: resolve the active project, build deps, run one chat
+ *  orchestrator, and map its outcome to a tool result. DRY across the three
+ *  tools (they differ only in the arg shape + orchestrator). */
+async function dispatchChatTool<A>(
+  args: unknown,
+  orchestrator: (a: A, deps: ChatToolDeps) => Promise<ChatToolOutcome>,
+) {
+  const projectRoot = projectRootImpl();
+  if (!projectRoot) {
+    return toolError("EZCORP_PROJECT_ROOT unset — no active project to gate");
+  }
+  const deps = await buildChatToolDepsImpl(projectRoot);
+  const outcome = await orchestrator((args ?? {}) as A, deps);
+  return outcome.ok ? toolResult(JSON.stringify(outcome.data)) : toolError(outcome.error);
+}
+
+/** `code_factory_run` — trigger a gate run (explicit or inferred intent). */
+export const codeFactoryRunTool: ToolHandler = (args) =>
+  dispatchChatTool<{ intent?: unknown; branch?: unknown }>(args, runChatTool);
+
+/** `code_factory_status` — report a run's gate state + verbatim-relay findings. */
+export const codeFactoryStatusTool: ToolHandler = (args) =>
+  dispatchChatTool<{ runId?: unknown }>(args, statusChatTool);
+
+/** `code_factory_respond` — approve/fix/skip/abort a parked gate (contract-in-code). */
+export const codeFactoryRespondTool: ToolHandler = (args) =>
+  dispatchChatTool<Parameters<typeof respondChatTool>[0]>(args, respondChatTool);
 
 /** Run statuses that get an inline dashboard detail section: a parked run
  *  (awaiting_approval) for triage, and a resting checks_passed run so its CI gate
@@ -542,6 +648,9 @@ export async function renderDashboard() {
 
 export const tools: Record<string, ToolHandler> = {
   init_gate: initGateTool,
+  code_factory_run: codeFactoryRunTool,
+  code_factory_status: codeFactoryStatusTool,
+  code_factory_respond: codeFactoryRespondTool,
 };
 
 /** Register the page (+ its push-received action), the tool dispatcher, and
