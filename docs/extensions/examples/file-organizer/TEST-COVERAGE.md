@@ -253,7 +253,8 @@ component regression guard.)
 - **Real bucket** (`file-organizer-real.spec.ts`, Docker-gated,
   **12 cases, all active `test()`** — only the proposal-accept case
   self-skips live when no daemon proposal is on disk — on
-  `ez-corp-ai-app-1`): log in to the live container and assert on **real**
+  `ezharness-app-1`, overridable via `EZCORP_APP_CONTAINER`): log in to the
+  live container and assert on **real**
   responses + **real** on-disk
   `config.json` (read via `docker exec … cat
   /app/.ezcorp/extension-data/file-organizer/config.json`, the WRITER

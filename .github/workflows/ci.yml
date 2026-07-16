@@ -405,6 +405,15 @@ jobs:
     # The job conclusion is the HARD gate (step "Visual-evidence gate"); every
     # later step is continue-on-error so the best-effort capture/publish lane
     # can never red a PR during the fail-soft pilot.
+    #
+    # Capture is DIFF-SCOPED (scripts/visual-evidence/select-specs.ts):
+    # selection = changed @evidence-TAGGED specs ∪ covers-map specs rendering
+    # the changed visual files. A non-visual diff (incl. changed but
+    # non-@evidence specs, and pushes to main whose base...HEAD diff is empty)
+    # skips capture and uploads a `skipped` marker manifest — WF2 refreshes a
+    # stale gallery comment but never creates one. A changed visual file with
+    # no covers entry (or an unloadable covers map) falls open to the FULL
+    # @evidence suite so the change is still rendered by something.
     name: Visual evidence
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -447,13 +456,45 @@ jobs:
           key: playwright-${{ runner.os }}-${{ hashFiles('web/bun.lock') }}
           restore-keys: |
             playwright-${{ runner.os }}-
+      # SOFT capture (best-effort), DIFF-SCOPED: select-specs.ts decides which
+      # @evidence specs to run from the base...HEAD diff. __NONE__ (non-visual
+      # diff, incl. main pushes) skips the browser install entirely. Derived
+      # spec paths flow through a file, never a ${{ }} interpolation, so an
+      # attacker-controlled path can't inject into the run script. Browser
+      # binaries are cached above to skip the ~150 MB chromium download.
       - name: Capture visual evidence
+        id: capture
         continue-on-error: true
+        env:
+          BASE_REF: origin/${{ github.event.pull_request.base.ref || 'main' }}
         run: |
+          SPECS_FILE="$RUNNER_TEMP/evidence-specs.txt"
+          bun scripts/visual-evidence/select-specs.ts > "$SPECS_FILE" || echo __ALL__ > "$SPECS_FILE"
+          [ -s "$SPECS_FILE" ] || echo __ALL__ > "$SPECS_FILE"
+          if grep -qx '__NONE__' "$SPECS_FILE"; then
+            # Single source of truth for "capture was skipped": this step
+            # output. The manifest step turns it into a `skipped` marker
+            # manifest (so WF2 can refresh a stale gallery) instead of
+            # re-parsing the sentinel file.
+            echo "skipped=1" >> "$GITHUB_OUTPUT"
+            echo "non-visual diff — skipping visual-evidence capture"
+            exit 0
+          fi
           cd web && bun install --frozen-lockfile
           bunx --bun svelte-kit sync
           bunx playwright install --with-deps chromium
-          EZCORP_E2E_EVIDENCE=1 bunx playwright test --project=chromium --grep @evidence || true
+          if grep -qx '__ALL__' "$SPECS_FILE"; then
+            EZCORP_E2E_EVIDENCE=1 bunx playwright test --project=chromium --grep @evidence || true
+          else
+            mapfile -t SPECS < "$SPECS_FILE"
+            EZCORP_E2E_EVIDENCE=1 bunx playwright test --project=chromium --grep @evidence "${SPECS[@]}" || true
+          fi
+      # When capture was skipped (non-visual diff), the manifest is a `skipped`
+      # marker with zero shots: WF2 uses it to REFRESH a stale gallery comment
+      # from an earlier visual push (update-only — it never creates a comment),
+      # so screenshots never outlive the change they depicted. A capture that
+      # RAN but produced no shots writes a plain empty manifest instead, so the
+      # ⚠️ comment keeps flagging genuinely broken captures.
       - name: Build evidence manifest
         continue-on-error: true
         env:
@@ -461,6 +502,7 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           RUN_ID: ${{ github.run_id }}
           EVIDENCE_MANIFEST: web/blob-report/manifest.json
+          EVIDENCE_SKIPPED: ${{ steps.capture.outputs.skipped }}
         run: bun scripts/visual-evidence/build-manifest.ts
       - name: Upload visual evidence
         continue-on-error: true

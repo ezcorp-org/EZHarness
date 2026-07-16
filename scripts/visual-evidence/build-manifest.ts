@@ -50,6 +50,13 @@ export interface Manifest {
   headSha: string;
   runId: number;
   shots: Shot[];
+  /**
+   * True when WF1 skipped capture entirely (non-visual diff). Lets WF2 tell
+   * "nothing user-visible changed" (refresh a stale gallery, never post a new
+   * comment) apart from "capture ran but produced nothing" (the ⚠️ signal for
+   * a genuinely broken capture).
+   */
+  skipped?: true;
 }
 
 /** Raw (pre-write) shot: the decoded bytes plus its sanitized identity. */
@@ -259,6 +266,17 @@ async function main(): Promise<void> {
   const pr = intEnv("PR_NUMBER");
   const headSha = sanitize(process.env.HEAD_SHA ?? "");
   const runId = intEnv("RUN_ID");
+
+  // Capture was skipped (non-visual diff): emit a marker manifest with zero
+  // shots instead of parsing blobs that don't exist. WF2 uses `skipped` to
+  // refresh (never create) the sticky comment, so a stale gallery from an
+  // earlier visual push doesn't outlive the change it depicted.
+  if (process.env.EVIDENCE_SKIPPED === "1") {
+    const manifest: Manifest = { pr, headSha, runId, shots: [], skipped: true };
+    await Bun.write(outManifest, JSON.stringify(manifest, null, 2));
+    console.log(`Visual-evidence manifest: capture skipped (non-visual diff) → ${outManifest}`);
+    return;
+  }
 
   const reports = await readBlobReports(blobDir);
   const decoded = reports.flatMap(parseReportJsonl);

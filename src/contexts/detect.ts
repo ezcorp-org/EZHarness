@@ -506,7 +506,7 @@ export async function detectTopics(
     schema: buildDetectSchema(),
     schemaName: "topic_detection",
     temperature: 0.2,
-    maxTokens: 1_500,
+    maxTokens: 4_000,
     conversationId,
   });
 

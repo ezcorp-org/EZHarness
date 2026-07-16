@@ -2,7 +2,8 @@
  * file-organizer — REAL-BACKEND e2e (Docker-gated).
  *
  * ✅ This is the ONLY genuinely end-to-end file-organizer spec. It runs
- * against the LIVE backend (the dev container `ez-corp-ai-app-1` on host
+ * against the LIVE backend (the dev container `ezharness-app-1` — override
+ * via EZCORP_APP_CONTAINER — on host
  * network :3000), with NO mockApi. It exercises the real add-folder
  * validator, the real config.json write (verified by reading the WRITER's
  * on-disk config.json via `docker exec`), the real rule DSL parser, the
@@ -24,7 +25,7 @@
  * two ways: (1) the events route's own idempotent refusals (a duplicate
  * add is refused "already being watched" ⇒ the first write hit disk), and
  * (2) reading the WRITER's config.json directly out of the container with
- * `docker exec ez-corp-ai-app-1 cat /app/.ezcorp/extension-data/file-organizer/config.json`.
+ * `docker exec ezharness-app-1 cat /app/.ezcorp/extension-data/file-organizer/config.json`.
  * We assert on the WRITER dir because that is where the events route +
  * daemon actually persist; post-fix the Hub render reads the SAME dir, so
  * the "appears in the Hub" specs ALSO assert the rendered reflection.
@@ -52,7 +53,7 @@ import { execFileSync } from "node:child_process";
 
 const RUN_REAL = !!process.env.DOCKER_TEST;
 
-const CONTAINER = "ez-corp-ai-app-1";
+const CONTAINER = process.env.EZCORP_APP_CONTAINER ?? "ezharness-app-1";
 // The canonical data dir: events route + daemon WRITE here, and post-fix
 // the render subprocess READS here too — see the data-dir alignment note
 // in the header.
@@ -357,13 +358,16 @@ test.describe(
       }
       const parsed = (() => {
         try {
-          return JSON.parse(proposalsRaw) as { proposals?: Array<{ id: string; status: string; dst?: string }> };
+          return JSON.parse(proposalsRaw) as { proposals?: Array<{ id: string; kind: string; status: string; dst?: string }> };
         } catch {
-          return { proposals: [] as Array<{ id: string; status: string; dst?: string }> };
+          return { proposals: [] as Array<{ id: string; kind: string; status: string; dst?: string }> };
         }
       })();
-      const pending = (parsed.proposals ?? []).find((p) => p.status === "pending");
-      test.skip(!pending, "no daemon-produced pending proposal on disk — nothing real to accept");
+      // Only DIRECTLY-APPLYABLE kinds: an `unclassified` proposal is pending
+      // but accept refuses it by design ("pick a destination or teach a
+      // rule"), which would fail the not-pending re-read below.
+      const pending = (parsed.proposals ?? []).find((p) => p.status === "pending" && p.kind !== "unclassified");
+      test.skip(!pending, "no daemon-produced applyable pending proposal on disk — nothing real to accept");
 
       const res = await postEvent(request, "accept", { proposalId: pending!.id }, "overview");
       expect(res.status()).toBe(200);
