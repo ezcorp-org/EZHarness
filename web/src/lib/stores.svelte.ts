@@ -254,6 +254,18 @@ class AppStore {
 	// via `DockOpenPill` (or any direct `openDock` call) clears the entry
 	// for that toolCallId. New tool calls from the agent are unaffected.
 	dismissedDocks = $state<Record<string, Record<string, true>>>({});
+
+	// ── Fallback pending-permission tray ──
+	// Permission prompts whose conversation maps to NO active run (e.g. an
+	// extension-initiated privileged tool call — ez-code-factory's init_gate
+	// hitting fs.write/shell — fires `tool:permission_request` on a
+	// conversation the streaming layer never registered a run for). Without a
+	// run, the chat-inline PermissionGate has nowhere to mount, so the
+	// approval card would never render and the backend gate hangs forever.
+	// These entries drive a global `PendingPermissionTray` overlay so the
+	// user can still approve/deny. Keyed by toolCallId (the promptId the
+	// backend gate resolves via POST /api/tool-calls/:id/permission).
+	pendingPermissions = $state<ToolCallState[]>([]);
 }
 
 function _initDockSizePx(): number {
@@ -484,6 +496,29 @@ export async function sendToolPermissionResponse(
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify(body),
 	});
+}
+
+/** Register a permission prompt on the fallback tray (see
+ *  `store.pendingPermissions`). Idempotent by `toolCall.id` — a duplicate
+ *  `tool:permission_request` (SSE resume / reconnect replay) updates the
+ *  existing entry instead of stacking a second card. Entries with no id are
+ *  ignored (the backend gate is keyed by the tool-call/prompt id, so a
+ *  card with no id could never be resolved). */
+export function registerPendingPermission(toolCall: ToolCallState): void {
+	if (!toolCall.id) return;
+	const idx = store.pendingPermissions.findIndex((p) => p.id === toolCall.id);
+	if (idx >= 0) {
+		const next = [...store.pendingPermissions];
+		next[idx] = toolCall;
+		store.pendingPermissions = next;
+	} else {
+		store.pendingPermissions = [...store.pendingPermissions, toolCall];
+	}
+}
+
+/** Remove a resolved (or superseded) prompt from the fallback tray. */
+export function dismissPendingPermission(toolCallId: string): void {
+	store.pendingPermissions = store.pendingPermissions.filter((p) => p.id !== toolCallId);
 }
 
 /** Send kill signal for a running tool call */
@@ -1129,12 +1164,33 @@ export function initStores() {
 						};
 					}
 				} else {
-					// No root run found — this shouldn't happen if agent:spawn was received
-					// Surface a toast so the user can manually deny/approve via the sub-conversation view
+					// No root run maps to this conversation. This is the normal
+					// case for an EXTENSION-initiated privileged tool call (e.g.
+					// ez-code-factory's init_gate hitting fs.write/shell): the
+					// prompt fires on a conversation the streaming layer never
+					// registered a run for, so there's no chat-inline card slot.
+					// Render the prompt on the global fallback tray instead —
+					// otherwise the backend gate (which DOES work) would hang
+					// forever with no UI to approve it. Fail-closed: we only add
+					// a render surface; the approve/deny decision still goes
+					// through the same POST /api/tool-calls/:id/permission gate.
 					// browser-side store: keep console.* — server-side $server/logger writes to
 					// process.stderr, which doesn't exist in the browser bundle.
-					console.warn("[permission] Could not resolve root run for conversation", conversationId, "tool", permToolName);
-					addToast({ type: "warning", message: `Sub-agent "${permToolName}" is waiting for permission. Open the sub-conversation to approve.` });
+					console.warn("[permission] No active run for conversation", conversationId, "— routing tool", permToolName, "to the fallback permission tray");
+					registerPendingPermission({
+						id: toolCallId,
+						toolName: permToolName,
+						status: 'running',
+						input: permInput,
+						startedAt: Date.now(),
+						permissionPending: true,
+						cardType: permCardType,
+						cardLayout: safePermLayout,
+						category: permCategory,
+						extensionId: permExtensionId,
+						capabilityKind: permCapabilityKind,
+						capabilityValue: permCapabilityValue,
+					});
 				}
 				break;
 			}
