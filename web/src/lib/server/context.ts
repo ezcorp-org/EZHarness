@@ -7,11 +7,11 @@ import { ensureBriefingAgentConfig } from "$server/runtime/briefing/agent-config
 import { registerBriefingHubPage } from "$server/runtime/briefing/hub-page";
 import { triggerBriefingRunNow } from "$lib/server/briefing-run-now";
 import { AgentExecutor } from "$server/runtime/executor";
-import { PipelineExecutor } from "$server/runtime/pipeline-executor";
-import { loadYamlPipelines } from "$server/runtime/pipeline-loader";
+import { WorkflowExecutor } from "$server/runtime/workflow-executor";
+import { loadYamlWorkflows } from "$server/runtime/workflow-loader";
 import { initDb, closeDb } from "$server/db/connection";
 import { validateEnv } from "$server/env-validation";
-import { loadDbPipelines } from "$server/db/queries/pipelines";
+import { loadDbWorkflows } from "$server/db/queries/workflows";
 import { startBackups, stopBackups } from "$server/db/backup";
 import {
   installShutdownHandlers,
@@ -42,7 +42,7 @@ import {
 } from "$server/runtime/commands/registry";
 import { listUserCommands } from "$server/db/queries/user-commands";
 import { initGoalHost, parseGoalEnabled, type GoalHost } from "$server/runtime/goal-host";
-import type { AgentEvents, PipelineDefinition } from "$server/types";
+import type { AgentEvents, WorkflowDefinition } from "$server/types";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
@@ -91,14 +91,14 @@ function resolveAgentsDir(): string {
 const agentsDir = resolveAgentsDir();
 
 let executor: AgentExecutor | null = null;
-let pipelineExecutor: PipelineExecutor | null = null;
+let workflowExecutor: WorkflowExecutor | null = null;
 let bus: EventBus<AgentEvents> | null = null;
 let stateMediator: ExtensionStateMediator | null = null;
 let lifecycleDispatcher: LifecycleHookDispatcher | null = null;
 let eventSubscriptionDispatcher: EventSubscriptionDispatcher | null = null;
 let commandRegistry: CommandRegistry | null = null;
 let goalHost: GoalHost | null = null;
-let pipelines: PipelineDefinition[] = [];
+let workflows: WorkflowDefinition[] = [];
 let initialized = false;
 
 export async function ensureInitialized(): Promise<void> {
@@ -145,7 +145,7 @@ export async function ensureInitialized(): Promise<void> {
   // (import direction), so it reads it back via the bus registry.
   registerPreviewBus(bus);
   executor = new AgentExecutor(agents, bus, { persist: true });
-  pipelineExecutor = new PipelineExecutor(executor, bus);
+  workflowExecutor = new WorkflowExecutor(executor, bus);
   // Daily Briefing Phase 1: the BriefingDaemon (started later via
   // startBackgroundTimers in hooks.server.ts) and the run-now route live
   // in src/ and cannot import this web-layer executor/bus directly —
@@ -372,10 +372,10 @@ export async function ensureInitialized(): Promise<void> {
     },
   });
 
-  // Load pipelines from YAML + DB
-  const yamlPipelines = await loadYamlPipelines(agentsDir);
-  const dbPipelines = await loadDbPipelines();
-  pipelines = [...yamlPipelines, ...dbPipelines];
+  // Load workflows from YAML + DB
+  const yamlWorkflows = await loadYamlWorkflows(agentsDir);
+  const dbWorkflows = await loadDbWorkflows();
+  workflows = [...yamlWorkflows, ...dbWorkflows];
 
   // Signal-driven teardown lives in `$lib/server/shutdown.ts`. The
   // adapter (svelte-adapter-bun) emits `sveltekit:shutdown` BEFORE
@@ -392,9 +392,9 @@ export function getExecutor(): AgentExecutor {
   return executor;
 }
 
-export function getPipelineExecutor(): PipelineExecutor {
-  if (!pipelineExecutor) throw new Error("Server not initialized — call ensureInitialized() first");
-  return pipelineExecutor;
+export function getWorkflowExecutor(): WorkflowExecutor {
+  if (!workflowExecutor) throw new Error("Server not initialized — call ensureInitialized() first");
+  return workflowExecutor;
 }
 
 export function getBus(): EventBus<AgentEvents> {
@@ -421,14 +421,14 @@ function getStateMediator(): ExtensionStateMediator | null {
   return stateMediator;
 }
 
-export function getPipelines(): PipelineDefinition[] {
-  return pipelines;
+export function getWorkflows(): WorkflowDefinition[] {
+  return workflows;
 }
 
-export async function reloadPipelines(): Promise<void> {
-  const yamlPipelines = await loadYamlPipelines(agentsDir);
-  const dbPipelines = await loadDbPipelines();
-  pipelines = [...yamlPipelines, ...dbPipelines];
+export async function reloadWorkflows(): Promise<void> {
+  const yamlWorkflows = await loadYamlWorkflows(agentsDir);
+  const dbWorkflows = await loadDbWorkflows();
+  workflows = [...yamlWorkflows, ...dbWorkflows];
 }
 
 function reset(): void {
@@ -438,10 +438,10 @@ function reset(): void {
   if (executor) executor.destroy();
   if (goalHost) goalHost.stop();
   executor = null;
-  pipelineExecutor = null;
+  workflowExecutor = null;
   bus = null;
   commandRegistry = null;
   goalHost = null;
-  pipelines = [];
+  workflows = [];
   initialized = false;
 }

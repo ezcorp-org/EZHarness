@@ -2,7 +2,8 @@
 	import { untrack } from "svelte";
 	import type { Agent } from "$lib/api.js";
 	import { inputClass } from "$lib/styles.js";
-	import PipelineStepForm from "./PipelineStepForm.svelte";
+	import WorkflowStepForm from "./WorkflowStepForm.svelte";
+	import { blankStep, buildWorkflowPayload, type StepDraft } from "$lib/workflow-builder-logic.js";
 
 	let {
 		initial = {},
@@ -19,10 +20,8 @@
 	let name = $state(untrack(() => (initial.name as string) ?? ""));
 	let description = $state(untrack(() => (initial.description as string) ?? ""));
 
-	type StepData = { name: string; agent: string; input: Record<string, string>; dependsOn: string[] };
-
-	let steps = $state<StepData[]>(
-		untrack(() => (initial.steps as StepData[]) ?? [{ name: "step-1", agent: "", input: {}, dependsOn: [] }]),
+	let steps = $state<StepDraft[]>(
+		untrack(() => (initial.steps as StepDraft[]) ?? [blankStep(0)]),
 	);
 
 	let allStepNames = $derived(steps.map((s) => s.name));
@@ -30,13 +29,12 @@
 	let errorMsg = $state("");
 
 	function addStep() {
-		steps = [...steps, { name: `step-${steps.length + 1}`, agent: "", input: {}, dependsOn: [] }];
+		steps = [...steps, blankStep(steps.length)];
 	}
 
 	function removeStep(idx: number) {
 		const removedName = steps[idx].name;
 		steps = steps.filter((_, i) => i !== idx);
-		// Clean up dependsOn references
 		for (const step of steps) {
 			step.dependsOn = step.dependsOn.filter((d) => d !== removedName);
 		}
@@ -45,44 +43,24 @@
 	function handleSubmit(e: Event) {
 		e.preventDefault();
 		errorMsg = "";
-
-		if (!name.trim()) {
-			errorMsg = "Pipeline name is required";
+		const result = buildWorkflowPayload(name, description, steps);
+		if (result.error) {
+			errorMsg = result.error;
 			return;
 		}
-		if (steps.length === 0) {
-			errorMsg = "At least one step is required";
-			return;
-		}
-		for (const step of steps) {
-			if (!step.name.trim() || !step.agent) {
-				errorMsg = "Each step needs a name and agent";
-				return;
-			}
-		}
-
-		onsubmit({
-			name: name.trim(),
-			description: description.trim(),
-			steps: steps.map((s) => ({
-				name: s.name,
-				agent: s.agent,
-				...(Object.keys(s.input).length > 0 ? { input: s.input } : {}),
-				...(s.dependsOn.length > 0 ? { dependsOn: s.dependsOn } : {}),
-			})),
-		});
+		onsubmit(result.payload);
 	}
 </script>
 
 <form onsubmit={handleSubmit} class="space-y-4">
 	<div>
-		<label for="pl-name" class="mb-1 block text-sm font-medium text-[var(--color-text-secondary)]">Pipeline Name</label>
-		<input id="pl-name" type="text" bind:value={name} class={inputClass} placeholder="my-pipeline" />
+		<label for="wf-name" class="mb-1 block text-sm font-medium text-[var(--color-text-secondary)]">Workflow Name</label>
+		<input id="wf-name" type="text" bind:value={name} class={inputClass} placeholder="my-workflow" />
 	</div>
 
 	<div>
-		<label for="pl-desc" class="mb-1 block text-sm font-medium text-[var(--color-text-secondary)]">Description</label>
-		<input id="pl-desc" type="text" bind:value={description} class={inputClass} placeholder="What does this pipeline do?" />
+		<label for="wf-desc" class="mb-1 block text-sm font-medium text-[var(--color-text-secondary)]">Description</label>
+		<input id="wf-desc" type="text" bind:value={description} class={inputClass} placeholder="What does this workflow do?" />
 	</div>
 
 	<div>
@@ -94,7 +72,7 @@
 		</div>
 		<div class="space-y-3">
 			{#each steps as step, idx}
-				<PipelineStepForm {step} {agents} {allStepNames} onremove={() => removeStep(idx)} />
+				<WorkflowStepForm {step} {agents} {allStepNames} onremove={() => removeStep(idx)} />
 			{/each}
 		</div>
 	</div>
@@ -108,6 +86,6 @@
 		disabled={submitting}
 		class="rounded-md bg-blue-600 px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-blue-500 disabled:opacity-50" style="min-height: 44px;"
 	>
-		{submitting ? "Saving..." : "Save Pipeline"}
+		{submitting ? "Saving..." : "Save Workflow"}
 	</button>
 </form>
