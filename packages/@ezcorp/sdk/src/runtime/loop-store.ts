@@ -88,6 +88,13 @@ export interface LoopRunStore<Outcome = unknown> {
   /** Failure bookkeeping. */
   getMeta(): Promise<LoopMeta>;
   setMeta(meta: LoopMeta): Promise<void>;
+  /** Durable per-loop check cursor (`loop:<id>:cursor`). Read resolves
+   *  `undefined` when unset; the write is serialized under the store lock
+   *  so a concurrent fire can't clobber it. Falsy values (`0`, `""`,
+   *  `false`) round-trip faithfully — presence is keyed on existence, not
+   *  truthiness. */
+  getCursor<T = unknown>(): Promise<T | undefined>;
+  setCursor<T = unknown>(value: T): Promise<void>;
 }
 
 /** Storage key helpers — single source of the key grammar. */
@@ -99,6 +106,9 @@ export function indexKey(loopId: string): string {
 }
 export function metaKey(loopId: string): string {
   return `loop:${loopId}:meta`;
+}
+export function cursorKey(loopId: string): string {
+  return `loop:${loopId}:cursor`;
 }
 function lockKey(loopId: string, scope: StorageScope): string {
   return `loop-store:${loopId}:${scope}`;
@@ -223,6 +233,20 @@ export function createLoopRunStore<Outcome = unknown>(
     async setMeta(meta) {
       await withLock(lk, async () => {
         await storage.set(metaKey(loopId), meta);
+      });
+    },
+
+    async getCursor<T = unknown>() {
+      // Keyed on `exists`, not truthiness: a cursor legitimately set to a
+      // falsy value (0 / "" / false) must round-trip, unlike getMeta which
+      // has a fixed default object.
+      const res = await storage.get<T>(cursorKey(loopId));
+      return res.exists ? (res.value as T) : undefined;
+    },
+
+    async setCursor<T = unknown>(value: T) {
+      await withLock(lk, async () => {
+        await storage.set(cursorKey(loopId), value);
       });
     },
   };

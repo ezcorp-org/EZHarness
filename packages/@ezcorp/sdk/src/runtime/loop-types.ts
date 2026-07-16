@@ -141,6 +141,63 @@ export interface LoopContract<Input = unknown> {
   concurrency?: LoopConcurrency;
 }
 
+// ── check ──────────────────────────────────────────────────────────
+//
+// The deterministic pre-act gate: "does the AI process even need to run?"
+// A `check` runs AFTER the idempotency/dup gate and BEFORE `act`, deciding
+// `proceed` (optionally enriching the input `act` sees) or `skip` (a
+// first-class decline with a reason, logged, never an error). Omitting
+// `check` is `proceed: true` — zero migration for existing loops.
+//
+// DETERMINISM BY CONSTRUCTION: `LoopCheckContext` deliberately has NO
+// `llm`, NO `spawn`, NO `recentMessages`. The check stage *cannot* invoke a
+// model or dispatch an agent — the type system is the firewall, not a
+// convention. Structured endpoints (JSON APIs, git) are parseable here;
+// messy-HTML sources are NOT (that parsing belongs in `act`, and such loops
+// are `untrusted-input`). Document the limit; never soften the firewall.
+
+export type CheckResult<Input = unknown> =
+  /** Run `act`. `input`, when present, REPLACES what `act` sees (the
+   *  deterministic enrichment — e.g. the git head a git-cursor check
+   *  resolved). Omit it to pass the trigger input through unchanged. */
+  | { proceed: true; input?: Input }
+  /** Decline this fire. Logged as a `skip` with `reason` in the fire
+   *  audit log — NOT an error, NOT counted toward auto-disable. */
+  | { proceed: false; reason: string };
+
+export interface LoopCheckContext<Input = unknown> {
+  /** The triggering input (event payload | tool args | cron tick). */
+  input: Input;
+  /** Resolved user settings, with a `{}` fallback already applied. */
+  settings: LoopSettings;
+  /** Per-fire metadata (same shape as `LoopActContext.fire`). */
+  fire: {
+    id: string;
+    firedAt: string;
+    trigger: LoopTrigger;
+    catchUp: boolean;
+  };
+  /** Durable per-loop cursor, persisted at `loop:<id>:cursor` (Storage,
+   *  same scope as the contract, writes under `withLock`). The
+   *  deterministic "how far have I processed?" marker a git-cursor /
+   *  threshold check reads + advances. `get` resolves `undefined` when
+   *  unset. */
+  cursor: {
+    get<T = unknown>(): Promise<T | undefined>;
+    set<T = unknown>(value: T): Promise<void>;
+  };
+  /** Host-mediated `fetch` — the sandbox-preload gates it against the
+   *  loop's network grant. The ONLY external-data surface the check has;
+   *  there is deliberately no `llm` to parse the response. */
+  fetch: typeof fetch;
+  /** Append a free-form note to the fire's audit log. */
+  log: (msg: string, level?: "info" | "warn" | "error") => void;
+}
+
+export type LoopCheck<Input = unknown> = (
+  ctx: LoopCheckContext<Input>,
+) => Promise<CheckResult<Input>>;
+
 // ── act ──────────────────────────────────────────────────────────────
 
 export type ActResult<Outcome = unknown> =
@@ -244,6 +301,10 @@ export interface LoopDefinition<Input = unknown, Outcome = unknown> {
   /** One trigger or many. */
   trigger: LoopTrigger | LoopTrigger[];
   contract?: LoopContract<Input>;
+  /** Optional deterministic pre-act gate (trigger → dup gate → `check` →
+   *  `act`). Omitted = `proceed: true` (zero migration). See
+   *  `LoopCheckContext` — it structurally cannot invoke a model. */
+  check?: LoopCheck<Input>;
   act: LoopAct<Input, Outcome>;
   log?: LoopLog<Outcome>;
 }

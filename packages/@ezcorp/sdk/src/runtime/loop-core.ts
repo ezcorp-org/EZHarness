@@ -12,6 +12,7 @@
 
 import type {
   ActResult,
+  CheckResult,
   FailureClass,
   LoopAutoDisableContext,
   LoopContract,
@@ -322,6 +323,25 @@ export function validateActResult(
   if (result.kind === "skip") return null;
   if (!isKnownState(result.status, contract)) {
     return `loop act returned unknown status "${result.status}" — declare it in contract.states (${contract.states.join(", ")})`;
+  }
+  return null;
+}
+
+// ── check-result validation ──────────────────────────────────────────
+
+/**
+ * Validate a `check` result before the fire pipeline acts on it. A
+ * `proceed: false` MUST carry a non-empty `reason` string (it becomes the
+ * `skip`'s audit reason); a malformed decline is treated as a check error
+ * (classified by `contract.failure`, like a thrown check) rather than a
+ * silent no-reason skip. `proceed: true` always passes. Returns an error
+ * string or null. Pure.
+ */
+export function validateCheckResult(result: CheckResult): string | null {
+  if (result.proceed === false) {
+    if (typeof result.reason !== "string" || result.reason.length === 0) {
+      return "loop check returned proceed:false without a non-empty reason string";
+    }
   }
   return null;
 }

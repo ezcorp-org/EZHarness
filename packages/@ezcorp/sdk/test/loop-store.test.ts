@@ -13,6 +13,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   createLoopRunStore,
+  cursorKey,
   indexKey,
   metaKey,
   runKey,
@@ -90,10 +91,11 @@ describe("contract acceptance", () => {
 });
 
 describe("key grammar", () => {
-  test("per-run key + index + meta are distinct, namespaced", () => {
+  test("per-run key + index + meta + cursor are distinct, namespaced", () => {
     expect(runKey("ezc", "r1")).toBe("loop:ezc:run:r1");
     expect(indexKey("ezc")).toBe("loop:ezc:index");
     expect(metaKey("ezc")).toBe("loop:ezc:meta");
+    expect(cursorKey("ezc")).toBe("loop:ezc:cursor");
   });
 });
 
@@ -260,6 +262,53 @@ describe("meta — failure bookkeeping", () => {
     expect(await store.getMeta()).toEqual({ consecutiveErrors: 0, disabled: false });
     await store.setMeta({ consecutiveErrors: 2, disabled: true });
     expect(await store.getMeta()).toEqual({ consecutiveErrors: 2, disabled: true });
+  });
+});
+
+describe("cursor — durable check marker", () => {
+  test("unset cursor reads undefined", async () => {
+    const kv = makeKv();
+    const store = createLoopRunStore("ezc", CONTRACT, kv.factory);
+    expect(await store.getCursor()).toBeUndefined();
+  });
+
+  test("set → get round-trips, persisted under loop:<id>:cursor", async () => {
+    const kv = makeKv();
+    const store = createLoopRunStore("ezc", CONTRACT, kv.factory);
+    await store.setCursor("abc123");
+    expect(await store.getCursor<string>()).toBe("abc123");
+    // Written to the dedicated cursor key — never mixed into runs/meta.
+    expect(kv.map.get("loop:ezc:cursor")).toBe("abc123");
+    expect(kv.map.has("loop:ezc:index")).toBe(false);
+  });
+
+  test("a later set overwrites the prior cursor", async () => {
+    const kv = makeKv();
+    const store = createLoopRunStore("ezc", CONTRACT, kv.factory);
+    await store.setCursor("first");
+    await store.setCursor("second");
+    expect(await store.getCursor<string>()).toBe("second");
+  });
+
+  test("falsy cursor values round-trip (presence keyed on existence)", async () => {
+    const kv = makeKv();
+    const store = createLoopRunStore("ezc", CONTRACT, kv.factory);
+    await store.setCursor(0);
+    expect(await store.getCursor<number>()).toBe(0);
+    await store.setCursor("");
+    expect(await store.getCursor<string>()).toBe("");
+    await store.setCursor(false);
+    expect(await store.getCursor<boolean>()).toBe(false);
+  });
+
+  test("structured cursor value survives the JSON round-trip", async () => {
+    const kv = makeKv();
+    const store = createLoopRunStore("ezc", CONTRACT, kv.factory);
+    await store.setCursor({ hash: "deadbeef", at: "2026-07-16T00:00:00Z" });
+    expect(await store.getCursor<{ hash: string; at: string }>()).toEqual({
+      hash: "deadbeef",
+      at: "2026-07-16T00:00:00Z",
+    });
   });
 });
 

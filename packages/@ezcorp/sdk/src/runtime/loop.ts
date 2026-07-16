@@ -29,12 +29,15 @@ import {
   classifyFailure,
   resolveContract,
   validateActResult,
+  validateCheckResult,
 } from "./loop-core";
 import { createLoopRunStore, type LoopRunStore } from "./loop-store";
 import { wireLog, runTerminalLog } from "./loop-log";
 import type {
   ActResult,
+  CheckResult,
   LoopActContext,
+  LoopCheckContext,
   LoopDefinition,
   LoopMessage,
   LoopRunState,
@@ -136,6 +139,10 @@ let messagesResolverImpl: MessagesResolver = defaultMessagesResolver;
 let spawnImpl: typeof spawnAssignment = spawnAssignment;
 let llmFactory: () => Llm = () => new Llm();
 let storeFactory: StoreFactory | null = null;
+// The `check` stage's host-mediated fetch. Defaults to the sandbox-wrapped
+// global `fetch` (network-grant-gated by the preload); tests inject a stub
+// to observe the check's external-data surface without a live network.
+let checkFetchImpl: typeof fetch = fetch;
 
 /** @internal test-only — override the settings resolver. */
 export function _setSettingsResolverForTests(fn: SettingsResolver | null): void {
@@ -156,6 +163,10 @@ export function _setLlmFactoryForTests(fn: (() => Llm) | null): void {
 /** @internal test-only — substitute the run store (in-memory KV). */
 export function _setStoreFactoryForTests(fn: StoreFactory | null): void {
   storeFactory = fn;
+}
+/** @internal test-only — override the check stage's host-mediated fetch. */
+export function _setCheckFetchForTests(fn: typeof fetch | null): void {
+  checkFetchImpl = fn ?? fetch;
 }
 
 // ── Registry (multi-loop-per-extension) ─────────────────────────────
@@ -370,14 +381,60 @@ async function runFire(
 
   const settings = await settingsResolverImpl();
   const logLines: string[] = [];
+  const log = (msg: string, level: "info" | "warn" | "error" = "info") => {
+    logLines.push(`[${level}] ${msg}`);
+  };
+  const fire = {
+    id: meta.fireId,
+    firedAt: meta.firedAt,
+    trigger,
+    catchUp: meta.catchUp,
+  };
+
+  // ── check stage ──────────────────────────────────────────────────
+  //
+  // The deterministic pre-act gate. Runs BEFORE `act` (and after the
+  // disabled/pre-skip gates) on `meta.input` (the RAW trigger input). A
+  // `proceed:false` is a first-class skip; a thrown check is classified by
+  // `contract.failure` exactly like a thrown act. An omitted `check` is
+  // `proceed:true` — existing loops are unchanged (zero migration). On
+  // `proceed:true` the check may enrich the input `act` sees.
+  let effectiveInput = meta.input;
+  if (reg.def.check) {
+    const checkCtx: LoopCheckContext = {
+      input: meta.input,
+      settings,
+      fire,
+      cursor: {
+        get: <T,>() => reg.store.getCursor<T>(),
+        set: <T,>(value: T) => reg.store.setCursor<T>(value),
+      },
+      fetch: checkFetchImpl,
+      log,
+    };
+    let checkResult: CheckResult;
+    try {
+      checkResult = await reg.def.check(checkCtx);
+    } catch (err) {
+      return handleFailure(reg, err);
+    }
+    const invalidCheck = validateCheckResult(checkResult);
+    if (invalidCheck) {
+      return handleFailure(reg, new Error(invalidCheck));
+    }
+    if (checkResult.proceed === false) {
+      // A non-throwing check is a healthy fire even when it declines —
+      // reset the consecutive-error counter, then record the skip.
+      await resetErrorsIfNeeded(reg, initialMeta);
+      return { kind: "skip", reason: checkResult.reason };
+    }
+    // `proceed:true` with an explicit `input` REPLACES what `act` sees.
+    if (checkResult.input !== undefined) effectiveInput = checkResult.input;
+  }
+
   const ctx: LoopActContext = {
-    fire: {
-      id: meta.fireId,
-      firedAt: meta.firedAt,
-      trigger,
-      catchUp: meta.catchUp,
-    },
-    input: meta.input,
+    fire,
+    input: effectiveInput,
     settings,
     llm: llmFactory(),
     recentMessages: async (conversationId: string, n = 20) => {
@@ -386,9 +443,7 @@ async function runFire(
     },
     formatMessages,
     spawn: spawnImpl,
-    log: (msg, level = "info") => {
-      logLines.push(`[${level}] ${msg}`);
-    },
+    log,
   };
 
   let result: ActResult;
@@ -412,15 +467,16 @@ async function runFire(
 
   if (result.kind === "terminal") {
     const note = logLines[0];
-    const key = idemKey(reg, meta.input);
+    const key = idemKey(reg, effectiveInput);
     // Capture loops resolve in one fire — claim the run already at the
     // terminal status carrying the outcome (no redundant transition, so
-    // the event log has a single entry).
+    // the event log has a single entry). The run persists the EFFECTIVE
+    // input (post-`check` enrichment) — what `act` actually processed.
     const { run } = await reg.store.claim({
       id: meta.fireId,
       loopId: reg.id,
       status: result.status,
-      input: meta.input,
+      input: effectiveInput,
       outcome: result.outcome,
       ...(key ? { idempotencyKey: key } : {}),
       ...(note ? { note } : {}),
@@ -431,12 +487,12 @@ async function runFire(
 
   // Deferred: open a non-terminal run keyed by the spawned runId.
   const note = logLines[0];
-  const deferredKey = idemKey(reg, meta.input);
+  const deferredKey = idemKey(reg, effectiveInput);
   const { run } = await reg.store.claim({
     id: result.runId,
     loopId: reg.id,
     status: result.status,
-    input: meta.input,
+    input: effectiveInput,
     ...(deferredKey ? { idempotencyKey: deferredKey } : {}),
     externalRunId: result.runId,
     ...(result.assignmentId ? { externalAssignmentId: result.assignmentId } : {}),

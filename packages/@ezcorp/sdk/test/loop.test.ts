@@ -36,7 +36,9 @@ import {
   _setSpawnForTests,
   _setLlmFactoryForTests,
   _setStoreFactoryForTests,
+  _setCheckFetchForTests,
 } from "../src/runtime/loop";
+import type { LoopCheckContext } from "../src/runtime/loop-types";
 import { Llm } from "../src/runtime/llm";
 import { createLoopRunStore } from "../src/runtime/loop-store";
 import {
@@ -130,6 +132,7 @@ afterEach(() => {
   _setMessagesResolverForTests(null);
   _setSpawnForTests(null);
   _setStoreFactoryForTests(null);
+  _setCheckFetchForTests(null);
 });
 
 /** Invoke a captured `ezcorp/event/<event>` handler with a payload. */
@@ -510,6 +513,243 @@ describe("act-result validation", () => {
     // Default classify → transient, so it does not auto-disable but is
     // recorded as a (transient) failure.
     expect((await reg.store.getMeta()).consecutiveErrors).toBe(0);
+  });
+});
+
+// ── check stage: proceed / skip / throw × transient/permanent ───────
+
+// Type-level firewall: the check context MUST NOT expose `llm`, `spawn`, or
+// `recentMessages`. If any leaks into `LoopCheckContext`, the corresponding
+// `Absent<…>` resolves to `never` and this assignment fails to COMPILE — a
+// determinism-by-construction guard that lives in the type system, not a
+// runtime convention. (Also asserted structurally at runtime below.)
+type Absent<K extends string> = K extends keyof LoopCheckContext ? never : true;
+const _firewall: [Absent<"llm">, Absent<"spawn">, Absent<"recentMessages">] = [
+  true,
+  true,
+  true,
+];
+void _firewall;
+
+describe("check stage", () => {
+  test("proceed:true (no enrichment) → act runs on the raw trigger input", async () => {
+    let actInput: unknown;
+    defineLoop({
+      id: "chk-proceed",
+      trigger: { kind: "event", event: "run:complete" },
+      contract: { states: ["done"] },
+      check: async () => ({ proceed: true }),
+      act: async (ctx) => {
+        actInput = ctx.input;
+        return { kind: "terminal", status: "done", outcome: null };
+      },
+    });
+    await fireEvent("run:complete", { cid: "c1" });
+    expect(actInput).toEqual({ cid: "c1" });
+    expect((await _getRegisteredLoop("chk-proceed")!.store.list())[0]!.status).toBe("done");
+  });
+
+  test("proceed:true with input ENRICHES what act sees + what the run stores", async () => {
+    let actInput: unknown;
+    defineLoop({
+      id: "chk-enrich",
+      trigger: { kind: "cron", cron: "0 * * * *" },
+      contract: { states: ["done"] },
+      check: async () => ({ proceed: true, input: { hash: "abc", subject: "fix" } }),
+      act: async (ctx) => {
+        actInput = ctx.input;
+        return { kind: "terminal", status: "done", outcome: { ok: 1 } };
+      },
+    });
+    await fireCron("0 * * * *");
+    expect(actInput).toEqual({ hash: "abc", subject: "fix" });
+    // The persisted run records the ENRICHED input (what act processed).
+    const run = (await _getRegisteredLoop("chk-enrich")!.store.list())[0]!;
+    expect(run.input).toEqual({ hash: "abc", subject: "fix" });
+  });
+
+  test("proceed:false → first-class skip (act NOT called, no run, reason logged)", async () => {
+    let actCalls = 0;
+    defineLoop({
+      id: "chk-skip",
+      trigger: { kind: "event", event: "run:complete" },
+      contract: { states: ["done"] },
+      check: async () => ({ proceed: false, reason: "no_new_commits" }),
+      act: async () => {
+        actCalls++;
+        return { kind: "terminal", status: "done", outcome: null };
+      },
+    });
+    await fireEvent("run:complete", {});
+    expect(actCalls).toBe(0);
+    expect((await _getRegisteredLoop("chk-skip")!.store.list()).length).toBe(0);
+  });
+
+  test("a proceed:false with an empty reason is a check ERROR (act not called)", async () => {
+    let actCalls = 0;
+    defineLoop({
+      id: "chk-badskip",
+      trigger: { kind: "event", event: "run:complete" },
+      contract: { states: ["done"] },
+      // Malformed decline — no reason. Treated as a (transient) failure.
+      check: async () => ({ proceed: false, reason: "" }),
+      act: async () => {
+        actCalls++;
+        return { kind: "terminal", status: "done", outcome: null };
+      },
+    });
+    const reg = _getRegisteredLoop("chk-badskip")!;
+    await fireEvent("run:complete", {});
+    expect(actCalls).toBe(0);
+    expect((await reg.store.list()).length).toBe(0);
+    // Default classify → transient, so recorded but not disabling.
+    expect((await reg.store.getMeta()).consecutiveErrors).toBe(0);
+  });
+
+  test("a thrown check is classified permanent → auto-disables at exactly N", async () => {
+    const disabled: number[] = [];
+    let actCalls = 0;
+    defineLoop({
+      id: "chk-throw",
+      trigger: { kind: "event", event: "run:complete" },
+      contract: {
+        states: ["done"],
+        failure: {
+          classify: () => "permanent",
+          autoDisableAfter: 2,
+          onAutoDisable: async (ctx) => disabled.push(ctx.consecutiveErrors),
+        },
+      },
+      check: async () => {
+        throw new Error("check boom");
+      },
+      act: async () => {
+        actCalls++;
+        return { kind: "terminal", status: "done", outcome: null };
+      },
+    });
+    const reg = _getRegisteredLoop("chk-throw")!;
+    await fireEvent("run:complete", {}); // err 1
+    expect((await reg.store.getMeta()).disabled).toBe(false);
+    await fireEvent("run:complete", {}); // err 2 → disable
+    expect((await reg.store.getMeta()).disabled).toBe(true);
+    expect(disabled).toEqual([2]);
+    // A thrown check never reaches act.
+    expect(actCalls).toBe(0);
+  });
+
+  test("a thrown-then-transient check resets the consecutive counter", async () => {
+    let mode: "permanent" | "transient" = "permanent";
+    defineLoop({
+      id: "chk-mix",
+      trigger: { kind: "event", event: "run:complete" },
+      contract: {
+        states: ["done"],
+        failure: { classify: () => mode, autoDisableAfter: 3 },
+      },
+      check: async () => {
+        throw new Error("boom");
+      },
+      act: async () => ({ kind: "terminal", status: "done", outcome: null }),
+    });
+    const reg = _getRegisteredLoop("chk-mix")!;
+    await fireEvent("run:complete", {}); // permanent → 1
+    expect((await reg.store.getMeta()).consecutiveErrors).toBe(1);
+    mode = "transient";
+    await fireEvent("run:complete", {}); // transient → reset 0
+    expect((await reg.store.getMeta()).consecutiveErrors).toBe(0);
+  });
+
+  test("a proceed:false skip RESETS a prior error count (a healthy fire)", async () => {
+    let outcome: "throw" | "skip" = "throw";
+    defineLoop({
+      id: "chk-skip-reset",
+      trigger: { kind: "event", event: "run:complete" },
+      contract: {
+        states: ["done"],
+        failure: { classify: () => "permanent", autoDisableAfter: 5 },
+      },
+      check: async () => {
+        if (outcome === "throw") throw new Error("boom");
+        return { proceed: false, reason: "quiet" };
+      },
+      act: async () => ({ kind: "terminal", status: "done", outcome: null }),
+    });
+    const reg = _getRegisteredLoop("chk-skip-reset")!;
+    await fireEvent("run:complete", {}); // permanent → 1
+    expect((await reg.store.getMeta()).consecutiveErrors).toBe(1);
+    outcome = "skip";
+    await fireEvent("run:complete", {}); // healthy decline → reset
+    expect((await reg.store.getMeta()).consecutiveErrors).toBe(0);
+  });
+
+  test("cursor get/set delegates to the run store across fires", async () => {
+    const seen: (string | undefined)[] = [];
+    defineLoop({
+      id: "chk-cursor",
+      trigger: { kind: "cron", cron: "*/5 * * * *" },
+      contract: { states: ["done"] },
+      check: async (ctx) => {
+        const prev = await ctx.cursor.get<string>();
+        seen.push(prev);
+        await ctx.cursor.set(`tick-${seen.length}`);
+        return { proceed: true };
+      },
+      act: async () => ({ kind: "terminal", status: "done", outcome: null }),
+    });
+    await fireCron("*/5 * * * *");
+    await fireCron("*/5 * * * *");
+    // First fire sees an unset cursor; second reads what the first wrote.
+    expect(seen).toEqual([undefined, "tick-1"]);
+    expect(await _getRegisteredLoop("chk-cursor")!.store.getCursor<string>()).toBe("tick-2");
+  });
+
+  test("check exposes an injectable host-mediated fetch + the fire meta", async () => {
+    const fakeResponse = new Response("ok");
+    let gotFetch: unknown;
+    let gotFire: unknown;
+    _setCheckFetchForTests((async () => fakeResponse) as typeof fetch);
+    defineLoop({
+      id: "chk-fetch",
+      trigger: { kind: "event", event: "run:complete" },
+      contract: { states: ["done"] },
+      check: async (ctx) => {
+        gotFire = ctx.fire;
+        gotFetch = await ctx.fetch("https://example.test");
+        return { proceed: true };
+      },
+      act: async () => ({ kind: "terminal", status: "done", outcome: null }),
+    });
+    await fireEvent("run:complete", {});
+    expect(gotFetch).toBe(fakeResponse);
+    expect(gotFire).toMatchObject({ trigger: { kind: "event", event: "run:complete" }, catchUp: false });
+  });
+
+  test("FIREWALL: the check context has no llm / spawn / recentMessages at runtime", async () => {
+    let keys: string[] = [];
+    defineLoop({
+      id: "chk-firewall",
+      trigger: { kind: "event", event: "run:complete" },
+      contract: { states: ["done"] },
+      check: async (ctx) => {
+        keys = Object.keys(ctx);
+        return { proceed: true };
+      },
+      act: async () => ({ kind: "terminal", status: "done", outcome: null }),
+    });
+    await fireEvent("run:complete", {});
+    expect(keys).not.toContain("llm");
+    expect(keys).not.toContain("spawn");
+    expect(keys).not.toContain("recentMessages");
+    // The intended surface IS present.
+    expect(keys.sort()).toEqual(["cursor", "fetch", "fire", "input", "log", "settings"]);
+  });
+
+  test("the default check fetch is a live-ish wrapper (seam resets cleanly)", () => {
+    // Reset to the production default and confirm the setter doesn't throw
+    // and leaves a callable fetch in place (the real global is network-gated
+    // by the sandbox at runtime; here we only prove the wrapper is wired).
+    expect(() => _setCheckFetchForTests(null)).not.toThrow();
   });
 });
 
