@@ -9,12 +9,15 @@ function run(over: Partial<RunRecord> = {}): RunRecord {
     branch: "feat/x",
     ref: "refs/heads/feat/x",
     headSha: "abcdef0123456789",
+    baseSha: "0000000000000000",
     status: "completed",
     worktreePath: null,
     createdAt: "2026-07-15T08:00:00.000Z",
     updatedAt: "2026-07-15T08:00:05.000Z",
     parkedMs: 0,
     awaitingAgentSince: null,
+    intent: null,
+    intentSource: null,
     ...over,
   };
 }

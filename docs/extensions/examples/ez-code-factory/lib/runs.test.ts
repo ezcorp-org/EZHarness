@@ -7,8 +7,11 @@ import type { HostChannel } from "@ezcorp/sdk/runtime";
 import {
   deserializeFinding,
   deserializeFindings,
+  serializeFindings,
   emptyFindings,
   parsePushReceived,
+  parseIntentOption,
+  parseRespondPayload,
   newRunId,
   worktreePathFor,
   createRunStore,
@@ -16,6 +19,7 @@ import {
   type RunRecord,
   type RunStore,
   type StepResultRecord,
+  type StepRoundRecord,
 } from "./runs";
 import { productionHostRunner, type ShellRunner } from "./shell";
 
@@ -88,6 +92,88 @@ describe("deserializeFindings", () => {
   });
 });
 
+// ── deserializeFindings wire-shape acceptance ───────────────────────
+
+describe("deserializeFindings accepts both wire shapes", () => {
+  test("`findings` key wins over legacy `items`", () => {
+    const f = deserializeFindings({
+      findings: [{ action: "no-op", severity: "info", description: "new" }],
+      items: [{ action: "no-op", severity: "info", description: "legacy" }],
+    });
+    expect(f.items).toHaveLength(1);
+    expect(f.items[0]!.description).toBe("new");
+  });
+  test("camelCase scalars are accepted as a fallback", () => {
+    const f = deserializeFindings({
+      findings: [],
+      testingSummary: "camel-ts",
+      riskLevel: "high",
+      riskRationale: "camel-rr",
+    });
+    expect(f.testingSummary).toBe("camel-ts");
+    expect(f.riskLevel).toBe("high");
+    expect(f.riskRationale).toBe("camel-rr");
+  });
+});
+
+// ── parseIntentOption (untrusted push options) ──────────────────────
+
+describe("parseIntentOption", () => {
+  test("non-array → null; no intent= → null", () => {
+    expect(parseIntentOption(undefined)).toBeNull();
+    expect(parseIntentOption(["ci=skip"])).toBeNull();
+  });
+  test("skips non-string entries, returns first intent=", () => {
+    expect(parseIntentOption([42, null, "intent=go"])).toBe("go");
+  });
+  test("caps an over-long intent at MAX_INTENT_LEN (4000)", () => {
+    const long = "x".repeat(5000);
+    const got = parseIntentOption([`intent=${long}`]);
+    expect(got).not.toBeNull();
+    expect(got!.length).toBe(4000);
+  });
+});
+
+// ── serializeFindings ↔ deserializeFindings round-trip ──────────────
+
+describe("serializeFindings", () => {
+  test("emits the agent wire shape (findings key, snake_case) and round-trips", () => {
+    const f = deserializeFindings({
+      findings: [
+        {
+          id: "f1",
+          severity: "warning",
+          file: "a.ts",
+          line: 3,
+          description: "d",
+          action: "auto-fix",
+          source: "user",
+          user_instructions: "please",
+          category: "lint",
+        },
+      ],
+      summary: "s",
+      tested: ["t"],
+      testing_summary: "ts",
+      artifacts: ["art"],
+      risk_level: "low",
+      risk_rationale: "rr",
+    });
+    const wire = JSON.parse(serializeFindings(f));
+    expect(wire.findings[0].id).toBe("f1");
+    expect(wire.findings[0].user_instructions).toBe("please");
+    expect(wire.findings[0].risk_level).toBeUndefined(); // scalar lives at top level
+    expect(wire.risk_level).toBe("low");
+    expect(wire.testing_summary).toBe("ts");
+    // Re-parsing the wire yields an equivalent Findings.
+    expect(deserializeFindings(wire)).toEqual(f);
+  });
+  test("omits empty optional fields", () => {
+    const wire = JSON.parse(serializeFindings(emptyFindings()));
+    expect(wire).toEqual({ findings: [], summary: "" });
+  });
+});
+
 // ── parsePushReceived (untrusted payload) ───────────────────────────
 
 describe("parsePushReceived", () => {
@@ -97,8 +183,25 @@ describe("parsePushReceived", () => {
     ref: "refs/heads/feat/x",
     newSha: "abcdef1234567890abcdef1234567890abcdef12",
   };
-  test("accepts a well-formed payload", () => {
-    expect(parsePushReceived(ok)).toEqual(ok);
+  test("accepts a well-formed payload (intent null, oldSha defaults to zeros)", () => {
+    expect(parsePushReceived(ok)).toEqual({ ...ok, oldSha: "0".repeat(40), intent: null });
+  });
+  test("extracts a valid oldSha; a malformed oldrev falls back to zeros", () => {
+    const old = "1111111111111111111111111111111111111111";
+    expect(parsePushReceived({ ...ok, oldSha: old })?.oldSha).toBe(old);
+    expect(parsePushReceived({ ...ok, oldSha: "nothex" })?.oldSha).toBe("0".repeat(40));
+  });
+  test("extracts an explicit intent= push option", () => {
+    expect(parsePushReceived({ ...ok, pushOptions: ["intent=fix the bug"] })?.intent).toBe(
+      "fix the bug",
+    );
+    // First intent= wins; non-intent options ignored; blank → null.
+    expect(
+      parsePushReceived({ ...ok, pushOptions: ["ci=skip", "intent=  do X  ", "intent=later"] })
+        ?.intent,
+    ).toBe("do X");
+    expect(parsePushReceived({ ...ok, pushOptions: ["intent="] })?.intent).toBeNull();
+    expect(parsePushReceived({ ...ok, pushOptions: "not-an-array" })?.intent).toBeNull();
   });
   test("rejects non-objects + missing fields", () => {
     expect(parsePushReceived(null)).toBeNull();
@@ -169,12 +272,15 @@ describe("createRunStore (Storage-backed)", () => {
       branch: "b",
       ref: "refs/heads/b",
       headSha: "deadbeef",
+      baseSha: "0000000000000000",
       status: "created",
       worktreePath: null,
       createdAt: "2026-07-15T08:00:00.000Z",
       updatedAt: "2026-07-15T08:00:00.000Z",
       parkedMs: 0,
       awaitingAgentSince: null,
+      intent: null,
+      intentSource: null,
       ...over,
     };
   }
@@ -226,13 +332,84 @@ describe("createRunStore (Storage-backed)", () => {
     const step: StepResultRecord = {
       runId: "r1",
       step: "review",
+      status: "pending",
       findings: emptyFindings(),
       agentPid: null,
       autoFixLimit: 0,
+      round: 0,
+      autoFixAttempts: 0,
+      executionMs: 0,
+      fixSummary: null,
     };
     await store.putStepResult(step);
     expect((await store.getStepResult("r1", "review"))!.step).toBe("review");
     expect(await store.getStepResult("r1", "missing")).toBeNull();
+  });
+
+  test("step_rounds append / get / patch-last round-trip", async () => {
+    stubStorage();
+    const store = createRunStore();
+    const round = (n: number): StepRoundRecord => ({
+      runId: "r1",
+      step: "review",
+      round: n,
+      trigger: "initial",
+      findingsJson: null,
+      userFindingsJson: null,
+      selectedFindingIds: null,
+      selectionSource: null,
+      fixSummary: null,
+      durationMs: 0,
+    });
+    // Empty until appended.
+    expect(await store.getStepRounds("r1", "review")).toEqual([]);
+    await store.appendStepRound(round(1));
+    await store.appendStepRound(round(2));
+    const rounds = await store.getStepRounds("r1", "review");
+    expect(rounds.map((r) => r.round)).toEqual([1, 2]);
+    // Patch the last round; a step with no rounds is a no-op.
+    await store.patchLastStepRound("r1", "review", { selectionSource: "user" });
+    expect((await store.getStepRounds("r1", "review"))[1]!.selectionSource).toBe("user");
+    await store.patchLastStepRound("r1", "no-rounds", { selectionSource: "user" }); // no-op
+    expect(await store.getStepRounds("r1", "no-rounds")).toEqual([]);
+  });
+});
+
+// ── parseRespondPayload (untrusted gate action) ─────────────────────
+
+describe("parseRespondPayload", () => {
+  const ok = { runId: "run1", step: "review", action: "approve" };
+  test("accepts a minimal valid payload (fix fields default empty)", () => {
+    expect(parseRespondPayload(ok)).toEqual({
+      runId: "run1",
+      step: "review",
+      action: "approve",
+      findingIds: [],
+      instructions: {},
+      addedFindings: [],
+    });
+  });
+  test("carries findingIds, instructions, and addedFindings for a fix", () => {
+    const got = parseRespondPayload({
+      ...ok,
+      action: "fix",
+      findingIds: ["f1", 2, "f2"],
+      instructions: { f1: "do X", bad: 5 },
+      addedFindings: [{ description: "extra" }],
+    })!;
+    expect(got.findingIds).toEqual(["f1", "f2"]);
+    expect(got.instructions).toEqual({ f1: "do X" });
+    expect(got.addedFindings).toHaveLength(1);
+  });
+  test("rejects non-objects, blank runId, unknown step, unknown action", () => {
+    expect(parseRespondPayload(null)).toBeNull();
+    expect(parseRespondPayload("x")).toBeNull();
+    expect(parseRespondPayload({ ...ok, runId: "" })).toBeNull();
+    expect(parseRespondPayload({ ...ok, step: "bogus" })).toBeNull();
+    expect(parseRespondPayload({ ...ok, action: "nuke" })).toBeNull();
+  });
+  test("ignores a non-object instructions field", () => {
+    expect(parseRespondPayload({ ...ok, instructions: "nope" })!.instructions).toEqual({});
   });
 });
 
@@ -252,6 +429,7 @@ const git = (args: string[], cwd: string) => productionHostRunner(["git", ...arg
 function memStore(): RunStore & { runs: Map<string, RunRecord> } {
   const runs = new Map<string, RunRecord>();
   const steps = new Map<string, StepResultRecord>();
+  const rounds = new Map<string, StepRoundRecord[]>();
   return {
     runs,
     async createRun(run) {
@@ -275,6 +453,20 @@ function memStore(): RunStore & { runs: Map<string, RunRecord> } {
     },
     async getStepResult(runId, step) {
       return steps.get(`${runId}/${step}`) ?? null;
+    },
+    async appendStepRound(round) {
+      const key = `${round.runId}/${round.step}`;
+      const list = rounds.get(key) ?? [];
+      list.push(round);
+      rounds.set(key, list);
+    },
+    async getStepRounds(runId, step) {
+      return rounds.get(`${runId}/${step}`) ?? [];
+    },
+    async patchLastStepRound(runId, step, patch) {
+      const list = rounds.get(`${runId}/${step}`);
+      if (!list || list.length === 0) return;
+      list[list.length - 1] = { ...list[list.length - 1]!, ...patch };
     },
   };
 }

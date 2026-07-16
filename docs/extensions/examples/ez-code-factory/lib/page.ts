@@ -13,9 +13,20 @@ import type { RunRecord, RunStatus } from "./runs";
 export const STATUS_BADGE: Record<RunStatus, string> = {
   created: "◌ created",
   worktree_ready: "▶ worktree",
+  running: "● running",
+  awaiting_approval: "⏸ awaiting approval",
   completed: "✓ completed",
   failed: "✗ failed",
+  aborted: "⊘ aborted",
 };
+
+/** Statuses that count as "active" (in-flight) on the dashboard. */
+const ACTIVE_STATUSES: ReadonlySet<RunStatus> = new Set<RunStatus>([
+  "created",
+  "worktree_ready",
+  "running",
+  "awaiting_approval",
+]);
 
 /** Short head-SHA for the table (first 8 chars). Pure. */
 export function shortSha(sha: string): string {
@@ -27,9 +38,9 @@ export function shortSha(sha: string): string {
  * empty list renders a call-to-action pointing at `init_gate`.
  */
 export function buildDashboard(runs: RunRecord[]): HubPageTree {
-  const active = runs.filter((r) => r.status === "created" || r.status === "worktree_ready").length;
+  const active = runs.filter((r) => ACTIVE_STATUSES.has(r.status)).length;
   const completed = runs.filter((r) => r.status === "completed").length;
-  const failed = runs.filter((r) => r.status === "failed").length;
+  const failed = runs.filter((r) => r.status === "failed" || r.status === "aborted").length;
 
   const page = new PageBuilder("ez-code-factory")
     .markdownBlock(
