@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test";
-import { makeProject, makeAgent, type makeRun, makeConversation, makeMessage, type makePipeline, makeAgentConfig, makeMemory, type makeKBFile, type makeProviderStatus, makeMode, type ModeData, type makeLesson, type ExtensionData, type makeSearchHit } from "./data.js";
+import { makeProject, makeAgent, type makeRun, makeConversation, makeMessage, type makeWorkflow, makeAgentConfig, makeMemory, type makeKBFile, type makeProviderStatus, makeMode, type ModeData, type makeLesson, type ExtensionData, type makeSearchHit } from "./data.js";
 import { fuzzyScore } from "../../src/lib/fuzzy-match.js";
 import type { SearchMode } from "../../src/lib/api.js";
 
@@ -27,7 +27,7 @@ export interface MockOverrides {
 	runs?: ReturnType<typeof makeRun>[];
 	conversations?: ReturnType<typeof makeConversation>[];
 	messages?: ReturnType<typeof makeMessage>[];
-	pipelines?: ReturnType<typeof makePipeline>[];
+	workflows?: ReturnType<typeof makeWorkflow>[];
 	agentConfigs?: ReturnType<typeof makeAgentConfig>[];
 	memories?: ReturnType<typeof makeMemory>[];
 	kbFiles?: ReturnType<typeof makeKBFile>[];
@@ -278,7 +278,7 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 	const runs = overrides.runs ?? [];
 	const conversations = overrides.conversations ?? [DEFAULT_CONV];
 	const messages = overrides.messages ?? [];
-	const pipelines = overrides.pipelines ?? [];
+	const workflows = overrides.workflows ?? [];
 	const agentConfigs = overrides.agentConfigs ?? [];
 	const mems = overrides.memories ?? [];
 	const kbFiles = overrides.kbFiles ?? [];
@@ -1048,15 +1048,23 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 			}
 		}
 
-		// Pipelines
-		if (path === "/api/pipelines" && method === "GET") {
-			return route.fulfill({ json: pipelines });
+		// Workflows
+		if (path === "/api/workflows" && method === "GET") {
+			return route.fulfill({ json: workflows });
 		}
-		if (path.match(/^\/api\/pipelines\/[^/]+$/) && method === "DELETE") {
+		if (path.match(/^\/api\/workflows\/[^/]+$/) && method === "DELETE") {
 			return route.fulfill({ json: { success: true } });
 		}
-		if (path.match(/^\/api\/pipelines\/[^/]+\/run$/) && method === "POST") {
-			return route.fulfill({ json: { pipelineRunId: "prun-1" } });
+		if (path.match(/^\/api\/workflows\/[^/]+\/run$/) && method === "POST") {
+			return route.fulfill({
+				json: {
+					id: "wrun-1",
+					workflowName: "mock",
+					status: "running",
+					startedAt: Date.now(),
+					steps: [],
+				},
+			});
 		}
 
 		// Memories

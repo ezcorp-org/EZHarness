@@ -1,28 +1,28 @@
 import { test, expect } from "./fixtures/test-base.js";
-import { makePipeline, makeAgent } from "./fixtures/data.js";
+import { makeWorkflow, makeAgent } from "./fixtures/data.js";
 
-// Fills coverage gaps left by `pipelines.spec.ts` (list/detail) and
-// `pipelines-new.spec.ts` (create form). Those specs assert the static
+// Fills coverage gaps left by `workflows.spec.ts` (list/detail) and
+// `workflows-new.spec.ts` (create form). Those specs assert the static
 // surface; this one drives the *interactions* — running, deleting,
-// editing multi-step pipelines, and rendering of step metadata that
-// other specs never construct (input mapping, dependsOn).
+// editing multi-step workflows, and rendering of step metadata that
+// other specs never construct (input mapping, dependsOn, loop iterations).
 
-test.describe("Pipelines — interactions and rendering gaps", () => {
+test.describe("Workflows — interactions and rendering gaps", () => {
 	// ── Run flow ────────────────────────────────────────────────────
 
 	test("triggering a run posts JSON input and renders Run History from SSE", async ({ page, mockApi, emitSse }) => {
 		await mockApi({
-			pipelines: [makePipeline({ name: "runme", steps: [{ name: "only", agent: "summarizer" }] })],
+			workflows: [makeWorkflow({ name: "runme", steps: [{ name: "only", agent: "summarizer" }] })],
 		});
 
 		// Capture the run POST so we can assert the body that flowed in.
 		let runPostBody: any = null;
-		await page.route("**/api/pipelines/runme/run", (route) => {
+		await page.route("**/api/workflows/runme/run", (route) => {
 			runPostBody = route.request().postDataJSON();
 			return route.fulfill({
 				json: {
 					id: "run-abc",
-					pipelineName: "runme",
+					workflowName: "runme",
 					status: "running",
 					startedAt: Date.now(),
 					steps: [{ stepName: "only", runId: "r-1", status: "running" }],
@@ -30,22 +30,22 @@ test.describe("Pipelines — interactions and rendering gaps", () => {
 			});
 		});
 
-		await page.goto("/pipelines/runme");
-		await expect(page.getByRole("heading", { name: "Run Pipeline" })).toBeVisible();
+		await page.goto("/workflows/runme");
+		await expect(page.getByRole("heading", { name: "Run Workflow" })).toBeVisible();
 
 		await page.getByLabel("JSON Input").fill('{"query": "hello"}');
-		await page.getByRole("button", { name: "Run Pipeline" }).click();
+		await page.getByRole("button", { name: "Run Workflow" }).click();
 
 		await expect.poll(() => runPostBody).not.toBeNull();
 		expect(runPostBody).toMatchObject({ query: "hello" });
 
 		// Run History only appears after SSE events populate the store.
 		await emitSse({
-			type: "pipeline:start",
+			type: "workflow:start",
 			data: {
-				pipelineRun: {
+				workflowRun: {
 					id: "run-abc12345",
-					pipelineName: "runme",
+					workflowName: "runme",
 					status: "running",
 					startedAt: Date.now(),
 					steps: [{ stepName: "only", runId: "r-1", status: "running" }],
@@ -60,11 +60,11 @@ test.describe("Pipelines — interactions and rendering gaps", () => {
 
 		// Completion event flips status to success.
 		await emitSse({
-			type: "pipeline:complete",
+			type: "workflow:complete",
 			data: {
-				pipelineRun: {
+				workflowRun: {
 					id: "run-abc12345",
-					pipelineName: "runme",
+					workflowName: "runme",
 					status: "success",
 					startedAt: Date.now() - 50,
 					finishedAt: Date.now(),
@@ -76,16 +76,16 @@ test.describe("Pipelines — interactions and rendering gaps", () => {
 		await expect(page.getByText("success", { exact: true }).first()).toBeVisible();
 	});
 
-	test("pipeline:error SSE flips the Run History row to the error status", async ({ page, mockApi, emitSse }) => {
+	test("workflow:error SSE flips the Run History row to the error status", async ({ page, mockApi, emitSse }) => {
 		await mockApi({
-			pipelines: [makePipeline({ name: "failpipe", steps: [{ name: "only", agent: "alpha" }] })],
+			workflows: [makeWorkflow({ name: "failflow", steps: [{ name: "only", agent: "alpha" }] })],
 		});
 
-		await page.route("**/api/pipelines/failpipe/run", (route) =>
+		await page.route("**/api/workflows/failflow/run", (route) =>
 			route.fulfill({
 				json: {
 					id: "run-err",
-					pipelineName: "failpipe",
+					workflowName: "failflow",
 					status: "running",
 					startedAt: Date.now(),
 					steps: [{ stepName: "only", runId: "r-1", status: "running" }],
@@ -93,16 +93,16 @@ test.describe("Pipelines — interactions and rendering gaps", () => {
 			}),
 		);
 
-		await page.goto("/pipelines/failpipe");
+		await page.goto("/workflows/failflow");
 		await page.getByLabel("JSON Input").fill("{}");
-		await page.getByRole("button", { name: "Run Pipeline" }).click();
+		await page.getByRole("button", { name: "Run Workflow" }).click();
 
 		await emitSse({
-			type: "pipeline:start",
+			type: "workflow:start",
 			data: {
-				pipelineRun: {
+				workflowRun: {
 					id: "run-err99999",
-					pipelineName: "failpipe",
+					workflowName: "failflow",
 					status: "running",
 					startedAt: Date.now(),
 					steps: [{ stepName: "only", runId: "r-1", status: "running" }],
@@ -111,11 +111,11 @@ test.describe("Pipelines — interactions and rendering gaps", () => {
 		});
 
 		await emitSse({
-			type: "pipeline:error",
+			type: "workflow:error",
 			data: {
-				pipelineRun: {
+				workflowRun: {
 					id: "run-err99999",
-					pipelineName: "failpipe",
+					workflowName: "failflow",
 					status: "error",
 					startedAt: Date.now() - 50,
 					finishedAt: Date.now(),
@@ -130,20 +130,51 @@ test.describe("Pipelines — interactions and rendering gaps", () => {
 		await expect(errorStatus.first()).toBeVisible();
 	});
 
+	test("a looped step's iteration count renders in Run History", async ({ page, mockApi, emitSse }) => {
+		await mockApi({
+			workflows: [makeWorkflow({ name: "loopy", steps: [{ name: "count", agent: "alpha" }] })],
+		});
+		await page.route("**/api/workflows/loopy/run", (route) =>
+			route.fulfill({
+				json: { id: "run-loop", workflowName: "loopy", status: "running", startedAt: Date.now(), steps: [] },
+			}),
+		);
+
+		await page.goto("/workflows/loopy");
+		await page.getByLabel("JSON Input").fill("{}");
+		await page.getByRole("button", { name: "Run Workflow" }).click();
+
+		await emitSse({
+			type: "workflow:complete",
+			data: {
+				workflowRun: {
+					id: "run-loop123",
+					workflowName: "loopy",
+					status: "success",
+					startedAt: Date.now() - 50,
+					finishedAt: Date.now(),
+					steps: [{ stepName: "count", runId: "", status: "success", iterations: 3 }],
+				},
+			},
+		});
+
+		await expect(page.getByText("(3 iterations)")).toBeVisible();
+	});
+
 	test("invalid JSON in the run input shows a parse error and does not POST", async ({ page, mockApi }) => {
 		await mockApi({
-			pipelines: [makePipeline({ name: "runme" })],
+			workflows: [makeWorkflow({ name: "runme" })],
 		});
 
 		let posted = false;
-		await page.route("**/api/pipelines/runme/run", (route) => {
+		await page.route("**/api/workflows/runme/run", (route) => {
 			posted = true;
 			return route.fulfill({ json: {} });
 		});
 
-		await page.goto("/pipelines/runme");
+		await page.goto("/workflows/runme");
 		await page.getByLabel("JSON Input").fill("{not valid json");
-		await page.getByRole("button", { name: "Run Pipeline" }).click();
+		await page.getByRole("button", { name: "Run Workflow" }).click();
 
 		// JSON.parse throws SyntaxError — the page surfaces err.message in red.
 		await expect(page.locator("p.text-red-400")).toBeVisible();
@@ -154,8 +185,8 @@ test.describe("Pipelines — interactions and rendering gaps", () => {
 
 	test("detail page renders dependsOn and input mapping per step", async ({ page, mockApi }) => {
 		await mockApi({
-			pipelines: [
-				makePipeline({
+			workflows: [
+				makeWorkflow({
 					name: "graph",
 					steps: [
 						{ name: "extract", agent: "extractor" },
@@ -170,7 +201,7 @@ test.describe("Pipelines — interactions and rendering gaps", () => {
 			],
 		});
 
-		await page.goto("/pipelines/graph");
+		await page.goto("/workflows/graph");
 
 		await expect(page.getByText("Depends on: extract")).toBeVisible();
 		await expect(page.getByText("Input: source=$steps.extract.output")).toBeVisible();
@@ -178,13 +209,13 @@ test.describe("Pipelines — interactions and rendering gaps", () => {
 
 	// ── Delete from detail page ─────────────────────────────────────
 
-	test("delete pipeline confirms, fires DELETE, and navigates to list", async ({ page, mockApi }) => {
+	test("delete workflow confirms, fires DELETE, and navigates to list", async ({ page, mockApi }) => {
 		await mockApi({
-			pipelines: [makePipeline({ name: "deleteme" })],
+			workflows: [makeWorkflow({ name: "deleteme" })],
 		});
 
 		let deleteHit = false;
-		await page.route("**/api/pipelines/deleteme", (route) => {
+		await page.route("**/api/workflows/deleteme", (route) => {
 			if (route.request().method() === "DELETE") {
 				deleteHit = true;
 				return route.fulfill({ json: { success: true } });
@@ -194,10 +225,10 @@ test.describe("Pipelines — interactions and rendering gaps", () => {
 
 		page.on("dialog", (dialog) => dialog.accept());
 
-		await page.goto("/pipelines/deleteme");
+		await page.goto("/workflows/deleteme");
 		await page.getByRole("button", { name: "Delete" }).click();
 
-		await expect(page).toHaveURL(/\/pipelines$/, { timeout: 5000 });
+		await expect(page).toHaveURL(/\/workflows$/, { timeout: 5000 });
 		expect(deleteHit).toBe(true);
 	});
 
@@ -206,11 +237,11 @@ test.describe("Pipelines — interactions and rendering gaps", () => {
 	test("builder adds, links, and removes steps, then submits the right shape", async ({ page, mockApi }) => {
 		await mockApi({
 			agents: [makeAgent({ name: "alpha" }), makeAgent({ name: "beta" })],
-			pipelines: [],
+			workflows: [],
 		});
 
 		let postBody: any = null;
-		await page.route("**/api/pipelines", (route) => {
+		await page.route("**/api/workflows", (route) => {
 			if (route.request().method() === "POST") {
 				postBody = route.request().postDataJSON();
 				return route.fulfill({ json: postBody });
@@ -218,11 +249,11 @@ test.describe("Pipelines — interactions and rendering gaps", () => {
 			return route.fulfill({ json: [] });
 		});
 
-		const response = await page.goto("/pipelines/new");
+		const response = await page.goto("/workflows/new");
 		const finalUrl = response ? new URL(response.url()).pathname : "";
-		test.skip(finalUrl !== "/pipelines/new", "auth gate redirected away from /pipelines/new in this environment");
+		test.skip(finalUrl !== "/workflows/new", "auth gate redirected away from /workflows/new in this environment");
 
-		await page.getByLabel("Pipeline Name").fill("multi");
+		await page.getByLabel("Workflow Name").fill("multi");
 
 		// Step 1 — keep default name "step-1", pick an agent.
 		await page.getByLabel("Agent").first().selectOption("alpha");
@@ -240,9 +271,9 @@ test.describe("Pipelines — interactions and rendering gaps", () => {
 		await page.getByRole("button", { name: "+ Add Step" }).click();
 		await page.locator("button", { hasText: "Remove" }).nth(2).click();
 
-		await page.getByRole("button", { name: "Save Pipeline" }).click();
+		await page.getByRole("button", { name: "Save Workflow" }).click();
 
-		await expect(page).toHaveURL(/\/pipelines$/, { timeout: 5000 });
+		await expect(page).toHaveURL(/\/workflows$/, { timeout: 5000 });
 		expect(postBody).not.toBeNull();
 		expect(postBody.name).toBe("multi");
 		expect(postBody.steps).toHaveLength(2);
@@ -255,18 +286,18 @@ test.describe("Pipelines — interactions and rendering gaps", () => {
 	test("builder validation rejects a step without an agent selected", async ({ page, mockApi }) => {
 		await mockApi({
 			agents: [makeAgent({ name: "alpha" })],
-			pipelines: [],
+			workflows: [],
 		});
 
-		const response = await page.goto("/pipelines/new");
+		const response = await page.goto("/workflows/new");
 		const finalUrl = response ? new URL(response.url()).pathname : "";
-		test.skip(finalUrl !== "/pipelines/new", "auth gate redirected away from /pipelines/new in this environment");
+		test.skip(finalUrl !== "/workflows/new", "auth gate redirected away from /workflows/new in this environment");
 
-		await page.getByLabel("Pipeline Name").fill("noagent");
+		await page.getByLabel("Workflow Name").fill("noagent");
 		// Deliberately leave the Agent select on the empty default.
-		await page.getByRole("button", { name: "Save Pipeline" }).click();
+		await page.getByRole("button", { name: "Save Workflow" }).click();
 
-		await expect(page.getByText("Each step needs a name and agent")).toBeVisible({ timeout: 3000 });
-		await expect(page).toHaveURL(/\/pipelines\/new$/);
+		await expect(page.getByText('Step "step-1" (agent) needs an agent')).toBeVisible({ timeout: 3000 });
+		await expect(page).toHaveURL(/\/workflows\/new$/);
 	});
 });
