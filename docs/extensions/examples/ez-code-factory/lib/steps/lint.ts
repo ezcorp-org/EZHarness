@@ -57,7 +57,11 @@ async function executeLint(sctx: StepContext): Promise<StepOutcome> {
     sctx.log("no lint command configured, asking agent to lint and fix...");
     const reassessHistory =
       executionContextPromptSection() + roundHistoryPromptSection(sctx.rounds) + userIntentPromptSection(intentCtx);
-    let prompt = `Detect the linting and formatting tools for this project, run the relevant checks yourself, apply safe fixes, and verify the result.
+    const previousSection =
+      sctx.previousFindings !== ""
+        ? `\n\nPrevious lint findings to address:\n${sanitizedPreviousFindingsForPrompt(sctx.previousFindings)}`
+        : "";
+    const prompt = `Detect the linting and formatting tools for this project, run the relevant checks yourself, apply safe fixes, and verify the result.
 
 Context:
 - branch: ${sctx.run.branch}
@@ -77,13 +81,7 @@ Rules:
 - Focus on lint, format, and static-analysis issues only.
 - Do not report issues you already fixed.
 - The summary must be one concise sentence fragment suitable for a git commit subject.
-- Keep the summary under 10 words.${reassessHistory}`;
-    if (sctx.previousFindings !== "") {
-      prompt += `
-
-Previous lint findings to address:
-${sanitizedPreviousFindingsForPrompt(sctx.previousFindings)}`;
-    }
+- Keep the summary under 10 words.${reassessHistory}${previousSection}`;
     let result;
     try {
       result = await sctx.dispatcher.dispatch({
@@ -112,7 +110,11 @@ ${sanitizedPreviousFindingsForPrompt(sctx.previousFindings)}`;
   if (sctx.fixing) {
     const historySection =
       executionContextPromptSection() + roundHistoryPromptSection(sctx.rounds) + userIntentPromptSection(intentCtx);
-    let fixPrompt = `Fix the lint issues in this repository. Run the linter, identify all issues, and fix them.
+    const previousSection =
+      sctx.previousFindings !== ""
+        ? `\n\nPrevious lint findings to address:\n${sanitizedPreviousFindingsForPrompt(sctx.previousFindings)}`
+        : "";
+    const fixPrompt = `Fix the lint issues in this repository. Run the linter, identify all issues, and fix them.
 
 Context:
 - branch: ${sctx.run.branch}
@@ -126,13 +128,7 @@ Rules:
 - Re-run the relevant lint or format commands before finishing.
 - Return JSON with a single "summary" field when you are done.
 - The summary must be one concise sentence fragment suitable for a git commit subject.
-- Keep the summary under 10 words.${historySection}`;
-    if (sctx.previousFindings !== "") {
-      fixPrompt += `
-
-Previous lint findings to address:
-${sanitizedPreviousFindingsForPrompt(sctx.previousFindings)}`;
-    }
+- Keep the summary under 10 words.${historySection}${previousSection}`;
     fixSummary = await executeFixMode(sctx, "lint", {
       logMessage: "asking agent to fix lint issues...",
       prompt: fixPrompt,

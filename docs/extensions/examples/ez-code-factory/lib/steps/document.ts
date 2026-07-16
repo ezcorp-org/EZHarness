@@ -184,7 +184,11 @@ function buildDocumentPrompt(
     ? "- Documentation edits must only touch documentation files or doc comments. Lint fixes must be safe, mechanical, and behavior-preserving. Never change functional behavior or tests."
     : "- Only edit documentation files or doc comments. Do not change executable behavior or tests.";
 
-  let prompt = `${intro} Analyze what the change made stale, fix each stale fact in its one authoritative location, and report only what you could not resolve.
+  const previousSection =
+    sctx.previousFindings !== ""
+      ? `\n\nPrevious findings to address:\n${sanitizedPreviousFindingsForPrompt(sctx.previousFindings)}`
+      : "";
+  return `${intro} Analyze what the change made stale, fix each stale fact in its one authoritative location, and report only what you could not resolve.
 
 Context:
 - branch: ${sctx.run.branch}
@@ -219,14 +223,7 @@ Task:
 Rules:
 ${editRule}
 - The summary must be one concise sentence fragment suitable for a git commit subject.
-- Keep the summary under 10 words.${historySection}`;
-  if (sctx.previousFindings !== "") {
-    prompt += `
-
-Previous findings to address:
-${sanitizedPreviousFindingsForPrompt(sctx.previousFindings)}`;
-  }
-  return prompt;
+- Keep the summary under 10 words.${historySection}${previousSection}`;
 }
 
 /**

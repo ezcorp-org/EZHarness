@@ -62,7 +62,11 @@ async function executeTest(sctx: StepContext): Promise<StepOutcome> {
   if (sctx.fixing) {
     const historySection =
       executionContextPromptSection() + roundHistoryPromptSection(sctx.rounds) + userIntentPromptSection(intentCtx);
-    let fixPrompt = `Fix the failing tests in this repository. Run the tests, identify failures, and fix either the tests or the code to make them pass.
+    const previousSection =
+      sctx.previousFindings !== ""
+        ? `\n\nPrevious test findings to address:\n${sanitizedPreviousFindingsForPrompt(sctx.previousFindings)}`
+        : "";
+    const fixPrompt = `Fix the failing tests in this repository. Run the tests, identify failures, and fix either the tests or the code to make them pass.
 
 Context:
 - branch: ${sctx.run.branch}
@@ -78,13 +82,7 @@ Rules:
 - Before finishing, remove any transient artifacts your testing created in the working tree (downloaded models, caches, build outputs, large binaries, or generated data directories) so they are not committed and pushed. Do not remove intentional source or test-file changes.
 - Return JSON with a single "summary" field when you are done.
 - The summary must be one concise sentence fragment suitable for a git commit subject.
-- Keep the summary under 10 words.${historySection}`;
-    if (sctx.previousFindings !== "") {
-      fixPrompt += `
-
-Previous test findings to address:
-${sanitizedPreviousFindingsForPrompt(sctx.previousFindings)}`;
-    }
+- Keep the summary under 10 words.${historySection}${previousSection}`;
     fixSummary = await executeFixMode(sctx, "test", {
       logMessage: "asking agent to fix test failures...",
       prompt: fixPrompt,
