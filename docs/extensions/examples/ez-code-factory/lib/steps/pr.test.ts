@@ -7,7 +7,15 @@ import { makeRunShared, type StepContext } from "./common";
 import type { ShellResult } from "../shell";
 import type { GhRunner } from "../github";
 import type { AgentDispatcher, DispatchResult } from "../agent";
-import type { StepWithRounds } from "../runs";
+import {
+  deserializeFindings,
+  emptyFindings,
+  serializeFindings,
+  type StepResultRecord,
+  type StepRoundRecord,
+  type StepStatus,
+  type StepWithRounds,
+} from "../runs";
 
 const ok = (stdout: string): ShellResult => ({ exitCode: 0, stdout, stderr: "" });
 const err = (): ShellResult => ({ exitCode: 1, stdout: "", stderr: "no" });
@@ -249,5 +257,75 @@ describe("prStep body assembly", () => {
     // Fallback title from empty commit log → branch "feat/x" → tightened.
     expect(body).toContain("## What Changed");
     expect(body).toContain("- ");
+  });
+});
+
+// ── pipeline-context prompt block (pr.go:140-168) ────────────────────
+
+/** A completed review StepWithRounds carrying one round finding, so the
+ *  deterministic Pipeline section (and its prompt context) is non-empty. */
+function reviewHistory(description: string): StepWithRounds {
+  const result: StepResultRecord = {
+    runId: "r1",
+    step: "review",
+    status: "completed" as StepStatus,
+    findings: emptyFindings(),
+    agentPid: null,
+    autoFixLimit: 3,
+    round: 0,
+    autoFixAttempts: 0,
+    executionMs: 0,
+    fixSummary: null,
+  };
+  const round: StepRoundRecord = {
+    runId: "r1",
+    step: "review",
+    round: 1,
+    trigger: "initial",
+    findingsJson: serializeFindings(deserializeFindings({ findings: [{ severity: "info", description, action: "no-op" }] })),
+    userFindingsJson: null,
+    selectedFindingIds: null,
+    selectionSource: null,
+    fixSummary: null,
+    durationMs: 0,
+  };
+  return { result, rounds: [round] };
+}
+
+describe("prStep pipeline-context prompt", () => {
+  const upstream = "https://github.com/o/n.git";
+
+  test("includes the pipeline-results block when pipeline history exists", async () => {
+    let prompt = "";
+    const { ctx } = makeCtx({
+      upstream,
+      gh: scriptGh({ list: ok("[]"), create: ok("https://github.com/o/n/pull/1") }),
+      history: [reviewHistory("a reviewer note")],
+      dispatch: (o) => {
+        prompt = (o as { prompt: string }).prompt;
+        return { output: { title: "feat: x", body: "## What Changed\n\n- y" }, text: "" };
+      },
+    });
+    await prStep.execute(ctx);
+    expect(prompt).toContain("Pipeline results (reference these naturally in the summary if relevant):");
+    expect(prompt).toContain("## Pipeline");
+    expect(prompt).toContain("a reviewer note");
+    // The block sits between the diff stat and the intent/execution sections.
+    expect(prompt.indexOf("Diff stat:")).toBeLessThan(prompt.indexOf("Pipeline results"));
+  });
+
+  test("omits the pipeline-results block when there is no pipeline history", async () => {
+    let prompt = "";
+    const { ctx } = makeCtx({
+      upstream,
+      gh: scriptGh({ list: ok("[]"), create: ok("https://github.com/o/n/pull/1") }),
+      history: [],
+      dispatch: (o) => {
+        prompt = (o as { prompt: string }).prompt;
+        return { output: { title: "feat: x", body: "## What Changed\n\n- y" }, text: "" };
+      },
+    });
+    await prStep.execute(ctx);
+    expect(prompt).not.toContain("Pipeline results (reference these naturally");
   });
 });

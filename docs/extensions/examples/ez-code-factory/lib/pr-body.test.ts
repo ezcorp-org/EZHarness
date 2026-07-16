@@ -458,4 +458,40 @@ describe("assemblePRBody ladder", () => {
     expect(byteLen(body)).toBeLessThanOrEqual(MAX_PR_BODY_BYTES);
     expect(body).toContain("body truncated");
   });
+
+  test("ladder ORDER: Testing is shed BEFORE any Pipeline detail", () => {
+    // Sized so BOTH shedding paths individually fit under the cap — the ONLY
+    // discriminator is which is tried first. Three large Pipeline rounds
+    // (~18KB each) + a ~15KB Testing section: the full body overruns, but
+    //   - dropping Testing (correct step 2) keeps all Pipeline rounds and fits;
+    //   - dropping the oldest Pipeline round while KEEPING Testing (a flipped
+    //     ladder) would also fit — but strip round-detail-0 and retain Testing.
+    // The assertions below hold only for the correct order, so a flipped
+    // priority fails this test.
+    const bigDesc = "d".repeat(18_000);
+    const reviewRounds: StepRoundRecord[] = [];
+    for (let i = 0; i < 3; i++) {
+      reviewRounds.push(
+        roundWith("review", [{ severity: "warning", description: `round-detail-${i}-${bigDesc}`, action: "auto-fix" }], {
+          round: i + 1,
+          trigger: i === 0 ? "initial" : "auto_fix",
+        }),
+      );
+    }
+    const testingSummary = "T".repeat(15_000);
+    const body = assemblePRBody({
+      cleanedIntent: "",
+      whatChanged: "## What Changed\n\n- small",
+      steps: [
+        { result: stepResult("review", "completed"), rounds: reviewRounds },
+        { result: stepResult("test", "completed", findings({ testingSummary, tested: ["t"] })), rounds: [] },
+      ],
+    });
+    expect(byteLen(body)).toBeLessThanOrEqual(MAX_PR_BODY_BYTES);
+    expect(body).toContain("## Pipeline");
+    expect(body).toContain("round-detail-0"); // oldest Pipeline round retained
+    expect(body).toContain("round-detail-2"); // newest Pipeline round retained
+    expect(body).not.toContain("## Testing"); // Testing was shed
+    expect(body).not.toContain("earlier update"); // no Pipeline rounds were dropped
+  });
 });

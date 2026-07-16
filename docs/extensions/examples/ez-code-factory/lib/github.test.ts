@@ -168,7 +168,7 @@ describe("GitHubHost.findPR", () => {
 describe("GitHubHost.createPR / updatePR", () => {
   test("create returns url + number, feeds body on stdin", async () => {
     let stdin = "";
-    const gh = (async (args: string[], opts?: { stdin?: string }) => {
+    const gh = (async (_args: string[], opts?: { stdin?: string }) => {
       stdin = opts?.stdin ?? "";
       return ok("https://github.com/o/n/pull/3");
     }) as GhRunner;

@@ -69,6 +69,27 @@ export interface CiStepOptions {
   pollIntervalMs?: number;
 }
 
+/** The unresolved tip a bounded/failed resolve falls back to (never re-arms). */
+const UNRESOLVED_TIP: BaseBranchTip = { sha: "", resolved: false };
+
+/**
+ * Resolve the base-branch tip but ABANDON the wait after `windowMs`, so a hung
+ * `git fetch` cannot stall the whole CI monitor. Faithful to upstream's
+ * per-resolve `context.WithTimeout` (ci.go:191-198): on the bound the tip is
+ * treated as unresolved (no re-arm) and the loop proceeds — the idle timeout
+ * still fires normally. Uses the injected sleep seam so tests advance the fake
+ * clock rather than waiting on wall time (spec §11 determinism). In production
+ * the losing `sctx.sleep` timer is a bounded self-clearing no-op (the window is
+ * ≤ a poll interval), so at most one is ever outstanding.
+ */
+async function boundedTipResolve(
+  sctx: StepContext,
+  resolver: (s: StepContext) => Promise<BaseBranchTip>,
+  windowMs: number,
+): Promise<BaseBranchTip> {
+  return Promise.race([resolver(sctx), sctx.sleep(windowMs).then(() => UNRESOLVED_TIP)]);
+}
+
 /** The default base-branch-tip resolver: fetch origin/<default> and rev-parse. */
 async function defaultBaseBranchTip(sctx: StepContext, defaultBranch: string): Promise<BaseBranchTip> {
   const fetched = await sctx.hostGit.fetchRemoteBranch("origin", defaultBranch);
@@ -198,9 +219,14 @@ async function pollLoop(sctx: StepContext, host: GitHubHost, pr: PR, deps: PollD
   for (;;) {
     if (!unlimited && sctx.now() - st.timeoutAnchor >= timeout) return timeoutOutcome();
 
-    // Re-arm the idle timeout whenever the base branch advances.
+    // Re-arm the idle timeout whenever the base branch advances. The tip
+    // resolution is bounded to BASE_BRANCH_TIP_RESOLVE_MS, clamped to the
+    // remaining idle timeout (the top-of-loop check guarantees remaining > 0
+    // here), so a slow/hung fetch never blocks the loop past that window.
     if (!unlimited) {
-      const tip = await deps.tipResolver(sctx);
+      const remaining = timeout - (sctx.now() - st.timeoutAnchor);
+      const resolveWindow = Math.min(BASE_BRANCH_TIP_RESOLVE_MS, remaining);
+      const tip = await boundedTipResolve(sctx, deps.tipResolver, resolveWindow);
       if (tip.resolved && tip.sha !== "") {
         if (st.lastBaseTip === "") {
           st.lastBaseTip = tip.sha;
@@ -216,7 +242,14 @@ async function pollLoop(sctx: StepContext, host: GitHubHost, pr: PR, deps: PollD
     const terminal = await pollOnce(sctx, host, pr, deps, st, elapsed);
     if (terminal !== null) return terminal;
 
-    const interval = deps.pollIntervalMs ?? pollInterval(sctx.now() - started);
+    let interval = deps.pollIntervalMs ?? pollInterval(sctx.now() - started);
+    if (!unlimited) {
+      // Clamp the poll wait to the remaining budget so the idle timeout can't
+      // overshoot by a full poll interval (ci.go:384-389). `remaining` is ≥ 0
+      // here — the per-poll re-arm window was itself clamped to it.
+      const remaining = timeout - (sctx.now() - st.timeoutAnchor);
+      if (remaining < interval) interval = remaining;
+    }
     await sctx.sleep(interval);
   }
 }

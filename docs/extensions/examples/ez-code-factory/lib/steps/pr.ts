@@ -16,11 +16,11 @@ import {
   extractHost,
   makeGitHubHost,
   repoSlug,
-  type GitHubHost,
   type PRContent,
 } from "../github";
 import {
   assemblePRBody,
+  buildPipelineSection,
   fallbackTitle,
   stripGeneratedSections,
   unwrapNestedPRBody,
@@ -136,6 +136,10 @@ async function buildPRContent(
   const diffStat = await diffStatText(sctx, baseSHA);
   const cleanedIntent = cleanedUserIntent(sctx.run.intent);
   const intentCtx = { intent: sctx.run.intent, authoritative: intentIsAuthoritative(sctx.run) };
+  // The same deterministic Pipeline markdown the assembled body appends, fed
+  // back to the agent so its "## What Changed" can reference pipeline findings
+  // (upstream pr.go:140-168). Built from the same step history.
+  const pipelineMD = buildPipelineSection(steps);
 
   const prompt = buildPRPrompt({
     branch,
@@ -144,6 +148,7 @@ async function buildPRContent(
     defaultBranch,
     commitLog,
     diffStat,
+    pipelineMD,
     intentCtx,
   });
 
@@ -194,14 +199,20 @@ interface PRPromptInput {
   defaultBranch: string;
   commitLog: string;
   diffStat: string;
+  /** The deterministic `## Pipeline` markdown ("" when no pipeline history) —
+   *  surfaced to the agent as reference context for `## What Changed`. */
+  pipelineMD: string;
   intentCtx: { intent: string | null; authoritative: boolean };
 }
 
 /** The verbatim PR-content prompt (pr.go buildPRContent), built as a single
  *  template so its prose lines never split into phantom coverage rows. */
 function buildPRPrompt(input: PRPromptInput): string {
-  const { branch, baseSHA, targetSHA, defaultBranch, commitLog, diffStat, intentCtx } = input;
+  const { branch, baseSHA, targetSHA, defaultBranch, commitLog, diffStat, pipelineMD, intentCtx } = input;
   const budgetNote = `\n\n- This repository's host caps the entire PR description at ${MAX_PR_BODY_BYTES} bytes. The Intent, Risk Assessment, and Pipeline sections are appended automatically; a Testing section is included when budget allows. Keep the "## What Changed" section to a few short bullet points.`;
+  // Verbatim pr.go pipelineContext: only present when pipeline history exists.
+  const pipelineContext =
+    pipelineMD !== "" ? `\nPipeline results (reference these naturally in the summary if relevant):\n${pipelineMD}` : "";
   return `Draft a pull request title and summary for the full branch delta.
 
 Context:
@@ -223,5 +234,5 @@ Commit history:
 ${commitLog}
 
 Diff stat:
-${diffStat}${userIntentPromptSection(intentCtx)}${executionContextPromptSection()}${budgetNote}`;
+${diffStat}${pipelineContext}${userIntentPromptSection(intentCtx)}${executionContextPromptSection()}${budgetNote}`;
 }

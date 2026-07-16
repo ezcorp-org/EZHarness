@@ -261,6 +261,42 @@ describe("ci idle-timeout re-arm on base-branch advance", () => {
     await makeCiStep({ baseBranchTip, pollIntervalMs: 1000, gracePeriodMs: 0 }).execute(ctx);
     expect(logs.join()).toContain("re-arming CI monitor timeout");
   });
+
+  test("re-arm keeps monitoring past the ORIGINAL timeout (anchor reset takes effect)", async () => {
+    // The base branch advances every poll, and each per-poll tip resolution
+    // consumes up to the bounded resolve window — so absolute elapsed passes the
+    // 50s idle timeout by poll 3. Only the `timeoutAnchor = now()` reset keeps
+    // the monitor alive to see the MERGE; drop that reset and the loop times out
+    // on poll 3 BEFORE consuming the MERGED state (this test then fails on the
+    // `.toEqual({})` and the "CI timeout reached" guard).
+    const tips: BaseBranchTip[] = [
+      { sha: "sha-old", resolved: true },
+      { sha: "sha-new", resolved: true }, // advanced → re-arm
+      { sha: "sha-newer", resolved: true }, // advanced again → re-arm
+    ];
+    let i = 0;
+    const baseBranchTip = async (): Promise<BaseBranchTip> => tips[Math.min(i++, tips.length - 1)]!;
+    const { ctx, logs } = makeCtx({ gh: fakeGh({ states: ["OPEN", "OPEN", "MERGED"] }), ciTimeoutMs: 50_000 });
+    const outcome = await makeCiStep({ baseBranchTip, pollIntervalMs: 1000, gracePeriodMs: 0 }).execute(ctx);
+    expect(outcome).toEqual({}); // completed on MERGE, not a timeout park
+    expect(logs.join()).toContain("re-arming CI monitor timeout");
+    expect(logs.join()).not.toContain("CI timeout reached");
+  });
+});
+
+// ── base-tip fetch bound ─────────────────────────────────────────────
+
+describe("ci base-tip fetch bound", () => {
+  test("a hung base-tip fetch is bounded and does not stall the monitor", async () => {
+    // The resolver never settles (a hung `git fetch`). The bound abandons the
+    // wait each poll so the idle timeout still fires; without the bound the loop
+    // would await this forever and the test would hang.
+    const hung = (): Promise<BaseBranchTip> => new Promise<BaseBranchTip>(() => {});
+    const { ctx, logs } = makeCtx({ gh: fakeGh({ states: ["OPEN"], checks: [[]] }), ciTimeoutMs: 5000 });
+    const outcome = await makeCiStep({ baseBranchTip: hung, pollIntervalMs: 1000, gracePeriodMs: 0 }).execute(ctx);
+    expect(outcome.needsApproval).toBe(true);
+    expect(logs.join()).toContain("CI timeout reached");
+  });
 });
 
 // ── auto-fix decision branches (no git changes) ──────────────────────
