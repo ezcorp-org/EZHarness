@@ -727,8 +727,7 @@ export async function cli(args: string[]): Promise<void> {
     case "ext:test": {
       const { runExtensionTests } = await import("./extensions/sdk/test-runner");
       const code = await runExtensionTests({ extDir: parsed.extDir, filter: parsed.filter });
-      process.exit(code);
-      break;
+      return process.exit(code);
     }
 
     case "ext:verify": {
@@ -749,8 +748,7 @@ export async function cli(args: string[]): Promise<void> {
         }
         console.log(result.pass ? "\nVERIFY: PASS" : "\nVERIFY: FAIL");
       }
-      process.exit(result.pass ? 0 : 1);
-      break;
+      return process.exit(result.pass ? 0 : 1);
     }
 
     case "key:mint": {
