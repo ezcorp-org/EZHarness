@@ -92,6 +92,47 @@ function firstSection(nodes: unknown[]): Node {
   return (nodes as Node[]).find((n) => n.type === "section")!;
 }
 
+/** Every node in the tree, fully recursing into nested section children (the
+ *  one-level `flatNodes` above is not enough for the XSS walk below). */
+function allNodes(nodes: unknown[]): Node[] {
+  const out: Node[] = [];
+  for (const raw of nodes) {
+    const n = raw as Node;
+    out.push(n);
+    if (n.type === "section" && Array.isArray(n.nodes)) out.push(...allNodes(n.nodes as unknown[]));
+  }
+  return out;
+}
+
+/** Every raw string reachable inside a node, EXCLUDING its `nodes` child array
+ *  (section children are visited independently by `allNodes`). Concatenates the
+ *  verbatim values — not JSON — so quote/`<>`-escaping can never mask a match. */
+function ownContent(n: Node): string {
+  const collect = (v: unknown): string => {
+    if (typeof v === "string") return `${v} `;
+    if (Array.isArray(v)) return v.map(collect).join("");
+    if (v && typeof v === "object") return Object.values(v).map(collect).join("");
+    return "";
+  };
+  const shallow: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(n)) if (k !== "nodes") shallow[k] = v;
+  return collect(shallow);
+}
+
+/** Page node types whose author strings the host validator `<>`-strips +
+ *  truncates (`page-schema.ts`). The ONLY page node rendered through `{@html}`
+ *  (DOMPurify, NOT `<>`-stripped — `validateMarkdown`) is `markdown`, so a
+ *  user/agent-derived string must never land in a `markdown` node. */
+const ESCAPED_PAGE_TYPES = new Set([
+  "section",
+  "heading",
+  "stats",
+  "table",
+  "button",
+  "link",
+  "empty-state",
+]);
+
 describe("shortSha", () => {
   test("takes the first 8 chars", () => {
     expect(shortSha("abcdef0123456789")).toBe("abcdef01");
@@ -319,6 +360,15 @@ describe("buildRunDetail (parked gate)", () => {
     expect(inside.some((n) => n.type === "table" && (n.columns as string[])[0] === "Severity")).toBe(false);
     // No risk line + no log panel when the findings are empty.
     expect(inside.some((n) => n.type === "table" && (n.columns as string[])[0] === "Field")).toBe(false);
+    // appendRiskLine early-returns on empty findings → no Risk stats line at all
+    // (the Status/Head/Intent stats row remains, so match the Risk label itself).
+    expect(
+      inside.some(
+        (n) =>
+          n.type === "stats" &&
+          (n.items as Array<{ label: string }>).some((i) => i.label === "Risk"),
+      ),
+    ).toBe(false);
   });
 
   test("no explicit intent → the intent stat reads 'none' with no hint", () => {
@@ -333,6 +383,69 @@ describe("buildRunDetail (parked gate)", () => {
     const intent = statusStats.items.find((i) => i.label === "Intent")!;
     expect(intent.value).toBe("none");
     expect(intent.hint).toBeUndefined();
+  });
+});
+
+// ── XSS safety — user/agent strings never reach the {@html} sink ─────
+
+describe("XSS safety — user/agent strings never reach the markdown ({@html}) sink", () => {
+  // A payload that would execute if it ever rendered through the Hub's sole
+  // {@html} node type (`markdown`). A unique sentinel keeps the substring
+  // search unambiguous against the trees' static help/label text.
+  const XSS = `<img src=x onerror="alert('ezcf_xss_probe')">`;
+
+  /** A parked review run whose EVERY user/agent-derived field carries the
+   *  payload: the run branch (section title) + intent (intent stat hint), the
+   *  finding's file + description (findings-table cells), the step summary (log
+   *  panel cell), and the risk rationale (risk stats hint). */
+  const xssDetail: RunDetail = {
+    run: run({ id: "run-xss", branch: `feat/${XSS}`, status: "awaiting_approval", intent: XSS }),
+    steps: [
+      stepResult({
+        step: "review",
+        status: "awaiting_approval",
+        findings: withFindings([finding({ id: "f1", file: XSS, description: XSS })], {
+          summary: XSS,
+          riskLevel: "high",
+          riskRationale: XSS,
+        }),
+      }),
+    ],
+  };
+
+  /** Every node in the tree whose OWN content carries the payload. */
+  function carriers(nodes: unknown[]): Node[] {
+    return allNodes(nodes).filter((n) => ownContent(n).includes(XSS));
+  }
+
+  test("buildRunDetail routes branch/intent/file/description/summary/riskRationale only into escaped nodes", () => {
+    const hit = carriers(buildRunDetail(xssDetail).nodes);
+    // Guard against a vacuous pass: the payload MUST actually be present, else
+    // the "only in escaped nodes" claim is trivially (and misleadingly) true.
+    expect(hit.length).toBeGreaterThan(0);
+    // The load-bearing invariant: NO {@html} markdown node carries the payload.
+    // This flips to FAIL the instant a builder routes any of these fields
+    // through `page.markdownBlock(...)` (e.g. `appendLogPanel` rendering the
+    // summary, or `appendRiskLine` the rationale, as markdown).
+    expect(hit.some((n) => n.type === "markdown")).toBe(false);
+    // Every carrier is a host-`<>`-stripped page node type — a defence-in-depth
+    // restatement of the same invariant that also catches a brand-new sink type.
+    for (const n of hit) expect(ESCAPED_PAGE_TYPES.has(n.type as string)).toBe(true);
+  });
+
+  test("buildDashboard inlines the same detail; its only markdown node (static help) stays payload-free", () => {
+    const tree = buildDashboard([xssDetail.run], [xssDetail]);
+    const hit = carriers(tree.nodes);
+    expect(hit.length).toBeGreaterThan(0);
+    // Same invariant on the inlined-triage path: payload never in a markdown sink.
+    expect(hit.some((n) => n.type === "markdown")).toBe(false);
+    for (const n of hit) expect(ESCAPED_PAGE_TYPES.has(n.type as string)).toBe(true);
+    // The dashboard DOES emit a markdown help block, so markdown nodes exist in
+    // this tree — prove none of them carries the payload (the negative above is
+    // real, not passing merely because the tree happens to lack markdown nodes).
+    const md = allNodes(tree.nodes).filter((n) => n.type === "markdown");
+    expect(md.length).toBeGreaterThan(0);
+    expect(md.every((n) => !ownContent(n).includes(XSS))).toBe(true);
   });
 });
 

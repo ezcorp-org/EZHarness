@@ -558,6 +558,76 @@ describe("handleRespond", () => {
   });
 });
 
+describe("handleRespond — oversized payloads stay rejected after normalization", () => {
+  // The Hub emits a FLAT scalar respond; `normalizeRespondPayload` folds it into
+  // M1's canonical findingIds[]/instructions{} shape BEFORE `parseRespondPayload`
+  // applies its size caps. These lock that the caps STILL bite across that
+  // compose — a defence-in-depth guard on the normalize→parse seam, not just on
+  // parseRespondPayload in isolation (already covered in runs.test.ts).
+  async function driveRejected(
+    store: RunStore & { runs: Map<string, RunRecord> },
+    payload: Record<string, unknown>,
+  ): Promise<{ runnerCalls: number; removed: string[]; stderr: string }> {
+    _setProjectRootForTests(() => "/proj");
+    const removed: string[] = [];
+    _setShellForTests(async (cmd) => {
+      if (cmd.includes("worktree") && cmd.includes("remove")) removed.push(cmd.join(" "));
+      return { exitCode: 0, stdout: "", stderr: "" };
+    });
+    _setStoreForTests(store);
+    let runnerCalls = 0;
+    // Had parse WRONGLY accepted the payload, this runner would fire + tear the
+    // kept worktree down — so any call / removal proves a cap regression.
+    _setRespondRunnerForTests(() => async ({ runId }) => {
+      runnerCalls++;
+      await store.updateRun(runId, { status: "completed" });
+      return { parked: false };
+    });
+    const cap = captureStderr();
+    try {
+      await handleRespond({ source: "hub", pageId: "dashboard", userId: "u", payload });
+    } finally {
+      cap.restore();
+    }
+    return { runnerCalls, removed, stderr: cap.text() };
+  }
+
+  test("an instruction over MAX_INSTRUCTION_LEN (folded from the scalar field) is rejected side-effect-free", async () => {
+    const store = memStore();
+    await seedParkedRun(store); // parked at review, worktree kept
+    // A scalar findingId + an over-cap instruction → normalize keys it under
+    // instructions.f1 → parseRespondPayload rejects (v.length > 4000).
+    const { runnerCalls, removed, stderr } = await driveRejected(store, {
+      runId: "run-parked",
+      step: "review",
+      action: "fix",
+      findingId: "f1",
+      instruction: "x".repeat(4001),
+    });
+    expect(stderr).toContain("invalid payload");
+    expect(runnerCalls).toBe(0);
+    expect(removed.length).toBe(0);
+    const run = (await store.getRun("run-parked"))!;
+    expect(run.status).toBe("awaiting_approval");
+    expect(run.worktreePath).not.toBeNull();
+  });
+
+  test("a findingIds array over MAX_FINDING_IDS (200) is rejected side-effect-free", async () => {
+    const store = memStore();
+    await seedParkedRun(store);
+    const { runnerCalls, removed, stderr } = await driveRejected(store, {
+      runId: "run-parked",
+      step: "review",
+      action: "fix",
+      findingIds: Array.from({ length: 201 }, (_, i) => `f${i}`),
+    });
+    expect(stderr).toContain("invalid payload");
+    expect(runnerCalls).toBe(0);
+    expect(removed.length).toBe(0);
+    expect((await store.getRun("run-parked"))!.status).toBe("awaiting_approval");
+  });
+});
+
 describe("production pipeline wiring (default runners)", () => {
   test("default runPipeline drives the real executor (rebase empty-diff → completed)", async () => {
     _setProjectRootForTests(() => "/proj");
@@ -762,6 +832,39 @@ describe("settings live-read", () => {
     } finally {
       __resetChannelForTests();
     }
+  });
+
+  test("a NON-default settings value flows through resolveLiveConfig into the pipeline", async () => {
+    // `autofixCap` is the flat settings knob for rebase/test/document/lint/ci
+    // (default 3). A mutation making resolveLiveConfig ignore the stub (always
+    // `resolvePipelineConfig({})`) drops the read (fails (a)) and/or leaves the
+    // recorded cap at 3 (fails (b)) — so this locks the live read, not just that
+    // the run completed.
+    const NON_DEFAULT_CAP = 7;
+    let getMineCalls = 0;
+    _setSettingsReadForTests(async () => {
+      getMineCalls++;
+      return { autofixCap: NON_DEFAULT_CAP };
+    });
+    _setProjectRootForTests(() => "/proj");
+    _setTmpBaseForTests(() => "/tmp/ext");
+    _setShellForTests(okShell); // host no-ops → real executor runs to completion
+    const store = memStore();
+    _setStoreForTests(store);
+    _setPushPageForTests(() => {});
+    // No _setRunPipelineForTests → the DEFAULT defaultRunPipeline runs, and it is
+    // the one that calls resolveLiveConfig() → resolvePipelineConfig(stub).
+    await handlePushReceived({ source: "hub", pageId: "dashboard", userId: "u", payload: VALID_PUSH });
+
+    // (a) the live settings read actually ran.
+    expect(getMineCalls).toBeGreaterThan(0);
+    // (b) the resolved non-default cap reached the executor: each step's result
+    // is stamped with autoFixLimit(config, step) on creation. `test` is one of
+    // the flat-cap steps, so its recorded cap is the stub's 7, never the default 3.
+    const runId = [...store.runs.values()][0]!.id;
+    const testStep = await store.getStepResult(runId, "test");
+    expect(testStep).not.toBeNull();
+    expect(testStep!.autoFixLimit).toBe(NON_DEFAULT_CAP);
   });
 });
 
