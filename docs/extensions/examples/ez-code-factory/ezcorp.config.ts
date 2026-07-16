@@ -123,12 +123,16 @@ export default defineExtension({
     // path). Per-run worktrees live under the host-provided per-extension
     // TMPDIR (granted separately by the host), never under the project root.
     filesystem: ["$CWD"],
-    // Two Hub actions via the generic extension-events route: `push-received`
-    // (the post-receive hook's trigger) and `respond` (the approve/fix/skip/
-    // abort gate action; the UI lands M2 but the semantics work now). Declaring
-    // each event both wires the page action and lets the events route accept
-    // its POST (the route 404s undeclared events).
-    eventSubscriptions: ["ez-code-factory:push-received", "ez-code-factory:respond"],
+    // Hub actions via the generic extension-events route: `push-received` (the
+    // post-receive hook's trigger), `respond` (the approve/fix/skip/abort gate
+    // action), and `yolo` (M2 — auto-approve every remaining gate of a run in
+    // one click). Declaring each event both wires the page action and lets the
+    // events route accept its POST (the route 404s undeclared events).
+    eventSubscriptions: [
+      "ez-code-factory:push-received",
+      "ez-code-factory:respond",
+      "ez-code-factory:yolo",
+    ],
   },
 
   resources: {

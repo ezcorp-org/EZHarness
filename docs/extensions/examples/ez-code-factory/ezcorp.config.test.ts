@@ -29,10 +29,11 @@ describe("ez-code-factory manifest", () => {
     expect("network" in perms).toBe(false);
   });
 
-  test("subscribes to the push-received + respond gate events", () => {
+  test("subscribes to the push-received + respond + yolo gate events", () => {
     expect(manifest.permissions?.eventSubscriptions).toEqual([
       "ez-code-factory:push-received",
       "ez-code-factory:respond",
+      "ez-code-factory:yolo",
     ]);
   });
 

@@ -26,11 +26,14 @@ import {
   _setBaseUrlForTests,
   _setRunPipelineForTests,
   _setRespondRunnerForTests,
+  _setSettingsReadForTests,
+  handleYolo,
+  YOLO_ACTION,
 } from "./index";
 import { gateDir as gateDirFor, GATE_REMOTE } from "./lib/gate";
 import { productionHostRunner, type ShellRunner } from "./lib/shell";
 import { emptyFindings } from "./lib/runs";
-import type { RunRecord, RunStore, StepResultRecord, StepRoundRecord } from "./lib/runs";
+import type { ParsedRespond, RunRecord, RunStore, StepResultRecord, StepRoundRecord } from "./lib/runs";
 
 // ── in-memory store + fakes ─────────────────────────────────────────
 
@@ -89,6 +92,15 @@ const VALID_PUSH = {
   newSha: "abcdef1234567890abcdef1234567890abcdef12",
 };
 
+// Stub the live settings read for EVERY test: the production default calls
+// `invoke("runtime.settings.getMine")`, which hangs against the stub channel
+// (no host answers). `{}` → resolvePipelineConfig defaults — the same config
+// the pipeline used before the M2 live-read seam. Tests that assert settings
+// resolution override this locally.
+beforeEach(() => {
+  _setSettingsReadForTests(async () => ({}));
+});
+
 afterEach(() => {
   _setProjectRootForTests(null);
   _setShellForTests(null);
@@ -98,6 +110,7 @@ afterEach(() => {
   _setBaseUrlForTests(null);
   _setRunPipelineForTests(null);
   _setRespondRunnerForTests(null);
+  _setSettingsReadForTests(null);
 });
 
 /** A fake pipeline runner that drives the run to a chosen terminal/parked state
@@ -111,6 +124,16 @@ function fakePipeline(store: RunStore, outcome: "completed" | "failed" | "parked
     });
     return { parked: outcome === "parked" };
   };
+}
+
+/** Spy on process.stderr.write, collecting written text; `.restore()` unmocks. */
+function captureStderr(): { text: () => string; restore: () => void } {
+  const lines: string[] = [];
+  const spy = spyOn(process.stderr, "write").mockImplementation(((s: string | Uint8Array) => {
+    lines.push(String(s));
+    return true;
+  }) as typeof process.stderr.write);
+  return { text: () => lines.join(""), restore: () => spy.mockRestore() };
 }
 
 // ── init_gate tool ──────────────────────────────────────────────────
@@ -501,6 +524,38 @@ describe("handleRespond", () => {
       spy.mockRestore();
     }
   });
+
+  test("normalizes a per-finding fix (scalar findingId/instruction → canonical findingIds/instructions)", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setShellForTests(okShell);
+    const store = memStore();
+    _setStoreForTests(store);
+    await seedParkedRun(store);
+    let captured: ParsedRespond | null = null;
+    // The respond-runner factory receives the PARSED respond — capture it to
+    // prove normalizeRespondPayload folded the flat scalar shape the Hub emits
+    // into M1's canonical findingIds[]/instructions{} before parseRespondPayload.
+    _setRespondRunnerForTests((_pr, _gd, respond) => {
+      captured = respond;
+      return async ({ runId }) => {
+        await store.updateRun(runId, { status: "completed" });
+        return { parked: false };
+      };
+    });
+    await handleRespond({
+      source: "hub",
+      pageId: "dashboard",
+      userId: "u",
+      payload: { runId: "run-parked", step: "review", action: "fix", findingId: "f1", instruction: "prefer a guard" },
+    });
+    expect(captured).toMatchObject({
+      runId: "run-parked",
+      step: "review",
+      action: "fix",
+      findingIds: ["f1"],
+      instructions: { f1: "prefer a guard" },
+    });
+  });
 });
 
 describe("production pipeline wiring (default runners)", () => {
@@ -634,6 +689,7 @@ describe("register / start", () => {
       expect(methods.has("ezcorp/page.render")).toBe(true);
       expect(methods.has(`ezcorp/event/${PUSH_RECEIVED_ACTION}`)).toBe(true);
       expect(methods.has(`ezcorp/event/${RESPOND_ACTION}`)).toBe(true);
+      expect(methods.has(`ezcorp/event/${YOLO_ACTION}`)).toBe(true);
       expect(methods.has("tools/call")).toBe(true);
       expect(Object.keys(tools)).toEqual(["init_gate"]);
     } finally {
@@ -653,6 +709,290 @@ describe("register / start", () => {
       expect(started).toBe(1);
     } finally {
       spy.mockRestore();
+    }
+  });
+});
+
+// ── settings live-read (M2) ─────────────────────────────────────────
+
+describe("settings live-read", () => {
+  test("default read resolves via runtime.settings.getMine and drives the pipeline", async () => {
+    _setSettingsReadForTests(null); // restore the production invoke-based read
+    __resetChannelForTests();
+    const ch = getChannel() as HostChannel;
+    // invoke("runtime.settings.getMine") → ch.request("ezcorp/invoke", …).
+    // Resolve it so the try branch of defaultSettingsRead runs; other store
+    // reads also route through request and get an empty result.
+    spyOn(ch, "request").mockImplementation((async (method: string) => {
+      if (method === "ezcorp/invoke") return { defaultBranch: "main" };
+      return { value: null, exists: false };
+    }) as HostChannel["request"]);
+    _setProjectRootForTests(() => "/proj");
+    _setTmpBaseForTests(() => "/tmp/ext");
+    _setShellForTests(okShell);
+    const store = memStore();
+    _setStoreForTests(store);
+    _setPushPageForTests(() => {});
+    try {
+      await handlePushReceived({ source: "hub", pageId: "dashboard", userId: "u", payload: VALID_PUSH });
+      expect([...store.runs.values()][0]!.status).toBe("completed");
+    } finally {
+      __resetChannelForTests();
+    }
+  });
+
+  test("a failing settings RPC falls back to defaults (never fails the pipeline)", async () => {
+    _setSettingsReadForTests(null); // restore the production invoke-based read
+    __resetChannelForTests();
+    const ch = getChannel() as HostChannel;
+    spyOn(ch, "request").mockImplementation((async (method: string) => {
+      if (method === "ezcorp/invoke") throw new Error("no host session");
+      return { value: null, exists: false };
+    }) as HostChannel["request"]);
+    _setProjectRootForTests(() => "/proj");
+    _setTmpBaseForTests(() => "/tmp/ext");
+    _setShellForTests(okShell);
+    const store = memStore();
+    _setStoreForTests(store);
+    _setPushPageForTests(() => {});
+    try {
+      await handlePushReceived({ source: "hub", pageId: "dashboard", userId: "u", payload: VALID_PUSH });
+      // Defaults applied → the pipeline still runs to completion.
+      expect([...store.runs.values()][0]!.status).toBe("completed");
+    } finally {
+      __resetChannelForTests();
+    }
+  });
+});
+
+// ── parked-run detail on the dashboard ──────────────────────────────
+
+describe("renderDashboard — parked-run triage detail", () => {
+  test("inlines a triage section for a parked run and skips non-parked runs", async () => {
+    const store = memStore();
+    _setStoreForTests(store);
+    await seedParkedRun(store); // parked at review (worktree kept)
+    // A completed run must NOT get a detail section.
+    await store.createRun({
+      id: "run-done",
+      repoId: "0123456789ab",
+      branch: "feat/done",
+      ref: "refs/heads/feat/done",
+      headSha: "abcdef0123456789",
+      baseSha: "0".repeat(40),
+      status: "completed",
+      worktreePath: null,
+      createdAt: "t",
+      updatedAt: "t",
+      parkedMs: 0,
+      awaitingAgentSince: null,
+      intent: null,
+      intentSource: null,
+    });
+    const tree = await renderDashboard();
+    const sections = (tree.nodes as Array<Record<string, unknown>>).filter((n) => n.type === "section");
+    expect(sections).toHaveLength(1);
+    expect(sections[0]!.title).toContain("run-parked");
+  });
+});
+
+// ── yolo autopilot (M2) ─────────────────────────────────────────────
+
+describe("handleYolo", () => {
+  test("ignores yolo with no active project", async () => {
+    _setProjectRootForTests(() => undefined);
+    _setStoreForTests(memStore());
+    const stderr = captureStderr();
+    try {
+      await handleYolo({ source: "hub", pageId: "dashboard", userId: "u", payload: { runId: "r1" } });
+      expect(stderr.text()).toContain("no EZCORP_PROJECT_ROOT");
+    } finally {
+      stderr.restore();
+    }
+  });
+
+  test("ignores an invalid yolo payload", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setStoreForTests(memStore());
+    const stderr = captureStderr();
+    try {
+      await handleYolo({ source: "hub", pageId: "dashboard", userId: "u", payload: { runId: 5 } });
+      expect(stderr.text()).toContain("invalid payload");
+    } finally {
+      stderr.restore();
+    }
+  });
+
+  test("auto-approves every remaining gate until the run completes", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setShellForTests(okShell);
+    const store = memStore();
+    _setStoreForTests(store);
+    await seedParkedRun(store); // parked at review
+    let approvals = 0;
+    // First approve → re-park at `test`; second approve → complete.
+    _setRespondRunnerForTests((_pr, _gd, respond) => async ({ runId }) => {
+      approvals++;
+      expect(respond!.action).toBe("approve");
+      if (approvals === 1) {
+        expect(respond!.step).toBe("review");
+        await store.putStepResult({ ...(await store.getStepResult(runId, "review"))!, status: "completed" });
+        await store.putStepResult({
+          runId,
+          step: "test",
+          status: "awaiting_approval",
+          findings: emptyFindings(),
+          agentPid: null,
+          autoFixLimit: 3,
+          round: 1,
+          autoFixAttempts: 0,
+          executionMs: 0,
+          fixSummary: null,
+        });
+        await store.updateRun(runId, { status: "awaiting_approval" });
+        return { parked: true };
+      }
+      expect(respond!.step).toBe("test");
+      await store.updateRun(runId, { status: "completed" });
+      return { parked: false };
+    });
+    await handleYolo({ source: "hub", pageId: "dashboard", userId: "u", payload: { runId: "run-parked", step: "review" } });
+    expect(approvals).toBe(2);
+    expect((await store.getRun("run-parked"))!.status).toBe("completed");
+  });
+
+  test("approves a fix_review-parked step too", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setShellForTests(okShell);
+    const store = memStore();
+    _setStoreForTests(store);
+    await seedParkedRun(store);
+    // Re-mark the review step as fix_review (a user-fix round parked again).
+    await store.putStepResult({ ...(await store.getStepResult("run-parked", "review"))!, status: "fix_review" });
+    let seenStep: string | null = null;
+    _setRespondRunnerForTests((_pr, _gd, respond) => async ({ runId }) => {
+      seenStep = respond!.step;
+      await store.updateRun(runId, { status: "completed" });
+      return { parked: false };
+    });
+    await handleYolo({ source: "hub", pageId: "dashboard", userId: "u", payload: { runId: "run-parked" } });
+    expect(seenStep).toBe("review");
+    expect((await store.getRun("run-parked"))!.status).toBe("completed");
+  });
+
+  test("no-ops when the run is not parked", async () => {
+    _setProjectRootForTests(() => "/proj");
+    const store = memStore();
+    _setStoreForTests(store);
+    await store.createRun({
+      id: "run-done",
+      repoId: "0123456789ab",
+      branch: "feat/x",
+      ref: "refs/heads/feat/x",
+      headSha: "abc",
+      baseSha: "0".repeat(40),
+      status: "completed",
+      worktreePath: null,
+      createdAt: "t",
+      updatedAt: "t",
+      parkedMs: 0,
+      awaitingAgentSince: null,
+      intent: null,
+      intentSource: null,
+    });
+    let calls = 0;
+    _setRespondRunnerForTests(() => async () => {
+      calls++;
+      return { parked: false };
+    });
+    await handleYolo({ source: "hub", pageId: "dashboard", userId: "u", payload: { runId: "run-done" } });
+    expect(calls).toBe(0);
+  });
+
+  test("no-ops when a parked run has no parked step recorded", async () => {
+    _setProjectRootForTests(() => "/proj");
+    const store = memStore();
+    _setStoreForTests(store);
+    // Parked run status but every step completed → findParkedStep returns null.
+    await store.createRun({
+      id: "run-x",
+      repoId: "0123456789ab",
+      branch: "feat/x",
+      ref: "refs/heads/feat/x",
+      headSha: "abc",
+      baseSha: "0".repeat(40),
+      status: "awaiting_approval",
+      worktreePath: "/tmp/ext/wt/run-x",
+      createdAt: "t",
+      updatedAt: "t",
+      parkedMs: 0,
+      awaitingAgentSince: "t",
+      intent: null,
+      intentSource: null,
+    });
+    let calls = 0;
+    _setRespondRunnerForTests(() => async () => {
+      calls++;
+      return { parked: false };
+    });
+    await handleYolo({ source: "hub", pageId: "dashboard", userId: "u", payload: { runId: "run-x" } });
+    expect(calls).toBe(0);
+  });
+
+  test("stops when a resume cannot be applied (run has no worktree → null)", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setShellForTests(okShell);
+    const store = memStore();
+    _setStoreForTests(store);
+    await seedParkedRun(store);
+    // Drop the worktree path so resumeGateLifecycle returns null immediately.
+    await store.updateRun("run-parked", { worktreePath: null });
+    let calls = 0;
+    _setRespondRunnerForTests(() => async () => {
+      calls++;
+      return { parked: false };
+    });
+    await handleYolo({ source: "hub", pageId: "dashboard", userId: "u", payload: { runId: "run-parked" } });
+    // resume returned null before the runner ran → still parked, no approvals.
+    expect(calls).toBe(0);
+    expect((await store.getRun("run-parked"))!.status).toBe("awaiting_approval");
+  });
+
+  test("is bounded — a run that re-parks forever stops at the gate cap", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setShellForTests(async (cmd) => {
+      // Swallow worktree removals; every git op succeeds.
+      void cmd;
+      return { exitCode: 0, stdout: "", stderr: "" };
+    });
+    const store = memStore();
+    _setStoreForTests(store);
+    await seedParkedRun(store);
+    let approvals = 0;
+    // Always keep the run parked at review → the loop can never terminate on
+    // state, so only the YOLO_MAX_GATES bound stops it.
+    _setRespondRunnerForTests(() => async () => {
+      approvals++;
+      return { parked: true };
+    });
+    await handleYolo({ source: "hub", pageId: "dashboard", userId: "u", payload: { runId: "run-parked" } });
+    // PIPELINE_STEPS.length (9) + 1 = 10 iterations, then the bound halts it.
+    expect(approvals).toBe(10);
+    expect((await store.getRun("run-parked"))!.status).toBe("awaiting_approval");
+  });
+
+  test("catches + logs a throw from the autopilot", async () => {
+    _setProjectRootForTests(() => "/proj");
+    // A store whose getRun throws → runYoloAutopilot throws → handler catch.
+    const store = memStore();
+    const boomStore: RunStore = { ...store, getRun: async () => { throw new Error("store boom"); } };
+    _setStoreForTests(boomStore);
+    const stderr = captureStderr();
+    try {
+      await handleYolo({ source: "hub", pageId: "dashboard", userId: "u", payload: { runId: "run-parked" } });
+      expect(stderr.text()).toContain("yolo handler error");
+    } finally {
+      stderr.restore();
     }
   });
 });

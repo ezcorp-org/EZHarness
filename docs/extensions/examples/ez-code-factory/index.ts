@@ -16,9 +16,11 @@ import {
   createToolDispatcher,
   definePage,
   getChannel,
+  invoke,
   pushPage,
   toolError,
   toolResult,
+  type HubPageTree,
   type PageActionEvent,
   type ToolHandler,
 } from "@ezcorp/sdk/runtime";
@@ -32,17 +34,20 @@ import {
   initGate,
 } from "./lib/gate";
 import { join } from "node:path";
-import { buildDashboard } from "./lib/page";
+import { buildDashboard, normalizeRespondPayload, parseYoloRunId, type RunDetail } from "./lib/page";
 import {
   createRunStore,
   parsePushReceived,
   parseRespondPayload,
   runGateLifecycle,
   resumeGateLifecycle,
+  type ParsedRespond,
+  type RunRecord,
   type RunStore,
+  type StepResultRecord,
 } from "./lib/runs";
 import { productionHostRunner, type ShellRunner } from "./lib/shell";
-import { defaultPipelineConfig } from "./lib/config";
+import { PIPELINE_STEPS, resolvePipelineConfig, type PipelineConfig, type PipelineStep } from "./lib/config";
 import { makeSpawnDispatcher } from "./lib/agent";
 import { makeJailedShell } from "./lib/jail";
 import { startPipeline, respondToGate, type ExecutorDeps } from "./lib/executor";
@@ -52,6 +57,9 @@ export const PUSH_RECEIVED_ACTION = `${EXTENSION_NAME}:${TRIGGER_EVENT}`;
 /** The gate action the M2 approval UI (and any harness) drives to answer a
  *  parked gate: `{ runId, step, action: approve|fix|skip|abort, … }`. */
 export const RESPOND_ACTION = `${EXTENSION_NAME}:respond`;
+/** The M2 "yolo" action: auto-approve every remaining gate of one run in a
+ *  single click (`{ runId, step }`). Bypasses per-gate human review. */
+export const YOLO_ACTION = `${EXTENSION_NAME}:yolo`;
 
 // ── Injectable seams (production defaults; tests override) ────────────
 //
@@ -96,6 +104,36 @@ export function _setPushPageForTests(fn: typeof pushPage | null): void {
   pushPageImpl = fn ?? pushPage;
 }
 
+// ── Settings live-read seam (M2, resolves M1's defaultPipelineConfig TODO) ──
+//
+// The pipeline config (auto-fix caps, gate remote, ignore globs, default
+// branch) is resolved FRESH from the extension's user settings at each pipeline
+// start / respond, so a settings change takes effect on the next push without a
+// restart. `runtime.settings.getMine` resolves the calling extension's clamped
+// settings for the acting user; the post-receive-hook trigger path may be
+// system-driven (no user/session), in which case the RPC is unavailable — we
+// fall back to `{}` → `resolvePipelineConfig` defaults rather than failing the
+// pipeline. This is a best-effort live read, never a fake.
+
+type SettingsMap = Record<string, unknown>;
+const defaultSettingsRead = async (): Promise<SettingsMap> => {
+  try {
+    return await invoke<SettingsMap>("runtime.settings.getMine", {});
+  } catch {
+    return {};
+  }
+};
+let settingsReadImpl: () => Promise<SettingsMap> = defaultSettingsRead;
+export function _setSettingsReadForTests(fn: (() => Promise<SettingsMap>) | null): void {
+  settingsReadImpl = fn ?? defaultSettingsRead;
+}
+
+/** Resolve the live pipeline config for a pipeline run (settings → validated
+ *  + clamped config; defaults on any read failure). */
+async function resolveLiveConfig(): Promise<PipelineConfig> {
+  return resolvePipelineConfig(await settingsReadImpl());
+}
+
 // ── Pipeline runner seam ─────────────────────────────────────────────
 //
 // The executor + steps + jailed shell live behind a single injectable factory
@@ -108,16 +146,21 @@ export type PipelineRunner = (ctx: { runId: string; worktreePath: string }) => P
 
 /** Build the ExecutorDeps for a run against its worktree (production wiring:
  *  host git read-only, the nested jail for mutating commit/push, native
- *  spawn-assignment agents, defaulted config — settings-read on the event path
- *  is an M2 fast-follow). */
-function buildExecutorDeps(projectRoot: string, gateDir: string, worktreePath: string): ExecutorDeps {
+ *  spawn-assignment agents). `config` is the LIVE settings-resolved pipeline
+ *  config (M2 resolves M1's defaultPipelineConfig TODO). */
+function buildExecutorDeps(
+  projectRoot: string,
+  gateDir: string,
+  worktreePath: string,
+  config: PipelineConfig,
+): ExecutorDeps {
   const evidenceDir = join(tmpBaseImpl(), "ez-code-factory-evidence");
   return {
     store: getStore(),
     worktree: worktreePath,
     gateDir,
     workingPath: projectRoot,
-    config: defaultPipelineConfig(),
+    config,
     dispatcher: makeSpawnDispatcher({ evidenceDir }),
     hostRunner: shellImpl,
     jailedRunner: makeJailedShell(gateDir, projectRoot),
@@ -130,17 +173,22 @@ function buildExecutorDeps(projectRoot: string, gateDir: string, worktreePath: s
 
 const defaultRunPipeline = (projectRoot: string, gateDir: string): PipelineRunner => {
   return async ({ runId, worktreePath }) => {
-    const outcome = await startPipeline(runId, buildExecutorDeps(projectRoot, gateDir, worktreePath));
+    const config = await resolveLiveConfig();
+    const outcome = await startPipeline(
+      runId,
+      buildExecutorDeps(projectRoot, gateDir, worktreePath, config),
+    );
     return { parked: outcome.status === "parked" };
   };
 };
 const defaultRespondRunner =
   (projectRoot: string, gateDir: string, respond: ReturnType<typeof parseRespondPayload>): PipelineRunner => {
     return async ({ runId, worktreePath }) => {
+      const config = await resolveLiveConfig();
       const outcome = await respondToGate(
         runId,
         respond!,
-        buildExecutorDeps(projectRoot, gateDir, worktreePath),
+        buildExecutorDeps(projectRoot, gateDir, worktreePath, config),
       );
       return { parked: outcome.status === "parked" };
     };
@@ -155,10 +203,36 @@ export function _setRespondRunnerForTests(fn: typeof defaultRespondRunner | null
   makeRespondRunnerImpl = fn ?? defaultRespondRunner;
 }
 
+/** Gather the parked-run details to inline on the dashboard: for every run
+ *  awaiting approval, its ordered step results (so the detail section can show
+ *  the step list + the parked step's findings). Non-parked runs need no detail. */
+async function collectParkedDetails(store: RunStore, runs: RunRecord[]): Promise<RunDetail[]> {
+  const details: RunDetail[] = [];
+  for (const run of runs) {
+    if (run.status !== "awaiting_approval") continue;
+    const steps: StepResultRecord[] = [];
+    for (const step of PIPELINE_STEPS) {
+      const sr = await store.getStepResult(run.id, step);
+      if (sr) steps.push(sr);
+    }
+    details.push({ run, steps });
+  }
+  return details;
+}
+
+/** The current dashboard tree (runs list + inline triage detail for parked
+ *  runs). The single source both the render-pull and the push-refresh use. */
+async function currentDashboardTree(): Promise<HubPageTree> {
+  const store = getStore();
+  const runs = await store.listRuns();
+  const details = await collectParkedDetails(store, runs);
+  return buildDashboard(runs, details);
+}
+
 /** Push a fresh dashboard tree (content-free SSE invalidation → open tabs
  *  re-pull). Reads the global run store only (the shared, cross-user tree). */
 async function refreshDashboard(): Promise<void> {
-  pushPageImpl(PAGE_ID, buildDashboard(await getStore().listRuns()));
+  pushPageImpl(PAGE_ID, await currentDashboardTree());
 }
 
 // ── Handlers ─────────────────────────────────────────────────────────
@@ -246,7 +320,11 @@ export async function handleRespond(event: PageActionEvent): Promise<void> {
       process.stderr.write("ez-code-factory: respond with no EZCORP_PROJECT_ROOT — ignored\n");
       return;
     }
-    const respond = parseRespondPayload(event.payload);
+    // Normalize the Hub's flat scalar action payload (findingId + instruction)
+    // into M1's canonical findingIds[]/instructions{} shape, then validate via
+    // the single M1 validator. A harness POST that already sends the canonical
+    // shape passes through untouched.
+    const respond = parseRespondPayload(normalizeRespondPayload(event.payload));
     if (!respond) {
       process.stderr.write("ez-code-factory: respond with invalid payload — ignored\n");
       return;
@@ -273,9 +351,82 @@ export async function handleRespond(event: PageActionEvent): Promise<void> {
   }
 }
 
-/** Dashboard render — the runs table (global scope). */
+/** The parked step of a run (the first step awaiting approval / fix review),
+ *  read from the store. Null when nothing is parked. */
+async function findParkedStep(store: RunStore, runId: string): Promise<PipelineStep | null> {
+  for (const step of PIPELINE_STEPS) {
+    const sr = await store.getStepResult(runId, step);
+    if (sr && (sr.status === "awaiting_approval" || sr.status === "fix_review")) return step;
+  }
+  return null;
+}
+
+/** Hard bound on the yolo auto-approve loop — a run can park at most once per
+ *  pipeline step, so it can never legitimately exceed the step count. */
+const YOLO_MAX_GATES = PIPELINE_STEPS.length + 1;
+
+/**
+ * The yolo autopilot: approve the current parked gate and every gate the run
+ * re-parks at, until the run reaches a terminal state (or can no longer be
+ * resumed). Each iteration reuses the EXACT M1 approve path
+ * (`resumeGateLifecycle` → `respondToGate`) — no bypass of the gate semantics,
+ * just a bounded sequence of real approvals. Bounded by `YOLO_MAX_GATES` so a
+ * pathological loop can never spin.
+ */
+async function runYoloAutopilot(runId: string, projectRoot: string): Promise<void> {
+  const store = getStore();
+  for (let i = 0; i < YOLO_MAX_GATES; i++) {
+    const rec = await store.getRun(runId);
+    if (!rec || rec.status !== "awaiting_approval") return; // terminal / gone / not parked
+    const step = await findParkedStep(store, runId);
+    if (!step) return; // parked run with no parked step — nothing to approve
+    const gDir = gateDirFor(projectRoot, rec.repoId);
+    const respond: ParsedRespond = {
+      runId,
+      step,
+      action: "approve",
+      findingIds: [],
+      instructions: {},
+      addedFindings: [],
+    };
+    const result = await resumeGateLifecycle(runId, {
+      gateDir: gDir,
+      store,
+      run: shellImpl,
+      onChange: refreshDashboard,
+      respond: makeRespondRunnerImpl(projectRoot, gDir, respond),
+    });
+    // Stop the instant the run leaves the parked state (terminal), or if the
+    // resume could not be applied (null) — a rejected respond leaves the run
+    // parked, and looping would spin, so treat non-parked as done.
+    if (result === null || !result.parked) return;
+  }
+}
+
+/** `yolo` Hub action — auto-approve every remaining gate of one run. The
+ *  payload is attacker-reachable via the events route; validate the runId. */
+export async function handleYolo(event: PageActionEvent): Promise<void> {
+  try {
+    const projectRoot = projectRootImpl();
+    if (!projectRoot) {
+      process.stderr.write("ez-code-factory: yolo with no EZCORP_PROJECT_ROOT — ignored\n");
+      return;
+    }
+    const runId = parseYoloRunId(event.payload);
+    if (!runId) {
+      process.stderr.write("ez-code-factory: yolo with invalid payload — ignored\n");
+      return;
+    }
+    await runYoloAutopilot(runId, projectRoot);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    process.stderr.write(`ez-code-factory: yolo handler error: ${message}\n`);
+  }
+}
+
+/** Dashboard render — the runs table + inline parked-run triage (global scope). */
 export async function renderDashboard() {
-  return buildDashboard(await getStore().listRuns());
+  return currentDashboardTree();
 }
 
 // ── Wiring ───────────────────────────────────────────────────────────
@@ -293,6 +444,7 @@ export function register(): void {
     actions: {
       [PUSH_RECEIVED_ACTION]: handlePushReceived,
       [RESPOND_ACTION]: handleRespond,
+      [YOLO_ACTION]: handleYolo,
     },
   });
   createToolDispatcher(tools);

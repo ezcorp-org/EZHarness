@@ -1,13 +1,46 @@
-// ── Dashboard tree — pure builder ────────────────────────────────────
+// ── Dashboard + run-detail trees — pure builders ─────────────────────
 //
-// The Hub page renders one row per gate run (id, branch, head SHA, status).
-// This module is pure: it maps run records to a declarative page tree the host
-// renders as native Svelte. No user-specific data is emitted — the tree is the
-// SHARED (cross-user cached) Hub page, and gate runs live in the global scope.
+// The Hub page renders one row per gate run (id, branch, head SHA, status)
+// and, for any run PARKED at a gate, an inline run-detail section: the
+// pipeline step list, the parked step's findings table, its risk line, a
+// log/summary panel, and the approve / fix / skip / abort + yolo controls.
+//
+// This module is pure: it maps run + step records to a declarative page tree
+// the host renders as native Svelte. Every user/agent-derived string (branch,
+// file, description, risk rationale, summaries) is emitted ONLY into
+// text-interpolated node types (headings, stats, table cells, empty-state,
+// section titles) — never the `markdown` node (the Hub's sole `{@html}`) — so
+// the render is XSS-safe by construction (page-schema.ts truncates; the client
+// escapes). No user-specific data is emitted — the tree is the SHARED
+// (cross-user cached) Hub page, and gate runs live in the global scope.
+//
+// Action-payload shape note: the host page-schema REJECTS action payloads with
+// nested arrays/objects (page-schema.ts validateAction), so every respond
+// action this module emits carries FLAT scalars only (`runId`, `step`,
+// `action`, and — for a per-finding fix — `findingId` + a prompt-collected
+// `instruction`). `normalizeRespondPayload` folds that scalar wire shape back
+// into M1's canonical `parseRespondPayload` shape (findingIds[]/instructions{})
+// at the event boundary, so parseRespondPayload stays the single validator.
 
 import { PageBuilder } from "@ezcorp/sdk/runtime";
-import type { HubPageTree } from "@ezcorp/sdk/runtime";
-import type { RunRecord, RunStatus } from "./runs";
+import type { HubPageTree, PageActionDescriptor } from "@ezcorp/sdk/runtime";
+import { EXTENSION_NAME } from "./gate";
+import { PIPELINE_STEPS, type PipelineStep } from "./config";
+import type {
+  FindingAction,
+  FindingSeverity,
+  Findings,
+  RunRecord,
+  RunStatus,
+  StepResultRecord,
+  StepStatus,
+} from "./runs";
+
+/** The full namespaced events the detail controls dispatch. Both are declared
+ *  in `ezcorp.config.ts` eventSubscriptions (the host allowlists page actions
+ *  against that list). */
+export const RESPOND_EVENT = `${EXTENSION_NAME}:respond`;
+export const YOLO_EVENT = `${EXTENSION_NAME}:yolo`;
 
 /** Human badge per run status. */
 export const STATUS_BADGE: Record<RunStatus, string> = {
@@ -20,6 +53,33 @@ export const STATUS_BADGE: Record<RunStatus, string> = {
   aborted: "⊘ aborted",
 };
 
+/** Human badge per pipeline STEP status (distinct vocabulary from run status —
+ *  a step can be fixing / fix_review / pending, which a run never is). */
+export const STEP_STATUS_BADGE: Record<StepStatus, string> = {
+  pending: "◌ pending",
+  running: "● running",
+  fixing: "✎ fixing",
+  awaiting_approval: "⏸ awaiting approval",
+  fix_review: "⏸ fix review",
+  completed: "✓ completed",
+  skipped: "→ skipped",
+  failed: "✗ failed",
+};
+
+/** Severity glyph + label for a findings-table cell. */
+export const SEVERITY_ICON: Record<FindingSeverity, string> = {
+  error: "⛔ error",
+  warning: "⚠ warning",
+  info: "ℹ info",
+};
+
+/** Action badge for a findings-table cell (the fail-closed disposition). */
+export const ACTION_BADGE: Record<FindingAction, string> = {
+  "no-op": "no-op",
+  "auto-fix": "auto-fix",
+  "ask-user": "ask-user",
+};
+
 /** Statuses that count as "active" (in-flight) on the dashboard. */
 const ACTIVE_STATUSES: ReadonlySet<RunStatus> = new Set<RunStatus>([
   "created",
@@ -28,16 +88,217 @@ const ACTIVE_STATUSES: ReadonlySet<RunStatus> = new Set<RunStatus>([
   "awaiting_approval",
 ]);
 
+/** Step statuses at which a step is parked awaiting a human respond. */
+const PARKED_STEP_STATUSES: ReadonlySet<StepStatus> = new Set<StepStatus>([
+  "awaiting_approval",
+  "fix_review",
+]);
+
 /** Short head-SHA for the table (first 8 chars). Pure. */
 export function shortSha(sha: string): string {
   return sha.slice(0, 8);
 }
 
+/** Trim an ISO timestamp to `YYYY-MM-DD HH:MM` for a table cell. */
+function shortTime(iso: string): string {
+  return iso.slice(0, 16).replace("T", " ");
+}
+
+// ── Run detail (parked-gate triage) ──────────────────────────────────
+
+/** A run plus its recorded step results — the input to the detail builder. */
+export interface RunDetail {
+  run: RunRecord;
+  /** Step results for the run (any order; indexed by step name here). */
+  steps: StepResultRecord[];
+}
+
+/** The step a run is parked at (awaiting_approval | fix_review), or undefined
+ *  when nothing is parked (the run is mid-flight or terminal). */
+export function parkedStep(steps: StepResultRecord[]): StepResultRecord | undefined {
+  return steps.find((s) => PARKED_STEP_STATUSES.has(s.status));
+}
+
+/** Index step results by step name for O(1) lookup during rendering. */
+function stepIndex(steps: StepResultRecord[]): Map<string, StepResultRecord> {
+  return new Map(steps.map((s) => [s.step, s]));
+}
+
+/** A step-level respond action descriptor (approve / skip / abort). */
+function stepAction(
+  runId: string,
+  step: PipelineStep,
+  action: "approve" | "skip" | "abort",
+  confirm?: string,
+): PageActionDescriptor {
+  return {
+    event: RESPOND_EVENT,
+    payload: { runId, step, action },
+    ...(confirm !== undefined ? { confirm } : {}),
+  };
+}
+
+/** The per-finding fix action: a scalar `findingId` in the payload plus a host
+ *  prompt collecting an optional `instruction` (merged into `payload.instruction`).
+ *  `normalizeRespondPayload` folds these into findingIds[]/instructions{}. */
+function fixAction(runId: string, step: PipelineStep, findingId: string): PageActionDescriptor {
+  return {
+    event: RESPOND_EVENT,
+    payload: { runId, step, action: "fix", findingId },
+    prompt: {
+      label: "Fix instruction (optional)",
+      field: "instruction",
+      placeholder: "e.g. prefer a guard clause; ignore the snapshot churn",
+      submitLabel: "Request fix",
+      maxLength: 500,
+    },
+  };
+}
+
+/** Append the pipeline step-list table (every step, in fixed order). */
+function appendStepTable(page: PageBuilder, detail: RunDetail): void {
+  const byName = stepIndex(detail.steps);
+  page.table(
+    ["Step", "Status", "Rounds"],
+    PIPELINE_STEPS.map((step) => {
+      const sr = byName.get(step);
+      const status: StepStatus = sr?.status ?? "pending";
+      return { cells: [step, STEP_STATUS_BADGE[status], String(sr?.round ?? 0)] };
+    }),
+  );
+}
+
+/** Append the parked step's findings table (severity, file, description,
+ *  action) — each row's click requests a fix for that finding. Empty findings
+ *  render an empty-state instead of a zero-row table. */
+function appendFindingsTable(
+  page: PageBuilder,
+  runId: string,
+  step: PipelineStep,
+  findings: Findings,
+): void {
+  if (findings.items.length === 0) {
+    page.emptyState(
+      "No findings to triage",
+      "This gate is parked for a human decision — approve to continue, or skip the step.",
+    );
+    return;
+  }
+  page.table(
+    ["Severity", "File", "Description", "Action"],
+    findings.items.map((f) => ({
+      // A blank file/description renders as an em dash so the cell is never empty.
+      cells: [
+        SEVERITY_ICON[f.severity],
+        f.file || "—",
+        f.description || "—",
+        ACTION_BADGE[f.action],
+      ],
+      action: fixAction(runId, step, f.id),
+    })),
+  );
+}
+
+/** Append the review risk line as a stats row, when the parked findings carry
+ *  a risk level (review's structured output). */
+function appendRiskLine(page: PageBuilder, findings: Findings): void {
+  if (!findings.riskLevel && !findings.riskRationale) return;
+  page.stats([
+    { label: "Risk", value: findings.riskLevel || "—", hint: findings.riskRationale || undefined },
+  ]);
+}
+
+/** Append the log/summary panel: the step summary, the latest fix summary, the
+ *  testing summary, and the tested / artifact lists — all as text nodes. */
+function appendLogPanel(page: PageBuilder, sr: StepResultRecord, findings: Findings): void {
+  const rows: Array<{ label: string; value: string }> = [];
+  if (findings.summary) rows.push({ label: "Summary", value: findings.summary });
+  if (sr.fixSummary) rows.push({ label: "Last fix", value: sr.fixSummary });
+  if (findings.testingSummary) rows.push({ label: "Testing", value: findings.testingSummary });
+  if (findings.tested.length > 0) rows.push({ label: "Tested", value: findings.tested.join(", ") });
+  if (findings.artifacts.length > 0) {
+    rows.push({ label: "Artifacts", value: findings.artifacts.join(", ") });
+  }
+  if (rows.length === 0) return;
+  page.table(
+    ["Field", "Detail"],
+    rows.map((r) => ({ cells: [r.label, r.value] })),
+  );
+}
+
 /**
- * Build the dashboard tree from a run list (newest first). Pure — no IO. An
- * empty list renders a call-to-action pointing at `init_gate`.
+ * Append the full run-detail (triage) section for a parked run to `page`. When
+ * the run is not parked (mid-flight / terminal / no parked step) it renders the
+ * step list plus a state note only — no action controls. Pure.
  */
-export function buildDashboard(runs: RunRecord[]): HubPageTree {
+export function appendRunDetail(page: PageBuilder, detail: RunDetail): void {
+  const { run } = detail;
+  page.section(`Run ${run.id} · ${run.branch}`, (section) => {
+    section.stats([
+      { label: "Status", value: STATUS_BADGE[run.status] },
+      { label: "Head", value: shortSha(run.headSha) },
+      { label: "Intent", value: run.intent ? "explicit" : "none", hint: run.intent ?? undefined },
+    ]);
+    appendStepTable(section, detail);
+
+    const parked = parkedStep(detail.steps);
+    if (!parked) {
+      section.emptyState(
+        run.status === "awaiting_approval" ? "Loading gate…" : "Nothing to triage",
+        run.status === "awaiting_approval"
+          ? "This run is parked; its step findings are loading."
+          : "This run is not parked at a gate — no action is needed right now.",
+      );
+      return;
+    }
+
+    const step = parked.step as PipelineStep;
+    section.heading(3, `Gate: ${step} (${STEP_STATUS_BADGE[parked.status]})`);
+    appendRiskLine(section, parked.findings);
+    appendFindingsTable(section, run.id, step, parked.findings);
+    appendLogPanel(section, parked, parked.findings);
+
+    // Step-level controls. Approve continues; skip marks the step skipped;
+    // abort cancels the run; yolo auto-approves every remaining gate. Skip and
+    // abort confirm; yolo confirms (it's a bulk auto-approve).
+    section.button("Approve step", stepAction(run.id, step, "approve"), "primary");
+    section.button(
+      "Skip step",
+      stepAction(run.id, step, "skip", `Skip the "${step}" step for run ${run.id}?`),
+      "secondary",
+    );
+    section.button(
+      "Yolo — auto-approve remaining gates",
+      {
+        event: YOLO_EVENT,
+        payload: { runId: run.id, step },
+        confirm: `Yolo: auto-approve every remaining gate for run ${run.id}? This bypasses per-gate human review.`,
+      },
+      "secondary",
+    );
+    section.button(
+      "Abort run",
+      stepAction(run.id, step, "abort", `Abort run ${run.id}? This cancels the whole pipeline.`),
+      "danger",
+    );
+  });
+}
+
+/** Build a standalone run-detail page tree (the "run-detail page"). Reused
+ *  inline by the dashboard for parked runs; exported for direct rendering +
+ *  focused tests. */
+export function buildRunDetail(detail: RunDetail): HubPageTree {
+  const page = new PageBuilder("ez-code-factory");
+  appendRunDetail(page, detail);
+  return page.build();
+}
+
+/**
+ * Build the dashboard tree from a run list (newest first) plus the parked-run
+ * details to inline. Pure — no IO. An empty list renders a call-to-action
+ * pointing at `init_gate`; each parked run gets an inline triage section.
+ */
+export function buildDashboard(runs: RunRecord[], details: RunDetail[] = []): HubPageTree {
   const active = runs.filter((r) => ACTIVE_STATUSES.has(r.status)).length;
   const completed = runs.filter((r) => r.status === "completed").length;
   const failed = runs.filter((r) => r.status === "failed" || r.status === "aborted").length;
@@ -71,10 +332,67 @@ export function buildDashboard(runs: RunRecord[]): HubPageTree {
         r.branch,
         shortSha(r.headSha),
         STATUS_BADGE[r.status],
-        r.updatedAt.slice(0, 16).replace("T", " "),
+        shortTime(r.updatedAt),
       ],
     })),
   );
 
+  // Inline the triage detail for every parked run (typically 0–2), so a human
+  // can act on findings without navigating away from the shared dashboard.
+  for (const detail of details) {
+    appendRunDetail(page, detail);
+  }
+
   return page.build();
+}
+
+// ── respond-payload normalization (scalar UI shape → canonical) ──────
+
+/**
+ * Fold the FLAT scalar respond payload the Hub emits (page action payloads
+ * cannot nest arrays/objects — page-schema.ts rejects them) back into M1's
+ * canonical `parseRespondPayload` shape:
+ *   - `findingId` (scalar) → `findingIds: [findingId]`
+ *   - `instruction` (scalar) → `instructions: { [findingId]: instruction }`
+ *
+ * Non-destructive + additive: when the caller already supplied the canonical
+ * `findingIds` array / `instructions` object (the harness/tool POST path sends
+ * them directly), those are left untouched. A non-object input is returned
+ * as-is so the downstream `parseRespondPayload` rejects it. Never throws.
+ */
+export function normalizeRespondPayload(raw: unknown): unknown {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
+  const p = { ...(raw as Record<string, unknown>) };
+
+  const findingId = typeof p.findingId === "string" ? p.findingId.trim() : "";
+  if (findingId && !Array.isArray(p.findingIds)) {
+    p.findingIds = [findingId];
+  }
+
+  const instruction = typeof p.instruction === "string" ? p.instruction : "";
+  if (instruction.trim() !== "" && (p.instructions == null || typeof p.instructions !== "object")) {
+    // Key the per-finding note by the resolved finding id (the scalar, or the
+    // first canonical id when only findingIds was supplied). Without a key the
+    // note has nowhere to attach, so it is dropped.
+    const key =
+      findingId ||
+      (Array.isArray(p.findingIds) && typeof p.findingIds[0] === "string" ? p.findingIds[0] : "");
+    if (key) p.instructions = { [key]: instruction };
+  }
+
+  return p;
+}
+
+/**
+ * Validate a `yolo` action payload — requires a non-empty string `runId`.
+ * Returns the trimmed runId or null (the handler logs "invalid payload" and
+ * no-ops). Never throws. Deliberately minimal: the autopilot re-reads the run
+ * + its parked step from the store, so no other field is trusted from the wire.
+ */
+export function parseYoloRunId(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  const runId = (payload as Record<string, unknown>).runId;
+  if (typeof runId !== "string") return null;
+  const trimmed = runId.trim();
+  return trimmed === "" ? null : trimmed;
 }
