@@ -14,6 +14,13 @@
 // treats them as invalidation signals; the authorized dashboard/GET is the
 // source of truth. That keeps them safe to broadcast to every authenticated
 // subscriber when the loop has no owning conversation (see the host filter).
+//
+// loopId PROVENANCE: this client sends the loop's OWN (raw) id; the host
+// handler (`handleEmitLoopEventRpc`) STAMPS the wire id with the emitting
+// extension's id (`<extensionId>:<loopId>`) from RPC provenance, never from
+// this payload. So an extension can only emit for its own loops, and every
+// consumer of the bus event sees the namespaced id. Consumers treat it as an
+// opaque invalidation key, so the namespacing is transparent to them.
 
 import { getChannel } from "./channel";
 import type { ApprovalDecision } from "./loop-types";

@@ -323,6 +323,7 @@ export async function installAuthoredDraft(args: {
       ...(requestedPermissions.lifecycleHooks ? { lifecycleHooks: now } : {}),
       ...(eventSubs.length > 0 ? { eventSubscriptions: now } : {}),
       ...(requestedPermissions.taskEvents ? { taskEvents: now } : {}),
+      ...(requestedPermissions.loopEvents ? { loopEvents: now } : {}),
       ...(requestedPermissions.agentConfig ? { agentConfig: now } : {}),
       ...(requestedPermissions.spawnAgents ? { spawnAgents: now } : {}),
       ...(requestedPermissions.appendMessages ? { appendMessages: now } : {}),

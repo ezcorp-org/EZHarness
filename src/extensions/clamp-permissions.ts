@@ -538,8 +538,8 @@ export async function checkEnvKeyLeakInstallGate(
 // Keep the callers in sync — every clamping rule belongs here, not
 // inline at any call site.
 //
-// ── Capability tier (Phase 2+): taskEvents / spawnAgents / agentConfig /
-// eventSubscriptions ── Each field is clamped against the manifest
+// ── Capability tier (Phase 2+): taskEvents / loopEvents / spawnAgents /
+// agentConfig / eventSubscriptions ── Each field is clamped against the manifest
 // declaration AND against the kill-switch env var. If
 // EZCORP_DISABLE_CAPABILITY_TOOLS=1 is set, the fields behave as if the
 // manifest never declared them — operators can disable the entire tier
@@ -627,6 +627,9 @@ export function clampExtensionPermissions(
   if (!capabilityToolsDisabled()) {
     if (submitted.taskEvents === true && manifest.taskEvents === true) {
       clamped.taskEvents = true;
+    }
+    if (submitted.loopEvents === true && manifest.loopEvents === true) {
+      clamped.loopEvents = true;
     }
     if (submitted.spawnAgents && manifest.spawnAgents) {
       // spawnAgents is a structured permission — both maxPerHour and

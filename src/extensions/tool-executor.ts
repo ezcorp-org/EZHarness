@@ -1909,9 +1909,12 @@ export class ToolExecutor {
 
   /**
    * Handle an `ezcorp/emit-loop-event` reverse RPC request (Loops EZ Mode
-   * Phase 2). Emits the two content-free approval nudges onto the host bus.
-   * Unlike emit-task-event this does NOT require a conversation — loops fire
-   * ownerless (cron) / global-scope. See loop-events-handler.ts.
+   * Phase 2). Emits the three content-free approval nudges onto the host bus.
+   * Gated on the `loopEvents` permission (PDP cap `ezcorp:loops:emit`) + the
+   * capability-tier kill-switch + rate limit; the emitted event's `loopId` is
+   * STAMPED host-side with the extension id so an extension can only emit for
+   * its own loops. Unlike emit-task-event this does NOT require a conversation
+   * — loops fire ownerless (cron) / global-scope. See loop-events-handler.ts.
    */
   async handlePiEmitLoopEvent(
     extensionId: string,
@@ -1925,7 +1928,16 @@ export class ToolExecutor {
         error: { code: -32603, message: "Extension not found in registry" },
       };
     }
-    const ctx: LoopEventsContext = { bus: this.bus };
+    // Per-call provenance: token wins, singletons are the fallback.
+    const scope = this.resolveHandlerScope(req);
+    const ctx: LoopEventsContext = {
+      bus: this.bus,
+      userId: scope.userId,
+      grantedPermissions: granted,
+      // Phase 6: thread the PDP for the canonical permission decision.
+      engine: this.engine,
+      conversationId: scope.conversationId,
+    };
     return handleEmitLoopEventRpc(extensionId, req, ctx);
   }
 

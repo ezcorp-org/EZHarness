@@ -86,6 +86,7 @@ describe("migrateManifestV2ToV3 — v2 manifests inherit caps", () => {
       schemaVersion: 2,
       permissions: {
         taskEvents: true,
+        loopEvents: true,
         agentConfig: "read",
         appendMessages: { excludedDefault: true },
         spawnAgents: { maxPerHour: 5 },
@@ -95,10 +96,12 @@ describe("migrateManifestV2ToV3 — v2 manifests inherit caps", () => {
     const out = migrateManifestV2ToV3(manifest);
     const custom = out.tools?.[0]?.capabilities?.custom;
     expect(custom?.["ezcorp:tasks:emit"]).toBe(true);
+    expect(custom?.["ezcorp:loops:emit"]).toBe(true);
     expect(custom?.["ezcorp:agent:config"]).toBe(true);
     expect(custom?.["ezcorp:chat:append"]).toBe(true);
     expect(custom?.["ezcorp:agent:spawn"]).toBe(true);
     // The legacy keys are NOT emitted on the namespaced output.
+    expect(custom?.loopEvents).toBeUndefined();
     expect(custom?.taskEvents).toBeUndefined();
     expect(custom?.agentConfig).toBeUndefined();
     expect(custom?.appendMessages).toBeUndefined();
@@ -309,6 +312,7 @@ describe("customToKind — accepts BOTH legacy and namespaced spellings", () => 
     { legacy: "appendMessages", namespaced: "ezcorp:chat:append", value: true },
     { legacy: "agentConfig", namespaced: "ezcorp:agent:config", value: true },
     { legacy: "taskEvents", namespaced: "ezcorp:tasks:emit", value: true },
+    { legacy: "loopEvents", namespaced: "ezcorp:loops:emit", value: true },
     { legacy: "spawnAgents", namespaced: "ezcorp:agent:spawn", value: true },
     { legacy: "eventSubscriptions", namespaced: "ezcorp:events:subscribe", value: ["foo:bar"] },
   ];

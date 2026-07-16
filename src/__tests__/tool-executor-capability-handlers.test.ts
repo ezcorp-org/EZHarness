@@ -209,6 +209,8 @@ describe("ToolExecutor.handlePiEmitLoopEvent", () => {
   });
 
   test("granted path threads the bus + emits the content-free nudge (no conversation required)", async () => {
+    // The stub PDP is allow-all, so the loopEvents gate passes; the emitted
+    // loopId is host-STAMPED with the extension id (provenance binding).
     const granted: ExtensionPermissions = { grantedAt: {} };
     const { bus, calls } = makeBus();
     const execu = new ToolExecutor(makeRegistry(granted), createStubPermissionEngine(), { bus });
@@ -225,8 +227,29 @@ describe("ToolExecutor.handlePiEmitLoopEvent", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]).toEqual({
       event: "loops:approval_resolved",
-      payload: { loopId: "docs", runId: "r1", decision: "approved" },
+      payload: { loopId: `${EXT_ID}:docs`, runId: "r1", decision: "approved" },
     });
+  });
+
+  test("PDP deny → -32001 loopEvents permission not granted (no emit)", async () => {
+    const granted: ExtensionPermissions = { grantedAt: {} };
+    const { bus, calls } = makeBus();
+    const execu = new ToolExecutor(
+      makeRegistry(granted),
+      createStubPermissionEngine("deny-all"),
+      { bus },
+    );
+    const resp = await execu.handlePiEmitLoopEvent(
+      EXT_ID,
+      rpc("ezcorp/emit-loop-event", {
+        v: 1,
+        type: "approval_pending",
+        payload: { loopId: "docs", runId: "r1" },
+      }),
+    );
+    expect(resp.error?.code).toBe(-32001);
+    expect(resp.error?.message).toContain("loopEvents permission not granted");
+    expect(calls).toHaveLength(0);
   });
 });
 

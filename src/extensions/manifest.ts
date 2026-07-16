@@ -849,7 +849,7 @@ function validatePermissionsBlock(perms: unknown, errors: string[]): void {
   }
 
   // Booleans where declared.
-  for (const field of ["shell", "storage", "taskEvents"] as const) {
+  for (const field of ["shell", "storage", "taskEvents", "loopEvents"] as const) {
     if (p[field] !== undefined && typeof p[field] !== "boolean") {
       errors.push(`permissions.${field} must be a boolean`);
     }
@@ -1485,6 +1485,9 @@ export function deriveCapsFromExtensionPerms(
   if (perms.taskEvents === true) {
     custom[NAMESPACE_MAP.taskEvents] = true;
   }
+  if (perms.loopEvents === true) {
+    custom[NAMESPACE_MAP.loopEvents] = true;
+  }
   // eventSubscriptions accepts both the legacy string[] form and the
   // Phase 51.4 `{events, includeFullPayload?}` object form. Normalize
   // to a string[] before propagating to the namespaced cap declaration.
@@ -1515,6 +1518,7 @@ export const NAMESPACE_MAP = {
   appendMessages: "ezcorp:chat:append",
   agentConfig: "ezcorp:agent:config",
   taskEvents: "ezcorp:tasks:emit",
+  loopEvents: "ezcorp:loops:emit",
   spawnAgents: "ezcorp:agent:spawn",
   eventSubscriptions: "ezcorp:events:subscribe",
 } as const;

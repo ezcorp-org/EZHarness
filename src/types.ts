@@ -559,7 +559,10 @@ export interface AgentEvents {
    * (`approval_pending`) or was RESOLVED (`approval_resolved`). Both are
    * CONTENT-FREE invalidation nudges (loopId + runId, + `decision` on resolve)
    * — the web badge/inbox re-fetches the authorized dashboard on receipt; the
-   * proposal body NEVER rides the event. `conversationId` is OPTIONAL: present
+   * proposal body NEVER rides the event. The `loopId` is host-STAMPED
+   * (`<extensionId>:<loopId>`) so it is provenance-bound to the emitting
+   * extension; consumers treat it as an opaque invalidation key.
+   * `conversationId` is OPTIONAL: present
    * when the loop is conversation-wired (SSE scopes delivery to that owner via
    * the standard conv-scope branch), absent for a global-scope loop (the nudge
    * broadcasts to every authenticated subscriber, like `ext:page-state` /

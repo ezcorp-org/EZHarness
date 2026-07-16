@@ -366,6 +366,14 @@ export interface ExtensionManifestV2 {
     /** Emit task-panel bus events via ezcorp/emit-task-event. The host
      *  forces conversationId — extensions cannot target other conversations. */
     taskEvents?: boolean;
+    /** Emit the content-free loop-approval nudges (loops:approval_pending /
+     *  loops:approval_resolved / loops:auto_disabled) via
+     *  ezcorp/emit-loop-event (Loops EZ Mode Phase 2). Distinct from
+     *  taskEvents: loop nudges fire ownerless and may broadcast globally, so
+     *  they carry their own least-privilege gate. The host stamps the wire
+     *  loopId with the emitting extension's id so an extension can only emit
+     *  for its own loops. */
+    loopEvents?: boolean;
     /** Spawn sub-agent runs via ezcorp/spawn-assignment. Requires both
      *  fields when declared; credentials inherit from the parent conversation. */
     spawnAgents?: { maxPerHour: number; maxConcurrent?: number };
