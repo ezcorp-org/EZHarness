@@ -35,7 +35,7 @@ import {
   initGate,
 } from "./lib/gate";
 import { join } from "node:path";
-import { buildDashboard, normalizeRespondPayload, parseYoloRunId, type RunDetail } from "./lib/page";
+import { buildDashboard, normalizeRespondPayload, parseRunIdPayload, type RunDetail } from "./lib/page";
 import {
   createRunStore,
   parsePushReceived,
@@ -241,13 +241,20 @@ export function _setRespondRunnerForTests(fn: typeof defaultRespondRunner | null
 }
 
 /** Drives the CI step's ReconcileApprovalGate for a parked run; returns whether
- *  the run remains parked (still open / not reconcilable) after the check. */
+ *  the run remains parked (still open / not reconcilable) after the check.
+ *
+ *  Runs against the GATE REPO dir, NOT the run's worktree: reconcile is a
+ *  read-only PR-state poll (`gh pr view --repo owner/name`), and a `checks_passed`
+ *  run has ALREADY torn its worktree down (H2). The bare gate repo always exists
+ *  and shares the upstream `origin`, so `git remote get-url origin` + `gh` resolve
+ *  the host without a live worktree. (A CI-timeout-parked run still has its
+ *  worktree, but gateDir works for it too — reconcile never writes.) */
 const defaultReconcileRunner = (projectRoot: string, gateDir: string): PipelineRunner => {
-  return async ({ runId, worktreePath }) => {
+  return async ({ runId }) => {
     const config = await resolveLiveConfig();
     const outcome = await reconcileGate(
       runId,
-      buildExecutorDeps(projectRoot, gateDir, worktreePath, config),
+      buildExecutorDeps(projectRoot, gateDir, gateDir, config),
     );
     return { parked: outcome.status === "parked" };
   };
@@ -257,13 +264,19 @@ export function _setReconcileRunnerForTests(fn: typeof defaultReconcileRunner | 
   makeReconcileRunnerImpl = fn ?? defaultReconcileRunner;
 }
 
-/** Gather the parked-run details to inline on the dashboard: for every run
- *  awaiting approval, its ordered step results (so the detail section can show
- *  the step list + the parked step's findings). Non-parked runs need no detail. */
+/** Run statuses that get an inline dashboard detail section: a parked run
+ *  (awaiting_approval) for triage, and a resting checks_passed run so its CI gate
+ *  detail + the "Re-check PR state" reconcile control render (M4). */
+const DETAIL_STATUSES: ReadonlySet<RunRecord["status"]> = new Set(["awaiting_approval", "checks_passed"]);
+
+/** Gather the run details to inline on the dashboard: for every run awaiting
+ *  approval OR resting at checks_passed, its ordered step results (so the detail
+ *  section can show the step list + the parked/CI step's findings + controls).
+ *  Other runs need no detail. */
 async function collectParkedDetails(store: RunStore, runs: RunRecord[]): Promise<RunDetail[]> {
   const details: RunDetail[] = [];
   for (const run of runs) {
-    if (run.status !== "awaiting_approval") continue;
+    if (!DETAIL_STATUSES.has(run.status)) continue;
     const steps: StepResultRecord[] = [];
     for (const step of PIPELINE_STEPS) {
       const sr = await store.getStepResult(run.id, step);
@@ -349,7 +362,10 @@ export async function handlePushReceived(event: PageActionEvent): Promise<void> 
       onChange: refreshDashboard,
       runPipeline: makeRunPipelineImpl(projectRoot, gDir),
     });
-    if (!result.ok && result.status !== "awaiting_approval") {
+    // `ok` is true only for `completed`; awaiting_approval (parked) and
+    // checks_passed (rested green) are success-ish non-terminal states, not
+    // failures, so they are NOT logged as errors.
+    if (!result.ok && result.status !== "awaiting_approval" && result.status !== "checks_passed") {
       process.stderr.write(
         `ez-code-factory: run ${result.runId} failed: ${result.error ?? "unknown"}\n`,
       );
@@ -466,7 +482,7 @@ export async function handleYolo(event: PageActionEvent): Promise<void> {
       process.stderr.write("ez-code-factory: yolo with no EZCORP_PROJECT_ROOT — ignored\n");
       return;
     }
-    const runId = parseYoloRunId(event.payload);
+    const runId = parseRunIdPayload(event.payload);
     if (!runId) {
       process.stderr.write("ez-code-factory: yolo with invalid payload — ignored\n");
       return;
@@ -490,7 +506,7 @@ export async function handleReconcile(event: PageActionEvent): Promise<void> {
       process.stderr.write("ez-code-factory: reconcile with no EZCORP_PROJECT_ROOT — ignored\n");
       return;
     }
-    const runId = parseYoloRunId(event.payload);
+    const runId = parseRunIdPayload(event.payload);
     if (!runId) {
       process.stderr.write("ez-code-factory: reconcile with invalid payload — ignored\n");
       return;

@@ -6,7 +6,7 @@ import {
   buildRunDetail,
   normalizeRespondPayload,
   parkedStep,
-  parseYoloRunId,
+  parseRunIdPayload,
   SEVERITY_ICON,
   shortSha,
   STATUS_BADGE,
@@ -350,6 +350,37 @@ describe("buildRunDetail (parked gate)", () => {
     expect(intent.hint).toBe("ship the fix");
   });
 
+  test("a CI gate adds a read-only 'Re-check PR state' reconcile button; other gates do not", () => {
+    // A run parked at the CI gate (or rested at checks_passed) gets the reconcile
+    // control; a review gate does not.
+    const ciTree = buildRunDetail({
+      run: run({ status: "checks_passed" }),
+      steps: [stepResult({ step: "ci", status: "awaiting_approval", findings: emptyFindings() })],
+    });
+    const ciButtons = (firstSection(ciTree.nodes).nodes as Node[]).filter((n) => n.type === "button") as Array<{
+      label: string;
+      action: { event: string; payload: Record<string, string>; confirm?: string };
+      style?: string;
+    }>;
+    const recheck = ciButtons.find((b) => b.label === "Re-check PR state")!;
+    expect(recheck).toBeDefined();
+    expect(recheck.action.event).toBe("ez-code-factory:reconcile");
+    expect(recheck.action.payload).toEqual({ runId: "run_abc" });
+    // Read-only → never a confirm dialog, and rendered as a secondary control.
+    expect(recheck.action.confirm).toBeUndefined();
+    expect(recheck.style).toBe("secondary");
+
+    // A review gate carries NO reconcile control.
+    const reviewTree = buildRunDetail({
+      run: run({ status: "awaiting_approval" }),
+      steps: [stepResult({ step: "review", status: "awaiting_approval", findings: emptyFindings() })],
+    });
+    const reviewLabels = (firstSection(reviewTree.nodes).nodes as Node[])
+      .filter((n) => n.type === "button")
+      .map((n) => (n as { label: string }).label);
+    expect(reviewLabels).not.toContain("Re-check PR state");
+  });
+
   test("a parked step with no findings renders an empty-state, no findings table", () => {
     const tree = buildRunDetail({
       run: run({ status: "awaiting_approval" }),
@@ -569,19 +600,19 @@ describe("normalizeRespondPayload", () => {
   });
 });
 
-// ── parseYoloRunId ───────────────────────────────────────────────────
+// ── parseRunIdPayload ─────────────────────────────────────────────────
 
-describe("parseYoloRunId", () => {
+describe("parseRunIdPayload", () => {
   test("accepts a non-empty runId, trimmed", () => {
-    expect(parseYoloRunId({ runId: "  run_1  " })).toBe("run_1");
+    expect(parseRunIdPayload({ runId: "  run_1  " })).toBe("run_1");
   });
 
   test("rejects non-object / array / missing / non-string / blank runId", () => {
-    expect(parseYoloRunId(null)).toBeNull();
-    expect(parseYoloRunId("x")).toBeNull();
-    expect(parseYoloRunId([1])).toBeNull();
-    expect(parseYoloRunId({})).toBeNull();
-    expect(parseYoloRunId({ runId: 5 })).toBeNull();
-    expect(parseYoloRunId({ runId: "   " })).toBeNull();
+    expect(parseRunIdPayload(null)).toBeNull();
+    expect(parseRunIdPayload("x")).toBeNull();
+    expect(parseRunIdPayload([1])).toBeNull();
+    expect(parseRunIdPayload({})).toBeNull();
+    expect(parseRunIdPayload({ runId: 5 })).toBeNull();
+    expect(parseRunIdPayload({ runId: "   " })).toBeNull();
   });
 });

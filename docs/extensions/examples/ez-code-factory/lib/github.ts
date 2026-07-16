@@ -242,7 +242,11 @@ export function makeGitHubHost(gh: GhRunner, opts: { host: string; repo: string 
       const authArgs = ["auth", "status"];
       if (host !== "") authArgs.push("--hostname", host);
       const r = await gh(authArgs);
-      return r.exitCode === 0 ? null : "gh CLI is not authenticated";
+      if (r.exitCode === 0) return null;
+      // 127 is the runner boundary's "command not found" code (lib/shell.ts): gh
+      // is not on PATH, so distinguish a missing CLI from a live-but-unauthed one.
+      // Either way pr/ci skip-not-fail; the clearer reason just makes the log honest.
+      return r.exitCode === 127 ? "gh CLI not found on PATH" : "gh CLI is not authenticated";
     },
 
     async findPR(branch, base) {

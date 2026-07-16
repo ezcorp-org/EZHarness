@@ -39,6 +39,7 @@ import {
 import { resolveForcePushDecision } from "./push";
 import {
   assertPipelineHeadContinuity,
+  bareBranchName,
   intentIsAuthoritative,
   normalizedBranchRef,
   repoDispatchOptions,
@@ -369,7 +370,14 @@ async function handleChecks(
   } else if (checks.length === 0) {
     sctx.log("no CI checks reported");
   } else {
+    // GREEN: every reported check passed and the PR is still open. EXIT here
+    // (spec §1 step 9) with the resting checks_passed outcome instead of polling
+    // for days until a human merges — the executor tears the worktree down,
+    // releases the per-branch lock, and a later `reconcile` completes the run on
+    // merge/close. The no-checks-registered case above deliberately keeps polling
+    // (there is nothing green to rest on yet).
     sctx.log("checks passed");
+    return { checksPassed: true };
   }
   return null;
 }
@@ -466,7 +474,9 @@ async function tryFix(
 
   let logOutput = "";
   try {
-    const raw = await host.fetchFailedCheckLogs(sctx.run.branch, sctx.run.headSha, failing);
+    // `gh run list --branch` wants the bare branch name — strip any refs/heads/
+    // prefix (consistent with pr.ts, which strips it for `gh pr --head`).
+    const raw = await host.fetchFailedCheckLogs(bareBranchName(sctx.run.branch), sctx.run.headSha, failing);
     if (raw !== "") logOutput = trimLog(raw.trim(), MAX_LOG_BYTES);
   } catch (err) {
     sctx.log(`warning: failed to fetch CI logs: ${msg(err)}`);

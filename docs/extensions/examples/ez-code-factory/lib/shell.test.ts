@@ -59,4 +59,13 @@ describe("productionHostRunner", () => {
     expect(res.exitCode).toBe(0);
     expect(res.stdout).toBe("injected-token");
   });
+
+  test("a missing executable maps to exit 127 (skip-not-fail), never throws", async () => {
+    // `gh` is not in the base image; Bun.spawn throws ENOENT synchronously for a
+    // missing binary. The runner boundary must map that to a 127 ShellResult so
+    // GitHubHost.available() skips pr/ci instead of failing the whole run.
+    const res = await productionHostRunner(["ez-code-factory-no-such-binary-xyz"], tmpdir());
+    expect(res.exitCode).toBe(127);
+    expect(res.stderr).toContain("ez-code-factory-no-such-binary-xyz");
+  });
 });

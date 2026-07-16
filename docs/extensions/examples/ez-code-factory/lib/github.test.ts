@@ -128,6 +128,13 @@ describe("GitHubHost.available", () => {
     expect(await host.available()).toBe("gh CLI is not authenticated");
     expect(gh.calls[0]).toEqual(["auth", "status"]);
   });
+  test("missing gh (exit 127) → 'not found' message (skip-not-fail)", async () => {
+    // The runner boundary (lib/shell.ts) maps a missing `gh` binary to exit 127;
+    // available() surfaces that as a distinct, honest skip reason.
+    const gh = fakeGh(() => fail("gh: command not found", 127));
+    const host = makeGitHubHost(gh, { host: "", repo: "o/n" });
+    expect(await host.available()).toBe("gh CLI not found on PATH");
+  });
 });
 
 describe("GitHubHost.findPR", () => {

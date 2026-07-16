@@ -25,18 +25,27 @@ import type { RepoConfig } from "./repo-config";
  *   - `awaiting_approval` — parked at a step gate, waiting for a respond event
  *   - `aborted`           — a user `abort` action terminated the run (upstream's
  *                           RunCancelled maps here — distinct from `failed`)
+ *   - `checks_passed`     — a RESTING state (M4, spec §1 step 9): the CI step
+ *                           saw checks go green and EXITED instead of babysitting
+ *                           the PR for days. The worktree is torn down and the
+ *                           per-branch lock released, the PR left OPEN. Not
+ *                           terminal — a `reconcile` re-check advances it to
+ *                           `completed` once the PR merges/closes.
  */
 export type RunStatus =
   | "created"
   | "worktree_ready"
   | "running"
   | "awaiting_approval"
+  | "checks_passed"
   | "completed"
   | "failed"
   | "aborted";
 
 /** Statuses from which no respond can ever resume a run. Only these release a
- *  kept worktree — everything else (awaiting_approval, running, …) keeps it. */
+ *  kept worktree — everything else (awaiting_approval, running, …) keeps it.
+ *  `checks_passed` is deliberately NOT terminal: it already released its
+ *  worktree on the green exit, and a `reconcile` can still advance it. */
 const TERMINAL_RUN_STATUSES: ReadonlySet<RunStatus> = new Set(["completed", "failed", "aborted"]);
 
 /** Whether a run has reached a terminal state (completed/failed/aborted). */

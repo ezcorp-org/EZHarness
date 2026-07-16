@@ -4,7 +4,6 @@ import { deserializeFindings } from "../runs";
 import {
   pollInterval,
   hasPendingChecks,
-  hasFailingChecks,
   failingCheckNames,
   failingCheckCompletionTimes,
   failingCheckCompletedAfter,
@@ -28,11 +27,9 @@ describe("pollInterval", () => {
 });
 
 describe("check predicates", () => {
-  test("pending / failing", () => {
+  test("pending", () => {
     expect(hasPendingChecks([chk("a", "pending"), chk("b", "pass")])).toBe(true);
     expect(hasPendingChecks([chk("a", "pass")])).toBe(false);
-    expect(hasFailingChecks([chk("a", "fail")])).toBe(true);
-    expect(hasFailingChecks([chk("a", "pass")])).toBe(false);
   });
   test("failingCheckNames sorted", () => {
     expect(failingCheckNames([chk("z", "fail"), chk("a", "fail"), chk("m", "pass")])).toEqual(["a", "z"]);

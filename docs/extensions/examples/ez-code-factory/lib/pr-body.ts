@@ -463,7 +463,12 @@ export function fallbackTitle(commitLog: string, branch: string): string {
 
 // ── Intent + assembly ───────────────────────────────────────────────
 
-/** Prepend `## Intent` (verbatim cleaned intent) to `body`. Verbatim prependIntentSection. */
+/** Prepend `## Intent` (verbatim cleaned intent) to `body`. Verbatim prependIntentSection.
+ *  NOTE: the intent is emitted VERBATIM — only the AGENT body is run through
+ *  stripGeneratedSections, so a user intent that itself contains `## Risk
+ *  Assessment`/`## Testing`-style heading text is preserved as-is here. That is
+ *  intentional (never paraphrase the user's own words); it just means a crafted
+ *  intent can render heading-like lines inside the Intent section. */
 export function prependIntent(body: string, cleanedIntent: string): string {
   if (cleanedIntent === "") return body;
   const section = `## Intent\n\n${cleanedIntent}`;

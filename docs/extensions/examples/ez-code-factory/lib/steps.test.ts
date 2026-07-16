@@ -9,6 +9,7 @@ import { emptyRepoConfig } from "./repo-config";
 import type { AgentDispatcher, DispatchOptions, DispatchResult } from "./agent";
 import {
   normalizedBranchRef,
+  bareBranchName,
   deterministicFixCommitMessage,
   intentIsAuthoritative,
   resolveBranchBaseSHA,
@@ -150,6 +151,10 @@ describe("common pure helpers", () => {
   test("normalizedBranchRef", () => {
     expect(normalizedBranchRef("feat/x")).toBe("refs/heads/feat/x");
     expect(normalizedBranchRef("refs/heads/main")).toBe("refs/heads/main");
+  });
+  test("bareBranchName strips a leading refs/heads/ (inverse of normalizedBranchRef)", () => {
+    expect(bareBranchName("refs/heads/feat/x")).toBe("feat/x");
+    expect(bareBranchName("feat/x")).toBe("feat/x");
   });
   test("deterministicFixCommitMessage renames the prefix", () => {
     expect(deterministicFixCommitMessage("review", "fix a bug")).toBe("ez-code-factory(review): fix a bug");

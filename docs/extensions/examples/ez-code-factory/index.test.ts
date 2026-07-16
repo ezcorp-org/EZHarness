@@ -1074,6 +1074,48 @@ describe("renderDashboard — parked-run triage detail", () => {
     expect(sections).toHaveLength(1);
     expect(sections[0]!.title).toContain("run-parked");
   });
+
+  test("inlines a detail (with the Re-check control) for a checks_passed run", async () => {
+    const store = memStore();
+    _setStoreForTests(store);
+    // A run rested at checks_passed with its CI step parked (worktree torn down).
+    await store.createRun({
+      id: "run-green",
+      repoId: "0123456789ab",
+      branch: "feat/green",
+      ref: "refs/heads/feat/green",
+      headSha: "abcdef0123456789",
+      baseSha: "0".repeat(40),
+      status: "checks_passed",
+      worktreePath: "/tmp/ext/worktrees/0123456789ab/run-green",
+      createdAt: "t",
+      updatedAt: "t",
+      parkedMs: 0,
+      awaitingAgentSince: "2026-07-15T00:00:00.000Z",
+      intent: null,
+      intentSource: null,
+    });
+    await store.putStepResult({
+      runId: "run-green",
+      step: "ci",
+      status: "awaiting_approval",
+      findings: emptyFindings(),
+      agentPid: null,
+      autoFixLimit: 3,
+      round: 1,
+      autoFixAttempts: 0,
+      executionMs: 0,
+      fixSummary: null,
+    });
+    const tree = await renderDashboard();
+    const sections = (tree.nodes as Array<Record<string, unknown>>).filter((n) => n.type === "section");
+    expect(sections).toHaveLength(1);
+    expect(sections[0]!.title).toContain("run-green");
+    // The CI gate detail carries the read-only reconcile control.
+    const buttons = JSON.stringify(sections[0]);
+    expect(buttons).toContain("Re-check PR state");
+    expect(buttons).toContain("ez-code-factory:reconcile");
+  });
 });
 
 // ── yolo autopilot (M2) ─────────────────────────────────────────────

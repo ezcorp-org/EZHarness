@@ -10,7 +10,10 @@
  *   - the Skip control POSTs a `respond` skip (via the host confirm dialog),
  *   - the Approve control POSTs a `respond` approve, and the content-free
  *     `ext:page-state` SSE signal re-pulls the render → the run flips to
- *     completed and the triage section disappears.
+ *     completed and the triage section disappears,
+ *   - a run RESTED at `checks_passed` (M4) renders its CI-gate detail with the
+ *     read-only "Re-check PR state" reconcile control, which POSTs a `reconcile`
+ *     event and (on a merged PR) flips the run to completed via the SSE re-pull.
  *
  * The extension's server-side triage logic (parseRespondPayload / respondToGate
  * / the yolo autopilot / buildRunDetail) is covered by the bun suite under
@@ -234,5 +237,115 @@ test.describe("ez-code-factory gates triage", () => {
 		await expect(page.getByText("Gate: review", { exact: false })).toHaveCount(0);
 		expect(renders).toBeGreaterThan(before);
 		await captureEvidence(page, testInfo, "ez-code-factory-gates-approved");
+	});
+});
+
+const GREEN_RUN_ID = "run-green";
+
+/** The dashboard tree with a run RESTED at checks_passed + its CI-gate detail
+ *  carrying the read-only "Re-check PR state" reconcile control. */
+function checksPassedTree() {
+	return {
+		title: "ez-code-factory",
+		nodes: [
+			{ type: "markdown", content: "Runs created by `git push gate <branch>`." },
+			{
+				type: "table",
+				columns: ["Run", "Branch", "Head", "Status", "Updated"],
+				rows: [{ cells: [GREEN_RUN_ID, "feat/green", "abcdef01", "☑ checks passed", "2026-07-16 05:00"] }],
+			},
+			{
+				type: "section",
+				title: `Run ${GREEN_RUN_ID} · feat/green`,
+				nodes: [
+					{
+						type: "stats",
+						items: [
+							{ label: "Status", value: "☑ checks passed" },
+							{ label: "Head", value: "abcdef01" },
+							{ label: "Intent", value: "none" },
+						],
+					},
+					{ type: "heading", level: 3, text: "Gate: ci (⏸ awaiting approval)" },
+					{
+						type: "empty-state",
+						title: "No findings to triage",
+						detail: "This gate is parked for a human decision — approve to continue, or skip the step.",
+					},
+					{ type: "button", label: "Approve step", action: { event: "ez-code-factory:respond", payload: { runId: GREEN_RUN_ID, step: "ci", action: "approve" } }, style: "primary" },
+					{ type: "button", label: "Re-check PR state", action: { event: "ez-code-factory:reconcile", payload: { runId: GREEN_RUN_ID } }, style: "secondary" },
+				],
+			},
+		],
+	};
+}
+
+/** The dashboard AFTER the reconcile resolves (PR merged): the run completed. */
+function reconciledTree() {
+	return {
+		title: "ez-code-factory",
+		nodes: [
+			{ type: "markdown", content: "Runs created by `git push gate <branch>`." },
+			{
+				type: "table",
+				columns: ["Run", "Branch", "Head", "Status", "Updated"],
+				rows: [{ cells: [GREEN_RUN_ID, "feat/green", "abcdef01", "✓ completed", "2026-07-16 05:02"] }],
+			},
+		],
+	};
+}
+
+test.describe("ez-code-factory checks_passed reconcile", () => {
+	test("re-check a checks_passed run's PR → reconcile event → completed on SSE re-pull @evidence", async ({
+		page,
+		mockApi,
+		emitSse,
+	}, testInfo) => {
+		await mockApi({ projects: [proj] });
+
+		const reconcileBodies: Array<Record<string, unknown>> = [];
+		let phase: "green" | "done" = "green";
+		let renders = 0;
+
+		await page.route("**/api/hub/pages", (route) => route.fulfill({ json: listing }));
+		await page.route(`**/api/hub/pages/${encodeURIComponent(EXT_ID)}`, (route) => {
+			renders++;
+			return route.fulfill({
+				json: { page: phase === "done" ? reconciledTree() : checksPassedTree(), renderedAt: Date.now() },
+			});
+		});
+		await page.route("**/api/extensions/ez-code-factory/events/reconcile", async (route) => {
+			reconcileBodies.push(route.request().postDataJSON() as Record<string, unknown>);
+			phase = "done"; // the merged PR resolved the gate → the run completes
+			return route.fulfill({ json: { ok: true } });
+		});
+
+		await page.goto(`/hub/${encodeURIComponent(EXT_ID)}`);
+
+		// The run rests at checks_passed and shows the CI gate + Re-check control.
+		await expect(page.getByTestId("hub-node-table").filter({ hasText: GREEN_RUN_ID })).toContainText("checks passed");
+		await expect(page.getByText("Gate: ci", { exact: false })).toBeVisible();
+		await captureEvidence(page, testInfo, "ez-code-factory-checks-passed");
+
+		// ── RE-CHECK: click "Re-check PR state" → POST a reconcile (no confirm).
+		await page.getByRole("button", { name: "Re-check PR state" }).click();
+		await expect
+			.poll(() => reconcileBodies.at(-1))
+			.toEqual({
+				source: "hub",
+				pageId: "dashboard",
+				payload: { runId: GREEN_RUN_ID },
+			});
+
+		// The merged PR completed the run; the SSE signal re-pulls → row flips.
+		const before = renders;
+		await emitSse({
+			type: "ext:page-state",
+			data: { extensionId: "ext-ez-code-factory", extensionName: "ez-code-factory", pageId: "dashboard", timestamp: Date.now() },
+		});
+		await expect(page.getByTestId("hub-node-table").filter({ hasText: GREEN_RUN_ID })).toContainText("completed");
+		await expect(page.getByText("Gate: ci", { exact: false })).toHaveCount(0);
+		expect(renders).toBeGreaterThan(before);
+		await captureEvidence(page, testInfo, "ez-code-factory-checks-passed-reconciled");
 	});
 });

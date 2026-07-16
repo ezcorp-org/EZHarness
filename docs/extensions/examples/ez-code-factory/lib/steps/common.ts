@@ -180,6 +180,12 @@ export interface StepOutcome {
   skipped?: boolean;
   /** Agent's one-line fix summary from this round, or "". */
   fixSummary?: string;
+  /** CI-only (M4, spec §1 step 9): checks went green while the PR is still open,
+   *  so the CI step EXITED rather than babysit it for days. The executor rests the
+   *  run at `checks_passed` (worktree torn down, lock released, PR left open); a
+   *  later `reconcile` completes it on merge/close. The CI step is left parked at
+   *  its gate (awaiting_approval) so reconcile finds it. */
+  checksPassed?: boolean;
 }
 
 /** The result of an opt-in reconcile poll: whether external truth (a merged /
@@ -206,6 +212,14 @@ export function intentIsAuthoritative(run: RunView): boolean {
 /** `refs/heads/<branch>` unless already a full ref. Verbatim normalizedBranchRef. */
 export function normalizedBranchRef(ref: string): string {
   return ref.startsWith("refs/") ? ref : `refs/heads/${ref}`;
+}
+
+/** The bare branch name — strips a leading `refs/heads/`. The inverse of
+ *  `normalizedBranchRef` for the common case; used wherever a plain branch name
+ *  (not a ref) is required: the `gh pr --head` / `gh run list --branch` flags
+ *  reject a `refs/heads/` prefix. */
+export function bareBranchName(ref: string): string {
+  return ref.startsWith("refs/heads/") ? ref.slice("refs/heads/".length) : ref;
 }
 
 /** Deterministic fix-commit message — renamed prefix. Verbatim shape. */

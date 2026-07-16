@@ -128,10 +128,13 @@ function isImplemented(deps: ExecutorDeps, step: PipelineStep): boolean {
   return IMPLEMENTED_STEPS.has(step) && STEP_REGISTRY[step] !== null;
 }
 
-/** Terminal or paused result of a pipeline invocation. */
+/** Terminal or paused result of a pipeline invocation. `checks_passed` is a
+ *  RESTING (not terminal) outcome the CI step produces when checks go green (spec
+ *  §1 step 9): the run released its worktree + lock but the PR is still open, so a
+ *  later `reconcile` advances it to `completed`. */
 export interface PipelineOutcome {
-  status: "completed" | "failed" | "aborted" | "parked";
-  /** The step the run parked at (when status === "parked"). */
+  status: "completed" | "failed" | "aborted" | "parked" | "checks_passed";
+  /** The step the run parked/rested at (when status === "parked" | "checks_passed"). */
   parkedStep?: PipelineStep;
   /** The failure/abort reason (when failed/aborted). */
   error?: string;
@@ -270,7 +273,7 @@ async function setRunStatus(
 
 // ── fix loop (executeStep, executor.go) ─────────────────────────────
 
-type StepLoopKind = "completed" | "skipped" | "skipRemaining" | "parked";
+type StepLoopKind = "completed" | "skipped" | "skipRemaining" | "parked" | "checksPassed";
 
 /**
  * Execute one step with the auto-fix loop. Persists a round per execution and
@@ -340,7 +343,15 @@ async function runStepFixLoop(
       continue;
     }
 
-    if (outcome.needsApproval !== true && !hasAskUserFindingsJSON(findings)) {
+    if (outcome.checksPassed === true) {
+      // CI checks went green (spec §1 step 9): rest the run at checks_passed. The
+      // STEP is left parked at its gate (awaiting_approval) so a later reconcile
+      // finds it and completes it on merge/close; the RUN status transition (to
+      // the resting checks_passed) is applied by advance().
+      sr.status = "awaiting_approval";
+      await deps.store.putStepResult(sr);
+      terminal = { kind: "checksPassed", findings };
+    } else if (outcome.needsApproval !== true && !hasAskUserFindingsJSON(findings)) {
       terminal = {
         kind: outcome.skipRemaining ? "skipRemaining" : outcome.skipped ? "skipped" : "completed",
         findings,
@@ -439,6 +450,12 @@ async function advance(
     if (result.kind === "parked") {
       return park(deps, run.id, step);
     }
+    if (result.kind === "checksPassed") {
+      // The CI step already left its own gate parked (awaiting_approval); rest the
+      // RUN at checks_passed and return. The worktree + lock release because the
+      // index maps a non-"parked" outcome to teardown.
+      return checksPassedRest(deps, run.id, step);
+    }
     if (result.kind === "skipRemaining") {
       await completeStepStatus(deps, sr, "completed");
       await skipRemainingSteps(deps, run.id, i + 1);
@@ -454,6 +471,21 @@ async function park(deps: ExecutorDeps, runId: string, step: PipelineStep): Prom
   const nowIso = new Date(deps.now()).toISOString();
   await setRunStatus(deps, runId, { status: "awaiting_approval", awaitingAgentSince: nowIso });
   return { status: "parked", parkedStep: step };
+}
+
+/**
+ * Rest the run at `checks_passed` (spec §1 step 9): the CI step saw green checks
+ * and exited instead of babysitting the open PR. Records `awaitingAgentSince` so
+ * a later reconcile accounts the parked time exactly as an approve/reconcile
+ * would. The run is NOT terminal and NOT `parked` — the index maps this to a
+ * worktree teardown + lock release (the resource win over the old multi-day
+ * poll), while the CI step stays parked so `reconcileGate` completes the run on
+ * merge/close.
+ */
+async function checksPassedRest(deps: ExecutorDeps, runId: string, step: PipelineStep): Promise<PipelineOutcome> {
+  const nowIso = new Date(deps.now()).toISOString();
+  await setRunStatus(deps, runId, { status: "checks_passed", awaitingAgentSince: nowIso });
+  return { status: "checks_passed", parkedStep: step };
 }
 
 // ── public entry points ─────────────────────────────────────────────

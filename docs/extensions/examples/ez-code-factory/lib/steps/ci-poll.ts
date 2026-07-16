@@ -35,11 +35,6 @@ export function hasPendingChecks(checks: Check[]): boolean {
   return checks.some(checkPending);
 }
 
-/** Any check in the fail bucket. Verbatim hasFailingChecks. */
-export function hasFailingChecks(checks: Check[]): boolean {
-  return checks.some(checkFailing);
-}
-
 /** Names of failing checks, SORTED (stable dedup key). Verbatim failingCheckNames + sort. */
 export function failingCheckNames(checks: Check[]): string[] {
   return checks.filter(checkFailing).map((c) => c.name).sort();

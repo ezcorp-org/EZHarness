@@ -36,11 +36,14 @@ import type {
   StepStatus,
 } from "./runs";
 
-/** The full namespaced events the detail controls dispatch. Both are declared
+/** The full namespaced events the detail controls dispatch. All are declared
  *  in `ezcorp.config.ts` eventSubscriptions (the host allowlists page actions
  *  against that list). */
 export const RESPOND_EVENT = `${EXTENSION_NAME}:respond`;
 export const YOLO_EVENT = `${EXTENSION_NAME}:yolo`;
+/** The M4 reconcile event: re-check a run parked at (or rested past) the CI gate.
+ *  A read-only PR-state poll that completes the run once its PR merges/closes. */
+export const RECONCILE_EVENT = `${EXTENSION_NAME}:reconcile`;
 
 /** Human badge per run status. */
 export const STATUS_BADGE: Record<RunStatus, string> = {
@@ -48,6 +51,7 @@ export const STATUS_BADGE: Record<RunStatus, string> = {
   worktree_ready: "▶ worktree",
   running: "● running",
   awaiting_approval: "⏸ awaiting approval",
+  checks_passed: "☑ checks passed",
   completed: "✓ completed",
   failed: "✗ failed",
   aborted: "⊘ aborted",
@@ -262,6 +266,17 @@ export function appendRunDetail(page: PageBuilder, detail: RunDetail): void {
     // abort cancels the run; yolo auto-approves every remaining gate. Skip and
     // abort confirm; yolo confirms (it's a bulk auto-approve).
     section.button("Approve step", stepAction(run.id, step, "approve"), "primary");
+    // CI gate only: re-check the PR state (read-only reconcile). Completes the run
+    // once its PR merges/closes; leaves it parked/resting while still open. This is
+    // the intended action for a checks_passed run (worktree already torn down) and
+    // a CI-timeout-parked run alike — no confirm (it never mutates the branch).
+    if (step === "ci") {
+      section.button(
+        "Re-check PR state",
+        { event: RECONCILE_EVENT, payload: { runId: run.id } },
+        "secondary",
+      );
+    }
     section.button(
       "Skip step",
       stepAction(run.id, step, "skip", `Skip the "${step}" step for run ${run.id}?`),
@@ -384,12 +399,13 @@ export function normalizeRespondPayload(raw: unknown): unknown {
 }
 
 /**
- * Validate a `yolo` action payload — requires a non-empty string `runId`.
+ * Validate a single-run action payload — requires a non-empty string `runId`.
  * Returns the trimmed runId or null (the handler logs "invalid payload" and
- * no-ops). Never throws. Deliberately minimal: the autopilot re-reads the run
- * + its parked step from the store, so no other field is trusted from the wire.
+ * no-ops). Never throws. Deliberately minimal: the handlers (yolo autopilot,
+ * reconcile) re-read the run + its parked step from the store, so no other field
+ * is trusted from the wire — hence a neutral name shared by both callers.
  */
-export function parseYoloRunId(payload: unknown): string | null {
+export function parseRunIdPayload(payload: unknown): string | null {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
   const runId = (payload as Record<string, unknown>).runId;
   if (typeof runId !== "string") return null;

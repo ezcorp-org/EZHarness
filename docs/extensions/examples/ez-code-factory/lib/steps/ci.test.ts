@@ -162,11 +162,22 @@ describe("ci skip conditions", () => {
 // ── happy paths ──────────────────────────────────────────────────────
 
 describe("ci monitoring outcomes", () => {
-  test("checks pass then PR merges → complete", async () => {
+  test("checks green while PR open → checks_passed rest outcome (exits, no babysit)", async () => {
+    // Spec §1 step 9: the instant checks go green the loop EXITS with the resting
+    // checks_passed outcome instead of polling for days — it never observes the
+    // later MERGED state (the executor rests the run + a reconcile completes it).
     const passing = [[{ name: "build", bucket: "pass", completedAt: "" }]];
-    const { ctx, logs } = makeCtx({ gh: fakeGh({ states: ["OPEN", "OPEN", "MERGED"], checks: passing }) });
-    expect(await step().execute(ctx)).toEqual({});
+    const { ctx, logs } = makeCtx({ gh: fakeGh({ states: ["OPEN", "MERGED"], checks: passing }) });
+    expect(await step().execute(ctx)).toEqual({ checksPassed: true });
     expect(logs.join()).toContain("checks passed");
+    expect(logs.join()).not.toContain("PR has been merged");
+  });
+
+  test("PR merged before checks report → complete (no checks_passed)", async () => {
+    // getPRState is checked first each poll, so a PR merged before any green check
+    // completes the run directly — checks_passed only fires on an OPEN green PR.
+    const { ctx, logs } = makeCtx({ gh: fakeGh({ states: ["MERGED"], checks: [[{ name: "build", bucket: "pass", completedAt: "" }]] }) });
+    expect(await step().execute(ctx)).toEqual({});
     expect(logs.join()).toContain("PR has been merged");
   });
 

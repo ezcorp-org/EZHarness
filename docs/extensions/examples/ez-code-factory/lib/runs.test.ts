@@ -637,6 +637,31 @@ describe("runGateLifecycle (real git)", () => {
     expect(store.runs.get(res.runId)!.status).toBe("completed");
   });
 
+  test("a pipeline that rests at checks_passed tears the worktree down (green path releases resources)", async () => {
+    const { gateDir, sha, repoId } = await seedGate();
+    const store = memStore();
+    // The CI step went green and rested the run at checks_passed (H2, spec §1
+    // step 9): NOT parked, so the lifecycle releases the worktree + the branch
+    // lock here rather than babysitting the open PR for days.
+    const res = await runGateLifecycle(
+      { repoId, branch: "feat/x", ref: "refs/heads/feat/x", newSha: sha },
+      {
+        gateDir,
+        tmpBase: join(root, "tmp-checks-passed"),
+        store,
+        run: productionHostRunner,
+        runPipeline: async ({ runId }) => {
+          await store.updateRun(runId, { status: "checks_passed" });
+          return { parked: false };
+        },
+      },
+    );
+    expect(res.status).toBe("checks_passed");
+    // A resting (non-terminal, non-parked) run still releases its worktree.
+    expect(existsSync(res.worktreePath)).toBe(false);
+    expect(store.runs.get(res.runId)!.status).toBe("checks_passed");
+  });
+
   test("worktree-add failure marks the run failed without leaking a checkout", async () => {
     const { gateDir, repoId } = await seedGate();
     const store = memStore();
@@ -779,6 +804,8 @@ describe("isTerminalRunStatus", () => {
       worktree_ready: false,
       running: false,
       awaiting_approval: false,
+      // A resting green run is NOT terminal — a reconcile can still complete it.
+      checks_passed: false,
       completed: true,
       failed: true,
       aborted: true,

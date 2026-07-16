@@ -39,15 +39,39 @@ export type ShellRunner = (
  * M0 shells git directly on the host with no ez-sandbox containment (the nested
  * jail lands in M1+ per spec §6); the hermetic global-config pin is the only
  * hardening here.
+ *
+ * MISSING-EXECUTABLE = exit 127, NOT a throw: `Bun.spawn` throws synchronously
+ * (ENOENT) when the argv[0] binary is not on PATH. A real shell reports "command
+ * not found" as exit 127 and keeps running; this runner mirrors that so a caller
+ * probing an optional tool sees a non-zero ShellResult instead of an exception.
+ * The pr/ci steps depend on this: `gh` is NOT in the base image, so
+ * `GitHubHost.available()` (a `gh auth status` probe) must SKIP-not-fail — a
+ * synchronous throw here would instead propagate to `advance` → `failRun` and
+ * fail every GitHub-upstream gate run. (A missing `git` also maps to 127, which
+ * surfaces as ordinary non-zero git results the steps already handle.)
  */
 export const productionHostRunner: ShellRunner = async (cmd, cwd, opts) => {
-  const proc = Bun.spawn(cmd, {
-    cwd,
-    env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", ...opts?.env },
-    stdin: opts?.stdin !== undefined ? "pipe" : "ignore",
-    stdout: "pipe",
-    stderr: "pipe",
-  });
+  // A local factory so `ReturnType<typeof startProc>` keeps Bun's precise
+  // Subprocess typing (stdin/stdout FileSink/ReadableStream) inferred from the
+  // options literal — annotating `proc: ReturnType<typeof Bun.spawn>` directly
+  // would widen the stdio fields to their default `number` union.
+  const startProc = () =>
+    Bun.spawn(cmd, {
+      cwd,
+      env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", ...opts?.env },
+      stdin: opts?.stdin !== undefined ? "pipe" : "ignore",
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+  let proc: ReturnType<typeof startProc>;
+  try {
+    proc = startProc();
+  } catch (err) {
+    // ENOENT (missing binary) or an unreadable cwd — 127, the shell convention
+    // for "command not found", so the runner boundary never throws.
+    const detail = err instanceof Error ? err.message : String(err);
+    return { exitCode: 127, stdout: "", stderr: `${cmd[0]}: ${detail}` };
+  }
   if (opts?.stdin !== undefined && proc.stdin) {
     proc.stdin.write(opts.stdin);
     await proc.stdin.end();

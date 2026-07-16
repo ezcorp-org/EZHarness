@@ -125,21 +125,35 @@ checks:
 - **CI is polled with an injected clock** (30s → 60s → 120s), with an idle
   timeout (default 7 days, `ciTimeoutHours` setting; `-1` = never) that re-arms
   whenever the base branch advances. On failure it fetches the failed logs,
-  drives an agent fix, guarded-force-pushes, and resumes (cap 3). A run parked at
-  the CI gate auto-resolves once its PR is merged/closed
-  (`ez-code-factory:reconcile` — a read-only ReconcileApprovalGate poll).
+  drives an agent fix, guarded-force-pushes, and resumes (cap 3).
+- **Green checks rest, they don't babysit.** The instant every reported check
+  passes on an open PR, the CI step EXITS and the run rests at `checks_passed`:
+  the worktree is torn down and the per-branch lock released, the PR left open.
+  It does NOT hold those resources for days waiting on a human merge. The run is
+  not failed and not fully completed — a **Re-check PR state** button on the
+  dashboard (or any `ez-code-factory:reconcile` POST) re-reads the PR state and
+  completes the run once it merges/closes. Re-check is **manual** today; a
+  periodic auto-sweep that reconciles parked/rested runs without a click lands in
+  M6, together with supersede-on-new-push and reclaiming a genuinely
+  failing/pending CI held until the idle timeout.
 - **Skip-not-fail.** pr/ci quietly skip on the default branch, on a non-GitHub
-  upstream, or when `gh` is unauthenticated.
+  upstream, or when `gh` is unauthenticated **or not installed**. `gh` is NOT in
+  the base container image — operators who want PR/CI must make `gh` available on
+  the daemon's `PATH` (e.g. `gh auth login` on the host). Without it PR/CI
+  gracefully skip; the pipeline still runs review/test/lint/push.
 
 ### GitHub token setup
 
-The pr/ci steps shell `gh`, which needs auth. Two options:
+The pr/ci steps shell `gh` (which must be installed on the host `PATH`), and it
+needs auth. Two options:
 
 1. **`gh auth login`** on the host — the extension inherits gh's ambient auth.
 2. **The `GitHub token` setting** on `/extensions/ez-code-factory` — a
    `type:"secret"` field stored **encrypted** in user Storage (key
-   `github-token`), never shown again. It needs `repo` + `pull_request` scope.
-   The extension passes it to `gh` via `GH_TOKEN` at spawn time; a
+   `github-token`), never shown again. Scopes: a **classic** PAT needs `repo`; a
+   **fine-grained** PAT needs **Pull requests: read & write** (open/update PRs)
+   plus **Checks: read** and **Actions: read** (the CI-checks + failed-log
+   paths). The extension passes it to `gh` via `GH_TOKEN` at spawn time; a
    `GH_TOKEN`/`GITHUB_TOKEN` already in the process env overrides it.
 
 An env name matching `/_TOKEN$/i` is refused for a `permissions.env` grant at
@@ -149,12 +163,20 @@ declared in the manifest.
 ## Permissions
 
 `storage` (self-tracked run + step records), `shell` (git orchestration +
-per-run worktree lifecycle + the pr/ci `gh` calls), `network: ["api.github.com"]`
-(the narrow allowlist `gh` reaches — github.com only), and
-`filesystem: ["$CWD"]` (the gate repo, hook, and credential all live under
+per-run worktree lifecycle + the pr/ci `gh` calls), `network: ["api.github.com"]`,
+and `filesystem: ["$CWD"]` (the gate repo, hook, and credential all live under
 `<projectRoot>/.ezcorp/extension-data/ez-code-factory/`). The push-trigger
 callback itself is still made by the post-receive hook (a shell process git runs
 at push time), not the extension subprocess.
+
+**On the `network` grant — it is DECLARATIVE, not a `gh` sandbox.** The
+`network: ["api.github.com"]` allowlist documents intent and is enforced only on
+in-process `fetch` (via `src/extensions/runtime/network-wrapper.ts`). It does
+**not** constrain the `gh` subprocess this extension spawns: `gh` makes its own
+network calls outside that wrapper, and `gh run view --log-failed` in particular
+follows redirects to non-GitHub object storage to fetch logs. Treat the grant as
+a statement of where the extension's *own* code reaches, not a hard boundary on
+what `gh` can talk to.
 
 ## Storage
 

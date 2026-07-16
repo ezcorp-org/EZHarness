@@ -116,11 +116,12 @@ export default defineExtension({
     // ENCRYPTED in user Storage under the `github-token` key (never in the
     // settings JSON, never echoed). An env name matching /_TOKEN$/i is refused at
     // install for a `permissions.env` grant — this `type:"secret"` field is the
-    // supported path. Needs `repo` + `pull_request` scope to open/update PRs and
-    // read checks. See README "GitHub token setup".
+    // supported path. Scopes: a classic PAT needs `repo`; a fine-grained PAT
+    // needs Pull requests (write) + Checks (read) + Actions (read). See README
+    // "GitHub token setup".
     githubToken: {
       type: "secret",
-      label: "GitHub token (repo + pull_request scope)",
+      label: "GitHub token (classic: repo — or fine-grained: PRs write + Checks/Actions read)",
       description:
         "Personal access token gh uses to open/update PRs and read CI checks. " +
         "Stored encrypted; never shown again. Leave unset to use gh's own " +
@@ -138,8 +139,12 @@ export default defineExtension({
     // post-receive hook — installed on the gate repo, run by git at push time —
     // is what calls back into the platform.
     shell: true,
-    // `gh` reaches the GitHub API. Narrow allowlist — only api.github.com (the
-    // v1 GitHub-only scope; GHE hosts are out of scope).
+    // DECLARATIVE grant — documents that the extension's own code only talks to
+    // api.github.com (v1 GitHub-only scope; GHE hosts out of scope). It is
+    // enforced by the host ONLY on in-process `fetch`
+    // (src/extensions/runtime/network-wrapper.ts); it does NOT constrain the `gh`
+    // subprocess, which makes its own calls outside that wrapper and, for
+    // `gh run view --log-failed`, follows redirects to non-GitHub object storage.
     network: ["api.github.com"],
     // Pipeline agent turns (review, rebase-conflict fix) run as EZCorp-native
     // spawn-assignment sub-agents (decision #2) — host-brokered LLM only, no

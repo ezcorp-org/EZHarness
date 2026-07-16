@@ -34,6 +34,7 @@ import {
   PR_CONTENT_SCHEMA,
 } from "../prompts";
 import {
+  bareBranchName,
   intentIsAuthoritative,
   repoDispatchOptions,
   resolveBranchBaseSHA,
@@ -47,11 +48,6 @@ export const prStep: Step = {
   execute: executePR,
 };
 
-/** Strip a `refs/heads/` prefix. */
-function branchName(ref: string): string {
-  return ref.startsWith("refs/heads/") ? ref.slice("refs/heads/".length) : ref;
-}
-
 /** The gate repo's upstream URL (its `origin`, set at init to the real remote),
  *  read from the worktree — a linked worktree shares the repo's remote config.
  *  "" when unreadable (→ provider unknown → skip). */
@@ -61,7 +57,7 @@ async function resolveUpstreamUrl(sctx: StepContext): Promise<string> {
 }
 
 async function executePR(sctx: StepContext): Promise<StepOutcome> {
-  const branch = branchName(sctx.run.branch);
+  const branch = bareBranchName(sctx.run.branch);
   const defaultBranch = sctx.repo.defaultBranch.trim() || "main";
   if (branch === defaultBranch) {
     sctx.log(`skipping PR creation on default branch ${branch}`);

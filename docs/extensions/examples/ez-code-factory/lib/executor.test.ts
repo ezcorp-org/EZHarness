@@ -643,6 +643,64 @@ describe("StepContext seams", () => {
   });
 });
 
+// ── checks_passed resting outcome (H2, spec §1 step 9) ──────────────
+
+describe("startPipeline — CI checks_passed rest", () => {
+  test("a CI checksPassed outcome rests the run at checks_passed, CI step parked", async () => {
+    const store = memStore();
+    const id = await seedRun(store);
+    const clock = { t: 4000 };
+    // A ci step that reports green checks. Every earlier implemented step is clean.
+    const ci = scriptStep("ci", [{ checksPassed: true }]);
+    const deps = makeDeps(
+      store,
+      registry({
+        intent: scriptStep("intent", [clean]),
+        rebase: scriptStep("rebase", [clean]),
+        review: scriptStep("review", [clean]),
+        push: scriptStep("push", [clean]),
+        ci,
+      }),
+      clock,
+    );
+    const outcome = await startPipeline(id, deps);
+    // Not terminal, not parked — a distinct resting outcome pointing at ci.
+    expect(outcome).toEqual({ status: "checks_passed", parkedStep: "ci" });
+    const run = (await store.getRun(id))!;
+    expect(run.status).toBe("checks_passed");
+    // awaitingAgentSince is set so a later reconcile can account the parked time.
+    expect(run.awaitingAgentSince).toBe(new Date(clock.t).toISOString());
+    // The CI STEP is left parked so reconcileGate finds + completes it on merge.
+    expect((await store.getStepResult(id, "ci"))!.status).toBe("awaiting_approval");
+  });
+
+  test("a subsequent reconcile on a merged PR advances checks_passed → completed", async () => {
+    const store = memStore();
+    const id = await seedRun(store);
+    const clock = { t: 1000 };
+    // A ci step that first rests (checksPassed) then, on the reconcile poll,
+    // reports its PR merged.
+    const ci: Step = {
+      name: "ci",
+      async execute() {
+        return { checksPassed: true };
+      },
+      async reconcileApprovalGate() {
+        return { resolved: true };
+      },
+    };
+    const deps = makeDeps(store, registry({ intent: scriptStep("intent", [clean]), ci }), clock);
+    expect((await startPipeline(id, deps)).status).toBe("checks_passed");
+
+    // The PR later merges → a reconcile completes the run (worktree already gone).
+    clock.t = 9000;
+    const outcome = await reconcileGate(id, deps);
+    expect(outcome.status).toBe("completed");
+    expect((await store.getRun(id))!.status).toBe("completed");
+    expect((await store.getStepResult(id, "ci"))!.status).toBe("completed");
+  });
+});
+
 // ── reconcileGate (opt-in ReconcileApprovalGate driver) ─────────────
 
 describe("reconcileGate", () => {
