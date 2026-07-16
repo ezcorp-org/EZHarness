@@ -50,6 +50,8 @@ import { productionHostRunner, type ShellRunner } from "./lib/shell";
 import { PIPELINE_STEPS, resolvePipelineConfig, type PipelineConfig, type PipelineStep } from "./lib/config";
 import { makeSpawnDispatcher } from "./lib/agent";
 import { makeJailedShell } from "./lib/jail";
+import { makeGit } from "./lib/git";
+import { resolveTrustedRepoConfig } from "./lib/repo-config";
 import { startPipeline, respondToGate, type ExecutorDeps } from "./lib/executor";
 
 /** Full namespaced action name the post-receive hook triggers. */
@@ -160,10 +162,17 @@ function buildExecutorDeps(
     worktree: worktreePath,
     gateDir,
     workingPath: projectRoot,
+    tmpBase: tmpBaseImpl(),
     config,
     dispatcher: makeSpawnDispatcher({ evidenceDir }),
     hostRunner: shellImpl,
     jailedRunner: makeJailedShell(gateDir, projectRoot),
+    // SECURITY (spec §1 invariant 1): resolve the trusted-branch-gated repo
+    // config from the freshly-fetched default branch BEFORE any agent runs. The
+    // pushed copy is read from the worktree HEAD (the checked-out pushed SHA). A
+    // failure here aborts the run fail-closed inside startPipeline.
+    resolveRepoConfig: () =>
+      resolveTrustedRepoConfig(makeGit(shellImpl, worktreePath), config.defaultBranch, "HEAD"),
     now: () => Date.now(),
     onChange: refreshDashboard,
     log: (runId, step, message) =>

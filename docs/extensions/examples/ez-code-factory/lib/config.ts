@@ -25,12 +25,15 @@ export const PIPELINE_STEPS = [
 
 export type PipelineStep = (typeof PIPELINE_STEPS)[number];
 
-/** Steps M1 executes for real. Every other step is registered and auto-skipped
- *  with a "lands in M3/M4" note until its milestone ships. */
-export const M1_IMPLEMENTED_STEPS: ReadonlySet<PipelineStep> = new Set<PipelineStep>([
+/** Steps executed for real. M1 shipped intent/rebase/review/push; M3 adds
+ *  test/document/lint. Only pr/ci remain registered-but-auto-skipped (M4). */
+export const IMPLEMENTED_STEPS: ReadonlySet<PipelineStep> = new Set<PipelineStep>([
   "intent",
   "rebase",
   "review",
+  "test",
+  "document",
+  "lint",
   "push",
 ]);
 

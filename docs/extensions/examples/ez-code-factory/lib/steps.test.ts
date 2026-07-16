@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { productionHostRunner, type ShellRunner } from "./shell";
 import { makeGit } from "./git";
 import { defaultPipelineConfig } from "./config";
+import { emptyRepoConfig } from "./repo-config";
 import type { AgentDispatcher, DispatchOptions, DispatchResult } from "./agent";
 import {
   normalizedBranchRef,
@@ -19,6 +20,7 @@ import {
   extractCommitSummary,
   executeFixMode,
   gitAt,
+  makeRunShared,
   type StepContext,
   type RunView,
 } from "./steps/common";
@@ -72,6 +74,9 @@ interface CtxOverrides {
   jailedRunner?: ShellRunner;
   hostRunner?: ShellRunner;
   config?: StepContext["config"];
+  repoConfig?: StepContext["repoConfig"];
+  shared?: StepContext["shared"];
+  tmpBase?: string;
 }
 
 function makeCtx(worktree: string, headSha: string, over: CtxOverrides = {}): {
@@ -86,6 +91,7 @@ function makeCtx(worktree: string, headSha: string, over: CtxOverrides = {}): {
   const ctx: StepContext = {
     worktree,
     gateDir: over.gateDir ?? worktree,
+    tmpBase: over.tmpBase ?? "/tmp",
     run: {
       id: "r1",
       branch: "feat/x",
@@ -98,6 +104,8 @@ function makeCtx(worktree: string, headSha: string, over: CtxOverrides = {}): {
     },
     repo: { defaultBranch: "main", workingPath: "", ...over.repo },
     config: over.config ?? defaultPipelineConfig(),
+    repoConfig: over.repoConfig ?? emptyRepoConfig(),
+    shared: over.shared ?? makeRunShared(),
     fixing: over.fixing ?? false,
     previousFindings: over.previousFindings ?? "",
     rounds: over.rounds ?? [],

@@ -85,6 +85,17 @@ function memStore(): RunStore & { runs: Map<string, RunRecord> } {
 /** A git runner that succeeds for every command (worktree ops as no-ops). */
 const okShell: ShellRunner = async () => ({ exitCode: 0, stdout: "", stderr: "" });
 
+/** okShell plus a resolvable default-branch SHA, so the M3 trusted-config
+ *  resolver (fetch → resolve → assert) proceeds instead of aborting fail-closed
+ *  (config absent on the default branch → not opted out → run proceeds). Use for
+ *  DEFAULT-runPipeline tests that exercise the real executor end-to-end. */
+const trustedOkShell: ShellRunner = async (cmd, cwd, opts) => {
+  if (cmd.join(" ").includes("rev-parse") && cmd.includes("refs/remotes/origin/main^{commit}")) {
+    return { exitCode: 0, stdout: `${"a".repeat(40)}\n`, stderr: "" };
+  }
+  return okShell(cmd, cwd, opts);
+};
+
 const VALID_PUSH = {
   repoId: "0123456789ab",
   branch: "feat/x",
@@ -632,7 +643,11 @@ describe("production pipeline wiring (default runners)", () => {
   test("default runPipeline drives the real executor (rebase empty-diff → completed)", async () => {
     _setProjectRootForTests(() => "/proj");
     _setTmpBaseForTests(() => "/tmp/ext");
-    _setShellForTests(okShell); // host git no-ops → rebase short-circuits (empty diff)
+    // Host git no-ops → rebase short-circuits (empty diff); the resolver's
+    // default-branch resolve returns a SHA so trusted-config resolution proceeds
+    // (config absent on the default branch → not opted out) instead of aborting
+    // fail-closed before the pipeline (spec §1 invariant 1).
+    _setShellForTests(trustedOkShell);
     const store = memStore();
     _setStoreForTests(store);
     _setPushPageForTests(() => {});
@@ -799,7 +814,7 @@ describe("settings live-read", () => {
     }) as HostChannel["request"]);
     _setProjectRootForTests(() => "/proj");
     _setTmpBaseForTests(() => "/tmp/ext");
-    _setShellForTests(okShell);
+    _setShellForTests(trustedOkShell);
     const store = memStore();
     _setStoreForTests(store);
     _setPushPageForTests(() => {});
@@ -821,7 +836,7 @@ describe("settings live-read", () => {
     }) as HostChannel["request"]);
     _setProjectRootForTests(() => "/proj");
     _setTmpBaseForTests(() => "/tmp/ext");
-    _setShellForTests(okShell);
+    _setShellForTests(trustedOkShell);
     const store = memStore();
     _setStoreForTests(store);
     _setPushPageForTests(() => {});
@@ -848,7 +863,7 @@ describe("settings live-read", () => {
     });
     _setProjectRootForTests(() => "/proj");
     _setTmpBaseForTests(() => "/tmp/ext");
-    _setShellForTests(okShell); // host no-ops → real executor runs to completion
+    _setShellForTests(trustedOkShell); // host no-ops + resolvable trusted branch → real executor runs to completion
     const store = memStore();
     _setStoreForTests(store);
     _setPushPageForTests(() => {});

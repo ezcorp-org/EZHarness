@@ -14,6 +14,7 @@ import { Storage, withLock } from "@ezcorp/sdk/runtime";
 import type { StorageScope } from "@ezcorp/sdk/runtime";
 import type { ShellRunner } from "./shell";
 import { PIPELINE_STEPS, type PipelineStep } from "./config";
+import type { RepoConfig } from "./repo-config";
 
 // ── Persistence schema (spec §1 subset for M0/M1) ───────────────────
 
@@ -70,6 +71,10 @@ export interface RunRecord {
   /** Provenance of `intent`: "agent" = explicit/authoritative. Empty/null when
    *  no intent. (Inferred sources — "claude"/"codex"/… — arrive in M5.) */
   intentSource: string | null;
+  /** The TRUSTED-branch-gated per-repo config, resolved once at startPipeline and
+   *  reused by every respond (spec §1 invariant 1). Absent until resolved (M0/M1
+   *  runs, or before the first pipeline start). */
+  repoConfig?: RepoConfig;
   error?: string;
 }
 

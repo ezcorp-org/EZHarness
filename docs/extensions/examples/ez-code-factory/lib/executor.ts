@@ -14,13 +14,14 @@
 
 import {
   autoFixLimit,
-  M1_IMPLEMENTED_STEPS,
+  IMPLEMENTED_STEPS,
   PIPELINE_STEPS,
   type PipelineConfig,
   type PipelineStep,
 } from "./config";
 import type { AgentDispatcher } from "./agent";
 import { makeGit } from "./git";
+import { emptyRepoConfig, type RepoConfig } from "./repo-config";
 import type { ShellRunner } from "./shell";
 import {
   deserializeFindings,
@@ -42,10 +43,13 @@ import {
   mergeUserOverridesJSON,
   normalizeFindingsJSON,
 } from "./findings";
-import type { RunView, Step, StepContext, StepOutcome } from "./steps/common";
+import { makeRunShared, type RunShared, type RunView, type Step, type StepContext, type StepOutcome } from "./steps/common";
 import { intentStep } from "./steps/intent";
 import { rebaseStep } from "./steps/rebase";
 import { reviewStep } from "./steps/review";
+import { testStep } from "./steps/test";
+import { documentStep } from "./steps/document";
+import { lintStep } from "./steps/lint";
 import { pushStep } from "./steps/push";
 
 /** Registry of the pipeline steps. `null` = registered but not implemented yet
@@ -54,9 +58,9 @@ export const STEP_REGISTRY: Record<PipelineStep, Step | null> = {
   intent: intentStep,
   rebase: rebaseStep,
   review: reviewStep,
-  test: null,
-  document: null,
-  lint: null,
+  test: testStep,
+  document: documentStep,
+  lint: lintStep,
   push: pushStep,
   pr: null,
   ci: null,
@@ -75,6 +79,20 @@ export interface ExecutorDeps {
   dispatcher: AgentDispatcher;
   hostRunner: ShellRunner;
   jailedRunner: ShellRunner;
+  /** Base dir for per-run test-evidence artifacts (the per-extension TMPDIR).
+   *  Threaded to every StepContext; defaults to "/tmp" when omitted. */
+  tmpBase?: string;
+  /**
+   * SECURITY (spec §1 invariant 1): resolve the TRUSTED-branch-gated per-repo
+   * config BEFORE any agent dispatches. When set, startPipeline calls it once,
+   * PERSISTS the result on the run, and threads it to every step; a throw aborts
+   * the run fail-closed BEFORE `advance` (so no step — and thus no agent — runs).
+   * respondToGate never re-calls it: it reuses the persisted config, so a
+   * transient fetch failure can never kill a parked run mid-review. When omitted,
+   * the executor falls back to the run's persisted `repoConfig` (or an empty
+   * config) with no fetch — the shape M1 executor tests rely on.
+   */
+  resolveRepoConfig?: () => Promise<RepoConfig>;
   /** Injected clock (ms) so parked-time + round durations are deterministic. */
   now: () => number;
   /** Called after each persisted change (dashboard refresh). Optional. */
@@ -92,10 +110,10 @@ function registry(deps: ExecutorDeps): Record<PipelineStep, Step | null> {
 }
 
 /** The set of steps to execute for real (registered + non-null impl). Injected
- *  steps are all "implemented"; the default registry uses M1_IMPLEMENTED_STEPS. */
+ *  steps are all "implemented"; the default registry uses IMPLEMENTED_STEPS. */
 function isImplemented(deps: ExecutorDeps, step: PipelineStep): boolean {
   if (deps.steps) return deps.steps[step] !== null;
-  return M1_IMPLEMENTED_STEPS.has(step) && STEP_REGISTRY[step] !== null;
+  return IMPLEMENTED_STEPS.has(step) && STEP_REGISTRY[step] !== null;
 }
 
 /** Terminal or paused result of a pipeline invocation. */
@@ -171,13 +189,18 @@ function buildStepContext(
   rounds: StepRoundRecord[],
   fixing: boolean,
   previousFindings: string,
+  repoConfig: RepoConfig,
+  shared: RunShared,
 ): StepContext {
   return {
     worktree: deps.worktree,
     gateDir: deps.gateDir,
+    tmpBase: deps.tmpBase ?? "/tmp",
     run,
     repo: { defaultBranch: deps.config.defaultBranch, workingPath: deps.workingPath },
     config: deps.config,
+    repoConfig,
+    shared,
     fixing,
     previousFindings,
     rounds,
@@ -221,6 +244,8 @@ async function runStepFixLoop(
   run: RunView,
   initFixing: boolean,
   initPreviousFindings: string,
+  repoConfig: RepoConfig,
+  shared: RunShared,
 ): Promise<{ kind: StepLoopKind; findings: string }> {
   const cap = autoFixLimit(deps.config, impl.name);
   let fixing = initFixing;
@@ -231,7 +256,7 @@ async function runStepFixLoop(
   // exits naturally (no unreachable infinite-loop tail).
   while (terminal === null) {
     const rounds = await deps.store.getStepRounds(run.id, impl.name);
-    const sctx = buildStepContext(deps, run, impl.name, rounds, fixing, previousFindings);
+    const sctx = buildStepContext(deps, run, impl.name, rounds, fixing, previousFindings, repoConfig, shared);
     const roundStart = deps.now();
     const outcome: StepOutcome = await impl.execute(sctx);
     sr.round += 1;
@@ -346,6 +371,8 @@ async function advance(
   deps: ExecutorDeps,
   run: RunView,
   startIndex: number,
+  repoConfig: RepoConfig,
+  shared: RunShared,
 ): Promise<PipelineOutcome> {
   for (let i = startIndex; i < PIPELINE_STEPS.length; i++) {
     const step = PIPELINE_STEPS[i]!;
@@ -354,14 +381,14 @@ async function advance(
 
     const impl = registry(deps)[step];
     if (impl === null || !isImplemented(deps, step)) {
-      await skipStep(deps, sr, `${step} not implemented until M3/M4 — auto-skipped`);
+      await skipStep(deps, sr, `${step} not implemented until M4 — auto-skipped`);
       continue;
     }
 
     await completeStepStatus(deps, sr, "running");
     let result: { kind: StepLoopKind; findings: string };
     try {
-      result = await runStepFixLoop(deps, impl, sr, run, false, "");
+      result = await runStepFixLoop(deps, impl, sr, run, false, "", repoConfig, shared);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       sr.status = "failed";
@@ -391,13 +418,38 @@ async function park(deps: ExecutorDeps, runId: string, step: PipelineStep): Prom
 
 // ── public entry points ─────────────────────────────────────────────
 
+/**
+ * Resolve the run's TRUSTED-branch-gated repo config. When the `resolveRepoConfig`
+ * seam is wired, run it (fetch → resolve → assert → merge) — a throw means the
+ * trusted config was unreadable, which the caller turns into a fail-closed run
+ * failure BEFORE any step executes. When the seam is absent, reuse the run's
+ * persisted config (or an empty one) with no fetch. */
+async function resolveRunRepoConfig(deps: ExecutorDeps, rec: RunRecord): Promise<RepoConfig> {
+  if (deps.resolveRepoConfig) {
+    const resolved = await deps.resolveRepoConfig();
+    await deps.store.updateRun(rec.id, { repoConfig: resolved });
+    return resolved;
+  }
+  return rec.repoConfig ?? emptyRepoConfig();
+}
+
 /** Start (or restart from the top) a run's pipeline. */
 export async function startPipeline(runId: string, deps: ExecutorDeps): Promise<PipelineOutcome> {
   const rec = await deps.store.getRun(runId);
   if (!rec) return { status: "failed", error: `run ${runId} not found` };
   await setRunStatus(deps, runId, { status: "running" });
+  // SECURITY: resolve the trusted-branch config BEFORE any step — a fetch/resolve/
+  // parse failure aborts the run fail-closed, so no agent is ever dispatched
+  // against an unreadable trusted config (spec §1 invariant 1).
+  let repoConfig: RepoConfig;
+  try {
+    repoConfig = await resolveRunRepoConfig(deps, rec);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return failRun(deps, runId, `trusted config unreadable: ${message}`, "failed");
+  }
   const run = buildRunView({ ...rec, status: "running" });
-  return advance(deps, run, 0);
+  return advance(deps, run, 0, repoConfig, makeRunShared());
 }
 
 /**
@@ -430,20 +482,26 @@ export async function respondToGate(
   await setRunStatus(deps, runId, { status: "running" });
   const refreshed = (await deps.store.getRun(runId)) ?? rec;
   const run = buildRunView(refreshed);
+  // Reuse the config resolved (and persisted) at startPipeline — a respond never
+  // re-fetches, so a transient default-branch fetch failure can never kill a
+  // parked run mid-review. A fresh RunShared per respond gives the document→lint
+  // stash the correct invocation-scoped lifetime.
+  const repoConfig = refreshed.repoConfig ?? emptyRepoConfig();
+  const shared = makeRunShared();
 
   switch (input.action) {
     case "approve":
       await completeStepStatus(deps, sr, "completed");
-      return advance(deps, run, stepIndex + 1);
+      return advance(deps, run, stepIndex + 1, repoConfig, shared);
     case "skip":
       await completeStepStatus(deps, sr, "skipped");
-      return advance(deps, run, stepIndex + 1);
+      return advance(deps, run, stepIndex + 1, repoConfig, shared);
     case "abort":
       sr.status = "failed";
       await deps.store.putStepResult(sr);
       return failRun(deps, runId, `step ${input.step}: aborted by user`, "aborted");
     case "fix":
-      return applyFix(deps, run, sr, stepIndex, input);
+      return applyFix(deps, run, sr, stepIndex, input, repoConfig, shared);
   }
 }
 
@@ -454,6 +512,8 @@ async function applyFix(
   sr: StepResultRecord,
   stepIndex: number,
   input: RespondInput,
+  repoConfig: RepoConfig,
+  shared: RunShared,
 ): Promise<PipelineOutcome> {
   const impl = registry(deps)[input.step];
   if (impl === null) return { status: "failed", error: `step ${input.step} is not fixable` };
@@ -480,7 +540,7 @@ async function applyFix(
 
   let result: { kind: StepLoopKind; findings: string };
   try {
-    result = await runStepFixLoop(deps, impl, sr, run, true, merged);
+    result = await runStepFixLoop(deps, impl, sr, run, true, merged, repoConfig, shared);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     sr.status = "failed";
@@ -495,7 +555,7 @@ async function applyFix(
     return completeRun(deps, run.id);
   }
   await completeStepStatus(deps, sr, result.kind === "skipped" ? "skipped" : "completed");
-  return advance(deps, run, stepIndex + 1);
+  return advance(deps, run, stepIndex + 1, repoConfig, shared);
 }
 
 export { ZERO_SHA };

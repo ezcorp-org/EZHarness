@@ -17,6 +17,7 @@ import {
 } from "./runs";
 import type { AgentDispatcher } from "./agent";
 import type { Step, StepContext, StepOutcome } from "./steps/common";
+import { emptyRepoConfig, TrustedConfigError, type RepoConfig } from "./repo-config";
 
 // ── in-memory store ─────────────────────────────────────────────────
 
@@ -531,18 +532,102 @@ describe("respondToGate validation", () => {
   });
 });
 
+// ── M3: trusted-branch repo-config threading (spec §1 invariant 1) ──
+
+/** A scripted step that records the repoConfig it saw each execution. */
+function captureRepoConfigStep(name: PipelineStep, outcomes: StepOutcome[]): Step & { seen: RepoConfig[] } {
+  let i = 0;
+  const seen: RepoConfig[] = [];
+  return {
+    name,
+    seen,
+    async execute(sctx: StepContext) {
+      seen.push(sctx.repoConfig);
+      const o = outcomes[Math.min(i, outcomes.length - 1)]!;
+      i += 1;
+      return o;
+    },
+  };
+}
+
+describe("trusted-branch repo-config threading", () => {
+  test("SECURITY: a resolveRepoConfig throw ABORTS the run before any step/dispatch", async () => {
+    const store = memStore();
+    const id = await seedRun(store);
+    const review = scriptStep("review", [clean]);
+    const deps: ExecutorDeps = {
+      ...makeDeps(store, registry({ intent: scriptStep("intent", [clean]), review }), { t: 0 }),
+      resolveRepoConfig: async () => {
+        throw new TrustedConfigError("default branch unreadable");
+      },
+    };
+    const outcome = await startPipeline(id, deps);
+    expect(outcome.status).toBe("failed");
+    expect(outcome.error).toContain("trusted config unreadable");
+    // No step ran — the abort is BEFORE advance (so before any agent dispatch).
+    expect(review.calls.length).toBe(0);
+    expect((await store.getRun(id))!.status).toBe("failed");
+  });
+
+  test("resolved config is PERSISTED on the run and threaded to every step", async () => {
+    const store = memStore();
+    const id = await seedRun(store);
+    const resolved: RepoConfig = { ...emptyRepoConfig(), commands: { test: "bun test", lint: "", format: "" } };
+    const test = captureRepoConfigStep("test", [clean]);
+    const deps: ExecutorDeps = {
+      ...makeDeps(store, registry({ intent: scriptStep("intent", [clean]), test }), { t: 0 }),
+      resolveRepoConfig: async () => resolved,
+    };
+    await startPipeline(id, deps);
+    expect(test.seen[0]!.commands.test).toBe("bun test");
+    expect((await store.getRun(id))!.repoConfig!.commands.test).toBe("bun test");
+  });
+
+  test("respondToGate REUSES the persisted config (no re-resolve) for the fix/advance steps", async () => {
+    const store = memStore();
+    const id = await seedRun(store);
+    const resolved: RepoConfig = { ...emptyRepoConfig(), commands: { test: "persisted-cmd", lint: "", format: "" } };
+    const review = scriptStep("review", [blocking()]); // parks
+    const test = captureRepoConfigStep("test", [clean]);
+    let resolveCalls = 0;
+    const deps: ExecutorDeps = {
+      ...makeDeps(store, registry({ intent: scriptStep("intent", [clean]), review, test }), { t: 0 }),
+      resolveRepoConfig: async () => {
+        resolveCalls += 1;
+        return resolved;
+      },
+    };
+    expect((await startPipeline(id, deps)).status).toBe("parked");
+    expect(resolveCalls).toBe(1);
+    // Approving review advances to `test`, which must see the PERSISTED config
+    // without a second resolve (a respond never re-fetches the default branch).
+    await respondToGate(id, { step: "review", action: "approve" }, deps);
+    expect(resolveCalls).toBe(1);
+    expect(test.seen[0]!.commands.test).toBe("persisted-cmd");
+  });
+
+  test("without a resolveRepoConfig seam, steps get an empty config (M1 shape, no fetch)", async () => {
+    const store = memStore();
+    const id = await seedRun(store);
+    const test = captureRepoConfigStep("test", [clean]);
+    const deps = makeDeps(store, registry({ intent: scriptStep("intent", [clean]), test }), { t: 0 });
+    await startPipeline(id, deps);
+    expect(test.seen[0]).toEqual(emptyRepoConfig());
+  });
+});
+
 // ── real registry wiring ────────────────────────────────────────────
 
 describe("STEP_REGISTRY (production wiring)", () => {
-  test("registers all nine steps; implements intent/rebase/review/push only", () => {
+  test("registers all nine steps; implements intent/rebase/review/test/document/lint/push (pr/ci auto-skip)", () => {
     for (const s of PIPELINE_STEPS) expect(s in STEP_REGISTRY).toBe(true);
     expect(STEP_REGISTRY.intent).not.toBeNull();
     expect(STEP_REGISTRY.rebase).not.toBeNull();
     expect(STEP_REGISTRY.review).not.toBeNull();
+    expect(STEP_REGISTRY.test).not.toBeNull();
+    expect(STEP_REGISTRY.document).not.toBeNull();
+    expect(STEP_REGISTRY.lint).not.toBeNull();
     expect(STEP_REGISTRY.push).not.toBeNull();
-    expect(STEP_REGISTRY.test).toBeNull();
-    expect(STEP_REGISTRY.document).toBeNull();
-    expect(STEP_REGISTRY.lint).toBeNull();
     expect(STEP_REGISTRY.pr).toBeNull();
     expect(STEP_REGISTRY.ci).toBeNull();
   });

@@ -394,3 +394,77 @@ export const COMMIT_SUMMARY_SCHEMA = {
   properties: { summary: { type: "string" } },
   required: ["summary"],
 } as const;
+
+/** The per-finding item shape shared by every findings schema. */
+const FINDING_ITEM_SCHEMA = {
+  type: "object",
+  properties: {
+    id: { type: "string" },
+    severity: { type: "string", enum: ["error", "warning", "info"] },
+    file: { type: "string" },
+    line: { type: "integer" },
+    description: { type: "string" },
+    action: { type: "string", enum: ["no-op", "auto-fix", "ask-user"] },
+  },
+  required: ["severity", "description", "action"],
+} as const;
+
+/** Document / lint step schema: findings + summary + tested/testing_summary.
+ *  Verbatim findingsSchema. */
+export const FINDINGS_SCHEMA = {
+  type: "object",
+  properties: {
+    findings: { type: "array", items: FINDING_ITEM_SCHEMA },
+    summary: { type: "string" },
+    tested: { type: "array", items: { type: "string" } },
+    testing_summary: { type: "string" },
+  },
+  required: ["findings", "summary"],
+} as const;
+
+/**
+ * Test step schema: findings + summary + tested/testing_summary + artifacts.
+ * Verbatim testFindingsSchema EXCEPT `artifacts` items are STRINGS, not the rich
+ * objects upstream emits — our Findings.artifacts is `string[]` (runs.ts, and
+ * page.ts renders it as a joined string), so evidence paths / URLs / short inline
+ * content are recorded as strings. This is the one forced adaptation of the
+ * upstream schema (the M0/M1 findings model predates M3).
+ */
+export const TEST_FINDINGS_SCHEMA = {
+  type: "object",
+  properties: {
+    findings: { type: "array", items: FINDING_ITEM_SCHEMA },
+    summary: { type: "string" },
+    tested: { type: "array", items: { type: "string" } },
+    testing_summary: { type: "string" },
+    artifacts: { type: "array", items: { type: "string" } },
+  },
+  required: ["findings", "summary", "tested", "testing_summary", "artifacts"],
+} as const;
+
+/** Combined document+lint housekeeping schema: adds the per-finding `category`
+ *  (documentation | lint) that routes findings to their owning gate. Verbatim
+ *  housekeepingFindingsSchema. */
+export const HOUSEKEEPING_FINDINGS_SCHEMA = {
+  type: "object",
+  properties: {
+    findings: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          id: { type: "string" },
+          severity: { type: "string", enum: ["error", "warning", "info"] },
+          file: { type: "string" },
+          line: { type: "integer" },
+          description: { type: "string" },
+          action: { type: "string", enum: ["no-op", "auto-fix", "ask-user"] },
+          category: { type: "string", enum: ["documentation", "lint"] },
+        },
+        required: ["severity", "description", "action", "category"],
+      },
+    },
+    summary: { type: "string" },
+  },
+  required: ["findings", "summary"],
+} as const;

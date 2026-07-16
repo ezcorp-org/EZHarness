@@ -1,7 +1,7 @@
 import { test, expect, describe } from "bun:test";
 import {
   PIPELINE_STEPS,
-  M1_IMPLEMENTED_STEPS,
+  IMPLEMENTED_STEPS,
   DEFAULT_AUTO_FIX_LIMITS,
   defaultPipelineConfig,
   autoFixLimit,
@@ -23,8 +23,16 @@ describe("pipeline step order + defaults", () => {
       "ci",
     ]);
   });
-  test("M1 implements intent/rebase/review/push only", () => {
-    expect([...M1_IMPLEMENTED_STEPS].sort()).toEqual(["intent", "push", "rebase", "review"]);
+  test("implements intent/rebase/review/test/document/lint/push (pr/ci auto-skip until M4)", () => {
+    expect([...IMPLEMENTED_STEPS].sort()).toEqual([
+      "document",
+      "intent",
+      "lint",
+      "push",
+      "rebase",
+      "review",
+      "test",
+    ]);
   });
   test("review cap defaults to 0 (always parks); rebase/test/document/lint/ci default 3", () => {
     expect(DEFAULT_AUTO_FIX_LIMITS.review).toBe(0);
