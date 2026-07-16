@@ -11,7 +11,7 @@
 export const RUNTIME_EVENT_NAMES = [
   "run:start", "run:status", "run:log", "run:complete", "run:error", "run:cancel",
   "run:token", "run:usage", "run:turn_saved", "run:turn_text_reset",
-  "pipeline:start", "pipeline:step", "pipeline:complete", "pipeline:error",
+  "workflow:start", "workflow:step", "workflow:complete", "workflow:error",
   "tool:start", "tool:complete", "tool:error", "tool:permission_request",
   "agent:spawn", "agent:status", "agent:complete",
   "task:snapshot", "task:assignment_update",
