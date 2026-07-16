@@ -53,11 +53,15 @@ mirrors the summary to `.ezcorp/extension-data/summarize/summaries/<id>.md`
 
 ---
 
-## The four fields
+## The fields
 
 ```ts
-defineLoop({ id, trigger, contract, act, log });
+defineLoop({ id, trigger, contract, check, act, log });
 ```
+
+`check` is optional (omitted = always proceed); every other field is as
+before. See [The check stage](#the-check-stage) for the deterministic
+pre-gate.
 
 ### `id` — unique per extension
 
@@ -111,6 +115,25 @@ catch-up + double-delivered events). Retention trims the oldest **terminal**
 runs first — an open run is never evicted. `autoDisableAfter` consecutive
 **permanent** errors disables the loop (and fires `onAutoDisable`); a
 transient error or any success resets the counter.
+
+### `check` — the deterministic pre-gate (optional)
+
+```ts
+check?: (ctx: LoopCheckContext<Input>) => Promise<CheckResult<Input>>;
+
+type CheckResult<Input> =
+  | { proceed: true; input?: Input }      // run act; input REPLACES what act sees
+  | { proceed: false; reason: string };   // logged skip, NOT an error
+```
+
+Runs **between the dup gate and `act`** — the "does the AI process even need
+to run?" decision, made in deterministic code. Return `proceed: false` and
+the fire is a first-class `skip` (with `reason` in the audit log); return
+`proceed: true` and `act` runs — optionally on an **enriched `input`** the
+check resolved (e.g. the git commit a git-cursor check found), so `act`
+never re-derives it. Omitting `check` is `proceed: true` — existing loops
+are unchanged. A **thrown** `check` is classified by `contract.failure`
+exactly like a thrown `act`. See [The check stage](#the-check-stage).
 
 ### `act` — the loop body (terminal **or** deferred)
 
@@ -209,6 +232,60 @@ state machine is then driven by inbound events.
 
 ---
 
+## The check stage
+
+The `check` stage is the vision's "deterministic code runs → decides whether
+the AI process runs". The fire pipeline is:
+
+```
+trigger → (idempotency / dup gate) → check → act
+```
+
+`check` receives a purpose-built context — and what it does **not** carry is
+the point:
+
+| field | what |
+|---|---|
+| `ctx.input` | the RAW trigger input (event payload \| tool args \| cron tick) |
+| `ctx.settings` | resolved user settings, **`{}` fallback already applied** |
+| `ctx.fire` | `{ id, firedAt, trigger, catchUp }` |
+| `ctx.cursor` | `{ get<T>(), set<T>(v) }` — the durable per-loop marker (below) |
+| `ctx.fetch` | host-mediated `fetch` (network-grant-gated) — the ONLY external-data surface |
+| `ctx.log(msg, level?)` | append a note to the fire's audit log |
+
+> **Determinism by construction, not convention.** `LoopCheckContext`
+> deliberately has **no `llm`, no `spawn`, no `recentMessages`** — the check
+> stage *cannot* invoke a model or dispatch an agent. The type system is the
+> firewall. This holds for **structured** endpoints (JSON APIs, git);
+> messy-HTML sources can't be parsed check-side by design — LLM parsing
+> belongs in `act`, and such loops are `untrusted-input`. Document the limit;
+> don't soften the firewall.
+
+### The cursor — "how far have I processed?"
+
+`ctx.cursor` is a durable per-loop value persisted at `loop:<id>:cursor`
+(Storage, same scope as the contract, writes under `withLock`). It is the
+deterministic marker a git-cursor / threshold check reads and advances:
+
+```ts
+check: async (ctx) => {
+  const head = await readGitHead(ctx.settings.repoPath);      // deterministic exec
+  if (!head) return { proceed: false, reason: "no_git_head" };
+  if ((await ctx.cursor.get<string>()) === head.hash) {
+    return { proceed: false, reason: "no_new_commits" };       // logged skip
+  }
+  await ctx.cursor.set(head.hash);                             // advance
+  return { proceed: true, input: { hash: head.hash, subject: head.subject } };
+},
+```
+
+`cursor.get()` resolves `undefined` when unset; falsy values (`0`, `""`,
+`false`) round-trip faithfully (presence is keyed on existence, not
+truthiness). The runnable reference is
+[`examples/repo-activity-notify`](examples/repo-activity-notify/index.ts) — a
+read-only "check → notify" loop that appends a one-line notice when it sees a
+new commit and skips (with a reason) when it doesn't.
+
 ## Invariant — durable state is transactional; the filesystem is artifacts only
 
 > **Run state lives in the SDK `Storage` KV** (one key per run +
@@ -274,7 +351,8 @@ only one loop, it does not enter the primitive.
 
 ## See also
 
-- [`examples/sample-loop`](examples/sample-loop/index.ts) — the runnable reference.
+- [`examples/sample-loop`](examples/sample-loop/index.ts) — the runnable reference (terminal capture loop + a `check`).
+- [`examples/repo-activity-notify`](examples/repo-activity-notify/index.ts) — the check-stage trust probe (git-cursor `check` → notify `act`).
 - [Data Storage Convention](data-storage.md) — the `.ezcorp/extension-data/` layout.
 - [Pages](pages.md) — the Hub page model the dashboard reuses.
 - [API Reference](api-reference.md) — `Storage`, `Schedule`, `spawnAssignment`, the fs helpers.
