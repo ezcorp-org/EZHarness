@@ -110,14 +110,51 @@ no-op on git too old to know the keys.
 (Run · Branch · Head · Status · Updated), refreshed live via a content-free
 `ext:page-state` SSE signal (`pushPage`) after each run state change.
 
+## PR + CI (GitHub only)
+
+Once the local steps pass and the branch force-pushes to the real upstream, the
+**pr** step opens (or updates) a pull request and the **ci** step babysits its
+checks:
+
+- **PR body is deterministic.** The agent authors ONLY the `## What Changed`
+  slice; `## Intent` is the verbatim (sanitized) run intent, and
+  `## Risk Assessment` / `## Testing` / `## Pipeline` are computed from the
+  persisted step results + rounds. The title is a conventional-commit subject.
+  Oversized bodies shed content in priority order (drop Testing → drop the
+  oldest Pipeline rounds → hard-truncate) to stay under GitHub's 63,488-byte cap.
+- **CI is polled with an injected clock** (30s → 60s → 120s), with an idle
+  timeout (default 7 days, `ciTimeoutHours` setting; `-1` = never) that re-arms
+  whenever the base branch advances. On failure it fetches the failed logs,
+  drives an agent fix, guarded-force-pushes, and resumes (cap 3). A run parked at
+  the CI gate auto-resolves once its PR is merged/closed
+  (`ez-code-factory:reconcile` — a read-only ReconcileApprovalGate poll).
+- **Skip-not-fail.** pr/ci quietly skip on the default branch, on a non-GitHub
+  upstream, or when `gh` is unauthenticated.
+
+### GitHub token setup
+
+The pr/ci steps shell `gh`, which needs auth. Two options:
+
+1. **`gh auth login`** on the host — the extension inherits gh's ambient auth.
+2. **The `GitHub token` setting** on `/extensions/ez-code-factory` — a
+   `type:"secret"` field stored **encrypted** in user Storage (key
+   `github-token`), never shown again. It needs `repo` + `pull_request` scope.
+   The extension passes it to `gh` via `GH_TOKEN` at spawn time; a
+   `GH_TOKEN`/`GITHUB_TOKEN` already in the process env overrides it.
+
+An env name matching `/_TOKEN$/i` is refused for a `permissions.env` grant at
+install — the `type:"secret"` setting is the supported path, so no token env is
+declared in the manifest.
+
 ## Permissions
 
 `storage` (self-tracked run + step records), `shell` (git orchestration +
-per-run worktree lifecycle), and `filesystem: ["$CWD"]` (the gate repo, hook,
-and credential all live under
-`<projectRoot>/.ezcorp/extension-data/ez-code-factory/`). **No `network`
-grant** — the callback is made by the post-receive hook (a shell process git
-runs at push time), not by the extension subprocess.
+per-run worktree lifecycle + the pr/ci `gh` calls), `network: ["api.github.com"]`
+(the narrow allowlist `gh` reaches — github.com only), and
+`filesystem: ["$CWD"]` (the gate repo, hook, and credential all live under
+`<projectRoot>/.ezcorp/extension-data/ez-code-factory/`). The push-trigger
+callback itself is still made by the post-receive hook (a shell process git runs
+at push time), not the extension subprocess.
 
 ## Storage
 

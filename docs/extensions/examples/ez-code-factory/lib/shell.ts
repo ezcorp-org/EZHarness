@@ -19,13 +19,15 @@ export interface ShellResult {
 }
 
 /**
- * Runs `cmd` in `cwd`, optionally feeding `stdin`. Injectable so tests drive
- * git deterministically against a throwaway repo without a real host spawn.
+ * Runs `cmd` in `cwd`, optionally feeding `stdin` and extra `env` (merged over
+ * the process env — the gh runner injects GH_TOKEN this way). Injectable so
+ * tests drive git deterministically against a throwaway repo without a real
+ * host spawn.
  */
 export type ShellRunner = (
   cmd: string[],
   cwd: string,
-  opts?: { stdin?: string },
+  opts?: { stdin?: string; env?: Record<string, string> },
 ) => Promise<ShellResult>;
 
 /**
@@ -41,7 +43,7 @@ export type ShellRunner = (
 export const productionHostRunner: ShellRunner = async (cmd, cwd, opts) => {
   const proc = Bun.spawn(cmd, {
     cwd,
-    env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null" },
+    env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", ...opts?.env },
     stdin: opts?.stdin !== undefined ? "pipe" : "ignore",
     stdout: "pipe",
     stderr: "pipe",

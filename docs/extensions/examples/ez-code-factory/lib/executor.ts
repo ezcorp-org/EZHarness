@@ -53,9 +53,13 @@ import { testStep } from "./steps/test";
 import { documentStep } from "./steps/document";
 import { lintStep } from "./steps/lint";
 import { pushStep } from "./steps/push";
+import { prStep } from "./steps/pr";
+import { ciStep } from "./steps/ci";
 
-/** Registry of the pipeline steps. `null` = registered but not implemented yet
- *  (auto-skipped until its milestone). Order is enforced by PIPELINE_STEPS. */
+/** Registry of the pipeline steps — every step is implemented as of M4 (the CI
+ *  step also opts into ReconcileApprovalGate). `null` remains a valid registry
+ *  entry so tests can inject a step-less slot (auto-skipped). Order is enforced
+ *  by PIPELINE_STEPS. */
 export const STEP_REGISTRY: Record<PipelineStep, Step | null> = {
   intent: intentStep,
   rebase: rebaseStep,
@@ -64,8 +68,8 @@ export const STEP_REGISTRY: Record<PipelineStep, Step | null> = {
   document: documentStep,
   lint: lintStep,
   push: pushStep,
-  pr: null,
-  ci: null,
+  pr: prStep,
+  ci: ciStep,
 };
 
 /** Everything the executor needs. hostRunner drives read-only git; jailedRunner
@@ -417,7 +421,7 @@ async function advance(
 
     const impl = registry(deps)[step];
     if (impl === null || !isImplemented(deps, step)) {
-      await skipStep(deps, sr, `${step} not implemented until M4 — auto-skipped`);
+      await skipStep(deps, sr, `${step} not implemented — auto-skipped`);
       continue;
     }
 
@@ -592,6 +596,57 @@ async function applyFix(
   }
   await completeStepStatus(deps, sr, result.kind === "skipped" ? "skipped" : "completed");
   return advance(deps, run, stepIndex + 1, repoConfig, shared);
+}
+
+/**
+ * Drive a parked step's opt-in ReconcileApprovalGate (spec §1): a read-only,
+ * bounded poll of external truth (the CI step checks whether its PR has been
+ * merged/closed). When the gate RESOLVES, the parked step is completed and the
+ * pipeline advances exactly as an `approve` respond would — so a run parked at
+ * CI auto-clears once its PR merges without a human. When the step is not
+ * parked, has no reconcile hook, or reconcile does not resolve (still open /
+ * host error), the run stays parked (fail-safe: reconcile never guesses).
+ * Reconcile errors are swallowed to a "parked" result — an unreachable host must
+ * not fail a run that a human can still act on.
+ */
+export async function reconcileGate(runId: string, deps: ExecutorDeps): Promise<PipelineOutcome> {
+  const rec = await deps.store.getRun(runId);
+  if (!rec) return { status: "failed", error: `run ${runId} not found` };
+
+  for (let i = 0; i < PIPELINE_STEPS.length; i++) {
+    const step = PIPELINE_STEPS[i]!;
+    const sr = await deps.store.getStepResult(runId, step);
+    if (!sr || (sr.status !== "awaiting_approval" && sr.status !== "fix_review")) continue;
+
+    const impl = registry(deps)[step];
+    if (!impl || !impl.reconcileApprovalGate) return { status: "parked", parkedStep: step };
+
+    const repoConfig = rec.repoConfig ?? emptyRepoConfig();
+    const run = buildRunView(rec);
+    const rounds = await deps.store.getStepRounds(runId, step);
+    const shared = makeRunShared();
+    const sctx = buildStepContext(deps, run, step, rounds, false, "", repoConfig, shared);
+    let resolvedGate = false;
+    try {
+      resolvedGate = (await impl.reconcileApprovalGate(sctx)).resolved;
+    } catch (err) {
+      deps.log?.(runId, step, `reconcile check failed, leaving gate parked: ${err instanceof Error ? err.message : String(err)}`);
+      return { status: "parked", parkedStep: step };
+    }
+    if (!resolvedGate) return { status: "parked", parkedStep: step };
+
+    // External truth superseded the gate — account the parked time, complete the
+    // step, and advance exactly as an approve would.
+    if (rec.awaitingAgentSince) {
+      const parked = Math.max(0, deps.now() - Date.parse(rec.awaitingAgentSince));
+      await setRunStatus(deps, runId, { parkedMs: rec.parkedMs + parked, awaitingAgentSince: null });
+    }
+    await setRunStatus(deps, runId, { status: "running" });
+    deps.log?.(runId, step, "reconcile resolved the gate (PR merged/closed); completing step");
+    await completeStepStatus(deps, sr, "completed");
+    return advance(deps, run, i + 1, repoConfig, shared);
+  }
+  return { status: "parked" };
 }
 
 export { ZERO_SHA };

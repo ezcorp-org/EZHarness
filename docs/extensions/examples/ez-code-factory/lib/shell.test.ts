@@ -51,4 +51,12 @@ describe("productionHostRunner", () => {
     expect(res.exitCode).toBe(0);
     expect(res.stdout).toContain("git version");
   });
+
+  test("merges extra env (the gh runner injects GH_TOKEN this way)", async () => {
+    const res = await productionHostRunner(["sh", "-c", 'printf %s "$GH_TOKEN"'], tmpdir(), {
+      env: { GH_TOKEN: "injected-token" },
+    });
+    expect(res.exitCode).toBe(0);
+    expect(res.stdout).toBe("injected-token");
+  });
 });

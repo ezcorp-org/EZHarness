@@ -24,11 +24,13 @@ describe("pipeline step order + defaults", () => {
       "ci",
     ]);
   });
-  test("implements intent/rebase/review/test/document/lint/push (pr/ci auto-skip until M4)", () => {
+  test("M4 implements all nine steps (pr/ci gracefully skip when not applicable)", () => {
     expect([...IMPLEMENTED_STEPS].sort()).toEqual([
+      "ci",
       "document",
       "intent",
       "lint",
+      "pr",
       "push",
       "rebase",
       "review",

@@ -2,6 +2,7 @@ import { test, expect, describe } from "bun:test";
 import {
   startPipeline,
   respondToGate,
+  reconcileGate,
   STEP_REGISTRY,
   type ExecutorDeps,
 } from "./executor";
@@ -642,19 +643,104 @@ describe("StepContext seams", () => {
   });
 });
 
+// ── reconcileGate (opt-in ReconcileApprovalGate driver) ─────────────
+
+describe("reconcileGate", () => {
+  /** A step exposing a scripted reconcileApprovalGate. */
+  function reconcileStep(name: PipelineStep, result: { resolved: boolean } | Error): Step {
+    return {
+      name,
+      async execute() {
+        return { needsApproval: true, findings: "" };
+      },
+      async reconcileApprovalGate() {
+        if (result instanceof Error) throw result;
+        return result;
+      },
+    };
+  }
+
+  /** Seed a run parked at `step` (awaiting_approval). */
+  async function seedParked(store: RunStore, step: PipelineStep, clock: { t: number }): Promise<string> {
+    const id = await seedRun(store, { status: "awaiting_approval", awaitingAgentSince: new Date(clock.t).toISOString() });
+    await store.putStepResult({
+      runId: id,
+      step,
+      status: "awaiting_approval",
+      findings: emptyFindings(),
+      agentPid: null,
+      autoFixLimit: 3,
+      round: 1,
+      autoFixAttempts: 0,
+      executionMs: 0,
+      fixSummary: null,
+    });
+    return id;
+  }
+
+  test("run not found → failed", async () => {
+    const store = memStore();
+    const deps = makeDeps(store, registry({}), { t: 0 });
+    expect(await reconcileGate("nope", deps)).toEqual({ status: "failed", error: "run nope not found" });
+  });
+
+  test("no parked step → parked (nothing to reconcile)", async () => {
+    const store = memStore();
+    const id = await seedRun(store);
+    const deps = makeDeps(store, registry({}), { t: 0 });
+    expect(await reconcileGate(id, deps)).toEqual({ status: "parked" });
+  });
+
+  test("parked step without a reconcile hook → stays parked", async () => {
+    const store = memStore();
+    const clock = { t: 1000 };
+    const id = await seedParked(store, "review", clock);
+    const deps = makeDeps(store, registry({ review: scriptStep("review", [blocking()]) }), clock);
+    expect(await reconcileGate(id, deps)).toEqual({ status: "parked", parkedStep: "review" });
+  });
+
+  test("CI gate resolves (PR merged) → completes step + run", async () => {
+    const store = memStore();
+    const clock = { t: 5000 };
+    const id = await seedParked(store, "ci", clock);
+    const deps = makeDeps(store, registry({ ci: reconcileStep("ci", { resolved: true }) }), clock);
+    const outcome = await reconcileGate(id, deps);
+    expect(outcome.status).toBe("completed");
+    expect((await store.getStepResult(id, "ci"))!.status).toBe("completed");
+    const run = await store.getRun(id);
+    expect(run!.status).toBe("completed");
+    expect(run!.parkedMs).toBeGreaterThanOrEqual(0);
+  });
+
+  test("CI gate not resolved (PR still open) → stays parked", async () => {
+    const store = memStore();
+    const clock = { t: 0 };
+    const id = await seedParked(store, "ci", clock);
+    const deps = makeDeps(store, registry({ ci: reconcileStep("ci", { resolved: false }) }), clock);
+    expect(await reconcileGate(id, deps)).toEqual({ status: "parked", parkedStep: "ci" });
+    expect((await store.getStepResult(id, "ci"))!.status).toBe("awaiting_approval");
+  });
+
+  test("reconcile error is swallowed → stays parked", async () => {
+    const store = memStore();
+    const clock = { t: 0 };
+    const id = await seedParked(store, "ci", clock);
+    const deps = makeDeps(store, registry({ ci: reconcileStep("ci", new Error("gh down")) }), clock);
+    expect(await reconcileGate(id, deps)).toEqual({ status: "parked", parkedStep: "ci" });
+  });
+});
+
 // ── real registry wiring ────────────────────────────────────────────
 
 describe("STEP_REGISTRY (production wiring)", () => {
-  test("registers all nine steps; implements intent/rebase/review/test/document/lint/push (pr/ci auto-skip)", () => {
-    for (const s of PIPELINE_STEPS) expect(s in STEP_REGISTRY).toBe(true);
-    expect(STEP_REGISTRY.intent).not.toBeNull();
-    expect(STEP_REGISTRY.rebase).not.toBeNull();
-    expect(STEP_REGISTRY.review).not.toBeNull();
-    expect(STEP_REGISTRY.test).not.toBeNull();
-    expect(STEP_REGISTRY.document).not.toBeNull();
-    expect(STEP_REGISTRY.lint).not.toBeNull();
-    expect(STEP_REGISTRY.push).not.toBeNull();
-    expect(STEP_REGISTRY.pr).toBeNull();
-    expect(STEP_REGISTRY.ci).toBeNull();
+  test("registers + implements all nine steps (M4 completes pr/ci)", () => {
+    for (const s of PIPELINE_STEPS) {
+      expect(s in STEP_REGISTRY).toBe(true);
+      expect(STEP_REGISTRY[s]).not.toBeNull();
+    }
+  });
+  test("only the CI step opts into ReconcileApprovalGate", () => {
+    expect(typeof STEP_REGISTRY.ci!.reconcileApprovalGate).toBe("function");
+    expect(STEP_REGISTRY.review!.reconcileApprovalGate).toBeUndefined();
   });
 });

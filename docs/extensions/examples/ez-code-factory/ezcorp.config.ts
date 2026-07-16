@@ -102,16 +102,45 @@ export default defineExtension({
       label: "Review ignore globs (comma-separated, e.g. *.snap, dist/**)",
       default: "",
     },
+    // CI monitor idle timeout, declared in HOURS for the UI (resolvePipelineConfig
+    // converts to ms: < 0 = unlimited/poll-until-merged, 0/blank = the 7-day
+    // default, > 0 = that many hours).
+    ciTimeoutHours: {
+      type: "number",
+      label: "CI monitor idle timeout in hours (-1 = never time out)",
+      min: -1,
+      max: 720,
+      default: 168,
+    },
+    // The GitHub token the PR + CI steps hand to `gh` (via GH_TOKEN). Stored
+    // ENCRYPTED in user Storage under the `github-token` key (never in the
+    // settings JSON, never echoed). An env name matching /_TOKEN$/i is refused at
+    // install for a `permissions.env` grant — this `type:"secret"` field is the
+    // supported path. Needs `repo` + `pull_request` scope to open/update PRs and
+    // read checks. See README "GitHub token setup".
+    githubToken: {
+      type: "secret",
+      label: "GitHub token (repo + pull_request scope)",
+      description:
+        "Personal access token gh uses to open/update PRs and read CI checks. " +
+        "Stored encrypted; never shown again. Leave unset to use gh's own " +
+        "configured auth (`gh auth login`).",
+      storageKey: "github-token",
+    },
   },
 
   permissions: {
     // Self-tracked run/step records (the run history the dashboard renders).
     storage: true,
     // git orchestration (init-gate + per-run worktree lifecycle + the M1
-    // pipeline's rebase/commit/push) shells `git`. The `gate` remote's
+    // pipeline's rebase/commit/push) shells `git`; the M4 pr/ci steps also shell
+    // `gh` (GitHub CLI) for PR create/update + CI checks. The `gate` remote's
     // post-receive hook — installed on the gate repo, run by git at push time —
     // is what calls back into the platform.
     shell: true,
+    // `gh` reaches the GitHub API. Narrow allowlist — only api.github.com (the
+    // v1 GitHub-only scope; GHE hosts are out of scope).
+    network: ["api.github.com"],
     // Pipeline agent turns (review, rebase-conflict fix) run as EZCorp-native
     // spawn-assignment sub-agents (decision #2) — host-brokered LLM only, no
     // external CLI. That dispatch requires the spawnAgents grant. Bounded: a
@@ -132,6 +161,9 @@ export default defineExtension({
       "ez-code-factory:push-received",
       "ez-code-factory:respond",
       "ez-code-factory:yolo",
+      // M4: re-check a run parked at the CI gate — a read-only ReconcileApproval
+      // Gate poll that auto-resolves the gate when its PR has merged/closed.
+      "ez-code-factory:reconcile",
     ],
   },
 

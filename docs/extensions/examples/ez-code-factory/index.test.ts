@@ -29,6 +29,11 @@ import {
   _setSettingsReadForTests,
   handleYolo,
   YOLO_ACTION,
+  handleReconcile,
+  RECONCILE_ACTION,
+  _setReconcileRunnerForTests,
+  _setTokenStorageForTests,
+  resolveProductionGhToken,
 } from "./index";
 import { gateDir as gateDirFor, GATE_REMOTE } from "./lib/gate";
 import { productionHostRunner, type ShellRunner } from "./lib/shell";
@@ -121,6 +126,8 @@ afterEach(() => {
   _setBaseUrlForTests(null);
   _setRunPipelineForTests(null);
   _setRespondRunnerForTests(null);
+  _setReconcileRunnerForTests(null);
+  _setTokenStorageForTests(null);
   _setSettingsReadForTests(null);
 });
 
@@ -707,6 +714,160 @@ describe("production pipeline wiring (default runners)", () => {
   });
 });
 
+// ── GitHub token resolution ─────────────────────────────────────────
+
+describe("resolveProductionGhToken", () => {
+  function withoutTokenEnv<T>(fn: () => Promise<T>): Promise<T> {
+    const prev = { g: process.env.GH_TOKEN, h: process.env.GITHUB_TOKEN };
+    delete process.env.GH_TOKEN;
+    delete process.env.GITHUB_TOKEN;
+    return fn().finally(() => {
+      if (prev.g !== undefined) process.env.GH_TOKEN = prev.g;
+      if (prev.h !== undefined) process.env.GITHUB_TOKEN = prev.h;
+    });
+  }
+
+  test("resolves from the injected (encrypted) secret storage", async () => {
+    _setTokenStorageForTests(() => ({ async get() { return { value: "sekret" as never, exists: true }; } }));
+    await withoutTokenEnv(async () => {
+      expect(await resolveProductionGhToken()).toBe("sekret");
+    });
+  });
+
+  test("env override wins over stored secret", async () => {
+    _setTokenStorageForTests(() => ({ async get() { return { value: "stored" as never, exists: true }; } }));
+    const prev = process.env.GH_TOKEN;
+    process.env.GH_TOKEN = "env-tok";
+    try {
+      expect(await resolveProductionGhToken()).toBe("env-tok");
+    } finally {
+      if (prev === undefined) delete process.env.GH_TOKEN;
+      else process.env.GH_TOKEN = prev;
+    }
+  });
+});
+
+// ── handleReconcile (CI ReconcileApprovalGate trigger) ──────────────
+
+describe("handleReconcile", () => {
+  const evt = (payload: Record<string, unknown>) => ({ source: "hub" as const, pageId: "dashboard", userId: "u", payload });
+
+  test("no project root → ignored", async () => {
+    _setProjectRootForTests(() => undefined);
+    const stderr = captureStderr();
+    try {
+      await handleReconcile(evt({ runId: "r1" }));
+      expect(stderr.text()).toContain("no EZCORP_PROJECT_ROOT");
+    } finally {
+      stderr.restore();
+    }
+  });
+
+  test("invalid payload → ignored", async () => {
+    _setProjectRootForTests(() => "/proj");
+    const stderr = captureStderr();
+    try {
+      await handleReconcile(evt({ runId: 5 }));
+      expect(stderr.text()).toContain("invalid payload");
+    } finally {
+      stderr.restore();
+    }
+  });
+
+  test("unknown run → ignored", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setStoreForTests(memStore());
+    const stderr = captureStderr();
+    try {
+      await handleReconcile(evt({ runId: "nope" }));
+      expect(stderr.text()).toContain("unknown run");
+    } finally {
+      stderr.restore();
+    }
+  });
+
+  test("default runner drives reconcileGate: a review gate is not reconcilable → stays parked", async () => {
+    _setProjectRootForTests(() => "/proj");
+    const removed: string[] = [];
+    _setShellForTests(async (cmd) => {
+      if (cmd.includes("worktree") && cmd.includes("remove")) removed.push(cmd.join(" "));
+      return { exitCode: 0, stdout: "", stderr: "" };
+    });
+    const store = memStore();
+    _setStoreForTests(store);
+    await seedParkedRun(store); // parked at review (no reconcile hook)
+    _setPushPageForTests(() => {});
+    await handleReconcile(evt({ runId: "run-parked" }));
+    // The review gate has no reconcile hook → the run stays parked, worktree kept.
+    expect((await store.getRun("run-parked"))!.status).toBe("awaiting_approval");
+    expect(removed.length).toBe(0);
+  });
+
+  test("injected reconcile runner that completes the run tears down the worktree", async () => {
+    _setProjectRootForTests(() => "/proj");
+    const removed: string[] = [];
+    _setShellForTests(async (cmd) => {
+      if (cmd.includes("worktree") && cmd.includes("remove")) removed.push(cmd.join(" "));
+      return { exitCode: 0, stdout: "", stderr: "" };
+    });
+    const store = memStore();
+    _setStoreForTests(store);
+    await seedParkedRun(store);
+    _setPushPageForTests(() => {});
+    // A reconcile runner that resolves the gate (marks the run completed).
+    _setReconcileRunnerForTests((_projectRoot, _gateDir) => async ({ runId }) => {
+      await store.updateRun(runId, { status: "completed" });
+      return { parked: false };
+    });
+    await handleReconcile(evt({ runId: "run-parked" }));
+    expect((await store.getRun("run-parked"))!.status).toBe("completed");
+    expect(removed.length).toBe(1); // terminal → worktree reaped
+  });
+
+  test("a run with no kept worktree cannot be resumed (result null)", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setShellForTests(async () => ({ exitCode: 0, stdout: "", stderr: "" }));
+    const store = memStore();
+    _setStoreForTests(store);
+    await store.createRun({
+      id: "run-noworktree",
+      repoId: "0123456789ab",
+      branch: "feat/x",
+      ref: "refs/heads/feat/x",
+      headSha: "abcdef01",
+      baseSha: "0".repeat(40),
+      status: "awaiting_approval",
+      worktreePath: null, // no kept worktree → resumeGateLifecycle returns null
+      createdAt: "t",
+      updatedAt: "t",
+      parkedMs: 0,
+      awaitingAgentSince: null,
+      intent: null,
+      intentSource: null,
+    });
+    await handleReconcile(evt({ runId: "run-noworktree" }));
+    // No throw; the run is left as-is.
+    expect((await store.getRun("run-noworktree"))!.status).toBe("awaiting_approval");
+  });
+
+  test("handler error is swallowed (store throws)", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setStoreForTests({
+      ...memStore(),
+      async getRun() {
+        throw new Error("store down");
+      },
+    });
+    const stderr = captureStderr();
+    try {
+      await handleReconcile(evt({ runId: "r1" })); // must not throw
+      expect(stderr.text()).toContain("reconcile handler error");
+    } finally {
+      stderr.restore();
+    }
+  });
+});
+
 // ── renderDashboard ─────────────────────────────────────────────────
 
 describe("renderDashboard", () => {
@@ -775,6 +936,7 @@ describe("register / start", () => {
       expect(methods.has(`ezcorp/event/${PUSH_RECEIVED_ACTION}`)).toBe(true);
       expect(methods.has(`ezcorp/event/${RESPOND_ACTION}`)).toBe(true);
       expect(methods.has(`ezcorp/event/${YOLO_ACTION}`)).toBe(true);
+      expect(methods.has(`ezcorp/event/${RECONCILE_ACTION}`)).toBe(true);
       expect(methods.has("tools/call")).toBe(true);
       expect(Object.keys(tools)).toEqual(["init_gate"]);
     } finally {

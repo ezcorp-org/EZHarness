@@ -25,8 +25,9 @@ export const PIPELINE_STEPS = [
 
 export type PipelineStep = (typeof PIPELINE_STEPS)[number];
 
-/** Steps executed for real. M1 shipped intent/rebase/review/push; M3 adds
- *  test/document/lint. Only pr/ci remain registered-but-auto-skipped (M4). */
+/** Steps executed for real. M4 completes the pipeline — every step now runs
+ *  (pr/ci gracefully skip when the host is not GitHub / unauthenticated / on
+ *  the default branch, mirroring upstream's skip-not-fail). */
 export const IMPLEMENTED_STEPS: ReadonlySet<PipelineStep> = new Set<PipelineStep>([
   "intent",
   "rebase",
@@ -35,6 +36,8 @@ export const IMPLEMENTED_STEPS: ReadonlySet<PipelineStep> = new Set<PipelineStep
   "document",
   "lint",
   "push",
+  "pr",
+  "ci",
 ]);
 
 /**

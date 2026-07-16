@@ -18,6 +18,7 @@ import {
   getChannel,
   invoke,
   pushPage,
+  Storage,
   toolError,
   toolResult,
   type HubPageTree,
@@ -52,7 +53,8 @@ import { makeSpawnDispatcher } from "./lib/agent";
 import { makeJailedShell } from "./lib/jail";
 import { makeGit } from "./lib/git";
 import { resolveTrustedRepoConfig } from "./lib/repo-config";
-import { startPipeline, respondToGate, type ExecutorDeps } from "./lib/executor";
+import { startPipeline, respondToGate, reconcileGate, type ExecutorDeps } from "./lib/executor";
+import { makeGhRunner, resolveGhToken, type TokenStorage } from "./lib/gh-runner";
 
 /** Full namespaced action name the post-receive hook triggers. */
 export const PUSH_RECEIVED_ACTION = `${EXTENSION_NAME}:${TRIGGER_EVENT}`;
@@ -62,6 +64,10 @@ export const RESPOND_ACTION = `${EXTENSION_NAME}:respond`;
 /** The M2 "yolo" action: auto-approve every remaining gate of one run in a
  *  single click (`{ runId, step }`). Bypasses per-gate human review. */
 export const YOLO_ACTION = `${EXTENSION_NAME}:yolo`;
+/** The M4 "reconcile" action: re-check a run parked at the CI gate — a read-only
+ *  ReconcileApprovalGate poll that auto-resolves the gate when its PR has
+ *  merged/closed (`{ runId }`). Harness/future-sweep-triggerable. */
+export const RECONCILE_ACTION = `${EXTENSION_NAME}:reconcile`;
 
 // ── Injectable seams (production defaults; tests override) ────────────
 //
@@ -104,6 +110,25 @@ export function _setStoreForTests(store: RunStore | null): void {
 let pushPageImpl: typeof pushPage = pushPage;
 export function _setPushPageForTests(fn: typeof pushPage | null): void {
   pushPageImpl = fn ?? pushPage;
+}
+
+// ── GitHub-token seam (the pr/ci steps' gh auth) ──────────────────────
+//
+// The `type:"secret"` `githubToken` setting is stored ENCRYPTED in user-scoped
+// Storage under `github-token`; the SDK Storage read decrypts it transparently.
+// `resolveProductionGhToken` resolves it (env override → stored secret → null)
+// each time the gh runner needs it, so a rotated token takes effect without a
+// restart. The storage is a seam so tests never touch the real user store.
+
+const defaultTokenStorage = (): TokenStorage => new Storage("user");
+let tokenStorageImpl: () => TokenStorage = defaultTokenStorage;
+export function _setTokenStorageForTests(fn: (() => TokenStorage) | null): void {
+  tokenStorageImpl = fn ?? defaultTokenStorage;
+}
+
+/** Resolve the GitHub token for the gh runner (env → encrypted secret → null). */
+export function resolveProductionGhToken(): Promise<string | null> {
+  return resolveGhToken(process.env, tokenStorageImpl());
 }
 
 // ── Settings live-read seam (M2, resolves M1's defaultPipelineConfig TODO) ──
@@ -167,6 +192,9 @@ function buildExecutorDeps(
     dispatcher: makeSpawnDispatcher({ evidenceDir }),
     hostRunner: shellImpl,
     jailedRunner: makeJailedShell(gateDir, projectRoot),
+    // The pr/ci steps shell `gh` in the worktree with GH_TOKEN injected from the
+    // encrypted `githubToken` secret (skip-not-fail when gh is unauthenticated).
+    gh: makeGhRunner(shellImpl, worktreePath, resolveProductionGhToken),
     // SECURITY (spec §1 invariant 1): resolve the trusted-branch-gated repo
     // config from the freshly-fetched default branch BEFORE any agent runs. The
     // pushed copy is read from the worktree HEAD (the checked-out pushed SHA). A
@@ -210,6 +238,23 @@ export function _setRunPipelineForTests(fn: typeof defaultRunPipeline | null): v
 let makeRespondRunnerImpl = defaultRespondRunner;
 export function _setRespondRunnerForTests(fn: typeof defaultRespondRunner | null): void {
   makeRespondRunnerImpl = fn ?? defaultRespondRunner;
+}
+
+/** Drives the CI step's ReconcileApprovalGate for a parked run; returns whether
+ *  the run remains parked (still open / not reconcilable) after the check. */
+const defaultReconcileRunner = (projectRoot: string, gateDir: string): PipelineRunner => {
+  return async ({ runId, worktreePath }) => {
+    const config = await resolveLiveConfig();
+    const outcome = await reconcileGate(
+      runId,
+      buildExecutorDeps(projectRoot, gateDir, worktreePath, config),
+    );
+    return { parked: outcome.status === "parked" };
+  };
+};
+let makeReconcileRunnerImpl = defaultReconcileRunner;
+export function _setReconcileRunnerForTests(fn: typeof defaultReconcileRunner | null): void {
+  makeReconcileRunnerImpl = fn ?? defaultReconcileRunner;
 }
 
 /** Gather the parked-run details to inline on the dashboard: for every run
@@ -433,6 +478,45 @@ export async function handleYolo(event: PageActionEvent): Promise<void> {
   }
 }
 
+/** `reconcile` Hub action — re-check a run parked at the CI gate. Drives the CI
+ *  step's ReconcileApprovalGate through resumeGateLifecycle (which reattaches the
+ *  kept worktree + tears it down only on a persisted terminal status), so a
+ *  merged/closed PR auto-resolves the gate and the run completes. Read-only when
+ *  the gate does not resolve — the run stays parked. Payload: `{ runId }`. */
+export async function handleReconcile(event: PageActionEvent): Promise<void> {
+  try {
+    const projectRoot = projectRootImpl();
+    if (!projectRoot) {
+      process.stderr.write("ez-code-factory: reconcile with no EZCORP_PROJECT_ROOT — ignored\n");
+      return;
+    }
+    const runId = parseYoloRunId(event.payload);
+    if (!runId) {
+      process.stderr.write("ez-code-factory: reconcile with invalid payload — ignored\n");
+      return;
+    }
+    const rec = await getStore().getRun(runId);
+    if (!rec) {
+      process.stderr.write(`ez-code-factory: reconcile for unknown run ${runId} — ignored\n`);
+      return;
+    }
+    const gDir = gateDirFor(projectRoot, rec.repoId);
+    const result = await resumeGateLifecycle(runId, {
+      gateDir: gDir,
+      store: getStore(),
+      run: shellImpl,
+      onChange: refreshDashboard,
+      respond: makeReconcileRunnerImpl(projectRoot, gDir),
+    });
+    if (result === null) {
+      process.stderr.write(`ez-code-factory: reconcile for run ${runId} could not resume\n`);
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    process.stderr.write(`ez-code-factory: reconcile handler error: ${message}\n`);
+  }
+}
+
 /** Dashboard render — the runs table + inline parked-run triage (global scope). */
 export async function renderDashboard() {
   return currentDashboardTree();
@@ -454,6 +538,7 @@ export function register(): void {
       [PUSH_RECEIVED_ACTION]: handlePushReceived,
       [RESPOND_ACTION]: handleRespond,
       [YOLO_ACTION]: handleYolo,
+      [RECONCILE_ACTION]: handleReconcile,
     },
   });
   createToolDispatcher(tools);

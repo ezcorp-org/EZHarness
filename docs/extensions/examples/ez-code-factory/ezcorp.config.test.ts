@@ -18,36 +18,42 @@ describe("ez-code-factory manifest", () => {
     expect(ids).toEqual(["dashboard"]);
   });
 
-  test("requests the narrowest grants: storage + shell + spawnAgents + $CWD fs, no network", () => {
+  test("requests narrow grants: storage + shell + spawnAgents + $CWD fs + api.github.com", () => {
     const perms = manifest.permissions ?? {};
     expect(perms.storage).toBe(true);
     expect(perms.shell).toBe(true);
     expect(perms.filesystem).toEqual(["$CWD"]);
     // spawnAgents: the M1 pipeline drives native sub-agents (decision #2).
     expect(perms.spawnAgents).toBeDefined();
-    // No network grant — the post-receive hook (not the subprocess) calls back.
-    expect("network" in perms).toBe(false);
+    // M4: `gh` reaches the GitHub API — narrow allowlist, github.com only.
+    expect(perms.network).toEqual(["api.github.com"]);
   });
 
-  test("subscribes to the push-received + respond + yolo gate events", () => {
+  test("subscribes to the push-received + respond + yolo + reconcile gate events", () => {
     expect(manifest.permissions?.eventSubscriptions).toEqual([
       "ez-code-factory:push-received",
       "ez-code-factory:respond",
       "ez-code-factory:yolo",
+      "ez-code-factory:reconcile",
     ]);
   });
 
-  test("declares settings v0 with keys matching resolvePipelineConfig's consumed shape", () => {
+  test("declares settings with keys matching resolvePipelineConfig + the secret token", () => {
     const settings = manifest.settings ?? {};
-    // Keys must be exactly what lib/config.ts resolvePipelineConfig reads, so no
-    // knob is silently dead (M1 fix item 5).
+    // Executing knobs must be exactly what lib/config.ts resolvePipelineConfig
+    // reads (no dead knob), plus the M4 CI timeout + the encrypted GitHub token.
     expect(Object.keys(settings).sort()).toEqual([
       "autofixCap",
+      "ciTimeoutHours",
       "defaultBranch",
       "gateRemote",
+      "githubToken",
       "ignorePatterns",
       "reviewAutofixCap",
     ]);
     expect((settings.reviewAutofixCap as { default: number }).default).toBe(0);
+    // The token is a write-only secret stored under the gh-runner's key.
+    expect((settings.githubToken as { type: string }).type).toBe("secret");
+    expect((settings.githubToken as { storageKey: string }).storageKey).toBe("github-token");
   });
 });
