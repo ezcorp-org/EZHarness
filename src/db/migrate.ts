@@ -106,8 +106,26 @@ export async function migrate(db: any): Promise<void> {
     )
   `);
 
+  // ── Workflows (formerly "pipelines") ──────────────────────────────
+  // The pipelines subsystem became "Workflows". Existing DBs carry the
+  // data in `pipeline_definitions`; rename the table in place (data
+  // preserved). Guarded via to_regclass so it is a no-op on a fresh
+  // install (neither table exists yet) and on re-run (already renamed).
+  // Ordered BEFORE the CREATE below so a fresh install builds
+  // `workflow_definitions` directly and this rename finds nothing to do.
+  {
+    const tbls = (await db.execute(sql`
+      SELECT to_regclass('public.pipeline_definitions') AS old_tbl,
+             to_regclass('public.workflow_definitions') AS new_tbl
+    `)) as { rows: Array<{ old_tbl: string | null; new_tbl: string | null }> };
+    const row = tbls.rows[0];
+    if (row?.old_tbl && !row?.new_tbl) {
+      await db.execute(sql`ALTER TABLE pipeline_definitions RENAME TO workflow_definitions`);
+    }
+  }
+
   await db.execute(sql`
-    CREATE TABLE IF NOT EXISTS pipeline_definitions (
+    CREATE TABLE IF NOT EXISTS workflow_definitions (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL UNIQUE,
       description TEXT NOT NULL DEFAULT '',

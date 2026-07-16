@@ -136,10 +136,10 @@ export const SCOPED_RUNTIME_EVENT_TYPES: ReadonlySet<keyof AgentEvents> = new Se
   "agent:spawn",
   "agent:status",
   "agent:complete",
-  "pipeline:start",
-  "pipeline:step",
-  "pipeline:complete",
-  "pipeline:error",
+  "workflow:start",
+  "workflow:step",
+  "workflow:complete",
+  "workflow:error",
 ]);
 
 // ── Extension-declared event registry ───────────────────────────────
@@ -455,7 +455,7 @@ async function deliverScopedRuntimeEvent(
     }
   }
 
-  // 3. Explicit user scope (pipeline:* carry the initiating userId).
+  // 3. Explicit user scope (workflow:* carry the initiating userId).
   if (typeof p.userId === "string" && p.userId) {
     return p.userId === subscriber.userId;
   }
