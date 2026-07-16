@@ -87,9 +87,9 @@ let ghCalls: string[][] = [];
 function fakeGh() {
   _setShellForTests(async (cmd) => {
     ghCalls.push(cmd);
-    const sub = cmd.slice(1, 3).join(" ");
-    if (sub === "pr diff") return IN_SCOPE_DIFF;
-    if (sub === "pr view") return OPEN_MERGEABLE;
+    // The changed-files probe is now a repo-pinned `gh api …/pulls/<n>/files`.
+    if (cmd[1] === "api") return IN_SCOPE_DIFF;
+    if (cmd.slice(1, 3).join(" ") === "pr view") return OPEN_MERGEABLE;
     return { exitCode: 0, stdout: "", stderr: "" };
   });
 }
@@ -125,6 +125,9 @@ beforeEach(async () => {
   await git("init", "-q");
   await git("config", "user.email", "probe@example.test");
   await git("config", "user.name", "Probe");
+  // The watched origin — gh is pinned to `o/r`, so the drafted `github.com/o/r`
+  // PR URLs below are own-repo (normalized to `#N`), not foreign.
+  await git("remote", "add", "origin", "https://github.com/o/r.git");
   await commit("README.md", "feat: initial");
 
   const mem = makeMemStorage();
@@ -218,9 +221,10 @@ describe("docs-updater full flow (real primitive + real git + fake gh)", () => {
     const runId = await fireManual();
     await complete(runId, "Opened https://github.com/o/r/pull/9");
 
-    // Parked awaiting approval, proposal carries the PR ref; pending nudge emitted.
+    // Parked awaiting approval, proposal carries the PR ref (normalized to the
+    // repo-pinned `#N`); pending nudge emitted.
     expect(runOf(runId)?.status).toBe("awaiting_approval");
-    expect(runOf(runId)?.proposal?.ref).toBe("https://github.com/o/r/pull/9");
+    expect(runOf(runId)?.proposal?.ref).toBe("#9");
     expect(events.pending.length).toBe(1);
 
     // Dashboard Approve row action — `userId` is the HOST-STAMPED identity.

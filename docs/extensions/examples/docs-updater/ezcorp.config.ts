@@ -64,12 +64,6 @@ export default defineExtension({
         "Comma-separated path prefixes the drafted PR may touch (the write-scope jail). A PR that changes anything outside these is refused at approval — grants, not prompt hope.",
       default: "README.md,docs/",
     },
-    base_branch: {
-      type: "text",
-      label: "PR base branch (override)",
-      description: "Base branch the PR targets. Blank = detect origin/HEAD.",
-      default: "",
-    },
     auto_merge: {
       type: "boolean",
       label: "Merge on approve (non-/repo only)",

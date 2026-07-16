@@ -31,10 +31,35 @@ a scratch repo. `/repo` is always manual, regardless of the setting.
 The drafted PR is validated to touch **only** the configured `write_paths`
 (default `README.md,docs/`). A PR that changes anything outside them is
 **refused** — closed before it can ever reach a human approver at `onComplete`,
-and re-checked again at `finalize`. The preset prompt also asks the agent for
-docs-only edits, but the structural path check is the enforcement, not the
-prompt. (The agent runs in its own jail; docs-updater cannot Landlock the
-agent's writes, so the enforcement lives at the PR boundary it *does* own.)
+and re-checked again at `finalize`. The check is **rename-aware**: it reads the
+PR's files through `gh api …/pulls/<n>/files` and gates **both** the new
+`filename` **and** any `previous_filename`, so a rename that moves a source
+file into `docs/` (or a docs file out to `src/`) is caught. Absolute paths,
+`..` traversal segments, and `\`-separated paths are refused outright. The
+preset prompt also asks the agent for docs-only edits, but the structural path
+check is the enforcement, not the prompt. (The agent runs in its own jail;
+docs-updater cannot Landlock the agent's writes, so the enforcement lives at the
+PR boundary it *does* own.)
+
+**Approval-time drift — an honest caveat.** If a PR passes the pre-park check,
+parks, a human **approves**, and only *then* drifts out of scope, `finalize`
+still refuses it: it **closes** the PR and records `rejected_out_of_scope` on
+the outcome. By primitive design the approval label captures the human's
+**decision** (stamped *before* `finalize` runs), so the label reads `approved`
+while the outcome carries the refusal — the outcome, not the label, is the
+source of truth for what actually happened to the PR.
+
+## gh is pinned to the watched repo — no cross-repo action
+
+Every `gh` call is pinned to the origin resolved from `git remote get-url
+origin` (`gh api repos/<owner>/<repo>/…` and `gh pr … --repo <owner>/<repo>`).
+A full PR URL the agent reports for **any other repo** is **refused with no gh
+action** (`foreign_pr_ref`) — a prompt-injected "close that other repo's PR"
+can never execute. A bare `#N` or an own-repo URL is normalized to a bare PR
+number carried alongside the explicit `--repo`, so a shell metacharacter can
+never ride in on the ref. When the completion cites several own-repo PR URLs
+the **last** is chosen (agents cite reference PRs before their own result). If
+origin is unreadable, the loop takes no gh action (`no_origin`, skip-not-fail).
 
 ## At-most-once cursor
 
@@ -64,7 +89,6 @@ See [docs/extensions/loops.md](../../loops.md#decidedby-is-host-stamped--never-t
 | `repo_path` | `""` | Repo to watch + draft against. Blank = active project (`/repo`). |
 | `agent_name` | `coder` | The coding agent dispatched to update the docs. |
 | `write_paths` | `README.md,docs/` | Path prefixes the PR may touch (the write-scope jail). |
-| `base_branch` | `""` | PR base. Blank = detect `origin/HEAD`. |
 | `auto_merge` | `false` | Merge on approve on a **non-`/repo`** target only. Ignored on `/repo`. |
 
 ## Try it (demo)

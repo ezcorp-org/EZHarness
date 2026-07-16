@@ -12,7 +12,7 @@
 import { test, expect, describe, afterEach, beforeEach } from "bun:test";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import type {
   LoopActContext,
   LoopCheckContext,
@@ -29,7 +29,11 @@ import {
   resolveWritePaths,
   isSelfRepo,
   filterOutsideWritePaths,
-  parsePrRef,
+  parseOriginUrl,
+  readOriginUrl,
+  resolveOrigin,
+  parsePrUrls,
+  resolvePrTarget,
   buildAgentPrompt,
   isGhUnavailable,
   statusLabel,
@@ -48,6 +52,7 @@ import {
   _setGitHeadForTests,
   _setCommitSubjectsForTests,
   _setProjectRootForTests,
+  _setOriginForTests,
   _setShellForTests,
   _setResolversForTests,
   APPROVE_EVENT,
@@ -55,6 +60,7 @@ import {
   LOOP_ID,
   type DocsInput,
   type DocsOutcome,
+  type OwnerRepo,
   type ShellResult,
   type ShellRunner,
 } from "./index";
@@ -65,9 +71,13 @@ afterEach(() => {
   _setGitHeadForTests(null);
   _setCommitSubjectsForTests(null);
   _setProjectRootForTests(null);
+  _setOriginForTests(null);
   _setShellForTests(null);
   _setResolversForTests(null, null);
 });
+
+/** The watched origin the gh pipeline pins to in these tests. */
+const ORIGIN: OwnerRepo = { owner: "o", repo: "r" };
 
 // ── context builders ────────────────────────────────────────────────
 
@@ -235,6 +245,22 @@ describe("isSelfRepo", () => {
   test("/repo → true", () => expect(isSelfRepo("/repo")).toBe(true));
   test("endsWith /repo → true", () => expect(isSelfRepo("/home/dev/repo")).toBe(true));
   test("other → false", () => expect(isSelfRepo("/home/dev/project")).toBe(false));
+  // CRIT-2: realpath-normalized so trailing slashes / dot segments / a symlink
+  // alias all still classify as the /repo self-dev mount (merge stays manual).
+  test("trailing slash → true", () => expect(isSelfRepo("/repo/")).toBe(true));
+  test("dot segment → true", () => expect(isSelfRepo("/repo/.")).toBe(true));
+  test("symlink alias resolves to a real .../repo → true", () => {
+    const base = join(tmpdir(), `du-self-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+    const real = join(base, "repo");
+    const alias = join(base, "alias");
+    mkdirSync(real, { recursive: true });
+    symlinkSync(real, alias);
+    try {
+      expect(isSelfRepo(alias)).toBe(true);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
 });
 
 // ── filterOutsideWritePaths (pure — the write-scope jail) ────────────
@@ -249,33 +275,119 @@ describe("filterOutsideWritePaths", () => {
   test("write path with no trailing slash matches dir prefix + exact", () => {
     expect(filterOutsideWritePaths(["docs", "docs/a.md", "other"], ["docs"])).toEqual(["other"]);
   });
+  // gap-1: adversarial paths are OUTSIDE scope outright (never a real docs edit).
+  test("traversal segment refused even under an in-scope prefix", () => {
+    expect(filterOutsideWritePaths(["docs/../src/evil.ts"], ["docs/"])).toEqual(["docs/../src/evil.ts"]);
+  });
+  test("absolute path refused", () => {
+    expect(filterOutsideWritePaths(["/etc/passwd"], ["README.md", "docs/"])).toEqual(["/etc/passwd"]);
+  });
+  test("backslash-separated path refused", () => {
+    expect(filterOutsideWritePaths(["docs\\evil.ts"], ["docs/"])).toEqual(["docs\\evil.ts"]);
+  });
 });
 
-// ── parsePrRef (pure) ───────────────────────────────────────────────
+// ── parseOriginUrl / resolveOrigin (pure + seam) ────────────────────
 
-describe("parsePrRef", () => {
-  test("full github url", () => {
-    expect(parsePrRef("Opened https://github.com/o/r/pull/42 for review")).toBe("https://github.com/o/r/pull/42");
+describe("parseOriginUrl", () => {
+  test("https form with .git", () => {
+    expect(parseOriginUrl("https://github.com/acme/widgets.git")).toEqual({ owner: "acme", repo: "widgets" });
   });
-  test("bare #number", () => {
-    expect(parsePrRef("Created PR #17 with the docs")).toBe("#17");
+  test("https form without .git", () => {
+    expect(parseOriginUrl("https://github.com/acme/widgets")).toEqual({ owner: "acme", repo: "widgets" });
   });
-  test("no PR → null", () => {
-    expect(parsePrRef("Nothing to change")).toBeNull();
+  test("ssh git@ form", () => {
+    expect(parseOriginUrl("git@github.com:acme/widgets.git")).toEqual({ owner: "acme", repo: "widgets" });
   });
-  test("undefined → null", () => {
-    expect(parsePrRef(undefined)).toBeNull();
+  test("ssh:// form", () => {
+    expect(parseOriginUrl("ssh://git@github.com/acme/widgets")).toEqual({ owner: "acme", repo: "widgets" });
+  });
+  test("trailing slash tolerated", () => {
+    expect(parseOriginUrl("https://github.com/acme/widgets/")).toEqual({ owner: "acme", repo: "widgets" });
+  });
+  test("non-github → null", () => {
+    expect(parseOriginUrl("https://gitlab.com/acme/widgets.git")).toBeNull();
+  });
+});
+
+describe("resolveOrigin", () => {
+  test("parses the injected origin url", async () => {
+    _setOriginForTests(async () => "git@github.com:o/r.git");
+    expect(await resolveOrigin("/r")).toEqual({ owner: "o", repo: "r" });
+  });
+  test("no origin → null", async () => {
+    _setOriginForTests(async () => null);
+    expect(await resolveOrigin("/r")).toBeNull();
+  });
+  test("unparseable origin → null", async () => {
+    _setOriginForTests(async () => "not a url");
+    expect(await resolveOrigin("/r")).toBeNull();
+  });
+});
+
+// ── parsePrUrls / resolvePrTarget (pure — the repo-pinning gate) ─────
+
+describe("parsePrUrls", () => {
+  test("collects every url + strips a .git repo suffix", () => {
+    expect(
+      parsePrUrls("see https://github.com/a/b/pull/1 and https://github.com/c/d.git/pull/2"),
+    ).toEqual([
+      { owner: "a", repo: "b", num: "1" },
+      { owner: "c", repo: "d", num: "2" },
+    ]);
+  });
+});
+
+describe("resolvePrTarget", () => {
+  test("own-repo url → number pinned to origin", () => {
+    expect(resolvePrTarget("Opened https://github.com/o/r/pull/42", ORIGIN)).toEqual({ ok: true, number: "42", ownerRepo: ORIGIN });
+  });
+  test("bare #N → number pinned to origin", () => {
+    expect(resolvePrTarget("Created PR #17", ORIGIN)).toEqual({ ok: true, number: "17", ownerRepo: ORIGIN });
+  });
+  test("multiple own-repo urls → the LAST wins (nit #9)", () => {
+    const text = "context: https://github.com/o/r/pull/3 — result: https://github.com/o/r/pull/9";
+    expect(resolvePrTarget(text, ORIGIN)).toEqual({ ok: true, number: "9", ownerRepo: ORIGIN });
+  });
+  test("case-insensitive owner/repo match", () => {
+    expect(resolvePrTarget("https://github.com/O/R/pull/5", ORIGIN)).toEqual({ ok: true, number: "5", ownerRepo: ORIGIN });
+  });
+  test("foreign url + own bare #N → uses the bare (foreign ignored)", () => {
+    const text = "ref https://github.com/evil/repo/pull/1 — opened #8";
+    expect(resolvePrTarget(text, ORIGIN)).toEqual({ ok: true, number: "8", ownerRepo: ORIGIN });
+  });
+  test("only-foreign url → foreign_pr_ref (no action)", () => {
+    expect(resolvePrTarget("Closed https://github.com/evil/repo/pull/1", ORIGIN)).toEqual({ ok: false, reason: "foreign_pr_ref", foreign: "evil/repo#1" });
+  });
+  test("no PR ref → no_pr", () => {
+    expect(resolvePrTarget("Nothing to change", ORIGIN)).toEqual({ ok: false, reason: "no_pr" });
+  });
+  test("undefined → no_pr", () => {
+    expect(resolvePrTarget(undefined, ORIGIN)).toEqual({ ok: false, reason: "no_pr" });
+  });
+  test("ref present but origin unreadable → no_origin", () => {
+    expect(resolvePrTarget("Opened #3", null)).toEqual({ ok: false, reason: "no_origin" });
+  });
+  test("adversarial metachar ref is NOT a PR ref → no_pr (gap-2)", () => {
+    // A shell-metachar / `--`-prefixed string never matches the ref grammar, so
+    // nothing hostile is ever extracted to reach an argv element.
+    expect(resolvePrTarget('"; rm -rf ~"', ORIGIN)).toEqual({ ok: false, reason: "no_pr" });
+    expect(resolvePrTarget("--repo evil/repo --json x", ORIGIN)).toEqual({ ok: false, reason: "no_pr" });
   });
 });
 
 // ── buildAgentPrompt (pure) ─────────────────────────────────────────
 
 describe("buildAgentPrompt", () => {
-  test("with sinceHash + subjects names the span + write scope", () => {
+  test("with sinceHash + subjects names the span + write scope + fences untrusted subjects", () => {
     const p = buildAgentPrompt({ headHash: "aaaaaaaa1111", sinceHash: "bbbbbbbb2222", subjects: ["feat: a", "fix: b"] }, ["README.md", "docs/"]);
     expect(p).toContain("merged since bbbbbbbb");
     expect(p).toContain("- feat: a");
     expect(p).toContain("Only edit files under: README.md, docs/");
+    // nit #10: commit subjects are fenced as untrusted data with a caution.
+    expect(p).toContain("UNTRUSTED DATA");
+    expect(p).toContain("BEGIN UNTRUSTED COMMIT SUBJECTS");
+    expect(p).toContain("END UNTRUSTED COMMIT SUBJECTS");
   });
   test("first-ever run (no sinceHash) + empty subjects", () => {
     const p = buildAgentPrompt({ headHash: "cccccccc3333", subjects: [] }, ["README.md"]);
@@ -350,6 +462,21 @@ describe("git readers (real repo)", () => {
     await git("add", "docs.md");
     await git("commit", "-q", "-m", "docs: add");
     expect(await readCommitSubjects(repo, first)).toEqual(["docs: add"]);
+  });
+  test("readOriginUrl → null with no origin remote", async () => {
+    expect(await readOriginUrl(repo)).toBeNull();
+  });
+  test("readOriginUrl reads the configured origin remote", async () => {
+    const git = async (...args: string[]) => {
+      const p = Bun.spawn(["git", "-C", repo, ...args], {
+        stdout: "pipe", stderr: "pipe",
+        env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" },
+      });
+      await p.exited;
+    };
+    await git("remote", "add", "origin", "git@github.com:o/r.git");
+    expect(await readOriginUrl(repo)).toBe("git@github.com:o/r.git");
+    expect(parseOriginUrl((await readOriginUrl(repo))!)).toEqual({ owner: "o", repo: "r" });
   });
 });
 
@@ -433,115 +560,160 @@ describe("docsUpdaterAct", () => {
 // ── readPrChangedFiles / readPrStatus (gh, injected shell) ──────────
 
 describe("readPrChangedFiles", () => {
-  test("parses the name-only diff", async () => {
-    const shell = scriptedShell(() => ({ exitCode: 0, stdout: "README.md\ndocs/a.md\n\n", stderr: "" }));
-    expect(await readPrChangedFiles(shell, "/r", "#1")).toEqual({ files: ["README.md", "docs/a.md"], unavailable: false });
+  test("reads filename + previous_filename (rename-aware), pinned via gh api", async () => {
+    let seen: string[] = [];
+    const shell = scriptedShell((cmd) => {
+      seen = cmd;
+      return { exitCode: 0, stdout: "docs/new.md\nsrc/old.ts\n\n", stderr: "" };
+    });
+    expect(await readPrChangedFiles(shell, "/r", ORIGIN, "1")).toEqual({ files: ["docs/new.md", "src/old.ts"], unavailable: false });
+    // Repo-pinned via `gh api repos/<owner>/<repo>/pulls/<n>/files` — no `--repo`
+    // guessing, the path names the repo directly.
+    expect(seen[0]).toBe("gh");
+    expect(seen[1]).toBe("api");
+    expect(seen).toContain("repos/o/r/pulls/1/files");
   });
   test("gh absent (127) → unavailable", async () => {
     const shell = scriptedShell(() => GH_ABSENT);
-    expect(await readPrChangedFiles(shell, "/r", "#1")).toEqual({ files: [], unavailable: true });
+    expect(await readPrChangedFiles(shell, "/r", ORIGIN, "1")).toEqual({ files: [], unavailable: true });
   });
   test("gh error (non-zero) → empty files, available", async () => {
     const shell = scriptedShell(() => ({ exitCode: 1, stdout: "", stderr: "boom" }));
-    expect(await readPrChangedFiles(shell, "/r", "#1")).toEqual({ files: [], unavailable: false });
+    expect(await readPrChangedFiles(shell, "/r", ORIGIN, "1")).toEqual({ files: [], unavailable: false });
   });
 });
 
 describe("readPrStatus", () => {
-  test("parses state + mergeable JSON", async () => {
-    const shell = scriptedShell(() => ({ exitCode: 0, stdout: JSON.stringify({ state: "OPEN", mergeable: "MERGEABLE" }), stderr: "" }));
-    expect(await readPrStatus(shell, "/r", "#1")).toEqual({ state: "OPEN", mergeable: "MERGEABLE", unavailable: false });
+  test("parses state + mergeable JSON, pinned via --repo + bare number", async () => {
+    let seen: string[] = [];
+    const shell = scriptedShell((cmd) => {
+      seen = cmd;
+      return { exitCode: 0, stdout: JSON.stringify({ state: "OPEN", mergeable: "MERGEABLE" }), stderr: "" };
+    });
+    expect(await readPrStatus(shell, "/r", ORIGIN, "1")).toEqual({ state: "OPEN", mergeable: "MERGEABLE", unavailable: false });
+    expect(seen).toEqual(["gh", "pr", "view", "1", "--repo", "o/r", "--json", "state,mergeable"]);
   });
   test("gh absent → unavailable", async () => {
-    expect(await readPrStatus(scriptedShell(() => GH_ABSENT), "/r", "#1")).toEqual({ unavailable: true });
+    expect(await readPrStatus(scriptedShell(() => GH_ABSENT), "/r", ORIGIN, "1")).toEqual({ unavailable: true });
   });
   test("non-zero → error", async () => {
-    const r = await readPrStatus(scriptedShell(() => ({ exitCode: 1, stdout: "", stderr: "no pr" })), "/r", "#1");
+    const r = await readPrStatus(scriptedShell(() => ({ exitCode: 1, stdout: "", stderr: "no pr" })), "/r", ORIGIN, "1");
     expect(r).toEqual({ unavailable: false, error: "no pr" });
   });
   test("non-zero with empty stderr → exit-coded error", async () => {
-    const r = await readPrStatus(scriptedShell(() => ({ exitCode: 2, stdout: "", stderr: "" })), "/r", "#1");
+    const r = await readPrStatus(scriptedShell(() => ({ exitCode: 2, stdout: "", stderr: "" })), "/r", ORIGIN, "1");
     expect(r).toEqual({ unavailable: false, error: "exit 2" });
   });
   test("non-JSON stdout → parse error", async () => {
-    const r = await readPrStatus(scriptedShell(() => ({ exitCode: 0, stdout: "not json", stderr: "" })), "/r", "#1");
+    const r = await readPrStatus(scriptedShell(() => ({ exitCode: 0, stdout: "not json", stderr: "" })), "/r", ORIGIN, "1");
     expect(r).toEqual({ unavailable: false, error: "gh pr view returned non-JSON" });
   });
 });
 
 // ── finalizeDocsPr (the gh approval pipeline) ───────────────────────
 
-const IN_SCOPE_DIFF = { exitCode: 0, stdout: "README.md\ndocs/a.md\n", stderr: "" };
-function ghFinalize(map: Partial<Record<string, ShellResult>>): ShellRunner {
+const IN_SCOPE_DIFF: ShellResult = { exitCode: 0, stdout: "README.md\ndocs/a.md\n", stderr: "" };
+const OPEN_MERGEABLE: ShellResult = { exitCode: 0, stdout: JSON.stringify({ state: "OPEN", mergeable: "MERGEABLE" }), stderr: "" };
+/** Route on a normalized gh key: `files` for the pinned `gh api`, else
+ *  `"<pr> <sub>"` (e.g. `pr view`, `pr close`). Records every gh key seen. */
+function ghRoute(
+  map: Partial<Record<string, ShellResult>>,
+  seen?: string[],
+): ShellRunner {
   return scriptedShell((cmd) => {
-    const sub = cmd.slice(1, 3).join(" "); // e.g. "pr diff"
-    return map[sub] ?? OK;
+    const key = cmd[1] === "api" ? "files" : `${cmd[1]} ${cmd[2]}`;
+    seen?.push(key);
+    return map[key] ?? OK;
   });
 }
 
 describe("finalizeDocsPr", () => {
-  const base = { repo: "/r", prRef: "#1", writePaths: ["README.md", "docs/"], selfRepo: true, autoMerge: false };
+  const base = { repo: "/r", ownerRepo: ORIGIN, prNumber: "1", writePaths: ["README.md", "docs/"], selfRepo: true, autoMerge: false };
 
-  test("out-of-scope change → rejected_out_of_scope (never marks)", async () => {
-    const shell = ghFinalize({ "pr diff": { exitCode: 0, stdout: "src/x.ts\n", stderr: "" } });
+  test("out-of-scope drift after approval → rejected + CLOSES the PR (SF-4)", async () => {
+    const seen: string[] = [];
+    const shell = ghRoute({ files: { exitCode: 0, stdout: "src/x.ts\n", stderr: "" } }, seen);
     const r = await finalizeDocsPr(shell, base);
     expect(r.marked).toBe("rejected_out_of_scope");
+    expect(r.closed).toBe(true);
     expect(r.note).toContain("src/x.ts");
+    // The refusal does not dangle: the PR was closed, and no comment/ready/merge ran.
+    expect(seen).toContain("pr close");
+    expect(seen).not.toContain("pr comment");
+    expect(seen).not.toContain("pr ready");
   });
-  test("gh absent at diff → skipped_gh_unavailable", async () => {
-    const r = await finalizeDocsPr(ghFinalize({ "pr diff": GH_ABSENT }), base);
+  test("rename that drags a source file into docs is rejected (SF-3)", async () => {
+    // gh api lists both the new filename (docs/new.md) and previous_filename (src/old.ts).
+    const r = await finalizeDocsPr(ghRoute({ files: { exitCode: 0, stdout: "docs/new.md\nsrc/old.ts\n", stderr: "" } }), base);
+    expect(r.marked).toBe("rejected_out_of_scope");
+    expect(r.note).toContain("src/old.ts");
+  });
+  test("rename docs→docs passes the write-scope gate", async () => {
+    const r = await finalizeDocsPr(ghRoute({ files: { exitCode: 0, stdout: "docs/new.md\ndocs/old.md\n", stderr: "" }, "pr view": OPEN_MERGEABLE }), base);
+    expect(r.marked).toBe("ready");
+  });
+  test("gh absent at files → skipped_gh_unavailable", async () => {
+    const r = await finalizeDocsPr(ghRoute({ files: GH_ABSENT }), base);
     expect(r.marked).toBe("skipped_gh_unavailable");
   });
   test("gh absent at view → skipped", async () => {
-    const r = await finalizeDocsPr(ghFinalize({ "pr diff": IN_SCOPE_DIFF, "pr view": GH_ABSENT }), base);
+    const r = await finalizeDocsPr(ghRoute({ files: IN_SCOPE_DIFF, "pr view": GH_ABSENT }), base);
     expect(r.marked).toBe("skipped_gh_unavailable");
   });
   test("pr view error → pr_read_failed", async () => {
-    const r = await finalizeDocsPr(ghFinalize({ "pr diff": IN_SCOPE_DIFF, "pr view": { exitCode: 1, stdout: "", stderr: "gone" } }), base);
+    const r = await finalizeDocsPr(ghRoute({ files: IN_SCOPE_DIFF, "pr view": { exitCode: 1, stdout: "", stderr: "gone" } }), base);
     expect(r.marked).toBe("pr_read_failed");
     expect(r.note).toBe("gone");
   });
   test("PR not OPEN → already_<state>", async () => {
-    const r = await finalizeDocsPr(ghFinalize({ "pr diff": IN_SCOPE_DIFF, "pr view": { exitCode: 0, stdout: JSON.stringify({ state: "MERGED" }), stderr: "" } }), base);
+    const r = await finalizeDocsPr(ghRoute({ files: IN_SCOPE_DIFF, "pr view": { exitCode: 0, stdout: JSON.stringify({ state: "MERGED" }), stderr: "" } }), base);
     expect(r.marked).toBe("already_merged");
   });
   test("conflicting → not_mergeable", async () => {
-    const r = await finalizeDocsPr(ghFinalize({ "pr diff": IN_SCOPE_DIFF, "pr view": { exitCode: 0, stdout: JSON.stringify({ state: "OPEN", mergeable: "CONFLICTING" }), stderr: "" } }), base);
+    const r = await finalizeDocsPr(ghRoute({ files: IN_SCOPE_DIFF, "pr view": { exitCode: 0, stdout: JSON.stringify({ state: "OPEN", mergeable: "CONFLICTING" }), stderr: "" } }), base);
     expect(r.marked).toBe("not_mergeable");
   });
   test("gh absent at comment → skipped", async () => {
-    const r = await finalizeDocsPr(ghFinalize({ "pr diff": IN_SCOPE_DIFF, "pr view": { exitCode: 0, stdout: JSON.stringify({ state: "OPEN", mergeable: "MERGEABLE" }), stderr: "" }, "pr comment": GH_ABSENT }), base);
+    const r = await finalizeDocsPr(ghRoute({ files: IN_SCOPE_DIFF, "pr view": OPEN_MERGEABLE, "pr comment": GH_ABSENT }), base);
     expect(r.marked).toBe("skipped_gh_unavailable");
   });
   test("gh absent at ready → skipped", async () => {
-    const r = await finalizeDocsPr(ghFinalize({ "pr diff": IN_SCOPE_DIFF, "pr view": { exitCode: 0, stdout: JSON.stringify({ state: "OPEN", mergeable: "MERGEABLE" }), stderr: "" }, "pr ready": GH_ABSENT }), base);
+    const r = await finalizeDocsPr(ghRoute({ files: IN_SCOPE_DIFF, "pr view": OPEN_MERGEABLE, "pr ready": GH_ABSENT }), base);
     expect(r.marked).toBe("skipped_gh_unavailable");
   });
   test("/repo → ready (never merges) + note", async () => {
-    const r = await finalizeDocsPr(ghFinalize({ "pr diff": IN_SCOPE_DIFF, "pr view": { exitCode: 0, stdout: JSON.stringify({ state: "OPEN", mergeable: "MERGEABLE" }), stderr: "" } }), base);
+    const r = await finalizeDocsPr(ghRoute({ files: IN_SCOPE_DIFF, "pr view": OPEN_MERGEABLE }), base);
     expect(r.marked).toBe("ready");
     expect(r.note).toContain("manual");
   });
+  test("self-repo + auto-merge on → STILL never merges (CRIT-2)", async () => {
+    const seen: string[] = [];
+    const r = await finalizeDocsPr(ghRoute({ files: IN_SCOPE_DIFF, "pr view": OPEN_MERGEABLE }, seen), { ...base, selfRepo: true, autoMerge: true });
+    expect(r.marked).toBe("ready");
+    expect(seen).not.toContain("pr merge");
+  });
   test("non-/repo without auto-merge → ready, no note", async () => {
-    const r = await finalizeDocsPr(ghFinalize({ "pr diff": IN_SCOPE_DIFF, "pr view": { exitCode: 0, stdout: JSON.stringify({ state: "OPEN", mergeable: "MERGEABLE" }), stderr: "" } }), { ...base, selfRepo: false });
+    const r = await finalizeDocsPr(ghRoute({ files: IN_SCOPE_DIFF, "pr view": OPEN_MERGEABLE }), { ...base, selfRepo: false });
     expect(r.marked).toBe("ready");
     expect(r.note).toBeUndefined();
   });
-  test("non-/repo + auto-merge → merged", async () => {
-    const r = await finalizeDocsPr(ghFinalize({ "pr diff": IN_SCOPE_DIFF, "pr view": { exitCode: 0, stdout: JSON.stringify({ state: "OPEN", mergeable: "MERGEABLE" }), stderr: "" } }), { ...base, selfRepo: false, autoMerge: true });
+  test("non-/repo + auto-merge → merged (pinned via --repo)", async () => {
+    const seen: string[] = [];
+    const r = await finalizeDocsPr(ghRoute({ files: IN_SCOPE_DIFF, "pr view": OPEN_MERGEABLE }, seen), { ...base, selfRepo: false, autoMerge: true });
     expect(r.marked).toBe("merged");
+    expect(seen).toContain("pr merge");
   });
   test("auto-merge gh absent → skipped", async () => {
-    const r = await finalizeDocsPr(ghFinalize({ "pr diff": IN_SCOPE_DIFF, "pr view": { exitCode: 0, stdout: JSON.stringify({ state: "OPEN", mergeable: "MERGEABLE" }), stderr: "" }, "pr merge": GH_ABSENT }), { ...base, selfRepo: false, autoMerge: true });
+    const r = await finalizeDocsPr(ghRoute({ files: IN_SCOPE_DIFF, "pr view": OPEN_MERGEABLE, "pr merge": GH_ABSENT }), { ...base, selfRepo: false, autoMerge: true });
     expect(r.marked).toBe("skipped_gh_unavailable");
   });
   test("auto-merge failure → merge_failed", async () => {
-    const r = await finalizeDocsPr(ghFinalize({ "pr diff": IN_SCOPE_DIFF, "pr view": { exitCode: 0, stdout: JSON.stringify({ state: "OPEN", mergeable: "MERGEABLE" }), stderr: "" }, "pr merge": { exitCode: 1, stdout: "", stderr: "blocked" } }), { ...base, selfRepo: false, autoMerge: true });
+    const r = await finalizeDocsPr(ghRoute({ files: IN_SCOPE_DIFF, "pr view": OPEN_MERGEABLE, "pr merge": { exitCode: 1, stdout: "", stderr: "blocked" } }), { ...base, selfRepo: false, autoMerge: true });
     expect(r.marked).toBe("merge_failed");
     expect(r.note).toBe("blocked");
   });
   test("auto-merge failure with empty stderr → exit-coded", async () => {
-    const r = await finalizeDocsPr(ghFinalize({ "pr diff": IN_SCOPE_DIFF, "pr view": { exitCode: 0, stdout: JSON.stringify({ state: "OPEN", mergeable: "MERGEABLE" }), stderr: "" }, "pr merge": { exitCode: 3, stdout: "", stderr: "" } }), { ...base, selfRepo: false, autoMerge: true });
+    const r = await finalizeDocsPr(ghRoute({ files: IN_SCOPE_DIFF, "pr view": OPEN_MERGEABLE, "pr merge": { exitCode: 3, stdout: "", stderr: "" } }), { ...base, selfRepo: false, autoMerge: true });
     expect(r.note).toBe("exit 3");
   });
 });
@@ -549,27 +721,51 @@ describe("finalizeDocsPr", () => {
 // ── discardDocsPr ───────────────────────────────────────────────────
 
 describe("discardDocsPr", () => {
-  test("closes the PR (no throw)", async () => {
-    let closed = false;
-    const shell = scriptedShell((cmd) => { if (cmd[2] === "close") closed = true; return OK; });
-    await discardDocsPr(shell, "/r", "#1");
-    expect(closed).toBe(true);
+  test("closes the PR pinned via --repo + bare number (no throw)", async () => {
+    let seen: string[] = [];
+    const shell = scriptedShell((cmd) => { seen = cmd; return OK; });
+    await discardDocsPr(shell, "/r", ORIGIN, "1");
+    expect(seen).toEqual(["gh", "pr", "close", "1", "--repo", "o/r"]);
   });
   test("gh absent → skip-not-fail (no throw)", async () => {
-    await expect(discardDocsPr(scriptedShell(() => GH_ABSENT), "/r", "#1")).resolves.toBeUndefined();
+    await expect(discardDocsPr(scriptedShell(() => GH_ABSENT), "/r", ORIGIN, "1")).resolves.toBeUndefined();
   });
 });
 
 // ── docsUpdaterOnComplete (deferred → proposal) ─────────────────────
 
 describe("docsUpdaterOnComplete", () => {
+  // Every proposal path needs the watched origin resolvable so gh can be pinned.
+  beforeEach(() => _setOriginForTests(async () => "https://github.com/o/r.git"));
+
   test("no PR in the completion → terminal no_pr", async () => {
     const { ctx, logs } = makeCompleteCtx({ resultPreview: "Nothing to update" });
     const r = await docsUpdaterOnComplete(ctx);
     expect(r).toEqual({ kind: "terminal", status: "no_pr", outcome: { headHash: "abcdef1234567890", note: "no PR drafted" } });
     expect(logs[0]).toContain("without opening a PR");
   });
-  test("in-scope PR → parks a proposal (kind pr)", async () => {
+  test("foreign PR url → terminal foreign_pr_ref + ZERO gh calls (CRIT-1)", async () => {
+    let ghCalls = 0;
+    _setShellForTests(scriptedShell(() => { ghCalls += 1; return OK; }));
+    const { ctx, logs } = makeCompleteCtx({ resultPreview: "Closed https://github.com/evil/repo/pull/1" });
+    const r = await docsUpdaterOnComplete(ctx);
+    expect(r).toMatchObject({ kind: "terminal", status: "foreign_pr_ref" });
+    if (r.kind !== "terminal") throw new Error("expected terminal");
+    expect(r.outcome.note).toContain("evil/repo#1");
+    // No gh action was taken on the foreign ref — the whole point of CRIT-1.
+    expect(ghCalls).toBe(0);
+    expect(logs.join(" ")).toContain("foreign repo");
+  });
+  test("origin unreadable → terminal no_origin + ZERO gh calls", async () => {
+    _setOriginForTests(async () => null);
+    let ghCalls = 0;
+    _setShellForTests(scriptedShell(() => { ghCalls += 1; return OK; }));
+    const { ctx } = makeCompleteCtx({ resultPreview: "Opened https://github.com/o/r/pull/9" });
+    const r = await docsUpdaterOnComplete(ctx);
+    expect(r).toMatchObject({ kind: "terminal", status: "no_origin" });
+    expect(ghCalls).toBe(0);
+  });
+  test("in-scope PR → parks a proposal (kind pr), ref normalized to #N", async () => {
     _setShellForTests(scriptedShell(() => IN_SCOPE_DIFF));
     const { ctx } = makeCompleteCtx({ resultPreview: "Opened https://github.com/o/r/pull/9" });
     const r = await docsUpdaterOnComplete(ctx);
@@ -577,9 +773,9 @@ describe("docsUpdaterOnComplete", () => {
     if (r.kind !== "proposal") throw new Error("expected proposal");
     expect(r.proposal).toEqual({
       title: "Docs update for abcdef12",
-      summary: "Drafted PR https://github.com/o/r/pull/9 updating docs for 1 commit(s).",
+      summary: "Drafted PR #9 updating docs for 1 commit(s).",
       kind: "pr",
-      ref: "https://github.com/o/r/pull/9",
+      ref: "#9",
     });
     expect(typeof r.finalize).toBe("function");
     expect(typeof r.discard).toBe("function");
@@ -587,7 +783,7 @@ describe("docsUpdaterOnComplete", () => {
   test("out-of-scope PR → closed + terminal rejected_out_of_scope", async () => {
     let closed = false;
     _setShellForTests(scriptedShell((cmd) => {
-      if (cmd[2] === "diff") return { exitCode: 0, stdout: "src/evil.ts\n", stderr: "" };
+      if (cmd[1] === "api") return { exitCode: 0, stdout: "src/evil.ts\n", stderr: "" };
       if (cmd[2] === "close") { closed = true; return OK; }
       return OK;
     }));
@@ -599,7 +795,7 @@ describe("docsUpdaterOnComplete", () => {
   });
   test("out-of-scope discard failure is swallowed (best-effort)", async () => {
     _setShellForTests(scriptedShell((cmd) => {
-      if (cmd[2] === "diff") return { exitCode: 0, stdout: "src/evil.ts\n", stderr: "" };
+      if (cmd[1] === "api") return { exitCode: 0, stdout: "src/evil.ts\n", stderr: "" };
       throw new Error("close blew up");
     }));
     const { ctx } = makeCompleteCtx({ resultPreview: "PR #5" });
@@ -615,8 +811,8 @@ describe("docsUpdaterOnComplete", () => {
   });
   test("finalize closure threads the head hash", async () => {
     _setShellForTests(scriptedShell((cmd) => {
-      if (cmd[2] === "diff") return IN_SCOPE_DIFF;
-      if (cmd[2] === "view") return { exitCode: 0, stdout: JSON.stringify({ state: "OPEN", mergeable: "MERGEABLE" }), stderr: "" };
+      if (cmd[1] === "api") return IN_SCOPE_DIFF;
+      if (cmd[2] === "view") return OPEN_MERGEABLE;
       return OK;
     }));
     const { ctx } = makeCompleteCtx({ resultPreview: "PR #9", input: { headHash: "abcdef123456", subjects: ["feat: a"] }, settings: { repo_path: "/x" } });
@@ -629,7 +825,7 @@ describe("docsUpdaterOnComplete", () => {
   test("discard closure closes the PR", async () => {
     let closed = false;
     _setShellForTests(scriptedShell((cmd) => {
-      if (cmd[2] === "diff") return IN_SCOPE_DIFF;
+      if (cmd[1] === "api") return IN_SCOPE_DIFF;
       if (cmd[2] === "close") { closed = true; return OK; }
       return OK;
     }));
@@ -750,8 +946,10 @@ describe("manifest", () => {
     expect(result.errors).toEqual([]);
     expect(result.valid).toBe(true);
     expect(Object.keys(config.settings ?? {})).toEqual(
-      expect.arrayContaining(["enabled", "repo_path", "agent_name", "write_paths", "base_branch", "auto_merge"]),
+      expect.arrayContaining(["enabled", "repo_path", "agent_name", "write_paths", "auto_merge"]),
     );
+    // SF-6: the dead `base_branch` knob was dropped (never wired).
+    expect(Object.keys(config.settings ?? {})).not.toContain("base_branch");
   });
   test("declares the loop grants (spawnAgents, loopEvents, page-action events)", () => {
     expect(config.name).toBe("docs-updater");
