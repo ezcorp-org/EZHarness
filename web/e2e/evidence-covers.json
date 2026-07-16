@@ -123,5 +123,10 @@
   "web/e2e/visual-evidence.spec.ts": [
     "web/src/app.css",
     "web/src/routes/(app)/hub/+page.svelte"
+  ],
+  "web/e2e/workflows-demos.spec.ts": [
+    "web/src/routes/(app)/workflows/**",
+    "web/src/lib/components/WorkflowBuilder.svelte",
+    "web/src/lib/components/WorkflowStepForm.svelte"
   ]
 }
