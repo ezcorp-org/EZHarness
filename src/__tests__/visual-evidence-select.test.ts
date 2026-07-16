@@ -17,7 +17,12 @@ import { copyFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { CoversMap } from "../../scripts/check-visual-evidence.ts";
-import { selectEvidenceSpecs, toWebRelativeSpecPath } from "../../scripts/visual-evidence/select-specs.ts";
+import {
+  escapeSpecPathForPlaywright,
+  evidenceTaggedSubset,
+  selectEvidenceSpecs,
+  toWebRelativeSpecPath,
+} from "../../scripts/visual-evidence/select-specs.ts";
 
 // Fixture covers map: two specs render the same footer component; one also
 // renders the model selector. Route key carries `[id]`/`(app)` to prove
@@ -57,10 +62,10 @@ describe("select-specs: selectEvidenceSpecs", () => {
     });
   });
 
-  test("visual + spec both changed → some (the changed spec)", () => {
+  test("visual + spec changed but NO covers map → all (can't attribute the visual change)", () => {
     expect(
       selectEvidenceSpecs(["web/src/routes/dashboard/+page.svelte", "web/e2e/dashboard.spec.ts"]),
-    ).toEqual({ mode: "some", specs: ["e2e/dashboard.spec.ts"] });
+    ).toEqual({ mode: "all" });
   });
 
   test("multiple changed specs are deduped and sorted", () => {
@@ -68,7 +73,6 @@ describe("select-specs: selectEvidenceSpecs", () => {
       "web/e2e/zed.spec.ts",
       "web/e2e/alpha.spec.ts",
       "web/e2e/zed.spec.ts",
-      "web/src/lib/components/Foo.svelte",
     ]);
     expect(result).toEqual({
       mode: "some",
@@ -76,7 +80,7 @@ describe("select-specs: selectEvidenceSpecs", () => {
     });
   });
 
-  test("visual change WITHOUT a spec → all (fail-open, evidence-exempt path)", () => {
+  test("visual change WITHOUT a covers map → all (must render the change somewhere)", () => {
     expect(selectEvidenceSpecs(["web/src/lib/components/Foo.svelte"])).toEqual({ mode: "all" });
     expect(selectEvidenceSpecs(["web/src/app.css"])).toEqual({ mode: "all" });
   });
@@ -84,6 +88,21 @@ describe("select-specs: selectEvidenceSpecs", () => {
   test("a non-spec e2e helper does not count as a spec (→ none when alone)", () => {
     // web/e2e/helper.ts is neither a visual surface nor a *.spec.ts.
     expect(selectEvidenceSpecs(["web/e2e/helper.ts"])).toEqual({ mode: "none" });
+  });
+
+  test("evidenceTaggedSpecs filters non-@evidence changed specs (spec-only PR → none)", () => {
+    // A changed spec OUTSIDE the tagged set has nothing to capture; running it
+    // under --grep @evidence would match zero tests and post a spurious ⚠️.
+    expect(selectEvidenceSpecs(["web/e2e/plain.spec.ts"], undefined, new Set())).toEqual({
+      mode: "none",
+    });
+    expect(
+      selectEvidenceSpecs(
+        ["web/e2e/plain.spec.ts", "web/e2e/tagged.spec.ts"],
+        undefined,
+        new Set(["web/e2e/tagged.spec.ts"]),
+      ),
+    ).toEqual({ mode: "some", specs: ["e2e/tagged.spec.ts"] });
   });
 });
 
@@ -111,10 +130,10 @@ describe("select-specs: selectEvidenceSpecs covers union", () => {
     expect(result).toEqual({ mode: "some", specs: ["e2e/routing.spec.ts"] });
   });
 
-  test("no covers map → just the changed specs (P1 behavior, no union)", () => {
+  test("no covers map + visual change → all (unattributable visual edit runs the suite)", () => {
     expect(
       selectEvidenceSpecs(["web/e2e/manual.spec.ts", "web/src/lib/components/ChatMessage.svelte"]),
-    ).toEqual({ mode: "some", specs: ["e2e/manual.spec.ts"] });
+    ).toEqual({ mode: "all" });
   });
 
   test("changed spec but no changed visual file → union is a no-op", () => {
@@ -124,10 +143,61 @@ describe("select-specs: selectEvidenceSpecs covers union", () => {
     });
   });
 
-  test("visual-without-spec stays 'all' — the covers map does NOT re-scope fail-open", () => {
+  test("COVERED visual file without a changed spec → some (its covering specs)", () => {
+    // The covers map lets an evidence-exempt visual-only diff still be scoped
+    // to the specs that actually render it, instead of the whole suite.
     expect(selectEvidenceSpecs(["web/src/lib/components/ChatMessage.svelte"], COVERS)).toEqual({
-      mode: "all",
+      mode: "some",
+      specs: ["e2e/footer.spec.ts", "e2e/routing.spec.ts"],
     });
+  });
+
+  test("an UNCOVERED visual file forces all, even alongside covered files and changed specs", () => {
+    // Uncovered.svelte matches no covers glob: nothing in the selection would
+    // render it, so the pre-scoping guarantee (every visual change gets
+    // screenshotted by something) demands the full suite.
+    expect(
+      selectEvidenceSpecs(
+        [
+          "web/e2e/footer.spec.ts",
+          "web/src/lib/components/ChatMessage.svelte",
+          "web/src/lib/components/Uncovered.svelte",
+        ],
+        COVERS,
+      ),
+    ).toEqual({ mode: "all" });
+  });
+});
+
+// ── escapeSpecPathForPlaywright ──────────────────────────────────────────────
+describe("select-specs: escapeSpecPathForPlaywright", () => {
+  test("regex metachars are escaped so the path matches itself literally", () => {
+    expect(escapeSpecPathForPlaywright("e2e/a+b.spec.ts")).toBe("e2e/a\\+b\\.spec\\.ts");
+    expect(escapeSpecPathForPlaywright("e2e/x(1).spec.ts")).toBe("e2e/x\\(1\\)\\.spec\\.ts");
+    const escaped = escapeSpecPathForPlaywright("e2e/a+b.spec.ts");
+    expect(new RegExp(escaped).test("e2e/a+b.spec.ts")).toBe(true);
+  });
+  test("kebab-case paths only gain dot-escapes (behaviour-neutral)", () => {
+    expect(escapeSpecPathForPlaywright("e2e/dash-name.spec.ts")).toBe("e2e/dash-name\\.spec\\.ts");
+  });
+});
+
+// ── evidenceTaggedSubset ─────────────────────────────────────────────────────
+describe("select-specs: evidenceTaggedSubset", () => {
+  test("keeps specs containing @evidence, drops plain specs, keeps unreadable (fail-open)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "evtag-"));
+    try {
+      mkdirSync(join(root, "web/e2e"), { recursive: true });
+      await Bun.write(join(root, "web/e2e/tagged.spec.ts"), "test('x @evidence', () => {});\n");
+      await Bun.write(join(root, "web/e2e/plain.spec.ts"), "test('x', () => {});\n");
+      const tagged = await evidenceTaggedSubset(
+        ["web/e2e/tagged.spec.ts", "web/e2e/plain.spec.ts", "web/e2e/missing.spec.ts"],
+        root,
+      );
+      expect(tagged).toEqual(new Set(["web/e2e/tagged.spec.ts", "web/e2e/missing.spec.ts"]));
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 
@@ -199,12 +269,23 @@ describe("select-specs: main() git wiring", () => {
     return out.trim();
   }
 
-  test("changed spec → web-relative spec path", async () => {
+  test("changed @evidence spec → web-relative, regex-escaped spec path", async () => {
     const out = await runScenario({
-      base: { "web/e2e/foo.spec.ts": "// v1\n", "web/src/lib/components/Foo.svelte": "<div/>" },
-      write: { "web/e2e/foo.spec.ts": "// v2\n" },
+      base: {
+        "web/e2e/foo.spec.ts": "// @evidence v1\n",
+        "web/src/lib/components/Foo.svelte": "<div/>",
+      },
+      write: { "web/e2e/foo.spec.ts": "// @evidence v2\n" },
     });
-    expect(out).toBe("e2e/foo.spec.ts");
+    expect(out).toBe("e2e/foo\\.spec\\.ts");
+  });
+
+  test("changed NON-@evidence spec → __NONE__ (nothing to capture, no spurious ⚠️)", async () => {
+    const out = await runScenario({
+      base: { "web/e2e/foo.spec.ts": "// plain functional spec v1\n" },
+      write: { "web/e2e/foo.spec.ts": "// plain functional spec v2\n" },
+    });
+    expect(out).toBe("__NONE__");
   });
 
   test("non-visual diff → __NONE__", async () => {
@@ -266,12 +347,14 @@ describe("select-specs: main() git wiring", () => {
         "web/src/lib/components/Widget.svelte": "<div>2</div>",
       },
     });
-    expect(out).toBe("e2e/alpha.spec.ts\ne2e/beta.spec.ts");
+    expect(out).toBe("e2e/alpha\\.spec\\.ts\ne2e/beta\\.spec\\.ts");
   });
 
-  test("main() degrades to just the changed spec when the covers map is absent", async () => {
-    // No evidence-covers.json in the sandbox → loadCoversMap returns null → the
-    // union is skipped and only the directly-changed spec is selected.
+  test("main() falls open to __ALL__ when a visual file changes with no covers map", async () => {
+    // No evidence-covers.json in the sandbox → the changed Widget component
+    // cannot be attributed to any spec → the whole suite must run so the
+    // change is still rendered by something (the changed spec alone is not
+    // known to cover it).
     const out = await runScenario({
       base: {
         "web/e2e/beta.spec.ts": "// @evidence v1\n",
@@ -282,6 +365,21 @@ describe("select-specs: main() git wiring", () => {
         "web/src/lib/components/Widget.svelte": "<div>2</div>",
       },
     });
-    expect(out).toBe("e2e/beta.spec.ts");
+    expect(out).toBe("__ALL__");
+  });
+
+  test("main() falls open to __ALL__ for a changed visual file the covers map misses", async () => {
+    const covers = JSON.stringify({
+      "web/e2e/alpha.spec.ts": ["web/src/lib/components/Widget.svelte"],
+    });
+    const out = await runScenario({
+      base: {
+        "web/e2e/alpha.spec.ts": "// @evidence v1\n",
+        "web/src/lib/components/Unmapped.svelte": "<div>1</div>",
+        "web/e2e/evidence-covers.json": covers,
+      },
+      write: { "web/src/lib/components/Unmapped.svelte": "<div>2</div>" },
+    });
+    expect(out).toBe("__ALL__");
   });
 });

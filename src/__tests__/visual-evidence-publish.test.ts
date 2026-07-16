@@ -12,7 +12,10 @@
  * Follows the `src/__tests__/gate-scripts.test.ts` convention (pure exported
  * functions exercised in isolation).
  */
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join as joinPath, resolve as resolvePath } from "node:path";
 import {
   parseReportJsonl,
   sanitize as sanitizeManifest,
@@ -21,6 +24,7 @@ import {
   COMMENT_MARKER,
   MAX_INLINE_SHOTS,
   buildGalleryMarkdown,
+  buildSkippedMarkdown,
   isChangedShotSpec,
   isPng,
   isSafeRelPath,
@@ -29,6 +33,21 @@ import {
   sanitizeLabel,
   validatePrNumber,
 } from "../../scripts/visual-evidence/publish.ts";
+
+// Shared gallery fixtures (used by both buildGalleryMarkdown describe blocks).
+const base = {
+  repo: "ezcorp-org/EZCorp",
+  branch: "evidence/pr-42",
+  commitSha: "abc123def456",
+  pr: 42,
+  runId: 99,
+};
+const countImages = (md: string): number => (md.match(/!\[evidence\]\(/g) ?? []).length;
+const makeShots = (n: number) =>
+  Array.from({ length: n }, (_, i) => {
+    const idx = String(i).padStart(2, "0");
+    return { spec: `web/e2e/s${idx}.spec.ts`, label: `shot ${idx}`, file: `${idx}.png` };
+  });
 
 // ── sanitizeLabel ────────────────────────────────────────────────────────────
 describe("publish: sanitizeLabel", () => {
@@ -157,14 +176,6 @@ describe("publish: safeSegment", () => {
 
 // ── buildGalleryMarkdown ─────────────────────────────────────────────────────
 describe("publish: buildGalleryMarkdown", () => {
-  const base = {
-    repo: "ezcorp-org/EZCorp",
-    branch: "evidence/pr-42",
-    commitSha: "abc123def456",
-    pr: 42,
-    runId: 99,
-  };
-
   test("contains marker + immutable SHA URL per shot", () => {
     const md = buildGalleryMarkdown({
       ...base,
@@ -200,8 +211,6 @@ describe("publish: buildGalleryMarkdown", () => {
     expect(md).not.toContain("![evidence](");
   });
 
-  const countImages = (md: string): number => (md.match(/!\[evidence\]\(/g) ?? []).length;
-
   test("renders shots in deterministic (spec, label) order regardless of input order", () => {
     const shots = [
       { spec: "web/e2e/b.spec.ts", label: "zulu", file: "3.png" },
@@ -220,12 +229,6 @@ describe("publish: buildGalleryMarkdown", () => {
     const reversed = buildGalleryMarkdown({ ...base, shots: [...shots].reverse() });
     expect(reversed).toBe(md);
   });
-
-  const makeShots = (n: number) =>
-    Array.from({ length: n }, (_, i) => {
-      const idx = String(i).padStart(2, "0");
-      return { spec: `web/e2e/s${idx}.spec.ts`, label: `shot ${idx}`, file: `${idx}.png` };
-    });
 
   test("exactly MAX_INLINE_SHOTS renders all inline with no <details> block", () => {
     const md = buildGalleryMarkdown({ ...base, shots: makeShots(MAX_INLINE_SHOTS) });
@@ -315,20 +318,6 @@ describe("publish: isChangedShotSpec", () => {
 
 // ── buildGalleryMarkdown: diff-scoped partition (P3) ──────────────────────────
 describe("publish: buildGalleryMarkdown diff-scoped partition", () => {
-  const base = {
-    repo: "ezcorp-org/EZCorp",
-    branch: "evidence/pr-42",
-    commitSha: "abc123def456",
-    pr: 42,
-    runId: 99,
-  };
-  const countImages = (md: string): number => (md.match(/!\[evidence\]\(/g) ?? []).length;
-  const makeShots = (n: number) =>
-    Array.from({ length: n }, (_, i) => {
-      const idx = String(i).padStart(2, "0");
-      return { spec: `web/e2e/s${idx}.spec.ts`, label: `shot ${idx}`, file: `${idx}.png` };
-    });
-
   test("floats the changed spec inline and folds the rest into <details>", () => {
     const shots = [
       { spec: "web/e2e/dash.spec.ts", label: "dash", file: "1.png" },
@@ -444,6 +433,29 @@ describe("publish: buildGalleryMarkdown diff-scoped partition", () => {
     // sanitized text in a code span — never a live link.
     expect(head).toContain("x-http-evil-.spec.ts");
   });
+
+  test("hyphen-collapsed spec WITHOUT rawSpec cannot partition — rawSpec is load-bearing", () => {
+    // main()'s staging ALWAYS sets rawSpec; this pins why: the safeSegment'd
+    // spec has no path separators left, so suffix-matching is impossible and a
+    // refactor that drops rawSpec silently degrades to the unpartitioned body.
+    const shots = [
+      { spec: "web-e2e-dash.spec.ts", label: "dash", file: "1.png" },
+      { spec: "web-e2e-chat.spec.ts", label: "chat", file: "2.png" },
+    ];
+    const md = buildGalleryMarkdown({ ...base, shots, changedSpecs: ["web/e2e/dash.spec.ts"] });
+    expect(md).not.toContain("from the full suite");
+  });
+});
+
+// ── buildSkippedMarkdown ─────────────────────────────────────────────────────
+describe("publish: buildSkippedMarkdown", () => {
+  test("carries the sticky marker (so upsert can find/replace) and no images or ⚠️", () => {
+    const md = buildSkippedMarkdown();
+    expect(md).toContain(COMMENT_MARKER);
+    expect(md).toContain("No user-visible changes");
+    expect(md).not.toContain("![evidence](");
+    expect(md).not.toContain("⚠️");
+  });
 });
 
 // ── build-manifest: sanitize ─────────────────────────────────────────────────
@@ -541,4 +553,103 @@ describe("build-manifest: parseReportJsonl", () => {
   test("empty input → no shots", () => {
     expect(parseReportJsonl("")).toEqual([]);
   });
+});
+
+// ── main(): staging → markdown integration (subprocess) ─────────────────────
+// The pure-fn tests above hand-build shots; this block runs the REAL main()
+// over a crafted artifact dir so the staging loop's shapes (safeSegment'd spec
+// + rawSpec) — not fixture approximations — feed buildGalleryMarkdown. Pins
+// the skipped/update-only path and the partition path end to end.
+describe("publish: main() integration", () => {
+	const PUBLISH = joinPath(resolvePath(import.meta.dir, "..", ".."), "scripts/visual-evidence/publish.ts");
+	// Smallest valid PNG (1x1 RGB), enough to pass the magic-byte + stage checks.
+	const PNG = Buffer.from(
+		"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+		"base64",
+	);
+
+	const sandboxes: string[] = [];
+	afterEach(() => {
+		for (const dir of sandboxes.splice(0)) rmSync(dir, { recursive: true, force: true });
+	});
+
+	async function runMain(opts: {
+		manifest: unknown;
+		pngs?: string[];
+		changedFiles?: string;
+	}): Promise<{ body: string; outputs: string }> {
+		const root = mkdtempSync(joinPath(tmpdir(), "evpub-"));
+		sandboxes.push(root);
+		const artifact = joinPath(root, "artifact");
+		mkdirSync(joinPath(artifact, "extracted"), { recursive: true });
+		await Bun.write(joinPath(artifact, "manifest.json"), JSON.stringify(opts.manifest));
+		for (const rel of opts.pngs ?? []) await Bun.write(joinPath(artifact, rel), PNG);
+		const env: Record<string, string> = {
+			...process.env,
+			EVIDENCE_ARTIFACT_DIR: artifact,
+			EVIDENCE_STAGE_DIR: joinPath(root, "stage"),
+			EVIDENCE_COMMENT_FILE: joinPath(root, "comment.md"),
+			EVIDENCE_COMMIT_SHA: "cafef00d",
+			GITHUB_OUTPUT: joinPath(root, "outputs.txt"),
+		};
+		if (opts.changedFiles !== undefined) {
+			await Bun.write(joinPath(root, "changed.txt"), opts.changedFiles);
+			env.EVIDENCE_CHANGED_FILES = joinPath(root, "changed.txt");
+		} else {
+			delete env.EVIDENCE_CHANGED_FILES;
+		}
+		const proc = Bun.spawn(["bun", PUBLISH], { cwd: root, env, stdout: "pipe", stderr: "pipe" });
+		await proc.exited;
+		const body = await Bun.file(joinPath(root, "comment.md")).text().catch(() => "");
+		const outputs = await Bun.file(joinPath(root, "outputs.txt")).text().catch(() => "");
+		return { body, outputs };
+	}
+
+	test("skipped manifest with zero shots → neutral body + update_only=1", async () => {
+		const { body, outputs } = await runMain({
+			manifest: { pr: 7, headSha: "abc", runId: 3, shots: [], skipped: true },
+		});
+		expect(body).toContain(COMMENT_MARKER);
+		expect(body).toContain("No user-visible changes");
+		expect(body).not.toContain("⚠️");
+		expect(outputs).toContain("update_only<<");
+		expect(outputs).toMatch(/update_only<<[^\n]+\n1\n/);
+	});
+
+	test("hostile skipped=true WITH shots still renders the normal gallery (not update-only)", async () => {
+		const { body, outputs } = await runMain({
+			manifest: {
+				pr: 7,
+				headSha: "abc",
+				runId: 3,
+				skipped: true,
+				shots: [{ spec: "e2e/dash.spec.ts", label: "dash", file: "extracted/a.png" }],
+			},
+			pngs: ["extracted/a.png"],
+		});
+		expect(body).toContain("![evidence](");
+		expect(body).not.toContain("No user-visible changes");
+		expect(outputs).toMatch(/update_only<<[^\n]+\n\n/);
+	});
+
+	test("real staging shapes partition against a changed-files list (rawSpec end to end)", async () => {
+		const { body } = await runMain({
+			manifest: {
+				pr: 7,
+				headSha: "abc",
+				runId: 3,
+				shots: [
+					{ spec: "e2e/dash.spec.ts", label: "dash", file: "extracted/a.png" },
+					{ spec: "e2e/chat.spec.ts", label: "chat", file: "extracted/b.png" },
+				],
+			},
+			pngs: ["extracted/a.png", "extracted/b.png"],
+			changedFiles: "web/e2e/dash.spec.ts\nweb/src/lib/components/Chat.svelte\n",
+		});
+		const detailsAt = body.indexOf("<details>");
+		expect(detailsAt).toBeGreaterThan(-1);
+		expect(body.slice(0, detailsAt)).toContain("e2e-dash.spec.ts");
+		expect(body.slice(detailsAt)).toContain("e2e-chat.spec.ts");
+		expect(body).toContain("1 more screenshot(s) from the full suite");
+	});
 });

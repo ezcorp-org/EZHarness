@@ -55,7 +55,7 @@
   ],
   "web/e2e/github-projects-hub.spec.ts": [
     "web/src/routes/(app)/hub/[pageId]/+page.svelte",
-    "web/src/lib/components/hub/*.svelte"
+    "web/src/lib/components/hub/**/*.svelte"
   ],
   "web/e2e/graded-card-scanner.spec.ts": [
     "docs/extensions/examples/graded-card-scanner/app/**"
@@ -77,7 +77,7 @@
   ],
   "web/e2e/project-hub.spec.ts": [
     "web/src/routes/(app)/project/[id]/hub/[pageId]/+page.svelte",
-    "web/src/lib/components/hub/*.svelte",
+    "web/src/lib/components/hub/**/*.svelte",
     "web/src/routes/(app)/extensions/[id]/+page.svelte"
   ],
   "web/e2e/rbac-permissions.spec.ts": [

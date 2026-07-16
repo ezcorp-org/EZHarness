@@ -199,10 +199,30 @@ export async function loadCoversMap(path: string = COVERS_PATH): Promise<CoversM
   }
 }
 
-async function git(args: string[]): Promise<string> {
-  const proc = Bun.spawn(["git", ...args], { cwd: REPO_ROOT, stdout: "pipe", stderr: "pipe" });
-  const [out, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
-  return code === 0 ? out : "";
+/**
+ * Shared diff helper: `git diff --diff-filter=ACMR --name-only <base>...HEAD`
+ * parsed to trimmed, non-empty repo-relative paths. THROWS on a non-zero git
+ * exit — each caller owns its failure policy: the gate fails LOUD (a required
+ * check must never silently pass on a broken BASE_REF), the capture selector
+ * fails OPEN to `__ALL__` (a soft lane must never silently skip evidence).
+ * Lives here so the gate and the selector can never drift on what "changed"
+ * means.
+ */
+export async function changedFilesSince(base: string): Promise<string[]> {
+  const proc = Bun.spawn(
+    ["git", "diff", "--diff-filter=ACMR", "--name-only", `${base}...HEAD`],
+    { cwd: REPO_ROOT, stdout: "pipe", stderr: "pipe" },
+  );
+  const [out, err, code] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+  if (code !== 0) throw new Error(`git diff exited ${code}: ${err.trim()}`);
+  return out
+    .split("\n")
+    .map((s) => s.trim())
+    .filter(Boolean);
 }
 
 async function main(): Promise<void> {
@@ -212,10 +232,14 @@ async function main(): Promise<void> {
   }
 
   const base = process.env.BASE_REF || "origin/main";
-  const changed = (await git(["diff", "--diff-filter=ACMR", "--name-only", `${base}...HEAD`]))
-    .split("\n")
-    .map((s) => s.trim())
-    .filter(Boolean);
+  let changed: string[];
+  try {
+    changed = await changedFilesSince(base);
+  } catch (err) {
+    // A required check must fail LOUD, not silently pass on an empty diff.
+    console.error(`Visual-evidence gate ERROR: could not diff ${base}...HEAD — ${String(err)}`);
+    process.exit(1);
+  }
 
   const visualCount = changed.filter(isVisualSurfaceFile).length;
   const specCount = changed.filter(isSpecFile).length;

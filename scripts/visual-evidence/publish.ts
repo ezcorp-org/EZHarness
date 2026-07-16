@@ -41,6 +41,22 @@ export const COMMENT_MARKER = "<!-- visual-evidence -->";
 export const MAX_INLINE_SHOTS = 12;
 
 /**
+ * Body used when WF1 skipped capture (non-visual diff). Posted UPDATE-ONLY:
+ * the workflow PATCHes an existing sticky comment (so a gallery from an
+ * earlier visual push doesn't outlive the change it depicted) but never
+ * creates a new comment — a PR that was never visual stays comment-free.
+ */
+export function buildSkippedMarkdown(): string {
+  return [
+    COMMENT_MARKER,
+    "## Visual evidence",
+    "",
+    "No user-visible changes in the current diff — screenshots from earlier pushes " +
+      "(if any) are outdated and have been retired.",
+  ].join("\n");
+}
+
+/**
  * Reduce an untrusted label to a markdown-/shell-safe charset: letters,
  * digits, space, and `._-`. Everything else — crucially `[]()<>` backticks,
  * newlines, `!`, `|`, and `/` — is replaced by a space, so the value can never
@@ -323,6 +339,7 @@ interface ManifestShape {
   headSha?: unknown;
   runId?: unknown;
   shots?: unknown;
+  skipped?: unknown;
 }
 
 /** Append a `key=value` (multiline-safe) record to `$GITHUB_OUTPUT`. */
@@ -426,19 +443,26 @@ async function main(): Promise<void> {
   //    OPTIONAL changed-spec list (from WF2's trusted diff fetch) partitions the
   //    gallery; absent/unreadable → full P1 layout (fail-soft, presentation only).
   const changedSpecs = await readChangedSpecPaths();
-  const body = buildGalleryMarkdown({
-    repo,
-    branch,
-    commitSha,
-    pr,
-    runId,
-    shots: staged,
-    changedSpecs,
-  });
+  // `skipped` is untrusted manifest data — honor it ONLY in the harmless
+  // direction (zero staged shots → neutral update-only body). A hostile
+  // manifest claiming skipped WITH shots still renders the normal gallery.
+  const updateOnly = manifest.skipped === true && staged.length === 0;
+  const body = updateOnly
+    ? buildSkippedMarkdown()
+    : buildGalleryMarkdown({
+        repo,
+        branch,
+        commitSha,
+        pr,
+        runId,
+        shots: staged,
+        changedSpecs,
+      });
   await Bun.write(commentFile, body);
   await emitOutput("pr", String(pr));
   await emitOutput("branch", branch);
   await emitOutput("shot_count", String(staged.length));
+  await emitOutput("update_only", updateOnly ? "1" : "");
   await emitOutput("stage_dir", stageDir);
   await emitOutput("comment_file", commentFile);
   console.log(

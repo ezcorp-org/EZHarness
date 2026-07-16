@@ -160,7 +160,10 @@ jobs:
         run: bun scripts/visual-evidence/publish.ts
       # Upsert the sticky comment (find by marker → PATCH, else POST). When zero
       # PNGs were staged, publish.ts already wrote the ⚠️ body, so this same step
-      # posts the "no screenshot captured" note. Mirrors the gh-api comment
+      # posts the "no screenshot captured" note. UPDATE_ONLY=1 (capture was
+      # skipped for a non-visual diff) PATCHes an existing comment — retiring a
+      # stale gallery from an earlier visual push — but never POSTs a new one,
+      # so never-visual PRs stay comment-free. Mirrors the gh-api comment
       # pattern used elsewhere in the repo. Fail-soft throughout.
       - name: Upsert sticky comment
         if: steps.stage.outcome == 'success' && steps.stage.outputs.pr != ''
@@ -170,6 +173,7 @@ jobs:
           REPO: ${{ github.repository }}
           PR: ${{ steps.stage.outputs.pr }}
           MARKER: "<!-- visual-evidence -->"
+          UPDATE_ONLY: ${{ steps.stage.outputs.update_only }}
         run: |
           set -euo pipefail
           body="$(cat comment-body.md)"
@@ -180,6 +184,8 @@ jobs:
             gh api -X PATCH "repos/${REPO}/issues/comments/${existing}" \
               -f body="${body}"
             echo "Updated sticky comment ${existing} on PR #${PR}."
+          elif [ "${UPDATE_ONLY}" = "1" ]; then
+            echo "Capture skipped and no existing comment — nothing to retire."
           else
             gh api -X POST "repos/${REPO}/issues/${PR}/comments" \
               -f body="${body}"

@@ -406,11 +406,14 @@ jobs:
     # later step is continue-on-error so the best-effort capture/publish lane
     # can never red a PR during the fail-soft pilot.
     #
-    # Capture is DIFF-SCOPED (scripts/visual-evidence/select-specs.ts): a
-    # non-visual diff runs no specs at all (→ no artifact → WF2 posts no
-    # comment); a diff that changes specs runs only those; an evidence-exempt
-    # visual-only diff falls open to the full @evidence suite. A push to main
-    # has an empty base...HEAD diff, so capture is skipped there too.
+    # Capture is DIFF-SCOPED (scripts/visual-evidence/select-specs.ts):
+    # selection = changed @evidence-TAGGED specs ∪ covers-map specs rendering
+    # the changed visual files. A non-visual diff (incl. changed but
+    # non-@evidence specs, and pushes to main whose base...HEAD diff is empty)
+    # skips capture and uploads a `skipped` marker manifest — WF2 refreshes a
+    # stale gallery comment but never creates one. A changed visual file with
+    # no covers entry (or an unloadable covers map) falls open to the FULL
+    # @evidence suite so the change is still rendered by something.
     name: Visual evidence
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -460,6 +463,7 @@ jobs:
       # attacker-controlled path can't inject into the run script. Browser
       # binaries are cached above to skip the ~150 MB chromium download.
       - name: Capture visual evidence
+        id: capture
         continue-on-error: true
         env:
           BASE_REF: origin/${{ github.event.pull_request.base.ref || 'main' }}
@@ -468,6 +472,11 @@ jobs:
           bun scripts/visual-evidence/select-specs.ts > "$SPECS_FILE" || echo __ALL__ > "$SPECS_FILE"
           [ -s "$SPECS_FILE" ] || echo __ALL__ > "$SPECS_FILE"
           if grep -qx '__NONE__' "$SPECS_FILE"; then
+            # Single source of truth for "capture was skipped": this step
+            # output. The manifest step turns it into a `skipped` marker
+            # manifest (so WF2 can refresh a stale gallery) instead of
+            # re-parsing the sentinel file.
+            echo "skipped=1" >> "$GITHUB_OUTPUT"
             echo "non-visual diff — skipping visual-evidence capture"
             exit 0
           fi
@@ -480,13 +489,12 @@ jobs:
             mapfile -t SPECS < "$SPECS_FILE"
             EZCORP_E2E_EVIDENCE=1 bunx playwright test --project=chromium --grep @evidence "${SPECS[@]}" || true
           fi
-      # When capture was skipped (__NONE__), building the manifest anyway would
-      # CREATE web/blob-report/ (an empty-shots manifest), the artifact would
-      # upload, and WF2 would post the ⚠️ "no screenshot" comment on a PR that
-      # legitimately has nothing visual. Honor the sentinel: no manifest → no
-      # artifact → WF2 bails soft → no comment at all. A capture that RAN but
-      # produced no shots still writes an empty manifest, so the ⚠️ comment
-      # keeps flagging genuinely broken captures.
+      # When capture was skipped (non-visual diff), the manifest is a `skipped`
+      # marker with zero shots: WF2 uses it to REFRESH a stale gallery comment
+      # from an earlier visual push (update-only — it never creates a comment),
+      # so screenshots never outlive the change they depicted. A capture that
+      # RAN but produced no shots writes a plain empty manifest instead, so the
+      # ⚠️ comment keeps flagging genuinely broken captures.
       - name: Build evidence manifest
         continue-on-error: true
         env:
@@ -494,12 +502,8 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           RUN_ID: ${{ github.run_id }}
           EVIDENCE_MANIFEST: web/blob-report/manifest.json
-        run: |
-          if [ -f "$RUNNER_TEMP/evidence-specs.txt" ] && grep -qx '__NONE__' "$RUNNER_TEMP/evidence-specs.txt"; then
-            echo "capture was skipped (non-visual diff) — no manifest, no artifact, no comment"
-            exit 0
-          fi
-          bun scripts/visual-evidence/build-manifest.ts
+          EVIDENCE_SKIPPED: ${{ steps.capture.outputs.skipped }}
+        run: bun scripts/visual-evidence/build-manifest.ts
       - name: Upload visual evidence
         continue-on-error: true
         uses: actions/upload-artifact@v4
