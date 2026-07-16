@@ -42,6 +42,7 @@ function makeManifest(): ExtensionManifestV2 {
     description: "project-root meta shard fixture",
     author: { name: "test" },
     entrypoint: "./e.ts",
+    permissions: {},
     tools: [{ name: TOOL, description: "", inputSchema: { type: "object" } }],
   } as ExtensionManifestV2;
 }
