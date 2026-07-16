@@ -68,28 +68,63 @@ export default defineExtension({
     },
   ],
 
+  // Settings v0 (M1): per-step auto-fix caps + the gate remote name + review
+  // ignore globs + default branch. Read into a PipelineConfig via
+  // lib/config.ts resolvePipelineConfig; absent/invalid values fall back to
+  // defaults (review cap 0 = always parks, others 3). No repo-file config yet —
+  // trusted-branch `.no-mistakes.yaml`-equivalent reads land in M3.
+  settings: {
+    gate_remote: { type: "text", label: "Gate remote name", default: "gate" },
+    default_branch: { type: "text", label: "Default branch", default: "main" },
+    review_autofix_cap: {
+      type: "number",
+      label: "Review auto-fix cap (0 = always ask a human)",
+      min: 0,
+      max: 10,
+      default: 0,
+    },
+    autofix_cap: {
+      type: "number",
+      label: "Auto-fix cap for other steps (rebase/test/document/lint/ci)",
+      min: 0,
+      max: 10,
+      default: 3,
+    },
+    ignore_patterns: {
+      type: "text",
+      label: "Review ignore globs (comma-separated, e.g. *.snap, dist/**)",
+      default: "",
+    },
+  },
+
   permissions: {
     // Self-tracked run/step records (the run history the dashboard renders).
     storage: true,
-    // git orchestration (init-gate + per-run worktree lifecycle) shells `git`.
-    // The `gate` remote's post-receive hook — installed on the gate repo, run
-    // by git at push time — is what calls back into the platform; the
-    // extension subprocess itself makes no network calls in M0, so no
-    // `network` grant is requested (narrowest grants).
+    // git orchestration (init-gate + per-run worktree lifecycle + the M1
+    // pipeline's rebase/commit/push) shells `git`. The `gate` remote's
+    // post-receive hook — installed on the gate repo, run by git at push time —
+    // is what calls back into the platform.
     shell: true,
+    // Pipeline agent turns (review, rebase-conflict fix) run as EZCorp-native
+    // spawn-assignment sub-agents (decision #2) — host-brokered LLM only, no
+    // external CLI. That dispatch requires the spawnAgents grant. Bounded: a
+    // pipeline runs its agent turns sequentially, so a small concurrency cap
+    // is ample (many parallel gate runs on different branches share it).
+    spawnAgents: { maxPerHour: 200, maxConcurrent: 8 },
     // Gate repo + managed hook + credential file all live under
     // <projectRoot>/.ezcorp/extension-data/ez-code-factory/ (a `$CWD`-relative
     // path). Per-run worktrees live under the host-provided per-extension
     // TMPDIR (granted separately by the host), never under the project root.
     filesystem: ["$CWD"],
-    // The post-receive hook's callback targets THIS extension's `push-received`
-    // Hub action via the generic extension-events route. Declaring the event
-    // both wires the page action and lets the events route accept the hook's
-    // POST (the route 404s undeclared events).
-    eventSubscriptions: ["ez-code-factory:push-received"],
+    // Two Hub actions via the generic extension-events route: `push-received`
+    // (the post-receive hook's trigger) and `respond` (the approve/fix/skip/
+    // abort gate action; the UI lands M2 but the semantics work now). Declaring
+    // each event both wires the page action and lets the events route accept
+    // its POST (the route 404s undeclared events).
+    eventSubscriptions: ["ez-code-factory:push-received", "ez-code-factory:respond"],
   },
 
   resources: {
-    memory: "128MB",
+    memory: "256MB",
   },
 });

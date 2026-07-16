@@ -18,16 +18,33 @@ describe("ez-code-factory manifest", () => {
     expect(ids).toEqual(["dashboard"]);
   });
 
-  test("requests the narrowest grants: storage + shell + $CWD fs, no network", () => {
+  test("requests the narrowest grants: storage + shell + spawnAgents + $CWD fs, no network", () => {
     const perms = manifest.permissions ?? {};
     expect(perms.storage).toBe(true);
     expect(perms.shell).toBe(true);
     expect(perms.filesystem).toEqual(["$CWD"]);
+    // spawnAgents: the M1 pipeline drives native sub-agents (decision #2).
+    expect(perms.spawnAgents).toBeDefined();
     // No network grant — the post-receive hook (not the subprocess) calls back.
     expect("network" in perms).toBe(false);
   });
 
-  test("subscribes to the push-received event that gates the hub action", () => {
-    expect(manifest.permissions?.eventSubscriptions).toEqual(["ez-code-factory:push-received"]);
+  test("subscribes to the push-received + respond gate events", () => {
+    expect(manifest.permissions?.eventSubscriptions).toEqual([
+      "ez-code-factory:push-received",
+      "ez-code-factory:respond",
+    ]);
+  });
+
+  test("declares settings v0 (auto-fix caps + gate remote + default branch + ignore globs)", () => {
+    const settings = manifest.settings ?? {};
+    expect(Object.keys(settings).sort()).toEqual([
+      "autofix_cap",
+      "default_branch",
+      "gate_remote",
+      "ignore_patterns",
+      "review_autofix_cap",
+    ]);
+    expect((settings.review_autofix_cap as { default: number }).default).toBe(0);
   });
 });

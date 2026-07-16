@@ -31,17 +31,27 @@ import {
   gateDir as gateDirFor,
   initGate,
 } from "./lib/gate";
+import { join } from "node:path";
 import { buildDashboard } from "./lib/page";
 import {
   createRunStore,
   parsePushReceived,
+  parseRespondPayload,
   runGateLifecycle,
+  resumeGateLifecycle,
   type RunStore,
 } from "./lib/runs";
 import { productionHostRunner, type ShellRunner } from "./lib/shell";
+import { defaultPipelineConfig } from "./lib/config";
+import { makeSpawnDispatcher } from "./lib/agent";
+import { makeJailedShell } from "./lib/jail";
+import { startPipeline, respondToGate, type ExecutorDeps } from "./lib/executor";
 
 /** Full namespaced action name the post-receive hook triggers. */
 export const PUSH_RECEIVED_ACTION = `${EXTENSION_NAME}:${TRIGGER_EVENT}`;
+/** The gate action the M2 approval UI (and any harness) drives to answer a
+ *  parked gate: `{ runId, step, action: approve|fix|skip|abort, … }`. */
+export const RESPOND_ACTION = `${EXTENSION_NAME}:respond`;
 
 // ── Injectable seams (production defaults; tests override) ────────────
 //
@@ -84,6 +94,65 @@ export function _setStoreForTests(store: RunStore | null): void {
 let pushPageImpl: typeof pushPage = pushPage;
 export function _setPushPageForTests(fn: typeof pushPage | null): void {
   pushPageImpl = fn ?? pushPage;
+}
+
+// ── Pipeline runner seam ─────────────────────────────────────────────
+//
+// The executor + steps + jailed shell live behind a single injectable factory
+// so the index-level lifecycle tests exercise the WIRING (parked vs terminal,
+// worktree keep vs teardown) without driving the whole pipeline, which is
+// tested end-to-end in executor.test / steps.test.
+
+/** Applies a pipeline action to one run's worktree; returns whether it parked. */
+export type PipelineRunner = (ctx: { runId: string; worktreePath: string }) => Promise<{ parked: boolean }>;
+
+/** Build the ExecutorDeps for a run against its worktree (production wiring:
+ *  host git read-only, the nested jail for mutating commit/push, native
+ *  spawn-assignment agents, defaulted config — settings-read on the event path
+ *  is an M2 fast-follow). */
+function buildExecutorDeps(projectRoot: string, gateDir: string, worktreePath: string): ExecutorDeps {
+  const evidenceDir = join(tmpBaseImpl(), "ez-code-factory-evidence");
+  return {
+    store: getStore(),
+    worktree: worktreePath,
+    gateDir,
+    workingPath: projectRoot,
+    config: defaultPipelineConfig(),
+    dispatcher: makeSpawnDispatcher({ evidenceDir }),
+    hostRunner: shellImpl,
+    jailedRunner: makeJailedShell(gateDir, projectRoot),
+    now: () => Date.now(),
+    onChange: refreshDashboard,
+    log: (runId, step, message) =>
+      process.stderr.write(`ez-code-factory[${runId}/${step}]: ${message}\n`),
+  };
+}
+
+const defaultRunPipeline = (projectRoot: string, gateDir: string): PipelineRunner => {
+  return async ({ runId, worktreePath }) => {
+    const outcome = await startPipeline(runId, buildExecutorDeps(projectRoot, gateDir, worktreePath));
+    return { parked: outcome.status === "parked" };
+  };
+};
+const defaultRespondRunner =
+  (projectRoot: string, gateDir: string, respond: ReturnType<typeof parseRespondPayload>): PipelineRunner => {
+    return async ({ runId, worktreePath }) => {
+      const outcome = await respondToGate(
+        runId,
+        respond!,
+        buildExecutorDeps(projectRoot, gateDir, worktreePath),
+      );
+      return { parked: outcome.status === "parked" };
+    };
+  };
+
+let makeRunPipelineImpl = defaultRunPipeline;
+export function _setRunPipelineForTests(fn: typeof defaultRunPipeline | null): void {
+  makeRunPipelineImpl = fn ?? defaultRunPipeline;
+}
+let makeRespondRunnerImpl = defaultRespondRunner;
+export function _setRespondRunnerForTests(fn: typeof defaultRespondRunner | null): void {
+  makeRespondRunnerImpl = fn ?? defaultRespondRunner;
 }
 
 /** Push a fresh dashboard tree (content-free SSE invalidation → open tabs
@@ -150,8 +219,9 @@ export async function handlePushReceived(event: PageActionEvent): Promise<void> 
       store: getStore(),
       run: shellImpl,
       onChange: refreshDashboard,
+      runPipeline: makeRunPipelineImpl(projectRoot, gDir),
     });
-    if (!result.ok) {
+    if (!result.ok && result.status !== "awaiting_approval") {
       process.stderr.write(
         `ez-code-factory: run ${result.runId} failed: ${result.error ?? "unknown"}\n`,
       );
@@ -162,6 +232,44 @@ export async function handlePushReceived(event: PageActionEvent): Promise<void> 
     // channel would swallow.
     const message = err instanceof Error ? err.message : String(err);
     process.stderr.write(`ez-code-factory: push-received handler error: ${message}\n`);
+  }
+}
+
+/** `respond` Hub action — answers a parked gate (approve/fix/skip/abort). The
+ *  payload is attacker-reachable via the events route; validate every field.
+ *  The verbatim ask-user relay + no-blanket-approval rules are enforced
+ *  structurally by the executor's respond semantics, not prose (decision #4). */
+export async function handleRespond(event: PageActionEvent): Promise<void> {
+  try {
+    const projectRoot = projectRootImpl();
+    if (!projectRoot) {
+      process.stderr.write("ez-code-factory: respond with no EZCORP_PROJECT_ROOT — ignored\n");
+      return;
+    }
+    const respond = parseRespondPayload(event.payload);
+    if (!respond) {
+      process.stderr.write("ez-code-factory: respond with invalid payload — ignored\n");
+      return;
+    }
+    const rec = await getStore().getRun(respond.runId);
+    if (!rec) {
+      process.stderr.write(`ez-code-factory: respond for unknown run ${respond.runId} — ignored\n`);
+      return;
+    }
+    const gDir = gateDirFor(projectRoot, rec.repoId);
+    const result = await resumeGateLifecycle(respond.runId, {
+      gateDir: gDir,
+      store: getStore(),
+      run: shellImpl,
+      onChange: refreshDashboard,
+      respond: makeRespondRunnerImpl(projectRoot, gDir, respond),
+    });
+    if (result === null) {
+      process.stderr.write(`ez-code-factory: respond for run ${respond.runId} could not resume\n`);
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    process.stderr.write(`ez-code-factory: respond handler error: ${message}\n`);
   }
 }
 
@@ -184,6 +292,7 @@ export function register(): void {
     render: renderDashboard,
     actions: {
       [PUSH_RECEIVED_ACTION]: handlePushReceived,
+      [RESPOND_ACTION]: handleRespond,
     },
   });
   createToolDispatcher(tools);
