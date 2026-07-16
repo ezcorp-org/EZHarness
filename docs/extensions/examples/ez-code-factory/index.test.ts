@@ -49,6 +49,7 @@ import type { ChatToolDeps } from "./lib/chat-tools";
 import { gateDir as gateDirFor, GATE_REMOTE, HOOK_MARKER } from "./lib/gate";
 import { SWEEP_CRON, type SweepHeartbeat } from "./lib/sweep";
 import { productionHostRunner, type ShellRunner } from "./lib/shell";
+import { _setLogSinkForTests } from "./lib/log";
 import { emptyFindings } from "./lib/runs";
 import type { Finding, ParsedRespond, RunRecord, RunStore, StepResultRecord, StepRoundRecord, StepStatus } from "./lib/runs";
 
@@ -163,15 +164,56 @@ function fakePipeline(store: RunStore, outcome: "completed" | "failed" | "parked
   };
 }
 
-/** Spy on process.stderr.write, collecting written text; `.restore()` unmocks. */
+/** Collect the extension's sandbox-safe log output via the `lib/log` sink seam
+ *  (the sink deliberately bypasses `process.stderr`, so a spy on it sees
+ *  nothing); `.restore()` re-installs the default Bun.stderr sink. */
 function captureStderr(): { text: () => string; restore: () => void } {
   const lines: string[] = [];
-  const spy = spyOn(process.stderr, "write").mockImplementation(((s: string | Uint8Array) => {
-    lines.push(String(s));
-    return true;
-  }) as typeof process.stderr.write);
-  return { text: () => lines.join(""), restore: () => spy.mockRestore() };
+  _setLogSinkForTests((line: string) => {
+    lines.push(line);
+  });
+  return { text: () => lines.join(""), restore: () => _setLogSinkForTests(null) };
 }
+
+// ── sandbox-safe logging (B1 regression) ────────────────────────────
+//
+// The extension loads in EZCorp's Phase-3 sandbox, where `process.stderr.write`
+// lazily inits a poisoned `node:fs` WriteStream and THROWS. Before the fix every
+// log site used `process.stderr.write`, so the FIRST logged line crashed the
+// subprocess on start — a bug all 914 unit tests missed because none simulated
+// the poison. Here we make `process.stderr.write` throw the sandbox error, then
+// drive real handler log paths and assert they survive. This FAILS against the
+// old `process.stderr.write` code (the guard's log throws, then the outer
+// catch's own `process.stderr.write` throws again and escapes) and PASSES with
+// the `logLine` → Bun.stderr sink.
+describe("sandbox-safe logging (B1 regression)", () => {
+  test("a poisoned process.stderr does not crash handlers that log", async () => {
+    _setProjectRootForTests(() => undefined); // force each guard's log path
+    _setStoreForTests(memStore());
+    const spy = spyOn(process.stderr, "write").mockImplementation((() => {
+      throw new Error("Extension sandbox: 'fs module' blocked");
+    }) as typeof process.stderr.write);
+    try {
+      await expect(
+        handlePushReceived({ source: "hub", pageId: "dashboard", userId: "u", payload: VALID_PUSH }),
+      ).resolves.toBeUndefined();
+      await expect(
+        handleRespond({ source: "hub", pageId: "dashboard", userId: "u", payload: RESPOND_PAYLOAD }),
+      ).resolves.toBeUndefined();
+      await expect(
+        handleYolo({ source: "hub", pageId: "dashboard", userId: "u", payload: { runId: "r" } }),
+      ).resolves.toBeUndefined();
+      await expect(
+        handleReconcile({ source: "hub", pageId: "dashboard", userId: "u", payload: { runId: "r" } }),
+      ).resolves.toBeUndefined();
+      // recoverOnStart is the actual `start()` path that crashed the subprocess.
+      await expect(recoverOnStart()).resolves.toBeNull();
+      await expect(runReconcileSweep()).resolves.toBeNull();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
 
 // ── init_gate tool ──────────────────────────────────────────────────
 
@@ -323,16 +365,12 @@ describe("handlePushReceived", () => {
     _setStoreForTests(tstore);
     _setRunPipelineForTests(fakePipeline(tstore, "completed")); // terminal → teardown reached
     _setPushPageForTests(() => {});
-    const stderr: string[] = [];
-    const spy = spyOn(process.stderr, "write").mockImplementation(((s: string | Uint8Array) => {
-      stderr.push(String(s));
-      return true;
-    }) as typeof process.stderr.write);
+    const cap = captureStderr();
     try {
       await handlePushReceived({ source: "hub", pageId: "dashboard", userId: "u", payload: VALID_PUSH });
-      expect(stderr.join("")).toContain("push-received handler error");
+      expect(cap.text()).toContain("push-received handler error");
     } finally {
-      spy.mockRestore();
+      cap.restore();
     }
   });
 });
@@ -515,16 +553,12 @@ describe("handleRespond", () => {
   test("ignores respond for an unknown run", async () => {
     _setProjectRootForTests(() => "/proj");
     _setStoreForTests(memStore());
-    const stderr: string[] = [];
-    const spy = spyOn(process.stderr, "write").mockImplementation(((s: string | Uint8Array) => {
-      stderr.push(String(s));
-      return true;
-    }) as typeof process.stderr.write);
+    const cap = captureStderr();
     try {
       await handleRespond({ source: "hub", pageId: "dashboard", userId: "u", payload: RESPOND_PAYLOAD });
-      expect(stderr.join("")).toContain("unknown run");
+      expect(cap.text()).toContain("unknown run");
     } finally {
-      spy.mockRestore();
+      cap.restore();
     }
   });
 
@@ -585,16 +619,12 @@ describe("handleRespond", () => {
       intent: null,
       intentSource: null,
     });
-    const stderr: string[] = [];
-    const spy = spyOn(process.stderr, "write").mockImplementation(((s: string | Uint8Array) => {
-      stderr.push(String(s));
-      return true;
-    }) as typeof process.stderr.write);
+    const cap = captureStderr();
     try {
       await handleRespond({ source: "hub", pageId: "dashboard", userId: "u", payload: RESPOND_PAYLOAD });
-      expect(stderr.join("")).toContain("could not resume");
+      expect(cap.text()).toContain("could not resume");
     } finally {
-      spy.mockRestore();
+      cap.restore();
     }
   });
 
@@ -611,19 +641,15 @@ describe("handleRespond", () => {
     _setRespondRunnerForTests(() => async () => {
       throw new Error("resume boom");
     });
-    const stderr: string[] = [];
-    const spy = spyOn(process.stderr, "write").mockImplementation(((s: string | Uint8Array) => {
-      stderr.push(String(s));
-      return true;
-    }) as typeof process.stderr.write);
+    const cap = captureStderr();
     try {
       await handleRespond({ source: "hub", pageId: "dashboard", userId: "u", payload: RESPOND_PAYLOAD });
-      expect(stderr.join("")).toContain("respond handler error");
+      expect(cap.text()).toContain("respond handler error");
       // The run never left awaiting_approval → its kept worktree survives.
       expect((await store.getRun("run-parked"))!.status).toBe("awaiting_approval");
       expect(removed.length).toBe(0);
     } finally {
-      spy.mockRestore();
+      cap.restore();
     }
   });
 

@@ -26,6 +26,7 @@ import {
   type StepRoundRecord,
 } from "./runs";
 import { productionHostRunner, type ShellRunner } from "./shell";
+import { _setLogSinkForTests } from "./log";
 
 // ── findings deserialization (fail-closed) ──────────────────────────
 
@@ -852,10 +853,9 @@ describe("runGateLifecycle (real git)", () => {
       },
     };
     const stderr: string[] = [];
-    const spy = spyOn(process.stderr, "write").mockImplementation(((s: string | Uint8Array) => {
-      stderr.push(String(s));
-      return true;
-    }) as typeof process.stderr.write);
+    _setLogSinkForTests((line: string) => {
+      stderr.push(line);
+    });
     try {
       const res = await runGateLifecycle(
         { repoId, branch: "feat/x", ref: "refs/heads/feat/x", newSha: sha },
@@ -870,7 +870,7 @@ describe("runGateLifecycle (real git)", () => {
       // …and one stderr line surfaced the otherwise-swallowed error.
       expect(stderr.join("")).toContain("lifecycle error");
     } finally {
-      spy.mockRestore();
+      _setLogSinkForTests(null);
     }
   });
 

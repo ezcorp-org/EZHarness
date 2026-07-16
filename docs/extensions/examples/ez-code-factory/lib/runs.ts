@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { Storage, withLock } from "@ezcorp/sdk/runtime";
 import type { StorageScope } from "@ezcorp/sdk/runtime";
 import type { ShellRunner } from "./shell";
+import { logLine } from "./log";
 import { PIPELINE_STEPS, type PipelineStep } from "./config";
 import type { RepoConfig } from "./repo-config";
 
@@ -778,7 +779,7 @@ export async function runGateLifecycle(
       } catch {
         /* storage itself is unreachable — nothing more we can durably record */
       }
-      process.stderr.write(`ez-code-factory: run ${runId} lifecycle error: ${message}\n`);
+      logLine(`ez-code-factory: run ${runId} lifecycle error: ${message}`);
       return { ok: false, runId, worktreePath: wtPath, status: "failed", error: message };
     } finally {
       // Tear the worktree down on every terminal path (success + failure +

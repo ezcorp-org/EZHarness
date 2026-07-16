@@ -9,8 +9,11 @@
 // Like ez-code, this module loads inside the sandboxed subprocess (poisoned
 // `node:fs`); every git/filesystem op is shell-driven via the injectable
 // runner in lib/shell.ts, so no `node:fs` import ever enters the load graph.
-// Logging is via the subprocess's stderr (the host-only `extensionLogger`
-// convention does not apply — decision #1 leaves M0 with no host-side code).
+// Logging is via `lib/log.ts`'s sandbox-safe `logLine` (Bun.stderr, NOT
+// `process.stderr.write` — the latter lazily inits a `node:fs` WriteStream the
+// sandbox poisons, which crashed the subprocess on start, bug B1). The host-only
+// `extensionLogger` convention does not apply — decision #1 leaves M0 with no
+// host-side code.
 
 import {
   createToolDispatcher,
@@ -63,6 +66,7 @@ import {
   type StepResultRecord,
 } from "./lib/runs";
 import { productionHostRunner, type ShellRunner } from "./lib/shell";
+import { logLine } from "./lib/log";
 import { PIPELINE_STEPS, resolvePipelineConfig, type PipelineConfig, type PipelineStep } from "./lib/config";
 import { makeSpawnDispatcher } from "./lib/agent";
 import { makeJailedShell } from "./lib/jail";
@@ -265,7 +269,7 @@ function buildExecutorDeps(
     now: () => Date.now(),
     onChange: refreshDashboard,
     log: (runId, step, message) =>
-      process.stderr.write(`ez-code-factory[${runId}/${step}]: ${message}\n`),
+      logLine(`ez-code-factory[${runId}/${step}]: ${message}`),
   };
 }
 
@@ -348,7 +352,7 @@ async function defaultBuildChatToolDeps(projectRoot: string): Promise<ChatToolDe
   const config = await resolveLiveConfig();
   const evidenceDir = join(tmpBaseImpl(), "ez-code-factory-evidence");
   const log = (message: string): void => {
-    process.stderr.write(`ez-code-factory[chat]: ${message}\n`);
+    logLine(`ez-code-factory[chat]: ${message}`);
   };
   return {
     projectRoot,
@@ -530,12 +534,12 @@ export async function handlePushReceived(event: PageActionEvent): Promise<void> 
   try {
     const projectRoot = projectRootImpl();
     if (!projectRoot) {
-      process.stderr.write("ez-code-factory: push-received with no EZCORP_PROJECT_ROOT — ignored\n");
+      logLine("ez-code-factory: push-received with no EZCORP_PROJECT_ROOT — ignored");
       return;
     }
     const push = parsePushReceived(event.payload);
     if (!push) {
-      process.stderr.write("ez-code-factory: push-received with invalid payload — ignored\n");
+      logLine("ez-code-factory: push-received with invalid payload — ignored");
       return;
     }
     const gDir = gateDirFor(projectRoot, push.repoId);
@@ -551,8 +555,8 @@ export async function handlePushReceived(event: PageActionEvent): Promise<void> 
     // checks_passed (rested green) are success-ish non-terminal states, not
     // failures, so they are NOT logged as errors.
     if (!result.ok && result.status !== "awaiting_approval" && result.status !== "checks_passed") {
-      process.stderr.write(
-        `ez-code-factory: run ${result.runId} failed: ${result.error ?? "unknown"}\n`,
+      logLine(
+        `ez-code-factory: run ${result.runId} failed: ${result.error ?? "unknown"}`,
       );
     }
   } catch (err) {
@@ -560,7 +564,7 @@ export async function handlePushReceived(event: PageActionEvent): Promise<void> 
     // (payload parse, store construction, worktree teardown) whose throw the
     // channel would swallow.
     const message = err instanceof Error ? err.message : String(err);
-    process.stderr.write(`ez-code-factory: push-received handler error: ${message}\n`);
+    logLine(`ez-code-factory: push-received handler error: ${message}`);
   }
 }
 
@@ -575,7 +579,7 @@ export async function handleRespond(event: PageActionEvent): Promise<void> {
   try {
     const projectRoot = projectRootImpl();
     if (!projectRoot) {
-      process.stderr.write("ez-code-factory: respond with no EZCORP_PROJECT_ROOT — ignored\n");
+      logLine("ez-code-factory: respond with no EZCORP_PROJECT_ROOT — ignored");
       return;
     }
     // Normalize the Hub's flat scalar action payload (findingId + instruction)
@@ -585,7 +589,7 @@ export async function handleRespond(event: PageActionEvent): Promise<void> {
     const normalized = normalizeRespondPayload(event.payload);
     const respond = parseRespondPayload(normalized);
     if (!respond) {
-      process.stderr.write("ez-code-factory: respond with invalid payload — ignored\n");
+      logLine("ez-code-factory: respond with invalid payload — ignored");
       return;
     }
     // RBAC (M6): the acting user must hold `respond-gate`. A Hub click resolves
@@ -593,12 +597,12 @@ export async function handleRespond(event: PageActionEvent): Promise<void> {
     // no-op (never mutates the run) with a clear refusal line — not a 500.
     const guard = await guardScope(rbacCheckImpl, RESPOND_SCOPE, "respond to a gate");
     if (!guard.ok) {
-      process.stderr.write(`ez-code-factory: respond refused — ${guard.error}\n`);
+      logLine(`ez-code-factory: respond refused — ${guard.error}`);
       return;
     }
     const rec = await getStore().getRun(respond.runId);
     if (!rec) {
-      process.stderr.write(`ez-code-factory: respond for unknown run ${respond.runId} — ignored\n`);
+      logLine(`ez-code-factory: respond for unknown run ${respond.runId} — ignored`);
       return;
     }
     // CONTRACT-IN-CODE (spec §1 inv2): the SAME no-blanket-approval chokepoint the
@@ -617,14 +621,14 @@ export async function handleRespond(event: PageActionEvent): Promise<void> {
       (normalized as Record<string, unknown>).consentAll === true;
     const approval = enforceRespondContract(respond.action, respond.findingIds, consentAll, parkedItems);
     if (!approval.ok) {
-      process.stderr.write(`ez-code-factory: respond refused — ${approval.error}\n`);
+      logLine(`ez-code-factory: respond refused — ${approval.error}`);
       return;
     }
     if (approval.consentAllUsed) {
-      process.stderr.write(
+      logLine(
         `ez-code-factory: respond consentAll bypass — run=${respond.runId} step=${respond.step} ` +
           `action=${respond.action} cleared a gate with ` +
-          `${parkedItems.filter((f) => f.action === "ask-user").length} ask-user finding(s) WITHOUT named ids\n`,
+          `${parkedItems.filter((f) => f.action === "ask-user").length} ask-user finding(s) WITHOUT named ids`,
       );
     }
     const gDir = gateDirFor(projectRoot, rec.repoId);
@@ -636,11 +640,11 @@ export async function handleRespond(event: PageActionEvent): Promise<void> {
       respond: makeRespondRunnerImpl(projectRoot, gDir, respond),
     });
     if (result === null) {
-      process.stderr.write(`ez-code-factory: respond for run ${respond.runId} could not resume\n`);
+      logLine(`ez-code-factory: respond for run ${respond.runId} could not resume`);
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    process.stderr.write(`ez-code-factory: respond handler error: ${message}\n`);
+    logLine(`ez-code-factory: respond handler error: ${message}`);
   }
 }
 
@@ -680,9 +684,9 @@ async function runYoloAutopilot(runId: string, projectRoot: string): Promise<voi
     const step = sr.step as PipelineStep;
     const decision = decideYoloAction(sr.findings, fixedSteps.has(step));
     if (decision.kind === "stop") {
-      process.stderr.write(
+      logLine(
         `ez-code-factory[yolo]: stopping at '${step}' — ${decision.askUserCount} ask-user ` +
-          `finding(s) require a human decision (relay + await approval)\n`,
+          `finding(s) require a human decision (relay + await approval)`,
       );
       return;
     }
@@ -713,12 +717,12 @@ export async function handleYolo(event: PageActionEvent): Promise<void> {
   try {
     const projectRoot = projectRootImpl();
     if (!projectRoot) {
-      process.stderr.write("ez-code-factory: yolo with no EZCORP_PROJECT_ROOT — ignored\n");
+      logLine("ez-code-factory: yolo with no EZCORP_PROJECT_ROOT — ignored");
       return;
     }
     const runId = parseRunIdPayload(event.payload);
     if (!runId) {
-      process.stderr.write("ez-code-factory: yolo with invalid payload — ignored\n");
+      logLine("ez-code-factory: yolo with invalid payload — ignored");
       return;
     }
     // RBAC (M6): yolo has its OWN scope (`yolo`) — strictly broader than a single
@@ -727,13 +731,13 @@ export async function handleYolo(event: PageActionEvent): Promise<void> {
     // with a clear refusal line, not a 500.
     const guard = await guardScope(rbacCheckImpl, YOLO_SCOPE, "run the yolo autopilot");
     if (!guard.ok) {
-      process.stderr.write(`ez-code-factory: yolo refused — ${guard.error}\n`);
+      logLine(`ez-code-factory: yolo refused — ${guard.error}`);
       return;
     }
     await runYoloAutopilot(runId, projectRoot);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    process.stderr.write(`ez-code-factory: yolo handler error: ${message}\n`);
+    logLine(`ez-code-factory: yolo handler error: ${message}`);
   }
 }
 
@@ -746,17 +750,17 @@ export async function handleReconcile(event: PageActionEvent): Promise<void> {
   try {
     const projectRoot = projectRootImpl();
     if (!projectRoot) {
-      process.stderr.write("ez-code-factory: reconcile with no EZCORP_PROJECT_ROOT — ignored\n");
+      logLine("ez-code-factory: reconcile with no EZCORP_PROJECT_ROOT — ignored");
       return;
     }
     const runId = parseRunIdPayload(event.payload);
     if (!runId) {
-      process.stderr.write("ez-code-factory: reconcile with invalid payload — ignored\n");
+      logLine("ez-code-factory: reconcile with invalid payload — ignored");
       return;
     }
     const rec = await getStore().getRun(runId);
     if (!rec) {
-      process.stderr.write(`ez-code-factory: reconcile for unknown run ${runId} — ignored\n`);
+      logLine(`ez-code-factory: reconcile for unknown run ${runId} — ignored`);
       return;
     }
     const gDir = gateDirFor(projectRoot, rec.repoId);
@@ -768,11 +772,11 @@ export async function handleReconcile(event: PageActionEvent): Promise<void> {
       respond: makeReconcileRunnerImpl(projectRoot, gDir),
     });
     if (result === null) {
-      process.stderr.write(`ez-code-factory: reconcile for run ${runId} could not resume\n`);
+      logLine(`ez-code-factory: reconcile for run ${runId} could not resume`);
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    process.stderr.write(`ez-code-factory: reconcile handler error: ${message}\n`);
+    logLine(`ez-code-factory: reconcile handler error: ${message}`);
   }
 }
 
@@ -805,7 +809,7 @@ async function reconcileOneRun(projectRoot: string, runId: string): Promise<Reco
 export async function runReconcileSweep(): Promise<SweepSummary | null> {
   const projectRoot = projectRootImpl();
   if (!projectRoot) {
-    process.stderr.write("ez-code-factory: reconcile sweep with no EZCORP_PROJECT_ROOT — skipped\n");
+    logLine("ez-code-factory: reconcile sweep with no EZCORP_PROJECT_ROOT — skipped");
     return null;
   }
   return reconcileSweep({
@@ -813,7 +817,7 @@ export async function runReconcileSweep(): Promise<SweepSummary | null> {
     reconcile: (runId) => reconcileOneRun(projectRoot, runId),
     now: () => Date.now(),
     recordHeartbeat: (hb) => heartbeatKVImpl().write(hb),
-    log: (m) => process.stderr.write(`ez-code-factory[sweep]: ${m}\n`),
+    log: (m) => logLine(`ez-code-factory[sweep]: ${m}`),
   });
 }
 
@@ -824,7 +828,7 @@ export async function handleScheduleFire(_ctx: ScheduleHandlerContext): Promise<
     await runReconcileSweep();
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    process.stderr.write(`ez-code-factory: reconcile sweep error: ${message}\n`);
+    logLine(`ez-code-factory: reconcile sweep error: ${message}`);
   }
 }
 
@@ -835,14 +839,14 @@ export async function handleScheduleFire(_ctx: ScheduleHandlerContext): Promise<
 export async function recoverOnStart(): Promise<RecoverySummary | null> {
   const projectRoot = projectRootImpl();
   if (!projectRoot) {
-    process.stderr.write("ez-code-factory: crash recovery with no EZCORP_PROJECT_ROOT — skipped\n");
+    logLine("ez-code-factory: crash recovery with no EZCORP_PROJECT_ROOT — skipped");
     return null;
   }
   return recoverRuns({
     store: getStore(),
     reapWorktree: (run) =>
       removeWorktree(shellImpl, gateDirFor(projectRoot, run.repoId), run.worktreePath ?? ""),
-    log: (m) => process.stderr.write(`ez-code-factory[recovery]: ${m}\n`),
+    log: (m) => logLine(`ez-code-factory[recovery]: ${m}`),
   });
 }
 
