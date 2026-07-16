@@ -17,6 +17,7 @@ import {
   createRunStore,
   runGateLifecycle,
   resumeGateLifecycle,
+  supersedePriorRuns,
   isTerminalRunStatus,
   type RunRecord,
   type RunStatus,
@@ -516,6 +517,109 @@ function memStore(): RunStore & { runs: Map<string, RunRecord> } {
   };
 }
 
+// ── supersedePriorRuns (M6 concurrent-push) ─────────────────────────
+
+function mkRun(id: string, branch: string, status: RunStatus, worktreePath: string | null): RunRecord {
+  return {
+    id,
+    repoId: "0123456789ab",
+    branch,
+    ref: `refs/heads/${branch}`,
+    headSha: "abc",
+    baseSha: "0".repeat(40),
+    status,
+    worktreePath,
+    createdAt: "t",
+    updatedAt: "t",
+    parkedMs: 0,
+    awaitingAgentSince: status === "awaiting_approval" ? "t" : null,
+    intent: null,
+    intentSource: null,
+  };
+}
+
+/** A shell runner that records every `git worktree remove <path>` target. */
+function recordingShell(): { runner: ShellRunner; removed: string[] } {
+  const removed: string[] = [];
+  const runner: ShellRunner = async (cmd) => {
+    if (cmd.includes("worktree") && cmd.includes("remove")) removed.push(cmd[cmd.length - 1]!);
+    return { exitCode: 0, stdout: "", stderr: "" };
+  };
+  return { runner, removed };
+}
+
+describe("supersedePriorRuns", () => {
+  test("aborts an in-flight prior run on the same branch, reaps + nulls its worktree", async () => {
+    const store = memStore();
+    await store.createRun(mkRun("old", "feat/x", "awaiting_approval", "/wt/old"));
+    const { runner, removed } = recordingShell();
+    let changed = 0;
+    const ids = await supersedePriorRuns(
+      { store, run: runner, gateDir: "/gate", onChange: () => { changed++; } },
+      "0123456789ab",
+      "feat/x",
+      "new",
+    );
+    expect(ids).toEqual(["old"]);
+    expect(store.runs.get("old")!.status).toBe("aborted");
+    expect(store.runs.get("old")!.error).toContain("superseded by a newer push to feat/x");
+    expect(store.runs.get("old")!.worktreePath).toBeNull();
+    expect(removed).toEqual(["/wt/old"]);
+    expect(changed).toBe(1);
+  });
+
+  test("supersedes a resting checks_passed prior run too", async () => {
+    const store = memStore();
+    await store.createRun(mkRun("green", "feat/x", "checks_passed", null));
+    const { runner, removed } = recordingShell();
+    const ids = await supersedePriorRuns({ store, run: runner, gateDir: "/gate" }, "0123456789ab", "feat/x", "new");
+    expect(ids).toEqual(["green"]);
+    expect(store.runs.get("green")!.status).toBe("aborted");
+    expect(removed).toEqual([]); // no worktree to reap
+  });
+
+  test("never touches the new run itself (exceptRunId)", async () => {
+    const store = memStore();
+    await store.createRun(mkRun("new", "feat/x", "awaiting_approval", "/wt/new"));
+    const { runner } = recordingShell();
+    const ids = await supersedePriorRuns({ store, run: runner, gateDir: "/gate" }, "0123456789ab", "feat/x", "new");
+    expect(ids).toEqual([]);
+    expect(store.runs.get("new")!.status).toBe("awaiting_approval");
+  });
+
+  test("leaves a DIFFERENT branch's run alone (branches stay concurrent)", async () => {
+    const store = memStore();
+    await store.createRun(mkRun("other", "feat/y", "awaiting_approval", "/wt/other"));
+    const { runner } = recordingShell();
+    const ids = await supersedePriorRuns({ store, run: runner, gateDir: "/gate" }, "0123456789ab", "feat/x", "new");
+    expect(ids).toEqual([]);
+    expect(store.runs.get("other")!.status).toBe("awaiting_approval");
+  });
+
+  test("leaves TERMINAL prior runs alone", async () => {
+    const store = memStore();
+    await store.createRun(mkRun("done", "feat/x", "completed", null));
+    await store.createRun(mkRun("failed", "feat/x", "failed", null));
+    const { runner } = recordingShell();
+    const ids = await supersedePriorRuns({ store, run: runner, gateDir: "/gate" }, "0123456789ab", "feat/x", "new");
+    expect(ids).toEqual([]);
+  });
+
+  test("does not call onChange when nothing was superseded", async () => {
+    const store = memStore();
+    const { runner } = recordingShell();
+    let changed = 0;
+    const ids = await supersedePriorRuns(
+      { store, run: runner, gateDir: "/gate", onChange: () => { changed++; } },
+      "0123456789ab",
+      "feat/x",
+      "new",
+    );
+    expect(ids).toEqual([]);
+    expect(changed).toBe(0);
+  });
+});
+
 /** Seed a bare gate repo holding one commit on `feat/x`; return its SHA. */
 async function seedGate(): Promise<{ gateDir: string; sha: string; repoId: string }> {
   const src = join(root, "src");
@@ -814,6 +918,38 @@ describe("runGateLifecycle (real git)", () => {
     expect(res.ok).toBe(true);
     expect(existsSync(fixture)).toBe(true);
     expect(readFileSync(fixture, "utf8")).toBe("precious");
+  });
+
+  test("M6: a second push to a branch supersedes the prior PARKED run + reaps its worktree", async () => {
+    const { gateDir, sha, repoId } = await seedGate();
+    const store = memStore();
+    // First push parks (keeps its worktree — the human's review copy).
+    const first = await runGateLifecycle(
+      { repoId, branch: "feat/x", ref: "refs/heads/feat/x", newSha: sha },
+      {
+        gateDir,
+        tmpBase: join(root, "tmp-sup"),
+        store,
+        run: productionHostRunner,
+        runPipeline: async ({ runId }) => {
+          await store.updateRun(runId, { status: "awaiting_approval" });
+          return { parked: true };
+        },
+      },
+    );
+    expect(first.status).toBe("awaiting_approval");
+    expect(existsSync(first.worktreePath)).toBe(true);
+
+    // Second push to the SAME branch supersedes the first (aborted) + reaps it.
+    const second = await runGateLifecycle(
+      { repoId, branch: "feat/x", ref: "refs/heads/feat/x", newSha: sha },
+      { gateDir, tmpBase: join(root, "tmp-sup"), store, run: productionHostRunner },
+    );
+    expect(second.ok).toBe(true);
+    expect(store.runs.get(first.runId)!.status).toBe("aborted");
+    expect(store.runs.get(first.runId)!.error).toContain("superseded");
+    expect(store.runs.get(first.runId)!.worktreePath).toBeNull();
+    expect(existsSync(first.worktreePath)).toBe(false); // reaped
   });
 });
 

@@ -609,6 +609,54 @@ export async function removeWorktree(run: ShellRunner, gateDir: string, wtPath: 
   }
 }
 
+/** Deps for {@link supersedePriorRuns} (a subset of the run-manager deps). */
+export interface SupersedeDeps {
+  store: RunStore;
+  run: ShellRunner;
+  gateDir: string;
+  onChange?: () => Promise<void> | void;
+}
+
+/**
+ * Supersede every IN-FLIGHT prior run for the same (repo, branch) when a NEW
+ * push lands — upstream's concurrent-push semantics (spec §1: "cancel-in-flight-
+ * as-superseded, then start new"). A non-terminal prior run (parked at a gate or
+ * resting at checks_passed) is marked `aborted` with a persisted "superseded"
+ * reason, its worktree reaped, and its `worktreePath` nulled so a late respond
+ * can no longer resume the reaped checkout. The new run (`exceptRunId`) is never
+ * touched, and runs on OTHER branches stay untouched (fully concurrent).
+ *
+ * Called INSIDE the per-(repo,branch) `withLock`, so a genuinely RUNNING prior
+ * run cannot coexist here — the lock already made the new push WAIT (the bounded
+ * wait) until that run parked/finished and released the lock. Returns the ids of
+ * the runs it superseded.
+ */
+export async function supersedePriorRuns(
+  deps: SupersedeDeps,
+  repoId: string,
+  branch: string,
+  exceptRunId: string,
+): Promise<string[]> {
+  const runs = await deps.store.listRuns();
+  const superseded: string[] = [];
+  for (const r of runs) {
+    if (r.id === exceptRunId) continue;
+    if (r.repoId !== repoId || r.branch !== branch) continue;
+    if (isTerminalRunStatus(r.status)) continue;
+    const staleWorktree = r.worktreePath;
+    await deps.store.updateRun(r.id, {
+      status: "aborted",
+      error: `superseded by a newer push to ${branch}`,
+      awaitingAgentSince: null,
+      worktreePath: null,
+    });
+    if (staleWorktree) await removeWorktree(deps.run, deps.gateDir, staleWorktree);
+    superseded.push(r.id);
+  }
+  if (superseded.length > 0 && deps.onChange) await deps.onChange();
+  return superseded;
+}
+
 /**
  * Handle one validated push: create a run record, materialize a detached
  * worktree from the gate repo at `newSha`, record it, then tear it down. Runs
@@ -653,6 +701,16 @@ export async function runGateLifecycle(
       };
       await store.createRun(record);
       await notify();
+
+      // M6: supersede any IN-FLIGHT prior run for this (repo, branch) — a new
+      // push cancels the stale one before starting (spec §1 concurrent-push
+      // semantics). Different branches stay concurrent (filtered by branch).
+      await supersedePriorRuns(
+        { store, run, gateDir, onChange: deps.onChange },
+        push.repoId,
+        push.branch,
+        runId,
+      );
 
       const add = await run(
         ["git", "-C", gateDir, "worktree", "add", "--detach", wtPath, push.newSha],
