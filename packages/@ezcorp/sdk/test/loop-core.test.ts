@@ -29,9 +29,11 @@ import {
   transition,
   trimRetention,
   validateActResult,
+  validateCheckResult,
 } from "../src/runtime/loop-core";
 import type {
   ActResult,
+  CheckResult,
   LoopRunState,
   ResolvedContract,
 } from "../src/runtime/loop-types";
@@ -331,6 +333,49 @@ describe("validateActResult", () => {
     const err = validateActResult(r, c);
     expect(err).toContain("bogus");
     expect(err).toContain("contract.states");
+  });
+});
+
+// ── validateCheckResult ─────────────────────────────────────────────
+
+describe("validateCheckResult", () => {
+  test("proceed:true always passes (with or without enrichment)", () => {
+    expect(validateCheckResult({ proceed: true })).toBeNull();
+    expect(validateCheckResult({ proceed: true, input: { x: 1 } })).toBeNull();
+  });
+
+  test("proceed:false with a non-empty reason passes", () => {
+    const r: CheckResult = { proceed: false, reason: "no_new_commits" };
+    expect(validateCheckResult(r)).toBeNull();
+  });
+
+  test("proceed:false with an empty reason is rejected", () => {
+    const r = { proceed: false, reason: "" } as CheckResult;
+    const err = validateCheckResult(r);
+    expect(err).toContain("reason");
+  });
+
+  test("proceed:false with a non-string reason is rejected", () => {
+    const r = { proceed: false, reason: 42 as unknown as string } as CheckResult;
+    expect(validateCheckResult(r)).toContain("reason");
+  });
+
+  test("a non-object result is rejected (runtime junk, not a CheckResult)", () => {
+    expect(validateCheckResult("nope" as unknown as CheckResult)).toContain("object");
+    expect(validateCheckResult(42 as unknown as CheckResult)).toContain("object");
+  });
+
+  test("a null result is rejected", () => {
+    expect(validateCheckResult(null as unknown as CheckResult)).toContain("object");
+  });
+
+  test("a non-boolean proceed is rejected (a truthy non-bool must NOT act)", () => {
+    expect(
+      validateCheckResult({ proceed: "yes" } as unknown as CheckResult),
+    ).toContain("boolean");
+    expect(
+      validateCheckResult({ reason: "x" } as unknown as CheckResult),
+    ).toContain("boolean");
   });
 });
 

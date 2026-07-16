@@ -54,7 +54,7 @@ protection so renaming/deleting a job in a PR doesn't dodge the requirement.
 | **Manifest lockfile drift check** | bundled-ext lockfile in sync | stale lockfile |
 | **Per-file coverage gate** | each gated file ≥ its threshold; **+ new-file gate + patch coverage** ride in this job | undertested code |
 | **Gate integrity** | the PR doesn't weaken the gate or fake tests green | gate tampering / vacuous tests |
-| **Visual evidence** | a frontend-visual change ships a changed `@evidence` Playwright spec (deterministic, browser-free, fails closed; bypass via maintainer-only `evidence-exempt` label) | frontend shipped with no visual spec/screenshot |
+| **Visual evidence** | a frontend-visual change ships a changed `@evidence` Playwright spec — and, when the changed file has a covering entry in `web/e2e/evidence-covers.json`, that specific covering spec must be the one touched (deterministic, browser-free, fails closed, fails open to the coarse rule on a bad map; bypass via maintainer-only `evidence-exempt` label) | frontend shipped with no visual spec/screenshot, or evidenced by an unrelated spec |
 
 ### Per-file coverage gate
 `scripts/check-coverage.ts` enforces `scripts/coverage-thresholds.json` against
@@ -173,11 +173,17 @@ gh label create gate-change-approved \
   repo-admin token or a ruleset bypass could disable protection. Mitigation:
   `enforce_admins=true`, named-human-only bypass, CI `GITHUB_TOKEN` scoped to
   `contents: read` (already the default in `ci.yml`).
-- **e2e-per-feature** isn't fully mechanically inferable (no feature→spec
-  manifest). The **visual subset** is now mechanized by the `Visual evidence`
-  gate (a frontend-visual change must ship a changed `@evidence` spec); the
-  non-visual remainder is still enforced by the PR-template checkbox + the agent
-  contract in `CLAUDE.md` + CI running all specs at `retries: 0`.
+- **e2e-per-feature** isn't fully mechanically inferable for the *general* case
+  (no feature→spec manifest). The **visual subset**, however, now HAS one:
+  `web/e2e/evidence-covers.json` maps each visual-source glob to the `@evidence`
+  spec(s) that render it. That manifest drives both the `Visual evidence` gate
+  (a changed visual file with a covering entry must have one of its covering
+  specs touched — not just any spec) and diff-scoped capture selection (only the
+  specs that render the diff are screenshotted). A meta-test
+  (`src/__tests__/visual-evidence-covers.test.ts`) self-ratchets it: adding an
+  `@evidence` spec without a mapping fails CI. The non-visual remainder is still
+  enforced by the PR-template checkbox + the agent contract in `CLAUDE.md` + CI
+  running all specs at `retries: 0`.
 - **Visual evidence proves presence, not assertion.** The `Visual evidence` gate
   proves *a spec was added/changed*, not that it asserts the visual behavior —
   a junk `expect(true)` passes it. Non-author review + the assertion-free-spec

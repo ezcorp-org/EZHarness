@@ -7,8 +7,8 @@
 // (index.integration.test.ts), which spawns the real subprocess.
 
 import { test, expect, describe } from "bun:test";
-import type { LoopActContext, LoopMessage } from "@ezcorp/sdk/runtime";
-import { defineSampleLoop, summarizeAct } from "./index";
+import type { LoopActContext, LoopCheckContext, LoopMessage } from "@ezcorp/sdk/runtime";
+import { defineSampleLoop, summarizeAct, summarizeCheck } from "./index";
 
 function makeCtx(
   overrides: {
@@ -59,15 +59,10 @@ describe("summarizeAct", () => {
     });
   });
 
-  test("no conversationId → skip", async () => {
+  test("no conversationId → skip (the retained type-narrowing gate)", async () => {
     const ctx = makeCtx();
     ctx.input = {};
     expect(await summarizeAct(ctx)).toEqual({ kind: "skip", reason: "no_conversation" });
-  });
-
-  test("settings.enabled=false → skip", async () => {
-    const result = await summarizeAct(makeCtx({ settings: { enabled: false } }));
-    expect(result).toEqual({ kind: "skip", reason: "settings_disabled" });
   });
 
   test("empty conversation → skip (LLM not called)", async () => {
@@ -94,6 +89,45 @@ describe("summarizeAct", () => {
     } as never;
     await summarizeAct(ctx);
     expect(seen).toEqual({ provider: "openai", model: "gpt-4o-mini" });
+  });
+});
+
+describe("summarizeCheck", () => {
+  function makeCheckCtx(
+    input: { conversationId?: string },
+    settings: Record<string, unknown> = {},
+  ): LoopCheckContext<{ conversationId?: string }> {
+    return {
+      input,
+      settings,
+      fire: {
+        id: "fire-1",
+        firedAt: "2026-06-18T00:00:00.000Z",
+        trigger: { kind: "event", event: "run:complete" },
+        catchUp: false,
+      },
+      cursor: { get: async () => undefined, set: async () => {} },
+      fetch: (async () => new Response("")) as unknown as typeof fetch,
+      log: () => {},
+    };
+  }
+
+  test("enabled=false → proceed:false (settings_disabled)", async () => {
+    expect(await summarizeCheck(makeCheckCtx({ conversationId: "c1" }, { enabled: false }))).toEqual({
+      proceed: false,
+      reason: "settings_disabled",
+    });
+  });
+
+  test("no conversationId → proceed:false (no_conversation)", async () => {
+    expect(await summarizeCheck(makeCheckCtx({}))).toEqual({
+      proceed: false,
+      reason: "no_conversation",
+    });
+  });
+
+  test("enabled + conversationId → proceed:true", async () => {
+    expect(await summarizeCheck(makeCheckCtx({ conversationId: "c1" }))).toEqual({ proceed: true });
   });
 });
 

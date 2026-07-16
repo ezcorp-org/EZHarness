@@ -12,6 +12,7 @@
 
 import type {
   ActResult,
+  CheckResult,
   FailureClass,
   LoopAutoDisableContext,
   LoopContract,
@@ -322,6 +323,40 @@ export function validateActResult(
   if (result.kind === "skip") return null;
   if (!isKnownState(result.status, contract)) {
     return `loop act returned unknown status "${result.status}" — declare it in contract.states (${contract.states.join(", ")})`;
+  }
+  return null;
+}
+
+// ── check-result validation ──────────────────────────────────────────
+
+/**
+ * Validate a `check` result before the fire pipeline acts on it. A misbehaving
+ * check (this is JS at runtime — the `CheckResult` type is advisory) may hand
+ * back anything, so guard the whole shape, not just the reason:
+ *   - the result must be a non-null object,
+ *   - `proceed` must be a boolean (a truthy non-boolean must NOT silently act),
+ *   - a `proceed: false` MUST carry a non-empty `reason` string (it becomes the
+ *     `skip`'s audit reason).
+ * Any violation is treated as a check error (classified by `contract.failure`,
+ * like a thrown check) rather than a silent, mis-branched fire. `proceed: true`
+ * otherwise passes. Returns an error string or null. Pure.
+ */
+export function validateCheckResult(result: CheckResult): string | null {
+  // `result` is typed `CheckResult`, but a runtime check can return junk;
+  // widen to `unknown` so the guards below aren't narrowed away as dead.
+  const r = result as unknown;
+  if (typeof r !== "object" || r === null) {
+    return "loop check must return an object ({ proceed: boolean, … })";
+  }
+  const proceed = (r as { proceed?: unknown }).proceed;
+  if (typeof proceed !== "boolean") {
+    return "loop check result.proceed must be a boolean (true | false)";
+  }
+  if (proceed === false) {
+    const reason = (r as { reason?: unknown }).reason;
+    if (typeof reason !== "string" || reason.length === 0) {
+      return "loop check returned proceed:false without a non-empty reason string";
+    }
   }
   return null;
 }

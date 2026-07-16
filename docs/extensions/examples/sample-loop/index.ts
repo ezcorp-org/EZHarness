@@ -16,13 +16,36 @@ import {
   getChannel,
   getLoopTools,
   type ActResult,
+  type CheckResult,
   type LoopActContext,
+  type LoopCheckContext,
 } from "@ezcorp/sdk/runtime";
 
 /** A summarized run outcome. Exported so the test can assert the shape. */
 export interface SummaryOutcome {
   conversationId: string;
   summary: string;
+}
+
+/**
+ * The deterministic pre-gate — "should the AI process even run?" It answers
+ * the CHEAP, content-free questions (is the loop enabled? is there a
+ * conversation?) so a disabled/misfired event never builds the act context
+ * or reaches the LLM. Note the firewall: the check CANNOT read messages
+ * (`LoopCheckContext` has no `recentMessages`), so the "is the conversation
+ * empty?" gate stays in `act` — deterministic gating up front, content-
+ * dependent gating where the data lives. Exported for unit tests.
+ */
+export async function summarizeCheck(
+  ctx: LoopCheckContext<{ conversationId?: string }>,
+): Promise<CheckResult<{ conversationId?: string }>> {
+  if (ctx.settings.enabled === false) {
+    return { proceed: false, reason: "settings_disabled" };
+  }
+  if (!ctx.input.conversationId) {
+    return { proceed: false, reason: "no_conversation" };
+  }
+  return { proceed: true };
 }
 
 /**
@@ -33,11 +56,15 @@ export interface SummaryOutcome {
 export async function summarizeAct(
   ctx: LoopActContext<{ conversationId?: string }>,
 ): Promise<ActResult<SummaryOutcome>> {
+  // `summarizeCheck` owns the `settings_disabled` + `no_conversation` gates,
+  // so in the trigger → check → act pipeline this never runs on a disabled
+  // loop or a conversation-less event — the duplicate `settings_disabled`
+  // gate that used to sit here is gone. The narrow below stays: it proves
+  // `conversationId` is a string for `recentMessages`/the outcome (removing
+  // it would force a non-null assertion), and it keeps `act` safe if a caller
+  // ever invokes it without the check.
   const conversationId = ctx.input.conversationId;
   if (!conversationId) return { kind: "skip", reason: "no_conversation" };
-  if (ctx.settings.enabled === false) {
-    return { kind: "skip", reason: "settings_disabled" };
-  }
 
   // The primitive hands you a formatted last-20-message slice + a
   // host-brokered LLM (the token never reaches this code).
@@ -76,6 +103,9 @@ export function defineSampleLoop(): void {
       idempotencyKey: (input) => input.conversationId,
       retention: { maxRuns: 50 },
     },
+    // The deterministic gate runs BEFORE act — a disabled loop or a
+    // conversation-less event is a first-class skip, no LLM context built.
+    check: summarizeCheck,
     act: summarizeAct,
     log: {
       // Mirror each summary to a human-readable artifact (fail-soft; the
