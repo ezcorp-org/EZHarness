@@ -109,31 +109,80 @@ export interface ApprovalGuard {
   ok: boolean;
   /** Present + describes the violation when `ok` is false. */
   error?: string;
+  /** True when the guard passed ONLY because standing consent (`consentAll`)
+   *  was set — an ids-free approve/fix over a gate that would OTHERWISE require
+   *  named findingIds. The caller surfaces this for the audit trail (log line +
+   *  `consentAllUsed` result marker) so a blanket clear is never silent. */
+  consentAllUsed?: boolean;
 }
 
 /**
  * Reject an approve/fix that does not explicitly name the finding ids it acts
- * on, UNLESS the caller sets the standing-consent flag. skip/abort approve
- * nothing, so they are always allowed. `fix` needs ids to know WHAT to fix;
- * `approve` needs ids as proof the caller actually saw the findings it is
+ * on, UNLESS either (a) the parked gate is CLEAN — it carries no `ask-user`
+ * findings, so there is nothing the user needed to see and an ids-free
+ * `approve` is the frictionless happy path — or (b) the caller sets the
+ * standing-consent flag. skip/abort approve nothing, so they are always
+ * allowed. `fix` always needs ids (or consent) to know WHAT to fix; `approve`
+ * needs ids as proof the caller actually saw the ask-user findings it is
  * clearing (the executor's approve completes the whole step, so without this
- * gate an LLM could clear a gate it never surfaced to the user).
+ * gate an LLM could bulk-clear ask-user findings it never surfaced).
+ *
+ * `askUserCount` is the number of `action === "ask-user"` findings on the
+ * parked step. Threading it in is what DE-NORMALIZES `consentAll`: the common
+ * clean-gate approve no longer has to set the blanket flag, so a `consentAll`
+ * in the wild is a real (auditable) signal rather than happy-path noise.
  */
 export function enforceNamedApproval(
   action: RespondAction,
   findingIds: string[] | undefined,
   consentAll: boolean | undefined,
+  askUserCount: number,
 ): ApprovalGuard {
   if (action !== "approve" && action !== "fix") return { ok: true };
-  if (consentAll === true) return { ok: true };
+  // Naming the explicit ids is the proof-of-surface — always allowed.
   if (findingIds && findingIds.length > 0) return { ok: true };
+  // Ids-free from here. A CLEAN gate (no ask-user findings to clear) may be
+  // APPROVED without ids or consent — nothing was withheld from the user.
+  if (action === "approve" && askUserCount === 0) return { ok: true };
+  // The only remaining path is explicit standing consent — flagged for audit
+  // because a bulk clear then happened WITHOUT named finding ids.
+  if (consentAll === true) return { ok: true, consentAllUsed: true };
   return {
     ok: false,
     error:
       `code_factory_respond: '${action}' must name the explicit findingIds it is ` +
-      `acting on (a bulk auto-approve is refused). Call code_factory_status first, ` +
+      `acting on (a bulk auto-approve is refused; this gate has ${askUserCount} ` +
+      `ask-user finding(s) awaiting a decision). Call code_factory_status first, ` +
       `relay the ask-user findings to the user verbatim, and pass the finding ids ` +
       `the user approved — or set consentAll:true only with the user's explicit ` +
       `standing consent to clear every finding of this gate.`,
+  };
+}
+
+/**
+ * Reject any named findingId that does not exist in the parked step's REAL
+ * finding set. Strengthens the proof-of-surface heuristic: an approve/fix must
+ * reference findings the pipeline actually produced, so junk ids (e.g. `["a1"]`
+ * on a gate that never had it) can no longer be smuggled through the length>0
+ * check. skip/abort name nothing → always allowed; an ids-free approve/fix is
+ * governed by `enforceNamedApproval`, not here (empty list → nothing to check).
+ * `knownIds` is every finding id on the parked step.
+ */
+export function crossCheckFindingIds(
+  action: RespondAction,
+  findingIds: string[] | undefined,
+  knownIds: Iterable<string>,
+): ApprovalGuard {
+  if (action !== "approve" && action !== "fix") return { ok: true };
+  if (!findingIds || findingIds.length === 0) return { ok: true };
+  const known = new Set(knownIds);
+  const unknown = findingIds.filter((id) => !known.has(id));
+  if (unknown.length === 0) return { ok: true };
+  return {
+    ok: false,
+    error:
+      `code_factory_respond: finding id(s) [${unknown.join(", ")}] are not in the parked ` +
+      `gate's findings — call code_factory_status to load the real finding ids before ` +
+      `approving or fixing (do not invent ids).`,
   };
 }

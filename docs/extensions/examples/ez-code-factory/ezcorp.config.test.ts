@@ -13,6 +13,16 @@ describe("ez-code-factory manifest", () => {
     expect(names).toContain("init_gate");
   });
 
+  test("code_factory_respond declares the addedFindings input (array of finding objects)", () => {
+    const respond = (manifest.tools ?? []).find((t) => t.name === "code_factory_respond");
+    const props = (respond?.inputSchema as { properties?: Record<string, unknown> }).properties ?? {};
+    // The handler forwards args.addedFindings to parseRespondPayload — it must be
+    // a discoverable, typed input, not an undocumented backdoor field.
+    const added = props.addedFindings as { type?: string; items?: { type?: string } } | undefined;
+    expect(added?.type).toBe("array");
+    expect(added?.items?.type).toBe("object");
+  });
+
   test("declares the dashboard page", () => {
     const ids = (manifest.pages ?? []).map((p) => p.id);
     expect(ids).toEqual(["dashboard"]);

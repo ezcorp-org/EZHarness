@@ -147,6 +147,30 @@ export default defineExtension({
             type: "object",
             description: "OPTIONAL per-finding fix instructions, keyed by finding id.",
           },
+          addedFindings: {
+            type: "array",
+            description:
+              "OPTIONAL user-authored findings to merge into a `fix` round — an issue " +
+              "the user spotted that the agent missed. Each is a finding object; the " +
+              "list length and per-field text are size-capped (over-cap payloads are " +
+              "rejected, not truncated).",
+            items: {
+              type: "object",
+              properties: {
+                description: { type: "string", description: "What the finding is." },
+                action: {
+                  type: "string",
+                  enum: ["no-op", "auto-fix", "ask-user"],
+                  description: "How to treat it (defaults to ask-user when omitted/unknown).",
+                },
+                severity: { type: "string", enum: ["error", "warning", "info"] },
+                file: { type: "string", description: "Repo-relative path the finding is about." },
+                line: { type: "number", description: "1-based line, or omit." },
+                userInstructions: { type: "string", description: "Guidance for the fix." },
+                category: { type: "string" },
+              },
+            },
+          },
           consentAll: {
             type: "boolean",
             description:

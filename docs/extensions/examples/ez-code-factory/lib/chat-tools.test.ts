@@ -420,11 +420,57 @@ describe("respondChatTool", () => {
     expect(out.error).toContain("invalid respond");
   });
 
-  test("NO BLANKET APPROVAL: approve without findingIds is rejected", async () => {
-    const out = await respondChatTool({ runId: "r1", step: "review", action: "approve" }, parked());
+  test("NO BLANKET APPROVAL: approve of an ask-user gate without findingIds is rejected", async () => {
+    const deps = parked();
+    await seedParked(deps); // parked at review WITH an ask-user finding
+    const out = await respondChatTool({ runId: "r1", step: "review", action: "approve" }, deps);
     expect(out.ok).toBe(false);
     if (out.ok) throw new Error("unreachable");
     expect(out.error).toContain("must name the explicit findingIds");
+  });
+
+  test("DE-NORMALIZED: a CLEAN gate (no ask-user findings) approves ids-free without consent", async () => {
+    const deps = parked();
+    await deps.store.createRun(run({ id: "r1", status: "awaiting_approval" }));
+    await deps.store.putStepResult({
+      runId: "r1", step: "review", status: "awaiting_approval", findings: emptyFindings(),
+      agentPid: null, autoFixLimit: 0, round: 1, autoFixAttempts: 0, executionMs: 0, fixSummary: null,
+    });
+    deps.resumeRun = async (runId) => {
+      await deps.store.updateRun(runId, { status: "completed" });
+      return { status: "completed", parked: false };
+    };
+    const out = await respondChatTool({ runId: "r1", step: "review", action: "approve" }, deps);
+    expect(out.ok).toBe(true);
+    if (!out.ok) throw new Error("unreachable");
+    expect(out.data.applied).toBe(true);
+    expect(out.data.consentAllUsed).toBe(false);
+  });
+
+  test("AUDIT: a consentAll bypass over an ask-user gate is logged AND marks consentAllUsed", async () => {
+    const logs: string[] = [];
+    const deps = baseDeps({ log: (m) => logs.push(m) });
+    await seedParked(deps); // ask-user finding a1 present
+    deps.resumeRun = async (runId) => {
+      await deps.store.updateRun(runId, { status: "completed" });
+      return { status: "completed", parked: false };
+    };
+    const out = await respondChatTool({ runId: "r1", step: "review", action: "approve", consentAll: true }, deps);
+    expect(out.ok).toBe(true);
+    if (!out.ok) throw new Error("unreachable");
+    expect(out.data.consentAllUsed).toBe(true);
+    expect(logs.join("\n")).toContain("consentAll bypass");
+    expect(logs.join("\n")).toContain("ask-user finding");
+  });
+
+  test("CROSS-CHECK: a findingId not on the parked step is rejected as junk", async () => {
+    const deps = parked();
+    await seedParked(deps); // real finding id is "a1"
+    const out = await respondChatTool({ runId: "r1", step: "review", action: "approve", findingIds: ["ghost"] }, deps);
+    expect(out.ok).toBe(false);
+    if (out.ok) throw new Error("unreachable");
+    expect(out.error).toContain("not in the parked");
+    expect(out.error).toContain("ghost");
   });
 
   test("unknown run → error", async () => {

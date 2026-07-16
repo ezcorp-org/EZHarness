@@ -43,7 +43,7 @@ import type { ChatToolDeps } from "./lib/chat-tools";
 import { gateDir as gateDirFor, GATE_REMOTE } from "./lib/gate";
 import { productionHostRunner, type ShellRunner } from "./lib/shell";
 import { emptyFindings } from "./lib/runs";
-import type { ParsedRespond, RunRecord, RunStore, StepResultRecord, StepRoundRecord } from "./lib/runs";
+import type { Finding, ParsedRespond, RunRecord, RunStore, StepResultRecord, StepRoundRecord } from "./lib/runs";
 
 // ── in-memory store + fakes ─────────────────────────────────────────
 
@@ -1377,7 +1377,25 @@ describe("chat-entry tool handlers", () => {
 
   test("respond enforces no-blanket-approval end to end", async () => {
     _setProjectRootForTests(() => "/proj");
-    _setChatToolDepsForTests(async () => fakeChatDeps());
+    const deps = fakeChatDeps();
+    // A gate parked WITH an ask-user finding — an ids-free approve must be refused
+    // (a CLEAN gate would approve ids-free; this one withheld a decision).
+    const askUser: Finding = {
+      id: "a1", severity: "warning", file: "src/a.ts", line: null,
+      description: "confirm?", action: "ask-user", source: "agent", userInstructions: "", category: "review",
+    };
+    await deps.store.createRun({
+      id: "r1", repoId: "0123456789ab", branch: "feat/x", ref: "refs/heads/feat/x",
+      headSha: "abcdef0", baseSha: "0".repeat(40), status: "awaiting_approval",
+      worktreePath: "/wt", createdAt: "t", updatedAt: "t", parkedMs: 0,
+      awaitingAgentSince: null, intent: null, intentSource: null,
+    });
+    await deps.store.putStepResult({
+      runId: "r1", step: "review", status: "awaiting_approval",
+      findings: { ...emptyFindings(), items: [askUser] },
+      agentPid: null, autoFixLimit: 0, round: 1, autoFixAttempts: 0, executionMs: 0, fixSummary: null,
+    });
+    _setChatToolDepsForTests(async () => deps);
     const res = await codeFactoryRespondTool({ runId: "r1", step: "review", action: "approve" });
     expect(res.isError).toBe(true);
     expect(res.content[0]!.text).toContain("must name the explicit findingIds");

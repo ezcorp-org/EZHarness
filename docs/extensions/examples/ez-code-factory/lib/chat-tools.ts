@@ -25,7 +25,12 @@ import {
   type StepStatus,
 } from "./runs";
 import type { ShellRunner } from "./shell";
-import { enforceNamedApproval, formatGateRelay, type GateRelay } from "./chat-contract";
+import {
+  crossCheckFindingIds,
+  enforceNamedApproval,
+  formatGateRelay,
+  type GateRelay,
+} from "./chat-contract";
 import type { InferredIntent } from "./intent-infer";
 
 /** All-zeros SHA — the force-push anchor for a branch the gate has never seen. */
@@ -306,10 +311,15 @@ export async function statusChatTool(
 
 /**
  * Answer a parked gate (approve/fix/skip/abort). Validates via the single M1
- * validator (parseRespondPayload), enforces the NO-BLANKET-APPROVAL contract
- * (an approve/fix must name explicit findingIds unless `consentAll:true`), then
- * drives resumeGateLifecycle → respondToGate. Returns the post-respond gate
- * status (which re-surfaces the verbatim relay if the run re-parks).
+ * validator (parseRespondPayload), then enforces the NO-BLANKET-APPROVAL
+ * contract AGAINST THE PARKED STEP'S REAL FINDINGS:
+ *   - a CLEAN gate (no ask-user findings) accepts an ids-free `approve`;
+ *   - an approve/fix over a gate WITH ask-user findings must name explicit
+ *     findingIds (or set `consentAll:true`, which is logged + marked);
+ *   - any named findingId must actually exist on the parked step (junk ids
+ *     rejected — proof the agent loaded the real findings).
+ * Then drives resumeGateLifecycle → respondToGate and returns the post-respond
+ * gate status (which re-surfaces the verbatim relay if the run re-parks).
  */
 export async function respondChatTool(
   args: {
@@ -323,6 +333,7 @@ export async function respondChatTool(
   },
   deps: ChatToolDeps,
 ): Promise<ChatToolOutcome> {
+  const log = deps.log ?? (() => {});
   const respond = parseRespondPayload({
     runId: args.runId,
     step: args.step,
@@ -339,12 +350,31 @@ export async function respondChatTool(
         "(within the finding/instruction size caps)",
     };
   }
-  // CONTRACT-IN-CODE: a bulk auto-approve cannot be smuggled.
-  const guard = enforceNamedApproval(respond.action, respond.findingIds, args.consentAll === true);
-  if (!guard.ok) return { ok: false, error: guard.error! };
 
   const rec = await deps.store.getRun(respond.runId);
   if (!rec) return { ok: false, error: `unknown run ${respond.runId}` };
+
+  // Load the parked step's REAL findings — the contract enforces against them,
+  // not against the payload alone (a missing step result → a clean, empty set).
+  const stepResult = await deps.store.getStepResult(respond.runId, respond.step);
+  const parkedItems = stepResult?.findings.items ?? [];
+  const askUserCount = parkedItems.filter((f) => f.action === "ask-user").length;
+  const knownIds = parkedItems.map((f) => f.id);
+
+  // CONTRACT-IN-CODE (1): no bulk auto-approve — but a clean gate approves
+  // ids-free (de-normalizes consentAll off the happy path).
+  const guard = enforceNamedApproval(respond.action, respond.findingIds, args.consentAll === true, askUserCount);
+  if (!guard.ok) return { ok: false, error: guard.error! };
+  // CONTRACT-IN-CODE (2): named ids must reference findings that actually exist.
+  const xcheck = crossCheckFindingIds(respond.action, respond.findingIds, knownIds);
+  if (!xcheck.ok) return { ok: false, error: xcheck.error! };
+  // AUDIT: a standing-consent bulk clear is never silent — log it + mark it.
+  if (guard.consentAllUsed) {
+    log(
+      `consentAll bypass: run=${respond.runId} step=${respond.step} action=${respond.action} ` +
+        `cleared a gate with ${askUserCount} ask-user finding(s) WITHOUT named ids (standing consent)`,
+    );
+  }
 
   const result = await deps.resumeRun(respond.runId, respond);
   if (result === null) {
@@ -355,5 +385,8 @@ export async function respondChatTool(
   }
   const status = await buildGateStatus(deps.store, respond.runId);
   if (!status) return { ok: false, error: `unknown run ${respond.runId}` };
-  return { ok: true, data: { applied: true, action: respond.action, ...statusData(status) } };
+  return {
+    ok: true,
+    data: { applied: true, action: respond.action, consentAllUsed: guard.consentAllUsed === true, ...statusData(status) },
+  };
 }
