@@ -18,6 +18,7 @@
   "src/extensions/audit-actions.ts": 100,
   "src/extensions/capability-flags.ts": 100,
   "src/extensions/loop-events-handler.ts": 100,
+  "src/extensions/loops-kill-switch.ts": 100,
   "src/extensions/bundled-drift-reapprove.ts": 100,
   "web/src/routes/api/extensions/[id]/reapprove-drift/+server.ts": 100,
   "web/src/routes/api/projects/[id]/features/scan/+server.ts": 100,
