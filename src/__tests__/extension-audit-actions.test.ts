@@ -127,6 +127,11 @@ describe("extension audit action constants", () => {
       // Loops EZ Mode — gated emit-loop-event (audit-mirror + rejection)
       "LOOP_EVENT_EMITTED",
       "LOOP_EVENT_REJECTED",
+      // Loops Phase 4 — webhook ingress/dispatch/secret lifecycle
+      "SDK_WEBHOOK_ACCEPTED",
+      "SDK_WEBHOOK_REJECTED",
+      "SDK_WEBHOOK_DISPATCHED",
+      "SDK_WEBHOOK_SECRET_ROTATED",
       // Extension secrets (Phase 0) — scope-isolated, AAD-bound cred store
       "SECRET_SET",
       "SECRET_USED",

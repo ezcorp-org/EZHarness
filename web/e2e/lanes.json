@@ -42,7 +42,8 @@
       "web/e2e/task-panel-schema-badge.spec.ts",
       "web/e2e/topic-contexts.spec.ts",
       "web/e2e/user-commands.spec.ts",
-      "web/e2e/visual-evidence.spec.ts"
+      "web/e2e/visual-evidence.spec.ts",
+      "web/e2e/workflows-demos.spec.ts"
     ],
     "docker": [
       "web/e2e/chat-context-compaction.spec.ts",
@@ -236,9 +237,6 @@
       "web/e2e/password-reset.spec.ts",
       "web/e2e/permission-mode.spec.ts",
       "web/e2e/picker-pills.spec.ts",
-      "web/e2e/pipelines-actions.spec.ts",
-      "web/e2e/pipelines-new.spec.ts",
-      "web/e2e/pipelines.spec.ts",
       "web/e2e/project-form.spec.ts",
       "web/e2e/project-rail-unread-badge.spec.ts",
       "web/e2e/project.spec.ts",
@@ -296,7 +294,10 @@
       "web/e2e/user-menu.spec.ts",
       "web/e2e/v1.3-permission-backbone.spec.ts",
       "web/e2e/validate-prod-shape.spec.ts",
-      "web/e2e/waterfall-timeline.spec.ts"
+      "web/e2e/waterfall-timeline.spec.ts",
+      "web/e2e/workflows-actions.spec.ts",
+      "web/e2e/workflows-new.spec.ts",
+      "web/e2e/workflows.spec.ts"
     ]
   }
 }

@@ -27,6 +27,11 @@ const REPO_ROOT = join(import.meta.dir, "..", "..");
 const LANE_NAMES = ["mock-gate", "real-auth", "evidence-soft", "docker", "unwired"] as const;
 
 // Landing-time size of the unwired backlog — shrink-only ratchet.
+// Unchanged (241) across the origin/main merge (fdca3a4f): main's Workflows
+// rename replaced pipelines{,-new,-actions}.spec.ts with the equivalent
+// workflows-* specs, still unwired there (no @evidence, no DOCKER_TEST, in
+// no CI job) — net backlog 241. Wiring a spec means MOVING it to a real
+// lane and lowering this number.
 const UNWIRED_CEILING = 241;
 
 function bashLines(cmd: string): string[] {
