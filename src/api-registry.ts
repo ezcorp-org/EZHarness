@@ -116,6 +116,12 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "POST", path: "/api/extensions/:id/secrets", description: "Set (or rotate) an extension secret — encrypted, scope-isolated, AAD-bound; value never echoed back", category: "extensions", scope: "extensions", harness: { controllable: true } },
   { method: "DELETE", path: "/api/extensions/:id/secrets", description: "Delete an extension secret", category: "extensions", scope: "extensions", harness: { controllable: true } },
 
+  // Loops EZ Mode Phase 4 — inbound webhook trigger. Public data-plane: auth is
+  // the per-hook token (NOT a session), so scope "public". Persists a delivery
+  // onto the claim-before-dispatch queue; the WebhookDeliveryDaemon fires it.
+  { method: "POST", path: "/api/hooks/:extensionId/:slug", description: "Deliver an inbound webhook to a loop's webhook trigger (per-hook token or X-Hub-Signature-256 HMAC; 256KB cap; per-hook rate limit + daily budget)", category: "extensions", scope: "public" },
+  { method: "POST", path: "/api/extensions/:name/webhooks/:slug/rotate", description: "Rotate a webhook hook's per-hook secret and return the plaintext once (admin-gated; shown-once secrets UX)", category: "extensions", scope: "admin" },
+
   // Extension RBAC grants (runtime gate = the delegation check in
   // src/auth/extension-rbac.ts; scope "admin" documents the surface for the
   // docs/OpenAPI tier — see the route headers).
