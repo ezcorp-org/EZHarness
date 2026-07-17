@@ -34,10 +34,10 @@ import { getSetting } from "$server/db/queries/settings";
 import { drainDelivery } from "$server/extensions/webhook-delivery-daemon";
 
 /** Max accepted body size — 256 KB. */
-export const MAX_WEBHOOK_BODY_BYTES = 256 * 1024;
+const MAX_WEBHOOK_BODY_BYTES = 256 * 1024;
 /** Default per-hook daily fire budget (overridable via the `webhooks:daily_budget`
  *  setting). Caps spend a leaked-but-valid token can trigger. */
-export const DEFAULT_WEBHOOK_DAILY_BUDGET = 1000;
+const DEFAULT_WEBHOOK_DAILY_BUDGET = 1000;
 
 // Per-hook burst limiter: 60 accepted-or-rejected requests / 60s. Keyed by
 // `<extensionName>:<slug>` so a leaked token spamming ONE hook is throttled
