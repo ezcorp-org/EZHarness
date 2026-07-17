@@ -80,7 +80,8 @@ describe("POST /api/workflows/[name]/run", () => {
 	});
 
 	test("throws 401 when unauthenticated", async () => {
-		await expectThrownResponse(() => POST(makeEvent({ body: {} })), 401);
+		const res = await expectThrownResponse(() => POST(makeEvent({ body: {} })), 401);
+		expect(res.status).toBe(401);
 	});
 
 	test("returns 404 when the workflow is not in the registry", async () => {

@@ -81,7 +81,8 @@ describe("GET /api/workflows/[name]", () => {
 	});
 
 	test("throws 401 when unauthenticated", async () => {
-		await expectThrownResponse(() => GET(makeEvent({ locals: {} })), 401);
+		const res = await expectThrownResponse(() => GET(makeEvent({ locals: {} })), 401);
+		expect(res.status).toBe(401);
 	});
 
 	test("returns the workflow when it exists", async () => {
@@ -113,10 +114,11 @@ describe("PUT /api/workflows/[name]", () => {
 	});
 
 	test("throws 401 when unauthenticated", async () => {
-		await expectThrownResponse(
+		const res = await expectThrownResponse(
 			() => PUT(makeEvent({ locals: {}, method: "PUT", body: {} })),
 			401,
 		);
+		expect(res.status).toBe(401);
 	});
 
 	test("returns 400 when replacement steps fail definition-time validation", async () => {
@@ -181,10 +183,11 @@ describe("DELETE /api/workflows/[name]", () => {
 	});
 
 	test("throws 401 when unauthenticated", async () => {
-		await expectThrownResponse(
+		const res = await expectThrownResponse(
 			() => DELETE(makeEvent({ locals: {}, method: "DELETE" })),
 			401,
 		);
+		expect(res.status).toBe(401);
 	});
 
 	test("returns 404 when the named workflow is not a DB workflow", async () => {
