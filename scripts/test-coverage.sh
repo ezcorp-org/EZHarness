@@ -104,29 +104,43 @@ tally() {
   TOTAL_FAIL=$((TOTAL_FAIL + ${f:-0}))
 }
 
-# ── SDK + harness-client + node-vitest legs ─────────────────────────────────
+# ── SDK + harness-client + suggest + node-vitest legs ───────────────────────
 run_legs() {
+  # The 4 legs are independent (disjoint covdirs, own exit codes) and run
+  # CONCURRENTLY — cov-extras wall clock = max(legs), not their sum. Each
+  # leg's combined stdout/stderr is captured to its own file and printed
+  # SEQUENTIALLY after the wait, so logs never interleave. Exit-code
+  # semantics are exactly the pre-parallel ones: the SDK + suggest legs are
+  # pass/fail-TOLERATED (coverage-only), the harness-client (HC_EXIT) and
+  # node-vitest (VITEST_EXIT) legs gate. A leg that dies without writing its
+  # exit-code file counts as exit 1 for the gating legs (fail-closed).
+  local legs="$TMPDIR/legs"
+  mkdir -p "$legs"
+
   # SDK: top-level test/ + co-located entities/__tests__/ (the canonical
   # coverage for entities/{validate,tools,storage,slug}.ts). mock.module-free,
   # so bundling preserves the 100% module-load instrumentation parity.
-  local sdk_cov="$TMPDIR/cov_sdk" sdk_out
-  sdk_out=$(bun test --coverage --coverage-reporter=lcov --coverage-dir="$sdk_cov" ./packages/@ezcorp/sdk/test/ ./packages/@ezcorp/sdk/src/entities/__tests__/ 2>&1) || true
-  tally "$sdk_out"
+  # Pass/fail tolerated (coverage-only).
+  (
+    set +e
+    bun test --coverage --coverage-reporter=lcov --coverage-dir="$TMPDIR/cov_sdk" \
+      ./packages/@ezcorp/sdk/test/ ./packages/@ezcorp/sdk/src/entities/__tests__/ \
+      > "$legs/sdk.out" 2>&1
+    echo "$?" > "$legs/sdk.code"
+  ) &
 
   # harness-client — its own mock.module-free shard. Unlike the SDK leg above,
   # its pass/fail GATES: the event-name parity test + the route-table
   # meta-assertions in index.test.ts are part of the remote-control contract, so
-  # a failure must red CI, not merely report. Capture the real exit code into the
-  # global HC_EXIT (checked in the mode dispatch below) instead of the
-  # pass/fail-tolerant `|| true`.
-  HC_EXIT=0
-  local hc_cov="$TMPDIR/cov_hc" hc_out
-  hc_out=$(bun test --coverage --coverage-reporter=lcov --coverage-dir="$hc_cov" ./packages/@ezcorp/harness-client/ 2>&1) || HC_EXIT=$?
-  tally "$hc_out"
-  if [ "$HC_EXIT" != "0" ]; then
-    FAILED_FILES+=("harness-client coverage leg")
-    echo "--- FAIL: harness-client coverage leg (exit $HC_EXIT) ---"
-  fi
+  # a failure must red CI, not merely report. The real exit code lands in
+  # HC_EXIT below (checked in the mode dispatch).
+  (
+    set +e
+    bun test --coverage --coverage-reporter=lcov --coverage-dir="$TMPDIR/cov_hc" \
+      ./packages/@ezcorp/harness-client/ \
+      > "$legs/hc.out" 2>&1
+    echo "$?" > "$legs/hc.code"
+  ) &
 
   # Composer-suggest backend leg — dedicated bun-coverage shard feeding the
   # `src/suggest/**` + suggestion-feedback threshold keys. The host-shard set
@@ -134,17 +148,20 @@ run_legs() {
   # isolated suites also dodge Bun's large-suite attribution drift. Pass/fail
   # is tolerated like the SDK leg (thresholds are the gate); the suites also
   # run for correctness in `bun run test`.
-  local suggest_cov="$TMPDIR/cov_suggest" suggest_out
-  suggest_out=$(bun test --coverage --coverage-reporter=lcov --coverage-dir="$suggest_cov" \
-    ./src/suggest/__tests__/intent-rank.test.ts \
-    ./src/suggest/__tests__/embedding-cache.test.ts \
-    ./src/suggest/__tests__/user-tool-priors.test.ts \
-    ./src/suggest/__tests__/enhance.test.ts \
-    ./src/suggest/__tests__/config.test.ts \
-    ./src/suggest/__tests__/training-export.test.ts \
-    ./src/db/queries/__tests__/suggestion-feedback.test.ts \
-    ./src/db/queries/__tests__/settings-jsonb-roundtrip.test.ts 2>&1) || true
-  tally "$suggest_out"
+  (
+    set +e
+    bun test --coverage --coverage-reporter=lcov --coverage-dir="$TMPDIR/cov_suggest" \
+      ./src/suggest/__tests__/intent-rank.test.ts \
+      ./src/suggest/__tests__/embedding-cache.test.ts \
+      ./src/suggest/__tests__/user-tool-priors.test.ts \
+      ./src/suggest/__tests__/enhance.test.ts \
+      ./src/suggest/__tests__/config.test.ts \
+      ./src/suggest/__tests__/training-export.test.ts \
+      ./src/db/queries/__tests__/suggestion-feedback.test.ts \
+      ./src/db/queries/__tests__/settings-jsonb-roundtrip.test.ts \
+      > "$legs/suggest.out" 2>&1
+    echo "$?" > "$legs/suggest.code"
+  ) &
 
   # Node-run vitest leg for the vitest-only web/src/lib files. @vitest/coverage-v8
   # needs node:inspector's Coverage domain, which Bun does not implement, so this
@@ -152,7 +169,8 @@ run_legs() {
   # to JUST the target lib paths so the leg doesn't pull all of web/src/lib/**
   # into the gate. Subshell so `cd web` never leaks.
   VITEST_COV="$TMPDIR/cov_vitest"
-  VITEST_EXIT=0
+  (
+  set +e
   ( cd web && npx vitest run \
       src/__tests__/deep-link-resolve.unit.test.ts \
       src/lib/components/goal-row-logic.unit.test.ts \
@@ -342,7 +360,34 @@ run_legs() {
       --coverage.include='src/routes/api/conversations/[id]/topics/[topicId]/extract/schema.ts' \
       --coverage.include='src/routes/api/contexts/+server.ts' \
       --coverage.include='src/routes/api/contexts/[id]/+server.ts' \
-      --coverage.include='src/routes/api/context-types/+server.ts' ) || VITEST_EXIT=$?
+      --coverage.include='src/routes/api/context-types/+server.ts' ) \
+    > "$legs/vitest.out" 2>&1
+  echo "$?" > "$legs/vitest.code"
+  ) &
+
+  wait
+
+  # Print each leg's captured output sequentially (no interleaving), then
+  # tally + collect exit codes with the pre-parallel gating semantics.
+  local leg
+  for leg in sdk hc suggest vitest; do
+    echo ""
+    echo "── leg output: $leg ──"
+    cat "$legs/$leg.out" 2>/dev/null || echo "(no output captured)"
+  done
+  # Tally the three bun legs (as before the parallelisation; the vitest
+  # summary format never matched the bun "N pass" parser).
+  for leg in sdk hc suggest; do
+    tally "$(cat "$legs/$leg.out" 2>/dev/null)"
+  done
+
+  HC_EXIT=$(cat "$legs/hc.code" 2>/dev/null || echo 1)
+  if [ "$HC_EXIT" != "0" ]; then
+    FAILED_FILES+=("harness-client coverage leg")
+    echo "--- FAIL: harness-client coverage leg (exit $HC_EXIT) ---"
+  fi
+
+  VITEST_EXIT=$(cat "$legs/vitest.code" 2>/dev/null || echo 1)
   # vitest (run from web/) emits SF paths web/-relative — re-root so merge-lcov.ts
   # resolves them against the repo root and the web/src/... threshold keys match.
   if [ -f "$VITEST_COV/lcov.info" ]; then
