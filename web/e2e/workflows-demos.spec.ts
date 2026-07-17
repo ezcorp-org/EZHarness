@@ -220,4 +220,25 @@ test.describe("Workflow demos — run through the UI", () => {
 		).toBeVisible();
 		await captureEvidence(page, testInfo, "workflows-run-failure-detail");
 	});
+
+	test("builder submit with no name renders the validation error (no silent no-op) @evidence", async ({ page, mockApi }, testInfo) => {
+		// Pins WorkflowBuilder's handleSubmit error branch — the
+		// `result.error !== null` union discrimination (svelte-check fix at
+		// the origin/main merge): an invalid form renders
+		// buildWorkflowPayload's first failure instead of calling onsubmit.
+		// Mirrors workflows-new.spec.ts's (unwired-lane) coverage of the same
+		// path; lives HERE because this spec is the covers-map entry credited
+		// for WorkflowBuilder.svelte edits.
+		await mockApi({ agents: [makeAgent({ name: "summarizer" })], workflows: [] });
+
+		const response = await page.goto("/workflows/new");
+		const finalUrl = response ? new URL(response.url()).pathname : "";
+		test.skip(finalUrl !== "/workflows/new", "auth gate redirected away from /workflows/new in this environment");
+
+		await page.getByLabel("Agent").selectOption("summarizer");
+		await page.getByRole("button", { name: "Save Workflow" }).click();
+		await expect(page.getByText("Workflow name is required")).toBeVisible({ timeout: 3000 });
+
+		await captureEvidence(page, testInfo, "workflow-builder-validation-error");
+	});
 });
