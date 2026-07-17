@@ -53,8 +53,30 @@ FAILED_FILES=()
 # critical_backend_files() in lib/test-file-sets.sh.
 if [ -n "$RESIDUAL_ONLY" ]; then
   mapfile -t FILES < <(residual_passfail_files)
+  # Membership assert: route-contract.test.ts lives in P\C (see
+  # lib/test-file-sets.sh) and this job is its ONLY pass/fail home. A
+  # set-membership drift (rename, pattern rot, the coverage set C accidentally
+  # absorbing it) would silently de-gate the remote-control meta-test — fail
+  # loudly instead. The residual set may otherwise legitimately shrink.
+  ROUTE_CONTRACT="web/src/__tests__/route-contract.test.ts"
+  FOUND_RC=0
+  for f in "${FILES[@]}"; do
+    [ "$f" = "$ROUTE_CONTRACT" ] && FOUND_RC=1
+  done
+  if [ "$FOUND_RC" != "1" ]; then
+    echo "::error::residual set (P\\C) no longer contains $ROUTE_CONTRACT — membership drift would silently de-gate the remote-control governance meta-test. Check scripts/lib/test-file-sets.sh." >&2
+    exit 1
+  fi
 elif [ -n "$CRITICAL_ONLY" ]; then
   mapfile -t FILES < <(critical_backend_files)
+  # Floor guard: the curated critical set is built from find patterns; a
+  # rename or pattern rot can silently shrink it (size 33 when this guard
+  # landed). Fail loudly below 25 files instead of green-gating a hollowed-out
+  # set. Raise the floor if membership deliberately grows.
+  if [ "${#FILES[@]}" -lt 25 ]; then
+    echo "::error::critical set has only ${#FILES[@]} files (< 25 floor; 33 expected) — pattern rot in critical_backend_files()? Check scripts/lib/test-file-sets.sh." >&2
+    exit 1
+  fi
 else
   mapfile -t FILES < <(passfail_files)
 fi
