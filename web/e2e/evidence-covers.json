@@ -130,6 +130,7 @@
   "web/e2e/workflows-demos.spec.ts": [
     "web/src/routes/(app)/workflows/**",
     "web/src/lib/components/WorkflowBuilder.svelte",
-    "web/src/lib/components/WorkflowStepForm.svelte"
+    "web/src/lib/components/WorkflowStepForm.svelte",
+    "web/src/routes/(app)/+layout.svelte"
   ]
 }
