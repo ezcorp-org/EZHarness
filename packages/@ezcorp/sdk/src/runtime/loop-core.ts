@@ -89,6 +89,20 @@ export function hasUntrustedInputTrigger(
   return triggers.some(isUntrustedInputTrigger);
 }
 
+/** True when a loop is `untrusted-input` by EITHER an untrusted-input trigger
+ *  (a webhook body) OR an explicit `contentTrust: "untrusted-input"`
+ *  declaration — the escape hatch for a loop whose `check`/`act` ingests
+ *  attacker-controllable EXTERNAL content that no trigger rule catches (a
+ *  settings-configured `ctx.fetch` in `check`, an LLM parse of fetched text in
+ *  `act` — seo-watcher's shape). The single canonical predicate the
+ *  registration path stamps and Phase 8's content-trust gate reads; declaring
+ *  it can only ADD the marker, never clear the trigger-derived one. Pure. */
+export function isUntrustedInputLoop(
+  def: Pick<LoopDefinition, "trigger" | "contentTrust">,
+): boolean {
+  return hasUntrustedInputTrigger(def) || def.contentTrust === "untrusted-input";
+}
+
 /** Fill every contract gap so downstream branches are total. Pure. */
 export function resolveContract<Input>(
   contract: LoopContract<Input> = {},

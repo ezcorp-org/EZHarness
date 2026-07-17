@@ -32,7 +32,7 @@ import {
   FINALIZING,
   autoDisableContext,
   classifyFailure,
-  hasUntrustedInputTrigger,
+  isUntrustedInputLoop,
   isParked,
   isProposalStale,
   resolveContract,
@@ -211,8 +211,10 @@ interface RegisteredLoop {
   store: LoopRunStore;
   def: LoopDefinition;
   /** Permanently `untrusted-input` when ANY trigger ingests
-   *  attacker-controllable content (a webhook body today). Derived ONCE at
-   *  registration from `hasUntrustedInputTrigger(def)` and stamped here so the
+   *  attacker-controllable content (a webhook body) OR the loop explicitly
+   *  declares `contentTrust: "untrusted-input"` (a fetch/LLM-parse-of-external-
+   *  content loop like seo-watcher that no trigger rule catches). Derived ONCE
+   *  at registration from `isUntrustedInputLoop(def)` and stamped here so the
    *  Phase-8 content-trust gate reads a stable classification rather than
    *  re-deriving the rule. No Phase-8 logic lives here — only the flag. */
   untrustedInput: boolean;
@@ -310,10 +312,11 @@ export function defineLoop<Input = unknown, Outcome = unknown>(
     contract: contract as ResolvedContract,
     store: store as LoopRunStore,
     def: def as LoopDefinition,
-    // Permanent content-trust classification — stamped once at registration
-    // (a webhook trigger makes the whole loop untrusted-input). Phase 8 reads
-    // this flag to refuse autopilot; Phase 4 only records it.
-    untrustedInput: hasUntrustedInputTrigger(def),
+    // Permanent content-trust classification — stamped once at registration (a
+    // webhook trigger OR an explicit `contentTrust: "untrusted-input"`
+    // declaration makes the whole loop untrusted-input). Phase 8 reads this
+    // flag to refuse autopilot; Phase 4/5 only record it.
+    untrustedInput: isUntrustedInputLoop(def),
   };
   registry.set(def.id, reg);
 

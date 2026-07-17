@@ -32,6 +32,7 @@ import {
   isKnownState,
   isLive,
   isTerminal,
+  isUntrustedInputLoop,
   isUntrustedInputTrigger,
   resolveContract,
   transition,
@@ -125,6 +126,41 @@ describe("hasUntrustedInputTrigger", () => {
           { kind: "manual", tool: "run-now" },
         ],
       }),
+    ).toBe(false);
+  });
+});
+
+describe("isUntrustedInputLoop", () => {
+  test("a webhook trigger taints the loop even without a contentTrust declaration", () => {
+    expect(
+      isUntrustedInputLoop({ trigger: { kind: "webhook", slug: "s" } }),
+    ).toBe(true);
+  });
+
+  test("an explicit contentTrust declaration taints an all-trusted-trigger loop (seo-watcher's fetch-based shape)", () => {
+    expect(
+      isUntrustedInputLoop({
+        trigger: [
+          { kind: "cron", cron: "0 9 * * *" },
+          { kind: "manual", tool: "run-now" },
+        ],
+        contentTrust: "untrusted-input",
+      }),
+    ).toBe(true);
+  });
+
+  test("declaring contentTrust can only ADD the marker — a webhook trigger stays tainted regardless", () => {
+    expect(
+      isUntrustedInputLoop({
+        trigger: { kind: "webhook", slug: "s" },
+        contentTrust: "untrusted-input",
+      }),
+    ).toBe(true);
+  });
+
+  test("a trusted-trigger loop with NO declaration → false", () => {
+    expect(
+      isUntrustedInputLoop({ trigger: { kind: "cron", cron: "0 9 * * *" } }),
     ).toBe(false);
   });
 });
