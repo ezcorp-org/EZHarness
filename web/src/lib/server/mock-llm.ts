@@ -208,7 +208,15 @@ export function buildMockStreamResponse(turn: MockTurn): Response {
 export function buildMockFaultResponse(fault: MockFault): Response {
   if (fault.kind === "connection") {
     const stream = new ReadableStream<Uint8Array>({
-      start(controller) {
+      // pull(), NOT start(): erroring at construction leaves an already-
+      // errored stream with no reader attached yet, and under CI timing
+      // Bun surfaces that orphan error as an uncaught test-level error
+      // (PR #8 run 29589476463, shard 3 — "[mock-llm] simulated connection
+      // failure" failed the very test that scripted it, pooled AND
+      // isolated). Erroring on first pull is observably identical to any
+      // consumer (the SDK's reader gets the same transport-style failure)
+      // but nothing errors until a reader exists to receive it.
+      pull(controller) {
         controller.error(new Error("[mock-llm] simulated connection failure"));
       },
     });
