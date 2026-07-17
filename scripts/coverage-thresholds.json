@@ -278,6 +278,7 @@
   "web/src/routes/api/workflows/[name]/run/+server.ts": 100,
   "web/src/routes/(app)/pipelines/+page.server.ts": 100,
   "web/src/lib/components/WorkflowStepForm.svelte": 100,
+  "web/src/lib/components/WorkflowBuilder.svelte": 100,
   "web/src/lib/model-selector-logic.ts": 100,
   "src/dev-git-info.ts": 100,
   "web/src/lib/dev-badge.ts": 100,

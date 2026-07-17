@@ -69,6 +69,28 @@ describe("WorkflowStepForm", () => {
     expect(onremove).toHaveBeenCalledTimes(1);
   });
 
+  test("typing in Step Name updates the draft and notifies onnamechange(old, new)", async () => {
+    const s = step({ name: "s1" });
+    const onnamechange = vi.fn();
+    const { getByLabelText } = render(WorkflowStepForm, {
+      props: { step: s, agents: [], allStepNames: ["s1"], onremove: () => {}, onnamechange },
+    });
+
+    await fireEvent.input(getByLabelText("Step Name"), { target: { value: "renamed" } });
+    expect(s.name).toBe("renamed");
+    expect(onnamechange).toHaveBeenCalledWith("s1", "renamed");
+  });
+
+  test("Step Name input still applies the rename without an onnamechange prop", async () => {
+    const s = step({ name: "s1" });
+    const { getByLabelText } = render(WorkflowStepForm, {
+      props: { step: s, agents: [], allStepNames: ["s1"], onremove: () => {} },
+    });
+
+    await fireEvent.input(getByLabelText("Step Name"), { target: { value: "solo" } });
+    expect(s.name).toBe("solo");
+  });
+
   test("agent kind (loop on): loop fields render and retries is hidden", () => {
     const s = step({ name: "s1", kind: "agent", loopEnabled: true });
     const { getByText, queryByText } = render(WorkflowStepForm, {

@@ -8,12 +8,23 @@
 		agents = [],
 		allStepNames = [],
 		onremove,
+		onnamechange = () => {},
 	}: {
 		step: StepDraft;
 		agents: Agent[];
 		allStepNames: string[];
 		onremove: () => void;
+		/** Fired after a rename is applied to the draft, so the parent can
+		 *  retarget sibling dependsOn entries (old name → new name). */
+		onnamechange?: (oldName: string, newName: string) => void;
 	} = $props();
+
+	function handleNameInput(e: Event) {
+		const newName = (e.currentTarget as HTMLInputElement).value;
+		const oldName = step.name;
+		step.name = newName;
+		onnamechange(oldName, newName);
+	}
 
 	let otherStepNames = $derived(allStepNames.filter((n) => n !== step.name));
 
@@ -45,7 +56,7 @@
 	<div class="grid grid-cols-1 md:grid-cols-3 gap-3">
 		<div>
 			<label for="step-name-{step.name}" class="mb-1 block text-xs text-[var(--color-text-secondary)]">Step Name</label>
-			<input id="step-name-{step.name}" type="text" bind:value={step.name} placeholder="step-name" class={inputClass} />
+			<input id="step-name-{step.name}" type="text" value={step.name} oninput={handleNameInput} placeholder="step-name" class={inputClass} />
 		</div>
 		<div>
 			<label for="step-kind-{step.name}" class="mb-1 block text-xs text-[var(--color-text-secondary)]">Kind</label>

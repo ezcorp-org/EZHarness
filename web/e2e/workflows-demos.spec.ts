@@ -181,5 +181,43 @@ test.describe("Workflow demos — run through the UI", () => {
 		});
 		await expect(page.getByText("(3 iterations)")).toBeVisible();
 		await captureEvidence(page, testInfo, "workflows-run-detail");
+
+		// 4) Failed run: the loud error MESSAGE (until-exhaustion) renders on
+		//    the detail page — the loud-failure pillar's visible end.
+		//    (workflow:error only updates runs already registered via start.)
+		await emitSse({
+			type: "workflow:start",
+			data: {
+				workflowRun: {
+					id: "wr-ev-43",
+					workflowName: "demo-loop-counter",
+					status: "running",
+					startedAt: Date.now() - 30,
+					steps: [],
+				},
+			},
+		});
+		await emitSse({
+			type: "workflow:error",
+			data: {
+				workflowRun: {
+					id: "wr-ev-43",
+					workflowName: "demo-loop-counter",
+					status: "error",
+					startedAt: Date.now() - 30,
+					finishedAt: Date.now(),
+					steps: [{ stepName: "count", runId: "", status: "error", iterations: 5 }],
+					result: {
+						success: false,
+						output: null,
+						error: 'Step "count" exhausted 5 iterations without meeting its until-condition',
+					},
+				},
+			},
+		});
+		await expect(
+			page.getByText('Step "count" exhausted 5 iterations without meeting its until-condition'),
+		).toBeVisible();
+		await captureEvidence(page, testInfo, "workflows-run-failure-detail");
 	});
 });

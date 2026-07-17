@@ -3,7 +3,13 @@
 	import type { Agent } from "$lib/api.js";
 	import { inputClass } from "$lib/styles.js";
 	import WorkflowStepForm from "./WorkflowStepForm.svelte";
-	import { blankStep, buildWorkflowPayload, type StepDraft } from "$lib/workflow-builder-logic.js";
+	import {
+		blankStep,
+		buildWorkflowPayload,
+		pruneDependsOn,
+		remapDependsOn,
+		type StepDraft,
+	} from "$lib/workflow-builder-logic.js";
 
 	let {
 		initial = {},
@@ -35,9 +41,13 @@
 	function removeStep(idx: number) {
 		const removedName = steps[idx].name;
 		steps = steps.filter((_, i) => i !== idx);
-		for (const step of steps) {
-			step.dependsOn = step.dependsOn.filter((d) => d !== removedName);
-		}
+		pruneDependsOn(steps, removedName);
+	}
+
+	// Renaming a step must retarget the siblings' dependsOn entries the same
+	// way removing one prunes them — otherwise the rename orphans them.
+	function renameStep(oldName: string, newName: string) {
+		remapDependsOn(steps, oldName, newName);
 	}
 
 	function handleSubmit(e: Event) {
@@ -72,7 +82,7 @@
 		</div>
 		<div class="space-y-3">
 			{#each steps as step, idx}
-				<WorkflowStepForm {step} {agents} {allStepNames} onremove={() => removeStep(idx)} />
+				<WorkflowStepForm {step} {agents} {allStepNames} onremove={() => removeStep(idx)} onnamechange={renameStep} />
 			{/each}
 		</div>
 	</div>

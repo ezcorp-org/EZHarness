@@ -2,7 +2,7 @@
 	import { page } from "$app/state";
 	import { goto } from "$app/navigation";
 	import { store, refreshWorkflows } from "$lib/stores.svelte.js";
-	import { triggerWorkflowRun, deleteWorkflow } from "$lib/api.js";
+	import { triggerWorkflowRun, deleteWorkflow, type WorkflowRun } from "$lib/api.js";
 
 	let workflowName = $derived(page.params.name);
 	let workflow = $derived(store.workflows.find((w) => w.name === workflowName));
@@ -34,6 +34,7 @@
 	const DELETE_CONFIRM_MS = 3000;
 	let deleteConfirming = $state(false);
 	let deleteConfirmTimer: ReturnType<typeof setTimeout> | undefined;
+	let deleteErrorMsg = $state("");
 
 	async function handleRun() {
 		if (!workflowName) return;
@@ -68,9 +69,29 @@
 
 	async function performDelete() {
 		if (!workflowName) return;
-		await deleteWorkflow(workflowName);
+		deleteErrorMsg = "";
+		try {
+			await deleteWorkflow(workflowName);
+		} catch (e) {
+			// A failed DELETE was previously an unhandled rejection with no
+			// user feedback — surface it like handleRun does.
+			deleteErrorMsg = e instanceof Error ? e.message : "Failed to delete workflow";
+			return;
+		}
 		refreshWorkflows();
 		goto("/workflows");
+	}
+
+	// A failed/cancelled run's loud message (e.g. `Gate "x" failed: …`,
+	// `exhausted N iterations…`). The backend emits either a plain string or
+	// a { code, message } object (cancellation) — tolerate both, and never
+	// render anything for a successful run.
+	function runErrorText(run: WorkflowRun): string {
+		if (run.status !== "error" && run.status !== "cancelled") return "";
+		const err: unknown = run.result?.error;
+		if (typeof err === "string") return err;
+		if (err && typeof err === "object" && "message" in err) return String((err as { message: unknown }).message);
+		return "";
 	}
 </script>
 
@@ -96,6 +117,10 @@
 					{deleteConfirming ? "Confirm delete?" : "Delete"}
 				</button>
 			</div>
+
+			{#if deleteErrorMsg}
+				<p class="mb-3 text-sm text-red-400" data-testid="delete-error">{deleteErrorMsg}</p>
+			{/if}
 
 			<h3 class="mb-2 text-sm font-medium text-[var(--color-text-secondary)]">Steps</h3>
 			<div class="space-y-2">
@@ -166,6 +191,9 @@
 								<span class="text-sm font-medium text-[var(--color-text-primary)]">{run.id.slice(0, 8)}</span>
 								<span class="rounded bg-[var(--color-surface-tertiary)] px-2 py-0.5 text-xs {statusColor[run.status] ?? 'text-yellow-400'}">{run.status}</span>
 							</div>
+							{#if runErrorText(run)}
+								<p class="mt-2 text-xs text-red-400" data-testid="run-error">{runErrorText(run)}</p>
+							{/if}
 							{#if run.steps.length > 0}
 								<div class="mt-2 space-y-1">
 									{#each run.steps as step}

@@ -120,6 +120,11 @@ test.describe("Workflows — interactions and rendering gaps", () => {
 					startedAt: Date.now() - 50,
 					finishedAt: Date.now(),
 					steps: [{ stepName: "only", runId: "r-1", status: "error" }],
+					result: {
+						success: false,
+						output: null,
+						error: 'Step "only" exhausted 3 iterations without meeting its until-condition',
+					},
 				},
 			},
 		});
@@ -128,6 +133,12 @@ test.describe("Workflows — interactions and rendering gaps", () => {
 		// run-level badge and the step-level status share that class.
 		const errorStatus = page.locator(".text-red-400", { hasText: "error" });
 		await expect(errorStatus.first()).toBeVisible();
+
+		// Loud failure: the run's error MESSAGE renders on the detail page,
+		// not just the red status pill.
+		await expect(page.getByTestId("run-error")).toHaveText(
+			'Step "only" exhausted 3 iterations without meeting its until-condition',
+		);
 	});
 
 	test("a looped step's iteration count renders in Run History", async ({ page, mockApi, emitSse }) => {
@@ -245,6 +256,26 @@ test.describe("Workflows — interactions and rendering gaps", () => {
 
 		await expect(page).toHaveURL(/\/workflows$/, { timeout: 5000 });
 		expect(deleteHit).toBe(true);
+	});
+
+	test("a failed DELETE surfaces an error message and stays on the page", async ({ page, mockApi }) => {
+		await mockApi({
+			workflows: [makeWorkflow({ name: "sticky" })],
+		});
+
+		await page.route("**/api/workflows/sticky", (route) => {
+			if (route.request().method() === "DELETE") {
+				return route.fulfill({ status: 500, json: { error: "boom" } });
+			}
+			return route.fallback();
+		});
+
+		await page.goto("/workflows/sticky");
+		await page.getByRole("button", { name: "Delete" }).click();
+		await page.getByRole("button", { name: "Confirm delete?" }).click();
+
+		await expect(page.getByTestId("delete-error")).toBeVisible();
+		await expect(page).toHaveURL(/\/workflows\/sticky$/);
 	});
 
 	// ── Builder: multi-step + dependency checkbox + remove ──────────

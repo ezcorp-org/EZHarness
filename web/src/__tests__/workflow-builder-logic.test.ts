@@ -5,6 +5,8 @@ import {
   parseJsonField,
   stepToPayload,
   buildWorkflowPayload,
+  remapDependsOn,
+  pruneDependsOn,
   type StepDraft,
 } from "$lib/workflow-builder-logic";
 
@@ -78,18 +80,20 @@ describe("stepToPayload — agent", () => {
 });
 
 describe("stepToPayload — transform", () => {
-  test("emits kind, output mapping and optional input", () => {
+  test("emits kind + output mapping and never input (executor ignores it)", () => {
     const out = stepToPayload({
       ...blankStep(0),
       kind: "transform",
       outputPairs: [{ key: "n", value: "$loop.iteration" }],
+      // Stale drafts can carry inputPairs (e.g. the kind was switched from
+      // agent) — they must not leak into the payload as dead weight.
       inputPairs: [{ key: "seed", value: "$input.seed" }],
     } as StepDraft);
     expect(out).toMatchObject({
       kind: "transform",
       output: { n: "$loop.iteration" },
-      input: { seed: "$input.seed" },
     });
+    expect(out.input).toBeUndefined();
   });
 });
 
@@ -133,6 +137,36 @@ describe("stepToPayload — dependsOn + loop until", () => {
     expect(() =>
       stepToPayload(agentStep({ loopEnabled: true, untilText: "{bad" })),
     ).toThrow('Step "step-1": loop until-condition is not valid JSON');
+  });
+});
+
+describe("remapDependsOn / pruneDependsOn", () => {
+  test("rename retargets every sibling dependsOn entry from old to new name", () => {
+    const steps = [
+      agentStep({ name: "first" }),
+      agentStep({ name: "second", dependsOn: ["first"] }),
+      agentStep({ name: "third", dependsOn: ["first", "second"] }),
+    ];
+    remapDependsOn(steps, "first", "fetch");
+    expect(steps[1]!.dependsOn).toEqual(["fetch"]);
+    expect(steps[2]!.dependsOn).toEqual(["fetch", "second"]);
+  });
+
+  test("a no-op rename (same name) leaves dependsOn untouched", () => {
+    const steps = [agentStep({ name: "a" }), agentStep({ name: "b", dependsOn: ["a"] })];
+    const before = steps[1]!.dependsOn;
+    remapDependsOn(steps, "a", "a");
+    expect(steps[1]!.dependsOn).toBe(before);
+  });
+
+  test("removal prunes the removed name from every remaining sibling", () => {
+    const steps = [
+      agentStep({ name: "keep", dependsOn: ["gone"] }),
+      agentStep({ name: "also", dependsOn: ["gone", "keep"] }),
+    ];
+    pruneDependsOn(steps, "gone");
+    expect(steps[0]!.dependsOn).toEqual([]);
+    expect(steps[1]!.dependsOn).toEqual(["keep"]);
   });
 });
 

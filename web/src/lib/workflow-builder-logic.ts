@@ -83,9 +83,9 @@ export function stepToPayload(step: StepDraft): Record<string, unknown> {
     if (Object.keys(input).length > 0) out.input = input;
     if (!step.loopEnabled && step.retries > 0) out.retries = step.retries;
   } else if (step.kind === "transform") {
+    // No `input` on a transform: the executor never reads it (the editor is
+    // hidden for this kind too) — emitting it would be dead payload.
     out.output = pairsToRecord(step.outputPairs);
-    const input = pairsToRecord(step.inputPairs);
-    if (Object.keys(input).length > 0) out.input = input;
   } else {
     const parsed = parseJsonField(step.conditionText);
     if (!parsed.ok) throw `Step "${step.name}": condition is not valid JSON`;
@@ -106,6 +106,31 @@ export function stepToPayload(step: StepDraft): Record<string, unknown> {
   }
 
   return out;
+}
+
+/** On step rename, retarget every sibling's `dependsOn` entry from the old
+ *  name to the new one — otherwise a rename silently orphans the references
+ *  (mirrors {@link pruneDependsOn} for removal). */
+export function remapDependsOn(
+  steps: Pick<StepDraft, "dependsOn">[],
+  oldName: string,
+  newName: string,
+): void {
+  if (oldName === newName) return;
+  for (const step of steps) {
+    step.dependsOn = step.dependsOn.map((d) => (d === oldName ? newName : d));
+  }
+}
+
+/** On step removal, drop the removed step's name from every remaining
+ *  sibling's `dependsOn`. */
+export function pruneDependsOn(
+  steps: Pick<StepDraft, "dependsOn">[],
+  removedName: string,
+): void {
+  for (const step of steps) {
+    step.dependsOn = step.dependsOn.filter((d) => d !== removedName);
+  }
 }
 
 /**
