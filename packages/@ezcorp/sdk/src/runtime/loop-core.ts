@@ -48,13 +48,12 @@ export const APPROVED = "approved";
 /** Decline (human or staleness) resolved. Terminal. */
 export const DECLINED = "declined";
 
-/** The four primitive-owned approval states + their terminal subset. */
-export const APPROVAL_STATES = [
-  AWAITING_APPROVAL,
-  FINALIZING,
-  APPROVED,
-  DECLINED,
-] as const;
+/** The four primitive-owned approval states + their terminal subset.
+ *  Kept on one line each: a multi-line array literal makes Bun emit a
+ *  phantom uncovered DA record per element line in every shard that
+ *  loads (but doesn't exercise) this module, and merge-lcov doesn't union
+ *  those away — so the merged coverage gate flagged 53-56 as missed. */
+export const APPROVAL_STATES = [AWAITING_APPROVAL, FINALIZING, APPROVED, DECLINED] as const;
 export const APPROVAL_TERMINAL_STATES = [APPROVED, DECLINED] as const;
 
 /** Default staleness horizon: a parked proposal older than this many days
