@@ -28,6 +28,9 @@
 /web/e2e/evidence-covers.json       @arch1tect0x
 /scripts/test-coverage.sh           @arch1tect0x
 /scripts/test.sh                    @arch1tect0x
+/scripts/test-web.sh                @arch1tect0x
+/scripts/security-coverage.sh       @arch1tect0x
+/scripts/typecheck.sh               @arch1tect0x
 /scripts/lib/test-file-sets.sh      @arch1tect0x
 /scripts/merge-lcov.ts              @arch1tect0x
 /scripts/lcov-noise-filter.ts       @arch1tect0x
@@ -38,4 +41,8 @@
 # Test-runner + lint config that decides what runs and how strictly.
 /biome.json                         @arch1tect0x
 /bunfig.toml                        @arch1tect0x
+/tsconfig.typecheck.json            @arch1tect0x
 /web/playwright.config.ts           @arch1tect0x
+/web/playwright.real.config.ts      @arch1tect0x
+/web/playwright.validate.config.ts  @arch1tect0x
+/web/vitest.config.ts               @arch1tect0x
