@@ -35,6 +35,15 @@ let briefingDaemonStartMock = mock(() => Promise.resolve<boolean>(true));
 let briefingDaemonStopMock = mock(() => {});
 let lastBriefingDaemonInstance: object | undefined;
 
+// Loops EZ Mode Phase 4: WebhookDeliveryDaemon stub handles. Its lifecycle /
+// claim coverage lives in src/__tests__/webhook-delivery-daemon.test.ts; the
+// REAL daemon would arm a setInterval here (breaking the intervalCalls length
+// assertions). The stub registers none. start() is total (no lockfile), so
+// there is no false/reject branch to model.
+let webhookDaemonCtorMock = mock(() => {});
+let webhookDaemonStopMock = mock(() => {});
+let lastWebhookDaemonInstance: object | undefined;
+
 // HostMaintenanceDaemon stub instrumentation. The bootstrap reads
 // `new HostMaintenanceDaemon()` then `.start()`; we capture both so
 // tests can assert (a) the daemon WAS instantiated and (b) the
@@ -213,6 +222,19 @@ function installModuleMocks(): void {
     ScheduleDaemon: class {
       start() { return Promise.resolve(true); }
       stop() {}
+    },
+  }));
+  // Loops EZ Mode Phase 4: stub the WebhookDeliveryDaemon (same rationale as
+  // the ScheduleDaemon stub — its real start() would arm a 5th setInterval).
+  mock.module("../extensions/webhook-delivery-daemon", () => ({
+    WebhookDeliveryDaemon: class {
+      constructor() {
+        webhookDaemonCtorMock();
+        // eslint-disable-next-line @typescript-eslint/no-this-alias
+        lastWebhookDaemonInstance = this;
+      }
+      start() { return Promise.resolve(true); }
+      stop() { webhookDaemonStopMock(); }
     },
   }));
   // Daily Briefing Phase 1: stub the BriefingDaemon. Its lifecycle /
@@ -461,6 +483,9 @@ beforeEach(async () => {
   briefingDaemonStartMock = mock(() => Promise.resolve<boolean>(true));
   briefingDaemonStopMock = mock(() => {});
   lastBriefingDaemonInstance = undefined;
+  webhookDaemonCtorMock = mock(() => {});
+  webhookDaemonStopMock = mock(() => {});
+  lastWebhookDaemonInstance = undefined;
   permSweepDaemonCtorMock = mock(() => {});
   permSweepDaemonStartMock = mock(() => Promise.resolve<boolean>(true));
   permSweepDaemonStopMock = mock(() => {});
@@ -713,6 +738,68 @@ describe("startBackgroundTimers — BriefingDaemon bootstrap", () => {
     mod._resetForTests();
     expect(briefingDaemonStopMock).toHaveBeenCalledTimes(2);
     expect(mod._getBriefingDaemonForTests()).toBeUndefined();
+  });
+});
+
+// Loops EZ Mode Phase 4 — bootstrap wiring for WebhookDeliveryDaemon. Mirrors
+// the BriefingDaemon block: assert the daemon is constructed + started +
+// exposed, the kill-switch env gate, teardown, and that it adds NO setInterval
+// here (intervalCalls stays at 4).
+describe("startBackgroundTimers — WebhookDeliveryDaemon bootstrap", () => {
+  const PRIOR = process.env.EZCORP_DISABLE_WEBHOOK_DAEMON;
+  afterEach(() => {
+    if (PRIOR === undefined) delete process.env.EZCORP_DISABLE_WEBHOOK_DAEMON;
+    else process.env.EZCORP_DISABLE_WEBHOOK_DAEMON = PRIOR;
+  });
+
+  test("happy-path bootstrap: constructed, started, and exposed", async () => {
+    delete process.env.EZCORP_DISABLE_WEBHOOK_DAEMON;
+    installModuleMocks();
+
+    const mod = await import("../startup/background-timers");
+    await mod.startBackgroundTimers();
+
+    expect(webhookDaemonCtorMock).toHaveBeenCalledTimes(1);
+    const exposed = mod._getWebhookDeliveryDaemonForTests();
+    expect(exposed).toBeDefined();
+    expect(exposed).toBe(lastWebhookDaemonInstance as never);
+    expect(loggerInfoMock).toHaveBeenCalledWith("WebhookDeliveryDaemon started", undefined);
+    expect(intervalCalls).toHaveLength(4);
+  });
+
+  test("EZCORP_DISABLE_WEBHOOK_DAEMON=1 kill switch: never constructed", async () => {
+    process.env.EZCORP_DISABLE_WEBHOOK_DAEMON = "1";
+    installModuleMocks();
+
+    const mod = await import("../startup/background-timers");
+    await mod.startBackgroundTimers();
+
+    expect(webhookDaemonCtorMock).not.toHaveBeenCalled();
+    expect(mod._getWebhookDeliveryDaemonForTests()).toBeUndefined();
+    expect(loggerInfoMock).toHaveBeenCalledWith(
+      "WebhookDeliveryDaemon disabled via EZCORP_DISABLE_WEBHOOK_DAEMON",
+      undefined,
+    );
+    expect(intervalCalls).toHaveLength(4);
+  });
+
+  test("stopBackgroundTimers() and _resetForTests() tear down the daemon", async () => {
+    delete process.env.EZCORP_DISABLE_WEBHOOK_DAEMON;
+    installModuleMocks();
+
+    const mod = await import("../startup/background-timers");
+    await mod.startBackgroundTimers();
+    expect(mod._getWebhookDeliveryDaemonForTests()).toBeDefined();
+
+    await mod.stopBackgroundTimers();
+    expect(webhookDaemonStopMock).toHaveBeenCalledTimes(1);
+    expect(mod._getWebhookDeliveryDaemonForTests()).toBeUndefined();
+
+    await mod.startBackgroundTimers();
+    expect(mod._getWebhookDeliveryDaemonForTests()).toBeDefined();
+    mod._resetForTests();
+    expect(webhookDaemonStopMock).toHaveBeenCalledTimes(2);
+    expect(mod._getWebhookDeliveryDaemonForTests()).toBeUndefined();
   });
 });
 

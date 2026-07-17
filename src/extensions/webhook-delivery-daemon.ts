@@ -1,0 +1,284 @@
+/**
+ * WebhookDeliveryDaemon — drains the durable `webhook_deliveries` queue onto
+ * the loop fire path (Loops EZ Mode Phase 4).
+ *
+ * Mirrors ScheduleDaemon's claim-before-dispatch discipline but for
+ * EXTERNALLY-triggered deliveries (there is no cron schedule — the public route
+ * persists a `pending` row, this daemon dispatches it):
+ *   - **Claim via CAS.** `UPDATE … SET status='running' WHERE id=? AND
+ *     status='pending' RETURNING id` — only the winner of the atomic flip
+ *     dispatches, so two daemon instances (or a route's best-effort drain
+ *     racing the tick) never double-dispatch. No PID lockfile needed: the CAS
+ *     is the guard.
+ *   - **Catch-up.** A delivery persisted while the subprocess was down / the
+ *     kill switch was engaged stays `pending` and is drained on the next tick
+ *     (or `start()`), with `catchUp: true` when it waited past the threshold —
+ *     the cron catch-up analogue, NOT the event dispatcher's fire-and-forget.
+ *   - **Crash-reap.** A `running` row abandoned by a crashed daemon (older than
+ *     `maxDeliveryDurationMs * 2`) reverts to `pending` and re-delivers. Safe:
+ *     the SDK loop dedups by `deliveryId` (the fire id), so a rare double
+ *     delivery maps to the same run.
+ *   - **Kill-switch-gated.** When `loopsKillSwitchEngaged()`, the tick claims
+ *     nothing — pending rows survive and drain the moment the switch lifts.
+ *   - **Subprocess down → no loss.** If the target process isn't running the
+ *     claimed row reverts to `pending` (never marked delivered) so a later tick
+ *     redelivers.
+ *
+ * `extension_id` on a delivery is the extension NAME (the registry FK); the
+ * subprocess registry is keyed by the extensions-table UUID, so the daemon
+ * resolves name→id before dispatch.
+ */
+import { logger } from "../logger";
+import { getDb } from "../db/connection";
+import { extensions, webhookDeliveries } from "../db/schema";
+import { and, eq, lte } from "drizzle-orm";
+import type { ExtensionRegistry } from "./registry";
+import { insertAuditEntry } from "../db/queries/audit-log";
+import { EXT_AUDIT_ACTIONS } from "./audit-actions";
+import { loopsKillSwitchEngaged } from "./loops-kill-switch";
+
+const log = logger.child("ext.webhook-delivery-daemon");
+
+type DeliveryRow = typeof webhookDeliveries.$inferSelect;
+
+/** The minimal registry surface the daemon consumes (Pick keeps the test
+ *  stubs tiny). */
+export type WebhookDaemonRegistry = Pick<ExtensionRegistry, "getProcessIfRunning">;
+
+/** name→extensions.id resolver signature (injectable for tests). */
+export type ExtensionIdResolver = (name: string) => Promise<string | null>;
+
+interface DispatchConfig {
+  registry?: WebhookDaemonRegistry;
+  resolveExtensionId: ExtensionIdResolver;
+  catchUpThresholdMs: number;
+}
+
+const DEFAULT_WAKE_MS = 15_000;
+const DEFAULT_MAX_PER_TICK = 30;
+const DEFAULT_MAX_DURATION_MS = 300_000;
+const DEFAULT_CATCHUP_MS = 60_000;
+
+async function defaultResolveExtensionId(name: string): Promise<string | null> {
+  const rows = await getDb().select({ id: extensions.id }).from(extensions).where(eq(extensions.name, name));
+  return rows[0]?.id ?? null;
+}
+
+// ── Shared claim + dispatch primitives (daemon tick + route drain reuse) ─
+
+/** CAS claim: flip pending→running. Returns true when THIS caller won. */
+async function claimDelivery(id: string, now: Date): Promise<boolean> {
+  const won = await getDb().update(webhookDeliveries)
+    .set({ status: "running", claimedAt: now })
+    .where(and(eq(webhookDeliveries.id, id), eq(webhookDeliveries.status, "pending")))
+    .returning({ id: webhookDeliveries.id });
+  return won.length > 0;
+}
+
+async function revertToPending(id: string): Promise<void> {
+  await getDb().update(webhookDeliveries)
+    .set({ status: "pending", claimedAt: null })
+    .where(eq(webhookDeliveries.id, id));
+}
+
+/**
+ * Dispatch a CLAIMED (running) delivery to its subprocess. On success →
+ * `ok` + audit. When the subprocess isn't running (or no registry) → revert to
+ * `pending` so a later tick redelivers (never lose the delivery). A dispatch
+ * throw → revert too. Returns true only on a real dispatch.
+ */
+async function dispatchClaimedDelivery(row: DeliveryRow, now: Date, cfg: DispatchConfig): Promise<boolean> {
+  if (!cfg.registry) {
+    await revertToPending(row.id);
+    return false;
+  }
+  let proc: ReturnType<WebhookDaemonRegistry["getProcessIfRunning"]> = null;
+  try {
+    const extId = await cfg.resolveExtensionId(row.extensionId);
+    proc = extId ? cfg.registry.getProcessIfRunning(extId) : null;
+  } catch (err) {
+    log.warn("resolve-process-failed", { deliveryId: row.id, error: String(err) });
+  }
+  if (!proc) {
+    await revertToPending(row.id);
+    return false;
+  }
+  const catchUp = row.catchUp || (now.getTime() - row.receivedAt.getTime() > cfg.catchUpThresholdMs);
+  try {
+    proc.sendNotification("ezcorp/webhook-fire", buildFireContext(row, catchUp));
+  } catch (err) {
+    log.warn("dispatch-failed", { deliveryId: row.id, error: String(err) });
+    await revertToPending(row.id);
+    return false;
+  }
+  await getDb().update(webhookDeliveries)
+    .set({ status: "ok", deliveredAt: now, catchUp })
+    .where(eq(webhookDeliveries.id, row.id));
+  await insertAuditEntry(null, EXT_AUDIT_ACTIONS.SDK_WEBHOOK_DISPATCHED, row.extensionId, {
+    slug: row.slug,
+    deliveryId: row.id,
+    catchUp,
+  }).catch(() => {});
+  return true;
+}
+
+export class WebhookDeliveryDaemon {
+  private readonly opts: {
+    wakeIntervalMs: number;
+    now: () => Date;
+    maxPerTick: number;
+    maxDeliveryDurationMs: number;
+    cfg: DispatchConfig;
+  };
+  private timer?: ReturnType<typeof setInterval>;
+
+  constructor(options?: {
+    wakeIntervalMs?: number;
+    now?: () => Date;
+    registry?: WebhookDaemonRegistry;
+    maxPerTick?: number;
+    maxDeliveryDurationMs?: number;
+    catchUpThresholdMs?: number;
+    resolveExtensionId?: ExtensionIdResolver;
+  }) {
+    this.opts = {
+      wakeIntervalMs: options?.wakeIntervalMs ?? DEFAULT_WAKE_MS,
+      now: options?.now ?? (() => new Date()),
+      maxPerTick: options?.maxPerTick ?? DEFAULT_MAX_PER_TICK,
+      maxDeliveryDurationMs: options?.maxDeliveryDurationMs ?? DEFAULT_MAX_DURATION_MS,
+      cfg: {
+        ...(options?.registry ? { registry: options.registry } : {}),
+        resolveExtensionId: options?.resolveExtensionId ?? defaultResolveExtensionId,
+        catchUpThresholdMs: options?.catchUpThresholdMs ?? DEFAULT_CATCHUP_MS,
+      },
+    };
+  }
+
+  /** Start: reap crashed rows, then install the wake loop. Returns true. */
+  async start(): Promise<boolean> {
+    if (this.timer) return true;
+    try {
+      await this.reapCrashedDeliveries();
+    } catch (err) {
+      log.warn("reap-on-start-failed", { error: String(err) });
+    }
+    this.timer = setInterval(() => {
+      void this.tick().catch((err) => log.warn("tick-failed", { error: String(err) }));
+    }, this.opts.wakeIntervalMs);
+    if (typeof this.timer === "object" && "unref" in this.timer) {
+      (this.timer as unknown as { unref: () => void }).unref();
+    }
+    return true;
+  }
+
+  stop(): void {
+    if (this.timer) clearInterval(this.timer);
+    this.timer = undefined;
+  }
+
+  /** One claim+dispatch pass over the pending queue. Public so tests drive it
+   *  without waiting for the interval. */
+  async tick(): Promise<{ claimed: number; dispatched: number }> {
+    // Global kill switch: suspend the drain — pending rows are left untouched
+    // (delivered when the switch lifts). Checked before any DB work.
+    if (await loopsKillSwitchEngaged()) {
+      return { claimed: 0, dispatched: 0 };
+    }
+    const now = this.opts.now();
+    const pending = await getDb().select().from(webhookDeliveries)
+      .where(eq(webhookDeliveries.status, "pending"))
+      .limit(this.opts.maxPerTick);
+
+    let claimed = 0;
+    let dispatched = 0;
+    for (const row of pending) {
+      if (!(await claimDelivery(row.id, now))) continue; // lost the CAS.
+      claimed++;
+      if (await dispatchClaimedDelivery(row, now, this.opts.cfg)) dispatched++;
+    }
+    return { claimed, dispatched };
+  }
+
+  /** Revert `running` rows abandoned by a crashed daemon back to `pending`. */
+  async reapCrashedDeliveries(): Promise<void> {
+    const cutoff = new Date(this.opts.now().getTime() - this.opts.maxDeliveryDurationMs * 2);
+    await getDb().update(webhookDeliveries)
+      .set({ status: "pending", claimedAt: null })
+      .where(and(
+        eq(webhookDeliveries.status, "running"),
+        lte(webhookDeliveries.claimedAt, cutoff),
+      ));
+  }
+}
+
+/**
+ * Best-effort immediate drain of ONE delivery — called by the route right after
+ * it persists an accepted delivery, to cut latency vs waiting for the next
+ * tick. Never throws; a no-op leaves the row `pending` for the daemon to catch
+ * up. `registry`/`resolveExtensionId` are injectable for tests; production
+ * resolves the registry singleton lazily (imported inline to avoid a
+ * route→registry module cycle at load).
+ */
+export async function drainDelivery(
+  deliveryId: string,
+  registry?: WebhookDaemonRegistry,
+  now: () => Date = () => new Date(),
+  resolveExtensionId: ExtensionIdResolver = defaultResolveExtensionId,
+): Promise<void> {
+  try {
+    if (await loopsKillSwitchEngaged()) return;
+    const rows = await getDb().select().from(webhookDeliveries).where(eq(webhookDeliveries.id, deliveryId));
+    const row = rows[0];
+    if (!row || row.status !== "pending") return;
+    const reg = registry ?? (await import("./registry")).ExtensionRegistry.getInstance();
+    const at = now();
+    if (await claimDelivery(deliveryId, at)) {
+      await dispatchClaimedDelivery(row, at, {
+        registry: reg,
+        resolveExtensionId,
+        catchUpThresholdMs: DEFAULT_CATCHUP_MS,
+      });
+    }
+  } catch (err) {
+    log.debug("drain-delivery-failed", { deliveryId, error: String(err) });
+  }
+}
+
+/** Build the `ezcorp/webhook-fire` wire payload from a delivery row. Parses the
+ *  body as JSON only when the content-type is JSON-ish and it parses cleanly —
+ *  otherwise the loop works from the raw `body`. The whole wrapper is marked
+ *  `untrusted` (always). */
+export function buildFireContext(row: DeliveryRow, catchUp: boolean): Record<string, unknown> {
+  const parsed = tryParseWebhookJson(row.body, row.contentType);
+  return {
+    slug: row.slug,
+    deliveryId: row.id,
+    receivedAt: row.receivedAt.toISOString(),
+    catchUp,
+    input: {
+      kind: "webhook",
+      slug: row.slug,
+      untrusted: true,
+      contentType: row.contentType,
+      body: row.body,
+      ...(parsed !== undefined ? { parsed } : {}),
+      deliveryId: row.id,
+      receivedAt: row.receivedAt.toISOString(),
+    },
+  };
+}
+
+/** Parse `body` as JSON when `contentType` is JSON-ish AND it parses; else
+ *  undefined. Untrusted data — never trusted, just structurally surfaced. */
+export function tryParseWebhookJson(body: string, contentType: string | null): unknown {
+  if (!contentType) return undefined;
+  const ct = contentType.toLowerCase();
+  if (!(ct.includes("application/json") || ct.includes("+json") || ct.includes("text/json"))) {
+    return undefined;
+  }
+  try {
+    return JSON.parse(body);
+  } catch {
+    return undefined;
+  }
+}

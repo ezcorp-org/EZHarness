@@ -250,6 +250,7 @@
   "src/extensions/webhook-reconcile.ts": 100,
   "src/extensions/webhook-store.ts": 100,
   "src/extensions/webhook-auth.ts": 100,
+  "src/extensions/webhook-delivery-daemon.ts": 100,
   "web/src/routes/api/hooks/[extensionId]/[slug]/+server.ts": 100,
   "web/src/routes/api/extensions/[name]/webhooks/[slug]/rotate/+server.ts": 100,
   "src/suggest/**": 100,

@@ -31,6 +31,7 @@ import { WEBHOOK_SLUG_RE } from "$server/extensions/manifest";
 import { insertAuditEntry } from "$server/db/queries/audit-log";
 import { EXT_AUDIT_ACTIONS } from "$server/extensions/audit-actions";
 import { getSetting } from "$server/db/queries/settings";
+import { drainDelivery } from "$server/extensions/webhook-delivery-daemon";
 
 /** Max accepted body size — 256 KB. */
 export const MAX_WEBHOOK_BODY_BYTES = 256 * 1024;
@@ -155,10 +156,12 @@ export const POST: RequestHandler = async ({ params, request }) => {
     auth: auth.method,
   }).catch(() => {});
 
-  // The delivery is now durably queued as `pending`; the WebhookDeliveryDaemon
-  // claims + dispatches it (immediately on its next tick, or as catch-up after
-  // a subprocess-down / kill-switch window). Best-effort immediate drain is
-  // wired once the daemon lands.
+  // The delivery is durably queued as `pending`; kick a best-effort immediate
+  // drain to cut latency vs the daemon's next tick. A no-op (subprocess down /
+  // kill switch engaged) leaves the row `pending` for the daemon to catch up —
+  // never fail the accept on a drain error.
+  void drainDelivery(deliveryId).catch(() => {});
+
   return json({ accepted: true, deliveryId }, { status: 202 });
 };
 

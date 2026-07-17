@@ -38,6 +38,11 @@ vi.mock("$server/db/queries/audit-log", () => ({ insertAuditEntry }));
 const getSetting = vi.fn<(key: string) => Promise<unknown>>(async () => undefined);
 vi.mock("$server/db/queries/settings", () => ({ getSetting }));
 
+// The route best-effort drains after persisting — stub it out (the daemon has
+// its own tests; the route only fires-and-forgets it).
+const drainDelivery = vi.fn<(id: string) => Promise<void>>(async () => undefined);
+vi.mock("$server/extensions/webhook-delivery-daemon", () => ({ drainDelivery }));
+
 // Keep webhook-auth REAL but wrap constantTimeEqual so we can assert it runs on
 // the unknown-hook path (timing-equalization structural check).
 const constantTimeEqualSpy = vi.fn();
