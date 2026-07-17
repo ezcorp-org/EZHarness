@@ -12,6 +12,7 @@ import { test, expect, describe, beforeAll, afterAll, afterEach } from "bun:test
 import { mock } from "bun:test";
 import { setupTestDb, closeTestDb, getTestPglite } from "./helpers/test-pglite";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
+import { withFrozenNow } from "./helpers/frozen-clock";
 
 mock.module("../db/connection", () => ({
   getDb: () => {
@@ -401,17 +402,28 @@ describe("agent-configs-handler — resolve", () => {
 describe("agent-configs-handler — rate limit", () => {
   test("60 tight-loop calls → ~50 succeed, ~10 rejected with -32029", async () => {
     const extId = `rate-ext-${crypto.randomUUID().slice(0, 8)}`;
-    let accepted = 0;
-    let limited = 0;
-    for (let i = 0; i < 60; i++) {
-      const resp = await handleAgentConfigsRpc(
-        extId,
-        rpc({ v: 1, action: "list" }, `rate-${i}`),
-        makeCtx({ userId: "user-alice" }),
-      );
-      if (resp.error?.code === -32029) limited++;
-      else if (!resp.error) accepted++;
-    }
+    // Frozen clock: the bucket refills on wall-clock elapsed time, so on a
+    // slow CI runner each awaited call can take longer than one token's
+    // refill interval and the burst never trips the limit (limited === 0 on
+    // PR #8 run 29589476463, shard 0 — pooled AND isolated). Freezing
+    // asserts the real invariant — >budget calls in one instant must be
+    // rejected — with zero timing dependence. Mirrors the identical
+    // rate-limit tests in loop-events-handler / storage-handler-coverage
+    // (see helpers/frozen-clock.ts for the full rationale).
+    const { accepted, limited } = await withFrozenNow(async () => {
+      let accepted = 0;
+      let limited = 0;
+      for (let i = 0; i < 60; i++) {
+        const resp = await handleAgentConfigsRpc(
+          extId,
+          rpc({ v: 1, action: "list" }, `rate-${i}`),
+          makeCtx({ userId: "user-alice" }),
+        );
+        if (resp.error?.code === -32029) limited++;
+        else if (!resp.error) accepted++;
+      }
+      return { accepted, limited };
+    });
     expect(accepted).toBeGreaterThanOrEqual(45);
     expect(limited).toBeGreaterThan(0);
   });

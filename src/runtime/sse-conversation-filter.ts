@@ -89,6 +89,18 @@ export const DIRECT_CARRIER_EVENT_TYPES: ReadonlySet<keyof AgentEvents> = new Se
   // dropped nudge self-heals on reconnect/refetch, so dropping-on-DB-error
   // beats leaking those ids cross-user.
   "conversation:tree-changed",
+  // Loops EZ Mode Phase 2: approval-pending / resolved nudges. OPTIONAL
+  // carriers — like `run:complete`/`:error`/`:cancel`, the payload's
+  // `conversationId` is present only for a conversation-wired loop (scoped to
+  // that owner, fail-open) and ABSENT for a global-scope loop, where the
+  // content-free nudge falls through to the broadcast branch (safe: the body
+  // never rides the event; the authorized dashboard/GET is the source of
+  // truth). Listed here so `isDirectCarrierEvent` treats a conversation-wired
+  // one as requiring the scope filter.
+  "loops:approval_pending",
+  "loops:approval_resolved",
+  // Loops auto-disable notice — same optional-carrier semantics.
+  "loops:auto_disabled",
   // NOTE — "ext:page-state" (Extension Pages Hub) is INTENTIONALLY
   // ABSENT: the mediator strips the page tree before emitting, so the
   // event carries only {extensionId, extensionName, pageId} — a
@@ -136,10 +148,10 @@ export const SCOPED_RUNTIME_EVENT_TYPES: ReadonlySet<keyof AgentEvents> = new Se
   "agent:spawn",
   "agent:status",
   "agent:complete",
-  "pipeline:start",
-  "pipeline:step",
-  "pipeline:complete",
-  "pipeline:error",
+  "workflow:start",
+  "workflow:step",
+  "workflow:complete",
+  "workflow:error",
 ]);
 
 // ── Extension-declared event registry ───────────────────────────────
@@ -455,7 +467,7 @@ async function deliverScopedRuntimeEvent(
     }
   }
 
-  // 3. Explicit user scope (pipeline:* carry the initiating userId).
+  // 3. Explicit user scope (workflow:* carry the initiating userId).
   if (typeof p.userId === "string" && p.userId) {
     return p.userId === subscriber.userId;
   }

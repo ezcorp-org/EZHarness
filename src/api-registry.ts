@@ -116,6 +116,12 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "POST", path: "/api/extensions/:id/secrets", description: "Set (or rotate) an extension secret — encrypted, scope-isolated, AAD-bound; value never echoed back", category: "extensions", scope: "extensions", harness: { controllable: true } },
   { method: "DELETE", path: "/api/extensions/:id/secrets", description: "Delete an extension secret", category: "extensions", scope: "extensions", harness: { controllable: true } },
 
+  // Loops EZ Mode Phase 4 — inbound webhook trigger. Public data-plane: auth is
+  // the per-hook token (NOT a session), so scope "public". Persists a delivery
+  // onto the claim-before-dispatch queue; the WebhookDeliveryDaemon fires it.
+  { method: "POST", path: "/api/hooks/:extensionId/:slug", description: "Deliver an inbound webhook to a loop's webhook trigger (per-hook token or X-Hub-Signature-256 HMAC; 256KB cap; per-hook rate limit + daily budget)", category: "extensions", scope: "public", harness: { controllable: true } },
+  { method: "POST", path: "/api/extensions/:name/webhooks/:slug/rotate", description: "Rotate a webhook hook's per-hook secret and return the plaintext once (admin-gated; shown-once secrets UX)", category: "extensions", scope: "admin" },
+
   // Extension RBAC grants (runtime gate = the delegation check in
   // src/auth/extension-rbac.ts; scope "admin" documents the surface for the
   // docs/OpenAPI tier — see the route headers).
@@ -184,10 +190,10 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "GET", path: "/api/teams/:id/members", description: "List team members", category: "teams" },
   { method: "POST", path: "/api/teams/:id/members", description: "Add member to team", category: "teams" },
 
-  // Pipelines
-  { method: "GET", path: "/api/pipelines", description: "List pipelines", category: "pipelines" },
-  { method: "GET", path: "/api/pipelines/:name", description: "Get pipeline by name", category: "pipelines" },
-  { method: "POST", path: "/api/pipelines/:name/run", description: "Execute a pipeline", category: "pipelines" },
+  // Workflows
+  { method: "GET", path: "/api/workflows", description: "List workflows", category: "workflows" },
+  { method: "GET", path: "/api/workflows/:name", description: "Get workflow by name", category: "workflows" },
+  { method: "POST", path: "/api/workflows/:name/run", description: "Execute a workflow", category: "workflows" },
 
   // Tools
   { method: "GET", path: "/api/tools", description: "List available tools", category: "tools" },
@@ -206,7 +212,7 @@ export const apiRegistry: ApiRouteEntry[] = [
   // Observability
   { method: "GET", path: "/api/observability", description: "List observability events", category: "observability" },
   { method: "GET", path: "/api/observability/:conversationId", description: "Get events for conversation", category: "observability" },
-  { method: "GET", path: "/api/runtime-events", description: "SSE stream of runtime events (run/tool/pipeline/agent lifecycle) — consumed by HarnessClient.streamEvents", category: "observability", scope: "read", harness: { controllable: true } },
+  { method: "GET", path: "/api/runtime-events", description: "SSE stream of runtime events (run/tool/workflow/agent lifecycle) — consumed by HarnessClient.streamEvents", category: "observability", scope: "read", harness: { controllable: true } },
 
   // Mentions
   { method: "GET", path: "/api/mentions/search", description: "Search mentionable items", category: "mentions" },

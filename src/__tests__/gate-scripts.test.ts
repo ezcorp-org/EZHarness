@@ -10,6 +10,9 @@
  * end-to-end verification in the plan, not here.
  */
 import { test, expect, describe } from "bun:test";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   EXCLUDES,
   escapeGlob,
@@ -17,19 +20,30 @@ import {
   isSourceFile,
   parseHitLines,
   parseLcov,
+  wildcardTreeDropouts,
   type FileCov,
 } from "../../scripts/coverage-config.ts";
 import {
   addedExcludes,
+  deletedOrRenamedTests,
   forbiddenTestAdditions,
+  isPathAbsentAtRev,
   parseExcludeEntries,
   parseUnifiedDiff,
   stripBlockComments,
+  testGuttingViolation,
   thresholdRatchetViolations,
   unassertedAddedBlocks,
 } from "../../scripts/gate-integrity.ts";
-import { newFileViolations } from "../../scripts/check-new-file-coverage.ts";
-import { uncoveredAddedLines } from "../../scripts/check-patch-coverage.ts";
+import { addedOrRewrittenFiles, newFileViolations } from "../../scripts/check-new-file-coverage.ts";
+import { shouldFailOnLcovAbsence, uncoveredAddedLines } from "../../scripts/check-patch-coverage.ts";
+import {
+  BACKEND_RATCHET_BASELINE,
+  BACKEND_RATCHET_CEILING,
+  E2E_RATCHET_BASELINE,
+  E2E_RATCHET_CEILING,
+  ratchetViolation,
+} from "../../scripts/typecheck-tests.ts";
 
 // ── coverage-config ─────────────────────────────────────────────────────────
 describe("coverage-config helpers", () => {
@@ -150,6 +164,81 @@ describe("gate-integrity: parseUnifiedDiff", () => {
     const f = map.get("x.test.ts")!;
     expect([...f.addedLines].sort((a, b) => a - b)).toEqual([5, 6]);
     expect(f.addedTexts).toEqual(["const a = 1;", "const b = 2;"]);
+    expect(f.removedTexts).toEqual([]);
+  });
+  test("collects removed lines (old-side), never the --- header", () => {
+    const diff = [
+      "diff --git a/x.test.ts b/x.test.ts",
+      "--- a/x.test.ts",
+      "+++ b/x.test.ts",
+      "@@ -3,2 +3,1 @@",
+      "-  expect(a).toBe(1);",
+      "-  expect(b).toBe(2);",
+      "+  expect(ab).toBe(3);",
+    ].join("\n");
+    const f = parseUnifiedDiff(diff).get("x.test.ts")!;
+    expect(f.removedTexts).toEqual(["  expect(a).toBe(1);", "  expect(b).toBe(2);"]);
+    expect(f.addedTexts).toEqual(["  expect(ab).toBe(3);"]);
+  });
+});
+
+// ── gate-integrity: in-place test gutting (check 8) ─────────────────────────
+describe("gate-integrity: testGuttingViolation", () => {
+  const base = [
+    "describe('s', () => {",
+    "  it('a', () => { expect(1).toBe(1); });",
+    "  it('b', () => { expect(2).toBe(2); });",
+    "  it('c', () => { expect(3).toBe(3); });",
+    "});",
+  ].join("\n"); // 3 assertion/test lines at base
+
+  test("flags a gutted file (removes most assertions, adds none)", () => {
+    const removed = [
+      "  it('a', () => { expect(1).toBe(1); });",
+      "  it('b', () => { expect(2).toBe(2); });",
+    ];
+    const v = testGuttingViolation([], removed, base);
+    expect(v).not.toBeNull();
+    expect(v).toContain("GUTTED");
+    expect(v).toContain("net -2 of 3");
+  });
+  test("does not flag a refactor that moves assertions (net ≈ 0)", () => {
+    const moved = [
+      "  it('a', () => { expect(1).toBe(1); });",
+      "  it('b', () => { expect(2).toBe(2); });",
+    ];
+    expect(testGuttingViolation(moved, moved, base)).toBeNull();
+  });
+  test("does not flag a small trim of a large suite (≤50% of base)", () => {
+    const bigBase = Array.from(
+      { length: 10 },
+      (_, i) => `  it('t${i}', () => { expect(${i}).toBe(${i}); });`,
+    ).join("\n");
+    const removed = [
+      "  it('t0', () => { expect(0).toBe(0); });",
+      "  it('t1', () => { expect(1).toBe(1); });",
+    ];
+    expect(testGuttingViolation([], removed, bigBase)).toBeNull();
+  });
+  test("exactly-50% loss is NOT flagged (loss must exceed half)", () => {
+    const base4 = [
+      "  it('a', () => { expect(1).toBe(1); });",
+      "  it('b', () => { expect(2).toBe(2); });",
+      "  it('c', () => { expect(3).toBe(3); });",
+      "  it('d', () => { expect(4).toBe(4); });",
+    ].join("\n");
+    const removed = [
+      "  it('a', () => { expect(1).toBe(1); });",
+      "  it('b', () => { expect(2).toBe(2); });",
+    ];
+    expect(testGuttingViolation([], removed, base4)).toBeNull();
+  });
+  test("no base assertions → nothing to gut", () => {
+    expect(testGuttingViolation([], ["  helper();"], "const x = 1;")).toBeNull();
+  });
+  test("assertion mentions inside strings/comments don't count", () => {
+    const removed = ['  const s = "expect(1) it( test(";', "  // expect(2) in a comment"];
+    expect(testGuttingViolation([], removed, base)).toBeNull();
   });
 });
 
@@ -312,6 +401,88 @@ describe("gate-integrity: unassertedAddedBlocks vs doc-comment prose", () => {
   });
 });
 
+// ── gate-integrity: deleted/renamed test files ──────────────────────────────
+describe("gate-integrity: deletedOrRenamedTests", () => {
+  test("flags a deleted test file", () => {
+    const v = deletedOrRenamedTests("D\tsrc/__tests__/auth-tokens.test.ts");
+    expect(v.length).toBe(1);
+    expect(v[0]).toContain("DELETED");
+    expect(v[0]).toContain("src/__tests__/auth-tokens.test.ts");
+  });
+  test("flags a renamed test file, including content-identical R100", () => {
+    const v = deletedOrRenamedTests(
+      "R100\tsrc/__tests__/auth-tokens.test.ts\tsrc/__tests__/tokens.test.ts",
+    );
+    expect(v.length).toBe(1);
+    expect(v[0]).toContain("RENAMED");
+    expect(v[0]).toContain("R100");
+    expect(v[0]).toContain("src/__tests__/tokens.test.ts");
+  });
+  test("flags a partial-similarity rename (R87) and a .spec.ts", () => {
+    const v = deletedOrRenamedTests("R087\tweb/e2e/hub.spec.ts\tweb/e2e/hub-view.spec.ts");
+    expect(v.length).toBe(1);
+    expect(v[0]).toContain("web/e2e/hub.spec.ts");
+  });
+  test("ignores added/modified test files and non-test deletions/renames", () => {
+    const nameStatus = [
+      "A\tsrc/__tests__/new.test.ts",
+      "M\tsrc/__tests__/changed.test.ts",
+      "D\tsrc/runtime/old-helper.ts",
+      "R095\tsrc/runtime/a.ts\tsrc/runtime/b.ts",
+      "",
+    ].join("\n");
+    expect(deletedOrRenamedTests(nameStatus)).toEqual([]);
+  });
+  test("a non-test file renamed TO a test path is not flagged (old side decides)", () => {
+    expect(deletedOrRenamedTests("R090\tsrc/runtime/util.ts\tsrc/__tests__/util.test.ts")).toEqual(
+      [],
+    );
+  });
+  test("mixed multi-line diff reports each violation", () => {
+    const nameStatus = [
+      "D\tsrc/__tests__/a.test.ts",
+      "R100\tsrc/__tests__/b.test.ts\tsrc/__tests__/c.test.ts",
+      "M\tsrc/runtime/x.ts",
+    ].join("\n");
+    expect(deletedOrRenamedTests(nameStatus).length).toBe(2);
+  });
+  test("raw (core.quotePath=false) unicode/space paths are caught", () => {
+    expect(deletedOrRenamedTests("D\tsrc/__tests__/wéird nàme.test.ts").length).toBe(1);
+    expect(
+      deletedOrRenamedTests("R100\tsrc/__tests__/ä b.test.ts\tsrc/__tests__/c.test.ts").length,
+    ).toBe(1);
+  });
+  test("a C-quoted path (quotePath=true output) is still caught via the unquote fallback", () => {
+    // The diff invocation pins -c core.quotePath=false; this fallback means a
+    // quote-forcing filename can't dodge the suffix match even if quoted
+    // output ever reaches the parser.
+    const quoted = 'D\t"src/__tests__/w\\303\\251ird.test.ts"';
+    const v = deletedOrRenamedTests(quoted);
+    expect(v.length).toBe(1);
+    expect(v[0]).toContain("DELETED");
+    const quotedRename =
+      'R100\t"src/__tests__/w\\303\\251ird.test.ts"\t"src/__tests__/pl\\303\\244in.test.ts"';
+    expect(deletedOrRenamedTests(quotedRename).length).toBe(1);
+  });
+});
+
+// ── gate-integrity: fail-closed git-show classification ─────────────────────
+describe("gate-integrity: isPathAbsentAtRev", () => {
+  test("recognises git's two path-absent messages", () => {
+    expect(
+      isPathAbsentAtRev("fatal: path 'scripts/new.ts' does not exist in 'abc123'"),
+    ).toBe(true);
+    expect(
+      isPathAbsentAtRev("fatal: path 'scripts/new.ts' exists on disk, but not in 'abc123'"),
+    ).toBe(true);
+  });
+  test("any other git failure must NOT read as absence (fail closed)", () => {
+    expect(isPathAbsentAtRev("fatal: invalid object name 'origin/nope'")).toBe(false);
+    expect(isPathAbsentAtRev("fatal: bad revision 'HEAD~999'")).toBe(false);
+    expect(isPathAbsentAtRev("")).toBe(false);
+  });
+});
+
 // ── check-new-file-coverage ─────────────────────────────────────────────────
 describe("check-new-file-coverage: newFileViolations", () => {
   const cov = (lines: number, covered: number): FileCov => ({
@@ -331,13 +502,168 @@ describe("check-new-file-coverage: newFileViolations", () => {
     expect(v[0]).toContain("not gated");
   });
   test("passes a measured + gated new file", () => {
-    const perFile = new Map([["src/new.ts", cov(10, 10)]]);
-    expect(newFileViolations(["src/new.ts"], perFile, ["src/**"])).toEqual([]);
+    const perFile = new Map([["src/runtime/new.ts", cov(10, 10)]]);
+    expect(newFileViolations(["src/runtime/new.ts"], perFile, ["src/runtime/**"])).toEqual([]);
   });
   test("file present in lcov but with 0 measured lines is treated as unmeasured", () => {
-    const perFile = new Map([["src/new.ts", cov(0, 0)]]);
-    const v = newFileViolations(["src/new.ts"], perFile, ["src/**"]);
+    const perFile = new Map([["src/runtime/new.ts", cov(0, 0)]]);
+    const v = newFileViolations(["src/runtime/new.ts"], perFile, ["src/runtime/**"]);
     expect(v[0]).toContain("no measured coverage");
+  });
+  test("a CATCH-ALL key does NOT count as gated — new files still need their own key", () => {
+    // src/** is a ratchet-floor catch-all (CATCHALL_THRESHOLD_KEYS); if it
+    // satisfied this gate, the new-file-gets-a-100-key policy would
+    // silently retire the day the catch-all landed.
+    const perFile = new Map([["src/new.ts", cov(10, 10)]]);
+    const v = newFileViolations(["src/new.ts"], perFile, ["src/**", "web/src/**"]);
+    expect(v.length).toBe(1);
+    expect(v[0]).toContain("not gated");
+  });
+  test("a specific key still gates even when a catch-all is also present", () => {
+    const perFile = new Map([["src/new.ts", cov(10, 10)]]);
+    expect(newFileViolations(["src/new.ts"], perFile, ["src/**", "src/new.ts"])).toEqual([]);
+  });
+});
+
+describe("check-new-file-coverage: addedOrRewrittenFiles (R>=50 rename dodge)", () => {
+  test("A rows and rename rows >= R50 are included (new path); others ignored", () => {
+    const ns = [
+      "A\tsrc/brand-new.ts",
+      "R100\tsrc/old-name.ts\tsrc/new-name.ts",
+      "R073\tsrc/rewritten.ts\tsrc/rewritten-v2.ts",
+      "R049\tsrc/below-git-floor.ts\tsrc/below-v2.ts",
+      "M\tsrc/modified.ts",
+      "D\tsrc/deleted.ts",
+      "",
+    ].join("\n");
+    expect(addedOrRewrittenFiles(ns)).toEqual([
+      "src/brand-new.ts",
+      "src/new-name.ts",
+      "src/rewritten-v2.ts",
+    ]);
+  });
+  test("an R row with an unparseable score fails CLOSED (treated like A)", () => {
+    expect(addedOrRewrittenFiles("R\tsrc/a.ts\tsrc/b.ts")).toEqual(["src/b.ts"]);
+  });
+  test("empty / whitespace input yields nothing", () => {
+    expect(addedOrRewrittenFiles("")).toEqual([]);
+    expect(addedOrRewrittenFiles("\n \n")).toEqual([]);
+  });
+});
+
+// ── check-patch-coverage: lcov-absence policy ───────────────────────────────
+describe("check-patch-coverage: shouldFailOnLcovAbsence", () => {
+  test("changed .ts source with added lines and no lcov data FAILS", () => {
+    expect(shouldFailOnLcovAbsence("src/runtime/foo.ts", 3)).toBe(true);
+  });
+  test(".svelte absence stays skip (only vitest-included components are measurable)", () => {
+    expect(shouldFailOnLcovAbsence("web/src/lib/components/X.svelte", 3)).toBe(false);
+  });
+  test("pure-deletion hunks (no added lines) never fail on absence", () => {
+    expect(shouldFailOnLcovAbsence("src/runtime/foo.ts", 0)).toBe(false);
+  });
+});
+
+// ── typecheck-tests: ratchet validation (subset-of-baseline) ────────────────
+describe("typecheck-tests: ratchetViolation", () => {
+  const baseline = ["src/__tests__/a.test.ts", "src/__tests__/b.test.ts", "src/__tests__/c.test.ts"];
+
+  test("subset of the baseline within the ceiling passes", () => {
+    expect(ratchetViolation("k", ["src/__tests__/a.test.ts"], 3, baseline)).toBeNull();
+    expect(ratchetViolation("k", [], 3, baseline)).toBeNull();
+  });
+
+  test("SWAP is rejected even at constant length (remove b, add d)", () => {
+    const v = ratchetViolation(
+      "k",
+      ["src/__tests__/a.test.ts", "src/__tests__/d.test.ts"],
+      3,
+      baseline,
+    );
+    expect(v).toContain("not in the landing-time baseline");
+  });
+
+  test("growth past the ceiling is rejected", () => {
+    expect(ratchetViolation("k", baseline, 2, baseline)).toContain("> ceiling");
+  });
+
+  test("duplicates and non-string shapes are rejected", () => {
+    const dup = ["src/__tests__/a.test.ts", "src/__tests__/a.test.ts"];
+    expect(ratchetViolation("k", dup, 3, baseline)).toContain("duplicates");
+    expect(ratchetViolation("k", "nope", 3, baseline)).toContain("string array");
+    expect(ratchetViolation("k", [42], 3, baseline)).toContain("string array");
+  });
+
+  test("the COMMITTED ratchet passes against the committed baselines + ceilings", async () => {
+    const raw = (await Bun.file(
+      join(import.meta.dir, "..", "..", "scripts/typecheck-tests-ratchet.json"),
+    ).json()) as { backendTests: string[]; e2eSpecs: string[] };
+    expect(
+      ratchetViolation("backendTests", raw.backendTests, BACKEND_RATCHET_CEILING, BACKEND_RATCHET_BASELINE),
+    ).toBeNull();
+    expect(
+      ratchetViolation("e2eSpecs", raw.e2eSpecs, E2E_RATCHET_CEILING, E2E_RATCHET_BASELINE),
+    ).toBeNull();
+  });
+});
+
+// ── merge-lcov: empty-input guard (CLI-level — the script runs at import) ──
+describe("merge-lcov: refuses to write an empty merge", () => {
+  const REPO_ROOT_ML = join(import.meta.dir, "..", "..");
+  function runMerge(globArg: string, out: string) {
+    const proc = Bun.spawnSync(["bun", "scripts/merge-lcov.ts", globArg, out], {
+      cwd: REPO_ROOT_ML,
+    });
+    return { code: proc.exitCode, err: proc.stderr.toString() };
+  }
+
+  test("glob matching no lcov input → exit 1, no output written", () => {
+    const dir = mkdtempSync(join(tmpdir(), "merge-lcov-guard-"));
+    const out = join(dir, "out.info");
+    const { code, err } = runMerge(join(dir, "nope-does-not-exist.info"), out);
+    expect(code).toBe(1);
+    expect(err).toContain("matched no lcov input");
+    expect(existsSync(out)).toBe(false);
+  });
+
+  test("real input still merges (guard doesn't over-trigger)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "merge-lcov-ok-"));
+    writeFileSync(
+      join(dir, "one.info"),
+      "TN:\nSF:src/example-under-test.ts\nDA:1,1\nLF:1\nLH:1\nend_of_record\n",
+    );
+    const out = join(dir, "out.info");
+    const { code } = runMerge(join(dir, "*.info"), out);
+    expect(code).toBe(0);
+    expect(existsSync(out)).toBe(true);
+  });
+});
+
+// ── check-coverage: wildcard whole-tree dropout ─────────────────────────────
+describe("check-coverage: wildcardTreeDropouts", () => {
+  test("tree present in lcov → no dropout (even when shadowed by specific keys)", () => {
+    const v = wildcardTreeDropouts(["src/suggest/**"], ["src/suggest/enhance.ts"], () => [
+      "src/suggest/enhance.ts",
+    ]);
+    expect(v).toEqual([]);
+  });
+  test("tree with on-disk source files but ZERO lcov matches → violation", () => {
+    const v = wildcardTreeDropouts(["src/suggest/**"], ["src/other/x.ts"], () => [
+      "src/suggest/enhance.ts",
+      "src/suggest/config.ts",
+    ]);
+    expect(v.length).toBe(1);
+    expect(v[0]).toContain("NONE of them");
+  });
+  test("tree whose only on-disk matches are tests/types → no violation", () => {
+    const v = wildcardTreeDropouts(["src/suggest/**"], [], () => [
+      "src/suggest/__tests__/enhance.test.ts",
+      "src/suggest/types.d.ts",
+    ]);
+    expect(v).toEqual([]);
+  });
+  test("pattern matching nothing on disk (dead key) → no violation", () => {
+    expect(wildcardTreeDropouts(["src/gone/**"], [], () => [])).toEqual([]);
   });
 });
 

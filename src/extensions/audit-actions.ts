@@ -98,6 +98,20 @@ export const EXT_AUDIT_ACTIONS = {
   /** `ezcorp/emit-task-event` rejected an emission — rate-limited,
    *  unauthorized conversation wiring, or malformed payload (Phase 2b). */
   EMIT_EVENT_REJECTED: "ext:emit-event-rejected",
+  /** `ezcorp/emit-loop-event` successfully emitted a content-free loop
+   *  approval nudge onto the host bus. This is the tamper-evident MIRROR
+   *  of the LOCKED per-loop approval-label store (loop-types.ts): every
+   *  `approval_resolved` emission leaves an independent, append-only audit
+   *  row, so the label history can be cross-checked against a stream the
+   *  extension cannot rewrite (Loops EZ Mode Phase 2). The metadata carries
+   *  the host-STAMPED `loopId` (`<extensionId>:<loopId>`), the wire `type`,
+   *  and — for a resolution — the `decision`. */
+  LOOP_EVENT_EMITTED: "ext:loop-event-emitted",
+  /** `ezcorp/emit-loop-event` rejected an emission — capability
+   *  kill-switch, missing `loopEvents` permission, rate-limited, or a
+   *  malformed / unknown-type payload (Loops EZ Mode Phase 2). The
+   *  metadata `reason` distinguishes them. */
+  LOOP_EVENT_REJECTED: "ext:loop-event-rejected",
   /** Server→extension `eventSubscriptions` delivery was dropped — the
    *  extension is rate-limited, the event payload is missing a
    *  `conversationId`, or defense-in-depth caught a routing mismatch
@@ -489,6 +503,28 @@ export const EXT_AUDIT_ACTIONS = {
    *  crash mid-fire. Marked for retry only when
    *  `maxRetries > 0`. */
   SDK_SCHEDULE_REAPED: "ext:sdk-schedule-reaped",
+  // ── Loops EZ Mode Phase 4: inbound webhook trigger ──
+  /** The public `POST /api/hooks/:extensionId/:slug` route accepted a
+   *  delivery (auth passed, under limits). Persisted to `webhook_deliveries`
+   *  for claim-before-dispatch. Metadata: `{slug, deliveryId, auth}` — NEVER
+   *  the secret or payload. */
+  SDK_WEBHOOK_ACCEPTED: "ext:sdk-webhook-accepted",
+  /** The webhook route REJECTED a delivery. Metadata carries `{slug, reason}`
+   *  where reason ∈ {unknown, unauthorized, oversize, rate-limited,
+   *  budget-exceeded} — never the secret or payload. The enumeration-safe
+   *  `unknown` reason covers foreign-ext / unknown-slug / no-grant / malformed-
+   *  slug uniformly; a secretless (un-authenticatable) hook rejects as
+   *  `unauthorized`. Attacker-controlled ext name + slug are length-bounded +
+   *  control-char-stripped before they enter the audit metadata. */
+  SDK_WEBHOOK_REJECTED: "ext:sdk-webhook-rejected",
+  /** The WebhookDeliveryDaemon dispatched a claimed delivery to the extension
+   *  subprocess (or catch-up drained the backlog). Metadata: `{slug,
+   *  deliveryId, catchUp}`. */
+  SDK_WEBHOOK_DISPATCHED: "ext:sdk-webhook-dispatched",
+  /** A hook secret was rotated via the authenticated rotate route (the
+   *  plaintext was shown-once to the rotating user). Metadata: `{slug}` —
+   *  never the secret. */
+  SDK_WEBHOOK_SECRET_ROTATED: "ext:sdk-webhook-secret-rotated",
   /**
    * v1.4: a user flipped `memories.injection_eligible` for one of
    * their memories via PATCH /api/memories/[id]. Privacy-relevant —

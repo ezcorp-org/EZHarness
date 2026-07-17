@@ -5,7 +5,13 @@
  */
 import { Glob } from "bun";
 import { resolve } from "node:path";
-import { EXCLUDES, escapeGlob, parseLcov, REPO_ROOT } from "./coverage-config.ts";
+import {
+  EXCLUDES,
+  escapeGlob,
+  parseLcov,
+  REPO_ROOT,
+  wildcardTreeDropouts,
+} from "./coverage-config.ts";
 
 const LCOV_PATH = resolve(REPO_ROOT, "coverage/lcov.info");
 const THRESHOLDS_PATH = resolve(REPO_ROOT, "scripts/coverage-thresholds.json");
@@ -66,7 +72,8 @@ for (const t of thresholdGlobs) {
   // Wildcard threshold keys (e.g. `web/src/lib/**`) are expected to
   // produce zero direct matches when more-specific keys catch every
   // file — that's not a missing gate, it's the wildcard-is-fallback
-  // pattern. Only fail-loud on EXACT-file threshold keys (no `*`).
+  // pattern. Exact-file keys fail-loud here; wildcard keys get the
+  // whole-tree-dropout check below instead.
   if (t.pat.includes("*")) continue;
   violations.push(
     `${t.pat}: listed in thresholds but no lcov data — ` +
@@ -74,6 +81,21 @@ for (const t of thresholdGlobs) {
       `for it, exclude it, or extend test-coverage.sh.`,
   );
 }
+
+// Wildcard whole-tree-dropout signal (wave 3): a wildcard key whose ENTIRE
+// tree is missing from lcov used to be indistinguishable from the benign
+// shadowed-by-specific-keys case — a coverage producer silently dying (or a
+// leg being unwired) could de-gate a whole subtree while the gate stayed
+// green. wildcardTreeDropouts (coverage-config.ts — this file has no
+// import.meta.main guard, so testable helpers can't live here) fails loud
+// when a pattern matches >=1 non-test/non-type, non-EXCLUDED file on disk
+// but lcov contains NONE of its matches (shadowed or not).
+const wildcardDropouts = wildcardTreeDropouts(
+  thresholdGlobs.filter((t) => t.pat.includes("*")).map((t) => t.pat),
+  [...perFile.keys()],
+  (pat) => [...new Glob(escapeGlob(pat)).scanSync({ cwd: REPO_ROOT })],
+);
+violations.push(...wildcardDropouts);
 
 if (violations.length > 0) {
   console.error(`Coverage gate FAILED (${violations.length} file(s) below threshold):`);

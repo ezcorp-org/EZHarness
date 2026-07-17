@@ -1,4 +1,4 @@
-import type { Agent, Run, Project, Conversation, Message, Pipeline, AgentConfig, ProviderStatus, AttachmentSummary, MessageSearchHit } from "../../src/lib/api.js";
+import type { Agent, Run, Project, Conversation, Message, Workflow, AgentConfig, ProviderStatus, AttachmentSummary, MessageSearchHit } from "../../src/lib/api.js";
 
 let idCounter = 0;
 const nextId = () => `test-${++idCounter}`;
@@ -154,6 +154,9 @@ export function makeSearchHit(overrides: Partial<MessageSearchHit> = {}): Messag
 		rankLexical: 1,
 		rankSemantic: null,
 		score: 0.5,
+		// Phase 67 made the owning project required on every hit.
+		projectId: "proj-1",
+		projectName: "Test Project",
 		...overrides,
 	};
 }
@@ -170,10 +173,10 @@ export function makeAttachment(overrides: Partial<AttachmentSummary> = {}): Atta
 	};
 }
 
-export function makePipeline(overrides: Partial<Pipeline> = {}): Pipeline {
+export function makeWorkflow(overrides: Partial<Workflow> = {}): Workflow {
 	return {
-		name: overrides.name ?? "test-pipeline",
-		description: "A test pipeline",
+		name: overrides.name ?? "test-workflow",
+		description: "A test workflow",
 		steps: [{ name: "step-1", agent: "test-agent" }],
 		...overrides,
 	};

@@ -69,7 +69,7 @@ A button to force an immediate board poll, bypassing the due-check. Built by a 2
 
 ## 5. What's left / next steps
 
-1. **Push + open a PR.** Decide the target: stack on `feat/github-projects` (then that on `main`), or rebase the whole lineage onto `main`. Required checks: typecheck, lint, Backend tests, Web (vitest), coverage gate, Gate integrity, Visual evidence. Use `arch1tect0x`/`EZArchy` per project policy (verify `gh api user --jq .login` first).
+1. **Push + open a PR.** Decide the target: stack on `feat/github-projects` (then that on `main`), or rebase the whole lineage onto `main`. Required checks: typecheck, lint, Backend tests, Web (vitest), coverage gate, Gate integrity, Visual evidence. Use `EZArchy` per project policy (verify `gh api user --jq .login` first).
 2. **Stage 2 (deferred — own PR + security review):** the sandbox-facing `ctx.secrets.fetch` broker with manifest `permissions.secrets: { name, host, allow:[{method,pathPrefix}], headerTemplate }`, redirect refusal, per-secret rate-limit, no-log, `has()`-oracle mitigation. This is where the egress residual-risk lives. Do NOT generalize `envEscapeHatch` into `ctx.secrets`.
 3. **Full live click-through of Poll-now / connect** is currently blocked by (a) no real GitHub PAT in the dev container (PAT-only, no `gh`/`curl`) and (b) the manifest-lock mount gap disabling github-projects in dev. The unit/integration/e2e suite is the verification of record; backend boot is confirmed live. To do it for real: connect a real board with a fine-grained PAT on a host that can reach GitHub, or fix the dev manifest-lock mount.
 4. **Untracked files** in the tree (PRD doc, `gh-connect-*`, screenshots) — decide whether to commit the PRD + this handoff (recommended) and discard the rest.

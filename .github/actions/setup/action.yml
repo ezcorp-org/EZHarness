@@ -1,14 +1,13 @@
 name: "Setup bun + cached deps"
 description: >
   Pinned bun, a cached global install cache, root (and optionally web/) deps,
-  optional svelte-kit sync, and optional cached Playwright chromium. Centralises
-  the bun version pin and the dependency-cache wiring so every CI job shares one
-  warm cache instead of cold-installing the 1.6 GB tree nine times.
+  optional svelte-kit sync, and optional cached Playwright chromium. The bun
+  pin itself is SINGLE-SOURCED in the top-level `.bun-version` file (read via
+  setup-bun's `bun-version-file`); the dependency-cache wiring lives here so
+  every CI job shares one warm cache instead of cold-installing the 1.6 GB
+  tree nine times.
 
 inputs:
-  bun-version:
-    description: "Pinned bun version (see the pin note in ci.yml)."
-    default: "1.3.14"
   web:
     description: "Also run `bun install` in web/."
     default: "false"
@@ -24,7 +23,7 @@ runs:
   steps:
     - uses: oven-sh/setup-bun@v2
       with:
-        bun-version: ${{ inputs.bun-version }}
+        bun-version-file: .bun-version # the single pin source; see ci.yml pin note
 
     # Bun's global module cache — keyed on both lockfiles so a dep bump busts it,
     # restore-keys lets an unchanged-deps push reuse the previous run's cache.
@@ -34,9 +33,9 @@ runs:
       uses: actions/cache@v4
       with:
         path: ~/.bun/install/cache
-        key: bun-${{ runner.os }}-${{ inputs.bun-version }}-${{ hashFiles('bun.lock', 'web/bun.lock') }}
+        key: bun-${{ runner.os }}-${{ hashFiles('.bun-version') }}-${{ hashFiles('bun.lock', 'web/bun.lock') }}
         restore-keys: |
-          bun-${{ runner.os }}-${{ inputs.bun-version }}-
+          bun-${{ runner.os }}-${{ hashFiles('.bun-version') }}-
 
     - name: Install root deps
       shell: bash
@@ -52,11 +51,10 @@ runs:
       shell: bash
       run: cd web && bunx --bun svelte-kit sync
 
-    # Cache the downloaded browser binaries (~150 MB). `playwright install
-    # --with-deps` is still run below — it skips the download on a cache hit but
-    # always installs the apt system libs (which aren't cached).
+    # Cache the downloaded browser binaries (~150 MB).
     - name: Cache Playwright browsers
       if: inputs.playwright == 'true'
+      id: pw-cache
       uses: actions/cache@v4
       with:
         path: ~/.cache/ms-playwright
@@ -64,7 +62,19 @@ runs:
         restore-keys: |
           playwright-${{ runner.os }}-
 
+    # Split from `install --with-deps`: `install chromium` is a no-op on a
+    # browser-cache hit, and the ~30-60s `install-deps` apt run only happens
+    # on a cache MISS (each browser-version bump misses and refreshes the
+    # libs). DRIFT RISK accepted: runner-image apt libs aren't cached, so if
+    # a GitHub image update ever drops a lib chromium needs while the browser
+    # cache still hits, launches fail — bust the playwright-* cache (or bump
+    # the browser) to force a deps reinstall.
     - name: Install Playwright chromium
       if: inputs.playwright == 'true'
       shell: bash
-      run: cd web && bunx playwright install --with-deps chromium
+      run: cd web && bunx playwright install chromium
+
+    - name: Install Playwright system deps (browser-cache miss only)
+      if: inputs.playwright == 'true' && steps.pw-cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: cd web && bunx playwright install-deps chromium

@@ -530,6 +530,17 @@ export interface ExtensionManifestV2 {
      *  `ezcorp/emit-task-event` reverse RPC. Conversation scope is forced
      *  by the host — extensions cannot target other conversations. */
     taskEvents?: boolean;
+    /** Emit the content-free loop-approval nudges (`loops:approval_pending`
+     *  / `loops:approval_resolved` / `loops:auto_disabled`) via the
+     *  `ezcorp/emit-loop-event` reverse RPC (Loops EZ Mode Phase 2).
+     *  DISTINCT from `taskEvents`: loop nudges fire ownerless (cron /
+     *  global-scope) and may broadcast to every authenticated subscriber,
+     *  so they carry a larger blast radius and get their own least-privilege
+     *  gate rather than riding the conversation-forced `taskEvents` grant.
+     *  The host STAMPS the wire `loopId` with the emitting extension's id
+     *  (`<extensionId>:<loopId>`) so an extension can only emit for its own
+     *  loops. */
+    loopEvents?: boolean;
     /** Spawn sub-agent runs via `ezcorp/spawn-assignment`. Requires both
      *  fields when declared. Credentials are INHERITED from the parent
      *  conversation — installing this permission authorizes billing to the
@@ -553,6 +564,15 @@ export interface ExtensionManifestV2 {
      *  heavy `input`/`output` blobs from `tool:start` /
      *  `tool:complete` payloads. Default false. */
     eventSubscriptions?: string[] | { events: string[]; includeFullPayload?: boolean };
+    /** Receive inbound HTTP webhook deliveries (Loops EZ Mode Phase 4). Each
+     *  string is a hook `slug` this extension declares; the host mints a
+     *  per-hook AES-GCM secret at install and routes an authenticated
+     *  `POST /api/hooks/:extensionId/:slug` onto the delivery queue ONLY for
+     *  declared slugs. A leaked token lets an attacker POST arbitrary bytes,
+     *  so any loop with a webhook trigger is permanently `untrusted-input`.
+     *  Undeclared slugs are dropped at install (mirrors cron/event; never
+     *  widens the grant). */
+    webhooks?: string[];
     /** Author turns directly via the `ezcorp/append-message` reverse RPC.
      *  Conversation scope is forced by the host (the extension cannot
      *  target another conversation). The host always forces the new
@@ -882,12 +902,21 @@ export interface ExtensionPermissions {
   // Capability tier — see ExtensionManifestV2.permissions for the full
   // contract + the Phase 2+3 plan (`.claude/plans/tranquil-dancing-book.md`).
   taskEvents?: boolean;
+  /** Grants the `ezcorp/emit-loop-event` reverse RPC (Loops EZ Mode
+   *  Phase 2). See the matching field on
+   *  `ExtensionManifestV2.permissions.loopEvents`. */
+  loopEvents?: boolean;
   spawnAgents?: { maxPerHour: number; maxConcurrent?: number };
   agentConfig?: "read";
   /** Subscribed bus-event types (Phase 2c). Clamped at install time to
    *  the intersection of manifest declaration and the direct-carrier
    *  allowlist. */
   eventSubscriptions?: string[];
+  /** Granted webhook slugs (Loops EZ Mode Phase 4). Clamped at install
+   *  time to the intersection of manifest declaration and the submitted
+   *  grant. The host routes an authenticated inbound POST onto the delivery
+   *  queue only for a slug present here. See the matching manifest field. */
+  webhooks?: string[];
   /** Grants the `ezcorp/append-message` reverse RPC. See the matching
    *  field on `ExtensionManifestV2.permissions`. */
   appendMessages?: { excludedDefault: boolean };

@@ -1,0 +1,54 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": [
+      "ESNext",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "paths": {
+      "@ezcorp/sdk": [
+        "./packages/@ezcorp/sdk/src/index.ts"
+      ],
+      "@ezcorp/sdk/*": [
+        "./packages/@ezcorp/sdk/src/*"
+      ],
+      "$server": [
+        "./src"
+      ],
+      "$server/*": [
+        "./src/*"
+      ],
+      "$lib": [
+        "./web/src/lib"
+      ],
+      "$lib/*": [
+        "./web/src/lib/*"
+      ],
+      "$app/types": [
+        "./web/.svelte-kit/types/index.d.ts"
+      ],
+      "$app/*": [
+        "./web/node_modules/@sveltejs/kit/src/runtime/app/*"
+      ]
+    },
+    "rootDirs": [
+      "./web",
+      "./web/.svelte-kit/types"
+    ],
+    "noUncheckedIndexedAccess": false
+  },
+  "include": [
+    "src/**/*.test.ts",
+    "web/.svelte-kit/ambient.d.ts",
+    "web/.svelte-kit/non-ambient.d.ts",
+    "web/.svelte-kit/types/**/$types.d.ts",
+    "web/src/app.d.ts"
+  ],
+  "exclude": [
+    "**/node_modules/**",
+    "**/worktrees/**"
+  ],
+  "// purpose": "Wave-3 typecheck leg for backend test files (tsconfig.typecheck.json excludes them; they were typechecked by NOTHING). Run via scripts/typecheck-tests.ts, which composes the dirty-file ratchet (scripts/typecheck-tests-ratchet.json) into a temp child config. paths+rootDirs replicate web/.svelte-kit/tsconfig.json so tests' transitive imports of web modules ($lib/$server/./$types) resolve \u2014 without them ~1183 spurious errors. Requires `svelte-kit sync` first (typecheck.sh does).",
+  "// noUncheckedIndexedAccess": "false = web-flag parity. This program spans src tests AND transitively-imported web product files; web's own program doesn't set the flag, so keeping it on erred web files that are clean in their home leg (agent-color, resource-quotas). Production src stays strict via tsconfig.typecheck.json."
+}

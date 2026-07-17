@@ -136,11 +136,11 @@ vi.mock("$server/runtime/goal-host", () => ({
 vi.mock("$server/runtime/loader", () => ({
 	loadAgents: vi.fn(async () => []),
 }));
-vi.mock("$server/runtime/pipeline-loader", () => ({
-	loadYamlPipelines: vi.fn(async () => []),
+vi.mock("$server/runtime/workflow-loader", () => ({
+	loadYamlWorkflows: vi.fn(async () => []),
 }));
-vi.mock("$server/db/queries/pipelines", () => ({
-	loadDbPipelines: vi.fn(async () => []),
+vi.mock("$server/db/queries/workflows", () => ({
+	loadDbWorkflows: vi.fn(async () => []),
 }));
 vi.mock("$server/runtime/executor", () => ({
 	AgentExecutor: class {
@@ -148,8 +148,8 @@ vi.mock("$server/runtime/executor", () => ({
 		destroy = vi.fn();
 	},
 }));
-vi.mock("$server/runtime/pipeline-executor", () => ({
-	PipelineExecutor: class {},
+vi.mock("$server/runtime/workflow-executor", () => ({
+	WorkflowExecutor: class {},
 }));
 
 type MediatorLookup = (extId: string) =>

@@ -30,8 +30,13 @@ describe("EXT_AUDIT_ACTIONS — all SDK_* values share the ext:sdk- prefix", () 
     // Phase 50 baseline (13) + Phase 51 additions:
     //   SDK_EVENT_DELIVERED, SDK_SCHEDULE_DISABLED, SDK_LLM_DENIED_AND_DISABLED,
     //   SDK_LESSONS_VISIBILITY_CLAMPED, SDK_SCHEDULE_FIRE_NOW,
-    //   SDK_SCHEDULE_QUOTA_EXCEEDED, SDK_SCHEDULE_REAPED.
-    expect(sdkEntries.length).toBe(20);
+    //   SDK_SCHEDULE_QUOTA_EXCEEDED, SDK_SCHEDULE_REAPED,
+    // + the web-search capability tier:
+    //   SDK_SEARCH_QUERY, SDK_SEARCH_EGRESS_BLOCKED, SDK_SEARCH_QUOTA_EXCEEDED,
+    // + the Loops Phase 4 webhook tier:
+    //   SDK_WEBHOOK_ACCEPTED, SDK_WEBHOOK_REJECTED, SDK_WEBHOOK_DISPATCHED,
+    //   SDK_WEBHOOK_SECRET_ROTATED.
+    expect(sdkEntries.length).toBe(27);
     for (const [, v] of sdkEntries) {
       expect(v.startsWith("ext:sdk-")).toBe(true);
     }

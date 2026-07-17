@@ -399,6 +399,47 @@ export class HarnessClient {
     );
   }
 
+  // ── Loops EZ Mode Phase 4: inbound webhook delivery ────────────────
+  /**
+   * Deliver an inbound webhook to a loop's webhook trigger
+   * (`POST /api/hooks/:extensionId/:slug`). PUBLIC route — auth is the per-hook
+   * secret, so this method sends its OWN headers and NEVER attaches the harness
+   * `Authorization: Bearer ezk_*` key (which would collide with the hook token).
+   * Supply either `token` (→ `Authorization: Bearer <token>`) or `signature`
+   * (→ `X-Hub-Signature-256`); the raw `body` is sent verbatim (the exact bytes
+   * an HMAC was computed over). Returns `{ accepted, deliveryId }` on 202; any
+   * non-2xx throws {@link HarnessApiError} (401/404/413/429).
+   */
+  async deliverHook(
+    extensionId: string,
+    slug: string,
+    opts: {
+      body?: string;
+      contentType?: string;
+      /** Per-hook secret → `Authorization: Bearer <token>`. */
+      token?: string;
+      /** Precomputed `X-Hub-Signature-256` value (`sha256=<hex>`). */
+      signature?: string;
+    } = {},
+  ): Promise<{ accepted: boolean; deliveryId: string }> {
+    const r = HARNESS_ROUTES.deliverHook;
+    const path = buildPath(r.pathTemplate, { extensionId, slug });
+    const headers: Record<string, string> = {};
+    if (opts.contentType) headers["Content-Type"] = opts.contentType;
+    if (opts.token) headers["Authorization"] = `Bearer ${opts.token}`;
+    if (opts.signature) headers["X-Hub-Signature-256"] = opts.signature;
+    const res = await this.fetchImpl(`${this.baseUrl}${path}`, {
+      method: r.httpMethod,
+      headers,
+      body: opts.body ?? "",
+      redirect: "error",
+    });
+    const text = await res.text();
+    const parsed = text ? safeJson(text) : undefined;
+    if (!res.ok) throw new HarnessApiError(res.status, r.httpMethod, path, parsed ?? text);
+    return parsed as { accepted: boolean; deliveryId: string };
+  }
+
   // ── Run-to-completion ──────────────────────────────────────────────
   getRun(runId: string): Promise<Record<string, unknown>> {
     return this.route("getRun", { id: runId });

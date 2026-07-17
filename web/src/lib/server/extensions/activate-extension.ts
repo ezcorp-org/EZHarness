@@ -23,6 +23,7 @@ import { insertAuditEntry } from "$server/db/queries/audit-log";
 import { clampExtensionPermissions } from "$lib/server/extension-helpers";
 import { emitEnvKeyLeakWarnings } from "$server/extensions/clamp-permissions";
 import { reconcileSchedules } from "$server/extensions/schedule-reconcile";
+import { reconcileWebhooks } from "$server/extensions/webhook-reconcile";
 import { formatNpmDepError, verifyNpmDependencies } from "$server/extensions/npm-deps";
 import type { ExtensionManifestV2, ExtensionPermissions } from "$server/extensions/types";
 import type { Extension } from "$server/db/schema";
@@ -130,6 +131,19 @@ export async function activateExtension(
 		if (Array.isArray(cronList)) await reconcileSchedules(id, cronList);
 	} catch {
 		/* swallow — schedule reconcile is non-fatal */
+	}
+	// Mirror the GRANTED webhook slugs into the `extension_webhooks` registry so
+	// the public inbound-hook route can authenticate deliveries + mint each
+	// hook's initial secret. Source of truth is the clamped GRANT (only slugs the
+	// user actually authorized), NOT the raw manifest — keyed by `ext.name` (the
+	// registry FK), never the row UUID. Falls back to the stored grant when
+	// activating without a permission change. Non-fatal, like the schedule sweep.
+	try {
+		const grantedWebhooks =
+			(update.grantedPermissions ?? ext.grantedPermissions)?.webhooks ?? [];
+		await reconcileWebhooks(ext.name, grantedWebhooks);
+	} catch {
+		/* swallow — webhook reconcile is non-fatal */
 	}
 
 	// Best-effort audit log — do not fail on logging errors.

@@ -39,7 +39,14 @@ export type CapabilityKind =
   | "ezcorp:agent:config"
   | "ezcorp:agent:spawn"
   | "ezcorp:tasks:emit"
+  | "ezcorp:loops:emit"
   | "ezcorp:events:subscribe"
+  // Receive inbound webhook deliveries for a manifest-declared slug
+  // (Loops EZ Mode Phase 4). One cap per granted slug (value = slug),
+  // mirroring `ezcorp:events:subscribe`. The host routes an authenticated
+  // `POST /api/hooks/:extensionId/:slug` onto the delivery queue only for
+  // slugs whose cap the extension holds; undeclared slugs are dropped.
+  | "ezcorp:webhooks:receive"
   // Install an authored extension draft. Sensitive + ALWAYS prompts
   // (even for the bundled extension-author) and is NEVER persisted as
   // an always-allow grant — see the carve-outs in
@@ -216,9 +223,9 @@ export function capabilityDeclarationToSet(
   }
 
   // Namespaced custom caps. Translate `appendMessages`/`agentConfig`/
-  // `taskEvents`/`spawnAgents`/`eventSubscriptions` boolean keys to
-  // their `ezcorp:*` form. Other keys are dropped (unknown — Phase 6
-  // will widen this).
+  // `taskEvents`/`loopEvents`/`spawnAgents`/`eventSubscriptions` boolean
+  // keys to their `ezcorp:*` form. Other keys are dropped (unknown —
+  // Phase 6 will widen this).
   if (decl.custom) {
     for (const [key, val] of Object.entries(decl.custom)) {
       const kind = customToKind(key);
@@ -252,11 +259,13 @@ export function capabilityDeclarationToSet(
  *   • `env`         — array intersection
  *   • `storage`     — boolean AND
  *   • `taskEvents`  — boolean AND
+ *   • `loopEvents`  — boolean AND
  *   • `agentConfig` — both sides "read" → "read", else absent
  *   • `spawnAgents` — min(maxPerHour) + min(maxConcurrent), absent if
  *                     either side absent (the more restrictive wins)
  *   • `appendMessages` — both sides present + AND on `excludedDefault`
  *   • `eventSubscriptions` — array intersection
+ *   • `webhooks` — array intersection (hook slugs)
  *
  * `grantedAt` is rebuilt from the keys that survived intersection,
  * preferring the OLDER timestamp of either side so an audit trail
@@ -330,6 +339,11 @@ export function intersectPermissions(
     out.taskEvents = true;
   }
 
+  // loopEvents — boolean AND
+  if (a.loopEvents === true && b.loopEvents === true) {
+    out.loopEvents = true;
+  }
+
   // agentConfig — both must be "read" for "read" to survive
   if (a.agentConfig === "read" && b.agentConfig === "read") {
     out.agentConfig = "read";
@@ -383,6 +397,23 @@ export function intersectPermissions(
       }
     }
     if (list.length > 0) out.eventSubscriptions = list;
+  }
+
+  // webhooks — array intersection (case-sensitive hook slugs). Same clip
+  // semantics as eventSubscriptions: a slug survives only when BOTH sides
+  // declare it, so a child conversation can never receive a hook the parent
+  // grant lacks.
+  if (a.webhooks && b.webhooks) {
+    const bSet = new Set(b.webhooks);
+    const seen = new Set<string>();
+    const list: string[] = [];
+    for (const s of a.webhooks) {
+      if (bSet.has(s) && !seen.has(s)) {
+        seen.add(s);
+        list.push(s);
+      }
+    }
+    if (list.length > 0) out.webhooks = list;
   }
 
   // ── Phase 53 capability tiers (`llm`, `memory`, `lessons`, `schedule`).
@@ -503,10 +534,12 @@ export function intersectPermissions(
       (key === "env" && out.env) ||
       (key === "storage" && out.storage) ||
       (key === "taskEvents" && out.taskEvents) ||
+      (key === "loopEvents" && out.loopEvents) ||
       (key === "agentConfig" && out.agentConfig) ||
       (key === "spawnAgents" && out.spawnAgents) ||
       (key === "appendMessages" && out.appendMessages) ||
       (key === "eventSubscriptions" && out.eventSubscriptions) ||
+      (key === "webhooks" && out.webhooks) ||
       (key === "llm" && out.llm) ||
       (key === "memory" && out.memory) ||
       (key === "lessons" && out.lessons) ||
@@ -648,6 +681,10 @@ export function grantsToCapabilitySet(
     caps.push({ kind: "ezcorp:tasks:emit" });
   }
 
+  if (grants.loopEvents === true) {
+    caps.push({ kind: "ezcorp:loops:emit" });
+  }
+
   if (grants.agentConfig === "read") {
     caps.push({ kind: "ezcorp:agent:config" });
   }
@@ -659,6 +696,12 @@ export function grantsToCapabilitySet(
   if (grants.eventSubscriptions) {
     for (const eventName of grants.eventSubscriptions) {
       caps.push({ kind: "ezcorp:events:subscribe", value: eventName });
+    }
+  }
+
+  if (grants.webhooks) {
+    for (const slug of grants.webhooks) {
+      caps.push({ kind: "ezcorp:webhooks:receive", value: slug });
     }
   }
 
@@ -734,9 +777,15 @@ function customToKind(key: string): CapabilityKind | null {
     case "taskEvents":
     case "ezcorp:tasks:emit":
       return "ezcorp:tasks:emit";
+    case "loopEvents":
+    case "ezcorp:loops:emit":
+      return "ezcorp:loops:emit";
     case "eventSubscriptions":
     case "ezcorp:events:subscribe":
       return "ezcorp:events:subscribe";
+    case "webhooks":
+    case "ezcorp:webhooks:receive":
+      return "ezcorp:webhooks:receive";
     default:
       return null;
   }

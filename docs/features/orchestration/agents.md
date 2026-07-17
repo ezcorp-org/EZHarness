@@ -100,7 +100,7 @@ Type `![agent:Name]` in the composer (the `!` sigil; see [[mention-grammar]]). I
 ## Features it touches
 
 - [[teams]] — a team is an agent config with `category="team"` + `references.members` + `teamToolScope`; teams reuse the same table, schema, and CRUD route.
-- [[pipelines]] — multi-step agent chaining; sibling `pipeline_definitions` table.
+- [[workflows]] — multi-step agent chaining (agent / transform / gate steps + loops); sibling `workflow_definitions` table.
 - [[mention-grammar]] — `![agent:Name]` / `![team:Name]` are the `!`-sigil tokens that resolve to these configs.
 - [[conversations]] — `agentConfigId` binds a (sub-)conversation to an agent; `@agent` mentions spawn sub-conversations.
 - [[runs-lifecycle]] — invoked agents execute as runs under the executor.

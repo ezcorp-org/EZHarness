@@ -147,34 +147,37 @@ Run was cancelled (via `POST /api/conversations/:id/active-run` with `{ action: 
 
 ---
 
-## Pipeline events
+## Workflow events
 
-Pipelines are multi-step agent sequences defined in YAML. These events shadow run events when a pipeline is executing.
+Workflows are multi-step sequences defined in YAML or the DB, mixing agent,
+transform (pure data), and gate (assertion) steps. These events shadow run
+events when a workflow is executing. (Formerly `pipeline:*`.)
 
-### `pipeline:start`
+### `workflow:start`
 
 ```json
-{ "pipelineRun": { "id": "uuid", "name": "string", "steps": [], "startedAt": 123 } }
+{ "workflowRun": { "id": "uuid", "workflowName": "string", "steps": [], "startedAt": 123 } }
 ```
 
-### `pipeline:step`
+### `workflow:step`
 
-Emitted when a pipeline step begins.
+Emitted when a workflow step begins (and re-emitted per loop iteration, with
+the running `iterations` count).
 
 ```json
-{ "pipelineRun": { … }, "step": { "id": "uuid", "agentName": "string", "status": "running" } }
+{ "workflowRun": { … }, "step": { "stepName": "string", "runId": "uuid", "status": "running", "iterations": 1 } }
 ```
 
-### `pipeline:complete`
+### `workflow:complete`
 
 ```json
-{ "pipelineRun": { … } }
+{ "workflowRun": { … } }
 ```
 
-### `pipeline:error`
+### `workflow:error`
 
 ```json
-{ "pipelineRun": { … }, "error": "Step 2 failed: …" }
+{ "workflowRun": { … }, "error": "Step 2 failed: …" }
 ```
 
 ---

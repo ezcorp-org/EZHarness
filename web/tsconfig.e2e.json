@@ -1,0 +1,16 @@
+{
+	"extends": "./.svelte-kit/tsconfig.json",
+	"// purpose": "Wave-3 typecheck leg for web/e2e/** — previously in NO tsc program (web/tsconfig.json's generated include covers src/ only). Extending the generated config keeps $lib/$server/./$types aliases + DOM lib resolving exactly as the app program sees them. Run via scripts/typecheck.sh (requires `svelte-kit sync` first, same as the web leg).",
+	"compilerOptions": {
+		"allowJs": true,
+		"checkJs": true,
+		"esModuleInterop": true,
+		"forceConsistentCasingInFileNames": true,
+		"resolveJsonModule": true,
+		"skipLibCheck": true,
+		"strict": true,
+		"moduleResolution": "bundler",
+		"noEmit": true
+	},
+	"include": ["e2e/**/*.ts", "src/app.d.ts", ".svelte-kit/ambient.d.ts", ".svelte-kit/non-ambient.d.ts", ".svelte-kit/types/**/$types.d.ts"]
+}

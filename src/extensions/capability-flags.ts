@@ -1,9 +1,9 @@
 /**
  * Kill-switch for the capability-tool tier (Phase 2+).
  *
- * When `EZCORP_DISABLE_CAPABILITY_TOOLS=1`, the three capability
- * permissions (`taskEvents`, `spawnAgents`, `agentConfig`) are ALWAYS
- * treated as if the manifest didn't declare them. `clampToManifest`
+ * When `EZCORP_DISABLE_CAPABILITY_TOOLS=1`, the capability
+ * permissions (`taskEvents`, `loopEvents`, `spawnAgents`, `agentConfig`)
+ * are ALWAYS treated as if the manifest didn't declare them. `clampToManifest`
  * drops them, bundled install refuses to grant them, and runtime
  * handlers (Phase 2b+) gate on this before doing anything else.
  *
@@ -24,9 +24,11 @@ export function capabilityToolsDisabled(env: NodeJS.ProcessEnv = process.env): b
 /** The capability-tier permission field names. */
 export const CAPABILITY_PERMISSION_FIELDS = [
   "taskEvents",
+  "loopEvents",
   "spawnAgents",
   "agentConfig",
   "eventSubscriptions",
+  "webhooks",
 ] as const;
 
 export type CapabilityPermissionField = typeof CAPABILITY_PERMISSION_FIELDS[number];

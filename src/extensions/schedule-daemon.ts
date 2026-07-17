@@ -43,6 +43,7 @@ import { insertAuditEntry } from "../db/queries/audit-log";
 import { EXT_AUDIT_ACTIONS } from "./audit-actions";
 import { registerFireCallProvenance } from "./call-provenance";
 import { acquireLockfile, releaseLockfile, isProcessAlive } from "../startup/process-lockfile";
+import { loopsKillSwitchEngaged } from "./loops-kill-switch";
 
 const log = logger.child("ext.schedule-daemon");
 
@@ -213,6 +214,14 @@ export class ScheduleDaemon {
   /** Single-pass claim + dispatch. Public so tests can drive it
    *  directly without a 30s wait. */
   async tick(): Promise<{ claimed: number; dispatched: number }> {
+    // Global loops kill switch: suspend the cron claim path entirely. Rows
+    // stay due (next_fire_at unchanged), so the daemon resumes cleanly the
+    // moment the operator disengages the switch — no fires are lost, none
+    // fire while suspended. Checked before any DB work.
+    if (await loopsKillSwitchEngaged()) {
+      return { claimed: 0, dispatched: 0 };
+    }
+
     const db = getDb();
     const now = this.opts.now();
 
@@ -316,6 +325,10 @@ export class ScheduleDaemon {
    *  against `maxRunsPerDay`. Returns `{ ok, fireId? }` or
    *  `{ ok: false, reason }`. */
   async fireNow(extensionId: string, cron: string): Promise<{ ok: true; fireId: string } | { ok: false; reason: string }> {
+    // Global loops kill switch: refuse manual cron-fire triggers too.
+    if (await loopsKillSwitchEngaged()) {
+      return { ok: false, reason: "loops-suspended" };
+    }
     const db = getDb();
     const now = this.opts.now();
     // Manifest validation: cron must be in the extension's
@@ -405,7 +418,7 @@ export class ScheduleDaemon {
         }
         await completion("ok");
       } catch (err) {
-        await this.handleFireError(schedule, fireId, firedAt, err, attempt);
+        await this.handleFireError(schedule, fireId, err, attempt);
       }
     } else {
       // No registry / not running — mark as ok so the daemon doesn't
@@ -440,7 +453,6 @@ export class ScheduleDaemon {
   private async handleFireError(
     schedule: typeof extensionSchedules.$inferSelect,
     fireId: string,
-    firedAt: Date,
     err: unknown,
     attempt: number,
   ): Promise<void> {

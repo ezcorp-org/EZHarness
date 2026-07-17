@@ -9,8 +9,11 @@
  *
  * "Executable" = the line has a DA record in coverage/lcov.info. Added lines
  * with no DA record (comments, blanks, type-only, declarations) are ignored —
- * only executable added lines must be hit. Files with no lcov data at all are
- * skipped here (the new-file gate / per-file gate own those cases).
+ * only executable added lines must be hit. A changed .ts SOURCE file that is
+ * absent from lcov entirely FAILS (wave 3 — it used to be silently skipped);
+ * .svelte files stay skip-on-absence (only explicitly vitest-included
+ * components are line-measurable) and EXCLUDES entries are the reviewed
+ * allowlist for everything else.
  *
  * Reuses the unified-diff parser from gate-integrity.ts and the lcov parser
  * from coverage-config.ts (DRY). Pure helper exported for unit testing.
@@ -36,6 +39,19 @@ export function uncoveredAddedLines(
   return out.sort((a, b) => a - b);
 }
 
+/**
+ * Wave 3: should a changed source file with NO lcov data fail the gate?
+ * True for .ts sources with at least one added line (a never-imported
+ * module was edited — zero coverage on the change). False for .svelte
+ * (only explicitly vitest-included components are line-measurable; the
+ * Visual-evidence gate owns component rendering) and for pure-deletion
+ * hunks. EXCLUDES is the reviewed allowlist and is applied by the caller
+ * before this predicate.
+ */
+export function shouldFailOnLcovAbsence(file: string, addedLineCount: number): boolean {
+  return addedLineCount > 0 && !file.endsWith(".svelte");
+}
+
 async function git(args: string[]): Promise<string> {
   const proc = Bun.spawn(["git", ...args], { cwd: REPO_ROOT, stdout: "pipe", stderr: "pipe" });
   const [out, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
@@ -58,7 +74,18 @@ async function main(): Promise<void> {
   for (const [file, info] of perFileDiff) {
     if (!isSourceFile(file) || isExcluded(file)) continue;
     const fileCov = cov.get(file);
-    if (!fileCov) continue; // no lcov data — owned by the new-file / per-file gate
+    if (!fileCov) {
+      // Wave 3: absence from lcov FAILS for changed .ts sources — see
+      // shouldFailOnLcovAbsence. (EXCLUDES already `continue`d above.)
+      if (shouldFailOnLcovAbsence(file, info.addedLines.size)) {
+        violations.push(
+          `${file}: changed source file has NO lcov data — no test loads it under coverage. ` +
+            `Add/extend a test that exercises it (or, if it genuinely can't be measured, ` +
+            `add an EXCLUDES entry in scripts/coverage-config.ts with justification).`,
+        );
+      }
+      continue;
+    }
     checkedFiles++;
     const missedSet = new Set(fileCov.missed);
     const hitSet = hits.get(file) ?? new Set<number>();

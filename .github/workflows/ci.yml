@@ -6,10 +6,11 @@ name: ci
 # 1.3.14 verified green 2026-06-11 (full local job sweep + cold-cache
 # clean-clone install). Bump deliberately, with a local re-verification.
 #
-# The pinned bun version + the shared dependency cache live in the composite
-# action .github/actions/setup. Bump the pin there (its `bun-version` default)
-# AND in the two jobs below that call setup-bun directly (gate-integrity,
-# coverage, visual-evidence — they install no deps, so they skip the composite).
+# The bun pin is SINGLE-SOURCED in the top-level `.bun-version` file: the
+# composite action .github/actions/setup and every direct setup-bun call
+# (gate-integrity + coverage below — dep-free jobs that skip the composite —
+# plus visual-evidence-publish.yml) read it via `bun-version-file`. Bump the
+# pin by editing `.bun-version` only (with the local re-verification above).
 #
 # SPEED/COST SHAPE (see scripts/test-coverage.sh + scripts/lib/test-file-sets.sh):
 # the backend suite used to run TWICE — once plain for pass/fail (`Backend
@@ -50,10 +51,37 @@ jobs:
       # hard gate.
       - run: bun run typecheck
 
-  test-web:
-    name: Web tests (vitest)
+  # Svelte template/type check (wave 3 — previously NO job checked .svelte
+  # templates; plain tsc can't see inside them). Gate is ERRORS-only
+  # (svelte-check's default exit semantics); warnings stay visible in the
+  # log for chipping away. Measured clean at introduction (0 errors / 18
+  # warnings, 3907 files, ~1-2 min).
+  svelte-check:
+    name: Svelte check
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+        with:
+          web: "true"
+          sync: "true"
+      - run: cd web && bunx svelte-check
+
+  # vitest runs both *.component.test.ts (Svelte DOM) and *.server.test.ts
+  # (route-handler unit tests), 2-way sharded for wall clock (per-file costs
+  # dominate the 410-file suite). Verified locally: --shard=1/2 + --shard=2/2
+  # execute 205+205 = 410 test files / 2330+2068 = 4398 tests — exactly the
+  # unsharded run's counts.
+  test-web-shard:
+    name: Web tests shard ${{ matrix.i }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        # Keep the /2 divisor in the run step in sync with this list length.
+        i: [1, 2]
     steps:
       - uses: actions/checkout@v4
       # Root deps too: web's *.server.test.ts import backend handlers from
@@ -62,9 +90,26 @@ jobs:
         with:
           web: "true"
           sync: "true"
-      # vitest runs both *.component.test.ts (Svelte DOM) and
-      # *.server.test.ts (route-handler unit tests).
-      - run: cd web && bunx --bun vitest run
+      - run: cd web && bunx --bun vitest run --shard=${{ matrix.i }}/2
+
+  # Required check (branch protection): thin aggregator that KEEPS the pinned
+  # required-check name over the sharded vitest matrix — green iff every
+  # shard succeeded (same pattern as the `Backend tests` aggregator below).
+  test-web:
+    name: Web tests (vitest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    needs: [test-web-shard]
+    if: always()
+    steps:
+      - name: Aggregate vitest shard results
+        run: |
+          echo "test-web-shard: ${{ needs.test-web-shard.result }}"
+          if [ "${{ needs.test-web-shard.result }}" != "success" ]; then
+            echo "::error::A vitest shard failed — see the failing shard's log."
+            exit 1
+          fi
+          echo "All vitest shards succeeded."
 
   # Required check: the ORPHANED web bun-leg pool — plain `web/src/**/*.test.ts`
   # that vitest does NOT match (no .component/.server/.unit suffix) and the
@@ -105,13 +150,26 @@ jobs:
       # surface. A blanket run pulls in ~240 specs, many DOCKER_TEST-gated or
       # seed-dependent that would fail/flake here with no live backend.
       # file-organizer-real.spec.ts self-skips its real-backend cases.
-      - run: |
-          cd web && bunx playwright test --project=chromium \
-            file-organizer-hub.spec.ts \
-            file-organizer-real.spec.ts \
-            hub.spec.ts \
-            extensions-library-tabs.spec.ts \
-            extension-detail-pages.spec.ts
+      #
+      # The blocking list has ONE home: the `mock-gate` lane of
+      # web/e2e/lanes.json. scripts/e2e-lane-args.ts turns it into ANCHORED
+      # regexes (Playwright file args are regexes — a bare `hub.spec.ts` once
+      # silently pulled github-projects-hub + project-hub into this gate).
+      # src/__tests__/e2e-lanes.test.ts pins manifest ↔ generator ↔ this
+      # invocation.
+      - shell: bash
+        run: |
+          mapfile -t ARGS < <(bun scripts/e2e-lane-args.ts mock-gate)
+          [ "${#ARGS[@]}" -gt 0 ] || { echo "::error::empty mock-gate lane args"; exit 1; }
+          cd web && bunx playwright test --project=chromium "${ARGS[@]}"
+      # Post-mortem debuggability: keep traces/screenshots when the gate fails.
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-mock-test-results
+          path: web/test-results/
+          retention-days: 3
+          if-no-files-found: ignore
 
   # Real-auth + real-DB + mock-LLM e2e tier (web/playwright.real.config.ts,
   # specs under web/e2e/real-auth/). Unlike e2e-mock, the preview server boots
@@ -149,6 +207,15 @@ jobs:
       # specs would silently skip and the job would go green without them (#55).
       - run: bun web/e2e/real-auth/_sandbox-spawn-probe.bun.ts
       - run: cd web && PI_E2E_REAL=1 bunx playwright test --config playwright.real.config.ts
+      # Post-mortem debuggability: keep traces/screenshots when the gate fails
+      # (the real config uses trace: retain-on-failure).
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-real-auth-test-results
+          path: web/test-results/
+          retention-days: 3
+          if-no-files-found: ignore
 
   lint:
     name: Lint (biome)
@@ -185,7 +252,7 @@ jobs:
           fetch-depth: 0
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: "1.3.14" # see pin note at top of file
+          bun-version-file: .bun-version # single pin source; see note at top
       - run: git fetch --no-tags origin main
       # Anti-tamper / anti-cheat meta-check (no deps needed). A maintainer-only
       # `gate-change-approved` label sets GATE_CHANGE_APPROVED=1 to bypass.
@@ -208,7 +275,14 @@ jobs:
       fail-fast: false
       matrix:
         # Keep SHARD_TOTAL below in sync with this list length.
-        shard: [0, 1, 2, 3, 4]
+        # 8 shards: ~1410s of measured test work / 8 ≈ 176s + ~23s fixed
+        # overhead per shard ≈ 3:20 wall for the leg (was ~5:34 at 5).
+        # Slices come from the LPT planner (scripts/shard-plan.ts over
+        # scripts/shard-timings.json) — est. per-shard skew <1s vs the old
+        # stride's ~35-40s. KNOB: 10 shards would shave ~30s more, but the
+        # org-level concurrent-job cap is unverified (18 jobs at t=0 today;
+        # free plan caps at 20) — verify before raising.
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
@@ -218,17 +292,22 @@ jobs:
       - name: Run shard (tests + coverage)
         env:
           SHARD_INDEX: ${{ matrix.shard }}
-          SHARD_TOTAL: "5"
+          SHARD_TOTAL: "8"
           COV_OUT: coverage-shard
         run: bash scripts/test-coverage.sh
+      # 3 days (not 1): keeps "Re-run failed jobs" on the coverage gate
+      # working >24h after the shards ran.
       - uses: actions/upload-artifact@v4
         with:
           name: lcov-cov-shard-${{ matrix.shard }}
           path: coverage-shard
-          retention-days: 1
+          retention-days: 3
           if-no-files-found: error
 
-  # SDK + harness-client + node-vitest coverage legs (node 22 for coverage-v8).
+  # SDK + harness-client + suggest + ai-kit + node-vitest coverage legs
+  # (node 22 for coverage-v8). harness-client + ai-kit + vitest gate
+  # pass/fail; SDK + suggest are coverage-only (suggest pass/fail-gates via
+  # residual-tests). Leg file sets live in scripts/lib/test-file-sets.sh.
   cov-extras:
     name: Coverage extras (legs)
     runs-on: ubuntu-latest
@@ -252,7 +331,7 @@ jobs:
         with:
           name: lcov-cov-extras
           path: coverage-shard
-          retention-days: 1
+          retention-days: 3 # see the cov-shard retention note
           if-no-files-found: error
 
   # Coverage producer for the 9 web security helpers un-excluded from
@@ -279,7 +358,7 @@ jobs:
         with:
           name: lcov-cov-security
           path: coverage-shard
-          retention-days: 1
+          retention-days: 3 # see the cov-shard retention note
           if-no-files-found: error
 
   # Required check: a CURATED set of high-value, deterministic correctness suites
@@ -305,10 +384,11 @@ jobs:
           CRITICAL_ONLY: "1"
         run: bash scripts/test.sh
 
-  # The pass/fail files that the coverage shards do NOT run (the *integration*
-  # variants excluded from the coverage set). Empty today on main — a no-op
-  # until the integration suites land — but keeps the union of gated pass/fail
-  # files exactly equal to the old `Backend tests` set.
+  # The pass/fail files that the coverage shards do NOT run: the *integration*
+  # variants excluded from the coverage set, plus route-contract.test.ts (the
+  # remote-control governance meta-test). Keeps the union of gated pass/fail
+  # files exactly equal to the full pass/fail set P — scripts/test.sh asserts
+  # route-contract's membership so set drift can never silently de-gate it.
   residual-tests:
     name: Residual integration tests
     runs-on: ubuntu-latest
@@ -325,12 +405,13 @@ jobs:
         run: bash scripts/test.sh
 
   # Required check (branch protection): green iff every backend shard + the
-  # residual set RAN TO COMPLETION. The shards execute the whole backend suite
-  # under --coverage and tolerate test pass/fail (the Per-file coverage gate
-  # enforces thresholds — "enforces thresholds, not shard status"; this matches
-  # the pre-split job, whose `Backend tests` pool also did not red on individual
-  # test failures). A shard that fails here means the runner could not execute
-  # (infra/OOM) — that is surfaced. Aggregated so the pinned required-check name
+  # residual set succeeded. The shards run the backend suite under --coverage
+  # and gate pass/fail on P-membership with an isolated plain retry sweep for
+  # instrumentation flakes (see scripts/test-coverage.sh host-shard mode);
+  # non-P files (the example suites) stay coverage-only, enforced by the
+  # Per-file coverage gate's thresholds. A red here therefore means a real
+  # pass/fail-set test failure OR an infrastructure failure (runner couldn't
+  # execute) — both must block. Aggregated so the pinned required-check name
   # keeps reporting.
   backend-tests:
     name: Backend tests
@@ -345,10 +426,10 @@ jobs:
           echo "residual-tests:  ${{ needs.residual-tests.result }}"
           if [ "${{ needs.cov-shard.result }}" != "success" ] || \
              [ "${{ needs.residual-tests.result }}" != "success" ]; then
-            echo "::error::A backend shard failed to run to completion (infrastructure)"
+            echo "::error::A backend shard failed — a pass/fail-set (P) test failure that survived the isolated retry, or an infrastructure failure. See the failing shard's log."
             exit 1
           fi
-          echo "All backend shards ran to completion."
+          echo "All backend shards succeeded."
 
   # Required check (branch protection): merges every shard + extras lcov and
   # enforces scripts/coverage-thresholds.json + the diff-scoped new-file/patch
@@ -375,7 +456,7 @@ jobs:
           fetch-depth: 0
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: "1.3.14" # see pin note at top of file
+          bun-version-file: .bun-version # single pin source; see note at top
       - run: git fetch --no-tags origin main
       - uses: actions/download-artifact@v4
         with:
@@ -402,9 +483,17 @@ jobs:
     # never hold a write token. The privileged publish step lives in the
     # separate `visual-evidence-publish.yml` (on: workflow_run).
     #
-    # The job conclusion is the HARD gate (step "Visual-evidence gate"); every
-    # later step is continue-on-error so the best-effort capture/publish lane
-    # can never red a PR during the fail-soft pilot.
+    # TWO hard red paths (wave 3 — no longer pure fail-soft after the gate):
+    #   1. the deterministic "Visual-evidence gate" step, and
+    #   2. "Enforce credited @evidence pass": when select-specs.ts returned a
+    #      DIFF-SCOPED spec list, those specs are exactly what the gate
+    #      credited this PR for — so their playwright run must PASS (a
+    #      credited capture that starts but never succeeds, incl. a
+    #      step-timeout kill, reds the job via the credited/credited_ok flag
+    #      pair).
+    # The __ALL__ full-suite fallback and the manifest/upload steps remain
+    # continue-on-error (best-effort), so unrelated-suite flakes still can't
+    # red a PR — only the specs the diff was credited for can.
     #
     # Capture is DIFF-SCOPED (scripts/visual-evidence/select-specs.ts):
     # selection = changed @evidence-TAGGED specs ∪ covers-map specs rendering
@@ -426,18 +515,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: "1.3.14" # see pin note at top of file
-      - name: Cache bun global install cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-1.3.14-${{ hashFiles('bun.lock', 'web/bun.lock') }}
-          restore-keys: |
-            bun-${{ runner.os }}-1.3.14-
+      # Pinned bun + shared dependency cache + root deps via the composite —
+      # this job previously hand-rolled the same three steps with its own
+      # copy of the pin and cache key.
+      - uses: ./.github/actions/setup
       - run: git fetch --no-tags origin "${{ github.event.pull_request.base.ref || 'main' }}"
-      - run: bun install --frozen-lockfile
       # HARD gate (required, deterministic, NO browser): fails the PR if a
       # visual-surface file changed without a matching @evidence e2e spec. The
       # maintainer-only `evidence-exempt` label sets EVIDENCE_EXEMPT=1 to bypass.
@@ -449,6 +531,7 @@ jobs:
       # SOFT capture (best-effort): only the @evidence-tagged specs run. Browser
       # binaries are cached to skip the ~150 MB chromium download.
       - name: Cache Playwright browsers
+        id: pw-cache
         continue-on-error: true
         uses: actions/cache@v4
         with:
@@ -465,8 +548,20 @@ jobs:
       - name: Capture visual evidence
         id: capture
         continue-on-error: true
+        # Step-level cap: a hung capture is absorbed by continue-on-error
+        # instead of tripping the 20m JOB timeout and redding this fail-soft
+        # lane — the deterministic gate step stays the only red path.
+        timeout-minutes: 12
+        # Explicit bash (the Actions default, but pinned so the array logic
+        # below is never run under another shell — it also works in zsh for
+        # local reproduction, unlike the previous `mapfile`).
+        shell: bash
         env:
           BASE_REF: origin/${{ github.event.pull_request.base.ref || 'main' }}
+          # Split install (see .github/actions/setup): apt deps only on a
+          # browser-cache miss. Empty/errored cache output reads as "miss",
+          # so deps still install (fail-safe direction).
+          PW_BROWSER_CACHE_HIT: ${{ steps.pw-cache.outputs.cache-hit }}
         run: |
           SPECS_FILE="$RUNNER_TEMP/evidence-specs.txt"
           bun scripts/visual-evidence/select-specs.ts > "$SPECS_FILE" || echo __ALL__ > "$SPECS_FILE"
@@ -480,14 +575,35 @@ jobs:
             echo "non-visual diff — skipping visual-evidence capture"
             exit 0
           fi
+          # DIFF-SCOPED classification happens HERE, before any install, so
+          # `credited=1` is recorded even if bun install / sync / browser
+          # install dies — an infra failure on a credited capture must still
+          # red via the enforce step (credited && !credited_ok), never
+          # soft-skip it.
+          if ! grep -qx '__ALL__' "$SPECS_FILE"; then
+            echo "credited=1" >> "$GITHUB_OUTPUT"
+          fi
           cd web && bun install --frozen-lockfile
           bunx --bun svelte-kit sync
-          bunx playwright install --with-deps chromium
+          bunx playwright install chromium
+          if [ "${PW_BROWSER_CACHE_HIT:-}" != "true" ]; then
+            bunx playwright install-deps chromium
+          fi
           if grep -qx '__ALL__' "$SPECS_FILE"; then
+            # Full-suite fallback stays fail-soft: the diff wasn't credited
+            # for any specific spec, so unrelated flakes must not red the PR.
             EZCORP_E2E_EVIDENCE=1 bunx playwright test --project=chromium --grep @evidence || true
           else
-            mapfile -t SPECS < "$SPECS_FILE"
-            EZCORP_E2E_EVIDENCE=1 bunx playwright test --project=chromium --grep @evidence "${SPECS[@]}" || true
+            SPECS=()
+            # `|| [ -n "$line" ]` keeps a final line with no trailing newline (mapfile-equivalent robustness; select-specs always emits a trailing \n today, this guards a future producer change).
+            while IFS= read -r line || [ -n "$line" ]; do [ -n "$line" ] && SPECS+=("$line"); done < "$SPECS_FILE"
+            # DIFF-SCOPED list: these specs are what the Visual-evidence gate
+            # credited the PR for — their result must gate. `credited=1` was
+            # already written above (pre-install) so an infra death or a
+            # hung/killed capture (step timeout) also reds via the missing
+            # `credited_ok`.
+            EZCORP_E2E_EVIDENCE=1 bunx playwright test --project=chromium --grep @evidence "${SPECS[@]}"
+            echo "credited_ok=1" >> "$GITHUB_OUTPUT"
           fi
       # When capture was skipped (non-visual diff), the manifest is a `skipped`
       # marker with zero shots: WF2 uses it to REFRESH a stale gallery comment
@@ -512,3 +628,11 @@ jobs:
           path: web/blob-report
           retention-days: 3
           if-no-files-found: ignore
+      # HARD red path 2 (see job header): a DIFF-SCOPED (credited) capture
+      # must pass. Placed after manifest/upload so failure evidence still
+      # lands as artifacts before the job reds.
+      - name: Enforce credited @evidence pass
+        if: steps.capture.outputs.credited == '1' && steps.capture.outputs.credited_ok != '1'
+        run: |
+          echo "::error::diff-credited @evidence spec(s) failed or never completed — the Visual-evidence gate credited this PR for exactly these specs, so their capture run must pass. See the 'Capture visual evidence' step log."
+          exit 1

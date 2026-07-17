@@ -12,11 +12,16 @@
 
 import type {
   ActResult,
+  ApprovalMode,
+  CheckResult,
   FailureClass,
   LoopAutoDisableContext,
   LoopContract,
+  LoopDefinition,
+  LoopProposal,
   LoopRunEvent,
   LoopRunState,
+  LoopTrigger,
   ResolvedContract,
 } from "./loop-types";
 
@@ -27,20 +32,115 @@ export const DEFAULT_STATES = ["done"] as const;
 export const DEFAULT_MAX_RUNS = 100;
 export const DEFAULT_MAX_EVENTS_PER_RUN = 50;
 
+// ── Approval states (primitive-owned) ────────────────────────────────
+//
+// When `contract.approval` is present the primitive owns these states —
+// they are auto-injected into the resolved contract so an extension never
+// declares (or can forget) them. `awaiting_approval` + `finalizing` are
+// NON-terminal (parked, never retention-evicted); `approved` + `declined`
+// are terminal.
+
+/** A parked run awaiting a human approve/decline. Non-terminal. */
+export const AWAITING_APPROVAL = "awaiting_approval";
+/** Finalize-intent recorded; `finalize` is (or was) running. Non-terminal.
+ *  A re-entry that finds this state must NOT re-invoke finalize. */
+export const FINALIZING = "finalizing";
+/** Approve resolved + finalize completed. Terminal. */
+export const APPROVED = "approved";
+/** Decline (human or staleness) resolved. Terminal. */
+export const DECLINED = "declined";
+
+/** The four primitive-owned approval states + their terminal subset.
+ *  Kept on one line each: a multi-line array literal makes Bun emit a
+ *  phantom uncovered DA record per element line in every shard that
+ *  loads (but doesn't exercise) this module, and merge-lcov doesn't union
+ *  those away — so the merged coverage gate flagged 53-56 as missed. */
+export const APPROVAL_STATES = [AWAITING_APPROVAL, FINALIZING, APPROVED, DECLINED] as const;
+export const APPROVAL_TERMINAL_STATES = [APPROVED, DECLINED] as const;
+
+/** Default staleness horizon: a parked proposal older than this many days
+ *  auto-declines. 0 disables the sweep. */
+export const DEFAULT_STALE_AFTER_DAYS = 7;
+
+// ── Content-trust derivation (Loops EZ Mode Phase 4 → consumed Phase 8) ─
+//
+// A loop is PERMANENTLY `untrusted-input` when any of its triggers ingests
+// attacker-controllable content. Today the sole structural source is a
+// `webhook` trigger (a leaked token lets anyone POST arbitrary bytes). Pure +
+// total so it is trivially unit-testable and the Phase-8 content-trust gate
+// (autopilot NEVER offerable on an untrusted-input loop) reads ONE canonical
+// predicate rather than re-deriving the rule. Kept deliberately narrow: this
+// is a registration-level classification, NOT Phase-8 logic.
+
+/** True when the trigger is a structural source of attacker-controllable
+ *  input (webhook today). Pure. */
+export function isUntrustedInputTrigger(trigger: LoopTrigger): boolean {
+  return trigger.kind === "webhook";
+}
+
+/** True when a loop definition has ANY untrusted-input trigger — so it is
+ *  permanently `untrusted-input`. Normalizes the one-or-many `trigger` shape.
+ *  Pure; the registration path (`defineLoop`) stamps the result and Phase 8
+ *  reads it. */
+export function hasUntrustedInputTrigger(
+  def: Pick<LoopDefinition, "trigger">,
+): boolean {
+  const triggers = Array.isArray(def.trigger) ? def.trigger : [def.trigger];
+  return triggers.some(isUntrustedInputTrigger);
+}
+
+/** True when a loop is `untrusted-input` by EITHER an untrusted-input trigger
+ *  (a webhook body) OR an explicit `contentTrust: "untrusted-input"`
+ *  declaration — the escape hatch for a loop whose `check`/`act` ingests
+ *  attacker-controllable EXTERNAL content that no trigger rule catches (a
+ *  settings-configured `ctx.fetch` in `check`, an LLM parse of fetched text in
+ *  `act` — seo-watcher's shape). The single canonical predicate the
+ *  registration path stamps and Phase 8's content-trust gate reads; declaring
+ *  it can only ADD the marker, never clear the trigger-derived one. Pure. */
+export function isUntrustedInputLoop(
+  def: Pick<LoopDefinition, "trigger" | "contentTrust">,
+): boolean {
+  return hasUntrustedInputTrigger(def) || def.contentTrust === "untrusted-input";
+}
+
 /** Fill every contract gap so downstream branches are total. Pure. */
 export function resolveContract<Input>(
   contract: LoopContract<Input> = {},
 ): ResolvedContract<Input> {
-  const states =
+  const declaredStates =
     contract.states && contract.states.length > 0
       ? contract.states
       : DEFAULT_STATES;
   // Default: every declared state is terminal (capture loops resolve in
   // one transition). Deferred loops declare a narrower `terminal` subset.
-  const terminal =
+  const declaredTerminal =
     contract.terminal && contract.terminal.length > 0
       ? contract.terminal
-      : states;
+      : declaredStates;
+
+  // Approval: inject the primitive-owned states so `transition` accepts
+  // them without the extension re-declaring the governance vocabulary.
+  const hasApproval = contract.approval !== undefined;
+  // Reject an unknown approval mode LOUDLY at construction. Phase 2 ships ONLY
+  // `"proactive"`; `"plan"` (Phase 7) and `"autopilot"` (Phase 8) are not in
+  // the union yet. A loop that declares an unsupported mode is a
+  // misconfiguration that MUST fail install rather than silently degrade to
+  // proactive — this guards the Phase 7/8 graduation surface.
+  if (hasApproval) {
+    const mode = contract.approval!.mode ?? "proactive";
+    if (mode !== "proactive") {
+      throw new Error(
+        `[@ezcorp/sdk] defineLoop: contract.approval.mode "${mode}" is not supported — only "proactive" is available in this phase`,
+      );
+    }
+  }
+  const states = hasApproval
+    ? dedupe([...declaredStates, ...APPROVAL_STATES])
+    : declaredStates;
+  const terminal = hasApproval
+    ? dedupe([...declaredTerminal, ...APPROVAL_TERMINAL_STATES])
+    : declaredTerminal;
+
   return {
     states,
     terminal,
@@ -56,7 +156,30 @@ export function resolveContract<Input>(
     ...(contract.failure?.onAutoDisable
       ? { onAutoDisable: contract.failure.onAutoDisable }
       : {}),
+    ...(hasApproval
+      ? {
+          approval: {
+            mode: (contract.approval!.mode ?? "proactive") as ApprovalMode,
+            staleAfterDays:
+              contract.approval!.staleAfterDays ?? DEFAULT_STALE_AFTER_DAYS,
+          },
+        }
+      : {}),
+    configVersion: contract.configVersion ?? "0",
   };
+}
+
+/** De-dupe a string list preserving first-seen order. Pure. */
+function dedupe(xs: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const x of xs) {
+    if (!seen.has(x)) {
+      seen.add(x);
+      out.push(x);
+    }
+  }
+  return out;
 }
 
 // ── Status predicates ────────────────────────────────────────────────
@@ -76,6 +199,78 @@ export function isLive(
   contract: ResolvedContract,
 ): boolean {
   return !isTerminal(run.status, contract);
+}
+
+// ── Parked-run predicates (approval) ─────────────────────────────────
+
+/** A run is PARKED iff it awaits a human approve/decline (`awaiting_approval`)
+ *  or is mid-finalize (`finalizing`). Parked runs are non-terminal, so they
+ *  are never retention-evicted (trimRetention evicts only terminal runs) and
+ *  — per the spec — are EXCLUDED from the active-run count that a
+ *  `maxConcurrent` cap would gate. Pure. */
+export function isParked(run: Pick<LoopRunState, "status">): boolean {
+  return run.status === AWAITING_APPROVAL || run.status === FINALIZING;
+}
+
+/**
+ * Count runs that are ACTIVE for concurrency purposes: live (non-terminal)
+ * AND not parked. A parked run holds no compute — it is waiting on a human —
+ * so it must not count against `maxConcurrent`. Pure. (The maxConcurrent
+ * *enforcement* lands with the trigger that needs it; this is the invariant
+ * it must honor, kept testable from day one.)
+ */
+export function countActiveRuns<Outcome = unknown>(
+  runs: LoopRunState<Outcome>[],
+  contract: ResolvedContract,
+): number {
+  return runs.filter((r) => isLive(r, contract) && !isParked(r)).length;
+}
+
+// ── Staleness ────────────────────────────────────────────────────────
+
+/**
+ * Whether a parked proposal has rotted past the staleness horizon. Only
+ * `awaiting_approval` runs are candidates (a `finalizing` run already has a
+ * human decision behind it). `staleAfterDays <= 0` disables the sweep. The
+ * clock is injected (`nowMs`) so this is pure + deterministic.
+ */
+export function isProposalStale(
+  run: Pick<LoopRunState, "status" | "createdAt">,
+  staleAfterDays: number,
+  nowMs: number,
+): boolean {
+  if (staleAfterDays <= 0) return false;
+  if (run.status !== AWAITING_APPROVAL) return false;
+  const created = Date.parse(run.createdAt);
+  if (Number.isNaN(created)) return false;
+  const ageMs = nowMs - created;
+  return ageMs >= staleAfterDays * 24 * 60 * 60 * 1000;
+}
+
+// ── Proposal validation ──────────────────────────────────────────────
+
+/**
+ * Validate a `proposal` ActResult's descriptor at runtime (the type is
+ * advisory — `act` is JS). Returns an error string or null. Pure.
+ */
+export function validateProposal(proposal: unknown): string | null {
+  if (typeof proposal !== "object" || proposal === null) {
+    return "loop proposal must be an object ({ title, summary, kind })";
+  }
+  const p = proposal as Partial<LoopProposal>;
+  if (typeof p.title !== "string" || p.title.length === 0) {
+    return "loop proposal.title must be a non-empty string";
+  }
+  if (typeof p.summary !== "string") {
+    return "loop proposal.summary must be a string";
+  }
+  if (p.kind !== "pr" && p.kind !== "artifact" && p.kind !== "action") {
+    return 'loop proposal.kind must be one of "pr" | "artifact" | "action"';
+  }
+  if (p.ref !== undefined && typeof p.ref !== "string") {
+    return "loop proposal.ref must be a string when present";
+  }
+  return null;
 }
 
 // ── Event-log capping ────────────────────────────────────────────────
@@ -105,6 +300,9 @@ export interface NewRunInput<Outcome = unknown> {
   externalAssignmentId?: string;
   externalTaskId?: string;
   subConversationId?: string;
+  /** Proposal snapshot set when a run is claimed already parked in
+   *  `awaiting_approval`. */
+  proposal?: LoopProposal;
   /** Initial note for the first event-log entry. */
   note?: string;
 }
@@ -136,6 +334,7 @@ export function createRun<Outcome = unknown>(
     ...(input.subConversationId
       ? { subConversationId: input.subConversationId }
       : {}),
+    ...(input.proposal !== undefined ? { proposal: input.proposal } : {}),
     events: appendEvent([], firstEvent, contract.maxEventsPerRun),
     createdAt: now,
     updatedAt: now,
@@ -162,6 +361,11 @@ export function transition<Outcome = unknown>(
     externalAssignmentId?: string;
     externalTaskId?: string;
     subConversationId?: string;
+    /** Set/replace the proposal snapshot (deferred completion → park). */
+    proposal?: LoopProposal;
+    /** Flag the run for manual verification (crash/restart re-entry on a
+     *  `finalizing` run — never re-invoke finalize). */
+    verifyManually?: boolean;
   },
   contract: ResolvedContract,
   now: string,
@@ -182,6 +386,10 @@ export function transition<Outcome = unknown>(
     ...(next.externalTaskId ? { externalTaskId: next.externalTaskId } : {}),
     ...(next.subConversationId
       ? { subConversationId: next.subConversationId }
+      : {}),
+    ...(next.proposal !== undefined ? { proposal: next.proposal } : {}),
+    ...(next.verifyManually !== undefined
+      ? { verifyManually: next.verifyManually }
       : {}),
     updatedAt: now,
     events: appendEvent(run.events, evt, contract.maxEventsPerRun),
@@ -313,15 +521,64 @@ export function autoDisableContext(
  * Validate an `act` result's status against the contract vocabulary.
  * Returns an error string when a terminal/deferred result names an
  * unknown state, else null. `skip` carries no status, so it always passes.
- * Pure.
+ *
+ * `proposal` is governed by the primitive, not the contract vocabulary:
+ * its `status` is a free-form event label (the run parks at the
+ * primitive-owned `awaiting_approval`), so it is NOT checked against
+ * `contract.states`. It IS rejected when the loop never declared
+ * `contract.approval` (a proposal with no governance is a misconfiguration)
+ * or when the proposal descriptor is malformed. Pure.
  */
 export function validateActResult(
   result: ActResult,
   contract: ResolvedContract,
 ): string | null {
   if (result.kind === "skip") return null;
+  if (result.kind === "proposal") {
+    if (!contract.approval) {
+      return "loop act returned a proposal but contract.approval is not declared — add `approval: { mode: \"proactive\" }`";
+    }
+    if (typeof result.finalize !== "function") {
+      return "loop proposal must supply a finalize() function";
+    }
+    return validateProposal(result.proposal);
+  }
   if (!isKnownState(result.status, contract)) {
     return `loop act returned unknown status "${result.status}" — declare it in contract.states (${contract.states.join(", ")})`;
+  }
+  return null;
+}
+
+// ── check-result validation ──────────────────────────────────────────
+
+/**
+ * Validate a `check` result before the fire pipeline acts on it. A misbehaving
+ * check (this is JS at runtime — the `CheckResult` type is advisory) may hand
+ * back anything, so guard the whole shape, not just the reason:
+ *   - the result must be a non-null object,
+ *   - `proceed` must be a boolean (a truthy non-boolean must NOT silently act),
+ *   - a `proceed: false` MUST carry a non-empty `reason` string (it becomes the
+ *     `skip`'s audit reason).
+ * Any violation is treated as a check error (classified by `contract.failure`,
+ * like a thrown check) rather than a silent, mis-branched fire. `proceed: true`
+ * otherwise passes. Returns an error string or null. Pure.
+ */
+export function validateCheckResult(result: CheckResult): string | null {
+  // `result` is typed `CheckResult`, but a runtime check can return junk;
+  // widen to `unknown` so the guards below aren't narrowed away as dead.
+  const r = result as unknown;
+  if (typeof r !== "object" || r === null) {
+    return "loop check must return an object ({ proceed: boolean, … })";
+  }
+  const proceed = (r as { proceed?: unknown }).proceed;
+  if (typeof proceed !== "boolean") {
+    return "loop check result.proceed must be a boolean (true | false)";
+  }
+  if (proceed === false) {
+    const reason = (r as { reason?: unknown }).reason;
+    if (typeof reason !== "string" || reason.length === 0) {
+      return "loop check returned proceed:false without a non-empty reason string";
+    }
   }
   return null;
 }

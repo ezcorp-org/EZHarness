@@ -27,11 +27,13 @@ MCP server registered: `bunx @ezcorp/ai-kit install claude-code`
 
 ### Discover installed extensions
 
-Before adding an extension to an agent's `extensions[]`, list what the server has available:
+Before adding an extension to an agent's `extensions[]`, search what the server has available (substring match on name/description; omit `query` to list everything):
 
 ```json
-{ "tool": "list_extensions", "arguments": {} }
+{ "tool": "extension_search", "arguments": { "query": "kanban" } }
 ```
+
+Returns matching extensions with a curated `tools` list (`{ name, description }` only) per extension. The older `list_extensions` tool (no filter, full payload) still works but is deprecated — prefer `extension_search`.
 
 ### List agents
 

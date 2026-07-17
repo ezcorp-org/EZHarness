@@ -99,6 +99,23 @@ describe("clampExtensionPermissions — capability tier", () => {
     expect(out.spawnAgents).toEqual({ maxPerHour: 10, maxConcurrent: 5 });
   });
 
+  test("loopEvents attaches only when BOTH manifest + submitted declare it", () => {
+    // Both declare → granted.
+    expect(
+      clampExtensionPermissions({ loopEvents: true }, { loopEvents: true }).loopEvents,
+    ).toBe(true);
+    // Manifest silent → dropped (can't grant beyond the manifest).
+    expect(
+      clampExtensionPermissions({ loopEvents: true }, {}).loopEvents,
+    ).toBeUndefined();
+    // Kill-switch disables the whole tier even when both declare.
+    process.env["EZCORP_DISABLE_CAPABILITY_TOOLS"] = "1";
+    expect(
+      clampExtensionPermissions({ loopEvents: true }, { loopEvents: true }).loopEvents,
+    ).toBeUndefined();
+    delete process.env["EZCORP_DISABLE_CAPABILITY_TOOLS"];
+  });
+
   test("eventSubscriptions: array-form triple-intersection (∩ manifest ∩ direct-carrier)", () => {
     const out = clampExtensionPermissions(
       { eventSubscriptions: [DCE_EVENT, "not-in-manifest", "not:a:real:event"] },
@@ -120,6 +137,27 @@ describe("clampExtensionPermissions — capability tier", () => {
   test("eventSubscriptions: manifest without a declaration yields no grant", () => {
     const out = clampExtensionPermissions({ eventSubscriptions: [DCE_EVENT] }, {});
     expect(out.eventSubscriptions).toBeUndefined();
+  });
+
+  test("webhooks: slug array intersects submitted ∩ manifest; undeclared slug dropped", () => {
+    const out = clampExtensionPermissions(
+      { webhooks: ["tickets", "not-in-manifest"] },
+      { webhooks: ["tickets", "alerts"] },
+    );
+    expect(out.webhooks).toEqual(["tickets"]);
+  });
+
+  test("webhooks: manifest without a declaration yields no grant", () => {
+    const out = clampExtensionPermissions({ webhooks: ["tickets"] }, {});
+    expect(out.webhooks).toBeUndefined();
+  });
+
+  test("webhooks: no overlap yields no grant", () => {
+    const out = clampExtensionPermissions(
+      { webhooks: ["tickets"] },
+      { webhooks: ["alerts"] },
+    );
+    expect(out.webhooks).toBeUndefined();
   });
 });
 

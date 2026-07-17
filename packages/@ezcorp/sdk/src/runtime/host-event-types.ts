@@ -114,6 +114,34 @@ export interface TaskAssignmentUpdateEvent {
   assignment: TaskAssignment;
 }
 
+// ── Loop approvals (Phase 2) ─────────────────────────────────────────
+//
+// CONTENT-FREE invalidation nudges: a loop run parked / resolved. The web
+// badge/inbox re-fetches the authorized dashboard on receipt (GET is the
+// source of truth) — the payload NEVER carries the proposal body. The
+// optional `conversationId` scopes SSE delivery to that conversation's owner
+// when the loop is conversation-wired; a global loop omits it and the nudge
+// broadcasts (see the host `DIRECT_CARRIER_EVENT_TYPES` optional-carrier
+// semantics).
+export interface LoopApprovalPendingEvent {
+  loopId: string;
+  runId: string;
+  conversationId?: string;
+}
+export interface LoopApprovalResolvedEvent {
+  loopId: string;
+  runId: string;
+  decision: "approved" | "declined";
+  conversationId?: string;
+}
+/** User-visible notice that a loop auto-disabled after N consecutive
+ *  permanent errors — a stop is never silent. */
+export interface LoopAutoDisabledEvent {
+  loopId: string;
+  consecutiveErrors: number;
+  conversationId?: string;
+}
+
 /** The subscribable event types and their payload shapes. Key names
  *  MUST match `DIRECT_CARRIER_EVENT_TYPES` on the host. */
 export interface SubscribableEventMap {
@@ -130,6 +158,9 @@ export interface SubscribableEventMap {
   "ask-user:answer": AskUserAnswerEvent;
   "task:snapshot": TaskSnapshotEvent;
   "task:assignment_update": TaskAssignmentUpdateEvent;
+  "loops:approval_pending": LoopApprovalPendingEvent;
+  "loops:approval_resolved": LoopApprovalResolvedEvent;
+  "loops:auto_disabled": LoopAutoDisabledEvent;
 }
 
 export type SubscribableEvent = keyof SubscribableEventMap;

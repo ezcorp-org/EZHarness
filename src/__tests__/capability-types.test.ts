@@ -306,10 +306,25 @@ describe("capabilityDeclarationToSet", () => {
     ).toEqual([{ kind: "ezcorp:tasks:emit" }]);
   });
 
+  test("custom: { loopEvents: true } → ezcorp:loops:emit cap", () => {
+    expect(
+      capabilityDeclarationToSet({ custom: { loopEvents: true } }, {}),
+    ).toEqual([{ kind: "ezcorp:loops:emit" }]);
+  });
+
   test("custom: { eventSubscriptions: ['x:y'] } → namespaced cap with value", () => {
     expect(
       capabilityDeclarationToSet({ custom: { eventSubscriptions: ["x:y"] } }, {}),
     ).toEqual([{ kind: "ezcorp:events:subscribe", value: "x:y" }]);
+  });
+
+  test("custom: { webhooks: ['tickets'] } → ezcorp:webhooks:receive cap per slug", () => {
+    expect(
+      capabilityDeclarationToSet({ custom: { webhooks: ["tickets", "alerts"] } }, {}),
+    ).toEqual([
+      { kind: "ezcorp:webhooks:receive", value: "tickets" },
+      { kind: "ezcorp:webhooks:receive", value: "alerts" },
+    ]);
   });
 
   test("custom: unknown key is dropped (forward-compat ignore)", () => {
@@ -483,6 +498,33 @@ describe("intersectPermissions — capability tier", () => {
     expect(tt(undefined, undefined)).toBeUndefined();
   });
 
+  test("loopEvents AND — only true∧true survives", () => {
+    const tt = (a: boolean | undefined, b: boolean | undefined) =>
+      intersectPermissions(
+        { loopEvents: a, grantedAt: {} } as ExtensionPermissions,
+        { loopEvents: b, grantedAt: {} } as ExtensionPermissions,
+      ).loopEvents;
+    expect(tt(true, true)).toBe(true);
+    expect(tt(true, false)).toBeUndefined();
+    expect(tt(false, true)).toBeUndefined();
+    expect(tt(undefined, undefined)).toBeUndefined();
+  });
+
+  test("loopEvents grantedAt survives only when the permission survives", () => {
+    const withTs = intersectPermissions(
+      { loopEvents: true, grantedAt: { loopEvents: 100 } },
+      { loopEvents: true, grantedAt: { loopEvents: 200 } },
+    );
+    // Older timestamp wins (conservative audit trail).
+    expect(withTs.grantedAt.loopEvents).toBe(100);
+    const dropped = intersectPermissions(
+      { loopEvents: true, grantedAt: { loopEvents: 100 } },
+      { grantedAt: {} },
+    );
+    expect(dropped.loopEvents).toBeUndefined();
+    expect(dropped.grantedAt.loopEvents).toBeUndefined();
+  });
+
   test("agentConfig: both 'read' → 'read'; only one 'read' → absent", () => {
     expect(
       intersectPermissions(
@@ -520,6 +562,37 @@ describe("intersectPermissions — capability tier", () => {
       { eventSubscriptions: ["a:b", "c:d"], grantedAt: {} },
     );
     expect(r.eventSubscriptions).toEqual(["a:b"]);
+  });
+
+  test("webhooks: array intersection (slug clip)", () => {
+    const r = intersectPermissions(
+      { webhooks: ["tickets", "alerts"], grantedAt: {} },
+      { webhooks: ["alerts", "orders"], grantedAt: {} },
+    );
+    expect(r.webhooks).toEqual(["alerts"]);
+  });
+
+  test("webhooks: disjoint slugs → no webhooks in result", () => {
+    const r = intersectPermissions(
+      { webhooks: ["tickets"], grantedAt: {} },
+      { webhooks: ["orders"], grantedAt: {} },
+    );
+    expect(r.webhooks).toBeUndefined();
+  });
+
+  test("webhooks: grantedAt survives (older ts) only when the slug survives", () => {
+    const r = intersectPermissions(
+      { webhooks: ["tickets"], grantedAt: { webhooks: 100 } },
+      { webhooks: ["tickets"], grantedAt: { webhooks: 200 } },
+    );
+    expect(r.webhooks).toEqual(["tickets"]);
+    expect(r.grantedAt.webhooks).toBe(100);
+    const dropped = intersectPermissions(
+      { webhooks: ["tickets"], grantedAt: { webhooks: 100 } },
+      { webhooks: ["orders"], grantedAt: { webhooks: 200 } },
+    );
+    expect(dropped.webhooks).toBeUndefined();
+    expect(dropped.grantedAt.webhooks).toBeUndefined();
   });
 
   test("appendMessages: OR on excludedDefault (force-exclude wins, both sides)", () => {
@@ -711,6 +784,36 @@ describe("capabilityDeclarationToSet — $CWD expansion in declared paths", () =
     expect(writeCap).toBeDefined();
     expect(writeCap!.value).toBe(process.cwd());
     expect(writeCap!.value).not.toBe("$CWD");
+  });
+});
+
+// ── grantsToCapabilitySet — capability-tier grant→cap ───────────────
+
+describe("grantsToCapabilitySet — capability tier", () => {
+  test("loopEvents:true → ezcorp:loops:emit cap; absent → no cap", () => {
+    expect(
+      grantsToCapabilitySet({ grantedAt: {}, loopEvents: true }).some(
+        (c) => c.kind === "ezcorp:loops:emit",
+      ),
+    ).toBe(true);
+    expect(
+      grantsToCapabilitySet({ grantedAt: {} }).some(
+        (c) => c.kind === "ezcorp:loops:emit",
+      ),
+    ).toBe(false);
+  });
+
+  test("webhooks → one ezcorp:webhooks:receive cap per slug; absent → no cap", () => {
+    const caps = grantsToCapabilitySet({ grantedAt: {}, webhooks: ["tickets", "alerts"] });
+    expect(caps.filter((c) => c.kind === "ezcorp:webhooks:receive")).toEqual([
+      { kind: "ezcorp:webhooks:receive", value: "tickets" },
+      { kind: "ezcorp:webhooks:receive", value: "alerts" },
+    ]);
+    expect(
+      grantsToCapabilitySet({ grantedAt: {} }).some(
+        (c) => c.kind === "ezcorp:webhooks:receive",
+      ),
+    ).toBe(false);
   });
 });
 

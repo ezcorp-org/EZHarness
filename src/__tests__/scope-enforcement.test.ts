@@ -65,6 +65,13 @@ describe("scope enforcement coverage", () => {
     "/marketplace/categories/+server.ts",  // anonymous category listing
     "/version/+server.ts",                  // diagnostic
     "/ready/+server.ts",                    // health probe
+    // External webhook ingress (Loops Phase 4) — public-by-design like the
+    // OAuth callbacks, with its OWN auth the textual scan can't see: a
+    // fail-closed per-hook bearer secret (constant-time compare, dummy
+    // compare on unknown hooks for timing parity), pre-lookup per-IP burst
+    // limiter, slug shape gate and body-size caps, all before dispatch.
+    // Session scopes cannot apply — the caller is an external system.
+    "/hooks/[extensionId]/[slug]/+server.ts",
   ]);
 
   test("all non-auth API routes contain a scope, role, or auth gate", async () => {
@@ -114,6 +121,13 @@ describe("scope enforcement coverage", () => {
         // logic. Accepting the wrapper keeps this textual scan accurate without
         // forcing a redundant inline `requireScope` into every route.
         !content.includes("authGithubRoute") &&
+        // `verifyWebhookAuth` (src/extensions/webhook-auth.ts) is the public
+        // webhook-ingress route's gate: constant-time per-hook bearer-secret
+        // compare, fail-closed when no secret is set, behind a pre-lookup rate
+        // limiter. The route is public-by-design (external services POST to
+        // it) but every request must present the hook's token — accept the
+        // verifier like `authGithubRoute` above so the scan stays accurate.
+        !content.includes("verifyWebhookAuth") &&
         !(isTestSurfaceRoute && content.includes("isTestSurfaceEnabled"))
       ) {
         missing.push(relative);

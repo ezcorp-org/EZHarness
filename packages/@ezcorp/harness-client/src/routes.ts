@@ -52,6 +52,10 @@ export const HARNESS_ROUTES = {
   invokeExtensionTool: { httpMethod: "POST", pathTemplate: "/api/tool-invoke" },
   // Hub actions
   triggerHubAction: { httpMethod: "POST", pathTemplate: "/api/hub/pages/:id/actions/:action" },
+  // Loops EZ Mode Phase 4 — inbound webhook delivery. PUBLIC (auth is the
+  // per-hook token / HMAC, NOT the harness key), so `deliverHook` sends its own
+  // headers and never attaches the harness `Authorization`.
+  deliverHook: { httpMethod: "POST", pathTemplate: "/api/hooks/:extensionId/:slug" },
   // Runs
   getRun: { httpMethod: "GET", pathTemplate: "/api/runs/:id" },
   awaitRun: { httpMethod: "GET", pathTemplate: "/api/runs/:id" },

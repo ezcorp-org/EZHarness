@@ -20,6 +20,7 @@
  *     `legacyAlias: true`.
  */
 import { test, expect, describe } from "bun:test";
+import { resolveBundledExtensions } from "../../../extensions/bundled";
 import { resolveBundledEzAction } from "../resolve-bundled";
 
 describe("resolveBundledEzAction — legacy alias", () => {
@@ -81,22 +82,13 @@ describe("resolveBundledEzAction — canonical <ext>:<tool> form", () => {
   });
 
   test("every bundled extension currently in the list resolves", () => {
-    // Spot-check a representative slice — locks the bundled list
-    // against accidental name drift. If a bundled extension is
-    // renamed without updating this test, the failure surfaces here
-    // before users hit the chat-token regression.
-    const cases = [
-      "scratchpad",
-      "task-tracking",
-      "ask-user",
-      "ai-kit",
-      "web-search",
-      "openai-image-gen-2",
-      "lessons-distiller",
-      "memory-extractor",
-      "claude-design",
-      "excel",
-    ];
+    // Derived from the REAL bundled list (empty env = no opt-outs), not a
+    // hardcoded slice: the previous spot-check list rotted ("excel" left the
+    // bundled set) because this file ran in no CI job. Iterating the source
+    // list keeps the invariant — every bundled extension resolves through
+    // the canonical `<ext>:<tool>` parse path — rot-proof.
+    const cases = resolveBundledExtensions({}).map((e) => e.name);
+    expect(cases.length).toBeGreaterThan(20);
     for (const ext of cases) {
       const out = resolveBundledEzAction(`${ext}:some-tool`);
       expect(out).not.toBeNull();

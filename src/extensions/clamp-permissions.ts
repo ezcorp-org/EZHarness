@@ -538,8 +538,8 @@ export async function checkEnvKeyLeakInstallGate(
 // Keep the callers in sync — every clamping rule belongs here, not
 // inline at any call site.
 //
-// ── Capability tier (Phase 2+): taskEvents / spawnAgents / agentConfig /
-// eventSubscriptions ── Each field is clamped against the manifest
+// ── Capability tier (Phase 2+): taskEvents / loopEvents / spawnAgents /
+// agentConfig / eventSubscriptions ── Each field is clamped against the manifest
 // declaration AND against the kill-switch env var. If
 // EZCORP_DISABLE_CAPABILITY_TOOLS=1 is set, the fields behave as if the
 // manifest never declared them — operators can disable the entire tier
@@ -628,6 +628,9 @@ export function clampExtensionPermissions(
     if (submitted.taskEvents === true && manifest.taskEvents === true) {
       clamped.taskEvents = true;
     }
+    if (submitted.loopEvents === true && manifest.loopEvents === true) {
+      clamped.loopEvents = true;
+    }
     if (submitted.spawnAgents && manifest.spawnAgents) {
       // spawnAgents is a structured permission — both maxPerHour and
       // maxConcurrent must be present at grant time. The grant cannot
@@ -663,6 +666,20 @@ export function clampExtensionPermissions(
           && DIRECT_CARRIER_EVENT_TYPES.has(e as never),
       );
       if (allowed.length > 0) clamped.eventSubscriptions = allowed;
+    }
+
+    // webhooks (Loops EZ Mode Phase 4): plain string[] slug intersection —
+    // submitted ∩ manifest-declared. No direct-carrier allowlist (slugs are
+    // author-chosen, not a fixed vocabulary); a slug survives only when the
+    // manifest declares it, so a submitted grant can never introduce a hook
+    // the author didn't author. An undeclared slug is silently dropped
+    // (mirrors cron/event — the grant is never widened).
+    if (Array.isArray(submitted.webhooks) && Array.isArray(manifest.webhooks)) {
+      const manifestSet = new Set(manifest.webhooks);
+      const allowed = submitted.webhooks.filter(
+        (s) => typeof s === "string" && manifestSet.has(s),
+      );
+      if (allowed.length > 0) clamped.webhooks = allowed;
     }
 
     // ── Phase 51 capability surfaces ────────────────────────────────

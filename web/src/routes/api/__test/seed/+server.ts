@@ -23,7 +23,7 @@ import type { RequestHandler } from "./$types";
 // Categories matched by hooks.server.ts RATE_LIMITED_ROUTES, overridable via
 // the `limits:rateLimit` settings row (60s-cached there).
 const RATE_LIMIT_CATEGORIES = [
-  "login", "conversationCreate", "chat", "agentRun", "agentGenerate", "pipelineRun",
+  "login", "conversationCreate", "chat", "agentRun", "agentGenerate", "workflowRun",
 ] as const;
 
 export const POST: RequestHandler = async ({ request, locals }) => {

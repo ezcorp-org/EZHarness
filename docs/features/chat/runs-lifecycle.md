@@ -4,7 +4,7 @@
 
 ## Intent
 
-A "run" is the unit of execution behind every assistant response. `executor.streamChat` (chat turns) and `executor.runAgent` (code-based agents / pipelines / CLI) both mint an `AgentRun` and drive it through one status machine. The lifecycle layer exists to make that execution **durable and controllable**: the live partial response and any open permission/ask-user gates survive a page reload, a stuck or leaked run is killed by an activity watchdog (with a wider idle window for reasoning models), orphaned runs are reconciled at boot, and a harness can post a message then block on the terminal state in a single call. Run ownership is enforced per-user on `/api/runs/*` to close cross-tenant IDOR — but **not** on the conversation-scoped `active-run` route (see gotchas).
+A "run" is the unit of execution behind every assistant response. `executor.streamChat` (chat turns) and `executor.runAgent` (code-based agents / workflows / CLI) both mint an `AgentRun` and drive it through one status machine. The lifecycle layer exists to make that execution **durable and controllable**: the live partial response and any open permission/ask-user gates survive a page reload, a stuck or leaked run is killed by an activity watchdog (with a wider idle window for reasoning models), orphaned runs are reconciled at boot, and a harness can post a message then block on the terminal state in a single call. Run ownership is enforced per-user on `/api/runs/*` to close cross-tenant IDOR — but **not** on the conversation-scoped `active-run` route (see gotchas).
 
 ## How it works
 

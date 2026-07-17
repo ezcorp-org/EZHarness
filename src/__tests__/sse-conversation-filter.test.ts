@@ -38,13 +38,15 @@ afterEach(() => {
 });
 
 describe("DIRECT_CARRIER_EVENT_TYPES", () => {
-  test("enumerates the direct-carrier event types (13 from prereqs audit + ask-user:answer + ez:client-tool + extensions:installed + goal:update + the two briefing events + conversation:tree-changed; Phase 5's orchestrator:human_* removed by ask-user migration)", () => {
-    // 19 entries: 13 from the prereqs audit + ez:client-tool (Phase 48
+  test("enumerates the direct-carrier event types (13 from prereqs audit + ask-user:answer + ez:client-tool + extensions:installed + goal:update + the two briefing events + conversation:tree-changed + the three loops events; Phase 5's orchestrator:human_* removed by ask-user migration)", () => {
+    // 22 entries: 13 from the prereqs audit + ez:client-tool (Phase 48
     // Wave 3) + extensions:installed (agent-install-ux-polish Phase 2)
     // + goal:update (/goal Phase 2, FR-20) + conversation:created +
     // briefing:delivered (Daily Briefing Phase 1) + conversation:tree-changed
-    // (Sessions P4 rewind/checkpoint).
-    expect(DIRECT_CARRIER_EVENT_TYPES.size).toBe(19);
+    // (Sessions P4 rewind/checkpoint) + loops:approval_pending +
+    // loops:approval_resolved + loops:auto_disabled (Loops EZ Mode Phase 2 —
+    // optional carriers).
+    expect(DIRECT_CARRIER_EVENT_TYPES.size).toBe(22);
     for (const name of [
       "run:complete", "run:error", "run:cancel", "run:turn_saved",
       "tool:start", "tool:complete", "tool:error",
@@ -57,6 +59,9 @@ describe("DIRECT_CARRIER_EVENT_TYPES", () => {
       "conversation:created",
       "briefing:delivered",
       "conversation:tree-changed",
+      "loops:approval_pending",
+      "loops:approval_resolved",
+      "loops:auto_disabled",
     ]) {
       expect(DIRECT_CARRIER_EVENT_TYPES.has(name as never)).toBe(true);
     }
@@ -78,7 +83,7 @@ describe("DIRECT_CARRIER_EVENT_TYPES", () => {
     for (const name of [
       "run:start", "run:log", "run:status", "run:token", "run:usage",
       "run:turn_text_reset",
-      "pipeline:start", "pipeline:step", "pipeline:complete", "pipeline:error",
+      "workflow:start", "workflow:step", "workflow:complete", "workflow:error",
       "tool:kill",
       "agent:spawn", "agent:status", "agent:complete",
       "ext:state",
@@ -371,6 +376,48 @@ describe("shouldDeliverEvent — pass-through tier", () => {
       get,
     );
     expect(deliver).toBe(true);
+  });
+
+  test("loops:approval_* — conversation-wired nudge is scoped to the owner", async () => {
+    const owned = makeGetConversation({ "conv-A": { userId: "user-1" } });
+    // owner receives it
+    expect(
+      await shouldDeliverEvent(
+        "loops:approval_pending",
+        { loopId: "docs", runId: "r1", conversationId: "conv-A" },
+        { userId: "user-1" },
+        owned,
+      ),
+    ).toBe(true);
+    // a non-owner does NOT
+    expect(
+      await shouldDeliverEvent(
+        "loops:approval_resolved",
+        { loopId: "docs", runId: "r1", decision: "approved", conversationId: "conv-A" },
+        { userId: "user-2" },
+        owned,
+      ),
+    ).toBe(false);
+  });
+
+  test("loops:approval_* — a global-scope nudge (no conversationId) broadcasts (content-free)", async () => {
+    const get = makeGetConversation({});
+    expect(
+      await shouldDeliverEvent(
+        "loops:approval_pending",
+        { loopId: "docs", runId: "r1" },
+        { userId: "user-1" },
+        get,
+      ),
+    ).toBe(true);
+    expect(
+      await shouldDeliverEvent(
+        "loops:approval_resolved",
+        { loopId: "docs", runId: "r1", decision: "declined" },
+        { userId: "user-9" },
+        get,
+      ),
+    ).toBe(true);
   });
 
   test("passes ext:page-state events (content-free Hub invalidation signal — broadcast by design)", async () => {
@@ -765,7 +812,7 @@ describe("SCOPED_RUNTIME_EVENT_TYPES", () => {
     "run:start", "run:log", "run:status", "run:token", "run:usage",
     "run:turn_text_reset",
     "agent:spawn", "agent:status", "agent:complete",
-    "pipeline:start", "pipeline:step", "pipeline:complete", "pipeline:error",
+    "workflow:start", "workflow:step", "workflow:complete", "workflow:error",
   ] as const;
 
   test("enumerates the 13 scoped runtime events", () => {
@@ -790,7 +837,7 @@ describe("SCOPED_RUNTIME_EVENT_TYPES", () => {
   test("registerExtensionEvent rejects collisions with scoped runtime events (an extension named 'run' cannot shadow run:token)", () => {
     expect(registerExtensionEvent("run", "token")).toBe(false);
     expect(registerExtensionEvent("agent", "spawn")).toBe(false);
-    expect(registerExtensionEvent("pipeline", "start")).toBe(false);
+    expect(registerExtensionEvent("workflow", "start")).toBe(false);
     __clearExtensionEventRegistryForTests();
   });
 });
@@ -840,13 +887,13 @@ describe("shouldDeliverEvent — scoped runtime events (Wave 0)", () => {
     expect(await shouldDeliverEvent("tool:complete", { conversationId: "conv-A" }, { userId: "u" }, getThrowing)).toBe(true);
   });
 
-  test("pipeline:* events are scoped to the initiating userId, fail-closed when absent", async () => {
+  test("workflow:* events are scoped to the initiating userId, fail-closed when absent", async () => {
     const get = makeGetConversation({});
-    const payload = { pipelineRun: { id: "p1" }, userId: "runner" };
-    expect(await shouldDeliverEvent("pipeline:start", payload, { userId: "runner" }, get)).toBe(true);
-    expect(await shouldDeliverEvent("pipeline:start", payload, { userId: "other" }, get)).toBe(false);
-    // CLI-triggered pipeline (no userId) → dropped, never broadcast.
-    expect(await shouldDeliverEvent("pipeline:complete", { pipelineRun: { id: "p2" } }, { userId: "runner" }, get)).toBe(false);
+    const payload = { workflowRun: { id: "p1" }, userId: "runner" };
+    expect(await shouldDeliverEvent("workflow:start", payload, { userId: "runner" }, get)).toBe(true);
+    expect(await shouldDeliverEvent("workflow:start", payload, { userId: "other" }, get)).toBe(false);
+    // CLI-triggered workflow (no userId) → dropped, never broadcast.
+    expect(await shouldDeliverEvent("workflow:complete", { workflowRun: { id: "p2" } }, { userId: "runner" }, get)).toBe(false);
   });
 
   test("agent:status without parent carrier is scoped via subConversationId, walking to the parent owner", async () => {

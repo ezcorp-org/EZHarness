@@ -249,6 +249,40 @@ describe("validateManifestV2", () => {
     expect(result.valid).toBe(false);
     expect(result.errors.length).toBeGreaterThan(0);
   });
+
+  // ── permissions.webhooks (Loops EZ Mode Phase 4) ──────────────────
+  test("valid webhook slugs pass", () => {
+    const result = validateManifestV2(
+      makeValidManifest({ permissions: { webhooks: ["tickets", "ci-alerts", "hook42"] } }),
+    );
+    expect(result.valid).toBe(true);
+    expect(result.errors).toHaveLength(0);
+  });
+
+  test("empty webhooks array passes (no hooks declared)", () => {
+    const result = validateManifestV2(makeValidManifest({ permissions: { webhooks: [] } }));
+    expect(result.valid).toBe(true);
+  });
+
+  test("non-array webhooks is rejected", () => {
+    const result = validateManifestV2(
+      makeValidManifest({ permissions: { webhooks: "tickets" as any } }),
+    );
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes("permissions.webhooks"))).toBe(true);
+  });
+
+  test("path-unsafe webhook slugs are rejected (traversal / route-confusion guard)", () => {
+    // Uppercase, dot, slash, percent-encoding, leading hyphen, and whitespace
+    // must all fail — a slug lands verbatim in `/api/hooks/:extensionId/:slug`.
+    for (const bad of ["../etc", "a/b", "Tickets", "a.b", "a%2f", "-lead", "has space", ""]) {
+      const result = validateManifestV2(
+        makeValidManifest({ permissions: { webhooks: [bad] as string[] } }),
+      );
+      expect(result.valid).toBe(false);
+      expect(result.errors.some((e) => e.includes("permissions.webhooks[0]"))).toBe(true);
+    }
+  });
 });
 
 // ── Package Type Inference ───────────────────────────────────────

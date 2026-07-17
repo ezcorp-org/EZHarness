@@ -151,46 +151,112 @@ export interface AgentConfig {
   maxTokens?: number;
 }
 
-// ── Pipeline ────────────────────────────────────────────────────────
+// ── Workflow ─────────────────────────────────────────────────────────
+//
+// A workflow is a named graph of steps. Steps come in three kinds:
+//   - `agent`     — invoke a named agent (the only historical kind).
+//   - `transform` — a pure, declarative data reshape (no LLM, no I/O).
+//   - `gate`      — evaluate a declarative condition; throw if it fails.
+// Steps may `loop` (bounded repetition with an until-condition). The word
+// "pipeline" is retained only as a hidden CLI alias + legacy YAML glob.
 
-export interface PipelineStep {
-  name: string;
-  agent: string;
-  input?: Record<string, string>;
-  dependsOn?: string[];
-  /**
-   * Per-step retry budget (durability, Phase C1). When a step's agent run
-   * finishes unsuccessfully, the executor re-runs it up to `retries` more
-   * times before failing the whole pipeline. Clamped to 0..2; absent /
-   * invalid ⇒ 0 (no retry — the historical behavior). A run that was
-   * *cancelled* (pipeline abort or sibling-failure cancel) is never
-   * retried — only a genuine failure is.
-   */
-  retries?: number;
+/** Comparison operator for a leaf {@link WorkflowCondition}. Comparisons
+ *  on non-numbers evaluate to `false` (never throw). `contains` covers
+ *  string-substring and array-includes; `exists` = not undefined/null;
+ *  `truthy` = JS truthiness. */
+export type WorkflowConditionOp =
+  | "eq"
+  | "neq"
+  | "gt"
+  | "gte"
+  | "lt"
+  | "lte"
+  | "contains"
+  | "exists"
+  | "truthy";
+
+/** Declarative condition tree evaluated by `gate` steps and loop `until`
+ *  clauses. A leaf resolves `ref` (a `$input.` / `$prev.` / `$steps.` ref,
+ *  plus `$result.` / `$iteration` inside a loop `until`) and compares it
+ *  against `value`; `all` / `any` / `not` compose leaves. Never evaluates
+ *  arbitrary code — this is a security constraint (spec §Design 2). */
+export type WorkflowCondition =
+  | { ref: string; op: WorkflowConditionOp; value?: unknown }
+  | { all: WorkflowCondition[] }
+  | { any: WorkflowCondition[] }
+  | { not: WorkflowCondition };
+
+/** Bounded per-step repetition. `maxIterations` is REQUIRED and
+ *  server-clamped to 1..25. `until` is evaluated AFTER each iteration; when
+ *  satisfied the loop exits successfully. `onExhausted` decides the
+ *  budget-exhausted outcome — default `"fail"` (loud; never a silent
+ *  truncation). Mutually exclusive with `retries`; invalid on `gate`. */
+export interface LoopConfig {
+  maxIterations: number;
+  until?: WorkflowCondition;
+  onExhausted?: "fail" | "pass";
 }
 
-export interface PipelineDefinition {
+export type WorkflowStepKind = "agent" | "transform" | "gate";
+
+export interface WorkflowStep {
+  name: string;
+  /** Defaults to `"agent"` — every legacy pipeline step stays valid with
+   *  zero edits. */
+  kind?: WorkflowStepKind;
+
+  // ── agent kind ──
+  agent?: string;
+  input?: Record<string, string>;
+  /**
+   * Per-step retry budget (agent kind only). When a step's agent run
+   * finishes unsuccessfully, the executor re-runs it up to `retries` more
+   * times before failing the whole workflow. Clamped to 0..2; absent /
+   * invalid ⇒ 0 (no retry). A run that was *cancelled* (workflow abort or
+   * sibling-failure cancel) is never retried — only a genuine failure is.
+   * Mutually exclusive with `loop`.
+   */
+  retries?: number;
+
+  // ── transform kind ──
+  /** Output mapping resolved with the step-input ref language PLUS
+   *  `{{…}}` template interpolation. Produces an `AgentResult`-shaped
+   *  `{ success: true, output: <resolved object> }`. */
+  output?: Record<string, string>;
+
+  // ── gate kind ──
+  /** Condition evaluated by a gate step; false ⇒ the workflow fails. */
+  condition?: WorkflowCondition;
+
+  dependsOn?: string[];
+  /** Bounded loop (agent | transform kinds only). */
+  loop?: LoopConfig;
+}
+
+export interface WorkflowDefinition {
   name: string;
   description: string;
   inputSchema?: InputSchema;
-  steps: PipelineStep[];
+  steps: WorkflowStep[];
 }
 
-export interface PipelineRun {
+export interface WorkflowRun {
   id: string;
-  pipelineName: string;
+  workflowName: string;
   projectId?: string;
   status: AgentStatus;
   startedAt: number;
   finishedAt?: number;
-  steps: PipelineStepRun[];
+  steps: WorkflowStepRun[];
   result?: AgentResult;
 }
 
-export interface PipelineStepRun {
+export interface WorkflowStepRun {
   stepName: string;
   runId: string;
   status: AgentStatus;
+  /** Final iteration count for a looped step (omitted for non-loop steps). */
+  iterations?: number;
 }
 
 // ── Team Member Types ────────────────────────────────────────────────
@@ -261,12 +327,12 @@ export interface AgentEvents {
     };
   };
   // `userId` (Wave 0) names the initiating user so the SSE filter can
-  // scope delivery fail-closed. CLI-triggered pipelines omit it and are
+  // scope delivery fail-closed. CLI-triggered workflows omit it and are
   // not SSE-observable (stdout/DB only).
-  "pipeline:start": { pipelineRun: PipelineRun; userId?: string };
-  "pipeline:step": { pipelineRun: PipelineRun; step: PipelineStepRun; userId?: string };
-  "pipeline:complete": { pipelineRun: PipelineRun; userId?: string };
-  "pipeline:error": { pipelineRun: PipelineRun; error: string; userId?: string };
+  "workflow:start": { workflowRun: WorkflowRun; userId?: string };
+  "workflow:step": { workflowRun: WorkflowRun; step: WorkflowStepRun; userId?: string };
+  "workflow:complete": { workflowRun: WorkflowRun; userId?: string };
+  "workflow:error": { workflowRun: WorkflowRun; error: string; userId?: string };
   "tool:start": { conversationId: string; extensionId: string; toolName: string; input: unknown; timestamp: number; source?: 'inline' | 'agent-run'; invocationId?: string; cardType?: string; cardLayout?: string; category?: string };
   "tool:complete": { conversationId: string; extensionId: string; toolName: string; output: unknown; duration: number; success: boolean; source?: 'inline' | 'agent-run'; invocationId?: string; cardType?: string; cardLayout?: string };
   "tool:error": { conversationId: string; extensionId: string; toolName: string; error: string; duration: number; source?: 'inline' | 'agent-run'; invocationId?: string; cardType?: string; cardLayout?: string };
@@ -553,5 +619,43 @@ export interface AgentEvents {
   "conversation:tree-changed": {
     conversationId: string;
     currentLeaf: string | null;
+  };
+  /**
+   * Loops EZ Mode Phase 2 — a loop run PARKED awaiting a human approve/decline
+   * (`approval_pending`) or was RESOLVED (`approval_resolved`). Both are
+   * CONTENT-FREE invalidation nudges (loopId + runId, + `decision` on resolve)
+   * — the web badge/inbox re-fetches the authorized dashboard on receipt; the
+   * proposal body NEVER rides the event. The `loopId` is host-STAMPED
+   * (`<extensionId>:<loopId>`) so it is provenance-bound to the emitting
+   * extension; consumers treat it as an opaque invalidation key.
+   * `conversationId` is OPTIONAL: present
+   * when the loop is conversation-wired (SSE scopes delivery to that owner via
+   * the standard conv-scope branch), absent for a global-scope loop (the nudge
+   * broadcasts to every authenticated subscriber, like `ext:page-state` /
+   * `github-projects:proposal-update`). Listed in `DIRECT_CARRIER_EVENT_TYPES`
+   * as optional carriers (fail-open, mirroring `run:complete`).
+   */
+  "loops:approval_pending": {
+    loopId: string;
+    runId: string;
+    conversationId?: string;
+  };
+  "loops:approval_resolved": {
+    loopId: string;
+    runId: string;
+    decision: "approved" | "declined";
+    conversationId?: string;
+  };
+  /**
+   * Loops EZ Mode Phase 2 — a loop auto-disabled after N consecutive
+   * permanent errors. A user-visible notice so a stop is never silent
+   * (inbox/toast surface). Content-carrying but non-sensitive (loop id +
+   * error count). Optional conversationId scopes delivery like the approval
+   * events; a global loop broadcasts.
+   */
+  "loops:auto_disabled": {
+    loopId: string;
+    consecutiveErrors: number;
+    conversationId?: string;
   };
 }

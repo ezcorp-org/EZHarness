@@ -58,7 +58,7 @@ const MODULE_PATHS = [
   "../../db/queries/extension-storage",
   "../../db/queries/memories",
   "../../db/queries/password-resets",
-  "../../db/queries/pipelines",
+  "../../db/queries/workflows",
   "../../db/queries/users",
   "../../db/queries/attachments",
   "../../db/queries/modes",
@@ -69,6 +69,9 @@ const MODULE_PATHS = [
   "../../db/schema",
   "../../extensions/registry",
   "../../extensions/tool-executor",
+  // Loops EZ Mode: event-subscription-dispatcher.test.ts mock.module's the
+  // kill-switch gate; snapshot so the stub never leaks past the file.
+  "../../extensions/loops-kill-switch",
   // tool-executor-legacy-handler-provenance.test.ts mock.module's the six
   // LEGACY singleton-reading reverse-RPC handlers to capture the ctx the
   // executor builds (token-wins-over-singleton provenance suite). Snapshot
@@ -84,7 +87,10 @@ const MODULE_PATHS = [
   "../../extensions/installer",
   "../../extensions/manifest",
   "../../extensions/checksum",
-  "../../extensions/bundled",
+  // "../../extensions/bundled" was TRIMMED (wave 3): zero mock.module
+  // targets across src/web/docs/packages tests + helpers resolve to it
+  // (only bundled-ceiling / bundled-lock below are mocked), and its eager
+  // preload import pulled in the whole bundled-extension graph per spawn.
   "../../extensions/bundled-ceiling",
   "../../extensions/bundled-lock",
   "../../extensions/loader",
@@ -92,8 +98,13 @@ const MODULE_PATHS = [
   "../../extensions/entities/migrate",
   "../../extensions/audit-actions",
   "../../extensions/secrets-store",
-  "../../extensions/storage-handler",
+  // "../../extensions/storage-handler" trimmed (wave 3): zero mockers.
   "../../extensions/security",
+  // Loops Phase 2: event-subscription-dispatcher.test.ts mock.module's the
+  // loops kill-switch (global suspend gate) to drive its allow/deny branches
+  // without touching real settings. Snapshot so restoreModuleMocks()
+  // re-registers the real module in afterAll and the stub never leaks.
+  "../../extensions/loops-kill-switch",
   "../../extensions/subprocess",
   "../../observability/collector",
   "../../providers/router",
@@ -111,7 +122,8 @@ const MODULE_PATHS = [
   // Phase 64: embed-worker.test.ts mocks message-chunker to return predictable
   // single-chunk output without needing the real tokenizer loaded.
   "../../memory/message-chunker",
-  "../../runtime/lessons/distiller",
+  // "../../runtime/lessons/distiller" trimmed (wave 3): zero mockers
+  // (triggers below IS mocked and stays).
   "../../runtime/lessons/triggers",
   "../../memory/compaction",
   "../../chat/attachments/content-builder",
@@ -128,7 +140,7 @@ const MODULE_PATHS = [
   "../../runtime/orchestration-host",
   "../../runtime/ask-user-host",
   "../../runtime/mention-wiring",
-  "../../runtime/pipeline-loader",
+  "../../runtime/workflow-loader",
   "../../runtime/start-assignment",
   "../../runtime/tools/permissions",
   "../../extensions/migrations/task-tracking-storage",
@@ -143,6 +155,19 @@ const MODULE_PATHS = [
   "../../extensions/runtime/internal-host",
   "../../extensions/runtime/seccomp-loader",
   "../../extensions/schedule-daemon",
+  // Loops EZ Mode Phase 2: event-subscription-dispatcher.test.ts mocks the
+  // global loops kill switch to drive its suspend/resume branches. Snapshot so
+  // restoreModuleMocks() re-registers the real reader and the stub never leaks
+  // into loops-kill-switch.test.ts / the webhook + schedule daemon suites.
+  "../../extensions/loops-kill-switch",
+  // Loops EZ Mode Phase 4: background-timers.test.ts stubs the
+  // WebhookDeliveryDaemon class (start()/stop()) during the bootstrap-wiring
+  // suite so the real daemon (getDb reap + setInterval) never runs there.
+  // Snapshot so restoreModuleMocks() re-registers the real module (class +
+  // drainDelivery / buildFireContext / tryParseWebhookJson) in afterAll and the
+  // stub never leaks into webhook-delivery-daemon.test.ts (which imports the
+  // REAL exports).
+  "../../extensions/webhook-delivery-daemon",
   // Daily Briefing Phase 1: background-timers.test.ts stubs the
   // BriefingDaemon class (start()/stop()) during the bootstrap-wiring
   // suite so the real daemon (boot tick + setInterval) never runs
@@ -215,7 +240,8 @@ const MODULE_PATHS = [
   "../../../web/src/lib/server/conversation-ownership",
   "../../../web/src/lib/stores/connection",
   "../../../web/src/lib/api",
-  "@earendil-works/pi-ai",
+  // Bare "@earendil-works/pi-ai" trimmed (wave 3): every pi-ai mock in the
+  // population targets /compat or /oauth — the bare specifier had zero.
   "@earendil-works/pi-ai/compat",
   "@earendil-works/pi-ai/oauth",
   "@earendil-works/pi-agent-core",
@@ -225,8 +251,8 @@ const MODULE_PATHS = [
   // `fetchPermitted` or similar — the stripped channels are missing
   // methods (notably `request`) that other extensions' tests need at
   // load time. Snapshot the real module so `restoreModuleMocks()` can
-  // re-register it in afterAll.
-  "@ezcorp/sdk",
+  // re-register it in afterAll. (Bare "@ezcorp/sdk" trimmed in wave 3:
+  // only the /runtime subpath is ever mocked.)
   "@ezcorp/sdk/runtime",
 ];
 

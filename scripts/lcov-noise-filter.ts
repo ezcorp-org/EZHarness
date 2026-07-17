@@ -95,9 +95,22 @@ const TEMPLATE_LITERAL_LINE = /^\s*`(?:[^`\\]|\\.)*`\s*[+;,]?\s*$/;
 // line and the next statement, never the body). The body lines only ever
 // appear as phantom zero-hit span-fill from shards that import migrate.ts
 // without executing it.
+//
+// SOUNDNESS: matching is case-SENSITIVE (uppercase SQL only, consistent with
+// SQL_COLUMN_DEF / SQL_SELECT_ALIAS — the repo's SQL templates are uppercase,
+// TS code is not), and each statement keyword must be followed by
+// whitespace/EOL. The previous case-insensitive `\b` form stripped real
+// zero-hit TS code lines from denominators: `set(key, entry);`,
+// `update(newText);`, `on(event, cb);`, `delete cache[key];`,
+// `group.diffs.push(d);`, `limit: 10,`, `count = 0;` all matched. A call
+// shape like `set(` / `SET(` must NEVER match. The aggregate/function
+// keywords (COALESCE/SUM/COUNT/MAX/MIN) instead require their genuine SQL
+// call shape `FUNC(` — e.g. `COALESCE(SUM(cost_usd), 0)::float AS total`.
 const SQL_FRAGMENT =
-  /^\s*(SELECT|FROM|WHERE|JOIN|GROUP|ORDER|LIMIT|HAVING|UNION|INSERT|UPDATE|DELETE|VALUES|SET|RETURNING|WITH|ON|AND|OR|AS|COALESCE|SUM|COUNT|MAX|MIN|CREATE|ALTER|DROP|ADD|CONSTRAINT)\b/i;
-const SQL_CLOSE = /^\s*\),?\s*0?\)?\s*AS\b/i;
+  /^\s*(?:(?:SELECT|FROM|WHERE|JOIN|GROUP|ORDER|LIMIT|HAVING|UNION|INSERT|UPDATE|DELETE|VALUES|SET|RETURNING|WITH|ON|AND|OR|AS|CREATE|ALTER|DROP|ADD|CONSTRAINT)(?:\s|$)|(?:COALESCE|SUM|COUNT|MAX|MIN)\()/;
+// Case-SENSITIVE like SQL_SELECT_ALIAS: the uppercase `AS` is the SQL
+// discriminator — a TS multi-line cast `) as HTMLElement;` must never match.
+const SQL_CLOSE = /^\s*\),?\s*0?\)?\s*AS\b/;
 
 // SQL column-definition line inside a multi-line DDL template:
 // `id TEXT PRIMARY KEY,` / `poll_interval_sec INTEGER NOT NULL DEFAULT 60,` /

@@ -1,6 +1,6 @@
 import { test, expect } from "./fixtures/test-base.js";
 import AxeBuilder from "@axe-core/playwright";
-import { makeProject, makeConversation, makeMessage, makePipeline } from "./fixtures/data.js";
+import { makeProject, makeConversation, makeMessage, makeWorkflow } from "./fixtures/data.js";
 
 const proj = makeProject({ id: "proj-1", name: "A11y Project" });
 const conv = makeConversation({ id: "conv-1", projectId: "proj-1" });
@@ -23,7 +23,7 @@ const pages = [
 	// Pre-existing: unlabelled <select>, color-contrast on CTA link (tracked for future fix)
 	{ name: "Marketplace", url: "/marketplace", auth: true, knownRules: ["color-contrast", "select-name"] },
 	{ name: "Observability", url: "/observability", auth: true },
-	{ name: "Pipelines", url: "/pipelines", auth: true },
+	{ name: "Workflows", url: "/workflows", auth: true },
 ] as const;
 
 function formatViolations(violations: import("axe-core").Result[]): string {
@@ -45,7 +45,7 @@ for (const pg of pages) {
 			projects: [proj],
 			conversations: [conv],
 			messages: [msg],
-			pipelines: [makePipeline()],
+			workflows: [makeWorkflow()],
 		});
 
 		await page.goto(pg.url);
@@ -91,7 +91,7 @@ test("focus indicators are visible on interactive elements", async ({ page, mock
 		projects: [proj],
 		conversations: [conv],
 		messages: [msg],
-		pipelines: [makePipeline()],
+		workflows: [makeWorkflow()],
 	});
 
 	await page.goto("/");
@@ -119,7 +119,7 @@ test("main landmark exists on authenticated pages", async ({ page, mockApi }) =>
 		projects: [proj],
 		conversations: [conv],
 		messages: [msg],
-		pipelines: [makePipeline()],
+		workflows: [makeWorkflow()],
 	});
 
 	for (const pg of shellPages) {
@@ -137,17 +137,17 @@ test("heading hierarchy: h1 exists and no heading levels are skipped", async ({ 
 		projects: [proj],
 		conversations: [conv],
 		messages: [msg],
-		pipelines: [makePipeline()],
+		workflows: [makeWorkflow()],
 	});
 
 	// Skip pages with known heading gaps: Settings h2->h4, Docs h1->h3,
-	// Agents/Extensions/Pipelines have no h1 at all (tracked for future fix).
+	// Agents/Extensions/Workflows have no h1 at all (tracked for future fix).
 	const skipHeadingCheck = new Set([
 		"/settings/models",
 		"/docs",
 		"/agents",
 		"/extensions",
-		"/pipelines",
+		"/workflows",
 	]);
 	const majorPages = shellPages.filter((p) => !skipHeadingCheck.has(p.url)).slice(0, 5);
 	for (const pg of majorPages) {

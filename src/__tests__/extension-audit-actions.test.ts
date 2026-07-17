@@ -48,6 +48,10 @@ describe("extension audit action constants", () => {
       "CAPABILITY_POLICY_WRITE",
       "SPAWN_QUOTA_EXCEEDED",
       "EMIT_EVENT_REJECTED",
+      // Loops Phase 2 — host emit-loop-event reverse RPC (approval nudges
+      // on the bus): the accepted emit + the policy/quota rejection.
+      "LOOP_EVENT_EMITTED",
+      "LOOP_EVENT_REJECTED",
       // Phase 2c — server→extension subscription delivery
       "EVENT_SUBSCRIPTION_DENIED",
       // Phase 4 — ezcorp/cancel-run RPC + spawn-assignment chain
@@ -105,6 +109,11 @@ describe("extension audit action constants", () => {
       "SDK_SCHEDULE_FIRE_NOW",
       "SDK_SCHEDULE_QUOTA_EXCEEDED",
       "SDK_SCHEDULE_REAPED",
+      // Loops EZ Mode Phase 4 — inbound webhook trigger
+      "SDK_WEBHOOK_ACCEPTED",
+      "SDK_WEBHOOK_REJECTED",
+      "SDK_WEBHOOK_DISPATCHED",
+      "SDK_WEBHOOK_SECRET_ROTATED",
       // v1.4 — memory injection-eligibility admin UI
       "MEMORY_INJECTION_ELIGIBILITY_CHANGED",
       // v1.4 — entity-namespace migration audit emit
@@ -120,6 +129,14 @@ describe("extension audit action constants", () => {
       "SDK_SEARCH_EGRESS_BLOCKED",
       // Shared-search Phase 2 — policy resolver quota / provider denial
       "SDK_SEARCH_QUOTA_EXCEEDED",
+      // Loops EZ Mode — gated emit-loop-event (audit-mirror + rejection)
+      "LOOP_EVENT_EMITTED",
+      "LOOP_EVENT_REJECTED",
+      // Loops Phase 4 — webhook ingress/dispatch/secret lifecycle
+      "SDK_WEBHOOK_ACCEPTED",
+      "SDK_WEBHOOK_REJECTED",
+      "SDK_WEBHOOK_DISPATCHED",
+      "SDK_WEBHOOK_SECRET_ROTATED",
       // Extension secrets (Phase 0) — scope-isolated, AAD-bound cred store
       "SECRET_SET",
       "SECRET_USED",

@@ -159,6 +159,21 @@ const NON_SOURCE_GLOBS: readonly string[] = [
 ];
 
 /**
+ * Catch-all (ratchet-floor) threshold keys — wave 3. These gate the
+ * previously-unkeyed remainder of a tree at its observed minimum so
+ * coverage can only ratchet UP, but they are NOT an acceptable home for a
+ * NEW file: check-new-file-coverage.ts ignores them when deciding whether
+ * an added file "is gated", so every new source file still needs its own
+ * (default-100) key. Keep this list in sync with the catch-all keys in
+ * coverage-thresholds.json.
+ */
+export const CATCHALL_THRESHOLD_KEYS: readonly string[] = [
+  "src/**",
+  "web/src/**",
+  "packages/@ezcorp/ai-kit/src/**",
+];
+
+/**
  * Bun's `Glob` treats `[id]` as a character class — a literal SvelteKit
  * route segment like `[id]` would never match itself. Escape `[` and `]`
  * in a path/pattern before constructing the Glob so bracketed paths match
@@ -185,6 +200,52 @@ export function isExcluded(relPath: string): boolean {
 export function isSourceFile(relPath: string): boolean {
   if (nonSourceGlobs.some((g) => g.match(relPath))) return false;
   return sourceGlobs.some((g) => g.match(relPath));
+}
+
+/**
+ * True if a repo-relative path is a test/spec/type artifact — regardless of
+ * tree. Unlike isSourceFile it does NOT require SOURCE_GLOBS membership, so
+ * trees outside the diff-gates' scope (e.g. harness-client) can still ask
+ * "is this file the kind lcov could never legitimately contain coverage
+ * for". Used by the wildcard whole-tree-dropout signal below.
+ */
+export function isTestOrTypeFile(relPath: string): boolean {
+  return nonSourceGlobs.some((g) => g.match(relPath));
+}
+
+/**
+ * Wildcard whole-tree-dropout signal (wave 3, used by check-coverage.ts): a
+ * wildcard threshold key whose ENTIRE tree is missing from lcov used to be
+ * indistinguishable from the benign shadowed-by-more-specific-keys case — a
+ * coverage producer silently dying (dead leg / unwired set) could de-gate a
+ * whole subtree while the gate stayed green. Cheap sound check, independent
+ * of first-match-wins: violation iff the pattern matches >=1
+ * non-test/non-type, non-EXCLUDED file on disk but lcov contains NONE of
+ * its matches. Lives here (not check-coverage.ts) because that script runs
+ * its gate at import time — unit tests import THIS module safely.
+ */
+export function wildcardTreeDropouts(
+  wildcardPats: readonly string[],
+  lcovFiles: readonly string[],
+  repoFilesForPattern: (pat: string) => readonly string[],
+): string[] {
+  const out: string[] = [];
+  for (const pat of wildcardPats) {
+    const glob = new Glob(escapeGlob(pat));
+    if (lcovFiles.some((f) => glob.match(f))) continue;
+    const onDisk = repoFilesForPattern(pat).filter(
+      (f) => !isTestOrTypeFile(f) && !isExcluded(f),
+    );
+    if (onDisk.length > 0) {
+      out.push(
+        `${pat}: wildcard threshold matches ${onDisk.length} repo file(s) (e.g. ${onDisk[0]}) ` +
+          `but lcov contains NONE of them — a coverage producer for this whole tree dropped ` +
+          `out (dead leg / unwired set). Fix the producer in scripts/test-coverage.sh; do not ` +
+          `delete the key.`,
+      );
+    }
+  }
+  return out;
 }
 
 export type FileCov = { totalLines: number; coveredLines: number; missed: number[] };

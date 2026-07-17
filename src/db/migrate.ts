@@ -106,8 +106,29 @@ export async function migrate(db: any): Promise<void> {
     )
   `);
 
+  // ── Workflows (formerly "pipelines") ──────────────────────────────
+  // The pipelines subsystem became "Workflows". Existing DBs carry the
+  // data in `pipeline_definitions`; rename the table in place (data
+  // preserved). Guarded via to_regclass so it is a no-op on a fresh
+  // install (neither table exists yet) and on re-run (already renamed).
+  // Ordered BEFORE the CREATE below so a fresh install builds
+  // `workflow_definitions` directly and this rename finds nothing to do.
+  {
+    // Single-line SELECT: a multi-line `sql` template leaves the interior
+    // column line as an orphan coverable line that never receives an
+    // execution hit (Bun attributes the whole statement to its first line),
+    // which the patch-coverage gate then flags as an uncovered change.
+    const tbls = (await db.execute(
+      sql`SELECT to_regclass('public.pipeline_definitions') AS old_tbl, to_regclass('public.workflow_definitions') AS new_tbl`,
+    )) as { rows: Array<{ old_tbl: string | null; new_tbl: string | null }> };
+    const row = tbls.rows[0];
+    if (row?.old_tbl && !row?.new_tbl) {
+      await db.execute(sql`ALTER TABLE pipeline_definitions RENAME TO workflow_definitions`);
+    }
+  }
+
   await db.execute(sql`
-    CREATE TABLE IF NOT EXISTS pipeline_definitions (
+    CREATE TABLE IF NOT EXISTS workflow_definitions (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL UNIQUE,
       description TEXT NOT NULL DEFAULT '',
@@ -1446,6 +1467,48 @@ export async function migrate(db: any): Promise<void> {
     )
   `);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_schedule_fires_pending ON extension_schedule_fires(status, scheduled_at)`);
+
+  // (5b) Loops EZ Mode Phase 4 — webhook trigger registry + delivery queue.
+  //      Idempotent CREATE-IF-NOT-EXISTS (mirrors extension_schedules). The
+  //      per-hook secret is NOT stored here — it lives in extension_secrets.
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS extension_webhooks (
+      id TEXT PRIMARY KEY,
+      extension_id TEXT NOT NULL REFERENCES extensions(name) ON DELETE CASCADE,
+      slug TEXT NOT NULL,
+      enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      last_delivery_at TIMESTAMP WITH TIME ZONE,
+      last_delivery_status TEXT,
+      created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+    )
+  `);
+  await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uniq_ext_webhook ON extension_webhooks(extension_id, slug)`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_webhook_enabled ON extension_webhooks(enabled)`);
+
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS webhook_deliveries (
+      id TEXT PRIMARY KEY,
+      webhook_id TEXT NOT NULL REFERENCES extension_webhooks(id) ON DELETE CASCADE,
+      extension_id TEXT NOT NULL,
+      slug TEXT NOT NULL,
+      status TEXT NOT NULL,
+      content_type TEXT,
+      body TEXT NOT NULL,
+      received_at TIMESTAMP WITH TIME ZONE NOT NULL,
+      claimed_at TIMESTAMP WITH TIME ZONE,
+      delivered_at TIMESTAMP WITH TIME ZONE,
+      error TEXT,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      catch_up BOOLEAN NOT NULL DEFAULT FALSE
+    )
+  `);
+  // Idempotent add for dev DBs created before the poison-delivery bound landed
+  // (the column caps failed-dispatch retries → dead-letter after N attempts).
+  await db.execute(sql`ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_pending ON webhook_deliveries(status, received_at)`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_hook ON webhook_deliveries(webhook_id)`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_ext_received ON webhook_deliveries(extension_id, received_at)`);
 
   // (7) Composite slug uniqueness for lessons. Replace the legacy
   //     partial indexes on (project_id, owner_id, slug) and

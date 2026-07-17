@@ -144,6 +144,24 @@ describe("GET /api/settings/[key]", () => {
 });
 
 describe("PUT /api/settings/[key]", () => {
+  // Loops kill-switch toggle path: the admin Loops Safety control PUTs
+  // `loops:kill_switch`. A non-admin must be refused with a clean 403 and the
+  // write must never reach the settings store.
+  test("non-admin PUT to loops:kill_switch RETURNS 403 (toggle write refused)", async () => {
+    vi.mocked(upsertSetting).mockClear();
+    const res = await PUT(
+      makeEvent({
+        key: "loops:kill_switch",
+        locals: { user: { id: "u1", email: "u@x", name: "u", role: "user" } },
+        body: { value: true },
+        method: "PUT",
+      }),
+    );
+    expect(res).toBeInstanceOf(Response);
+    expect(res.status).toBe(403);
+    expect(upsertSetting).not.toHaveBeenCalled();
+  });
+
   // Track 1 regression: key caller → 403 RETURNED (not 500).
   test("API-key caller (member role) RETURNS 403 JSON, never 500", async () => {
     const res = await PUT(

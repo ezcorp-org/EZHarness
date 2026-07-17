@@ -540,6 +540,44 @@ describe("installAuthoredDraft — granted-permission fold (item A)", () => {
     expect(granted.grantedAt.env).toBeUndefined();
   });
 
+  test("declared loopEvents → grant + grantedAt stamp minted", async () => {
+    seed({});
+    manifestImpl = async () => ({
+      name: "loopy",
+      permissions: { loopEvents: true },
+    });
+    await installAuthoredDraft({
+      draftId: "draft-1",
+      userId: "user-a",
+      enable: false,
+    });
+    const granted = installArgs[1] as {
+      loopEvents?: boolean;
+      grantedAt: Record<string, number>;
+    };
+    expect(granted.loopEvents).toBe(true);
+    expect(typeof granted.grantedAt.loopEvents).toBe("number");
+  });
+
+  test("declared webhooks → grant + grantedAt stamp minted (Loops EZ Mode Phase 4)", async () => {
+    seed({});
+    manifestImpl = async () => ({
+      name: "hooky",
+      permissions: { webhooks: ["tickets"] },
+    });
+    await installAuthoredDraft({
+      draftId: "draft-1",
+      userId: "user-a",
+      enable: false,
+    });
+    const granted = installArgs[1] as {
+      webhooks?: string[];
+      grantedAt: Record<string, number>;
+    };
+    expect(granted.webhooks).toEqual(["tickets"]);
+    expect(typeof granted.grantedAt.webhooks).toBe("number");
+  });
+
   test("no permissions in manifest → 2nd arg is EXACTLY { grantedAt: {} } (D5 contract)", async () => {
     seed({});
     // Mirrors the D5 web-route mock (`permissions:{}`): an empty grant

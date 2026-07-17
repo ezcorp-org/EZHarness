@@ -62,7 +62,7 @@ function stubFetch() {
 
 function pageData(files: Record<string, string>) {
 	return {
-		draft: { id: "draft-1", kind: "extension", payload: { name: "my-ext", type: "tool" }, createdAt: 0, expiresAt: 0, consumedAt: null },
+		draft: { id: "draft-1", kind: "extension" as const, payload: { name: "my-ext", type: "tool" }, createdAt: new Date(0), expiresAt: new Date(0), consumedAt: null },
 		files,
 	};
 }

@@ -39,7 +39,7 @@ vi.mock("$lib/api", () => ({
 	fetchProjects: () => Promise.resolve([]),
 	fetchSettings: () => Promise.resolve({}),
 	fetchAgentConfigs: () => Promise.resolve([]),
-	fetchPipelines: () => Promise.resolve([]),
+	fetchWorkflows: () => Promise.resolve([]),
 }));
 
 import {

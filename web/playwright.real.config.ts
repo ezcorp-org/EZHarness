@@ -70,7 +70,9 @@ export default defineConfig({
   globalTeardown: "./e2e/real-auth-teardown.ts",
   use: {
     baseURL,
-    trace: "on-first-retry",
+    // retries is 0, so "on-first-retry" could never record a trace — keep
+    // the trace for every failed test instead (uploaded by CI on failure).
+    trace: "retain-on-failure",
     // In evidence mode `captureEvidence` owns capture — turn Playwright's
     // own screenshot OFF to avoid a duplicate shot per failure.
     screenshot: evidence ? "off" : "only-on-failure",

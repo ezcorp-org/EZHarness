@@ -25,6 +25,7 @@
 import { Glob } from "bun";
 import { resolve } from "node:path";
 import {
+  CATCHALL_THRESHOLD_KEYS,
   escapeGlob,
   isExcluded,
   isSourceFile,
@@ -36,13 +37,19 @@ import {
 /**
  * For each added source file, return a violation message unless it is both
  * measured in lcov (≥1 line) and matched by a threshold glob.
+ *
+ * Catch-all ratchet-floor keys (CATCHALL_THRESHOLD_KEYS, e.g. `src/**`) do
+ * NOT count as "gated": they exist to floor the pre-existing unkeyed
+ * remainder, and letting them satisfy this gate would silently retire the
+ * every-new-file-gets-its-own-100-key policy.
  */
 export function newFileViolations(
   addedSourceFiles: readonly string[],
   perFile: Map<string, FileCov>,
   thresholdKeys: readonly string[],
 ): string[] {
-  const globs = thresholdKeys.map((k) => new Glob(escapeGlob(k)));
+  const catchalls = new Set<string>(CATCHALL_THRESHOLD_KEYS);
+  const globs = thresholdKeys.filter((k) => !catchalls.has(k)).map((k) => new Glob(escapeGlob(k)));
   const out: string[] = [];
   for (const file of addedSourceFiles) {
     const cov = perFile.get(file);
@@ -71,13 +78,45 @@ async function git(args: string[]): Promise<string> {
   return code === 0 ? out : "";
 }
 
+/**
+ * Parse `git diff --name-status` output into this gate's "added" list:
+ * A-status paths PLUS the new path of every rename with similarity >= R50.
+ * A heavy rewrite that git classifies as a rename (R50-R99) previously
+ * dodged the new-file gate entirely; a pure rename (R100) must also re-pass
+ * so its threshold key provably moves with it instead of silently
+ * de-gating. (git only reports renames at >=50% similarity by default, so
+ * in practice every R row qualifies — the explicit score parse pins the
+ * spec'd >=R50 intent against a future -M threshold change.)
+ */
+export function addedOrRewrittenFiles(nameStatus: string): string[] {
+  const out: string[] = [];
+  for (const line of nameStatus.split("\n")) {
+    if (!line.trim()) continue;
+    const parts = line.split("\t").map((p) => p.trim());
+    const status = parts[0] ?? "";
+    if (status === "A" && parts[1]) {
+      out.push(parts[1]);
+    } else if (status.startsWith("R") && parts[2]) {
+      // Number("") is 0, not NaN — a bare "R" status must fail CLOSED
+      // (treated like A), so parse the empty score explicitly.
+      const scoreStr = status.slice(1);
+      const score = scoreStr === "" ? Number.NaN : Number(scoreStr);
+      if (!Number.isFinite(score) || score >= 50) out.push(parts[2]);
+    }
+  }
+  return out;
+}
+
 async function main(): Promise<void> {
   const base = process.env.BASE_REF || "origin/main";
-  const added = (await git(["diff", "--name-only", "--diff-filter=A", `${base}...HEAD`]))
-    .split("\n")
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .filter((f) => isSourceFile(f) && !isExcluded(f));
+  const nameStatus = await git([
+    "diff",
+    "--name-status",
+    "--find-renames",
+    "--diff-filter=AR",
+    `${base}...HEAD`,
+  ]);
+  const added = addedOrRewrittenFiles(nameStatus).filter((f) => isSourceFile(f) && !isExcluded(f));
 
   if (added.length === 0) {
     console.log("New-file coverage gate PASSED: no new source files in this diff.");

@@ -115,7 +115,7 @@ describe("capability-flags — kill-switch gate", () => {
 
   test("CAPABILITY_PERMISSION_FIELDS lists all capability-tier fields", () => {
     expect(new Set(CAPABILITY_PERMISSION_FIELDS)).toEqual(
-      new Set(["taskEvents", "spawnAgents", "agentConfig", "eventSubscriptions"]),
+      new Set(["taskEvents", "loopEvents", "spawnAgents", "agentConfig", "eventSubscriptions", "webhooks"]),
     );
   });
 
