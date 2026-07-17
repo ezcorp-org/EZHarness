@@ -48,7 +48,10 @@ async function installPermissionMock(page: Page) {
 }
 
 /** Wait until the store's SSE stream exists, then emit the run-less prompt. */
-async function emitRunlessPrompt(page: Page, emitSse: (e: { type: string; data: unknown }) => Promise<void>) {
+async function emitRunlessPrompt(
+	page: Page,
+	emitSse: (e: { type: string; data: unknown }, urlMatch?: string) => Promise<void>,
+) {
 	await page.waitForFunction(() => {
 		const es = (window as unknown as { __fakeEventSources?: unknown[] }).__fakeEventSources;
 		return Array.isArray(es) && es.length > 0;
