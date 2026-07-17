@@ -82,6 +82,13 @@ describe("buildSpawnInput", () => {
     expect(input.agentName).toBe("code-reviewer");
     expect(input.outputSchema).toEqual({ type: "object" });
   });
+  test("workingDir HARD-pins the host tool cwd to the dispatch worktree (drive-3 containment)", () => {
+    // The prose "operating on the git worktree at:" line is steering the model
+    // can drift from; `workingDir` is the enforced pin — a dispatched agent's
+    // per-call shell cwd must never default to the shared project checkout.
+    const input = buildSpawnInput(opts({}), "/tmp/ev");
+    expect(input.workingDir).toBe("/wt");
+  });
   test("defaults agentName to 'default' and omits outputSchema when no schema", () => {
     const input = buildSpawnInput(opts({ agentName: undefined, jsonSchema: undefined }), "/tmp/ev");
     expect(input.agentName).toBe("default");

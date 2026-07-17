@@ -131,10 +131,14 @@ const validatedProjectRoot = (claimed: string | null | undefined, repo: string):
   claimed && repoIdFor(claimed) === repo ? claimed : undefined;
 
 /** Resolve the project root for a CONTEXT-FREE event fire (Hub action, git
- *  hook, cron): prefer ctx/env (dev + single-project installs), else the
- *  hash-validated claim carried by the event payload or the run record. */
+ *  hook, cron): the HASH-VALIDATED claim (event payload / run record) wins —
+ *  it is self-binding to the fire's own repoId — with ctx/env only as the
+ *  fallback for pre-stamp rows. The reverse order was a latent wrong-tree
+ *  bug: one persistent subprocess serves every project, so the process-wide
+ *  env root names whichever project spawned it, not necessarily this run's
+ *  (same per-run-root rule as reconcileOneRun / recoverOnStart). */
 const resolveEventProjectRoot = (repo: string, claimed?: string | null): string | undefined =>
-  projectRootImpl() ?? validatedProjectRoot(claimed, repo);
+  validatedProjectRoot(claimed, repo) ?? projectRootImpl();
 
 // Kept worktrees (and evidence) MUST survive subprocess respawns: a parked
 // run's checkout lives for minutes-to-days across human triage, but the host

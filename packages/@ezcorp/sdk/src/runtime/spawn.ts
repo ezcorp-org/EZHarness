@@ -47,6 +47,16 @@ export interface SpawnAssignmentInput {
   /** Optional sub-conversation title. Defaults to the agent's name
    *  on the host. */
   title?: string;
+  /** Absolute directory the child's built-in file/shell tools root at
+   *  instead of the parent conversation's project path. Host-validated
+   *  (absolute + existing directory, else -32602). Use when the child
+   *  must operate in a specific checkout — e.g. a pipeline run's git
+   *  worktree — so its per-call tool cwd can never silently fall back
+   *  to the shared project checkout (a dispatched agent whose shell
+   *  defaulted there once destroyed the dispatching extension's data
+   *  dir with `rm -rf .ezcorp`). Same spawnAgents trust envelope as
+   *  the spawn itself. */
+  workingDir?: string;
   /** Optional caller-supplied task id. When provided, the host uses it
    *  verbatim in the returned handle and in the emitted
    *  `task:snapshot` / `task:assignment_update` payloads. When absent,
@@ -174,6 +184,7 @@ export async function spawnAssignment(
     ...(input.agentConfigId ? { agentConfigId: input.agentConfigId } : {}),
     ...(input.agentName ? { agentName: input.agentName } : {}),
     ...(input.title ? { title: input.title } : {}),
+    ...(input.workingDir ? { workingDir: input.workingDir } : {}),
     ...(input.taskId ? { taskId: input.taskId } : {}),
     ...(input.assignmentId ? { assignmentId: input.assignmentId } : {}),
     ...(input.reuseSubConversationFor

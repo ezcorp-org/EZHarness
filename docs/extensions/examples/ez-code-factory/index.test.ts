@@ -385,6 +385,31 @@ describe("handlePushReceived", () => {
     expect(run.projectRoot).toBe(root);
   });
 
+  test("hash-validated payload root WINS over a set env root naming a DIFFERENT project", async () => {
+    // One persistent subprocess serves every project: the process-wide env
+    // root names whichever project spawned it (here /proj/other), not this
+    // push's. The self-binding claim (sha256(root)[:12] === payload repoId)
+    // must win, or every path (gate dir, tmp base, worktrees) derives from
+    // the WRONG project tree — the latent wrong-tree bug behind drive-3.
+    _setProjectRootForTests(() => "/proj/other");
+    _setTmpBaseForTests(() => "/tmp/ext");
+    _setShellForTests(async () => ({ exitCode: 0, stdout: "", stderr: "" }));
+    const store = memStore();
+    _setStoreForTests(store);
+    _setRunPipelineForTests(fakePipeline(store, "completed"));
+    _setPushPageForTests(() => {});
+    const root = "/proj/from-hook";
+    await handlePushReceived({
+      source: "hub",
+      pageId: "dashboard",
+      userId: "u",
+      payload: { ...VALID_PUSH, repoId: repoIdOf(root), projectRoot: root },
+    });
+    expect(store.runs.size).toBe(1);
+    const run = [...store.runs.values()][0]!;
+    expect(run.projectRoot).toBe(root); // NOT /proj/other
+  });
+
   test("rejects a payload root that fails the repoId hash binding (forged root)", async () => {
     _setProjectRootForTests(() => undefined);
     const store = memStore();

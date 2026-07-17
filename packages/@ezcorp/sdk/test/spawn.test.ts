@@ -104,6 +104,22 @@ describe("spawnAssignment — JSON-RPC frame shape", () => {
     expect((calls[0]?.params as Record<string, unknown>).title).toBe("Custom Title");
   });
 
+  test("workingDir: echoed verbatim when provided (the containment cwd pin)", async () => {
+    const { calls } = happy();
+    await spawnAssignment({
+      agentConfigId: "cfg-1",
+      task: "t",
+      workingDir: "/tmp/wt/run_abc",
+    });
+    expect((calls[0]?.params as Record<string, unknown>).workingDir).toBe("/tmp/wt/run_abc");
+  });
+
+  test("workingDir omitted → no key on params (host applies the project-path default)", async () => {
+    const { calls } = happy();
+    await spawnAssignment({ agentConfigId: "cfg-1", task: "t" });
+    expect(calls[0]?.params as Record<string, unknown>).not.toHaveProperty("workingDir");
+  });
+
   test("if BOTH agentConfigId and agentName are supplied, both are sent (host decides precedence)", async () => {
     const { calls } = happy();
     await spawnAssignment({

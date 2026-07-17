@@ -30,6 +30,7 @@
  * typed `reason`.
  */
 
+import { statSync } from "node:fs";
 import type {
   JsonRpcRequest,
   JsonRpcResponse,
@@ -289,6 +290,38 @@ export async function handleSpawnAssignmentRpc(
       ? { maxCycles: mc }
       : {};
   })();
+  // workingDir (containment pin, ez-code-factory drive-3): the absolute
+  // directory the child's built-in file/shell tools root at instead of the
+  // project path. Validated fail-closed — a sub-agent whose tools silently
+  // fell back to the shared project checkout is exactly the breach this
+  // field exists to prevent, so a bad value REJECTS rather than degrades.
+  // Trust envelope: spawnAgents-gated (same as steering/cancel); the shell
+  // tool imposes no path confinement of its own, so pinning the default cwd
+  // grants nothing the child could not already reach — it removes the
+  // wrong-tree default.
+  let callerWorkingDir: string | undefined;
+  if (params.workingDir !== undefined) {
+    const wd = params.workingDir;
+    if (
+      typeof wd !== "string" ||
+      !wd.trim() ||
+      !wd.startsWith("/") ||
+      wd.includes("\0")
+    ) {
+      return rpcError(req.id, -32602, "'workingDir' must be an absolute path");
+    }
+    let isDir = false;
+    try {
+      isDir = statSync(wd).isDirectory();
+    } catch {
+      isDir = false;
+    }
+    if (!isDir) {
+      return rpcError(req.id, -32602, `'workingDir' is not an accessible directory: ${wd}`);
+    }
+    callerWorkingDir = wd;
+  }
+
   // outputSchema (structured-output opt-in). Must be a plain JSON object —
   // arrays/primitives rejected — and the serialized form is size-capped.
   // Threaded verbatim into startAssignment, which validates the child's
@@ -404,6 +437,7 @@ export async function handleSpawnAssignmentRpc(
       task,
       snapshot,
       projectId: ctx.projectId,
+      ...(callerWorkingDir ? { workingDir: callerWorkingDir } : {}),
       agentConfig: {
         id: agentConfig.id,
         name: agentConfig.name,

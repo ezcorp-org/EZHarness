@@ -107,6 +107,13 @@ export function buildSpawnInput(opts: DispatchOptions, evidenceDir: string): Spa
   const input: SpawnAssignmentInput = {
     task,
     title: `ez-code-factory: ${opts.role}`,
+    // HARD cwd pin (drive-3 containment breach): the worktree line above is
+    // prose the model can drift from — one fix agent's per-call shell cwd
+    // defaulted to the PROJECT root and it ran `rm -rf .ezcorp` there,
+    // destroying the gate repo + kept worktrees mid-run. `workingDir` makes
+    // the host root the child's built-in file/shell tools AT the worktree,
+    // so the steering preamble's "current working directory" claim is true.
+    workingDir: opts.cwd,
     ...(opts.agentName ? { agentName: opts.agentName } : {}),
     ...(opts.jsonSchema ? { outputSchema: opts.jsonSchema } : {}),
     // Native mapping of the trusted `disable_project_settings` boundary: append a
