@@ -46,6 +46,14 @@ const mockBusEmit = mock((..._args: unknown[]) => {});
 const mockBus = { emit: mockBusEmit };
 mock.module("$lib/server/context", () => ({
   getBus: () => mockBus,
+  // The route's spawn-path re-wire (out-of-turn wirer fix) also imports
+  // getExecutor; a partial mock that omits it fails EVERY import from the
+  // module at load ("Export named 'getExecutor' not found"). Throwing here
+  // exercises the route's own guarded executor-less test path (the catch
+  // keeps the spawn path unwired) instead of crashing module load.
+  getExecutor: () => {
+    throw new Error("executor not booted (test context)");
+  },
 }));
 
 // ── Mock errorJson + json (mirror ask-user-answer-route.test.ts) ──
