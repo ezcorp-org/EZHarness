@@ -11,7 +11,7 @@
  * NOT be matched.
  */
 import { test, expect, describe } from "bun:test";
-import { isNoiseLine } from "../../scripts/lcov-noise-filter.ts";
+import { isNoiseLine, templateInteriorProseLines } from "../../scripts/lcov-noise-filter.ts";
 
 describe("isNoiseLine — positive matches (noise)", () => {
   test("blank lines", () => {
@@ -125,6 +125,7 @@ describe("isNoiseLine — positive matches (noise)", () => {
     expect(isNoiseLine("      }`,")).toBe(true);
     expect(isNoiseLine("}`")).toBe(true);
   });
+
 });
 
 describe("isNoiseLine — negative matches (real executable code)", () => {
@@ -266,5 +267,74 @@ describe("isNoiseLine — negative matches (real executable code)", () => {
     // An inline `case x: doThing(); break;` carries executable code, so
     // SWITCH_LABEL does NOT strip it.
     expect(/^\s*(case\s+.+|default)\s*:\s*$/.test("  case x: doThing(); break;")).toBe(false);
+  });
+});
+
+describe("templateInteriorProseLines — pure-prose inside multi-line templates", () => {
+  test("flags free-prose body lines, not the opener/closer/interpolation lines", () => {
+    const src = [
+      "const prompt =",                          // 1 code
+      "  `Review the code changes and return.",  // 2 opener (code→template) — NOT flagged
+      "Context:",                                // 3 pure prose — FLAGGED
+      "- branch: ${branch}",                     // 4 interpolation — NOT flagged
+      "Rules:",                                  // 5 pure prose — FLAGGED
+      "- Be concise.",                           // 6 pure prose — FLAGGED
+      "`;",                                      // 7 closer (template→code) — NOT flagged
+      "doWork();",                               // 8 code
+    ];
+    const got = templateInteriorProseLines(src);
+    expect([...got].sort((a, b) => a - b)).toEqual([3, 5, 6]);
+  });
+
+  test("does not flag lines outside any template", () => {
+    const src = [
+      "function f() {",
+      "  const x = 1;",
+      "  return x + 2;",
+      "}",
+    ];
+    expect(templateInteriorProseLines(src).size).toBe(0);
+  });
+
+  test("a backtick inside a double-quoted string does not open a template", () => {
+    const src = [
+      'const s = "a backtick ` here";', // the ` is string content, not a template opener
+      "const y = 2;",                    // must NOT be flagged as template interior
+    ];
+    expect(templateInteriorProseLines(src).size).toBe(0);
+  });
+
+  test("a backtick inside a line comment does not open a template", () => {
+    const src = [
+      "// example: `foo`",  // comment — the backticks are inert
+      "const z = 3;",        // must NOT be flagged
+    ];
+    expect(templateInteriorProseLines(src).size).toBe(0);
+  });
+
+  test("single-line template on one line flags nothing (never spans a full line as interior)", () => {
+    const src = ["const one = `all on one line`;", "next();"];
+    expect(templateInteriorProseLines(src).size).toBe(0);
+  });
+
+  test("nested ${} interpolation returns to template string content correctly", () => {
+    const src = [
+      "const p = `head",             // 1 opener
+      "prose one",                   // 2 prose — FLAGGED
+      "${obj.method({ a: 1 })} mid", // 3 interpolation with nested braces — NOT flagged
+      "prose two",                   // 4 prose — FLAGGED (back in template after interp closed)
+      "`;",                          // 5 closer
+    ];
+    expect([...templateInteriorProseLines(src)].sort((a, b) => a - b)).toEqual([2, 4]);
+  });
+
+  test("escaped backtick inside a template does not close it", () => {
+    const src = [
+      "const e = `line",   // 1 opener
+      "has a \\` escaped",  // 2 prose with escaped backtick — still template interior, FLAGGED
+      "still inside",       // 3 prose — FLAGGED
+      "`;",                 // 4 closer
+    ];
+    expect([...templateInteriorProseLines(src)].sort((a, b) => a - b)).toEqual([2, 3]);
   });
 });

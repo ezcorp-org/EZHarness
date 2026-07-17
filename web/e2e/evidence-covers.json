@@ -36,6 +36,14 @@
     "web/src/lib/components/ez/**",
     "web/src/routes/(app)/project/[id]/chat/+page.svelte"
   ],
+  "web/e2e/ez-code-factory-gates.spec.ts": [
+    "docs/extensions/examples/ez-code-factory/lib/page.ts",
+    "web/src/lib/components/hub/HubComponentRenderer.svelte"
+  ],
+  "web/e2e/ez-code-factory-hub.spec.ts": [
+    "docs/extensions/examples/ez-code-factory/lib/page.ts",
+    "web/src/lib/components/hub/HubComponentRenderer.svelte"
+  ],
   "web/e2e/ez-tool-list.spec.ts": [
     "web/src/lib/components/ez/**",
     "web/src/lib/components/settings/ModesSection.svelte",

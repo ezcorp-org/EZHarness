@@ -114,6 +114,13 @@ describe("scope enforcement coverage", () => {
         // logic. Accepting the wrapper keeps this textual scan accurate without
         // forcing a redundant inline `requireScope` into every route.
         !content.includes("authGithubRoute") &&
+        // `verifyWebhookAuth` (src/extensions/webhook-auth.ts) is the public
+        // webhook-ingress route's gate: constant-time per-hook bearer-secret
+        // compare, fail-closed when no secret is set, behind a pre-lookup rate
+        // limiter. The route is public-by-design (external services POST to
+        // it) but every request must present the hook's token — accept the
+        // verifier like `authGithubRoute` above so the scan stays accurate.
+        !content.includes("verifyWebhookAuth") &&
         !(isTestSurfaceRoute && content.includes("isTestSurfaceEnabled"))
       ) {
         missing.push(relative);
