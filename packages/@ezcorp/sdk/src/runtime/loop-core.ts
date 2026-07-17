@@ -48,13 +48,11 @@ export const APPROVED = "approved";
 /** Decline (human or staleness) resolved. Terminal. */
 export const DECLINED = "declined";
 
-/** The four primitive-owned approval states + their terminal subset. */
-export const APPROVAL_STATES = [
-  AWAITING_APPROVAL,
-  FINALIZING,
-  APPROVED,
-  DECLINED,
-] as const;
+/** The four primitive-owned approval states + their terminal subset.
+ *  Single-line on purpose: bun --coverage emits phantom zero-hit DA records
+ *  for the interior lines of a multi-line const array literal (they only
+ *  "execute" at module load), which held this file at 98.58% on main. */
+export const APPROVAL_STATES = [AWAITING_APPROVAL, FINALIZING, APPROVED, DECLINED] as const;
 export const APPROVAL_TERMINAL_STATES = [APPROVED, DECLINED] as const;
 
 /** Default staleness horizon: a parked proposal older than this many days
