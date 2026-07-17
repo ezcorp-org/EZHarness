@@ -66,11 +66,32 @@ export function jailGitIdentityEnv(): Record<string, string> {
 
 /**
  * The jail's read-write grant set for a run: the worktree (workspace) + the gate
- * bare repo (shared objects/refs the worktree writes) + `/dev`. The project root
- * is deliberately absent. Pure.
+ * bare repo (shared objects/refs the worktree writes) + `/dev`, plus any
+ * `extra` grants (a LOCAL-file upstream the push step writes — see
+ * makeJailedShell). The project root is deliberately absent. Pure.
  */
-export function jailRwPaths(worktree: string, gateDir: string): string[] {
-  return [worktree, gateDir, "/dev"];
+export function jailRwPaths(worktree: string, gateDir: string, extra: readonly string[] = []): string[] {
+  return [worktree, gateDir, "/dev", ...extra];
+}
+
+/**
+ * Classify a git remote URL: an ABSOLUTE local filesystem path (a `file://`
+ * URL or a bare `/…` path — the self-hosted local-gate upstream) needs a jail
+ * rw grant so the file-transport push can write its objects/refs; a network
+ * remote (https/ssh/git/user@host) goes over the wire and needs NO fs grant.
+ * Returns the local path to grant, or null for a network remote / anything
+ * unparseable (fail-safe: no extra grant). Pure.
+ */
+export function localUpstreamPath(remoteUrl: string): string | null {
+  const url = remoteUrl.trim();
+  if (url === "") return null;
+  if (url.startsWith("file://")) {
+    const p = url.slice("file://".length);
+    return p.startsWith("/") ? p : null;
+  }
+  // A bare absolute path — but NOT `scp`-style `host:path` or a scheme://.
+  if (url.startsWith("/") && !url.includes("://")) return url;
+  return null;
 }
 
 /** One nested-jail spawn, fully assembled: the argv to spawn + the env
@@ -99,13 +120,14 @@ export function buildJailInvocation(
   projectRoot: string,
   env: Record<string, string | undefined>,
   bunPath: string,
+  extraRwPaths: readonly string[] = [],
 ): JailInvocation {
   const tier = env.EZCORP_SANDBOX_TIER;
   const shim = env.EZCORP_SANDBOX_SHIM;
   if ((tier !== "landlock" && tier !== "bwrap") || !shim) {
     return { argv: [...cmd], env: {}, jailed: false };
   }
-  const rwPaths = jailRwPaths(cwd, gateDir);
+  const rwPaths = jailRwPaths(cwd, gateDir, extraRwPaths);
   const rawSpec: RawLandlockSpecInput = {
     workspaceDir: rwPaths[0]!,
     projectRoot,
@@ -125,6 +147,29 @@ export function buildJailInvocation(
  * unsupported — no mutating git op the pipeline runs pipes stdin.
  */
 export function makeJailedShell(gateDir: string, projectRoot: string): ShellRunner {
+  // The gate repo's `origin` resolved to a LOCAL path needs a jail rw grant so
+  // the push step's file-transport push can write it (a network origin needs
+  // none — it goes over the wire). Resolved ONCE (cached), lazily, via a plain
+  // read-only host `git remote get-url` — the origin is init_gate-set from the
+  // project's trusted origin, so this widens the jail only to a trusted,
+  // already-project-adjacent bare repo, never an attacker-named path.
+  let localUpstream: string[] | null = null;
+  const resolveLocalUpstream = async (): Promise<string[]> => {
+    if (localUpstream !== null) return localUpstream;
+    try {
+      const proc = Bun.spawn(["git", "-C", gateDir, "remote", "get-url", "origin"], {
+        stdout: "pipe",
+        stderr: "ignore",
+      });
+      const url = (await new Response(proc.stdout).text()).trim();
+      await proc.exited;
+      const local = localUpstreamPath(url);
+      localUpstream = local ? [local] : [];
+    } catch {
+      localUpstream = [];
+    }
+    return localUpstream;
+  };
   return async (cmd, cwd): Promise<ShellResult> => {
     const built = buildJailInvocation(
       cmd,
@@ -136,6 +181,7 @@ export function makeJailedShell(gateDir: string, projectRoot: string): ShellRunn
       // depend on PATH resolution inside the jail. Not poisoned (a plain
       // process property, no fs).
       process.execPath || "bun",
+      await resolveLocalUpstream(),
     );
     const proc = Bun.spawn(built.argv, {
       cwd,

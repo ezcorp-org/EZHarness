@@ -8,6 +8,7 @@ import {
   buildJailInvocation,
   jailGitIdentityEnv,
   jailRwPaths,
+  localUpstreamPath,
   makeJailedShell,
   BOT_GIT_NAME,
   BOT_GIT_EMAIL,
@@ -17,6 +18,32 @@ import {
 describe("jailRwPaths", () => {
   test("grants the worktree + gate dir + /dev, never the project root", () => {
     expect(jailRwPaths("/wt", "/gate.git")).toEqual(["/wt", "/gate.git", "/dev"]);
+  });
+  test("appends extra grants (a local-file upstream) after the fixed set", () => {
+    expect(jailRwPaths("/wt", "/gate.git", ["/up.git"])).toEqual(["/wt", "/gate.git", "/dev", "/up.git"]);
+  });
+});
+
+describe("localUpstreamPath", () => {
+  test("bare absolute path → granted (self-hosted local gate upstream)", () => {
+    expect(localUpstreamPath("/app/projects/ecf-demo-upstream.git")).toBe(
+      "/app/projects/ecf-demo-upstream.git",
+    );
+  });
+  test("file:// URL → the path is granted", () => {
+    expect(localUpstreamPath("file:///srv/up.git")).toBe("/srv/up.git");
+  });
+  test("network remotes → null (over the wire, no fs grant)", () => {
+    expect(localUpstreamPath("https://github.com/o/r.git")).toBeNull();
+    expect(localUpstreamPath("ssh://git@github.com/o/r.git")).toBeNull();
+    expect(localUpstreamPath("git@github.com:o/r.git")).toBeNull();
+    expect(localUpstreamPath("git://host/r.git")).toBeNull();
+  });
+  test("empty / relative / non-absolute file URL → null (fail-safe: no grant)", () => {
+    expect(localUpstreamPath("")).toBeNull();
+    expect(localUpstreamPath("  ")).toBeNull();
+    expect(localUpstreamPath("relative/up.git")).toBeNull();
+    expect(localUpstreamPath("file://relative")).toBeNull();
   });
 });
 
@@ -66,6 +93,17 @@ describe("buildJailInvocation (pure assembly)", () => {
     );
     expect(inv.jailed).toBe(true);
     expect(inv.argv.slice(0, 3)).toEqual(["bun", "/shim.ts", "--"]);
+  });
+
+  test("extraRwPaths (a local upstream) is appended to the RAW spec rw set", () => {
+    const inv = buildJailInvocation(
+      CMD, "/wt", "/gate.git", "/proj",
+      { EZCORP_SANDBOX_TIER: "landlock", EZCORP_SANDBOX_SHIM: "/shim.ts" },
+      "bun",
+      ["/up.git"],
+    );
+    const raw = JSON.parse(inv.env[RAW_SPEC_ENV]!);
+    expect(raw.rwPaths).toEqual(["/gate.git", "/dev", "/up.git"]);
   });
 
   test("advisory tier → plain passthrough (no shim, no env)", () => {
@@ -162,6 +200,17 @@ describe("makeJailedShell (landlock containment via the real shim)", () => {
       mkdirSync(dataDir, { recursive: true });
       writeFileSync(join(dataDir, "jwt"), "TOP-SECRET");
 
+      // A LOCAL bare UPSTREAM (the self-hosted gate's `origin` — a stand-in for
+      // GitHub), OUTSIDE the project. The gate's origin points at it, so the
+      // jailed push must reach it — makeJailedShell grants it because it's a
+      // local path. It lives under a SEPARATE base so it is not covered by any
+      // project/gate grant; only the origin-resolved grant reaches it.
+      const upRoot = realpathSync(mkdtempSync(join(tmpdir(), "ezcf-up-")));
+      const upstream = join(upRoot, "upstream.git");
+      run(["git", "init", "--bare", "-b", "main", upstream], upRoot);
+      run(["git", "push", upstream, "HEAD:refs/heads/main"], seed);
+      run(["git", "-C", gate, "remote", "add", "origin", upstream], gate);
+
       // Materialize a detached worktree OUTSIDE the project (TMPDIR-like).
       const wtRoot = realpathSync(mkdtempSync(join(tmpdir(), "ezcf-wt-")));
       const wt = join(wtRoot, "wt");
@@ -189,6 +238,17 @@ describe("makeJailedShell (landlock containment via the real shim)", () => {
           .stdout.toString().trim();
         expect(author).toBe(`${BOT_GIT_NAME} <${BOT_GIT_EMAIL}>|${BOT_GIT_NAME} <${BOT_GIT_EMAIL}>`);
 
+        // The jailed push REACHES the local upstream (makeJailedShell resolved
+        // the gate's origin → a local path → granted it in the jail). Before
+        // this grant the file-transport push EACCES'd ("does not appear to be a
+        // git repository") — the exact drive-4 push-step failure.
+        const pushed = await jailed(["git", "push", "origin", "HEAD:refs/heads/feat/x"], wt);
+        expect(pushed.exitCode).toBe(0);
+        const upTip = run(["git", "-C", upstream, "rev-parse", "refs/heads/feat/x"], upstream)
+          .stdout.toString().trim();
+        const wtHead = run(["git", "-C", wt, "rev-parse", "HEAD"], wt).stdout.toString().trim();
+        expect(upTip).toBe(wtHead);
+
         // READ of the project's .ezcorp/data/jwt is DENIED (root never granted).
         const readDeny = await jailed(["cat", join(dataDir, "jwt")], wt);
         expect(readDeny.exitCode).not.toBe(0);
@@ -203,6 +263,7 @@ describe("makeJailedShell (landlock containment via the real shim)", () => {
       } finally {
         run(["git", "-C", gate, "worktree", "remove", "--force", wt], gate);
         rmSync(wtRoot, { recursive: true, force: true });
+        rmSync(upRoot, { recursive: true, force: true });
         rmSync(seed, { recursive: true, force: true });
         rmSync(base, { recursive: true, force: true });
       }
