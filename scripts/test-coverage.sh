@@ -34,8 +34,9 @@
 #       (the runner couldn't execute). No legs/merge/check here.
 #
 #   legs-only (CI; COVERAGE_LEGS_ONLY=1):
-#       Run ONLY the SDK + harness-client + node-vitest coverage legs and emit
-#       their lcov into $COV_OUT. No host files, no merge, no check.
+#       Run ONLY the SDK + harness-client + suggest + ai-kit + node-vitest
+#       coverage legs and emit their lcov into $COV_OUT. No host files, no
+#       merge, no check.
 #
 # $COV_OUT — directory the CI modes copy per-shard lcov into (uploaded as an
 # artifact). Unused in full mode.
@@ -104,23 +105,32 @@ tally() {
   TOTAL_FAIL=$((TOTAL_FAIL + ${f:-0}))
 }
 
-# ── SDK + harness-client + suggest + node-vitest legs ───────────────────────
+# ── SDK + harness-client + suggest + ai-kit + node-vitest legs ──────────────
 run_legs() {
-  # The 4 legs are independent (disjoint covdirs, own exit codes) and run
+  # The 5 legs are independent (disjoint covdirs, own exit codes) and run
   # CONCURRENTLY — cov-extras wall clock = max(legs), not their sum. Each
   # leg's combined stdout/stderr is captured to its own file and printed
   # SEQUENTIALLY after the wait, so logs never interleave. Exit-code
-  # semantics are exactly the pre-parallel ones: the SDK + suggest legs are
-  # pass/fail-TOLERATED (coverage-only), the harness-client (HC_EXIT) and
+  # semantics: the SDK + suggest legs are pass/fail-TOLERATED
+  # (coverage-only), the harness-client (HC_EXIT), ai-kit (AIKIT_EXIT) and
   # node-vitest (VITEST_EXIT) legs gate. A leg that dies without writing its
   # exit-code file counts as exit 1 for the gating legs (fail-closed).
   local legs="$TMPDIR/legs"
   mkdir -p "$legs"
 
+  # Leg file lists come from lib/test-file-sets.sh (sdk_leg_files & co) —
+  # ONE definition shared with the orphan-drift meta-test, so a leg's set
+  # can never drift from what the meta-test credits it with running.
+
   # SDK: top-level test/ + co-located entities/__tests__/ (the canonical
   # coverage for entities/{validate,tools,storage,slug}.ts). mock.module-free,
   # so bundling preserves the 100% module-load instrumentation parity.
   # Pass/fail tolerated (coverage-only).
+  # DIR args are LOAD-BEARING: bun discovers test/ before entities/__tests__
+  # here; feeding the same files as a sorted explicit list reorders entities
+  # first and 12 entities tests fail (order-dependent state in the bundled
+  # process — a latent coupling, documented not fixed). sdk_leg_files()
+  # mirrors exactly these dirs for the drift meta-test's crediting.
   (
     set +e
     bun test --coverage --coverage-reporter=lcov --coverage-dir="$TMPDIR/cov_sdk" \
@@ -133,7 +143,8 @@ run_legs() {
   # its pass/fail GATES: the event-name parity test + the route-table
   # meta-assertions in index.test.ts are part of the remote-control contract, so
   # a failure must red CI, not merely report. The real exit code lands in
-  # HC_EXIT below (checked in the mode dispatch).
+  # HC_EXIT below (checked in the mode dispatch). Dir arg mirrored by
+  # harness_client_leg_files() for the drift meta-test.
   (
     set +e
     bun test --coverage --coverage-reporter=lcov --coverage-dir="$TMPDIR/cov_hc" \
@@ -144,23 +155,32 @@ run_legs() {
 
   # Composer-suggest backend leg — dedicated bun-coverage shard feeding the
   # `src/suggest/**` + suggestion-feedback threshold keys. The host-shard set
-  # (coverage_host_files) deliberately doesn't sweep these dirs; small
-  # isolated suites also dodge Bun's large-suite attribution drift. Pass/fail
-  # is tolerated like the SDK leg (thresholds are the gate); the suites also
-  # run for correctness in `bun run test`.
+  # (coverage_host_files) subtracts exactly this set; small isolated suites
+  # also dodge Bun's large-suite attribution drift. Pass/fail is tolerated
+  # like the SDK leg (thresholds are the gate); the suites are also
+  # pass/fail-gated in P via the CI residual job.
   (
     set +e
+    mapfile -t LEG_FILES < <(suggest_leg_files)
     bun test --coverage --coverage-reporter=lcov --coverage-dir="$TMPDIR/cov_suggest" \
-      ./src/suggest/__tests__/intent-rank.test.ts \
-      ./src/suggest/__tests__/embedding-cache.test.ts \
-      ./src/suggest/__tests__/user-tool-priors.test.ts \
-      ./src/suggest/__tests__/enhance.test.ts \
-      ./src/suggest/__tests__/config.test.ts \
-      ./src/suggest/__tests__/training-export.test.ts \
-      ./src/db/queries/__tests__/suggestion-feedback.test.ts \
-      ./src/db/queries/__tests__/settings-jsonb-roundtrip.test.ts \
+      "${LEG_FILES[@]/#/./}" \
       > "$legs/suggest.out" 2>&1
     echo "$?" > "$legs/suggest.code"
+  ) &
+
+  # ai-kit leg (wave 3): these 22 files previously ran ONLY at release time —
+  # a rotted SKILL.md drift-guard assertion proved the gap. unit/ +
+  # integration/ are deterministic (verified per-file AND bundled, no
+  # Docker); e2e/ self-skips without EZCORP_E2E_BASE_URL. Pass/fail GATES
+  # like the harness-client leg (AIKIT_EXIT) — deterministic package suites
+  # have no instrumentation-flake excuse.
+  (
+    set +e
+    mapfile -t LEG_FILES < <(aikit_leg_files)
+    bun test --coverage --coverage-reporter=lcov --coverage-dir="$TMPDIR/cov_aikit" \
+      "${LEG_FILES[@]/#/./}" \
+      > "$legs/aikit.out" 2>&1
+    echo "$?" > "$legs/aikit.code"
   ) &
 
   # Node-run vitest leg for the vitest-only web/src/lib files. @vitest/coverage-v8
@@ -370,14 +390,14 @@ run_legs() {
   # Print each leg's captured output sequentially (no interleaving), then
   # tally + collect exit codes with the pre-parallel gating semantics.
   local leg
-  for leg in sdk hc suggest vitest; do
+  for leg in sdk hc suggest aikit vitest; do
     echo ""
     echo "── leg output: $leg ──"
     cat "$legs/$leg.out" 2>/dev/null || echo "(no output captured)"
   done
-  # Tally the three bun legs (as before the parallelisation; the vitest
+  # Tally the bun legs (as before the parallelisation; the vitest
   # summary format never matched the bun "N pass" parser).
-  for leg in sdk hc suggest; do
+  for leg in sdk hc suggest aikit; do
     tally "$(cat "$legs/$leg.out" 2>/dev/null)"
   done
 
@@ -385,6 +405,12 @@ run_legs() {
   if [ "$HC_EXIT" != "0" ]; then
     FAILED_FILES+=("harness-client coverage leg")
     echo "--- FAIL: harness-client coverage leg (exit $HC_EXIT) ---"
+  fi
+
+  AIKIT_EXIT=$(cat "$legs/aikit.code" 2>/dev/null || echo 1)
+  if [ "$AIKIT_EXIT" != "0" ]; then
+    FAILED_FILES+=("ai-kit coverage leg")
+    echo "--- FAIL: ai-kit coverage leg (exit $AIKIT_EXIT) ---"
   fi
 
   VITEST_EXIT=$(cat "$legs/vitest.code" 2>/dev/null || echo 1)
@@ -420,10 +446,11 @@ if [ -n "$COVERAGE_LEGS_ONLY" ]; then
   run_legs
   emit_lcov
   echo "  ${TOTAL_PASS} pass | ${TOTAL_FAIL} fail | legs"
-  # The harness-client leg (HC_EXIT) and the node-vitest leg (VITEST_EXIT) both
-  # GATE here — the SDK leg stays pass/fail-tolerant (coverage-only). This is the
-  # exit status the cov-extras CI job reports.
-  if [ "$VITEST_EXIT" != "0" ] || [ "$HC_EXIT" != "0" ]; then exit 1; fi
+  # The harness-client (HC_EXIT), ai-kit (AIKIT_EXIT) and node-vitest
+  # (VITEST_EXIT) legs GATE here — the SDK + suggest legs stay
+  # pass/fail-tolerant (coverage-only; suggest also gates via the residual
+  # job). This is the exit status the cov-extras CI job reports.
+  if [ "$VITEST_EXIT" != "0" ] || [ "$HC_EXIT" != "0" ] || [ "$AIKIT_EXIT" != "0" ]; then exit 1; fi
   exit 0
 fi
 
@@ -578,10 +605,10 @@ CHECK_EXIT=0
 bun scripts/check-coverage.ts || CHECK_EXIT=$?
 
 # Full local mode gates COVERAGE + the vitest leg's integrity + the
-# harness-client leg's pass/fail (the remote-control contract). It does NOT gate
-# the host pool's pass/fail — the CI shards own that. check-coverage catches any
-# flaky-shard coverage drop.
-if [ "$CHECK_EXIT" != "0" ] || [ "$VITEST_EXIT" != "0" ] || [ "$HC_EXIT" != "0" ]; then
+# harness-client and ai-kit legs' pass/fail. It does NOT gate the host pool's
+# pass/fail — the CI shards own that. check-coverage catches any flaky-shard
+# coverage drop.
+if [ "$CHECK_EXIT" != "0" ] || [ "$VITEST_EXIT" != "0" ] || [ "$HC_EXIT" != "0" ] || [ "$AIKIT_EXIT" != "0" ]; then
   exit 1
 fi
 exit 0

@@ -12,28 +12,42 @@
 #
 # Two sets are defined:
 #   P (passfail_files)      — the per-file mock.module-isolated backend pool
-#                             that CI gates pass/fail on.
-#   C (coverage_host_files) — the per-file --coverage pool. It EXCLUDES the
+#                             that CI gates pass/fail on. A FULL `src` SWEEP
+#                             (wave 3): every src/**/*.test.ts is pass/fail-
+#                             gated somewhere — shards for P∩C, the residual
+#                             job for P\C.
+#   C (coverage_host_files) — the per-file --coverage pool. The same `src`
+#                             sweep minus NAMED exclusions (documented at the
+#                             find): the github-projects/extensions
 #                             *integration* variants (they load several real
 #                             modules whose DA line-set floats the denominator
 #                             and false-drops unit-measured files — Bun's
-#                             per-line attribution drift) and ADDS the example
-#                             suites, the reverse-RPC entry-point shard, and the
-#                             scoped web search-helper bun:test files.
+#                             per-line attribution drift) and the cov-extras
+#                             suggest-leg files (dedicated coverage home). It
+#                             ADDS the example suites and the scoped web
+#                             search-helper bun:test files.
 #
 # The set difference is small and intentional:
-#   P \ C = the *integration* files + route-contract.test.ts (the remote-control
-#           governance meta-test). These are gated for pass/fail — via the CI
-#           `residual-tests` job (RESIDUAL_ONLY=1 → residual_passfail_files →
-#           test.sh, real exit code) — but NOT measured for coverage. (P∩C
-#           files hard-gate INSIDE the coverage shards via test-coverage.sh's
-#           P-membership gate + isolated retry sweep; P\C files are the ones
-#           the shards never run, so the residual job is their only
-#           pass/fail home.)
-#   C \ P = the example suites + a few coverage-only shards (measured for
+#   P \ C = the excluded *integration* variants + the suggest-leg files +
+#           route-contract.test.ts (the remote-control governance meta-test).
+#           These are gated for pass/fail — via the CI `residual-tests` job
+#           (RESIDUAL_ONLY=1 → residual_passfail_files → test.sh, real exit
+#           code) — but not coverage-measured in the host pool (the suggest
+#           leg measures its own files; the rest are excluded from C on
+#           purpose). (P∩C files hard-gate INSIDE the coverage shards via
+#           test-coverage.sh's P-membership gate + isolated retry sweep; P\C
+#           files are the ones the shards never run, so the residual job is
+#           their only pass/fail home.)
+#   C \ P = the example suites + the scoped web bun:test files (measured for
 #           coverage; the example e2e cases fail-by-timeout without Docker, so
 #           they are NEVER pass/fail-gated — see the host-shard classifier in
 #           test-coverage.sh, which gates pass/fail on P-membership only).
+#
+# Also defined: the cov-extras LEG sets (suggest / sdk / harness-client /
+# ai-kit) — the exact file lists scripts/test-coverage.sh's run_legs executes.
+# They live here so the runner and the orphan-drift meta-test
+# (src/__tests__/ci-test-set-drift.test.ts) consume ONE definition each and
+# can never drift apart.
 
 # P — the pass/fail set.
 passfail_files() {
@@ -45,15 +59,20 @@ passfail_files() {
     # later find + the printf list — a silent test-set loss. The group is the
     # left side of a pipe, so this set +e is scoped to the subshell only.
     set +e
-    find src/__tests__ -name "*.test.ts"
+    # FULL src sweep — no exclusions. Wave 3 replaced the old dir allowlist
+    # (src/__tests__ + github-projects + secrets-*): 36 deterministic files
+    # (extension handlers/provenance/db-isolation, db queries, ez-actions)
+    # ran in NO CI job, and two had silently rotted failing assertions. All
+    # 36 were verified deterministic (plain per-file run, no Docker/env), so
+    # per the header rules the whole tree belongs in P. A genuinely
+    # env-dependent future suite must be excluded HERE by name, with its
+    # reason — never by silently shrinking back to a dir allowlist.
+    find src -name "*.test.ts"
     # import-wizard endpoint tests live beside their SvelteKit routes (bun:test).
     find web/src/routes/api/import -name "*.test.ts"
-    # github-projects integration: unit + integration both run for pass/fail.
-    find src/integrations/github-projects/__tests__ -name "*.test.ts"
-    find src/extensions/__tests__ -name "github-projects-handler*.test.ts"
+    # github-projects web route tests.
     find web/src/routes/api/integrations/github-projects/__tests__ -name "*.test.ts"
-    # extension-secrets store + web entry-route tests.
-    find src/extensions/__tests__ -name "secrets-*.test.ts"
+    # extension web entry-route tests.
     find web/src/routes/api/extensions/__tests__ -name "*.test.ts"
     # extension-RBAC grants API route tests.
     find web/src/routes/api/rbac/__tests__ -name "*.test.ts"
@@ -80,20 +99,24 @@ coverage_host_files() {
     # See passfail_files: scoped `set +e` so a missing dir doesn't silently
     # truncate the list under the callers' `set -e`.
     set +e
-    find src/__tests__ -name "*.test.ts"
+    # src sweep with NAMED exclusions (wave 3 — was a dir allowlist that
+    # orphaned 36 files from every CI job):
+    #   - *integration* variants in the github-projects + extensions test
+    #     dirs: they load several real modules whose DA line-set floats the
+    #     denominator (Bun per-line attribution drift). src/__tests__'s own
+    #     *integration* files are NOT excluded — they were always part of
+    #     this pool and their coverage is load-bearing. Excluded files stay
+    #     pass/fail-gated via P (the residual job).
+    #   - the suggest-leg files (comm -23 below): their coverage home is the
+    #     dedicated cov-extras suggest leg (suggest_leg_files — small
+    #     isolated shard dodging the same attribution drift); sweeping them
+    #     here too would double-measure. Pass/fail-gated via P (residual).
+    find src -name "*.test.ts" \
+      ! \( -path "src/extensions/__tests__/*" -name "*integration*" \) \
+      ! \( -path "src/integrations/github-projects/__tests__/*" -name "*integration*" \)
     find docs/extensions/examples -name "*.test.ts"
     find web/src/routes/api/import -name "*.test.ts"
-    # *integration* excluded on purpose (Bun attribution drift); they still run
-    # for correctness via passfail_files / the CI residual job.
-    find src/integrations/github-projects/__tests__ -name "*.test.ts" ! -name "*integration*"
-    find src/extensions/__tests__ -name "github-projects-handler*.test.ts" ! -name "*integration*"
-    # reverse-RPC entry point lives on ToolExecutor, isolated shard.
-    find src/extensions/__tests__ -name "tool-executor.github-projects-rpc.test.ts"
-    # ezcorp/rbac-check reverse-RPC entry point (ctx.rbac.check host side) —
-    # same isolated-shard rationale as the github-projects shard above.
-    find src/extensions/__tests__ -name "tool-executor.rbac-rpc.test.ts"
     find web/src/routes/api/integrations/github-projects/__tests__ -name "*.test.ts"
-    find src/extensions/__tests__ -name "secrets-*.test.ts" ! -name "*integration*"
     find web/src/routes/api/extensions/__tests__ -name "*.test.ts"
     # extension-RBAC grants API route tests (coverage for the two rbac
     # +server.ts files pinned at 100 in coverage-thresholds.json).
@@ -125,6 +148,56 @@ coverage_host_files() {
       web/src/__tests__/mock-llm-route.test.ts \
       web/src/__tests__/runs-wait-route.test.ts \
       web/src/__tests__/seed-reset-route.test.ts
+    # The suggest-leg files are subtracted below — ONE definition
+    # (suggest_leg_files) serves both this exclusion and the runner.
+  } 2>/dev/null | sort -u | comm -23 - <(suggest_leg_files)
+}
+
+# ── cov-extras leg sets ─────────────────────────────────────────────────────
+# The file lists scripts/test-coverage.sh's run_legs executes (each leg is ONE
+# bun/vitest process — mock.module-free suites where bundling preserves
+# module-load instrumentation parity). Defined here so the runner and the
+# orphan-drift meta-test share a single source of truth.
+
+# Composer-suggest backend leg — dedicated bun-coverage shard feeding the
+# `src/suggest/**` + suggestion-feedback threshold keys. Deliberately NOT in
+# the host pool (coverage_host_files subtracts this set): the small isolated
+# shard dodges Bun's large-suite attribution drift.
+suggest_leg_files() {
+  {
+    set +e
+    find src/suggest/__tests__ -name "*.test.ts"
+    printf '%s\n' \
+      src/db/queries/__tests__/suggestion-feedback.test.ts \
+      src/db/queries/__tests__/settings-jsonb-roundtrip.test.ts
+  } 2>/dev/null | sort -u
+}
+
+# SDK leg: top-level test/ + co-located entities/__tests__/ (the canonical
+# coverage for entities/{validate,tools,storage,slug}.ts).
+sdk_leg_files() {
+  {
+    set +e
+    find packages/@ezcorp/sdk/test packages/@ezcorp/sdk/src/entities/__tests__ -name "*.test.ts"
+  } 2>/dev/null | sort -u
+}
+
+# harness-client leg — pass/fail GATES in cov-extras (remote-control contract).
+harness_client_leg_files() {
+  {
+    set +e
+    find packages/@ezcorp/harness-client -name "*.test.ts" ! -path "*/node_modules/*"
+  } 2>/dev/null | sort -u
+}
+
+# ai-kit leg (wave 3): previously these 22 files ran ONLY at release time —
+# a rotted SKILL.md drift-guard assertion proved it. unit/ + integration/ are
+# deterministic (verified plain, no Docker); the e2e/ files self-skip without
+# EZCORP_E2E_BASE_URL (opt-in guard), so they no-op in CI rather than flake.
+aikit_leg_files() {
+  {
+    set +e
+    find packages/@ezcorp/ai-kit/test -name "*.test.ts"
   } 2>/dev/null | sort -u
 }
 

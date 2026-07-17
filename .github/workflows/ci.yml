@@ -283,7 +283,10 @@ jobs:
           retention-days: 3
           if-no-files-found: error
 
-  # SDK + harness-client + node-vitest coverage legs (node 22 for coverage-v8).
+  # SDK + harness-client + suggest + ai-kit + node-vitest coverage legs
+  # (node 22 for coverage-v8). harness-client + ai-kit + vitest gate
+  # pass/fail; SDK + suggest are coverage-only (suggest pass/fail-gates via
+  # residual-tests). Leg file sets live in scripts/lib/test-file-sets.sh.
   cov-extras:
     name: Coverage extras (legs)
     runs-on: ubuntu-latest
