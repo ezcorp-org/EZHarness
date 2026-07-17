@@ -64,6 +64,7 @@ import {
   _resetProbeCacheForTests,
   _resetBwrapProbeCacheForTests,
   _setBwrapProbeOverridesForTests,
+  _setNetnsProbeCacheForTests,
 } from "../extensions/mcp-netns";
 import {
   _resetTmpfsKillSwitchBootFlagForTests,
@@ -367,6 +368,13 @@ describe("bwrap tmpfs", () => {
 
   test("bwrap missing on Linux → no EZCORP_MCP_BWRAP_ENABLED + extra MCP_NETNS_FALLBACK row with reason='bubblewrap unavailable'", async () => {
     setPlatform("linux" as NodeJS.Platform);
+    // The fallback row is gated on netns.available (mcp-sandbox.ts) — the
+    // invariant under test is "netns available BUT bwrap missing". Seed the
+    // netns probe instead of inheriting the host's: hosted CI runners have
+    // no unprivileged userns, so the real probe returns false there and the
+    // row is legitimately never emitted (PR #8 runs 29589476463/29601137701,
+    // shard 1 — pooled AND isolated).
+    _setNetnsProbeCacheForTests({ available: true });
     _resetBwrapProbeCacheForTests();
     _setBwrapProbeOverridesForTests({
       whichBwrap: () => null,
