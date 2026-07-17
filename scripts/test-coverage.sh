@@ -83,8 +83,13 @@ run_host_pool() {
       # summary. set +e (scoped to the subshell) records the real exit code so
       # the per-shard summary accurately reports failing files (visibility).
       set +e
+      # Wall-clock ms per file — feeds the LPT shard planner's timings
+      # manifest (emitted as $COV_OUT/timings-shard-N.json below).
+      START_MS=$(date +%s%3N)
       OUTPUT=$(bun test $tflag --coverage --coverage-reporter=lcov --coverage-dir="$covdir" "./$f" 2>&1)
-      echo "$?" > "$codefile"
+      CODE=$?
+      echo $(( $(date +%s%3N) - START_MS )) > "$TMPDIR/time_$idx"
+      echo "$CODE" > "$codefile"
       echo "$OUTPUT" > "$outfile"
     ) &
     idx=$((idx + 1)); running=$((running + 1))
@@ -454,6 +459,15 @@ if [ -n "$COVERAGE_LEGS_ONLY" ]; then
   exit 0
 fi
 
+# SHARD_INDEX/SHARD_TOTAL must be set together: a lone SHARD_TOTAL used to
+# make the stride slice silently select 0 files (awk idx="" matches nothing),
+# and a lone SHARD_INDEX silently ran the FULL set in "full mode". Both are
+# misconfigurations that must red, not green.
+if { [ -n "$SHARD_TOTAL" ] && [ -z "$SHARD_INDEX" ]; } || { [ -n "$SHARD_INDEX" ] && [ -z "$SHARD_TOTAL" ]; }; then
+  echo "::error::SHARD_INDEX and SHARD_TOTAL must be set together (got SHARD_INDEX='${SHARD_INDEX:-}' SHARD_TOTAL='${SHARD_TOTAL:-}')"
+  exit 1
+fi
+
 # Build the host file list (sliced for shard mode).
 if [ -n "$SHARD_TOTAL" ]; then
   if [ -n "$HOST_FILES_OVERRIDE" ] && [ -z "$CI" ]; then
@@ -530,6 +544,24 @@ if [ -n "$SHARD_TOTAL" ]; then
     fi
     bun scripts/merge-lcov.ts "$TMPDIR/cov_*/lcov.info" "$COV_OUT/lcov_shard_${SHARD_INDEX}.info"
     echo "pre-merged $N_LCOV per-file lcov(s) → $COV_OUT/lcov_shard_${SHARD_INDEX}.info"
+
+    # Per-file wall-clock timings — rides the lcov artifact. Same envelope as
+    # the committed scripts/shard-timings.json so shard artifacts can be
+    # merged (union of timingsMs) into a refreshed manifest for the LPT
+    # planner (scripts/shard-plan.ts).
+    {
+      printf '{\n  "version": 1,\n  "source": "cov-shard %s/%s run",\n  "timingsMs": {\n' \
+        "$SHARD_INDEX" "$SHARD_TOTAL"
+      TIMING_FIRST=1
+      for ((i = 0; i < HOST_COUNT; i++)); do
+        [ -f "$TMPDIR/time_$i" ] || continue
+        [ "$TIMING_FIRST" = "1" ] || printf ',\n'
+        printf '    "%s": %s' "${FILES[$i]}" "$(cat "$TMPDIR/time_$i")"
+        TIMING_FIRST=0
+      done
+      printf '\n  }\n}\n'
+    } > "$COV_OUT/timings-shard-${SHARD_INDEX}.json"
+    echo "emitted per-file timings → $COV_OUT/timings-shard-${SHARD_INDEX}.json"
   fi
   echo ""
   echo "  ${TOTAL_PASS} pass | ${TOTAL_FAIL} fail | ${#FILES[@]} files (shard ${SHARD_INDEX}/${SHARD_TOTAL})"

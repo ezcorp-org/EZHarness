@@ -285,14 +285,29 @@ critical_backend_files() {
   } 2>/dev/null | sort -u
 }
 
-# Select a 1-of-N stride slice of stdin (sorted file list) for CI sharding.
+# Select a 1-of-N slice of stdin (sorted file list) for CI sharding.
 # Usage: some_files | shard_slice "$SHARD_INDEX" "$SHARD_TOTAL"
-# Stride (i % total == index) balances cost better than contiguous blocks:
-# adjacent files (same dir) tend to have similar runtime, so round-robin keeps
-# the slow suites spread across shards instead of clustered in one.
+# Wave 3: greedy LPT over the measured per-file durations in
+# scripts/shard-timings.json (see scripts/shard-plan.ts — deterministic:
+# sorted input, weight-desc/path-asc ordering, lowest-index tie-break;
+# unknown files weigh the median). The old stride slice overloaded shards
+# 1+3 by ~35-40s. Fallback layers, both deterministic and never empty:
+#   - missing/unparseable/empty manifest → stride INSIDE shard-plan.ts;
+#   - bun itself crashing → bash stride below (the input is buffered so it
+#     can be replayed).
 shard_slice() {
   local index="$1" total="$2"
-  awk -v idx="$index" -v tot="$total" 'NR % tot == idx'
+  local input out
+  input=$(cat)
+  if out=$(printf '%s\n' "$input" | bun scripts/shard-plan.ts "$index" "$total"); then
+    # Guard the empty slice: `printf '%s\n' ""` would emit one EMPTY line,
+    # which mapfile callers would read as a phantom file.
+    [ -n "$out" ] && printf '%s\n' "$out"
+  else
+    echo "shard_slice: bun planner failed — stride fallback" >&2
+    printf '%s\n' "$input" | awk -v idx="$index" -v tot="$total" 'NR % tot == idx'
+  fi
+  return 0
 }
 
 # ── shared pool-runner helpers ──────────────────────────────────────────────

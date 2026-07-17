@@ -261,6 +261,11 @@ jobs:
         # Keep SHARD_TOTAL below in sync with this list length.
         # 8 shards: ~1410s of measured test work / 8 ≈ 176s + ~23s fixed
         # overhead per shard ≈ 3:20 wall for the leg (was ~5:34 at 5).
+        # Slices come from the LPT planner (scripts/shard-plan.ts over
+        # scripts/shard-timings.json) — est. per-shard skew <1s vs the old
+        # stride's ~35-40s. KNOB: 10 shards would shave ~30s more, but the
+        # org-level concurrent-job cap is unverified (18 jobs at t=0 today;
+        # free plan caps at 20) — verify before raising.
         shard: [0, 1, 2, 3, 4, 5, 6, 7]
     steps:
       - uses: actions/checkout@v4
