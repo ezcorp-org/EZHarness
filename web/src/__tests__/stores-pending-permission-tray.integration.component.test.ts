@@ -36,6 +36,9 @@ vi.mock("$lib/api", () => ({
 	fetchSettings: () => Promise.resolve({}),
 	fetchAgentConfigs: () => Promise.resolve([]),
 	fetchPipelines: () => Promise.resolve([]),
+	// stores.svelte.ts gained a fetchWorkflows import (workflows feature);
+	// a partial mock missing it fails every import from the module.
+	fetchWorkflows: () => Promise.resolve([]),
 }));
 
 import {

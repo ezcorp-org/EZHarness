@@ -124,6 +124,12 @@ mock.module("$server/logger", () => realLogger);
 const bus = new EventBus<AgentEvents>();
 mock.module("$lib/server/context", () => ({
   getBus: () => bus,
+  // The route's spawn-path re-wire also imports getExecutor; a partial mock
+  // that omits it fails EVERY import from the module at load. Throwing
+  // exercises the route's guarded executor-less test path.
+  getExecutor: () => {
+    throw new Error("executor not booted (test context)");
+  },
 }));
 
 const { POST, __hubActionRateLimiter } = await import(
