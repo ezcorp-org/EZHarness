@@ -38,6 +38,7 @@ import {
   TRIGGER_EVENT,
   EXTENSION_NAME,
   DEFAULT_BASE_URL,
+  dataDir,
   gateDir as gateDirFor,
   repoId as repoIdFor,
   initGate,
@@ -135,10 +136,17 @@ const validatedProjectRoot = (claimed: string | null | undefined, repo: string):
 const resolveEventProjectRoot = (repo: string, claimed?: string | null): string | undefined =>
   projectRootImpl() ?? validatedProjectRoot(claimed, repo);
 
-const defaultTmpBase = (): string => process.env.TMPDIR || "/tmp";
-let tmpBaseImpl: () => string = defaultTmpBase;
+// Kept worktrees (and evidence) MUST survive subprocess respawns: a parked
+// run's checkout lives for minutes-to-days across human triage, but the host
+// WIPES the per-proc TMPDIR on every (re)spawn — a mid-triage respawn was
+// destroying the kept worktree and failing the next step with "not a git
+// repository" (drive-3). The durable, jail-writable home is the extension
+// DATA DIR under the project root ($CWD fs grant), same convention as the
+// gate repos. The old volatile-TMPDIR default is gone on purpose.
+const defaultTmpBase = (projectRoot: string): string => join(dataDir(projectRoot), "tmp");
+let tmpBaseImpl: (projectRoot: string) => string = defaultTmpBase;
 export function _setTmpBaseForTests(fn: (() => string) | null): void {
-  tmpBaseImpl = fn ?? defaultTmpBase;
+  tmpBaseImpl = fn ? () => fn() : defaultTmpBase;
 }
 
 const defaultBaseUrl = (): string => process.env.EZCORP_BASE_URL || DEFAULT_BASE_URL;
@@ -268,13 +276,13 @@ function buildExecutorDeps(
   worktreePath: string,
   config: PipelineConfig,
 ): ExecutorDeps {
-  const evidenceDir = join(tmpBaseImpl(), "ez-code-factory-evidence");
+  const evidenceDir = join(tmpBaseImpl(projectRoot), "ez-code-factory-evidence");
   return {
     store: getStore(),
     worktree: worktreePath,
     gateDir,
     workingPath: projectRoot,
-    tmpBase: tmpBaseImpl(),
+    tmpBase: tmpBaseImpl(projectRoot),
     config,
     dispatcher: makeSpawnDispatcher({ evidenceDir }),
     hostRunner: shellImpl,
@@ -372,7 +380,7 @@ async function defaultBuildChatToolDeps(projectRoot: string): Promise<ChatToolDe
   const id = repoIdFor(projectRoot);
   const gDir = gateDirFor(projectRoot, id);
   const config = await resolveLiveConfig();
-  const evidenceDir = join(tmpBaseImpl(), "ez-code-factory-evidence");
+  const evidenceDir = join(tmpBaseImpl(projectRoot), "ez-code-factory-evidence");
   const log = (message: string): void => {
     logLine(`ez-code-factory[chat]: ${message}`);
   };
@@ -386,7 +394,7 @@ async function defaultBuildChatToolDeps(projectRoot: string): Promise<ChatToolDe
     triggerRun: (push) =>
       runGateLifecycle(push, {
         gateDir: gDir,
-        tmpBase: tmpBaseImpl(),
+        tmpBase: tmpBaseImpl(projectRoot),
         store: getStore(),
         run: shellImpl,
         onChange: refreshDashboard,
@@ -576,7 +584,7 @@ export async function handlePushReceived(event: PageActionEvent): Promise<void> 
     const gDir = gateDirFor(projectRoot, push.repoId);
     const result = await runGateLifecycle(push, {
       gateDir: gDir,
-      tmpBase: tmpBaseImpl(),
+      tmpBase: tmpBaseImpl(projectRoot),
       store: getStore(),
       run: shellImpl,
       onChange: refreshDashboard,

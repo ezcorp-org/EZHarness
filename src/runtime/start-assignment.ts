@@ -259,6 +259,17 @@ function emitAssignmentUpdate(
   resultFull?: string,
   structured?: { result?: unknown; error?: string; overCap?: boolean },
 ): void {
+  // Terminal updates are the ONLY signal a spawning extension gets that its
+  // sub-agent finished (the ez-code-factory pipeline awaits them) — a missed
+  // one wedges the caller until its dispatch timeout. Rare + load-bearing, so
+  // log every emit; the dispatcher logs the matching delivery decision.
+  log.info("assignment_update emit", {
+    conversationId,
+    taskId,
+    assignmentId: assignment.id,
+    status: assignment.status,
+    hasStructured: structured?.result !== undefined,
+  });
   bus.emit("task:assignment_update", {
     conversationId,
     taskId,
