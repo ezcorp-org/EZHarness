@@ -69,6 +69,9 @@ const MODULE_PATHS = [
   "../../db/schema",
   "../../extensions/registry",
   "../../extensions/tool-executor",
+  // Loops EZ Mode: event-subscription-dispatcher.test.ts mock.module's the
+  // kill-switch gate; snapshot so the stub never leaks past the file.
+  "../../extensions/loops-kill-switch",
   // tool-executor-legacy-handler-provenance.test.ts mock.module's the six
   // LEGACY singleton-reading reverse-RPC handlers to capture the ctx the
   // executor builds (token-wins-over-singleton provenance suite). Snapshot

@@ -120,6 +120,9 @@ describe("extension audit action constants", () => {
       "SDK_SEARCH_EGRESS_BLOCKED",
       // Shared-search Phase 2 — policy resolver quota / provider denial
       "SDK_SEARCH_QUOTA_EXCEEDED",
+      // Loops EZ Mode — gated emit-loop-event (audit-mirror + rejection)
+      "LOOP_EVENT_EMITTED",
+      "LOOP_EVENT_REJECTED",
       // Extension secrets (Phase 0) — scope-isolated, AAD-bound cred store
       "SECRET_SET",
       "SECRET_USED",

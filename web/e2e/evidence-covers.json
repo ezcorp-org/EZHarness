@@ -60,6 +60,9 @@
   "web/e2e/graded-card-scanner.spec.ts": [
     "docs/extensions/examples/graded-card-scanner/app/**"
   ],
+  "web/e2e/loops-kill-switch.spec.ts": [
+    "web/src/routes/(app)/settings/admin/+page.svelte"
+  ],
   "web/e2e/openrouter-provider.spec.ts": [
     "web/src/lib/components/ProviderSettings.svelte",
     "web/src/lib/components/settings/PreferenceOrderSection.svelte",
