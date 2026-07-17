@@ -118,6 +118,14 @@ jobs:
             'e2e/hub\.spec\.ts$' \
             'e2e/extensions-library-tabs\.spec\.ts$' \
             'e2e/extension-detail-pages\.spec\.ts$'
+      # Post-mortem debuggability: keep traces/screenshots when the gate fails.
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-mock-test-results
+          path: web/test-results/
+          retention-days: 3
+          if-no-files-found: ignore
 
   # Real-auth + real-DB + mock-LLM e2e tier (web/playwright.real.config.ts,
   # specs under web/e2e/real-auth/). Unlike e2e-mock, the preview server boots
@@ -155,6 +163,15 @@ jobs:
       # specs would silently skip and the job would go green without them (#55).
       - run: bun web/e2e/real-auth/_sandbox-spawn-probe.bun.ts
       - run: cd web && PI_E2E_REAL=1 bunx playwright test --config playwright.real.config.ts
+      # Post-mortem debuggability: keep traces/screenshots when the gate fails
+      # (the real config uses trace: retain-on-failure).
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-real-auth-test-results
+          path: web/test-results/
+          retention-days: 3
+          if-no-files-found: ignore
 
   lint:
     name: Lint (biome)
