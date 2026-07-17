@@ -87,7 +87,10 @@ const MODULE_PATHS = [
   "../../extensions/installer",
   "../../extensions/manifest",
   "../../extensions/checksum",
-  "../../extensions/bundled",
+  // "../../extensions/bundled" was TRIMMED (wave 3): zero mock.module
+  // targets across src/web/docs/packages tests + helpers resolve to it
+  // (only bundled-ceiling / bundled-lock below are mocked), and its eager
+  // preload import pulled in the whole bundled-extension graph per spawn.
   "../../extensions/bundled-ceiling",
   "../../extensions/bundled-lock",
   "../../extensions/loader",
@@ -95,7 +98,7 @@ const MODULE_PATHS = [
   "../../extensions/entities/migrate",
   "../../extensions/audit-actions",
   "../../extensions/secrets-store",
-  "../../extensions/storage-handler",
+  // "../../extensions/storage-handler" trimmed (wave 3): zero mockers.
   "../../extensions/security",
   "../../extensions/subprocess",
   "../../observability/collector",
@@ -114,7 +117,8 @@ const MODULE_PATHS = [
   // Phase 64: embed-worker.test.ts mocks message-chunker to return predictable
   // single-chunk output without needing the real tokenizer loaded.
   "../../memory/message-chunker",
-  "../../runtime/lessons/distiller",
+  // "../../runtime/lessons/distiller" trimmed (wave 3): zero mockers
+  // (triggers below IS mocked and stays).
   "../../runtime/lessons/triggers",
   "../../memory/compaction",
   "../../chat/attachments/content-builder",
@@ -218,7 +222,8 @@ const MODULE_PATHS = [
   "../../../web/src/lib/server/conversation-ownership",
   "../../../web/src/lib/stores/connection",
   "../../../web/src/lib/api",
-  "@earendil-works/pi-ai",
+  // Bare "@earendil-works/pi-ai" trimmed (wave 3): every pi-ai mock in the
+  // population targets /compat or /oauth — the bare specifier had zero.
   "@earendil-works/pi-ai/compat",
   "@earendil-works/pi-ai/oauth",
   "@earendil-works/pi-agent-core",
@@ -228,8 +233,8 @@ const MODULE_PATHS = [
   // `fetchPermitted` or similar — the stripped channels are missing
   // methods (notably `request`) that other extensions' tests need at
   // load time. Snapshot the real module so `restoreModuleMocks()` can
-  // re-register it in afterAll.
-  "@ezcorp/sdk",
+  // re-register it in afterAll. (Bare "@ezcorp/sdk" trimmed in wave 3:
+  // only the /runtime subpath is ever mocked.)
   "@ezcorp/sdk/runtime",
 ];
 
