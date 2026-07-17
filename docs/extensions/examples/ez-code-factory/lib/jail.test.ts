@@ -1,9 +1,10 @@
-import { test, expect, describe } from "bun:test";
+import { test, expect, describe, afterEach } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { getSandboxTier, probeLandlockAbi } from "../../../../../src/extensions/sandbox/capability-probe";
-import { jailRwPaths, makeJailedShell } from "./jail";
+import { probeLandlockAbi } from "../../../../../src/extensions/sandbox/capability-probe";
+import { defaultShimPath } from "../../../../../src/extensions/sandbox/build-sandbox-argv";
+import { buildJailInvocation, jailRwPaths, makeJailedShell, RAW_SPEC_ENV } from "./jail";
 
 describe("jailRwPaths", () => {
   test("grants the worktree + gate dir + /dev, never the project root", () => {
@@ -11,13 +12,65 @@ describe("jailRwPaths", () => {
   });
 });
 
+// The PURE assembly seam — the whole reason jail.ts no longer imports the
+// host sandbox builders (their static node:fs dies under the subprocess
+// poisoning; drive-3's push-step blocker). Tier + shim path come from the
+// host-baked env handoff.
+describe("buildJailInvocation (pure assembly)", () => {
+  const CMD = ["git", "push", "origin", "HEAD:refs/heads/x"] as const;
+
+  test("landlock tier + shim → bun-shim argv with the RAW spec env", () => {
+    const inv = buildJailInvocation(
+      CMD, "/wt", "/gate.git", "/proj",
+      { EZCORP_SANDBOX_TIER: "landlock", EZCORP_SANDBOX_SHIM: "/shim.ts" },
+      "/usr/local/bin/bun",
+    );
+    expect(inv.jailed).toBe(true);
+    expect(inv.argv).toEqual(["/usr/local/bin/bun", "/shim.ts", "--", ...CMD]);
+    const raw = JSON.parse(inv.env[RAW_SPEC_ENV]!);
+    // Workspace = the worktree; extra rw = gate repo + /dev; the project root
+    // rides ONLY as the forbidden-data anchor, never a grant.
+    expect(raw).toEqual({
+      workspaceDir: "/wt",
+      projectRoot: "/proj",
+      rwPaths: ["/gate.git", "/dev"],
+    });
+  });
+
+  test("bwrap tier ALSO rides the landlock shim (fs-free downgrade)", () => {
+    const inv = buildJailInvocation(
+      CMD, "/wt", "/g", "/p",
+      { EZCORP_SANDBOX_TIER: "bwrap", EZCORP_SANDBOX_SHIM: "/shim.ts" },
+      "bun",
+    );
+    expect(inv.jailed).toBe(true);
+    expect(inv.argv.slice(0, 3)).toEqual(["bun", "/shim.ts", "--"]);
+  });
+
+  test("advisory tier → plain passthrough (no shim, no env)", () => {
+    const inv = buildJailInvocation(
+      CMD, "/wt", "/g", "/p",
+      { EZCORP_SANDBOX_TIER: "advisory", EZCORP_SANDBOX_SHIM: "/shim.ts" },
+      "bun",
+    );
+    expect(inv).toEqual({ argv: [...CMD], env: {}, jailed: false });
+  });
+
+  test("missing handoff (no tier / no shim) → plain passthrough", () => {
+    expect(buildJailInvocation(CMD, "/wt", "/g", "/p", {}, "bun").jailed).toBe(false);
+    expect(
+      buildJailInvocation(CMD, "/wt", "/g", "/p", { EZCORP_SANDBOX_TIER: "landlock" }, "bun").jailed,
+    ).toBe(false);
+  });
+});
+
 describe("makeJailedShell (ambient tier)", () => {
   test("threads cmd + cwd through the jail and returns a ShellResult", async () => {
     // Mirror production: a worktree workspace + a gate bare repo + a project
-    // root whose `.ezcorp/data` is the forbidden anchor. On a host without a
-    // usable OS tier this is a plain spawn; on a capable host the jail may
-    // alter the exit — the command + wiring are exercised either way. The repo
-    // root is NEVER granted, so the builder's data-dir assertion passes.
+    // root whose `.ezcorp/data` is the forbidden anchor. Without the env
+    // handoff this is a plain spawn; with it the jail may alter the exit —
+    // the command + wiring are exercised either way. The repo root is NEVER
+    // granted, so the builder's data-dir assertion passes.
     const base = realpathSync(mkdtempSync(join(tmpdir(), "ezcf-jail-")));
     const repo = join(base, "repo");
     const gate = join(base, "repo", ".ezcorp", "extension-data", "ez-code-factory", "gate.git");
@@ -36,14 +89,28 @@ describe("makeJailedShell (ambient tier)", () => {
   });
 });
 
-// Real containment (read AND write, realpath-based). Landlock is the container's
-// production tier and works unprivileged in-process; the dev host resolves to
-// bwrap (setuid wrapper rejects unprivileged tmpfs flags), so this runs
-// in-container. Skipped elsewhere; the ambient-tier test above covers the code.
-describe("makeJailedShell (landlock containment)", () => {
-  test.if(getSandboxTier() === "landlock" && (probeLandlockAbi() ?? 0) >= 1)(
+// Real containment (read AND write, realpath-based) through the REAL shim —
+// the exact production invocation shape the subprocess assembles from the env
+// handoff. Landlock applies in the shim regardless of the host's SELECTED
+// tier (a bwrap host is landlock-usable by definition), so gate only on the
+// kernel: runs on the landlock-capable dev host AND in-container CI.
+describe("makeJailedShell (landlock containment via the real shim)", () => {
+  const savedTier = process.env.EZCORP_SANDBOX_TIER;
+  const savedShim = process.env.EZCORP_SANDBOX_SHIM;
+  afterEach(() => {
+    if (savedTier === undefined) delete process.env.EZCORP_SANDBOX_TIER;
+    else process.env.EZCORP_SANDBOX_TIER = savedTier;
+    if (savedShim === undefined) delete process.env.EZCORP_SANDBOX_SHIM;
+    else process.env.EZCORP_SANDBOX_SHIM = savedShim;
+  });
+
+  test.if((probeLandlockAbi() ?? 0) >= 1)(
     "jailed git commits into the gate repo; project .ezcorp/data is DENIED read AND write",
     async () => {
+      // The host-baked env handoff, exactly as buildSpawnEnv() sets it.
+      process.env.EZCORP_SANDBOX_TIER = "landlock";
+      process.env.EZCORP_SANDBOX_SHIM = defaultShimPath();
+
       const run = (args: string[], cwd: string) =>
         Bun.spawnSync(args, { cwd, stdout: "pipe", stderr: "pipe" });
 

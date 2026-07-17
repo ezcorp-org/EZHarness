@@ -107,7 +107,7 @@ export interface SandboxArgvResult {
  * `EZCORP_PROJECT_ROOT` (the resolver's canonical project anchor, set by
  * the harness + the prod entrypoint) when the colocated path is absent.
  */
-function defaultShimPath(): string {
+export function defaultShimPath(): string {
   const colocated = fileURLToPath(new URL("./landlock-shim.ts", import.meta.url));
   if (existsSync(colocated)) return colocated;
   const root = process.env.EZCORP_PROJECT_ROOT;
