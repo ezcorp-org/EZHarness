@@ -354,7 +354,9 @@ run_legs() {
   fi
 }
 
-# Copy every per-shard lcov produced this run into $COV_OUT (CI artifact).
+# Copy every per-leg lcov produced this run into $COV_OUT (CI artifact).
+# Used by legs-only mode (4 small files); host-shard mode PRE-MERGES its
+# ~200 per-file lcovs into one artifact file instead — see the shard branch.
 emit_lcov() {
   [ -n "$COV_OUT" ] || return 0
   local n=0
@@ -436,7 +438,27 @@ if [ -n "$SHARD_TOTAL" ]; then
   #     fail by design without Docker) are never pass/fail-gated — listed as
   #     non-gating files; the Per-file coverage gate's thresholds remain
   #     their only gate.
-  emit_lcov
+  #
+  # PRE-MERGE: the shard's ~200 per-file lcovs are merged into ONE artifact
+  # file here (~110MB → <1MB; the gate then merges 8 files, not ~1000).
+  # merge-lcov's output is deterministic and the merge is associative with an
+  # idempotent noise filter, so pre-merge + gate merge-of-merges is
+  # byte-identical to one direct merge (proven: wave-2 equivalence check).
+  # A shard that produced NO per-file lcov must red like the old
+  # if-no-files-found: error did — an empty merge output would silently
+  # green, so guard explicitly.
+  if [ -n "$COV_OUT" ]; then
+    N_LCOV=0
+    for shard_lcov in "$TMPDIR"/cov_*/lcov.info; do
+      [ -f "$shard_lcov" ] && N_LCOV=$((N_LCOV + 1))
+    done
+    if [ "$N_LCOV" -eq 0 ]; then
+      echo "::error::shard produced no per-file lcov output (infrastructure failure)"
+      exit 1
+    fi
+    bun scripts/merge-lcov.ts "$TMPDIR/cov_*/lcov.info" "$COV_OUT/lcov_shard_${SHARD_INDEX}.info"
+    echo "pre-merged $N_LCOV per-file lcov(s) → $COV_OUT/lcov_shard_${SHARD_INDEX}.info"
+  fi
   echo ""
   echo "  ${TOTAL_PASS} pass | ${TOTAL_FAIL} fail | ${#FILES[@]} files (shard ${SHARD_INDEX}/${SHARD_TOTAL})"
 

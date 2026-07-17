@@ -106,13 +106,25 @@ for await (const path of glob.scan({ absolute: true })) {
   }
 }
 
+// Deterministic output order (records sorted by SF; FN by declared line then
+// name; FNDA by name): input Maps are insertion-ordered by glob-scan
+// encounter, which differs between a direct merge of N files and a merge of
+// pre-merged halves. Sorting makes the merge associative BYTE-for-byte, so a
+// per-shard pre-merge followed by the gate's merge-of-merges is provably
+// identical to one big merge. Consumers (parseLcov/parseHitLines) are
+// order-insensitive.
 const out: string[] = [];
-for (const [sf, r] of files) {
+const sortedFiles = [...files.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+for (const [sf, r] of sortedFiles) {
   out.push("TN:");
   out.push(`SF:${sf}`);
-  for (const [name, lineNo] of r.fn) out.push(`FN:${lineNo},${name}`);
+  const fnSorted = [...r.fn.entries()].sort(
+    (a, b) => a[1] - b[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0),
+  );
+  for (const [name, lineNo] of fnSorted) out.push(`FN:${lineNo},${name}`);
   let fnh = 0;
-  for (const [name, hits] of r.fnda) {
+  const fndaSorted = [...r.fnda.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  for (const [name, hits] of fndaSorted) {
     out.push(`FNDA:${hits},${name}`);
     if (hits > 0) fnh++;
   }
