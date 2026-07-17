@@ -13,8 +13,12 @@
 
 	/** Delegate to specialized card renderers when a cardType is set.
 	 *  Also delegate time-clock-shaped output even if an older stream/history
-	 *  entry lost the manifest cardType metadata. */
-	let useSpecializedCard = $derived(!!toolCall.cardType || isTimeClockOutput(toolCall.output));
+	 *  entry lost the manifest cardType metadata.
+	 *  `permissionPending` must delegate too — the PermissionGate override
+	 *  lives inside ToolCardRouter, and a gated tool with no cardType (e.g.
+	 *  an extension tool like init_gate) would otherwise render the generic
+	 *  collapsed card with no way to approve, hanging the run forever. */
+	let useSpecializedCard = $derived(!!toolCall.cardType || !!toolCall.permissionPending || isTimeClockOutput(toolCall.output));
 
 	/** Dock-routing: when complete + cardLayout="dock", render a DockOpenPill instead. */
 	let routeToDock = $derived(shouldRenderInDock(toolCall.cardLayout, toolCall.status));
