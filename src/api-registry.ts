@@ -190,10 +190,10 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "GET", path: "/api/teams/:id/members", description: "List team members", category: "teams" },
   { method: "POST", path: "/api/teams/:id/members", description: "Add member to team", category: "teams" },
 
-  // Pipelines
-  { method: "GET", path: "/api/pipelines", description: "List pipelines", category: "pipelines" },
-  { method: "GET", path: "/api/pipelines/:name", description: "Get pipeline by name", category: "pipelines" },
-  { method: "POST", path: "/api/pipelines/:name/run", description: "Execute a pipeline", category: "pipelines" },
+  // Workflows
+  { method: "GET", path: "/api/workflows", description: "List workflows", category: "workflows" },
+  { method: "GET", path: "/api/workflows/:name", description: "Get workflow by name", category: "workflows" },
+  { method: "POST", path: "/api/workflows/:name/run", description: "Execute a workflow", category: "workflows" },
 
   // Tools
   { method: "GET", path: "/api/tools", description: "List available tools", category: "tools" },
@@ -212,7 +212,7 @@ export const apiRegistry: ApiRouteEntry[] = [
   // Observability
   { method: "GET", path: "/api/observability", description: "List observability events", category: "observability" },
   { method: "GET", path: "/api/observability/:conversationId", description: "Get events for conversation", category: "observability" },
-  { method: "GET", path: "/api/runtime-events", description: "SSE stream of runtime events (run/tool/pipeline/agent lifecycle) — consumed by HarnessClient.streamEvents", category: "observability", scope: "read", harness: { controllable: true } },
+  { method: "GET", path: "/api/runtime-events", description: "SSE stream of runtime events (run/tool/workflow/agent lifecycle) — consumed by HarnessClient.streamEvents", category: "observability", scope: "read", harness: { controllable: true } },
 
   // Mentions
   { method: "GET", path: "/api/mentions/search", description: "Search mentionable items", category: "mentions" },

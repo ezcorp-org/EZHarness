@@ -14,9 +14,15 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  APPROVAL_STATES,
+  APPROVAL_TERMINAL_STATES,
+  APPROVED,
+  AWAITING_APPROVAL,
+  DECLINED,
   DEFAULT_MAX_EVENTS_PER_RUN,
   DEFAULT_MAX_RUNS,
   DEFAULT_STATES,
+  FINALIZING,
   appendEvent,
   autoDisableContext,
   classifyFailure,
@@ -26,6 +32,7 @@ import {
   isKnownState,
   isLive,
   isTerminal,
+  isUntrustedInputLoop,
   isUntrustedInputTrigger,
   resolveContract,
   transition,
@@ -51,6 +58,26 @@ function deferredContract(): ResolvedContract {
     scope: "global",
   });
 }
+
+// ── approval-state constants ────────────────────────────────────────
+
+describe("approval states", () => {
+  test("APPROVAL_STATES lists the four primitive-owned states in order", () => {
+    expect(APPROVAL_STATES).toEqual([
+      AWAITING_APPROVAL,
+      FINALIZING,
+      APPROVED,
+      DECLINED,
+    ]);
+  });
+
+  test("APPROVAL_TERMINAL_STATES is the terminal subset (approved + declined)", () => {
+    expect(APPROVAL_TERMINAL_STATES).toEqual([APPROVED, DECLINED]);
+    for (const s of APPROVAL_TERMINAL_STATES) {
+      expect(APPROVAL_STATES).toContain(s);
+    }
+  });
+});
 
 // ── content-trust derivation (webhook = untrusted-input) ─────────────
 
@@ -99,6 +126,41 @@ describe("hasUntrustedInputTrigger", () => {
           { kind: "manual", tool: "run-now" },
         ],
       }),
+    ).toBe(false);
+  });
+});
+
+describe("isUntrustedInputLoop", () => {
+  test("a webhook trigger taints the loop even without a contentTrust declaration", () => {
+    expect(
+      isUntrustedInputLoop({ trigger: { kind: "webhook", slug: "s" } }),
+    ).toBe(true);
+  });
+
+  test("an explicit contentTrust declaration taints an all-trusted-trigger loop (seo-watcher's fetch-based shape)", () => {
+    expect(
+      isUntrustedInputLoop({
+        trigger: [
+          { kind: "cron", cron: "0 9 * * *" },
+          { kind: "manual", tool: "run-now" },
+        ],
+        contentTrust: "untrusted-input",
+      }),
+    ).toBe(true);
+  });
+
+  test("declaring contentTrust can only ADD the marker — a webhook trigger stays tainted regardless", () => {
+    expect(
+      isUntrustedInputLoop({
+        trigger: { kind: "webhook", slug: "s" },
+        contentTrust: "untrusted-input",
+      }),
+    ).toBe(true);
+  });
+
+  test("a trusted-trigger loop with NO declaration → false", () => {
+    expect(
+      isUntrustedInputLoop({ trigger: { kind: "cron", cron: "0 9 * * *" } }),
     ).toBe(false);
   });
 });

@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures/test-base.js";
-import { makeProject, makeConversation, makeMessage, makePipeline } from "./fixtures/data.js";
+import { makeProject, makeConversation, makeMessage, makeWorkflow } from "./fixtures/data.js";
 
 const proj = makeProject({ id: "proj-1", name: "Smoke Project" });
 const conv = makeConversation({ id: "conv-1", projectId: "proj-1" });
@@ -11,7 +11,7 @@ const ROUTES = [
 	{ path: `/project/${proj.id}/chat`, name: "Chat list" },
 	{ path: `/project/${proj.id}/chat/${conv.id}`, name: "Chat conversation" },
 	{ path: `/project/${proj.id}/settings`, name: "Project settings" },
-	{ path: "/pipelines", name: "Pipelines" },
+	{ path: "/workflows", name: "Workflows" },
 	{ path: "/agents/new", name: "New Agent" },
 	{ path: "/new-project", name: "New Project" },
 	{ path: "/memories", name: "Memories" },
@@ -29,7 +29,7 @@ for (const route of ROUTES) {
 			projects: [proj],
 			conversations: [conv],
 			messages: [msg],
-			pipelines: [makePipeline()],
+			workflows: [makeWorkflow()],
 		});
 
 		await page.goto(route.path);

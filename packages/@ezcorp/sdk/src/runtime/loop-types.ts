@@ -517,6 +517,18 @@ export interface LoopDefinition<Input = unknown, Outcome = unknown> {
   id: string;
   /** One trigger or many. */
   trigger: LoopTrigger | LoopTrigger[];
+  /**
+   * Explicitly classify this loop `untrusted-input` because its `check`/`act`
+   * ingests attacker-controllable EXTERNAL content that NO trigger-level rule
+   * catches — a settings-configured `ctx.fetch` in `check`, or an LLM parse of
+   * fetched text in `act` (seo-watcher's shape). A webhook trigger already
+   * makes a loop untrusted-input via {@link LoopTrigger}; this covers the
+   * fetch-based loops that have no such trigger. It is ORed with the
+   * trigger-derived classification (`hasUntrustedInputTrigger`) — it can only
+   * ADD the marker, never clear a webhook trigger's — so Phase 8's content-trust
+   * gate (autopilot NEVER offerable on an untrusted-input loop) reads the
+   * combined result. Omitted = trigger-derived classification only. */
+  contentTrust?: "untrusted-input";
   contract?: LoopContract<Input>;
   /** Optional deterministic pre-act gate (trigger → dup gate → `check` →
    *  `act`). Omitted = `proceed: true` (zero migration). See

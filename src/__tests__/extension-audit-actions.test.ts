@@ -48,7 +48,8 @@ describe("extension audit action constants", () => {
       "CAPABILITY_POLICY_WRITE",
       "SPAWN_QUOTA_EXCEEDED",
       "EMIT_EVENT_REJECTED",
-      // Loops EZ Mode Phase 2 — provenance-stamped loop-event mirror
+      // Loops Phase 2 — host emit-loop-event reverse RPC (approval nudges
+      // on the bus): the accepted emit + the policy/quota rejection.
       "LOOP_EVENT_EMITTED",
       "LOOP_EVENT_REJECTED",
       // Phase 2c — server→extension subscription delivery

@@ -83,7 +83,7 @@ describe("DIRECT_CARRIER_EVENT_TYPES", () => {
     for (const name of [
       "run:start", "run:log", "run:status", "run:token", "run:usage",
       "run:turn_text_reset",
-      "pipeline:start", "pipeline:step", "pipeline:complete", "pipeline:error",
+      "workflow:start", "workflow:step", "workflow:complete", "workflow:error",
       "tool:kill",
       "agent:spawn", "agent:status", "agent:complete",
       "ext:state",
@@ -812,7 +812,7 @@ describe("SCOPED_RUNTIME_EVENT_TYPES", () => {
     "run:start", "run:log", "run:status", "run:token", "run:usage",
     "run:turn_text_reset",
     "agent:spawn", "agent:status", "agent:complete",
-    "pipeline:start", "pipeline:step", "pipeline:complete", "pipeline:error",
+    "workflow:start", "workflow:step", "workflow:complete", "workflow:error",
   ] as const;
 
   test("enumerates the 13 scoped runtime events", () => {
@@ -837,7 +837,7 @@ describe("SCOPED_RUNTIME_EVENT_TYPES", () => {
   test("registerExtensionEvent rejects collisions with scoped runtime events (an extension named 'run' cannot shadow run:token)", () => {
     expect(registerExtensionEvent("run", "token")).toBe(false);
     expect(registerExtensionEvent("agent", "spawn")).toBe(false);
-    expect(registerExtensionEvent("pipeline", "start")).toBe(false);
+    expect(registerExtensionEvent("workflow", "start")).toBe(false);
     __clearExtensionEventRegistryForTests();
   });
 });
@@ -887,13 +887,13 @@ describe("shouldDeliverEvent — scoped runtime events (Wave 0)", () => {
     expect(await shouldDeliverEvent("tool:complete", { conversationId: "conv-A" }, { userId: "u" }, getThrowing)).toBe(true);
   });
 
-  test("pipeline:* events are scoped to the initiating userId, fail-closed when absent", async () => {
+  test("workflow:* events are scoped to the initiating userId, fail-closed when absent", async () => {
     const get = makeGetConversation({});
-    const payload = { pipelineRun: { id: "p1" }, userId: "runner" };
-    expect(await shouldDeliverEvent("pipeline:start", payload, { userId: "runner" }, get)).toBe(true);
-    expect(await shouldDeliverEvent("pipeline:start", payload, { userId: "other" }, get)).toBe(false);
-    // CLI-triggered pipeline (no userId) → dropped, never broadcast.
-    expect(await shouldDeliverEvent("pipeline:complete", { pipelineRun: { id: "p2" } }, { userId: "runner" }, get)).toBe(false);
+    const payload = { workflowRun: { id: "p1" }, userId: "runner" };
+    expect(await shouldDeliverEvent("workflow:start", payload, { userId: "runner" }, get)).toBe(true);
+    expect(await shouldDeliverEvent("workflow:start", payload, { userId: "other" }, get)).toBe(false);
+    // CLI-triggered workflow (no userId) → dropped, never broadcast.
+    expect(await shouldDeliverEvent("workflow:complete", { workflowRun: { id: "p2" } }, { userId: "runner" }, get)).toBe(false);
   });
 
   test("agent:status without parent carrier is scoped via subConversationId, walking to the parent owner", async () => {

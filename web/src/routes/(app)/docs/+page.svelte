@@ -41,7 +41,7 @@
 		providers: "Providers & Models",
 		users: "Users",
 		teams: "Teams",
-		pipelines: "Pipelines",
+		workflows: "Workflows",
 		tools: "Tools",
 		runs: "Runs",
 		observability: "Observability",

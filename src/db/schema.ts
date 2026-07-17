@@ -1,6 +1,6 @@
 import { pgTable, text, timestamp, jsonb, integer, real, serial, bigserial, bigint, boolean, index, primaryKey, uniqueIndex, date, vector } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
-import type { PipelineStep } from "../types";
+import type { WorkflowStep } from "../types";
 import type { MemoryProvenance } from "../memory/types";
 import { EMBEDDING_DIMENSIONS } from "../memory/types";
 import type {
@@ -336,12 +336,12 @@ export const agentConfigs = pgTable("agent_configs", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const pipelineDefinitions = pgTable("pipeline_definitions", {
+export const workflowDefinitions = pgTable("workflow_definitions", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   name: text("name").notNull().unique(),
   description: text("description").notNull().default(""),
   inputSchema: jsonb("input_schema").$type<Record<string, unknown>>(),
-  steps: jsonb("steps").notNull().$type<PipelineStep[]>(),
+  steps: jsonb("steps").notNull().$type<WorkflowStep[]>(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

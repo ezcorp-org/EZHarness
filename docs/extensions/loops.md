@@ -558,6 +558,7 @@ only one loop, it does not enter the primitive.
 - [`examples/sample-loop`](examples/sample-loop/index.ts) — the runnable reference (terminal capture loop + a `check`).
 - [`examples/repo-activity-notify`](examples/repo-activity-notify/index.ts) — the check-stage trust probe (git-cursor `check` → notify `act`).
 - [`examples/docs-updater`](examples/docs-updater/index.ts) — the proactive PR-drafter flagship: git-cursor `check` → deferred coding-agent `act` → `onComplete` `proposal` → human approve/decline (host-stamped `decidedBy`); merge stays manual on `/repo`.
+- [`examples/seo-watcher`](examples/seo-watcher/index.ts) — the "plug in your data source" flagship: a `ctx.fetch` structured-endpoint `check` (numeric dot-path + threshold vs baseline cursor, NO LLM) → `ctx.llm` review `act` → an artifact `proposal` → human approve/decline. Declares `contentTrust: "untrusted-input"` (fetch-based, so autopilot is never offered); recommend-and-approve only (no consequential action).
 - [Data Storage Convention](data-storage.md) — the `.ezcorp/extension-data/` layout.
 - [Pages](pages.md) — the Hub page model the dashboard reuses.
 - [API Reference](api-reference.md) — `Storage`, `Schedule`, `spawnAssignment`, the fs helpers.

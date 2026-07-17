@@ -51,9 +51,10 @@ export const APPROVED = "approved";
 export const DECLINED = "declined";
 
 /** The four primitive-owned approval states + their terminal subset.
- *  (Single line: bun's lcov emits phantom zero-hit rows for the interior
- *  lines of a multi-line `as const` array literal — see the repo's
- *  wrapped-cast coverage lesson.) */
+ *  Kept on one line each: a multi-line array literal makes Bun emit a
+ *  phantom uncovered DA record per element line in every shard that
+ *  loads (but doesn't exercise) this module, and merge-lcov doesn't union
+ *  those away — so the merged coverage gate flagged 53-56 as missed. */
 export const APPROVAL_STATES = [AWAITING_APPROVAL, FINALIZING, APPROVED, DECLINED] as const;
 export const APPROVAL_TERMINAL_STATES = [APPROVED, DECLINED] as const;
 
@@ -86,6 +87,20 @@ export function hasUntrustedInputTrigger(
 ): boolean {
   const triggers = Array.isArray(def.trigger) ? def.trigger : [def.trigger];
   return triggers.some(isUntrustedInputTrigger);
+}
+
+/** True when a loop is `untrusted-input` by EITHER an untrusted-input trigger
+ *  (a webhook body) OR an explicit `contentTrust: "untrusted-input"`
+ *  declaration — the escape hatch for a loop whose `check`/`act` ingests
+ *  attacker-controllable EXTERNAL content that no trigger rule catches (a
+ *  settings-configured `ctx.fetch` in `check`, an LLM parse of fetched text in
+ *  `act` — seo-watcher's shape). The single canonical predicate the
+ *  registration path stamps and Phase 8's content-trust gate reads; declaring
+ *  it can only ADD the marker, never clear the trigger-derived one. Pure. */
+export function isUntrustedInputLoop(
+  def: Pick<LoopDefinition, "trigger" | "contentTrust">,
+): boolean {
+  return hasUntrustedInputTrigger(def) || def.contentTrust === "untrusted-input";
 }
 
 /** Fill every contract gap so downstream branches are total. Pure. */

@@ -415,14 +415,12 @@ describe("emit-loop-event — rate limit", () => {
   test("60 tight-loop emits for one extension → many accepted, remainder -32029", async () => {
     const id = ext();
     const { bus } = makeBus();
-    let accepted = 0;
-    let limited = 0;
-    // Freeze Date.now() for the burst: the bucket refills on wall-clock
-    // elapsed time, so on a loaded shard each awaited DB-backed emit can take
-    // longer than one token's refill interval and the burst never trips the
-    // limit (see helpers/frozen-clock.ts). Frozen, the invariant is exact:
-    // 50 tokens → 50 accepted, 10 rejected.
-    await withFrozenNow(async () => {
+    // Frozen clock: the bucket refills on wall-clock elapsed time, so under
+    // CPU load each awaited emit can take longer than one token's refill
+    // interval and the burst never trips the limit (see frozen-clock.ts).
+    const { accepted, limited } = await withFrozenNow(async () => {
+      let accepted = 0;
+      let limited = 0;
       for (let i = 0; i < 60; i++) {
         const resp = await handleEmitLoopEventRpc(
           id,
@@ -432,6 +430,7 @@ describe("emit-loop-event — rate limit", () => {
         if (resp.error?.code === -32029) limited++;
         else if (!resp.error) accepted++;
       }
+      return { accepted, limited };
     });
     expect(accepted).toBeGreaterThanOrEqual(45);
     expect(limited).toBeGreaterThan(0);
