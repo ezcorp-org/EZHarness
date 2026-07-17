@@ -231,7 +231,9 @@ jobs:
       fail-fast: false
       matrix:
         # Keep SHARD_TOTAL below in sync with this list length.
-        shard: [0, 1, 2, 3, 4]
+        # 8 shards: ~1410s of measured test work / 8 ≈ 176s + ~23s fixed
+        # overhead per shard ≈ 3:20 wall for the leg (was ~5:34 at 5).
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
@@ -241,7 +243,7 @@ jobs:
       - name: Run shard (tests + coverage)
         env:
           SHARD_INDEX: ${{ matrix.shard }}
-          SHARD_TOTAL: "5"
+          SHARD_TOTAL: "8"
           COV_OUT: coverage-shard
         run: bash scripts/test-coverage.sh
       # 3 days (not 1): keeps "Re-run failed jobs" on the coverage gate
