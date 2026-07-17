@@ -17,6 +17,7 @@ import {
   isSourceFile,
   parseHitLines,
   parseLcov,
+  wildcardTreeDropouts,
   type FileCov,
 } from "../../scripts/coverage-config.ts";
 import {
@@ -31,8 +32,8 @@ import {
   thresholdRatchetViolations,
   unassertedAddedBlocks,
 } from "../../scripts/gate-integrity.ts";
-import { newFileViolations } from "../../scripts/check-new-file-coverage.ts";
-import { uncoveredAddedLines } from "../../scripts/check-patch-coverage.ts";
+import { addedOrRewrittenFiles, newFileViolations } from "../../scripts/check-new-file-coverage.ts";
+import { shouldFailOnLcovAbsence, uncoveredAddedLines } from "../../scripts/check-patch-coverage.ts";
 
 // ── coverage-config ─────────────────────────────────────────────────────────
 describe("coverage-config helpers", () => {
@@ -491,13 +492,93 @@ describe("check-new-file-coverage: newFileViolations", () => {
     expect(v[0]).toContain("not gated");
   });
   test("passes a measured + gated new file", () => {
-    const perFile = new Map([["src/new.ts", cov(10, 10)]]);
-    expect(newFileViolations(["src/new.ts"], perFile, ["src/**"])).toEqual([]);
+    const perFile = new Map([["src/runtime/new.ts", cov(10, 10)]]);
+    expect(newFileViolations(["src/runtime/new.ts"], perFile, ["src/runtime/**"])).toEqual([]);
   });
   test("file present in lcov but with 0 measured lines is treated as unmeasured", () => {
-    const perFile = new Map([["src/new.ts", cov(0, 0)]]);
-    const v = newFileViolations(["src/new.ts"], perFile, ["src/**"]);
+    const perFile = new Map([["src/runtime/new.ts", cov(0, 0)]]);
+    const v = newFileViolations(["src/runtime/new.ts"], perFile, ["src/runtime/**"]);
     expect(v[0]).toContain("no measured coverage");
+  });
+  test("a CATCH-ALL key does NOT count as gated — new files still need their own key", () => {
+    // src/** is a ratchet-floor catch-all (CATCHALL_THRESHOLD_KEYS); if it
+    // satisfied this gate, the new-file-gets-a-100-key policy would
+    // silently retire the day the catch-all landed.
+    const perFile = new Map([["src/new.ts", cov(10, 10)]]);
+    const v = newFileViolations(["src/new.ts"], perFile, ["src/**", "web/src/**"]);
+    expect(v.length).toBe(1);
+    expect(v[0]).toContain("not gated");
+  });
+  test("a specific key still gates even when a catch-all is also present", () => {
+    const perFile = new Map([["src/new.ts", cov(10, 10)]]);
+    expect(newFileViolations(["src/new.ts"], perFile, ["src/**", "src/new.ts"])).toEqual([]);
+  });
+});
+
+describe("check-new-file-coverage: addedOrRewrittenFiles (R>=50 rename dodge)", () => {
+  test("A rows and rename rows >= R50 are included (new path); others ignored", () => {
+    const ns = [
+      "A\tsrc/brand-new.ts",
+      "R100\tsrc/old-name.ts\tsrc/new-name.ts",
+      "R073\tsrc/rewritten.ts\tsrc/rewritten-v2.ts",
+      "R049\tsrc/below-git-floor.ts\tsrc/below-v2.ts",
+      "M\tsrc/modified.ts",
+      "D\tsrc/deleted.ts",
+      "",
+    ].join("\n");
+    expect(addedOrRewrittenFiles(ns)).toEqual([
+      "src/brand-new.ts",
+      "src/new-name.ts",
+      "src/rewritten-v2.ts",
+    ]);
+  });
+  test("an R row with an unparseable score fails CLOSED (treated like A)", () => {
+    expect(addedOrRewrittenFiles("R\tsrc/a.ts\tsrc/b.ts")).toEqual(["src/b.ts"]);
+  });
+  test("empty / whitespace input yields nothing", () => {
+    expect(addedOrRewrittenFiles("")).toEqual([]);
+    expect(addedOrRewrittenFiles("\n \n")).toEqual([]);
+  });
+});
+
+// ── check-patch-coverage: lcov-absence policy ───────────────────────────────
+describe("check-patch-coverage: shouldFailOnLcovAbsence", () => {
+  test("changed .ts source with added lines and no lcov data FAILS", () => {
+    expect(shouldFailOnLcovAbsence("src/runtime/foo.ts", 3)).toBe(true);
+  });
+  test(".svelte absence stays skip (only vitest-included components are measurable)", () => {
+    expect(shouldFailOnLcovAbsence("web/src/lib/components/X.svelte", 3)).toBe(false);
+  });
+  test("pure-deletion hunks (no added lines) never fail on absence", () => {
+    expect(shouldFailOnLcovAbsence("src/runtime/foo.ts", 0)).toBe(false);
+  });
+});
+
+// ── check-coverage: wildcard whole-tree dropout ─────────────────────────────
+describe("check-coverage: wildcardTreeDropouts", () => {
+  test("tree present in lcov → no dropout (even when shadowed by specific keys)", () => {
+    const v = wildcardTreeDropouts(["src/suggest/**"], ["src/suggest/enhance.ts"], () => [
+      "src/suggest/enhance.ts",
+    ]);
+    expect(v).toEqual([]);
+  });
+  test("tree with on-disk source files but ZERO lcov matches → violation", () => {
+    const v = wildcardTreeDropouts(["src/suggest/**"], ["src/other/x.ts"], () => [
+      "src/suggest/enhance.ts",
+      "src/suggest/config.ts",
+    ]);
+    expect(v.length).toBe(1);
+    expect(v[0]).toContain("NONE of them");
+  });
+  test("tree whose only on-disk matches are tests/types → no violation", () => {
+    const v = wildcardTreeDropouts(["src/suggest/**"], [], () => [
+      "src/suggest/__tests__/enhance.test.ts",
+      "src/suggest/types.d.ts",
+    ]);
+    expect(v).toEqual([]);
+  });
+  test("pattern matching nothing on disk (dead key) → no violation", () => {
+    expect(wildcardTreeDropouts(["src/gone/**"], [], () => [])).toEqual([]);
   });
 });
 

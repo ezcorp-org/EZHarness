@@ -281,5 +281,8 @@
   "web/src/lib/components/chat/TopicPills.svelte": 100,
   "web/src/lib/components/chat/TopicsPopover.svelte": 100,
   "web/src/lib/components/settings/TopicContextsSection.svelte": 100,
-  "web/src/lib/**": 90
+  "web/src/lib/**": 90,
+  "src/**": 0,
+  "web/src/**": 32,
+  "packages/@ezcorp/ai-kit/src/**": 94
 }
