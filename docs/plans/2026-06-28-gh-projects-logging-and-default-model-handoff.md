@@ -132,7 +132,7 @@ Changed source files at **100% lines**: `logger.ts`, `daemon.ts`, `spawn.ts`,
 
 ## 6. What's left / next steps
 
-1. **Push + open a PR** (`arch1tect0x`/`EZArchy` per project policy — verify `gh api user
+1. **Push + open a PR** (`EZArchy` per project policy — verify `gh api user
    --jq .login` first). Required checks: typecheck, lint, Backend tests, Web (vitest),
    coverage gate, Gate integrity, Visual evidence. Decide the merge target/stacking for the
    `feat/extension-secrets → github-projects → hub-route` lineage (all unpushed).

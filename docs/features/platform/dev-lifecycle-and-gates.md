@@ -71,7 +71,7 @@ All six are **diff-scoped** so the tree's pre-existing skips and ~365 mock files
 The in-repo gate only **binds** because of config the PR diff can't reach:
 
 - **Branch protection on `main`** (applied via `gh api …/branches/main/protection`): strict required status checks for all 8 jobs; ≥1 approving review; dismiss stale approvals; require CODEOWNERS review; `enforce_admins` (no admin bypass — break-glass is a named human); linear history; no force-push, no deletion.
-- **`.github/CODEOWNERS`** assigns every gate file to `@arch1tect0x` — the `coverage-*` / `check-*` / `gate-integrity` scripts, `coverage-thresholds.json`, `coverage-config.ts`, `merge-lcov.ts`, `lcov-noise-filter.ts`, `test.sh`, `test-coverage.sh`, `.github/workflows/`, `.github/CODEOWNERS`, the PR template, `biome.json`, `bunfig.toml`, `web/playwright.config.ts`. With "require CODEOWNERS review" on, a PR that changes the gate needs an approval the agent can't give itself.
+- **`.github/CODEOWNERS`** assigns every gate file to `@EZArchy` — the `coverage-*` / `check-*` / `gate-integrity` scripts, `coverage-thresholds.json`, `coverage-config.ts`, `merge-lcov.ts`, `lcov-noise-filter.ts`, `test.sh`, `test-coverage.sh`, `.github/workflows/`, `.github/CODEOWNERS`, the PR template, `biome.json`, `bunfig.toml`, `web/playwright.config.ts`. With "require CODEOWNERS review" on, a PR that changes the gate needs an approval the agent can't give itself.
 - **Org setting (one-time, manual):** *disallow GitHub Actions from approving PRs* — closes the `github-actions`-bot self-approval bypass.
 
 ### Trustworthy green
@@ -123,7 +123,7 @@ This feature is experienced through Git/GitHub and CI, not an app UI.
 - `scripts/verify-docker-image.sh`, `scripts/verify-docker-rollback.sh`, `scripts/verify-docker-upgrade.sh`, `scripts/verify-backup-rollback.ts`, `scripts/verify-circuit-breaker-edges.ts` — release verification suite.
 - `.github/workflows/ci.yml` — the 8 required-check jobs.
 - `.github/workflows/release-image.yml` — tag→verify→multi-arch build→GHCR→Release.
-- `.github/CODEOWNERS` — gate files owned by `@arch1tect0x`.
+- `.github/CODEOWNERS` — gate files owned by `@EZArchy`.
 - `.github/pull_request_template.md` — the feature-contract checklist CI enforces.
 - `web/playwright.config.ts` — e2e config; `retries: 0`.
 - `docs/development-lifecycle.md` — the canonical spec (branch-protection JSON, residual risks, mutation-testing roadmap).
