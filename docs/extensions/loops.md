@@ -78,9 +78,10 @@ permission surface.
 
 ```ts
 type LoopTrigger =
-  | { kind: "cron";   cron: string; timezone?: string }                  // → Schedule.on
-  | { kind: "event";  event: SubscribableEvent; filter?: (p) => boolean } // → registerEventHandler
-  | { kind: "manual"; tool?: string; pageAction?: string };              // → tool dispatcher / row action
+  | { kind: "cron";    cron: string; timezone?: string }                  // → Schedule.on
+  | { kind: "event";   event: SubscribableEvent; filter?: (p) => boolean } // → registerEventHandler
+  | { kind: "manual";  tool?: string; pageAction?: string }              // → tool dispatcher / row action
+  | { kind: "webhook"; slug: string };                                   // → Webhook.on (inbound HTTP)
 ```
 
 - **cron** rides on `extension_schedules`/`_fires` — claim-before-dispatch,
@@ -90,6 +91,75 @@ type LoopTrigger =
 - **manual**'s `tool` generates a tool handler. Because the SDK tool
   dispatcher is last-call-wins, the primitive accumulates every loop's
   manual tool and exposes them via [`getLoopTools()`](#mixing-loops-with-hand-written-tools).
+- **webhook** fires off an inbound HTTP POST — see
+  [Webhook triggers](#webhook-triggers) below. The `slug` must be in
+  `permissions.webhooks[]`; undeclared slugs are dropped at install (never
+  widens the grant, same as cron/event).
+
+### Webhook triggers
+
+A `{ kind: "webhook", slug }` trigger fires the loop off an inbound
+`POST /api/hooks/:extensionName/:slug`. The reference example is
+[`docs/extensions/examples/webhook-ticket-loop`](examples/webhook-ticket-loop/index.ts).
+
+**Setup.** Declare the slug in the manifest and the host does the rest at
+install: it creates an `extension_webhooks` registry row and mints a per-hook
+secret (AES-GCM at rest, stored under `webhook:<slug>` in the extension-secrets
+store). Retrieve a usable token — shown ONCE — via the admin rotate route
+`POST /api/extensions/:name/webhooks/:slug/rotate`.
+
+```ts
+// manifest
+permissions: { webhooks: ["tickets"] }
+// loop
+defineLoop({ id, trigger: { kind: "webhook", slug: "tickets" }, check, act });
+```
+
+**Authentication (the public surface).** The route authenticates with the
+per-hook secret two ways (send EITHER):
+
+- `Authorization: Bearer <token>` — the token equals the hook secret.
+- `X-Hub-Signature-256: sha256=<hex>` — a GitHub-style HMAC-SHA256 of the raw
+  body keyed by the secret.
+
+The compare is constant-time, and the secret is per-hook, so a token minted for
+hook A never authenticates hook B. The route returns `404` for an unknown
+extension / slug / disabled hook (enumeration-safe — indistinguishable), `401`
+for absent/invalid auth, `413` over 256 KB, `429` on the per-hook rate limit or
+the per-hook daily fire budget (`webhooks:daily_budget` setting; default 1000).
+Every accept/reject is audited; the secret and payload are never logged.
+
+**Delivery is durable + at-least-once.** The route persists the delivery to
+`webhook_deliveries` (`status: pending`) BEFORE dispatching. The
+`WebhookDeliveryDaemon` claims it (CAS `pending→running`) and pushes
+`ezcorp/webhook-fire` to the running subprocess; if the subprocess is down or
+the [global kill switch](#safety-primitives) is engaged the row stays `pending`
+and drains on the next tick (cron-style catch-up). A crash mid-dispatch reverts
+to `pending` and re-delivers — safe because the run dedups on the delivery id.
+
+**Untrusted-input posture (READ THIS).** A webhook body is
+attacker-controllable (a leaked token lets anyone POST arbitrary bytes), so a
+loop with ANY webhook trigger is permanently **`untrusted-input`**: Phase 8's
+autopilot is never offered for it — approval is the structural backstop. The
+payload reaches `check`/`act` ONLY inside a delimited `WebhookInput` wrapper:
+
+```ts
+interface WebhookInput {
+  kind: "webhook";
+  slug: string;
+  untrusted: true;              // structural marker — always present
+  contentType: string | null;
+  body: string;                 // the exact bytes posted (raw)
+  parsed?: unknown;             // present only when contentType is JSON and it parsed
+  deliveryId: string;           // the fire id (idempotency handle)
+  receivedAt: string;
+}
+```
+
+NEVER interpolate `body` (or a `parsed` field) into a prompt or command. Read
+`parsed`, validate its shape, and treat every field as hostile. A loop that
+spawns an agent must pass the body only inside a clearly-delimited data block
+with an injection-warning preamble.
 
 ### `contract` — the run-state schema + rules
 
