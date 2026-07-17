@@ -7,7 +7,7 @@
  */
 import { getDb } from "../db/connection";
 import { extensionWebhooks, webhookDeliveries, type ExtensionWebhook } from "../db/schema";
-import { and, eq, gte } from "drizzle-orm";
+import { and, eq, gte, sql } from "drizzle-orm";
 
 /**
  * The ENABLED webhook registry row for `(extensionId, slug)`, or `null` when
@@ -62,22 +62,29 @@ export async function insertDelivery(
 }
 
 /**
- * Count this extension's deliveries recorded at/after `since` (a UTC
- * start-of-day for the daily fire budget). Counts ALL non-rejected deliveries
- * (a persisted row = an accepted fire that consumes budget), so a leaked token
- * cannot burn unbounded spend even while the subprocess is down.
+ * Count this HOOK's deliveries recorded at/after `since` (a UTC start-of-day
+ * for the daily fire budget). Filtered by `(extensionId, slug)` so two hooks on
+ * one extension have INDEPENDENT budgets — a flood on hook A cannot starve hook
+ * B (the spec's per-hook budget). Counts ALL persisted deliveries (a row = an
+ * accepted fire that consumes budget), so a leaked token cannot burn unbounded
+ * spend even while the subprocess is down. Uses `COUNT(*)` (never loads rows) so
+ * a hook near its cap doesn't pull a day's worth of bodies into memory per
+ * request.
  */
 export async function countDeliveriesSince(
   extensionId: string,
+  slug: string,
   since: Date,
 ): Promise<number> {
-  const rows = await getDb().select({ id: webhookDeliveries.id })
+  const rows = await getDb().select({ count: sql<number>`COUNT(*)`.as("count") })
     .from(webhookDeliveries)
     .where(and(
       eq(webhookDeliveries.extensionId, extensionId),
+      eq(webhookDeliveries.slug, slug),
       gte(webhookDeliveries.receivedAt, since),
     ));
-  return rows.length;
+  // PGlite/Postgres return COUNT as a string/bigint — coerce to a JS number.
+  return Number(rows[0]?.count ?? 0);
 }
 
 /** UTC start-of-day for `at` — the daily-budget window boundary. */

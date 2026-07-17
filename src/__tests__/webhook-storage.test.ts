@@ -233,6 +233,23 @@ describe("webhook-store", () => {
     const since = startOfUtcDay(today);
     expect(since.toISOString()).toBe("2026-07-16T00:00:00.000Z");
     // Only the two "today" deliveries count.
-    expect(await countDeliveriesSince(extId, since)).toBe(2);
+    expect(await countDeliveriesSince(extId, "tickets", since)).toBe(2);
+  });
+
+  test("countDeliveriesSince is per-HOOK: two hooks on one ext have independent budgets", async () => {
+    await reconcileWebhooks(extId, ["tickets", "alerts"]);
+    const tickets = (await getEnabledWebhook(extId, "tickets"))!;
+    const alerts = (await getEnabledWebhook(extId, "alerts"))!;
+    const today = new Date("2026-07-16T12:00:00.000Z");
+    // 3 deliveries to `tickets`, 1 to `alerts`.
+    for (let i = 0; i < 3; i++) {
+      await insertDelivery({ webhookId: tickets.id, extensionId: extId, slug: "tickets", contentType: null, body: "x", receivedAt: today });
+    }
+    await insertDelivery({ webhookId: alerts.id, extensionId: extId, slug: "alerts", contentType: null, body: "x", receivedAt: today });
+    const since = startOfUtcDay(today);
+    // Each hook's count reflects ONLY its own slug — a flood on `tickets` never
+    // consumes `alerts`'s budget.
+    expect(await countDeliveriesSince(extId, "tickets", since)).toBe(3);
+    expect(await countDeliveriesSince(extId, "alerts", since)).toBe(1);
   });
 });

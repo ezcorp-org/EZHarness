@@ -68,8 +68,11 @@ export async function reconcileWebhooks(
       added++;
     }
     // Mint an initial secret only when absent — never rotate a live token on
-    // re-install. Best-effort: a secrets write failure must not brick install
-    // (the hook is simply un-authenticatable until the user rotates it).
+    // re-install. Best-effort: a secrets write failure must not brick install.
+    // A slug left without a secret is FAIL-CLOSED, not fail-open: the public
+    // route rejects a secretless hook unconditionally (it never falls back to
+    // the constant DUMMY_SECRET), so the hook is simply un-authenticatable —
+    // reject every delivery — until the user rotates it to mint a real token.
     try {
       await ensureSecret(extensionId, slug);
     } catch (err) {

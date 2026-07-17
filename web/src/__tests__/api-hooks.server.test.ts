@@ -20,7 +20,7 @@ interface DeliveryInput {
 
 const getEnabledWebhook = vi.fn<(ext: string, slug: string) => Promise<unknown>>();
 const insertDelivery = vi.fn<(input: DeliveryInput) => Promise<string>>(async () => "del-1");
-const countDeliveriesSince = vi.fn<(ext: string, since: Date) => Promise<number>>(async () => 0);
+const countDeliveriesSince = vi.fn<(ext: string, slug: string, since: Date) => Promise<number>>(async () => 0);
 vi.mock("$server/extensions/webhook-store", () => ({
   getEnabledWebhook,
   insertDelivery,
@@ -71,11 +71,13 @@ function makeEvent(opts: {
   slug?: string;
   headers?: Record<string, string>;
   body?: string;
+  ip?: string;
 }) {
   const ext = opts.ext ?? "docs-updater";
   const slug = opts.slug ?? "tickets";
   return {
     params: { extensionId: ext, slug },
+    getClientAddress: () => opts.ip ?? "test-ip",
     request: new Request(`http://localhost/api/hooks/${ext}/${slug}`, {
       method: "POST",
       headers: opts.headers ?? {},
@@ -248,5 +250,110 @@ describe("rate limit + daily budget → 429", () => {
     countDeliveriesSince.mockResolvedValue(2);
     const res: Response = await POST(makeEvent({ headers: { authorization: `Bearer ${SECRET}` }, body: "x" }));
     expect(res.status).toBe(429);
+  });
+
+  test("daily budget count is slug-scoped (per-hook, not per-extension)", async () => {
+    countDeliveriesSince.mockResolvedValue(0);
+    await POST(makeEvent({ headers: { authorization: `Bearer ${SECRET}` }, body: "x" }));
+    // The budget query is keyed by (extensionName, slug, since) so two hooks on
+    // one extension never share a budget.
+    expect(countDeliveriesSince).toHaveBeenCalledWith("docs-updater", "tickets", expect.any(Date));
+  });
+});
+
+describe("secretless enabled hook → fail CLOSED (never the DUMMY_SECRET)", () => {
+  // The public DUMMY_SECRET is a compile-time constant. A hook whose secret is
+  // absent / undecryptable (best-effort mint failure, corrupt ciphertext, admin
+  // deletion) must NOT accept it — it rejects unconditionally after a timing-
+  // uniform dummy compare.
+  const DUMMY = "ezhook_0000000000000000000000000000000000000000000000000000000000";
+
+  test("Bearer DUMMY_SECRET on a secretless hook → 401 (not 202) + dummy compare ran", async () => {
+    getWebhookSecret.mockResolvedValue(null);
+    const res: Response = await POST(makeEvent({ headers: { authorization: `Bearer ${DUMMY}` }, body: "x" }));
+    expect(res.status).toBe(401);
+    expect(insertDelivery).not.toHaveBeenCalled();
+    expect(await auditReasons()).toContain("unauthorized");
+    // Timing-uniform: one constant-time compare ran against the dummy secret.
+    expect(constantTimeEqualSpy).toHaveBeenCalledTimes(1);
+    expect(constantTimeEqualSpy.mock.calls[0]![1]).toBe(DUMMY);
+  });
+
+  test("HMAC keyed with the DUMMY_SECRET on a secretless hook → 401 (not 202)", async () => {
+    getWebhookSecret.mockResolvedValue(null);
+    const body = '{"x":1}';
+    const res: Response = await POST(makeEvent({
+      headers: { "x-hub-signature-256": webhookSignature(DUMMY, body), "content-type": "application/json" },
+      body,
+    }));
+    expect(res.status).toBe(401);
+    expect(insertDelivery).not.toHaveBeenCalled();
+  });
+});
+
+describe("pre-lookup per-IP flood limiter (bounds audit growth)", () => {
+  async function floodUnknown(n: number, ip: string): Promise<Response> {
+    getEnabledWebhook.mockResolvedValue(null); // every request an unknown hook
+    let last!: Response;
+    for (let i = 0; i < n; i++) {
+      last = await POST(makeEvent({ slug: "ghost", headers: { authorization: `Bearer ${SECRET}` }, body: "x", ip }));
+    }
+    return last;
+  }
+
+  test("unknown-slug flood → 429 past the cap, audit rows BOUNDED (no per-request row)", async () => {
+    // 120 unknown-hook requests each write one `unknown` audit row; the 121st is
+    // pre-lookup rate-limited → 429 and writes at most ONE `rate-limited` row.
+    const blocked = await floodUnknown(122, "flood-ip");
+    expect(blocked.status).toBe(429);
+    const reasons = await auditReasons();
+    const unknowns = reasons.filter((r) => r === "unknown").length;
+    const limited = reasons.filter((r) => r === "rate-limited").length;
+    // Audit growth is bounded at the cap (120), not one-per-request (122).
+    expect(unknowns).toBe(120);
+    // Exactly one flood-signal row (firstBlock), not one per blocked request.
+    expect(limited).toBe(1);
+  });
+
+  test("limiter does NOT distinguish known from unknown (enumeration parity)", async () => {
+    // Exhaust the per-IP budget on unknown slugs, then a KNOWN hook from the
+    // same IP is throttled identically — the limiter is applied pre-lookup, so
+    // it cannot become a known/unknown oracle.
+    await floodUnknown(120, "parity-ip");
+    getEnabledWebhook.mockResolvedValue(HOOK); // now a real, known hook
+    const res: Response = await POST(makeEvent({ headers: { authorization: `Bearer ${SECRET}` }, body: "x", ip: "parity-ip" }));
+    expect(res.status).toBe(429);
+    // The known hook never reached the accept path (blocked before lookup).
+    expect(insertDelivery).not.toHaveBeenCalled();
+  });
+
+  test("getClientAddress throwing (proxy not configured) falls back to a fixed key, request proceeds", async () => {
+    // A prerender/no-proxy adapter throws from getClientAddress; the handler
+    // must not 500 — it falls back to the "unknown" bucket and continues.
+    const event = {
+      params: { extensionId: "docs-updater", slug: "tickets" },
+      getClientAddress: () => { throw new Error("proxy not configured"); },
+      request: new Request("http://localhost/api/hooks/docs-updater/tickets", { method: "POST", body: "x" }),
+    } as never;
+    const res: Response = await POST(event);
+    // Absent auth on a known hook → 401 (proves it got PAST the limiter).
+    expect(res.status).toBe(401);
+  });
+
+  test("attacker-controlled ext name + slug are sanitized + length-bounded in audit", async () => {
+    getEnabledWebhook.mockResolvedValue(null);
+    const evilExt = "x".repeat(300) + String.fromCharCode(10, 7) + "inject";
+    const res: Response = await POST(makeEvent({ ext: evilExt, slug: "ghost", body: "x", ip: "sani-ip" }));
+    expect(res.status).toBe(404);
+    const rejectCall = insertAuditEntry.mock.calls.find((c) => c[1] === EXT_AUDIT_ACTIONS.SDK_WEBHOOK_REJECTED)!;
+    const target = rejectCall[2] as string;
+    // Length-bounded (≤128) and stripped of ALL control chars (incl. the
+    // newline in the payload) so nothing hostile is echoed raw into the log.
+    expect(target.length).toBeLessThanOrEqual(128);
+    const hasControlChar = [...target].some((ch) => {
+      const code = ch.charCodeAt(0);
+      return code < 0x20 || code === 0x7f;
+    });
+    expect(hasControlChar).toBe(false);
   });
 });

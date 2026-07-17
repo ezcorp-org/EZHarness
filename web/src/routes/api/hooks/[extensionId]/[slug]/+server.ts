@@ -46,26 +46,69 @@ export const DEFAULT_WEBHOOK_DAILY_BUDGET = 1000;
 // the login limiter; distributed rate-limiting is out of scope.
 const limiter = new RateLimiter(60, 60_000);
 
-/** @internal test-only — reset the per-hook burst limiter between tests. */
+// Pre-lookup burst limiter keyed by CLIENT IP, checked BEFORE any DB lookup or
+// audit write. The per-hook limiter above runs only AFTER the (known-hook)
+// lookup, so it never bounds the unauthenticated 404 (unknown/malformed slug) +
+// 413 (oversize) reject paths — each of which writes an audit row. Without this
+// gate a single IP could rotate slugs to write an UNBOUNDED number of audit
+// rows. Runs identically for known + unknown hooks (never a known/unknown
+// oracle); its cap sits above the per-hook cap so a normal single-hook burst
+// still trips the per-hook limiter (with its `rate-limited` audit) first. On the
+// first block per (IP, window) we emit ONE `rate-limited` audit row (the
+// login-route idiom) and then suppress further per-request rows — so a flood is
+// visible without becoming an audit-log amplifier.
+const PRE_LOOKUP_BURST_LIMIT = 120;
+const preLookupLimiter = new RateLimiter(PRE_LOOKUP_BURST_LIMIT, 60_000);
+
+/** @internal test-only — reset both burst limiters between tests. */
 export function __resetWebhookLimiterForTests(): void {
   limiter.reset();
+  preLookupLimiter.reset();
 }
 
 /** A stable dummy secret for the enumeration-safe path: an unknown hook (or a
  *  hook with no minted secret) still runs one constant-time compare so its
- *  response timing matches a real bad-auth path. */
+ *  response timing matches a real bad-auth path. It is NEVER an accepted key —
+ *  a secretless hook runs this compare purely for timing and then rejects
+ *  unconditionally (see the auth block). */
 const DUMMY_SECRET = "ezhook_0000000000000000000000000000000000000000000000000000000000";
 
+/** Cap attacker-controlled audit strings (unknown ext name / malformed slug) so
+ *  a flood cannot bloat rows or inject control chars into the audit log. */
+const MAX_AUDIT_FIELD_LEN = 128;
+function sanitizeAuditField(s: string): string {
+  // Length-bound + drop C0 controls + DEL (no raw echo of hostile bytes).
+  let out = "";
+  for (const ch of s.slice(0, MAX_AUDIT_FIELD_LEN)) {
+    const code = ch.charCodeAt(0);
+    if (code >= 0x20 && code !== 0x7f) out += ch;
+  }
+  return out;
+}
+
 async function auditReject(extensionName: string, slug: string, reason: string): Promise<void> {
-  await insertAuditEntry(null, EXT_AUDIT_ACTIONS.SDK_WEBHOOK_REJECTED, extensionName, {
-    slug,
+  await insertAuditEntry(null, EXT_AUDIT_ACTIONS.SDK_WEBHOOK_REJECTED, sanitizeAuditField(extensionName), {
+    slug: sanitizeAuditField(slug),
     reason,
   }).catch(() => {});
 }
 
-export const POST: RequestHandler = async ({ params, request }) => {
+export const POST: RequestHandler = async ({ params, request, getClientAddress }) => {
   const extensionName = params.extensionId;
   const slug = params.slug;
+
+  // Pre-lookup per-IP burst limiter — checked FIRST, before any DB lookup or
+  // audit write, so an unauthenticated flood (rotating unknown slugs / oversize
+  // bodies) cannot write unbounded audit rows. Runs identically for known and
+  // unknown hooks so it is never a known/unknown enumeration oracle. One
+  // `rate-limited` audit row per (IP, window) on first block; then suppressed.
+  let clientIp = "unknown";
+  try { clientIp = getClientAddress(); } catch { /* proxy not configured */ }
+  const preRl = preLookupLimiter.check(clientIp);
+  if (!preRl.allowed) {
+    if (preRl.firstBlock) await auditReject(extensionName, slug, "rate-limited");
+    return errorJson(429, "Too many requests", undefined, { "Retry-After": String(preRl.retryAfter ?? 60) });
+  }
 
   // Malformed slug can never name a real hook — treat as unknown (enumeration-
   // safe 404). Cheap shape gate before any DB work.
@@ -113,17 +156,29 @@ export const POST: RequestHandler = async ({ params, request }) => {
   }
 
   // Per-hook daily fire budget — a leaked-but-valid token cannot burn unbounded
-  // LLM spend. Counts persisted (accepted) deliveries today; a rejected request
-  // never consumed budget.
+  // LLM spend. Counts persisted (accepted) deliveries today for THIS hook (slug-
+  // scoped so two hooks on one extension have independent budgets); a rejected
+  // request never consumed budget.
   const budget = await resolveDailyBudget();
-  const usedToday = await countDeliveriesSince(extensionName, startOfUtcDay(new Date()));
+  const usedToday = await countDeliveriesSince(extensionName, slug, startOfUtcDay(new Date()));
   if (usedToday >= budget) {
     await auditReject(extensionName, slug, "budget-exceeded");
     return errorJson(429, "Daily budget exhausted", undefined, { "Retry-After": "3600" });
   }
 
   // Authenticate: per-hook secret via Bearer OR X-Hub-Signature-256 HMAC.
-  const secret = (await getWebhookSecret(extensionName, slug)) ?? DUMMY_SECRET;
+  // A missing / undecryptable secret must NEVER fail open to the public
+  // DUMMY_SECRET (which is a compile-time constant anyone could send). Run one
+  // dummy constant-time compare for timing uniformity with the real bad-auth
+  // path, then reject UNCONDITIONALLY — a secretless enabled hook is
+  // un-authenticatable until the user rotates it (reachable via a best-effort
+  // mint failure at install, an undecryptable ciphertext, or admin deletion).
+  const secret = await getWebhookSecret(extensionName, slug);
+  if (secret == null) {
+    constantTimeEqual(parseBearer(request.headers.get("authorization")) ?? "", DUMMY_SECRET);
+    await auditReject(extensionName, slug, "unauthorized");
+    return errorJson(401, "Unauthorized");
+  }
   const auth = verifyWebhookAuth(
     secret,
     {
