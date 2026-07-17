@@ -20,6 +20,7 @@ import { test, expect, describe, beforeAll, afterAll, afterEach } from "bun:test
 import { mock } from "bun:test";
 import { setupTestDb, closeTestDb, getTestPglite } from "./helpers/test-pglite";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
+import { withFrozenNow } from "./helpers/frozen-clock";
 
 mock.module("../db/connection", () => ({
   getDb: () => {
@@ -414,17 +415,23 @@ describe("emit-loop-event — rate limit", () => {
   test("60 tight-loop emits for one extension → many accepted, remainder -32029", async () => {
     const id = ext();
     const { bus } = makeBus();
-    let accepted = 0;
-    let limited = 0;
-    for (let i = 0; i < 60; i++) {
-      const resp = await handleEmitLoopEventRpc(
-        id,
-        rpc({ v: 1, type: "approval_pending", payload: { loopId: "l", runId: `r${i}` } }, `rl-${i}`),
-        ctx(bus),
-      );
-      if (resp.error?.code === -32029) limited++;
-      else if (!resp.error) accepted++;
-    }
+    // Frozen clock: the bucket refills on wall-clock elapsed time, so under
+    // CPU load each awaited emit can take longer than one token's refill
+    // interval and the burst never trips the limit (see frozen-clock.ts).
+    const { accepted, limited } = await withFrozenNow(async () => {
+      let accepted = 0;
+      let limited = 0;
+      for (let i = 0; i < 60; i++) {
+        const resp = await handleEmitLoopEventRpc(
+          id,
+          rpc({ v: 1, type: "approval_pending", payload: { loopId: "l", runId: `r${i}` } }, `rl-${i}`),
+          ctx(bus),
+        );
+        if (resp.error?.code === -32029) limited++;
+        else if (!resp.error) accepted++;
+      }
+      return { accepted, limited };
+    });
     expect(accepted).toBeGreaterThanOrEqual(45);
     expect(limited).toBeGreaterThan(0);
   });

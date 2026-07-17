@@ -155,6 +155,9 @@ run_legs() {
       src/__tests__/pipelines-redirect.server.test.ts \
       src/lib/components/WorkflowStepForm.component.test.ts \
       src/lib/components/WorkflowBuilder.component.test.ts \
+      src/__tests__/api-hooks.server.test.ts \
+      src/__tests__/webhook-pipeline.server.test.ts \
+      src/__tests__/api-webhook-rotate.server.test.ts \
       src/__tests__/deep-link-resolve.unit.test.ts \
       src/lib/components/goal-row-logic.unit.test.ts \
       src/lib/components/UpdateBanner.component.test.ts \
@@ -350,7 +353,9 @@ run_legs() {
       --coverage.include='src/routes/api/workflows/[name]/run/+server.ts' \
       --coverage.include='src/routes/**/pipelines/+page.server.ts' \
       --coverage.include='src/lib/components/WorkflowStepForm.svelte' \
-      --coverage.include='src/lib/components/WorkflowBuilder.svelte' ) || VITEST_EXIT=$?
+      --coverage.include='src/lib/components/WorkflowBuilder.svelte' \
+      --coverage.include='src/routes/api/hooks/[extensionId]/[slug]/+server.ts' \
+      --coverage.include='src/routes/api/extensions/[name]/webhooks/[slug]/rotate/+server.ts' ) || VITEST_EXIT=$?
   # vitest (run from web/) emits SF paths web/-relative — re-root so merge-lcov.ts
   # resolves them against the repo root and the web/src/... threshold keys match.
   if [ -f "$VITEST_COV/lcov.info" ]; then
