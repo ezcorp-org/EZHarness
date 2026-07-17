@@ -102,19 +102,19 @@ The four `workflow:*` events ride the same `AgentEvents` bus that streams to the
 |---|---|---|
 | `GET /api/workflows` | `read` | List all merged (YAML + DB) workflows. |
 | `POST /api/workflows` | `chat` | Create a DB workflow. Body `{ name, description?, inputSchema?, steps }`; `validateWorkflow` drives a **400** with the first error message. Returns the row; reloads the cache. |
-| `GET /api/workflows/[name]` | `read` | Fetch one by name from the cache; 404 `Workflow not found`. |
+| `GET /api/workflows/[name]` | `read` | Fetch one by name from the cache; 404 `Not found`. |
 | `PUT /api/workflows/[name]` | `chat` | Partial update — merges `name`/`description`/`inputSchema`/`steps`. **DB-only** (YAML workflows are read-only). Reloads the cache. |
 | `DELETE /api/workflows/[name]` | `chat` | Delete a DB workflow. **DB-only**. Reloads the cache. |
 | `POST /api/workflows/[name]/run` | `chat` | Run it. `projectId` is split off the body; **every other field is the workflow input** (Zod `.loose()`). 404 `Workflow not found`; a non-object body ⇒ **400 `Invalid request body`**. Execution errors (unknown agent, circular deps, gate/loop failure) surface **inside** the returned `WorkflowRun` (`status:"error"`, HTTP 200), not as a 400. Returns the terminal `WorkflowRun`. |
 
-All routes are registered in `src/api-registry.ts` (category `workflows`) and gate on `requireScope` + `requireAuth`. There is **no project- or owner-scoping** beyond the scope check (see gotchas).
+Only the `GET` list, `GET` by-name and `POST …/run` routes are registered in `src/api-registry.ts` (category `workflows`) — create/update/delete are not registered (parity with `main`'s pipelines registration). All routes gate on `requireScope` + `requireAuth`. There is **no project- or owner-scoping** beyond the scope check (see gotchas).
 
 ### UI entry points
 
 - `/workflows` — list, fed by `store.workflows`.
 - `/workflows/new` — `WorkflowBuilder.svelte` form (with `WorkflowStepForm.svelte` per-step editor, including kind, transform output pairs, gate condition JSON, loop config, dependsOn) → `createWorkflow` → `POST /api/workflows`.
 - `/workflows/[name]` — step list, a raw JSON-textarea run form (`triggerWorkflowRun`), delete button, and a live run-history panel (`store.workflowRuns`) rendering per-step status and `(N iterations)` for looped steps.
-- `/pipelines` (and legacy deep links) → a permanent **308 redirect** to `/workflows` for one release.
+- `/pipelines` (the exact path only) → a permanent **308 redirect** to `/workflows` for one release. Legacy deep links (`/pipelines/<name>`, `/pipelines/new`) are **not** redirected — they 404.
 
 ### Client helpers (`web/src/lib/api.ts`)
 
@@ -122,7 +122,7 @@ All routes are registered in `src/api-registry.ts` (category `workflows`) and ga
 
 ### CLI (`src/cli.ts`)
 
-`ezcorp workflow list` prints the merged YAML+DB workflows; `ezcorp workflow run <name>` constructs its own `WorkflowExecutor` over a fresh run harness and prints `run.result` as JSON. `ezcorp pipeline …` is a **hidden alias** (kept out of help text) that dispatches to the same `workflow:*` commands for one deprecation release. There is **no** auth/scope check on this path (a local operator tool, not an HTTP endpoint).
+`ezcorp workflow list` prints the merged YAML+DB workflows; `ezcorp workflow run <name>` constructs its own `WorkflowExecutor` over a fresh run harness, prints `run.result` as JSON, and **exits 0 only when the run's terminal status is `success`, 1 otherwise** (error/cancelled — loud-failure semantics, scriptable in CI). `ezcorp pipeline …` is a **hidden alias** (kept out of help text) that dispatches to the same `workflow:*` commands for one deprecation release. There is **no** auth/scope check on this path (a local operator tool, not an HTTP endpoint).
 
 ### Env vars
 
