@@ -668,6 +668,20 @@ export function clampExtensionPermissions(
       if (allowed.length > 0) clamped.eventSubscriptions = allowed;
     }
 
+    // webhooks (Loops EZ Mode Phase 4): plain string[] slug intersection —
+    // submitted ∩ manifest-declared. No direct-carrier allowlist (slugs are
+    // author-chosen, not a fixed vocabulary); a slug survives only when the
+    // manifest declares it, so a submitted grant can never introduce a hook
+    // the author didn't author. An undeclared slug is silently dropped
+    // (mirrors cron/event — the grant is never widened).
+    if (Array.isArray(submitted.webhooks) && Array.isArray(manifest.webhooks)) {
+      const manifestSet = new Set(manifest.webhooks);
+      const allowed = submitted.webhooks.filter(
+        (s) => typeof s === "string" && manifestSet.has(s),
+      );
+      if (allowed.length > 0) clamped.webhooks = allowed;
+    }
+
     // ── Phase 51 capability surfaces ────────────────────────────────
     // Delegate to the canonical clamp helpers above. Each helper returns
     // `undefined` when the manifest didn't declare the surface OR

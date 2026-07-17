@@ -148,6 +148,19 @@ const MODULE_PATHS = [
   "../../extensions/runtime/internal-host",
   "../../extensions/runtime/seccomp-loader",
   "../../extensions/schedule-daemon",
+  // Loops EZ Mode Phase 2: event-subscription-dispatcher.test.ts mocks the
+  // global loops kill switch to drive its suspend/resume branches. Snapshot so
+  // restoreModuleMocks() re-registers the real reader and the stub never leaks
+  // into loops-kill-switch.test.ts / the webhook + schedule daemon suites.
+  "../../extensions/loops-kill-switch",
+  // Loops EZ Mode Phase 4: background-timers.test.ts stubs the
+  // WebhookDeliveryDaemon class (start()/stop()) during the bootstrap-wiring
+  // suite so the real daemon (getDb reap + setInterval) never runs there.
+  // Snapshot so restoreModuleMocks() re-registers the real module (class +
+  // drainDelivery / buildFireContext / tryParseWebhookJson) in afterAll and the
+  // stub never leaks into webhook-delivery-daemon.test.ts (which imports the
+  // REAL exports).
+  "../../extensions/webhook-delivery-daemon",
   // Daily Briefing Phase 1: background-timers.test.ts stubs the
   // BriefingDaemon class (start()/stop()) during the bootstrap-wiring
   // suite so the real daemon (boot tick + setInterval) never runs

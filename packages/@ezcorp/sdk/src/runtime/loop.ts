@@ -18,6 +18,7 @@
 // added there).
 
 import { Schedule, type ScheduleHandlerContext } from "./schedule";
+import { Webhook, type WebhookFireContext } from "./webhook";
 import { registerEventHandler } from "./events";
 import { createToolDispatcher, toolError, toolResult } from "./rpc";
 import { definePage, pushPage } from "./page";
@@ -31,6 +32,7 @@ import {
   FINALIZING,
   autoDisableContext,
   classifyFailure,
+  hasUntrustedInputTrigger,
   isParked,
   isProposalStale,
   resolveContract,
@@ -208,6 +210,12 @@ interface RegisteredLoop {
   contract: ResolvedContract;
   store: LoopRunStore;
   def: LoopDefinition;
+  /** Permanently `untrusted-input` when ANY trigger ingests
+   *  attacker-controllable content (a webhook body today). Derived ONCE at
+   *  registration from `hasUntrustedInputTrigger(def)` and stamped here so the
+   *  Phase-8 content-trust gate reads a stable classification rather than
+   *  re-deriving the rule. No Phase-8 logic lives here — only the flag. */
+  untrustedInput: boolean;
   /** Phase-3 dashboard pusher, wired when `log.dashboard` is present. */
   pushDashboard?: () => Promise<void>;
 }
@@ -302,6 +310,10 @@ export function defineLoop<Input = unknown, Outcome = unknown>(
     contract: contract as ResolvedContract,
     store: store as LoopRunStore,
     def: def as LoopDefinition,
+    // Permanent content-trust classification — stamped once at registration
+    // (a webhook trigger makes the whole loop untrusted-input). Phase 8 reads
+    // this flag to refuse autopilot; Phase 4 only records it.
+    untrustedInput: hasUntrustedInputTrigger(def),
   };
   registry.set(def.id, reg);
 
@@ -390,6 +402,27 @@ function wireTrigger(reg: RegisteredLoop, trigger: LoopTrigger): void {
           firedAt: new Date().toISOString(),
           catchUp: false,
           input: payload,
+        });
+      });
+      break;
+    }
+    case "webhook": {
+      // Inbound HTTP webhook (Loops EZ Mode Phase 4). The host authenticates
+      // the POST, persists + claims a `webhook_deliveries` row, then pushes
+      // `ezcorp/webhook-fire` here. `deliveryId` is the run's fire id — a
+      // stable idempotency handle, so a duplicate delivery (retried drain)
+      // maps to the same run. `ctx.input` is the delimited UNTRUSTED
+      // {@link WebhookInput} wrapper; the loop's check/act treat it as
+      // attacker-controllable (never interpolate the raw body). `catchUp` is
+      // true when the delivery drained from the backlog after the subprocess
+      // was down / the kill switch lifted (mirrors cron catch-up).
+      const webhook = new Webhook();
+      webhook.on(trigger.slug, async (ctx: WebhookFireContext) => {
+        await runFire(reg, trigger, {
+          fireId: ctx.deliveryId,
+          firedAt: ctx.receivedAt,
+          catchUp: ctx.catchUp,
+          input: ctx.input,
         });
       });
       break;

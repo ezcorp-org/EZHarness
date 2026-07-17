@@ -28,9 +28,11 @@ import {
   classifyFailure,
   createRun,
   findOpenDuplicate,
+  hasUntrustedInputTrigger,
   isKnownState,
   isLive,
   isTerminal,
+  isUntrustedInputTrigger,
   resolveContract,
   transition,
   trimRetention,
@@ -41,6 +43,7 @@ import type {
   ActResult,
   CheckResult,
   LoopRunState,
+  LoopTrigger,
   ResolvedContract,
 } from "../src/runtime/loop-types";
 
@@ -72,6 +75,57 @@ describe("approval states", () => {
     for (const s of APPROVAL_TERMINAL_STATES) {
       expect(APPROVAL_STATES).toContain(s);
     }
+  });
+});
+
+// ── content-trust derivation (webhook = untrusted-input) ─────────────
+
+describe("isUntrustedInputTrigger", () => {
+  test("a webhook trigger is untrusted-input", () => {
+    expect(isUntrustedInputTrigger({ kind: "webhook", slug: "tickets" })).toBe(true);
+  });
+
+  test("cron / event / manual triggers are NOT untrusted-input", () => {
+    const trusted: LoopTrigger[] = [
+      { kind: "cron", cron: "0 9 * * *" },
+      { kind: "event", event: "run:complete" },
+      { kind: "manual", tool: "run-now" },
+    ];
+    for (const t of trusted) {
+      expect(isUntrustedInputTrigger(t)).toBe(false);
+    }
+  });
+});
+
+describe("hasUntrustedInputTrigger", () => {
+  test("single webhook trigger → true", () => {
+    expect(hasUntrustedInputTrigger({ trigger: { kind: "webhook", slug: "s" } })).toBe(true);
+  });
+
+  test("single trusted trigger → false", () => {
+    expect(hasUntrustedInputTrigger({ trigger: { kind: "cron", cron: "0 9 * * *" } })).toBe(false);
+  });
+
+  test("ANY webhook in a multi-trigger array taints the whole loop", () => {
+    expect(
+      hasUntrustedInputTrigger({
+        trigger: [
+          { kind: "cron", cron: "0 9 * * *" },
+          { kind: "webhook", slug: "tickets" },
+        ],
+      }),
+    ).toBe(true);
+  });
+
+  test("an all-trusted trigger array → false", () => {
+    expect(
+      hasUntrustedInputTrigger({
+        trigger: [
+          { kind: "cron", cron: "0 9 * * *" },
+          { kind: "manual", tool: "run-now" },
+        ],
+      }),
+    ).toBe(false);
   });
 });
 

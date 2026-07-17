@@ -185,6 +185,9 @@ export type {
 export { Schedule } from "./schedule";
 export type { ScheduleHandler, ScheduleHandlerContext } from "./schedule";
 
+export { Webhook } from "./webhook";
+export type { WebhookHandler, WebhookFireContext } from "./webhook";
+
 // ── Loop primitive (defineLoop) ─────────────────────────────────────
 
 export {
@@ -213,6 +216,7 @@ export type {
 } from "./loop-store";
 export type {
   LoopTrigger,
+  WebhookInput,
   LoopContract,
   LoopDefinition,
   LoopAct,

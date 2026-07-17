@@ -776,6 +776,14 @@ export function validateRoutingBlock(routing: unknown, errors: string[]): void {
  *  must be an array whose every element is a non-empty string. An EMPTY
  *  array is valid — several manifests declare `eventSubscriptions: []`
  *  as an explicit "none" (the per-element rule is what's enforced). */
+/** Webhook slug grammar (Loops EZ Mode Phase 4). A slug is interpolated into
+ *  the public route path `/api/hooks/:extensionId/:slug`, so it is restricted
+ *  to lowercase alphanumerics + hyphens, must start with an alphanumeric, and
+ *  is ≤64 chars. Shared by manifest validation, the install reconciler, and the
+ *  route so all three agree on what a legal slug is (no `.`/`/`/`%`/whitespace →
+ *  no path traversal or route confusion). */
+export const WEBHOOK_SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
+
 function validateStringArrayPerm(
   field: string,
   value: unknown,
@@ -845,6 +853,27 @@ function validatePermissionsBlock(perms: unknown, errors: string[]): void {
       errors.push(
         "permissions.eventSubscriptions must be an array of event names or {events, includeFullPayload?}",
       );
+    }
+  }
+
+  // webhooks (Loops EZ Mode Phase 4): array of slug strings. Each slug is
+  // interpolated into the public route path `/api/hooks/:extensionId/:slug`,
+  // so it MUST be URL-path-safe — lowercase alphanumeric + hyphen, starting
+  // with an alphanumeric, ≤64 chars. Rejecting `.`/`/`/`%`/whitespace here
+  // closes off path-traversal and route-confusion at the manifest boundary
+  // (defense in depth — the route also 404s an unmatched slug).
+  if (p.webhooks !== undefined) {
+    if (!Array.isArray(p.webhooks)) {
+      errors.push("permissions.webhooks must be an array of hook slug strings");
+    } else {
+      for (let i = 0; i < p.webhooks.length; i++) {
+        const s = p.webhooks[i];
+        if (typeof s !== "string" || !WEBHOOK_SLUG_RE.test(s)) {
+          errors.push(
+            `permissions.webhooks[${i}] must be a slug matching ${WEBHOOK_SLUG_RE.source}`,
+          );
+        }
+      }
     }
   }
 
@@ -1496,6 +1525,9 @@ export function deriveCapsFromExtensionPerms(
   if (subsList && subsList.length > 0) {
     custom[NAMESPACE_MAP.eventSubscriptions] = [...subsList];
   }
+  if (perms.webhooks && perms.webhooks.length > 0) {
+    custom[NAMESPACE_MAP.webhooks] = [...perms.webhooks];
+  }
   if (Object.keys(custom).length > 0) {
     decl.custom = custom;
   }
@@ -1521,4 +1553,5 @@ export const NAMESPACE_MAP = {
   loopEvents: "ezcorp:loops:emit",
   spawnAgents: "ezcorp:agent:spawn",
   eventSubscriptions: "ezcorp:events:subscribe",
+  webhooks: "ezcorp:webhooks:receive",
 } as const;

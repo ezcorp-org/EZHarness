@@ -22,6 +22,7 @@ import {
   test,
 } from "bun:test";
 import { Schedule } from "../src/runtime/schedule";
+import { Webhook, type WebhookFireContext } from "../src/runtime/webhook";
 
 import {
   defineLoop,
@@ -86,6 +87,9 @@ let captured: Map<string, (p: unknown) => Promise<unknown> | unknown>;
 // order-independent: every `defineLoop({trigger:{kind:"cron"}})` calls
 // `new Schedule().on(cron, handler)`, which we record here.
 const cronHandlers = new Map<string, (ctx: unknown) => Promise<void> | void>();
+// Same trick for webhook triggers: capture the per-slug handler the facade
+// registers via `new Webhook().on(slug, handler)`.
+const webhookHandlers = new Map<string, (ctx: WebhookFireContext) => Promise<void> | void>();
 
 // Stashed so afterAll can restore it: the spy patches the SHARED
 // Schedule.prototype, so leaving it installed poisons every later test
@@ -94,6 +98,9 @@ const cronHandlers = new Map<string, (ctx: unknown) => Promise<void> | void>();
 // lines 32-42 drop below the @ezcorp/sdk/src/**:100 gate (order-dependent,
 // surfaced once the vitest-leg crash stopped masking it).
 let scheduleOnSpy: ReturnType<typeof spyOn>;
+// Same restore contract for the Webhook.prototype spy (webhook.test.ts relies
+// on the real `on()`/`installReceiver()` for its coverage).
+let webhookOnSpy: ReturnType<typeof spyOn>;
 
 beforeAll(() => {
   scheduleOnSpy = spyOn(Schedule.prototype, "on").mockImplementation(function (
@@ -103,14 +110,23 @@ beforeAll(() => {
   ) {
     cronHandlers.set(cron, handler);
   } as Schedule["on"]);
+  webhookOnSpy = spyOn(Webhook.prototype, "on").mockImplementation(function (
+    this: Webhook,
+    slug: string,
+    handler: (ctx: WebhookFireContext) => Promise<void> | void,
+  ) {
+    webhookHandlers.set(slug, handler);
+  } as Webhook["on"]);
 });
 
 afterAll(() => {
   scheduleOnSpy.mockRestore();
+  webhookOnSpy.mockRestore();
 });
 
 beforeEach(() => {
   cronHandlers.clear();
+  webhookHandlers.clear();
   __resetLoopsForTests();
   __resetChannelForTests();
   captured = new Map();
@@ -165,6 +181,34 @@ async function fireCron(cron: string): Promise<void> {
     catchUp: true,
     retry: false,
     attempt: 1,
+  });
+}
+
+/** Invoke the captured webhook handler for `slug` with a delimited-untrusted
+ *  {@link WebhookFireContext}. Overrides let a test tweak the delivery id /
+ *  catch-up / payload. */
+async function fireWebhook(
+  slug: string,
+  overrides: Partial<WebhookFireContext> = {},
+): Promise<void> {
+  const handler = webhookHandlers.get(slug);
+  if (!handler) throw new Error(`no webhook handler captured for ${slug}`);
+  await handler({
+    slug,
+    deliveryId: "delivery-1",
+    receivedAt: "2026-06-18T00:00:00.000Z",
+    catchUp: false,
+    input: {
+      kind: "webhook",
+      slug,
+      untrusted: true,
+      contentType: "application/json",
+      body: '{"ticket":7}',
+      parsed: { ticket: 7 },
+      deliveryId: "delivery-1",
+      receivedAt: "2026-06-18T00:00:00.000Z",
+    },
+    ...overrides,
   });
 }
 
@@ -272,6 +316,79 @@ describe("terminal loop", () => {
     await fireEvent("run:complete", {});
     expect(seenProvider).toBe("openai");
     expect(sliceLen).toBe(20); // default last-20
+  });
+});
+
+// ── webhook trigger ──────────────────────────────────────────────────
+
+describe("webhook trigger", () => {
+  test("webhook fire → act sees the delimited untrusted input; deliveryId is the fire id", async () => {
+    const seen: unknown[] = [];
+    defineLoop({
+      id: "wh",
+      trigger: { kind: "webhook", slug: "tickets" },
+      contract: { states: ["done"], terminal: ["done"] },
+      act: async (ctx) => {
+        seen.push(ctx.input);
+        return { kind: "terminal", status: "done", outcome: null };
+      },
+    });
+    await fireWebhook("tickets", { deliveryId: "d-77", catchUp: true });
+
+    const reg = _getRegisteredLoop("wh")!;
+    const runs = await reg.store.list();
+    expect(runs.length).toBe(1);
+    // deliveryId is the run/fire id (stable idempotency handle).
+    expect(runs[0]!.id).toBe("d-77");
+    expect(runs[0]!.status).toBe("done");
+    // The act received the delimited untrusted wrapper verbatim.
+    expect(seen).toEqual([
+      {
+        kind: "webhook",
+        slug: "tickets",
+        untrusted: true,
+        contentType: "application/json",
+        body: '{"ticket":7}',
+        parsed: { ticket: 7 },
+        deliveryId: "delivery-1",
+        receivedAt: "2026-06-18T00:00:00.000Z",
+      },
+    ]);
+  });
+
+  test("a webhook-triggered loop is stamped permanently untrusted-input", () => {
+    defineLoop({
+      id: "wh-flag",
+      trigger: { kind: "webhook", slug: "s" },
+      act: async () => ({ kind: "skip", reason: "noop" }),
+    });
+    expect(_getRegisteredLoop("wh-flag")!.untrustedInput).toBe(true);
+  });
+
+  test("a cron-only loop is NOT untrusted-input", () => {
+    defineLoop({
+      id: "cron-clean",
+      trigger: { kind: "cron", cron: "0 9 * * *" },
+      act: async () => ({ kind: "skip", reason: "noop" }),
+    });
+    expect(_getRegisteredLoop("cron-clean")!.untrustedInput).toBe(false);
+  });
+
+  test("a duplicate delivery (same deliveryId) maps to the same run (idempotent)", async () => {
+    defineLoop({
+      id: "wh-idem",
+      trigger: { kind: "webhook", slug: "tickets" },
+      contract: {
+        states: ["done"],
+        terminal: ["done"],
+        idempotencyKey: (input) => (input as { deliveryId: string }).deliveryId,
+      },
+      act: async () => ({ kind: "terminal", status: "done", outcome: null }),
+    });
+    await fireWebhook("tickets", { deliveryId: "dup-1" });
+    await fireWebhook("tickets", { deliveryId: "dup-1" });
+    const runs = await _getRegisteredLoop("wh-idem")!.store.list();
+    expect(runs.length).toBe(1);
   });
 });
 
