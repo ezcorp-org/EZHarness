@@ -124,3 +124,5 @@ test("cache meter pill renders hit-rate + cached tokens for a cached turn @evide
 
 	await captureEvidence(page, testInfo, "cache-stats-pill-1h");
 });
+
+// demo: visual-evidence scoped-gallery demonstration (PR is throwaway)

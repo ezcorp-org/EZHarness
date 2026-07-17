@@ -975,3 +975,5 @@
 		opacity: 0.6;
 	}
 </style>
+
+<!-- demo: visual-evidence scoped-gallery demonstration (PR is throwaway) -->
