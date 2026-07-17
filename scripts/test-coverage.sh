@@ -418,6 +418,14 @@ run_legs() {
     echo "--- FAIL: ai-kit coverage leg (exit $AIKIT_EXIT) ---"
   fi
 
+  # Tolerated legs: their exit codes are LOGGED, never gated — sdk + suggest
+  # are coverage-only here (thresholds are their gate; suggest additionally
+  # pass/fail-gates via the residual job). Printing the codes keeps the
+  # tolerance VISIBLE instead of silently discarding the written .code files.
+  SDK_LEG_EXIT=$(cat "$legs/sdk.code" 2>/dev/null || echo "?")
+  SUGGEST_LEG_EXIT=$(cat "$legs/suggest.code" 2>/dev/null || echo "?")
+  echo "tolerated leg exit codes (not gated): sdk=$SDK_LEG_EXIT suggest=$SUGGEST_LEG_EXIT"
+
   VITEST_EXIT=$(cat "$legs/vitest.code" 2>/dev/null || echo 1)
   # vitest (run from web/) emits SF paths web/-relative — re-root so merge-lcov.ts
   # resolves them against the repo root and the web/src/... threshold keys match.
@@ -588,11 +596,13 @@ if [ -n "$SHARD_TOTAL" ]; then
       set +e
       # Wall-clock watchdog: bun's per-test timeout can't catch a module-LOAD
       # hang, so cap the whole re-run at 5 min — it reds fast instead of
-      # stalling to the job timeout (timeout(1) exits 124 → still-failing).
-      # If the timeout binary is missing, fall back to the plain run: the
-      # exit code still gates identically, nothing soft-passes.
+      # stalling to the job timeout (timeout(1) exits 124 → still-failing;
+      # -k 30 sends SIGKILL 30s after SIGTERM for a SIGTERM-immune hang,
+      # exit 137 → still-failing). If the timeout binary is missing, fall
+      # back to the plain run: the exit code still gates identically,
+      # nothing soft-passes.
       if command -v timeout >/dev/null 2>&1; then
-        RETRY_OUT=$(timeout 300 bun test --timeout 30000 "./$f" 2>&1)
+        RETRY_OUT=$(timeout -k 30 300 bun test --timeout 30000 "./$f" 2>&1)
       else
         RETRY_OUT=$(bun test --timeout 30000 "./$f" 2>&1)
       fi

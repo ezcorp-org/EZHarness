@@ -106,6 +106,19 @@ for await (const path of glob.scan({ absolute: true })) {
   }
 }
 
+// Defense-in-depth: an input glob that matched nothing (e.g. a wildcard-free
+// pattern handed to Bun.Glob) or matched only SF-less files must not write an
+// empty merged lcov — downstream check-coverage would then fail with the
+// opaque "no files matched any threshold rule" instead of naming the real
+// producer problem. All shipped call sites pass wildcards; this guard exists
+// for the miswired one.
+if (files.size === 0) {
+  console.error(
+    `merge-lcov: glob '${globPat}' matched no lcov input (or inputs contained no SF records) — refusing to write an empty ${outPath}`,
+  );
+  process.exit(1);
+}
+
 // Deterministic output order (records sorted by SF; FN by declared line then
 // name; FNDA by name): input Maps are insertion-ordered by glob-scan
 // encounter, which differs between a direct merge of N files and a merge of

@@ -10,6 +10,9 @@
  * end-to-end verification in the plan, not here.
  */
 import { test, expect, describe } from "bun:test";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   EXCLUDES,
   escapeGlob,
@@ -551,6 +554,38 @@ describe("check-patch-coverage: shouldFailOnLcovAbsence", () => {
   });
   test("pure-deletion hunks (no added lines) never fail on absence", () => {
     expect(shouldFailOnLcovAbsence("src/runtime/foo.ts", 0)).toBe(false);
+  });
+});
+
+// ── merge-lcov: empty-input guard (CLI-level — the script runs at import) ──
+describe("merge-lcov: refuses to write an empty merge", () => {
+  const REPO_ROOT_ML = join(import.meta.dir, "..", "..");
+  function runMerge(globArg: string, out: string) {
+    const proc = Bun.spawnSync(["bun", "scripts/merge-lcov.ts", globArg, out], {
+      cwd: REPO_ROOT_ML,
+    });
+    return { code: proc.exitCode, err: proc.stderr.toString() };
+  }
+
+  test("glob matching no lcov input → exit 1, no output written", () => {
+    const dir = mkdtempSync(join(tmpdir(), "merge-lcov-guard-"));
+    const out = join(dir, "out.info");
+    const { code, err } = runMerge(join(dir, "nope-does-not-exist.info"), out);
+    expect(code).toBe(1);
+    expect(err).toContain("matched no lcov input");
+    expect(existsSync(out)).toBe(false);
+  });
+
+  test("real input still merges (guard doesn't over-trigger)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "merge-lcov-ok-"));
+    writeFileSync(
+      join(dir, "one.info"),
+      "TN:\nSF:src/example-under-test.ts\nDA:1,1\nLF:1\nLH:1\nend_of_record\n",
+    );
+    const out = join(dir, "out.info");
+    const { code } = runMerge(join(dir, "*.info"), out);
+    expect(code).toBe(0);
+    expect(existsSync(out)).toBe(true);
   });
 });
 

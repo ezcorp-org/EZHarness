@@ -12,6 +12,10 @@
 
 # The gate definition + machinery.
 /.github/workflows/                 @arch1tect0x
+# The single-source bun pin: every CI job (incl. gate-integrity + the
+# coverage gate) executes under the runtime this file selects — swapping it
+# is swapping the interpreter the gates run on.
+/.bun-version                       @arch1tect0x
 /.github/CODEOWNERS                 @arch1tect0x
 /.github/pull_request_template.md   @arch1tect0x
 /scripts/check-coverage.ts          @arch1tect0x
