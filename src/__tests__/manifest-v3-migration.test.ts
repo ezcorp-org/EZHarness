@@ -90,6 +90,7 @@ describe("migrateManifestV2ToV3 — v2 manifests inherit caps", () => {
         agentConfig: "read",
         appendMessages: { excludedDefault: true },
         spawnAgents: { maxPerHour: 5 },
+        webhooks: ["tickets"],
       },
       tools: [{ name: "t", description: "t", inputSchema: { type: "object" } }],
     });
@@ -100,12 +101,14 @@ describe("migrateManifestV2ToV3 — v2 manifests inherit caps", () => {
     expect(custom?.["ezcorp:agent:config"]).toBe(true);
     expect(custom?.["ezcorp:chat:append"]).toBe(true);
     expect(custom?.["ezcorp:agent:spawn"]).toBe(true);
+    expect(custom?.["ezcorp:webhooks:receive"]).toEqual(["tickets"]);
     // The legacy keys are NOT emitted on the namespaced output.
     expect(custom?.loopEvents).toBeUndefined();
     expect(custom?.taskEvents).toBeUndefined();
     expect(custom?.agentConfig).toBeUndefined();
     expect(custom?.appendMessages).toBeUndefined();
     expect(custom?.spawnAgents).toBeUndefined();
+    expect(custom?.webhooks).toBeUndefined();
   });
 
   test("Phase 6: eventSubscriptions array migrates to ezcorp:events:subscribe", () => {
@@ -315,6 +318,7 @@ describe("customToKind — accepts BOTH legacy and namespaced spellings", () => 
     { legacy: "loopEvents", namespaced: "ezcorp:loops:emit", value: true },
     { legacy: "spawnAgents", namespaced: "ezcorp:agent:spawn", value: true },
     { legacy: "eventSubscriptions", namespaced: "ezcorp:events:subscribe", value: ["foo:bar"] },
+    { legacy: "webhooks", namespaced: "ezcorp:webhooks:receive", value: ["tickets"] },
   ];
 
   for (const { legacy, namespaced, value } of pairs) {

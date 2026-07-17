@@ -682,3 +682,75 @@ describe("HarnessClient — hub actions + cancel run", () => {
     await expect(client().cancelRun("gone")).rejects.toMatchObject({ status: 404 });
   });
 });
+
+describe("HarnessClient — deliverHook (Loops EZ Mode Phase 4)", () => {
+  // Self-contained: a stub fetch captures the request so we can assert the hook
+  // route path, the per-hook auth headers, and the CRITICAL invariant that the
+  // harness API key is NEVER attached to the public webhook route.
+  interface Captured { url: string; init: RequestInit }
+  function stubClient(status: number, body: unknown): { client: HarnessClient; captured: Captured[] } {
+    const captured: Captured[] = [];
+    // Cast to `typeof fetch`: the real type carries a `preconnect` member a bare
+    // arrow can't satisfy (same shape the redirect test uses).
+    const stub = ((input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      captured.push({ url, init: init ?? {} });
+      return Promise.resolve(
+        status === 202 ? Response.json(body, { status }) : new Response(JSON.stringify(body), { status }),
+      );
+    }) as unknown as typeof fetch;
+    return {
+      client: new HarnessClient({ baseUrl: "http://h", apiKey: "ezk_HARNESS_KEY", fetch: stub }),
+      captured,
+    };
+  }
+
+  test("route table entry matches the registered path", () => {
+    expect(HARNESS_ROUTES.deliverHook).toEqual({
+      httpMethod: "POST",
+      pathTemplate: "/api/hooks/:extensionId/:slug",
+    });
+  });
+
+  test("posts to the hook path with a Bearer token and NEVER the harness key", async () => {
+    const { client, captured } = stubClient(202, { accepted: true, deliveryId: "d-1" });
+    const res = await client.deliverHook("docs-updater", "tickets", {
+      body: '{"n":1}',
+      contentType: "application/json",
+      token: "ezhook_secret-token",
+    });
+    expect(res).toEqual({ accepted: true, deliveryId: "d-1" });
+    expect(new URL(captured[0]!.url).pathname).toBe("/api/hooks/docs-updater/tickets");
+    const headers = captured[0]!.init.headers as Record<string, string>;
+    // The hook token is the auth — NOT the harness ezk_ key.
+    expect(headers["Authorization"]).toBe("Bearer ezhook_secret-token");
+    expect(headers["Authorization"]).not.toContain("ezk_");
+    expect(headers["Content-Type"]).toBe("application/json");
+    expect(captured[0]!.init.body).toBe('{"n":1}');
+  });
+
+  test("sends an X-Hub-Signature-256 header and no Authorization when using HMAC", async () => {
+    const { client, captured } = stubClient(202, { accepted: true, deliveryId: "d-2" });
+    await client.deliverHook("docs-updater", "tickets", {
+      body: "raw",
+      signature: "sha256=deadbeef",
+    });
+    const headers = captured[0]!.init.headers as Record<string, string>;
+    expect(headers["X-Hub-Signature-256"]).toBe("sha256=deadbeef");
+    expect(headers["Authorization"]).toBeUndefined();
+  });
+
+  test("maps a 401 to HarnessApiError", async () => {
+    const { client } = stubClient(401, { error: "Unauthorized" });
+    await expect(
+      client.deliverHook("docs-updater", "tickets", { token: "wrong" }),
+    ).rejects.toMatchObject({ status: 401 });
+  });
+
+  test("path params are percent-encoded (no traversal)", async () => {
+    const { client, captured } = stubClient(202, { accepted: true, deliveryId: "d-3" });
+    await client.deliverHook("ext/../evil", "a b", { token: "t" });
+    // Both segments are opaque — the slash and space never climb or split.
+    expect(new URL(captured[0]!.url).pathname).toBe("/api/hooks/ext%2F..%2Fevil/a%20b");
+  });
+});

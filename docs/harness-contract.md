@@ -218,6 +218,24 @@ Hub-action `payload` values must be scalars (string / number / boolean). A
 handler may return a freshly rendered `page` tree in the result. `cancelRun` is
 ownership-gated — a non-owner sees a 404, never a leak.
 
+### Webhook delivery (Loops EZ Mode Phase 4)
+
+```ts
+await ez.deliverHook("webhook-ticket-loop", "tickets", {
+  body: JSON.stringify({ id: "T-1", priority: "high" }),
+  contentType: "application/json",
+  token: hookSecret,          // OR: signature: "sha256=<hmac>"
+});                            // → { accepted, deliveryId } (202)
+```
+
+`deliverHook` drives the PUBLIC `POST /api/hooks/:extensionId/:slug` route. Its
+auth is the **per-hook token / HMAC**, NOT the harness API key — the method
+sends its own `Authorization` (or `X-Hub-Signature-256`) and never attaches
+`ezk_*`. Obtain a token from the admin rotate route
+`POST /api/extensions/:name/webhooks/:slug/rotate` (shown once). Non-2xx
+(`401`/`404`/`413`/`429`) throws `HarnessApiError`. See
+[docs/extensions/loops.md § Webhook triggers](extensions/loops.md#webhook-triggers).
+
 ## The standing rule — keep new features remotely testable
 
 A CI meta-test ([`web/src/__tests__/route-contract.test.ts`](../web/src/__tests__/route-contract.test.ts))

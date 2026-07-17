@@ -39,7 +39,56 @@ export type LoopTrigger =
        *  outcome (logged, not an error). */
       filter?: (payload: unknown) => boolean;
     }
-  | { kind: "manual"; tool?: string; pageAction?: string };
+  | { kind: "manual"; tool?: string; pageAction?: string }
+  /**
+   * Fire off an inbound HTTP webhook (Loops EZ Mode Phase 4). The `slug`
+   * MUST be declared in the manifest's `permissions.webhooks[]` — the host
+   * validates it at install and drops undeclared slugs (mirrors cron/event;
+   * never widens the grant). A leaked-token attacker controls the payload,
+   * so a loop with ANY webhook trigger is PERMANENTLY `untrusted-input`
+   * (`hasUntrustedInputTrigger`): Phase 8 never offers autopilot for it, and
+   * the fire `input` arrives as a delimited {@link WebhookInput} wrapper the
+   * check/act must treat as untrusted (never interpolate raw). */
+  | { kind: "webhook"; slug: string };
+
+// ── Webhook fire input — the delimited UNTRUSTED wrapper ─────────────
+//
+// A webhook body is attacker-controllable by definition (a leaked token
+// lets anyone POST arbitrary bytes). The host hands the loop's `check`/`act`
+// the payload ONLY inside this clearly-delimited, self-describing wrapper —
+// never the raw string as a bare `input`. `untrusted: true` is a structural
+// marker (always present, always true) so downstream code + the Phase-8
+// content-trust gate can recognize webhook-originated input at a glance;
+// `parsed` is populated only when `contentType` was JSON and the body parsed,
+// otherwise the caller works from the size-capped raw `body` text. Nothing
+// here is ever interpolated into a prompt/command by the primitive — the loop
+// author decides how to consume it (delimited data block + injection preamble
+// is the documented posture; see docs/extensions/loops.md § Webhook triggers).
+
+export interface WebhookInput {
+  /** Discriminant so a multi-trigger loop can branch on the fire source. */
+  kind: "webhook";
+  /** The manifest-declared slug this delivery targeted. */
+  slug: string;
+  /** Structural untrusted marker — ALWAYS `true`. Present so check/act (and
+   *  Phase 8's gate) can recognize attacker-controllable input structurally,
+   *  not by convention. */
+  untrusted: true;
+  /** The inbound `Content-Type` header (lowercased), or `null` when absent. */
+  contentType: string | null;
+  /** The size-capped raw request body as UTF-8 text (never re-serialized —
+   *  the exact bytes the sender posted, so an HMAC over it stays valid). */
+  body: string;
+  /** The parsed JSON body, present ONLY when `contentType` was JSON-ish AND
+   *  `body` parsed cleanly. Untrusted data — treat as hostile. `undefined`
+   *  for non-JSON or unparseable bodies (work from `body`). */
+  parsed?: unknown;
+  /** Host-issued delivery id (the `webhook_deliveries` row) — a stable
+   *  idempotency handle for the fire. */
+  deliveryId: string;
+  /** ISO timestamp the host accepted the delivery. */
+  receivedAt: string;
+}
 
 // ── Run state ────────────────────────────────────────────────────────
 //

@@ -5,6 +5,8 @@ import { cleanupOldErrors } from "../db/queries/error-logs";
 import { cleanupOldSdkCapabilityCalls, clampDays } from "../db/queries/sdk-capability-calls";
 import { getSetting } from "../db/queries/settings";
 import { ScheduleDaemon } from "../extensions/schedule-daemon";
+import { WebhookDeliveryDaemon } from "../extensions/webhook-delivery-daemon";
+import { ExtensionRegistry } from "../extensions/registry";
 import { BriefingDaemon } from "../runtime/briefing/daemon";
 import { HostMaintenanceDaemon } from "../extensions/host-maintenance-daemon";
 import { EmbedWorker } from "../extensions/embed-worker";
@@ -24,6 +26,7 @@ const log = logger.child("startup.timers");
 
 let started = false;
 let scheduleDaemon: ScheduleDaemon | undefined;
+let webhookDeliveryDaemon: WebhookDeliveryDaemon | undefined;
 let briefingDaemon: BriefingDaemon | undefined;
 let permSweepDaemon: HostMaintenanceDaemon | undefined;
 let embedWorker: EmbedWorker | undefined;
@@ -48,6 +51,12 @@ const disposers: Array<() => void> = [];
  *  daemon was constructed and tear it down between cases. */
 export function _getScheduleDaemonForTests(): ScheduleDaemon | undefined {
   return scheduleDaemon;
+}
+
+/** Test-only handle to the webhook-delivery daemon singleton. Mirror of
+ *  `_getScheduleDaemonForTests`. */
+export function _getWebhookDeliveryDaemonForTests(): WebhookDeliveryDaemon | undefined {
+  return webhookDeliveryDaemon;
 }
 
 /** Test-only handle to the briefing-daemon singleton — mirrors
@@ -224,6 +233,21 @@ export async function startBackgroundTimers(): Promise<void> {
     }
   } catch (e) {
     log.warn("Failed to start ScheduleDaemon", { error: String(e) });
+  }
+
+  // Loops EZ Mode Phase 4: WebhookDeliveryDaemon — drains the durable
+  // `webhook_deliveries` queue onto the loop fire path (claim-before-dispatch,
+  // catch-up, crash-reap, kill-switch-gated). Wired WITH the registry singleton
+  // so it dispatches `ezcorp/webhook-fire` to running subprocesses. Gated by
+  // `EZCORP_DISABLE_WEBHOOK_DAEMON=1`. Unlike ScheduleDaemon there is no PID
+  // lockfile (the DB status-CAS is the concurrency guard), so `start()` is total
+  // — no sibling-refusal branch or start-throw to guard against.
+  if (process.env.EZCORP_DISABLE_WEBHOOK_DAEMON !== "1") {
+    webhookDeliveryDaemon = new WebhookDeliveryDaemon({ registry: ExtensionRegistry.getInstance() });
+    await webhookDeliveryDaemon.start();
+    log.info("WebhookDeliveryDaemon started");
+  } else {
+    log.info("WebhookDeliveryDaemon disabled via EZCORP_DISABLE_WEBHOOK_DAEMON");
   }
 
   // Daily Briefing Phase 1: BriefingDaemon — per-user scheduled briefing
@@ -585,6 +609,14 @@ export async function stopBackgroundTimers(): Promise<void> {
     }
     scheduleDaemon = undefined;
   }
+  if (webhookDeliveryDaemon) {
+    try {
+      webhookDeliveryDaemon.stop();
+    } catch (e) {
+      log.warn("WebhookDeliveryDaemon.stop() failed", { error: String(e) });
+    }
+    webhookDeliveryDaemon = undefined;
+  }
   if (briefingDaemon) {
     try {
       briefingDaemon.stop();
@@ -645,6 +677,10 @@ export function _resetForTests(): void {
   if (scheduleDaemon) {
     scheduleDaemon.stop();
     scheduleDaemon = undefined;
+  }
+  if (webhookDeliveryDaemon) {
+    webhookDeliveryDaemon.stop();
+    webhookDeliveryDaemon = undefined;
   }
   if (briefingDaemon) {
     briefingDaemon.stop();

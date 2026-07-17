@@ -1,0 +1,8 @@
+{
+  "name": "webhook-ticket-loop",
+  "version": "1.0.0",
+  "description": "Reference webhook-triggered Loop SDK example — an external system POSTs a ticket to a per-hook URL; a deterministic check gates on the untrusted payload and act records it, on defineLoop.",
+  "private": true,
+  "type": "module",
+  "main": "./index.ts"
+}

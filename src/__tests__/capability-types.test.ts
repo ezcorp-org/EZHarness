@@ -318,6 +318,15 @@ describe("capabilityDeclarationToSet", () => {
     ).toEqual([{ kind: "ezcorp:events:subscribe", value: "x:y" }]);
   });
 
+  test("custom: { webhooks: ['tickets'] } → ezcorp:webhooks:receive cap per slug", () => {
+    expect(
+      capabilityDeclarationToSet({ custom: { webhooks: ["tickets", "alerts"] } }, {}),
+    ).toEqual([
+      { kind: "ezcorp:webhooks:receive", value: "tickets" },
+      { kind: "ezcorp:webhooks:receive", value: "alerts" },
+    ]);
+  });
+
   test("custom: unknown key is dropped (forward-compat ignore)", () => {
     expect(
       capabilityDeclarationToSet(
@@ -555,6 +564,37 @@ describe("intersectPermissions — capability tier", () => {
     expect(r.eventSubscriptions).toEqual(["a:b"]);
   });
 
+  test("webhooks: array intersection (slug clip)", () => {
+    const r = intersectPermissions(
+      { webhooks: ["tickets", "alerts"], grantedAt: {} },
+      { webhooks: ["alerts", "orders"], grantedAt: {} },
+    );
+    expect(r.webhooks).toEqual(["alerts"]);
+  });
+
+  test("webhooks: disjoint slugs → no webhooks in result", () => {
+    const r = intersectPermissions(
+      { webhooks: ["tickets"], grantedAt: {} },
+      { webhooks: ["orders"], grantedAt: {} },
+    );
+    expect(r.webhooks).toBeUndefined();
+  });
+
+  test("webhooks: grantedAt survives (older ts) only when the slug survives", () => {
+    const r = intersectPermissions(
+      { webhooks: ["tickets"], grantedAt: { webhooks: 100 } },
+      { webhooks: ["tickets"], grantedAt: { webhooks: 200 } },
+    );
+    expect(r.webhooks).toEqual(["tickets"]);
+    expect(r.grantedAt.webhooks).toBe(100);
+    const dropped = intersectPermissions(
+      { webhooks: ["tickets"], grantedAt: { webhooks: 100 } },
+      { webhooks: ["orders"], grantedAt: { webhooks: 200 } },
+    );
+    expect(dropped.webhooks).toBeUndefined();
+    expect(dropped.grantedAt.webhooks).toBeUndefined();
+  });
+
   test("appendMessages: OR on excludedDefault (force-exclude wins, both sides)", () => {
     // Phase 4 §M5 — clip semantics. If EITHER side says
     // "excludedDefault: true", the intersection forces excluded.
@@ -759,6 +799,19 @@ describe("grantsToCapabilitySet — capability tier", () => {
     expect(
       grantsToCapabilitySet({ grantedAt: {} }).some(
         (c) => c.kind === "ezcorp:loops:emit",
+      ),
+    ).toBe(false);
+  });
+
+  test("webhooks → one ezcorp:webhooks:receive cap per slug; absent → no cap", () => {
+    const caps = grantsToCapabilitySet({ grantedAt: {}, webhooks: ["tickets", "alerts"] });
+    expect(caps.filter((c) => c.kind === "ezcorp:webhooks:receive")).toEqual([
+      { kind: "ezcorp:webhooks:receive", value: "tickets" },
+      { kind: "ezcorp:webhooks:receive", value: "alerts" },
+    ]);
+    expect(
+      grantsToCapabilitySet({ grantedAt: {} }).some(
+        (c) => c.kind === "ezcorp:webhooks:receive",
       ),
     ).toBe(false);
   });
