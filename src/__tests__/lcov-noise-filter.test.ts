@@ -162,6 +162,58 @@ describe("isNoiseLine — negative matches (real executable code)", () => {
     expect(isNoiseLine("  createTable(schema);")).toBe(false);
   });
 
+  test("SQL_FRAGMENT soundness: real TS code beginning with a SQL-keyword word survives", () => {
+    // Regression corpus for the case-insensitive `\b` bug: every line here is
+    // genuine executable TS that the old pattern stripped from denominators
+    // whenever it was zero-hit. All must survive the filter.
+    expect(isNoiseLine("    set(key, entry);")).toBe(false);
+    expect(isNoiseLine("    update(newText);")).toBe(false);
+    expect(isNoiseLine("    on(event, handler);")).toBe(false);
+    expect(isNoiseLine("    create(opts);")).toBe(false);
+    expect(isNoiseLine("    add(item);")).toBe(false);
+    expect(isNoiseLine("    values.push(parseInt(group, 16));")).toBe(false);
+    expect(isNoiseLine("  delete cache[key];")).toBe(false);
+    expect(isNoiseLine("  delete result[extId];")).toBe(false);
+    expect(isNoiseLine("  group.diffs.push(diff);")).toBe(false);
+    expect(isNoiseLine("  group.tokens += fn.tokens;")).toBe(false);
+    expect(isNoiseLine("  count = unreadStore.getTotalUnreadCount();")).toBe(false);
+    expect(isNoiseLine("  update.grantedPermissions = clamped;")).toBe(false);
+    expect(isNoiseLine("  set payload(value: WeatherCardPayload | null) {")).toBe(false);
+    expect(isNoiseLine("  as(x);")).toBe(false);
+    // Uppercase call shape must not match either — "SET( must NEVER match".
+    expect(isNoiseLine("    SET(x);")).toBe(false);
+    expect(isNoiseLine("    UPDATE(y);")).toBe(false);
+    // Lowercase SQL-ish prose is TS unless uppercase (case-sensitive now).
+    expect(isNoiseLine("  select ? active : inactive;")).toBe(false);
+    expect(isNoiseLine("  from = normalize(input.from);")).toBe(false);
+  });
+
+  test("SQL_FRAGMENT soundness: genuine uppercase SQL fragments are still stripped", () => {
+    expect(isNoiseLine("    SELECT id, metadata")).toBe(true);
+    expect(isNoiseLine("    FROM conversations")).toBe(true);
+    expect(isNoiseLine("      SET updated_at = NOW(),")).toBe(true);
+    expect(isNoiseLine("      ON CONFLICT (id) DO NOTHING")).toBe(true);
+    expect(isNoiseLine("      VALUES ($1, $2, $3)")).toBe(true);
+    expect(isNoiseLine("      DELETE FROM sessions WHERE expired = true")).toBe(true);
+    expect(isNoiseLine("      UPDATE conversations")).toBe(true);
+    expect(isNoiseLine("      GROUP BY conversation_id")).toBe(true);
+    expect(isNoiseLine("      ORDER BY created_at DESC")).toBe(true);
+    expect(isNoiseLine("      LIMIT 500")).toBe(true);
+    expect(isNoiseLine("      RETURNING")).toBe(true); // keyword at EOL
+    expect(isNoiseLine("      COUNT(*)::int AS total_calls,")).toBe(true);
+    expect(isNoiseLine("      COALESCE(SUM(cost_usd), 0)::float AS total_cost")).toBe(true);
+    expect(isNoiseLine("      COALESCE(1.0 / (60 + v.rank_v), 0) +")).toBe(true);
+  });
+
+  test("SQL_CLOSE soundness: TS `) as Type` casts survive, `) AS alias` is stripped", () => {
+    expect(isNoiseLine(") as HTMLElement;")).toBe(false);
+    expect(isNoiseLine("  )) as HTMLSelectElement;")).toBe(false);
+    expect(isNoiseLine("  ) as HTMLButtonElement | null;")).toBe(false);
+    expect(isNoiseLine("  ) as unknown as typeof fetch;")).toBe(false);
+    expect(isNoiseLine("      ) AS rank_v,")).toBe(true);
+    expect(isNoiseLine("      ), 0) AS cost")).toBe(true);
+  });
+
   test("lowercase `as`-cast expressions are NOT a SQL alias (case-sensitive AS)", () => {
     // TS's cast operator is lowercase `as` — must never match SQL_SELECT_ALIAS.
     expect(isNoiseLine("  const search = ctx.search as SearchFn;")).toBe(false);
