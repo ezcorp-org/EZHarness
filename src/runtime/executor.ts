@@ -216,6 +216,15 @@ export class AgentExecutor {
    *  the many short-lived ToolExecutor instances created per turn. */
   private _spawnQuota: SpawnQuota;
 
+  /** Read-only accessor so out-of-turn wirers (the extension-events route,
+   *  hub render-pull) can build a FULLY-wired ToolExecutor. Each wirer's
+   *  `ensureSubprocessRpcWired` replaces the subprocess's single request
+   *  handler, so an under-wired instance (no executor/spawnQuota) silently
+   *  breaks `ezcorp/spawn-assignment` for every later call on that proc. */
+  get spawnQuota(): SpawnQuota {
+    return this._spawnQuota;
+  }
+
   /** Parent-run id → live child-run ids. Populated by
    *  {@link registerChildRun} (called from start-assignment when a spawn
    *  carries a `parentRunId`) so {@link cancelRun} can cascade a cancel

@@ -95,7 +95,7 @@ async function productionCallPage(
     { ExtensionRegistry },
     { ToolExecutor },
     { getPermissionEngine },
-    { getBus },
+    { getBus, getExecutor },
     { registerCallProvenance, releaseCallProvenance },
   ] = await Promise.all([
     import("$server/extensions/registry"),
@@ -110,6 +110,17 @@ async function productionCallPage(
   // PDP singleton is boot-wired before any HTTP route can fire.
   const engine = getPermissionEngine();
   const wirer = new ToolExecutor(registry, engine, { bus: getBus() });
+  // FULL runtime wiring (same requirement as the events route): this
+  // ensureSubprocessRpcWired call REPLACES the proc's single request
+  // handler, so a render-pull that wired an executor-less instance would
+  // break `ezcorp/spawn-assignment` for every later call on the proc.
+  try {
+    const executor = getExecutor();
+    wirer.setExecutor(executor);
+    wirer.setSpawnQuota(executor.spawnQuota);
+  } catch {
+    /* executor not booted (test context) — spawn path stays unwired */
+  }
   await wirer.ensureSubprocessRpcWired(extension.id, proc);
   // A page render is a HOST-issued forward call, exactly like a tool
   // call: mint a provenance token scoped to the viewing user + this
