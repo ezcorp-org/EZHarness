@@ -9,7 +9,11 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import type { CoversMap } from "../../scripts/check-visual-evidence.ts";
+import {
+  type CoversMap,
+  coveringSpecsForFile,
+  loadCoversMap,
+} from "../../scripts/check-visual-evidence.ts";
 import { expandChangedFiles } from "../../scripts/visual-evidence/expand-changed-specs.ts";
 
 const REPO_ROOT = resolve(import.meta.dir, "..", "..");
@@ -66,10 +70,15 @@ describe("expand-changed-specs: main() wiring", () => {
       expect(lines[0]).toBe("web/src/lib/components/ChatMessage.svelte");
       expect(lines[1]).toBe("README.md");
       const appended = lines.slice(2);
-      expect(appended.length).toBeGreaterThan(0);
-      for (const spec of appended) {
-        expect(spec).toMatch(/^web\/e2e\/.+\.spec\.ts$/);
-      }
+      // Derive the EXPECTED appended set from the REAL repo covers map rather
+      // than assuming ChatMessage.svelte has ≥1 covering spec: the expander
+      // appends exactly coveringSpecsForFile(<changed visual file>, map) (its
+      // sorted, deduped output), so this stays correct whatever the map says
+      // while still proving the real map → file-rewrite wiring.
+      const map = await loadCoversMap();
+      if (!map) throw new Error("repo covers map failed to load — cannot verify expand wiring");
+      const expected = coveringSpecsForFile("web/src/lib/components/ChatMessage.svelte", map);
+      expect(appended).toEqual(expected);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

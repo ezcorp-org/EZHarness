@@ -491,7 +491,8 @@ jobs:
             EZCORP_E2E_EVIDENCE=1 bunx playwright test --project=chromium --grep @evidence || true
           else
             SPECS=()
-            while IFS= read -r line; do [ -n "$line" ] && SPECS+=("$line"); done < "$SPECS_FILE"
+            # `|| [ -n "$line" ]` keeps a final line with no trailing newline (mapfile-equivalent robustness; select-specs always emits a trailing \n today, this guards a future producer change).
+            while IFS= read -r line || [ -n "$line" ]; do [ -n "$line" ] && SPECS+=("$line"); done < "$SPECS_FILE"
             EZCORP_E2E_EVIDENCE=1 bunx playwright test --project=chromium --grep @evidence "${SPECS[@]}" || true
           fi
       # When capture was skipped (non-visual diff), the manifest is a `skipped`
