@@ -108,10 +108,20 @@ export function rowToEntry(row: ConversationMessage, knownIds: ReadonlySet<strin
 
 /** Postgres unique_violation (SQLSTATE 23505). drizzle wraps driver errors
  *  in a DrizzleQueryError whose `.code` is undefined — the SQLSTATE lives on
- *  `.cause`; check both so a raw driver error (Bun.sql) also matches. */
+ *  `.cause`. WHERE on the cause differs by driver (verified live 2026-07-16):
+ *  PGlite puts it on `.cause.code`; Bun.sql (external Postgres) sets
+ *  `.cause.code = "ERR_POSTGRES_SERVER_ERROR"` and carries the SQLSTATE on
+ *  `.cause.errno`. Check code AND errno at both levels (string-normalized) so
+ *  the concurrent-backfill catch works under BOTH runtimes — missing the
+ *  Bun.sql shape made every duplicate-create propagate and 500'd
+ *  GET /api/conversations/[id]/tree on external-Postgres deploys. */
 function isUniqueViolation(err: unknown): boolean {
-  const codeOf = (e: unknown): unknown => (typeof e === "object" && e !== null ? (e as { code?: unknown }).code : undefined);
-  return codeOf(err) === "23505" || codeOf((err as { cause?: unknown } | null)?.cause) === "23505";
+  const matches = (e: unknown): boolean => {
+    if (typeof e !== "object" || e === null) return false;
+    const { code, errno } = e as { code?: unknown; errno?: unknown };
+    return String(code) === "23505" || String(errno) === "23505";
+  };
+  return matches(err) || matches((err as { cause?: unknown } | null)?.cause);
 }
 
 /**

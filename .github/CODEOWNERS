@@ -11,54 +11,54 @@
 # See docs/development-lifecycle.md.
 
 # The gate definition + machinery.
-/.github/workflows/                 @arch1tect0x
+/.github/workflows/                 @EZArchy
 # The single-source bun pin: every CI job (incl. gate-integrity + the
 # coverage gate) executes under the runtime this file selects — swapping it
 # is swapping the interpreter the gates run on.
-/.bun-version                       @arch1tect0x
-/.github/CODEOWNERS                 @arch1tect0x
-/.github/pull_request_template.md   @arch1tect0x
-/scripts/check-coverage.ts          @arch1tect0x
-/scripts/coverage-config.ts         @arch1tect0x
-/scripts/coverage-thresholds.json   @arch1tect0x
-/scripts/check-new-file-coverage.ts @arch1tect0x
-/scripts/check-patch-coverage.ts    @arch1tect0x
-/scripts/gate-integrity.ts          @arch1tect0x
-/scripts/check-visual-evidence.ts   @arch1tect0x
-/scripts/visual-evidence/           @arch1tect0x
+/.bun-version                       @EZArchy
+/.github/CODEOWNERS                 @EZArchy
+/.github/pull_request_template.md   @EZArchy
+/scripts/check-coverage.ts          @EZArchy
+/scripts/coverage-config.ts         @EZArchy
+/scripts/coverage-thresholds.json   @EZArchy
+/scripts/check-new-file-coverage.ts @EZArchy
+/scripts/check-patch-coverage.ts    @EZArchy
+/scripts/gate-integrity.ts          @EZArchy
+/scripts/check-visual-evidence.ts   @EZArchy
+/scripts/visual-evidence/           @EZArchy
 # The covers map controls visual-gate strictness (which spec must change for a
 # given component edit) — narrowing it in the same PR as a component change
 # would silently weaken the gate, so it is human-owned like the gate itself.
-/web/e2e/evidence-covers.json       @arch1tect0x
-/scripts/test-coverage.sh           @arch1tect0x
-/scripts/test.sh                    @arch1tect0x
-/scripts/test-web.sh                @arch1tect0x
-/scripts/security-coverage.sh       @arch1tect0x
-/scripts/typecheck.sh               @arch1tect0x
-/scripts/lib/test-file-sets.sh      @arch1tect0x
-/scripts/merge-lcov.ts              @arch1tect0x
-/scripts/lcov-noise-filter.ts       @arch1tect0x
+/web/e2e/evidence-covers.json       @EZArchy
+/scripts/test-coverage.sh           @EZArchy
+/scripts/test.sh                    @EZArchy
+/scripts/test-web.sh                @EZArchy
+/scripts/security-coverage.sh       @EZArchy
+/scripts/typecheck.sh               @EZArchy
+/scripts/lib/test-file-sets.sh      @EZArchy
+/scripts/merge-lcov.ts              @EZArchy
+/scripts/lcov-noise-filter.ts       @EZArchy
 # Wave-3 gate machinery: the e2e lane manifest decides what BLOCKS (its
 # mock-gate lane feeds ci.yml via the args generator); the tests-typecheck
 # ratchet + configs decide what is exempt from the new typecheck legs; the
 # shard planner + timings manifest decide what each cov-shard executes.
-/web/e2e/lanes.json                 @arch1tect0x
-/scripts/e2e-lane-args.ts           @arch1tect0x
-/scripts/typecheck-tests.ts         @arch1tect0x
-/scripts/typecheck-tests-ratchet.json @arch1tect0x
-/tsconfig.tests.json                @arch1tect0x
-/web/tsconfig.e2e.json              @arch1tect0x
-/scripts/shard-plan.ts              @arch1tect0x
-/scripts/shard-timings.json         @arch1tect0x
+/web/e2e/lanes.json                 @EZArchy
+/scripts/e2e-lane-args.ts           @EZArchy
+/scripts/typecheck-tests.ts         @EZArchy
+/scripts/typecheck-tests-ratchet.json @EZArchy
+/tsconfig.tests.json                @EZArchy
+/web/tsconfig.e2e.json              @EZArchy
+/scripts/shard-plan.ts              @EZArchy
+/scripts/shard-timings.json         @EZArchy
 
 # Shared CI setup/cache machinery (referenced by every job in workflows/).
-/.github/actions/                   @arch1tect0x
+/.github/actions/                   @EZArchy
 
 # Test-runner + lint config that decides what runs and how strictly.
-/biome.json                         @arch1tect0x
-/bunfig.toml                        @arch1tect0x
-/tsconfig.typecheck.json            @arch1tect0x
-/web/playwright.config.ts           @arch1tect0x
-/web/playwright.real.config.ts      @arch1tect0x
-/web/playwright.validate.config.ts  @arch1tect0x
-/web/vitest.config.ts               @arch1tect0x
+/biome.json                         @EZArchy
+/bunfig.toml                        @EZArchy
+/tsconfig.typecheck.json            @EZArchy
+/web/playwright.config.ts           @EZArchy
+/web/playwright.real.config.ts      @EZArchy
+/web/playwright.validate.config.ts  @EZArchy
+/web/vitest.config.ts               @EZArchy

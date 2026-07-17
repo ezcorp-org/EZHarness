@@ -134,7 +134,7 @@ covered by `scripts/verify-docker-rollback.sh` / `verify:docker-rollback`.
 
 ## Applying branch protection (one-time)
 
-As an org admin (`gh auth switch --user arch1tect0x`):
+As an org admin (`gh auth switch --user EZArchy`):
 
 ```sh
 gh api -X PUT repos/ezcorp-org/EZCorp/branches/main/protection \
