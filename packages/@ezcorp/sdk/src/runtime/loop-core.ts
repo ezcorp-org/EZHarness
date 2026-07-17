@@ -17,9 +17,11 @@ import type {
   FailureClass,
   LoopAutoDisableContext,
   LoopContract,
+  LoopDefinition,
   LoopProposal,
   LoopRunEvent,
   LoopRunState,
+  LoopTrigger,
   ResolvedContract,
 } from "./loop-types";
 
@@ -60,6 +62,33 @@ export const APPROVAL_TERMINAL_STATES = [APPROVED, DECLINED] as const;
 /** Default staleness horizon: a parked proposal older than this many days
  *  auto-declines. 0 disables the sweep. */
 export const DEFAULT_STALE_AFTER_DAYS = 7;
+
+// ── Content-trust derivation (Loops EZ Mode Phase 4 → consumed Phase 8) ─
+//
+// A loop is PERMANENTLY `untrusted-input` when any of its triggers ingests
+// attacker-controllable content. Today the sole structural source is a
+// `webhook` trigger (a leaked token lets anyone POST arbitrary bytes). Pure +
+// total so it is trivially unit-testable and the Phase-8 content-trust gate
+// (autopilot NEVER offerable on an untrusted-input loop) reads ONE canonical
+// predicate rather than re-deriving the rule. Kept deliberately narrow: this
+// is a registration-level classification, NOT Phase-8 logic.
+
+/** True when the trigger is a structural source of attacker-controllable
+ *  input (webhook today). Pure. */
+export function isUntrustedInputTrigger(trigger: LoopTrigger): boolean {
+  return trigger.kind === "webhook";
+}
+
+/** True when a loop definition has ANY untrusted-input trigger — so it is
+ *  permanently `untrusted-input`. Normalizes the one-or-many `trigger` shape.
+ *  Pure; the registration path (`defineLoop`) stamps the result and Phase 8
+ *  reads it. */
+export function hasUntrustedInputTrigger(
+  def: Pick<LoopDefinition, "trigger">,
+): boolean {
+  const triggers = Array.isArray(def.trigger) ? def.trigger : [def.trigger];
+  return triggers.some(isUntrustedInputTrigger);
+}
 
 /** Fill every contract gap so downstream branches are total. Pure. */
 export function resolveContract<Input>(
