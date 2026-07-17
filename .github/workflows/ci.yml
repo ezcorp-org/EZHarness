@@ -50,10 +50,20 @@ jobs:
       # hard gate.
       - run: bun run typecheck
 
-  test-web:
-    name: Web tests (vitest)
+  # vitest runs both *.component.test.ts (Svelte DOM) and *.server.test.ts
+  # (route-handler unit tests), 2-way sharded for wall clock (per-file costs
+  # dominate the 410-file suite). Verified locally: --shard=1/2 + --shard=2/2
+  # execute 205+205 = 410 test files / 2330+2068 = 4398 tests — exactly the
+  # unsharded run's counts.
+  test-web-shard:
+    name: Web tests shard ${{ matrix.i }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        # Keep the /2 divisor in the run step in sync with this list length.
+        i: [1, 2]
     steps:
       - uses: actions/checkout@v4
       # Root deps too: web's *.server.test.ts import backend handlers from
@@ -62,9 +72,26 @@ jobs:
         with:
           web: "true"
           sync: "true"
-      # vitest runs both *.component.test.ts (Svelte DOM) and
-      # *.server.test.ts (route-handler unit tests).
-      - run: cd web && bunx --bun vitest run
+      - run: cd web && bunx --bun vitest run --shard=${{ matrix.i }}/2
+
+  # Required check (branch protection): thin aggregator that KEEPS the pinned
+  # required-check name over the sharded vitest matrix — green iff every
+  # shard succeeded (same pattern as the `Backend tests` aggregator below).
+  test-web:
+    name: Web tests (vitest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    needs: [test-web-shard]
+    if: always()
+    steps:
+      - name: Aggregate vitest shard results
+        run: |
+          echo "test-web-shard: ${{ needs.test-web-shard.result }}"
+          if [ "${{ needs.test-web-shard.result }}" != "success" ]; then
+            echo "::error::A vitest shard failed — see the failing shard's log."
+            exit 1
+          fi
+          echo "All vitest shards succeeded."
 
   # Required check: the ORPHANED web bun-leg pool — plain `web/src/**/*.test.ts`
   # that vitest does NOT match (no .component/.server/.unit suffix) and the
