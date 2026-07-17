@@ -12,6 +12,10 @@
 
 # The gate definition + machinery.
 /.github/workflows/                 @arch1tect0x
+# The single-source bun pin: every CI job (incl. gate-integrity + the
+# coverage gate) executes under the runtime this file selects — swapping it
+# is swapping the interpreter the gates run on.
+/.bun-version                       @arch1tect0x
 /.github/CODEOWNERS                 @arch1tect0x
 /.github/pull_request_template.md   @arch1tect0x
 /scripts/check-coverage.ts          @arch1tect0x
@@ -28,9 +32,24 @@
 /web/e2e/evidence-covers.json       @arch1tect0x
 /scripts/test-coverage.sh           @arch1tect0x
 /scripts/test.sh                    @arch1tect0x
+/scripts/test-web.sh                @arch1tect0x
+/scripts/security-coverage.sh       @arch1tect0x
+/scripts/typecheck.sh               @arch1tect0x
 /scripts/lib/test-file-sets.sh      @arch1tect0x
 /scripts/merge-lcov.ts              @arch1tect0x
 /scripts/lcov-noise-filter.ts       @arch1tect0x
+# Wave-3 gate machinery: the e2e lane manifest decides what BLOCKS (its
+# mock-gate lane feeds ci.yml via the args generator); the tests-typecheck
+# ratchet + configs decide what is exempt from the new typecheck legs; the
+# shard planner + timings manifest decide what each cov-shard executes.
+/web/e2e/lanes.json                 @arch1tect0x
+/scripts/e2e-lane-args.ts           @arch1tect0x
+/scripts/typecheck-tests.ts         @arch1tect0x
+/scripts/typecheck-tests-ratchet.json @arch1tect0x
+/tsconfig.tests.json                @arch1tect0x
+/web/tsconfig.e2e.json              @arch1tect0x
+/scripts/shard-plan.ts              @arch1tect0x
+/scripts/shard-timings.json         @arch1tect0x
 
 # Shared CI setup/cache machinery (referenced by every job in workflows/).
 /.github/actions/                   @arch1tect0x
@@ -38,4 +57,8 @@
 # Test-runner + lint config that decides what runs and how strictly.
 /biome.json                         @arch1tect0x
 /bunfig.toml                        @arch1tect0x
+/tsconfig.typecheck.json            @arch1tect0x
 /web/playwright.config.ts           @arch1tect0x
+/web/playwright.real.config.ts      @arch1tect0x
+/web/playwright.validate.config.ts  @arch1tect0x
+/web/vitest.config.ts               @arch1tect0x

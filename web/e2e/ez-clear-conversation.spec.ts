@@ -100,6 +100,26 @@ test.describe("Ez panel — clear conversation", () => {
 		await captureEvidence(page, testInfo, "ez-clear-empty");
 	});
 
+	test("the Ez composer renders the locked mode chip (disabled ModeSelector labelled 'Ez') @evidence", async ({ page, mockApi }, testInfo) => {
+		// Pins ChatInput's locked-mode path: EzPanel passes
+		// lockedMode={modeSlug:'ez'} and ChatInput synthesizes a full
+		// Mode-shaped object (id/slug/extensionTools/…) to drive a REAL but
+		// disabled <ModeSelector> chip — this renders that synthesized object.
+		await mockApi(seed);
+		await page.goto(`/project/${proj.id}/chat`);
+
+		await page.locator('[data-testid="ez-button"]:visible').click();
+		await expect(page.getByTestId("ez-panel")).toBeVisible();
+
+		const locked = page.getByTestId("chat-input-locked-mode");
+		await expect(locked).toBeVisible();
+		await expect(locked.getByTestId("mode-selector")).toContainText("Ez");
+		// The chip is a real ModeSelector, rendered locked (disabled trigger).
+		await expect(locked.getByTestId("mode-selector").locator("button").first()).toBeDisabled();
+
+		await captureEvidence(page, testInfo, "ez-locked-mode-chip");
+	});
+
 	test("a single click only arms — it does not delete the conversation", async ({ page, mockApi }) => {
 		const deleteRequests: string[] = [];
 		page.on("request", (r) => {

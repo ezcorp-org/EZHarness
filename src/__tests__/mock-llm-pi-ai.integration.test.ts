@@ -26,7 +26,24 @@ beforeAll(() => {
       const url = new URL(req.url);
       if (req.method === "POST" && url.pathname.endsWith("/chat/completions")) {
         const body = (await req.json()) as { model?: unknown };
-        return buildMockTurnResponse(dequeueMockTurn(mockScriptKeyFromModel(body.model)));
+        const turn = dequeueMockTurn(mockScriptKeyFromModel(body.model));
+        // Connection faults are simulated as a SOCKET DROP here, not via
+        // buildMockFaultResponse's erroring body stream: inside a bun test
+        // process, bun (>= 1.3.14, CI's pin) reports a server-side response
+        // body stream error as an uncaught test-level error even when the
+        // client reads and handles the abort (PR #8 runs 29589476463 +
+        // 29601137701, shard 3 — pooled AND isolated; a Bun.serve `error`
+        // hook does not intercept it). Timing out the request without ever
+        // resolving the handler closes the TCP socket with no HTTP status —
+        // the SAME client-visible transport failure, arguably more faithful
+        // to a real dropped connection. The node-hosted determinism route
+        // (web/src/routes/api/__test/mock-llm/.../+server.ts) keeps using
+        // the erroring-stream Response, which is fine in its environment.
+        if (turn.fault?.kind === "connection") {
+          server.timeout(req, 1);
+          return new Promise<Response>(() => {});
+        }
+        return buildMockTurnResponse(turn);
       }
       return new Response("not found", { status: 404 });
     },

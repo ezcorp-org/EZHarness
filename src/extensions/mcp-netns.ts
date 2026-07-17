@@ -172,6 +172,19 @@ export function _resetProbeCacheForTests(): void {
   probeCache = null;
 }
 
+/**
+ * Seed the cached probe result directly (`null` clears back to a real
+ * probe). Tests asserting netns-DEPENDENT behavior must inject the
+ * capability instead of inheriting the host's: hosted CI runners lack
+ * unprivileged userns (the sandbox tier resolves to `landlock` there),
+ * so a test that needs `available: true` would otherwise pass on dev
+ * boxes and fail on CI. Mirrors `_setBwrapProbeOverridesForTests` /
+ * `_setVethProbeOverridesForTests`.
+ */
+export function _setNetnsProbeCacheForTests(caps: NetnsCapabilities | null): void {
+  probeCache = caps;
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // Plan 55-02 — bubblewrap probe (MCP-02 host-/tmp side-channel close)
 //

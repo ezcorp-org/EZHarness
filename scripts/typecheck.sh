@@ -16,6 +16,7 @@ set -e
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 ROOT_FAIL=0
 WEB_FAIL=0
+TESTS_FAIL=0
 
 echo "→ Typechecking backend (src/)..."
 cd "$ROOT"
@@ -28,10 +29,20 @@ bunx --bun svelte-kit sync > /dev/null 2>&1 || true
 bun x tsc --noEmit || WEB_FAIL=1
 
 echo ""
-if [ "$ROOT_FAIL" -eq 0 ] && [ "$WEB_FAIL" -eq 0 ]; then
+# Wave-3 legs: backend test files + web/e2e — previously typechecked by
+# NOTHING. scripts/typecheck-tests.ts composes the dirty-file ratchet
+# (scripts/typecheck-tests-ratchet.json; shrink-only, enforced there) into
+# temp child configs of tsconfig.tests.json / web/tsconfig.e2e.json. Needs
+# the svelte-kit sync above (aliases + generated $types).
+cd "$ROOT"
+bun scripts/typecheck-tests.ts || TESTS_FAIL=1
+
+echo ""
+if [ "$ROOT_FAIL" -eq 0 ] && [ "$WEB_FAIL" -eq 0 ] && [ "$TESTS_FAIL" -eq 0 ]; then
   echo "✓ Typecheck passed."
   exit 0
 fi
 [ "$ROOT_FAIL" -ne 0 ] && echo "✗ Backend (src/) typecheck failed."
 [ "$WEB_FAIL" -ne 0 ] && echo "✗ Web typecheck failed."
+[ "$TESTS_FAIL" -ne 0 ] && echo "✗ Tests/e2e typecheck failed (see scripts/typecheck-tests.ts output)."
 exit 1

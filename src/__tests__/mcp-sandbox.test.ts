@@ -26,6 +26,21 @@ import { restoreModuleMocks } from "./helpers/mock-cleanup";
 //    so the mock survives across tests in the file; the pre-existing
 //    describe blocks below don't pass `ctx` and never trigger audit
 //    writes, so adding the mock is a no-op for them.
+/** Poll until `pred()` holds (25ms steps, 3s cap). The netns-fallback audit
+ *  rows are emitted fire-and-forget AFTER the spec builder returns; a fixed
+ *  50ms settle was enough locally but deterministically too short on 2-core
+ *  CI runners under coverage (PR #8 run 29589476463, shard 1: the
+ *  "bubblewrap unavailable" row landed late and toBeDefined saw undefined,
+ *  pooled AND isolated). Polling asserts the same eventually-lands
+ *  invariant without the wall-clock guess; the follow-up expect() still
+ *  fails with the original message if the row never arrives. */
+async function waitForAudit(pred: () => boolean, timeoutMs = 3000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!pred() && Date.now() < deadline) {
+    await new Promise((res) => setTimeout(res, 25));
+  }
+}
+
 const AUDIT_CALLS: Array<{
   action: string;
   metadata: Record<string, unknown> | null;
@@ -49,6 +64,7 @@ import {
   _resetProbeCacheForTests,
   _resetBwrapProbeCacheForTests,
   _setBwrapProbeOverridesForTests,
+  _setNetnsProbeCacheForTests,
 } from "../extensions/mcp-netns";
 import {
   _resetTmpfsKillSwitchBootFlagForTests,
@@ -352,6 +368,13 @@ describe("bwrap tmpfs", () => {
 
   test("bwrap missing on Linux → no EZCORP_MCP_BWRAP_ENABLED + extra MCP_NETNS_FALLBACK row with reason='bubblewrap unavailable'", async () => {
     setPlatform("linux" as NodeJS.Platform);
+    // The fallback row is gated on netns.available (mcp-sandbox.ts) — the
+    // invariant under test is "netns available BUT bwrap missing". Seed the
+    // netns probe instead of inheriting the host's: hosted CI runners have
+    // no unprivileged userns, so the real probe returns false there and the
+    // row is legitimately never emitted (PR #8 runs 29589476463/29601137701,
+    // shard 1 — pooled AND isolated).
+    _setNetnsProbeCacheForTests({ available: true });
     _resetBwrapProbeCacheForTests();
     _setBwrapProbeOverridesForTests({
       whichBwrap: () => null,
@@ -377,7 +400,13 @@ describe("bwrap tmpfs", () => {
       const wrapped = rawWrapped as McpServerStdio;
       expect(wrapped.env?.EZCORP_MCP_BWRAP_ENABLED).toBeUndefined();
 
-      await new Promise((res) => setTimeout(res, 50));
+      await waitForAudit(() =>
+        AUDIT_CALLS.some(
+          (c) =>
+            c.action === "ext:mcp:netns-fallback" &&
+            (c.metadata?.reason as string | undefined) === "bubblewrap unavailable",
+        ),
+      );
       const unavailRow = AUDIT_CALLS.find(
         (c) =>
           c.action === "ext:mcp:netns-fallback" &&
@@ -428,7 +457,16 @@ describe("bwrap tmpfs", () => {
         spec, mcpManifest(), { grantedAt: {} }, "ext-killswitch-2", ctx,
       );
 
-      await new Promise((res) => setTimeout(res, 50));
+      // Poll for the FIRST row's arrival (presence race, same as the
+      // bubblewrap-unavailable site); the exactly-one invariant below keeps
+      // guarding against a duplicate from the second spawn.
+      await waitForAudit(() =>
+        AUDIT_CALLS.some(
+          (c) =>
+            c.action === "ext:mcp:netns-fallback" &&
+            (c.metadata?.reason as string | undefined) === "kill-switch: tmpfs disabled",
+        ),
+      );
       const killRows = AUDIT_CALLS.filter(
         (c) =>
           c.action === "ext:mcp:netns-fallback" &&

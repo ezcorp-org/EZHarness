@@ -34,6 +34,7 @@
   ],
   "web/e2e/ez-clear-conversation.spec.ts": [
     "web/src/lib/components/ez/**",
+    "web/src/lib/components/ChatInput.svelte",
     "web/src/routes/(app)/project/[id]/chat/+page.svelte"
   ],
   "web/e2e/ez-code-factory-gates.spec.ts": [

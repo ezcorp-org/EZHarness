@@ -65,6 +65,13 @@ describe("scope enforcement coverage", () => {
     "/marketplace/categories/+server.ts",  // anonymous category listing
     "/version/+server.ts",                  // diagnostic
     "/ready/+server.ts",                    // health probe
+    // External webhook ingress (Loops Phase 4) — public-by-design like the
+    // OAuth callbacks, with its OWN auth the textual scan can't see: a
+    // fail-closed per-hook bearer secret (constant-time compare, dummy
+    // compare on unknown hooks for timing parity), pre-lookup per-IP burst
+    // limiter, slug shape gate and body-size caps, all before dispatch.
+    // Session scopes cannot apply — the caller is an external system.
+    "/hooks/[extensionId]/[slug]/+server.ts",
   ]);
 
   test("all non-auth API routes contain a scope, role, or auth gate", async () => {

@@ -54,7 +54,11 @@
 		e.preventDefault();
 		errorMsg = "";
 		const result = buildWorkflowPayload(name, description, steps);
-		if (result.error) {
+		// `!== null` (not truthiness): `error` is typed `string | null` and a
+		// bare `if (result.error)` can't discriminate the union for TS (an
+		// empty-string error would also be falsy). Every producer returns a
+		// non-empty message, so behavior is identical.
+		if (result.error !== null) {
 			errorMsg = result.error;
 			return;
 		}
