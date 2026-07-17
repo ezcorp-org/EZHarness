@@ -151,18 +151,17 @@ jobs:
       # seed-dependent that would fail/flake here with no live backend.
       # file-organizer-real.spec.ts self-skips its real-backend cases.
       #
-      # ANCHORED regexes (Playwright CLI file args are regexes): a bare
-      # `hub.spec.ts` also substring-matched github-projects-hub.spec.ts and
-      # project-hub.spec.ts, silently pulling both into this blocking gate.
-      # Exactly these 5 files run (verified via --list); the two accidental
-      # extras are out of the gate and belong to the future lane manifest.
-      - run: |
-          cd web && bunx playwright test --project=chromium \
-            'e2e/file-organizer-hub\.spec\.ts$' \
-            'e2e/file-organizer-real\.spec\.ts$' \
-            'e2e/hub\.spec\.ts$' \
-            'e2e/extensions-library-tabs\.spec\.ts$' \
-            'e2e/extension-detail-pages\.spec\.ts$'
+      # The blocking list has ONE home: the `mock-gate` lane of
+      # web/e2e/lanes.json. scripts/e2e-lane-args.ts turns it into ANCHORED
+      # regexes (Playwright file args are regexes — a bare `hub.spec.ts` once
+      # silently pulled github-projects-hub + project-hub into this gate).
+      # src/__tests__/e2e-lanes.test.ts pins manifest ↔ generator ↔ this
+      # invocation.
+      - shell: bash
+        run: |
+          mapfile -t ARGS < <(bun scripts/e2e-lane-args.ts mock-gate)
+          [ "${#ARGS[@]}" -gt 0 ] || { echo "::error::empty mock-gate lane args"; exit 1; }
+          cd web && bunx playwright test --project=chromium "${ARGS[@]}"
       # Post-mortem debuggability: keep traces/screenshots when the gate fails.
       - uses: actions/upload-artifact@v4
         if: failure()
@@ -484,9 +483,17 @@ jobs:
     # never hold a write token. The privileged publish step lives in the
     # separate `visual-evidence-publish.yml` (on: workflow_run).
     #
-    # The job conclusion is the HARD gate (step "Visual-evidence gate"); every
-    # later step is continue-on-error so the best-effort capture/publish lane
-    # can never red a PR during the fail-soft pilot.
+    # TWO hard red paths (wave 3 — no longer pure fail-soft after the gate):
+    #   1. the deterministic "Visual-evidence gate" step, and
+    #   2. "Enforce credited @evidence pass": when select-specs.ts returned a
+    #      DIFF-SCOPED spec list, those specs are exactly what the gate
+    #      credited this PR for — so their playwright run must PASS (a
+    #      credited capture that starts but never succeeds, incl. a
+    #      step-timeout kill, reds the job via the credited/credited_ok flag
+    #      pair).
+    # The __ALL__ full-suite fallback and the manifest/upload steps remain
+    # continue-on-error (best-effort), so unrelated-suite flakes still can't
+    # red a PR — only the specs the diff was credited for can.
     #
     # Capture is DIFF-SCOPED (scripts/visual-evidence/select-specs.ts):
     # selection = changed @evidence-TAGGED specs ∪ covers-map specs rendering
@@ -575,12 +582,20 @@ jobs:
             bunx playwright install-deps chromium
           fi
           if grep -qx '__ALL__' "$SPECS_FILE"; then
+            # Full-suite fallback stays fail-soft: the diff wasn't credited
+            # for any specific spec, so unrelated flakes must not red the PR.
             EZCORP_E2E_EVIDENCE=1 bunx playwright test --project=chromium --grep @evidence || true
           else
             SPECS=()
             # `|| [ -n "$line" ]` keeps a final line with no trailing newline (mapfile-equivalent robustness; select-specs always emits a trailing \n today, this guards a future producer change).
             while IFS= read -r line || [ -n "$line" ]; do [ -n "$line" ] && SPECS+=("$line"); done < "$SPECS_FILE"
-            EZCORP_E2E_EVIDENCE=1 bunx playwright test --project=chromium --grep @evidence "${SPECS[@]}" || true
+            # DIFF-SCOPED list: these specs are what the Visual-evidence gate
+            # credited the PR for — their result must gate. `credited` is
+            # written BEFORE the run so a hung/killed capture (step timeout)
+            # still reds via the missing `credited_ok`.
+            echo "credited=1" >> "$GITHUB_OUTPUT"
+            EZCORP_E2E_EVIDENCE=1 bunx playwright test --project=chromium --grep @evidence "${SPECS[@]}"
+            echo "credited_ok=1" >> "$GITHUB_OUTPUT"
           fi
       # When capture was skipped (non-visual diff), the manifest is a `skipped`
       # marker with zero shots: WF2 uses it to REFRESH a stale gallery comment
@@ -605,3 +620,11 @@ jobs:
           path: web/blob-report
           retention-days: 3
           if-no-files-found: ignore
+      # HARD red path 2 (see job header): a DIFF-SCOPED (credited) capture
+      # must pass. Placed after manifest/upload so failure evidence still
+      # lands as artifacts before the job reds.
+      - name: Enforce credited @evidence pass
+        if: steps.capture.outputs.credited == '1' && steps.capture.outputs.credited_ok != '1'
+        run: |
+          echo "::error::diff-credited @evidence spec(s) failed or never completed — the Visual-evidence gate credited this PR for exactly these specs, so their capture run must pass. See the 'Capture visual evidence' step log."
+          exit 1
