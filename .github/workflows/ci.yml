@@ -522,6 +522,10 @@ jobs:
       - name: Capture visual evidence
         id: capture
         continue-on-error: true
+        # Step-level cap: a hung capture is absorbed by continue-on-error
+        # instead of tripping the 20m JOB timeout and redding this fail-soft
+        # lane — the deterministic gate step stays the only red path.
+        timeout-minutes: 12
         # Explicit bash (the Actions default, but pinned so the array logic
         # below is never run under another shell — it also works in zsh for
         # local reproduction, unlike the previous `mapfile`).
