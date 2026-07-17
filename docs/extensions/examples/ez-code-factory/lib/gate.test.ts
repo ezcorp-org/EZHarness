@@ -113,6 +113,7 @@ describe("path helpers", () => {
 describe("hookScript", () => {
   const script = hookScript({
     repoId: "abc123def456",
+    projectRoot: "/proj/it's here",
     baseUrl: "http://h:1/",
     credentialPath: "/cred/gate-key",
     notifyLogPath: "/g.git/notify-push.log",
@@ -129,6 +130,14 @@ describe("hookScript", () => {
     expect(script).toContain('KEY=$(cat "$CRED_FILE"');
     // The POST body is well-formed JSON with the hub-source discriminator.
     expect(script).toContain('\\"source\\":\\"hub\\"');
+  });
+  test("bakes the project root into the payload (shell-quoted + json-escaped)", () => {
+    // shQuote wraps in single quotes and escapes the embedded quote.
+    expect(script).toContain(`PROJECT_ROOT='/proj/it'\\''s here'`);
+    // The payload carries the json_escape'd root so the context-free
+    // push-received handler can resolve the project (repoId-hash validated).
+    expect(script).toContain('esc_root=$(json_escape "$PROJECT_ROOT")');
+    expect(script).toContain('\\"projectRoot\\":\\"$esc_root\\"');
   });
   test("emits valid POSIX sh", async () => {
     const f = join(root, "hook.sh");

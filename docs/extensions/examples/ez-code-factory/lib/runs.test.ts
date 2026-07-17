@@ -238,6 +238,15 @@ describe("parsePushReceived", () => {
     expect(parsePushReceived({ ...ok, newSha: "0".repeat(40) })).toBeNull();
     expect(parsePushReceived({ ...ok, newSha: "0".repeat(64) })).toBeNull();
   });
+  test("carries a shape-valid projectRoot; drops a relative/traversal/control-char one", () => {
+    expect(parsePushReceived({ ...ok, projectRoot: "/proj/app" })?.projectRoot).toBe("/proj/app");
+    // Shape-only here — the hash-binding trust check is the handler's job.
+    expect(parsePushReceived({ ...ok, projectRoot: "relative/path" })?.projectRoot).toBeUndefined();
+    expect(parsePushReceived({ ...ok, projectRoot: "/proj/../etc" })?.projectRoot).toBeUndefined();
+    expect(parsePushReceived({ ...ok, projectRoot: "/proj\napp" })?.projectRoot).toBeUndefined();
+    expect(parsePushReceived({ ...ok, projectRoot: 42 })?.projectRoot).toBeUndefined();
+    expect(parsePushReceived(ok)?.projectRoot).toBeUndefined();
+  });
   test("rejects a non-branch ref (tags and other namespaces)", () => {
     expect(parsePushReceived({ ...ok, ref: "refs/tags/v1", branch: "v1" })).toBeNull();
     expect(parsePushReceived({ ...ok, ref: "refs/notes/commits", branch: "commits" })).toBeNull();

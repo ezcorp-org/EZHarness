@@ -338,6 +338,13 @@ export default defineExtension({
       // M4: re-check a run parked at the CI gate — a read-only ReconcileApproval
       // Gate poll that auto-resolves the gate when its PR has merged/closed.
       "ez-code-factory:reconcile",
+      // Platform direct-carrier event (DIRECT_CARRIER_EVENT_TYPES): the
+      // terminal status of every `ezcorp/spawn-assignment` sub-agent this
+      // pipeline dispatches. WITHOUT this subscription the spawn dispatcher's
+      // `registerEventHandler("task:assignment_update", …)` resolver never
+      // fires — the host only delivers granted events — so every step's agent
+      // dispatch dangles until its 10-minute timeout and the run fails.
+      "task:assignment_update",
     ],
     // Custom RBAC scope DECLARATIONS (M6, extension-RBAC layer — inert, NOT a
     // privilege): name the per-extension scopes gating the gate-triage verbs.

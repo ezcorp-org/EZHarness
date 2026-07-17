@@ -22,6 +22,7 @@ import { userIntentPromptSection } from "../prompts";
 import { COMMIT_SUMMARY_SCHEMA } from "../prompts";
 import {
   intentIsAuthoritative,
+  repoDispatchOptions,
   resolveBranchBaseSHA,
   shortSHA,
   type Step,
@@ -291,6 +292,10 @@ async function rebaseWithAgent(sctx: StepContext, target: string): Promise<void>
       prompt,
       cwd: sctx.worktree,
       jsonSchema: COMMIT_SUMMARY_SCHEMA,
+      // Trusted per-repo agent selection — required on EVERY dispatch (see
+      // repoDispatchOptions); without it this conflict-resolve pass spawns
+      // the conventional "default" agent, absent on most deployments.
+      ...repoDispatchOptions(sctx),
     });
   } catch (err) {
     await sctx.jailedGit.try("rebase", "--abort");
