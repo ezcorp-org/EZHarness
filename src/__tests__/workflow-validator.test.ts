@@ -8,6 +8,9 @@ import {
   MAX_ITERATIONS_CEILING,
   MAX_ITERATIONS_FLOOR,
   RETRIES_CEILING,
+  MAX_STEPS_PER_WORKFLOW,
+  MAX_MAPPING_VALUE_LENGTH,
+  MAX_CONDITION_DEPTH,
 } from "../runtime/workflow-validator";
 import type { WorkflowDefinition, WorkflowStep } from "../types";
 
@@ -154,6 +157,58 @@ describe("validateWorkflow — dependency + loop rejections", () => {
 
   test("out-of-range but integer maxIterations is NOT a validation error (clamped at run time)", () => {
     expect(validateWorkflow(def([{ name: "s", agent: "x", loop: { maxIterations: 100 } }]))).toEqual([]);
+  });
+});
+
+describe("validateWorkflow — definition-time caps (untrusted definitions)", () => {
+  test("rejects a workflow with more than the maximum number of steps", () => {
+    const steps = Array.from({ length: MAX_STEPS_PER_WORKFLOW + 1 }, (_, i) => ({
+      name: `s${i}`,
+      agent: "x",
+    }));
+    expect(validateWorkflow(def(steps))).toContain(
+      `Workflow has ${MAX_STEPS_PER_WORKFLOW + 1} steps (maximum ${MAX_STEPS_PER_WORKFLOW})`,
+    );
+    // Exactly at the cap is fine.
+    expect(validateWorkflow(def(steps.slice(0, MAX_STEPS_PER_WORKFLOW)))).toEqual([]);
+  });
+
+  test("rejects an over-long input/output mapping value; at-cap passes", () => {
+    const atCap = "a".repeat(MAX_MAPPING_VALUE_LENGTH);
+    const overCap = `${atCap}!`;
+    expect(
+      validateWorkflow(def([{ name: "s", agent: "x", input: { big: overCap } }])),
+    ).toContain(
+      `Step "s" input mapping value for "big" exceeds the maximum length of ${MAX_MAPPING_VALUE_LENGTH} characters`,
+    );
+    expect(
+      validateWorkflow(def([{ name: "t", kind: "transform", output: { big: overCap } }])),
+    ).toContain(
+      `Step "t" output mapping value for "big" exceeds the maximum length of ${MAX_MAPPING_VALUE_LENGTH} characters`,
+    );
+    expect(
+      validateWorkflow(def([{ name: "s", agent: "x", input: { big: atCap } }])),
+    ).toEqual([]);
+  });
+
+  test("rejects a condition tree nested deeper than the maximum depth", () => {
+    let deep: unknown = { ref: "$input.n", op: "exists" };
+    for (let i = 0; i < MAX_CONDITION_DEPTH; i++) deep = { not: deep };
+    // Leaf at exactly MAX_CONDITION_DEPTH is fine…
+    expect(validateCondition(deep, "cond")).toEqual([]);
+    // …one more level of nesting is rejected, from validateWorkflow too.
+    const tooDeep = { not: deep };
+    expect(
+      validateCondition(tooDeep, "cond").some((e) =>
+        e.includes(`maximum condition nesting depth of ${MAX_CONDITION_DEPTH}`),
+      ),
+    ).toBe(true);
+    const errs = validateWorkflow(
+      def([{ name: "g", kind: "gate", condition: tooDeep as never }]),
+    );
+    expect(
+      errs.some((e) => e.includes(`maximum condition nesting depth of ${MAX_CONDITION_DEPTH}`)),
+    ).toBe(true);
   });
 });
 

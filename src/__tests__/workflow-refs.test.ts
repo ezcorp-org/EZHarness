@@ -186,11 +186,43 @@ describe("interpolateTemplate", () => {
     expect(interpolateTemplate("k", "[{{$loop.last}}]", ctx({ loop: { iteration: 1 } }))).toBe("[]");
     expect(interpolateTemplate("k", "[{{$input.missing}}]", ctx())).toBe("[]");
   });
+
+  test("adjacent placeholders, inner whitespace and $-literals all resolve", () => {
+    const c = ctx({ input: { a: 1, b: 2, x: "X" } });
+    expect(interpolateTemplate("k", "{{$input.a}}{{$input.b}}", c)).toBe("12");
+    expect(interpolateTemplate("k", "[{{ $input.x }}]", c)).toBe("[X]");
+    // `$` outside a placeholder and an unrecognised-root literal inside one
+    // both pass through verbatim.
+    expect(interpolateTemplate("k", "costs $5 and {{$input.a}}", c)).toBe("costs $5 and 1");
+    expect(interpolateTemplate("k", "[{{plain}}]", c)).toBe("[plain]");
+  });
+
+  test("an empty {{}} placeholder resolves to the empty-string literal", () => {
+    expect(interpolateTemplate("k", "a{{}}b", ctx())).toBe("ab");
+    expect(interpolateTemplate("k", "a{{ }}b", ctx())).toBe("ab");
+  });
+
+  test("a large input with no closing braces returns unchanged, fast (ReDoS regression)", () => {
+    // The pre-fix regex (`\{\{\s*([^}]+?)\s*\}\}`) backtracked
+    // super-linearly here — ~4KB pinned the event loop for ~9s, so this
+    // test would blow the suite timeout. The linear regex must return the
+    // template verbatim (no closing `}}` ⇒ no placeholder).
+    const pathological = `{{${"a".repeat(8192)}`;
+    expect(interpolateTemplate("k", pathological, ctx())).toBe(pathological);
+    const trailingBrace = `{{ ${"a ".repeat(4096)}}`;
+    expect(interpolateTemplate("k", trailingBrace, ctx())).toBe(trailingBrace);
+  });
 });
 
 describe("hasTemplate", () => {
   test("detects placeholders", () => {
     expect(hasTemplate("a {{x}} b")).toBe(true);
+    expect(hasTemplate("{{ spaced }}")).toBe(true);
+    expect(hasTemplate("{{}}")).toBe(true);
     expect(hasTemplate("no placeholders")).toBe(false);
+  });
+
+  test("a large unterminated placeholder is not a template, fast (ReDoS regression)", () => {
+    expect(hasTemplate(`{{${"a".repeat(8192)}`)).toBe(false);
   });
 });

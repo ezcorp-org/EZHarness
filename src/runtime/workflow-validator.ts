@@ -11,6 +11,14 @@ export const MAX_ITERATIONS_CEILING = 25;
 export const MAX_ITERATIONS_FLOOR = 1;
 export const RETRIES_CEILING = 2;
 
+/** Definition-time caps. Workflow definitions are untrusted (a chat-scoped
+ *  user can submit one), so bound the surface a single definition can
+ *  occupy: oversized ones are rejected at create (API 400 / loader
+ *  warn-skip), never clamped. */
+export const MAX_STEPS_PER_WORKFLOW = 100;
+export const MAX_MAPPING_VALUE_LENGTH = 10_000;
+export const MAX_CONDITION_DEPTH = 20;
+
 const VALID_KINDS: readonly WorkflowStepKind[] = ["agent", "transform", "gate"];
 
 /** The 9 leaf operators. Kept here (not just in the union type) so the
@@ -38,7 +46,16 @@ export const VALID_CONDITION_OPS: readonly WorkflowConditionOp[] = [
  * this a `condition: {}` passes create and then dies at run with a raw
  * `TypeError` inside the ref resolver.
  */
-export function validateCondition(cond: unknown, label: string): string[] {
+export function validateCondition(
+  cond: unknown,
+  label: string,
+  depth = 0,
+): string[] {
+  if (depth > MAX_CONDITION_DEPTH) {
+    return [
+      `${label} exceeds the maximum condition nesting depth of ${MAX_CONDITION_DEPTH}`,
+    ];
+  }
   if (cond === null || typeof cond !== "object") {
     return [`${label} must be an object`];
   }
@@ -51,12 +68,12 @@ export function validateCondition(cond: unknown, label: string): string[] {
       return [`${label} "${key}" must be a non-empty array`];
     }
     return arr.flatMap((child, i) =>
-      validateCondition(child, `${label} ${key}[${i}]`),
+      validateCondition(child, `${label} ${key}[${i}]`, depth + 1),
     );
   }
 
   if ("not" in c) {
-    return validateCondition(c.not, `${label} not`);
+    return validateCondition(c.not, `${label} not`, depth + 1);
   }
 
   // Leaf.
@@ -121,6 +138,12 @@ export function validateWorkflow(def: WorkflowDefinition): string[] {
     errors.push("Workflow must have at least one step");
     return errors;
   }
+  if (def.steps.length > MAX_STEPS_PER_WORKFLOW) {
+    errors.push(
+      `Workflow has ${def.steps.length} steps (maximum ${MAX_STEPS_PER_WORKFLOW})`,
+    );
+    return errors;
+  }
 
   const seen = new Set<string>();
   const names = new Set<string>();
@@ -155,6 +178,25 @@ export function validateWorkflow(def: WorkflowDefinition): string[] {
     }
     if (kind === "gate" && step.condition) {
       errors.push(...validateCondition(step.condition, `Step "${name}" condition`));
+    }
+
+    // Bound every mapping/template value (untrusted definitions must not
+    // smuggle unbounded strings into the interpolator / agent inputs).
+    for (const [field, mapping] of [
+      ["input", step.input],
+      ["output", step.output],
+    ] as const) {
+      if (!mapping) continue;
+      for (const [key, value] of Object.entries(mapping)) {
+        if (
+          typeof value === "string" &&
+          value.length > MAX_MAPPING_VALUE_LENGTH
+        ) {
+          errors.push(
+            `Step "${name}" ${field} mapping value for "${key}" exceeds the maximum length of ${MAX_MAPPING_VALUE_LENGTH} characters`,
+          );
+        }
+      }
     }
 
     if (step.dependsOn) {

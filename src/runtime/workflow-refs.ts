@@ -247,15 +247,20 @@ export function interpolateTemplate(
   template: string,
   ctx: RefContext,
 ): string {
-  return template.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (_match, rawRef: string) => {
-    const value = resolveInputRef(key, rawRef, ctx);
+  // `[^{}]*` (no `\s*` overlap) keeps matching linear — the previous
+  // `\{\{\s*([^}]+?)\s*\}\}` backtracked super-linearly on input with no
+  // closing `}}` (ReDoS: a few KB pinned the event loop for seconds).
+  // Whitespace tolerance inside `{{ ref }}` is preserved via `.trim()`.
+  return template.replace(/\{\{([^{}]*)\}\}/g, (_match, rawRef: string) => {
+    const value = resolveInputRef(key, rawRef.trim(), ctx);
     if (value === OMIT) return "";
     if (value === null || value === undefined) return "";
     return typeof value === "object" ? JSON.stringify(value) : String(value);
   });
 }
 
-/** True if a mapping value contains at least one `{{…}}` placeholder. */
+/** True if a mapping value contains at least one `{{…}}` placeholder.
+ *  Same linear (backtrack-free) pattern as {@link interpolateTemplate}. */
 export function hasTemplate(value: string): boolean {
-  return /\{\{\s*[^}]+?\s*\}\}/.test(value);
+  return /\{\{[^{}]*\}\}/.test(value);
 }
