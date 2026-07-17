@@ -17,6 +17,12 @@
  *   7. A `*.test.ts` / `*.spec.ts` file was DELETED or RENAMED (even R100 —
  *      content-identical): the P/C/CRIT test sets are find-pattern-built, so
  *      a rename can silently de-gate a file without touching its content.
+ *   8. A MODIFIED test file was GUTTED in place: the diff removes more
+ *      assertion/test-opener lines than it adds AND the net loss exceeds
+ *      half the file's base assertion count. Catches the M-status dodge the
+ *      D/R check can't see (delete the bodies, keep the file). Legit
+ *      refactors MOVE assertions (net count roughly preserved) and don't
+ *      trip it.
  *
  * All checks are DIFF-SCOPED (only what the PR adds is judged) so the 19
  * pre-existing `.skip`s and 365 mock files in the tree don't false-positive.
@@ -117,11 +123,17 @@ export function thresholdRatchetViolations(baseJson: string, headJson: string): 
   return out;
 }
 
-export type DiffFile = { file: string; addedLines: Set<number>; addedTexts: string[] };
+export type DiffFile = {
+  file: string;
+  addedLines: Set<number>;
+  addedTexts: string[];
+  removedTexts: string[];
+};
 
 /**
  * Parse `git diff --unified=0` output into per-file added line numbers
- * (new-side) and the added text lines.
+ * (new-side), the added text lines, and the removed text lines (old-side,
+ * consumed by the in-place-gutting check).
  */
 export function parseUnifiedDiff(diff: string): Map<string, DiffFile> {
   const files = new Map<string, DiffFile>();
@@ -130,17 +142,22 @@ export function parseUnifiedDiff(diff: string): Map<string, DiffFile> {
   for (const line of diff.split("\n")) {
     if (line.startsWith("+++ b/")) {
       const file = line.slice(6);
-      cur = { file, addedLines: new Set(), addedTexts: [] };
+      cur = { file, addedLines: new Set(), addedTexts: [], removedTexts: [] };
       files.set(file, cur);
     } else if (line.startsWith("@@")) {
       // @@ -a,b +c,d @@  → new-side starts at c
       const m = line.match(/\+(\d+)/);
       newLine = m?.[1] ? Number(m[1]) : 0;
+    } else if (line.startsWith("--- a/") || line === "--- /dev/null") {
+      // old-side file header — not a removed line (a REAL removed line whose
+      // content begins with "-- " would be "--- " but never "--- a/")
     } else if (cur && line.startsWith("+") && !line.startsWith("+++")) {
       cur.addedLines.add(newLine);
       cur.addedTexts.push(line.slice(1));
       newLine++;
-    } else if (cur && !line.startsWith("-") && !line.startsWith("\\")) {
+    } else if (cur && line.startsWith("-")) {
+      cur.removedTexts.push(line.slice(1));
+    } else if (cur && !line.startsWith("\\")) {
       // context line (unified=0 emits none, but be safe)
       newLine++;
     }
@@ -330,6 +347,45 @@ function isTestFile(path: string): boolean {
   return /\.(test|spec)\.ts$/.test(path);
 }
 
+/** Count lines carrying an assertion or a test/it opener (comment/string-safe). */
+function countAssertionLines(lines: string[]): number {
+  let n = 0;
+  for (const line of lines) {
+    const code = stripNoise(line);
+    if (ASSERTION.test(code) || TEST_OPENER.test(code)) n++;
+  }
+  return n;
+}
+
+/**
+ * In-place test-GUTTING heuristic (check 8): a modified test file whose diff
+ * removes more assertion/test-opener lines than it adds, where the net loss
+ * exceeds HALF the file's base assertion count, is a violation. Both
+ * conditions are required so legitimate refactors never trip it: moving
+ * assertions removes and re-adds them (net ≈ 0), and trimming a few cases
+ * from a large suite stays under the 50%-of-base bar. Returns a message or
+ * null. Base content comes from the merge-base (block comments blanked so
+ * commented-out fixtures don't count as base assertions).
+ */
+export function testGuttingViolation(
+  addedTexts: string[],
+  removedTexts: string[],
+  baseContent: string,
+): string | null {
+  const baseCount = countAssertionLines(stripBlockComments(baseContent).split("\n"));
+  if (baseCount === 0) return null;
+  const removed = countAssertionLines(removedTexts);
+  const added = countAssertionLines(addedTexts);
+  const netLoss = removed - added;
+  if (netLoss <= 0) return null;
+  if (netLoss * 2 <= baseCount) return null;
+  return (
+    `test file GUTTED in place: removes ${removed} assertion/test line(s), adds ${added} ` +
+    `(net -${netLoss} of ${baseCount} at base — >50% loss) — hollowing out a surviving ` +
+    `test file needs the gate-change-approved label`
+  );
+}
+
 /**
  * Deleted or renamed test files from `git diff --name-status -M` output.
  * A deletion removes a gate outright; a RENAME — even R100, content-identical
@@ -479,6 +535,13 @@ async function main(): Promise<void> {
       .catch(() => "");
     if (content) {
       for (const v of unassertedAddedBlocks(content, info.addedLines)) violations.push(`${file}: ${v}`);
+    }
+    // 8. In-place gutting — only meaningful for files that EXISTED at the
+    // merge-base (a brand-new file has no base assertions to gut).
+    const baseContent = await showAtBase(mergeBase, file);
+    if (baseContent !== null) {
+      const v = testGuttingViolation(info.addedTexts, info.removedTexts, baseContent);
+      if (v) violations.push(`${file}: ${v}`);
     }
   }
 

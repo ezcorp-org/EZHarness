@@ -27,6 +27,7 @@ import {
   parseExcludeEntries,
   parseUnifiedDiff,
   stripBlockComments,
+  testGuttingViolation,
   thresholdRatchetViolations,
   unassertedAddedBlocks,
 } from "../../scripts/gate-integrity.ts";
@@ -152,6 +153,81 @@ describe("gate-integrity: parseUnifiedDiff", () => {
     const f = map.get("x.test.ts")!;
     expect([...f.addedLines].sort((a, b) => a - b)).toEqual([5, 6]);
     expect(f.addedTexts).toEqual(["const a = 1;", "const b = 2;"]);
+    expect(f.removedTexts).toEqual([]);
+  });
+  test("collects removed lines (old-side), never the --- header", () => {
+    const diff = [
+      "diff --git a/x.test.ts b/x.test.ts",
+      "--- a/x.test.ts",
+      "+++ b/x.test.ts",
+      "@@ -3,2 +3,1 @@",
+      "-  expect(a).toBe(1);",
+      "-  expect(b).toBe(2);",
+      "+  expect(ab).toBe(3);",
+    ].join("\n");
+    const f = parseUnifiedDiff(diff).get("x.test.ts")!;
+    expect(f.removedTexts).toEqual(["  expect(a).toBe(1);", "  expect(b).toBe(2);"]);
+    expect(f.addedTexts).toEqual(["  expect(ab).toBe(3);"]);
+  });
+});
+
+// ── gate-integrity: in-place test gutting (check 8) ─────────────────────────
+describe("gate-integrity: testGuttingViolation", () => {
+  const base = [
+    "describe('s', () => {",
+    "  it('a', () => { expect(1).toBe(1); });",
+    "  it('b', () => { expect(2).toBe(2); });",
+    "  it('c', () => { expect(3).toBe(3); });",
+    "});",
+  ].join("\n"); // 3 assertion/test lines at base
+
+  test("flags a gutted file (removes most assertions, adds none)", () => {
+    const removed = [
+      "  it('a', () => { expect(1).toBe(1); });",
+      "  it('b', () => { expect(2).toBe(2); });",
+    ];
+    const v = testGuttingViolation([], removed, base);
+    expect(v).not.toBeNull();
+    expect(v).toContain("GUTTED");
+    expect(v).toContain("net -2 of 3");
+  });
+  test("does not flag a refactor that moves assertions (net ≈ 0)", () => {
+    const moved = [
+      "  it('a', () => { expect(1).toBe(1); });",
+      "  it('b', () => { expect(2).toBe(2); });",
+    ];
+    expect(testGuttingViolation(moved, moved, base)).toBeNull();
+  });
+  test("does not flag a small trim of a large suite (≤50% of base)", () => {
+    const bigBase = Array.from(
+      { length: 10 },
+      (_, i) => `  it('t${i}', () => { expect(${i}).toBe(${i}); });`,
+    ).join("\n");
+    const removed = [
+      "  it('t0', () => { expect(0).toBe(0); });",
+      "  it('t1', () => { expect(1).toBe(1); });",
+    ];
+    expect(testGuttingViolation([], removed, bigBase)).toBeNull();
+  });
+  test("exactly-50% loss is NOT flagged (loss must exceed half)", () => {
+    const base4 = [
+      "  it('a', () => { expect(1).toBe(1); });",
+      "  it('b', () => { expect(2).toBe(2); });",
+      "  it('c', () => { expect(3).toBe(3); });",
+      "  it('d', () => { expect(4).toBe(4); });",
+    ].join("\n");
+    const removed = [
+      "  it('a', () => { expect(1).toBe(1); });",
+      "  it('b', () => { expect(2).toBe(2); });",
+    ];
+    expect(testGuttingViolation([], removed, base4)).toBeNull();
+  });
+  test("no base assertions → nothing to gut", () => {
+    expect(testGuttingViolation([], ["  helper();"], "const x = 1;")).toBeNull();
+  });
+  test("assertion mentions inside strings/comments don't count", () => {
+    const removed = ['  const s = "expect(1) it( test(";', "  // expect(2) in a comment"];
+    expect(testGuttingViolation([], removed, base)).toBeNull();
   });
 });
 
