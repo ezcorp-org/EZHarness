@@ -896,6 +896,36 @@ describe("WorkflowExecutor — terminal step status on failure", () => {
     expect(run.steps[0]!.status).toBe("error");
   });
 
+  test("AGENT-loop exhaustion marks the looped step 'error' (not stale 'success')", async () => {
+    // Regression: runAgentAttempt stamps each successful iteration's
+    // "success" onto the step run, so the exhaustion throw used to leave a
+    // failed step reporting "success" (the transform variant above never
+    // stamps stepRun.status, which is why it didn't catch this).
+    const { workflow } = setup([
+      makeAgent("small", async () => ({ success: true, output: { n: 1 } })),
+    ]);
+    const def: WorkflowDefinition = {
+      name: "agent-loop-terminal",
+      description: "t",
+      steps: [
+        {
+          name: "s1",
+          agent: "small",
+          loop: {
+            maxIterations: 2,
+            until: { ref: "$result.output.n", op: "gte", value: 999 },
+          },
+        },
+      ],
+    };
+    const run = await workflow.runWorkflow(def, {});
+    expect(run.status).toBe("error");
+    expect(run.result?.error).toContain(
+      'Step "s1" exhausted 2 iterations without meeting its until-condition',
+    );
+    expect(run.steps[0]!.status).toBe("error");
+  });
+
   test("cancelling an in-flight step marks it 'cancelled' (terminal)", async () => {
     let aborted = false;
     const { bus, workflow } = setup([

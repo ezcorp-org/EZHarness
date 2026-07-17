@@ -87,6 +87,12 @@ describe("resolveInputRef", () => {
     );
   });
 
+  test("bare $prev yields the whole previous result (never a '$prev' literal)", () => {
+    const prev: AgentResult = { success: true, output: { title: "T" } };
+    expect(resolveInputRef("k", "$prev", ctx({ prevResult: prev }))).toEqual(prev);
+    expect(() => resolveInputRef("k", "$prev", ctx())).toThrow(/no previous step/);
+  });
+
   test("$steps.<name> is strict on the step and (for inputs) on the field", () => {
     const results = new Map<string, AgentResult>([
       ["fetch", { success: true, output: { title: "Hi" } }],

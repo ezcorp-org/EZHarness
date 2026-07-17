@@ -132,6 +132,32 @@ describe("validateWorkflow — dependency + loop rejections", () => {
     ).toContain('Step "s" depends on unknown step "ghost"');
   });
 
+  test("a step depending on itself is rejected at definition time", () => {
+    // Used to pass create and then fail every run with "Circular dependency".
+    expect(
+      validateWorkflow(def([{ name: "s", agent: "x", dependsOn: ["s"] }])),
+    ).toContain('Step "s" cannot depend on itself');
+  });
+
+  test("a non-string mapping value is rejected (YAML loader path)", () => {
+    // zod protects the API; a YAML `output: { n: 42 }` used to crash the
+    // resolver at run time with `ref.startsWith is not a function`.
+    expect(
+      validateWorkflow(
+        def([{ name: "t", kind: "transform", output: { n: 42 } as never }]),
+      ),
+    ).toContain(
+      'Step "t" output mapping value for "n" must be a string ref, template or literal (got number)',
+    );
+    expect(
+      validateWorkflow(
+        def([{ name: "s", agent: "x", input: { obj: {} } as never }]),
+      ),
+    ).toContain(
+      'Step "s" input mapping value for "obj" must be a string ref, template or literal (got object)',
+    );
+  });
+
   test("loop on a gate step", () => {
     expect(
       validateWorkflow(

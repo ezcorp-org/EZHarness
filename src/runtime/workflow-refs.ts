@@ -10,7 +10,7 @@ import type { AgentResult } from "../types";
  * Ref roots:
  *   `$input.<field>`   — the workflow's top-level input (lenient: may be
  *                        undefined without throwing).
- *   `$prev.<path>`     — the previous batch's last result (strict).
+ *   `$prev[.path]`     — the previous batch's last result (strict).
  *   `$steps.<name>[.path]` — a named earlier step's result (strict on the
  *                        step existing; lenient on a deeper missing field
  *                        for CONDITIONS, strict for step INPUTS).
@@ -96,13 +96,17 @@ export function resolveInputRef(
     return value;
   }
 
-  if (ref.startsWith("$prev.")) {
-    const field = ref.slice("$prev.".length);
+  if (ref === "$prev" || ref.startsWith("$prev.")) {
     if (ctx.prevResult === undefined) {
       throw new Error(
         `Cannot resolve "${ref}" for step input "${key}": no previous step has produced a result yet.`,
       );
     }
+    // Bare `$prev` yields the whole previous result (consistent with bare
+    // `$steps.<name>` and the condition-ref grammar — never a silent
+    // "$prev" literal).
+    if (ref === "$prev") return ctx.prevResult;
+    const field = ref.slice("$prev.".length);
     const value = getNestedValue(ctx.prevResult, field);
     if (value === undefined) {
       throw new Error(

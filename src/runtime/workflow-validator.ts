@@ -180,18 +180,24 @@ export function validateWorkflow(def: WorkflowDefinition): string[] {
       errors.push(...validateCondition(step.condition, `Step "${name}" condition`));
     }
 
-    // Bound every mapping/template value (untrusted definitions must not
-    // smuggle unbounded strings into the interpolator / agent inputs).
+    // Every mapping value must be a string ref/template — the resolver
+    // calls `ref.startsWith(...)` (the zod schema protects the API, but the
+    // YAML loader would otherwise crash at run time on `output: { n: 42 }`)
+    // — and is bounded so untrusted definitions can't smuggle unbounded
+    // strings into the interpolator / agent inputs.
     for (const [field, mapping] of [
       ["input", step.input],
       ["output", step.output],
     ] as const) {
       if (!mapping) continue;
       for (const [key, value] of Object.entries(mapping)) {
-        if (
-          typeof value === "string" &&
-          value.length > MAX_MAPPING_VALUE_LENGTH
-        ) {
+        if (typeof value !== "string") {
+          errors.push(
+            `Step "${name}" ${field} mapping value for "${key}" must be a string ref, template or literal (got ${typeof value})`,
+          );
+          continue;
+        }
+        if (value.length > MAX_MAPPING_VALUE_LENGTH) {
           errors.push(
             `Step "${name}" ${field} mapping value for "${key}" exceeds the maximum length of ${MAX_MAPPING_VALUE_LENGTH} characters`,
           );
@@ -201,7 +207,11 @@ export function validateWorkflow(def: WorkflowDefinition): string[] {
 
     if (step.dependsOn) {
       for (const dep of step.dependsOn) {
-        if (!names.has(dep)) {
+        if (dep === name) {
+          // Would otherwise pass create and then fail EVERY run with a
+          // "Circular dependency" error — reject at definition time.
+          errors.push(`Step "${name}" cannot depend on itself`);
+        } else if (!names.has(dep)) {
           errors.push(`Step "${name}" depends on unknown step "${dep}"`);
         }
       }
