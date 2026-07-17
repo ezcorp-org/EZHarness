@@ -43,6 +43,27 @@ import type { RawLandlockSpecInput } from "../../../../../src/extensions/sandbox
  *  graph; the literal IS the contract, like ez-code's agent-name literals). */
 export const RAW_SPEC_ENV = "EZCORP_LANDLOCK_SPEC_RAW";
 
+/** The deterministic bot identity every jailed commit is authored + committed
+ *  under. The jailed git is HERMETIC (`GIT_CONFIG_GLOBAL=/dev/null`), so it
+ *  reads no `user.name`/`user.email` from any config — without an explicit
+ *  identity a `git commit` aborts with "Author identity unknown". These
+ *  well-known `GIT_AUTHOR_*` / `GIT_COMMITTER_*` env vars are git's config-free
+ *  identity source; a fix commit is the gate bot's action, not any user's, so a
+ *  fixed bot identity is correct (and keeps the deterministic-fix commit
+ *  reproducible). */
+export const BOT_GIT_NAME = "ez-code-factory";
+export const BOT_GIT_EMAIL = "ez-code-factory@ezcorp.local";
+
+/** The git identity env every jailed invocation carries — see {@link BOT_GIT_NAME}. */
+export function jailGitIdentityEnv(): Record<string, string> {
+  return {
+    GIT_AUTHOR_NAME: BOT_GIT_NAME,
+    GIT_AUTHOR_EMAIL: BOT_GIT_EMAIL,
+    GIT_COMMITTER_NAME: BOT_GIT_NAME,
+    GIT_COMMITTER_EMAIL: BOT_GIT_EMAIL,
+  };
+}
+
 /**
  * The jail's read-write grant set for a run: the worktree (workspace) + the gate
  * bare repo (shared objects/refs the worktree writes) + `/dev`. The project root
@@ -125,6 +146,10 @@ export function makeJailedShell(gateDir: string, projectRoot: string): ShellRunn
         ...process.env,
         GIT_CONFIG_GLOBAL: "/dev/null",
         GIT_TERMINAL_PROMPT: "0",
+        // Config-free bot identity: the hermetic global-config pin above leaves
+        // `git commit` with no user.name/user.email, so a fix commit would abort
+        // "Author identity unknown". See jailGitIdentityEnv.
+        ...jailGitIdentityEnv(),
         ...built.env,
       },
       stdout: "pipe",

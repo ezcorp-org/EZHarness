@@ -4,11 +4,32 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { probeLandlockAbi } from "../../../../../src/extensions/sandbox/capability-probe";
 import { defaultShimPath } from "../../../../../src/extensions/sandbox/build-sandbox-argv";
-import { buildJailInvocation, jailRwPaths, makeJailedShell, RAW_SPEC_ENV } from "./jail";
+import {
+  buildJailInvocation,
+  jailGitIdentityEnv,
+  jailRwPaths,
+  makeJailedShell,
+  BOT_GIT_NAME,
+  BOT_GIT_EMAIL,
+  RAW_SPEC_ENV,
+} from "./jail";
 
 describe("jailRwPaths", () => {
   test("grants the worktree + gate dir + /dev, never the project root", () => {
     expect(jailRwPaths("/wt", "/gate.git")).toEqual(["/wt", "/gate.git", "/dev"]);
+  });
+});
+
+describe("jailGitIdentityEnv", () => {
+  test("sets a config-free bot identity for author AND committer (hermetic git)", () => {
+    // The jailed git pins GIT_CONFIG_GLOBAL=/dev/null, so without these a
+    // `git commit` aborts "Author identity unknown".
+    expect(jailGitIdentityEnv()).toEqual({
+      GIT_AUTHOR_NAME: BOT_GIT_NAME,
+      GIT_AUTHOR_EMAIL: BOT_GIT_EMAIL,
+      GIT_COMMITTER_NAME: BOT_GIT_NAME,
+      GIT_COMMITTER_EMAIL: BOT_GIT_EMAIL,
+    });
   });
 });
 
@@ -149,8 +170,11 @@ describe("makeJailedShell (landlock containment via the real shim)", () => {
 
       const jailed = makeJailedShell(gate, project);
       try {
-        expect((await jailed(["git", "config", "user.email", "t@t.com"], wt)).exitCode).toBe(0);
-        expect((await jailed(["git", "config", "user.name", "t"], wt)).exitCode).toBe(0);
+        // NO `git config user.*` first — the jailed git is hermetic
+        // (GIT_CONFIG_GLOBAL=/dev/null) and gets its identity from the
+        // GIT_AUTHOR_*/GIT_COMMITTER_* env jailGitIdentityEnv injects. A commit
+        // that succeeds here proves that path (before the fix it aborted
+        // "Author identity unknown").
         expect((await jailed(["git", "add", "-A"], wt)).exitCode).toBe(0);
         expect((await jailed(["git", "commit", "-m", "jailed work"], wt)).exitCode).toBe(0);
 
@@ -160,6 +184,10 @@ describe("makeJailedShell (landlock containment via the real shim)", () => {
         const tree = run(["git", "-C", wt, "ls-tree", "-r", "--name-only", "HEAD"], wt)
           .stdout.toString();
         expect(tree).toContain("feature.txt");
+        // Authored + committed under the config-free bot identity.
+        const author = run(["git", "-C", wt, "log", "-1", "--format=%an <%ae>|%cn <%ce>"], wt)
+          .stdout.toString().trim();
+        expect(author).toBe(`${BOT_GIT_NAME} <${BOT_GIT_EMAIL}>|${BOT_GIT_NAME} <${BOT_GIT_EMAIL}>`);
 
         // READ of the project's .ezcorp/data/jwt is DENIED (root never granted).
         const readDeny = await jailed(["cat", join(dataDir, "jwt")], wt);
