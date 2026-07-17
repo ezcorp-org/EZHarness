@@ -102,11 +102,18 @@ A `{ kind: "webhook", slug }` trigger fires the loop off an inbound
 `POST /api/hooks/:extensionName/:slug`. The reference example is
 [`docs/extensions/examples/webhook-ticket-loop`](examples/webhook-ticket-loop/index.ts).
 
-**Setup.** Declare the slug in the manifest and the host does the rest at
-install: it creates an `extension_webhooks` registry row and mints a per-hook
+**Setup.** Declare the slug in the manifest, then **enable the extension**
+(the `activate` step — enable + grant): the host reconciles the GRANTED webhook
+slugs into an `extension_webhooks` registry row and mints an initial per-hook
 secret (AES-GCM at rest, stored under `webhook:<slug>` in the extension-secrets
-store). Retrieve a usable token — shown ONCE — via the admin rotate route
-`POST /api/extensions/:name/webhooks/:slug/rotate`.
+store). Only slugs the user actually authorized get a row — reconciliation runs
+off the clamped grant, not the raw manifest. Retrieve a usable token — shown
+ONCE — via the admin rotate route
+`POST /api/extensions/:name/webhooks/:slug/rotate`. That rotate route is the
+ONLY writer of a `webhook:<slug>` secret; the generic extension-secrets route
+rejects the reserved `webhook:` prefix. If the initial mint fails (a best-effort
+secrets write), the hook is FAIL-CLOSED: the public route rejects every delivery
+until you rotate to mint a real token (it never falls back to a shared default).
 
 ```ts
 // manifest
@@ -119,23 +126,46 @@ defineLoop({ id, trigger: { kind: "webhook", slug: "tickets" }, check, act });
 per-hook secret two ways (send EITHER):
 
 - `Authorization: Bearer <token>` — the token equals the hook secret.
-- `X-Hub-Signature-256: sha256=<hex>` — a GitHub-style HMAC-SHA256 of the raw
-  body keyed by the secret.
+- `X-Hub-Signature-256: sha256=<hex>` — a GitHub-style HMAC-SHA256 keyed by the
+  secret. **v1 signs the UTF-8-decoded body, not the exact wire bytes** — the
+  host decodes the request body to a UTF-8 string and HMACs that. For a text /
+  JSON payload (the intended use) this is identical to signing the raw bytes; a
+  binary body whose bytes are not valid UTF-8 would not round-trip and is not
+  supported.
 
 The compare is constant-time, and the secret is per-hook, so a token minted for
 hook A never authenticates hook B. The route returns `404` for an unknown
 extension / slug / disabled hook (enumeration-safe — indistinguishable), `401`
-for absent/invalid auth, `413` over 256 KB, `429` on the per-hook rate limit or
-the per-hook daily fire budget (`webhooks:daily_budget` setting; default 1000).
-Every accept/reject is audited; the secret and payload are never logged.
+for absent/invalid auth (including a secretless, un-authenticatable hook — it is
+never accepted with a default), `413` over 256 KB, `429` on the pre-lookup
+per-IP flood limiter, the per-hook burst limit, or the **per-hook** daily fire
+budget (`webhooks:daily_budget` setting; default 1000 — each slug has its own
+budget). Every accept/reject is audited (attacker-controlled name/slug strings
+length-bounded + control-char-stripped); the secret and payload are never logged.
+
+**Replay posture (v1).** There is no nonce or timestamp anti-replay: a captured
+valid request (token or a signed body) can be re-POSTed and will be accepted
+again, up to the daily budget. The backstops are (a) the per-hook budget, which
+caps the spend a replay can trigger, (b) the `deliveryId` idempotency handle,
+which dedups a re-drained delivery onto one run, and (c) the permanent
+`untrusted-input` posture below. Rotate the token to invalidate a leaked one.
 
 **Delivery is durable + at-least-once.** The route persists the delivery to
 `webhook_deliveries` (`status: pending`) BEFORE dispatching. The
-`WebhookDeliveryDaemon` claims it (CAS `pending→running`) and pushes
-`ezcorp/webhook-fire` to the running subprocess; if the subprocess is down or
-the [global kill switch](#safety-primitives) is engaged the row stays `pending`
-and drains on the next tick (cron-style catch-up). A crash mid-dispatch reverts
-to `pending` and re-delivers — safe because the run dedups on the delivery id.
+`WebhookDeliveryDaemon` scans pending rows **oldest-first** (deterministic FIFO
+drain), claims each (CAS `pending→running`), and pushes `ezcorp/webhook-fire` to
+the running subprocess; if the subprocess is down or the
+[global kill switch](#safety-primitives) is engaged the row stays `pending` and
+drains on the next tick (cron-style catch-up — this does NOT consume a retry
+attempt). A crash mid-dispatch reverts to `pending` and re-delivers — safe
+because the run dedups on the delivery id.
+
+**Poison-delivery bound.** A delivery whose DISPATCH keeps throwing (the
+subprocess is present but the push fails) is NOT retried forever: each failure
+increments an `attempts` counter and, at the cap (5), the row **dead-letters** to
+a terminal `status: error` with the failure recorded in its `error` column. Old
+terminal rows (`ok` / `error`) past the retention window (30 days) are swept when
+the daemon starts, so the durable queue cannot grow without bound.
 
 **Untrusted-input posture (READ THIS).** A webhook body is
 attacker-controllable (a leaked token lets anyone POST arbitrary bytes), so a

@@ -511,9 +511,11 @@ export const EXT_AUDIT_ACTIONS = {
   SDK_WEBHOOK_ACCEPTED: "ext:sdk-webhook-accepted",
   /** The webhook route REJECTED a delivery. Metadata carries `{slug, reason}`
    *  where reason ∈ {unknown, unauthorized, oversize, rate-limited,
-   *  budget-exceeded, malformed, suspended} — never the secret or payload. The
-   *  enumeration-safe `unknown` reason covers foreign-ext / unknown-slug /
-   *  no-grant uniformly. */
+   *  budget-exceeded} — never the secret or payload. The enumeration-safe
+   *  `unknown` reason covers foreign-ext / unknown-slug / no-grant / malformed-
+   *  slug uniformly; a secretless (un-authenticatable) hook rejects as
+   *  `unauthorized`. Attacker-controlled ext name + slug are length-bounded +
+   *  control-char-stripped before they enter the audit metadata. */
   SDK_WEBHOOK_REJECTED: "ext:sdk-webhook-rejected",
   /** The WebhookDeliveryDaemon dispatched a claimed delivery to the extension
    *  subprocess (or catch-up drained the backlog). Metadata: `{slug,

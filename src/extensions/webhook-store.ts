@@ -7,7 +7,8 @@
  */
 import { getDb } from "../db/connection";
 import { extensionWebhooks, webhookDeliveries, type ExtensionWebhook } from "../db/schema";
-import { and, eq, gte, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, lt, sql } from "drizzle-orm";
+import { nowMinusInterval } from "../db/queries/sql-interval";
 
 /**
  * The ENABLED webhook registry row for `(extensionId, slug)`, or `null` when
@@ -92,4 +93,21 @@ export function startOfUtcDay(at: Date): Date {
   const d = new Date(at);
   d.setUTCHours(0, 0, 0, 0);
   return d;
+}
+
+/**
+ * Retention sweep: delete TERMINAL deliveries (`ok` / dead-lettered `error`)
+ * received more than `retentionDays` ago. `pending` / `running` rows are NEVER
+ * swept (a live delivery must survive). Mirrors `cleanupOldErrors` — the daemon
+ * runs it on start so the durable queue doesn't grow without bound. Returns the
+ * number of rows deleted.
+ */
+export async function cleanupOldWebhookDeliveries(retentionDays = 30): Promise<number> {
+  const rows = await getDb().delete(webhookDeliveries)
+    .where(and(
+      inArray(webhookDeliveries.status, ["ok", "error"]),
+      lt(webhookDeliveries.receivedAt, nowMinusInterval(retentionDays, "days")),
+    ))
+    .returning({ id: webhookDeliveries.id });
+  return rows.length;
 }

@@ -1315,6 +1315,11 @@ export const webhookDeliveries = pgTable("webhook_deliveries", {
   claimedAt: timestamp("claimed_at", { withTimezone: true, mode: "date" }),
   deliveredAt: timestamp("delivered_at", { withTimezone: true, mode: "date" }),
   error: text("error"),
+  /** Failed-dispatch counter. A delivery reverts to `pending` + increments this
+   *  on each failure; at `MAX_DELIVERY_ATTEMPTS` it dead-letters to `status:
+   *  "error"` (with `error` set) instead of retrying forever — the poison-
+   *  delivery bound. */
+  attempts: integer("attempts").notNull().default(0),
   catchUp: boolean("catch_up").notNull().default(false),
 }, (table) => [
   index("idx_webhook_deliveries_pending").on(table.status, table.receivedAt),

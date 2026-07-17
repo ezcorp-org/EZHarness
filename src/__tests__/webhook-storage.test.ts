@@ -32,6 +32,7 @@ import {
   insertDelivery,
   countDeliveriesSince,
   startOfUtcDay,
+  cleanupOldWebhookDeliveries,
 } from "../extensions/webhook-store";
 import { extensionWebhooks, webhookDeliveries, extensions } from "../db/schema";
 import { eq } from "drizzle-orm";
@@ -234,6 +235,31 @@ describe("webhook-store", () => {
     expect(since.toISOString()).toBe("2026-07-16T00:00:00.000Z");
     // Only the two "today" deliveries count.
     expect(await countDeliveriesSince(extId, "tickets", since)).toBe(2);
+  });
+
+  test("cleanupOldWebhookDeliveries sweeps old terminal rows, keeps recent + pending/running", async () => {
+    await reconcileWebhooks(extId, ["tickets"]);
+    const hook = (await getEnabledWebhook(extId, "tickets"))!;
+    const old = new Date(Date.now() - 60 * 86_400_000); // 60 days ago
+    const recent = new Date();
+    async function ins(status: "pending" | "running" | "ok" | "error", receivedAt: Date): Promise<string> {
+      const [r] = await getTestDb().insert(webhookDeliveries).values({
+        webhookId: hook.id, extensionId: extId, slug: "tickets", status,
+        contentType: null, body: "x", receivedAt,
+      }).returning({ id: webhookDeliveries.id });
+      return r!.id;
+    }
+    const oldOk = await ins("ok", old);
+    const oldErr = await ins("error", old);
+    const oldPending = await ins("pending", old);   // live — NEVER swept
+    const oldRunning = await ins("running", old);   // live — NEVER swept
+    const recentOk = await ins("ok", recent);       // within retention — kept
+    const deleted = await cleanupOldWebhookDeliveries(30);
+    expect(deleted).toBe(2); // only the two OLD terminal rows
+    const ids = (await getTestDb().select({ id: webhookDeliveries.id }).from(webhookDeliveries)).map((r) => r.id);
+    expect(ids.sort()).toEqual([oldPending, oldRunning, recentOk].sort());
+    expect(ids).not.toContain(oldOk);
+    expect(ids).not.toContain(oldErr);
   });
 
   test("countDeliveriesSince is per-HOOK: two hooks on one ext have independent budgets", async () => {

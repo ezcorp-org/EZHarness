@@ -1478,9 +1478,13 @@ export async function migrate(db: any): Promise<void> {
       claimed_at TIMESTAMP WITH TIME ZONE,
       delivered_at TIMESTAMP WITH TIME ZONE,
       error TEXT,
+      attempts INTEGER NOT NULL DEFAULT 0,
       catch_up BOOLEAN NOT NULL DEFAULT FALSE
     )
   `);
+  // Idempotent add for dev DBs created before the poison-delivery bound landed
+  // (the column caps failed-dispatch retries → dead-letter after N attempts).
+  await db.execute(sql`ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0`);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_pending ON webhook_deliveries(status, received_at)`);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_hook ON webhook_deliveries(webhook_id)`);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_ext_received ON webhook_deliveries(extension_id, received_at)`);

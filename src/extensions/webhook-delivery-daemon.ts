@@ -31,11 +31,12 @@
 import { logger } from "../logger";
 import { getDb } from "../db/connection";
 import { extensions, webhookDeliveries } from "../db/schema";
-import { and, eq, lte } from "drizzle-orm";
+import { and, asc, eq, lte } from "drizzle-orm";
 import type { ExtensionRegistry } from "./registry";
 import { insertAuditEntry } from "../db/queries/audit-log";
 import { EXT_AUDIT_ACTIONS } from "./audit-actions";
 import { loopsKillSwitchEngaged } from "./loops-kill-switch";
+import { cleanupOldWebhookDeliveries } from "./webhook-store";
 
 const log = logger.child("ext.webhook-delivery-daemon");
 
@@ -52,12 +53,22 @@ interface DispatchConfig {
   registry?: WebhookDaemonRegistry;
   resolveExtensionId: ExtensionIdResolver;
   catchUpThresholdMs: number;
+  maxAttempts: number;
 }
 
 const DEFAULT_WAKE_MS = 15_000;
 const DEFAULT_MAX_PER_TICK = 30;
 const DEFAULT_MAX_DURATION_MS = 300_000;
 const DEFAULT_CATCHUP_MS = 60_000;
+/** Poison-delivery bound: a delivery whose DISPATCH keeps throwing reverts to
+ *  `pending` and re-tries up to this many times; the Nth failure dead-letters it
+ *  to a terminal `error` (never an infinite retry loop). Subprocess-down /
+ *  no-registry reverts are pure catch-up and do NOT consume an attempt. */
+const DEFAULT_MAX_ATTEMPTS = 5;
+/** Retention for terminal (`ok` / `error`) deliveries, swept on daemon start. */
+const DEFAULT_RETENTION_DAYS = 30;
+/** Cap on the persisted dispatch-error string (no unbounded attacker text). */
+const MAX_ERROR_LEN = 500;
 
 async function defaultResolveExtensionId(name: string): Promise<string | null> {
   const rows = await getDb().select({ id: extensions.id }).from(extensions).where(eq(extensions.name, name));
@@ -79,6 +90,35 @@ async function revertToPending(id: string): Promise<void> {
   await getDb().update(webhookDeliveries)
     .set({ status: "pending", claimedAt: null })
     .where(eq(webhookDeliveries.id, id));
+}
+
+/**
+ * A DISPATCH failure (the subprocess was present but `sendNotification` threw —
+ * a genuinely bad / poison delivery, NOT transient downtime) increments the
+ * attempt counter. Under the cap the row reverts to `pending` (retried next
+ * tick, with the last error recorded); AT the cap it dead-letters to a terminal
+ * `error` with the failure text so the daemon never retries a poison delivery
+ * forever. Returns the terminal-ness so the caller can audit a dead-letter.
+ */
+async function recordDispatchFailure(
+  row: DeliveryRow,
+  now: Date,
+  error: string,
+  maxAttempts: number,
+): Promise<boolean> {
+  const attempts = row.attempts + 1;
+  const errText = error.slice(0, MAX_ERROR_LEN);
+  if (attempts >= maxAttempts) {
+    await getDb().update(webhookDeliveries)
+      .set({ status: "error", error: errText, attempts, deliveredAt: now, claimedAt: null })
+      .where(eq(webhookDeliveries.id, row.id));
+    log.warn("delivery-dead-lettered", { deliveryId: row.id, slug: row.slug, attempts, error: errText });
+    return true;
+  }
+  await getDb().update(webhookDeliveries)
+    .set({ status: "pending", claimedAt: null, attempts, error: errText })
+    .where(eq(webhookDeliveries.id, row.id));
+  return false;
 }
 
 /**
@@ -107,8 +147,11 @@ async function dispatchClaimedDelivery(row: DeliveryRow, now: Date, cfg: Dispatc
   try {
     proc.sendNotification("ezcorp/webhook-fire", buildFireContext(row, catchUp));
   } catch (err) {
+    // The subprocess was present but the push failed — a poison signal, not
+    // transient downtime. Bound the retries: increment attempts, dead-letter at
+    // the cap (never an infinite redelivery loop).
     log.warn("dispatch-failed", { deliveryId: row.id, error: String(err) });
-    await revertToPending(row.id);
+    await recordDispatchFailure(row, now, String(err), cfg.maxAttempts);
     return false;
   }
   await getDb().update(webhookDeliveries)
@@ -128,6 +171,7 @@ export class WebhookDeliveryDaemon {
     now: () => Date;
     maxPerTick: number;
     maxDeliveryDurationMs: number;
+    retentionDays: number;
     cfg: DispatchConfig;
   };
   private timer?: ReturnType<typeof setInterval>;
@@ -139,6 +183,8 @@ export class WebhookDeliveryDaemon {
     maxPerTick?: number;
     maxDeliveryDurationMs?: number;
     catchUpThresholdMs?: number;
+    maxAttempts?: number;
+    retentionDays?: number;
     resolveExtensionId?: ExtensionIdResolver;
   }) {
     this.opts = {
@@ -146,17 +192,25 @@ export class WebhookDeliveryDaemon {
       now: options?.now ?? (() => new Date()),
       maxPerTick: options?.maxPerTick ?? DEFAULT_MAX_PER_TICK,
       maxDeliveryDurationMs: options?.maxDeliveryDurationMs ?? DEFAULT_MAX_DURATION_MS,
+      retentionDays: options?.retentionDays ?? DEFAULT_RETENTION_DAYS,
       cfg: {
         ...(options?.registry ? { registry: options.registry } : {}),
         resolveExtensionId: options?.resolveExtensionId ?? defaultResolveExtensionId,
         catchUpThresholdMs: options?.catchUpThresholdMs ?? DEFAULT_CATCHUP_MS,
+        maxAttempts: options?.maxAttempts ?? DEFAULT_MAX_ATTEMPTS,
       },
     };
   }
 
-  /** Start: reap crashed rows, then install the wake loop. Returns true. */
+  /** Start: sweep old terminal rows + reap crashed rows, then install the wake
+   *  loop. Returns true. */
   async start(): Promise<boolean> {
     if (this.timer) return true;
+    try {
+      await cleanupOldWebhookDeliveries(this.opts.retentionDays);
+    } catch (err) {
+      log.warn("retention-sweep-on-start-failed", { error: String(err) });
+    }
     try {
       await this.reapCrashedDeliveries();
     } catch (err) {
@@ -185,8 +239,11 @@ export class WebhookDeliveryDaemon {
       return { claimed: 0, dispatched: 0 };
     }
     const now = this.opts.now();
+    // Oldest-first (FIFO) so the drain order is deterministic + fair — a burst
+    // never starves an earlier pending delivery (mirrors cron catch-up order).
     const pending = await getDb().select().from(webhookDeliveries)
       .where(eq(webhookDeliveries.status, "pending"))
+      .orderBy(asc(webhookDeliveries.receivedAt))
       .limit(this.opts.maxPerTick);
 
     let claimed = 0;
@@ -237,6 +294,7 @@ export async function drainDelivery(
         registry: reg,
         resolveExtensionId,
         catchUpThresholdMs: DEFAULT_CATCHUP_MS,
+        maxAttempts: DEFAULT_MAX_ATTEMPTS,
       });
     }
   } catch (err) {

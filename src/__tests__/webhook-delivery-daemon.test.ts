@@ -31,8 +31,9 @@ import {
   tryParseWebhookJson,
   type WebhookDaemonRegistry,
 } from "../extensions/webhook-delivery-daemon";
-import { extensions, extensionWebhooks, webhookDeliveries } from "../db/schema";
-import { eq } from "drizzle-orm";
+import { extensions, extensionWebhooks, webhookDeliveries, auditLog } from "../db/schema";
+import { EXT_AUDIT_ACTIONS } from "../extensions/audit-actions";
+import { and, eq } from "drizzle-orm";
 
 const EXT_NAME = "wh-daemon-ext";
 const EXT_ID = "ext-uuid-1";
@@ -87,6 +88,16 @@ async function statusOf(id: string): Promise<string> {
   return rows[0]!.status;
 }
 
+async function rowOf(id: string) {
+  return (await getTestDb().select().from(webhookDeliveries).where(eq(webhookDeliveries.id, id)))[0]!;
+}
+
+/** A registry whose subprocess is present but whose `sendNotification` always
+ *  throws — a genuinely poison delivery (vs. a down subprocess). */
+const throwingRegistry: WebhookDaemonRegistry = {
+  getProcessIfRunning: () => ({ sendNotification: () => { throw new Error("pipe closed"); } } as never),
+};
+
 beforeAll(async () => {
   await setupTestDb();
   await seedHook();
@@ -123,6 +134,14 @@ describe("tick — dispatch", () => {
     // The delivered row records deliveredAt.
     const row = (await getTestDb().select().from(webhookDeliveries).where(eq(webhookDeliveries.id, id)))[0]!;
     expect(row.deliveredAt).not.toBeNull();
+    // A successful dispatch writes a SDK_WEBHOOK_DISPATCHED audit row (no secret).
+    const audits = await getTestDb().select().from(auditLog).where(and(
+      eq(auditLog.action, EXT_AUDIT_ACTIONS.SDK_WEBHOOK_DISPATCHED),
+      eq(auditLog.target, EXT_NAME),
+    ));
+    const dispatched = audits.find((a) => (a.metadata as { deliveryId?: string })?.deliveryId === id);
+    expect(dispatched).toBeTruthy();
+    expect((dispatched!.metadata as { slug: string }).slug).toBe("tickets");
   });
 
   test("subprocess down → claimed then reverted to pending (never lost)", async () => {
@@ -172,6 +191,82 @@ describe("tick — dispatch", () => {
     const r = await daemon.tick();
     expect(r.dispatched).toBe(1);
     expect(await statusOf(id)).toBe("ok");
+  });
+});
+
+describe("poison-delivery bound", () => {
+  test("a repeatedly-failing dispatch increments attempts, then dead-letters at the cap", async () => {
+    const id = await insertPending();
+    const daemon = new WebhookDeliveryDaemon({
+      registry: throwingRegistry,
+      resolveExtensionId,
+      maxAttempts: 3, // small cap for a fast test
+    });
+    // Attempt 1 → attempts:1, back to pending (under cap).
+    await daemon.tick();
+    let row = await rowOf(id);
+    expect(row.status).toBe("pending");
+    expect(row.attempts).toBe(1);
+    expect(row.error).toContain("pipe closed");
+    // Attempt 2 → attempts:2, still pending.
+    await daemon.tick();
+    expect((await rowOf(id)).attempts).toBe(2);
+    expect(await statusOf(id)).toBe("pending");
+    // Attempt 3 → hits the cap → dead-letter (terminal `error`), no re-claim.
+    await daemon.tick();
+    row = await rowOf(id);
+    expect(row.status).toBe("error");
+    expect(row.attempts).toBe(3);
+    expect(row.error).toContain("pipe closed");
+    expect(row.deliveredAt).not.toBeNull();
+    // A dead-lettered row is terminal — a further tick never re-claims it.
+    const r = await daemon.tick();
+    expect(r).toEqual({ claimed: 0, dispatched: 0 });
+    expect(await statusOf(id)).toBe("error");
+  });
+
+  test("subprocess-DOWN reverts do NOT consume an attempt (pure catch-up)", async () => {
+    const id = await insertPending();
+    const daemon = new WebhookDeliveryDaemon({ registry: makeRegistry(false, []), resolveExtensionId, maxAttempts: 2 });
+    await daemon.tick();
+    await daemon.tick();
+    await daemon.tick();
+    // Three ticks with the subprocess down never dead-letter — attempts stays 0.
+    const row = await rowOf(id);
+    expect(row.status).toBe("pending");
+    expect(row.attempts).toBe(0);
+  });
+
+  test("a long dispatch error string is truncated in the persisted `error`", async () => {
+    const id = await insertPending();
+    const longErr = "E".repeat(2000);
+    const bigThrow: WebhookDaemonRegistry = {
+      getProcessIfRunning: () => ({ sendNotification: () => { throw new Error(longErr); } } as never),
+    };
+    const daemon = new WebhookDeliveryDaemon({ registry: bigThrow, resolveExtensionId, maxAttempts: 1 });
+    await daemon.tick();
+    const row = await rowOf(id);
+    expect(row.status).toBe("error");
+    expect(row.error!.length).toBeLessThanOrEqual(500);
+  });
+});
+
+describe("deterministic drain order", () => {
+  test("pending rows drain oldest-first (ORDER BY received_at), regardless of insert order", async () => {
+    // Insert out of chronological order; capture the dispatch order.
+    const idMid = await insertPending({ receivedAt: new Date("2026-07-16T10:00:02.000Z") });
+    const idOld = await insertPending({ receivedAt: new Date("2026-07-16T10:00:01.000Z") });
+    const idNew = await insertPending({ receivedAt: new Date("2026-07-16T10:00:03.000Z") });
+    const sink: Fire[] = [];
+    const daemon = new WebhookDeliveryDaemon({
+      registry: makeRegistry(true, sink),
+      resolveExtensionId,
+      now: () => new Date("2026-07-16T10:00:10.000Z"),
+    });
+    const r = await daemon.tick();
+    expect(r.dispatched).toBe(3);
+    const orderedIds = sink.map((f) => (f.params as { deliveryId: string }).deliveryId);
+    expect(orderedIds).toEqual([idOld, idMid, idNew]);
   });
 });
 
@@ -254,6 +349,18 @@ describe("start / stop lifecycle", () => {
     expect(await daemon.start()).toBe(true); // idempotent
     daemon.stop();
     daemon.stop(); // safe twice
+  });
+
+  test("start() runs the retention sweep — an old terminal delivery is trimmed", async () => {
+    const [old] = await getTestDb().insert(webhookDeliveries).values({
+      webhookId: hookId, extensionId: EXT_NAME, slug: "tickets", status: "ok",
+      contentType: null, body: "x", receivedAt: new Date(Date.now() - 60 * 86_400_000),
+    }).returning({ id: webhookDeliveries.id });
+    const daemon = new WebhookDeliveryDaemon({ wakeIntervalMs: 60_000, resolveExtensionId });
+    await daemon.start();
+    daemon.stop();
+    const rows = await getTestDb().select().from(webhookDeliveries).where(eq(webhookDeliveries.id, old!.id));
+    expect(rows).toHaveLength(0);
   });
 
   test("the wake loop fires tick automatically (drains a pending delivery)", async () => {
