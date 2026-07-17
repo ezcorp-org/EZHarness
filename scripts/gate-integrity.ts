@@ -14,9 +14,22 @@
  *   5. A newly-touched `test()` / `it()` block has NO assertion
  *      (`expect` / `assert` / `.rejects` / `.resolves`) — vacuous test.
  *   6. coverage/lcov.info is staged in the diff (hand-doctored report).
+ *   7. A `*.test.ts` / `*.spec.ts` file was DELETED or RENAMED (even R100 —
+ *      content-identical): the P/C/CRIT test sets are find-pattern-built, so
+ *      a rename can silently de-gate a file without touching its content.
  *
  * All checks are DIFF-SCOPED (only what the PR adds is judged) so the 19
  * pre-existing `.skip`s and 365 mock files in the tree don't false-positive.
+ *
+ * BASE PINNING: every comparison reads the MERGE-BASE of $BASE_REF and HEAD —
+ * the same commit the `BASE...HEAD` changed-file list is computed against.
+ * Reading the base TIP instead produced a proven false positive (run
+ * 29527620867: a threshold key added on main after the branch point read as
+ * "removed" here).
+ *
+ * FAIL-CLOSED: a git invocation error (shallow clone, bad rev) is a hard
+ * error (exit 1), never "no data → zero violations". Only a path genuinely
+ * absent at the merge-base is treated as legitimately missing.
  *
  * ESCAPE HATCH: a maintainer who legitimately needs to change the gate sets
  * GATE_CHANGE_APPROVED=1 (wired in CI from a maintainer-only label that an
@@ -317,26 +330,83 @@ function isTestFile(path: string): boolean {
   return /\.(test|spec)\.ts$/.test(path);
 }
 
-// ── git wiring + main() ────────────────────────────────────────────────────
-
-async function git(args: string[]): Promise<string> {
-  const proc = Bun.spawn(["git", ...args], { cwd: REPO_ROOT, stdout: "pipe", stderr: "pipe" });
-  const [out, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
-  return code === 0 ? out : "";
+/**
+ * Deleted or renamed test files from `git diff --name-status -M` output.
+ * A deletion removes a gate outright; a RENAME — even R100, content-identical
+ * — can silently de-gate a file because the P/C/CRIT test sets are built from
+ * find patterns over paths and names. Both need the gate-change-approved
+ * label. (A non-test file renamed TO a test file is an addition, not judged
+ * here — the old-side path decides.)
+ */
+export function deletedOrRenamedTests(nameStatus: string): string[] {
+  const out: string[] = [];
+  for (const line of nameStatus.split("\n")) {
+    if (!line.trim()) continue;
+    const [status, oldPath, newPath] = line.split("\t");
+    if (!status || !oldPath || !isTestFile(oldPath)) continue;
+    if (status.startsWith("D")) {
+      out.push(`test file DELETED: ${oldPath} — removing a test removes a gate`);
+    } else if (status.startsWith("R")) {
+      out.push(
+        `test file RENAMED (${status}): ${oldPath} → ${newPath ?? "?"} — renames can de-gate pattern-matched test sets`,
+      );
+    }
+  }
+  return out;
 }
 
-async function showAtBase(base: string, path: string): Promise<string> {
-  return git(["show", `${base}:${path}`]);
+/**
+ * True when a failed `git show <rev>:<path>` stderr means "path absent at
+ * that revision" — a legitimate state (file added by this PR, or predates a
+ * refactor). Anything else (bad rev, shallow clone, spawn failure) must FAIL
+ * CLOSED: a git error must never read as "no violations".
+ */
+export function isPathAbsentAtRev(stderr: string): boolean {
+  return /does not exist in|exists on disk, but not in/.test(stderr);
+}
+
+// ── git wiring + main() ────────────────────────────────────────────────────
+
+async function gitRun(args: string[]): Promise<{ code: number; out: string; err: string }> {
+  const proc = Bun.spawn(["git", ...args], { cwd: REPO_ROOT, stdout: "pipe", stderr: "pipe" });
+  const [out, err, code] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+  return { code, out, err };
+}
+
+/** Run git, FAIL CLOSED: any git error is a hard error, never "no data". */
+async function git(args: string[]): Promise<string> {
+  const { code, out, err } = await gitRun(args);
+  if (code !== 0) {
+    throw new Error(`git ${args.join(" ")} failed (exit ${code}): ${err.trim()}`);
+  }
+  return out;
+}
+
+/** Contents of `path` at `rev`, or null when the path doesn't exist there. */
+async function showAtBase(rev: string, path: string): Promise<string | null> {
+  const { code, out, err } = await gitRun(["show", `${rev}:${path}`]);
+  if (code === 0) return out;
+  if (isPathAbsentAtRev(err)) return null;
+  throw new Error(`git show ${rev}:${path} failed (exit ${code}): ${err.trim()}`);
 }
 
 async function main(): Promise<void> {
   const base = process.env.BASE_REF || "origin/main";
   const approved = !!process.env.GATE_CHANGE_APPROVED;
 
+  // Pin every base-side read to the MERGE-BASE — the same commit the
+  // `BASE...HEAD` diff below compares against. See header (BASE PINNING).
+  const mergeBase = (await git(["merge-base", base, "HEAD"])).trim();
+  if (!mergeBase) throw new Error(`could not resolve merge-base of ${base} and HEAD`);
+
   const violations: string[] = [];
 
   // 6. Staged/committed lcov report.
-  const changed = (await git(["diff", "--name-only", `${base}...HEAD`]))
+  const changed = (await git(["diff", "--name-only", `${mergeBase}...HEAD`]))
     .split("\n")
     .map((s) => s.trim())
     .filter(Boolean);
@@ -346,27 +416,41 @@ async function main(): Promise<void> {
 
   // 1. EXCLUDES growth.
   if (changed.includes("scripts/coverage-config.ts")) {
-    let baseSrc = await showAtBase(base, "scripts/coverage-config.ts");
+    let baseSrc = await showAtBase(mergeBase, "scripts/coverage-config.ts");
     // Bootstrap: coverage-config.ts is the shared module the EXCLUDES list was
     // refactored OUT of scripts/check-coverage.ts into. On a base that predates
     // that split there is no coverage-config.ts, so fall back to the EXCLUDES at
     // their old inline home — otherwise a verbatim move reads as 100% "growth".
-    if (!baseSrc) baseSrc = await showAtBase(base, "scripts/check-coverage.ts");
+    if (baseSrc === null) baseSrc = await showAtBase(mergeBase, "scripts/check-coverage.ts");
     const headSrc = await Bun.file(resolve(REPO_ROOT, "scripts/coverage-config.ts")).text();
-    for (const p of addedExcludes(baseSrc, headSrc)) {
+    for (const p of addedExcludes(baseSrc ?? "", headSrc)) {
       violations.push(`EXCLUDES grew: "${p}" — un-gating a file needs the gate-change-approved label`);
     }
   }
 
-  // 2. Threshold ratchet.
+  // 2. Threshold ratchet. A file absent at the merge-base (bootstrap) means
+  // every key is new — no ratchet to enforce.
   if (changed.includes("scripts/coverage-thresholds.json")) {
-    const baseJson = await showAtBase(base, "scripts/coverage-thresholds.json");
+    const baseJson = await showAtBase(mergeBase, "scripts/coverage-thresholds.json");
     const headJson = await Bun.file(resolve(REPO_ROOT, "scripts/coverage-thresholds.json")).text();
-    violations.push(...thresholdRatchetViolations(baseJson, headJson));
+    violations.push(...thresholdRatchetViolations(baseJson ?? "{}", headJson));
+  }
+
+  // 7. Deleted/renamed test files (rename detection on, R100 included).
+  const nameStatus = await git(["diff", "--name-status", "-M", `${mergeBase}...HEAD`]);
+  for (const v of deletedOrRenamedTests(nameStatus)) {
+    violations.push(`${v} — needs the gate-change-approved label`);
   }
 
   // 3/4/5. Test-file cheats — diff-scoped.
-  const testDiff = await git(["diff", "--unified=0", `${base}...HEAD`, "--", "*.test.ts", "*.spec.ts"]);
+  const testDiff = await git([
+    "diff",
+    "--unified=0",
+    `${mergeBase}...HEAD`,
+    "--",
+    "*.test.ts",
+    "*.spec.ts",
+  ]);
   const perFile = parseUnifiedDiff(testDiff);
   for (const [file, info] of perFile) {
     if (!isTestFile(file)) continue;
@@ -401,5 +485,14 @@ async function main(): Promise<void> {
 }
 
 if (import.meta.main) {
-  await main();
+  try {
+    await main();
+  } catch (err) {
+    // FAIL CLOSED: an infrastructure/git error must red the check — it can
+    // never be allowed to read as "no violations found".
+    console.error(
+      `Gate integrity ERROR (fail-closed): ${err instanceof Error ? err.message : String(err)}`,
+    );
+    process.exit(1);
+  }
 }

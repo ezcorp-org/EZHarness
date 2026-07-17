@@ -21,7 +21,9 @@ import {
 } from "../../scripts/coverage-config.ts";
 import {
   addedExcludes,
+  deletedOrRenamedTests,
   forbiddenTestAdditions,
+  isPathAbsentAtRev,
   parseExcludeEntries,
   parseUnifiedDiff,
   stripBlockComments,
@@ -309,6 +311,70 @@ describe("gate-integrity: unassertedAddedBlocks vs doc-comment prose", () => {
     const out = unassertedAddedBlocks(src, new Set([4, 5, 6]));
     expect(out.length).toBe(1);
     expect(out[0]).toContain("near line 4"); // the real test, not the comment
+  });
+});
+
+// ── gate-integrity: deleted/renamed test files ──────────────────────────────
+describe("gate-integrity: deletedOrRenamedTests", () => {
+  test("flags a deleted test file", () => {
+    const v = deletedOrRenamedTests("D\tsrc/__tests__/auth-tokens.test.ts");
+    expect(v.length).toBe(1);
+    expect(v[0]).toContain("DELETED");
+    expect(v[0]).toContain("src/__tests__/auth-tokens.test.ts");
+  });
+  test("flags a renamed test file, including content-identical R100", () => {
+    const v = deletedOrRenamedTests(
+      "R100\tsrc/__tests__/auth-tokens.test.ts\tsrc/__tests__/tokens.test.ts",
+    );
+    expect(v.length).toBe(1);
+    expect(v[0]).toContain("RENAMED");
+    expect(v[0]).toContain("R100");
+    expect(v[0]).toContain("src/__tests__/tokens.test.ts");
+  });
+  test("flags a partial-similarity rename (R87) and a .spec.ts", () => {
+    const v = deletedOrRenamedTests("R087\tweb/e2e/hub.spec.ts\tweb/e2e/hub-view.spec.ts");
+    expect(v.length).toBe(1);
+    expect(v[0]).toContain("web/e2e/hub.spec.ts");
+  });
+  test("ignores added/modified test files and non-test deletions/renames", () => {
+    const nameStatus = [
+      "A\tsrc/__tests__/new.test.ts",
+      "M\tsrc/__tests__/changed.test.ts",
+      "D\tsrc/runtime/old-helper.ts",
+      "R095\tsrc/runtime/a.ts\tsrc/runtime/b.ts",
+      "",
+    ].join("\n");
+    expect(deletedOrRenamedTests(nameStatus)).toEqual([]);
+  });
+  test("a non-test file renamed TO a test path is not flagged (old side decides)", () => {
+    expect(deletedOrRenamedTests("R090\tsrc/runtime/util.ts\tsrc/__tests__/util.test.ts")).toEqual(
+      [],
+    );
+  });
+  test("mixed multi-line diff reports each violation", () => {
+    const nameStatus = [
+      "D\tsrc/__tests__/a.test.ts",
+      "R100\tsrc/__tests__/b.test.ts\tsrc/__tests__/c.test.ts",
+      "M\tsrc/runtime/x.ts",
+    ].join("\n");
+    expect(deletedOrRenamedTests(nameStatus).length).toBe(2);
+  });
+});
+
+// ── gate-integrity: fail-closed git-show classification ─────────────────────
+describe("gate-integrity: isPathAbsentAtRev", () => {
+  test("recognises git's two path-absent messages", () => {
+    expect(
+      isPathAbsentAtRev("fatal: path 'scripts/new.ts' does not exist in 'abc123'"),
+    ).toBe(true);
+    expect(
+      isPathAbsentAtRev("fatal: path 'scripts/new.ts' exists on disk, but not in 'abc123'"),
+    ).toBe(true);
+  });
+  test("any other git failure must NOT read as absence (fail closed)", () => {
+    expect(isPathAbsentAtRev("fatal: invalid object name 'origin/nope'")).toBe(false);
+    expect(isPathAbsentAtRev("fatal: bad revision 'HEAD~999'")).toBe(false);
+    expect(isPathAbsentAtRev("")).toBe(false);
   });
 });
 
