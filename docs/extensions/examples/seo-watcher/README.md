@@ -28,7 +28,14 @@ yours, change **two** things and reinstall:
 
 1. **Endpoint URL** → your structured JSON endpoint (add its host to the
    `network` allowlist in `ezcorp.config.ts` first — that allowlist is the
-   security boundary, not a suggestion).
+   security boundary, not a suggestion). Prefer **https** endpoints — the
+   allowlist matches hosts, not schemes. Two honesty notes on that boundary:
+   the platform vets the *initial* URL only (a followed redirect is not
+   re-classified), which is why this loop fetches with `redirect: "manual"`
+   and treats any 3xx as a skip — keep that if you copy this template; and
+   the fetched body is untrusted (it is fenced behind a per-call random
+   nonce before it ever reaches the review model — a static fence would be
+   forgeable by a hostile endpoint).
 2. **Metric pointer** → a dot-path to the number inside that JSON
    (`price`, `data.rank`, `results.0.position` — numeric array indices work).
 
