@@ -25,6 +25,8 @@
       "web/e2e/extension-secret-settings.spec.ts",
       "web/e2e/extensions-sort.spec.ts",
       "web/e2e/ez-clear-conversation.spec.ts",
+      "web/e2e/ez-code-factory-gates.spec.ts",
+      "web/e2e/ez-code-factory-hub.spec.ts",
       "web/e2e/ez-tool-list.spec.ts",
       "web/e2e/feature-index-scan.spec.ts",
       "web/e2e/github-projects-connect.spec.ts",
