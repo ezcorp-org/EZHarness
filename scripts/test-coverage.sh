@@ -296,6 +296,7 @@ run_legs() {
       src/lib/components/preprocess-result-logic.unit.test.ts \
       src/lib/components/tool-cards/grade-delta-logic.unit.test.ts \
       src/lib/components/tool-cards/GradeDeltaCard.component.test.ts \
+      src/__tests__/pending-permission-tray.component.test.ts \
       src/__tests__/composer-suggest-logic.unit.test.ts \
       src/__tests__/api-composer-suggest.server.test.ts \
       src/__tests__/api-composer-suggest-feedback.server.test.ts \
@@ -386,6 +387,7 @@ run_legs() {
       --coverage.include='src/lib/components/preprocess-result-logic.ts' \
       --coverage.include='src/lib/components/tool-cards/grade-delta-logic.ts' \
       --coverage.include='src/lib/components/tool-cards/GradeDeltaCard.svelte' \
+      --coverage.include='src/lib/components/tool-cards/PendingPermissionTray.svelte' \
       --coverage.include='src/lib/composer-suggest-logic.ts' \
       --coverage.include='src/lib/components/SuggestionPopover.svelte' \
       --coverage.include='src/lib/components/settings/ComposerSuggestSection.svelte' \

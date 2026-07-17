@@ -1,4 +1,4 @@
-import { test, expect, describe, afterEach } from "bun:test";
+import { test, expect, describe, afterEach, spyOn } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -120,6 +120,32 @@ describe("buildJailInvocation (pure assembly)", () => {
     expect(
       buildJailInvocation(CMD, "/wt", "/g", "/p", { EZCORP_SANDBOX_TIER: "landlock" }, "bun").jailed,
     ).toBe(false);
+  });
+});
+
+describe("makeJailedShell (origin resolution fail-safe)", () => {
+  test("a THROWING origin lookup (git missing) → no extra grant, command still runs", async () => {
+    // Bun.spawn throws synchronously on a missing binary; the resolver's
+    // catch must degrade to "no local-upstream grant" — never break the
+    // shell. Spy the FIRST spawn (the `git remote get-url origin` probe) to
+    // throw, pass every later call through to the real spawn.
+    const realSpawn = Bun.spawn.bind(Bun);
+    let first = true;
+    const spy = spyOn(Bun, "spawn").mockImplementation(((...args: Parameters<typeof Bun.spawn>) => {
+      if (first) {
+        first = false;
+        throw new Error("posix_spawn 'git': ENOENT");
+      }
+      return realSpawn(...args);
+    }) as typeof Bun.spawn);
+    try {
+      const shell = makeJailedShell("/nonexistent-gate.git", "/proj");
+      const r = await shell(["/bin/sh", "-c", "echo NO_GRANT_OK"], "/tmp");
+      expect(r.exitCode).toBe(0);
+      expect(r.stdout).toContain("NO_GRANT_OK");
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
 
