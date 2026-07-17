@@ -1,70 +1,87 @@
 // seo-watcher — boot-path + artifact-mirror + content-trust coverage.
 //
-// The full trigger → check → act → approve path is proven by the REAL-primitive
-// integration test, but the production-boot `start()` body and the inline
-// `log.artifact` mapper aren't reached there (a spawned subprocess's coverage
-// isn't collected, and the in-process integration test drives the primitive
-// facade, not `start()`). This isolated file drives both IN-process against the
-// SDK test channel (mirrors repo-activity-notify/boot.test.ts):
-//   - `defineLoop` is captured via a delegating module stub so the loop's
-//     `contentTrust` declaration + `log.artifact` mapper can be asserted directly.
-//   - `start()` is called against the real channel/dispatcher (read loop is
-//     fire-and-forget + reset after).
-import { test, expect, describe, afterEach, mock } from "bun:test";
+// The full flow is proven by index.integration.test.ts (real primitive) and
+// subprocess.integration.test.ts (real transport). This isolated file covers
+// the production-boot `start()` body + the inline `log.artifact` mapper, which
+// a spawned subprocess's coverage never contributes to this process's lcov, and
+// asserts the `contentTrust` classification the registration stamps.
+//
+// It drives the REAL registry (NOT a `defineLoop` stub — a `mock.module` stub
+// would leak across test files and starve the integration test's real manual-
+// tool registration; docs-updater's boot.test learned the same trap).
+// `__resetLoopsForTests` / `__resetChannelForTests` keep each test — and this
+// whole file — isolated from the others.
 
-// Delegating stub: keep every real `@ezcorp/sdk/runtime` export, override ONLY
-// `defineLoop` to capture the definition the example registers. Must be
-// installed BEFORE importing ./index so the module binds the stubbed symbol.
-interface CapturedDef {
-  contentTrust?: string;
-  trigger?: unknown;
-  contract?: { approval?: { mode?: string }; concurrency?: { maxConcurrent?: number } };
-  log?: {
-    artifact?: (
-      run: { id: string; status: string },
-      outcome: Record<string, unknown> | undefined,
-    ) => { path: string; body: string };
-  };
-}
-let capturedDef: CapturedDef | undefined;
-const real = await import("@ezcorp/sdk/runtime");
-mock.module("@ezcorp/sdk/runtime", () => ({
-  ...real,
-  defineLoop: (def: CapturedDef) => {
-    capturedDef = def;
-  },
-}));
+import { test, expect, describe, afterEach, beforeEach } from "bun:test";
+import {
+  __resetLoopsForTests,
+  _getRegisteredLoop,
+} from "../../../../packages/@ezcorp/sdk/src/runtime/loop";
+import { isUntrustedInputLoop } from "../../../../packages/@ezcorp/sdk/src/runtime/loop-core";
+import { __resetChannelForTests } from "../../../../packages/@ezcorp/sdk/src/runtime/channel";
+import { defineSeoWatcherLoop, start, LOOP_ID, PAGE_ID, APPROVE_EVENT, DECLINE_EVENT } from "./index";
 
-const { start, defineSeoWatcherLoop } = await import("./index");
-
+beforeEach(() => __resetLoopsForTests());
 afterEach(() => {
-  // `defineLoop` is stubbed to merely CAPTURE (it never touches the real loop
-  // registry), so only the channel needs resetting between tests.
-  real.__resetChannelForTests();
-  capturedDef = undefined;
+  __resetLoopsForTests();
+  __resetChannelForTests();
 });
 
+function registered() {
+  const reg = _getRegisteredLoop(LOOP_ID);
+  if (!reg) throw new Error("seo-watcher loop not registered");
+  return reg;
+}
+
+type ArtifactFn = (
+  run: { id: string; status: string },
+  outcome: Record<string, unknown> | undefined,
+) => { path: string; body: string };
+
+function artifactOf(): ArtifactFn {
+  const fn = registered().def.log?.artifact as ArtifactFn | undefined;
+  if (!fn) throw new Error("no log.artifact");
+  return fn;
+}
+
 describe("content-trust classification", () => {
-  test("the loop declares contentTrust: untrusted-input (fetch-based check)", () => {
+  test("registration declares + stamps untrusted-input (fetch-based check)", () => {
     defineSeoWatcherLoop();
-    expect(capturedDef?.contentTrust).toBe("untrusted-input");
-    // No webhook trigger — the classification rides the explicit declaration.
-    expect(capturedDef?.trigger).toEqual([
-      { kind: "cron", cron: "0 7 * * *" },
-      { kind: "manual", tool: "run_seo_watch" },
-    ]);
-    // Proactive approval + single-concurrency — the safe recommend-and-approve shape.
-    expect(capturedDef?.contract?.approval?.mode).toBe("proactive");
-    expect(capturedDef?.contract?.concurrency?.maxConcurrent).toBe(1);
+    const reg = registered();
+    // The DECLARATION on the definition.
+    expect(reg.def.contentTrust).toBe("untrusted-input");
+    // The STAMP the registration derives (Phase 8's content-trust gate reads it).
+    expect(reg.untrustedInput).toBe(true);
+    // And the SDK predicate agrees for this definition's shape.
+    expect(isUntrustedInputLoop(reg.def)).toBe(true);
+  });
+
+  test("registers the check / act + proactive-approval contract + safe shape", () => {
+    defineSeoWatcherLoop();
+    const def = registered().def;
+    expect(typeof def.check).toBe("function");
+    expect(typeof def.act).toBe("function");
+    expect(def.contract?.approval).toEqual({ mode: "proactive", staleAfterDays: 7 });
+    expect(def.contract?.concurrency).toEqual({ maxConcurrent: 1 });
+    expect(def.contract?.configVersion).toBe("1");
+    const triggers = Array.isArray(def.trigger) ? def.trigger : [def.trigger];
+    expect(triggers.map((t) => t.kind)).toEqual(["cron", "manual"]);
+    // No webhook trigger — untrusted-input rides the declaration, not a trigger.
+    expect(triggers.some((t) => t.kind === "webhook")).toBe(false);
+  });
+
+  test("log.dashboard names the page + the approve/decline row actions", () => {
+    defineSeoWatcherLoop();
+    const dash = registered().def.log?.dashboard;
+    expect(dash?.pageId).toBe(PAGE_ID);
+    expect(Object.keys(dash?.rowActions ?? {})).toEqual([APPROVE_EVENT, DECLINE_EVENT]);
   });
 });
 
 describe("log.artifact mirror", () => {
   test("published run → the recommendation is written into the artifact body", () => {
     defineSeoWatcherLoop();
-    const artifact = capturedDef?.log?.artifact;
-    expect(typeof artifact).toBe("function");
-    const out = artifact!(
+    const out = artifactOf()(
       { id: "run-7", status: "approved" },
       {
         metricLabel: "Competitor price",
@@ -86,10 +103,9 @@ describe("log.artifact mirror", () => {
     expect(out.body).toContain("Match the price and refresh the copy.");
   });
 
-  test("declined run → no recommendation published, note surfaced", () => {
+  test("declined run → no recommendation published, note surfaced, no baseline", () => {
     defineSeoWatcherLoop();
-    const artifact = capturedDef!.log!.artifact!;
-    const out = artifact(
+    const out = artifactOf()(
       { id: "run-9", status: "declined" },
       { metricLabel: "Ranking", metric: 4, direction: "fell", note: "seasonal dip" },
     );
@@ -97,15 +113,13 @@ describe("log.artifact mirror", () => {
     expect(out.body).toContain("- note: seasonal dip");
     expect(out.body).toContain("_No recommendation published for this run._");
     expect(out.body).not.toContain("## Recommendation");
-    // A declined run carries no baseline/published markers.
     expect(out.body).not.toContain("- baseline:");
     expect(out.body).not.toContain("- published:");
   });
 
   test("missing outcome → a status-only artifact (never throws)", () => {
     defineSeoWatcherLoop();
-    const artifact = capturedDef!.log!.artifact!;
-    const out = artifact({ id: "run-x", status: "recommended" }, undefined);
+    const out = artifactOf()({ id: "run-x", status: "recommended" }, undefined);
     expect(out.path).toBe("recommendations/run-x.md");
     expect(out.body).toContain("- status: recommended");
     expect(out.body).toContain("_No recommendation published for this run._");
@@ -114,13 +128,7 @@ describe("log.artifact mirror", () => {
 
 describe("start (production boot)", () => {
   test("registers the loop + mounts the dispatcher + starts the channel", () => {
-    // Prime the real channel-side dispatcher register (production's real
-    // defineLoop touches getChannel() before createToolDispatcher; our stub
-    // skips that, so mirror the booted state explicitly).
-    real.getChannel();
-    // `start()` calls the (stubbed) defineLoop, then the REAL createToolDispatcher
-    // + getChannel().start() — non-blocking; the read loop is reset in afterEach.
     expect(() => start()).not.toThrow();
-    expect(capturedDef?.log?.artifact).toBeDefined();
+    expect(_getRegisteredLoop(LOOP_ID)?.contract.approval).toBeDefined();
   });
 });
