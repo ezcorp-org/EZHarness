@@ -168,6 +168,11 @@ describe("workingDir containment pin — real shell tool cwd", () => {
     const executor = new AgentExecutor(new Map(), bus, { persist: false });
     capturedAgentOpts = null;
 
+    // The out-of-turn-wirer accessor (events route / hub render-pull builds a
+    // fully-wired ToolExecutor from it) — read it here so the getter is
+    // exercised alongside the executor this suite already constructs.
+    expect(executor.spawnQuota).toBeDefined();
+
     await executor.streamChat(convId, "run pwd", {
       projectId,
       workingDir: WORKTREE_DIR,

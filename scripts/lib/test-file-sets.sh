@@ -148,7 +148,8 @@ coverage_host_files() {
       web/src/__tests__/mock-llm-store.test.ts \
       web/src/__tests__/mock-llm-route.test.ts \
       web/src/__tests__/runs-wait-route.test.ts \
-      web/src/__tests__/seed-reset-route.test.ts
+      web/src/__tests__/seed-reset-route.test.ts \
+      web/src/__tests__/extensions-events-route.test.ts
     # The suggest-leg files are subtracted below — ONE definition
     # (suggest_leg_files) serves both this exclusion and the runner.
   } 2>/dev/null | sort -u | comm -23 - <(suggest_leg_files)

@@ -44,16 +44,17 @@ mock.module("$server/auth/middleware", () => ({
 
 const mockBusEmit = mock((..._args: unknown[]) => {});
 const mockBus = { emit: mockBusEmit };
+// The route's spawn-path re-wire (out-of-turn wirer fix) also imports
+// getExecutor; a partial mock that omits it fails EVERY import from the
+// module at load ("Export named 'getExecutor' not found"). Default: a
+// minimal fake executor so the FULL-wiring path (setExecutor +
+// setSpawnQuota) executes; a test flips `getExecutorImpl` to a throw to
+// exercise the route's guarded executor-less catch (spawn path unwired).
+const fakeExecutor = { spawnQuota: {} } as unknown;
+let getExecutorImpl: () => unknown = () => fakeExecutor;
 mock.module("$lib/server/context", () => ({
   getBus: () => mockBus,
-  // The route's spawn-path re-wire (out-of-turn wirer fix) also imports
-  // getExecutor; a partial mock that omits it fails EVERY import from the
-  // module at load ("Export named 'getExecutor' not found"). Throwing here
-  // exercises the route's own guarded executor-less test path (the catch
-  // keeps the spawn path unwired) instead of crashing module load.
-  getExecutor: () => {
-    throw new Error("executor not booted (test context)");
-  },
+  getExecutor: () => getExecutorImpl(),
 }));
 
 // ── Mock errorJson + json (mirror ask-user-answer-route.test.ts) ──
@@ -706,6 +707,30 @@ describe("POST /api/extensions/[name]/events/[event]", () => {
       const payload = turnSavedCalls[0]?.[1] as { runId: string; messageId: string };
       expect(payload.runId).toBe("ext:ext-kokoro:new-msg-1");
       expect(payload.messageId).toBe("new-msg-1");
+    });
+
+    test("an un-booted executor (getExecutor throws) degrades to the unwired spawn path — event still 200s", async () => {
+      // Covers the guarded executor-less catch: the wirer proceeds without
+      // setExecutor/setSpawnQuota and the toolbar event still succeeds.
+      mockRegisteredEvents.add("kokoro-tts:speak");
+      mockConv = { id: "c-1", userId: "user-1" };
+      mockExt = kokoroExt();
+      mockWiredIds = ["ext-kokoro"];
+      const prevImpl = getExecutorImpl;
+      getExecutorImpl = () => {
+        throw new Error("executor not booted (test context)");
+      };
+      try {
+        const res = await POST(
+          makeEvent(
+            { messageId: "m-1", conversationId: "c-1", content: "Hi.", selection: null },
+            { name: "kokoro-tts", event: "speak" },
+          ) as never,
+        );
+        expect(res.status).toBe(200);
+      } finally {
+        getExecutorImpl = prevImpl;
+      }
     });
 
     test("uses selection text when present (and labels the header accordingly)", async () => {

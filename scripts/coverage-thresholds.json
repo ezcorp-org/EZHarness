@@ -84,6 +84,7 @@
   "src/runtime/hub-pages.ts": 100,
   "src/extensions/page-schema.ts": 100,
   "src/extensions/page-cache.ts": 100,
+  "web/src/lib/stores.svelte.ts": 28,
   "web/src/lib/hub.ts": 100,
   "web/src/lib/resume-path.ts": 100,
   "web/src/lib/sw-runtime.ts": 100,
