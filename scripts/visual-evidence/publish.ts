@@ -226,12 +226,24 @@ function isSpecSuffixMatch(a: readonly string[], b: readonly string[]): boolean 
  * decision. A hostile spec can at worst self-promote to inline; it is still
  * rendered through `sanitizeLabel` / `safeSegment`, so it stays inert plain text.
  */
+/**
+ * Per-list cache of split changed paths: the partition loop calls
+ * {@link isChangedShotSpec} once per shot with the SAME array, so without this
+ * every shot re-split every changed path (O(shots × changed) string work).
+ */
+const changedSegsCache = new WeakMap<readonly string[], string[][]>();
+
 export function isChangedShotSpec(shotSpec: string, changedSpecPaths: readonly string[]): boolean {
   const shotSegs = specPathSegments(shotSpec);
   if (shotSegs.length === 0) return false;
-  for (const changed of changedSpecPaths) {
-    const changedSegs = specPathSegments(changed);
-    if (changedSegs.length === 0) continue;
+  let changedSegsList = changedSegsCache.get(changedSpecPaths);
+  if (!changedSegsList) {
+    changedSegsList = changedSpecPaths
+      .map(specPathSegments)
+      .filter((segs) => segs.length > 0);
+    changedSegsCache.set(changedSpecPaths, changedSegsList);
+  }
+  for (const changedSegs of changedSegsList) {
     if (isSpecSuffixMatch(shotSegs, changedSegs)) return true;
   }
   return false;

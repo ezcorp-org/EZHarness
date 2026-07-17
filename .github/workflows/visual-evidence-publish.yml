@@ -94,8 +94,9 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: bun scripts/visual-evidence/publish.ts
       # Fetch the PR's changed-file list (TRUSTED GitHub-API data — NOT the
-      # untrusted artifact) so pass-2 can float shots whose own spec file is in
-      # the diff to the top and fold the covers-union remainder. The ONLY
+      # untrusted artifact) so pass-2 can float the diff-relevant shots to the
+      # top (changed specs + covering specs, see the expansion step below) and
+      # fold the rest. The ONLY
       # interpolated value is `steps.stage.outputs.pr`, passed via env — it was
       # already validated `^[0-9]+$` by publish.ts (validatePrNumber) before being
       # emitted, so no ref/path/command injection is possible. `changed-files.txt`
@@ -113,6 +114,15 @@ jobs:
           set -euo pipefail
           gh api "repos/${REPO}/pulls/${PR}/files" --paginate --jq '.[].filename' > changed-files.txt
           echo "Wrote $(wc -l < changed-files.txt) changed path(s) to changed-files.txt."
+      # Align the gallery's inline section with WF1's capture scope: append the
+      # covering specs (DEFAULT-branch covers map) of every changed visual file,
+      # so covers-union shots float inline too — not just literally-changed
+      # specs. Trusted inputs only (API file list + default-branch map); output
+      # stays presentation-only. Fail-soft: on error the list is left as-is.
+      - name: Expand changed files with covering specs
+        if: steps.changed.outcome == 'success'
+        continue-on-error: true
+        run: bun scripts/visual-evidence/expand-changed-specs.ts changed-files.txt
       # Build the orphan branch in a THROWAWAY git repo (git init — never a
       # checkout of this repo) from the staged tree, then capture the new commit
       # sha so the gallery URLs are immutable.

@@ -465,6 +465,10 @@ jobs:
       - name: Capture visual evidence
         id: capture
         continue-on-error: true
+        # Explicit bash (the Actions default, but pinned so the array logic
+        # below is never run under another shell — it also works in zsh for
+        # local reproduction, unlike the previous `mapfile`).
+        shell: bash
         env:
           BASE_REF: origin/${{ github.event.pull_request.base.ref || 'main' }}
         run: |
@@ -486,7 +490,8 @@ jobs:
           if grep -qx '__ALL__' "$SPECS_FILE"; then
             EZCORP_E2E_EVIDENCE=1 bunx playwright test --project=chromium --grep @evidence || true
           else
-            mapfile -t SPECS < "$SPECS_FILE"
+            SPECS=()
+            while IFS= read -r line; do [ -n "$line" ] && SPECS+=("$line"); done < "$SPECS_FILE"
             EZCORP_E2E_EVIDENCE=1 bunx playwright test --project=chromium --grep @evidence "${SPECS[@]}" || true
           fi
       # When capture was skipped (non-visual diff), the manifest is a `skipped`
