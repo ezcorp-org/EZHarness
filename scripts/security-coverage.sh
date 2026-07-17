@@ -33,7 +33,8 @@ if [ ! -f web/.svelte-kit/tsconfig.json ]; then
   ( cd web && bunx svelte-kit sync )
 fi
 
-PARALLEL=${PARALLEL:-6}
+# Pool width: min(nproc, 6) — see default_parallel in lib/test-file-sets.sh.
+PARALLEL=${PARALLEL:-$(default_parallel)}
 COV_OUT=${COV_OUT:-coverage-shard}
 mkdir -p "$COV_OUT"
 

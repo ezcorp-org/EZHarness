@@ -4,6 +4,11 @@
 # can never drift apart. Each function prints one repo-relative path per line,
 # sorted + de-duplicated. Run from the repo root.
 #
+# Also home to the shared pool-runner helpers (default_parallel /
+# summary_count / collect_pool_results) used by the per-file isolation
+# runners (test.sh, test-web.sh, test-coverage.sh, security-coverage.sh) so
+# the pool mechanics can't drift between them either.
+#
 # Two sets are defined:
 #   P (passfail_files)      — the per-file mock.module-isolated backend pool
 #                             that CI gates pass/fail on.
@@ -19,9 +24,11 @@
 #   P \ C = the *integration* files + route-contract.test.ts (the remote-control
 #           governance meta-test). These are gated for pass/fail — via the CI
 #           `residual-tests` job (RESIDUAL_ONLY=1 → residual_passfail_files →
-#           test.sh, real exit code) — but NOT measured for coverage. The
-#           coverage shards TOLERATE pass/fail, so a file that must HARD-gate
-#           has to live in P\C, not merely in C.
+#           test.sh, real exit code) — but NOT measured for coverage. (P∩C
+#           files hard-gate INSIDE the coverage shards via test-coverage.sh's
+#           P-membership gate + isolated retry sweep; P\C files are the ones
+#           the shards never run, so the residual job is their only
+#           pass/fail home.)
 #   C \ P = the example suites + a few coverage-only shards (measured for
 #           coverage; the example e2e cases fail-by-timeout without Docker, so
 #           they are NEVER pass/fail-gated — see the host-shard classifier in
@@ -53,10 +60,14 @@ passfail_files() {
     # (a failing assertion must RED CI, not merely advise). It lives ONLY in P,
     # deliberately kept OUT of the coverage set C below: the set difference P\C
     # lands it in the CI `residual-tests` job, whose `test.sh` run propagates a
-    # real exit code. (Were it left in C it would run only under the
-    # pass/fail-TOLERANT coverage shards and never gate.) It covers only the
+    # real exit code with NO --coverage instrumentation and NO retry-sweep
+    # flake tolerance (a C∩P file would also hard-gate inside the coverage
+    # shards now, but instrumented + one-retry-tolerant — plain residual
+    # gating is strictly stronger for this meta-test). It covers only the
     # already-pinned harness-client route table + the unpinned api-registry, so
-    # excluding it from C loses no threshold-gated coverage.
+    # excluding it from C loses no threshold-gated coverage. test.sh's
+    # RESIDUAL_ONLY mode asserts this file's presence in P\C, so membership
+    # drift (rename / C absorbing it) fails loudly instead of de-gating.
     printf '%s\n' web/src/__tests__/route-contract.test.ts
   } 2>/dev/null | sort -u
 }
@@ -208,4 +219,78 @@ critical_backend_files() {
 shard_slice() {
   local index="$1" total="$2"
   awk -v idx="$index" -v tot="$total" 'NR % tot == idx'
+}
+
+# ── shared pool-runner helpers ──────────────────────────────────────────────
+
+# Default pool width: 6, capped at the machine's core count. Six concurrent
+# bun+PGlite processes on a 2-core CI runner starve each other into hook/test
+# timeouts (mass '(unnamed) [10s]' failures). Callers use
+# PARALLEL=${PARALLEL:-$(default_parallel)} so an explicit PARALLEL overrides.
+default_parallel() {
+  local cores
+  cores=$(nproc 2>/dev/null || echo 6)
+  echo $(( cores < 6 ? cores : 6 ))
+}
+
+# Extract the last "N pass" / "N fail" count from a bun test summary.
+# Usage: summary_count "$OUTPUT" pass|fail — prints nothing when no summary
+# was printed (module-load error, crash, SIGKILL); callers default with :-0.
+summary_count() {
+  local output="$1" word="$2"
+  echo "$output" | awk -v w="$word" \
+    '$0 ~ w {for(j=1;j<=NF;j++) if($j ~ /^[0-9]+$/ && $(j+1)==w) print $j}' | tail -1
+}
+
+# Collect the per-file pool results written by the run loops into
+# $TMPDIR/result_$i + $TMPDIR/code_$i. Takes the NAME of the file-list array;
+# updates the caller's TOTAL_PASS / TOTAL_FAIL / FAILED_FILES and prints a
+# per-file failure block (the "(fail)" lines, or the output tail when a file
+# errored at load / was killed).
+#
+# A MISSING result/code file is a FAILURE, never a skip: an OOM/SIGKILL-ed
+# subshell writes neither file, and `continue`-ing past it silently green-lit
+# a killed shard. It is recorded as CODE=1 with reason
+# "no result recorded (killed?)" so it is always counted and listed.
+collect_pool_results() {
+  local -n _cp_files=$1
+  local i OUTFILE OUTPUT CODE PASS FAIL DETAIL
+  for ((i=0; i<${#_cp_files[@]}; i++)); do
+    OUTFILE="$TMPDIR/result_$i"
+    if [ -f "$OUTFILE" ]; then
+      OUTPUT=$(cat "$OUTFILE")
+      CODE=$(cat "$TMPDIR/code_$i" 2>/dev/null || echo 1)
+    else
+      OUTPUT="no result recorded (killed?) — the subshell wrote no output/exit-code file"
+      CODE=1
+    fi
+
+    PASS=$(summary_count "$OUTPUT" pass)
+    FAIL=$(summary_count "$OUTPUT" fail)
+
+    TOTAL_PASS=$((TOTAL_PASS + ${PASS:-0}))
+    # Count at least one failure when bun exited non-zero but printed no
+    # parseable "N fail" (module-load error, crash, or kill with no summary).
+    if [ "$CODE" != "0" ] && [ "${FAIL:-0}" = "0" ]; then
+      FAIL=1
+    fi
+    TOTAL_FAIL=$((TOTAL_FAIL + ${FAIL:-0}))
+
+    # A file is failing if bun exited non-zero OR the summary reported failures.
+    if [ "$CODE" != "0" ] || [ "${FAIL:-0}" != "0" ]; then
+      FAILED_FILES+=("${_cp_files[$i]}")
+      echo "--- FAIL: ${_cp_files[$i]} ---"
+      DETAIL=$(echo "$OUTPUT" | awk '/\(fail\)/')
+      if [ -n "$DETAIL" ]; then
+        echo "$DETAIL"
+      else
+        # No per-test "(fail)" line — the file errored at load or was killed.
+        # Surface the tail of its output so CI failures are diagnosable instead
+        # of printing an empty header (the historical false-positive symptom).
+        echo "  (no per-test failures parsed; exit code $CODE — showing output tail)"
+        echo "$OUTPUT" | tail -20 | sed 's/^/  /'
+      fi
+      echo ""
+    fi
+  done
 }

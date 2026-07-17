@@ -34,12 +34,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/lib/test-file-sets.sh
 source "$SCRIPT_DIR/lib/test-file-sets.sh"
 
-# Default pool width: 6, capped at the machine's core count. Six concurrent
-# bun+PGlite processes on a 2-core CI runner starve each other into hook/test
-# timeouts (mass '(unnamed) [10s]' failures) — failures the pre-set+e runner
-# used to swallow. Explicit PARALLEL still overrides.
-CORES=$(nproc 2>/dev/null || echo 6)
-PARALLEL=${PARALLEL:-$(( CORES < 6 ? CORES : 6 ))}
+# Default pool width: min(nproc, 6) — see default_parallel in
+# lib/test-file-sets.sh. Explicit PARALLEL still overrides.
+PARALLEL=${PARALLEL:-$(default_parallel)}
 TOTAL_PASS=0
 TOTAL_FAIL=0
 FAILED_FILES=()
@@ -108,41 +105,10 @@ done
 # Wait for remaining
 wait
 
-# Collect results
-for ((i=0; i<${#FILES[@]}; i++)); do
-  OUTFILE="$TMPDIR/result_$i"
-  [ -f "$OUTFILE" ] || continue
-  OUTPUT=$(cat "$OUTFILE")
-  CODE=$(cat "$TMPDIR/code_$i" 2>/dev/null || echo 1)
-
-  PASS=$(echo "$OUTPUT" | awk '/pass/{for(j=1;j<=NF;j++) if($j ~ /^[0-9]+$/ && $(j+1)=="pass") print $j}' | tail -1)
-  FAIL=$(echo "$OUTPUT" | awk '/fail/{for(j=1;j<=NF;j++) if($j ~ /^[0-9]+$/ && $(j+1)=="fail") print $j}' | tail -1)
-
-  TOTAL_PASS=$((TOTAL_PASS + ${PASS:-0}))
-  # Count at least one failure when bun exited non-zero but printed no parseable
-  # "N fail" (module-load error, crash, or SIGKILL with no summary).
-  if [ "$CODE" != "0" ] && [ "${FAIL:-0}" = "0" ]; then
-    FAIL=1
-  fi
-  TOTAL_FAIL=$((TOTAL_FAIL + ${FAIL:-0}))
-
-  # A file is failing if bun exited non-zero OR the summary reported failures.
-  if [ "$CODE" != "0" ] || [ "${FAIL:-0}" != "0" ]; then
-    FAILED_FILES+=("${FILES[$i]}")
-    echo "--- FAIL: ${FILES[$i]} ---"
-    DETAIL=$(echo "$OUTPUT" | awk '/\(fail\)/')
-    if [ -n "$DETAIL" ]; then
-      echo "$DETAIL"
-    else
-      # No per-test "(fail)" line — the file errored at load or was killed.
-      # Surface the tail of its output so CI failures are diagnosable instead
-      # of printing an empty header (the historical false-positive symptom).
-      echo "  (no per-test failures parsed; exit code $CODE — showing output tail)"
-      echo "$OUTPUT" | tail -20 | sed 's/^/  /'
-    fi
-    echo ""
-  fi
-done
+# Collect results (shared with test-web.sh — see lib/test-file-sets.sh). A
+# missing result file counts as a FAILURE ("no result recorded (killed?)"),
+# never a silent skip.
+collect_pool_results FILES
 
 echo ""
 echo "================================"

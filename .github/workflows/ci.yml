@@ -305,10 +305,11 @@ jobs:
           CRITICAL_ONLY: "1"
         run: bash scripts/test.sh
 
-  # The pass/fail files that the coverage shards do NOT run (the *integration*
-  # variants excluded from the coverage set). Empty today on main — a no-op
-  # until the integration suites land — but keeps the union of gated pass/fail
-  # files exactly equal to the old `Backend tests` set.
+  # The pass/fail files that the coverage shards do NOT run: the *integration*
+  # variants excluded from the coverage set, plus route-contract.test.ts (the
+  # remote-control governance meta-test). Keeps the union of gated pass/fail
+  # files exactly equal to the full pass/fail set P — scripts/test.sh asserts
+  # route-contract's membership so set drift can never silently de-gate it.
   residual-tests:
     name: Residual integration tests
     runs-on: ubuntu-latest
@@ -325,12 +326,13 @@ jobs:
         run: bash scripts/test.sh
 
   # Required check (branch protection): green iff every backend shard + the
-  # residual set RAN TO COMPLETION. The shards execute the whole backend suite
-  # under --coverage and tolerate test pass/fail (the Per-file coverage gate
-  # enforces thresholds — "enforces thresholds, not shard status"; this matches
-  # the pre-split job, whose `Backend tests` pool also did not red on individual
-  # test failures). A shard that fails here means the runner could not execute
-  # (infra/OOM) — that is surfaced. Aggregated so the pinned required-check name
+  # residual set succeeded. The shards run the backend suite under --coverage
+  # and gate pass/fail on P-membership with an isolated plain retry sweep for
+  # instrumentation flakes (see scripts/test-coverage.sh host-shard mode);
+  # non-P files (the example suites) stay coverage-only, enforced by the
+  # Per-file coverage gate's thresholds. A red here therefore means a real
+  # pass/fail-set test failure OR an infrastructure failure (runner couldn't
+  # execute) — both must block. Aggregated so the pinned required-check name
   # keeps reporting.
   backend-tests:
     name: Backend tests
@@ -345,10 +347,10 @@ jobs:
           echo "residual-tests:  ${{ needs.residual-tests.result }}"
           if [ "${{ needs.cov-shard.result }}" != "success" ] || \
              [ "${{ needs.residual-tests.result }}" != "success" ]; then
-            echo "::error::A backend shard failed to run to completion (infrastructure)"
+            echo "::error::A backend shard failed — a pass/fail-set (P) test failure that survived the isolated retry, or an infrastructure failure. See the failing shard's log."
             exit 1
           fi
-          echo "All backend shards ran to completion."
+          echo "All backend shards succeeded."
 
   # Required check (branch protection): merges every shard + extras lcov and
   # enforces scripts/coverage-thresholds.json + the diff-scoped new-file/patch

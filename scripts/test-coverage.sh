@@ -17,18 +17,21 @@
 #   host-shard (CI; SHARD_INDEX + SHARD_TOTAL set):
 #       Run only the 1-of-N stride slice of the host set under --coverage and
 #       emit each shard's lcov into $COV_OUT for the coverage-gate job to merge.
-#       This is the SHARDED form of the pre-split coverage job: it TOLERATES test
-#       pass/fail (reports a summary + the failing files for visibility, but
-#       exits 0 on test failures) and lets the Per-file coverage gate enforce
-#       thresholds — the project's "enforces thresholds, not shard status"
-#       contract. (Several backend suites are timing/rate-limit/build sensitive
-#       and fail under --coverage AND on the slow CI runner even plain; the old
-#       `Backend tests` pool masked them via a set -e bug. Gating shard pass/fail
-#       here would red CI on those pre-existing env-flaky tests with no integrity
-#       gain — the coverage threshold gate is and remains the real backend gate.)
-#       A shard still exits non-zero on an INFRASTRUCTURE failure (the runner
-#       couldn't execute), which the `Backend tests` aggregator surfaces.
-#       No legs/merge/check here.
+#       Pass/fail is gated on P-MEMBERSHIP (passfail_files in
+#       lib/test-file-sets.sh) with an isolated retry sweep: a failing file
+#       that belongs to the pass/fail set P is re-run ONCE — serially,
+#       isolated, PLAIN (no --coverage, no parallel siblings). Real breakage
+#       fails both runs and REDS the shard (exit 1); an instrumentation/
+#       contention flake (several backend suites are timing/rate-limit
+#       sensitive under --coverage on the slow CI runner) passes the clean
+#       re-run and is tolerated. Failures OUTSIDE P (e.g. the
+#       docs/extensions/examples suites, which fail by design without Docker)
+#       are never pass/fail-gated — they are listed as non-gating files and
+#       the Per-file coverage gate's thresholds remain their only gate. A
+#       missing per-file result ("no result recorded", e.g. an OOM-killed
+#       subshell) counts as a failure and enters the same P-gate + retry
+#       path. A shard also still exits non-zero on an INFRASTRUCTURE failure
+#       (the runner couldn't execute). No legs/merge/check here.
 #
 #   legs-only (CI; COVERAGE_LEGS_ONLY=1):
 #       Run ONLY the SDK + harness-client + node-vitest coverage legs and emit
@@ -42,7 +45,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/lib/test-file-sets.sh
 source "$SCRIPT_DIR/lib/test-file-sets.sh"
 
-PARALLEL=${PARALLEL:-6}
+# Pool width: min(nproc, 6) — see default_parallel in lib/test-file-sets.sh.
+PARALLEL=${PARALLEL:-$(default_parallel)}
 COV_OUT=${COV_OUT:-}
 TOTAL_PASS=0
 TOTAL_FAIL=0
@@ -89,12 +93,13 @@ run_host_pool() {
   HOST_COUNT=$idx
 }
 
-# Tally pass/fail from a shard's captured output (visibility only).
+# Tally pass/fail from a shard's captured output (summary counts only — the
+# pass/fail GATING signal is the per-file exit code, not this tally).
 tally() {
   local output="$1"
   local p f
-  p=$(echo "$output" | awk '/pass/{for(j=1;j<=NF;j++) if($j ~ /^[0-9]+$/ && $(j+1)=="pass") print $j}' | tail -1)
-  f=$(echo "$output" | awk '/fail/{for(j=1;j<=NF;j++) if($j ~ /^[0-9]+$/ && $(j+1)=="fail") print $j}' | tail -1)
+  p=$(summary_count "$output" pass)
+  f=$(summary_count "$output" fail)
   TOTAL_PASS=$((TOTAL_PASS + ${p:-0}))
   TOTAL_FAIL=$((TOTAL_FAIL + ${f:-0}))
 }
@@ -377,8 +382,17 @@ fi
 
 # Build the host file list (sliced for shard mode).
 if [ -n "$SHARD_TOTAL" ]; then
-  mapfile -t FILES < <(coverage_host_files | shard_slice "$SHARD_INDEX" "$SHARD_TOTAL")
-  echo "== host-shard mode: shard ${SHARD_INDEX}/${SHARD_TOTAL} → ${#FILES[@]} files =="
+  if [ -n "$HOST_FILES_OVERRIDE" ] && [ -z "$CI" ]; then
+    # Dev-only escape hatch: run an explicit file list (one repo-relative path
+    # per line) to exercise the P-membership gate + retry sweep locally without
+    # a full 1-of-N shard. INERT IN CI: GitHub Actions always sets CI, so this
+    # branch can never replace the real set there (no gate-weakening surface).
+    mapfile -t FILES < "$HOST_FILES_OVERRIDE"
+    echo "== host-shard mode (HOST_FILES_OVERRIDE, dev-only): ${#FILES[@]} files =="
+  else
+    mapfile -t FILES < <(coverage_host_files | shard_slice "$SHARD_INDEX" "$SHARD_TOTAL")
+    echo "== host-shard mode: shard ${SHARD_INDEX}/${SHARD_TOTAL} → ${#FILES[@]} files =="
+  fi
 else
   mapfile -t FILES < <(coverage_host_files)
   echo "== full local coverage mode: ${#FILES[@]} host files =="
@@ -386,11 +400,19 @@ fi
 
 run_host_pool FILES
 
-# Tally + collect failing files (by exit code) for the summary (visibility).
+# Tally + collect failing files (by exit code). A MISSING result/code file
+# (OOM/SIGKILL-ed subshell wrote neither) is a FAILURE — "no result recorded"
+# — never a silent skip: in shard mode it feeds the P-membership gate below;
+# elsewhere it is at least visible in the failed-files list.
 for ((i = 0; i < HOST_COUNT; i++)); do
-  [ -f "$TMPDIR/result_$i" ] || continue
-  OUTPUT=$(cat "$TMPDIR/result_$i")
-  CODE=$(cat "$TMPDIR/code_$i" 2>/dev/null || echo 1)
+  if [ -f "$TMPDIR/result_$i" ]; then
+    OUTPUT=$(cat "$TMPDIR/result_$i")
+    CODE=$(cat "$TMPDIR/code_$i" 2>/dev/null || echo 1)
+  else
+    OUTPUT=""
+    CODE=1
+    echo "--- no result recorded (killed?): ${FILES[$i]} — counting as a failure ---"
+  fi
   tally "$OUTPUT"
   if [ "$CODE" != "0" ]; then
     FAILED_FILES+=("${FILES[$i]}")
@@ -398,19 +420,60 @@ for ((i = 0; i < HOST_COUNT; i++)); do
 done
 
 if [ -n "$SHARD_TOTAL" ]; then
-  # SHARDED form of the pre-split coverage job: emit lcov and TOLERATE test
-  # pass/fail (the Per-file coverage gate enforces thresholds — "enforces
-  # thresholds, not shard status"). Failing files are listed for visibility but
-  # do not red the shard; an INFRASTRUCTURE failure (couldn't run) still would,
-  # via a non-zero exit before this point. See the header for why strict shard
-  # gating is intentionally not done.
+  # SHARDED CI form: emit lcov, then gate pass/fail on P-MEMBERSHIP with an
+  # isolated retry sweep (the design documented in ci.yml's cov-shard comment
+  # and lib/test-file-sets.sh):
+  #   - a failing file that belongs to the pass/fail set P is re-run ONCE —
+  #     serially, isolated, PLAIN (bun test, NO --coverage, no parallel
+  #     siblings). Real breakage fails both runs; an instrumentation/
+  #     contention flake passes the clean re-run and is tolerated.
+  #   - a P-member still failing after the isolated re-run REDS the shard.
+  #   - failures OUTSIDE P (e.g. the docs/extensions/examples suites that
+  #     fail by design without Docker) are never pass/fail-gated — listed as
+  #     non-gating files; the Per-file coverage gate's thresholds remain
+  #     their only gate.
   emit_lcov
   echo ""
   echo "  ${TOTAL_PASS} pass | ${TOTAL_FAIL} fail | ${#FILES[@]} files (shard ${SHARD_INDEX}/${SHARD_TOTAL})"
-  if [ "${#FAILED_FILES[@]}" -gt 0 ]; then
+
+  declare -A IN_P=()
+  while IFS= read -r pf; do IN_P["$pf"]=1; done < <(passfail_files)
+  P_FAILED=()
+  NONP_FAILED=()
+  for f in "${FAILED_FILES[@]}"; do
+    if [ -n "${IN_P[$f]:-}" ]; then P_FAILED+=("$f"); else NONP_FAILED+=("$f"); fi
+  done
+
+  if [ "${#NONP_FAILED[@]}" -gt 0 ]; then
     echo ""
-    echo "Files with failing tests under coverage (TOLERATED — thresholds are the gate):"
-    for f in "${FAILED_FILES[@]}"; do echo "  - $f"; done
+    echo "Failing non-gating files (TOLERATED — not in the pass/fail set P; thresholds are their gate):"
+    for f in "${NONP_FAILED[@]}"; do echo "  - $f"; done
+  fi
+
+  STILL_FAILED=()
+  if [ "${#P_FAILED[@]}" -gt 0 ]; then
+    echo ""
+    echo "Retry sweep: ${#P_FAILED[@]} failed pass/fail-set (P) file(s) — re-running each once, serial + isolated + PLAIN (no --coverage):"
+    for f in "${P_FAILED[@]}"; do
+      set +e
+      RETRY_OUT=$(bun test --timeout 30000 "./$f" 2>&1)
+      RETRY_CODE=$?
+      set -e
+      if [ "$RETRY_CODE" = "0" ]; then
+        echo "  - $f: passed the isolated plain re-run (instrumentation/contention flake — tolerated)"
+      else
+        echo "  - $f: STILL FAILING after isolated re-run (exit $RETRY_CODE)"
+        echo "$RETRY_OUT" | tail -20 | sed 's/^/      /'
+        STILL_FAILED+=("$f")
+      fi
+    done
+  fi
+
+  if [ "${#STILL_FAILED[@]}" -gt 0 ]; then
+    echo ""
+    echo "Shard FAILED: ${#STILL_FAILED[@]} pass/fail-set (P) file(s) failed the pooled run AND the isolated plain re-run:"
+    for f in "${STILL_FAILED[@]}"; do echo "  - $f"; done
+    exit 1
   fi
   exit 0
 fi
