@@ -105,13 +105,19 @@ jobs:
       # surface. A blanket run pulls in ~240 specs, many DOCKER_TEST-gated or
       # seed-dependent that would fail/flake here with no live backend.
       # file-organizer-real.spec.ts self-skips its real-backend cases.
+      #
+      # ANCHORED regexes (Playwright CLI file args are regexes): a bare
+      # `hub.spec.ts` also substring-matched github-projects-hub.spec.ts and
+      # project-hub.spec.ts, silently pulling both into this blocking gate.
+      # Exactly these 5 files run (verified via --list); the two accidental
+      # extras are out of the gate and belong to the future lane manifest.
       - run: |
           cd web && bunx playwright test --project=chromium \
-            file-organizer-hub.spec.ts \
-            file-organizer-real.spec.ts \
-            hub.spec.ts \
-            extensions-library-tabs.spec.ts \
-            extension-detail-pages.spec.ts
+            'e2e/file-organizer-hub\.spec\.ts$' \
+            'e2e/file-organizer-real\.spec\.ts$' \
+            'e2e/hub\.spec\.ts$' \
+            'e2e/extensions-library-tabs\.spec\.ts$' \
+            'e2e/extension-detail-pages\.spec\.ts$'
 
   # Real-auth + real-DB + mock-LLM e2e tier (web/playwright.real.config.ts,
   # specs under web/e2e/real-auth/). Unlike e2e-mock, the preview server boots
