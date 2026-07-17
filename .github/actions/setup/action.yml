@@ -1,14 +1,13 @@
 name: "Setup bun + cached deps"
 description: >
   Pinned bun, a cached global install cache, root (and optionally web/) deps,
-  optional svelte-kit sync, and optional cached Playwright chromium. Centralises
-  the bun version pin and the dependency-cache wiring so every CI job shares one
-  warm cache instead of cold-installing the 1.6 GB tree nine times.
+  optional svelte-kit sync, and optional cached Playwright chromium. The bun
+  pin itself is SINGLE-SOURCED in the top-level `.bun-version` file (read via
+  setup-bun's `bun-version-file`); the dependency-cache wiring lives here so
+  every CI job shares one warm cache instead of cold-installing the 1.6 GB
+  tree nine times.
 
 inputs:
-  bun-version:
-    description: "Pinned bun version (see the pin note in ci.yml)."
-    default: "1.3.14"
   web:
     description: "Also run `bun install` in web/."
     default: "false"
@@ -24,7 +23,7 @@ runs:
   steps:
     - uses: oven-sh/setup-bun@v2
       with:
-        bun-version: ${{ inputs.bun-version }}
+        bun-version-file: .bun-version # the single pin source; see ci.yml pin note
 
     # Bun's global module cache — keyed on both lockfiles so a dep bump busts it,
     # restore-keys lets an unchanged-deps push reuse the previous run's cache.
@@ -34,9 +33,9 @@ runs:
       uses: actions/cache@v4
       with:
         path: ~/.bun/install/cache
-        key: bun-${{ runner.os }}-${{ inputs.bun-version }}-${{ hashFiles('bun.lock', 'web/bun.lock') }}
+        key: bun-${{ runner.os }}-${{ hashFiles('.bun-version') }}-${{ hashFiles('bun.lock', 'web/bun.lock') }}
         restore-keys: |
-          bun-${{ runner.os }}-${{ inputs.bun-version }}-
+          bun-${{ runner.os }}-${{ hashFiles('.bun-version') }}-
 
     - name: Install root deps
       shell: bash
