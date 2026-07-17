@@ -244,11 +244,13 @@ jobs:
           SHARD_TOTAL: "5"
           COV_OUT: coverage-shard
         run: bash scripts/test-coverage.sh
+      # 3 days (not 1): keeps "Re-run failed jobs" on the coverage gate
+      # working >24h after the shards ran.
       - uses: actions/upload-artifact@v4
         with:
           name: lcov-cov-shard-${{ matrix.shard }}
           path: coverage-shard
-          retention-days: 1
+          retention-days: 3
           if-no-files-found: error
 
   # SDK + harness-client + node-vitest coverage legs (node 22 for coverage-v8).
@@ -275,7 +277,7 @@ jobs:
         with:
           name: lcov-cov-extras
           path: coverage-shard
-          retention-days: 1
+          retention-days: 3 # see the cov-shard retention note
           if-no-files-found: error
 
   # Coverage producer for the 9 web security helpers un-excluded from
@@ -302,7 +304,7 @@ jobs:
         with:
           name: lcov-cov-security
           path: coverage-shard
-          retention-days: 1
+          retention-days: 3 # see the cov-shard retention note
           if-no-files-found: error
 
   # Required check: a CURATED set of high-value, deterministic correctness suites
