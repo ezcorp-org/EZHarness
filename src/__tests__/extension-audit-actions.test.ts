@@ -48,6 +48,9 @@ describe("extension audit action constants", () => {
       "CAPABILITY_POLICY_WRITE",
       "SPAWN_QUOTA_EXCEEDED",
       "EMIT_EVENT_REJECTED",
+      // Loops EZ Mode Phase 2 — provenance-stamped loop-event mirror
+      "LOOP_EVENT_EMITTED",
+      "LOOP_EVENT_REJECTED",
       // Phase 2c — server→extension subscription delivery
       "EVENT_SUBSCRIPTION_DENIED",
       // Phase 4 — ezcorp/cancel-run RPC + spawn-assignment chain
@@ -105,6 +108,11 @@ describe("extension audit action constants", () => {
       "SDK_SCHEDULE_FIRE_NOW",
       "SDK_SCHEDULE_QUOTA_EXCEEDED",
       "SDK_SCHEDULE_REAPED",
+      // Loops EZ Mode Phase 4 — inbound webhook trigger
+      "SDK_WEBHOOK_ACCEPTED",
+      "SDK_WEBHOOK_REJECTED",
+      "SDK_WEBHOOK_DISPATCHED",
+      "SDK_WEBHOOK_SECRET_ROTATED",
       // v1.4 — memory injection-eligibility admin UI
       "MEMORY_INJECTION_ELIGIBILITY_CHANGED",
       // v1.4 — entity-namespace migration audit emit
