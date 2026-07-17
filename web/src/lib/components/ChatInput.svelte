@@ -193,6 +193,7 @@
 				temperature: null,
 				toolRestriction: "all",
 				extensionIds: null,
+				extensionTools: null,
 				builtin: true,
 			}
 			: null,

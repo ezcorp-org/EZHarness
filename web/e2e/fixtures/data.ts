@@ -154,6 +154,9 @@ export function makeSearchHit(overrides: Partial<MessageSearchHit> = {}): Messag
 		rankLexical: 1,
 		rankSemantic: null,
 		score: 0.5,
+		// Phase 67 made the owning project required on every hit.
+		projectId: "proj-1",
+		projectName: "Test Project",
 		...overrides,
 	};
 }

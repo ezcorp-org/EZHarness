@@ -51,6 +51,23 @@ jobs:
       # hard gate.
       - run: bun run typecheck
 
+  # Svelte template/type check (wave 3 — previously NO job checked .svelte
+  # templates; plain tsc can't see inside them). Gate is ERRORS-only
+  # (svelte-check's default exit semantics); warnings stay visible in the
+  # log for chipping away. Measured clean at introduction (0 errors / 18
+  # warnings, 3907 files, ~1-2 min).
+  svelte-check:
+    name: Svelte check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+        with:
+          web: "true"
+          sync: "true"
+      - run: cd web && bunx svelte-check
+
   # vitest runs both *.component.test.ts (Svelte DOM) and *.server.test.ts
   # (route-handler unit tests), 2-way sharded for wall clock (per-file costs
   # dominate the 410-file suite). Verified locally: --shard=1/2 + --shard=2/2
