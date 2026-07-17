@@ -50,13 +50,11 @@ export const APPROVED = "approved";
 /** Decline (human or staleness) resolved. Terminal. */
 export const DECLINED = "declined";
 
-/** The four primitive-owned approval states + their terminal subset. */
-export const APPROVAL_STATES = [
-  AWAITING_APPROVAL,
-  FINALIZING,
-  APPROVED,
-  DECLINED,
-] as const;
+/** The four primitive-owned approval states + their terminal subset.
+ *  (Single line: bun's lcov emits phantom zero-hit rows for the interior
+ *  lines of a multi-line `as const` array literal — see the repo's
+ *  wrapped-cast coverage lesson.) */
+export const APPROVAL_STATES = [AWAITING_APPROVAL, FINALIZING, APPROVED, DECLINED] as const;
 export const APPROVAL_TERMINAL_STATES = [APPROVED, DECLINED] as const;
 
 /** Default staleness horizon: a parked proposal older than this many days

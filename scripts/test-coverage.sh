@@ -244,6 +244,9 @@ run_legs() {
       src/__tests__/api-contexts.server.test.ts \
       src/__tests__/api-conversations-topics.server.test.ts \
       src/__tests__/api-topics-extract.server.test.ts \
+      src/__tests__/api-hooks.server.test.ts \
+      src/__tests__/api-webhook-rotate.server.test.ts \
+      src/__tests__/webhook-pipeline.server.test.ts \
       --coverage --coverage.provider=v8 --coverage.reporter=lcovonly \
       --coverage.reportsDirectory="$VITEST_COV" \
       --coverage.include='src/lib/search/*.ts' \
@@ -289,6 +292,8 @@ run_legs() {
       --coverage.include='src/lib/components/extensions/AuthorCompositionPanel.svelte' \
       --coverage.include='src/lib/components/extensions/UsesList.svelte' \
       --coverage.include='src/routes/api/users/+server.ts' \
+      --coverage.include='src/routes/api/hooks/[extensionId]/[slug]/+server.ts' \
+      --coverage.include='src/routes/api/extensions/[name]/webhooks/[slug]/rotate/+server.ts' \
       --coverage.include='src/lib/audit-log-view.ts' \
       --coverage.include='src/lib/settings-models.ts' \
       --coverage.include='src/lib/model-selector-logic.ts' \
