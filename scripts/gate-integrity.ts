@@ -339,10 +339,20 @@ function isTestFile(path: string): boolean {
  * here — the old-side path decides.)
  */
 export function deletedOrRenamedTests(nameStatus: string): string[] {
+  // Defense in depth against git's C-quoting: with core.quotePath=true a
+  // path containing non-ASCII/special bytes is emitted as "src/…\303\244….test.ts"
+  // — the surrounding quotes would make isTestFile miss the .test.ts suffix.
+  // The diff invocation pins -c core.quotePath=false, and this strip catches
+  // any quoted path that reaches us anyway (the escaped interior still ends
+  // in .test.ts).
+  const unquote = (p: string | undefined): string | undefined =>
+    p?.startsWith('"') && p.endsWith('"') ? p.slice(1, -1) : p;
   const out: string[] = [];
   for (const line of nameStatus.split("\n")) {
     if (!line.trim()) continue;
-    const [status, oldPath, newPath] = line.split("\t");
+    const [status, rawOld, rawNew] = line.split("\t");
+    const oldPath = unquote(rawOld);
+    const newPath = unquote(rawNew);
     if (!status || !oldPath || !isTestFile(oldPath)) continue;
     if (status.startsWith("D")) {
       out.push(`test file DELETED: ${oldPath} — removing a test removes a gate`);
@@ -437,7 +447,16 @@ async function main(): Promise<void> {
   }
 
   // 7. Deleted/renamed test files (rename detection on, R100 included).
-  const nameStatus = await git(["diff", "--name-status", "-M", `${mergeBase}...HEAD`]);
+  // core.quotePath=false: never C-quote paths — a quote-forcing filename
+  // must not be able to dodge the .test.ts suffix match.
+  const nameStatus = await git([
+    "-c",
+    "core.quotePath=false",
+    "diff",
+    "--name-status",
+    "-M",
+    `${mergeBase}...HEAD`,
+  ]);
   for (const v of deletedOrRenamedTests(nameStatus)) {
     violations.push(`${v} — needs the gate-change-approved label`);
   }

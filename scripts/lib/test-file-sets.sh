@@ -4,10 +4,11 @@
 # can never drift apart. Each function prints one repo-relative path per line,
 # sorted + de-duplicated. Run from the repo root.
 #
-# Also home to the shared pool-runner helpers (default_parallel /
-# summary_count / collect_pool_results) used by the per-file isolation
-# runners (test.sh, test-web.sh, test-coverage.sh, security-coverage.sh) so
-# the pool mechanics can't drift between them either.
+# Also home to the shared pool-runner helpers so the pool mechanics can't
+# drift between the per-file isolation runners: default_parallel is used by
+# all four (test.sh, test-web.sh, test-coverage.sh, security-coverage.sh);
+# summary_count by the three that parse bun summaries; collect_pool_results
+# by test.sh + test-web.sh (test-coverage.sh has its own P-gate collection).
 #
 # Two sets are defined:
 #   P (passfail_files)      — the per-file mock.module-isolated backend pool

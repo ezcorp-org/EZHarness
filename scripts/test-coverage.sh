@@ -414,7 +414,11 @@ for ((i = 0; i < HOST_COUNT; i++)); do
     echo "--- no result recorded (killed?): ${FILES[$i]} — counting as a failure ---"
   fi
   tally "$OUTPUT"
-  if [ "$CODE" != "0" ]; then
+  # A file is failing if bun exited non-zero OR its summary reported failures
+  # (same OR as collect_pool_results — a bun exit-0-with-"N fail" summary must
+  # not slip past the P-gate).
+  FILE_FAIL=$(summary_count "$OUTPUT" fail)
+  if [ "$CODE" != "0" ] || [ "${FILE_FAIL:-0}" != "0" ]; then
     FAILED_FILES+=("${FILES[$i]}")
   fi
 done
@@ -456,7 +460,16 @@ if [ -n "$SHARD_TOTAL" ]; then
     echo "Retry sweep: ${#P_FAILED[@]} failed pass/fail-set (P) file(s) — re-running each once, serial + isolated + PLAIN (no --coverage):"
     for f in "${P_FAILED[@]}"; do
       set +e
-      RETRY_OUT=$(bun test --timeout 30000 "./$f" 2>&1)
+      # Wall-clock watchdog: bun's per-test timeout can't catch a module-LOAD
+      # hang, so cap the whole re-run at 5 min — it reds fast instead of
+      # stalling to the job timeout (timeout(1) exits 124 → still-failing).
+      # If the timeout binary is missing, fall back to the plain run: the
+      # exit code still gates identically, nothing soft-passes.
+      if command -v timeout >/dev/null 2>&1; then
+        RETRY_OUT=$(timeout 300 bun test --timeout 30000 "./$f" 2>&1)
+      else
+        RETRY_OUT=$(bun test --timeout 30000 "./$f" 2>&1)
+      fi
       RETRY_CODE=$?
       set -e
       if [ "$RETRY_CODE" = "0" ]; then

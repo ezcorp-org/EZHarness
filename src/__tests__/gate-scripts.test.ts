@@ -359,6 +359,24 @@ describe("gate-integrity: deletedOrRenamedTests", () => {
     ].join("\n");
     expect(deletedOrRenamedTests(nameStatus).length).toBe(2);
   });
+  test("raw (core.quotePath=false) unicode/space paths are caught", () => {
+    expect(deletedOrRenamedTests("D\tsrc/__tests__/wéird nàme.test.ts").length).toBe(1);
+    expect(
+      deletedOrRenamedTests("R100\tsrc/__tests__/ä b.test.ts\tsrc/__tests__/c.test.ts").length,
+    ).toBe(1);
+  });
+  test("a C-quoted path (quotePath=true output) is still caught via the unquote fallback", () => {
+    // The diff invocation pins -c core.quotePath=false; this fallback means a
+    // quote-forcing filename can't dodge the suffix match even if quoted
+    // output ever reaches the parser.
+    const quoted = 'D\t"src/__tests__/w\\303\\251ird.test.ts"';
+    const v = deletedOrRenamedTests(quoted);
+    expect(v.length).toBe(1);
+    expect(v[0]).toContain("DELETED");
+    const quotedRename =
+      'R100\t"src/__tests__/w\\303\\251ird.test.ts"\t"src/__tests__/pl\\303\\244in.test.ts"';
+    expect(deletedOrRenamedTests(quotedRename).length).toBe(1);
+  });
 });
 
 // ── gate-integrity: fail-closed git-show classification ─────────────────────
