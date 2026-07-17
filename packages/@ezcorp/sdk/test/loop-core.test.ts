@@ -29,9 +29,11 @@ import {
   transition,
   trimRetention,
   validateActResult,
+  validateCheckResult,
 } from "../src/runtime/loop-core";
 import type {
   ActResult,
+  CheckResult,
   LoopRunState,
   ResolvedContract,
 } from "../src/runtime/loop-types";
@@ -98,6 +100,27 @@ describe("resolveContract", () => {
     expect(c.classify(new Error("x"))).toBe("permanent");
     expect(c.onAutoDisable).toBe(onAutoDisable);
     expect(c.idempotencyKey).toBe(idempotencyKey);
+  });
+
+  test("approval present → injects the owned states + defaults mode/staleAfterDays", () => {
+    const c = resolveContract({ states: ["reviewed"], approval: {} });
+    expect(c.approval).toEqual({ mode: "proactive", staleAfterDays: 7 });
+    // The primitive-owned approval states are injected into the vocabulary.
+    expect(c.states).toContain("awaiting_approval");
+    expect(c.states).toContain("finalizing");
+    expect(c.terminal).toContain("approved");
+    expect(c.terminal).toContain("declined");
+  });
+
+  test("approval staleAfterDays=0 is preserved (sweep disabled), not defaulted", () => {
+    const c = resolveContract({ approval: { staleAfterDays: 0 } });
+    expect(c.approval?.staleAfterDays).toBe(0);
+  });
+
+  test("an unknown approval.mode throws LOUDLY at construction (Phase 7/8 guard)", () => {
+    expect(() =>
+      resolveContract({ approval: { mode: "autopilot" as never } }),
+    ).toThrow(/approval\.mode "autopilot" is not supported/);
   });
 });
 
@@ -334,6 +357,49 @@ describe("validateActResult", () => {
   });
 });
 
+// ── validateCheckResult ─────────────────────────────────────────────
+
+describe("validateCheckResult", () => {
+  test("proceed:true always passes (with or without enrichment)", () => {
+    expect(validateCheckResult({ proceed: true })).toBeNull();
+    expect(validateCheckResult({ proceed: true, input: { x: 1 } })).toBeNull();
+  });
+
+  test("proceed:false with a non-empty reason passes", () => {
+    const r: CheckResult = { proceed: false, reason: "no_new_commits" };
+    expect(validateCheckResult(r)).toBeNull();
+  });
+
+  test("proceed:false with an empty reason is rejected", () => {
+    const r = { proceed: false, reason: "" } as CheckResult;
+    const err = validateCheckResult(r);
+    expect(err).toContain("reason");
+  });
+
+  test("proceed:false with a non-string reason is rejected", () => {
+    const r = { proceed: false, reason: 42 as unknown as string } as CheckResult;
+    expect(validateCheckResult(r)).toContain("reason");
+  });
+
+  test("a non-object result is rejected (runtime junk, not a CheckResult)", () => {
+    expect(validateCheckResult("nope" as unknown as CheckResult)).toContain("object");
+    expect(validateCheckResult(42 as unknown as CheckResult)).toContain("object");
+  });
+
+  test("a null result is rejected", () => {
+    expect(validateCheckResult(null as unknown as CheckResult)).toContain("object");
+  });
+
+  test("a non-boolean proceed is rejected (a truthy non-bool must NOT act)", () => {
+    expect(
+      validateCheckResult({ proceed: "yes" } as unknown as CheckResult),
+    ).toContain("boolean");
+    expect(
+      validateCheckResult({ reason: "x" } as unknown as CheckResult),
+    ).toContain("boolean");
+  });
+});
+
 // ── idempotency: dupe = no-op ───────────────────────────────────────
 
 describe("findOpenDuplicate", () => {
@@ -437,6 +503,28 @@ describe("trimRetention", () => {
     ];
     const out = trimRetention(runs, c);
     expect(out.map((r) => r.id)).toEqual(["o1", "o2", "o3"]);
+  });
+
+  test("PARKED runs (awaiting_approval / finalizing) are non-terminal → never evicted", () => {
+    // An approval contract makes awaiting_approval/finalizing valid non-terminal
+    // states. Retention evicts only TERMINAL runs, so a parked proposal is
+    // never dropped out from under a pending human decision — even when it is
+    // the oldest and the budget is exceeded by the terminal runs.
+    const c = resolveContract({
+      states: ["reviewed"],
+      terminal: ["reviewed"],
+      approval: { mode: "proactive" },
+      retention: { maxRuns: 1 },
+    });
+    const runs = [
+      run("approved-new", "approved", "2026-01-04T00:00:00Z"),
+      run("parked-await", "awaiting_approval", "2026-01-01T00:00:00Z"),
+      run("parked-final", "finalizing", "2026-01-02T00:00:00Z"),
+    ];
+    const out = trimRetention(runs, c);
+    // Over budget by 2, but only the terminal `approved` run is an eviction
+    // candidate; both parked runs survive.
+    expect(out.map((r) => r.id).sort()).toEqual(["parked-await", "parked-final"]);
   });
 });
 

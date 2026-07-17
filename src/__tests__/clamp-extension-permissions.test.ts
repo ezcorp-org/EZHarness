@@ -99,6 +99,23 @@ describe("clampExtensionPermissions — capability tier", () => {
     expect(out.spawnAgents).toEqual({ maxPerHour: 10, maxConcurrent: 5 });
   });
 
+  test("loopEvents attaches only when BOTH manifest + submitted declare it", () => {
+    // Both declare → granted.
+    expect(
+      clampExtensionPermissions({ loopEvents: true }, { loopEvents: true }).loopEvents,
+    ).toBe(true);
+    // Manifest silent → dropped (can't grant beyond the manifest).
+    expect(
+      clampExtensionPermissions({ loopEvents: true }, {}).loopEvents,
+    ).toBeUndefined();
+    // Kill-switch disables the whole tier even when both declare.
+    process.env["EZCORP_DISABLE_CAPABILITY_TOOLS"] = "1";
+    expect(
+      clampExtensionPermissions({ loopEvents: true }, { loopEvents: true }).loopEvents,
+    ).toBeUndefined();
+    delete process.env["EZCORP_DISABLE_CAPABILITY_TOOLS"];
+  });
+
   test("eventSubscriptions: array-form triple-intersection (∩ manifest ∩ direct-carrier)", () => {
     const out = clampExtensionPermissions(
       { eventSubscriptions: [DCE_EVENT, "not-in-manifest", "not:a:real:event"] },

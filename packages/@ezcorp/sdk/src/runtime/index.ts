@@ -192,20 +192,34 @@ export {
   getLoopTools,
   resolveProviderModel,
   formatMessages,
+  approveRun,
+  declineRun,
+  sweepStaleProposals,
   PROVIDER_DEFAULT_MODEL,
   DEFAULT_PROVIDER,
 } from "./loop";
+export type { ApprovalResolution } from "./loop";
+export { LoopEvents } from "./loop-events";
+export type { EmitLoopEventParams } from "./loop-events";
 // Direct run-store access for extensions (e.g. ez-code) that drive their
 // own dispatch/track flow on the loop-store substrate rather than the full
 // `defineLoop` facade.
 export { createLoopRunStore } from "./loop-store";
-export type { LoopRunStore, LoopMeta, LoopTransitionInput } from "./loop-store";
+export type {
+  LoopRunStore,
+  LoopMeta,
+  LoopTransitionInput,
+  LoopSkipEntry,
+} from "./loop-store";
 export type {
   LoopTrigger,
   LoopContract,
   LoopDefinition,
   LoopAct,
   LoopActContext,
+  LoopCheck,
+  LoopCheckContext,
+  CheckResult,
   ActResult,
   LoopRunState,
   LoopRunEvent,
@@ -219,6 +233,13 @@ export type {
   LoopRetention,
   LoopConcurrency,
   FailureClass,
+  LoopApproval,
+  ApprovalMode,
+  LoopProposal,
+  LoopApprovalLabel,
+  ApprovalDecision,
+  LoopOnComplete,
+  LoopCompleteContext,
 } from "./loop-types";
 
 export { Search, SearchDisabledError, SearchError } from "./search";

@@ -37,7 +37,9 @@ import {
   _setMessagesResolverForTests,
   _setSpawnForTests,
   _setStoreFactoryForTests,
+  _setLoopEventsForTests,
 } from "../src/runtime/loop";
+import type { LoopEvents } from "../src/runtime/loop-events";
 import {
   loopDataDir,
   _setLogFsForTests,
@@ -140,6 +142,13 @@ beforeEach(() => {
   // Default seams: empty settings + the scope-partitioned store.
   _setSettingsResolverForTests(async () => ({}));
   _setStoreFactoryForTests(scopedStoreFactory().factory as never);
+  // No-op approval-event emitter (the auto-disable path emits a nudge that
+  // would otherwise hang on the channel's default no-host request timeout).
+  _setLoopEventsForTests({
+    emitApprovalPending: async () => {},
+    emitApprovalResolved: async () => {},
+    emitAutoDisabled: async () => {},
+  } as unknown as LoopEvents);
 
   // Record the `log` block's fs + page effects.
   fsWrites = [];
@@ -173,6 +182,7 @@ afterEach(() => {
   _setMessagesResolverForTests(null);
   _setSpawnForTests(null);
   _setStoreFactoryForTests(null);
+  _setLoopEventsForTests(null);
   _setLogFsForTests(null, null);
   _setLogPageForTests(null, null);
 });

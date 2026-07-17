@@ -196,6 +196,63 @@ describe("ToolExecutor.handlePiEmitTaskEvent", () => {
   });
 });
 
+// ── handlePiEmitLoopEvent ────────────────────────────────────────────
+
+describe("ToolExecutor.handlePiEmitLoopEvent", () => {
+  test("registry miss → -32603", async () => {
+    const execu = new ToolExecutor(makeRegistry(null), createStubPermissionEngine());
+    const resp = await execu.handlePiEmitLoopEvent(
+      "missing-ext",
+      rpc("ezcorp/emit-loop-event", { v: 1, type: "approval_pending", payload: { loopId: "l", runId: "r" } }),
+    );
+    expect(resp.error?.code).toBe(-32603);
+  });
+
+  test("granted path threads the bus + emits the content-free nudge (no conversation required)", async () => {
+    // The stub PDP is allow-all, so the loopEvents gate passes; the emitted
+    // loopId is host-STAMPED with the extension id (provenance binding).
+    const granted: ExtensionPermissions = { grantedAt: {} };
+    const { bus, calls } = makeBus();
+    const execu = new ToolExecutor(makeRegistry(granted), createStubPermissionEngine(), { bus });
+    const resp = await execu.handlePiEmitLoopEvent(
+      EXT_ID,
+      rpc("ezcorp/emit-loop-event", {
+        v: 1,
+        type: "approval_resolved",
+        payload: { loopId: "docs", runId: "r1", decision: "approved" },
+      }),
+    );
+    expect(resp.error).toBeUndefined();
+    expect(resp.result).toEqual({ ok: true });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toEqual({
+      event: "loops:approval_resolved",
+      payload: { loopId: `${EXT_ID}:docs`, runId: "r1", decision: "approved" },
+    });
+  });
+
+  test("PDP deny → -32001 loopEvents permission not granted (no emit)", async () => {
+    const granted: ExtensionPermissions = { grantedAt: {} };
+    const { bus, calls } = makeBus();
+    const execu = new ToolExecutor(
+      makeRegistry(granted),
+      createStubPermissionEngine("deny-all"),
+      { bus },
+    );
+    const resp = await execu.handlePiEmitLoopEvent(
+      EXT_ID,
+      rpc("ezcorp/emit-loop-event", {
+        v: 1,
+        type: "approval_pending",
+        payload: { loopId: "docs", runId: "r1" },
+      }),
+    );
+    expect(resp.error?.code).toBe(-32001);
+    expect(resp.error?.message).toContain("loopEvents permission not granted");
+    expect(calls).toHaveLength(0);
+  });
+});
+
 // ── Registry-miss (-32603) arm for every reverse-RPC handler ──────────
 //
 // Each `handlePi*` method opens with a `getGrantedPermissions()` (and for
@@ -278,7 +335,14 @@ describe("ToolExecutor.resolveReverseRpcMeta provenance ladder (via handlePiMemo
   function execWith(granted: ExtensionPermissions): InstanceType<typeof ToolExecutor> {
     return new ToolExecutor(makeRegistry(granted), createStubPermissionEngine());
   }
-  const GRANT: ExtensionPermissions = { memory: "read", grantedAt: {} } as ExtensionPermissions;
+  // A structurally VALID memory grant (the provenance ladder doesn't care
+  // about memory semantics; it just needs a granted extension to clear the
+  // registry guard). Prior code used `{ memory: "read" }`, an unsound cast
+  // (`memory` is an object, not the string "read").
+  const GRANT: ExtensionPermissions = {
+    memory: { access: "read", maxWritesPerDay: 100, selfOnly: true },
+    grantedAt: {},
+  };
 
   beforeEach(() => _resetCallProvenanceForTests());
   afterEach(() => _resetCallProvenanceForTests());
@@ -356,6 +420,9 @@ describe("ToolExecutor.resolveReverseRpcMeta provenance ladder (via handlePiMemo
       EXT_ID,
       rpc("ezcorp/fs.read", { v: 1, path: "notes.txt" }),
     );
+    // `handlePiFsRead` returns `FsRpcResponse = JsonRpcResponse | StreamedResponse`;
+    // narrow away the streamed variant (which has no `.error`) before asserting.
+    if ("streamed" in resp) throw new Error("expected a JSON-RPC error response, got a stream");
     expect(resp.error?.code).toBe(-32602);
   });
 });

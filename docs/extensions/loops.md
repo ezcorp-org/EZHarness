@@ -53,11 +53,15 @@ mirrors the summary to `.ezcorp/extension-data/summarize/summaries/<id>.md`
 
 ---
 
-## The four fields
+## The fields
 
 ```ts
-defineLoop({ id, trigger, contract, act, log });
+defineLoop({ id, trigger, contract, check, act, log });
 ```
+
+`check` is optional (omitted = always proceed); every other field is as
+before. See [The check stage](#the-check-stage) for the deterministic
+pre-gate.
 
 ### `id` — unique per extension
 
@@ -111,6 +115,30 @@ catch-up + double-delivered events). Retention trims the oldest **terminal**
 runs first — an open run is never evicted. `autoDisableAfter` consecutive
 **permanent** errors disables the loop (and fires `onAutoDisable`); a
 transient error or any success resets the counter.
+
+### `check` — the deterministic pre-gate (optional)
+
+```ts
+check?: (ctx: LoopCheckContext<Input>) => Promise<CheckResult<Input>>;
+
+type CheckResult<Input> =
+  | { proceed: true; input?: Input }      // run act; input REPLACES what act sees
+  | { proceed: false; reason: string };   // logged skip, NOT an error
+```
+
+Runs **before `act`** — the "does the AI process even need to run?" decision,
+made in deterministic code. (The idempotency/dup gate is NOT before `check`; it
+is applied at claim time, **after** `act`, and is effectively deferred-only —
+see [The check stage](#the-check-stage).) Return `proceed: false` and the fire
+is a first-class `skip` (with `reason` in the audit log **and** a durable
+entry in the skip journal); return `proceed: true` and `act` runs — optionally
+on an **enriched `input`** the check resolved (e.g. the git commit a git-cursor
+check found), so `act` never re-derives it. That enriched input is what the run
+**persists** and what **`contract.idempotencyKey` is computed from** (so a check
+that resolves the canonical work id dedups on it). Omitting `check` is
+`proceed: true` — existing loops are unchanged. A **thrown** `check` is
+classified by `contract.failure` exactly like a thrown `act`. See
+[The check stage](#the-check-stage).
 
 ### `act` — the loop body (terminal **or** deferred)
 
@@ -209,6 +237,95 @@ state machine is then driven by inbound events.
 
 ---
 
+## The check stage
+
+The `check` stage is the vision's "deterministic code runs → decides whether
+the AI process runs". The fire pipeline is:
+
+```
+trigger → check → act → (claim-time idempotency / dup gate)
+```
+
+The idempotency/dup gate is applied **at claim time — after `act`** (inside the
+run store's `claim`), not before `check`. A duplicate key is a no-op only when
+it matches a still-**open** (non-terminal) run, so the dedup is effectively
+**deferred-only**: a terminal loop resolves within the fire and never leaves an
+open run for a later fire to collide with. The key is computed from the
+**enriched** input (post-`check`), so a check that resolves the canonical work
+id (e.g. a git hash) is what the dedup keys on.
+
+`check` receives a purpose-built context — and what it does **not** carry is
+the point:
+
+| field | what |
+|---|---|
+| `ctx.input` | the RAW trigger input (event payload \| tool args \| cron tick) |
+| `ctx.settings` | resolved user settings, **`{}` fallback already applied** |
+| `ctx.fire` | `{ id, firedAt, trigger, catchUp }` |
+| `ctx.cursor` | `{ get<T>(), set<T>(v) }` — the durable per-loop marker (below) |
+| `ctx.fetch` | host-mediated `fetch` (network-grant-gated) — the ONLY external-data surface |
+| `ctx.log(msg, level?)` | append a note to the fire's audit log |
+
+> **Determinism by construction, not convention.** `LoopCheckContext`
+> deliberately has **no `llm`, no `spawn`, no `recentMessages`** — the check
+> stage *cannot* invoke a model or dispatch an agent. The type system is the
+> firewall. This holds for **structured** endpoints (JSON APIs, git);
+> messy-HTML sources can't be parsed check-side by design — LLM parsing
+> belongs in `act`, and such loops are `untrusted-input`. Document the limit;
+> don't soften the firewall.
+
+### The cursor — "how far have I processed?"
+
+`ctx.cursor` is a durable per-loop value persisted at `loop:<id>:cursor`
+(Storage, same scope as the contract, writes under `withLock`). It is the
+deterministic marker a git-cursor / threshold check reads and advances:
+
+```ts
+check: async (ctx) => {
+  const head = await readGitHead(ctx.settings.repo_path);     // deterministic exec
+  if (!head) return { proceed: false, reason: "no_git_head" };
+  if ((await ctx.cursor.get<string>()) === head.hash) {
+    return { proceed: false, reason: "no_new_commits" };       // logged skip
+  }
+  await ctx.cursor.set(head.hash);                             // advance
+  return { proceed: true, input: { hash: head.hash, subject: head.subject } };
+},
+```
+
+`cursor.get()` resolves `undefined` when unset; falsy values (`0`, `""`,
+`false`) round-trip faithfully (presence is keyed on existence, not
+truthiness). The runnable reference is
+[`examples/repo-activity-notify`](examples/repo-activity-notify/index.ts) — a
+read-only "check → notify" loop that appends a one-line notice when it sees a
+new commit and skips (with a reason) when it doesn't.
+
+### What persists on a skip — the skip journal
+
+A decline is not silent. Every skip that carries a decision — a `check`
+`proceed: false`, an `act` `{ kind: "skip" }`, or a **rejected event `filter`**
+(`filter_rejected`) — is appended to a durable, capped per-loop **skip journal**
+at `loop:<id>:skips` (Storage, same scope as the contract, newest-first, cap
+**50**, written under `withLock`). Each entry records:
+
+```ts
+interface LoopSkipEntry {
+  at: string;        // ISO timestamp
+  reason: string;    // the decline reason
+  trigger: string;   // "cron" | "event" | "manual"
+  logLines: string[];// audit-log lines the fire accumulated before declining
+}
+```
+
+This holds for **all** trigger kinds — the cron/event handlers discard the
+`FireResult`, so without the journal a scheduled skip would leave no trace; the
+primitive journals inside the fire so the record is uniform. Read it back with
+the store accessor `store.listSkips()`.
+
+The one skip that is **not** journaled is `auto_disabled`: a disabled loop
+declines every fire, so recording each would evict useful entries from the
+capped journal — the disabled latch (`loop:<id>:meta`) is itself the durable
+signal.
+
 ## Invariant — durable state is transactional; the filesystem is artifacts only
 
 > **Run state lives in the SDK `Storage` KV** (one key per run +
@@ -260,6 +377,70 @@ failure) rather than letting one loop silently overwrite the other.
 
 ---
 
+## Proactive approvals (Phase 2)
+
+When `contract.approval` is present (Phase 2 ships **only** `mode: "proactive"`;
+declaring any other mode fails loudly at construction), an `act` — or a deferred
+completion's `onComplete` — may return a `proposal` `ActResult`. That parks the
+run in the primitive-owned, non-terminal `awaiting_approval` state carrying a
+plain-data snapshot; the `finalize`/`discard` closures live in an in-memory
+registry (never persisted). A human then resolves it via the primitive-owned
+`approveRun` / `declineRun`, which own the state transitions and append the
+LOCKED eval-signal label — governance can't be forgotten or faked per-loop.
+
+### `decidedBy` is host-stamped — never trusted from extension code
+
+`approveRun(loopId, runId, decidedBy)` and `declineRun(loopId, runId, decidedBy,
+note?)` stamp `decidedBy` **verbatim** onto the approval label (the held-out eval
+signal) and the `loops:approval_resolved` audit mirror. It is therefore an
+authorization-critical identity: it **MUST** be supplied by the host-side
+approval route from the authenticated session, and **never** read from
+extension-supplied input (a compromised loop could otherwise attribute a
+decision to another user). Extension code has no path to call these with a
+caller-chosen identity.
+
+Resolved in Phase 3: the approval surface is the loop's Hub dashboard
+`log.dashboard.rowActions`. The generic extension events route
+(`web/src/routes/api/extensions/[name]/events/[event]/+server.ts`) stamps
+`PageActionEvent.userId` from `requireAuth(locals).id` on its hub-action branch
+— the client hub body schema does **not** carry a `userId`, so the acting
+identity can never be forged from the request. A flagship's row action threads
+that host-stamped `event.userId` in as `decidedBy` (see
+[`examples/docs-updater`](examples/docs-updater/index.ts)'s `handleApproveAction`
+/ `handleDeclineAction`). The `"system"` sentinel stays reserved for the
+staleness auto-decline only.
+
+### Staleness sweep — and its honest limits
+
+A parked proposal older than `approval.staleAfterDays` (default 7; set `0` to
+disable) auto-declines with a `declined` label stamped `decidedBy: "system"`.
+Two paths run it:
+
+- **Opportunistic** — at the top of every fire of the owning loop.
+- **Fire-independent** — an hourly interval, armed once when the first loop is
+  defined, sweeps *every* registered loop so a loop whose trigger goes quiet
+  still reaps rotted proposals.
+
+Limits, stated plainly: the interval runs **only while the subprocess is
+resident**. If the subprocess is down (or was never started) no sweep happens
+until the loop's next fire or the next subprocess start catches up. The sweep is
+in-process and is **not** gated by the host loops kill switch.
+
+### The loops kill switch — what it does and does not freeze
+
+The operator's global kill switch (Settings → **Loops Safety**) suspends, while
+engaged: **scheduled** cron fires (including a manual "fire now"), and **all**
+extension **event deliveries** — including non-loop extensions. Dropped
+deliveries are **lost** (there is no replay) and cron rows **stay due** (they
+fire on catch-up once resumed). It does **not** freeze **manual tool fires** — a
+loop's `manual` `tool` trigger invoked directly by an agent runs through the
+ordinary extension tool-call path, which is indistinguishable from any other
+tool call at the host boundary and so carries no clean seam to gate. Parked
+`awaiting_approval` runs are always kept (they hold no compute; a human still
+resolves them).
+
+---
+
 ## What stays bespoke
 
 The primitive deliberately does **not** absorb single-loop concerns
@@ -274,7 +455,9 @@ only one loop, it does not enter the primitive.
 
 ## See also
 
-- [`examples/sample-loop`](examples/sample-loop/index.ts) — the runnable reference.
+- [`examples/sample-loop`](examples/sample-loop/index.ts) — the runnable reference (terminal capture loop + a `check`).
+- [`examples/repo-activity-notify`](examples/repo-activity-notify/index.ts) — the check-stage trust probe (git-cursor `check` → notify `act`).
+- [`examples/docs-updater`](examples/docs-updater/index.ts) — the proactive PR-drafter flagship: git-cursor `check` → deferred coding-agent `act` → `onComplete` `proposal` → human approve/decline (host-stamped `decidedBy`); merge stays manual on `/repo`.
 - [Data Storage Convention](data-storage.md) — the `.ezcorp/extension-data/` layout.
 - [Pages](pages.md) — the Hub page model the dashboard reuses.
 - [API Reference](api-reference.md) — `Storage`, `Schedule`, `spawnAssignment`, the fs helpers.

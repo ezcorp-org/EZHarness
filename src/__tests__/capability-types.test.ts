@@ -306,6 +306,12 @@ describe("capabilityDeclarationToSet", () => {
     ).toEqual([{ kind: "ezcorp:tasks:emit" }]);
   });
 
+  test("custom: { loopEvents: true } → ezcorp:loops:emit cap", () => {
+    expect(
+      capabilityDeclarationToSet({ custom: { loopEvents: true } }, {}),
+    ).toEqual([{ kind: "ezcorp:loops:emit" }]);
+  });
+
   test("custom: { eventSubscriptions: ['x:y'] } → namespaced cap with value", () => {
     expect(
       capabilityDeclarationToSet({ custom: { eventSubscriptions: ["x:y"] } }, {}),
@@ -481,6 +487,33 @@ describe("intersectPermissions — capability tier", () => {
     expect(tt(undefined, true)).toBeUndefined();
     expect(tt(undefined, false)).toBeUndefined();
     expect(tt(undefined, undefined)).toBeUndefined();
+  });
+
+  test("loopEvents AND — only true∧true survives", () => {
+    const tt = (a: boolean | undefined, b: boolean | undefined) =>
+      intersectPermissions(
+        { loopEvents: a, grantedAt: {} } as ExtensionPermissions,
+        { loopEvents: b, grantedAt: {} } as ExtensionPermissions,
+      ).loopEvents;
+    expect(tt(true, true)).toBe(true);
+    expect(tt(true, false)).toBeUndefined();
+    expect(tt(false, true)).toBeUndefined();
+    expect(tt(undefined, undefined)).toBeUndefined();
+  });
+
+  test("loopEvents grantedAt survives only when the permission survives", () => {
+    const withTs = intersectPermissions(
+      { loopEvents: true, grantedAt: { loopEvents: 100 } },
+      { loopEvents: true, grantedAt: { loopEvents: 200 } },
+    );
+    // Older timestamp wins (conservative audit trail).
+    expect(withTs.grantedAt.loopEvents).toBe(100);
+    const dropped = intersectPermissions(
+      { loopEvents: true, grantedAt: { loopEvents: 100 } },
+      { grantedAt: {} },
+    );
+    expect(dropped.loopEvents).toBeUndefined();
+    expect(dropped.grantedAt.loopEvents).toBeUndefined();
   });
 
   test("agentConfig: both 'read' → 'read'; only one 'read' → absent", () => {
@@ -711,6 +744,23 @@ describe("capabilityDeclarationToSet — $CWD expansion in declared paths", () =
     expect(writeCap).toBeDefined();
     expect(writeCap!.value).toBe(process.cwd());
     expect(writeCap!.value).not.toBe("$CWD");
+  });
+});
+
+// ── grantsToCapabilitySet — capability-tier grant→cap ───────────────
+
+describe("grantsToCapabilitySet — capability tier", () => {
+  test("loopEvents:true → ezcorp:loops:emit cap; absent → no cap", () => {
+    expect(
+      grantsToCapabilitySet({ grantedAt: {}, loopEvents: true }).some(
+        (c) => c.kind === "ezcorp:loops:emit",
+      ),
+    ).toBe(true);
+    expect(
+      grantsToCapabilitySet({ grantedAt: {} }).some(
+        (c) => c.kind === "ezcorp:loops:emit",
+      ),
+    ).toBe(false);
   });
 });
 

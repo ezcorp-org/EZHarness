@@ -33,6 +33,7 @@ import {
 } from "../runtime/sse-conversation-filter";
 import { createRateLimiter } from "./rate-limit";
 import { capabilityToolsDisabled } from "./capability-flags";
+import { loopsKillSwitchEngaged } from "./loops-kill-switch";
 import { insertAuditEntry } from "../db/queries/audit-log";
 import { EXT_AUDIT_ACTIONS } from "./audit-actions";
 import { logger } from "../logger";
@@ -289,6 +290,12 @@ export class EventSubscriptionDispatcher {
   private async dispatch(eventType: string, payload: unknown): Promise<void> {
     const subscribers = this.eventToExtensions.get(eventType as SubscribableEvent);
     if (!subscribers || subscribers.size === 0) return;
+
+    // Global loops kill switch: suspend event dispatch to subscribers too, so
+    // an event-triggered loop can't fire while the operator has engaged the
+    // switch. Checked after the no-subscriber early return so the read only
+    // happens when a delivery would otherwise occur.
+    if (await loopsKillSwitchEngaged()) return;
 
     const convId = (payload as { conversationId?: unknown } | null)?.conversationId;
     if (typeof convId !== "string" || !convId) return;

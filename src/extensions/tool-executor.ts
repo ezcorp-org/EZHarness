@@ -15,6 +15,7 @@ import { denyAndDisable } from "./security";
 import { handleStorageRpc, type StorageContext } from "./storage-handler";
 import { handleAgentConfigsRpc, type AgentConfigsContext } from "./agent-configs-handler";
 import { handleEmitTaskEventRpc, type TaskEventsContext } from "./task-events-handler";
+import { handleEmitLoopEventRpc, type LoopEventsContext } from "./loop-events-handler";
 import {
   handleSpawnAssignmentRpc,
   handleQueueAgentMessageRpc,
@@ -1907,6 +1908,40 @@ export class ToolExecutor {
   }
 
   /**
+   * Handle an `ezcorp/emit-loop-event` reverse RPC request (Loops EZ Mode
+   * Phase 2). Emits the three content-free approval nudges onto the host bus.
+   * Gated on the `loopEvents` permission (PDP cap `ezcorp:loops:emit`) + the
+   * capability-tier kill-switch + rate limit; the emitted event's `loopId` is
+   * STAMPED host-side with the extension id so an extension can only emit for
+   * its own loops. Unlike emit-task-event this does NOT require a conversation
+   * — loops fire ownerless (cron) / global-scope. See loop-events-handler.ts.
+   */
+  async handlePiEmitLoopEvent(
+    extensionId: string,
+    req: JsonRpcRequest,
+  ): Promise<JsonRpcResponse> {
+    const granted = this.registry.getGrantedPermissions(extensionId);
+    if (!granted) {
+      return {
+        jsonrpc: "2.0",
+        id: req.id,
+        error: { code: -32603, message: "Extension not found in registry" },
+      };
+    }
+    // Per-call provenance: token wins, singletons are the fallback.
+    const scope = this.resolveHandlerScope(req);
+    const ctx: LoopEventsContext = {
+      bus: this.bus,
+      userId: scope.userId,
+      grantedPermissions: granted,
+      // Phase 6: thread the PDP for the canonical permission decision.
+      engine: this.engine,
+      conversationId: scope.conversationId,
+    };
+    return handleEmitLoopEventRpc(extensionId, req, ctx);
+  }
+
+  /**
    * Handle a `ezcorp/spawn-assignment` reverse RPC request (Phase 2d).
    * Dispatches a caller-chosen agent config against a caller-supplied
    * task body in a new sub-conversation parented on the current one.
@@ -2180,6 +2215,9 @@ export class ToolExecutor {
       }
       if (req.method === "ezcorp/emit-task-event") {
         return this.handlePiEmitTaskEvent(extensionId, req);
+      }
+      if (req.method === "ezcorp/emit-loop-event") {
+        return this.handlePiEmitLoopEvent(extensionId, req);
       }
       if (req.method === "ezcorp/agent-configs") {
         return this.handlePiAgentConfigs(extensionId, req);

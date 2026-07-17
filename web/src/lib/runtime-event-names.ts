@@ -38,6 +38,15 @@ export const RUNTIME_EVENT_NAMES = [
   // the proposal's project; the poller daemon + approve/dismiss API routes
   // emit it so the Hub re-fetches.
   "github-projects:proposal-update",
+  // Loops EZ Mode Phase 2: a loop run parked awaiting approval / was resolved.
+  // Content-free invalidation nudges — the approval inbox/badge re-fetches the
+  // authorized dashboard (GET is source of truth). Optional conversation
+  // scope; global loops broadcast.
+  "loops:approval_pending",
+  "loops:approval_resolved",
+  // Loop auto-disabled after N consecutive errors — a user-visible notice
+  // (never a silent stop).
+  "loops:auto_disabled",
 ] as const;
 
 export type RuntimeEventName = (typeof RUNTIME_EVENT_NAMES)[number];

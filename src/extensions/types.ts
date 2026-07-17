@@ -530,6 +530,17 @@ export interface ExtensionManifestV2 {
      *  `ezcorp/emit-task-event` reverse RPC. Conversation scope is forced
      *  by the host — extensions cannot target other conversations. */
     taskEvents?: boolean;
+    /** Emit the content-free loop-approval nudges (`loops:approval_pending`
+     *  / `loops:approval_resolved` / `loops:auto_disabled`) via the
+     *  `ezcorp/emit-loop-event` reverse RPC (Loops EZ Mode Phase 2).
+     *  DISTINCT from `taskEvents`: loop nudges fire ownerless (cron /
+     *  global-scope) and may broadcast to every authenticated subscriber,
+     *  so they carry a larger blast radius and get their own least-privilege
+     *  gate rather than riding the conversation-forced `taskEvents` grant.
+     *  The host STAMPS the wire `loopId` with the emitting extension's id
+     *  (`<extensionId>:<loopId>`) so an extension can only emit for its own
+     *  loops. */
+    loopEvents?: boolean;
     /** Spawn sub-agent runs via `ezcorp/spawn-assignment`. Requires both
      *  fields when declared. Credentials are INHERITED from the parent
      *  conversation — installing this permission authorizes billing to the
@@ -882,6 +893,10 @@ export interface ExtensionPermissions {
   // Capability tier — see ExtensionManifestV2.permissions for the full
   // contract + the Phase 2+3 plan (`.claude/plans/tranquil-dancing-book.md`).
   taskEvents?: boolean;
+  /** Grants the `ezcorp/emit-loop-event` reverse RPC (Loops EZ Mode
+   *  Phase 2). See the matching field on
+   *  `ExtensionManifestV2.permissions.loopEvents`. */
+  loopEvents?: boolean;
   spawnAgents?: { maxPerHour: number; maxConcurrent?: number };
   agentConfig?: "read";
   /** Subscribed bus-event types (Phase 2c). Clamped at install time to
