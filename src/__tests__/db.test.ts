@@ -17,7 +17,7 @@ describe("migration", () => {
     expect(names).toContain("runs");
     expect(names).toContain("run_logs");
     expect(names).toContain("agent_configs");
-    expect(names).toContain("pipeline_definitions");
+    expect(names).toContain("workflow_definitions");
   });
 
   test("migration is idempotent", async () => {

@@ -114,7 +114,7 @@ describe("connection - PGlite mode (no DATABASE_URL)", () => {
     expect(names).toContain("runs");
     expect(names).toContain("run_logs");
     expect(names).toContain("agent_configs");
-    expect(names).toContain("pipeline_definitions");
+    expect(names).toContain("workflow_definitions");
   });
 });
 

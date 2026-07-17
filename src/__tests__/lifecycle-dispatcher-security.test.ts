@@ -190,7 +190,7 @@ describe("LifecycleHookDispatcher — Security", () => {
   test("registering hooks NOT in ALLOWED_LIFECYCLE_HOOKS is silently ignored", () => {
     dispatcher.registerExtension("ext-a", [
       "run:error" as any,
-      "pipeline:start" as any,
+      "workflow:start" as any,
       "tool:start" as any,
       "run:token" as any,
     ]);

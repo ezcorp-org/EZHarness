@@ -4,14 +4,14 @@ import {
 	fetchProjects,
 	fetchSettings,
 	fetchAgentConfigs,
-	fetchPipelines,
+	fetchWorkflows,
 	type Agent,
 	type Run,
 	type Project,
 	type Settings,
 	type AgentConfig,
-	type Pipeline,
-	type PipelineRun,
+	type Workflow,
+	type WorkflowRun,
 } from "./api.js";
 import { createWSClient, type WSEvent } from "./ws.js";
 import { addToast } from "./toast.svelte.js";
@@ -178,8 +178,8 @@ class AppStore {
 	);
 	settings = $state<Settings>({});
 	agentConfigs = $state<AgentConfig[]>([]);
-	pipelines = $state<Pipeline[]>([]);
-	pipelineRuns = $state<PipelineRun[]>([]);
+	workflows = $state<Workflow[]>([]);
+	workflowRuns = $state<WorkflowRun[]>([]);
 
 	// Theme and layout state
 	theme = $state<"dark" | "light" | "system">(
@@ -293,9 +293,9 @@ export function refreshAgentConfigs() {
 		.catch(() => {});
 }
 
-export function refreshPipelines() {
-	fetchPipelines()
-		.then((data) => (store.pipelines = data))
+export function refreshWorkflows() {
+	fetchWorkflows()
+		.then((data) => (store.workflows = data))
 		.catch(() => {});
 }
 
@@ -728,7 +728,7 @@ export function initStores() {
 	refreshProjects();
 	refreshSettings();
 	refreshAgentConfigs();
-	refreshPipelines();
+	refreshWorkflows();
 
 	const client = createWSClient();
 	_wsManualRetry = client.manualRetry;
@@ -884,17 +884,17 @@ export function initStores() {
 				break;
 			}
 
-			case "pipeline:start": {
-				const { pipelineRun } = event.data as { pipelineRun: PipelineRun };
-				store.pipelineRuns = [pipelineRun, ...store.pipelineRuns];
+			case "workflow:start": {
+				const { workflowRun } = event.data as { workflowRun: WorkflowRun };
+				store.workflowRuns = [workflowRun, ...store.workflowRuns];
 				break;
 			}
 
-			case "pipeline:step":
-			case "pipeline:complete":
-			case "pipeline:error": {
-				const { pipelineRun } = event.data as { pipelineRun: PipelineRun };
-				store.pipelineRuns = store.pipelineRuns.map((r) => (r.id === pipelineRun.id ? pipelineRun : r));
+			case "workflow:step":
+			case "workflow:complete":
+			case "workflow:error": {
+				const { workflowRun } = event.data as { workflowRun: WorkflowRun };
+				store.workflowRuns = store.workflowRuns.map((r) => (r.id === workflowRun.id ? workflowRun : r));
 				break;
 			}
 

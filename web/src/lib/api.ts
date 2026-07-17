@@ -2,7 +2,7 @@ const BASE = "";
 
 /** Check response for errors, showing 429 toast when rate-limited. On
  *  non-OK responses, throws the server's `data.error` body field when
- *  present (much more useful than `statusText` — e.g. "Pipeline name
+ *  present (much more useful than `statusText` — e.g. "Workflow name
  *  already exists" instead of "400 Bad Request"), falling back to
  *  `${status} ${statusText}` when the body is missing or non-JSON. */
 async function checkResponse(res: Response): Promise<void> {
@@ -945,40 +945,53 @@ export async function updateAgentConfig(
 	return res.json();
 }
 
-// ── Pipelines ───────────────────────────────────────────────────────
+// ── Workflows ───────────────────────────────────────────────────────
 
-export interface PipelineStep {
-	name: string;
-	agent: string;
-	input?: Record<string, string>;
-	dependsOn?: string[];
+export type WorkflowStepKind = "agent" | "transform" | "gate";
+
+export interface WorkflowLoopConfig {
+	maxIterations: number;
+	until?: unknown;
+	onExhausted?: "fail" | "pass";
 }
 
-export interface Pipeline {
+export interface WorkflowStep {
+	name: string;
+	kind?: WorkflowStepKind;
+	agent?: string;
+	input?: Record<string, string>;
+	retries?: number;
+	output?: Record<string, string>;
+	condition?: unknown;
+	dependsOn?: string[];
+	loop?: WorkflowLoopConfig;
+}
+
+export interface Workflow {
 	name: string;
 	description: string;
-	steps: PipelineStep[];
+	steps: WorkflowStep[];
 	inputSchema?: Record<string, unknown>;
 }
 
-export interface PipelineRun {
+export interface WorkflowRun {
 	id: string;
-	pipelineName: string;
+	workflowName: string;
 	status: string;
 	startedAt: number;
 	finishedAt?: number;
-	steps: { stepName: string; runId: string; status: string }[];
+	steps: { stepName: string; runId: string; status: string; iterations?: number }[];
 	result?: AgentResult;
 }
 
-export async function fetchPipelines(): Promise<Pipeline[]> {
-	const res = await fetch(`${BASE}/api/pipelines`);
+export async function fetchWorkflows(): Promise<Workflow[]> {
+	const res = await fetch(`${BASE}/api/workflows`);
 	await checkResponse(res);
 	return res.json();
 }
 
-export async function createPipeline(data: Pipeline): Promise<Pipeline> {
-	const res = await fetch(`${BASE}/api/pipelines`, {
+export async function createWorkflow(data: Workflow): Promise<Workflow> {
+	const res = await fetch(`${BASE}/api/workflows`, {
 		method: "POST",
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify(data),
@@ -987,17 +1000,17 @@ export async function createPipeline(data: Pipeline): Promise<Pipeline> {
 	return res.json();
 }
 
-export async function deletePipeline(name: string): Promise<void> {
-	const res = await fetch(`${BASE}/api/pipelines/${name}`, { method: "DELETE" });
+export async function deleteWorkflow(name: string): Promise<void> {
+	const res = await fetch(`${BASE}/api/workflows/${name}`, { method: "DELETE" });
 	await checkResponse(res);
 }
 
-export async function triggerPipelineRun(
+export async function triggerWorkflowRun(
 	name: string,
 	input: Record<string, unknown>,
 	projectId?: string,
-): Promise<PipelineRun> {
-	const res = await fetch(`${BASE}/api/pipelines/${name}/run`, {
+): Promise<WorkflowRun> {
+	const res = await fetch(`${BASE}/api/workflows/${name}/run`, {
 		method: "POST",
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify({ ...input, ...(projectId ? { projectId } : {}) }),

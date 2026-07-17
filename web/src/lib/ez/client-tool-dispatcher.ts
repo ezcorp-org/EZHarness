@@ -30,7 +30,7 @@ import {
 const ALLOWED_ROUTE_PREFIXES = [
 	"/project/", "/agents/", "/agents", "/new-project", "/marketplace",
 	"/extensions/", "/extensions", "/settings", "/active-agents",
-	"/memories", "/pipelines", "/runs", "/observability", "/account",
+	"/memories", "/workflows", "/runs", "/observability", "/account",
 	"/admin/", "/admin", "/docs/", "/docs",
 ] as const;
 

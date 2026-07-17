@@ -1,0 +1,30 @@
+name: demo-mixed
+description: >-
+  Mixes all three step kinds. The summarizer agent condenses the input text, a
+  transform reshapes that summary (and composes a labelled line via a template),
+  and a gate asserts the reshaped summary is non-empty. Exercised in tests via
+  the mock-LLM harness, never a live provider.
+inputSchema:
+  text:
+    type: text
+    label: Text to summarize
+    required: true
+steps:
+  - name: summarize
+    agent: summarizer
+    input:
+      text: "$input.text"
+  - name: reshape
+    kind: transform
+    dependsOn:
+      - summarize
+    output:
+      summary: "$steps.summarize.output.summary"
+      label: "summary: {{$steps.summarize.output.summary}}"
+  - name: assert-nonempty
+    kind: gate
+    dependsOn:
+      - reshape
+    condition:
+      ref: "$steps.reshape.output.summary"
+      op: exists

@@ -29,7 +29,7 @@ import {
 	makeProject,
 	makeConversation,
 	makeMessage,
-	makePipeline,
+	makeWorkflow,
 } from "./fixtures/data.js";
 
 const proj = makeProject({ id: "proj-1", name: "A11y Mobile" });
@@ -86,7 +86,7 @@ test.describe("Phase 49.5 — WCAG 2.1 AA @ 375×667 (mobile)", () => {
 				messages: [msg],
 				agents: [agent],
 				agentConfigs: [agentConfig],
-				pipelines: [makePipeline()],
+				workflows: [makeWorkflow()],
 			});
 
 			await page.goto(pg.url);

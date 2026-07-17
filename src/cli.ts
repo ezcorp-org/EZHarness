@@ -1,8 +1,8 @@
 import { loadAgents } from "./runtime/loader";
 import { EventBus } from "./runtime/events";
 import { AgentExecutor } from "./runtime/executor";
-import { PipelineExecutor } from "./runtime/pipeline-executor";
-import { loadYamlPipelines } from "./runtime/pipeline-loader";
+import { WorkflowExecutor } from "./runtime/workflow-executor";
+import { loadYamlWorkflows } from "./runtime/workflow-loader";
 import { formatAgentList } from "./ui/format";
 import { connectToEventBus } from "./ui/terminal";
 import type { AgentEvents } from "./types";
@@ -10,7 +10,7 @@ import { initDb } from "./db/connection";
 import { DbInUseError } from "./db/live-holder-guard";
 import { validateEnv } from "./env-validation";
 import { getProjectByName } from "./db/queries/projects";
-import { loadDbPipelines } from "./db/queries/pipelines";
+import { loadDbWorkflows } from "./db/queries/workflows";
 import { getUserByEmail, getUserById, listUsers } from "./db/queries/users";
 import {
   API_KEY_ROLES,
@@ -165,7 +165,7 @@ async function promptPerCategory(
 export interface ParsedArgs {
   command: string;
   agentName?: string;
-  pipelineName?: string;
+  workflowName?: string;
   input?: Record<string, unknown>;
   port?: number;
   project?: string;
@@ -186,7 +186,7 @@ export interface ParsedArgs {
 
 /**
  * Parse the shared `--input '<json>'` + `--project <name>` flags used by
- * both `run` and `pipeline run` subcommands.
+ * both `run` and `workflow run` subcommands.
  */
 function parseRunFlags(args: string[]): {
   input?: Record<string, unknown>;
@@ -218,15 +218,17 @@ export function parseArgs(args: string[]): ParsedArgs {
     return { command, agentName, input, project };
   }
 
-  if (command === "pipeline") {
+  // `pipeline` is a hidden one-release alias for `workflow` (kept out of
+  // the help text). Both dispatch to the same `workflow:*` commands.
+  if (command === "workflow" || command === "pipeline") {
     const subCommand = args[1];
     if (subCommand === "list") {
-      return { command: "pipeline:list" };
+      return { command: "workflow:list" };
     }
     if (subCommand === "run") {
-      const pipelineName = args[2];
+      const workflowName = args[2];
       const { input, project } = parseRunFlags(args);
-      return { command: "pipeline:run", pipelineName, input, project };
+      return { command: "workflow:run", workflowName, input, project };
     }
     return { command: "help" };
   }
@@ -311,27 +313,34 @@ export function parseArgs(args: string[]): ParsedArgs {
 // ── Usage text ──────────────────────────────────────────────────────
 
 function printUsage(): void {
-  console.log(`
-EZCorp - AI Platform
-
-Usage:
-  ezcorp list                                          List available agents
-  ezcorp run <agent> [--input '{}'] [--project <name>] Run an agent
-  ezcorp pipeline list                                 List pipelines
-  ezcorp pipeline run <name> [--input '{}'] [--project <name>] Run a pipeline
-  ezcorp ext init <name> [--type tool|skill|agent|multi] Create new extension project
-  ezcorp ext install <source> [--yes]                   Install extension from git
-  ezcorp ext update [name]                              Update extension(s)
-  ezcorp ext list                                       List installed extensions
-  ezcorp ext remove <name>                              Remove an extension
-  ezcorp ext info <name>                                Show extension details
-  ezcorp ext dev [dir]                                  Start dev server with hot reload
-  ezcorp ext test [dir] [--filter <name>]               Run extension tests in sandbox
-  ezcorp ext publish [--token <token>]                  Publish extension to marketplace
-  ezcorp serve [--port 3001]                           Start API server
-  ezcorp key mint [--scopes read,chat] [--user <email|id>] [--name <label>]  Mint a remote-control API key
-  ezcorp help                                          Show this help
-`.trim());
+  // Built as an array-join rather than a single multi-line template: Bun's
+  // line coverage attributes a whole multi-line template to its opening line,
+  // leaving every interior line an uncoverable phantom that the patch gate
+  // flags whenever a command line is added. Array elements are each their own
+  // covered expression.
+  console.log(
+    [
+      "EZCorp - AI Platform",
+      "",
+      "Usage:",
+      "  ezcorp list                                          List available agents",
+      "  ezcorp run <agent> [--input '{}'] [--project <name>] Run an agent",
+      "  ezcorp workflow list                                 List workflows",
+      "  ezcorp workflow run <name> [--input '{}'] [--project <name>] Run a workflow",
+      "  ezcorp ext init <name> [--type tool|skill|agent|multi] Create new extension project",
+      "  ezcorp ext install <source> [--yes]                   Install extension from git",
+      "  ezcorp ext update [name]                              Update extension(s)",
+      "  ezcorp ext list                                       List installed extensions",
+      "  ezcorp ext remove <name>                              Remove an extension",
+      "  ezcorp ext info <name>                                Show extension details",
+      "  ezcorp ext dev [dir]                                  Start dev server with hot reload",
+      "  ezcorp ext test [dir] [--filter <name>]               Run extension tests in sandbox",
+      "  ezcorp ext publish [--token <token>]                  Publish extension to marketplace",
+      "  ezcorp serve [--port 3001]                           Start API server",
+      "  ezcorp key mint [--scopes read,chat] [--user <email|id>] [--name <label>]  Mint a remote-control API key",
+      "  ezcorp help                                          Show this help",
+    ].join("\n"),
+  );
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────
@@ -351,7 +360,7 @@ async function resolveProjectId(projectName: string | undefined): Promise<string
 }
 
 /**
- * Common harness for `run` and `pipeline:run` commands: open the DB,
+ * Common harness for the `run` and `workflow:run` commands: open the DB,
  * load agents (incl. DB-backed ones), wire up an event bus + executor,
  * and start streaming events to the terminal. Caller is responsible for
  * `disconnect()` in a finally block.
@@ -498,49 +507,52 @@ export async function cli(args: string[]): Promise<void> {
       break;
     }
 
-    case "pipeline:list": {
+    case "workflow:list": {
       await initDbOrExit();
-      const yamlPipelines = await loadYamlPipelines(agentsDir);
-      const dbPipelines = await loadDbPipelines();
-      const all = [...yamlPipelines, ...dbPipelines];
+      const yamlWorkflows = await loadYamlWorkflows(agentsDir);
+      const dbWorkflows = await loadDbWorkflows();
+      const all = [...yamlWorkflows, ...dbWorkflows];
 
       if (all.length === 0) {
-        console.log("No pipelines found.");
+        console.log("No workflows found.");
       } else {
-        for (const p of all) {
-          console.log(`  ${p.name.padEnd(30)} ${p.description} (${p.steps.length} steps)`);
+        for (const w of all) {
+          console.log(`  ${w.name.padEnd(30)} ${w.description} (${w.steps.length} steps)`);
         }
       }
       break;
     }
 
-    case "pipeline:run": {
-      if (!parsed.pipelineName) {
-        console.error("Error: pipeline name required. Usage: pi pipeline run <name>");
+    case "workflow:run": {
+      if (!parsed.workflowName) {
+        console.error("Error: workflow name required. Usage: ezcorp workflow run <name>");
         process.exit(1);
       }
 
       const { bus, executor, disconnect } = await setupRunHarness(agentsDir);
-      const pipelineExec = new PipelineExecutor(executor, bus);
+      const workflowExec = new WorkflowExecutor(executor, bus);
 
-      const yamlPipelines = await loadYamlPipelines(agentsDir);
-      const dbPipelines = await loadDbPipelines();
-      const allPipelines = [...yamlPipelines, ...dbPipelines];
-      const pipeline = allPipelines.find((p) => p.name === parsed.pipelineName);
+      const yamlWorkflows = await loadYamlWorkflows(agentsDir);
+      const dbWorkflows = await loadDbWorkflows();
+      const allWorkflows = [...yamlWorkflows, ...dbWorkflows];
+      const workflow = allWorkflows.find((w) => w.name === parsed.workflowName);
 
-      if (!pipeline) {
-        console.error(`Error: pipeline "${parsed.pipelineName}" not found`);
+      if (!workflow) {
+        console.error(`Error: workflow "${parsed.workflowName}" not found`);
         process.exit(1);
       }
 
       const projectId = await resolveProjectId(parsed.project);
 
-      try {
-        const run = await pipelineExec.runPipeline(pipeline, parsed.input ?? {}, projectId);
-        console.log(JSON.stringify(run.result, null, 2));
-      } finally {
-        disconnect();
-      }
+      const run = await workflowExec
+        .runWorkflow(workflow, parsed.input ?? {}, projectId)
+        .finally(disconnect);
+      console.log(JSON.stringify(run.result, null, 2));
+      // Exit with a meaningful code — 0 on success, 1 on error/cancelled
+      // (loud-failure semantics). This also releases the run harness's live
+      // handles (event bus, executor, DB) that would otherwise keep the event
+      // loop alive and hang the process after the result is printed.
+      process.exit(run.status === "success" ? 0 : 1);
       break;
     }
 
