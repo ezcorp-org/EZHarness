@@ -551,6 +551,7 @@ function canonicalizePerms(p: ExtensionPermissions): string {
     "shell",
     "storage",
     "taskEvents",
+    "loopEvents",
     "acceptsCallerCaps",
     "escalateChildCaps",
   ]);

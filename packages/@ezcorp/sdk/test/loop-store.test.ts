@@ -16,12 +16,14 @@ import {
   cursorKey,
   DEFAULT_MAX_SKIPS,
   indexKey,
+  labelsKey,
   metaKey,
   runKey,
   skipsKey,
 } from "../src/runtime/loop-store";
 import { resolveContract } from "../src/runtime/loop-core";
 import type { StorageScope } from "../src/runtime/storage";
+import type { LoopApprovalLabel } from "../src/runtime/loop-types";
 
 // ── In-memory KV mimicking the Storage subset the store uses ─────────
 
@@ -99,6 +101,145 @@ describe("key grammar", () => {
     expect(metaKey("ezc")).toBe("loop:ezc:meta");
     expect(cursorKey("ezc")).toBe("loop:ezc:cursor");
     expect(skipsKey("ezc")).toBe("loop:ezc:skips");
+    expect(labelsKey("ezc")).toBe("loop:ezc:labels");
+  });
+});
+
+// ── transitionIf — compare-and-set (approval CAS) ────────────────────
+
+const APPROVAL_CONTRACT = {
+  states: ["running", "awaiting_approval", "finalizing", "approved", "declined"],
+  terminal: ["approved", "declined"],
+  scope: "global" as StorageScope,
+};
+
+describe("transitionIf — compare-and-set", () => {
+  test("applies the transition only when the status matches the expectation", async () => {
+    const kv = makeKv();
+    const store = createLoopRunStore("ezc", APPROVAL_CONTRACT, kv.factory);
+    await store.claim({ id: "r1", loopId: "ezc", status: "awaiting_approval" });
+    const flipped = await store.transitionIf("r1", "awaiting_approval", {
+      status: "finalizing",
+    });
+    expect(flipped?.status).toBe("finalizing");
+  });
+
+  test("returns null (no write) when the status no longer matches", async () => {
+    const kv = makeKv();
+    const store = createLoopRunStore("ezc", APPROVAL_CONTRACT, kv.factory);
+    await store.claim({ id: "r1", loopId: "ezc", status: "finalizing" });
+    const res = await store.transitionIf("r1", "awaiting_approval", {
+      status: "approved",
+    });
+    expect(res).toBeNull();
+    expect((await store.get("r1"))?.status).toBe("finalizing"); // untouched
+  });
+
+  test("returns null for a missing run", async () => {
+    const kv = makeKv();
+    const store = createLoopRunStore("ezc", APPROVAL_CONTRACT, kv.factory);
+    expect(await store.transitionIf("nope", "awaiting_approval", { status: "approved" })).toBeNull();
+  });
+
+  test("only ONE of two concurrent CAS flips wins", async () => {
+    const kv = makeKv();
+    const store = createLoopRunStore("ezc", APPROVAL_CONTRACT, kv.factory);
+    await store.claim({ id: "r1", loopId: "ezc", status: "awaiting_approval" });
+    const [a, b] = await Promise.all([
+      store.transitionIf("r1", "awaiting_approval", { status: "finalizing" }),
+      store.transitionIf("r1", "awaiting_approval", { status: "declined" }),
+    ]);
+    // Exactly one non-null result — the other read the already-flipped status.
+    const winners = [a, b].filter((x) => x !== null);
+    expect(winners).toHaveLength(1);
+  });
+
+  test("carries proposal + verifyManually onto the run", async () => {
+    const kv = makeKv();
+    const store = createLoopRunStore("ezc", APPROVAL_CONTRACT, kv.factory);
+    await store.claim({ id: "r1", loopId: "ezc", status: "finalizing" });
+    const flagged = await store.transitionIf("r1", "finalizing", {
+      status: "finalizing",
+      verifyManually: true,
+      note: "verify",
+    });
+    expect(flagged?.verifyManually).toBe(true);
+  });
+});
+
+// ── approval-labels — append-only eval signal ────────────────────────
+
+function label(over: Partial<LoopApprovalLabel> = {}): LoopApprovalLabel {
+  return {
+    loopId: "ezc",
+    runId: "r1",
+    proposalSnapshot: { title: "t", summary: "s", kind: "pr" },
+    decision: "approved",
+    decidedBy: "u1",
+    decidedAt: "2026-07-16T00:00:00.000Z",
+    loopConfigVersion: "0",
+    ...over,
+  };
+}
+
+describe("approval-labels — append-only", () => {
+  test("unset store reads empty", async () => {
+    const kv = makeKv();
+    const store = createLoopRunStore("ezc", APPROVAL_CONTRACT, kv.factory);
+    expect(await store.listLabels()).toEqual([]);
+  });
+
+  test("appendLabel appends OLDEST-first under loop:<id>:labels", async () => {
+    const kv = makeKv();
+    const store = createLoopRunStore("ezc", APPROVAL_CONTRACT, kv.factory);
+    await store.appendLabel(label({ runId: "r1", decision: "approved", decidedAt: "t1" }));
+    await store.appendLabel(label({ runId: "r2", decision: "declined", decidedAt: "t2" }));
+    const labels = await store.listLabels();
+    expect(labels.map((l) => l.runId)).toEqual(["r1", "r2"]); // chronological
+    expect(Array.isArray(kv.map.get("loop:ezc:labels"))).toBe(true);
+    // Never mixed into runs/meta/cursor/skips.
+    expect(kv.map.has("loop:ezc:index")).toBe(false);
+  });
+
+  test("captures the exact LOCKED schema", async () => {
+    const kv = makeKv();
+    const store = createLoopRunStore("ezc", APPROVAL_CONTRACT, kv.factory);
+    const entry = label({ note: "looks good", decidedBy: "alice", loopConfigVersion: "v3" });
+    await store.appendLabel(entry);
+    expect((await store.listLabels())[0]).toEqual(entry);
+  });
+
+  test("is NOT capped (the eval signal must stay complete)", async () => {
+    const kv = makeKv();
+    const store = createLoopRunStore("ezc", APPROVAL_CONTRACT, kv.factory);
+    for (let i = 0; i < DEFAULT_MAX_SKIPS + 20; i++) {
+      await store.appendLabel(label({ runId: `r${i}`, decidedAt: `t${i}` }));
+    }
+    expect((await store.listLabels()).length).toBe(DEFAULT_MAX_SKIPS + 20);
+  });
+
+  test("two concurrent appends both land (withLock serialized)", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    let gatedOnce = false;
+    const kv = makeKv({
+      beforeSet: async (key) => {
+        if (!gatedOnce && key === "loop:ezc:labels") {
+          gatedOnce = true;
+          await gate;
+        }
+      },
+    });
+    const store = createLoopRunStore("ezc", APPROVAL_CONTRACT, kv.factory);
+    const p1 = store.appendLabel(label({ runId: "a" }));
+    const p2 = store.appendLabel(label({ runId: "b" }));
+    await new Promise((r) => setTimeout(r, 10));
+    release();
+    await Promise.all([p1, p2]);
+    const ids = (await store.listLabels()).map((l) => l.runId).sort();
+    expect(ids).toEqual(["a", "b"]);
   });
 });
 

@@ -98,6 +98,20 @@ export const EXT_AUDIT_ACTIONS = {
   /** `ezcorp/emit-task-event` rejected an emission — rate-limited,
    *  unauthorized conversation wiring, or malformed payload (Phase 2b). */
   EMIT_EVENT_REJECTED: "ext:emit-event-rejected",
+  /** `ezcorp/emit-loop-event` successfully emitted a content-free loop
+   *  approval nudge onto the host bus. This is the tamper-evident MIRROR
+   *  of the LOCKED per-loop approval-label store (loop-types.ts): every
+   *  `approval_resolved` emission leaves an independent, append-only audit
+   *  row, so the label history can be cross-checked against a stream the
+   *  extension cannot rewrite (Loops EZ Mode Phase 2). The metadata carries
+   *  the host-STAMPED `loopId` (`<extensionId>:<loopId>`), the wire `type`,
+   *  and — for a resolution — the `decision`. */
+  LOOP_EVENT_EMITTED: "ext:loop-event-emitted",
+  /** `ezcorp/emit-loop-event` rejected an emission — capability
+   *  kill-switch, missing `loopEvents` permission, rate-limited, or a
+   *  malformed / unknown-type payload (Loops EZ Mode Phase 2). The
+   *  metadata `reason` distinguishes them. */
+  LOOP_EVENT_REJECTED: "ext:loop-event-rejected",
   /** Server→extension `eventSubscriptions` delivery was dropped — the
    *  extension is rate-limited, the event payload is missing a
    *  `conversationId`, or defense-in-depth caught a routing mismatch

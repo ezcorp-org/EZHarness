@@ -19,7 +19,12 @@ import { Glob } from "bun";
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { type CoversMap, isValidCoversMap } from "../../scripts/check-visual-evidence.ts";
+import {
+  type CoversMap,
+  isValidCoversMap,
+  isVisualSurfaceFile,
+} from "../../scripts/check-visual-evidence.ts";
+import { isEvidenceTaggedContent } from "../../scripts/visual-evidence/select-specs.ts";
 import { escapeGlob } from "../../scripts/coverage-config.ts";
 
 const REPO_ROOT = resolve(import.meta.dir, "..", "..");
@@ -27,10 +32,28 @@ const COVERS_PATH = join(REPO_ROOT, "web/e2e/evidence-covers.json");
 
 const raw = JSON.parse(readFileSync(COVERS_PATH, "utf8")) as unknown;
 
-/** Repo-relative @evidence spec paths on disk (any depth under web/e2e/). */
+/**
+ * Repo-relative @evidence spec paths on disk (any depth under web/e2e/),
+ * classified by the SAME shared helper the capture selector uses — the
+ * meta-test's notion of "@evidence spec" and the runtime's cannot drift.
+ */
 const evidenceSpecs = [...new Glob("web/e2e/**/*.spec.ts").scanSync({ cwd: REPO_ROOT })]
-  .filter((rel) => readFileSync(join(REPO_ROOT, rel), "utf8").includes("@evidence"))
+  .filter((rel) => isEvidenceTaggedContent(readFileSync(join(REPO_ROOT, rel), "utf8")))
   .sort();
+
+/**
+ * Entries whose globs all point OUTSIDE the visual surface (web/src minus
+ * lib/server): they can never fire in the gate or the capture selector, which
+ * only ever test visual-surface files. Each must be listed here WITH a reason,
+ * or the inertness test below fails — the map cannot silently accumulate
+ * dead-but-plausible-looking entries.
+ */
+const KNOWN_INERT_ENTRIES: Record<string, string> = {
+  "web/e2e/graded-card-scanner.spec.ts":
+    "renders an extension-SERVED page; its source lives under docs/extensions/**, " +
+    "which is not a visual surface — kept for completeness (the spec is @evidence-tagged), " +
+    "documented inert until extension app dirs join VISUAL_SURFACE_GLOBS",
+};
 
 /** The file universe globs are allowed to point into (fast: skips node_modules/.git). */
 const universe = [
@@ -96,5 +119,26 @@ describe("evidence-covers.json: globs", () => {
       if (!matches && !allowedNonWebSrc) empties.push(`${spec} → ${glob}`);
     }
     expect(empties).toEqual([]);
+  });
+
+  test("inert entries (no glob can ever match a visual-surface file) are exactly the documented ones", () => {
+    // An entry is INERT when none of its globs matches any visual-surface file
+    // in the universe: the gate and selector filter through isVisualSurfaceFile
+    // before consulting covers, so such an entry never influences either. Inert
+    // entries must be consciously documented in KNOWN_INERT_ENTRIES — and an
+    // entry that BECOMES live (e.g. extension dirs join the visual surface)
+    // must be de-listed, so the documentation can't rot in either direction.
+    const visualUniverse = universe.filter((f) => isVisualSurfaceFile(f));
+    const inert = Object.entries(map)
+      .filter(
+        ([, globs]) =>
+          !globs.some((p) => {
+            const g = new Glob(escapeGlob(p));
+            return visualUniverse.some((f) => g.match(f));
+          }),
+      )
+      .map(([spec]) => spec)
+      .sort();
+    expect(inert).toEqual(Object.keys(KNOWN_INERT_ENTRIES).sort());
   });
 });

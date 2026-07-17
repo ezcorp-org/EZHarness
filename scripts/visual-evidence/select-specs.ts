@@ -125,11 +125,23 @@ export function selectEvidenceSpecs(
 }
 
 /**
- * The subset of `changedSpecs` (repo-relative paths) whose file content carries
- * an `@evidence` tag. Substring check — the same heuristic the covers
- * meta-test uses; a title-tagged spec always contains the substring, so this
- * can only over-select (a comment-only mention), never under-select. An
- * unreadable file is assumed tagged (fail-open, over-capture).
+ * THE single definition of "this spec file carries an @evidence tag" — a
+ * substring check over the file content. Playwright's `--grep @evidence`
+ * matches test TITLES, so this is a deliberate over-approximation (a
+ * comment-only mention counts): it can only over-select specs to run, never
+ * under-select — safe in the fail-open direction. The covers meta-test
+ * (`src/__tests__/visual-evidence-covers.test.ts`) imports this same helper,
+ * so "what needs a covers entry" and "what the selector treats as evidence"
+ * can never drift apart.
+ */
+export function isEvidenceTaggedContent(text: string): boolean {
+  return text.includes("@evidence");
+}
+
+/**
+ * The subset of `changedSpecs` (repo-relative paths) whose file content
+ * satisfies {@link isEvidenceTaggedContent}. An unreadable file is assumed
+ * tagged (fail-open, over-capture).
  */
 export async function evidenceTaggedSubset(
   changedSpecs: readonly string[],
@@ -138,7 +150,7 @@ export async function evidenceTaggedSubset(
   const tagged = new Set<string>();
   for (const spec of changedSpecs) {
     try {
-      if ((await Bun.file(join(repoRoot, spec)).text()).includes("@evidence")) {
+      if (isEvidenceTaggedContent(await Bun.file(join(repoRoot, spec)).text())) {
         tagged.add(spec);
       }
     } catch {

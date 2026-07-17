@@ -152,12 +152,15 @@ export interface GalleryArgs {
   runId: number;
   shots: GalleryShot[];
   /**
-   * OPTIONAL PR-diff spec paths (`web/e2e/**​/*.spec.ts`) parsed from
-   * EVIDENCE_CHANGED_FILES. When present AND ≥1 staged shot's spec matches one,
-   * the gallery is PARTITIONED: matching shots render inline first, everything
-   * else folds into the `<details>` block. Absent / empty / no-match → the P1
-   * layout (all shots inline-sorted-capped) byte-for-byte. Presentation only —
-   * never a trust decision (see `isChangedShotSpec`).
+   * OPTIONAL e2e spec paths (`web/e2e/**​/*.spec.ts`) parsed from
+   * EVIDENCE_CHANGED_FILES — the union of the PR's CHANGED specs and the
+   * COVERING specs of its changed visual files (WF2's `expand-changed-specs.ts`
+   * appends the latter from the default-branch covers map). When present AND ≥1
+   * staged shot's spec matches one, the gallery is PARTITIONED: matching shots
+   * render inline first, everything else folds into the `<details>` block.
+   * Absent / empty / no-match → the P1 layout (all shots inline-sorted-capped)
+   * byte-for-byte. Presentation only — never a trust decision (see
+   * `isChangedShotSpec`).
    */
   changedSpecs?: readonly string[];
 }
@@ -217,9 +220,35 @@ function isSpecSuffixMatch(a: readonly string[], b: readonly string[]): boolean 
 }
 
 /**
+ * Split a list of changed spec paths into their comparable segment lists,
+ * dropping any that reduce to nothing. Precompute this ONCE before the partition
+ * loop (see {@link buildGalleryMarkdown}) so the hot path never re-splits the
+ * changed paths per shot.
+ */
+function changedPathSegLists(changedSpecPaths: readonly string[]): string[][] {
+  return changedSpecPaths.map(specPathSegments).filter((segs) => segs.length > 0);
+}
+
+/**
+ * The partition's ONE match primitive: true iff `shotSegs` suffix-matches any of
+ * the already-split `changedSegsList`. Shared by {@link isChangedShotSpec} (which
+ * splits per call) and buildGalleryMarkdown's hot loop (which splits once), so
+ * the suffix-match logic lives in exactly one place.
+ */
+function matchesAnySegs(shotSegs: readonly string[], changedSegsList: readonly string[][]): boolean {
+  if (shotSegs.length === 0) return false;
+  for (const changedSegs of changedSegsList) {
+    if (isSpecSuffixMatch(shotSegs, changedSegs)) return true;
+  }
+  return false;
+}
+
+/**
  * True iff `shotSpec` (a manifest spec, root- OR repo-relative) names the SAME
- * spec file as any of `changedSpecPaths` (repo-relative `web/e2e/**​/*.spec.ts`
- * from the PR diff), via segment-aligned suffix match in either direction.
+ * spec file as any of `changedSpecPaths` (repo-relative `web/e2e/**​/*.spec.ts` —
+ * the PR's CHANGED specs plus the COVERING specs of its changed visual files, see
+ * {@link parseChangedSpecPaths}), via segment-aligned suffix match in either
+ * direction.
  *
  * SECURITY: `shotSpec` is attacker-controlled artifact text. It is used ONLY to
  * float a shot into the inline gallery section — never a trust / authorization
@@ -227,21 +256,18 @@ function isSpecSuffixMatch(a: readonly string[], b: readonly string[]): boolean 
  * rendered through `sanitizeLabel` / `safeSegment`, so it stays inert plain text.
  */
 export function isChangedShotSpec(shotSpec: string, changedSpecPaths: readonly string[]): boolean {
-  const shotSegs = specPathSegments(shotSpec);
-  if (shotSegs.length === 0) return false;
-  for (const changed of changedSpecPaths) {
-    const changedSegs = specPathSegments(changed);
-    if (changedSegs.length === 0) continue;
-    if (isSpecSuffixMatch(shotSegs, changedSegs)) return true;
-  }
-  return false;
+  return matchesAnySegs(specPathSegments(shotSpec), changedPathSegLists(changedSpecPaths));
 }
 
 /**
- * Extract the changed e2e SPEC paths from raw EVIDENCE_CHANGED_FILES content
- * (one `gh api .../files --jq '.[].filename'` line each, repo-relative). Keeps
- * only `web/e2e/**​/*.spec.ts` lines — a shot floats inline iff its own spec
- * file is in this set. Absent / blank → `[]`.
+ * Extract the e2e SPEC paths from EVIDENCE_CHANGED_FILES content (one
+ * repo-relative path per line). That file is NO LONGER raw `gh api .../files`
+ * output: WF2's `expand-changed-specs.ts` appends, to the changed-file list, the
+ * DEFAULT-branch covers-map specs of every changed visual file — so the
+ * `web/e2e/**​/*.spec.ts` lines kept here are the union of the PR's CHANGED specs
+ * and the COVERING specs of its changed visual files. A shot therefore floats
+ * inline iff its own spec is one of those (a changed spec OR a spec that renders
+ * a changed visual file). Absent / blank → `[]`.
  */
 export function parseChangedSpecPaths(content: string): string[] {
   const out: string[] = [];
@@ -259,11 +285,14 @@ export function parseChangedSpecPaths(content: string): string[] {
  * worker-completion order, so we sort here to keep the comment reproducible.
  *
  * DIFF-SCOPED PARTITION (P3): when `changedSpecs` is supplied AND ≥1 staged
- * shot's spec matches a changed spec file, the gallery is partitioned — the
- * matching ("changed") shots render inline first (still (spec,label)-sorted,
- * `MAX_INLINE_SHOTS` cap applied to that section), and ALL remaining shots
- * (changed-overflow first, then the untouched rest) fold into the single
- * `<details>` block titled `N more screenshot(s) from the full suite`. With no
+ * shot's spec matches one, the gallery is partitioned — the matching ("changed")
+ * shots render inline first (still (spec,label)-sorted, `MAX_INLINE_SHOTS` cap
+ * applied to that section), and ALL remaining shots (changed-overflow first,
+ * then the untouched rest) fold into the single `<details>` block titled `N more
+ * screenshot(s) from the full suite`. `changedSpecs` is the union of the PR's
+ * CHANGED specs and the COVERING specs of its changed visual files (WF2's
+ * `expand-changed-specs.ts` appends the latter), so a shot floats inline iff its
+ * spec is a changed spec OR a spec that renders a changed visual file. With no
  * changed-file info — or when nothing matched — the layout is the P1 default:
  * the first `MAX_INLINE_SHOTS` inline, the remainder folded under `N more
  * screenshot(s)`. Either way the partition only REORDERS; every shot stays
@@ -295,8 +324,12 @@ export function buildGalleryMarkdown(args: GalleryArgs): string {
   const changed: GalleryShot[] = [];
   const rest: GalleryShot[] = [];
   if (changedSpecPaths.length > 0) {
+    // Split the changed paths ONCE; per shot we then only split the shot's own
+    // spec (no re-splitting of the changed list in the loop).
+    const changedSegsList = changedPathSegLists(changedSpecPaths);
     for (const shot of sortedAll) {
-      (isChangedShotSpec(shot.rawSpec ?? shot.spec, changedSpecPaths) ? changed : rest).push(shot);
+      const shotSegs = specPathSegments(shot.rawSpec ?? shot.spec);
+      (matchesAnySegs(shotSegs, changedSegsList) ? changed : rest).push(shot);
     }
   }
   // Fail-soft: no changed-file info OR nothing matched → the exact P1 layout
@@ -480,12 +513,17 @@ function validatePrNumberSafe(s: unknown): number {
 }
 
 /**
- * Read the OPTIONAL PR-diff file list (EVIDENCE_CHANGED_FILES → one repo-relative
- * path per line, written by WF2's trusted `gh api .../files` step) and reduce it
- * to the changed e2e spec paths. Absent env OR unreadable file → `undefined`, so
- * `buildGalleryMarkdown` renders the full P1 gallery. Fail-soft, UX-only: it only
- * reorders the gallery, never gates anything, and the file's contents are used
- * solely to float already-validated shots into the inline section.
+ * Read the OPTIONAL changed-files list (EVIDENCE_CHANGED_FILES → one repo-relative
+ * path per line) and reduce it to the e2e spec paths that scope the inline
+ * gallery. WF2 writes this file from its trusted `gh api .../files` diff step,
+ * then runs `expand-changed-specs.ts`, which appends the DEFAULT-branch
+ * covers-map specs of every changed visual file — so the parsed set is the union
+ * of the PR's CHANGED specs and the COVERING specs of its changed visual files.
+ * Absent env OR unreadable file → `undefined`, so `buildGalleryMarkdown` renders
+ * the full P1 gallery. Fail-soft, UX-only: the contents (attacker-influenced file
+ * names, hence still untrusted) only REORDER the gallery — they never gate
+ * anything, and are used solely to float already-validated shots into the inline
+ * section.
  */
 async function readChangedSpecPaths(): Promise<string[] | undefined> {
   const file = process.env.EVIDENCE_CHANGED_FILES;

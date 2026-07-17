@@ -620,4 +620,42 @@ export interface AgentEvents {
     conversationId: string;
     currentLeaf: string | null;
   };
+  /**
+   * Loops EZ Mode Phase 2 — a loop run PARKED awaiting a human approve/decline
+   * (`approval_pending`) or was RESOLVED (`approval_resolved`). Both are
+   * CONTENT-FREE invalidation nudges (loopId + runId, + `decision` on resolve)
+   * — the web badge/inbox re-fetches the authorized dashboard on receipt; the
+   * proposal body NEVER rides the event. The `loopId` is host-STAMPED
+   * (`<extensionId>:<loopId>`) so it is provenance-bound to the emitting
+   * extension; consumers treat it as an opaque invalidation key.
+   * `conversationId` is OPTIONAL: present
+   * when the loop is conversation-wired (SSE scopes delivery to that owner via
+   * the standard conv-scope branch), absent for a global-scope loop (the nudge
+   * broadcasts to every authenticated subscriber, like `ext:page-state` /
+   * `github-projects:proposal-update`). Listed in `DIRECT_CARRIER_EVENT_TYPES`
+   * as optional carriers (fail-open, mirroring `run:complete`).
+   */
+  "loops:approval_pending": {
+    loopId: string;
+    runId: string;
+    conversationId?: string;
+  };
+  "loops:approval_resolved": {
+    loopId: string;
+    runId: string;
+    decision: "approved" | "declined";
+    conversationId?: string;
+  };
+  /**
+   * Loops EZ Mode Phase 2 — a loop auto-disabled after N consecutive
+   * permanent errors. A user-visible notice so a stop is never silent
+   * (inbox/toast surface). Content-carrying but non-sensitive (loop id +
+   * error count). Optional conversationId scopes delivery like the approval
+   * events; a global loop broadcasts.
+   */
+  "loops:auto_disabled": {
+    loopId: string;
+    consecutiveErrors: number;
+    conversationId?: string;
+  };
 }

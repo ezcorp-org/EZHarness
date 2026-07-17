@@ -119,15 +119,31 @@ export function isValidCoversMap(raw: unknown): raw is CoversMap {
 }
 
 /**
+ * Compiled-glob cache, keyed by covers-map identity. Both the gate and the
+ * selector call {@link coveringSpecsForFile} once per changed visual file with
+ * the SAME map object — without the cache every call recompiled all ~75 globs
+ * (O(changedFiles × globs) Glob constructions per process).
+ */
+const compiledCovers = new WeakMap<CoversMap, [string, Glob[]][]>();
+
+/**
  * Pure: the covers-map spec keys whose globs match `file` (a repo-relative
  * path), sorted. Globs are escaped the same way as the surface globs so a
  * SvelteKit `[id]` segment matches literally. Used by both the gate (∃ covering
  * spec changed?) and the capture selector (union of covering specs).
  */
 export function coveringSpecsForFile(file: string, coversMap: CoversMap): string[] {
+  let compiled = compiledCovers.get(coversMap);
+  if (!compiled) {
+    compiled = Object.entries(coversMap).map(([spec, globs]) => [
+      spec,
+      globs.map((p) => new Glob(escapeGlob(p))),
+    ]);
+    compiledCovers.set(coversMap, compiled);
+  }
   const hits: string[] = [];
-  for (const [spec, globs] of Object.entries(coversMap)) {
-    if (globs.some((p) => new Glob(escapeGlob(p)).match(file))) hits.push(spec);
+  for (const [spec, globs] of compiled) {
+    if (globs.some((g) => g.match(file))) hits.push(spec);
   }
   return hits.sort();
 }

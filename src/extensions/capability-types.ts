@@ -39,6 +39,7 @@ export type CapabilityKind =
   | "ezcorp:agent:config"
   | "ezcorp:agent:spawn"
   | "ezcorp:tasks:emit"
+  | "ezcorp:loops:emit"
   | "ezcorp:events:subscribe"
   // Install an authored extension draft. Sensitive + ALWAYS prompts
   // (even for the bundled extension-author) and is NEVER persisted as
@@ -216,9 +217,9 @@ export function capabilityDeclarationToSet(
   }
 
   // Namespaced custom caps. Translate `appendMessages`/`agentConfig`/
-  // `taskEvents`/`spawnAgents`/`eventSubscriptions` boolean keys to
-  // their `ezcorp:*` form. Other keys are dropped (unknown — Phase 6
-  // will widen this).
+  // `taskEvents`/`loopEvents`/`spawnAgents`/`eventSubscriptions` boolean
+  // keys to their `ezcorp:*` form. Other keys are dropped (unknown —
+  // Phase 6 will widen this).
   if (decl.custom) {
     for (const [key, val] of Object.entries(decl.custom)) {
       const kind = customToKind(key);
@@ -252,6 +253,7 @@ export function capabilityDeclarationToSet(
  *   • `env`         — array intersection
  *   • `storage`     — boolean AND
  *   • `taskEvents`  — boolean AND
+ *   • `loopEvents`  — boolean AND
  *   • `agentConfig` — both sides "read" → "read", else absent
  *   • `spawnAgents` — min(maxPerHour) + min(maxConcurrent), absent if
  *                     either side absent (the more restrictive wins)
@@ -328,6 +330,11 @@ export function intersectPermissions(
   // taskEvents — boolean AND
   if (a.taskEvents === true && b.taskEvents === true) {
     out.taskEvents = true;
+  }
+
+  // loopEvents — boolean AND
+  if (a.loopEvents === true && b.loopEvents === true) {
+    out.loopEvents = true;
   }
 
   // agentConfig — both must be "read" for "read" to survive
@@ -503,6 +510,7 @@ export function intersectPermissions(
       (key === "env" && out.env) ||
       (key === "storage" && out.storage) ||
       (key === "taskEvents" && out.taskEvents) ||
+      (key === "loopEvents" && out.loopEvents) ||
       (key === "agentConfig" && out.agentConfig) ||
       (key === "spawnAgents" && out.spawnAgents) ||
       (key === "appendMessages" && out.appendMessages) ||
@@ -648,6 +656,10 @@ export function grantsToCapabilitySet(
     caps.push({ kind: "ezcorp:tasks:emit" });
   }
 
+  if (grants.loopEvents === true) {
+    caps.push({ kind: "ezcorp:loops:emit" });
+  }
+
   if (grants.agentConfig === "read") {
     caps.push({ kind: "ezcorp:agent:config" });
   }
@@ -734,6 +746,9 @@ function customToKind(key: string): CapabilityKind | null {
     case "taskEvents":
     case "ezcorp:tasks:emit":
       return "ezcorp:tasks:emit";
+    case "loopEvents":
+    case "ezcorp:loops:emit":
+      return "ezcorp:loops:emit";
     case "eventSubscriptions":
     case "ezcorp:events:subscribe":
       return "ezcorp:events:subscribe";

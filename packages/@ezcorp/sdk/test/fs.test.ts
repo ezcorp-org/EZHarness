@@ -92,17 +92,24 @@ describe("getExtensionDataDir", () => {
   });
 
   test("falls back to findProjectRoot() when opts is undefined", () => {
-    // Default branch — no opts. We can't easily isolate findProjectRoot here,
-    // but the call must succeed because the test runs inside the repo.
-    const dir = getExtensionDataDir("__sdk_unit_test_fallback__");
+    // Hermetic: exercise the opts-less default branch without touching the
+    // real repo. The prior version resolved `findProjectRoot()` to the repo
+    // root and mkdir'd `<root>/.ezcorp/extension-data/…`, which EACCESes on
+    // trees where `.ezcorp/extension-data` is container-owned (uid 1000).
+    // Give `workDir` its own `.git` and run from there so the default branch
+    // roots at the temp dir; restore cwd unconditionally.
+    const prevCwd = process.cwd();
+    mkdirSync(join(workDir, ".git"));
+    process.chdir(workDir);
+    // Re-read cwd after chdir so the assertion matches the realpath-resolved
+    // root (tmpdir may be a symlink on some platforms).
+    const root = process.cwd();
     try {
-      expect(dir.endsWith(join(".ezcorp", "extension-data", "__sdk_unit_test_fallback__"))).toBe(
-        true,
-      );
+      const dir = getExtensionDataDir("__sdk_unit_test_fallback__");
+      expect(dir).toBe(join(root, ".ezcorp", "extension-data", "__sdk_unit_test_fallback__"));
       expect(existsSync(dir)).toBe(true);
     } finally {
-      // Tidy up the dir we leaked into the real repo.
-      rmSync(dir, { recursive: true, force: true });
+      process.chdir(prevCwd);
     }
   });
 });
@@ -142,11 +149,18 @@ describe("atomicWrite", () => {
     const spy = spyOn(Bun, "write").mockImplementation(() => {
       throw new Error("synthetic write failure");
     });
+    // Explicit try/catch (not `await expect(...).rejects.toThrow()`): bun-types
+    // type `toThrow()` as `void`, so awaiting it reads as an ineffective await.
+    // This form awaits the real promise and asserts on the caught error.
+    let caught: unknown;
     try {
-      await expect(atomicWrite(target, "doomed")).rejects.toThrow("synthetic write failure");
+      await atomicWrite(target, "doomed");
+    } catch (err) {
+      caught = err;
     } finally {
       spy.mockRestore();
     }
+    expect((caught as Error | undefined)?.message).toContain("synthetic write failure");
     // Target was never written; no `*.tmp-*` sibling should be left.
     expect(existsSync(target)).toBe(false);
     const stale = readdirSync(workDir).filter((f) => f.startsWith("out.txt.tmp-"));
@@ -187,11 +201,17 @@ describe("atomicRead", () => {
       },
     } as unknown as ReturnType<typeof Bun.file>;
     const spy = spyOn(Bun, "file").mockImplementation(() => fakeFile);
+    // Explicit try/catch — see the atomicWrite failure test for why the
+    // `await expect(...).rejects.toThrow()` form is avoided here.
+    let caught: unknown;
     try {
-      await expect(atomicRead(target)).rejects.toThrow("EACCES: synthesized");
+      await atomicRead(target);
+    } catch (err) {
+      caught = err;
     } finally {
       spy.mockRestore();
     }
+    expect((caught as Error | undefined)?.message).toContain("EACCES: synthesized");
   });
 });
 
