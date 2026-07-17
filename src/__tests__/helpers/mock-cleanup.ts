@@ -58,7 +58,7 @@ const MODULE_PATHS = [
   "../../db/queries/extension-storage",
   "../../db/queries/memories",
   "../../db/queries/password-resets",
-  "../../db/queries/pipelines",
+  "../../db/queries/workflows",
   "../../db/queries/users",
   "../../db/queries/attachments",
   "../../db/queries/modes",
@@ -100,6 +100,11 @@ const MODULE_PATHS = [
   "../../extensions/secrets-store",
   // "../../extensions/storage-handler" trimmed (wave 3): zero mockers.
   "../../extensions/security",
+  // Loops Phase 2: event-subscription-dispatcher.test.ts mock.module's the
+  // loops kill-switch (global suspend gate) to drive its allow/deny branches
+  // without touching real settings. Snapshot so restoreModuleMocks()
+  // re-registers the real module in afterAll and the stub never leaks.
+  "../../extensions/loops-kill-switch",
   "../../extensions/subprocess",
   "../../observability/collector",
   "../../providers/router",
@@ -135,7 +140,7 @@ const MODULE_PATHS = [
   "../../runtime/orchestration-host",
   "../../runtime/ask-user-host",
   "../../runtime/mention-wiring",
-  "../../runtime/pipeline-loader",
+  "../../runtime/workflow-loader",
   "../../runtime/start-assignment",
   "../../runtime/tools/permissions",
   "../../extensions/migrations/task-tracking-storage",
@@ -150,6 +155,19 @@ const MODULE_PATHS = [
   "../../extensions/runtime/internal-host",
   "../../extensions/runtime/seccomp-loader",
   "../../extensions/schedule-daemon",
+  // Loops EZ Mode Phase 2: event-subscription-dispatcher.test.ts mocks the
+  // global loops kill switch to drive its suspend/resume branches. Snapshot so
+  // restoreModuleMocks() re-registers the real reader and the stub never leaks
+  // into loops-kill-switch.test.ts / the webhook + schedule daemon suites.
+  "../../extensions/loops-kill-switch",
+  // Loops EZ Mode Phase 4: background-timers.test.ts stubs the
+  // WebhookDeliveryDaemon class (start()/stop()) during the bootstrap-wiring
+  // suite so the real daemon (getDb reap + setInterval) never runs there.
+  // Snapshot so restoreModuleMocks() re-registers the real module (class +
+  // drainDelivery / buildFireContext / tryParseWebhookJson) in afterAll and the
+  // stub never leaks into webhook-delivery-daemon.test.ts (which imports the
+  // REAL exports).
+  "../../extensions/webhook-delivery-daemon",
   // Daily Briefing Phase 1: background-timers.test.ts stubs the
   // BriefingDaemon class (start()/stop()) during the bootstrap-wiring
   // suite so the real daemon (boot tick + setInterval) never runs

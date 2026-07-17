@@ -47,6 +47,26 @@ interface SecretBody {
   value?: unknown;
 }
 
+/** Secret-name namespace OWNED by a dedicated writer route, off-limits to this
+ *  generic entry point. `webhook:<slug>` secrets authenticate the public inbound
+ *  webhook route and may ONLY be minted via the admin rotate route
+ *  (`POST /api/extensions/:name/webhooks/:slug/rotate`), which shows the
+ *  plaintext once. Allowing a generic write here would let a user overwrite a
+ *  live hook token with a chosen value (defeating the shown-once, CSPRNG
+ *  guarantee), and a generic delete would silently brick a hook. Both are
+ *  rejected with a 400 that names the reserved namespace. */
+const RESERVED_SECRET_PREFIX = "webhook:";
+
+function reservedNamespaceError(name: string): Response | null {
+  if (name.startsWith(RESERVED_SECRET_PREFIX)) {
+    return errorJson(
+      400,
+      `The '${RESERVED_SECRET_PREFIX}' secret namespace is reserved — use the webhook rotate route`,
+    );
+  }
+  return null;
+}
+
 /** Gate on the `extensions` scope + a real session/key user. Returns the authed
  *  user, or a Response to short-circuit the handler with. Mirrors the
  *  github-projects `authGithubRoute` contract. */
@@ -107,6 +127,8 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
 
   const name = typeof body.name === "string" ? body.name : "";
   if (!name) return errorJson(400, "name is required");
+  const reserved = reservedNamespaceError(name);
+  if (reserved) return reserved;
   const value = typeof body.value === "string" ? body.value : "";
   if (!value) return errorJson(400, "value is required");
 
@@ -139,6 +161,8 @@ export const DELETE: RequestHandler = async ({ locals, params, request }) => {
 
   const name = typeof body.name === "string" ? body.name : "";
   if (!name) return errorJson(400, "name is required");
+  const reserved = reservedNamespaceError(name);
+  if (reserved) return reserved;
 
   const ext = await getExtension(params.id);
   if (!ext) return errorJson(404, "Not found");

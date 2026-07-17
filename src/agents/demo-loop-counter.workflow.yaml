@@ -1,0 +1,31 @@
+name: demo-loop-counter
+description: >-
+  A pure `transform` loop that counts using $loop.iteration and carries the
+  previous iteration's result via $loop.last. It exits as soon as the count
+  reaches 3, so a default run reports iterations: 3. Passing neverStop=true
+  makes the until-condition unreachable, exercising the loud
+  onExhausted:"fail" path (the loop runs its full budget then throws).
+inputSchema:
+  neverStop:
+    type: boolean
+    label: Never stop
+    description: Force the until-condition to stay unreachable so the loop exhausts and fails loudly.
+    required: false
+    default: false
+steps:
+  - name: count
+    kind: transform
+    output:
+      n: "$loop.iteration"
+      previous: "$loop.last.output.n"
+    loop:
+      maxIterations: 5
+      until:
+        all:
+          - ref: "$result.output.n"
+            op: gte
+            value: 3
+          - not:
+              ref: "$input.neverStop"
+              op: truthy
+      onExhausted: fail

@@ -89,7 +89,7 @@ const RATE_LIMITED_ROUTES: RateLimitRoute[] = [
   { pattern: /^\/api\/conversations\/[^/]+\/messages$/, method: "POST", limit: 20, keyType: "user", category: "chat" },
   { pattern: /^\/api\/agents\/[^/]+\/run$/, method: "POST", limit: 10, keyType: "user", category: "agentRun" },
   { pattern: /^\/api\/agent-configs\/generate$/, method: "POST", limit: 5, keyType: "user", category: "agentGenerate" },
-  { pattern: /^\/api\/pipelines\/[^/]+\/run$/, method: "POST", limit: 10, keyType: "user", category: "pipelineRun" },
+  { pattern: /^\/api\/workflows\/[^/]+\/run$/, method: "POST", limit: 10, keyType: "user", category: "workflowRun" },
   { pattern: /^\/api\/auth\/reset-password$/, method: "POST", limit: 3, keyType: "ip", category: "resetGenerate" },
   { pattern: /^\/api\/auth\/reset-password\/[^/]+$/, method: "POST", limit: 5, keyType: "ip", category: "resetPassword" },
 ];

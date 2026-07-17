@@ -503,6 +503,28 @@ export const EXT_AUDIT_ACTIONS = {
    *  crash mid-fire. Marked for retry only when
    *  `maxRetries > 0`. */
   SDK_SCHEDULE_REAPED: "ext:sdk-schedule-reaped",
+  // ── Loops EZ Mode Phase 4: inbound webhook trigger ──
+  /** The public `POST /api/hooks/:extensionId/:slug` route accepted a
+   *  delivery (auth passed, under limits). Persisted to `webhook_deliveries`
+   *  for claim-before-dispatch. Metadata: `{slug, deliveryId, auth}` — NEVER
+   *  the secret or payload. */
+  SDK_WEBHOOK_ACCEPTED: "ext:sdk-webhook-accepted",
+  /** The webhook route REJECTED a delivery. Metadata carries `{slug, reason}`
+   *  where reason ∈ {unknown, unauthorized, oversize, rate-limited,
+   *  budget-exceeded} — never the secret or payload. The enumeration-safe
+   *  `unknown` reason covers foreign-ext / unknown-slug / no-grant / malformed-
+   *  slug uniformly; a secretless (un-authenticatable) hook rejects as
+   *  `unauthorized`. Attacker-controlled ext name + slug are length-bounded +
+   *  control-char-stripped before they enter the audit metadata. */
+  SDK_WEBHOOK_REJECTED: "ext:sdk-webhook-rejected",
+  /** The WebhookDeliveryDaemon dispatched a claimed delivery to the extension
+   *  subprocess (or catch-up drained the backlog). Metadata: `{slug,
+   *  deliveryId, catchUp}`. */
+  SDK_WEBHOOK_DISPATCHED: "ext:sdk-webhook-dispatched",
+  /** A hook secret was rotated via the authenticated rotate route (the
+   *  plaintext was shown-once to the rotating user). Metadata: `{slug}` —
+   *  never the secret. */
+  SDK_WEBHOOK_SECRET_ROTATED: "ext:sdk-webhook-secret-rotated",
   /**
    * v1.4: a user flipped `memories.injection_eligible` for one of
    * their memories via PATCH /api/memories/[id]. Privacy-relevant —

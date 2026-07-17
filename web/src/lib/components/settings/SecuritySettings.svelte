@@ -10,7 +10,10 @@
 		{ key: "chat", label: "Chat Messages", default: 20 },
 		{ key: "agentRun", label: "Agent Runs", default: 10 },
 		{ key: "agentGen", label: "Agent Generation", default: 5 },
-		{ key: "pipeline", label: "Pipeline Runs", default: 10 },
+		// Key MUST equal the hooks.server.ts RATE_LIMITED_ROUTES category —
+		// the limiter reads overrides by category, so a mismatched key
+		// (the old "pipeline") silently never applied.
+		{ key: "workflowRun", label: "Workflow Runs", default: 10 },
 	] as const;
 
 	const STORAGE_QUOTAS = [

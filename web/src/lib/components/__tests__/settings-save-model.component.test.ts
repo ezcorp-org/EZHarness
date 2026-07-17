@@ -263,4 +263,25 @@ describe("SecuritySettings dirty tracking", () => {
 		const tokenPut = puts().find((c) => c.url.includes("limits:dailyTokens"));
 		expect(tokenPut?.body).toEqual({ value: 250000 });
 	});
+
+	test("workflow rate-limit override saves under the real limiter category key", async () => {
+		// hooks.server.ts reads overrides by RATE_LIMITED_ROUTES category
+		// ("workflowRun") — the old "pipeline" key silently never applied.
+		stubFetch(() => ({}));
+		const { getByText, getByLabelText } = render(SecuritySettings);
+
+		await waitFor(() => {
+			expect(getByText("Save Security Settings")).toBeInTheDocument();
+		});
+
+		await fireEvent.input(getByLabelText("Workflow Runs"), { target: { value: "25" } });
+		await fireEvent.click(getByText("Save Security Settings").closest("button")!);
+
+		await waitFor(() => {
+			const rlPut = puts().find((c) => c.url.includes("limits:rateLimit"));
+			expect(rlPut?.body).toEqual({
+				value: expect.objectContaining({ workflowRun: 25 }),
+			});
+		});
+	});
 });

@@ -376,6 +376,36 @@ describe("DELETE secrets", () => {
   });
 });
 
+// ════════════════════════ reserved `webhook:` namespace ════════════════════════
+//
+// Hook secrets (`webhook:<slug>`) authenticate the public inbound-webhook route
+// and may ONLY be minted via the admin rotate route. This generic route must
+// reject BOTH a write (which would let a user pin a chosen token, defeating the
+// CSPRNG/shown-once guarantee) AND a delete (which would silently brick a hook)
+// — before any store call.
+describe("reserved webhook: namespace", () => {
+  test("POST webhook:<slug> → 400 naming the reserved namespace, nothing stored", async () => {
+    const res = await run(POST, ev({ body: { name: "webhook:tickets", value: "ezhook_pwn" } }));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toContain("webhook:");
+    expect(body.error).toContain("reserved");
+    expect(setSecretCalls).toHaveLength(0);
+  });
+
+  test("DELETE webhook:<slug> → 400, nothing deleted", async () => {
+    const res = await run(DELETE, ev({ method: "DELETE", body: { name: "webhook:tickets" } }));
+    expect(res.status).toBe(400);
+    expect(deleteSecretCalls).toHaveLength(0);
+  });
+
+  test("a non-reserved name that merely CONTAINS 'webhook' is still allowed (prefix-anchored)", async () => {
+    const res = await run(POST, ev({ body: { name: "my-webhook-token", value: "v" } }));
+    expect(res.status).toBe(200);
+    expect(setSecretCalls).toHaveLength(1);
+  });
+});
+
 // ════════════════════════ extension RBAC (`secrets` scope) ════════════════════════
 //
 // Deny-by-default enforcement (spec 2026-07-03): POST + DELETE both require

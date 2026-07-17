@@ -10,7 +10,7 @@ test.describe("Navigation", () => {
 
 		const sidebar = page.locator("aside");
 		await expect(sidebar.getByText("Dashboard")).toBeVisible();
-		await expect(sidebar.getByText("Pipelines")).toBeVisible();
+		await expect(sidebar.getByText("Workflows")).toBeVisible();
 		await expect(sidebar.getByText("New Agent")).toBeVisible();
 	});
 
@@ -22,7 +22,7 @@ test.describe("Navigation", () => {
 		await expect(sidebar.getByText("Dashboard")).toBeVisible();
 		await expect(sidebar.getByText("Chat")).toBeVisible();
 		await expect(sidebar.getByText("Settings")).toBeVisible();
-		await expect(sidebar.getByText("Pipelines")).toBeVisible();
+		await expect(sidebar.getByText("Workflows")).toBeVisible();
 	});
 
 	test("sidebar shows project name when project is active", async ({ page, mockApi }) => {

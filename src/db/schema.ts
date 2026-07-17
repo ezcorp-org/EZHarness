@@ -1,6 +1,6 @@
 import { pgTable, text, timestamp, jsonb, integer, real, serial, bigserial, bigint, boolean, index, primaryKey, uniqueIndex, date, vector } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
-import type { PipelineStep } from "../types";
+import type { WorkflowStep } from "../types";
 import type { MemoryProvenance } from "../memory/types";
 import { EMBEDDING_DIMENSIONS } from "../memory/types";
 import type {
@@ -336,12 +336,12 @@ export const agentConfigs = pgTable("agent_configs", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const pipelineDefinitions = pgTable("pipeline_definitions", {
+export const workflowDefinitions = pgTable("workflow_definitions", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   name: text("name").notNull().unique(),
   description: text("description").notNull().default(""),
   inputSchema: jsonb("input_schema").$type<Record<string, unknown>>(),
-  steps: jsonb("steps").notNull().$type<PipelineStep[]>(),
+  steps: jsonb("steps").notNull().$type<WorkflowStep[]>(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -1261,6 +1261,74 @@ export const extensionScheduleFires = pgTable("extension_schedule_fires", {
 
 export type ExtensionScheduleFire = typeof extensionScheduleFires.$inferSelect;
 export type NewExtensionScheduleFire = typeof extensionScheduleFires.$inferInsert;
+
+// ── Loops EZ Mode Phase 4: webhook trigger registry + delivery queue ──
+//
+// `extension_webhooks` mirrors `extension_schedules` for the inbound-webhook
+// trigger: one row per (extension, manifest-declared slug). The install
+// reconciler creates rows for granted slugs (`enabled: true`) and
+// SOFT-DISABLES removed ones (`enabled: false`) so delivery history survives a
+// manifest edit. The per-hook secret is NOT stored here — it lives encrypted in
+// the `extension_secrets` store under name `webhook:<slug>` (AES-GCM at rest).
+//
+// `extension_id` holds the extension NAME and FKs to `extensions(name)` —
+// mirroring `extension_secrets` (so the session-less route can read the secret
+// by the SAME key it looks the registry up with) and the `/api/extensions/:name`
+// routing convention. The public route path's `:extensionId` segment is this
+// name; extension names are URL-safe (`/^[a-z0-9][a-z0-9-_.]{0,63}$/`).
+export const extensionWebhooks = pgTable("extension_webhooks", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  extensionId: text("extension_id").notNull().references(() => extensions.name, { onDelete: "cascade" }),
+  slug: text("slug").notNull(),
+  enabled: boolean("enabled").notNull().default(true),
+  lastDeliveryAt: timestamp("last_delivery_at", { withTimezone: true, mode: "date" }),
+  lastDeliveryStatus: text("last_delivery_status").$type<"ok" | "error" | null>(),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("uniq_ext_webhook").on(table.extensionId, table.slug),
+  index("idx_webhook_enabled").on(table.enabled),
+]);
+
+export type ExtensionWebhook = typeof extensionWebhooks.$inferSelect;
+export type NewExtensionWebhook = typeof extensionWebhooks.$inferInsert;
+
+// `webhook_deliveries` is the durable, claim-before-dispatch queue: the route
+// PERSISTS an accepted delivery (`status: pending`) with the size-capped raw
+// body BEFORE dispatching, so a subprocess-down / crash between accept and
+// dispatch is recoverable — the `WebhookDeliveryDaemon` drains pending rows on
+// the next tick / start (mirrors cron catch-up, NOT the event dispatcher's
+// fire-and-forget). `extension_id` (the extension NAME) + `slug` are
+// denormalized so the daemon can dispatch + count the daily budget without a
+// join. The row IS the idempotency handle: its `id` becomes the loop fire id.
+export const webhookDeliveries = pgTable("webhook_deliveries", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  webhookId: text("webhook_id").notNull().references(() => extensionWebhooks.id, { onDelete: "cascade" }),
+  extensionId: text("extension_id").notNull(),
+  slug: text("slug").notNull(),
+  status: text("status").notNull().$type<"pending" | "running" | "ok" | "error">(),
+  contentType: text("content_type"),
+  /** The size-capped raw request body (UTF-8 text, exact bytes the sender
+   *  posted). Stored so a delivery survives a subprocess restart. */
+  body: text("body").notNull(),
+  receivedAt: timestamp("received_at", { withTimezone: true, mode: "date" }).notNull(),
+  claimedAt: timestamp("claimed_at", { withTimezone: true, mode: "date" }),
+  deliveredAt: timestamp("delivered_at", { withTimezone: true, mode: "date" }),
+  error: text("error"),
+  /** Failed-dispatch counter. A delivery reverts to `pending` + increments this
+   *  on each failure; at `MAX_DELIVERY_ATTEMPTS` it dead-letters to `status:
+   *  "error"` (with `error` set) instead of retrying forever — the poison-
+   *  delivery bound. */
+  attempts: integer("attempts").notNull().default(0),
+  catchUp: boolean("catch_up").notNull().default(false),
+}, (table) => [
+  index("idx_webhook_deliveries_pending").on(table.status, table.receivedAt),
+  index("idx_webhook_deliveries_hook").on(table.webhookId),
+  index("idx_webhook_deliveries_ext_received").on(table.extensionId, table.receivedAt),
+]);
+
+export type WebhookDelivery = typeof webhookDeliveries.$inferSelect;
+export type NewWebhookDelivery = typeof webhookDeliveries.$inferInsert;
 
 // ── Secure User-Site Preview / Port Exposure (Phase 1) ──────────────
 //

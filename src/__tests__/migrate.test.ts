@@ -26,7 +26,7 @@ const EXPECTED_TABLES = [
   "runs",
   "run_logs",
   "agent_configs",
-  "pipeline_definitions",
+  "workflow_definitions",
   "conversations",
   "messages",
   "memories",

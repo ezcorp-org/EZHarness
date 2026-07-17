@@ -34,9 +34,9 @@ let nextCommands: Array<{
 mock.module("$lib/server/context", () => ({
 	getExecutor: () => ({ listAgents: () => [] }),
 	getBus: () => ({ emit: () => {}, on: () => () => {} }),
-	getPipelineExecutor: () => null,
+	getWorkflowExecutor: () => null,
 	getStateMediator: () => null,
-	getPipelines: () => [],
+	getWorkflows: () => [],
 	getCommandRegistry: () => ({
 		listCommands: async () => nextCommands,
 		findCommand: async ({ name }: { name: string }) =>

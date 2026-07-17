@@ -41,6 +41,12 @@ export type CapabilityKind =
   | "ezcorp:tasks:emit"
   | "ezcorp:loops:emit"
   | "ezcorp:events:subscribe"
+  // Receive inbound webhook deliveries for a manifest-declared slug
+  // (Loops EZ Mode Phase 4). One cap per granted slug (value = slug),
+  // mirroring `ezcorp:events:subscribe`. The host routes an authenticated
+  // `POST /api/hooks/:extensionId/:slug` onto the delivery queue only for
+  // slugs whose cap the extension holds; undeclared slugs are dropped.
+  | "ezcorp:webhooks:receive"
   // Install an authored extension draft. Sensitive + ALWAYS prompts
   // (even for the bundled extension-author) and is NEVER persisted as
   // an always-allow grant — see the carve-outs in
@@ -259,6 +265,7 @@ export function capabilityDeclarationToSet(
  *                     either side absent (the more restrictive wins)
  *   • `appendMessages` — both sides present + AND on `excludedDefault`
  *   • `eventSubscriptions` — array intersection
+ *   • `webhooks` — array intersection (hook slugs)
  *
  * `grantedAt` is rebuilt from the keys that survived intersection,
  * preferring the OLDER timestamp of either side so an audit trail
@@ -392,6 +399,23 @@ export function intersectPermissions(
     if (list.length > 0) out.eventSubscriptions = list;
   }
 
+  // webhooks — array intersection (case-sensitive hook slugs). Same clip
+  // semantics as eventSubscriptions: a slug survives only when BOTH sides
+  // declare it, so a child conversation can never receive a hook the parent
+  // grant lacks.
+  if (a.webhooks && b.webhooks) {
+    const bSet = new Set(b.webhooks);
+    const seen = new Set<string>();
+    const list: string[] = [];
+    for (const s of a.webhooks) {
+      if (bSet.has(s) && !seen.has(s)) {
+        seen.add(s);
+        list.push(s);
+      }
+    }
+    if (list.length > 0) out.webhooks = list;
+  }
+
   // ── Phase 53 capability tiers (`llm`, `memory`, `lessons`, `schedule`).
   // These survive when both sides declare them. Bundled extension
   // ceilings are written in `bundled-ceiling.ts` to mirror the install
@@ -515,6 +539,7 @@ export function intersectPermissions(
       (key === "spawnAgents" && out.spawnAgents) ||
       (key === "appendMessages" && out.appendMessages) ||
       (key === "eventSubscriptions" && out.eventSubscriptions) ||
+      (key === "webhooks" && out.webhooks) ||
       (key === "llm" && out.llm) ||
       (key === "memory" && out.memory) ||
       (key === "lessons" && out.lessons) ||
@@ -674,6 +699,12 @@ export function grantsToCapabilitySet(
     }
   }
 
+  if (grants.webhooks) {
+    for (const slug of grants.webhooks) {
+      caps.push({ kind: "ezcorp:webhooks:receive", value: slug });
+    }
+  }
+
   if (grants.appendMessages) {
     caps.push({ kind: "ezcorp:chat:append" });
   }
@@ -752,6 +783,9 @@ function customToKind(key: string): CapabilityKind | null {
     case "eventSubscriptions":
     case "ezcorp:events:subscribe":
       return "ezcorp:events:subscribe";
+    case "webhooks":
+    case "ezcorp:webhooks:receive":
+      return "ezcorp:webhooks:receive";
     default:
       return null;
   }
