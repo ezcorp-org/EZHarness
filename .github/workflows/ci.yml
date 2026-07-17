@@ -575,6 +575,14 @@ jobs:
             echo "non-visual diff — skipping visual-evidence capture"
             exit 0
           fi
+          # DIFF-SCOPED classification happens HERE, before any install, so
+          # `credited=1` is recorded even if bun install / sync / browser
+          # install dies — an infra failure on a credited capture must still
+          # red via the enforce step (credited && !credited_ok), never
+          # soft-skip it.
+          if ! grep -qx '__ALL__' "$SPECS_FILE"; then
+            echo "credited=1" >> "$GITHUB_OUTPUT"
+          fi
           cd web && bun install --frozen-lockfile
           bunx --bun svelte-kit sync
           bunx playwright install chromium
@@ -590,10 +598,10 @@ jobs:
             # `|| [ -n "$line" ]` keeps a final line with no trailing newline (mapfile-equivalent robustness; select-specs always emits a trailing \n today, this guards a future producer change).
             while IFS= read -r line || [ -n "$line" ]; do [ -n "$line" ] && SPECS+=("$line"); done < "$SPECS_FILE"
             # DIFF-SCOPED list: these specs are what the Visual-evidence gate
-            # credited the PR for — their result must gate. `credited` is
-            # written BEFORE the run so a hung/killed capture (step timeout)
-            # still reds via the missing `credited_ok`.
-            echo "credited=1" >> "$GITHUB_OUTPUT"
+            # credited the PR for — their result must gate. `credited=1` was
+            # already written above (pre-install) so an infra death or a
+            # hung/killed capture (step timeout) also reds via the missing
+            # `credited_ok`.
             EZCORP_E2E_EVIDENCE=1 bunx playwright test --project=chromium --grep @evidence "${SPECS[@]}"
             echo "credited_ok=1" >> "$GITHUB_OUTPUT"
           fi

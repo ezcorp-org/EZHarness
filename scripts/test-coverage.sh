@@ -167,6 +167,13 @@ run_legs() {
   (
     set +e
     mapfile -t LEG_FILES < <(suggest_leg_files)
+    # Empty-set guard: `bun test` with ZERO file args runs the WHOLE tree —
+    # a rotted find must fail loud, never silently widen the leg.
+    if [ "${#LEG_FILES[@]}" -eq 0 ]; then
+      echo "::error::suggest leg file set is EMPTY (find rot in suggest_leg_files?) — refusing an unscoped bun test" > "$legs/suggest.out"
+      echo 1 > "$legs/suggest.code"
+      exit 1
+    fi
     bun test --coverage --coverage-reporter=lcov --coverage-dir="$TMPDIR/cov_suggest" \
       "${LEG_FILES[@]/#/./}" \
       > "$legs/suggest.out" 2>&1
@@ -182,6 +189,13 @@ run_legs() {
   (
     set +e
     mapfile -t LEG_FILES < <(aikit_leg_files)
+    # Empty-set guard: see the suggest leg — an empty find must red the
+    # (gating) AIKIT_EXIT, not run the whole tree.
+    if [ "${#LEG_FILES[@]}" -eq 0 ]; then
+      echo "::error::ai-kit leg file set is EMPTY (find rot in aikit_leg_files?) — refusing an unscoped bun test" > "$legs/aikit.out"
+      echo 1 > "$legs/aikit.code"
+      exit 1
+    fi
     bun test --coverage --coverage-reporter=lcov --coverage-dir="$TMPDIR/cov_aikit" \
       "${LEG_FILES[@]/#/./}" \
       > "$legs/aikit.out" 2>&1
