@@ -52,11 +52,10 @@ runs:
       shell: bash
       run: cd web && bunx --bun svelte-kit sync
 
-    # Cache the downloaded browser binaries (~150 MB). `playwright install
-    # --with-deps` is still run below — it skips the download on a cache hit but
-    # always installs the apt system libs (which aren't cached).
+    # Cache the downloaded browser binaries (~150 MB).
     - name: Cache Playwright browsers
       if: inputs.playwright == 'true'
+      id: pw-cache
       uses: actions/cache@v4
       with:
         path: ~/.cache/ms-playwright
@@ -64,7 +63,19 @@ runs:
         restore-keys: |
           playwright-${{ runner.os }}-
 
+    # Split from `install --with-deps`: `install chromium` is a no-op on a
+    # browser-cache hit, and the ~30-60s `install-deps` apt run only happens
+    # on a cache MISS (each browser-version bump misses and refreshes the
+    # libs). DRIFT RISK accepted: runner-image apt libs aren't cached, so if
+    # a GitHub image update ever drops a lib chromium needs while the browser
+    # cache still hits, launches fail — bust the playwright-* cache (or bump
+    # the browser) to force a deps reinstall.
     - name: Install Playwright chromium
       if: inputs.playwright == 'true'
       shell: bash
-      run: cd web && bunx playwright install --with-deps chromium
+      run: cd web && bunx playwright install chromium
+
+    - name: Install Playwright system deps (browser-cache miss only)
+      if: inputs.playwright == 'true' && steps.pw-cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: cd web && bunx playwright install-deps chromium

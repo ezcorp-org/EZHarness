@@ -505,6 +505,7 @@ jobs:
       # SOFT capture (best-effort): only the @evidence-tagged specs run. Browser
       # binaries are cached to skip the ~150 MB chromium download.
       - name: Cache Playwright browsers
+        id: pw-cache
         continue-on-error: true
         uses: actions/cache@v4
         with:
@@ -527,6 +528,10 @@ jobs:
         shell: bash
         env:
           BASE_REF: origin/${{ github.event.pull_request.base.ref || 'main' }}
+          # Split install (see .github/actions/setup): apt deps only on a
+          # browser-cache miss. Empty/errored cache output reads as "miss",
+          # so deps still install (fail-safe direction).
+          PW_BROWSER_CACHE_HIT: ${{ steps.pw-cache.outputs.cache-hit }}
         run: |
           SPECS_FILE="$RUNNER_TEMP/evidence-specs.txt"
           bun scripts/visual-evidence/select-specs.ts > "$SPECS_FILE" || echo __ALL__ > "$SPECS_FILE"
@@ -542,7 +547,10 @@ jobs:
           fi
           cd web && bun install --frozen-lockfile
           bunx --bun svelte-kit sync
-          bunx playwright install --with-deps chromium
+          bunx playwright install chromium
+          if [ "${PW_BROWSER_CACHE_HIT:-}" != "true" ]; then
+            bunx playwright install-deps chromium
+          fi
           if grep -qx '__ALL__' "$SPECS_FILE"; then
             EZCORP_E2E_EVIDENCE=1 bunx playwright test --project=chromium --grep @evidence || true
           else
