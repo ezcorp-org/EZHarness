@@ -564,6 +564,15 @@ export interface ExtensionManifestV2 {
      *  heavy `input`/`output` blobs from `tool:start` /
      *  `tool:complete` payloads. Default false. */
     eventSubscriptions?: string[] | { events: string[]; includeFullPayload?: boolean };
+    /** Receive inbound HTTP webhook deliveries (Loops EZ Mode Phase 4). Each
+     *  string is a hook `slug` this extension declares; the host mints a
+     *  per-hook AES-GCM secret at install and routes an authenticated
+     *  `POST /api/hooks/:extensionId/:slug` onto the delivery queue ONLY for
+     *  declared slugs. A leaked token lets an attacker POST arbitrary bytes,
+     *  so any loop with a webhook trigger is permanently `untrusted-input`.
+     *  Undeclared slugs are dropped at install (mirrors cron/event; never
+     *  widens the grant). */
+    webhooks?: string[];
     /** Author turns directly via the `ezcorp/append-message` reverse RPC.
      *  Conversation scope is forced by the host (the extension cannot
      *  target another conversation). The host always forces the new
@@ -903,6 +912,11 @@ export interface ExtensionPermissions {
    *  the intersection of manifest declaration and the direct-carrier
    *  allowlist. */
   eventSubscriptions?: string[];
+  /** Granted webhook slugs (Loops EZ Mode Phase 4). Clamped at install
+   *  time to the intersection of manifest declaration and the submitted
+   *  grant. The host routes an authenticated inbound POST onto the delivery
+   *  queue only for a slug present here. See the matching manifest field. */
+  webhooks?: string[];
   /** Grants the `ezcorp/append-message` reverse RPC. See the matching
    *  field on `ExtensionManifestV2.permissions`. */
   appendMessages?: { excludedDefault: boolean };

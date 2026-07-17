@@ -138,6 +138,27 @@ describe("clampExtensionPermissions — capability tier", () => {
     const out = clampExtensionPermissions({ eventSubscriptions: [DCE_EVENT] }, {});
     expect(out.eventSubscriptions).toBeUndefined();
   });
+
+  test("webhooks: slug array intersects submitted ∩ manifest; undeclared slug dropped", () => {
+    const out = clampExtensionPermissions(
+      { webhooks: ["tickets", "not-in-manifest"] },
+      { webhooks: ["tickets", "alerts"] },
+    );
+    expect(out.webhooks).toEqual(["tickets"]);
+  });
+
+  test("webhooks: manifest without a declaration yields no grant", () => {
+    const out = clampExtensionPermissions({ webhooks: ["tickets"] }, {});
+    expect(out.webhooks).toBeUndefined();
+  });
+
+  test("webhooks: no overlap yields no grant", () => {
+    const out = clampExtensionPermissions(
+      { webhooks: ["tickets"] },
+      { webhooks: ["alerts"] },
+    );
+    expect(out.webhooks).toBeUndefined();
+  });
 });
 
 describe("clampExtensionPermissions — Phase 51 capability surfaces", () => {

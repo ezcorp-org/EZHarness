@@ -28,6 +28,7 @@ export const CAPABILITY_PERMISSION_FIELDS = [
   "spawnAgents",
   "agentConfig",
   "eventSubscriptions",
+  "webhooks",
 ] as const;
 
 export type CapabilityPermissionField = typeof CAPABILITY_PERMISSION_FIELDS[number];

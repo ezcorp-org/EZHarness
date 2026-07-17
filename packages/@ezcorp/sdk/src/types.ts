@@ -384,6 +384,13 @@ export interface ExtensionManifestV2 {
      *  — delivery is conversation-scoped to the `conversation_extensions`
      *  wiring. Unknown names are filtered at clamp time. */
     eventSubscriptions?: string[];
+    /** Receive inbound HTTP webhook deliveries (Loops EZ Mode Phase 4). Each
+     *  string is a hook `slug`; the host mints a per-hook secret at install and
+     *  routes an authenticated `POST /api/hooks/:extensionId/:slug` onto the
+     *  loop delivery queue only for declared slugs. Webhook bodies are
+     *  attacker-controllable, so a webhook-triggered loop is permanently
+     *  `untrusted-input`. Undeclared slugs are dropped at install. */
+    webhooks?: string[];
     /** Brokered web search + URL read via `ctx.search` (shared-search
      *  Phase 1). The provider chain + SSRF guard run host-side. A bundled
      *  extension may declare `"inherit"` (full grant, tracks instance
