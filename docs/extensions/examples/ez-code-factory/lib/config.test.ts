@@ -1,0 +1,142 @@
+import { test, expect, describe } from "bun:test";
+import {
+  PIPELINE_STEPS,
+  IMPLEMENTED_STEPS,
+  DEFAULT_AUTO_FIX_LIMITS,
+  DEFAULT_CI_TIMEOUT_MS,
+  defaultPipelineConfig,
+  autoFixLimit,
+  resolvePipelineConfig,
+} from "./config";
+import { GATE_REMOTE } from "./gate";
+
+describe("pipeline step order + defaults", () => {
+  test("fixed 9-step order", () => {
+    expect(PIPELINE_STEPS).toEqual([
+      "intent",
+      "rebase",
+      "review",
+      "test",
+      "document",
+      "lint",
+      "push",
+      "pr",
+      "ci",
+    ]);
+  });
+  test("M4 implements all nine steps (pr/ci gracefully skip when not applicable)", () => {
+    expect([...IMPLEMENTED_STEPS].sort()).toEqual([
+      "ci",
+      "document",
+      "intent",
+      "lint",
+      "pr",
+      "push",
+      "rebase",
+      "review",
+      "test",
+    ]);
+  });
+  test("review cap defaults to 0 (always parks); rebase/test/document/lint/ci default 3", () => {
+    expect(DEFAULT_AUTO_FIX_LIMITS.review).toBe(0);
+    expect(DEFAULT_AUTO_FIX_LIMITS.rebase).toBe(3);
+    expect(DEFAULT_AUTO_FIX_LIMITS.ci).toBe(3);
+    expect(DEFAULT_AUTO_FIX_LIMITS.push).toBe(0);
+  });
+});
+
+describe("defaultPipelineConfig + autoFixLimit", () => {
+  test("defaults are self-consistent", () => {
+    const cfg = defaultPipelineConfig();
+    expect(cfg.gateRemote).toBe(GATE_REMOTE);
+    expect(cfg.defaultBranch).toBe("main");
+    expect(cfg.ignorePatterns).toEqual([]);
+    expect(autoFixLimit(cfg, "review")).toBe(0);
+    expect(autoFixLimit(cfg, "lint")).toBe(3);
+  });
+  test("mutating a resolved config does not affect the defaults constant", () => {
+    const cfg = defaultPipelineConfig();
+    cfg.autoFixLimits.review = 9;
+    expect(DEFAULT_AUTO_FIX_LIMITS.review).toBe(0);
+  });
+});
+
+describe("resolvePipelineConfig", () => {
+  test("non-object settings → defaults", () => {
+    expect(resolvePipelineConfig(null)).toEqual(defaultPipelineConfig());
+    expect(resolvePipelineConfig("x")).toEqual(defaultPipelineConfig());
+  });
+  test("applies valid per-step cap overrides, clamping bad values", () => {
+    const cfg = resolvePipelineConfig({
+      autoFix: { review: 2, rebase: -5, lint: 4.9, ci: "nope" },
+    });
+    expect(cfg.autoFixLimits.review).toBe(2);
+    expect(cfg.autoFixLimits.rebase).toBe(3); // negative rejected → default
+    expect(cfg.autoFixLimits.lint).toBe(4); // floored
+    expect(cfg.autoFixLimits.ci).toBe(3); // non-number rejected → default
+  });
+  test("ignores autoFix when it is not an object", () => {
+    const cfg = resolvePipelineConfig({ autoFix: 42 });
+    expect(cfg.autoFixLimits).toEqual(DEFAULT_AUTO_FIX_LIMITS);
+  });
+  test("overrides gate_remote / ignore_patterns / default_branch", () => {
+    const cfg = resolvePipelineConfig({
+      gate_remote: "  factory  ",
+      ignore_patterns: ["*.snap", 42, "dist/**"],
+      default_branch: "  trunk ",
+    });
+    expect(cfg.gateRemote).toBe("factory");
+    expect(cfg.ignorePatterns).toEqual(["*.snap", "dist/**"]);
+    expect(cfg.defaultBranch).toBe("trunk");
+  });
+  test("blank string overrides are rejected", () => {
+    const cfg = resolvePipelineConfig({ gate_remote: "   ", default_branch: "" });
+    expect(cfg.gateRemote).toBe(GATE_REMOTE);
+    expect(cfg.defaultBranch).toBe("main");
+  });
+
+  // ── flat UI-settings knobs (the keys ezcorp.config.ts declares) ─────
+  test("flat review_autofix_cap + autofix_cap knobs set the per-step caps", () => {
+    const cfg = resolvePipelineConfig({ review_autofix_cap: 2, autofix_cap: 5 });
+    expect(cfg.autoFixLimits.review).toBe(2);
+    // autofix_cap fans out to rebase/test/document/lint/ci only …
+    for (const step of ["rebase", "test", "document", "lint", "ci"] as const) {
+      expect(cfg.autoFixLimits[step]).toBe(5);
+    }
+    // … and never touches the no-auto-fix steps.
+    expect(cfg.autoFixLimits.push).toBe(0);
+    expect(cfg.autoFixLimits.intent).toBe(0);
+    expect(cfg.autoFixLimits.pr).toBe(0);
+  });
+  test("invalid/negative flat cap knobs leave defaults untouched", () => {
+    const cfg = resolvePipelineConfig({ review_autofix_cap: -1, autofix_cap: "nope" });
+    expect(cfg.autoFixLimits.review).toBe(0); // default
+    expect(cfg.autoFixLimits.rebase).toBe(3); // default
+  });
+  test("a flat autofix_cap of 0 is honored (not treated as unset)", () => {
+    const cfg = resolvePipelineConfig({ autofix_cap: 0 });
+    expect(cfg.autoFixLimits.rebase).toBe(0);
+    expect(cfg.autoFixLimits.ci).toBe(0);
+  });
+  test("comma-separated ignore_patterns string is split, trimmed, emptied-out", () => {
+    const cfg = resolvePipelineConfig({ ignore_patterns: " *.snap , , dist/** ,, " });
+    expect(cfg.ignorePatterns).toEqual(["*.snap", "dist/**"]);
+  });
+
+  // ── CI idle-timeout (declared in HOURS in the UI) ────────────────────
+  test("ciTimeoutMs defaults to 7 days", () => {
+    expect(defaultPipelineConfig().ciTimeoutMs).toBe(DEFAULT_CI_TIMEOUT_MS);
+    expect(resolvePipelineConfig({}).ciTimeoutMs).toBe(DEFAULT_CI_TIMEOUT_MS);
+  });
+  test("positive ci_timeout_hours → ms", () => {
+    expect(resolvePipelineConfig({ ci_timeout_hours: 2 }).ciTimeoutMs).toBe(2 * 60 * 60 * 1000);
+  });
+  test("negative ci_timeout_hours → unlimited sentinel (-1)", () => {
+    expect(resolvePipelineConfig({ ci_timeout_hours: -1 }).ciTimeoutMs).toBe(-1);
+  });
+  test("zero / non-finite ci_timeout_hours → default", () => {
+    expect(resolvePipelineConfig({ ci_timeout_hours: 0 }).ciTimeoutMs).toBe(DEFAULT_CI_TIMEOUT_MS);
+    expect(resolvePipelineConfig({ ci_timeout_hours: Number.NaN }).ciTimeoutMs).toBe(DEFAULT_CI_TIMEOUT_MS);
+    expect(resolvePipelineConfig({ ci_timeout_hours: "6" }).ciTimeoutMs).toBe(DEFAULT_CI_TIMEOUT_MS);
+  });
+});

@@ -109,6 +109,11 @@ describe("extension audit action constants", () => {
       "SDK_SCHEDULE_FIRE_NOW",
       "SDK_SCHEDULE_QUOTA_EXCEEDED",
       "SDK_SCHEDULE_REAPED",
+      // Loops EZ Mode Phase 4 — inbound webhook trigger
+      "SDK_WEBHOOK_ACCEPTED",
+      "SDK_WEBHOOK_REJECTED",
+      "SDK_WEBHOOK_DISPATCHED",
+      "SDK_WEBHOOK_SECRET_ROTATED",
       // v1.4 — memory injection-eligibility admin UI
       "MEMORY_INJECTION_ELIGIBILITY_CHANGED",
       // v1.4 — entity-namespace migration audit emit

@@ -71,6 +71,7 @@ Docs are grouped into six domain folders:
 - [Deterministic Extension Pre-processing](extensions/deterministic-preprocess.md) — Manifest `preprocessors` run a declared tool on matching attachments deterministically — no LLM decision — before the assistant turn: the result persists as a `preprocess-result` tool card and grounds the reply via a system note.
 - [Marketplace](extensions/marketplace.md) — A public catalog of shareable agent configs: browse, search, filter, install (minting a private copy), rate, flag, version, and import/export — backed by four `marketplace_*` tables.
 - [Bundled Extension Catalog](extensions/bundled-catalog.md) — The 24 first-party extensions EZCorp auto-installs on first boot — the default tool/agent/canvas surface, gated by a hardcoded per-extension capability ceiling.
+- [ez-code-factory (git gate pipeline)](extensions/ez-code-factory.md) — An installable example extension that intercepts `git push gate <branch>`, runs a fixed 9-step review/test/lint/PR/CI pipeline in a disposable worktree with per-gate human approval, RBAC-gated triage, a fix-once yolo autopilot, a background reconcile sweep, crash recovery, and a `code_factory_doctor` health check.
 
 ### tools
 
