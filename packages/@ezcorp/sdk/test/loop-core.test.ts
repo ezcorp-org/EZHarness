@@ -14,9 +14,15 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  APPROVAL_STATES,
+  APPROVAL_TERMINAL_STATES,
+  APPROVED,
+  AWAITING_APPROVAL,
+  DECLINED,
   DEFAULT_MAX_EVENTS_PER_RUN,
   DEFAULT_MAX_RUNS,
   DEFAULT_STATES,
+  FINALIZING,
   appendEvent,
   autoDisableContext,
   classifyFailure,
@@ -48,6 +54,26 @@ function deferredContract(): ResolvedContract {
     scope: "global",
   });
 }
+
+// ── approval-state constants ────────────────────────────────────────
+
+describe("approval states", () => {
+  test("APPROVAL_STATES lists the four primitive-owned states in order", () => {
+    expect(APPROVAL_STATES).toEqual([
+      AWAITING_APPROVAL,
+      FINALIZING,
+      APPROVED,
+      DECLINED,
+    ]);
+  });
+
+  test("APPROVAL_TERMINAL_STATES is the terminal subset (approved + declined)", () => {
+    expect(APPROVAL_TERMINAL_STATES).toEqual([APPROVED, DECLINED]);
+    for (const s of APPROVAL_TERMINAL_STATES) {
+      expect(APPROVAL_STATES).toContain(s);
+    }
+  });
+});
 
 // ── resolveContract defaults ────────────────────────────────────────
 

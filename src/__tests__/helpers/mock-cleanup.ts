@@ -94,6 +94,11 @@ const MODULE_PATHS = [
   "../../extensions/secrets-store",
   "../../extensions/storage-handler",
   "../../extensions/security",
+  // Loops Phase 2: event-subscription-dispatcher.test.ts mock.module's the
+  // loops kill-switch (global suspend gate) to drive its allow/deny branches
+  // without touching real settings. Snapshot so restoreModuleMocks()
+  // re-registers the real module in afterAll and the stub never leaks.
+  "../../extensions/loops-kill-switch",
   "../../extensions/subprocess",
   "../../observability/collector",
   "../../providers/router",
