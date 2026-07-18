@@ -1,5 +1,5 @@
 import { json } from "@sveltejs/kit";
-import { getExtension, updateMcpExtension } from "$server/db/queries/extensions";
+import { getExtension, rehydrateMcpServerSecrets, updateMcpExtension } from "$server/db/queries/extensions";
 import { ExtensionRegistry } from "$server/extensions/registry";
 import { McpClient } from "$server/mcp/client";
 import { requireRole } from "$server/auth/middleware";
@@ -39,7 +39,15 @@ export const PUT: RequestHandler = async ({ params, request, locals }) => {
   // secret for that key. Existing keys not present in the incoming map are
   // also preserved. stdio transports carry no headers, so this is a no-op
   // for them.
-  const prevServer = manifest.mcpServers?.[0];
+  //
+  // The stored manifest keeps only value-BLANKED header keys (secrets live in
+  // the extension_secrets store), so rehydrate the real previous values first —
+  // otherwise "blank = keep existing" would preserve an empty header and the
+  // re-connect below would authenticate with no token.
+  const prevRedacted = manifest.mcpServers?.[0];
+  const prevServer = prevRedacted
+    ? await rehydrateMcpServerSecrets(existing.name, prevRedacted)
+    : undefined;
   const server = mergeHeaders(parsed.data.server, prevServer);
 
   // Verify connectivity + pull the live tool list with a throwaway client

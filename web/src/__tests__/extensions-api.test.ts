@@ -123,6 +123,31 @@ mock.module("$server/db/queries/extensions", () => ({
 	createExtension: mock(async (d: any) => d),
 	getExtensionByName: mock(async () => null),
 	incrementFailures: mock(async () => 0),
+	// Faithful double of the real redaction: blanks MCP transport-secret
+	// VALUES (headers/env) while keeping the KEY set, non-MCP passes through.
+	// The real impl is unit-tested against PGlite in
+	// src/__tests__/mcp-secrets-query.test.ts.
+	redactExtensionSecrets: (ext: any) => {
+		const m = ext?.manifest;
+		if (!m || m.kind !== "mcp" || !m.mcpServers?.length) return ext;
+		const blank = (map: any) =>
+			Object.fromEntries(Object.keys(map ?? {}).map((k) => [k, ""]));
+		return {
+			...ext,
+			manifest: {
+				...m,
+				mcpServers: m.mcpServers.map((s: any) =>
+					s.transport === "stdio"
+						? s.env && Object.keys(s.env).length
+							? { ...s, env: blank(s.env) }
+							: s
+						: s.headers && Object.keys(s.headers).length
+							? { ...s, headers: blank(s.headers) }
+							: s,
+				),
+			},
+		};
+	},
 }));
 
 // ── Installer mocks ──────────────────────────────────────────────────────
@@ -744,6 +769,37 @@ describe("GET /api/extensions", () => {
 		expect(res.status).toBe(200);
 		const body = await res.json();
 		expect(body).toEqual([]);
+	});
+
+	test("MCP transport secrets are stripped from the payload", async () => {
+		// A legacy row whose manifest still carries a plaintext bearer token —
+		// the GET handler must redact it so a read-scope member cannot exfiltrate.
+		extensionStore = {
+			...extensionFixture,
+			id: "mcp-ext",
+			name: "mcp-ext",
+			manifest: {
+				kind: "mcp",
+				name: "mcp-ext",
+				mcpServers: [
+					{
+						transport: "http",
+						name: "mcp-ext",
+						url: "https://x.example/mcp",
+						headers: { Authorization: "Bearer LEAKME" },
+					},
+				],
+				tools: [],
+				permissions: {},
+			},
+		};
+		const res = await (listGET(listReq()) as any);
+		expect(res.status).toBe(200);
+		const raw = JSON.stringify(await res.json());
+		expect(raw).not.toContain("LEAKME");
+		const body = JSON.parse(raw);
+		// Key survives (edit UI shows which headers exist); value is blanked.
+		expect(body[0].manifest.mcpServers[0].headers).toEqual({ Authorization: "" });
 	});
 
 	test("member (cookie) → 200 — handler has requireAuth but no role gate", async () => {
