@@ -20,15 +20,15 @@ import {
   definePage,
   getChannel,
   getToolContext,
+  invalidatePage,
   invoke,
-  pushPage,
   Rbac,
   Schedule,
   Storage,
   toolError,
   toolResult,
-  type HubPageTree,
   type PageActionEvent,
+  type PageRenderContext,
   type ScheduleHandlerContext,
   type ToolHandler,
 } from "@ezcorp/sdk/runtime";
@@ -53,7 +53,14 @@ import {
 import { enforceRespondContract } from "./lib/chat-contract";
 import { createIntentCache, makeConversationIntentInferrer } from "./lib/intent-infer";
 import { join } from "node:path";
-import { buildDashboard, normalizeRespondPayload, parseRunIdPayload, type RunDetail } from "./lib/page";
+import {
+  buildDashboard,
+  buildHome,
+  buildProjectDashboard,
+  normalizeRespondPayload,
+  parseRunIdPayload,
+  type RunDetail,
+} from "./lib/page";
 import {
   createRunStore,
   parsePushReceived,
@@ -173,9 +180,9 @@ export function _setStoreForTests(store: RunStore | null): void {
   storeImpl = store;
 }
 
-let pushPageImpl: typeof pushPage = pushPage;
-export function _setPushPageForTests(fn: typeof pushPage | null): void {
-  pushPageImpl = fn ?? pushPage;
+let invalidatePageImpl: typeof invalidatePage = invalidatePage;
+export function _setInvalidatePageForTests(fn: typeof invalidatePage | null): void {
+  invalidatePageImpl = fn ?? invalidatePage;
 }
 
 // ── GitHub-token seam (the pr/ci steps' gh auth) ──────────────────────
@@ -514,19 +521,12 @@ async function collectParkedDetails(store: RunStore, runs: RunRecord[]): Promise
   return details;
 }
 
-/** The current dashboard tree (runs list + inline triage detail for parked
- *  runs). The single source both the render-pull and the push-refresh use. */
-async function currentDashboardTree(): Promise<HubPageTree> {
-  const store = getStore();
-  const runs = await store.listRuns();
-  const details = await collectParkedDetails(store, runs);
-  return buildDashboard(runs, details);
-}
-
-/** Push a fresh dashboard tree (content-free SSE invalidation → open tabs
- *  re-pull). Reads the global run store only (the shared, cross-user tree). */
+/** Signal "the dashboard changed" (content-free SSE invalidation → every open
+ *  Hub view re-pulls its OWN variant). With per-project variants a single
+ *  pushed tree can't serve the home + every project view, so this replaced
+ *  the old `pushPage` full-tree refresh. */
 async function refreshDashboard(): Promise<void> {
-  pushPageImpl(PAGE_ID, await currentDashboardTree());
+  invalidatePageImpl(PAGE_ID);
 }
 
 // ── Handlers ─────────────────────────────────────────────────────────
@@ -915,9 +915,17 @@ export async function recoverOnStart(): Promise<RecoverySummary> {
   });
 }
 
-/** Dashboard render — the runs table + inline parked-run triage (global scope). */
-export async function renderDashboard() {
-  return currentDashboardTree();
+/** Dashboard render — variant picked from the host's `perProject` context:
+ *  a single project's view on `/project/<id>/hub/...`, the all-projects home
+ *  on the global hub, or the classic combined dashboard when the host sends
+ *  no context (older host / flag off). */
+export async function renderDashboard(ctx?: PageRenderContext) {
+  const store = getStore();
+  const runs = await store.listRuns();
+  const details = await collectParkedDetails(store, runs);
+  if (ctx?.project) return buildProjectDashboard(ctx.project, runs, details);
+  if (ctx?.projects) return buildHome(ctx.projects, runs, details);
+  return buildDashboard(runs, details);
 }
 
 // ── Wiring ───────────────────────────────────────────────────────────

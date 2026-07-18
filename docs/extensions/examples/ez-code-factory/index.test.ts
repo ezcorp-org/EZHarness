@@ -22,7 +22,7 @@ import {
   _setProjectRootForTests,
   _setShellForTests,
   _setStoreForTests,
-  _setPushPageForTests,
+  _setInvalidatePageForTests,
   _setTmpBaseForTests,
   _setBaseUrlForTests,
   _setRunPipelineForTests,
@@ -139,7 +139,7 @@ afterEach(() => {
   _setProjectRootForTests(null);
   _setShellForTests(null);
   _setStoreForTests(null);
-  _setPushPageForTests(null);
+  _setInvalidatePageForTests(null);
   _setTmpBaseForTests(null);
   _setBaseUrlForTests(null);
   _setRunPipelineForTests(null);
@@ -369,7 +369,7 @@ describe("handlePushReceived", () => {
     const store = memStore();
     _setStoreForTests(store);
     _setRunPipelineForTests(fakePipeline(store, "completed"));
-    _setPushPageForTests(() => {});
+    _setInvalidatePageForTests(() => {});
     const root = "/proj/from-hook";
     await handlePushReceived({
       source: "hub",
@@ -397,7 +397,7 @@ describe("handlePushReceived", () => {
     const store = memStore();
     _setStoreForTests(store);
     _setRunPipelineForTests(fakePipeline(store, "completed"));
-    _setPushPageForTests(() => {});
+    _setInvalidatePageForTests(() => {});
     const root = "/proj/from-hook";
     await handlePushReceived({
       source: "hub",
@@ -448,7 +448,7 @@ describe("handlePushReceived", () => {
     _setStoreForTests(store);
     _setRunPipelineForTests(fakePipeline(store, "completed"));
     const pushes: string[] = [];
-    _setPushPageForTests((pageId) => pushes.push(pageId));
+    _setInvalidatePageForTests((pageId) => pushes.push(pageId));
 
     await handlePushReceived({ source: "hub", pageId: "dashboard", userId: "u", payload: VALID_PUSH });
 
@@ -473,7 +473,7 @@ describe("handlePushReceived", () => {
     const store = memStore();
     _setStoreForTests(store);
     _setRunPipelineForTests(fakePipeline(store, "parked"));
-    _setPushPageForTests(() => {});
+    _setInvalidatePageForTests(() => {});
 
     await handlePushReceived({ source: "hub", pageId: "dashboard", userId: "u", payload: VALID_PUSH });
 
@@ -493,7 +493,7 @@ describe("handlePushReceived", () => {
     );
     const store = memStore();
     _setStoreForTests(store);
-    _setPushPageForTests(() => {});
+    _setInvalidatePageForTests(() => {});
 
     await handlePushReceived({ source: "hub", pageId: "dashboard", userId: "u", payload: VALID_PUSH });
     const run = [...store.runs.values()][0]!;
@@ -514,7 +514,7 @@ describe("handlePushReceived", () => {
     const tstore = memStore();
     _setStoreForTests(tstore);
     _setRunPipelineForTests(fakePipeline(tstore, "completed")); // terminal → teardown reached
-    _setPushPageForTests(() => {});
+    _setInvalidatePageForTests(() => {});
     const cap = captureStderr();
     try {
       await handlePushReceived({ source: "hub", pageId: "dashboard", userId: "u", payload: VALID_PUSH });
@@ -543,7 +543,7 @@ describe("production env defaults", () => {
       const store = memStore();
       _setStoreForTests(store);
       _setRunPipelineForTests(fakePipeline(store, "completed"));
-      _setPushPageForTests(() => {});
+      _setInvalidatePageForTests(() => {});
 
       // UNSET → defaultProjectRoot() returns undefined → the tool errors out.
       delete process.env.EZCORP_PROJECT_ROOT;
@@ -1052,7 +1052,7 @@ describe("production pipeline wiring (default runners)", () => {
     _setShellForTests(trustedOkShell);
     const store = memStore();
     _setStoreForTests(store);
-    _setPushPageForTests(() => {});
+    _setInvalidatePageForTests(() => {});
     // No _setRunPipelineForTests → the DEFAULT factory (buildExecutorDeps +
     // startPipeline) runs. With host no-ops the pipeline skips to completion
     // without ever dispatching an agent.
@@ -1070,7 +1070,7 @@ describe("production pipeline wiring (default runners)", () => {
     const store = memStore();
     _setStoreForTests(store);
     await seedParkedRun(store); // parked at review
-    _setPushPageForTests(() => {});
+    _setInvalidatePageForTests(() => {});
     // The DEFAULT respond runner drives the real respondToGate, which REJECTS
     // an approve aimed at a step that is not awaiting approval ("rebase").
     await handleRespond({
@@ -1096,7 +1096,7 @@ describe("production pipeline wiring (default runners)", () => {
     const store = memStore();
     _setStoreForTests(store);
     await seedParkedRun(store);
-    _setPushPageForTests(() => {});
+    _setInvalidatePageForTests(() => {});
     // Abort never advances to push, so the real jail/agent are never touched.
     await handleRespond({
       source: "hub",
@@ -1199,7 +1199,7 @@ describe("handleReconcile", () => {
     const store = memStore();
     _setStoreForTests(store);
     await seedParkedRun(store); // parked at review (no reconcile hook)
-    _setPushPageForTests(() => {});
+    _setInvalidatePageForTests(() => {});
     await handleReconcile(evt({ runId: "run-parked" }));
     // The review gate has no reconcile hook → the run stays parked, worktree kept.
     expect((await store.getRun("run-parked"))!.status).toBe("awaiting_approval");
@@ -1216,7 +1216,7 @@ describe("handleReconcile", () => {
     const store = memStore();
     _setStoreForTests(store);
     await seedParkedRun(store);
-    _setPushPageForTests(() => {});
+    _setInvalidatePageForTests(() => {});
     // A reconcile runner that resolves the gate (marks the run completed).
     _setReconcileRunnerForTests((_projectRoot, _gateDir) => async ({ runId }) => {
       await store.updateRun(runId, { status: "completed" });
@@ -1390,7 +1390,7 @@ describe("settings live-read", () => {
     _setShellForTests(trustedOkShell);
     const store = memStore();
     _setStoreForTests(store);
-    _setPushPageForTests(() => {});
+    _setInvalidatePageForTests(() => {});
     try {
       await handlePushReceived({ source: "hub", pageId: "dashboard", userId: "u", payload: VALID_PUSH });
       expect([...store.runs.values()][0]!.status).toBe("completed");
@@ -1412,7 +1412,7 @@ describe("settings live-read", () => {
     _setShellForTests(trustedOkShell);
     const store = memStore();
     _setStoreForTests(store);
-    _setPushPageForTests(() => {});
+    _setInvalidatePageForTests(() => {});
     try {
       await handlePushReceived({ source: "hub", pageId: "dashboard", userId: "u", payload: VALID_PUSH });
       // Defaults applied → the pipeline still runs to completion.
@@ -1439,7 +1439,7 @@ describe("settings live-read", () => {
     _setShellForTests(trustedOkShell); // host no-ops + resolvable trusted branch → real executor runs to completion
     const store = memStore();
     _setStoreForTests(store);
-    _setPushPageForTests(() => {});
+    _setInvalidatePageForTests(() => {});
     // No _setRunPipelineForTests → the DEFAULT defaultRunPipeline runs, and it is
     // the one that calls resolveLiveConfig() → resolvePipelineConfig(stub).
     await handlePushReceived({ source: "hub", pageId: "dashboard", userId: "u", payload: VALID_PUSH });
@@ -1813,7 +1813,7 @@ describe("chat-entry tool handlers", () => {
   test("DEFAULT wiring: code_factory_run triggers a run via runGateLifecycle", async () => {
     _setProjectRootForTests(() => "/proj");
     _setTmpBaseForTests(() => "/tmp/ext");
-    _setPushPageForTests(() => {});
+    _setInvalidatePageForTests(() => {});
     // Resolve branch=main, project head, no prior gate tip, empty diff, fetch ok.
     const chatShell: ShellRunner = async (cmd) => {
       const c = cmd.join(" ");
@@ -1838,7 +1838,7 @@ describe("chat-entry tool handlers", () => {
   test("DEFAULT wiring: code_factory_respond drives resumeGateLifecycle (abort)", async () => {
     _setProjectRootForTests(() => "/proj");
     _setShellForTests(okShell);
-    _setPushPageForTests(() => {});
+    _setInvalidatePageForTests(() => {});
     const store = memStore();
     _setStoreForTests(store);
     await seedParkedRun(store); // parked at review, worktree kept
@@ -1859,7 +1859,7 @@ describe("RBAC on triage actions (M6)", () => {
   test("handleRespond proceeds when `respond-gate` is granted", async () => {
     _setProjectRootForTests(() => "/proj");
     _setShellForTests(okShell);
-    _setPushPageForTests(() => {});
+    _setInvalidatePageForTests(() => {});
     const store = memStore();
     _setStoreForTests(store);
     await seedParkedRun(store);
@@ -1906,7 +1906,7 @@ describe("RBAC on triage actions (M6)", () => {
   test("handleYolo checks the `yolo` scope (granted → autopilot runs)", async () => {
     _setProjectRootForTests(() => "/proj");
     _setShellForTests(okShell);
-    _setPushPageForTests(() => {});
+    _setInvalidatePageForTests(() => {});
     const store = memStore();
     _setStoreForTests(store);
     await seedParkedRun(store); // empty review findings → approve
@@ -1958,7 +1958,7 @@ describe("yolo fix-once semantics (M6)", () => {
   test("FIXES an auto-fix finding once, then APPROVES the re-parked gate", async () => {
     _setProjectRootForTests(() => "/proj");
     _setShellForTests(okShell);
-    _setPushPageForTests(() => {});
+    _setInvalidatePageForTests(() => {});
     const store = memStore();
     _setStoreForTests(store);
     await seedParkedRun(store);
@@ -2051,7 +2051,7 @@ describe("reconcile sweep wiring (M6)", () => {
   test("runReconcileSweep with no ctx/env root: a run WITHOUT a stamped root is skipped, one WITH a stamped root advances", async () => {
     _setProjectRootForTests(() => undefined);
     _setShellForTests(okShell);
-    _setPushPageForTests(() => {});
+    _setInvalidatePageForTests(() => {});
     const store = memStore();
     _setStoreForTests(store);
     const base = {
@@ -2088,7 +2088,7 @@ describe("reconcile sweep wiring (M6)", () => {
   test("runReconcileSweep advances a checks_passed run whose reconcile completes it + writes a heartbeat", async () => {
     _setProjectRootForTests(() => "/proj");
     _setShellForTests(okShell);
-    _setPushPageForTests(() => {});
+    _setInvalidatePageForTests(() => {});
     const store = memStore();
     _setStoreForTests(store);
     await store.createRun({
@@ -2218,7 +2218,7 @@ describe("production default seams (M6)", () => {
     }) as HostChannel["request"]);
     _setProjectRootForTests(() => "/proj");
     _setShellForTests(okShell);
-    _setPushPageForTests(() => {});
+    _setInvalidatePageForTests(() => {});
     const store = memStore();
     _setStoreForTests(store);
     await seedParkedRun(store);
@@ -2251,5 +2251,79 @@ describe("production default seams (M6)", () => {
     } finally {
       __resetChannelForTests();
     }
+  });
+});
+
+// ── renderDashboard — perProject context dispatch ────────────────────
+
+describe("renderDashboard — perProject context dispatch", () => {
+  const PROJECT = { id: "6f9619ff-8b86-4d01-b42d-00cf4fc964ff", name: "My App", path: "/home/dev/my-app" };
+
+  async function seededStore() {
+    const store = memStore();
+    await store.createRun({
+      id: "r-mine",
+      repoId: repoIdOf(PROJECT.path),
+      branch: "feat/mine",
+      ref: "refs/heads/feat/mine",
+      headSha: "abcdef0123456789",
+      baseSha: "0000000000000000",
+      status: "completed",
+      worktreePath: null,
+      createdAt: "2026-07-17T08:00:00.000Z",
+      updatedAt: "2026-07-17T08:00:00.000Z",
+      parkedMs: 0,
+      awaitingAgentSince: null,
+      intent: null,
+      intentSource: null,
+    });
+    await store.createRun({
+      id: "r-foreign",
+      repoId: "feedfacecafe",
+      branch: "feat/other",
+      ref: "refs/heads/feat/other",
+      headSha: "1234567890abcdef",
+      baseSha: "0000000000000000",
+      status: "completed",
+      worktreePath: null,
+      createdAt: "2026-07-17T09:00:00.000Z",
+      updatedAt: "2026-07-17T09:00:00.000Z",
+      parkedMs: 0,
+      awaitingAgentSince: null,
+      intent: null,
+      intentSource: null,
+    });
+    return store;
+  }
+
+  function tableRowIds(tree: { nodes: unknown[] }): string[] {
+    const tables = (tree.nodes as Array<Record<string, unknown>>).filter(
+      (n) => n.type === "table",
+    ) as Array<{ rows: Array<{ cells: string[] }> }>;
+    return tables.flatMap((t) => t.rows.map((r) => r.cells[0]!));
+  }
+
+  test("ctx.project renders ONLY that project's runs, titled per project", async () => {
+    _setStoreForTests(await seededStore());
+    const tree = await renderDashboard({ project: PROJECT });
+    expect(tree.title).toBe("ez-code-factory — My App");
+    expect(tableRowIds(tree)).toEqual(["r-mine"]);
+  });
+
+  test("ctx.projects renders the home view with a project row + orphan triage", async () => {
+    _setStoreForTests(await seededStore());
+    const tree = await renderDashboard({ projects: [PROJECT] });
+    expect(tree.title).toBe("ez-code-factory");
+    const ids = tableRowIds(tree);
+    expect(ids).toContain("My App"); // projects table row
+    expect(ids).toContain("r-foreign"); // orphan runs table row
+    expect(ids).not.toContain("r-mine"); // project-owned run lives on its project page
+  });
+
+  test("no ctx falls back to the classic combined dashboard", async () => {
+    _setStoreForTests(await seededStore());
+    const tree = await renderDashboard();
+    expect(tree.title).toBe("ez-code-factory");
+    expect(tableRowIds(tree).sort()).toEqual(["r-foreign", "r-mine"]);
   });
 });

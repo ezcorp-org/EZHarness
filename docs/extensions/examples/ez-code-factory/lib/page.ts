@@ -24,7 +24,7 @@
 
 import { PageBuilder } from "@ezcorp/sdk/runtime";
 import type { HubPageTree, PageActionDescriptor } from "@ezcorp/sdk/runtime";
-import { EXTENSION_NAME } from "./gate";
+import { EXTENSION_NAME, PAGE_ID, repoId } from "./gate";
 import { PIPELINE_STEPS, type PipelineStep } from "./config";
 import type {
   FindingAction,
@@ -310,37 +310,43 @@ export function buildRunDetail(detail: RunDetail): HubPageTree {
   return page.build();
 }
 
-/**
- * Build the dashboard tree from a run list (newest first) plus the parked-run
- * details to inline. Pure — no IO. An empty list renders a call-to-action
- * pointing at `init_gate`; each parked run gets an inline triage section.
- */
-export function buildDashboard(runs: RunRecord[], details: RunDetail[] = []): HubPageTree {
+// ── Dashboard variants (global fallback / per-project / home) ────────
+
+/** One platform project, as the host hands it to a `perProject` render.
+ *  Structural mirror of the SDK's `PageProjectRef`. */
+export interface ProjectRef {
+  id: string;
+  name: string;
+  path: string;
+}
+
+/** The full hub page id as it appears in URLs — home rows deep-link to
+ *  `/project/<projectId>/hub/<this>`. */
+export const FULL_PAGE_ID = `ext:${EXTENSION_NAME}:${PAGE_ID}`;
+
+/** Host page trees cap tables at 100 rows (page-schema) — clamp the
+ *  projects table and say so rather than render an invalid tree. */
+const MAX_PROJECT_ROWS = 100;
+
+const EMPTY_STATE_DETAIL =
+  "Run the `init_gate` tool on this project, then `git push gate <branch>` to intercept a push.";
+
+/** Run-count stats row shared by every dashboard variant. */
+function appendRunStats(page: PageBuilder, runs: RunRecord[]): void {
   const active = runs.filter((r) => ACTIVE_STATUSES.has(r.status)).length;
   const completed = runs.filter((r) => r.status === "completed").length;
   const failed = runs.filter((r) => r.status === "failed" || r.status === "aborted").length;
+  page.stats([
+    { label: "Total runs", value: String(runs.length) },
+    { label: "Active", value: String(active) },
+    { label: "Completed", value: String(completed) },
+    { label: "Failed", value: String(failed) },
+  ]);
+}
 
-  const page = new PageBuilder("ez-code-factory")
-    .markdownBlock(
-      "Runs created by `git push gate <branch>`. Each push lands in the local " +
-        "gate repo, whose post-receive hook triggers this extension to record a " +
-        "run and materialize a disposable worktree.",
-    )
-    .stats([
-      { label: "Total runs", value: String(runs.length) },
-      { label: "Active", value: String(active) },
-      { label: "Completed", value: String(completed) },
-      { label: "Failed", value: String(failed) },
-    ]);
-
-  if (runs.length === 0) {
-    page.emptyState(
-      "No gate runs yet",
-      "Run the `init_gate` tool on this project, then `git push gate <branch>` to intercept a push.",
-    );
-    return page.build();
-  }
-
+/** The runs table + inline triage detail — the body every variant shares.
+ *  Details are filtered to the runs actually shown. */
+function appendRunsSection(page: PageBuilder, runs: RunRecord[], details: RunDetail[]): void {
   page.table(
     ["Run", "Branch", "Head", "Status", "Updated"],
     runs.map((r) => ({
@@ -353,11 +359,132 @@ export function buildDashboard(runs: RunRecord[], details: RunDetail[] = []): Hu
       ],
     })),
   );
-
   // Inline the triage detail for every parked run (typically 0–2), so a human
   // can act on findings without navigating away from the shared dashboard.
+  const shown = new Set(runs.map((r) => r.id));
   for (const detail of details) {
-    appendRunDetail(page, detail);
+    if (shown.has(detail.run.id)) appendRunDetail(page, detail);
+  }
+}
+
+/** Runs belonging to one project — matched by the SAME derivation the gate
+ *  uses (`repoId(project.path)`), so path handling stays in one place. */
+export function runsForProject(project: ProjectRef, runs: RunRecord[]): RunRecord[] {
+  const id = repoId(project.path);
+  return runs.filter((r) => r.repoId === id);
+}
+
+/**
+ * Build the dashboard tree from a run list (newest first) plus the parked-run
+ * details to inline. Pure — no IO. An empty list renders a call-to-action
+ * pointing at `init_gate`; each parked run gets an inline triage section.
+ * Rendered when the host provides NO project context (older host, or the
+ * `perProject` flag removed) — behavior identical to the pre-perProject page.
+ */
+export function buildDashboard(runs: RunRecord[], details: RunDetail[] = []): HubPageTree {
+  const page = new PageBuilder("ez-code-factory").markdownBlock(
+    "Runs created by `git push gate <branch>`. Each push lands in the local " +
+      "gate repo, whose post-receive hook triggers this extension to record a " +
+      "run and materialize a disposable worktree.",
+  );
+  appendRunStats(page, runs);
+
+  if (runs.length === 0) {
+    page.emptyState("No gate runs yet", EMPTY_STATE_DETAIL);
+    return page.build();
+  }
+
+  appendRunsSection(page, runs, details);
+  return page.build();
+}
+
+/**
+ * Project-scoped dashboard (`/project/<id>/hub/...`): ONLY this project's
+ * runs + triage. Pure — filters from the full lists so the caller never
+ * pre-slices.
+ */
+export function buildProjectDashboard(
+  project: ProjectRef,
+  runs: RunRecord[],
+  details: RunDetail[] = [],
+): HubPageTree {
+  const own = runsForProject(project, runs);
+  const page = new PageBuilder(`ez-code-factory — ${project.name}`);
+  appendRunStats(page, own);
+
+  if (own.length === 0) {
+    page.emptyState("No gate runs for this project yet", EMPTY_STATE_DETAIL);
+    return page.build();
+  }
+
+  appendRunsSection(page, own, details);
+  return page.build();
+}
+
+/**
+ * Global-hub home (`/hub/...`): one row per registered project deep-linking
+ * into its project-scoped dashboard, then a triage section for runs whose
+ * repo matches NO registered project — a gate initialized on a non-project
+ * checkout still needs approve/fix/skip from somewhere.
+ */
+export function buildHome(
+  projects: ProjectRef[],
+  runs: RunRecord[],
+  details: RunDetail[] = [],
+): HubPageTree {
+  const page = new PageBuilder("ez-code-factory").markdownBlock(
+    "Runs created by `git push gate <branch>`, grouped by project. Open a " +
+      "project row for its dedicated dashboard; runs from repos outside any " +
+      "registered project are triaged below.",
+  );
+  appendRunStats(page, runs);
+
+  if (projects.length === 0 && runs.length === 0) {
+    page.emptyState("No gate runs yet", EMPTY_STATE_DETAIL);
+    return page.build();
+  }
+
+  const matched = new Set<string>();
+  if (projects.length > 0) {
+    page.heading(2, "Projects");
+    const shown = projects.slice(0, MAX_PROJECT_ROWS);
+    page.table(
+      ["Project", "Runs", "Active", "Parked", "Last push"],
+      shown.map((p) => {
+        const own = runsForProject(p, runs);
+        for (const r of own) matched.add(r.id);
+        const active = own.filter((r) => ACTIVE_STATUSES.has(r.status)).length;
+        const parked = own.filter((r) => r.status === "awaiting_approval").length;
+        const last = own.reduce<string | null>(
+          (acc, r) => (acc === null || r.updatedAt > acc ? r.updatedAt : acc),
+          null,
+        );
+        return {
+          cells: [
+            p.name,
+            String(own.length),
+            String(active),
+            String(parked),
+            last ? shortTime(last) : "—",
+          ],
+          href: `/project/${p.id}/hub/${encodeURIComponent(FULL_PAGE_ID)}`,
+        };
+      }),
+    );
+    if (projects.length > MAX_PROJECT_ROWS) {
+      page.markdown(`Showing the first ${MAX_PROJECT_ROWS} of ${projects.length} projects.`, "muted");
+    }
+    // Runs for projects PAST the row clamp still belong to a registered
+    // project — keep them out of the orphan section.
+    for (const p of projects.slice(MAX_PROJECT_ROWS)) {
+      for (const r of runsForProject(p, runs)) matched.add(r.id);
+    }
+  }
+
+  const orphans = runs.filter((r) => !matched.has(r.id));
+  if (orphans.length > 0) {
+    page.heading(2, "Runs outside registered projects");
+    appendRunsSection(page, orphans, details);
   }
 
   return page.build();

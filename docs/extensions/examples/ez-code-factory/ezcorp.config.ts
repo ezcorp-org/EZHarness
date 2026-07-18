@@ -229,16 +229,21 @@ export default defineExtension({
 
   // Hub page declaration (Extension Pages Hub). Declaring the page IS the
   // grant — the tab appears at /hub/ext:ez-code-factory:dashboard once the
-  // extension is enabled.
+  // extension is enabled. `perProject` splits the one page id into
+  // context-aware variants: the global hub renders the all-projects home
+  // (project rows deep-link into `/project/<id>/hub/...`), the project hub
+  // renders only that project's runs, and hosts without perProject support
+  // fall back to the classic combined dashboard.
   pages: [
     {
       id: "dashboard",
       title: "ez-code-factory",
       icon: "GitBranch",
+      perProject: true,
       description:
         "Gate runs — one row per `git push gate` intercepted, with branch, " +
-        "head SHA, and lifecycle status, refreshed live via a content-free " +
-        "page-state SSE signal.",
+        "head SHA, and lifecycle status, live via SSE. Per-project view on " +
+        "each project's hub; the global hub lists every project.",
     },
   ],
 

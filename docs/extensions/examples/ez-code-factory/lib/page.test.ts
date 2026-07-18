@@ -3,16 +3,22 @@ import {
   ACTION_BADGE,
   appendRunDetail,
   buildDashboard,
+  buildHome,
+  buildProjectDashboard,
   buildRunDetail,
+  FULL_PAGE_ID,
   normalizeRespondPayload,
   parkedStep,
   parseRunIdPayload,
+  runsForProject,
   SEVERITY_ICON,
   shortSha,
   STATUS_BADGE,
   STEP_STATUS_BADGE,
+  type ProjectRef,
   type RunDetail,
 } from "./page";
+import { repoId } from "./gate";
 import { PageBuilder } from "@ezcorp/sdk/runtime";
 import { emptyFindings } from "./runs";
 import type { Finding, Findings, RunRecord, RunStatus, StepResultRecord, StepStatus } from "./runs";
@@ -620,5 +626,126 @@ describe("parseRunIdPayload", () => {
     expect(parseRunIdPayload({})).toBeNull();
     expect(parseRunIdPayload({ runId: 5 })).toBeNull();
     expect(parseRunIdPayload({ runId: "   " })).toBeNull();
+  });
+});
+
+// ── perProject dashboard variants ────────────────────────────────────
+
+describe("perProject dashboard variants", () => {
+  const PROJECT: ProjectRef = { id: "6f9619ff-8b86-4d01-b42d-00cf4fc964ff", name: "My App", path: "/home/dev/my-app" };
+  const OTHER: ProjectRef = { id: "aaaa1111-2222-4333-8444-555566667777", name: "Other", path: "/home/dev/other" };
+
+  /** A run belonging to a project = repoId derived from its path, exactly
+   *  as the gate derives it. */
+  function projectRun(project: ProjectRef, over: Partial<RunRecord> = {}): RunRecord {
+    return run({ repoId: repoId(project.path), ...over });
+  }
+
+  function nodesOf(tree: { nodes: unknown[] }): Array<Record<string, unknown>> {
+    return tree.nodes as Array<Record<string, unknown>>;
+  }
+
+  function tablesOf(tree: { nodes: unknown[] }) {
+    return nodesOf(tree).filter((n) => n.type === "table") as Array<{
+      type: string;
+      columns: string[];
+      rows: Array<{ cells: string[]; href?: string }>;
+    }>;
+  }
+
+  test("runsForProject matches by the gate's repoId derivation only", () => {
+    const mine = projectRun(PROJECT, { id: "r1" });
+    const foreign = run({ id: "r2", repoId: "feedfacecafe" });
+    expect(runsForProject(PROJECT, [mine, foreign]).map((r) => r.id)).toEqual(["r1"]);
+    expect(runsForProject(OTHER, [mine, foreign])).toEqual([]);
+  });
+
+  test("buildProjectDashboard: titled per project, filtered to its runs", () => {
+    const mine = projectRun(PROJECT, { id: "r1", branch: "feat/a" });
+    const foreign = run({ id: "r2", repoId: "feedfacecafe", branch: "feat/b" });
+    const tree = buildProjectDashboard(PROJECT, [mine, foreign]);
+    expect(tree.title).toBe("ez-code-factory — My App");
+    const [table] = tablesOf(tree);
+    expect(table!.rows.map((r) => r.cells[0])).toEqual(["r1"]);
+  });
+
+  test("buildProjectDashboard: empty state when the project has no runs", () => {
+    const foreign = run({ id: "r2", repoId: "feedfacecafe" });
+    const tree = buildProjectDashboard(PROJECT, [foreign]);
+    expect(nodesOf(tree).some((n) => n.type === "empty-state")).toBe(true);
+    expect(tablesOf(tree)).toHaveLength(0);
+  });
+
+  test("buildProjectDashboard: inlines ONLY this project's parked details", () => {
+    const mine = projectRun(PROJECT, { id: "r1", status: "awaiting_approval" });
+    const foreign = run({ id: "r2", repoId: "feedfacecafe", status: "awaiting_approval" });
+    const details: RunDetail[] = [
+      { run: mine, steps: [stepResult({ runId: "r1" })] },
+      { run: foreign, steps: [stepResult({ runId: "r2" })] },
+    ];
+    const tree = buildProjectDashboard(PROJECT, [mine, foreign], details);
+    const content = allNodes(tree.nodes).map(ownContent).join(" ");
+    expect(content).toContain("r1");
+    // The foreign run's detail section (its step table + controls) must not
+    // render; "r2" appears nowhere since its run row is filtered out too.
+    expect(content).not.toContain("r2");
+  });
+
+  test("buildHome: one row per project with counts + a project-hub deep link", () => {
+    const mine = projectRun(PROJECT, { id: "r1", status: "awaiting_approval", updatedAt: "2026-07-17T10:00:00.000Z" });
+    const mine2 = projectRun(PROJECT, { id: "r2", status: "completed", updatedAt: "2026-07-16T10:00:00.000Z" });
+    const tree = buildHome([PROJECT, OTHER], [mine, mine2]);
+    const [projectsTable] = tablesOf(tree);
+    expect(projectsTable!.columns).toEqual(["Project", "Runs", "Active", "Parked", "Last push"]);
+    expect(projectsTable!.rows).toHaveLength(2);
+    const [mineRow, otherRow] = projectsTable!.rows;
+    expect(mineRow!.cells).toEqual(["My App", "2", "1", "1", "2026-07-17 10:00"]);
+    expect(mineRow!.href).toBe(
+      `/project/${PROJECT.id}/hub/${encodeURIComponent(FULL_PAGE_ID)}`,
+    );
+    expect(otherRow!.cells).toEqual(["Other", "0", "0", "0", "—"]);
+  });
+
+  test("buildHome: runs outside every registered project get the triage section", () => {
+    const orphan = run({ id: "r9", repoId: "feedfacecafe", status: "awaiting_approval" });
+    const details: RunDetail[] = [{ run: orphan, steps: [stepResult({ runId: "r9" })] }];
+    const tree = buildHome([PROJECT], [orphan], details);
+    const headings = nodesOf(tree)
+      .filter((n) => n.type === "heading")
+      .map((n) => String(n.text));
+    expect(headings).toContain("Runs outside registered projects");
+    // The orphan run row renders, and its parked detail section is inlined.
+    const tables = tablesOf(tree);
+    expect(tables.some((t) => t.rows.some((r) => r.cells[0] === "r9"))).toBe(true);
+    expect(allNodes(tree.nodes).some((n) => n.type === "section")).toBe(true);
+  });
+
+  test("buildHome: project-owned runs do NOT appear in the orphan section", () => {
+    const mine = projectRun(PROJECT, { id: "r1" });
+    const tree = buildHome([PROJECT], [mine]);
+    const headings = nodesOf(tree)
+      .filter((n) => n.type === "heading")
+      .map((n) => String(n.text));
+    expect(headings).not.toContain("Runs outside registered projects");
+  });
+
+  test("buildHome: empty state only when there are no projects AND no runs", () => {
+    expect(nodesOf(buildHome([], [])).some((n) => n.type === "empty-state")).toBe(true);
+    expect(nodesOf(buildHome([PROJECT], [])).some((n) => n.type === "empty-state")).toBe(false);
+  });
+
+  test("buildHome: clamps the projects table at 100 rows and says so", () => {
+    const many = Array.from({ length: 101 }, (_, i) => ({
+      id: `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`,
+      name: `p${i}`,
+      path: `/proj/p${i}`,
+    }));
+    const tree = buildHome(many, []);
+    const [projectsTable] = tablesOf(tree);
+    expect(projectsTable!.rows).toHaveLength(100);
+    const texts = nodesOf(tree)
+      .filter((n) => n.type === "text")
+      .map((n) => String(n.content));
+    expect(texts.some((t) => t.includes("first 100 of 101"))).toBe(true);
   });
 });
