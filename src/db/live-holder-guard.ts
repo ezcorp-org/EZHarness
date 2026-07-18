@@ -116,3 +116,61 @@ export function releaseHolder(dbPath: string): void {
     /* already gone / unwritable parent — nothing to release */
   }
 }
+
+// ── Same-process double-open guard (vite dev-server restart) ───────────────
+//
+// The sidecar pidfile above is a CROSS-process guard: it records the OS pid,
+// and `assertNoLiveHolder` deliberately passes when the recorded pid is our
+// OWN (a legitimate same-process re-init). That leaves a hole a vite
+// dev-server force-reload drives straight through: vite rebuilds the `src/`
+// SSR module graph, re-instantiating `connection.ts` with fresh
+// `let _pglite`/`_initPromise` module state while the PREVIOUS PGlite instance
+// is still open in the SAME process. The reconstructed module then re-opens
+// the datadir — two WASM Postgres over one live dir, the corruption path this
+// file exists to close.
+//
+// A process-local registry anchored on `globalThis` survives module
+// re-instantiation (globalThis is not rebuilt on a vite reload). It maps a
+// datadir → a close callback for the instance THIS process currently holds
+// open, so a re-instantiated `connection.ts` can find and close the stale
+// prior instance before opening a new one.
+type HolderCloseFn = () => Promise<void> | void;
+
+function processHolderRegistry(): Map<string, HolderCloseFn> {
+  const g = globalThis as unknown as { __ezcorpDbProcessHolders?: Map<string, HolderCloseFn> };
+  if (!g.__ezcorpDbProcessHolders) g.__ezcorpDbProcessHolders = new Map();
+  return g.__ezcorpDbProcessHolders;
+}
+
+/** Record that THIS process holds `dbPath` open, with a callback that closes
+ *  that specific instance. Anchored on globalThis so it outlives a module
+ *  re-instantiation. */
+export function recordProcessHolder(dbPath: string, close: HolderCloseFn): void {
+  processHolderRegistry().set(dbPath, close);
+}
+
+/** Forget the in-process claim for `dbPath` WITHOUT closing (the caller closed
+ *  it themselves — e.g. `closeDb()`). */
+export function clearProcessHolder(dbPath: string): void {
+  processHolderRegistry().delete(dbPath);
+}
+
+/** If THIS process already holds `dbPath` open from a prior module instance
+ *  (post-vite-restart), close that stale instance so we never double-open the
+ *  same live datadir. Returns true when a stale handle was found and closed.
+ *  The cross-process sidecar guard can't see this — the recorded pid equals
+ *  our own — so this must run BEFORE `assertNoLiveHolder`/the stale-lock sweep. */
+export async function closeStaleProcessHolder(dbPath: string): Promise<boolean> {
+  const registry = processHolderRegistry();
+  const close = registry.get(dbPath);
+  if (!close) return false;
+  // Drop the entry first so a failure mid-close can't strand a permanently
+  // "held" datadir that would block every future re-init in this process.
+  registry.delete(dbPath);
+  try {
+    await close();
+  } catch {
+    /* best-effort: the stale instance may already be half-closed */
+  }
+  return true;
+}

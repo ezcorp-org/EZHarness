@@ -1,6 +1,6 @@
 import * as schema from "./schema";
 import { migrate } from "./migrate";
-import { mkdirSync, renameSync, existsSync, cpSync, unlinkSync } from "node:fs";
+import { mkdirSync, renameSync, existsSync, cpSync, unlinkSync, readFileSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { logger } from "../logger";
 import { setReadiness } from "../readiness";
@@ -13,7 +13,14 @@ import {
   writeRecoveryMarker,
   clearRecoveryMarker,
 } from "./backup";
-import { assertNoLiveHolder, claimHolder, releaseHolder } from "./live-holder-guard";
+import {
+  assertNoLiveHolder,
+  claimHolder,
+  releaseHolder,
+  closeStaleProcessHolder,
+  recordProcessHolder,
+  clearProcessHolder,
+} from "./live-holder-guard";
 const log = logger.child("db");
 
 const DEFAULT_DB_DIR = `${process.env.HOME}/ez-corp/.data`;
@@ -65,6 +72,99 @@ let _db: Database = null;
 let _pglite: import("@electric-sql/pglite").PGlite | null = null;
 let _initPromise: Promise<void> | null = null;
 
+/** Register the just-opened PGlite instance in the process-local holder
+ *  registry (globalThis-anchored) so a re-instantiated module — the vite
+ *  dev-server force-reload case — closes this instance instead of opening a
+ *  second WASM Postgres over the same live datadir. No-op for in-memory. */
+function registerProcessHolder(): void {
+  if (IS_MEMORY) return;
+  const instance = _pglite;
+  recordProcessHolder(DB_PATH, async () => {
+    try {
+      await instance?.close();
+    } catch {
+      /* already closing / half-torn-down */
+    }
+  });
+}
+
+// ── Interrupted-rollback marker ────────────────────────────────────────────
+const ROLLBACK_MARKER_FILENAME = ".ezcorp-rollback-in-progress.json";
+
+interface RollbackMarker {
+  ts: string;
+  snapshot?: string;
+  failedPath?: string;
+}
+
+function rollbackMarkerPath(dbPath: string): string {
+  return join(dirname(dbPath), ROLLBACK_MARKER_FILENAME);
+}
+
+function writeRollbackMarker(dbPath: string, info: RollbackMarker): void {
+  try {
+    writeFileSync(rollbackMarkerPath(dbPath), JSON.stringify(info));
+  } catch (err) {
+    log.warn("Could not write rollback-in-progress marker", { error: String(err) });
+  }
+}
+
+function readRollbackMarker(dbPath: string): RollbackMarker | null {
+  try {
+    return JSON.parse(readFileSync(rollbackMarkerPath(dbPath), "utf8")) as RollbackMarker;
+  } catch {
+    return null;
+  }
+}
+
+function clearRollbackMarker(dbPath: string): void {
+  try {
+    if (existsSync(rollbackMarkerPath(dbPath))) unlinkSync(rollbackMarkerPath(dbPath));
+  } catch {
+    /* nothing to clear / unwritable parent */
+  }
+}
+
+/**
+ * Detect and resolve a migration rollback that a prior boot began but did not
+ * finish. `rollbackMigration()` renames the failed datadir aside then copies
+ * the pre-boot snapshot back; a SIGKILL (docker stop timeout) or a `cpSync`
+ * failure between those two steps leaves DB_PATH missing/empty. Booting then
+ * would `mkdir` a fresh empty dir and — if no circuit-breaker marker matched —
+ * run `migrate()` and come up READY looking completely wiped.
+ *
+ * We finish the restore from the snapshot the marker recorded (moving any
+ * partial DB_PATH aside first), or — when no snapshot is available — refuse to
+ * boot loudly instead of starting an empty cluster. `dbPath` is injectable for
+ * tests; production always uses the module `DB_PATH`.
+ */
+function recoverInterruptedRollback(dbPath: string = DB_PATH): void {
+  if (dbPath === ":memory:") return;
+  const marker = readRollbackMarker(dbPath);
+  if (!marker) return;
+
+  if (marker.snapshot && existsSync(marker.snapshot)) {
+    log.error("Completing interrupted migration rollback from a prior boot", { marker });
+    if (existsSync(dbPath)) {
+      renameSync(dbPath, `${dbPath}.rollback-partial.${Date.now()}`);
+    }
+    cpSync(marker.snapshot, dbPath, { recursive: true });
+    clearRollbackMarker(dbPath);
+    log.info("Interrupted rollback completed — snapshot restored", { snapshot: marker.snapshot });
+    return;
+  }
+
+  const detail = {
+    message:
+      "A migration rollback was interrupted on a prior boot and no snapshot is available to complete it. Refusing to boot to avoid starting a fresh empty database over the half-finished rollback.",
+    marker,
+    dbPath,
+  };
+  log.error("Interrupted rollback with no snapshot — refusing to boot", detail);
+  setReadiness({ state: "degraded", reason: "rollback-interrupted", detail });
+  throw new Error("Interrupted migration rollback: snapshot unavailable, refusing to boot");
+}
+
 async function initPglite(): Promise<void> {
   const { PGlite } = await import("@electric-sql/pglite");
   const { vector } = await import("@electric-sql/pglite/vector");
@@ -77,6 +177,17 @@ async function initPglite(): Promise<void> {
   const { drizzle } = await import("drizzle-orm/pglite");
 
   if (!IS_MEMORY) {
+    // Complete (or refuse) a rollback that a prior boot began but did not
+    // finish — otherwise the crash window between renameSync and cpSync in
+    // rollbackMigration() can leave DB_PATH empty and we would silently boot a
+    // fresh, wiped-looking cluster over a half-finished restore.
+    recoverInterruptedRollback();
+    // Close a stale same-process PGlite handle first (vite dev-server restart
+    // re-instantiates this module while the previous instance stays open). The
+    // sidecar guard can't catch this — the recorded pid is our own — so doing
+    // it here prevents the stale-lock sweep below from yanking postmaster.pid
+    // out from under a still-live instance.
+    await closeStaleProcessHolder(DB_PATH);
     mkdirSync(DB_PATH, { recursive: true });
     // Refuse to open a datadir another LIVE EZCorp process holds (e.g.
     // `ezcorp key mint` against a running server): PGlite is single-writer,
@@ -113,6 +224,8 @@ async function initPglite(): Promise<void> {
       });
       _pglite = await openPglite(dbArg);
       _db = drizzle(_pglite, { schema });
+      // (Circuit-breaker path is a degraded terminal boot; the normal path
+      // below registers the process holder for the same-process guard.)
       setReadiness({
         state: "degraded",
         reason: "migration-blocked",
@@ -237,6 +350,7 @@ async function initPglite(): Promise<void> {
   }
 
   _db = drizzle(_pglite, { schema });
+  registerProcessHolder();
   // Successful open: clear any stale recovery-needed marker from a prior
   // failed boot. Mirrors clearMarker() for the migration-failed circuit
   // breaker further down.
@@ -282,8 +396,14 @@ async function rollbackMigration(err: unknown): Promise<never> {
   if (snapshot && existsSync(DB_PATH)) {
     const failedPath = `${DB_PATH}.failed.${Date.now()}`;
     try {
+      // Mark the rollback in progress BEFORE the non-atomic rename→copy pair so
+      // that if we crash between them, the next boot's recoverInterruptedRollback()
+      // completes the restore instead of silently booting an empty DB. Cleared
+      // only after cpSync succeeds.
+      writeRollbackMarker(DB_PATH, { ts: new Date().toISOString(), snapshot, failedPath });
       renameSync(DB_PATH, failedPath);
       cpSync(snapshot, DB_PATH, { recursive: true });
+      clearRollbackMarker(DB_PATH);
       log.info("Restored pre-boot snapshot", { snapshot, failedPath });
     } catch (restoreErr) {
       log.error("Rollback failed — data dir may be inconsistent", {
@@ -318,31 +438,22 @@ async function rollbackMigration(err: unknown): Promise<never> {
   process.exit(1);
 }
 
-// Exported for tests
-export const __test = {
-  rollbackMigration,
-  /**
-   * Directly override module DB state so rawQuery's two code paths (PGlite
-   * bind-params vs Bun.sql `$client.unsafe` bind-params) are unit-testable
-   * without booting initDb()'s full PGlite/Postgres init sequence.
-   */
-  setState(db: Database, pglite: import("@electric-sql/pglite").PGlite | null): void {
-    _db = db;
-    _pglite = pglite;
-  },
-};
-
-async function initPostgres(): Promise<void> {
-  const { drizzle } = await import("drizzle-orm/bun-sql");
-  const { sql } = await import("drizzle-orm");
-
-  // Drizzle's default jsonb/json `mapToDriverValue = JSON.stringify` double-encodes
-  // under Bun.sql: drizzle stringifies the object → Bun.sql sees a JS string and
-  // binds it as a text value, which Postgres then stores as a jsonb STRING scalar
-  // ({"x":1} becomes "{\"x\":1}"). That breaks every `col->>'key'` access and
-  // produces the empty Token Usage chart. Bun.sql serializes JS objects to jsonb
-  // correctly on its own, so we swap drizzle's mapper for identity and let the
-  // driver handle it. This only matters under bun-sql; PGlite is unaffected.
+/**
+ * Swap drizzle's default jsonb/json `mapToDriverValue = JSON.stringify` for
+ * identity on the PgJsonb/PgJson column prototypes.
+ *
+ * Under Bun.sql, drizzle's stringify double-encodes: drizzle stringifies the
+ * object → Bun.sql sees a JS string and binds it as a TEXT value, which
+ * Postgres stores as a jsonb STRING scalar ({"x":1} becomes "{\"x\":1}"). That
+ * breaks every `col->>'key'` access and produces the empty Token Usage chart.
+ * Bun.sql serializes JS objects to jsonb correctly on its own, so identity is
+ * the fix. This only matters under bun-sql; PGlite is unaffected.
+ *
+ * Exported via `__test` so the regression guard exercises THIS override, not a
+ * re-declared local identity function that would stay green even if this were
+ * deleted during a drizzle upgrade.
+ */
+async function applyBunSqlJsonbFix(): Promise<void> {
   const [{ PgJsonb }, { PgJson }] = await Promise.all([
     import("drizzle-orm/pg-core/columns/jsonb"),
     import("drizzle-orm/pg-core/columns/json"),
@@ -354,6 +465,54 @@ async function initPostgres(): Promise<void> {
   (PgJsonb.prototype as any).mapToDriverValue = identity;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (PgJson.prototype as any).mapToDriverValue = identity;
+}
+
+/** Advisory-lock key for serializing migrate() across instances on external
+ *  Postgres. Arbitrary constant, unique to EZCorp's boot migrate. */
+const MIGRATE_ADVISORY_LOCK_KEY = 40_172_026;
+
+/**
+ * Run `fn` (the migrate) while holding a cluster-wide advisory lock so two app
+ * instances booting concurrently (rolling deploy / scaled replicas) can't
+ * interleave migrate()'s non-idempotent statement pairs (DROP/CREATE TRIGGER,
+ * DROP/ADD CONSTRAINT, racy CREATE TABLE) and fail one spuriously. A
+ * session-level `pg_advisory_lock` must be acquired AND released on the SAME
+ * connection, so we reserve a dedicated connection from the Bun.sql pool for
+ * the lock's lifetime. PGlite is single-writer (live-holder guard) and needs no
+ * equivalent, so this only runs on the external-Postgres path. Exposed via
+ * `__test` for the ordering regression test.
+ */
+async function withPostgresMigrateLock<T>(fn: () => Promise<T>): Promise<T> {
+  // Database is `any`; `$client` is the Bun.sql instance — a callable tagged
+  // template that also exposes reserve().
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const client = getDb().$client as any;
+  const reserved = typeof client?.reserve === "function" ? await client.reserve() : null;
+  const conn = reserved ?? client;
+  await conn`SELECT pg_advisory_lock(${MIGRATE_ADVISORY_LOCK_KEY})`;
+  try {
+    return await fn();
+  } finally {
+    try {
+      await conn`SELECT pg_advisory_unlock(${MIGRATE_ADVISORY_LOCK_KEY})`;
+    } catch (err) {
+      log.warn("advisory unlock failed", { error: String(err) });
+    }
+    if (reserved && typeof reserved.release === "function") {
+      try {
+        reserved.release();
+      } catch {
+        /* pool already closing */
+      }
+    }
+  }
+}
+
+async function initPostgres(): Promise<void> {
+  const { drizzle } = await import("drizzle-orm/bun-sql");
+  const { sql } = await import("drizzle-orm");
+
+  await applyBunSqlJsonbFix();
 
   // Pool size for the Bun.sql client. Bun's default is 10, which is too small
   // for endpoints that fan out several queries per request: the admin
@@ -391,7 +550,7 @@ async function initPostgres(): Promise<void> {
 
   log.info("Database mode: external Postgres");
   try {
-    await migrate(_db);
+    await withPostgresMigrateLock(() => migrate(_db));
   } catch (err) {
     log.error("Migration failed on external Postgres — manual intervention required", { error: String(err) });
     setReadiness({
@@ -405,12 +564,35 @@ async function initPostgres(): Promise<void> {
   setReadiness({ state: "ready" });
 }
 
+/** Settings marker recording that the one-shot jsonb repair has completed, so
+ *  the (non-indexable, full-table-seq-scan) sweep never runs again after the
+ *  first clean boot. */
+const JSONB_REPAIR_MARKER_KEY = "db:jsonb-repair:done";
+
 // Historical rows written before the jsonb-double-encoding fix are stored as
 // JSON string scalars ({"x":1} → "{\"x\":1}"). Converting `jsonb::text::jsonb`
 // unwraps the string back into its original object form. Idempotent — once
 // every row is an object/array, subsequent runs are a no-op.
+//
+// One-shot: the repair can never match a row again once every column is clean,
+// so re-enumerating every public jsonb column and issuing a full seq-scan
+// UPDATE per column on EVERY external-Postgres boot is pure waste (worst on the
+// mature installs whose tables are largest). We record completion in a settings
+// marker and skip the whole sweep on subsequent boots.
 async function repairDoubleEncodedJsonb(sqlTag: typeof import("drizzle-orm")["sql"]): Promise<void> {
   if (!_db) throw new Error("Database not initialized");
+
+  const marker = await _db.execute(
+    sqlTag`SELECT 1 FROM settings WHERE key = ${JSONB_REPAIR_MARKER_KEY} LIMIT 1`,
+  );
+  const markerRows = ((marker as { rows?: unknown }).rows ?? marker) as unknown[];
+  if (Array.isArray(markerRows) && markerRows.length > 0) {
+    log.info("jsonb double-encode repair already completed — skipping scan", {
+      marker: JSONB_REPAIR_MARKER_KEY,
+    });
+    return;
+  }
+
   const cols = await _db.execute(sqlTag`
     SELECT table_name, column_name
     FROM information_schema.columns
@@ -440,6 +622,20 @@ async function repairDoubleEncodedJsonb(sqlTag: typeof import("drizzle-orm")["sq
     } catch (err) {
       log.warn("jsonb repair skipped", { table, column, error: String(err).slice(0, 200) });
     }
+  }
+
+  // Record completion so the sweep never runs again. `to_jsonb(...::text)`
+  // stores a legitimate scalar string (a timestamp) that the repair predicate
+  // above deliberately leaves untouched. Best-effort: a marker write failure
+  // only costs a redundant (idempotent) sweep next boot.
+  try {
+    await _db.execute(sqlTag`
+      INSERT INTO settings (key, value)
+      VALUES (${JSONB_REPAIR_MARKER_KEY}, to_jsonb(now()::text))
+      ON CONFLICT (key) DO NOTHING
+    `);
+  } catch (err) {
+    log.warn("jsonb repair marker write failed", { error: String(err).slice(0, 200) });
   }
 }
 
@@ -496,9 +692,55 @@ export function getDbPath(): string {
 export async function closeDb(): Promise<void> {
   if (_pglite) {
     await _pglite.close();
-    if (!IS_MEMORY) releaseHolder(DB_PATH);
+    if (!IS_MEMORY) {
+      releaseHolder(DB_PATH);
+      clearProcessHolder(DB_PATH);
+    }
+  } else if (_db) {
+    // External Postgres (Bun.sql pool): drain the connection pool so pooled
+    // sockets and any in-flight statements close cleanly instead of being
+    // severed at process exit ("connection reset" noise + server-side
+    // transaction rollbacks), and so repeated closeDb()/initDb() cycles in one
+    // process don't leak a full pool each time (exhausting max_connections).
+    // drizzle's bun-sql driver exposes the Bun SQL client as `$client`; Bun.SQL
+    // closes via `.close()` (alias `.end()`).
+    const client = (_db as {
+      $client?: { close?: () => Promise<void>; end?: () => Promise<void> };
+    }).$client;
+    try {
+      if (typeof client?.close === "function") await client.close();
+      else if (typeof client?.end === "function") await client.end();
+    } catch (err) {
+      log.warn("Bun.sql pool close failed", { error: String(err) });
+    }
   }
   _pglite = null;
   _db = null;
   _initPromise = null;
 }
+
+// Exported for tests. Placed at the end of the module so its object literal
+// (evaluated at module-load time) can reference every const/function above
+// without hitting the temporal dead zone.
+export const __test = {
+  rollbackMigration,
+  /**
+   * Directly override module DB state so rawQuery's two code paths (PGlite
+   * bind-params vs Bun.sql `$client.unsafe` bind-params) are unit-testable
+   * without booting initDb()'s full PGlite/Postgres init sequence.
+   */
+  setState(db: Database, pglite: import("@electric-sql/pglite").PGlite | null): void {
+    _db = db;
+    _pglite = pglite;
+  },
+  // Real production functions, exposed so their regression tests exercise THIS
+  // code (not a re-declared copy) against a real driver.
+  applyBunSqlJsonbFix,
+  repairDoubleEncodedJsonb,
+  withPostgresMigrateLock,
+  recoverInterruptedRollback,
+  registerProcessHolder,
+  writeRollbackMarker,
+  JSONB_REPAIR_MARKER_KEY,
+  MIGRATE_ADVISORY_LOCK_KEY,
+};
