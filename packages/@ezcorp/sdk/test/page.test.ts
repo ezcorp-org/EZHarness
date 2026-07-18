@@ -343,3 +343,27 @@ describe("render context (perProject pages)", () => {
     expect(await renderWith({ project: { id: "x", name: 42 } })).toBeUndefined();
   });
 });
+
+describe("render context — malformed-list fallback", () => {
+  async function renderWith(params: Record<string, unknown>) {
+    const { handlers } = stubChannel();
+    const seen: unknown[] = [];
+    definePage({
+      id: "dash2",
+      render: (ctx) => {
+        seen.push(ctx);
+        return { title: "T", nodes: [] };
+      },
+    });
+    await handlers.get("ezcorp/page.render")!({ pageId: "dash2", ...params });
+    return seen[0];
+  }
+
+  test("a genuinely EMPTY projects list is a real (no projects yet) home render", async () => {
+    expect(await renderWith({ projects: [] })).toEqual({ projects: [] });
+  });
+
+  test("a non-empty list where every ref is malformed falls back to NO context", async () => {
+    expect(await renderWith({ projects: [{ id: 1 }, "junk", null] })).toBeUndefined();
+  });
+});

@@ -199,8 +199,34 @@ function grantedEvents(extension: Extension): string[] {
   return Array.isArray(subs) ? subs : [];
 }
 
-/** Pull + validate + cache. Returns the error string on any failure. */
-async function pullAndCache(
+/** In-flight pulls keyed (extensionId, pageId, variant) — single-flight
+ *  dedup. An invalidation empties the cache and broadcasts to EVERY open
+ *  viewer at once; without this, N tabs re-pulling the same cold variant
+ *  spawn N identical subprocess renders (thundering herd at exactly the
+ *  busy moments that fire invalidations). Module-level on purpose: the
+ *  cache singleton it protects is module-level too. */
+const inflightPulls = new Map<string, Promise<{ tree: HubPageTree } | { error: string }>>();
+
+/** Pull + validate + cache, deduping concurrent identical pulls. */
+function pullAndCache(
+  extension: Extension,
+  pageId: string,
+  userId: string,
+  deps: RenderPullDeps,
+  scope?: PageRenderScope,
+): Promise<{ tree: HubPageTree } | { error: string }> {
+  const key = `${extension.id}:${pageId}:${scope?.project?.id ?? ""}`;
+  const existing = inflightPulls.get(key);
+  if (existing) return existing;
+  const pull = doPullAndCache(extension, pageId, userId, deps, scope).finally(() => {
+    inflightPulls.delete(key);
+  });
+  inflightPulls.set(key, pull);
+  return pull;
+}
+
+/** The actual pull. Returns the error string on any failure. */
+async function doPullAndCache(
   extension: Extension,
   pageId: string,
   userId: string,

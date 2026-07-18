@@ -155,6 +155,21 @@ describe("ezcorp/page-state", () => {
     expect(getPageCache().get(EXT_ID, "dashboard", "proj-1")).toBeNull();
   });
 
+  test("perProject page: a TREE push is downgraded to invalidate-only (never cached as the home)", () => {
+    const { mediator, pageEvents } = makeMediator({
+      ...MANIFEST,
+      perProjectPageIds: ["dashboard"],
+    });
+    getPageCache().set(EXT_ID, "dashboard", VALID_TREE as never, "proj-1");
+    mediator.handleNotification(EXT_ID, notification({ pageId: "dashboard", page: VALID_TREE }));
+    // Signal still fires so every open view re-pulls its own variant...
+    expect(pageEvents).toHaveLength(1);
+    // ...but the single-context tree is NOT cached as the global variant,
+    // and the stale project variant is dropped.
+    expect(getPageCache().get(EXT_ID, "dashboard")).toBeNull();
+    expect(getPageCache().get(EXT_ID, "dashboard", "proj-1")).toBeNull();
+  });
+
   test("non-string pageId / missing params dropped", () => {
     const { mediator, pageEvents } = makeMediator(MANIFEST);
     mediator.handleNotification(EXT_ID, notification({ pageId: 42 as never, page: VALID_TREE }));

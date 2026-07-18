@@ -47,26 +47,27 @@ interface StoredEntry {
 export const MAX_PAGE_VARIANTS = 64;
 
 export class ExtensionPageCache {
-  private entries = new Map<string, StoredEntry>();
+  /** Outer key `${extId}:${pageId}` → variant (`""` = global) → entry.
+   *  Nested maps keep every operation O(variants-of-one-page) — no
+   *  full-cache scans on the hot render/push/action paths. */
+  private pages = new Map<string, Map<string, StoredEntry>>();
 
   constructor(
     private readonly ttlMs: number = PAGE_CACHE_TTL_MS,
     private readonly now: () => number = Date.now,
   ) {}
 
-  /** Composite key. `:` is collision-safe: extension ids are UUIDs,
-   *  page ids match /^[a-z0-9][a-z0-9-]{0,31}$/ and variants are
-   *  project UUIDs — none can contain a colon. The trailing variant
-   *  segment (empty = the global render) keeps the `${ext}:${page}:`
-   *  prefix delete from crossing pages that share a prefix (`dash` vs
-   *  `dash-2`). (Never use a raw NUL byte as a separator here: git
-   *  would classify this file as binary and diff/blame/review break.) */
-  private key(extensionId: string, pageId: string, variant?: string): string {
-    return `${extensionId}:${pageId}:${variant ?? ""}`;
+  /** Composite outer key. `:` is collision-safe: extension ids are
+   *  UUIDs and page ids match /^[a-z0-9][a-z0-9-]{0,31}$/ — neither can
+   *  contain a colon, so `${extId}:` prefixes can't cross extensions.
+   *  (Never use a raw NUL byte as a separator here: git would classify
+   *  this file as binary and diff/blame/review break.) */
+  private pageKey(extensionId: string, pageId: string): string {
+    return `${extensionId}:${pageId}`;
   }
 
   get(extensionId: string, pageId: string, variant?: string): CachedPageEntry | null {
-    const entry = this.entries.get(this.key(extensionId, pageId, variant));
+    const entry = this.pages.get(this.pageKey(extensionId, pageId))?.get(variant ?? "");
     if (!entry) return null;
     return {
       tree: entry.tree,
@@ -76,56 +77,50 @@ export class ExtensionPageCache {
   }
 
   set(extensionId: string, pageId: string, tree: HubPageTree, variant?: string): void {
-    const key = this.key(extensionId, pageId, variant);
-    if (!this.entries.has(key)) this.evictForCap(extensionId, pageId);
-    this.entries.set(key, {
+    const pageKey = this.pageKey(extensionId, pageId);
+    let variants = this.pages.get(pageKey);
+    if (!variants) {
+      variants = new Map();
+      this.pages.set(pageKey, variants);
+    }
+    const variantKey = variant ?? "";
+    // At the cap a NEW variant evicts the oldest entry — never a refusal
+    // — so a fresh variant (e.g. the global home after 64 project views)
+    // can always cache; the cap only bounds cardinality.
+    if (!variants.has(variantKey) && variants.size >= MAX_PAGE_VARIANTS) {
+      let oldestKey: string | null = null;
+      let oldestAt = Infinity;
+      for (const [key, entry] of variants) {
+        if (entry.renderedAt < oldestAt) {
+          oldestAt = entry.renderedAt;
+          oldestKey = key;
+        }
+      }
+      if (oldestKey !== null) variants.delete(oldestKey);
+    }
+    variants.set(variantKey, {
       tree,
       renderedAt: this.now(),
     });
-  }
-
-  /** Make room for one NEW variant when a page is at the cap: drop the
-   *  oldest entry (expired ones age out first by construction). Eviction
-   *  — never refusal — so a new variant (e.g. the global home after 64
-   *  project views) can always cache; the cap only bounds cardinality. */
-  private evictForCap(extensionId: string, pageId: string): void {
-    const prefix = `${extensionId}:${pageId}:`;
-    let count = 0;
-    let oldestKey: string | null = null;
-    let oldestAt = Infinity;
-    for (const [key, entry] of this.entries) {
-      if (!key.startsWith(prefix)) continue;
-      count++;
-      if (entry.renderedAt < oldestAt) {
-        oldestAt = entry.renderedAt;
-        oldestKey = key;
-      }
-    }
-    if (count >= MAX_PAGE_VARIANTS && oldestKey !== null) {
-      this.entries.delete(oldestKey);
-    }
   }
 
   /** Drop EVERY variant of one page (global + all projects) — the
    *  content-free invalidation contract: "page X changed" can't name
    *  which variants, so all of them re-pull. */
   invalidate(extensionId: string, pageId: string): void {
-    const prefix = `${extensionId}:${pageId}:`;
-    for (const key of this.entries.keys()) {
-      if (key.startsWith(prefix)) this.entries.delete(key);
-    }
+    this.pages.delete(this.pageKey(extensionId, pageId));
   }
 
   /** Drop every page for one extension (reload/disable/uninstall). */
   invalidateExtension(extensionId: string): void {
     const prefix = `${extensionId}:`;
-    for (const key of this.entries.keys()) {
-      if (key.startsWith(prefix)) this.entries.delete(key);
+    for (const key of this.pages.keys()) {
+      if (key.startsWith(prefix)) this.pages.delete(key);
     }
   }
 
   clear(): void {
-    this.entries.clear();
+    this.pages.clear();
   }
 }
 

@@ -243,6 +243,11 @@ function readRenderContext(params: Record<string, unknown>): PageRenderContext |
       const ref = readProjectRef(raw);
       if (ref) projects.push(ref);
     }
+    // A truly empty list is a real "no projects registered" home render;
+    // a non-empty list where EVERY ref was malformed is host-contract
+    // drift — fall back to the no-context render instead of showing an
+    // empty home over data that exists.
+    if (projects.length === 0 && params.projects.length > 0) return undefined;
     return { projects };
   }
   return undefined;

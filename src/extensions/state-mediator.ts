@@ -19,6 +19,11 @@ export interface MediatorManifest {
   /** Declared Hub page ids (`manifest.pages[].id`) — gates
    *  `ezcorp/page-state` pushes. */
   pageIds?: string[];
+  /** Pages declared `perProject: true` — their pushes are treated as
+   *  invalidate-only even when a tree is attached: one pushed tree
+   *  cannot cover the global + per-project variants, so caching it as
+   *  the global render would poison the all-projects home view. */
+  perProjectPageIds?: string[];
   /** Granted event subscriptions — `allowedEvents` for page-tree
    *  validation (action nodes naming undeclared events are dropped). */
   eventSubscriptions?: string[];
@@ -151,6 +156,11 @@ export class ExtensionStateMediator {
       });
       if (!tree) return; // a malformed tree is a bad push, not an invalidation
     }
+
+    // perProject pages: a pushed tree is DOWNGRADED to invalidate-only.
+    // The push was built in exactly one context (usually none), so caching
+    // it as the global variant would serve it as the all-projects home.
+    if (tree && manifest.perProjectPageIds?.includes(pageId)) tree = null;
 
     getPageCache().invalidate(extensionId, pageId);
     if (tree) getPageCache().set(extensionId, pageId, tree);

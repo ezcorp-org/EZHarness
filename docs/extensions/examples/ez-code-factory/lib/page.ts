@@ -342,12 +342,26 @@ function appendRunStats(page: PageBuilder, runs: RunRecord[]): void {
   ]);
 }
 
+/** Truncate a row list to the host's table cap, appending a muted
+ *  "showing first N" notice when rows were dropped — the host itself
+ *  silently `.slice`s past 100, which loses data without a trace. */
+function clampRows<T>(page: PageBuilder, items: T[], label: string): T[] {
+  if (items.length <= MAX_PROJECT_ROWS) return items;
+  page.markdown(
+    `Showing the first ${MAX_PROJECT_ROWS} of ${items.length} ${label}.`,
+    "muted",
+  );
+  return items.slice(0, MAX_PROJECT_ROWS);
+}
+
 /** The runs table + inline triage detail — the body every variant shares.
- *  Details are filtered to the runs actually shown. */
+ *  Rows clamp with a visible notice; details are filtered to the runs
+ *  actually shown. */
 function appendRunsSection(page: PageBuilder, runs: RunRecord[], details: RunDetail[]): void {
+  const shownRuns = clampRows(page, runs, "runs");
   page.table(
     ["Run", "Branch", "Head", "Status", "Updated"],
-    runs.map((r) => ({
+    shownRuns.map((r) => ({
       cells: [
         r.id,
         r.branch,
@@ -359,7 +373,7 @@ function appendRunsSection(page: PageBuilder, runs: RunRecord[], details: RunDet
   );
   // Inline the triage detail for every parked run (typically 0–2), so a human
   // can act on findings without navigating away from the shared dashboard.
-  const shown = new Set(runs.map((r) => r.id));
+  const shown = new Set(shownRuns.map((r) => r.id));
   for (const detail of details) {
     if (shown.has(detail.run.id)) appendRunDetail(page, detail);
   }
@@ -374,12 +388,24 @@ export function normalizeProjectPath(path: string): string {
   return trimmed === "" ? "/" : trimmed;
 }
 
-/** Runs belonging to one project — matched by the SAME derivation the gate
- *  uses (`repoId(<normalized project.path>)`), so path handling stays in
- *  one place. */
+/** The repo id a project's runs carry — the SAME derivation the gate
+ *  uses, over the normalized registered path. */
+function projectRepoId(project: ProjectRef): string {
+  return repoId(normalizeProjectPath(project.path));
+}
+
+/** Runs belonging to one project — matched by `projectRepoId`, so path
+ *  handling stays in one place. */
 export function runsForProject(project: ProjectRef, runs: RunRecord[]): RunRecord[] {
-  const id = repoId(normalizeProjectPath(project.path));
+  const id = projectRepoId(project);
   return runs.filter((r) => r.repoId === id);
+}
+
+/** Runs whose repo matches NO registered project — membership depends
+ *  only on repo ids, never on how many project rows a page displays. */
+export function orphanRuns(projects: ProjectRef[], runs: RunRecord[]): RunRecord[] {
+  const known = new Set(projects.map(projectRepoId));
+  return runs.filter((r) => !known.has(r.repoId));
 }
 
 /**
@@ -452,15 +478,21 @@ export function buildHome(
     return page.build();
   }
 
-  const matched = new Set<string>();
   if (projects.length > 0) {
+    // One pass over runs, one hash per project — project rows read from
+    // the index instead of rescanning the run list per project.
+    const runsByRepo = new Map<string, RunRecord[]>();
+    for (const r of runs) {
+      const bucket = runsByRepo.get(r.repoId);
+      if (bucket) bucket.push(r);
+      else runsByRepo.set(r.repoId, [r]);
+    }
     page.heading(2, "Projects");
-    const shown = projects.slice(0, MAX_PROJECT_ROWS);
+    const shown = clampRows(page, projects, "projects");
     page.table(
       ["Project", "Runs", "Active", "Parked", "Last push"],
       shown.map((p) => {
-        const own = runsForProject(p, runs);
-        for (const r of own) matched.add(r.id);
+        const own = runsByRepo.get(projectRepoId(p)) ?? [];
         const active = own.filter((r) => ACTIVE_STATUSES.has(r.status)).length;
         const parked = own.filter((r) => r.status === "awaiting_approval").length;
         const last = own.reduce<string | null>(
@@ -479,17 +511,11 @@ export function buildHome(
         };
       }),
     );
-    if (projects.length > MAX_PROJECT_ROWS) {
-      page.markdown(`Showing the first ${MAX_PROJECT_ROWS} of ${projects.length} projects.`, "muted");
-    }
-    // Runs for projects PAST the row clamp still belong to a registered
-    // project — keep them out of the orphan section.
-    for (const p of projects.slice(MAX_PROJECT_ROWS)) {
-      for (const r of runsForProject(p, runs)) matched.add(r.id);
-    }
   }
 
-  const orphans = runs.filter((r) => !matched.has(r.id));
+  // Orphan membership depends only on repo ids — NEVER on the display
+  // clamp above — so a project past row 100 still owns its runs.
+  const orphans = orphanRuns(projects, runs);
   if (orphans.length > 0) {
     page.heading(2, "Runs outside registered projects");
     appendRunsSection(page, orphans, details);

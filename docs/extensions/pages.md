@@ -110,8 +110,8 @@ definePage({
 - **Project hub** (`/project/<id>/hub/ext:<name>:<page>`): `render` receives `{ project: { id, name, path } }` — render that project's view. `path` is the project's checkout root, so data keyed by repo/path maps directly.
 - **Global hub** (`/hub/ext:<name>:<page>`): `render` receives `{ projects }` — the full project list, for an overview/home view. Deep-link rows into the project hub with `href: `/project/${p.id}/hub/${encodeURIComponent("ext:<name>:<page>")}``.
 - **Compatibility**: without the flag (or on an older host) `render` is called with no context — a zero-arg `render` keeps working unchanged. The flag is additive; nothing else about actions, limits, or validation changes.
-- **Caching**: variants are cached per (extension, page, project) with the same ~60s TTL.
-- **Refresh**: prefer `invalidatePage("dashboard")` over `pushPage` — it drops every cached variant and broadcasts the content-free signal, so each open view (home or any project) re-pulls its own context. A `pushPage` tree only refreshes the *global* variant (and invalidates the rest):
+- **Caching**: variants are cached per (extension, page, project) with the same ~60s TTL. Concurrent re-pulls of one variant are single-flighted host-side, so an invalidation with many open viewers costs ONE render, not one per tab.
+- **Refresh**: use `invalidatePage("dashboard")` — it drops every cached variant and broadcasts the content-free signal, so each open view (home or any project) re-pulls its own context. On a `perProject` page a `pushPage` tree is ENFORCED as invalidate-only (the tree is discarded): a tree built in one context can't cover the global + per-project variants, so the host never caches it as the home view:
 
 ```typescript
 import { invalidatePage } from "@ezcorp/sdk/runtime";

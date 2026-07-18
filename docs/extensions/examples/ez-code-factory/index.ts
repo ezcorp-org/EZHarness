@@ -58,7 +58,9 @@ import {
   buildHome,
   buildProjectDashboard,
   normalizeRespondPayload,
+  orphanRuns,
   parseRunIdPayload,
+  runsForProject,
   type RunDetail,
 } from "./lib/page";
 import {
@@ -918,14 +920,21 @@ export async function recoverOnStart(): Promise<RecoverySummary> {
 /** Dashboard render — variant picked from the host's `perProject` context:
  *  a single project's view on `/project/<id>/hub/...`, the all-projects home
  *  on the global hub, or the classic combined dashboard when the host sends
- *  no context (older host / flag off). */
+ *  no context (older host / flag off). Parked-run details (serial per-step
+ *  store reads) are collected ONLY for the runs the variant will actually
+ *  inline — a project view never pays for other projects' triage. */
 export async function renderDashboard(ctx?: PageRenderContext) {
   const store = getStore();
   const runs = await store.listRuns();
-  const details = await collectParkedDetails(store, runs);
-  if (ctx?.project) return buildProjectDashboard(ctx.project, runs, details);
-  if (ctx?.projects) return buildHome(ctx.projects, runs, details);
-  return buildDashboard(runs, details);
+  if (ctx?.project) {
+    const own = runsForProject(ctx.project, runs);
+    return buildProjectDashboard(ctx.project, runs, await collectParkedDetails(store, own));
+  }
+  if (ctx?.projects) {
+    const orphans = orphanRuns(ctx.projects, runs);
+    return buildHome(ctx.projects, runs, await collectParkedDetails(store, orphans));
+  }
+  return buildDashboard(runs, await collectParkedDetails(store, runs));
 }
 
 // ── Wiring ───────────────────────────────────────────────────────────

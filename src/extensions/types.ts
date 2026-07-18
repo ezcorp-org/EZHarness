@@ -305,6 +305,11 @@ export interface ExtensionPageDeclaration {
   icon?: string;
   /** ≤ 200 chars. */
   description?: string;
+  /** Project-aware renders (mirror of the SDK declaration): `render`
+   *  receives `{project}` on the project hub and `{projects}` on the
+   *  global hub. Also makes `ezcorp/page-state` pushes invalidate-only
+   *  for this page (a single pushed tree can't cover the variants). */
+  perProject?: boolean;
 }
 
 // ── Dependency Types ─────────────────────────────────────────────

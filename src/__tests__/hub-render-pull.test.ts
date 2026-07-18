@@ -452,3 +452,54 @@ describe("perProject scope", () => {
     expect(seen[0]!.project).toBeUndefined();
   });
 });
+
+// ── single-flight dedup ──────────────────────────────────────────────
+
+describe("single-flight pull dedup", () => {
+  test("concurrent renders of the SAME variant share one subprocess pull", async () => {
+    let resolvePull: ((r: JsonRpcResponse) => void) | null = null;
+    let pulls = 0;
+    const deps = makeDeps({
+      callPage: () => {
+        pulls++;
+        return new Promise<JsonRpcResponse>((resolve) => {
+          resolvePull = resolve;
+        });
+      },
+    });
+    const first = renderExtensionPage("cron-dashboard", "dashboard", "u1", deps);
+    const second = renderExtensionPage("cron-dashboard", "dashboard", "u2", deps);
+    await new Promise((r) => setTimeout(r, 5));
+    resolvePull!(okResponse(VALID_RESULT));
+    const [a, b] = await Promise.all([first, second]);
+    expect(a.page).toBeDefined();
+    expect(b.page).toBeDefined();
+    expect(pulls).toBe(1); // the herd collapsed to one render
+  });
+
+  test("different variants of one page pull independently", async () => {
+    const seen: Array<string | undefined> = [];
+    const perProjectPage = { id: "dashboard", title: "Dash", perProject: true };
+    const extension = makeExtension();
+    const deps = makeDeps({
+      findPage: async () => ({ extension, page: perProjectPage }),
+      callPage: async (_e, _p, _u, scope) => {
+        seen.push(scope?.project?.id);
+        return okResponse(VALID_RESULT);
+      },
+    });
+    await Promise.all([
+      renderExtensionPage("cron-dashboard", "dashboard", "u1", deps, {
+        id: "p-1",
+        name: "A",
+        path: "/a",
+      }),
+      renderExtensionPage("cron-dashboard", "dashboard", "u1", deps, {
+        id: "p-2",
+        name: "B",
+        path: "/b",
+      }),
+    ]);
+    expect(seen.sort()).toEqual(["p-1", "p-2"]); // two variants, two pulls
+  });
+});
