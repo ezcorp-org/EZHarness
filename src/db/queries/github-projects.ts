@@ -255,16 +255,30 @@ export async function listProposalsByProject(
   return (await q) as GithubProjectsProposal[];
 }
 
+// The truly mid-flight statuses — GITHUB_ACTIVE_STATUSES minus `pending`
+// (which is queued but not yet consuming a run slot). Derived from the
+// shared contract so a new active status is included automatically.
+const MID_FLIGHT_STATUSES = GITHUB_ACTIVE_STATUSES.filter((s) => s !== "pending");
+
 /** Concurrency-cap input: how many proposals are mid-flight for a project. */
 export async function countActiveProposalsForProject(
   projectId: string,
 ): Promise<number> {
-  const rows = await listProposalsByProject(projectId, {
-    statuses: [...GITHUB_ACTIVE_STATUSES],
-  });
-  // "approved/spawned/running" are the truly mid-flight ones (pending is queued
-  // but not yet consuming a run slot).
-  return rows.filter((r) => r.status !== "pending").length;
+  if (!projectId) return 0;
+  // COUNT at the DB with the status predicate rather than SELECT *-ing every
+  // active row and filtering/counting in JS — this is a concurrency-cap probe
+  // on the run-lifecycle hot path, so it must ship only the aggregate, never
+  // the full proposal bodies.
+  const rows = await getDb()
+    .select({ count: sql<number>`count(*)::int` })
+    .from(githubProjectsProposals)
+    .where(
+      and(
+        eq(githubProjectsProposals.projectId, projectId),
+        inArray(githubProjectsProposals.status, [...MID_FLIGHT_STATUSES]),
+      ),
+    );
+  return Number(rows[0]?.count ?? 0);
 }
 
 /** Mutate a proposal's lifecycle fields (decide/spawn/finish). */
