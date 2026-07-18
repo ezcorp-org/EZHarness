@@ -43,11 +43,22 @@ export async function getInviteByToken(token: string): Promise<Invite | undefine
   return rows[0];
 }
 
+/**
+ * Atomically claim a single-use invite.
+ *
+ * The `isNull(invites.usedAt)` guard makes this a compare-and-set: the
+ * UPDATE only flips a row that is still unclaimed, and `.returning()`
+ * reports whether THIS call won the race. Two concurrent redemptions of
+ * the same token therefore cannot both succeed — the loser gets zero
+ * rows back and must abort. Mirrors `claimPasswordResetToken`
+ * (src/db/queries/password-resets.ts). Callers MUST claim BEFORE
+ * creating the account and treat a `false` return as "already used".
+ */
 export async function markInviteUsed(id: string): Promise<boolean> {
   const rows = await getDb()
     .update(invites)
     .set({ usedAt: new Date() })
-    .where(eq(invites.id, id))
+    .where(and(eq(invites.id, id), isNull(invites.usedAt)))
     .returning();
   return rows.length > 0;
 }
