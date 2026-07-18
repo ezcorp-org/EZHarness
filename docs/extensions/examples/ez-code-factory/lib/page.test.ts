@@ -660,6 +660,17 @@ describe("perProject dashboard variants", () => {
     expect(runsForProject(OTHER, [mine, foreign])).toEqual([]);
   });
 
+  test("a trailing slash on the registered project path still matches the gated root", () => {
+    // The gate hashed the cwd-derived root (no trailing slash); the DB row
+    // was registered with one. Without normalization every run is orphaned.
+    const mine = run({ id: "r1", repoId: repoId("/home/dev/my-app") });
+    const slashed: ProjectRef = { id: PROJECT.id, name: PROJECT.name, path: "/home/dev/my-app/" };
+    expect(runsForProject(slashed, [mine]).map((r) => r.id)).toEqual(["r1"]);
+    // Bare root stays valid (never normalized to the empty string).
+    const rootProject: ProjectRef = { id: "p-root", name: "Root", path: "/" };
+    expect(runsForProject(rootProject, [mine])).toEqual([]);
+  });
+
   test("buildProjectDashboard: titled per project, filtered to its runs", () => {
     const mine = projectRun(PROJECT, { id: "r1", branch: "feat/a" });
     const foreign = run({ id: "r2", repoId: "feedfacecafe", branch: "feat/b" });

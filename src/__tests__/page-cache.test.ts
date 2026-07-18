@@ -118,18 +118,25 @@ describe("ExtensionPageCache", () => {
     expect(cache.get("ext-1", "dash-2", "proj-1")).not.toBeNull();
   });
 
-  test("variant cap: new variants beyond MAX_PAGE_VARIANTS are not cached, existing ones still refresh", () => {
-    const { cache } = makeCache();
-    cache.set("ext-1", "page", TREE); // global counts toward the cap
+  test("variant cap: at MAX_PAGE_VARIANTS a NEW key evicts the oldest entry — never a refusal", () => {
+    const { cache, advance } = makeCache();
+    cache.set("ext-1", "page", TREE, "proj-0"); // oldest
     for (let i = 1; i < MAX_PAGE_VARIANTS; i++) {
+      advance(1);
       cache.set("ext-1", "page", TREE, `proj-${i}`);
     }
-    // At the cap: a NEW variant is refused (served uncached)...
-    cache.set("ext-1", "page", TREE2, "proj-overflow");
-    expect(cache.get("ext-1", "page", "proj-overflow")).toBeNull();
-    // ...but refreshing an EXISTING key still lands.
-    cache.set("ext-1", "page", TREE2, "proj-1");
-    expect(cache.get("ext-1", "page", "proj-1")!.tree).toEqual(TREE2);
+    // The 65th distinct key — the GLOBAL home after 64 project views —
+    // must still cache (the starvation regression); the oldest project
+    // variant is what gets evicted.
+    advance(1);
+    cache.set("ext-1", "page", TREE2);
+    expect(cache.get("ext-1", "page")!.tree).toEqual(TREE2);
+    expect(cache.get("ext-1", "page", "proj-0")).toBeNull(); // evicted
+    expect(cache.get("ext-1", "page", "proj-1")).not.toBeNull(); // survivors intact
+    // Refreshing an EXISTING key never evicts anything.
+    advance(1);
+    cache.set("ext-1", "page", TREE, "proj-5");
+    expect(cache.get("ext-1", "page", "proj-1")).not.toBeNull();
     // Other pages are unaffected by this page's cap.
     cache.set("ext-1", "other", TREE2, "proj-1");
     expect(cache.get("ext-1", "other", "proj-1")).not.toBeNull();

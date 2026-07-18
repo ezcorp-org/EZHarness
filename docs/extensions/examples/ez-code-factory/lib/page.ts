@@ -23,7 +23,7 @@
 // at the event boundary, so parseRespondPayload stays the single validator.
 
 import { PageBuilder } from "@ezcorp/sdk/runtime";
-import type { HubPageTree, PageActionDescriptor } from "@ezcorp/sdk/runtime";
+import type { HubPageTree, PageActionDescriptor, PageProjectRef } from "@ezcorp/sdk/runtime";
 import { EXTENSION_NAME, PAGE_ID, repoId } from "./gate";
 import { PIPELINE_STEPS, type PipelineStep } from "./config";
 import type {
@@ -312,20 +312,18 @@ export function buildRunDetail(detail: RunDetail): HubPageTree {
 
 // ── Dashboard variants (global fallback / per-project / home) ────────
 
-/** One platform project, as the host hands it to a `perProject` render.
- *  Structural mirror of the SDK's `PageProjectRef`. */
-export interface ProjectRef {
-  id: string;
-  name: string;
-  path: string;
-}
+/** One platform project, as the host hands it to a `perProject` render —
+ *  the SDK's own type, so host-contract changes reach these builders. */
+export type ProjectRef = PageProjectRef;
 
 /** The full hub page id as it appears in URLs — home rows deep-link to
  *  `/project/<projectId>/hub/<this>`. */
 export const FULL_PAGE_ID = `ext:${EXTENSION_NAME}:${PAGE_ID}`;
 
-/** Host page trees cap tables at 100 rows (page-schema) — clamp the
- *  projects table and say so rather than render an invalid tree. */
+/** The host silently TRUNCATES tables past 100 rows (page-schema
+ *  MAX_TABLE_ROWS `.slice`) — clamp the projects table ourselves so we
+ *  can render the "showing first N" notice instead of dropping rows
+ *  without a trace. */
 const MAX_PROJECT_ROWS = 100;
 
 const EMPTY_STATE_DETAIL =
@@ -367,10 +365,20 @@ function appendRunsSection(page: PageBuilder, runs: RunRecord[], details: RunDet
   }
 }
 
+/** A registered project path may carry a trailing slash the gate's
+ *  cwd-derived root never has — strip it (but keep bare "/") so both
+ *  sides hash to the same repo id. NEVER applied inside `repoId` itself:
+ *  existing gate directories on disk are named by the unnormalized hash. */
+export function normalizeProjectPath(path: string): string {
+  const trimmed = path.replace(/\/+$/, "");
+  return trimmed === "" ? "/" : trimmed;
+}
+
 /** Runs belonging to one project — matched by the SAME derivation the gate
- *  uses (`repoId(project.path)`), so path handling stays in one place. */
+ *  uses (`repoId(<normalized project.path>)`), so path handling stays in
+ *  one place. */
 export function runsForProject(project: ProjectRef, runs: RunRecord[]): RunRecord[] {
-  const id = repoId(project.path);
+  const id = repoId(normalizeProjectPath(project.path));
   return runs.filter((r) => r.repoId === id);
 }
 

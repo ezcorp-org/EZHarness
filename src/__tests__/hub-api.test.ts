@@ -358,32 +358,102 @@ describe("GET /api/hub/pages/[id]", () => {
     ]);
   });
 
-  test("malformed ?project= 404s before any render call", async () => {
-    for (const bad of ["abc", "123", "..%2F..", "0".repeat(36)]) {
+  test("unresolvable ?project= values fall back to a context-less render — NEVER 404", async () => {
+    // Covers: unknown uuid, junk, the synthetic "global" fallback the
+    // extension detail page links to, and an oversized value (skips the
+    // DB lookup entirely). Pre-fix each of these dead-ended with 404.
+    const values = [
+      "6f9619ff-8b86-4d01-b42d-00cf4fc964ff",
+      "abc",
+      "global",
+      "x".repeat(200),
+    ];
+    for (const value of values) {
+      __extRenderResult = { page: { title: "T", nodes: [] }, renderedAt: 1 };
       const res = await call(
         renderGet,
         createMockEvent({
           user: userA,
           params: { id: "ext:cron-dash:dashboard" },
-          url: `http://localhost/api/hub/pages/x?project=${bad}`,
+          url: `http://localhost/api/hub/pages/x?project=${value}`,
         }),
       );
-      expect(res.status).toBe(404);
+      expect(res.status).toBe(200);
     }
-    expect(__extRenderCalls).toHaveLength(0);
+    // Every render went through WITHOUT project context.
+    expect(__extRenderCalls).toHaveLength(values.length);
+    for (const args of __extRenderCalls) expect(args[4]).toBeUndefined();
   });
 
-  test("unknown ?project= uuid 404s without rendering", async () => {
+  test("the seeded self project (non-UUID id \"self\") resolves as real project context", async () => {
+    const db = getTestDb();
+    // Mirrors src/db/seed-self-project.ts: SELF_PROJECT_ID = "self".
+    await db
+      .insert(projects)
+      .values({ id: "self", name: "EZCorp (this app)", path: "/srv/ezcorp" });
+    __extRenderResult = { page: { title: "T", nodes: [] }, renderedAt: 1 };
     const res = await call(
       renderGet,
       createMockEvent({
         user: userA,
         params: { id: "ext:cron-dash:dashboard" },
-        url: "http://localhost/api/hub/pages/x?project=6f9619ff-8b86-4d01-b42d-00cf4fc964ff",
+        url: "http://localhost/api/hub/pages/x?project=self",
       }),
     );
-    expect(res.status).toBe(404);
-    expect(__extRenderCalls).toHaveLength(0);
+    expect(res.status).toBe(200);
+    expect(__extRenderCalls).toEqual([
+      [
+        "cron-dash",
+        "dashboard",
+        userA.id,
+        undefined,
+        { id: "self", name: "EZCorp (this app)", path: "/srv/ezcorp" },
+      ],
+    ]);
+  });
+
+  test("rate-limit buckets are per project variant — browsing many projects never 429s first renders", async () => {
+    const db = getTestDb();
+    const rows = await db
+      .insert(projects)
+      .values(
+        Array.from({ length: 13 }, (_, i) => ({ name: `p${i}`, path: `/proj/p${i}` })),
+      )
+      .returning();
+    __extRenderResult = { page: { title: "T", nodes: [] }, renderedAt: 1 };
+    for (const row of rows) {
+      const res = await call(
+        renderGet,
+        createMockEvent({
+          user: userA,
+          params: { id: "ext:cron-dash:dashboard" },
+          url: `http://localhost/api/hub/pages/x?project=${row.id}`,
+        }),
+      );
+      expect(res.status).toBe(200); // 13 distinct variants, 13 distinct buckets
+    }
+    // The SAME variant still has its own 12/min budget.
+    renderLimiter.reset();
+    for (let i = 0; i < 12; i++) {
+      const res = await call(
+        renderGet,
+        createMockEvent({
+          user: userA,
+          params: { id: "ext:cron-dash:dashboard" },
+          url: `http://localhost/api/hub/pages/x?project=${rows[0]!.id}`,
+        }),
+      );
+      expect(res.status).toBe(200);
+    }
+    const blocked = await call(
+      renderGet,
+      createMockEvent({
+        user: userA,
+        params: { id: "ext:cron-dash:dashboard" },
+        url: `http://localhost/api/hub/pages/x?project=${rows[0]!.id}`,
+      }),
+    );
+    expect(blocked.status).toBe(429);
   });
 
   test("core pages tolerate a valid ?project= (resolved, unused)", async () => {

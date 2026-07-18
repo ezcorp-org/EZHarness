@@ -41,8 +41,9 @@ interface StoredEntry {
 }
 
 /** Cached variants per (extension, page) — the global render plus one
- *  per project id. Bounds memory if a caller ever loops over ids; real
- *  variant cardinality is the project count, far below this. */
+ *  per project id. At the cap the OLDEST entry is evicted to admit a
+ *  new one (never a refusal), so memory stays bounded on deployments
+ *  with more projects than this while every variant remains cacheable. */
 export const MAX_PAGE_VARIANTS = 64;
 
 export class ExtensionPageCache {
@@ -76,13 +77,33 @@ export class ExtensionPageCache {
 
   set(extensionId: string, pageId: string, tree: HubPageTree, variant?: string): void {
     const key = this.key(extensionId, pageId, variant);
-    if (!this.entries.has(key) && this.variantCount(extensionId, pageId) >= MAX_PAGE_VARIANTS) {
-      return; // over the cap: serve uncached rather than grow unbounded
-    }
+    if (!this.entries.has(key)) this.evictForCap(extensionId, pageId);
     this.entries.set(key, {
       tree,
       renderedAt: this.now(),
     });
+  }
+
+  /** Make room for one NEW variant when a page is at the cap: drop the
+   *  oldest entry (expired ones age out first by construction). Eviction
+   *  — never refusal — so a new variant (e.g. the global home after 64
+   *  project views) can always cache; the cap only bounds cardinality. */
+  private evictForCap(extensionId: string, pageId: string): void {
+    const prefix = `${extensionId}:${pageId}:`;
+    let count = 0;
+    let oldestKey: string | null = null;
+    let oldestAt = Infinity;
+    for (const [key, entry] of this.entries) {
+      if (!key.startsWith(prefix)) continue;
+      count++;
+      if (entry.renderedAt < oldestAt) {
+        oldestAt = entry.renderedAt;
+        oldestKey = key;
+      }
+    }
+    if (count >= MAX_PAGE_VARIANTS && oldestKey !== null) {
+      this.entries.delete(oldestKey);
+    }
   }
 
   /** Drop EVERY variant of one page (global + all projects) — the
@@ -93,15 +114,6 @@ export class ExtensionPageCache {
     for (const key of this.entries.keys()) {
       if (key.startsWith(prefix)) this.entries.delete(key);
     }
-  }
-
-  private variantCount(extensionId: string, pageId: string): number {
-    const prefix = `${extensionId}:${pageId}:`;
-    let n = 0;
-    for (const key of this.entries.keys()) {
-      if (key.startsWith(prefix)) n++;
-    }
-    return n;
   }
 
   /** Drop every page for one extension (reload/disable/uninstall). */

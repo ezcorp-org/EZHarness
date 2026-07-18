@@ -13,12 +13,16 @@
  *     via `$lib/server/hub-render-pull`; `allowedEvents` = the
  *     extension's granted eventSubscriptions.
  *
- * `?project=<uuid>` (the project-scoped hub route) resolves the project
+ * `?project=<id>` (the project-scoped hub route) resolves the project
  * row and threads {id,name,path} into the render — consumed only by
- * pages declared `perProject: true`; inert everywhere else. Malformed
- * or unknown ids 404.
+ * pages declared `perProject: true`; inert everywhere else. Project
+ * context is an ENHANCEMENT, never an addressing requirement: an
+ * unresolvable id (unknown, deleted, the synthetic "global" fallback,
+ * oversized junk) simply renders the page WITHOUT project context, so
+ * pages that worked before ?project= existed keep working. Note ids
+ * are not always UUIDs — the seeded self project's id is "self".
  *
- * Rate limit: 12 renders/min/user/page.
+ * Rate limit: 12 renders/min/user/page/project-variant.
  */
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "./$types";
@@ -38,8 +42,9 @@ const log = logger.child("api.hub.render");
 /** 12 renders per minute per (user, page). Exported for test isolation. */
 export const __rateLimiter = new RateLimiter(12, 60_000);
 
-/** `crypto.randomUUID()` shape — the only accepted `?project=` value. */
-const PROJECT_ID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** Sanity bound before the DB lookup — project ids are short (UUIDs or
+ *  seeded names like "self"); anything longer is junk, not a project. */
+const MAX_PROJECT_PARAM_LENGTH = 128;
 
 export const GET: RequestHandler = async ({ locals, params, url }) => {
   const scopeErr = requireScope(locals, "read");
@@ -50,18 +55,24 @@ export const GET: RequestHandler = async ({ locals, params, url }) => {
   if (!parsed) return errorJson(404, "Not found");
 
   // Optional project context (the project-scoped hub route). Resolved
-  // here so the render layer only ever sees a REAL project; malformed
-  // or unknown ids 404 like any other bad page address.
+  // here so the render layer only ever sees a REAL project. Unresolvable
+  // values fall back to a context-less (global) render rather than 404 —
+  // the client appends ?project= for EVERY page under /project/<id>/hub,
+  // including the synthetic "global" fallback and pages that never read
+  // project context, and none of those may dead-end.
   const projectParam = url.searchParams.get("project");
   let project: { id: string; name: string; path: string } | undefined;
-  if (projectParam !== null) {
-    if (!PROJECT_ID_REGEX.test(projectParam)) return errorJson(404, "Not found");
+  if (projectParam && projectParam.length <= MAX_PROJECT_PARAM_LENGTH) {
     const row = await getProject(projectParam);
-    if (!row) return errorJson(404, "Not found");
-    project = { id: row.id, name: row.name, path: row.path };
+    if (row) project = { id: row.id, name: row.name, path: row.path };
   }
 
-  const limit = __rateLimiter.check(`hub-render:${user.id}:${params.id}`);
+  // The project variant is part of the limiter key: each project view of a
+  // perProject page is a distinct render target with its own budget —
+  // without this, browsing 12+ projects in a minute 429s on first renders.
+  const limit = __rateLimiter.check(
+    `hub-render:${user.id}:${params.id}:${project?.id ?? ""}`,
+  );
   if (!limit.allowed) {
     return errorJson(
       429,

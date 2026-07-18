@@ -9,9 +9,19 @@
 import { test, expect, describe, mock, afterAll } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 
-// $lib/server/context pulls the whole server boot — stub the one
-// accessor the module needs (the PRODUCTION callPage path reads it).
-mock.module("$lib/server/context", () => ({ getBus: () => null }));
+// $lib/server/context pulls the whole server boot — stub the accessors
+// the module needs (the PRODUCTION callPage path reads them). getExecutor
+// MUST be present even though this file never wants an executor: a
+// partial mock that omits a named export fails EVERY import of the
+// module for the rest of the process (see the identical note in
+// extension-events-hub-branch.test.ts). Throwing keeps the guarded
+// executor-less path exercised.
+mock.module("$lib/server/context", () => ({
+  getBus: () => null,
+  getExecutor: () => {
+    throw new Error("executor not booted (test context)");
+  },
+}));
 // Fake the subprocess collaborators so the DEFAULT (non-injected)
 // callPage path is coverable without spawning anything. The fakes
 // record the wiring sequence; `__fakeProcResponse` drives the result.
@@ -48,9 +58,13 @@ mock.module("$server/extensions/permission-engine", () => ({
   getPermissionEngine: () => ({}),
 }));
 // The production path late-imports listProjects for the GLOBAL render of
-// a perProject page — controllable fake, no DB.
+// a perProject page — controllable fake, no DB. DELEGATE every other
+// export to the real module (same partial-mock rule as the context stub
+// above: hub-api.test.ts's route needs getProject from this module id
+// when the two files share a process).
 let __fakeProjects: Array<{ id: string; name: string; path: string }> = [];
 mock.module("$server/db/queries/projects", () => ({
+  ...require("../db/queries/projects"),
   listProjects: async () => __fakeProjects,
 }));
 mock.module("$server/extensions/page-schema", () => require("../extensions/page-schema"));
@@ -78,6 +92,7 @@ afterAll(() => {
   // factories already point at the real modules.
   mock.module("$lib/hub", () => require("../../web/src/lib/hub"));
   mock.module("$lib/server/hub-extension-pages", () => require("../../web/src/lib/server/hub-extension-pages"));
+  mock.module("$server/db/queries/projects", () => require("../db/queries/projects"));
   mock.module("$server/logger", () => realLogger);
   restoreModuleMocks();
 });
