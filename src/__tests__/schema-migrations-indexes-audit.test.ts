@@ -49,6 +49,8 @@ describe("schema-migrations: audit-remediation indexes exist", () => {
     "idx_suggestion_feedback_conversation",
     "idx_conversations_agent_config_id",
     "idx_conversations_mode_id",
+    // listRuns: WHERE project_id ORDER BY started_at DESC LIMIT (integration).
+    "idx_runs_project_started",
     // memory_audit_log — previously had ZERO indexes.
     "idx_memory_audit_memory_created",
     "idx_memory_audit_reason_created",

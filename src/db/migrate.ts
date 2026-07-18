@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import { backfillGithubProjectsApiTokens } from "../extensions/secrets-store";
+import { backfillMcpManifestSecrets } from "./queries/extensions";
 import { seedSelfProject } from "./seed-self-project";
 import { up as upUserCommandsUnique } from "./migrations/add-user-commands-unique-name";
 import { logger } from "../logger";
@@ -211,6 +212,9 @@ export async function migrate(db: any): Promise<void> {
 
   // Indexes (after all columns exist)
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_runs_project_id ON runs(project_id)`);
+  // db-audit (query-core): listRuns filters project_id and ORDER BY started_at
+  // DESC + LIMIT; a composite serves the WHERE + ORDER + LIMIT without a sort.
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_runs_project_started ON runs(project_id, started_at DESC)`);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_runs_agent_name ON runs(agent_name)`);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_run_logs_run_id ON run_logs(run_id)`);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_conversations_project_id ON conversations(project_id)`);
@@ -2160,4 +2164,10 @@ export async function migrate(db: any): Promise<void> {
   // passed executor for all its SQL. A second run finds no matching keys and
   // is a no-op.
   await backfillGithubProjectsApiTokens(db);
+
+  // db-audit (mcp-secrets): move any pre-existing plaintext MCP transport auth
+  // (headers/env) out of the broadly-readable extensions.manifest jsonb into
+  // the AEAD extension_secrets store, rewriting each manifest to its blanked
+  // form. Runs after every FK target exists; idempotent + fail-safe per row.
+  await backfillMcpManifestSecrets(db);
 }

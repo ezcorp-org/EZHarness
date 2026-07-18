@@ -52,8 +52,9 @@ export const runs = pgTable("runs", {
 }, (table) => [
   // FK index — conversation delete fires ON DELETE SET NULL on
   // runs.conversation_id; runs is append-only so an unindexed referential
-  // scan here is the worst offender. (The project_id / agent_name / user_id
-  // indexes remain migrate.ts-only; migrate.ts is the DDL source of truth.)
+  // scan here is the worst offender. (The project_id / project_id+started_at /
+  // agent_name / user_id indexes remain migrate.ts-only; migrate.ts is the DDL
+  // source of truth — see idx_runs_project_started for listRuns.)
   index("idx_runs_conversation_id").on(table.conversationId),
 ]);
 

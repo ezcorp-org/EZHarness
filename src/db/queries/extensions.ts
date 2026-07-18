@@ -3,6 +3,9 @@ import { getDb, getPglite } from "../connection";
 import { extensions, type Extension, type NewExtension } from "../schema";
 import type { McpServerDefinition, ExtensionManifestV2, ToolDefinition } from "../../extensions/types";
 import { getSecret, setSecret } from "../../extensions/secrets-store";
+import { logger } from "../../logger";
+
+const backfillLog = logger.child("db.queries.extensions");
 
 // ── MCP credential isolation ──────────────────────────────────────────────
 //
@@ -152,6 +155,65 @@ function serializeJsonbFields<T extends Record<string, unknown>>(data: T): T {
     out.installedPermissions = enc(out.installedPermissions);
   }
   return out as T;
+}
+
+/** True when an MCP definition still carries a NON-blank secret value at rest
+ *  (a redacted definition keeps the keys but blanks the values). */
+function hasPlaintextMcpSecret(server: McpServerDefinition): boolean {
+  const map = server.transport === "stdio" ? server.env : server.headers;
+  if (!map) return false;
+  return Object.values(map).some((v) => typeof v === "string" && v.length > 0);
+}
+
+/**
+ * db-audit (mcp-secrets): one-shot backfill for rows installed BEFORE MCP
+ * transport auth moved to the encrypted store. New installs/updates already
+ * redact-at-rest, and every read path scrubs legacy rows defensively, but the
+ * plaintext still sits in `extensions.manifest` jsonb until migrated. This
+ * moves each legacy secret into `extension_secrets` and rewrites the manifest
+ * to its blanked form — idempotent (a blanked row has no plaintext, so a
+ * re-run skips it) and fail-safe (a bad row warns by name and never bricks
+ * boot). Mirrors `backfillGithubProjectsApiTokens`.
+ */
+export async function backfillMcpManifestSecrets(
+  // Accepts the migrate `db` handle OR getDb(); both are drizzle instances.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  executor: any = getDb(),
+): Promise<{ migrated: number; scanned: number }> {
+  const rows = (await executor
+    .select({ id: extensions.id, name: extensions.name, manifest: extensions.manifest })
+    .from(extensions)) as Array<{ id: string; name: string; manifest: unknown }>;
+
+  let migrated = 0;
+  let scanned = 0;
+  for (const row of rows) {
+    const manifest = row.manifest as ExtensionManifestV2 | null;
+    if (!manifest || manifest.kind !== "mcp" || !manifest.mcpServers?.length) continue;
+    scanned += 1;
+    const server = manifest.mcpServers[0];
+    if (!server || !hasPlaintextMcpSecret(server)) continue;
+    try {
+      // Encrypt+store the real values FIRST, so a crash after this point leaves
+      // the (still-plaintext) manifest recoverable on the next boot's re-run.
+      await persistMcpSecret(row.name, server);
+      const redacted: ExtensionManifestV2 = {
+        ...manifest,
+        mcpServers: manifest.mcpServers.map(redactMcpServer),
+      };
+      await executor
+        .update(extensions)
+        .set(serializeJsonbFields({ manifest: redacted }))
+        .where(eq(extensions.id, row.id));
+      migrated += 1;
+    } catch (err) {
+      // Never brick boot — name the extension (never the secret value).
+      backfillLog.warn("legacy MCP manifest secret could not be migrated", {
+        extension: row.name,
+        error: String(err).split("\n")[0],
+      });
+    }
+  }
+  return { migrated, scanned };
 }
 
 export async function getExtension(id: string): Promise<Extension | null> {
