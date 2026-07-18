@@ -2,6 +2,7 @@ import { eq, inArray } from "drizzle-orm";
 import { getDb } from "../connection";
 import { toolCalls } from "../schema";
 import { redactToolCallOutputContent } from "../../extensions/audit-redaction";
+import { persistError } from "./error-logs";
 import type { ToolCallResult } from "../../extensions/types";
 
 /**
@@ -161,8 +162,25 @@ export async function persistToolCall(row: ToolCallRow): Promise<void> {
       model: row.model ?? null,
       provider: row.provider ?? null,
     });
-  } catch {
-    // Swallow — DB persistence failure must not break tool execution.
-    // (Prior behaviour; error logging is the EventBus's job, not ours.)
+  } catch (err) {
+    // Never-throw contract preserved: a DB persistence failure must not break
+    // tool execution (the caller has already returned data to the LLM/user).
+    // But it must not vanish silently either — a broken tool_calls insert
+    // drops analytics dimensions, the message-detail tool-call UI, and the
+    // extension-identity binding the uploads route relies on. Route the caught
+    // error to persistError (fire-and-forget, itself never-throw) so the
+    // failure stays observable — mirroring insertAuditEntry (audit-log.ts).
+    await persistError({
+      level: "warn",
+      message: "tool-call-persist-failed: tool_calls",
+      stack: err instanceof Error ? err.stack ?? null : null,
+      metadata: {
+        conversationId: row.conversationId,
+        messageId: row.messageId,
+        extensionId: row.extensionId,
+        toolName: row.toolName,
+        error: String(err),
+      },
+    });
   }
 }
