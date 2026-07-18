@@ -27,8 +27,14 @@
 	} from "$lib/hub";
 
 	// `pageId` is the active tab; `hubBase` is the route prefix the tab
-	// links use (e.g. "/hub" or "/project/<id>/hub").
-	let { pageId, hubBase }: { pageId: string; hubBase: string } = $props();
+	// links use (e.g. "/hub" or "/project/<id>/hub"); `projectId` (project
+	// routes only) scopes every render pull so `perProject` pages get
+	// project context — inert for pages without the manifest flag.
+	let {
+		pageId,
+		hubBase,
+		projectId,
+	}: { pageId: string; hubBase: string; projectId?: string } = $props();
 
 	// ── Tab list (loaded once) ───────────────────────────────────────
 	let tabs = $state<HubPageListing[]>([]);
@@ -79,7 +85,8 @@
 		loading = true;
 		errorMsg = "";
 		try {
-			const res = await fetch(`/api/hub/pages/${encodeURIComponent(id)}`);
+			const query = projectId ? `?project=${encodeURIComponent(projectId)}` : "";
+			const res = await fetch(`/api/hub/pages/${encodeURIComponent(id)}${query}`);
 			if (seq !== loadSeq) return; // superseded by a newer load
 			if (res.status === 404) {
 				tree = null;

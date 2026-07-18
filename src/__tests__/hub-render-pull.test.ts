@@ -47,6 +47,12 @@ mock.module("$server/extensions/tool-executor", () => ({
 mock.module("$server/extensions/permission-engine", () => ({
   getPermissionEngine: () => ({}),
 }));
+// The production path late-imports listProjects for the GLOBAL render of
+// a perProject page — controllable fake, no DB.
+let __fakeProjects: Array<{ id: string; name: string; path: string }> = [];
+mock.module("$server/db/queries/projects", () => ({
+  listProjects: async () => __fakeProjects,
+}));
 mock.module("$server/extensions/page-schema", () => require("../extensions/page-schema"));
 mock.module("$server/extensions/page-cache", () => require("../extensions/page-cache"));
 mock.module("$server/extensions/types", () => require("../extensions/types"));
@@ -324,5 +330,110 @@ describe("renderExtensionPage", () => {
     expect(result.stale).toBe(true);
     await new Promise((r) => setTimeout(r, 10));
     expect(sets).toBe(2); // refresh attempted; its throw was folded, not unhandled
+  });
+});
+
+// ── perProject scope (project-aware renders) ─────────────────────────
+
+describe("perProject scope", () => {
+  const PER_PROJECT_PAGE = { id: "dashboard", title: "Dash", perProject: true };
+  const PROJECT = { id: "proj-1", name: "My App", path: "/home/dev/my-app" };
+
+  function makeScopedDeps(overrides: Partial<RenderPullDeps> = {}) {
+    const scopes: unknown[] = [];
+    const extension = makeExtension();
+    const deps: RenderPullDeps & { scopes: unknown[] } = {
+      scopes,
+      findPage: async () => ({ extension, page: PER_PROJECT_PAGE }),
+      callPage: async (_ext, _pageId, _userId, scope) => {
+        scopes.push(scope);
+        return okResponse(VALID_RESULT);
+      },
+      cache: new ExtensionPageCache(),
+      timeoutMs: 200,
+      ...overrides,
+    };
+    return deps;
+  }
+
+  test("project render: callPage gets {project}, result caches under the project variant", async () => {
+    const deps = makeScopedDeps();
+    const result = await renderExtensionPage("cron-dashboard", "dashboard", "u1", deps, PROJECT);
+    expect(result.page!.title).toBe("Cron Dashboard");
+    expect(deps.scopes).toEqual([{ project: PROJECT }]);
+    expect(deps.cache.get("ext-1", "dashboard", PROJECT.id)).not.toBeNull();
+    expect(deps.cache.get("ext-1", "dashboard")).toBeNull();
+  });
+
+  test("global render of a perProject page requests the project LIST", async () => {
+    const deps = makeScopedDeps();
+    const result = await renderExtensionPage("cron-dashboard", "dashboard", "u1", deps);
+    expect(result.page).toBeDefined();
+    expect(deps.scopes).toEqual([{ listProjects: true }]);
+    expect(deps.cache.get("ext-1", "dashboard")).not.toBeNull();
+  });
+
+  test("variants are cached independently — a project render never serves the global tree", async () => {
+    const deps = makeScopedDeps();
+    await renderExtensionPage("cron-dashboard", "dashboard", "u1", deps);
+    const second = await renderExtensionPage("cron-dashboard", "dashboard", "u1", deps, PROJECT);
+    expect(second.page).toBeDefined();
+    // Two real pulls (no cross-variant cache hit), one per scope.
+    expect(deps.scopes).toEqual([{ listProjects: true }, { project: PROJECT }]);
+  });
+
+  test("non-perProject page IGNORES a provided project (global scope + global cache)", async () => {
+    const extension = makeExtension();
+    const deps = makeScopedDeps({
+      findPage: async () => ({ extension, page: PAGE }),
+    });
+    await renderExtensionPage("cron-dashboard", "dashboard", "u1", deps, PROJECT);
+    expect(deps.scopes).toEqual([undefined]);
+    expect(deps.cache.get("ext-1", "dashboard")).not.toBeNull();
+    expect(deps.cache.get("ext-1", "dashboard", PROJECT.id)).toBeNull();
+  });
+
+  test("production callPage forwards {project} on the render RPC", async () => {
+    __fakeProcResponse = VALID_RESULT;
+    const seen: Record<string, unknown>[] = [];
+    __fakeProcInspect = (_method, params) => seen.push(params);
+    try {
+      const extension = makeExtension();
+      await renderExtensionPage("cron-dashboard", "dashboard", "u1", {
+        findPage: async () => ({ extension, page: PER_PROJECT_PAGE }),
+        cache: new ExtensionPageCache(),
+      }, PROJECT);
+    } finally {
+      __fakeProcInspect = null;
+    }
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.project).toEqual(PROJECT);
+    expect(seen[0]!.projects).toBeUndefined();
+  });
+
+  test("production callPage forwards the {projects} list on a global render", async () => {
+    __fakeProcResponse = VALID_RESULT;
+    __fakeProjects = [
+      { id: "p-a", name: "A", path: "/a" },
+      { id: "p-b", name: "B", path: "/b" },
+    ];
+    const seen: Record<string, unknown>[] = [];
+    __fakeProcInspect = (_method, params) => seen.push(params);
+    try {
+      const extension = makeExtension();
+      await renderExtensionPage("cron-dashboard", "dashboard", "u1", {
+        findPage: async () => ({ extension, page: PER_PROJECT_PAGE }),
+        cache: new ExtensionPageCache(),
+      });
+    } finally {
+      __fakeProcInspect = null;
+      __fakeProjects = [];
+    }
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.projects).toEqual([
+      { id: "p-a", name: "A", path: "/a" },
+      { id: "p-b", name: "B", path: "/b" },
+    ]);
+    expect(seen[0]!.project).toBeUndefined();
   });
 });

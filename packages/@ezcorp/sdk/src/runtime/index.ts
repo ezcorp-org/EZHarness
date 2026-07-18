@@ -69,13 +69,15 @@ export type {
 
 export { ComponentListBuilder } from "./component-builder";
 
-export { PageBuilder, definePage, pushPage, __resetPagesForTests } from "./page";
+export { PageBuilder, definePage, pushPage, invalidatePage, __resetPagesForTests } from "./page";
 export type {
   HubPageTree,
   PageDefinition,
   PageActionEvent,
   PageActionDescriptor,
   PagePromptDescriptor,
+  PageProjectRef,
+  PageRenderContext,
   PageStatItem,
   PageTableRowInput,
   PageButtonStyle,

@@ -11,6 +11,7 @@ import {
   PageBuilder,
   definePage,
   pushPage,
+  invalidatePage,
   __resetPagesForTests,
   type HubPageTree,
 } from "../src/runtime/page";
@@ -291,5 +292,54 @@ describe("pushPage", () => {
     const tree = { title: "Raw", nodes: [] };
     pushPage("dash", tree);
     expect(notifies[0]!.params).toEqual({ pageId: "dash", page: tree });
+  });
+});
+
+describe("invalidatePage", () => {
+  test("notifies ezcorp/page-state with the pageId and NO tree", () => {
+    const { notifies } = stubChannel();
+    invalidatePage("dash");
+    expect(notifies).toEqual([
+      { method: "ezcorp/page-state", params: { pageId: "dash" } },
+    ]);
+  });
+});
+
+describe("render context (perProject pages)", () => {
+  const PROJECT = { id: "p-1", name: "My App", path: "/home/dev/my-app" };
+
+  async function renderWith(params: Record<string, unknown>) {
+    const { handlers } = stubChannel();
+    const seen: unknown[] = [];
+    definePage({
+      id: "dash",
+      render: (ctx) => {
+        seen.push(ctx);
+        return { title: "T", nodes: [] };
+      },
+    });
+    await handlers.get("ezcorp/page.render")!({ pageId: "dash", ...params });
+    return seen[0];
+  }
+
+  test("host {project} arrives as ctx.project", async () => {
+    expect(await renderWith({ project: PROJECT })).toEqual({ project: PROJECT });
+  });
+
+  test("host {projects} list arrives as ctx.projects (malformed refs dropped)", async () => {
+    const ctx = await renderWith({
+      projects: [PROJECT, { id: 1 }, "junk", { id: "p-2", name: "B", path: "/b" }],
+    });
+    expect(ctx).toEqual({
+      projects: [PROJECT, { id: "p-2", name: "B", path: "/b" }],
+    });
+  });
+
+  test("no project params → ctx is undefined (zero-arg renders unaffected)", async () => {
+    expect(await renderWith({})).toBeUndefined();
+  });
+
+  test("malformed project object → ctx is undefined, render still succeeds", async () => {
+    expect(await renderWith({ project: { id: "x", name: 42 } })).toBeUndefined();
   });
 });

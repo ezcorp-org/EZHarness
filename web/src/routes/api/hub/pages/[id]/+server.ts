@@ -13,6 +13,11 @@
  *     via `$lib/server/hub-render-pull`; `allowedEvents` = the
  *     extension's granted eventSubscriptions.
  *
+ * `?project=<uuid>` (the project-scoped hub route) resolves the project
+ * row and threads {id,name,path} into the render — consumed only by
+ * pages declared `perProject: true`; inert everywhere else. Malformed
+ * or unknown ids 404.
+ *
  * Rate limit: 12 renders/min/user/page.
  */
 import { json } from "@sveltejs/kit";
@@ -25,6 +30,7 @@ import { getHubPageProvider } from "$server/runtime/hub-pages";
 import { validatePageTree } from "$server/extensions/page-schema";
 import { parseHubPageId } from "$lib/hub";
 import { renderExtensionPage } from "$lib/server/hub-render-pull";
+import { getProject } from "$server/db/queries/projects";
 import { logger } from "$server/logger";
 
 const log = logger.child("api.hub.render");
@@ -32,13 +38,28 @@ const log = logger.child("api.hub.render");
 /** 12 renders per minute per (user, page). Exported for test isolation. */
 export const __rateLimiter = new RateLimiter(12, 60_000);
 
-export const GET: RequestHandler = async ({ locals, params }) => {
+/** `crypto.randomUUID()` shape — the only accepted `?project=` value. */
+const PROJECT_ID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export const GET: RequestHandler = async ({ locals, params, url }) => {
   const scopeErr = requireScope(locals, "read");
   if (scopeErr) return scopeErr;
   const user = requireAuth(locals);
 
   const parsed = parseHubPageId(params.id ?? "");
   if (!parsed) return errorJson(404, "Not found");
+
+  // Optional project context (the project-scoped hub route). Resolved
+  // here so the render layer only ever sees a REAL project; malformed
+  // or unknown ids 404 like any other bad page address.
+  const projectParam = url.searchParams.get("project");
+  let project: { id: string; name: string; path: string } | undefined;
+  if (projectParam !== null) {
+    if (!PROJECT_ID_REGEX.test(projectParam)) return errorJson(404, "Not found");
+    const row = await getProject(projectParam);
+    if (!row) return errorJson(404, "Not found");
+    project = { id: row.id, name: row.name, path: row.path };
+  }
 
   const limit = __rateLimiter.check(`hub-render:${user.id}:${params.id}`);
   if (!limit.allowed) {
@@ -51,7 +72,13 @@ export const GET: RequestHandler = async ({ locals, params }) => {
   }
 
   if (parsed.kind === "ext") {
-    const result = await renderExtensionPage(parsed.extension, parsed.pageId, user.id);
+    const result = await renderExtensionPage(
+      parsed.extension,
+      parsed.pageId,
+      user.id,
+      undefined,
+      project,
+    );
     if (result.notFound) return errorJson(404, "Not found");
     if (result.error !== undefined) return json({ error: result.error });
     return json({

@@ -178,15 +178,40 @@ export interface PageActionEvent {
   payload?: Record<string, unknown>;
 }
 
+/** One platform project, as the host passes it into a `perProject`
+ *  page render. `path` is the project's checkout root on the host. */
+export interface PageProjectRef {
+  id: string;
+  name: string;
+  path: string;
+}
+
+/**
+ * Context handed to `render` for pages declared `perProject: true` in
+ * the manifest:
+ *   - project hub (`/project/<id>/hub/...`) → `{ project }`
+ *   - global hub (`/hub/...`)               → `{ projects }` (all of them)
+ * Pages without the flag — or older hosts — render with NO context, so
+ * a zero-arg `render` keeps working unchanged.
+ */
+export interface PageRenderContext {
+  project?: PageProjectRef;
+  projects?: PageProjectRef[];
+}
+
 export interface PageDefinition {
   /** Must match a `manifest.pages[].id`. */
   id: string;
   /** Produce the page tree. May return a `PageBuilder` (built
-   *  automatically) or a finished `{title, nodes}` tree. */
-  render: () => Promise<PageBuilder | HubPageTree> | PageBuilder | HubPageTree;
+   *  automatically) or a finished `{title, nodes}` tree. `ctx` carries
+   *  project context for `perProject` pages (see `PageRenderContext`). */
+  render: (
+    ctx?: PageRenderContext,
+  ) => Promise<PageBuilder | HubPageTree> | PageBuilder | HubPageTree;
   /** Action handlers keyed by FULL namespaced event name
    *  (`<ext>:<event>`, as declared in eventSubscriptions). Handlers
-   *  typically mutate state then `pushPage(...)` a fresh tree. */
+   *  typically mutate state then `pushPage(...)` a fresh tree (or
+   *  `invalidatePage(...)` for perProject pages). */
   actions?: Record<string, (event: PageActionEvent) => Promise<void> | void>;
 }
 
@@ -197,19 +222,44 @@ function toTree(result: PageBuilder | HubPageTree): HubPageTree {
   return result instanceof PageBuilder ? result.build() : result;
 }
 
+/** Defensive reader for a host-supplied project ref. */
+function readProjectRef(value: unknown): PageProjectRef | null {
+  if (!value || typeof value !== "object") return null;
+  const p = value as Record<string, unknown>;
+  if (typeof p.id !== "string" || typeof p.name !== "string" || typeof p.path !== "string") {
+    return null;
+  }
+  return { id: p.id, name: p.name, path: p.path };
+}
+
+/** Build the render context from the host's params — undefined when the
+ *  host sent no (valid) project context, so plain pages see no change. */
+function readRenderContext(params: Record<string, unknown>): PageRenderContext | undefined {
+  const project = readProjectRef(params.project);
+  if (project) return { project };
+  if (Array.isArray(params.projects)) {
+    const projects: PageProjectRef[] = [];
+    for (const raw of params.projects) {
+      const ref = readProjectRef(raw);
+      if (ref) projects.push(ref);
+    }
+    return { projects };
+  }
+  return undefined;
+}
+
 function installRenderHandler(): void {
   if (renderHandlerInstalled) return;
   renderHandlerInstalled = true;
   getChannel().onRequest("ezcorp/page.render", async (params: unknown) => {
-    const pageId =
-      params && typeof params === "object"
-        ? (params as Record<string, unknown>).pageId
-        : undefined;
+    const record =
+      params && typeof params === "object" ? (params as Record<string, unknown>) : {};
+    const pageId = record.pageId;
     const def = typeof pageId === "string" ? pages.get(pageId) : undefined;
     if (!def) {
       throw new JsonRpcError(-32602, `Unknown page: ${String(pageId)}`);
     }
-    return toTree(await def.render());
+    return toTree(await def.render(readRenderContext(record)));
   });
 }
 
@@ -239,6 +289,17 @@ export function definePage(def: PageDefinition): void {
  */
 export function pushPage(pageId: string, tree: PageBuilder | HubPageTree): void {
   getChannel().notify("ezcorp/page-state", { pageId, page: toTree(tree) });
+}
+
+/**
+ * Invalidate a page WITHOUT pushing a tree: the host drops every cached
+ * variant and broadcasts the content-free signal, so each open view
+ * re-pulls with its own context. THE refresh pattern for `perProject`
+ * pages — one pushed tree can't cover the global + per-project variants,
+ * and the extension can't know which of them is on screen.
+ */
+export function invalidatePage(pageId: string): void {
+  getChannel().notify("ezcorp/page-state", { pageId });
 }
 
 /** @internal — test-only: clear registered pages + the render handler

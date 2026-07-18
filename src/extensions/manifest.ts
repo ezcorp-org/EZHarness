@@ -411,6 +411,12 @@ export function validatePagesArray(items: unknown, errors: string[]): void {
         );
       }
     }
+    // Per-project toggle: the page renders with project context on
+    // `/project/<id>/hub/...` and with the full project list on the
+    // global hub (see web/src/lib/server/hub-render-pull.ts).
+    if (it.perProject !== undefined && typeof it.perProject !== "boolean") {
+      errors.push(`pages[${i}].perProject must be a boolean`);
+    }
   }
 }
 

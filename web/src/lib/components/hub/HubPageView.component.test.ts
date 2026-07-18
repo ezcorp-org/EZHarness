@@ -602,3 +602,37 @@ describe("HubPageView · ext:page-state SSE live-invalidation", () => {
 		expect(pageGets().length).toBe(before);
 	});
 });
+
+describe("projectId prop (project-scoped hub route)", () => {
+	test("render pull carries ?project= on the initial load AND on re-pulls", async () => {
+		render(HubPageView, {
+			props: { pageId: EXT_PAGE_ID, hubBase: "/project/p-1/hub", projectId: "p-1" },
+		});
+		await tick();
+		await tick();
+		const pagePulls = fetchCalls.filter((c) => c.url.startsWith("/api/hub/pages/ext"));
+		expect(pagePulls.length).toBeGreaterThan(0);
+		for (const call of pagePulls) {
+			expect(call.url).toContain("?project=p-1");
+		}
+		// SSE invalidation re-pull keeps the project context.
+		fetchCalls = [];
+		window.dispatchEvent(
+			new CustomEvent("ext:page-state", { detail: { extensionName: "myext", pageId: "home" } }),
+		);
+		await waitFor(() => {
+			expect(
+				fetchCalls.some((c) => c.url.startsWith("/api/hub/pages/ext") && c.url.includes("?project=p-1")),
+			).toBe(true);
+		});
+	});
+
+	test("without projectId the pull URL stays clean (no query)", async () => {
+		await renderView();
+		const pagePulls = fetchCalls.filter((c) => c.url.startsWith("/api/hub/pages/ext"));
+		expect(pagePulls.length).toBeGreaterThan(0);
+		for (const call of pagePulls) {
+			expect(call.url).not.toContain("?project=");
+		}
+	});
+});

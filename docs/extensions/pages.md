@@ -87,6 +87,38 @@ pushPage("dashboard", new PageBuilder("Cron Dashboard")./* … */);
 
 The host validates the tree, caches it, and broadcasts a **content-free invalidation signal** (`ext:page-state` — only `{extensionId, extensionName, pageId}`, never tree content). Open Hub tabs re-pull the session-authed render endpoint. Pushes share the panel's mediator budget: **10 updates/second** per extension, 64KB per tree.
 
+## 4b. Per-project pages (`perProject: true`)
+
+One flag turns a page into a **project-aware** surface — the same page id renders differently depending on where it's viewed:
+
+```typescript
+// ezcorp.config.ts
+pages: [{ id: "dashboard", title: "My Dashboard", perProject: true }],
+```
+
+```typescript
+definePage({
+  id: "dashboard",
+  render: async (ctx) => {
+    if (ctx?.project) return buildProjectView(ctx.project);   // /project/<id>/hub/...
+    if (ctx?.projects) return buildHomeView(ctx.projects);    // /hub/... (all projects)
+    return buildFallbackView();                               // host without perProject support
+  },
+});
+```
+
+- **Project hub** (`/project/<id>/hub/ext:<name>:<page>`): `render` receives `{ project: { id, name, path } }` — render that project's view. `path` is the project's checkout root, so data keyed by repo/path maps directly.
+- **Global hub** (`/hub/ext:<name>:<page>`): `render` receives `{ projects }` — the full project list, for an overview/home view. Deep-link rows into the project hub with `href: `/project/${p.id}/hub/${encodeURIComponent("ext:<name>:<page>")}``.
+- **Compatibility**: without the flag (or on an older host) `render` is called with no context — a zero-arg `render` keeps working unchanged. The flag is additive; nothing else about actions, limits, or validation changes.
+- **Caching**: variants are cached per (extension, page, project) with the same ~60s TTL.
+- **Refresh**: prefer `invalidatePage("dashboard")` over `pushPage` — it drops every cached variant and broadcasts the content-free signal, so each open view (home or any project) re-pulls its own context. A `pushPage` tree only refreshes the *global* variant (and invalidates the rest):
+
+```typescript
+import { invalidatePage } from "@ezcorp/sdk/runtime";
+
+invalidatePage("dashboard"); // all variants re-pull with their own context
+```
+
 ## 5. Action contract
 
 Buttons and table rows carry `{ event, payload?, confirm?, prompt? }`:

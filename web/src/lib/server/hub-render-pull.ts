@@ -38,6 +38,20 @@ const log = logger.child("hub.render-pull");
 
 export const RENDER_PULL_TIMEOUT_MS = 10_000;
 
+/** Project context threaded into a `perProject` page render. */
+export interface HubProjectRef {
+  id: string;
+  name: string;
+  path: string;
+}
+
+/** What a render call should carry: one project (project-hub view) or
+ *  the full project list (global-hub view of a `perProject` page). */
+export interface PageRenderScope {
+  project?: HubProjectRef;
+  listProjects?: boolean;
+}
+
 export type RenderExtensionPageResult =
   | { notFound: true; error?: undefined; page?: undefined; renderedAt?: undefined; stale?: undefined }
   | { notFound?: undefined; error: string; page?: undefined; renderedAt?: undefined; stale?: undefined }
@@ -54,8 +68,14 @@ export interface RenderPullDeps {
   /** Spawn (if needed) + wire the subprocess, returning a caller. The
    *  viewing `userId` scopes the render's reverse-RPC provenance so the
    *  subprocess can read its OWN extension data (config/state) during
-   *  render — see `productionCallPage`. */
-  callPage: (extension: Extension, pageId: string, userId: string) => Promise<JsonRpcResponse>;
+   *  render — see `productionCallPage`. `scope` (perProject pages only)
+   *  adds project context to the RPC params. */
+  callPage: (
+    extension: Extension,
+    pageId: string,
+    userId: string,
+    scope?: PageRenderScope,
+  ) => Promise<JsonRpcResponse>;
   cache: ExtensionPageCache;
   timeoutMs: number;
 }
@@ -90,6 +110,7 @@ async function productionCallPage(
   extension: Extension,
   pageId: string,
   userId: string,
+  scope?: PageRenderScope,
 ): Promise<JsonRpcResponse> {
   const [
     { ExtensionRegistry },
@@ -139,8 +160,25 @@ async function productionCallPage(
     kind: "render",
     ownerless: false,
   });
+  // perProject context: one project on the project hub; the FULL list on
+  // the global hub (so the page can render its all-projects home view).
+  // Late-bound import, same rationale as the collaborators above.
+  let projectParams: Record<string, unknown> = {};
+  if (scope?.project) {
+    projectParams = { project: scope.project };
+  } else if (scope?.listProjects) {
+    const { listProjects } = await import("$server/db/queries/projects");
+    const all = await listProjects();
+    projectParams = {
+      projects: all.map((p) => ({ id: p.id, name: p.name, path: p.path })),
+    };
+  }
   try {
-    return await proc.call("ezcorp/page.render", { pageId, _meta: { ezCallId } });
+    return await proc.call("ezcorp/page.render", {
+      pageId,
+      ...projectParams,
+      _meta: { ezCallId },
+    });
   } finally {
     releaseCallProvenance(ezCallId);
   }
@@ -167,10 +205,14 @@ async function pullAndCache(
   pageId: string,
   userId: string,
   deps: RenderPullDeps,
+  scope?: PageRenderScope,
 ): Promise<{ tree: HubPageTree } | { error: string }> {
   let response: JsonRpcResponse;
   try {
-    response = await withTimeout(deps.callPage(extension, pageId, userId), deps.timeoutMs);
+    response = await withTimeout(
+      deps.callPage(extension, pageId, userId, scope),
+      deps.timeoutMs,
+    );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.warn("extension page render failed", { extension: extension.name, pageId, error: message });
@@ -194,7 +236,7 @@ async function pullAndCache(
     return { error: "This page produced invalid content." };
   }
 
-  deps.cache.set(extension.id, pageId, tree);
+  deps.cache.set(extension.id, pageId, tree, scope?.project?.id);
   return { tree };
 }
 
@@ -203,6 +245,7 @@ export async function renderExtensionPage(
   pageId: string,
   userId: string,
   depsOverride?: Partial<RenderPullDeps>,
+  project?: HubProjectRef,
 ): Promise<RenderExtensionPageResult> {
   const deps: RenderPullDeps = { ...defaultDeps(), ...depsOverride };
 
@@ -210,14 +253,24 @@ export async function renderExtensionPage(
   if (!found) return { notFound: true };
   const { extension } = found;
 
-  const cached = deps.cache.get(extension.id, pageId);
+  // Project context applies ONLY to pages that opted in — for everything
+  // else a `?project=` query is inert and the render stays global.
+  const perProject = found.page.perProject === true;
+  const scope: PageRenderScope | undefined = perProject
+    ? project
+      ? { project }
+      : { listProjects: true }
+    : undefined;
+  const variant = perProject ? project?.id : undefined;
+
+  const cached = deps.cache.get(extension.id, pageId, variant);
   if (cached && !cached.stale) {
     return { page: cached.tree, renderedAt: cached.renderedAt };
   }
   if (cached) {
     // Serve stale instantly; refresh in the background so the NEXT
     // request (or the client's invalidation-driven re-pull) is fresh.
-    void pullAndCache(extension, pageId, userId, deps).catch((err) => {
+    void pullAndCache(extension, pageId, userId, deps, scope).catch((err) => {
       log.warn("background page refresh failed", {
         extension: extension.name,
         pageId,
@@ -227,7 +280,7 @@ export async function renderExtensionPage(
     return { page: cached.tree, renderedAt: cached.renderedAt, stale: true };
   }
 
-  const pulled = await pullAndCache(extension, pageId, userId, deps);
+  const pulled = await pullAndCache(extension, pageId, userId, deps, scope);
   if ("error" in pulled) return { error: pulled.error };
   return { page: pulled.tree, renderedAt: Date.now() };
 }

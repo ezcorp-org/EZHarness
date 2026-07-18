@@ -5,6 +5,7 @@ import { test, expect, describe } from "bun:test";
 import {
   ExtensionPageCache,
   getPageCache,
+  MAX_PAGE_VARIANTS,
   PAGE_CACHE_TTL_MS,
 } from "../extensions/page-cache";
 import type { HubPageTree } from "../extensions/page-schema";
@@ -50,7 +51,7 @@ describe("ExtensionPageCache", () => {
     expect(hit.stale).toBe(false);
   });
 
-  test("invalidate drops a single (ext, page) entry", () => {
+  test("invalidate drops one (ext, page) without touching sibling pages", () => {
     const { cache } = makeCache();
     cache.set("ext-1", "a", TREE);
     cache.set("ext-1", "b", TREE2);
@@ -82,6 +83,56 @@ describe("ExtensionPageCache", () => {
     cache.set("ext-1", "a", TREE);
     cache.clear();
     expect(cache.get("ext-1", "a")).toBeNull();
+  });
+
+  // ── Project variants (perProject pages) ───────────────────────────
+
+  test("variant entries are independent of the global entry", () => {
+    const { cache } = makeCache();
+    cache.set("ext-1", "page", TREE);
+    cache.set("ext-1", "page", TREE2, "proj-1");
+    expect(cache.get("ext-1", "page")!.tree).toEqual(TREE);
+    expect(cache.get("ext-1", "page", "proj-1")!.tree).toEqual(TREE2);
+    expect(cache.get("ext-1", "page", "proj-2")).toBeNull();
+  });
+
+  test("invalidate drops the global entry AND every project variant", () => {
+    const { cache } = makeCache();
+    cache.set("ext-1", "page", TREE);
+    cache.set("ext-1", "page", TREE2, "proj-1");
+    cache.set("ext-1", "page", TREE2, "proj-2");
+    cache.set("ext-1", "other", TREE);
+    cache.invalidate("ext-1", "page");
+    expect(cache.get("ext-1", "page")).toBeNull();
+    expect(cache.get("ext-1", "page", "proj-1")).toBeNull();
+    expect(cache.get("ext-1", "page", "proj-2")).toBeNull();
+    expect(cache.get("ext-1", "other")).not.toBeNull();
+  });
+
+  test("invalidate cannot cross pages that share an id prefix", () => {
+    const { cache } = makeCache();
+    cache.set("ext-1", "dash", TREE);
+    cache.set("ext-1", "dash-2", TREE2, "proj-1");
+    cache.invalidate("ext-1", "dash");
+    expect(cache.get("ext-1", "dash")).toBeNull();
+    expect(cache.get("ext-1", "dash-2", "proj-1")).not.toBeNull();
+  });
+
+  test("variant cap: new variants beyond MAX_PAGE_VARIANTS are not cached, existing ones still refresh", () => {
+    const { cache } = makeCache();
+    cache.set("ext-1", "page", TREE); // global counts toward the cap
+    for (let i = 1; i < MAX_PAGE_VARIANTS; i++) {
+      cache.set("ext-1", "page", TREE, `proj-${i}`);
+    }
+    // At the cap: a NEW variant is refused (served uncached)...
+    cache.set("ext-1", "page", TREE2, "proj-overflow");
+    expect(cache.get("ext-1", "page", "proj-overflow")).toBeNull();
+    // ...but refreshing an EXISTING key still lands.
+    cache.set("ext-1", "page", TREE2, "proj-1");
+    expect(cache.get("ext-1", "page", "proj-1")!.tree).toEqual(TREE2);
+    // Other pages are unaffected by this page's cap.
+    cache.set("ext-1", "other", TREE2, "proj-1");
+    expect(cache.get("ext-1", "other", "proj-1")).not.toBeNull();
   });
 });
 

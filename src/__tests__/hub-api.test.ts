@@ -68,7 +68,7 @@ import {
   _resetHubPageProvidersForTests,
   type HubPageProvider,
 } from "../runtime/hub-pages";
-import { users, extensions } from "../db/schema";
+import { users, extensions, projects } from "../db/schema";
 import type { ExtensionManifestV2 } from "../extensions/types";
 
 let userA: AuthUser;
@@ -137,6 +137,7 @@ beforeEach(async () => {
   const db = getTestDb();
   await db.delete(extensions);
   await db.delete(users);
+  await db.delete(projects);
   const [u1] = await db.insert(users).values({ email: "a@t.local", passwordHash: "x", name: "A" }).returning();
   userA = { id: u1!.id, email: u1!.email, name: u1!.name, role: "member" };
 });
@@ -326,6 +327,81 @@ describe("GET /api/hub/pages/[id]", () => {
     // Different page id — separate bucket.
     const other = await call(renderGet, createMockEvent({ user: userA, params: { id: "core:other" } }));
     expect(other.status).toBe(200);
+  });
+
+  // ── ?project= (perProject page context) ─────────────────────────
+
+  test("?project= resolves the row and forwards {id,name,path} to the render pull", async () => {
+    const db = getTestDb();
+    const [proj] = await db
+      .insert(projects)
+      .values({ name: "My App", path: "/home/dev/my-app" })
+      .returning();
+    __extRenderResult = { page: { title: "T", nodes: [] }, renderedAt: 1 };
+    const res = await call(
+      renderGet,
+      createMockEvent({
+        user: userA,
+        params: { id: "ext:cron-dash:dashboard" },
+        url: `http://localhost/api/hub/pages/x?project=${proj!.id}`,
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(__extRenderCalls).toEqual([
+      [
+        "cron-dash",
+        "dashboard",
+        userA.id,
+        undefined,
+        { id: proj!.id, name: "My App", path: "/home/dev/my-app" },
+      ],
+    ]);
+  });
+
+  test("malformed ?project= 404s before any render call", async () => {
+    for (const bad of ["abc", "123", "..%2F..", "0".repeat(36)]) {
+      const res = await call(
+        renderGet,
+        createMockEvent({
+          user: userA,
+          params: { id: "ext:cron-dash:dashboard" },
+          url: `http://localhost/api/hub/pages/x?project=${bad}`,
+        }),
+      );
+      expect(res.status).toBe(404);
+    }
+    expect(__extRenderCalls).toHaveLength(0);
+  });
+
+  test("unknown ?project= uuid 404s without rendering", async () => {
+    const res = await call(
+      renderGet,
+      createMockEvent({
+        user: userA,
+        params: { id: "ext:cron-dash:dashboard" },
+        url: "http://localhost/api/hub/pages/x?project=6f9619ff-8b86-4d01-b42d-00cf4fc964ff",
+      }),
+    );
+    expect(res.status).toBe(404);
+    expect(__extRenderCalls).toHaveLength(0);
+  });
+
+  test("core pages tolerate a valid ?project= (resolved, unused)", async () => {
+    const db = getTestDb();
+    const [proj] = await db
+      .insert(projects)
+      .values({ name: "P", path: "/p" })
+      .returning();
+    registerDemoProvider();
+    const res = await call(
+      renderGet,
+      createMockEvent({
+        user: userA,
+        params: { id: "core:demo" },
+        url: `http://localhost/api/hub/pages/x?project=${proj!.id}`,
+      }),
+    );
+    expect(res.status).toBe(200);
   });
 });
 

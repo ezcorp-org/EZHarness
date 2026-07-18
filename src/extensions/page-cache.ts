@@ -1,7 +1,8 @@
 /**
  * Extension Pages Hub — in-memory cache of last-validated page trees.
  *
- * Keyed by (extensionId, pageId). Two writers:
+ * Keyed by (extensionId, pageId, variant) — the variant is a project
+ * id for `perProject` pages, empty for the global render. Two writers:
  *   1. The render-pull path (`web/src/lib/server/hub-render-pull.ts`)
  *      caches the subprocess's validated `ezcorp/page.render` result.
  *   2. The state mediator caches validated `ezcorp/page-state` pushes
@@ -39,6 +40,11 @@ interface StoredEntry {
   renderedAt: number;
 }
 
+/** Cached variants per (extension, page) — the global render plus one
+ *  per project id. Bounds memory if a caller ever loops over ids; real
+ *  variant cardinality is the project count, far below this. */
+export const MAX_PAGE_VARIANTS = 64;
+
 export class ExtensionPageCache {
   private entries = new Map<string, StoredEntry>();
 
@@ -47,16 +53,19 @@ export class ExtensionPageCache {
     private readonly now: () => number = Date.now,
   ) {}
 
-  /** Composite key. `:` is collision-safe: extension ids are UUIDs and
-   *  page ids match /^[a-z0-9][a-z0-9-]{0,31}$/ — neither can contain
-   *  a colon. (Never use a raw NUL byte as a separator here: git would
-   *  classify this file as binary and diff/blame/review break.) */
-  private key(extensionId: string, pageId: string): string {
-    return `${extensionId}:${pageId}`;
+  /** Composite key. `:` is collision-safe: extension ids are UUIDs,
+   *  page ids match /^[a-z0-9][a-z0-9-]{0,31}$/ and variants are
+   *  project UUIDs — none can contain a colon. The trailing variant
+   *  segment (empty = the global render) keeps the `${ext}:${page}:`
+   *  prefix delete from crossing pages that share a prefix (`dash` vs
+   *  `dash-2`). (Never use a raw NUL byte as a separator here: git
+   *  would classify this file as binary and diff/blame/review break.) */
+  private key(extensionId: string, pageId: string, variant?: string): string {
+    return `${extensionId}:${pageId}:${variant ?? ""}`;
   }
 
-  get(extensionId: string, pageId: string): CachedPageEntry | null {
-    const entry = this.entries.get(this.key(extensionId, pageId));
+  get(extensionId: string, pageId: string, variant?: string): CachedPageEntry | null {
+    const entry = this.entries.get(this.key(extensionId, pageId, variant));
     if (!entry) return null;
     return {
       tree: entry.tree,
@@ -65,15 +74,34 @@ export class ExtensionPageCache {
     };
   }
 
-  set(extensionId: string, pageId: string, tree: HubPageTree): void {
-    this.entries.set(this.key(extensionId, pageId), {
+  set(extensionId: string, pageId: string, tree: HubPageTree, variant?: string): void {
+    const key = this.key(extensionId, pageId, variant);
+    if (!this.entries.has(key) && this.variantCount(extensionId, pageId) >= MAX_PAGE_VARIANTS) {
+      return; // over the cap: serve uncached rather than grow unbounded
+    }
+    this.entries.set(key, {
       tree,
       renderedAt: this.now(),
     });
   }
 
+  /** Drop EVERY variant of one page (global + all projects) — the
+   *  content-free invalidation contract: "page X changed" can't name
+   *  which variants, so all of them re-pull. */
   invalidate(extensionId: string, pageId: string): void {
-    this.entries.delete(this.key(extensionId, pageId));
+    const prefix = `${extensionId}:${pageId}:`;
+    for (const key of this.entries.keys()) {
+      if (key.startsWith(prefix)) this.entries.delete(key);
+    }
+  }
+
+  private variantCount(extensionId: string, pageId: string): number {
+    const prefix = `${extensionId}:${pageId}:`;
+    let n = 0;
+    for (const key of this.entries.keys()) {
+      if (key.startsWith(prefix)) n++;
+    }
+    return n;
   }
 
   /** Drop every page for one extension (reload/disable/uninstall). */

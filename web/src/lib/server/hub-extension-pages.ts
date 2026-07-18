@@ -20,6 +20,9 @@ export interface ManifestPageDeclaration {
   title: string;
   icon?: string;
   description?: string;
+  /** Page opts into project context: single project on the project hub,
+   *  the full project list on the global hub (`perProject: true`). */
+  perProject?: boolean;
 }
 
 const PAGE_ID_REGEX = /^[a-z0-9][a-z0-9-]{0,31}$/;
@@ -40,6 +43,7 @@ export function readManifestPages(manifest: unknown): ManifestPageDeclaration[] 
       title: p.title.slice(0, 50),
       ...(typeof p.icon === "string" ? { icon: p.icon } : {}),
       ...(typeof p.description === "string" ? { description: p.description.slice(0, 200) } : {}),
+      ...(p.perProject === true ? { perProject: true } : {}),
     });
   }
   return out;
