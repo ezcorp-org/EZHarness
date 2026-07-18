@@ -20,7 +20,7 @@ function failingRow() {
   // extension_id is NOT NULL + FK to extensions(id); a non-existent id makes
   // the INSERT fail with a foreign-key violation inside persistToolCall.
   return {
-    conversationId: null,
+    conversationId: "ghost-conversation-does-not-exist",
     messageId: null,
     extensionId: "ghost-extension-does-not-exist",
     toolName: "read_file",

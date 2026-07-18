@@ -158,7 +158,7 @@ describe("deleteMemory / updateMemory — mutation + audit atomicity", () => {
     const audits = await getDb().select().from(memoryAuditLog).where(
       eq(memoryAuditLog.memoryId, mem.id),
     );
-    expect(audits.some((a) => a.action === "updated")).toBe(true);
+    expect(audits.some((a: (typeof audits)[number]) => a.action === "updated")).toBe(true);
     // The embedding is now retrievable by findSimilarMemory.
     const hit = await findSimilarMemory(unitVec(0), 0.5);
     expect(hit?.id).toBe(mem.id);
