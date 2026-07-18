@@ -370,9 +370,13 @@ describe("outbox drain helpers", () => {
   // ── markFailed terminal-branch hygiene ──────────────────────────────────────
 
   describe("markFailed terminal branch clears next_attempt_after", () => {
-    test("exhausting a backed-off pending row nulls its next_attempt_after", async () => {
+    test("exhausting a backed-off in_progress row nulls its next_attempt_after", async () => {
+      // markFailed is only ever called on a row the worker just CLAIMED
+      // (status='in_progress'); it is now conditional on that claim still
+      // holding (the lost-update fix), so seed in_progress with a leftover
+      // backoff stamp from a prior retry.
       const { messageId } = await seedOutboxRow({
-        status: "pending",
+        status: "in_progress",
         attempts: 2,
         nextAttemptAfter: new Date(Date.now() + 30_000),
       });

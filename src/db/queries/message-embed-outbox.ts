@@ -1,4 +1,4 @@
-import { eq, sql, type SQL } from "drizzle-orm";
+import { and, eq, sql, type SQL } from "drizzle-orm";
 import { messageChunks, messageEmbedOutbox } from "../schema";
 
 /**
@@ -309,16 +309,26 @@ export async function claimBatch(
   db: DrainDb,
   batchSize: number,
 ): Promise<Array<{ messageId: string; conversationId: string; attempts: number }>> {
+  // FOR UPDATE SKIP LOCKED + a repeated `status = 'pending'` in the outer WHERE
+  // make the claim safe under concurrent workers (multi-instance external
+  // Postgres). Without them, two claimers evaluate the inner SELECT against the
+  // same snapshot and the blocked second UPDATE re-checks only the precomputed
+  // `message_id IN (...)` set — re-claiming rows the first already flipped to
+  // in_progress. SKIP LOCKED lets each claimer skip rows another has locked;
+  // the outer status recheck rejects any that slipped through. (briefing-configs.ts
+  // uses the same SKIP LOCKED claim idiom.)
   const result = await db.execute(sql`
     UPDATE message_embed_outbox
     SET status = 'in_progress', updated_at = NOW()
-    WHERE message_id IN (
-      SELECT message_id FROM message_embed_outbox
-      WHERE status = 'pending'
-        AND (next_attempt_after IS NULL OR next_attempt_after <= NOW())
-      ORDER BY created_at ASC
-      LIMIT ${batchSize}
-    )
+    WHERE status = 'pending'
+      AND message_id IN (
+        SELECT message_id FROM message_embed_outbox
+        WHERE status = 'pending'
+          AND (next_attempt_after IS NULL OR next_attempt_after <= NOW())
+        ORDER BY created_at ASC
+        LIMIT ${batchSize}
+        FOR UPDATE SKIP LOCKED
+      )
     RETURNING message_id, conversation_id, attempts
   `);
   const rows = (result as { rows: { message_id: string; conversation_id: string; attempts: number }[] }).rows
@@ -333,10 +343,19 @@ export async function claimBatch(
 /**
  * Remove a successfully-processed outbox row. There is no 'done' status in
  * the schema — clean rows simply exit the table.
- * Idempotent: deleting an absent row is a no-op.
+ *
+ * The delete is CONDITIONAL on the claim still holding (`status = 'in_progress'`):
+ * if a content edit re-enqueued the row (enqueueEmbedJob resets it to 'pending')
+ * WHILE the worker was embedding the OLD content, this delete matches nothing,
+ * so the freshly-pending job survives and the next tick re-embeds the new
+ * content. An unconditional delete would drop that re-enqueued job and leave
+ * message_chunks permanently stale (lost update). Idempotent: a no-longer-claimed
+ * or absent row is a harmless no-op.
  */
 export async function markDone(db: DrainDb, messageId: string): Promise<void> {
-  await db.delete(messageEmbedOutbox).where(eq(messageEmbedOutbox.messageId, messageId));
+  await db.delete(messageEmbedOutbox).where(
+    and(eq(messageEmbedOutbox.messageId, messageId), eq(messageEmbedOutbox.status, "in_progress")),
+  );
 }
 
 /**
@@ -347,6 +366,12 @@ export async function markDone(db: DrainDb, messageId: string): Promise<void> {
  * - If `nextAttemptAfter` is null (exhausted): sets status='failed' (terminal).
  *
  * Always writes `attempts = newAttempts` to the row.
+ *
+ * Both branches are CONDITIONAL on the claim still holding (`status =
+ * 'in_progress'`): if a content edit re-enqueued the row to 'pending' while the
+ * worker was embedding the old content, a stale failure must NOT stamp backoff
+ * (or terminal 'failed') onto the freshly-reset job — it would strand the new
+ * content's re-index. The conditional makes that write a no-op instead.
  */
 export async function markFailed(
   db: DrainDb,
@@ -362,7 +387,7 @@ export async function markFailed(
       UPDATE message_embed_outbox
       SET status = 'failed', attempts = ${newAttempts},
           next_attempt_after = NULL, updated_at = NOW()
-      WHERE message_id = ${messageId}
+      WHERE message_id = ${messageId} AND status = 'in_progress'
     `);
   } else {
     // Retry with backoff — back to pending with a future next_attempt_after
@@ -371,7 +396,7 @@ export async function markFailed(
       SET status = 'pending', attempts = ${newAttempts},
           next_attempt_after = ${nextAttemptAfter.toISOString()},
           updated_at = NOW()
-      WHERE message_id = ${messageId}
+      WHERE message_id = ${messageId} AND status = 'in_progress'
     `);
   }
 }
@@ -390,6 +415,27 @@ export async function resetAttemptsForPending(db: DrainDb): Promise<number> {
     UPDATE message_embed_outbox
     SET attempts = 0, next_attempt_after = NULL, updated_at = NOW()
     WHERE status = 'pending'
+    RETURNING message_id
+  `);
+  const rows = (result as { rows: { message_id: string }[] }).rows
+    ?? (result as { message_id: string }[]);
+  return rows.length;
+}
+
+/**
+ * Retention sweep: DELETE terminal `status='failed'` rows whose last update is
+ * older than `cutoff`. markFailed leaves exhausted rows in place forever (only a
+ * manual re-enqueue clears them), so on an instance with persistent embed
+ * failures they accumulate without bound and every claim-scan pays to skip
+ * them. This bounds the table. Retries (status='pending' with backoff) and live
+ * claims (in_progress) are never touched — only terminal failures.
+ *
+ * Returns the count of rows purged.
+ */
+export async function purgeFailedRows(db: DrainDb, cutoff: Date): Promise<number> {
+  const result = await db.execute(sql`
+    DELETE FROM message_embed_outbox
+    WHERE status = 'failed' AND updated_at < ${cutoff.toISOString()}
     RETURNING message_id
   `);
   const rows = (result as { rows: { message_id: string }[] }).rows

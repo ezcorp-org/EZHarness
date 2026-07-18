@@ -63,16 +63,36 @@ export async function searchKBChunks(
 ): Promise<KBChunkResult[]> {
   const db = getDb();
   const vectorLiteral = toVectorLiteral(embedding);
+  // SRCH-05 restructure (mirrors message-search.ts): a correlated join
+  // (`JOIN knowledge_base_files f ... WHERE f.project_id = …`) inside the ANN
+  // scan makes the pgvector-0.8 planner FALL BACK to a seq scan + brute sort —
+  // idx_kb_chunks_embedding never drives it. Resolve the project's ready file
+  // ids ONCE as an InitPlan (`file_id = ANY(ARRAY(...))`), scan
+  // knowledge_base_chunks ALONE ordered by the distance operator (the HNSW
+  // node), then attach the filename via a display join OUTSIDE the ANN scan.
+  try {
+    await db.execute(sql`SET hnsw.iterative_scan = 'relaxed_order'`);
+  } catch {
+    // Backend without the GUC (older pgvector) — correctness unaffected.
+  }
   const results = await db.execute(sql`
-    SELECT c.id, c.content, c.chunk_index as "chunkIndex", f.filename, c.file_id as "fileId",
-           1 - (c.embedding <=> ${sql.raw(vectorLiteral)}) as similarity
-    FROM knowledge_base_chunks c
-    JOIN knowledge_base_files f ON c.file_id = f.id
-    WHERE f.project_id = ${projectId}
-      AND f.status = 'ready'
-      AND c.embedding IS NOT NULL
-    ORDER BY c.embedding <=> ${sql.raw(vectorLiteral)}
-    LIMIT ${limit}
+    WITH ann AS (
+      SELECT c.id, c.content, c.chunk_index as "chunkIndex", c.file_id as "fileId",
+             (c.embedding <=> ${sql.raw(vectorLiteral)}) as distance
+      FROM knowledge_base_chunks c
+      WHERE c.embedding IS NOT NULL
+        AND c.file_id = ANY (ARRAY(
+          SELECT f.id FROM knowledge_base_files f
+          WHERE f.project_id = ${projectId} AND f.status = 'ready'
+        ))
+      ORDER BY c.embedding <=> ${sql.raw(vectorLiteral)}
+      LIMIT ${limit}
+    )
+    SELECT ann.id, ann.content, ann."chunkIndex", f.filename, ann."fileId",
+           1 - ann.distance as similarity
+    FROM ann
+    JOIN knowledge_base_files f ON f.id = ann."fileId"
+    ORDER BY ann.distance
   `);
   return (results.rows ?? []) as unknown as KBChunkResult[];
 }
@@ -85,8 +105,10 @@ export async function hasKBChunks(projectId: string): Promise<boolean> {
   const rows = await db.execute(
     sql`SELECT EXISTS(
       SELECT 1 FROM knowledge_base_chunks c
-      JOIN knowledge_base_files f ON c.file_id = f.id
-      WHERE f.project_id = ${projectId} AND f.status = 'ready'
+      WHERE c.file_id = ANY (ARRAY(
+        SELECT f.id FROM knowledge_base_files f
+        WHERE f.project_id = ${projectId} AND f.status = 'ready'
+      ))
     ) AS has_data`,
   );
   return (rows.rows[0] as { has_data?: boolean } | undefined)?.has_data === true;
