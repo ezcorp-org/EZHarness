@@ -216,6 +216,15 @@ export class AgentExecutor {
    *  the many short-lived ToolExecutor instances created per turn. */
   private _spawnQuota: SpawnQuota;
 
+  /** Read-only accessor so out-of-turn wirers (the extension-events route,
+   *  hub render-pull) can build a FULLY-wired ToolExecutor. Each wirer's
+   *  `ensureSubprocessRpcWired` replaces the subprocess's single request
+   *  handler, so an under-wired instance (no executor/spawnQuota) silently
+   *  breaks `ezcorp/spawn-assignment` for every later call on that proc. */
+  get spawnQuota(): SpawnQuota {
+    return this._spawnQuota;
+  }
+
   /** Parent-run id → live child-run ids. Populated by
    *  {@link registerChildRun} (called from start-assignment when a spawn
    *  carries a `parentRunId`) so {@link cancelRun} can cascade a cancel
@@ -895,7 +904,7 @@ export class AgentExecutor {
   async streamChat(
     conversationId: string,
     userMessage: string,
-    options: { projectId?: string; provider?: string; model?: string; tier?: import("./tier-classifier").RoutingTier; system?: string; runId?: string; parentMessageId?: string; agentConfigId?: string; permissionMode?: import("./tools/types").PermissionMode; thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh"; modeId?: string; orchestrationDepth?: number; toolRestriction?: "all" | "read-only" | "none"; allowedTools?: string[]; deniedTools?: string[]; readOnlyAllowedTools?: string[]; memberOverrides?: Map<string, import("../types").TeamMemberOverrides>; subAgentMembers?: import("../types").TeamMember[]; attachments?: import("../chat/attachments/content-builder").StagedAttachment[]; commandResolver?: import("./mention-wiring").CommandResolver },
+    options: { projectId?: string; workingDir?: string; provider?: string; model?: string; tier?: import("./tier-classifier").RoutingTier; system?: string; runId?: string; parentMessageId?: string; agentConfigId?: string; permissionMode?: import("./tools/types").PermissionMode; thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh"; modeId?: string; orchestrationDepth?: number; toolRestriction?: "all" | "read-only" | "none"; allowedTools?: string[]; deniedTools?: string[]; readOnlyAllowedTools?: string[]; memberOverrides?: Map<string, import("../types").TeamMemberOverrides>; subAgentMembers?: import("../types").TeamMember[]; attachments?: import("../chat/attachments/content-builder").StagedAttachment[]; commandResolver?: import("./mention-wiring").CommandResolver },
   ): Promise<AgentRun> {
     const run: AgentRun = {
       id: options.runId ?? crypto.randomUUID(),

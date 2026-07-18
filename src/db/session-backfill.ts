@@ -115,7 +115,7 @@ export function rowToEntry(row: ConversationMessage, knownIds: ReadonlySet<strin
  *  the concurrent-backfill catch works under BOTH runtimes — missing the
  *  Bun.sql shape made every duplicate-create propagate and 500'd
  *  GET /api/conversations/[id]/tree on external-Postgres deploys. */
-function isUniqueViolation(err: unknown): boolean {
+export function isUniqueViolation(err: unknown): boolean {
   const matches = (e: unknown): boolean => {
     if (typeof e !== "object" || e === null) return false;
     const { code, errno } = e as { code?: unknown; errno?: unknown };

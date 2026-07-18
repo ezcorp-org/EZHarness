@@ -38,6 +38,7 @@ import {
   TRIGGER_EVENT,
   EXTENSION_NAME,
   DEFAULT_BASE_URL,
+  dataDir,
   gateDir as gateDirFor,
   repoId as repoIdFor,
   initGate,
@@ -107,16 +108,49 @@ export const RECONCILE_ACTION = `${EXTENSION_NAME}:reconcile`;
 // initial binding and the `_set*ForTests(null)` reset — one function to cover
 // (DRY) instead of a duplicated inline fallback the reset path never exercises.
 
-const defaultProjectRoot = (): string | undefined => process.env.EZCORP_PROJECT_ROOT;
+// Prefer the PER-CALL project root the host resolves from the conversation's
+// active project (`ctx.projectRoot`, forwarded on `_meta.ezProjectRoot`): one
+// persistent subprocess serves every conversation, so the process-wide
+// `EZCORP_PROJECT_ROOT` env var only ever names ONE project and is wrong the
+// moment a second project's conversation calls in. The env var stays as a
+// last-resort fallback for out-of-band dispatches (schedule/lifecycle) where
+// no tool-call context is bound.
+const defaultProjectRoot = (): string | undefined =>
+  getToolContext()?.projectRoot ?? process.env.EZCORP_PROJECT_ROOT;
 let projectRootImpl: () => string | undefined = defaultProjectRoot;
 export function _setProjectRootForTests(fn: (() => string | undefined) | null): void {
   projectRootImpl = fn ?? defaultProjectRoot;
 }
 
-const defaultTmpBase = (): string => process.env.TMPDIR || "/tmp";
-let tmpBaseImpl: () => string = defaultTmpBase;
+/** Accept an UNTRUSTED project-root claim (hook payload / stored run record)
+ *  only when it hashes to the repo id it arrived with — `repoId` IS
+ *  `sha256(absProjectRoot)[:12]` (gate.ts), so the pair is self-binding: a
+ *  forged root cannot name someone else's gate repo. Returns undefined on any
+ *  mismatch/absence. */
+const validatedProjectRoot = (claimed: string | null | undefined, repo: string): string | undefined =>
+  claimed && repoIdFor(claimed) === repo ? claimed : undefined;
+
+/** Resolve the project root for a CONTEXT-FREE event fire (Hub action, git
+ *  hook, cron): the HASH-VALIDATED claim (event payload / run record) wins —
+ *  it is self-binding to the fire's own repoId — with ctx/env only as the
+ *  fallback for pre-stamp rows. The reverse order was a latent wrong-tree
+ *  bug: one persistent subprocess serves every project, so the process-wide
+ *  env root names whichever project spawned it, not necessarily this run's
+ *  (same per-run-root rule as reconcileOneRun / recoverOnStart). */
+const resolveEventProjectRoot = (repo: string, claimed?: string | null): string | undefined =>
+  validatedProjectRoot(claimed, repo) ?? projectRootImpl();
+
+// Kept worktrees (and evidence) MUST survive subprocess respawns: a parked
+// run's checkout lives for minutes-to-days across human triage, but the host
+// WIPES the per-proc TMPDIR on every (re)spawn — a mid-triage respawn was
+// destroying the kept worktree and failing the next step with "not a git
+// repository" (drive-3). The durable, jail-writable home is the extension
+// DATA DIR under the project root ($CWD fs grant), same convention as the
+// gate repos. The old volatile-TMPDIR default is gone on purpose.
+const defaultTmpBase = (projectRoot: string): string => join(dataDir(projectRoot), "tmp");
+let tmpBaseImpl: (projectRoot: string) => string = defaultTmpBase;
 export function _setTmpBaseForTests(fn: (() => string) | null): void {
-  tmpBaseImpl = fn ?? defaultTmpBase;
+  tmpBaseImpl = fn ? () => fn() : defaultTmpBase;
 }
 
 const defaultBaseUrl = (): string => process.env.EZCORP_BASE_URL || DEFAULT_BASE_URL;
@@ -246,13 +280,13 @@ function buildExecutorDeps(
   worktreePath: string,
   config: PipelineConfig,
 ): ExecutorDeps {
-  const evidenceDir = join(tmpBaseImpl(), "ez-code-factory-evidence");
+  const evidenceDir = join(tmpBaseImpl(projectRoot), "ez-code-factory-evidence");
   return {
     store: getStore(),
     worktree: worktreePath,
     gateDir,
     workingPath: projectRoot,
-    tmpBase: tmpBaseImpl(),
+    tmpBase: tmpBaseImpl(projectRoot),
     config,
     dispatcher: makeSpawnDispatcher({ evidenceDir }),
     hostRunner: shellImpl,
@@ -350,7 +384,7 @@ async function defaultBuildChatToolDeps(projectRoot: string): Promise<ChatToolDe
   const id = repoIdFor(projectRoot);
   const gDir = gateDirFor(projectRoot, id);
   const config = await resolveLiveConfig();
-  const evidenceDir = join(tmpBaseImpl(), "ez-code-factory-evidence");
+  const evidenceDir = join(tmpBaseImpl(projectRoot), "ez-code-factory-evidence");
   const log = (message: string): void => {
     logLine(`ez-code-factory[chat]: ${message}`);
   };
@@ -364,11 +398,15 @@ async function defaultBuildChatToolDeps(projectRoot: string): Promise<ChatToolDe
     triggerRun: (push) =>
       runGateLifecycle(push, {
         gateDir: gDir,
-        tmpBase: tmpBaseImpl(),
+        tmpBase: tmpBaseImpl(projectRoot),
         store: getStore(),
         run: shellImpl,
         onChange: refreshDashboard,
         runPipeline: makeRunPipelineImpl(projectRoot, gDir),
+        // Stamp the tool-call-resolved root on the record — the later Hub
+        // respond/yolo/reconcile fires are context-free and re-derive every
+        // path from this (same as the push path's stamp).
+        projectRoot,
       }),
     resumeRun: (runId, respond) =>
       resumeGateLifecycle(runId, {
@@ -532,24 +570,30 @@ export const initGateTool: ToolHandler = async (args) => {
  *  frame), hiding the failure entirely. Emit one stderr line instead. */
 export async function handlePushReceived(event: PageActionEvent): Promise<void> {
   try {
-    const projectRoot = projectRootImpl();
-    if (!projectRoot) {
-      logLine("ez-code-factory: push-received with no EZCORP_PROJECT_ROOT — ignored");
-      return;
-    }
     const push = parsePushReceived(event.payload);
     if (!push) {
       logLine("ez-code-factory: push-received with invalid payload — ignored");
       return;
     }
+    // Ctx/env first, else the hook-baked payload root — accepted only when it
+    // hashes to the payload's repoId (see resolveEventProjectRoot).
+    const projectRoot = resolveEventProjectRoot(push.repoId, push.projectRoot);
+    if (!projectRoot) {
+      logLine(
+        "ez-code-factory: push-received with no resolvable project root " +
+          "(no ctx/env and the payload root is missing or fails the repoId binding) — ignored",
+      );
+      return;
+    }
     const gDir = gateDirFor(projectRoot, push.repoId);
     const result = await runGateLifecycle(push, {
       gateDir: gDir,
-      tmpBase: tmpBaseImpl(),
+      tmpBase: tmpBaseImpl(projectRoot),
       store: getStore(),
       run: shellImpl,
       onChange: refreshDashboard,
       runPipeline: makeRunPipelineImpl(projectRoot, gDir),
+      projectRoot,
     });
     // `ok` is true only for `completed`; awaiting_approval (parked) and
     // checks_passed (rested green) are success-ish non-terminal states, not
@@ -577,11 +621,6 @@ export async function handlePushReceived(event: PageActionEvent): Promise<void> 
  *  by driving the Hub surface instead of the chat surface (decision #4). */
 export async function handleRespond(event: PageActionEvent): Promise<void> {
   try {
-    const projectRoot = projectRootImpl();
-    if (!projectRoot) {
-      logLine("ez-code-factory: respond with no EZCORP_PROJECT_ROOT — ignored");
-      return;
-    }
     // Normalize the Hub's flat scalar action payload (findingId + instruction)
     // into M1's canonical findingIds[]/instructions{} shape, then validate via
     // the single M1 validator. A harness POST that already sends the canonical
@@ -603,6 +642,13 @@ export async function handleRespond(event: PageActionEvent): Promise<void> {
     const rec = await getStore().getRun(respond.runId);
     if (!rec) {
       logLine(`ez-code-factory: respond for unknown run ${respond.runId} — ignored`);
+      return;
+    }
+    // A Hub click fires with no tool-call context — re-derive the root from
+    // the run record stamped at push time (hash-validated), ctx/env first.
+    const projectRoot = resolveEventProjectRoot(rec.repoId, rec.projectRoot);
+    if (!projectRoot) {
+      logLine(`ez-code-factory: respond for run ${respond.runId} with no resolvable project root — ignored`);
       return;
     }
     // CONTRACT-IN-CODE (spec §1 inv2): the SAME no-blanket-approval chokepoint the
@@ -715,14 +761,20 @@ async function runYoloAutopilot(runId: string, projectRoot: string): Promise<voi
  *  payload is attacker-reachable via the events route; validate the runId. */
 export async function handleYolo(event: PageActionEvent): Promise<void> {
   try {
-    const projectRoot = projectRootImpl();
-    if (!projectRoot) {
-      logLine("ez-code-factory: yolo with no EZCORP_PROJECT_ROOT — ignored");
-      return;
-    }
     const runId = parseRunIdPayload(event.payload);
     if (!runId) {
       logLine("ez-code-factory: yolo with invalid payload — ignored");
+      return;
+    }
+    const rec = await getStore().getRun(runId);
+    if (!rec) {
+      logLine(`ez-code-factory: yolo for unknown run ${runId} — ignored`);
+      return;
+    }
+    // Context-free Hub fire: root from the record (hash-validated), ctx/env first.
+    const projectRoot = resolveEventProjectRoot(rec.repoId, rec.projectRoot);
+    if (!projectRoot) {
+      logLine(`ez-code-factory: yolo for run ${runId} with no resolvable project root — ignored`);
       return;
     }
     // RBAC (M6): yolo has its OWN scope (`yolo`) — strictly broader than a single
@@ -748,11 +800,6 @@ export async function handleYolo(event: PageActionEvent): Promise<void> {
  *  the gate does not resolve — the run stays parked. Payload: `{ runId }`. */
 export async function handleReconcile(event: PageActionEvent): Promise<void> {
   try {
-    const projectRoot = projectRootImpl();
-    if (!projectRoot) {
-      logLine("ez-code-factory: reconcile with no EZCORP_PROJECT_ROOT — ignored");
-      return;
-    }
     const runId = parseRunIdPayload(event.payload);
     if (!runId) {
       logLine("ez-code-factory: reconcile with invalid payload — ignored");
@@ -761,6 +808,12 @@ export async function handleReconcile(event: PageActionEvent): Promise<void> {
     const rec = await getStore().getRun(runId);
     if (!rec) {
       logLine(`ez-code-factory: reconcile for unknown run ${runId} — ignored`);
+      return;
+    }
+    // Context-free Hub fire: root from the record (hash-validated), ctx/env first.
+    const projectRoot = resolveEventProjectRoot(rec.repoId, rec.projectRoot);
+    if (!projectRoot) {
+      logLine(`ez-code-factory: reconcile for run ${runId} with no resolvable project root — ignored`);
       return;
     }
     const gDir = gateDirFor(projectRoot, rec.repoId);
@@ -789,10 +842,18 @@ export async function handleReconcile(event: PageActionEvent): Promise<void> {
 // PR state" button uses, resolving each run's own gate dir.
 
 /** Reconcile ONE run (resume + the read-only ReconcileApprovalGate poll). Null
- *  when the run is gone / cannot resume. */
-async function reconcileOneRun(projectRoot: string, runId: string): Promise<ReconcileResult> {
+ *  when the run is gone / cannot resume / carries no resolvable root. */
+async function reconcileOneRun(fallbackRoot: string | undefined, runId: string): Promise<ReconcileResult> {
   const rec = await getStore().getRun(runId);
   if (!rec) return null;
+  // Per-run root: the record's own stamped root (hash-validated) beats the
+  // sweep-level ctx/env fallback — one subprocess may hold runs from several
+  // projects, and the env var can only ever name one of them.
+  const projectRoot = validatedProjectRoot(rec.projectRoot, rec.repoId) ?? fallbackRoot;
+  if (!projectRoot) {
+    logLine(`ez-code-factory[sweep]: run ${runId} has no resolvable project root — skipped`);
+    return null;
+  }
   const gDir = gateDirFor(projectRoot, rec.repoId);
   return resumeGateLifecycle(runId, {
     gateDir: gDir,
@@ -803,18 +864,18 @@ async function reconcileOneRun(projectRoot: string, runId: string): Promise<Reco
   });
 }
 
-/** Run one reconcile sweep for the active project (the cron fire's work).
- *  Records a heartbeat for `code_factory_doctor`. Null when no project is
- *  active. */
-export async function runReconcileSweep(): Promise<SweepSummary | null> {
-  const projectRoot = projectRootImpl();
-  if (!projectRoot) {
-    logLine("ez-code-factory: reconcile sweep with no EZCORP_PROJECT_ROOT — skipped");
-    return null;
-  }
+/** Run one reconcile sweep (the cron fire's work). Records a heartbeat for
+ *  `code_factory_doctor`. Runs resolve their own stamped roots, so the sweep
+ *  no longer needs an active-project env var to do useful work. */
+export async function runReconcileSweep(): Promise<SweepSummary> {
+  // A cron fire has no tool-call context; ctx/env is only a FALLBACK here.
+  // Each run resolves its own stamped (hash-validated) root inside
+  // reconcileOneRun, so the sweep still works when the env var is unset —
+  // the structural norm in prod, where one subprocess serves every project.
+  const fallbackRoot = projectRootImpl();
   return reconcileSweep({
     store: getStore(),
-    reconcile: (runId) => reconcileOneRun(projectRoot, runId),
+    reconcile: (runId) => reconcileOneRun(fallbackRoot, runId),
     now: () => Date.now(),
     recordHeartbeat: (hb) => heartbeatKVImpl().write(hb),
     log: (m) => logLine(`ez-code-factory[sweep]: ${m}`),
@@ -834,18 +895,22 @@ export async function handleScheduleFire(_ctx: ScheduleHandlerContext): Promise<
 
 // ── Crash recovery (M6, startup) ──────────────────────────────────────
 
-/** Re-derive parked state + reap orphaned worktrees on (re)start. Null when no
- *  project is active. Fire-and-forget from `start()`. */
-export async function recoverOnStart(): Promise<RecoverySummary | null> {
-  const projectRoot = projectRootImpl();
-  if (!projectRoot) {
-    logLine("ez-code-factory: crash recovery with no EZCORP_PROJECT_ROOT — skipped");
-    return null;
-  }
+/** Re-derive parked state + reap orphaned worktrees on (re)start.
+ *  Fire-and-forget from `start()`. Runs resolve their own stamped roots. */
+export async function recoverOnStart(): Promise<RecoverySummary> {
+  // Boot fire — no tool-call context. Same per-run root resolution as the
+  // sweep: the record's stamped (hash-validated) root, ctx/env as fallback.
+  const fallbackRoot = projectRootImpl();
   return recoverRuns({
     store: getStore(),
-    reapWorktree: (run) =>
-      removeWorktree(shellImpl, gateDirFor(projectRoot, run.repoId), run.worktreePath ?? ""),
+    reapWorktree: (run) => {
+      const projectRoot = validatedProjectRoot(run.projectRoot, run.repoId) ?? fallbackRoot;
+      if (!projectRoot) {
+        logLine(`ez-code-factory[recovery]: run ${run.id} has no resolvable project root — worktree not reaped`);
+        return Promise.resolve();
+      }
+      return removeWorktree(shellImpl, gateDirFor(projectRoot, run.repoId), run.worktreePath ?? "");
+    },
     log: (m) => logLine(`ez-code-factory[recovery]: ${m}`),
   });
 }
@@ -888,9 +953,16 @@ export function start(): void {
   register();
   getChannel().start();
   // M6: re-derive parked state + reap orphaned worktrees left by the last
-  // process (fire-and-forget — a restart must not block on recovery, and the
-  // channel is up so the store reads resolve).
-  void recoverOnStart();
+  // process (fire-and-forget — a restart must not block on recovery). MUST be
+  // .catch-wrapped: an unhandled rejection here kills the subprocess at boot.
+  // The known rejecter is the host's provenance gate — a raw boot fire carries
+  // no host-issued ezCallId, so the store RPC fails fast (-32602) on hosts
+  // that don't mint boot provenance; recovery then waits for the next
+  // provenanced fire (the reconcile sweep) instead of crashing the extension.
+  recoverOnStart().catch((err) => {
+    const message = err instanceof Error ? err.message : String(err);
+    logLine(`ez-code-factory: crash recovery skipped: ${message}`);
+  });
 }
 
 // Production wiring — gated on import.meta.main so test imports don't open stdin.

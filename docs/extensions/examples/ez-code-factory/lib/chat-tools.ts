@@ -81,6 +81,51 @@ export interface ChatToolDeps {
    *  RPC + summarizer). Null when no inference applies. */
   inferIntent: (diffFiles: string[]) => Promise<InferredIntent | null>;
   log?: (message: string) => void;
+  /** Max ms a chat tool WAITS for the lifecycle before returning a
+   *  `status:"running"` handle and detaching (see {@link LIFECYCLE_WAIT_MS}).
+   *  Tests inject small values. */
+  lifecycleWaitMs?: number;
+}
+
+/**
+ * How long run/respond wait for the lifecycle inline before detaching.
+ *
+ * MUST stay comfortably under the host's per-tool-call ceiling
+ * (`resources.callTimeoutMs`, 15 min): on that timeout the host KILLS the
+ * subprocess (subprocess.ts "On timeout, kill the process"), which destroys
+ * the run mutex, the spawn dispatcher's pending-terminal map and the
+ * lifecycle continuation — the run freezes "running" forever (drive-2).
+ *
+ * The INLINE wait is the primary path — the tool call's live provenance
+ * token is what authorizes the pipeline's reverse-RPC storage/shell work
+ * (the host releases the token when the call returns, so a DETACHED
+ * continuation's writes are refused "token already released"). 12 min
+ * covers the 10-min agent-dispatch budget + overhead; the detach return is
+ * a last-resort safety valve that keeps the subprocess (and its other
+ * runs) alive instead of being killed at the ceiling.
+ */
+export const LIFECYCLE_WAIT_MS = 12 * 60_000;
+
+/** Race `work` against the wait budget. Returns null on timeout, having
+ *  marked the abandoned promise handled (an unhandled rejection from the
+ *  detached continuation would kill the whole subprocess). */
+async function waitOrDetach<T>(
+  work: Promise<T>,
+  ms: number,
+  log: (m: string) => void,
+): Promise<T | null> {
+  work.catch((err) => log(`detached lifecycle error: ${err instanceof Error ? err.message : String(err)}`));
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), ms);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // ── git helpers (all behind the injected runner) ────────────────────
@@ -270,7 +315,27 @@ export async function runChatTool(
     intent,
     intentSource,
   };
-  const result = await deps.triggerRun(push);
+  const result = await waitOrDetach(
+    deps.triggerRun(push),
+    deps.lifecycleWaitMs ?? LIFECYCLE_WAIT_MS,
+    log,
+  );
+  if (result === null) {
+    // Still running — the lifecycle continues DETACHED in the resident
+    // subprocess. Resolve the runId from the store (the run row is written
+    // at lifecycle start) so the caller can poll `code_factory_status`.
+    const runs = await deps.store.listRuns(); // newest-first
+    const newest = runs.find((r) => r.branch === branch);
+    return {
+      ok: true,
+      data: {
+        triggered: true,
+        runId: newest?.id ?? null,
+        status: "running",
+        note: "pipeline still running — poll code_factory_status for the gate result",
+      },
+    };
+  }
   const status = await buildGateStatus(deps.store, result.runId);
   if (!status) {
     // The run row vanished (store race) — surface the lifecycle result directly.
@@ -379,7 +444,28 @@ export async function respondChatTool(
     );
   }
 
-  const result = await deps.resumeRun(respond.runId, respond);
+  // Box resumeRun's result so the race's timeout-null is distinguishable
+  // from resumeRun's OWN null ("could not resume").
+  const raced = await waitOrDetach(
+    deps.resumeRun(respond.runId, respond).then((r) => ({ inner: r })),
+    deps.lifecycleWaitMs ?? LIFECYCLE_WAIT_MS,
+    deps.log ?? (() => {}),
+  );
+  if (raced === null) {
+    // Fix/approve round still running — detached (see LIFECYCLE_WAIT_MS).
+    return {
+      ok: true,
+      data: {
+        applied: true,
+        action: respond.action,
+        consentAllUsed: guard.consentAllUsed === true,
+        runId: respond.runId,
+        status: "running",
+        note: "respond accepted; round still running — poll code_factory_status for the outcome",
+      },
+    };
+  }
+  const result = raced.inner;
   if (result === null) {
     return {
       ok: false,

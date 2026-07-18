@@ -1,7 +1,7 @@
 import { json } from "@sveltejs/kit";
 import { z } from "zod";
 import type { RequestHandler } from "./$types";
-import { getBus } from "$lib/server/context";
+import { getBus, getExecutor } from "$lib/server/context";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
@@ -236,6 +236,21 @@ export const POST: RequestHandler = async ({ request, locals, params }) => {
       const proc = await registry.getProcess(ext.id);
       const engine = getPermissionEngine();
       const wirer = new ToolExecutor(registry, engine, { bus: getBus() });
+      // FULL runtime wiring — required, not optional: this wirer's
+      // ensureSubprocessRpcWired REPLACES the subprocess's single request
+      // handler, so leaving executor/spawnQuota unset here doesn't just
+      // degrade THIS request — it breaks `ezcorp/spawn-assignment` for
+      // every later reverse-RPC on the proc (e.g. a pipeline extension's
+      // agent dispatch fails "Spawn path unavailable in this context"
+      // after any Hub action re-wired the proc). Guarded: an executor-less
+      // context (unit tests) keeps today's spawn-less wiring.
+      try {
+        const executor = getExecutor();
+        wirer.setExecutor(executor);
+        wirer.setSpawnQuota(executor.spawnQuota);
+      } catch {
+        /* executor not booted (test context) — spawn path stays unwired */
+      }
       await wirer.ensureSubprocessRpcWired(ext.id, proc);
       // Mint a per-fire reverse-RPC provenance token (onBehalfOf = the
       // clicking user) and stamp it onto `_meta.ezCallId`, exactly like the
@@ -477,6 +492,15 @@ export const POST: RequestHandler = async ({ request, locals, params }) => {
       // factory throw.
       const engine = getPermissionEngine();
       const wirer = new ToolExecutor(registry, engine, { bus: getBus() });
+      // Same full-wiring requirement as the hub branch above — this
+      // re-wire must not strip the spawn path from the proc's handler.
+      try {
+        const executor = getExecutor();
+        wirer.setExecutor(executor);
+        wirer.setSpawnQuota(executor.spawnQuota);
+      } catch {
+        /* executor not booted (test context) — spawn path stays unwired */
+      }
       await wirer.ensureSubprocessRpcWired(ext.id, proc);
     } catch (err) {
       wireOk = false;

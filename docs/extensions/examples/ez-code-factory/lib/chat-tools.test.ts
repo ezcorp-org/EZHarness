@@ -401,7 +401,7 @@ describe("statusChatTool", () => {
 
 // ── respondChatTool ─────────────────────────────────────────────────
 
-const parked = () => baseDeps();
+const parked = (over: Partial<ChatToolDeps> = {}) => baseDeps(over);
 
 async function seedParked(deps: ChatToolDeps): Promise<void> {
   await deps.store.createRun(run({ id: "r1", status: "awaiting_approval" }));
@@ -538,5 +538,61 @@ describe("respondChatTool", () => {
     };
     const out = await respondChatTool({ runId: "r1", step: "review", action: "abort" }, deps);
     expect(out.ok).toBe(false);
+  });
+});
+
+// ── lifecycle detach (LIFECYCLE_WAIT_MS bound) ──────────────────────
+//
+// The host KILLS the subprocess when a tool call exceeds its per-call
+// timeout, destroying the detached pipeline with it (drive-2 flake). The
+// chat tools therefore must RETURN before that ceiling: a lifecycle that
+// outlives the wait budget yields a `status:"running"` handle and keeps
+// running detached; the caller polls code_factory_status.
+
+describe("lifecycle detach", () => {
+  test("runChatTool: slow lifecycle → detached running handle with the store-resolved runId", async () => {
+    const deps = baseDeps({ lifecycleWaitMs: 20 });
+    deps.triggerRun = async (push) => {
+      // Mirror the real lifecycle: the run row is written at START,
+      // long before the (slow) agent round resolves.
+      await deps.store.createRun(run({ id: "slow-run", intent: push.intent }));
+      await new Promise((r) => setTimeout(r, 200));
+      return { ok: true, runId: "slow-run", worktreePath: "/wt", status: "awaiting_approval" as RunStatus };
+    };
+    const out = await runChatTool({ intent: "x" }, deps);
+    expect(out.ok).toBe(true);
+    expect((out.data as Record<string, unknown>).status).toBe("running");
+    expect((out.data as Record<string, unknown>).runId).toBe("slow-run");
+  });
+
+  test("runChatTool: lifecycle inside the budget still returns the full gate status (relay contract intact)", async () => {
+    const deps = baseDeps({ lifecycleWaitMs: 5_000 });
+    const out = await runChatTool({ intent: "x" }, deps);
+    expect(out.ok).toBe(true);
+    expect((out.data as Record<string, unknown>).parkedStep).toBe("review");
+  });
+
+  test("respondChatTool: slow round → applied+running handle; resumeRun's own null still errors", async () => {
+    const deps = parked({ lifecycleWaitMs: 20 });
+    await seedParked(deps);
+    deps.resumeRun = async () => {
+      await new Promise((r) => setTimeout(r, 200));
+      return { status: "awaiting_approval" as RunStatus, parked: true };
+    };
+    const out = await respondChatTool(
+      { runId: "r1", step: "review", action: "fix", findingIds: ["a1"] },
+      deps,
+    );
+    expect(out.ok).toBe(true);
+    expect((out.data as Record<string, unknown>).status).toBe("running");
+    expect((out.data as Record<string, unknown>).applied).toBe(true);
+
+    // The boxed race must NOT swallow resumeRun's own "could not resume".
+    const deps2 = parked({ lifecycleWaitMs: 5_000 });
+    await seedParked(deps2);
+    deps2.resumeRun = async () => null;
+    const out2 = await respondChatTool({ runId: "r1", step: "review", action: "abort" }, deps2);
+    expect(out2.ok).toBe(false);
+    expect(out2.error).toContain("could not resume");
   });
 });

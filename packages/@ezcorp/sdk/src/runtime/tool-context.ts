@@ -25,6 +25,19 @@ export interface ToolContext {
   /** Conversation id forwarded by the host on `_meta.ezConversationId`. */
   conversationId?: string;
   /**
+   * Filesystem root of the conversation's ACTIVE project, resolved by the
+   * host (`conversations.projectId` → `projects.path`) and forwarded on
+   * `_meta.ezProjectRoot`. A single persistent extension subprocess serves
+   * every conversation, so a process-wide `EZCORP_PROJECT_ROOT` env var is
+   * structurally wrong — it only ever names ONE project. Extensions that
+   * scope filesystem work to the active project (ez-code-factory's gate)
+   * MUST prefer this per-call value; the env var stays as a last-resort
+   * fallback for out-of-band (schedule/lifecycle) dispatches where no
+   * conversation is bound. Undefined when the conversation has no project
+   * or the host couldn't resolve it.
+   */
+  projectRoot?: string;
+  /**
    * Reserved for Phase 4 cross-extension attribution. When extension A
    * calls extension B's tool via `ezcorp/invoke`, the host records A's
    * id here so B's wrapper enforcement can compute the post-intersection

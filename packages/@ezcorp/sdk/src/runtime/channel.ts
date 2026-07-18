@@ -638,8 +638,18 @@ function ensureDispatcherRegistered(): void {
       // on `_meta`; default to "" when absent (e.g. in tests).
       const ezConversationId =
         typeof rawMeta.ezConversationId === "string" ? rawMeta.ezConversationId : "";
+      // The host resolves the conversation's active project root
+      // (`conversations.projectId` → `projects.path`) and forwards it here
+      // so filesystem-scoping extensions target the RIGHT project — the
+      // single persistent subprocess serves every conversation, so a
+      // process-wide env var would be wrong. Absent for out-of-band or
+      // project-less conversations; `undefined` leaves it off the ctx.
+      const ezProjectRoot =
+        typeof rawMeta.ezProjectRoot === "string" && rawMeta.ezProjectRoot.length > 0
+          ? rawMeta.ezProjectRoot
+          : undefined;
       return withToolContext(
-        { toolName: name, conversationId: ezConversationId },
+        { toolName: name, conversationId: ezConversationId, projectRoot: ezProjectRoot },
         async () => {
           try {
             return await handler(args, ctx);

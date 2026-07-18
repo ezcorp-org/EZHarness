@@ -87,6 +87,13 @@ export function isSafeUpstreamUrl(url: string): boolean {
 /** Options threaded into the generated post-receive hook. */
 export interface HookScriptOptions {
   repoId: string;
+  /** Absolute project root baked into the hook's payload. One persistent
+   *  subprocess serves every project, and a push fires with NO tool-call
+   *  context, so the handler can't resolve the root from ctx/env — the hook
+   *  (written by init_gate, which DOES know the root) must carry it. The
+   *  payload is attacker-reachable; the handler re-validates the pair via
+   *  `repoId(projectRoot) === repoId` (the repo id IS a hash of the root). */
+  projectRoot: string;
   baseUrl: string;
   credentialPath: string;
   notifyLogPath: string;
@@ -109,6 +116,7 @@ export function hookScript(opts: HookScriptOptions): string {
 set -u
 
 REPO_ID=${shQuote(opts.repoId)}
+PROJECT_ROOT=${shQuote(opts.projectRoot)}
 BASE_URL=${shQuote(opts.baseUrl)}
 ENDPOINT=${shQuote(endpoint)}
 PAGE_ID=${shQuote(PAGE_ID)}
@@ -163,7 +171,8 @@ while read -r oldrev newrev refname; do
   # drop). The sha fields and the hex repo id never need escaping.
   esc_ref=$(json_escape "$refname")
   esc_branch=$(json_escape "$branch")
-  BODY="{\\"source\\":\\"hub\\",\\"pageId\\":\\"$PAGE_ID\\",\\"payload\\":{\\"repoId\\":\\"$REPO_ID\\",\\"ref\\":\\"$esc_ref\\",\\"branch\\":\\"$esc_branch\\",\\"oldSha\\":\\"$oldrev\\",\\"newSha\\":\\"$newrev\\",\\"pushOptions\\":$OPTS}}"
+  esc_root=$(json_escape "$PROJECT_ROOT")
+  BODY="{\\"source\\":\\"hub\\",\\"pageId\\":\\"$PAGE_ID\\",\\"payload\\":{\\"repoId\\":\\"$REPO_ID\\",\\"projectRoot\\":\\"$esc_root\\",\\"ref\\":\\"$esc_ref\\",\\"branch\\":\\"$esc_branch\\",\\"oldSha\\":\\"$oldrev\\",\\"newSha\\":\\"$newrev\\",\\"pushOptions\\":$OPTS}}"
   if [ -n "$KEY" ]; then
     if command -v curl >/dev/null 2>&1; then
       # -sS stays quiet but surfaces transport errors; -w captures the HTTP
@@ -337,6 +346,7 @@ export async function initGate(opts: {
   } else {
     const content = hookScript({
       repoId: id,
+      projectRoot,
       baseUrl,
       credentialPath: credPath,
       notifyLogPath: notifyLogPath(gDir),

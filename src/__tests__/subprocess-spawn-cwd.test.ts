@@ -94,6 +94,54 @@ describe("extension spawn cwd pin (#61)", () => {
     }
   });
 
+  // ── Sandbox-tier handoff for NESTED jail spawns (drive-3 push step) ──
+  // The poisoned subprocess can't probe the tier or resolve the shim path
+  // itself, so buildSpawnEnv must bake both into the child env — the ext's
+  // jailed-git shell assembles `bun <shim> -- git …` purely from these.
+  test("ensureRunning bakes EZCORP_SANDBOX_TIER + EZCORP_SANDBOX_SHIM into the child env", () => {
+    const root = mkdtempSync(join(tmpdir(), "ez-tier-handoff-"));
+    tmpRoots.push(root);
+    let capturedEnv: Record<string, string> | undefined;
+    const spy = spyOn(Bun, "spawn").mockImplementation(((_argv: string[], opts?: { env?: Record<string, string> }) => {
+      capturedEnv = opts?.env;
+      return fakeProc();
+    }) as unknown as typeof Bun.spawn);
+    try {
+      ep = new ExtensionProcess("tier-ext", echoPath, { ...baseEnv, EZCORP_PROJECT_ROOT: root });
+      ep.ensureRunning();
+      expect(capturedEnv?.EZCORP_SANDBOX_TIER).toMatch(/^(bwrap|landlock|advisory)$/);
+      expect(capturedEnv?.EZCORP_SANDBOX_SHIM).toMatch(/landlock-shim\.ts$/);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  test("ensureRunning creates + grants the NAME-keyed extension-data dir (data-dir convention)", () => {
+    const root = mkdtempSync(join(tmpdir(), "ez-name-grant-"));
+    tmpRoots.push(root);
+    const spy = spyOn(Bun, "spawn").mockImplementation((() => fakeProc()) as unknown as typeof Bun.spawn);
+    try {
+      ep = new ExtensionProcess(
+        "name-ext-id",
+        echoPath,
+        { ...baseEnv, EZCORP_PROJECT_ROOT: root },
+        { extensionName: "my-named-ext" },
+      );
+      ep.ensureRunning();
+      // The convention home extensions actually write (keyed by manifest
+      // NAME, not install id) exists — created so its landlock grant binds
+      // a real inode. On an advisory host resolveSandboxWrap returns null
+      // before the mkdir, so only assert under a usable tier.
+      const { existsSync } = require("node:fs") as typeof import("node:fs");
+      const { getSandboxTier } = require("../extensions/sandbox/capability-probe") as typeof import("../extensions/sandbox/capability-probe");
+      if (getSandboxTier() !== "advisory") {
+        expect(existsSync(join(root, ".ezcorp", "extension-data", "my-named-ext"))).toBe(true);
+      }
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   test("ensureRunning omits cwd (inherit) when no project root is injected", () => {
     let capturedCwd: string | undefined = "SENTINEL";
     let called = false;

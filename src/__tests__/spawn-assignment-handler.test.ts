@@ -282,10 +282,10 @@ describe("spawn-assignment — rate + depth", () => {
       const ext = `rl-ext-${crypto.randomUUID().slice(0, 8)}`;
       await wireConversation(CONV_WIRED, ext);
       let accepted = 0;
-      let limited = 0;
+      let _limited = 0;
       for (let i = 0; i < 60; i++) {
         const resp = await handleSpawnAssignmentRpc(ext, rpc(validParams, `rl-${i}`), makeCtx());
-        if (resp.error?.code === -32029) limited++;
+        if (resp.error?.code === -32029) _limited++;
         else if (!resp.error) accepted++;
       }
       expect(accepted).toBeGreaterThanOrEqual(45);
@@ -347,6 +347,65 @@ describe("spawn-assignment — payload validation", () => {
     );
     expect(resp.error?.code).toBe(-32602);
     expect(resp.error?.message).toMatch(/Agent not found/);
+  });
+
+  // workingDir (containment pin) — fail-closed validation. A bad value must
+  // REJECT, never degrade to the project-path default: silently falling back
+  // is exactly the wrong-tree breach the field exists to prevent.
+  test("workingDir non-string → -32602", async () => {
+    const resp = await handleSpawnAssignmentRpc(
+      EXT_WIRED,
+      rpc({ v: 1, task: "hi", agentConfigId: "cfg-alice-helper", workingDir: 42 }, "wd-num"),
+      makeCtx(),
+    );
+    expect(resp.error?.code).toBe(-32602);
+    expect(resp.error?.message).toMatch(/'workingDir' must be an absolute path/);
+    expect(startAssignmentCalls).toHaveLength(0);
+  });
+
+  test("workingDir relative path → -32602", async () => {
+    const resp = await handleSpawnAssignmentRpc(
+      EXT_WIRED,
+      rpc({ v: 1, task: "hi", agentConfigId: "cfg-alice-helper", workingDir: "relative/dir" }, "wd-rel"),
+      makeCtx(),
+    );
+    expect(resp.error?.code).toBe(-32602);
+    expect(resp.error?.message).toMatch(/'workingDir' must be an absolute path/);
+  });
+
+  test("workingDir with embedded NUL → -32602", async () => {
+    const resp = await handleSpawnAssignmentRpc(
+      EXT_WIRED,
+      rpc({ v: 1, task: "hi", agentConfigId: "cfg-alice-helper", workingDir: "/tmp/bad\0dir" }, "wd-nul"),
+      makeCtx(),
+    );
+    expect(resp.error?.code).toBe(-32602);
+    expect(resp.error?.message).toMatch(/'workingDir' must be an absolute path/);
+  });
+
+  test("workingDir nonexistent directory → -32602 'not an accessible directory'", async () => {
+    const resp = await handleSpawnAssignmentRpc(
+      EXT_WIRED,
+      rpc(
+        { v: 1, task: "hi", agentConfigId: "cfg-alice-helper", workingDir: `/tmp/definitely-missing-${crypto.randomUUID()}` },
+        "wd-miss",
+      ),
+      makeCtx(),
+    );
+    expect(resp.error?.code).toBe(-32602);
+    expect(resp.error?.message).toMatch(/not an accessible directory/);
+  });
+
+  test("workingDir pointing at a FILE (not a dir) → -32602", async () => {
+    const filePath = `/tmp/spawn-wd-file-${crypto.randomUUID().slice(0, 8)}`;
+    await Bun.write(filePath, "not a dir");
+    const resp = await handleSpawnAssignmentRpc(
+      EXT_WIRED,
+      rpc({ v: 1, task: "hi", agentConfigId: "cfg-alice-helper", workingDir: filePath }, "wd-file"),
+      makeCtx(),
+    );
+    expect(resp.error?.code).toBe(-32602);
+    expect(resp.error?.message).toMatch(/not an accessible directory/);
   });
 });
 
@@ -435,6 +494,29 @@ describe("spawn-assignment — dispatch", () => {
     const task = call.task as { title: string; description: string };
     expect(task.title).toBe("My task"); // param override
     expect(task.description).toBe("build a thing");
+  });
+
+  test("workingDir (existing dir) threads through to startAssignment verbatim", async () => {
+    const ext = `wd-ext-${crypto.randomUUID().slice(0, 8)}`;
+    await wireConversation(CONV_WIRED, ext);
+    const wd = `/tmp/spawn-wd-dir-${crypto.randomUUID().slice(0, 8)}`;
+    const { mkdirSync } = await import("node:fs");
+    mkdirSync(wd, { recursive: true });
+    const resp = await handleSpawnAssignmentRpc(
+      ext,
+      rpc({ ...validParams, workingDir: wd }, "wd-ok"),
+      makeCtx(),
+    );
+    expect(resp.error).toBeUndefined();
+    expect(startAssignmentCalls.at(-1)!.workingDir).toBe(wd);
+  });
+
+  test("workingDir omitted → startAssignment opts omit the key (project-path default)", async () => {
+    const ext = `wd2-ext-${crypto.randomUUID().slice(0, 8)}`;
+    await wireConversation(CONV_WIRED, ext);
+    const resp = await handleSpawnAssignmentRpc(ext, rpc(validParams, "wd-none"), makeCtx());
+    expect(resp.error).toBeUndefined();
+    expect(startAssignmentCalls.at(-1)!).not.toHaveProperty("workingDir");
   });
 
   test("notifyParentOnTerminal: true threads through to startAssignment (background spawn)", async () => {

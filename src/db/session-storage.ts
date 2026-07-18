@@ -141,6 +141,24 @@ export function rowToEntry(
   } as SessionTreeEntry;
 }
 
+/**
+ * Coerce an arbitrary value to a jsonb-safe object-or-null.
+ *
+ * The `agent_sessions.metadata` column is `jsonb`, which rejects a bare
+ * string (e.g. `""`). The old `options.metadata ?? null` idiom only guarded
+ * `null`/`undefined`, so a caller passing `metadata: ""` wrote an invalid
+ * value straight into the column — Postgres/PGlite then rejected it on the
+ * next read, surfacing as "Failed query" and 500-ing
+ * `GET /api/conversations/[id]/tree`. Only a plain object survives here;
+ * anything else (string, array, number, null, undefined) becomes `null`.
+ */
+export function asJsonbObject(value: unknown): Record<string, unknown> | null {
+  if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return null;
+}
+
 export class DbSessionStorage implements SessionStorage<DbSessionMetadata> {
   private constructor(
     private readonly db: Db,
@@ -159,7 +177,7 @@ export class DbSessionStorage implements SessionStorage<DbSessionMetadata> {
       cwd: options.cwd ?? null,
       parentSessionId: options.parentSessionId ?? null,
       leafEntryId: null,
-      metadata: options.metadata ?? null,
+      metadata: asJsonbObject(options.metadata),
       createdAt: new Date(),
     };
     await db.insert(agentSessions).values(row);
@@ -199,7 +217,10 @@ export class DbSessionStorage implements SessionStorage<DbSessionMetadata> {
       cwd: this.sessionRow.cwd ?? undefined,
       parentSessionId: this.sessionRow.parentSessionId ?? undefined,
       conversationId: this.sessionRow.conversationId ?? undefined,
-      metadata: this.sessionRow.metadata ?? undefined,
+      // Defensive: coerce any legacy/invalid persisted value (e.g. a bare
+      // string written before the create-path fix) back to a safe shape so
+      // reads never propagate a non-object.
+      metadata: asJsonbObject(this.sessionRow.metadata) ?? undefined,
     };
   }
 

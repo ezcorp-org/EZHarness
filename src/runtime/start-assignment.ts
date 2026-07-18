@@ -139,6 +139,13 @@ export interface StartAssignmentOpts {
   task: TrackedTask;
   snapshot: TaskSnapshot;
   projectId: string;
+  /** Absolute directory the child's built-in file/shell tools root at instead
+   *  of the project path — the spawn-assignment `workingDir` pin for
+   *  extension-dispatched agents that must operate in a specific checkout
+   *  (e.g. a pipeline run's git worktree). Forwarded verbatim to EVERY cycle's
+   *  streamChat (initial run, auto-continue, autonomous, schema re-prompt) so
+   *  a later cycle never silently falls back to the shared project checkout. */
+  workingDir?: string;
   agentConfig: StartAssignmentAgentConfig;
   /** Fallback model from the parent conversation (used for CURRENT_MODEL_SENTINEL). */
   parentModel?: string;
@@ -259,6 +266,17 @@ function emitAssignmentUpdate(
   resultFull?: string,
   structured?: { result?: unknown; error?: string; overCap?: boolean },
 ): void {
+  // Terminal updates are the ONLY signal a spawning extension gets that its
+  // sub-agent finished (the ez-code-factory pipeline awaits them) — a missed
+  // one wedges the caller until its dispatch timeout. Rare + load-bearing, so
+  // log every emit; the dispatcher logs the matching delivery decision.
+  log.info("assignment_update emit", {
+    conversationId,
+    taskId,
+    assignmentId: assignment.id,
+    status: assignment.status,
+    hasStructured: structured?.result !== undefined,
+  });
   bus.emit("task:assignment_update", {
     conversationId,
     taskId,
@@ -287,7 +305,7 @@ function emitAssignmentUpdate(
 export async function startAssignment(opts: StartAssignmentOpts): Promise<StartAssignmentResult> {
   const {
     executor, bus, conversationId, taskId, assignment, task, snapshot,
-    projectId, agentConfig, parentModel, parentProvider,
+    projectId, workingDir, agentConfig, parentModel, parentProvider,
     reuseSubConversationId, parentMessageId, overrides, teamToolScope,
     orchestrationDepth, autonomousContinuation, parentRunId,
     onCycleRunIdChange, outputSchema, notifyParentOnTerminal, detached,
@@ -589,6 +607,7 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
 
     const streamPromise = executor.streamChat(subConversationId, message, {
       projectId,
+      ...(workingDir ? { workingDir } : {}),
       agentConfigId: assignment.agentConfigId,
       runId,
       model: resolveModel() ?? undefined,

@@ -32,6 +32,7 @@ import {
   parseShimArgv,
   parseSpecFromEnv,
   LANDLOCK_SPEC_ENV,
+  LANDLOCK_RAW_SPEC_ENV,
 } from "../extensions/sandbox/landlock-shim";
 import { forbiddenDataDir } from "../extensions/preview-jail";
 
@@ -510,6 +511,52 @@ describe("landlock-shim — pure parsers", () => {
     expect(() =>
       parseSpecFromEnv({ [LANDLOCK_SPEC_ENV]: JSON.stringify({ ro: "x" }) }),
     ).toThrow(/malformed/);
+  });
+
+  // ── RAW spec (the sandboxed-subprocess handoff) ─────────────────────
+  // A poisoned subprocess can't run buildLandlockJailSpec (realpath needs
+  // fs), so it hands the PURE inputs over and the SHIM resolves them —
+  // including the deny-by-default + data-dir assertions.
+
+  test("RAW spec resolves through buildLandlockJailSpec (workspace first rw, extras appended)", () => {
+    const env = {
+      [LANDLOCK_RAW_SPEC_ENV]: JSON.stringify({
+        workspaceDir: WORKSPACE,
+        projectRoot: ROOT,
+        rwPaths: ["/dev"],
+      }),
+    };
+    const spec = parseSpecFromEnv(env);
+    expect(spec.rw[0]).toBe(WORKSPACE);
+    expect(spec.rw).toContain("/dev");
+  });
+
+  test("RAW spec fail-closes on a grant that would expose .ezcorp/data", () => {
+    const env = {
+      [LANDLOCK_RAW_SPEC_ENV]: JSON.stringify({
+        workspaceDir: join(ROOT, ".ezcorp", "data"),
+        projectRoot: ROOT,
+      }),
+    };
+    expect(() => parseSpecFromEnv(env)).toThrow();
+  });
+
+  test("RAW spec throws on missing workspaceDir / projectRoot / invalid JSON", () => {
+    expect(() =>
+      parseSpecFromEnv({ [LANDLOCK_RAW_SPEC_ENV]: JSON.stringify({ projectRoot: ROOT }) }),
+    ).toThrow(/workspaceDir/);
+    expect(() =>
+      parseSpecFromEnv({ [LANDLOCK_RAW_SPEC_ENV]: JSON.stringify({ workspaceDir: WORKSPACE }) }),
+    ).toThrow(/projectRoot/);
+    expect(() => parseSpecFromEnv({ [LANDLOCK_RAW_SPEC_ENV]: "{nope" })).toThrow(/not valid JSON/);
+  });
+
+  test("a pre-RESOLVED spec WINS over a RAW spec when both are present", () => {
+    const env = {
+      [LANDLOCK_SPEC_ENV]: JSON.stringify({ ro: ["/usr"], rw: ["/w"] }),
+      [LANDLOCK_RAW_SPEC_ENV]: JSON.stringify({ workspaceDir: WORKSPACE, projectRoot: ROOT }),
+    };
+    expect(parseSpecFromEnv(env)).toEqual({ ro: ["/usr"], rw: ["/w"] });
   });
 });
 

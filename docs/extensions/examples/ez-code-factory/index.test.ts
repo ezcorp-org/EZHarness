@@ -6,6 +6,7 @@ import {
   __resetChannelForTests,
   __resetPagesForTests,
   getChannel,
+  withToolContext,
 } from "@ezcorp/sdk/runtime";
 import type { HostChannel } from "@ezcorp/sdk/runtime";
 import {
@@ -46,7 +47,7 @@ import {
   recoverOnStart,
 } from "./index";
 import type { ChatToolDeps } from "./lib/chat-tools";
-import { gateDir as gateDirFor, GATE_REMOTE, HOOK_MARKER } from "./lib/gate";
+import { gateDir as gateDirFor, repoId as repoIdOf, GATE_REMOTE, HOOK_MARKER } from "./lib/gate";
 import { SWEEP_CRON, type SweepHeartbeat } from "./lib/sweep";
 import { productionHostRunner, type ShellRunner } from "./lib/shell";
 import { _setLogSinkForTests } from "./lib/log";
@@ -190,6 +191,10 @@ describe("sandbox-safe logging (B1 regression)", () => {
   test("a poisoned process.stderr does not crash handlers that log", async () => {
     _setProjectRootForTests(() => undefined); // force each guard's log path
     _setStoreForTests(memStore());
+    // The sweep no longer early-bails on a missing root (runs resolve their
+    // own stamped roots), so its heartbeat write needs the in-memory fake —
+    // the default KV would RPC over the (absent) test channel.
+    _setHeartbeatKVForTests(() => ({ async read() { return null; }, async write() {} }));
     const spy = spyOn(process.stderr, "write").mockImplementation((() => {
       throw new Error("Extension sandbox: 'fs module' blocked");
     }) as typeof process.stderr.write);
@@ -207,8 +212,9 @@ describe("sandbox-safe logging (B1 regression)", () => {
         handleReconcile({ source: "hub", pageId: "dashboard", userId: "u", payload: { runId: "r" } }),
       ).resolves.toBeUndefined();
       // recoverOnStart is the actual `start()` path that crashed the subprocess.
-      await expect(recoverOnStart()).resolves.toBeNull();
-      await expect(runReconcileSweep()).resolves.toBeNull();
+      // (Empty store → zero-count summaries; the assertion is crash-safety.)
+      await expect(recoverOnStart()).resolves.toBeDefined();
+      await expect(runReconcileSweep()).resolves.toBeDefined();
     } finally {
       spy.mockRestore();
     }
@@ -262,6 +268,85 @@ describe("initGateTool", () => {
   });
 });
 
+// ── B5: init_gate resolves the CONVERSATION's project via ctx.projectRoot ──
+//
+// The host forwards the conversation's active project root on the per-call
+// `_meta.ezProjectRoot`, which the SDK surfaces as `ctx.projectRoot`. The
+// DEFAULT project-root resolver must PREFER that over the process-wide
+// `EZCORP_PROJECT_ROOT` env var (one persistent subprocess serves every
+// conversation, so the env var only ever names ONE project). These tests use
+// the REAL default resolver (`_setProjectRootForTests(null)`), toggling the
+// tool context + env to prove precedence.
+describe("initGateTool — ctx.projectRoot (B5)", () => {
+  let root: string;
+  let savedEnv: string | undefined;
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "ezcf-b5-"));
+    savedEnv = process.env.EZCORP_PROJECT_ROOT;
+    _setProjectRootForTests(null); // exercise the REAL default resolver
+    _setShellForTests(productionHostRunner);
+    _setBaseUrlForTests(() => "http://127.0.0.1:9");
+  });
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+    if (savedEnv === undefined) delete process.env.EZCORP_PROJECT_ROOT;
+    else process.env.EZCORP_PROJECT_ROOT = savedEnv;
+  });
+
+  async function realRepo(name: string): Promise<string> {
+    const work = join(root, name);
+    mkdirSync(work);
+    await productionHostRunner(["git", "init", "-b", "main"], work);
+    await productionHostRunner(["git", "remote", "add", "origin", "https://up/x.git"], work);
+    return work;
+  }
+
+  test("uses ctx.projectRoot (no env) to gate the conversation's project", async () => {
+    delete process.env.EZCORP_PROJECT_ROOT; // env is NOT the source here
+    const work = await realRepo("ctx-proj");
+
+    const res = await withToolContext({ projectRoot: work }, () => initGateTool({}));
+
+    expect(res.isError).toBe(false);
+    const out = JSON.parse(res.content[0]!.text);
+    expect(out.ok).toBe(true);
+    // Gate provisioned UNDER the ctx-resolved project root.
+    expect(existsSync(gateDirFor(work, out.repoId))).toBe(true);
+  });
+
+  test("falls back to EZCORP_PROJECT_ROOT env when no tool context is bound", async () => {
+    const work = await realRepo("env-proj");
+    process.env.EZCORP_PROJECT_ROOT = work;
+
+    // No withToolContext wrapper → getToolContext() is undefined → env fallback.
+    const res = await initGateTool({});
+
+    expect(res.isError).toBe(false);
+    const out = JSON.parse(res.content[0]!.text);
+    expect(existsSync(gateDirFor(work, out.repoId))).toBe(true);
+  });
+
+  test("ctx.projectRoot WINS over the env var (correct project under concurrency)", async () => {
+    const ctxWork = await realRepo("ctx-wins");
+    process.env.EZCORP_PROJECT_ROOT = join(root, "stale-env-proj"); // wrong project
+
+    const res = await withToolContext({ projectRoot: ctxWork }, () => initGateTool({}));
+
+    expect(res.isError).toBe(false);
+    const out = JSON.parse(res.content[0]!.text);
+    // Gate landed under the ctx project, NOT the (stale) env project.
+    expect(existsSync(gateDirFor(ctxWork, out.repoId))).toBe(true);
+    expect(existsSync(gateDirFor(join(root, "stale-env-proj"), out.repoId))).toBe(false);
+  });
+
+  test("no ctx and no env → the unset error (default resolver returns undefined)", async () => {
+    delete process.env.EZCORP_PROJECT_ROOT;
+    const res = await initGateTool({});
+    expect(res.isError).toBe(true);
+    expect(res.content[0]!.text).toContain("EZCORP_PROJECT_ROOT unset");
+  });
+});
+
 // ── push-received action ────────────────────────────────────────────
 
 describe("handlePushReceived", () => {
@@ -270,6 +355,71 @@ describe("handlePushReceived", () => {
     const store = memStore();
     _setStoreForTests(store);
     await handlePushReceived({ source: "hub", pageId: "dashboard", userId: "u", payload: VALID_PUSH });
+    expect(store.runs.size).toBe(0);
+  });
+
+  test("resolves the project from the hook-baked payload root when ctx/env are unset (repoId-hash validated)", async () => {
+    // The PROD shape: one persistent subprocess, no tool-call context on a git
+    // push, EZCORP_PROJECT_ROOT never set. The managed hook bakes the root into
+    // its payload; the handler accepts it only because sha256(root)[:12]
+    // matches the payload's repoId.
+    _setProjectRootForTests(() => undefined);
+    _setTmpBaseForTests(() => "/tmp/ext");
+    _setShellForTests(async () => ({ exitCode: 0, stdout: "", stderr: "" }));
+    const store = memStore();
+    _setStoreForTests(store);
+    _setRunPipelineForTests(fakePipeline(store, "completed"));
+    _setPushPageForTests(() => {});
+    const root = "/proj/from-hook";
+    await handlePushReceived({
+      source: "hub",
+      pageId: "dashboard",
+      userId: "u",
+      payload: { ...VALID_PUSH, repoId: repoIdOf(root), projectRoot: root },
+    });
+    expect(store.runs.size).toBe(1);
+    const run = [...store.runs.values()][0]!;
+    expect(run.repoId).toBe(repoIdOf(root));
+    // The validated root is stamped for later context-free fires
+    // (respond/yolo/reconcile/sweep/recovery).
+    expect(run.projectRoot).toBe(root);
+  });
+
+  test("hash-validated payload root WINS over a set env root naming a DIFFERENT project", async () => {
+    // One persistent subprocess serves every project: the process-wide env
+    // root names whichever project spawned it (here /proj/other), not this
+    // push's. The self-binding claim (sha256(root)[:12] === payload repoId)
+    // must win, or every path (gate dir, tmp base, worktrees) derives from
+    // the WRONG project tree — the latent wrong-tree bug behind drive-3.
+    _setProjectRootForTests(() => "/proj/other");
+    _setTmpBaseForTests(() => "/tmp/ext");
+    _setShellForTests(async () => ({ exitCode: 0, stdout: "", stderr: "" }));
+    const store = memStore();
+    _setStoreForTests(store);
+    _setRunPipelineForTests(fakePipeline(store, "completed"));
+    _setPushPageForTests(() => {});
+    const root = "/proj/from-hook";
+    await handlePushReceived({
+      source: "hub",
+      pageId: "dashboard",
+      userId: "u",
+      payload: { ...VALID_PUSH, repoId: repoIdOf(root), projectRoot: root },
+    });
+    expect(store.runs.size).toBe(1);
+    const run = [...store.runs.values()][0]!;
+    expect(run.projectRoot).toBe(root); // NOT /proj/other
+  });
+
+  test("rejects a payload root that fails the repoId hash binding (forged root)", async () => {
+    _setProjectRootForTests(() => undefined);
+    const store = memStore();
+    _setStoreForTests(store);
+    await handlePushReceived({
+      source: "hub",
+      pageId: "dashboard",
+      userId: "u",
+      payload: { ...VALID_PUSH, projectRoot: "/proj/forged" }, // VALID_PUSH.repoId ≠ hash of this root
+    });
     expect(store.runs.size).toBe(0);
   });
 
@@ -517,7 +667,8 @@ describe("handleRespond", () => {
     }
     // The project-root guard short-circuits BEFORE any resume — observable no-op:
     // the expected stderr line, the resume runner never fired, the run unchanged.
-    expect(cap.text()).toContain("no EZCORP_PROJECT_ROOT");
+    // (No ctx/env root and the seeded run carries no stamped root.)
+    expect(cap.text()).toContain("no resolvable project root");
     expect(runnerCalls).toBe(0);
     expect((await store.getRun("run-parked"))!.status).toBe("awaiting_approval");
   });
@@ -996,12 +1147,20 @@ describe("resolveProductionGhToken", () => {
 describe("handleReconcile", () => {
   const evt = (payload: Record<string, unknown>) => ({ source: "hub" as const, pageId: "dashboard", userId: "u", payload });
 
-  test("no project root → ignored", async () => {
+  test("no resolvable project root (no ctx/env, run not stamped) → ignored", async () => {
     _setProjectRootForTests(() => undefined);
+    const store = memStore();
+    _setStoreForTests(store);
+    await store.createRun({
+      id: "r1", repoId: "0123456789ab", branch: "feat/x", ref: "refs/heads/feat/x",
+      headSha: "abc", baseSha: "0".repeat(40), status: "checks_passed", worktreePath: "/wt/r1",
+      createdAt: "t", updatedAt: "t", parkedMs: 0, awaitingAgentSince: "t", intent: null, intentSource: null,
+    });
     const stderr = captureStderr();
     try {
       await handleReconcile(evt({ runId: "r1" }));
-      expect(stderr.text()).toContain("no EZCORP_PROJECT_ROOT");
+      expect(stderr.text()).toContain("no resolvable project root");
+      expect(store.runs.get("r1")!.status).toBe("checks_passed");
     } finally {
       stderr.restore();
     }
@@ -1373,13 +1532,20 @@ describe("renderDashboard — parked-run triage detail", () => {
 // ── yolo autopilot (M2) ─────────────────────────────────────────────
 
 describe("handleYolo", () => {
-  test("ignores yolo with no active project", async () => {
+  test("ignores yolo when no project root resolves (no ctx/env, run not stamped)", async () => {
     _setProjectRootForTests(() => undefined);
-    _setStoreForTests(memStore());
+    const store = memStore();
+    _setStoreForTests(store);
+    await store.createRun({
+      id: "r1", repoId: "0123456789ab", branch: "feat/x", ref: "refs/heads/feat/x",
+      headSha: "abc", baseSha: "0".repeat(40), status: "awaiting_approval", worktreePath: "/wt/r1",
+      createdAt: "t", updatedAt: "t", parkedMs: 0, awaitingAgentSince: "t", intent: null, intentSource: null,
+    });
     const stderr = captureStderr();
     try {
       await handleYolo({ source: "hub", pageId: "dashboard", userId: "u", payload: { runId: "r1" } });
-      expect(stderr.text()).toContain("no EZCORP_PROJECT_ROOT");
+      expect(stderr.text()).toContain("no resolvable project root");
+      expect(store.runs.get("r1")!.status).toBe("awaiting_approval");
     } finally {
       stderr.restore();
     }
@@ -1882,13 +2048,38 @@ describe("code_factory_doctor tool (M6)", () => {
 });
 
 describe("reconcile sweep wiring (M6)", () => {
-  test("runReconcileSweep skips with no active project", async () => {
+  test("runReconcileSweep with no ctx/env root: a run WITHOUT a stamped root is skipped, one WITH a stamped root advances", async () => {
     _setProjectRootForTests(() => undefined);
-    _setStoreForTests(memStore());
+    _setShellForTests(okShell);
+    _setPushPageForTests(() => {});
+    const store = memStore();
+    _setStoreForTests(store);
+    const base = {
+      branch: "feat/x", ref: "refs/heads/feat/x", headSha: "abc", baseSha: "0".repeat(40),
+      status: "checks_passed" as const, createdAt: "t", updatedAt: "t", parkedMs: 0,
+      awaitingAgentSince: "t", intent: null, intentSource: null,
+    };
+    // Pre-fix row: no stamped root → with no ctx/env either, the sweep must
+    // skip it (logged) instead of resolving a wrong project.
+    await store.createRun({ ...base, id: "old", repoId: "0123456789ab", worktreePath: "/wt/old" });
+    // Post-fix row: the stamped root hash-matches its repoId → reconciles
+    // with NO env var at all.
+    await store.createRun({
+      ...base, id: "new", repoId: repoIdOf("/proj"), worktreePath: "/wt/new", projectRoot: "/proj",
+    });
+    _setReconcileRunnerForTests(() => async ({ runId }) => {
+      await store.updateRun(runId, { status: "completed" });
+      return { parked: false };
+    });
+    _setHeartbeatKVForTests(() => ({ async read() { return null; }, async write() {} }));
     const stderr = captureStderr();
     try {
-      expect(await runReconcileSweep()).toBeNull();
-      expect(stderr.text()).toContain("reconcile sweep with no EZCORP_PROJECT_ROOT");
+      const summary = await runReconcileSweep();
+      expect(summary.skipped).toBe(1);
+      expect(summary.advanced).toBe(1);
+      expect(stderr.text()).toContain("run old has no resolvable project root");
+      expect(store.runs.get("new")!.status).toBe("completed");
+      expect(store.runs.get("old")!.status).toBe("checks_passed");
     } finally {
       stderr.restore();
     }
@@ -1963,13 +2154,33 @@ describe("reconcile sweep wiring (M6)", () => {
 });
 
 describe("crash recovery wiring (M6)", () => {
-  test("recoverOnStart skips with no active project", async () => {
+  test("recoverOnStart with no ctx/env root: a rootless run's worktree is NOT reaped (logged), a stamped one is", async () => {
     _setProjectRootForTests(() => undefined);
-    _setStoreForTests(memStore());
+    const removed: string[] = [];
+    _setShellForTests(async (cmd) => {
+      if (cmd.includes("worktree") && cmd.includes("remove")) removed.push(cmd.join(" "));
+      return { exitCode: 0, stdout: "", stderr: "" };
+    });
+    const store = memStore();
+    _setStoreForTests(store);
+    const base = {
+      branch: "feat/x", ref: "refs/heads/feat/x", headSha: "abc", baseSha: "0".repeat(40),
+      status: "completed" as const, createdAt: "t", updatedAt: "t", parkedMs: 0,
+      awaitingAgentSince: null, intent: null, intentSource: null,
+    };
+    await store.createRun({ ...base, id: "old", repoId: "0123456789ab", worktreePath: "/wt/old" });
+    await store.createRun({
+      ...base, id: "new", repoId: repoIdOf("/proj"), worktreePath: "/wt/new", projectRoot: "/proj",
+    });
     const stderr = captureStderr();
     try {
-      expect(await recoverOnStart()).toBeNull();
-      expect(stderr.text()).toContain("crash recovery with no EZCORP_PROJECT_ROOT");
+      const summary = await recoverOnStart();
+      // Both rows count as "reap attempted" (worktreePath cleared for
+      // idempotency), but only the stamped run's shell reap actually ran.
+      expect(summary.reaped).toBe(2);
+      expect(removed.length).toBe(1);
+      expect(removed[0]).toContain("/wt/new");
+      expect(stderr.text()).toContain("run old has no resolvable project root — worktree not reaped");
     } finally {
       stderr.restore();
     }

@@ -88,6 +88,13 @@ export interface RunRecord {
   /** The pull-request URL the PR step opened/updated (M4). Null until the PR
    *  step runs; the CI step reads it to poll checks + reconcile a stale gate. */
   prUrl?: string | null;
+  /** VALIDATED absolute project root captured at run creation (the push
+   *  handler checks `repoId(projectRoot) === repoId` before it lands here).
+   *  Later event fires with no tool-call context (respond/yolo/reconcile,
+   *  the sweep, crash recovery) re-derive every path from this instead of the
+   *  structurally-unset process env. Absent on pre-fix rows — consumers fall
+   *  back to ctx/env resolution. */
+  projectRoot?: string;
   error?: string;
 }
 
@@ -427,6 +434,12 @@ export interface PushReceived {
    *  HINT (intentIsAuthoritative checks `=== "agent"`). Ignored when `intent` is
    *  null. */
   intentSource?: string | null;
+  /** Absolute project root the managed hook baked into its payload. A push
+   *  event fires with NO tool-call context and the process-wide env var is
+   *  structurally unset in prod, so this is the handler's only root source.
+   *  UNTRUSTED here — the handler must validate the repoId↔root hash binding
+   *  (`repoId(projectRoot) === repoId`) before acting on it. */
+  projectRoot?: string;
 }
 
 /** Max accepted length of an explicit intent push option (defence in depth —
@@ -480,7 +493,23 @@ export function parsePushReceived(payload: unknown): PushReceived | null {
   // as absent (all-zeros), never a throw.
   const rawOld = str(p.oldSha).trim();
   const oldSha = /^[0-9a-f]{7,64}$/i.test(rawOld) ? rawOld : "0".repeat(40);
-  return { repoId, branch, ref, newSha, oldSha, intent: parseIntentOption(p.pushOptions) };
+  // projectRoot: shape-check only (absolute, no traversal, no control chars).
+  // The TRUST decision — does this root actually hash to `repoId`? — belongs
+  // to the caller, which can import the hash fn without a layering cycle.
+  const rawRoot = str(p.projectRoot).trim();
+  const projectRoot =
+    rawRoot.startsWith("/") && !rawRoot.includes("..") && !/[\n\r\0]/.test(rawRoot)
+      ? rawRoot
+      : undefined;
+  return {
+    repoId,
+    branch,
+    ref,
+    newSha,
+    oldSha,
+    intent: parseIntentOption(p.pushOptions),
+    ...(projectRoot !== undefined ? { projectRoot } : {}),
+  };
 }
 
 /** A user's approval action at a parked gate. */
@@ -592,6 +621,10 @@ export interface RunManagerDeps {
    * respond; otherwise it is torn down here. The pipeline owns the run status.
    */
   runPipeline?: (ctx: { runId: string; worktreePath: string }) => Promise<{ parked: boolean }>;
+  /** VALIDATED project root the caller resolved for this push (see
+   *  RunRecord.projectRoot). Stamped onto the created run record so later
+   *  context-free event fires can re-derive the gate dir from the record. */
+  projectRoot?: string;
 }
 
 export interface RunLifecycleResult {
@@ -702,6 +735,7 @@ export async function runGateLifecycle(
         // (authoritative); the M5 chat trigger passes "conversation" for an
         // inferred HINT. Null when there is no intent.
         intentSource: intent ? (push.intentSource ?? "agent") : null,
+        ...(deps.projectRoot !== undefined ? { projectRoot: deps.projectRoot } : {}),
       };
       await store.createRun(record);
       await notify();

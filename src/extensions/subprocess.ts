@@ -6,7 +6,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { getSandboxTier } from "./sandbox/capability-probe";
-import { buildSandboxArgv } from "./sandbox/build-sandbox-argv";
+import { buildSandboxArgv, defaultShimPath } from "./sandbox/build-sandbox-argv";
 import { DEFAULT_RUNTIME_RO_DIRS, runtimeExecRoDirs } from "./sandbox/landlock";
 import { formatNpmDepError, verifyNpmDependencies } from "./npm-deps";
 
@@ -274,6 +274,19 @@ export class ExtensionProcess {
       mkdirSync(workspaceDir, { recursive: true });
       const rwPaths: string[] = [];
       if (this.allowedEnv.TMPDIR) rwPaths.push(this.allowedEnv.TMPDIR);
+      // The DATA-DIR CONVENTION home (`extension-data/<manifest NAME>`,
+      // docs/extensions/data-storage.md) — where extensions persist their
+      // user-visible state (ez-code-factory's gate repos + kept worktrees
+      // live here). The workspace grant above is keyed by INSTALL ID (a
+      // UUID that changes on reinstall), so without this grant every
+      // name-keyed write is landlock-denied and the convention silently
+      // breaks on any non-advisory host. Sibling of `.ezcorp/data`, never
+      // an ancestor — the builder still asserts the secret stays denied.
+      if (this.extensionName) {
+        const nameDir = join(projectRoot, ".ezcorp", "extension-data", this.extensionName);
+        mkdirSync(nameDir, { recursive: true });
+        rwPaths.push(nameDir);
+      }
       // The jailed workspace is `.ezcorp/extension-data/<id>` (rw). But the
       // child runs `bun run --preload <preload> <entrypoint>`, and BOTH the
       // extension's CODE dir (where the entrypoint + its sibling files live)
@@ -292,11 +305,19 @@ export class ExtensionProcess {
       // `prlimit … bun` can execvp its interpreter even where `bun` lives
       // outside the conventional system dirs — e.g. GitHub hosted runners
       // install it under `~/.bun/bin` via setup-bun (#55).
+      //
+      // The SANDBOX dir (where the landlock shim + its import closure live)
+      // is granted RO too: a NESTED jail spawn inside the subprocess (the
+      // EZCORP_SANDBOX_SHIM handoff, e.g. ez-code-factory's mutating-git
+      // shell) runs `bun <shim>` UNDER this jail, so the shim's own source
+      // must be readable or the nested spawn dies at module-load. Code only —
+      // same trust class as the already-granted preloadDir.
       const roPaths = [
         ...DEFAULT_RUNTIME_RO_DIRS,
         ...runtimeExecRoDirs(),
         extDir,
         preloadDir,
+        dirname(defaultShimPath()),
       ];
       // The child `bun run <entrypoint>` must also READ the extension's
       // DEPENDENCIES — above all `@ezcorp/sdk`, which every bundled extension
@@ -408,6 +429,16 @@ export class ExtensionProcess {
     const env: Record<string, string> = { ...this.allowedEnv };
     if (this.networkAllowed) env.EZCORP_NETWORK_ALLOWED = "1";
     if (this.shellAllowed) env.EZCORP_SHELL_ALLOWED = "1";
+    // Sandbox-tier handoff for NESTED jail spawns. The poisoned subprocess
+    // cannot probe the tier (capability-probe needs node:fs/child_process)
+    // nor resolve the shim path (needs fs), so the host bakes both into the
+    // env. A spawn site inside the subprocess (ez-code-factory's mutating-
+    // git shell) then assembles `bun <shim> -- <cmd>` + a RAW spec env
+    // (LANDLOCK_RAW_SPEC_ENV) PURELY — the shim, a fresh unpoisoned
+    // process, does the realpath + data-dir assertions + landlock apply.
+    // Set even at "advisory" (an explicit "no OS jail available" signal).
+    env.EZCORP_SANDBOX_TIER = getSandboxTier();
+    env.EZCORP_SANDBOX_SHIM = defaultShimPath();
     // Phase A4 (Seam A) — thread the landlock-tier jail spec env
     // (EZCORP_LANDLOCK_SPEC) when the spawn argv is shim-wrapped. Set AFTER
     // allowedEnv so the data-dir exclusion can't be overridden.

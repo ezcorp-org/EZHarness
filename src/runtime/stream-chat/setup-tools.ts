@@ -57,6 +57,14 @@ export type OrchestratedRun = AgentRun & RunOrchestrationMeta;
 /** Subset of streamChat's options the setup-tools phase reads. */
 export interface SetupToolsOptions {
   projectId?: string;
+  /** Absolute directory the built-in file/shell tools root at INSTEAD of the
+   *  project path. Set (host-validated) by the spawn-assignment handler for
+   *  extension-dispatched sub-agents that must operate in a specific checkout
+   *  — e.g. a pipeline run's git worktree. Containment, not convenience: a
+   *  dispatched agent whose shell defaulted to the PROJECT root ran
+   *  `rm -rf .ezcorp` there and destroyed the dispatching extension's gate
+   *  repo + kept worktrees (ez-code-factory drive-3). Absent → project path. */
+  workingDir?: string;
   parentMessageId?: string;
   agentConfigId?: string;
   permissionMode?: import("../tools/types").PermissionMode;
@@ -537,7 +545,11 @@ export async function setupTools(
                 })()
               : undefined;
 
-            const toolDefs = getBuiltinToolDefs(project.path, previewWiring);
+            // The dispatch-pinned working dir (spawn-assignment `workingDir`)
+            // wins over the project path so a pipeline sub-agent's shell/fs
+            // tools operate in its run worktree, never the shared checkout.
+            const toolRoot = options.workingDir ?? project.path;
+            const toolDefs = getBuiltinToolDefs(toolRoot, previewWiring);
             for (const def of toolDefs) ctx.builtinToolDefsMap.set(def.name, def);
             const projectId = options.projectId;
 

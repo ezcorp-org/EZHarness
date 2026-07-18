@@ -8,7 +8,7 @@ import type { StreamChatContext } from "../runtime/stream-chat/context";
 // Must mock before importing modules that use db/connection.
 mockDbConnection();
 
-const { backfillSessionForConversation, isLlmTurn, rowToPiMessage } = await import("../db/session-backfill");
+const { backfillSessionForConversation, isLlmTurn, isUniqueViolation, rowToPiMessage } = await import("../db/session-backfill");
 const { loadHistory } = await import("../runtime/stream-chat/load-history");
 
 const PROJECT_ID = "p-parity";
@@ -301,5 +301,22 @@ describe("session backfill — pure helpers", () => {
     });
     const usr = rowToPiMessage({ role: "user", content: "yo", createdAt: created } as any);
     expect(usr).toEqual({ role: "user", content: "yo", timestamp: created.getTime() });
+  });
+
+  test("isUniqueViolation: matches SQLSTATE 23505 under BOTH driver error shapes", () => {
+    // PGlite / pg shape: SQLSTATE on `.cause.code`.
+    expect(isUniqueViolation({ cause: { code: "23505" } })).toBe(true);
+    // Bun.sql (external Postgres) shape — verified live 2026-07-16: `.cause.code`
+    // is "ERR_POSTGRES_SERVER_ERROR" and the SQLSTATE rides on `.cause.errno`.
+    expect(isUniqueViolation({ cause: { code: "ERR_POSTGRES_SERVER_ERROR", errno: 23505 } })).toBe(true);
+    expect(isUniqueViolation({ cause: { code: "ERR_POSTGRES_SERVER_ERROR", errno: "23505" } })).toBe(true);
+    // Raw driver error (no drizzle wrapper).
+    expect(isUniqueViolation({ code: "23505" })).toBe(true);
+    expect(isUniqueViolation({ errno: 23505 })).toBe(true);
+    // Non-matches: other SQLSTATEs, non-objects, missing cause.
+    expect(isUniqueViolation({ cause: { code: "23503" } })).toBe(false);
+    expect(isUniqueViolation(new Error("boom"))).toBe(false);
+    expect(isUniqueViolation(null)).toBe(false);
+    expect(isUniqueViolation("23505")).toBe(false);
   });
 });

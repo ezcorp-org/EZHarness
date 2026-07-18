@@ -27,8 +27,18 @@
 		toolCall,
 		expiredCapability,
 		isAdmin = false,
+		onResolved,
 	}: {
 		toolCall: ToolCallState;
+		/**
+		 * Optional callback fired AFTER a permission decision is POSTed
+		 * (allow/deny/re-approve). The chat-inline gate leaves this unset —
+		 * the run's tool-call state clears the card on `tool:complete`. The
+		 * fallback `PendingPermissionTray` (extension-initiated prompts with
+		 * no run) passes it so the tray can drop the resolved card, which has
+		 * no `tool:complete` render slot of its own.
+		 */
+		onResolved?: () => void;
 		/**
 		 * Phase 56: `initialTtlMs` accepts `number | null` (null = the
 		 * picker's "Never" selection). The chat-side gate seeds the
@@ -117,6 +127,7 @@
 			// Built-in tool gates ignore the scope arg server-side; only
 			// extension-scoped gates honor it.
 			await sendToolPermissionResponse(toolCall.id, true, scope);
+			onResolved?.();
 		} finally {
 			loading = false;
 		}
@@ -125,6 +136,7 @@
 	async function handleDeny() {
 		if (!toolCall.id) return;
 		await sendToolPermissionResponse(toolCall.id, false);
+		onResolved?.();
 	}
 
 	// Phase 4 — re-approve handlers. The "Approve $newTtl" path posts
@@ -147,6 +159,7 @@
 				undefined,
 				selectedTtlMs,
 			);
+			onResolved?.();
 		} finally {
 			loading = false;
 		}
@@ -157,6 +170,7 @@
 		loading = true;
 		try {
 			await sendToolPermissionResponse(toolCall.id, true, 'forever');
+			onResolved?.();
 		} finally {
 			loading = false;
 		}
@@ -171,6 +185,7 @@
 		// approves.
 		if (!toolCall.id) return;
 		await sendToolPermissionResponse(toolCall.id, false);
+		onResolved?.();
 	}
 </script>
 

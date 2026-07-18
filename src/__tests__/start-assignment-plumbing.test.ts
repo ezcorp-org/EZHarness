@@ -422,6 +422,57 @@ describe("startAssignment — overrides plumbing", () => {
   });
 });
 
+// ── 3b. workingDir — the containment pin cascades to EVERY cycle ────
+//
+// The spawn-assignment `workingDir` (an extension-dispatched agent's git
+// worktree) must reach streamChat's options on the INITIAL run AND on every
+// auto-continue cycle — a later cycle silently falling back to the shared
+// project checkout is exactly the drive-3 breach (`rm -rf .ezcorp` from the
+// project root) this field exists to prevent.
+
+describe("startAssignment — workingDir plumbing", () => {
+  test("workingDir set → forwarded verbatim on streamChat options", async () => {
+    const { executor, calls } = makeMockExecutor();
+    const opts = baseOpts({ executor, workingDir: "/tmp/wt/run_abc" });
+    await startAssignment(opts);
+    expect(calls[0]!.options.workingDir).toBe("/tmp/wt/run_abc");
+  });
+
+  test("workingDir absent → no workingDir key on streamChat options", async () => {
+    const { executor, calls } = makeMockExecutor();
+    const opts = baseOpts({ executor });
+    await startAssignment(opts);
+    expect(calls[0]!.options).not.toHaveProperty("workingDir");
+  });
+
+  test("workingDir carries into the auto-continue (pending-message) cycle", async () => {
+    const { executor, calls } = makeMockExecutor();
+    const task = makeTask();
+    const assignment = makeAssignment();
+    const snapshot = makeSnapshot(task, "conv-parent");
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const opts = baseOpts({
+      executor, bus, task, assignment, snapshot, workingDir: "/tmp/wt/run_abc",
+    });
+    const { subConversationId, agentRunId } = await startAssignment(opts);
+
+    // Queue a user steering message, then complete the first run — the
+    // run:complete drain starts the auto-continue cycle via startRun.
+    enqueue(subConversationId, {
+      messageId: crypto.randomUUID(),
+      content: "keep going",
+      createdAt: new Date().toISOString(),
+    });
+    bus.emit("run:complete", {
+      run: { id: agentRunId, agentName: "alice", status: "success", startedAt: Date.now(), logs: [] },
+      conversationId: subConversationId,
+    });
+
+    expect(calls.length).toBe(2);
+    expect(calls[1]!.options.workingDir).toBe("/tmp/wt/run_abc");
+  });
+});
+
 // ── 4. teamToolScope — wins over overrides' tool lists when active ─
 
 describe("startAssignment — teamToolScope plumbing", () => {

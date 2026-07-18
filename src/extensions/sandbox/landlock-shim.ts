@@ -21,9 +21,42 @@
  * subprocess entrypoint.
  */
 
-import { applyLandlockJailSpec, type LandlockJailSpec } from "./landlock";
+import { applyLandlockJailSpec, buildLandlockJailSpec, type LandlockJailSpec } from "./landlock";
 
 export const LANDLOCK_SPEC_ENV = "EZCORP_LANDLOCK_SPEC";
+
+/**
+ * RAW (unresolved) jail-spec input env var — the SANDBOXED-SUBPROCESS handoff.
+ *
+ * A poisoned extension subprocess (sandbox-preload denies `node:fs`) cannot
+ * run `buildLandlockJailSpec` itself: the spec builder realpath-canonicalizes
+ * every grant (a SECURITY step — symlink→data-dir leak) and that needs fs.
+ * So a nested-jail spawn site inside the subprocess (e.g. ez-code-factory's
+ * mutating-git shell) passes the PURE inputs here instead, and THIS shim —
+ * a fresh process, outside the poisoning — resolves them via
+ * `buildLandlockJailSpec` (realpath + deny-by-default + data-dir assertion)
+ * before applying. Fail-closed like everything else in this file: a
+ * malformed raw input aborts without running the inner command.
+ *
+ * `LANDLOCK_SPEC_ENV` (a pre-resolved spec from a host-side builder) wins
+ * when both are present — the raw path is only the subprocess-side fallback.
+ */
+export const LANDLOCK_RAW_SPEC_ENV = "EZCORP_LANDLOCK_SPEC_RAW";
+
+/** The PURE inputs a sandboxed spawn site may pass via
+ *  {@link LANDLOCK_RAW_SPEC_ENV} — mirrors `buildLandlockJailSpec`'s input.
+ *  Imported TYPE-ONLY by sandboxed extension code (erased at runtime, so it
+ *  never drags this module's fs imports into a poisoned load graph). */
+export interface RawLandlockSpecInput {
+  /** The run's writable workspace (rw, first grant). */
+  workspaceDir: string;
+  /** Project root — the forbidden `.ezcorp/data` anchor (never granted). */
+  projectRoot: string;
+  roPaths?: string[];
+  rwPaths?: string[];
+  listPaths?: string[];
+  traversePaths?: string[];
+}
 
 /**
  * Resolve the inner command from the shim's own argv slice (everything AFTER
@@ -47,13 +80,48 @@ export function parseShimArgv(argv: readonly string[]): {
   return { command: inner[0]!, args: inner.slice(1) };
 }
 
-/** Parse the jail spec from the env var. Fail-closed on missing/invalid. */
+/** Parse + resolve a RAW spec input (see {@link LANDLOCK_RAW_SPEC_ENV}).
+ *  Fail-closed on malformed JSON / missing required fields; the resolution
+ *  itself (`buildLandlockJailSpec`) fail-closes on any grant that would
+ *  expose `.ezcorp/data`. */
+export function resolveRawSpecFromEnv(raw: string): LandlockJailSpec {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error(`landlock-shim: ${LANDLOCK_RAW_SPEC_ENV} is not valid JSON`);
+  }
+  const input = parsed as Partial<RawLandlockSpecInput>;
+  if (typeof input.workspaceDir !== "string" || !input.workspaceDir.trim()) {
+    throw new Error(`landlock-shim: raw spec needs a workspaceDir`);
+  }
+  if (typeof input.projectRoot !== "string" || !input.projectRoot.trim()) {
+    throw new Error(`landlock-shim: raw spec needs a projectRoot`);
+  }
+  return buildLandlockJailSpec({
+    workspaceDir: input.workspaceDir,
+    projectRoot: input.projectRoot,
+    ...(Array.isArray(input.roPaths) ? { roPaths: input.roPaths } : {}),
+    ...(Array.isArray(input.rwPaths) ? { rwPaths: input.rwPaths } : {}),
+    ...(Array.isArray(input.listPaths) ? { listPaths: input.listPaths } : {}),
+    ...(Array.isArray(input.traversePaths) ? { traversePaths: input.traversePaths } : {}),
+  });
+}
+
+/** Parse the jail spec from the env: a pre-resolved spec
+ *  ({@link LANDLOCK_SPEC_ENV}) wins; else a RAW input
+ *  ({@link LANDLOCK_RAW_SPEC_ENV}) is resolved here — the sandboxed-
+ *  subprocess handoff. Fail-closed on missing/invalid. */
 export function parseSpecFromEnv(
   env: Record<string, string | undefined>,
 ): LandlockJailSpec {
   const raw = env[LANDLOCK_SPEC_ENV];
   if (!raw) {
-    throw new Error(`landlock-shim: ${LANDLOCK_SPEC_ENV} env var is required`);
+    const rawInput = env[LANDLOCK_RAW_SPEC_ENV];
+    if (rawInput) return resolveRawSpecFromEnv(rawInput);
+    throw new Error(
+      `landlock-shim: ${LANDLOCK_SPEC_ENV} or ${LANDLOCK_RAW_SPEC_ENV} env var is required`,
+    );
   }
   let parsed: unknown;
   try {
@@ -121,10 +189,10 @@ export async function runShim(
   applyLandlockJailSpec(spec);
 
   // The child inherits the Landlock restrictions (they survive execve).
-  // Strip our spec env var so nested spawns don't accidentally re-shim.
+  // Strip our spec env vars so nested spawns don't accidentally re-shim.
   const childEnv: Record<string, string> = {};
   for (const [k, v] of Object.entries(env)) {
-    if (k !== LANDLOCK_SPEC_ENV && v != null) childEnv[k] = v;
+    if (k !== LANDLOCK_SPEC_ENV && k !== LANDLOCK_RAW_SPEC_ENV && v != null) childEnv[k] = v;
   }
 
   const proc = Bun.spawn([command, ...args], {

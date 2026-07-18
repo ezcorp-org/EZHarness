@@ -25,6 +25,14 @@ export default defineExtension({
   entrypoint: "./index.ts",
   category: "Development",
   tags: ["hub", "pages", "git", "gate", "ci", "control-plane"],
+  // The pipeline holds LONG-LIVED in-memory state between host calls: the
+  // per-(repo,branch) run mutex and the spawn dispatcher's pending-terminal
+  // map (an agent dispatch awaits `task:assignment_update` for up to 10
+  // minutes with NO host→subprocess traffic in between). The default idle
+  // eviction (5 min after the last host call) would kill the subprocess
+  // mid-await — the dispatch's own timeout dies with it and the run is left
+  // frozen "running" forever. Must stay resident.
+  persistent: true,
 
   tools: [
     {
@@ -338,6 +346,13 @@ export default defineExtension({
       // M4: re-check a run parked at the CI gate — a read-only ReconcileApproval
       // Gate poll that auto-resolves the gate when its PR has merged/closed.
       "ez-code-factory:reconcile",
+      // Platform direct-carrier event (DIRECT_CARRIER_EVENT_TYPES): the
+      // terminal status of every `ezcorp/spawn-assignment` sub-agent this
+      // pipeline dispatches. WITHOUT this subscription the spawn dispatcher's
+      // `registerEventHandler("task:assignment_update", …)` resolver never
+      // fires — the host only delivers granted events — so every step's agent
+      // dispatch dangles until its 10-minute timeout and the run fails.
+      "task:assignment_update",
     ],
     // Custom RBAC scope DECLARATIONS (M6, extension-RBAC layer — inert, NOT a
     // privilege): name the per-extension scopes gating the gate-triage verbs.
@@ -367,5 +382,13 @@ export default defineExtension({
 
   resources: {
     memory: "256MB",
+    // The run/respond tools legitimately hold a call open while a review or
+    // fix agent runs (the spawn dispatch waits up to 10 min for its terminal
+    // update). The DEFAULT 30s ceiling KILLS the subprocess on timeout —
+    // destroying the run mutex + pending-terminal map and freezing the run
+    // (drive-2 flake). 15 min = dispatch budget + pipeline overhead. The
+    // chat tools still self-detach at LIFECYCLE_WAIT_MS as a safety valve
+    // below this ceiling.
+    callTimeoutMs: 15 * 60_000,
   },
 });

@@ -68,6 +68,14 @@
 				filesystem?: string[];
 				shell?: boolean;
 				env?: string[];
+				// Capability-tier grants. These are all-or-nothing: they're
+				// auto-granted at install from the manifest (no per-cap
+				// toggle) and `clampExtensionPermissions` re-strips custom
+				// event subscriptions on any PUT — so the UI DISPLAYS them
+				// read-only ("granted at install"), never as editable toggles.
+				storage?: boolean;
+				spawnAgents?: { maxPerHour: number; maxConcurrent?: number };
+				eventSubscriptions?: string[] | { events: string[]; includeFullPayload?: boolean };
 			};
 			settings?: SettingsSchema;
 			// Phase 5 (defineEntity SDK) — entity declarations drive the
@@ -189,6 +197,26 @@
 	let settingsError = $state("");
 
 	const hasSchema = $derived(Object.keys(settingsSchema).length > 0);
+
+	// Capability-tier grants declared in the manifest. These are auto-granted
+	// at install (all-or-nothing) and NOT user-editable here — the PUT
+	// /permissions endpoint runs `clampExtensionPermissions`, which re-strips
+	// custom event subscriptions, so a naive toggle would silently no-op or
+	// revoke. We therefore render them read-only ("granted at install"). The
+	// object/array `eventSubscriptions` shapes are normalized to a flat list.
+	const eventSubscriptions = $derived.by((): string[] => {
+		const raw = ext?.manifest.permissions.eventSubscriptions;
+		if (!raw) return [];
+		return Array.isArray(raw) ? raw : (raw.events ?? []);
+	});
+	const installGrants = $derived.by((): { storage: boolean; spawnAgents: { maxPerHour: number; maxConcurrent?: number } | null; events: string[] } => ({
+		storage: ext?.manifest.permissions.storage === true,
+		spawnAgents: ext?.manifest.permissions.spawnAgents ?? null,
+		events: eventSubscriptions,
+	}));
+	const hasInstallGrants = $derived(
+		installGrants.storage || installGrants.spawnAgents !== null || installGrants.events.length > 0,
+	);
 
 	function authorName(author?: string | { name: string; id?: string }): string {
 		return typeof author === "string" ? author : (author?.name ?? "");
@@ -1244,6 +1272,37 @@
 						{/if}
 					</div>
 				</div>
+
+				<!--
+					Capability-tier grants (storage / spawnAgents /
+					eventSubscriptions). Unlike network/fs/shell/env, these are
+					auto-granted at install from the manifest — all-or-nothing,
+					with no per-cap opt-out — and the PUT /permissions endpoint
+					re-strips custom event subscriptions via
+					`clampExtensionPermissions`. So we DISPLAY them read-only
+					("granted at install"), never as editable toggles that would
+					silently no-op. Revoking these means uninstalling the
+					extension.
+				-->
+				{#if hasInstallGrants}
+					<div data-testid="install-granted-capabilities">
+						<div class="text-xs font-medium text-[var(--color-text-secondary)]">Granted at install</div>
+						<p class="mt-0.5 text-[10px] text-[var(--color-text-muted)]">
+							Auto-granted from the manifest. Read-only — to revoke, uninstall the extension.
+						</p>
+						<div class="mt-1 flex flex-wrap gap-1">
+							{#if installGrants.storage}
+								<span class="rounded-full bg-[var(--color-surface-tertiary)] px-2 py-0.5 text-xs text-[var(--color-text-secondary)]" data-testid="install-grant-storage">Persistent storage</span>
+							{/if}
+							{#if installGrants.spawnAgents}
+								<span class="rounded-full bg-[var(--color-surface-tertiary)] px-2 py-0.5 text-xs text-[var(--color-text-secondary)]" data-testid="install-grant-spawn-agents">Spawn sub-agents ({installGrants.spawnAgents.maxPerHour}/hr)</span>
+							{/if}
+							{#each installGrants.events as evt}
+								<span class="rounded-full bg-[var(--color-surface-tertiary)] px-2 py-0.5 font-mono text-xs text-[var(--color-text-secondary)]" data-testid="install-grant-event">{evt}</span>
+							{/each}
+						</div>
+					</div>
+				{/if}
 
 				<!--
 					Phase 4 deputy / orchestration consent. Each renders only

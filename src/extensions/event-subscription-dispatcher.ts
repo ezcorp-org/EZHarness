@@ -289,7 +289,14 @@ export class EventSubscriptionDispatcher {
    */
   private async dispatch(eventType: string, payload: unknown): Promise<void> {
     const subscribers = this.eventToExtensions.get(eventType as SubscribableEvent);
-    if (!subscribers || subscribers.size === 0) return;
+    // Terminal spawn updates are rare + load-bearing (a spawning extension
+    // awaits them; a silent drop wedges its dispatch until timeout), so this
+    // event type logs every gate decision. Everything else stays quiet.
+    const traced = eventType === "task:assignment_update";
+    if (!subscribers || subscribers.size === 0) {
+      if (traced) log.info("assignment_update: no subscribers registered — dropped", { eventType });
+      return;
+    }
 
     // Global loops kill switch: suspend event dispatch to subscribers too, so
     // an event-triggered loop can't fire while the operator has engaged the
@@ -298,7 +305,10 @@ export class EventSubscriptionDispatcher {
     if (await loopsKillSwitchEngaged()) return;
 
     const convId = (payload as { conversationId?: unknown } | null)?.conversationId;
-    if (typeof convId !== "string" || !convId) return;
+    if (typeof convId !== "string" || !convId) {
+      if (traced) log.info("assignment_update: payload has no conversationId — dropped", {});
+      return;
+    }
 
     let wired: Set<string>;
     try {
@@ -340,8 +350,12 @@ export class EventSubscriptionDispatcher {
           : null;
 
     for (const extId of subscribers) {
-      if (!wired.has(extId)) continue;
+      if (!wired.has(extId)) {
+        if (traced) log.info("assignment_update: subscriber not wired to conversation — dropped", { extensionId: extId, conversationId: convId });
+        continue;
+      }
       if (!this.consume(extId, 1)) {
+        if (traced) log.info("assignment_update: subscriber over rate budget — dropped", { extensionId: extId });
         this.maybeAuditOverflow(extId, eventType);
         continue;
       }
@@ -356,7 +370,19 @@ export class EventSubscriptionDispatcher {
         });
         continue;
       }
-      if (!proc) continue;
+      if (!proc) {
+        if (traced) log.info("assignment_update: subprocess not running — dropped", { extensionId: extId });
+        continue;
+      }
+      if (traced) {
+        const a = (payload as { assignment?: { id?: unknown; status?: unknown } } | null)?.assignment;
+        log.info("assignment_update: delivering", {
+          extensionId: extId,
+          conversationId: convId,
+          assignmentId: a?.id,
+          status: a?.status,
+        });
+      }
       try {
         const allowFull = this.includeFullPayload.get(extId) === true;
         const ezCallId = registerFireCallProvenance({

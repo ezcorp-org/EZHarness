@@ -21,6 +21,7 @@ import {
 import { hasBlockingFindings } from "../findings";
 import {
   intentIsAuthoritative,
+  repoDispatchOptions,
   resolveBranchBaseSHA,
   executeFixMode,
   type Step,
@@ -186,6 +187,11 @@ Risk assessment (after listing all findings):
       prompt,
       cwd: sctx.worktree,
       jsonSchema: REVIEW_FINDINGS_SCHEMA,
+      // Trusted per-repo agent selection + project-instruction boundary —
+      // required on EVERY dispatch (see repoDispatchOptions). Omitting it
+      // here made the review step spawn the conventional "default" agent,
+      // which most deployments don't define ("Agent not found: default").
+      ...repoDispatchOptions(sctx),
     });
   } catch (err) {
     throw new Error(`agent review: ${err instanceof Error ? err.message : String(err)}`);

@@ -16,6 +16,7 @@ const {
   buildLabelsById,
   entryToRow,
   rowToEntry,
+  asJsonbObject,
 } = await import("../db/session-storage");
 
 // ── AgentMessage builders (pi passes `entry.message` through verbatim;
@@ -26,6 +27,48 @@ function userMsg(content: string): AgentMessage {
 function assistantMsg(content: string, provider = "anthropic", model = "claude"): AgentMessage {
   return { role: "assistant", content, provider, model } as unknown as AgentMessage;
 }
+
+// ── 0. jsonb metadata sanitization (tree-500 regression) ─────────────
+describe("asJsonbObject — jsonb metadata guard", () => {
+  test("keeps a plain object", () => {
+    expect(asJsonbObject({ a: 1 })).toEqual({ a: 1 });
+  });
+  test("coerces string / array / number / null / undefined to null", () => {
+    expect(asJsonbObject("")).toBeNull();
+    expect(asJsonbObject("x")).toBeNull();
+    expect(asJsonbObject([1, 2])).toBeNull();
+    expect(asJsonbObject(3)).toBeNull();
+    expect(asJsonbObject(null)).toBeNull();
+    expect(asJsonbObject(undefined)).toBeNull();
+  });
+});
+
+describe("DbSessionStorage — metadata never writes invalid jsonb", () => {
+  beforeEach(async () => {
+    await setupTestDb();
+  }, 30_000);
+  afterAll(async () => {
+    await closeTestDb();
+  });
+
+  test("create with metadata='' persists null and getMetadata does not throw", async () => {
+    // Bypass the compile-time `Record<string, unknown>` type to reproduce the
+    // real-world caller that passed an empty string.
+    const storage = await DbSessionStorage.create({ metadata: "" as unknown as Record<string, unknown> });
+    const meta = await storage.getMetadata();
+    expect(meta.metadata).toBeUndefined();
+    // Re-open from the DB to prove the persisted value is valid jsonb (would
+    // have thrown "Failed query" before the fix).
+    const reopened = await DbSessionStorage.open(meta.id);
+    expect((await reopened.getMetadata()).metadata).toBeUndefined();
+  });
+
+  test("create with a valid object round-trips", async () => {
+    const storage = await DbSessionStorage.create({ metadata: { goal: "ship" } });
+    const reopened = await DbSessionStorage.open((await storage.getMetadata()).id);
+    expect((await reopened.getMetadata()).metadata).toEqual({ goal: "ship" });
+  });
+});
 
 // ── 1. append / branch semantics (driven through pi's real Session) ──
 describe("DbSessionStorage — append + branch semantics", () => {

@@ -29,7 +29,7 @@ import type { DependencyTreeNode } from "./extensions/dependency-resolver";
 import { listExtensions, getExtensionByName } from "./db/queries/extensions";
 import { getRequiredPermissions } from "./extensions/permissions";
 import type { ExtensionPermissions, ExtensionManifestV2 } from "./extensions/types";
-import { askLine } from "./ui/prompt";
+import { promptForPermissions } from "./extensions/install-grant";
 
 /**
  * `initDb()` for CLI commands: a datadir held by a LIVE server (see
@@ -49,116 +49,12 @@ async function initDbOrExit(): Promise<void> {
 }
 
 // ── Permission Prompting ─────────────────────────────────────────────
-
-async function promptForPermissions(
-  manifest: ExtensionManifestV2,
-  autoApprove: boolean,
-): Promise<ExtensionPermissions> {
-  const perms = manifest.permissions;
-  const now = Date.now();
-
-  // Auto-approve: grant all requested permissions
-  if (autoApprove) {
-    return buildFullPermissions(perms, now);
-  }
-
-  // Non-interactive: require --yes flag
-  if (!process.stdin.isTTY) {
-    throw new Error("Interactive terminal required for permission prompting. Use --yes to auto-approve.");
-  }
-
-  const items = getRequiredPermissions(manifest);
-  if (items.length === 0) {
-    return { grantedAt: {} }; // no permissions requested
-  }
-
-  // Display requested permissions
-  console.log(`\nExtension "${manifest.name}" requests the following permissions:\n`);
-
-  if (perms.network?.length) {
-    console.log("  Network access:");
-    for (const d of perms.network) console.log(`    - ${d}`);
-    console.log();
-  }
-  if (perms.filesystem?.length) {
-    console.log("  Filesystem access:");
-    for (const p of perms.filesystem) console.log(`    - ${p}`);
-    console.log();
-  }
-  if (perms.shell) {
-    console.log("  Shell command execution\n");
-  }
-  if (perms.env?.length) {
-    console.log("  Environment variables:");
-    for (const v of perms.env) console.log(`    - ${v}`);
-    console.log();
-  }
-
-  const answer = await askLine("Approve all permissions? [y/N/select] ");
-  const choice = answer.trim().toLowerCase();
-
-  if (choice === "y" || choice === "yes") {
-    return buildFullPermissions(perms, now);
-  }
-
-  if (choice === "s" || choice === "select") {
-    return promptPerCategory(perms, now);
-  }
-
-  // Default: deny all
-  return { grantedAt: {} };
-}
-
-function buildFullPermissions(
-  perms: ExtensionManifestV2["permissions"],
-  now: number,
-): ExtensionPermissions {
-  const granted: ExtensionPermissions = { grantedAt: {} };
-  if (perms.network?.length) { granted.network = perms.network; granted.grantedAt.network = now; }
-  if (perms.filesystem?.length) { granted.filesystem = perms.filesystem; granted.grantedAt.filesystem = now; }
-  if (perms.shell) { granted.shell = true; granted.grantedAt.shell = now; }
-  if (perms.env?.length) { granted.env = perms.env; granted.grantedAt.env = now; }
-  return granted;
-}
-
-async function promptPerCategory(
-  perms: ExtensionManifestV2["permissions"],
-  now: number,
-): Promise<ExtensionPermissions> {
-  const granted: ExtensionPermissions = { grantedAt: {} };
-
-  if (perms.network?.length) {
-    const a = await askLine(`  Allow network access to ${perms.network.join(", ")}? [y/N] `);
-    if (a.trim().toLowerCase() === "y") {
-      granted.network = perms.network;
-      granted.grantedAt.network = now;
-    }
-  }
-  if (perms.filesystem?.length) {
-    const a = await askLine(`  Allow filesystem access to ${perms.filesystem.join(", ")}? [y/N] `);
-    if (a.trim().toLowerCase() === "y") {
-      granted.filesystem = perms.filesystem;
-      granted.grantedAt.filesystem = now;
-    }
-  }
-  if (perms.shell) {
-    const a = await askLine("  Allow shell command execution? [y/N] ");
-    if (a.trim().toLowerCase() === "y") {
-      granted.shell = true;
-      granted.grantedAt.shell = now;
-    }
-  }
-  if (perms.env?.length) {
-    const a = await askLine(`  Allow reading env vars: ${perms.env.join(", ")}? [y/N] `);
-    if (a.trim().toLowerCase() === "y") {
-      granted.env = perms.env;
-      granted.grantedAt.env = now;
-    }
-  }
-
-  return granted;
-}
-
+//
+// `promptForPermissions` (+ the full-grant construction and interactive
+// per-category flow) lives in `./extensions/install-grant` so a local install
+// persists EVERY manifest-declared capability (storage / spawnAgents /
+// eventSubscriptions / schedule / …), matching the bundled install path. See
+// that module for the B2 fix rationale.
 
 // ── Arg parsing ─────────────────────────────────────────────────────
 
@@ -843,8 +739,7 @@ export async function cli(args: string[]): Promise<void> {
     case "ext:test": {
       const { runExtensionTests } = await import("./extensions/sdk/test-runner");
       const code = await runExtensionTests({ extDir: parsed.extDir, filter: parsed.filter });
-      process.exit(code);
-      break;
+      return process.exit(code);
     }
 
     case "ext:verify": {
@@ -865,8 +760,7 @@ export async function cli(args: string[]): Promise<void> {
         }
         console.log(result.pass ? "\nVERIFY: PASS" : "\nVERIFY: FAIL");
       }
-      process.exit(result.pass ? 0 : 1);
-      break;
+      return process.exit(result.pass ? 0 : 1);
     }
 
     case "key:mint": {

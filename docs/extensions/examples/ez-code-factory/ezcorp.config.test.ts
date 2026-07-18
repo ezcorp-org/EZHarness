@@ -65,12 +65,15 @@ describe("ez-code-factory manifest", () => {
     expect(perms.network).toEqual(["api.github.com"]);
   });
 
-  test("subscribes to the push-received + respond + yolo + reconcile gate events", () => {
+  test("subscribes to the gate events + the spawn terminal-update carrier", () => {
     expect(manifest.permissions?.eventSubscriptions).toEqual([
       "ez-code-factory:push-received",
       "ez-code-factory:respond",
       "ez-code-factory:yolo",
       "ez-code-factory:reconcile",
+      // Direct-carrier platform event — the spawn dispatcher's resolver is
+      // dead without it (every agent dispatch times out at 10 minutes).
+      "task:assignment_update",
     ]);
   });
 

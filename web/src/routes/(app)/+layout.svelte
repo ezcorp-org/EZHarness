@@ -21,6 +21,7 @@
 	import SwipeDrawer from "$lib/components/SwipeDrawer.svelte";
 	import TeamChatPanel from "$lib/components/TeamChatPanel.svelte";
 	import DockHost from "$lib/components/tool-cards/DockHost.svelte";
+	import PendingPermissionTray from "$lib/components/tool-cards/PendingPermissionTray.svelte";
 	import EzPanel from "$lib/components/ez/EzPanel.svelte";
 
 	let { children } = $props();
@@ -495,6 +496,7 @@
 <ToastContainer />
 <ImageLightbox />
 <DockHost />
+<PendingPermissionTray />
 
 <!--
 	Ez slide-in panel. The companion EzButton is mounted inside ProjectRail
