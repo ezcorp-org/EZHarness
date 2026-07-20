@@ -19,10 +19,21 @@ mock.module("../db/queries/extensions", () => ({
   resetFailures: async () => {},
 }));
 
-// Mock DB connection (tool-executor imports it for recordToolCall, security.ts for getSetting)
+// Mock DB connection (tool-executor imports it for recordToolCall, security.ts
+// for getSetting/upsertSetting). `insert().values()` must mirror drizzle's
+// builder: it is awaitable (recordToolCall awaits it directly) AND exposes
+// `.onConflictDoUpdate` — upsertSetting (hit via denyAndDisable) now chains
+// that for a race-free settings upsert, so a bare `values: async () => {}`
+// stub throws "onConflictDoUpdate is not a function".
 mock.module("../db/connection", () => ({
   getDb: () => ({
-    insert: () => ({ values: async () => {} }),
+    insert: () => ({
+      values: () =>
+        Object.assign(Promise.resolve(), {
+          onConflictDoUpdate: async () => {},
+          returning: async () => [],
+        }),
+    }),
     select: () => ({ from: () => ({ where: () => Promise.resolve([]) }) }),
     update: () => ({ set: () => ({ where: () => Promise.resolve() }) }),
   }),

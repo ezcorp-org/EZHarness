@@ -1,4 +1,5 @@
-import { getPglite } from "./db/connection";
+import { sql } from "drizzle-orm";
+import { getDb, getPglite } from "./db/connection";
 import { isEmbeddingReady } from "./memory/embeddings";
 import { checkEndpointReachability } from "./providers/local-model-check";
 
@@ -11,16 +12,23 @@ export interface HealthResponse {
 }
 
 export async function buildHealthResponse(detail: boolean): Promise<HealthResponse> {
-  // Check DB
+  // Check DB. Probe through whichever driver is live so BOTH backends are
+  // actually exercised: embedded PGlite via getPglite(), and external Postgres
+  // (Bun.sql, where getPglite() is null forever) via the driver-agnostic
+  // drizzle handle. Before the fallback, external-Postgres deploys reported a
+  // permanent "degraded / db down" even when Postgres was perfectly healthy —
+  // and a genuine outage was indistinguishable from that false alarm.
   let dbUp = false;
   try {
     const pg = getPglite();
     if (pg) {
       await pg.query("SELECT 1");
-      dbUp = true;
+    } else {
+      await getDb().execute(sql`SELECT 1`);
     }
+    dbUp = true;
   } catch {
-    // DB is down
+    // DB is down (or not initialized)
   }
 
   const overall: "healthy" | "degraded" = dbUp ? "healthy" : "degraded";

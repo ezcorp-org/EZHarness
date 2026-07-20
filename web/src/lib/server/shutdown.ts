@@ -65,6 +65,69 @@ const log = logger.child("shutdown");
  *  clean exits always beat the SIGKILL. */
 export const HARD_TIMEOUT_MS = 25_000;
 
+/** How long shutdown waits for in-flight (non-streaming) request handlers to
+ *  finish before it starts tearing down the DB/daemons they depend on. Bounded
+ *  well under `HARD_TIMEOUT_MS` so a stuck request never blows the whole
+ *  budget. */
+export const DRAIN_TIMEOUT_MS = 10_000;
+
+// ── In-flight request drain barrier ────────────────────────────────────────
+//
+// Background: the adapter emits `sveltekit:shutdown` BEFORE awaiting
+// `server.stop`, so teardown overlaps the connection drain. Aborting SSE
+// streams (below) handles long-lived handlers, but nothing tracked ordinary
+// request handlers — so `closeDb()` could run while a POST was still mid
+// query-sequence (message finalize, session backfill's non-transactional
+// appendEntry loop), 500-ing the client and leaving a partial write.
+//
+// `hooks.server.ts`'s `handle` brackets each non-streaming request with
+// `beginRequest()` / its returned `done()`; `shutdown()` awaits
+// `drainInFlightRequests()` before the teardown loop so the DB closes AFTER
+// live requests finish (or a bounded timeout elapses).
+let inFlightRequests = 0;
+const drainWaiters: Array<() => void> = [];
+
+/** Bracket an in-flight request. Call the returned function exactly once when
+ *  the handler completes (idempotent — extra calls are ignored). */
+export function beginRequest(): () => void {
+  inFlightRequests++;
+  let settled = false;
+  return () => {
+    if (settled) return;
+    settled = true;
+    inFlightRequests--;
+    if (inFlightRequests <= 0) {
+      inFlightRequests = 0;
+      for (const w of drainWaiters.splice(0)) w();
+    }
+  };
+}
+
+/** Current count of bracketed in-flight requests (for tests/observability). */
+export function inFlightRequestCount(): number {
+  return inFlightRequests;
+}
+
+/** Resolve once every in-flight request has completed, or `timeoutMs` elapses
+ *  — whichever comes first. Resolves immediately when nothing is in flight. */
+export async function drainInFlightRequests(timeoutMs: number = DRAIN_TIMEOUT_MS): Promise<void> {
+  if (inFlightRequests <= 0) return;
+  log.info("draining in-flight requests before teardown", { inFlight: inFlightRequests, timeoutMs });
+  await new Promise<void>((resolve) => {
+    const timer = setTimeout(() => {
+      log.warn("in-flight drain timed out — proceeding with teardown", {
+        stillInFlight: inFlightRequests,
+      });
+      resolve();
+    }, timeoutMs);
+    if (typeof timer.unref === "function") timer.unref();
+    drainWaiters.push(() => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+}
+
 interface Teardown {
   name: string;
   fn: () => Promise<void> | void;
@@ -113,6 +176,8 @@ export function __resetForTests(): void {
   teardowns.length = 0;
   shuttingDown = false;
   installed = false;
+  inFlightRequests = 0;
+  drainWaiters.length = 0;
 }
 
 /**
@@ -155,6 +220,13 @@ export async function shutdown(reason: string): Promise<void> {
   // teardowns finish — without unref(), the process would idle until
   // the timer fires even after everything is closed.
   if (typeof timeout.unref === "function") timeout.unref();
+
+  // Drain in-flight non-streaming request handlers BEFORE any teardown so the
+  // DB/daemons they depend on stay up until live requests finish. SSE/long-poll
+  // handlers were already told to abort via the shutdown signal above; ordinary
+  // handlers get a bounded window here. The hard timeout above still bounds the
+  // whole sequence, so a wedged request can never exceed Docker's grace period.
+  await drainInFlightRequests(DRAIN_TIMEOUT_MS);
 
   // Reverse-order: last-registered runs first. ensureInitialized()
   // registers closeDb FIRST so it runs LAST — every dependent (executor,

@@ -3,10 +3,7 @@ import { json } from "@sveltejs/kit";
 import { z } from "zod";
 import { requireRole } from "$server/auth/middleware";
 import { updateUserStatus, getUserById } from "$server/db/queries/users";
-import { getDb } from "$server/db/connection";
-import { agentConfigs } from "$server/db/schema";
-import { eq } from "drizzle-orm";
-import { insertAuditEntry } from "$server/db/queries/audit-log";
+import { deactivateUserAndTransferAgents } from "$server/db/queries/user-deactivation";
 import { requireScope } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
 
@@ -39,18 +36,12 @@ export const PUT: RequestHandler = async ({ params, request, locals }) => {
         return errorJson(400, "Cannot deactivate yourself");
       }
 
-      // Transfer ownership of all agents from deactivated user to admin
-      await getDb()
-        .update(agentConfigs)
-        .set({ userId: admin.id, updatedAt: new Date() })
-        .where(eq(agentConfigs.userId, params.id));
-    }
-
-    if (typedStatus) {
-      await updateUserStatus(params.id, typedStatus);
-      if (typedStatus === "inactive") {
-        await insertAuditEntry(admin.id, "user:deactivated", params.id);
-      }
+      // Atomic: agent transfer + status flip commit together (audit row
+      // follows). Routes the former raw in-handler table write through the
+      // queries layer. See src/db/queries/user-deactivation.ts.
+      await deactivateUserAndTransferAgents(params.id, admin.id);
+    } else if (typedStatus === "active") {
+      await updateUserStatus(params.id, "active");
     }
 
     const updated = await getUserById(params.id);

@@ -97,7 +97,16 @@ export function consumeSearchQuota(extensionId: string, quota: number): SearchQu
         .values({ extensionId, day: entry.day, calls: entry.count })
         .onConflictDoUpdate({
           target: [extensionSearchCallsDaily.extensionId, extensionSearchCallsDaily.day],
-          set: { calls: entry.count, updatedAt: sql`NOW()` },
+          // GREATEST(...) instead of an absolute overwrite: the durable count
+          // must never REGRESS. An absolute `calls = entry.count` lets a
+          // pre-hydrate first write (entry.count=1) clobber a durable 50 —
+          // destroying the day's record — and lets unordered in-flight flushes
+          // (or last-writer-wins across multi-instance deploys) roll the count
+          // backwards. Monotonic max keeps restart-resilience honest.
+          set: {
+            calls: sql`GREATEST(${extensionSearchCallsDaily.calls}, ${entry.count})`,
+            updatedAt: sql`NOW()`,
+          },
         });
     } catch (err) {
       log.warn("quota-flush-failed", { extensionId, error: String(err) });

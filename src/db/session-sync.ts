@@ -119,6 +119,14 @@ const convLocks = new Map<string, Promise<unknown>>();
  * behind any in-flight op for the same conversation. A prior op's rejection
  * never wedges the chain (the gate runs `fn` after the previous op settles
  * either way); the map self-prunes once `fn` is the chain tail.
+ *
+ * SCOPE (single-process assumption): this lock is an in-memory `Map` — it
+ * serializes ops within ONE process only, which is exactly the platform's
+ * stated deploy model (single container). It does NOT span processes: two app
+ * instances sharing one DATABASE_URL could run backfill/sync for the same
+ * conversation concurrently and collide on the tree append (the loser's read
+ * falls open to the legacy CTE). If horizontal scaling is ever supported,
+ * replace this Map with a Postgres advisory lock keyed on the conversation id.
  */
 export async function withConvSessionLock<T>(conversationId: string, fn: () => Promise<T>): Promise<T> {
   const prev = convLocks.get(conversationId) ?? Promise.resolve();
@@ -179,13 +187,16 @@ async function writeSyncCursor(sessionId: string, meta: DbSessionMetadata, ms: n
  * self-locking: callers hold {@link withConvSessionLock}.
  *
  * The APPEND pass is INCREMENTAL (Wave6 A3): a per-session high-water cursor
- * ({@link SYNC_CURSOR_META_KEY}) lets it skip rows a prior sync already
- * appended, so appends are O(delta-new-rows). The gate is `createdAt < cursor`
- * (strict `<`, never `<=`) so same-millisecond rows straddling the boundary are
- * re-checked, not skipped — messages routinely share a createdAt ms (see the
- * getConversationPath ordering note). This assumes createdAt is monotonic
- * non-decreasing across inserts, which holds: `messages.createdAt` defaults to
- * now() and no writer backdates.
+ * ({@link SYNC_CURSOR_META_KEY}) lets it skip the existence check for rows a
+ * prior sync already appended, so appends are O(delta-new-rows). The cursor is
+ * a fast-path ONLY: it may skip a row that is genuinely PRESENT, but a row
+ * absent from the tree is always appended regardless of the cursor. That guards
+ * the commit-order / clock-step race — a late-committing insert whose
+ * transaction-start `createdAt` lands below an already-advanced cursor is NOT
+ * lost (it would otherwise be a permanently missing node). The gate stays strict
+ * `< cursor` (never `<=`) so same-millisecond rows straddling the boundary are
+ * re-checked too — messages routinely share a createdAt ms (see the
+ * getConversationPath ordering note).
  *
  * The REPARENT pass is deliberately NOT cursor-gated: a reparent UPDATEs
  * parent_message_id without changing createdAt, so it can land on a row older
@@ -201,14 +212,25 @@ export async function syncSessionForConversation(conversationId: string): Promis
   const rowsById = new Map(rows.map((r) => [r.id, r] as const));
   const knownIds = new Set(rows.map((r) => r.id));
 
-  // APPEND (O(delta)): rows strictly older than the cursor were appended by a
-  // prior sync — skip their existence check. Track the newest createdAt so the
-  // cursor advances past every row reconciled this pass.
+  // APPEND (O(delta)): the cursor is a FAST-PATH to elide the existence check
+  // for rows a prior sync already reconciled — but it may ONLY skip a row that
+  // is actually present. A row can commit LATE with an old createdAt: on
+  // external Postgres `messages.createdAt` defaults to now() = TRANSACTION-START
+  // time, so a pooled insert transaction can commit AFTER a concurrent sync
+  // already read a later-createdAt row and advanced the cursor past this row's
+  // timestamp (message inserts are not under withConvSessionLock); a backward
+  // clock step causes the same inversion. Gating on `ms < cursor` ALONE would
+  // then skip that row forever — a permanently missing tree node whose children
+  // orphan the whole subtree (getPathToRoot throws → every read falls back to
+  // the legacy CTE). So the cursor only elides the check for rows already
+  // present; any row ABSENT from `existing` is appended regardless of the
+  // cursor. Track the newest createdAt so the cursor advances past every row
+  // reconciled this pass.
   let maxCreatedMs = cursor;
   for (const row of rows) {
     const ms = row.createdAt.getTime();
     if (ms > maxCreatedMs) maxCreatedMs = ms;
-    if (ms < cursor) continue;
+    if (ms < cursor && existing.has(row.id)) continue;
     if (!existing.has(row.id)) {
       // Missing → append (mirrors backfill: real turns become `message`
       // entries cross-linked via ezMessageId = row id; excluded/synthetic

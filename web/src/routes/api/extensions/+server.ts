@@ -1,5 +1,5 @@
 import { json } from "@sveltejs/kit";
-import { getExtension, getExtensionByName, listExtensions } from "$server/db/queries/extensions";
+import { getExtension, getExtensionByName, listExtensions, redactExtensionSecrets } from "$server/db/queries/extensions";
 import {
   installFromLocal,
   installFromGitHub,
@@ -30,14 +30,18 @@ export const GET: RequestHandler = async ({ request, url, locals }) => {
   // browser-side resolved-settings store to look up an extension's id
   // by manifest name. Filtering server-side avoids shipping the full
   // list on every cold-start lookup.
+  // Every row is served with its manifest — strip MCP transport secrets
+  // (headers/env) so a read-scope member can never exfiltrate a bearer token /
+  // API key. New installs already store a redacted manifest at rest; this also
+  // scrubs any legacy row whose manifest still carries plaintext.
   const nameFilter = url.searchParams.get("name");
   if (nameFilter !== null) {
     const ext = await getExtensionByName(nameFilter);
-    return cacheableResponse(request, ext ? [ext] : [], { maxAge: 60, staleWhileRevalidate: 300 });
+    return cacheableResponse(request, ext ? [redactExtensionSecrets(ext)] : [], { maxAge: 60, staleWhileRevalidate: 300 });
   }
 
   const extensions = await listExtensions();
-  return cacheableResponse(request, extensions, { maxAge: 60, staleWhileRevalidate: 300 });
+  return cacheableResponse(request, extensions.map(redactExtensionSecrets), { maxAge: 60, staleWhileRevalidate: 300 });
 };
 
 export const POST: RequestHandler = async ({ request, locals }) => {

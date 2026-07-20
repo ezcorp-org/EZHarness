@@ -318,6 +318,13 @@ run_legs() {
       src/__tests__/api-contexts.server.test.ts \
       src/__tests__/api-conversations-topics.server.test.ts \
       src/__tests__/api-topics-extract.server.test.ts \
+      src/__tests__/security-web-active-run-idor.server.test.ts \
+      src/__tests__/security-web-tool-call-output-idor.server.test.ts \
+      src/__tests__/api-mcp-servers-id-put.server.test.ts \
+      src/__tests__/security-web-invite-claim-order.server.test.ts \
+      src/__tests__/security-web-conversations-parent-idor.server.test.ts \
+      src/__tests__/api-extensions.server.test.ts \
+      src/__tests__/api-users-id.server.test.ts \
       --coverage --coverage.provider=v8 --coverage.reporter=lcovonly \
       --coverage.reportsDirectory="$VITEST_COV" \
       --coverage.include='src/lib/search/*.ts' \
@@ -422,7 +429,14 @@ run_legs() {
       --coverage.include='src/lib/components/WorkflowStepForm.svelte' \
       --coverage.include='src/lib/components/WorkflowBuilder.svelte' \
       --coverage.include='src/routes/api/hooks/[extensionId]/[slug]/+server.ts' \
-      --coverage.include='src/routes/api/extensions/[name]/webhooks/[slug]/rotate/+server.ts' ) \
+      --coverage.include='src/routes/api/extensions/[name]/webhooks/[slug]/rotate/+server.ts' \
+      --coverage.include='**/active-run/+server.ts' \
+      --coverage.include='**/tool-calls/**/output/+server.ts' \
+      --coverage.include='**/mcp-servers/*/+server.ts' \
+      --coverage.include='**/auth/invite/*/+server.ts' \
+      --coverage.include='**/api/conversations/+server.ts' \
+      --coverage.include='**/api/extensions/+server.ts' \
+      --coverage.include='**/users/[[]id]/+server.ts' ) \
     > "$legs/vitest.out" 2>&1
   echo "$?" > "$legs/vitest.code"
   ) &

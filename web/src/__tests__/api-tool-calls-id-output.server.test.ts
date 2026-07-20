@@ -91,6 +91,11 @@ describe("GET /api/tool-calls/[id]/output", () => {
     selectMock.mockReturnValue(
       chainReturning([
         {
+          // userId matches authedUser (u1) so the ownership guard passes via
+          // the null-conversationId fallback branch. Cross-tenant 404s are
+          // asserted in security-web-tool-call-output-idor.server.test.ts.
+          userId: "u1",
+          conversationId: null,
           output: {
             content: [
               { type: "text", text: "hello" },
@@ -108,7 +113,7 @@ describe("GET /api/tool-calls/[id]/output", () => {
 
   test("returns raw output when shape is not recognized", async () => {
     selectMock.mockReturnValue(
-      chainReturning([{ output: { foo: "bar" } }]),
+      chainReturning([{ userId: "u1", conversationId: null, output: { foo: "bar" } }]),
     );
     const res = await GET(makeEvent({ locals: authedUser }));
     expect(res.status).toBe(200);

@@ -234,15 +234,33 @@ export async function insertLog(runId: string, log: AgentLog): Promise<void> {
 // guard for the non-admin `GET /api/runs` list — without it the endpoint
 // returns every tenant's run rows + input JSON). Admin callers pass undefined
 // to see all runs.
-export async function listRuns(projectId?: string, userId?: string): Promise<DbRun[]> {
+/** Default page size for {@link listRuns}. Bounds BOTH the unscoped listing
+ *  (historically capped at 100) AND the project-scoped path, which previously
+ *  returned EVERY run for the project — `runs` grows one wide row (full `input`
+ *  + `result` jsonb) per chat turn/agent invocation forever, so a long-lived
+ *  project shipped tens of thousands of rows per page load. */
+const DEFAULT_RUNS_LIMIT = 100;
+
+export async function listRuns(
+  projectId?: string,
+  userId?: string,
+  opts?: { limit?: number; offset?: number },
+): Promise<DbRun[]> {
   const db = getDb();
   const conds = [];
   if (projectId) conds.push(eq(runs.projectId, projectId));
   if (userId) conds.push(eq(runs.userId, userId));
   const whereClause = conds.length === 0 ? undefined : conds.length === 1 ? conds[0] : and(...conds);
-  const q = db.select().from(runs).where(whereClause).orderBy(desc(runs.startedAt));
-  // Preserve prior semantics: cap the unscoped (no projectId) listing at 100.
-  return (projectId ? q : q.limit(100)) as Promise<DbRun[]>;
+  const limit = opts?.limit ?? DEFAULT_RUNS_LIMIT;
+  const q = db
+    .select()
+    .from(runs)
+    .where(whereClause)
+    .orderBy(desc(runs.startedAt))
+    .limit(limit)
+    .$dynamic();
+  if (opts?.offset !== undefined) q.offset(opts.offset);
+  return q as Promise<DbRun[]>;
 }
 
 export async function getRunWithLogs(id: string): Promise<(DbRun & { logs: AgentLog[] }) | undefined> {

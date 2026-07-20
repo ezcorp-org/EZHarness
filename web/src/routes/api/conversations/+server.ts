@@ -7,6 +7,7 @@ import { createConversationSchema } from "./schema";
 import { validationError } from "$lib/server/security/validation";
 import { requireScope } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
+import { resolveRootConversationForOwnership } from "$lib/server/conversation-ownership";
 import type { RequestHandler } from "./$types";
 
 export const GET: RequestHandler = async ({ url, locals }) => {
@@ -49,6 +50,17 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     }
     systemPrompt = agentConfig.prompt;
     if (!title) title = `Chat with ${agentConfig.name}`;
+  }
+
+  // IDOR guard: a supplied parentConversationId must belong to the caller
+  // (or an ancestor they own). Without this, member B could graft a new
+  // conversation with attacker-controlled title / last-message preview into
+  // member A's tree — A's ownership-gated sub-conversations listing would
+  // then surface B's row. Fail-closed 404 walks to the root owner, matching
+  // the sibling GET routes.
+  const parentId = body.parentConversationId;
+  if (parentId && !(await resolveRootConversationForOwnership(parentId, user))) {
+    return errorJson(404, "Parent conversation not found");
   }
 
   // Phase 48: regular POST cannot adopt the Ez mode. The Ez harness owns

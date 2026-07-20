@@ -31,6 +31,11 @@ vi.mock("$server/mcp/client", () => ({
 vi.mock("$server/db/queries/extensions", () => ({
   getExtension: vi.fn(),
   updateMcpExtension: vi.fn(),
+  // The route rehydrates the previous server's real secrets (blanked in the
+  // stored manifest) before merging. These fixtures carry the real secret in
+  // the manifest directly, so identity rehydration is faithful here; the real
+  // store-backed round-trip is covered in src/__tests__/mcp-secrets-query.test.ts.
+  rehydrateMcpServerSecrets: vi.fn(async (_name: string, server: unknown) => server),
 }));
 
 const registryReload = vi.fn(async () => undefined);
@@ -40,7 +45,9 @@ vi.mock("$server/extensions/registry", () => ({
   },
 }));
 
-const { getExtension, updateMcpExtension } = await import("$server/db/queries/extensions");
+const { getExtension, updateMcpExtension, rehydrateMcpServerSecrets } = await import(
+  "$server/db/queries/extensions"
+);
 const { PUT } = await import("../routes/api/mcp-servers/[id]/+server");
 
 function makeEvent(opts: { id?: string; locals?: Record<string, unknown>; body?: unknown }) {
@@ -95,6 +102,8 @@ describe("PUT /api/mcp-servers/[id]", () => {
     mcpClose.mockResolvedValue(undefined);
     vi.mocked(getExtension).mockReset();
     vi.mocked(updateMcpExtension).mockReset();
+    vi.mocked(rehydrateMcpServerSecrets).mockClear();
+    vi.mocked(rehydrateMcpServerSecrets).mockImplementation(async (_n, s) => s);
     registryReload.mockReset();
     registryReload.mockResolvedValue(undefined);
   });
@@ -225,6 +234,12 @@ describe("PUT /api/mcp-servers/[id]", () => {
       }),
     );
     expect(res.status).toBe(200);
+    // Route rehydrated the previous server's real secrets from the store
+    // (keyed by the extension's stable slug) before merging.
+    expect(rehydrateMcpServerSecrets).toHaveBeenCalledWith(
+      "ext-stdio",
+      expect.objectContaining({ headers: { Authorization: "Bearer SECRET" } }),
+    );
     // The throwaway client was constructed with the merged headers (secret kept).
     expect(lastClientSpec.headers.Authorization).toBe("Bearer SECRET");
     expect(lastClientSpec.url).toBe("https://new.example/mcp");
