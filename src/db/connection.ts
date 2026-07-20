@@ -738,6 +738,11 @@ export const __test = {
   applyBunSqlJsonbFix,
   repairDoubleEncodedJsonb,
   withPostgresMigrateLock,
+  // The external-Postgres opener. `init()` only reaches it when the process
+  // was booted with DATABASE_URL set (a module-load const), so the PGlite
+  // coverage shards never do — exposed here so a unit test can drive the
+  // Bun.sql branch directly with a mocked driver (no real server).
+  initPostgres,
   recoverInterruptedRollback,
   registerProcessHolder,
   writeRollbackMarker,
