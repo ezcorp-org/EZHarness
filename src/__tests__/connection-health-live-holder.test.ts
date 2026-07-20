@@ -10,10 +10,15 @@
  * prior instance first. These tests drive that registry directly.
  */
 import { test, expect, describe, afterEach } from "bun:test";
+import { writeFileSync, rmSync } from "node:fs";
 import {
   recordProcessHolder,
   clearProcessHolder,
   closeStaleProcessHolder,
+  assertNoLiveHolder,
+  claimHolder,
+  holderPidPath,
+  DbInUseError,
 } from "../db/live-holder-guard";
 
 const PATH_A = "/tmp/connection-health-holder-a";
@@ -88,5 +93,46 @@ describe("process-local holder registry", () => {
     await closeStaleProcessHolder(PATH_A);
     // Only the latest instance's close runs.
     expect(calls).toEqual(["second"]);
+  });
+});
+
+describe("assertNoLiveHolder — cross-process pidfile guard", () => {
+  const PATH_C = "/tmp/connection-health-holder-c";
+
+  afterEach(() => {
+    try { rmSync(holderPidPath(PATH_C)); } catch { /* already gone */ }
+  });
+
+  test("throws DbInUseError when a DIFFERENT live JS-runtime process holds the datadir", () => {
+    // Spawn a real, live `bun` child so the pid is alive AND its /proc cmdline
+    // looks like a JS runtime (isLiveHolder => true) — the exact condition that
+    // must refuse a second open. pid differs from ours, so the own-pid pass is
+    // not taken.
+    const child = Bun.spawn(["bun", "-e", "setTimeout(() => {}, 60000)"], {
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    try {
+      expect(child.pid).not.toBe(process.pid);
+      writeFileSync(holderPidPath(PATH_C), String(child.pid));
+      expect(() => assertNoLiveHolder(PATH_C)).toThrow(DbInUseError);
+    } finally {
+      child.kill();
+    }
+  });
+
+  test("passes when the pidfile records OUR OWN pid (same-process re-init)", () => {
+    claimHolder(PATH_C);
+    expect(() => assertNoLiveHolder(PATH_C)).not.toThrow();
+  });
+
+  test("passes when there is no pidfile", () => {
+    expect(() => assertNoLiveHolder(PATH_C)).not.toThrow();
+  });
+
+  test("passes when the recorded pid is dead (unclean prior shutdown)", () => {
+    // A pid that cannot be alive: writeFileSync a very-high pid unlikely to exist.
+    writeFileSync(holderPidPath(PATH_C), "2147483646");
+    expect(() => assertNoLiveHolder(PATH_C)).not.toThrow();
   });
 });
