@@ -440,4 +440,52 @@ describe("UsersSection load error", () => {
 		await fireEvent.click(getByText("Retry"));
 		await waitFor(() => expect(getByText("Other")).toBeInTheDocument());
 	});
+
+	test("a thrown /api/users fetch (network error) surfaces the error state", async () => {
+		// The 500-response path is covered above; this drives loadUsers' catch.
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (input: RequestInfo | URL) => {
+				const url = String(input);
+				if (url.includes("/api/users")) throw new Error("network down");
+				if (url.includes("/api/admin/sessions")) return Response.json({ sessions: [] });
+				return Response.json({});
+			}),
+		);
+		const { getByTestId } = render(UsersSection, { props: { currentUser } });
+		await waitFor(() => expect(getByTestId("users-load-error")).toBeInTheDocument());
+	});
+});
+
+describe("UsersSection empty state", () => {
+	test("an empty user list with no active search shows the no-users message", async () => {
+		stubFetch([]);
+		const { getByText } = render(UsersSection, { props: { currentUser } });
+		await waitFor(() => expect(getByText("No users found.")).toBeInTheDocument());
+	});
+});
+
+describe("UsersSection force logout network error", () => {
+	test("a thrown DELETE surfaces the generic network-error message", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+				const url = String(input);
+				const method = init?.method ?? "GET";
+				if (url.includes("/api/admin/sessions")) {
+					if (method === "DELETE") throw new Error("network down");
+					return Response.json({ sessions: [otherSession] });
+				}
+				if (url.includes("/api/users")) return Response.json({ users: [otherUser()] });
+				return Response.json({});
+			}),
+		);
+		const { getByText } = render(UsersSection, { props: { currentUser } });
+		await waitFor(() => expect(getByText("Force Logout")).toBeInTheDocument());
+
+		await fireEvent.click(getByText("Force Logout"));
+		await fireEvent.click(getByText("Yes"));
+
+		await waitFor(() => expect(getByText("Network error.")).toBeInTheDocument());
+	});
 });

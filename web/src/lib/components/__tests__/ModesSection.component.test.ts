@@ -247,4 +247,18 @@ describe("ModesSection modal wiring", () => {
 
 		await waitFor(() => expect(getByLabelText("View Mode")).toBeInTheDocument()); // dialog title
 	});
+
+	test("closing the modal (Close button) runs the section's onclose handler", async () => {
+		stubFetch(() => []);
+		const { getByText, getByLabelText, queryByLabelText } = render(ModesSection);
+		await waitFor(() => expect(getByText(/No modes yet/)).toBeInTheDocument());
+
+		await fireEvent.click(getByText("Create Mode"));
+		await waitFor(() => expect(getByLabelText("Create Mode")).toBeInTheDocument());
+
+		// The modal's Close (X) triggers ModeFormModal's onclose → the section
+		// resets showModeModal/editingMode/modeViewMode, tearing the dialog down.
+		await fireEvent.click(getByLabelText("Close"));
+		await waitFor(() => expect(queryByLabelText("Create Mode")).not.toBeInTheDocument());
+	});
 });
