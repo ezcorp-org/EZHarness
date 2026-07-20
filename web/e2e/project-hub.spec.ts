@@ -68,8 +68,12 @@ function detail(): Record<string, unknown> {
 /** Wire the global hub render endpoints (page list + the active tree). */
 async function mockHub(page: Page) {
 	await page.route("**/api/hub/pages", (route) => route.fulfill({ json: listing }));
-	await page.route(`**/api/hub/pages/${encodeURIComponent(EXT_ID)}`, (route) =>
-		route.fulfill({ json: { page: tree } }),
+	// Match on the decoded pathname (the pageId's colons are percent-encoded)
+	// and ignore the query string: the project hub route appends `?project=<id>`
+	// to every render pull, which a bare `…/${EXT_ID}` glob wouldn't absorb.
+	await page.route(
+		(url) => decodeURIComponent(url.pathname).endsWith(`/api/hub/pages/${EXT_ID}`),
+		(route) => route.fulfill({ json: { page: tree } }),
 	);
 }
 
@@ -165,5 +169,51 @@ test.describe("Project-scoped Hub route", () => {
 			expect(testInfo.attachments.some((a) => a.name === "extension-hub-cards")).toBe(false);
 			expect(testInfo.attachments.some((a) => a.name === "project-hub-page")).toBe(false);
 		}
+	});
+
+	test("a perProject page's render pull carries ?project= and renders the project tree @evidence", async ({
+		page,
+		mockApi,
+	}, testInfo) => {
+		await mockApi({ projects: [proj] });
+		await page.route("**/api/hub/pages", (route) => route.fulfill({ json: listing }));
+
+		// A `perProject` page renders a project-scoped tree when the render
+		// pull carries `?project=<id>`; an absent/unmatched id falls back to
+		// the global render. Distinct titles let the assertions tell them apart.
+		const globalTree = {
+			title: "Cron Dashboard",
+			nodes: [{ type: "status", label: "All projects", state: "success" }],
+		};
+		const projectTree = {
+			title: "Cron Dashboard — Test Project",
+			nodes: [{ type: "status", label: "This project only", state: "success" }],
+		};
+
+		// Match the render endpoint via the decoded pathname (the pageId's
+		// colons are percent-encoded in the URL) and branch on the `project`
+		// query param, mirroring ez-code-factory-hub.spec.ts.
+		const projectPulls: string[] = [];
+		await page.route(
+			(url) => decodeURIComponent(url.pathname).endsWith(`/api/hub/pages/${EXT_ID}`),
+			(route) => {
+				const url = new URL(route.request().url());
+				const project = url.searchParams.get("project");
+				if (project) projectPulls.push(project);
+				return route.fulfill({
+					json: { page: project === proj.id ? projectTree : globalTree },
+				});
+			},
+		);
+
+		await page.goto(`/project/proj-1/hub/${encodeURIComponent(EXT_ID)}`);
+
+		// The pull carried this project's id → the project-scoped tree rendered
+		// (not the global fallback).
+		await expect(page.getByTestId("hub-page-title")).toHaveText("Cron Dashboard — Test Project");
+		await expect(page.getByTestId("hub-page-body")).toContainText("This project only");
+		expect(projectPulls).toEqual([proj.id]);
+
+		await captureEvidence(page, testInfo, "project-hub-per-project");
 	});
 });
