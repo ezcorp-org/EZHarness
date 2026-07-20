@@ -1,6 +1,5 @@
 import { sql } from "drizzle-orm";
 import { backfillGithubProjectsApiTokens } from "../extensions/secrets-store";
-import { backfillMcpManifestSecrets } from "./queries/extensions";
 import { seedSelfProject } from "./seed-self-project";
 import { up as upUserCommandsUnique } from "./migrations/add-user-commands-unique-name";
 import { logger } from "../logger";
@@ -2169,5 +2168,10 @@ export async function migrate(db: any): Promise<void> {
   // (headers/env) out of the broadly-readable extensions.manifest jsonb into
   // the AEAD extension_secrets store, rewriting each manifest to its blanked
   // form. Runs after every FK target exists; idempotent + fail-safe per row.
+  // Lazy/dynamic import at the call site (NOT a top-level import) breaks the
+  // migrate.ts → queries/extensions.ts → connection.ts → migrate.ts cycle that
+  // bun's web-leg loader otherwise resolves to a "SyntaxError: Export named
+  // 'backfillMcpManifestSecrets' not found" on this module.
+  const { backfillMcpManifestSecrets } = await import("./queries/extensions");
   await backfillMcpManifestSecrets(db);
 }

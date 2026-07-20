@@ -101,7 +101,24 @@ export async function rehydrateMcpServerSecrets(
   extensionName: string,
   server: McpServerDefinition,
 ): Promise<McpServerDefinition> {
-  const stored = await getSecret(extensionName, null, MCP_AUTH_SECRET_NAME);
+  // Fetching the stored secret hits the secret store / DB. On a live
+  // production connect the DB is always up; when it is NOT (unit tests that
+  // construct a registry with no DB, or a transient outage) getSecret throws
+  // "Database not initialized …". Degrade gracefully: skip rehydration and
+  // return the passed (already value-blanked) definition rather than crash the
+  // whole connect path. This is not a security relaxation — the redacted
+  // manifest still carries no plaintext; a failed fetch just means no
+  // rehydration this call. The happy path (real secret present) is unchanged.
+  let stored: string | null;
+  try {
+    stored = await getSecret(extensionName, null, MCP_AUTH_SECRET_NAME);
+  } catch (err) {
+    backfillLog.debug("MCP secret rehydration skipped — secret store unavailable", {
+      extension: extensionName,
+      error: String(err).split("\n")[0],
+    });
+    return server;
+  }
   if (!stored) return server;
   let map: Record<string, string>;
   try {
