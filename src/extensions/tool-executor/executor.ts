@@ -595,18 +595,19 @@ export class ToolExecutor {
       // hitting Allow Forever still re-prompted on every subsequent
       // call. Collapsed to one writer to make the asymmetry impossible.
       const scope = resolution.scope ?? "session";
+      // Project scopeId resolution is deferred — for a `project` scope we use
+      // the conversationId as a stable key for now; a future commit can map
+      // conversation→project when the PDP gains project-aware lookups (the
+      // cache key already accommodates it). Comment lifted out of the ternary
+      // branch below so bun doesn't emit a phantom, never-hit DA record on an
+      // in-ternary comment line (which the per-file gate can't clear).
       const scopeId =
         scope === "conversation"
           ? conversationId
           : scope === "session"
             ? `session:${this.currentUserId ?? ""}`
             : scope === "project"
-              ? // Project scopeId resolution is deferred — we use the
-                // conversationId as a stable key for now; a future
-                // commit can map conversation→project when the PDP
-                // gains project-aware lookups (the cache key already
-                // accommodates it).
-                conversationId
+              ? conversationId
               : "*";
       // Phase 56: forward the picker's `ttlOverrideMs` (when supplied)
       // so the engine persists the per-row override alongside the
