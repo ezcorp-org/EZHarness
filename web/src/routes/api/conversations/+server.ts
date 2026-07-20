@@ -58,12 +58,9 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   // member A's tree — A's ownership-gated sub-conversations listing would
   // then surface B's row. Fail-closed 404 walks to the root owner, matching
   // the sibling GET routes.
-  if (body.parentConversationId) {
-    const parentOwnership = await resolveRootConversationForOwnership(
-      body.parentConversationId,
-      user,
-    );
-    if (!parentOwnership) return errorJson(404, "Parent conversation not found");
+  const parentId = body.parentConversationId;
+  if (parentId && !(await resolveRootConversationForOwnership(parentId, user))) {
+    return errorJson(404, "Parent conversation not found");
   }
 
   // Phase 48: regular POST cannot adopt the Ez mode. The Ez harness owns

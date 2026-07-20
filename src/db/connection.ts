@@ -689,6 +689,12 @@ export function getDbPath(): string {
   return DB_PATH;
 }
 
+/** drizzle's bun-sql driver exposes the Bun.SQL client as `$client`; it closes
+ *  via `.close()` (alias `.end()`). Hoisted to a module-level type so the cast
+ *  in closeDb() stays a single executable line (no multi-line type-annotation
+ *  continuation that coverage tooling attributes a spurious uncovered record). */
+type BunSqlPoolClient = { close?: () => Promise<void>; end?: () => Promise<void> };
+
 export async function closeDb(): Promise<void> {
   if (_pglite) {
     await _pglite.close();
@@ -704,9 +710,7 @@ export async function closeDb(): Promise<void> {
     // process don't leak a full pool each time (exhausting max_connections).
     // drizzle's bun-sql driver exposes the Bun SQL client as `$client`; Bun.SQL
     // closes via `.close()` (alias `.end()`).
-    const client = (_db as {
-      $client?: { close?: () => Promise<void>; end?: () => Promise<void> };
-    }).$client;
+    const client = (_db as { $client?: BunSqlPoolClient }).$client;
     try {
       if (typeof client?.close === "function") await client.close();
       else if (typeof client?.end === "function") await client.end();
