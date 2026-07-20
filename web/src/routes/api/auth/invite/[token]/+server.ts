@@ -69,6 +69,17 @@ export const POST: RequestHandler = async ({ params, request, cookies, getClient
   }
 
   const passwordHash = await hashPassword(password!);
+
+  // Atomically claim the single-use invite BEFORE creating the account.
+  // markInviteUsed only flips the row when usedAt IS NULL and returns
+  // false if it lost the race, so two concurrent POSTs on the same token
+  // (e.g. an admin-role invite) can't both mint an account — exactly one
+  // proceeds. Mirrors the claim-then-act ordering of claimPasswordResetToken.
+  const claimed = await markInviteUsed(invite.id);
+  if (!claimed) {
+    return errorJson(409, "Invite has already been used");
+  }
+
   const user = await createUser({
     email: email!.toLowerCase(),
     passwordHash,
@@ -76,7 +87,6 @@ export const POST: RequestHandler = async ({ params, request, cookies, getClient
     role: invite.role,
   });
 
-  await markInviteUsed(invite.id);
   await insertAuditEntry(user.id, "user:registered");
 
   const cfg = getSessionConfig();

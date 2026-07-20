@@ -7,6 +7,7 @@ import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
 import { getActiveRun, markInterrupted } from "$server/db/queries/active-runs";
 import { getPendingAskUserForConversation } from "$server/runtime/ask-user-registry";
+import { resolveRootConversationForOwnership } from "$lib/server/conversation-ownership";
 
 // Boundary validation: the only field the handler reads off the body is
 // `action`, which must be one of two literal strings. Keep the schema
@@ -28,7 +29,14 @@ function stalenessFor(dbRun: { startedAt: Date; lastHeartbeat: Date | null } | n
 export const GET: RequestHandler = async ({ params, locals }) => {
   const scopeErr = requireScope(locals, "read");
   if (scopeErr) return scopeErr;
-  requireAuth(locals);
+  const user = requireAuth(locals);
+
+  // IDOR guard (parity with the sibling messages/tree/topics routes): the
+  // response leaks the in-flight assistant text (partialResponse) plus
+  // pending permission / ask-user payloads, so it must be owner-gated.
+  // Fail-closed 404 on an unowned conversation walks to the root owner.
+  const ownership = await resolveRootConversationForOwnership(params.id, user);
+  if (!ownership) return errorJson(404, "Not found");
 
   // Check in-memory first, but cross-check with DB to catch orphaned runs
   // (e.g. in-memory run stuck in auto-spin-up while DB was marked interrupted by orphan cleanup)
@@ -83,7 +91,12 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 export const POST: RequestHandler = async ({ params, request, locals }) => {
   const scopeErr = requireScope(locals, "chat");
   if (scopeErr) return scopeErr;
-  requireAuth(locals);
+  const user = requireAuth(locals);
+
+  // IDOR guard: without this a chat-scoped member could POST {action:"cancel"}
+  // against another tenant's conversation and kill their run. Fail-closed 404.
+  const ownership = await resolveRootConversationForOwnership(params.id, user);
+  if (!ownership) return errorJson(404, "Not found");
 
   const raw = await request.json().catch(() => null);
   const parsed = activeRunActionSchema.safeParse(raw);

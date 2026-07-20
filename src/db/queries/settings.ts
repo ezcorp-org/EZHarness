@@ -27,12 +27,20 @@ export async function upsertSetting(key: string, value: unknown): Promise<void> 
   // `false` lands as the jsonb STRING "false" (the classic double-encode).
   // text→jsonb parses the JSON exactly once on every driver.
   const encoded = sql`${JSON.stringify(value) ?? "null"}::text::jsonb`;
-  const rows = await db.select().from(settings).where(eq(settings.key, key));
-  if (rows[0]) {
-    await db.update(settings).set({ value: encoded, updatedAt: new Date() }).where(eq(settings.key, key));
-  } else {
-    await db.insert(settings).values({ key, value: encoded, updatedAt: new Date() });
-  }
+  // ON CONFLICT DO UPDATE against the real conflict target (settings.key is the
+  // primary key) — a single race-free statement on BOTH drivers. The previous
+  // select-then-insert branch had no 23505 retry, so on external Postgres
+  // (Bun.sql, true concurrent connections) two simultaneous first-writes of a
+  // not-yet-existing key both saw no row, both took the INSERT branch, and the
+  // loser 500'd with an unhandled duplicate-key error. PGlite's single
+  // connection masked it, which is why unit tests never caught it.
+  await db
+    .insert(settings)
+    .values({ key, value: encoded, updatedAt: new Date() })
+    .onConflictDoUpdate({
+      target: settings.key,
+      set: { value: encoded, updatedAt: new Date() },
+    });
 }
 
 export async function isListingInstalled(listingId: string): Promise<boolean> {

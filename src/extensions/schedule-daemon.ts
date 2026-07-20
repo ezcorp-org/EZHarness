@@ -3,12 +3,16 @@
  *
  * Locked invariants:
  *   - **At-most-once delivery default.** `next_fire_at` IS the queue.
- *     Claim-before-dispatch: in one transaction we SELECT FOR UPDATE
- *     SKIP LOCKED → INSERT into `extension_schedule_fires` with
- *     `status: pending` → UPDATE `next_fire_at` to the next slot.
- *     Only after the transaction commits do we dispatch the
- *     notification. A crash between commit and dispatch is acceptable
- *     because the row already advanced to the next slot.
+ *     Claim-before-dispatch: a compare-and-swap `UPDATE
+ *     extension_schedules SET next_fire_at = <next> WHERE id = $1 AND
+ *     next_fire_at = <the value this tick read> RETURNING id` claims the
+ *     row — of N instances racing on one due row exactly one CAS matches
+ *     (the losers match zero and skip). Only the winner then INSERTs into
+ *     `extension_schedule_fires` (`status: running`) and dispatches. This
+ *     CAS is the guard for the multi-instance / external-Postgres topology
+ *     and works on BOTH drivers (no `FOR UPDATE SKIP LOCKED`, which PGlite
+ *     doesn't honor identically). A crash between claim and dispatch is
+ *     acceptable because the row already advanced to the next slot.
  *   - **At-least-once opt-in via `maxRetries > 0`.** A `running` row
  *     older than `maxRunDurationMs * 2` is reaped only if the
  *     extension's grant has `maxRetries > 0`.
@@ -226,11 +230,12 @@ export class ScheduleDaemon {
     const now = this.opts.now();
 
     // ── Claim phase ──────────────────────────────────────────────
-    // Select rows that are due, then insert per-fire rows + advance
-    // next_fire_at. PGlite doesn't do `FOR UPDATE SKIP LOCKED` the
-    // same way as Postgres-native; the production Postgres path uses
-    // it. For PGlite we accept the at-most-once degradation
-    // (single-writer; no contention).
+    // Select rows that are due, then per row run a compare-and-swap on
+    // next_fire_at to CLAIM it before inserting a fire + dispatching (see
+    // the CAS below). The CAS is what makes the claim safe under multiple
+    // instances sharing one external Postgres — it replaces `FOR UPDATE
+    // SKIP LOCKED` (which PGlite doesn't honor identically) with a form
+    // that is correct on both drivers.
     const due = await db.select().from(extensionSchedules).where(and(
       eq(extensionSchedules.enabled, true),
       lte(extensionSchedules.nextFireAt, now),
@@ -282,7 +287,25 @@ export class ScheduleDaemon {
           : 0;
         const firedAt = jitterMs > 0 ? new Date(now.getTime() + jitterMs) : now;
 
-        // Atomic claim: insert fire row (status=running) + bump next_fire_at.
+        // Compare-and-swap claim (the multi-instance double-fire guard the
+        // module header asserts). Advance next_fire_at CONDITIONALLY: the
+        // WHERE still matches the value this tick read (`row.nextFireAt`), so
+        // of N instances racing on the same due row exactly ONE update matches
+        // (RETURNING a row) and the losers match zero and skip. This works on
+        // BOTH drivers (no `FOR UPDATE SKIP LOCKED`, which PGlite doesn't honor
+        // the same way) and is the claim boundary: only after winning do we
+        // insert the fire row and dispatch, so a lost race never double-fires.
+        const claimedRows = await db.update(extensionSchedules)
+          .set({ nextFireAt: nextNext, updatedAt: now })
+          .where(and(
+            eq(extensionSchedules.id, row.id),
+            eq(extensionSchedules.nextFireAt, row.nextFireAt),
+          ))
+          .returning({ id: extensionSchedules.id });
+        if (claimedRows.length === 0) continue; // lost the race — another instance claimed it
+
+        // Won the claim: record the fire row (status=running) + backfill the
+        // schedule's last-fire pointer (next_fire_at already advanced above).
         const [fire] = await db.insert(extensionScheduleFires).values({
           scheduleId: row.id,
           scheduledAt: row.nextFireAt,
@@ -291,7 +314,7 @@ export class ScheduleDaemon {
           catchUp: isCatchUp,
         }).returning();
         await db.update(extensionSchedules)
-          .set({ nextFireAt: nextNext, lastFireAt: firedAt, lastFireId: fire!.id, updatedAt: now })
+          .set({ lastFireAt: firedAt, lastFireId: fire!.id })
           .where(eq(extensionSchedules.id, row.id));
         claimed++;
         // Bump per-tick claims (gates further claims this tick) AND

@@ -5,7 +5,7 @@ import { formatNpmDepError, verifyNpmDependencies } from "./npm-deps";
 import { logger } from "../logger";
 import { verifyPackageChecksums } from "./checksum";
 import { denyAndDisable } from "./security";
-import { listExtensions, updateExtension } from "../db/queries/extensions";
+import { listExtensions, updateExtension, rehydrateMcpServerSecrets } from "../db/queries/extensions";
 import { getDb } from "../db/connection";
 import { agentConfigs } from "../db/schema";
 import { eq } from "drizzle-orm";
@@ -835,8 +835,14 @@ export class ExtensionRegistry {
     const manifest = this.manifests.get(extensionId);
     if (!manifest) throw new Error(`Extension ${extensionId} not found in registry`);
     if (manifest.kind !== "mcp") throw new Error(`Extension ${extensionId} is not an MCP extension`);
-    const server = manifest.mcpServers?.[0];
-    if (!server) throw new Error(`Extension ${extensionId} has no mcpServers entry`);
+    const redactedServer = manifest.mcpServers?.[0];
+    if (!redactedServer) throw new Error(`Extension ${extensionId} has no mcpServers entry`);
+    // db-audit (mcp-secrets): the manifest at rest is value-BLANKED — the real
+    // transport auth (headers for http/sse, env for stdio) lives in the
+    // encrypted extension_secrets store. Rehydrate it here, on the server-side
+    // connect path, so the live MCP connection carries the true credentials.
+    // Never surface this rehydrated definition in a client response.
+    const server = await rehydrateMcpServerSecrets(manifest.name, redactedServer);
 
     // Audit finding #1: route stdio spawns through the sandbox envelope
     // (prlimit + bounded env). http/sse are pass-through — nothing to wrap.

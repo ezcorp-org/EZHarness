@@ -17,6 +17,12 @@ import { test, expect, describe, vi, beforeEach } from "vitest";
 vi.mock("$server/db/queries/extensions", () => ({
   listExtensions: vi.fn(),
   getExtensionByName: vi.fn(),
+  // The GET handler scrubs MCP transport secrets from every served row via
+  // redactExtensionSecrets. For non-MCP rows (these fixtures) the real function
+  // returns the row unchanged, so an identity stub is faithful here; the
+  // store-backed MCP redaction round-trip is covered in
+  // src/__tests__/mcp-secrets-query.test.ts.
+  redactExtensionSecrets: vi.fn((ext: unknown) => ext),
 }));
 
 vi.mock("$server/extensions/installer", () => ({

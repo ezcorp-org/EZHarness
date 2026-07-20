@@ -159,18 +159,31 @@ function rowsOf<T>(res: unknown): T[] {
 }
 
 /**
- * Select the gaps-only page after `afterCreatedAt` (keyset by created_at ASC).
+ * Select the gaps-only page after the `(afterCreatedAt, afterId)` cursor
+ * (COMPOSITE keyset matching the `created_at ASC, id ASC` order).
  * Mirrors message-search.ts eligibility/test predicates VERBATIM and excludes
  * any message that already has a chunk OR an outbox row.
+ *
+ * The composite `(m.created_at, m.id) > (cursor_created_at, cursor_id)` tuple
+ * comparison is load-bearing: messages.created_at is a transaction-stable
+ * defaultNow(), so a bulk in-tx insert produces GROUPS of identical timestamps.
+ * A bare `m.created_at > afterCreatedAt` would SKIP the remainder of the group
+ * straddling a page boundary — the script would exit 0 having silently left
+ * those rows un-enqueued. The id tiebreak makes every page boundary total-order
+ * precise, so no row in an equal-timestamp group is ever skipped.
  */
 async function selectGapPage(
   db: BackfillDb,
   projectId: string | null,
   afterCreatedAt: string | null,
+  afterId: string | null,
   limit: number,
 ): Promise<Array<{ id: string; conversation_id: string; created_at: string }>> {
   const projectClause = projectId ? sql`AND c.project_id = ${projectId}` : sql``;
-  const keysetClause = afterCreatedAt ? sql`AND m.created_at > ${afterCreatedAt}` : sql``;
+  const keysetClause =
+    afterCreatedAt !== null && afterId !== null
+      ? sql`AND (m.created_at, m.id) > (${afterCreatedAt}, ${afterId})`
+      : sql``;
   const res = await db.execute(sql`
     SELECT m.id, m.conversation_id, m.created_at
     FROM messages m
@@ -189,16 +202,25 @@ async function selectGapPage(
 }
 
 /**
- * Select messages whose existing chunks were embedded with a DIFFERENT model
- * than the current {@link EMBEDDING_MODEL_ID}. These are re-enqueued via the
- * DO-UPDATE {@link enqueueEmbedJob} so the worker deletes stale chunks before
- * re-inserting (RESEARCH Pitfall 5). Still eligibility-gated + project-scoped.
+ * Select ONE page of messages whose existing chunks were embedded with a
+ * DIFFERENT model than the current {@link EMBEDDING_MODEL_ID}, keyset by
+ * `m.id ASC` after `afterId`. These are re-enqueued via the DO-UPDATE
+ * {@link enqueueEmbedJob} so the worker deletes stale chunks before re-inserting
+ * (RESEARCH Pitfall 5). Still eligibility-gated + project-scoped.
+ *
+ * Paged (was an unbounded `SELECT DISTINCT` over the whole corpus) so a model
+ * migration streams + paces the stale set through the same batch/sleep loop as
+ * the gaps pass instead of loading and hammering every stale message at once
+ * (OPS-02 pacing contract).
  */
 async function selectStaleModelPage(
   db: BackfillDb,
   projectId: string | null,
+  afterId: string | null,
+  limit: number,
 ): Promise<Array<{ id: string; conversation_id: string }>> {
   const projectClause = projectId ? sql`AND c.project_id = ${projectId}` : sql``;
+  const keysetClause = afterId !== null ? sql`AND m.id > ${afterId}` : sql``;
   const res = await db.execute(sql`
     SELECT DISTINCT m.id, m.conversation_id
     FROM message_chunks mc
@@ -209,6 +231,9 @@ async function selectStaleModelPage(
       AND length(trim(m.content)) > 0
       AND mc.embedding_model_id != ${EMBEDDING_MODEL_ID}
       ${projectClause}
+      ${keysetClause}
+    ORDER BY m.id ASC
+    LIMIT ${limit}
   `);
   return rowsOf<{ id: string; conversation_id: string }>(res);
 }
@@ -225,10 +250,11 @@ export async function runBackfill(db: BackfillDb, opts: BackfillOpts): Promise<B
   let enqueued = 0;
   let eligibleScanned = 0;
   let afterCreatedAt: string | null = null;
+  let afterId: string | null = null;
 
   // ── gaps-only pass (OPS-01) ──────────────────────────────────────────────
   for (;;) {
-    const page = await selectGapPage(db, opts.projectId, afterCreatedAt, limit);
+    const page = await selectGapPage(db, opts.projectId, afterCreatedAt, afterId, limit);
     if (page.length === 0) break;
     for (const row of page) {
       eligibleScanned++;
@@ -237,7 +263,9 @@ export async function runBackfill(db: BackfillDb, opts: BackfillOpts): Promise<B
       }
       enqueued++;
     }
-    afterCreatedAt = page[page.length - 1]!.created_at;
+    const last = page[page.length - 1]!;
+    afterCreatedAt = last.created_at;
+    afterId = last.id;
     opts.onProgress?.({ enqueued, eligible: eligibleScanned, backlog: enqueued });
     // If the page was short, we've exhausted the gaps — no need to pause.
     if (page.length < limit) break;
@@ -245,16 +273,25 @@ export async function runBackfill(db: BackfillDb, opts: BackfillOpts): Promise<B
   }
 
   // ── stale-model pass (--refresh-stale only) ──────────────────────────────
+  // Paged + paced through the SAME batch/sleep loop as the gaps pass so a model
+  // migration never loads and hammers the whole stale corpus in one unpaced pass.
   if (opts.refreshStale) {
-    const stale = await selectStaleModelPage(db, opts.projectId);
-    for (const row of stale) {
-      eligibleScanned++;
-      if (!opts.dryRun) {
-        await enqueueEmbedJob(db, row.id, row.conversation_id);
+    let afterStaleId: string | null = null;
+    for (;;) {
+      const stale = await selectStaleModelPage(db, opts.projectId, afterStaleId, limit);
+      if (stale.length === 0) break;
+      for (const row of stale) {
+        eligibleScanned++;
+        if (!opts.dryRun) {
+          await enqueueEmbedJob(db, row.id, row.conversation_id);
+        }
+        enqueued++;
       }
-      enqueued++;
+      afterStaleId = stale[stale.length - 1]!.id;
+      opts.onProgress?.({ enqueued, eligible: eligibleScanned, backlog: enqueued });
+      if (stale.length < limit) break;
+      if (opts.sleepMs > 0) await Bun.sleep(opts.sleepMs);
     }
-    opts.onProgress?.({ enqueued, eligible: eligibleScanned, backlog: enqueued });
   }
 
   return { enqueued, eligibleScanned };

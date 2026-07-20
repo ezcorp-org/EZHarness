@@ -119,8 +119,18 @@ export async function getUserCount(): Promise<number> {
   // calls this to mean "has a human admin been registered?", not "is any
   // row present?" — without this filter, a freshly booted instance with
   // ai-kit installed appears already-set-up and routes to /login forever.
-  const rows = await getDb().select().from(users).where(not(like(users.id, "sys-%")));
-  return rows.length;
+  //
+  // A `count(*)` aggregate — NOT a full-row fetch. This runs on a
+  // request-level hot path (every unauthenticated request hits the
+  // first-run gate), so materializing every `users` row (password hashes
+  // included) into app memory just to read `.length` is wasteful; the
+  // aggregate lets Postgres answer without shipping any row bodies. Mirrors
+  // the `count(*)::int` shape used by `listUsersPage` above.
+  const rows = await getDb()
+    .select({ count: sql<number>`count(*)::int` })
+    .from(users)
+    .where(not(like(users.id, "sys-%")));
+  return Number(rows[0]?.count ?? 0);
 }
 
 export async function updateUserPassword(id: string, passwordHash: string): Promise<boolean> {

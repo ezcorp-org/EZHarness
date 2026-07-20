@@ -8,7 +8,7 @@ backups, auto-updates, and TLS.
 
 - Docker with Docker Compose v2
 - (Optional) Reverse proxy for HTTPS (Caddy, nginx)
-- (Optional) PostgreSQL 15+ with [pgvector](https://github.com/pgvector/pgvector) — only if you choose external DB
+- (Optional) PostgreSQL 15+ with [pgvector](https://github.com/pgvector/pgvector) **≥ 0.5.0** (the memory/knowledge-base embedding indexes use HNSW, which requires pgvector 0.5.0 or newer) — only if you choose external DB
 
 ## 1. Quick start (embedded PGlite)
 

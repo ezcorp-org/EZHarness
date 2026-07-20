@@ -34,6 +34,7 @@ import {
   markDone,
   markFailed,
   resetAttemptsForPending,
+  purgeFailedRows,
   type DrainDb,
 } from "../db/queries/message-embed-outbox";
 import {
@@ -64,6 +65,20 @@ const DEFAULT_MAX_ATTEMPTS = 3;
 const MIN_MAX_ATTEMPTS = 1;
 /** Default lockfile path. */
 const DEFAULT_LOCKFILE_PATH = ".ezcorp/embed-worker.pid";
+/**
+ * Boot-recovery staleness window. runBacklogRecovery only re-pends in_progress
+ * rows whose updated_at is OLDER than this — a genuinely crashed prior worker's
+ * jobs. A live sibling instance (multi-host external Postgres) refreshes its
+ * claims' updated_at every claim/mark, so its rows stay inside the window and
+ * are NOT clobbered. 10 minutes is far longer than any single embed pass.
+ */
+const DEFAULT_INPROGRESS_STALE_MS = 10 * 60_000;
+/**
+ * Terminal-failure retention window. Boot purges `status='failed'` rows older
+ * than this so the outbox stays bounded on an instance with persistent embed
+ * failures (see purgeFailedRows). 7 days keeps a useful forensic tail.
+ */
+const DEFAULT_FAILED_RETENTION_MS = 7 * 24 * 60 * 60_000;
 
 /**
  * Read `EZCORP_EMBED_POLL_INTERVAL_MS` and return a sane poll interval.
@@ -170,20 +185,30 @@ export interface EmbedWorkerOptions {
 // ── Standalone export: runBacklogRecovery ─────────────────────────────
 
 /**
- * Boot recovery: reset all status='in_progress' rows to 'pending'.
+ * Boot recovery: reset GENUINELY STALE status='in_progress' rows to 'pending'.
  *
- * Called by EmbedWorker.start() BEFORE arming the interval so that rows
- * stuck as in_progress from a crashed prior worker become immediately
- * eligible for claimBatch. Exported as a standalone function so tests can
- * call it directly without standing up a daemon instance.
+ * Called by EmbedWorker.start() BEFORE arming the interval so that rows stuck as
+ * in_progress from a CRASHED prior worker become claimable again. Scoped to rows
+ * whose `updated_at` is older than `staleBeforeMs` (default 10 min): a LIVE
+ * sibling instance sharing DATABASE_URL refreshes its claims' updated_at on
+ * every claim/mark, so its in-flight rows stay INSIDE the window and are never
+ * clobbered. An unconditional reset would re-pend a live sibling's claims —
+ * both instances would then embed the same messages and stomp each other's mark
+ * state (a distinct bug from the claimBatch SKIP LOCKED gap).
  *
- * Returns the number of rows reset.
+ * `now` is injectable for tests. Exported standalone so tests can call it
+ * without standing up a daemon instance. Returns the number of rows reset.
  */
-export async function runBacklogRecovery(db: DrainDb): Promise<number> {
+export async function runBacklogRecovery(
+  db: DrainDb,
+  staleBeforeMs: number = DEFAULT_INPROGRESS_STALE_MS,
+  now: () => number = () => Date.now(),
+): Promise<number> {
+  const cutoff = new Date(now() - staleBeforeMs).toISOString();
   const result = await db.execute(sql`
     UPDATE message_embed_outbox
     SET status = 'pending', updated_at = NOW()
-    WHERE status = 'in_progress'
+    WHERE status = 'in_progress' AND updated_at < ${cutoff}
     RETURNING message_id
   `);
   const rows = (result as { rows: { message_id: string }[] }).rows
@@ -264,11 +289,24 @@ export class EmbedWorker {
       this.lockfileOwned = true;
     }
 
-    // Boot recovery before first tick (ING-04)
+    // Boot recovery before first tick (ING-04). Stale-scoped so a live sibling's
+    // claims survive; uses the worker's injected clock.
     try {
-      await runBacklogRecovery(getDb());
+      await runBacklogRecovery(getDb(), DEFAULT_INPROGRESS_STALE_MS, this.opts.now);
     } catch (err) {
       log.warn("embed-worker: boot recovery failed — continuing", {
+        error: String((err as Error)?.message ?? err),
+      });
+    }
+
+    // Retention sweep: bound the outbox by purging terminal failures older than
+    // the retention window. Best-effort — a purge hiccup never blocks start.
+    try {
+      const cutoff = new Date(this.opts.now() - DEFAULT_FAILED_RETENTION_MS);
+      const purged = await purgeFailedRows(getDb(), cutoff);
+      if (purged > 0) log.info("embed-worker: purged aged terminal failures", { purged });
+    } catch (err) {
+      log.warn("embed-worker: failed-row retention sweep failed — continuing", {
         error: String((err as Error)?.message ?? err),
       });
     }
@@ -471,4 +509,6 @@ export const _embedWorkerInternals = {
   MIN_MAX_ATTEMPTS,
   DEFAULT_LOCKFILE_PATH,
   MAX_BACKOFF_EXPONENT,
+  DEFAULT_INPROGRESS_STALE_MS,
+  DEFAULT_FAILED_RETENTION_MS,
 };

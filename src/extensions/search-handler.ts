@@ -28,7 +28,7 @@ import { EXT_AUDIT_ACTIONS } from "./audit-actions";
 import { performSearch, performRead, ProviderNotAllowedError } from "../search/index";
 import type { EgressBlockedHook } from "../search/index";
 import { resolveSearchPolicy, type SearchPolicy } from "../search/policy";
-import { consumeSearchQuota } from "../search/search-quota";
+import { consumeSearchQuota, hydrateSearchQuota } from "../search/search-quota";
 import type { ExtensionPermissions, JsonRpcRequest, JsonRpcResponse } from "./types";
 
 const log = logger.child("ext.search-handler");
@@ -55,6 +55,9 @@ export interface SearchHandlerContext {
   /** Test seam — inject the day-quota consumer. Default:
    *  `consumeSearchQuota` (durable per-extension/day counter). */
   consumeQuota?: typeof consumeSearchQuota;
+  /** Test seam — inject the day-quota hydrator. Default:
+   *  `hydrateSearchQuota` (seeds today's counter from the durable row). */
+  hydrateQuota?: typeof hydrateSearchQuota;
 }
 
 function softFail(req: JsonRpcRequest, reason: string, code = -32001): JsonRpcResponse {
@@ -112,6 +115,14 @@ export async function handlePiSearch(
   // Per-extension/day call quota — counted for BOTH web and read (a URL
   // read is a host-side fetch that costs the same budget). Mirrors the
   // LLM `maxCallsPerDay` accounting.
+  //
+  // Hydrate the in-process counter from the durable row BEFORE the first
+  // consume (mirrors llm-handler.ts:253). Without this a host restart mid-day
+  // re-inits the counter to 0 and hands the extension a fresh budget, and the
+  // first consume's flush overwrites the durable count. Idempotent — a
+  // populated today-counter early-returns inside hydrate.
+  const hydrateQuota = ctx.hydrateQuota ?? hydrateSearchQuota;
+  await hydrateQuota(handlerCtx.actorExtensionId);
   const consumeQuota = ctx.consumeQuota ?? consumeSearchQuota;
   const quota = consumeQuota(handlerCtx.actorExtensionId, policy.quota);
   if (!quota.ok) {

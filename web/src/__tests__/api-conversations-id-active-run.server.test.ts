@@ -39,6 +39,13 @@ vi.mock("$server/runtime/ask-user-registry", () => ({
   getPendingAskUserForConversation: vi.fn(() => []),
 }));
 
+// Ownership guard (IDOR fix): default to "owner" so the existing behaviour
+// tests below exercise the run logic. The dedicated 404 assertions live in
+// security-web-active-run-idor.server.test.ts.
+vi.mock("$lib/server/conversation-ownership", () => ({
+  resolveRootConversationForOwnership: vi.fn(async () => ({ conv: {}, root: {} })),
+}));
+
 const { getActiveRun, markInterrupted } = await import(
   "$server/db/queries/active-runs"
 );
