@@ -127,6 +127,21 @@ describe("tick — claim and dispatch", () => {
     expect(row!.nextFireAt).toEqual(new Date("2026-06-11T07:00:00.000Z"));
   });
 
+  test("a dispatch that escapes its own error fold is caught by tick's belt-and-suspenders", async () => {
+    await seedConfig({ userId: userIds[0]!, nextFireAt: new Date("2026-06-10T11:59:30.000Z") });
+    const { daemon } = makeDaemon({});
+    // dispatch() folds every failure internally, so tick's outer .catch is
+    // otherwise unreachable. Stub dispatch to reject and assert the net
+    // swallows it — one rejected dispatch must not break the Promise.all.
+    (daemon as unknown as { dispatch: () => Promise<void> }).dispatch = async () => {
+      throw new Error("escaped fold");
+    };
+
+    const tick = await daemon.tick();
+    expect(tick.claimed).toBe(1);
+    await expect(tick.settled).resolves.toBeUndefined();
+  });
+
   test("not-due and disabled configs are never dispatched", async () => {
     await seedConfig({ userId: userIds[0]!, nextFireAt: new Date("2026-06-11T07:00:00.000Z") }); // future
     await seedConfig({ userId: userIds[1]!, nextFireAt: new Date("2026-06-10T07:00:00.000Z"), enabled: false });

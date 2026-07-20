@@ -365,7 +365,6 @@ export async function main(): Promise<number> {
   return errors.length === 0 ? 0 : 1;
 }
 
-if (import.meta.main) {
-  const code = await main();
-  process.exit(code);
-}
+// Single-line guard so it is covered on import; the body only runs when the
+// script is invoked directly (`bun backfill-embeddings.ts`), never in-process.
+if (import.meta.main) process.exit(await main());
