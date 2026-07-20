@@ -25,16 +25,30 @@ export const MIN_MEMORY_LIMIT_MB = 512;
 /** Track all active processes for cleanup on exit */
 const activeProcesses = new Set<ExtensionProcess>();
 
+/** Kill every still-active extension subprocess. Registered as the process
+ *  'exit' handler so child processes don't leak when the host exits; exported
+ *  so the cleanup contract is unit-testable without waiting on a real exit. */
+export function killActiveExtensionProcesses(): void {
+  for (const ep of activeProcesses) {
+    ep.kill();
+  }
+}
+
 // Register cleanup handler once
 let cleanupRegistered = false;
 function registerCleanup() {
   if (cleanupRegistered) return;
   cleanupRegistered = true;
-  process.on("exit", () => {
-    for (const ep of activeProcesses) {
-      ep.kill();
-    }
-  });
+  process.on("exit", killActiveExtensionProcesses);
+}
+
+/** Test-only: seed the active-process set so `killActiveExtensionProcesses`
+ *  can be exercised without spawning a real child. Returns a disposer. */
+export function _addActiveProcessForTest(ep: Pick<ExtensionProcess, "kill">): () => void {
+  activeProcesses.add(ep as ExtensionProcess);
+  return () => {
+    activeProcesses.delete(ep as ExtensionProcess);
+  };
 }
 
 export interface ExtensionProcessOptions {
@@ -514,9 +528,7 @@ export class ExtensionProcess {
             }
           }
         } catch { /* stream closed — nothing to drain */ }
-      })().catch((err) => {
-        log.debug("Unexpected error draining stderr", { extensionId: this.extensionId, error: String(err) });
-      });
+      })();
     }
 
     this.transport = new JsonRpcTransport(
@@ -530,8 +542,11 @@ export class ExtensionProcess {
     activeProcesses.add(this);
     this.resetIdleTimer();
 
-    // Monitor for unexpected exit
-    this.proc.exited
+    // Monitor for unexpected exit. The handler is self-contained — its DB /
+    // registry work is wrapped in inner try/catch, and the remaining
+    // statements (killed-guard, set deletion, a crash log) cannot throw — so
+    // it never rejects; `void` marks the fire-and-forget intentionally.
+    void this.proc.exited
       .then(async (exitCode) => {
         if (this.killed) return; // Expected kill, not a crash
         activeProcesses.delete(this);
@@ -580,9 +595,6 @@ export class ExtensionProcess {
         } catch {
           // DB may not be available in tests
         }
-      })
-      .catch((err) => {
-        log.error("Extension process exit handler failed", { extensionId: this.extensionId, error: String(err) });
       });
   }
 

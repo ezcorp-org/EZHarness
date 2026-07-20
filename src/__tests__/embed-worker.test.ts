@@ -597,6 +597,18 @@ describe("EmbedWorker — interval-driven tick", () => {
     expect(drained).toBe(true);
   });
 
+  test("runTickGuarded swallows + logs a rejected tick (defense-in-depth net)", async () => {
+    // tickOnce()'s own try/catch/finally means it never rejects in practice,
+    // so the interval's outer catch is otherwise unreachable. Force the
+    // rejection path by stubbing tickOnce to throw, and assert the guard
+    // swallows it (resolves, never rejects) so the daemon keeps ticking.
+    const worker = new EmbedWorker({ skipLockfile: true, wakeIntervalMs: 60_000 });
+    worker.tickOnce = async () => {
+      throw new Error("boom tick");
+    };
+    await expect(worker.runTickGuarded()).resolves.toBeUndefined();
+  });
+
   test("a thrown tick is swallowed by the interval's .catch — daemon keeps ticking", async () => {
     // First tick throws; subsequent ticks succeed. The interval's outer
     // .catch must keep the daemon alive so the row eventually drains.
