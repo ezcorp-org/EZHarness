@@ -109,6 +109,11 @@ export async function reconcileSweep(deps: SweepDeps): Promise<SweepSummary> {
     // threshold is marked `stalled` — truthful, immediate, durable. Checked
     // before the reconcile cap (a heartbeat read is a cheap KV get, not a `gh`
     // fan-out) and separate from it (a running run is never reconcilable).
+    // Deliberately does NOT consume `maxPerSweep`: the cap bounds the gh/reconcile
+    // fan-out only. A staleness read is one cheap KV get, and every marked run
+    // TRANSITIONS out of `running` so it cannot be re-counted on the next fire —
+    // the pass is self-limiting (bounded by the count of running runs), so a
+    // separate cap would add nothing.
     if (run.status === "running") {
       const heartbeatAt = deps.readHeartbeat ? await deps.readHeartbeat(run.id) : null;
       if (isRunStale(run, heartbeatAt, deps.now())) {

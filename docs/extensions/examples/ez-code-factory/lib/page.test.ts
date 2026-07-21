@@ -1234,6 +1234,19 @@ describe("buildStepDetailView (L5 step detail)", () => {
     expect(shell.rows[0]!.cells).toEqual(["bun test", "1", "120 ms", "1 fail"]);
   });
 
+  test("an empty shell output renders as an em dash (ioExcerpt empty branch)", () => {
+    const tree = buildStepDetailView(
+      detail({
+        result: stepResult({ round: 1 }),
+        rounds: [roundRecord({ round: 1 })],
+        io: [ioRecord({ round: 1, shellCommands: [ioShell({ command: "true", output: "" })] })],
+      }),
+    );
+    const shell = tableByCol0(tree, "Command")[0]!;
+    // The Output cell (index 3) falls through ioExcerpt("") → "—".
+    expect(shell.rows[0]!.cells[3]).toBe("—");
+  });
+
   test("rounds render NEWEST-first", () => {
     const tree = buildStepDetailView(
       detail({
@@ -1351,5 +1364,41 @@ describe("buildStepDetailView (L5 step detail)", () => {
       items: Array<{ label: string; value: string }>;
     };
     expect(stats.items.find((i) => i.label === "Status")!.value).toBe(STATUS_BADGE.stalled);
+  });
+});
+
+// ── inline parked-triage step-table hrefs (appendRunDetail call site) ─
+
+describe("appendRunDetail inline step-table hrefs", () => {
+  function stepRows(page: PageBuilder) {
+    const tree = page.build();
+    const t = allNodes(tree.nodes).find(
+      (n) => n.type === "table" && (n.columns as string[])[0] === "Step",
+    ) as { rows: Array<{ href?: string }> };
+    return t.rows;
+  }
+  const parked: RunDetail = {
+    run: run({ id: "run_t", status: "awaiting_approval" }),
+    steps: [stepResult({ step: "review", status: "awaiting_approval" })],
+  };
+
+  test("project form when a projectId is supplied", () => {
+    const page = new PageBuilder("t");
+    appendRunDetail(page, parked, { projectId: "proj-1" });
+    expect(stepRows(page)[0]!.href).toBe(
+      `/project/proj-1/hub/${encodeURIComponent(FULL_PAGE_ID)}?run=run_t&step=intent`,
+    );
+    // The parked review step (index 2) targets the review step detail.
+    expect(stepRows(page)[2]!.href).toBe(
+      `/project/proj-1/hub/${encodeURIComponent(FULL_PAGE_ID)}?run=run_t&step=review`,
+    );
+  });
+
+  test("global form when no projectId is supplied", () => {
+    const page = new PageBuilder("t");
+    appendRunDetail(page, parked);
+    expect(stepRows(page)[0]!.href).toBe(
+      `/hub/${encodeURIComponent(FULL_PAGE_ID)}?run=run_t&step=intent`,
+    );
   });
 });

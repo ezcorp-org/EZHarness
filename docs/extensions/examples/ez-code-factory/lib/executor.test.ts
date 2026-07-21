@@ -661,6 +661,93 @@ describe("per-run heartbeat (L3)", () => {
   });
 });
 
+describe("step_io write-failure resilience (L1 record-and-continue)", () => {
+  /** A store whose putStepIO ALWAYS rejects — the write path must swallow it. */
+  function rejectingIOStore() {
+    const store = memStore();
+    store.putStepIO = async () => {
+      throw new Error("storage down");
+    };
+    return store;
+  }
+
+  test("a putStepIO rejection on the SUCCESS path never fails the run — it parks + logs", async () => {
+    const store = rejectingIOStore();
+    const id = await seedRun(store);
+    const logs: string[] = [];
+    const deps = {
+      ...makeDeps(store, registry({ review: scriptStep("review", [{ needsApproval: true }]) }), { t: 0 }),
+      log: (_r: string, _s: PipelineStep, m: string) => logs.push(m),
+    };
+    // The pipeline reaches its normal PARKED outcome and never rejects.
+    const outcome = await startPipeline(id, deps);
+    expect(outcome.status).toBe("parked");
+    expect((await store.getRun(id))!.status).toBe("awaiting_approval");
+    // The round + result still persisted (only the step_io write failed).
+    expect(await store.getStepRounds(id, "review")).toHaveLength(1);
+    // The failure was LOGGED, not propagated.
+    expect(logs.some((m) => m.includes("step_io write failed (continuing)"))).toBe(true);
+    // …and nothing landed in step_io (the write rejected).
+    expect(await store.getStepIO(id, "review", 1)).toBeNull();
+  });
+
+  test("a putStepIO rejection on the THROW path preserves the STEP's error, not the storage error", async () => {
+    const store = rejectingIOStore();
+    const id = await seedRun(store);
+    const logs: string[] = [];
+    const rebase: Step = {
+      name: "rebase",
+      async execute() {
+        throw new Error("git exploded");
+      },
+    };
+    const deps = {
+      ...makeDeps(store, registry({ intent: scriptStep("intent", [clean]), rebase }), { t: 0 }),
+      log: (_r: string, _s: PipelineStep, m: string) => logs.push(m),
+    };
+    const outcome = await startPipeline(id, deps);
+    // Fails with the STEP's error — the swallowed storage-down never surfaces.
+    expect(outcome.status).toBe("failed");
+    expect(outcome.error).toContain("git exploded");
+    expect(outcome.error).not.toContain("storage down");
+    expect((await store.getRun(id))!.status).toBe("failed");
+    expect(logs.some((m) => m.includes("step_io write failed (continuing)"))).toBe(true);
+  });
+});
+
+describe("resultPreviewText (via captured dispatch IO)", () => {
+  /** A dispatcher whose dispatch resolves to a fixed result. */
+  function fixedDispatcher(result: import("./agent").DispatchResult): AgentDispatcher {
+    return { async dispatch() { return result; } };
+  }
+  async function capturedPreview(result: import("./agent").DispatchResult): Promise<string> {
+    const store = memStore();
+    const id = await seedRun(store);
+    const deps = makeDeps(
+      store,
+      registry({ review: dispatchingStep("review", "reviewer", [{ needsApproval: true }]) }),
+      { t: 0 },
+    );
+    deps.dispatcher = fixedDispatcher(result);
+    await startPipeline(id, deps);
+    return (await store.getStepIO(id, "review", 1))!.dispatches[0]!.resultPreview;
+  }
+
+  test("structured output is JSON-serialized into the preview", async () => {
+    expect(await capturedPreview({ output: { summary: "ok" }, text: "ignored" })).toBe('{"summary":"ok"}');
+  });
+
+  test("a non-serializable (circular) output falls back to the final text", async () => {
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+    expect(await capturedPreview({ output: circular, text: "FALLBACK_TEXT" })).toBe("FALLBACK_TEXT");
+  });
+
+  test("a null output uses the final text directly", async () => {
+    expect(await capturedPreview({ output: null, text: "FINAL_ANSWER" })).toBe("FINAL_ANSWER");
+  });
+});
+
 // ── respond: approve / skip / abort ─────────────────────────────────
 
 describe("respondToGate — approve / skip / abort", () => {

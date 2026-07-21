@@ -226,4 +226,23 @@ describe("reconcileSweep staleness pass", () => {
     });
     expect(summary.stalled).toBe(1);
   });
+
+  test("one fire with a stale running run AND a reconcilable run: stale marked, reconcilable advances, cap accounting unchanged", async () => {
+    const store = updatingStore([runningAt("dead", staleIso), run("green", "checks_passed")]);
+    const summary = await reconcileSweep({
+      store,
+      // Only the reconcilable (checks_passed) run reaches reconcile; the running
+      // run is handled by the staleness pass and never reconciled.
+      reconcile: async (id) => (id === "green" ? { status: "completed", parked: false } : null),
+      readHeartbeat: async () => staleIso,
+      now: () => nowMs,
+    });
+    expect(summary.stalled).toBe(1);
+    expect(summary.advanced).toBe(1);
+    // The cap accounts ONLY the reconcilable run — the staleness pass does not
+    // consume maxPerSweep (a running run continues before `scanned++`).
+    expect(summary.scanned).toBe(1);
+    // The stale run was marked; the reconcile fake never touched updateRun.
+    expect(store.updates).toEqual([{ id: "dead", patch: { status: "stalled" } }]);
+  });
 });

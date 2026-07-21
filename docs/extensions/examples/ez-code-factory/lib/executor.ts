@@ -27,7 +27,6 @@ import {
   deserializeFindings,
   emptyFindings,
   serializeFindings,
-  type AgentDispatchRef,
   type RunRecord,
   type RunStore,
   type StepResultRecord,
@@ -867,6 +866,10 @@ export async function reconcileGate(runId: string, deps: ExecutorDeps): Promise<
     const run = buildRunView(rec);
     const rounds = await deps.store.getStepRounds(runId, step);
     const shared = makeRunShared();
+    // No IO sink here (L2, deliberately OUT of scope v1): the reconcile path is a
+    // read-only bounded PR-state poll — it dispatches nothing and runs no trusted
+    // shell command, so there is no per-round IO to capture. Omitting the sink
+    // leaves `sctx.ioSink` undefined, so any incidental recorder call no-ops.
     const sctx = buildStepContext(deps, run, step, rounds, false, "", repoConfig, shared);
     let resolvedGate = false;
     try {

@@ -444,6 +444,13 @@ describe("createRunStore (Storage-backed)", () => {
     expect(listed.map((r) => r.round)).toEqual([1, 2]);
     expect(listed.every((r) => r.step === "review")).toBe(true);
     expect((await store.listStepIO("r1", "test")).map((r) => r.round)).toEqual([1]);
+
+    // Cross-RUN isolation: a DIFFERENT run's review record must not leak into
+    // r1's listing (the prefix is keyed by runId, not just step).
+    await store.putStepIO({ ...ioRecord("review", 1), runId: "r2" });
+    expect((await store.listStepIO("r1", "review")).map((r) => r.round)).toEqual([1, 2]);
+    expect((await store.listStepIO("r2", "review")).map((r) => r.round)).toEqual([1]);
+    expect((await store.listStepIO("r2", "review"))[0]!.runId).toBe("r2");
   });
 });
 

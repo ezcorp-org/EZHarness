@@ -182,10 +182,14 @@ function serializedBytes(record: StepIORecord): number {
 /**
  * Apply the final whole-record guard: while the serialized record exceeds `cap`,
  * halve the single largest bounded text field (a shell output, a prompt, a
- * result preview, or a dispatch error) until it fits. Bounded iteration (each
- * pass strictly shrinks the largest field, and there is a hard guard) so a
- * pathological record can NEVER leave this function over `cap` — a step_io write
- * must never throw the 1 MB storage guard.
+ * result preview, or a dispatch error) each pass until it fits. The loop is
+ * HARD-BOUNDED by a fixed iteration cap (`guard < 200`) — that cap, not a
+ * per-pass shrink argument, is the real never-throw guarantee: it always
+ * terminates. In practice each pass halves the largest text field, so a record
+ * dominated by big blobs collapses well under `cap` within a handful of passes;
+ * the only record that can exit still over `cap` is one whose STRUCTURAL JSON
+ * alone (many rounds of tiny fields) exceeds it, which is still orders of
+ * magnitude below the 1 MB storage guard — so a step_io write never throws it.
  */
 export function enforceRecordCap(record: StepIORecord, cap: number = RECORD_CAP): StepIORecord {
   let guard = 0;
