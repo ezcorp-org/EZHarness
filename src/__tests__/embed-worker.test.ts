@@ -690,7 +690,7 @@ describe("EmbedWorker — computeNextAttemptAfter backoff math", () => {
     const now = () => 0;
     const BASE = 5_000;
     for (const attempts of [1, 2, 3]) {
-      const delay = BASE * Math.pow(2, attempts);
+      const delay = BASE * 2 ** attempts;
       const ms = computeNextAttemptAfter(attempts, now).getTime();
       // now()=0, so ms === delay + jitter, jitter in [0, 0.3*delay].
       expect(ms).toBeGreaterThanOrEqual(delay);
@@ -716,7 +716,7 @@ describe("EmbedWorker — computeNextAttemptAfter backoff math", () => {
     // toISOString() throws. With the clamp it caps at 2^MAX_BACKOFF_EXPONENT.
     expect(Number.isNaN(d.getTime())).toBe(false);
     expect(() => d.toISOString()).not.toThrow();
-    const capped = 5_000 * Math.pow(2, MAX_BACKOFF_EXPONENT);
+    const capped = 5_000 * 2 ** MAX_BACKOFF_EXPONENT;
     expect(d.getTime()).toBeLessThanOrEqual(capped * 1.3);
   });
 });

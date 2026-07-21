@@ -33,7 +33,6 @@ mock.module("../extensions/mcp-sandbox", () => ({
 mock.module("../mcp/client", () => ({
   McpClient: class {
     public readonly isConnected = true;
-    constructor(_spec: unknown) {}
     async connect(): Promise<void> {}
     async listTools(): Promise<unknown[]> {
       return [];

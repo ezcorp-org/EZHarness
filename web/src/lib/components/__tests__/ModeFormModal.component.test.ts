@@ -45,7 +45,7 @@ beforeEach(() => {
 						? input.toString()
 						: input?.url ?? "";
 			const method = (init.method ?? "GET").toUpperCase();
-			let body: any = undefined;
+			let body: any;
 			if (init.body) {
 				try {
 					body = JSON.parse(init.body);

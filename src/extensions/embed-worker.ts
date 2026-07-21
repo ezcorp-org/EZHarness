@@ -132,7 +132,7 @@ const MAX_BACKOFF_EXPONENT = 30;
 
 function computeNextAttemptAfter(attempts: number, now: () => number): Date {
   const BASE_DELAY_MS = 5_000;
-  const delay = BASE_DELAY_MS * Math.pow(2, Math.min(attempts, MAX_BACKOFF_EXPONENT));
+  const delay = BASE_DELAY_MS * 2 ** Math.min(attempts, MAX_BACKOFF_EXPONENT);
   const jitter = Math.random() * delay * 0.3;
   return new Date(now() + delay + jitter);
 }
