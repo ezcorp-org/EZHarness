@@ -461,6 +461,35 @@ export class ExtensionProcess {
     return env;
   }
 
+  /**
+   * Log-and-swallow net for the fire-and-forget stderr-drain loop. The loop
+   * already swallows the expected "stream closed" throw internally; this final
+   * `.catch` arm catches anything it couldn't (e.g. a `TextDecoder` blow-up) so
+   * a drain failure surfaces in logs instead of becoming an unhandled
+   * rejection. Bound arrow (not a plain method) so it can be passed by
+   * reference to `.catch` — and named so the swallow path is unit-testable.
+   */
+  private readonly onDrainError = (err: unknown): void => {
+    log.debug("Unexpected error draining stderr", {
+      extensionId: this.extensionId,
+      error: String(err),
+    });
+  };
+
+  /**
+   * Log-and-swallow net for the fire-and-forget unexpected-exit handler. The
+   * handler's DB / registry work is already inner-try/caught; this arm catches
+   * anything its remaining statements could throw so the `.then` chain never
+   * becomes an unhandled rejection. Bound + named for the same reason as
+   * {@link onDrainError}.
+   */
+  private readonly onExitHandlerError = (err: unknown): void => {
+    log.error("Extension process exit handler failed", {
+      extensionId: this.extensionId,
+      error: String(err),
+    });
+  };
+
   /** Spawn the subprocess if not already running. */
   ensureRunning(): void {
     if (this.proc && !this.killed) return;
@@ -528,7 +557,7 @@ export class ExtensionProcess {
             }
           }
         } catch { /* stream closed — nothing to drain */ }
-      })();
+      })().catch(this.onDrainError);
     }
 
     this.transport = new JsonRpcTransport(
@@ -542,10 +571,11 @@ export class ExtensionProcess {
     activeProcesses.add(this);
     this.resetIdleTimer();
 
-    // Monitor for unexpected exit. The handler is self-contained — its DB /
-    // registry work is wrapped in inner try/catch, and the remaining
-    // statements (killed-guard, set deletion, a crash log) cannot throw — so
-    // it never rejects; `void` marks the fire-and-forget intentionally.
+    // Monitor for unexpected exit. The handler's DB / registry work is wrapped
+    // in inner try/catch and the remaining statements are not expected to
+    // throw, but a final `.catch` net (log-and-swallow) guards the
+    // fire-and-forget chain against ANY escaping rejection so it can never
+    // surface as an unhandled rejection; `void` marks the intent.
     void this.proc.exited
       .then(async (exitCode) => {
         if (this.killed) return; // Expected kill, not a crash
@@ -595,7 +625,8 @@ export class ExtensionProcess {
         } catch {
           // DB may not be available in tests
         }
-      });
+      })
+      .catch(this.onExitHandlerError);
   }
 
   /** Send a JSON-RPC call and wait for the response.
