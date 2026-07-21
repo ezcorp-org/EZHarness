@@ -135,8 +135,36 @@ export interface PageStats {
   type: "stats";
   items: PageStatItem[];
 }
+/**
+ * A table cell's optional semantic tone. Maps client-side to the app's
+ * existing status colour tokens (success→green, danger→red, warning→orange);
+ * `neutral` is the default (no colour) and is normalised AWAY by the
+ * validator — a neutral/absent/invalid tone collapses back to a plain string
+ * cell so the wire stays minimal and every pre-tone `string[]` cell is
+ * byte-for-byte unchanged.
+ */
+export type CellTone = "success" | "danger" | "warning" | "neutral";
+
+const CELL_TONES = new Set<string>(["success", "danger", "warning", "neutral"]);
+
+/**
+ * Object cell form (backward-compatible superset of a plain string cell).
+ * A cell may be a bare `string` OR `{text, tone}` — the object form only
+ * survives validation when it carries a MEANINGFUL tone; otherwise it is
+ * folded to its `text` string. Chosen over a per-row `cellTones[]` parallel
+ * array so a single status column can be toned without index-aligning a
+ * second array against `cells`.
+ */
+export interface PageTableCell {
+  text: string;
+  tone?: CellTone;
+}
+
+/** A table cell on the wire: a plain string (neutral) or a toned object. */
+export type PageCell = string | PageTableCell;
+
 export interface PageTableRow {
-  cells: string[];
+  cells: PageCell[];
   action?: PageAction;
   href?: string;
 }
@@ -339,6 +367,30 @@ function validateStats(raw: Record<string, unknown>): PageStats | null {
   return { type: "stats", items };
 }
 
+/**
+ * Validate ONE table cell. A plain string is truncated (unchanged wire
+ * shape). An object cell keeps its `{text, tone}` form ONLY when `tone` is a
+ * recognised, non-neutral tone; a neutral/absent/unknown tone (or a
+ * text-less object) folds to the plain truncated string — so a toned cell
+ * never bloats the wire and every existing `string[]` cell round-trips
+ * identically. A non-string/non-object cell becomes `""` (matches the
+ * pre-tone fallback for a malformed cell).
+ */
+function validateCell(c: unknown): PageCell {
+  if (typeof c === "string") return truncate(c, 300);
+  if (c != null && typeof c === "object" && !Array.isArray(c)) {
+    const obj = c as Record<string, unknown>;
+    if (typeof obj.text === "string") {
+      const text = truncate(obj.text, 300);
+      if (typeof obj.tone === "string" && CELL_TONES.has(obj.tone) && obj.tone !== "neutral") {
+        return { text, tone: obj.tone as CellTone };
+      }
+      return text;
+    }
+  }
+  return "";
+}
+
 function validateTableRow(
   raw: unknown,
   columnCount: number,
@@ -347,9 +399,7 @@ function validateTableRow(
   if (raw == null || typeof raw !== "object" || Array.isArray(raw)) return null;
   const r = raw as Record<string, unknown>;
   if (!Array.isArray(r.cells)) return null;
-  const cells = r.cells
-    .slice(0, columnCount)
-    .map((c) => (typeof c === "string" ? truncate(c, 300) : ""));
+  const cells = r.cells.slice(0, columnCount).map(validateCell);
   const out: PageTableRow = { cells };
   if (r.action !== undefined) {
     const action = validateAction(r.action, allowedEvents);

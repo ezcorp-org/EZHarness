@@ -76,8 +76,24 @@ export interface PageStatItem {
   hint?: string;
 }
 
+/** A table cell's semantic tone. Mirror of page-schema's `CellTone`
+ *  (source of truth + validation point). The host normalises `neutral`
+ *  (and any unknown value) back to a plain string cell. */
+export type PageCellTone = "success" | "danger" | "warning" | "neutral";
+
+/** Object cell form — mirror of page-schema's `PageTableCell`. Lets a
+ *  builder tone a single cell (e.g. a run-status column) without an
+ *  index-aligned parallel array. */
+export interface PageTableCellInput {
+  text: string;
+  tone?: PageCellTone;
+}
+
+/** A table cell input: a plain string (neutral) or a toned object. */
+export type PageCellInput = string | PageTableCellInput;
+
 export interface PageTableRowInput {
-  cells: string[];
+  cells: PageCellInput[];
   action?: PageActionDescriptor;
   /** Relative internal link (must start with a single `/`). */
   href?: string;

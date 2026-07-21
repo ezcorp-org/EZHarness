@@ -302,6 +302,76 @@ describe("table", () => {
     const t = result!.nodes[0] as PageTable;
     expect(t.rows).toEqual([{ cells: ["", "ok"] }]);
   });
+
+  test("object cell with a valid tone keeps its {text, tone} shape", () => {
+    const result = validate([
+      {
+        type: "table",
+        columns: ["A", "B", "C"],
+        rows: [
+          {
+            cells: [
+              { text: "failed", tone: "danger" },
+              { text: "completed", tone: "success" },
+              { text: "awaiting", tone: "warning" },
+            ],
+          },
+        ],
+      },
+    ]);
+    const t = result!.nodes[0] as PageTable;
+    expect(t.rows[0]!.cells).toEqual([
+      { text: "failed", tone: "danger" },
+      { text: "completed", tone: "success" },
+      { text: "awaiting", tone: "warning" },
+    ]);
+  });
+
+  test("neutral / absent / unknown tone folds an object cell back to a plain string", () => {
+    const result = validate([
+      {
+        type: "table",
+        columns: ["A", "B", "C"],
+        rows: [
+          {
+            cells: [
+              { text: "running", tone: "neutral" },
+              { text: "no-tone" },
+              { text: "bogus", tone: "chartreuse" },
+            ],
+          },
+        ],
+      },
+    ]);
+    const t = result!.nodes[0] as PageTable;
+    // Every one collapses to a bare string — the wire stays minimal and a
+    // pre-tone consumer sees exactly what it saw before tones existed.
+    expect(t.rows[0]!.cells).toEqual(["running", "no-tone", "bogus"]);
+  });
+
+  test("object cell text is <>-stripped + truncated; text-less object becomes empty", () => {
+    const result = validate([
+      {
+        type: "table",
+        columns: ["A", "B"],
+        rows: [
+          {
+            cells: [
+              { text: `<b>x</b>${"y".repeat(400)}`, tone: "danger" },
+              { tone: "success" },
+            ],
+          },
+        ],
+      },
+    ]);
+    const t = result!.nodes[0] as PageTable;
+    const first = t.rows[0]!.cells[0] as { text: string; tone: string };
+    expect(first.tone).toBe("danger");
+    expect(first.text.startsWith("bx")).toBe(true);
+    expect(first.text.length).toBe(300);
+    // A tone with no `text` string is not a valid cell — it degrades to "".
+    expect(t.rows[0]!.cells[1]).toBe("");
+  });
 });
 
 // ── button + actions ───────────────────────────────────────────────

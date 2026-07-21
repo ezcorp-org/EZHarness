@@ -60,7 +60,15 @@ export interface PageSectionNode { type: "section"; title?: string; nodes: PageN
 export interface PageHeadingNode { type: "heading"; level: 1 | 2 | 3; text: string }
 export interface PageMarkdownNode { type: "markdown"; content: string }
 export interface PageStatsNode { type: "stats"; items: { label: string; value: string; hint?: string }[] }
-export interface PageTableRow { cells: string[]; action?: PageAction; href?: string }
+/** A table cell's semantic tone. Mirror of page-schema's `CellTone`
+ *  (source of truth). `neutral` is normalised away server-side, so a toned
+ *  cell reaching the renderer only ever carries success/danger/warning. */
+export type CellTone = "success" | "danger" | "warning" | "neutral";
+/** Object cell form — mirror of page-schema's `PageTableCell`. */
+export interface PageTableCell { text: string; tone?: CellTone }
+/** A table cell: a plain string (neutral) or a toned object. */
+export type PageCell = string | PageTableCell;
+export interface PageTableRow { cells: PageCell[]; action?: PageAction; href?: string }
 export interface PageTableNode { type: "table"; columns: string[]; rows: PageTableRow[] }
 export interface PageButtonNode { type: "button"; label: string; action: PageAction; style?: "primary" | "secondary" | "danger" }
 export interface PageLinkNode { type: "link"; label: string; href: string }

@@ -228,4 +228,46 @@ describe("links + href re-check", () => {
 		expect(table).toHaveTextContent("Name");
 		expect(table).toHaveTextContent("When");
 	});
+
+	test("toned cells render their text + the matching status colour class; neutral stays plain", () => {
+		const { getAllByTestId } = renderNodes([
+			{
+				type: "table",
+				columns: ["Run", "Status"],
+				rows: [
+					{ cells: ["r1", { text: "failed", tone: "danger" }] },
+					{ cells: ["r2", { text: "completed", tone: "success" }] },
+					{ cells: ["r3", { text: "awaiting", tone: "warning" }] },
+					{ cells: ["r4", "running"] },
+				],
+			},
+		]);
+		const cells = getAllByTestId("hub-table-cell");
+		// Two cells per row, four rows → the status cell is every odd index.
+		const status = [cells[1]!, cells[3]!, cells[5]!, cells[7]!];
+		expect(status[0]).toHaveTextContent("failed");
+		expect(status[0]).toHaveAttribute("data-tone", "danger");
+		expect(status[0]!.querySelector("span")?.className).toContain("text-red-400");
+		expect(status[1]).toHaveAttribute("data-tone", "success");
+		expect(status[1]!.querySelector("span")?.className).toContain("text-green-400");
+		expect(status[2]).toHaveAttribute("data-tone", "warning");
+		expect(status[2]!.querySelector("span")?.className).toContain("text-yellow-400");
+		// A plain-string cell is neutral: text present, no colour class.
+		expect(status[3]).toHaveTextContent("running");
+		expect(status[3]).toHaveAttribute("data-tone", "neutral");
+		expect(status[3]!.querySelector("span")?.className).not.toContain("text-red-400");
+	});
+
+	test("a toned FIRST cell that is also a link renders its text through the anchor", () => {
+		const { getByTestId } = renderNodes([
+			{
+				type: "table",
+				columns: ["Run"],
+				rows: [{ cells: [{ text: "run-1", tone: "danger" }], href: "/project/p/hub/x?run=run-1" }],
+			},
+		]);
+		const link = getByTestId("hub-row-link");
+		expect(link).toHaveTextContent("run-1");
+		expect(link).toHaveAttribute("href", "/project/p/hub/x?run=run-1");
+	});
 });
