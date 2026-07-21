@@ -397,6 +397,43 @@ export interface SessionTreeView {
   nodes: SessionTreeNode[];
 }
 
+/**
+ * Resolve a durable leaf pointer that has auto-advanced onto a
+ * `capability-event` row down to its nearest real conversational ancestor.
+ *
+ * `capability-event` rows are inline annotations (see `recordCapabilityCall`),
+ * NOT conversational tree nodes. The session leaf pointer, however, advances to
+ * whatever entry was appended LAST (`leafIdAfterEntry`), so a run whose final
+ * activity was an auto-allowed tool call (every briefing fires read-only
+ * watchlist tools; normal chat after any auto-allowed tool) leaves the durable
+ * leaf sitting on a trailing capability-event. The chat client's
+ * `restoreDurableLeaf` re-seats the active branch on `currentLeaf` as the LAST
+ * writer — so when that cap is still root-level (its parent not yet healed by
+ * the catch-up reconcile), `pathToRoot` from it yields ONLY the orphan
+ * annotation and the transcript renders BLANK. Mirrors the capability-event
+ * exclusion `computeLatestLeaf` (client) and `getLatestLeaf` (server bare GET)
+ * already apply — this was the one remaining leaf-producing path that lacked
+ * it. Cycle-guarded; fails open to `null` (→ client keeps `computeLatestLeaf`'s
+ * default) when the pointer is missing or the whole ancestor chain is
+ * annotations. A real rewind target is always a live non-cap `messages` row, so
+ * this is a no-op for `rewindSession`.
+ */
+export function resolveConversationalLeaf(
+  leafId: string | null,
+  rowsById: Map<string, ConversationMessage>,
+): string | null {
+  let current = leafId;
+  const seen = new Set<string>();
+  while (current && !seen.has(current)) {
+    seen.add(current);
+    const row = rowsById.get(current);
+    if (!row) return null; // pointer to a non-live row → fail open
+    if (row.role !== "capability-event") return current;
+    current = row.parentMessageId ?? null;
+  }
+  return null;
+}
+
 /** Project a caught-up session + its live rows into a {@link SessionTreeView}.
  *  Only entries whose live `messages` row still exists become nodes — a row
  *  deleted out of band drops out, mirroring computeSessionBranch's skip. The
@@ -414,7 +451,7 @@ function buildTreeView(
     if (!row) continue;
     nodes.push({ id: row.id, parentId: entry.parentId, role: row.role, excluded: row.excluded, createdAt: row.createdAt.toISOString() });
   }
-  return { conversationId, currentLeaf, nodes };
+  return { conversationId, currentLeaf: resolveConversationalLeaf(currentLeaf, rowsById), nodes };
 }
 
 /**

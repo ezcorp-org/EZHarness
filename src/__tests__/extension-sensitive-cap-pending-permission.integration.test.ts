@@ -125,6 +125,25 @@ describe("extension sensitive-cap prompt ↔ pendingPermissions wiring", () => {
     expect(JSON.stringify(res.content)).toContain(SENTINEL);
   });
 
+  test("resolves with the 'project' scope (deferred project scopeId → conversationId)", async () => {
+    // The project scope branch defers real project resolution and keys the
+    // always-allow row by conversationId. Exercise it end-to-end so the
+    // deferred-project arm of the scopeId ternary is covered.
+    const { exec, reg, dereg, lastPromptId } = makeExec();
+
+    const p = exec.executeToolCall("ext-1__create_extension", {}, "conv-project", null);
+    await tick();
+    const promptId = lastPromptId();
+    expect(reg).toEqual([promptId]);
+
+    resolvePermission(promptId, true, "project");
+    const res = await p;
+
+    expect(dereg).toEqual([promptId]);
+    expect(res.isError).toBe(true);
+    expect(JSON.stringify(res.content)).toContain(SENTINEL);
+  });
+
   test("deregisters after the user DENIES (PermissionDeniedError propagates)", async () => {
     const { exec, reg, dereg, lastPromptId } = makeExec();
 

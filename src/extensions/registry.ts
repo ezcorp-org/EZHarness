@@ -118,8 +118,10 @@ export function buildAllowedEnv(
   try {
     allowedEnv.EZCORP_PROJECT_ROOT = findProjectRoot();
   } catch {
-    /* no .git ancestor — leave EZCORP_PROJECT_ROOT unset so the
-       extension's fallback path (or test harness) handles it. */
+    // no .git ancestor — leave EZCORP_PROJECT_ROOT unset; the extension's
+    // fallback path (or test harness) handles it. (Single-line comment: a
+    // multi-line block comment here makes bun emit a phantom, never-hit DA
+    // record on the continuation line, which the per-file gate can't clear.)
   }
 
   // EZCORP_EXTENSION_DATA_ROOT — dedicated data-dir root for bundled

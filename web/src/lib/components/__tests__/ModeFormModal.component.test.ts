@@ -45,7 +45,7 @@ beforeEach(() => {
 						? input.toString()
 						: input?.url ?? "";
 			const method = (init.method ?? "GET").toUpperCase();
-			let body: any = undefined;
+			let body: any;
 			if (init.body) {
 				try {
 					body = JSON.parse(init.body);
@@ -398,6 +398,95 @@ describe("ModeFormModal — submit payload", () => {
 		expect(postCall!.body.toolRestriction).toBeUndefined();
 
 		expect(onsaved).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("ModeFormModal — interactions & branches", () => {
+	test("Edit button (view mode) flips into the interactive edit layout", async () => {
+		const { container } = render(ModeFormModal, {
+			open: true,
+			editMode: makeMode({ id: "m-edit", extensionIds: ["a"], builtin: false }),
+			viewMode: true,
+			onsaved: () => {},
+			onclose: () => {},
+		});
+		const editBtn = container.querySelector('button[aria-label="Edit mode"]') as HTMLButtonElement;
+		expect(editBtn).not.toBeNull();
+		await fireEvent.click(editBtn); // isEditing = true
+		await flush();
+		expect(container.querySelector('[data-testid="extension-picker-combobox"]')).not.toBeNull();
+	});
+
+	test("opening then closing the extension attach picker toggles it", async () => {
+		const { container, getByLabelText, queryByLabelText } = render(ModeFormModal, {
+			open: true,
+			editMode: makeMode({ id: "m-ap", extensionIds: ["a"], builtin: false }),
+			viewMode: false,
+			onsaved: () => {},
+			onclose: () => {},
+		});
+		const openBtn = container.querySelector(
+			'[data-testid="open-extension-attach-picker"]',
+		) as HTMLButtonElement;
+		expect(openBtn).not.toBeNull();
+		await fireEvent.click(openBtn); // attachPickerOpen = true
+		await flush();
+
+		// The picker's "Close picker" fires the modal's onclose handler for the
+		// nested picker → attachPickerOpen = false.
+		await fireEvent.click(getByLabelText("Close picker"));
+		await flush();
+		expect(queryByLabelText("Close picker")).toBeNull();
+	});
+
+	test("Escape closes the modal (reset + onclose)", async () => {
+		const onclose = vi.fn();
+		const { container } = render(ModeFormModal, {
+			open: true,
+			editMode: null,
+			viewMode: false,
+			onsaved: () => {},
+			onclose,
+		});
+		const dialog = container.querySelector('[role="dialog"]') as HTMLElement;
+		await fireEvent.keyDown(dialog, { key: "Escape" });
+		expect(onclose).toHaveBeenCalledTimes(1);
+	});
+
+	test("a failed save surfaces the error message (submit catch)", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (input: any, init: any = {}) => {
+				const url = typeof input === "string" ? input : (input?.url ?? "");
+				const method = (init.method ?? "GET").toUpperCase();
+				if (url.includes("/api/extensions") && method === "GET") {
+					return new Response("[]", { status: 200, headers: { "content-type": "application/json" } });
+				}
+				if (/\/api\/modes(\?|$)/.test(url) && method === "POST") {
+					return new Response(JSON.stringify({ error: "duplicate slug" }), {
+						status: 409,
+						headers: { "content-type": "application/json" },
+					});
+				}
+				return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
+			}),
+		);
+		const { container, findByText } = render(ModeFormModal, {
+			open: true,
+			editMode: null,
+			viewMode: false,
+			onsaved: vi.fn(),
+			onclose: () => {},
+		});
+		await fireEvent.input(container.querySelector("#mode-form-name") as HTMLInputElement, {
+			target: { value: "Dup" },
+		});
+		await fireEvent.input(container.querySelector("#mode-form-system-prompt") as HTMLTextAreaElement, {
+			target: { value: "prompt" },
+		});
+		await fireEvent.click(container.querySelector("button.bg-blue-600") as HTMLButtonElement);
+		await flush();
+		expect(await findByText(/duplicate slug|Failed to save mode/)).toBeInTheDocument();
 	});
 });
 

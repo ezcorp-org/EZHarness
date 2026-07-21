@@ -606,6 +606,18 @@ describe("EmbedWorker — interval-driven tick", () => {
     expect(drained).toBe(true);
   });
 
+  test("runTickGuarded swallows + logs a rejected tick (defense-in-depth net)", async () => {
+    // tickOnce()'s own try/catch/finally means it never rejects in practice,
+    // so the interval's outer catch is otherwise unreachable. Force the
+    // rejection path by stubbing tickOnce to throw, and assert the guard
+    // swallows it (resolves, never rejects) so the daemon keeps ticking.
+    const worker = new EmbedWorker({ skipLockfile: true, wakeIntervalMs: 60_000 });
+    worker.tickOnce = async () => {
+      throw new Error("boom tick");
+    };
+    await expect(worker.runTickGuarded()).resolves.toBeUndefined();
+  });
+
   test("a thrown tick is swallowed by the interval's .catch — daemon keeps ticking", async () => {
     // First tick throws; subsequent ticks succeed. The interval's outer
     // .catch must keep the daemon alive so the row eventually drains.
@@ -687,7 +699,7 @@ describe("EmbedWorker — computeNextAttemptAfter backoff math", () => {
     const now = () => 0;
     const BASE = 5_000;
     for (const attempts of [1, 2, 3]) {
-      const delay = BASE * Math.pow(2, attempts);
+      const delay = BASE * 2 ** attempts;
       const ms = computeNextAttemptAfter(attempts, now).getTime();
       // now()=0, so ms === delay + jitter, jitter in [0, 0.3*delay].
       expect(ms).toBeGreaterThanOrEqual(delay);
@@ -713,7 +725,7 @@ describe("EmbedWorker — computeNextAttemptAfter backoff math", () => {
     // toISOString() throws. With the clamp it caps at 2^MAX_BACKOFF_EXPONENT.
     expect(Number.isNaN(d.getTime())).toBe(false);
     expect(() => d.toISOString()).not.toThrow();
-    const capped = 5_000 * Math.pow(2, MAX_BACKOFF_EXPONENT);
+    const capped = 5_000 * 2 ** MAX_BACKOFF_EXPONENT;
     expect(d.getTime()).toBeLessThanOrEqual(capped * 1.3);
   });
 });

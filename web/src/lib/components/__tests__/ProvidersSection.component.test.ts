@@ -92,6 +92,17 @@ describe("ProvidersSection Ollama URL", () => {
 	});
 });
 
+describe("ProvidersSection Ollama URL binding", () => {
+	test("editing the Base URL input updates through its two-way binding", async () => {
+		stubFetch();
+		const { getByLabelText } = renderSection([], "http://localhost:11434");
+		await fireEvent.input(getByLabelText("Base URL"), {
+			target: { value: "http://ollama-host:11434" },
+		});
+		expect((getByLabelText("Base URL") as HTMLInputElement).value).toBe("http://ollama-host:11434");
+	});
+});
+
 describe("ProvidersSection fetch models", () => {
 	test("success lists discovered models with Add buttons", async () => {
 		stubFetch({

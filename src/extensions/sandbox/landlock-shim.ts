@@ -210,12 +210,27 @@ export async function runShim(
   return await proc.exited;
 }
 
-// Entrypoint guard: only run when invoked directly as `bun landlock-shim.ts`.
-if (import.meta.main) {
-  runShim(Bun.argv.slice(2), process.env)
-    .then((code) => process.exit(code))
-    .catch((err) => {
-      console.error(`landlock-shim: ${err?.message ?? err}`);
-      process.exit(127);
-    });
+/**
+ * Entrypoint body: run the shim, exit with the inner command's code, and on
+ * any failure log + exit 127. `exit`/`errLog` are injectable so the wiring is
+ * unit-testable without terminating the test runner (the guard below uses the
+ * real `process.exit`/`console.error`).
+ */
+export async function runShimMain(
+  argv: readonly string[],
+  env: Record<string, string | undefined>,
+  exit: (code: number) => void = process.exit,
+  errLog: (msg: string) => void = console.error,
+): Promise<void> {
+  try {
+    exit(await runShim(argv, env));
+  } catch (err) {
+    errLog(`landlock-shim: ${(err as { message?: string })?.message ?? err}`);
+    exit(127);
+  }
 }
+
+// Entrypoint guard: only run when invoked directly as `bun landlock-shim.ts`.
+// Single-line so the guard itself is covered on import (the body only runs in
+// a direct spawn, where it would jail the test runner — never in-process).
+if (import.meta.main) void runShimMain(Bun.argv.slice(2), process.env);

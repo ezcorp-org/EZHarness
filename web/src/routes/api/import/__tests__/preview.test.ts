@@ -5,7 +5,7 @@
 // boundaries are stubbed.
 
 import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
-import { mkdtemp, mkdir, writeFile, rm, stat } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, rm, stat, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { restoreModuleMocks } from "../../../../../../src/__tests__/helpers/mock-cleanup";
@@ -21,7 +21,17 @@ import * as skillBundleActual from "../../../../../../src/runtime/import/skill-b
 import * as discoveryActual from "../../../../../../src/runtime/commands/discovery";
 import * as httpErrorsActual from "../../../../lib/server/http-errors";
 mock.module("$server/runtime/import/staging", () => stagingActual);
-mock.module("$server/runtime/import/skill-bundle", () => skillBundleActual);
+// Controllable so a single test can drive the post-stage scan-failure arm
+// without re-registering the module (which leaks into later cases). Capture
+// the REAL scanner in a const BEFORE the mock overrides the live binding —
+// otherwise resetting to `skillBundleActual.scanSkillBundles` would point the
+// wrapper at itself and recurse forever.
+const realScanSkillBundles = skillBundleActual.scanSkillBundles;
+let scanSkillBundlesImpl: typeof realScanSkillBundles = realScanSkillBundles;
+mock.module("$server/runtime/import/skill-bundle", () => ({
+  ...skillBundleActual,
+  scanSkillBundles: (root: string) => scanSkillBundlesImpl(root),
+}));
 mock.module("$server/runtime/commands/discovery", () => discoveryActual);
 mock.module("$lib/server/http-errors", () => httpErrorsActual);
 
@@ -46,6 +56,7 @@ afterAll(() => restoreModuleMocks());
 
 beforeEach(async () => {
   scopeResponse = null;
+  scanSkillBundlesImpl = realScanSkillBundles;
   projectRoot = await mkdtemp(join(tmpdir(), "imp-prev-proj-"));
   // A regular file used as a bogus "project root" so staging's mkdir
   // throws a non-StagingError (ENOTDIR) → exercises the generic-500 path.
@@ -129,6 +140,19 @@ describe("preview — guards", () => {
       evt(dirForm([[".claude/commands/a.md", "x"]], "unwritable")),
     );
     expect(res.status).toBe(500);
+  });
+
+  test("a scan failure after staging cleans up the staging dir and returns 500", async () => {
+    // Staging succeeds, but the post-stage scan throws → the handler must
+    // clean up the freshly-staged dir before rethrowing (no leaked staging).
+    scanSkillBundlesImpl = async () => {
+      throw new Error("scan boom");
+    };
+    const res = await POST(evt(dirForm([[".claude/commands/foo.md", "x"]])));
+    expect(res.status).toBe(500);
+    const stagingRoot = join(projectRoot, ".ezcorp", "import-staging");
+    const entries = await readdir(stagingRoot).catch(() => [] as string[]);
+    expect(entries).toHaveLength(0);
   });
 });
 
