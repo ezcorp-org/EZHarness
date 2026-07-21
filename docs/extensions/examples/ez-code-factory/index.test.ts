@@ -1,5 +1,5 @@
 import { test, expect, describe, beforeEach, afterEach, spyOn } from "bun:test";
-import { mkdtempSync, rmSync, mkdirSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -47,7 +47,14 @@ import {
   recoverOnStart,
 } from "./index";
 import type { ChatToolDeps } from "./lib/chat-tools";
-import { gateDir as gateDirFor, repoId as repoIdOf, GATE_REMOTE, HOOK_MARKER } from "./lib/gate";
+import {
+  gateDir as gateDirFor,
+  repoId as repoIdOf,
+  dataDir as dataDirFor,
+  credentialPath as credentialPathFor,
+  GATE_REMOTE,
+  HOOK_MARKER,
+} from "./lib/gate";
 import { SWEEP_CRON, type SweepHeartbeat } from "./lib/sweep";
 import { productionHostRunner, type ShellRunner } from "./lib/shell";
 import { _setLogSinkForTests } from "./lib/log";
@@ -253,6 +260,29 @@ describe("initGateTool", () => {
     expect(out.gateRemote).toBe(GATE_REMOTE);
     expect(out.pushHint).toBe(`git push ${GATE_REMOTE} <branch>`);
     expect(existsSync(gateDirFor(work, out.repoId))).toBe(true);
+    // No credential was minted → the result reports the gap + the exact next step
+    // so the "initialized" reply cannot be a bare success (silent-setup gap #1).
+    expect(out.credentialPresent).toBe(false);
+    expect(out.nextStep).toContain("ezcorp key mint --scopes read,chat");
+    expect(out.nextStep).toContain("umask 077");
+  });
+
+  test("with the credential minted → credentialPresent true and no nextStep", async () => {
+    const work = join(root, "with-cred");
+    mkdirSync(work);
+    await productionHostRunner(["git", "init", "-b", "main"], work);
+    await productionHostRunner(["git", "remote", "add", "origin", "https://up/x.git"], work);
+    mkdirSync(dataDirFor(work), { recursive: true });
+    writeFileSync(credentialPathFor(work), "minted-key");
+    _setProjectRootForTests(() => work);
+    _setShellForTests(productionHostRunner);
+    _setBaseUrlForTests(() => "http://127.0.0.1:9");
+
+    const res = await initGateTool({});
+    expect(res.isError).toBe(false);
+    const out = JSON.parse(res.content[0]!.text);
+    expect(out.credentialPresent).toBe(true);
+    expect(out.nextStep).toBeUndefined();
   });
 
   test("surfaces an init failure as a tool error", async () => {
@@ -2037,9 +2067,12 @@ describe("code_factory_doctor tool (M6)", () => {
     expect(report.checks.map((c) => c.name)).toEqual([
       "gate",
       "hook",
+      "credential",
+      "curl",
       "gh",
       "token",
       "default-branch",
+      "trusted-upstream",
       "reconcile-sweep",
     ]);
     expect(report.checks.find((c) => c.name === "gate")!.status).toBe("ok");

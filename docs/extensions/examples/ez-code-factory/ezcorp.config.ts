@@ -46,7 +46,14 @@ export default defineExtension({
         "clobber a foreign remote of the same name). Safe to re-run: it only " +
         "rewrites hooks it wrote itself and only repoints gate wiring it owns. " +
         "After running, `git push gate <branch>` routes the push through this " +
-        "extension. Returns the gate repo id + paths.",
+        "extension. Returns the gate repo id + paths. CONTRACT — MISSING " +
+        "CREDENTIAL: the gate is INERT without a minted key file, which init_gate " +
+        "does NOT create (README §Setup step 2 is a required manual step). When " +
+        "the result has `credentialPresent:false`, the always-exit-0 hook accepts " +
+        "pushes but silently drops every one (nothing recorded, the dashboard " +
+        "stays empty) — your reply MUST LEAD with that gap and the `nextStep` mint " +
+        "command; do NOT report a bare 'initialized successfully', setup is " +
+        "incomplete until the key exists.",
       inputSchema: {
         type: "object",
         properties: {

@@ -57,6 +57,16 @@ export function gateDir(projectRoot: string, id: string): string {
 export function credentialPath(projectRoot: string): string {
   return join(dataDir(projectRoot), "gate-key");
 }
+/**
+ * The exact `ezcorp key mint` command README §Setup step 2 documents for
+ * provisioning the gate credential, with the real `credentialPath` substituted.
+ * `umask 077` creates the key `0600` (owner-only). Shared by initGate's
+ * missing-credential warning AND the doctor's credential check so the guidance
+ * the user is handed never drifts from the README. Pure.
+ */
+export function mintCredentialCommand(credentialPath: string): string {
+  return `(umask 077; ezcorp key mint --scopes read,chat > "${credentialPath}")`;
+}
 /** Where the hook appends notify failures. Pure. */
 export function notifyLogPath(gateRepoDir: string): string {
   return join(gateRepoDir, "notify-push.log");
@@ -232,6 +242,12 @@ export interface InitGateResult {
   gateDir: string;
   gateRemote: string;
   credentialPath: string;
+  /** Whether the minted gate credential FILE exists at `credentialPath`. When
+   *  false the REQUIRED manual mint step (README §Setup step 2) is undone, so the
+   *  always-exit-0 hook accepts pushes but silently drops every one (nothing is
+   *  recorded, the dashboard stays empty). Surfaced so the success reply cannot
+   *  hide the gap; a matching `warnings` entry carries the exact mint command. */
+  credentialPresent: boolean;
   bareCreated: boolean;
   hookAction: "written" | "refreshed" | "skipped-foreign";
   remoteAction: RemoteWiringAction;
@@ -271,6 +287,7 @@ export async function initGate(opts: {
     gateDir: gDir,
     gateRemote: GATE_REMOTE,
     credentialPath: credPath,
+    credentialPresent: false,
     bareCreated: false,
     hookAction: "written",
     remoteAction: "noop",
@@ -368,11 +385,21 @@ export async function initGate(opts: {
   //     so a key dropped with a lax umask isn't left group/world-readable. The
   //     hook reads this file at push time; the gate never fails on the chmod.
   const credProbe = await run(["test", "-f", credPath], projectRoot);
+  result.credentialPresent = credProbe.exitCode === 0;
   if (credProbe.exitCode === 0) {
     const chmodRes = await run(["chmod", "0600", credPath], projectRoot);
     if (chmodRes.exitCode !== 0) {
       warnings.push(`could not tighten gate credential mode at ${credPath} (best-effort)`);
     }
+  } else {
+    // The REQUIRED manual mint step (README §Setup step 2) has not been done.
+    // The managed hook ALWAYS exits 0, so without this key every push is
+    // accepted but silently dropped — nothing recorded, dashboard empty forever.
+    // Surface the exact mint command so the "initialized" reply cannot hide it.
+    warnings.push(
+      `no gate credential at ${credPath} — pushes will be accepted but never recorded until this key ` +
+        `exists; mint one: ${mintCredentialCommand(credPath)}`,
+    );
   }
 
   // 5. Wire the `gate` remote on the working repo (never clobber a foreign URL).

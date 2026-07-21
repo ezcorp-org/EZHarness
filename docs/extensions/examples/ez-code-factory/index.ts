@@ -41,6 +41,8 @@ import {
   dataDir,
   gateDir as gateDirFor,
   repoId as repoIdFor,
+  credentialPath as credentialPathFor,
+  mintCredentialCommand,
   initGate,
 } from "./lib/gate";
 import {
@@ -492,6 +494,7 @@ export const codeFactoryDoctorTool: ToolHandler = async () => {
   const report: DoctorReport = await runDoctor({
     gateDir: gDir,
     defaultBranch: config.defaultBranch,
+    credentialPath: credentialPathFor(projectRoot),
     run: shellImpl,
     gh: makeGhRunner(shellImpl, gDir, resolveProductionGhToken),
     resolveToken: resolveProductionGhToken,
@@ -549,19 +552,30 @@ export const initGateTool: ToolHandler = async (args) => {
   if (!res.ok) {
     return toolError(`init_gate failed: ${res.error ?? "unknown error"}`);
   }
+  const base = {
+    ok: true,
+    repoId: res.repoId,
+    gateRemote: res.gateRemote,
+    gateDir: res.gateDir,
+    credentialPath: res.credentialPath,
+    // The hook silently drops every push until the minted key file exists — the
+    // #1 silent-setup gap. Surfaced verbatim so the success reply must confront it.
+    credentialPresent: res.credentialPresent,
+    bareCreated: res.bareCreated,
+    hookAction: res.hookAction,
+    remoteAction: res.remoteAction,
+    pushHint: `git push ${GATE_REMOTE} <branch>`,
+    warnings: res.warnings,
+  };
+  // When the credential is missing the gate is provisioned but INERT — attach
+  // the exact mint command as `nextStep` (paired with the tool description's
+  // CONTRACT clause) so a bare "initialized" summary is not the whole story.
   return toolResult(
-    JSON.stringify({
-      ok: true,
-      repoId: res.repoId,
-      gateRemote: res.gateRemote,
-      gateDir: res.gateDir,
-      credentialPath: res.credentialPath,
-      bareCreated: res.bareCreated,
-      hookAction: res.hookAction,
-      remoteAction: res.remoteAction,
-      pushHint: `git push ${GATE_REMOTE} <branch>`,
-      warnings: res.warnings,
-    }),
+    JSON.stringify(
+      res.credentialPresent
+        ? base
+        : { ...base, nextStep: mintCredentialCommand(res.credentialPath) },
+    ),
   );
 };
 
