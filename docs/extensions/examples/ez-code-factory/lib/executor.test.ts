@@ -109,6 +109,45 @@ function scriptStep(name: PipelineStep, outcomes: StepOutcome[]): Step & { calls
 
 const noopDispatcher: AgentDispatcher = { async dispatch() { return { output: null, text: "" }; } };
 
+/** A dispatcher that stamps unique, resolvable handle ids on each dispatch —
+ *  drives the executor's linkage-recording path. The noop dispatcher above
+ *  returns no ids, so it records nothing (the pre-linkage / hand-built case). */
+function linkingDispatcher(): AgentDispatcher {
+  let n = 0;
+  return {
+    async dispatch() {
+      n += 1;
+      return {
+        output: null,
+        text: "",
+        subConversationId: `sub-${n}`,
+        assignmentId: `asg-${n}`,
+        agentRunId: `run-${n}`,
+      };
+    },
+  };
+}
+
+/** A step that dispatches ONE agent turn per execute (role-tagged) then returns
+ *  the scripted outcome — exercises the executor's per-round dispatch recorder
+ *  (`scriptStep` never dispatches, so it records nothing). */
+function dispatchingStep(
+  name: PipelineStep,
+  role: "reviewer" | "fixer" | "generic",
+  outcomes: StepOutcome[],
+): Step {
+  let i = 0;
+  return {
+    name,
+    async execute(sctx: StepContext) {
+      await sctx.dispatcher.dispatch({ role, prompt: "p", cwd: sctx.worktree });
+      const o = outcomes[Math.min(i, outcomes.length - 1)]!;
+      i += 1;
+      return o;
+    },
+  };
+}
+
 /** Build a full registry: implemented fakes + null for the rest. */
 function registry(impl: Partial<Record<PipelineStep, Step>>): Record<PipelineStep, Step | null> {
   const reg = {} as Record<PipelineStep, Step | null>;
@@ -302,6 +341,78 @@ describe("auto-fix loop honors the per-step cap", () => {
 });
 
 // ── skipRemaining ───────────────────────────────────────────────────
+
+describe("agent dispatch linkage recording (R3)", () => {
+  test("records a dispatching step's spawn linkage on its step result", async () => {
+    const store = memStore();
+    const id = await seedRun(store);
+    const at = 1_700_000_000_000;
+    const deps: ExecutorDeps = {
+      ...makeDeps(
+        store,
+        registry({
+          intent: scriptStep("intent", [clean]), // never dispatches
+          rebase: dispatchingStep("rebase", "reviewer", [clean]),
+        }),
+        { t: 0 },
+      ),
+      dispatcher: linkingDispatcher(),
+      now: () => at,
+    };
+    await startPipeline(id, deps);
+
+    const sr = (await store.getStepResult(id, "rebase"))!;
+    expect(sr.agentDispatches).toEqual([
+      {
+        role: "reviewer",
+        assignmentId: "asg-1",
+        subConversationId: "sub-1",
+        agentRunId: "run-1",
+        at: new Date(at).toISOString(),
+      },
+    ]);
+    // A step that never dispatched carries no linkage (undefined, not []).
+    expect((await store.getStepResult(id, "intent"))!.agentDispatches).toBeUndefined();
+  });
+
+  test("accumulates one ref per fix round (initial + auto-fix), oldest first", async () => {
+    const store = memStore();
+    const id = await seedRun(store);
+    const deps: ExecutorDeps = {
+      ...makeDeps(
+        store,
+        registry({
+          intent: scriptStep("intent", [clean]),
+          // initial round → auto-fixable; the single fix round → clean.
+          rebase: dispatchingStep("rebase", "fixer", [blocking("auto-fix"), clean]),
+        }),
+        { t: 0 },
+      ),
+      dispatcher: linkingDispatcher(),
+    };
+    expect((await startPipeline(id, deps)).status).toBe("completed");
+
+    const sr = (await store.getStepResult(id, "rebase"))!;
+    expect(sr.agentDispatches?.map((d) => d.assignmentId)).toEqual(["asg-1", "asg-2"]);
+    expect(sr.agentDispatches?.every((d) => d.role === "fixer")).toBe(true);
+  });
+
+  test("a dispatcher without handle ids records nothing (fail-soft, no fabricated ref)", async () => {
+    const store = memStore();
+    const id = await seedRun(store);
+    // Default noopDispatcher returns no ids — the recorder must not invent one.
+    const deps = makeDeps(
+      store,
+      registry({
+        intent: scriptStep("intent", [clean]),
+        rebase: dispatchingStep("rebase", "reviewer", [clean]),
+      }),
+      { t: 0 },
+    );
+    await startPipeline(id, deps);
+    expect((await store.getStepResult(id, "rebase"))!.agentDispatches).toBeUndefined();
+  });
+});
 
 describe("skipRemaining short-circuits the pipeline", () => {
   test("rebase empty-diff skips review + push and completes", async () => {

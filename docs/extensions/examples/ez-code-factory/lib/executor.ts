@@ -19,7 +19,7 @@ import {
   type PipelineConfig,
   type PipelineStep,
 } from "./config";
-import type { AgentDispatcher } from "./agent";
+import type { AgentDispatcher, DispatchOptions, DispatchResult } from "./agent";
 import { makeGit } from "./git";
 import { emptyRepoConfig, type RepoConfig } from "./repo-config";
 import type { ShellRunner } from "./shell";
@@ -27,6 +27,7 @@ import {
   deserializeFindings,
   emptyFindings,
   serializeFindings,
+  type AgentDispatchRef,
   type RunRecord,
   type RunStore,
   type StepResultRecord,
@@ -156,6 +157,46 @@ export interface RespondInput {
 const ZERO_SHA = "0".repeat(40);
 
 // ── record helpers ──────────────────────────────────────────────────
+
+/**
+ * Wrap a dispatcher so every dispatch's spawn-handle linkage is recorded via
+ * `onDispatch` AFTER the underlying dispatch resolves. Transparent: the wrapped
+ * dispatcher returns the inner result unchanged (a throw from the inner
+ * dispatch propagates with nothing recorded — a failed dispatch has no durable
+ * conversation to link). Keeps the linkage-capture concern out of every step:
+ * steps keep calling `sctx.dispatcher.dispatch(...)` unaware they are recorded.
+ */
+function recordingDispatcher(
+  inner: AgentDispatcher,
+  onDispatch: (opts: DispatchOptions, result: DispatchResult) => void,
+): AgentDispatcher {
+  return {
+    async dispatch(opts) {
+      const result = await inner.dispatch(opts);
+      onDispatch(opts, result);
+      return result;
+    },
+  };
+}
+
+/** Append one dispatch's linkage to a step result (in place). No-op when the
+ *  result lacks handle ids (a hand-built DispatchResult, or a step fake in
+ *  tests) so recording is a pure enrichment that never fabricates a ref. */
+function appendDispatchRef(
+  sr: StepResultRecord,
+  opts: DispatchOptions,
+  result: DispatchResult,
+  at: string,
+): void {
+  if (!result.assignmentId || !result.subConversationId) return;
+  (sr.agentDispatches ??= []).push({
+    role: opts.role,
+    assignmentId: result.assignmentId,
+    subConversationId: result.subConversationId,
+    agentRunId: result.agentRunId ?? "",
+    at,
+  });
+}
 
 function newStepResult(runId: string, step: PipelineStep, cap: number): StepResultRecord {
   return {
@@ -300,6 +341,13 @@ async function runStepFixLoop(
   while (terminal === null) {
     const rounds = await deps.store.getStepRounds(run.id, impl.name);
     const sctx = buildStepContext(deps, run, impl.name, rounds, fixing, previousFindings, repoConfig, shared);
+    // Record each agent dispatch this round makes onto the step result, so a
+    // run-detail render can resolve the step's agent conversation(s). The
+    // wrapper is transparent to the step; the appended refs persist with the
+    // step result below (`putStepResult(sr)`).
+    sctx.dispatcher = recordingDispatcher(sctx.dispatcher, (opts, result) => {
+      appendDispatchRef(sr, opts, result, new Date(deps.now()).toISOString());
+    });
     const roundStart = deps.now();
     const outcome: StepOutcome = await impl.execute(sctx);
     sr.round += 1;

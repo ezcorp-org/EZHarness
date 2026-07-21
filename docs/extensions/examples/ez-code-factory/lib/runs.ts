@@ -110,6 +110,29 @@ export type StepStatus =
   | "failed";
 
 /**
+ * One agent dispatch a step made — the linkage a run-detail render needs to
+ * resolve which conversation produced a step's outcome. A step dispatches at
+ * least once (the initial pass) and again per fix round, so a step accretes an
+ * ORDERED list (oldest first). Captured from the spawn handle
+ * (`DispatchResult`) at dispatch time; NOT backfilled — pre-linkage runs simply
+ * carry no refs and the detail shows "no recorded turns".
+ */
+export interface AgentDispatchRef {
+  /** Durable-session role the turn played (reviewer | fixer | generic). */
+  role: string;
+  /** Host assignment id — equals the terminal `task:assignment_update`'s
+   *  `assignment.id` for this dispatch. */
+  assignmentId: string;
+  /** The sub-conversation the dispatch spawned (parented on the extension's
+   *  conversation). The agent's turns live here in the platform's chat store. */
+  subConversationId: string;
+  /** The agent run id dispatched into the sub-conversation. */
+  agentRunId: string;
+  /** ISO time the dispatch was recorded. */
+  at: string;
+}
+
+/**
  * One step's outcome (spec §1 `step_results`). The M0 findings contract is
  * preserved; M1 adds the executor bookkeeping (status, round counters, parked
  * time) each step carries between invocations so a parked step resumes exactly.
@@ -129,6 +152,10 @@ export interface StepResultRecord {
   executionMs: number;
   /** Agent's one-line summary from the most recent fix round, or null. */
   fixSummary: string | null;
+  /** Agent dispatches this step made (initial + each fix round), oldest first.
+   *  Persisted so a run-detail render can resolve the step's agent
+   *  conversation(s). Absent on pre-linkage rows (old runs). */
+  agentDispatches?: AgentDispatchRef[];
 }
 
 /**
