@@ -100,7 +100,7 @@ Rules:
   const tested: string[] = [];
   if (testCmd !== "") {
     sctx.log(`running tests: ${testCmd}`);
-    const { output, exitCode } = await runStepShellCommand(sctx.hostRunner, sctx.worktree, testCmd);
+    const { output, exitCode } = await runStepShellCommand(sctx, testCmd);
     tested.push(testCmd);
     sctx.log(output);
     if (exitCode !== 0) {

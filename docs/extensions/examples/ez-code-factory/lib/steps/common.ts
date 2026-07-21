@@ -18,6 +18,7 @@ import type { GhRunner } from "../github";
 import type { RepoConfig } from "../repo-config";
 import type { StepWithRounds } from "../runs";
 import type { ShellRunner } from "../shell";
+import type { StepIOSink } from "../step-io";
 
 // ── Run-scoped in-memory hand-off (pipeline/shared.go) ──────────────
 
@@ -142,6 +143,11 @@ export interface StepContext {
   /** Load every pipeline step's result + rounds (the PR step reads the whole
    *  history to build the deterministic Risk/Testing/Pipeline body sections). */
   loadStepHistory: () => Promise<StepWithRounds[]>;
+  /** Per-round observability sink (L2): `runStepShellCommand` records its timed
+   *  shell command here. One instance per round, drained into the step_io record
+   *  at round end. Absent on the reconcile path (out of scope) and in step-unit
+   *  tests that don't assert IO — recording is then a silent no-op. */
+  ioSink?: StepIOSink;
 }
 
 /** Bind read-only host git to an arbitrary dir (e.g. the working repo for the
@@ -387,19 +393,26 @@ export interface StepShellResult {
  * pushed SHA — this is where the supply-chain boundary earns its keep, so the
  * caller must pass a trusted-sourced command. Verbatim runShellCommandWithEnv.
  *
- * NOTE: `runner` here is the UNJAILED host runner, deliberately — trusted
- * `commands.test`/`commands.lint` run on the daemon host exactly as upstream
- * runs them (they need the repo's own toolchain), and they're only reachable via
- * the trusted-branch opt-in, so they bypass the mutating-git nested jail by
- * design. Only pass a trusted-sourced `cmd`; never a pushed-branch value.
+ * NOTE: the UNJAILED host runner is used deliberately (`sctx.hostRunner`) —
+ * trusted `commands.test`/`commands.lint` run on the daemon host exactly as
+ * upstream runs them (they need the repo's own toolchain), and they're only
+ * reachable via the trusted-branch opt-in, so they bypass the mutating-git
+ * nested jail by design. Only pass a trusted-sourced `cmd`; never a
+ * pushed-branch value.
+ *
+ * Times the command with `sctx.now` and records it into `sctx.ioSink` (when
+ * present) so the step_io observability record captures the exact command, its
+ * combined output, exit code, and duration (L2 shell IO capture). Git plumbing
+ * is deliberately NOT routed through here (L7) — only these trusted repo
+ * commands are recorded.
  */
-export async function runStepShellCommand(
-  runner: ShellRunner,
-  cwd: string,
-  cmd: string,
-): Promise<StepShellResult> {
-  const r = await runner(["sh", "-c", cmd], cwd);
-  return { output: `${r.stdout}${r.stderr}`, exitCode: r.exitCode };
+export async function runStepShellCommand(sctx: StepContext, cmd: string): Promise<StepShellResult> {
+  const start = sctx.now();
+  const r = await sctx.hostRunner(["sh", "-c", cmd], sctx.worktree);
+  const output = `${r.stdout}${r.stderr}`;
+  const durationMs = sctx.now() - start;
+  sctx.ioSink?.recordShell({ command: cmd, exitCode: r.exitCode, output, durationMs });
+  return { output, exitCode: r.exitCode };
 }
 
 // ── New-test-file detection (common_diff.go) ────────────────────────

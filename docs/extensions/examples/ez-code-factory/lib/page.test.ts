@@ -154,6 +154,9 @@ describe("STATUS_BADGE", () => {
     const statuses: RunStatus[] = ["created", "worktree_ready", "completed", "failed"];
     for (const s of statuses) expect(STATUS_BADGE[s]).toBeTruthy();
   });
+  test("stalled carries the warning glyph", () => {
+    expect(STATUS_BADGE.stalled).toBe("⚠ stalled");
+  });
 });
 
 describe("buildDashboard", () => {
@@ -822,6 +825,8 @@ describe("status tone maps (R4)", () => {
     expect(STATUS_TONE.running).toBe("neutral");
     expect(STATUS_TONE.created).toBe("neutral");
     expect(STATUS_TONE.worktree_ready).toBe("neutral");
+    // A stalled run is a truthful warning, not a failure.
+    expect(STATUS_TONE.stalled).toBe("warning");
   });
 
   test("STEP_STATUS_TONE covers every step status; parked gates warn", () => {

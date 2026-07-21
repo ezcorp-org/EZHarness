@@ -16,6 +16,7 @@ import type { ShellRunner } from "./shell";
 import { logLine } from "./log";
 import { PIPELINE_STEPS, type PipelineStep } from "./config";
 import type { RepoConfig } from "./repo-config";
+import { stepIOKey, stepIOPrefix, type StepIORecord } from "./step-io";
 
 // ── Persistence schema (spec §1 subset for M0/M1) ───────────────────
 
@@ -41,7 +42,12 @@ export type RunStatus =
   | "checks_passed"
   | "completed"
   | "failed"
-  | "aborted";
+  | "aborted"
+  // A `running` run whose per-run heartbeat has gone silent past the stall
+  // threshold — the executor process died mid-step. NON-terminal: the sweep
+  // surfaces it truthfully (distinct label, warning tone) and a racing dispatch
+  // completing can still transition it onwards. See lib/heartbeat.ts isRunStale.
+  | "stalled";
 
 /** Statuses from which no respond can ever resume a run. Only these release a
  *  kept worktree — everything else (awaiting_approval, running, …) keeps it.
@@ -366,6 +372,15 @@ export interface RunStore {
   /** Patch the most-recent round of a step (e.g. record a user fix selection on
    *  the parked round). No-op when the step has no rounds. */
   patchLastStepRound(runId: string, step: string, patch: Partial<StepRoundRecord>): Promise<void>;
+  /** Write one round's step_io observability record (keyed per round). */
+  putStepIO(record: StepIORecord): Promise<void>;
+  /** Read one round's step_io record, or null when absent (matches the
+   *  getRun/getStepResult null convention). */
+  getStepIO(runId: string, step: string, round: number): Promise<StepIORecord | null>;
+  /** Every recorded step_io record for a step, oldest round first. Lists the key
+   *  prefix (NOT a 1..round range) — an errored final attempt writes a record
+   *  beyond the completed-round count. */
+  listStepIO(runId: string, step: string): Promise<StepIORecord[]>;
 }
 
 /** A RunStore backed by the SDK `Storage` for the given scope. */
@@ -435,6 +450,24 @@ export function createRunStore(scope: StorageScope = "global"): RunStore {
       if (rounds.length === 0) return;
       rounds[rounds.length - 1] = { ...rounds[rounds.length - 1]!, ...patch };
       await storage.set(key, rounds);
+    },
+    async putStepIO(record) {
+      await storage.set(stepIOKey(record.runId, record.step, record.round), record);
+    },
+    async getStepIO(runId, step, round) {
+      const r = await storage.get<StepIORecord>(stepIOKey(runId, step, round));
+      return r.exists ? (r.value as StepIORecord) : null;
+    },
+    async listStepIO(runId, step) {
+      const { keys } = await storage.list({ prefix: stepIOPrefix(runId, step) });
+      const out: StepIORecord[] = [];
+      for (const key of keys) {
+        const r = await storage.get<StepIORecord>(key);
+        if (r.exists && r.value) out.push(r.value as StepIORecord);
+      }
+      // Oldest round first — key order from `list` is not guaranteed numeric.
+      out.sort((a, b) => a.round - b.round);
+      return out;
     },
   };
 }

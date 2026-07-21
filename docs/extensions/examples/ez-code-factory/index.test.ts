@@ -42,6 +42,7 @@ import {
   _setChatToolDepsForTests,
   _setRbacCheckForTests,
   _setHeartbeatKVForTests,
+  _setRunHeartbeatKVForTests,
   runReconcileSweep,
   handleScheduleFire,
   recoverOnStart,
@@ -60,6 +61,7 @@ import { productionHostRunner, type ShellRunner } from "./lib/shell";
 import { _setLogSinkForTests } from "./lib/log";
 import { emptyFindings } from "./lib/runs";
 import type { Finding, ParsedRespond, RunRecord, RunStore, StepResultRecord, StepRoundRecord, StepStatus } from "./lib/runs";
+import type { StepIORecord } from "./lib/step-io";
 
 // ── in-memory store + fakes ─────────────────────────────────────────
 
@@ -67,6 +69,7 @@ function memStore(): RunStore & { runs: Map<string, RunRecord> } {
   const runs = new Map<string, RunRecord>();
   const steps = new Map<string, StepResultRecord>();
   const rounds = new Map<string, StepRoundRecord[]>();
+  const stepIO = new Map<string, StepIORecord>();
   return {
     runs,
     async createRun(run) {
@@ -104,6 +107,19 @@ function memStore(): RunStore & { runs: Map<string, RunRecord> } {
       const list = rounds.get(`${runId}/${step}`);
       if (!list || list.length === 0) return;
       list[list.length - 1] = { ...list[list.length - 1]!, ...patch };
+    },
+    async putStepIO(record) {
+      stepIO.set(`${record.runId}/${record.step}/${record.round}`, record);
+    },
+    async getStepIO(runId, step, round) {
+      return stepIO.get(`${runId}/${step}/${round}`) ?? null;
+    },
+    async listStepIO(runId, step) {
+      const prefix = `${runId}/${step}/`;
+      return [...stepIO.entries()]
+        .filter(([k]) => k.startsWith(prefix))
+        .map(([, v]) => v)
+        .sort((a, b) => a.round - b.round);
     },
   };
 }
@@ -157,6 +173,7 @@ afterEach(() => {
   _setChatToolDepsForTests(null);
   _setRbacCheckForTests(null);
   _setHeartbeatKVForTests(null);
+  _setRunHeartbeatKVForTests(null);
 });
 
 /** A fake pipeline runner that drives the run to a chosen terminal/parked state
@@ -2142,6 +2159,25 @@ describe("reconcile sweep wiring (M6)", () => {
     expect(store.runs.get("g")!.status).toBe("completed");
   });
 
+  test("runReconcileSweep marks a running run whose per-run heartbeat is silent as stalled (L3 wiring)", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setShellForTests(okShell);
+    _setInvalidatePageForTests(() => {});
+    const store = memStore();
+    _setStoreForTests(store);
+    await store.createRun({
+      id: "dead", repoId: "0123456789ab", branch: "feat/x", ref: "refs/heads/feat/x",
+      headSha: "abc", baseSha: "0".repeat(40), status: "running", worktreePath: "/wt/dead",
+      createdAt: "t", updatedAt: "t", parkedMs: 0, awaitingAgentSince: null, intent: null, intentSource: null,
+    });
+    _setHeartbeatKVForTests(() => ({ async read() { return null; }, async write() {} }));
+    // No per-run heartbeat + frozen updatedAt → trips the stall threshold now.
+    _setRunHeartbeatKVForTests(() => ({ async read() { return null; }, async write() {} }));
+    const summary = await runReconcileSweep();
+    expect(summary.stalled).toBe(1);
+    expect(store.runs.get("dead")!.status).toBe("stalled");
+  });
+
   test("handleScheduleFire swallows a thrown sweep", async () => {
     _setProjectRootForTests(() => "/proj");
     const store = memStore();
@@ -2182,7 +2218,7 @@ describe("reconcile sweep wiring (M6)", () => {
     // terminal run was skipped, never scanned).
     expect(wrote).toBe(1);
     expect(lastHeartbeat).not.toBeNull();
-    expect(lastHeartbeat!.summary).toEqual({ scanned: 0, advanced: 0, stillParked: 0, skipped: 0 });
+    expect(lastHeartbeat!.summary).toEqual({ scanned: 0, advanced: 0, stillParked: 0, skipped: 0, stalled: 0 });
   });
 });
 

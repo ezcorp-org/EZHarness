@@ -27,6 +27,8 @@ import {
 } from "./runs";
 import { productionHostRunner, type ShellRunner } from "./shell";
 import { _setLogSinkForTests } from "./log";
+import { snapshotRepoConfig, emptyOutcomeFlags, type StepIORecord } from "./step-io";
+import { emptyRepoConfig } from "./repo-config";
 
 // ── findings deserialization (fail-closed) ──────────────────────────
 
@@ -283,6 +285,14 @@ describe("createRunStore (Storage-backed)", () => {
         mem.set(key, p.value);
         return { ok: true, sizeBytes: 1 };
       }
+      if (p.action === "list") {
+        const scopePrefix = `${p.scope}:`;
+        const listPrefix = scopePrefix + (typeof p.prefix === "string" ? p.prefix : "");
+        const keys = [...mem.keys()]
+          .filter((k) => k.startsWith(listPrefix))
+          .map((k) => k.slice(scopePrefix.length));
+        return { keys };
+      }
       // get
       return mem.has(key) ? { value: mem.get(key), exists: true } : { value: null, exists: false };
     }) as HostChannel["request"]);
@@ -397,6 +407,44 @@ describe("createRunStore (Storage-backed)", () => {
     await store.patchLastStepRound("r1", "no-rounds", { selectionSource: "user" }); // no-op
     expect(await store.getStepRounds("r1", "no-rounds")).toEqual([]);
   });
+
+  test("step_io put / get / listStepIO prefix round-trip", async () => {
+    stubStorage();
+    const store = createRunStore();
+    const ioRecord = (step: string, round: number): StepIORecord => ({
+      runId: "r1",
+      step,
+      round,
+      trigger: round === 1 ? "initial" : "auto_fix",
+      branch: "feat/x",
+      headSha: "abc1234",
+      worktreePath: "/wt/r1",
+      repoConfig: snapshotRepoConfig(emptyRepoConfig()),
+      startedAt: "2026-07-21T00:00:00.000Z",
+      dispatches: [],
+      shellCommands: [],
+      endedAt: "2026-07-21T00:00:05.000Z",
+      durationMs: 5000,
+      error: null,
+      outcome: emptyOutcomeFlags(),
+    });
+    // Missing → null (matches getRun/getStepResult).
+    expect(await store.getStepIO("r1", "review", 1)).toBeNull();
+    expect(await store.listStepIO("r1", "review")).toEqual([]);
+
+    // Write rounds OUT of order (round 2 has an errored attempt beyond round 1's
+    // completed range) — listStepIO must return them oldest-round-first.
+    await store.putStepIO(ioRecord("review", 2));
+    await store.putStepIO(ioRecord("review", 1));
+    // A different step's record must not leak into review's listing.
+    await store.putStepIO(ioRecord("test", 1));
+
+    expect((await store.getStepIO("r1", "review", 2))!.round).toBe(2);
+    const listed = await store.listStepIO("r1", "review");
+    expect(listed.map((r) => r.round)).toEqual([1, 2]);
+    expect(listed.every((r) => r.step === "review")).toBe(true);
+    expect((await store.listStepIO("r1", "test")).map((r) => r.round)).toEqual([1]);
+  });
 });
 
 // ── parseRespondPayload (untrusted gate action) ─────────────────────
@@ -486,6 +534,7 @@ function memStore(): RunStore & { runs: Map<string, RunRecord> } {
   const runs = new Map<string, RunRecord>();
   const steps = new Map<string, StepResultRecord>();
   const rounds = new Map<string, StepRoundRecord[]>();
+  const stepIO = new Map<string, StepIORecord>();
   return {
     runs,
     async createRun(run) {
@@ -523,6 +572,19 @@ function memStore(): RunStore & { runs: Map<string, RunRecord> } {
       const list = rounds.get(`${runId}/${step}`);
       if (!list || list.length === 0) return;
       list[list.length - 1] = { ...list[list.length - 1]!, ...patch };
+    },
+    async putStepIO(record) {
+      stepIO.set(`${record.runId}/${record.step}/${record.round}`, record);
+    },
+    async getStepIO(runId, step, round) {
+      return stepIO.get(`${runId}/${step}/${round}`) ?? null;
+    },
+    async listStepIO(runId, step) {
+      const prefix = `${runId}/${step}/`;
+      return [...stepIO.entries()]
+        .filter(([k]) => k.startsWith(prefix))
+        .map(([, v]) => v)
+        .sort((a, b) => a.round - b.round);
     },
   };
 }
@@ -976,6 +1038,8 @@ describe("isTerminalRunStatus", () => {
       completed: true,
       failed: true,
       aborted: true,
+      // Non-terminal: the sweep surfaces it, a racing dispatch can move it on.
+      stalled: false,
     };
     for (const [status, terminal] of Object.entries(expected)) {
       expect(isTerminalRunStatus(status as RunStatus)).toBe(terminal);

@@ -17,19 +17,26 @@ import {
   type StepRoundRecord,
 } from "./runs";
 import type { AgentDispatcher } from "./agent";
-import type { Step, StepContext, StepOutcome } from "./steps/common";
+import { runStepShellCommand, type Step, type StepContext, type StepOutcome } from "./steps/common";
 import { emptyRepoConfig, TrustedConfigError, type RepoConfig } from "./repo-config";
+import { emptyOutcomeFlags, type StepIORecord } from "./step-io";
 
 // ── in-memory store ─────────────────────────────────────────────────
 
-function memStore(): RunStore & { rounds: Map<string, StepRoundRecord[]>; steps: Map<string, StepResultRecord> } {
+function memStore(): RunStore & {
+  rounds: Map<string, StepRoundRecord[]>;
+  steps: Map<string, StepResultRecord>;
+  stepIO: Map<string, StepIORecord>;
+} {
   const runs = new Map<string, RunRecord>();
   const steps = new Map<string, StepResultRecord>();
   const rounds = new Map<string, StepRoundRecord[]>();
+  const stepIO = new Map<string, StepIORecord>();
   const key = (r: string, s: string) => `${r}/${s}`;
   return {
     steps,
     rounds,
+    stepIO,
     async createRun(run) {
       runs.set(run.id, run);
     },
@@ -65,6 +72,20 @@ function memStore(): RunStore & { rounds: Map<string, StepRoundRecord[]>; steps:
       const list = rounds.get(key(runId, step));
       if (!list || list.length === 0) return;
       list[list.length - 1] = { ...list[list.length - 1]!, ...patch };
+    },
+    async putStepIO(record) {
+      stepIO.set(`${record.runId}/${record.step}/${record.round}`, { ...record });
+    },
+    async getStepIO(runId, step, round) {
+      const r = stepIO.get(`${runId}/${step}/${round}`);
+      return r ? { ...r } : null;
+    },
+    async listStepIO(runId, step) {
+      const prefix = `${runId}/${step}/`;
+      return [...stepIO.entries()]
+        .filter(([k]) => k.startsWith(prefix))
+        .map(([, v]) => ({ ...v }))
+        .sort((a, b) => a.round - b.round);
     },
   };
 }
@@ -464,6 +485,179 @@ describe("intent skip + step failure", () => {
     expect(outcome.error).toContain("git exploded");
     expect((await store.getStepResult(id, "rebase"))!.status).toBe("failed");
     expect((await store.getRun(id))!.status).toBe("failed");
+  });
+});
+
+// ── step_io observability capture (L1/L2) + per-run heartbeat (L3) ──
+
+describe("step_io capture", () => {
+  test("writes a step_io record on the SUCCESS path under attemptRound with inputs + outcome flags", async () => {
+    const store = memStore();
+    const id = await seedRun(store, { intent: "ship it" });
+    const review = scriptStep("review", [{ needsApproval: true, autoFixable: false }]); // parks
+    const deps = makeDeps(store, registry({ intent: scriptStep("intent", [clean]), review }), { t: 1000 });
+    await startPipeline(id, deps);
+
+    const io = await store.getStepIO(id, "review", 1);
+    expect(io).not.toBeNull();
+    expect(io!.round).toBe(1);
+    expect(io!.trigger).toBe("initial");
+    expect(io!.branch).toBe("feat/x");
+    expect(io!.headSha).toBe("abc");
+    expect(io!.worktreePath).toBe("/wt");
+    expect(io!.repoConfig).toBeDefined();
+    expect(io!.error).toBeNull();
+    expect(io!.outcome.needsApproval).toBe(true);
+    // The clean intent step also recorded its own round-1 IO.
+    expect(await store.getStepIO(id, "intent", 1)).not.toBeNull();
+  });
+
+  test("captures dispatch IO (prompt + preview + linkage) into the round record on success", async () => {
+    const store = memStore();
+    const id = await seedRun(store);
+    const deps = makeDeps(
+      store,
+      registry({ review: dispatchingStep("review", "reviewer", [{ needsApproval: true }]) }),
+      { t: 0 },
+    );
+    deps.dispatcher = linkingDispatcher();
+    await startPipeline(id, deps);
+
+    const io = (await store.getStepIO(id, "review", 1))!;
+    expect(io.dispatches).toHaveLength(1);
+    expect(io.dispatches[0]!.role).toBe("reviewer");
+    expect(io.dispatches[0]!.promptText).toBe("p");
+    expect(io.dispatches[0]!.subConversationId).toBe("sub-1");
+    expect(io.dispatches[0]!.assignmentId).toBe("asg-1");
+    expect(io.dispatches[0]!.error).toBeUndefined();
+  });
+
+  test("drains TRUSTED shell commands from the round sink into the IO record", async () => {
+    const store = memStore();
+    const id = await seedRun(store);
+    const review: Step = {
+      name: "review",
+      async execute(sctx) {
+        await runStepShellCommand(sctx, "true");
+        return { needsApproval: true };
+      },
+    };
+    const deps = makeDeps(store, registry({ review }), { t: 0 });
+    await startPipeline(id, deps);
+
+    const io = (await store.getStepIO(id, "review", 1))!;
+    expect(io.shellCommands.map((c) => c.command)).toEqual(["true"]);
+    expect(io.shellCommands[0]!.exitCode).toBe(0);
+  });
+
+  test("writes a step_io record on the THROW path (initial throw → round 1) carrying the error", async () => {
+    const store = memStore();
+    const id = await seedRun(store);
+    const rebase: Step = {
+      name: "rebase",
+      async execute() {
+        throw new Error("git exploded");
+      },
+    };
+    const deps = makeDeps(store, registry({ intent: scriptStep("intent", [clean]), rebase }), { t: 2000 });
+    await startPipeline(id, deps);
+
+    const io = (await store.getStepIO(id, "rebase", 1))!;
+    expect(io.round).toBe(1);
+    expect(io.error).toContain("git exploded");
+    expect(io.outcome).toEqual(emptyOutcomeFlags());
+    // The throw happened before appendStepRound — no step_round exists.
+    expect(await store.getStepRounds(id, "rebase")).toEqual([]);
+  });
+
+  test("a fix-round throw records under prior+1 (round 2) WITHOUT overwriting round 1's record", async () => {
+    const store = memStore();
+    const id = await seedRun(store);
+    const review: Step = {
+      name: "review",
+      async execute(sctx) {
+        if (sctx.fixing) throw new Error("fix crashed");
+        return { needsApproval: true, findings: "" };
+      },
+    };
+    const deps = makeDeps(store, registry({ review }), { t: 100 });
+    await startPipeline(id, deps); // parks at review round 1
+    expect((await store.getStepIO(id, "review", 1))!.error).toBeNull();
+
+    const outcome = await respondToGate(id, { step: "review", action: "fix", findingIds: [] }, deps);
+    expect(outcome.status).toBe("failed");
+    // Round 1's completed record is untouched; round 2 carries the fix error.
+    expect((await store.getStepIO(id, "review", 1))!.error).toBeNull();
+    const round2 = (await store.getStepIO(id, "review", 2))!;
+    expect(round2.round).toBe(2);
+    expect(round2.trigger).toBe("auto_fix");
+    expect(round2.error).toContain("fix crashed");
+  });
+
+  test("captures a dispatch ERROR into the round IO (and the round throw records it)", async () => {
+    const store = memStore();
+    const id = await seedRun(store);
+    const deps = makeDeps(
+      store,
+      registry({ review: dispatchingStep("review", "reviewer", [clean]) }),
+      { t: 0 },
+    );
+    deps.dispatcher = {
+      async dispatch() {
+        throw new Error("agent timed out");
+      },
+    };
+    const outcome = await startPipeline(id, deps);
+    expect(outcome.status).toBe("failed");
+
+    const io = (await store.getStepIO(id, "review", 1))!;
+    expect(io.error).toContain("agent timed out"); // the step rethrew the dispatch error
+    expect(io.dispatches).toHaveLength(1);
+    expect(io.dispatches[0]!.error).toContain("agent timed out");
+    expect(io.dispatches[0]!.assignmentId).toBe(""); // a thrown dispatch has no handle
+  });
+});
+
+describe("per-run heartbeat (L3)", () => {
+  test("wraps execute in the heartbeat when wired — immediate + interval beats", async () => {
+    const store = memStore();
+    const id = await seedRun(store);
+    const beats: string[] = [];
+    let capturedTick: (() => void) | null = null;
+    let stopped = false;
+    const review: Step = {
+      name: "review",
+      async execute() {
+        capturedTick?.(); // one interval tick mid-execute
+        return { needsApproval: true };
+      },
+    };
+    const deps = makeDeps(store, registry({ review }), { t: 0 });
+    deps.heartbeat = {
+      write: async (runId) => {
+        beats.push(runId);
+      },
+      schedule: (fn) => {
+        capturedTick = fn;
+        return () => {
+          stopped = true;
+        };
+      },
+    };
+    await startPipeline(id, deps);
+    await Promise.resolve();
+    await Promise.resolve();
+    // Immediate beat + one interval tick = 2 beats, all for this run.
+    expect(beats.filter((b) => b === id).length).toBeGreaterThanOrEqual(2);
+    expect(stopped).toBe(true); // interval cleared when execute settled
+  });
+
+  test("executes normally when no heartbeat is wired (backward compatible)", async () => {
+    const store = memStore();
+    const id = await seedRun(store);
+    const deps = makeDeps(store, registry({ intent: scriptStep("intent", [clean]) }), { t: 0 });
+    expect(deps.heartbeat).toBeUndefined();
+    expect((await startPipeline(id, deps)).status).toBe("completed");
   });
 });
 

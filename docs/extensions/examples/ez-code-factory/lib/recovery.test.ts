@@ -165,6 +165,27 @@ describe("recoverRuns", () => {
     expect(reaped).toEqual(["mid"]);
   });
 
+  test("leaves a stalled run as-is — no fail-close, no reap, worktree kept", async () => {
+    const store = memStore();
+    // Non-terminal + not awaiting_approval/checks_passed → would fall into the
+    // mid-flight fail-close without the explicit passthrough branch (L3).
+    seed(store, mkRun("stuck", "stalled", "/wt/stuck"), { intent: "completed", rebase: "running" });
+    const reaped: string[] = [];
+    const logs: string[] = [];
+    const summary = await recoverRuns({
+      store,
+      reapWorktree: async (r) => {
+        reaped.push(r.id);
+      },
+      log: (m) => logs.push(m),
+    });
+    expect(summary).toEqual({ recovered: 0, failedClosed: 0, reaped: 0 });
+    expect(store.runs.get("stuck")!.status).toBe("stalled"); // untouched
+    expect(store.runs.get("stuck")!.worktreePath).toBe("/wt/stuck"); // kept
+    expect(reaped).toEqual([]);
+    expect(logs.some((l) => l.includes("left stalled run stuck as-is"))).toBe(true);
+  });
+
   test("reaps a terminal run's ORPHANED worktree and nulls the path", async () => {
     const store = memStore();
     seed(store, mkRun("done", "completed", "/wt/done"), {});

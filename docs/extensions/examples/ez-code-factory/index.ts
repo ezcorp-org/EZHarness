@@ -97,7 +97,12 @@ import {
   type ReconcileResult,
   type SweepSummary,
 } from "./lib/sweep";
-import { productionHeartbeatKV, type HeartbeatKV } from "./lib/heartbeat";
+import {
+  productionHeartbeatKV,
+  productionRunHeartbeatKV,
+  type HeartbeatKV,
+  type RunHeartbeatKV,
+} from "./lib/heartbeat";
 import { recoverRuns, type RecoverySummary } from "./lib/recovery";
 import { runDoctor, type DoctorReport } from "./lib/doctor";
 
@@ -244,6 +249,16 @@ export function _setHeartbeatKVForTests(fn: (() => HeartbeatKV) | null): void {
   heartbeatKVImpl = fn ?? productionHeartbeatKV;
 }
 
+// ── Per-run liveness heartbeat KV (L3, the status-truthfulness fix) ──
+//
+// The executor writes `heartbeats/<runId>` every 60 s while a step runs; the
+// sweep reads it to mark a silent `running` run `stalled`. A swappable seam
+// (tests inject a fake KV) like the sweep heartbeat above.
+let runHeartbeatKVImpl: () => RunHeartbeatKV = productionRunHeartbeatKV;
+export function _setRunHeartbeatKVForTests(fn: (() => RunHeartbeatKV) | null): void {
+  runHeartbeatKVImpl = fn ?? productionRunHeartbeatKV;
+}
+
 // ── Settings live-read seam (M2, resolves M1's defaultPipelineConfig TODO) ──
 //
 // The pipeline config (auto-fix caps, gate remote, ignore globs, default
@@ -318,6 +333,10 @@ function buildExecutorDeps(
     onChange: refreshDashboard,
     log: (runId, step, message) =>
       logLine(`ez-code-factory[${runId}/${step}]: ${message}`),
+    // Per-run liveness heartbeat (L3): a 60 s beat around each step's execute so
+    // the sweep can truthfully mark a dead run `stalled`. Separate key, never a
+    // read-modify-write on the run record.
+    heartbeat: { write: (runId, at) => runHeartbeatKVImpl().write(runId, at) },
   };
 }
 
@@ -920,6 +939,9 @@ export async function runReconcileSweep(): Promise<SweepSummary> {
   return reconcileSweep({
     store: getStore(),
     reconcile: (runId) => reconcileOneRun(fallbackRoot, runId),
+    // Staleness pass (L3): read each running run's per-run heartbeat so a
+    // silent (dead-executor) run is truthfully marked `stalled`.
+    readHeartbeat: (runId) => runHeartbeatKVImpl().read(runId),
     now: () => Date.now(),
     recordHeartbeat: (hb) => heartbeatKVImpl().write(hb),
     log: (m) => logLine(`ez-code-factory[sweep]: ${m}`),

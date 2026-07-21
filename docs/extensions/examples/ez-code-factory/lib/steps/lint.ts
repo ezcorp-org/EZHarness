@@ -140,7 +140,7 @@ Rules:
   }
 
   sctx.log(`running linter: ${lintCmd}`);
-  const { output, exitCode } = await runStepShellCommand(sctx.hostRunner, sctx.worktree, lintCmd);
+  const { output, exitCode } = await runStepShellCommand(sctx, lintCmd);
   sctx.log(output);
   if (exitCode !== 0) {
     const findings = deserializeFindings({

@@ -61,6 +61,7 @@ export const STATUS_BADGE: Record<RunStatus, string> = {
   completed: "✓ completed",
   failed: "✗ failed",
   aborted: "⊘ aborted",
+  stalled: "⚠ stalled",
 };
 
 /** Human badge per pipeline STEP status (distinct vocabulary from run status —
@@ -92,6 +93,11 @@ export const STATUS_TONE: Record<RunStatus, PageCellTone> = {
   completed: "success",
   failed: "danger",
   aborted: "danger",
+  // A run whose executor died mid-step — a truthful warning, not a failure
+  // (non-terminal; a racing dispatch can still move it on). Derived-display +
+  // step-level stalled rendering land in Phase 3; the map entry is here because
+  // the RunStatus union is compiler-forced to be exhaustive.
+  stalled: "warning",
 };
 
 /** Semantic tone per STEP status — DRY sibling of `STEP_STATUS_BADGE`. Parked
