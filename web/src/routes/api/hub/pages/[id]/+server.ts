@@ -46,6 +46,12 @@ export const __rateLimiter = new RateLimiter(12, 60_000);
  *  seeded names like "self"); anything longer is junk, not a project. */
 const MAX_PROJECT_PARAM_LENGTH = 128;
 
+/** Sanity bound on `?run=<id>` (the run-detail variant). Run ids are short
+ *  (`run_<ts>_<rand>`); anything longer is junk, not a run. The value is
+ *  passed opaquely to the extension render, which resolves it against its own
+ *  store — an unknown id renders an empty/"not found" detail, never an error. */
+const MAX_RUN_PARAM_LENGTH = 128;
+
 export const GET: RequestHandler = async ({ locals, params, url }) => {
   const scopeErr = requireScope(locals, "read");
   if (scopeErr) return scopeErr;
@@ -67,11 +73,19 @@ export const GET: RequestHandler = async ({ locals, params, url }) => {
     if (row) project = { id: row.id, name: row.name, path: row.path };
   }
 
-  // The project variant is part of the limiter key: each project view of a
-  // perProject page is a distinct render target with its own budget —
-  // without this, browsing 12+ projects in a minute 429s on first renders.
+  // Optional run-detail variant (`?run=<id>`). Passed opaquely to the
+  // extension render — the host does not resolve runs; the extension owns that
+  // lookup. Bounded like the project param so junk never reaches the render.
+  const runParam = url.searchParams.get("run");
+  const run =
+    runParam && runParam.length <= MAX_RUN_PARAM_LENGTH ? runParam : undefined;
+
+  // The project + run variants are part of the limiter key: each project view
+  // AND each run detail of a page is a distinct render target with its own
+  // budget — without this, browsing 12+ projects/runs in a minute 429s on
+  // first renders.
   const limit = __rateLimiter.check(
-    `hub-render:${user.id}:${params.id}:${project?.id ?? ""}`,
+    `hub-render:${user.id}:${params.id}:${project?.id ?? ""}:${run ?? ""}`,
   );
   if (!limit.allowed) {
     return errorJson(
@@ -89,6 +103,7 @@ export const GET: RequestHandler = async ({ locals, params, url }) => {
       user.id,
       undefined,
       project,
+      run,
     );
     if (result.notFound) return errorJson(404, "Not found");
     if (result.error !== undefined) return json({ error: result.error });

@@ -46,10 +46,21 @@ export interface HubProjectRef {
 }
 
 /** What a render call should carry: one project (project-hub view) or
- *  the full project list (global-hub view of a `perProject` page). */
+ *  the full project list (global-hub view of a `perProject` page), plus an
+ *  optional run-detail request (`?run=<id>`) that is orthogonal to project
+ *  context — a run detail renders the same content from either hub. */
 export interface PageRenderScope {
   project?: HubProjectRef;
   listProjects?: boolean;
+  run?: string;
+}
+
+/** The cache/single-flight variant key for a scope. A run-detail is keyed by
+ *  the run id ALONE (independent of which hub/project surfaced the link), so
+ *  the same run detail caches once; otherwise the project id (`""` = global). */
+function variantKey(scope?: PageRenderScope): string {
+  if (scope?.run) return `run:${scope.run}`;
+  return scope?.project?.id ?? "";
 }
 
 export type RenderExtensionPageResult =
@@ -173,10 +184,15 @@ async function productionCallPage(
       projects: all.map((p) => ({ id: p.id, name: p.name, path: p.path })),
     };
   }
+  // A run-detail request rides ALONGSIDE any project context — the page reads
+  // `run` to switch to its detail render; project context stays available for
+  // building in-hub links back to the project dashboard.
+  const runParam = scope?.run ? { run: scope.run } : {};
   try {
     return await proc.call("ezcorp/page.render", {
       pageId,
       ...projectParams,
+      ...runParam,
       _meta: { ezCallId },
     });
   } finally {
@@ -215,7 +231,7 @@ function pullAndCache(
   deps: RenderPullDeps,
   scope?: PageRenderScope,
 ): Promise<{ tree: HubPageTree } | { error: string }> {
-  const key = `${extension.id}:${pageId}:${scope?.project?.id ?? ""}`;
+  const key = `${extension.id}:${pageId}:${variantKey(scope)}`;
   const existing = inflightPulls.get(key);
   if (existing) return existing;
   const pull = doPullAndCache(extension, pageId, userId, deps, scope).finally(() => {
@@ -262,7 +278,7 @@ async function doPullAndCache(
     return { error: "This page produced invalid content." };
   }
 
-  deps.cache.set(extension.id, pageId, tree, scope?.project?.id);
+  deps.cache.set(extension.id, pageId, tree, variantKey(scope));
   return { tree };
 }
 
@@ -272,6 +288,7 @@ export async function renderExtensionPage(
   userId: string,
   depsOverride?: Partial<RenderPullDeps>,
   project?: HubProjectRef,
+  run?: string,
 ): Promise<RenderExtensionPageResult> {
   const deps: RenderPullDeps = { ...defaultDeps(), ...depsOverride };
 
@@ -280,14 +297,17 @@ export async function renderExtensionPage(
   const { extension } = found;
 
   // Project context applies ONLY to pages that opted in — for everything
-  // else a `?project=` query is inert and the render stays global.
+  // else a `?project=` query is inert and the render stays global. A `?run=`
+  // request is honoured on a perProject page alongside (or instead of) project
+  // context; on a non-perProject page it still routes a run-detail render.
   const perProject = found.page.perProject === true;
+  const runScope = run ? { run } : {};
   const scope: PageRenderScope | undefined = perProject
-    ? project
-      ? { project }
-      : { listProjects: true }
-    : undefined;
-  const variant = perProject ? project?.id : undefined;
+    ? { ...(project ? { project } : { listProjects: true }), ...runScope }
+    : run
+      ? { run }
+      : undefined;
+  const variant = variantKey(scope);
 
   const cached = deps.cache.get(extension.id, pageId, variant);
   if (cached && !cached.stale) {

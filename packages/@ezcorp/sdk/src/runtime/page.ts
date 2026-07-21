@@ -213,6 +213,11 @@ export interface PageProjectRef {
 export interface PageRenderContext {
   project?: PageProjectRef;
   projects?: PageProjectRef[];
+  /** Run-detail variant: the host threads `?run=<id>` through the render pull
+   *  as `run`, so a page can render ONE run's detail instead of its dashboard.
+   *  Orthogonal to project context — a run detail is reachable from either the
+   *  project hub (`?project=<id>&run=<id>`) or the global hub (`?run=<id>`). */
+  run?: string;
 }
 
 export interface PageDefinition {
@@ -251,8 +256,14 @@ function readProjectRef(value: unknown): PageProjectRef | null {
 /** Build the render context from the host's params — undefined when the
  *  host sent no (valid) project context, so plain pages see no change. */
 function readRenderContext(params: Record<string, unknown>): PageRenderContext | undefined {
+  // `run` is read independently of project context — a run-detail request is
+  // honourable on its own, even from the global hub with no project.
+  const run = typeof params.run === "string" && params.run ? params.run : undefined;
+  const withRun = (ctx: PageRenderContext): PageRenderContext =>
+    run ? { ...ctx, run } : ctx;
+
   const project = readProjectRef(params.project);
-  if (project) return { project };
+  if (project) return withRun({ project });
   if (Array.isArray(params.projects)) {
     const projects: PageProjectRef[] = [];
     for (const raw of params.projects) {
@@ -262,11 +273,13 @@ function readRenderContext(params: Record<string, unknown>): PageRenderContext |
     // A truly empty list is a real "no projects registered" home render;
     // a non-empty list where EVERY ref was malformed is host-contract
     // drift — fall back to the no-context render instead of showing an
-    // empty home over data that exists.
-    if (projects.length === 0 && params.projects.length > 0) return undefined;
-    return { projects };
+    // empty home over data that exists (but still honour a `run` request).
+    if (projects.length === 0 && params.projects.length > 0) {
+      return run ? { run } : undefined;
+    }
+    return withRun({ projects });
   }
-  return undefined;
+  return run ? { run } : undefined;
 }
 
 function installRenderHandler(): void {

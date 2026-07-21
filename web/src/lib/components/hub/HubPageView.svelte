@@ -32,11 +32,17 @@
 	// links use (e.g. "/hub" or "/project/<id>/hub"); `projectId` (project
 	// routes only) scopes every render pull so `perProject` pages get
 	// project context — inert for pages without the manifest flag.
+	// `run` (the `?run=<id>` detail variant) is threaded from the route
+	// wrapper's `page.url`. When set, the render pull carries it and the
+	// extension renders that run's detail instead of the dashboard. A
+	// query-only navigation (dashboard ⇄ run detail) keeps this component
+	// mounted, so the load `$effect` below reads `run` to re-pull on change.
 	let {
 		pageId,
 		hubBase,
 		projectId,
-	}: { pageId: string; hubBase: string; projectId?: string } = $props();
+		run,
+	}: { pageId: string; hubBase: string; projectId?: string; run?: string } = $props();
 
 	// ── Tab list (loaded once) ───────────────────────────────────────
 	let tabs = $state<HubPageListing[]>([]);
@@ -87,7 +93,11 @@
 		loading = true;
 		errorMsg = "";
 		try {
-			const query = projectId ? `?project=${encodeURIComponent(projectId)}` : "";
+			const params = new URLSearchParams();
+			if (projectId) params.set("project", projectId);
+			if (run) params.set("run", run);
+			const qs = params.toString();
+			const query = qs ? `?${qs}` : "";
 			const res = await fetch(`/api/hub/pages/${encodeURIComponent(id)}${query}`);
 			if (seq !== loadSeq) return; // superseded by a newer load
 			if (res.status === 404) {
@@ -227,6 +237,10 @@
 	// so `/project/<id>/hub` re-opens it next time. No projectId (the global
 	// hub) → no write.
 	$effect(() => {
+		// Read `run` so a query-only navigation between the dashboard and a
+		// run detail (same pageId, changed `?run=`) re-runs this effect and
+		// re-pulls the render.
+		void run;
 		if (pageId) {
 			void loadPage(pageId);
 			if (projectId) persistLastHubPage(projectId, pageId);

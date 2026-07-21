@@ -27,6 +27,7 @@ import {
   Storage,
   toolError,
   toolResult,
+  type HubPageTree,
   type PageActionEvent,
   type PageRenderContext,
   type ScheduleHandlerContext,
@@ -59,6 +60,7 @@ import {
   buildDashboard,
   buildHome,
   buildProjectDashboard,
+  buildRunDetailView,
   normalizeRespondPayload,
   orphanRuns,
   parseRunIdPayload,
@@ -534,6 +536,21 @@ async function refreshDashboard(): Promise<void> {
   invalidatePageImpl(PAGE_ID);
 }
 
+/** Render the read-only run-DETAIL view for `?run=<id>`: load the run + its
+ *  ordered step results and hand them to the pure builder. An unknown id yields
+ *  a "not found" note (never an error) — the run may have been swept, or the
+ *  deep-link is stale. */
+async function renderRunDetail(store: RunStore, runId: string): Promise<HubPageTree> {
+  const run = await store.getRun(runId);
+  if (!run) return buildRunDetailView(runId, null);
+  const steps: StepResultRecord[] = [];
+  for (const step of PIPELINE_STEPS) {
+    const sr = await store.getStepResult(runId, step);
+    if (sr) steps.push(sr);
+  }
+  return buildRunDetailView(runId, { run, steps });
+}
+
 // ── Handlers ─────────────────────────────────────────────────────────
 
 /** `init_gate` tool — provision the gate for the active project. */
@@ -939,6 +956,12 @@ export async function recoverOnStart(): Promise<RecoverySummary> {
  *  inline — a project view never pays for other projects' triage. */
 export async function renderDashboard(ctx?: PageRenderContext) {
   const store = getStore();
+  // Run-detail variant (`?run=<id>`): render ONE run's read-only detail
+  // (meta + step results + agent-turn provenance) instead of the dashboard.
+  // Reachable from either hub, so it takes precedence over project context.
+  if (ctx?.run) {
+    return renderRunDetail(store, ctx.run);
+  }
   const runs = await store.listRuns();
   if (ctx?.project) {
     const own = runsForProject(ctx.project, runs);

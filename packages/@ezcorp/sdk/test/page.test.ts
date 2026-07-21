@@ -342,6 +342,32 @@ describe("render context (perProject pages)", () => {
   test("malformed project object → ctx is undefined, render still succeeds", async () => {
     expect(await renderWith({ project: { id: "x", name: 42 } })).toBeUndefined();
   });
+
+  test("host {run} arrives as ctx.run — on its own (no project)", async () => {
+    expect(await renderWith({ run: "run_abc" })).toEqual({ run: "run_abc" });
+  });
+
+  test("run rides ALONGSIDE a single project", async () => {
+    expect(await renderWith({ project: PROJECT, run: "run_abc" })).toEqual({
+      project: PROJECT,
+      run: "run_abc",
+    });
+  });
+
+  test("run rides alongside a {projects} list", async () => {
+    expect(await renderWith({ projects: [PROJECT], run: "run_abc" })).toEqual({
+      projects: [PROJECT],
+      run: "run_abc",
+    });
+  });
+
+  test("an empty run string is ignored (no ctx.run, no context)", async () => {
+    expect(await renderWith({ run: "" })).toBeUndefined();
+  });
+
+  test("a non-string run is ignored but project context survives", async () => {
+    expect(await renderWith({ project: PROJECT, run: 42 })).toEqual({ project: PROJECT });
+  });
 });
 
 describe("render context — malformed-list fallback", () => {
@@ -365,5 +391,11 @@ describe("render context — malformed-list fallback", () => {
 
   test("a non-empty list where every ref is malformed falls back to NO context", async () => {
     expect(await renderWith({ projects: [{ id: 1 }, "junk", null] })).toBeUndefined();
+  });
+
+  test("a run request survives the malformed-list fallback (detail is project-independent)", async () => {
+    expect(await renderWith({ projects: [{ id: 1 }, "junk"], run: "run_abc" })).toEqual({
+      run: "run_abc",
+    });
   });
 });

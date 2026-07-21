@@ -80,6 +80,9 @@ export type {
   PageRenderContext,
   PageStatItem,
   PageTableRowInput,
+  PageTableCellInput,
+  PageCellInput,
+  PageCellTone,
   PageButtonStyle,
 } from "./page";
 

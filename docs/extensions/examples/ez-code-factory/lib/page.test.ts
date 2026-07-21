@@ -6,6 +6,7 @@ import {
   buildHome,
   buildProjectDashboard,
   buildRunDetail,
+  buildRunDetailView,
   FULL_PAGE_ID,
   normalizeRespondPayload,
   parkedStep,
@@ -14,7 +15,9 @@ import {
   SEVERITY_ICON,
   shortSha,
   STATUS_BADGE,
+  STATUS_TONE,
   STEP_STATUS_BADGE,
+  STEP_STATUS_TONE,
   type ProjectRef,
   type RunDetail,
 } from "./page";
@@ -181,15 +184,23 @@ describe("buildDashboard", () => {
 
     const table = nodes.find((n) => n.type === "table") as {
       columns: string[];
-      rows: Array<{ cells: string[] }>;
+      rows: Array<{ cells: unknown[]; href?: string }>;
     };
     expect(table.columns).toEqual(["Run", "Branch", "Head", "Status", "Updated"]);
     expect(table.rows).toHaveLength(4);
-    // Head SHA is shortened; status badge is rendered; time is trimmed.
+    // Head SHA is shortened; status badge is rendered (toned); time is trimmed.
     const firstRow = table.rows[0]!.cells;
     expect(firstRow[2]).toBe("abcdef01");
-    expect(firstRow[3]).toBe(STATUS_BADGE.completed);
+    // A completed run's Status cell now carries a success tone.
+    expect(firstRow[3]).toEqual({ text: STATUS_BADGE.completed, tone: "success" });
     expect(firstRow[4]).toBe("2026-07-15 08:00");
+    // Every run row is a link to its detail (global-hub variant here — no
+    // project context).
+    expect(table.rows[0]!.href).toBe(
+      `/hub/${encodeURIComponent("ext:ez-code-factory:dashboard")}?run=r1`,
+    );
+    // A neutral (mid-flight) status stays a bare string, not a {text,tone}.
+    expect(table.rows[3]!.cells[3]).toBe(STATUS_BADGE.created);
   });
 });
 
@@ -279,10 +290,15 @@ describe("buildRunDetail (parked gate)", () => {
     // Step list table (all 9 steps, in fixed order).
     const stepTable = inside.find(
       (n) => n.type === "table" && (n.columns as string[])[0] === "Step",
-    ) as { rows: Array<{ cells: string[] }> };
+    ) as { rows: Array<{ cells: unknown[] }> };
     expect(stepTable.rows).toHaveLength(9);
     expect(stepTable.rows[0]!.cells[0]).toBe("intent");
-    expect(stepTable.rows[2]!.cells).toEqual(["review", STEP_STATUS_BADGE.awaiting_approval, "2"]);
+    // A parked step's Status cell carries a warning tone; the round count stays plain.
+    expect(stepTable.rows[2]!.cells).toEqual([
+      "review",
+      { text: STEP_STATUS_BADGE.awaiting_approval, tone: "warning" },
+      "2",
+    ]);
     // An un-run step (test) defaults to pending / round 0.
     expect(stepTable.rows[3]!.cells).toEqual(["test", STEP_STATUS_BADGE.pending, "0"]);
 
@@ -649,7 +665,7 @@ describe("perProject dashboard variants", () => {
     return nodesOf(tree).filter((n) => n.type === "table") as Array<{
       type: string;
       columns: string[];
-      rows: Array<{ cells: string[]; href?: string }>;
+      rows: Array<{ cells: unknown[]; href?: string }>;
     }>;
   }
 
@@ -685,6 +701,32 @@ describe("perProject dashboard variants", () => {
     const tree = buildProjectDashboard(PROJECT, [foreign]);
     expect(nodesOf(tree).some((n) => n.type === "empty-state")).toBe(true);
     expect(tablesOf(tree)).toHaveLength(0);
+  });
+
+  test("buildProjectDashboard (R1): run rows link to the project-scoped detail + toned status", () => {
+    const mine = projectRun(PROJECT, { id: "r1", status: "failed" });
+    const tree = buildProjectDashboard(PROJECT, [mine]);
+    const [table] = tablesOf(tree);
+    const row = table!.rows[0]!;
+    // R1: href stays on the SAME project hub (context preserved by the route).
+    expect(row.href).toBe(
+      `/project/${PROJECT.id}/hub/${encodeURIComponent(FULL_PAGE_ID)}?run=r1`,
+    );
+    // R4: a failed run's Status cell is toned danger.
+    expect(row.cells[3]).toEqual({ text: STATUS_BADGE.failed, tone: "danger" });
+  });
+
+  test("buildHome (R1): orphan run rows link to the GLOBAL detail variant", () => {
+    const orphan = run({ id: "r9", repoId: "feedfacecafe", status: "awaiting_approval" });
+    const tree = buildHome([PROJECT], [orphan]);
+    const orphanRow = tablesOf(tree)
+      .flatMap((t) => t.rows)
+      .find((r) => r.cells[0] === "r9");
+    expect(orphanRow!.href).toBe(
+      `/hub/${encodeURIComponent(FULL_PAGE_ID)}?run=r9`,
+    );
+    // awaiting_approval → warning tone.
+    expect(orphanRow!.cells[3]).toEqual({ text: STATUS_BADGE.awaiting_approval, tone: "warning" });
   });
 
   test("buildProjectDashboard: inlines ONLY this project's parked details", () => {
@@ -758,5 +800,148 @@ describe("perProject dashboard variants", () => {
       .filter((n) => n.type === "text")
       .map((n) => String(n.content));
     expect(texts.some((t) => t.includes("first 100 of 101"))).toBe(true);
+  });
+});
+
+// ── status→tone DRY maps ─────────────────────────────────────────────
+
+describe("status tone maps (R4)", () => {
+  test("STATUS_TONE covers every run status with the required colour mapping", () => {
+    const statuses: RunStatus[] = [
+      "created", "worktree_ready", "running", "awaiting_approval",
+      "checks_passed", "completed", "failed", "aborted",
+    ];
+    for (const s of statuses) expect(STATUS_TONE[s]).toBeTruthy();
+    // Locked mapping from R4.
+    expect(STATUS_TONE.failed).toBe("danger");
+    expect(STATUS_TONE.aborted).toBe("danger");
+    expect(STATUS_TONE.completed).toBe("success");
+    expect(STATUS_TONE.checks_passed).toBe("success");
+    expect(STATUS_TONE.awaiting_approval).toBe("warning");
+    expect(STATUS_TONE.running).toBe("neutral");
+    expect(STATUS_TONE.created).toBe("neutral");
+    expect(STATUS_TONE.worktree_ready).toBe("neutral");
+  });
+
+  test("STEP_STATUS_TONE covers every step status; parked gates warn", () => {
+    const statuses: StepStatus[] = [
+      "pending", "running", "fixing", "awaiting_approval",
+      "fix_review", "completed", "skipped", "failed",
+    ];
+    for (const s of statuses) expect(STEP_STATUS_TONE[s]).toBeTruthy();
+    expect(STEP_STATUS_TONE.failed).toBe("danger");
+    expect(STEP_STATUS_TONE.completed).toBe("success");
+    expect(STEP_STATUS_TONE.awaiting_approval).toBe("warning");
+    expect(STEP_STATUS_TONE.fix_review).toBe("warning");
+    expect(STEP_STATUS_TONE.skipped).toBe("neutral");
+  });
+});
+
+// ── run-detail VIEW (the ?run=<id> variant) ──────────────────────────
+
+describe("buildRunDetailView (R2 detail tree)", () => {
+  const dispatch = (over: Partial<import("./runs").AgentDispatchRef> = {}) => ({
+    role: "reviewer",
+    assignmentId: "asg-1",
+    subConversationId: "sub-1",
+    agentRunId: "arun-1",
+    at: "2026-07-18T09:30:00.000Z",
+    ...over,
+  });
+
+  test("null detail → a 'Run not found' empty-state, never an error", () => {
+    const tree = buildRunDetailView("run_missing", null);
+    expect(tree.title).toContain("run_missing");
+    const empty = tree.nodes.find((n) => (n as Node).type === "empty-state") as Node;
+    expect(empty).toBeTruthy();
+    expect(String(empty.title)).toContain("not found");
+  });
+
+  test("renders run meta, the full step table (toned), and each step's detail", () => {
+    const reviewSr = stepResult({
+      step: "review",
+      status: "completed",
+      findings: withFindings([finding({ id: "f1", description: "null deref" })], {
+        summary: "reviewed the diff",
+        testingSummary: "ran unit tests",
+      }),
+      agentDispatches: [dispatch(), dispatch({ role: "fixer", assignmentId: "asg-2", subConversationId: "sub-2" })],
+    });
+    const detail: RunDetail = {
+      run: run({ id: "run_v", status: "completed", branch: "feat/z", intent: "ship it", intentSource: "agent" }),
+      steps: [reviewSr],
+    };
+    const tree = buildRunDetailView("run_v", detail);
+
+    // Meta section carries the run status glyph + intent.
+    const meta = firstSection(tree.nodes);
+    const stats = (meta.nodes as Node[]).find((n) => n.type === "stats") as {
+      items: Array<{ label: string; value: string; hint?: string }>;
+    };
+    expect(stats.items.find((i) => i.label === "Status")!.value).toBe(STATUS_BADGE.completed);
+    expect(stats.items.find((i) => i.label === "Intent")!.hint).toBe("ship it");
+
+    // Full pipeline step table (all 9 steps); review's status cell is toned.
+    const stepTable = (meta.nodes as Node[]).find(
+      (n) => n.type === "table" && (n.columns as string[])[0] === "Step",
+    ) as { rows: Array<{ cells: unknown[] }> };
+    expect(stepTable.rows).toHaveLength(9);
+    const reviewRow = stepTable.rows.find((r) => r.cells[0] === "review")!;
+    expect(reviewRow.cells[1]).toEqual({ text: STEP_STATUS_BADGE.completed, tone: "success" });
+
+    // The review step's own detail subsection: findings (read-only, NO fix
+    // action) + a log panel + the agent-turn provenance table.
+    const all = allNodes(tree.nodes);
+    const findingsTable = all.find(
+      (n) => n.type === "table" && (n.columns as string[])[0] === "Severity",
+    ) as { rows: Array<{ cells: unknown[]; action?: unknown }> };
+    expect(findingsTable.rows[0]!.action).toBeUndefined(); // read-only
+
+    const turns = all.find(
+      (n) => n.type === "table" && (n.columns as string[])[0] === "#",
+    ) as { columns: string[]; rows: Array<{ cells: unknown[]; href?: string }> };
+    expect(turns.columns).toEqual(["#", "Role", "Sub-conversation", "Assignment", "When"]);
+    expect(turns.rows).toHaveLength(2);
+    // PRIVACY: the provenance rows carry ids as TEXT — never a clickable
+    // /chat/<id> deep-link baked into this shared cached tree.
+    expect(turns.rows.every((r) => r.href === undefined)).toBe(true);
+    expect(turns.rows[0]!.cells).toEqual(["1", "reviewer", "sub-1", "asg-1", "2026-07-18 09:30"]);
+  });
+
+  test("a step with no recorded dispatches shows an honest 'No recorded turns' note", () => {
+    const detail: RunDetail = {
+      run: run({ id: "run_old" }),
+      steps: [
+        stepResult({
+          step: "review",
+          status: "completed",
+          findings: withFindings([finding()], { summary: "did the thing" }),
+          // no agentDispatches (pre-linkage run)
+        }),
+      ],
+    };
+    const tree = buildRunDetailView("run_old", detail);
+    const empties = allNodes(tree.nodes).filter((n) => n.type === "empty-state") as Node[];
+    expect(empties.some((n) => String(n.title).includes("No recorded turns"))).toBe(true);
+  });
+
+  test("PRIVACY: no /chat/ deep-link anywhere in the shared detail tree", () => {
+    const detail: RunDetail = {
+      run: run({ id: "run_v" }),
+      steps: [
+        stepResult({
+          step: "review",
+          status: "awaiting_approval",
+          findings: withFindings([finding()]),
+          agentDispatches: [dispatch()],
+        }),
+      ],
+    };
+    const tree = buildRunDetailView("run_v", detail);
+    const content = allNodes(tree.nodes).map(ownContent).join(" ");
+    // The sub-conversation id is present as provenance text…
+    expect(content).toContain("sub-1");
+    // …but never as a /chat/ deep-link (the ez-code precedent).
+    expect(content).not.toContain("/chat/");
   });
 });

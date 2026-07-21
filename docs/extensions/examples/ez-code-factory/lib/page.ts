@@ -23,7 +23,13 @@
 // at the event boundary, so parseRespondPayload stays the single validator.
 
 import { PageBuilder } from "@ezcorp/sdk/runtime";
-import type { HubPageTree, PageActionDescriptor, PageProjectRef } from "@ezcorp/sdk/runtime";
+import type {
+  HubPageTree,
+  PageActionDescriptor,
+  PageCellInput,
+  PageCellTone,
+  PageProjectRef,
+} from "@ezcorp/sdk/runtime";
 import { EXTENSION_NAME, PAGE_ID, repoId } from "./gate";
 import { PIPELINE_STEPS, type PipelineStep } from "./config";
 import type {
@@ -69,6 +75,60 @@ export const STEP_STATUS_BADGE: Record<StepStatus, string> = {
   skipped: "→ skipped",
   failed: "✗ failed",
 };
+
+/**
+ * Semantic tone per RUN status — the DRY sibling of `STATUS_BADGE` (same key
+ * set, so a new status can't get a glyph without a tone or vice-versa). Red =
+ * failed/aborted, green = completed/checks_passed, orange = the run has a
+ * question for the user (awaiting_approval); everything mid-flight stays
+ * neutral. Consumed by `statusCell`.
+ */
+export const STATUS_TONE: Record<RunStatus, PageCellTone> = {
+  created: "neutral",
+  worktree_ready: "neutral",
+  running: "neutral",
+  awaiting_approval: "warning",
+  checks_passed: "success",
+  completed: "success",
+  failed: "danger",
+  aborted: "danger",
+};
+
+/** Semantic tone per STEP status — DRY sibling of `STEP_STATUS_BADGE`. Parked
+ *  gates (awaiting_approval / fix_review) warn; completed passes; failed is
+ *  danger; the in-flight/neutral states carry no colour. Consumed by
+ *  `stepStatusCell`. */
+export const STEP_STATUS_TONE: Record<StepStatus, PageCellTone> = {
+  pending: "neutral",
+  running: "neutral",
+  fixing: "neutral",
+  awaiting_approval: "warning",
+  fix_review: "warning",
+  completed: "success",
+  skipped: "neutral",
+  failed: "danger",
+};
+
+/**
+ * The Status table cell for a run: the glyph text carrying its DRY tone. A
+ * neutral status returns a BARE string (not `{text, tone:"neutral"}`) so a
+ * mid-flight row keeps the exact pre-tone wire shape — the host would fold the
+ * neutral object to a string anyway, but emitting the string here keeps the
+ * builders' own output minimal + unsurprising.
+ */
+function statusCell(status: RunStatus): PageCellInput {
+  const text = STATUS_BADGE[status];
+  const tone = STATUS_TONE[status];
+  return tone === "neutral" ? text : { text, tone };
+}
+
+/** The Status table cell for a pipeline step — the step-status twin of
+ *  `statusCell`. Neutral → bare string (see `statusCell`). */
+function stepStatusCell(status: StepStatus): PageCellInput {
+  const text = STEP_STATUS_BADGE[status];
+  const tone = STEP_STATUS_TONE[status];
+  return tone === "neutral" ? text : { text, tone };
+}
 
 /** Severity glyph + label for a findings-table cell. */
 export const SEVERITY_ICON: Record<FindingSeverity, string> = {
@@ -167,7 +227,7 @@ function appendStepTable(page: PageBuilder, detail: RunDetail): void {
     PIPELINE_STEPS.map((step) => {
       const sr = byName.get(step);
       const status: StepStatus = sr?.status ?? "pending";
-      return { cells: [step, STEP_STATUS_BADGE[status], String(sr?.round ?? 0)] };
+      return { cells: [step, stepStatusCell(status), String(sr?.round ?? 0)] };
     }),
   );
 }
@@ -180,12 +240,20 @@ function appendFindingsTable(
   runId: string,
   step: PipelineStep,
   findings: Findings,
+  opts?: { interactive?: boolean },
 ): void {
+  // `interactive` (default true) attaches the per-finding fix action + the
+  // triage empty-state — the parked-gate dashboard uses it. The read-only
+  // run-detail view passes `false`: findings render as a plain reference table
+  // (no fix action), and an empty list is simply skipped by the caller.
+  const interactive = opts?.interactive !== false;
   if (findings.items.length === 0) {
-    page.emptyState(
-      "No findings to triage",
-      "This gate is parked for a human decision — approve to continue, or skip the step.",
-    );
+    if (interactive) {
+      page.emptyState(
+        "No findings to triage",
+        "This gate is parked for a human decision — approve to continue, or skip the step.",
+      );
+    }
     return;
   }
   page.table(
@@ -198,7 +266,7 @@ function appendFindingsTable(
         f.description || "—",
         ACTION_BADGE[f.action],
       ],
-      action: fixAction(runId, step, f.id),
+      ...(interactive ? { action: fixAction(runId, step, f.id) } : {}),
     })),
   );
 }
@@ -310,6 +378,107 @@ export function buildRunDetail(detail: RunDetail): HubPageTree {
   return page.build();
 }
 
+// ── Run-detail VIEW (the `?run=<id>` render variant) ─────────────────
+
+/**
+ * Append the recorded agent-dispatch provenance for a step.
+ *
+ * PRIVACY (respecting the ez-code precedent, index.ts ~462): this page tree is
+ * CACHED and served to ALL users, so it must never bake a private
+ * `/chat/<subConversationId>` deep-link cross-user. ECF runs ARE global/system
+ * push artifacts (runs live in the `global` storage scope — not per-user
+ * chats), which is why the run rows themselves render into the shared tree at
+ * all. But two facts keep us from embedding the TURNS here:
+ *   1. A render cannot READ a sub-conversation's turns — the only host
+ *      capability (`runtime.conversations.getMessages`) is scoped to the
+ *      caller's CURRENT conversation, and a render has none. Adding a
+ *      render-time "read any sub-conversation" capability would embed
+ *      cross-user conversation content into this shared cached tree — the exact
+ *      exposure the precedent guards against.
+ *   2. Even a mere `/chat/<id>` deep-link is what the precedent forbids.
+ * So we surface the linkage as READ-ONLY provenance (index, role, the sub-
+ * conversation / assignment ids, time) — never a clickable deep-link. An
+ * operator correlates these ids in the native chat UI, which enforces its own
+ * per-user view authorization at open time. Old runs recorded no linkage and
+ * render an honest "no recorded turns" note.
+ */
+function appendAgentTurns(page: PageBuilder, sr: StepResultRecord): void {
+  const dispatches = sr.agentDispatches ?? [];
+  if (dispatches.length === 0) {
+    page.emptyState(
+      "No recorded turns",
+      "This step recorded no agent dispatch — an old run (pre-linkage), or a step that ran no agent.",
+    );
+    return;
+  }
+  page.heading(3, "Agent turns");
+  page.table(
+    ["#", "Role", "Sub-conversation", "Assignment", "When"],
+    dispatches.map((d, i) => ({
+      cells: [String(i + 1), d.role, d.subConversationId, d.assignmentId, shortTime(d.at)],
+    })),
+  );
+}
+
+/** Statuses of a step worth expanding into its own detail subsection. A
+ *  `pending` step with nothing recorded is skipped (the step table already
+ *  lists it). */
+function stepHasDetail(sr: StepResultRecord): boolean {
+  return (
+    sr.findings.items.length > 0 ||
+    sr.findings.summary !== "" ||
+    sr.findings.testingSummary !== "" ||
+    sr.fixSummary !== null ||
+    (sr.agentDispatches?.length ?? 0) > 0
+  );
+}
+
+/**
+ * Build the standalone run-DETAIL page (the `?run=<id>` render variant): the
+ * run's metadata, the full pipeline step table (tone-coloured), and — per step
+ * that recorded anything — its findings, log/summary panel, and agent-turn
+ * provenance. Pure. `detail === null` (unknown run id) renders an honest
+ * "not found" note rather than an error. Distinct from `buildRunDetail`
+ * (the parked-gate TRIAGE surface with its approve/fix/skip controls); this
+ * view is READ-ONLY and covers every step, not just the parked one.
+ */
+export function buildRunDetailView(runId: string, detail: RunDetail | null): HubPageTree {
+  const page = new PageBuilder(`ez-code-factory — run ${runId}`);
+  if (!detail) {
+    page.emptyState(
+      "Run not found",
+      `No run ${runId} is recorded on this deployment — it may have been swept, or the link is stale.`,
+    );
+    return page.build();
+  }
+
+  const { run, steps } = detail;
+  page.section(`Run ${run.id} · ${run.branch}`, (section) => {
+    section.stats([
+      { label: "Status", value: STATUS_BADGE[run.status] },
+      { label: "Head", value: shortSha(run.headSha) },
+      { label: "Updated", value: shortTime(run.updatedAt) },
+      { label: "Intent", value: run.intent ? "explicit" : "none", hint: run.intent ?? undefined },
+    ]);
+    appendStepTable(section, detail);
+  });
+
+  const byName = stepIndex(steps);
+  for (const step of PIPELINE_STEPS) {
+    const sr = byName.get(step);
+    if (!sr || !stepHasDetail(sr)) continue;
+    page.section(`${step} · ${STEP_STATUS_BADGE[sr.status]}`, (section) => {
+      appendRiskLine(section, sr.findings);
+      // Read-only findings reference (no per-finding fix action here).
+      appendFindingsTable(section, run.id, step as PipelineStep, sr.findings, { interactive: false });
+      appendLogPanel(section, sr, sr.findings);
+      appendAgentTurns(section, sr);
+    });
+  }
+
+  return page.build();
+}
+
 // ── Dashboard variants (global fallback / per-project / home) ────────
 
 /** One platform project, as the host hands it to a `perProject` render —
@@ -319,6 +488,20 @@ export type ProjectRef = PageProjectRef;
 /** The full hub page id as it appears in URLs — home rows deep-link to
  *  `/project/<projectId>/hub/<this>`. */
 export const FULL_PAGE_ID = `ext:${EXTENSION_NAME}:${PAGE_ID}`;
+
+/** Deep-link to a run's DETAIL render variant on the PROJECT hub — the
+ *  per-project dashboard's run rows carry it (`?run=<id>` is a query-only
+ *  navigation on the same page, so the host re-pulls with `ctx.run` set). */
+function projectRunHref(projectId: string, runId: string): string {
+  return `/project/${projectId}/hub/${encodeURIComponent(FULL_PAGE_ID)}?run=${encodeURIComponent(runId)}`;
+}
+
+/** Deep-link to a run's DETAIL render variant on the GLOBAL hub — used for
+ *  orphan runs (no registered project) and the context-less dashboard, which
+ *  have no project to scope the link to. */
+function globalRunHref(runId: string): string {
+  return `/hub/${encodeURIComponent(FULL_PAGE_ID)}?run=${encodeURIComponent(runId)}`;
+}
 
 /** The host silently TRUNCATES tables past 100 rows (page-schema
  *  MAX_TABLE_ROWS `.slice`) — clamp the projects table ourselves so we
@@ -356,8 +539,15 @@ function clampRows<T>(page: PageBuilder, items: T[], label: string): T[] {
 
 /** The runs table + inline triage detail — the body every variant shares.
  *  Rows clamp with a visible notice; details are filtered to the runs
- *  actually shown. */
-function appendRunsSection(page: PageBuilder, runs: RunRecord[], details: RunDetail[]): void {
+ *  actually shown. Each row is a LINK to the run's detail view (built by
+ *  `runHref` — project-scoped or global) and its Status cell carries the DRY
+ *  status→tone colour. */
+function appendRunsSection(
+  page: PageBuilder,
+  runs: RunRecord[],
+  details: RunDetail[],
+  runHref: (runId: string) => string,
+): void {
   const shownRuns = clampRows(page, runs, "runs");
   page.table(
     ["Run", "Branch", "Head", "Status", "Updated"],
@@ -366,9 +556,10 @@ function appendRunsSection(page: PageBuilder, runs: RunRecord[], details: RunDet
         r.id,
         r.branch,
         shortSha(r.headSha),
-        STATUS_BADGE[r.status],
+        statusCell(r.status),
         shortTime(r.updatedAt),
       ],
+      href: runHref(r.id),
     })),
   );
   // Inline the triage detail for every parked run (typically 0–2), so a human
@@ -428,7 +619,9 @@ export function buildDashboard(runs: RunRecord[], details: RunDetail[] = []): Hu
     return page.build();
   }
 
-  appendRunsSection(page, runs, details);
+  // No project context (older host / flag off): run rows deep-link to the
+  // GLOBAL-hub detail variant.
+  appendRunsSection(page, runs, details, globalRunHref);
   return page.build();
 }
 
@@ -451,7 +644,9 @@ export function buildProjectDashboard(
     return page.build();
   }
 
-  appendRunsSection(page, own, details);
+  // R1: this project's run rows carry a href to their detail on the SAME
+  // project hub (project context preserved via the route prefix).
+  appendRunsSection(page, own, details, (runId) => projectRunHref(project.id, runId));
   return page.build();
 }
 
@@ -518,7 +713,8 @@ export function buildHome(
   const orphans = orphanRuns(projects, runs);
   if (orphans.length > 0) {
     page.heading(2, "Runs outside registered projects");
-    appendRunsSection(page, orphans, details);
+    // Orphans have no project to scope to — deep-link to the GLOBAL-hub detail.
+    appendRunsSection(page, orphans, details, globalRunHref);
   }
 
   return page.build();

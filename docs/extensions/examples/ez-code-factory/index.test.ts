@@ -2359,4 +2359,54 @@ describe("renderDashboard — perProject context dispatch", () => {
     expect(tree.title).toBe("ez-code-factory");
     expect(tableRowIds(tree).sort()).toEqual(["r-foreign", "r-mine"]);
   });
+
+  test("ctx.run renders the run-detail view, taking precedence over project", async () => {
+    const store = await seededStore();
+    const sr: StepResultRecord = {
+      runId: "r-mine",
+      step: "review",
+      status: "completed",
+      findings: { ...emptyFindings(), summary: "looked good" },
+      agentPid: null,
+      autoFixLimit: 0,
+      round: 1,
+      autoFixAttempts: 0,
+      executionMs: 0,
+      fixSummary: null,
+      agentDispatches: [
+        {
+          role: "reviewer",
+          assignmentId: "asg-1",
+          subConversationId: "sub-1",
+          agentRunId: "arun-1",
+          at: "2026-07-18T09:30:00.000Z",
+        },
+      ],
+    };
+    await store.putStepResult(sr);
+    _setStoreForTests(store);
+
+    // `run` wins even with project context present.
+    const tree = await renderDashboard({ project: PROJECT, run: "r-mine" });
+    expect(tree.title).toContain("run r-mine");
+    // The step table + the agent-turn provenance table both render.
+    const tableCols = (tree.nodes as Array<Record<string, unknown>>)
+      .flatMap((n) => {
+        if (n.type === "table") return [n];
+        if (n.type === "section" && Array.isArray(n.nodes)) return n.nodes as Array<Record<string, unknown>>;
+        return [];
+      })
+      .filter((n) => n.type === "table")
+      .map((n) => (n.columns as string[])[0]);
+    expect(tableCols).toContain("Step");
+  });
+
+  test("ctx.run for an unknown id renders a 'Run not found' note (never an error)", async () => {
+    _setStoreForTests(await seededStore());
+    const tree = await renderDashboard({ run: "r-nope" });
+    expect(tree.title).toContain("run r-nope");
+    const empty = (tree.nodes as Array<Record<string, unknown>>).find((n) => n.type === "empty-state");
+    expect(empty).toBeTruthy();
+    expect(String((empty as Record<string, unknown>).title)).toContain("not found");
+  });
 });

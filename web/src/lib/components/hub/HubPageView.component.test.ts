@@ -668,3 +668,33 @@ describe("projectId prop (project-scoped hub route)", () => {
 		expect(localStorage.length).toBe(0);
 	});
 });
+
+describe("run prop (?run= detail variant)", () => {
+	test("the render pull carries ?run= (and ?project= when both are set)", async () => {
+		render(HubPageView, {
+			props: { pageId: EXT_PAGE_ID, hubBase: "/project/p-1/hub", projectId: "p-1", run: "run_abc" },
+		});
+		await tick();
+		await tick();
+		const pagePulls = fetchCalls.filter((c) => c.url.startsWith("/api/hub/pages/ext"));
+		expect(pagePulls.length).toBeGreaterThan(0);
+		for (const call of pagePulls) {
+			expect(call.url).toContain("run=run_abc");
+			expect(call.url).toContain("project=p-1");
+		}
+	});
+
+	test("run alone (global hub) carries ?run= with no project", async () => {
+		render(HubPageView, {
+			props: { pageId: EXT_PAGE_ID, hubBase: "/hub", run: "run_abc" },
+		});
+		await tick();
+		await tick();
+		const pagePulls = fetchCalls.filter((c) => c.url.startsWith("/api/hub/pages/ext"));
+		expect(pagePulls.length).toBeGreaterThan(0);
+		for (const call of pagePulls) {
+			expect(call.url).toContain("run=run_abc");
+			expect(call.url).not.toContain("project=");
+		}
+	});
+});
