@@ -131,6 +131,26 @@ describe("ezcorp ext dev", () => {
     }
   });
 
+  // dev.ts:108-111 — the "signal already aborted at the guard" early return.
+  // The other _signal tests abort AFTER spawn, so they exercise the
+  // addEventListener path; reaching `if (opts._signal.aborted) { … return }`
+  // deterministically requires the signal to already be aborted when the guard
+  // runs. Aborting up-front does that with no timing race (the timed variant is
+  // flaky under a slow/sharded CI runner — it left dev.ts:110-111 uncovered).
+  // The awaited call RESOLVING rather than hanging on the keep-alive promise is
+  // itself proof the early return fired; cleanup() also ran killAll.
+  test("pre-aborted _signal: returns early through the aborted-at-guard cleanup", async () => {
+    const tmpDir = await createTempExtDir();
+    try {
+      const controller = new AbortController();
+      controller.abort(); // aborted BEFORE startDevServer reaches the guard
+      await startDevServer({ extDir: tmpDir, _signal: controller.signal });
+      expect(_mockKillAllCalls).toBeGreaterThanOrEqual(1);
+    } finally {
+      await cleanup(tmpDir);
+    }
+  });
+
   test("registers extension on startup", async () => {
     const tmpDir = await createTempExtDir();
     try {
