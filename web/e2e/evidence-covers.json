@@ -8,6 +8,9 @@
     "web/src/lib/components/ChatMessage.svelte",
     "web/src/routes/(app)/project/[id]/chat/[convId]/+page.svelte"
   ],
+  "web/e2e/chat-durable-leaf-capability-event.spec.ts": [
+    "web/src/lib/components/ChatThread.svelte"
+  ],
   "web/e2e/composer-suggestions.spec.ts": [
     "web/src/lib/components/SuggestionPopover.svelte",
     "web/src/lib/components/ChatInput.svelte",

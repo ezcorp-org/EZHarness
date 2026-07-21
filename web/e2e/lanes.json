@@ -19,6 +19,7 @@
     "evidence-soft": [
       "web/e2e/auto-model-routing.spec.ts",
       "web/e2e/cache-stats-pill.spec.ts",
+      "web/e2e/chat-durable-leaf-capability-event.spec.ts",
       "web/e2e/composer-suggestions.spec.ts",
       "web/e2e/conversation-list-sidebar-nav.spec.ts",
       "web/e2e/dev-badge.spec.ts",

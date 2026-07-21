@@ -848,7 +848,17 @@
 			treeEnabled = enabled;
 			const leaf = tree?.currentLeaf;
 			if (!enabled || !leaf) return;
-			if (allMessages.some((m) => m.id === leaf)) activeLeafId = leaf;
+			// A `capability-event` row is a root-level inline annotation, never a
+			// valid rewind/checkpoint target. Re-seating the active branch onto one
+			// makes `pathToRoot` yield ONLY that orphan annotation → the transcript
+			// renders BLANK (the "daily briefing chat is empty" report). The server's
+			// `computeSessionTree` now resolves a cap-valued durable leaf to its
+			// nearest real ancestor; this is the client-side belt-and-suspenders and
+			// the render-level regression pin, mirroring the capability-event
+			// exclusion `computeLatestLeaf` already applies. A missing/cap pointer
+			// keeps computeLatestLeaf's correct default.
+			const row = allMessages.find((m) => m.id === leaf);
+			if (row && row.role !== "capability-event") activeLeafId = leaf;
 		} catch {
 			// fail-quiet: keep computeLatestLeaf's default leaf
 		}
