@@ -34,6 +34,7 @@
       "web/e2e/github-projects-connect.spec.ts",
       "web/e2e/github-projects-hub.spec.ts",
       "web/e2e/graded-card-scanner.spec.ts",
+      "web/e2e/hub-side-nav.spec.ts",
       "web/e2e/loops-kill-switch.spec.ts",
       "web/e2e/openrouter-provider.spec.ts",
       "web/e2e/pending-permission-tray.spec.ts",

@@ -103,6 +103,28 @@ export interface HubPageListing {
   kind: "core" | "ext";
 }
 
+/**
+ * Sort a Hub page listing ALPHABETICALLY by title (case-insensitive), with the
+ * page id as a stable tiebreaker for equal titles. Returns a NEW array — the
+ * source order from `/api/hub/pages` is intentionally preserved for callers
+ * that still depend on it (the project-hub index auto-open lands on "the first
+ * projectScoped page" from the raw listing).
+ *
+ * Shared by BOTH the sidebar Hub dropdown (`HubNavSection`) and the Hub tab bar
+ * (`HubPageView`) so their page ordering can never drift apart.
+ */
+// Written as a `const` arrow (not a `function` declaration) deliberately: the
+// bun server-test legs import this module transitively (via hub-extension-pages)
+// and instrument every line, but never CALL this frontend-only helper — a bare
+// `function` declaration line then shows as a bun zero-hit that the v8 leg emits
+// no positive DA for, dragging the merged lcov below 100%. A `const` initializer
+// executes at import time, so v8 counts the line in every leg. Keep it an arrow.
+export const sortHubPagesByTitle = (pages: HubPageListing[]): HubPageListing[] =>
+  [...pages].sort((a, b) => {
+    const byTitle = a.title.localeCompare(b.title, undefined, { sensitivity: "base" });
+    return byTitle !== 0 ? byTitle : a.id.localeCompare(b.id);
+  });
+
 // ── Page id parsing ────────────────────────────────────────────────
 
 /** Mirrors `HUB_PROVIDER_ID_REGEX` (src/runtime/hub-pages.ts) — also

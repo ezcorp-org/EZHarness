@@ -145,6 +145,21 @@ describe("HubPageView · tab bar + initial load", () => {
 		expect(tabs[1]).toHaveAttribute("aria-selected", "false");
 	});
 
+	test("renders tabs ALPHABETICALLY by title regardless of the listing order", async () => {
+		// A deliberately out-of-order listing → the tab bar must sort it ABC.
+		tabsHandler = () =>
+			jsonResponse({
+				pages: [
+					{ id: "ext:myext:zed", title: "Zed", kind: "ext" },
+					{ id: EXT_PAGE_ID, title: "Home", icon: "home", kind: "ext" },
+					{ id: "ext:myext:logs", title: "Logs", kind: "ext" },
+				],
+			});
+		const { findAllByTestId } = await renderView();
+		const tabs = await findAllByTestId("hub-tab");
+		expect(tabs.map((t) => t.textContent?.trim())).toEqual(["Home", "Logs", "Zed"]);
+	});
+
 	test("renders the page title + body (real HubComponentRenderer) once the tree loads", async () => {
 		pageHandler = () => jsonResponse({ page: PLAIN_TREE });
 		const { findByTestId } = await renderView();

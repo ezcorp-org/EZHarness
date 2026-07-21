@@ -77,6 +77,10 @@
     "web/src/routes/(app)/hub/[pageId]/+page.svelte",
     "web/src/lib/components/hub/**/*.svelte"
   ],
+  "web/e2e/hub-side-nav.spec.ts": [
+    "web/src/lib/components/hub/**/*.svelte",
+    "web/src/routes/(app)/+layout.svelte"
+  ],
   "web/e2e/graded-card-scanner.spec.ts": [
     "docs/extensions/examples/graded-card-scanner/app/**"
   ],
