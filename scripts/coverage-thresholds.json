@@ -87,6 +87,8 @@
   "src/extensions/page-cache.ts": 100,
   "web/src/lib/stores.svelte.ts": 28,
   "web/src/lib/hub.ts": 100,
+  "web/src/lib/hub-last-page.ts": 100,
+  "web/src/lib/project-icon.ts": 100,
   "web/src/lib/resume-path.ts": 100,
   "web/src/lib/sw-runtime.ts": 100,
   "web/src/service-worker.ts": 100,
