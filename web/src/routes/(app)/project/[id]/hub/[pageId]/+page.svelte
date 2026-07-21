@@ -13,8 +13,10 @@
 	let pageId = $derived(page.params.pageId ?? "");
 	let hubBase = $derived(`/project/${page.params.id}/hub`);
 	let projectId = $derived(page.params.id ?? "");
-	// `?run=<id>` opens a run-detail render variant of the same page.
+	// `?run=<id>` opens a run-detail render variant; `?step=<name>` (a
+	// sub-variant of `?run=`) opens one step's detail within that run.
 	let run = $derived(page.url.searchParams.get("run") ?? undefined);
+	let step = $derived(page.url.searchParams.get("step") ?? undefined);
 </script>
 
-<HubPageView {pageId} {hubBase} {projectId} {run} />
+<HubPageView {pageId} {hubBase} {projectId} {run} {step} />

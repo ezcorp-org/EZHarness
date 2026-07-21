@@ -53,13 +53,20 @@ export interface PageRenderScope {
   project?: HubProjectRef;
   listProjects?: boolean;
   run?: string;
+  /** Step-detail sub-variant (`?step=<name>`) of a run detail — one step's
+   *  detail within `run`. Meaningful only alongside `run`; callers never set it
+   *  without `run`. */
+  step?: string;
 }
 
 /** The cache/single-flight variant key for a scope. A run-detail is keyed by
  *  the run id ALONE (independent of which hub/project surfaced the link), so
- *  the same run detail caches once; otherwise the project id (`""` = global). */
+ *  the same run detail caches once; a step detail adds a `:step:<name>` suffix
+ *  so it caches SEPARATELY from the run detail. The bare `run:<id>` key stays
+ *  byte-identical (cache + single-flight backward compat). Otherwise the project
+ *  id (`""` = global). */
 function variantKey(scope?: PageRenderScope): string {
-  if (scope?.run) return `run:${scope.run}`;
+  if (scope?.run) return scope.step ? `run:${scope.run}:step:${scope.step}` : `run:${scope.run}`;
   return scope?.project?.id ?? "";
 }
 
@@ -186,13 +193,16 @@ async function productionCallPage(
   }
   // A run-detail request rides ALONGSIDE any project context — the page reads
   // `run` to switch to its detail render; project context stays available for
-  // building in-hub links back to the project dashboard.
+  // building in-hub links back to the project dashboard. `step` (a sub-variant
+  // of `run`) rides along only when `run` is present.
   const runParam = scope?.run ? { run: scope.run } : {};
+  const stepParam = scope?.run && scope?.step ? { step: scope.step } : {};
   try {
     return await proc.call("ezcorp/page.render", {
       pageId,
       ...projectParams,
       ...runParam,
+      ...stepParam,
       _meta: { ezCallId },
     });
   } finally {
@@ -289,6 +299,7 @@ export async function renderExtensionPage(
   depsOverride?: Partial<RenderPullDeps>,
   project?: HubProjectRef,
   run?: string,
+  step?: string,
 ): Promise<RenderExtensionPageResult> {
   const deps: RenderPullDeps = { ...defaultDeps(), ...depsOverride };
 
@@ -300,13 +311,15 @@ export async function renderExtensionPage(
   // else a `?project=` query is inert and the render stays global. A `?run=`
   // request is honoured on a perProject page alongside (or instead of) project
   // context; on a non-perProject page it still routes a run-detail render.
+  // `step` is a sub-variant of `run` and is meaningless without it — dropped
+  // when `run` is absent, so a stray `?step=` never forks the cache.
   const perProject = found.page.perProject === true;
-  const runScope = run ? { run } : {};
+  const runStepScope: PageRenderScope | undefined = run
+    ? { run, ...(step ? { step } : {}) }
+    : undefined;
   const scope: PageRenderScope | undefined = perProject
-    ? { ...(project ? { project } : { listProjects: true }), ...runScope }
-    : run
-      ? { run }
-      : undefined;
+    ? { ...(project ? { project } : { listProjects: true }), ...(runStepScope ?? {}) }
+    : runStepScope;
   const variant = variantKey(scope);
 
   const cached = deps.cache.get(extension.id, pageId, variant);

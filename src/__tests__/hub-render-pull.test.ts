@@ -408,6 +408,31 @@ describe("perProject scope", () => {
     expect(deps.cache.get("ext-1", "dashboard", PROJECT.id)).toBeNull();
   });
 
+  test("run + step render variants cache under distinct keys (step isolated from the run detail)", async () => {
+    const deps = makeScopedDeps();
+    await renderExtensionPage("cron-dashboard", "dashboard", "u1", deps, undefined, "run_a"); // run detail
+    await renderExtensionPage("cron-dashboard", "dashboard", "u1", deps, undefined, "run_a", "review"); // step detail
+    // Two real pulls, distinct scopes (step rides alongside the run + listProjects).
+    expect(deps.scopes).toEqual([
+      { listProjects: true, run: "run_a" },
+      { listProjects: true, run: "run_a", step: "review" },
+    ]);
+    // The run detail caches under `run:run_a`; the step detail under
+    // `run:run_a:step:review` — independent slots, no collision.
+    expect(deps.cache.get("ext-1", "dashboard", "run:run_a")).not.toBeNull();
+    expect(deps.cache.get("ext-1", "dashboard", "run:run_a:step:review")).not.toBeNull();
+    expect(deps.cache.get("ext-1", "dashboard", "run:run_a:step:test")).toBeNull();
+  });
+
+  test("a stray step WITHOUT run does not fork a step cache variant", async () => {
+    const deps = makeScopedDeps();
+    // perProject page, no run, stray step → the dashboard (listProjects) scope,
+    // no step; hub-render-pull drops the meaningless step.
+    await renderExtensionPage("cron-dashboard", "dashboard", "u1", deps, undefined, undefined, "review");
+    expect(deps.scopes).toEqual([{ listProjects: true }]);
+    expect(deps.cache.get("ext-1", "dashboard")).not.toBeNull();
+  });
+
   test("production callPage forwards {project} on the render RPC", async () => {
     __fakeProcResponse = VALID_RESULT;
     const seen: Record<string, unknown>[] = [];

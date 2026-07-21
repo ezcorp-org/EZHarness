@@ -109,6 +109,23 @@ describe("ExtensionPageCache", () => {
     expect(cache.get("ext-1", "other")).not.toBeNull();
   });
 
+  test("run + step variant keys are independent AND both dropped by one invalidate", () => {
+    const { cache } = makeCache();
+    cache.set("ext-1", "page", TREE); // dashboard (global)
+    cache.set("ext-1", "page", TREE2, "run:run_a"); // run detail
+    cache.set("ext-1", "page", TREE, "run:run_a:step:review"); // step detail
+    // Independent slots — the step key never collides with the bare run key.
+    expect(cache.get("ext-1", "page")!.tree).toEqual(TREE);
+    expect(cache.get("ext-1", "page", "run:run_a")!.tree).toEqual(TREE2);
+    expect(cache.get("ext-1", "page", "run:run_a:step:review")!.tree).toEqual(TREE);
+    expect(cache.get("ext-1", "page", "run:run_a:step:test")).toBeNull();
+    // One invalidation clears the dashboard, the run detail, AND every step detail.
+    cache.invalidate("ext-1", "page");
+    expect(cache.get("ext-1", "page")).toBeNull();
+    expect(cache.get("ext-1", "page", "run:run_a")).toBeNull();
+    expect(cache.get("ext-1", "page", "run:run_a:step:review")).toBeNull();
+  });
+
   test("invalidate cannot cross pages that share an id prefix", () => {
     const { cache } = makeCache();
     cache.set("ext-1", "dash", TREE);

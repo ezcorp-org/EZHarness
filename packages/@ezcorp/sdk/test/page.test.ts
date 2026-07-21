@@ -368,6 +368,45 @@ describe("render context (perProject pages)", () => {
   test("a non-string run is ignored but project context survives", async () => {
     expect(await renderWith({ project: PROJECT, run: 42 })).toEqual({ project: PROJECT });
   });
+
+  test("host {run, step} arrives as ctx.run + ctx.step — on its own (no project)", async () => {
+    expect(await renderWith({ run: "run_abc", step: "review" })).toEqual({
+      run: "run_abc",
+      step: "review",
+    });
+  });
+
+  test("step rides ALONGSIDE a single project + run", async () => {
+    expect(await renderWith({ project: PROJECT, run: "run_abc", step: "test" })).toEqual({
+      project: PROJECT,
+      run: "run_abc",
+      step: "test",
+    });
+  });
+
+  test("step rides alongside a {projects} list + run", async () => {
+    expect(await renderWith({ projects: [PROJECT], run: "run_abc", step: "lint" })).toEqual({
+      projects: [PROJECT],
+      run: "run_abc",
+      step: "lint",
+    });
+  });
+
+  test("a step WITHOUT run (and no project) is dropped → no context", async () => {
+    expect(await renderWith({ step: "review" })).toBeUndefined();
+  });
+
+  test("a step WITHOUT run is dropped but project context survives", async () => {
+    expect(await renderWith({ project: PROJECT, step: "review" })).toEqual({ project: PROJECT });
+  });
+
+  test("an empty step string is ignored (run survives, no ctx.step)", async () => {
+    expect(await renderWith({ run: "run_abc", step: "" })).toEqual({ run: "run_abc" });
+  });
+
+  test("a non-string step is ignored (run survives, no ctx.step)", async () => {
+    expect(await renderWith({ run: "run_abc", step: 42 })).toEqual({ run: "run_abc" });
+  });
 });
 
 describe("render context — malformed-list fallback", () => {
@@ -396,6 +435,13 @@ describe("render context — malformed-list fallback", () => {
   test("a run request survives the malformed-list fallback (detail is project-independent)", async () => {
     expect(await renderWith({ projects: [{ id: 1 }, "junk"], run: "run_abc" })).toEqual({
       run: "run_abc",
+    });
+  });
+
+  test("a run+step request survives the malformed-list fallback", async () => {
+    expect(await renderWith({ projects: [{ id: 1 }, "junk"], run: "run_abc", step: "review" })).toEqual({
+      run: "run_abc",
+      step: "review",
     });
   });
 });

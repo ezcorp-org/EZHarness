@@ -8,8 +8,10 @@
 	import HubPageView from "$lib/components/hub/HubPageView.svelte";
 
 	let pageId = $derived(page.params.pageId ?? "");
-	// `?run=<id>` opens a run-detail render variant of the same page.
+	// `?run=<id>` opens a run-detail render variant; `?step=<name>` (a
+	// sub-variant of `?run=`) opens one step's detail within that run.
 	let run = $derived(page.url.searchParams.get("run") ?? undefined);
+	let step = $derived(page.url.searchParams.get("step") ?? undefined);
 </script>
 
-<HubPageView {pageId} hubBase="/hub" {run} />
+<HubPageView {pageId} hubBase="/hub" {run} {step} />

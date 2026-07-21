@@ -34,15 +34,18 @@
 	// project context — inert for pages without the manifest flag.
 	// `run` (the `?run=<id>` detail variant) is threaded from the route
 	// wrapper's `page.url`. When set, the render pull carries it and the
-	// extension renders that run's detail instead of the dashboard. A
-	// query-only navigation (dashboard ⇄ run detail) keeps this component
-	// mounted, so the load `$effect` below reads `run` to re-pull on change.
+	// extension renders that run's detail instead of the dashboard. `step`
+	// (`?run=<id>&step=<name>`) is a sub-variant of `run` — one step's detail
+	// within the run. A query-only navigation (dashboard ⇄ run ⇄ step detail)
+	// keeps this component mounted, so the load `$effect` below reads BOTH
+	// `run` and `step` to re-pull on change.
 	let {
 		pageId,
 		hubBase,
 		projectId,
 		run,
-	}: { pageId: string; hubBase: string; projectId?: string; run?: string } = $props();
+		step,
+	}: { pageId: string; hubBase: string; projectId?: string; run?: string; step?: string } = $props();
 
 	// ── Tab list (loaded once) ───────────────────────────────────────
 	let tabs = $state<HubPageListing[]>([]);
@@ -96,6 +99,8 @@
 			const params = new URLSearchParams();
 			if (projectId) params.set("project", projectId);
 			if (run) params.set("run", run);
+			// `step` is meaningful only alongside `run` (a step detail of a run).
+			if (run && step) params.set("step", step);
 			const qs = params.toString();
 			const query = qs ? `?${qs}` : "";
 			const res = await fetch(`/api/hub/pages/${encodeURIComponent(id)}${query}`);
@@ -237,10 +242,11 @@
 	// so `/project/<id>/hub` re-opens it next time. No projectId (the global
 	// hub) → no write.
 	$effect(() => {
-		// Read `run` so a query-only navigation between the dashboard and a
-		// run detail (same pageId, changed `?run=`) re-runs this effect and
-		// re-pulls the render.
+		// Read `run` + `step` so a query-only navigation between the dashboard,
+		// a run detail, and a step detail (same pageId, changed `?run=`/`?step=`)
+		// re-runs this effect and re-pulls the render.
 		void run;
+		void step;
 		if (pageId) {
 			void loadPage(pageId);
 			if (projectId) persistLastHubPage(projectId, pageId);

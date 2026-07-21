@@ -22,7 +22,13 @@
  * pages that worked before ?project= existed keep working. Note ids
  * are not always UUIDs — the seeded self project's id is "self".
  *
- * Rate limit: 12 renders/min/user/page/project-variant.
+ * `?run=<id>` (+ optional `?step=<name>`) select detail render variants,
+ * passed opaquely to the extension — the host resolves neither. `?step=`
+ * is a sub-variant of `?run=` (one step's detail within a run) and is
+ * meaningless without it; `hub-render-pull` drops a stray step. Both are
+ * bounded so junk never reaches the render.
+ *
+ * Rate limit: 12 renders/min/user/page/project+run+step-variant.
  */
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "./$types";
@@ -52,6 +58,12 @@ const MAX_PROJECT_PARAM_LENGTH = 128;
  *  store — an unknown id renders an empty/"not found" detail, never an error. */
 const MAX_RUN_PARAM_LENGTH = 128;
 
+/** Sanity bound on `?step=<name>` (the step-detail sub-variant of `?run=`).
+ *  Step names are short pipeline-step tokens; anything longer is junk. Like
+ *  `run`, the value is passed opaquely to the extension render, which validates
+ *  it against its own step set — an unknown step renders an empty detail. */
+const MAX_STEP_PARAM_LENGTH = 128;
+
 export const GET: RequestHandler = async ({ locals, params, url }) => {
   const scopeErr = requireScope(locals, "read");
   if (scopeErr) return scopeErr;
@@ -80,12 +92,19 @@ export const GET: RequestHandler = async ({ locals, params, url }) => {
   const run =
     runParam && runParam.length <= MAX_RUN_PARAM_LENGTH ? runParam : undefined;
 
-  // The project + run variants are part of the limiter key: each project view
-  // AND each run detail of a page is a distinct render target with its own
-  // budget — without this, browsing 12+ projects/runs in a minute 429s on
-  // first renders.
+  // Optional step-detail sub-variant (`?step=<name>`). Meaningful only
+  // alongside `?run=` (hub-render-pull drops a stray step); still extracted +
+  // bounded here so an oversized value never reaches the render or the key.
+  const stepParam = url.searchParams.get("step");
+  const step =
+    stepParam && stepParam.length <= MAX_STEP_PARAM_LENGTH ? stepParam : undefined;
+
+  // The project + run + step variants are part of the limiter key: each project
+  // view AND each run/step detail of a page is a distinct render target with its
+  // own budget — without this, browsing 12+ projects/runs/steps in a minute 429s
+  // on first renders.
   const limit = __rateLimiter.check(
-    `hub-render:${user.id}:${params.id}:${project?.id ?? ""}:${run ?? ""}`,
+    `hub-render:${user.id}:${params.id}:${project?.id ?? ""}:${run ?? ""}:${step ?? ""}`,
   );
   if (!limit.allowed) {
     return errorJson(
@@ -104,6 +123,7 @@ export const GET: RequestHandler = async ({ locals, params, url }) => {
       undefined,
       project,
       run,
+      step,
     );
     if (result.notFound) return errorJson(404, "Not found");
     if (result.error !== undefined) return json({ error: result.error });

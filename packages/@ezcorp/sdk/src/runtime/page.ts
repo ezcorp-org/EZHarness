@@ -218,6 +218,11 @@ export interface PageRenderContext {
    *  Orthogonal to project context — a run detail is reachable from either the
    *  project hub (`?project=<id>&run=<id>`) or the global hub (`?run=<id>`). */
   run?: string;
+  /** Step-detail sub-variant: `?run=<id>&step=<name>` renders ONE step's detail
+   *  within a run. Present only alongside `run` (the host drops a stray step),
+   *  so a page branches on `run && step` for the step view, falling back to the
+   *  run detail when only `run` is set. */
+  step?: string;
 }
 
 export interface PageDefinition {
@@ -257,10 +262,15 @@ function readProjectRef(value: unknown): PageProjectRef | null {
  *  host sent no (valid) project context, so plain pages see no change. */
 function readRenderContext(params: Record<string, unknown>): PageRenderContext | undefined {
   // `run` is read independently of project context — a run-detail request is
-  // honourable on its own, even from the global hub with no project.
+  // honourable on its own, even from the global hub with no project. `step` is
+  // a sub-variant of `run` (one step's detail): folded ONLY when `run` is also
+  // present, so a stray `step` never reaches a page that requires both.
   const run = typeof params.run === "string" && params.run ? params.run : undefined;
-  const withRun = (ctx: PageRenderContext): PageRenderContext =>
-    run ? { ...ctx, run } : ctx;
+  const step = typeof params.step === "string" && params.step ? params.step : undefined;
+  const withRun = (ctx: PageRenderContext): PageRenderContext => {
+    if (!run) return ctx;
+    return step ? { ...ctx, run, step } : { ...ctx, run };
+  };
 
   const project = readProjectRef(params.project);
   if (project) return withRun({ project });
@@ -273,13 +283,13 @@ function readRenderContext(params: Record<string, unknown>): PageRenderContext |
     // A truly empty list is a real "no projects registered" home render;
     // a non-empty list where EVERY ref was malformed is host-contract
     // drift — fall back to the no-context render instead of showing an
-    // empty home over data that exists (but still honour a `run` request).
+    // empty home over data that exists (but still honour a `run`/`step` request).
     if (projects.length === 0 && params.projects.length > 0) {
-      return run ? { run } : undefined;
+      return run ? withRun({}) : undefined;
     }
     return withRun({ projects });
   }
-  return run ? { run } : undefined;
+  return run ? withRun({}) : undefined;
 }
 
 function installRenderHandler(): void {

@@ -698,3 +698,55 @@ describe("run prop (?run= detail variant)", () => {
 		}
 	});
 });
+
+describe("step prop (?run=&step= sub-variant)", () => {
+	test("the render pull carries ?step= alongside ?run= (and ?project= when set)", async () => {
+		render(HubPageView, {
+			props: {
+				pageId: EXT_PAGE_ID,
+				hubBase: "/project/p-1/hub",
+				projectId: "p-1",
+				run: "run_abc",
+				step: "review",
+			},
+		});
+		await tick();
+		await tick();
+		const pagePulls = fetchCalls.filter((c) => c.url.startsWith("/api/hub/pages/ext"));
+		expect(pagePulls.length).toBeGreaterThan(0);
+		for (const call of pagePulls) {
+			expect(call.url).toContain("run=run_abc");
+			expect(call.url).toContain("step=review");
+			expect(call.url).toContain("project=p-1");
+		}
+	});
+
+	test("step WITHOUT run is NOT sent (step is meaningless without run)", async () => {
+		render(HubPageView, {
+			props: { pageId: EXT_PAGE_ID, hubBase: "/hub", step: "review" },
+		});
+		await tick();
+		await tick();
+		const pagePulls = fetchCalls.filter((c) => c.url.startsWith("/api/hub/pages/ext"));
+		expect(pagePulls.length).toBeGreaterThan(0);
+		for (const call of pagePulls) {
+			expect(call.url).not.toContain("step=");
+			expect(call.url).not.toContain("run=");
+		}
+	});
+
+	test("changing the step prop re-pulls with the new step ($effect reads step)", async () => {
+		const { rerender } = render(HubPageView, {
+			props: { pageId: EXT_PAGE_ID, hubBase: "/hub", run: "run_abc", step: "review" },
+		});
+		await tick();
+		await tick();
+		fetchCalls = [];
+		await rerender({ pageId: EXT_PAGE_ID, hubBase: "/hub", run: "run_abc", step: "test" });
+		await tick();
+		await waitFor(() => {
+			const pulls = fetchCalls.filter((c) => c.url.startsWith("/api/hub/pages/ext"));
+			expect(pulls.some((c) => c.url.includes("step=test"))).toBe(true);
+		});
+	});
+});

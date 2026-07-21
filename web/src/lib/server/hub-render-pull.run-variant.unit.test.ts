@@ -79,3 +79,54 @@ describe("renderExtensionPage — ?run= variant", () => {
 		expect(scopes[0]).toEqual({ run: "run_x" });
 	});
 });
+
+describe("renderExtensionPage — ?step= sub-variant", () => {
+	test("step threads into the scope alongside run (perProject → listProjects)", async () => {
+		const { deps, scopes } = makeDeps();
+		await renderExtensionPage("ez-code-factory", "dashboard", "u1", deps, undefined, "run_a", "review");
+		expect(scopes[0]).toEqual({ listProjects: true, run: "run_a", step: "review" });
+	});
+
+	test("step rides alongside project + run when all present", async () => {
+		const { deps, scopes } = makeDeps();
+		const project = { id: "p1", name: "P", path: "/p" };
+		await renderExtensionPage("ez-code-factory", "dashboard", "u1", deps, project, "run_a", "test");
+		expect(scopes[0]).toEqual({ project, run: "run_a", step: "test" });
+	});
+
+	test("a stray step WITHOUT run is DROPPED (step is meaningless without run)", async () => {
+		const perProj = makeDeps();
+		await renderExtensionPage("ez-code-factory", "dashboard", "u1", perProj.deps, undefined, undefined, "review");
+		expect(perProj.scopes[0]).toEqual({ listProjects: true }); // no step
+
+		const nonPerProj = makeDeps({ perProject: false });
+		await renderExtensionPage("ez-code-factory", "dashboard", "u1", nonPerProj.deps, undefined, undefined, "review");
+		expect(nonPerProj.scopes[0]).toBeUndefined(); // no run, no step → no scope
+	});
+
+	test("the step detail is a DISTINCT cache variant; the bare run key stays byte-identical", async () => {
+		const { deps, scopes } = makeDeps();
+		await renderExtensionPage("ez-code-factory", "dashboard", "u1", deps, undefined, "run_a"); // run detail
+		await renderExtensionPage("ez-code-factory", "dashboard", "u1", deps, undefined, "run_a"); // cache HIT (run key unchanged)
+		await renderExtensionPage("ez-code-factory", "dashboard", "u1", deps, undefined, "run_a", "review"); // step detail — MISS
+		await renderExtensionPage("ez-code-factory", "dashboard", "u1", deps, undefined, "run_a", "review"); // step cache HIT
+		// run_a pulled once (2nd from cache), run_a+review pulled once = 2 pulls.
+		expect(scopes.filter(Boolean)).toHaveLength(2);
+		expect(scopes[0]).toEqual({ listProjects: true, run: "run_a" });
+		expect(scopes[1]).toEqual({ listProjects: true, run: "run_a", step: "review" });
+	});
+
+	test("distinct steps of the same run are distinct cache variants", async () => {
+		const { deps, scopes } = makeDeps();
+		await renderExtensionPage("ez-code-factory", "dashboard", "u1", deps, undefined, "run_a", "review");
+		await renderExtensionPage("ez-code-factory", "dashboard", "u1", deps, undefined, "run_a", "test");
+		expect(scopes.filter(Boolean)).toHaveLength(2);
+		expect(scopes[1]).toEqual({ listProjects: true, run: "run_a", step: "test" });
+	});
+
+	test("a step detail routes on a NON-perProject page too", async () => {
+		const { deps, scopes } = makeDeps({ perProject: false });
+		await renderExtensionPage("ez-code-factory", "dashboard", "u1", deps, undefined, "run_x", "lint");
+		expect(scopes[0]).toEqual({ run: "run_x", step: "lint" });
+	});
+});

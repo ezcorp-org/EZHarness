@@ -9,16 +9,19 @@
  * at web/src/routes/api/extensions/__tests__/secrets-route.test.ts.
  *
  * Collaborators are mocked so the tests are pure and focus on the handler's
- * run-param handling:
+ * run/step-param handling:
  *   - `?run=<id>` is passed through to renderExtensionPage (the 6th arg) AND
- *     folded into the rate-limiter variant key,
- *   - a `?run=` over MAX_RUN_PARAM_LENGTH (128) is clamped to undefined (junk
- *     never reaches the render, never buckets the limiter),
- *   - two distinct run values land in SEPARATE limiter buckets.
+ *     `?step=<name>` (the 7th arg), both folded into the rate-limiter variant
+ *     key (`hub-render:<user>:<pageId>:<project>:<run>:<step>` — 6 parts),
+ *   - a `?run=`/`?step=` over MAX (128) is clamped to undefined (junk never
+ *     reaches the render, never buckets the limiter),
+ *   - two distinct run values land in SEPARATE limiter buckets,
+ *   - the ROUTE passes `?step=` opaquely even without `?run=` (dropping a stray
+ *     step is hub-render-pull's job, not the route's).
  *
- * The render-pull's OWN run-variant threading is covered by
+ * The render-pull's OWN run/step-variant threading is covered by
  * web/src/lib/server/hub-render-pull.run-variant.unit.test.ts; here we prove the
- * ROUTE hands the param off correctly.
+ * ROUTE hands the params off correctly.
  */
 import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
 import { restoreModuleMocks } from "../../../../../../../../src/__tests__/helpers/mock-cleanup";
@@ -83,13 +86,14 @@ mock.module("$lib/server/security/rate-limiter", () => ({
   },
 }));
 
-// renderExtensionPage — record the positional args (esp. project + run) it sees.
+// renderExtensionPage — record the positional args (esp. project + run + step).
 const renderCalls: Array<{
   extension: string;
   pageId: string;
   userId: string;
   project: unknown;
   run: unknown;
+  step: unknown;
 }> = [];
 mock.module("$lib/server/hub-render-pull", () => ({
   renderExtensionPage: async (
@@ -99,8 +103,9 @@ mock.module("$lib/server/hub-render-pull", () => ({
     _deps: unknown,
     project: unknown,
     run: unknown,
+    step: unknown,
   ) => {
-    renderCalls.push({ extension, pageId, userId, project, run });
+    renderCalls.push({ extension, pageId, userId, project, run, step });
     return { page: { title: "T", nodes: [] }, renderedAt: 123 };
   },
 }));
@@ -151,22 +156,24 @@ describe("GET /api/hub/pages/[id] — ?run= variant", () => {
     expect(res.status).toBe(200);
 
     // The run id reaches the render as the 6th positional arg; without `?project=`
-    // the 5th (project) stays undefined.
+    // the 5th (project) stays undefined, and without `?step=` the 7th is too.
     expect(renderCalls).toHaveLength(1);
     expect(renderCalls[0]!.run).toBe("run_abc123");
     expect(renderCalls[0]!.project).toBeUndefined();
+    expect(renderCalls[0]!.step).toBeUndefined();
 
-    // …and it is part of the limiter variant key
-    // (`hub-render:<user>:<pageId>:<project>:<run>`).
+    // …and it is part of the 6-part limiter variant key
+    // (`hub-render:<user>:<pageId>:<project>:<run>:<step>` — trailing empty step).
     expect(limiterKeys).toHaveLength(1);
-    expect(limiterKeys[0]).toBe(`hub-render:${MEMBER_USER.id}:${PAGE_ID}::run_abc123`);
+    expect(limiterKeys[0]).toBe(`hub-render:${MEMBER_USER.id}:${PAGE_ID}::run_abc123:`);
   });
 
   test("a ?run at exactly MAX_RUN_PARAM_LENGTH (128) is still honoured", async () => {
     const maxLen = "r".repeat(128);
     await run(getEvent(`?run=${maxLen}`));
     expect(renderCalls[0]!.run).toBe(maxLen);
-    expect(limiterKeys[0]!.endsWith(`:${maxLen}`)).toBe(true);
+    // key ends with `:<run>:` (empty trailing step segment).
+    expect(limiterKeys[0]!.endsWith(`:${maxLen}:`)).toBe(true);
   });
 
   test("a ?run over MAX_RUN_PARAM_LENGTH (128) is clamped to undefined", async () => {
@@ -176,9 +183,9 @@ describe("GET /api/hub/pages/[id] — ?run= variant", () => {
 
     // Junk never reaches the render…
     expect(renderCalls[0]!.run).toBeUndefined();
-    // …and the limiter key carries an EMPTY run segment (so oversized junk can't
-    // exhaust a real run's budget).
-    expect(limiterKeys[0]!.endsWith(":")).toBe(true);
+    // …and the limiter key carries EMPTY run + step segments (so oversized junk
+    // can't exhaust a real run's budget).
+    expect(limiterKeys[0]!.endsWith("::")).toBe(true);
     expect(limiterKeys[0]).not.toContain(tooLong);
   });
 
@@ -187,14 +194,15 @@ describe("GET /api/hub/pages/[id] — ?run= variant", () => {
     await run(getEvent("?run=run_b"));
     expect(limiterKeys).toHaveLength(2);
     expect(limiterKeys[0]).not.toBe(limiterKeys[1]);
-    expect(limiterKeys[0]).toBe(`hub-render:${MEMBER_USER.id}:${PAGE_ID}::run_a`);
-    expect(limiterKeys[1]).toBe(`hub-render:${MEMBER_USER.id}:${PAGE_ID}::run_b`);
+    expect(limiterKeys[0]).toBe(`hub-render:${MEMBER_USER.id}:${PAGE_ID}::run_a:`);
+    expect(limiterKeys[1]).toBe(`hub-render:${MEMBER_USER.id}:${PAGE_ID}::run_b:`);
   });
 
-  test("no ?run at all → run undefined, empty run segment in the key", async () => {
+  test("no ?run at all → run undefined, empty run+step segments in the key", async () => {
     await run(getEvent(""));
     expect(renderCalls[0]!.run).toBeUndefined();
-    expect(limiterKeys[0]).toBe(`hub-render:${MEMBER_USER.id}:${PAGE_ID}::`);
+    expect(renderCalls[0]!.step).toBeUndefined();
+    expect(limiterKeys[0]).toBe(`hub-render:${MEMBER_USER.id}:${PAGE_ID}:::`);
   });
 
   test("a rate-limit hit short-circuits with 429 before the render", async () => {
@@ -202,5 +210,47 @@ describe("GET /api/hub/pages/[id] — ?run= variant", () => {
     const res = await run(getEvent("?run=run_abc123"));
     expect(res.status).toBe(429);
     expect(renderCalls).toHaveLength(0);
+  });
+});
+
+describe("GET /api/hub/pages/[id] — ?step= sub-variant", () => {
+  test("passes ?run + ?step through as the 6th + 7th args AND into the limiter key", async () => {
+    const res = await run(getEvent("?run=run_abc123&step=review"));
+    expect(res.status).toBe(200);
+    expect(renderCalls[0]!.run).toBe("run_abc123");
+    expect(renderCalls[0]!.step).toBe("review");
+    expect(limiterKeys[0]).toBe(`hub-render:${MEMBER_USER.id}:${PAGE_ID}::run_abc123:review`);
+  });
+
+  test("distinct steps of the SAME run bucket separately", async () => {
+    await run(getEvent("?run=run_a&step=review"));
+    await run(getEvent("?run=run_a&step=test"));
+    expect(limiterKeys[0]).toBe(`hub-render:${MEMBER_USER.id}:${PAGE_ID}::run_a:review`);
+    expect(limiterKeys[1]).toBe(`hub-render:${MEMBER_USER.id}:${PAGE_ID}::run_a:test`);
+    expect(limiterKeys[0]).not.toBe(limiterKeys[1]);
+  });
+
+  test("a ?step at exactly 128 is honoured; over 128 is clamped to undefined", async () => {
+    const maxLen = "s".repeat(128);
+    await run(getEvent(`?run=r1&step=${maxLen}`));
+    expect(renderCalls[0]!.step).toBe(maxLen);
+    expect(limiterKeys[0]!.endsWith(`:${maxLen}`)).toBe(true);
+
+    limiterKeys.length = 0;
+    renderCalls.length = 0;
+    const tooLong = "s".repeat(129);
+    await run(getEvent(`?run=r1&step=${tooLong}`));
+    expect(renderCalls[0]!.step).toBeUndefined();
+    expect(limiterKeys[0]!.endsWith(":")).toBe(true);
+    expect(limiterKeys[0]).not.toContain(tooLong);
+  });
+
+  test("the ROUTE passes ?step opaquely even WITHOUT ?run (drop is the render-pull's job)", async () => {
+    await run(getEvent("?step=review"));
+    // The route does not gate step on run — it hands it off; hub-render-pull is
+    // where a stray step (no run) is dropped.
+    expect(renderCalls[0]!.run).toBeUndefined();
+    expect(renderCalls[0]!.step).toBe("review");
+    expect(limiterKeys[0]).toBe(`hub-render:${MEMBER_USER.id}:${PAGE_ID}:::review`);
   });
 });
