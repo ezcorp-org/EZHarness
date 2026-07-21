@@ -29,12 +29,16 @@ const { fetchConversationTreeMock } = vi.hoisted(() => ({
 	),
 }));
 
-// Linear conversation u1 → a1 → u2 → a2. computeLatestLeaf → "a2".
+// Linear conversation u1 → a1 → u2 → a2, plus a trailing root-level
+// capability-event (cap1) created LAST — exactly the briefing shape where the
+// durable leaf lands on an auto-allowed tool annotation. computeLatestLeaf
+// excludes cap1, so the default leaf is still "a2".
 const TREE: Message[] = [
 	{ id: "u1", conversationId: "conv-1", role: "user", content: "q1", parentMessageId: null, excluded: false, createdAt: "2026-01-01T00:00:01.000Z" } as Message,
 	{ id: "a1", conversationId: "conv-1", role: "assistant", content: "a-one", parentMessageId: "u1", excluded: false, createdAt: "2026-01-01T00:00:02.000Z" } as Message,
 	{ id: "u2", conversationId: "conv-1", role: "user", content: "q2", parentMessageId: "a1", excluded: false, createdAt: "2026-01-01T00:00:03.000Z" } as Message,
 	{ id: "a2", conversationId: "conv-1", role: "assistant", content: "a-two", parentMessageId: "u2", excluded: false, createdAt: "2026-01-01T00:00:04.000Z" } as Message,
+	{ id: "cap1", conversationId: "conv-1", role: "capability-event", parentMessageId: null, excluded: false, content: JSON.stringify({ __ezcorp_capability_event: true, capability: "ezcorp:tasks", action: "get_task_snapshots", success: true }), createdAt: "2026-01-01T00:00:05.000Z" } as Message,
 ];
 
 vi.mock("$app/state", () => ({
@@ -142,5 +146,22 @@ describe("ChatThread reload-restore (Sessions P4 durable leaf)", () => {
 		fetchConversationTreeMock.mockRejectedValue(new Error("network"));
 		const { container } = render(Harness, { conversationId: "conv-1" });
 		await vi.waitFor(() => expect(leafText(container)).toBe("a2"));
+	});
+
+	test("durable leaf pointing at a trailing capability-event is NOT restored (briefing-blank fix)", async () => {
+		// The reported bug: a briefing ends on an auto-allowed tool call, so the
+		// durable currentLeaf is the trailing capability-event. Restoring onto it
+		// makes pathToRoot yield only the (root-level) annotation → a BLANK thread.
+		// The guard must skip it and keep computeLatestLeaf's real leaf (a2).
+		fetchConversationTreeMock.mockResolvedValue({
+			enabled: true,
+			tree: { conversationId: "conv-1", currentLeaf: "cap1", nodes: [] },
+		});
+		const { container } = render(Harness, { conversationId: "conv-1" });
+		await vi.waitFor(() => expect(fetchConversationTreeMock).toHaveBeenCalled());
+		// Let the post-load restore microtasks settle, then assert it never moved
+		// onto the capability-event.
+		await new Promise((r) => setTimeout(r, 10));
+		expect(leafText(container)).toBe("a2");
 	});
 });
