@@ -189,7 +189,13 @@ describe("sdk/test-runner", () => {
 // Module 3: subprocess.ts (parseMemoryLimit, ExtensionProcess statics)
 // ────────────────────────────────────────────────────────────────
 
-import { parseMemoryLimit, MIN_MEMORY_LIMIT_MB, ExtensionProcess } from "../extensions/subprocess";
+import {
+  parseMemoryLimit,
+  MIN_MEMORY_LIMIT_MB,
+  ExtensionProcess,
+  killActiveExtensionProcesses,
+  _addActiveProcessForTest,
+} from "../extensions/subprocess";
 
 describe("subprocess", () => {
   describe("parseMemoryLimit", () => {
@@ -277,6 +283,32 @@ describe("subprocess", () => {
       const ep = new ExtensionProcess("test-id", "/path/to/ext.ts", {});
       ep.kill();
       expect(ep.isRunning).toBe(false);
+    });
+  });
+
+  describe("killActiveExtensionProcesses (process 'exit' cleanup)", () => {
+    test("kills every process in the active set", () => {
+      // The real handler is registered as process.on('exit', ...) — seed the
+      // active set via the test-only helper and invoke the exported cleanup
+      // directly so the kill-all contract is verified without a real exit.
+      const killed: string[] = [];
+      const a = { kill: () => killed.push("a") };
+      const b = { kill: () => killed.push("b") };
+      const removeA = _addActiveProcessForTest(a);
+      const removeB = _addActiveProcessForTest(b);
+      try {
+        killActiveExtensionProcesses();
+        expect(killed).toContain("a");
+        expect(killed).toContain("b");
+      } finally {
+        removeA();
+        removeB();
+      }
+    });
+
+    test("is a no-op when no processes are active", () => {
+      // Disposers above remove the seeded fakes; the set is empty again.
+      expect(() => killActiveExtensionProcesses()).not.toThrow();
     });
   });
 });

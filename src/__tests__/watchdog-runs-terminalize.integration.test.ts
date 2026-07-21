@@ -39,14 +39,23 @@ let interruptAllRunsCalls = 0;
 let terminalizeOrphanedRunsCalls = 0;
 // What terminalizeOrphanedRuns "found" — drives the boot-reconcile assertion.
 let orphanBacklog = 0;
+// Controllable rejections for the defensive .catch arms.
+let markInterruptedShouldReject = false;
+let cleanupShouldReject = false;
+let cleanupOrphanedRunsCalls = 0;
 
 mock.module("../db/queries/active-runs", () => ({
   updateHeartbeat: async () => {},
   updatePartialResponse: async () => {},
   markInterrupted: async (id: string) => {
     markInterruptedCalls.push(id);
+    if (markInterruptedShouldReject) throw new Error("markInterrupted boom");
   },
-  cleanupOrphanedRuns: async () => 0,
+  cleanupOrphanedRuns: async () => {
+    cleanupOrphanedRunsCalls += 1;
+    if (cleanupShouldReject) throw new Error("cleanup boom");
+    return 0;
+  },
   interruptAllRuns: async () => {
     interruptAllRunsCalls += 1;
     return 0;
@@ -112,6 +121,9 @@ beforeEach(() => {
   orphanBacklog = 0;
   reconcileCalls = 0;
   reconcileShouldReject = false;
+  markInterruptedShouldReject = false;
+  cleanupShouldReject = false;
+  cleanupOrphanedRunsCalls = 0;
 });
 
 afterEach(() => {
@@ -202,6 +214,42 @@ describe("watchdog interrupt → runs row terminalized (the orphan-row bug)", ()
     expect(finalizeRunRowCalls).toHaveLength(0);
     expect(markInterruptedCalls).toHaveLength(0);
     expect(run.status).toBe("running");
+  });
+});
+
+// ── defensive self-catch arms (periodic cleanup + interrupt writes) ────
+
+describe("watchdog fire-and-forget writes self-catch (defensive)", () => {
+  test("the periodic orphan-cleanup tick swallows a cleanup rejection", async () => {
+    const h = makeHarness();
+    h.manager.startOrphanCleanup();
+    // Drain the startup cleanup (succeeds), then make the periodic run fail.
+    await new Promise<void>((r) => queueMicrotask(r));
+    const before = cleanupOrphanedRunsCalls;
+    cleanupShouldReject = true;
+    await advanceAndTick(60_000); // fires the armed orphan-cleanup interval
+    await new Promise<void>((r) => queueMicrotask(r));
+    await new Promise<void>((r) => queueMicrotask(r));
+    // The interval invoked cleanup again and its rejection was swallowed by
+    // the .catch — no unhandled rejection, the manager is still healthy.
+    expect(cleanupOrphanedRunsCalls).toBeGreaterThan(before);
+    expect(() => h.manager.destroy()).not.toThrow();
+  });
+
+  test("a watchdog trip swallows a markInterrupted rejection", async () => {
+    const h = makeHarness();
+    const run = makeRun(RUN_ID);
+    h.runs.set(RUN_ID, run);
+    h.controllers.set(RUN_ID, new AbortController());
+    h.manager.startWatchdog(RUN_ID, CONV_ID, () => "");
+    markInterruptedShouldReject = true;
+    await advanceAndTick(95_000); // idle kill → trip → markInterrupted rejects
+    await new Promise<void>((r) => queueMicrotask(r));
+    await new Promise<void>((r) => queueMicrotask(r));
+    // The trip still terminalized the run despite the DB write rejecting —
+    // the fire-and-forget .catch swallowed it.
+    expect(run.status).toBe("error");
+    expect(markInterruptedCalls).toContain(RUN_ID);
   });
 });
 

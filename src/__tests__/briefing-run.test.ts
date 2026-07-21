@@ -522,6 +522,14 @@ describe("deleteBriefingConversationIfEmpty", () => {
     expect(await getConversation(full!.id)).not.toBeNull();
   });
 
+  test("swallows a DB error and returns false (never throws out of cleanup)", async () => {
+    // A malformed conversationId makes the underlying message query throw;
+    // the cleanup must fold that into `false` + a warn, never propagate — a
+    // thrown error here would break the failed-run cleanup path.
+    const badId = { toString() { throw new Error("boom id"); } } as unknown as string;
+    expect(await deleteBriefingConversationIfEmpty(badId)).toBe(false);
+  });
+
   test("a real user reply counts as content; the synthetic prompt alone does not", async () => {
     const db = getTestDb();
     // Synthetic prompt only → still "empty".

@@ -155,6 +155,15 @@ const MODULE_PATHS = [
   "../../extensions/runtime/internal-host",
   "../../extensions/runtime/seccomp-loader",
   "../../extensions/schedule-daemon",
+  // tool-executor-schedule-daemon.test.ts mock.module's the schedule
+  // reverse-RPC handler to capture the ctx the executor threads into it
+  // (setScheduleDaemon wiring suite). Snapshot so restoreModuleMocks()
+  // re-registers the real handler in afterAll and the capture stub never
+  // leaks into subsequent test files. Safe to eagerly preload: its only
+  // runtime imports are logger + db/queries/* (already snapshotted) — it
+  // does NOT pull the preview-daemon / activate-extension graphs that
+  // hang phase-2b-e2e.
+  "../../extensions/schedule-handler",
   // Loops EZ Mode Phase 2: event-subscription-dispatcher.test.ts mocks the
   // global loops kill switch to drive its suspend/resume branches. Snapshot so
   // restoreModuleMocks() re-registers the real reader and the stub never leaks

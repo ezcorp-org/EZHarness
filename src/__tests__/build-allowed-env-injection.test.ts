@@ -130,6 +130,46 @@ describe("buildAllowedEnv — injectedEnv gating", () => {
   });
 });
 
+describe("buildAllowedEnv — EZCORP_PROJECT_ROOT resolution", () => {
+  test("swallows findProjectRoot failure when run outside a git tree", () => {
+    // findProjectRoot() walks up from process.cwd() and throws when it hits
+    // the filesystem root with no `.git` ancestor. buildAllowedEnv catches
+    // that so a spawn outside a git tree doesn't crash — it just leaves
+    // EZCORP_PROJECT_ROOT unset. Force the throw by chdir'ing to /tmp.
+    const cwd = process.cwd();
+    try {
+      process.chdir("/tmp");
+      const out = buildAllowedEnv(makeManifest(), { grantedAt: {} }, "ext-nogit");
+      expect(out.EZCORP_PROJECT_ROOT).toBeUndefined();
+    } finally {
+      process.chdir(cwd);
+    }
+  });
+
+  test("sets EZCORP_PROJECT_ROOT to the .git ancestor when inside a git tree", () => {
+    const out = buildAllowedEnv(makeManifest(), { grantedAt: {} }, "ext-git");
+    expect(typeof out.EZCORP_PROJECT_ROOT).toBe("string");
+    expect(out.EZCORP_PROJECT_ROOT!.length).toBeGreaterThan(0);
+  });
+});
+
+describe("ExtensionRegistry — manifest + bundled accessors", () => {
+  test("getAllManifests returns an iterable of [id, manifest] entries", () => {
+    const registry = ExtensionRegistry.getInstance();
+    const entries = [...registry.getAllManifests()];
+    expect(Array.isArray(entries)).toBe(true);
+    for (const entry of entries) {
+      expect(Array.isArray(entry)).toBe(true);
+      expect(entry).toHaveLength(2);
+    }
+  });
+
+  test("isBundled returns false for an extension id with no bundled flag", () => {
+    const registry = ExtensionRegistry.getInstance();
+    expect(registry.isBundled("definitely-not-installed-ext")).toBe(false);
+  });
+});
+
 // ── Registry setter ──────────────────────────────────────────────────────────
 
 describe("ExtensionRegistry — injected env lifecycle", () => {

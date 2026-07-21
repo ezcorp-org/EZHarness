@@ -147,7 +147,7 @@ const MAX_BACKOFF_EXPONENT = 30;
 
 function computeNextAttemptAfter(attempts: number, now: () => number): Date {
   const BASE_DELAY_MS = 5_000;
-  const delay = BASE_DELAY_MS * Math.pow(2, Math.min(attempts, MAX_BACKOFF_EXPONENT));
+  const delay = BASE_DELAY_MS * 2 ** Math.min(attempts, MAX_BACKOFF_EXPONENT);
   const jitter = Math.random() * delay * 0.3;
   return new Date(now() + delay + jitter);
 }
@@ -312,14 +312,25 @@ export class EmbedWorker {
     }
 
     this.timer = setInterval(() => {
-      void this.tickOnce().catch((err: unknown) =>
-        log.warn("embed-worker: tick-failed", { error: String(err) }),
-      );
+      void this.runTickGuarded();
     }, this.opts.wakeIntervalMs);
     if (typeof this.timer === "object" && this.timer !== null && "unref" in this.timer) {
       (this.timer as unknown as { unref: () => void }).unref();
     }
     return true;
+  }
+
+  /**
+   * Interval body: run one tick, swallowing + logging any rejection.
+   * `tickOnce()` has its own try/catch/finally so it never rejects in
+   * practice; this outer catch is the defense-in-depth net that keeps the
+   * daemon alive if a future change ever lets a tick throw before that guard.
+   * Extracted from the `setInterval` callback so the net is directly testable.
+   */
+  async runTickGuarded(): Promise<void> {
+    await this.tickOnce().catch((err: unknown) =>
+      log.warn("embed-worker: tick-failed", { error: String(err) }),
+    );
   }
 
   /** Stop the daemon — clears the interval and releases the lockfile. Idempotent. */

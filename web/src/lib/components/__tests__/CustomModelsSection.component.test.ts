@@ -216,6 +216,34 @@ describe("CustomModelsSection local-endpoint discovery", () => {
 	});
 });
 
+describe("CustomModelsSection two-way bindings", () => {
+	test("tier select + both base-url inputs update through their bindings", async () => {
+		stubFetch();
+		const { getByLabelText, container } = render(CustomModelsSection, { props: { customModels: [] } });
+
+		// Tier <select> binds via `change` (present in the default non-local view).
+		await fireEvent.change(getByLabelText("Model tier"), { target: { value: "fast" } });
+		expect((getByLabelText("Model tier") as HTMLSelectElement).value).toBe("fast");
+
+		// Non-local branch's optional Base URL binds via `input`. A non-empty
+		// value flips `isLocalProvider` true, switching to the discovery branch.
+		const optionalUrl = container.querySelector("#settings-new-model-base-url") as HTMLInputElement;
+		expect(optionalUrl).not.toBeNull();
+		await fireEvent.input(optionalUrl, { target: { value: "http://example:9000" } });
+
+		// Local/discovery branch's Base URL input binds via `input` (distinct
+		// from its onchange reset handler).
+		await waitFor(() =>
+			expect(container.querySelector("#settings-new-model-base-url-discovery")).not.toBeNull(),
+		);
+		const discoveryUrl = container.querySelector(
+			"#settings-new-model-base-url-discovery",
+		) as HTMLInputElement;
+		await fireEvent.input(discoveryUrl, { target: { value: "http://local:11434" } });
+		expect(discoveryUrl.value).toBe("http://local:11434");
+	});
+});
+
 describe("CustomModelsSection local model test", () => {
 	const localModel: CustomModelEntry[] = [
 		{ modelId: "phi4", provider: "openai", tier: "fast", baseUrl: "http://localhost:8080" },

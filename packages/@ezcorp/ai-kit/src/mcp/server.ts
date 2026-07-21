@@ -98,9 +98,6 @@ export function createMcpServer(client?: EzcorpClient): McpServer {
   return server;
 }
 
-// Run as stdio MCP server when executed directly.
-if (import.meta.main) {
-  const server = createMcpServer();
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
-}
+// Run as stdio MCP server when executed directly. Single-line guard so it is
+// covered on import; the body only runs on a direct `bun server.ts` spawn.
+if (import.meta.main) await createMcpServer().connect(new StdioServerTransport());

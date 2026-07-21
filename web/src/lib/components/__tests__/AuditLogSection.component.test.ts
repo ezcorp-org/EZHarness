@@ -253,6 +253,12 @@ describe("AuditLogSection", () => {
 		}
 	});
 
+	test("renders the empty message when the log has no events", async () => {
+		stubFetch([]);
+		const { getByText } = render(AuditLogSection);
+		await waitFor(() => expect(getByText("No audit events found.")).toBeInTheDocument());
+	});
+
 	test("mobile audit card expands to show pretty JSON; collapses on second tap", async () => {
 		stubFetch(loginRun());
 		const { getByTestId, queryByTestId } = render(AuditLogSection);

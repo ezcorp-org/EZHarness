@@ -117,6 +117,36 @@ describe("runShim — apply stubbed, spawns a trivial child", () => {
     expect(code).not.toBe(0);
   });
 
+  test("runShimMain exits with the inner command's code on success", async () => {
+    mock.module("../extensions/sandbox/landlock", () => ({
+      applyLandlockJailSpec: () => {},
+    }));
+    const shim = await import("../extensions/sandbox/landlock-shim");
+    const env = {
+      ...process.env,
+      [shim.LANDLOCK_SPEC_ENV]: JSON.stringify({ ro: [], rw: [] }),
+    };
+    const exits: number[] = [];
+    // Inject a fake exit so the entrypoint wiring is exercised without
+    // terminating the test runner.
+    await shim.runShimMain(["true"], env, (c) => exits.push(c));
+    expect(exits).toEqual([0]);
+  });
+
+  test("runShimMain logs and exits 127 when runShim throws", async () => {
+    mock.module("../extensions/sandbox/landlock", () => ({
+      applyLandlockJailSpec: () => {},
+    }));
+    const shim = await import("../extensions/sandbox/landlock-shim");
+    const exits: number[] = [];
+    const errs: string[] = [];
+    // Empty argv → parseShimArgv throws "no inner command" → runShim rejects,
+    // driving the catch arm.
+    await shim.runShimMain([], process.env, (c) => exits.push(c), (m) => errs.push(m));
+    expect(exits).toEqual([127]);
+    expect(errs[0]).toContain("landlock-shim:");
+  });
+
   afterAll(() => {
     // Snapshot-restore the real module (see the landlock-ffi afterAll above).
     const real = require("../extensions/sandbox/landlock");
