@@ -7,7 +7,13 @@ EZCorp — a self-hosted AI platform for multi-model chat with persistent memory
 - **Security** — RBAC and per-tool-call permissions for LLM actions
 - **Reliability** — safe migrations, durable storage, single-container deploy
 
-Stack: Bun runtime, PGlite/Postgres, SvelteKit frontend (`web/`), backend (`src/`), runtime executor + built-in tools.
+**Stack & layout:**
+- `src/` — Bun backend: runtime executor + built-in tools, providers, auth/RBAC, db, extension host
+- `web/` — SvelteKit frontend (Svelte 5 runes, Vite, Tailwind 4) — see `web/CLAUDE.md`
+- `packages/@ezcorp/` — bun workspaces: `sdk` (extension authoring), `ai-kit` (LLM-driver integration kit), `harness-client` (remote-control client)
+- `extensions/` — first-party **bundled** extensions (git-tracked, registered in `src/extensions/bundled.ts`); `docs/extensions/examples/*/` holds the reference extensions — see `src/extensions/CLAUDE.md`
+- `worker/` — Cloudflare Workers deploy target (LLM-only agents reusing `src/runtime/executor` with stubbed shell/file providers)
+- Database: PGlite embedded by default; external Postgres via `DATABASE_URL` (`Bun.sql`)
 
 ---
 
@@ -15,8 +21,8 @@ Stack: Bun runtime, PGlite/Postgres, SvelteKit frontend (`web/`), backend (`src/
 
 Trunk-based: branch off `main` (`feat/ fix/ ci/ docs/ chore/ security/`), open a
 PR, land all required checks green + a non-author review, squash-merge to `main`
-(always deployable), release via an `app-vX.Y.Z` tag. Full spec:
-[docs/development-lifecycle.md](docs/development-lifecycle.md).
+(always deployable), release via an `app-vX.Y.Z` tag. Full spec (including the
+complete required-check table): [docs/development-lifecycle.md](docs/development-lifecycle.md).
 
 **Feature contract — every feature you ship MUST:**
 1. Cover each **new source file** to its threshold (default **100%**) and add a
@@ -29,7 +35,8 @@ PR, land all required checks green + a non-author review, squash-merge to `main`
    calls `captureEvidence(page, testInfo, label)`. The `Visual evidence` CI gate
    enforces a spec is present and the bot attaches screenshots to the PR.
 5. **Never** weaken the gate or fake green — no lowered thresholds, no new
-   `EXCLUDES`, no `.skip/.only/.todo`, no assertion-free tests. These are
+   `EXCLUDES`, no `.skip/.only/.todo`, no assertion-free tests, no empty
+   `catch {}` in test files, no committed `coverage/lcov.info`. These are
    blocked by the `Gate integrity` CI check; a maintainer-only
    `gate-change-approved` label is the only bypass (you cannot apply it).
 
@@ -53,209 +60,81 @@ container from the worktree dir if it must serve worktree edits.
 
 ---
 
-Default to using Bun instead of Node.js.
+## Bun
 
-- Use `bun <file>` instead of `node <file>` or `ts-node <file>`
-- Use `bun test` instead of `jest` or `vitest`
-- Use `bun build <file.html|file.ts|file.css>` instead of `webpack` or `esbuild`
-- Use `bun install` instead of `npm install` or `yarn install` or `pnpm install`
-- Use `bun run <script>` instead of `npm run <script>` or `yarn run <script>` or `pnpm run <script>`
-- Use `bunx <package> <command>` instead of `npx <package> <command>`
-- Bun automatically loads .env, so don't use dotenv.
+Default to Bun instead of Node.js: `bun <file>`, `bun install`, `bun run
+<script>`, `bunx <pkg>`. Bun auto-loads `.env` — don't use dotenv.
 
-## Extension data
-
-Every extension in `docs/extensions/examples/*/` stores its persistent
-user-visible state under `<projectRoot>/.ezcorp/extension-data/<extension-name>/`.
-When reading or writing extension-managed files (task stores, note vaults,
-config json, etc.), always use that path. The `.ezcorp/` directory is
-gitignored. See `docs/extensions/data-storage.md` for the full convention.
-
-## Extension logging
-
-Host-side extension code (integration daemons, reverse-RPC handlers, spawn
-bridges) MUST get its logger from `extensionLogger(name, component?)` in
-`src/logger.ts` — never `logger.child(...)` directly — so every extension log
-lands under the `ext.<name>[.<component>]` subsystem namespace. That lets an
-operator raise debug for one extension via `EZCORP_DEBUG=ext.<name>` (or all
-extensions via `EZCORP_DEBUG=ext`, everything via `EZCORP_DEBUG=1`) without the
-global `LOG_LEVEL=debug` firehose. Default-visible `info` should carry
-once-per-cycle summaries; `debug` carries per-item detail; never log secret/token
-plaintext. See `docs/extensions/logging.md` for the full convention.
-
-## Mention grammar
-
-The chat composer supports five mention sigils — all five share one
-pure-logic module at `web/src/lib/mention-logic.ts`, and the single
-`/api/mentions/search` endpoint routes on a `type=` query parameter.
-
-| Sigil | Kind(s) | Token format | Source |
-|---|---|---|---|
-| `!` | `agent`, `ext`, `team`, `EZ` | `![kind:name]` | DB (`agentConfigs`, `extensions`) + executor's in-memory map + EZ-action registry |
-| `@` | `file`, `dir` | `@[kind:relpath]` | Active project's filesystem (symlink-escape filtered) |
-| `/` | `cmd` | `/[cmd:name]` | `.claude/{commands,agents}`, `.codex/prompts`, `agents/` (project + home) + `user_commands` DB table |
-| `$` | `feature` | `$[feature:name]` | DB (`features` table, scoped to active project) |
-| `%` | `lesson` | `%[lesson:slug]` | DB (`lessons` table, scoped to user + project, visibility-filtered) |
-
-The `EZ` kind is nested under `!` (`![EZ:name]`): unlike `agent`/`ext`/`team`,
-these tokens are stripped pre-prompt by `stripEzActionTokens` and invoke a
-code-defined runtime action instead of being shown to the LLM. Lesson mentions
-(`%[lesson:slug]`) expand server-side via `applyLessonExpansion`. The full
-per-feature reference lives under
-[docs/features/composer/](docs/features/composer/mention-grammar.md).
-
-Slash-command discovery is gated by `EZCORP_SCAN_GLOBAL_COMMANDS` (default on).
-Commands are expanded server-side in `src/runtime/mention-wiring.ts`'s
-`applyCommandExpansion` — the raw `/[cmd:name]` token is persisted;
-the LLM sees the substituted body. Expansion is literal — never
-re-parse expanded text for other mention kinds. See
-[docs/slash-commands.md](docs/slash-commands.md) for the full spec.
-
-Feature mentions are expanded server-side in
-`src/runtime/mention-wiring.ts`'s `applyFeatureExpansion` — the raw
-`$[feature:name]` token is persisted; the LLM sees a system note
-listing the feature's description + plain-text file paths. Like
-slash-command expansion, this is literal — files are NOT emitted as
-`@[file:…]` tokens (no double-expansion). Unknown / deleted features
-are silent no-ops, mirroring `@[file:…]` for missing files. See
-[docs/plans/2026-05-01-feature-index-design.md](docs/plans/2026-05-01-feature-index-design.md)
-for the full spec.
-
-## Context compaction
-
-Conversation history is trimmed per-model before every LLM call via
-pi-agent-core's `transformContext` hook, wired in
-`src/runtime/stream-chat/build-pi-agent.ts` and configured from
-`src/runtime/stream-chat/context-compaction.ts`. It is a swappable
-strategy (`trim` default, `summarize` for an LLM condense that fails open
-to `trim`, `none` to disable) selected by the `compaction:strategy`
-setting.
-
-**Invariant — input-only:** never mutate `model.maxTokens` (or clone
-the model) to "save context". For the Codex API that field is metadata
-only (no `max_output_tokens` is sent); for other providers pi-ai
-already derives the output cap from it, so shrinking it truncates
-output. Trim **input** only; `responseReserve` sizes the budget and is
-never written back. See
-[docs/context-compaction.md](docs/context-compaction.md) for the full
-spec, settings keys, and how to add a custom strategy.
-
-## APIs
-
-- `Bun.serve()` supports WebSockets, HTTPS, and routes. Don't use `express`.
-- PGlite (`@electric-sql/pglite`) for embedded PostgreSQL. Don't use `bun:sqlite` or `better-sqlite3`.
-- `Bun.sql` for external Postgres (when `DATABASE_URL` is set). Don't use `pg` or `postgres.js`.
-- `Bun.redis` for Redis. Don't use `ioredis`.
-- `WebSocket` is built-in. Don't use `ws`.
-- Prefer `Bun.file` over `node:fs`'s readFile/writeFile
-- Bun.$`ls` instead of execa.
-
-## Remote testability contract
-
-The app is remotely controllable + deterministically testable by external
-harnesses, and new features must keep it that way. A CI meta-test
-(`web/src/__tests__/route-contract.test.ts`) enforces the rules; see
-[docs/harness-contract.md](docs/harness-contract.md) for the full spec.
-
-- **New `/api/*` route** → register it in `src/api-registry.ts` with a `scope`
-  (`read`/`chat`/`extensions`/`admin`/`public`). It then documents itself and
-  appears in the generated OpenAPI spec (`src/openapi.ts`). The meta-test
-  ratchets the unregistered-route count — a new unregistered route fails.
-- **New `/api/__test/**` route** (determinism tier) → gate it with
-  `isTestSurfaceEnabled()` from `$lib/server/test-surface`. The gate is
-  fail-CLOSED: it returns 404 unless **all three** of
-  `EZCORP_ALLOW_TEST_SURFACE=1` (conscious operator opt-in), `PI_E2E_REAL=1`,
-  and a non-production `NODE_ENV` hold. The meta-test fails any ungated one.
-- **New client-facing runtime event** → add it to the single canonical list
-  `web/src/lib/runtime-event-names.ts` (the SSE `BUS_EVENTS` and `ws.ts`'s
-  `WSRunEvent` both derive from it). Never re-list event names elsewhere.
-- **Cold-start auth** is `ezcorp key mint` (CLI, no UI). The control tier is
-  scope-gated and works in production; the determinism tier never does.
-- External harnesses use the `@ezcorp/harness-client` package — extend it (not
-  ad-hoc fetch) when adding a `harness: { controllable: true }` route.
+Don't add replaced deps:
+- `Bun.serve()` (WebSockets/HTTPS/routes built in) — no `express`, no `ws`
+- PGlite embedded + `Bun.sql` for external Postgres — no `pg`/`postgres.js`/`bun:sqlite`/`better-sqlite3`
+- `Bun.redis` if Redis is ever introduced (none today) — no `ioredis`
+- Prefer `Bun.file` over `node:fs` read/write; Bun.$`cmd` over execa
 
 ## Testing
 
-Use `bun test` to run tests.
+Three runners; use the wrapper scripts, not raw `bun test` at the root.
 
-```ts#index.test.ts
-import { test, expect } from "bun:test";
+- **Backend (`src/`)** — `bun run test` → `scripts/test.sh`, one isolated bun
+  process PER FILE. **Never bare `bun test` at the repo root** — globbing the
+  full backend pool into one process deadlocks on cross-file `mock.module()`
+  contamination (it hangs, not fails). Targeted single-file runs
+  (`bun test src/__tests__/foo.test.ts`) are fine.
+- **Web** — plain unit tests: `scripts/test-web.sh`; Svelte component/server
+  tests: Vitest, the one sanctioned Vitest surface (details: `web/CLAUDE.md`).
+- **E2E** — Playwright in `web/e2e/`: `bun run test:e2e` (mock tier); real
+  tier `web/playwright.real.config.ts` + `PI_E2E_REAL=1`.
+- **Coverage** — `bun run test:coverage` → sharded bun coverage + package legs
+  + a Node-run Vitest leg, merged into `coverage/lcov.info` and gated against
+  `coverage-thresholds.json`.
 
-test("hello world", () => {
-  expect(1).toBe(1);
-});
-```
+Write backend/unit tests with `bun:test`. Lint and typecheck are separate:
+`bun run lint` (biome) and `bun run typecheck`.
 
-## Frontend
+## Binding invariants (digest)
 
-Use HTML imports with `Bun.serve()`. Don't use `vite`. HTML imports fully support React, CSS, Tailwind.
+Full rules live in the linked docs and nested CLAUDE.md files; these are the
+ones that break things silently if missed:
 
-Server:
+- **Session tree** — never mutate `parentMessageId`
+  ([chat/rewind-branching-sessions.md](docs/features/chat/rewind-branching-sessions.md)).
+- **Context compaction is input-only** — never mutate `model.maxTokens` or
+  clone the model to "save context"; trim input only, `responseReserve` is
+  never written back ([docs/context-compaction.md](docs/context-compaction.md)).
+- **Mention/command/feature expansion is literal** — the raw token is
+  persisted, expanded text is never re-parsed for other mention kinds, unknown
+  targets are silent no-ops
+  ([composer/mention-grammar.md](docs/features/composer/mention-grammar.md),
+  [docs/slash-commands.md](docs/slash-commands.md)).
+- **Extensions** — state only under `<projectRoot>/.ezcorp/extension-data/<name>/`;
+  `.ezcorp/data` is never reachable from a sandbox; host-side loggers only via
+  `extensionLogger()` (`src/extensions/CLAUDE.md`).
+- **API surface** — every new `/api/*` route registers in `src/api-registry.ts`
+  with a scope; `/api/__test/**` routes gate on fail-closed
+  `isTestSurfaceEnabled()`; new runtime event names go ONLY in
+  `web/src/lib/runtime-event-names.ts`
+  ([docs/harness-contract.md](docs/harness-contract.md), details: `web/CLAUDE.md`).
 
-```ts#index.ts
-import index from "./index.html"
+## Where to look
 
-Bun.serve({
-  routes: {
-    "/": index,
-    "/api/users/:id": {
-      GET: (req) => {
-        return new Response(JSON.stringify({ id: req.params.id }));
-      },
-    },
-  },
-  // optional websocket support
-  websocket: {
-    open: (ws) => {
-      ws.send("Hello, world!");
-    },
-    message: (ws, message) => {
-      ws.send(message);
-    },
-    close: (ws) => {
-      // handle close
-    }
-  },
-  development: {
-    hmr: true,
-    console: true,
-  }
-})
-```
+Canonical subsystem index: [docs/features/README.md](docs/features/README.md)
+(50+ docs, each with a "Key files" section). Read the matching doc before
+touching a subsystem:
 
-HTML files can import .tsx, .jsx or .js files directly and Bun's bundler will transpile & bundle automatically. `<link>` tags can point to stylesheets and Bun's CSS bundler will bundle.
-
-```html#index.html
-<html>
-  <body>
-    <h1>Hello, world!</h1>
-    <script type="module" src="./frontend.tsx"></script>
-  </body>
-</html>
-```
-
-With the following `frontend.tsx`:
-
-```tsx#frontend.tsx
-import React from "react";
-import { createRoot } from "react-dom/client";
-
-// import .css files directly and it works
-import './index.css';
-
-const root = createRoot(document.body);
-
-export default function Frontend() {
-  return <h1>Hello, world!</h1>;
-}
-
-root.render(<Frontend />);
-```
-
-Then, run index.ts
-
-```sh
-bun --hot ./index.ts
-```
-
-For more information, read the Bun API docs in `node_modules/bun-types/docs/**.mdx`.
+| Working on | Read first |
+|---|---|
+| `web/` frontend, components, composer UI, e2e | `web/CLAUDE.md` |
+| `src/extensions/` host, extension authoring | `src/extensions/CLAUDE.md` |
+| DB & migrations (Drizzle, `src/db/`) | [platform/database-and-migrations.md](docs/features/platform/database-and-migrations.md) |
+| Auth, RBAC, permission modes (`src/auth/`) | [platform/rbac-and-permission-modes.md](docs/features/platform/rbac-and-permission-modes.md) |
+| Streaming runtime & runs (`src/runtime/`) | [chat/streaming-runtime.md](docs/features/chat/streaming-runtime.md) |
+| Providers, routing, failover (`src/providers/`) | [docs/llm-routing-and-failover.md](docs/llm-routing-and-failover.md) |
+| Memory & knowledge base (`src/memory/`) | [chat/persistent-memory.md](docs/features/chat/persistent-memory.md) |
+| Session tree, rewind/branching (`src/db/session-*`) | [chat/rewind-branching-sessions.md](docs/features/chat/rewind-branching-sessions.md) |
+| Context compaction (`src/runtime/stream-chat/`) | [docs/context-compaction.md](docs/context-compaction.md) |
+| Mentions, slash commands, suggestions (`src/suggest/`), EZ actions | [composer/](docs/features/composer/) |
+| Orchestration: agents/teams/modes/workflows | [orchestration/](docs/features/orchestration/) |
+| Hub, marketplace, loops/webhooks/scheduling | [extensions/](docs/features/extensions/) |
+| Remote control & test surfaces | [docs/harness-contract.md](docs/harness-contract.md) |
+| Settings / observability / audit | [platform/](docs/features/platform/) |
+| Deploy & releases | [platform/deployment-and-releases.md](docs/features/platform/deployment-and-releases.md) |

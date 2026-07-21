@@ -47,12 +47,16 @@ protection so renaming/deleting a job in a PR doesn't dodge the requirement.
 | Check | Proves | Cheat it closes |
 |---|---|---|
 | **Typecheck** | `tsc` clean (backend + web) | — |
-| **Backend tests** | `bun test` per-file isolation passes | — |
+| **Svelte check** | `svelte-check` clean (Svelte template/type errors in `web/`) | — |
+| **Backend tests** | aggregate: every backend coverage shard + the residual pass/fail set (incl. `route-contract.test.ts`) succeeded | shard/set drift silently de-gating a suite |
+| **Backend critical (strict pass/fail)** | curated deterministic correctness suites (RBAC engine/resolver, migration idempotency, auth, secrets, mention-wiring) run **plain** via `CRITICAL_ONLY=1` — no coverage instrumentation | the coverage shards' env-flake tolerance hiding a real assertion failure |
 | **Web tests (vitest)** | component + server-route units pass | — |
+| **Web tests (bun-leg orphans)** | the plain web unit tests the Vitest leg doesn't run (`scripts/test-web.sh`) | — |
 | **E2E (mock, no Docker)** | UI render + action wiring works | broken UI shipped green |
+| **E2E (real auth + real DB)** | real-auth/real-DB tier (`PI_E2E_REAL=1`, `playwright.real.config.ts`), incl. a sandbox spawn probe so extension specs can't silently skip | mock-only green hiding real-stack breakage |
 | **Lint (biome)** | style/lint clean | — |
 | **Manifest lockfile drift check** | bundled-ext lockfile in sync | stale lockfile |
-| **Per-file coverage gate** | each gated file ≥ its threshold; **+ new-file gate + patch coverage** ride in this job | undertested code |
+| **Per-file coverage gate** | each gated file ≥ its threshold; **+ new-file gate + patch coverage** ride in this job, and it fails unless all coverage producers (backend shards, extras legs, **Web security coverage**) succeeded | undertested code / incomplete coverage data |
 | **Gate integrity** | the PR doesn't weaken the gate or fake tests green | gate tampering / vacuous tests |
 | **Visual evidence** | a frontend-visual change ships a changed `@evidence` Playwright spec — and, when the changed file has a covering entry in `web/e2e/evidence-covers.json`, that specific covering spec must be the one touched (deterministic, browser-free, fails closed, fails open to the coarse rule on a bad map; bypass via maintainer-only `evidence-exempt` label) | frontend shipped with no visual spec/screenshot, or evidenced by an unrelated spec |
 
@@ -137,14 +141,16 @@ covered by `scripts/verify-docker-rollback.sh` / `verify:docker-rollback`.
 As an org admin (`gh auth switch --user EZArchy`):
 
 ```sh
-gh api -X PUT repos/ezcorp-org/EZCorp/branches/main/protection \
+gh api -X PUT repos/ezcorp-org/EZHarness/branches/main/protection \
   --input - <<'JSON'
 {
   "required_status_checks": {
     "strict": true,
     "contexts": [
-      "Typecheck", "Backend tests", "Web tests (vitest)",
-      "E2E (mock, no Docker)", "Lint (biome)",
+      "Typecheck", "Svelte check", "Backend tests",
+      "Backend critical (strict pass/fail)", "Web tests (vitest)",
+      "Web tests (bun-leg orphans)", "E2E (mock, no Docker)",
+      "E2E (real auth + real DB)", "Lint (biome)",
       "Manifest lockfile drift check", "Per-file coverage gate",
       "Gate integrity", "Visual evidence"
     ]
