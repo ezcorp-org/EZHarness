@@ -311,6 +311,7 @@ export async function installFromLocal(
           {
             acceptsCallerCaps: manifest.acceptsCallerCaps,
             escalateChildCaps: manifest.escalateChildCaps,
+            name: manifest.name,
           },
         );
       }
@@ -742,6 +743,7 @@ export async function updateExtension(
     {
       acceptsCallerCaps: manifest.acceptsCallerCaps,
       escalateChildCaps: manifest.escalateChildCaps,
+      name: manifest.name,
     },
   );
 

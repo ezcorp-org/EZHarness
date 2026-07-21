@@ -545,14 +545,21 @@ export async function checkEnvKeyLeakInstallGate(
 // manifest never declared them — operators can disable the entire tier
 // without touching schema or code.
 //
-// eventSubscriptions (Phase 2c): clamp to the triple-intersection of
-// submitted ∩ manifest-declared ∩ direct-carrier allowlist. An event
-// name that survives is guaranteed routable by the dispatcher at
-// runtime; unknown names fail closed (no grant) rather than landing in
-// a grant that can never be honored. Phase 51.4 added the object form
-// `{events, includeFullPayload?}`; both forms are normalized to the
-// array form before the intersection (the dispatcher reads the
-// includeFullPayload flag separately at install time).
+// eventSubscriptions (Phase 2c): clamp to submitted ∩ manifest-declared,
+// where each surviving name must ALSO be one the dispatcher will honor
+// at runtime (`event-subscription-dispatcher.ts:registerExtension`):
+// either a platform event from the direct-carrier allowlist, or the
+// extension's OWN custom event (`<manifest.name>:<event>`, when the
+// caller supplies `manifestTopLevel.name`). Anything else fails closed
+// (no grant) rather than landing in a grant that can never be honored.
+// Callers that omit `name` keep the strict carrier-only behavior — a
+// custom event then survives nowhere, which is exactly the bug that
+// broke `init_gate` ("missing ezcorp:events:subscribe") on the UI
+// activate path, so grant-writing callers should always pass it.
+// Phase 51.4 added the object form `{events, includeFullPayload?}`;
+// both forms are normalized to the array form before the intersection
+// (the dispatcher reads the includeFullPayload flag separately at
+// install time).
 //
 // ── Phase 4 deputy / orchestration flags ──
 // `acceptsCallerCaps` and `escalateChildCaps` are extension-level
@@ -571,6 +578,18 @@ function normalizeManifestEventSubscriptions(
   if (Array.isArray(field)) return field;
   if (field && typeof field === "object" && Array.isArray(field.events)) return field.events;
   return undefined;
+}
+
+/** An extension's OWN custom event: `<ownName>:<event>` with non-empty
+ *  halves. EXACT mirror of the dispatcher's Branch-2 acceptance parse
+ *  (`event-subscription-dispatcher.ts:registerExtension`) — the clamp
+ *  must never grant wider than the dispatcher will register, and after
+ *  this fix it no longer grants NARROWER either. */
+function isOwnNamespaceEvent(eventType: string, ownName: string | undefined): boolean {
+  if (!ownName) return false;
+  const colon = eventType.indexOf(":");
+  if (colon <= 0 || colon >= eventType.length - 1) return false;
+  return eventType.slice(0, colon) === ownName;
 }
 
 /** Phase 51.4: detect whether a manifest's event-subscription grant
@@ -597,7 +616,10 @@ export function clampExtensionPermissions(
   manifest: Omit<ExtensionManifestV2["permissions"], "search"> & {
     search?: ExtensionManifestV2["permissions"]["search"] | ExtensionPermissions["search"];
   },
-  manifestTopLevel?: Pick<ExtensionManifestV2, "acceptsCallerCaps" | "escalateChildCaps">,
+  manifestTopLevel?: Pick<
+    ExtensionManifestV2,
+    "acceptsCallerCaps" | "escalateChildCaps"
+  > & { name?: string },
 ): ExtensionPermissions {
   const clamped: ExtensionPermissions = { grantedAt: {} };
 
@@ -663,7 +685,8 @@ export function clampExtensionPermissions(
       const allowed = submittedEvents.filter(
         (e) => typeof e === "string"
           && manifestSet.has(e)
-          && DIRECT_CARRIER_EVENT_TYPES.has(e as never),
+          && (DIRECT_CARRIER_EVENT_TYPES.has(e as never)
+            || isOwnNamespaceEvent(e, manifestTopLevel?.name)),
       );
       if (allowed.length > 0) clamped.eventSubscriptions = allowed;
     }

@@ -96,6 +96,10 @@ export interface HubPageListing {
   title: string;
   icon?: string;
   description?: string;
+  /** True for a project-scoped extension page — the project hub index
+   *  auto-opens the first such tab. Only extension listings set it; core
+   *  pages never do. */
+  projectScoped?: boolean;
   kind: "core" | "ext";
 }
 

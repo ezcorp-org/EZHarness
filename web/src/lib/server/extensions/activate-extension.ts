@@ -105,6 +105,10 @@ export async function activateExtension(
 		const clamped = clampExtensionPermissions(submittedPerms as Partial<ExtensionPermissions>, manifestPerms, {
 			acceptsCallerCaps: ext.manifest?.acceptsCallerCaps,
 			escalateChildCaps: ext.manifest?.escalateChildCaps,
+			// Lets the extension's OWN `<name>:<event>` subscriptions survive
+			// the clamp — without it the activate path silently dropped them
+			// (the init_gate "missing ezcorp:events:subscribe" failure).
+			name: ext.manifest?.name,
 		});
 		update.grantedPermissions = clamped;
 		// v1.3 security review HIGH 2 — persist the install-time NARROWED

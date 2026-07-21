@@ -214,6 +214,39 @@ describe("GET /api/hub/pages", () => {
       { id: "ext:cron-dash:dashboard", title: "Cron Dashboard", icon: "Clock", kind: "ext" },
     ]);
   });
+
+  test("project-scoped pages carry projectScoped:true; plain pages omit the key; the scopes:[project] form is honored (tolerance pin)", async () => {
+    const db = getTestDb();
+    await db.insert(extensions).values({
+      name: "scoped-ext",
+      version: "1.0.0",
+      source: "local:/s",
+      enabled: true,
+      manifest: makeManifest({
+        name: "scoped-ext",
+        pages: [
+          { id: "per-project", title: "Per Project", perProject: true },
+          { id: "plain", title: "Plain" },
+          // The in-flight rename `perProject` → `scopes: ["project"]`. Not
+          // this checkout's field, but readManifestPages accepts it so the
+          // branch merge stays a no-op — pinned here.
+          { id: "scoped", title: "Scoped", scopes: ["project"] },
+        ],
+      }),
+      grantedPermissions: { grantedAt: {} },
+    });
+
+    const res = await call(listGet, createMockEvent({ user: userA }));
+    const data = await jsonFromResponse(res);
+    expect(data.pages).toEqual([
+      { id: "ext:scoped-ext:per-project", title: "Per Project", projectScoped: true, kind: "ext" },
+      { id: "ext:scoped-ext:plain", title: "Plain", kind: "ext" },
+      { id: "ext:scoped-ext:scoped", title: "Scoped", projectScoped: true, kind: "ext" },
+    ]);
+    // The plain page carries NO projectScoped key (not merely `false`).
+    const plain = data.pages.find((p: { id: string }) => p.id === "ext:scoped-ext:plain");
+    expect(plain).not.toHaveProperty("projectScoped");
+  });
 });
 
 // ── GET /api/hub/pages/[id] ───────────────────────────────────────

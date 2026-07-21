@@ -1,20 +1,27 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import { goto } from "$app/navigation";
+	import { page } from "$app/state";
 	import EmptyState from "$lib/components/EmptyState.svelte";
 	import SkeletonLoader from "$lib/components/SkeletonLoader.svelte";
+	import { loadLastHubPage } from "$lib/hub-last-page";
 	import type { HubPageListing } from "$lib/hub";
 
-	// `/hub` is a redirect shell: load the tab list and land on the
-	// first tab. With zero pages (no core providers registered, no
-	// extension pages) we show an explainer instead.
+	// `/project/<id>/hub` is a redirect shell — the "open the Hub inside a
+	// project" entry point. It loads the tab list and lands on, in order:
+	//   (a) the page this project last remembered (if still listed),
+	//   (b) else the first project-scoped tab (ez-code-factory's dashboard
+	//       today), so an in-project open surfaces project context first,
+	//   (c) else the first tab.
+	// With zero pages it shows the same explainer as the global hub instead.
 	let loading = $state(true);
 	let error = $state("");
 
 	onMount(() => {
+		const projectId = page.params.id ?? "";
 		// `cancelled` guards the post-fetch redirect: if the user navigates
 		// away while the listing is in flight, a late goto() would yank them
-		// back to the hub. Same guard as the project-hub shell — change both.
+		// back to the hub. Same guard as the global /hub shell — change both.
 		let cancelled = false;
 		void (async () => {
 			try {
@@ -22,9 +29,18 @@
 				const data = res.ok ? ((await res.json()) as { pages: HubPageListing[] }) : null;
 				if (cancelled) return;
 				if (!data) throw new Error(`HTTP ${res.status}`);
-				const first = data.pages[0];
-				if (first) {
-					await goto(`/hub/${encodeURIComponent(first.id)}`, { replaceState: true });
+				const pages = data.pages;
+
+				const remembered = loadLastHubPage(projectId);
+				const target =
+					(remembered && pages.find((p) => p.id === remembered)) ??
+					pages.find((p) => p.projectScoped) ??
+					pages[0];
+
+				if (target) {
+					await goto(`/project/${projectId}/hub/${encodeURIComponent(target.id)}`, {
+						replaceState: true,
+					});
 					return;
 				}
 				loading = false;

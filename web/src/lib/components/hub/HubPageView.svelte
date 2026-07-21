@@ -25,6 +25,7 @@
 		type HubPageTree,
 		type PageAction,
 	} from "$lib/hub";
+	import { persistLastHubPage } from "$lib/hub-last-page";
 
 	// `pageId` is the active tab; `hubBase` is the route prefix the tab
 	// links use (e.g. "/hub" or "/project/<id>/hub"); `projectId` (project
@@ -220,9 +221,15 @@
 		return () => window.removeEventListener("ext:page-state", onPageState);
 	});
 
-	// Re-load whenever the route param changes (tab click / deep link).
+	// Re-load whenever the route param changes (tab click / deep link). On
+	// the project hub, also remember this as the project's last-viewed page
+	// so `/project/<id>/hub` re-opens it next time. No projectId (the global
+	// hub) → no write.
 	$effect(() => {
-		if (pageId) void loadPage(pageId);
+		if (pageId) {
+			void loadPage(pageId);
+			if (projectId) persistLastHubPage(projectId, pageId);
+		}
 	});
 
 	let activeTab = $derived(tabs.find((t) => t.id === pageId));

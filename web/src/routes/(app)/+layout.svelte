@@ -8,6 +8,7 @@
 	import { matchShortcut, loadCustomShortcuts, type ShortcutBinding } from "$lib/shortcuts.js";
 	import { startAuthKeepalive } from "$lib/auth-keepalive.js";
 	import { clearResumeState } from "$lib/resume-path.js";
+	import { isIconUrl } from "$lib/project-icon.js";
 	import ProjectRail from "$lib/components/ProjectRail.svelte";
 	import ThemeToggle from "$lib/components/ThemeToggle.svelte";
 	import CommandPalette from "$lib/components/CommandPalette.svelte";
@@ -226,7 +227,7 @@
 				]
 			: [
 					{ href: `/project/${store.activeProjectId}/chat`, label: "Chat" },
-					{ href: "/hub", label: "Hub" },
+					{ href: `/project/${store.activeProjectId}/hub`, label: "Hub" },
 					{ href: "/memories", label: "Memories" },
 					{ href: `/project/${store.activeProjectId}/settings`, label: "Project Settings" },
 					{ href: "/agents", label: "Agents", group: "Platform" },
@@ -318,17 +319,19 @@
 			<!-- Project logo (ProjectRail / command-palette parity): the project's
 			     icon image when one is set, else a colored first-letter avatar. -->
 			<span
-				class="flex h-5 w-5 shrink-0 items-center justify-center overflow-hidden rounded-sm font-mono text-[10px] font-bold text-[var(--color-accent-contrast)] {activeProject?.icon ? '' : 'bg-[var(--color-accent)]'}"
+				class="flex h-5 w-5 shrink-0 items-center justify-center overflow-hidden rounded-sm font-mono text-[10px] font-bold text-[var(--color-accent-contrast)] {isIconUrl(activeProject?.icon) ? '' : 'bg-[var(--color-accent)]'}"
 				data-testid="active-context-avatar"
 			>
-				{#if activeProject?.icon}
+				{#if activeProject && isIconUrl(activeProject.icon)}
 					<img src={activeProject.icon} alt={activeProject.name} class="h-full w-full object-cover" />
 				{:else}
 					{(activeProject?.name ?? "EZ").charAt(0).toUpperCase()}
 				{/if}
 			</span>
 			<span class="min-w-0 flex-1">
-				<span class="block truncate text-sm font-semibold leading-tight text-[var(--color-text-primary)]">{activeProject?.name ?? "EZCorp"}</span>
+				<span
+					class="block truncate text-sm font-semibold leading-tight text-[var(--color-text-primary)]"
+					data-testid="active-context-name">{activeProject?.name ?? "EZCorp"}</span>
 				<span class="block truncate font-mono text-[10px] uppercase tracking-wider text-[var(--color-text-muted)]">{isGlobalProject ? "workspace" : "project"}</span>
 			</span>
 		</a>

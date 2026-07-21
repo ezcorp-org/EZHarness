@@ -635,4 +635,21 @@ describe("projectId prop (project-scoped hub route)", () => {
 			expect(call.url).not.toContain("?project=");
 		}
 	});
+
+	test("with projectId, the active pageId is remembered under the per-project key", async () => {
+		localStorage.clear();
+		render(HubPageView, {
+			props: { pageId: EXT_PAGE_ID, hubBase: "/project/p-1/hub", projectId: "p-1" },
+		});
+		await tick();
+		await tick();
+		expect(localStorage.getItem("ezcorp-hub-last-page:p-1")).toBe(EXT_PAGE_ID);
+	});
+
+	test("without projectId, localStorage is left untouched (global hub never writes)", async () => {
+		localStorage.clear();
+		await renderView();
+		expect(localStorage.getItem("ezcorp-hub-last-page:p-1")).toBeNull();
+		expect(localStorage.length).toBe(0);
+	});
 });

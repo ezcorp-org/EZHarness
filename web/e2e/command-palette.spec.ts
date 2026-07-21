@@ -13,8 +13,12 @@ test.describe("Command Palette", () => {
 		});
 		await page.goto(`/project/${proj.id}`);
 
-		// Wait for the sidebar to fully render with project context (proves onMount ran)
-		await expect(page.locator("aside h1")).toContainText("Palette Project");
+		// Wait for the sidebar to fully render with project context (proves
+		// onMount ran). The Command Deck sidebar has no <h1> — the active
+		// project name lives on the active-context line.
+		await expect(
+			page.getByTestId("desktop-sidebar").getByTestId("active-context-name"),
+		).toContainText("Palette Project");
 
 		// Press Ctrl+K to open command palette
 		await page.keyboard.press("Control+k");
@@ -23,12 +27,21 @@ test.describe("Command Palette", () => {
 		await expect(page.getByPlaceholder("Type a command...")).toBeVisible({ timeout: 3000 });
 	});
 
-	test("palette opens on root page via sidebar button (global context)", async ({ page, mockApi }) => {
+	test("palette opens on root page via sidebar button (global context)", async ({
+		page,
+		mockApi,
+		isMobile,
+	}) => {
+		// The palette trigger lives in the DESKTOP sidebar (hidden lg:flex);
+		// mobile has no sidebar button to click at this route.
+		test.skip(isMobile, "palette sidebar button only exists on desktop");
 		await mockApi({ projects: [proj] });
 		await page.goto("/");
 
 		// Wait for layout to render and SvelteKit hydration to complete
-		await expect(page.locator("aside h1")).toBeVisible();
+		await expect(
+			page.getByTestId("desktop-sidebar").getByTestId("active-context-name"),
+		).toBeVisible();
 		await page.waitForLoadState("networkidle");
 
 		// Open via the sidebar palette button
