@@ -71,7 +71,7 @@ export async function browseMarketplace(opts: BrowseOptions): Promise<Marketplac
   //   nor FTS WHERE clause, no GIN hit) — single letters would match too
   //   broadly under ilike and offer no signal under trigram either.
   // - Queries ≥ 3 chars emit a hybrid WHERE:
-  //     word_similarity(q, name||' '||description) > 0.4
+  //     q <% (name||' '||description)
   //       (typo-tolerant recall — must-haves "iphne" → "iPhone" and "git"
   //        → "GitHub" both score ≥ 0.5 here; unrelated docs score 0)
   //     OR to_tsvector(...) @@ plainto_tsquery(...)
@@ -81,21 +81,30 @@ export async function browseMarketplace(opts: BrowseOptions): Promise<Marketplac
   //   trigram path dominates short partial queries while FTS still
   //   contributes for stem-aligned matches.
   //
+  // INDEX SHAPE (perf): the recall arm uses the `<%` OPERATOR, not the
+  // `word_similarity(...) > 0.4` function-call form. pg_trgm's GIN index
+  // (`idx_marketplace_listings_trgm` on `(name || ' ' || description)`)
+  // only serves the operator forms (`%`, `<%`/`%>`); a `word_similarity()
+  // > x` predicate is planned as a bare function call and forces a seq
+  // scan + per-row trigram compute. `<%` compares against the session
+  // `pg_trgm.word_similarity_threshold`, which we pin to 0.4 via `SET
+  // LOCAL` inside the wrapping transaction below so the recall matches the
+  // prior `> 0.4` contract. (The operator boundary is `>=`, so the
+  // measure-zero ws==0.4 case now matches too — negligible.)
+  //
   // Deviation from plan (RESEARCH option c → option d, see SUMMARY):
   // `similarity()` returns the trigram overlap of the FULL strings, so
   // a 3-letter query against a 60-char document scores ≤ 0.1 even for
   // an exact prefix match. `word_similarity()` measures the best-matching
   // substring window inside the document — the correct primitive for
-  // "user typed a short query into a search box". Using `>0.4` (rather
-  // than the `<%` operator's default 0.6 threshold) admits the typo
-  // recall must_haves contract requires.
-  if (opts.query && opts.query.length >= 3) {
-    const q = opts.query;
+  // "user typed a short query into a search box". The 0.4 threshold (below
+  // the `<%` operator's 0.6 default) admits the typo recall must_haves
+  // contract requires.
+  const trigram = !!(opts.query && opts.query.length >= 3);
+  if (trigram) {
+    const q = opts.query!;
     conditions.push(sql`(
-      word_similarity(
-        ${q},
-        ${marketplaceListings.name} || ' ' || ${marketplaceListings.description}
-      ) > 0.4
+      ${q} <% (${marketplaceListings.name} || ' ' || ${marketplaceListings.description})
       OR to_tsvector('english',
            ${marketplaceListings.name} || ' ' || ${marketplaceListings.description}
          ) @@ plainto_tsquery('english', ${q})
@@ -107,8 +116,8 @@ export async function browseMarketplace(opts: BrowseOptions): Promise<Marketplac
   }
 
   let orderBy;
-  if (opts.query && opts.query.length >= 3) {
-    const q = opts.query;
+  if (trigram) {
+    const q = opts.query!;
     orderBy = sql`
       0.6 * word_similarity(${q}, ${marketplaceListings.name} || ' ' || ${marketplaceListings.description})
       + 0.4 * ts_rank_cd(
@@ -130,13 +139,30 @@ export async function browseMarketplace(opts: BrowseOptions): Promise<Marketplac
     }
   }
 
-  return getDb()
-    .select()
-    .from(marketplaceListings)
-    .where(and(...conditions))
-    .orderBy(orderBy)
-    .limit(opts.limit ?? 20)
-    .offset(opts.offset ?? 0);
+  const limit = opts.limit ?? 20;
+  const offset = opts.offset ?? 0;
+  const db = getDb();
+  if (!trigram) {
+    return db
+      .select()
+      .from(marketplaceListings)
+      .where(and(...conditions))
+      .orderBy(orderBy)
+      .limit(limit)
+      .offset(offset);
+  }
+  // `SET LOCAL` is transaction-scoped, so the lowered threshold applies to
+  // ONLY this query and never leaks across a pooled Bun.sql connection.
+  return db.transaction(async (tx: typeof db) => {
+    await tx.execute(sql`SET LOCAL pg_trgm.word_similarity_threshold = 0.4`);
+    return tx
+      .select()
+      .from(marketplaceListings)
+      .where(and(...conditions))
+      .orderBy(orderBy)
+      .limit(limit)
+      .offset(offset);
+  });
 }
 
 export async function deleteListing(id: string): Promise<boolean> {

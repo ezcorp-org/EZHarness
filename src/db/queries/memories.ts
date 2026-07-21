@@ -25,15 +25,26 @@ export async function removeMemoryFromProjects(memoryId: string, projectIds: str
   );
 }
 
-/** Replace all assignments (delete all, insert new) */
+/**
+ * Replace all assignments (delete all, insert new).
+ *
+ * The delete + insert run in ONE transaction (mirrors createMessage in
+ * conversations.ts): a crash or DB error between the delete and the insert
+ * would otherwise leave the memory with ZERO junction rows, which the scope
+ * queries (`searchMemories` scope='all', `hasMemories`) treat as GLOBAL —
+ * silently widening a project-scoped memory into every project. Atomic
+ * replace closes that window.
+ */
 export async function setMemoryProjects(memoryId: string, projectIds: string[]): Promise<void> {
   const db = getDb();
-  await db.delete(memoryProjects).where(eq(memoryProjects.memoryId, memoryId));
-  if (projectIds.length > 0) {
-    await db.insert(memoryProjects)
-      .values(projectIds.map((projectId) => ({ memoryId, projectId })))
-      .onConflictDoNothing();
-  }
+  await db.transaction(async (tx: any) => {
+    await tx.delete(memoryProjects).where(eq(memoryProjects.memoryId, memoryId));
+    if (projectIds.length > 0) {
+      await tx.insert(memoryProjects)
+        .values(projectIds.map((projectId) => ({ memoryId, projectId })))
+        .onConflictDoNothing();
+    }
+  });
 }
 
 /** Get project IDs for a single memory */
@@ -71,24 +82,33 @@ export async function insertMemory(data: NewMemory & { projectIds?: string[] }):
     memoryData.projectId = projectIds[0];
   }
 
-  const rows = await db.insert(memories).values(memoryData).returning();
-  const memory = rows[0]!;
-
   // Assign to projects via junction table
   const resolvedProjectIds = projectIds ?? (memoryData.projectId ? [memoryData.projectId] : []);
-  if (resolvedProjectIds.length > 0) {
-    await assignMemoryToProjects(memory.id, resolvedProjectIds);
-  }
 
-  // Create audit log entry
-  await db.insert(memoryAuditLog).values({
-    memoryId: memory.id,
-    action: "created",
-    newContent: memory.content,
-    reason: "Extracted from conversation",
+  // The row insert, the junction assignment, AND the audit row are ONE atomic
+  // unit (mirrors createMessage in conversations.ts). A crash between the row
+  // insert and the junction insert would otherwise leave a project-scoped
+  // memory with ZERO junction rows — which the scope queries treat as GLOBAL,
+  // silently widening it into every project.
+  return db.transaction(async (tx: any) => {
+    const rows = await tx.insert(memories).values(memoryData).returning();
+    const memory = rows[0]!;
+
+    if (resolvedProjectIds.length > 0) {
+      await tx.insert(memoryProjects)
+        .values(resolvedProjectIds.map((projectId) => ({ memoryId: memory.id, projectId })))
+        .onConflictDoNothing();
+    }
+
+    await tx.insert(memoryAuditLog).values({
+      memoryId: memory.id,
+      action: "created",
+      newContent: memory.content,
+      reason: "Extracted from conversation",
+    });
+
+    return memory;
   });
-
-  return memory;
 }
 
 export async function updateMemory(
@@ -112,26 +132,32 @@ export async function updateMemory(
   if (updates.confidence !== undefined) setValues.confidence = updates.confidence;
   if (updates.provenance !== undefined) setValues.provenance = updates.provenance;
 
-  // For embedding, use raw SQL since Drizzle doesn't handle vector assignment directly
-  if (updates.embedding !== undefined) {
-    await db.execute(
-      sql`UPDATE memories SET embedding = ${sql.raw(toVectorLiteral(updates.embedding))} WHERE id = ${id}`,
-    );
-  }
-
-  // Apply non-embedding updates
   const nonEmbeddingKeys = Object.keys(setValues).filter((k) => k !== "embedding");
-  if (nonEmbeddingKeys.length > 0) {
-    await db.update(memories).set(setValues).where(eq(memories.id, id));
-  }
 
-  // Create audit log entry
-  await db.insert(memoryAuditLog).values({
-    memoryId: id,
-    action: "updated",
-    previousContent: previousContent ?? null,
-    newContent: updates.content ?? previousContent ?? null,
-    reason: "Memory updated with newer information",
+  // Embedding update, column update, and audit row are ONE atomic unit — a
+  // failure mid-sequence would otherwise leave an updated embedding paired with
+  // stale content (or an audit row for an update that never committed).
+  await db.transaction(async (tx: any) => {
+    // For embedding, use raw SQL since Drizzle doesn't handle vector assignment directly
+    if (updates.embedding !== undefined) {
+      await tx.execute(
+        sql`UPDATE memories SET embedding = ${sql.raw(toVectorLiteral(updates.embedding))} WHERE id = ${id}`,
+      );
+    }
+
+    // Apply non-embedding updates
+    if (nonEmbeddingKeys.length > 0) {
+      await tx.update(memories).set(setValues).where(eq(memories.id, id));
+    }
+
+    // Create audit log entry
+    await tx.insert(memoryAuditLog).values({
+      memoryId: id,
+      action: "updated",
+      previousContent: previousContent ?? null,
+      newContent: updates.content ?? previousContent ?? null,
+      reason: "Memory updated with newer information",
+    });
   });
 }
 
@@ -157,18 +183,28 @@ export async function findSimilarMemory(
   const ownerFilter = scope
     ? sql` AND (user_id = ${scope.ownerUserId} OR (user_id IS NULL AND EXISTS (SELECT 1 FROM conversations c WHERE c.id = memories.conversation_id AND c.user_id = ${scope.ownerUserId})))`
     : sql``;
+  // Order by the RAW pgvector distance operator (ASC) so idx_memories_embedding_hnsw
+  // drives the scan — a derived `1 - (embedding <=> vec)` in ORDER BY (or the
+  // threshold in WHERE) forces a seq scan over every row. `ORDER BY embedding
+  // <=> q LIMIT 1` is the canonical HNSW query and needs no GUC. Because
+  // similarity is monotonic in distance, the nearest-by-distance row IS the
+  // max-similarity row, so the threshold applies to the single returned row in
+  // TS. (Deliberately NOT setting hnsw.iterative_scan here: with LIMIT 1 the
+  // relaxed scan can terminate early and MISS the true nearest — a missed dedup;
+  // the strict default returns the exact nearest, which dedup requires.)
   const results = await db.execute(sql`
-    SELECT id, content, 1 - (embedding <=> ${sql.raw(vectorLiteral)}) as similarity
+    SELECT id, content, (embedding <=> ${sql.raw(vectorLiteral)}) as distance
     FROM memories
-    WHERE embedding IS NOT NULL
-      AND 1 - (embedding <=> ${sql.raw(vectorLiteral)}) > ${threshold}${ownerFilter}
-    ORDER BY similarity DESC
+    WHERE embedding IS NOT NULL${ownerFilter}
+    ORDER BY embedding <=> ${sql.raw(vectorLiteral)}
     LIMIT 1
   `);
 
   if (!results.rows || results.rows.length === 0) return null;
-  const row = results.rows[0] as { id: string; content: string; similarity: number | string };
-  return { id: row.id, content: row.content, similarity: Number(row.similarity) };
+  const row = results.rows[0] as { id: string; content: string; distance: number | string };
+  const similarity = 1 - Number(row.distance);
+  if (similarity <= threshold) return null;
+  return { id: row.id, content: row.content, similarity };
 }
 
 export async function listMemories(opts?: {
@@ -305,14 +341,20 @@ export async function deleteMemory(id: string): Promise<void> {
   const existing = await db.select().from(memories).where(eq(memories.id, id));
   const previousContent = existing[0]?.content;
 
-  await db.insert(memoryAuditLog).values({
-    memoryId: id,
-    action: "deleted",
-    previousContent: previousContent ?? null,
-    reason: "Memory deleted by user",
+  // Audit insert + delete are ONE atomic unit so a failed delete can never
+  // leave behind a 'deleted' audit row for a memory that still exists
+  // (backwards forensic evidence). The audit row is written BEFORE the delete
+  // because memory_audit_log.memory_id FK-references memories with ON DELETE
+  // CASCADE — inserting it after the delete would violate the FK.
+  await db.transaction(async (tx: any) => {
+    await tx.insert(memoryAuditLog).values({
+      memoryId: id,
+      action: "deleted",
+      previousContent: previousContent ?? null,
+      reason: "Memory deleted by user",
+    });
+    await tx.delete(memories).where(eq(memories.id, id));
   });
-
-  await db.delete(memories).where(eq(memories.id, id));
 }
 
 export async function touchMemoryAccess(ids: string[]): Promise<void> {

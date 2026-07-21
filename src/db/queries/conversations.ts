@@ -559,14 +559,22 @@ export async function deleteAllMessagesForConversation(conversationId: string): 
   if (!conversationId || typeof conversationId !== "string") {
     throw new Error("conversationId must be a non-empty string");
   }
-  const db = getDb();
-  await db.delete(conversationExtensions).where(eq(conversationExtensions.conversationId, conversationId));
-  await db.delete(toolCalls).where(eq(toolCalls.conversationId, conversationId));
-  const rows = await db
-    .delete(messages)
-    .where(eq(messages.conversationId, conversationId))
-    .returning({ id: messages.id });
-  return rows.length;
+  // All three deletes are ONE transaction so the wipe is all-or-nothing. A
+  // crash/error after the extensions + tool_calls deletes but before the
+  // messages delete used to leave the conversation with its full message
+  // history intact but every historical tool-call row destroyed — a
+  // non-self-healing partial state (the surviving messages lose their tool
+  // calls permanently). Order preserved: extensions/tool_calls first, messages
+  // last (so the message-cascade for attachments still fires correctly).
+  return getDb().transaction(async (tx: any) => {
+    await tx.delete(conversationExtensions).where(eq(conversationExtensions.conversationId, conversationId));
+    await tx.delete(toolCalls).where(eq(toolCalls.conversationId, conversationId));
+    const rows = await tx
+      .delete(messages)
+      .where(eq(messages.conversationId, conversationId))
+      .returning({ id: messages.id });
+    return rows.length;
+  });
 }
 
 // ── Branching ────────────────────────────────────────────────────────
@@ -713,12 +721,23 @@ export async function cloneTurnsIntoNewConversation(
     forkedFromMessageId: forkAnchorMessageId,
   });
 
-  try {
+  // The message-insert loop, the embed-outbox enqueues, and the tool-call copy
+  // loop are ONE transaction so a crash/error mid-clone can never leave a
+  // half-cloned conversation with a truncated message chain (the manual
+  // FK-cascade "rollback" this replaces was best-effort — its own failure was
+  // only logged, leaving the corrupt state permanently). If the tx aborts the
+  // (already-committed) empty forked conversation row is the only remnant —
+  // strictly better than a partial history — and the error propagates so the
+  // route surfaces the failure. Everything runs on `tx` (research Pitfall 1);
+  // the enqueue mirrors createMessage's IDX-04 guard so cloned eligible
+  // messages are indexed for semantic search (an unenqueued fork copy would be
+  // invisible to message search forever if the source were later deleted).
+  return getDb().transaction(async (tx: any) => {
     const messageIdMap = new Map<string, string>();
     let prevNewId: string | null = null;
 
     for (const src of selected) {
-      const inserted: MessageRow[] = await db
+      const inserted: MessageRow[] = await tx
         .insert(messages)
         .values({
           conversationId: newConv.id,
@@ -738,12 +757,17 @@ export async function cloneTurnsIntoNewConversation(
       const newMsg = inserted[0]!;
       messageIdMap.set(src.id, newMsg.id);
       prevNewId = newMsg.id;
+
+      // IDX-04: no message without its embed job (same guard as createMessage).
+      if (isEmbedEligible(src.role, src.content)) {
+        await enqueueEmbedJob(tx, newMsg.id, newConv.id);
+      }
     }
 
     // Clone inline tool calls whose messageId is in our selection. We do NOT
     // clone conversation-level tool calls (messageId = null) — those belong
     // to the source conversation as a whole, not to the ported turns.
-    const sourceCalls = await db
+    const sourceCalls = await tx
       .select()
       .from(toolCalls)
       .where(and(eq(toolCalls.conversationId, sourceConvId), inArray(toolCalls.messageId, uniqueIds)))
@@ -752,7 +776,7 @@ export async function cloneTurnsIntoNewConversation(
     for (const tc of sourceCalls) {
       const remappedMessageId = tc.messageId ? messageIdMap.get(tc.messageId) ?? null : null;
       if (!remappedMessageId) continue;
-      await db.insert(toolCalls).values({
+      await tx.insert(toolCalls).values({
         conversationId: newConv.id,
         messageId: remappedMessageId,
         extensionId: tc.extensionId,
@@ -771,20 +795,7 @@ export async function cloneTurnsIntoNewConversation(
     }
 
     return { conversation: newConv, messageIdMap };
-  } catch (err) {
-    // Best-effort rollback: ON DELETE CASCADE wipes the child messages and
-    // tool_calls rows we just inserted, so the database is left consistent.
-    try {
-      await db.delete(conversations).where(eq(conversations.id, newConv.id));
-    } catch (rollbackErr) {
-      log.error("Clone rollback failed - database may be inconsistent", {
-        conversationId: newConv.id,
-        originalError: String(err),
-        rollbackError: String(rollbackErr),
-      });
-    }
-    throw err;
-  }
+  });
 }
 
 /**
@@ -939,34 +950,70 @@ export async function getLatestLeaf(
 
 // ── Search ───────────────────────────────────────────────────────────
 
+/** Default conversation-search page size. Bounds both the per-row `ts_headline`
+ *  work AND the JSON payload — the old query computed the expensive
+ *  `ts_headline`/`ts_rank` re-parse of `m.content` for EVERY matching message
+ *  row before the DISTINCT collapse and returned an UNBOUNDED result. */
+const DEFAULT_CONVERSATION_SEARCH_LIMIT = 50;
+
 export async function searchConversations(
   projectId: string,
   query: string,
   userId?: string,
+  opts?: { limit?: number; offset?: number },
 ): Promise<SearchResult[]> {
   if (!query || query.trim().length < 2) return [];
 
   const db = getDb();
+  const limit = opts?.limit ?? DEFAULT_CONVERSATION_SEARCH_LIMIT;
+  const offset = opts?.offset ?? 0;
   const userFilter = userId ? sql` AND c.user_id = ${userId}` : sql``;
+  // Rank + LIMIT FIRST (best message per conversation via DISTINCT ON, then the
+  // top-N conversations by rank), and compute the expensive `ts_headline`
+  // snippet ONLY for the surviving page — mirrors the "rank first, headline the
+  // survivors" shape searchMessages/message-search.ts already uses. The GIN
+  // FTS index (idx_messages_fts) still drives the match predicate; what this
+  // removes is the per-matching-row headline re-parse and the unbounded output.
   const results = await db.execute(sql`
-    SELECT DISTINCT ON (c.id)
-      c.id,
-      c.title,
-      c.updated_at,
-      m.id as matching_message_id,
-      ts_headline('english', m.content, plainto_tsquery('english', ${query}),
-        'StartSel=<mark>, StopSel=</mark>, MaxWords=35, MinWords=15') as snippet,
-      ts_rank(to_tsvector('english', m.content), plainto_tsquery('english', ${query})) as rank
-    FROM conversations c
-    JOIN messages m ON m.conversation_id = c.id
-    WHERE c.project_id = ${projectId}
-      AND (c.test IS NULL OR c.test = false)
-      ${userFilter}
-      AND (
-        to_tsvector('english', m.content) @@ plainto_tsquery('english', ${query})
-        OR to_tsvector('english', c.title) @@ plainto_tsquery('english', ${query})
-      )
-    ORDER BY c.id, rank DESC
+    WITH matches AS (
+      SELECT
+        c.id AS conversation_id,
+        c.title AS title,
+        c.updated_at AS updated_at,
+        m.id AS message_id,
+        m.content AS content,
+        ts_rank(to_tsvector('english', m.content), plainto_tsquery('english', ${query})) AS rank
+      FROM conversations c
+      JOIN messages m ON m.conversation_id = c.id
+      WHERE c.project_id = ${projectId}
+        AND (c.test IS NULL OR c.test = false)
+        ${userFilter}
+        AND (
+          to_tsvector('english', m.content) @@ plainto_tsquery('english', ${query})
+          OR to_tsvector('english', c.title) @@ plainto_tsquery('english', ${query})
+        )
+    ),
+    best AS (
+      SELECT DISTINCT ON (conversation_id)
+        conversation_id, title, updated_at, message_id, content, rank
+      FROM matches
+      ORDER BY conversation_id, rank DESC
+    ),
+    page AS (
+      SELECT * FROM best
+      ORDER BY rank DESC
+      LIMIT ${limit} OFFSET ${offset}
+    )
+    SELECT
+      conversation_id AS id,
+      title,
+      updated_at,
+      message_id AS matching_message_id,
+      ts_headline('english', content, plainto_tsquery('english', ${query}),
+        'StartSel=<mark>, StopSel=</mark>, MaxWords=35, MinWords=15') AS snippet,
+      rank
+    FROM page
+    ORDER BY rank DESC
   `);
 
   return (results.rows as any[]).map((row) => ({

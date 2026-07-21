@@ -49,7 +49,14 @@ export const runs = pgTable("runs", {
   finishedAt: timestamp("finished_at", { withTimezone: true }),
   result: jsonb("result").$type<{ success: boolean; output: unknown; error?: string | { code: string; message: string } }>(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => [
+  // FK index — conversation delete fires ON DELETE SET NULL on
+  // runs.conversation_id; runs is append-only so an unindexed referential
+  // scan here is the worst offender. (The project_id / project_id+started_at /
+  // agent_name / user_id indexes remain migrate.ts-only; migrate.ts is the DDL
+  // source of truth — see idx_runs_project_started for listRuns.)
+  index("idx_runs_conversation_id").on(table.conversationId),
+]);
 
 export const runLogs = pgTable("run_logs", {
   id: serial("id").primaryKey(),
@@ -107,7 +114,13 @@ export const conversations = pgTable("conversations", {
   extensionTools: jsonb("extension_tools").$type<Record<string, string[]>>(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => [
+  // FK indexes — deleting an agent_config / mode fires ON DELETE SET NULL on
+  // these columns; both were previously unindexed seq-scans of conversations.
+  // (project_id / user_id / created_at composites stay migrate.ts-only.)
+  index("idx_conversations_agent_config_id").on(table.agentConfigId),
+  index("idx_conversations_mode_id").on(table.modeId),
+]);
 
 export const messages = pgTable("messages", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -250,6 +263,8 @@ export const agentSessionEntries = pgTable("agent_session_entries", {
   index("idx_agent_session_entries_seq").on(table.sessionId, table.seq),
   index("idx_agent_session_entries_type").on(table.sessionId, table.type),
   index("idx_agent_session_entries_parent").on(table.sessionId, table.parentId),
+  // FK index for the ON DELETE SET NULL on ez_message_id (message delete).
+  index("idx_agent_session_entries_ez_message").on(table.ezMessageId),
 ]);
 
 export type AgentSessionRow = typeof agentSessions.$inferSelect;
@@ -303,7 +318,11 @@ export const messageEmbedOutbox = pgTable("message_embed_outbox", {
   nextAttemptAfter: timestamp("next_attempt_after", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => [
+  // claimBatch filters `status='pending' AND (next_attempt_after IS NULL OR
+  // next_attempt_after <= NOW())` on every drain tick.
+  index("idx_message_embed_outbox_claim").on(table.status, table.nextAttemptAfter),
+]);
 
 export type MessageChunk = typeof messageChunks.$inferSelect;
 export type NewMessageChunk = typeof messageChunks.$inferInsert;
@@ -373,6 +392,8 @@ export const memories = pgTable("memories", {
 }, (table) => [
   index("idx_memories_project_id").on(table.projectId),
   index("idx_memories_category").on(table.category),
+  // FK index for the ON DELETE SET NULL on conversation_id (conversation delete).
+  index("idx_memories_conversation_id").on(table.conversationId),
 ]);
 
 export const memoryAuditLog = pgTable("memory_audit_log", {
@@ -383,7 +404,12 @@ export const memoryAuditLog = pgTable("memory_audit_log", {
   newContent: text("new_content"),
   reason: text("reason"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => [
+  // memory delete cascades on memory_id (was an unindexed seq-scan); audit-merge
+  // reads by `reason = ext:<id>` ordered by created_at DESC.
+  index("idx_memory_audit_memory_created").on(table.memoryId, table.createdAt),
+  index("idx_memory_audit_reason_created").on(table.reason, table.createdAt),
+]);
 
 // ── Memory ↔ Project junction (many-to-many) ──────────────────────
 
@@ -513,6 +539,10 @@ export const toolCalls = pgTable("tool_calls", {
   index("idx_tool_calls_user_created").on(table.userId, table.createdAt),
   index("idx_tool_calls_agent_created").on(table.agentConfigId, table.createdAt),
   index("idx_tool_calls_model_created").on(table.model, table.createdAt),
+  // message_id — hot-path filter (listToolCallExtensionIdsForMessage) AND the
+  // ON DELETE SET NULL FK target (message delete). (extension_id /
+  // conversation_id indexes stay migrate.ts-only.)
+  index("idx_tool_calls_message").on(table.messageId),
 ]);
 
 // ── Composer suggestion telemetry ─────────────────────────────────
@@ -535,6 +565,8 @@ export const suggestionFeedback = pgTable("suggestion_feedback", {
 }, (table) => [
   index("idx_suggestion_feedback_created").on(table.createdAt),
   index("idx_suggestion_feedback_kind_action").on(table.kind, table.action, table.createdAt),
+  // FK index for the ON DELETE SET NULL on conversation_id (conversation delete).
+  index("idx_suggestion_feedback_conversation").on(table.conversationId),
 ]);
 
 export type SuggestionFeedbackRow = typeof suggestionFeedback.$inferSelect;
@@ -550,7 +582,11 @@ export const observabilityEvents = pgTable("observability_events", {
   data: jsonb("data").notNull(),
   durationMs: integer("duration_ms"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => [
+  // FK index for the ON DELETE SET NULL on message_id (message delete). The
+  // conversation_id / event_type indexes stay migrate.ts-only.
+  index("idx_obs_events_message").on(table.messageId),
+]);
 
 export type ObservabilityEvent = typeof observabilityEvents.$inferSelect;
 export type NewObservabilityEvent = typeof observabilityEvents.$inferInsert;
@@ -660,7 +696,17 @@ export const conversationExtensions = pgTable("conversation_extensions", {
   effectiveGrantedPermissions: jsonb("effective_granted_permissions")
     .$type<import("../extensions/types").ExtensionPermissions | null>(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => [
+  // FK index for the ON DELETE SET NULL on added_by_message_id (message delete).
+  index("idx_conv_ext_added_by_message").on(table.addedByMessageId),
+  // MIRROR of migrate.ts's `UNIQUE(conversation_id, extension_id)` — a plain
+  // composite unique drizzle can own directly. Kept in sync so a
+  // `drizzle-kit push` doesn't silently drop the constraint that stops an
+  // extension being double-attached to a conversation. migrate.ts stays the
+  // DDL source of truth. (conversation_id / extension_id lookup indexes remain
+  // migrate.ts-only.)
+  uniqueIndex("conversation_extensions_conversation_id_extension_id_key").on(table.conversationId, table.extensionId),
+]);
 
 export type ConversationExtension = typeof conversationExtensions.$inferSelect;
 
@@ -797,7 +843,11 @@ export const auditLog = pgTable("audit_log", {
   target: text("target"),
   metadata: jsonb("metadata").$type<Record<string, unknown>>(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => [
+  // audit-global.ts filters governance rows by `target = <extensionId>`. The
+  // action / created_at / user_id indexes stay migrate.ts-only.
+  index("idx_audit_log_target").on(table.target),
+]);
 
 export type AuditEntry = typeof auditLog.$inferSelect;
 export type NewAuditEntry = typeof auditLog.$inferInsert;
@@ -833,7 +883,11 @@ export const marketplaceVersions = pgTable("marketplace_versions", {
   manifest: jsonb("manifest").notNull().$type<ExtensionManifestV2>(),
   changelog: text("changelog"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => [
+  // MIRROR of migrate.ts's inline `UNIQUE(listing_id, version)` so a
+  // `drizzle-kit push` can't drop it. migrate.ts is the DDL source of truth.
+  uniqueIndex("marketplace_versions_listing_id_version_key").on(table.listingId, table.version),
+]);
 
 export const marketplaceRatings = pgTable("marketplace_ratings", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -842,7 +896,14 @@ export const marketplaceRatings = pgTable("marketplace_ratings", {
   thumbsUp: boolean("thumbs_up").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => [
+  // MIRROR of migrate.ts's inline `UNIQUE(listing_id, user_id)`. This is the
+  // constraint upsertRating (src/db/queries/marketplace-ratings.ts) relies on
+  // to stop duplicate ratings inflating the recomputed listing counters — a
+  // `drizzle-kit push` that dropped it would corrupt the stats. migrate.ts is
+  // the DDL source of truth.
+  uniqueIndex("marketplace_ratings_listing_id_user_id_key").on(table.listingId, table.userId),
+]);
 
 export const marketplaceFlags = pgTable("marketplace_flags", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -877,7 +938,13 @@ export const userCommands = pgTable("user_commands", {
   frontmatter: jsonb("frontmatter").notNull().$type<Record<string, string>>().default({}),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => [
+  // MIRROR of migrate.ts's `UNIQUE(user_id, name)` (the inline CREATE TABLE
+  // constraint + the idempotent uq_user_commands_user_name index from
+  // add-user-commands-unique-name.ts) so a `drizzle-kit push` can't drop it.
+  // migrate.ts is the DDL source of truth.
+  uniqueIndex("user_commands_user_id_name_key").on(table.userId, table.name),
+]);
 
 export type UserCommand = typeof userCommands.$inferSelect;
 export type NewUserCommand = typeof userCommands.$inferInsert;
@@ -942,9 +1009,11 @@ export const features = pgTable("features", {
 }, (table) => [
   index("idx_features_project").on(table.projectId),
   index("idx_features_origin_path").on(table.projectId, table.originPath),
-  // Slug uniqueness is per-project, enforced by a partial-free unique
-  // index on (project_id, name); declared as a UNIQUE constraint in
-  // migrate.ts so PGlite + external Postgres both accept it.
+  // Slug uniqueness is per-project. MIRROR of migrate.ts's inline
+  // `UNIQUE(project_id, name)` so a `drizzle-kit push` can't drop it —
+  // migrate.ts stays the DDL source of truth (PGlite + external Postgres
+  // both accept the constraint there).
+  uniqueIndex("features_project_id_name_key").on(table.projectId, table.name),
 ]);
 
 export const featureFiles = pgTable("feature_files", {
@@ -1127,6 +1196,10 @@ export const sdkCapabilityCalls = pgTable("sdk_capability_calls", {
     .where(sql`conversation_id IS NOT NULL`),
   index("idx_sdk_cap_user_capability_created").on(table.onBehalfOf, table.capability, table.createdAt.desc()),
   index("idx_sdk_cap_created").on(table.createdAt.desc()),
+  // NOTE: GIN pg_trgm indexes on resource_id / error_message / model (serving
+  // admin audit-global `LIKE '%term%'`) live in migrate.ts only — the same
+  // migrate.ts-only convention the marketplace trigram index uses (drizzle's
+  // functional-GIN helper is awkward and migrate.ts is the DDL source of truth).
 ]);
 
 export type SdkCapabilityCall = typeof sdkCapabilityCalls.$inferSelect;
@@ -1304,6 +1377,14 @@ export type NewExtensionWebhook = typeof extensionWebhooks.$inferInsert;
 export const webhookDeliveries = pgTable("webhook_deliveries", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   webhookId: text("webhook_id").notNull().references(() => extensionWebhooks.id, { onDelete: "cascade" }),
+  // NAME-vs-UUID: `extension_id` here holds the extension NAME (manifest slug),
+  // NOT the UUID `extensions.id`, and carries NO FK — it is denormalized from
+  // extension_webhooks (which FKs extensions.name) so the daemon dispatches +
+  // counts the daily budget without a join. This is the THIRD extension_id
+  // variant in the schema (extension_webhooks/_secrets/_rbac_grants store the
+  // NAME with an FK; extension_storage/sdk_capability_calls/etc. store the
+  // UUID). Never join this column to extensions.id — it silently returns zero
+  // rows. Do NOT introduce a fourth variant.
   extensionId: text("extension_id").notNull(),
   slug: text("slug").notNull(),
   status: text("status").notNull().$type<"pending" | "running" | "ok" | "error">(),
@@ -1530,6 +1611,10 @@ export const githubProjectsProposals = pgTable("github_projects_proposals", {
     .where(sql`${table.status} IN ('pending','approved','spawned','running')`),
   index("idx_gh_proposals_project_status").on(table.projectId, table.status),
   index("idx_gh_proposals_link").on(table.linkId),
+  // Point lookups: findProposalByAgentRunId / findProposalByConversationId —
+  // previously unindexed seq-scans.
+  index("idx_gh_proposals_agent_run").on(table.agentRunId),
+  index("idx_gh_proposals_conversation").on(table.conversationId),
 ]);
 
 export type GithubProjectsProposal = typeof githubProjectsProposals.$inferSelect;

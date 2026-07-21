@@ -14,7 +14,7 @@ import {
   startBackgroundTimers,
   stopBackgroundTimers,
 } from "$server/startup/background-timers";
-import { registerTeardown } from "$lib/server/shutdown";
+import { registerTeardown, beginRequest } from "$lib/server/shutdown";
 import {
   getSessionConfig,
   setSessionCookie,
@@ -302,7 +302,7 @@ export const CSP_HEADER_VALUE = [
   `form-action 'self'`,
 ].join("; ");
 
-export const handle: Handle = async ({ event, resolve }) => {
+const handleApp: Handle = async ({ event, resolve }) => {
   const { request } = event;
   const url = new URL(request.url);
 
@@ -708,6 +708,20 @@ export const handle: Handle = async ({ event, resolve }) => {
   }
 
   return response;
+};
+
+// db-audit (connection-health): count every in-flight request so graceful
+// shutdown drains them before closing the DB. `beginRequest()` returns a
+// `done()` that MUST run on every exit path — including SvelteKit's
+// `throw redirect(...)` — so the whole handler runs inside try/finally. The
+// wrapper adds nothing to the hot path but a counter increment/decrement.
+export const handle: Handle = async (input) => {
+  const done = beginRequest();
+  try {
+    return await handleApp(input);
+  } finally {
+    done();
+  }
 };
 
 // ── Error Handler ─────────────────────────────────────────────────────

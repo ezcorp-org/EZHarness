@@ -488,9 +488,15 @@ describe("EmbedWorker — ING-04: boot recovery", () => {
     const { conversationId, messageId } = await seedConversationAndMessage();
     await enqueueEmbedJob(db, messageId, conversationId);
 
-    // Simulate crashed prior worker: set status to in_progress
+    // Simulate a CRASHED prior worker: an in_progress row whose updated_at is
+    // stale (older than the boot-recovery window) — the genuinely-abandoned
+    // case runBacklogRecovery now scopes to. A fresh in_progress row (a live
+    // sibling's claim) is deliberately left alone; that is asserted in
+    // memory-embed-boot-recovery.test.ts.
     await db.execute(sql`
-      UPDATE message_embed_outbox SET status = 'in_progress' WHERE message_id = ${messageId}
+      UPDATE message_embed_outbox
+      SET status = 'in_progress', updated_at = NOW() - interval '1 hour'
+      WHERE message_id = ${messageId}
     `);
 
     // Verify it's in_progress before recovery
@@ -517,9 +523,12 @@ describe("EmbedWorker — ING-04: boot recovery", () => {
     const { conversationId, messageId } = await seedConversationAndMessage();
     await enqueueEmbedJob(db, messageId, conversationId);
 
-    // Simulate crashed worker
+    // Simulate a crashed worker: a STALE in_progress row (older than the
+    // boot-recovery window) so start()'s recovery re-pends it.
     await db.execute(sql`
-      UPDATE message_embed_outbox SET status = 'in_progress' WHERE message_id = ${messageId}
+      UPDATE message_embed_outbox
+      SET status = 'in_progress', updated_at = NOW() - interval '1 hour'
+      WHERE message_id = ${messageId}
     `);
 
     embeddingReady = true;

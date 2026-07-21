@@ -16,10 +16,17 @@ beforeEach(() => {
   delete process.env.EZCORP_IMAGE_SHA;
 });
 
-afterEach(() => {
+afterEach(async () => {
   rmSync(tempDir, { recursive: true, force: true });
   delete process.env.EZCORP_BACKUP_DIR;
   delete process.env.EZCORP_IMAGE_SHA;
+  delete process.env.EZCORP_BACKUP_INTERVAL_KEEP;
+  delete process.env.EZCORP_BACKUP_DAILY_KEEP;
+  delete process.env.EZCORP_BACKUP_INTERVAL_MS;
+  // Readiness is a process-wide singleton; a test that flips it to
+  // "degraded" must not leak that into siblings or other files.
+  const { resetReadiness } = await import("../readiness");
+  resetReadiness();
 });
 
 mock.module("../db/connection", () => ({
@@ -33,19 +40,30 @@ mock.module("../db/connection", () => ({
 afterAll(() => restoreModuleMocks());
 
 describe("backup module lifecycle", () => {
-  test("stopBackups calls performBackup safely when PGlite is null", async () => {
+  test("stopBackups writes a final shutdown backup when the DB dir has content", async () => {
+    mkdirSync(dbPath, { recursive: true });
+    writeFileSync(join(dbPath, "postgres.auto.conf"), "live");
+
     const backup = await import("../db/backup");
     backup.startBackups();
-    backup.stopBackups();
-    backup.stopBackups(); // idempotent
+    backup.stopBackups(); // triggers the final performBackup on shutdown
+
+    const intervals = readdirSync(backupDir).filter((f) => f.startsWith("ezcorp-db-"));
+    expect(intervals).toHaveLength(1);
+    expect(readFileSync(join(backupDir, intervals[0], "postgres.auto.conf"), "utf8")).toBe("live");
   });
 
-  test("startBackups and stopBackups are idempotent", async () => {
+  test("startBackups is a no-op while running; stopBackups is idempotent", async () => {
+    mkdirSync(dbPath, { recursive: true });
+    writeFileSync(join(dbPath, "marker"), "x");
+    process.env.EZCORP_BACKUP_INTERVAL_MS = "60000"; // exercise the env override
+
     const backup = await import("../db/backup");
     backup.startBackups();
-    backup.startBackups();
-    backup.stopBackups();
-    backup.stopBackups();
+    backup.startBackups(); // second start must not double-schedule or throw
+    backup.stopBackups(); // final backup
+    expect(readdirSync(backupDir).filter((f) => f.startsWith("ezcorp-db-")).length).toBeGreaterThanOrEqual(1);
+    backup.stopBackups(); // idempotent — safe to call again
   });
 });
 
@@ -187,71 +205,151 @@ describe("migration marker", () => {
   });
 });
 
-describe("backup logic (unit)", () => {
-  test("backup rotation keeps only MAX_BACKUPS files", () => {
-    const MAX_BACKUPS = 5;
-    mkdirSync(backupDir, { recursive: true });
+describe("performBackup (real interval + daily tiers)", () => {
+  function seedDb(): void {
+    mkdirSync(dbPath, { recursive: true });
+    writeFileSync(join(dbPath, "postgres.auto.conf"), "live-data");
+  }
+  const intervals = () =>
+    readdirSync(backupDir).filter((f) => f.startsWith("ezcorp-db-") || f.startsWith("pi-db-"));
+  const dailies = () => readdirSync(backupDir).filter((f) => f.startsWith("daily-"));
+  const temps = () => readdirSync(backupDir).filter((f) => f.startsWith(".tmp-"));
+  const today = () => new Date().toISOString().slice(0, 10);
 
-    for (let i = 0; i < 7; i++) {
-      const name = `pi-db-2026-01-0${i + 1}T00-00-00-000Z`;
-      mkdirSync(join(backupDir, name));
-    }
+  test("writes an interval backup atomically — content copied, no staging dir left", async () => {
+    seedDb();
+    const backup = await import("../db/backup");
+    backup.performBackup();
 
-    const backups = readdirSync(backupDir)
-      .filter((f: string) => f.startsWith("pi-db-"))
-      .sort()
-      .reverse();
-
-    const toDelete = backups.slice(MAX_BACKUPS);
-    expect(toDelete).toHaveLength(2);
-    for (const old of toDelete) {
-      rmSync(join(backupDir, old), { recursive: true, force: true });
-    }
-
-    const remaining = readdirSync(backupDir).filter((f: string) => f.startsWith("pi-db-"));
-    expect(remaining).toHaveLength(5);
+    const iv = intervals();
+    expect(iv).toHaveLength(1);
+    expect(readFileSync(join(backupDir, iv[0], "postgres.auto.conf"), "utf8")).toBe("live-data");
+    expect(temps()).toHaveLength(0); // rename-on-success leaves no .tmp-* dir
   });
 
-  test("timestamp format produces valid filename", () => {
-    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-    const filename = `ezcorp-db-${timestamp}`;
-    const nameWithoutExt = filename;
-    expect(nameWithoutExt).not.toMatch(/[:.]/);
-    expect(filename).toMatch(/^ezcorp-db-/);
+  test("skips backup entirely in degraded (circuit-breaker) mode", async () => {
+    seedDb();
+    const { setReadiness } = await import("../readiness");
+    setReadiness({ state: "degraded", reason: "data-recovery-needed" });
+
+    const backup = await import("../db/backup");
+    backup.performBackup();
+
+    // Returns before mkdirSync — the backup dir is never even created.
+    expect(existsSync(backupDir)).toBe(false);
   });
 
-  test("pruning respects legacy pi-db- and new ezcorp-db- prefixes jointly (newest-first by timestamp)", () => {
-    // Rename boundary: a volume upgraded from an older build may hold both
-    // old- and new-prefixed backups. Rotation must prune to the 5-total cap
-    // and pick oldest by the ISO timestamp tail — NOT by the prefix itself
-    // (a naive lex-sort would keep all `pi-db-*` over newer `ezcorp-db-*`).
+  test("cleans up the staging dir and writes nothing when the copy fails", async () => {
+    // dbPath intentionally does NOT exist → cpSync throws inside atomicCopyDir.
+    const backup = await import("../db/backup");
+    expect(() => backup.performBackup()).not.toThrow();
+
+    expect(intervals()).toHaveLength(0);
+    expect(dailies()).toHaveLength(0);
+    expect(temps()).toHaveLength(0); // partial copy removed, never lingers
+  });
+
+  test("sweeps a stale .tmp-* dir left behind by a prior crashed copy", async () => {
+    seedDb();
+    mkdirSync(join(backupDir, ".tmp-ezcorp-db-crashed.999"), { recursive: true });
+
+    const backup = await import("../db/backup");
+    backup.performBackup();
+
+    expect(temps()).toHaveLength(0); // stale staging dir swept
+    expect(intervals()).toHaveLength(1);
+  });
+
+  test("prunes interval backups by mtime honoring EZCORP_BACKUP_INTERVAL_KEEP, not lexicographic name order", async () => {
+    seedDb();
     mkdirSync(backupDir, { recursive: true });
+    // Lexicographically-LATEST name but the OLDEST mtime → must still prune,
+    // proving rotation sorts by mtime (survives a volume restore where mtimes
+    // don't track the embedded timestamp) and not by filename.
+    const lexLatestOldest = join(backupDir, "ezcorp-db-9999-12-31T00-00-00-000Z");
+    const janOld = join(backupDir, "pi-db-2026-01-01T00-00-00-000Z");
+    const junNew1 = join(backupDir, "ezcorp-db-2026-06-01T00-00-00-000Z");
+    const junNew2 = join(backupDir, "pi-db-2026-06-15T00-00-00-000Z");
+    for (const p of [lexLatestOldest, janOld, junNew1, junNew2]) mkdirSync(p, { recursive: true });
+    utimesSync(lexLatestOldest, new Date("2020-01-01T00:00:00Z"), new Date("2020-01-01T00:00:00Z"));
+    utimesSync(janOld, new Date("2026-01-01T00:00:00Z"), new Date("2026-01-01T00:00:00Z"));
+    utimesSync(junNew1, new Date("2026-06-01T00:00:00Z"), new Date("2026-06-01T00:00:00Z"));
+    utimesSync(junNew2, new Date("2026-06-15T00:00:00Z"), new Date("2026-06-15T00:00:00Z"));
 
-    // Seed 3 legacy (older, Jan) + 4 new (newer, Mar) = 7 total.
-    for (let i = 1; i <= 3; i++) {
-      mkdirSync(join(backupDir, `pi-db-2026-01-0${i}T00-00-00-000Z`));
-    }
-    for (let i = 1; i <= 4; i++) {
-      mkdirSync(join(backupDir, `ezcorp-db-2026-03-0${i}T00-00-00-000Z`));
-    }
+    process.env.EZCORP_BACKUP_INTERVAL_KEEP = "3";
+    const backup = await import("../db/backup");
+    backup.performBackup(); // new ezcorp-db-<now> is the newest by mtime
 
-    // Exercise the real pruneBackups path via performBackup — which can't
-    // run here (no PGlite). Instead, reproduce the sort logic under test:
-    const INTERVAL_PREFIXES = ["ezcorp-db-", "pi-db-"];
-    const stripPrefix = (n: string) => {
-      for (const p of INTERVAL_PREFIXES) if (n.startsWith(p)) return n.slice(p.length);
-      return n;
-    };
-    const entries = readdirSync(backupDir)
-      .filter((f) => INTERVAL_PREFIXES.some((p) => f.startsWith(p)))
-      .sort((a, b) => stripPrefix(b).localeCompare(stripPrefix(a)));
+    expect(intervals()).toHaveLength(3);
+    expect(existsSync(junNew1)).toBe(true); // two newest seeds survive
+    expect(existsSync(junNew2)).toBe(true);
+    expect(existsSync(lexLatestOldest)).toBe(false); // lex-latest but oldest → pruned
+    expect(existsSync(janOld)).toBe(false);
+  });
 
-    expect(entries).toHaveLength(7);
-    const toDelete = entries.slice(5);
-    expect(toDelete).toHaveLength(2);
-    // The two oldest by timestamp (both `pi-db-2026-01-0{1,2}`) should drop.
-    expect(toDelete.every((n) => n.startsWith("pi-db-"))).toBe(true);
-    expect(toDelete).toContain("pi-db-2026-01-01T00-00-00-000Z");
-    expect(toDelete).toContain("pi-db-2026-01-02T00-00-00-000Z");
+  test("falls back to the default interval cap when the env override is non-numeric", async () => {
+    seedDb();
+    mkdirSync(backupDir, { recursive: true });
+    for (let i = 1; i <= 2; i++) mkdirSync(join(backupDir, `ezcorp-db-2026-05-0${i}T00-00-00-000Z`));
+    process.env.EZCORP_BACKUP_INTERVAL_KEEP = "not-a-number";
+
+    const backup = await import("../db/backup");
+    backup.performBackup(); // 3 interval dirs total; default cap (12) prunes none
+
+    expect(intervals()).toHaveLength(3);
+  });
+
+  test("promotes exactly one daily snapshot per UTC day and never duplicates it", async () => {
+    seedDb();
+    const backup = await import("../db/backup");
+    backup.performBackup();
+
+    const first = dailies();
+    expect(first).toHaveLength(1);
+    expect(first[0]).toBe(`daily-${today()}`);
+    expect(readFileSync(join(backupDir, first[0], "postgres.auto.conf"), "utf8")).toBe("live-data");
+
+    backup.performBackup(); // second run same day → still exactly one daily
+    expect(dailies()).toHaveLength(1);
+  });
+
+  test("prunes daily snapshots to EZCORP_BACKUP_DAILY_KEEP, keeping the newest by mtime", async () => {
+    seedDb();
+    mkdirSync(backupDir, { recursive: true });
+    const d1 = join(backupDir, "daily-2026-06-01");
+    const d2 = join(backupDir, "daily-2026-06-02");
+    const d3 = join(backupDir, "daily-2026-06-03");
+    for (const p of [d1, d2, d3]) mkdirSync(p, { recursive: true });
+    utimesSync(d1, new Date("2026-06-01T00:00:00Z"), new Date("2026-06-01T00:00:00Z"));
+    utimesSync(d2, new Date("2026-06-02T00:00:00Z"), new Date("2026-06-02T00:00:00Z"));
+    utimesSync(d3, new Date("2026-06-03T00:00:00Z"), new Date("2026-06-03T00:00:00Z"));
+    process.env.EZCORP_BACKUP_DAILY_KEEP = "2";
+
+    const backup = await import("../db/backup");
+    backup.performBackup(); // adds today's daily (newest) → prune to 2
+
+    const remaining = dailies();
+    expect(remaining).toHaveLength(2);
+    expect(remaining).toContain(`daily-${today()}`); // today's kept
+    expect(existsSync(d1)).toBe(false); // oldest pruned
+  });
+
+  test("a failed daily promotion does not throw or lose the interval backup", async () => {
+    seedDb();
+    mkdirSync(backupDir, { recursive: true });
+    // A pre-existing interval dir with a FAR-FUTURE mtime outranks the fresh
+    // backup, so with cap=1 the just-written interval backup is pruned away
+    // before promoteDaily copies from it → the daily source is gone and the
+    // promotion fails. performBackup must swallow that and stay healthy.
+    const future = join(backupDir, "ezcorp-db-future");
+    mkdirSync(future, { recursive: true });
+    utimesSync(future, new Date("2030-01-01T00:00:00Z"), new Date("2030-01-01T00:00:00Z"));
+    process.env.EZCORP_BACKUP_INTERVAL_KEEP = "1";
+
+    const backup = await import("../db/backup");
+    expect(() => backup.performBackup()).not.toThrow();
+
+    expect(dailies()).toHaveLength(0); // promotion failed → no daily written
+    expect(existsSync(future)).toBe(true); // surviving interval backup kept
   });
 });

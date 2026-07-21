@@ -1,225 +1,312 @@
-import { test, expect, describe, beforeAll, afterAll, mock } from "bun:test";
-import { restoreModuleMocks } from "./helpers/mock-cleanup";
-import { mkdtempSync, rmSync, existsSync } from "node:fs";
-import { join } from "node:path";
+/**
+ * Behavior tests for the REAL `src/db/connection.ts` module.
+ *
+ * This file used to `mock.module("../db/connection")` with a hand-rolled
+ * PGlite reimplementation and then test THAT copy, plus assert source-code
+ * strings ("if (DATABASE_URL) return \"external\"") and carry an unconditional
+ * `describe.skip`. None of that exercised production code. It now drives the
+ * real module directly:
+ *   - the driver-agnostic lifecycle (`getDbPath`, `closeDb`),
+ *   - `closeDb()` draining the Bun.sql pool (external-Postgres branch),
+ *   - `recoverInterruptedRollback()` (crash-window recovery),
+ *   - `withPostgresMigrateLock()` (concurrent-boot advisory lock ordering),
+ *   - and external-mode detection via a real subprocess boot with DATABASE_URL.
+ *
+ * The PGlite init path proper (open/migrate/holder) is covered by
+ * `db-connection-real-init.test.ts`; raw-param binding by
+ * `db-connection-raw-query.test.ts`.
+ */
+import { test, expect, describe, afterEach } from "bun:test";
+import { mkdtempSync, rmSync, existsSync, writeFileSync, mkdirSync, readdirSync } from "node:fs";
+import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
+import { restoreModuleMocks } from "./helpers/mock-cleanup";
+import { getReadiness, setReadiness } from "../readiness";
+import { getBackupDir } from "../db/backup";
+import { closeStaleProcessHolder } from "../db/live-holder-guard";
 
-// Re-establish real db/connection implementation — parallel tests (conversations.test.ts)
-// call mockDbConnection() which replaces this module globally. This override ensures
-// we use the real PGlite-based implementation so we can test it directly.
-mock.module("../db/connection", () => {
-  const { PGlite } = require("@electric-sql/pglite");
-  const { drizzle } = require("drizzle-orm/pglite");
-  const schema = require("../db/schema");
-  const { migrate } = require("../db/migrate");
-  const { mkdirSync } = require("node:fs");
+restoreModuleMocks();
+const conn = await import("../db/connection");
 
-  let _db: any = null;
-  let _pglite: any = null;
-  let _initPromise: any = null;
+afterEach(() => {
+  conn.__test.setState(null, null);
+});
 
-  async function init() {
-    const DB_PATH = process.env.EZCORP_DB_PATH ?? `${process.env.HOME}/ez-corp/.data/pi`;
-    const IS_MEMORY = DB_PATH === ":memory:";
-    if (!IS_MEMORY) mkdirSync(DB_PATH, { recursive: true });
-    const pgPath = IS_MEMORY ? undefined : DB_PATH;
-    try {
-      const { vector } = require("@electric-sql/pglite/vector");
-      const { pg_trgm } = require("@electric-sql/pglite/contrib/pg_trgm");
-      _pglite = new PGlite(pgPath, { extensions: { vector, pg_trgm } });
-      await _pglite.waitReady;
-    } catch {
-      // Vector WASM may fail in some environments (Docker) — fall back
-      _pglite = new PGlite(pgPath);
-      await _pglite.waitReady;
-    }
-    _db = drizzle(_pglite, { schema });
-    await migrate(_db).catch(() => {}); // vector-dependent tables may fail in Docker
+describe("getDbPath — real module (no DATABASE_URL in this process)", () => {
+  test("returns the configured on-disk path, never 'external'", () => {
+    const p = conn.getDbPath();
+    expect(typeof p).toBe("string");
+    expect(p).not.toBe("external");
+  });
+});
+
+describe("closeDb — Bun.sql pool drain (external-Postgres branch)", () => {
+  test("awaits $client.close() then clears module state", async () => {
+    let closed = 0;
+    const fakeDb = { $client: { close: async () => { closed++; } } };
+    // pglite = null simulates external-Postgres mode.
+    conn.__test.setState(fakeDb, null);
+
+    await conn.closeDb();
+
+    expect(closed).toBe(1);
+    // State cleared: getDb() now throws.
+    expect(() => conn.getDb()).toThrow("Database not initialized");
+  });
+
+  test("falls back to $client.end() when close() is absent", async () => {
+    let ended = 0;
+    const fakeDb = { $client: { end: async () => { ended++; } } };
+    conn.__test.setState(fakeDb, null);
+
+    await conn.closeDb();
+
+    expect(ended).toBe(1);
+  });
+
+  test("a pool close that throws is swallowed (teardown never blocks)", async () => {
+    const fakeDb = { $client: { close: async () => { throw new Error("reset"); } } };
+    conn.__test.setState(fakeDb, null);
+
+    // Must not reject.
+    await conn.closeDb();
+    expect(() => conn.getDb()).toThrow("Database not initialized");
+  });
+});
+
+describe("recoverInterruptedRollback — crash-window recovery", () => {
+  const dirs: string[] = [];
+  function tmp(): string {
+    const d = mkdtempSync(join(tmpdir(), "conn-rollback-"));
+    dirs.push(d);
+    return d;
+  }
+  afterEach(() => {
+    for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+    setReadiness({ state: "ready" });
+  });
+
+  function writeMarker(dbPath: string, marker: Record<string, unknown>) {
+    writeFileSync(join(dirname(dbPath), ".ezcorp-rollback-in-progress.json"), JSON.stringify(marker));
   }
 
-  return {
-    async initDb() {
-      if (!_initPromise) _initPromise = init();
-      await _initPromise;
-    },
-    getDb() {
-      if (!_db) throw new Error("Database not initialized — call initDb() first");
-      return _db;
-    },
-    getPglite() { return _pglite; },
-    getDbPath() {
-      return process.env.EZCORP_DB_PATH ?? `${process.env.HOME}/ez-corp/.data/pi`;
-    },
-    async closeDb() {
-      if (_pglite) {
-        await _pglite.close();
-        _pglite = null;
-        _db = null;
-        _initPromise = null;
-      }
-    },
-  };
+  test("no marker → no-op (datadir untouched)", () => {
+    const base = tmp();
+    const dbPath = join(base, "db");
+    mkdirSync(dbPath, { recursive: true });
+    writeFileSync(join(dbPath, "PG_VERSION"), "16");
+
+    conn.__test.recoverInterruptedRollback(dbPath);
+
+    expect(existsSync(join(dbPath, "PG_VERSION"))).toBe(true);
+  });
+
+  test("marker + snapshot present → completes the restore and clears the marker", () => {
+    const base = tmp();
+    const dbPath = join(base, "db");
+    const snapshot = join(base, "snap");
+    // A clean snapshot with its own sentinel file.
+    mkdirSync(snapshot, { recursive: true });
+    writeFileSync(join(snapshot, "clean.txt"), "restored");
+    // A partial DB_PATH left behind by the interrupted rollback.
+    mkdirSync(dbPath, { recursive: true });
+    writeFileSync(join(dbPath, "partial.txt"), "half");
+    writeMarker(dbPath, { ts: new Date().toISOString(), snapshot });
+
+    conn.__test.recoverInterruptedRollback(dbPath);
+
+    // Snapshot's file now lives at DB_PATH; the partial is moved aside.
+    expect(existsSync(join(dbPath, "clean.txt"))).toBe(true);
+    expect(existsSync(join(dbPath, "partial.txt"))).toBe(false);
+    expect(readdirSync(base).some((n) => n.startsWith("db.rollback-partial."))).toBe(true);
+    // Marker cleared.
+    expect(existsSync(join(base, ".ezcorp-rollback-in-progress.json"))).toBe(false);
+  });
+
+  test("marker but snapshot missing → refuses to boot (throws + degraded readiness)", () => {
+    const base = tmp();
+    const dbPath = join(base, "db");
+    mkdirSync(dbPath, { recursive: true });
+    writeMarker(dbPath, { ts: new Date().toISOString(), snapshot: join(base, "does-not-exist") });
+
+    expect(() => conn.__test.recoverInterruptedRollback(dbPath)).toThrow(/refusing to boot/i);
+    const r = getReadiness();
+    expect(r.state).toBe("degraded");
+    expect(r.reason).toBe("rollback-interrupted");
+  });
 });
 
-describe("connection - PGlite mode (no DATABASE_URL)", () => {
-  const tempDir = mkdtempSync(join(tmpdir(), "pi-conn-test-"));
-  const dbPath = join(tempDir, "subdir", "test-pg");
-
-  process.env.EZCORP_DB_PATH = dbPath;
-
-  afterAll(async () => {
-    restoreModuleMocks();
-    const { closeDb } = await import("../db/connection");
-    await closeDb();
-    rmSync(tempDir, { recursive: true, force: true });
-    delete process.env.EZCORP_DB_PATH;
-  });
-
-  test("getDbPath returns configured path", async () => {
-    const { getDbPath } = await import("../db/connection");
-    expect(getDbPath()).toBe(dbPath);
-  });
-
-  test("initDb creates directory and initializes PGlite", async () => {
-    const { initDb, getDb } = await import("../db/connection");
-    await initDb();
-    const db = getDb();
-    expect(db).toBeDefined();
-    // Directory should have been created
-    expect(existsSync(join(tempDir, "subdir"))).toBe(true);
-  });
-
-  test("getDb returns same instance (singleton)", async () => {
-    const { getDb } = await import("../db/connection");
-    const db1 = getDb();
-    const db2 = getDb();
-    expect(db1).toBe(db2);
-  });
-
-  test("getPglite returns PGlite instance after init", async () => {
-    const { getPglite } = await import("../db/connection");
-    const pg = getPglite();
-    expect(pg).not.toBeNull();
-  });
-
-  test("tables are created via migration", async () => {
-    const { getPglite } = await import("../db/connection");
-    const pg = getPglite()!;
-    const result = await pg.query(
-      "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name"
+describe("withPostgresMigrateLock — advisory lock ordering", () => {
+  test("reserves a connection, locks, runs migrate, unlocks, releases", async () => {
+    const order: string[] = [];
+    const reserved = Object.assign(
+      (strings: TemplateStringsArray) => {
+        order.push(`reserved:${strings.join("?")}`);
+        return Promise.resolve([]);
+      },
+      { release: () => order.push("release") },
     );
-    const names = result.rows.map((r: any) => r.table_name);
-    expect(names).toContain("projects");
-    expect(names).toContain("settings");
-    expect(names).toContain("runs");
-    expect(names).toContain("run_logs");
-    expect(names).toContain("agent_configs");
-    expect(names).toContain("workflow_definitions");
+    const client = Object.assign(
+      (strings: TemplateStringsArray) => {
+        order.push(`pool:${strings.join("?")}`);
+        return Promise.resolve([]);
+      },
+      { reserve: () => { order.push("reserve"); return Promise.resolve(reserved); } },
+    );
+    conn.__test.setState({ $client: client }, null);
+
+    await conn.__test.withPostgresMigrateLock(async () => { order.push("migrate"); });
+
+    // reserve → lock (on the reserved conn) → migrate → unlock → release.
+    expect(order[0]).toBe("reserve");
+    expect(order[1]).toContain("pg_advisory_lock");
+    expect(order[1]).toContain("reserved:");
+    expect(order[2]).toBe("migrate");
+    expect(order[3]).toContain("pg_advisory_unlock");
+    expect(order[4]).toBe("release");
+    // The lock was NEVER taken on a bare pool connection.
+    expect(order.some((o) => o.startsWith("pool:"))).toBe(false);
+  });
+
+  test("still unlocks + releases when migrate throws", async () => {
+    const order: string[] = [];
+    const reserved = Object.assign(
+      (strings: TemplateStringsArray) => { order.push(`sql:${strings.join("?")}`); return Promise.resolve([]); },
+      { release: () => order.push("release") },
+    );
+    const client = Object.assign(
+      (_s: TemplateStringsArray) => Promise.resolve([]),
+      { reserve: () => Promise.resolve(reserved) },
+    );
+    conn.__test.setState({ $client: client }, null);
+
+    await expect(
+      conn.__test.withPostgresMigrateLock(async () => { throw new Error("migrate boom"); }),
+    ).rejects.toThrow("migrate boom");
+
+    expect(order.some((o) => o.includes("pg_advisory_unlock"))).toBe(true);
+    expect(order.at(-1)).toBe("release");
+  });
+
+  test("swallows an advisory-unlock failure (best-effort)", async () => {
+    const client = (strings: TemplateStringsArray) => {
+      // Fail only the unlock; lock + migrate succeed.
+      if (strings.join("").includes("unlock")) return Promise.reject(new Error("unlock boom"));
+      return Promise.resolve([]);
+    };
+    conn.__test.setState({ $client: client }, null);
+    // Must resolve despite unlock rejecting.
+    await expect(conn.__test.withPostgresMigrateLock(async () => "ok")).resolves.toBe("ok");
+  });
+
+  test("falls back to the pool connection when reserve() is unavailable", async () => {
+    const order: string[] = [];
+    const client = (strings: TemplateStringsArray) => {
+      order.push(strings.join("?"));
+      return Promise.resolve([]);
+    };
+    conn.__test.setState({ $client: client }, null);
+
+    await conn.__test.withPostgresMigrateLock(async () => { order.push("migrate"); });
+
+    expect(order.some((o) => o.includes("pg_advisory_lock"))).toBe(true);
+    expect(order).toContain("migrate");
+    expect(order.some((o) => o.includes("pg_advisory_unlock"))).toBe(true);
   });
 });
 
-// Source-contract checks on the real module — no PGlite init, safe anywhere.
-describe("connection - Postgres mode detection (source contract)", () => {
-  test("getDbPath returns 'external' when DATABASE_URL is set", async () => {
-    // The real connection.ts reads DATABASE_URL at module load time.
-    // Since this file mocks the module, we verify the contract by reading
-    // the source and confirming the branching logic exists, then test
-    // the mock behavior matches the contract for PGlite mode.
-    const { getDbPath } = await import("../db/connection");
-
-    // Read the real source to verify "external" return exists
-    const source = await Bun.file(
-      new URL("../db/connection.ts", import.meta.url).pathname
-    ).text();
-    expect(source).toContain('if (DATABASE_URL) return "external"');
-
-    // In PGlite mode (no DATABASE_URL), getDbPath returns the configured path
-    const result = getDbPath();
-    expect(result).not.toBe("external");
-    expect(typeof result).toBe("string");
+describe("registerProcessHolder — same-process guard wiring", () => {
+  afterEach(async () => {
+    await closeStaleProcessHolder(conn.getDbPath());
   });
 
-  test("initDb branches on DATABASE_URL presence", async () => {
-    // Verify the real connection module has both init paths
-    const source = await Bun.file(
-      new URL("../db/connection.ts", import.meta.url).pathname
-    ).text();
-    // Should have dual-mode init logic
-    expect(source).toContain("async function initPglite()");
-    expect(source).toContain("async function initPostgres()");
-    expect(source).toContain("if (DATABASE_URL)");
-    expect(source).toContain("await initPostgres()");
-    expect(source).toContain("await initPglite()");
+  test("records a close callback that tears down the current PGlite instance", async () => {
+    let closed = 0;
+    // Simulate a live embedded instance; registerProcessHolder captures it.
+    conn.__test.setState({}, { close: async () => { closed++; } } as never);
+    conn.__test.registerProcessHolder();
+
+    // A re-instantiated module (vite restart) would call closeStaleProcessHolder
+    // for the same datadir — which must invoke the recorded close.
+    const found = await closeStaleProcessHolder(conn.getDbPath());
+    expect(found).toBe(true);
+    expect(closed).toBe(1);
   });
 });
 
-// SKIPPED — second in-process PGlite open is unreliable: the first describe
-// already ran a full open/close cycle, and PGlite's vector extension keeps
-// process-shared WASM state (/tmp/pglite/) that a closed instance can tear
-// down, so a fresh open afterwards aborts ("RuntimeError: Aborted()").
-// These four tests previously appeared green LOCALLY only because the prior
-// describe's afterAll deleted EZCORP_DB_PATH, so they silently opened the
-// LIVE deployment database (~/ez-corp/.data/ez-corp-db) — snapshot spam on
-// every test run, and pass/fail flipped with whether the live dir happened
-// to be openable. A test must never touch that dir; with a hermetic temp
-// dir the second-instance abort reproduces deterministically, so the skip
-// is unconditional (it was previously skipIf(CI) for the same root cause).
-// Un-skipping requires running them in their own subprocess (first PGlite
-// instance of the process), like the example e2e-server-pipeline harnesses.
-describe.skip("connection - PGlite re-init lifecycle (second in-process instance)", () => {
-	const pgModeTempDir = mkdtempSync(join(tmpdir(), "pi-conn-pgmode-"));
-	beforeAll(() => {
-		process.env.EZCORP_DB_PATH = join(pgModeTempDir, "pg-mode-db");
-	});
-	afterAll(async () => {
-		const { closeDb } = await import("../db/connection");
-		await closeDb().catch(() => {});
-		rmSync(pgModeTempDir, { recursive: true, force: true });
-		delete process.env.EZCORP_DB_PATH;
-	});
+describe("writeRollbackMarker — best-effort", () => {
+  test("swallows a write failure instead of throwing", () => {
+    const base = mkdtempSync(join(tmpdir(), "conn-marker-"));
+    // Make the marker's parent dir actually a FILE so writeFileSync throws
+    // ENOTDIR — the catch must swallow it.
+    const notADir = join(base, "afile");
+    writeFileSync(notADir, "x");
+    const dbPath = join(notADir, "db");
+    expect(() => conn.__test.writeRollbackMarker(dbPath, { ts: "t" })).not.toThrow();
+    rmSync(base, { recursive: true, force: true });
+  });
+});
 
-  test("getPglite returns non-null in PGlite mode, null contract in Postgres mode", async () => {
-    const { getPglite, initDb } = await import("../db/connection");
-    await initDb();
+describe("rollbackMigration — snapshot restore brackets a rollback marker", () => {
+  const created: string[] = [];
+  const prevNoExit = process.env.EZCORP_NO_EXIT;
 
-    // In PGlite mode (current test env), getPglite returns a live instance
-    const pg = getPglite();
-    expect(pg).not.toBeNull();
-    expect(pg).toBeDefined();
-
-    // Verify the Postgres mode contract: initPostgres sets _pglite = null
-    const source = await Bun.file(
-      new URL("../db/connection.ts", import.meta.url).pathname
-    ).text();
-    expect(source).toContain("_pglite = null");
+  afterEach(() => {
+    for (const p of created.splice(0)) rmSync(p, { recursive: true, force: true });
+    if (prevNoExit === undefined) delete process.env.EZCORP_NO_EXIT;
+    else process.env.EZCORP_NO_EXIT = prevNoExit;
+    setReadiness({ state: "ready" });
   });
 
-  test("closeDb cleans up state without errors", async () => {
-    const { closeDb, initDb, getDb } = await import("../db/connection");
-    // Re-init to ensure we can close
-    await initDb();
-    expect(getDb()).toBeDefined();
-    await closeDb();
-    // After close, getDb should throw
-    expect(() => getDb()).toThrow("Database not initialized");
-    // Re-init for remaining tests
-    await initDb();
-  });
+  test("writes the rollback marker before rename and clears it after cpSync succeeds", async () => {
+    // EZCORP_NO_EXIT makes rollbackMigration throw instead of process.exit(1).
+    process.env.EZCORP_NO_EXIT = "1";
 
-  test("closeDb is idempotent (calling twice does not error)", async () => {
-    const { closeDb, initDb } = await import("../db/connection");
-    await initDb();
-    await closeDb();
-    // Second close should be a no-op, not throw
-    await closeDb();
-  });
+    const dbPath = conn.getDbPath();
+    const markerFile = join(dirname(dbPath), ".ezcorp-rollback-in-progress.json");
+    // A live datadir with a doomed file.
+    mkdirSync(dbPath, { recursive: true });
+    writeFileSync(join(dbPath, "doomed.txt"), "gone");
+    created.push(dbPath);
 
-  test("initDb is idempotent (calling twice returns same db)", async () => {
-    const { initDb, getDb } = await import("../db/connection");
-    await initDb();
-    const db1 = getDb();
-    await initDb();
-    const db2 = getDb();
-    expect(db1).toBe(db2);
+    // A pre-boot snapshot for latestPreBootSnapshot() to find + restore from.
+    const backupDir = getBackupDir();
+    const snapshot = join(backupDir, "pre-boot-2026-01-01T00-00-00-000Z");
+    mkdirSync(snapshot, { recursive: true });
+    writeFileSync(join(snapshot, "restored.txt"), "clean");
+    created.push(backupDir, markerFile);
+
+    // A fake live PGlite so rollback's close() runs; no real db needed.
+    conn.__test.setState({}, { close: async () => {} } as never);
+
+    await expect(conn.__test.rollbackMigration(new Error("bad migration"))).rejects.toThrow("bad migration");
+
+    // The snapshot was restored into DB_PATH and the marker was cleared after
+    // the copy completed.
+    expect(existsSync(join(dbPath, "restored.txt"))).toBe(true);
+    expect(existsSync(markerFile)).toBe(false);
+    // The failed datadir was renamed aside for forensics (never deleted).
+    expect(readdirSync(dirname(dbPath)).some((n) => n.includes(".failed."))).toBe(true);
+    // Readiness reflects the failed migration.
+    expect(getReadiness().state).toBe("degraded");
+  });
+});
+
+describe("external-mode detection — real subprocess boot with DATABASE_URL", () => {
+  test("getDbPath() returns 'external' when DATABASE_URL is set at module load", async () => {
+    const connPath = new URL("../db/connection.ts", import.meta.url).pathname;
+    // getDbPath() reads the DATABASE_URL const captured at module load — a
+    // bogus DSN is fine because we never call initDb() (no connection made).
+    const proc = Bun.spawn(
+      ["bun", "-e", `const m = await import(${JSON.stringify(connPath)}); console.log(m.getDbPath());`],
+      {
+        env: { ...process.env, DATABASE_URL: "postgres://user:pw@127.0.0.1:5432/nope" },
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
+    const out = (await new Response(proc.stdout).text()).trim();
+    await proc.exited;
+    expect(out.split("\n").at(-1)).toBe("external");
   });
 });

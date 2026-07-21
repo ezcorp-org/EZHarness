@@ -1,0 +1,69 @@
+# External-Postgres (Bun.sql) integration job.
+#
+# The rest of the DB suite runs against PGlite, so connection.ts's
+# initPostgres() driver-specific code — the jsonb mapToDriverValue identity
+# patch, the execute() array→{rows} wrapper, the pg_advisory_lock migrate
+# guard, repairDoubleEncodedJsonb, the Bun.sql pool close, rawQuery via the
+# real $client.unsafe, and the 23505 unique-violation error shape — never
+# executed in CI. Four documented live incidents were exactly this class of
+# PGlite-vs-Bun.sql difference. This job stands up a real postgres:15 + pgvector
+# server and runs the DATABASE_URL-gated suite in
+# src/__tests__/db-migration-postgres.test.ts against it (migrate() fresh +
+# idempotent under the advisory lock, plus the initPostgres() surface above).
+#
+# NOTE FOR MAINTAINERS: workflow files are CODEOWNERS-owned. This is a NEW,
+# additive job — it does not touch any existing gate (coverage thresholds,
+# EXCLUDES, gate-integrity). It needs a human review to land.
+
+name: db-postgres
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: db-postgres-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  external-postgres:
+    name: External Postgres (Bun.sql)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        # pgvector on top of the documented PostgreSQL 15 floor — migrate()
+        # creates the `vector` extension + HNSW indexes, which need pgvector.
+        image: pgvector/pgvector:pg15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ezcorp_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # connection.ts captures DATABASE_URL at module load, so it must be set
+      # for the whole test process to select external (Bun.sql) mode.
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/ezcorp_test
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+
+      # Targeted, single-file run (safe per scripts/test.sh — only the
+      # unbounded root glob deadlocks). The file's PGlite suite runs too and
+      # keeps passing; the DATABASE_URL-gated suite now executes against the
+      # real server instead of being skipped.
+      - name: Run external-Postgres DB suite
+        run: bun test src/__tests__/db-migration-postgres.test.ts
