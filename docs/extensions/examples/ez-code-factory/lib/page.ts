@@ -380,29 +380,43 @@ export function buildRunDetail(detail: RunDetail): HubPageTree {
 
 // ── Run-detail VIEW (the `?run=<id>` render variant) ─────────────────
 
+/** Deep-link from a turn row into its chat sub-conversation on the project.
+ *  Both ids are `encodeURIComponent`d, so each path segment is free of `/` and
+ *  `\` — the result is internal + safe by construction (the host re-checks
+ *  `isSafeInternalHref` when it validates the tree on ingest). Mirrors the
+ *  `/project/[id]/chat/[convId]` route. */
+function chatHref(projectId: string, subConversationId: string): string {
+  return `/project/${encodeURIComponent(projectId)}/chat/${encodeURIComponent(subConversationId)}`;
+}
+
 /**
- * Append the recorded agent-dispatch provenance for a step.
+ * Append the recorded agent-dispatch provenance for a step — one row per
+ * dispatch, each deep-linking (when a project is resolvable) into that
+ * dispatch's chat sub-conversation.
  *
- * PRIVACY (respecting the ez-code precedent, index.ts ~462): this page tree is
- * CACHED and served to ALL users, so it must never bake a private
- * `/chat/<subConversationId>` deep-link cross-user. ECF runs ARE global/system
- * push artifacts (runs live in the `global` storage scope — not per-user
- * chats), which is why the run rows themselves render into the shared tree at
- * all. But two facts keep us from embedding the TURNS here:
- *   1. A render cannot READ a sub-conversation's turns — the only host
- *      capability (`runtime.conversations.getMessages`) is scoped to the
- *      caller's CURRENT conversation, and a render has none. Adding a
- *      render-time "read any sub-conversation" capability would embed
- *      cross-user conversation content into this shared cached tree — the exact
- *      exposure the precedent guards against.
- *   2. Even a mere `/chat/<id>` deep-link is what the precedent forbids.
- * So we surface the linkage as READ-ONLY provenance (index, role, the sub-
- * conversation / assignment ids, time) — never a clickable deep-link. An
- * operator correlates these ids in the native chat UI, which enforces its own
- * per-user view authorization at open time. Old runs recorded no linkage and
- * render an honest "no recorded turns" note.
+ * PRIVACY (the ez-code precedent, index.ts ~462): this page tree is CACHED and
+ * served to ALL users for 60s (page-cache.ts), so it must never bake a private
+ * conversation's CONTENT into the shared tree. Two facts let us ship the
+ * `/chat/<subConversationId>` deep-link WITHOUT crossing that line:
+ *   1. We link, we never inline. A render must NOT read turn content into the
+ *      tree — not for lack of capability (the host
+ *      `runtime.conversations.getMessages` RPC takes an ARBITRARY conversation
+ *      id, so a render could technically read any sub-conversation), but
+ *      because that text would then sit in the shared cross-user page cache.
+ *      So a row carries only the dispatch's ids / role / time — never a turn.
+ *   2. The link itself leaks nothing. The chat route is fail-closed authz'd
+ *      (web/src/routes/api/conversations/[id]/+server.ts: an unowned or
+ *      other-user conversation 404s for non-admins), so a shared deep-link only
+ *      OPENS for a viewer already entitled to that conversation — everyone else
+ *      hits the route's own per-user authorization. The sub-conversation id is
+ *      already published as text in this tree regardless, so the href adds
+ *      reachability, not exposure.
+ * The deep-link needs a project to address; an orphan / global-view run (no
+ * resolvable project — see `projectIdForRun`) omits the href and keeps the ids
+ * as plain provenance text. Old runs recorded no linkage and render an honest
+ * "no recorded turns" note.
  */
-function appendAgentTurns(page: PageBuilder, sr: StepResultRecord): void {
+function appendAgentTurns(page: PageBuilder, sr: StepResultRecord, projectId?: string): void {
   const dispatches = sr.agentDispatches ?? [];
   if (dispatches.length === 0) {
     page.emptyState(
@@ -416,6 +430,9 @@ function appendAgentTurns(page: PageBuilder, sr: StepResultRecord): void {
     ["#", "Role", "Sub-conversation", "Assignment", "When"],
     dispatches.map((d, i) => ({
       cells: [String(i + 1), d.role, d.subConversationId, d.assignmentId, shortTime(d.at)],
+      // A project-scoped detail deep-links each row to its chat sub-conversation;
+      // an orphan/global view has no project to address and stays text-only.
+      ...(projectId ? { href: chatHref(projectId, d.subConversationId) } : {}),
     })),
   );
 }
@@ -441,8 +458,16 @@ function stepHasDetail(sr: StepResultRecord): boolean {
  * "not found" note rather than an error. Distinct from `buildRunDetail`
  * (the parked-gate TRIAGE surface with its approve/fix/skip controls); this
  * view is READ-ONLY and covers every step, not just the parked one.
+ *
+ * `projectId` (the run's owning project — resolved by the caller via
+ * `projectIdForRun`) enables the per-turn chat deep-links; omit it for an
+ * orphan / global-view run and the turn rows stay text-only provenance.
  */
-export function buildRunDetailView(runId: string, detail: RunDetail | null): HubPageTree {
+export function buildRunDetailView(
+  runId: string,
+  detail: RunDetail | null,
+  projectId?: string,
+): HubPageTree {
   const page = new PageBuilder(`ez-code-factory — run ${runId}`);
   if (!detail) {
     page.emptyState(
@@ -472,7 +497,7 @@ export function buildRunDetailView(runId: string, detail: RunDetail | null): Hub
       // Read-only findings reference (no per-finding fix action here).
       appendFindingsTable(section, run.id, step as PipelineStep, sr.findings, { interactive: false });
       appendLogPanel(section, sr, sr.findings);
-      appendAgentTurns(section, sr);
+      appendAgentTurns(section, sr, projectId);
     });
   }
 
@@ -597,6 +622,18 @@ export function runsForProject(project: ProjectRef, runs: RunRecord[]): RunRecor
 export function orphanRuns(projects: ProjectRef[], runs: RunRecord[]): RunRecord[] {
   const known = new Set(projects.map(projectRepoId));
   return runs.filter((r) => !known.has(r.repoId));
+}
+
+/** The registered project that OWNS a run (its `repoId` matches the project's
+ *  derived repo id), resolved from whatever project context a run-detail render
+ *  carries — the FULL list on the global hub, the SINGLE project on the project
+ *  hub. Returns the project id, or undefined for an orphan run / no project in
+ *  context. Deliberately a pure function of the RUN (not of which hub surfaced
+ *  the link): the run-detail page cache is keyed by run id ALONE, so keying the
+ *  turn deep-links off the run's own repo keeps the cached tree coherent for
+ *  every viewer regardless of entry point. */
+export function projectIdForRun(run: RunRecord, projects: ProjectRef[]): string | undefined {
+  return projects.find((p) => projectRepoId(p) === run.repoId)?.id;
 }
 
 /**

@@ -2,8 +2,9 @@
  * ez-code-factory run links + run-detail + status tones — page-level e2e
  * (mockApi, no Docker). Proves the clickable-run-row feature's user-visible
  * contract against mocked Hub API routes:
- *   - a per-project dashboard run row is a LINK, and its Status cell carries
- *     the status→tone colour class (red for a failed run),
+ *   - a per-project dashboard run row is a LINK, and each Status cell carries
+ *     its status→tone colour class (red=failed, green=completed,
+ *     orange=awaiting_approval),
  *   - clicking the run row navigates to the `?run=<id>` detail variant; the
  *     render pull carries `?run=` and the detail tree renders — the pipeline
  *     step table (toned step status) + the agent-turn provenance table,
@@ -22,23 +23,29 @@ import { makeProject } from "./fixtures/data.js";
 
 const proj = makeProject({ id: "proj-1" });
 const EXT_ID = "ext:ez-code-factory:dashboard";
-const RUN_ID = "run_abc123";
+const RUN_ID = "run_abc123"; // failed → danger (red)
+const RUN_DONE = "run_done456"; // completed → success (green)
+const RUN_PARKED = "run_parked789"; // awaiting_approval → warning (orange)
 
 const listing = {
 	pages: [{ id: EXT_ID, title: "ez-code-factory", kind: "ext" }],
 };
 
-/** Project-scoped dashboard: one FAILED run whose row links to its detail
- *  (`?run=`) and whose Status cell is toned danger. */
+const runHref = (id: string) => `/project/${proj.id}/hub/${encodeURIComponent(EXT_ID)}?run=${id}`;
+
+/** Project-scoped dashboard: three runs exercising the full status→tone map —
+ *  a FAILED run (danger/red), a COMPLETED run (success/green), and one
+ *  AWAITING_APPROVAL / parked run (warning/orange). Each row links to its
+ *  `?run=` detail. */
 const projectDashboardTree = {
 	title: "ez-code-factory — Test Project",
 	nodes: [
 		{
 			type: "stats",
 			items: [
-				{ label: "Total runs", value: "1" },
-				{ label: "Active", value: "0" },
-				{ label: "Completed", value: "0" },
+				{ label: "Total runs", value: "3" },
+				{ label: "Active", value: "1" },
+				{ label: "Completed", value: "1" },
 				{ label: "Failed", value: "1" },
 			],
 		},
@@ -54,7 +61,27 @@ const projectDashboardTree = {
 						{ text: "✗ failed", tone: "danger" },
 						"2026-07-17 10:00",
 					],
-					href: `/project/${proj.id}/hub/${encodeURIComponent(EXT_ID)}?run=${RUN_ID}`,
+					href: runHref(RUN_ID),
+				},
+				{
+					cells: [
+						RUN_DONE,
+						"feat/y",
+						"cafebabe",
+						{ text: "✓ completed", tone: "success" },
+						"2026-07-17 11:00",
+					],
+					href: runHref(RUN_DONE),
+				},
+				{
+					cells: [
+						RUN_PARKED,
+						"feat/z",
+						"f00dface",
+						{ text: "⏸ awaiting approval", tone: "warning" },
+						"2026-07-17 12:00",
+					],
+					href: runHref(RUN_PARKED),
 				},
 			],
 		},
@@ -134,15 +161,25 @@ test.describe("ez-code-factory run links + detail + status tones", () => {
 		await page.goto(`/project/${proj.id}/hub/${encodeURIComponent(EXT_ID)}`);
 		await expect(page.getByTestId("hub-node-table")).toContainText(RUN_ID);
 
-		// R4: the failed run's Status cell carries the danger tone (data-tone +
-		// the red status colour class on its text span).
+		// R4: each run's Status cell carries the DRY status→tone colour — the
+		// failed run is danger (red), the completed run success (green), and the
+		// awaiting_approval/parked run warning (orange). The tone lands on both the
+		// cell's data-tone AND the status colour class on its text span.
 		const dangerCell = page.locator('[data-testid="hub-table-cell"][data-tone="danger"]');
 		await expect(dangerCell).toContainText("failed");
 		await expect(dangerCell.locator("span")).toHaveClass(/text-red-400/);
 
-		// R1: the run row is a LINK to its `?run=` detail variant.
-		const rowLink = page.getByTestId("hub-row-link");
-		await expect(rowLink).toHaveText(RUN_ID);
+		const successCell = page.locator('[data-testid="hub-table-cell"][data-tone="success"]');
+		await expect(successCell).toContainText("completed");
+		await expect(successCell.locator("span")).toHaveClass(/text-green-400/);
+
+		const warningCell = page.locator('[data-testid="hub-table-cell"][data-tone="warning"]');
+		await expect(warningCell).toContainText("awaiting approval");
+		await expect(warningCell.locator("span")).toHaveClass(/text-yellow-400/);
+
+		// R1: each run row is a LINK to its `?run=` detail variant — target the
+		// failed run's row link (one of three) by its run-id text.
+		const rowLink = page.getByTestId("hub-row-link").filter({ hasText: RUN_ID });
 		await expect(rowLink).toHaveAttribute("href", new RegExp(`\\?run=${RUN_ID}`));
 
 		// R2: click → navigate to the detail; the pull carries `?run=`.

@@ -64,6 +64,7 @@ import {
   normalizeRespondPayload,
   orphanRuns,
   parseRunIdPayload,
+  projectIdForRun,
   runsForProject,
   type RunDetail,
 } from "./lib/page";
@@ -539,8 +540,16 @@ async function refreshDashboard(): Promise<void> {
 /** Render the read-only run-DETAIL view for `?run=<id>`: load the run + its
  *  ordered step results and hand them to the pure builder. An unknown id yields
  *  a "not found" note (never an error) — the run may have been swept, or the
- *  deep-link is stale. */
-async function renderRunDetail(store: RunStore, runId: string): Promise<HubPageTree> {
+ *  deep-link is stale. `ctx` carries the render's project context (the single
+ *  project on the project hub, the full list on the global hub); we resolve the
+ *  run's OWNING project from it so the detail's per-turn rows can deep-link into
+ *  their chat sub-conversations. An orphan run (no matching project) renders the
+ *  same detail without those links. */
+async function renderRunDetail(
+  store: RunStore,
+  runId: string,
+  ctx?: PageRenderContext,
+): Promise<HubPageTree> {
   const run = await store.getRun(runId);
   if (!run) return buildRunDetailView(runId, null);
   const steps: StepResultRecord[] = [];
@@ -548,7 +557,9 @@ async function renderRunDetail(store: RunStore, runId: string): Promise<HubPageT
     const sr = await store.getStepResult(runId, step);
     if (sr) steps.push(sr);
   }
-  return buildRunDetailView(runId, { run, steps });
+  const projects = ctx?.projects ?? (ctx?.project ? [ctx.project] : []);
+  const projectId = projectIdForRun(run, projects);
+  return buildRunDetailView(runId, { run, steps }, projectId);
 }
 
 // ── Handlers ─────────────────────────────────────────────────────────
@@ -960,7 +971,7 @@ export async function renderDashboard(ctx?: PageRenderContext) {
   // (meta + step results + agent-turn provenance) instead of the dashboard.
   // Reachable from either hub, so it takes precedence over project context.
   if (ctx?.run) {
-    return renderRunDetail(store, ctx.run);
+    return renderRunDetail(store, ctx.run, ctx);
   }
   const runs = await store.listRuns();
   if (ctx?.project) {

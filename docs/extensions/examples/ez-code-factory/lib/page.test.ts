@@ -11,6 +11,7 @@ import {
   normalizeRespondPayload,
   parkedStep,
   parseRunIdPayload,
+  projectIdForRun,
   runsForProject,
   SEVERITY_ICON,
   shortSha,
@@ -902,8 +903,9 @@ describe("buildRunDetailView (R2 detail tree)", () => {
     ) as { columns: string[]; rows: Array<{ cells: unknown[]; href?: string }> };
     expect(turns.columns).toEqual(["#", "Role", "Sub-conversation", "Assignment", "When"]);
     expect(turns.rows).toHaveLength(2);
-    // PRIVACY: the provenance rows carry ids as TEXT — never a clickable
-    // /chat/<id> deep-link baked into this shared cached tree.
+    // This call passes NO projectId (the orphan / global-view path), so the
+    // provenance rows carry ids as TEXT with no deep-link — the project-scoped
+    // deep-link is covered by its own test below.
     expect(turns.rows.every((r) => r.href === undefined)).toBe(true);
     expect(turns.rows[0]!.cells).toEqual(["1", "reviewer", "sub-1", "asg-1", "2026-07-18 09:30"]);
   });
@@ -925,7 +927,39 @@ describe("buildRunDetailView (R2 detail tree)", () => {
     expect(empties.some((n) => String(n.title).includes("No recorded turns"))).toBe(true);
   });
 
-  test("PRIVACY: no /chat/ deep-link anywhere in the shared detail tree", () => {
+  test("project-scoped: each turn row deep-links to its chat sub-conversation (ids as text, never turn CONTENT)", () => {
+    const detail: RunDetail = {
+      run: run({ id: "run_v" }),
+      steps: [
+        stepResult({
+          step: "review",
+          status: "awaiting_approval",
+          findings: withFindings([finding()]),
+          agentDispatches: [
+            dispatch(),
+            dispatch({ role: "fixer", assignmentId: "asg-2", subConversationId: "sub 2/x" }),
+          ],
+        }),
+      ],
+    };
+    const tree = buildRunDetailView("run_v", detail, "proj-77");
+    const turns = allNodes(tree.nodes).find(
+      (n) => n.type === "table" && (n.columns as string[])[0] === "#",
+    ) as { rows: Array<{ cells: unknown[]; href?: string }> };
+
+    // Each row deep-links to /project/<projectId>/chat/<subConversationId>, with
+    // BOTH ids encodeURIComponent'd (the second dispatch's id has a `/` + space).
+    expect(turns.rows[0]!.href).toBe("/project/proj-77/chat/sub-1");
+    expect(turns.rows[1]!.href).toBe("/project/proj-77/chat/sub%202%2Fx");
+    // The row still carries only provenance ids/role/time — never turn CONTENT.
+    expect(turns.rows[0]!.cells).toEqual(["1", "reviewer", "sub-1", "asg-1", "2026-07-18 09:30"]);
+    // The ONLY /chat/ occurrences in the whole tree are those two hrefs (the
+    // link exposes reachability, not conversation content).
+    const content = allNodes(tree.nodes).map(ownContent).join(" ");
+    expect(content.match(/\/chat\//g)).toHaveLength(2);
+  });
+
+  test("orphan / global view (no project): ids-as-text, no /chat/ deep-link", () => {
     const detail: RunDetail = {
       run: run({ id: "run_v" }),
       steps: [
@@ -937,11 +971,30 @@ describe("buildRunDetailView (R2 detail tree)", () => {
         }),
       ],
     };
-    const tree = buildRunDetailView("run_v", detail);
+    const tree = buildRunDetailView("run_v", detail); // no projectId
     const content = allNodes(tree.nodes).map(ownContent).join(" ");
     // The sub-conversation id is present as provenance text…
     expect(content).toContain("sub-1");
-    // …but never as a /chat/ deep-link (the ez-code precedent).
+    // …but never as a /chat/ deep-link (no project to address the run to).
     expect(content).not.toContain("/chat/");
+  });
+});
+
+describe("projectIdForRun (deep-link project resolution)", () => {
+  const projFor = (id: string, path: string): ProjectRef => ({ id, name: id, path });
+
+  test("resolves the OWNING project by repoId match", () => {
+    const p = projFor("proj-1", "/work/app");
+    const r = run({ id: "run_1", repoId: repoId("/work/app") });
+    expect(projectIdForRun(r, [projFor("other", "/work/nope"), p])).toBe("proj-1");
+  });
+
+  test("an orphan run (no matching project) resolves to undefined", () => {
+    const r = run({ id: "run_x", repoId: repoId("/work/unregistered") });
+    expect(projectIdForRun(r, [projFor("proj-1", "/work/app")])).toBeUndefined();
+  });
+
+  test("no project context at all → undefined (global view with an empty list)", () => {
+    expect(projectIdForRun(run({ repoId: repoId("/work/app") }), [])).toBeUndefined();
   });
 });
