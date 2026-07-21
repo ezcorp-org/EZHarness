@@ -246,6 +246,7 @@ run_legs() {
       src/lib/components/tool-cards/preview-consent-card-logic.unit.test.ts \
       src/__tests__/ExtensionToolSelector.component.test.ts \
       src/lib/components/hub/HubPageView.component.test.ts \
+      src/lib/components/hub/HubNavSection.component.test.ts \
       src/lib/components/__tests__/ModeFormModal.component.test.ts \
       src/lib/chat/page-handlers/__tests__/inherit-mode.unit.test.ts \
       src/__tests__/tools-api-mode-scope.server.test.ts \
@@ -348,6 +349,7 @@ run_legs() {
       --coverage.include='src/routes/api/preview/consent/+server.ts' \
       --coverage.include='src/lib/components/ExtensionToolSelector.svelte' \
       --coverage.include='src/lib/components/hub/HubPageView.svelte' \
+      --coverage.include='src/lib/components/hub/HubNavSection.svelte' \
       --coverage.include='src/lib/components/ModeFormModal.svelte' \
       --coverage.include='src/lib/chat/page-handlers/inherit-mode.ts' \
       --coverage.include='src/routes/api/tools/+server.ts' \

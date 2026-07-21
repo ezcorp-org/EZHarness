@@ -21,6 +21,7 @@
 	import {
 		parseHubPageId,
 		buildActionRequest,
+		sortHubPagesByTitle,
 		type HubPageListing,
 		type HubPageTree,
 		type PageAction,
@@ -233,6 +234,11 @@
 	});
 
 	let activeTab = $derived(tabs.find((t) => t.id === pageId));
+	// Tabs render ALPHABETICALLY (shared sorter) so the tab bar matches the
+	// sidebar Hub dropdown. Active-tab lookup keys off `pageId`, so order is
+	// purely presentational — the redirect/auto-open logic still uses the raw
+	// listing order.
+	let sortedTabs = $derived(sortHubPagesByTitle(tabs));
 </script>
 
 <svelte:head>
@@ -243,7 +249,7 @@
 	<!-- Tab bar -->
 	{#if tabsLoaded && tabs.length > 0}
 		<div class="flex flex-wrap items-center gap-1 border-b border-[var(--color-border)] pb-0" role="tablist" aria-label="Hub pages">
-			{#each tabs as tab}
+			{#each sortedTabs as tab}
 				{@const active = tab.id === pageId}
 				<a
 					href={`${hubBase}/${encodeURIComponent(tab.id)}`}
