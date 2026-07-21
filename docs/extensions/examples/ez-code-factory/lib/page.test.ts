@@ -7,6 +7,8 @@ import {
   buildProjectDashboard,
   buildRunDetail,
   buildRunDetailView,
+  buildStepDetailView,
+  effectiveRunStatus,
   FULL_PAGE_ID,
   normalizeRespondPayload,
   parkedStep,
@@ -21,11 +23,14 @@ import {
   STEP_STATUS_TONE,
   type ProjectRef,
   type RunDetail,
+  type StepDetail,
 } from "./page";
 import { repoId } from "./gate";
 import { PageBuilder } from "@ezcorp/sdk/runtime";
 import { emptyFindings } from "./runs";
-import type { Finding, Findings, RunRecord, RunStatus, StepResultRecord, StepStatus } from "./runs";
+import type { Finding, Findings, RunRecord, RunStatus, StepResultRecord, StepRoundRecord, StepStatus } from "./runs";
+import { snapshotRepoConfig, emptyOutcomeFlags, type StepIORecord } from "./step-io";
+import { emptyRepoConfig } from "./repo-config";
 
 function run(over: Partial<RunRecord> = {}): RunRecord {
   return {
@@ -1001,5 +1006,350 @@ describe("projectIdForRun (deep-link project resolution)", () => {
 
   test("no project context at all → undefined (global view with an empty list)", () => {
     expect(projectIdForRun(run({ repoId: repoId("/work/app") }), [])).toBeUndefined();
+  });
+});
+
+// ── effective status + stalled display (L3) ─────────────────────────
+
+describe("effectiveRunStatus", () => {
+  test("a running run in the stalled set → stalled; not in the set → running", () => {
+    const r = run({ id: "run_1", status: "running" });
+    expect(effectiveRunStatus(r, new Set(["run_1"]))).toBe("stalled");
+    expect(effectiveRunStatus(r, new Set(["other"]))).toBe("running");
+    expect(effectiveRunStatus(r, undefined)).toBe("running");
+  });
+
+  test("a PERSISTED stalled run is stalled regardless of the derived set", () => {
+    expect(effectiveRunStatus(run({ id: "r", status: "stalled" }), undefined)).toBe("stalled");
+  });
+
+  test("non-running statuses pass through unchanged", () => {
+    for (const s of ["completed", "failed", "awaiting_approval", "checks_passed"] as const) {
+      expect(effectiveRunStatus(run({ id: "r", status: s }), new Set(["r"]))).toBe(s);
+    }
+  });
+});
+
+describe("stalled run rows + Stalled stat bucket", () => {
+  function statsOf(tree: { nodes: unknown[] }) {
+    return (tree.nodes as Array<Record<string, unknown>>).find((n) => n.type === "stats") as {
+      items: Array<{ label: string; value: string }>;
+    };
+  }
+  function runRow(tree: { nodes: unknown[] }, id: string) {
+    return allNodes(tree.nodes)
+      .filter((n) => n.type === "table")
+      .flatMap((n) => (n.rows as Array<{ cells: unknown[]; href?: string }>))
+      .find((r) => r.cells[0] === id);
+  }
+
+  test("a DERIVED-stalled running run renders ⚠ stalled (warning) and counts as Stalled, not Active", () => {
+    const r = run({ id: "run_live", status: "running" });
+    const tree = buildDashboard([r], [], new Set(["run_live"]));
+    expect(runRow(tree, "run_live")!.cells[3]).toEqual({ text: STATUS_BADGE.stalled, tone: "warning" });
+    const items = statsOf(tree).items;
+    expect(items.find((i) => i.label === "Stalled")!.value).toBe("1");
+    expect(items.find((i) => i.label === "Active")!.value).toBe("0");
+  });
+
+  test("a PERSISTED stalled run shows the Stalled bucket without any derived set", () => {
+    const tree = buildDashboard([run({ id: "r", status: "stalled" })], []);
+    expect(statsOf(tree).items.find((i) => i.label === "Stalled")!.value).toBe("1");
+  });
+
+  test("no stalled runs → NO Stalled bucket (backward-compatible 4-stat row)", () => {
+    const tree = buildDashboard([run({ id: "r", status: "completed" })], []);
+    expect(statsOf(tree).items.map((i) => i.label)).toEqual(["Total runs", "Active", "Completed", "Failed"]);
+  });
+});
+
+describe("step-row links + step-level stalled (run detail)", () => {
+  function stepTableOf(tree: { nodes: unknown[] }) {
+    return allNodes(tree.nodes).find(
+      (n) => n.type === "table" && (n.columns as string[])[0] === "Step",
+    ) as { rows: Array<{ cells: unknown[]; href?: string }> };
+  }
+
+  test("every step row deep-links to its step detail (project-hub form)", () => {
+    const detail: RunDetail = { run: run({ id: "run_p", status: "completed" }), steps: [stepResult({ step: "review", status: "completed" })] };
+    const tree = buildRunDetailView("run_p", detail, "proj-9");
+    const rows = stepTableOf(tree).rows;
+    expect(rows[0]!.href).toBe(
+      `/project/proj-9/hub/${encodeURIComponent(FULL_PAGE_ID)}?run=run_p&step=intent`,
+    );
+    // The review row (index 2 in PIPELINE_STEPS order) targets the review step.
+    expect(rows[2]!.href).toBe(
+      `/project/proj-9/hub/${encodeURIComponent(FULL_PAGE_ID)}?run=run_p&step=review`,
+    );
+  });
+
+  test("without a projectId the step rows use the GLOBAL-hub form", () => {
+    const detail: RunDetail = { run: run({ id: "run_g", status: "completed" }), steps: [] };
+    const tree = buildRunDetailView("run_g", detail);
+    expect(stepTableOf(tree).rows[0]!.href).toBe(
+      `/hub/${encodeURIComponent(FULL_PAGE_ID)}?run=run_g&step=intent`,
+    );
+  });
+
+  test("a stalled run's in-flight step surfaces ⚠ stalled (warning) in the step table", () => {
+    const detail: RunDetail = {
+      run: run({ id: "run_s", status: "running" }),
+      steps: [stepResult({ step: "review", status: "running" })],
+    };
+    const tree = buildRunDetailView("run_s", detail, undefined, new Set(["run_s"]));
+    const rows = stepTableOf(tree).rows;
+    // review is index 2; its cell shows the stalled badge with warning tone.
+    expect(rows[2]!.cells[1]).toEqual({ text: STATUS_BADGE.stalled, tone: "warning" });
+    // A non-in-flight step (pending) keeps its own plain badge.
+    expect(rows[3]!.cells[1]).toBe(STEP_STATUS_BADGE.pending);
+    // The header status stat is stalled-aware too.
+    const meta = firstSection(tree.nodes);
+    const stats = (meta.nodes as Node[]).find((n) => n.type === "stats") as {
+      items: Array<{ label: string; value: string }>;
+    };
+    expect(stats.items.find((i) => i.label === "Status")!.value).toBe(STATUS_BADGE.stalled);
+  });
+});
+
+// ── step-detail VIEW (the ?run=<id>&step=<name> variant) ─────────────
+
+describe("buildStepDetailView (L5 step detail)", () => {
+  function ioDispatch(over: Partial<import("./step-io").StepIODispatch> = {}): import("./step-io").StepIODispatch {
+    return {
+      role: "reviewer",
+      promptText: "review this diff",
+      resultPreview: "looks fine, one nit",
+      assignmentId: "asg-1",
+      subConversationId: "sub-1",
+      agentRunId: "arun-1",
+      at: "2026-07-15T08:00:01.000Z",
+      ...over,
+    };
+  }
+  function ioShell(over: Partial<import("./step-io").StepIOShellCommand> = {}): import("./step-io").StepIOShellCommand {
+    return { command: "bun test", exitCode: 0, output: "42 pass", durationMs: 120, ...over };
+  }
+  function ioRecord(over: Partial<StepIORecord> = {}): StepIORecord {
+    return {
+      runId: "run_abc",
+      step: "review",
+      round: 1,
+      trigger: "initial",
+      branch: "feat/x",
+      headSha: "abcdef0123456789",
+      worktreePath: "/wt/run_abc",
+      repoConfig: snapshotRepoConfig({ ...emptyRepoConfig(), agent: "claude", commands: { ...emptyRepoConfig().commands, test: "bun test", lint: "biome" } }),
+      startedAt: "2026-07-15T08:00:00.000Z",
+      dispatches: [],
+      shellCommands: [],
+      endedAt: "2026-07-15T08:00:05.000Z",
+      durationMs: 5000,
+      error: null,
+      outcome: emptyOutcomeFlags(),
+      ...over,
+    };
+  }
+  function roundRecord(over: Partial<StepRoundRecord> = {}): StepRoundRecord {
+    return {
+      runId: "run_abc",
+      step: "review",
+      round: 1,
+      trigger: "initial",
+      findingsJson: null,
+      userFindingsJson: null,
+      selectedFindingIds: null,
+      selectionSource: null,
+      fixSummary: null,
+      durationMs: 0,
+      ...over,
+    };
+  }
+  function detail(over: Partial<StepDetail> = {}): StepDetail {
+    return { run: run(), step: "review", result: stepResult(), rounds: [], io: [], ...over };
+  }
+
+  function tablesIn(tree: { nodes: unknown[] }) {
+    return allNodes(tree.nodes).filter((n) => n.type === "table") as Array<{
+      columns: string[];
+      rows: Array<{ cells: unknown[]; href?: string }>;
+    }>;
+  }
+  const tableByCol0 = (tree: { nodes: unknown[] }, col0: string) => tablesIn(tree).filter((t) => t.columns[0] === col0);
+  const sectionTitles = (tree: { nodes: unknown[] }) =>
+    allNodes(tree.nodes).filter((n) => n.type === "section").map((n) => String(n.title));
+
+  test("null detail → a 'Step not found' empty state, never an error", () => {
+    const tree = buildStepDetailView(null);
+    const empty = (tree.nodes as Node[]).find((n) => n.type === "empty-state") as Node;
+    expect(String(empty.title)).toContain("not found");
+  });
+
+  test("header stats carry run/branch/step/status/rounds/duration/updated", () => {
+    const tree = buildStepDetailView(
+      detail({
+        run: run({ id: "run_h", branch: "feat/z", status: "completed", updatedAt: "2026-07-15T09:00:00.000Z" }),
+        step: "test",
+        result: stepResult({ step: "test", status: "completed", round: 3, executionMs: 8000 }),
+        io: [ioRecord({ step: "test", round: 1 })],
+      }),
+    );
+    const stats = allNodes(tree.nodes).find((n) => n.type === "stats") as {
+      items: Array<{ label: string; value: string }>;
+    };
+    const by = (l: string) => stats.items.find((i) => i.label === l)!.value;
+    expect(by("Run")).toBe("run_h");
+    expect(by("Branch")).toBe("feat/z");
+    expect(by("Step")).toBe("test");
+    expect(by("Status")).toBe(STEP_STATUS_BADGE.completed);
+    expect(by("Rounds")).toBe("3");
+    expect(by("Duration")).toBe("8000 ms");
+    expect(by("Updated")).toBe("2026-07-15 09:00");
+  });
+
+  test("renders per-round IO: inputs, agent dispatches (deep-linked), and shell commands", () => {
+    const tree = buildStepDetailView(
+      detail({
+        result: stepResult({ round: 1 }),
+        rounds: [roundRecord({ round: 1 })],
+        io: [
+          ioRecord({
+            round: 1,
+            dispatches: [ioDispatch()],
+            shellCommands: [ioShell({ command: "bun test", exitCode: 1, output: "1 fail" })],
+          }),
+        ],
+      }),
+      "proj-42",
+    );
+    // Inputs table (Field/Detail) carries branch/head/worktree/agent/commands.
+    const inputs = tableByCol0(tree, "Field")[0]!;
+    const fields = inputs.rows.map((r) => r.cells[0]);
+    expect(fields).toEqual(expect.arrayContaining(["Branch", "Head", "Worktree", "Agent", "Commands", "Duration"]));
+    // Dispatch table deep-links to the chat sub-conversation on the project.
+    const dispatches = tableByCol0(tree, "#")[0]!;
+    expect(dispatches.rows[0]!.cells[1]).toBe("reviewer");
+    expect(dispatches.rows[0]!.href).toBe("/project/proj-42/chat/sub-1");
+    // Shell table shows command/exit/duration/output.
+    const shell = tableByCol0(tree, "Command")[0]!;
+    expect(shell.rows[0]!.cells).toEqual(["bun test", "1", "120 ms", "1 fail"]);
+  });
+
+  test("rounds render NEWEST-first", () => {
+    const tree = buildStepDetailView(
+      detail({
+        result: stepResult({ round: 2 }),
+        rounds: [roundRecord({ round: 1 }), roundRecord({ round: 2, trigger: "auto_fix" })],
+        io: [ioRecord({ round: 1 }), ioRecord({ round: 2, trigger: "auto_fix" })],
+      }),
+    );
+    const roundSections = sectionTitles(tree).filter((t) => t.startsWith("Round "));
+    expect(roundSections[0]).toContain("Round 2");
+    expect(roundSections[1]).toContain("Round 1");
+  });
+
+  test("errored-final-round: an IO record with NO step_round still renders (LEFT-join)", () => {
+    const tree = buildStepDetailView(
+      detail({
+        result: stepResult({ round: 1 }),
+        rounds: [roundRecord({ round: 1 })], // round 2 has NO step_round
+        io: [ioRecord({ round: 1 }), ioRecord({ round: 2, error: "step review failed: boom" })],
+      }),
+    );
+    const titles = sectionTitles(tree);
+    expect(titles.some((t) => t.startsWith("Round 2"))).toBe(true);
+    // The errored round's error surfaces in its inputs table.
+    const content = allNodes(tree.nodes).map(ownContent).join(" ");
+    expect(content).toContain("step review failed: boom");
+  });
+
+  test("a round with a step_round but NO IO shows 'No recorded IO for this round'", () => {
+    const tree = buildStepDetailView(
+      detail({ result: stepResult({ round: 1 }), rounds: [roundRecord({ round: 1, fixSummary: "tweaked" })], io: [] }),
+    );
+    const empties = allNodes(tree.nodes).filter((n) => n.type === "empty-state").map((n) => String(n.title));
+    expect(empties.some((t) => t.includes("No recorded IO for this round"))).toBe(true);
+  });
+
+  test("whole step with NO rounds and NO io → 'No recorded IO for this step (run predates IO recording)'", () => {
+    const tree = buildStepDetailView(detail({ result: null, rounds: [], io: [] }));
+    const empties = allNodes(tree.nodes).filter((n) => n.type === "empty-state").map((n) => String(n.title));
+    expect(empties.some((t) => t.includes("No recorded IO for this step"))).toBe(true);
+  });
+
+  test("clamps to the latest 10 rounds and notes the rest", () => {
+    const rounds = Array.from({ length: 12 }, (_, i) => roundRecord({ round: i + 1 }));
+    const io = Array.from({ length: 12 }, (_, i) => ioRecord({ round: i + 1 }));
+    const tree = buildStepDetailView(detail({ result: stepResult({ round: 12 }), rounds, io }));
+    const roundSections = sectionTitles(tree).filter((t) => t.startsWith("Round "));
+    expect(roundSections).toHaveLength(10);
+    // Newest kept, oldest dropped.
+    expect(roundSections[0]).toContain("Round 12");
+    expect(roundSections.some((t) => t.includes("Round 2 "))).toBe(false);
+    // The "showing latest N" note is a muted text node (page.markdown → text).
+    const content = allNodes(tree.nodes).map(ownContent).join(" ");
+    expect(content).toContain("latest 10 of 12 rounds");
+  });
+
+  test("BUILDER pre-truncates a 32 KB stored blob so no cell exceeds ~280 chars", () => {
+    const bigOutput = "x".repeat(32 * 1024);
+    const bigPrompt = "p".repeat(32 * 1024);
+    const tree = buildStepDetailView(
+      detail({
+        result: stepResult({ round: 1 }),
+        rounds: [roundRecord({ round: 1 })],
+        io: [ioRecord({ round: 1, dispatches: [ioDispatch({ promptText: bigPrompt })], shellCommands: [ioShell({ output: bigOutput })] })],
+      }),
+    );
+    // Every table cell string in the tree must be a bounded excerpt.
+    const cellStrings: string[] = [];
+    for (const t of tablesIn(tree)) {
+      for (const r of t.rows) {
+        for (const c of r.cells) if (typeof c === "string") cellStrings.push(c);
+      }
+    }
+    for (const c of cellStrings) expect(c.length).toBeLessThanOrEqual(300);
+    // And the excerpt marker is present on the truncated ones.
+    expect(cellStrings.some((c) => c.includes("· excerpt"))).toBe(true);
+  });
+
+  test("PRIVACY: agent/shell content lands ONLY in escaped nodes, never a markdown sink; dispatch rows keep chat hrefs", () => {
+    const XSS = `<img src=x onerror="alert('ezcf_step_xss')">`;
+    const tree = buildStepDetailView(
+      detail({
+        run: run({ id: "run_x", branch: `feat/${XSS}` }),
+        result: stepResult({ round: 1 }),
+        rounds: [roundRecord({ round: 1 })],
+        io: [
+          ioRecord({
+            round: 1,
+            branch: `feat/${XSS}`,
+            dispatches: [ioDispatch({ promptText: XSS, resultPreview: XSS })],
+            shellCommands: [ioShell({ command: XSS, output: XSS })],
+            error: XSS,
+          }),
+        ],
+      }),
+      "proj-1",
+    );
+    const carriers = allNodes(tree.nodes).filter((n) => ownContent(n).includes(XSS));
+    expect(carriers.length).toBeGreaterThan(0);
+    expect(carriers.some((n) => n.type === "markdown")).toBe(false);
+    for (const n of carriers) expect(ESCAPED_PAGE_TYPES.has(n.type as string)).toBe(true);
+    // The dispatch row still deep-links to the chat (the deep-link is the ONLY
+    // way transcript content is reachable — never inlined here).
+    const dispatches = tableByCol0(tree, "#")[0]!;
+    expect(dispatches.rows[0]!.href).toBe("/project/proj-1/chat/sub-1");
+  });
+
+  test("a stalled run's in-flight step surfaces ⚠ stalled in the header status", () => {
+    const tree = buildStepDetailView(
+      detail({ run: run({ id: "run_s", status: "running" }), result: stepResult({ status: "running", round: 1 }), rounds: [roundRecord()], io: [ioRecord()] }),
+      undefined,
+      new Set(["run_s"]),
+    );
+    const stats = allNodes(tree.nodes).find((n) => n.type === "stats") as {
+      items: Array<{ label: string; value: string }>;
+    };
+    expect(stats.items.find((i) => i.label === "Status")!.value).toBe(STATUS_BADGE.stalled);
   });
 });

@@ -61,12 +61,14 @@ import {
   buildHome,
   buildProjectDashboard,
   buildRunDetailView,
+  buildStepDetailView,
   normalizeRespondPayload,
   orphanRuns,
   parseRunIdPayload,
   projectIdForRun,
   runsForProject,
   type RunDetail,
+  type StepDetail,
 } from "./lib/page";
 import {
   createRunStore,
@@ -98,6 +100,7 @@ import {
   type SweepSummary,
 } from "./lib/sweep";
 import {
+  isRunStale,
   productionHeartbeatKV,
   productionRunHeartbeatKV,
   type HeartbeatKV,
@@ -578,7 +581,62 @@ async function renderRunDetail(
   }
   const projects = ctx?.projects ?? (ctx?.project ? [ctx.project] : []);
   const projectId = projectIdForRun(run, projects);
-  return buildRunDetailView(runId, { run, steps }, projectId);
+  const stalledRunIds = await computeStalledRunIds([run]);
+  return buildRunDetailView(runId, { run, steps }, projectId, stalledRunIds);
+}
+
+/**
+ * Derived-stalled ids (L3, immediate — doesn't wait for the sweep cron): for
+ * each `running` run, read its per-run heartbeat and evaluate the SHARED
+ * `isRunStale` helper with `Date.now()`. A run persisted as `stalled` by the
+ * sweep needs no entry here (it already renders stalled); this set only
+ * upgrades a `running` run whose executor has gone silent. One heartbeat read
+ * per running run (typically 0–1).
+ */
+async function computeStalledRunIds(runs: RunRecord[]): Promise<Set<string>> {
+  const kv = runHeartbeatKVImpl();
+  const now = Date.now();
+  const ids = new Set<string>();
+  for (const run of runs) {
+    if (run.status !== "running") continue;
+    const heartbeatAt = await kv.read(run.id);
+    if (isRunStale(run, heartbeatAt, now)) ids.add(run.id);
+  }
+  return ids;
+}
+
+/**
+ * Render the read-only STEP-detail view for `?run=<id>&step=<name>` (L5). An
+ * arbitrary 128-char `step` string reaches here — validate it against
+ * PIPELINE_STEPS (unknown → empty state, never throw). Loads the run, the single
+ * step result + its rounds, and the per-round IO records via `listStepIO` (a
+ * PREFIX listing — an errored final attempt writes an IO record beyond
+ * `sr.round`, so a 1..round loop would miss it). Resolves the owning project for
+ * the per-dispatch chat deep-links exactly as the run detail does.
+ */
+async function renderStepDetail(
+  store: RunStore,
+  runId: string,
+  step: string,
+  ctx?: PageRenderContext,
+): Promise<HubPageTree> {
+  // Unknown step (arbitrary reachable string) → honest empty state, never throw.
+  if (!(PIPELINE_STEPS as readonly string[]).includes(step)) {
+    return buildStepDetailView(null);
+  }
+  const pipelineStep = step as PipelineStep;
+  const run = await store.getRun(runId);
+  if (!run) return buildStepDetailView(null);
+
+  const result = await store.getStepResult(runId, pipelineStep);
+  const rounds = await store.getStepRounds(runId, pipelineStep);
+  const io = await store.listStepIO(runId, pipelineStep);
+
+  const projects = ctx?.projects ?? (ctx?.project ? [ctx.project] : []);
+  const projectId = projectIdForRun(run, projects);
+  const stalledRunIds = await computeStalledRunIds([run]);
+  const detail: StepDetail = { run, step: pipelineStep, result, rounds, io };
+  return buildStepDetailView(detail, projectId, stalledRunIds);
 }
 
 // ── Handlers ─────────────────────────────────────────────────────────
@@ -989,6 +1047,12 @@ export async function recoverOnStart(): Promise<RecoverySummary> {
  *  inline — a project view never pays for other projects' triage. */
 export async function renderDashboard(ctx?: PageRenderContext) {
   const store = getStore();
+  // Step-detail variant (`?run=<id>&step=<name>`): render ONE step's detail —
+  // its per-round inputs/outputs — BEFORE the run branch (a step is a
+  // sub-variant of a run; the SDK only supplies `step` alongside `run`).
+  if (ctx?.run && ctx?.step) {
+    return renderStepDetail(store, ctx.run, ctx.step, ctx);
+  }
   // Run-detail variant (`?run=<id>`): render ONE run's read-only detail
   // (meta + step results + agent-turn provenance) instead of the dashboard.
   // Reachable from either hub, so it takes precedence over project context.
@@ -996,15 +1060,18 @@ export async function renderDashboard(ctx?: PageRenderContext) {
     return renderRunDetail(store, ctx.run, ctx);
   }
   const runs = await store.listRuns();
+  // Derived-stalled ids (immediate truthfulness — the sweep persists them
+  // durably on its own cadence). Computed once and threaded into every builder.
+  const stalledRunIds = await computeStalledRunIds(runs);
   if (ctx?.project) {
     const own = runsForProject(ctx.project, runs);
-    return buildProjectDashboard(ctx.project, runs, await collectParkedDetails(store, own));
+    return buildProjectDashboard(ctx.project, runs, await collectParkedDetails(store, own), stalledRunIds);
   }
   if (ctx?.projects) {
     const orphans = orphanRuns(ctx.projects, runs);
-    return buildHome(ctx.projects, runs, await collectParkedDetails(store, orphans));
+    return buildHome(ctx.projects, runs, await collectParkedDetails(store, orphans), stalledRunIds);
   }
-  return buildDashboard(runs, await collectParkedDetails(store, runs));
+  return buildDashboard(runs, await collectParkedDetails(store, runs), stalledRunIds);
 }
 
 // ── Wiring ───────────────────────────────────────────────────────────

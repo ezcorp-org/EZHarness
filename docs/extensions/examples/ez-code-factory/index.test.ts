@@ -2446,3 +2446,151 @@ describe("renderDashboard — perProject context dispatch", () => {
     expect(String((empty as Record<string, unknown>).title)).toContain("not found");
   });
 });
+
+// ── renderDashboard — step-detail routing + loader + derived stalled ──
+
+describe("renderDashboard — step-detail + stalled", () => {
+  const PROJECT = { id: "6f9619ff-8b86-4d01-b42d-00cf4fc964ff", name: "My App", path: "/home/dev/my-app" };
+
+  function allNodes(nodes: unknown[]): Array<Record<string, unknown>> {
+    const out: Array<Record<string, unknown>> = [];
+    for (const raw of nodes) {
+      const n = raw as Record<string, unknown>;
+      out.push(n);
+      if (n.type === "section" && Array.isArray(n.nodes)) out.push(...allNodes(n.nodes as unknown[]));
+    }
+    return out;
+  }
+
+  async function seedRunWithStep(store: ReturnType<typeof memStore>, id: string): Promise<void> {
+    await store.createRun({
+      id,
+      repoId: repoIdOf(PROJECT.path),
+      branch: "feat/mine",
+      ref: "refs/heads/feat/mine",
+      headSha: "abcdef0123456789",
+      baseSha: "0000000000000000",
+      status: "completed",
+      worktreePath: null,
+      createdAt: "2026-07-17T08:00:00.000Z",
+      updatedAt: "2026-07-17T08:00:00.000Z",
+      parkedMs: 0,
+      awaitingAgentSince: null,
+      intent: null,
+      intentSource: null,
+    });
+    await store.putStepResult({
+      runId: id,
+      step: "review",
+      status: "completed",
+      findings: emptyFindings(),
+      agentPid: null,
+      autoFixLimit: 0,
+      round: 1,
+      autoFixAttempts: 0,
+      executionMs: 4200,
+      fixSummary: null,
+    });
+  }
+
+  const ioRec = (runId: string, round: number, over: Record<string, unknown> = {}) => ({
+    runId,
+    step: "review" as const,
+    round,
+    trigger: (round === 1 ? "initial" : "auto_fix") as "initial" | "auto_fix",
+    branch: "feat/mine",
+    headSha: "abcdef0123456789",
+    worktreePath: "/wt",
+    repoConfig: { agent: "", allowRepoCommands: false, disableProjectSettings: false, commandTest: "", commandLint: "" },
+    startedAt: "2026-07-17T08:00:00.000Z",
+    dispatches: [],
+    shellCommands: [],
+    endedAt: "2026-07-17T08:00:05.000Z",
+    durationMs: 5000,
+    error: null,
+    outcome: { needsApproval: false, autoFixable: false, skipped: false, skipRemaining: false, checksPassed: false },
+    ...over,
+  });
+
+  test("ctx.run + ctx.step renders the STEP detail, taking precedence over run + project", async () => {
+    const store = memStore();
+    await seedRunWithStep(store, "r-mine");
+    await store.putStepIO(ioRec("r-mine", 1));
+    _setStoreForTests(store);
+    const tree = await renderDashboard({ project: PROJECT, run: "r-mine", step: "review" });
+    expect(tree.title).toBe("ez-code-factory — step");
+    const stats = allNodes(tree.nodes).find((n) => n.type === "stats") as {
+      items: Array<{ label: string; value: string }>;
+    };
+    expect(stats.items.find((i) => i.label === "Step")!.value).toBe("review");
+    expect(stats.items.find((i) => i.label === "Run")!.value).toBe("r-mine");
+  });
+
+  test("an unknown step → 'Step not found' empty state (never throws)", async () => {
+    const store = memStore();
+    await seedRunWithStep(store, "r-mine");
+    _setStoreForTests(store);
+    const tree = await renderDashboard({ run: "r-mine", step: "bogus-step" });
+    const empty = (tree.nodes as Array<Record<string, unknown>>).find((n) => n.type === "empty-state");
+    expect(String((empty as Record<string, unknown>).title)).toContain("not found");
+  });
+
+  test("an unknown run with a valid step → 'Step not found' empty state", async () => {
+    _setStoreForTests(memStore());
+    const tree = await renderDashboard({ run: "r-nope", step: "review" });
+    const empty = (tree.nodes as Array<Record<string, unknown>>).find((n) => n.type === "empty-state");
+    expect(String((empty as Record<string, unknown>).title)).toContain("not found");
+  });
+
+  test("the loader lists IO by PREFIX — an errored round beyond sr.round still renders (LEFT-join)", async () => {
+    const store = memStore();
+    await seedRunWithStep(store, "r-mine"); // sr.round = 1
+    await store.appendStepRound({
+      runId: "r-mine", step: "review", round: 1, trigger: "initial",
+      findingsJson: null, userFindingsJson: null, selectedFindingIds: null,
+      selectionSource: null, fixSummary: null, durationMs: 0,
+    });
+    await store.putStepIO(ioRec("r-mine", 1));
+    // An errored final attempt wrote an IO record at round 2 with NO step_round.
+    await store.putStepIO(ioRec("r-mine", 2, { error: "step review failed: boom" }));
+    _setStoreForTests(store);
+    const tree = await renderDashboard({ run: "r-mine", step: "review" });
+    const titles = allNodes(tree.nodes).filter((n) => n.type === "section").map((n) => String(n.title));
+    expect(titles.some((t) => t.startsWith("Round 2"))).toBe(true);
+    const content = JSON.stringify(tree.nodes);
+    expect(content).toContain("step review failed: boom");
+  });
+
+  test("DERIVED stalled: a running run with a silent heartbeat renders ⚠ stalled on the dashboard", async () => {
+    const store = memStore();
+    await store.createRun({
+      id: "r-live",
+      repoId: repoIdOf(PROJECT.path),
+      branch: "feat/mine",
+      ref: "refs/heads/feat/mine",
+      headSha: "abcdef0123456789",
+      baseSha: "0000000000000000",
+      status: "running",
+      worktreePath: "/wt/live",
+      createdAt: "2020-01-01T00:00:00.000Z",
+      updatedAt: "2020-01-01T00:00:00.000Z", // frozen far in the past → stale now
+      parkedMs: 0,
+      awaitingAgentSince: null,
+      intent: null,
+      intentSource: null,
+    });
+    _setStoreForTests(store);
+    // No per-run heartbeat → the frozen updatedAt trips the stall threshold.
+    _setRunHeartbeatKVForTests(() => ({ async read() { return null; }, async write() {} }));
+    const tree = await renderDashboard();
+    const row = allNodes(tree.nodes)
+      .filter((n) => n.type === "table")
+      .flatMap((n) => n.rows as Array<{ cells: unknown[] }>)
+      .find((r) => r.cells[0] === "r-live");
+    expect(row!.cells[3]).toEqual({ text: "⚠ stalled", tone: "warning" });
+    const stats = (tree.nodes as Array<Record<string, unknown>>).find((n) => n.type === "stats") as {
+      items: Array<{ label: string; value: string }>;
+    };
+    expect(stats.items.find((i) => i.label === "Stalled")!.value).toBe("1");
+  });
+});

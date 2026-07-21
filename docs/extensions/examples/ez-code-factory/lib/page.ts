@@ -39,8 +39,10 @@ import type {
   RunRecord,
   RunStatus,
   StepResultRecord,
+  StepRoundRecord,
   StepStatus,
 } from "./runs";
+import type { StepIORecord } from "./step-io";
 
 /** The full namespaced events the detail controls dispatch. All are declared
  *  in `ezcorp.config.ts` eventSubscriptions (the host allowlists page actions
@@ -136,6 +138,32 @@ function stepStatusCell(status: StepStatus): PageCellInput {
   return tone === "neutral" ? text : { text, tone };
 }
 
+/**
+ * The EFFECTIVE run status for display (L3): a `running` run whose id is in the
+ * derived `stalledRunIds` set renders as `stalled` — the sweep's persisted
+ * `stalled` needs no override (it already IS stalled). This is where OQ2 lands:
+ * builders PRE-MAP to the effective status here and hand it to the pure
+ * `statusCell`/`STATUS_BADGE`, so those stay unchanged single-arg lookups and
+ * every call site is a one-liner. Pure.
+ */
+export function effectiveRunStatus(
+  run: Pick<RunRecord, "id" | "status">,
+  stalledRunIds?: ReadonlySet<string>,
+): RunStatus {
+  return run.status === "running" && stalledRunIds?.has(run.id) ? "stalled" : run.status;
+}
+
+/** The step-detail cell for a step whose RUN is stalled (persisted or derived):
+ *  an in-flight step (`running`/`fixing`) surfaces `⚠ stalled` with warning tone
+ *  (display-derived only — the StepStatus union is unchanged, L3). Any other
+ *  step status renders its own cell. */
+function effectiveStepCell(status: StepStatus, runStalled: boolean): PageCellInput {
+  if (runStalled && (status === "running" || status === "fixing")) {
+    return { text: STATUS_BADGE.stalled, tone: "warning" };
+  }
+  return stepStatusCell(status);
+}
+
 /** Severity glyph + label for a findings-table cell. */
 export const SEVERITY_ICON: Record<FindingSeverity, string> = {
   error: "⛔ error",
@@ -225,15 +253,27 @@ function fixAction(runId: string, step: PipelineStep, findingId: string): PageAc
   };
 }
 
-/** Append the pipeline step-list table (every step, in fixed order). */
-function appendStepTable(page: PageBuilder, detail: RunDetail): void {
+/** Append the pipeline step-list table (every step, in fixed order). Each row
+ *  LINKS to that step's detail (`?run=<id>&step=<name>`); when the run is
+ *  stalled, an in-flight step's Status cell surfaces `⚠ stalled` (L3). `opts`
+ *  carries the run's stalled-ness + the resolved projectId (for the href form).
+ */
+function appendStepTable(
+  page: PageBuilder,
+  detail: RunDetail,
+  opts?: { runStalled?: boolean; projectId?: string },
+): void {
   const byName = stepIndex(detail.steps);
+  const runStalled = opts?.runStalled === true;
   page.table(
     ["Step", "Status", "Rounds"],
     PIPELINE_STEPS.map((step) => {
       const sr = byName.get(step);
       const status: StepStatus = sr?.status ?? "pending";
-      return { cells: [step, stepStatusCell(status), String(sr?.round ?? 0)] };
+      return {
+        cells: [step, effectiveStepCell(status, runStalled), String(sr?.round ?? 0)],
+        href: stepDetailHref(opts?.projectId, detail.run.id, step),
+      };
     }),
   );
 }
@@ -309,15 +349,21 @@ function appendLogPanel(page: PageBuilder, sr: StepResultRecord, findings: Findi
  * the run is not parked (mid-flight / terminal / no parked step) it renders the
  * step list plus a state note only — no action controls. Pure.
  */
-export function appendRunDetail(page: PageBuilder, detail: RunDetail): void {
+export function appendRunDetail(
+  page: PageBuilder,
+  detail: RunDetail,
+  opts?: { stalledRunIds?: ReadonlySet<string>; projectId?: string },
+): void {
   const { run } = detail;
+  const effStatus = effectiveRunStatus(run, opts?.stalledRunIds);
+  const runStalled = effStatus === "stalled";
   page.section(`Run ${run.id} · ${run.branch}`, (section) => {
     section.stats([
-      { label: "Status", value: STATUS_BADGE[run.status] },
+      { label: "Status", value: STATUS_BADGE[effStatus] },
       { label: "Head", value: shortSha(run.headSha) },
       { label: "Intent", value: run.intent ? "explicit" : "none", hint: run.intent ?? undefined },
     ]);
-    appendStepTable(section, detail);
+    appendStepTable(section, detail, { runStalled, projectId: opts?.projectId });
 
     const parked = parkedStep(detail.steps);
     if (!parked) {
@@ -473,6 +519,7 @@ export function buildRunDetailView(
   runId: string,
   detail: RunDetail | null,
   projectId?: string,
+  stalledRunIds?: ReadonlySet<string>,
 ): HubPageTree {
   const page = new PageBuilder(`ez-code-factory — run ${runId}`);
   if (!detail) {
@@ -484,14 +531,15 @@ export function buildRunDetailView(
   }
 
   const { run, steps } = detail;
+  const effStatus = effectiveRunStatus(run, stalledRunIds);
   page.section(`Run ${run.id} · ${run.branch}`, (section) => {
     section.stats([
-      { label: "Status", value: STATUS_BADGE[run.status] },
+      { label: "Status", value: STATUS_BADGE[effStatus] },
       { label: "Head", value: shortSha(run.headSha) },
       { label: "Updated", value: shortTime(run.updatedAt) },
       { label: "Intent", value: run.intent ? "explicit" : "none", hint: run.intent ?? undefined },
     ]);
-    appendStepTable(section, detail);
+    appendStepTable(section, detail, { runStalled: effStatus === "stalled", projectId });
   });
 
   const byName = stepIndex(steps);
@@ -504,6 +552,201 @@ export function buildRunDetailView(
       appendFindingsTable(section, run.id, step as PipelineStep, sr.findings, { interactive: false });
       appendLogPanel(section, sr, sr.findings);
       appendAgentTurns(section, sr, projectId);
+    });
+  }
+
+  return page.build();
+}
+
+// ── Step-detail VIEW (the `?run=<id>&step=<name>` render variant) ────
+
+/** Max chars of any stored blob rendered into a cell. The BUILDER pre-truncates
+ *  because the 64 KB tree-envelope check runs on the RAW input BEFORE the
+ *  validator's own per-cell 300-char truncation (page-schema.ts) — a stored
+ *  32 KB blob passed whole would reject the ENTIRE tree. Full bounded content
+ *  stays in storage; this view shows an excerpt. */
+const STEP_IO_EXCERPT_CHARS = 280;
+
+/** Latest N rounds rendered in a step detail — bounds the node count well under
+ *  the 500-node tree cap (~12 nodes/round × 10 ≈ 120). Older rounds get a note. */
+const MAX_STEP_DETAIL_ROUNDS = 10;
+
+/** Pre-truncate a stored blob to a cell-safe excerpt with an explicit size note
+ *  (e.g. "…[4210 chars · excerpt]"). "—" for empty. NEVER fed to a markdown
+ *  node — table cells only (the XSS invariant). Pure. */
+function ioExcerpt(text: string): string {
+  if (text === "") return "—";
+  if (text.length <= STEP_IO_EXCERPT_CHARS) return text;
+  const keep = STEP_IO_EXCERPT_CHARS - 28;
+  return `${text.slice(0, keep).trimEnd()} …[${text.length} chars · excerpt]`;
+}
+
+/** The step + everything recorded for it — the input to the step-detail view.
+ *  `result`/`rounds` come from step_results/step_rounds; `io` from listStepIO
+ *  (prefix listing — NOT a 1..sr.round loop, since an errored final attempt
+ *  writes an IO record beyond sr.round). */
+export interface StepDetail {
+  run: RunRecord;
+  step: PipelineStep;
+  result: StepResultRecord | null;
+  rounds: StepRoundRecord[];
+  io: StepIORecord[];
+}
+
+/** Append one round's IO detail — inputs, agent dispatches (deep-linked, work
+ *  product only), and trusted shell commands. When the round has a step_round
+ *  but no IO record (a pre-feature round of a live run) an honest note shows. */
+function appendStepIORound(
+  page: PageBuilder,
+  round: StepRoundRecord | undefined,
+  io: StepIORecord | undefined,
+  projectId?: string,
+): void {
+  if (!io) {
+    page.emptyState(
+      "No recorded IO for this round",
+      "This round executed before per-round IO recording was enabled.",
+    );
+    if (round?.fixSummary) {
+      page.table(["Field", "Detail"], [{ cells: ["Last fix", round.fixSummary] }]);
+    }
+    return;
+  }
+
+  // Inputs — every value is a bounded scalar; a stored blob (error) is excerpted.
+  const inputRows: Array<[string, string]> = [
+    ["Branch", io.branch || "—"],
+    ["Head", shortSha(io.headSha)],
+    ["Worktree", io.worktreePath || "—"],
+    ["Agent", io.repoConfig.agent || "default"],
+    ["Commands", `test: ${io.repoConfig.commandTest || "—"} · lint: ${io.repoConfig.commandLint || "—"}`],
+    ["Started", shortTime(io.startedAt)],
+    ["Ended", shortTime(io.endedAt)],
+    ["Duration", `${io.durationMs} ms`],
+  ];
+  if (io.error) inputRows.push(["Error", ioExcerpt(io.error)]);
+  page.table(
+    ["Field", "Detail"],
+    inputRows.map(([label, value]) => ({ cells: [label, value] })),
+  );
+
+  // Agent dispatches — prompt + bounded RESULT PREVIEW (work product), each
+  // row deep-linking its chat sub-conversation (never inlining transcript
+  // content — the same privacy rule as appendAgentTurns).
+  if (io.dispatches.length > 0) {
+    page.heading(3, "Agent dispatches");
+    page.table(
+      ["#", "Role", "Prompt", "Result", "When"],
+      io.dispatches.map((d, i) => ({
+        cells: [
+          String(i + 1),
+          d.role,
+          ioExcerpt(d.promptText),
+          d.error ? `error: ${ioExcerpt(d.error)}` : ioExcerpt(d.resultPreview),
+          shortTime(d.at),
+        ],
+        ...(projectId && d.subConversationId ? { href: chatHref(projectId, d.subConversationId) } : {}),
+      })),
+    );
+  }
+
+  // Trusted shell commands (test/lint) — command, exit code, duration, output
+  // excerpt. Git plumbing is deliberately absent (L7).
+  if (io.shellCommands.length > 0) {
+    page.heading(3, "Shell commands");
+    page.table(
+      ["Command", "Exit", "Duration", "Output"],
+      io.shellCommands.map((s) => ({
+        cells: [ioExcerpt(s.command), String(s.exitCode), `${s.durationMs} ms`, ioExcerpt(s.output)],
+      })),
+    );
+  }
+}
+
+/**
+ * Build the standalone STEP-detail page (the `?run=<id>&step=<name>` variant):
+ * the step's metadata, its aggregate findings/log/turns (reusing the run-detail
+ * builders verbatim), then per-ROUND IO sections newest-first — inputs, prompts,
+ * shell commands, dispatch deep-links, timings, and errors. Pure. `detail ===
+ * null` (unknown run/step) renders an honest note. The RUN's effective status
+ * drives the stalled-aware step badge (L3). Every excerpt is builder-truncated
+ * so a 32 KB stored blob can never blow the 64 KB tree envelope.
+ */
+export function buildStepDetailView(
+  detail: StepDetail | null,
+  projectId?: string,
+  stalledRunIds?: ReadonlySet<string>,
+): HubPageTree {
+  const page = new PageBuilder("ez-code-factory — step");
+  if (!detail) {
+    page.emptyState(
+      "Step not found",
+      "No such run/step is recorded on this deployment — the link may be stale, or the step never ran.",
+    );
+    return page.build();
+  }
+
+  const { run, step, result, rounds, io } = detail;
+  const runStalled = effectiveRunStatus(run, stalledRunIds) === "stalled";
+  const stepStatus: StepStatus = result?.status ?? "pending";
+  // Step-level stalled: an in-flight step of a stalled run surfaces ⚠ stalled.
+  const statusBadge =
+    runStalled && (stepStatus === "running" || stepStatus === "fixing")
+      ? STATUS_BADGE.stalled
+      : STEP_STATUS_BADGE[stepStatus];
+
+  page.section(`Run ${run.id} · ${step}`, (section) => {
+    section.stats([
+      { label: "Run", value: run.id },
+      { label: "Branch", value: run.branch },
+      { label: "Step", value: step },
+      { label: "Status", value: statusBadge },
+      { label: "Rounds", value: String(result?.round ?? 0) },
+      { label: "Duration", value: `${result?.executionMs ?? 0} ms` },
+      { label: "Updated", value: shortTime(run.updatedAt) },
+    ]);
+  });
+
+  // Aggregate step findings/log/turns (verbatim reuse of the run-detail
+  // builders) when the step recorded anything worth expanding.
+  if (result && stepHasDetail(result)) {
+    page.section(`${step} summary`, (section) => {
+      appendRiskLine(section, result.findings);
+      appendFindingsTable(section, run.id, step, result.findings, { interactive: false });
+      appendLogPanel(section, result, result.findings);
+      appendAgentTurns(section, result, projectId);
+    });
+  }
+
+  // Per-round IO. LEFT-join step_rounds with step_io over the UNION of round
+  // numbers — an errored final round has an IO record but NO step_round, while
+  // a pre-feature round has a step_round but NO IO. Newest first, clamped.
+  const roundByN = new Map(rounds.map((r) => [r.round, r]));
+  const ioByN = new Map(io.map((r) => [r.round, r]));
+  const allRounds = [...new Set([...roundByN.keys(), ...ioByN.keys()])].sort((a, b) => b - a);
+
+  if (allRounds.length === 0) {
+    page.emptyState(
+      "No recorded IO for this step (run predates IO recording)",
+      "This step recorded no rounds — an old run from before per-round IO recording, or a step that never executed on this run.",
+    );
+    return page.build();
+  }
+
+  const shownRounds = allRounds.slice(0, MAX_STEP_DETAIL_ROUNDS);
+  if (allRounds.length > shownRounds.length) {
+    page.markdown(
+      `Showing the latest ${shownRounds.length} of ${allRounds.length} rounds.`,
+      "muted",
+    );
+  }
+
+  for (const n of shownRounds) {
+    const rr = roundByN.get(n);
+    const ir = ioByN.get(n);
+    const trigger = ir?.trigger ?? rr?.trigger ?? "initial";
+    page.section(`Round ${n} · ${trigger}`, (section) => {
+      appendStepIORound(section, rr, ir, projectId);
     });
   }
 
@@ -534,6 +777,17 @@ function globalRunHref(runId: string): string {
   return `/hub/${encodeURIComponent(FULL_PAGE_ID)}?run=${encodeURIComponent(runId)}`;
 }
 
+/** Deep-link to a STEP's detail render variant (`?run=<id>&step=<name>`) — the
+ *  project-hub form when a projectId resolves, the global-hub form otherwise
+ *  (mirrors projectRunHref/globalRunHref). Both are query-only navigations on
+ *  the same page, so the host re-pulls with `ctx.run` + `ctx.step` set. */
+function stepDetailHref(projectId: string | undefined, runId: string, step: string): string {
+  const base = projectId
+    ? `/project/${projectId}/hub/${encodeURIComponent(FULL_PAGE_ID)}`
+    : `/hub/${encodeURIComponent(FULL_PAGE_ID)}`;
+  return `${base}?run=${encodeURIComponent(runId)}&step=${encodeURIComponent(step)}`;
+}
+
 /** The host silently TRUNCATES tables past 100 rows (page-schema
  *  MAX_TABLE_ROWS `.slice`) — clamp the projects table ourselves so we
  *  can render the "showing first N" notice instead of dropping rows
@@ -543,14 +797,25 @@ const MAX_PROJECT_ROWS = 100;
 const EMPTY_STATE_DETAIL =
   "Run the `init_gate` tool on this project, then `git push gate <branch>` to intercept a push.";
 
-/** Run-count stats row shared by every dashboard variant. */
-function appendRunStats(page: PageBuilder, runs: RunRecord[]): void {
-  const active = runs.filter((r) => ACTIVE_STATUSES.has(r.status)).length;
-  const completed = runs.filter((r) => r.status === "completed").length;
-  const failed = runs.filter((r) => r.status === "failed" || r.status === "aborted").length;
+/** Run-count stats row shared by every dashboard variant. Buckets read the
+ *  EFFECTIVE status (a derived-stalled `running` run counts as Stalled, NOT
+ *  Active), and a "Stalled" bucket appears when > 0 — a persisted- or
+ *  derived-stalled run otherwise falls into none of Active/Completed/Failed
+ *  (review finding, L3). */
+function appendRunStats(
+  page: PageBuilder,
+  runs: RunRecord[],
+  stalledRunIds?: ReadonlySet<string>,
+): void {
+  const effective = runs.map((r) => effectiveRunStatus(r, stalledRunIds));
+  const active = effective.filter((s) => ACTIVE_STATUSES.has(s)).length;
+  const completed = effective.filter((s) => s === "completed").length;
+  const failed = effective.filter((s) => s === "failed" || s === "aborted").length;
+  const stalled = effective.filter((s) => s === "stalled").length;
   page.stats([
     { label: "Total runs", value: String(runs.length) },
     { label: "Active", value: String(active) },
+    ...(stalled > 0 ? [{ label: "Stalled", value: String(stalled) }] : []),
     { label: "Completed", value: String(completed) },
     { label: "Failed", value: String(failed) },
   ]);
@@ -578,6 +843,7 @@ function appendRunsSection(
   runs: RunRecord[],
   details: RunDetail[],
   runHref: (runId: string) => string,
+  opts?: { stalledRunIds?: ReadonlySet<string>; projectId?: string },
 ): void {
   const shownRuns = clampRows(page, runs, "runs");
   page.table(
@@ -587,7 +853,9 @@ function appendRunsSection(
         r.id,
         r.branch,
         shortSha(r.headSha),
-        statusCell(r.status),
+        // The Status cell renders the EFFECTIVE status (stalled overrides
+        // running) with its DRY tone — a dead run shows ⚠ stalled (warning).
+        statusCell(effectiveRunStatus(r, opts?.stalledRunIds)),
         shortTime(r.updatedAt),
       ],
       href: runHref(r.id),
@@ -597,7 +865,9 @@ function appendRunsSection(
   // can act on findings without navigating away from the shared dashboard.
   const shown = new Set(shownRuns.map((r) => r.id));
   for (const detail of details) {
-    if (shown.has(detail.run.id)) appendRunDetail(page, detail);
+    if (shown.has(detail.run.id)) {
+      appendRunDetail(page, detail, { stalledRunIds: opts?.stalledRunIds, projectId: opts?.projectId });
+    }
   }
 }
 
@@ -649,13 +919,17 @@ export function projectIdForRun(run: RunRecord, projects: ProjectRef[]): string 
  * Rendered when the host provides NO project context (older host, or the
  * `perProject` flag removed) — behavior identical to the pre-perProject page.
  */
-export function buildDashboard(runs: RunRecord[], details: RunDetail[] = []): HubPageTree {
+export function buildDashboard(
+  runs: RunRecord[],
+  details: RunDetail[] = [],
+  stalledRunIds?: ReadonlySet<string>,
+): HubPageTree {
   const page = new PageBuilder("ez-code-factory").markdownBlock(
     "Runs created by `git push gate <branch>`. Each push lands in the local " +
       "gate repo, whose post-receive hook triggers this extension to record a " +
       "run and materialize a disposable worktree.",
   );
-  appendRunStats(page, runs);
+  appendRunStats(page, runs, stalledRunIds);
 
   if (runs.length === 0) {
     page.emptyState("No gate runs yet", EMPTY_STATE_DETAIL);
@@ -664,7 +938,7 @@ export function buildDashboard(runs: RunRecord[], details: RunDetail[] = []): Hu
 
   // No project context (older host / flag off): run rows deep-link to the
   // GLOBAL-hub detail variant.
-  appendRunsSection(page, runs, details, globalRunHref);
+  appendRunsSection(page, runs, details, globalRunHref, { stalledRunIds });
   return page.build();
 }
 
@@ -677,10 +951,11 @@ export function buildProjectDashboard(
   project: ProjectRef,
   runs: RunRecord[],
   details: RunDetail[] = [],
+  stalledRunIds?: ReadonlySet<string>,
 ): HubPageTree {
   const own = runsForProject(project, runs);
   const page = new PageBuilder(`ez-code-factory — ${project.name}`);
-  appendRunStats(page, own);
+  appendRunStats(page, own, stalledRunIds);
 
   if (own.length === 0) {
     page.emptyState("No gate runs for this project yet", EMPTY_STATE_DETAIL);
@@ -688,8 +963,12 @@ export function buildProjectDashboard(
   }
 
   // R1: this project's run rows carry a href to their detail on the SAME
-  // project hub (project context preserved via the route prefix).
-  appendRunsSection(page, own, details, (runId) => projectRunHref(project.id, runId));
+  // project hub (project context preserved via the route prefix). The step-row
+  // deep-links + inline triage carry the project id for their own hrefs.
+  appendRunsSection(page, own, details, (runId) => projectRunHref(project.id, runId), {
+    stalledRunIds,
+    projectId: project.id,
+  });
   return page.build();
 }
 
@@ -703,13 +982,14 @@ export function buildHome(
   projects: ProjectRef[],
   runs: RunRecord[],
   details: RunDetail[] = [],
+  stalledRunIds?: ReadonlySet<string>,
 ): HubPageTree {
   const page = new PageBuilder("ez-code-factory").markdownBlock(
     "Runs created by `git push gate <branch>`, grouped by project. Open a " +
       "project row for its dedicated dashboard; runs from repos outside any " +
       "registered project are triaged below.",
   );
-  appendRunStats(page, runs);
+  appendRunStats(page, runs, stalledRunIds);
 
   if (projects.length === 0 && runs.length === 0) {
     page.emptyState("No gate runs yet", EMPTY_STATE_DETAIL);
@@ -731,7 +1011,10 @@ export function buildHome(
       ["Project", "Runs", "Active", "Parked", "Last push"],
       shown.map((p) => {
         const own = runsByRepo.get(projectRepoId(p)) ?? [];
-        const active = own.filter((r) => ACTIVE_STATUSES.has(r.status)).length;
+        // Effective status so a derived-stalled run isn't miscounted as Active.
+        const active = own.filter((r) =>
+          ACTIVE_STATUSES.has(effectiveRunStatus(r, stalledRunIds)),
+        ).length;
         const parked = own.filter((r) => r.status === "awaiting_approval").length;
         const last = own.reduce<string | null>(
           (acc, r) => (acc === null || r.updatedAt > acc ? r.updatedAt : acc),
@@ -757,7 +1040,7 @@ export function buildHome(
   if (orphans.length > 0) {
     page.heading(2, "Runs outside registered projects");
     // Orphans have no project to scope to — deep-link to the GLOBAL-hub detail.
-    appendRunsSection(page, orphans, details, globalRunHref);
+    appendRunsSection(page, orphans, details, globalRunHref, { stalledRunIds });
   }
 
   return page.build();
