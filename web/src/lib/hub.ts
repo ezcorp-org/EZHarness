@@ -49,12 +49,31 @@ export interface PagePrompt {
    *  `PROMPT_FORMATS`; unknown → plain text input. */
   format?: string;
 }
+/** One field of a host-rendered multi-field form. Mirror of page-schema's
+ *  `PageFormField` (source of truth) — keep aligned. */
+export interface PageFormField {
+  field: string;
+  label: string;
+  value?: string;
+  placeholder?: string;
+  maxLength?: number;
+}
+/** Host-rendered multi-field form. Mirror of page-schema's `PageForm`
+ *  (source of truth) — keep aligned. Every field's typed value merges into
+ *  `payload[field]` on submit (including empty strings — clear-to-empty). */
+export interface PageForm {
+  title?: string;
+  fields: PageFormField[];
+}
 export interface PageAction {
   event: string;
   payload?: Record<string, string | number | boolean>;
   confirm?: string;
   /** Optional host-rendered text prompt collected before dispatch. */
   prompt?: PagePrompt;
+  /** Optional host-rendered multi-field form. Supersedes `prompt` when both
+   *  are present (form wins) — the validator drops the prompt server-side. */
+  form?: PageForm;
 }
 export interface PageSectionNode { type: "section"; title?: string; nodes: PageNode[] }
 export interface PageHeadingNode { type: "heading"; level: 1 | 2 | 3; text: string }

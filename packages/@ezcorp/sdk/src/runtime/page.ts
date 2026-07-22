@@ -59,6 +59,36 @@ export interface PagePromptDescriptor {
   format?: string;
 }
 
+/**
+ * One field of a host-rendered multi-field form. Mirror of page-schema's
+ * `PageFormField` (source of truth + validation point) and `web/src/lib/hub.ts`.
+ * `field` MUST be a `/^[a-z0-9][a-z0-9_]{0,31}$/` slug (a non-slug field is
+ * DROPPED host-side — no fall-back, unlike a prompt); `maxLength` is clamped to
+ * [1,500] and the `value` prefill truncated to it. Author-side hints only.
+ */
+export interface PageFormFieldDescriptor {
+  field: string;
+  label: string;
+  /** Prefill value (truncated host-side to the field's maxLength). */
+  value?: string;
+  placeholder?: string;
+  /** Input length hint; host clamps to [1,500], default 200. */
+  maxLength?: number;
+}
+
+/**
+ * Host-rendered multi-field form attached to an action — the multi-field
+ * superset of `PagePromptDescriptor`. On submit every field's typed string
+ * merges into `payload[field]` (including empty strings — clear-to-empty) and
+ * the action dispatches through its UNCHANGED, eventSubscriptions-gated path —
+ * `form` grants NO new authority. At most 8 fields survive; a field-less form
+ * is dropped host-side. Mirror of page-schema's `PageForm`.
+ */
+export interface PageFormDescriptor {
+  title?: string;
+  fields: PageFormFieldDescriptor[];
+}
+
 export interface PageActionDescriptor {
   /** Namespaced event (`<ext>:<event>`) — must be declared in
    *  `permissions.eventSubscriptions`. */
@@ -68,6 +98,9 @@ export interface PageActionDescriptor {
   confirm?: string;
   /** Optional host-rendered text prompt collected before dispatch. */
   prompt?: PagePromptDescriptor;
+  /** Optional host-rendered multi-field form. Supersedes `prompt` when both
+   *  are present (form wins; the host drops the prompt). */
+  form?: PageFormDescriptor;
 }
 
 export interface PageStatItem {

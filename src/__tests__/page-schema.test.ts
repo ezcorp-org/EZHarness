@@ -24,6 +24,7 @@ import {
   type PageMarkdown,
   type PageLink,
   type PageEmptyState,
+  type PageForm,
 } from "../extensions/page-schema";
 
 const EVENTS = ["demo:refresh", "demo:clear"] as const;
@@ -566,6 +567,167 @@ describe("action prompt", () => {
   });
 });
 
+// ── action form (PageAction.form) ──────────────────────────────────
+
+describe("action form", () => {
+  function actionWith(form: unknown, extra: Record<string, unknown> = {}): PageButton["action"] {
+    return (
+      validate([
+        { type: "button", label: "Edit", action: { event: "demo:refresh", form, ...extra } },
+      ])!.nodes[0] as PageButton
+    ).action;
+  }
+  function formOf(form: unknown): PageForm | undefined {
+    return actionWith(form).form;
+  }
+
+  test("a valid multi-field form is normalized (defaults + optional title)", () => {
+    const f = formOf({
+      title: "Edit job",
+      fields: [
+        { field: "name", label: "Name", value: "Nightly", maxLength: 80 },
+        { field: "trigger", label: "Trigger", placeholder: "push feat/*" },
+      ],
+    });
+    expect(f).toEqual({
+      title: "Edit job",
+      fields: [
+        { field: "name", label: "Name", maxLength: 80, value: "Nightly" },
+        { field: "trigger", label: "Trigger", maxLength: 200, placeholder: "push feat/*" },
+      ],
+    });
+  });
+
+  test("a non-slug field is DROPPED (no 'value' fall-back) — siblings survive", () => {
+    // Unlike a prompt (which rewrites a bad field to "value"), a form drops the
+    // offending field so it can never clobber a sibling's payload key.
+    const f = formOf({
+      fields: [
+        { field: "Name", label: "bad camelCase" },
+        { field: "with-dash", label: "bad dash" },
+        { field: "ok_field", label: "good" },
+      ],
+    });
+    expect(f!.fields).toHaveLength(1);
+    expect(f!.fields[0]!.field).toBe("ok_field");
+  });
+
+  test("fields cap at 8 (excess dropped)", () => {
+    const many = Array.from({ length: 12 }, (_, i) => ({ field: `f${i}`, label: `L${i}` }));
+    const f = formOf({ fields: many });
+    expect(f!.fields).toHaveLength(8);
+    expect(f!.fields.map((x) => x.field)).toEqual(["f0", "f1", "f2", "f3", "f4", "f5", "f6", "f7"]);
+  });
+
+  test("a form with ZERO surviving fields degrades away — action still valid", () => {
+    for (const bad of [
+      { fields: [] },
+      { fields: [{ field: "Bad", label: "x" }, { field: "also-bad", label: "y" }] },
+      { fields: [{ label: "no field key" }] },
+      { fields: [{ field: "ok", label: "" }] }, // empty label drops the only field
+      { fields: "not-array" },
+      { title: "T" }, // no fields array
+    ]) {
+      const a = actionWith(bad);
+      expect(a.event).toBe("demo:refresh"); // action survives
+      expect(a.form).toBeUndefined(); // only the form is dropped
+    }
+  });
+
+  test("non-object form is dropped; action survives", () => {
+    for (const bad of [null, "str", 7, ["a"]]) {
+      expect(actionWith(bad).form).toBeUndefined();
+    }
+  });
+
+  test("form WINS over a co-present prompt (both → form, prompt dropped)", () => {
+    const a = actionWith(
+      { fields: [{ field: "name", label: "Name" }] },
+      { prompt: { label: "Old single field", field: "name" } },
+    );
+    expect(a.form).toBeDefined();
+    expect(a.prompt).toBeUndefined();
+  });
+
+  test("a MALFORMED form falls back to a co-present valid prompt (degrades gracefully)", () => {
+    const a = actionWith(
+      { fields: [] }, // no surviving field → form drops
+      { prompt: { label: "Fallback", field: "name" } },
+    );
+    expect(a.form).toBeUndefined();
+    expect(a.prompt).toEqual({ label: "Fallback", field: "name", maxLength: 200 });
+  });
+
+  test("value prefill is truncated to the field's own maxLength", () => {
+    const f = formOf({
+      fields: [{ field: "n", label: "N", maxLength: 5, value: "abcdefghij" }],
+    });
+    expect(f!.fields[0]!.value).toBe("abcde");
+  });
+
+  test("maxLength clamps to [1,500]; non-numeric → default 200", () => {
+    const ml = (v: unknown) => formOf({ fields: [{ field: "n", label: "N", maxLength: v }] })!.fields[0]!.maxLength;
+    expect(ml(0)).toBe(1);
+    expect(ml(-5)).toBe(1);
+    expect(ml(9999)).toBe(500);
+    expect(ml(12.9)).toBe(12);
+    expect(ml("big")).toBe(200);
+    expect(ml(NaN)).toBe(200);
+  });
+
+  test("label / placeholder / value / title are <>-stripped + truncated", () => {
+    const f = formOf({
+      title: `<b>${"T".repeat(200)}</b>`,
+      fields: [
+        {
+          field: "n",
+          label: `<i>${"L".repeat(200)}</i>`,
+          placeholder: `<u>${"P".repeat(200)}</u>`,
+          maxLength: 500,
+          value: `<s>${"V".repeat(600)}</s>`,
+        },
+      ],
+    });
+    expect(f!.title).not.toContain("<");
+    expect(f!.title!.length).toBe(120);
+    const field = f!.fields[0]!;
+    expect(field.label).not.toContain("<");
+    expect(field.label.length).toBe(120);
+    expect(field.placeholder!.length).toBe(120);
+    expect(field.value).not.toContain("<");
+    expect(field.value!.length).toBe(500); // clamped to maxLength
+  });
+
+  test("an all-`<>` title is omitted (not an empty string)", () => {
+    const f = formOf({ title: "<>", fields: [{ field: "n", label: "N" }] });
+    expect(f!.title).toBeUndefined();
+  });
+
+  test("a form on a table-row action validates the same way", () => {
+    const t = validate([
+      {
+        type: "table",
+        columns: ["A"],
+        rows: [{ cells: ["x"], action: { event: "demo:refresh", form: { fields: [{ field: "name", label: "Name" }] } } }],
+      },
+    ])!.nodes[0] as PageTable;
+    expect(t.rows[0]!.action!.form).toEqual({ fields: [{ field: "name", label: "Name", maxLength: 200 }] });
+  });
+
+  test("BACK-COMPAT: a form-less action serializes byte-identically (no `form` key emitted)", () => {
+    const plain = validate([
+      { type: "button", label: "Go", action: { event: "demo:clear", payload: { a: "1" } } },
+    ]);
+    const withPrompt = validate([
+      { type: "button", label: "Add", action: { event: "demo:refresh", prompt: { label: "Topic" } } },
+    ]);
+    expect(JSON.stringify(plain)).not.toContain("form");
+    expect(JSON.stringify(withPrompt)).not.toContain("form");
+    // Exact shape unchanged from the pre-form validator.
+    expect((plain!.nodes[0] as PageButton).action).toEqual({ event: "demo:clear", payload: { a: "1" } });
+  });
+});
+
 // ── security: prompt grants ZERO new authority ─────────────────────
 
 describe("prompt security invariants", () => {
@@ -807,5 +969,41 @@ describe("ECF job-view prompt fields survive the real validator", () => {
     const result = validate([editButton("agentName")], [JOB_SAVE]);
     const btn = result!.nodes.find((n) => (n as { type: string }).type === "button") as PageButton;
     expect(btn.action.prompt!.field).toBe("value");
+  });
+
+  test("the ECF Edit-job FORM survives the real validator with every field slug-legal", () => {
+    // The multi-field analogue of the prompt survival test above: the exact
+    // "Edit job" button buildJobView emits (name / trigger / agent_name /
+    // intent_template) run through the production validator with the granted
+    // event allowlist. A drift back to camelCase would DROP the field here.
+    const editJob = {
+      type: "button",
+      label: 'Edit job "Nightly"',
+      action: {
+        event: JOB_SAVE,
+        payload: { jobId: "j1" },
+        form: {
+          title: 'Edit job "Nightly"',
+          fields: [
+            { field: "name", label: "Name", value: "Nightly", maxLength: 80 },
+            { field: "trigger", label: "Trigger spec", value: "push feat/*", maxLength: 120 },
+            { field: "agent_name", label: "Agent", value: "reviewer", maxLength: 120 },
+            { field: "intent_template", label: "Intent template", value: "", maxLength: 1500 },
+          ],
+        },
+      },
+    };
+    const result = validate([editJob], [JOB_SAVE]);
+    const btn = result!.nodes.find((n) => (n as { type: string }).type === "button") as PageButton;
+    expect(btn.action.form).toBeDefined();
+    expect(btn.action.form!.fields.map((f) => f.field)).toEqual([
+      "name",
+      "trigger",
+      "agent_name",
+      "intent_template",
+    ]);
+    // maxLength 1500 clamps to the 500 cap; an empty prefill survives as "".
+    expect(btn.action.form!.fields[3]!.maxLength).toBe(500);
+    expect(btn.action.form!.fields[3]!.value).toBe("");
   });
 });

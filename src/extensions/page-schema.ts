@@ -48,6 +48,9 @@ const PROMPT_MAX_LENGTH_CAP = 500;
 const PROMPT_LABEL_MAX = 120;
 const PROMPT_SUBMIT_LABEL_MAX = 40;
 
+/** A `PageAction.form` may carry at most this many fields; excess dropped. */
+const MAX_FORM_FIELDS = 8;
+
 /**
  * Input `format`s a prompt may opt into. Each maps (client-side) to a
  * shared format component in `web/src/lib/components/ui/format-map.ts`
@@ -99,6 +102,45 @@ export interface PagePrompt {
   format?: string;
 }
 
+/**
+ * One field of a host-rendered multi-field `PageAction.form`. A superset of
+ * `PagePrompt`'s single-field shape: the host renders a labeled text input
+ * (optionally prefilled with `value`), and every field's typed string merges
+ * into `payload[field]` on submit. Unlike a prompt, `field` is REQUIRED and
+ * slug-clamped — a non-slug key drops the FIELD (not a fall-back to `"value"`,
+ * which would clobber a sibling field), and a field-less form degrades away.
+ *
+ * SOURCE OF TRUTH — mirrored (types only) in `web/src/lib/hub.ts`
+ * (`PageFormField`) and `packages/@ezcorp/sdk/src/runtime/page.ts`
+ * (`PageFormFieldInput`). Keep the three aligned (same as `PagePrompt`).
+ */
+export interface PageFormField {
+  /** Payload key the typed value merges under. Slug-clamped
+   *  (`/^[a-z0-9][a-z0-9_]{0,31}$/`); a non-slug field is DROPPED. */
+  field: string;
+  /** Input label (required — an empty/all-`<>` label drops the field). */
+  label: string;
+  /** Prefill value, truncated to the field's `maxLength`. */
+  value?: string;
+  placeholder?: string;
+  /** Host clamps the input length; default 200, hard cap 500. */
+  maxLength?: number;
+}
+
+/**
+ * A host-rendered multi-field form attached to an action — the multi-field
+ * superset of `PagePrompt`. The host renders ONE modal of labeled inputs
+ * (prefilled from each field's `value`); on submit every field's typed string
+ * merges into `action.payload[field]` and the action dispatches through its
+ * UNCHANGED, already-gated event path. Grants ZERO new authority.
+ */
+export interface PageForm {
+  /** Optional dialog title. */
+  title?: string;
+  /** 1..8 validated fields; a form with zero surviving fields is dropped. */
+  fields: PageFormField[];
+}
+
 export interface PageAction {
   /** Namespaced event (`<ext>:<event>`) or core action name. Must be in
    *  the validator's `allowedEvents` allowlist. */
@@ -110,6 +152,11 @@ export interface PageAction {
    *  prompt is dropped (the action degrades to a plain dispatch); it is
    *  never fatal to the whole action. Grants ZERO new authority. */
   prompt?: PagePrompt;
+  /** Optional host-rendered multi-field form — see `PageForm`. Supersedes
+   *  `prompt` when both are present (form wins, prompt dropped). A malformed
+   *  or field-less form is dropped (the action degrades). Grants ZERO new
+   *  authority. */
+  form?: PageForm;
 }
 
 export interface PageSection {
@@ -297,6 +344,59 @@ function validatePrompt(raw: unknown): PagePrompt | null {
   return out;
 }
 
+/**
+ * Validate ONE form field. Returns `null` (drop the field) when `field` is
+ * missing/non-slug or the label is empty — unlike a prompt, there is NO
+ * fall-back `"value"` key, because a form's fields share one payload and a
+ * silent collision would clobber a sibling. `maxLength` is clamped to [1,500]
+ * (prompt parity) and the `value` prefill is truncated to it.
+ */
+function validateFormField(raw: unknown): PageFormField | null {
+  if (raw == null || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const f = raw as Record<string, unknown>;
+  if (typeof f.field !== "string" || !PROMPT_FIELD_REGEX.test(f.field)) return null;
+  if (typeof f.label !== "string") return null;
+  const label = truncate(f.label, PROMPT_LABEL_MAX);
+  if (label.length === 0) return null;
+
+  // maxLength clamped to [1, 500]; non-numeric → default (mirrors prompt).
+  const ml = typeof f.maxLength === "number" && Number.isFinite(f.maxLength)
+    ? Math.min(PROMPT_MAX_LENGTH_CAP, Math.max(1, Math.floor(f.maxLength)))
+    : DEFAULT_PROMPT_MAX_LENGTH;
+
+  const out: PageFormField = { field: f.field, label, maxLength: ml };
+  // Prefill truncated to the field's own maxLength (a value longer than the
+  // input can hold would never round-trip).
+  if (f.value != null) out.value = truncate(f.value, ml);
+  if (f.placeholder != null) out.placeholder = truncate(f.placeholder, PROMPT_LABEL_MAX);
+  return out;
+}
+
+/**
+ * Validate an action's optional form. Returns `null` (omit the field, so the
+ * action degrades to a plain/prompt dispatch) when the shape is wrong or NO
+ * field survives — never fatal to the whole action. Fields cap at
+ * {@link MAX_FORM_FIELDS}; excess (and invalid) fields are dropped.
+ */
+function validateForm(raw: unknown): PageForm | null {
+  if (raw == null || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const f = raw as Record<string, unknown>;
+  if (!Array.isArray(f.fields)) return null;
+  const fields: PageFormField[] = [];
+  for (const rawField of f.fields) {
+    if (fields.length >= MAX_FORM_FIELDS) break;
+    const field = validateFormField(rawField);
+    if (field) fields.push(field);
+  }
+  if (fields.length === 0) return null; // a field-less form degrades away
+  const out: PageForm = { fields };
+  if (f.title != null) {
+    const title = truncate(f.title, PROMPT_LABEL_MAX);
+    if (title.length > 0) out.title = title;
+  }
+  return out;
+}
+
 function validateAction(
   raw: unknown,
   allowedEvents: readonly string[],
@@ -321,9 +421,15 @@ function validateAction(
     out.payload = payload;
   }
   if (a.confirm != null) out.confirm = truncate(a.confirm, 300);
-  // A malformed prompt is dropped (omit the field) — never fatal to the
-  // action, which still dispatches as a plain (prompt-less) action.
-  if (a.prompt != null) {
+  // A form supersedes a prompt (multi-field wins over single-field): validate
+  // the form FIRST, and only fall back to the prompt when no valid form
+  // survives. A malformed form OR prompt is dropped (omit the field) — never
+  // fatal to the action, which still dispatches as a plain action.
+  if (a.form != null) {
+    const form = validateForm(a.form);
+    if (form) out.form = form;
+  }
+  if (out.form === undefined && a.prompt != null) {
     const prompt = validatePrompt(a.prompt);
     if (prompt) out.prompt = prompt;
   }

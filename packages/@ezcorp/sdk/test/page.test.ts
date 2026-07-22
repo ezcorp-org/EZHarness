@@ -120,6 +120,26 @@ describe("PageBuilder page-only components", () => {
     ]);
   });
 
+  test("button with a multi-field form descriptor passes the form through the action", () => {
+    const form = {
+      title: "Edit job",
+      fields: [
+        { field: "name", label: "Name", value: "Nightly", maxLength: 80 },
+        { field: "trigger", label: "Trigger", placeholder: "push feat/*" },
+      ],
+    };
+    expect(build((b) => b.button("Edit job", { event: "e:save", form })).nodes).toEqual([
+      { type: "button", label: "Edit job", action: { event: "e:save", form } },
+    ]);
+  });
+
+  test("button without a form is form-less (additive — no regression)", () => {
+    const action = (build((b) => b.button("Go", { event: "e:go" })).nodes[0] as {
+      action: { form?: unknown };
+    }).action;
+    expect(action.form).toBeUndefined();
+  });
+
   test("link", () => {
     expect(build((b) => b.link("Open", "/hub/x")).nodes).toEqual([
       { type: "link", label: "Open", href: "/hub/x" },
