@@ -6,7 +6,8 @@ import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
 import { isRegisteredExtensionEvent } from "$server/runtime/sse-conversation-filter";
-import { getConversation } from "$server/db/queries/conversations";
+import { getConversation, getOrCreateExtServiceConversation } from "$server/db/queries/conversations";
+import { getProjectByPath } from "$server/db/queries/projects";
 import { getToolCallConversationById } from "$server/db/queries/tool-calls";
 import { getExtensionByName } from "$server/db/queries/extensions";
 import {
@@ -263,18 +264,63 @@ export const POST: RequestHandler = async ({ request, locals, params }) => {
         /* executor not booted (test context) — spawn path stays unwired */
       }
       await wirer.ensureSubprocessRpcWired(ext.id, proc);
+
+      // ── Gate-push service-conversation owner (ECF control plane, L1) ──
+      //
+      // A gate push carries `payload.projectRoot`. A push-fired agent spawn's
+      // reverse-RPC must resolve to a REAL conversation that carries the
+      // project's id (the spawn handler derives the parent project from the
+      // conversation) AND has the extension wired — otherwise the spawn fails
+      // `-32602 "Conversation scope unavailable"`. Resolve the (shape-
+      // validated) root to a REGISTERED project (the host-side trust
+      // boundary), then find-or-create the persistent per-(project, extension)
+      // service conversation owned by the gate-key user and wire the extension
+      // into it. FAIL-CLOSED: an unregistered root / any resolution error
+      // leaves `conversationId: null` exactly as before, so the spawn keeps
+      // rejecting — we NEVER borrow ambient scope. Plain hub button clicks
+      // (no `projectRoot`) are unaffected.
+      let serviceConversationId: string | null = null;
+      const projectRoot =
+        typeof payload?.projectRoot === "string" && payload.projectRoot.trim()
+          ? payload.projectRoot
+          : undefined;
+      if (projectRoot) {
+        try {
+          const project = await getProjectByPath(projectRoot);
+          if (project) {
+            const serviceConv = await getOrCreateExtServiceConversation({
+              extensionName: name,
+              projectId: project.id,
+              userId: user.id,
+              title: `${name} gate — ${project.name}`,
+            });
+            // Wiring gate parity (spawn-assignment-handler.ts:212): the gate
+            // extension must be wired into the service conversation. Idempotent.
+            const alreadyWired = await getConversationExtensionIds(serviceConv.id);
+            if (!alreadyWired.includes(ext.id)) {
+              await addConversationExtensions(serviceConv.id, [{ extensionId: ext.id }]);
+            }
+            serviceConversationId = serviceConv.id;
+          }
+        } catch (err) {
+          log.warn(
+            "gate-push service-conversation resolution failed — failing closed to null scope (spawn will reject)",
+            { extensionId: ext.id, name, error: err instanceof Error ? err.message : String(err) },
+          );
+        }
+      }
+
       // Mint a per-fire reverse-RPC provenance token (onBehalfOf = the
-      // clicking user) and stamp it onto `_meta.ezCallId`, exactly like the
-      // EventSubscriptionDispatcher does for background event fires. Without
-      // it the subprocess handler runs with no ambient callId, so EVERY
-      // downstream host-mediated reverse-RPC the action triggers (fs.write,
-      // and any provenance-gated capability) fails `-32602` provenance-
-      // unresolved. A Hub click always has a real user, so this is never
-      // ownerless. `registerFireCallProvenance` auto-releases the token
-      // after a bounded window (the dispatch is fire-and-forget).
+      // clicking / gate-key user) and stamp it onto `_meta.ezCallId`, exactly
+      // like the EventSubscriptionDispatcher does for background event fires.
+      // Without it the subprocess handler runs with no ambient callId, so
+      // EVERY downstream host-mediated reverse-RPC the action triggers
+      // (fs.write, spawn, and any provenance-gated capability) fails `-32602`.
+      // The `conversationId` is the resolved service conversation for a gate
+      // push (so a push-fired spawn has a resolvable owner scope), else null.
       const ezCallId = registerFireCallProvenance({
         onBehalfOf: user.id,
-        conversationId: null,
+        conversationId: serviceConversationId,
         runId: null,
         parentCallId: null,
         actorExtensionId: ext.id,

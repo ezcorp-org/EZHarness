@@ -55,9 +55,11 @@ import {
   getLatestLeaf,
   searchConversations,
   resolveSystemPrompt,
+  getOrCreateExtServiceConversation,
 } from "../db/queries/conversations";
-import { createProject } from "../db/queries/projects";
-import { upsertSetting, deleteSetting } from "../db/queries/settings";
+import { createProject, getProjectByPath } from "../db/queries/projects";
+import { upsertSetting, deleteSetting, getSetting } from "../db/queries/settings";
+import { createUser } from "../db/queries/users";
 
 let projectId: string;
 
@@ -663,5 +665,97 @@ describe("systemPrompt", () => {
     expect(prompt).toBe("Global fallback");
 
     await deleteSetting("global:systemPrompt");
+  });
+});
+
+// ── ECF control plane (L1): per-(project, extension) service conversation ──
+describe("getOrCreateExtServiceConversation + getProjectByPath", () => {
+  let svcProjectId: string;
+  let svcProjectPath: string;
+  let gateUserId: string;
+
+  beforeAll(async () => {
+    svcProjectPath = `/repos/svc-${crypto.randomUUID()}`;
+    const project = await createProject({ name: "Svc App", path: svcProjectPath });
+    svcProjectId = project.id;
+    const user = await createUser({ email: `gate-${crypto.randomUUID()}@t.com`, passwordHash: "h", name: "Gate" });
+    gateUserId = user.id;
+  });
+
+  test("getProjectByPath resolves a registered path, and is undefined for unknown / empty", async () => {
+    const found = await getProjectByPath(svcProjectPath);
+    expect(found?.id).toBe(svcProjectId);
+    expect(await getProjectByPath("/repos/does-not-exist")).toBeUndefined();
+    expect(await getProjectByPath("")).toBeUndefined();
+  });
+
+  test("creates a kind='ext-service' conversation carrying the real projectId + gate owner + mapping key", async () => {
+    const conv = await getOrCreateExtServiceConversation({
+      extensionName: "ez-code-factory",
+      projectId: svcProjectId,
+      userId: gateUserId,
+      title: "ez-code-factory gate — Svc App",
+    });
+    expect(conv.kind).toBe("ext-service");
+    expect(conv.projectId).toBe(svcProjectId);
+    expect(conv.userId).toBe(gateUserId);
+    expect(conv.title).toBe("ez-code-factory gate — Svc App");
+    // The find-or-create mapping was recorded under the documented key.
+    const mapped = await getSetting(`ext:ez-code-factory:service-conv:${svcProjectId}`);
+    expect(mapped).toBe(conv.id);
+  });
+
+  test("is idempotent — a second call reuses the SAME conversation (find-or-create)", async () => {
+    const first = await getOrCreateExtServiceConversation({
+      extensionName: "idem-ext",
+      projectId: svcProjectId,
+      userId: gateUserId,
+      title: "idem-ext gate — Svc App",
+    });
+    const second = await getOrCreateExtServiceConversation({
+      extensionName: "idem-ext",
+      projectId: svcProjectId,
+      userId: gateUserId,
+      title: "idem-ext gate — Svc App",
+    });
+    expect(second.id).toBe(first.id);
+  });
+
+  test("a stale mapping (conversation deleted) is recreated, not resurrected", async () => {
+    const created = await getOrCreateExtServiceConversation({
+      extensionName: "stale-ext",
+      projectId: svcProjectId,
+      userId: gateUserId,
+      title: "stale-ext gate — Svc App",
+    });
+    await deleteConversation(created.id);
+    const recreated = await getOrCreateExtServiceConversation({
+      extensionName: "stale-ext",
+      projectId: svcProjectId,
+      userId: gateUserId,
+      title: "stale-ext gate — Svc App",
+    });
+    expect(recreated.id).not.toBe(created.id);
+    expect(recreated.kind).toBe("ext-service");
+  });
+
+  test("listConversations EXCLUDES service conversations (never pollute chat lists)", async () => {
+    const svc = await getOrCreateExtServiceConversation({
+      extensionName: "list-ext",
+      projectId: svcProjectId,
+      userId: gateUserId,
+      title: "list-ext gate — Svc App",
+    });
+    // A regular conversation in the same project DOES list.
+    const regular = await createConversation(svcProjectId, { title: "Regular", userId: gateUserId });
+    const listed = await listConversations(svcProjectId);
+    const ids = listed.map((c) => c.id);
+    expect(ids).toContain(regular.id);
+    expect(ids).not.toContain(svc.id);
+  });
+
+  test("createConversation honors kind:'ext-service'", async () => {
+    const conv = await createConversation(svcProjectId, { title: "Direct svc", kind: "ext-service" });
+    expect(conv.kind).toBe("ext-service");
   });
 });

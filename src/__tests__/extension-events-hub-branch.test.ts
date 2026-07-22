@@ -29,6 +29,18 @@ const sendCalls: SendCall[] = [];
 let spawnShouldFail = false;
 let wireCalls = 0;
 
+// ── Gate-push service-conversation fakes (ECF control plane, L1) ─────
+// A gate push carries `payload.projectRoot`; the route resolves it to a
+// REGISTERED project, find-or-creates the per-(project, extension) service
+// conversation, and wires the extension into it. These handles let the tests
+// drive project resolution (present/absent) and observe the find-or-create +
+// wiring calls.
+let mockProject: { id: string; name: string; path: string } | null = null;
+let getServiceConvCalls: Array<{ extensionName: string; projectId: string; userId: string; title: string }> = [];
+const SERVICE_CONV_ID = "svc-conv-1";
+let serviceConvWiring: Array<{ conversationId: string; extensionId: string }> = [];
+let alreadyWiredExtIds: string[] = [];
+
 const fakeProc = {
   sendNotification(method: string, params?: Record<string, unknown>) {
     sendCalls.push({ method, params: params ?? {} });
@@ -87,15 +99,33 @@ mock.module("$server/db/queries/extensions", () => ({
 }));
 
 // Unused-by-the-hub-branch lookups still imported by the route module.
+// `getOrCreateExtServiceConversation` is the gate-push owner resolver — it
+// MUST be exported here (partial stubs freeze the specifier shape and break
+// the route's named import otherwise).
 mock.module("$server/db/queries/conversations", () => ({
   getConversation: async () => null,
+  getOrCreateExtServiceConversation: async (opts: {
+    extensionName: string; projectId: string; userId: string; title: string;
+  }) => {
+    getServiceConvCalls.push(opts);
+    return { id: SERVICE_CONV_ID, kind: "ext-service", userId: opts.userId, projectId: opts.projectId };
+  },
+}));
+mock.module("$server/db/queries/projects", () => ({
+  getProjectByPath: async (path: string) =>
+    mockProject && mockProject.path === path ? mockProject : undefined,
 }));
 mock.module("$server/db/queries/tool-calls", () => ({
   getToolCallConversationById: async () => null,
 }));
 mock.module("$server/db/queries/conversation-extensions", () => ({
-  addConversationExtensions: async () => undefined,
-  getConversationExtensionIds: async () => [],
+  addConversationExtensions: async (
+    conversationId: string,
+    entries: { extensionId: string }[],
+  ) => {
+    for (const e of entries) serviceConvWiring.push({ conversationId, extensionId: e.extensionId });
+  },
+  getConversationExtensionIds: async () => alreadyWiredExtIds,
 }));
 mock.module("$server/extensions/append-message-handler", () => ({
   handleAppendMessageRpc: async () => ({ jsonrpc: "2.0", id: 1, result: {} }),
@@ -186,6 +216,10 @@ beforeEach(() => {
   __hubActionRateLimiter.reset();
   getPageCache().clear();
   _resetCallProvenanceForTests();
+  mockProject = null;
+  getServiceConvCalls = [];
+  serviceConvWiring = [];
+  alreadyWiredExtIds = [];
 });
 
 describe("hub-source branch", () => {
@@ -226,6 +260,79 @@ describe("hub-source branch", () => {
     };
     expect(body).toEqual({ source: "hub", pageId: "dashboard", userId: "user-1" });
     expect(typeof _meta?.ezCallId).toBe("string");
+  });
+
+  // ── Gate-push service-conversation owner (ECF control plane, L1) ────
+
+  test("gate push with a REGISTERED projectRoot: token carries the service conversation, ext wired", async () => {
+    mockProject = { id: "proj-1", name: "My App", path: "/repos/my-app" };
+    const res = await POST(makeEvent({
+      source: "hub",
+      pageId: "dashboard",
+      payload: { projectRoot: "/repos/my-app", repoId: "abc123abc123", branch: "main" },
+    }));
+    expect(res.status).toBe(200);
+
+    // The service conversation was found-or-created for THIS (project, ext),
+    // owned by the gate-key user, with a recognizable title.
+    expect(getServiceConvCalls).toHaveLength(1);
+    expect(getServiceConvCalls[0]).toEqual({
+      extensionName: EXT_NAME,
+      projectId: "proj-1",
+      userId: "user-1",
+      title: `${EXT_NAME} gate — My App`,
+    });
+    // The extension was wired into the service conversation (spawn wiring gate).
+    expect(serviceConvWiring).toContainEqual({ conversationId: SERVICE_CONV_ID, extensionId: "ext-cron" });
+    // The minted token carries the service conversation id (so a push-fired
+    // spawn derives the project from it) and stays owner-scoped (not ownerless).
+    const meta = (sendCalls[0]!.params as { _meta?: { ezCallId?: string } })._meta;
+    expect(resolveCallProvenance(meta!.ezCallId!)).toMatchObject({
+      onBehalfOf: "user-1",
+      conversationId: SERVICE_CONV_ID,
+      ownerless: false,
+    });
+  });
+
+  test("gate push whose projectRoot is NOT a registered project: fails closed to null scope", async () => {
+    mockProject = null; // getProjectByPath returns undefined
+    const res = await POST(makeEvent({
+      source: "hub",
+      pageId: "dashboard",
+      payload: { projectRoot: "/repos/unknown", repoId: "abc123abc123", branch: "main" },
+    }));
+    expect(res.status).toBe(200);
+    // No service conversation, no wiring — the token is null-scope, exactly as
+    // before the fix, so the spawn keeps rejecting (never borrow ambient scope).
+    expect(getServiceConvCalls).toHaveLength(0);
+    expect(serviceConvWiring).toHaveLength(0);
+    const meta = (sendCalls[0]!.params as { _meta?: { ezCallId?: string } })._meta;
+    expect(resolveCallProvenance(meta!.ezCallId!)).toMatchObject({ conversationId: null });
+  });
+
+  test("gate push reuses an already-wired service conversation (no duplicate wiring)", async () => {
+    mockProject = { id: "proj-1", name: "My App", path: "/repos/my-app" };
+    alreadyWiredExtIds = ["ext-cron"]; // extension already wired
+    const res = await POST(makeEvent({
+      source: "hub",
+      pageId: "dashboard",
+      payload: { projectRoot: "/repos/my-app", repoId: "abc123abc123", branch: "main" },
+    }));
+    expect(res.status).toBe(200);
+    expect(getServiceConvCalls).toHaveLength(1);
+    // Idempotent: no redundant wiring write when the ext is already wired.
+    expect(serviceConvWiring).toHaveLength(0);
+    const meta = (sendCalls[0]!.params as { _meta?: { ezCallId?: string } })._meta;
+    expect(resolveCallProvenance(meta!.ezCallId!)).toMatchObject({ conversationId: SERVICE_CONV_ID });
+  });
+
+  test("plain hub click (no projectRoot) never touches the service-conversation path", async () => {
+    mockProject = { id: "proj-1", name: "My App", path: "/repos/my-app" };
+    await POST(makeEvent({ source: "hub", pageId: "dashboard", payload: { all: true } }));
+    expect(getServiceConvCalls).toHaveLength(0);
+    expect(serviceConvWiring).toHaveLength(0);
+    const meta = (sendCalls[0]!.params as { _meta?: { ezCallId?: string } })._meta;
+    expect(resolveCallProvenance(meta!.ezCallId!)).toMatchObject({ conversationId: null });
   });
 
   test("invalidates the page cache for the targeted page", async () => {
