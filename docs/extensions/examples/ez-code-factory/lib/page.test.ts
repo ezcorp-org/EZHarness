@@ -40,7 +40,7 @@ import { emptyFindings } from "./runs";
 import type { Finding, Findings, RunRecord, RunStatus, StepResultRecord, StepRoundRecord, StepStatus } from "./runs";
 import { snapshotRepoConfig, emptyOutcomeFlags, type StepIORecord } from "./step-io";
 import { emptyRepoConfig } from "./repo-config";
-import { buildDefaultJob, formatTriggerSpec, MAX_BRANCH_PATTERN_LEN, MAX_JOB_NAME_LEN, MAX_JOB_TEXT_LEN, type Job } from "./jobs";
+import { buildDefaultJob, MAX_BRANCH_PATTERN_LEN, MAX_JOB_NAME_LEN, MAX_JOB_TEXT_LEN, type Job } from "./jobs";
 import { defaultPipelineConfig, PIPELINE_STEPS } from "./config";
 import type { AuditBucket } from "./audit";
 import type { SweepHeartbeat } from "./sweep";
@@ -159,6 +159,11 @@ const ESCAPED_PAGE_TYPES = new Set([
   "button",
   "link",
   "empty-state",
+  // The inline form node's strings (labels, prefill values, placeholders)
+  // render through host-owned inputs — Svelte text/attribute interpolation,
+  // never `{@html}` — and the validator `<>`-strips them like every other
+  // escaped surface.
+  "form",
 ]);
 
 describe("shortSha", () => {
@@ -1492,6 +1497,16 @@ function buttonsDeep(tree: { nodes: unknown[] }) {
   }>;
 }
 
+/** Every INLINE form node in a tree (the on-page edit surface — distinct from
+ *  a button action's modal `form` dialog, which buttonsDeep exposes). */
+function formsDeep(tree: { nodes: unknown[] }) {
+  return allNodes(tree.nodes).filter((n) => n.type === "form") as Array<{
+    action: { event: string; payload?: Record<string, unknown>; confirm?: string };
+    fields: Array<{ field: string; value?: string; maxLength?: number; multiline?: boolean }>;
+    submitLabel?: string;
+  }>;
+}
+
 describe("parseView", () => {
   test("config / audit / audit:<day> / job:<id>", () => {
     expect(parseView("config")).toEqual({ kind: "config" });
@@ -1603,21 +1618,20 @@ describe("buildJobView", () => {
     const tree = buildJobView("j1", job, runs, "proj-1");
     const btns = buttonsDeep(tree);
     const events = btns.map((b) => b.action.event);
-    // TWO job-save form buttons: "Edit job" (name/trigger/agent/intent) and the
-    // SEPARATE "Edit prompts" dialog (the three prompt instructions). The five old
-    // per-field prompt buttons are superseded. Toggle / Run now / Delete stay
-    // (enabled job → Run now shown).
-    expect(events.filter((e) => e === JOB_SAVE_EVENT).length).toBe(2);
+    // Job-save now rides the ONE INLINE edit form — no job-save BUTTONS remain
+    // (the old "Edit job" + "Edit prompts" modal dialogs are superseded).
+    // Toggle / Run now / Delete stay (enabled job → Run now shown).
+    expect(events.filter((e) => e === JOB_SAVE_EVENT).length).toBe(0);
     expect(events).toContain(JOB_TOGGLE_EVENT);
     expect(events).toContain(RUN_NOW_EVENT);
     expect(events).toContain(JOB_DELETE_EVENT);
-    // The Edit-job form prefills every field; the trigger via formatTriggerSpec
-    // (its exact inverse — a schedule trigger round-trips as "schedule <every> <branch>").
-    const editJob = btns.find((b) => b.label === "Edit job")!;
-    expect(editJob.action.event).toBe(JOB_SAVE_EVENT);
-    const fields = editJob.action.form!.fields;
-    expect(fields.map((f) => f.field)).toEqual(["name", "trigger", "agent_name", "intent_template"]);
-    const byField = Object.fromEntries(fields.map((f) => [f.field, f.value]));
+    // The inline form dispatches job-save and prefills the trigger via
+    // formatTriggerSpec (its exact inverse — a schedule trigger round-trips
+    // as "schedule <every> <branch>").
+    const forms = formsDeep(tree);
+    expect(forms).toHaveLength(1);
+    expect(forms[0]!.action.event).toBe(JOB_SAVE_EVENT);
+    const byField = Object.fromEntries(forms[0]!.fields.map((f) => [f.field, f.value]));
     expect(byField.name).toBe("Nightly");
     expect(byField.trigger).toBe("schedule daily main");
     // Delete carries a confirm.
@@ -1627,34 +1641,54 @@ describe("buildJobView", () => {
     expect(runsTable.rows[0]!.href).toBe(`/project/proj-1/hub/${encodeURIComponent(FULL_PAGE_ID)}?run=run_9`);
   });
 
-  test("the Edit-job form prefills every field; the five old per-field buttons + skip_steps/branch_pattern/jobId fields are gone", () => {
+  test("the inline edit form carries EVERY editable field prefilled; skip_steps/branch_pattern/jobId are not fields", () => {
     const job = jobFix({
       id: "j1",
       name: "Nightly",
       agentName: "reviewer",
       intentTemplate: "keep api stable",
       trigger: { kind: "push", branchPattern: "feat/*" },
+      reviewInstructions: "focus on API stability",
+      fixInstructions: "prefer the smallest root-cause fix",
+      documentInstructions: "keep the README authoritative",
     });
-    const btns = buttonsDeep(buildJobView("j1", job, []));
-    const editJob = btns.find((b) => b.label === "Edit job")!;
-    expect(editJob).toBeDefined();
-    expect(editJob.action.event).toBe(JOB_SAVE_EVENT);
-    expect(editJob.action.payload).toEqual({ jobId: "j1" });
-    const form = editJob.action.form!;
-    expect(form.title).toBe('Edit job "Nightly"');
+    const tree = buildJobView("j1", job, []);
+    const forms = formsDeep(tree);
+    expect(forms).toHaveLength(1);
+    const form = forms[0]!;
+    expect(form.action.event).toBe(JOB_SAVE_EVENT);
+    expect(form.action.payload).toEqual({ jobId: "j1" });
+    expect(form.submitLabel).toBe("Save job");
+    // ALL SEVEN editable fields, in order, every one prefilled.
+    expect(form.fields.map((f) => f.field)).toEqual([
+      "name",
+      "trigger",
+      "agent_name",
+      "intent_template",
+      "review_instructions",
+      "fix_instructions",
+      "document_instructions",
+    ]);
     const byField = Object.fromEntries(form.fields.map((f) => [f.field, f]));
     expect(byField.name!.value).toBe("Nightly");
     // A push trigger prefills as "push <pattern>" (formatTriggerSpec inverse).
     expect(byField.trigger!.value).toBe("push feat/*");
     expect(byField.agent_name!.value).toBe("reviewer");
     expect(byField.intent_template!.value).toBe("keep api stable");
-    // Locked field maxLengths (L4).
+    expect(byField.review_instructions!.value).toBe("focus on API stability");
+    expect(byField.fix_instructions!.value).toBe("prefer the smallest root-cause fix");
+    expect(byField.document_instructions!.value).toBe("keep the README authoritative");
+    // Locked field maxLengths (L4) + the free-text fields render multiline.
     expect(byField.name!.maxLength).toBe(MAX_JOB_NAME_LEN);
     expect(byField.trigger!.maxLength).toBe(MAX_BRANCH_PATTERN_LEN);
-    // The five superseded per-field buttons are all gone.
-    for (const gone of ["Edit name", "Edit branch pattern", "Change trigger", "Edit intent template", "Edit agent"]) {
-      expect(btns.some((b) => b.label === gone)).toBe(false);
+    for (const instr of ["intent_template", "review_instructions", "fix_instructions", "document_instructions"]) {
+      expect(byField[instr]!.maxLength).toBe(MAX_JOB_TEXT_LEN);
+      expect(byField[instr]!.multiline).toBe(true);
     }
+    // The superseded modal buttons are gone: NO job-save button remains.
+    const btns = buttonsDeep(tree);
+    expect(btns.some((b) => b.label === "Edit job")).toBe(false);
+    expect(btns.some((b) => b.label === "Edit prompts")).toBe(false);
     // No form field is `skip_steps` (Flow toggles own that), `branch_pattern`
     // (folded into the trigger spec), or `jobId` (camelCase — can never be a
     // slug-legal form field, so it can never be overridden from the form).
@@ -1664,44 +1698,19 @@ describe("buildJobView", () => {
     expect(fieldNames).not.toContain("jobId");
   });
 
-  test("agent/intent fields prefill EMPTY when the job has neither set (clear-to-empty round-trips)", () => {
-    const job = jobFix({ id: "j1", agentName: undefined, intentTemplate: undefined });
-    const editJob = buttonsDeep(buildJobView("j1", job, [])).find((b) => b.label === "Edit job")!;
-    const byField = Object.fromEntries(editJob.action.form!.fields.map((f) => [f.field, f.value]));
-    expect(byField.agent_name).toBe("");
-    expect(byField.intent_template).toBe("");
-  });
-
-  test("the Edit-prompts dialog is a SEPARATE form: 3 prefilled slug-legal fields, jobId payload, ≤500 caps", () => {
+  test("optional fields prefill EMPTY when unset (clear-to-empty round-trips)", () => {
     const job = jobFix({
       id: "j1",
-      name: "Nightly",
-      reviewInstructions: "focus on API stability",
-      fixInstructions: "prefer the smallest root-cause fix",
-      documentInstructions: "keep the README authoritative",
+      agentName: undefined,
+      intentTemplate: undefined,
+      reviewInstructions: undefined,
+      fixInstructions: undefined,
+      documentInstructions: undefined,
     });
-    const editPrompts = buttonsDeep(buildJobView("j1", job, [])).find((b) => b.label === "Edit prompts")!;
-    expect(editPrompts).toBeDefined();
-    expect(editPrompts.action.event).toBe(JOB_SAVE_EVENT);
-    expect(editPrompts.action.payload).toEqual({ jobId: "j1" });
-    const form = editPrompts.action.form!;
-    expect(form.title).toBe("Edit prompts — Nightly");
-    expect(form.fields.map((f) => f.field)).toEqual([
-      "review_instructions",
-      "fix_instructions",
-      "document_instructions",
-    ]);
-    const byField = Object.fromEntries(form.fields.map((f) => [f.field, f]));
-    expect(byField.review_instructions!.value).toBe("focus on API stability");
-    expect(byField.fix_instructions!.value).toBe("prefer the smallest root-cause fix");
-    expect(byField.document_instructions!.value).toBe("keep the README authoritative");
-    for (const f of form.fields) expect(f.maxLength).toBe(MAX_JOB_TEXT_LEN);
-  });
-
-  test("the Edit-prompts fields prefill EMPTY when no instructions are set (clear-to-empty round-trips)", () => {
-    const job = jobFix({ id: "j1", reviewInstructions: undefined, fixInstructions: undefined, documentInstructions: undefined });
-    const editPrompts = buttonsDeep(buildJobView("j1", job, [])).find((b) => b.label === "Edit prompts")!;
-    const byField = Object.fromEntries(editPrompts.action.form!.fields.map((f) => [f.field, f.value]));
+    const form = formsDeep(buildJobView("j1", job, []))[0]!;
+    const byField = Object.fromEntries(form.fields.map((f) => [f.field, f.value]));
+    expect(byField.agent_name).toBe("");
+    expect(byField.intent_template).toBe("");
     expect(byField.review_instructions).toBe("");
     expect(byField.fix_instructions).toBe("");
     expect(byField.document_instructions).toBe("");
@@ -1929,6 +1938,13 @@ describe("prompt-field slug contract (host anti-spoof)", () => {
       if (n.type === "button") actionFields(n.action as ActionShape | undefined, out);
       if (n.type === "table") {
         for (const row of (n.rows as Array<{ action?: ActionShape }>)) actionFields(row.action, out);
+      }
+      // The INLINE form node's fields merge into the payload exactly like a
+      // dialog form's — same slug gate host-side, so the walk covers them too.
+      if (n.type === "form") {
+        for (const ff of n.fields as Array<{ field?: string }>) {
+          if (typeof ff.field === "string") out.push(ff.field);
+        }
       }
     }
     return out;

@@ -1453,91 +1453,77 @@ export function buildJobView(
     }
   });
 
-  // Edit / control actions. ONE "Edit job" form collects every editable field
-  // in a single Save (name / trigger / agent / intent template, all prefilled);
-  // the handler re-validates the whole draft + audits once. `branch_pattern`
-  // folds INTO the trigger spec (the grammar carries it) — not a separate field.
-  // Skip-steps are edited per-step in the Flow section below (one-click toggles).
-  // Every `field` is slug-legal snake_case ON PURPOSE: a camelCase key is
-  // silently rewritten to "value" by the host validator (page-schema.ts:44) —
-  // for a multi-field form that would DROP the field outright (no fall-back).
+  // Edit — ONE inline on-page form (the `form` NODE, not a dialog) carrying
+  // EVERY editable text field: name / trigger / agent / intent template + the
+  // three operator prompt-instruction fields. One Save submits them all
+  // (blank clears an optional field); the handler re-validates the whole
+  // draft + audits one diff. `branch_pattern` folds INTO the trigger spec
+  // (the grammar carries it) — not a separate field. Skip-steps are edited
+  // per-step in the Flow section below (one-click toggles). Every `field` is
+  // slug-legal snake_case ON PURPOSE: a camelCase key is silently rewritten
+  // to "value" by the host validator (page-schema.ts) — for a multi-field
+  // submit that would DROP the field outright (no fall-back). The merged
+  // payload (7 fields, worst case ≈ 2.5 KB) fits the events route's 8 KB
+  // hub-action cap.
+  page.section("Edit", (s) => {
+    s.form(
+      [
+        { field: "name", label: "Name", value: job.name, maxLength: MAX_JOB_NAME_LEN },
+        {
+          field: "trigger",
+          label: "Trigger spec",
+          // Prefill with the CURRENT trigger via the exact inverse of
+          // parseTriggerSpec (NOT triggerLabel, whose ` · ` mis-parses).
+          value: formatTriggerSpec(job.trigger),
+          placeholder: "push feat/*  ·  schedule daily main  ·  manual main",
+          maxLength: MAX_BRANCH_PATTERN_LEN,
+        },
+        {
+          field: "agent_name",
+          label: "Agent (blank = repo-config / deployment default)",
+          value: job.agentName ?? "",
+          placeholder: "e.g. reviewer",
+          maxLength: MAX_AGENT_NAME_LEN,
+        },
+        {
+          field: "intent_template",
+          label: "Intent template (blank = none)",
+          value: job.intentTemplate ?? "",
+          placeholder: "e.g. Keep the public API backward compatible.",
+          maxLength: MAX_INTENT_TEMPLATE_LEN,
+          multiline: true,
+        },
+        {
+          field: "review_instructions",
+          label: "Review instructions (blank = none)",
+          value: job.reviewInstructions ?? "",
+          placeholder: "e.g. focus on API stability",
+          maxLength: MAX_JOB_TEXT_LEN,
+          multiline: true,
+        },
+        {
+          field: "fix_instructions",
+          label: "Fix instructions (blank = none)",
+          value: job.fixInstructions ?? "",
+          placeholder: "e.g. prefer the smallest root-cause fix",
+          maxLength: MAX_JOB_TEXT_LEN,
+          multiline: true,
+        },
+        {
+          field: "document_instructions",
+          label: "Document instructions (blank = none)",
+          value: job.documentInstructions ?? "",
+          placeholder: "e.g. keep the README authoritative",
+          maxLength: MAX_JOB_TEXT_LEN,
+          multiline: true,
+        },
+      ],
+      { event: JOB_SAVE_EVENT, payload: { jobId } },
+      "Save job",
+    );
+  });
+
   page.section("Actions", (s) => {
-    s.button(
-      "Edit job",
-      {
-        event: JOB_SAVE_EVENT,
-        payload: { jobId },
-        form: {
-          title: `Edit job "${job.name}"`,
-          fields: [
-            { field: "name", label: "Name", value: job.name, maxLength: MAX_JOB_NAME_LEN },
-            {
-              field: "trigger",
-              label: "Trigger spec",
-              // Prefill with the CURRENT trigger via the exact inverse of
-              // parseTriggerSpec (NOT triggerLabel, whose ` · ` mis-parses).
-              value: formatTriggerSpec(job.trigger),
-              placeholder: "push feat/*  ·  schedule daily main  ·  manual main",
-              maxLength: MAX_BRANCH_PATTERN_LEN,
-            },
-            {
-              field: "agent_name",
-              label: "Agent (blank = repo-config / deployment default)",
-              value: job.agentName ?? "",
-              placeholder: "e.g. reviewer",
-              maxLength: MAX_AGENT_NAME_LEN,
-            },
-            {
-              field: "intent_template",
-              label: "Intent template (blank = none)",
-              value: job.intentTemplate ?? "",
-              placeholder: "e.g. Keep the public API backward compatible.",
-              maxLength: MAX_INTENT_TEMPLATE_LEN,
-            },
-          ],
-        },
-      },
-      "primary",
-    );
-    // A SECOND form dialog for the operator prompt instructions, kept separate
-    // from Edit job to respect the 2 KB merged-payload budget (3×500 + jobId «
-    // 2048). All three fields are prefilled + slug-legal snake_case (a camelCase
-    // key would be rewritten to "value" and dropped). Routes through the SAME
-    // job-save event → guardScope + validate + audit-diff path as Edit job.
-    s.button(
-      "Edit prompts",
-      {
-        event: JOB_SAVE_EVENT,
-        payload: { jobId },
-        form: {
-          title: `Edit prompts — ${job.name}`,
-          fields: [
-            {
-              field: "review_instructions",
-              label: "Review instructions (blank = none)",
-              value: job.reviewInstructions ?? "",
-              placeholder: "e.g. focus on API stability",
-              maxLength: MAX_JOB_TEXT_LEN,
-            },
-            {
-              field: "fix_instructions",
-              label: "Fix instructions (blank = none)",
-              value: job.fixInstructions ?? "",
-              placeholder: "e.g. prefer the smallest root-cause fix",
-              maxLength: MAX_JOB_TEXT_LEN,
-            },
-            {
-              field: "document_instructions",
-              label: "Document instructions (blank = none)",
-              value: job.documentInstructions ?? "",
-              placeholder: "e.g. keep the README authoritative",
-              maxLength: MAX_JOB_TEXT_LEN,
-            },
-          ],
-        },
-      },
-      "secondary",
-    );
     s.button(
       job.enabled ? "Disable" : "Enable",
       { event: JOB_TOGGLE_EVENT, payload: { jobId } },
