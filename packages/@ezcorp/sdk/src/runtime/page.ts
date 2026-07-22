@@ -87,11 +87,16 @@ export interface PageFormFieldDescriptor {
   options?: { value: string; label?: string }[];
   /** DYNAMIC visibility: show this field only while the named SIBLING
    *  field's current value equals `equals` (or one of them, when an
-   *  array). Inline form node only. A hidden field is OMITTED from the
-   *  submitted payload (absent key — "don't touch"), so it composes with
+   *  array) AND that controller is ITSELF effectively visible — hiding a
+   *  controller transitively hides every field conditioned on it, even
+   *  while the controller's retained value still matches. Inline form
+   *  node only. A hidden field is OMITTED from the submitted payload
+   *  (absent key — "don't touch"), so it composes with
    *  present-string-clears handler semantics. The host prunes a condition
-   *  referencing an unknown or self field (fails open to visible), and
-   *  visibility is UX only — the handler must validate whatever arrives. */
+   *  referencing an unknown or self field (fails open to visible) and
+   *  breaks a condition CYCLE by treating the re-entered field as visible
+   *  (fail-open, so evaluation terminates deterministically); visibility
+   *  is UX only — the handler must validate whatever arrives. */
   visibleWhen?: { field: string; equals: string | string[] };
 }
 

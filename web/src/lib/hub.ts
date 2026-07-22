@@ -64,7 +64,10 @@ export interface PageFormField {
    *  prefill clamped into the set. */
   options?: { value: string; label?: string }[];
   /** Show only while the named SIBLING field's current value matches (string
-   *  or one-of-array). Inline form node only; a hidden field is OMITTED from
+   *  or one-of-array) AND that controller is ITSELF effectively visible —
+   *  hiding a controller cascades to its dependents, transitively. A
+   *  condition cycle fails open at the re-entered field (evaluation always
+   *  terminates). Inline form node only; a hidden field is OMITTED from
    *  the submitted payload. Mirror of page-schema's `PageFormFieldCondition`
    *  (source of truth) — dangling/self references are pruned server-side. */
   visibleWhen?: { field: string; equals: string | string[] };

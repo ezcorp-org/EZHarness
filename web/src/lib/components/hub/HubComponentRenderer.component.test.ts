@@ -406,6 +406,7 @@ describe("inline form select fields", () => {
 			payload: { jobId: "default", trigger_kind: "schedule", trigger_branch: "main" },
 		});
 	});
+
 });
 
 describe("inline form dynamic visibility (visibleWhen)", () => {
@@ -476,5 +477,80 @@ describe("inline form dynamic visibility (visibleWhen)", () => {
 		expect(getByTestId("hub-inline-field-dep")).toBeInTheDocument();
 		await fireEvent.change(getByTestId("hub-inline-field-mode"), { target: { value: "c" } });
 		expect(queryByTestId("hub-inline-field-dep")).toBeNull();
+	});
+});
+
+describe("inline form CASCADING visibility (hidden controllers hide their dependents)", () => {
+	// A → B → C chain: B shows only while A is "on"; C shows only while
+	// B's value is "x". C's condition keeps matching B's RETAINED value
+	// even while B itself is hidden — effective visibility must cascade.
+	const CHAIN_FORM: PageNode = {
+		type: "form",
+		action: { event: "ecf:job-save", payload: { jobId: "default" } },
+		fields: [
+			{ field: "a", label: "A", value: "on", options: [{ value: "on" }, { value: "off" }] },
+			{
+				field: "b",
+				label: "B",
+				value: "x",
+				options: [{ value: "x" }, { value: "y" }],
+				visibleWhen: { field: "a", equals: "on" },
+			},
+			{ field: "c", label: "C", value: "deep", visibleWhen: { field: "b", equals: "x" } },
+		],
+	};
+
+	test("hiding a controller (B via A) also hides its dependents (C) even though C's condition on B's value still matches", async () => {
+		const { getByTestId, queryByTestId } = renderNodes([CHAIN_FORM]);
+		expect(getByTestId("hub-inline-field-b")).toHaveValue("x");
+		expect(getByTestId("hub-inline-field-c")).toHaveValue("deep");
+		await fireEvent.change(getByTestId("hub-inline-field-a"), { target: { value: "off" } });
+		expect(queryByTestId("hub-inline-field-b")).toBeNull();
+		expect(queryByTestId("hub-inline-field-c")).toBeNull();
+		// Flip back: the whole chain returns with retained values.
+		await fireEvent.change(getByTestId("hub-inline-field-a"), { target: { value: "on" } });
+		expect(getByTestId("hub-inline-field-b")).toHaveValue("x");
+		expect(getByTestId("hub-inline-field-c")).toHaveValue("deep");
+	});
+
+	test("submit omits the WHOLE hidden chain; the restored chain submits again", async () => {
+		const { getByTestId, onAction } = renderNodes([CHAIN_FORM]);
+		await fireEvent.change(getByTestId("hub-inline-field-a"), { target: { value: "off" } });
+		await fireEvent.click(getByTestId("hub-inline-form-submit"));
+		expect(onAction).toHaveBeenNthCalledWith(1, {
+			event: "ecf:job-save",
+			payload: { jobId: "default", a: "off" },
+		});
+		expect(onAction.mock.calls[0]![0].payload).not.toHaveProperty("b");
+		expect(onAction.mock.calls[0]![0].payload).not.toHaveProperty("c");
+		await fireEvent.change(getByTestId("hub-inline-field-a"), { target: { value: "on" } });
+		await fireEvent.click(getByTestId("hub-inline-form-submit"));
+		expect(onAction).toHaveBeenNthCalledWith(2, {
+			event: "ecf:job-save",
+			payload: { jobId: "default", a: "on", b: "x", c: "deep" },
+		});
+	});
+
+	test("a two-field condition CYCLE renders without hanging and fails open (both fields visible and submitted)", async () => {
+		// The server validator prunes SELF/dangling references only, so a
+		// two-field cycle can still arrive; re-entering a field already on
+		// the evaluation path treats it as visible (deterministic fail-open).
+		const { getByTestId, onAction } = renderNodes([
+			{
+				type: "form",
+				action: { event: "ecf:job-save" },
+				fields: [
+					{ field: "ping", label: "Ping", value: "1", visibleWhen: { field: "pong", equals: "1" } },
+					{ field: "pong", label: "Pong", value: "1", visibleWhen: { field: "ping", equals: "1" } },
+				],
+			} as PageNode,
+		]);
+		expect(getByTestId("hub-inline-field-ping")).toHaveValue("1");
+		expect(getByTestId("hub-inline-field-pong")).toHaveValue("1");
+		await fireEvent.click(getByTestId("hub-inline-form-submit"));
+		expect(onAction).toHaveBeenCalledExactlyOnceWith({
+			event: "ecf:job-save",
+			payload: { ping: "1", pong: "1" },
+		});
 	});
 });

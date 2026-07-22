@@ -141,18 +141,27 @@ export interface PageFormField {
   options?: PageFormFieldOption[];
   /** Show this field ONLY while a SIBLING field's current value matches
    *  (inline form node only; the dialog form ignores it and shows every
-   *  field). A HIDDEN field is OMITTED from the submitted payload — absent
-   *  key, never an empty string — so conditional fields compose with
-   *  present-string-clears handler semantics ("hidden" means "don't
-   *  touch"). Validated form-level: a condition referencing an unknown or
-   *  SELF field is dropped (fail-open to always-visible — visibility is
-   *  UX, never an authorization surface; handlers must validate whatever
-   *  arrives regardless). */
+   *  field). Visibility CASCADES: the controlling sibling must be
+   *  EFFECTIVELY visible itself — hiding a controller transitively hides
+   *  every field conditioned on it, even while the controller's retained
+   *  value still matches. A HIDDEN field is OMITTED from the submitted
+   *  payload — absent key, never an empty string — so conditional fields
+   *  compose with present-string-clears handler semantics ("hidden" means
+   *  "don't touch"). Validated form-level: a condition referencing an
+   *  unknown or SELF field is dropped (fail-open to always-visible); a
+   *  condition CYCLE (two fields conditioned on each other) survives
+   *  validation and fails open at the point of re-entry — the re-entered
+   *  field is treated as visible so evaluation terminates
+   *  deterministically. Visibility is UX, never an authorization surface;
+   *  handlers must validate whatever arrives regardless. */
   visibleWhen?: PageFormFieldCondition;
 }
 
 /** A field-visibility condition: the named sibling field's CURRENT value
- *  must equal `equals` (or one of them, when an array). */
+ *  must equal `equals` (or one of them, when an array) AND that sibling
+ *  must itself be EFFECTIVELY visible — hiding a controller cascades to
+ *  its dependents, transitively. A condition cycle fails open at the
+ *  re-entered field, so evaluation always terminates. */
 export interface PageFormFieldCondition {
   /** The controlling sibling field's payload key (slug). */
   field: string;

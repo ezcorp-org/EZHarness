@@ -37,16 +37,31 @@
 		Object.fromEntries(node.fields.map((f) => [f.field, f.value ?? ""])),
 	);
 
-	/** Dynamic visibility: a field with `visibleWhen` renders (and submits)
-	 *  only while its controlling sibling's CURRENT value matches. Reads
-	 *  `values` ($state), so the template re-evaluates as the user edits —
-	 *  flipping a select shows/hides dependents live. A hidden field keeps
-	 *  its local value (flip back and it's still there) but is OMITTED from
-	 *  the payload: absent key = "don't touch", never a clear. */
-	function isVisible(field: PageFormNode["fields"][number]): boolean {
+	/** EFFECTIVE visibility, evaluated transitively: a field with no
+	 *  `visibleWhen` is visible; a conditional field renders (and submits)
+	 *  only while its controlling sibling is ITSELF effectively visible AND
+	 *  that controller's CURRENT value matches — hiding a controller
+	 *  cascades to all its dependents. Reads `values` ($state), so the
+	 *  template re-evaluates as the user edits — flipping a select
+	 *  shows/hides whole dependent chains live. A hidden field keeps its
+	 *  local value (flip back and it's still there) but is OMITTED from the
+	 *  payload: absent key = "don't touch", never a clear.
+	 *
+	 *  Cycle guard: re-entering a field already on the evaluation path
+	 *  treats THAT field as visible (fail-open) so evaluation terminates
+	 *  deterministically — the server validator prunes self/dangling
+	 *  references, but a two-field cycle can still arrive. */
+	function isVisible(field: PageFormNode["fields"][number], visiting = new Set<string>()): boolean {
 		const cond = field.visibleWhen;
 		if (!cond) return true;
-		const current = values[cond.field] ?? "";
+		if (visiting.has(field.field)) return true;
+		visiting.add(field.field);
+		// The server validator prunes conditions referencing unknown fields,
+		// so the controlling sibling always exists (as does its `values` key,
+		// initialized from `node.fields` above).
+		const controller = node.fields.find((f) => f.field === cond.field)!;
+		if (!isVisible(controller, visiting)) return false;
+		const current = values[cond.field];
 		return Array.isArray(cond.equals) ? cond.equals.includes(current) : cond.equals === current;
 	}
 
@@ -57,7 +72,7 @@
 		};
 		for (const f of node.fields) {
 			if (!isVisible(f)) continue;
-			payload[f.field] = values[f.field] ?? "";
+			payload[f.field] = values[f.field];
 		}
 		onAction({
 			event: node.action.event,
@@ -75,7 +90,7 @@
 		submit();
 	}}
 >
-	{#each node.fields.filter(isVisible) as field (field.field)}
+	{#each node.fields.filter((f) => isVisible(f)) as field (field.field)}
 		<div>
 			<label
 				class="block text-xs font-medium text-[var(--color-text-secondary)]"
