@@ -30,6 +30,11 @@
 # chat-memory-e2e, agent-configs rate-limit.
 set -u
 
+HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# Shared with .githooks/* so the biome worktree vacuous-pass guard lives in one
+# place (see scripts/lib/hook-lib.sh).
+. "$HERE/lib/hook-lib.sh"
+
 BASE_REF=${BASE_REF:-origin/main}
 FAST=0
 [ "${1:-}" = "--fast" ] && FAST=1
@@ -54,15 +59,16 @@ run_step() {
 }
 
 lint_step() {
-  # Vacuous-pass guard for worktrees (see header).
-  local checked
-  checked=$(bunx biome check . 2>&1 | tail -2)
-  echo "$checked"
-  if echo "$checked" | grep -q "Checked 0 files"; then
+  # Vacuous-pass guard for worktrees (see header). run_biome_full does the
+  # single biome run + classification (shared with the hooks); ci-local's
+  # policy is to FAIL the vacuous case so you re-run from a primary checkout.
+  run_biome_full
+  local rc=$?
+  if [ "$rc" = "2" ]; then
     echo "biome resolved 0 files — you are likely in a git worktree; lint explicit paths or run from the primary checkout."
     return 1
   fi
-  bun run lint
+  return "$rc"
 }
 
 git fetch origin main --quiet 2>/dev/null || true

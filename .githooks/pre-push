@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# Local pre-push hook (shift-left): runs the fuller cheap gates before a push —
+# full biome lint, typecheck (backend + web + tests ratchet), and svelte-check —
+# so a red push is caught locally instead of by CI. Advisory speed, NOT the
+# enforcement backstop: CI's required checks remain the gate. Bypass with
+# `git push --no-verify` or EZ_SKIP_HOOKS=1; CI enforces these regardless.
+#
+# Installed by scripts/setup-git-hooks.sh (`git config core.hooksPath .githooks`,
+# wired into `bun install` postinstall).
+set -u
+
+# ── Escape hatch (checked first, before any work) ───────────────────────────
+if [ "${EZ_SKIP_HOOKS:-}" = "1" ]; then
+  exit 0
+fi
+
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+cd "$ROOT" || exit 0
+. "$ROOT/scripts/lib/hook-lib.sh"
+
+# Full biome lint with the shared worktree vacuous-pass guard. Policy here (vs
+# ci-local's FAIL) is WARN+skip: a worktree push shouldn't be blocked just
+# because biome can't resolve files there — CI still lints the pushed tree.
+lint_prepush() {
+  run_biome_full
+  local rc=$?
+  if [ "$rc" = "2" ]; then
+    echo "⚠ biome resolved 0 files (git worktree) — skipping full lint here; lint explicit paths or push from a primary checkout. CI still enforces lint."
+    return 0
+  fi
+  return "$rc"
+}
+
+FAILED=0
+hook_step "Lint (biome, full)" lint_prepush || FAILED=1
+hook_step "Typecheck" bun run typecheck || FAILED=1
+hook_step "Svelte check" svelte_check || FAILED=1
+
+if [ "$FAILED" != "0" ]; then
+  echo ""
+  echo "✗ pre-push: one or more checks failed (see above)."
+  echo "  bypass: git push --no-verify   (or EZ_SKIP_HOOKS=1 git push …)"
+  echo "  note:   CI enforces these same checks — bypassing only defers the failure."
+  exit 1
+fi
+
+exit 0

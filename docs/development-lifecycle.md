@@ -86,6 +86,33 @@ lcov it just built, so it isn't rebuilt twice):
 
 All six are diff-scoped, so pre-existing skips/mocks don't false-positive.
 
+## Local hooks (shift-left)
+
+The checks above run in CI, but you don't have to wait for a red CI run to find
+a lint slip or a stale lockfile. Checked-in git hooks under `.githooks/` run the
+cheap ones locally:
+
+- **pre-commit** — biome-lints your **staged** files (by explicit path) and, when
+  a staged path is an `ezcorp.config.ts` or `manifest.lock.json`, runs the
+  manifest-lock drift check. Fast (targets a couple seconds on a typical commit).
+- **pre-push** — the fuller pass before you share code: full biome lint,
+  `bun run typecheck` (backend + web + tests ratchet), and `svelte-check`.
+
+**Auto-setup:** `scripts/setup-git-hooks.sh` points git at `.githooks` and runs
+from `bun install`'s postinstall. It scopes the setting **per working tree**
+(`extensions.worktreeConfig` + `git config --worktree core.hooksPath .githooks`)
+rather than to the shared config — so enabling hooks in one worktree doesn't flip
+them on for a sibling checkout that shares the same `.git`. It's a safe no-op in
+CI (`$CI` set), in Docker builds, in tarball installs (no `.git`), and on a git
+too old for `--worktree`, so it never fails an install.
+
+**Escape hatches:** skip a single run with `git commit --no-verify` /
+`git push --no-verify`, or set `EZ_SKIP_HOOKS=1` for the command.
+
+These hooks are **advisory speed, not the gate** — they're bypassable by design,
+and the CI required checks above remain the enforcement backstop. They just move
+the feedback earlier.
+
 ## Trustworthy green
 
 The blocking e2e suite runs with **`retries: 0`** (`web/playwright.config.ts`):
