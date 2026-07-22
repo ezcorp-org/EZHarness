@@ -76,6 +76,7 @@ getChannel().start();
 | `button` | `.button(label, action, style?)` | `style`: `primary`/`secondary`/`danger` | |
 | `link` | `.link(label, href)` | internal `href` only | |
 | `empty-state` | `.emptyState(title, detail?)` | | |
+| `form` | `.form(fields, action, submitLabel?)` | 1–10 fields | Inline on-page form — see §5b. `submitLabel` defaults to "Save". |
 
 ## 4. Push live updates with `pushPage`
 
@@ -121,13 +122,13 @@ invalidatePage("dashboard"); // all variants re-pull with their own context
 
 ## 5. Action contract
 
-Buttons and table rows carry `{ event, payload?, confirm?, prompt? }`:
+Buttons and table rows carry `{ event, payload?, confirm?, prompt?, form? }`:
 
 - `event` must be `<your-extension-name>:<event>` AND listed in `permissions.eventSubscriptions` — double-gated: the tree validator drops undeclared action nodes at render time, and the events route 404s undeclared events at POST time.
-- The Hub POSTs to `/api/extensions/<name>/events/<event>` with body `{ source: "hub", pageId, payload? }` (payload ≤ 2KB). Rate limit: 10 actions/min/user.
+- The Hub POSTs to `/api/extensions/<name>/events/<event>` with body `{ source: "hub", pageId, payload? }` (POSTed payload ≤ 8KB — sized for a worst-case 10×500-char form submit; the static `payload` declared in the tree stays ≤ 2KB). Rate limit: 10 actions/min/user.
 - Your subprocess receives the standard `ezcorp/event/<name>:<event>` notification with `{ source: "hub", pageId, userId, payload? }` — `definePage`'s `actions` map handles it (same wire format as `registerEventHandler`).
 - `confirm` strings are rendered by the HOST in a native confirm dialog before dispatch.
-- `payload` carries small structured values for the action. Free-form **text** input is collected through a `prompt` (below) — there are still no inline input/form nodes.
+- `payload` carries small structured values for the action. Free-form user input is collected through a `prompt` (one text value, below), a `form` dialog (`action.form`, multiple values), or the inline `form` node (§5b).
 - **`payload` is attacker-controlled.** The host caps its size and shape, but any authenticated user can POST any payload to your declared events directly — never trust field values. Validate every field in your handler before acting on it (treat it exactly like untrusted HTTP input).
 
 ### `prompt` — collect one text value before dispatch
@@ -157,10 +158,41 @@ Allowed formats are the scalar-string producers in the host's `PROMPT_FORMATS` (
 **`prompt` grants your extension ZERO new authority** — it is only a host-mediated way for the *user* to type a string into an action you **already** declared and that is **already** gated:
 
 - The input widget is **100% host-rendered**. You supply only display strings (`label`/`placeholder`/`submitLabel`) — never DOM, never HTML, never a URL. The host `<>`-strips + truncates them; a malformed prompt is silently dropped and the action degrades to a plain dispatch (it is never fatal).
-- **No new dispatch path.** A prompt action still routes through the same `eventSubscriptions` allowlist + page-declared check + 10/min/user limiter + 2KB payload cap. You cannot conjure a new event via `prompt`.
+- **No new dispatch path.** A prompt action still routes through the same `eventSubscriptions` allowlist + page-declared check + 10/min/user limiter + 8KB POST payload cap. You cannot conjure a new event via `prompt`.
 - **The typed value is untrusted and stays a scalar.** It is merged into `payload[field]` as a single string. `field` is slug-sanitized (`/^[a-z0-9][a-z0-9_]{0,31}$/`, default `"value"`) so it cannot spoof a reserved payload key. Validate it in your handler like any other untrusted input.
 - **Echo-back is re-sanitized.** If your handler echoes the value into a re-rendered tree, that tree passes back through `validatePageTree` — every display string is `<>`-stripped, so a `<script>`-laden value can never reach the DOM.
 - `maxLength` is an author hint only; the host clamps it to `[1, 500]` (default 200) and re-validates server-side regardless.
+
+## 5b. Forms — multi-field input
+
+Two multi-field surfaces share one field shape (`{ field, label, value?, placeholder?, maxLength?, multiline?, options?, visibleWhen? }`):
+
+- **Dialog form** — `action.form: { title?, fields }`. The host opens a modal before dispatch (supersedes `prompt` when both are present — the prompt is dropped). The dialog renders plain text inputs only: it ignores `options`/`visibleWhen`/`multiline` and shows every field. On Save **every** field merges into `payload[field]` — an empty string is a deliberate clear-to-empty.
+- **Inline `form` node** — `.form(fields, action, submitLabel?)`: the fields live directly in the page flow with one submit button (no modal), and the inline renderer honours all three richer field features:
+
+```ts
+page.form(
+  [
+    { field: "trigger_kind", label: "Trigger", value: "push",
+      options: [{ value: "push" }, { value: "schedule", label: "schedule — on a cadence" }] },
+    { field: "cadence", label: "Cadence", value: "daily",
+      options: [{ value: "hourly" }, { value: "daily" }],
+      visibleWhen: { field: "trigger_kind", equals: "schedule" } },
+    { field: "notes", label: "Notes", multiline: true, maxLength: 500 },
+  ],
+  { event: "my-ext:save", payload: { id: "job-1" } },
+  "Save",
+);
+```
+
+Field rules (host-validated; author values are hints):
+
+- 1–10 fields survive validation; a zero-field form is dropped. `field` MUST be a `/^[a-z0-9][a-z0-9_]{0,31}$/` slug — a non-slug field is **dropped outright** (no `"value"` fall-back, which would clobber a sibling). `maxLength` clamps to `[1, 500]` (default 200); the `value` prefill is truncated to it.
+- `options` renders a **select**: 2–12 valid options survive, else the whole list is dropped and the field falls back to a text input. A `value` prefill outside the option set clamps to the first option.
+- `visibleWhen: { field, equals }` shows the field only while the named sibling's **current** value matches `equals` (a string, or a 1–12-entry array of ≤ 64-char strings). Visibility **cascades**: a field is effectively visible only while its controller is itself effectively visible AND matches. A condition naming an unknown or self field is pruned (fails open to always-visible); a reference cycle also fails open to visible.
+- A **hidden field is omitted from the submitted payload** — absent key, never an empty string — so conditional fields compose with present-string-clears handler semantics ("hidden" means "don't touch"). A visible-but-blank field submits `""` (clear-to-empty). Hidden fields keep their local value, so flipping the controller back restores what was typed.
+- On submit the action dispatches through its **unchanged, already-gated** event path. The host **strips** `prompt`/`form` off the inline node's action (the inline fields ARE the input surface — a submit never opens a second collection dialog); `confirm` survives and still gates the dispatch.
+- **Selects and visibility constrain the UI, never the wire.** Any authenticated user can POST any payload to your declared event directly — an out-of-set "select" value or a "hidden" field's key can absolutely arrive. Validate every field in your handler, exactly like the `prompt` value.
 
 ## 6. Limits & security rules (server-enforced)
 
