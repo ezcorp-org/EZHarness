@@ -79,6 +79,11 @@ function configTree() {
 
 const AGENT_NAME = "Research Assistant";
 const INTENT_TEMPLATE = "Keep the public API backward compatible.";
+// Operator prompt instructions — the fixture starts with fix + document set
+// (review empty) so the Edit-prompts dialog opens with prefilled + empty fields.
+const REVIEW_INSTR = "Focus on API stability.";
+const FIX_INSTR = "Prefer the smallest root-cause fix.";
+const DOC_INSTR = "Keep the README authoritative.";
 
 /** Job editor mirror of buildJobView: Definition (stats + ONE "Edit job" form
  *  button with every field prefilled) → Flow (9 steps; skipped => warning cell,
@@ -86,7 +91,8 @@ const INTENT_TEMPLATE = "Keep the public API backward compatible.";
  *  row action + confirm) → Prompts (read-only previews with the agent
  *  substituted) → Runs → Danger zone (Delete). `name`/`agent`/`intent` reflect
  *  the latest save (the trigger is a fixed schedule in this fixture). */
-function jobTree(name: string, agent: string, intent: string) {
+function jobTree(name: string, agent: string, intent: string, review: string, fix: string, doc: string) {
+	const anyInstr = Boolean(review || fix || doc);
 	const toggleRow = (step: string, state: unknown, verb: "Skip" | "Run") => ({
 		cells: [step, state],
 		action: {
@@ -138,6 +144,25 @@ function jobTree(name: string, agent: string, intent: string) {
 							},
 						},
 					},
+					// A SECOND form dialog for the operator prompt instructions (3
+					// prefilled slug-legal fields, ≤500 each), separate from Edit job.
+					{
+						type: "button",
+						label: "Edit prompts",
+						style: "secondary",
+						action: {
+							event: "ez-code-factory:job-save",
+							payload: { jobId: JOB_ID },
+							form: {
+								title: `Edit prompts — ${name}`,
+								fields: [
+									{ field: "review_instructions", label: "Review instructions (blank = none)", value: review, maxLength: 500 },
+									{ field: "fix_instructions", label: "Fix instructions (blank = none)", value: fix, maxLength: 500 },
+									{ field: "document_instructions", label: "Document instructions (blank = none)", value: doc, maxLength: 500 },
+								],
+							},
+						},
+					},
 					{ type: "button", label: "Run now", action: { event: "ez-code-factory:run-now", payload: { jobId: JOB_ID }, confirm: `Run job "${name}" now on main?` }, style: "primary" },
 				],
 			},
@@ -165,13 +190,17 @@ function jobTree(name: string, agent: string, intent: string) {
 				type: "section",
 				title: "Prompts",
 				nodes: [
+					// The muted "+ operator instructions" marker shows only when any set.
+					...(anyInstr ? [{ type: "text", content: "+ operator instructions", variant: "muted" }] : []),
 					{ type: "text", content: "What this job sends the agent, with this job's known values already filled in. Run-scoped values (<branch>, <base-commit>, <head-commit>) and repo-file values (<repo: ignore_patterns>, <repo: document.instructions>) are resolved per run.", variant: "muted" },
 					{ type: "heading", level: 3, text: "Review" },
 					{
 						type: "table",
 						columns: ["Part", "Content"],
 						rows: [
-							{ cells: ["Agent", AGENT_NAME] },
+							{ cells: ["Agent", agent] },
+							// The substituted operator instruction is a meta row only when set.
+							...(review ? [{ cells: ["Operator instructions", review] }] : []),
 							{ cells: ["Run-scoped", "<branch>, <base-commit>, <head-commit> — resolved per run"] },
 							{ cells: ["Prompt · 3.0 KB · excerpt", "Review the code changes and return structured findings with a risk assessment. Context: - branch: <branch> - base commit: <base-commit>…"] },
 						],
@@ -235,6 +264,9 @@ interface HubState {
 	jobName: string;
 	jobAgent: string;
 	jobIntent: string;
+	jobReview: string;
+	jobFix: string;
+	jobDoc: string;
 	saveBody?: unknown;
 	runNowBody?: unknown;
 	configPulls: number;
@@ -244,7 +276,16 @@ interface HubState {
 /** Route the Hub render endpoint (branch on `?view=`) + the four job-action
  *  events. Returns the shared state so tests can assert POST bodies + re-pulls. */
 async function routeHub(page: import("@playwright/test").Page): Promise<HubState> {
-	const state: HubState = { jobName: "Nightly", jobAgent: AGENT_NAME, jobIntent: INTENT_TEMPLATE, configPulls: 0, jobPulls: 0 };
+	const state: HubState = {
+		jobName: "Nightly",
+		jobAgent: AGENT_NAME,
+		jobIntent: INTENT_TEMPLATE,
+		jobReview: "",
+		jobFix: FIX_INSTR,
+		jobDoc: DOC_INSTR,
+		configPulls: 0,
+		jobPulls: 0,
+	};
 	await page.route("**/api/hub/pages", (route) => route.fulfill({ json: listing }));
 	await page.route(
 		(url) => decodeURIComponent(url.pathname).endsWith(`/api/hub/pages/${EXT_ID}`),
@@ -256,7 +297,7 @@ async function routeHub(page: import("@playwright/test").Page): Promise<HubState
 				pageTree = configTree();
 			} else if (view?.startsWith("job:")) {
 				state.jobPulls += 1;
-				pageTree = jobTree(state.jobName, state.jobAgent, state.jobIntent);
+				pageTree = jobTree(state.jobName, state.jobAgent, state.jobIntent, state.jobReview, state.jobFix, state.jobDoc);
 			} else if (view === "audit" || view?.startsWith("audit:")) {
 				const day = view.includes(":") ? view.slice("audit:".length) : "2026-07-21";
 				pageTree = auditTree(day);
@@ -274,6 +315,11 @@ async function routeHub(page: import("@playwright/test").Page): Promise<HubState
 		// as "default" in the stats, mirroring buildJobView's `agentName ?? default`.
 		if (typeof payload.agent_name === "string") state.jobAgent = payload.agent_name || "default";
 		if (typeof payload.intent_template === "string") state.jobIntent = payload.intent_template;
+		// The Edit-prompts dialog submits all three instruction keys every save;
+		// each applies (clear-to-empty removes), mirroring the explicit-carry patch.
+		if (typeof payload.review_instructions === "string") state.jobReview = payload.review_instructions;
+		if (typeof payload.fix_instructions === "string") state.jobFix = payload.fix_instructions;
+		if (typeof payload.document_instructions === "string") state.jobDoc = payload.document_instructions;
 		return route.fulfill({ json: { ok: true } });
 	});
 	await page.route("**/api/extensions/ez-code-factory/events/run-now", (route) => {
@@ -383,6 +429,81 @@ test.describe("ez-code-factory control plane (?view= + job actions)", () => {
 		await page.getByTestId("hub-form-cancel").click();
 		await expect(page.getByTestId("hub-form-dialog")).toHaveCount(0);
 		// The title is unchanged (no save, no re-render mutation).
+		await expect(page.getByTestId("hub-page-title")).toHaveText("ez-code-factory — job Nightly");
+		expect(posted).toBe(false);
+	});
+
+	test("the Edit prompts dialog opens with 3 prefilled fields; setting review + clearing fix POSTs ONE job-save with the slug keys; the re-render shows the marker + substituted text @evidence", async ({
+		page,
+		mockApi,
+	}, testInfo) => {
+		await mockApi({ projects: [proj] });
+		const state = await routeHub(page);
+
+		await page.goto(viewHref(`job:${JOB_ID}`));
+		await expect(page.getByTestId("hub-page-title")).toHaveText("ez-code-factory — job Nightly");
+
+		// A SEPARATE dialog from Edit job — 3 prompt-instruction fields, prefilled
+		// with the job's current values (review empty, fix + document set).
+		await page.getByRole("button", { name: "Edit prompts" }).click();
+		await expect(page.getByTestId("hub-form-dialog")).toBeVisible();
+		await expect(page.getByTestId("hub-form-title")).toHaveText("Edit prompts — Nightly");
+		await expect(page.getByTestId("hub-form-field-review_instructions")).toHaveValue("");
+		await expect(page.getByTestId("hub-form-field-fix_instructions")).toHaveValue(FIX_INSTR);
+		await expect(page.getByTestId("hub-form-field-document_instructions")).toHaveValue(DOC_INSTR);
+
+		// Capture the open dialog (frontend-visual evidence gate).
+		await captureEvidence(page, testInfo, "ez-code-factory-edit-prompts-form");
+
+		// Set the review instruction + CLEAR the fix instruction to empty.
+		await page.getByTestId("hub-form-field-review_instructions").fill(REVIEW_INSTR);
+		await page.getByTestId("hub-form-field-fix_instructions").fill("");
+
+		const savePost = page.waitForRequest(
+			(req) => req.method() === "POST" && req.url().includes("/api/extensions/ez-code-factory/events/job-save"),
+		);
+		await page.getByTestId("hub-form-submit").click();
+		const req = await savePost;
+
+		// ONE POST carries all THREE slug-legal keys merged into the payload — the
+		// set review, the cleared fix (""), the untouched document re-sent verbatim.
+		expect(req.postDataJSON()).toMatchObject({
+			payload: {
+				jobId: JOB_ID,
+				review_instructions: REVIEW_INSTR,
+				fix_instructions: "",
+				document_instructions: DOC_INSTR,
+			},
+		});
+		expect(state.saveBody).toMatchObject({
+			payload: { review_instructions: REVIEW_INSTR, fix_instructions: "", document_instructions: DOC_INSTR },
+		});
+
+		// The action re-pulls the SAME view → the fresh Prompts preview substitutes
+		// the review instruction and the "+ operator instructions" marker shows.
+		const body = page.getByTestId("hub-page-body");
+		await expect(body).toContainText("+ operator instructions");
+		await expect(body).toContainText(REVIEW_INSTR);
+		await captureEvidence(page, testInfo, "ez-code-factory-prompts-preview-substituted");
+	});
+
+	test("the Edit prompts dialog Cancel dispatches nothing and closes", async ({ page, mockApi }) => {
+		await mockApi({ projects: [proj] });
+		await routeHub(page);
+
+		await page.goto(viewHref(`job:${JOB_ID}`));
+		await expect(page.getByTestId("hub-page-title")).toHaveText("ez-code-factory — job Nightly");
+
+		await page.getByRole("button", { name: "Edit prompts" }).click();
+		await expect(page.getByTestId("hub-form-dialog")).toBeVisible();
+		await page.getByTestId("hub-form-field-review_instructions").fill("Discarded guidance");
+
+		let posted = false;
+		page.on("request", (req) => {
+			if (req.method() === "POST" && req.url().includes("/events/job-save")) posted = true;
+		});
+		await page.getByTestId("hub-form-cancel").click();
+		await expect(page.getByTestId("hub-form-dialog")).toHaveCount(0);
 		await expect(page.getByTestId("hub-page-title")).toHaveText("ez-code-factory — job Nightly");
 		expect(posted).toBe(false);
 	});
