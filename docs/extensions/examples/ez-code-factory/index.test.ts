@@ -192,6 +192,7 @@ function fakeAudit(): AuditLog {
     },
     async readDay() { return []; },
     async listDays() { return []; },
+    async pruneRetention() { return []; },
   };
 }
 
@@ -679,6 +680,62 @@ describe("handlePushReceived — job matching", () => {
     expect(run.jobId).toBe("default");
     // The seed itself is audited as actor "system".
     expect(auditEntries.some((e) => e.kind === "job-seed" && e.actor === "system")).toBe(true);
+  });
+});
+
+// ── audit sinks (control plane, L5) ─────────────────────────────────
+
+describe("audit sinks", () => {
+  test("a respond action is audited with the acting user + action + finding ids (no content)", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setInvalidatePageForTests(() => {});
+    const store = memStore();
+    const id = await seedParkedRun(store); // parked at review (clean gate → approve ok)
+    _setStoreForTests(store);
+    _setRespondRunnerForTests(() => async () => ({ parked: false }));
+    _setShellForTests(async () => ({ exitCode: 0, stdout: "", stderr: "" }));
+
+    await handleRespond({
+      source: "hub", pageId: "dashboard", userId: "alice",
+      payload: { runId: id, step: "review", action: "approve" },
+    });
+
+    const respondAudit = auditEntries.find((e) => e.kind === "respond");
+    expect(respondAudit).toBeDefined();
+    expect(respondAudit!.actor).toBe("alice"); // event.userId stamped as actor
+    expect(respondAudit!.runId).toBe(id);
+    const detail = respondAudit!.detail as { action: string; findingIds: string[] };
+    expect(detail.action).toBe("approve");
+    // Privacy: the detail carries ids/action only — no finding descriptions.
+    expect(JSON.stringify(respondAudit!.detail)).not.toContain("description");
+  });
+
+  test("handleScheduleFire audits the sweep summary and prunes audit retention", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setStoreForTests(memStore());
+    _setHeartbeatKVForTests(() => ({ async read() { return null; }, async write() {} }));
+    _setRunHeartbeatKVForTests(() => ({ async read() { return null; }, async write() {} }));
+    _setShellForTests(async () => ({ exitCode: 0, stdout: "", stderr: "" }));
+    // Only a push job → no schedule synthesis; we just want the sweep + prune.
+    _setJobStoreForTests(fakeJobStore([buildDefaultJob("t")]));
+    // A fake audit that records appends AND the prune call.
+    let pruneCalled = false;
+    _setAuditForTests({
+      async append(e) {
+        auditEntries.push({ at: e.at ?? "t", actor: e.actor, kind: e.kind, ...(e.detail !== undefined ? { detail: e.detail } : {}) });
+      },
+      async readDay() { return []; },
+      async listDays() { return []; },
+      async pruneRetention() { pruneCalled = true; return []; },
+    });
+
+    await handleScheduleFire({ cron: SWEEP_CRON, scheduledAt: "t", firedAt: "t", fireId: "f", catchUp: false, retry: false, attempt: 1 });
+
+    const sweepAudit = auditEntries.find((e) => e.kind === "sweep");
+    expect(sweepAudit).toBeDefined();
+    expect(sweepAudit!.actor).toBe("system");
+    expect(sweepAudit!.detail).toMatchObject({ scanned: expect.any(Number), stalled: expect.any(Number) });
+    expect(pruneCalled).toBe(true);
   });
 });
 

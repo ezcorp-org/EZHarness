@@ -368,6 +368,9 @@ function buildExecutorDeps(
       resolveTrustedRepoConfig(makeGit(shellImpl, worktreePath), config.defaultBranch, "HEAD"),
     now: () => Date.now(),
     onChange: refreshDashboard,
+    // Control-plane audit sink (L5): run status transitions are recorded via
+    // the executor's setRunStatus choke.
+    audit: getAudit(),
     log: (runId, step, message) =>
       logLine(`ez-code-factory[${runId}/${step}]: ${message}`),
     // Per-run liveness heartbeat (L3): a 60 s beat around each step's execute so
@@ -863,6 +866,20 @@ export async function handleRespond(event: PageActionEvent): Promise<void> {
     if (result === null) {
       logLine(`ez-code-factory: respond for run ${respond.runId} could not resume`);
     }
+    // Audit the triage action (L5): actor = the acting user (host-stamped on
+    // the fire), action + finding IDS only (never restated finding content).
+    await getAudit().append({
+      actor: event.userId || "system",
+      kind: "respond",
+      runId: respond.runId,
+      step: respond.step,
+      detail: {
+        action: respond.action,
+        findingIds: respond.findingIds,
+        resumed: result !== null,
+        ...(approval.consentAllUsed ? { consentAll: true } : {}),
+      },
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logLine(`ez-code-factory: respond handler error: ${message}`);
@@ -962,6 +979,14 @@ export async function handleYolo(event: PageActionEvent): Promise<void> {
       return;
     }
     await runYoloAutopilot(runId, projectRoot);
+    // Audit the triage action (L5): actor = the acting user; result = the run's
+    // status after the autopilot settled (id only, no content).
+    await getAudit().append({
+      actor: event.userId || "system",
+      kind: "yolo",
+      runId,
+      detail: { status: (await getStore().getRun(runId))?.status ?? "unknown" },
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logLine(`ez-code-factory: yolo handler error: ${message}`);
@@ -1002,6 +1027,13 @@ export async function handleReconcile(event: PageActionEvent): Promise<void> {
     if (result === null) {
       logLine(`ez-code-factory: reconcile for run ${runId} could not resume`);
     }
+    // Audit the triage action (L5): actor = the acting user; result only.
+    await getAudit().append({
+      actor: event.userId || "system",
+      kind: "reconcile",
+      runId,
+      detail: { resumed: result !== null, ...(result ? { parked: result.parked } : {}) },
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logLine(`ez-code-factory: reconcile handler error: ${message}`);
@@ -1147,17 +1179,37 @@ export async function synthesizeScheduledRuns(now: Date): Promise<void> {
  *  due schedule-trigger jobs (control plane, L4). Each stage swallows its own
  *  throw (a cron fire is fire-and-forget; a thrown handler must not escape). */
 export async function handleScheduleFire(_ctx: ScheduleHandlerContext): Promise<void> {
+  const now = new Date();
   try {
-    await runReconcileSweep();
+    const summary = await runReconcileSweep();
+    // Audit the sweep outcome (L5): counts only, no run content.
+    await getAudit().append({
+      actor: "system",
+      kind: "sweep",
+      detail: {
+        scanned: summary.scanned,
+        advanced: summary.advanced,
+        stillParked: summary.stillParked,
+        skipped: summary.skipped,
+        stalled: summary.stalled,
+      },
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logLine(`ez-code-factory: reconcile sweep error: ${message}`);
   }
   try {
-    await synthesizeScheduledRuns(new Date());
+    await synthesizeScheduledRuns(now);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logLine(`ez-code-factory: schedule job routing error: ${message}`);
+  }
+  // Retention (L5): prune audit buckets older than 30 days on the sweep tick.
+  try {
+    await getAudit().pruneRetention(now);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logLine(`ez-code-factory: audit retention prune error: ${message}`);
   }
 }
 

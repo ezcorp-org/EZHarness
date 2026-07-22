@@ -5,10 +5,12 @@ import {
   appendWithCap,
   clampAuditDetail,
   auditDayKey,
+  auditDaysToPrune,
   isTruncationMarker,
   createAuditLog,
   AUDIT_BUCKET_CAP,
   AUDIT_DETAIL_MAX_BYTES,
+  AUDIT_RETENTION_DAYS,
   type AuditEntry,
   type AuditBucket,
 } from "./audit";
@@ -104,6 +106,9 @@ describe("createAuditLog (Storage-backed)", () => {
         mem.set(key, p.value);
         return { ok: true, sizeBytes: 1 };
       }
+      if (p.action === "delete") {
+        return { deleted: mem.delete(key) };
+      }
       if (p.action === "list") {
         const scopePrefix = `${p.scope}:`;
         const listPrefix = scopePrefix + (typeof p.prefix === "string" ? p.prefix : "");
@@ -151,5 +156,47 @@ describe("createAuditLog (Storage-backed)", () => {
     // Must not reject — the action that produced the entry must not fail.
     await audit.append({ actor: "system", kind: "run-status", runId: "r1" });
     expect(logLines.some((l) => l.includes("[audit]") && l.includes("append failed"))).toBe(true);
+  });
+
+  test("pruneRetention removes buckets older than the window + audits a retention entry", async () => {
+    const mem = stubStorage();
+    const audit = createAuditLog();
+    const now = new Date("2026-07-31T00:00:00.000Z");
+    // Two OLD buckets (> 30d) + one recent (< 30d).
+    await audit.append({ at: "2026-06-01T00:00:00.000Z", actor: "system", kind: "old-a" });
+    await audit.append({ at: "2026-06-15T00:00:00.000Z", actor: "system", kind: "old-b" });
+    await audit.append({ at: "2026-07-20T00:00:00.000Z", actor: "system", kind: "recent" });
+
+    const pruned = await audit.pruneRetention(now, AUDIT_RETENTION_DAYS);
+    expect(pruned.sort()).toEqual(["2026-06-01", "2026-06-15"]);
+    // Old buckets gone; recent survives.
+    expect(await audit.readDay("2026-06-01")).toEqual([]);
+    expect(await audit.readDay("2026-07-20")).toHaveLength(1);
+    // The retention action itself is audited on the current day.
+    const today = await audit.readDay("2026-07-31");
+    const retention = today.find((e) => (e as AuditEntry).kind === "retention") as AuditEntry;
+    expect(retention).toBeDefined();
+    expect((retention.detail as { prunedDays: number }).prunedDays).toBe(2);
+    // Sanity: the recent-day storage key still exists in the backing map.
+    expect([...mem.keys()].some((k) => k.endsWith("audit/2026-07-20"))).toBe(true);
+  });
+
+  test("pruneRetention with nothing to prune is a no-op (no retention entry)", async () => {
+    stubStorage();
+    const audit = createAuditLog();
+    await audit.append({ at: "2026-07-30T00:00:00.000Z", actor: "system", kind: "recent" });
+    const pruned = await audit.pruneRetention(new Date("2026-07-31T00:00:00.000Z"));
+    expect(pruned).toEqual([]);
+    // No retention entry appended when nothing was pruned.
+    expect(await audit.listDays()).toEqual(["2026-07-30"]);
+  });
+});
+
+describe("auditDaysToPrune (pure)", () => {
+  test("returns only days strictly older than now - retentionDays", () => {
+    const now = new Date("2026-07-31T12:00:00.000Z");
+    const days = ["2026-07-30", "2026-07-01", "2026-06-30", "2026-06-15", "bogus"];
+    // Cutoff = 2026-07-01; strictly-older → 2026-06-30, 2026-06-15.
+    expect(auditDaysToPrune(days, now, 30).sort()).toEqual(["2026-06-15", "2026-06-30"]);
   });
 });

@@ -119,7 +119,19 @@ export function appendWithCap(
   return [{ kind: "truncated", dropped, at: entry.at }, ...kept];
 }
 
-/** Append + per-day read for the control-plane audit trail. */
+/** Default audit retention: buckets older than this many UTC days are pruned. */
+export const AUDIT_RETENTION_DAYS = 30;
+
+/** PURE: which `YYYY-MM-DD` day keys fall outside the retention window ending at
+ *  `now` — i.e. strictly older than `now - retentionDays`. Exported for direct
+ *  coverage of the boundary without a storage round-trip. */
+export function auditDaysToPrune(days: string[], now: Date, retentionDays: number): string[] {
+  const cutoff = new Date(now.getTime() - retentionDays * 24 * 60 * 60 * 1000);
+  const cutoffDay = cutoff.toISOString().slice(0, 10);
+  return days.filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d) && d < cutoffDay);
+}
+
+/** Append + per-day read + retention for the control-plane audit trail. */
 export interface AuditLog {
   /** Append one entry to today's (or the entry's `at`) UTC bucket. Never
    *  throws — a write failure is logged + swallowed (the action must not fail
@@ -129,45 +141,76 @@ export interface AuditLog {
   readDay(day: string): Promise<AuditBucket>;
   /** List the `YYYY-MM-DD` day keys that have buckets, newest-first. */
   listDays(): Promise<string[]>;
+  /** Prune buckets older than `retentionDays` (default 30) UTC days before
+   *  `now`, and audit a `retention` entry on the current day recording the
+   *  pruned count. Best-effort (never throws). Returns the pruned day keys. */
+  pruneRetention(now: Date, retentionDays?: number): Promise<string[]>;
 }
 
 /** A `Storage`-backed AuditLog for the given scope (default global). */
 export function createAuditLog(scope: StorageScope = "global"): AuditLog {
   const storage = new Storage(scope);
+
+  const doAppend = async (input: Omit<AuditEntry, "at"> & { at?: string }): Promise<void> => {
+    const at = input.at ?? new Date().toISOString();
+    const entry: AuditEntry = {
+      at,
+      actor: input.actor,
+      kind: input.kind,
+      ...(input.jobId !== undefined ? { jobId: input.jobId } : {}),
+      ...(input.runId !== undefined ? { runId: input.runId } : {}),
+      ...(input.step !== undefined ? { step: input.step } : {}),
+      ...(input.detail !== undefined ? { detail: clampAuditDetail(input.detail) } : {}),
+    };
+    const key = auditDayKey(new Date(at));
+    try {
+      await withLock(AUDIT_LOCK, async () => {
+        const r = await storage.get<AuditBucket>(key);
+        const bucket = Array.isArray(r.value) ? r.value : [];
+        await storage.set(key, appendWithCap(bucket, entry));
+      });
+    } catch (err) {
+      // Record-and-continue: an audit write must NEVER fail the action.
+      logLine(`ez-code-factory[audit]: append failed (${entry.kind}): ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  const doListDays = async (): Promise<string[]> => {
+    const { keys } = await storage.list({ prefix: AUDIT_KEY_PREFIX });
+    return keys
+      .map((k) => (k.startsWith(AUDIT_KEY_PREFIX) ? k.slice(AUDIT_KEY_PREFIX.length) : k))
+      .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d))
+      .sort((a, b) => (a < b ? 1 : a > b ? -1 : 0));
+  };
+
   return {
-    async append(input) {
-      const at = input.at ?? new Date().toISOString();
-      const entry: AuditEntry = {
-        at,
-        actor: input.actor,
-        kind: input.kind,
-        ...(input.jobId !== undefined ? { jobId: input.jobId } : {}),
-        ...(input.runId !== undefined ? { runId: input.runId } : {}),
-        ...(input.step !== undefined ? { step: input.step } : {}),
-        ...(input.detail !== undefined ? { detail: clampAuditDetail(input.detail) } : {}),
-      };
-      const key = auditDayKey(new Date(at));
-      try {
-        await withLock(AUDIT_LOCK, async () => {
-          const r = await storage.get<AuditBucket>(key);
-          const bucket = Array.isArray(r.value) ? r.value : [];
-          await storage.set(key, appendWithCap(bucket, entry));
-        });
-      } catch (err) {
-        // Record-and-continue: an audit write must NEVER fail the action.
-        logLine(`ez-code-factory[audit]: append failed (${entry.kind}): ${err instanceof Error ? err.message : String(err)}`);
-      }
-    },
+    append: doAppend,
     async readDay(day) {
       const r = await storage.get<AuditBucket>(`${AUDIT_KEY_PREFIX}${day}`);
       return Array.isArray(r.value) ? r.value : [];
     },
-    async listDays() {
-      const { keys } = await storage.list({ prefix: AUDIT_KEY_PREFIX });
-      return keys
-        .map((k) => (k.startsWith(AUDIT_KEY_PREFIX) ? k.slice(AUDIT_KEY_PREFIX.length) : k))
-        .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d))
-        .sort((a, b) => (a < b ? 1 : a > b ? -1 : 0));
+    listDays: doListDays,
+    async pruneRetention(now, retentionDays = AUDIT_RETENTION_DAYS) {
+      try {
+        const days = await doListDays();
+        const toPrune = auditDaysToPrune(days, now, retentionDays);
+        for (const d of toPrune) {
+          await storage.delete(`${AUDIT_KEY_PREFIX}${d}`);
+        }
+        if (toPrune.length > 0) {
+          // The retention action is itself audited on the current day.
+          await doAppend({
+            at: now.toISOString(),
+            actor: "system",
+            kind: "retention",
+            detail: { prunedDays: toPrune.length, retentionDays },
+          });
+        }
+        return toPrune;
+      } catch (err) {
+        logLine(`ez-code-factory[audit]: retention prune failed: ${err instanceof Error ? err.message : String(err)}`);
+        return [];
+      }
     },
   };
 }

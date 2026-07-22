@@ -235,6 +235,40 @@ describe("startPipeline — clean run", () => {
     expect((await startPipeline("nope", deps)).status).toBe("failed");
   });
 
+  // Control plane (L5): every REAL status transition flows through the
+  // setRunStatus choke and appends a `run-status` audit entry (id + status
+  // only). A run driven to completion records at least a `running` and a
+  // `completed` transition; a bare parkedMs bump (no status) is NOT audited.
+  test("run status transitions are audited via the setRunStatus choke", async () => {
+    const store = memStore();
+    const id = await seedRun(store);
+    const entries: Array<{ kind: string; runId?: string; detail?: unknown }> = [];
+    const audit = {
+      async append(e: { kind: string; runId?: string; detail?: unknown }) { entries.push(e); },
+      async readDay() { return []; },
+      async listDays() { return []; },
+      async pruneRetention() { return []; },
+    };
+    const deps: ExecutorDeps = {
+      ...makeDeps(store, registry({
+        intent: scriptStep("intent", [clean]),
+        rebase: scriptStep("rebase", [clean]),
+        review: scriptStep("review", [clean]),
+        push: scriptStep("push", [clean]),
+      }), { t: 0 }),
+      audit,
+    };
+    await startPipeline(id, deps);
+    const statuses = entries.filter((e) => e.kind === "run-status").map((e) => (e.detail as { status: string }).status);
+    expect(statuses).toContain("running");
+    expect(statuses).toContain("completed");
+    // Every run-status entry carries the run id and no prompt/finding content.
+    for (const e of entries.filter((e) => e.kind === "run-status")) {
+      expect(e.runId).toBe(id);
+      expect(Object.keys(e.detail as object).every((k) => k === "status" || k === "error")).toBe(true);
+    }
+  });
+
   // Control plane (L4): a job's skipSteps are marked `skipped` BEFORE dispatch —
   // an IMPLEMENTED step in skipSteps must NOT execute (no agent runs), while
   // non-skipped implemented steps still run normally.

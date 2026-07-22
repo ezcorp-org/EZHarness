@@ -21,6 +21,7 @@ import {
 } from "./config";
 import type { AgentDispatcher, DispatchOptions, DispatchResult } from "./agent";
 import { makeGit } from "./git";
+import type { AuditLog } from "./audit";
 import { emptyRepoConfig, type RepoConfig } from "./repo-config";
 import type { ShellRunner } from "./shell";
 import {
@@ -134,6 +135,14 @@ export interface ExecutorDeps {
   skipSteps?: PipelineStep[];
   /** The matched job's name, for the `skipped by job <name>` skip reason. */
   jobName?: string;
+  /**
+   * Control-plane audit sink (L5). When present, `setRunStatus` — the SINGLE
+   * choke every run status transition flows through — appends a `run-status`
+   * entry (id + status only, NO prompt/finding content). Optional: executor
+   * unit tests omit it. Actor is `"system"` (lifecycle transitions are not a
+   * per-user action; triage actions carry their user via the index handlers).
+   */
+  audit?: AuditLog;
   /**
    * Per-run liveness heartbeat (L3). When present, the executor wraps each
    * `impl.execute` in a heartbeat interval (writes immediately + every
@@ -404,6 +413,21 @@ async function setRunStatus(
 ): Promise<void> {
   await deps.store.updateRun(runId, patch);
   await notify(deps);
+  // Audit sink (L5): record only REAL status transitions (a bare parkedMs bump
+  // carries no `status`). Id + status only — never prompt/finding content. A
+  // short system error reason (superseded / lifecycle error) is not user
+  // content, but is clamped for safety by the audit layer.
+  if (patch.status !== undefined && deps.audit) {
+    await deps.audit.append({
+      actor: "system",
+      kind: "run-status",
+      runId,
+      detail: {
+        status: patch.status,
+        ...(typeof patch.error === "string" ? { error: patch.error.slice(0, 200) } : {}),
+      },
+    });
+  }
 }
 
 // ── fix loop (executeStep, executor.go) ─────────────────────────────
