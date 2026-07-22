@@ -1152,7 +1152,7 @@ export function extractOutputText(output: unknown): string | null {
 }
 
 // Match `![alt](url)` — the signal that a tool output carries a renderable image.
-const MARKDOWN_IMAGE_RE = /!\[[^\]]*\]\([^\)]+\)/;
+const MARKDOWN_IMAGE_RE = /!\[[^\]]*\]\([^)]+\)/;
 
 /**
  * Extract text from output JSON, take first line, truncate to maxLen.

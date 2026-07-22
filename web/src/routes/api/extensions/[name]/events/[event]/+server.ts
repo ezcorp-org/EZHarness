@@ -451,7 +451,7 @@ export const POST: RequestHandler = async ({ request, locals, params }) => {
       enabled: ext?.enabled ?? false,
       hasAppendMessagesGrant: !!grantedProbe?.appendMessages,
     });
-    if (!ext || !ext.enabled) {
+    if (!ext?.enabled) {
       log.warn("[kokoro-tts-flow][server] messageToolbar event for unknown/disabled extension", {
         name,
         event,
@@ -691,7 +691,7 @@ export const POST: RequestHandler = async ({ request, locals, params }) => {
     typeof userDataRecord.attachmentId === "string";
   if (isSaveShape) {
     const ext = await getExtensionByName(name);
-    if (!ext || !ext.enabled) return errorJson(404, "Not found");
+    if (!ext?.enabled) return errorJson(404, "Not found");
     const granted = (ext as { grantedPermissions?: ExtensionPermissions }).grantedPermissions;
     if (!granted?.appendMessages) {
       return errorJson(403, "Extension lacks appendMessages permission");
