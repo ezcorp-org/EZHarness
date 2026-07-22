@@ -149,6 +149,7 @@ function jobTree(name: string, agent: string, intent: string, review: string, fi
 								label: "Cadence (schedule trigger only — ignored otherwise)",
 								value: "daily",
 								options: [{ value: "15m", label: "every 15 minutes" }, { value: "hourly" }, { value: "daily" }],
+								visibleWhen: { field: "trigger_kind", equals: "schedule" },
 							},
 							{ field: "agent_name", label: "Agent (blank = repo-config / deployment default)", value: agent, maxLength: 120 },
 							{ field: "intent_template", label: "Intent template (blank = none)", value: intent, maxLength: 500, multiline: true },
@@ -383,6 +384,13 @@ test.describe("ez-code-factory control plane (?view= + job actions)", () => {
 		const everySelect = page.getByTestId("hub-inline-field-trigger_every");
 		expect(await everySelect.evaluate((el) => el.tagName)).toBe("SELECT");
 		await expect(everySelect).toHaveValue("daily");
+		// DYNAMIC visibility: the cadence only exists while the kind reads
+		// `schedule` — flip to manual and it disappears, flip back and it
+		// returns with its retained value.
+		await kindSelect.selectOption("manual");
+		await expect(page.getByTestId("hub-inline-field-trigger_every")).toHaveCount(0);
+		await kindSelect.selectOption("schedule");
+		await expect(page.getByTestId("hub-inline-field-trigger_every")).toHaveValue("daily");
 		await expect(page.getByTestId("hub-inline-field-agent_name")).toHaveValue(AGENT_NAME);
 		await expect(page.getByTestId("hub-inline-field-intent_template")).toHaveValue(INTENT_TEMPLATE);
 		await expect(page.getByTestId("hub-inline-field-review_instructions")).toHaveValue("");

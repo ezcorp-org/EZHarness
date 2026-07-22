@@ -1502,7 +1502,14 @@ function buttonsDeep(tree: { nodes: unknown[] }) {
 function formsDeep(tree: { nodes: unknown[] }) {
   return allNodes(tree.nodes).filter((n) => n.type === "form") as Array<{
     action: { event: string; payload?: Record<string, unknown>; confirm?: string };
-    fields: Array<{ field: string; value?: string; maxLength?: number; multiline?: boolean }>;
+    fields: Array<{
+      field: string;
+      value?: string;
+      maxLength?: number;
+      multiline?: boolean;
+      options?: Array<{ value: string; label?: string }>;
+      visibleWhen?: { field: string; equals: string | string[] };
+    }>;
     submitLabel?: string;
   }>;
 }
@@ -1689,6 +1696,9 @@ describe("buildJobView", () => {
       "hourly",
       "daily",
     ]);
+    // Dynamic visibility: the cadence renders only while the kind select
+    // reads `schedule` (hidden = key omitted on save, never a stale clear).
+    expect(byField.trigger_every!.visibleWhen).toEqual({ field: "trigger_kind", equals: "schedule" });
     expect(byField.agent_name!.value).toBe("reviewer");
     expect(byField.intent_template!.value).toBe("keep api stable");
     expect(byField.review_instructions!.value).toBe("focus on API stability");

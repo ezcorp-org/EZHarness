@@ -1467,8 +1467,8 @@ export function buildJobView(
   page.section("Edit", (s) => {
     // The trigger edits as THREE components (kind select / branch text /
     // cadence select) the handler reassembles — no free-text grammar to
-    // mistype. The cadence select always submits a value; the handler
-    // ignores it for non-schedule kinds.
+    // mistype. The cadence select is DYNAMIC (visibleWhen): it renders and
+    // submits only while the kind reads `schedule`; hidden = key omitted.
     const concreteBranch =
       job.trigger.kind === "push" ? job.trigger.branchPattern : job.trigger.branch;
     s.form(
@@ -1493,13 +1493,18 @@ export function buildJobView(
         },
         {
           field: "trigger_every",
-          label: "Cadence (schedule trigger only — ignored otherwise)",
+          label: "Cadence",
           value: job.trigger.kind === "schedule" ? job.trigger.every : "daily",
           options: [
             { value: "15m", label: "every 15 minutes" },
             { value: "hourly" },
             { value: "daily" },
           ],
+          // Dynamic: only a schedule trigger has a cadence — the field shows
+          // (and submits) only while the kind select reads `schedule`. A save
+          // with the field hidden OMITS the key, and applyJobEdit then falls
+          // back to the current/daily cadence — never a stale clear.
+          visibleWhen: { field: "trigger_kind", equals: "schedule" },
         },
         {
           field: "agent_name",
