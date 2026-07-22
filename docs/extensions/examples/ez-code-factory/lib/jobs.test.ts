@@ -17,7 +17,6 @@ import {
   parseJobIdPayload,
   applyJobEdit,
   hasJobEditField,
-  JOB_EDIT_FIELDS,
   DEFAULT_JOB_ID,
   MAX_JOB_NAME_LEN,
   MAX_BRANCH_PATTERN_LEN,
