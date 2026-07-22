@@ -72,6 +72,11 @@ describe("clampAuditDetail", () => {
     expect(clamped.truncated).toBe(true);
     expect(clamped.preview.length).toBe(AUDIT_DETAIL_MAX_BYTES);
   });
+  test("an unserializable (circular) detail is replaced with an explicit preview", () => {
+    const circular: Record<string, unknown> = { a: 1 };
+    circular.self = circular; // JSON.stringify throws on the cycle
+    expect(clampAuditDetail(circular)).toEqual({ truncated: true, preview: "[unserializable detail]" });
+  });
 });
 
 describe("auditDayKey", () => {
@@ -189,6 +194,20 @@ describe("createAuditLog (Storage-backed)", () => {
     expect(pruned).toEqual([]);
     // No retention entry appended when nothing was pruned.
     expect(await audit.listDays()).toEqual(["2026-07-30"]);
+  });
+
+  test("pruneRetention NEVER throws — a storage list failure is logged + returns []", async () => {
+    // The listDays call inside pruneRetention throws → the outer catch swallows +
+    // logs (a retention prune must never crash the sweep tick).
+    const ch = getChannel() as HostChannel;
+    spyOn(ch, "request").mockImplementation((async (_method: string, params: unknown) => {
+      if ((params as { action?: string }).action === "list") throw new Error("storage list down");
+      return { value: null, exists: false };
+    }) as HostChannel["request"]);
+    const audit = createAuditLog();
+    const pruned = await audit.pruneRetention(new Date("2026-07-31T00:00:00.000Z"));
+    expect(pruned).toEqual([]);
+    expect(logLines.some((l) => l.includes("[audit]") && l.includes("retention prune failed"))).toBe(true);
   });
 });
 

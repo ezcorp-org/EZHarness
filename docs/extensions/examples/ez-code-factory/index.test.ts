@@ -3333,3 +3333,115 @@ describe("audit sinks — L5 lifecycle transitions", () => {
     expect((err!.detail as { error: string }).error).toContain("git exploded");
   });
 });
+
+// ── job-action handlers: no-op + error branches (coverage) ───────────
+
+describe("job-action handlers — no-op + error branches", () => {
+  const ev = (payload: Record<string, unknown>) => ({ source: "hub" as const, pageId: "dashboard", userId: "u", payload });
+  /** fakeJobStore whose ONE named method throws (the rest delegate). */
+  function throwingJobStore(jobs: Job[], method: "updateJob" | "deleteJob" | "listJobs"): JobStore {
+    const inner = fakeJobStore(jobs);
+    return {
+      ...inner,
+      updateJob: method === "updateJob" ? async () => { throw new Error("store boom"); } : inner.updateJob,
+      deleteJob: method === "deleteJob" ? async () => { throw new Error("store boom"); } : inner.deleteJob,
+      listJobs: method === "listJobs" ? async () => { throw new Error("store boom"); } : inner.listJobs,
+    };
+  }
+
+  test("job-save: a store throw is caught + logged (handler error path)", async () => {
+    _setJobStoreForTests(throwingJobStore([{ ...buildDefaultJob("t"), id: "j1", name: "Old" }], "updateJob"));
+    _setInvalidatePageForTests(() => {});
+    const cap = captureStderr();
+    try { await handleJobSave(ev({ jobId: "j1", name: "New" })); } finally { cap.restore(); }
+    expect(cap.text()).toContain("job-save handler error");
+  });
+
+  test("job-toggle: invalid payload / unknown job / store throw", async () => {
+    _setInvalidatePageForTests(() => {});
+    // invalid payload (no jobId)
+    _setJobStoreForTests(fakeJobStore([buildDefaultJob("t")]));
+    let cap = captureStderr();
+    try { await handleJobToggle(ev({})); } finally { cap.restore(); }
+    expect(cap.text()).toContain("job-toggle with invalid payload");
+    // unknown job
+    _setJobStoreForTests(fakeJobStore([buildDefaultJob("t")]));
+    cap = captureStderr();
+    try { await handleJobToggle(ev({ jobId: "ghost" })); } finally { cap.restore(); }
+    expect(cap.text()).toContain("job-toggle for unknown job");
+    // store throw → caught
+    _setJobStoreForTests(throwingJobStore([{ ...buildDefaultJob("t"), id: "j1", enabled: true }], "updateJob"));
+    cap = captureStderr();
+    try { await handleJobToggle(ev({ jobId: "j1" })); } finally { cap.restore(); }
+    expect(cap.text()).toContain("job-toggle handler error");
+  });
+
+  test("job-delete: invalid payload / unknown job / store throw", async () => {
+    _setInvalidatePageForTests(() => {});
+    _setJobStoreForTests(fakeJobStore([buildDefaultJob("t")]));
+    let cap = captureStderr();
+    try { await handleJobDelete(ev({})); } finally { cap.restore(); }
+    expect(cap.text()).toContain("job-delete with invalid payload");
+    _setJobStoreForTests(fakeJobStore([buildDefaultJob("t")]));
+    cap = captureStderr();
+    try { await handleJobDelete(ev({ jobId: "ghost" })); } finally { cap.restore(); }
+    expect(cap.text()).toContain("job-delete for unknown job");
+    _setJobStoreForTests(throwingJobStore([buildDefaultJob("t"), { ...buildDefaultJob("t"), id: "j1" }], "deleteJob"));
+    cap = captureStderr();
+    try { await handleJobDelete(ev({ jobId: "j1" })); } finally { cap.restore(); }
+    expect(cap.text()).toContain("job-delete handler error");
+  });
+
+  test("run-now: invalid payload / no project root / unknown job / shell throw", async () => {
+    _setInvalidatePageForTests(() => {});
+    // invalid payload
+    _setProjectRootForTests(() => "/proj");
+    _setJobStoreForTests(fakeJobStore([buildDefaultJob("t")]));
+    let cap = captureStderr();
+    try { await handleRunNow(ev({})); } finally { cap.restore(); }
+    expect(cap.text()).toContain("run-now with invalid payload");
+    // no resolvable project root
+    _setProjectRootForTests(() => undefined);
+    cap = captureStderr();
+    try { await handleRunNow(ev({ jobId: "j1" })); } finally { cap.restore(); }
+    expect(cap.text()).toContain("no resolvable project root");
+    // unknown job
+    _setProjectRootForTests(() => "/proj");
+    _setJobStoreForTests(fakeJobStore([buildDefaultJob("t")]));
+    cap = captureStderr();
+    try { await handleRunNow(ev({ jobId: "ghost" })); } finally { cap.restore(); }
+    expect(cap.text()).toContain("run-now for unknown job");
+    // shell throw (rev-parse) → caught by the handler
+    _setProjectRootForTests(() => "/proj");
+    _setJobStoreForTests(fakeJobStore([{ ...buildDefaultJob("t"), id: "j1", enabled: true, trigger: { kind: "manual", branch: "main" } }]));
+    _setShellForTests(async (c) => { if (c.includes("rev-parse")) throw new Error("git boom"); return { exitCode: 0, stdout: "", stderr: "" }; });
+    cap = captureStderr();
+    try { await handleRunNow(ev({ jobId: "j1" })); } finally { cap.restore(); }
+    expect(cap.text()).toContain("run-now handler error");
+  });
+
+  test("handleScheduleFire: a synthesize throw AND a retention-prune throw are each caught + logged", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setStoreForTests(memStore());
+    _setHeartbeatKVForTests(() => ({ async read() { return null; }, async write() {} }));
+    _setRunHeartbeatKVForTests(() => ({ async read() { return null; }, async write() {} }));
+    _setShellForTests(async () => ({ exitCode: 0, stdout: "", stderr: "" }));
+    // jobStore.listJobs throws → synthesizeScheduledRuns throws → caught (routing error).
+    _setJobStoreForTests(throwingJobStore([buildDefaultJob("t")], "listJobs"));
+    // audit.pruneRetention throws → caught (retention prune error). append records the sweep summary.
+    _setAuditForTests({
+      async append() {},
+      async readDay() { return []; },
+      async listDays() { return []; },
+      async pruneRetention() { throw new Error("prune boom"); },
+    });
+    const cap = captureStderr();
+    try {
+      await handleScheduleFire({ cron: SWEEP_CRON, scheduledAt: "t", firedAt: "t", fireId: "f", catchUp: false, retry: false, attempt: 1 });
+    } finally {
+      cap.restore();
+    }
+    expect(cap.text()).toContain("schedule job routing error");
+    expect(cap.text()).toContain("audit retention prune error");
+  });
+});

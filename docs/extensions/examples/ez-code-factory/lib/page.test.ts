@@ -1197,6 +1197,19 @@ describe("buildStepDetailView (L5 step detail)", () => {
     expect(String(empty.title)).toContain("not found");
   });
 
+  test("a result WITH detail renders the aggregate '<step> summary' section", () => {
+    // stepHasDetail(result) is true (the result carries findings), so the summary
+    // section (risk/findings/log/turns) renders in addition to the header + rounds.
+    const tree = buildStepDetailView(
+      detail({
+        result: stepResult({
+          findings: withFindings([finding({ id: "f1", description: "a nit" })], { summary: "one nit found" }),
+        }),
+      }),
+    );
+    expect(sectionTitles(tree)).toContain("review summary");
+  });
+
   test("header stats carry run/branch/step/status/rounds/duration/updated", () => {
     const tree = buildStepDetailView(
       detail({
@@ -1508,6 +1521,30 @@ describe("buildConfigView", () => {
     expect(stats.items.find((i) => i.label === "Last sweep")!.value).toBe("10 min ago");
     expect(stats.items.find((i) => i.label === "Scanned")!.value).toBe("3");
   });
+
+  test("an empty jobs list renders the 'No jobs' empty state", () => {
+    const tree = buildConfigView({ jobs: [], runs: [], config: cfg, sweepHeartbeat: null, nowMs: Date.now(), extensionId: "ez-code-factory" });
+    expect(allNodes(tree.nodes).some((n) => n.type === "empty-state" && String(n.title) === "No jobs")).toBe(true);
+  });
+
+  test("a manual-trigger job renders its 'manual · <branch>' trigger label", () => {
+    const job = jobFix({ id: "jm", name: "OnDemand", trigger: { kind: "manual", branch: "release" } });
+    const tree = buildConfigView({ jobs: [job], runs: [], config: cfg, sweepHeartbeat: null, nowMs: Date.now(), extensionId: "ez-code-factory" });
+    const jobsTable = tablesDeep(tree).find((t) => t.columns[0] === "Name")!;
+    expect(jobsTable.rows[0]!.cells[1]).toBe("manual · release");
+  });
+
+  test("sweep-health age rolls up to days for an old heartbeat (> 48 h)", () => {
+    // 3 days after ranAt → the ageLabel 'd ago' arm.
+    const tree = buildConfigView({
+      jobs: [jobFix()], runs: [], config: cfg,
+      sweepHeartbeat: sweepHb({ ranAt: "2026-07-18T00:00:00.000Z" }),
+      nowMs: Date.parse("2026-07-21T00:00:00.000Z"),
+      extensionId: "ez-code-factory",
+    });
+    const stats = allNodes(tree.nodes).find((n) => n.type === "stats" && (n.items as Array<{ label: string }>).some((i) => i.label === "Last sweep")) as { items: Array<{ label: string; value: string }> };
+    expect(stats.items.find((i) => i.label === "Last sweep")!.value).toBe("3 d ago");
+  });
 });
 
 describe("buildJobView", () => {
@@ -1637,6 +1674,17 @@ describe("buildAuditView", () => {
     const table = tablesDeep(tree).find((t) => t.columns[0] === "When")!;
     expect(table.rows).toHaveLength(1); // only the real entry
     expect(allNodes(tree.nodes).some((n) => n.type === "text" && String(n.content).includes("7 older"))).toBe(true);
+  });
+
+  test("an unserializable (circular) entry detail renders as '—' (never throws)", () => {
+    // Defence-in-depth: a stored detail is clamped at the sink, but the view's
+    // auditDetailText still guards JSON.stringify — a circular detail → em dash.
+    const circular: Record<string, unknown> = { action: "approve" };
+    circular.self = circular;
+    const bucketC: AuditBucket = [{ at: "2026-07-21T11:00:00.000Z", actor: "system", kind: "respond", runId: "r9", detail: circular }];
+    const tree = buildAuditView("2026-07-21", bucketC, ["2026-07-21"], undefined);
+    const table = tablesDeep(tree).find((t) => t.columns[0] === "When")!;
+    expect(table.rows[0]!.cells[5]).toBe("—"); // the Detail column
   });
 });
 

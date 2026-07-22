@@ -171,6 +171,22 @@ describe("validateJobDraft", () => {
     expect(validateJobDraft({ name: "J", trigger: { kind: "bogus" } as unknown as JobTrigger, enabled: true, skipSteps: [] }).ok).toBe(false);
     expect(validateJobDraft({ name: "J", trigger: { kind: "schedule", every: "weekly" as never, branch: "main" }, enabled: true, skipSteps: [] }).ok).toBe(false);
   });
+
+  test("carries a trimmed agentName + intentTemplate through when present", () => {
+    const r = validateJobDraft({
+      name: "J",
+      trigger: { kind: "push", branchPattern: "*" },
+      enabled: true,
+      skipSteps: [],
+      agentName: "  reviewer  ",
+      intentTemplate: "  ship the thing  ",
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.value.agentName).toBe("reviewer");
+      expect(r.value.intentTemplate).toBe("ship the thing");
+    }
+  });
 });
 
 describe("diffJob", () => {
@@ -370,6 +386,12 @@ describe("applyJobEdit", () => {
     const withAgent: JobDraft = { ...base, agentName: "reviewer" };
     expect((applyJobEdit(withAgent, { agent_name: "  " }) as { ok: true; draft: JobDraft }).draft.agentName).toBeUndefined();
     expect((applyJobEdit(base, { agent_name: "critic" }) as { ok: true; draft: JobDraft }).draft.agentName).toBe("critic");
+  });
+
+  test("an empty intent_template clears the override; a set one applies it", () => {
+    const withIntent: JobDraft = { ...base, intentTemplate: "old goal" };
+    expect((applyJobEdit(withIntent, { intent_template: "   " }) as { ok: true; draft: JobDraft }).draft.intentTemplate).toBeUndefined();
+    expect((applyJobEdit(base, { intent_template: "  ship it  " }) as { ok: true; draft: JobDraft }).draft.intentTemplate).toBe("ship it");
   });
 
   test("a camelCase key is IGNORED (the host rewrites it to 'value' — snake_case only)", () => {
