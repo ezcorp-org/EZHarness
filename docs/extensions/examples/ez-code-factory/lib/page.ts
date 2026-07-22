@@ -48,6 +48,7 @@ import {
   jobConcreteBranch,
   MAX_BRANCH_PATTERN_LEN,
   MAX_JOB_NAME_LEN,
+  MAX_JOB_TEXT_LEN,
   PROTECTED_STEPS,
   type Job,
   type JobTrigger,
@@ -62,6 +63,7 @@ import {
   roundHistoryPromptSection,
   userIntentPromptSection,
   intentConformanceReviewClause,
+  jobInstructionsPromptSection,
 } from "./prompts";
 
 /** The full namespaced events the detail controls dispatch. All are declared
@@ -93,8 +95,10 @@ export const RUN_NOW_EVENT = `${EXTENSION_NAME}:run-now`;
 export const MAX_AGENT_NAME_LEN = 120;
 /** Intent template field cap — the host validator's [1,500] clamp ceiling (a
  *  larger hint is dead, silently clamped to 500). The pipeline template itself
- *  can still be longer via repo config; this bounds only the in-dialog edit. */
-export const MAX_INTENT_TEMPLATE_LEN = 500;
+ *  can still be longer via repo config; this bounds only the in-dialog edit.
+ *  Aliases {@link MAX_JOB_TEXT_LEN} (jobs.ts) so the one 500 literal drives the
+ *  validator clamp, the intent field, AND the Edit-prompts dialog fields (DRY). */
+export const MAX_INTENT_TEMPLATE_LEN = MAX_JOB_TEXT_LEN;
 
 /** Human badge per run status. */
 export const STATUS_BADGE: Record<RunStatus, string> = {
@@ -1495,6 +1499,45 @@ export function buildJobView(
       },
       "primary",
     );
+    // A SECOND form dialog for the operator prompt instructions, kept separate
+    // from Edit job to respect the 2 KB merged-payload budget (3×500 + jobId «
+    // 2048). All three fields are prefilled + slug-legal snake_case (a camelCase
+    // key would be rewritten to "value" and dropped). Routes through the SAME
+    // job-save event → guardScope + validate + audit-diff path as Edit job.
+    s.button(
+      "Edit prompts",
+      {
+        event: JOB_SAVE_EVENT,
+        payload: { jobId },
+        form: {
+          title: `Edit prompts — ${job.name}`,
+          fields: [
+            {
+              field: "review_instructions",
+              label: "Review instructions (blank = none)",
+              value: job.reviewInstructions ?? "",
+              placeholder: "e.g. focus on API stability",
+              maxLength: MAX_JOB_TEXT_LEN,
+            },
+            {
+              field: "fix_instructions",
+              label: "Fix instructions (blank = none)",
+              value: job.fixInstructions ?? "",
+              placeholder: "e.g. prefer the smallest root-cause fix",
+              maxLength: MAX_JOB_TEXT_LEN,
+            },
+            {
+              field: "document_instructions",
+              label: "Document instructions (blank = none)",
+              value: job.documentInstructions ?? "",
+              placeholder: "e.g. keep the README authoritative",
+              maxLength: MAX_JOB_TEXT_LEN,
+            },
+          ],
+        },
+      },
+      "secondary",
+    );
     s.button(
       job.enabled ? "Disable" : "Enable",
       { event: JOB_TOGGLE_EVENT, payload: { jobId } },
@@ -1652,6 +1695,18 @@ function appendPromptsSection(page: PageBuilder, job: Job, live: JobViewLiveConf
   const historyBase =
     executionContextPromptSection() + roundHistoryPromptSection([]) + userIntentPromptSection(intentCtx);
 
+  // Operator prompt-instruction sections — the SAME builder + mapping the pipeline
+  // uses (render-knowable substitution): review → review-main + review-fix (review
+  // first, then fix); document → document. Empty → "" (the preview equals the bare
+  // skeleton — no placeholder row for an unset instruction; absence is honest).
+  const reviewInstr = job.reviewInstructions?.trim();
+  const fixInstr = job.fixInstructions?.trim();
+  const docInstr = job.documentInstructions?.trim();
+  const reviewJobSection = jobInstructionsPromptSection(job.reviewInstructions);
+  const fixJobSection = jobInstructionsPromptSection(job.fixInstructions);
+  const docJobSection = jobInstructionsPromptSection(job.documentInstructions);
+  const anyInstructions = Boolean(reviewInstr || fixInstr || docInstr);
+
   const reviewBase = {
     branch: BRANCH_PH,
     baseCommit: BASE_PH,
@@ -1662,12 +1717,12 @@ function appendPromptsSection(page: PageBuilder, job: Job, live: JobViewLiveConf
   const reviewMainBody = reviewMainPromptBody({
     ...reviewBase,
     reviewScope: `branch changes between ${BASE_PH} and ${HEAD_PH}`,
-    historySection: historyBase + intentConformanceReviewClause(intentCtx),
+    historySection: reviewJobSection + historyBase + intentConformanceReviewClause(intentCtx),
   });
   const reviewFixBody = reviewFixPromptBody({
     ...reviewBase,
     reviewScope: `current worktree and HEAD changes relative to base commit ${BASE_PH} (starting head ${HEAD_PH})`,
-    historySection: historyBase,
+    historySection: reviewJobSection + fixJobSection + historyBase,
     previousFindings: "<per-run: prior review findings>",
   });
   const documentBody = documentPromptBody({
@@ -1678,7 +1733,7 @@ function appendPromptsSection(page: PageBuilder, job: Job, live: JobViewLiveConf
     ignoreLabel: docIgnore,
     combinedLint: false,
     trustedPolicy: `\n\n${REPO_DOC_PH} — resolved per run`,
-    historySection: historyBase,
+    historySection: docJobSection + historyBase,
     previousFindings: "",
   });
 
@@ -1689,29 +1744,38 @@ function appendPromptsSection(page: PageBuilder, job: Job, live: JobViewLiveConf
     ["Default branch", live.defaultBranch],
     ["Run-scoped", runScoped],
   ];
+  // The operator instruction is at the TAIL of the (truncated) body excerpt, so
+  // surface the substituted text as an explicit meta row too — only when set (no
+  // placeholder row when empty). review-fix shows BOTH review + fix.
+  const reviewRows: Array<[string, string]> = [...metaRows];
+  if (reviewInstr) reviewRows.push(["Operator instructions", reviewInstr]);
+  const fixRows: Array<[string, string]> = [...metaRows];
+  if (reviewInstr) fixRows.push(["Operator instructions (review)", reviewInstr]);
+  if (fixInstr) fixRows.push(["Operator instructions (fix)", fixInstr]);
+  const docRows: Array<[string, string]> = [
+    ["Agent", agentLabel],
+    ["User intent", intentLabel],
+    ["Ignore patterns", docIgnore],
+    ["Doc instructions", REPO_DOC_PH],
+    ["Default branch", live.defaultBranch],
+    ["Run-scoped", runScoped],
+  ];
+  if (docInstr) docRows.push(["Operator instructions", docInstr]);
 
   page.section("Prompts", (s) => {
+    // The muted "+ operator instructions" marker appears only when this job has
+    // any instructions set — the honest signal that the previews below carry an
+    // operator-configured section on top of the bare skeleton.
+    if (anyInstructions) s.markdown("+ operator instructions", "muted");
     s.markdown(
       "What this job sends the agent, with this job's known values already filled in. " +
         `Run-scoped values (${BRANCH_PH}, ${BASE_PH}, ${HEAD_PH}) and repo-file values ` +
         `(${REPO_IGNORE_PH}, ${REPO_DOC_PH}) are resolved per run.`,
       "muted",
     );
-    appendPromptPreview(s, "Review", metaRows, reviewMainBody);
-    appendPromptPreview(s, "Fix round — review", metaRows, reviewFixBody);
-    appendPromptPreview(
-      s,
-      "Document housekeeping",
-      [
-        ["Agent", agentLabel],
-        ["User intent", intentLabel],
-        ["Ignore patterns", docIgnore],
-        ["Doc instructions", REPO_DOC_PH],
-        ["Default branch", live.defaultBranch],
-        ["Run-scoped", runScoped],
-      ],
-      documentBody,
-    );
+    appendPromptPreview(s, "Review", reviewRows, reviewMainBody);
+    appendPromptPreview(s, "Fix round — review", fixRows, reviewFixBody);
+    appendPromptPreview(s, "Document housekeeping", docRows, documentBody);
     s.markdown(
       "The test and lint steps have analogous per-step prompt variants, visible in any run's step detail.",
       "muted",

@@ -40,7 +40,7 @@ import { emptyFindings } from "./runs";
 import type { Finding, Findings, RunRecord, RunStatus, StepResultRecord, StepRoundRecord, StepStatus } from "./runs";
 import { snapshotRepoConfig, emptyOutcomeFlags, type StepIORecord } from "./step-io";
 import { emptyRepoConfig } from "./repo-config";
-import { buildDefaultJob, formatTriggerSpec, MAX_BRANCH_PATTERN_LEN, MAX_JOB_NAME_LEN, type Job } from "./jobs";
+import { buildDefaultJob, formatTriggerSpec, MAX_BRANCH_PATTERN_LEN, MAX_JOB_NAME_LEN, MAX_JOB_TEXT_LEN, type Job } from "./jobs";
 import { defaultPipelineConfig, PIPELINE_STEPS } from "./config";
 import type { AuditBucket } from "./audit";
 import type { SweepHeartbeat } from "./sweep";
@@ -1603,10 +1603,11 @@ describe("buildJobView", () => {
     const tree = buildJobView("j1", job, runs, "proj-1");
     const btns = buttonsDeep(tree);
     const events = btns.map((b) => b.action.event);
-    // ONE "Edit job" form button now carries every editable field (the five old
-    // per-field prompt buttons are superseded). Toggle / Run now / Delete stay
+    // TWO job-save form buttons: "Edit job" (name/trigger/agent/intent) and the
+    // SEPARATE "Edit prompts" dialog (the three prompt instructions). The five old
+    // per-field prompt buttons are superseded. Toggle / Run now / Delete stay
     // (enabled job → Run now shown).
-    expect(events.filter((e) => e === JOB_SAVE_EVENT).length).toBe(1);
+    expect(events.filter((e) => e === JOB_SAVE_EVENT).length).toBe(2);
     expect(events).toContain(JOB_TOGGLE_EVENT);
     expect(events).toContain(RUN_NOW_EVENT);
     expect(events).toContain(JOB_DELETE_EVENT);
@@ -1669,6 +1670,41 @@ describe("buildJobView", () => {
     const byField = Object.fromEntries(editJob.action.form!.fields.map((f) => [f.field, f.value]));
     expect(byField.agent_name).toBe("");
     expect(byField.intent_template).toBe("");
+  });
+
+  test("the Edit-prompts dialog is a SEPARATE form: 3 prefilled slug-legal fields, jobId payload, ≤500 caps", () => {
+    const job = jobFix({
+      id: "j1",
+      name: "Nightly",
+      reviewInstructions: "focus on API stability",
+      fixInstructions: "prefer the smallest root-cause fix",
+      documentInstructions: "keep the README authoritative",
+    });
+    const editPrompts = buttonsDeep(buildJobView("j1", job, [])).find((b) => b.label === "Edit prompts")!;
+    expect(editPrompts).toBeDefined();
+    expect(editPrompts.action.event).toBe(JOB_SAVE_EVENT);
+    expect(editPrompts.action.payload).toEqual({ jobId: "j1" });
+    const form = editPrompts.action.form!;
+    expect(form.title).toBe("Edit prompts — Nightly");
+    expect(form.fields.map((f) => f.field)).toEqual([
+      "review_instructions",
+      "fix_instructions",
+      "document_instructions",
+    ]);
+    const byField = Object.fromEntries(form.fields.map((f) => [f.field, f]));
+    expect(byField.review_instructions!.value).toBe("focus on API stability");
+    expect(byField.fix_instructions!.value).toBe("prefer the smallest root-cause fix");
+    expect(byField.document_instructions!.value).toBe("keep the README authoritative");
+    for (const f of form.fields) expect(f.maxLength).toBe(MAX_JOB_TEXT_LEN);
+  });
+
+  test("the Edit-prompts fields prefill EMPTY when no instructions are set (clear-to-empty round-trips)", () => {
+    const job = jobFix({ id: "j1", reviewInstructions: undefined, fixInstructions: undefined, documentInstructions: undefined });
+    const editPrompts = buttonsDeep(buildJobView("j1", job, [])).find((b) => b.label === "Edit prompts")!;
+    const byField = Object.fromEntries(editPrompts.action.form!.fields.map((f) => [f.field, f.value]));
+    expect(byField.review_instructions).toBe("");
+    expect(byField.fix_instructions).toBe("");
+    expect(byField.document_instructions).toBe("");
   });
 
   test("the Flow table lists all 9 steps in pipeline order with the right tones + protected labels", () => {
@@ -1800,6 +1836,61 @@ describe("buildJobView — prompt preview (P3)", () => {
     expect(allNodes(section.nodes).length).toBeLessThanOrEqual(120);
   });
 
+  /** The Prompts section's own text/markdown node contents. */
+  function promptsSectionText(tree: { nodes: unknown[] }): string {
+    const section = allNodes(tree.nodes).find((n) => n.type === "section" && String(n.title) === "Prompts") as
+      | { nodes: unknown[] }
+      | undefined;
+    return allNodes(section!.nodes)
+      .filter((n) => n.type === "text")
+      .map((n) => String(n.content))
+      .join("  ");
+  }
+
+  test("operator instructions substitute LIVE into the mapped previews + surface the marker", () => {
+    const job = jobFix({
+      id: "j1",
+      reviewInstructions: "focus on API stability",
+      fixInstructions: "prefer guard clauses",
+      documentInstructions: "keep the README authoritative",
+    });
+    const tree = buildJobView("j1", job, [], undefined, { ignorePatterns: [], defaultBranch: "main" });
+    // The muted "+ operator instructions" marker appears when any are set.
+    expect(promptsSectionText(tree)).toContain("+ operator instructions");
+    const cells = previewCells(tree).join("  ");
+    // The mapped substituted text is visible (review → both review-main + review-fix
+    // rows; fix → review-fix; document → document).
+    expect(cells).toContain("focus on API stability");
+    expect(cells).toContain("prefer guard clauses");
+    expect(cells).toContain("keep the README authoritative");
+    // Still exactly three representative previews (review / review-fix / document).
+    expect(previewTables(tree).length).toBe(3);
+  });
+
+  test("no instructions → NO marker and NO operator rows (the preview equals the bare skeleton)", () => {
+    const job = jobFix({ id: "j1", reviewInstructions: undefined, fixInstructions: undefined, documentInstructions: undefined });
+    const tree = buildJobView("j1", job, [], undefined, { ignorePatterns: [], defaultBranch: "main" });
+    expect(promptsSectionText(tree)).not.toContain("+ operator instructions");
+    const parts = previewTables(tree).flatMap((t) =>
+      t.rows.map((r) => String((r.cells[0] as { text?: string })?.text ?? r.cells[0])),
+    );
+    expect(parts.some((p) => p.startsWith("Operator instructions"))).toBe(false);
+  });
+
+  test("a user-controlled instruction reaches ONLY escaped text/table cells (never a markdown sink)", () => {
+    const XSS = `<img src=x onerror="alert('ezcf_instr_xss')">`;
+    const tree = buildJobView("j1", jobFix({ id: "j1", reviewInstructions: XSS }), [], undefined, {
+      ignorePatterns: [],
+      defaultBranch: "main",
+    });
+    const carriers = allNodes(tree.nodes).filter((n) => ownContent(n).includes(XSS));
+    expect(carriers.length).toBeGreaterThan(0);
+    for (const n of carriers) {
+      expect(n.type).not.toBe("markdown");
+      expect(ESCAPED_PAGE_TYPES.has(n.type as string)).toBe(true);
+    }
+  });
+
   test("a user-controlled intent template reaches ONLY escaped text/table cells in the preview (never a markdown sink)", () => {
     const XSS = `<img src=x onerror="alert('ezcf_prompt_xss')">`;
     const tree = buildJobView("j1", jobFix({ id: "j1", intentTemplate: XSS }), [], undefined, { ignorePatterns: [], defaultBranch: "main" });
@@ -1855,7 +1946,15 @@ describe("prompt-field slug contract (host anti-spoof)", () => {
     // (so the walk is real) and every one is slug-legal. Explicitly assert the
     // four form fields are present so a form drift can't shrink the walk silently.
     expect(fields.length).toBeGreaterThan(0);
-    for (const required of ["name", "trigger", "agent_name", "intent_template"]) {
+    for (const required of [
+      "name",
+      "trigger",
+      "agent_name",
+      "intent_template",
+      "review_instructions",
+      "fix_instructions",
+      "document_instructions",
+    ]) {
       expect(fields).toContain(required);
     }
     for (const f of fields) {
