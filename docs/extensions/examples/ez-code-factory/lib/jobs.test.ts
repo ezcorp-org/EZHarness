@@ -336,8 +336,7 @@ describe("Edit-job form field budget (merged payload under the events-route cap)
   // dispatch, so the worst case is the sum of the locked field caps + jobId +
   // JSON overhead. Pin it well under the cap so an intent-template edit can never
   // silently 413 the save. (Field caps: name 80, trigger 120, agent 120,
-  // intent 1500 declared — the host further clamps intent to 500, so this is a
-  // conservative over-estimate.)
+  // intent 500 — each equals or is under the host's [1,500] clamp ceiling.)
   const HUB_PAYLOAD_MAX_BYTES = 2048;
   test("worst-case merged Edit-job payload fits under 2KB", () => {
     const payload = {
@@ -345,7 +344,7 @@ describe("Edit-job form field budget (merged payload under the events-route cap)
       name: "n".repeat(80),
       trigger: "t".repeat(120),
       agent_name: "a".repeat(120),
-      intent_template: "i".repeat(1500),
+      intent_template: "i".repeat(500),
     };
     expect(JSON.stringify(payload).length).toBeLessThan(HUB_PAYLOAD_MAX_BYTES);
   });

@@ -91,9 +91,10 @@ export const RUN_NOW_EVENT = `${EXTENSION_NAME}:run-now`;
 // well under the cap even at these declared hints (pinned by a jobs test).
 /** Agent name field cap (matches the old per-field prompt's implied bound). */
 export const MAX_AGENT_NAME_LEN = 120;
-/** Intent template field cap (host clamps the input to 500; the declared hint
- *  documents intent — the pipeline template itself can be longer via repo config). */
-export const MAX_INTENT_TEMPLATE_LEN = 1500;
+/** Intent template field cap — the host validator's [1,500] clamp ceiling (a
+ *  larger hint is dead, silently clamped to 500). The pipeline template itself
+ *  can still be longer via repo config; this bounds only the in-dialog edit. */
+export const MAX_INTENT_TEMPLATE_LEN = 500;
 
 /** Human badge per run status. */
 export const STATUS_BADGE: Record<RunStatus, string> = {

@@ -501,7 +501,7 @@ describe("HubPageView · form dialog (PageAction.form)", () => {
 				{ field: "name", label: "Name", value: "Nightly", maxLength: 80 },
 				{ field: "trigger", label: "Trigger spec", value: "push feat/*", maxLength: 120 },
 				{ field: "agent_name", label: "Agent", value: "reviewer", maxLength: 120 },
-				{ field: "intent_template", label: "Intent template", value: "keep api", maxLength: 1500 },
+				{ field: "intent_template", label: "Intent template", value: "keep api", maxLength: 500 },
 			],
 		},
 	};

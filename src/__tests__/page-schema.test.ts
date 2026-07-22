@@ -612,6 +612,16 @@ describe("action form", () => {
     expect(f!.fields[0]!.field).toBe("ok_field");
   });
 
+  test("a `jobId` form field is DROPPED (camelCase is not slug-legal — the anti-spoof symmetry)", () => {
+    // The mirror of the client's jobId-can-never-be-a-form-field pin: an action's
+    // static `jobId` payload key can never be overridden by a form field, because
+    // the slug regex rejects the capital `I`. A form of ONLY jobId degrades away.
+    expect(formOf({ fields: [{ field: "jobId", label: "spoof" }] })).toBeUndefined();
+    // Alongside a legal sibling, only jobId is dropped.
+    const f = formOf({ fields: [{ field: "jobId", label: "spoof" }, { field: "name", label: "Name" }] });
+    expect(f!.fields.map((x) => x.field)).toEqual(["name"]);
+  });
+
   test("fields cap at 8 (excess dropped)", () => {
     const many = Array.from({ length: 12 }, (_, i) => ({ field: `f${i}`, label: `L${i}` }));
     const f = formOf({ fields: many });
@@ -988,7 +998,7 @@ describe("ECF job-view prompt fields survive the real validator", () => {
             { field: "name", label: "Name", value: "Nightly", maxLength: 80 },
             { field: "trigger", label: "Trigger spec", value: "push feat/*", maxLength: 120 },
             { field: "agent_name", label: "Agent", value: "reviewer", maxLength: 120 },
-            { field: "intent_template", label: "Intent template", value: "", maxLength: 1500 },
+            { field: "intent_template", label: "Intent template", value: "", maxLength: 500 },
           ],
         },
       },
@@ -1002,7 +1012,8 @@ describe("ECF job-view prompt fields survive the real validator", () => {
       "agent_name",
       "intent_template",
     ]);
-    // maxLength 1500 clamps to the 500 cap; an empty prefill survives as "".
+    // The intent field's maxLength sits at the validator's 500 ceiling (the ECF
+    // constant now equals the cap); an empty prefill survives as "".
     expect(btn.action.form!.fields[3]!.maxLength).toBe(500);
     expect(btn.action.form!.fields[3]!.value).toBe("");
   });
