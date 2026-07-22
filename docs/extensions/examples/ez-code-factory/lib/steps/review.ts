@@ -16,6 +16,7 @@ import {
   roundHistoryPromptSection,
   userIntentPromptSection,
   intentConformanceReviewClause,
+  jobInstructionsPromptSection,
   reviewMainPromptBody,
   reviewFixPromptBody,
 } from "../prompts";
@@ -78,7 +79,12 @@ async function executeReview(sctx: StepContext): Promise<StepOutcome> {
 
   let fixSummary = "";
   if (sctx.fixing) {
+    // review-fix carries BOTH operator sections (review first, then fix) prepended
+    // to the history — the review family gets reviewInstructions, every fix round
+    // gets fixInstructions.
     const historySection =
+      jobInstructionsPromptSection(sctx.jobReviewInstructions) +
+      jobInstructionsPromptSection(sctx.jobFixInstructions) +
       executionContextPromptSection() + roundHistoryPromptSection(sctx.rounds) + userIntentPromptSection(intentCtx);
     const fixPrompt = reviewFixPromptBody({
       ...reviewBase,
@@ -125,6 +131,7 @@ async function executeReview(sctx: StepContext): Promise<StepOutcome> {
 
   sctx.log("reviewing changes...");
   const historySection =
+    jobInstructionsPromptSection(sctx.jobReviewInstructions) +
     executionContextPromptSection() +
     roundHistoryPromptSection(sctx.rounds) +
     userIntentPromptSection(intentCtx) +

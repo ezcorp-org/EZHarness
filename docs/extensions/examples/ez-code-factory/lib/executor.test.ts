@@ -331,6 +331,41 @@ describe("startPipeline — clean run", () => {
     expect(dispatchAgent).toBe("job-agent");
   });
 
+  // Control plane (L4): a job's operator prompt instructions thread deps →
+  // StepContext exactly like agentName, so each step's call site can prepend the
+  // sanitized section to its historySection.
+  test("job prompt instructions thread through deps onto the step context", async () => {
+    const store = memStore();
+    const id = await seedRun(store);
+    let seen: Pick<StepContext, "jobReviewInstructions" | "jobFixInstructions" | "jobDocumentInstructions"> = {};
+    const review: Step = {
+      name: "review",
+      async execute(sctx) {
+        seen = {
+          jobReviewInstructions: sctx.jobReviewInstructions,
+          jobFixInstructions: sctx.jobFixInstructions,
+          jobDocumentInstructions: sctx.jobDocumentInstructions,
+        };
+        return clean;
+      },
+    };
+    const deps: ExecutorDeps = {
+      ...makeDeps(store, registry({
+        intent: scriptStep("intent", [clean]),
+        rebase: scriptStep("rebase", [clean]),
+        review,
+        push: scriptStep("push", [clean]),
+      }), { t: 0 }),
+      jobReviewInstructions: "review guidance",
+      jobFixInstructions: "fix guidance",
+      jobDocumentInstructions: "doc guidance",
+    };
+    await startPipeline(id, deps);
+    expect(seen.jobReviewInstructions).toBe("review guidance");
+    expect(seen.jobFixInstructions).toBe("fix guidance");
+    expect(seen.jobDocumentInstructions).toBe("doc guidance");
+  });
+
   test("a step that advances HEAD persists it via updateHeadSha", async () => {
     const store = memStore();
     const id = await seedRun(store);

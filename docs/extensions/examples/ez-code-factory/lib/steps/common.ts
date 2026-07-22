@@ -117,6 +117,14 @@ export interface StepContext {
    *  `repoConfig.agent` (`job.agentName || repoConfig.agent`). Absent → the repo
    *  config's agent (or the deployment default) applies. */
   jobAgentName?: string;
+  /** Control plane (L4): the matched job's operator prompt instructions, threaded
+   *  from the job like {@link jobAgentName}. The step call sites feed the relevant
+   *  ones into `jobInstructionsPromptSection` and PREPEND the result to
+   *  `historySection` (mapping: review → review-main + review-fix; fix → the three
+   *  fix rounds; document → document). Absent → no operator section is appended. */
+  jobReviewInstructions?: string;
+  jobFixInstructions?: string;
+  jobDocumentInstructions?: string;
   /** Run-scoped in-memory hand-off (the document→lint housekeeping stash). */
   shared: RunShared;
   fixing: boolean;

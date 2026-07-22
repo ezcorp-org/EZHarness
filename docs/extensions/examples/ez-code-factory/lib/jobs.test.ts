@@ -21,6 +21,8 @@ import {
   DEFAULT_JOB_ID,
   MAX_JOB_NAME_LEN,
   MAX_BRANCH_PATTERN_LEN,
+  MAX_JOB_TEXT_LEN,
+  JOB_EDIT_FIELDS,
   type Job,
   type JobDraft,
   type JobTrigger,
@@ -188,6 +190,36 @@ describe("validateJobDraft", () => {
       expect(r.value.intentTemplate).toBe("ship the thing");
     }
   });
+
+  test("trims + carries the three prompt instructions; blank → undefined", () => {
+    const r = validateJobDraft({
+      name: "J",
+      trigger: { kind: "push", branchPattern: "*" },
+      enabled: true,
+      skipSteps: [],
+      reviewInstructions: "  focus on API stability  ",
+      fixInstructions: "   ",
+      documentInstructions: "note the migration",
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.value.reviewInstructions).toBe("focus on API stability");
+      expect(r.value.fixInstructions).toBeUndefined();
+      expect(r.value.documentInstructions).toBe("note the migration");
+    }
+  });
+
+  test("clamps each instruction to MAX_JOB_TEXT_LEN chars", () => {
+    const r = validateJobDraft({
+      name: "J",
+      trigger: { kind: "push", branchPattern: "*" },
+      enabled: true,
+      skipSteps: [],
+      reviewInstructions: "r".repeat(MAX_JOB_TEXT_LEN + 250),
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value.reviewInstructions?.length).toBe(MAX_JOB_TEXT_LEN);
+  });
 });
 
 describe("diffJob", () => {
@@ -198,6 +230,16 @@ describe("diffJob", () => {
     expect(d.name).toEqual({ from: "A", to: "B" });
     expect(d.enabled).toEqual({ from: true, to: false });
     expect(d.trigger).toBeUndefined();
+  });
+
+  test("covers the three prompt-instruction fields (audit sees a set + a clear)", () => {
+    const before = job({ reviewInstructions: "old review", fixInstructions: "keep fix" });
+    const after = job({ reviewInstructions: "new review", fixInstructions: "keep fix", documentInstructions: "new doc" });
+    const d = diffJob(before, after);
+    expect(d.reviewInstructions).toEqual({ from: "old review", to: "new review" });
+    expect(d.documentInstructions).toEqual({ from: null, to: "new doc" });
+    // An unchanged instruction is NOT reported.
+    expect(d.fixInstructions).toBeUndefined();
   });
 });
 
@@ -348,6 +390,32 @@ describe("Edit-job form field budget (merged payload under the events-route cap)
     };
     expect(JSON.stringify(payload).length).toBeLessThan(HUB_PAYLOAD_MAX_BYTES);
   });
+
+  test("worst-case merged Edit-PROMPTS payload (3×500 + jobId) fits under 2KB", () => {
+    // The reason the prompt instructions get their OWN dialog: three 500-char
+    // fields + jobId stay well under the 2048 cap, but folding them into the
+    // Edit-job dialog would blow it. Pin the separate-dialog budget here.
+    const payload = {
+      jobId: "default",
+      review_instructions: "r".repeat(MAX_JOB_TEXT_LEN),
+      fix_instructions: "f".repeat(MAX_JOB_TEXT_LEN),
+      document_instructions: "d".repeat(MAX_JOB_TEXT_LEN),
+    };
+    expect(JSON.stringify(payload).length).toBeLessThan(HUB_PAYLOAD_MAX_BYTES);
+  });
+});
+
+describe("JOB_EDIT_FIELDS — prompt-instruction slug keys", () => {
+  // The host validatePrompt rewrites any non-slug prompt.field to "value"
+  // (page-schema.ts PROMPT_FIELD_REGEX = /^[a-z0-9][a-z0-9_]{0,31}$/), which would
+  // silently DROP a camelCase field. Every editable key MUST be slug-legal.
+  const SLUG = /^[a-z0-9][a-z0-9_]{0,31}$/;
+  test("the three instruction keys are registered AND slug-legal", () => {
+    for (const key of ["review_instructions", "fix_instructions", "document_instructions"]) {
+      expect(JOB_EDIT_FIELDS).toContain(key);
+      expect(SLUG.test(key)).toBe(true);
+    }
+  });
 });
 
 describe("jobConcreteBranch", () => {
@@ -439,6 +507,41 @@ describe("applyJobEdit", () => {
     const withIntent: JobDraft = { ...base, intentTemplate: "old goal" };
     expect((applyJobEdit(withIntent, { intent_template: "   " }) as { ok: true; draft: JobDraft }).draft.intentTemplate).toBeUndefined();
     expect((applyJobEdit(base, { intent_template: "  ship it  " }) as { ok: true; draft: JobDraft }).draft.intentTemplate).toBe("ship it");
+  });
+
+  test("each prompt instruction: a set value applies, a blank one clears", () => {
+    const set = applyJobEdit(base, {
+      review_instructions: "  focus on API stability  ",
+      fix_instructions: "prefer guard clauses",
+      document_instructions: "  ",
+    }) as { ok: true; draft: JobDraft };
+    expect(set.draft.reviewInstructions).toBe("focus on API stability");
+    expect(set.draft.fixInstructions).toBe("prefer guard clauses");
+    expect(set.draft.documentInstructions).toBeUndefined();
+
+    const withAll: JobDraft = { ...base, reviewInstructions: "r", fixInstructions: "f", documentInstructions: "d" };
+    const cleared = applyJobEdit(withAll, { review_instructions: "" }) as { ok: true; draft: JobDraft };
+    expect(cleared.draft.reviewInstructions).toBeUndefined();
+  });
+
+  test("sibling-survival: editing ONE instruction leaves the other two + agent + intent intact", () => {
+    const withAll: JobDraft = {
+      ...base,
+      agentName: "reviewer",
+      intentTemplate: "keep API stable",
+      reviewInstructions: "review keep",
+      fixInstructions: "fix keep",
+      documentInstructions: "doc keep",
+    };
+    // Only the review instruction is submitted (the Edit-prompts dialog submits
+    // all three, but here we prove a partial patch never clears the siblings the
+    // draft-init spread seeds).
+    const r = applyJobEdit(withAll, { review_instructions: "review NEW" }) as { ok: true; draft: JobDraft };
+    expect(r.draft.reviewInstructions).toBe("review NEW");
+    expect(r.draft.fixInstructions).toBe("fix keep");
+    expect(r.draft.documentInstructions).toBe("doc keep");
+    expect(r.draft.agentName).toBe("reviewer");
+    expect(r.draft.intentTemplate).toBe("keep API stable");
   });
 
   test("a camelCase key is IGNORED (the host rewrites it to 'value' — snake_case only)", () => {

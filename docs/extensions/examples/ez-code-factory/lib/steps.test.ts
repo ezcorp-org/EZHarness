@@ -78,6 +78,9 @@ interface CtxOverrides {
   repoConfig?: StepContext["repoConfig"];
   shared?: StepContext["shared"];
   tmpBase?: string;
+  jobReviewInstructions?: string;
+  jobFixInstructions?: string;
+  jobDocumentInstructions?: string;
 }
 
 function makeCtx(worktree: string, headSha: string, over: CtxOverrides = {}): {
@@ -107,6 +110,9 @@ function makeCtx(worktree: string, headSha: string, over: CtxOverrides = {}): {
     repo: { defaultBranch: "main", workingPath: "", ...over.repo },
     config: over.config ?? defaultPipelineConfig(),
     repoConfig: over.repoConfig ?? emptyRepoConfig(),
+    ...(over.jobReviewInstructions ? { jobReviewInstructions: over.jobReviewInstructions } : {}),
+    ...(over.jobFixInstructions ? { jobFixInstructions: over.jobFixInstructions } : {}),
+    ...(over.jobDocumentInstructions ? { jobDocumentInstructions: over.jobDocumentInstructions } : {}),
     shared: over.shared ?? makeRunShared(),
     fixing: over.fixing ?? false,
     previousFindings: over.previousFindings ?? "",
@@ -890,6 +896,54 @@ describe("reviewStep (real repo)", () => {
     const reviewCall = (dispatcher as FakeDispatcher).calls.find((c) => c.role === "reviewer")!;
     expect(reviewCall.prompt).toContain("Intent conformance (required)");
     expect(reviewCall.prompt).toContain("AUTHORITATIVE acceptance criteria");
+  });
+
+  test("job review instructions reach the review-main prompt as a sanitized section", async () => {
+    const dispatcher = fakeDispatcher(() => ({ output: reviewFindings([]), text: "" }));
+    const { ctx } = makeCtx(dir, head, {
+      run: { baseSha: head },
+      dispatcher,
+      jobReviewInstructions: "focus on API stability",
+      // fixInstructions are NOT threaded to review-main (review family only here).
+      jobFixInstructions: "should not appear in review-main",
+    });
+    await reviewStep.execute(ctx);
+    const reviewCall = (dispatcher as FakeDispatcher).calls.find((c) => c.role === "reviewer")!;
+    expect(reviewCall.prompt).toContain("Job instructions (operator-configured, advisory)");
+    expect(reviewCall.prompt).toContain("focus on API stability");
+    expect(reviewCall.prompt).not.toContain("should not appear in review-main");
+  });
+
+  test("no job instructions → review-main prompt carries NO operator section", async () => {
+    const dispatcher = fakeDispatcher(() => ({ output: reviewFindings([]), text: "" }));
+    const { ctx } = makeCtx(dir, head, { run: { baseSha: head }, dispatcher });
+    await reviewStep.execute(ctx);
+    const reviewCall = (dispatcher as FakeDispatcher).calls.find((c) => c.role === "reviewer")!;
+    expect(reviewCall.prompt).not.toContain("Job instructions (operator-configured, advisory)");
+  });
+
+  test("review-FIX carries BOTH operator sections, review BEFORE fix", async () => {
+    const dispatcher = fakeDispatcher(async (o) => {
+      if (o.role === "fixer") return { output: { summary: "applied fix" }, text: "" };
+      return { output: reviewFindings([]), text: "" };
+    });
+    const prev = serializeFindings(
+      deserializeFindings({ findings: [{ id: "f1", severity: "error", description: "bug", action: "auto-fix" }] }),
+    );
+    const { ctx } = makeCtx(dir, head, {
+      run: { baseSha: head },
+      fixing: true,
+      previousFindings: prev,
+      dispatcher,
+      jobReviewInstructions: "REVIEW-GUIDANCE",
+      jobFixInstructions: "FIX-GUIDANCE",
+    });
+    await reviewStep.execute(ctx);
+    const fixCall = (dispatcher as FakeDispatcher).calls.find((c) => c.role === "fixer")!;
+    expect(fixCall.prompt).toContain("REVIEW-GUIDANCE");
+    expect(fixCall.prompt).toContain("FIX-GUIDANCE");
+    // Review section is composed first, then the fix section (locked ordering).
+    expect(fixCall.prompt.indexOf("REVIEW-GUIDANCE")).toBeLessThan(fixCall.prompt.indexOf("FIX-GUIDANCE"));
   });
 });
 

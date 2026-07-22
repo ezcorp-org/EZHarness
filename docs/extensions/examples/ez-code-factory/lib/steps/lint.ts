@@ -14,6 +14,7 @@ import {
   executionContextPromptSection,
   roundHistoryPromptSection,
   userIntentPromptSection,
+  jobInstructionsPromptSection,
   lintColdPromptBody,
   lintFixPromptBody,
   COMMIT_SUMMARY_SCHEMA,
@@ -91,7 +92,10 @@ async function executeLint(sctx: StepContext): Promise<StepOutcome> {
   // Fix mode: ask the agent to fix lint issues before re-running the command.
   let fixSummary = "";
   if (sctx.fixing) {
+    // Fix round only — the cold lint pass above deliberately gets no operator
+    // section (fix instructions reach agents on FIX rounds only).
     const historySection =
+      jobInstructionsPromptSection(sctx.jobFixInstructions) +
       executionContextPromptSection() + roundHistoryPromptSection(sctx.rounds) + userIntentPromptSection(intentCtx);
     const fixPrompt = lintFixPromptBody({
       branch: sctx.run.branch,

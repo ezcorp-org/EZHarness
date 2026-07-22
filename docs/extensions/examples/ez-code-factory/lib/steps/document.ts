@@ -17,6 +17,7 @@ import {
   executionContextPromptSection,
   roundHistoryPromptSection,
   userIntentPromptSection,
+  jobInstructionsPromptSection,
   sanitizePromptMultilineText,
   documentPromptBody,
   FINDINGS_SCHEMA,
@@ -142,7 +143,11 @@ function buildDocumentPrompt(
   combinedLint: boolean,
   intentCtx: { intent: string | null; authoritative: boolean },
 ): string {
+  // The document (housekeeping) pass gets the operator document instructions —
+  // applied in BOTH combinedLint modes (the section rides the historySection,
+  // which both variants share).
   const historySection =
+    jobInstructionsPromptSection(sctx.jobDocumentInstructions) +
     executionContextPromptSection() + roundHistoryPromptSection(sctx.rounds) + userIntentPromptSection(intentCtx);
   return documentPromptBody({
     branch: sctx.run.branch,

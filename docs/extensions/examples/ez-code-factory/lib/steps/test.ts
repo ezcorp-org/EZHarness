@@ -19,6 +19,7 @@ import {
   executionContextPromptSection,
   roundHistoryPromptSection,
   userIntentPromptSection,
+  jobInstructionsPromptSection,
   testEvidencePromptBody,
   testFixPromptBody,
   COMMIT_SUMMARY_SCHEMA,
@@ -61,7 +62,11 @@ async function executeTest(sctx: StepContext): Promise<StepOutcome> {
   let newTestsFromFix: string[] = [];
   let fixSummary = "";
   if (sctx.fixing) {
+    // The fix round gets the operator fix instructions; the evidence pass
+    // (below) deliberately gets nothing — fix instructions reach agents on FIX
+    // rounds only (matches the field name).
     const historySection =
+      jobInstructionsPromptSection(sctx.jobFixInstructions) +
       executionContextPromptSection() + roundHistoryPromptSection(sctx.rounds) + userIntentPromptSection(intentCtx);
     const fixPrompt = testFixPromptBody({
       branch: sctx.run.branch,

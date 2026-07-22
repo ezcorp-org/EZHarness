@@ -42,6 +42,15 @@ export interface Job {
   agentName?: string;
   /** Optional intent template applied to synthesized runs. */
   intentTemplate?: string;
+  /** Optional operator instructions (≤ 500 chars) appended, sanitized, to the
+   *  review-main + review-fix agent prompts. Empty/absent → nothing appended. */
+  reviewInstructions?: string;
+  /** Optional operator instructions (≤ 500 chars) appended, sanitized, to the
+   *  three fix-round agent prompts (review-fix, test-fix, lint-fix). */
+  fixInstructions?: string;
+  /** Optional operator instructions (≤ 500 chars) appended, sanitized, to the
+   *  document (housekeeping) agent prompt. */
+  documentInstructions?: string;
   createdBy: string;
   createdAt: string;
   updatedBy: string;
@@ -61,11 +70,20 @@ export interface JobDraft {
   skipSteps: PipelineStep[];
   agentName?: string;
   intentTemplate?: string;
+  reviewInstructions?: string;
+  fixInstructions?: string;
+  documentInstructions?: string;
 }
 
 export const DEFAULT_JOB_ID = "default";
 export const MAX_JOB_NAME_LEN = 80;
 export const MAX_BRANCH_PATTERN_LEN = 120;
+/** Shared cap for the free-text job fields (intent template + the three prompt
+ *  instruction fields). ONE literal so the validator clamp, the Edit-job intent
+ *  field, and the Edit-prompts dialog fields never drift (DRY — page.ts's
+ *  MAX_INTENT_TEMPLATE_LEN aliases this). Also the host form validator's [1,500]
+ *  ceiling — a larger hint is silently clamped, so this is the effective bound. */
+export const MAX_JOB_TEXT_LEN = 500;
 /** Steps that MUST always run — skipping any would bypass the product's gate
  *  (review) or break the pipeline (intent/rebase/push). Rejected on save. */
 export const PROTECTED_STEPS: readonly PipelineStep[] = ["intent", "rebase", "review", "push"] as const;
@@ -209,7 +227,23 @@ export function validateJobDraft(
   if (typeof draft.intentTemplate === "string" && draft.intentTemplate.trim()) {
     value.intentTemplate = draft.intentTemplate.trim();
   }
+  // Prompt instructions: trim, clamp ≤ MAX_JOB_TEXT_LEN, empty → omitted (so a
+  // cleared field actually removes the value — sibling-survival is handled by
+  // the explicit carry in handleJobSave, not by keeping a stale value here).
+  const review = clampJobText(draft.reviewInstructions);
+  if (review) value.reviewInstructions = review;
+  const fix = clampJobText(draft.fixInstructions);
+  if (fix) value.fixInstructions = fix;
+  const document = clampJobText(draft.documentInstructions);
+  if (document) value.documentInstructions = document;
   return { ok: true, value };
+}
+
+/** Trim + clamp a free-text job field to {@link MAX_JOB_TEXT_LEN}; "" for a
+ *  blank/absent value (the caller omits an empty field so a clear removes it). */
+function clampJobText(raw: unknown): string {
+  if (typeof raw !== "string") return "";
+  return raw.trim().slice(0, MAX_JOB_TEXT_LEN);
 }
 
 /**
@@ -297,6 +331,9 @@ export const JOB_EDIT_FIELDS = [
   "skip_steps",
   "agent_name",
   "intent_template",
+  "review_instructions",
+  "fix_instructions",
+  "document_instructions",
   "toggle_step",
 ] as const;
 
@@ -327,6 +364,12 @@ export function applyJobEdit(
     skipSteps: [...base.skipSteps],
     ...(base.agentName !== undefined ? { agentName: base.agentName } : {}),
     ...(base.intentTemplate !== undefined ? { intentTemplate: base.intentTemplate } : {}),
+    // Sibling-survival carry site (1 of 4): fold the existing instructions into
+    // the draft so editing an UNRELATED field (name, trigger, a sibling
+    // instruction) never silently clears them.
+    ...(base.reviewInstructions !== undefined ? { reviewInstructions: base.reviewInstructions } : {}),
+    ...(base.fixInstructions !== undefined ? { fixInstructions: base.fixInstructions } : {}),
+    ...(base.documentInstructions !== undefined ? { documentInstructions: base.documentInstructions } : {}),
   };
   if (typeof patch.name === "string") draft.name = patch.name;
   if (typeof patch.branch_pattern === "string") {
@@ -358,6 +401,24 @@ export function applyJobEdit(
     if (trimmed) draft.intentTemplate = trimmed;
     else delete draft.intentTemplate;
   }
+  // Prompt-instruction fields: a present string OVERRIDES (blank clears — the
+  // Edit-prompts dialog submits all three every save, so a cleared field must
+  // remove, not keep). The ≤ 500 clamp is applied later by validateJobDraft.
+  if (typeof patch.review_instructions === "string") {
+    const trimmed = patch.review_instructions.trim();
+    if (trimmed) draft.reviewInstructions = trimmed;
+    else delete draft.reviewInstructions;
+  }
+  if (typeof patch.fix_instructions === "string") {
+    const trimmed = patch.fix_instructions.trim();
+    if (trimmed) draft.fixInstructions = trimmed;
+    else delete draft.fixInstructions;
+  }
+  if (typeof patch.document_instructions === "string") {
+    const trimmed = patch.document_instructions.trim();
+    if (trimmed) draft.documentInstructions = trimmed;
+    else delete draft.documentInstructions;
+  }
   // Flow-table Skip↔Run toggle: XOR a single step in/out of skipSteps. The step
   // must be a known pipeline step and MUST NOT be protected (protected steps
   // always run — the row carries no toggle). Both rejections are hard errors so
@@ -381,7 +442,17 @@ export function applyJobEdit(
  *  hold none). Only changed top-level fields are reported. */
 export function diffJob(before: Job, after: Job): Record<string, { from: unknown; to: unknown }> {
   const diff: Record<string, { from: unknown; to: unknown }> = {};
-  const fields: (keyof Job)[] = ["name", "trigger", "enabled", "skipSteps", "agentName", "intentTemplate"];
+  const fields: (keyof Job)[] = [
+    "name",
+    "trigger",
+    "enabled",
+    "skipSteps",
+    "agentName",
+    "intentTemplate",
+    "reviewInstructions",
+    "fixInstructions",
+    "documentInstructions",
+  ];
   for (const f of fields) {
     const a = JSON.stringify(before[f] ?? null);
     const b = JSON.stringify(after[f] ?? null);

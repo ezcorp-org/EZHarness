@@ -144,6 +144,16 @@ export interface ExecutorDeps {
    */
   jobAgentName?: string;
   /**
+   * Control plane (L4): the matched job's operator prompt instructions, threaded
+   * into every StepContext like {@link jobAgentName}. Each step call site feeds
+   * the relevant ones into `jobInstructionsPromptSection` and prepends the result
+   * to its `historySection` (review → review-main + review-fix; fix → the three
+   * fix rounds; document → document). Absent → no operator section is appended.
+   */
+  jobReviewInstructions?: string;
+  jobFixInstructions?: string;
+  jobDocumentInstructions?: string;
+  /**
    * Control-plane audit sink (L5). When present, `setRunStatus` — the choke
    * every PIPELINE-driven run status transition flows through (running / parked /
    * checks_passed / completed / failed) — appends a `run-status` entry (id +
@@ -394,6 +404,11 @@ function buildStepContext(
     // Control plane (L4): the job's agent override rides into the step context so
     // repoDispatchOptions can prefer it over the repo-config agent.
     ...(deps.jobAgentName ? { jobAgentName: deps.jobAgentName } : {}),
+    // Control plane (L4): the job's operator prompt instructions ride along too;
+    // the step call sites prepend the sanitized section to their historySection.
+    ...(deps.jobReviewInstructions ? { jobReviewInstructions: deps.jobReviewInstructions } : {}),
+    ...(deps.jobFixInstructions ? { jobFixInstructions: deps.jobFixInstructions } : {}),
+    ...(deps.jobDocumentInstructions ? { jobDocumentInstructions: deps.jobDocumentInstructions } : {}),
     shared,
     fixing,
     previousFindings,

@@ -361,7 +361,10 @@ function buildExecutorDeps(
   gateDir: string,
   worktreePath: string,
   config: PipelineConfig,
-  job?: Pick<Job, "name" | "skipSteps" | "agentName">,
+  job?: Pick<
+    Job,
+    "name" | "skipSteps" | "agentName" | "reviewInstructions" | "fixInstructions" | "documentInstructions"
+  >,
 ): ExecutorDeps {
   const evidenceDir = join(tmpBaseImpl(projectRoot), "ez-code-factory-evidence");
   return {
@@ -378,6 +381,11 @@ function buildExecutorDeps(
     // Control plane (L4): the job's agent-name override — preferred over the
     // repo-config agent by repoDispatchOptions (`job.agentName || repoConfig.agent`).
     ...(job?.agentName ? { jobAgentName: job.agentName } : {}),
+    // Control plane (L4): the job's operator prompt instructions — threaded to
+    // every StepContext; each step prepends the relevant sanitized section.
+    ...(job?.reviewInstructions ? { jobReviewInstructions: job.reviewInstructions } : {}),
+    ...(job?.fixInstructions ? { jobFixInstructions: job.fixInstructions } : {}),
+    ...(job?.documentInstructions ? { jobDocumentInstructions: job.documentInstructions } : {}),
     dispatcher: makeSpawnDispatcher({ evidenceDir }),
     hostRunner: shellImpl,
     jailedRunner: makeJailedShell(gateDir, projectRoot),
@@ -1208,6 +1216,14 @@ export async function handleJobSave(event: PageActionEvent): Promise<void> {
           skipSteps: existing.skipSteps,
           ...(existing.agentName !== undefined ? { agentName: existing.agentName } : {}),
           ...(existing.intentTemplate !== undefined ? { intentTemplate: existing.intentTemplate } : {}),
+          // Sibling-survival carry site (3 of 4): seed the base draft with the
+          // stored instructions so an Edit-JOB save (or any edit that omits them)
+          // does not silently clear them.
+          ...(existing.reviewInstructions !== undefined ? { reviewInstructions: existing.reviewInstructions } : {}),
+          ...(existing.fixInstructions !== undefined ? { fixInstructions: existing.fixInstructions } : {}),
+          ...(existing.documentInstructions !== undefined
+            ? { documentInstructions: existing.documentInstructions }
+            : {}),
         }
       : { name: "", trigger: { kind: "push", branchPattern: "main" }, enabled: false, skipSteps: [] };
 
@@ -1250,6 +1266,12 @@ export async function handleJobSave(event: PageActionEvent): Promise<void> {
         ...validated.value,
         agentName: validated.value.agentName,
         intentTemplate: validated.value.intentTemplate,
+        // Sibling-survival carry site (4 of 4): pass the optional instructions
+        // EXPLICITLY (undefined when cleared) so updateJob's patch-merge REMOVES a
+        // cleared field instead of leaving the stale stored value in place.
+        reviewInstructions: validated.value.reviewInstructions,
+        fixInstructions: validated.value.fixInstructions,
+        documentInstructions: validated.value.documentInstructions,
         updatedBy: actor,
       });
       if (updated) {

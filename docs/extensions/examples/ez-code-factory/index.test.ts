@@ -3136,6 +3136,57 @@ describe("handleJobSave", () => {
     expect(store.jobs.get("j1")!.agentName).toBe("reviewer");
     expect(store.jobs.get("j1")!.intentTemplate).toBe("ship it safely");
   });
+
+  test("prompt-instruction edits round-trip (set + clear-to-empty) and audit the diff", async () => {
+    const store = fakeJobStore([{ ...buildDefaultJob("t"), id: "j1", name: "N" }]);
+    _setJobStoreForTests(store);
+    _setInvalidatePageForTests(() => {});
+    await handleJobSave(
+      ev({
+        jobId: "j1",
+        review_instructions: "focus on API stability",
+        fix_instructions: "prefer guard clauses",
+        document_instructions: "note the migration",
+      }),
+    );
+    expect(store.jobs.get("j1")!.reviewInstructions).toBe("focus on API stability");
+    expect(store.jobs.get("j1")!.fixInstructions).toBe("prefer guard clauses");
+    expect(store.jobs.get("j1")!.documentInstructions).toBe("note the migration");
+    const audit = auditEntries.find((e) => e.kind === "job-save" && e.jobId === "j1");
+    expect((audit!.detail as { reviewInstructions?: unknown }).reviewInstructions).toEqual({
+      from: null,
+      to: "focus on API stability",
+    });
+    // Clearing one (blank) removes it via the explicit-carry patch.
+    await handleJobSave(ev({ jobId: "j1", review_instructions: "  " }));
+    expect(store.jobs.get("j1")!.reviewInstructions).toBeUndefined();
+  });
+
+  test("the Edit-prompts dialog preserves siblings: editing ONE instruction keeps the other two + agent + intent", async () => {
+    const store = fakeJobStore([
+      {
+        ...buildDefaultJob("t"),
+        id: "j1",
+        name: "N",
+        agentName: "critic",
+        intentTemplate: "keep API",
+        reviewInstructions: "review keep",
+        fixInstructions: "fix keep",
+        documentInstructions: "doc keep",
+      },
+    ]);
+    _setJobStoreForTests(store);
+    _setInvalidatePageForTests(() => {});
+    // Edit ONLY the fix instruction → the other two + agent + intent survive (all
+    // four carry sites hold — the pinned silent-clear class).
+    await handleJobSave(ev({ jobId: "j1", fix_instructions: "fix NEW" }));
+    const after = store.jobs.get("j1")!;
+    expect(after.fixInstructions).toBe("fix NEW");
+    expect(after.reviewInstructions).toBe("review keep");
+    expect(after.documentInstructions).toBe("doc keep");
+    expect(after.agentName).toBe("critic");
+    expect(after.intentTemplate).toBe("keep API");
+  });
 });
 
 describe("handleJobToggle", () => {

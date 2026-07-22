@@ -48,6 +48,7 @@ interface Over {
   previousFindings?: string;
   dispatcher?: AgentDispatcher;
   shared?: RunShared;
+  jobFixInstructions?: string;
 }
 
 describe("lintStep", () => {
@@ -82,6 +83,7 @@ describe("lintStep", () => {
       repo: { defaultBranch: "main", workingPath: "" },
       config: defaultPipelineConfig(),
       repoConfig: over.repoConfig ?? emptyRepoConfig(),
+      ...(over.jobFixInstructions ? { jobFixInstructions: over.jobFixInstructions } : {}),
       shared: over.shared ?? makeRunShared(),
       fixing: over.fixing ?? false,
       previousFindings: over.previousFindings ?? "",
@@ -132,6 +134,37 @@ describe("lintStep", () => {
     expect(outcome.needsApproval).toBe(true); // the stashed warning blocks
     expect(outcome.fixSummary).toBe("housekeeping lint");
     expect(logs.join()).toContain("combined document+lint housekeeping pass");
+  });
+
+  test("lint-fix carries the operator fix section; the cold pass gets nothing", async () => {
+    // Fix mode WITH a lint command → the fix prompt is dispatched (role fixer),
+    // and it carries the operator fix instructions.
+    const repoConfig = { ...emptyRepoConfig(), commands: { test: "", lint: "true", format: "" } };
+    const prev = serializeFindings(
+      deserializeFindings({ findings: [{ id: "l1", severity: "warning", description: "lint", action: "auto-fix" }], summary: "s" }),
+    );
+    const dispatcher = fakeDispatcher(() => ({ output: { summary: "fixed lint" }, text: "" }));
+    const { ctx } = makeCtx({
+      repoConfig,
+      fixing: true,
+      previousFindings: prev,
+      dispatcher,
+      jobFixInstructions: "prefer eslint autofix",
+    });
+    await lintStep.execute(ctx);
+    const fixCall = dispatcher.calls.find((c) => c.role === "fixer")!;
+    expect(fixCall.prompt).toContain("Job instructions (operator-configured, advisory)");
+    expect(fixCall.prompt).toContain("prefer eslint autofix");
+  });
+
+  test("the COLD lint pass gets NO operator section even when fix instructions are set", async () => {
+    // No lint command, not fixing → the cold agent pass; fix instructions reach
+    // agents on FIX rounds only, so the cold prompt carries no operator section.
+    const dispatcher = fakeDispatcher(() => ({ output: { findings: [], summary: "clean" }, text: "" }));
+    const { ctx } = makeCtx({ dispatcher, jobFixInstructions: "should not appear cold" });
+    await lintStep.execute(ctx);
+    expect(dispatcher.calls[0]!.prompt).not.toContain("Job instructions (operator-configured, advisory)");
+    expect(dispatcher.calls[0]!.prompt).not.toContain("should not appear cold");
   });
 
   test("no lint command + no stash → cold agent lint pass", async () => {
