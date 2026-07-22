@@ -372,6 +372,9 @@ test.describe("ez-code-factory control plane (?view= + job actions)", () => {
 		// Edit job → the ONE host form dialog opens with every field prefilled.
 		await page.getByRole("button", { name: "Edit job" }).click();
 		await expect(page.getByTestId("hub-form-dialog")).toBeVisible();
+		// The panel is an announced modal dialog (a11y): reachable BY ROLE and
+		// labelled with the form title.
+		await expect(page.getByRole("dialog", { name: 'Edit job "Nightly"' })).toBeVisible();
 		await expect(page.getByTestId("hub-form-title")).toHaveText('Edit job "Nightly"');
 		await expect(page.getByTestId("hub-form-field-name")).toHaveValue("Nightly");
 		// The trigger prefill is the formatTriggerSpec inverse (NOT the ` · ` label).

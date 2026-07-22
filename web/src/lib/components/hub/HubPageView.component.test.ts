@@ -291,6 +291,8 @@ describe("HubPageView · requestAction precedence", () => {
 		await fireEvent.click(await findByTestId("hub-node-button"));
 		const dialog = await findByTestId("hub-confirm-dialog");
 		expect(dialog).toHaveTextContent("Really wipe?");
+		// Announced as a modal dialog (a11y): role + aria-modal live on the panel.
+		expect(dialog.querySelector('[role="dialog"][aria-modal="true"]')).not.toBeNull();
 		expect(fetchCalls.some((c) => c.method === "POST")).toBe(false);
 	});
 
@@ -303,11 +305,16 @@ describe("HubPageView · requestAction precedence", () => {
 		pageHandler = () => jsonResponse({ page: treeWith(action) });
 		const { findByTestId, queryByTestId } = await renderView();
 		await fireEvent.click(await findByTestId("hub-node-button"));
-		expect(await findByTestId("hub-prompt-dialog")).toBeInTheDocument();
+		const promptDialog = await findByTestId("hub-prompt-dialog");
+		expect(promptDialog).toBeInTheDocument();
 		// The confirm text shows as the prompt body, but the confirm dialog
 		// itself must NOT be open (prompt wins).
 		expect(queryByTestId("hub-confirm-dialog")).toBeNull();
-		expect(await findByTestId("hub-prompt-dialog")).toHaveTextContent("are you sure");
+		expect(promptDialog).toHaveTextContent("are you sure");
+		// Announced as a modal dialog (a11y), labelled by the prompt label.
+		const promptPanel = promptDialog.querySelector('[role="dialog"][aria-modal="true"]');
+		expect(promptPanel).not.toBeNull();
+		expect(promptPanel).toHaveAttribute("aria-label", "Topic");
 	});
 });
 
@@ -523,6 +530,10 @@ describe("HubPageView · form dialog (PageAction.form)", () => {
 		expect(queryByTestId("hub-confirm-dialog")).toBeNull();
 		expect(queryByTestId("hub-prompt-dialog")).toBeNull();
 		expect(await findByTestId("hub-form-title")).toHaveTextContent('Edit job "Nightly"');
+		// Announced as a modal dialog (a11y), labelled by the form title.
+		const panel = dialog.querySelector('[role="dialog"][aria-modal="true"]');
+		expect(panel).not.toBeNull();
+		expect(panel).toHaveAttribute("aria-label", 'Edit job "Nightly"');
 
 		// Each field is prefilled with its validated `value`, keyed by testid.
 		expect(((await findByTestId("hub-form-field-name")) as HTMLInputElement).value).toBe("Nightly");

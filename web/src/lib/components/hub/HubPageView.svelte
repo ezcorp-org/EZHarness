@@ -380,7 +380,12 @@
      from the page tree. -->
 {#if promptAction?.prompt}
 	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" data-testid="hub-prompt-dialog">
-		<div class="w-full max-w-sm rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-5 shadow-xl">
+		<div
+			role="dialog"
+			aria-modal="true"
+			aria-label={promptAction.prompt.label}
+			class="w-full max-w-sm rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-5 shadow-xl"
+		>
 			<label class="block text-sm font-semibold text-[var(--color-text-primary)]" for="hub-prompt-input">
 				{promptAction.prompt.label}
 			</label>
@@ -457,7 +462,12 @@
      from the page tree. Save merges EVERY field (empty = clear-to-empty). -->
 {#if formAction?.form}
 	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" data-testid="hub-form-dialog">
-		<div class="w-full max-w-md rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-5 shadow-xl">
+		<div
+			role="dialog"
+			aria-modal="true"
+			aria-label={formAction.form.title ?? "Edit"}
+			class="w-full max-w-md rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-5 shadow-xl"
+		>
 			{#if formAction.form.title}
 				<h2 class="text-sm font-semibold text-[var(--color-text-primary)]" data-testid="hub-form-title">
 					{formAction.form.title}
@@ -513,7 +523,12 @@
 <!-- Host-rendered confirm dialog -->
 {#if confirmAction}
 	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" data-testid="hub-confirm-dialog">
-		<div class="w-full max-w-sm rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-5 shadow-xl">
+		<div
+			role="dialog"
+			aria-modal="true"
+			aria-label="Are you sure?"
+			class="w-full max-w-sm rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-5 shadow-xl"
+		>
 			<h2 class="text-sm font-semibold text-[var(--color-text-primary)]">Are you sure?</h2>
 			<p class="mt-2 text-sm text-[var(--color-text-secondary)]">{confirmAction.confirm}</p>
 			<div class="mt-4 flex justify-end gap-2">
