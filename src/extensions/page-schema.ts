@@ -49,7 +49,9 @@ const PROMPT_LABEL_MAX = 120;
 const PROMPT_SUBMIT_LABEL_MAX = 40;
 
 /** A `PageAction.form` may carry at most this many fields; excess dropped. */
-const MAX_FORM_FIELDS = 8;
+const MAX_FORM_FIELDS = 10;
+/** A select-rendered form field may carry at most this many options. */
+const MAX_FORM_FIELD_OPTIONS = 12;
 
 /**
  * Input `format`s a prompt may opt into. Each maps (client-side) to a
@@ -129,6 +131,22 @@ export interface PageFormField {
    *  long free-text fields (instructions, templates). Display-only: the
    *  submitted value is the same clamped scalar string either way. */
   multiline?: boolean;
+  /** Render a SELECT of these options instead of a free-text input (inline
+   *  form node only; the dialog form ignores options and falls back to the
+   *  text input). 2..12 validated options survive, else the whole list is
+   *  dropped (text fall-back). A `value` prefill outside the option set is
+   *  clamped to the first option. The submitted value is still an ordinary
+   *  scalar string — handlers must validate it like any typed input (a
+   *  select constrains the UI, never the wire). */
+  options?: PageFormFieldOption[];
+}
+
+/** One option of a select-rendered form field. */
+export interface PageFormFieldOption {
+  /** The scalar submitted under the field's payload key. */
+  value: string;
+  /** Visible option text; defaults to `value` when omitted. */
+  label?: string;
 }
 
 /**
@@ -141,7 +159,7 @@ export interface PageFormField {
 export interface PageForm {
   /** Optional dialog title. */
   title?: string;
-  /** 1..8 validated fields; a form with zero surviving fields is dropped. */
+  /** 1..10 validated fields; a form with zero surviving fields is dropped. */
   fields: PageFormField[];
 }
 
@@ -255,7 +273,7 @@ export interface PageFormNode {
   type: "form";
   /** Dispatched on submit with every field value merged into its payload. */
   action: PageAction;
-  /** 1..8 validated fields (same shape + caps as the dialog form). */
+  /** 1..10 validated fields (same shape + caps as the dialog form). */
   fields: PageFormField[];
   /** Submit-button label; default "Save". */
   submitLabel?: string;
@@ -396,6 +414,33 @@ function validateFormField(raw: unknown): PageFormField | null {
   if (f.value != null) out.value = truncate(f.value, ml);
   if (f.placeholder != null) out.placeholder = truncate(f.placeholder, PROMPT_LABEL_MAX);
   if (f.multiline === true) out.multiline = true;
+  // Select options: keep 2..MAX_FORM_FIELD_OPTIONS valid entries or drop the
+  // list entirely (the field falls back to a text input — never fatal). An
+  // out-of-set `value` prefill clamps to the first option so the rendered
+  // select always shows a real state.
+  if (Array.isArray(f.options)) {
+    const options: PageFormFieldOption[] = [];
+    for (const rawOpt of f.options) {
+      if (options.length >= MAX_FORM_FIELD_OPTIONS) break;
+      if (rawOpt == null || typeof rawOpt !== "object" || Array.isArray(rawOpt)) continue;
+      const o = rawOpt as Record<string, unknown>;
+      if (typeof o.value !== "string") continue;
+      const value = truncate(o.value, 64);
+      if (value.length === 0) continue;
+      const opt: PageFormFieldOption = { value };
+      if (o.label != null) {
+        const optLabel = truncate(o.label, PROMPT_LABEL_MAX);
+        if (optLabel.length > 0 && optLabel !== value) opt.label = optLabel;
+      }
+      options.push(opt);
+    }
+    if (options.length >= 2) {
+      out.options = options;
+      if (out.value === undefined || !options.some((o) => o.value === out.value)) {
+        out.value = options[0]!.value;
+      }
+    }
+  }
   return out;
 }
 

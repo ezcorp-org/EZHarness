@@ -623,11 +623,11 @@ describe("action form", () => {
     expect(f!.fields.map((x) => x.field)).toEqual(["name"]);
   });
 
-  test("fields cap at 8 (excess dropped)", () => {
+  test("fields cap at 10 (excess dropped)", () => {
     const many = Array.from({ length: 12 }, (_, i) => ({ field: `f${i}`, label: `L${i}` }));
     const f = formOf({ fields: many });
-    expect(f!.fields).toHaveLength(8);
-    expect(f!.fields.map((x) => x.field)).toEqual(["f0", "f1", "f2", "f3", "f4", "f5", "f6", "f7"]);
+    expect(f!.fields).toHaveLength(10);
+    expect(f!.fields.map((x) => x.field)).toEqual(["f0", "f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9"]);
   });
 
   test("a form with ZERO surviving fields degrades away — action still valid", () => {
@@ -1093,7 +1093,7 @@ describe("form node", () => {
     expect(form.action.confirm).toBe("Sure?");
   });
 
-  test("fields cap at 8, values truncate to maxLength, labels are <>-stripped", () => {
+  test("fields cap at 10, values truncate to maxLength, labels are <>-stripped", () => {
     const manyFields = Array.from({ length: 10 }, (_, i) => ({
       field: `f${i}`,
       label: `<b>Label ${i}</b>`,
@@ -1104,7 +1104,7 @@ describe("form node", () => {
       { type: "form", action: { event: "demo:refresh" }, fields: manyFields },
     ]);
     const form = result!.nodes[0] as PageFormNode;
-    expect(form.fields).toHaveLength(8);
+    expect(form.fields).toHaveLength(10);
     expect(form.fields[0]!.label).toBe("bLabel 0/b");
     expect(form.fields[0]!.value).toHaveLength(500);
   });
@@ -1115,5 +1115,59 @@ describe("form node", () => {
       { type: "heading", level: 2, text: "after" },
     ]);
     expect(result!.nodes).toHaveLength(2);
+  });
+});
+
+describe("form-field select options", () => {
+  const NODE = (fields: unknown[]) => ({ type: "form", action: { event: "demo:refresh" }, fields });
+
+  test("valid options survive; an out-of-set prefill clamps to the first option; same-as-value labels are elided", () => {
+    const result = validate([
+      NODE([
+        {
+          field: "kind",
+          label: "Kind",
+          value: "bogus",
+          options: [
+            { value: "push", label: "push — every matching git push" },
+            { value: "hourly", label: "hourly" },
+          ],
+        },
+      ]),
+    ]);
+    const f = (result!.nodes[0] as PageFormNode).fields[0]!;
+    expect(f.options).toEqual([
+      { value: "push", label: "push — every matching git push" },
+      { value: "hourly" },
+    ]);
+    expect(f.value).toBe("push"); // clamped into the set
+  });
+
+  test("an in-set prefill is kept", () => {
+    const result = validate([
+      NODE([{ field: "k", label: "K", value: "b", options: [{ value: "a" }, { value: "b" }] }]),
+    ]);
+    expect((result!.nodes[0] as PageFormNode).fields[0]!.value).toBe("b");
+  });
+
+  test("fewer than 2 valid options drops the list (text fall-back, field survives)", () => {
+    const result = validate([
+      NODE([
+        { field: "one", label: "One", options: [{ value: "solo" }] },
+        { field: "junk", label: "Junk", value: "typed", options: [{ value: "" }, { label: "no value" }, "str", null] },
+      ]),
+    ]);
+    const fields = (result!.nodes[0] as PageFormNode).fields;
+    expect(fields[0]!.options).toBeUndefined();
+    expect(fields[1]!.options).toBeUndefined();
+    expect(fields[1]!.value).toBe("typed"); // untouched — no set to clamp into
+  });
+
+  test("options cap at 12 and strings are <>-stripped + truncated", () => {
+    const many = Array.from({ length: 15 }, (_, i) => ({ value: `v${i}`, label: `<b>L${i}</b>` }));
+    const result = validate([NODE([{ field: "k", label: "K", options: many }])]);
+    const f = (result!.nodes[0] as PageFormNode).fields[0]!;
+    expect(f.options).toHaveLength(12);
+    expect(f.options![0]!.label).toBe("bL0/b");
   });
 });

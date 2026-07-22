@@ -67,7 +67,18 @@
 			>
 				{field.label}
 			</label>
-			{#if field.multiline}
+			{#if field.options}
+				<select
+					id={`hub-inline-field-${field.field}`}
+					class="mt-1 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm text-[var(--color-text-primary)] focus:border-[var(--color-accent)] focus:outline-none"
+					data-testid={`hub-inline-field-${field.field}`}
+					bind:value={values[field.field]}
+				>
+					{#each field.options as opt (opt.value)}
+						<option value={opt.value}>{opt.label ?? opt.value}</option>
+					{/each}
+				</select>
+			{:else if field.multiline}
 				<textarea
 					id={`hub-inline-field-${field.field}`}
 					rows="3"

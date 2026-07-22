@@ -59,6 +59,10 @@ export interface PageFormField {
   maxLength?: number;
   /** Render a multi-row textarea instead of the single-line input. */
   multiline?: boolean;
+  /** Render a select of these options (inline form node; the dialog form
+   *  falls back to the text input). Validated server-side: 2..12 options,
+   *  prefill clamped into the set. */
+  options?: { value: string; label?: string }[];
 }
 /** Host-rendered multi-field form. Mirror of page-schema's `PageForm`
  *  (source of truth) — keep aligned. Every field's typed value merges into

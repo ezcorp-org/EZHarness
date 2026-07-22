@@ -78,6 +78,13 @@ export interface PageFormFieldDescriptor {
    *  long free-text fields. Display-only; the submitted value is the same
    *  clamped scalar string either way. */
   multiline?: boolean;
+  /** Render a SELECT of these options (inline form node only; the dialog
+   *  form ignores them and shows a text input). Host keeps 2..12 valid
+   *  options or drops the list (text fall-back), and clamps an out-of-set
+   *  `value` prefill to the first option. The submitted value is a plain
+   *  scalar string — the handler must still validate it (a select
+   *  constrains the UI, never the wire). */
+  options?: { value: string; label?: string }[];
 }
 
 /**
@@ -85,7 +92,7 @@ export interface PageFormFieldDescriptor {
  * superset of `PagePromptDescriptor`. On submit every field's typed string
  * merges into `payload[field]` (including empty strings — clear-to-empty) and
  * the action dispatches through its UNCHANGED, eventSubscriptions-gated path —
- * `form` grants NO new authority. At most 8 fields survive; a field-less form
+ * `form` grants NO new authority. At most 10 fields survive; a field-less form
  * is dropped host-side. Mirror of page-schema's `PageForm`.
  */
 export interface PageFormDescriptor {
@@ -185,7 +192,7 @@ export class PageBuilder extends ComponentListBuilder {
 
   /**
    * INLINE on-page form node — the page-embedded sibling of the
-   * `PageActionDescriptor.form` modal. Fields (1..8, same shape/caps as the
+   * `PageActionDescriptor.form` modal. Fields (1..10, same shape/caps as the
    * dialog form; `multiline` renders a textarea) appear directly in the page
    * flow with one submit button. On submit every field's typed value merges
    * into `action.payload[field]` and the action dispatches through its

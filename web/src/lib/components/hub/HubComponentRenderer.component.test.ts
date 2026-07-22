@@ -369,3 +369,41 @@ describe("inline form node without an onAction callback", () => {
 		expect(getByTestId("hub-inline-field-name")).toHaveValue("Default");
 	});
 });
+
+describe("inline form select fields", () => {
+	test("an options field renders a SELECT with the prefill chosen; changing it submits the picked value", async () => {
+		const { getByTestId, onAction } = renderNodes([
+			{
+				type: "form",
+				action: { event: "ecf:job-save", payload: { jobId: "default" } },
+				fields: [
+					{
+						field: "trigger_kind",
+						label: "Trigger",
+						value: "push",
+						options: [
+							{ value: "push", label: "push — every matching git push" },
+							{ value: "schedule", label: "schedule — on a cadence" },
+							{ value: "manual" },
+						],
+					},
+					{ field: "trigger_branch", label: "Branch", value: "main" },
+				],
+			} as PageNode,
+		]);
+		const select = getByTestId("hub-inline-field-trigger_kind") as HTMLSelectElement;
+		expect(select.tagName).toBe("SELECT");
+		expect(select.value).toBe("push");
+		expect(Array.from(select.options).map((o) => o.textContent?.trim())).toEqual([
+			"push — every matching git push",
+			"schedule — on a cadence",
+			"manual",
+		]);
+		await fireEvent.change(select, { target: { value: "schedule" } });
+		await fireEvent.click(getByTestId("hub-inline-form-submit"));
+		expect(onAction).toHaveBeenCalledExactlyOnceWith({
+			event: "ecf:job-save",
+			payload: { jobId: "default", trigger_kind: "schedule", trigger_branch: "main" },
+		});
+	});
+});
