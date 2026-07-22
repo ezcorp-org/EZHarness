@@ -950,6 +950,7 @@ export function buildDashboard(
       "gate repo, whose post-receive hook triggers this extension to record a " +
       "run and materialize a disposable worktree.",
   );
+  appendViewNav(page, undefined);
   appendRunStats(page, runs, stalledRunIds);
 
   if (runs.length === 0) {
@@ -976,6 +977,7 @@ export function buildProjectDashboard(
 ): HubPageTree {
   const own = runsForProject(project, runs);
   const page = new PageBuilder(`ez-code-factory — ${project.name}`);
+  appendViewNav(page, project.id);
   appendRunStats(page, own, stalledRunIds);
 
   if (own.length === 0) {
@@ -1010,6 +1012,7 @@ export function buildHome(
       "project row for its dedicated dashboard; runs from repos outside any " +
       "registered project are triaged below.",
   );
+  appendViewNav(page, undefined);
   appendRunStats(page, runs, stalledRunIds);
 
   if (projects.length === 0 && runs.length === 0) {
@@ -1175,6 +1178,15 @@ function viewHref(projectId: string | undefined, view: string): string {
   return `${base}?view=${encodeURIComponent(view)}`;
 }
 
+/** Dashboard nav row into the control-plane views. Adjacent `link` nodes are
+ *  grouped into one flex row by the renderer, so this reads as a compact
+ *  "Config · Audit" strip at the top of every dashboard variant — without it
+ *  the views are reachable only by hand-typed URLs. */
+function appendViewNav(page: PageBuilder, projectId: string | undefined): void {
+  page.link("Config & jobs", viewHref(projectId, "config"));
+  page.link("Audit log", viewHref(projectId, "audit"));
+}
+
 /** One-line human label for a job trigger (text cell / stat value). */
 function triggerLabel(t: JobTrigger): string {
   switch (t.kind) {
@@ -1301,6 +1313,7 @@ export function buildConfigView(input: ConfigViewInput): HubPageTree {
     ],
   );
   page.link("Edit scalar settings (platform)", `/extensions/${extensionId}`);
+  page.link("Audit log", viewHref(projectId, "audit"));
 
   // Jobs table — each row opens its editor; last run shows as text (the editor
   // carries the per-run deep-links).

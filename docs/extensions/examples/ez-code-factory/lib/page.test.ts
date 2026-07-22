@@ -177,6 +177,36 @@ describe("STATUS_BADGE", () => {
   });
 });
 
+describe("view nav links (Config & jobs / Audit log)", () => {
+  const CONFIG_GLOBAL = `/hub/${encodeURIComponent(FULL_PAGE_ID)}?view=config`;
+  const AUDIT_GLOBAL = `/hub/${encodeURIComponent(FULL_PAGE_ID)}?view=audit`;
+
+  function linkHrefs(tree: { nodes: unknown[] }): string[] {
+    return allNodes(tree.nodes)
+      .filter((n) => n.type === "link")
+      .map((n) => n.href as string);
+  }
+
+  test("global dashboard + home carry both view links (global-hub hrefs)", () => {
+    for (const tree of [buildDashboard([]), buildHome([], [])]) {
+      const hrefs = linkHrefs(tree);
+      expect(hrefs).toContain(CONFIG_GLOBAL);
+      expect(hrefs).toContain(AUDIT_GLOBAL);
+    }
+  });
+
+  test("project dashboard carries both view links (project-hub hrefs)", () => {
+    const project = { id: "proj-1", name: "My App", path: "/repos/my-app" };
+    const hrefs = linkHrefs(buildProjectDashboard(project, []));
+    expect(hrefs).toContain(
+      `/project/proj-1/hub/${encodeURIComponent(FULL_PAGE_ID)}?view=config`,
+    );
+    expect(hrefs).toContain(
+      `/project/proj-1/hub/${encodeURIComponent(FULL_PAGE_ID)}?view=audit`,
+    );
+  });
+});
+
 describe("buildDashboard", () => {
   test("renders an empty-state + zeroed stats when there are no runs", () => {
     const tree = buildDashboard([]);
@@ -1496,6 +1526,14 @@ describe("buildConfigView", () => {
     // Platform-settings pointer.
     const link = allNodes(tree.nodes).find((n) => n.type === "link" && (n.href as string) === "/extensions/ez-code-factory");
     expect(link).toBeDefined();
+    // Cross-link into the audit view on the SAME (project) hub (audit
+    // already links back to config).
+    const audit = allNodes(tree.nodes).find(
+      (n) =>
+        n.type === "link" &&
+        (n.href as string) === `/project/proj-1/hub/${encodeURIComponent(FULL_PAGE_ID)}?view=audit`,
+    );
+    expect(audit).toBeDefined();
   });
 
   test("jobs table row uses the GLOBAL-hub href when no projectId (both-hubs precedent)", () => {
