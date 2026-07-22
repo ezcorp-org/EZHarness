@@ -407,3 +407,74 @@ describe("inline form select fields", () => {
 		});
 	});
 });
+
+describe("inline form dynamic visibility (visibleWhen)", () => {
+	const DYNAMIC_FORM: PageNode = {
+		type: "form",
+		action: { event: "ecf:job-save", payload: { jobId: "default" } },
+		fields: [
+			{
+				field: "trigger_kind",
+				label: "Trigger",
+				value: "schedule",
+				options: [{ value: "push" }, { value: "schedule" }, { value: "manual" }],
+			},
+			{ field: "trigger_branch", label: "Branch", value: "main" },
+			{
+				field: "trigger_every",
+				label: "Cadence",
+				value: "hourly",
+				options: [{ value: "15m" }, { value: "hourly" }, { value: "daily" }],
+				visibleWhen: { field: "trigger_kind", equals: "schedule" },
+			},
+		],
+	};
+
+	test("a conditional field shows/hides LIVE as its controlling select changes, keeping its value", async () => {
+		const { getByTestId, queryByTestId } = renderNodes([DYNAMIC_FORM]);
+		// Prefill kind=schedule → cadence visible.
+		expect(getByTestId("hub-inline-field-trigger_every")).toHaveValue("hourly");
+		// Flip to push → cadence disappears; unconditioned siblings stay.
+		await fireEvent.change(getByTestId("hub-inline-field-trigger_kind"), { target: { value: "push" } });
+		expect(queryByTestId("hub-inline-field-trigger_every")).toBeNull();
+		expect(getByTestId("hub-inline-field-trigger_branch")).toBeInTheDocument();
+		// Flip back → it returns with the retained value.
+		await fireEvent.change(getByTestId("hub-inline-field-trigger_kind"), { target: { value: "schedule" } });
+		expect(getByTestId("hub-inline-field-trigger_every")).toHaveValue("hourly");
+	});
+
+	test("a HIDDEN field is OMITTED from the submitted payload; visible it submits", async () => {
+		const { getByTestId, onAction } = renderNodes([DYNAMIC_FORM]);
+		await fireEvent.change(getByTestId("hub-inline-field-trigger_kind"), { target: { value: "manual" } });
+		await fireEvent.click(getByTestId("hub-inline-form-submit"));
+		expect(onAction).toHaveBeenNthCalledWith(1, {
+			event: "ecf:job-save",
+			payload: { jobId: "default", trigger_kind: "manual", trigger_branch: "main" },
+		});
+		expect(onAction.mock.calls[0]![0].payload).not.toHaveProperty("trigger_every");
+		// Back to schedule → the cadence submits again.
+		await fireEvent.change(getByTestId("hub-inline-field-trigger_kind"), { target: { value: "schedule" } });
+		await fireEvent.click(getByTestId("hub-inline-form-submit"));
+		expect(onAction).toHaveBeenNthCalledWith(2, {
+			event: "ecf:job-save",
+			payload: { jobId: "default", trigger_kind: "schedule", trigger_branch: "main", trigger_every: "hourly" },
+		});
+	});
+
+	test("a one-of-array condition matches any listed value", async () => {
+		const node: PageNode = {
+			type: "form",
+			action: { event: "ecf:job-save" },
+			fields: [
+				{ field: "mode", label: "Mode", value: "a", options: [{ value: "a" }, { value: "b" }, { value: "c" }] },
+				{ field: "dep", label: "Dep", value: "x", visibleWhen: { field: "mode", equals: ["a", "b"] } },
+			],
+		};
+		const { getByTestId, queryByTestId } = renderNodes([node]);
+		expect(getByTestId("hub-inline-field-dep")).toBeInTheDocument();
+		await fireEvent.change(getByTestId("hub-inline-field-mode"), { target: { value: "b" } });
+		expect(getByTestId("hub-inline-field-dep")).toBeInTheDocument();
+		await fireEvent.change(getByTestId("hub-inline-field-mode"), { target: { value: "c" } });
+		expect(queryByTestId("hub-inline-field-dep")).toBeNull();
+	});
+});

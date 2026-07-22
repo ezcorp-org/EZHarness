@@ -157,6 +157,16 @@ describe("PageBuilder page-only components", () => {
     ]);
   });
 
+  test("form node passes select options + visibleWhen conditions through verbatim", () => {
+    const fields = [
+      { field: "kind", label: "Kind", value: "a", options: [{ value: "a" }, { value: "b", label: "Bee" }] },
+      { field: "dep", label: "Dep", visibleWhen: { field: "kind", equals: "a" } },
+    ];
+    expect(build((b) => b.form(fields, { event: "e:save" })).nodes).toEqual([
+      { type: "form", action: { event: "e:save" }, fields },
+    ]);
+  });
+
   test("form node without submitLabel omits the key (host defaults to Save)", () => {
     const fields = [{ field: "name", label: "Name" }];
     expect(build((b) => b.form(fields, { event: "e:save" })).nodes).toEqual([

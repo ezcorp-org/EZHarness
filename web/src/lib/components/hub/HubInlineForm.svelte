@@ -37,12 +37,28 @@
 		Object.fromEntries(node.fields.map((f) => [f.field, f.value ?? ""])),
 	);
 
+	/** Dynamic visibility: a field with `visibleWhen` renders (and submits)
+	 *  only while its controlling sibling's CURRENT value matches. Reads
+	 *  `values` ($state), so the template re-evaluates as the user edits —
+	 *  flipping a select shows/hides dependents live. A hidden field keeps
+	 *  its local value (flip back and it's still there) but is OMITTED from
+	 *  the payload: absent key = "don't touch", never a clear. */
+	function isVisible(field: PageFormNode["fields"][number]): boolean {
+		const cond = field.visibleWhen;
+		if (!cond) return true;
+		const current = values[cond.field] ?? "";
+		return Array.isArray(cond.equals) ? cond.equals.includes(current) : cond.equals === current;
+	}
+
 	function submit() {
 		if (!onAction) return;
 		const payload: Record<string, string | number | boolean> = {
 			...(node.action.payload ?? {}),
 		};
-		for (const f of node.fields) payload[f.field] = values[f.field] ?? "";
+		for (const f of node.fields) {
+			if (!isVisible(f)) continue;
+			payload[f.field] = values[f.field] ?? "";
+		}
 		onAction({
 			event: node.action.event,
 			payload,
@@ -59,7 +75,7 @@
 		submit();
 	}}
 >
-	{#each node.fields as field (field.field)}
+	{#each node.fields.filter(isVisible) as field (field.field)}
 		<div>
 			<label
 				class="block text-xs font-medium text-[var(--color-text-secondary)]"

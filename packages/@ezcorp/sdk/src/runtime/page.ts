@@ -85,6 +85,14 @@ export interface PageFormFieldDescriptor {
    *  scalar string — the handler must still validate it (a select
    *  constrains the UI, never the wire). */
   options?: { value: string; label?: string }[];
+  /** DYNAMIC visibility: show this field only while the named SIBLING
+   *  field's current value equals `equals` (or one of them, when an
+   *  array). Inline form node only. A hidden field is OMITTED from the
+   *  submitted payload (absent key — "don't touch"), so it composes with
+   *  present-string-clears handler semantics. The host prunes a condition
+   *  referencing an unknown or self field (fails open to visible), and
+   *  visibility is UX only — the handler must validate whatever arrives. */
+  visibleWhen?: { field: string; equals: string | string[] };
 }
 
 /**

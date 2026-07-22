@@ -1171,3 +1171,82 @@ describe("form-field select options", () => {
     expect(f.options![0]!.label).toBe("bL0/b");
   });
 });
+
+describe("form-field visibleWhen conditions", () => {
+  const NODE = (fields: unknown[]) => ({ type: "form", action: { event: "demo:refresh" }, fields });
+  const KIND = { field: "kind", label: "Kind", options: [{ value: "a" }, { value: "b" }] };
+
+  test("a valid sibling condition survives (string and one-of-array forms)", () => {
+    const result = validate([
+      NODE([
+        KIND,
+        { field: "only_a", label: "A-only", visibleWhen: { field: "kind", equals: "a" } },
+        { field: "a_or_b", label: "Either", visibleWhen: { field: "kind", equals: ["a", "b"] } },
+      ]),
+    ]);
+    const fields = (result!.nodes[0] as PageFormNode).fields;
+    expect(fields[1]!.visibleWhen).toEqual({ field: "kind", equals: "a" });
+    expect(fields[2]!.visibleWhen).toEqual({ field: "kind", equals: ["a", "b"] });
+  });
+
+  test("a condition on an UNKNOWN or SELF field is pruned — the field stays, always visible", () => {
+    const result = validate([
+      NODE([
+        KIND,
+        { field: "ghost_ref", label: "G", visibleWhen: { field: "nope", equals: "a" } },
+        { field: "self_ref", label: "S", visibleWhen: { field: "self_ref", equals: "x" } },
+      ]),
+    ]);
+    const fields = (result!.nodes[0] as PageFormNode).fields;
+    expect(fields).toHaveLength(3);
+    expect(fields[1]!.visibleWhen).toBeUndefined();
+    expect(fields[2]!.visibleWhen).toBeUndefined();
+  });
+
+  test("malformed conditions are dropped: non-slug field, empty/non-string equals, junk shapes", () => {
+    const result = validate([
+      NODE([
+        KIND,
+        { field: "f1", label: "F1", visibleWhen: { field: "Bad-Slug", equals: "a" } },
+        { field: "f2", label: "F2", visibleWhen: { field: "kind", equals: ["", 7, null] } },
+        { field: "f3", label: "F3", visibleWhen: "kind=a" },
+      ]),
+    ]);
+    const fields = (result!.nodes[0] as PageFormNode).fields;
+    for (const f of fields.slice(1)) expect(f.visibleWhen).toBeUndefined();
+  });
+
+  test("equals values are <>-stripped, clamped to 64 chars, capped at 12 entries", () => {
+    const many = Array.from({ length: 15 }, (_, i) => `v${i}`);
+    many[0] = `<x>${"y".repeat(70)}`;
+    const result = validate([
+      NODE([KIND, { field: "f", label: "F", visibleWhen: { field: "kind", equals: many } }]),
+    ]);
+    const cond = (result!.nodes[0] as PageFormNode).fields[1]!.visibleWhen!;
+    const equals = cond.equals as string[];
+    expect(equals).toHaveLength(12);
+    expect(equals[0]).toBe(`x${"y".repeat(70)}`.slice(0, 64)); // <> stripped, then 64-clamped
+  });
+
+  test("the dialog form prunes dangling conditions too (shared post-pass)", () => {
+    const result = validate([
+      {
+        type: "button",
+        label: "Edit",
+        action: {
+          event: "demo:refresh",
+          form: {
+            fields: [
+              KIND,
+              { field: "dep", label: "Dep", visibleWhen: { field: "kind", equals: "a" } },
+              { field: "ghost", label: "G", visibleWhen: { field: "gone", equals: "z" } },
+            ],
+          },
+        },
+      },
+    ]);
+    const form = (result!.nodes[0] as PageButton).action.form!;
+    expect(form.fields[1]!.visibleWhen).toEqual({ field: "kind", equals: "a" });
+    expect(form.fields[2]!.visibleWhen).toBeUndefined();
+  });
+});

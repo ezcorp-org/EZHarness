@@ -139,6 +139,25 @@ export interface PageFormField {
    *  scalar string — handlers must validate it like any typed input (a
    *  select constrains the UI, never the wire). */
   options?: PageFormFieldOption[];
+  /** Show this field ONLY while a SIBLING field's current value matches
+   *  (inline form node only; the dialog form ignores it and shows every
+   *  field). A HIDDEN field is OMITTED from the submitted payload — absent
+   *  key, never an empty string — so conditional fields compose with
+   *  present-string-clears handler semantics ("hidden" means "don't
+   *  touch"). Validated form-level: a condition referencing an unknown or
+   *  SELF field is dropped (fail-open to always-visible — visibility is
+   *  UX, never an authorization surface; handlers must validate whatever
+   *  arrives regardless). */
+  visibleWhen?: PageFormFieldCondition;
+}
+
+/** A field-visibility condition: the named sibling field's CURRENT value
+ *  must equal `equals` (or one of them, when an array). */
+export interface PageFormFieldCondition {
+  /** The controlling sibling field's payload key (slug). */
+  field: string;
+  /** Match value(s); 1..12 strings, each ≤64 chars. */
+  equals: string | string[];
 }
 
 /** One option of a select-rendered form field. */
@@ -441,7 +460,39 @@ function validateFormField(raw: unknown): PageFormField | null {
       }
     }
   }
+  // Visibility condition — shape-validated here; the SIBLING-reference check
+  // (unknown/self controlling field → drop the condition) runs form-level in
+  // pruneDanglingConditions once the surviving field set is known.
+  if (f.visibleWhen != null && typeof f.visibleWhen === "object" && !Array.isArray(f.visibleWhen)) {
+    const c = f.visibleWhen as Record<string, unknown>;
+    if (typeof c.field === "string" && PROMPT_FIELD_REGEX.test(c.field)) {
+      const rawEquals = Array.isArray(c.equals) ? c.equals : [c.equals];
+      const equals: string[] = [];
+      for (const v of rawEquals) {
+        if (equals.length >= MAX_FORM_FIELD_OPTIONS) break;
+        if (typeof v !== "string") continue;
+        const clamped = truncate(v, 64);
+        if (clamped.length > 0) equals.push(clamped);
+      }
+      if (equals.length > 0) {
+        out.visibleWhen = { field: c.field, equals: equals.length === 1 ? equals[0]! : equals };
+      }
+    }
+  }
   return out;
+}
+
+/** Drop any `visibleWhen` that references an unknown or SELF field — the
+ *  condition could never toggle, so it fails OPEN to always-visible (the
+ *  field survives; visibility is UX, not authorization). Shared by the
+ *  dialog form and the inline form node. */
+function pruneDanglingConditions(fields: PageFormField[]): void {
+  const keys = new Set(fields.map((f) => f.field));
+  for (const f of fields) {
+    if (f.visibleWhen && (f.visibleWhen.field === f.field || !keys.has(f.visibleWhen.field))) {
+      delete f.visibleWhen;
+    }
+  }
 }
 
 /**
@@ -461,6 +512,7 @@ function validateForm(raw: unknown): PageForm | null {
     if (field) fields.push(field);
   }
   if (fields.length === 0) return null; // a field-less form degrades away
+  pruneDanglingConditions(fields);
   const out: PageForm = { fields };
   if (f.title != null) {
     const title = truncate(f.title, PROMPT_LABEL_MAX);
@@ -647,6 +699,7 @@ function validateFormNode(
     if (field) fields.push(field);
   }
   if (fields.length === 0) return null;
+  pruneDanglingConditions(fields);
   const out: PageFormNode = { type: "form", action, fields };
   if (raw.submitLabel != null) {
     const sl = truncate(raw.submitLabel, PROMPT_SUBMIT_LABEL_MAX);

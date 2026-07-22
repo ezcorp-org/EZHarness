@@ -63,6 +63,11 @@ export interface PageFormField {
    *  falls back to the text input). Validated server-side: 2..12 options,
    *  prefill clamped into the set. */
   options?: { value: string; label?: string }[];
+  /** Show only while the named SIBLING field's current value matches (string
+   *  or one-of-array). Inline form node only; a hidden field is OMITTED from
+   *  the submitted payload. Mirror of page-schema's `PageFormFieldCondition`
+   *  (source of truth) — dangling/self references are pruned server-side. */
+  visibleWhen?: { field: string; equals: string | string[] };
 }
 /** Host-rendered multi-field form. Mirror of page-schema's `PageForm`
  *  (source of truth) — keep aligned. Every field's typed value merges into
