@@ -75,9 +75,24 @@ function configTree() {
 	};
 }
 
-/** Job editor: definition + Edit name (prompt) / Run now (confirm) / Delete
- *  buttons + the runs table (row → ?run=<id>). `name` reflects the latest save. */
+const AGENT_NAME = "Research Assistant";
+
+/** Job editor mirror of buildJobView: Definition (stats + edit buttons incl.
+ *  Edit intent template, no skip-steps button) → Flow (9 steps; skipped =>
+ *  warning cell, protected => plain label + NO row action, running => a
+ *  job-save toggle_step row action + confirm) → Prompts (read-only previews
+ *  with the agent substituted) → Runs → Danger zone (Delete). `name` reflects
+ *  the latest save. */
 function jobTree(name: string) {
+	const toggleRow = (step: string, state: unknown, verb: "Skip" | "Run") => ({
+		cells: [step, state],
+		action: {
+			event: "ez-code-factory:job-save",
+			payload: { jobId: JOB_ID, toggle_step: step },
+			confirm: verb === "Skip" ? `Skip the ${step} step for job "${name}"?` : `Run the ${step} step again for job "${name}"?`,
+		},
+	});
+	const protectedRow = (step: string) => ({ cells: [step, "protected — always runs"] });
 	return {
 		title: `ez-code-factory — job ${name}`,
 		nodes: [
@@ -91,6 +106,7 @@ function jobTree(name: string) {
 							{ label: "Trigger", value: "schedule · daily · main" },
 							{ label: "Enabled", value: "yes" },
 							{ label: "Skips", value: "test" },
+							{ label: "Agent", value: AGENT_NAME },
 						],
 					},
 				],
@@ -100,8 +116,46 @@ function jobTree(name: string) {
 				title: "Actions",
 				nodes: [
 					{ type: "button", label: "Edit name", action: { event: "ez-code-factory:job-save", payload: { jobId: JOB_ID }, prompt: { label: "New name", field: "name", submitLabel: "Save" } } },
+					{ type: "button", label: "Edit intent template", action: { event: "ez-code-factory:job-save", payload: { jobId: JOB_ID }, prompt: { label: "Intent template for this job's runs (blank = none)", field: "intent_template", submitLabel: "Save" } } },
+					{ type: "button", label: "Edit agent", action: { event: "ez-code-factory:job-save", payload: { jobId: JOB_ID }, prompt: { label: "Agent name", field: "agent_name", submitLabel: "Save" } } },
 					{ type: "button", label: "Run now", action: { event: "ez-code-factory:run-now", payload: { jobId: JOB_ID }, confirm: `Run job "${name}" now on main?` }, style: "primary" },
-					{ type: "button", label: "Delete job", action: { event: "ez-code-factory:job-delete", payload: { jobId: JOB_ID }, confirm: `Delete job "${name}"?` }, style: "danger" },
+				],
+			},
+			{
+				type: "section",
+				title: "Flow",
+				nodes: [
+					{ type: "text", content: "Step order is fixed by the pipeline and cannot be changed here, and the protected steps (intent, rebase, review, push) always run.", variant: "muted" },
+					{
+						type: "table",
+						columns: ["Step", "State"],
+						rows: [
+							protectedRow("intent"),
+							protectedRow("rebase"),
+							protectedRow("review"),
+							toggleRow("test", { text: "skipped", tone: "warning" }, "Run"),
+							toggleRow("document", "runs", "Skip"),
+							toggleRow("lint", "runs", "Skip"),
+							protectedRow("push"),
+						],
+					},
+				],
+			},
+			{
+				type: "section",
+				title: "Prompts",
+				nodes: [
+					{ type: "text", content: "What this job sends the agent, with this job's known values already filled in. Run-scoped values (<branch>, <base-commit>, <head-commit>) and repo-file values (<repo: ignore_patterns>, <repo: document.instructions>) are resolved per run.", variant: "muted" },
+					{ type: "heading", level: 3, text: "Review" },
+					{
+						type: "table",
+						columns: ["Part", "Content"],
+						rows: [
+							{ cells: ["Agent", AGENT_NAME] },
+							{ cells: ["Run-scoped", "<branch>, <base-commit>, <head-commit> — resolved per run"] },
+							{ cells: ["Prompt · 3.0 KB · excerpt", "Review the code changes and return structured findings with a risk assessment. Context: - branch: <branch> - base commit: <base-commit>…"] },
+						],
+					},
 				],
 			},
 			{
@@ -113,6 +167,13 @@ function jobTree(name: string) {
 						columns: ["Run", "Branch", "Head", "Status", "Updated"],
 						rows: [{ cells: [RUN_ID, "main", "deadbeef", { text: "✓ completed", tone: "success" }, "2026-07-21 00:00"], href: runHref(RUN_ID) }],
 					},
+				],
+			},
+			{
+				type: "section",
+				title: "Danger zone",
+				nodes: [
+					{ type: "button", label: "Delete job", action: { event: "ez-code-factory:job-delete", payload: { jobId: JOB_ID }, confirm: `Delete job "${name}"?` }, style: "danger" },
 				],
 			},
 		],
@@ -271,6 +332,94 @@ test.describe("ez-code-factory control plane (?view= + job actions)", () => {
 
 		expect(req.postDataJSON()).toMatchObject({ payload: { jobId: JOB_ID } });
 		expect(state.runNowBody).toMatchObject({ payload: { jobId: JOB_ID } });
+	});
+
+	test("a flow-table Skip/Run toggle confirms then POSTs job-save with the toggle_step payload", async ({ page, mockApi }) => {
+		await mockApi({ projects: [proj] });
+		const state = await routeHub(page);
+
+		await page.goto(viewHref(`job:${JOB_ID}`));
+		await expect(page.getByTestId("hub-page-title")).toHaveText("ez-code-factory — job Nightly");
+
+		// The skipped `test` row (warning cell) is actionable → click → confirm.
+		const testRow = page.getByTestId("hub-table-row").filter({ hasText: "skipped" });
+		await expect(testRow).toHaveClass(/cursor-pointer/);
+		await testRow.click();
+		await expect(page.getByTestId("hub-confirm-dialog")).toContainText("Run the test step again");
+
+		const savePost = page.waitForRequest(
+			(req) => req.method() === "POST" && req.url().includes("/api/extensions/ez-code-factory/events/job-save"),
+		);
+		await page.getByTestId("hub-confirm-ok").click();
+		const req = await savePost;
+		// The toggle rides as a STATIC payload key (no prompt) under the job-save event.
+		expect(req.postDataJSON()).toMatchObject({ payload: { jobId: JOB_ID, toggle_step: "test" } });
+		expect(state.saveBody).toMatchObject({ payload: { jobId: JOB_ID, toggle_step: "test" } });
+	});
+
+	test("a protected flow-step row carries NO toggle affordance (inert, opens no confirm)", async ({ page, mockApi }) => {
+		await mockApi({ projects: [proj] });
+		await routeHub(page);
+
+		await page.goto(viewHref(`job:${JOB_ID}`));
+		await expect(page.getByTestId("hub-page-title")).toHaveText("ez-code-factory — job Nightly");
+
+		const protectedRow = page.getByTestId("hub-table-row").filter({ hasText: "protected — always runs" }).first();
+		await expect(protectedRow).not.toHaveClass(/cursor-pointer/);
+		// Clicking the inert row opens no confirm dialog (no action to dispatch).
+		await protectedRow.click();
+		await expect(page.getByTestId("hub-confirm-dialog")).toHaveCount(0);
+	});
+
+	test("the Edit intent template prompt POSTs job-save with the intent_template scalar", async ({ page, mockApi }) => {
+		await mockApi({ projects: [proj] });
+		const state = await routeHub(page);
+
+		await page.goto(viewHref(`job:${JOB_ID}`));
+		await expect(page.getByTestId("hub-page-title")).toHaveText("ez-code-factory — job Nightly");
+
+		await page.getByRole("button", { name: "Edit intent template" }).click();
+		await expect(page.getByTestId("hub-prompt-dialog")).toBeVisible();
+		await page.getByTestId("hub-prompt-input").fill("Keep the public API stable");
+
+		const savePost = page.waitForRequest(
+			(req) => req.method() === "POST" && req.url().includes("/api/extensions/ez-code-factory/events/job-save"),
+		);
+		await page.getByTestId("hub-prompt-submit").click();
+		const req = await savePost;
+		expect(req.postDataJSON()).toMatchObject({ payload: { jobId: JOB_ID, intent_template: "Keep the public API stable" } });
+		expect(state.saveBody).toMatchObject({ payload: { jobId: JOB_ID, intent_template: "Keep the public API stable" } });
+	});
+
+	test("the job editor renders Flow toggles, the read-only Prompts preview (agent substituted), and a Danger zone @evidence", async ({
+		page,
+		mockApi,
+	}, testInfo) => {
+		await mockApi({ projects: [proj] });
+		await routeHub(page);
+
+		await page.goto(viewHref(`job:${JOB_ID}`));
+		await expect(page.getByTestId("hub-page-title")).toHaveText("ez-code-factory — job Nightly");
+
+		const body = page.getByTestId("hub-page-body");
+		// Flow section: the skipped warning cell + a protected label.
+		await expect(page.getByRole("heading", { name: "Flow" })).toBeVisible();
+		const warnCell = page.locator('[data-testid="hub-table-cell"][data-tone="warning"]').filter({ hasText: "skipped" });
+		await expect(warnCell).toBeVisible();
+		await expect(body).toContainText("protected — always runs");
+		// The intent-template button is present (the old skip-steps button is gone).
+		await expect(page.getByRole("button", { name: "Edit intent template" })).toBeVisible();
+		await expect(page.getByRole("button", { name: "Edit skip-steps" })).toHaveCount(0);
+		// Prompts preview: the section, a representative prompt, and THIS job's agent.
+		await expect(page.getByRole("heading", { name: "Prompts" })).toBeVisible();
+		await expect(page.getByRole("heading", { name: "Review", exact: true })).toBeVisible();
+		await expect(body).toContainText(AGENT_NAME);
+		await expect(body).toContainText("resolved per run");
+		// Danger zone owns Delete.
+		await expect(page.getByRole("heading", { name: "Danger zone" })).toBeVisible();
+		await expect(page.getByRole("button", { name: "Delete job" })).toBeVisible();
+
+		await captureEvidence(page, testInfo, "ez-code-factory-job-editor");
 	});
 
 	test("the audit view renders entries + day nav + a run deep-link @evidence", async ({
