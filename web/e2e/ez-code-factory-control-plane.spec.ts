@@ -5,8 +5,10 @@
  * the control plane's user-visible contract against mocked Hub API routes:
  *   - the CONFIG view renders the pipeline, the jobs table (rows → ?view=job:<id>),
  *     and the sweep-health WARNING state (warning tone) + captureEvidence,
- *   - the JOB editor's "Edit name" prompt POSTs to the declared `job-save` event
- *     with the merged payload, and the re-render shows the change,
+ *   - the JOB editor's ONE "Edit job" form dialog opens with every field
+ *     prefilled; changing two fields + clearing one POSTs a SINGLE `job-save`
+ *     with the whole merged payload (+ captureEvidence of the open dialog), and
+ *     the re-render reflects the change; Cancel dispatches nothing,
  *   - the AUDIT view renders entries (truncated actor, run deep-link), day nav,
  *     + captureEvidence,
  *   - the "Run now" button POSTs the declared `run-now` event,
@@ -76,14 +78,15 @@ function configTree() {
 }
 
 const AGENT_NAME = "Research Assistant";
+const INTENT_TEMPLATE = "Keep the public API backward compatible.";
 
-/** Job editor mirror of buildJobView: Definition (stats + edit buttons incl.
- *  Edit intent template, no skip-steps button) → Flow (9 steps; skipped =>
- *  warning cell, protected => plain label + NO row action, running => a
- *  job-save toggle_step row action + confirm) → Prompts (read-only previews
- *  with the agent substituted) → Runs → Danger zone (Delete). `name` reflects
- *  the latest save. */
-function jobTree(name: string) {
+/** Job editor mirror of buildJobView: Definition (stats + ONE "Edit job" form
+ *  button with every field prefilled) → Flow (9 steps; skipped => warning cell,
+ *  protected => plain label + NO row action, running => a job-save toggle_step
+ *  row action + confirm) → Prompts (read-only previews with the agent
+ *  substituted) → Runs → Danger zone (Delete). `name`/`agent`/`intent` reflect
+ *  the latest save (the trigger is a fixed schedule in this fixture). */
+function jobTree(name: string, agent: string, intent: string) {
 	const toggleRow = (step: string, state: unknown, verb: "Skip" | "Run") => ({
 		cells: [step, state],
 		action: {
@@ -106,7 +109,7 @@ function jobTree(name: string) {
 							{ label: "Trigger", value: "schedule · daily · main" },
 							{ label: "Enabled", value: "yes" },
 							{ label: "Skips", value: "test" },
-							{ label: "Agent", value: AGENT_NAME },
+							{ label: "Agent", value: agent },
 						],
 					},
 				],
@@ -115,9 +118,26 @@ function jobTree(name: string) {
 				type: "section",
 				title: "Actions",
 				nodes: [
-					{ type: "button", label: "Edit name", action: { event: "ez-code-factory:job-save", payload: { jobId: JOB_ID }, prompt: { label: "New name", field: "name", submitLabel: "Save" } } },
-					{ type: "button", label: "Edit intent template", action: { event: "ez-code-factory:job-save", payload: { jobId: JOB_ID }, prompt: { label: "Intent template for this job's runs (blank = none)", field: "intent_template", submitLabel: "Save" } } },
-					{ type: "button", label: "Edit agent", action: { event: "ez-code-factory:job-save", payload: { jobId: JOB_ID }, prompt: { label: "Agent name", field: "agent_name", submitLabel: "Save" } } },
+					// ONE Edit-job form button carries every editable field, all
+					// prefilled (trigger via formatTriggerSpec → "schedule daily main").
+					{
+						type: "button",
+						label: "Edit job",
+						style: "primary",
+						action: {
+							event: "ez-code-factory:job-save",
+							payload: { jobId: JOB_ID },
+							form: {
+								title: `Edit job "${name}"`,
+								fields: [
+									{ field: "name", label: "Name", value: name, maxLength: 80 },
+									{ field: "trigger", label: "Trigger spec", value: "schedule daily main", maxLength: 120 },
+									{ field: "agent_name", label: "Agent (blank = repo-config / deployment default)", value: agent, maxLength: 120 },
+									{ field: "intent_template", label: "Intent template (blank = none)", value: intent, maxLength: 500 },
+								],
+							},
+						},
+					},
 					{ type: "button", label: "Run now", action: { event: "ez-code-factory:run-now", payload: { jobId: JOB_ID }, confirm: `Run job "${name}" now on main?` }, style: "primary" },
 				],
 			},
@@ -213,6 +233,8 @@ const dashboardTree = {
  *  action POST bodies + per-view pull counts. */
 interface HubState {
 	jobName: string;
+	jobAgent: string;
+	jobIntent: string;
 	saveBody?: unknown;
 	runNowBody?: unknown;
 	configPulls: number;
@@ -222,7 +244,7 @@ interface HubState {
 /** Route the Hub render endpoint (branch on `?view=`) + the four job-action
  *  events. Returns the shared state so tests can assert POST bodies + re-pulls. */
 async function routeHub(page: import("@playwright/test").Page): Promise<HubState> {
-	const state: HubState = { jobName: "Nightly", configPulls: 0, jobPulls: 0 };
+	const state: HubState = { jobName: "Nightly", jobAgent: AGENT_NAME, jobIntent: INTENT_TEMPLATE, configPulls: 0, jobPulls: 0 };
 	await page.route("**/api/hub/pages", (route) => route.fulfill({ json: listing }));
 	await page.route(
 		(url) => decodeURIComponent(url.pathname).endsWith(`/api/hub/pages/${EXT_ID}`),
@@ -234,7 +256,7 @@ async function routeHub(page: import("@playwright/test").Page): Promise<HubState
 				pageTree = configTree();
 			} else if (view?.startsWith("job:")) {
 				state.jobPulls += 1;
-				pageTree = jobTree(state.jobName);
+				pageTree = jobTree(state.jobName, state.jobAgent, state.jobIntent);
 			} else if (view === "audit" || view?.startsWith("audit:")) {
 				const day = view.includes(":") ? view.slice("audit:".length) : "2026-07-21";
 				pageTree = auditTree(day);
@@ -242,11 +264,16 @@ async function routeHub(page: import("@playwright/test").Page): Promise<HubState
 			return route.fulfill({ json: { page: pageTree, renderedAt: Date.now() } });
 		},
 	);
-	// job-save: record the merged payload, apply the rename, ack (the Hub re-pulls).
+	// job-save: record the merged payload, apply every present field, ack (the Hub
+	// re-pulls). A toggle-only save (no name/agent/intent keys) leaves them intact.
 	await page.route("**/api/extensions/ez-code-factory/events/job-save", (route) => {
 		state.saveBody = route.request().postDataJSON();
-		const name = (state.saveBody as { payload?: { name?: string } })?.payload?.name;
-		if (typeof name === "string" && name) state.jobName = name;
+		const payload = (state.saveBody as { payload?: Record<string, unknown> })?.payload ?? {};
+		if (typeof payload.name === "string" && payload.name) state.jobName = payload.name;
+		// agent/intent apply even when empty (clear-to-empty); an empty agent shows
+		// as "default" in the stats, mirroring buildJobView's `agentName ?? default`.
+		if (typeof payload.agent_name === "string") state.jobAgent = payload.agent_name || "default";
+		if (typeof payload.intent_template === "string") state.jobIntent = payload.intent_template;
 		return route.fulfill({ json: { ok: true } });
 	});
 	await page.route("**/api/extensions/ez-code-factory/events/run-now", (route) => {
@@ -286,32 +313,78 @@ test.describe("ez-code-factory control plane (?view= + job actions)", () => {
 		await captureEvidence(page, testInfo, "ez-code-factory-config-view");
 	});
 
-	test("the job editor's Edit name prompt POSTs job-save with the merged payload; the re-render shows the change", async ({
+	test("the Edit job form opens with 4 prefilled fields; changing two + clearing one POSTs ONE job-save with every field; the re-render reflects @evidence", async ({
 		page,
 		mockApi,
-	}) => {
+	}, testInfo) => {
 		await mockApi({ projects: [proj] });
 		const state = await routeHub(page);
 
 		await page.goto(viewHref(`job:${JOB_ID}`));
 		await expect(page.getByTestId("hub-page-title")).toHaveText("ez-code-factory — job Nightly");
 
-		// Edit name → the host prompt opens; typing + submit POSTs job-save.
-		await page.getByRole("button", { name: "Edit name" }).click();
-		await expect(page.getByTestId("hub-prompt-dialog")).toBeVisible();
-		await page.getByTestId("hub-prompt-input").fill("Renamed");
+		// Edit job → the ONE host form dialog opens with every field prefilled.
+		await page.getByRole("button", { name: "Edit job" }).click();
+		await expect(page.getByTestId("hub-form-dialog")).toBeVisible();
+		await expect(page.getByTestId("hub-form-title")).toHaveText('Edit job "Nightly"');
+		await expect(page.getByTestId("hub-form-field-name")).toHaveValue("Nightly");
+		// The trigger prefill is the formatTriggerSpec inverse (NOT the ` · ` label).
+		await expect(page.getByTestId("hub-form-field-trigger")).toHaveValue("schedule daily main");
+		await expect(page.getByTestId("hub-form-field-agent_name")).toHaveValue(AGENT_NAME);
+		await expect(page.getByTestId("hub-form-field-intent_template")).toHaveValue(INTENT_TEMPLATE);
+
+		// Capture the open dialog (frontend-visual evidence gate).
+		await captureEvidence(page, testInfo, "ez-code-factory-edit-job-form");
+
+		// Change two fields (name + agent) and CLEAR one (intent) to empty.
+		await page.getByTestId("hub-form-field-name").fill("Renamed");
+		await page.getByTestId("hub-form-field-agent_name").fill("Reviewer Bot");
+		await page.getByTestId("hub-form-field-intent_template").fill("");
 
 		const savePost = page.waitForRequest(
 			(req) => req.method() === "POST" && req.url().includes("/api/extensions/ez-code-factory/events/job-save"),
 		);
-		await page.getByTestId("hub-prompt-submit").click();
+		await page.getByTestId("hub-form-submit").click();
 		const req = await savePost;
 
-		// The typed scalar merged into payload[field] under the DECLARED event.
-		expect(req.postDataJSON()).toMatchObject({ payload: { jobId: JOB_ID, name: "Renamed" } });
-		expect(state.saveBody).toMatchObject({ payload: { jobId: JOB_ID, name: "Renamed" } });
-		// The action re-pulls the SAME view → the fresh tree shows the new name.
+		// ONE POST carries EVERY field merged into payload — the untouched trigger
+		// re-sent verbatim, the cleared intent as "", the static jobId preserved.
+		expect(req.postDataJSON()).toMatchObject({
+			payload: {
+				jobId: JOB_ID,
+				name: "Renamed",
+				trigger: "schedule daily main",
+				agent_name: "Reviewer Bot",
+				intent_template: "",
+			},
+		});
+		expect(state.saveBody).toMatchObject({ payload: { name: "Renamed", agent_name: "Reviewer Bot", intent_template: "" } });
+		// The action re-pulls the SAME view → the fresh tree reflects name + agent.
 		await expect(page.getByTestId("hub-page-title")).toHaveText("ez-code-factory — job Renamed");
+		await expect(page.getByTestId("hub-page-body")).toContainText("Reviewer Bot");
+	});
+
+	test("the Edit job form Cancel dispatches nothing and closes", async ({ page, mockApi }) => {
+		await mockApi({ projects: [proj] });
+		await routeHub(page);
+
+		await page.goto(viewHref(`job:${JOB_ID}`));
+		await expect(page.getByTestId("hub-page-title")).toHaveText("ez-code-factory — job Nightly");
+
+		await page.getByRole("button", { name: "Edit job" }).click();
+		await expect(page.getByTestId("hub-form-dialog")).toBeVisible();
+		// Type into a field, then Cancel — nothing is dispatched.
+		await page.getByTestId("hub-form-field-name").fill("Discarded");
+
+		let posted = false;
+		page.on("request", (req) => {
+			if (req.method() === "POST" && req.url().includes("/events/job-save")) posted = true;
+		});
+		await page.getByTestId("hub-form-cancel").click();
+		await expect(page.getByTestId("hub-form-dialog")).toHaveCount(0);
+		// The title is unchanged (no save, no re-render mutation).
+		await expect(page.getByTestId("hub-page-title")).toHaveText("ez-code-factory — job Nightly");
+		expect(posted).toBe(false);
 	});
 
 	test("the Run now button confirms then POSTs run-now with the jobId", async ({ page, mockApi }) => {
@@ -371,25 +444,6 @@ test.describe("ez-code-factory control plane (?view= + job actions)", () => {
 		await expect(page.getByTestId("hub-confirm-dialog")).toHaveCount(0);
 	});
 
-	test("the Edit intent template prompt POSTs job-save with the intent_template scalar", async ({ page, mockApi }) => {
-		await mockApi({ projects: [proj] });
-		const state = await routeHub(page);
-
-		await page.goto(viewHref(`job:${JOB_ID}`));
-		await expect(page.getByTestId("hub-page-title")).toHaveText("ez-code-factory — job Nightly");
-
-		await page.getByRole("button", { name: "Edit intent template" }).click();
-		await expect(page.getByTestId("hub-prompt-dialog")).toBeVisible();
-		await page.getByTestId("hub-prompt-input").fill("Keep the public API stable");
-
-		const savePost = page.waitForRequest(
-			(req) => req.method() === "POST" && req.url().includes("/api/extensions/ez-code-factory/events/job-save"),
-		);
-		await page.getByTestId("hub-prompt-submit").click();
-		const req = await savePost;
-		expect(req.postDataJSON()).toMatchObject({ payload: { jobId: JOB_ID, intent_template: "Keep the public API stable" } });
-		expect(state.saveBody).toMatchObject({ payload: { jobId: JOB_ID, intent_template: "Keep the public API stable" } });
-	});
 
 	test("the job editor renders Flow toggles, the read-only Prompts preview (agent substituted), and a Danger zone @evidence", async ({
 		page,
@@ -407,8 +461,9 @@ test.describe("ez-code-factory control plane (?view= + job actions)", () => {
 		const warnCell = page.locator('[data-testid="hub-table-cell"][data-tone="warning"]').filter({ hasText: "skipped" });
 		await expect(warnCell).toBeVisible();
 		await expect(body).toContainText("protected — always runs");
-		// The intent-template button is present (the old skip-steps button is gone).
-		await expect(page.getByRole("button", { name: "Edit intent template" })).toBeVisible();
+		// The single Edit-job form button is present (the per-field prompt buttons
+		// and the old skip-steps button are gone).
+		await expect(page.getByRole("button", { name: "Edit job" })).toBeVisible();
 		await expect(page.getByRole("button", { name: "Edit skip-steps" })).toHaveCount(0);
 		// Prompts preview: the section, a representative prompt, and THIS job's agent.
 		await expect(page.getByRole("heading", { name: "Prompts" })).toBeVisible();
