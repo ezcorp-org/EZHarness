@@ -94,10 +94,13 @@ cheap ones locally:
 - **pre-push** — the fuller pass before you share code: full biome lint,
   `bun run typecheck` (backend + web + tests ratchet), and `svelte-check`.
 
-**Auto-setup:** `scripts/setup-git-hooks.sh` points git at `.githooks`
-(`core.hooksPath`) and runs from `bun install`'s postinstall. It's a safe no-op
-in CI (`$CI` set), in Docker builds, and in tarball installs (no `.git`), so it
-never fails an install.
+**Auto-setup:** `scripts/setup-git-hooks.sh` points git at `.githooks` and runs
+from `bun install`'s postinstall. It scopes the setting **per working tree**
+(`extensions.worktreeConfig` + `git config --worktree core.hooksPath .githooks`)
+rather than to the shared config — so enabling hooks in one worktree doesn't flip
+them on for a sibling checkout that shares the same `.git`. It's a safe no-op in
+CI (`$CI` set), in Docker builds, in tarball installs (no `.git`), and on a git
+too old for `--worktree`, so it never fails an install.
 
 **Escape hatches:** skip a single run with `git commit --no-verify` /
 `git push --no-verify`, or set `EZ_SKIP_HOOKS=1` for the command.
