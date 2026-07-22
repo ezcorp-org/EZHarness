@@ -108,6 +108,14 @@ import {
 } from "./lib/heartbeat";
 import { recoverRuns, type RecoverySummary } from "./lib/recovery";
 import { runDoctor, type DoctorReport } from "./lib/doctor";
+import {
+  createJobStore,
+  loadJobsWithDefault,
+  matchPushJob,
+  type Job,
+  type JobStore,
+} from "./lib/jobs";
+import { createAuditLog, type AuditLog } from "./lib/audit";
 
 /** Full namespaced action name the post-receive hook triggers. */
 export const PUSH_RECEIVED_ACTION = `${EXTENSION_NAME}:${TRIGGER_EVENT}`;
@@ -193,6 +201,25 @@ function getStore(): RunStore {
 }
 export function _setStoreForTests(store: RunStore | null): void {
   storeImpl = store;
+}
+
+// ── Control plane (L4/L5): job store + audit log seams ────────────────
+let jobStoreImpl: JobStore | null = null;
+function getJobStore(): JobStore {
+  if (!jobStoreImpl) jobStoreImpl = createJobStore("global");
+  return jobStoreImpl;
+}
+export function _setJobStoreForTests(store: JobStore | null): void {
+  jobStoreImpl = store;
+}
+
+let auditImpl: AuditLog | null = null;
+function getAudit(): AuditLog {
+  if (!auditImpl) auditImpl = createAuditLog("global");
+  return auditImpl;
+}
+export function _setAuditForTests(audit: AuditLog | null): void {
+  auditImpl = audit;
 }
 
 let invalidatePageImpl: typeof invalidatePage = invalidatePage;
@@ -311,6 +338,7 @@ function buildExecutorDeps(
   gateDir: string,
   worktreePath: string,
   config: PipelineConfig,
+  job?: Pick<Job, "name" | "skipSteps" | "agentName">,
 ): ExecutorDeps {
   const evidenceDir = join(tmpBaseImpl(projectRoot), "ez-code-factory-evidence");
   return {
@@ -320,6 +348,10 @@ function buildExecutorDeps(
     workingPath: projectRoot,
     tmpBase: tmpBaseImpl(projectRoot),
     config,
+    // Control plane (L4): the matched job's step-skip overlay + name (for the
+    // `skipped by job <name>` reason). Protected steps were rejected on save,
+    // so a skip can never bypass the review gate.
+    ...(job && job.skipSteps.length > 0 ? { skipSteps: job.skipSteps, jobName: job.name } : {}),
     dispatcher: makeSpawnDispatcher({ evidenceDir }),
     hostRunner: shellImpl,
     jailedRunner: makeJailedShell(gateDir, projectRoot),
@@ -343,12 +375,12 @@ function buildExecutorDeps(
   };
 }
 
-const defaultRunPipeline = (projectRoot: string, gateDir: string): PipelineRunner => {
+const defaultRunPipeline = (projectRoot: string, gateDir: string, job?: Job): PipelineRunner => {
   return async ({ runId, worktreePath }) => {
     const config = await resolveLiveConfig();
     const outcome = await startPipeline(
       runId,
-      buildExecutorDeps(projectRoot, gateDir, worktreePath, config),
+      buildExecutorDeps(projectRoot, gateDir, worktreePath, config, job),
     );
     return { parked: outcome.status === "parked" };
   };
@@ -707,14 +739,34 @@ export async function handlePushReceived(event: PageActionEvent): Promise<void> 
       return;
     }
     const gDir = gateDirFor(projectRoot, push.repoId);
+
+    // Control plane (L4): match the push branch to an ENABLED job (the default
+    // job — push, pattern `*`, all steps — is auto-seeded on first read, so
+    // today's behavior is preserved exactly). A push matching NO enabled job is
+    // IGNORED and AUDITED (never silent), not run.
+    const jobs = await loadJobsWithDefault(getJobStore(), getAudit());
+    const job = matchPushJob(jobs, push.branch);
+    if (!job) {
+      await getAudit().append({
+        actor: "system",
+        kind: "push-ignored",
+        detail: { branch: push.branch, reason: "no matching enabled job" },
+      });
+      logLine(`ez-code-factory: push to ${push.branch} matched no enabled job — ignored`);
+      return;
+    }
+
     const result = await runGateLifecycle(push, {
       gateDir: gDir,
       tmpBase: tmpBaseImpl(projectRoot),
       store: getStore(),
       run: shellImpl,
       onChange: refreshDashboard,
-      runPipeline: makeRunPipelineImpl(projectRoot, gDir),
+      // The matched job threads its step-skip overlay into the pipeline and its
+      // id onto the run record (job-scoped supersede + run-row label).
+      runPipeline: makeRunPipelineImpl(projectRoot, gDir, job),
       projectRoot,
+      jobId: job.id,
     });
     // `ok` is true only for `completed`; awaiting_approval (parked) and
     // checks_passed (rested green) are success-ish non-terminal states, not

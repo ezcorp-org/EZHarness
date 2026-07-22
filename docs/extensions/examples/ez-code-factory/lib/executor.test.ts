@@ -235,6 +235,37 @@ describe("startPipeline — clean run", () => {
     expect((await startPipeline("nope", deps)).status).toBe("failed");
   });
 
+  // Control plane (L4): a job's skipSteps are marked `skipped` BEFORE dispatch —
+  // an IMPLEMENTED step in skipSteps must NOT execute (no agent runs), while
+  // non-skipped implemented steps still run normally.
+  test("job skipSteps skip an implemented step without executing it", async () => {
+    const store = memStore();
+    const id = await seedRun(store);
+    let testRan = false;
+    const testStep: Step = { name: "test", async execute() { testRan = true; return {}; } };
+    const deps: ExecutorDeps = {
+      ...makeDeps(store, registry({
+        intent: scriptStep("intent", [clean]),
+        rebase: scriptStep("rebase", [clean]),
+        review: scriptStep("review", [clean]),
+        push: scriptStep("push", [clean]),
+        test: testStep,
+      }), { t: 0 }),
+      skipSteps: ["test"],
+      jobName: "Nightly",
+    };
+    const logs: string[] = [];
+    deps.log = (_r, _s, m) => logs.push(m);
+    const outcome = await startPipeline(id, deps);
+    expect(outcome.status).toBe("completed");
+    // The implemented `test` step was JOB-skipped, never executed.
+    expect(testRan).toBe(false);
+    expect((await store.getStepResult(id, "test"))!.status).toBe("skipped");
+    expect(logs.some((l) => l === "skipped by job Nightly")).toBe(true);
+    // A non-skipped implemented step still ran.
+    expect((await store.getStepResult(id, "review"))!.status).toBe("completed");
+  });
+
   test("a step that advances HEAD persists it via updateHeadSha", async () => {
     const store = memStore();
     const id = await seedRun(store);

@@ -697,6 +697,39 @@ describe("supersedePriorRuns", () => {
     expect(ids).toEqual([]);
     expect(changed).toBe(0);
   });
+
+  // ── Control plane (L4/C3): supersede is JOB-SCOPED ────────────────
+  test("job-scoped: only supersedes a prior run of the SAME job (two jobs coexist on one branch)", async () => {
+    const store = memStore();
+    await store.createRun({ ...mkRun("a", "feat/x", "awaiting_approval", "/wt/a"), jobId: "jobA" });
+    await store.createRun({ ...mkRun("b", "feat/x", "awaiting_approval", "/wt/b"), jobId: "jobB" });
+    const { runner } = recordingShell();
+    const ids = await supersedePriorRuns({ store, run: runner, gateDir: "/gate" }, "0123456789ab", "feat/x", "new", "jobA");
+    expect(ids).toEqual(["a"]);
+    expect(store.runs.get("a")!.status).toBe("aborted");
+    expect(store.runs.get("b")!.status).toBe("awaiting_approval"); // other job untouched
+  });
+
+  test("a legacy run (no jobId) is superseded by the DEFAULT job, not by a non-default job", async () => {
+    const store = memStore();
+    await store.createRun(mkRun("legacy", "feat/x", "awaiting_approval", "/wt/legacy"));
+    const { runner } = recordingShell();
+    // A non-default job push does NOT supersede the legacy (default-owned) run.
+    expect(await supersedePriorRuns({ store, run: runner, gateDir: "/gate" }, "0123456789ab", "feat/x", "n1", "jobA")).toEqual([]);
+    expect(store.runs.get("legacy")!.status).toBe("awaiting_approval");
+    // The DEFAULT job push DOES supersede it (legacy belongs to the default job).
+    expect(await supersedePriorRuns({ store, run: runner, gateDir: "/gate" }, "0123456789ab", "feat/x", "n2", "default")).toEqual(["legacy"]);
+    expect(store.runs.get("legacy")!.status).toBe("aborted");
+  });
+
+  test("without a jobId (pre-jobs caller) supersede stays branch-wide", async () => {
+    const store = memStore();
+    await store.createRun({ ...mkRun("a", "feat/x", "awaiting_approval", "/wt/a"), jobId: "jobA" });
+    await store.createRun({ ...mkRun("b", "feat/x", "awaiting_approval", "/wt/b"), jobId: "jobB" });
+    const { runner } = recordingShell();
+    const ids = await supersedePriorRuns({ store, run: runner, gateDir: "/gate" }, "0123456789ab", "feat/x", "new");
+    expect(ids.sort()).toEqual(["a", "b"]);
+  });
 });
 
 /** Seed a bare gate repo holding one commit on `feat/x`; return its SHA. */
@@ -812,6 +845,26 @@ describe("runGateLifecycle (real git)", () => {
       { gateDir, tmpBase: join(root, "tmp-agent"), store, run: productionHostRunner },
     );
     expect(store.runs.get(res.runId)!.intentSource).toBe("agent");
+  });
+
+  test("stamps deps.jobId onto the created run record (control plane, L4)", async () => {
+    const { gateDir, sha, repoId } = await seedGate();
+    const store = memStore();
+    const res = await runGateLifecycle(
+      { repoId, branch: "feat/x", ref: "refs/heads/feat/x", newSha: sha },
+      { gateDir, tmpBase: join(root, "tmp-job"), store, run: productionHostRunner, jobId: "nightly" },
+    );
+    expect(store.runs.get(res.runId)!.jobId).toBe("nightly");
+  });
+
+  test("omits jobId when no job is supplied (legacy run)", async () => {
+    const { gateDir, sha, repoId } = await seedGate();
+    const store = memStore();
+    const res = await runGateLifecycle(
+      { repoId, branch: "feat/x", ref: "refs/heads/feat/x", newSha: sha },
+      { gateDir, tmpBase: join(root, "tmp-nojob"), store, run: productionHostRunner },
+    );
+    expect(store.runs.get(res.runId)!.jobId).toBeUndefined();
   });
 
   test("a pipeline that reaches a terminal state (not parked) tears the worktree down here", async () => {

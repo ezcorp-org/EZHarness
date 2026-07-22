@@ -125,6 +125,16 @@ export interface ExecutorDeps {
    *  STEP_REGISTRY — the real intent/rebase/review/push wiring. */
   steps?: Record<PipelineStep, Step | null>;
   /**
+   * Control plane (L4): steps this run's JOB opted to skip. Threaded from the
+   * matched job; the sequencer marks each `skipped` (reason `skipped by job
+   * <name>`) BEFORE dispatching, so no agent runs for a skipped step. PROTECTED
+   * steps (intent/rebase/review/push) are rejected at save time and never
+   * appear here. Absent → nothing job-skipped (default behavior).
+   */
+  skipSteps?: PipelineStep[];
+  /** The matched job's name, for the `skipped by job <name>` skip reason. */
+  jobName?: string;
+  /**
    * Per-run liveness heartbeat (L3). When present, the executor wraps each
    * `impl.execute` in a heartbeat interval (writes immediately + every
    * intervalMs) so a live run keeps beating and a dead one goes silent — the
@@ -638,6 +648,15 @@ async function advance(
     const step = PIPELINE_STEPS[i]!;
     const sr = await ensureStepResult(deps, run.id, step);
     if (sr.status === "completed" || sr.status === "skipped") continue;
+
+    // Control plane (L4): the run's job opted to skip this step. Mark it
+    // `skipped` BEFORE any dispatch so no agent runs. Protected steps
+    // (intent/rebase/review/push) are rejected on save, so they never reach
+    // here — a skip can never bypass the review gate.
+    if (deps.skipSteps?.includes(step)) {
+      await skipStep(deps, sr, `skipped by job ${deps.jobName ?? "?"}`);
+      continue;
+    }
 
     const impl = registry(deps)[step];
     if (impl === null || !isImplemented(deps, step)) {

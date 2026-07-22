@@ -15,6 +15,7 @@ import type { StorageScope } from "@ezcorp/sdk/runtime";
 import type { ShellRunner } from "./shell";
 import { logLine } from "./log";
 import { PIPELINE_STEPS, type PipelineStep } from "./config";
+import { DEFAULT_JOB_ID } from "./jobs";
 import type { RepoConfig } from "./repo-config";
 import { stepIOKey, stepIOPrefix, type StepIORecord } from "./step-io";
 
@@ -101,6 +102,10 @@ export interface RunRecord {
    *  structurally-unset process env. Absent on pre-fix rows — consumers fall
    *  back to ctx/env resolution. */
   projectRoot?: string;
+  /** The job (control plane, L4) that spawned this run — stamped at creation
+   *  and used to scope supersede + render the job label on run rows/detail.
+   *  Absent on legacy runs (pre-jobs); those belong to the DEFAULT job. */
+  jobId?: string;
   error?: string;
 }
 
@@ -685,6 +690,10 @@ export interface RunManagerDeps {
    *  RunRecord.projectRoot). Stamped onto the created run record so later
    *  context-free event fires can re-derive the gate dir from the record. */
   projectRoot?: string;
+  /** The control-plane job (L4) this run belongs to — stamped onto the record
+   *  and used to scope supersede to `(repo, branch, job)`. Absent for legacy
+   *  callers (the run then belongs to the DEFAULT job). */
+  jobId?: string;
 }
 
 export interface RunLifecycleResult {
@@ -733,12 +742,18 @@ export async function supersedePriorRuns(
   repoId: string,
   branch: string,
   exceptRunId: string,
+  jobId?: string,
 ): Promise<string[]> {
   const runs = await deps.store.listRuns();
   const superseded: string[] = [];
   for (const r of runs) {
     if (r.id === exceptRunId) continue;
     if (r.repoId !== repoId || r.branch !== branch) continue;
+    // Job-scoped (L4/C3): when a jobId is supplied, only supersede prior runs
+    // of the SAME job. A legacy run with no jobId belongs to the DEFAULT job.
+    // When no jobId is supplied (pre-jobs callers), keep the branch-wide
+    // behavior (supersede every in-flight run on the branch).
+    if (jobId !== undefined && (r.jobId ?? DEFAULT_JOB_ID) !== jobId) continue;
     if (isTerminalRunStatus(r.status)) continue;
     const staleWorktree = r.worktreePath;
     await deps.store.updateRun(r.id, {
@@ -796,6 +811,7 @@ export async function runGateLifecycle(
         // inferred HINT. Null when there is no intent.
         intentSource: intent ? (push.intentSource ?? "agent") : null,
         ...(deps.projectRoot !== undefined ? { projectRoot: deps.projectRoot } : {}),
+        ...(deps.jobId !== undefined ? { jobId: deps.jobId } : {}),
       };
       await store.createRun(record);
       await notify();
@@ -803,11 +819,15 @@ export async function runGateLifecycle(
       // M6: supersede any IN-FLIGHT prior run for this (repo, branch) — a new
       // push cancels the stale one before starting (spec §1 concurrent-push
       // semantics). Different branches stay concurrent (filtered by branch).
+      // Control plane (L4/C3): supersede is JOB-SCOPED — two jobs on one branch
+      // coexist; only a prior run of the SAME job is superseded. Legacy runs
+      // (no jobId) belong to the DEFAULT job.
       await supersedePriorRuns(
         { store, run, gateDir, onChange: deps.onChange },
         push.repoId,
         push.branch,
         runId,
+        deps.jobId,
       );
 
       const add = await run(

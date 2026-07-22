@@ -46,7 +46,11 @@ import {
   runReconcileSweep,
   handleScheduleFire,
   recoverOnStart,
+  _setJobStoreForTests,
+  _setAuditForTests,
 } from "./index";
+import { buildDefaultJob, type Job, type JobStore } from "./lib/jobs";
+import type { AuditEntry, AuditLog } from "./lib/audit";
 import type { ChatToolDeps } from "./lib/chat-tools";
 import {
   gateDir as gateDirFor,
@@ -150,12 +154,58 @@ const VALID_PUSH = {
 // (no host answers). `{}` → resolvePipelineConfig defaults — the same config
 // the pipeline used before the M2 live-read seam. Tests that assert settings
 // resolution override this locally.
+/** In-memory JobStore fake (control plane). Seeded with the default job so the
+ *  existing push tests proceed exactly as before (default matches every branch). */
+function fakeJobStore(jobs: Job[]): JobStore & { jobs: Map<string, Job> } {
+  const map = new Map<string, Job>(jobs.map((j) => [j.id, j]));
+  return {
+    jobs: map,
+    async createJob(j) { map.set(j.id, j); },
+    async getJob(id) { return map.get(id) ?? null; },
+    async updateJob(id, patch) {
+      const cur = map.get(id);
+      if (!cur) return null;
+      const next: Job = { ...cur, ...patch, updatedAt: new Date().toISOString() };
+      map.set(id, next);
+      return next;
+    },
+    async deleteJob(id) { return map.delete(id); },
+    async listJobs() { return [...map.values()]; },
+  };
+}
+
+/** Collected audit entries for the current test (reset per test). */
+const auditEntries: AuditEntry[] = [];
+function fakeAudit(): AuditLog {
+  return {
+    async append(e) {
+      auditEntries.push({
+        at: e.at ?? "t",
+        actor: e.actor,
+        kind: e.kind,
+        ...(e.jobId !== undefined ? { jobId: e.jobId } : {}),
+        ...(e.runId !== undefined ? { runId: e.runId } : {}),
+        ...(e.step !== undefined ? { step: e.step } : {}),
+        ...(e.detail !== undefined ? { detail: e.detail } : {}),
+      });
+    },
+    async readDay() { return []; },
+    async listDays() { return []; },
+  };
+}
+
 beforeEach(() => {
   _setSettingsReadForTests(async () => ({}));
   // Default: the acting user HOLDS every triage scope (the pre-M6 ungated
   // behaviour). The production default calls `new Rbac().check`, which hangs
   // against the stub channel; RBAC-specific tests override this per-scope.
   _setRbacCheckForTests(async () => true);
+  // Control plane: inject in-memory job store (seeded with the default job) +
+  // audit so push handling never hits the real Storage channel. Tests that
+  // exercise specific jobs re-inject their own store.
+  auditEntries.length = 0;
+  _setJobStoreForTests(fakeJobStore([buildDefaultJob("2026-07-15T00:00:00.000Z")]));
+  _setAuditForTests(fakeAudit());
 });
 
 afterEach(() => {
@@ -174,6 +224,8 @@ afterEach(() => {
   _setRbacCheckForTests(null);
   _setHeartbeatKVForTests(null);
   _setRunHeartbeatKVForTests(null);
+  _setJobStoreForTests(null);
+  _setAuditForTests(null);
 });
 
 /** A fake pipeline runner that drives the run to a chosen terminal/parked state
@@ -569,6 +621,63 @@ describe("handlePushReceived", () => {
     } finally {
       cap.restore();
     }
+  });
+});
+
+// ── handlePushReceived — job matching (control plane, L4) ────────────
+
+describe("handlePushReceived — job matching", () => {
+  test("stamps the matched job's id onto the created run", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setTmpBaseForTests(() => "/tmp/ext");
+    const store = memStore();
+    _setStoreForTests(store);
+    _setRunPipelineForTests(fakePipeline(store, "completed"));
+    _setInvalidatePageForTests(() => {});
+    // A specific enabled job for feat/x beats the default catch-all.
+    _setJobStoreForTests(fakeJobStore([
+      buildDefaultJob("2026-07-15T00:00:00.000Z"),
+      { ...buildDefaultJob("2026-07-15T00:00:00.000Z"), id: "featjob", name: "Feature", trigger: { kind: "push", branchPattern: "feat/*" } },
+    ]));
+    await handlePushReceived({ source: "hub", pageId: "dashboard", userId: "u", payload: VALID_PUSH });
+    const run = [...store.runs.values()][0]!;
+    expect(run.jobId).toBe("featjob");
+  });
+
+  test("a push matching NO enabled job is IGNORED (no run) and audited push-ignored", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setTmpBaseForTests(() => "/tmp/ext");
+    const store = memStore();
+    _setStoreForTests(store);
+    _setInvalidatePageForTests(() => {});
+    // Only the default job, DISABLED → nothing matches feat/x.
+    _setJobStoreForTests(fakeJobStore([
+      { ...buildDefaultJob("2026-07-15T00:00:00.000Z"), enabled: false },
+    ]));
+    await handlePushReceived({ source: "hub", pageId: "dashboard", userId: "u", payload: VALID_PUSH });
+    // No run was created.
+    expect([...store.runs.values()]).toHaveLength(0);
+    // The ignore was audited (never silent), with branch + reason.
+    const ignored = auditEntries.find((e) => e.kind === "push-ignored");
+    expect(ignored).toBeDefined();
+    expect((ignored!.detail as { branch: string }).branch).toBe("feat/x");
+    expect(ignored!.actor).toBe("system");
+  });
+
+  test("the auto-seeded default job matches any branch (today's behavior preserved)", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setTmpBaseForTests(() => "/tmp/ext");
+    const store = memStore();
+    _setStoreForTests(store);
+    _setRunPipelineForTests(fakePipeline(store, "completed"));
+    _setInvalidatePageForTests(() => {});
+    // Empty store → loadJobsWithDefault seeds the default job on first read.
+    _setJobStoreForTests(fakeJobStore([]));
+    await handlePushReceived({ source: "hub", pageId: "dashboard", userId: "u", payload: VALID_PUSH });
+    const run = [...store.runs.values()][0]!;
+    expect(run.jobId).toBe("default");
+    // The seed itself is audited as actor "system".
+    expect(auditEntries.some((e) => e.kind === "job-seed" && e.actor === "system")).toBe(true);
   });
 });
 
