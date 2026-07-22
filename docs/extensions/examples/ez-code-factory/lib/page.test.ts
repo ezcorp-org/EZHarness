@@ -1625,15 +1625,16 @@ describe("buildJobView", () => {
     expect(events).toContain(JOB_TOGGLE_EVENT);
     expect(events).toContain(RUN_NOW_EVENT);
     expect(events).toContain(JOB_DELETE_EVENT);
-    // The inline form dispatches job-save and prefills the trigger via
-    // formatTriggerSpec (its exact inverse — a schedule trigger round-trips
-    // as "schedule <every> <branch>").
+    // The inline form dispatches job-save and prefills the trigger as its
+    // THREE components (kind select / branch text / cadence select).
     const forms = formsDeep(tree);
     expect(forms).toHaveLength(1);
     expect(forms[0]!.action.event).toBe(JOB_SAVE_EVENT);
     const byField = Object.fromEntries(forms[0]!.fields.map((f) => [f.field, f.value]));
     expect(byField.name).toBe("Nightly");
-    expect(byField.trigger).toBe("schedule daily main");
+    expect(byField.trigger_kind).toBe("schedule");
+    expect(byField.trigger_branch).toBe("main");
+    expect(byField.trigger_every).toBe("daily");
     // Delete carries a confirm.
     expect(btns.find((b) => b.action.event === JOB_DELETE_EVENT)!.action.confirm).toContain("Delete");
     // The runs table deep-links each run on the project hub.
@@ -1659,10 +1660,12 @@ describe("buildJobView", () => {
     expect(form.action.event).toBe(JOB_SAVE_EVENT);
     expect(form.action.payload).toEqual({ jobId: "j1" });
     expect(form.submitLabel).toBe("Save job");
-    // ALL SEVEN editable fields, in order, every one prefilled.
+    // ALL NINE editable fields, in order, every one prefilled.
     expect(form.fields.map((f) => f.field)).toEqual([
       "name",
-      "trigger",
+      "trigger_kind",
+      "trigger_branch",
+      "trigger_every",
       "agent_name",
       "intent_template",
       "review_instructions",
@@ -1671,8 +1674,21 @@ describe("buildJobView", () => {
     ]);
     const byField = Object.fromEntries(form.fields.map((f) => [f.field, f]));
     expect(byField.name!.value).toBe("Nightly");
-    // A push trigger prefills as "push <pattern>" (formatTriggerSpec inverse).
-    expect(byField.trigger!.value).toBe("push feat/*");
+    // A push trigger prefills kind=push + the raw pattern; the cadence select
+    // defaults to daily (ignored by the handler for non-schedule kinds).
+    expect(byField.trigger_kind!.value).toBe("push");
+    expect(byField.trigger_kind!.options!.map((o: { value: string }) => o.value)).toEqual([
+      "push",
+      "schedule",
+      "manual",
+    ]);
+    expect(byField.trigger_branch!.value).toBe("feat/*");
+    expect(byField.trigger_every!.value).toBe("daily");
+    expect(byField.trigger_every!.options!.map((o: { value: string }) => o.value)).toEqual([
+      "15m",
+      "hourly",
+      "daily",
+    ]);
     expect(byField.agent_name!.value).toBe("reviewer");
     expect(byField.intent_template!.value).toBe("keep api stable");
     expect(byField.review_instructions!.value).toBe("focus on API stability");
@@ -1680,7 +1696,7 @@ describe("buildJobView", () => {
     expect(byField.document_instructions!.value).toBe("keep the README authoritative");
     // Locked field maxLengths (L4) + the free-text fields render multiline.
     expect(byField.name!.maxLength).toBe(MAX_JOB_NAME_LEN);
-    expect(byField.trigger!.maxLength).toBe(MAX_BRANCH_PATTERN_LEN);
+    expect(byField.trigger_branch!.maxLength).toBe(MAX_BRANCH_PATTERN_LEN);
     for (const instr of ["intent_template", "review_instructions", "fix_instructions", "document_instructions"]) {
       expect(byField[instr]!.maxLength).toBe(MAX_JOB_TEXT_LEN);
       expect(byField[instr]!.multiline).toBe(true);
@@ -1964,7 +1980,9 @@ describe("prompt-field slug contract (host anti-spoof)", () => {
     expect(fields.length).toBeGreaterThan(0);
     for (const required of [
       "name",
-      "trigger",
+      "trigger_kind",
+      "trigger_branch",
+      "trigger_every",
       "agent_name",
       "intent_template",
       "review_instructions",

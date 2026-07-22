@@ -328,6 +328,9 @@ export const JOB_EDIT_FIELDS = [
   "name",
   "branch_pattern",
   "trigger",
+  "trigger_kind",
+  "trigger_branch",
+  "trigger_every",
   "skip_steps",
   "agent_name",
   "intent_template",
@@ -384,6 +387,50 @@ export function applyJobEdit(
       return { ok: false, error: "trigger must be like 'push feat/*', 'schedule daily main', or 'manual main'" };
     }
     draft.trigger = parsed;
+  }
+  // Component-wise trigger edit (the dropdown UI): kind / branch / cadence
+  // arrive as SEPARATE slug-legal fields; whichever are present override the
+  // current trigger's parts and the whole is reassembled. Applied AFTER the
+  // legacy `trigger` spec so components win when both are somehow present.
+  // Branch/pattern VALIDITY (charset, no glob on schedule/manual) is still
+  // enforced by the subsequent validateJobDraft — this only assembles.
+  if (
+    typeof patch.trigger_kind === "string" ||
+    typeof patch.trigger_branch === "string" ||
+    typeof patch.trigger_every === "string"
+  ) {
+    const cur = draft.trigger;
+    const kind = typeof patch.trigger_kind === "string" ? patch.trigger_kind.trim() : cur.kind;
+    if (kind !== "push" && kind !== "schedule" && kind !== "manual") {
+      return { ok: false, error: "trigger kind must be push, schedule, or manual" };
+    }
+    const branch =
+      typeof patch.trigger_branch === "string"
+        ? patch.trigger_branch.trim()
+        : cur.kind === "push"
+          ? cur.branchPattern
+          : cur.branch;
+    if (!branch) return { ok: false, error: "trigger branch is required" };
+    if (kind === "push") {
+      draft.trigger = { kind: "push", branchPattern: branch };
+    } else if (kind === "manual") {
+      draft.trigger = { kind: "manual", branch };
+    } else {
+      // A cadence is meaningful only for schedule; a non-schedule save may
+      // still SUBMIT one (the select always has a value) — it is simply
+      // ignored above. Missing cadence on a schedule falls back to the
+      // current one, or daily for a fresh switch to schedule.
+      const every =
+        typeof patch.trigger_every === "string"
+          ? patch.trigger_every.trim()
+          : cur.kind === "schedule"
+            ? cur.every
+            : "daily";
+      if (every !== "15m" && every !== "hourly" && every !== "daily") {
+        return { ok: false, error: "schedule cadence must be 15m, hourly, or daily" };
+      }
+      draft.trigger = { kind: "schedule", every, branch };
+    }
   }
   if (typeof patch.skip_steps === "string") {
     draft.skipSteps = patch.skip_steps

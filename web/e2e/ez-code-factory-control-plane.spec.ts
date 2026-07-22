@@ -125,15 +125,31 @@ function jobTree(name: string, agent: string, intent: string, review: string, fi
 				title: "Edit",
 				nodes: [
 					// The ONE INLINE edit form carries every editable field, all
-					// prefilled (trigger via formatTriggerSpec → "schedule daily main");
-					// the long free-text fields are multiline.
+					// prefilled (trigger as its THREE components; kind/cadence are
+					// selects); the long free-text fields are multiline.
 					{
 						type: "form",
 						action: { event: "ez-code-factory:job-save", payload: { jobId: JOB_ID } },
 						submitLabel: "Save job",
 						fields: [
 							{ field: "name", label: "Name", value: name, maxLength: 80 },
-							{ field: "trigger", label: "Trigger spec", value: "schedule daily main", maxLength: 120 },
+							{
+								field: "trigger_kind",
+								label: "Trigger",
+								value: "schedule",
+								options: [
+									{ value: "push", label: "push — every matching git push" },
+									{ value: "schedule", label: "schedule — on a cadence" },
+									{ value: "manual", label: "manual — Run now only" },
+								],
+							},
+							{ field: "trigger_branch", label: "Branch", value: "main", maxLength: 120 },
+							{
+								field: "trigger_every",
+								label: "Cadence (schedule trigger only — ignored otherwise)",
+								value: "daily",
+								options: [{ value: "15m", label: "every 15 minutes" }, { value: "hourly" }, { value: "daily" }],
+							},
 							{ field: "agent_name", label: "Agent (blank = repo-config / deployment default)", value: agent, maxLength: 120 },
 							{ field: "intent_template", label: "Intent template (blank = none)", value: intent, maxLength: 500, multiline: true },
 							{ field: "review_instructions", label: "Review instructions (blank = none)", value: review, maxLength: 500, multiline: true },
@@ -343,7 +359,7 @@ test.describe("ez-code-factory control plane (?view= + job actions)", () => {
 		await captureEvidence(page, testInfo, "ez-code-factory-config-view");
 	});
 
-	test("the inline edit form shows ALL 7 fields prefilled ON the page; one Save POSTs ONE job-save with every field; the re-render reflects @evidence", async ({
+	test("the inline edit form shows ALL 9 fields prefilled ON the page; one Save POSTs ONE job-save with every field; the re-render reflects @evidence", async ({
 		page,
 		mockApi,
 	}, testInfo) => {
@@ -358,8 +374,15 @@ test.describe("ez-code-factory control plane (?view= + job actions)", () => {
 		const form = page.getByTestId("hub-inline-form");
 		await expect(form).toBeVisible();
 		await expect(page.getByTestId("hub-inline-field-name")).toHaveValue("Nightly");
-		// The trigger prefill is the formatTriggerSpec inverse (NOT the ` · ` label).
-		await expect(page.getByTestId("hub-inline-field-trigger")).toHaveValue("schedule daily main");
+		// The trigger edits as components: kind + cadence are real SELECTs
+		// (no free-text grammar), branch is a text field.
+		const kindSelect = page.getByTestId("hub-inline-field-trigger_kind");
+		expect(await kindSelect.evaluate((el) => el.tagName)).toBe("SELECT");
+		await expect(kindSelect).toHaveValue("schedule");
+		await expect(page.getByTestId("hub-inline-field-trigger_branch")).toHaveValue("main");
+		const everySelect = page.getByTestId("hub-inline-field-trigger_every");
+		expect(await everySelect.evaluate((el) => el.tagName)).toBe("SELECT");
+		await expect(everySelect).toHaveValue("daily");
 		await expect(page.getByTestId("hub-inline-field-agent_name")).toHaveValue(AGENT_NAME);
 		await expect(page.getByTestId("hub-inline-field-intent_template")).toHaveValue(INTENT_TEMPLATE);
 		await expect(page.getByTestId("hub-inline-field-review_instructions")).toHaveValue("");
@@ -389,13 +412,15 @@ test.describe("ez-code-factory control plane (?view= + job actions)", () => {
 		const req = await savePost;
 
 		// ONE POST carries EVERY field merged into payload — untouched fields
-		// (trigger, document) re-sent verbatim, cleared fields as "", the static
-		// jobId preserved.
+		// (the three trigger components, document) re-sent verbatim, cleared
+		// fields as "", the static jobId preserved.
 		expect(req.postDataJSON()).toMatchObject({
 			payload: {
 				jobId: JOB_ID,
 				name: "Renamed",
-				trigger: "schedule daily main",
+				trigger_kind: "schedule",
+				trigger_branch: "main",
+				trigger_every: "daily",
 				agent_name: "Reviewer Bot",
 				intent_template: "",
 				review_instructions: REVIEW_INSTR,

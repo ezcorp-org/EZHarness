@@ -635,6 +635,60 @@ describe("applyJobEdit", () => {
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error).toContain("unknown step: (empty)");
   });
+
+  // ── Component-wise trigger edit (the dropdown UI) ──────────────────
+
+  test("trigger_kind alone re-shapes the trigger, carrying the current branch", () => {
+    const r = applyJobEdit(base, { trigger_kind: "manual" });
+    expect(r.ok && r.draft.trigger).toEqual({ kind: "manual", branch: "feat/*" });
+  });
+
+  test("trigger_branch alone rewrites the branch, keeping the current kind", () => {
+    const r = applyJobEdit(base, { trigger_branch: "release/*" });
+    expect(r.ok && r.draft.trigger).toEqual({ kind: "push", branchPattern: "release/*" });
+  });
+
+  test("switching to schedule uses the submitted cadence + branch", () => {
+    const r = applyJobEdit(base, { trigger_kind: "schedule", trigger_branch: "main", trigger_every: "hourly" });
+    expect(r.ok && r.draft.trigger).toEqual({ kind: "schedule", every: "hourly", branch: "main" });
+  });
+
+  test("switching to schedule WITHOUT a cadence defaults to daily; an existing schedule keeps its cadence", () => {
+    const r = applyJobEdit(base, { trigger_kind: "schedule", trigger_branch: "main" });
+    expect(r.ok && r.draft.trigger).toEqual({ kind: "schedule", every: "daily", branch: "main" });
+    const sched: JobDraft = { ...base, trigger: { kind: "schedule", every: "15m", branch: "main" } };
+    const r2 = applyJobEdit(sched, { trigger_branch: "release" });
+    expect(r2.ok && r2.draft.trigger).toEqual({ kind: "schedule", every: "15m", branch: "release" });
+  });
+
+  test("a cadence submitted with a NON-schedule kind is ignored (the select always submits)", () => {
+    const r = applyJobEdit(base, { trigger_kind: "push", trigger_branch: "feat/*", trigger_every: "daily" });
+    expect(r.ok && r.draft.trigger).toEqual({ kind: "push", branchPattern: "feat/*" });
+  });
+
+  test("component edits are hard errors on a bad kind / blank branch / bad cadence", () => {
+    const badKind = applyJobEdit(base, { trigger_kind: "cron" });
+    expect(!badKind.ok && badKind.error).toContain("trigger kind must be");
+    const blankBranch = applyJobEdit(base, { trigger_branch: "   " });
+    expect(!blankBranch.ok && blankBranch.error).toContain("trigger branch is required");
+    const badEvery = applyJobEdit(base, { trigger_kind: "schedule", trigger_branch: "main", trigger_every: "weekly" });
+    expect(!badEvery.ok && badEvery.error).toContain("cadence must be");
+  });
+
+  test("components override a co-present legacy trigger spec (components win)", () => {
+    const r = applyJobEdit(base, { trigger: "manual main", trigger_kind: "push", trigger_branch: "dev/*" });
+    expect(r.ok && r.draft.trigger).toEqual({ kind: "push", branchPattern: "dev/*" });
+  });
+
+  test("an assembled glob on a schedule/manual branch still FAILS the subsequent validateJobDraft", () => {
+    const r = applyJobEdit(base, { trigger_kind: "manual", trigger_branch: "feat/*" });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      const v = validateJobDraft(r.draft);
+      expect(v.ok).toBe(false);
+      if (!v.ok) expect(v.error).toContain("literal branch");
+    }
+  });
 });
 
 describe("hasJobEditField", () => {

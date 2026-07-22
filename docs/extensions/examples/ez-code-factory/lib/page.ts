@@ -44,7 +44,6 @@ import type {
 } from "./runs";
 import type { StepIORecord } from "./step-io";
 import {
-  formatTriggerSpec,
   jobConcreteBranch,
   MAX_BRANCH_PATTERN_LEN,
   MAX_JOB_NAME_LEN,
@@ -1466,17 +1465,41 @@ export function buildJobView(
   // payload (7 fields, worst case ≈ 2.5 KB) fits the events route's 8 KB
   // hub-action cap.
   page.section("Edit", (s) => {
+    // The trigger edits as THREE components (kind select / branch text /
+    // cadence select) the handler reassembles — no free-text grammar to
+    // mistype. The cadence select always submits a value; the handler
+    // ignores it for non-schedule kinds.
+    const concreteBranch =
+      job.trigger.kind === "push" ? job.trigger.branchPattern : job.trigger.branch;
     s.form(
       [
         { field: "name", label: "Name", value: job.name, maxLength: MAX_JOB_NAME_LEN },
         {
-          field: "trigger",
-          label: "Trigger spec",
-          // Prefill with the CURRENT trigger via the exact inverse of
-          // parseTriggerSpec (NOT triggerLabel, whose ` · ` mis-parses).
-          value: formatTriggerSpec(job.trigger),
-          placeholder: "push feat/*  ·  schedule daily main  ·  manual main",
+          field: "trigger_kind",
+          label: "Trigger",
+          value: job.trigger.kind,
+          options: [
+            { value: "push", label: "push — every matching git push" },
+            { value: "schedule", label: "schedule — on a cadence" },
+            { value: "manual", label: "manual — Run now only" },
+          ],
+        },
+        {
+          field: "trigger_branch",
+          label: "Branch (push may end with one * glob; schedule/manual need a literal)",
+          value: concreteBranch,
+          placeholder: "e.g. main or feat/*",
           maxLength: MAX_BRANCH_PATTERN_LEN,
+        },
+        {
+          field: "trigger_every",
+          label: "Cadence (schedule trigger only — ignored otherwise)",
+          value: job.trigger.kind === "schedule" ? job.trigger.every : "daily",
+          options: [
+            { value: "15m", label: "every 15 minutes" },
+            { value: "hourly" },
+            { value: "daily" },
+          ],
         },
         {
           field: "agent_name",
@@ -1759,6 +1782,16 @@ function appendPromptsSection(page: PageBuilder, job: Job, live: JobViewLiveConf
       "What this job sends the agent, with this job's known values already filled in. " +
         `Run-scoped values (${BRANCH_PH}, ${BASE_PH}, ${HEAD_PH}) and repo-file values ` +
         `(${REPO_IGNORE_PH}, ${REPO_DOC_PH}) are resolved per run.`,
+      "muted",
+    );
+    // The discoverability pointer: WHICH parts of these previews a user can
+    // change, and from where. The skeleton stays fixed on purpose — it
+    // carries the structured-findings output contract the pipeline parses.
+    s.markdown(
+      "To change these prompts, edit the intent template and the review / fix / document " +
+        "instruction fields in the Edit section above — they are appended to each prompt. " +
+        "The base prompt skeleton is fixed (it carries the structured-output contract the " +
+        "pipeline parses); repo-file values are set in .ez-code-factory.json on the default branch.",
       "muted",
     );
     appendPromptPreview(s, "Review", reviewRows, reviewMainBody);
