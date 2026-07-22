@@ -358,6 +358,14 @@ export default defineExtension({
       // M4: re-check a run parked at the CI gate — a read-only ReconcileApproval
       // Gate poll that auto-resolves the gate when its PR has merged/closed.
       "ez-code-factory:reconcile",
+      // Control plane (L7): job-definition management from the config/job views —
+      // create/edit (job-save), enable/disable (job-toggle), delete (job-delete),
+      // and manual fire (run-now). All gated on the `manage-jobs` RBAC scope
+      // host-side + in-code (guardScope FIRST) and audited with the acting user.
+      "ez-code-factory:job-save",
+      "ez-code-factory:job-toggle",
+      "ez-code-factory:job-delete",
+      "ez-code-factory:run-now",
       // Platform direct-carrier event (DIRECT_CARRIER_EVENT_TYPES): the
       // terminal status of every `ezcorp/spawn-assignment` sub-agent this
       // pipeline dispatches. WITHOUT this subscription the spawn dispatcher's
@@ -378,6 +386,10 @@ export default defineExtension({
     rbacScopes: [
       { name: "respond-gate", description: "Answer a parked gate (approve / fix / skip / abort) from chat or the Hub" },
       { name: "yolo", description: "Run the yolo autopilot — bulk fix-once-then-approve every remaining gate of a run" },
+      // Control plane (L7): manage job DEFINITIONS (create / edit / toggle /
+      // delete a job, and fire a job "run now") from the config/job views.
+      // Distinct from respond-gate: it shapes what future runs a trigger creates.
+      { name: "manage-jobs", description: "Create, edit, enable/disable, delete, and manually run code-factory jobs from the config plane" },
     ],
     // Persistent cron for the background reconcile sweep (M6): every 15 min the
     // host fires `ez-code-factory`'s `Schedule.on(SWEEP_CRON)` handler, which

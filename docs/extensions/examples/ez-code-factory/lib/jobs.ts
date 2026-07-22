@@ -212,6 +212,104 @@ export function validateJobDraft(
   return { ok: true, value };
 }
 
+/**
+ * Parse a free-form trigger spec (collected by the job editor's "Change trigger"
+ * prompt) into a `JobTrigger`. Accepts exactly the three shapes:
+ *   - `push <pattern>`            (literal or single trailing '*' glob)
+ *   - `schedule <every> <branch>` (`every` ∈ 15m|hourly|daily; literal branch)
+ *   - `manual <branch>`           (literal branch)
+ * Returns null on any malformed input — the caller surfaces a validation error
+ * rather than silently keeping the old trigger. Branch validity is enforced by
+ * the subsequent `validateJobDraft` (not here), so a bad branch still fails save.
+ */
+export function parseTriggerSpec(spec: string): JobTrigger | null {
+  const parts = spec.trim().split(/\s+/).filter((p) => p !== "");
+  const [kind, a, b] = parts;
+  if (kind === "push" && a) return { kind: "push", branchPattern: a };
+  if (kind === "manual" && a) return { kind: "manual", branch: a };
+  if (kind === "schedule" && a && b) {
+    if (a === "15m" || a === "hourly" || a === "daily") return { kind: "schedule", every: a, branch: b };
+  }
+  return null;
+}
+
+/** The concrete branch a `run-now` (or schedule tick) resolves a run on. A
+ *  schedule/manual job carries a literal `branch`; a push job's `branchPattern`
+ *  is concrete ONLY when it has no `*` glob (a glob push job has no single branch
+ *  to run — run-now refuses it). */
+export function jobConcreteBranch(job: Job): string | null {
+  if (job.trigger.kind === "push") {
+    return job.trigger.branchPattern.includes("*") ? null : job.trigger.branchPattern;
+  }
+  return job.trigger.branch;
+}
+
+/** Validate + extract a `jobId` from an attacker-reachable page-action payload
+ *  (job-toggle / job-delete / run-now). Trimmed non-empty string, or null (the
+ *  handler logs "invalid payload" and no-ops). Never throws. */
+export function parseJobIdPayload(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  const jobId = (payload as Record<string, unknown>).jobId;
+  if (typeof jobId !== "string") return null;
+  const trimmed = jobId.trim();
+  return trimmed === "" ? null : trimmed;
+}
+
+/**
+ * Fold ONE editable scalar (collected by a job-editor prompt) into a base draft
+ * (the existing job's fields, or the create defaults). Each edit action supplies
+ * exactly one of `name` / `branchPattern` / `trigger` / `skipSteps` / `agentName`
+ * / `intentTemplate`; whichever is present overrides. `branchPattern` applies to
+ * whichever field the CURRENT trigger uses (push → pattern, schedule/manual →
+ * branch). An unparseable `trigger` spec is a hard error (never a silent no-op).
+ * The RESULT still passes through `validateJobDraft` at the call site — this only
+ * assembles the candidate; it does not itself enforce branch/step rules.
+ */
+export function applyJobEdit(
+  base: JobDraft,
+  patch: Record<string, unknown>,
+): { ok: true; draft: JobDraft } | { ok: false; error: string } {
+  const draft: JobDraft = {
+    name: base.name,
+    trigger: { ...base.trigger },
+    enabled: base.enabled,
+    skipSteps: [...base.skipSteps],
+    ...(base.agentName !== undefined ? { agentName: base.agentName } : {}),
+    ...(base.intentTemplate !== undefined ? { intentTemplate: base.intentTemplate } : {}),
+  };
+  if (typeof patch.name === "string") draft.name = patch.name;
+  if (typeof patch.branchPattern === "string") {
+    draft.trigger =
+      draft.trigger.kind === "push"
+        ? { kind: "push", branchPattern: patch.branchPattern }
+        : { ...draft.trigger, branch: patch.branchPattern };
+  }
+  if (typeof patch.trigger === "string") {
+    const parsed = parseTriggerSpec(patch.trigger);
+    if (!parsed) {
+      return { ok: false, error: "trigger must be like 'push feat/*', 'schedule daily main', or 'manual main'" };
+    }
+    draft.trigger = parsed;
+  }
+  if (typeof patch.skipSteps === "string") {
+    draft.skipSteps = patch.skipSteps
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => s !== "") as PipelineStep[];
+  }
+  if (typeof patch.agentName === "string") {
+    const trimmed = patch.agentName.trim();
+    if (trimmed) draft.agentName = trimmed;
+    else delete draft.agentName;
+  }
+  if (typeof patch.intentTemplate === "string") {
+    const trimmed = patch.intentTemplate.trim();
+    if (trimmed) draft.intentTemplate = trimmed;
+    else delete draft.intentTemplate;
+  }
+  return { ok: true, draft };
+}
+
 /** Shallow old→new field diff for audit `detail` (never stores secrets — jobs
  *  hold none). Only changed top-level fields are reported. */
 export function diffJob(before: Job, after: Job): Record<string, { from: unknown; to: unknown }> {

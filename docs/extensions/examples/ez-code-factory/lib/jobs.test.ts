@@ -12,10 +12,15 @@ import {
   createJobStore,
   buildDefaultJob,
   loadJobsWithDefault,
+  parseTriggerSpec,
+  jobConcreteBranch,
+  parseJobIdPayload,
+  applyJobEdit,
   DEFAULT_JOB_ID,
   MAX_JOB_NAME_LEN,
   MAX_BRANCH_PATTERN_LEN,
   type Job,
+  type JobDraft,
   type JobTrigger,
 } from "./jobs";
 import { createAuditLog, type AuditEntry } from "./audit";
@@ -253,5 +258,126 @@ describe("createJobStore + loadJobsWithDefault (Storage-backed)", () => {
     const second = await loadJobsWithDefault(store, audit);
     expect(second.map((j) => j.id)).toEqual([DEFAULT_JOB_ID]);
     expect(auditRecords).toHaveLength(0);
+  });
+});
+
+// ── Control-plane action helpers (L7) ────────────────────────────────
+
+describe("parseTriggerSpec", () => {
+  test("push with a pattern → push trigger (glob preserved for validateJobDraft)", () => {
+    expect(parseTriggerSpec("push feat/*")).toEqual({ kind: "push", branchPattern: "feat/*" });
+    expect(parseTriggerSpec("  push   main  ")).toEqual({ kind: "push", branchPattern: "main" });
+  });
+  test("manual with a branch → manual trigger", () => {
+    expect(parseTriggerSpec("manual main")).toEqual({ kind: "manual", branch: "main" });
+  });
+  test("schedule with a valid every + branch → schedule trigger", () => {
+    expect(parseTriggerSpec("schedule daily main")).toEqual({ kind: "schedule", every: "daily", branch: "main" });
+    expect(parseTriggerSpec("schedule 15m release")).toEqual({ kind: "schedule", every: "15m", branch: "release" });
+    expect(parseTriggerSpec("schedule hourly dev")).toEqual({ kind: "schedule", every: "hourly", branch: "dev" });
+  });
+  test("malformed specs → null (unknown kind, missing args, bad every)", () => {
+    expect(parseTriggerSpec("")).toBeNull();
+    expect(parseTriggerSpec("push")).toBeNull();
+    expect(parseTriggerSpec("bogus main")).toBeNull();
+    expect(parseTriggerSpec("schedule weekly main")).toBeNull();
+    expect(parseTriggerSpec("schedule daily")).toBeNull();
+    expect(parseTriggerSpec("manual")).toBeNull();
+  });
+});
+
+describe("jobConcreteBranch", () => {
+  const base = buildDefaultJob("t");
+  test("schedule/manual jobs expose their literal branch", () => {
+    expect(jobConcreteBranch({ ...base, trigger: { kind: "schedule", every: "daily", branch: "main" } })).toBe("main");
+    expect(jobConcreteBranch({ ...base, trigger: { kind: "manual", branch: "release" } })).toBe("release");
+  });
+  test("a literal push pattern is concrete; a glob push pattern is not", () => {
+    expect(jobConcreteBranch({ ...base, trigger: { kind: "push", branchPattern: "main" } })).toBe("main");
+    expect(jobConcreteBranch({ ...base, trigger: { kind: "push", branchPattern: "feat/*" } })).toBeNull();
+    expect(jobConcreteBranch({ ...base, trigger: { kind: "push", branchPattern: "*" } })).toBeNull();
+  });
+});
+
+describe("parseJobIdPayload", () => {
+  test("extracts a trimmed non-empty jobId", () => {
+    expect(parseJobIdPayload({ jobId: "  job_1  " })).toBe("job_1");
+  });
+  test("rejects missing / non-string / empty / non-object payloads", () => {
+    expect(parseJobIdPayload({ jobId: "" })).toBeNull();
+    expect(parseJobIdPayload({ jobId: 42 })).toBeNull();
+    expect(parseJobIdPayload({})).toBeNull();
+    expect(parseJobIdPayload(null)).toBeNull();
+    expect(parseJobIdPayload([])).toBeNull();
+    expect(parseJobIdPayload("nope")).toBeNull();
+  });
+});
+
+describe("applyJobEdit", () => {
+  const base: JobDraft = {
+    name: "Feature",
+    trigger: { kind: "push", branchPattern: "feat/*" },
+    enabled: true,
+    skipSteps: ["test"],
+  };
+
+  test("a name edit overrides only the name (other fields untouched)", () => {
+    const r = applyJobEdit(base, { name: "Renamed" });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.draft.name).toBe("Renamed");
+      expect(r.draft.trigger).toEqual({ kind: "push", branchPattern: "feat/*" });
+      expect(r.draft.skipSteps).toEqual(["test"]);
+    }
+  });
+
+  test("branchPattern edit applies to the push pattern", () => {
+    const r = applyJobEdit(base, { branchPattern: "release/*" });
+    expect(r.ok && r.draft.trigger).toEqual({ kind: "push", branchPattern: "release/*" });
+  });
+
+  test("branchPattern edit applies to the BRANCH of a schedule/manual trigger", () => {
+    const sched: JobDraft = { ...base, trigger: { kind: "schedule", every: "daily", branch: "main" } };
+    const r = applyJobEdit(sched, { branchPattern: "release" });
+    expect(r.ok && r.draft.trigger).toEqual({ kind: "schedule", every: "daily", branch: "release" });
+  });
+
+  test("a valid trigger spec replaces the trigger", () => {
+    const r = applyJobEdit(base, { trigger: "manual main" });
+    expect(r.ok && r.draft.trigger).toEqual({ kind: "manual", branch: "main" });
+  });
+
+  test("an UNPARSEABLE trigger spec is a hard error (never a silent no-op)", () => {
+    const r = applyJobEdit(base, { trigger: "bogus" });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain("trigger must be like");
+  });
+
+  test("skipSteps edit splits a comma list (still passes to validateJobDraft for protected-step checks)", () => {
+    const r = applyJobEdit(base, { skipSteps: "test, document ,lint" });
+    expect(r.ok && r.draft.skipSteps).toEqual(["test", "document", "lint"]);
+  });
+
+  test("does not mutate the base draft (defensive copy)", () => {
+    const r = applyJobEdit(base, { branchPattern: "x" });
+    expect(r.ok).toBe(true);
+    expect(base.trigger).toEqual({ kind: "push", branchPattern: "feat/*" }); // untouched
+    expect(base.skipSteps).toEqual(["test"]);
+  });
+
+  test("an empty agentName clears the override; a set one applies it", () => {
+    const withAgent: JobDraft = { ...base, agentName: "reviewer" };
+    expect((applyJobEdit(withAgent, { agentName: "  " }) as { ok: true; draft: JobDraft }).draft.agentName).toBeUndefined();
+    expect((applyJobEdit(base, { agentName: "critic" }) as { ok: true; draft: JobDraft }).draft.agentName).toBe("critic");
+  });
+
+  test("the applied edit round-trips through validateJobDraft (protected-step reject)", () => {
+    const r = applyJobEdit(base, { skipSteps: "review" }); // review is protected
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      const validated = validateJobDraft(r.draft);
+      expect(validated.ok).toBe(false);
+      if (!validated.ok) expect(validated.error).toContain("protected");
+    }
   });
 });

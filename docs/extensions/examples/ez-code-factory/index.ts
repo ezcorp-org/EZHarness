@@ -57,14 +57,19 @@ import { enforceRespondContract } from "./lib/chat-contract";
 import { createIntentCache, makeConversationIntentInferrer } from "./lib/intent-infer";
 import { join } from "node:path";
 import {
+  buildAuditView,
+  buildConfigView,
   buildDashboard,
   buildHome,
+  buildJobView,
   buildProjectDashboard,
   buildRunDetailView,
   buildStepDetailView,
+  buildUnknownView,
   normalizeRespondPayload,
   orphanRuns,
   parseRunIdPayload,
+  parseView,
   projectIdForRun,
   runsForProject,
   type RunDetail,
@@ -91,7 +96,7 @@ import { makeGit } from "./lib/git";
 import { resolveTrustedRepoConfig } from "./lib/repo-config";
 import { startPipeline, respondToGate, reconcileGate, type ExecutorDeps } from "./lib/executor";
 import { makeGhRunner, resolveGhToken, type TokenStorage } from "./lib/gh-runner";
-import { guardScope, RESPOND_SCOPE, YOLO_SCOPE, type RbacCheck } from "./lib/rbac";
+import { guardScope, MANAGE_JOBS_SCOPE, RESPOND_SCOPE, YOLO_SCOPE, type RbacCheck } from "./lib/rbac";
 import { decideYoloAction } from "./lib/yolo";
 import {
   reconcileSweep,
@@ -109,12 +114,19 @@ import {
 import { recoverRuns, type RecoverySummary } from "./lib/recovery";
 import { runDoctor, type DoctorReport } from "./lib/doctor";
 import {
+  applyJobEdit,
   createJobStore,
+  DEFAULT_JOB_ID,
+  diffJob,
+  jobConcreteBranch,
   loadJobsWithDefault,
   matchPushJob,
   isScheduleJobDue,
+  parseJobIdPayload,
   shouldSynthesizeRun,
+  validateJobDraft,
   type Job,
+  type JobDraft,
   type JobStore,
 } from "./lib/jobs";
 import { createAuditLog, type AuditLog } from "./lib/audit";
@@ -133,6 +145,14 @@ export const YOLO_ACTION = `${EXTENSION_NAME}:yolo`;
  *  ReconcileApprovalGate poll that auto-resolves the gate when its PR has
  *  merged/closed (`{ runId }`). Harness/future-sweep-triggerable. */
 export const RECONCILE_ACTION = `${EXTENSION_NAME}:reconcile`;
+/** Control-plane job actions (L7): create/edit a job (`{ jobId?, <field> }`),
+ *  toggle a job's enabled flag (`{ jobId }`), delete a job (`{ jobId }`), and
+ *  fire a manual run for an enabled job (`{ jobId }`). All are gated on the
+ *  `manage-jobs` RBAC scope (guardScope FIRST) and audited with `event.userId`. */
+export const JOB_SAVE_ACTION = `${EXTENSION_NAME}:job-save`;
+export const JOB_TOGGLE_ACTION = `${EXTENSION_NAME}:job-toggle`;
+export const JOB_DELETE_ACTION = `${EXTENSION_NAME}:job-delete`;
+export const RUN_NOW_ACTION = `${EXTENSION_NAME}:run-now`;
 
 // ── Injectable seams (production defaults; tests override) ────────────
 //
@@ -676,6 +696,71 @@ async function renderStepDetail(
   return buildStepDetailView(detail, projectId, stalledRunIds);
 }
 
+// ── Control-plane views (`?view=` render variants — L6) ──────────────
+
+/** Route a `?view=` render to its builder (config / job / audit). The raw value
+ *  is parsed HERE (compound `audit:<day>` / `job:<id>`); an unknown/malformed
+ *  value renders an empty state, never a throw. */
+async function renderViewVariant(
+  store: RunStore,
+  view: string,
+  ctx?: PageRenderContext,
+): Promise<HubPageTree> {
+  const parsed = parseView(view);
+  switch (parsed.kind) {
+    case "config":
+      return renderConfigView(store, ctx);
+    case "job":
+      return renderJobView(store, parsed.jobId, ctx);
+    case "audit":
+      return renderAuditView(parsed.day, ctx);
+    default:
+      return buildUnknownView(view);
+  }
+}
+
+/** Render the `?view=config` surface: jobs (default-seeded), runs, the live
+ *  settings-resolved pipeline config, and the sweep heartbeat. Row hrefs are
+ *  project-scoped only on the project hub (`ctx.project`). */
+async function renderConfigView(store: RunStore, ctx?: PageRenderContext): Promise<HubPageTree> {
+  const jobs = await loadJobsWithDefault(getJobStore(), getAudit());
+  const runs = await store.listRuns();
+  const config = await resolveLiveConfig();
+  const sweepHeartbeat = await heartbeatKVImpl().read();
+  return buildConfigView({
+    jobs,
+    runs,
+    config,
+    sweepHeartbeat,
+    nowMs: Date.now(),
+    extensionId: EXTENSION_NAME,
+    projectId: ctx?.project?.id,
+  });
+}
+
+/** Render the `?view=job:<id>` surface: the job's definition + its runs (newest
+ *  20). An unknown id renders an honest "not found". */
+async function renderJobView(
+  store: RunStore,
+  jobId: string,
+  ctx?: PageRenderContext,
+): Promise<HubPageTree> {
+  const jobs = await loadJobsWithDefault(getJobStore(), getAudit());
+  const job = jobs.find((j) => j.id === jobId) ?? null;
+  const runs = job ? (await store.listRuns()).filter((r) => r.jobId === jobId).slice(0, 20) : [];
+  return buildJobView(jobId, job, runs, ctx?.project?.id);
+}
+
+/** Render the `?view=audit[:<day>]` surface: the target day's bucket (or the
+ *  newest day with entries when none is specified) + the day-nav set. */
+async function renderAuditView(day: string | undefined, ctx?: PageRenderContext): Promise<HubPageTree> {
+  const audit = getAudit();
+  const days = await audit.listDays();
+  const targetDay = day ?? days[0] ?? new Date().toISOString().slice(0, 10);
+  const bucket = await audit.readDay(targetDay);
+  return buildAuditView(targetDay, bucket, days, ctx?.project?.id);
+}
+
 // ── Handlers ─────────────────────────────────────────────────────────
 
 /** `init_gate` tool — provision the gate for the active project. */
@@ -1040,6 +1125,225 @@ export async function handleReconcile(event: PageActionEvent): Promise<void> {
   }
 }
 
+// ── Control-plane job actions (L7) ───────────────────────────────────
+//
+// Four Hub page actions manage job DEFINITIONS: job-save (create/edit),
+// job-toggle (enable/disable), job-delete, and run-now (manual fire). Each is
+// attacker-reachable via the generic events route, so every handler:
+//   1. guardScope(`manage-jobs`) FIRST — fail-closed, a denied action is a no-op
+//      that mutates nothing AND audits nothing (never a 500);
+//   2. validates the payload;
+//   3. mutates the job store + AUDITS with the acting `event.userId`;
+//   4. refreshes the page (content-free SSE invalidation).
+// The whole body is wrapped: a throw in a notification handler would otherwise
+// be swallowed by the SDK channel (no id → no error frame).
+
+/** Mint a fresh job id (`job_<ts36>_<rand>`), mirroring the run-id convention. */
+function newJobId(): string {
+  return `job_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/** `job-save` Hub action — create a NEW job (no `jobId`) or edit an existing one
+ *  (a single scalar field merged in by a prompt). The full merged draft is
+ *  re-validated (protected steps rejected, branch patterns clamped) BEFORE any
+ *  write; a validation failure is a logged no-op + refresh (never a partial
+ *  save). An edit audits the field diff; a create audits the new definition. */
+export async function handleJobSave(event: PageActionEvent): Promise<void> {
+  try {
+    const guard = await guardScope(rbacCheckImpl, MANAGE_JOBS_SCOPE, "manage jobs");
+    if (!guard.ok) {
+      logLine(`ez-code-factory: job-save refused — ${guard.error}`);
+      return;
+    }
+    const payload = (event.payload ?? {}) as Record<string, unknown>;
+    const rawJobId = typeof payload.jobId === "string" ? payload.jobId.trim() : "";
+    const store = getJobStore();
+    const jobs = await loadJobsWithDefault(store, getAudit());
+    const existing = rawJobId ? jobs.find((j) => j.id === rawJobId) ?? (await store.getJob(rawJobId)) : null;
+
+    // The candidate draft: the existing job's fields (edit) or the create
+    // defaults (a DISABLED push job on `main`, configured further in the editor).
+    const base: JobDraft = existing
+      ? {
+          name: existing.name,
+          trigger: existing.trigger,
+          enabled: existing.enabled,
+          skipSteps: existing.skipSteps,
+          ...(existing.agentName !== undefined ? { agentName: existing.agentName } : {}),
+          ...(existing.intentTemplate !== undefined ? { intentTemplate: existing.intentTemplate } : {}),
+        }
+      : { name: "", trigger: { kind: "push", branchPattern: "main" }, enabled: false, skipSteps: [] };
+
+    const applied = applyJobEdit(base, payload);
+    if (!applied.ok) {
+      logLine(`ez-code-factory: job-save refused — ${applied.error}`);
+      await refreshDashboard();
+      return;
+    }
+    const validated = validateJobDraft(applied.draft);
+    if (!validated.ok) {
+      logLine(`ez-code-factory: job-save refused — ${validated.error}`);
+      await refreshDashboard();
+      return;
+    }
+
+    const actor = event.userId || "system";
+    if (existing) {
+      const updated = await store.updateJob(existing.id, { ...validated.value, updatedBy: actor });
+      if (updated) {
+        await getAudit().append({ actor, kind: "job-save", jobId: existing.id, detail: diffJob(existing, updated) });
+      }
+    } else {
+      const nowIso = new Date().toISOString();
+      const job: Job = {
+        id: newJobId(),
+        ...validated.value,
+        createdBy: actor,
+        createdAt: nowIso,
+        updatedBy: actor,
+        updatedAt: nowIso,
+      };
+      await store.createJob(job);
+      await getAudit().append({ actor, kind: "job-create", jobId: job.id, detail: { name: job.name, trigger: job.trigger } });
+    }
+    await refreshDashboard();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logLine(`ez-code-factory: job-save handler error: ${message}`);
+  }
+}
+
+/** `job-toggle` Hub action — flip a job's enabled flag (`{ jobId }`). Audited. */
+export async function handleJobToggle(event: PageActionEvent): Promise<void> {
+  try {
+    const guard = await guardScope(rbacCheckImpl, MANAGE_JOBS_SCOPE, "manage jobs");
+    if (!guard.ok) {
+      logLine(`ez-code-factory: job-toggle refused — ${guard.error}`);
+      return;
+    }
+    const jobId = parseJobIdPayload(event.payload);
+    if (!jobId) {
+      logLine("ez-code-factory: job-toggle with invalid payload — ignored");
+      return;
+    }
+    const store = getJobStore();
+    const jobs = await loadJobsWithDefault(store, getAudit());
+    const job = jobs.find((j) => j.id === jobId);
+    if (!job) {
+      logLine(`ez-code-factory: job-toggle for unknown job ${jobId} — ignored`);
+      return;
+    }
+    const actor = event.userId || "system";
+    const next = !job.enabled;
+    await store.updateJob(jobId, { enabled: next, updatedBy: actor });
+    await getAudit().append({ actor, kind: "job-toggle", jobId, detail: { enabled: next } });
+    await refreshDashboard();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logLine(`ez-code-factory: job-toggle handler error: ${message}`);
+  }
+}
+
+/** `job-delete` Hub action — remove a job definition (`{ jobId }`). The DEFAULT
+ *  job is protected (deleting it would break today's every-branch behaviour), so
+ *  its deletion is refused. Audited. */
+export async function handleJobDelete(event: PageActionEvent): Promise<void> {
+  try {
+    const guard = await guardScope(rbacCheckImpl, MANAGE_JOBS_SCOPE, "manage jobs");
+    if (!guard.ok) {
+      logLine(`ez-code-factory: job-delete refused — ${guard.error}`);
+      return;
+    }
+    const jobId = parseJobIdPayload(event.payload);
+    if (!jobId) {
+      logLine("ez-code-factory: job-delete with invalid payload — ignored");
+      return;
+    }
+    if (jobId === DEFAULT_JOB_ID) {
+      logLine("ez-code-factory: job-delete refused — the default job cannot be deleted");
+      await refreshDashboard();
+      return;
+    }
+    const store = getJobStore();
+    const jobs = await loadJobsWithDefault(store, getAudit());
+    const job = jobs.find((j) => j.id === jobId);
+    if (!job) {
+      logLine(`ez-code-factory: job-delete for unknown job ${jobId} — ignored`);
+      return;
+    }
+    const actor = event.userId || "system";
+    await store.deleteJob(jobId);
+    await getAudit().append({ actor, kind: "job-delete", jobId, detail: { name: job.name } });
+    await refreshDashboard();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logLine(`ez-code-factory: job-delete handler error: ${message}`);
+  }
+}
+
+/** `run-now` Hub action — manually fire a run for an ENABLED job (`{ jobId }`) on
+ *  its concrete branch at the branch's current head, via the SAME synthesized-run
+ *  path the schedule tick uses (force: no no-change skip — the user asked for it).
+ *  A disabled job, a glob-pattern push job (no single branch), or a branch the
+ *  gate never received is refused/no-run. Audited with the acting user. */
+export async function handleRunNow(event: PageActionEvent): Promise<void> {
+  try {
+    const guard = await guardScope(rbacCheckImpl, MANAGE_JOBS_SCOPE, "run a job now");
+    if (!guard.ok) {
+      logLine(`ez-code-factory: run-now refused — ${guard.error}`);
+      return;
+    }
+    const jobId = parseJobIdPayload(event.payload);
+    if (!jobId) {
+      logLine("ez-code-factory: run-now with invalid payload — ignored");
+      return;
+    }
+    const projectRoot = projectRootImpl();
+    if (!projectRoot) {
+      logLine(`ez-code-factory: run-now for job ${jobId} with no resolvable project root — ignored`);
+      return;
+    }
+    const store = getJobStore();
+    const jobs = await loadJobsWithDefault(store, getAudit());
+    const job = jobs.find((j) => j.id === jobId);
+    if (!job) {
+      logLine(`ez-code-factory: run-now for unknown job ${jobId} — ignored`);
+      return;
+    }
+    // run-now REQUIRES an enabled job (spec L7): a disabled job is refused.
+    if (!job.enabled) {
+      logLine(`ez-code-factory: run-now refused — job ${jobId} is disabled`);
+      await refreshDashboard();
+      return;
+    }
+    const branch = jobConcreteBranch(job);
+    if (!branch) {
+      logLine(`ez-code-factory: run-now for job ${jobId} needs a concrete branch (glob push pattern) — ignored`);
+      await refreshDashboard();
+      return;
+    }
+    const rId = repoIdFor(projectRoot);
+    const gDir = gateDirFor(projectRoot, rId);
+    const actor = event.userId || "system";
+    const newSha = await resolveJobHead(gDir, branch);
+    if (!newSha) {
+      await getAudit().append({ actor, kind: "run-now-no-branch", jobId, detail: { branch } });
+      logLine(`ez-code-factory: run-now for job ${jobId} — branch '${branch}' not in the gate repo`);
+      await refreshDashboard();
+      return;
+    }
+    const result = await runJobLifecycle(job, { projectRoot, gDir, repoId: rId, branch, newSha });
+    // Bookkeep the head so a following schedule tick sees no-change (never a
+    // double run). Manual fire does NOT touch lastScheduleFireAt.
+    await store.updateJob(jobId, { lastHeadSha: newSha });
+    await getAudit().append({ actor, kind: "run-now", jobId, runId: result.runId, detail: { branch, headSha: newSha } });
+    await refreshDashboard();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logLine(`ez-code-factory: run-now handler error: ${message}`);
+  }
+}
+
 // ── Reconcile sweep (M6, background loop) ─────────────────────────────
 //
 // The scheduled catch-up the README promised: every SWEEP_CRON fire re-checks
@@ -1092,6 +1396,45 @@ export async function runReconcileSweep(): Promise<SweepSummary> {
   });
 }
 
+/** Resolve a branch's current head in the gate bare repo (where pushes land). A
+ *  branch the gate has never received → rev-parse fails → "" (no head to run).
+ *  Shared by the schedule tick + the manual run-now path. */
+async function resolveJobHead(gDir: string, branch: string): Promise<string> {
+  const rev = await shellImpl(["git", "-C", gDir, "rev-parse", `refs/heads/${branch}`], gDir);
+  return rev.exitCode === 0 ? rev.stdout.trim() : "";
+}
+
+/** Drive `runGateLifecycle` for a synthesized (schedule/manual) job run on a
+ *  concrete branch at `newSha`, with the job's step-skip overlay + id stamped —
+ *  the SAME entry point a push takes. Shared by the schedule tick and the
+ *  run-now action (the committed schedule path, spec L4/L7). The job's last
+ *  bookkept head anchors force-push safety (base). */
+function runJobLifecycle(
+  job: Job,
+  o: { projectRoot: string; gDir: string; repoId: string; branch: string; newSha: string },
+) {
+  return runGateLifecycle(
+    {
+      repoId: o.repoId,
+      branch: o.branch,
+      ref: `refs/heads/${o.branch}`,
+      newSha: o.newSha,
+      oldSha: job.lastHeadSha ?? "0".repeat(40),
+      ...(job.intentTemplate ? { intent: job.intentTemplate } : {}),
+    },
+    {
+      gateDir: o.gDir,
+      tmpBase: tmpBaseImpl(o.projectRoot),
+      store: getStore(),
+      run: shellImpl,
+      onChange: refreshDashboard,
+      runPipeline: makeRunPipelineImpl(o.projectRoot, o.gDir, job),
+      projectRoot: o.projectRoot,
+      jobId: job.id,
+    },
+  );
+}
+
 /**
  * Synthesize runs for SCHEDULE-trigger jobs that are due on this sweep tick
  * (control plane, L4). Reuses the existing every-15-min sweep tick as the job
@@ -1125,8 +1468,7 @@ export async function synthesizeScheduledRuns(now: Date): Promise<void> {
     try {
       // Current branch head in the gate bare repo (where pushes land). A branch
       // the gate has never received → rev-parse fails → nothing to run.
-      const rev = await shellImpl(["git", "-C", gDir, "rev-parse", `refs/heads/${branch}`], gDir);
-      const newSha = rev.exitCode === 0 ? rev.stdout.trim() : "";
+      const newSha = await resolveJobHead(gDir, branch);
       if (!newSha) {
         await audit.append({ actor: "system", kind: "schedule-no-branch", jobId: job.id, detail: { branch } });
         await jobStore.updateJob(job.id, { lastScheduleFireAt: now.toISOString() });
@@ -1138,27 +1480,7 @@ export async function synthesizeScheduledRuns(now: Date): Promise<void> {
         await jobStore.updateJob(job.id, { lastScheduleFireAt: now.toISOString() });
         continue;
       }
-      const result = await runGateLifecycle(
-        {
-          repoId: rId,
-          branch,
-          ref: `refs/heads/${branch}`,
-          newSha,
-          // The job's last bookkept head is the force-push-safety anchor (base).
-          oldSha: job.lastHeadSha ?? "0".repeat(40),
-          ...(job.intentTemplate ? { intent: job.intentTemplate } : {}),
-        },
-        {
-          gateDir: gDir,
-          tmpBase: tmpBaseImpl(projectRoot),
-          store: getStore(),
-          run: shellImpl,
-          onChange: refreshDashboard,
-          runPipeline: makeRunPipelineImpl(projectRoot, gDir, job),
-          projectRoot,
-          jobId: job.id,
-        },
-      );
+      const result = await runJobLifecycle(job, { projectRoot, gDir, repoId: rId, branch, newSha });
       await jobStore.updateJob(job.id, { lastHeadSha: newSha, lastScheduleFireAt: now.toISOString() });
       await audit.append({
         actor: "system",
@@ -1255,6 +1577,14 @@ export async function renderDashboard(ctx?: PageRenderContext) {
   if (ctx?.run) {
     return renderRunDetail(store, ctx.run, ctx);
   }
+  // Control-plane view variant (`?view=config|job:<id>|audit[:<day>]`): an
+  // alternate page surface. Precedence (spec L6): run+step > run > VIEW >
+  // project > projects > dashboard — so it wins over project context (a config/
+  // audit render on the project hub is the config/audit, not that project's
+  // dashboard). Unknown/malformed view → empty state (never a throw).
+  if (ctx?.view) {
+    return renderViewVariant(store, ctx.view, ctx);
+  }
   const runs = await store.listRuns();
   // Derived-stalled ids (immediate truthfulness — the sweep persists them
   // durably on its own cadence). Computed once and threaded into every builder.
@@ -1292,6 +1622,11 @@ export function register(): void {
       [RESPOND_ACTION]: handleRespond,
       [YOLO_ACTION]: handleYolo,
       [RECONCILE_ACTION]: handleReconcile,
+      // Control-plane job actions (L7) — RBAC-gated (manage-jobs) + audited.
+      [JOB_SAVE_ACTION]: handleJobSave,
+      [JOB_TOGGLE_ACTION]: handleJobToggle,
+      [JOB_DELETE_ACTION]: handleJobDelete,
+      [RUN_NOW_ACTION]: handleRunNow,
     },
   });
   // M6: the background reconcile sweep (cron declared in ezcorp.config.ts).

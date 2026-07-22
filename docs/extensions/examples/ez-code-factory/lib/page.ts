@@ -31,7 +31,7 @@ import type {
   PageProjectRef,
 } from "@ezcorp/sdk/runtime";
 import { EXTENSION_NAME, PAGE_ID, repoId } from "./gate";
-import { PIPELINE_STEPS, type PipelineStep } from "./config";
+import { PIPELINE_STEPS, type PipelineConfig, type PipelineStep } from "./config";
 import type {
   FindingAction,
   FindingSeverity,
@@ -43,6 +43,15 @@ import type {
   StepStatus,
 } from "./runs";
 import type { StepIORecord } from "./step-io";
+import {
+  jobConcreteBranch,
+  MAX_BRANCH_PATTERN_LEN,
+  MAX_JOB_NAME_LEN,
+  type Job,
+  type JobTrigger,
+} from "./jobs";
+import { isTruncationMarker, type AuditBucket, type AuditEntry, type AuditTruncationMarker } from "./audit";
+import type { SweepHeartbeat } from "./sweep";
 
 /** The full namespaced events the detail controls dispatch. All are declared
  *  in `ezcorp.config.ts` eventSubscriptions (the host allowlists page actions
@@ -52,6 +61,18 @@ export const YOLO_EVENT = `${EXTENSION_NAME}:yolo`;
 /** The M4 reconcile event: re-check a run parked at (or rested past) the CI gate.
  *  A read-only PR-state poll that completes the run once its PR merges/closes. */
 export const RECONCILE_EVENT = `${EXTENSION_NAME}:reconcile`;
+
+// Control-plane job actions (L7) — the full namespaced events the config/job
+// views' buttons dispatch. All are declared in `ezcorp.config.ts`
+// eventSubscriptions + gated on the `manage-jobs` RBAC scope host-side.
+/** Create or edit a job definition (one scalar per prompt). */
+export const JOB_SAVE_EVENT = `${EXTENSION_NAME}:job-save`;
+/** Flip a job's enabled flag. */
+export const JOB_TOGGLE_EVENT = `${EXTENSION_NAME}:job-toggle`;
+/** Delete a job definition (confirm). */
+export const JOB_DELETE_EVENT = `${EXTENSION_NAME}:job-delete`;
+/** Manually fire a run for an ENABLED job on its concrete branch. */
+export const RUN_NOW_EVENT = `${EXTENSION_NAME}:run-now`;
 
 /** Human badge per run status. */
 export const STATUS_BADGE: Record<RunStatus, string> = {
@@ -1096,4 +1117,453 @@ export function parseRunIdPayload(payload: unknown): string | null {
   if (typeof runId !== "string") return null;
   const trimmed = runId.trim();
   return trimmed === "" ? null : trimmed;
+}
+
+// ── Control-plane VIEWS (the `?view=` render variants — spec L6) ──────
+//
+// Three alternate page surfaces reachable from either hub via `?view=`:
+//   - `config`            — the pipeline definition, resolved settings knobs
+//                           (read-only + trust note), the jobs table, schedule/
+//                           sweep health, and a platform-settings pointer.
+//   - `job:<id>`          — one job's full definition + its runs + the edit /
+//                           toggle / run-now / delete action buttons.
+//   - `audit` / `audit:<day>` — the day's audit trail (newest-first) + day nav.
+//
+// Every builder here is PURE (record → tree) and honours the SAME XSS invariant
+// as the dashboard builders: user/agent-derived strings (job names, branch
+// patterns, intent templates, audit detail) land ONLY in text-interpolated node
+// types (headings, stats, table cells, section titles, empty-state) — NEVER the
+// `markdownBlock` {@html} node. The `.markdown(text, variant)` calls below push
+// the panel-vocabulary `{type:"text"}` node (host-escaped), not `markdownBlock`,
+// so even those are XSS-safe by construction.
+
+/** The parsed `?view=` selector. Compound values (`audit:<day>`, `job:<id>`) are
+ *  parsed HERE (the host passes the raw string opaquely). An unknown / malformed
+ *  value maps to `unknown` → an empty-state render (never a throw). */
+export type ParsedView =
+  | { kind: "config" }
+  | { kind: "job"; jobId: string }
+  | { kind: "audit"; day?: string }
+  | { kind: "unknown" };
+
+/** Parse the raw `?view=` string. `audit:<day>` requires a `YYYY-MM-DD` day;
+ *  `job:<id>` requires a non-empty id; anything else is `unknown`. */
+export function parseView(view: string): ParsedView {
+  if (view === "config") return { kind: "config" };
+  if (view === "audit") return { kind: "audit" };
+  const auditPrefix = "audit:";
+  if (view.startsWith(auditPrefix)) {
+    const day = view.slice(auditPrefix.length);
+    return /^\d{4}-\d{2}-\d{2}$/.test(day) ? { kind: "audit", day } : { kind: "unknown" };
+  }
+  const jobPrefix = "job:";
+  if (view.startsWith(jobPrefix)) {
+    const jobId = view.slice(jobPrefix.length).trim();
+    return jobId ? { kind: "job", jobId } : { kind: "unknown" };
+  }
+  return { kind: "unknown" };
+}
+
+/** Deep-link to a `?view=` variant — project-scoped on the project hub, global
+ *  otherwise (mirrors projectRunHref/globalRunHref). The value is encoded so a
+ *  compound `job:<id>` / `audit:<day>` round-trips through the route's
+ *  `searchParams.get("view")` unchanged. */
+function viewHref(projectId: string | undefined, view: string): string {
+  const base = projectId
+    ? `/project/${projectId}/hub/${encodeURIComponent(FULL_PAGE_ID)}`
+    : `/hub/${encodeURIComponent(FULL_PAGE_ID)}`;
+  return `${base}?view=${encodeURIComponent(view)}`;
+}
+
+/** One-line human label for a job trigger (text cell / stat value). */
+function triggerLabel(t: JobTrigger): string {
+  switch (t.kind) {
+    case "push":
+      return `push · ${t.branchPattern}`;
+    case "schedule":
+      return `schedule · ${t.every} · ${t.branch}`;
+    case "manual":
+      return `manual · ${t.branch}`;
+  }
+}
+
+/** Enabled/disabled cell with tone (enabled = success; disabled = neutral bare
+ *  string, matching the statusCell convention). */
+function enabledCell(enabled: boolean): PageCellInput {
+  return enabled ? { text: "✓ enabled", tone: "success" } : "○ disabled";
+}
+
+/** A coarse "N min/h/d ago" label for a heartbeat/timestamp. Pure over `nowMs`
+ *  (injected) so the sweep-age render is deterministically testable. */
+function ageLabel(fromIso: string, nowMs: number): string {
+  const then = Date.parse(fromIso);
+  if (Number.isNaN(then)) return "unknown";
+  const mins = Math.max(0, Math.floor((nowMs - then) / 60_000));
+  if (mins < 60) return `${mins} min ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 48) return `${hrs} h ago`;
+  return `${Math.floor(hrs / 24)} d ago`;
+}
+
+/** The most recent run belonging to a job (runs are newest-first from
+ *  `listRuns`, so the first match wins). */
+function latestRunForJob(runs: readonly RunRecord[], jobId: string): RunRecord | undefined {
+  return runs.find((r) => r.jobId === jobId);
+}
+
+/** Render an audit actor as a truncated id (`user 1a2b3c…`) — the tree is served
+ *  to ALL users, so the full id is stored but never expanded in the view (L5,
+ *  consistent with the global-runs precedent). `"system"` renders verbatim. */
+function truncActor(actor: string): string {
+  return actor === "system" ? "system" : `user ${actor.slice(0, 6)}…`;
+}
+
+/** Compact, id-only text for an audit entry's `detail` (already content-free at
+ *  the sink — job diffs / counts / branch names / finding IDS only). Serialized
+ *  + truncated for a single text cell (the XSS invariant — never a markdown
+ *  node). */
+function auditDetailText(detail: unknown): string {
+  if (detail === undefined || detail === null) return "—";
+  let s: string;
+  try {
+    s = typeof detail === "string" ? detail : JSON.stringify(detail);
+  } catch {
+    return "—";
+  }
+  return s.length > 200 ? `${s.slice(0, 200)}…` : s;
+}
+
+/** Input to {@link buildConfigView} — everything the config surface renders. */
+export interface ConfigViewInput {
+  jobs: readonly Job[];
+  runs: readonly RunRecord[];
+  config: PipelineConfig;
+  sweepHeartbeat: SweepHeartbeat | null;
+  /** Injected clock (ms) for the sweep-age render. */
+  nowMs: number;
+  /** The platform extension id, for the `/extensions/<id>` settings pointer. */
+  extensionId: string;
+  /** Project id when rendered on the project hub — scopes the row hrefs. */
+  projectId?: string;
+}
+
+/**
+ * Build the `?view=config` surface: the pipeline step list (with a per-job
+ * skip overlay), the resolved settings knobs (read-only + a repo-file trust
+ * note for the COMMANDS, which stay repo-only), the jobs table (each row →
+ * `?view=job:<id>`), schedule/sweep health (last-heartbeat age or an explicit
+ * "sweep has never run" WARNING), and a pointer to the platform settings page.
+ * Pure.
+ */
+export function buildConfigView(input: ConfigViewInput): HubPageTree {
+  const { jobs, runs, config, sweepHeartbeat, nowMs, extensionId, projectId } = input;
+  const page = new PageBuilder("ez-code-factory — config");
+
+  // Pipeline steps + per-job skip overlay.
+  page.heading(2, "Pipeline");
+  const skippedByJobs = new Map<PipelineStep, string[]>();
+  for (const job of jobs) {
+    for (const s of job.skipSteps) {
+      const list = skippedByJobs.get(s) ?? [];
+      list.push(job.name);
+      skippedByJobs.set(s, list);
+    }
+  }
+  page.table(
+    ["Step", "Skipped by"],
+    PIPELINE_STEPS.map((step) => ({
+      cells: [step, (skippedByJobs.get(step) ?? []).join(", ") || "—"],
+    })),
+  );
+
+  // Resolved settings knobs (read-only) + the commands trust note.
+  page.heading(2, "Repo config");
+  page.markdown(
+    "Commands come from `.ez-code-factory.json` on the default branch — read-only here. " +
+      "The pipeline resolves them per-run from the TRUSTED default branch (never the pushed copy), " +
+      "so they are repo-file-only and are never edited from this UI (the trust model).",
+    "muted",
+  );
+  page.table(
+    ["Setting", "Value"],
+    [
+      { cells: ["Gate remote", config.gateRemote] },
+      { cells: ["Default branch", config.defaultBranch] },
+      { cells: ["Review auto-fix cap", String(config.autoFixLimits.review)] },
+      { cells: ["Other-steps auto-fix cap", String(config.autoFixLimits.lint)] },
+      { cells: ["Ignore globs", config.ignorePatterns.join(", ") || "—"] },
+      {
+        cells: [
+          "CI idle timeout",
+          config.ciTimeoutMs < 0 ? "unlimited" : `${Math.round(config.ciTimeoutMs / 3_600_000)} h`,
+        ],
+      },
+    ],
+  );
+  page.link("Edit scalar settings (platform)", `/extensions/${extensionId}`);
+
+  // Jobs table — each row opens its editor; last run shows as text (the editor
+  // carries the per-run deep-links).
+  page.heading(2, "Jobs");
+  if (jobs.length === 0) {
+    page.emptyState("No jobs", "A default job is auto-seeded on the first push.");
+  } else {
+    page.table(
+      ["Name", "Trigger", "Enabled", "Last run"],
+      jobs.map((job) => {
+        const last = latestRunForJob(runs, job.id);
+        return {
+          cells: [
+            job.name,
+            triggerLabel(job.trigger),
+            enabledCell(job.enabled),
+            last ? `${last.id} · ${STATUS_BADGE[last.status]}` : "—",
+          ],
+          href: viewHref(projectId, `job:${job.id}`),
+        };
+      }),
+    );
+  }
+  page.button(
+    "New job",
+    {
+      event: JOB_SAVE_EVENT,
+      prompt: {
+        label: "New job name (creates a DISABLED push job on `main` — configure it in the editor)",
+        field: "name",
+        placeholder: "e.g. Nightly main",
+        submitLabel: "Create",
+        maxLength: MAX_JOB_NAME_LEN,
+      },
+    },
+    "primary",
+  );
+
+  // Schedule / sweep health.
+  page.heading(2, "Schedule health");
+  if (!sweepHeartbeat) {
+    // The warning TONE (spec L6) — a toned cell, since empty-state carries none.
+    page.table(
+      ["Sweep health"],
+      [
+        {
+          cells: [
+            {
+              text: "⚠ sweep has never run — schedule-trigger jobs will not fire until it does",
+              tone: "warning",
+            },
+          ],
+        },
+      ],
+    );
+  } else {
+    page.stats([
+      { label: "Last sweep", value: ageLabel(sweepHeartbeat.ranAt, nowMs), hint: sweepHeartbeat.ranAt },
+      { label: "Scanned", value: String(sweepHeartbeat.summary.scanned) },
+      { label: "Advanced", value: String(sweepHeartbeat.summary.advanced) },
+      { label: "Stalled", value: String(sweepHeartbeat.summary.stalled) },
+    ]);
+  }
+
+  return page.build();
+}
+
+/**
+ * Build the `?view=job:<id>` surface: the job's full definition, its edit /
+ * toggle / run-now / delete action buttons (each edit collects ONE scalar via a
+ * host prompt — validated + audited in the handler), and its runs (newest 20,
+ * each deep-linking to its `?run=` detail). `job === null` (unknown/deleted id)
+ * renders an honest "not found" note, never an error. Pure.
+ */
+export function buildJobView(
+  jobId: string,
+  job: Job | null,
+  runs: readonly RunRecord[],
+  projectId?: string,
+): HubPageTree {
+  const page = new PageBuilder(`ez-code-factory — job ${job?.name ?? jobId}`);
+  if (!job) {
+    page.emptyState(
+      "Job not found",
+      `No job ${jobId} is defined — it may have been deleted, or the link is stale.`,
+    );
+    return page.build();
+  }
+
+  const concrete = jobConcreteBranch(job);
+  page.section(`Job: ${job.name}`, (s) => {
+    s.stats([
+      { label: "Trigger", value: triggerLabel(job.trigger) },
+      { label: "Enabled", value: job.enabled ? "yes" : "no" },
+      { label: "Skips", value: job.skipSteps.length ? job.skipSteps.join(", ") : "none" },
+      { label: "Agent", value: job.agentName ?? "default" },
+      { label: "Updated", value: shortTime(job.updatedAt), hint: truncActor(job.updatedBy) },
+    ]);
+    if (job.intentTemplate) {
+      s.table(["Field", "Detail"], [{ cells: ["Intent template", job.intentTemplate] }]);
+    }
+  });
+
+  // Edit / control actions. Each edit is ONE prompt collecting a single scalar
+  // merged into payload[field]; the handler re-validates the whole draft + audits.
+  page.section("Actions", (s) => {
+    s.button("Edit name", {
+      event: JOB_SAVE_EVENT,
+      payload: { jobId },
+      prompt: { label: "New name", field: "name", maxLength: MAX_JOB_NAME_LEN, submitLabel: "Save" },
+    });
+    s.button("Edit branch pattern", {
+      event: JOB_SAVE_EVENT,
+      payload: { jobId },
+      prompt: {
+        label:
+          job.trigger.kind === "push"
+            ? "Branch pattern (literal or single trailing '*')"
+            : "Branch (literal, no glob)",
+        field: "branchPattern",
+        maxLength: MAX_BRANCH_PATTERN_LEN,
+        submitLabel: "Save",
+      },
+    });
+    s.button("Change trigger", {
+      event: JOB_SAVE_EVENT,
+      payload: { jobId },
+      prompt: {
+        label: "Trigger spec",
+        field: "trigger",
+        placeholder: "push feat/*  ·  schedule daily main  ·  manual main",
+        submitLabel: "Save",
+      },
+    });
+    s.button("Edit skip-steps", {
+      event: JOB_SAVE_EVENT,
+      payload: { jobId },
+      prompt: {
+        label: "Steps to skip (comma-separated; intent/rebase/review/push are protected)",
+        field: "skipSteps",
+        placeholder: "test, document, lint",
+        submitLabel: "Save",
+      },
+    });
+    s.button(
+      job.enabled ? "Disable" : "Enable",
+      { event: JOB_TOGGLE_EVENT, payload: { jobId } },
+      "secondary",
+    );
+    // Run-now is offered only for an ENABLED job (the handler re-checks) and needs
+    // a concrete branch (a glob push job has none — the confirm names that).
+    if (job.enabled) {
+      s.button(
+        "Run now",
+        {
+          event: RUN_NOW_EVENT,
+          payload: { jobId },
+          confirm: concrete
+            ? `Run job "${job.name}" now on ${concrete}?`
+            : `Job "${job.name}" uses a glob pattern with no single branch — run-now will be refused. Change the trigger to a concrete branch first.`,
+        },
+        "primary",
+      );
+    }
+    s.button(
+      "Delete job",
+      {
+        event: JOB_DELETE_EVENT,
+        payload: { jobId },
+        confirm: `Delete job "${job.name}"? This cannot be undone.`,
+      },
+      "danger",
+    );
+  });
+
+  page.section("Runs", (s) => {
+    if (runs.length === 0) {
+      s.emptyState("No runs for this job yet", "Runs appear here once this job triggers.");
+      return;
+    }
+    s.table(
+      ["Run", "Branch", "Head", "Status", "Updated"],
+      runs.map((r) => ({
+        cells: [r.id, r.branch, shortSha(r.headSha), statusCell(r.status), shortTime(r.updatedAt)],
+        href: projectId ? projectRunHref(projectId, r.id) : globalRunHref(r.id),
+      })),
+    );
+  });
+
+  return page.build();
+}
+
+/**
+ * Build the `?view=audit` / `?view=audit:<day>` surface: the day's entries
+ * newest-first (When / Actor / Kind / Job / Run / Detail), each entry with a
+ * runId deep-linking its `?run=` detail via the row href; plus prev/next day
+ * nav restricted to days that actually have buckets. An empty day renders an
+ * explicit empty state. `daysWithBuckets` is newest-first (from `listDays`).
+ * Pure.
+ */
+export function buildAuditView(
+  day: string,
+  bucket: AuditBucket,
+  daysWithBuckets: readonly string[],
+  projectId?: string,
+): HubPageTree {
+  const page = new PageBuilder(`ez-code-factory — audit ${day}`);
+
+  // Day nav. `daysWithBuckets` is newest-first, so a NEWER day sits at a LOWER
+  // index and an OLDER day at a higher one. When `day` itself has no bucket
+  // (indexOf === -1) we still offer the newest existing day as "newer".
+  const idx = daysWithBuckets.indexOf(day);
+  const newerDay =
+    idx > 0 ? daysWithBuckets[idx - 1] : idx === -1 ? daysWithBuckets[0] : undefined;
+  const olderDay =
+    idx >= 0 && idx < daysWithBuckets.length - 1 ? daysWithBuckets[idx + 1] : undefined;
+
+  page.heading(2, `Audit — ${day}`);
+  if (olderDay) page.link(`← ${olderDay}`, viewHref(projectId, `audit:${olderDay}`));
+  if (newerDay) page.link(`${newerDay} →`, viewHref(projectId, `audit:${newerDay}`));
+  page.link("Config", viewHref(projectId, "config"));
+
+  // The bucket stores oldest-first with an optional leading truncation marker;
+  // render the real entries NEWEST-first.
+  const marker = bucket.find(isTruncationMarker) as AuditTruncationMarker | undefined;
+  const real = bucket.filter((e): e is AuditEntry => !isTruncationMarker(e));
+  if (real.length === 0) {
+    page.emptyState("No audit entries for this day", "Nothing was recorded on this UTC day.");
+    return page.build();
+  }
+  if (marker) {
+    page.markdown(
+      `${marker.dropped} older entr${marker.dropped === 1 ? "y was" : "ies were"} dropped (bucket cap).`,
+      "muted",
+    );
+  }
+  const newestFirst = [...real].reverse();
+  page.table(
+    ["When", "Actor", "Kind", "Job", "Run", "Detail"],
+    newestFirst.map((e) => ({
+      cells: [
+        shortTime(e.at),
+        truncActor(e.actor),
+        e.kind,
+        e.jobId ?? "—",
+        e.runId ?? "—",
+        auditDetailText(e.detail),
+      ],
+      // The run cell links to the run detail via the ROW href (a page-schema row
+      // carries one href) — project-scoped on the project hub, global otherwise.
+      ...(e.runId ? { href: projectId ? projectRunHref(projectId, e.runId) : globalRunHref(e.runId) } : {}),
+    })),
+  );
+  return page.build();
+}
+
+/** Build the empty-state tree for an unknown/malformed `?view=` value — never a
+ *  throw (the host clamps the raw string; anything unrecognized lands here). */
+export function buildUnknownView(view: string): HubPageTree {
+  return new PageBuilder("ez-code-factory")
+    .emptyState(
+      "Unknown view",
+      `No such view: “${view.slice(0, 80)}”. Try the config, a job, or the audit log.`,
+    )
+    .build();
 }

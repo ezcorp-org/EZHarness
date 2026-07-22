@@ -2,17 +2,26 @@ import { test, expect, describe } from "bun:test";
 import {
   ACTION_BADGE,
   appendRunDetail,
+  buildAuditView,
+  buildConfigView,
   buildDashboard,
   buildHome,
+  buildJobView,
   buildProjectDashboard,
   buildRunDetail,
   buildRunDetailView,
   buildStepDetailView,
+  buildUnknownView,
   effectiveRunStatus,
   FULL_PAGE_ID,
+  JOB_SAVE_EVENT,
+  JOB_TOGGLE_EVENT,
+  JOB_DELETE_EVENT,
+  RUN_NOW_EVENT,
   normalizeRespondPayload,
   parkedStep,
   parseRunIdPayload,
+  parseView,
   projectIdForRun,
   runsForProject,
   SEVERITY_ICON,
@@ -31,6 +40,10 @@ import { emptyFindings } from "./runs";
 import type { Finding, Findings, RunRecord, RunStatus, StepResultRecord, StepRoundRecord, StepStatus } from "./runs";
 import { snapshotRepoConfig, emptyOutcomeFlags, type StepIORecord } from "./step-io";
 import { emptyRepoConfig } from "./repo-config";
+import { buildDefaultJob, type Job } from "./jobs";
+import { defaultPipelineConfig } from "./config";
+import type { AuditBucket } from "./audit";
+import type { SweepHeartbeat } from "./sweep";
 
 function run(over: Partial<RunRecord> = {}): RunRecord {
   return {
@@ -1400,5 +1413,215 @@ describe("appendRunDetail inline step-table hrefs", () => {
     expect(stepRows(page)[0]!.href).toBe(
       `/hub/${encodeURIComponent(FULL_PAGE_ID)}?run=run_t&step=intent`,
     );
+  });
+});
+
+// ── Control-plane views (`?view=` — L6) ──────────────────────────────
+
+function jobFix(over: Partial<Job> = {}): Job {
+  return { ...buildDefaultJob("2026-07-15T00:00:00.000Z"), id: "job_1", name: "Nightly", ...over };
+}
+function sweepHb(over: Partial<SweepHeartbeat> = {}): SweepHeartbeat {
+  return {
+    ranAt: "2026-07-21T00:00:00.000Z",
+    summary: { scanned: 3, advanced: 1, stillParked: 1, skipped: 0, stalled: 0 },
+    ...over,
+  };
+}
+/** Every table node reachable in a tree (recursing sections). */
+function tablesDeep(tree: { nodes: unknown[] }) {
+  return allNodes(tree.nodes).filter((n) => n.type === "table") as Array<{
+    columns: string[];
+    rows: Array<{ cells: unknown[]; href?: string; action?: { event: string; payload?: Record<string, unknown> } }>;
+  }>;
+}
+/** Every button node reachable in a tree (recursing sections). */
+function buttonsDeep(tree: { nodes: unknown[] }) {
+  return allNodes(tree.nodes).filter((n) => n.type === "button") as Array<{
+    label: string;
+    action: { event: string; payload?: Record<string, unknown>; prompt?: { field?: string }; confirm?: string };
+  }>;
+}
+
+describe("parseView", () => {
+  test("config / audit / audit:<day> / job:<id>", () => {
+    expect(parseView("config")).toEqual({ kind: "config" });
+    expect(parseView("audit")).toEqual({ kind: "audit" });
+    expect(parseView("audit:2026-07-21")).toEqual({ kind: "audit", day: "2026-07-21" });
+    expect(parseView("job:abc-123")).toEqual({ kind: "job", jobId: "abc-123" });
+  });
+  test("malformed compound values → unknown (never a throw)", () => {
+    expect(parseView("audit:notaday")).toEqual({ kind: "unknown" });
+    expect(parseView("audit:2026-7-1")).toEqual({ kind: "unknown" });
+    expect(parseView("job:")).toEqual({ kind: "unknown" });
+    expect(parseView("bogus")).toEqual({ kind: "unknown" });
+    expect(parseView("")).toEqual({ kind: "unknown" });
+  });
+});
+
+describe("buildConfigView", () => {
+  const cfg = defaultPipelineConfig();
+  test("renders the pipeline, jobs table (row → ?view=job:<id>), and a New job button", () => {
+    const jobs = [jobFix({ id: "j1", name: "Main", trigger: { kind: "push", branchPattern: "*" }, skipSteps: ["test"] })];
+    const runs = [run({ id: "run_1", jobId: "j1", status: "completed" })];
+    const tree = buildConfigView({ jobs, runs, config: cfg, sweepHeartbeat: sweepHb(), nowMs: Date.parse("2026-07-21T00:05:00.000Z"), extensionId: "ez-code-factory", projectId: "proj-1" });
+    expect(tree.title).toBe("ez-code-factory — config");
+    // Pipeline table lists every step; the skip overlay names the skipping job.
+    const pipeline = tablesDeep(tree).find((t) => t.columns[0] === "Step")!;
+    expect(pipeline.rows).toHaveLength(9);
+    const testRow = pipeline.rows.find((r) => r.cells[0] === "test")!;
+    expect(testRow.cells[1]).toBe("Main");
+    // Jobs table row links to the job editor on the SAME (project) hub.
+    const jobsTable = tablesDeep(tree).find((t) => t.columns[0] === "Name")!;
+    expect(jobsTable.rows[0]!.href).toBe(`/project/proj-1/hub/${encodeURIComponent(FULL_PAGE_ID)}?view=${encodeURIComponent("job:j1")}`);
+    // The last-run cell references the run id (text, not a separate link).
+    expect(String(jobsTable.rows[0]!.cells[3])).toContain("run_1");
+    // New job button dispatches job-save with a name prompt.
+    const newBtn = buttonsDeep(tree).find((b) => b.label === "New job")!;
+    expect(newBtn.action.event).toBe(JOB_SAVE_EVENT);
+    expect(newBtn.action.prompt?.field).toBe("name");
+    // Platform-settings pointer.
+    const link = allNodes(tree.nodes).find((n) => n.type === "link" && (n.href as string) === "/extensions/ez-code-factory");
+    expect(link).toBeDefined();
+  });
+
+  test("jobs table row uses the GLOBAL-hub href when no projectId (both-hubs precedent)", () => {
+    const jobs = [jobFix({ id: "j1" })];
+    const tree = buildConfigView({ jobs, runs: [], config: cfg, sweepHeartbeat: sweepHb(), nowMs: Date.now(), extensionId: "ez-code-factory" });
+    const jobsTable = tablesDeep(tree).find((t) => t.columns[0] === "Name")!;
+    expect(jobsTable.rows[0]!.href).toBe(`/hub/${encodeURIComponent(FULL_PAGE_ID)}?view=${encodeURIComponent("job:j1")}`);
+  });
+
+  test("sweep-health: a null heartbeat renders the WARNING-toned 'never run' cell", () => {
+    const tree = buildConfigView({ jobs: [jobFix()], runs: [], config: cfg, sweepHeartbeat: null, nowMs: Date.now(), extensionId: "ez-code-factory" });
+    const cell = tablesDeep(tree)
+      .flatMap((t) => t.rows)
+      .flatMap((r) => r.cells)
+      .find((c) => c && typeof c === "object" && (c as { text?: string }).text?.includes("sweep has never run")) as { text: string; tone: string } | undefined;
+    expect(cell?.tone).toBe("warning");
+    expect(cell?.text).toContain("sweep has never run");
+  });
+
+  test("sweep-health: a present heartbeat renders its age + summary stats", () => {
+    const tree = buildConfigView({ jobs: [jobFix()], runs: [], config: cfg, sweepHeartbeat: sweepHb(), nowMs: Date.parse("2026-07-21T00:10:00.000Z"), extensionId: "ez-code-factory" });
+    const stats = allNodes(tree.nodes).find((n) => n.type === "stats" && (n.items as Array<{ label: string }>).some((i) => i.label === "Last sweep")) as { items: Array<{ label: string; value: string }> };
+    expect(stats.items.find((i) => i.label === "Last sweep")!.value).toBe("10 min ago");
+    expect(stats.items.find((i) => i.label === "Scanned")!.value).toBe("3");
+  });
+});
+
+describe("buildJobView", () => {
+  test("unknown job id → an honest not-found empty state (never a throw)", () => {
+    const tree = buildJobView("ghost", null, []);
+    expect(allNodes(tree.nodes).some((n) => n.type === "empty-state" && String(n.title).includes("not found"))).toBe(true);
+  });
+
+  test("renders the definition, the full action set, and its runs (row → ?run=)", () => {
+    const job = jobFix({ id: "j1", name: "Nightly", enabled: true, trigger: { kind: "schedule", every: "daily", branch: "main" }, skipSteps: ["test"] });
+    const runs = [run({ id: "run_9", jobId: "j1", status: "completed" })];
+    const tree = buildJobView("j1", job, runs, "proj-1");
+    const btns = buttonsDeep(tree);
+    const events = btns.map((b) => b.action.event);
+    // Every declared action button is present (enabled job → Run now shown).
+    expect(events.filter((e) => e === JOB_SAVE_EVENT).length).toBe(4); // name/branch/trigger/skip
+    expect(events).toContain(JOB_TOGGLE_EVENT);
+    expect(events).toContain(RUN_NOW_EVENT);
+    expect(events).toContain(JOB_DELETE_EVENT);
+    // Delete carries a confirm.
+    expect(btns.find((b) => b.action.event === JOB_DELETE_EVENT)!.action.confirm).toContain("Delete");
+    // The runs table deep-links each run on the project hub.
+    const runsTable = tablesDeep(tree).find((t) => t.columns[0] === "Run")!;
+    expect(runsTable.rows[0]!.href).toBe(`/project/proj-1/hub/${encodeURIComponent(FULL_PAGE_ID)}?run=run_9`);
+  });
+
+  test("a DISABLED job hides the Run now button (run-now requires an enabled job)", () => {
+    const tree = buildJobView("j1", jobFix({ id: "j1", enabled: false }), []);
+    expect(buttonsDeep(tree).some((b) => b.action.event === RUN_NOW_EVENT)).toBe(false);
+  });
+
+  test("global-hub run href when no projectId", () => {
+    const tree = buildJobView("j1", jobFix({ id: "j1", enabled: true }), [run({ id: "run_9", jobId: "j1" })]);
+    const runsTable = tablesDeep(tree).find((t) => t.columns[0] === "Run")!;
+    expect(runsTable.rows[0]!.href).toBe(`/hub/${encodeURIComponent(FULL_PAGE_ID)}?run=run_9`);
+  });
+});
+
+describe("buildAuditView", () => {
+  const bucket: AuditBucket = [
+    { at: "2026-07-21T08:00:00.000Z", actor: "system", kind: "sweep", detail: { scanned: 2 } },
+    { at: "2026-07-21T09:00:00.000Z", actor: "1a2b3c4d5e6f-user", kind: "respond", runId: "run_5", step: "review", detail: { action: "approve", findingIds: ["f1"] } },
+  ];
+
+  test("renders entries NEWEST-first with a truncated actor; the run row deep-links ?run=", () => {
+    const tree = buildAuditView("2026-07-21", bucket, ["2026-07-21"], "proj-1");
+    const table = tablesDeep(tree).find((t) => t.columns[0] === "When")!;
+    // Newest first: the respond entry (09:00) leads.
+    expect(table.rows[0]!.cells[2]).toBe("respond");
+    // Actor truncated to `user 1a2b3c…` (never the full id).
+    expect(table.rows[0]!.cells[1]).toBe("user 1a2b3c…");
+    expect(String(table.rows[0]!.cells[1])).not.toContain("5e6f");
+    // The run row deep-links its detail on the project hub.
+    expect(table.rows[0]!.href).toBe(`/project/proj-1/hub/${encodeURIComponent(FULL_PAGE_ID)}?run=run_5`);
+    // A system entry with no runId has no row href.
+    expect(table.rows[1]!.cells[1]).toBe("system");
+    expect(table.rows[1]!.href).toBeUndefined();
+  });
+
+  test("day nav links to older/newer days that HAVE buckets, and a Config link", () => {
+    const days = ["2026-07-22", "2026-07-21", "2026-07-20"];
+    const tree = buildAuditView("2026-07-21", bucket, days, undefined);
+    const links = allNodes(tree.nodes).filter((n) => n.type === "link") as Array<{ label: string; href: string }>;
+    expect(links.some((l) => l.href.includes(encodeURIComponent("audit:2026-07-20")))).toBe(true); // older
+    expect(links.some((l) => l.href.includes(encodeURIComponent("audit:2026-07-22")))).toBe(true); // newer
+    expect(links.some((l) => l.href.includes(encodeURIComponent("config")))).toBe(true);
+  });
+
+  test("an empty day renders an explicit empty state (no table)", () => {
+    const tree = buildAuditView("2026-07-19", [], ["2026-07-21"], undefined);
+    expect(allNodes(tree.nodes).some((n) => n.type === "empty-state")).toBe(true);
+    expect(tablesDeep(tree).some((t) => t.columns[0] === "When")).toBe(false);
+  });
+
+  test("a leading truncation marker renders a muted 'dropped' note but is not an entry row", () => {
+    const withMarker: AuditBucket = [
+      { kind: "truncated", dropped: 7, at: "2026-07-21T00:00:00.000Z" },
+      { at: "2026-07-21T10:00:00.000Z", actor: "system", kind: "sweep" },
+    ];
+    const tree = buildAuditView("2026-07-21", withMarker, ["2026-07-21"], undefined);
+    const table = tablesDeep(tree).find((t) => t.columns[0] === "When")!;
+    expect(table.rows).toHaveLength(1); // only the real entry
+    expect(allNodes(tree.nodes).some((n) => n.type === "text" && String(n.content).includes("7 older"))).toBe(true);
+  });
+});
+
+describe("buildUnknownView", () => {
+  test("renders an empty state (never throws) and clamps the echoed value", () => {
+    const tree = buildUnknownView("x".repeat(300));
+    expect(allNodes(tree.nodes).some((n) => n.type === "empty-state")).toBe(true);
+  });
+});
+
+describe("XSS — view builders keep user/agent strings out of the markdown ({@html}) sink", () => {
+  const XSS = `<img src=x onerror="alert('ezcf_view_xss')">`;
+  function hits(tree: { nodes: unknown[] }) {
+    return allNodes(tree.nodes).filter((n) => ownContent(n).includes(XSS));
+  }
+  test("a job name / branch pattern / intent template never reach a markdown node", () => {
+    const job = jobFix({ id: "j1", name: XSS, trigger: { kind: "push", branchPattern: `feat/${XSS}` }, intentTemplate: XSS, enabled: true });
+    const cfg = buildConfigView({ jobs: [job], runs: [], config: defaultPipelineConfig(), sweepHeartbeat: null, nowMs: Date.now(), extensionId: "ez-code-factory" });
+    const jobView = buildJobView("j1", job, [run({ id: "run_x", jobId: "j1", branch: `feat/${XSS}` })]);
+    for (const tree of [cfg, jobView]) {
+      const hit = hits(tree);
+      expect(hit.length).toBeGreaterThan(0); // the payload IS rendered somewhere…
+      expect(hit.some((n) => n.type === "markdown")).toBe(false); // …never in a markdown sink
+      for (const n of hit) expect(ESCAPED_PAGE_TYPES.has(n.type as string)).toBe(true);
+    }
+  });
+  test("an audit entry's detail / actor / kind never reach a markdown node", () => {
+    const bucket: AuditBucket = [{ at: "2026-07-21T00:00:00.000Z", actor: XSS, kind: XSS, detail: { note: XSS } }];
+    const tree = buildAuditView("2026-07-21", bucket, ["2026-07-21"], undefined);
+    const hit = hits(tree);
+    expect(hit.some((n) => n.type === "markdown")).toBe(false);
+    for (const n of hit) expect(ESCAPED_PAGE_TYPES.has(n.type as string)).toBe(true);
   });
 });
