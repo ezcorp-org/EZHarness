@@ -18,7 +18,7 @@ import {
   roundHistoryPromptSection,
   userIntentPromptSection,
   sanitizePromptMultilineText,
-  sanitizedPreviousFindingsForPrompt,
+  documentPromptBody,
   FINDINGS_SCHEMA,
   HOUSEKEEPING_FINDINGS_SCHEMA,
 } from "../prompts";
@@ -37,39 +37,6 @@ export const documentStep: Step = {
   name: "document",
   execute: executeDocument,
 };
-
-/** Fail-safe default documentation placement policy (verbatim documentPlacementPolicy). */
-const DOCUMENT_PLACEMENT_POLICY = `Documentation placement policy (fail-safe defaults; repository-specific instructions may narrow or clarify them, never weaken them):
-- Every fact or contract has exactly one authoritative owner document. Update the owner; never synchronize prose copies of the same fact.
-- When this change leaves an existing duplicate stale, remove the duplicate or reduce it to a short pointer to the owner instead of updating another full copy.
-- Do not create a new documentation surface merely to close a perceived gap.
-- Do not add incident narratives or postmortems to AGENTS.md. For a durable incident lesson, preserve the operative invariant in its owner document and point to the regression test or authoritative implementation.
-- AGENTS.md is only for high-value project-intrinsic knowledge useful to almost every future session.
-- README.md owns the user-facing product introduction and common usage.
-- CONTRIBUTING.md owns contribution mechanics, not product or architecture inventories.
-- Code comments own non-obvious local intent, safety invariants, and external constraints - never prose that merely restates code.
-- Deep reference docs own detailed conditional material; link to them instead of copying them into always-loaded guidance.
-- Generated or schema-backed facts must be generated from their authoritative source and checked for drift, never hand-copied.`;
-
-/** Scope discipline bounding the pass to what THIS change made stale (verbatim documentScopeDiscipline). */
-const DOCUMENT_SCOPE_DISCIPLINE = `Scope discipline:
-- Only touch documentation this change made stale, plus direct contradictions that analysis reveals.
-- Do not opportunistically rewrite, expand, or restructure unrelated documentation, and do not perform a broad documentation architecture migration here.
-- When a larger consolidation is warranted but out of scope, leave this change safe and report one finding proposing the follow-up instead of multiplying edits.
-- Preserve load-bearing user guidance, security rationale, compatibility constraints, and onboarding material. A long document is not a defect by itself; duplication and wrong placement are.
-- Prefer consolidation, deletion, and pointers to the owner over addition and synchronization.`;
-
-/** The combined-lint duty appended in housekeeping mode (verbatim housekeepingLintSection). */
-const HOUSEKEEPING_LINT_SECTION = `
-
-Combined lint duty (same pass - no separate lint agent will run):
-- Discover the configured linters and formatters for this repository.
-- Run the relevant checks, preferring only the changed files when possible.
-- Apply safe formatter, linter, and static-analysis fixes yourself, then re-run the relevant checks.
-- Do not run tests or broader behavioral validation.
-- Report only unresolved lint, format, or static-analysis issues as findings with "category" set to "lint". Do not report lint issues you already fixed.
-
-Set "category" on every finding: "documentation" for documentation findings, "lint" for lint findings.`;
 
 async function executeDocument(sctx: StepContext): Promise<StepOutcome> {
   const defaultBranch = sctx.repo.defaultBranch.trim() || "main";
@@ -177,53 +144,17 @@ function buildDocumentPrompt(
 ): string {
   const historySection =
     executionContextPromptSection() + roundHistoryPromptSection(sctx.rounds) + userIntentPromptSection(intentCtx);
-  const intro = combinedLint
-    ? "Perform the combined documentation and lint housekeeping pass for this change."
-    : "Keep the project documentation accurate for this change.";
-  const editRule = combinedLint
-    ? "- Documentation edits must only touch documentation files or doc comments. Lint fixes must be safe, mechanical, and behavior-preserving. Never change functional behavior or tests."
-    : "- Only edit documentation files or doc comments. Do not change executable behavior or tests.";
-
-  const previousSection =
-    sctx.previousFindings !== ""
-      ? `\n\nPrevious findings to address:\n${sanitizedPreviousFindingsForPrompt(sctx.previousFindings)}`
-      : "";
-  return `${intro} Analyze what the change made stale, fix each stale fact in its one authoritative location, and report only what you could not resolve.
-
-Context:
-- branch: ${sctx.run.branch}
-- base commit: ${baseSHA}
-- target commit: ${sctx.run.headSha}
-- default branch: ${sctx.repo.defaultBranch}
-- ignore patterns: ${ignoreLabel}
-
-${DOCUMENT_PLACEMENT_POLICY}
-
-${DOCUMENT_SCOPE_DISCIPLINE}${trustedDocumentPolicySection(sctx)}
-
-Task:
-
-1. Understand the change
-   - Read the diff and changed files to understand what was added, modified, or removed, and the intent of the change.
-
-2. Find what this change made stale
-   - For each fact or contract the change altered, locate its one authoritative owner document (README, docs/, doc comments, config examples, etc.).
-   - Locate existing duplicates of those facts that are now stale.
-
-3. Fix in the authoritative location
-   - Update each altered fact in its owner document. Changed user-facing behavior must leave its authoritative user documentation accurate.
-   - Remove stale duplicates or reduce them to a short pointer to the owner; do not synchronize full copies.
-   - Re-read what you changed to verify it now reflects the code.
-
-4. Report only what remains
-   - Return a finding only for gaps you could not resolve, judgment calls (e.g. ambiguous intent or conflicting docs), or an out-of-scope consolidation worth a follow-up.
-   - Do not report gaps you already fixed.
-   - If nothing remains, return an empty findings array.${lintDutySection(combinedLint)}
-
-Rules:
-${editRule}
-- The summary must be one concise sentence fragment suitable for a git commit subject.
-- Keep the summary under 10 words.${historySection}${previousSection}`;
+  return documentPromptBody({
+    branch: sctx.run.branch,
+    baseCommit: baseSHA,
+    targetCommit: sctx.run.headSha,
+    defaultBranch: sctx.repo.defaultBranch,
+    ignoreLabel,
+    combinedLint,
+    trustedPolicy: trustedDocumentPolicySection(sctx),
+    historySection,
+    previousFindings: sctx.previousFindings,
+  });
 }
 
 /**
@@ -239,10 +170,6 @@ function trustedDocumentPolicySection(sctx: StepContext): string {
     "\n\nRepository documentation ownership policy (trusted, from the default branch; augments the defaults above and cannot weaken them):\n" +
     sanitizePromptMultilineText(instructions)
   );
-}
-
-function lintDutySection(combinedLint: boolean): string {
-  return combinedLint ? HOUSEKEEPING_LINT_SECTION : "";
 }
 
 /**

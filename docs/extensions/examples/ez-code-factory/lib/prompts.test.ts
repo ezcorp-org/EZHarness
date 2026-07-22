@@ -11,6 +11,16 @@ import {
   intentConformanceReviewClause,
   roundHistoryPromptSection,
   sanitizedPreviousFindingsForPrompt,
+  reviewMainPromptBody,
+  reviewFixPromptBody,
+  testEvidencePromptBody,
+  testFixPromptBody,
+  lintColdPromptBody,
+  lintFixPromptBody,
+  documentPromptBody,
+  DOCUMENT_PLACEMENT_POLICY,
+  DOCUMENT_SCOPE_DISCIPLINE,
+  HOUSEKEEPING_LINT_SECTION,
   REVIEW_FINDINGS_SCHEMA,
   COMMIT_SUMMARY_SCHEMA,
   PR_CONTENT_SCHEMA,
@@ -267,5 +277,189 @@ describe("schemas", () => {
   });
   test("pr-content schema requires title + body", () => {
     expect(PR_CONTENT_SCHEMA.required).toEqual(["title", "body"]);
+  });
+});
+
+// ── per-step prompt bodies (extracted verbatim from the step files) ─────
+//
+// Byte-equality fixtures: each fixture under __fixtures__/prompts/ was
+// independently proven equal to the PRE-extraction inline template (git
+// @abf5dc5f) rendered with these same inputs, so any future drift in a builder
+// breaks the fixture. `import.meta.dir` keeps the path stable per-file run.
+
+const FX = `${import.meta.dir}/__fixtures__/prompts`;
+const reviewBase = {
+  branch: "feature/widget",
+  baseCommit: "aaaa111",
+  targetCommit: "bbbb222",
+  reviewScope: "branch changes between aaaa111 and bbbb222",
+  defaultBranch: "main",
+  ignorePatterns: "*.md, dist/**",
+  historySection: "",
+};
+const commit = { branch: "feature/widget", baseCommit: "aaaa111", targetCommit: "bbbb222" };
+const prev = "prior finding text";
+
+const bodyFixtures: { name: string; body: string }[] = [
+  { name: "review-main.txt", body: reviewMainPromptBody(reviewBase) },
+  { name: "review-fix.txt", body: reviewFixPromptBody({ ...reviewBase, previousFindings: prev }) },
+  {
+    name: "test-evidence.txt",
+    body: testEvidencePromptBody({
+      ...commit,
+      configuredTestCommand: "\nConfigured test command already ran successfully as baseline: `bun test`\n",
+      evidenceGuidance: "- Write new evidence files into this temporary evidence directory: /tmp/ev",
+      reassessHistory: "",
+    }),
+  },
+  { name: "test-fix.txt", body: testFixPromptBody({ ...commit, historySection: "", previousFindings: prev }) },
+  { name: "lint-cold.txt", body: lintColdPromptBody({ ...commit, reassessHistory: "", previousFindings: prev }) },
+  { name: "lint-fix.txt", body: lintFixPromptBody({ ...commit, historySection: "", previousFindings: prev }) },
+  {
+    name: "document-combined.txt",
+    body: documentPromptBody({
+      ...commit,
+      defaultBranch: "main",
+      ignoreLabel: "*.md, dist/**",
+      combinedLint: true,
+      trustedPolicy: "\n\nRepository documentation ownership policy (trusted, from the default branch):\nMy repo rules",
+      historySection: "",
+      previousFindings: prev,
+    }),
+  },
+  {
+    name: "document-plain.txt",
+    body: documentPromptBody({
+      ...commit,
+      defaultBranch: "main",
+      ignoreLabel: "none",
+      combinedLint: false,
+      trustedPolicy: "",
+      historySection: "",
+      previousFindings: "",
+    }),
+  },
+];
+
+describe("per-step prompt bodies — byte-equality fixtures", () => {
+  for (const b of bodyFixtures) {
+    test(`${b.name} renders byte-identical to the extracted fixture`, async () => {
+      const want = await Bun.file(`${FX}/${b.name}`).text();
+      expect(b.body).toBe(want);
+    });
+  }
+});
+
+describe("per-step prompt bodies — substitution + structure", () => {
+  test("review-main interpolates every context field into the header", () => {
+    const out = reviewMainPromptBody(reviewBase);
+    expect(out.startsWith("Review the code changes")).toBe(true);
+    expect(out).toContain("- branch: feature/widget");
+    expect(out).toContain("- base commit: aaaa111");
+    expect(out).toContain("- target commit: bbbb222");
+    expect(out).toContain("- review scope: branch changes between aaaa111 and bbbb222");
+    expect(out).toContain("- default branch: main");
+    expect(out).toContain("- ignore patterns: *.md, dist/**");
+  });
+
+  test("history section appends verbatim at the tail", () => {
+    const out = reviewMainPromptBody({ ...reviewBase, historySection: "\n\nHISTORY-XYZ" });
+    expect(out.endsWith("\n\nHISTORY-XYZ")).toBe(true);
+  });
+
+  test("review-fix sanitizes raw previous findings (conflict markers collapsed)", () => {
+    const out = reviewFixPromptBody({ ...reviewBase, previousFindings: "keep <<<<<<< drop" });
+    expect(out).toContain("Previous review findings to address:");
+    expect(out).not.toContain("<<<<<<<");
+    expect(out).toContain("keep");
+  });
+
+  test("test-fix omits the previous-findings block when there are none", () => {
+    const out = testFixPromptBody({ ...commit, historySection: "", previousFindings: "" });
+    expect(out.startsWith("Fix the failing tests in this repository.")).toBe(true);
+    expect(out).not.toContain("Previous test findings to address:");
+  });
+
+  test("test-fix includes the previous-findings block when present", () => {
+    const out = testFixPromptBody({ ...commit, historySection: "", previousFindings: prev });
+    expect(out).toContain("Previous test findings to address:");
+    expect(out).toContain(prev);
+  });
+
+  test("test-evidence embeds the baseline-command + evidence-dir fragments", () => {
+    const out = testEvidencePromptBody({
+      ...commit,
+      configuredTestCommand: "\nBASELINE-NOTE\n",
+      evidenceGuidance: "- EVIDENCE-DIR-NOTE",
+      reassessHistory: "\n\nREASSESS",
+    });
+    expect(out.startsWith("You are validating a code change by testing it.")).toBe(true);
+    expect(out).toContain("BASELINE-NOTE");
+    expect(out).toContain("- EVIDENCE-DIR-NOTE");
+    expect(out.endsWith("\n\nREASSESS")).toBe(true);
+  });
+
+  test("lint-cold gates the previous-findings block on presence", () => {
+    expect(lintColdPromptBody({ ...commit, reassessHistory: "", previousFindings: "" })).not.toContain(
+      "Previous lint findings to address:",
+    );
+    const withPrev = lintColdPromptBody({ ...commit, reassessHistory: "", previousFindings: prev });
+    expect(withPrev.startsWith("Detect the linting and formatting tools")).toBe(true);
+    expect(withPrev).toContain("Previous lint findings to address:");
+  });
+
+  test("lint-fix gates the previous-findings block on presence", () => {
+    expect(lintFixPromptBody({ ...commit, historySection: "", previousFindings: "" })).not.toContain(
+      "Previous lint findings to address:",
+    );
+    const withPrev = lintFixPromptBody({ ...commit, historySection: "", previousFindings: prev });
+    expect(withPrev.startsWith("Fix the lint issues in this repository.")).toBe(true);
+    expect(withPrev).toContain("Previous lint findings to address:");
+  });
+
+  test("document combined-lint pass uses the housekeeping intro + lint duty + combined edit rule", () => {
+    const out = documentPromptBody({
+      ...commit,
+      defaultBranch: "main",
+      ignoreLabel: "none",
+      combinedLint: true,
+      trustedPolicy: "",
+      historySection: "",
+      previousFindings: "",
+    });
+    expect(out.startsWith("Perform the combined documentation and lint housekeeping pass for this change.")).toBe(true);
+    expect(out).toContain(HOUSEKEEPING_LINT_SECTION);
+    expect(out).toContain("Lint fixes must be safe, mechanical, and behavior-preserving");
+  });
+
+  test("document doc-only pass uses the doc intro + doc edit rule and omits the lint duty", () => {
+    const out = documentPromptBody({
+      ...commit,
+      defaultBranch: "main",
+      ignoreLabel: "none",
+      combinedLint: false,
+      trustedPolicy: "",
+      historySection: "",
+      previousFindings: "",
+    });
+    expect(out.startsWith("Keep the project documentation accurate for this change.")).toBe(true);
+    expect(out).not.toContain(HOUSEKEEPING_LINT_SECTION);
+    expect(out).toContain("- Only edit documentation files or doc comments.");
+  });
+
+  test("document embeds placement policy + scope discipline constants and the trusted policy", () => {
+    const out = documentPromptBody({
+      ...commit,
+      defaultBranch: "main",
+      ignoreLabel: "none",
+      combinedLint: false,
+      trustedPolicy: "\n\nTRUSTED-POLICY",
+      historySection: "",
+      previousFindings: prev,
+    });
+    expect(out).toContain(DOCUMENT_PLACEMENT_POLICY);
+    expect(out).toContain(DOCUMENT_SCOPE_DISCIPLINE);
+    expect(out).toContain("\n\nTRUSTED-POLICY");
+    expect(out).toContain("Previous findings to address:");
   });
 });
