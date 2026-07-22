@@ -1462,7 +1462,7 @@ export function buildJobView(
   // slug-legal snake_case ON PURPOSE: a camelCase key is silently rewritten
   // to "value" by the host validator (page-schema.ts) — for a multi-field
   // submit that would DROP the field outright (no fall-back). The merged
-  // payload (7 fields, worst case ≈ 2.5 KB) fits the events route's 8 KB
+  // payload (9 fields, worst case ≈ 3 KB) fits the events route's 8 KB
   // hub-action cap.
   page.section("Edit", (s) => {
     // The trigger edits as THREE components (kind select / branch text /
