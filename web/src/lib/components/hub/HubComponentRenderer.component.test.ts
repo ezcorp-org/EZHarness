@@ -298,6 +298,19 @@ describe("inline form node", () => {
 		expect(getByTestId("hub-inline-form-submit")).toHaveTextContent("Save job");
 	});
 
+	test("multiline without maxLength gets the textarea's 200 default clamp", () => {
+		const { getByTestId } = renderNodes([
+			{
+				type: "form",
+				action: { event: "ecf:job-save" },
+				fields: [{ field: "notes", label: "Notes", multiline: true }],
+			} as PageNode,
+		]);
+		const notes = getByTestId("hub-inline-field-notes") as HTMLTextAreaElement;
+		expect(notes.tagName).toBe("TEXTAREA");
+		expect(notes).toHaveAttribute("maxlength", "200");
+	});
+
 	test("submit merges EVERY field (typed, untouched, and cleared-to-empty) over the static payload", async () => {
 		const { getByTestId, onAction } = renderNodes([FORM_NODE]);
 		await fireEvent.input(getByTestId("hub-inline-field-name"), { target: { value: "Renamed" } });
@@ -407,6 +420,33 @@ describe("inline form select fields", () => {
 		});
 	});
 
+	test("a malformed nullish option value degrades to an empty-value option; a label-only re-pull updates the text in place", async () => {
+		// Defense-in-depth: the server validator drops non-string option
+		// values, but the renderer must still degrade (not crash) if one
+		// slips through — the compiled option binding falls back to "".
+		const mk = (label: string): PageNode =>
+			({
+				type: "form",
+				action: { event: "ecf:job-save" },
+				fields: [
+					{
+						field: "sel",
+						label: "Sel",
+						value: "a",
+						options: [{ value: "a" }, { value: undefined, label }],
+					},
+				],
+			}) as unknown as PageNode;
+		const { getByTestId, rerender } = renderNodes([mk("broken")]);
+		const select = getByTestId("hub-inline-field-sel") as HTMLSelectElement;
+		expect(select.options[1]!.value).toBe("");
+		expect(select.options[1]!.textContent).toBe("broken");
+		// Same prefill signature (no remount) + same option identity: only
+		// the label text updates; the option's value stays put.
+		await rerender({ nodes: [mk("fixed")] });
+		expect(select.options[1]!.textContent).toBe("fixed");
+		expect(select.options[1]!.value).toBe("");
+	});
 });
 
 describe("inline form dynamic visibility (visibleWhen)", () => {
