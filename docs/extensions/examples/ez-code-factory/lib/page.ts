@@ -47,6 +47,7 @@ import {
   jobConcreteBranch,
   MAX_BRANCH_PATTERN_LEN,
   MAX_JOB_NAME_LEN,
+  PROTECTED_STEPS,
   type Job,
   type JobTrigger,
 } from "./jobs";
@@ -1450,14 +1451,18 @@ export function buildJobView(
         submitLabel: "Save",
       },
     });
-    s.button("Edit skip-steps", {
+    // Skip-steps are edited per-step in the Flow section below (one-click
+    // toggles); the old comma-list button is gone (the `skip_steps` payload path
+    // stays supported for API compat — see applyJobEdit). The intent template is
+    // edited here (the handler already supports the `intent_template` field).
+    s.button("Edit intent template", {
       event: JOB_SAVE_EVENT,
       payload: { jobId },
       prompt: {
-        label: "Steps to skip (comma-separated; intent/rebase/review/push are protected)",
+        label: "Intent template for this job's runs (blank = none)",
         // Slug-legal snake_case (see page-schema.ts:44 — camelCase → dropped).
-        field: "skip_steps",
-        placeholder: "test, document, lint",
+        field: "intent_template",
+        placeholder: "e.g. Keep the public API backward compatible.",
         submitLabel: "Save",
       },
     });
@@ -1492,14 +1497,40 @@ export function buildJobView(
         "primary",
       );
     }
-    s.button(
-      "Delete job",
-      {
-        event: JOB_DELETE_EVENT,
-        payload: { jobId },
-        confirm: `Delete job "${job.name}"? This cannot be undone.`,
-      },
-      "danger",
+  });
+
+  // Flow — the fixed pipeline order as a table. Each non-protected step carries
+  // a one-click Skip↔Run toggle (row action + confirm, no prompt). Protected
+  // steps always run and carry NO action. Step ORDER is pipeline-fixed
+  // platform-wide (a muted line says so), so this section edits WHICH optional
+  // steps run, never their sequence.
+  page.section("Flow", (s) => {
+    const skipped = new Set<string>(job.skipSteps);
+    s.markdown(
+      "Step **order** is fixed by the pipeline and cannot be changed here, and the " +
+        "protected steps (intent, rebase, review, push) always run. Use the row toggles " +
+        "to skip or re-run the remaining steps for this job.",
+      "muted",
+    );
+    s.table(
+      ["Step", "State"],
+      PIPELINE_STEPS.map((step) => {
+        if (PROTECTED_STEPS.includes(step)) {
+          return { cells: [step, "protected — always runs"] };
+        }
+        const isSkipped = skipped.has(step);
+        const stateCell: PageCellInput = isSkipped ? { text: "skipped", tone: "warning" } : "runs";
+        return {
+          cells: [step, stateCell],
+          action: {
+            event: JOB_SAVE_EVENT,
+            payload: { jobId, toggle_step: step },
+            confirm: isSkipped
+              ? `Run the ${step} step again for job "${job.name}"?`
+              : `Skip the ${step} step for job "${job.name}"?`,
+          },
+        };
+      }),
     );
   });
 
@@ -1514,6 +1545,20 @@ export function buildJobView(
         cells: [r.id, r.branch, shortSha(r.headSha), statusCell(r.status), shortTime(r.updatedAt)],
         href: projectId ? projectRunHref(projectId, r.id) : globalRunHref(r.id),
       })),
+    );
+  });
+
+  // Danger zone — irreversible actions live under their own heading, away from
+  // the routine edit controls above.
+  page.section("Danger zone", (s) => {
+    s.button(
+      "Delete job",
+      {
+        event: JOB_DELETE_EVENT,
+        payload: { jobId },
+        confirm: `Delete job "${job.name}"? This cannot be undone.`,
+      },
+      "danger",
     );
   });
 

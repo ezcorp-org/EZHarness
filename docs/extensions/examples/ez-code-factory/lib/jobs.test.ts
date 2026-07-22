@@ -409,6 +409,39 @@ describe("applyJobEdit", () => {
       if (!validated.ok) expect(validated.error).toContain("protected");
     }
   });
+
+  test("toggle_step on a RUNNING step adds it to skipSteps (skip)", () => {
+    const r = applyJobEdit(base, { toggle_step: "document" }); // not currently skipped
+    expect(r.ok && r.draft.skipSteps).toEqual(["test", "document"]);
+  });
+
+  test("toggle_step on a SKIPPED step removes it from skipSteps (run again)", () => {
+    const r = applyJobEdit(base, { toggle_step: "test" }); // base skips test
+    expect(r.ok && r.draft.skipSteps).toEqual([]);
+  });
+
+  test("toggle_step does not mutate the base draft's skipSteps (defensive copy)", () => {
+    applyJobEdit(base, { toggle_step: "document" });
+    expect(base.skipSteps).toEqual(["test"]);
+  });
+
+  test("toggle_step of a PROTECTED step is a hard error (mutates nothing)", () => {
+    const r = applyJobEdit(base, { toggle_step: "review" });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain("protected step 'review'");
+  });
+
+  test("toggle_step of an UNKNOWN step is a hard error", () => {
+    const r = applyJobEdit(base, { toggle_step: "bogus" });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain("unknown step: bogus");
+  });
+
+  test("toggle_step of an EMPTY string is an unknown-step error", () => {
+    const r = applyJobEdit(base, { toggle_step: "   " });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain("unknown step: (empty)");
+  });
 });
 
 describe("hasJobEditField", () => {
@@ -417,6 +450,8 @@ describe("hasJobEditField", () => {
     expect(hasJobEditField({ jobId: "j1", branch_pattern: "main" })).toBe(true);
     expect(hasJobEditField({ jobId: "j1", skip_steps: "test" })).toBe(true);
     expect(hasJobEditField({ jobId: "j1", agent_name: "a" })).toBe(true);
+    expect(hasJobEditField({ jobId: "j1", intent_template: "t" })).toBe(true);
+    expect(hasJobEditField({ jobId: "j1", toggle_step: "test" })).toBe(true);
     expect(hasJobEditField({ jobId: "j1", trigger: "manual main" })).toBe(true);
   });
   test("FALSE for a camelCase field or the host's 'value' fallback (contract drift)", () => {

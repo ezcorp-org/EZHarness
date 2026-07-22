@@ -263,8 +263,12 @@ export function parseJobIdPayload(payload: unknown): string | null {
  * (e.g. `agentName`) would arrive under `payload.value` and this handler would
  * read `undefined`, silently CLEARING the field while still stamping updatedBy +
  * an audit line (a real live bug). These keys are lowercase snake_case ON
- * PURPOSE so the typed value survives the host validator intact. The builders
- * MUST emit exactly these as their prompt `field` values (pinned by a test).
+ * PURPOSE so the typed value survives the host validator intact. Every
+ * prompt-driven builder MUST emit exactly these as its prompt `field` value
+ * (pinned by a test). `toggle_step` is the ONE exception: it is a static
+ * row-action payload KEY (the flow-table Skip/Run toggle), never a prompt
+ * field, so the slug regex never touches it — it is listed here only so
+ * {@link hasJobEditField} recognizes a toggle-only save as a real edit.
  */
 export const JOB_EDIT_FIELDS = [
   "name",
@@ -273,6 +277,7 @@ export const JOB_EDIT_FIELDS = [
   "skip_steps",
   "agent_name",
   "intent_template",
+  "toggle_step",
 ] as const;
 
 /** True when a job-save payload carries at least one recognized editable field.
@@ -332,6 +337,22 @@ export function applyJobEdit(
     const trimmed = patch.intent_template.trim();
     if (trimmed) draft.intentTemplate = trimmed;
     else delete draft.intentTemplate;
+  }
+  // Flow-table Skip↔Run toggle: XOR a single step in/out of skipSteps. The step
+  // must be a known pipeline step and MUST NOT be protected (protected steps
+  // always run — the row carries no toggle). Both rejections are hard errors so
+  // the caller audits the refusal rather than silently mutating nothing.
+  if (typeof patch.toggle_step === "string") {
+    const step = patch.toggle_step.trim();
+    if (!PIPELINE_STEP_SET.has(step)) {
+      return { ok: false, error: `unknown step: ${step || "(empty)"}` };
+    }
+    if (PROTECTED_STEPS.includes(step as PipelineStep)) {
+      return { ok: false, error: `cannot skip protected step '${step}' — it always runs` };
+    }
+    const idx = draft.skipSteps.indexOf(step as PipelineStep);
+    if (idx >= 0) draft.skipSteps.splice(idx, 1);
+    else draft.skipSteps.push(step as PipelineStep);
   }
   return { ok: true, draft };
 }

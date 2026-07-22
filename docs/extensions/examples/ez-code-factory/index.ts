@@ -1205,21 +1205,47 @@ export async function handleJobSave(event: PageActionEvent): Promise<void> {
         }
       : { name: "", trigger: { kind: "push", branchPattern: "main" }, enabled: false, skipSteps: [] };
 
+    // A merge/validation failure (e.g. a protected or unknown flow-step toggle,
+    // or an unparseable trigger) is a logged no-op + refresh — and now ALSO an
+    // audited refusal, so a rejected toggle leaves the same trail as the
+    // no-recognized-field case above (id-only reason + the offending keys).
     const applied = applyJobEdit(base, payload);
     if (!applied.ok) {
       logLine(`ez-code-factory: job-save refused — ${applied.error}`);
+      await getAudit().append({
+        actor,
+        kind: "job-edit-rejected",
+        ...(existing ? { jobId: existing.id } : {}),
+        detail: { reason: applied.error, keys: Object.keys(payload).filter((k) => k !== "jobId") },
+      });
       await refreshDashboard();
       return;
     }
     const validated = validateJobDraft(applied.draft);
     if (!validated.ok) {
       logLine(`ez-code-factory: job-save refused — ${validated.error}`);
+      await getAudit().append({
+        actor,
+        kind: "job-edit-rejected",
+        ...(existing ? { jobId: existing.id } : {}),
+        detail: { reason: validated.error, keys: Object.keys(payload).filter((k) => k !== "jobId") },
+      });
       await refreshDashboard();
       return;
     }
 
     if (existing) {
-      const updated = await store.updateJob(existing.id, { ...validated.value, updatedBy: actor });
+      // Carry the OPTIONAL fields (agentName / intentTemplate) explicitly even
+      // when validateJobDraft omitted them: updateJob merges the patch onto the
+      // stored job, so an omitted key would leave the old value in place — a
+      // clear-to-empty edit (blank agent / intent template) must actually REMOVE
+      // the field, not silently keep it.
+      const updated = await store.updateJob(existing.id, {
+        ...validated.value,
+        agentName: validated.value.agentName,
+        intentTemplate: validated.value.intentTemplate,
+        updatedBy: actor,
+      });
       if (updated) {
         await getAudit().append({ actor, kind: "job-save", jobId: existing.id, detail: diffJob(existing, updated) });
       }

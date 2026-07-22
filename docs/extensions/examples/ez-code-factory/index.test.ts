@@ -2976,7 +2976,7 @@ describe("handleJobSave", () => {
     expect(audit!.actor).toBe("alice");
   });
 
-  test("a PROTECTED-step skip fails validation → no-op (job unchanged, NOT audited)", async () => {
+  test("a PROTECTED-step skip fails validation → no-op (job unchanged) + audited job-edit-rejected", async () => {
     const store = fakeJobStore([{ ...buildDefaultJob("t"), id: "j1", name: "Keep", skipSteps: [] }]);
     _setJobStoreForTests(store);
     _setInvalidatePageForTests(() => {});
@@ -2989,6 +2989,10 @@ describe("handleJobSave", () => {
     expect(cap.text()).toContain("protected");
     expect(store.jobs.get("j1")!.skipSteps).toEqual([]); // unchanged
     expect(auditEntries.some((e) => e.kind === "job-save")).toBe(false);
+    // A failed validateJobDraft now leaves a trail, mirroring the no-field case.
+    const rejected = auditEntries.find((e) => e.kind === "job-edit-rejected" && e.jobId === "j1");
+    expect(rejected).toBeDefined();
+    expect((rejected!.detail as { reason: string }).reason).toContain("protected");
   });
 
   test("a payload with NO recognized editable field is REJECTED — no mutation, audits job-edit-rejected", async () => {
@@ -3015,7 +3019,7 @@ describe("handleJobSave", () => {
     expect(cap.text()).toContain("no recognized editable field");
   });
 
-  test("an unparseable trigger spec is refused (no save, no audit)", async () => {
+  test("an unparseable trigger spec is refused (no save) + audited job-edit-rejected", async () => {
     const store = fakeJobStore([{ ...buildDefaultJob("t"), id: "j1", name: "Keep" }]);
     _setJobStoreForTests(store);
     _setInvalidatePageForTests(() => {});
@@ -3027,6 +3031,67 @@ describe("handleJobSave", () => {
     }
     expect(cap.text()).toContain("trigger must be like");
     expect(auditEntries.some((e) => e.kind === "job-save")).toBe(false);
+    // A failed applyJobEdit now audits the refusal (reason + offending keys).
+    const rejected = auditEntries.find((e) => e.kind === "job-edit-rejected" && e.jobId === "j1");
+    expect(rejected).toBeDefined();
+    expect((rejected!.detail as { reason: string; keys: string[] }).keys).toEqual(["trigger"]);
+  });
+
+  test("toggle_step round-trips: skip a running step, then run it again (audits skipSteps diff)", async () => {
+    const store = fakeJobStore([{ ...buildDefaultJob("t"), id: "j1", name: "N", skipSteps: [] }]);
+    _setJobStoreForTests(store);
+    _setInvalidatePageForTests(() => {});
+    // Skip `test`.
+    await handleJobSave(ev({ jobId: "j1", toggle_step: "test" }));
+    expect(store.jobs.get("j1")!.skipSteps).toEqual(["test"]);
+    const skipAudit = auditEntries.find((e) => e.kind === "job-save" && e.jobId === "j1");
+    expect((skipAudit!.detail as { skipSteps: { from: unknown; to: unknown } }).skipSteps).toEqual({ from: [], to: ["test"] });
+    // Toggle again → runs again.
+    await handleJobSave(ev({ jobId: "j1", toggle_step: "test" }));
+    expect(store.jobs.get("j1")!.skipSteps).toEqual([]);
+  });
+
+  test("a PROTECTED-step toggle is refused (no mutation) + audited job-edit-rejected", async () => {
+    const store = fakeJobStore([{ ...buildDefaultJob("t"), id: "j1", name: "Keep", skipSteps: [] }]);
+    _setJobStoreForTests(store);
+    _setInvalidatePageForTests(() => {});
+    const cap = captureStderr();
+    try {
+      await handleJobSave(ev({ jobId: "j1", toggle_step: "review" }));
+    } finally {
+      cap.restore();
+    }
+    expect(store.jobs.get("j1")!.skipSteps).toEqual([]); // unchanged
+    expect(auditEntries.some((e) => e.kind === "job-save")).toBe(false);
+    const rejected = auditEntries.find((e) => e.kind === "job-edit-rejected" && e.jobId === "j1");
+    expect(rejected).toBeDefined();
+    expect((rejected!.detail as { reason: string }).reason).toContain("protected step 'review'");
+  });
+
+  test("an UNKNOWN-step toggle is refused + audited job-edit-rejected", async () => {
+    const store = fakeJobStore([{ ...buildDefaultJob("t"), id: "j1", name: "Keep", skipSteps: [] }]);
+    _setJobStoreForTests(store);
+    _setInvalidatePageForTests(() => {});
+    const cap = captureStderr();
+    try {
+      await handleJobSave(ev({ jobId: "j1", toggle_step: "bogus" }));
+    } finally {
+      cap.restore();
+    }
+    expect(auditEntries.some((e) => e.kind === "job-save")).toBe(false);
+    const rejected = auditEntries.find((e) => e.kind === "job-edit-rejected" && e.jobId === "j1");
+    expect((rejected!.detail as { reason: string }).reason).toContain("unknown step: bogus");
+  });
+
+  test("an intent-template edit round-trips, including clear-to-empty", async () => {
+    const store = fakeJobStore([{ ...buildDefaultJob("t"), id: "j1", name: "N" }]);
+    _setJobStoreForTests(store);
+    _setInvalidatePageForTests(() => {});
+    await handleJobSave(ev({ jobId: "j1", intent_template: "Keep the API stable" }));
+    expect(store.jobs.get("j1")!.intentTemplate).toBe("Keep the API stable");
+    // Clearing it (blank) removes the override.
+    await handleJobSave(ev({ jobId: "j1", intent_template: "   " }));
+    expect(store.jobs.get("j1")!.intentTemplate).toBeUndefined();
   });
 });
 

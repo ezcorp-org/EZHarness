@@ -41,7 +41,7 @@ import type { Finding, Findings, RunRecord, RunStatus, StepResultRecord, StepRou
 import { snapshotRepoConfig, emptyOutcomeFlags, type StepIORecord } from "./step-io";
 import { emptyRepoConfig } from "./repo-config";
 import { buildDefaultJob, type Job } from "./jobs";
-import { defaultPipelineConfig } from "./config";
+import { defaultPipelineConfig, PIPELINE_STEPS } from "./config";
 import type { AuditBucket } from "./audit";
 import type { SweepHeartbeat } from "./sweep";
 
@@ -1597,8 +1597,10 @@ describe("buildJobView", () => {
     const tree = buildJobView("j1", job, runs, "proj-1");
     const btns = buttonsDeep(tree);
     const events = btns.map((b) => b.action.event);
-    // Every declared action button is present (enabled job → Run now shown).
-    expect(events.filter((e) => e === JOB_SAVE_EVENT).length).toBe(5); // name/branch/trigger/skip/agent
+    // Every declared edit BUTTON is present (enabled job → Run now shown). The
+    // five job-save buttons are name/branch/trigger/intent-template/agent — the
+    // old comma-list skip-steps button is gone (Flow toggles supersede it).
+    expect(events.filter((e) => e === JOB_SAVE_EVENT).length).toBe(5);
     expect(events).toContain(JOB_TOGGLE_EVENT);
     expect(events).toContain(RUN_NOW_EVENT);
     expect(events).toContain(JOB_DELETE_EVENT);
@@ -1611,6 +1613,73 @@ describe("buildJobView", () => {
     // The runs table deep-links each run on the project hub.
     const runsTable = tablesDeep(tree).find((t) => t.columns[0] === "Run")!;
     expect(runsTable.rows[0]!.href).toBe(`/project/proj-1/hub/${encodeURIComponent(FULL_PAGE_ID)}?run=run_9`);
+  });
+
+  test("the Edit intent template button is present; the old skip-steps button is gone", () => {
+    const btns = buttonsDeep(buildJobView("j1", jobFix({ id: "j1" }), []));
+    const intentBtn = btns.find((b) => b.label === "Edit intent template")!;
+    expect(intentBtn).toBeDefined();
+    expect(intentBtn.action.event).toBe(JOB_SAVE_EVENT);
+    expect((intentBtn.action.prompt as { field?: string }).field).toBe("intent_template");
+    // The superseded comma-list button no longer renders (its payload path lives on).
+    expect(btns.some((b) => b.label === "Edit skip-steps")).toBe(false);
+    expect(btns.some((b) => (b.action.prompt as { field?: string } | undefined)?.field === "skip_steps")).toBe(false);
+  });
+
+  test("the Flow table lists all 9 steps in pipeline order with the right tones + protected labels", () => {
+    const job = jobFix({ id: "j1", name: "Nightly", skipSteps: ["test"] });
+    const tree = buildJobView("j1", job, []);
+    const flow = tablesDeep(tree).find((t) => t.columns[0] === "Step" && t.columns[1] === "State")!;
+    expect(flow.rows.map((r) => r.cells[0])).toEqual([...PIPELINE_STEPS]);
+    const cellOf = (step: string) => flow.rows.find((r) => r.cells[0] === step)!;
+    // Skipped step → warning-tone `skipped` cell.
+    expect(cellOf("test").cells[1]).toEqual({ text: "skipped", tone: "warning" });
+    // A running (non-protected) step → the plain `runs` string (no tone).
+    expect(cellOf("document").cells[1]).toBe("runs");
+    // Protected steps are plain-labeled and carry NO row action.
+    for (const p of ["intent", "rebase", "review", "push"]) {
+      expect(cellOf(p).cells[1]).toBe("protected — always runs");
+      expect(cellOf(p).action).toBeUndefined();
+    }
+  });
+
+  test("Flow rows on non-protected steps carry a job-save toggle_step action with a directional confirm", () => {
+    const job = jobFix({ id: "j1", name: "Nightly", skipSteps: ["test"] });
+    const flow = tablesDeep(buildJobView("j1", job, [])).find((t) => t.columns[1] === "State")!;
+    const cellOf = (step: string) => flow.rows.find((r) => r.cells[0] === step)!;
+    // A RUNNING step's toggle offers to SKIP it.
+    const docAction = cellOf("document").action!;
+    expect(docAction.event).toBe(JOB_SAVE_EVENT);
+    expect(docAction.payload).toEqual({ jobId: "j1", toggle_step: "document" });
+    expect((docAction as { confirm?: string }).confirm).toBe('Skip the document step for job "Nightly"?');
+    // A SKIPPED step's toggle offers to RUN it again.
+    const testAction = cellOf("test").action!;
+    expect(testAction.payload).toEqual({ jobId: "j1", toggle_step: "test" });
+    expect((testAction as { confirm?: string }).confirm).toBe('Run the test step again for job "Nightly"?');
+  });
+
+  test("a muted note states the fixed-order / protected-always-run platform truth", () => {
+    const tree = buildJobView("j1", jobFix({ id: "j1" }), []);
+    const md = allNodes(tree.nodes).filter((n) => n.type === "text").map((n) => String(n.content)).join(" ");
+    expect(md).toContain("order");
+    expect(md.toLowerCase()).toContain("protected");
+  });
+
+  test("Delete lives under a Danger zone section, ordered after Definition/Flow/Runs", () => {
+    const tree = buildJobView("j1", jobFix({ id: "j1", enabled: true }), [run({ id: "run_9", jobId: "j1" })]);
+    const sectionTitles = allNodes(tree.nodes).filter((n) => n.type === "section").map((n) => String(n.title));
+    expect(sectionTitles).toContain("Flow");
+    expect(sectionTitles).toContain("Danger zone");
+    // Order: the Job/Actions definition precedes Flow, which precedes Runs, which
+    // precedes Danger zone.
+    expect(sectionTitles.indexOf("Flow")).toBeLessThan(sectionTitles.indexOf("Runs"));
+    expect(sectionTitles.indexOf("Runs")).toBeLessThan(sectionTitles.indexOf("Danger zone"));
+    // The Danger-zone section owns the Delete button.
+    const danger = allNodes(tree.nodes).find((n) => n.type === "section" && String(n.title) === "Danger zone") as
+      | { nodes: unknown[] }
+      | undefined;
+    const dangerButtons = buttonsDeep({ nodes: danger!.nodes });
+    expect(dangerButtons.some((b) => b.action.event === JOB_DELETE_EVENT)).toBe(true);
   });
 
   test("a DISABLED job hides the Run now button (run-now requires an enabled job)", () => {
