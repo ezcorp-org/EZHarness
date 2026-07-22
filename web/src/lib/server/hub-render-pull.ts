@@ -38,6 +38,57 @@ const log = logger.child("hub.render-pull");
 
 export const RENDER_PULL_TIMEOUT_MS = 10_000;
 
+// ── ext:page-state → cache invalidation (module-graph coherence) ─────
+//
+// The state mediator already invalidates the page cache it imports when an
+// extension pushes `ezcorp/page-state` (the SDK's `invalidatePage`). But in
+// dev the mediator's module graph and THIS (route-serving) graph can hold
+// separate `page-cache` singletons — the mediator's invalidation then never
+// reaches the cache renders are actually served from, and an edited page
+// keeps serving its old tree as "fresh" for the full 60s TTL (the SSE nudge
+// re-pulls straight into the stale entry; observed live on ez-code-factory
+// job edits). Subscribing HERE — from the module whose `getPageCache()` the
+// render path reads, on the same bus object the SSE route demonstrably
+// receives — pins invalidation to the right cache instance whichever graph
+// the mediator lives in. Double invalidation (when the graphs coincide) is
+// an idempotent no-op.
+
+let pageStateWired = false;
+let pageStateWireWarned = false;
+
+/** Idempotently subscribe this module's page cache to the bus's content-free
+ *  `ext:page-state` invalidations. Lazy + fail-open: before the server
+ *  context initializes (unit tests, boot-early requests) there is no bus —
+ *  the flag resets so the NEXT render retries instead of wedging
+ *  invalidation off forever (warned once, so a persistent failure is
+ *  visible instead of silently reverting to 60s-TTL staleness). Exported
+ *  for direct unit coverage. */
+export async function ensurePageStateInvalidation(): Promise<void> {
+  if (pageStateWired) return;
+  pageStateWired = true;
+  try {
+    const { getBus } = await import("$lib/server/context");
+    getBus().on("ext:page-state", ({ extensionId, pageId }) => {
+      getPageCache().invalidate(extensionId, pageId);
+    });
+  } catch (err) {
+    // Not initialized yet — allow a retry on the next render.
+    pageStateWired = false;
+    if (!pageStateWireWarned) {
+      pageStateWireWarned = true;
+      log.warn("page-state invalidation wiring failed — will retry on the next render", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+}
+
+/** @internal — test-only: drop the wired flag so a test can re-arm the
+ *  subscription against its own mocked bus. */
+export function __resetPageStateInvalidationForTests(): void {
+  pageStateWired = false;
+}
+
 /** Project context threaded into a `perProject` page render. */
 export interface HubProjectRef {
   id: string;
@@ -318,6 +369,9 @@ export async function renderExtensionPage(
   view?: string,
 ): Promise<RenderExtensionPageResult> {
   const deps: RenderPullDeps = { ...defaultDeps(), ...depsOverride };
+  // Arm the bus→cache invalidation before this render can cache anything —
+  // awaited so the first cached entry is never orphaned from invalidation.
+  await ensurePageStateInvalidation();
 
   const found = await deps.findPage(extensionName, pageId);
   if (!found) return { notFound: true };
