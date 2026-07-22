@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+# Local pre-commit hook (shift-left): runs the cheap CI gates on your STAGED
+# changes so biome lint + manifest-lock drift are caught before you push and
+# before CI does. This is advisory speed, NOT the enforcement backstop — CI's
+# required checks remain the gate. Bypass with `git commit --no-verify` or
+# EZ_SKIP_HOOKS=1; CI enforces the same checks either way.
+#
+# Installed by scripts/setup-git-hooks.sh (`git config core.hooksPath .githooks`,
+# wired into `bun install` postinstall).
+set -u
+
+# ── Escape hatch (checked first, before any work) ───────────────────────────
+if [ "${EZ_SKIP_HOOKS:-}" = "1" ]; then
+  exit 0
+fi
+
+# $1 = headline, $2 = fix-it command.
+fail() {
+  echo ""
+  echo "✗ pre-commit: $1"
+  echo "  fix:    $2"
+  echo "  bypass: git commit --no-verify   (or EZ_SKIP_HOOKS=1 git commit …)"
+  echo "  note:   CI enforces this same check — bypassing only defers it."
+  exit 1
+}
+
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+cd "$ROOT" || exit 0
+
+# ── Staged files (Added/Copied/Modified/Renamed; skip Deleted) ──────────────
+# NOTE (partial-staging caveat): we lint the on-disk worktree content of these
+# paths, not the staged index blob. If you `git add -p` a subset of a file, the
+# lint sees the whole file. This is a deliberate simplification (no stash dance);
+# CI lints the pushed tree and is the real backstop.
+STAGED=()
+while IFS= read -r f; do
+  [ -n "$f" ] && STAGED+=("$f")
+done < <(git diff --cached --name-only --diff-filter=ACMR)
+
+if [ "${#STAGED[@]}" -eq 0 ]; then
+  exit 0
+fi
+
+# ── Lint (biome) on staged files, by EXPLICIT path ──────────────────────────
+# Explicit paths are REQUIRED: biome's VCS mode resolves 0 files in a git
+# worktree (see scripts/lib/hook-lib.sh / ci-local.sh header). Filter to the
+# extensions biome actually checks (ts/tsx/js/jsx/json/jsonc — biome.json
+# excludes .svelte/.css); biome applies its own files.includes negations and
+# --no-errors-on-unmatched swallows anything it declines to check.
+LINT_PATHS=()
+for f in "${STAGED[@]}"; do
+  case "$f" in
+    *.ts | *.tsx | *.js | *.jsx | *.mjs | *.cjs | *.json | *.jsonc)
+      LINT_PATHS+=("$f")
+      ;;
+  esac
+done
+
+if [ "${#LINT_PATHS[@]}" -gt 0 ]; then
+  if ! bunx biome check --no-errors-on-unmatched -- "${LINT_PATHS[@]}"; then
+    fail "biome found lint issues in staged files" \
+      "bunx biome check --write -- <file>   (review, then re-stage)"
+  fi
+fi
+
+# ── Manifest-lock drift (scoped) ────────────────────────────────────────────
+# manifest.lock.json hashes every BUNDLED extension's ezcorp.config.ts (tools
+# list, version, entrypoint) — see scripts/regenerate-manifest-lock.ts. Only run
+# the check when a staged path can change that input set: any `ezcorp.config.ts`
+# (a superset of the bundled ones — a non-bundled config edit just makes the
+# check a fast no-op pass, never a false failure) or the lockfile itself. This
+# keeps a typical commit from paying for the check.
+NEED_MANIFEST_CHECK=0
+for f in "${STAGED[@]}"; do
+  case "$f" in
+    */ezcorp.config.ts | ezcorp.config.ts | manifest.lock.json)
+      NEED_MANIFEST_CHECK=1
+      break
+      ;;
+  esac
+done
+
+if [ "$NEED_MANIFEST_CHECK" = "1" ]; then
+  if ! bun run scripts/regenerate-manifest-lock.ts --check; then
+    fail "manifest.lock.json is out of date for a bundled-extension change" \
+      "bun run scripts/regenerate-manifest-lock.ts   (then stage manifest.lock.json)"
+  fi
+fi
+
+exit 0
