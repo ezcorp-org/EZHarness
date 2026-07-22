@@ -18,6 +18,7 @@ import { PIPELINE_STEPS, type PipelineStep } from "./config";
 import { DEFAULT_JOB_ID } from "./jobs";
 import type { RepoConfig } from "./repo-config";
 import { stepIOKey, stepIOPrefix, type StepIORecord } from "./step-io";
+import type { AuditLog } from "./audit";
 
 // ── Persistence schema (spec §1 subset for M0/M1) ───────────────────
 
@@ -694,6 +695,9 @@ export interface RunManagerDeps {
    *  and used to scope supersede to `(repo, branch, job)`. Absent for legacy
    *  callers (the run then belongs to the DEFAULT job). */
   jobId?: string;
+  /** Control-plane audit sink (L5) — when present, run CREATION and SUPERSEDE
+   *  (both of which bypass the executor's setRunStatus sink) are audited. */
+  audit?: AuditLog;
 }
 
 export interface RunLifecycleResult {
@@ -712,12 +716,39 @@ export async function removeWorktree(run: ShellRunner, gateDir: string, wtPath: 
   }
 }
 
+/**
+ * Emit a control-plane audit entry (L5) for a run status TRANSITION that does
+ * NOT flow through the executor's `setRunStatus` sink — run CREATION and
+ * SUPERSEDE here, and the sweep's STALL transition (sweep.ts). Same shape as the
+ * executor sink: actor `"system"`, kind `"run-status"`, id + status only (never
+ * prompt/finding content; a short system reason is clamped by the audit layer).
+ * Record-and-continue — `audit.append` already swallows its own write failure,
+ * so an audit line never fails the lifecycle operation. No-op without a sink.
+ */
+export async function auditRunStatusTransition(
+  audit: AuditLog | undefined,
+  runId: string,
+  status: RunStatus,
+  detailExtra?: Record<string, unknown>,
+): Promise<void> {
+  if (!audit) return;
+  await audit.append({
+    actor: "system",
+    kind: "run-status",
+    runId,
+    detail: { status, ...(detailExtra ?? {}) },
+  });
+}
+
 /** Deps for {@link supersedePriorRuns} (a subset of the run-manager deps). */
 export interface SupersedeDeps {
   store: RunStore;
   run: ShellRunner;
   gateDir: string;
   onChange?: () => Promise<void> | void;
+  /** Control-plane audit sink (L5) — when present, each superseded run's
+   *  `aborted` transition is recorded (this site bypasses the executor sink). */
+  audit?: AuditLog;
 }
 
 /**
@@ -762,6 +793,8 @@ export async function supersedePriorRuns(
       awaitingAgentSince: null,
       worktreePath: null,
     });
+    // Audit the abort (L5) — this transition bypasses the executor's setRunStatus.
+    await auditRunStatusTransition(deps.audit, r.id, "aborted", { reason: "superseded" });
     if (staleWorktree) await removeWorktree(deps.run, deps.gateDir, staleWorktree);
     superseded.push(r.id);
   }
@@ -814,6 +847,11 @@ export async function runGateLifecycle(
         ...(deps.jobId !== undefined ? { jobId: deps.jobId } : {}),
       };
       await store.createRun(record);
+      // Audit the run's birth (L5) — creation bypasses the executor sink.
+      await auditRunStatusTransition(deps.audit, runId, "created", {
+        branch: push.branch,
+        ...(deps.jobId !== undefined ? { jobId: deps.jobId } : {}),
+      });
       await notify();
 
       // M6: supersede any IN-FLIGHT prior run for this (repo, branch) — a new
@@ -823,7 +861,7 @@ export async function runGateLifecycle(
       // coexist; only a prior run of the SAME job is superseded. Legacy runs
       // (no jobId) belong to the DEFAULT job.
       await supersedePriorRuns(
-        { store, run, gateDir, onChange: deps.onChange },
+        { store, run, gateDir, onChange: deps.onChange, audit: deps.audit },
         push.repoId,
         push.branch,
         runId,

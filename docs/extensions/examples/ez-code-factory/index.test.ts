@@ -3178,3 +3178,133 @@ describe("handleRunNow", () => {
     expect(auditEntries).toHaveLength(0);
   });
 });
+
+describe("handleJobSave — agentName edit (L4)", () => {
+  test("editing agentName round-trips + audits the diff; the override reaches future dispatches", async () => {
+    const store = fakeJobStore([{ ...buildDefaultJob("t"), id: "j1", name: "Nightly" }]);
+    _setJobStoreForTests(store);
+    _setInvalidatePageForTests(() => {});
+    await handleJobSave({ source: "hub", pageId: "dashboard", userId: "alice", payload: { jobId: "j1", agentName: "critic" } });
+    // Persisted on the job (buildExecutorDeps threads it into jobAgentName).
+    expect(store.jobs.get("j1")!.agentName).toBe("critic");
+    const audit = auditEntries.find((e) => e.kind === "job-save" && e.jobId === "j1");
+    expect(audit).toBeDefined();
+    expect((audit!.detail as { agentName: { from: unknown; to: string } }).agentName).toEqual({ from: null, to: "critic" });
+  });
+});
+
+// ── Control-plane audit sinks — lifecycle transitions (L5) ───────────
+//
+// The three transitions OUTSIDE the executor's setRunStatus sink — run CREATION
+// + SUPERSEDE (runs.ts) and the sweep's STALL (sweep.ts) — plus the yolo +
+// reconcile triage sinks, all emit `run-status`/action audit entries with the
+// acting identity. Mirrors the existing respond-sink assertion.
+
+describe("audit sinks — L5 lifecycle transitions", () => {
+  test("run CREATION emits a run-status 'created' entry (bypasses the executor sink)", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setTmpBaseForTests(() => "/tmp/ext");
+    _setShellForTests(async () => ({ exitCode: 0, stdout: "", stderr: "" }));
+    const store = memStore();
+    _setStoreForTests(store);
+    _setRunPipelineForTests(fakePipeline(store, "completed"));
+    _setInvalidatePageForTests(() => {});
+    await handlePushReceived({ source: "hub", pageId: "dashboard", userId: "u", payload: VALID_PUSH });
+    const created = auditEntries.find((e) => e.kind === "run-status" && (e.detail as { status?: string }).status === "created");
+    expect(created).toBeDefined();
+    expect(created!.actor).toBe("system");
+    expect(created!.runId).toBe([...store.runs.values()][0]!.id);
+  });
+
+  test("SUPERSEDE emits a run-status 'aborted' entry with reason 'superseded'", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setTmpBaseForTests(() => "/tmp/ext");
+    _setShellForTests(async () => ({ exitCode: 0, stdout: "", stderr: "" }));
+    const store = memStore();
+    _setStoreForTests(store);
+    _setRunPipelineForTests(fakePipeline(store, "parked")); // both runs park (non-terminal)
+    _setInvalidatePageForTests(() => {});
+    // Two pushes to the SAME branch/default job → the 2nd supersedes the 1st.
+    await handlePushReceived({ source: "hub", pageId: "dashboard", userId: "u", payload: VALID_PUSH });
+    await handlePushReceived({ source: "hub", pageId: "dashboard", userId: "u", payload: VALID_PUSH });
+    const aborted = auditEntries.find(
+      (e) => e.kind === "run-status" && (e.detail as { status?: string; reason?: string }).status === "aborted",
+    );
+    expect(aborted).toBeDefined();
+    expect((aborted!.detail as { reason: string }).reason).toBe("superseded");
+  });
+
+  test("the sweep's STALL transition emits a run-status 'stalled' entry", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setShellForTests(async () => ({ exitCode: 0, stdout: "", stderr: "" }));
+    _setHeartbeatKVForTests(() => ({ async read() { return null; }, async write() {} }));
+    _setRunHeartbeatKVForTests(() => ({ async read() { return null; }, async write() {} }));
+    const store = memStore();
+    // A `running` run with a frozen updatedAt + no heartbeat → stale.
+    await store.createRun({
+      id: "run-live", repoId: "0123456789ab", branch: "feat/x", ref: "refs/heads/feat/x",
+      headSha: "abc", baseSha: "0".repeat(40), status: "running", worktreePath: "/wt",
+      createdAt: "2020-01-01T00:00:00.000Z", updatedAt: "2020-01-01T00:00:00.000Z",
+      parkedMs: 0, awaitingAgentSince: null, intent: null, intentSource: null,
+    });
+    _setStoreForTests(store);
+    await runReconcileSweep();
+    const stalled = auditEntries.find((e) => e.kind === "run-status" && (e.detail as { status?: string }).status === "stalled");
+    expect(stalled).toBeDefined();
+    expect(stalled!.runId).toBe("run-live");
+    expect((await store.getRun("run-live"))!.status).toBe("stalled");
+  });
+
+  test("YOLO emits a 'yolo' entry with the acting user", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setInvalidatePageForTests(() => {});
+    _setShellForTests(async () => ({ exitCode: 0, stdout: "", stderr: "" }));
+    const store = memStore();
+    await seedParkedRun(store);
+    _setStoreForTests(store);
+    _setRespondRunnerForTests(() => async () => ({ parked: false }));
+    await handleYolo({ source: "hub", pageId: "dashboard", userId: "dana", payload: { runId: "run-parked" } });
+    const audit = auditEntries.find((e) => e.kind === "yolo" && e.runId === "run-parked");
+    expect(audit).toBeDefined();
+    expect(audit!.actor).toBe("dana");
+  });
+
+  test("RECONCILE emits a 'reconcile' entry with the acting user", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setInvalidatePageForTests(() => {});
+    _setShellForTests(async () => ({ exitCode: 0, stdout: "", stderr: "" }));
+    const store = memStore();
+    await seedParkedRun(store);
+    _setStoreForTests(store);
+    _setReconcileRunnerForTests(() => async () => ({ parked: true }));
+    await handleReconcile({ source: "hub", pageId: "dashboard", userId: "erin", payload: { runId: "run-parked" } });
+    const audit = auditEntries.find((e) => e.kind === "reconcile" && e.runId === "run-parked");
+    expect(audit).toBeDefined();
+    expect(audit!.actor).toBe("erin");
+  });
+
+  test("synthesizeScheduledRuns audits schedule-error when a per-job synthesis throws", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setTmpBaseForTests(() => "/tmp/ext");
+    // rev-parse THROWS → resolveJobHead throws → the per-job catch audits schedule-error.
+    _setShellForTests(async (cmd) => {
+      if (cmd.includes("rev-parse")) throw new Error("git exploded");
+      return { exitCode: 0, stdout: "", stderr: "" };
+    });
+    const store = memStore();
+    _setStoreForTests(store);
+    _setJobStoreForTests(fakeJobStore([
+      { ...buildDefaultJob("t"), id: "nightly", name: "Nightly", enabled: true, trigger: { kind: "schedule", every: "15m", branch: "main" } },
+    ]));
+    const cap = captureStderr();
+    try {
+      await synthesizeScheduledRuns(new Date());
+    } finally {
+      cap.restore();
+    }
+    expect([...store.runs.values()]).toHaveLength(0);
+    const err = auditEntries.find((e) => e.kind === "schedule-error" && e.jobId === "nightly");
+    expect(err).toBeDefined();
+    expect((err!.detail as { error: string }).error).toContain("git exploded");
+  });
+});

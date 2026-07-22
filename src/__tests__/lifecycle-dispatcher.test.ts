@@ -155,6 +155,22 @@ describe("LifecycleHookDispatcher", () => {
     expect(typeof (payload._meta as { ezCallId?: string } | undefined)?.ezCallId).toBe("string");
   });
 
+  test("stamping ezCallId MERGES into a pre-existing _meta rather than clobbering it", () => {
+    const proc = mockProc();
+    const registry = mockRegistry(new Map([["ext-a", proc]]));
+    const dispatcher = new LifecycleHookDispatcher(bus, registry);
+    // Drive the private notification path with params that ALREADY carry `_meta`
+    // (a future sanitizer / caller may). The stamp must ADD ezCallId, not drop
+    // the prior fields — defensive merge (#nit).
+    (dispatcher as unknown as {
+      sendNotification(id: string, hook: string, params: Record<string, unknown>): void;
+    }).sendNotification("ext-a", "agent:spawn", { runId: "r1", _meta: { correlationId: "keep-me" } });
+
+    const meta = at(proc.calls, 0, "proc.calls").params._meta as { ezCallId?: string; correlationId?: string };
+    expect(meta.correlationId).toBe("keep-me"); // prior field preserved
+    expect(typeof meta.ezCallId).toBe("string"); // ezCallId added
+  });
+
   test("does not start sleeping processes (uses getProcessIfRunning)", () => {
     let getProcessCalled = false;
     const registry = {

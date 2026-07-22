@@ -17,7 +17,7 @@ import {
   type StepRoundRecord,
 } from "./runs";
 import type { AgentDispatcher } from "./agent";
-import { runStepShellCommand, type Step, type StepContext, type StepOutcome } from "./steps/common";
+import { repoDispatchOptions, runStepShellCommand, type Step, type StepContext, type StepOutcome } from "./steps/common";
 import { emptyRepoConfig, TrustedConfigError, type RepoConfig } from "./repo-config";
 import { emptyOutcomeFlags, type StepIORecord } from "./step-io";
 
@@ -298,6 +298,37 @@ describe("startPipeline — clean run", () => {
     expect(logs.some((l) => l === "skipped by job Nightly")).toBe(true);
     // A non-skipped implemented step still ran.
     expect((await store.getStepResult(id, "review"))!.status).toBe("completed");
+  });
+
+  // Control plane (L4): a job's agentName threads deps → StepContext →
+  // repoDispatchOptions, so every step's DISPATCH carries the job's agent
+  // override (preferred over the repo-config agent).
+  test("job agentName threads through deps into the step dispatch options", async () => {
+    const store = memStore();
+    const id = await seedRun(store);
+    let dispatchAgent: string | undefined = "UNSET";
+    const review: Step = {
+      name: "review",
+      async execute(sctx) {
+        // repoDispatchOptions is exactly what the real steps spread into their
+        // DispatchOptions — capture the agent it resolves for this run.
+        dispatchAgent = repoDispatchOptions(sctx).agentName;
+        return clean;
+      },
+    };
+    const deps: ExecutorDeps = {
+      ...makeDeps(store, registry({
+        intent: scriptStep("intent", [clean]),
+        rebase: scriptStep("rebase", [clean]),
+        review,
+        push: scriptStep("push", [clean]),
+      }), { t: 0 }),
+      jobAgentName: "job-agent",
+    };
+    await startPipeline(id, deps);
+    // The run's repoConfig has no agent (emptyRepoConfig), so the job override is
+    // what reaches the dispatch — proving the full deps→sctx→dispatch thread.
+    expect(dispatchAgent).toBe("job-agent");
   });
 
   test("a step that advances HEAD persists it via updateHeadSha", async () => {

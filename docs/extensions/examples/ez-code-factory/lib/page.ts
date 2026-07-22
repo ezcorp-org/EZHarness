@@ -1445,6 +1445,16 @@ export function buildJobView(
         submitLabel: "Save",
       },
     });
+    s.button("Edit agent", {
+      event: JOB_SAVE_EVENT,
+      payload: { jobId },
+      prompt: {
+        label: "Agent name for this job's dispatches (blank = repo-config / deployment default)",
+        field: "agentName",
+        placeholder: "e.g. reviewer",
+        submitLabel: "Save",
+      },
+    });
     s.button(
       job.enabled ? "Disable" : "Enable",
       { event: JOB_TOGGLE_EVENT, payload: { jobId } },

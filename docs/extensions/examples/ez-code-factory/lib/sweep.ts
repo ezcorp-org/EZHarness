@@ -15,7 +15,8 @@
 // forks none of the gate semantics; index.ts owns the production wiring (cron
 // trigger → per-run gateDir resolution).
 
-import type { RunRecord, RunStatus, RunStore } from "./runs";
+import { auditRunStatusTransition, type RunRecord, type RunStatus, type RunStore } from "./runs";
+import type { AuditLog } from "./audit";
 import { isRunStale } from "./heartbeat";
 
 /** Statuses a sweep re-checks: a run RESTING at checks_passed (the common case)
@@ -55,6 +56,10 @@ export interface SweepDeps {
   /** Persist the sweep heartbeat so `code_factory_doctor` can report loop
    *  health (last run + counts). Optional. */
   recordHeartbeat?: (hb: SweepHeartbeat) => Promise<void>;
+  /** Control-plane audit sink (L5) — when present, each `running → stalled`
+   *  transition this sweep marks is recorded (this site bypasses the executor
+   *  sink). Optional (tests that don't assert the audit omit it). */
+  audit?: AuditLog;
   /** Once-per-fire summary sink. Optional. */
   log?: (message: string) => void;
   /** Max runs reconciled this fire (defaults to {@link DEFAULT_MAX_PER_SWEEP}). */
@@ -118,6 +123,8 @@ export async function reconcileSweep(deps: SweepDeps): Promise<SweepSummary> {
       const heartbeatAt = deps.readHeartbeat ? await deps.readHeartbeat(run.id) : null;
       if (isRunStale(run, heartbeatAt, deps.now())) {
         await deps.store.updateRun(run.id, { status: "stalled" });
+        // Audit the stall (L5) — this transition bypasses the executor sink.
+        await auditRunStatusTransition(deps.audit, run.id, "stalled");
         summary.stalled += 1;
       }
       continue;

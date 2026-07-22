@@ -1523,10 +1523,14 @@ describe("buildJobView", () => {
     const btns = buttonsDeep(tree);
     const events = btns.map((b) => b.action.event);
     // Every declared action button is present (enabled job → Run now shown).
-    expect(events.filter((e) => e === JOB_SAVE_EVENT).length).toBe(4); // name/branch/trigger/skip
+    expect(events.filter((e) => e === JOB_SAVE_EVENT).length).toBe(5); // name/branch/trigger/skip/agent
     expect(events).toContain(JOB_TOGGLE_EVENT);
     expect(events).toContain(RUN_NOW_EVENT);
     expect(events).toContain(JOB_DELETE_EVENT);
+    // The Edit agent action collects the agentName scalar (L4 editor coherence).
+    const editAgent = btns.find((b) => b.label === "Edit agent")!;
+    expect(editAgent.action.event).toBe(JOB_SAVE_EVENT);
+    expect((editAgent.action.prompt as { field?: string }).field).toBe("agentName");
     // Delete carries a confirm.
     expect(btns.find((b) => b.action.event === JOB_DELETE_EVENT)!.action.confirm).toContain("Delete");
     // The runs table deep-links each run on the project hub.

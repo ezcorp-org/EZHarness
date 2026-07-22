@@ -1051,6 +1051,11 @@ export async function searchConversations(
       JOIN messages m ON m.conversation_id = c.id
       WHERE c.project_id = ${projectId}
         AND (c.test IS NULL OR c.test = false)
+        -- Service conversations (ECF gate-push owner, kind='ext-service') carry a
+        -- real projectId + real messages but are host-internal — never surface
+        -- them in search (mirrors the listConversations / listRecentConversations
+        -- ne(kind,'ext-service') hygiene guard, so a title/message match can't leak).
+        AND c.kind <> 'ext-service'
         ${userFilter}
         AND (
           to_tsvector('english', m.content) @@ plainto_tsquery('english', ${query})

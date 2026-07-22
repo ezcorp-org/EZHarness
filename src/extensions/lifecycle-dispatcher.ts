@@ -159,7 +159,14 @@ export class LifecycleHookDispatcher {
         kind: "event",
         ownerless: true,
       });
-      proc.sendNotification(`lifecycle/${hookName}`, { ...params, _meta: { ezCallId } });
+      // Merge into any pre-existing `_meta` rather than clobbering it: a caller
+      // may already carry `_meta` fields (e.g. correlation ids); stamping
+      // `ezCallId` must ADD to them, not drop them.
+      const priorMeta = (params as { _meta?: Record<string, unknown> })._meta;
+      proc.sendNotification(`lifecycle/${hookName}`, {
+        ...params,
+        _meta: { ...(priorMeta ?? {}), ezCallId },
+      });
     } catch {
       // Gracefully ignore any errors — fire-and-forget
     }

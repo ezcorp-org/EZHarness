@@ -133,4 +133,25 @@ describe("repoDispatchOptions", () => {
     const withNone = repoDispatchOptions({ repoConfig: emptyRepoConfig() } as StepContext);
     expect(withNone).toEqual({});
   });
+
+  test("L4: a job's agentName OVERRIDES the repo-config agent (job.agentName || repoConfig.agent)", () => {
+    const overridden = repoDispatchOptions({
+      jobAgentName: "job-agent",
+      repoConfig: { ...emptyRepoConfig(), agent: "repo-agent" },
+    } as StepContext);
+    // The job override wins the dispatch's agent; disableProjectSettings stays
+    // repo-config-only (a job never sets it).
+    expect(overridden.agentName).toBe("job-agent");
+  });
+
+  test("L4: an empty/absent job agentName FALLS BACK to the repo-config agent", () => {
+    const fallback = repoDispatchOptions({
+      jobAgentName: "",
+      repoConfig: { ...emptyRepoConfig(), agent: "repo-agent" },
+    } as StepContext);
+    expect(fallback.agentName).toBe("repo-agent");
+    // No job agent AND no repo agent → the deployment default (agentName omitted).
+    const neither = repoDispatchOptions({ jobAgentName: undefined, repoConfig: emptyRepoConfig() } as StepContext);
+    expect(neither.agentName).toBeUndefined();
+  });
 });

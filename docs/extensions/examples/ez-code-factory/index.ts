@@ -374,6 +374,9 @@ function buildExecutorDeps(
     // `skipped by job <name>` reason). Protected steps were rejected on save,
     // so a skip can never bypass the review gate.
     ...(job && job.skipSteps.length > 0 ? { skipSteps: job.skipSteps, jobName: job.name } : {}),
+    // Control plane (L4): the job's agent-name override — preferred over the
+    // repo-config agent by repoDispatchOptions (`job.agentName || repoConfig.agent`).
+    ...(job?.agentName ? { jobAgentName: job.agentName } : {}),
     dispatcher: makeSpawnDispatcher({ evidenceDir }),
     hostRunner: shellImpl,
     jailedRunner: makeJailedShell(gateDir, projectRoot),
@@ -500,6 +503,8 @@ async function defaultBuildChatToolDeps(projectRoot: string): Promise<ChatToolDe
         // respond/yolo/reconcile fires are context-free and re-derive every
         // path from this (same as the push path's stamp).
         projectRoot,
+        // Audit run creation + supersede (L5) — these bypass the executor sink.
+        audit: getAudit(),
       }),
     resumeRun: (runId, respond) =>
       resumeGateLifecycle(runId, {
@@ -857,6 +862,8 @@ export async function handlePushReceived(event: PageActionEvent): Promise<void> 
       runPipeline: makeRunPipelineImpl(projectRoot, gDir, job),
       projectRoot,
       jobId: job.id,
+      // Audit run creation + supersede (L5) — these bypass the executor sink.
+      audit: getAudit(),
     });
     // `ok` is true only for `completed`; awaiting_approval (parked) and
     // checks_passed (rested green) are success-ish non-terminal states, not
@@ -1392,6 +1399,8 @@ export async function runReconcileSweep(): Promise<SweepSummary> {
     readHeartbeat: (runId) => runHeartbeatKVImpl().read(runId),
     now: () => Date.now(),
     recordHeartbeat: (hb) => heartbeatKVImpl().write(hb),
+    // Audit each running→stalled transition (L5) — bypasses the executor sink.
+    audit: getAudit(),
     log: (m) => logLine(`ez-code-factory[sweep]: ${m}`),
   });
 }
@@ -1419,6 +1428,18 @@ function runJobLifecycle(
       branch: o.branch,
       ref: `refs/heads/${o.branch}`,
       newSha: o.newSha,
+      // C2 DIVERGENCE (documented, deliberate): the spec's synthesized-run
+      // contract computes `baseSha = merge-base(origin/<default>, origin/<branch>)`
+      // (or `job.lastHeadSha` on the default branch). Here we pass the job's last
+      // bookkept head, falling back to the zero SHA on a FIRST fire. This is
+      // behaviourally safe because the pipeline never trusts this base as-is: the
+      // review/lint/document/ci/rebase steps recompute the branch base via
+      // `resolveBranchBaseSHA` (steps/common.ts:257-260), which prefers the real
+      // merge-base and only falls back to the zero-SHA→empty-tree when no
+      // merge-base exists; and `rebase.ts` treats a zero base as NON-force. So a
+      // first-fire zero base resolves to the true merge-base for the diff (NOT the
+      // full tree) — pinned by the resolveBranchBaseSHA test. Re-deriving the
+      // merge-base here would duplicate that logic for zero gain.
       oldSha: job.lastHeadSha ?? "0".repeat(40),
       ...(job.intentTemplate ? { intent: job.intentTemplate } : {}),
     },
@@ -1431,6 +1452,8 @@ function runJobLifecycle(
       runPipeline: makeRunPipelineImpl(o.projectRoot, o.gDir, job),
       projectRoot: o.projectRoot,
       jobId: job.id,
+      // Audit run creation + supersede (L5) — these bypass the executor sink.
+      audit: getAudit(),
     },
   );
 }

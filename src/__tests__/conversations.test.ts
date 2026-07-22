@@ -1,4 +1,4 @@
-import { test, expect, describe, beforeAll, afterAll, beforeEach, mock } from "bun:test";
+import { test, expect, describe, beforeAll, afterAll, beforeEach, mock, spyOn } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglite";
 
@@ -59,6 +59,7 @@ import {
 } from "../db/queries/conversations";
 import { createProject, getProjectByPath } from "../db/queries/projects";
 import { upsertSetting, deleteSetting, getSetting } from "../db/queries/settings";
+import * as settingsQueries from "../db/queries/settings";
 import { createUser } from "../db/queries/users";
 
 let projectId: string;
@@ -575,6 +576,25 @@ describe("search", () => {
     const short = await searchConversations(searchProjectId, "a");
     expect(short).toEqual([]);
   });
+
+  test("a service conversation (kind='ext-service') NEVER appears in search — title OR message match", async () => {
+    // A service conversation carries a real projectId + real messages but is
+    // host-internal; a title/message hit must not leak it (the ne(kind,'ext-service')
+    // guard in the search CTE, mirroring listConversations). A sanity control (a
+    // regular conversation with the same tokens) proves the query itself matches.
+    const svc = await createConversation(searchProjectId, { title: "zebrafish service marker", kind: "ext-service" });
+    await createMessage(svc.id, { role: "user", content: "quokka platypus service transcript" });
+    const control = await createConversation(searchProjectId, { title: "zebrafish control" });
+    await createMessage(control.id, { role: "user", content: "quokka platypus control" });
+
+    // Title-token search: the control lists, the service conversation does NOT.
+    const byTitle = await searchConversations(searchProjectId, "zebrafish");
+    expect(byTitle.some((r) => r.id === control.id)).toBe(true);
+    expect(byTitle.some((r) => r.id === svc.id)).toBe(false);
+    // Message-content search: same exclusion.
+    const byContent = await searchConversations(searchProjectId, "quokka platypus");
+    expect(byContent.some((r) => r.id === svc.id)).toBe(false);
+  });
 });
 
 describe("systemPrompt", () => {
@@ -757,5 +777,36 @@ describe("getOrCreateExtServiceConversation + getProjectByPath", () => {
   test("createConversation honors kind:'ext-service'", async () => {
     const conv = await createConversation(svcProjectId, { title: "Direct svc", kind: "ext-service" });
     expect(conv.kind).toBe("ext-service");
+  });
+
+  test("accept-and-dedupe race: a concurrent writer that maps a winner mid-create → the raced early-return prefers it", async () => {
+    // The winner a concurrent writer created + mapped while our call was in flight.
+    const winner = await createConversation(svcProjectId, {
+      title: "raced-ext gate — winner",
+      userId: gateUserId,
+      kind: "ext-service",
+    });
+    // getSetting: MISS on the FIRST resolveMapped (no mapping yet → we proceed to
+    // create our own row), then the WINNER appears on the post-create resolveMapped
+    // (a concurrent create won the mapping) → the `raced` branch returns it.
+    let calls = 0;
+    const spy = spyOn(settingsQueries, "getSetting").mockImplementation(async () => {
+      calls += 1;
+      return calls === 1 ? null : winner.id;
+    });
+    try {
+      const result = await getOrCreateExtServiceConversation({
+        extensionName: "raced-ext",
+        projectId: svcProjectId,
+        userId: gateUserId,
+        title: "raced-ext gate — loser",
+      });
+      // Prefers the mapped winner, abandoning our freshly-created (harmless,
+      // kind-filtered) row — the accept-and-dedupe-on-race contract.
+      expect(result.id).toBe(winner.id);
+      expect(calls).toBeGreaterThanOrEqual(2);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

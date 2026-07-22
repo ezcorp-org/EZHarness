@@ -201,6 +201,25 @@ describe("common git helpers (real repo)", () => {
     expect(await resolveBranchBaseSHA(g, c1, "main")).toBe(c1);
   });
 
+  test("C2 pin: a first-fire synthesized run (ZERO base) resolves to merge-base, NOT the full tree", async () => {
+    // A synthesized run's FIRST fire carries no bookkept head, so index.ts's
+    // runJobLifecycle passes `oldSha: "0"*40` (the documented C2 divergence). The
+    // pipeline never trusts that base as-is: resolveBranchBaseSHA prefers the real
+    // merge-base, so review/lint/document/ci/rebase diff against the merge-base —
+    // NOT the empty tree (which would diff the WHOLE branch). This pins the
+    // divergence's safety claim both validators confirmed.
+    await sh(["git", "checkout", "-b", "feat2"], dir);
+    await commit(dir, "b2.txt", "b\n", "cb2");
+    await sh(["git", "checkout", "main"], dir);
+    await commit(dir, "c2.txt", "c\n", "cc2");
+    await sh(["git", "checkout", "feat2"], dir);
+    const g = makeGit(productionHostRunner, dir);
+    const base = await resolveBranchBaseSHA(g, "0".repeat(40), "main");
+    // The true merge-base (c1), never the empty-tree fallback.
+    expect(base).toBe(c1);
+    expect(base).not.toBe("4b825dc642cb6eb9a060e54bf8d69288fbee4904");
+  });
+
   test("assertPipelineHeadContinuity: equal + forward OK; divergent + backward abort; empty recorded OK", async () => {
     const c2 = await commit(dir, "a.txt", "two\n", "c2");
     const { ctx } = makeCtx(dir, c2);

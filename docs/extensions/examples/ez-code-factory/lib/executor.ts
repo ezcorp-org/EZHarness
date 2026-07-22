@@ -136,11 +136,24 @@ export interface ExecutorDeps {
   /** The matched job's name, for the `skipped by job <name>` skip reason. */
   jobName?: string;
   /**
-   * Control-plane audit sink (L5). When present, `setRunStatus` — the SINGLE
-   * choke every run status transition flows through — appends a `run-status`
-   * entry (id + status only, NO prompt/finding content). Optional: executor
-   * unit tests omit it. Actor is `"system"` (lifecycle transitions are not a
-   * per-user action; triage actions carry their user via the index handlers).
+   * Control plane (L4): the matched job's agent-name OVERRIDE. Threaded into
+   * every StepContext and preferred over the trusted repo-config agent
+   * (`job.agentName || repoConfig.agent`) by `repoDispatchOptions`, so a job can
+   * pin which agent its runs dispatch to. Absent → the repo-config agent (or the
+   * deployment default) applies unchanged.
+   */
+  jobAgentName?: string;
+  /**
+   * Control-plane audit sink (L5). When present, `setRunStatus` — the choke
+   * every PIPELINE-driven run status transition flows through (running / parked /
+   * checks_passed / completed / failed) — appends a `run-status` entry (id +
+   * status only, NO prompt/finding content). Actor is `"system"` (lifecycle
+   * transitions are not a per-user action; triage actions carry their user via
+   * the index handlers). Optional: executor unit tests omit it. The THREE
+   * transitions OUTSIDE this executor — run CREATION and SUPERSEDE
+   * (runs.ts) + the sweep's STALL (sweep.ts) — audit at their own sites via the
+   * shared `auditRunStatusTransition` helper (same shape), so every real run
+   * status transition is trailed regardless of which module drives it.
    */
   audit?: AuditLog;
   /**
@@ -378,6 +391,9 @@ function buildStepContext(
     repo: { defaultBranch: deps.config.defaultBranch, workingPath: deps.workingPath },
     config: deps.config,
     repoConfig,
+    // Control plane (L4): the job's agent override rides into the step context so
+    // repoDispatchOptions can prefer it over the repo-config agent.
+    ...(deps.jobAgentName ? { jobAgentName: deps.jobAgentName } : {}),
     shared,
     fixing,
     previousFindings,

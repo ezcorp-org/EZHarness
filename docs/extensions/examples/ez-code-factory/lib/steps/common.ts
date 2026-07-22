@@ -112,6 +112,11 @@ export interface StepContext {
    *  agent + document policy come trusted-only; see lib/repo-config.ts). Every
    *  step receives it; test/document/lint consume its executing fields. */
   repoConfig: RepoConfig;
+  /** Control plane (L4): the matched job's agent-name OVERRIDE, when the run
+   *  belongs to a job that pinned one. `repoDispatchOptions` prefers it over
+   *  `repoConfig.agent` (`job.agentName || repoConfig.agent`). Absent → the repo
+   *  config's agent (or the deployment default) applies. */
+  jobAgentName?: string;
   /** Run-scoped in-memory hand-off (the document→lint housekeeping stash). */
   shared: RunShared;
   fixing: boolean;
@@ -168,8 +173,12 @@ export function gitAt(sctx: StepContext, dir: string): Git {
 export function repoDispatchOptions(
   sctx: StepContext,
 ): Pick<DispatchOptions, "agentName" | "disableProjectSettings"> {
+  // Control plane (L4): a job's pinned agent OVERRIDES the trusted repo-config
+  // agent (`job.agentName || repoConfig.agent`); the repo config still gates
+  // `disableProjectSettings` (a trusted-branch-only field a job never sets).
+  const agentName = sctx.jobAgentName || sctx.repoConfig.agent;
   return {
-    ...(sctx.repoConfig.agent ? { agentName: sctx.repoConfig.agent } : {}),
+    ...(agentName ? { agentName } : {}),
     ...(sctx.repoConfig.disableProjectSettings ? { disableProjectSettings: true } : {}),
   };
 }
