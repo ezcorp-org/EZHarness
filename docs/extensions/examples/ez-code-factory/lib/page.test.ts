@@ -1694,6 +1694,79 @@ describe("buildJobView", () => {
   });
 });
 
+describe("buildJobView — prompt preview (P3)", () => {
+  /** The Prompts section's three `["Part","Content"]` preview tables. */
+  function previewTables(tree: { nodes: unknown[] }) {
+    const section = allNodes(tree.nodes).find((n) => n.type === "section" && String(n.title) === "Prompts") as
+      | { nodes: unknown[] }
+      | undefined;
+    return tablesDeep({ nodes: section!.nodes }).filter((t) => t.columns[0] === "Part" && t.columns[1] === "Content");
+  }
+  /** Every rendered cell string across the preview tables. */
+  function previewCells(tree: { nodes: unknown[] }): string[] {
+    return previewTables(tree).flatMap((t) =>
+      t.rows.flatMap((r) => r.cells.map((c) => (typeof c === "object" ? String((c as { text: string }).text) : String(c)))),
+    );
+  }
+
+  test("renders THREE previews with the job's agent, intent template, settings ignore + default branch substituted", () => {
+    const job = jobFix({ id: "j1", agentName: "Research Assistant", intentTemplate: "Ship the widget without breaking the public API" });
+    const tree = buildJobView("j1", job, [], "proj-1", { ignorePatterns: ["*.md", "dist/**"], defaultBranch: "trunk" });
+    const tables = previewTables(tree);
+    expect(tables).toHaveLength(3);
+    const cells = previewCells(tree).join("  ");
+    expect(cells).toContain("Research Assistant"); // agent substituted
+    expect(cells).toContain("Ship the widget without breaking the public API"); // intent template
+    expect(cells).toContain("*.md, dist/**"); // settings-derived ignore patterns
+    expect(cells).toContain("trunk"); // settings-derived default branch
+  });
+
+  test("an EMPTY agent / intent template render explicit placeholders, and empty ignore → 'none'", () => {
+    const job = jobFix({ id: "j1", agentName: undefined, intentTemplate: undefined });
+    const cells = previewCells(buildJobView("j1", job, [], undefined, { ignorePatterns: [], defaultBranch: "main" })).join("  ");
+    expect(cells).toContain("<repo: agent or deployment default>");
+    expect(cells).toContain("— none configured (job)");
+    // The review preview's ignore label is settings-only → "none" when unset.
+    expect(cells).toContain(" none "); // padded to avoid matching "<repo: …>" substrings
+  });
+
+  test("run-scoped + repo-file values stay explicit placeholders (no render-time repo read)", () => {
+    const cells = previewCells(buildJobView("j1", jobFix({ id: "j1" }), [], undefined, { ignorePatterns: ["src/**"], defaultBranch: "main" })).join(" ");
+    for (const ph of ["<branch>", "<base-commit>", "<head-commit>", "<repo: ignore_patterns>", "<repo: document.instructions>"]) {
+      expect(cells).toContain(ph);
+    }
+  });
+
+  test("every preview cell is length-bounded even with a huge intent template (excerpt clamp)", () => {
+    const bigIntent = "lorem ipsum ".repeat(400); // ~4.8 KB
+    const tree = buildJobView("j1", jobFix({ id: "j1", intentTemplate: bigIntent }), [], undefined, { ignorePatterns: [], defaultBranch: "main" });
+    for (const cell of previewCells(tree)) {
+      expect(cell.length).toBeLessThanOrEqual(281); // 280 + ellipsis
+    }
+    // The excerpt row still notes the full body size.
+    const parts = previewTables(tree).flatMap((t) => t.rows.map((r) => String((r.cells[0] as { text?: string })?.text ?? r.cells[0])));
+    expect(parts.some((p) => p.includes("KB") && p.includes("excerpt"))).toBe(true);
+  });
+
+  test("the Prompts section stays well under the node budget", () => {
+    const section = allNodes(buildJobView("j1", jobFix({ id: "j1" }), []).nodes).find(
+      (n) => n.type === "section" && String(n.title) === "Prompts",
+    ) as { nodes: unknown[] };
+    expect(allNodes(section.nodes).length).toBeLessThanOrEqual(120);
+  });
+
+  test("a user-controlled intent template reaches ONLY escaped text/table cells in the preview (never a markdown sink)", () => {
+    const XSS = `<img src=x onerror="alert('ezcf_prompt_xss')">`;
+    const tree = buildJobView("j1", jobFix({ id: "j1", intentTemplate: XSS }), [], undefined, { ignorePatterns: [], defaultBranch: "main" });
+    const carriers = allNodes(tree.nodes).filter((n) => ownContent(n).includes(XSS));
+    expect(carriers.length).toBeGreaterThan(0); // the intent IS rendered in the preview
+    for (const n of carriers) {
+      expect(n.type).not.toBe("markdown");
+      expect(ESCAPED_PAGE_TYPES.has(n.type as string)).toBe(true);
+    }
+  });
+});
+
 describe("prompt-field slug contract (host anti-spoof)", () => {
   // LITERAL copy of the host validator's PROMPT_FIELD_REGEX
   // (src/extensions/page-schema.ts:44 — the ext cannot import from src/). The

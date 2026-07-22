@@ -754,7 +754,13 @@ async function renderJobView(
   const jobs = await loadJobsWithDefault(getJobStore(), getAudit());
   const job = jobs.find((j) => j.id === jobId) ?? null;
   const runs = job ? (await store.listRuns()).filter((r) => r.jobId === jobId).slice(0, 20) : [];
-  return buildJobView(jobId, job, runs, ctx?.project?.id);
+  // Settings-derived (render-knowable) values for the read-only prompt preview.
+  // The SETTINGS seam only — repo-file values stay placeholders (no repo read).
+  const config = await resolveLiveConfig();
+  return buildJobView(jobId, job, runs, ctx?.project?.id, {
+    ignorePatterns: config.ignorePatterns,
+    defaultBranch: config.defaultBranch,
+  });
 }
 
 /** Render the `?view=audit[:<day>]` surface: the target day's bucket (or the

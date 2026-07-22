@@ -53,6 +53,15 @@ import {
 } from "./jobs";
 import { isTruncationMarker, type AuditBucket, type AuditEntry, type AuditTruncationMarker } from "./audit";
 import type { SweepHeartbeat } from "./sweep";
+import {
+  reviewMainPromptBody,
+  reviewFixPromptBody,
+  documentPromptBody,
+  executionContextPromptSection,
+  roundHistoryPromptSection,
+  userIntentPromptSection,
+  intentConformanceReviewClause,
+} from "./prompts";
 
 /** The full namespaced events the detail controls dispatch. All are declared
  *  in `ezcorp.config.ts` eventSubscriptions (the host allowlists page actions
@@ -1389,11 +1398,21 @@ export function buildConfigView(input: ConfigViewInput): HubPageTree {
  * each deep-linking to its `?run=` detail). `job === null` (unknown/deleted id)
  * renders an honest "not found" note, never an error. Pure.
  */
+/** The settings-derived (render-knowable) values the prompt preview substitutes.
+ *  Sourced from the live pipeline config (`resolveLiveConfig`) — the SETTINGS
+ *  seam only. Repo-FILE-derived values have no render-time source and stay
+ *  placeholders (there is NEVER a render-time repo-file read). */
+export interface JobViewLiveConfig {
+  ignorePatterns: readonly string[];
+  defaultBranch: string;
+}
+
 export function buildJobView(
   jobId: string,
   job: Job | null,
   runs: readonly RunRecord[],
   projectId?: string,
+  live: JobViewLiveConfig = { ignorePatterns: [], defaultBranch: "main" },
 ): HubPageTree {
   const page = new PageBuilder(`ez-code-factory — job ${job?.name ?? jobId}`);
   if (!job) {
@@ -1534,6 +1553,10 @@ export function buildJobView(
     );
   });
 
+  // Prompts (read-only) — what this job will actually send the agent, THIS
+  // job's render-knowable values already substituted. See appendPromptsSection.
+  appendPromptsSection(page, job, live);
+
   page.section("Runs", (s) => {
     if (runs.length === 0) {
       s.emptyState("No runs for this job yet", "Runs appear here once this job triggers.");
@@ -1563,6 +1586,138 @@ export function buildJobView(
   });
 
   return page.build();
+}
+
+// ── Prompt preview (read-only) ──────────────────────────────────────
+//
+// The job page answers "what will this job send the agent?" BEFORE any run
+// exists, by rendering the SAME per-step prompt builders (lib/prompts.ts) the
+// pipeline uses, with THIS job's render-knowable values substituted: its agent,
+// intent template, and the settings-derived ignore patterns + default branch.
+// Run-scoped values (<branch>/<base-commit>/<head-commit>) and repo-FILE values
+// (<repo: …>) have no render-time source, so they stay explicit placeholders —
+// there is NEVER a render-time repo-file read. Only three representative prompts
+// render (review, review-fix, document); test/lint have analogous per-step
+// variants visible in any run's step detail.
+
+const PREVIEW_CELL_MAX = 280;
+const BRANCH_PH = "<branch>";
+const BASE_PH = "<base-commit>";
+const HEAD_PH = "<head-commit>";
+const REPO_IGNORE_PH = "<repo: ignore_patterns>";
+const REPO_DOC_PH = "<repo: document.instructions>";
+const AGENT_PH = "<repo: agent or deployment default>";
+
+/** Single-line, length-bounded cell text (pre-truncates under the host's 300-char
+ *  cell cap; keeps a big intent template from blowing the node/byte budget). */
+function clampCell(text: string): string {
+  const oneLine = text.replace(/\s+/g, " ").trim();
+  return oneLine.length > PREVIEW_CELL_MAX ? `${oneLine.slice(0, PREVIEW_CELL_MAX)}…` : oneLine;
+}
+
+/** Human byte size of a rendered prompt body (for the excerpt row's size note). */
+function sizeLabel(body: string): string {
+  return `${(new TextEncoder().encode(body).length / 1024).toFixed(1)} KB`;
+}
+
+/** Render ONE prompt as a `["Part", "Content"]` table: the substituted metadata
+ *  rows (agent / intent / ignore / branch …) plus a bounded body excerpt whose
+ *  Part cell notes the full size. Every cell is TEXT (XSS-safe) and clamped. */
+function appendPromptPreview(
+  s: PageBuilder,
+  label: string,
+  rows: Array<[string, string]>,
+  body: string,
+): void {
+  s.heading(3, label);
+  const tableRows = rows.map(([part, content]) => ({ cells: [part, clampCell(content)] }));
+  tableRows.push({ cells: [`Prompt · ${sizeLabel(body)} · excerpt`, clampCell(body)] });
+  s.table(["Part", "Content"], tableRows);
+}
+
+/** Append the read-only Prompts section (3 representative previews). Pure — the
+ *  prompt bodies come from the shared lib/prompts.ts builders with this job's
+ *  render-knowable values substituted; everything else stays a placeholder. */
+function appendPromptsSection(page: PageBuilder, job: Job, live: JobViewLiveConfig): void {
+  const agentName = job.agentName?.trim();
+  const agentLabel = agentName ? agentName : AGENT_PH;
+  const intentRaw = job.intentTemplate?.trim();
+  const intentLabel = intentRaw ? intentRaw : "— none configured (job)";
+  const reviewIgnore = live.ignorePatterns.length > 0 ? live.ignorePatterns.join(", ") : "none";
+  const docIgnore = [...live.ignorePatterns, REPO_IGNORE_PH].join(", ");
+  const runScoped = `${BRANCH_PH}, ${BASE_PH}, ${HEAD_PH} — resolved per run`;
+
+  // Preview intent = the job's intent template as an authoritative goal (that is
+  // exactly how an explicit intent renders at run time). Empty → no intent block.
+  const intentCtx = { intent: job.intentTemplate ?? null, authoritative: true };
+  const historyBase =
+    executionContextPromptSection() + roundHistoryPromptSection([]) + userIntentPromptSection(intentCtx);
+
+  const reviewBase = {
+    branch: BRANCH_PH,
+    baseCommit: BASE_PH,
+    targetCommit: HEAD_PH,
+    defaultBranch: live.defaultBranch,
+    ignorePatterns: reviewIgnore,
+  };
+  const reviewMainBody = reviewMainPromptBody({
+    ...reviewBase,
+    reviewScope: `branch changes between ${BASE_PH} and ${HEAD_PH}`,
+    historySection: historyBase + intentConformanceReviewClause(intentCtx),
+  });
+  const reviewFixBody = reviewFixPromptBody({
+    ...reviewBase,
+    reviewScope: `current worktree and HEAD changes relative to base commit ${BASE_PH} (starting head ${HEAD_PH})`,
+    historySection: historyBase,
+    previousFindings: "<per-run: prior review findings>",
+  });
+  const documentBody = documentPromptBody({
+    branch: BRANCH_PH,
+    baseCommit: BASE_PH,
+    targetCommit: HEAD_PH,
+    defaultBranch: live.defaultBranch,
+    ignoreLabel: docIgnore,
+    combinedLint: false,
+    trustedPolicy: `\n\n${REPO_DOC_PH} — resolved per run`,
+    historySection: historyBase,
+    previousFindings: "",
+  });
+
+  const metaRows: Array<[string, string]> = [
+    ["Agent", agentLabel],
+    ["User intent", intentLabel],
+    ["Ignore patterns", reviewIgnore],
+    ["Default branch", live.defaultBranch],
+    ["Run-scoped", runScoped],
+  ];
+
+  page.section("Prompts", (s) => {
+    s.markdown(
+      "What this job sends the agent, with this job's known values already filled in. " +
+        `Run-scoped values (${BRANCH_PH}, ${BASE_PH}, ${HEAD_PH}) and repo-file values ` +
+        `(${REPO_IGNORE_PH}, ${REPO_DOC_PH}) are resolved per run.`,
+      "muted",
+    );
+    appendPromptPreview(s, "Review", metaRows, reviewMainBody);
+    appendPromptPreview(s, "Fix round — review", metaRows, reviewFixBody);
+    appendPromptPreview(
+      s,
+      "Document housekeeping",
+      [
+        ["Agent", agentLabel],
+        ["User intent", intentLabel],
+        ["Ignore patterns", docIgnore],
+        ["Doc instructions", REPO_DOC_PH],
+        ["Default branch", live.defaultBranch],
+        ["Run-scoped", runScoped],
+      ],
+      documentBody,
+    );
+    s.markdown(
+      "The test and lint steps have analogous per-step prompt variants, visible in any run's step detail.",
+      "muted",
+    );
+  });
 }
 
 /**
