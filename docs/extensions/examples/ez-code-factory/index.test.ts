@@ -2928,6 +2928,27 @@ describe("renderDashboard — ?view= routing (L6 precedence)", () => {
     const runDetail = await renderDashboard({ run: "run_missing", view: "config" });
     expect(runDetail.title).toContain("run run_missing");
   });
+
+  test("view=job threads the settings seam (non-default ignore patterns + default branch) into the prompt preview", async () => {
+    _setStoreForTests(memStore());
+    _setJobStoreForTests(fakeJobStore([{ ...buildDefaultJob("t"), id: "j1", name: "N", agentName: "critic" }]));
+    // The SETTINGS seam (resolveLiveConfig) — NOT a repo-file read — supplies the
+    // render-knowable ignore patterns + default branch the preview substitutes.
+    _setSettingsReadForTests(async () => ({ ignore_patterns: ["*.snap", "vendor/**"], default_branch: "trunk" }));
+    const tree = await renderDashboard({ view: "job:j1" });
+    const cellText = allNodesDeep(tree.nodes)
+      .flatMap((n) =>
+        n.type === "table"
+          ? (n.rows as Array<{ cells: unknown[] }>).flatMap((r) =>
+              r.cells.map((c) => (typeof c === "object" && c ? String((c as { text?: string }).text ?? "") : String(c))),
+            )
+          : [],
+      )
+      .join("  ");
+    expect(cellText).toContain("*.snap, vendor/**"); // settings-derived ignore patterns reach a cell
+    expect(cellText).toContain("trunk"); // settings-derived default branch reaches a cell
+    expect(cellText).toContain("critic"); // the job's agent is substituted
+  });
 });
 
 describe("handleJobSave", () => {
@@ -3092,6 +3113,28 @@ describe("handleJobSave", () => {
     // Clearing it (blank) removes the override.
     await handleJobSave(ev({ jobId: "j1", intent_template: "   " }));
     expect(store.jobs.get("j1")!.intentTemplate).toBeUndefined();
+  });
+
+  test("a single-field edit preserves the OTHER optional override (sibling agent / intent survive the explicit-clear patch)", async () => {
+    // The clear-to-empty fix carries agentName + intentTemplate EXPLICITLY in the
+    // update patch. Pin that editing one never clobbers the sibling (and an
+    // unrelated edit leaves both intact) — a regression guard for that patch.
+    const store = fakeJobStore([{ ...buildDefaultJob("t"), id: "j1", name: "N", skipSteps: [], agentName: "critic", intentTemplate: "keep API" }]);
+    _setJobStoreForTests(store);
+    _setInvalidatePageForTests(() => {});
+    // Edit ONLY the intent template → the agent override survives.
+    await handleJobSave(ev({ jobId: "j1", intent_template: "ship it safely" }));
+    expect(store.jobs.get("j1")!.intentTemplate).toBe("ship it safely");
+    expect(store.jobs.get("j1")!.agentName).toBe("critic");
+    // Mirror: edit ONLY the agent → the intent template survives.
+    await handleJobSave(ev({ jobId: "j1", agent_name: "reviewer" }));
+    expect(store.jobs.get("j1")!.agentName).toBe("reviewer");
+    expect(store.jobs.get("j1")!.intentTemplate).toBe("ship it safely");
+    // An UNRELATED edit (a flow toggle) leaves BOTH optional overrides intact.
+    await handleJobSave(ev({ jobId: "j1", toggle_step: "test" }));
+    expect(store.jobs.get("j1")!.skipSteps).toEqual(["test"]);
+    expect(store.jobs.get("j1")!.agentName).toBe("reviewer");
+    expect(store.jobs.get("j1")!.intentTemplate).toBe("ship it safely");
   });
 });
 
