@@ -22,6 +22,11 @@ import {
   resolveCallProvenance,
   _resetCallProvenanceForTests,
 } from "../extensions/call-provenance";
+// The REAL logger module — remapped onto the `$server/logger` alias below so
+// the route's logging goes to the genuine sink (not a stub that would leak into
+// sibling files). `../logger` itself is never mocked, so a top-level import is
+// order-safe (unlike the lazy `require`s in the mock.module factories).
+import * as realLogger from "../logger";
 
 // ── Subprocess + registry fakes ─────────────────────────────────────
 interface SendCall { method: string; params: Record<string, unknown> }
@@ -148,7 +153,6 @@ mock.module("$lib/server/security/rate-limiter", () => require("../../web/src/li
 // guard comment there before touching either registration).
 mock.module("$lib/server/hub-extension-pages", () => require("../../web/src/lib/server/hub-extension-pages"));
 mock.module("$server/extensions/page-cache", () => require("../extensions/page-cache"));
-const realLogger = require("../logger");
 mock.module("$server/logger", () => realLogger);
 
 const bus = new EventBus<AgentEvents>();
