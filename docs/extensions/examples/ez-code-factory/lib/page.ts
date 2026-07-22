@@ -44,6 +44,7 @@ import type {
 } from "./runs";
 import type { StepIORecord } from "./step-io";
 import {
+  formatTriggerSpec,
   jobConcreteBranch,
   MAX_BRANCH_PATTERN_LEN,
   MAX_JOB_NAME_LEN,
@@ -83,6 +84,16 @@ export const JOB_TOGGLE_EVENT = `${EXTENSION_NAME}:job-toggle`;
 export const JOB_DELETE_EVENT = `${EXTENSION_NAME}:job-delete`;
 /** Manually fire a run for an ENABLED job on its concrete branch. */
 export const RUN_NOW_EVENT = `${EXTENSION_NAME}:run-now`;
+
+// Edit-job form-field length hints. The host validator clamps each field's
+// maxLength to [1,500] and the events route caps the SUBMITTED merged payload at
+// 2048 bytes — so Σ(name+trigger+agent+intent) + jobId + JSON overhead stays
+// well under the cap even at these declared hints (pinned by a jobs test).
+/** Agent name field cap (matches the old per-field prompt's implied bound). */
+export const MAX_AGENT_NAME_LEN = 120;
+/** Intent template field cap (host clamps the input to 500; the declared hint
+ *  documents intent — the pipeline template itself can be longer via repo config). */
+export const MAX_INTENT_TEMPLATE_LEN = 1500;
 
 /** Human badge per run status. */
 export const STATUS_BADGE: Record<RunStatus, string> = {
@@ -1437,65 +1448,52 @@ export function buildJobView(
     }
   });
 
-  // Edit / control actions. Each edit is ONE prompt collecting a single scalar
-  // merged into payload[field]; the handler re-validates the whole draft + audits.
+  // Edit / control actions. ONE "Edit job" form collects every editable field
+  // in a single Save (name / trigger / agent / intent template, all prefilled);
+  // the handler re-validates the whole draft + audits once. `branch_pattern`
+  // folds INTO the trigger spec (the grammar carries it) — not a separate field.
+  // Skip-steps are edited per-step in the Flow section below (one-click toggles).
+  // Every `field` is slug-legal snake_case ON PURPOSE: a camelCase key is
+  // silently rewritten to "value" by the host validator (page-schema.ts:44) —
+  // for a multi-field form that would DROP the field outright (no fall-back).
   page.section("Actions", (s) => {
-    s.button("Edit name", {
-      event: JOB_SAVE_EVENT,
-      payload: { jobId },
-      prompt: { label: "New name", field: "name", maxLength: MAX_JOB_NAME_LEN, submitLabel: "Save" },
-    });
-    s.button("Edit branch pattern", {
-      event: JOB_SAVE_EVENT,
-      payload: { jobId },
-      prompt: {
-        label:
-          job.trigger.kind === "push"
-            ? "Branch pattern (literal or single trailing '*')"
-            : "Branch (literal, no glob)",
-        // Slug-legal snake_case: a camelCase field is silently rewritten to
-        // "value" by the host validator (page-schema.ts:44), dropping the edit.
-        field: "branch_pattern",
-        maxLength: MAX_BRANCH_PATTERN_LEN,
-        submitLabel: "Save",
+    s.button(
+      "Edit job",
+      {
+        event: JOB_SAVE_EVENT,
+        payload: { jobId },
+        form: {
+          title: `Edit job "${job.name}"`,
+          fields: [
+            { field: "name", label: "Name", value: job.name, maxLength: MAX_JOB_NAME_LEN },
+            {
+              field: "trigger",
+              label: "Trigger spec",
+              // Prefill with the CURRENT trigger via the exact inverse of
+              // parseTriggerSpec (NOT triggerLabel, whose ` · ` mis-parses).
+              value: formatTriggerSpec(job.trigger),
+              placeholder: "push feat/*  ·  schedule daily main  ·  manual main",
+              maxLength: MAX_BRANCH_PATTERN_LEN,
+            },
+            {
+              field: "agent_name",
+              label: "Agent (blank = repo-config / deployment default)",
+              value: job.agentName ?? "",
+              placeholder: "e.g. reviewer",
+              maxLength: MAX_AGENT_NAME_LEN,
+            },
+            {
+              field: "intent_template",
+              label: "Intent template (blank = none)",
+              value: job.intentTemplate ?? "",
+              placeholder: "e.g. Keep the public API backward compatible.",
+              maxLength: MAX_INTENT_TEMPLATE_LEN,
+            },
+          ],
+        },
       },
-    });
-    s.button("Change trigger", {
-      event: JOB_SAVE_EVENT,
-      payload: { jobId },
-      prompt: {
-        label: "Trigger spec",
-        field: "trigger",
-        placeholder: "push feat/*  ·  schedule daily main  ·  manual main",
-        submitLabel: "Save",
-      },
-    });
-    // Skip-steps are edited per-step in the Flow section below (one-click
-    // toggles); the old comma-list button is gone (the `skip_steps` payload path
-    // stays supported for API compat — see applyJobEdit). The intent template is
-    // edited here (the handler already supports the `intent_template` field).
-    s.button("Edit intent template", {
-      event: JOB_SAVE_EVENT,
-      payload: { jobId },
-      prompt: {
-        label: "Intent template for this job's runs (blank = none)",
-        // Slug-legal snake_case (see page-schema.ts:44 — camelCase → dropped).
-        field: "intent_template",
-        placeholder: "e.g. Keep the public API backward compatible.",
-        submitLabel: "Save",
-      },
-    });
-    s.button("Edit agent", {
-      event: JOB_SAVE_EVENT,
-      payload: { jobId },
-      prompt: {
-        label: "Agent name for this job's dispatches (blank = repo-config / deployment default)",
-        // Slug-legal snake_case (see page-schema.ts:44 — camelCase → dropped).
-        field: "agent_name",
-        placeholder: "e.g. reviewer",
-        submitLabel: "Save",
-      },
-    });
+      "primary",
+    );
     s.button(
       job.enabled ? "Disable" : "Enable",
       { event: JOB_TOGGLE_EVENT, payload: { jobId } },

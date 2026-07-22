@@ -13,6 +13,7 @@ import {
   buildDefaultJob,
   loadJobsWithDefault,
   parseTriggerSpec,
+  formatTriggerSpec,
   jobConcreteBranch,
   parseJobIdPayload,
   applyJobEdit,
@@ -303,6 +304,53 @@ describe("parseTriggerSpec", () => {
   });
 });
 
+describe("formatTriggerSpec (parseTriggerSpec inverse)", () => {
+  test("formats each trigger kind into the grammar parseTriggerSpec accepts", () => {
+    expect(formatTriggerSpec({ kind: "push", branchPattern: "feat/*" })).toBe("push feat/*");
+    expect(formatTriggerSpec({ kind: "schedule", every: "daily", branch: "main" })).toBe("schedule daily main");
+    expect(formatTriggerSpec({ kind: "manual", branch: "release" })).toBe("manual release");
+  });
+
+  test("parse ∘ format round-trips EXACTLY for push / schedule / manual (the prefill pin)", () => {
+    // This is the whole reason formatTriggerSpec exists: triggerLabel's ` · `
+    // separators would mis-parse, silently corrupting the trigger on save. Every
+    // representative trigger must survive format→parse unchanged.
+    const triggers: JobTrigger[] = [
+      { kind: "push", branchPattern: "feat/*" },
+      { kind: "push", branchPattern: "main" },
+      { kind: "push", branchPattern: "*" },
+      { kind: "schedule", every: "15m", branch: "release" },
+      { kind: "schedule", every: "hourly", branch: "dev" },
+      { kind: "schedule", every: "daily", branch: "main" },
+      { kind: "manual", branch: "trunk" },
+    ];
+    for (const t of triggers) {
+      expect(parseTriggerSpec(formatTriggerSpec(t))).toEqual(t);
+    }
+  });
+});
+
+describe("Edit-job form field budget (merged payload under the events-route cap)", () => {
+  // The host events route caps a SUBMITTED merged payload at HUB_PAYLOAD_MAX_BYTES
+  // = 2048 (+server.ts). The client trims each field to its maxLength before
+  // dispatch, so the worst case is the sum of the locked field caps + jobId +
+  // JSON overhead. Pin it well under the cap so an intent-template edit can never
+  // silently 413 the save. (Field caps: name 80, trigger 120, agent 120,
+  // intent 1500 declared — the host further clamps intent to 500, so this is a
+  // conservative over-estimate.)
+  const HUB_PAYLOAD_MAX_BYTES = 2048;
+  test("worst-case merged Edit-job payload fits under 2KB", () => {
+    const payload = {
+      jobId: "default",
+      name: "n".repeat(80),
+      trigger: "t".repeat(120),
+      agent_name: "a".repeat(120),
+      intent_template: "i".repeat(1500),
+    };
+    expect(JSON.stringify(payload).length).toBeLessThan(HUB_PAYLOAD_MAX_BYTES);
+  });
+});
+
 describe("jobConcreteBranch", () => {
   const base = buildDefaultJob("t");
   test("schedule/manual jobs expose their literal branch", () => {
@@ -408,6 +456,49 @@ describe("applyJobEdit", () => {
       expect(validated.ok).toBe(false);
       if (!validated.ok) expect(validated.error).toContain("protected");
     }
+  });
+
+  test("a full Edit-job FORM payload folds every field in one pass (the multi-field save)", () => {
+    // The Edit-job form submits name + trigger + agent_name + intent_template in
+    // ONE payload; applyJobEdit folds them all (no per-field round-trips). Order
+    // is deterministic: name → trigger → agent → intent, each independent.
+    const r = applyJobEdit(base, {
+      jobId: "j1", // camelCase — ignored (never a form field), proves it's inert
+      name: "Nightly",
+      trigger: "schedule daily main",
+      agent_name: "reviewer",
+      intent_template: "keep api stable",
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.draft).toEqual({
+        name: "Nightly",
+        trigger: { kind: "schedule", every: "daily", branch: "main" },
+        enabled: true,
+        skipSteps: ["test"],
+        agentName: "reviewer",
+        intentTemplate: "keep api stable",
+      });
+    }
+  });
+
+  test("a form CLEARS agent + intent when both submit empty (clear-to-empty)", () => {
+    const withBoth: JobDraft = { ...base, agentName: "old", intentTemplate: "old goal" };
+    const r = applyJobEdit(withBoth, { name: "Nightly", agent_name: "", intent_template: "" });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.draft.agentName).toBeUndefined();
+      expect(r.draft.intentTemplate).toBeUndefined();
+      expect(r.draft.name).toBe("Nightly");
+    }
+  });
+
+  test("a full form payload with an unparseable trigger is an ALL-OR-NOTHING reject", () => {
+    // A single bad field fails the whole fold — the caller audits the refusal
+    // rather than persisting a partial edit.
+    const r = applyJobEdit(base, { name: "Nightly", trigger: "bogus spec", agent_name: "x" });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain("trigger must be like");
   });
 
   test("toggle_step on a RUNNING step adds it to skipSteps (skip)", () => {

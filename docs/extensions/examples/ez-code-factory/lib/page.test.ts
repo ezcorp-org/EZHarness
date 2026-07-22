@@ -40,7 +40,7 @@ import { emptyFindings } from "./runs";
 import type { Finding, Findings, RunRecord, RunStatus, StepResultRecord, StepRoundRecord, StepStatus } from "./runs";
 import { snapshotRepoConfig, emptyOutcomeFlags, type StepIORecord } from "./step-io";
 import { emptyRepoConfig } from "./repo-config";
-import { buildDefaultJob, type Job } from "./jobs";
+import { buildDefaultJob, formatTriggerSpec, MAX_BRANCH_PATTERN_LEN, MAX_JOB_NAME_LEN, type Job } from "./jobs";
 import { defaultPipelineConfig, PIPELINE_STEPS } from "./config";
 import type { AuditBucket } from "./audit";
 import type { SweepHeartbeat } from "./sweep";
@@ -1482,7 +1482,13 @@ function tablesDeep(tree: { nodes: unknown[] }) {
 function buttonsDeep(tree: { nodes: unknown[] }) {
   return allNodes(tree.nodes).filter((n) => n.type === "button") as Array<{
     label: string;
-    action: { event: string; payload?: Record<string, unknown>; prompt?: { field?: string }; confirm?: string };
+    action: {
+      event: string;
+      payload?: Record<string, unknown>;
+      prompt?: { field?: string };
+      form?: { title?: string; fields: Array<{ field: string; value?: string; maxLength?: number }> };
+      confirm?: string;
+    };
   }>;
 }
 
@@ -1597,17 +1603,22 @@ describe("buildJobView", () => {
     const tree = buildJobView("j1", job, runs, "proj-1");
     const btns = buttonsDeep(tree);
     const events = btns.map((b) => b.action.event);
-    // Every declared edit BUTTON is present (enabled job → Run now shown). The
-    // five job-save buttons are name/branch/trigger/intent-template/agent — the
-    // old comma-list skip-steps button is gone (Flow toggles supersede it).
-    expect(events.filter((e) => e === JOB_SAVE_EVENT).length).toBe(5);
+    // ONE "Edit job" form button now carries every editable field (the five old
+    // per-field prompt buttons are superseded). Toggle / Run now / Delete stay
+    // (enabled job → Run now shown).
+    expect(events.filter((e) => e === JOB_SAVE_EVENT).length).toBe(1);
     expect(events).toContain(JOB_TOGGLE_EVENT);
     expect(events).toContain(RUN_NOW_EVENT);
     expect(events).toContain(JOB_DELETE_EVENT);
-    // The Edit agent action collects the agent_name scalar (L4 editor coherence).
-    const editAgent = btns.find((b) => b.label === "Edit agent")!;
-    expect(editAgent.action.event).toBe(JOB_SAVE_EVENT);
-    expect((editAgent.action.prompt as { field?: string }).field).toBe("agent_name");
+    // The Edit-job form prefills every field; the trigger via formatTriggerSpec
+    // (its exact inverse — a schedule trigger round-trips as "schedule <every> <branch>").
+    const editJob = btns.find((b) => b.label === "Edit job")!;
+    expect(editJob.action.event).toBe(JOB_SAVE_EVENT);
+    const fields = editJob.action.form!.fields;
+    expect(fields.map((f) => f.field)).toEqual(["name", "trigger", "agent_name", "intent_template"]);
+    const byField = Object.fromEntries(fields.map((f) => [f.field, f.value]));
+    expect(byField.name).toBe("Nightly");
+    expect(byField.trigger).toBe("schedule daily main");
     // Delete carries a confirm.
     expect(btns.find((b) => b.action.event === JOB_DELETE_EVENT)!.action.confirm).toContain("Delete");
     // The runs table deep-links each run on the project hub.
@@ -1615,15 +1626,49 @@ describe("buildJobView", () => {
     expect(runsTable.rows[0]!.href).toBe(`/project/proj-1/hub/${encodeURIComponent(FULL_PAGE_ID)}?run=run_9`);
   });
 
-  test("the Edit intent template button is present; the old skip-steps button is gone", () => {
-    const btns = buttonsDeep(buildJobView("j1", jobFix({ id: "j1" }), []));
-    const intentBtn = btns.find((b) => b.label === "Edit intent template")!;
-    expect(intentBtn).toBeDefined();
-    expect(intentBtn.action.event).toBe(JOB_SAVE_EVENT);
-    expect((intentBtn.action.prompt as { field?: string }).field).toBe("intent_template");
-    // The superseded comma-list button no longer renders (its payload path lives on).
-    expect(btns.some((b) => b.label === "Edit skip-steps")).toBe(false);
-    expect(btns.some((b) => (b.action.prompt as { field?: string } | undefined)?.field === "skip_steps")).toBe(false);
+  test("the Edit-job form prefills every field; the five old per-field buttons + skip_steps/branch_pattern/jobId fields are gone", () => {
+    const job = jobFix({
+      id: "j1",
+      name: "Nightly",
+      agentName: "reviewer",
+      intentTemplate: "keep api stable",
+      trigger: { kind: "push", branchPattern: "feat/*" },
+    });
+    const btns = buttonsDeep(buildJobView("j1", job, []));
+    const editJob = btns.find((b) => b.label === "Edit job")!;
+    expect(editJob).toBeDefined();
+    expect(editJob.action.event).toBe(JOB_SAVE_EVENT);
+    expect(editJob.action.payload).toEqual({ jobId: "j1" });
+    const form = editJob.action.form!;
+    expect(form.title).toBe('Edit job "Nightly"');
+    const byField = Object.fromEntries(form.fields.map((f) => [f.field, f]));
+    expect(byField.name!.value).toBe("Nightly");
+    // A push trigger prefills as "push <pattern>" (formatTriggerSpec inverse).
+    expect(byField.trigger!.value).toBe("push feat/*");
+    expect(byField.agent_name!.value).toBe("reviewer");
+    expect(byField.intent_template!.value).toBe("keep api stable");
+    // Locked field maxLengths (L4).
+    expect(byField.name!.maxLength).toBe(MAX_JOB_NAME_LEN);
+    expect(byField.trigger!.maxLength).toBe(MAX_BRANCH_PATTERN_LEN);
+    // The five superseded per-field buttons are all gone.
+    for (const gone of ["Edit name", "Edit branch pattern", "Change trigger", "Edit intent template", "Edit agent"]) {
+      expect(btns.some((b) => b.label === gone)).toBe(false);
+    }
+    // No form field is `skip_steps` (Flow toggles own that), `branch_pattern`
+    // (folded into the trigger spec), or `jobId` (camelCase — can never be a
+    // slug-legal form field, so it can never be overridden from the form).
+    const fieldNames = form.fields.map((f) => f.field);
+    expect(fieldNames).not.toContain("skip_steps");
+    expect(fieldNames).not.toContain("branch_pattern");
+    expect(fieldNames).not.toContain("jobId");
+  });
+
+  test("agent/intent fields prefill EMPTY when the job has neither set (clear-to-empty round-trips)", () => {
+    const job = jobFix({ id: "j1", agentName: undefined, intentTemplate: undefined });
+    const editJob = buttonsDeep(buildJobView("j1", job, [])).find((b) => b.label === "Edit job")!;
+    const byField = Object.fromEntries(editJob.action.form!.fields.map((f) => [f.field, f.value]));
+    expect(byField.agent_name).toBe("");
+    expect(byField.intent_template).toBe("");
   });
 
   test("the Flow table lists all 9 steps in pipeline order with the right tones + protected labels", () => {
@@ -1775,34 +1820,44 @@ describe("prompt-field slug contract (host anti-spoof)", () => {
   // This test FAILS the moment a builder emits a non-slug prompt field again.
   const PROMPT_FIELD_REGEX = /^[a-z0-9][a-z0-9_]{0,31}$/;
 
-  /** Every `prompt.field` a tree's button/table-row actions emit. */
+  type ActionShape = { prompt?: { field?: string }; form?: { fields?: Array<{ field?: string }> } };
+  /** Every payload-key field a tree's button/table-row actions emit — from a
+   *  single-field `prompt` OR a multi-field `form`. Both slug-gate identically
+   *  host-side, so BOTH surfaces are walked (a drifted form field is dropped
+   *  entirely, an even worse failure than a prompt's silent "value" rewrite). */
+  function actionFields(action: ActionShape | undefined, out: string[]): void {
+    if (!action) return;
+    if (typeof action.prompt?.field === "string") out.push(action.prompt.field);
+    for (const ff of action.form?.fields ?? []) {
+      if (typeof ff.field === "string") out.push(ff.field);
+    }
+  }
   function promptFields(tree: { nodes: unknown[] }): string[] {
     const out: string[] = [];
     for (const n of allNodes(tree.nodes)) {
-      if (n.type === "button") {
-        const f = (n.action as { prompt?: { field?: string } } | undefined)?.prompt?.field;
-        if (typeof f === "string") out.push(f);
-      }
+      if (n.type === "button") actionFields(n.action as ActionShape | undefined, out);
       if (n.type === "table") {
-        for (const row of (n.rows as Array<{ action?: { prompt?: { field?: string } } }>)) {
-          const f = row.action?.prompt?.field;
-          if (typeof f === "string") out.push(f);
-        }
+        for (const row of (n.rows as Array<{ action?: ActionShape }>)) actionFields(row.action, out);
       }
     }
     return out;
   }
 
-  test("EVERY prompt field the config + job views emit is a slug-legal payload key", () => {
+  test("EVERY prompt/form field the config + job views emit is a slug-legal payload key", () => {
     const job = jobFix({ id: "j1", name: "N", enabled: true, agentName: "a", intentTemplate: "t" });
     const trees = [
       buildConfigView({ jobs: [job], runs: [], config: defaultPipelineConfig(), sweepHeartbeat: null, nowMs: Date.now(), extensionId: "ez-code-factory" }),
       buildJobView("j1", job, []),
     ];
     const fields = trees.flatMap(promptFields);
-    // The job editor + the config's New-job button emit prompt fields — assert
-    // the set is non-empty (so the walk is real) and every one is slug-legal.
+    // The job editor's Edit-job FORM (name/trigger/agent_name/intent_template)
+    // + the config's New-job prompt emit fields — assert the set is non-empty
+    // (so the walk is real) and every one is slug-legal. Explicitly assert the
+    // four form fields are present so a form drift can't shrink the walk silently.
     expect(fields.length).toBeGreaterThan(0);
+    for (const required of ["name", "trigger", "agent_name", "intent_template"]) {
+      expect(fields).toContain(required);
+    }
     for (const f of fields) {
       expect(f).toMatch(PROMPT_FIELD_REGEX);
     }

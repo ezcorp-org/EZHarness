@@ -213,8 +213,9 @@ export function validateJobDraft(
 }
 
 /**
- * Parse a free-form trigger spec (collected by the job editor's "Change trigger"
- * prompt) into a `JobTrigger`. Accepts exactly the three shapes:
+ * Parse a free-form trigger spec (collected by the Edit-job form's `trigger`
+ * field, prefilled via {@link formatTriggerSpec}) into a `JobTrigger`. Accepts
+ * exactly the three shapes:
  *   - `push <pattern>`            (literal or single trailing '*' glob)
  *   - `schedule <every> <branch>` (`every` ∈ 15m|hourly|daily; literal branch)
  *   - `manual <branch>`           (literal branch)
@@ -231,6 +232,25 @@ export function parseTriggerSpec(spec: string): JobTrigger | null {
     if (a === "15m" || a === "hourly" || a === "daily") return { kind: "schedule", every: a, branch: b };
   }
   return null;
+}
+
+/**
+ * Format a `JobTrigger` back into the free-form spec grammar {@link parseTriggerSpec}
+ * accepts — the EXACT inverse, so `parseTriggerSpec(formatTriggerSpec(t))` round-trips
+ * for every trigger (pinned by a test). Used to PREFILL the Edit-job form's trigger
+ * field with the job's current trigger. Distinct from `triggerLabel` (page.ts), whose
+ * ` · ` separators parseTriggerSpec MIS-parses — using it for the prefill would
+ * silently corrupt the trigger on every save.
+ */
+export function formatTriggerSpec(t: JobTrigger): string {
+  switch (t.kind) {
+    case "push":
+      return `push ${t.branchPattern}`;
+    case "schedule":
+      return `schedule ${t.every} ${t.branch}`;
+    case "manual":
+      return `manual ${t.branch}`;
+  }
 }
 
 /** The concrete branch a `run-now` (or schedule tick) resolves a run on. A
