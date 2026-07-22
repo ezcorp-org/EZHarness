@@ -247,6 +247,8 @@ run_legs() {
       src/__tests__/ExtensionToolSelector.component.test.ts \
       src/lib/components/hub/HubPageView.component.test.ts \
       src/lib/components/hub/HubNavSection.component.test.ts \
+      src/lib/components/hub/HubComponentRenderer.component.test.ts \
+      src/lib/server/hub-render-pull.page-state.unit.test.ts \
       src/lib/__tests__/project-icon.unit.test.ts \
       src/lib/hub-last-page.unit.test.ts \
       src/lib/components/__tests__/ModeFormModal.component.test.ts \
@@ -353,6 +355,8 @@ run_legs() {
       --coverage.include='src/lib/components/ExtensionToolSelector.svelte' \
       --coverage.include='src/lib/components/hub/HubPageView.svelte' \
       --coverage.include='src/lib/components/hub/HubNavSection.svelte' \
+      --coverage.include='src/lib/components/hub/HubInlineForm.svelte' \
+      --coverage.include='src/lib/server/hub-render-pull.ts' \
       --coverage.include='src/lib/project-icon.ts' \
       --coverage.include='src/lib/command-registry.ts' \
       --coverage.include='src/lib/hub-last-page.ts' \

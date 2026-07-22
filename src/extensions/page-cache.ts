@@ -50,7 +50,7 @@ export class ExtensionPageCache {
   /** Outer key `${extId}:${pageId}` → variant (`""` = global) → entry.
    *  Nested maps keep every operation O(variants-of-one-page) — no
    *  full-cache scans on the hot render/push/action paths. */
-  private pages = new Map<string, Map<string, StoredEntry>>();
+  private pages: Map<string, Map<string, StoredEntry>>;
 
   /** Per-page invalidation GENERATION (bumped by `invalidate`). A render
    *  pull captures the generation when it STARTS and hands it back to
@@ -59,12 +59,19 @@ export class ExtensionPageCache {
    *  client re-pull that renders PRE-commit state, the handler's commit
    *  fires the invalidation mid-render, and without the stamp the doomed
    *  render would then cache its stale tree as fresh for the full TTL. */
-  private generations = new Map<string, number>();
+  private generations: Map<string, number>;
 
+  // Field maps are assigned HERE (not as field initializers) on purpose:
+  // bun's coverage attributes multi-field initializer execution to the
+  // LAST field's line, leaving the first flagged unexecuted — a plain
+  // constructor body keeps per-line attribution honest.
   constructor(
     private readonly ttlMs: number = PAGE_CACHE_TTL_MS,
     private readonly now: () => number = Date.now,
-  ) {}
+  ) {
+    this.pages = new Map();
+    this.generations = new Map();
+  }
 
   /** Composite outer key. `:` is collision-safe: extension ids are
    *  UUIDs and page ids match /^[a-z0-9][a-z0-9-]{0,31}$/ — neither can

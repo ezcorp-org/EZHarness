@@ -80,7 +80,8 @@ mock.module("$lib/server/hub-extension-pages", () => require("../../web/src/lib/
 // Dynamic import AFTER the mocks above — the fake registry/tool-executor
 // factories must be registered before this module binds its imports
 // (same pattern as extension-events-hub-branch.test.ts).
-const { renderExtensionPage } = await import("../../web/src/lib/server/hub-render-pull");
+const { renderExtensionPage, ensurePageStateInvalidation, __resetPageStateInvalidationForTests } =
+  await import("../../web/src/lib/server/hub-render-pull");
 import type { RenderPullDeps } from "../../web/src/lib/server/hub-render-pull";
 import { resolveCallProvenance } from "../extensions/call-provenance";
 import { ExtensionPageCache } from "../extensions/page-cache";
@@ -553,5 +554,18 @@ describe("single-flight pull dedup", () => {
       }),
     ]);
     expect(seen.sort()).toEqual(["p-1", "p-2"]); // two variants, two pulls
+  });
+});
+
+describe("page-state invalidation wiring (bun-side seams)", () => {
+  test("ensure is fail-open when the server context is uninitialized, and the reset seam re-arms retries", async () => {
+    // In this process the real `$lib/server/context` is importable but
+    // uninitialized (getBus throws) — ensure must swallow that and resolve
+    // (the render path awaits it on EVERY pull; a throw would break renders).
+    await expect(ensurePageStateInvalidation()).resolves.toBeUndefined();
+    // The test seam drops the wired flag; a subsequent ensure retries and
+    // again resolves instead of wedging.
+    __resetPageStateInvalidationForTests();
+    await expect(ensurePageStateInvalidation()).resolves.toBeUndefined();
   });
 });
