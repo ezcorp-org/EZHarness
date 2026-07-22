@@ -19,6 +19,11 @@ export interface MediatorManifest {
   /** Declared Hub page ids (`manifest.pages[].id`) — gates
    *  `ezcorp/page-state` pushes. */
   pageIds?: string[];
+  /** Pages declared `perProject: true` — their pushes are treated as
+   *  invalidate-only even when a tree is attached: one pushed tree
+   *  cannot cover the global + per-project variants, so caching it as
+   *  the global render would poison the all-projects home view. */
+  perProjectPageIds?: string[];
   /** Granted event subscriptions — `allowedEvents` for page-tree
    *  validation (action nodes naming undeclared events are dropped). */
   eventSubscriptions?: string[];
@@ -115,18 +120,24 @@ export class ExtensionStateMediator {
   }
 
   /**
-   * `ezcorp/page-state` — extension pushes a fresh Hub page tree
-   * (Extension Pages Hub §2.5, invalidation-signal design).
+   * `ezcorp/page-state` — extension pushes a fresh Hub page tree, or a
+   * TREE-LESS invalidation (Extension Pages Hub §2.5, invalidation-
+   * signal design; the SDK's `invalidatePage`).
    *
    *   1. Gate on a DECLARED page id (`manifest.pages`).
-   *   2. Run the full `validatePageTree` ladder (same validator the
-   *      render-pull uses; `allowedEvents` = granted
-   *      eventSubscriptions).
-   *   3. Cache the validated tree so the viewers' re-pull is instant.
+   *   2. With a `page` payload: run the full `validatePageTree` ladder
+   *      (same validator the render-pull uses; `allowedEvents` =
+   *      granted eventSubscriptions). Invalid → drop silently.
+   *      Without one: invalidate-only — the pattern for `perProject`
+   *      pages, where one pushed tree can't cover every variant.
+   *   3. Drop every cached variant (a push can't know which project
+   *      views are stale), then cache the validated tree as the fresh
+   *      GLOBAL render when one was pushed.
    *   4. Emit `ext:page-state` WITHOUT the tree — only
    *      {extensionId, extensionName, pageId}. The signal leaks
    *      nothing but "page X changed", so the SSE layer may deliver
-   *      it to every authenticated subscriber.
+   *      it to every authenticated subscriber; each open view re-pulls
+   *      with its own project context.
    */
   private handlePageState(
     extensionId: string,
@@ -138,12 +149,21 @@ export class ExtensionStateMediator {
     if (typeof pageId !== "string") return;
     if (!manifest.pageIds?.includes(pageId)) return;
 
-    const tree = validatePageTree(params.page, {
-      allowedEvents: manifest.eventSubscriptions ?? [],
-    });
-    if (!tree) return;
+    let tree = null;
+    if (params.page !== undefined) {
+      tree = validatePageTree(params.page, {
+        allowedEvents: manifest.eventSubscriptions ?? [],
+      });
+      if (!tree) return; // a malformed tree is a bad push, not an invalidation
+    }
 
-    getPageCache().set(extensionId, pageId, tree);
+    // perProject pages: a pushed tree is DOWNGRADED to invalidate-only.
+    // The push was built in exactly one context (usually none), so caching
+    // it as the global variant would serve it as the all-projects home.
+    if (tree && manifest.perProjectPageIds?.includes(pageId)) tree = null;
+
+    getPageCache().invalidate(extensionId, pageId);
+    if (tree) getPageCache().set(extensionId, pageId, tree);
 
     this.bus.emit("ext:page-state", {
       extensionId,

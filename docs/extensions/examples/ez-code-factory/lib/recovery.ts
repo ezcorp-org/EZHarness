@@ -71,6 +71,19 @@ export async function recoverRuns(deps: RecoveryDeps): Promise<RecoverySummary> 
       continue;
     }
 
+    // Already surfaced as `stalled` by the sweep (L3) — pass through: do NOT
+    // fail-close and do NOT reap its worktree. This branch is EXPLICIT because
+    // `stalled` is non-terminal and would otherwise fall into the mid-flight
+    // fail-close below (that `else` is a catch-all, not compiler-forced). Design
+    // notes: (a) a dead `running` run resolves to `failed` (this restart
+    // recovery) OR `stalled` (the sweep), whichever fires first — both truthful,
+    // accepted; (b) stalled worktrees are NOT reaped in v1 (only a superseding
+    // push cleans them) — deliberate, matching `awaiting_approval` parking.
+    if (run.status === "stalled") {
+      deps.log?.(`left stalled run ${run.id} as-is (already surfaced; worktree kept)`);
+      continue;
+    }
+
     // running / created / worktree_ready — interrupted mid-pipeline.
     await failClosed(
       deps,

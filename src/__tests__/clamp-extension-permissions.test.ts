@@ -139,6 +139,62 @@ describe("clampExtensionPermissions — capability tier", () => {
     expect(out.eventSubscriptions).toBeUndefined();
   });
 
+  test("eventSubscriptions: OWN-namespace custom events survive when the manifest name is supplied", () => {
+    // The ez-code-factory init_gate regression: the manifest declares the
+    // extension's own custom events, the activate path clamps them, and the
+    // dispatcher would happily register them — the clamp must not be
+    // narrower than the dispatcher (registerExtension Branch 2).
+    const events = ["ez-code-factory:push-received", "ez-code-factory:respond", DCE_EVENT];
+    const out = clampExtensionPermissions(
+      { eventSubscriptions: events },
+      { eventSubscriptions: events },
+      { name: "ez-code-factory" },
+    );
+    expect(out.eventSubscriptions).toEqual(events);
+  });
+
+  test("eventSubscriptions: cross-namespace and malformed customs still fail closed", () => {
+    const out = clampExtensionPermissions(
+      {
+        eventSubscriptions: [
+          "other-ext:steal",     // foreign namespace — dispatcher refuses, clamp must too
+          ":no-namespace",       // empty namespace half
+          "no-event:",           // empty event half
+          "plainname",           // no separator, not a carrier event
+          "ez-code-factory:ok",  // the one legitimate custom
+        ],
+      },
+      {
+        eventSubscriptions: [
+          "other-ext:steal",
+          ":no-namespace",
+          "no-event:",
+          "plainname",
+          "ez-code-factory:ok",
+        ],
+      },
+      { name: "ez-code-factory" },
+    );
+    expect(out.eventSubscriptions).toEqual(["ez-code-factory:ok"]);
+  });
+
+  test("eventSubscriptions: without a name, custom events keep failing closed (legacy callers)", () => {
+    const out = clampExtensionPermissions(
+      { eventSubscriptions: ["ez-code-factory:push-received", DCE_EVENT] },
+      { eventSubscriptions: ["ez-code-factory:push-received", DCE_EVENT] },
+    );
+    expect(out.eventSubscriptions).toEqual([DCE_EVENT]);
+  });
+
+  test("eventSubscriptions: a custom event NOT in the manifest is dropped even with the right namespace", () => {
+    const out = clampExtensionPermissions(
+      { eventSubscriptions: ["ez-code-factory:undeclared"] },
+      { eventSubscriptions: ["ez-code-factory:push-received"] },
+      { name: "ez-code-factory" },
+    );
+    expect(out.eventSubscriptions).toBeUndefined();
+  });
+
   test("webhooks: slug array intersects submitted ∩ manifest; undeclared slug dropped", () => {
     const out = clampExtensionPermissions(
       { webhooks: ["tickets", "not-in-manifest"] },

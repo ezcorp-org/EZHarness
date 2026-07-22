@@ -6,6 +6,8 @@ import {
 	parseHubPageId,
 	buildActionRequest,
 	isSafeInternalHref,
+	sortHubPagesByTitle,
+	type HubPageListing,
 	type ParsedHubPageId,
 	type PageAction,
 	type PagePrompt,
@@ -148,6 +150,51 @@ describe("PagePrompt mirror + prompt-value payload path", () => {
 			url: "/api/extensions/cron-dashboard/events/rename",
 			body: { source: "hub", pageId: "dashboard", payload: { name: "Nightly" } },
 		});
+	});
+});
+
+describe("sortHubPagesByTitle", () => {
+	function listing(id: string, title: string, kind: "core" | "ext" = "ext"): HubPageListing {
+		return { id, title, kind };
+	}
+
+	test("orders pages alphabetically by title", () => {
+		const sorted = sortHubPagesByTitle([
+			listing("core:zebra", "Zebra"),
+			listing("core:apple", "Apple"),
+			listing("ext:x:mango", "Mango"),
+		]);
+		expect(sorted.map((p) => p.title)).toEqual(["Apple", "Mango", "Zebra"]);
+	});
+
+	test("is case-insensitive (base sensitivity)", () => {
+		const sorted = sortHubPagesByTitle([
+			listing("core:b", "banana"),
+			listing("core:a", "Apple"),
+		]);
+		expect(sorted.map((p) => p.title)).toEqual(["Apple", "banana"]);
+	});
+
+	test("breaks ties on the page id when titles match (case-insensitively)", () => {
+		// Equal-by-title entries fall through to the stable id comparator, so a
+		// listing with two "Dashboard" tabs always renders in a deterministic order.
+		const sorted = sortHubPagesByTitle([
+			listing("ext:z:dash", "Dashboard"),
+			listing("ext:a:dash", "dashboard"),
+		]);
+		expect(sorted.map((p) => p.id)).toEqual(["ext:a:dash", "ext:z:dash"]);
+	});
+
+	test("returns a NEW array and does not mutate the source order", () => {
+		const source = [listing("core:z", "Zebra"), listing("core:a", "Apple")];
+		const sorted = sortHubPagesByTitle(source);
+		expect(sorted).not.toBe(source);
+		// The raw listing order is preserved for callers that depend on it.
+		expect(source.map((p) => p.title)).toEqual(["Zebra", "Apple"]);
+	});
+
+	test("handles the empty listing", () => {
+		expect(sortHubPagesByTitle([])).toEqual([]);
 	});
 });
 

@@ -172,6 +172,14 @@ services:
       - ./web/vite.config.ts:/app/web/vite.config.ts
       - ./web/tsconfig.json:/app/web/tsconfig.json
       - ./docs:/app/docs
+      # SDK source must ride the same live-reload set: extension
+      # subprocesses resolve the workspace SDK through its "bun" exports
+      # condition to packages/@ezcorp/sdk/src/*.ts, so without this
+      # mount they run the image-baked SDK snapshot against bind-mounted
+      # CURRENT extension/host code. That skew crashed every extension
+      # importing an SDK export newer than the image (auto-disabled
+      # after 3 crashes → its hub page 404s).
+      - ./packages/@ezcorp/sdk/src:/app/packages/@ezcorp/sdk/src
       # User-created projects — accessible on host at ./projects/
       - ./projects:/app/projects
       # ── Self-modification project (EZCORP_SELF_PROJECT_PATH) ─────────

@@ -20,9 +20,28 @@ export interface ManifestPageDeclaration {
   title: string;
   icon?: string;
   description?: string;
+  /** Page opts into project context: single project on the project hub,
+   *  the full project list on the global hub (`perProject: true`). */
+  perProject?: boolean;
+  /** True when the page is scoped to a single project — the project hub
+   *  auto-open target. Read tolerantly from the raw declaration (see
+   *  `isProjectScoped`); carried so the tab listing can surface it. */
+  projectScoped?: boolean;
 }
 
 const PAGE_ID_REGEX = /^[a-z0-9][a-z0-9-]{0,31}$/;
+
+/**
+ * Project-scoped signal, read tolerantly from a RAW page declaration.
+ * `perProject: true` is this checkout's field; `scopes: ["project"]` is
+ * the in-flight rename an upcoming branch lands — accepting both keeps
+ * that merge a no-op.
+ */
+function isProjectScoped(p: Record<string, unknown>): boolean {
+  if (p.perProject === true) return true;
+  const scopes = p.scopes;
+  return Array.isArray(scopes) && scopes.includes("project");
+}
 
 /** Defensive reader for `manifest.pages` on a DB extension row. */
 export function readManifestPages(manifest: unknown): ManifestPageDeclaration[] {
@@ -40,6 +59,8 @@ export function readManifestPages(manifest: unknown): ManifestPageDeclaration[] 
       title: p.title.slice(0, 50),
       ...(typeof p.icon === "string" ? { icon: p.icon } : {}),
       ...(typeof p.description === "string" ? { description: p.description.slice(0, 200) } : {}),
+      ...(p.perProject === true ? { perProject: true } : {}),
+      ...(isProjectScoped(p) ? { projectScoped: true } : {}),
     });
   }
   return out;
@@ -57,6 +78,7 @@ export async function listEnabledExtensionPages(): Promise<HubPageListing[]> {
         title: page.title,
         ...(page.icon ? { icon: page.icon } : {}),
         ...(page.description ? { description: page.description } : {}),
+        ...(page.projectScoped ? { projectScoped: true } : {}),
         kind: "ext",
       });
     }

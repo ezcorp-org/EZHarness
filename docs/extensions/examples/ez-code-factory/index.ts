@@ -20,8 +20,8 @@ import {
   definePage,
   getChannel,
   getToolContext,
+  invalidatePage,
   invoke,
-  pushPage,
   Rbac,
   Schedule,
   Storage,
@@ -29,6 +29,7 @@ import {
   toolResult,
   type HubPageTree,
   type PageActionEvent,
+  type PageRenderContext,
   type ScheduleHandlerContext,
   type ToolHandler,
 } from "@ezcorp/sdk/runtime";
@@ -41,6 +42,8 @@ import {
   dataDir,
   gateDir as gateDirFor,
   repoId as repoIdFor,
+  credentialPath as credentialPathFor,
+  mintCredentialCommand,
   initGate,
 } from "./lib/gate";
 import {
@@ -53,7 +56,25 @@ import {
 import { enforceRespondContract } from "./lib/chat-contract";
 import { createIntentCache, makeConversationIntentInferrer } from "./lib/intent-infer";
 import { join } from "node:path";
-import { buildDashboard, normalizeRespondPayload, parseRunIdPayload, type RunDetail } from "./lib/page";
+import {
+  buildAuditView,
+  buildConfigView,
+  buildDashboard,
+  buildHome,
+  buildJobView,
+  buildProjectDashboard,
+  buildRunDetailView,
+  buildStepDetailView,
+  buildUnknownView,
+  normalizeRespondPayload,
+  orphanRuns,
+  parseRunIdPayload,
+  parseView,
+  projectIdForRun,
+  runsForProject,
+  type RunDetail,
+  type StepDetail,
+} from "./lib/page";
 import {
   createRunStore,
   parsePushReceived,
@@ -75,7 +96,7 @@ import { makeGit } from "./lib/git";
 import { resolveTrustedRepoConfig } from "./lib/repo-config";
 import { startPipeline, respondToGate, reconcileGate, type ExecutorDeps } from "./lib/executor";
 import { makeGhRunner, resolveGhToken, type TokenStorage } from "./lib/gh-runner";
-import { guardScope, RESPOND_SCOPE, YOLO_SCOPE, type RbacCheck } from "./lib/rbac";
+import { guardScope, MANAGE_JOBS_SCOPE, RESPOND_SCOPE, YOLO_SCOPE, type RbacCheck } from "./lib/rbac";
 import { decideYoloAction } from "./lib/yolo";
 import {
   reconcileSweep,
@@ -83,9 +104,33 @@ import {
   type ReconcileResult,
   type SweepSummary,
 } from "./lib/sweep";
-import { productionHeartbeatKV, type HeartbeatKV } from "./lib/heartbeat";
+import {
+  isRunStale,
+  productionHeartbeatKV,
+  productionRunHeartbeatKV,
+  type HeartbeatKV,
+  type RunHeartbeatKV,
+} from "./lib/heartbeat";
 import { recoverRuns, type RecoverySummary } from "./lib/recovery";
 import { runDoctor, type DoctorReport } from "./lib/doctor";
+import {
+  applyJobEdit,
+  createJobStore,
+  DEFAULT_JOB_ID,
+  diffJob,
+  hasJobEditField,
+  jobConcreteBranch,
+  loadJobsWithDefault,
+  matchPushJob,
+  isScheduleJobDue,
+  parseJobIdPayload,
+  shouldSynthesizeRun,
+  validateJobDraft,
+  type Job,
+  type JobDraft,
+  type JobStore,
+} from "./lib/jobs";
+import { createAuditLog, type AuditLog } from "./lib/audit";
 
 /** Full namespaced action name the post-receive hook triggers. */
 export const PUSH_RECEIVED_ACTION = `${EXTENSION_NAME}:${TRIGGER_EVENT}`;
@@ -101,6 +146,14 @@ export const YOLO_ACTION = `${EXTENSION_NAME}:yolo`;
  *  ReconcileApprovalGate poll that auto-resolves the gate when its PR has
  *  merged/closed (`{ runId }`). Harness/future-sweep-triggerable. */
 export const RECONCILE_ACTION = `${EXTENSION_NAME}:reconcile`;
+/** Control-plane job actions (L7): create/edit a job (`{ jobId?, <field> }`),
+ *  toggle a job's enabled flag (`{ jobId }`), delete a job (`{ jobId }`), and
+ *  fire a manual run for an enabled job (`{ jobId }`). All are gated on the
+ *  `manage-jobs` RBAC scope (guardScope FIRST) and audited with `event.userId`. */
+export const JOB_SAVE_ACTION = `${EXTENSION_NAME}:job-save`;
+export const JOB_TOGGLE_ACTION = `${EXTENSION_NAME}:job-toggle`;
+export const JOB_DELETE_ACTION = `${EXTENSION_NAME}:job-delete`;
+export const RUN_NOW_ACTION = `${EXTENSION_NAME}:run-now`;
 
 // ── Injectable seams (production defaults; tests override) ────────────
 //
@@ -173,9 +226,28 @@ export function _setStoreForTests(store: RunStore | null): void {
   storeImpl = store;
 }
 
-let pushPageImpl: typeof pushPage = pushPage;
-export function _setPushPageForTests(fn: typeof pushPage | null): void {
-  pushPageImpl = fn ?? pushPage;
+// ── Control plane (L4/L5): job store + audit log seams ────────────────
+let jobStoreImpl: JobStore | null = null;
+function getJobStore(): JobStore {
+  if (!jobStoreImpl) jobStoreImpl = createJobStore("global");
+  return jobStoreImpl;
+}
+export function _setJobStoreForTests(store: JobStore | null): void {
+  jobStoreImpl = store;
+}
+
+let auditImpl: AuditLog | null = null;
+function getAudit(): AuditLog {
+  if (!auditImpl) auditImpl = createAuditLog("global");
+  return auditImpl;
+}
+export function _setAuditForTests(audit: AuditLog | null): void {
+  auditImpl = audit;
+}
+
+let invalidatePageImpl: typeof invalidatePage = invalidatePage;
+export function _setInvalidatePageForTests(fn: typeof invalidatePage | null): void {
+  invalidatePageImpl = fn ?? invalidatePage;
 }
 
 // ── GitHub-token seam (the pr/ci steps' gh auth) ──────────────────────
@@ -230,6 +302,16 @@ export function _setHeartbeatKVForTests(fn: (() => HeartbeatKV) | null): void {
   heartbeatKVImpl = fn ?? productionHeartbeatKV;
 }
 
+// ── Per-run liveness heartbeat KV (L3, the status-truthfulness fix) ──
+//
+// The executor writes `heartbeats/<runId>` every 60 s while a step runs; the
+// sweep reads it to mark a silent `running` run `stalled`. A swappable seam
+// (tests inject a fake KV) like the sweep heartbeat above.
+let runHeartbeatKVImpl: () => RunHeartbeatKV = productionRunHeartbeatKV;
+export function _setRunHeartbeatKVForTests(fn: (() => RunHeartbeatKV) | null): void {
+  runHeartbeatKVImpl = fn ?? productionRunHeartbeatKV;
+}
+
 // ── Settings live-read seam (M2, resolves M1's defaultPipelineConfig TODO) ──
 //
 // The pipeline config (auto-fix caps, gate remote, ignore globs, default
@@ -279,6 +361,10 @@ function buildExecutorDeps(
   gateDir: string,
   worktreePath: string,
   config: PipelineConfig,
+  job?: Pick<
+    Job,
+    "name" | "skipSteps" | "agentName" | "reviewInstructions" | "fixInstructions" | "documentInstructions"
+  >,
 ): ExecutorDeps {
   const evidenceDir = join(tmpBaseImpl(projectRoot), "ez-code-factory-evidence");
   return {
@@ -288,6 +374,18 @@ function buildExecutorDeps(
     workingPath: projectRoot,
     tmpBase: tmpBaseImpl(projectRoot),
     config,
+    // Control plane (L4): the matched job's step-skip overlay + name (for the
+    // `skipped by job <name>` reason). Protected steps were rejected on save,
+    // so a skip can never bypass the review gate.
+    ...(job && job.skipSteps.length > 0 ? { skipSteps: job.skipSteps, jobName: job.name } : {}),
+    // Control plane (L4): the job's agent-name override — preferred over the
+    // repo-config agent by repoDispatchOptions (`job.agentName || repoConfig.agent`).
+    ...(job?.agentName ? { jobAgentName: job.agentName } : {}),
+    // Control plane (L4): the job's operator prompt instructions — threaded to
+    // every StepContext; each step prepends the relevant sanitized section.
+    ...(job?.reviewInstructions ? { jobReviewInstructions: job.reviewInstructions } : {}),
+    ...(job?.fixInstructions ? { jobFixInstructions: job.fixInstructions } : {}),
+    ...(job?.documentInstructions ? { jobDocumentInstructions: job.documentInstructions } : {}),
     dispatcher: makeSpawnDispatcher({ evidenceDir }),
     hostRunner: shellImpl,
     jailedRunner: makeJailedShell(gateDir, projectRoot),
@@ -302,17 +400,24 @@ function buildExecutorDeps(
       resolveTrustedRepoConfig(makeGit(shellImpl, worktreePath), config.defaultBranch, "HEAD"),
     now: () => Date.now(),
     onChange: refreshDashboard,
+    // Control-plane audit sink (L5): run status transitions are recorded via
+    // the executor's setRunStatus choke.
+    audit: getAudit(),
     log: (runId, step, message) =>
       logLine(`ez-code-factory[${runId}/${step}]: ${message}`),
+    // Per-run liveness heartbeat (L3): a 60 s beat around each step's execute so
+    // the sweep can truthfully mark a dead run `stalled`. Separate key, never a
+    // read-modify-write on the run record.
+    heartbeat: { write: (runId, at) => runHeartbeatKVImpl().write(runId, at) },
   };
 }
 
-const defaultRunPipeline = (projectRoot: string, gateDir: string): PipelineRunner => {
+const defaultRunPipeline = (projectRoot: string, gateDir: string, job?: Job): PipelineRunner => {
   return async ({ runId, worktreePath }) => {
     const config = await resolveLiveConfig();
     const outcome = await startPipeline(
       runId,
-      buildExecutorDeps(projectRoot, gateDir, worktreePath, config),
+      buildExecutorDeps(projectRoot, gateDir, worktreePath, config, job),
     );
     return { parked: outcome.status === "parked" };
   };
@@ -407,6 +512,8 @@ async function defaultBuildChatToolDeps(projectRoot: string): Promise<ChatToolDe
         // respond/yolo/reconcile fires are context-free and re-derive every
         // path from this (same as the push path's stamp).
         projectRoot,
+        // Audit run creation + supersede (L5) — these bypass the executor sink.
+        audit: getAudit(),
       }),
     resumeRun: (runId, respond) =>
       resumeGateLifecycle(runId, {
@@ -483,6 +590,7 @@ export const codeFactoryDoctorTool: ToolHandler = async () => {
   const report: DoctorReport = await runDoctor({
     gateDir: gDir,
     defaultBranch: config.defaultBranch,
+    credentialPath: credentialPathFor(projectRoot),
     run: shellImpl,
     gh: makeGhRunner(shellImpl, gDir, resolveProductionGhToken),
     resolveToken: resolveProductionGhToken,
@@ -514,19 +622,163 @@ async function collectParkedDetails(store: RunStore, runs: RunRecord[]): Promise
   return details;
 }
 
-/** The current dashboard tree (runs list + inline triage detail for parked
- *  runs). The single source both the render-pull and the push-refresh use. */
-async function currentDashboardTree(): Promise<HubPageTree> {
-  const store = getStore();
-  const runs = await store.listRuns();
-  const details = await collectParkedDetails(store, runs);
-  return buildDashboard(runs, details);
+/** Signal "the dashboard changed" (content-free SSE invalidation → every open
+ *  Hub view re-pulls its OWN variant). With per-project variants a single
+ *  pushed tree can't serve the home + every project view, so this replaced
+ *  the old `pushPage` full-tree refresh. */
+async function refreshDashboard(): Promise<void> {
+  invalidatePageImpl(PAGE_ID);
 }
 
-/** Push a fresh dashboard tree (content-free SSE invalidation → open tabs
- *  re-pull). Reads the global run store only (the shared, cross-user tree). */
-async function refreshDashboard(): Promise<void> {
-  pushPageImpl(PAGE_ID, await currentDashboardTree());
+/** Render the read-only run-DETAIL view for `?run=<id>`: load the run + its
+ *  ordered step results and hand them to the pure builder. An unknown id yields
+ *  a "not found" note (never an error) — the run may have been swept, or the
+ *  deep-link is stale. `ctx` carries the render's project context (the single
+ *  project on the project hub, the full list on the global hub); we resolve the
+ *  run's OWNING project from it so the detail's per-turn rows can deep-link into
+ *  their chat sub-conversations. An orphan run (no matching project) renders the
+ *  same detail without those links. */
+async function renderRunDetail(
+  store: RunStore,
+  runId: string,
+  ctx?: PageRenderContext,
+): Promise<HubPageTree> {
+  const run = await store.getRun(runId);
+  if (!run) return buildRunDetailView(runId, null);
+  const steps: StepResultRecord[] = [];
+  for (const step of PIPELINE_STEPS) {
+    const sr = await store.getStepResult(runId, step);
+    if (sr) steps.push(sr);
+  }
+  const projects = ctx?.projects ?? (ctx?.project ? [ctx.project] : []);
+  const projectId = projectIdForRun(run, projects);
+  const stalledRunIds = await computeStalledRunIds([run]);
+  return buildRunDetailView(runId, { run, steps }, projectId, stalledRunIds);
+}
+
+/**
+ * Derived-stalled ids (L3, immediate — doesn't wait for the sweep cron): for
+ * each `running` run, read its per-run heartbeat and evaluate the SHARED
+ * `isRunStale` helper with `Date.now()`. A run persisted as `stalled` by the
+ * sweep needs no entry here (it already renders stalled); this set only
+ * upgrades a `running` run whose executor has gone silent. One heartbeat read
+ * per running run (typically 0–1).
+ */
+async function computeStalledRunIds(runs: RunRecord[]): Promise<Set<string>> {
+  const kv = runHeartbeatKVImpl();
+  const now = Date.now();
+  const ids = new Set<string>();
+  for (const run of runs) {
+    if (run.status !== "running") continue;
+    const heartbeatAt = await kv.read(run.id);
+    if (isRunStale(run, heartbeatAt, now)) ids.add(run.id);
+  }
+  return ids;
+}
+
+/**
+ * Render the read-only STEP-detail view for `?run=<id>&step=<name>` (L5). An
+ * arbitrary 128-char `step` string reaches here — validate it against
+ * PIPELINE_STEPS (unknown → empty state, never throw). Loads the run, the single
+ * step result + its rounds, and the per-round IO records via `listStepIO` (a
+ * PREFIX listing — an errored final attempt writes an IO record beyond
+ * `sr.round`, so a 1..round loop would miss it). Resolves the owning project for
+ * the per-dispatch chat deep-links exactly as the run detail does.
+ */
+async function renderStepDetail(
+  store: RunStore,
+  runId: string,
+  step: string,
+  ctx?: PageRenderContext,
+): Promise<HubPageTree> {
+  // Unknown step (arbitrary reachable string) → honest empty state, never throw.
+  if (!(PIPELINE_STEPS as readonly string[]).includes(step)) {
+    return buildStepDetailView(null);
+  }
+  const pipelineStep = step as PipelineStep;
+  const run = await store.getRun(runId);
+  if (!run) return buildStepDetailView(null);
+
+  const result = await store.getStepResult(runId, pipelineStep);
+  const rounds = await store.getStepRounds(runId, pipelineStep);
+  const io = await store.listStepIO(runId, pipelineStep);
+
+  const projects = ctx?.projects ?? (ctx?.project ? [ctx.project] : []);
+  const projectId = projectIdForRun(run, projects);
+  const stalledRunIds = await computeStalledRunIds([run]);
+  const detail: StepDetail = { run, step: pipelineStep, result, rounds, io };
+  return buildStepDetailView(detail, projectId, stalledRunIds);
+}
+
+// ── Control-plane views (`?view=` render variants — L6) ──────────────
+
+/** Route a `?view=` render to its builder (config / job / audit). The raw value
+ *  is parsed HERE (compound `audit:<day>` / `job:<id>`); an unknown/malformed
+ *  value renders an empty state, never a throw. */
+async function renderViewVariant(
+  store: RunStore,
+  view: string,
+  ctx?: PageRenderContext,
+): Promise<HubPageTree> {
+  const parsed = parseView(view);
+  switch (parsed.kind) {
+    case "config":
+      return renderConfigView(store, ctx);
+    case "job":
+      return renderJobView(store, parsed.jobId, ctx);
+    case "audit":
+      return renderAuditView(parsed.day, ctx);
+    default:
+      return buildUnknownView(view);
+  }
+}
+
+/** Render the `?view=config` surface: jobs (default-seeded), runs, the live
+ *  settings-resolved pipeline config, and the sweep heartbeat. Row hrefs are
+ *  project-scoped only on the project hub (`ctx.project`). */
+async function renderConfigView(store: RunStore, ctx?: PageRenderContext): Promise<HubPageTree> {
+  const jobs = await loadJobsWithDefault(getJobStore(), getAudit());
+  const runs = await store.listRuns();
+  const config = await resolveLiveConfig();
+  const sweepHeartbeat = await heartbeatKVImpl().read();
+  return buildConfigView({
+    jobs,
+    runs,
+    config,
+    sweepHeartbeat,
+    nowMs: Date.now(),
+    extensionId: EXTENSION_NAME,
+    projectId: ctx?.project?.id,
+  });
+}
+
+/** Render the `?view=job:<id>` surface: the job's definition + its runs (newest
+ *  20). An unknown id renders an honest "not found". */
+async function renderJobView(
+  store: RunStore,
+  jobId: string,
+  ctx?: PageRenderContext,
+): Promise<HubPageTree> {
+  const jobs = await loadJobsWithDefault(getJobStore(), getAudit());
+  const job = jobs.find((j) => j.id === jobId) ?? null;
+  const runs = job ? (await store.listRuns()).filter((r) => r.jobId === jobId).slice(0, 20) : [];
+  // Settings-derived (render-knowable) values for the read-only prompt preview.
+  // The SETTINGS seam only — repo-file values stay placeholders (no repo read).
+  const config = await resolveLiveConfig();
+  return buildJobView(jobId, job, runs, ctx?.project?.id, {
+    ignorePatterns: config.ignorePatterns,
+    defaultBranch: config.defaultBranch,
+  });
+}
+
+/** Render the `?view=audit[:<day>]` surface: the target day's bucket (or the
+ *  newest day with entries when none is specified) + the day-nav set. */
+async function renderAuditView(day: string | undefined, ctx?: PageRenderContext): Promise<HubPageTree> {
+  const audit = getAudit();
+  const days = await audit.listDays();
+  const targetDay = day ?? days[0] ?? new Date().toISOString().slice(0, 10);
+  const bucket = await audit.readDay(targetDay);
+  return buildAuditView(targetDay, bucket, days, ctx?.project?.id);
 }
 
 // ── Handlers ─────────────────────────────────────────────────────────
@@ -547,19 +799,30 @@ export const initGateTool: ToolHandler = async (args) => {
   if (!res.ok) {
     return toolError(`init_gate failed: ${res.error ?? "unknown error"}`);
   }
+  const base = {
+    ok: true,
+    repoId: res.repoId,
+    gateRemote: res.gateRemote,
+    gateDir: res.gateDir,
+    credentialPath: res.credentialPath,
+    // The hook silently drops every push until the minted key file exists — the
+    // #1 silent-setup gap. Surfaced verbatim so the success reply must confront it.
+    credentialPresent: res.credentialPresent,
+    bareCreated: res.bareCreated,
+    hookAction: res.hookAction,
+    remoteAction: res.remoteAction,
+    pushHint: `git push ${GATE_REMOTE} <branch>`,
+    warnings: res.warnings,
+  };
+  // When the credential is missing the gate is provisioned but INERT — attach
+  // the exact mint command as `nextStep` (paired with the tool description's
+  // CONTRACT clause) so a bare "initialized" summary is not the whole story.
   return toolResult(
-    JSON.stringify({
-      ok: true,
-      repoId: res.repoId,
-      gateRemote: res.gateRemote,
-      gateDir: res.gateDir,
-      credentialPath: res.credentialPath,
-      bareCreated: res.bareCreated,
-      hookAction: res.hookAction,
-      remoteAction: res.remoteAction,
-      pushHint: `git push ${GATE_REMOTE} <branch>`,
-      warnings: res.warnings,
-    }),
+    JSON.stringify(
+      res.credentialPresent
+        ? base
+        : { ...base, nextStep: mintCredentialCommand(res.credentialPath) },
+    ),
   );
 };
 
@@ -586,14 +849,36 @@ export async function handlePushReceived(event: PageActionEvent): Promise<void> 
       return;
     }
     const gDir = gateDirFor(projectRoot, push.repoId);
+
+    // Control plane (L4): match the push branch to an ENABLED job (the default
+    // job — push, pattern `*`, all steps — is auto-seeded on first read, so
+    // today's behavior is preserved exactly). A push matching NO enabled job is
+    // IGNORED and AUDITED (never silent), not run.
+    const jobs = await loadJobsWithDefault(getJobStore(), getAudit());
+    const job = matchPushJob(jobs, push.branch);
+    if (!job) {
+      await getAudit().append({
+        actor: "system",
+        kind: "push-ignored",
+        detail: { branch: push.branch, reason: "no matching enabled job" },
+      });
+      logLine(`ez-code-factory: push to ${push.branch} matched no enabled job — ignored`);
+      return;
+    }
+
     const result = await runGateLifecycle(push, {
       gateDir: gDir,
       tmpBase: tmpBaseImpl(projectRoot),
       store: getStore(),
       run: shellImpl,
       onChange: refreshDashboard,
-      runPipeline: makeRunPipelineImpl(projectRoot, gDir),
+      // The matched job threads its step-skip overlay into the pipeline and its
+      // id onto the run record (job-scoped supersede + run-row label).
+      runPipeline: makeRunPipelineImpl(projectRoot, gDir, job),
       projectRoot,
+      jobId: job.id,
+      // Audit run creation + supersede (L5) — these bypass the executor sink.
+      audit: getAudit(),
     });
     // `ok` is true only for `completed`; awaiting_approval (parked) and
     // checks_passed (rested green) are success-ish non-terminal states, not
@@ -688,6 +973,20 @@ export async function handleRespond(event: PageActionEvent): Promise<void> {
     if (result === null) {
       logLine(`ez-code-factory: respond for run ${respond.runId} could not resume`);
     }
+    // Audit the triage action (L5): actor = the acting user (host-stamped on
+    // the fire), action + finding IDS only (never restated finding content).
+    await getAudit().append({
+      actor: event.userId || "system",
+      kind: "respond",
+      runId: respond.runId,
+      step: respond.step,
+      detail: {
+        action: respond.action,
+        findingIds: respond.findingIds,
+        resumed: result !== null,
+        ...(approval.consentAllUsed ? { consentAll: true } : {}),
+      },
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logLine(`ez-code-factory: respond handler error: ${message}`);
@@ -787,6 +1086,14 @@ export async function handleYolo(event: PageActionEvent): Promise<void> {
       return;
     }
     await runYoloAutopilot(runId, projectRoot);
+    // Audit the triage action (L5): actor = the acting user; result = the run's
+    // status after the autopilot settled (id only, no content).
+    await getAudit().append({
+      actor: event.userId || "system",
+      kind: "yolo",
+      runId,
+      detail: { status: (await getStore().getRun(runId))?.status ?? "unknown" },
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logLine(`ez-code-factory: yolo handler error: ${message}`);
@@ -827,9 +1134,297 @@ export async function handleReconcile(event: PageActionEvent): Promise<void> {
     if (result === null) {
       logLine(`ez-code-factory: reconcile for run ${runId} could not resume`);
     }
+    // Audit the triage action (L5): actor = the acting user; result only.
+    await getAudit().append({
+      actor: event.userId || "system",
+      kind: "reconcile",
+      runId,
+      detail: { resumed: result !== null, ...(result ? { parked: result.parked } : {}) },
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logLine(`ez-code-factory: reconcile handler error: ${message}`);
+  }
+}
+
+// ── Control-plane job actions (L7) ───────────────────────────────────
+//
+// Four Hub page actions manage job DEFINITIONS: job-save (create/edit),
+// job-toggle (enable/disable), job-delete, and run-now (manual fire). Each is
+// attacker-reachable via the generic events route, so every handler:
+//   1. guardScope(`manage-jobs`) FIRST — fail-closed, a denied action is a no-op
+//      that mutates nothing AND audits nothing (never a 500);
+//   2. validates the payload;
+//   3. mutates the job store + AUDITS with the acting `event.userId`;
+//   4. refreshes the page (content-free SSE invalidation).
+// The whole body is wrapped: a throw in a notification handler would otherwise
+// be swallowed by the SDK channel (no id → no error frame).
+
+/** Mint a fresh job id (`job_<ts36>_<rand>`), mirroring the run-id convention. */
+function newJobId(): string {
+  return `job_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/** `job-save` Hub action — create a NEW job (no `jobId`) or edit an existing one
+ *  (a single scalar field merged in by a prompt). The full merged draft is
+ *  re-validated (protected steps rejected, branch patterns clamped) BEFORE any
+ *  write; a validation failure is a logged no-op + refresh (never a partial
+ *  save). An edit audits the field diff; a create audits the new definition. */
+export async function handleJobSave(event: PageActionEvent): Promise<void> {
+  try {
+    const guard = await guardScope(rbacCheckImpl, MANAGE_JOBS_SCOPE, "manage jobs");
+    if (!guard.ok) {
+      logLine(`ez-code-factory: job-save refused — ${guard.error}`);
+      return;
+    }
+    const payload = (event.payload ?? {}) as Record<string, unknown>;
+    const rawJobId = typeof payload.jobId === "string" ? payload.jobId.trim() : "";
+    const actor = event.userId || "system";
+    const store = getJobStore();
+    const jobs = await loadJobsWithDefault(store, getAudit());
+    const existing = rawJobId ? jobs.find((j) => j.id === rawJobId) ?? (await store.getJob(rawJobId)) : null;
+
+    // Defensive contract: a job-save that carries NO recognized editable field is
+    // REJECTED — never applied. This catches host-validator field drift (a
+    // camelCase `prompt.field` is silently rewritten to `value`, so the typed
+    // value would arrive under an unrecognized key and an unguarded apply would
+    // re-persist the UNCHANGED draft while stamping updatedBy + an audit line —
+    // the live silent-field-clearing bug). A rejected edit mutates nothing and
+    // audits the refusal (id-only reason + the offending keys).
+    if (!hasJobEditField(payload)) {
+      logLine("ez-code-factory: job-save refused — no recognized editable field (contract drift?)");
+      await getAudit().append({
+        actor,
+        kind: "job-edit-rejected",
+        ...(existing ? { jobId: existing.id } : {}),
+        detail: {
+          reason: "no recognized editable field",
+          keys: Object.keys(payload).filter((k) => k !== "jobId"),
+        },
+      });
+      await refreshDashboard();
+      return;
+    }
+
+    // The candidate draft: the existing job's fields (edit) or the create
+    // defaults (a DISABLED push job on `main`, configured further in the editor).
+    const base: JobDraft = existing
+      ? {
+          name: existing.name,
+          trigger: existing.trigger,
+          enabled: existing.enabled,
+          skipSteps: existing.skipSteps,
+          ...(existing.agentName !== undefined ? { agentName: existing.agentName } : {}),
+          ...(existing.intentTemplate !== undefined ? { intentTemplate: existing.intentTemplate } : {}),
+          // Sibling-survival carry site (3 of 4): seed the base draft with the
+          // stored instructions so an Edit-JOB save (or any edit that omits them)
+          // does not silently clear them.
+          ...(existing.reviewInstructions !== undefined ? { reviewInstructions: existing.reviewInstructions } : {}),
+          ...(existing.fixInstructions !== undefined ? { fixInstructions: existing.fixInstructions } : {}),
+          ...(existing.documentInstructions !== undefined
+            ? { documentInstructions: existing.documentInstructions }
+            : {}),
+        }
+      : { name: "", trigger: { kind: "push", branchPattern: "main" }, enabled: false, skipSteps: [] };
+
+    // A merge/validation failure (e.g. a protected or unknown flow-step toggle,
+    // or an unparseable trigger) is a logged no-op + refresh — and now ALSO an
+    // audited refusal, so a rejected toggle leaves the same trail as the
+    // no-recognized-field case above (id-only reason + the offending keys).
+    const applied = applyJobEdit(base, payload);
+    if (!applied.ok) {
+      logLine(`ez-code-factory: job-save refused — ${applied.error}`);
+      await getAudit().append({
+        actor,
+        kind: "job-edit-rejected",
+        ...(existing ? { jobId: existing.id } : {}),
+        detail: { reason: applied.error, keys: Object.keys(payload).filter((k) => k !== "jobId") },
+      });
+      await refreshDashboard();
+      return;
+    }
+    const validated = validateJobDraft(applied.draft);
+    if (!validated.ok) {
+      logLine(`ez-code-factory: job-save refused — ${validated.error}`);
+      await getAudit().append({
+        actor,
+        kind: "job-edit-rejected",
+        ...(existing ? { jobId: existing.id } : {}),
+        detail: { reason: validated.error, keys: Object.keys(payload).filter((k) => k !== "jobId") },
+      });
+      await refreshDashboard();
+      return;
+    }
+
+    if (existing) {
+      // Carry the OPTIONAL fields (agentName / intentTemplate) explicitly even
+      // when validateJobDraft omitted them: updateJob merges the patch onto the
+      // stored job, so an omitted key would leave the old value in place — a
+      // clear-to-empty edit (blank agent / intent template) must actually REMOVE
+      // the field, not silently keep it.
+      const updated = await store.updateJob(existing.id, {
+        ...validated.value,
+        agentName: validated.value.agentName,
+        intentTemplate: validated.value.intentTemplate,
+        // Sibling-survival carry site (4 of 4): pass the optional instructions
+        // EXPLICITLY (undefined when cleared) so updateJob's patch-merge REMOVES a
+        // cleared field instead of leaving the stale stored value in place.
+        reviewInstructions: validated.value.reviewInstructions,
+        fixInstructions: validated.value.fixInstructions,
+        documentInstructions: validated.value.documentInstructions,
+        updatedBy: actor,
+      });
+      if (updated) {
+        await getAudit().append({ actor, kind: "job-save", jobId: existing.id, detail: diffJob(existing, updated) });
+      }
+    } else {
+      const nowIso = new Date().toISOString();
+      const job: Job = {
+        id: newJobId(),
+        ...validated.value,
+        createdBy: actor,
+        createdAt: nowIso,
+        updatedBy: actor,
+        updatedAt: nowIso,
+      };
+      await store.createJob(job);
+      await getAudit().append({ actor, kind: "job-create", jobId: job.id, detail: { name: job.name, trigger: job.trigger } });
+    }
+    await refreshDashboard();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logLine(`ez-code-factory: job-save handler error: ${message}`);
+  }
+}
+
+/** `job-toggle` Hub action — flip a job's enabled flag (`{ jobId }`). Audited. */
+export async function handleJobToggle(event: PageActionEvent): Promise<void> {
+  try {
+    const guard = await guardScope(rbacCheckImpl, MANAGE_JOBS_SCOPE, "manage jobs");
+    if (!guard.ok) {
+      logLine(`ez-code-factory: job-toggle refused — ${guard.error}`);
+      return;
+    }
+    const jobId = parseJobIdPayload(event.payload);
+    if (!jobId) {
+      logLine("ez-code-factory: job-toggle with invalid payload — ignored");
+      return;
+    }
+    const store = getJobStore();
+    const jobs = await loadJobsWithDefault(store, getAudit());
+    const job = jobs.find((j) => j.id === jobId);
+    if (!job) {
+      logLine(`ez-code-factory: job-toggle for unknown job ${jobId} — ignored`);
+      return;
+    }
+    const actor = event.userId || "system";
+    const next = !job.enabled;
+    await store.updateJob(jobId, { enabled: next, updatedBy: actor });
+    await getAudit().append({ actor, kind: "job-toggle", jobId, detail: { enabled: next } });
+    await refreshDashboard();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logLine(`ez-code-factory: job-toggle handler error: ${message}`);
+  }
+}
+
+/** `job-delete` Hub action — remove a job definition (`{ jobId }`). The DEFAULT
+ *  job is protected (deleting it would break today's every-branch behaviour), so
+ *  its deletion is refused. Audited. */
+export async function handleJobDelete(event: PageActionEvent): Promise<void> {
+  try {
+    const guard = await guardScope(rbacCheckImpl, MANAGE_JOBS_SCOPE, "manage jobs");
+    if (!guard.ok) {
+      logLine(`ez-code-factory: job-delete refused — ${guard.error}`);
+      return;
+    }
+    const jobId = parseJobIdPayload(event.payload);
+    if (!jobId) {
+      logLine("ez-code-factory: job-delete with invalid payload — ignored");
+      return;
+    }
+    if (jobId === DEFAULT_JOB_ID) {
+      logLine("ez-code-factory: job-delete refused — the default job cannot be deleted");
+      await refreshDashboard();
+      return;
+    }
+    const store = getJobStore();
+    const jobs = await loadJobsWithDefault(store, getAudit());
+    const job = jobs.find((j) => j.id === jobId);
+    if (!job) {
+      logLine(`ez-code-factory: job-delete for unknown job ${jobId} — ignored`);
+      return;
+    }
+    const actor = event.userId || "system";
+    await store.deleteJob(jobId);
+    await getAudit().append({ actor, kind: "job-delete", jobId, detail: { name: job.name } });
+    await refreshDashboard();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logLine(`ez-code-factory: job-delete handler error: ${message}`);
+  }
+}
+
+/** `run-now` Hub action — manually fire a run for an ENABLED job (`{ jobId }`) on
+ *  its concrete branch at the branch's current head, via the SAME synthesized-run
+ *  path the schedule tick uses (force: no no-change skip — the user asked for it).
+ *  A disabled job, a glob-pattern push job (no single branch), or a branch the
+ *  gate never received is refused/no-run. Audited with the acting user. */
+export async function handleRunNow(event: PageActionEvent): Promise<void> {
+  try {
+    const guard = await guardScope(rbacCheckImpl, MANAGE_JOBS_SCOPE, "run a job now");
+    if (!guard.ok) {
+      logLine(`ez-code-factory: run-now refused — ${guard.error}`);
+      return;
+    }
+    const jobId = parseJobIdPayload(event.payload);
+    if (!jobId) {
+      logLine("ez-code-factory: run-now with invalid payload — ignored");
+      return;
+    }
+    const projectRoot = projectRootImpl();
+    if (!projectRoot) {
+      logLine(`ez-code-factory: run-now for job ${jobId} with no resolvable project root — ignored`);
+      return;
+    }
+    const store = getJobStore();
+    const jobs = await loadJobsWithDefault(store, getAudit());
+    const job = jobs.find((j) => j.id === jobId);
+    if (!job) {
+      logLine(`ez-code-factory: run-now for unknown job ${jobId} — ignored`);
+      return;
+    }
+    // run-now REQUIRES an enabled job (spec L7): a disabled job is refused.
+    if (!job.enabled) {
+      logLine(`ez-code-factory: run-now refused — job ${jobId} is disabled`);
+      await refreshDashboard();
+      return;
+    }
+    const branch = jobConcreteBranch(job);
+    if (!branch) {
+      logLine(`ez-code-factory: run-now for job ${jobId} needs a concrete branch (glob push pattern) — ignored`);
+      await refreshDashboard();
+      return;
+    }
+    const rId = repoIdFor(projectRoot);
+    const gDir = gateDirFor(projectRoot, rId);
+    const actor = event.userId || "system";
+    const newSha = await resolveJobHead(gDir, branch);
+    if (!newSha) {
+      await getAudit().append({ actor, kind: "run-now-no-branch", jobId, detail: { branch } });
+      logLine(`ez-code-factory: run-now for job ${jobId} — branch '${branch}' not in the gate repo`);
+      await refreshDashboard();
+      return;
+    }
+    const result = await runJobLifecycle(job, { projectRoot, gDir, repoId: rId, branch, newSha });
+    // Bookkeep the head so a following schedule tick sees no-change (never a
+    // double run). Manual fire does NOT touch lastScheduleFireAt.
+    await store.updateJob(jobId, { lastHeadSha: newSha });
+    await getAudit().append({ actor, kind: "run-now", jobId, runId: result.runId, detail: { branch, headSha: newSha } });
+    await refreshDashboard();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logLine(`ez-code-factory: run-now handler error: ${message}`);
   }
 }
 
@@ -876,20 +1471,167 @@ export async function runReconcileSweep(): Promise<SweepSummary> {
   return reconcileSweep({
     store: getStore(),
     reconcile: (runId) => reconcileOneRun(fallbackRoot, runId),
+    // Staleness pass (L3): read each running run's per-run heartbeat so a
+    // silent (dead-executor) run is truthfully marked `stalled`.
+    readHeartbeat: (runId) => runHeartbeatKVImpl().read(runId),
     now: () => Date.now(),
     recordHeartbeat: (hb) => heartbeatKVImpl().write(hb),
+    // Audit each running→stalled transition (L5) — bypasses the executor sink.
+    audit: getAudit(),
     log: (m) => logLine(`ez-code-factory[sweep]: ${m}`),
   });
 }
 
-/** The SWEEP_CRON schedule-fire handler — runs one sweep, swallowing any throw
- *  (a cron fire is fire-and-forget; a thrown sweep must not escape the handler). */
+/** Resolve a branch's current head in the gate bare repo (where pushes land). A
+ *  branch the gate has never received → rev-parse fails → "" (no head to run).
+ *  Shared by the schedule tick + the manual run-now path. */
+async function resolveJobHead(gDir: string, branch: string): Promise<string> {
+  const rev = await shellImpl(["git", "-C", gDir, "rev-parse", `refs/heads/${branch}`], gDir);
+  return rev.exitCode === 0 ? rev.stdout.trim() : "";
+}
+
+/** Drive `runGateLifecycle` for a synthesized (schedule/manual) job run on a
+ *  concrete branch at `newSha`, with the job's step-skip overlay + id stamped —
+ *  the SAME entry point a push takes. Shared by the schedule tick and the
+ *  run-now action (the committed schedule path, spec L4/L7). The job's last
+ *  bookkept head anchors force-push safety (base). */
+function runJobLifecycle(
+  job: Job,
+  o: { projectRoot: string; gDir: string; repoId: string; branch: string; newSha: string },
+) {
+  return runGateLifecycle(
+    {
+      repoId: o.repoId,
+      branch: o.branch,
+      ref: `refs/heads/${o.branch}`,
+      newSha: o.newSha,
+      // C2 DIVERGENCE (documented, deliberate): the spec's synthesized-run
+      // contract computes `baseSha = merge-base(origin/<default>, origin/<branch>)`
+      // (or `job.lastHeadSha` on the default branch). Here we pass the job's last
+      // bookkept head, falling back to the zero SHA on a FIRST fire. This is
+      // behaviourally safe because the pipeline never trusts this base as-is: the
+      // review/lint/document/ci/rebase steps recompute the branch base via
+      // `resolveBranchBaseSHA` (steps/common.ts:257-260), which prefers the real
+      // merge-base and only falls back to the zero-SHA→empty-tree when no
+      // merge-base exists; and `rebase.ts` treats a zero base as NON-force. So a
+      // first-fire zero base resolves to the true merge-base for the diff (NOT the
+      // full tree) — pinned by the resolveBranchBaseSHA test. Re-deriving the
+      // merge-base here would duplicate that logic for zero gain.
+      oldSha: job.lastHeadSha ?? "0".repeat(40),
+      ...(job.intentTemplate ? { intent: job.intentTemplate } : {}),
+    },
+    {
+      gateDir: o.gDir,
+      tmpBase: tmpBaseImpl(o.projectRoot),
+      store: getStore(),
+      run: shellImpl,
+      onChange: refreshDashboard,
+      runPipeline: makeRunPipelineImpl(o.projectRoot, o.gDir, job),
+      projectRoot: o.projectRoot,
+      jobId: job.id,
+      // Audit run creation + supersede (L5) — these bypass the executor sink.
+      audit: getAudit(),
+    },
+  );
+}
+
+/**
+ * Synthesize runs for SCHEDULE-trigger jobs that are due on this sweep tick
+ * (control plane, L4). Reuses the existing every-15-min sweep tick as the job
+ * tick — no new manifest cron, no in-ext cron parser. A cron fire is
+ * context-free, so we resolve the project from the ctx/env fallback root (the
+ * same source the reconcile sweep uses); when it is unresolvable this is a
+ * logged no-op. For each due job whose branch HEAD actually advanced past the
+ * job's last bookkept head (never mint a no-op run — C2 no-change skip), we
+ * drive `runGateLifecycle` on the job's branch with its jobId stamped, then
+ * bookkeep the head + fire time. Every outcome (fired / no-change / no-branch)
+ * is audited so the tick is never silent. Best-effort: a per-job failure is
+ * logged + audited and never aborts the tick.
+ *
+ * `now` is injected so tests can drive the coarse due boundaries deterministically.
+ */
+export async function synthesizeScheduledRuns(now: Date): Promise<void> {
+  const projectRoot = projectRootImpl();
+  if (!projectRoot) return; // context-free tick with no resolvable project — no-op
+  const rId = repoIdFor(projectRoot);
+  const gDir = gateDirFor(projectRoot, rId);
+  const audit = getAudit();
+  const jobStore = getJobStore();
+
+  const jobs = await loadJobsWithDefault(jobStore, audit);
+  for (const job of jobs) {
+    if (job.trigger.kind !== "schedule" || !job.enabled) continue;
+    const lastFire = job.lastScheduleFireAt ? new Date(job.lastScheduleFireAt) : null;
+    if (!isScheduleJobDue(job, now, lastFire)) continue;
+
+    const branch = job.trigger.branch;
+    try {
+      // Current branch head in the gate bare repo (where pushes land). A branch
+      // the gate has never received → rev-parse fails → nothing to run.
+      const newSha = await resolveJobHead(gDir, branch);
+      if (!newSha) {
+        await audit.append({ actor: "system", kind: "schedule-no-branch", jobId: job.id, detail: { branch } });
+        await jobStore.updateJob(job.id, { lastScheduleFireAt: now.toISOString() });
+        continue;
+      }
+      // C2 no-change skip: never mint a no-op run when HEAD hasn't moved.
+      if (!shouldSynthesizeRun(job, newSha)) {
+        await audit.append({ actor: "system", kind: "schedule-no-change", jobId: job.id, detail: { branch, headSha: newSha } });
+        await jobStore.updateJob(job.id, { lastScheduleFireAt: now.toISOString() });
+        continue;
+      }
+      const result = await runJobLifecycle(job, { projectRoot, gDir, repoId: rId, branch, newSha });
+      await jobStore.updateJob(job.id, { lastHeadSha: newSha, lastScheduleFireAt: now.toISOString() });
+      await audit.append({
+        actor: "system",
+        kind: "schedule-fire",
+        jobId: job.id,
+        runId: result.runId,
+        detail: { branch, headSha: newSha, every: job.trigger.every },
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logLine(`ez-code-factory[schedule]: job ${job.id} synthesis error: ${message}`);
+      await audit.append({ actor: "system", kind: "schedule-error", jobId: job.id, detail: { branch, error: message } }).catch(() => {});
+    }
+  }
+}
+
+/** The SWEEP_CRON schedule-fire handler — runs one reconcile sweep, then routes
+ *  due schedule-trigger jobs (control plane, L4). Each stage swallows its own
+ *  throw (a cron fire is fire-and-forget; a thrown handler must not escape). */
 export async function handleScheduleFire(_ctx: ScheduleHandlerContext): Promise<void> {
+  const now = new Date();
   try {
-    await runReconcileSweep();
+    const summary = await runReconcileSweep();
+    // Audit the sweep outcome (L5): counts only, no run content.
+    await getAudit().append({
+      actor: "system",
+      kind: "sweep",
+      detail: {
+        scanned: summary.scanned,
+        advanced: summary.advanced,
+        stillParked: summary.stillParked,
+        skipped: summary.skipped,
+        stalled: summary.stalled,
+      },
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logLine(`ez-code-factory: reconcile sweep error: ${message}`);
+  }
+  try {
+    await synthesizeScheduledRuns(now);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logLine(`ez-code-factory: schedule job routing error: ${message}`);
+  }
+  // Retention (L5): prune audit buckets older than 30 days on the sweep tick.
+  try {
+    await getAudit().pruneRetention(now);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logLine(`ez-code-factory: audit retention prune error: ${message}`);
   }
 }
 
@@ -915,9 +1657,47 @@ export async function recoverOnStart(): Promise<RecoverySummary> {
   });
 }
 
-/** Dashboard render — the runs table + inline parked-run triage (global scope). */
-export async function renderDashboard() {
-  return currentDashboardTree();
+/** Dashboard render — variant picked from the host's `perProject` context:
+ *  a single project's view on `/project/<id>/hub/...`, the all-projects home
+ *  on the global hub, or the classic combined dashboard when the host sends
+ *  no context (older host / flag off). Parked-run details (serial per-step
+ *  store reads) are collected ONLY for the runs the variant will actually
+ *  inline — a project view never pays for other projects' triage. */
+export async function renderDashboard(ctx?: PageRenderContext) {
+  const store = getStore();
+  // Step-detail variant (`?run=<id>&step=<name>`): render ONE step's detail —
+  // its per-round inputs/outputs — BEFORE the run branch (a step is a
+  // sub-variant of a run; the SDK only supplies `step` alongside `run`).
+  if (ctx?.run && ctx?.step) {
+    return renderStepDetail(store, ctx.run, ctx.step, ctx);
+  }
+  // Run-detail variant (`?run=<id>`): render ONE run's read-only detail
+  // (meta + step results + agent-turn provenance) instead of the dashboard.
+  // Reachable from either hub, so it takes precedence over project context.
+  if (ctx?.run) {
+    return renderRunDetail(store, ctx.run, ctx);
+  }
+  // Control-plane view variant (`?view=config|job:<id>|audit[:<day>]`): an
+  // alternate page surface. Precedence (spec L6): run+step > run > VIEW >
+  // project > projects > dashboard — so it wins over project context (a config/
+  // audit render on the project hub is the config/audit, not that project's
+  // dashboard). Unknown/malformed view → empty state (never a throw).
+  if (ctx?.view) {
+    return renderViewVariant(store, ctx.view, ctx);
+  }
+  const runs = await store.listRuns();
+  // Derived-stalled ids (immediate truthfulness — the sweep persists them
+  // durably on its own cadence). Computed once and threaded into every builder.
+  const stalledRunIds = await computeStalledRunIds(runs);
+  if (ctx?.project) {
+    const own = runsForProject(ctx.project, runs);
+    return buildProjectDashboard(ctx.project, runs, await collectParkedDetails(store, own), stalledRunIds);
+  }
+  if (ctx?.projects) {
+    const orphans = orphanRuns(ctx.projects, runs);
+    return buildHome(ctx.projects, runs, await collectParkedDetails(store, orphans), stalledRunIds);
+  }
+  return buildDashboard(runs, await collectParkedDetails(store, runs), stalledRunIds);
 }
 
 // ── Wiring ───────────────────────────────────────────────────────────
@@ -942,6 +1722,11 @@ export function register(): void {
       [RESPOND_ACTION]: handleRespond,
       [YOLO_ACTION]: handleYolo,
       [RECONCILE_ACTION]: handleReconcile,
+      // Control-plane job actions (L7) — RBAC-gated (manage-jobs) + audited.
+      [JOB_SAVE_ACTION]: handleJobSave,
+      [JOB_TOGGLE_ACTION]: handleJobToggle,
+      [JOB_DELETE_ACTION]: handleJobDelete,
+      [RUN_NOW_ACTION]: handleRunNow,
     },
   });
   // M6: the background reconcile sweep (cron declared in ezcorp.config.ts).

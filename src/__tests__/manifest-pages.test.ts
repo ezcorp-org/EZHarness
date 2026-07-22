@@ -96,6 +96,23 @@ describe("validatePagesArray", () => {
     expect(errors.some((e) => e.includes("pages[3].description must be a string"))).toBe(true);
     expect(errors.some((e) => e.includes("pages[4].description must be at most 200"))).toBe(true);
   });
+
+  test("perProject: booleans accepted, anything else rejected", () => {
+    const okErrors: string[] = [];
+    validatePagesArray(
+      [
+        { id: "a", title: "A", perProject: true },
+        { id: "b", title: "B", perProject: false },
+        { id: "c", title: "C" },
+      ],
+      okErrors,
+    );
+    expect(okErrors).toEqual([]);
+
+    const badErrors: string[] = [];
+    validatePagesArray([{ id: "a", title: "A", perProject: "yes" }], badErrors);
+    expect(badErrors.some((e) => e.includes("pages[0].perProject must be a boolean"))).toBe(true);
+  });
 });
 
 describe("validateManifestV2 integration", () => {

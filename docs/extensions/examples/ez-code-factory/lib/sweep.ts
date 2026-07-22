@@ -15,7 +15,9 @@
 // forks none of the gate semantics; index.ts owns the production wiring (cron
 // trigger → per-run gateDir resolution).
 
-import type { RunRecord, RunStatus, RunStore } from "./runs";
+import { auditRunStatusTransition, type RunRecord, type RunStatus, type RunStore } from "./runs";
+import type { AuditLog } from "./audit";
+import { isRunStale } from "./heartbeat";
 
 /** Statuses a sweep re-checks: a run RESTING at checks_passed (the common case)
  *  or PARKED awaiting approval (a CI idle-timeout park lives here — the
@@ -41,11 +43,23 @@ export interface SweepDeps {
    * Null when the run could not resume (no worktree row / store race).
    */
   reconcile: (runId: string) => Promise<ReconcileResult>;
+  /**
+   * Read one run's per-run liveness heartbeat (ISO string under
+   * `heartbeats/<runId>`), or null when absent (matches the injection style of
+   * the other seams). Drives the staleness pass over `running` runs. Optional —
+   * when omitted the pass evaluates staleness on `updatedAt` alone (a legacy
+   * frozen run still trips; a normally-updated one does not).
+   */
+  readHeartbeat?: (runId: string) => Promise<string | null>;
   /** Injected clock (ms) for the heartbeat timestamp — no wall-clock. */
   now: () => number;
   /** Persist the sweep heartbeat so `code_factory_doctor` can report loop
    *  health (last run + counts). Optional. */
   recordHeartbeat?: (hb: SweepHeartbeat) => Promise<void>;
+  /** Control-plane audit sink (L5) — when present, each `running → stalled`
+   *  transition this sweep marks is recorded (this site bypasses the executor
+   *  sink). Optional (tests that don't assert the audit omit it). */
+  audit?: AuditLog;
   /** Once-per-fire summary sink. Optional. */
   log?: (message: string) => void;
   /** Max runs reconciled this fire (defaults to {@link DEFAULT_MAX_PER_SWEEP}). */
@@ -62,6 +76,9 @@ export interface SweepSummary {
   stillParked: number;
   /** Runs that could not resume (null result — store race / missing row). */
   skipped: number;
+  /** `running` runs whose heartbeat went silent past the stall threshold and
+   *  were marked `stalled` this fire (the status-truthfulness fix, L3). */
+  stalled: number;
 }
 
 /** The self-tracked sweep heartbeat (doctor's "loop healthy?" evidence). */
@@ -90,9 +107,28 @@ export const SWEEP_CRON = "*/15 * * * *";
 export async function reconcileSweep(deps: SweepDeps): Promise<SweepSummary> {
   const max = deps.maxPerSweep ?? DEFAULT_MAX_PER_SWEEP;
   const runs = await deps.store.listRuns();
-  const summary: SweepSummary = { scanned: 0, advanced: 0, stillParked: 0, skipped: 0 };
+  const summary: SweepSummary = { scanned: 0, advanced: 0, stillParked: 0, skipped: 0, stalled: 0 };
 
   for (const run of runs) {
+    // Staleness pass (L3): a `running` run whose heartbeat went silent past the
+    // threshold is marked `stalled` — truthful, immediate, durable. Checked
+    // before the reconcile cap (a heartbeat read is a cheap KV get, not a `gh`
+    // fan-out) and separate from it (a running run is never reconcilable).
+    // Deliberately does NOT consume `maxPerSweep`: the cap bounds the gh/reconcile
+    // fan-out only. A staleness read is one cheap KV get, and every marked run
+    // TRANSITIONS out of `running` so it cannot be re-counted on the next fire —
+    // the pass is self-limiting (bounded by the count of running runs), so a
+    // separate cap would add nothing.
+    if (run.status === "running") {
+      const heartbeatAt = deps.readHeartbeat ? await deps.readHeartbeat(run.id) : null;
+      if (isRunStale(run, heartbeatAt, deps.now())) {
+        await deps.store.updateRun(run.id, { status: "stalled" });
+        // Audit the stall (L5) — this transition bypasses the executor sink.
+        await auditRunStatusTransition(deps.audit, run.id, "stalled");
+        summary.stalled += 1;
+      }
+      continue;
+    }
     if (summary.scanned >= max) break;
     if (!isReconcilable(run)) continue;
     summary.scanned += 1;
@@ -114,7 +150,7 @@ export async function reconcileSweep(deps: SweepDeps): Promise<SweepSummary> {
   if (deps.recordHeartbeat) await deps.recordHeartbeat({ ranAt, summary });
   deps.log?.(
     `reconcile sweep: scanned ${summary.scanned}, advanced ${summary.advanced}, ` +
-      `still-parked ${summary.stillParked}, skipped ${summary.skipped}`,
+      `still-parked ${summary.stillParked}, skipped ${summary.skipped}, stalled ${summary.stalled}`,
   );
   return summary;
 }

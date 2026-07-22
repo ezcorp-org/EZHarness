@@ -19,8 +19,9 @@ import {
   type PipelineConfig,
   type PipelineStep,
 } from "./config";
-import type { AgentDispatcher } from "./agent";
+import type { AgentDispatcher, DispatchOptions, DispatchResult } from "./agent";
 import { makeGit } from "./git";
+import type { AuditLog } from "./audit";
 import { emptyRepoConfig, type RepoConfig } from "./repo-config";
 import type { ShellRunner } from "./shell";
 import {
@@ -46,6 +47,16 @@ import {
 import { makeRunShared, type RunShared, type RunView, type Step, type StepContext, type StepOutcome } from "./steps/common";
 import type { GhRunner } from "./github";
 import type { StepWithRounds } from "./runs";
+import {
+  buildStepIORecord,
+  emptyOutcomeFlags,
+  makeStepIOSink,
+  snapshotRepoConfig,
+  type RawStepIORecord,
+  type StepIODispatch,
+  type StepIOSink,
+} from "./step-io";
+import { withRunHeartbeat, type HeartbeatSchedule } from "./heartbeat";
 import { intentStep } from "./steps/intent";
 import { rebaseStep } from "./steps/rebase";
 import { reviewStep } from "./steps/review";
@@ -114,6 +125,61 @@ export interface ExecutorDeps {
   /** Step registry override (tests inject scripted steps). Defaults to
    *  STEP_REGISTRY — the real intent/rebase/review/push wiring. */
   steps?: Record<PipelineStep, Step | null>;
+  /**
+   * Control plane (L4): steps this run's JOB opted to skip. Threaded from the
+   * matched job; the sequencer marks each `skipped` (reason `skipped by job
+   * <name>`) BEFORE dispatching, so no agent runs for a skipped step. PROTECTED
+   * steps (intent/rebase/review/push) are rejected at save time and never
+   * appear here. Absent → nothing job-skipped (default behavior).
+   */
+  skipSteps?: PipelineStep[];
+  /** The matched job's name, for the `skipped by job <name>` skip reason. */
+  jobName?: string;
+  /**
+   * Control plane (L4): the matched job's agent-name OVERRIDE. Threaded into
+   * every StepContext and preferred over the trusted repo-config agent
+   * (`job.agentName || repoConfig.agent`) by `repoDispatchOptions`, so a job can
+   * pin which agent its runs dispatch to. Absent → the repo-config agent (or the
+   * deployment default) applies unchanged.
+   */
+  jobAgentName?: string;
+  /**
+   * Control plane (L4): the matched job's operator prompt instructions, threaded
+   * into every StepContext like {@link jobAgentName}. Each step call site feeds
+   * the relevant ones into `jobInstructionsPromptSection` and prepends the result
+   * to its `historySection` (review → review-main + review-fix; fix → the three
+   * fix rounds; document → document). Absent → no operator section is appended.
+   */
+  jobReviewInstructions?: string;
+  jobFixInstructions?: string;
+  jobDocumentInstructions?: string;
+  /**
+   * Control-plane audit sink (L5). When present, `setRunStatus` — the choke
+   * every PIPELINE-driven run status transition flows through (running / parked /
+   * checks_passed / completed / failed) — appends a `run-status` entry (id +
+   * status only, NO prompt/finding content). Actor is `"system"` (lifecycle
+   * transitions are not a per-user action; triage actions carry their user via
+   * the index handlers). Optional: executor unit tests omit it. The THREE
+   * transitions OUTSIDE this executor — run CREATION and SUPERSEDE
+   * (runs.ts) + the sweep's STALL (sweep.ts) — audit at their own sites via the
+   * shared `auditRunStatusTransition` helper (same shape), so every real run
+   * status transition is trailed regardless of which module drives it.
+   */
+  audit?: AuditLog;
+  /**
+   * Per-run liveness heartbeat (L3). When present, the executor wraps each
+   * `impl.execute` in a heartbeat interval (writes immediately + every
+   * intervalMs) so a live run keeps beating and a dead one goes silent — the
+   * sweep then marks the silent run `stalled`. Writes a SEPARATE
+   * `heartbeats/<runId>` key (never a read-modify-write on the run record).
+   * Optional — omitted by executor tests that don't assert liveness; a
+   * heartbeat write failure never fails the run.
+   */
+  heartbeat?: {
+    write: (runId: string, at: string) => Promise<void>;
+    schedule?: HeartbeatSchedule;
+    intervalMs?: number;
+  };
 }
 
 /** The effective step registry for a run (injected override or the default). */
@@ -156,6 +222,105 @@ export interface RespondInput {
 const ZERO_SHA = "0".repeat(40);
 
 // ── record helpers ──────────────────────────────────────────────────
+
+/**
+ * Wrap a dispatcher so every SETTLED dispatch is reported to `onSettled`: with
+ * its result on success (`error === null`), or with an error message on throw
+ * (`result === null`), then the throw propagates. Transparent to the step
+ * (returns/throws the inner value unchanged). Keeps the capture concern out of
+ * every step: steps keep calling `sctx.dispatcher.dispatch(...)` unaware they
+ * are recorded. The caller records step-result LINKAGE on success only (a
+ * failed dispatch has no durable conversation to link) and the full dispatch IO
+ * — prompt / bounded preview / error — on both paths.
+ */
+function recordingDispatcher(
+  inner: AgentDispatcher,
+  onSettled: (
+    opts: DispatchOptions,
+    result: DispatchResult | null,
+    error: string | null,
+    at: string,
+  ) => void,
+  now: () => number,
+): AgentDispatcher {
+  return {
+    async dispatch(opts) {
+      try {
+        const result = await inner.dispatch(opts);
+        onSettled(opts, result, null, new Date(now()).toISOString());
+        return result;
+      } catch (err) {
+        onSettled(opts, null, err instanceof Error ? err.message : String(err), new Date(now()).toISOString());
+        throw err;
+      }
+    },
+  };
+}
+
+/** The bounded agent RESULT PREVIEW (work product — the final answer, NOT the
+ *  turn-by-turn transcript, which L6 forbids in the record): the structured
+ *  output when present, else the final text. Field-level caps applied later by
+ *  `buildStepIORecord`. */
+function resultPreviewText(result: DispatchResult): string {
+  if (result.output !== null && result.output !== undefined) {
+    try {
+      return JSON.stringify(result.output);
+    } catch {
+      return result.text;
+    }
+  }
+  return result.text;
+}
+
+/** Build one dispatch's IO entry from the settled dispatch (result on success,
+ *  error string on throw). Handle ids are lifted from the result when present. */
+function buildDispatchIO(
+  opts: DispatchOptions,
+  result: DispatchResult | null,
+  error: string | null,
+  at: string,
+): StepIODispatch {
+  return {
+    role: opts.role,
+    promptText: opts.prompt,
+    resultPreview: result ? resultPreviewText(result) : "",
+    assignmentId: result?.assignmentId ?? "",
+    subConversationId: result?.subConversationId ?? "",
+    agentRunId: result?.agentRunId ?? "",
+    at,
+    ...(error !== null ? { error } : {}),
+  };
+}
+
+/** Write one round's step_io record — record-and-continue: a bounding/storage
+ *  failure must NEVER fail the run (log via the injected sink, proceed). */
+async function writeStepIO(deps: ExecutorDeps, raw: RawStepIORecord): Promise<void> {
+  try {
+    await deps.store.putStepIO(buildStepIORecord(raw));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    deps.log?.(raw.runId, raw.step as PipelineStep, `step_io write failed (continuing): ${message}`);
+  }
+}
+
+/** Append one dispatch's linkage to a step result (in place). No-op when the
+ *  result lacks handle ids (a hand-built DispatchResult, or a step fake in
+ *  tests) so recording is a pure enrichment that never fabricates a ref. */
+function appendDispatchRef(
+  sr: StepResultRecord,
+  opts: DispatchOptions,
+  result: DispatchResult,
+  at: string,
+): void {
+  if (!result.assignmentId || !result.subConversationId) return;
+  (sr.agentDispatches ??= []).push({
+    role: opts.role,
+    assignmentId: result.assignmentId,
+    subConversationId: result.subConversationId,
+    agentRunId: result.agentRunId ?? "",
+    at,
+  });
+}
 
 function newStepResult(runId: string, step: PipelineStep, cap: number): StepResultRecord {
   return {
@@ -226,6 +391,7 @@ function buildStepContext(
   previousFindings: string,
   repoConfig: RepoConfig,
   shared: RunShared,
+  ioSink?: StepIOSink,
 ): StepContext {
   return {
     worktree: deps.worktree,
@@ -235,6 +401,14 @@ function buildStepContext(
     repo: { defaultBranch: deps.config.defaultBranch, workingPath: deps.workingPath },
     config: deps.config,
     repoConfig,
+    // Control plane (L4): the job's agent override rides into the step context so
+    // repoDispatchOptions can prefer it over the repo-config agent.
+    ...(deps.jobAgentName ? { jobAgentName: deps.jobAgentName } : {}),
+    // Control plane (L4): the job's operator prompt instructions ride along too;
+    // the step call sites prepend the sanitized section to their historySection.
+    ...(deps.jobReviewInstructions ? { jobReviewInstructions: deps.jobReviewInstructions } : {}),
+    ...(deps.jobFixInstructions ? { jobFixInstructions: deps.jobFixInstructions } : {}),
+    ...(deps.jobDocumentInstructions ? { jobDocumentInstructions: deps.jobDocumentInstructions } : {}),
     shared,
     fixing,
     previousFindings,
@@ -255,6 +429,7 @@ function buildStepContext(
       run.prUrl = url;
     },
     loadStepHistory: () => loadStepHistory(deps, run.id),
+    ...(ioSink ? { ioSink } : {}),
   };
 }
 
@@ -269,6 +444,21 @@ async function setRunStatus(
 ): Promise<void> {
   await deps.store.updateRun(runId, patch);
   await notify(deps);
+  // Audit sink (L5): record only REAL status transitions (a bare parkedMs bump
+  // carries no `status`). Id + status only — never prompt/finding content. A
+  // short system error reason (superseded / lifecycle error) is not user
+  // content, but is clamped for safety by the audit layer.
+  if (patch.status !== undefined && deps.audit) {
+    await deps.audit.append({
+      actor: "system",
+      kind: "run-status",
+      runId,
+      detail: {
+        status: patch.status,
+        ...(typeof patch.error === "string" ? { error: patch.error.slice(0, 200) } : {}),
+      },
+    });
+  }
 }
 
 // ── fix loop (executeStep, executor.go) ─────────────────────────────
@@ -299,9 +489,76 @@ async function runStepFixLoop(
   // exits naturally (no unreachable infinite-loop tail).
   while (terminal === null) {
     const rounds = await deps.store.getStepRounds(run.id, impl.name);
-    const sctx = buildStepContext(deps, run, impl.name, rounds, fixing, previousFindings, repoConfig, shared);
+    // One IO sink per round, drained into the step_io record at round end.
+    const sink = makeStepIOSink();
+    const sctx = buildStepContext(deps, run, impl.name, rounds, fixing, previousFindings, repoConfig, shared, sink);
+    // Record each agent dispatch this round makes: its LINKAGE onto the step
+    // result (success only — a failed dispatch has no durable conversation to
+    // link), and its full IO (prompt / bounded preview / error) into the round
+    // sink on BOTH the success and throw paths. The wrapper is transparent to
+    // the step; the appended refs persist with the step result below.
+    sctx.dispatcher = recordingDispatcher(
+      sctx.dispatcher,
+      (opts, result, error, at) => {
+        if (result) appendDispatchRef(sr, opts, result, at);
+        sink.recordDispatch(buildDispatchIO(opts, result, error, at));
+      },
+      deps.now,
+    );
+
+    // The attempt's 1-based round number, computed BEFORE execute. The success
+    // path post-increments sr.round to this same value below (:353 pre-edit), so
+    // the IO record and the round record share one number; an errored attempt
+    // records its IO here WITHOUT touching sr.round (L2 — so an initial-pass
+    // throw lands at round 1, and a fix-round throw at prior+1, never
+    // overwriting the completed round's record).
+    const attemptRound = sr.round + 1;
+    const ioInputs = {
+      runId: run.id,
+      step: impl.name,
+      round: attemptRound,
+      trigger: (fixing ? "auto_fix" : "initial") as "initial" | "auto_fix",
+      branch: run.branch,
+      headSha: run.headSha,
+      worktreePath: deps.worktree,
+      repoConfig: snapshotRepoConfig(repoConfig),
+      startedAt: new Date(deps.now()).toISOString(),
+    };
+
     const roundStart = deps.now();
-    const outcome: StepOutcome = await impl.execute(sctx);
+    let outcome: StepOutcome;
+    try {
+      // Wrap execute in the per-run heartbeat interval (when wired) so a live
+      // run keeps beating through dispatch awaits / long trusted shell commands
+      // / the CI poll loop, and a dead process goes silent for the sweep to
+      // mark stalled. When no heartbeat is wired, execute directly.
+      outcome = deps.heartbeat
+        ? await withRunHeartbeat(
+            {
+              write: deps.heartbeat.write,
+              now: deps.now,
+              schedule: deps.heartbeat.schedule,
+              intervalMs: deps.heartbeat.intervalMs,
+            },
+            run.id,
+            () => impl.execute(sctx),
+          )
+        : await impl.execute(sctx);
+    } catch (err) {
+      // Record the failed attempt's IO under attemptRound (leaving sr.round
+      // untouched — the caller marks the step failed), then rethrow.
+      const endedMs = deps.now();
+      await writeStepIO(deps, {
+        ...ioInputs,
+        dispatches: sink.dispatches(),
+        shellCommands: sink.shellCommands(),
+        endedAt: new Date(endedMs).toISOString(),
+        durationMs: endedMs - roundStart,
+        error: err instanceof Error ? err.message : String(err),
+        outcome: emptyOutcomeFlags(),
+      });
+      throw err;
+    }
     sr.round += 1;
     const durationMs = deps.now() - roundStart;
     // Accumulate execution-only elapsed ms across every round (initial + fixes),
@@ -332,6 +589,23 @@ async function runStepFixLoop(
     };
     await deps.store.appendStepRound(round);
     await deps.store.putStepResult(sr);
+    // Beside the round + result: the round's step_io observability record under
+    // attemptRound (=== sr.round now). Record-and-continue — never fails the run.
+    await writeStepIO(deps, {
+      ...ioInputs,
+      dispatches: sink.dispatches(),
+      shellCommands: sink.shellCommands(),
+      endedAt: new Date(deps.now()).toISOString(),
+      durationMs,
+      error: null,
+      outcome: {
+        needsApproval: outcome.needsApproval === true,
+        autoFixable: outcome.autoFixable === true,
+        skipped: outcome.skipped === true,
+        skipRemaining: outcome.skipRemaining === true,
+        checksPassed: outcome.checksPassed === true,
+      },
+    });
 
     if (willAutoFix) {
       sr.autoFixAttempts += 1;
@@ -429,6 +703,15 @@ async function advance(
     const step = PIPELINE_STEPS[i]!;
     const sr = await ensureStepResult(deps, run.id, step);
     if (sr.status === "completed" || sr.status === "skipped") continue;
+
+    // Control plane (L4): the run's job opted to skip this step. Mark it
+    // `skipped` BEFORE any dispatch so no agent runs. Protected steps
+    // (intent/rebase/review/push) are rejected on save, so they never reach
+    // here — a skip can never bypass the review gate.
+    if (deps.skipSteps?.includes(step)) {
+      await skipStep(deps, sr, `skipped by job ${deps.jobName ?? "?"}`);
+      continue;
+    }
 
     const impl = registry(deps)[step];
     if (impl === null || !isImplemented(deps, step)) {
@@ -657,6 +940,10 @@ export async function reconcileGate(runId: string, deps: ExecutorDeps): Promise<
     const run = buildRunView(rec);
     const rounds = await deps.store.getStepRounds(runId, step);
     const shared = makeRunShared();
+    // No IO sink here (L2, deliberately OUT of scope v1): the reconcile path is a
+    // read-only bounded PR-state poll — it dispatches nothing and runs no trusted
+    // shell command, so there is no per-round IO to capture. Omitting the sink
+    // leaves `sctx.ioSink` undefined, so any incidental recorder call no-ops.
     const sctx = buildStepContext(deps, run, step, rounds, false, "", repoConfig, shared);
     let resolvedGate = false;
     try {

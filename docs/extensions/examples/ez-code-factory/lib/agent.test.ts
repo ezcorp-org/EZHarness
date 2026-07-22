@@ -40,6 +40,15 @@ const handle = (assignmentId: string): SpawnAssignmentHandle => ({
   assignmentId,
 });
 
+/** The spawn-handle linkage a real dispatch now surfaces on its result
+ *  (the fake `handle()` stamps a fixed sub/run; assignmentId varies per
+ *  spawn). Spread into the expected dispatch result. */
+const link = (assignmentId: string) => ({
+  subConversationId: "sub",
+  assignmentId,
+  agentRunId: "run",
+});
+
 // ── pure helpers ────────────────────────────────────────────────────
 
 describe("isTerminalStatus", () => {
@@ -137,7 +146,7 @@ describe("makeSpawnDispatcher", () => {
     const p = h.dispatcher.dispatch(opts());
     await tick();
     h.fire(update({ id: "asg-1", status: "completed", structuredResult: { ok: true } }));
-    expect(await p).toEqual({ output: { ok: true }, text: "" });
+    expect(await p).toEqual({ output: { ok: true }, text: "", ...link("asg-1") });
   });
 
   test("ignores non-terminal + foreign-id updates before the matching terminal", async () => {
@@ -148,7 +157,7 @@ describe("makeSpawnDispatcher", () => {
     h.fire(update({ id: "other", status: "completed" })); // foreign id → ignored
     h.fire({ assignment: { id: 123 as unknown as string, status: "completed" } }); // non-string id
     h.fire(update({ id: "asg-1", status: "completed", resultFull: "done" }));
-    expect(await p).toEqual({ output: null, text: "done" });
+    expect(await p).toEqual({ output: null, text: "done", ...link("asg-1") });
   });
 
   test("rejects on a failed terminal update", async () => {
@@ -176,7 +185,7 @@ describe("makeSpawnDispatcher", () => {
     await tick();
     expect(capturedSignal!.aborted).toBe(false); // still pending mid-dispatch
     h.fire(update({ id: "asg-1", status: "completed", structuredResult: { ok: true } }));
-    expect(await p).toEqual({ output: { ok: true }, text: "" });
+    expect(await p).toEqual({ output: { ok: true }, text: "", ...link("asg-1") });
     // The terminal update won, so the dispatch aborted the timeout timer.
     expect(capturedSignal!.aborted).toBe(true);
   });
@@ -188,8 +197,8 @@ describe("makeSpawnDispatcher", () => {
     await tick();
     h.fire(update({ id: "asg-1", status: "completed", structuredResult: 1 }));
     h.fire(update({ id: "asg-2", status: "completed", structuredResult: 2 }));
-    expect(await p1).toEqual({ output: 1, text: "" });
-    expect(await p2).toEqual({ output: 2, text: "" });
+    expect(await p1).toEqual({ output: 1, text: "", ...link("asg-1") });
+    expect(await p2).toEqual({ output: 2, text: "", ...link("asg-2") });
     expect(h.subscribeCount).toBe(1);
     expect(h.spawnCalls).toHaveLength(2);
   });
@@ -237,6 +246,14 @@ describe("production seams (default spawn / subscribe / delay)", () => {
       assignment: { id: "asg-real", status: "completed" },
       structuredResult: { ok: 1 },
     });
-    expect(await p).toEqual({ output: { ok: 1 }, text: "" });
+    // The real spawn stub returns sub/run/assignment ids — the dispatch
+    // result now surfaces them from the handle.
+    expect(await p).toEqual({
+      output: { ok: 1 },
+      text: "",
+      subConversationId: "s",
+      assignmentId: "asg-real",
+      agentRunId: "r",
+    });
   });
 });

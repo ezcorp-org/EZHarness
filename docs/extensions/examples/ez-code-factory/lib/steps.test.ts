@@ -78,6 +78,9 @@ interface CtxOverrides {
   repoConfig?: StepContext["repoConfig"];
   shared?: StepContext["shared"];
   tmpBase?: string;
+  jobReviewInstructions?: string;
+  jobFixInstructions?: string;
+  jobDocumentInstructions?: string;
 }
 
 function makeCtx(worktree: string, headSha: string, over: CtxOverrides = {}): {
@@ -107,6 +110,9 @@ function makeCtx(worktree: string, headSha: string, over: CtxOverrides = {}): {
     repo: { defaultBranch: "main", workingPath: "", ...over.repo },
     config: over.config ?? defaultPipelineConfig(),
     repoConfig: over.repoConfig ?? emptyRepoConfig(),
+    ...(over.jobReviewInstructions ? { jobReviewInstructions: over.jobReviewInstructions } : {}),
+    ...(over.jobFixInstructions ? { jobFixInstructions: over.jobFixInstructions } : {}),
+    ...(over.jobDocumentInstructions ? { jobDocumentInstructions: over.jobDocumentInstructions } : {}),
     shared: over.shared ?? makeRunShared(),
     fixing: over.fixing ?? false,
     previousFindings: over.previousFindings ?? "",
@@ -199,6 +205,25 @@ describe("common git helpers (real repo)", () => {
     await sh(["git", "checkout", "feat"], dir);
     const g = makeGit(productionHostRunner, dir);
     expect(await resolveBranchBaseSHA(g, c1, "main")).toBe(c1);
+  });
+
+  test("C2 pin: a first-fire synthesized run (ZERO base) resolves to merge-base, NOT the full tree", async () => {
+    // A synthesized run's FIRST fire carries no bookkept head, so index.ts's
+    // runJobLifecycle passes `oldSha: "0"*40` (the documented C2 divergence). The
+    // pipeline never trusts that base as-is: resolveBranchBaseSHA prefers the real
+    // merge-base, so review/lint/document/ci/rebase diff against the merge-base —
+    // NOT the empty tree (which would diff the WHOLE branch). This pins the
+    // divergence's safety claim both validators confirmed.
+    await sh(["git", "checkout", "-b", "feat2"], dir);
+    await commit(dir, "b2.txt", "b\n", "cb2");
+    await sh(["git", "checkout", "main"], dir);
+    await commit(dir, "c2.txt", "c\n", "cc2");
+    await sh(["git", "checkout", "feat2"], dir);
+    const g = makeGit(productionHostRunner, dir);
+    const base = await resolveBranchBaseSHA(g, "0".repeat(40), "main");
+    // The true merge-base (c1), never the empty-tree fallback.
+    expect(base).toBe(c1);
+    expect(base).not.toBe("4b825dc642cb6eb9a060e54bf8d69288fbee4904");
   });
 
   test("assertPipelineHeadContinuity: equal + forward OK; divergent + backward abort; empty recorded OK", async () => {
@@ -871,6 +896,54 @@ describe("reviewStep (real repo)", () => {
     const reviewCall = (dispatcher as FakeDispatcher).calls.find((c) => c.role === "reviewer")!;
     expect(reviewCall.prompt).toContain("Intent conformance (required)");
     expect(reviewCall.prompt).toContain("AUTHORITATIVE acceptance criteria");
+  });
+
+  test("job review instructions reach the review-main prompt as a sanitized section", async () => {
+    const dispatcher = fakeDispatcher(() => ({ output: reviewFindings([]), text: "" }));
+    const { ctx } = makeCtx(dir, head, {
+      run: { baseSha: head },
+      dispatcher,
+      jobReviewInstructions: "focus on API stability",
+      // fixInstructions are NOT threaded to review-main (review family only here).
+      jobFixInstructions: "should not appear in review-main",
+    });
+    await reviewStep.execute(ctx);
+    const reviewCall = (dispatcher as FakeDispatcher).calls.find((c) => c.role === "reviewer")!;
+    expect(reviewCall.prompt).toContain("Job instructions (operator-configured, advisory)");
+    expect(reviewCall.prompt).toContain("focus on API stability");
+    expect(reviewCall.prompt).not.toContain("should not appear in review-main");
+  });
+
+  test("no job instructions → review-main prompt carries NO operator section", async () => {
+    const dispatcher = fakeDispatcher(() => ({ output: reviewFindings([]), text: "" }));
+    const { ctx } = makeCtx(dir, head, { run: { baseSha: head }, dispatcher });
+    await reviewStep.execute(ctx);
+    const reviewCall = (dispatcher as FakeDispatcher).calls.find((c) => c.role === "reviewer")!;
+    expect(reviewCall.prompt).not.toContain("Job instructions (operator-configured, advisory)");
+  });
+
+  test("review-FIX carries BOTH operator sections, review BEFORE fix", async () => {
+    const dispatcher = fakeDispatcher(async (o) => {
+      if (o.role === "fixer") return { output: { summary: "applied fix" }, text: "" };
+      return { output: reviewFindings([]), text: "" };
+    });
+    const prev = serializeFindings(
+      deserializeFindings({ findings: [{ id: "f1", severity: "error", description: "bug", action: "auto-fix" }] }),
+    );
+    const { ctx } = makeCtx(dir, head, {
+      run: { baseSha: head },
+      fixing: true,
+      previousFindings: prev,
+      dispatcher,
+      jobReviewInstructions: "REVIEW-GUIDANCE",
+      jobFixInstructions: "FIX-GUIDANCE",
+    });
+    await reviewStep.execute(ctx);
+    const fixCall = (dispatcher as FakeDispatcher).calls.find((c) => c.role === "fixer")!;
+    expect(fixCall.prompt).toContain("REVIEW-GUIDANCE");
+    expect(fixCall.prompt).toContain("FIX-GUIDANCE");
+    // Review section is composed first, then the fix section (locked ordering).
+    expect(fixCall.prompt.indexOf("REVIEW-GUIDANCE")).toBeLessThan(fixCall.prompt.indexOf("FIX-GUIDANCE"));
   });
 });
 

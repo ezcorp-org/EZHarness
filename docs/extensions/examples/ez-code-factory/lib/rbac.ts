@@ -28,6 +28,11 @@
 export const RESPOND_SCOPE = "respond-gate";
 /** The scope for the yolo autopilot — broader than a single approve. */
 export const YOLO_SCOPE = "yolo";
+/** The scope managing job DEFINITIONS from the config plane (create / edit /
+ *  toggle / delete a job, and fire a job "run now"). Distinct from `respond-gate`
+ *  (which triages a parked RUN): managing a job shapes what future runs a push
+ *  or schedule tick creates, a strictly configuration-level authority. */
+export const MANAGE_JOBS_SCOPE = "manage-jobs";
 
 /** The scope-check seam: true iff the acting user holds `scope` for this
  *  extension in the calling context. Production: `new Rbac().check`. */

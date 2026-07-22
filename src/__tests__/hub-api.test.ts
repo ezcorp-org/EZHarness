@@ -68,7 +68,7 @@ import {
   _resetHubPageProvidersForTests,
   type HubPageProvider,
 } from "../runtime/hub-pages";
-import { users, extensions } from "../db/schema";
+import { users, extensions, projects } from "../db/schema";
 import type { ExtensionManifestV2 } from "../extensions/types";
 
 let userA: AuthUser;
@@ -137,6 +137,7 @@ beforeEach(async () => {
   const db = getTestDb();
   await db.delete(extensions);
   await db.delete(users);
+  await db.delete(projects);
   const [u1] = await db.insert(users).values({ email: "a@t.local", passwordHash: "x", name: "A" }).returning();
   userA = { id: u1!.id, email: u1!.email, name: u1!.name, role: "member" };
 });
@@ -212,6 +213,39 @@ describe("GET /api/hub/pages", () => {
     expect(data.pages).toEqual([
       { id: "ext:cron-dash:dashboard", title: "Cron Dashboard", icon: "Clock", kind: "ext" },
     ]);
+  });
+
+  test("project-scoped pages carry projectScoped:true; plain pages omit the key; the scopes:[project] form is honored (tolerance pin)", async () => {
+    const db = getTestDb();
+    await db.insert(extensions).values({
+      name: "scoped-ext",
+      version: "1.0.0",
+      source: "local:/s",
+      enabled: true,
+      manifest: makeManifest({
+        name: "scoped-ext",
+        pages: [
+          { id: "per-project", title: "Per Project", perProject: true },
+          { id: "plain", title: "Plain" },
+          // The in-flight rename `perProject` → `scopes: ["project"]`. Not
+          // this checkout's field, but readManifestPages accepts it so the
+          // branch merge stays a no-op — pinned here.
+          { id: "scoped", title: "Scoped", scopes: ["project"] },
+        ],
+      }),
+      grantedPermissions: { grantedAt: {} },
+    });
+
+    const res = await call(listGet, createMockEvent({ user: userA }));
+    const data = await jsonFromResponse(res);
+    expect(data.pages).toEqual([
+      { id: "ext:scoped-ext:per-project", title: "Per Project", projectScoped: true, kind: "ext" },
+      { id: "ext:scoped-ext:plain", title: "Plain", kind: "ext" },
+      { id: "ext:scoped-ext:scoped", title: "Scoped", projectScoped: true, kind: "ext" },
+    ]);
+    // The plain page carries NO projectScoped key (not merely `false`).
+    const plain = data.pages.find((p: { id: string }) => p.id === "ext:scoped-ext:plain");
+    expect(plain).not.toHaveProperty("projectScoped");
   });
 });
 
@@ -326,6 +360,151 @@ describe("GET /api/hub/pages/[id]", () => {
     // Different page id — separate bucket.
     const other = await call(renderGet, createMockEvent({ user: userA, params: { id: "core:other" } }));
     expect(other.status).toBe(200);
+  });
+
+  // ── ?project= (perProject page context) ─────────────────────────
+
+  test("?project= resolves the row and forwards {id,name,path} to the render pull", async () => {
+    const db = getTestDb();
+    const [proj] = await db
+      .insert(projects)
+      .values({ name: "My App", path: "/home/dev/my-app" })
+      .returning();
+    __extRenderResult = { page: { title: "T", nodes: [] }, renderedAt: 1 };
+    const res = await call(
+      renderGet,
+      createMockEvent({
+        user: userA,
+        params: { id: "ext:cron-dash:dashboard" },
+        url: `http://localhost/api/hub/pages/x?project=${proj!.id}`,
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(__extRenderCalls).toEqual([
+      [
+        "cron-dash",
+        "dashboard",
+        userA.id,
+        undefined,
+        { id: proj!.id, name: "My App", path: "/home/dev/my-app" },
+      ],
+    ]);
+  });
+
+  test("unresolvable ?project= values fall back to a context-less render — NEVER 404", async () => {
+    // Covers: unknown uuid, junk, the synthetic "global" fallback the
+    // extension detail page links to, and an oversized value (skips the
+    // DB lookup entirely). Pre-fix each of these dead-ended with 404.
+    const values = [
+      "6f9619ff-8b86-4d01-b42d-00cf4fc964ff",
+      "abc",
+      "global",
+      "x".repeat(200),
+    ];
+    for (const value of values) {
+      __extRenderResult = { page: { title: "T", nodes: [] }, renderedAt: 1 };
+      const res = await call(
+        renderGet,
+        createMockEvent({
+          user: userA,
+          params: { id: "ext:cron-dash:dashboard" },
+          url: `http://localhost/api/hub/pages/x?project=${value}`,
+        }),
+      );
+      expect(res.status).toBe(200);
+    }
+    // Every render went through WITHOUT project context.
+    expect(__extRenderCalls).toHaveLength(values.length);
+    for (const args of __extRenderCalls) expect(args[4]).toBeUndefined();
+  });
+
+  test("the seeded self project (non-UUID id \"self\") resolves as real project context", async () => {
+    const db = getTestDb();
+    // Mirrors src/db/seed-self-project.ts: SELF_PROJECT_ID = "self".
+    await db
+      .insert(projects)
+      .values({ id: "self", name: "EZCorp (this app)", path: "/srv/ezcorp" });
+    __extRenderResult = { page: { title: "T", nodes: [] }, renderedAt: 1 };
+    const res = await call(
+      renderGet,
+      createMockEvent({
+        user: userA,
+        params: { id: "ext:cron-dash:dashboard" },
+        url: "http://localhost/api/hub/pages/x?project=self",
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(__extRenderCalls).toEqual([
+      [
+        "cron-dash",
+        "dashboard",
+        userA.id,
+        undefined,
+        { id: "self", name: "EZCorp (this app)", path: "/srv/ezcorp" },
+      ],
+    ]);
+  });
+
+  test("rate-limit buckets are per project variant — browsing many projects never 429s first renders", async () => {
+    const db = getTestDb();
+    const rows = await db
+      .insert(projects)
+      .values(
+        Array.from({ length: 13 }, (_, i) => ({ name: `p${i}`, path: `/proj/p${i}` })),
+      )
+      .returning();
+    __extRenderResult = { page: { title: "T", nodes: [] }, renderedAt: 1 };
+    for (const row of rows) {
+      const res = await call(
+        renderGet,
+        createMockEvent({
+          user: userA,
+          params: { id: "ext:cron-dash:dashboard" },
+          url: `http://localhost/api/hub/pages/x?project=${row.id}`,
+        }),
+      );
+      expect(res.status).toBe(200); // 13 distinct variants, 13 distinct buckets
+    }
+    // The SAME variant still has its own 12/min budget.
+    renderLimiter.reset();
+    for (let i = 0; i < 12; i++) {
+      const res = await call(
+        renderGet,
+        createMockEvent({
+          user: userA,
+          params: { id: "ext:cron-dash:dashboard" },
+          url: `http://localhost/api/hub/pages/x?project=${rows[0]!.id}`,
+        }),
+      );
+      expect(res.status).toBe(200);
+    }
+    const blocked = await call(
+      renderGet,
+      createMockEvent({
+        user: userA,
+        params: { id: "ext:cron-dash:dashboard" },
+        url: `http://localhost/api/hub/pages/x?project=${rows[0]!.id}`,
+      }),
+    );
+    expect(blocked.status).toBe(429);
+  });
+
+  test("core pages tolerate a valid ?project= (resolved, unused)", async () => {
+    const db = getTestDb();
+    const [proj] = await db
+      .insert(projects)
+      .values({ name: "P", path: "/p" })
+      .returning();
+    registerDemoProvider();
+    const res = await call(
+      renderGet,
+      createMockEvent({
+        user: userA,
+        params: { id: "core:demo" },
+        url: `http://localhost/api/hub/pages/x?project=${proj!.id}`,
+      }),
+    );
+    expect(res.status).toBe(200);
   });
 });
 

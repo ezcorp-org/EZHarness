@@ -58,6 +58,18 @@ export interface CallProvenance {
 interface Entry {
   prov: CallProvenance;
   createdAt: number;
+  /**
+   * Absolute-ms sweep expiry. Set ONLY for opt-in fire tokens that chose a
+   * custom auto-release window (`registerFireCallProvenance(prov,
+   * {autoReleaseMs})`). When present the TTL sweep honors THIS instant instead
+   * of the kind-based default TTL — so a long-lived fire token (a 4 h hub
+   * event fire, or a schedule fire sized to the grant's `maxRunDurationMs`)
+   * is NOT evicted by the short 10-min fire TTL before its own auto-release
+   * timer fires. That premature eviction is exactly what dropped reverse-RPC
+   * mid-run on push pipelines / long sweeps (`-32602`). Absent → the token
+   * keeps the kind-based backstop (2-min-timer / 10-min-sweep for fires).
+   */
+  expiresAt?: number;
 }
 
 /**
@@ -96,7 +108,11 @@ function sweep(now: number): void {
   if (registry.size === 0) return;
   let evicted = 0;
   for (const [id, e] of registry) {
-    if (now - e.createdAt > ttlForKind(e.prov.kind)) {
+    // A per-token `expiresAt` (opt-in long fire window) overrides the
+    // kind-based default so the sweep never evicts a healthy long-lived
+    // token before its own auto-release timer fires.
+    const expiry = e.expiresAt ?? e.createdAt + ttlForKind(e.prov.kind);
+    if (now > expiry) {
       registry.delete(id);
       evicted++;
     }
@@ -118,7 +134,10 @@ function sweep(now: number): void {
  * Snapshot `prov` and return the opaque `ezCallId` to stamp onto the
  * forward `_meta`. Caller MUST `releaseCallProvenance` in a `finally`.
  */
-export function registerCallProvenance(prov: CallProvenance): string {
+export function registerCallProvenance(
+  prov: CallProvenance,
+  opts?: { expiresAt?: number },
+): string {
   const now = Date.now();
   sweep(now);
   if (registry.size >= maxEntries) {
@@ -143,7 +162,11 @@ export function registerCallProvenance(prov: CallProvenance): string {
     }
   }
   const id = crypto.randomUUID();
-  registry.set(id, { prov, createdAt: now });
+  registry.set(id, {
+    prov,
+    createdAt: now,
+    ...(opts?.expiresAt !== undefined ? { expiresAt: opts.expiresAt } : {}),
+  });
   log.debug("registered call provenance", {
     ezCallId: id,
     kind: prov.kind,
@@ -209,10 +232,28 @@ export const FIRE_TOKEN_AUTO_RELEASE_MS = 120_000; // 2 min
  * for schedule / lifecycle / event fires — there is no forward call to
  * release the token in a `finally`. The timer is `unref`'d so it never
  * keeps the process alive.
+ *
+ * `opts.autoReleaseMs` opts a SINGLE dispatch into a longer (or shorter)
+ * release window than the 2-min default. This is the fix for long-running
+ * dispatches whose reverse-RPC outlives 2 min:
+ *   - hub event fires pass **4 h** (a full pipeline segment can run that
+ *     long between reverse-RPCs — see the events route);
+ *   - schedule fires pass the grant's **`maxRunDurationMs`** (default 5 min)
+ *     so a reconcile sweep's storage writes still resolve provenance.
+ * When a custom window is chosen we ALSO pin the sweep-expiry to it, so the
+ * kind-based TTL sweep can't reap the token before the timer fires. Callers
+ * that don't pass `opts` keep the exact 2-min default (and the 10-min sweep
+ * backstop) — no behavior change.
  */
-export function registerFireCallProvenance(prov: CallProvenance): string {
-  const id = registerCallProvenance(prov);
-  const t = setTimeout(() => releaseCallProvenance(id), FIRE_TOKEN_AUTO_RELEASE_MS);
+export function registerFireCallProvenance(
+  prov: CallProvenance,
+  opts?: { autoReleaseMs?: number },
+): string {
+  const autoReleaseMs = opts?.autoReleaseMs ?? FIRE_TOKEN_AUTO_RELEASE_MS;
+  const id = opts?.autoReleaseMs !== undefined
+    ? registerCallProvenance(prov, { expiresAt: Date.now() + autoReleaseMs })
+    : registerCallProvenance(prov);
+  const t = setTimeout(() => releaseCallProvenance(id), autoReleaseMs);
   (t as { unref?: () => void }).unref?.();
   return id;
 }

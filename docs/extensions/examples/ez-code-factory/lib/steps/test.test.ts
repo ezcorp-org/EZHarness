@@ -8,7 +8,7 @@ import { productionHostRunner, type ShellRunner } from "../shell";
 import { makeGit } from "../git";
 import { defaultPipelineConfig } from "../config";
 import { emptyRepoConfig, type RepoConfig } from "../repo-config";
-import { deserializeFindings } from "../runs";
+import { deserializeFindings, serializeFindings } from "../runs";
 import type { AgentDispatcher, DispatchOptions, DispatchResult } from "../agent";
 import { makeRunShared, type RunShared, type StepContext } from "./common";
 import { testStep } from "./test";
@@ -37,6 +37,7 @@ interface Over {
   dispatcher?: AgentDispatcher;
   shared?: RunShared;
   tmpBase?: string;
+  jobFixInstructions?: string;
 }
 
 function fakeDispatcher(impl: (o: DispatchOptions) => DispatchResult | Promise<DispatchResult>): AgentDispatcher & {
@@ -90,6 +91,7 @@ describe("testStep", () => {
       repo: { defaultBranch: "main", workingPath: "" },
       config: defaultPipelineConfig(),
       repoConfig: over.repoConfig ?? emptyRepoConfig(),
+      ...(over.jobFixInstructions ? { jobFixInstructions: over.jobFixInstructions } : {}),
       shared: over.shared ?? makeRunShared(),
       fixing: over.fixing ?? false,
       previousFindings: over.previousFindings ?? "",
@@ -116,6 +118,37 @@ describe("testStep", () => {
     expect(dispatcher.calls.length).toBe(1);
     expect(outcome.needsApproval).toBe(false);
     expect(logs.join()).toContain("no test command configured");
+  });
+
+  test("test-FIX carries the operator fix section; the evidence pass gets nothing", async () => {
+    // Fix mode with a passing test command → the fixer prompt is dispatched and
+    // carries the operator fix instructions; no evidence agent runs (no intent).
+    const repoConfig = { ...emptyRepoConfig(), commands: { test: "true", lint: "", format: "" } };
+    const prev = serializeFindings(
+      deserializeFindings({ findings: [{ id: "t1", severity: "error", description: "flaky", action: "auto-fix" }], summary: "s" }),
+    );
+    const dispatcher = fakeDispatcher(() => ({ output: { summary: "fixed test" }, text: "" }));
+    const { ctx } = makeCtx({
+      repoConfig,
+      fixing: true,
+      previousFindings: prev,
+      dispatcher,
+      jobFixInstructions: "run the smallest failing test first",
+    });
+    await testStep.execute(ctx);
+    const fixCall = dispatcher.calls.find((c) => c.role === "fixer")!;
+    expect(fixCall.prompt).toContain("Job instructions (operator-configured, advisory)");
+    expect(fixCall.prompt).toContain("run the smallest failing test first");
+  });
+
+  test("the test-EVIDENCE pass gets NO operator section even when fix instructions are set", async () => {
+    // No test command, not fixing → the evidence agent; fix instructions reach
+    // agents on FIX rounds only, so the evidence prompt carries no operator section.
+    const dispatcher = fakeDispatcher(() => cleanEvidence);
+    const { ctx } = makeCtx({ dispatcher, jobFixInstructions: "should not appear in evidence" });
+    await testStep.execute(ctx);
+    expect(dispatcher.calls[0]!.prompt).not.toContain("Job instructions (operator-configured, advisory)");
+    expect(dispatcher.calls[0]!.prompt).not.toContain("should not appear in evidence");
   });
 
   test("configured test command passes + no intent → no evidence agent, all tests passed", async () => {

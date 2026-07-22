@@ -59,8 +59,9 @@ describe("reconcileSweep", () => {
       now: () => 0,
       log: (m) => logs.push(m),
     });
-    expect(summary).toEqual({ scanned: 2, advanced: 1, stillParked: 1, skipped: 0 });
+    expect(summary).toEqual({ scanned: 2, advanced: 1, stillParked: 1, skipped: 0, stalled: 0 });
     expect(logs[0]).toContain("advanced 1");
+    expect(logs[0]).toContain("stalled 0");
   });
 
   test("reconciles a CI-timeout-parked (awaiting_approval) run too", async () => {
@@ -69,7 +70,7 @@ describe("reconcileSweep", () => {
       reconcile: async () => ({ status: "awaiting_approval", parked: true }),
       now: () => 0,
     });
-    expect(summary).toEqual({ scanned: 1, advanced: 0, stillParked: 1, skipped: 0 });
+    expect(summary).toEqual({ scanned: 1, advanced: 0, stillParked: 1, skipped: 0, stalled: 0 });
   });
 
   test("skips terminal + mid-flight runs (never reconcilable)", async () => {
@@ -89,7 +90,7 @@ describe("reconcileSweep", () => {
       now: () => 0,
     });
     expect(calls).toBe(0);
-    expect(summary).toEqual({ scanned: 0, advanced: 0, stillParked: 0, skipped: 0 });
+    expect(summary).toEqual({ scanned: 0, advanced: 0, stillParked: 0, skipped: 0, stalled: 0 });
   });
 
   test("counts a null reconcile (unresumable run) as skipped", async () => {
@@ -98,7 +99,7 @@ describe("reconcileSweep", () => {
       reconcile: async () => null,
       now: () => 0,
     });
-    expect(summary).toEqual({ scanned: 1, advanced: 0, stillParked: 0, skipped: 1 });
+    expect(summary).toEqual({ scanned: 1, advanced: 0, stillParked: 0, skipped: 1, stalled: 0 });
   });
 
   test("records a heartbeat with an ISO timestamp + the summary", async () => {
@@ -135,5 +136,113 @@ describe("reconcileSweep", () => {
     });
     expect(calls).toBe(2);
     expect(summary.scanned).toBe(2);
+  });
+});
+
+// ── Staleness pass (L3, the status-truthfulness fix) ────────────────
+
+const STALL_MS = 10 * 60 * 1000;
+
+/** A store recording updateRun patches, over a fixed run list. */
+function updatingStore(runs: RunRecord[]): RunStore & { updates: Array<{ id: string; patch: Partial<RunRecord> }> } {
+  const updates: Array<{ id: string; patch: Partial<RunRecord> }> = [];
+  return {
+    async listRuns() {
+      return runs;
+    },
+    async updateRun(id: string, patch: Partial<RunRecord>) {
+      updates.push({ id, patch });
+      return null;
+    },
+    updates,
+  } as unknown as RunStore & { updates: Array<{ id: string; patch: Partial<RunRecord> }> };
+}
+
+function runningAt(id: string, updatedAt: string): RunRecord {
+  return { ...run(id, "running"), updatedAt };
+}
+
+describe("reconcileSweep staleness pass", () => {
+  const nowMs = 2_000_000_000_000;
+  const freshIso = new Date(nowMs - 60_000).toISOString(); // 1 min ago
+  const staleIso = new Date(nowMs - STALL_MS - 60_000).toISOString(); // > threshold ago
+
+  test("marks a running run stalled when its heartbeat is silent past the threshold", async () => {
+    const store = updatingStore([runningAt("dead", staleIso)]);
+    const summary = await reconcileSweep({
+      store,
+      reconcile: async () => ({ status: "completed", parked: false }),
+      readHeartbeat: async () => staleIso,
+      now: () => nowMs,
+    });
+    expect(summary.stalled).toBe(1);
+    expect(store.updates).toEqual([{ id: "dead", patch: { status: "stalled" } }]);
+  });
+
+  test("leaves a running run alone when its heartbeat is fresh", async () => {
+    const store = updatingStore([runningAt("alive", staleIso)]);
+    const summary = await reconcileSweep({
+      store,
+      reconcile: async () => ({ status: "completed", parked: false }),
+      // A fresh heartbeat keeps a live process from ever tripping, even though
+      // updatedAt (the last status write) is old.
+      readHeartbeat: async () => freshIso,
+      now: () => nowMs,
+    });
+    expect(summary.stalled).toBe(0);
+    expect(store.updates).toEqual([]);
+  });
+
+  test("no heartbeat key (legacy run, frozen updatedAt) trips immediately", async () => {
+    const store = updatingStore([runningAt("legacy", staleIso)]);
+    const summary = await reconcileSweep({
+      store,
+      reconcile: async () => ({ status: "completed", parked: false }),
+      readHeartbeat: async () => null,
+      now: () => nowMs,
+    });
+    expect(summary.stalled).toBe(1);
+    expect(store.updates[0]!.patch).toEqual({ status: "stalled" });
+  });
+
+  test("a recently-updated running run with no heartbeat is NOT stalled", async () => {
+    const store = updatingStore([runningAt("busy", freshIso)]);
+    const summary = await reconcileSweep({
+      store,
+      reconcile: async () => ({ status: "completed", parked: false }),
+      readHeartbeat: async () => null,
+      now: () => nowMs,
+    });
+    expect(summary.stalled).toBe(0);
+    expect(store.updates).toEqual([]);
+  });
+
+  test("omitted readHeartbeat seam → staleness evaluated on updatedAt alone", async () => {
+    const store = updatingStore([runningAt("frozen", staleIso)]);
+    const summary = await reconcileSweep({
+      store,
+      reconcile: async () => ({ status: "completed", parked: false }),
+      now: () => nowMs,
+    });
+    expect(summary.stalled).toBe(1);
+  });
+
+  test("one fire with a stale running run AND a reconcilable run: stale marked, reconcilable advances, cap accounting unchanged", async () => {
+    const store = updatingStore([runningAt("dead", staleIso), run("green", "checks_passed")]);
+    const summary = await reconcileSweep({
+      store,
+      // Only the reconcilable (checks_passed) run reaches reconcile; the running
+      // run is handled by the staleness pass and never reconciled.
+      reconcile: async (id) => (id === "green" ? { status: "completed", parked: false } : null),
+      readHeartbeat: async () => staleIso,
+      now: () => nowMs,
+    });
+    expect(summary.stalled).toBe(1);
+    expect(summary.advanced).toBe(1);
+    // The cap accounts ONLY the reconcilable run — the staleness pass does not
+    // consume maxPerSweep (a running run continues before `scanned++`).
+    expect(summary.scanned).toBe(1);
+    // The stale run was marked; the reconcile fake never touched updateRun.
+    expect(store.updates).toEqual([{ id: "dead", patch: { status: "stalled" } }]);
   });
 });

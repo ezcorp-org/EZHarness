@@ -14,7 +14,9 @@ import {
   executionContextPromptSection,
   roundHistoryPromptSection,
   userIntentPromptSection,
-  sanitizedPreviousFindingsForPrompt,
+  jobInstructionsPromptSection,
+  lintColdPromptBody,
+  lintFixPromptBody,
   COMMIT_SUMMARY_SCHEMA,
   FINDINGS_SCHEMA,
 } from "../prompts";
@@ -57,31 +59,13 @@ async function executeLint(sctx: StepContext): Promise<StepOutcome> {
     sctx.log("no lint command configured, asking agent to lint and fix...");
     const reassessHistory =
       executionContextPromptSection() + roundHistoryPromptSection(sctx.rounds) + userIntentPromptSection(intentCtx);
-    const previousSection =
-      sctx.previousFindings !== ""
-        ? `\n\nPrevious lint findings to address:\n${sanitizedPreviousFindingsForPrompt(sctx.previousFindings)}`
-        : "";
-    const prompt = `Detect the linting and formatting tools for this project, run the relevant checks yourself, apply safe fixes, and verify the result.
-
-Context:
-- branch: ${sctx.run.branch}
-- base commit: ${baseSHA}
-- target commit: ${sctx.run.headSha}
-
-Task:
-- Discover the configured linters and formatters for this repository.
-- Only lint or format the relevant changed files when possible.
-- Apply safe formatter, linter, and static-analysis fixes yourself.
-- Re-run the relevant checks after fixing.
-- Report only unresolved lint, format, or static-analysis issues as structured findings.
-- If everything is clean or fixed, return an empty findings array.
-
-Rules:
-- Do not run tests or broader behavioral validation.
-- Focus on lint, format, and static-analysis issues only.
-- Do not report issues you already fixed.
-- The summary must be one concise sentence fragment suitable for a git commit subject.
-- Keep the summary under 10 words.${reassessHistory}${previousSection}`;
+    const prompt = lintColdPromptBody({
+      branch: sctx.run.branch,
+      baseCommit: baseSHA,
+      targetCommit: sctx.run.headSha,
+      reassessHistory,
+      previousFindings: sctx.previousFindings,
+    });
     let result;
     try {
       result = await sctx.dispatcher.dispatch({
@@ -108,27 +92,18 @@ Rules:
   // Fix mode: ask the agent to fix lint issues before re-running the command.
   let fixSummary = "";
   if (sctx.fixing) {
+    // Fix round only — the cold lint pass above deliberately gets no operator
+    // section (fix instructions reach agents on FIX rounds only).
     const historySection =
+      jobInstructionsPromptSection(sctx.jobFixInstructions) +
       executionContextPromptSection() + roundHistoryPromptSection(sctx.rounds) + userIntentPromptSection(intentCtx);
-    const previousSection =
-      sctx.previousFindings !== ""
-        ? `\n\nPrevious lint findings to address:\n${sanitizedPreviousFindingsForPrompt(sctx.previousFindings)}`
-        : "";
-    const fixPrompt = `Fix the lint issues in this repository. Run the linter, identify all issues, and fix them.
-
-Context:
-- branch: ${sctx.run.branch}
-- base commit: ${baseSHA}
-- target commit: ${sctx.run.headSha}
-
-Rules:
-- Make the smallest correct root-cause fix.
-- Do not refactor beyond what is needed for that root-cause fix.
-- Do not run tests or broader behavioral validation.
-- Re-run the relevant lint or format commands before finishing.
-- Return JSON with a single "summary" field when you are done.
-- The summary must be one concise sentence fragment suitable for a git commit subject.
-- Keep the summary under 10 words.${historySection}${previousSection}`;
+    const fixPrompt = lintFixPromptBody({
+      branch: sctx.run.branch,
+      baseCommit: baseSHA,
+      targetCommit: sctx.run.headSha,
+      historySection,
+      previousFindings: sctx.previousFindings,
+    });
     fixSummary = await executeFixMode(sctx, "lint", {
       logMessage: "asking agent to fix lint issues...",
       prompt: fixPrompt,
@@ -140,7 +115,7 @@ Rules:
   }
 
   sctx.log(`running linter: ${lintCmd}`);
-  const { output, exitCode } = await runStepShellCommand(sctx.hostRunner, sctx.worktree, lintCmd);
+  const { output, exitCode } = await runStepShellCommand(sctx, lintCmd);
   sctx.log(output);
   if (exitCode !== 0) {
     const findings = deserializeFindings({

@@ -17,19 +17,26 @@ import {
   type StepRoundRecord,
 } from "./runs";
 import type { AgentDispatcher } from "./agent";
-import type { Step, StepContext, StepOutcome } from "./steps/common";
+import { repoDispatchOptions, runStepShellCommand, type Step, type StepContext, type StepOutcome } from "./steps/common";
 import { emptyRepoConfig, TrustedConfigError, type RepoConfig } from "./repo-config";
+import { emptyOutcomeFlags, type StepIORecord } from "./step-io";
 
 // ── in-memory store ─────────────────────────────────────────────────
 
-function memStore(): RunStore & { rounds: Map<string, StepRoundRecord[]>; steps: Map<string, StepResultRecord> } {
+function memStore(): RunStore & {
+  rounds: Map<string, StepRoundRecord[]>;
+  steps: Map<string, StepResultRecord>;
+  stepIO: Map<string, StepIORecord>;
+} {
   const runs = new Map<string, RunRecord>();
   const steps = new Map<string, StepResultRecord>();
   const rounds = new Map<string, StepRoundRecord[]>();
+  const stepIO = new Map<string, StepIORecord>();
   const key = (r: string, s: string) => `${r}/${s}`;
   return {
     steps,
     rounds,
+    stepIO,
     async createRun(run) {
       runs.set(run.id, run);
     },
@@ -65,6 +72,20 @@ function memStore(): RunStore & { rounds: Map<string, StepRoundRecord[]>; steps:
       const list = rounds.get(key(runId, step));
       if (!list || list.length === 0) return;
       list[list.length - 1] = { ...list[list.length - 1]!, ...patch };
+    },
+    async putStepIO(record) {
+      stepIO.set(`${record.runId}/${record.step}/${record.round}`, { ...record });
+    },
+    async getStepIO(runId, step, round) {
+      const r = stepIO.get(`${runId}/${step}/${round}`);
+      return r ? { ...r } : null;
+    },
+    async listStepIO(runId, step) {
+      const prefix = `${runId}/${step}/`;
+      return [...stepIO.entries()]
+        .filter(([k]) => k.startsWith(prefix))
+        .map(([, v]) => ({ ...v }))
+        .sort((a, b) => a.round - b.round);
     },
   };
 }
@@ -108,6 +129,45 @@ function scriptStep(name: PipelineStep, outcomes: StepOutcome[]): Step & { calls
 }
 
 const noopDispatcher: AgentDispatcher = { async dispatch() { return { output: null, text: "" }; } };
+
+/** A dispatcher that stamps unique, resolvable handle ids on each dispatch —
+ *  drives the executor's linkage-recording path. The noop dispatcher above
+ *  returns no ids, so it records nothing (the pre-linkage / hand-built case). */
+function linkingDispatcher(): AgentDispatcher {
+  let n = 0;
+  return {
+    async dispatch() {
+      n += 1;
+      return {
+        output: null,
+        text: "",
+        subConversationId: `sub-${n}`,
+        assignmentId: `asg-${n}`,
+        agentRunId: `run-${n}`,
+      };
+    },
+  };
+}
+
+/** A step that dispatches ONE agent turn per execute (role-tagged) then returns
+ *  the scripted outcome — exercises the executor's per-round dispatch recorder
+ *  (`scriptStep` never dispatches, so it records nothing). */
+function dispatchingStep(
+  name: PipelineStep,
+  role: "reviewer" | "fixer" | "generic",
+  outcomes: StepOutcome[],
+): Step {
+  let i = 0;
+  return {
+    name,
+    async execute(sctx: StepContext) {
+      await sctx.dispatcher.dispatch({ role, prompt: "p", cwd: sctx.worktree });
+      const o = outcomes[Math.min(i, outcomes.length - 1)]!;
+      i += 1;
+      return o;
+    },
+  };
+}
 
 /** Build a full registry: implemented fakes + null for the rest. */
 function registry(impl: Partial<Record<PipelineStep, Step>>): Record<PipelineStep, Step | null> {
@@ -173,6 +233,137 @@ describe("startPipeline — clean run", () => {
     const store = memStore();
     const deps = makeDeps(store, registry({}), { t: 0 });
     expect((await startPipeline("nope", deps)).status).toBe("failed");
+  });
+
+  // Control plane (L5): every REAL status transition flows through the
+  // setRunStatus choke and appends a `run-status` audit entry (id + status
+  // only). A run driven to completion records at least a `running` and a
+  // `completed` transition; a bare parkedMs bump (no status) is NOT audited.
+  test("run status transitions are audited via the setRunStatus choke", async () => {
+    const store = memStore();
+    const id = await seedRun(store);
+    const entries: Array<{ kind: string; runId?: string; detail?: unknown }> = [];
+    const audit = {
+      async append(e: { kind: string; runId?: string; detail?: unknown }) { entries.push(e); },
+      async readDay() { return []; },
+      async listDays() { return []; },
+      async pruneRetention() { return []; },
+    };
+    const deps: ExecutorDeps = {
+      ...makeDeps(store, registry({
+        intent: scriptStep("intent", [clean]),
+        rebase: scriptStep("rebase", [clean]),
+        review: scriptStep("review", [clean]),
+        push: scriptStep("push", [clean]),
+      }), { t: 0 }),
+      audit,
+    };
+    await startPipeline(id, deps);
+    const statuses = entries.filter((e) => e.kind === "run-status").map((e) => (e.detail as { status: string }).status);
+    expect(statuses).toContain("running");
+    expect(statuses).toContain("completed");
+    // Every run-status entry carries the run id and no prompt/finding content.
+    for (const e of entries.filter((e) => e.kind === "run-status")) {
+      expect(e.runId).toBe(id);
+      expect(Object.keys(e.detail as object).every((k) => k === "status" || k === "error")).toBe(true);
+    }
+  });
+
+  // Control plane (L4): a job's skipSteps are marked `skipped` BEFORE dispatch —
+  // an IMPLEMENTED step in skipSteps must NOT execute (no agent runs), while
+  // non-skipped implemented steps still run normally.
+  test("job skipSteps skip an implemented step without executing it", async () => {
+    const store = memStore();
+    const id = await seedRun(store);
+    let testRan = false;
+    const testStep: Step = { name: "test", async execute() { testRan = true; return {}; } };
+    const deps: ExecutorDeps = {
+      ...makeDeps(store, registry({
+        intent: scriptStep("intent", [clean]),
+        rebase: scriptStep("rebase", [clean]),
+        review: scriptStep("review", [clean]),
+        push: scriptStep("push", [clean]),
+        test: testStep,
+      }), { t: 0 }),
+      skipSteps: ["test"],
+      jobName: "Nightly",
+    };
+    const logs: string[] = [];
+    deps.log = (_r, _s, m) => logs.push(m);
+    const outcome = await startPipeline(id, deps);
+    expect(outcome.status).toBe("completed");
+    // The implemented `test` step was JOB-skipped, never executed.
+    expect(testRan).toBe(false);
+    expect((await store.getStepResult(id, "test"))!.status).toBe("skipped");
+    expect(logs.some((l) => l === "skipped by job Nightly")).toBe(true);
+    // A non-skipped implemented step still ran.
+    expect((await store.getStepResult(id, "review"))!.status).toBe("completed");
+  });
+
+  // Control plane (L4): a job's agentName threads deps → StepContext →
+  // repoDispatchOptions, so every step's DISPATCH carries the job's agent
+  // override (preferred over the repo-config agent).
+  test("job agentName threads through deps into the step dispatch options", async () => {
+    const store = memStore();
+    const id = await seedRun(store);
+    let dispatchAgent: string | undefined = "UNSET";
+    const review: Step = {
+      name: "review",
+      async execute(sctx) {
+        // repoDispatchOptions is exactly what the real steps spread into their
+        // DispatchOptions — capture the agent it resolves for this run.
+        dispatchAgent = repoDispatchOptions(sctx).agentName;
+        return clean;
+      },
+    };
+    const deps: ExecutorDeps = {
+      ...makeDeps(store, registry({
+        intent: scriptStep("intent", [clean]),
+        rebase: scriptStep("rebase", [clean]),
+        review,
+        push: scriptStep("push", [clean]),
+      }), { t: 0 }),
+      jobAgentName: "job-agent",
+    };
+    await startPipeline(id, deps);
+    // The run's repoConfig has no agent (emptyRepoConfig), so the job override is
+    // what reaches the dispatch — proving the full deps→sctx→dispatch thread.
+    expect(dispatchAgent).toBe("job-agent");
+  });
+
+  // Control plane (L4): a job's operator prompt instructions thread deps →
+  // StepContext exactly like agentName, so each step's call site can prepend the
+  // sanitized section to its historySection.
+  test("job prompt instructions thread through deps onto the step context", async () => {
+    const store = memStore();
+    const id = await seedRun(store);
+    let seen: Pick<StepContext, "jobReviewInstructions" | "jobFixInstructions" | "jobDocumentInstructions"> = {};
+    const review: Step = {
+      name: "review",
+      async execute(sctx) {
+        seen = {
+          jobReviewInstructions: sctx.jobReviewInstructions,
+          jobFixInstructions: sctx.jobFixInstructions,
+          jobDocumentInstructions: sctx.jobDocumentInstructions,
+        };
+        return clean;
+      },
+    };
+    const deps: ExecutorDeps = {
+      ...makeDeps(store, registry({
+        intent: scriptStep("intent", [clean]),
+        rebase: scriptStep("rebase", [clean]),
+        review,
+        push: scriptStep("push", [clean]),
+      }), { t: 0 }),
+      jobReviewInstructions: "review guidance",
+      jobFixInstructions: "fix guidance",
+      jobDocumentInstructions: "doc guidance",
+    };
+    await startPipeline(id, deps);
+    expect(seen.jobReviewInstructions).toBe("review guidance");
+    expect(seen.jobFixInstructions).toBe("fix guidance");
+    expect(seen.jobDocumentInstructions).toBe("doc guidance");
   });
 
   test("a step that advances HEAD persists it via updateHeadSha", async () => {
@@ -303,6 +494,78 @@ describe("auto-fix loop honors the per-step cap", () => {
 
 // ── skipRemaining ───────────────────────────────────────────────────
 
+describe("agent dispatch linkage recording (R3)", () => {
+  test("records a dispatching step's spawn linkage on its step result", async () => {
+    const store = memStore();
+    const id = await seedRun(store);
+    const at = 1_700_000_000_000;
+    const deps: ExecutorDeps = {
+      ...makeDeps(
+        store,
+        registry({
+          intent: scriptStep("intent", [clean]), // never dispatches
+          rebase: dispatchingStep("rebase", "reviewer", [clean]),
+        }),
+        { t: 0 },
+      ),
+      dispatcher: linkingDispatcher(),
+      now: () => at,
+    };
+    await startPipeline(id, deps);
+
+    const sr = (await store.getStepResult(id, "rebase"))!;
+    expect(sr.agentDispatches).toEqual([
+      {
+        role: "reviewer",
+        assignmentId: "asg-1",
+        subConversationId: "sub-1",
+        agentRunId: "run-1",
+        at: new Date(at).toISOString(),
+      },
+    ]);
+    // A step that never dispatched carries no linkage (undefined, not []).
+    expect((await store.getStepResult(id, "intent"))!.agentDispatches).toBeUndefined();
+  });
+
+  test("accumulates one ref per fix round (initial + auto-fix), oldest first", async () => {
+    const store = memStore();
+    const id = await seedRun(store);
+    const deps: ExecutorDeps = {
+      ...makeDeps(
+        store,
+        registry({
+          intent: scriptStep("intent", [clean]),
+          // initial round → auto-fixable; the single fix round → clean.
+          rebase: dispatchingStep("rebase", "fixer", [blocking("auto-fix"), clean]),
+        }),
+        { t: 0 },
+      ),
+      dispatcher: linkingDispatcher(),
+    };
+    expect((await startPipeline(id, deps)).status).toBe("completed");
+
+    const sr = (await store.getStepResult(id, "rebase"))!;
+    expect(sr.agentDispatches?.map((d) => d.assignmentId)).toEqual(["asg-1", "asg-2"]);
+    expect(sr.agentDispatches?.every((d) => d.role === "fixer")).toBe(true);
+  });
+
+  test("a dispatcher without handle ids records nothing (fail-soft, no fabricated ref)", async () => {
+    const store = memStore();
+    const id = await seedRun(store);
+    // Default noopDispatcher returns no ids — the recorder must not invent one.
+    const deps = makeDeps(
+      store,
+      registry({
+        intent: scriptStep("intent", [clean]),
+        rebase: dispatchingStep("rebase", "reviewer", [clean]),
+      }),
+      { t: 0 },
+    );
+    await startPipeline(id, deps);
+    expect((await store.getStepResult(id, "rebase"))!.agentDispatches).toBeUndefined();
+  });
+});
+
 describe("skipRemaining short-circuits the pipeline", () => {
   test("rebase empty-diff skips review + push and completes", async () => {
     const store = memStore();
@@ -353,6 +616,266 @@ describe("intent skip + step failure", () => {
     expect(outcome.error).toContain("git exploded");
     expect((await store.getStepResult(id, "rebase"))!.status).toBe("failed");
     expect((await store.getRun(id))!.status).toBe("failed");
+  });
+});
+
+// ── step_io observability capture (L1/L2) + per-run heartbeat (L3) ──
+
+describe("step_io capture", () => {
+  test("writes a step_io record on the SUCCESS path under attemptRound with inputs + outcome flags", async () => {
+    const store = memStore();
+    const id = await seedRun(store, { intent: "ship it" });
+    const review = scriptStep("review", [{ needsApproval: true, autoFixable: false }]); // parks
+    const deps = makeDeps(store, registry({ intent: scriptStep("intent", [clean]), review }), { t: 1000 });
+    await startPipeline(id, deps);
+
+    const io = await store.getStepIO(id, "review", 1);
+    expect(io).not.toBeNull();
+    expect(io!.round).toBe(1);
+    expect(io!.trigger).toBe("initial");
+    expect(io!.branch).toBe("feat/x");
+    expect(io!.headSha).toBe("abc");
+    expect(io!.worktreePath).toBe("/wt");
+    expect(io!.repoConfig).toBeDefined();
+    expect(io!.error).toBeNull();
+    expect(io!.outcome.needsApproval).toBe(true);
+    // The clean intent step also recorded its own round-1 IO.
+    expect(await store.getStepIO(id, "intent", 1)).not.toBeNull();
+  });
+
+  test("captures dispatch IO (prompt + preview + linkage) into the round record on success", async () => {
+    const store = memStore();
+    const id = await seedRun(store);
+    const deps = makeDeps(
+      store,
+      registry({ review: dispatchingStep("review", "reviewer", [{ needsApproval: true }]) }),
+      { t: 0 },
+    );
+    deps.dispatcher = linkingDispatcher();
+    await startPipeline(id, deps);
+
+    const io = (await store.getStepIO(id, "review", 1))!;
+    expect(io.dispatches).toHaveLength(1);
+    expect(io.dispatches[0]!.role).toBe("reviewer");
+    expect(io.dispatches[0]!.promptText).toBe("p");
+    expect(io.dispatches[0]!.subConversationId).toBe("sub-1");
+    expect(io.dispatches[0]!.assignmentId).toBe("asg-1");
+    expect(io.dispatches[0]!.error).toBeUndefined();
+  });
+
+  test("drains TRUSTED shell commands from the round sink into the IO record", async () => {
+    const store = memStore();
+    const id = await seedRun(store);
+    const review: Step = {
+      name: "review",
+      async execute(sctx) {
+        await runStepShellCommand(sctx, "true");
+        return { needsApproval: true };
+      },
+    };
+    const deps = makeDeps(store, registry({ review }), { t: 0 });
+    await startPipeline(id, deps);
+
+    const io = (await store.getStepIO(id, "review", 1))!;
+    expect(io.shellCommands.map((c) => c.command)).toEqual(["true"]);
+    expect(io.shellCommands[0]!.exitCode).toBe(0);
+  });
+
+  test("writes a step_io record on the THROW path (initial throw → round 1) carrying the error", async () => {
+    const store = memStore();
+    const id = await seedRun(store);
+    const rebase: Step = {
+      name: "rebase",
+      async execute() {
+        throw new Error("git exploded");
+      },
+    };
+    const deps = makeDeps(store, registry({ intent: scriptStep("intent", [clean]), rebase }), { t: 2000 });
+    await startPipeline(id, deps);
+
+    const io = (await store.getStepIO(id, "rebase", 1))!;
+    expect(io.round).toBe(1);
+    expect(io.error).toContain("git exploded");
+    expect(io.outcome).toEqual(emptyOutcomeFlags());
+    // The throw happened before appendStepRound — no step_round exists.
+    expect(await store.getStepRounds(id, "rebase")).toEqual([]);
+  });
+
+  test("a fix-round throw records under prior+1 (round 2) WITHOUT overwriting round 1's record", async () => {
+    const store = memStore();
+    const id = await seedRun(store);
+    const review: Step = {
+      name: "review",
+      async execute(sctx) {
+        if (sctx.fixing) throw new Error("fix crashed");
+        return { needsApproval: true, findings: "" };
+      },
+    };
+    const deps = makeDeps(store, registry({ review }), { t: 100 });
+    await startPipeline(id, deps); // parks at review round 1
+    expect((await store.getStepIO(id, "review", 1))!.error).toBeNull();
+
+    const outcome = await respondToGate(id, { step: "review", action: "fix", findingIds: [] }, deps);
+    expect(outcome.status).toBe("failed");
+    // Round 1's completed record is untouched; round 2 carries the fix error.
+    expect((await store.getStepIO(id, "review", 1))!.error).toBeNull();
+    const round2 = (await store.getStepIO(id, "review", 2))!;
+    expect(round2.round).toBe(2);
+    expect(round2.trigger).toBe("auto_fix");
+    expect(round2.error).toContain("fix crashed");
+  });
+
+  test("captures a dispatch ERROR into the round IO (and the round throw records it)", async () => {
+    const store = memStore();
+    const id = await seedRun(store);
+    const deps = makeDeps(
+      store,
+      registry({ review: dispatchingStep("review", "reviewer", [clean]) }),
+      { t: 0 },
+    );
+    deps.dispatcher = {
+      async dispatch() {
+        throw new Error("agent timed out");
+      },
+    };
+    const outcome = await startPipeline(id, deps);
+    expect(outcome.status).toBe("failed");
+
+    const io = (await store.getStepIO(id, "review", 1))!;
+    expect(io.error).toContain("agent timed out"); // the step rethrew the dispatch error
+    expect(io.dispatches).toHaveLength(1);
+    expect(io.dispatches[0]!.error).toContain("agent timed out");
+    expect(io.dispatches[0]!.assignmentId).toBe(""); // a thrown dispatch has no handle
+  });
+});
+
+describe("per-run heartbeat (L3)", () => {
+  test("wraps execute in the heartbeat when wired — immediate + interval beats", async () => {
+    const store = memStore();
+    const id = await seedRun(store);
+    const beats: string[] = [];
+    let capturedTick: (() => void) | null = null;
+    let stopped = false;
+    const review: Step = {
+      name: "review",
+      async execute() {
+        capturedTick?.(); // one interval tick mid-execute
+        return { needsApproval: true };
+      },
+    };
+    const deps = makeDeps(store, registry({ review }), { t: 0 });
+    deps.heartbeat = {
+      write: async (runId) => {
+        beats.push(runId);
+      },
+      schedule: (fn) => {
+        capturedTick = fn;
+        return () => {
+          stopped = true;
+        };
+      },
+    };
+    await startPipeline(id, deps);
+    await Promise.resolve();
+    await Promise.resolve();
+    // Immediate beat + one interval tick = 2 beats, all for this run.
+    expect(beats.filter((b) => b === id).length).toBeGreaterThanOrEqual(2);
+    expect(stopped).toBe(true); // interval cleared when execute settled
+  });
+
+  test("executes normally when no heartbeat is wired (backward compatible)", async () => {
+    const store = memStore();
+    const id = await seedRun(store);
+    const deps = makeDeps(store, registry({ intent: scriptStep("intent", [clean]) }), { t: 0 });
+    expect(deps.heartbeat).toBeUndefined();
+    expect((await startPipeline(id, deps)).status).toBe("completed");
+  });
+});
+
+describe("step_io write-failure resilience (L1 record-and-continue)", () => {
+  /** A store whose putStepIO ALWAYS rejects — the write path must swallow it. */
+  function rejectingIOStore() {
+    const store = memStore();
+    store.putStepIO = async () => {
+      throw new Error("storage down");
+    };
+    return store;
+  }
+
+  test("a putStepIO rejection on the SUCCESS path never fails the run — it parks + logs", async () => {
+    const store = rejectingIOStore();
+    const id = await seedRun(store);
+    const logs: string[] = [];
+    const deps = {
+      ...makeDeps(store, registry({ review: scriptStep("review", [{ needsApproval: true }]) }), { t: 0 }),
+      log: (_r: string, _s: PipelineStep, m: string) => logs.push(m),
+    };
+    // The pipeline reaches its normal PARKED outcome and never rejects.
+    const outcome = await startPipeline(id, deps);
+    expect(outcome.status).toBe("parked");
+    expect((await store.getRun(id))!.status).toBe("awaiting_approval");
+    // The round + result still persisted (only the step_io write failed).
+    expect(await store.getStepRounds(id, "review")).toHaveLength(1);
+    // The failure was LOGGED, not propagated.
+    expect(logs.some((m) => m.includes("step_io write failed (continuing)"))).toBe(true);
+    // …and nothing landed in step_io (the write rejected).
+    expect(await store.getStepIO(id, "review", 1)).toBeNull();
+  });
+
+  test("a putStepIO rejection on the THROW path preserves the STEP's error, not the storage error", async () => {
+    const store = rejectingIOStore();
+    const id = await seedRun(store);
+    const logs: string[] = [];
+    const rebase: Step = {
+      name: "rebase",
+      async execute() {
+        throw new Error("git exploded");
+      },
+    };
+    const deps = {
+      ...makeDeps(store, registry({ intent: scriptStep("intent", [clean]), rebase }), { t: 0 }),
+      log: (_r: string, _s: PipelineStep, m: string) => logs.push(m),
+    };
+    const outcome = await startPipeline(id, deps);
+    // Fails with the STEP's error — the swallowed storage-down never surfaces.
+    expect(outcome.status).toBe("failed");
+    expect(outcome.error).toContain("git exploded");
+    expect(outcome.error).not.toContain("storage down");
+    expect((await store.getRun(id))!.status).toBe("failed");
+    expect(logs.some((m) => m.includes("step_io write failed (continuing)"))).toBe(true);
+  });
+});
+
+describe("resultPreviewText (via captured dispatch IO)", () => {
+  /** A dispatcher whose dispatch resolves to a fixed result. */
+  function fixedDispatcher(result: import("./agent").DispatchResult): AgentDispatcher {
+    return { async dispatch() { return result; } };
+  }
+  async function capturedPreview(result: import("./agent").DispatchResult): Promise<string> {
+    const store = memStore();
+    const id = await seedRun(store);
+    const deps = makeDeps(
+      store,
+      registry({ review: dispatchingStep("review", "reviewer", [{ needsApproval: true }]) }),
+      { t: 0 },
+    );
+    deps.dispatcher = fixedDispatcher(result);
+    await startPipeline(id, deps);
+    return (await store.getStepIO(id, "review", 1))!.dispatches[0]!.resultPreview;
+  }
+
+  test("structured output is JSON-serialized into the preview", async () => {
+    expect(await capturedPreview({ output: { summary: "ok" }, text: "ignored" })).toBe('{"summary":"ok"}');
+  });
+
+  test("a non-serializable (circular) output falls back to the final text", async () => {
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+    expect(await capturedPreview({ output: circular, text: "FALLBACK_TEXT" })).toBe("FALLBACK_TEXT");
+  });
+
+  test("a null output uses the final text directly", async () => {
+    expect(await capturedPreview({ output: null, text: "FINAL_ANSWER" })).toBe("FINAL_ANSWER");
   });
 });
 

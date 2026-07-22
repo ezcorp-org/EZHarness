@@ -210,7 +210,12 @@ export async function ensureInitialized(): Promise<void> {
       name: manifest.name,
       panel: manifest.panel,
       ...(manifest.pages?.length
-        ? { pageIds: manifest.pages.map((p) => p.id) }
+        ? {
+            pageIds: manifest.pages.map((p) => p.id),
+            perProjectPageIds: manifest.pages
+              .filter((p) => p.perProject === true)
+              .map((p) => p.id),
+          }
         : {}),
       ...(Array.isArray(grantedSubs) ? { eventSubscriptions: grantedSubs } : {}),
     };

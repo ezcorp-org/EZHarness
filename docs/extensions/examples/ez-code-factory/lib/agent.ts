@@ -57,6 +57,15 @@ export interface DispatchResult {
   output: unknown | null;
   /** The agent's final text (used as a fallback when `output` is null). */
   text: string;
+  /** The spawned sub-agent's linkage, lifted from the spawn handle. The
+   *  executor persists these per step (`StepResultRecord.agentDispatches`) so a
+   *  run-detail render can resolve which agent conversation each step
+   *  dispatched. Present on every real dispatch; absent only where a
+   *  DispatchResult is built by hand (`extractStructuredOutput`, which shapes a
+   *  terminal update and never sees the handle). */
+  subConversationId?: string;
+  assignmentId?: string;
+  agentRunId?: string;
 }
 
 /** The single seam every pipeline step drives an agent through. */
@@ -236,7 +245,17 @@ export function makeSpawnDispatcher(deps: SpawnDispatcherDeps): AgentDispatcher 
           const detail = update.resultFull ?? update.assignment.resultPreview ?? "no detail";
           throw new Error(`agent run failed (${opts.role}): ${detail}`);
         }
-        return extractStructuredOutput(update);
+        // Attach the spawn handle's linkage so callers can persist which
+        // sub-conversation/assignment this dispatch created. The handle's
+        // assignmentId equals the terminal update's assignment.id (they key the
+        // same run), but the sub-conversation/agent-run ids live ONLY on the
+        // handle — the terminal update doesn't carry them.
+        return {
+          ...extractStructuredOutput(update),
+          subConversationId: handle.subConversationId,
+          assignmentId: handle.assignmentId,
+          agentRunId: handle.agentRunId,
+        };
       } finally {
         timeoutAbort.abort();
         pending.delete(assignmentId);

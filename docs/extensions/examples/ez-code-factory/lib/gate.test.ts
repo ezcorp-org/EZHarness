@@ -8,6 +8,7 @@ import {
   reposDir,
   gateDir,
   credentialPath,
+  mintCredentialCommand,
   notifyLogPath,
   hookScript,
   isManagedHook,
@@ -107,6 +108,14 @@ describe("path helpers", () => {
     );
     expect(credentialPath(p)).toBe(`/proj/.ezcorp/extension-data/${EXTENSION_NAME}/gate-key`);
     expect(notifyLogPath("/g.git")).toBe("/g.git/notify-push.log");
+  });
+});
+
+describe("mintCredentialCommand", () => {
+  test("substitutes the path into the README §Setup step-2 mint command", () => {
+    expect(mintCredentialCommand("/p/gate-key")).toBe(
+      `(umask 077; ezcorp key mint --scopes read,chat > "/p/gate-key")`,
+    );
   });
 });
 
@@ -274,7 +283,30 @@ describe("initGate (real git)", () => {
     chmodSync(cred, 0o644);
     const res = await initGate({ projectRoot: work, run: productionHostRunner });
     expect(res.ok).toBe(true);
+    expect(res.credentialPresent).toBe(true);
     expect(statSync(cred).mode & 0o777).toBe(0o600);
+  });
+
+  test("missing gate credential → credentialPresent false + mint-command warning", async () => {
+    const { work } = await makeWorkRepo(); // no credential dropped
+    const res = await initGate({ projectRoot: work, run: productionHostRunner });
+    expect(res.ok).toBe(true);
+    // The gate is provisioned but INERT until the key exists — the #1 silent gap.
+    expect(res.credentialPresent).toBe(false);
+    const warn = res.warnings.find((w) => w.includes("no gate credential"));
+    expect(warn).toBeDefined();
+    // The warning carries the EXACT README mint command with the real path.
+    expect(warn!).toContain(mintCredentialCommand(credentialPath(work)));
+    expect(warn!).toContain("never recorded");
+  });
+
+  test("present gate credential → credentialPresent true (no missing-credential warning)", async () => {
+    const { work } = await makeWorkRepo();
+    mkdirSync(dataDir(work), { recursive: true });
+    writeFileSync(credentialPath(work), "minted-key");
+    const res = await initGate({ projectRoot: work, run: productionHostRunner });
+    expect(res.credentialPresent).toBe(true);
+    expect(res.warnings.some((w) => w.includes("no gate credential"))).toBe(false);
   });
 
   test("credential chmod failure → best-effort warning (init still ok)", async () => {

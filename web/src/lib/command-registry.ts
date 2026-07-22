@@ -1,6 +1,7 @@
 import { goto } from "$app/navigation";
 import { toggleTheme } from "./theme.js";
 import { openEzPanel } from "./ez/panel-store.svelte.js";
+import { isIconUrl } from "./project-icon.js";
 import type { Project } from "./api.js";
 
 export interface Command {
@@ -217,8 +218,10 @@ export function buildCommands(
 							label: p.name,
 							group: "Project" as const,
 							// Show the project's logo (or a colored-letter fallback),
-							// matching the sidebar — not a generic folder icon.
-							avatar: { name: p.name, src: p.icon },
+							// matching the sidebar — not a generic folder icon. A
+							// non-URL icon token (e.g. a Lucide name) would 404 as an
+							// <img src>, so it degrades to the letter avatar here too.
+							avatar: { name: p.name, src: isIconUrl(p.icon) ? p.icon : null },
 							action: openSubmenu,
 							children: buildProjectActions(p.id),
 						})),

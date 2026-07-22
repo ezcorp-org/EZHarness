@@ -236,6 +236,11 @@ export interface ExtensionPageDeclaration {
   icon?: string;
   /** ≤ 200 chars. */
   description?: string;
+  /** Opt into project-aware renders: on `/project/<id>/hub/...` the
+   *  page's `render` receives `{ project }`; on the global hub it
+   *  receives `{ projects }` (the full list) for an overview/home view.
+   *  See `PageRenderContext` in `runtime/page.ts`. */
+  perProject?: boolean;
 }
 
 // ── Extension Manifest V2 ────────────────────────────────────────

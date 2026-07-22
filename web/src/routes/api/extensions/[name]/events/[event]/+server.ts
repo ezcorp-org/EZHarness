@@ -6,7 +6,8 @@ import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
 import { isRegisteredExtensionEvent } from "$server/runtime/sse-conversation-filter";
-import { getConversation } from "$server/db/queries/conversations";
+import { getConversation, getOrCreateExtServiceConversation } from "$server/db/queries/conversations";
+import { getProjectByPath } from "$server/db/queries/projects";
 import { getToolCallConversationById } from "$server/db/queries/tool-calls";
 import { getExtensionByName } from "$server/db/queries/extensions";
 import {
@@ -106,7 +107,13 @@ const eventBodySchema = z
 // notification shape `registerEventHandler`/`definePage` handle.
 
 const HUB_PAGE_ID_REGEX = /^[a-z0-9][a-z0-9-]{0,31}$/;
-const HUB_PAYLOAD_MAX_BYTES = 2_048;
+/** Serialized hub-action payload cap. Sized for the WORST-case inline form
+ *  submit: 10 fields × 500 chars (the validator's per-field ceiling) + slug
+ *  keys + a static payload ≈ 4.3 KB — 8 KB leaves headroom without opening
+ *  a meaningful DoS surface (the body parse is already size-bounded and the
+ *  per-user action rate limit applies). Was 2 KB when the only multi-field
+ *  producer was the 4-field dialog. */
+const HUB_PAYLOAD_MAX_BYTES = 8_192;
 
 const hubEventBodySchema = z.object({
   source: z.literal("hub"),
@@ -116,6 +123,17 @@ const hubEventBodySchema = z.object({
 
 /** 10 hub actions per minute per user. Exported for test isolation. */
 export const __hubActionRateLimiter = new RateLimiter(10, 60_000);
+
+/**
+ * Auto-release window for a hub event-fire's reverse-RPC provenance token
+ * (4 h). A hub action can kick off a long pipeline segment (an ECF gate push
+ * → agent dispatch → auto-fix rounds) whose reverse-RPCs land minutes-to-hours
+ * after the fire. The old 2-min default reaped the token mid-run, so every
+ * post-2-min host-mediated reverse-RPC failed `-32602`. 4 h dwarfs any
+ * legitimate active segment (pipelines PARK before long CI waits) while
+ * staying well under the 6 h tool-token TTL precedent.
+ */
+const HUB_EVENT_FIRE_TOKEN_MS = 4 * 60 * 60 * 1000;
 
 // Mirrors `manifest.name` regex. We re-validate URL params in case the
 // router accepted something the regex would reject (defense-in-depth).
@@ -252,24 +270,69 @@ export const POST: RequestHandler = async ({ request, locals, params }) => {
         /* executor not booted (test context) — spawn path stays unwired */
       }
       await wirer.ensureSubprocessRpcWired(ext.id, proc);
+
+      // ── Gate-push service-conversation owner (ECF control plane, L1) ──
+      //
+      // A gate push carries `payload.projectRoot`. A push-fired agent spawn's
+      // reverse-RPC must resolve to a REAL conversation that carries the
+      // project's id (the spawn handler derives the parent project from the
+      // conversation) AND has the extension wired — otherwise the spawn fails
+      // `-32602 "Conversation scope unavailable"`. Resolve the (shape-
+      // validated) root to a REGISTERED project (the host-side trust
+      // boundary), then find-or-create the persistent per-(project, extension)
+      // service conversation owned by the gate-key user and wire the extension
+      // into it. FAIL-CLOSED: an unregistered root / any resolution error
+      // leaves `conversationId: null` exactly as before, so the spawn keeps
+      // rejecting — we NEVER borrow ambient scope. Plain hub button clicks
+      // (no `projectRoot`) are unaffected.
+      let serviceConversationId: string | null = null;
+      const projectRoot =
+        typeof payload?.projectRoot === "string" && payload.projectRoot.trim()
+          ? payload.projectRoot
+          : undefined;
+      if (projectRoot) {
+        try {
+          const project = await getProjectByPath(projectRoot);
+          if (project) {
+            const serviceConv = await getOrCreateExtServiceConversation({
+              extensionName: name,
+              projectId: project.id,
+              userId: user.id,
+              title: `${name} gate — ${project.name}`,
+            });
+            // Wiring gate parity (spawn-assignment-handler.ts:212): the gate
+            // extension must be wired into the service conversation. Idempotent.
+            const alreadyWired = await getConversationExtensionIds(serviceConv.id);
+            if (!alreadyWired.includes(ext.id)) {
+              await addConversationExtensions(serviceConv.id, [{ extensionId: ext.id }]);
+            }
+            serviceConversationId = serviceConv.id;
+          }
+        } catch (err) {
+          log.warn(
+            "gate-push service-conversation resolution failed — failing closed to null scope (spawn will reject)",
+            { extensionId: ext.id, name, error: err instanceof Error ? err.message : String(err) },
+          );
+        }
+      }
+
       // Mint a per-fire reverse-RPC provenance token (onBehalfOf = the
-      // clicking user) and stamp it onto `_meta.ezCallId`, exactly like the
-      // EventSubscriptionDispatcher does for background event fires. Without
-      // it the subprocess handler runs with no ambient callId, so EVERY
-      // downstream host-mediated reverse-RPC the action triggers (fs.write,
-      // and any provenance-gated capability) fails `-32602` provenance-
-      // unresolved. A Hub click always has a real user, so this is never
-      // ownerless. `registerFireCallProvenance` auto-releases the token
-      // after a bounded window (the dispatch is fire-and-forget).
+      // clicking / gate-key user) and stamp it onto `_meta.ezCallId`, exactly
+      // like the EventSubscriptionDispatcher does for background event fires.
+      // Without it the subprocess handler runs with no ambient callId, so
+      // EVERY downstream host-mediated reverse-RPC the action triggers
+      // (fs.write, spawn, and any provenance-gated capability) fails `-32602`.
+      // The `conversationId` is the resolved service conversation for a gate
+      // push (so a push-fired spawn has a resolvable owner scope), else null.
       const ezCallId = registerFireCallProvenance({
         onBehalfOf: user.id,
-        conversationId: null,
+        conversationId: serviceConversationId,
         runId: null,
         parentCallId: null,
         actorExtensionId: ext.id,
         kind: "event",
         ownerless: false,
-      });
+      }, { autoReleaseMs: HUB_EVENT_FIRE_TOKEN_MS });
       proc.sendNotification(`ezcorp/event/${fullEventName}`, {
         source: "hub",
         pageId,
@@ -394,7 +457,7 @@ export const POST: RequestHandler = async ({ request, locals, params }) => {
       enabled: ext?.enabled ?? false,
       hasAppendMessagesGrant: !!grantedProbe?.appendMessages,
     });
-    if (!ext || !ext.enabled) {
+    if (!ext?.enabled) {
       log.warn("[kokoro-tts-flow][server] messageToolbar event for unknown/disabled extension", {
         name,
         event,
@@ -634,7 +697,7 @@ export const POST: RequestHandler = async ({ request, locals, params }) => {
     typeof userDataRecord.attachmentId === "string";
   if (isSaveShape) {
     const ext = await getExtensionByName(name);
-    if (!ext || !ext.enabled) return errorJson(404, "Not found");
+    if (!ext?.enabled) return errorJson(404, "Not found");
     const granted = (ext as { grantedPermissions?: ExtensionPermissions }).grantedPermissions;
     if (!granted?.appendMessages) {
       return errorJson(403, "Extension lacks appendMessages permission");

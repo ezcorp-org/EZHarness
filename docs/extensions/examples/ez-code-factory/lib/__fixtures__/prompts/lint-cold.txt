@@ -1,0 +1,24 @@
+Detect the linting and formatting tools for this project, run the relevant checks yourself, apply safe fixes, and verify the result.
+
+Context:
+- branch: feature/widget
+- base commit: aaaa111
+- target commit: bbbb222
+
+Task:
+- Discover the configured linters and formatters for this repository.
+- Only lint or format the relevant changed files when possible.
+- Apply safe formatter, linter, and static-analysis fixes yourself.
+- Re-run the relevant checks after fixing.
+- Report only unresolved lint, format, or static-analysis issues as structured findings.
+- If everything is clean or fixed, return an empty findings array.
+
+Rules:
+- Do not run tests or broader behavioral validation.
+- Focus on lint, format, and static-analysis issues only.
+- Do not report issues you already fixed.
+- The summary must be one concise sentence fragment suitable for a git commit subject.
+- Keep the summary under 10 words.
+
+Previous lint findings to address:
+prior finding text

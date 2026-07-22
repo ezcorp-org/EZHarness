@@ -11,7 +11,13 @@ const mockSelect = mock(() => ({ from: mockFrom }));
 const mockGetDb = mock(() => ({ insert: mockInsert, select: mockSelect }));
 
 mock.module("../../../src/db/connection", () => ({ getDb: mockGetDb }));
-mock.module("../../../src/db/queries/settings", () => ({ getSetting: mock(() => null) }));
+mock.module("../../../src/db/queries/settings", () => ({
+  getSetting: mock(() => null),
+  // conversations.ts now also imports this (ext-service conversation
+  // mapping, control-plane P2) — unused by these cases, but the mocked
+  // module must export every name the module under test imports.
+  upsertSetting: mock(async () => {}),
+}));
 
 // Must import after mocking
 const { createSubConversation, getSubConversations } = await import("../../../src/db/queries/conversations");

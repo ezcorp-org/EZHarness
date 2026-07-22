@@ -27,6 +27,8 @@ import {
 } from "./runs";
 import { productionHostRunner, type ShellRunner } from "./shell";
 import { _setLogSinkForTests } from "./log";
+import { snapshotRepoConfig, emptyOutcomeFlags, type StepIORecord } from "./step-io";
+import { emptyRepoConfig } from "./repo-config";
 
 // ── findings deserialization (fail-closed) ──────────────────────────
 
@@ -283,6 +285,14 @@ describe("createRunStore (Storage-backed)", () => {
         mem.set(key, p.value);
         return { ok: true, sizeBytes: 1 };
       }
+      if (p.action === "list") {
+        const scopePrefix = `${p.scope}:`;
+        const listPrefix = scopePrefix + (typeof p.prefix === "string" ? p.prefix : "");
+        const keys = [...mem.keys()]
+          .filter((k) => k.startsWith(listPrefix))
+          .map((k) => k.slice(scopePrefix.length));
+        return { keys };
+      }
       // get
       return mem.has(key) ? { value: mem.get(key), exists: true } : { value: null, exists: false };
     }) as HostChannel["request"]);
@@ -397,6 +407,51 @@ describe("createRunStore (Storage-backed)", () => {
     await store.patchLastStepRound("r1", "no-rounds", { selectionSource: "user" }); // no-op
     expect(await store.getStepRounds("r1", "no-rounds")).toEqual([]);
   });
+
+  test("step_io put / get / listStepIO prefix round-trip", async () => {
+    stubStorage();
+    const store = createRunStore();
+    const ioRecord = (step: string, round: number): StepIORecord => ({
+      runId: "r1",
+      step,
+      round,
+      trigger: round === 1 ? "initial" : "auto_fix",
+      branch: "feat/x",
+      headSha: "abc1234",
+      worktreePath: "/wt/r1",
+      repoConfig: snapshotRepoConfig(emptyRepoConfig()),
+      startedAt: "2026-07-21T00:00:00.000Z",
+      dispatches: [],
+      shellCommands: [],
+      endedAt: "2026-07-21T00:00:05.000Z",
+      durationMs: 5000,
+      error: null,
+      outcome: emptyOutcomeFlags(),
+    });
+    // Missing → null (matches getRun/getStepResult).
+    expect(await store.getStepIO("r1", "review", 1)).toBeNull();
+    expect(await store.listStepIO("r1", "review")).toEqual([]);
+
+    // Write rounds OUT of order (round 2 has an errored attempt beyond round 1's
+    // completed range) — listStepIO must return them oldest-round-first.
+    await store.putStepIO(ioRecord("review", 2));
+    await store.putStepIO(ioRecord("review", 1));
+    // A different step's record must not leak into review's listing.
+    await store.putStepIO(ioRecord("test", 1));
+
+    expect((await store.getStepIO("r1", "review", 2))!.round).toBe(2);
+    const listed = await store.listStepIO("r1", "review");
+    expect(listed.map((r) => r.round)).toEqual([1, 2]);
+    expect(listed.every((r) => r.step === "review")).toBe(true);
+    expect((await store.listStepIO("r1", "test")).map((r) => r.round)).toEqual([1]);
+
+    // Cross-RUN isolation: a DIFFERENT run's review record must not leak into
+    // r1's listing (the prefix is keyed by runId, not just step).
+    await store.putStepIO({ ...ioRecord("review", 1), runId: "r2" });
+    expect((await store.listStepIO("r1", "review")).map((r) => r.round)).toEqual([1, 2]);
+    expect((await store.listStepIO("r2", "review")).map((r) => r.round)).toEqual([1]);
+    expect((await store.listStepIO("r2", "review"))[0]!.runId).toBe("r2");
+  });
 });
 
 // ── parseRespondPayload (untrusted gate action) ─────────────────────
@@ -486,6 +541,7 @@ function memStore(): RunStore & { runs: Map<string, RunRecord> } {
   const runs = new Map<string, RunRecord>();
   const steps = new Map<string, StepResultRecord>();
   const rounds = new Map<string, StepRoundRecord[]>();
+  const stepIO = new Map<string, StepIORecord>();
   return {
     runs,
     async createRun(run) {
@@ -523,6 +579,19 @@ function memStore(): RunStore & { runs: Map<string, RunRecord> } {
       const list = rounds.get(`${runId}/${step}`);
       if (!list || list.length === 0) return;
       list[list.length - 1] = { ...list[list.length - 1]!, ...patch };
+    },
+    async putStepIO(record) {
+      stepIO.set(`${record.runId}/${record.step}/${record.round}`, record);
+    },
+    async getStepIO(runId, step, round) {
+      return stepIO.get(`${runId}/${step}/${round}`) ?? null;
+    },
+    async listStepIO(runId, step) {
+      const prefix = `${runId}/${step}/`;
+      return [...stepIO.entries()]
+        .filter(([k]) => k.startsWith(prefix))
+        .map(([, v]) => v)
+        .sort((a, b) => a.round - b.round);
     },
   };
 }
@@ -627,6 +696,39 @@ describe("supersedePriorRuns", () => {
     );
     expect(ids).toEqual([]);
     expect(changed).toBe(0);
+  });
+
+  // ── Control plane (L4/C3): supersede is JOB-SCOPED ────────────────
+  test("job-scoped: only supersedes a prior run of the SAME job (two jobs coexist on one branch)", async () => {
+    const store = memStore();
+    await store.createRun({ ...mkRun("a", "feat/x", "awaiting_approval", "/wt/a"), jobId: "jobA" });
+    await store.createRun({ ...mkRun("b", "feat/x", "awaiting_approval", "/wt/b"), jobId: "jobB" });
+    const { runner } = recordingShell();
+    const ids = await supersedePriorRuns({ store, run: runner, gateDir: "/gate" }, "0123456789ab", "feat/x", "new", "jobA");
+    expect(ids).toEqual(["a"]);
+    expect(store.runs.get("a")!.status).toBe("aborted");
+    expect(store.runs.get("b")!.status).toBe("awaiting_approval"); // other job untouched
+  });
+
+  test("a legacy run (no jobId) is superseded by the DEFAULT job, not by a non-default job", async () => {
+    const store = memStore();
+    await store.createRun(mkRun("legacy", "feat/x", "awaiting_approval", "/wt/legacy"));
+    const { runner } = recordingShell();
+    // A non-default job push does NOT supersede the legacy (default-owned) run.
+    expect(await supersedePriorRuns({ store, run: runner, gateDir: "/gate" }, "0123456789ab", "feat/x", "n1", "jobA")).toEqual([]);
+    expect(store.runs.get("legacy")!.status).toBe("awaiting_approval");
+    // The DEFAULT job push DOES supersede it (legacy belongs to the default job).
+    expect(await supersedePriorRuns({ store, run: runner, gateDir: "/gate" }, "0123456789ab", "feat/x", "n2", "default")).toEqual(["legacy"]);
+    expect(store.runs.get("legacy")!.status).toBe("aborted");
+  });
+
+  test("without a jobId (pre-jobs caller) supersede stays branch-wide", async () => {
+    const store = memStore();
+    await store.createRun({ ...mkRun("a", "feat/x", "awaiting_approval", "/wt/a"), jobId: "jobA" });
+    await store.createRun({ ...mkRun("b", "feat/x", "awaiting_approval", "/wt/b"), jobId: "jobB" });
+    const { runner } = recordingShell();
+    const ids = await supersedePriorRuns({ store, run: runner, gateDir: "/gate" }, "0123456789ab", "feat/x", "new");
+    expect(ids.sort()).toEqual(["a", "b"]);
   });
 });
 
@@ -743,6 +845,26 @@ describe("runGateLifecycle (real git)", () => {
       { gateDir, tmpBase: join(root, "tmp-agent"), store, run: productionHostRunner },
     );
     expect(store.runs.get(res.runId)!.intentSource).toBe("agent");
+  });
+
+  test("stamps deps.jobId onto the created run record (control plane, L4)", async () => {
+    const { gateDir, sha, repoId } = await seedGate();
+    const store = memStore();
+    const res = await runGateLifecycle(
+      { repoId, branch: "feat/x", ref: "refs/heads/feat/x", newSha: sha },
+      { gateDir, tmpBase: join(root, "tmp-job"), store, run: productionHostRunner, jobId: "nightly" },
+    );
+    expect(store.runs.get(res.runId)!.jobId).toBe("nightly");
+  });
+
+  test("omits jobId when no job is supplied (legacy run)", async () => {
+    const { gateDir, sha, repoId } = await seedGate();
+    const store = memStore();
+    const res = await runGateLifecycle(
+      { repoId, branch: "feat/x", ref: "refs/heads/feat/x", newSha: sha },
+      { gateDir, tmpBase: join(root, "tmp-nojob"), store, run: productionHostRunner },
+    );
+    expect(store.runs.get(res.runId)!.jobId).toBeUndefined();
   });
 
   test("a pipeline that reaches a terminal state (not parked) tears the worktree down here", async () => {
@@ -976,6 +1098,8 @@ describe("isTerminalRunStatus", () => {
       completed: true,
       failed: true,
       aborted: true,
+      // Non-terminal: the sweep surfaces it, a racing dispatch can move it on.
+      stalled: false,
     };
     for (const [status, terminal] of Object.entries(expected)) {
       expect(isTerminalRunStatus(status as RunStatus)).toBe(terminal);

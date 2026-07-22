@@ -68,8 +68,12 @@ function detail(): Record<string, unknown> {
 /** Wire the global hub render endpoints (page list + the active tree). */
 async function mockHub(page: Page) {
 	await page.route("**/api/hub/pages", (route) => route.fulfill({ json: listing }));
-	await page.route(`**/api/hub/pages/${encodeURIComponent(EXT_ID)}`, (route) =>
-		route.fulfill({ json: { page: tree } }),
+	// Match on the decoded pathname (the pageId's colons are percent-encoded)
+	// and ignore the query string: the project hub route appends `?project=<id>`
+	// to every render pull, which a bare `…/${EXT_ID}` glob wouldn't absorb.
+	await page.route(
+		(url) => decodeURIComponent(url.pathname).endsWith(`/api/hub/pages/${EXT_ID}`),
+		(route) => route.fulfill({ json: { page: tree } }),
 	);
 }
 
@@ -165,5 +169,163 @@ test.describe("Project-scoped Hub route", () => {
 			expect(testInfo.attachments.some((a) => a.name === "extension-hub-cards")).toBe(false);
 			expect(testInfo.attachments.some((a) => a.name === "project-hub-page")).toBe(false);
 		}
+	});
+
+	test("a perProject page's render pull carries ?project= and renders the project tree @evidence", async ({
+		page,
+		mockApi,
+	}, testInfo) => {
+		await mockApi({ projects: [proj] });
+		await page.route("**/api/hub/pages", (route) => route.fulfill({ json: listing }));
+
+		// A `perProject` page renders a project-scoped tree when the render
+		// pull carries `?project=<id>`; an absent/unmatched id falls back to
+		// the global render. Distinct titles let the assertions tell them apart.
+		const globalTree = {
+			title: "Cron Dashboard",
+			nodes: [{ type: "status", label: "All projects", state: "success" }],
+		};
+		const projectTree = {
+			title: "Cron Dashboard — Test Project",
+			nodes: [{ type: "status", label: "This project only", state: "success" }],
+		};
+
+		// Match the render endpoint via the decoded pathname (the pageId's
+		// colons are percent-encoded in the URL) and branch on the `project`
+		// query param, mirroring ez-code-factory-hub.spec.ts.
+		const projectPulls: string[] = [];
+		await page.route(
+			(url) => decodeURIComponent(url.pathname).endsWith(`/api/hub/pages/${EXT_ID}`),
+			(route) => {
+				const url = new URL(route.request().url());
+				const project = url.searchParams.get("project");
+				if (project) projectPulls.push(project);
+				return route.fulfill({
+					json: { page: project === proj.id ? projectTree : globalTree },
+				});
+			},
+		);
+
+		await page.goto(`/project/proj-1/hub/${encodeURIComponent(EXT_ID)}`);
+
+		// The pull carried this project's id → the project-scoped tree rendered
+		// (not the global fallback).
+		await expect(page.getByTestId("hub-page-title")).toHaveText("Cron Dashboard — Test Project");
+		await expect(page.getByTestId("hub-page-body")).toContainText("This project only");
+		expect(projectPulls).toEqual([proj.id]);
+
+		await captureEvidence(page, testInfo, "project-hub-per-project");
+	});
+});
+
+/**
+ * Project Hub index auto-open (`/project/[id]/hub`) — the "open the Hub inside
+ * a project" entry point. It loads the tab list and redirects to, in order:
+ * this project's remembered page, else the first project-scoped tab, else the
+ * first tab. Zero pages → the empty explainer (no redirect loop).
+ */
+const CORE_ID = "core:briefing";
+
+/** Core page FIRST, project-scoped extension page SECOND — proves the index
+ *  lands on the scoped page rather than the listing head. */
+const scopedListing = {
+	pages: [
+		{ id: CORE_ID, title: "Daily Briefing", kind: "core" },
+		{ id: EXT_ID, title: "Cron Dashboard", kind: "ext", projectScoped: true },
+	],
+};
+
+const coreTree = {
+	title: "Daily Briefing",
+	nodes: [{ type: "status", label: "Briefing ready", state: "success" }],
+};
+const extTree = {
+	title: "Cron Dashboard",
+	nodes: [{ type: "status", label: "Ready", state: "success" }],
+};
+
+/** Wire the listing + both render endpoints. Render routes match on the
+ *  decoded pathname (the pageId's colons are percent-encoded) and ignore the
+ *  `?project=` the project hub appends to every pull. */
+async function mockScopedHub(page: Page) {
+	await page.route("**/api/hub/pages", (route) => route.fulfill({ json: scopedListing }));
+	await page.route(
+		(url) => decodeURIComponent(url.pathname).endsWith(`/api/hub/pages/${CORE_ID}`),
+		(route) => route.fulfill({ json: { page: coreTree } }),
+	);
+	await page.route(
+		(url) => decodeURIComponent(url.pathname).endsWith(`/api/hub/pages/${EXT_ID}`),
+		(route) => route.fulfill({ json: { page: extTree } }),
+	);
+}
+
+test.describe("Project Hub index auto-open", () => {
+	test("redirects to the project-scoped page even when it is NOT first in the listing", async ({
+		page,
+		mockApi,
+	}) => {
+		await mockApi({ projects: [proj] });
+		await mockScopedHub(page);
+
+		await page.goto("/project/proj-1/hub");
+
+		// Lands on the project-scoped ext page (second in the listing), not the
+		// core page at the head.
+		await expect(page).toHaveURL(/\/hub\/ext%3Acron-dashboard%3Adashboard$/);
+		await expect(page.getByTestId("hub-page-title")).toHaveText("Cron Dashboard");
+	});
+
+	test("after switching tabs, revisiting the index lands on the remembered tab", async ({
+		page,
+		mockApi,
+	}) => {
+		await mockApi({ projects: [proj] });
+		await mockScopedHub(page);
+
+		// First open → auto-lands on the project-scoped ext page.
+		await page.goto("/project/proj-1/hub");
+		await expect(page.getByTestId("hub-page-title")).toHaveText("Cron Dashboard");
+
+		// Switch to the core tab — this project now remembers it.
+		await page.getByTestId("hub-tab").filter({ hasText: "Daily Briefing" }).click();
+		await expect(page).toHaveURL(/\/hub\/core%3Abriefing$/);
+		await expect(page.getByTestId("hub-page-title")).toHaveText("Daily Briefing");
+
+		// Revisit the bare index → the remembered core tab, not the scoped default.
+		await page.goto("/project/proj-1/hub");
+		await expect(page).toHaveURL(/\/hub\/core%3Abriefing$/);
+		await expect(page.getByTestId("hub-page-title")).toHaveText("Daily Briefing");
+	});
+
+	test("zero pages shows the empty explainer with no redirect loop", async ({ page, mockApi }) => {
+		await mockApi({ projects: [proj] });
+		await page.route("**/api/hub/pages", (route) => route.fulfill({ json: { pages: [] } }));
+
+		await page.goto("/project/proj-1/hub");
+
+		await expect(page.getByText("No Hub pages yet")).toBeVisible();
+		await expect(page.getByRole("link", { name: "Browse extensions" })).toBeVisible();
+		// The URL stays on the bare index — no redirect fired.
+		await expect(page).toHaveURL(/\/project\/proj-1\/hub$/);
+	});
+
+	test("a stale remembered page (no longer listed) falls through to the scoped default", async ({
+		page,
+		mockApi,
+	}) => {
+		await mockApi({ projects: [proj] });
+		await mockScopedHub(page);
+		// The anti-poisoning invariant: a remembered id is only honored while
+		// it still exists in the listing (extension uninstalled/disabled since,
+		// or a 404ing deep link got persisted). Seed a dead id BEFORE app boot.
+		await page.addInitScript(() => {
+			localStorage.setItem("ezcorp-hub-last-page:proj-1", "ext:gone-extension:dashboard");
+		});
+
+		await page.goto("/project/proj-1/hub");
+
+		// Not the dead id, no error state — the scoped default wins.
+		await expect(page).toHaveURL(/\/hub\/ext%3Acron-dashboard%3Adashboard$/);
+		await expect(page.getByTestId("hub-page-title")).toHaveText("Cron Dashboard");
 	});
 });

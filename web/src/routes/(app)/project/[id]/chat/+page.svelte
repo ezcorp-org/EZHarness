@@ -14,35 +14,48 @@
 
 	// Redirect to last-opened chat, or most recent conversation.
 	// On mobile we never auto-redirect — the chat index is the list view.
-	onMount(async () => {
-		const isMobile = typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches;
-		if (isMobile) {
-			checked = true;
-			return;
-		}
-
-		// 1. Try the last chat the user had open for this project
-		const lastConvId = localStorage.getItem(`ezcorp-last-chat:${projectId}`);
-		if (lastConvId) {
-			try {
-				const { fetchConversation } = await import("$lib/api.js");
-				const conv = await fetchConversation(lastConvId);
-				if (conv && conv.projectId === projectId) {
-					goto(`/project/${projectId}/chat/${lastConvId}`, { replaceState: true });
-					return;
-				}
-			} catch { /* deleted or inaccessible — fall through */ }
-		}
-
-		// 2. Fall back to most recent conversation
-		try {
-			const convs = await fetchConversations(projectId, { limit: 1 });
-			if (convs.length > 0) {
-				goto(`/project/${projectId}/chat/${convs[0].id}`, { replaceState: true });
+	onMount(() => {
+		// `cancelled` guards the post-await redirects: if the user navigates
+		// away while a conversation lookup is in flight, a late goto() would
+		// yank them back to this chat-index shell. Same guard as the hub
+		// redirect shells (src/routes/(app)/hub + project/[id]/hub).
+		let cancelled = false;
+		void (async () => {
+			const isMobile = typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches;
+			if (isMobile) {
+				checked = true;
 				return;
 			}
-		} catch { /* fall through to empty state */ }
-		checked = true;
+
+			// 1. Try the last chat the user had open for this project
+			const lastConvId = localStorage.getItem(`ezcorp-last-chat:${projectId}`);
+			if (lastConvId) {
+				try {
+					const { fetchConversation } = await import("$lib/api.js");
+					const conv = await fetchConversation(lastConvId);
+					if (cancelled) return;
+					if (conv && conv.projectId === projectId) {
+						goto(`/project/${projectId}/chat/${lastConvId}`, { replaceState: true });
+						return;
+					}
+				} catch { /* deleted or inaccessible — fall through */ }
+			}
+
+			// 2. Fall back to most recent conversation
+			try {
+				const convs = await fetchConversations(projectId, { limit: 1 });
+				if (cancelled) return;
+				if (convs.length > 0) {
+					goto(`/project/${projectId}/chat/${convs[0].id}`, { replaceState: true });
+					return;
+				}
+			} catch { /* fall through to empty state */ }
+			if (cancelled) return;
+			checked = true;
+		})();
+		return () => {
+			cancelled = true;
+		};
 	});
 
 	async function handleCreate() {

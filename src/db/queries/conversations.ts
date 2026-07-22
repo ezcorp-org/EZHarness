@@ -2,7 +2,7 @@ import { eq, ne, desc, asc, sql, and, or, isNull, inArray, notInArray } from "dr
 import { getDb } from "../connection";
 import { conversations, messages, toolCalls, runs, conversationExtensions } from "../schema";
 import { listAttachmentsForMessages } from "./attachments";
-import { getSetting } from "./settings";
+import { getSetting, upsertSetting } from "./settings";
 import { isEmbedEligible } from "../../memory/message-chunker";
 import { enqueueEmbedJob, clearMessageEmbedState } from "./message-embed-outbox";
 import { logger } from "../../logger";
@@ -99,7 +99,7 @@ export interface SearchResult {
 
 export async function createConversation(
   projectId: string,
-  opts?: { title?: string; model?: string; provider?: string; agentConfigId?: string; systemPrompt?: string; test?: boolean; userId?: string; parentConversationId?: string; parentMessageId?: string; forkedFromConversationId?: string; forkedFromMessageId?: string; extensionTools?: Record<string, string[]> | null },
+  opts?: { title?: string; model?: string; provider?: string; agentConfigId?: string; systemPrompt?: string; test?: boolean; userId?: string; parentConversationId?: string; parentMessageId?: string; forkedFromConversationId?: string; forkedFromMessageId?: string; extensionTools?: Record<string, string[]> | null; kind?: "regular" | "ext-service" },
 ): Promise<Conversation> {
   if (!projectId) throw new Error("projectId is required to create a conversation");
   const rows = await getDb()
@@ -118,6 +118,7 @@ export async function createConversation(
       test: opts?.test ?? false,
       userId: opts?.userId || null,
       extensionTools: opts?.extensionTools ?? null,
+      ...(opts?.kind ? { kind: opts.kind } : {}),
     })
     .returning();
   const created = rows[0]!;
@@ -198,6 +199,9 @@ export async function listConversations(
     eq(conversations.projectId, projectId),
     or(eq(conversations.test, false), isNull(conversations.test)),
     isNull(conversations.parentConversationId),
+    // Service conversations (ECF gate-push owner) carry a real projectId but
+    // are host-internal — they must never appear in a user's chat list.
+    ne(conversations.kind, "ext-service"),
   ];
   if (userId) conditions.push(eq(conversations.userId, userId));
 
@@ -442,6 +446,66 @@ export async function getOrCreateEzConversation(userId: string): Promise<Convers
     if (retry[0]) return retry[0];
     throw err;
   }
+}
+
+/**
+ * Find-or-create the persistent per-(project, extension) SERVICE conversation
+ * that owns a gate extension's push-fired agent spawns (ECF control plane, L1).
+ *
+ * WHY: a push-fired spawn's reverse-RPC must resolve to a REAL conversation
+ * that (a) carries the project's `projectId` — the spawn handler derives the
+ * parent project from the conversation (`rpc-handlers.ts` → `spawn-assignment-
+ * handler.ts:207`) — and (b) has the extension wired (the `:212` wiring gate).
+ * Without one, the events route minted `conversationId: null` and every gate
+ * spawn failed `-32602`. This conversation is owned by the authenticated
+ * gate-key user, reused forever, and marked `kind:'ext-service'` so it never
+ * shows up in the user's chat list.
+ *
+ * Find-or-create uses a host `settings` mapping key
+ * (`ext:<name>:service-conv:<projectId>`) + a re-check, NOT a partial-unique
+ * index (we don't have one for this kind). On a create race we ACCEPT-AND-
+ * DEDUPE: prefer the already-mapped id and leave the loser's freshly created
+ * row as a harmless orphan (kind-filtered out of every chat list). The caller
+ * is responsible for wiring the extension into the returned conversation.
+ */
+export async function getOrCreateExtServiceConversation(opts: {
+  extensionName: string;
+  projectId: string;
+  userId: string;
+  title: string;
+}): Promise<Conversation> {
+  const { extensionName, projectId, userId, title } = opts;
+  if (!projectId) throw new Error("projectId is required for a service conversation");
+  if (!userId) throw new Error("userId is required for a service conversation");
+  const mappingKey = `ext:${extensionName}:service-conv:${projectId}`;
+
+  const resolveMapped = async (): Promise<Conversation | null> => {
+    const mapped = await getSetting(mappingKey);
+    if (typeof mapped === "string" && mapped) {
+      const conv = await getConversation(mapped);
+      // Guard against a stale mapping (conversation deleted / kind changed).
+      if (conv && conv.kind === "ext-service") return conv;
+    }
+    return null;
+  };
+
+  const existing = await resolveMapped();
+  if (existing) return existing;
+
+  // Create the service conversation carrying the REAL projectId + the gate
+  // user as owner. `kind:'ext-service'` keeps it out of chat lists.
+  const created = await createConversation(projectId, {
+    title,
+    userId,
+    kind: "ext-service",
+  });
+
+  // Accept-and-dedupe on a concurrent create: prefer the mapped winner and
+  // abandon our row (harmless, kind-filtered). Otherwise record the mapping.
+  const raced = await resolveMapped();
+  if (raced) return raced;
+  await upsertSetting(mappingKey, created.id);
+  return created;
 }
 
 // ── Messages ─────────────────────────────────────────────────────────
@@ -987,6 +1051,11 @@ export async function searchConversations(
       JOIN messages m ON m.conversation_id = c.id
       WHERE c.project_id = ${projectId}
         AND (c.test IS NULL OR c.test = false)
+        -- Service conversations (ECF gate-push owner, kind='ext-service') carry a
+        -- real projectId + real messages but are host-internal — never surface
+        -- them in search (mirrors the listConversations / listRecentConversations
+        -- ne(kind,'ext-service') hygiene guard, so a title/message match can't leak).
+        AND c.kind <> 'ext-service'
         ${userFilter}
         AND (
           to_tsvector('english', m.content) @@ plainto_tsquery('english', ${query})
@@ -1083,7 +1152,7 @@ export function extractOutputText(output: unknown): string | null {
 }
 
 // Match `![alt](url)` — the signal that a tool output carries a renderable image.
-const MARKDOWN_IMAGE_RE = /!\[[^\]]*\]\([^\)]+\)/;
+const MARKDOWN_IMAGE_RE = /!\[[^\]]*\]\([^)]+\)/;
 
 /**
  * Extract text from output JSON, take first line, truncate to maxLen.

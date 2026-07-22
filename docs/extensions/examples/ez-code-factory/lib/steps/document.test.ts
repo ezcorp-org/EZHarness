@@ -56,6 +56,7 @@ interface Over {
   previousFindings?: string;
   dispatcher?: AgentDispatcher;
   shared?: RunShared;
+  jobDocumentInstructions?: string;
 }
 
 // ── pure helpers ────────────────────────────────────────────────────
@@ -145,6 +146,7 @@ describe("documentStep", () => {
       repo: { defaultBranch: "main", workingPath: "" },
       config: over.config ?? defaultPipelineConfig(),
       repoConfig: over.repoConfig ?? emptyRepoConfig(),
+      ...(over.jobDocumentInstructions ? { jobDocumentInstructions: over.jobDocumentInstructions } : {}),
       shared: over.shared ?? makeRunShared(),
       fixing: false,
       previousFindings: over.previousFindings ?? "",
@@ -173,6 +175,23 @@ describe("documentStep", () => {
     expect(logs.join()).toContain("no changes to document");
     // combined mode cleared the pre-existing stash before the change check.
     expect(shared.takeHousekeepingLint()).toBeNull();
+  });
+
+  test("job document instructions reach the document prompt as a sanitized section", async () => {
+    const dispatcher = fakeDispatcher(() => ({ output: { findings: [], summary: "ok" }, text: "" }));
+    const { ctx } = makeCtx({ dispatcher, jobDocumentInstructions: "prefer README over inline docs" });
+    await documentStep.execute(ctx);
+    const prompt = (dispatcher as AgentDispatcher & { calls: DispatchOptions[] }).calls[0]!.prompt;
+    expect(prompt).toContain("Job instructions (operator-configured, advisory)");
+    expect(prompt).toContain("prefer README over inline docs");
+  });
+
+  test("no job document instructions → document prompt carries NO operator section", async () => {
+    const dispatcher = fakeDispatcher(() => ({ output: { findings: [], summary: "ok" }, text: "" }));
+    const { ctx } = makeCtx({ dispatcher });
+    await documentStep.execute(ctx);
+    const prompt = (dispatcher as AgentDispatcher & { calls: DispatchOptions[] }).calls[0]!.prompt;
+    expect(prompt).not.toContain("Job instructions (operator-configured, advisory)");
   });
 
   test("combined mode (no lint command): housekeeping schema, doc findings park, lint half stashed", async () => {
