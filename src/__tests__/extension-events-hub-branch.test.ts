@@ -387,11 +387,19 @@ describe("hub-source branch", () => {
     expect(sendCalls).toHaveLength(0);
   });
 
-  test("400 for payloads over 2KB", async () => {
+  test("400 for payloads over the 8KB cap; an inline-form-sized payload passes", async () => {
+    // Over the cap (8_192 serialized bytes) → rejected.
     const res = await POST(
-      makeEvent({ source: "hub", pageId: "dashboard", payload: { blob: "x".repeat(3000) } }),
+      makeEvent({ source: "hub", pageId: "dashboard", payload: { blob: "x".repeat(9000) } }),
     );
     expect(res.status).toBe(400);
+    // A worst-case inline-form submit (10 fields × 500 chars ≈ 5.2 KB) is
+    // exactly what the 2 KB → 8 KB raise exists for — it must dispatch.
+    const fields = Object.fromEntries(
+      Array.from({ length: 10 }, (_, i) => [`field_${i}`, "y".repeat(500)]),
+    );
+    const ok = await POST(makeEvent({ source: "hub", pageId: "dashboard", payload: fields }));
+    expect(ok.status).toBe(200);
   });
 
   test("404 when the event isn't registered in the manifest-event registry", async () => {
