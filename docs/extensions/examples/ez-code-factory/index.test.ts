@@ -2982,13 +2982,37 @@ describe("handleJobSave", () => {
     _setInvalidatePageForTests(() => {});
     const cap = captureStderr();
     try {
-      await handleJobSave(ev({ jobId: "j1", skipSteps: "review" })); // review is protected
+      await handleJobSave(ev({ jobId: "j1", skip_steps: "review" })); // review is protected
     } finally {
       cap.restore();
     }
     expect(cap.text()).toContain("protected");
     expect(store.jobs.get("j1")!.skipSteps).toEqual([]); // unchanged
     expect(auditEntries.some((e) => e.kind === "job-save")).toBe(false);
+  });
+
+  test("a payload with NO recognized editable field is REJECTED — no mutation, audits job-edit-rejected", async () => {
+    // The live bug's guard: a camelCase field the host rewrote to `value` (or any
+    // drift) carries no recognized key → we must NOT re-persist the unchanged job
+    // (which would stamp updatedBy + a bogus audit). Simulate the host fallback.
+    const store = fakeJobStore([{ ...buildDefaultJob("t"), id: "j1", name: "Keep", updatedBy: "system" }]);
+    _setJobStoreForTests(store);
+    _setInvalidatePageForTests(() => {});
+    const cap = captureStderr();
+    try {
+      await handleJobSave({ source: "hub", pageId: "dashboard", userId: "alice", payload: { jobId: "j1", value: "typed-but-lost" } });
+    } finally {
+      cap.restore();
+    }
+    // No mutation: updatedBy unchanged (NOT stamped to alice), agentName untouched.
+    expect(store.jobs.get("j1")!.updatedBy).toBe("system");
+    // No job-save audit; a job-edit-rejected entry names the offending key + reason.
+    expect(auditEntries.some((e) => e.kind === "job-save")).toBe(false);
+    const rejected = auditEntries.find((e) => e.kind === "job-edit-rejected" && e.jobId === "j1");
+    expect(rejected).toBeDefined();
+    expect(rejected!.actor).toBe("alice");
+    expect((rejected!.detail as { reason: string; keys: string[] }).keys).toEqual(["value"]);
+    expect(cap.text()).toContain("no recognized editable field");
   });
 
   test("an unparseable trigger spec is refused (no save, no audit)", async () => {
@@ -3180,11 +3204,12 @@ describe("handleRunNow", () => {
 });
 
 describe("handleJobSave — agentName edit (L4)", () => {
-  test("editing agentName round-trips + audits the diff; the override reaches future dispatches", async () => {
+  test("editing agent_name round-trips + audits the diff; the override reaches future dispatches", async () => {
     const store = fakeJobStore([{ ...buildDefaultJob("t"), id: "j1", name: "Nightly" }]);
     _setJobStoreForTests(store);
     _setInvalidatePageForTests(() => {});
-    await handleJobSave({ source: "hub", pageId: "dashboard", userId: "alice", payload: { jobId: "j1", agentName: "critic" } });
+    // The slug-legal key the Edit-agent prompt emits (camelCase would be dropped).
+    await handleJobSave({ source: "hub", pageId: "dashboard", userId: "alice", payload: { jobId: "j1", agent_name: "critic" } });
     // Persisted on the job (buildExecutorDeps threads it into jobAgentName).
     expect(store.jobs.get("j1")!.agentName).toBe("critic");
     const audit = auditEntries.find((e) => e.kind === "job-save" && e.jobId === "j1");

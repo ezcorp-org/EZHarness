@@ -769,3 +769,43 @@ describe("empty allowlist", () => {
     expect(t2.rows).toHaveLength(1); // plain row kept
   });
 });
+
+// ── ECF job-view prompt-field survival (the missing tier) ────────────
+//
+// The live camelCase-field bug slipped past because the ext's unit tests build
+// payloads with the expected keys and the e2e mocks the render — NEITHER meets
+// the REAL host validator. This tier runs the exact button/prompt shapes the
+// ext's buildJobView emits through the production validatePageTree with the
+// granted event allowlist, and asserts the slug-legal fields SURVIVE intact
+// (not silently rewritten to the reserved "value" fallback). It fails the moment
+// a job-view prompt field is not slug-legal again.
+describe("ECF job-view prompt fields survive the real validator", () => {
+  const JOB_SAVE = "ez-code-factory:job-save";
+  /** A job-edit button exactly as buildJobView emits it (event + payload + prompt). */
+  function editButton(field: string) {
+    return {
+      type: "button",
+      label: `Edit ${field}`,
+      action: { event: JOB_SAVE, payload: { jobId: "j1" }, prompt: { label: `Edit ${field}`, field, submitLabel: "Save" } },
+    };
+  }
+
+  test("every slug-legal job-edit field is PRESERVED (never the 'value' fallback)", () => {
+    const fields = ["name", "branch_pattern", "trigger", "skip_steps", "agent_name"];
+    const result = validate(fields.map(editButton), [JOB_SAVE]);
+    expect(result).not.toBeNull();
+    const buttons = result!.nodes.filter((n) => (n as { type: string }).type === "button") as PageButton[];
+    expect(buttons).toHaveLength(fields.length);
+    const seen = buttons.map((b) => b.action.prompt!.field);
+    expect(seen).toEqual(fields); // each field survived exactly
+    expect(seen).not.toContain("value"); // nothing fell back
+  });
+
+  test("a camelCase field IS rewritten to 'value' — the regression's mechanism", () => {
+    // Pins WHY the ext must emit snake_case + the handler's no-recognized-field
+    // guard: the typed value would land under `value`, not `agentName`.
+    const result = validate([editButton("agentName")], [JOB_SAVE]);
+    const btn = result!.nodes.find((n) => (n as { type: string }).type === "button") as PageButton;
+    expect(btn.action.prompt!.field).toBe("value");
+  });
+});

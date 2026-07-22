@@ -1527,10 +1527,10 @@ describe("buildJobView", () => {
     expect(events).toContain(JOB_TOGGLE_EVENT);
     expect(events).toContain(RUN_NOW_EVENT);
     expect(events).toContain(JOB_DELETE_EVENT);
-    // The Edit agent action collects the agentName scalar (L4 editor coherence).
+    // The Edit agent action collects the agent_name scalar (L4 editor coherence).
     const editAgent = btns.find((b) => b.label === "Edit agent")!;
     expect(editAgent.action.event).toBe(JOB_SAVE_EVENT);
-    expect((editAgent.action.prompt as { field?: string }).field).toBe("agentName");
+    expect((editAgent.action.prompt as { field?: string }).field).toBe("agent_name");
     // Delete carries a confirm.
     expect(btns.find((b) => b.action.event === JOB_DELETE_EVENT)!.action.confirm).toContain("Delete");
     // The runs table deep-links each run on the project hub.
@@ -1547,6 +1547,48 @@ describe("buildJobView", () => {
     const tree = buildJobView("j1", jobFix({ id: "j1", enabled: true }), [run({ id: "run_9", jobId: "j1" })]);
     const runsTable = tablesDeep(tree).find((t) => t.columns[0] === "Run")!;
     expect(runsTable.rows[0]!.href).toBe(`/hub/${encodeURIComponent(FULL_PAGE_ID)}?run=run_9`);
+  });
+});
+
+describe("prompt-field slug contract (host anti-spoof)", () => {
+  // LITERAL copy of the host validator's PROMPT_FIELD_REGEX
+  // (src/extensions/page-schema.ts:44 — the ext cannot import from src/). The
+  // host SILENTLY rewrites any non-matching `prompt.field` to the reserved
+  // "value" key, so a camelCase field would drop the typed value on the floor.
+  // This test FAILS the moment a builder emits a non-slug prompt field again.
+  const PROMPT_FIELD_REGEX = /^[a-z0-9][a-z0-9_]{0,31}$/;
+
+  /** Every `prompt.field` a tree's button/table-row actions emit. */
+  function promptFields(tree: { nodes: unknown[] }): string[] {
+    const out: string[] = [];
+    for (const n of allNodes(tree.nodes)) {
+      if (n.type === "button") {
+        const f = (n.action as { prompt?: { field?: string } } | undefined)?.prompt?.field;
+        if (typeof f === "string") out.push(f);
+      }
+      if (n.type === "table") {
+        for (const row of (n.rows as Array<{ action?: { prompt?: { field?: string } } }>)) {
+          const f = row.action?.prompt?.field;
+          if (typeof f === "string") out.push(f);
+        }
+      }
+    }
+    return out;
+  }
+
+  test("EVERY prompt field the config + job views emit is a slug-legal payload key", () => {
+    const job = jobFix({ id: "j1", name: "N", enabled: true, agentName: "a", intentTemplate: "t" });
+    const trees = [
+      buildConfigView({ jobs: [job], runs: [], config: defaultPipelineConfig(), sweepHeartbeat: null, nowMs: Date.now(), extensionId: "ez-code-factory" }),
+      buildJobView("j1", job, []),
+    ];
+    const fields = trees.flatMap(promptFields);
+    // The job editor + the config's New-job button emit prompt fields — assert
+    // the set is non-empty (so the walk is real) and every one is slug-legal.
+    expect(fields.length).toBeGreaterThan(0);
+    for (const f of fields) {
+      expect(f).toMatch(PROMPT_FIELD_REGEX);
+    }
   });
 });
 

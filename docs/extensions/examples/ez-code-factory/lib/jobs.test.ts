@@ -16,6 +16,8 @@ import {
   jobConcreteBranch,
   parseJobIdPayload,
   applyJobEdit,
+  hasJobEditField,
+  JOB_EDIT_FIELDS,
   DEFAULT_JOB_ID,
   MAX_JOB_NAME_LEN,
   MAX_BRANCH_PATTERN_LEN,
@@ -331,14 +333,14 @@ describe("applyJobEdit", () => {
     }
   });
 
-  test("branchPattern edit applies to the push pattern", () => {
-    const r = applyJobEdit(base, { branchPattern: "release/*" });
+  test("branch_pattern edit applies to the push pattern", () => {
+    const r = applyJobEdit(base, { branch_pattern: "release/*" });
     expect(r.ok && r.draft.trigger).toEqual({ kind: "push", branchPattern: "release/*" });
   });
 
-  test("branchPattern edit applies to the BRANCH of a schedule/manual trigger", () => {
+  test("branch_pattern edit applies to the BRANCH of a schedule/manual trigger", () => {
     const sched: JobDraft = { ...base, trigger: { kind: "schedule", every: "daily", branch: "main" } };
-    const r = applyJobEdit(sched, { branchPattern: "release" });
+    const r = applyJobEdit(sched, { branch_pattern: "release" });
     expect(r.ok && r.draft.trigger).toEqual({ kind: "schedule", every: "daily", branch: "release" });
   });
 
@@ -353,31 +355,52 @@ describe("applyJobEdit", () => {
     if (!r.ok) expect(r.error).toContain("trigger must be like");
   });
 
-  test("skipSteps edit splits a comma list (still passes to validateJobDraft for protected-step checks)", () => {
-    const r = applyJobEdit(base, { skipSteps: "test, document ,lint" });
+  test("skip_steps edit splits a comma list (still passes to validateJobDraft for protected-step checks)", () => {
+    const r = applyJobEdit(base, { skip_steps: "test, document ,lint" });
     expect(r.ok && r.draft.skipSteps).toEqual(["test", "document", "lint"]);
   });
 
   test("does not mutate the base draft (defensive copy)", () => {
-    const r = applyJobEdit(base, { branchPattern: "x" });
+    const r = applyJobEdit(base, { branch_pattern: "x" });
     expect(r.ok).toBe(true);
     expect(base.trigger).toEqual({ kind: "push", branchPattern: "feat/*" }); // untouched
     expect(base.skipSteps).toEqual(["test"]);
   });
 
-  test("an empty agentName clears the override; a set one applies it", () => {
+  test("an empty agent_name clears the override; a set one applies it", () => {
     const withAgent: JobDraft = { ...base, agentName: "reviewer" };
-    expect((applyJobEdit(withAgent, { agentName: "  " }) as { ok: true; draft: JobDraft }).draft.agentName).toBeUndefined();
-    expect((applyJobEdit(base, { agentName: "critic" }) as { ok: true; draft: JobDraft }).draft.agentName).toBe("critic");
+    expect((applyJobEdit(withAgent, { agent_name: "  " }) as { ok: true; draft: JobDraft }).draft.agentName).toBeUndefined();
+    expect((applyJobEdit(base, { agent_name: "critic" }) as { ok: true; draft: JobDraft }).draft.agentName).toBe("critic");
+  });
+
+  test("a camelCase key is IGNORED (the host rewrites it to 'value' — snake_case only)", () => {
+    // agentName (camelCase) is not a recognized key → the draft is untouched.
+    const r = applyJobEdit(base, { agentName: "should-be-ignored" }) as { ok: true; draft: JobDraft };
+    expect(r.draft.agentName).toBeUndefined();
   });
 
   test("the applied edit round-trips through validateJobDraft (protected-step reject)", () => {
-    const r = applyJobEdit(base, { skipSteps: "review" }); // review is protected
+    const r = applyJobEdit(base, { skip_steps: "review" }); // review is protected
     expect(r.ok).toBe(true);
     if (r.ok) {
       const validated = validateJobDraft(r.draft);
       expect(validated.ok).toBe(false);
       if (!validated.ok) expect(validated.error).toContain("protected");
     }
+  });
+});
+
+describe("hasJobEditField", () => {
+  test("true when any recognized slug field is present", () => {
+    expect(hasJobEditField({ jobId: "j1", name: "X" })).toBe(true);
+    expect(hasJobEditField({ jobId: "j1", branch_pattern: "main" })).toBe(true);
+    expect(hasJobEditField({ jobId: "j1", skip_steps: "test" })).toBe(true);
+    expect(hasJobEditField({ jobId: "j1", agent_name: "a" })).toBe(true);
+    expect(hasJobEditField({ jobId: "j1", trigger: "manual main" })).toBe(true);
+  });
+  test("FALSE for a camelCase field or the host's 'value' fallback (contract drift)", () => {
+    expect(hasJobEditField({ jobId: "j1", agentName: "x" })).toBe(false); // camelCase → unrecognized
+    expect(hasJobEditField({ jobId: "j1", value: "x" })).toBe(false); // host fallback key
+    expect(hasJobEditField({ jobId: "j1" })).toBe(false); // nothing to edit
   });
 });

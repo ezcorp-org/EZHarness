@@ -256,14 +256,40 @@ export function parseJobIdPayload(payload: unknown): string | null {
 }
 
 /**
+ * The payload keys a job-edit prompt may carry. Each MUST be a slug-legal
+ * payload key: the host `validatePrompt` (src/extensions/page-schema.ts:44,
+ * `PROMPT_FIELD_REGEX = /^[a-z0-9][a-z0-9_]{0,31}$/`) silently rewrites any
+ * non-slug `prompt.field` to the reserved `"value"` key — so a camelCase field
+ * (e.g. `agentName`) would arrive under `payload.value` and this handler would
+ * read `undefined`, silently CLEARING the field while still stamping updatedBy +
+ * an audit line (a real live bug). These keys are lowercase snake_case ON
+ * PURPOSE so the typed value survives the host validator intact. The builders
+ * MUST emit exactly these as their prompt `field` values (pinned by a test).
+ */
+export const JOB_EDIT_FIELDS = [
+  "name",
+  "branch_pattern",
+  "trigger",
+  "skip_steps",
+  "agent_name",
+  "intent_template",
+] as const;
+
+/** True when a job-save payload carries at least one recognized editable field.
+ *  A payload with none (e.g. a drifted camelCase field the host rewrote to
+ *  `value`) must be REJECTED, never silently applied — see handleJobSave. */
+export function hasJobEditField(patch: Record<string, unknown>): boolean {
+  return JOB_EDIT_FIELDS.some((f) => patch[f] !== undefined);
+}
+
+/**
  * Fold ONE editable scalar (collected by a job-editor prompt) into a base draft
  * (the existing job's fields, or the create defaults). Each edit action supplies
- * exactly one of `name` / `branchPattern` / `trigger` / `skipSteps` / `agentName`
- * / `intentTemplate`; whichever is present overrides. `branchPattern` applies to
- * whichever field the CURRENT trigger uses (push → pattern, schedule/manual →
- * branch). An unparseable `trigger` spec is a hard error (never a silent no-op).
- * The RESULT still passes through `validateJobDraft` at the call site — this only
- * assembles the candidate; it does not itself enforce branch/step rules.
+ * exactly one of the slug-legal {@link JOB_EDIT_FIELDS}; whichever is present
+ * overrides. `branch_pattern` applies to whichever field the CURRENT trigger
+ * uses (push → pattern, schedule/manual → branch). An unparseable `trigger` spec
+ * is a hard error (never a silent no-op). The RESULT still passes through
+ * `validateJobDraft` at the call site — this only assembles the candidate.
  */
 export function applyJobEdit(
   base: JobDraft,
@@ -278,11 +304,11 @@ export function applyJobEdit(
     ...(base.intentTemplate !== undefined ? { intentTemplate: base.intentTemplate } : {}),
   };
   if (typeof patch.name === "string") draft.name = patch.name;
-  if (typeof patch.branchPattern === "string") {
+  if (typeof patch.branch_pattern === "string") {
     draft.trigger =
       draft.trigger.kind === "push"
-        ? { kind: "push", branchPattern: patch.branchPattern }
-        : { ...draft.trigger, branch: patch.branchPattern };
+        ? { kind: "push", branchPattern: patch.branch_pattern }
+        : { ...draft.trigger, branch: patch.branch_pattern };
   }
   if (typeof patch.trigger === "string") {
     const parsed = parseTriggerSpec(patch.trigger);
@@ -291,19 +317,19 @@ export function applyJobEdit(
     }
     draft.trigger = parsed;
   }
-  if (typeof patch.skipSteps === "string") {
-    draft.skipSteps = patch.skipSteps
+  if (typeof patch.skip_steps === "string") {
+    draft.skipSteps = patch.skip_steps
       .split(",")
       .map((s) => s.trim())
       .filter((s) => s !== "") as PipelineStep[];
   }
-  if (typeof patch.agentName === "string") {
-    const trimmed = patch.agentName.trim();
+  if (typeof patch.agent_name === "string") {
+    const trimmed = patch.agent_name.trim();
     if (trimmed) draft.agentName = trimmed;
     else delete draft.agentName;
   }
-  if (typeof patch.intentTemplate === "string") {
-    const trimmed = patch.intentTemplate.trim();
+  if (typeof patch.intent_template === "string") {
+    const trimmed = patch.intent_template.trim();
     if (trimmed) draft.intentTemplate = trimmed;
     else delete draft.intentTemplate;
   }

@@ -118,6 +118,7 @@ import {
   createJobStore,
   DEFAULT_JOB_ID,
   diffJob,
+  hasJobEditField,
   jobConcreteBranch,
   loadJobsWithDefault,
   matchPushJob,
@@ -1164,9 +1165,32 @@ export async function handleJobSave(event: PageActionEvent): Promise<void> {
     }
     const payload = (event.payload ?? {}) as Record<string, unknown>;
     const rawJobId = typeof payload.jobId === "string" ? payload.jobId.trim() : "";
+    const actor = event.userId || "system";
     const store = getJobStore();
     const jobs = await loadJobsWithDefault(store, getAudit());
     const existing = rawJobId ? jobs.find((j) => j.id === rawJobId) ?? (await store.getJob(rawJobId)) : null;
+
+    // Defensive contract: a job-save that carries NO recognized editable field is
+    // REJECTED — never applied. This catches host-validator field drift (a
+    // camelCase `prompt.field` is silently rewritten to `value`, so the typed
+    // value would arrive under an unrecognized key and an unguarded apply would
+    // re-persist the UNCHANGED draft while stamping updatedBy + an audit line —
+    // the live silent-field-clearing bug). A rejected edit mutates nothing and
+    // audits the refusal (id-only reason + the offending keys).
+    if (!hasJobEditField(payload)) {
+      logLine("ez-code-factory: job-save refused — no recognized editable field (contract drift?)");
+      await getAudit().append({
+        actor,
+        kind: "job-edit-rejected",
+        ...(existing ? { jobId: existing.id } : {}),
+        detail: {
+          reason: "no recognized editable field",
+          keys: Object.keys(payload).filter((k) => k !== "jobId"),
+        },
+      });
+      await refreshDashboard();
+      return;
+    }
 
     // The candidate draft: the existing job's fields (edit) or the create
     // defaults (a DISABLED push job on `main`, configured further in the editor).
@@ -1194,7 +1218,6 @@ export async function handleJobSave(event: PageActionEvent): Promise<void> {
       return;
     }
 
-    const actor = event.userId || "system";
     if (existing) {
       const updated = await store.updateJob(existing.id, { ...validated.value, updatedBy: actor });
       if (updated) {

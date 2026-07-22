@@ -1420,7 +1420,9 @@ export function buildJobView(
           job.trigger.kind === "push"
             ? "Branch pattern (literal or single trailing '*')"
             : "Branch (literal, no glob)",
-        field: "branchPattern",
+        // Slug-legal snake_case: a camelCase field is silently rewritten to
+        // "value" by the host validator (page-schema.ts:44), dropping the edit.
+        field: "branch_pattern",
         maxLength: MAX_BRANCH_PATTERN_LEN,
         submitLabel: "Save",
       },
@@ -1440,7 +1442,8 @@ export function buildJobView(
       payload: { jobId },
       prompt: {
         label: "Steps to skip (comma-separated; intent/rebase/review/push are protected)",
-        field: "skipSteps",
+        // Slug-legal snake_case (see page-schema.ts:44 — camelCase → dropped).
+        field: "skip_steps",
         placeholder: "test, document, lint",
         submitLabel: "Save",
       },
@@ -1450,7 +1453,8 @@ export function buildJobView(
       payload: { jobId },
       prompt: {
         label: "Agent name for this job's dispatches (blank = repo-config / deployment default)",
-        field: "agentName",
+        // Slug-legal snake_case (see page-schema.ts:44 — camelCase → dropped).
+        field: "agent_name",
         placeholder: "e.g. reviewer",
         submitLabel: "Save",
       },
