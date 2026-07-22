@@ -1,6 +1,7 @@
 import type { EventBus } from "../runtime/events";
 import type { AgentEvents, AgentRun } from "../types";
 import type { ExtensionRegistry } from "./registry";
+import { registerFireCallProvenance } from "./call-provenance";
 
 // ── Allowed Hooks ───────────────────────────────────────────────────
 
@@ -141,7 +142,24 @@ export class LifecycleHookDispatcher {
     try {
       const proc = this.registry.getProcessIfRunning(extensionId);
       if (!proc) return;
-      proc.sendNotification(`lifecycle/${hookName}`, params);
+      // Mint an OWNERLESS host-issued correlation token so a reverse-RPC the
+      // lifecycle handler triggers resolves cleanly: a soft-fail (-32106) for
+      // owner-scoped capabilities, and SUCCESS for install-wide global storage
+      // (e.g. ECF's `run:complete` bookkeeping). Without it the reverse-RPC
+      // has no valid `ezCallId` and fail-fasts `-32602` ("provenance
+      // unresolved"). Lifecycle fires have no conversation or user by design,
+      // so `ownerless: true`. The token auto-releases on the default 2-min
+      // window (a lifecycle handler is fast + fire-and-forget).
+      const ezCallId = registerFireCallProvenance({
+        onBehalfOf: null,
+        conversationId: null,
+        runId: null,
+        parentCallId: null,
+        actorExtensionId: extensionId,
+        kind: "event",
+        ownerless: true,
+      });
+      proc.sendNotification(`lifecycle/${hookName}`, { ...params, _meta: { ezCallId } });
     } catch {
       // Gracefully ignore any errors — fire-and-forget
     }

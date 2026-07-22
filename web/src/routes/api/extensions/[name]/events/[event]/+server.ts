@@ -117,6 +117,17 @@ const hubEventBodySchema = z.object({
 /** 10 hub actions per minute per user. Exported for test isolation. */
 export const __hubActionRateLimiter = new RateLimiter(10, 60_000);
 
+/**
+ * Auto-release window for a hub event-fire's reverse-RPC provenance token
+ * (4 h). A hub action can kick off a long pipeline segment (an ECF gate push
+ * → agent dispatch → auto-fix rounds) whose reverse-RPCs land minutes-to-hours
+ * after the fire. The old 2-min default reaped the token mid-run, so every
+ * post-2-min host-mediated reverse-RPC failed `-32602`. 4 h dwarfs any
+ * legitimate active segment (pipelines PARK before long CI waits) while
+ * staying well under the 6 h tool-token TTL precedent.
+ */
+const HUB_EVENT_FIRE_TOKEN_MS = 4 * 60 * 60 * 1000;
+
 // Mirrors `manifest.name` regex. We re-validate URL params in case the
 // router accepted something the regex would reject (defense-in-depth).
 const PARAM_REGEX = /^[a-z0-9][a-z0-9-_.]{0,63}$/;
@@ -269,7 +280,7 @@ export const POST: RequestHandler = async ({ request, locals, params }) => {
         actorExtensionId: ext.id,
         kind: "event",
         ownerless: false,
-      });
+      }, { autoReleaseMs: HUB_EVENT_FIRE_TOKEN_MS });
       proc.sendNotification(`ezcorp/event/${fullEventName}`, {
         source: "hub",
         pageId,

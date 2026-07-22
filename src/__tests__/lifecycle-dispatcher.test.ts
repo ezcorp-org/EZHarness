@@ -147,8 +147,12 @@ describe("LifecycleHookDispatcher", () => {
     });
 
     const payload = at(proc.calls, 0, "proc.calls").params;
-    const keys = Object.keys(payload);
+    // Sanitized DATA fields are exactly the allowlist. `_meta` is host-added
+    // provenance (an opaque ownerless ezCallId), not sanitizer output — assert
+    // it separately so the no-secret-leak guarantee on data fields stays exact.
+    const keys = Object.keys(payload).filter((k) => k !== "_meta");
     expect(keys.sort()).toEqual(["agentConfigId", "agentName", "runId", "timestamp"]);
+    expect(typeof (payload._meta as { ezCallId?: string } | undefined)?.ezCallId).toBe("string");
   });
 
   test("does not start sleeping processes (uses getProcessIfRunning)", () => {
@@ -302,7 +306,9 @@ describe("LifecycleHookDispatcher", () => {
     expect(payload).toHaveProperty("agentName", "builder");
     expect(payload).toHaveProperty("status", "success");
     expect(payload).toHaveProperty("timestamp");
-    expect(Object.keys(payload).sort()).toEqual(["agentName", "runId", "status", "timestamp"]);
+    expect(Object.keys(payload).filter((k) => k !== "_meta").sort())
+      .toEqual(["agentName", "runId", "status", "timestamp"]);
+    expect(typeof (payload._meta as { ezCallId?: string } | undefined)?.ezCallId).toBe("string");
   });
 
   test("agent:complete sanitizer extracts correct fields", () => {
@@ -330,7 +336,9 @@ describe("LifecycleHookDispatcher", () => {
     expect(payload).toHaveProperty("runId", "r1");
     expect(payload).toHaveProperty("success", true);
     expect(payload).toHaveProperty("timestamp");
-    expect(Object.keys(payload).sort()).toEqual(["agentConfigId", "agentName", "runId", "success", "timestamp"]);
+    expect(Object.keys(payload).filter((k) => k !== "_meta").sort())
+      .toEqual(["agentConfigId", "agentName", "runId", "success", "timestamp"]);
+    expect(typeof (payload._meta as { ezCallId?: string } | undefined)?.ezCallId).toBe("string");
   });
 
   test("run:start sanitizer extracts correct fields", () => {
@@ -350,7 +358,9 @@ describe("LifecycleHookDispatcher", () => {
     expect(payload).toHaveProperty("runId", "r1");
     expect(payload).toHaveProperty("agentName", "builder");
     expect(payload).toHaveProperty("timestamp");
-    expect(Object.keys(payload).sort()).toEqual(["agentName", "runId", "timestamp"]);
+    expect(Object.keys(payload).filter((k) => k !== "_meta").sort())
+      .toEqual(["agentName", "runId", "timestamp"]);
+    expect(typeof (payload._meta as { ezCallId?: string } | undefined)?.ezCallId).toBe("string");
   });
 
   test("stop() then start() re-subscribes to bus events", () => {

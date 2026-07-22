@@ -19,6 +19,10 @@ mockDbConnection();
 
 import { reconcileSchedules, _wipeSchedulesForTests } from "../schedule-reconcile";
 import { ScheduleDaemon, _scheduleDaemonInternals } from "../schedule-daemon";
+import {
+  resolveCallProvenance,
+  _resetCallProvenanceForTests,
+} from "../call-provenance";
 import { readProcStartTime } from "../../startup/process-lockfile";
 import { extensionSchedules, extensionScheduleFires, extensions, auditLog } from "../../db/schema";
 import { eq } from "drizzle-orm";
@@ -107,7 +111,17 @@ describe("ScheduleDaemon — claim-before-dispatch", () => {
       nextFireAt: past, enabled: true,
     }).returning();
 
-    const daemon = new ScheduleDaemon({ wakeIntervalMs: 60_000 });
+    // Wired registry so the fire genuinely dispatches (status "ok"). A
+    // registry-less daemon would now record the fire as undispatched — that
+    // corrected contract is pinned by the Phase 1 repro test below.
+    const daemon = new ScheduleDaemon({
+      wakeIntervalMs: 60_000,
+      registry: {
+        getProcessIfRunning() {
+          return { isRunning: true, sendNotification() {} } as never;
+        },
+      },
+    });
     const result = await daemon.tick();
     expect(result.claimed).toBe(1);
 
@@ -146,17 +160,96 @@ describe("ScheduleDaemon — claim-before-dispatch", () => {
     daemon.stop();
   });
 
-  test("registry-less mode marks fires as 'ok' (test-only)", async () => {
+  // ── Phase 1 repro: registry-less dispatch must NOT masquerade as success ──
+  //
+  // Production constructed `new ScheduleDaemon()` with NO registry
+  // (background-timers.ts:223), so `dispatchFire` took the else-branch and
+  // completed EVERY fire "ok" WITHOUT ever calling `proc.sendNotification` —
+  // fires were silently dropped host-side and nothing (no test, no log)
+  // caught it. This repro pins the corrected contract: a registry-less fire
+  // is recorded DISTINCTLY (status "error", `undispatched:` prefix), never a
+  // false "ok".
+  test("registry-less fire is recorded as undispatched, NOT a false 'ok' (Phase 1 repro)", async () => {
     const past = new Date(Date.now() - 60_000);
     await getTestDb().insert(extensionSchedules).values({
       extensionId: extId, cron: "0 * * * *",
       nextFireAt: past, enabled: true,
     });
+    // Constructed EXACTLY as the old production site did — no registry.
     const daemon = new ScheduleDaemon();
-    await daemon.tick();
+    const result = await daemon.tick();
+    // The row was still CLAIMED (next_fire_at advanced) but NOT dispatched.
+    expect(result.claimed).toBe(1);
+    expect(result.dispatched).toBe(0);
     const fires = await getTestDb().select().from(extensionScheduleFires);
-    expect(fires.every((f) => f.status === "ok")).toBe(true);
+    expect(fires.length).toBe(1);
+    expect(fires[0]!.status).toBe("error");
+    expect(fires[0]!.error).toContain("undispatched");
+    expect(fires[0]!.error).toContain("no-registry");
+    // A delivery miss must NOT bump consecutiveErrors (not the ext's fault).
+    const sched = await getTestDb().select().from(extensionSchedules).where(eq(extensionSchedules.extensionId, extId));
+    expect(sched[0]!.consecutiveErrors).toBe(0);
     daemon.stop();
+  });
+
+  // Registry present but the subprocess is asleep — same discipline: the fire
+  // is undispatched, never a false "ok" (mirrors the WebhookDeliveryDaemon,
+  // which reverts an undeliverable delivery rather than marking it ok).
+  test("no-proc fire (registry present, subprocess asleep) is undispatched, not 'ok'", async () => {
+    const past = new Date(Date.now() - 60_000);
+    await getTestDb().insert(extensionSchedules).values({
+      extensionId: extId, cron: "0 * * * *",
+      nextFireAt: past, enabled: true,
+    });
+    const daemon = new ScheduleDaemon({
+      registry: { getProcessIfRunning() { return null; } } as never,
+    });
+    const result = await daemon.tick();
+    expect(result.claimed).toBe(1);
+    expect(result.dispatched).toBe(0);
+    const fires = await getTestDb().select().from(extensionScheduleFires);
+    expect(fires[0]!.status).toBe("error");
+    expect(fires[0]!.error).toContain("subprocess-not-running");
+    daemon.stop();
+  });
+
+  // The GREEN side of the fix: WITH a wired registry the fire is delivered
+  // end-to-end (sendNotification called) AND the reverse-RPC provenance token
+  // it minted is STILL RESOLVABLE after the tick returns — proving the token
+  // outlives the fire-and-forget `completeFire("ok")` so the subprocess's
+  // sweep storage writes (which echo this ezCallId) resolve provenance
+  // instead of failing `-32602`. This is the token-lifetime regression guard.
+  test("wired-registry fire dispatches AND leaves a resolvable token (lifetime fix)", async () => {
+    _resetCallProvenanceForTests();
+    const past = new Date(Date.now() - 60_000);
+    await getTestDb().insert(extensionSchedules).values({
+      extensionId: extId, cron: "0 * * * *",
+      nextFireAt: past, enabled: true,
+    });
+    let captured: { method: string; params: Record<string, unknown> } | null = null;
+    const daemon = new ScheduleDaemon({
+      registry: {
+        getProcessIfRunning() {
+          return {
+            isRunning: true,
+            sendNotification(method: string, params?: Record<string, unknown>) {
+              captured = { method, params: params ?? {} };
+            },
+          } as never;
+        },
+      },
+    });
+    const result = await daemon.tick();
+    expect(result.dispatched).toBe(1);
+    expect(captured).not.toBeNull();
+    expect(captured!.method).toBe("ezcorp/schedule-fire");
+    const meta = (captured!.params as { _meta?: { ezCallId?: string } })._meta;
+    const prov = resolveCallProvenance(meta!.ezCallId!);
+    // Token still alive after the immediate completeFire("ok") — NOT released.
+    expect(prov).toBeDefined();
+    expect(prov!.ownerless).toBe(true);
+    daemon.stop();
+    _resetCallProvenanceForTests();
   });
 });
 
