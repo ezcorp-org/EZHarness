@@ -329,6 +329,7 @@ describe("renderExtensionPage", () => {
     let sets = 0;
     const throwingCache = {
       get: inner.get.bind(inner),
+      generation: inner.generation.bind(inner),
       invalidate: inner.invalidate.bind(inner),
       invalidateExtension: inner.invalidateExtension.bind(inner),
       clear: inner.clear.bind(inner),

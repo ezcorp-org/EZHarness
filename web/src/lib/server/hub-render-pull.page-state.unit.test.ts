@@ -110,3 +110,52 @@ describe("renderExtensionPage arms the invalidation wiring", () => {
 		expect(fakeBus.listeners).toHaveLength(1);
 	});
 });
+
+describe("write-after-invalidate race (generation-stamped pulls)", () => {
+	const EXT = {
+		id: "ext-2",
+		name: "ez-code-factory",
+		grantedPermissions: { eventSubscriptions: [] },
+	} as unknown as Extension;
+
+	test("a pull the invalidation overtook is NOT cached, and a post-invalidate re-pull starts a FRESH render", async () => {
+		const cache = new ExtensionPageCache();
+		let resolveFirst!: (v: { jsonrpc: "2.0"; id: number; result: HubPageTree }) => void;
+		const calls: string[] = [];
+		const deps: Partial<RenderPullDeps> = {
+			findPage: async () => ({
+				extension: EXT,
+				page: { id: "dashboard", title: "t", perProject: false },
+			}),
+			callPage: async () => {
+				calls.push("render");
+				if (calls.length === 1) {
+					// First (doomed) render: parks until we let it finish STALE.
+					return new Promise((r) => {
+						resolveFirst = r;
+					});
+				}
+				return { jsonrpc: "2.0" as const, id: 1, result: { title: "fresh", nodes: [] } };
+			},
+			cache,
+			timeoutMs: 5_000,
+		};
+
+		// The client's immediate post-action re-pull: renders PRE-commit state.
+		const doomed = renderExtensionPage("ez-code-factory", "dashboard", "u1", deps);
+		await new Promise((r) => setTimeout(r, 10)); // the pull is in flight
+		// The handler commits → invalidation lands mid-render.
+		cache.invalidate(EXT.id, "dashboard");
+		// The SSE-triggered re-pull must NOT join the doomed in-flight pull —
+		// its dedup key carries the NEW generation, so a second render runs.
+		const fresh = renderExtensionPage("ez-code-factory", "dashboard", "u2", deps);
+		resolveFirst({ jsonrpc: "2.0", id: 1, result: { title: "stale", nodes: [] } });
+		const [doomedResult, freshResult] = await Promise.all([doomed, fresh]);
+
+		expect(calls).toHaveLength(2); // two distinct renders — no single-flight join
+		expect(doomedResult.page?.title).toBe("stale"); // the caller still gets ITS result…
+		expect(freshResult.page?.title).toBe("fresh");
+		// …but the doomed render never poisoned the cache: the cached tree is fresh.
+		expect(cache.get(EXT.id, "dashboard", "")!.tree.title).toBe("fresh");
+	});
+});

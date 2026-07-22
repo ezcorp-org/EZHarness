@@ -192,3 +192,49 @@ describe("getPageCache singleton", () => {
     a.invalidate("singleton-test-ext", "p");
   });
 });
+
+describe("invalidation generations (write-after-invalidate race)", () => {
+  test("invalidate bumps the page generation; other pages keep theirs", () => {
+    const { cache } = makeCache();
+    expect(cache.generation("ext-1", "page")).toBe(0);
+    cache.invalidate("ext-1", "page");
+    expect(cache.generation("ext-1", "page")).toBe(1);
+    cache.invalidate("ext-1", "page");
+    expect(cache.generation("ext-1", "page")).toBe(2);
+    expect(cache.generation("ext-1", "other")).toBe(0);
+  });
+
+  test("a set stamped with a STALE generation is discarded (the invalidation overtook the pull)", () => {
+    const { cache } = makeCache();
+    const gen = cache.generation("ext-1", "page"); // pull starts, captures gen 0
+    cache.invalidate("ext-1", "page"); // the handler commits mid-render
+    cache.set("ext-1", "page", TREE, "", gen); // the doomed render finishes
+    expect(cache.get("ext-1", "page", "")).toBeNull(); // never cached as fresh
+    // A pull that started AFTER the invalidation caches normally.
+    cache.set("ext-1", "page", TREE2, "", cache.generation("ext-1", "page"));
+    expect(cache.get("ext-1", "page", "")!.tree).toEqual(TREE2);
+  });
+
+  test("an UN-stamped set (the mediator push path — freshest content) still caches", () => {
+    const { cache } = makeCache();
+    cache.invalidate("ext-1", "page");
+    cache.set("ext-1", "page", TREE);
+    expect(cache.get("ext-1", "page")!.tree).toEqual(TREE);
+  });
+
+  test("invalidateExtension bumps every dropped page's generation", () => {
+    const { cache } = makeCache();
+    cache.set("ext-1", "a", TREE);
+    cache.set("ext-1", "b", TREE);
+    cache.invalidateExtension("ext-1");
+    expect(cache.generation("ext-1", "a")).toBe(1);
+    expect(cache.generation("ext-1", "b")).toBe(1);
+  });
+
+  test("clear resets generations (test isolation)", () => {
+    const { cache } = makeCache();
+    cache.invalidate("ext-1", "page");
+    cache.clear();
+    expect(cache.generation("ext-1", "page")).toBe(0);
+  });
+});

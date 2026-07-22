@@ -299,7 +299,11 @@ function grantedEvents(extension: Extension): string[] {
  *  cache singleton it protects is module-level too. */
 const inflightPulls = new Map<string, Promise<{ tree: HubPageTree } | { error: string }>>();
 
-/** Pull + validate + cache, deduping concurrent identical pulls. */
+/** Pull + validate + cache, deduping concurrent identical pulls. The dedup
+ *  key INCLUDES the page's invalidation generation: a re-pull arriving after
+ *  an invalidation must start a FRESH render (the change that invalidated is
+ *  exactly what it came to see), never join a pre-invalidation pull that is
+ *  about to produce stale content. */
 function pullAndCache(
   extension: Extension,
   pageId: string,
@@ -307,23 +311,27 @@ function pullAndCache(
   deps: RenderPullDeps,
   scope?: PageRenderScope,
 ): Promise<{ tree: HubPageTree } | { error: string }> {
-  const key = `${extension.id}:${pageId}:${variantKey(scope)}`;
+  const generation = deps.cache.generation(extension.id, pageId);
+  const key = `${extension.id}:${pageId}:${variantKey(scope)}:g${generation}`;
   const existing = inflightPulls.get(key);
   if (existing) return existing;
-  const pull = doPullAndCache(extension, pageId, userId, deps, scope).finally(() => {
+  const pull = doPullAndCache(extension, pageId, userId, deps, scope, generation).finally(() => {
     inflightPulls.delete(key);
   });
   inflightPulls.set(key, pull);
   return pull;
 }
 
-/** The actual pull. Returns the error string on any failure. */
+/** The actual pull. Returns the error string on any failure. `generation`
+ *  (captured before the pull began) stamps the cache write so a result that
+ *  an invalidation overtook is discarded instead of cached as fresh. */
 async function doPullAndCache(
   extension: Extension,
   pageId: string,
   userId: string,
   deps: RenderPullDeps,
   scope?: PageRenderScope,
+  generation?: number,
 ): Promise<{ tree: HubPageTree } | { error: string }> {
   let response: JsonRpcResponse;
   try {
@@ -354,7 +362,7 @@ async function doPullAndCache(
     return { error: "This page produced invalid content." };
   }
 
-  deps.cache.set(extension.id, pageId, tree, variantKey(scope));
+  deps.cache.set(extension.id, pageId, tree, variantKey(scope), generation);
   return { tree };
 }
 

@@ -52,6 +52,15 @@ export class ExtensionPageCache {
    *  full-cache scans on the hot render/push/action paths. */
   private pages = new Map<string, Map<string, StoredEntry>>();
 
+  /** Per-page invalidation GENERATION (bumped by `invalidate`). A render
+   *  pull captures the generation when it STARTS and hands it back to
+   *  `set`; a write whose generation is stale is DISCARDED. Closes the
+   *  write-after-invalidate race: a hub action triggers an immediate
+   *  client re-pull that renders PRE-commit state, the handler's commit
+   *  fires the invalidation mid-render, and without the stamp the doomed
+   *  render would then cache its stale tree as fresh for the full TTL. */
+  private generations = new Map<string, number>();
+
   constructor(
     private readonly ttlMs: number = PAGE_CACHE_TTL_MS,
     private readonly now: () => number = Date.now,
@@ -76,8 +85,28 @@ export class ExtensionPageCache {
     };
   }
 
-  set(extensionId: string, pageId: string, tree: HubPageTree, variant?: string): void {
+  /** The page's current invalidation generation. Capture BEFORE starting a
+   *  render pull and hand the value to `set` so a pull that an invalidation
+   *  overtook cannot cache its stale result. */
+  generation(extensionId: string, pageId: string): number {
+    return this.generations.get(this.pageKey(extensionId, pageId)) ?? 0;
+  }
+
+  set(
+    extensionId: string,
+    pageId: string,
+    tree: HubPageTree,
+    variant?: string,
+    generation?: number,
+  ): void {
     const pageKey = this.pageKey(extensionId, pageId);
+    // A generation-stamped write is discarded when an invalidation landed
+    // after the pull began — the content predates the change that
+    // invalidated it. Un-stamped writes (the state-mediator's push path,
+    // where the push IS the freshest content) keep the old semantics.
+    if (generation !== undefined && generation !== this.generation(extensionId, pageId)) {
+      return;
+    }
     let variants = this.pages.get(pageKey);
     if (!variants) {
       variants = new Map();
@@ -106,21 +135,29 @@ export class ExtensionPageCache {
 
   /** Drop EVERY variant of one page (global + all projects) — the
    *  content-free invalidation contract: "page X changed" can't name
-   *  which variants, so all of them re-pull. */
+   *  which variants, so all of them re-pull. Also bumps the page's
+   *  generation so any IN-FLIGHT pull's eventual `set` is discarded. */
   invalidate(extensionId: string, pageId: string): void {
-    this.pages.delete(this.pageKey(extensionId, pageId));
+    const pageKey = this.pageKey(extensionId, pageId);
+    this.pages.delete(pageKey);
+    this.generations.set(pageKey, (this.generations.get(pageKey) ?? 0) + 1);
   }
 
-  /** Drop every page for one extension (reload/disable/uninstall). */
+  /** Drop every page for one extension (reload/disable/uninstall). Bumps
+   *  each dropped page's generation (same in-flight discard as invalidate). */
   invalidateExtension(extensionId: string): void {
     const prefix = `${extensionId}:`;
     for (const key of this.pages.keys()) {
-      if (key.startsWith(prefix)) this.pages.delete(key);
+      if (key.startsWith(prefix)) {
+        this.pages.delete(key);
+        this.generations.set(key, (this.generations.get(key) ?? 0) + 1);
+      }
     }
   }
 
   clear(): void {
     this.pages.clear();
+    this.generations.clear();
   }
 }
 
