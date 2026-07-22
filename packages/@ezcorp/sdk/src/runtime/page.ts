@@ -223,6 +223,13 @@ export interface PageRenderContext {
    *  so a page branches on `run && step` for the step view, falling back to the
    *  run detail when only `run` is set. */
   step?: string;
+  /** Render-variant selector: the host threads `?view=<value>` through the pull
+   *  as `view`, so a page can render an alternate surface (e.g. a config,
+   *  job-editor, or audit view) instead of its dashboard. INDEPENDENT of `run`
+   *  (unlike `step`): included whenever present, even with no project and no run.
+   *  Compound values (`audit:<day>`, `job:<id>`) are parsed by the page, not the
+   *  host — the host passes the raw string opaquely. */
+  view?: string;
 }
 
 export interface PageDefinition {
@@ -264,16 +271,20 @@ function readRenderContext(params: Record<string, unknown>): PageRenderContext |
   // `run` is read independently of project context — a run-detail request is
   // honourable on its own, even from the global hub with no project. `step` is
   // a sub-variant of `run` (one step's detail): folded ONLY when `run` is also
-  // present, so a stray `step` never reaches a page that requires both.
+  // present, so a stray `step` never reaches a page that requires both. `view`
+  // is INDEPENDENT of `run` (unlike `step`): folded whenever present, so a page
+  // can render an alternate surface with no project and no run.
   const run = typeof params.run === "string" && params.run ? params.run : undefined;
   const step = typeof params.step === "string" && params.step ? params.step : undefined;
-  const withRun = (ctx: PageRenderContext): PageRenderContext => {
-    if (!run) return ctx;
-    return step ? { ...ctx, run, step } : { ...ctx, run };
+  const view = typeof params.view === "string" && params.view ? params.view : undefined;
+  const withExtras = (ctx: PageRenderContext): PageRenderContext => {
+    let out: PageRenderContext = run ? (step ? { ...ctx, run, step } : { ...ctx, run }) : ctx;
+    if (view) out = { ...out, view };
+    return out;
   };
 
   const project = readProjectRef(params.project);
-  if (project) return withRun({ project });
+  if (project) return withExtras({ project });
   if (Array.isArray(params.projects)) {
     const projects: PageProjectRef[] = [];
     for (const raw of params.projects) {
@@ -283,13 +294,14 @@ function readRenderContext(params: Record<string, unknown>): PageRenderContext |
     // A truly empty list is a real "no projects registered" home render;
     // a non-empty list where EVERY ref was malformed is host-contract
     // drift — fall back to the no-context render instead of showing an
-    // empty home over data that exists (but still honour a `run`/`step` request).
+    // empty home over data that exists (but still honour a `run`/`step`/`view`
+    // request, each of which is project-independent).
     if (projects.length === 0 && params.projects.length > 0) {
-      return run ? withRun({}) : undefined;
+      return run || view ? withExtras({}) : undefined;
     }
-    return withRun({ projects });
+    return withExtras({ projects });
   }
-  return run ? withRun({}) : undefined;
+  return run || view ? withExtras({}) : undefined;
 }
 
 function installRenderHandler(): void {

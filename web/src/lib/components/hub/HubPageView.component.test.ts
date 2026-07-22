@@ -750,3 +750,50 @@ describe("step prop (?run=&step= sub-variant)", () => {
 		});
 	});
 });
+
+describe("view prop (?view= alternate-surface variant)", () => {
+	test("the render pull carries ?view= on its own (independent of run, with ?project= when set)", async () => {
+		render(HubPageView, {
+			props: { pageId: EXT_PAGE_ID, hubBase: "/project/p-1/hub", projectId: "p-1", view: "config" },
+		});
+		await tick();
+		await tick();
+		const pagePulls = fetchCalls.filter((c) => c.url.startsWith("/api/hub/pages/ext"));
+		expect(pagePulls.length).toBeGreaterThan(0);
+		for (const call of pagePulls) {
+			expect(call.url).toContain("view=config");
+			expect(call.url).toContain("project=p-1");
+			// view needs no run — it must send even without one.
+			expect(call.url).not.toContain("run=");
+		}
+	});
+
+	test("view rides ALONGSIDE run (a run-scoped alternate surface)", async () => {
+		render(HubPageView, {
+			props: { pageId: EXT_PAGE_ID, hubBase: "/hub", run: "run_abc", view: "job:abc" },
+		});
+		await tick();
+		await tick();
+		const pagePulls = fetchCalls.filter((c) => c.url.startsWith("/api/hub/pages/ext"));
+		expect(pagePulls.length).toBeGreaterThan(0);
+		for (const call of pagePulls) {
+			expect(call.url).toContain("run=run_abc");
+			expect(call.url).toContain(`view=${encodeURIComponent("job:abc")}`);
+		}
+	});
+
+	test("changing the view prop re-pulls with the new view ($effect reads view)", async () => {
+		const { rerender } = render(HubPageView, {
+			props: { pageId: EXT_PAGE_ID, hubBase: "/hub", view: "config" },
+		});
+		await tick();
+		await tick();
+		fetchCalls = [];
+		await rerender({ pageId: EXT_PAGE_ID, hubBase: "/hub", view: "audit" });
+		await tick();
+		await waitFor(() => {
+			const pulls = fetchCalls.filter((c) => c.url.startsWith("/api/hub/pages/ext"));
+			expect(pulls.some((c) => c.url.includes("view=audit"))).toBe(true);
+		});
+	});
+});

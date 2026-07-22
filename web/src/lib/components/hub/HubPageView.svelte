@@ -39,13 +39,16 @@
 	// within the run. A query-only navigation (dashboard ⇄ run ⇄ step detail)
 	// keeps this component mounted, so the load `$effect` below reads BOTH
 	// `run` and `step` to re-pull on change.
+	// `view` (`?view=<value>`) opens an alternate page surface (config / job /
+	// audit) and is INDEPENDENT of `run`; the load `$effect` reads it too.
 	let {
 		pageId,
 		hubBase,
 		projectId,
 		run,
 		step,
-	}: { pageId: string; hubBase: string; projectId?: string; run?: string; step?: string } = $props();
+		view,
+	}: { pageId: string; hubBase: string; projectId?: string; run?: string; step?: string; view?: string } = $props();
 
 	// ── Tab list (loaded once) ───────────────────────────────────────
 	let tabs = $state<HubPageListing[]>([]);
@@ -101,6 +104,8 @@
 			if (run) params.set("run", run);
 			// `step` is meaningful only alongside `run` (a step detail of a run).
 			if (run && step) params.set("step", step);
+			// `view` is INDEPENDENT of `run` — sent whenever set (an alternate surface).
+			if (view) params.set("view", view);
 			const qs = params.toString();
 			const query = qs ? `?${qs}` : "";
 			const res = await fetch(`/api/hub/pages/${encodeURIComponent(id)}${query}`);
@@ -242,11 +247,13 @@
 	// so `/project/<id>/hub` re-opens it next time. No projectId (the global
 	// hub) → no write.
 	$effect(() => {
-		// Read `run` + `step` so a query-only navigation between the dashboard,
-		// a run detail, and a step detail (same pageId, changed `?run=`/`?step=`)
-		// re-runs this effect and re-pulls the render.
+		// Read `run` + `step` + `view` so a query-only navigation between the
+		// dashboard, a run detail, a step detail, and an alternate view (same
+		// pageId, changed `?run=`/`?step=`/`?view=`) re-runs this effect and
+		// re-pulls the render.
 		void run;
 		void step;
+		void view;
 		if (pageId) {
 			void loadPage(pageId);
 			if (projectId) persistLastHubPage(projectId, pageId);

@@ -86,7 +86,7 @@ mock.module("$lib/server/security/rate-limiter", () => ({
   },
 }));
 
-// renderExtensionPage — record the positional args (esp. project + run + step).
+// renderExtensionPage — record the positional args (esp. project + run + step + view).
 const renderCalls: Array<{
   extension: string;
   pageId: string;
@@ -94,6 +94,7 @@ const renderCalls: Array<{
   project: unknown;
   run: unknown;
   step: unknown;
+  view: unknown;
 }> = [];
 mock.module("$lib/server/hub-render-pull", () => ({
   renderExtensionPage: async (
@@ -104,8 +105,9 @@ mock.module("$lib/server/hub-render-pull", () => ({
     project: unknown,
     run: unknown,
     step: unknown,
+    view: unknown,
   ) => {
-    renderCalls.push({ extension, pageId, userId, project, run, step });
+    renderCalls.push({ extension, pageId, userId, project, run, step, view });
     return { page: { title: "T", nodes: [] }, renderedAt: 123 };
   },
 }));
@@ -156,24 +158,27 @@ describe("GET /api/hub/pages/[id] — ?run= variant", () => {
     expect(res.status).toBe(200);
 
     // The run id reaches the render as the 6th positional arg; without `?project=`
-    // the 5th (project) stays undefined, and without `?step=` the 7th is too.
+    // the 5th (project) stays undefined, and without `?step=`/`?view=` the 7th +
+    // 8th are too.
     expect(renderCalls).toHaveLength(1);
     expect(renderCalls[0]!.run).toBe("run_abc123");
     expect(renderCalls[0]!.project).toBeUndefined();
     expect(renderCalls[0]!.step).toBeUndefined();
+    expect(renderCalls[0]!.view).toBeUndefined();
 
-    // …and it is part of the 6-part limiter variant key
-    // (`hub-render:<user>:<pageId>:<project>:<run>:<step>` — trailing empty step).
+    // …and it is part of the 7-part limiter variant key
+    // (`hub-render:<user>:<pageId>:<project>:<run>:<step>:<view>` — trailing
+    // empty step + view).
     expect(limiterKeys).toHaveLength(1);
-    expect(limiterKeys[0]).toBe(`hub-render:${MEMBER_USER.id}:${PAGE_ID}::run_abc123:`);
+    expect(limiterKeys[0]).toBe(`hub-render:${MEMBER_USER.id}:${PAGE_ID}::run_abc123::`);
   });
 
   test("a ?run at exactly MAX_RUN_PARAM_LENGTH (128) is still honoured", async () => {
     const maxLen = "r".repeat(128);
     await run(getEvent(`?run=${maxLen}`));
     expect(renderCalls[0]!.run).toBe(maxLen);
-    // key ends with `:<run>:` (empty trailing step segment).
-    expect(limiterKeys[0]!.endsWith(`:${maxLen}:`)).toBe(true);
+    // key ends with `:<run>::` (empty trailing step + view segments).
+    expect(limiterKeys[0]!.endsWith(`:${maxLen}::`)).toBe(true);
   });
 
   test("a ?run over MAX_RUN_PARAM_LENGTH (128) is clamped to undefined", async () => {
@@ -183,9 +188,9 @@ describe("GET /api/hub/pages/[id] — ?run= variant", () => {
 
     // Junk never reaches the render…
     expect(renderCalls[0]!.run).toBeUndefined();
-    // …and the limiter key carries EMPTY run + step segments (so oversized junk
-    // can't exhaust a real run's budget).
-    expect(limiterKeys[0]!.endsWith("::")).toBe(true);
+    // …and the limiter key carries EMPTY run + step + view segments (so oversized
+    // junk can't exhaust a real run's budget).
+    expect(limiterKeys[0]!.endsWith(":::")).toBe(true);
     expect(limiterKeys[0]).not.toContain(tooLong);
   });
 
@@ -194,15 +199,16 @@ describe("GET /api/hub/pages/[id] — ?run= variant", () => {
     await run(getEvent("?run=run_b"));
     expect(limiterKeys).toHaveLength(2);
     expect(limiterKeys[0]).not.toBe(limiterKeys[1]);
-    expect(limiterKeys[0]).toBe(`hub-render:${MEMBER_USER.id}:${PAGE_ID}::run_a:`);
-    expect(limiterKeys[1]).toBe(`hub-render:${MEMBER_USER.id}:${PAGE_ID}::run_b:`);
+    expect(limiterKeys[0]).toBe(`hub-render:${MEMBER_USER.id}:${PAGE_ID}::run_a::`);
+    expect(limiterKeys[1]).toBe(`hub-render:${MEMBER_USER.id}:${PAGE_ID}::run_b::`);
   });
 
-  test("no ?run at all → run undefined, empty run+step segments in the key", async () => {
+  test("no ?run at all → run undefined, empty run+step+view segments in the key", async () => {
     await run(getEvent(""));
     expect(renderCalls[0]!.run).toBeUndefined();
     expect(renderCalls[0]!.step).toBeUndefined();
-    expect(limiterKeys[0]).toBe(`hub-render:${MEMBER_USER.id}:${PAGE_ID}:::`);
+    expect(renderCalls[0]!.view).toBeUndefined();
+    expect(limiterKeys[0]).toBe(`hub-render:${MEMBER_USER.id}:${PAGE_ID}::::`);
   });
 
   test("a rate-limit hit short-circuits with 429 before the render", async () => {
@@ -219,14 +225,14 @@ describe("GET /api/hub/pages/[id] — ?step= sub-variant", () => {
     expect(res.status).toBe(200);
     expect(renderCalls[0]!.run).toBe("run_abc123");
     expect(renderCalls[0]!.step).toBe("review");
-    expect(limiterKeys[0]).toBe(`hub-render:${MEMBER_USER.id}:${PAGE_ID}::run_abc123:review`);
+    expect(limiterKeys[0]).toBe(`hub-render:${MEMBER_USER.id}:${PAGE_ID}::run_abc123:review:`);
   });
 
   test("distinct steps of the SAME run bucket separately", async () => {
     await run(getEvent("?run=run_a&step=review"));
     await run(getEvent("?run=run_a&step=test"));
-    expect(limiterKeys[0]).toBe(`hub-render:${MEMBER_USER.id}:${PAGE_ID}::run_a:review`);
-    expect(limiterKeys[1]).toBe(`hub-render:${MEMBER_USER.id}:${PAGE_ID}::run_a:test`);
+    expect(limiterKeys[0]).toBe(`hub-render:${MEMBER_USER.id}:${PAGE_ID}::run_a:review:`);
+    expect(limiterKeys[1]).toBe(`hub-render:${MEMBER_USER.id}:${PAGE_ID}::run_a:test:`);
     expect(limiterKeys[0]).not.toBe(limiterKeys[1]);
   });
 
@@ -234,14 +240,16 @@ describe("GET /api/hub/pages/[id] — ?step= sub-variant", () => {
     const maxLen = "s".repeat(128);
     await run(getEvent(`?run=r1&step=${maxLen}`));
     expect(renderCalls[0]!.step).toBe(maxLen);
-    expect(limiterKeys[0]!.endsWith(`:${maxLen}`)).toBe(true);
+    // key ends with `:<step>:` (empty trailing view segment).
+    expect(limiterKeys[0]!.endsWith(`:${maxLen}:`)).toBe(true);
 
     limiterKeys.length = 0;
     renderCalls.length = 0;
     const tooLong = "s".repeat(129);
     await run(getEvent(`?run=r1&step=${tooLong}`));
     expect(renderCalls[0]!.step).toBeUndefined();
-    expect(limiterKeys[0]!.endsWith(":")).toBe(true);
+    // step + view both empty → the key ends with `::`.
+    expect(limiterKeys[0]!.endsWith("::")).toBe(true);
     expect(limiterKeys[0]).not.toContain(tooLong);
   });
 
@@ -251,6 +259,50 @@ describe("GET /api/hub/pages/[id] — ?step= sub-variant", () => {
     // where a stray step (no run) is dropped.
     expect(renderCalls[0]!.run).toBeUndefined();
     expect(renderCalls[0]!.step).toBe("review");
-    expect(limiterKeys[0]).toBe(`hub-render:${MEMBER_USER.id}:${PAGE_ID}:::review`);
+    expect(limiterKeys[0]).toBe(`hub-render:${MEMBER_USER.id}:${PAGE_ID}:::review:`);
+  });
+});
+
+describe("GET /api/hub/pages/[id] — ?view= variant", () => {
+  test("passes ?view through as the 8th arg AND into the limiter key (independent of run)", async () => {
+    const res = await run(getEvent("?view=config"));
+    expect(res.status).toBe(200);
+    // view reaches the render even with NO run — it is independent (unlike step).
+    expect(renderCalls[0]!.run).toBeUndefined();
+    expect(renderCalls[0]!.step).toBeUndefined();
+    expect(renderCalls[0]!.view).toBe("config");
+    expect(limiterKeys[0]).toBe(`hub-render:${MEMBER_USER.id}:${PAGE_ID}::::config`);
+  });
+
+  test("distinct views bucket separately in the limiter", async () => {
+    await run(getEvent("?view=config"));
+    await run(getEvent("?view=audit"));
+    expect(limiterKeys[0]).toBe(`hub-render:${MEMBER_USER.id}:${PAGE_ID}::::config`);
+    expect(limiterKeys[1]).toBe(`hub-render:${MEMBER_USER.id}:${PAGE_ID}::::audit`);
+    expect(limiterKeys[0]).not.toBe(limiterKeys[1]);
+  });
+
+  test("a compound view (job:<id>) rides alongside ?run and ?project in the key", async () => {
+    await run(getEvent("?run=run_a&view=job:abc-123"));
+    expect(renderCalls[0]!.run).toBe("run_a");
+    expect(renderCalls[0]!.view).toBe("job:abc-123");
+    expect(limiterKeys[0]).toBe(`hub-render:${MEMBER_USER.id}:${PAGE_ID}::run_a::job:abc-123`);
+  });
+
+  test("a ?view at exactly MAX_VIEW_PARAM_LENGTH (160) is honoured; over 160 clamps to undefined", async () => {
+    const maxLen = `audit:${"a".repeat(154)}`; // 160 chars total
+    expect(maxLen.length).toBe(160);
+    await run(getEvent(`?view=${maxLen}`));
+    expect(renderCalls[0]!.view).toBe(maxLen);
+    expect(limiterKeys[0]!.endsWith(`:${maxLen}`)).toBe(true);
+
+    limiterKeys.length = 0;
+    renderCalls.length = 0;
+    const tooLong = "v".repeat(161);
+    await run(getEvent(`?view=${tooLong}`));
+    // Junk never reaches the render; the view segment stays empty.
+    expect(renderCalls[0]!.view).toBeUndefined();
+    expect(limiterKeys[0]!.endsWith(":")).toBe(true);
+    expect(limiterKeys[0]).not.toContain(tooLong);
   });
 });

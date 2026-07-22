@@ -476,6 +476,32 @@ describe("perProject scope", () => {
     ]);
     expect(seen[0]!.project).toBeUndefined();
   });
+
+  test("production callPage forwards {view} on the render RPC (independent of run/project)", async () => {
+    __fakeProcResponse = VALID_RESULT;
+    const seen: Record<string, unknown>[] = [];
+    __fakeProcInspect = (_method, params) => seen.push(params);
+    try {
+      const extension = makeExtension();
+      // A non-perProject page, no run — view still forwards (independent).
+      await renderExtensionPage(
+        "cron-dashboard",
+        "dashboard",
+        "u1",
+        { findPage: async () => ({ extension, page: PAGE }), cache: new ExtensionPageCache() },
+        undefined,
+        undefined,
+        undefined,
+        "config",
+      );
+    } finally {
+      __fakeProcInspect = null;
+    }
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.view).toBe("config");
+    expect(seen[0]!.run).toBeUndefined();
+    expect(seen[0]!.step).toBeUndefined();
+  });
 });
 
 // ── single-flight dedup ──────────────────────────────────────────────

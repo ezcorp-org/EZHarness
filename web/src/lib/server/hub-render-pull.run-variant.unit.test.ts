@@ -130,3 +130,59 @@ describe("renderExtensionPage — ?step= sub-variant", () => {
 		expect(scopes[0]).toEqual({ run: "run_x", step: "lint" });
 	});
 });
+
+describe("renderExtensionPage — ?view= variant", () => {
+	test("view threads into the scope on its own (perProject → listProjects, no run)", async () => {
+		const { deps, scopes } = makeDeps();
+		await renderExtensionPage("ez-code-factory", "dashboard", "u1", deps, undefined, undefined, undefined, "config");
+		// view is INDEPENDENT of run — folded in even with no run.
+		expect(scopes[0]).toEqual({ listProjects: true, view: "config" });
+	});
+
+	test("view rides alongside a single project (no run)", async () => {
+		const { deps, scopes } = makeDeps();
+		const project = { id: "p1", name: "P", path: "/p" };
+		await renderExtensionPage("ez-code-factory", "dashboard", "u1", deps, project, undefined, undefined, "audit");
+		expect(scopes[0]).toEqual({ project, view: "audit" });
+	});
+
+	test("view folds in on a NON-perProject page with no run (bare view scope)", async () => {
+		const { deps, scopes } = makeDeps({ perProject: false });
+		await renderExtensionPage("ez-code-factory", "dashboard", "u1", deps, undefined, undefined, undefined, "config");
+		expect(scopes[0]).toEqual({ view: "config" });
+	});
+
+	test("view rides ALONGSIDE run + step when all present", async () => {
+		const { deps, scopes } = makeDeps();
+		await renderExtensionPage("ez-code-factory", "dashboard", "u1", deps, undefined, "run_a", "review", "config");
+		expect(scopes[0]).toEqual({ listProjects: true, run: "run_a", step: "review", view: "config" });
+	});
+
+	test("a view render is a DISTINCT cache variant; the bare (no-view) key stays byte-identical", async () => {
+		const { deps, scopes } = makeDeps();
+		await renderExtensionPage("ez-code-factory", "dashboard", "u1", deps); // dashboard (listProjects), no view
+		await renderExtensionPage("ez-code-factory", "dashboard", "u1", deps); // cache HIT (bare key unchanged)
+		await renderExtensionPage("ez-code-factory", "dashboard", "u1", deps, undefined, undefined, undefined, "config"); // view — MISS
+		await renderExtensionPage("ez-code-factory", "dashboard", "u1", deps, undefined, undefined, undefined, "config"); // view cache HIT
+		// dashboard pulled once (2nd from cache), config pulled once = 2 pulls.
+		expect(scopes.filter(Boolean)).toHaveLength(2);
+		expect(scopes[0]).toEqual({ listProjects: true });
+		expect(scopes[1]).toEqual({ listProjects: true, view: "config" });
+	});
+
+	test("distinct views (config vs audit) are distinct cache variants", async () => {
+		const { deps, scopes } = makeDeps();
+		await renderExtensionPage("ez-code-factory", "dashboard", "u1", deps, undefined, undefined, undefined, "config");
+		await renderExtensionPage("ez-code-factory", "dashboard", "u1", deps, undefined, undefined, undefined, "audit");
+		expect(scopes.filter(Boolean)).toHaveLength(2);
+		expect(scopes[1]).toEqual({ listProjects: true, view: "audit" });
+	});
+
+	test("a run detail and a view of that run cache SEPARATELY (view suffix isolates)", async () => {
+		const { deps, scopes } = makeDeps();
+		await renderExtensionPage("ez-code-factory", "dashboard", "u1", deps, undefined, "run_a"); // run detail
+		await renderExtensionPage("ez-code-factory", "dashboard", "u1", deps, undefined, "run_a", undefined, "config"); // run + view — MISS
+		expect(scopes.filter(Boolean)).toHaveLength(2);
+		expect(scopes[1]).toEqual({ listProjects: true, run: "run_a", view: "config" });
+	});
+});

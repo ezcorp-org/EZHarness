@@ -28,7 +28,12 @@
  * meaningless without it; `hub-render-pull` drops a stray step. Both are
  * bounded so junk never reaches the render.
  *
- * Rate limit: 12 renders/min/user/page/project+run+step-variant.
+ * `?view=<value>` selects an alternate page surface (config / job / audit),
+ * passed opaquely to the extension (compound values like `audit:<day>` /
+ * `job:<id>` are parsed by the page). INDEPENDENT of `?run=`, bounded so junk
+ * never reaches the render or the limiter key.
+ *
+ * Rate limit: 12 renders/min/user/page/project+run+step+view-variant.
  */
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "./$types";
@@ -63,6 +68,13 @@ const MAX_RUN_PARAM_LENGTH = 128;
  *  `run`, the value is passed opaquely to the extension render, which validates
  *  it against its own step set — an unknown step renders an empty detail. */
 const MAX_STEP_PARAM_LENGTH = 128;
+
+/** Sanity bound on `?view=<value>` (the render-variant selector). View values
+ *  are short tokens (`config`, `audit`, `audit:YYYY-MM-DD`, `job:<id>`);
+ *  anything longer is junk. Slightly larger than the run/step bounds to admit a
+ *  compound `job:<uuid>` while still capping abuse. Passed opaquely to the
+ *  extension, which parses + validates it (unknown → empty state, never error). */
+const MAX_VIEW_PARAM_LENGTH = 160;
 
 export const GET: RequestHandler = async ({ locals, params, url }) => {
   const scopeErr = requireScope(locals, "read");
@@ -99,12 +111,19 @@ export const GET: RequestHandler = async ({ locals, params, url }) => {
   const step =
     stepParam && stepParam.length <= MAX_STEP_PARAM_LENGTH ? stepParam : undefined;
 
-  // The project + run + step variants are part of the limiter key: each project
-  // view AND each run/step detail of a page is a distinct render target with its
-  // own budget — without this, browsing 12+ projects/runs/steps in a minute 429s
-  // on first renders.
+  // Optional render-variant selector (`?view=<value>`). Passed opaquely to the
+  // extension (compound values parsed page-side). Independent of `?run=`;
+  // bounded so an oversized value never reaches the render or the key.
+  const viewParam = url.searchParams.get("view");
+  const view =
+    viewParam && viewParam.length <= MAX_VIEW_PARAM_LENGTH ? viewParam : undefined;
+
+  // The project + run + step + view variants are part of the limiter key: each
+  // project view AND each run/step/view detail of a page is a distinct render
+  // target with its own budget — without this, browsing 12+ projects/runs/
+  // steps/views in a minute 429s on first renders.
   const limit = __rateLimiter.check(
-    `hub-render:${user.id}:${params.id}:${project?.id ?? ""}:${run ?? ""}:${step ?? ""}`,
+    `hub-render:${user.id}:${params.id}:${project?.id ?? ""}:${run ?? ""}:${step ?? ""}:${view ?? ""}`,
   );
   if (!limit.allowed) {
     return errorJson(
@@ -124,6 +143,7 @@ export const GET: RequestHandler = async ({ locals, params, url }) => {
       project,
       run,
       step,
+      view,
     );
     if (result.notFound) return errorJson(404, "Not found");
     if (result.error !== undefined) return json({ error: result.error });

@@ -126,6 +126,29 @@ describe("ExtensionPageCache", () => {
     expect(cache.get("ext-1", "page", "run:run_a:step:review")).toBeNull();
   });
 
+  test("view variant keys are independent of the bare + run keys AND all dropped by one invalidate", () => {
+    const { cache } = makeCache();
+    cache.set("ext-1", "page", TREE); // dashboard (global, no view)
+    cache.set("ext-1", "page", TREE2, ":view:config"); // config view (no project/run)
+    cache.set("ext-1", "page", TREE, ":view:audit:2026-07-21"); // audit view (compound)
+    cache.set("ext-1", "page", TREE2, "run:run_a"); // run detail (no view)
+    cache.set("ext-1", "page", TREE, "run:run_a:view:job:abc"); // run + view — distinct slot
+    // Every variant is an independent slot — the config view never collides with
+    // the bare dashboard, and a run-scoped view never collides with the bare run.
+    expect(cache.get("ext-1", "page")!.tree).toEqual(TREE);
+    expect(cache.get("ext-1", "page", ":view:config")!.tree).toEqual(TREE2);
+    expect(cache.get("ext-1", "page", ":view:audit:2026-07-21")!.tree).toEqual(TREE);
+    expect(cache.get("ext-1", "page", "run:run_a")!.tree).toEqual(TREE2);
+    expect(cache.get("ext-1", "page", "run:run_a:view:job:abc")!.tree).toEqual(TREE);
+    expect(cache.get("ext-1", "page", ":view:job:zzz")).toBeNull();
+    // One invalidation clears them all (the content-free "page X changed" signal).
+    cache.invalidate("ext-1", "page");
+    expect(cache.get("ext-1", "page")).toBeNull();
+    expect(cache.get("ext-1", "page", ":view:config")).toBeNull();
+    expect(cache.get("ext-1", "page", ":view:audit:2026-07-21")).toBeNull();
+    expect(cache.get("ext-1", "page", "run:run_a:view:job:abc")).toBeNull();
+  });
+
   test("invalidate cannot cross pages that share an id prefix", () => {
     const { cache } = makeCache();
     cache.set("ext-1", "dash", TREE);

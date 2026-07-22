@@ -407,6 +407,47 @@ describe("render context (perProject pages)", () => {
   test("a non-string step is ignored (run survives, no ctx.step)", async () => {
     expect(await renderWith({ run: "run_abc", step: 42 })).toEqual({ run: "run_abc" });
   });
+
+  test("host {view} arrives as ctx.view — on its own (no project, no run)", async () => {
+    expect(await renderWith({ view: "config" })).toEqual({ view: "config" });
+  });
+
+  test("view rides ALONGSIDE a single project (independent of run)", async () => {
+    expect(await renderWith({ project: PROJECT, view: "audit" })).toEqual({
+      project: PROJECT,
+      view: "audit",
+    });
+  });
+
+  test("view rides alongside a {projects} list", async () => {
+    expect(await renderWith({ projects: [PROJECT], view: "audit:2026-07-21" })).toEqual({
+      projects: [PROJECT],
+      view: "audit:2026-07-21",
+    });
+  });
+
+  test("view rides alongside run + step (all three present)", async () => {
+    expect(await renderWith({ run: "run_abc", step: "review", view: "config" })).toEqual({
+      run: "run_abc",
+      step: "review",
+      view: "config",
+    });
+  });
+
+  test("view folds in WITHOUT a run (unlike step — view is independent)", async () => {
+    expect(await renderWith({ project: PROJECT, view: "job:abc" })).toEqual({
+      project: PROJECT,
+      view: "job:abc",
+    });
+  });
+
+  test("an empty view string is ignored (no ctx.view, no context)", async () => {
+    expect(await renderWith({ view: "" })).toBeUndefined();
+  });
+
+  test("a non-string view is ignored but project context survives", async () => {
+    expect(await renderWith({ project: PROJECT, view: 42 })).toEqual({ project: PROJECT });
+  });
 });
 
 describe("render context — malformed-list fallback", () => {
@@ -442,6 +483,12 @@ describe("render context — malformed-list fallback", () => {
     expect(await renderWith({ projects: [{ id: 1 }, "junk"], run: "run_abc", step: "review" })).toEqual({
       run: "run_abc",
       step: "review",
+    });
+  });
+
+  test("a view request survives the malformed-list fallback (view is project-independent)", async () => {
+    expect(await renderWith({ projects: [{ id: 1 }, "junk"], view: "config" })).toEqual({
+      view: "config",
     });
   });
 });

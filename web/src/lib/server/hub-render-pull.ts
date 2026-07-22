@@ -57,6 +57,10 @@ export interface PageRenderScope {
    *  detail within `run`. Meaningful only alongside `run`; callers never set it
    *  without `run`. */
   step?: string;
+  /** Render-variant selector (`?view=<value>`) — an alternate page surface
+   *  (config / job-editor / audit). INDEPENDENT of `run`/project: included
+   *  whenever present. Parsed opaquely by the extension. */
+  view?: string;
 }
 
 /** The cache/single-flight variant key for a scope. A run-detail is keyed by
@@ -64,10 +68,16 @@ export interface PageRenderScope {
  *  the same run detail caches once; a step detail adds a `:step:<name>` suffix
  *  so it caches SEPARATELY from the run detail. The bare `run:<id>` key stays
  *  byte-identical (cache + single-flight backward compat). Otherwise the project
- *  id (`""` = global). */
+ *  id (`""` = global). A `view` selector appends `:view:<value>` to whatever the
+ *  base key is — so a `view` render caches SEPARATELY, and a bare (no-view) key
+ *  stays byte-identical to the pre-view behaviour. */
 function variantKey(scope?: PageRenderScope): string {
-  if (scope?.run) return scope.step ? `run:${scope.run}:step:${scope.step}` : `run:${scope.run}`;
-  return scope?.project?.id ?? "";
+  const base = scope?.run
+    ? scope.step
+      ? `run:${scope.run}:step:${scope.step}`
+      : `run:${scope.run}`
+    : scope?.project?.id ?? "";
+  return scope?.view ? `${base}:view:${scope.view}` : base;
 }
 
 export type RenderExtensionPageResult =
@@ -197,12 +207,17 @@ async function productionCallPage(
   // of `run`) rides along only when `run` is present.
   const runParam = scope?.run ? { run: scope.run } : {};
   const stepParam = scope?.run && scope?.step ? { step: scope.step } : {};
+  // `view` rides ALONGSIDE any project/run context — the page reads it to switch
+  // to an alternate surface. Independent of `run` (unlike `step`), so it is
+  // forwarded whenever present.
+  const viewParam = scope?.view ? { view: scope.view } : {};
   try {
     return await proc.call("ezcorp/page.render", {
       pageId,
       ...projectParams,
       ...runParam,
       ...stepParam,
+      ...viewParam,
       _meta: { ezCallId },
     });
   } finally {
@@ -300,6 +315,7 @@ export async function renderExtensionPage(
   project?: HubProjectRef,
   run?: string,
   step?: string,
+  view?: string,
 ): Promise<RenderExtensionPageResult> {
   const deps: RenderPullDeps = { ...defaultDeps(), ...depsOverride };
 
@@ -312,14 +328,20 @@ export async function renderExtensionPage(
   // request is honoured on a perProject page alongside (or instead of) project
   // context; on a non-perProject page it still routes a run-detail render.
   // `step` is a sub-variant of `run` and is meaningless without it — dropped
-  // when `run` is absent, so a stray `?step=` never forks the cache.
+  // when `run` is absent, so a stray `?step=` never forks the cache. `view` is
+  // INDEPENDENT of run/project — folded in whenever present (even a bare global
+  // render with no project and no run), so an alternate surface is reachable
+  // from any hub.
   const perProject = found.page.perProject === true;
   const runStepScope: PageRenderScope | undefined = run
     ? { run, ...(step ? { step } : {}) }
     : undefined;
-  const scope: PageRenderScope | undefined = perProject
+  const baseScope: PageRenderScope | undefined = perProject
     ? { ...(project ? { project } : { listProjects: true }), ...(runStepScope ?? {}) }
     : runStepScope;
+  const scope: PageRenderScope | undefined = view
+    ? { ...(baseScope ?? {}), view }
+    : baseScope;
   const variant = variantKey(scope);
 
   const cached = deps.cache.get(extension.id, pageId, variant);
