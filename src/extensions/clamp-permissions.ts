@@ -605,6 +605,16 @@ export function manifestEventsIncludeFullPayload(
   return false;
 }
 
+/** Top-level manifest fields the clamp consults beyond `permissions` —
+ *  the flags plus `name`, which scopes OWN-namespace custom-event grants
+ *  (`<name>:<event>`). Type-only: erased at runtime, so it carries no
+ *  instrumentable lines (the multi-line inline form tripped the patch
+ *  coverage gate on type-continuation lines two instrumenters disagree on). */
+type ClampManifestTopLevel = Pick<
+  ExtensionManifestV2,
+  "acceptsCallerCaps" | "escalateChildCaps"
+> & { name?: string };
+
 export function clampExtensionPermissions(
   submitted: Partial<ExtensionPermissions>,
   // The ceiling. Normally the manifest declaration, but the
@@ -616,10 +626,7 @@ export function clampExtensionPermissions(
   manifest: Omit<ExtensionManifestV2["permissions"], "search"> & {
     search?: ExtensionManifestV2["permissions"]["search"] | ExtensionPermissions["search"];
   },
-  manifestTopLevel?: Pick<
-    ExtensionManifestV2,
-    "acceptsCallerCaps" | "escalateChildCaps"
-  > & { name?: string },
+  manifestTopLevel?: ClampManifestTopLevel,
 ): ExtensionPermissions {
   const clamped: ExtensionPermissions = { grantedAt: {} };
 

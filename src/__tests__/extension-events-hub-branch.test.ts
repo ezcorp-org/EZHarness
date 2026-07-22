@@ -44,6 +44,9 @@ let mockProject: { id: string; name: string; path: string } | null = null;
 let getServiceConvCalls: Array<{ extensionName: string; projectId: string; userId: string; title: string }> = [];
 const SERVICE_CONV_ID = "svc-conv-1";
 let serviceConvWiring: Array<{ conversationId: string; extensionId: string }> = [];
+// When true, the service-conv resolver throws — exercises the route's
+// record-and-continue catch (fail closed to null scope, never a 500).
+let serviceConvThrows = false;
 let alreadyWiredExtIds: string[] = [];
 
 const fakeProc = {
@@ -112,6 +115,7 @@ mock.module("$server/db/queries/conversations", () => ({
   getOrCreateExtServiceConversation: async (opts: {
     extensionName: string; projectId: string; userId: string; title: string;
   }) => {
+    if (serviceConvThrows) throw new Error("db down");
     getServiceConvCalls.push(opts);
     return { id: SERVICE_CONV_ID, kind: "ext-service", userId: opts.userId, projectId: opts.projectId };
   },
@@ -224,6 +228,7 @@ beforeEach(() => {
   getServiceConvCalls = [];
   serviceConvWiring = [];
   alreadyWiredExtIds = [];
+  serviceConvThrows = false;
 });
 
 describe("hub-source branch", () => {
@@ -312,6 +317,28 @@ describe("hub-source branch", () => {
     expect(serviceConvWiring).toHaveLength(0);
     const meta = (sendCalls[0]!.params as { _meta?: { ezCallId?: string } })._meta;
     expect(resolveCallProvenance(meta!.ezCallId!)).toMatchObject({ conversationId: null });
+  });
+
+  test("service-conv resolution THROWING fails closed to null scope — never a 500, event still delivered", async () => {
+    mockProject = { id: "proj-1", name: "My App", path: "/repos/my-app" };
+    serviceConvThrows = true; // resolver blows up (e.g. db down)
+    const res = await POST(makeEvent({
+      source: "hub",
+      pageId: "dashboard",
+      payload: { projectRoot: "/repos/my-app", repoId: "abc123abc123", branch: "main" },
+    }));
+    // The catch is record-and-continue: the fire still dispatches…
+    expect(res.status).toBe(200);
+    expect(sendCalls).toHaveLength(1);
+    expect(serviceConvWiring).toHaveLength(0);
+    // …but the token stays conversationless (fail-closed — spawn will reject
+    // rather than borrow ambient scope).
+    const meta = (sendCalls[0]!.params as { _meta?: { ezCallId?: string } })._meta;
+    expect(resolveCallProvenance(meta!.ezCallId!)).toMatchObject({
+      onBehalfOf: "user-1",
+      conversationId: null,
+      ownerless: false,
+    });
   });
 
   test("gate push reuses an already-wired service conversation (no duplicate wiring)", async () => {
