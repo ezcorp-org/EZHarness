@@ -74,6 +74,10 @@ export interface PageFormFieldDescriptor {
   placeholder?: string;
   /** Input length hint; host clamps to [1,500], default 200. */
   maxLength?: number;
+  /** Render a multi-row textarea instead of the single-line input — for
+   *  long free-text fields. Display-only; the submitted value is the same
+   *  clamped scalar string either way. */
+  multiline?: boolean;
 }
 
 /**
@@ -176,6 +180,29 @@ export class PageBuilder extends ComponentListBuilder {
 
   link(label: string, href: string): this {
     this.components.push({ type: "link", label, href });
+    return this;
+  }
+
+  /**
+   * INLINE on-page form node — the page-embedded sibling of the
+   * `PageActionDescriptor.form` modal. Fields (1..8, same shape/caps as the
+   * dialog form; `multiline` renders a textarea) appear directly in the page
+   * flow with one submit button. On submit every field's typed value merges
+   * into `action.payload[field]` and the action dispatches through its
+   * eventSubscriptions-gated path — NO new authority. The host STRIPS any
+   * `prompt`/`form` off the action (the inline fields are the input surface);
+   * `confirm` survives. `submitLabel` defaults to "Save".
+   */
+  form(
+    fields: PageFormFieldDescriptor[],
+    action: PageActionDescriptor,
+    submitLabel?: string,
+  ): this {
+    this.components.push(
+      submitLabel !== undefined
+        ? { type: "form", action, fields, submitLabel }
+        : { type: "form", action, fields },
+    );
     return this;
   }
 

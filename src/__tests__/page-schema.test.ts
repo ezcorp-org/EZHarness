@@ -25,6 +25,7 @@ import {
   type PageLink,
   type PageEmptyState,
   type PageForm,
+  type PageFormNode,
 } from "../extensions/page-schema";
 
 const EVENTS = ["demo:refresh", "demo:clear"] as const;
@@ -1016,5 +1017,103 @@ describe("ECF job-view prompt fields survive the real validator", () => {
     // constant now equals the cap); an empty prefill survives as "".
     expect(btn.action.form!.fields[3]!.maxLength).toBe(500);
     expect(btn.action.form!.fields[3]!.value).toBe("");
+  });
+});
+
+// ── Inline form NODE (the page-embedded sibling of the dialog form) ──
+
+describe("form node", () => {
+  const FIELDS = [
+    { field: "name", label: "Name", value: "Default", maxLength: 80 },
+    { field: "review_instructions", label: "Review instructions", multiline: true, maxLength: 500 },
+  ];
+
+  test("a valid form node survives with action, fields, and submitLabel", () => {
+    const result = validate([
+      { type: "form", action: { event: "demo:refresh", payload: { jobId: "j1" } }, fields: FIELDS, submitLabel: "Save job" },
+    ]);
+    const form = result!.nodes[0] as PageFormNode;
+    expect(form.type).toBe("form");
+    expect(form.action).toEqual({ event: "demo:refresh", payload: { jobId: "j1" } });
+    expect(form.fields.map((f) => f.field)).toEqual(["name", "review_instructions"]);
+    expect(form.submitLabel).toBe("Save job");
+  });
+
+  test("multiline survives only as literal true; the flag is display-only", () => {
+    const result = validate([
+      {
+        type: "form",
+        action: { event: "demo:refresh" },
+        fields: [
+          { field: "a", label: "A", multiline: true },
+          { field: "b", label: "B", multiline: "yes" },
+          { field: "c", label: "C" },
+        ],
+      },
+    ]);
+    const form = result!.nodes[0] as PageFormNode;
+    expect(form.fields[0]!.multiline).toBe(true);
+    expect(form.fields[1]!.multiline).toBeUndefined();
+    expect(form.fields[2]!.multiline).toBeUndefined();
+  });
+
+  test("an undeclared event drops the whole node", () => {
+    const result = validate([
+      { type: "form", action: { event: "evil:exfil" }, fields: FIELDS },
+    ]);
+    expect(result!.nodes).toHaveLength(0);
+  });
+
+  test("zero surviving fields drops the whole node", () => {
+    const result = validate([
+      { type: "form", action: { event: "demo:refresh" }, fields: [{ field: "Bad-Slug", label: "X" }] },
+      { type: "form", action: { event: "demo:refresh" }, fields: [] },
+      { type: "form", action: { event: "demo:refresh" } },
+    ]);
+    expect(result!.nodes).toHaveLength(0);
+  });
+
+  test("the action's prompt AND dialog-form are STRIPPED — a submit must dispatch directly", () => {
+    const result = validate([
+      {
+        type: "form",
+        action: {
+          event: "demo:refresh",
+          confirm: "Sure?",
+          prompt: { label: "Should not survive" },
+          form: { fields: [{ field: "x", label: "X" }] },
+        },
+        fields: FIELDS,
+      },
+    ]);
+    const form = result!.nodes[0] as PageFormNode;
+    expect(form.action.prompt).toBeUndefined();
+    expect(form.action.form).toBeUndefined();
+    // confirm survives — a destructive full-form save may still gate on it.
+    expect(form.action.confirm).toBe("Sure?");
+  });
+
+  test("fields cap at 8, values truncate to maxLength, labels are <>-stripped", () => {
+    const manyFields = Array.from({ length: 10 }, (_, i) => ({
+      field: `f${i}`,
+      label: `<b>Label ${i}</b>`,
+      value: "x".repeat(600),
+      maxLength: 500,
+    }));
+    const result = validate([
+      { type: "form", action: { event: "demo:refresh" }, fields: manyFields },
+    ]);
+    const form = result!.nodes[0] as PageFormNode;
+    expect(form.fields).toHaveLength(8);
+    expect(form.fields[0]!.label).toBe("bLabel 0/b");
+    expect(form.fields[0]!.value).toHaveLength(500);
+  });
+
+  test("a form node consumes ONE node-budget slot and counts toward the tree cap", () => {
+    const result = validate([
+      { type: "form", action: { event: "demo:refresh" }, fields: FIELDS },
+      { type: "heading", level: 2, text: "after" },
+    ]);
+    expect(result!.nodes).toHaveLength(2);
   });
 });

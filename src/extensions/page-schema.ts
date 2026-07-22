@@ -125,6 +125,10 @@ export interface PageFormField {
   placeholder?: string;
   /** Host clamps the input length; default 200, hard cap 500. */
   maxLength?: number;
+  /** Render a multi-row textarea instead of the single-line input — for
+   *  long free-text fields (instructions, templates). Display-only: the
+   *  submitted value is the same clamped scalar string either way. */
+  multiline?: boolean;
 }
 
 /**
@@ -237,6 +241,26 @@ export interface PageEmptyState {
   detail?: string;
 }
 
+/**
+ * An INLINE on-page form — the page-embedded sibling of the `PageAction.form`
+ * modal. The host renders the labeled inputs (textarea when `multiline`)
+ * directly in the page flow with one submit button; on submit every field's
+ * typed string merges into `action.payload[field]` and the action dispatches
+ * through its UNCHANGED, already-gated event path. Grants ZERO new authority
+ * (same contract as the dialog form). The action's own `prompt`/`form` are
+ * STRIPPED by validation — the inline fields ARE the input surface, so a
+ * submit must never open a second collection dialog; `confirm` survives.
+ */
+export interface PageFormNode {
+  type: "form";
+  /** Dispatched on submit with every field value merged into its payload. */
+  action: PageAction;
+  /** 1..8 validated fields (same shape + caps as the dialog form). */
+  fields: PageFormField[];
+  /** Submit-button label; default "Save". */
+  submitLabel?: string;
+}
+
 export type PageOnlyNode =
   | PageSection
   | PageHeading
@@ -245,7 +269,8 @@ export type PageOnlyNode =
   | PageTable
   | PageButton
   | PageLink
-  | PageEmptyState;
+  | PageEmptyState
+  | PageFormNode;
 
 /** Full Hub page vocabulary: panel nodes (wire-shapes unchanged) + page nodes. */
 export type PageNode = PanelComponent | PageOnlyNode;
@@ -294,6 +319,7 @@ const PAGE_ONLY_TYPES = new Set<string>([
   "button",
   "link",
   "empty-state",
+  "form",
 ]);
 
 const BUTTON_STYLES = new Set(["primary", "secondary", "danger"]);
@@ -369,6 +395,7 @@ function validateFormField(raw: unknown): PageFormField | null {
   // input can hold would never round-trip).
   if (f.value != null) out.value = truncate(f.value, ml);
   if (f.placeholder != null) out.placeholder = truncate(f.placeholder, PROMPT_LABEL_MAX);
+  if (f.multiline === true) out.multiline = true;
   return out;
 }
 
@@ -552,6 +579,37 @@ function validateButton(
   };
 }
 
+/**
+ * Validate an INLINE form node. Dropped (null) when the action fails the
+ * event allowlist / payload rules or when no field survives — a form that
+ * can't dispatch or has nothing to type into is useless. The action's
+ * `prompt`/`form` are STRIPPED: the inline fields are the input surface, so
+ * a submit must dispatch directly (never open a second collection dialog).
+ */
+function validateFormNode(
+  raw: Record<string, unknown>,
+  allowedEvents: readonly string[],
+): PageFormNode | null {
+  const action = validateAction(raw.action, allowedEvents);
+  if (!action) return null;
+  delete action.prompt;
+  delete action.form;
+  if (!Array.isArray(raw.fields)) return null;
+  const fields: PageFormField[] = [];
+  for (const rawField of raw.fields) {
+    if (fields.length >= MAX_FORM_FIELDS) break;
+    const field = validateFormField(rawField);
+    if (field) fields.push(field);
+  }
+  if (fields.length === 0) return null;
+  const out: PageFormNode = { type: "form", action, fields };
+  if (raw.submitLabel != null) {
+    const sl = truncate(raw.submitLabel, PROMPT_SUBMIT_LABEL_MAX);
+    if (sl.length > 0) out.submitLabel = sl;
+  }
+  return out;
+}
+
 function validateLink(raw: Record<string, unknown>): PageLink | null {
   if (typeof raw.label !== "string") return null;
   if (!isSafeInternalHref(raw.href)) return null;
@@ -610,6 +668,7 @@ function validateNode(
     case "button":      return validateButton(obj, allowedEvents);
     case "link":        return validateLink(obj);
     case "empty-state": return validateEmptyState(obj);
+    case "form":        return validateFormNode(obj, allowedEvents);
     default:            return null;
   }
 }

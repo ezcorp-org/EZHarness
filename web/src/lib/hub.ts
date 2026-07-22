@@ -57,6 +57,8 @@ export interface PageFormField {
   value?: string;
   placeholder?: string;
   maxLength?: number;
+  /** Render a multi-row textarea instead of the single-line input. */
+  multiline?: boolean;
 }
 /** Host-rendered multi-field form. Mirror of page-schema's `PageForm`
  *  (source of truth) — keep aligned. Every field's typed value merges into
@@ -92,6 +94,11 @@ export interface PageTableNode { type: "table"; columns: string[]; rows: PageTab
 export interface PageButtonNode { type: "button"; label: string; action: PageAction; style?: "primary" | "secondary" | "danger" }
 export interface PageLinkNode { type: "link"; label: string; href: string }
 export interface PageEmptyStateNode { type: "empty-state"; title: string; detail?: string }
+/** INLINE on-page form — mirror of page-schema's `PageFormNode` (source of
+ *  truth). Fields render in the page flow; Save merges EVERY field value
+ *  into `action.payload[field]` and dispatches (the validator strips any
+ *  `prompt`/`form` off the action — a submit never opens a dialog). */
+export interface PageFormNode { type: "form"; action: PageAction; fields: PageFormField[]; submitLabel?: string }
 
 export type PageNode =
   | PanelHeaderNode
@@ -110,7 +117,8 @@ export type PageNode =
   | PageTableNode
   | PageButtonNode
   | PageLinkNode
-  | PageEmptyStateNode;
+  | PageEmptyStateNode
+  | PageFormNode;
 
 export interface HubPageTree {
   title: string;

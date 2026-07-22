@@ -140,6 +140,30 @@ describe("PageBuilder page-only components", () => {
     expect(action.form).toBeUndefined();
   });
 
+  test("form node: fields + action + submitLabel", () => {
+    const fields = [
+      { field: "name", label: "Name", value: "Default", maxLength: 80 },
+      { field: "review_instructions", label: "Review", multiline: true, maxLength: 500 },
+    ];
+    expect(
+      build((b) => b.form(fields, { event: "e:save", payload: { jobId: "j1" } }, "Save job")).nodes,
+    ).toEqual([
+      {
+        type: "form",
+        action: { event: "e:save", payload: { jobId: "j1" } },
+        fields,
+        submitLabel: "Save job",
+      },
+    ]);
+  });
+
+  test("form node without submitLabel omits the key (host defaults to Save)", () => {
+    const fields = [{ field: "name", label: "Name" }];
+    expect(build((b) => b.form(fields, { event: "e:save" })).nodes).toEqual([
+      { type: "form", action: { event: "e:save" }, fields },
+    ]);
+  });
+
   test("link", () => {
     expect(build((b) => b.link("Open", "/hub/x")).nodes).toEqual([
       { type: "link", label: "Open", href: "/hub/x" },
