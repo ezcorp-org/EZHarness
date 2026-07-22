@@ -37,6 +37,10 @@ The gate files (`scripts/coverage-*.ts`, `coverage-thresholds.json`, CI
 workflows, `playwright.config.ts`) are CODEOWNERS-owned — changing them needs
 human review. Verify locally before pushing:
 `bun run typecheck && bun run lint && bun run test && bun run test:coverage`.
+Checked-in git hooks (`.githooks/`, auto-wired by `bun install`) shift the cheap
+checks left — pre-commit lint + manifest-lock, pre-push lint/typecheck/svelte-check;
+bypass with `EZ_SKIP_HOOKS=1` or `--no-verify`. They're advisory; CI is the gate.
+See [docs/development-lifecycle.md](docs/development-lifecycle.md#local-hooks-shift-left).
 
 **Worktree isolation (binding):** ALWAYS run agents in a separate git
 worktree — never let a spawned agent edit the primary working directory
