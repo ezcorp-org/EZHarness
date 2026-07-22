@@ -1567,8 +1567,10 @@ export function buildJobView(
   // steps run, never their sequence.
   page.section("Flow", (s) => {
     const skipped = new Set<string>(job.skipSteps);
+    // Plain text on purpose: `.markdown(text, variant)` emits the host-escaped
+    // `{type:"text"}` node, so markdown syntax would render literally.
     s.markdown(
-      "Step **order** is fixed by the pipeline and cannot be changed here, and the " +
+      "Step order is fixed by the pipeline and cannot be changed here, and the " +
         "protected steps (intent, rebase, review, push) always run. Use the row toggles " +
         "to skip or re-run the remaining steps for this job.",
       "muted",
