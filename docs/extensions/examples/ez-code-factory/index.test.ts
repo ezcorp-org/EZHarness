@@ -45,6 +45,7 @@ import {
   _setRunHeartbeatKVForTests,
   runReconcileSweep,
   handleScheduleFire,
+  synthesizeScheduledRuns,
   recoverOnStart,
   _setJobStoreForTests,
   _setAuditForTests,
@@ -678,6 +679,105 @@ describe("handlePushReceived — job matching", () => {
     expect(run.jobId).toBe("default");
     // The seed itself is audited as actor "system".
     expect(auditEntries.some((e) => e.kind === "job-seed" && e.actor === "system")).toBe(true);
+  });
+});
+
+// ── synthesizeScheduledRuns — schedule tick routing (control plane, L4) ──
+
+describe("synthesizeScheduledRuns", () => {
+  const NEW_SHA = "cafebabecafebabecafebabecafebabecafebabe";
+  /** Shell that returns `sha` for rev-parse and exit 0 for every other git op. */
+  function revParseShell(sha: string): ShellRunner {
+    return async (cmd) =>
+      cmd.includes("rev-parse")
+        ? { exitCode: 0, stdout: `${sha}\n`, stderr: "" }
+        : { exitCode: 0, stdout: "", stderr: "" };
+  }
+  function schedJob(over: Partial<Job>): Job {
+    return { ...buildDefaultJob("2026-07-15T00:00:00.000Z"), id: "nightly", name: "Nightly", trigger: { kind: "schedule", every: "daily", branch: "main" }, ...over };
+  }
+
+  test("a due schedule job whose head advanced synthesizes a run + audits + bookkeeps the head", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setTmpBaseForTests(() => "/tmp/ext");
+    _setInvalidatePageForTests(() => {});
+    _setShellForTests(revParseShell(NEW_SHA));
+    const store = memStore();
+    _setStoreForTests(store);
+    _setRunPipelineForTests(fakePipeline(store, "completed"));
+    const jobStore = fakeJobStore([schedJob({ lastHeadSha: "oldsha" })]);
+    _setJobStoreForTests(jobStore);
+
+    await synthesizeScheduledRuns(new Date("2026-07-21T00:00:00.000Z"));
+
+    const run = [...store.runs.values()][0]!;
+    expect(run.jobId).toBe("nightly");
+    expect(run.branch).toBe("main");
+    expect(run.headSha).toBe(NEW_SHA);
+    expect(auditEntries.some((e) => e.kind === "schedule-fire" && e.jobId === "nightly" && e.runId === run.id)).toBe(true);
+    // Head + fire-time bookkept for the next tick's no-change check.
+    expect(jobStore.jobs.get("nightly")!.lastHeadSha).toBe(NEW_SHA);
+    expect(jobStore.jobs.get("nightly")!.lastScheduleFireAt).toBeDefined();
+  });
+
+  test("no-change (head unchanged) mints NO run and audits schedule-no-change", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setShellForTests(revParseShell("samesha"));
+    const store = memStore();
+    _setStoreForTests(store);
+    _setJobStoreForTests(fakeJobStore([schedJob({ trigger: { kind: "schedule", every: "15m", branch: "main" }, lastHeadSha: "samesha" })]));
+
+    await synthesizeScheduledRuns(new Date());
+
+    expect([...store.runs.values()]).toHaveLength(0);
+    expect(auditEntries.some((e) => e.kind === "schedule-no-change")).toBe(true);
+  });
+
+  test("a branch the gate never received audits schedule-no-branch, no run", async () => {
+    _setProjectRootForTests(() => "/proj");
+    // rev-parse fails (branch absent) → exit 128.
+    _setShellForTests(async (cmd) => cmd.includes("rev-parse") ? { exitCode: 128, stdout: "", stderr: "unknown revision" } : { exitCode: 0, stdout: "", stderr: "" });
+    const store = memStore();
+    _setStoreForTests(store);
+    _setJobStoreForTests(fakeJobStore([schedJob({ trigger: { kind: "schedule", every: "15m", branch: "ghost" } })]));
+
+    await synthesizeScheduledRuns(new Date());
+
+    expect([...store.runs.values()]).toHaveLength(0);
+    expect(auditEntries.some((e) => e.kind === "schedule-no-branch")).toBe(true);
+  });
+
+  test("a NOT-due schedule job (already fired this hour) is skipped", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setShellForTests(revParseShell(NEW_SHA));
+    const store = memStore();
+    _setStoreForTests(store);
+    _setJobStoreForTests(fakeJobStore([schedJob({ trigger: { kind: "schedule", every: "hourly", branch: "main" }, lastScheduleFireAt: "2026-07-21T13:00:00.000Z" })]));
+
+    await synthesizeScheduledRuns(new Date("2026-07-21T13:15:00.000Z")); // same hour → not due
+    expect([...store.runs.values()]).toHaveLength(0);
+  });
+
+  test("push-trigger + disabled schedule jobs are never synthesized", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setShellForTests(revParseShell(NEW_SHA));
+    const store = memStore();
+    _setStoreForTests(store);
+    _setJobStoreForTests(fakeJobStore([
+      buildDefaultJob("t"), // push
+      schedJob({ id: "off", enabled: false, trigger: { kind: "schedule", every: "15m", branch: "main" } }),
+    ]));
+    await synthesizeScheduledRuns(new Date());
+    expect([...store.runs.values()]).toHaveLength(0);
+  });
+
+  test("no resolvable project root → context-free no-op", async () => {
+    _setProjectRootForTests(() => undefined);
+    const store = memStore();
+    _setStoreForTests(store);
+    _setJobStoreForTests(fakeJobStore([schedJob({ trigger: { kind: "schedule", every: "15m", branch: "main" } })]));
+    await synthesizeScheduledRuns(new Date());
+    expect([...store.runs.values()]).toHaveLength(0);
   });
 });
 

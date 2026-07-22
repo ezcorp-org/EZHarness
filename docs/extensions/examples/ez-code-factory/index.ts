@@ -112,6 +112,8 @@ import {
   createJobStore,
   loadJobsWithDefault,
   matchPushJob,
+  isScheduleJobDue,
+  shouldSynthesizeRun,
   type Job,
   type JobStore,
 } from "./lib/jobs";
@@ -1058,14 +1060,104 @@ export async function runReconcileSweep(): Promise<SweepSummary> {
   });
 }
 
-/** The SWEEP_CRON schedule-fire handler — runs one sweep, swallowing any throw
- *  (a cron fire is fire-and-forget; a thrown sweep must not escape the handler). */
+/**
+ * Synthesize runs for SCHEDULE-trigger jobs that are due on this sweep tick
+ * (control plane, L4). Reuses the existing every-15-min sweep tick as the job
+ * tick — no new manifest cron, no in-ext cron parser. A cron fire is
+ * context-free, so we resolve the project from the ctx/env fallback root (the
+ * same source the reconcile sweep uses); when it is unresolvable this is a
+ * logged no-op. For each due job whose branch HEAD actually advanced past the
+ * job's last bookkept head (never mint a no-op run — C2 no-change skip), we
+ * drive `runGateLifecycle` on the job's branch with its jobId stamped, then
+ * bookkeep the head + fire time. Every outcome (fired / no-change / no-branch)
+ * is audited so the tick is never silent. Best-effort: a per-job failure is
+ * logged + audited and never aborts the tick.
+ *
+ * `now` is injected so tests can drive the coarse due boundaries deterministically.
+ */
+export async function synthesizeScheduledRuns(now: Date): Promise<void> {
+  const projectRoot = projectRootImpl();
+  if (!projectRoot) return; // context-free tick with no resolvable project — no-op
+  const rId = repoIdFor(projectRoot);
+  const gDir = gateDirFor(projectRoot, rId);
+  const audit = getAudit();
+  const jobStore = getJobStore();
+
+  const jobs = await loadJobsWithDefault(jobStore, audit);
+  for (const job of jobs) {
+    if (job.trigger.kind !== "schedule" || !job.enabled) continue;
+    const lastFire = job.lastScheduleFireAt ? new Date(job.lastScheduleFireAt) : null;
+    if (!isScheduleJobDue(job, now, lastFire)) continue;
+
+    const branch = job.trigger.branch;
+    try {
+      // Current branch head in the gate bare repo (where pushes land). A branch
+      // the gate has never received → rev-parse fails → nothing to run.
+      const rev = await shellImpl(["git", "-C", gDir, "rev-parse", `refs/heads/${branch}`], gDir);
+      const newSha = rev.exitCode === 0 ? rev.stdout.trim() : "";
+      if (!newSha) {
+        await audit.append({ actor: "system", kind: "schedule-no-branch", jobId: job.id, detail: { branch } });
+        await jobStore.updateJob(job.id, { lastScheduleFireAt: now.toISOString() });
+        continue;
+      }
+      // C2 no-change skip: never mint a no-op run when HEAD hasn't moved.
+      if (!shouldSynthesizeRun(job, newSha)) {
+        await audit.append({ actor: "system", kind: "schedule-no-change", jobId: job.id, detail: { branch, headSha: newSha } });
+        await jobStore.updateJob(job.id, { lastScheduleFireAt: now.toISOString() });
+        continue;
+      }
+      const result = await runGateLifecycle(
+        {
+          repoId: rId,
+          branch,
+          ref: `refs/heads/${branch}`,
+          newSha,
+          // The job's last bookkept head is the force-push-safety anchor (base).
+          oldSha: job.lastHeadSha ?? "0".repeat(40),
+          ...(job.intentTemplate ? { intent: job.intentTemplate } : {}),
+        },
+        {
+          gateDir: gDir,
+          tmpBase: tmpBaseImpl(projectRoot),
+          store: getStore(),
+          run: shellImpl,
+          onChange: refreshDashboard,
+          runPipeline: makeRunPipelineImpl(projectRoot, gDir, job),
+          projectRoot,
+          jobId: job.id,
+        },
+      );
+      await jobStore.updateJob(job.id, { lastHeadSha: newSha, lastScheduleFireAt: now.toISOString() });
+      await audit.append({
+        actor: "system",
+        kind: "schedule-fire",
+        jobId: job.id,
+        runId: result.runId,
+        detail: { branch, headSha: newSha, every: job.trigger.every },
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logLine(`ez-code-factory[schedule]: job ${job.id} synthesis error: ${message}`);
+      await audit.append({ actor: "system", kind: "schedule-error", jobId: job.id, detail: { branch, error: message } }).catch(() => {});
+    }
+  }
+}
+
+/** The SWEEP_CRON schedule-fire handler — runs one reconcile sweep, then routes
+ *  due schedule-trigger jobs (control plane, L4). Each stage swallows its own
+ *  throw (a cron fire is fire-and-forget; a thrown handler must not escape). */
 export async function handleScheduleFire(_ctx: ScheduleHandlerContext): Promise<void> {
   try {
     await runReconcileSweep();
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logLine(`ez-code-factory: reconcile sweep error: ${message}`);
+  }
+  try {
+    await synthesizeScheduledRuns(new Date());
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logLine(`ez-code-factory: schedule job routing error: ${message}`);
   }
 }
 
