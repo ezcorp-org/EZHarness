@@ -12,8 +12,15 @@
 -->
 <script lang="ts">
 	import HubComponentRenderer from "./HubComponentRenderer.svelte";
+	import HubInlineForm from "./HubInlineForm.svelte";
 	import { renderMarkdown } from "$lib/markdown.js";
-	import { isSafeInternalHref, type PageAction, type PageCell, type PageNode } from "$lib/hub";
+	import {
+		isSafeInternalHref,
+		type PageAction,
+		type PageCell,
+		type PageFormNode,
+		type PageNode,
+	} from "$lib/hub";
 
 	let {
 		nodes,
@@ -123,6 +130,13 @@
 			case "warning": return "font-medium text-yellow-400";
 			default:        return "";
 		}
+	}
+
+	/** Stable signature of an inline form's field list + prefills — the
+	 *  remount key that reconciles server refreshes with in-progress typing
+	 *  (see the form branch below). */
+	function formPrefillSig(node: PageFormNode): string {
+		return JSON.stringify(node.fields.map((f) => [f.field, f.value ?? ""]));
 	}
 
 	function buttonStyleClass(style?: string): string {
@@ -239,6 +253,15 @@
 		{#if isSafeInternalHref(node.href)}
 			<a href={node.href} class="break-words text-sm text-[var(--color-accent)] hover:underline [overflow-wrap:anywhere]" data-testid="hub-node-link">{node.label}</a>
 		{/if}
+
+	{:else if node.type === "form"}
+		<!-- Keyed on the prefill signature: a server-side value change (e.g.
+		     the save round-tripping back through the SSE re-pull) remounts
+		     with fresh prefills, while a no-change re-pull preserves the
+		     user's in-progress typing. -->
+		{#key formPrefillSig(node)}
+			<HubInlineForm {node} {onAction} />
+		{/key}
 
 	{:else if node.type === "empty-state"}
 		<div class="flex flex-col items-center py-8 text-center" data-testid="hub-node-empty-state">

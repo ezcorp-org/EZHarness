@@ -107,7 +107,13 @@ const eventBodySchema = z
 // notification shape `registerEventHandler`/`definePage` handle.
 
 const HUB_PAGE_ID_REGEX = /^[a-z0-9][a-z0-9-]{0,31}$/;
-const HUB_PAYLOAD_MAX_BYTES = 2_048;
+/** Serialized hub-action payload cap. Sized for the WORST-case inline form
+ *  submit: 8 fields × 500 chars (the validator's per-field ceiling) + slug
+ *  keys + a static payload ≈ 4.3 KB — 8 KB leaves headroom without opening
+ *  a meaningful DoS surface (the body parse is already size-bounded and the
+ *  per-user action rate limit applies). Was 2 KB when the only multi-field
+ *  producer was the 4-field dialog. */
+const HUB_PAYLOAD_MAX_BYTES = 8_192;
 
 const hubEventBodySchema = z.object({
   source: z.literal("hub"),

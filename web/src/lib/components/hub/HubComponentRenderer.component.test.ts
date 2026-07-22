@@ -271,3 +271,101 @@ describe("links + href re-check", () => {
 		expect(link).toHaveAttribute("href", "/project/p/hub/x?run=run-1");
 	});
 });
+
+describe("inline form node", () => {
+	const FORM_NODE: PageNode = {
+		type: "form",
+		action: { event: "ecf:job-save", payload: { jobId: "default" } },
+		fields: [
+			{ field: "name", label: "Name", value: "Default", maxLength: 80 },
+			{ field: "intent_template", label: "Intent", value: "keep api", maxLength: 500, multiline: true },
+			{ field: "agent_name", label: "Agent", maxLength: 120 },
+		],
+		submitLabel: "Save job",
+	};
+
+	test("renders prefilled inputs, a textarea for multiline, and the submit label", () => {
+		const { getByTestId } = renderNodes([FORM_NODE]);
+		expect(getByTestId("hub-inline-form")).toBeInTheDocument();
+		const name = getByTestId("hub-inline-field-name") as HTMLInputElement;
+		expect(name.tagName).toBe("INPUT");
+		expect(name.value).toBe("Default");
+		expect(name).toHaveAttribute("maxlength", "80");
+		const intent = getByTestId("hub-inline-field-intent_template") as HTMLTextAreaElement;
+		expect(intent.tagName).toBe("TEXTAREA");
+		expect(intent.value).toBe("keep api");
+		expect(getByTestId("hub-inline-field-agent_name")).toHaveValue("");
+		expect(getByTestId("hub-inline-form-submit")).toHaveTextContent("Save job");
+	});
+
+	test("submit merges EVERY field (typed, untouched, and cleared-to-empty) over the static payload", async () => {
+		const { getByTestId, onAction } = renderNodes([FORM_NODE]);
+		await fireEvent.input(getByTestId("hub-inline-field-name"), { target: { value: "Renamed" } });
+		await fireEvent.input(getByTestId("hub-inline-field-intent_template"), { target: { value: "" } });
+		await fireEvent.click(getByTestId("hub-inline-form-submit"));
+		expect(onAction).toHaveBeenCalledExactlyOnceWith({
+			event: "ecf:job-save",
+			payload: {
+				jobId: "default",
+				name: "Renamed",
+				intent_template: "",
+				agent_name: "",
+			},
+		});
+	});
+
+	test("a confirm on the action rides the dispatched action (host confirm gates the save)", async () => {
+		const withConfirm: PageNode = {
+			...FORM_NODE,
+			action: { event: "ecf:job-save", confirm: "Save all fields?" },
+		} as PageNode;
+		const { getByTestId, onAction } = renderNodes([withConfirm]);
+		await fireEvent.click(getByTestId("hub-inline-form-submit"));
+		expect(onAction.mock.calls[0]![0].confirm).toBe("Save all fields?");
+	});
+
+	test("submitLabel defaults to Save; in-progress typing survives a no-change re-render", async () => {
+		const bare: PageNode = {
+			type: "form",
+			action: { event: "ecf:job-save" },
+			fields: [{ field: "name", label: "Name", value: "Default" }],
+		};
+		const { getByTestId, rerender } = renderNodes([bare]);
+		expect(getByTestId("hub-inline-form-submit")).toHaveTextContent("Save");
+		await fireEvent.input(getByTestId("hub-inline-field-name"), { target: { value: "Mid-edit" } });
+		// A re-pull that changes NOTHING (same prefill signature) must not
+		// clobber the user's typing…
+		await rerender({ nodes: [{ ...bare } as PageNode] });
+		expect(getByTestId("hub-inline-field-name")).toHaveValue("Mid-edit");
+		// …while a server-side prefill CHANGE (the save round-tripped, or a
+		// concurrent edit) remounts with the fresh canonical value.
+		await rerender({
+			nodes: [
+				{
+					type: "form",
+					action: { event: "ecf:job-save" },
+					fields: [{ field: "name", label: "Name", value: "Server-truth" }],
+				} as PageNode,
+			],
+		});
+		expect(getByTestId("hub-inline-field-name")).toHaveValue("Server-truth");
+	});
+});
+
+describe("inline form node without an onAction callback", () => {
+	test("submit is a safe no-op (guard, no crash)", async () => {
+		const { getByTestId } = render(HubComponentRenderer, {
+			props: {
+				nodes: [
+					{
+						type: "form",
+						action: { event: "ecf:job-save" },
+						fields: [{ field: "name", label: "Name", value: "Default" }],
+					} as PageNode,
+				],
+			},
+		});
+		await fireEvent.click(getByTestId("hub-inline-form-submit"));
+		expect(getByTestId("hub-inline-field-name")).toHaveValue("Default");
+	});
+});
