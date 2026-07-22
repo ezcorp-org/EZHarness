@@ -87,8 +87,34 @@ function repoWithPreCommit(): string {
   return dir;
 }
 
+/** Repo with an initial commit — required before `git worktree add`. */
+function initRepoWithCommit(prefix: string): string {
+  const dir = initRepo(prefix);
+  writeFileSync(join(dir, "README.md"), "seed\n");
+  sh(["git", "add", "."], { cwd: dir });
+  sh(["git", "commit", "-q", "-m", "seed"], { cwd: dir });
+  return dir;
+}
+
+/** Attach a linked worktree on a new branch; returns its (tracked) path. */
+function addWorktree(primary: string, branch: string): string {
+  const wt = `${primary}-wt-${branch}`;
+  created.push(wt);
+  sh(["git", "worktree", "add", "-q", "-b", branch, wt], { cwd: primary });
+  return wt;
+}
+
+/** Read a single git config value (trimmed; "" when unset). */
+function readCfg(cwd: string, key: string): string {
+  return sh(["git", "config", "--get", key], { cwd }).out.trim();
+}
+
 const LINT_ERROR_TS = "export function bad(a: number, b: number): boolean {\n  return a == b;\n}\n";
 const CLEAN_TS = "export function add(a: number, b: number): number {\n  return a + b;\n}\n";
+
+// The pre-commit tests spawn git → hook → `bunx biome`; a cold bunx/biome start
+// can exceed the 5s default, so give them headroom (biome itself is ~1-2s).
+const BIOME_TIMEOUT_MS = 30_000;
 
 afterAll(() => {
   for (const d of created) rmSync(d, { recursive: true, force: true });
@@ -107,7 +133,7 @@ describe("pre-commit hook", () => {
     // Commit must NOT have landed.
     const log = sh(["git", "log", "--oneline"], { cwd: dir });
     expect(log.out).not.toContain("add bad");
-  });
+  }, BIOME_TIMEOUT_MS);
 
   test("ALLOWS a commit whose staged .ts file is lint-clean", () => {
     const dir = repoWithPreCommit();
@@ -118,7 +144,7 @@ describe("pre-commit hook", () => {
     expect(res.exitCode).toBe(0);
     const log = sh(["git", "log", "--oneline"], { cwd: dir });
     expect(log.out).toContain("add good");
-  });
+  }, BIOME_TIMEOUT_MS);
 
   test("EZ_SKIP_HOOKS=1 bypasses the hook even for a lint-violating file", () => {
     const dir = repoWithPreCommit();
@@ -150,21 +176,48 @@ describe("pre-push hook", () => {
   });
 });
 
+// Every "wires hooks" case passes `baseEnv` (CI stripped in module init) so the
+// suite is deterministic under GitHub Actions, which sets CI=true globally —
+// inheriting ambient env would make the setup a no-op and red these tests.
 describe("setup-git-hooks.sh", () => {
-  test("sets core.hooksPath=.githooks inside a git work tree (no CI)", () => {
+  test("wires hooks per-worktree inside a git work tree (no CI)", () => {
     const dir = initRepo("ezcorp-setup-ok-");
     const res = sh(["bash", SETUP], { cwd: dir, env: baseEnv });
     expect(res.exitCode).toBe(0);
-    const cfg = sh(["git", "config", "--get", "core.hooksPath"], { cwd: dir });
-    expect(cfg.out.trim()).toBe(".githooks");
+    expect(readCfg(dir, "core.hooksPath")).toBe(".githooks");
+    // The scoping only binds if the shared mechanism flag is enabled.
+    expect(readCfg(dir, "extensions.worktreeConfig")).toBe("true");
   });
 
-  test("no-op under CI=1 (leaves core.hooksPath unset)", () => {
+  test("scopes hooksPath to the worktree it runs in, not sibling checkouts", () => {
+    const primary = initRepoWithCommit("ezcorp-setup-wt-");
+    const linked = addWorktree(primary, "linked");
+    // Run setup ONLY in the linked worktree.
+    const res = sh(["bash", SETUP], { cwd: linked, env: baseEnv });
+    expect(res.exitCode).toBe(0);
+    expect(readCfg(linked, "core.hooksPath")).toBe(".githooks");
+    // Primary shares the same .git but must NOT inherit the linked tree's hooks.
+    expect(readCfg(primary, "core.hooksPath")).toBe("");
+    // The mechanism flag is shared (visible from both) — it enables nothing alone.
+    expect(readCfg(primary, "extensions.worktreeConfig")).toBe("true");
+  });
+
+  test("inverse: setup in the primary tree does not leak to a linked worktree", () => {
+    const primary = initRepoWithCommit("ezcorp-setup-inv-");
+    const linked = addWorktree(primary, "inv");
+    const res = sh(["bash", SETUP], { cwd: primary, env: baseEnv });
+    expect(res.exitCode).toBe(0);
+    expect(readCfg(primary, "core.hooksPath")).toBe(".githooks");
+    expect(readCfg(linked, "core.hooksPath")).toBe("");
+  });
+
+  test("no-op under CI=1 (leaves hooks unwired)", () => {
     const dir = initRepo("ezcorp-setup-ci-");
     const res = sh(["bash", SETUP], { cwd: dir, env: { ...baseEnv, CI: "1" } });
     expect(res.exitCode).toBe(0);
-    const cfg = sh(["git", "config", "--get", "core.hooksPath"], { cwd: dir });
-    expect(cfg.out.trim()).toBe("");
+    expect(readCfg(dir, "core.hooksPath")).toBe("");
+    // The CI guard returns before touching config at all.
+    expect(readCfg(dir, "extensions.worktreeConfig")).toBe("");
   });
 
   test("no-op (exit 0) outside a git work tree", () => {
