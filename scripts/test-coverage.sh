@@ -328,6 +328,7 @@ run_legs() {
       src/__tests__/security-web-conversations-parent-idor.server.test.ts \
       src/__tests__/api-extensions.server.test.ts \
       src/__tests__/api-users-id.server.test.ts \
+      src/lib/command-registry.unit.test.ts \
       --coverage --coverage.provider=v8 --coverage.reporter=lcovonly \
       --coverage.reportsDirectory="$VITEST_COV" \
       --coverage.include='src/lib/search/*.ts' \
@@ -353,6 +354,7 @@ run_legs() {
       --coverage.include='src/lib/components/hub/HubPageView.svelte' \
       --coverage.include='src/lib/components/hub/HubNavSection.svelte' \
       --coverage.include='src/lib/project-icon.ts' \
+      --coverage.include='src/lib/command-registry.ts' \
       --coverage.include='src/lib/hub-last-page.ts' \
       --coverage.include='src/lib/components/ModeFormModal.svelte' \
       --coverage.include='src/lib/chat/page-handlers/inherit-mode.ts' \
