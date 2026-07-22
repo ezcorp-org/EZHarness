@@ -73,6 +73,14 @@
 	let promptAction = $state<PageAction | null>(null);
 	let promptValue = $state("");
 
+	// Host-rendered multi-field form dialog — the multi-field superset of the
+	// prompt. Same host-owns-the-inputs invariant: only the validated form
+	// display strings come from the page tree. On submit EVERY field value
+	// (including empty strings — clear-to-empty is a first-class requirement,
+	// NOT the prompt path's disabled-on-empty) merges into payload[field].
+	let formAction = $state<PageAction | null>(null);
+	let formValues = $state<Record<string, string>>({});
+
 	async function loadTabs() {
 		try {
 			const res = await fetch("/api/hub/pages");
@@ -145,8 +153,19 @@
 	}
 
 	function requestAction(action: PageAction) {
-		// Precedence: prompt → confirm → dispatch. When BOTH prompt and
-		// confirm are set, the confirm text shows as the prompt dialog body.
+		// Precedence: form → prompt → confirm → dispatch. A form takes the FIRST
+		// branch (multi-field wins): when an action has BOTH confirm and form we
+		// show only the form — its Save IS the consent act, so we never stack two
+		// dialogs. (The server-side validator already drops a co-present prompt
+		// when a form survives, so `action.prompt` is absent here for a form.)
+		if (action.form) {
+			formAction = action;
+			// Seed each field with its validated prefill (or "" when absent).
+			const seed: Record<string, string> = {};
+			for (const f of action.form.fields) seed[f.field] = f.value ?? "";
+			formValues = seed;
+			return;
+		}
 		if (action.prompt) {
 			promptAction = action;
 			promptValue = "";
@@ -157,6 +176,26 @@
 			return;
 		}
 		void dispatchAction(action);
+	}
+
+	function submitForm() {
+		const action = formAction;
+		if (!action?.form) return;
+		// Merge EVERY field — an empty string is a deliberate clear-to-empty, so
+		// (unlike the prompt path) there is no empty-value early return and no
+		// Save-disabled-on-empty. Field values override any static payload key
+		// (prompt parity). Values are sent verbatim as strings (host validated).
+		const merged: Record<string, string | number | boolean> = { ...action.payload };
+		for (const f of action.form.fields) merged[f.field] = formValues[f.field] ?? "";
+		const next: PageAction = { ...action, payload: merged };
+		formAction = null;
+		formValues = {};
+		void dispatchAction(next);
+	}
+
+	function cancelForm() {
+		formAction = null;
+		formValues = {};
 	}
 
 	function submitPrompt() {
@@ -407,6 +446,64 @@
 					onclick={submitPrompt}
 				>
 					{promptAction.prompt.submitLabel ?? "Submit"}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Host-rendered multi-field form dialog (sibling of the prompt dialog).
+     Every input is host-owned; only the validated form display strings come
+     from the page tree. Save merges EVERY field (empty = clear-to-empty). -->
+{#if formAction?.form}
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" data-testid="hub-form-dialog">
+		<div class="w-full max-w-md rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-5 shadow-xl">
+			{#if formAction.form.title}
+				<h2 class="text-sm font-semibold text-[var(--color-text-primary)]" data-testid="hub-form-title">
+					{formAction.form.title}
+				</h2>
+			{/if}
+			<div class="mt-3 space-y-3">
+				{#each formAction.form.fields as field (field.field)}
+					<div>
+						<label class="block text-xs font-medium text-[var(--color-text-secondary)]" for={`hub-form-field-${field.field}`}>
+							{field.label}
+						</label>
+						<input
+							id={`hub-form-field-${field.field}`}
+							type="text"
+							class="mt-1 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm text-[var(--color-text-primary)] focus:border-[var(--color-accent)] focus:outline-none"
+							data-testid={`hub-form-field-${field.field}`}
+							bind:value={formValues[field.field]}
+							placeholder={field.placeholder ?? ""}
+							maxlength={field.maxLength ?? 200}
+							autocomplete="off"
+							onkeydown={(e) => {
+								if (e.key === "Escape") {
+									e.preventDefault();
+									cancelForm();
+								}
+							}}
+						/>
+					</div>
+				{/each}
+			</div>
+			<div class="mt-4 flex justify-end gap-2">
+				<button
+					type="button"
+					class="rounded-md border border-[var(--color-border)] px-3 py-1.5 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]"
+					data-testid="hub-form-cancel"
+					onclick={cancelForm}
+				>
+					Cancel
+				</button>
+				<button
+					type="button"
+					class="rounded-md bg-[var(--color-accent)] px-3 py-1.5 text-sm font-medium text-[var(--color-accent-contrast)] hover:opacity-90"
+					data-testid="hub-form-submit"
+					onclick={submitForm}
+				>
+					Save
 				</button>
 			</div>
 		</div>

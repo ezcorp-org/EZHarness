@@ -490,6 +490,133 @@ describe("HubPageView · prompt dialog", () => {
 	});
 });
 
+describe("HubPageView · form dialog (PageAction.form)", () => {
+	/** A four-field Edit-job form exactly as the ECF Edit-job button emits it. */
+	const editJobAction: PageAction = {
+		event: "myext:job-save",
+		payload: { jobId: "j1" },
+		form: {
+			title: 'Edit job "Nightly"',
+			fields: [
+				{ field: "name", label: "Name", value: "Nightly", maxLength: 80 },
+				{ field: "trigger", label: "Trigger spec", value: "push feat/*", maxLength: 120 },
+				{ field: "agent_name", label: "Agent", value: "reviewer", maxLength: 120 },
+				{ field: "intent_template", label: "Intent template", value: "keep api", maxLength: 1500 },
+			],
+		},
+	};
+
+	test("form takes precedence over confirm+prompt: only the form dialog opens, N prefilled fields", async () => {
+		// A form co-present with confirm (and even a stray prompt) shows ONLY the
+		// form — its Save is the consent act, so no dialog stacking.
+		const action: PageAction = {
+			...editJobAction,
+			confirm: "are you sure",
+			prompt: { label: "old single field", field: "name" },
+		};
+		pageHandler = () => jsonResponse({ page: treeWith(action) });
+		const { findByTestId, queryByTestId } = await renderView();
+		await fireEvent.click(await findByTestId("hub-node-button"));
+
+		const dialog = await findByTestId("hub-form-dialog");
+		expect(dialog).toBeInTheDocument();
+		expect(queryByTestId("hub-confirm-dialog")).toBeNull();
+		expect(queryByTestId("hub-prompt-dialog")).toBeNull();
+		expect(await findByTestId("hub-form-title")).toHaveTextContent('Edit job "Nightly"');
+
+		// Each field is prefilled with its validated `value`, keyed by testid.
+		expect(((await findByTestId("hub-form-field-name")) as HTMLInputElement).value).toBe("Nightly");
+		expect(((await findByTestId("hub-form-field-trigger")) as HTMLInputElement).value).toBe("push feat/*");
+		expect(((await findByTestId("hub-form-field-agent_name")) as HTMLInputElement).value).toBe("reviewer");
+		expect(((await findByTestId("hub-form-field-intent_template")) as HTMLInputElement).value).toBe("keep api");
+		// maxLength attribute is threaded per field.
+		expect(await findByTestId("hub-form-field-name")).toHaveAttribute("maxlength", "80");
+	});
+
+	test("Save merges EVERY field into payload (incl. a CLEARED empty string) + keeps static payload", async () => {
+		pageHandler = () => jsonResponse({ page: treeWith(editJobAction) });
+		let dispatchedBody: { payload?: Record<string, unknown> } | undefined;
+		actionHandler = (_url, body) => {
+			dispatchedBody = body as typeof dispatchedBody;
+			return jsonResponse({ ok: true });
+		};
+		const { findByTestId } = await renderView();
+		await fireEvent.click(await findByTestId("hub-node-button"));
+
+		// Change two fields; CLEAR one to empty (clear-to-empty is first-class).
+		await fireEvent.input(await findByTestId("hub-form-field-name"), { target: { value: "Renamed" } });
+		await fireEvent.input(await findByTestId("hub-form-field-agent_name"), { target: { value: "docbot" } });
+		await fireEvent.input(await findByTestId("hub-form-field-intent_template"), { target: { value: "" } });
+
+		await fireEvent.click(await findByTestId("hub-form-submit"));
+		await waitFor(() => expect(dispatchedBody?.payload).toBeDefined());
+		// Every field present (the emptied one as ""), untouched `trigger` re-sent
+		// verbatim, and the static `jobId` payload key preserved.
+		expect(dispatchedBody?.payload).toEqual({
+			jobId: "j1",
+			name: "Renamed",
+			trigger: "push feat/*",
+			agent_name: "docbot",
+			intent_template: "",
+		});
+	});
+
+	test("a field value overrides a colliding static payload key (form wins)", async () => {
+		// `name` is both a static payload key AND a form field — the typed field
+		// value must win (prompt parity).
+		const action: PageAction = {
+			event: "myext:job-save",
+			payload: { name: "stale", jobId: "j1" },
+			form: { fields: [{ field: "name", label: "Name", value: "fresh" }] },
+		};
+		pageHandler = () => jsonResponse({ page: treeWith(action) });
+		let dispatchedBody: { payload?: Record<string, unknown> } | undefined;
+		actionHandler = (_url, body) => {
+			dispatchedBody = body as typeof dispatchedBody;
+			return jsonResponse({ ok: true });
+		};
+		const { findByTestId } = await renderView();
+		await fireEvent.click(await findByTestId("hub-node-button"));
+		await fireEvent.click(await findByTestId("hub-form-submit"));
+		await waitFor(() => expect(dispatchedBody?.payload).toBeDefined());
+		expect(dispatchedBody?.payload).toEqual({ jobId: "j1", name: "fresh" });
+	});
+
+	test("Cancel closes the form WITHOUT dispatching", async () => {
+		pageHandler = () => jsonResponse({ page: treeWith(editJobAction) });
+		const { findByTestId, queryByTestId } = await renderView();
+		await fireEvent.click(await findByTestId("hub-node-button"));
+		await findByTestId("hub-form-dialog");
+		await fireEvent.click(await findByTestId("hub-form-cancel"));
+		await waitFor(() => expect(queryByTestId("hub-form-dialog")).toBeNull());
+		expect(fetchCalls.some((c) => c.method === "POST")).toBe(false);
+	});
+
+	test("Escape in a field cancels the form (no dispatch)", async () => {
+		pageHandler = () => jsonResponse({ page: treeWith(editJobAction) });
+		const { findByTestId, queryByTestId } = await renderView();
+		await fireEvent.click(await findByTestId("hub-node-button"));
+		const input = await findByTestId("hub-form-field-name");
+		await fireEvent.keyDown(input, { key: "Escape" });
+		await waitFor(() => expect(queryByTestId("hub-form-dialog")).toBeNull());
+		expect(fetchCalls.some((c) => c.method === "POST")).toBe(false);
+	});
+
+	test("a title-less form omits the title heading (fields still render)", async () => {
+		const action: PageAction = {
+			event: "myext:job-save",
+			form: { fields: [{ field: "name", label: "Name" }] },
+		};
+		pageHandler = () => jsonResponse({ page: treeWith(action) });
+		const { findByTestId, queryByTestId } = await renderView();
+		await fireEvent.click(await findByTestId("hub-node-button"));
+		await findByTestId("hub-form-dialog");
+		expect(queryByTestId("hub-form-title")).toBeNull();
+		// A field with no `value` seeds to an empty string.
+		expect(((await findByTestId("hub-form-field-name")) as HTMLInputElement).value).toBe("");
+	});
+});
+
 describe("HubPageView · dispatchAction result branches", () => {
 	const plainAction: PageAction = { event: "myext:go" };
 
