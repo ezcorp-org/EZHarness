@@ -1584,19 +1584,27 @@ export function buildJobView(
     // Plain text on purpose: `.markdown(text, variant)` emits the host-escaped
     // `{type:"text"}` node, so markdown syntax would render literally.
     s.markdown(
-      "Step order is fixed by the pipeline and cannot be changed here, and the " +
-        "protected steps (intent, rebase, review, push) always run. Use the row toggles " +
-        "to skip or re-run the remaining steps for this job.",
+      "Step order is fixed by the pipeline and cannot be changed here. The four " +
+        "🔒 locked steps (intent, rebase, review, push) always run and cannot be " +
+        "skipped — their rows are not clickable. Click any other row to skip or " +
+        "re-run that step for this job.",
       "muted",
     );
     s.table(
       ["Step", "State"],
       PIPELINE_STEPS.map((step) => {
+        // A protected row is INERT (no action). Say so in the cell itself — a
+        // row that silently ignores clicks reads as broken, so the lock glyph +
+        // "(locked)" is the affordance signal that it was never clickable.
         if (PROTECTED_STEPS.includes(step)) {
-          return { cells: [step, "protected — always runs"] };
+          return { cells: [step, "🔒 always runs (locked)"] };
         }
+        // The clickable rows advertise what a click DOES, so the interactive
+        // rows are distinguishable from the locked ones at a glance.
         const isSkipped = skipped.has(step);
-        const stateCell: PageCellInput = isSkipped ? { text: "skipped", tone: "warning" } : "runs";
+        const stateCell: PageCellInput = isSkipped
+          ? { text: "skipped — click to run", tone: "warning" }
+          : "runs — click to skip";
         return {
           cells: [step, stateCell],
           action: {

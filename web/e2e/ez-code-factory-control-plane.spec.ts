@@ -101,7 +101,7 @@ function jobTree(name: string, agent: string, intent: string, review: string, fi
 			confirm: verb === "Skip" ? `Skip the ${step} step for job "${name}"?` : `Run the ${step} step again for job "${name}"?`,
 		},
 	});
-	const protectedRow = (step: string) => ({ cells: [step, "protected — always runs"] });
+	const protectedRow = (step: string) => ({ cells: [step, "🔒 always runs (locked)"] });
 	return {
 		title: `ez-code-factory — job ${name}`,
 		nodes: [
@@ -179,9 +179,9 @@ function jobTree(name: string, agent: string, intent: string, review: string, fi
 							protectedRow("intent"),
 							protectedRow("rebase"),
 							protectedRow("review"),
-							toggleRow("test", { text: "skipped", tone: "warning" }, "Run"),
-							toggleRow("document", "runs", "Skip"),
-							toggleRow("lint", "runs", "Skip"),
+							toggleRow("test", { text: "skipped — click to run", tone: "warning" }, "Run"),
+							toggleRow("document", "runs — click to skip", "Skip"),
+							toggleRow("lint", "runs — click to skip", "Skip"),
 							protectedRow("push"),
 						],
 					},
@@ -498,7 +498,7 @@ test.describe("ez-code-factory control plane (?view= + job actions)", () => {
 		await page.goto(viewHref(`job:${JOB_ID}`));
 		await expect(page.getByTestId("hub-page-title")).toHaveText("ez-code-factory — job Nightly");
 
-		const protectedRow = page.getByTestId("hub-table-row").filter({ hasText: "protected — always runs" }).first();
+		const protectedRow = page.getByTestId("hub-table-row").filter({ hasText: "always runs (locked)" }).first();
 		await expect(protectedRow).not.toHaveClass(/cursor-pointer/);
 		// Clicking the inert row opens no confirm dialog (no action to dispatch).
 		await protectedRow.click();
@@ -521,7 +521,9 @@ test.describe("ez-code-factory control plane (?view= + job actions)", () => {
 		await expect(page.getByRole("heading", { name: "Flow" })).toBeVisible();
 		const warnCell = page.locator('[data-testid="hub-table-cell"][data-tone="warning"]').filter({ hasText: "skipped" });
 		await expect(warnCell).toBeVisible();
-		await expect(body).toContainText("protected — always runs");
+		// The locked rows announce the lock; the clickable ones announce the click.
+		await expect(body).toContainText("🔒 always runs (locked)");
+		await expect(body).toContainText("click to skip");
 		// The inline edit form is present (the old Edit-job / Edit-prompts modal
 		// buttons and the per-field prompt buttons are gone).
 		await expect(page.getByTestId("hub-inline-form")).toBeVisible();

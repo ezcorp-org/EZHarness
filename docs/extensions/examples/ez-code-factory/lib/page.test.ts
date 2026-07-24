@@ -1748,14 +1748,17 @@ describe("buildJobView", () => {
     const flow = tablesDeep(tree).find((t) => t.columns[0] === "Step" && t.columns[1] === "State")!;
     expect(flow.rows.map((r) => r.cells[0])).toEqual([...PIPELINE_STEPS]);
     const cellOf = (step: string) => flow.rows.find((r) => r.cells[0] === step)!;
-    // Skipped step → warning-tone `skipped` cell.
-    expect(cellOf("test").cells[1]).toEqual({ text: "skipped", tone: "warning" });
-    // A running (non-protected) step → the plain `runs` string (no tone).
-    expect(cellOf("document").cells[1]).toBe("runs");
-    // Protected steps are plain-labeled and carry NO row action.
+    // Skipped step → warning-tone cell that advertises what a click does.
+    expect(cellOf("test").cells[1]).toEqual({ text: "skipped — click to run", tone: "warning" });
+    // A running (non-protected) step → plain (untoned) cell, same affordance hint.
+    expect(cellOf("document").cells[1]).toBe("runs — click to skip");
+    // Protected steps carry NO row action — and SAY so (lock glyph + "locked"),
+    // so an inert row can never read as a broken one.
     for (const p of ["intent", "rebase", "review", "push"]) {
-      expect(cellOf(p).cells[1]).toBe("protected — always runs");
+      expect(cellOf(p).cells[1]).toBe("🔒 always runs (locked)");
       expect(cellOf(p).action).toBeUndefined();
+      // The locked label must NOT imply clickability.
+      expect(String(cellOf(p).cells[1])).not.toContain("click");
     }
   });
 
@@ -1778,7 +1781,11 @@ describe("buildJobView", () => {
     const tree = buildJobView("j1", jobFix({ id: "j1" }), []);
     const md = allNodes(tree.nodes).filter((n) => n.type === "text").map((n) => String(n.content)).join(" ");
     expect(md).toContain("order");
-    expect(md.toLowerCase()).toContain("protected");
+    // The note names the lock, says the rows are not clickable, and points at
+    // the clickable ones — the discoverability contract for the Flow section.
+    expect(md).toContain("locked");
+    expect(md).toContain("not clickable");
+    expect(md).toContain("Click any other row");
   });
 
   test("Delete lives under a Danger zone section, ordered after Definition/Flow/Runs", () => {
