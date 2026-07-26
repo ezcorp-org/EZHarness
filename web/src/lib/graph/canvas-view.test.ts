@@ -131,6 +131,16 @@ describe("nodeAriaLabel", () => {
 		expect(label).toBe("Tool: Add a login page, succeeded. Shows details.");
 	});
 
+	test("a corrupt duration is unknown in speech too, not a spoken dash", () => {
+		// These render as an em dash on the node box. Reading "em dash" out is
+		// worse than saying nothing, so the aria label drops them.
+		for (const durationMs of [-5, Number.NaN, Number.POSITIVE_INFINITY]) {
+			expect(nodeAriaLabel(node({ kind: "tool", durationMs }))).toBe(
+				"Tool: Add a login page, succeeded. Shows details.",
+			);
+		}
+	});
+
 	test("speaks the rewound-away state, which is otherwise colour-only", () => {
 		expect(nodeAriaLabel(node({ excluded: true }))).toContain("rewound away");
 	});
