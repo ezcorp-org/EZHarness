@@ -89,6 +89,14 @@ passfail_files() {
     # RESIDUAL_ONLY mode asserts this file's presence in P\C, so membership
     # drift (rename / C absorbing it) fails loudly instead of de-gating.
     printf '%s\n' web/src/__tests__/route-contract.test.ts
+    # Chat-graph layout engine — pure TS, no DOM/mock.module, deterministic.
+    # Listed in BOTH P and C (unlike the C-only web helpers below it in
+    # coverage_host_files) on purpose: its threshold is 100%, but coverage
+    # alone is NOT a pass/fail proxy here — the suite has enough overlapping
+    # fixtures that one red assertion still leaves every line executed, so a
+    # C-only membership would leave a genuinely failing test TOLERATED by the
+    # shard classifier. P∩C membership hard-gates it inside the cov shards.
+    printf '%s\n' web/src/lib/graph/layout.test.ts
   } 2>/dev/null | sort -u
 }
 
@@ -143,6 +151,7 @@ coverage_host_files() {
       web/src/lib/__tests__/tool-scope-logic.test.ts \
       web/src/lib/__tests__/loaded-tools-logic.test.ts \
       web/src/lib/__tests__/briefing-cron.test.ts \
+      web/src/lib/graph/layout.test.ts \
       web/src/__tests__/test-surface.test.ts \
       web/src/__tests__/test-surface-bypass.test.ts \
       web/src/__tests__/mock-llm-store.test.ts \
