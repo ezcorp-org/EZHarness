@@ -175,10 +175,17 @@ export function buildTurnDag(input: TurnDagInput): ChatGraph | null {
   assistants.sort(byCreatedAtThenId);
 
   // ── The turn's [start, end) window ───────────────────────────────
-  // End at the FIRST row after the prompt that is not part of this turn —
-  // for an A-B retry that is the sibling branch, which is exactly where
-  // this turn's observability trail stops being attributable to it. No
-  // such row ⇒ the turn is the tail of the conversation and the window is
+  // End at the FIRST row after the prompt that is NOT a member of this turn:
+  // normally the next user prompt, or a row on a sibling turn reached by a
+  // rewind. That is where the conversation's observability trail stops being
+  // attributable here.
+  //
+  // An A-B retry does NOT close the window. `/messages/:mid/retry` adds no
+  // user row, so BOTH legs' assistant messages are members of this one turn
+  // (see the header) and both legs' observability rows are in scope — which
+  // is what the positional zip below expects.
+  //
+  // No such row ⇒ the turn is the tail of the conversation and the window is
   // open-ended.
   const startMs = toMs(prompt.createdAt);
   let endMs = Number.POSITIVE_INFINITY;
