@@ -30,6 +30,7 @@ import type { ChatGraph } from "../../src/runtime/chat-graph/types.js";
 import {
 	CONV_ID,
 	DEGRADED_CONV_ID,
+	FULL_LABEL_PLAN,
 	LABEL_BENCH,
 	LABEL_PLAN,
 	LABEL_REPLY,
@@ -128,6 +129,25 @@ test.describe("Chat DAG graph panel", () => {
 		expect(requested).toEqual([`/api/conversations/${CONV_ID}/graph`]);
 		// A level-1 frame is the bottom of the stack, so no breadcrumb yet.
 		await expect(panel.getByTestId("chat-graph-breadcrumb")).toHaveCount(0);
+	});
+
+	test("a label too wide for its box fades out and keeps its full text reachable", async ({
+		page,
+		mockApi,
+	}) => {
+		await gotoChat(page, mockApi);
+		const panel = await openPanel(page);
+		const wide = panel.locator(`[data-node-id="${PROMPT_PLAN}"]`);
+
+		// `LABEL_PLAN` sits at the builder's 60-char boundary; a 168px box shows
+		// roughly 23. The overflow is a soft mask fade, not a clip that slices
+		// the last glyph in half — so the text group carries a mask and the
+		// canvas defines no clipPath at all.
+		await expect(wide.locator("g[mask]")).toHaveAttribute("mask", /^url\(#.*-nodemask\)$/);
+		await expect(page.getByTestId("chat-graph-canvas").locator("clipPath")).toHaveCount(0);
+
+		// Truncation is never lossy: the untruncated prompt is one hover away.
+		await expect(wide.locator("title")).toHaveText(FULL_LABEL_PLAN);
 	});
 
 	test("clicking a prompt node drills into THAT turn's trace, and the breadcrumb comes back", async ({

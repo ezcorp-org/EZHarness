@@ -96,6 +96,41 @@ export function edgeDashArray(kind: GraphEdgeKind): string {
 	return kind === "spawn" ? "6 4" : "none";
 }
 
+// ── node text area ──────────────────────────────────────────────────────────
+
+/**
+ * Right-hand gutter inside a node box, px. The status dot lives there, so the
+ * label and meta lines must stop short of it.
+ */
+export const LABEL_GUTTER = 22;
+
+/**
+ * Width of the soft fade at the right edge of the text area, px.
+ *
+ * Labels reach the renderer already truncated to `LABEL_MAX` (60 chars — see
+ * `src/runtime/chat-graph/labels.ts`), but a 168px box shows roughly 23 of
+ * them, so most real prompts DO overrun the edge. A hard clip slices the last
+ * glyph down the middle and reads as a rendering bug; fading the final pixels
+ * reads as "there is more", and the full text is one hover (or one click into
+ * the detail pane) away.
+ *
+ * The budget is deliberately NOT lowered to fit instead: `truncateLabel` sets
+ * `fullLabel` whenever it changes the string, so a tighter clamp would put a
+ * second copy of nearly every label on the wire.
+ */
+export const LABEL_FADE_PX = 24;
+
+/**
+ * Gradient stop offset (0-1) where a node label starts fading out.
+ *
+ * A text area no wider than the fade itself fades from its very start rather
+ * than yielding a negative stop, which is invalid SVG.
+ */
+export function labelFadeStart(textWidth: number): number {
+	if (textWidth <= LABEL_FADE_PX) return 0;
+	return (textWidth - LABEL_FADE_PX) / textWidth;
+}
+
 // ── keyboard navigation ─────────────────────────────────────────────────────
 
 /**

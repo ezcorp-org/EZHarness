@@ -15,6 +15,8 @@ import {
 	formatNodeDuration,
 	isActivationKey,
 	KIND_LABEL,
+	LABEL_FADE_PX,
+	labelFadeStart,
 	moveFocus,
 	type NavNode,
 	nodeAction,
@@ -110,6 +112,29 @@ describe("nodeAction", () => {
 
 	test("a drillable subagent announces the sub-graph", () => {
 		expect(nodeAction(node({ kind: "subagent", drillable: true }))).toBe("Opens this sub-agent's graph.");
+	});
+});
+
+describe("labelFadeStart", () => {
+	test("the fade occupies the last LABEL_FADE_PX of the text area", () => {
+		// 146 is the real text width for the default 168px node box.
+		expect(labelFadeStart(146)).toBeCloseTo((146 - LABEL_FADE_PX) / 146, 10);
+		expect(labelFadeStart(146) * 146).toBeCloseTo(146 - LABEL_FADE_PX, 10);
+	});
+
+	test("a text area no wider than the fade fades from its very start", () => {
+		// A negative stop offset is invalid SVG, so the degenerate case clamps.
+		expect(labelFadeStart(LABEL_FADE_PX)).toBe(0);
+		expect(labelFadeStart(4)).toBe(0);
+		expect(labelFadeStart(0)).toBe(0);
+	});
+
+	test("every offset it returns is a valid SVG stop", () => {
+		for (const w of [0, 1, LABEL_FADE_PX, 25, 100, 146, 1000]) {
+			const stop = labelFadeStart(w);
+			expect(stop).toBeGreaterThanOrEqual(0);
+			expect(stop).toBeLessThan(1);
+		}
 	});
 });
 

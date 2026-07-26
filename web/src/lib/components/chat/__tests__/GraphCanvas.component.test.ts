@@ -14,7 +14,7 @@ import { render, fireEvent, cleanup } from "@testing-library/svelte";
 import { describe, test, expect, afterEach, vi } from "vitest";
 import GraphCanvas from "../GraphCanvas.svelte";
 import { layoutGraph } from "$lib/graph/layout";
-import { ZOOM_MAX, ZOOM_MIN } from "$lib/graph/canvas-view";
+import { LABEL_GUTTER, labelFadeStart, ZOOM_MAX, ZOOM_MIN } from "$lib/graph/canvas-view";
 import type { ChatGraph, GraphEdge, GraphNode } from "$server/runtime/chat-graph/types";
 
 afterEach(() => cleanup());
@@ -159,18 +159,39 @@ describe("GraphCanvas rendering", () => {
 		expect(container.querySelector('[data-from="p1"][data-to="x1"]')!.getAttribute("data-kind")).toBe("branch");
 	});
 
-	test("the clip path and arrow marker ids are instance-unique", () => {
+	test("the text mask and arrow marker ids are instance-unique", () => {
 		const first = renderCanvas();
 		const second = renderCanvas();
-		const clipOf = (c: HTMLElement) => c.querySelector("clipPath")!.getAttribute("id");
-		expect(clipOf(first.container)).not.toBe(clipOf(second.container));
+		const maskOf = (c: HTMLElement) => c.querySelector("mask")!.getAttribute("id");
+		expect(maskOf(first.container)).not.toBe(maskOf(second.container));
 	});
 
-	test("an empty layout renders no nodes and still sizes the clip box", () => {
+	test("an empty layout renders no nodes and still sizes the text mask", () => {
 		const { container, queryAllByTestId } = renderCanvas(graph([]));
 		expect(queryAllByTestId("chat-graph-node")).toHaveLength(0);
 		// Falls back to the default node width (168) minus the status-dot gutter.
-		expect(container.querySelector("clipPath rect")!.getAttribute("width")).toBe("146");
+		expect(container.querySelector("mask rect")!.getAttribute("width")).toBe("146");
+	});
+
+	test("an overlong label fades out instead of being sliced mid-glyph", () => {
+		// Labels arrive truncated to LABEL_MAX (60) but a 168px box shows ~23
+		// characters, so this is the common case, not an edge case. The mask's
+		// gradient must hold full opacity up to the fade, then run to zero.
+		const { container } = renderCanvas();
+		// `stop`, not `linearGradient stop`: jsdom lowercases type selectors, so
+		// the camelCase SVG element name never matches.
+		const stops = [...container.querySelectorAll("stop")].map((s) => ({
+			offset: s.getAttribute("offset"),
+			color: s.getAttribute("stop-color"),
+		}));
+		expect(stops).toEqual([
+			{ offset: "0", color: "#fff" },
+			{ offset: String(labelFadeStart(168 - LABEL_GUTTER)), color: "#fff" },
+			{ offset: "1", color: "#000" },
+		]);
+		// The label group is masked by that gradient, not hard-clipped.
+		const masked = nodeEl(container, "p1").querySelector(".node-label")!.parentElement!;
+		expect(masked.getAttribute("mask")).toMatch(/^url\(#.*-nodemask\)$/);
 	});
 });
 

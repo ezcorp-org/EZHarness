@@ -31,6 +31,8 @@
 		formatNodeDuration,
 		isActivationKey,
 		KIND_LABEL,
+		LABEL_GUTTER,
+		labelFadeStart,
 		moveFocus,
 		nodeAriaLabel,
 		nodeTitle,
@@ -54,7 +56,8 @@
 	// Unique per instance: two canvases on one page must not share a
 	// <clipPath> / <marker> id.
 	const uid = $props.id();
-	const clipId = `${uid}-nodeclip`;
+	const maskId = `${uid}-nodemask`;
+	const fadeId = `${uid}-nodefade`;
 	const arrowId = `${uid}-arrow`;
 
 	let focusedId = $state<string | null>(null);
@@ -91,9 +94,11 @@
 	let activeId = $derived(
 		(focusedId !== null && layout.nodes.some((n) => n.id === focusedId) ? focusedId : layout.nodes[0]?.id) ?? null,
 	);
-	// Every node box is the same size, so one shared clip rect covers them all.
+	// Every node box is the same size, so one shared text mask covers them all.
 	let boxWidth = $derived(layout.nodes[0]?.width ?? DEFAULT_LAYOUT_OPTIONS.nodeWidth);
 	let boxHeight = $derived(layout.nodes[0]?.height ?? DEFAULT_LAYOUT_OPTIONS.nodeHeight);
+	let textWidth = $derived(boxWidth - LABEL_GUTTER);
+	let fadeStart = $derived(labelFadeStart(textWidth));
 
 	function focusNode(id: string) {
 		focusedId = id;
@@ -207,9 +212,19 @@
 			>
 				<path class="edge-arrow" d="M 0 0 L 8 4 L 0 8 z" />
 			</marker>
-			<clipPath id={clipId} clipPathUnits="userSpaceOnUse">
-				<rect x="0" y="0" width={boxWidth - 22} height={boxHeight} />
-			</clipPath>
+			<!-- Text mask: bounds the label to the box AND fades its last few px
+			     to transparent, so an overlong label ends in a soft edge instead
+			     of a glyph sliced down the middle. `#fff`/`#000` here are mask
+			     luminance (opaque / transparent), NOT theme colour — a mask has
+			     no light and dark variant. -->
+			<linearGradient id={fadeId} x1="0" x2="1" y1="0" y2="0">
+				<stop offset="0" stop-color="#fff" />
+				<stop offset={fadeStart} stop-color="#fff" />
+				<stop offset="1" stop-color="#000" />
+			</linearGradient>
+			<mask id={maskId} maskUnits="userSpaceOnUse" x="0" y="0" width={textWidth} height={boxHeight}>
+				<rect x="0" y="0" width={textWidth} height={boxHeight} fill="url(#{fadeId})" />
+			</mask>
 		</defs>
 
 		<!-- Zoom is the SVG's own width/height above; this group is pan only. -->
@@ -255,7 +270,7 @@
 					     of poking out past its rounded corners. -->
 					<rect class="node-accent" x="1" y="6" width="3" height={ln.height - 12} rx="1.5" />
 					<circle class="node-status" cx={ln.width - 11} cy="11" r="3.5" />
-					<g clip-path="url(#{clipId})">
+					<g mask="url(#{maskId})">
 						<text class="node-label" x="11" y="19">{n.label}</text>
 						<text class="node-meta" x="11" y="33">{KIND_LABEL[n.kind]} · {formatNodeDuration(n.durationMs)}</text>
 					</g>

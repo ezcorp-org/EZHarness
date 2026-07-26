@@ -39,8 +39,22 @@ export const REPLY_BENCH = "a-bench";
 export const TOOL_WITH_DURATION = "tc-read-schema";
 export const TOOL_WITHOUT_DURATION = "tc-run-bench";
 
-/** Node labels, asserted verbatim by both specs. All are under `LABEL_MAX` (60). */
-export const LABEL_PLAN = "Plan the database migration";
+/** Node labels, asserted verbatim by both specs. */
+
+/** The untruncated first prompt — what the tooltip and detail pane show. */
+export const FULL_LABEL_PLAN =
+	"Plan the database migration, including the rollback path and the index rebuild order";
+/**
+ * A label AT the builder's truncation boundary: exactly `LABEL_MAX` (60)
+ * characters ending in the single-char ellipsis, which is precisely what
+ * `truncateLabel` (`src/runtime/chat-graph/labels.ts`) emits.
+ *
+ * Deliberately long. A 168px node box renders roughly 23 characters, so a
+ * label this size is the COMMON case in a real conversation and it is the one
+ * that exercises the right-edge fade. Every other label in this file is short
+ * enough to fit, which is exactly why a hard-clipped label went unnoticed.
+ */
+export const LABEL_PLAN = `${FULL_LABEL_PLAN.slice(0, 59)}…`;
 export const LABEL_ROLLBACK = "Now write the rollback script";
 export const LABEL_BENCH = "Actually, benchmark it first";
 export const LABEL_SUBAGENT = "index-inspector";
@@ -72,7 +86,9 @@ export const messages = [
 		id: PROMPT_PLAN,
 		conversationId: CONV_ID,
 		role: "user",
-		content: LABEL_PLAN,
+		// The transcript carries the FULL prompt; the graph node's `label` is
+		// the truncated derivative of it, which is the real relationship.
+		content: FULL_LABEL_PLAN,
 		parentMessageId: null,
 		createdAt: "2026-04-01T00:00:00.000Z",
 	}),
@@ -126,6 +142,9 @@ export const level1: ChatGraph = {
 			id: PROMPT_PLAN,
 			kind: "prompt",
 			label: LABEL_PLAN,
+			// Set by the builder whenever truncation changed the string, and the
+			// only way back to the full text from the node box.
+			fullLabel: FULL_LABEL_PLAN,
 			status: "success",
 			createdAt: "2026-04-01T00:00:00.000Z",
 			drillable: true,
