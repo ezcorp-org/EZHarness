@@ -182,7 +182,15 @@ describe.skipIf(!PG_URL)("external Postgres via Bun.sql (real server)", () => {
     // Runs the full initPostgres() path: applyBunSqlJsonbFix → pool → CREATE
     // EXTENSION vector → advisory-locked migrate() → repairDoubleEncodedJsonb.
     await conn.initDb();
-  });
+    // 60s, not bun's 5s default. This hook migrates a REAL Postgres service
+    // container from empty: CREATE EXTENSION vector, every table + index, an
+    // advisory-locked migrate(), then the jsonb repair pass. That routinely
+    // lands near 5s on a loaded CI runner, so the default budget made this a
+    // latent flake that failed as an "(unnamed)" 5000.13ms test — the hook
+    // timing out, not an assertion. Observed failing twice in a row on one PR
+    // while passing on another with an unrelated diff. Generous enough to
+    // absorb runner jitter, still tight enough to catch a genuine hang.
+  }, 60_000);
 
   afterAll(async () => {
     if (conn) await conn.closeDb();
