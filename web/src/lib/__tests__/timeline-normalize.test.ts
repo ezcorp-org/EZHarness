@@ -19,7 +19,6 @@ import { describe, expect, test } from "bun:test";
 import {
 	buildWaterfallBars,
 	normalizeObsEvents,
-	normalizePersistedToolCalls,
 	normalizeToolCalls,
 	resolveDurationMs,
 	THINKING_GAP_MS,
@@ -246,87 +245,6 @@ describe("normalizeObsEvents — persisted observability source", () => {
 		const out = normalizeObsEvents([
 			obs({ id: "second", createdAt: 2_000 }),
 			obs({ id: "first", createdAt: 1_000 }),
-		]);
-		expect(out.map((e) => e.id)).toEqual(["first", "second"]);
-	});
-});
-
-describe("normalizePersistedToolCalls — the chat-graph source", () => {
-	test("no rows yields no entries", () => {
-		expect(normalizePersistedToolCalls([])).toEqual([]);
-	});
-
-	test("the hardcoded 0 column leaves durationMs absent for the graph", () => {
-		const [e] = normalizePersistedToolCalls([
-			{
-				id: "tc-1",
-				toolName: "Read",
-				extensionId: "builtin",
-				success: true,
-				durationMs: 0,
-				createdAt: "2026-07-26T12:00:00.000Z",
-			},
-		]);
-		expect(e).not.toHaveProperty("durationMs");
-		expect(e!.spanMs).toBe(0);
-		expect(e!.status).toBe("complete");
-		expect(e!.extensionId).toBe("builtin");
-	});
-
-	test("a non-zero column value is trusted", () => {
-		const [e] = normalizePersistedToolCalls([
-			{
-				id: "tc-1",
-				toolName: "fetchUrl",
-				durationMs: 412,
-				createdAt: new Date("2026-07-26T12:00:00.000Z"),
-				input: { url: "x" },
-				output: { body: "y" },
-			},
-		]);
-		expect(e!.durationMs).toBe(412);
-		expect(e!.spanMs).toBe(412);
-		expect(e!.input).toEqual({ url: "x" });
-		expect(e!.output).toEqual({ body: "y" });
-	});
-
-	test("success:false becomes an error entry and surfaces its message", () => {
-		const [e] = normalizePersistedToolCalls([
-			{
-				id: "tc-1",
-				toolName: "bash",
-				success: false,
-				error: "exit 1",
-				createdAt: "2026-07-26T12:00:00.000Z",
-			},
-		]);
-		expect(e!.status).toBe("error");
-		expect(e!.error).toBe("exit 1");
-	});
-
-	test("null extensionId/error/duration normalize to absent, not null", () => {
-		const [e] = normalizePersistedToolCalls([
-			{
-				id: "tc-1",
-				toolName: "Read",
-				extensionId: null,
-				success: null,
-				error: null,
-				durationMs: null,
-				createdAt: "2026-07-26T12:00:00.000Z",
-			},
-		]);
-		expect(e!.extensionId).toBeUndefined();
-		expect(e!.error).toBeUndefined();
-		expect(e).not.toHaveProperty("durationMs");
-		// `success: null` is not an explicit failure, so it is not an error.
-		expect(e!.status).toBe("complete");
-	});
-
-	test("rows come out ordered by createdAt", () => {
-		const out = normalizePersistedToolCalls([
-			{ id: "second", toolName: "b", createdAt: "2026-07-26T12:00:02.000Z" },
-			{ id: "first", toolName: "a", createdAt: "2026-07-26T12:00:01.000Z" },
 		]);
 		expect(out.map((e) => e.id)).toEqual(["first", "second"]);
 	});

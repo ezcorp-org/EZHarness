@@ -239,6 +239,32 @@ describe("buildTurnDag — durations", () => {
     expect(graph.nodes.find((n) => n.id === "tc-1")!.durationMs).toBe(1234);
   });
 
+  test("a corrupt column value is unknown, not a fact", () => {
+    // The builder shares `resolveDurationMs` with the waterfall, which rejects
+    // <= 0 and non-finite. Its old local copy (`ms ? ms : undefined`) let a
+    // negative and an Infinity through as real measurements.
+    for (const durationMs of [-5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      const toolCalls = [call("tc-1", "a1", "search", 1, { durationMs })];
+      const graph = build({ messages: SIMPLE_TURN, turnMessageId: "u1", toolCalls })!;
+      const tool = graph.nodes.find((n) => n.id === "tc-1")!;
+      expect(tool.durationMs).toBeUndefined();
+      expect("durationMs" in tool).toBe(false);
+    }
+  });
+
+  test("a corrupt observability duration never wins the zip either", () => {
+    const toolCalls = [call("tc-1", "a1", "search", 1)];
+    const observability = [obs("ev-1", "tool_call", 1, { toolName: "search" }, -400)];
+    const graph = build({ messages: SIMPLE_TURN, turnMessageId: "u1", toolCalls, observability })!;
+    expect(graph.nodes.find((n) => n.id === "tc-1")!.durationMs).toBeUndefined();
+  });
+
+  test("a corrupt turn_summary leaves the assistant node without a duration", () => {
+    const observability = [obs("ev-sum", "turn_summary", 5, {}, -1, "a1")];
+    const graph = build({ messages: SIMPLE_TURN, turnMessageId: "u1", observability })!;
+    expect(graph.nodes.find((n) => n.id === "a1")!.durationMs).toBeUndefined();
+  });
+
   test("durationMs === 0 with no observability row is ABSENT, never 0", () => {
     const toolCalls = [call("tc-1", "a1", "search", 1)];
     const graph = build({ messages: SIMPLE_TURN, turnMessageId: "u1", toolCalls })!;

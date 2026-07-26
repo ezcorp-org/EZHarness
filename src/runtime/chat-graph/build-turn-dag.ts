@@ -39,6 +39,12 @@
  * a false sequence.
  */
 
+// The duration-honesty rule and the tool-event list live in the shared
+// normalizer, next to the waterfall that also applies them. Direct
+// src → web/src/lib import, the `mention-logic` convention
+// (`src/runtime/mention-wiring.ts`); the module is dependency-free by
+// contract, so nothing frontend-side comes with it.
+import { resolveDurationMs, TOOL_EVENT_TYPES } from "../../../web/src/lib/timeline-normalize";
 import { truncateLabel } from "./labels";
 import { byCreatedAtThenId, toMs } from "./order";
 import type { ChatGraph, GraphEdge, GraphNode, GraphNodeStatus } from "./types";
@@ -59,7 +65,11 @@ export interface TurnDagToolCall {
   toolName: string;
   extensionId: string;
   status: GraphNodeStatus;
-  /** `0` means UNKNOWN, never "instant" — see the duration rules below. */
+  /**
+   * `0` means UNKNOWN, never "instant" — built-in tools hardcode it. Passed
+   * through `resolveDurationMs`, which also rejects negatives and non-finite
+   * values (see `web/src/lib/timeline-normalize.ts`).
+   */
   durationMs: number;
   createdAt: string;
 }
@@ -94,21 +104,6 @@ const UNNAMED_AGENT = "sub-agent";
 /** Fallback when a `run_error` row carries no readable message. */
 const UNKNOWN_ERROR = "Run failed";
 
-/** Observability event types that carry a real per-tool-call duration. */
-const TOOL_EVENT_TYPES = new Set(["tool_call", "tool_error"]);
-
-/**
- * A duration is only reported when it is CONFIDENTLY known. Both sources
- * encode "unknown" as a falsy value — built-in tools persist
- * `tool_calls.duration_ms = 0` unconditionally
- * (`src/runtime/stream-chat/subscribe-bridge.ts`), and an observability row
- * may carry `null` — and the contract is explicit that the UI must render an
- * em dash rather than "0ms". One predicate, applied to both.
- */
-function knownDuration(ms: number | null | undefined): number | undefined {
-  return ms ? ms : undefined;
-}
-
 /**
  * The positional observability match, exactly as specified at the bottom of
  * `types.ts`: bucket both lists by `toolName`, preserve order within each
@@ -136,7 +131,7 @@ function matchObservabilityDurations(
   for (const call of calls) {
     const index = seenPerName.get(call.toolName) ?? 0;
     seenPerName.set(call.toolName, index + 1);
-    const duration = knownDuration(eventsByName.get(call.toolName)?.[index]?.durationMs);
+    const duration = resolveDurationMs(eventsByName.get(call.toolName)?.[index]?.durationMs);
     if (duration !== undefined) matched.set(call.id, duration);
   }
   return matched;
@@ -220,7 +215,7 @@ export function buildTurnDag(input: TurnDagInput): ChatGraph | null {
   const turnDurationByMessage = new Map<string, number>();
   for (const ev of input.observability) {
     if (ev.eventType !== "turn_summary" || ev.messageId === null) continue;
-    const duration = knownDuration(ev.durationMs);
+    const duration = resolveDurationMs(ev.durationMs);
     if (duration !== undefined) turnDurationByMessage.set(ev.messageId, duration);
   }
 
@@ -280,7 +275,7 @@ export function buildTurnDag(input: TurnDagInput): ChatGraph | null {
       });
     }
     for (const call of callsByMessage.get(assistant.id) ?? []) {
-      const duration = knownDuration(call.durationMs) ?? obsDurations.get(call.id);
+      const duration = resolveDurationMs(call.durationMs) ?? obsDurations.get(call.id);
       group.push({
         ...truncateLabel(call.toolName),
         id: call.id,

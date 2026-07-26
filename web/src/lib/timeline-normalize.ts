@@ -2,19 +2,28 @@
  * Timeline normalization — the ONE place a tool invocation is turned into a
  * comparable, source-agnostic record (pure logic, no DOM, no `Date.now()`).
  *
- * Three sources describe the same thing and every consumer used to re-derive
- * the mapping itself:
+ * Two sources describe the same thing and every consumer used to re-derive the
+ * mapping itself:
  *
  *   1. `ToolCallState[]`      — the live streaming store (`$lib/stores.svelte`),
  *                               what `WaterfallTimeline` renders mid-run.
  *   2. `observability_events` — persisted `tool_call` / `tool_error` rows,
  *                               what `WaterfallTimeline` renders after reload.
- *   3. `tool_calls` rows      — the persisted call table, what the chat-graph
- *                               level-2 builder reads.
  *
- * All three collapse to `TimelineEntry`, so the waterfall geometry
- * (`buildWaterfallBars`) and the chat-graph builder share one vocabulary
- * instead of two hand-rolled copies.
+ * Both collapse to `TimelineEntry`, so the waterfall geometry
+ * (`buildWaterfallBars`) reads one vocabulary instead of two hand-rolled
+ * copies.
+ *
+ * The chat-graph level-2 builder (`src/runtime/chat-graph/build-turn-dag.ts`)
+ * shares the two RULES below — `resolveDurationMs` and `TOOL_EVENT_TYPES` —
+ * but deliberately NOT `TimelineEntry`. A third normalizer for `tool_calls`
+ * rows existed briefly and was removed: it lost `messageId` (which the builder
+ * needs to group calls under their assistant message), collapsed
+ * `ToolCallSummary.status` — a real three-value rule including `interrupted`
+ * (`src/db/queries/conversations.ts`) — into the two-value complete/error
+ * split, and sorted on `startMs` alone, dropping the `id` tie-break the
+ * builder's positional observability zip depends on. Sharing the rules is the
+ * win; sharing the row shape was a loss.
  *
  * This module lives under `web/src/lib/` but is imported by BOTH the browser
  * (via `$lib`) and the Bun backend (via a relative path) — the same
@@ -107,21 +116,14 @@ export interface ObsEventLike {
 	createdAt: string;
 }
 
-/** A persisted `tool_calls` row, as the chat-graph level-2 builder reads it. */
-export interface PersistedToolCallLike {
-	id: string;
-	toolName: string;
-	extensionId?: string | null;
-	success?: boolean | null;
-	durationMs?: number | null;
-	createdAt: string | Date;
-	input?: unknown;
-	output?: unknown;
-	error?: string | null;
-}
-
-/** Obs event types that describe a tool invocation. */
-const TOOL_EVENT_TYPES = new Set(["tool_call", "tool_error"]);
+/**
+ * Obs event types that describe a tool invocation.
+ *
+ * Exported because the chat-graph level-2 builder filters the same rows for
+ * its duration zip — one list, so the two surfaces cannot drift on what counts
+ * as a tool event.
+ */
+export const TOOL_EVENT_TYPES: ReadonlySet<string> = new Set(["tool_call", "tool_error"]);
 
 /**
  * A gap larger than this between one call ending and the next starting is
@@ -137,6 +139,10 @@ export const THINKING_GAP_MS = 100;
  * Negative values are also rejected — a clock skew between the emitting
  * process and the row's timestamp can produce one, and a negative duration is
  * never a fact worth rendering.
+ *
+ * Shared with the chat-graph level-2 builder, which used to carry its own
+ * looser copy (`ms ? ms : undefined`) that let a negative and an Infinity
+ * through as facts.
  */
 export function resolveDurationMs(raw: number | null | undefined): number | undefined {
 	if (raw === null || raw === undefined) return undefined;
@@ -215,34 +221,6 @@ export function normalizeObsEvents(events: ObsEventLike[]): TimelineEntry[] {
 		});
 	}
 	return sortByStart(entries);
-}
-
-/**
- * Persisted `tool_calls` rows → entries, for the chat-graph level-2 builder.
- *
- * This is the source where the built-in-tool 0 is most misleading (the column
- * is hardcoded 0 at the insert site), so `durationMs` is almost always absent
- * here and the graph is expected to fill it in from a matched observability
- * row. `spanMs` is 0 for the same reason obs rows use 0.
- */
-export function normalizePersistedToolCalls(rows: PersistedToolCallLike[]): TimelineEntry[] {
-	return sortByStart(
-		rows.map((row) => {
-			const durationMs = resolveDurationMs(row.durationMs);
-			return {
-				id: row.id,
-				toolName: row.toolName,
-				extensionId: row.extensionId ?? undefined,
-				status: row.success === false ? ("error" as const) : ("complete" as const),
-				startMs: new Date(row.createdAt).getTime(),
-				...(durationMs === undefined ? {} : { durationMs }),
-				spanMs: durationMs ?? 0,
-				input: row.input,
-				output: row.output,
-				error: row.error ?? undefined,
-			};
-		}),
-	);
 }
 
 /** One row of the waterfall chart. Percentages are relative to the whole run. */
