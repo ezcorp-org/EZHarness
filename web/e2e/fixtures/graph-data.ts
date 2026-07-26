@@ -59,6 +59,8 @@ export const LABEL_ROLLBACK = "Now write the rollback script";
 export const LABEL_BENCH = "Actually, benchmark it first";
 export const LABEL_SUBAGENT = "index-inspector";
 export const LABEL_SUBAGENT_PROMPT = "Measure the index rebuild cost";
+/** The sub-conversation's own first prompt — a node id shared with NO other level. */
+export const SUBAGENT_PROMPT_ID = "s-measure";
 export const LABEL_REPLY = "Benchmarked both plans.";
 export const LABEL_THINKING = "Comparing pg_dump against logical replication";
 export const LABEL_TOOL_WITH_DURATION = "read_file";
@@ -262,7 +264,7 @@ export const level1SubAgent: ChatGraph = {
 	conversationId: SUBCONV_ID,
 	nodes: [
 		{
-			id: "s-measure",
+			id: SUBAGENT_PROMPT_ID,
 			kind: "prompt",
 			label: LABEL_SUBAGENT_PROMPT,
 			status: "success",

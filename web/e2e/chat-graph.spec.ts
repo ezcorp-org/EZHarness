@@ -45,6 +45,7 @@ import {
 	PROMPT_PLAN,
 	PROMPT_ROLLBACK,
 	REPLY_BENCH,
+	SUBAGENT_PROMPT_ID,
 	SUBCONV_ID,
 	TOOL_WITHOUT_DURATION,
 	TOOL_WITH_DURATION,
@@ -262,6 +263,75 @@ test.describe("Chat DAG graph panel", () => {
 			"aria-label",
 			`Prompt: ${LABEL_ROLLBACK}, succeeded, rewound away. Opens this turn's trace.`,
 		);
+	});
+
+	/**
+	 * Keyboard-only walk of the headline interaction, end to end: Tab into the
+	 * graph, arrow to a prompt, Enter to drill, again into a sub-agent, and back
+	 * out — asserting at every level that the graph is still enterable and that
+	 * focus lands on a node of the CURRENT map.
+	 *
+	 * Scope note, so nobody mistakes what this defends. `GraphCanvas` had a bug
+	 * where a `focusedId` left over from the previous layout matched nothing and
+	 * every node fell to `tabindex="-1"`. That is fixed and pinned by the
+	 * component test "switching levels re-homes the tab stop". It is NOT
+	 * observable here, because the panel swaps to its loading state on every
+	 * navigation, which unmounts the canvas and resets its focus state — this
+	 * spec passes with or without that fix. It is here for the coverage the
+	 * suite genuinely lacked: nothing exercised keyboard traversal at all.
+	 */
+	test("the graph is reachable and walkable by keyboard alone, across a level switch", async ({
+		page,
+		mockApi,
+	}) => {
+		await gotoChat(page, mockApi);
+		const panel = await openPanel(page);
+		const stops = panel.locator('[data-testid="chat-graph-node"][tabindex="0"]');
+		const focused = () => page.evaluate(() => document.activeElement?.getAttribute("data-node-id") ?? null);
+		/**
+		 * Reach the graph the way a Tab press does: whichever single node holds
+		 * the roving tabindex. Re-invoked after every level switch because the
+		 * old node is destroyed with the old layout and the browser drops DOM
+		 * focus to `<body>`; the tab stop is what a keyboard user lands on next.
+		 */
+		const tabInto = async () => {
+			await expect(stops).toHaveCount(1);
+			await stops.focus();
+		};
+
+		// Exactly one node is tab-reachable, so Tab enters the graph in one stop
+		// rather than walking every node in it.
+		await tabInto();
+		expect(await focused()).toBe(PROMPT_PLAN);
+
+		// Arrows walk it and Enter drills in — no mouse anywhere in this test.
+		await page.keyboard.press("ArrowDown");
+		expect(await focused()).toBe(PROMPT_ROLLBACK);
+		await page.keyboard.press("ArrowRight");
+		expect(await focused()).toBe(PROMPT_BENCH);
+		await page.keyboard.press("Enter");
+		await expect(panel.getByRole("heading", { name: "Turn trace" })).toBeVisible();
+
+		// Now the harder switch: drilling a sub-agent swaps in a DIFFERENT
+		// conversation's map, which shares no node ids with the one we came from.
+		await tabInto();
+		await page.keyboard.press("End");
+		expect(await focused()).toBe(SUBCONV_ID);
+		await page.keyboard.press("Enter");
+		await expect(panel.locator(`[data-node-id="${SUBAGENT_PROMPT_ID}"]`)).toBeVisible();
+		// Nothing of the old graph survives — the id the canvas had focused is
+		// simply gone.
+		await expect(panel.locator(`[data-node-id="${SUBCONV_ID}"]`)).toHaveCount(0);
+
+		// The graph is still enterable, and lands on a node of the NEW map.
+		await tabInto();
+		expect(await focused()).toBe(SUBAGENT_PROMPT_ID);
+
+		// Same on the way back out, which is the other direction of the bug.
+		await panel.getByTestId("chat-graph-back").click();
+		await expect(panel.getByRole("heading", { name: "Turn trace" })).toBeVisible();
+		await tabInto();
+		expect(await focused()).toBe(PROMPT_BENCH);
 	});
 
 	test("a sub-agent node is present on both levels and drills into its own graph", async ({
