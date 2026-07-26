@@ -20,10 +20,14 @@
 	 * exactly the 168×44 CSS px the layout intends and its label is legible.
 	 * A "fit the whole graph into the panel" `preserveAspectRatio` was
 	 * rejected — a long conversation is a tall narrow drawing, and fitting it
-	 * to a phone-width drawer shrinks the labels to nothing. The SVG
-	 * overflows into a scroll container instead, and drag-to-pan is a
-	 * `<g transform>` in viewBox units (screen px ÷ zoom), which needs no DOM
-	 * measurement at all.
+	 * to a phone-width drawer shrinks the labels to nothing. The SVG overflows
+	 * into a scroll container instead, and drag-to-pan scrolls THAT container.
+	 *
+	 * Pan deliberately does NOT translate a `<g>` inside the SVG: the viewBox
+	 * is pinned to the content box, so a transform pushes content past it and
+	 * SVG's default `overflow: hidden` clips it — dragging would hide the graph
+	 * rather than reveal more of it. Scrolling the container also keeps drag and
+	 * the scrollbars in agreement instead of maintaining two rival offsets.
 	 */
 	import { DEFAULT_LAYOUT_OPTIONS, type LayoutResult } from "$lib/graph/layout";
 	import {
@@ -62,9 +66,9 @@
 
 	let focusedId = $state<string | null>(null);
 	let zoom = $state(1);
-	let tx = $state(0);
-	let ty = $state(0);
 	let dragging = $state(false);
+	/** The scroll container. Dragging pans by scrolling THIS, not by transforming the SVG. */
+	let scroller: HTMLDivElement;
 
 	// id → element, for moving DOM focus when the arrows move the roving
 	// tabindex. An action rather than `bind:this` into a record: node ids are
@@ -82,8 +86,8 @@
 
 	let panStartX = 0;
 	let panStartY = 0;
-	let panOriginX = 0;
-	let panOriginY = 0;
+	let panOriginLeft = 0;
+	let panOriginTop = 0;
 
 	// Roving tabindex: exactly one node is tab-reachable at a time.
 	//
@@ -128,16 +132,22 @@
 		dragging = true;
 		panStartX = e.clientX;
 		panStartY = e.clientY;
-		panOriginX = tx;
-		panOriginY = ty;
+		panOriginLeft = scroller.scrollLeft;
+		panOriginTop = scroller.scrollTop;
 	}
 
 	function movePan(e: MouseEvent) {
 		if (!dragging) return;
-		// Screen pixels → viewBox units. The SVG is drawn at exactly `zoom`
-		// times its viewBox, so that conversion is the whole story.
-		tx = panOriginX + (e.clientX - panStartX) / zoom;
-		ty = panOriginY + (e.clientY - panStartY) / zoom;
+		// Dragging right reveals what is to the LEFT, so scroll DEcreases —
+		// grab-and-drag, the same direction a touch scroll moves.
+		//
+		// Scroll offsets are rendered CSS pixels and so is the mouse delta, so
+		// this is 1:1 with no zoom conversion. The old implementation translated
+		// a `<g>` inside the SVG instead, which needed a `/ zoom` correction AND
+		// pushed content past the viewBox, where SVG's default `overflow: hidden`
+		// simply clipped it — panning HID the graph rather than revealing it.
+		scroller.scrollLeft = panOriginLeft - (e.clientX - panStartX);
+		scroller.scrollTop = panOriginTop - (e.clientY - panStartY);
 	}
 
 	function endPan() {
@@ -151,8 +161,8 @@
 
 	function resetView() {
 		zoom = 1;
-		tx = 0;
-		ty = 0;
+		scroller.scrollLeft = 0;
+		scroller.scrollTop = 0;
 	}
 </script>
 
@@ -188,7 +198,11 @@
 		>Reset</button>
 	</div>
 
-	<div class="h-full w-full overflow-auto p-1" data-testid="chat-graph-scroller">
+	<div
+		bind:this={scroller}
+		class="h-full w-full overflow-auto p-1"
+		data-testid="chat-graph-scroller"
+	>
 	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 	<svg
 		class="select-none {dragging ? 'cursor-grabbing' : 'cursor-grab'}"
@@ -227,8 +241,6 @@
 			</mask>
 		</defs>
 
-		<!-- Zoom is the SVG's own width/height above; this group is pan only. -->
-		<g data-testid="chat-graph-viewport" transform="translate({tx},{ty})">
 			<g class="edges" fill="none">
 				{#each layout.edges as e (`${e.from}->${e.to}-${e.kind}`)}
 					<path
@@ -286,8 +298,7 @@
 						/>
 					{/if}
 				</g>
-			{/each}
-		</g>
+		{/each}
 	</svg>
 	</div>
 </div>

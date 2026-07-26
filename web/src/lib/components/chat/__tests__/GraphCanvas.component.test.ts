@@ -69,8 +69,14 @@ function nodeEl(container: HTMLElement, id: string): SVGGElement {
 	return el!;
 }
 
-function viewport(container: HTMLElement): SVGGElement {
-	return container.querySelector<SVGGElement>('[data-testid="chat-graph-viewport"]')!;
+function scroller(container: HTMLElement): HTMLDivElement {
+	return container.querySelector<HTMLDivElement>('[data-testid="chat-graph-scroller"]')!;
+}
+
+/** Current pan, as the scroll offsets the drag handler actually writes. */
+function panOf(container: HTMLElement): [number, number] {
+	const el = scroller(container);
+	return [el.scrollLeft, el.scrollTop];
 }
 
 describe("GraphCanvas rendering", () => {
@@ -300,7 +306,7 @@ describe("GraphCanvas zoom", () => {
 	test("starts at 100% and unpanned", () => {
 		const { container, layout } = renderCanvas();
 		expect(zoomOf(container, layout.width)).toBe(1);
-		expect(viewport(container).getAttribute("transform")).toBe("translate(0,0)");
+		expect(panOf(container)).toEqual([0, 0]);
 	});
 
 	test("the zoom-in button scales the drawing up", async () => {
@@ -341,53 +347,56 @@ describe("GraphCanvas zoom", () => {
 	test("Reset restores zoom and pan together", async () => {
 		const { container, getByTestId, layout } = renderCanvas();
 		await fireEvent.click(getByTestId("chat-graph-zoom-in"));
-		await fireEvent.mouseDown(container.querySelector("svg")!, { clientX: 0, clientY: 0 });
-		await fireEvent.mouseMove(window, { clientX: 30, clientY: 40 });
+		scroller(container).scrollLeft = 120;
+		await fireEvent.mouseDown(container.querySelector("svg")!, { clientX: 40, clientY: 40 });
+		await fireEvent.mouseMove(window, { clientX: 10, clientY: 0 });
 		await fireEvent.mouseUp(window);
+		expect(panOf(container)).not.toEqual([0, 0]);
 		await fireEvent.click(getByTestId("chat-graph-zoom-reset"));
 		expect(zoomOf(container, layout.width)).toBe(1);
-		expect(viewport(container).getAttribute("transform")).toBe("translate(0,0)");
+		expect(panOf(container)).toEqual([0, 0]);
 	});
 });
 
 describe("GraphCanvas pan", () => {
-	test("dragging the background pans the viewport", async () => {
+	test("dragging the background scrolls the container", async () => {
 		const { container } = renderCanvas();
 		const svg = container.querySelector("svg")!;
+		scroller(container).scrollLeft = 100;
+		scroller(container).scrollTop = 100;
 		await fireEvent.mouseDown(svg, { clientX: 10, clientY: 10 });
 		await fireEvent.mouseMove(window, { clientX: 40, clientY: 35 });
-		expect(viewport(container).getAttribute("transform")).toBe("translate(30,25)");
+		// Dragging right/down reveals content up and to the left, so the scroll
+		// offsets DECREASE by the drag distance — grab-and-drag.
+		expect(panOf(container)).toEqual([70, 75]);
 		await fireEvent.mouseUp(window);
 		// Releasing stops the drag: further movement must not pan.
 		await fireEvent.mouseMove(window, { clientX: 500, clientY: 500 });
-		expect(viewport(container).getAttribute("transform")).toBe("translate(30,25)");
+		expect(panOf(container)).toEqual([70, 75]);
 	});
 
 	test("a drag that starts on a node does not pan", async () => {
 		const { container } = renderCanvas();
 		await fireEvent.mouseDown(nodeEl(container, "p1"), { clientX: 10, clientY: 10 });
 		await fireEvent.mouseMove(window, { clientX: 90, clientY: 90 });
-		expect(viewport(container).getAttribute("transform")).toBe("translate(0,0)");
+		expect(panOf(container)).toEqual([0, 0]);
 	});
 
-	test("pan distance is screen pixels divided by the zoom", async () => {
+	test("pan is 1:1 with the mouse at every zoom", async () => {
+		// Scroll offsets and the mouse delta are both rendered CSS pixels, so
+		// unlike the old viewBox transform this needs no `/ zoom` correction.
 		const { container, getByTestId } = renderCanvas();
-		// Zoomed to 2×, a 30px drag should move the drawing 15 viewBox units.
-		await fireEvent.click(getByTestId("chat-graph-zoom-in"));
-		await fireEvent.click(getByTestId("chat-graph-zoom-in"));
-		await fireEvent.click(getByTestId("chat-graph-zoom-in"));
-		await fireEvent.click(getByTestId("chat-graph-zoom-in"));
+		for (let i = 0; i < 4; i++) await fireEvent.click(getByTestId("chat-graph-zoom-in"));
+		scroller(container).scrollLeft = 50;
 		const svg = container.querySelector("svg")!;
 		await fireEvent.mouseDown(svg, { clientX: 0, clientY: 0 });
-		await fireEvent.mouseMove(window, { clientX: 20.736, clientY: 0 });
-		// 1.2^4 = 2.0736, so 20.736px ÷ 2.0736 = 10 units.
-		const [x] = viewport(container).getAttribute("transform")!.match(/-?[\d.]+/g)!.map(Number);
-		expect(x).toBeCloseTo(10, 6);
+		await fireEvent.mouseMove(window, { clientX: 20, clientY: 0 });
+		expect(panOf(container)[0]).toBe(30);
 	});
 
 	test("mouse movement with no drag in progress is ignored", async () => {
 		const { container } = renderCanvas();
 		await fireEvent.mouseMove(window, { clientX: 200, clientY: 200 });
-		expect(viewport(container).getAttribute("transform")).toBe("translate(0,0)");
+		expect(panOf(container)).toEqual([0, 0]);
 	});
 });
