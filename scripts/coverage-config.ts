@@ -60,6 +60,15 @@ export const EXCLUDES: readonly string[] = [
   // two type files above. Flagged by the new-file gate as "no measured
   // coverage" because there is, by construction, nothing to line-measure.
   "packages/@ezcorp/sdk/src/runtime/loop-types.ts",
+  // Chat-graph wire contract — pure `export type` / `export interface` shared
+  // by the builders and the browser renderer (type-only import via `$server`).
+  // Compiles to an empty module, so the new-file gate flags it as "no measured
+  // coverage" because there is, by construction, nothing to line-measure.
+  // Identical justification to the three declaration-only type files above.
+  // It is deliberately types-only: a runtime value here would be a `$server`
+  // VALUE import inside client-side Svelte components. Its rules are enforced
+  // by the builders' own 100%-covered tests, not by lcov on this file.
+  "src/runtime/chat-graph/types.ts",
   // NOTE: the 9 web security helpers (bearer-auth, openai-extension-creds,
   // payload, internal-auth, system-user, bundled-creds, rate-limiter, api-keys,
   // resource-quotas) were REMOVED from this list. Their bun:test suites rely on
