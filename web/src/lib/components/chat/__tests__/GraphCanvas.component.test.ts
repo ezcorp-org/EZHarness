@@ -349,7 +349,7 @@ describe("GraphCanvas zoom", () => {
 		await fireEvent.click(getByTestId("chat-graph-zoom-in"));
 		scroller(container).scrollLeft = 120;
 		await fireEvent.mouseDown(container.querySelector("svg")!, { clientX: 40, clientY: 40 });
-		await fireEvent.mouseMove(window, { clientX: 10, clientY: 0 });
+		await fireEvent.mouseMove(window, { clientX: 10, clientY: 0, buttons: 1 });
 		await fireEvent.mouseUp(window);
 		expect(panOf(container)).not.toEqual([0, 0]);
 		await fireEvent.click(getByTestId("chat-graph-zoom-reset"));
@@ -365,20 +365,20 @@ describe("GraphCanvas pan", () => {
 		scroller(container).scrollLeft = 100;
 		scroller(container).scrollTop = 100;
 		await fireEvent.mouseDown(svg, { clientX: 10, clientY: 10 });
-		await fireEvent.mouseMove(window, { clientX: 40, clientY: 35 });
+		await fireEvent.mouseMove(window, { clientX: 40, clientY: 35, buttons: 1 });
 		// Dragging right/down reveals content up and to the left, so the scroll
 		// offsets DECREASE by the drag distance — grab-and-drag.
 		expect(panOf(container)).toEqual([70, 75]);
 		await fireEvent.mouseUp(window);
 		// Releasing stops the drag: further movement must not pan.
-		await fireEvent.mouseMove(window, { clientX: 500, clientY: 500 });
+		await fireEvent.mouseMove(window, { clientX: 500, clientY: 500, buttons: 1 });
 		expect(panOf(container)).toEqual([70, 75]);
 	});
 
 	test("a drag that starts on a node does not pan", async () => {
 		const { container } = renderCanvas();
 		await fireEvent.mouseDown(nodeEl(container, "p1"), { clientX: 10, clientY: 10 });
-		await fireEvent.mouseMove(window, { clientX: 90, clientY: 90 });
+		await fireEvent.mouseMove(window, { clientX: 90, clientY: 90, buttons: 1 });
 		expect(panOf(container)).toEqual([0, 0]);
 	});
 
@@ -390,13 +390,29 @@ describe("GraphCanvas pan", () => {
 		scroller(container).scrollLeft = 50;
 		const svg = container.querySelector("svg")!;
 		await fireEvent.mouseDown(svg, { clientX: 0, clientY: 0 });
-		await fireEvent.mouseMove(window, { clientX: 20, clientY: 0 });
+		await fireEvent.mouseMove(window, { clientX: 20, clientY: 0, buttons: 1 });
 		expect(panOf(container)[0]).toBe(30);
 	});
 
 	test("mouse movement with no drag in progress is ignored", async () => {
 		const { container } = renderCanvas();
-		await fireEvent.mouseMove(window, { clientX: 200, clientY: 200 });
+		await fireEvent.mouseMove(window, { clientX: 200, clientY: 200, buttons: 1 });
 		expect(panOf(container)).toEqual([0, 0]);
+	});
+
+	test("a button released outside the window does not leave the drag stuck on", async () => {
+		// Releasing outside the browser fires no `mouseup` we can see, so the
+		// drag would stay armed and the graph would pan with nothing held.
+		const { container } = renderCanvas();
+		const svg = container.querySelector("svg")!;
+		scroller(container).scrollLeft = 100;
+		await fireEvent.mouseDown(svg, { clientX: 50, clientY: 50 });
+		// …release happens off-window here…
+		await fireEvent.mouseMove(window, { clientX: 90, clientY: 50, buttons: 0 });
+		expect(panOf(container)).toEqual([100, 0]);
+		// And the drag is disarmed, so a later move with a button held (a fresh
+		// gesture elsewhere) still does not pan without its own mousedown.
+		await fireEvent.mouseMove(window, { clientX: 400, clientY: 50, buttons: 1 });
+		expect(panOf(container)).toEqual([100, 0]);
 	});
 });

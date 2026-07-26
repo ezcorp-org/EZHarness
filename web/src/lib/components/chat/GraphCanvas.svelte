@@ -138,6 +138,14 @@
 
 	function movePan(e: MouseEvent) {
 		if (!dragging) return;
+		// The button was released OUTSIDE the browser window, so no `mouseup`
+		// ever reached us and the drag would otherwise stay stuck on — the graph
+		// would then pan with nothing held down. The first move back over the
+		// page reports no buttons pressed, which is where we notice.
+		if (e.buttons === 0) {
+			dragging = false;
+			return;
+		}
 		// Dragging right reveals what is to the LEFT, so scroll DEcreases —
 		// grab-and-drag, the same direction a touch scroll moves.
 		//
