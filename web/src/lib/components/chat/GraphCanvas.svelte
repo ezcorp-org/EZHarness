@@ -372,8 +372,16 @@
 		stroke-width: 2;
 	}
 
-	/* Rewound-away branch: dimmed and dashed, still readable. */
-	.node[data-excluded="true"] {
+	/* Rewound-away branch: the BOX is dimmed and dashed, the TEXT is not.
+	   Opacity on the whole `<g>` drags the label down with it — measured
+	   against the panel surface that gave 2.69:1 (light) / 3.98:1 (dark) for
+	   the label and 1.83:1 / 1.97:1 for the meta line, all under the WCAG AA
+	   4.5:1 floor for normal text. Dimming only the non-text children keeps
+	   the greyed-out read at 5.91:1 / 5.25:1 worst case, and the dashed
+	   stroke plus the spoken "rewound away" carry the state. */
+	.node[data-excluded="true"] .node-box,
+	.node[data-excluded="true"] .node-accent,
+	.node[data-excluded="true"] .node-status {
 		opacity: 0.45;
 	}
 	.node[data-excluded="true"] .node-box {

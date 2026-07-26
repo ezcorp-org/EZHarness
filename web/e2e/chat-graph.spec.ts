@@ -232,11 +232,30 @@ test.describe("Chat DAG graph panel", () => {
 		expect(Math.round(rewoundBox!.y)).toBe(Math.round(liveBox!.y));
 		expect(rewoundBox!.x).not.toBe(liveBox!.x);
 
-		// The rewound-away leg is visibly dimmed; the live one is not.
+		// The rewound-away leg is visibly dimmed — but only its BOX, never its
+		// text. Dimming the whole `<g>` (which is what this used to do) drops the
+		// label to 2.69:1 and the meta line to 1.83:1 against the panel, both
+		// under the WCAG AA 4.5:1 floor. The greyed read now comes from the box,
+		// the accent bar, the status dot and the dashed stroke.
 		await expect(rewound).toHaveAttribute("data-excluded", "true");
 		await expect(live).toHaveAttribute("data-excluded", "false");
-		expect(await rewound.evaluate((el) => getComputedStyle(el).opacity)).toBe("0.45");
+		const opacityOf = (node: typeof rewound, sel: string) =>
+			node.locator(sel).evaluate((el) => getComputedStyle(el).opacity);
+		expect(await opacityOf(rewound, ".node-box")).toBe("0.45");
+		expect(await opacityOf(rewound, ".node-accent")).toBe("0.45");
+		expect(await opacityOf(rewound, ".node-status")).toBe("0.45");
+		expect(await opacityOf(rewound, ".node-label")).toBe("1");
+		expect(await opacityOf(rewound, ".node-meta")).toBe("1");
+		// The group itself must stay opaque, or the children's opacity compounds
+		// with it and the text is dimmed after all.
+		expect(await rewound.evaluate((el) => getComputedStyle(el).opacity)).toBe("1");
+		// The live leg is undimmed throughout, so the two are still tellable apart.
+		expect(await opacityOf(live, ".node-box")).toBe("1");
 		expect(await live.evaluate((el) => getComputedStyle(el).opacity)).toBe("1");
+		// Dashed vs solid is the second, non-colour signal.
+		expect(
+			await rewound.locator(".node-box").evaluate((el) => getComputedStyle(el).strokeDasharray),
+		).not.toBe(await live.locator(".node-box").evaluate((el) => getComputedStyle(el).strokeDasharray));
 
 		// Colour alone is not enough — the state is in the accessible name too.
 		await expect(rewound).toHaveAttribute(
