@@ -124,6 +124,48 @@ describe("edge filtering", () => {
 		expect(r.hasCycle).toBe(false);
 	});
 
+	test("a repeated edge is kept exactly once", () => {
+		// The renderer keys its {#each} by from/to/kind, and Svelte throws
+		// `each_key_duplicate` on a repeat — so a duplicated edge in a corrupt
+		// payload would take the whole panel down if it reached the template.
+		const g = graph(
+			[node("a", T(1)), node("b", T(2))],
+			[edge("a", "b"), edge("a", "b"), edge("a", "b")],
+		);
+		const r = layoutGraph(g);
+		expect(r.edges).toHaveLength(1);
+		// Deduping is not a cycle — the graph is still a plain a→b.
+		expect(r.hasCycle).toBe(false);
+	});
+
+	test("the same pair with DIFFERENT kinds is two real edges, not a duplicate", () => {
+		const g = graph(
+			[node("a", T(1)), node("b", T(2))],
+			[edge("a", "b", "sequence"), edge("a", "b", "spawn")],
+		);
+		const r = layoutGraph(g);
+		expect(r.edges.map((e) => e.kind)).toEqual(["sequence", "spawn"]);
+	});
+
+	test("every kept edge has a unique render key", () => {
+		// The invariant the renderer actually depends on, asserted directly
+		// against a payload that repeats edges, self-loops and dangles.
+		const g = graph(
+			[node("a", T(1)), node("b", T(2)), node("c", T(3))],
+			[
+				edge("a", "b"),
+				edge("a", "b"),
+				edge("a", "c", "spawn"),
+				edge("a", "c", "spawn"),
+				edge("b", "b"),
+				edge("a", "ghost"),
+			],
+		);
+		const keys = layoutGraph(g).edges.map((e) => `${e.from}->${e.to}-${e.kind}`);
+		expect(new Set(keys).size).toBe(keys.length);
+		expect(keys).toEqual(["a->b-sequence", "a->c-spawn"]);
+	});
+
 	test("edge kind is carried through untouched", () => {
 		const g = graph(
 			[node("a", T(1)), node("b", T(2)), node("c", T(3))],

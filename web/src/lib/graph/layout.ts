@@ -80,7 +80,10 @@ export interface LaidOutEdge {
 export interface LayoutResult {
 	/** Ordered by rank, then by the within-rank order (createdAt, then id). */
 	nodes: LaidOutNode[];
-	/** Input order, minus edges that reference a missing node or loop to self. */
+	/**
+	 * Input order, minus edges that reference a missing node, loop to self, or
+	 * repeat an earlier `(from, to, kind)`.
+	 */
 	edges: LaidOutEdge[];
 	/** Content width including padding. Feed straight into the SVG `viewBox`. */
 	width: number;
@@ -99,8 +102,9 @@ export interface LayoutResult {
  *
  * Tolerates, without throwing: an empty graph (returns a 0×0 empty result),
  * a single node, multiple roots, disconnected components, duplicate node ids
- * (first occurrence wins), edges referencing an unknown node (dropped),
- * self-edges (dropped, and counted as a cycle), and genuine cycles.
+ * (first occurrence wins), duplicate edges (deduped by `from`/`to`/`kind`),
+ * edges referencing an unknown node (dropped), self-edges (dropped, and
+ * counted as a cycle), and genuine cycles.
  */
 export function layoutGraph(graph: ChatGraph, opts?: LayoutOptions): LayoutResult {
 	const o = resolveOptions(opts);
@@ -152,15 +156,27 @@ function indexNodes(list: readonly GraphNode[]): Map<string, GraphNode> {
 }
 
 /**
- * Drop edges we cannot route: an endpoint that isn't a node, or a self-loop.
- * A self-loop is reported separately — it is a one-node cycle, so it must
- * still raise `hasCycle` even though ranking never sees it.
+ * Drop edges we cannot route: an endpoint that isn't a node, a self-loop, or a
+ * repeat of one already kept.
+ *
+ * A self-loop is reported separately — it is a one-node cycle, so it must still
+ * raise `hasCycle` even though ranking never sees it.
+ *
+ * Deduping matters beyond tidiness: the renderer keys its `{#each}` over these
+ * edges by `from`/`to`/`kind` (`GraphCanvas.svelte`), and Svelte throws
+ * `each_key_duplicate` on a repeated key. Without this, one duplicated edge in
+ * a corrupt payload takes the whole panel down — in a module whose entire job
+ * is surviving corrupt payloads. `(from, to, kind)` is the identity because
+ * two edges between the same pair with DIFFERENT kinds are genuinely distinct
+ * (and get distinct keys). Serialised rather than concatenated so an id
+ * containing the separator cannot forge a collision.
  */
 function filterEdges(
 	list: readonly GraphEdge[],
 	byId: ReadonlyMap<string, GraphNode>,
 ): { kept: GraphEdge[]; hasSelfEdge: boolean } {
 	const kept: GraphEdge[] = [];
+	const seen = new Set<string>();
 	let hasSelfEdge = false;
 	for (const e of list) {
 		if (!byId.has(e.from) || !byId.has(e.to)) continue;
@@ -168,6 +184,9 @@ function filterEdges(
 			hasSelfEdge = true;
 			continue;
 		}
+		const key = JSON.stringify([e.from, e.to, e.kind]);
+		if (seen.has(key)) continue;
+		seen.add(key);
 		kept.push(e);
 	}
 	return { kept, hasSelfEdge };
