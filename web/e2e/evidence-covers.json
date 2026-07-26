@@ -130,6 +130,11 @@
     "web/src/lib/components/TaskPanel.svelte",
     "web/src/routes/(app)/project/[id]/chat/[convId]/+page.svelte"
   ],
+  "web/e2e/task-panel-send-on-click.spec.ts": [
+    "web/src/lib/components/ChatThread.svelte",
+    "web/src/lib/components/TaskPanel.svelte",
+    "web/src/routes/(app)/project/[id]/chat/[convId]/+page.svelte"
+  ],
   "web/e2e/topic-contexts.spec.ts": [
     "web/src/lib/components/chat/**",
     "web/src/lib/components/settings/TopicContextsSection.svelte",
