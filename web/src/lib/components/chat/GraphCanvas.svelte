@@ -33,6 +33,7 @@
 	import {
 		edgeDashArray,
 		formatNodeDuration,
+		type ActivationSource,
 		isActivationKey,
 		KIND_LABEL,
 		LABEL_GUTTER,
@@ -49,12 +50,22 @@
 	let {
 		layout,
 		selectedId = null,
+		focusOnMount = false,
 		onactivate,
 	}: {
 		layout: LayoutResult;
 		/** Node the panel is showing details for — drawn with a persistent ring. */
 		selectedId?: string | null;
-		onactivate: (node: GraphNode) => void;
+		/**
+		 * Take DOM focus as soon as the first node mounts.
+		 *
+		 * Set by the panel ONLY after a keyboard-initiated navigation, which
+		 * destroys the node the user was on and drops focus to `<body>`. Read
+		 * once at init (see `pendingFocus`) — it is an instruction for this
+		 * mount, not reactive state.
+		 */
+		focusOnMount?: boolean;
+		onactivate: (node: GraphNode, source: ActivationSource) => void;
 	} = $props();
 
 	// Unique per instance: two canvases on one page must not share a
@@ -63,6 +74,11 @@
 	const maskId = `${uid}-nodemask`;
 	const fadeId = `${uid}-nodefade`;
 	const arrowId = `${uid}-arrow`;
+
+	/** The canvas root, for the mount-time focus hand-off below. */
+	let rootEl: HTMLDivElement;
+	/** Guards the hand-off to a single claim per mount. */
+	let hasClaimedFocus = false;
 
 	let focusedId = $state<string | null>(null);
 	let zoom = $state(1);
@@ -104,20 +120,42 @@
 	let textWidth = $derived(boxWidth - LABEL_GUTTER);
 	let fadeStart = $derived(labelFadeStart(textWidth));
 
+	/**
+	 * Take focus once, on mount, when the panel says the navigation that got us
+	 * here came from the keyboard.
+	 *
+	 * An `$effect` rather than something inside `registerNode`, and it queries
+	 * the DOM rather than reading `nodeEls`, for one reason each:
+	 *   - an action runs while its element is still DETACHED, and `focus()` on
+	 *     a detached element is silently a no-op (this was tried; it failed);
+	 *   - script-level effects are created before the template's action
+	 *     effects, so `nodeEls` is not yet populated when this runs. The
+	 *     rendered `tabindex="0"` is the same answer without the ordering
+	 *     assumption.
+	 * The `hasClaimedFocus` guard keeps it to one claim even though reading
+	 * `focusOnMount` makes it a dependency; the panel unmounts this component
+	 * on every navigation, so one claim per mount is one per navigation.
+	 */
+	$effect(() => {
+		if (!focusOnMount || hasClaimedFocus) return;
+		hasClaimedFocus = true;
+		rootEl.querySelector<SVGGElement>('[data-node-id][tabindex="0"]')?.focus();
+	});
+
 	function focusNode(id: string) {
 		focusedId = id;
 		nodeEls.get(id)?.focus();
 	}
 
-	function activate(node: GraphNode) {
+	function activate(node: GraphNode, source: ActivationSource) {
 		focusedId = node.id;
-		onactivate(node);
+		onactivate(node, source);
 	}
 
 	function onNodeKeydown(e: KeyboardEvent, node: GraphNode) {
 		if (isActivationKey(e.key)) {
 			e.preventDefault();
-			activate(node);
+			activate(node, "keyboard");
 			return;
 		}
 		const next = moveFocus(layout.nodes, focusedId, e.key);
@@ -176,7 +214,7 @@
 
 <svelte:window onmousemove={movePan} onmouseup={endPan} />
 
-<div class="graph-canvas relative h-full w-full" data-testid="chat-graph-canvas">
+<div bind:this={rootEl} class="graph-canvas relative h-full w-full" data-testid="chat-graph-canvas">
 	<!-- Outside the scroller so the controls stay pinned to the corner. -->
 	<div class="absolute right-2 top-2 z-10 flex flex-col gap-1">
 		<button
@@ -280,7 +318,7 @@
 					role="button"
 					tabindex={ln.id === activeId ? 0 : -1}
 					aria-label={nodeAriaLabel(n)}
-					onclick={() => activate(n)}
+					onclick={() => activate(n, "pointer")}
 					onkeydown={(e) => onNodeKeydown(e, n)}
 					onfocus={() => (focusedId = ln.id)}
 				>
