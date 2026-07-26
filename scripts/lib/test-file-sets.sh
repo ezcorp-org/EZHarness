@@ -152,6 +152,7 @@ coverage_host_files() {
       web/src/lib/__tests__/loaded-tools-logic.test.ts \
       web/src/lib/__tests__/briefing-cron.test.ts \
       web/src/lib/graph/layout.test.ts \
+      web/src/lib/__tests__/timeline-normalize.test.ts \
       web/src/__tests__/test-surface.test.ts \
       web/src/__tests__/test-surface-bypass.test.ts \
       web/src/__tests__/mock-llm-store.test.ts \
