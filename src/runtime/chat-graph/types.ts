@@ -126,8 +126,9 @@ export interface ChatGraph {
  *   1. Take the turn's `tool_calls` rows, ordered by `createdAt` ASC, then by
  *      `id` ASC to break same-millisecond ties.
  *   2. Take the conversation's `tool_call` + `tool_error` observability rows
- *      whose `createdAt` falls within the turn's [start, end] window, same
- *      ordering.
+ *      whose `createdAt` falls within the turn's HALF-OPEN [start, end)
+ *      window, same ordering. `end` is the first row that is not a member of
+ *      the turn, and it belongs to the NEXT turn — so it is excluded.
  *   3. Bucket BOTH lists by `toolName`, preserving order within each bucket.
  *   4. Zip each bucket by index. A tool call at index `i` of bucket `foo`
  *      adopts the `durationMs` of the observability row at index `i` of

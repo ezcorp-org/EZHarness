@@ -265,6 +265,49 @@ describe("buildTurnDag — durations", () => {
     expect(graph.nodes.find((n) => n.id === "tc-2")!.durationMs).toBe(200);
   });
 
+  test("rows handed in out of order are zipped by TIME, not by array position", () => {
+    // Neither source is guaranteed to arrive sorted; the rule's step 1/2 both
+    // say "ordered by createdAt ASC, then id ASC", so the builder must sort
+    // before it zips. Feeding both lists backwards must not swap the answers.
+    const toolCalls = [call("tc-2", "a1", "read", 2), call("tc-1", "a1", "read", 1)];
+    const observability = [
+      obs("ev-2", "tool_call", 2, { toolName: "read" }, 200),
+      obs("ev-1", "tool_call", 1, { toolName: "read" }, 100),
+    ];
+    const graph = build({ messages: SIMPLE_TURN, turnMessageId: "u1", toolCalls, observability })!;
+    expect(graph.nodes.find((n) => n.id === "tc-1")!.durationMs).toBe(100);
+    expect(graph.nodes.find((n) => n.id === "tc-2")!.durationMs).toBe(200);
+  });
+
+  test("same-millisecond rows fall back to the id tie-break on BOTH sides", () => {
+    // The normal case, not an edge case: a turn's tool calls are persisted in
+    // one queued flush and routinely share a millisecond (see `order.ts`). The
+    // `id` ASC tie-break is the only thing that makes the zip reproducible, so
+    // it is pinned here — the array order is deliberately the REVERSE of the
+    // id order on both sides, so a builder that skipped the tie-break would
+    // hand `tc-a` the 200.
+    const toolCalls = [call("tc-b", "a1", "read", 1), call("tc-a", "a1", "read", 1)];
+    const observability = [
+      obs("ev-b", "tool_call", 1, { toolName: "read" }, 200),
+      obs("ev-a", "tool_call", 1, { toolName: "read" }, 100),
+    ];
+    const graph = build({ messages: SIMPLE_TURN, turnMessageId: "u1", toolCalls, observability })!;
+    expect(graph.nodes.find((n) => n.id === "tc-a")!.durationMs).toBe(100);
+    expect(graph.nodes.find((n) => n.id === "tc-b")!.durationMs).toBe(200);
+  });
+
+  test("observability rows for a tool that was never called match nothing", () => {
+    const toolCalls = [call("tc-1", "a1", "read", 1)];
+    const observability = [
+      obs("ev-ghost", "tool_call", 1, { toolName: "grep" }, 900),
+      obs("ev-1", "tool_call", 2, { toolName: "read" }, 42),
+    ];
+    const graph = build({ messages: SIMPLE_TURN, turnMessageId: "u1", toolCalls, observability })!;
+    // The unmatched `grep` bucket is simply never consulted; `read` still zips.
+    expect(graph.nodes.find((n) => n.id === "tc-1")!.durationMs).toBe(42);
+    expect(graph.nodes.some((n) => n.durationMs === 900)).toBe(false);
+  });
+
   test("buckets are per tool NAME — interleaved names do not cross-contaminate", () => {
     const toolCalls = [
       call("tc-1", "a1", "read", 1),

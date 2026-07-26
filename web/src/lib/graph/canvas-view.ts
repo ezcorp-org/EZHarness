@@ -78,7 +78,11 @@ export function nodeAction(node: GraphNode): string {
  */
 export function nodeAriaLabel(node: GraphNode): string {
 	const parts = [`${KIND_LABEL[node.kind]}: ${nodeTitle(node)}`, STATUS_LABEL[node.status]];
-	if (node.durationMs !== undefined) parts.push(formatNodeDuration(node.durationMs));
+	// Gate on the FORMATTED value, not on `durationMs !== undefined`: a corrupt
+	// number (negative, NaN, Infinity) is present but unknown, and formatting it
+	// yields the em dash — which must never be spoken, only drawn.
+	const duration = formatNodeDuration(node.durationMs);
+	if (duration !== DURATION_UNKNOWN) parts.push(duration);
 	if (node.excluded === true) parts.push("rewound away");
 	return `${parts.join(", ")}. ${nodeAction(node)}`;
 }

@@ -251,6 +251,24 @@ describe("GraphCanvas keyboard navigation", () => {
 		const { container } = renderCanvas(RICH, "t1");
 		expect(nodeEl(container, "t1").querySelector('[data-testid="chat-graph-node-ring"]')).not.toBeNull();
 	});
+
+	test("switching levels re-homes the tab stop instead of stranding it on a gone node", async () => {
+		const onactivate = vi.fn();
+		const { container, rerender } = render(GraphCanvas, {
+			layout: layoutGraph(RICH),
+			selectedId: null,
+			onactivate,
+		});
+		// The user focuses a level-1 prompt, then drills in: the level-2 graph
+		// shares NONE of its node ids. Without re-homing, every node would be
+		// `tabindex="-1"` and the graph would drop out of the tab order.
+		await fireEvent.focus(nodeEl(container, "p1"));
+		const level2 = graph([node("thinking:a1", { kind: "thinking" }), node("a1", { kind: "assistant" })]);
+		await rerender({ layout: layoutGraph(level2), selectedId: null, onactivate });
+
+		const stops = [...container.querySelectorAll("[data-node-id]")].map((el) => el.getAttribute("tabindex"));
+		expect(stops).toEqual(["0", "-1"]);
+	});
 });
 
 describe("GraphCanvas zoom", () => {
@@ -299,7 +317,7 @@ describe("GraphCanvas zoom", () => {
 		expect(zoomOf(container, layout.width)).toBe(ZOOM_MIN);
 	});
 
-	test("Fit resets zoom and pan together", async () => {
+	test("Reset restores zoom and pan together", async () => {
 		const { container, getByTestId, layout } = renderCanvas();
 		await fireEvent.click(getByTestId("chat-graph-zoom-in"));
 		await fireEvent.mouseDown(container.querySelector("svg")!, { clientX: 0, clientY: 0 });

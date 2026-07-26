@@ -83,7 +83,14 @@
 	let panOriginY = 0;
 
 	// Roving tabindex: exactly one node is tab-reachable at a time.
-	let activeId = $derived(focusedId ?? layout.nodes[0]?.id ?? null);
+	//
+	// `focusedId` is only honoured while it still names a node of the CURRENT
+	// layout. Drilling in (or popping back) swaps the whole graph for one with
+	// different ids, and a stale id would match nothing — leaving every node at
+	// `tabindex="-1"` and the graph unreachable by keyboard entirely.
+	let activeId = $derived(
+		(focusedId !== null && layout.nodes.some((n) => n.id === focusedId) ? focusedId : layout.nodes[0]?.id) ?? null,
+	);
 	// Every node box is the same size, so one shared clip rect covers them all.
 	let boxWidth = $derived(layout.nodes[0]?.width ?? DEFAULT_LAYOUT_OPTIONS.nodeWidth);
 	let boxHeight = $derived(layout.nodes[0]?.height ?? DEFAULT_LAYOUT_OPTIONS.nodeHeight);
@@ -163,13 +170,17 @@
 			onclick={() => (zoom = zoomBy(zoom, 1 / ZOOM_STEP))}
 			class="rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-1.5 py-0.5 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
 		>−</button>
+		<!-- The visible text is a prefix of the accessible name (WCAG 2.5.3 Label
+		     in Name), so voice control can address it by what it reads. It resets
+		     zoom and pan to 100% — it does not fit the graph to the panel, so it
+		     must not be labelled "Fit". -->
 		<button
 			type="button"
 			data-testid="chat-graph-zoom-reset"
 			aria-label="Reset view"
 			onclick={resetView}
 			class="rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-1.5 py-0.5 text-[10px] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
-		>Fit</button>
+		>Reset</button>
 	</div>
 
 	<div class="h-full w-full overflow-auto p-1" data-testid="chat-graph-scroller">
