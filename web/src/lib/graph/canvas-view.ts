@@ -16,7 +16,7 @@ import type { GraphEdgeKind, GraphNode, GraphNodeKind, GraphNodeStatus } from "$
 /**
  * Rendered when `GraphNode.durationMs` is absent.
  *
- * Binding contract (`src/runtime/chat-graph/types.ts`): an absent duration
+ * Binding contract (`src/runtime/chat-graph/types.d.ts`): an absent duration
  * means "not known", and built-in tools persist a hardcoded 0 — so "0ms"
  * would be a fabricated number. It is an em dash or nothing.
  */

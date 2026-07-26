@@ -5,10 +5,19 @@
  * and the browser renderer (`web/src/lib/graph/*`, which imports these
  * type-only via the `$server` alias — see `web/svelte.config.js`).
  *
- * TYPES ONLY. Do not add runtime values to this file: it is imported by
- * client-side Svelte components, where a `$server` *value* import would drag
- * backend code into the browser bundle. Runtime constants belong next to
- * their consumer.
+ * TYPES ONLY — and this file is a `.d.ts` so the compiler enforces that rather
+ * than trusting a comment. It is imported by client-side Svelte components,
+ * where a `$server` *value* import would drag backend code into the browser
+ * bundle; a declaration file cannot hold a runtime value, so that can't happen
+ * by accident. Runtime constants belong next to their consumer.
+ *
+ * The `.d.ts` extension is also what tells the coverage gate the truth about
+ * this file: `NON_SOURCE_GLOBS` in `scripts/coverage-config.ts` classifies any
+ * declaration file as a type-only declaration rather than gateable product
+ * code, so the new-file gate correctly stops demanding line coverage for a
+ * module that compiles to nothing. Every importer uses an extensionless or
+ * `.js`-suffixed specifier, both of which resolve to this file under
+ * `moduleResolution: "bundler"`.
  *
  * Two levels, both served by `GET /api/conversations/:id/graph`:
  *   - level 1 (no `?turn=`)  — the conversation map: one node per user prompt,

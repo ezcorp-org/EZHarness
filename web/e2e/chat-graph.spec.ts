@@ -10,7 +10,7 @@
  * Two contract rules get literal assertions because they are the ones that
  * rot silently:
  *   - an ABSENT `durationMs` renders an em dash, never "0ms"
- *     (`src/runtime/chat-graph/types.ts` — built-in tools persist a
+ *     (`src/runtime/chat-graph/types.d.ts` — built-in tools persist a
  *     hardcoded 0, so a fabricated "0ms" would be a lie);
  *   - `degraded: true` is a quiet NOTICE, not an error state.
  *
