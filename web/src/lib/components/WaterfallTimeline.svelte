@@ -1,27 +1,16 @@
 <script lang="ts">
 	import type { ToolCallState } from "$lib/stores.svelte.js";
-
-	interface ObsEvent {
-		id: string;
-		eventType: string;
-		data: Record<string, unknown>;
-		durationMs: number | null;
-		createdAt: string;
-	}
-
-	interface WaterfallBar {
-		type: "llm" | "tool";
-		label: string;
-		extensionId?: string;
-		startOffset: number;
-		width: number;
-		duration: number;
-		status: "running" | "complete" | "error";
-		tokens?: { input: number; output: number };
-		input?: unknown;
-		output?: unknown;
-		error?: string;
-	}
+	// Normalization + geometry live in a pure module so the chat-graph builder
+	// can reuse them instead of re-deriving the same mapping. See
+	// $lib/timeline-normalize for the duration-honesty rule (a 0 from any
+	// source means UNKNOWN, not instant).
+	import {
+		buildWaterfallBars,
+		normalizeObsEvents,
+		normalizeToolCalls,
+		type ObsEventLike,
+		type WaterfallBar,
+	} from "$lib/timeline-normalize.js";
 
 	let {
 		toolCalls = [],
@@ -29,7 +18,7 @@
 		streaming = false,
 	}: {
 		toolCalls?: ToolCallState[];
-		events?: ObsEvent[];
+		events?: ObsEventLike[];
 		streaming?: boolean;
 	} = $props();
 
@@ -67,121 +56,20 @@
 		return () => clearInterval(id);
 	});
 
-	function computeBarsFromToolCalls(calls: ToolCallState[], _tick: number): WaterfallBar[] {
-		if (calls.length === 0) return [];
-
-		const now = Date.now();
-		const sorted = [...calls].sort((a, b) => a.startedAt - b.startedAt);
-		const timelineStart = sorted[0]!.startedAt;
-		const timelineEnd = sorted.reduce((max, tc) => {
-			const end = tc.startedAt + (tc.duration ?? now - tc.startedAt);
-			return end > max ? end : max;
-		}, timelineStart);
-		const totalDuration = timelineEnd - timelineStart;
-		if (totalDuration <= 0) return [];
-
-		const bars: WaterfallBar[] = [];
-
-		for (let i = 0; i < sorted.length; i++) {
-			const tc = sorted[i]!;
-			const prevEnd = i === 0
-				? timelineStart
-				: sorted[i - 1]!.startedAt + (sorted[i - 1]!.duration ?? now - sorted[i - 1]!.startedAt);
-
-			const gap = tc.startedAt - prevEnd;
-			if (gap > 100) {
-				bars.push({
-					type: "llm",
-					label: "Thinking",
-					startOffset: ((prevEnd - timelineStart) / totalDuration) * 100,
-					width: (gap / totalDuration) * 100,
-					duration: gap,
-					status: "complete",
-				});
-			}
-
-			const duration = tc.duration ?? now - tc.startedAt;
-			bars.push({
-				type: "tool",
-				label: tc.toolName,
-				extensionId: tc.extensionId,
-				startOffset: ((tc.startedAt - timelineStart) / totalDuration) * 100,
-				width: Math.max((duration / totalDuration) * 100, 0.5),
-				duration,
-				status: tc.status,
-				input: tc.input,
-				output: tc.output,
-				error: tc.error,
-			});
-		}
-
-		return bars;
-	}
-
-	function computeBarsFromEvents(evts: ObsEvent[]): WaterfallBar[] {
-		if (evts.length === 0) return [];
-
-		const toolEvts = evts.filter(
-			(e) => e.eventType === "tool_call" || e.eventType === "tool_error",
-		);
-		if (toolEvts.length === 0) return [];
-
-		const sorted = [...toolEvts].sort(
-			(a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
-		);
-		const timelineStart = new Date(sorted[0]!.createdAt).getTime();
-		const timelineEnd = sorted.reduce((max, ev) => {
-			const t = new Date(ev.createdAt).getTime() + (ev.durationMs ?? 0);
-			return t > max ? t : max;
-		}, timelineStart);
-		const totalDuration = timelineEnd - timelineStart;
-		if (totalDuration <= 0) return [];
-
-		const bars: WaterfallBar[] = [];
-
-		for (let i = 0; i < sorted.length; i++) {
-			const ev = sorted[i]!;
-			const d = ev.data as Record<string, unknown>;
-			const evStart = new Date(ev.createdAt).getTime();
-			const evDuration = ev.durationMs ?? 0;
-
-			const prevEnd = i === 0
-				? timelineStart
-				: new Date(sorted[i - 1]!.createdAt).getTime() + (sorted[i - 1]!.durationMs ?? 0);
-
-			const gap = evStart - prevEnd;
-			if (gap > 100) {
-				bars.push({
-					type: "llm",
-					label: "Thinking",
-					startOffset: ((prevEnd - timelineStart) / totalDuration) * 100,
-					width: (gap / totalDuration) * 100,
-					duration: gap,
-					status: "complete",
-				});
-			}
-
-			bars.push({
-				type: "tool",
-				label: (d.toolName as string) ?? "unknown",
-				extensionId: d.extensionId as string | undefined,
-				startOffset: ((evStart - timelineStart) / totalDuration) * 100,
-				width: Math.max((evDuration / totalDuration) * 100, 0.5),
-				duration: evDuration,
-				status: ev.eventType === "tool_error" ? "error" : "complete",
-				input: d.input,
-				output: d.output ?? d.result,
-				error: d.error as string | undefined,
-			});
-		}
-
-		return bars;
+	/**
+	 * `_tick` is an unused reactivity anchor — reading it inside the `$derived`
+	 * below is what makes the 100ms timer re-run the derivation so open-ended
+	 * (still-running) bars keep growing. `Date.now()` is sampled HERE, at the
+	 * component edge, which is why `normalizeToolCalls` can stay pure.
+	 */
+	function liveBars(calls: ToolCallState[], _tick: number): WaterfallBar[] {
+		return buildWaterfallBars(normalizeToolCalls(calls, Date.now()));
 	}
 
 	let bars = $derived(
 		toolCalls.length > 0
-			? computeBarsFromToolCalls(toolCalls, tick)
-			: computeBarsFromEvents(events),
+			? liveBars(toolCalls, tick)
+			: buildWaterfallBars(normalizeObsEvents(events)),
 	);
 
 	let expandedIndex = $state<number | null>(null);
