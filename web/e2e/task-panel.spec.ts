@@ -279,16 +279,11 @@ test.describe("Task Panel", () => {
 		await expect(reason).toHaveClass(/italic/);
 	});
 
-	// KNOWN RED — product bug, not a test bug. The chat route renders
-	// `<TaskPanel onsendmessage={() => {}} />`
-	// (`web/src/routes/(app)/project/[id]/chat/[convId]/+page.svelte`), so
-	// TaskPanel's `handleTaskClick` fires into a no-op and no message is ever
-	// sent. The row still renders ENABLED with a hover affordance (TaskPanel's
-	// `disabled` check only tests that the prop exists), so the user gets a
-	// clickable-looking control that does nothing. The assertion below is
-	// correct and is deliberately left failing rather than softened; the fix is
-	// to expose the thread's send path on `ChatThreadChrome` and wire it here.
-	// This file is in the `unwired` e2e lane, so the red blocks no CI job.
+	// Regression guard. The chat route used to pass `onsendmessage={() => {}}`,
+	// so this click was inert for the whole life of the current history — the
+	// row rendered enabled (TaskPanel's `disabled` check only tests that the
+	// prop exists) and did nothing. It now goes through
+	// `ChatThreadChrome.sendMessage` → the thread's `handleSend`.
 	test("clicking a pending task sends a 'Work on task: ...' message", async ({ page, mockApi }) => {
 		const snapshot = makeSnapshot("conv-1", [
 			makeTask({
