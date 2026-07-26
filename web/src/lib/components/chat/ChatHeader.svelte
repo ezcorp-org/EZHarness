@@ -31,6 +31,8 @@
 		activeLeafId: string | null;
 		showObsButton: boolean;
 		obsOpen: boolean;
+		/** Chat DAG panel open state — same lifecycle as `obsOpen`, owned by the page. */
+		graphOpen: boolean;
 		selectMode: boolean;
 		isStreaming: boolean;
 		/** Topic Contexts (WS4) — state + handlers for the Topics button +
@@ -40,6 +42,7 @@
 		ontoolstoggle: (next: boolean) => void;
 		ondifftoggle: () => void;
 		onobstoggle: () => void;
+		ongraphtoggle: () => void;
 		onselecttoggle: () => void;
 		onsettingstoggle: () => void;
 		onpermissionmodechange: (mode: PermissionMode | undefined) => void;
@@ -62,6 +65,7 @@
 		activeLeafId,
 		showObsButton,
 		obsOpen,
+		graphOpen,
 		selectMode,
 		isStreaming,
 		topics,
@@ -69,6 +73,7 @@
 		ontoolstoggle,
 		ondifftoggle,
 		onobstoggle,
+		ongraphtoggle,
 		onselecttoggle,
 		onsettingstoggle,
 		onpermissionmodechange,
@@ -292,6 +297,20 @@
 		</Tooltip>
 		<Tooltip position="bottom" text="Export this conversation as Markdown or JSON">
 			<ExportMenu conversationId={convId} leafMessageId={activeLeafId ?? undefined} />
+		</Tooltip>
+		<Tooltip position="bottom" text="Map this conversation as a graph — click a prompt to see that turn's trace">
+			<button
+				data-testid="chat-graph-btn"
+				onclick={() => ongraphtoggle()}
+				class="rounded p-1.5 text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] hover:text-[var(--color-text-primary)] transition-colors {graphOpen ? 'bg-[var(--color-surface-tertiary)] text-[var(--color-text-primary)]' : ''}"
+				aria-label="Conversation graph"
+				aria-pressed={graphOpen}
+			>
+				<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.5v4m0 0l-4.5 4m4.5-4l4.5 4M12 4.5a1.5 1.5 0 100-3 1.5 1.5 0 000 3zM7.5 15a3 3 0 100-6 3 3 0 000 6zm9 0a3 3 0 100-6 3 3 0 000 6z" />
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7.5 15v2.25m0 0a1.5 1.5 0 100 3 1.5 1.5 0 000-3zM16.5 15v2.25m0 0a1.5 1.5 0 100 3 1.5 1.5 0 000-3z" />
+				</svg>
+			</button>
 		</Tooltip>
 		{#if showObsButton}
 			<Tooltip position="bottom" text="Inspect tool-call traces and LLM request logs">

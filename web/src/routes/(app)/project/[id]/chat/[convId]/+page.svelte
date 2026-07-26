@@ -39,6 +39,7 @@
 	import ExtensionPanel from "$lib/components/ExtensionPanel.svelte";
 	import TaskLogsPanel from "$lib/components/TaskLogsPanel.svelte";
 	import ChatHeader from "$lib/components/chat/ChatHeader.svelte";
+	import ChatGraphPanel from "$lib/components/chat/ChatGraphPanel.svelte";
 	import type { PermissionMode } from "$lib/permission-mode.js";
 
 	let projectId = $derived(page.params.id!);
@@ -52,6 +53,7 @@
 	// Side-panel open/close state — owned by the shell.
 	let settingsOpen = $state(false);
 	let obsOpen = $state(false);
+	let graphOpen = $state(false);
 	let showObsButton = $state(false);
 	let mobileConvListOpen = $state(false);
 	let toolsOpen = $state(false);
@@ -297,6 +299,7 @@
 				activeLeafId={chrome.activeLeafId}
 				{showObsButton}
 				{obsOpen}
+				{graphOpen}
 				selectMode={chrome.selectMode}
 				isStreaming={chrome.isStreaming}
 				topics={chrome.topics}
@@ -304,6 +307,7 @@
 				ontoolstoggle={(next) => (toolsOpen = next)}
 				ondifftoggle={() => (diffPanelOpen = !diffPanelOpen)}
 				onobstoggle={() => (obsOpen = !obsOpen)}
+				ongraphtoggle={() => (graphOpen = !graphOpen)}
 				onselecttoggle={chrome.toggleSelectMode}
 				onsettingstoggle={() => (settingsOpen = true)}
 				onpermissionmodechange={(mode) => {
@@ -369,6 +373,8 @@
 		onclose={() => (obsOpen = false)}
 		{taskSnapshot}
 	/>
+
+	<ChatGraphPanel conversationId={convId} open={graphOpen} onclose={() => (graphOpen = false)} />
 
 	{#if selectedAgent}
 		<AgentDetailPanel
