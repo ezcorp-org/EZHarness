@@ -47,8 +47,15 @@ describe("formatNodeDuration", () => {
 		expect(formatNodeDuration(undefined)).not.toContain("0");
 	});
 
-	test("a real zero is shown as 0ms — only ABSENT means unknown", () => {
-		expect(formatNodeDuration(0)).toBe("0ms");
+	test("zero is unknown too — built-in tools hardcode it, so it is never a fact", () => {
+		// This used to assert "0ms" on the reading that only an ABSENT field
+		// means unknown. It was changed deliberately: `tool_calls.duration_ms`
+		// is a hardcoded 0 for every built-in tool, so a 0 that does reach the
+		// renderer is indistinguishable from a genuinely instant call and
+		// "0ms" would be a fabricated measurement. `resolveDurationMs` already
+		// held this line for the builder; two modules in one feature must not
+		// disagree about whether 0 is a fact.
+		expect(formatNodeDuration(0)).toBe(DURATION_UNKNOWN);
 	});
 
 	test("sub-second durations keep millisecond precision", () => {

@@ -28,10 +28,18 @@ export const DURATION_UNKNOWN = "—";
  * Sub-second calls are the common case for tools, and the shared
  * `formatDuration` floors to whole seconds ("0s"), so milliseconds are
  * handled here and anything ≥ 1s is delegated to the shared formatter.
- * Non-finite and negative values are corrupt, not fast: they read as unknown.
+ *
+ * UNKNOWN, all rendered as the em dash: absent, zero, negative, non-finite.
+ * Zero is in that list on purpose. Built-in tools persist
+ * `tool_calls.duration_ms = 0` unconditionally, so a 0 is indistinguishable
+ * from a genuinely instant call and printing "0ms" would fabricate a
+ * measurement. This is the same rule as `resolveDurationMs`
+ * (`$lib/timeline-normalize`), which the level-2 builder applies before the
+ * value is ever serialised — deliberately duplicated as a floor here so the
+ * renderer honours the contract on its own rather than trusting its input.
  */
 export function formatNodeDuration(ms: number | undefined): string {
-	if (ms === undefined || !Number.isFinite(ms) || ms < 0) return DURATION_UNKNOWN;
+	if (ms === undefined || !Number.isFinite(ms) || ms <= 0) return DURATION_UNKNOWN;
 	if (ms < 1000) return `${Math.round(ms)}ms`;
 	return formatDuration(ms);
 }
