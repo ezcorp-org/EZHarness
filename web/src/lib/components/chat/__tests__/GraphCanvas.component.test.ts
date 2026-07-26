@@ -55,10 +55,10 @@ const RICH = graph(
 	],
 );
 
-function renderCanvas(g: ChatGraph = RICH, selectedId: string | null = null) {
+function renderCanvas(g: ChatGraph = RICH, selectedId: string | null = null, focusOnMount = false) {
 	const onactivate = vi.fn();
 	const layout = layoutGraph(g);
-	const utils = render(GraphCanvas, { layout, selectedId, onactivate });
+	const utils = render(GraphCanvas, { layout, selectedId, focusOnMount, onactivate });
 	return { ...utils, onactivate, layout };
 }
 
@@ -212,19 +212,42 @@ describe("GraphCanvas activation", () => {
 	test("clicking a leaf node reports it too — selection is not drill-only", async () => {
 		const { container, onactivate } = renderCanvas();
 		await fireEvent.click(nodeEl(container, "t1"));
-		expect(onactivate).toHaveBeenCalledWith(expect.objectContaining({ id: "t1" }));
+		expect(onactivate).toHaveBeenCalledWith(expect.objectContaining({ id: "t1" }), "pointer");
 	});
 
 	test("Enter activates the focused node", async () => {
 		const { container, onactivate } = renderCanvas();
 		await fireEvent.keyDown(nodeEl(container, "p1"), { key: "Enter" });
-		expect(onactivate).toHaveBeenCalledWith(expect.objectContaining({ id: "p1" }));
+		expect(onactivate).toHaveBeenCalledWith(expect.objectContaining({ id: "p1" }), "keyboard");
 	});
 
 	test("Space activates too, like a native button", async () => {
 		const { container, onactivate } = renderCanvas();
 		await fireEvent.keyDown(nodeEl(container, "s1"), { key: " " });
-		expect(onactivate).toHaveBeenCalledWith(expect.objectContaining({ id: "s1" }));
+		expect(onactivate).toHaveBeenCalledWith(expect.objectContaining({ id: "s1" }), "keyboard");
+	});
+
+	test("activation reports whether it came from the pointer or the keyboard", async () => {
+		// The panel restores focus after a keyboard drill-in and must not after
+		// a click, and DOM focus cannot tell them apart — a clicked SVG node is
+		// focused too. So the handler that fired is the only witness.
+		const { container, onactivate } = renderCanvas();
+		await fireEvent.click(nodeEl(container, "p1"));
+		expect(onactivate.mock.calls[0]![1]).toBe("pointer");
+		await fireEvent.keyDown(nodeEl(container, "p2"), { key: "Enter" });
+		expect(onactivate.mock.calls[1]![1]).toBe("keyboard");
+		await fireEvent.keyDown(nodeEl(container, "t1"), { key: " " });
+		expect(onactivate.mock.calls[2]![1]).toBe("keyboard");
+	});
+
+	test("focusOnMount takes DOM focus on the tab stop as the graph mounts", () => {
+		const { container } = renderCanvas(RICH, null, true);
+		expect(document.activeElement).toBe(nodeEl(container, "p1"));
+	});
+
+	test("without focusOnMount the graph never steals focus", () => {
+		renderCanvas();
+		expect(document.activeElement).toBe(document.body);
 	});
 
 	test("an unrelated key neither activates nor moves focus", async () => {

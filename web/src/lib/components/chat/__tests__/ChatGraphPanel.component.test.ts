@@ -11,6 +11,7 @@
  */
 import { render, fireEvent, cleanup, waitFor } from "@testing-library/svelte";
 import { describe, test, expect, afterEach, vi } from "vitest";
+import { tick } from "svelte";
 import ChatGraphPanel from "../ChatGraphPanel.svelte";
 import type { ChatGraph, GraphEdge, GraphNode } from "$server/runtime/chat-graph/types";
 
@@ -67,8 +68,25 @@ function open(props: Record<string, unknown> = {}) {
 	return { ...utils, onclose };
 }
 
+/**
+ * Drain Svelte's microtask queue until the panel has finished a navigation.
+ *
+ * `waitFor` is not usable for the focus assertions: its retry wrapper drives
+ * Svelte from outside a reactive context and throws `rune_outside_svelte`
+ * before the condition can ever come true. The navigation is a fetch plus a
+ * couple of render passes, so a bounded tick drain is both sufficient and
+ * deterministic.
+ */
+async function settle() {
+	for (let i = 0; i < 20; i++) await tick();
+}
+
 const nodeEl = (container: HTMLElement, id: string) =>
 	container.querySelector<SVGGElement>(`[data-node-id="${id}"]`)!;
+
+/** The single node holding the roving tabindex — what a Tab press reaches. */
+const tabStop = (container: HTMLElement) =>
+	container.querySelector<SVGGElement>('[data-node-id][tabindex="0"]');
 
 const crumbText = (getAllByTestId: (id: string) => HTMLElement[]) =>
 	getAllByTestId("chat-graph-crumb").map((b) => b.textContent);
@@ -224,6 +242,51 @@ describe("ChatGraphPanel drill-down", () => {
 		const crumbs = getAllByTestId("chat-graph-crumb") as HTMLButtonElement[];
 		expect(crumbs[1]!.disabled).toBe(true);
 		expect(crumbs[1]!.getAttribute("aria-current")).toBe("page");
+	});
+
+	test("a keyboard drill-in hands focus to the new level's graph", async () => {
+		// Navigating swaps the panel to its loading state, which unmounts the
+		// canvas — so the node the user was standing on is destroyed and the
+		// browser drops focus to <body>. Without a hand-off they are stranded
+		// outside the graph and have to Tab back in from the top of the drawer.
+		stubFetch({ [L1_URL]: LEVEL_1, [L2_URL]: LEVEL_2 });
+		const { container, findByTestId } = open();
+		await findByTestId("chat-graph-canvas");
+		await fireEvent.keyDown(nodeEl(container, "p1"), { key: "Enter" });
+		await settle();
+		// Focus lands on the level-2 tab stop — asserted as "the tab stop"
+		// rather than a hardcoded id, because that is the actual invariant
+		// (which node sorts first is the layout's business, not this test's).
+		const stop = tabStop(container);
+		expect(stop).not.toBeNull();
+		expect(document.activeElement).toBe(stop);
+		expect(nodeEl(container, "p1")).toBeNull();
+	});
+
+	test("a MOUSE drill-in leaves focus alone — nothing was lost, so nothing moves", async () => {
+		stubFetch({ [L1_URL]: LEVEL_1, [L2_URL]: LEVEL_2 });
+		const { container, findByTestId } = open();
+		await findByTestId("chat-graph-canvas");
+		await fireEvent.click(nodeEl(container, "p1"));
+		await settle();
+		expect(tabStop(container)).not.toBeNull();
+		expect(document.activeElement).toBe(document.body);
+	});
+
+	test("going back never grabs focus — the breadcrumb button still has it", async () => {
+		stubFetch({ [L1_URL]: LEVEL_1, [L2_URL]: LEVEL_2 });
+		const { container, findByTestId, getByTestId } = open();
+		await findByTestId("chat-graph-canvas");
+		// Keyboard in, so the drill-in DID hand focus over…
+		await fireEvent.keyDown(nodeEl(container, "p1"), { key: "Enter" });
+		await settle();
+		expect(document.activeElement).toBe(tabStop(container));
+		// …but popping back must not, or focus would jump out of the breadcrumb
+		// the user is still operating.
+		await fireEvent.click(getByTestId("chat-graph-back"));
+		await settle();
+		expect(nodeEl(container, "p1")).not.toBeNull();
+		expect(document.activeElement).not.toBe(tabStop(container));
 	});
 
 	test("a sub-agent node drills into the CHILD conversation's own graph", async () => {

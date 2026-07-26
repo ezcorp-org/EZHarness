@@ -26,7 +26,13 @@
 		rootFrame,
 		type GraphFrame,
 	} from "$lib/graph/panel-logic";
-	import { formatNodeDuration, KIND_LABEL, nodeTitle, STATUS_LABEL } from "$lib/graph/canvas-view";
+	import {
+		type ActivationSource,
+		formatNodeDuration,
+		KIND_LABEL,
+		nodeTitle,
+		STATUS_LABEL,
+	} from "$lib/graph/canvas-view";
 	import type { ChatGraph, GraphNode } from "$server/runtime/chat-graph/types";
 
 	let {
@@ -47,6 +53,16 @@
 	let loading = $state(false);
 	let error = $state<string | null>(null);
 	let selected = $state<GraphNode | null>(null);
+	/**
+	 * Whether the NEXT canvas should take focus as it mounts.
+	 *
+	 * Navigating swaps this panel to its loading state, which unmounts
+	 * `<GraphCanvas>` — so a keyboard user's focused node is destroyed and the
+	 * browser drops focus to `<body>`, stranding them outside the graph. Set
+	 * only for keyboard-initiated drill-ins; a mouse user has lost nothing and
+	 * must not be yanked.
+	 */
+	let focusGraphOnMount = $state(false);
 
 	/**
 	 * Current frame. The stack starts empty and is seeded by the re-root
@@ -65,6 +81,7 @@
 		graph = null;
 		error = null;
 		selected = null;
+		focusGraphOnMount = false;
 	}
 
 	// Switching conversations re-roots the whole stack: a frame from the
@@ -107,16 +124,21 @@
 	 * pushes the frame it points at. Nothing here writes — the graph is
 	 * strictly read-only, so the session-tree invariant is untouched.
 	 */
-	function onNodeActivate(node: GraphNode) {
+	function onNodeActivate(node: GraphNode, source: ActivationSource) {
 		selected = node;
 		const next = drillFrame(node, frame);
+		// A leaf only selects: the canvas stays mounted and keeps its focus.
 		if (next === null) return;
+		focusGraphOnMount = source === "keyboard";
 		stack = [...stack, next];
 	}
 
 	function goTo(index: number) {
 		stack = popTo(stack, index);
 		selected = null;
+		// Going back is driven from the breadcrumb, so focus is on a button
+		// outside the canvas either way — nothing was lost, so nothing moves.
+		focusGraphOnMount = false;
 	}
 </script>
 
@@ -194,7 +216,12 @@
 					Nothing to map yet — this conversation has no messages.
 				</p>
 			{:else if laid !== null}
-				<GraphCanvas layout={laid} selectedId={selected?.id ?? null} onactivate={onNodeActivate} />
+				<GraphCanvas
+					layout={laid}
+					selectedId={selected?.id ?? null}
+					focusOnMount={focusGraphOnMount}
+					onactivate={onNodeActivate}
+				/>
 			{/if}
 		</div>
 

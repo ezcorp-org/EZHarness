@@ -217,6 +217,20 @@ export function isActivationKey(key: string): boolean {
 	return key === "Enter" || key === " ";
 }
 
+/**
+ * How a node activation was triggered.
+ *
+ * Load-bearing, not telemetry: a keyboard drill-in destroys the node the user
+ * was standing on (the panel swaps to its loading state, which unmounts the
+ * canvas), so the browser drops focus to `<body>` and the next canvas has to
+ * take it back. A pointer activation must NOT do that — the mouse user never
+ * lost anything, and moving focus for them is a yank.
+ *
+ * DOM focus cannot tell the two apart: clicking an SVG node focuses it too.
+ * Only the handler that fired knows, so it says.
+ */
+export type ActivationSource = "pointer" | "keyboard";
+
 // ── zoom ────────────────────────────────────────────────────────────────────
 
 /** Zoom bounds. Below the floor labels are unreadable; above the ceiling one node fills the panel. */
