@@ -97,6 +97,11 @@ passfail_files() {
     # C-only membership would leave a genuinely failing test TOLERATED by the
     # shard classifier. P∩C membership hard-gates it inside the cov shards.
     printf '%s\n' web/src/lib/graph/layout.test.ts
+    # Chat-graph panel/canvas pure logic — same shape and same reasoning as
+    # layout.test.ts above: 100%-gated pure TS whose overlapping fixtures mean
+    # coverage alone would not catch a red assertion.
+    printf '%s\n' web/src/lib/graph/panel-logic.test.ts
+    printf '%s\n' web/src/lib/graph/canvas-view.test.ts
   } 2>/dev/null | sort -u
 }
 
@@ -152,6 +157,8 @@ coverage_host_files() {
       web/src/lib/__tests__/loaded-tools-logic.test.ts \
       web/src/lib/__tests__/briefing-cron.test.ts \
       web/src/lib/graph/layout.test.ts \
+      web/src/lib/graph/panel-logic.test.ts \
+      web/src/lib/graph/canvas-view.test.ts \
       web/src/lib/__tests__/timeline-normalize.test.ts \
       web/src/__tests__/test-surface.test.ts \
       web/src/__tests__/test-surface-bypass.test.ts \
