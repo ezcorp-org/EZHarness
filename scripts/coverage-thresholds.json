@@ -180,6 +180,7 @@
   "web/src/lib/components/chat/GraphCanvas.svelte": 100,
   "web/src/lib/components/chat/ChatGraphPanel.svelte": 100,
   "web/src/lib/timeline-normalize.ts": 100,
+  "web/src/lib/format-duration.ts": 100,
   "src/runtime/preview/dev-command-detection.ts": 100,
   "src/runtime/preview/preview-bus-registry.ts": 100,
   "src/runtime/preview/preview-consent.ts": 100,
