@@ -1,0 +1,388 @@
+<script lang="ts">
+	/**
+	 * SVG renderer for a laid-out chat DAG.
+	 *
+	 * Takes a `LayoutResult` (never a raw `ChatGraph`) so the panel owns the
+	 * one `layoutGraph()` call and can read `hasCycle` from it without laying
+	 * the same graph out twice. Every string this template prints and every
+	 * focus move it makes comes from `$lib/graph/canvas-view` — this file is
+	 * markup, state wiring, and pointer plumbing only.
+	 *
+	 * Interaction:
+	 *   - click / Enter / Space activates a node (`onactivate`); the panel
+	 *     decides whether that drills in or just shows details.
+	 *   - arrows / Home / End move focus between nodes (roving tabindex, so
+	 *     one Tab reaches the graph and arrows walk it).
+	 *   - drag the background to pan, wheel or the corner buttons to zoom.
+	 *
+	 * Sizing: the `viewBox` is pinned to the layout's own content box and the
+	 * SVG's width/height are that box times `zoom`, so at 100% a node is
+	 * exactly the 168×44 CSS px the layout intends and its label is legible.
+	 * A "fit the whole graph into the panel" `preserveAspectRatio` was
+	 * rejected — a long conversation is a tall narrow drawing, and fitting it
+	 * to a phone-width drawer shrinks the labels to nothing. The SVG
+	 * overflows into a scroll container instead, and drag-to-pan is a
+	 * `<g transform>` in viewBox units (screen px ÷ zoom), which needs no DOM
+	 * measurement at all.
+	 */
+	import { DEFAULT_LAYOUT_OPTIONS, type LayoutResult } from "$lib/graph/layout";
+	import {
+		edgeDashArray,
+		formatNodeDuration,
+		isActivationKey,
+		KIND_LABEL,
+		moveFocus,
+		nodeAriaLabel,
+		nodeTitle,
+		wheelZoomFactor,
+		ZOOM_STEP,
+		zoomBy,
+	} from "$lib/graph/canvas-view";
+	import type { GraphNode } from "$server/runtime/chat-graph/types";
+
+	let {
+		layout,
+		selectedId = null,
+		onactivate,
+	}: {
+		layout: LayoutResult;
+		/** Node the panel is showing details for — drawn with a persistent ring. */
+		selectedId?: string | null;
+		onactivate: (node: GraphNode) => void;
+	} = $props();
+
+	// Unique per instance: two canvases on one page must not share a
+	// <clipPath> / <marker> id.
+	const uid = $props.id();
+	const clipId = `${uid}-nodeclip`;
+	const arrowId = `${uid}-arrow`;
+
+	let focusedId = $state<string | null>(null);
+	let zoom = $state(1);
+	let tx = $state(0);
+	let ty = $state(0);
+	let dragging = $state(false);
+
+	// id → element, for moving DOM focus when the arrows move the roving
+	// tabindex. An action rather than `bind:this` into a record: node ids are
+	// database strings, so a `querySelector` lookup would need escaping, and
+	// `bind:this` into a plain object is a non-reactive binding.
+	const nodeEls = new Map<string, SVGGElement>();
+	function registerNode(el: SVGGElement, id: string) {
+		nodeEls.set(id, el);
+		return {
+			destroy() {
+				nodeEls.delete(id);
+			},
+		};
+	}
+
+	let panStartX = 0;
+	let panStartY = 0;
+	let panOriginX = 0;
+	let panOriginY = 0;
+
+	// Roving tabindex: exactly one node is tab-reachable at a time.
+	let activeId = $derived(focusedId ?? layout.nodes[0]?.id ?? null);
+	// Every node box is the same size, so one shared clip rect covers them all.
+	let boxWidth = $derived(layout.nodes[0]?.width ?? DEFAULT_LAYOUT_OPTIONS.nodeWidth);
+	let boxHeight = $derived(layout.nodes[0]?.height ?? DEFAULT_LAYOUT_OPTIONS.nodeHeight);
+
+	function focusNode(id: string) {
+		focusedId = id;
+		nodeEls.get(id)?.focus();
+	}
+
+	function activate(node: GraphNode) {
+		focusedId = node.id;
+		onactivate(node);
+	}
+
+	function onNodeKeydown(e: KeyboardEvent, node: GraphNode) {
+		if (isActivationKey(e.key)) {
+			e.preventDefault();
+			activate(node);
+			return;
+		}
+		const next = moveFocus(layout.nodes, focusedId, e.key);
+		if (next === null) return;
+		e.preventDefault();
+		focusNode(next);
+	}
+
+	function startPan(e: MouseEvent) {
+		// A drag that starts on a node is a click on that node, not a pan.
+		if ((e.target as Element | null)?.closest("[data-node-id]")) return;
+		dragging = true;
+		panStartX = e.clientX;
+		panStartY = e.clientY;
+		panOriginX = tx;
+		panOriginY = ty;
+	}
+
+	function movePan(e: MouseEvent) {
+		if (!dragging) return;
+		// Screen pixels → viewBox units. The SVG is drawn at exactly `zoom`
+		// times its viewBox, so that conversion is the whole story.
+		tx = panOriginX + (e.clientX - panStartX) / zoom;
+		ty = panOriginY + (e.clientY - panStartY) / zoom;
+	}
+
+	function endPan() {
+		dragging = false;
+	}
+
+	function onWheel(e: WheelEvent) {
+		e.preventDefault();
+		zoom = zoomBy(zoom, wheelZoomFactor(e.deltaY));
+	}
+
+	function resetView() {
+		zoom = 1;
+		tx = 0;
+		ty = 0;
+	}
+</script>
+
+<svelte:window onmousemove={movePan} onmouseup={endPan} />
+
+<div class="graph-canvas relative h-full w-full" data-testid="chat-graph-canvas">
+	<!-- Outside the scroller so the controls stay pinned to the corner. -->
+	<div class="absolute right-2 top-2 z-10 flex flex-col gap-1">
+		<button
+			type="button"
+			data-testid="chat-graph-zoom-in"
+			aria-label="Zoom in"
+			onclick={() => (zoom = zoomBy(zoom, ZOOM_STEP))}
+			class="rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-1.5 py-0.5 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
+		>+</button>
+		<button
+			type="button"
+			data-testid="chat-graph-zoom-out"
+			aria-label="Zoom out"
+			onclick={() => (zoom = zoomBy(zoom, 1 / ZOOM_STEP))}
+			class="rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-1.5 py-0.5 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
+		>−</button>
+		<button
+			type="button"
+			data-testid="chat-graph-zoom-reset"
+			aria-label="Reset view"
+			onclick={resetView}
+			class="rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-1.5 py-0.5 text-[10px] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
+		>Fit</button>
+	</div>
+
+	<div class="h-full w-full overflow-auto p-1" data-testid="chat-graph-scroller">
+	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+	<svg
+		class="select-none {dragging ? 'cursor-grabbing' : 'cursor-grab'}"
+		width={layout.width * zoom}
+		height={layout.height * zoom}
+		viewBox="0 0 {layout.width} {layout.height}"
+		role="group"
+		aria-label="Conversation graph"
+		onmousedown={startPan}
+		onwheel={onWheel}
+	>
+		<defs>
+			<marker
+				id={arrowId}
+				viewBox="0 0 8 8"
+				refX="7"
+				refY="4"
+				markerWidth="5"
+				markerHeight="5"
+				orient="auto-start-reverse"
+			>
+				<path class="edge-arrow" d="M 0 0 L 8 4 L 0 8 z" />
+			</marker>
+			<clipPath id={clipId} clipPathUnits="userSpaceOnUse">
+				<rect x="0" y="0" width={boxWidth - 22} height={boxHeight} />
+			</clipPath>
+		</defs>
+
+		<!-- Zoom is the SVG's own width/height above; this group is pan only. -->
+		<g data-testid="chat-graph-viewport" transform="translate({tx},{ty})">
+			<g class="edges" fill="none">
+				{#each layout.edges as e (`${e.from}->${e.to}-${e.kind}`)}
+					<path
+						class="edge"
+						data-testid="chat-graph-edge"
+						data-kind={e.kind}
+						data-from={e.from}
+						data-to={e.to}
+						d={e.path}
+						stroke-dasharray={edgeDashArray(e.kind)}
+						marker-end="url(#{arrowId})"
+					/>
+				{/each}
+			</g>
+
+			{#each layout.nodes as ln (ln.id)}
+				{@const n = ln.node}
+				<!-- svelte-ignore a11y_click_events_have_key_events -->
+				<g
+					use:registerNode={ln.id}
+					class="node"
+					data-testid="chat-graph-node"
+					data-node-id={ln.id}
+					data-kind={n.kind}
+					data-status={n.status}
+					data-excluded={n.excluded === true ? "true" : "false"}
+					data-drillable={n.drillable === true ? "true" : "false"}
+					transform="translate({ln.x},{ln.y})"
+					role="button"
+					tabindex={ln.id === activeId ? 0 : -1}
+					aria-label={nodeAriaLabel(n)}
+					onclick={() => activate(n)}
+					onkeydown={(e) => onNodeKeydown(e, n)}
+					onfocus={() => (focusedId = ln.id)}
+				>
+					<title>{nodeTitle(n)}</title>
+					<rect class="node-box" width={ln.width} height={ln.height} rx="6" />
+					<!-- Inset so the bar sits on the box's straight left edge instead
+					     of poking out past its rounded corners. -->
+					<rect class="node-accent" x="1" y="6" width="3" height={ln.height - 12} rx="1.5" />
+					<circle class="node-status" cx={ln.width - 11} cy="11" r="3.5" />
+					<g clip-path="url(#{clipId})">
+						<text class="node-label" x="11" y="19">{n.label}</text>
+						<text class="node-meta" x="11" y="33">{KIND_LABEL[n.kind]} · {formatNodeDuration(n.durationMs)}</text>
+					</g>
+					{#if ln.id === focusedId || ln.id === selectedId}
+						<rect
+							class="focus-ring"
+							data-testid="chat-graph-node-ring"
+							x="-3"
+							y="-3"
+							width={ln.width + 6}
+							height={ln.height + 6}
+							rx="8"
+						/>
+					{/if}
+				</g>
+			{/each}
+		</g>
+	</svg>
+	</div>
+</div>
+
+<style>
+	/* Kind + status hues. Declared as custom properties on the root so the
+	   dark override is one block instead of one per selector, and so every
+	   value stays a palette token — no hardcoded hex anywhere. */
+	.graph-canvas {
+		--ez-graph-edge: var(--color-border-strong);
+		--ez-kind-prompt: var(--color-blue-600);
+		--ez-kind-assistant: var(--color-emerald-600);
+		--ez-kind-thinking: var(--color-purple-500);
+		--ez-kind-tool: var(--color-amber-600);
+		--ez-kind-subagent: var(--color-pink-600);
+		--ez-kind-error: var(--color-red-600);
+		--ez-status-success: var(--color-green-600);
+		--ez-status-error: var(--color-red-600);
+		--ez-status-running: var(--color-amber-500);
+		--ez-status-interrupted: var(--color-gray-400);
+	}
+	:global(.dark) .graph-canvas {
+		--ez-kind-prompt: var(--color-blue-400);
+		--ez-kind-assistant: var(--color-emerald-400);
+		--ez-kind-thinking: var(--color-purple-400);
+		--ez-kind-tool: var(--color-amber-400);
+		--ez-kind-subagent: var(--color-pink-400);
+		--ez-kind-error: var(--color-red-400);
+		--ez-status-success: var(--color-green-400);
+		--ez-status-error: var(--color-red-400);
+		--ez-status-running: var(--color-amber-400);
+		--ez-status-interrupted: var(--color-gray-500);
+	}
+
+	.edge {
+		stroke: var(--ez-graph-edge);
+		stroke-width: 1.5;
+	}
+	/* A rewind / A-B-retry fork. Solid like `sequence` (the edge kinds differ
+	   in meaning, not in line style — the greyed subtree is what marks the
+	   rewound path), but accent-tinted so a fork is findable at a glance. */
+	.edge[data-kind="branch"] {
+		stroke: var(--color-accent);
+	}
+	/* `context-stroke` makes each arrowhead match its own edge; the preceding
+	   declaration is the fallback for engines that don't support it. */
+	.edge-arrow {
+		fill: var(--ez-graph-edge);
+		fill: context-stroke;
+	}
+
+	.node-box {
+		fill: var(--color-surface-tertiary);
+		stroke: var(--color-border-strong);
+		stroke-width: 1;
+	}
+	.node-label {
+		fill: var(--color-text-primary);
+		font-size: 11.5px;
+		font-weight: 600;
+	}
+	.node-meta {
+		fill: var(--color-text-muted);
+		font-size: 9.5px;
+	}
+
+	/* Drillable nodes are the headline interaction — they must LOOK clickable. */
+	.node[data-drillable="true"] {
+		cursor: pointer;
+	}
+	.node[data-drillable="true"]:hover .node-box {
+		fill: var(--color-surface-elevated);
+		stroke: var(--color-accent);
+	}
+	/* The browser's own ring would be clipped by the SVG; we draw our own. */
+	.node:focus {
+		outline: none;
+	}
+	.focus-ring {
+		fill: none;
+		stroke: var(--color-accent);
+		stroke-width: 2;
+	}
+
+	/* Rewound-away branch: dimmed and dashed, still readable. */
+	.node[data-excluded="true"] {
+		opacity: 0.45;
+	}
+	.node[data-excluded="true"] .node-box {
+		stroke-dasharray: 4 3;
+	}
+
+	.node-accent {
+		fill: var(--ez-kind-prompt);
+	}
+	.node[data-kind="assistant"] .node-accent {
+		fill: var(--ez-kind-assistant);
+	}
+	.node[data-kind="thinking"] .node-accent {
+		fill: var(--ez-kind-thinking);
+	}
+	.node[data-kind="tool"] .node-accent {
+		fill: var(--ez-kind-tool);
+	}
+	.node[data-kind="subagent"] .node-accent {
+		fill: var(--ez-kind-subagent);
+	}
+	.node[data-kind="error"] .node-accent {
+		fill: var(--ez-kind-error);
+	}
+
+	.node-status {
+		fill: var(--ez-status-success);
+	}
+	.node[data-status="error"] .node-status {
+		fill: var(--ez-status-error);
+	}
+	.node[data-status="running"] .node-status {
+		fill: var(--ez-status-running);
+	}
+	.node[data-status="interrupted"] .node-status {
+		fill: var(--ez-status-interrupted);
+	}
+</style>
