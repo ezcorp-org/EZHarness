@@ -65,6 +65,9 @@ export interface ConversationDagActivity {
   messageId: string;
   toolCalls: number;
   hasThinking: boolean;
+  /** From `messages.usage`; absent on rows that never recorded any. */
+  inputTokens?: number;
+  outputTokens?: number;
 }
 
 export interface ConversationDagInput {
@@ -143,6 +146,23 @@ export function buildConversationDag(input: ConversationDagInput): ChatGraph {
         (subsByParent.get(n.id) ?? 0),
       thinking: members.filter((m) => activityById.get(m.id)?.hasThinking === true).length,
     };
+    // Tokens are summed only over rows that actually reported usage. A turn
+    // where nothing did leaves BOTH fields absent rather than reporting 0 —
+    // "not measured" and "free" are different claims.
+    let input = 0;
+    let output = 0;
+    let sawUsage = false;
+    for (const m of members) {
+      const a = activityById.get(m.id);
+      if (a?.inputTokens === undefined && a?.outputTokens === undefined) continue;
+      sawUsage = true;
+      input += a.inputTokens ?? 0;
+      output += a.outputTokens ?? 0;
+    }
+    if (sawUsage) {
+      stats.inputTokens = input;
+      stats.outputTokens = output;
+    }
     // Elapsed SPAN of the turn, not a sum of tool durations. Omitted when the
     // turn has no members, or when the clock did not advance — a zero here
     // would read as "instant" when it really means "unknown".

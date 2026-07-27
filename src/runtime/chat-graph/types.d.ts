@@ -116,6 +116,14 @@ export interface TurnStats {
   subAgents: number;
   /** Assistant messages that persisted a reasoning blob. */
   thinking: number;
+  /**
+   * Tokens billed for the turn, summed from `messages.usage`.
+   *
+   * Both omitted when no member row carried usage — an unmeasured turn must
+   * not read as a free one, the same rule the durations follow.
+   */
+  inputTokens?: number;
+  outputTokens?: number;
 }
 
 export interface GraphEdge {

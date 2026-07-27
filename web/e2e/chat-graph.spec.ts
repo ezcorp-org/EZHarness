@@ -511,6 +511,10 @@ test("the legend explains the colours and link styles, and collapses", async ({ 
 	await expect(
 		legend.locator('[data-legend-group="line"][data-legend-id="excluded"]'),
 	).toContainText("Rewound away");
+	// Each kind row carries its icon alongside the colour swatch.
+	await expect(
+		legend.locator('[data-legend-group="bar"][data-legend-id="thinking"] svg.kind-icon'),
+	).toBeVisible();
 
 	// Collapsible, so it can be moved out of the way of the graph.
 	const toggle = panel.locator('[data-testid="chat-graph-legend-toggle"]');
@@ -544,7 +548,11 @@ test("hovering a node opens a card at the cursor that follows it between nodes",
 	await expect(card).toContainText("Tool calls 3");
 	await expect(card).toContainText("Sub-agents 1");
 	await expect(card).toContainText("Thinking steps 1");
+	// Token cost as a single line, compacted.
+	await expect(card).toContainText("12k in · 980 out · 13k total");
 	await expect(card).toContainText("Started");
+	// The kind icon is drawn next to the heading, tinted by kind.
+	await expect(card.locator('svg.kind-icon[data-kind="prompt"]')).toBeVisible();
 
 	// It is anchored to the cursor, not pinned to a corner.
 	const box = await card.boundingBox();
@@ -565,6 +573,7 @@ test("hovering a node opens a card at the cursor that follows it between nodes",
 	const kind = card.locator(".hover-kind");
 	await expect(kind).toHaveAttribute("data-kind", "subagent");
 	await expect(kind).toHaveText("Sub-agent");
+	await expect(card.locator('svg.kind-icon[data-kind="subagent"]')).toBeVisible();
 
 	// Transparent to the pointer: the node underneath is still clickable even
 	// with the card over it. This is what a previous interactive version broke.

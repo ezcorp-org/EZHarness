@@ -392,6 +392,44 @@ describe("turn roll-up on level-1 prompt nodes", () => {
     expect(g.nodes.find((n) => n.id === "u1")?.stats?.replies).toBe(2);
   });
 
+  test("tokens sum across every member row that reported usage", () => {
+    const g = withStats({
+      activity: [
+        { messageId: "a1", toolCalls: 0, hasThinking: false, inputTokens: 1000, outputTokens: 200 },
+        { messageId: "a2", toolCalls: 0, hasThinking: false, inputTokens: 500, outputTokens: 80 },
+      ],
+    });
+    const u1 = g.nodes.find((n) => n.id === "u1");
+    expect(u1?.stats?.inputTokens).toBe(1500);
+    expect(u1?.stats?.outputTokens).toBe(280);
+  });
+
+  test("a turn where nothing reported usage leaves BOTH fields absent", () => {
+    // Absent means "not measured". A 0 would claim the turn was free.
+    const u1 = withStats().nodes.find((n) => n.id === "u1");
+    expect(u1?.stats?.inputTokens).toBeUndefined();
+    expect(u1?.stats?.outputTokens).toBeUndefined();
+  });
+
+  test("one row reporting usage is enough; rows without it contribute nothing", () => {
+    const g = withStats({
+      activity: [
+        { messageId: "a1", toolCalls: 0, hasThinking: false, outputTokens: 42 },
+        { messageId: "a2", toolCalls: 0, hasThinking: false },
+      ],
+    });
+    const u1 = g.nodes.find((n) => n.id === "u1");
+    expect(u1?.stats?.inputTokens).toBe(0);
+    expect(u1?.stats?.outputTokens).toBe(42);
+  });
+
+  test("a genuine zero IS reported — it was measured", () => {
+    const g = withStats({
+      activity: [{ messageId: "a1", toolCalls: 0, hasThinking: false, inputTokens: 0, outputTokens: 0 }],
+    });
+    expect(g.nodes.find((n) => n.id === "u1")?.stats?.inputTokens).toBe(0);
+  });
+
   test("a corrupt parent cycle terminates instead of hanging", () => {
     const g = buildConversationDag({
       conversationId: "conv-1",

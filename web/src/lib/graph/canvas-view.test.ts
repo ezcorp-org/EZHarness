@@ -18,6 +18,9 @@ import {
 	KIND_LABEL,
 	LABEL_FADE_PX,
 	labelFadeStart,
+	KIND_ICON,
+	formatTokenLine,
+	formatTokens,
 	legendSections,
 	nodeDetailCard,
 	moveFocus,
@@ -484,5 +487,86 @@ describe("nodeDetailCard", () => {
 		expect(nodeDetailCard(node({ label: "trunc…", fullLabel: "truncated all the way" })).title).toBe(
 			"trunc…",
 		);
+	});
+});
+
+describe("KIND_ICON", () => {
+	test("every kind the canvas can draw has an icon", () => {
+		expect(Object.keys(KIND_ICON).sort()).toEqual(Object.keys(KIND_LABEL).sort());
+	});
+
+	test("each is a non-empty SVG path starting with a move command", () => {
+		for (const [kind, d] of Object.entries(KIND_ICON)) {
+			expect(d.length, kind).toBeGreaterThan(0);
+			expect(d.startsWith("M"), kind).toBe(true);
+		}
+	});
+
+	test("no two kinds share a drawing", () => {
+		expect(new Set(Object.values(KIND_ICON)).size).toBe(Object.keys(KIND_ICON).length);
+	});
+});
+
+describe("formatTokens", () => {
+	test("counts below 1k are exact", () => {
+		expect(formatTokens(0)).toBe("0");
+		expect(formatTokens(980)).toBe("980");
+		expect(formatTokens(999)).toBe("999");
+	});
+
+	test("one decimal below 10k", () => {
+		expect(formatTokens(1000)).toBe("1.0k");
+		expect(formatTokens(1234)).toBe("1.2k");
+		expect(formatTokens(9949)).toBe("9.9k");
+	});
+
+	test("no decimal at 10k and above — it is noise at that size", () => {
+		expect(formatTokens(10_000)).toBe("10k");
+		expect(formatTokens(12_345)).toBe("12k");
+		expect(formatTokens(1_200_000)).toBe("1200k");
+	});
+});
+
+describe("formatTokenLine", () => {
+	const stats = { replies: 1, toolCalls: 0, subAgents: 0, thinking: 0 };
+
+	test("reads in / out / total on one line", () => {
+		expect(formatTokenLine({ ...stats, inputTokens: 1234, outputTokens: 450 })).toBe(
+			"1.2k in · 450 out · 1.7k total",
+		);
+	});
+
+	test("a turn that recorded no usage gets no line — unmeasured is not free", () => {
+		expect(formatTokenLine(stats)).toBeUndefined();
+		expect(formatTokenLine(undefined)).toBeUndefined();
+	});
+
+	test("one side recorded is enough; the other counts as zero", () => {
+		expect(formatTokenLine({ ...stats, inputTokens: 500 })).toBe("500 in · 0 out · 500 total");
+		expect(formatTokenLine({ ...stats, outputTokens: 20 })).toBe("0 in · 20 out · 20 total");
+	});
+
+	test("a genuine zero still reports, since it WAS measured", () => {
+		expect(formatTokenLine({ ...stats, inputTokens: 0, outputTokens: 0 })).toBe(
+			"0 in · 0 out · 0 total",
+		);
+	});
+});
+
+describe("nodeDetailCard tokens", () => {
+	test("a turn with usage gets the one-liner", () => {
+		const card = nodeDetailCard(
+			node({
+				stats: { replies: 1, toolCalls: 0, subAgents: 0, thinking: 0, inputTokens: 1200, outputTokens: 300 },
+			}),
+		);
+		expect(card.rows).toContainEqual({ term: "Tokens", value: "1.2k in · 300 out · 1.5k total" });
+	});
+
+	test("a turn without usage gets no Tokens row at all", () => {
+		const card = nodeDetailCard(
+			node({ stats: { replies: 1, toolCalls: 0, subAgents: 0, thinking: 0 } }),
+		);
+		expect(card.rows.find((r) => r.term === "Tokens")).toBeUndefined();
 	});
 });

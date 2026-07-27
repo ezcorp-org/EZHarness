@@ -153,7 +153,14 @@ export const level1: ChatGraph = {
 			// Turn roll-up: elapsed span plus what the turn contained. Mirrors
 			// what `buildConversationDag` computes for a real turn.
 			durationMs: 42_000,
-			stats: { replies: 2, toolCalls: 3, subAgents: 1, thinking: 1 },
+			stats: {
+				replies: 2,
+				toolCalls: 3,
+				subAgents: 1,
+				thinking: 1,
+				inputTokens: 12_400,
+				outputTokens: 980,
+			},
 		},
 		{
 			id: PROMPT_ROLLBACK,

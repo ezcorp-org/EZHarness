@@ -11,7 +11,13 @@
  * concern.
  */
 import { formatDuration } from "$lib/format-duration";
-import type { GraphEdgeKind, GraphNode, GraphNodeKind, GraphNodeStatus } from "$server/runtime/chat-graph/types";
+import type {
+	GraphEdgeKind,
+	GraphNode,
+	GraphNodeKind,
+	GraphNodeStatus,
+	TurnStats,
+} from "$server/runtime/chat-graph/types";
 
 /**
  * Rendered when `GraphNode.durationMs` is absent.
@@ -252,6 +258,54 @@ export function wheelZoomFactor(deltaY: number): number {
 	return deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP;
 }
 
+// ── icons ───────────────────────────────────────────────────────────────────
+
+/**
+ * One 24×24 outline path per node kind, drawn `fill="none"
+ * stroke="currentColor"` so it inherits the kind colour.
+ *
+ * Inline paths, not `<LucideIcon>`: that wrapper exists for EXTENSION-supplied
+ * icon names and resolves them by async dynamic import, which would leave a
+ * frame with no icon and issue a component load per node. Every first-party
+ * icon in this app is an inline Heroicons-24-outline path (see `ThinkingCard`,
+ * `ToolCallCard`, `ChatHeader`), and inline paths also drop straight into the
+ * graph's own SVG. `thinking` reuses ThinkingCard's exact path so the same
+ * concept never has two drawings.
+ */
+export const KIND_ICON: Record<GraphNodeKind, string> = {
+	prompt:
+		"M8.625 12a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H8.25m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 0 1-2.555-.337A5.972 5.972 0 0 1 5.41 20.97a5.969 5.969 0 0 1-.474-.065 4.48 4.48 0 0 0 .978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25Z",
+	assistant: "M9 15 3 9m0 0 6-6M3 9h12a6 6 0 0 1 0 12h-3",
+	thinking:
+		"M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 0 0-2.455 2.456Z",
+	tool: "M11.42 15.17 17.25 21A2.652 2.652 0 0 0 21 17.25l-5.877-5.877M11.42 15.17l2.496-3.03c.317-.384.74-.626 1.208-.766M11.42 15.17l-4.655 5.653a2.548 2.548 0 1 1-3.586-3.586l6.837-5.63m5.108-.233c.55-.164 1.163-.188 1.743-.14a4.5 4.5 0 0 0 4.486-6.336l-3.276 3.277a3.004 3.004 0 0 1-2.25-2.25l3.276-3.276a4.5 4.5 0 0 0-6.336 4.486c.091 1.076-.071 2.264-.904 2.95l-.102.085m-1.745 1.437L5.909 7.5H4.5L2.25 3.75l1.5-1.5L7.5 4.5v1.409l4.26 4.26",
+	subagent:
+		"M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z",
+	error:
+		"M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z",
+};
+
+// ── token totals ────────────────────────────────────────────────────────────
+
+/** Compact token count: 1_234 → "1.2k", 980 → "980". */
+export function formatTokens(n: number): string {
+	if (n < 1000) return String(n);
+	const k = n / 1000;
+	// One decimal below 10k, none above — "12.3k" is noise at that size.
+	return k < 10 ? `${k.toFixed(1)}k` : `${Math.round(k)}k`;
+}
+
+/**
+ * The one-liner for a turn's token cost, or undefined when the turn recorded
+ * no usage at all (which must not read as "free" — same rule as durations).
+ */
+export function formatTokenLine(stats: TurnStats | undefined): string | undefined {
+	if (stats?.inputTokens === undefined && stats?.outputTokens === undefined) return undefined;
+	const input = stats.inputTokens ?? 0;
+	const output = stats.outputTokens ?? 0;
+	return `${formatTokens(input)} in · ${formatTokens(output)} out · ${formatTokens(input + output)} total`;
+}
+
 // ── legend ──────────────────────────────────────────────────────────────────
 
 /**
@@ -400,6 +454,8 @@ export function nodeDetailCard(node: GraphNode): NodeDetailCard {
 		if (s.toolCalls > 0) rows.push({ term: "Tool calls", value: String(s.toolCalls) });
 		if (s.subAgents > 0) rows.push({ term: "Sub-agents", value: String(s.subAgents) });
 		if (s.thinking > 0) rows.push({ term: "Thinking steps", value: String(s.thinking) });
+		const tokens = formatTokenLine(s);
+		if (tokens !== undefined) rows.push({ term: "Tokens", value: tokens });
 	}
 	if (node.excluded === true) {
 		rows.push({ term: "Branch", value: "Rewound away — not sent to the model" });

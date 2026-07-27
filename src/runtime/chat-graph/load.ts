@@ -89,6 +89,8 @@ export async function loadConversationGraph(conversationId: string): Promise<Cha
       messageId: m.id,
       toolCalls: m.toolCalls.length,
       hasThinking: (m.thinkingContent ?? "").length > 0,
+      ...(m.usage?.inputTokens !== undefined ? { inputTokens: m.usage.inputTokens } : {}),
+      ...(m.usage?.outputTokens !== undefined ? { outputTokens: m.usage.outputTokens } : {}),
     })),
     subConversations: subConversations.map((s) => ({
       id: s.id,

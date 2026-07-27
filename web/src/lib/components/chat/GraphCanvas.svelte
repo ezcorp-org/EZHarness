@@ -35,6 +35,7 @@
 		formatNodeDuration,
 		type ActivationSource,
 		isActivationKey,
+		KIND_ICON,
 		KIND_LABEL,
 		LABEL_GUTTER,
 		labelFadeStart,
@@ -428,7 +429,13 @@
 					<circle class="node-status" cx={ln.width - 11} cy="11" r="3.5" />
 					<g mask="url(#{maskId})">
 						<text class="node-label" x="11" y="19">{n.label}</text>
-						<text class="node-meta" x="11" y="33">{KIND_LABEL[n.kind]} · {formatNodeDuration(n.durationMs)}</text>
+						<!-- Kind icon on the meta line, tinted with the accent bar's hue, so
+						     the type is readable without cross-referencing the legend. -->
+						<svg class="node-icon" data-kind={n.kind} x="11" y="26" width="9" height="9"
+							viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+							<path stroke-linecap="round" stroke-linejoin="round" d={KIND_ICON[n.kind]} />
+						</svg>
+						<text class="node-meta" x="23" y="33">{KIND_LABEL[n.kind]} · {formatNodeDuration(n.durationMs)}</text>
 					</g>
 					{#if ln.id === focusedId || ln.id === selectedId}
 						<rect
@@ -461,6 +468,10 @@
 			style="pointer-events: none; left: {hover.x}px; top: {hover.y}px; transform: translate({hover.flipX ? `calc(-100% - ${CURSOR_DX}px)` : `${CURSOR_DX}px`}, {hover.flipY ? `calc(-100% - ${CURSOR_DY}px)` : `${CURSOR_DY}px`});"
 		>
 			<p class="hover-glance" data-testid="chat-graph-hover-glance">
+				<svg class="kind-icon" data-kind={hover.card.kind} viewBox="0 0 24 24" fill="none"
+					stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+					<path stroke-linecap="round" stroke-linejoin="round" d={KIND_ICON[hover.card.kind]} />
+				</svg>
 				<span class="hover-kind" data-kind={hover.card.kind}>{hover.card.kindLabel}</span>
 				<span class="hover-meta">· {hover.card.meta}</span>
 			</p>
@@ -514,6 +525,10 @@
 							<li class="legend-row" data-legend-group={section.sample} data-legend-id={item.id}>
 								{#if section.sample === "bar"}
 									<span class="sample sample-bar" data-kind={item.id}></span>
+									<svg class="kind-icon legend-icon" data-kind={item.id} viewBox="0 0 24 24" fill="none"
+										stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+										<path stroke-linecap="round" stroke-linejoin="round" d={KIND_ICON[item.id as GraphNode["kind"]]} />
+									</svg>
 								{:else if section.sample === "dot"}
 									<span class="sample sample-dot" data-status={item.id}></span>
 								{:else}
@@ -698,6 +713,31 @@
 	.hover-meta {
 		color: var(--color-text-muted);
 	}
+	/* Shared by the card heading and the legend: one icon set, tinted by kind
+	   from the same custom properties the nodes and swatches read. */
+	.kind-icon {
+		width: 12px;
+		height: 12px;
+		display: inline-block;
+		vertical-align: -2px;
+		color: var(--ez-kind-prompt);
+	}
+	.kind-icon[data-kind="assistant"] { color: var(--ez-kind-assistant); }
+	.kind-icon[data-kind="thinking"] { color: var(--ez-kind-thinking); }
+	.kind-icon[data-kind="tool"] { color: var(--ez-kind-tool); }
+	.kind-icon[data-kind="subagent"] { color: var(--ez-kind-subagent); }
+	.kind-icon[data-kind="error"] { color: var(--ez-kind-error); }
+	.legend-icon {
+		flex: none;
+	}
+	.node-icon {
+		color: var(--ez-kind-prompt);
+	}
+	.node[data-kind="assistant"] .node-icon { color: var(--ez-kind-assistant); }
+	.node[data-kind="thinking"] .node-icon { color: var(--ez-kind-thinking); }
+	.node[data-kind="tool"] .node-icon { color: var(--ez-kind-tool); }
+	.node[data-kind="subagent"] .node-icon { color: var(--ez-kind-subagent); }
+	.node[data-kind="error"] .node-icon { color: var(--ez-kind-error); }
 	.hover-title {
 		margin: 0.125rem 0 0;
 		font-weight: 600;

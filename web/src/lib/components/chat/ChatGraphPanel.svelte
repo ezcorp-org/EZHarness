@@ -16,7 +16,7 @@
 	import SwipeDrawer from "$lib/components/SwipeDrawer.svelte";
 	import GraphCanvas from "./GraphCanvas.svelte";
 	import { layoutGraph } from "$lib/graph/layout";
-	import { nodeDetailCard } from "$lib/graph/canvas-view";
+	import { KIND_ICON, nodeDetailCard } from "$lib/graph/canvas-view";
 	import {
 		drillFrame,
 		frameTitle,
@@ -250,6 +250,10 @@
 				aria-live="polite"
 			>
 				<p class="detail-glance" data-testid="chat-graph-detail-glance">
+					<svg class="detail-icon" data-kind={detailCard.kind} viewBox="0 0 24 24" fill="none"
+						stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+						<path stroke-linecap="round" stroke-linejoin="round" d={KIND_ICON[detailCard.kind]} />
+					</svg>
 					<span class="detail-kind" data-kind={detailCard.kind}>{detailCard.kindLabel}</span>
 					<span class="detail-meta">· {detailCard.meta}</span>
 				</p>
@@ -316,6 +320,18 @@
 	.detail-meta {
 		color: var(--color-text-muted);
 	}
+	.detail-icon {
+		width: 12px;
+		height: 12px;
+		display: inline-block;
+		vertical-align: -2px;
+		color: var(--ez-kind-prompt);
+	}
+	.detail-icon[data-kind="assistant"] { color: var(--ez-kind-assistant); }
+	.detail-icon[data-kind="thinking"] { color: var(--ez-kind-thinking); }
+	.detail-icon[data-kind="tool"] { color: var(--ez-kind-tool); }
+	.detail-icon[data-kind="subagent"] { color: var(--ez-kind-subagent); }
+	.detail-icon[data-kind="error"] { color: var(--ez-kind-error); }
 	.detail-title {
 		margin: 0.125rem 0 0;
 		font-weight: 600;
