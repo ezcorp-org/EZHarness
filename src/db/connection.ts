@@ -21,6 +21,7 @@ import {
   recordProcessHolder,
   clearProcessHolder,
 } from "./live-holder-guard";
+import { applyPgliteNulPatches, patchJsonColumns, patchTextColumns } from "./nul-column-patch";
 const log = logger.child("db");
 
 const DEFAULT_DB_DIR = `${process.env.HOME}/ez-corp/.data`;
@@ -175,6 +176,10 @@ async function initPglite(): Promise<void> {
   // migrate.ts then registers the catalog entry. UX-02 (Phase 57-04).
   const { pg_trgm } = await import("@electric-sql/pglite/contrib/pg_trgm");
   const { drizzle } = await import("drizzle-orm/pglite");
+
+  // Postgres rejects U+0000 in text AND jsonb on BOTH drivers, so both driver
+  // paths install the scrubbers before any write can happen.
+  await applyPgliteNulPatches();
 
   if (!IS_MEMORY) {
     // Complete (or refuse) a rollback that a prior boot began but did not
@@ -439,32 +444,27 @@ async function rollbackMigration(err: unknown): Promise<never> {
 }
 
 /**
- * Swap drizzle's default jsonb/json `mapToDriverValue = JSON.stringify` for
- * identity on the PgJsonb/PgJson column prototypes.
+ * Swap drizzle default jsonb/json `mapToDriverValue = JSON.stringify` for
+ * identity on the PgJsonb/PgJson column prototypes, and scrub NULs (U+0000) on
+ * the way through.
  *
- * Under Bun.sql, drizzle's stringify double-encodes: drizzle stringifies the
- * object → Bun.sql sees a JS string and binds it as a TEXT value, which
- * Postgres stores as a jsonb STRING scalar ({"x":1} becomes "{\"x\":1}"). That
- * breaks every `col->>'key'` access and produces the empty Token Usage chart.
+ * Under Bun.sql, drizzle stringify double-encodes: drizzle stringifies the
+ * object -> Bun.sql sees a JS string and binds it as a TEXT value, which
+ * Postgres stores as a jsonb STRING scalar ({"x":1} becomes "{\\"x\\":1}"). That
+ * breaks every `col->>key` access and produces the empty Token Usage chart.
  * Bun.sql serializes JS objects to jsonb correctly on its own, so identity is
  * the fix. This only matters under bun-sql; PGlite is unaffected.
+ *
+ * The NUL scrub composes in FRONT of that identity: Bun.sql own serializer
+ * emits the same escape Postgres refuses, so the value must already be clean
+ * when it reaches the driver.
  *
  * Exported via `__test` so the regression guard exercises THIS override, not a
  * re-declared local identity function that would stay green even if this were
  * deleted during a drizzle upgrade.
  */
 async function applyBunSqlJsonbFix(): Promise<void> {
-  const [{ PgJsonb }, { PgJson }] = await Promise.all([
-    import("drizzle-orm/pg-core/columns/jsonb"),
-    import("drizzle-orm/pg-core/columns/json"),
-  ]);
-  const identity = (value: unknown) => value;
-  // `any` cast is deliberate: monkey-patching drizzle's private
-  // `mapToDriverValue` on the column-type prototype; there's no public type.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (PgJsonb.prototype as any).mapToDriverValue = identity;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (PgJson.prototype as any).mapToDriverValue = identity;
+  await patchJsonColumns(true);
 }
 
 /** Advisory-lock key for serializing migrate() across instances on external
@@ -513,6 +513,7 @@ async function initPostgres(): Promise<void> {
   const { sql } = await import("drizzle-orm");
 
   await applyBunSqlJsonbFix();
+  await patchTextColumns();
 
   // Pool size for the Bun.sql client. Bun's default is 10, which is too small
   // for endpoints that fan out several queries per request: the admin
