@@ -548,6 +548,10 @@ test("hovering a node opens a card at the cursor that follows it between nodes",
 	await expect(card).toContainText("Tool calls 3");
 	await expect(card).toContainText("Sub-agents 1");
 	await expect(card).toContainText("Thinking steps 1");
+	// Each count is marked with the icon of the thing it counts.
+	for (const kind of ["assistant", "tool", "subagent", "thinking"]) {
+		await expect(card.locator(`svg.row-icon[data-kind="${kind}"]`)).toBeVisible();
+	}
 	// Token cost as a single line, compacted.
 	await expect(card).toContainText("12k in · 980 out · 13k total");
 	await expect(card).toContainText("Started");

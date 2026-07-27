@@ -381,6 +381,13 @@ export function legendSections(): LegendSection[] {
 export interface NodeDetailRow {
 	term: string;
 	value: string;
+	/**
+	 * Kind whose icon labels this row. Set on the turn-breakdown counts so each
+	 * total is marked with the SAME icon as the nodes it counts — a reader who
+	 * has learned the icon from the graph does not have to re-read the word.
+	 * Absent on rows that count nothing (duration, timestamps, tokens).
+	 */
+	icon?: GraphNodeKind;
 }
 
 /**
@@ -450,10 +457,14 @@ export function nodeDetailCard(node: GraphNode): NodeDetailCard {
 	// and a 0 there is genuinely informative (the turn never produced output).
 	if (node.stats !== undefined) {
 		const s = node.stats;
-		rows.push({ term: "Replies", value: String(s.replies) });
-		if (s.toolCalls > 0) rows.push({ term: "Tool calls", value: String(s.toolCalls) });
-		if (s.subAgents > 0) rows.push({ term: "Sub-agents", value: String(s.subAgents) });
-		if (s.thinking > 0) rows.push({ term: "Thinking steps", value: String(s.thinking) });
+		rows.push({ term: "Replies", value: String(s.replies), icon: "assistant" });
+		if (s.toolCalls > 0) rows.push({ term: "Tool calls", value: String(s.toolCalls), icon: "tool" });
+		if (s.subAgents > 0) {
+			rows.push({ term: "Sub-agents", value: String(s.subAgents), icon: "subagent" });
+		}
+		if (s.thinking > 0) {
+			rows.push({ term: "Thinking steps", value: String(s.thinking), icon: "thinking" });
+		}
 		const tokens = formatTokenLine(s);
 		if (tokens !== undefined) rows.push({ term: "Tokens", value: tokens });
 	}

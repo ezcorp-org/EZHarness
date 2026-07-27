@@ -417,21 +417,44 @@ describe("nodeDetailCard", () => {
 		expect(card.rows.find((r) => r.term === "Duration")).toBeUndefined();
 	});
 
-	test("a turn breaks down what it contains", () => {
+	test("a turn breaks down what it contains, each count marked with its kind icon", () => {
 		const card = nodeDetailCard(
 			node({ stats: { replies: 2, toolCalls: 3, subAgents: 1, thinking: 4 } }),
 		);
-		expect(card.rows).toContainEqual({ term: "Replies", value: "2" });
-		expect(card.rows).toContainEqual({ term: "Tool calls", value: "3" });
-		expect(card.rows).toContainEqual({ term: "Sub-agents", value: "1" });
-		expect(card.rows).toContainEqual({ term: "Thinking steps", value: "4" });
+		expect(card.rows).toContainEqual({ term: "Replies", value: "2", icon: "assistant" });
+		expect(card.rows).toContainEqual({ term: "Tool calls", value: "3", icon: "tool" });
+		expect(card.rows).toContainEqual({ term: "Sub-agents", value: "1", icon: "subagent" });
+		expect(card.rows).toContainEqual({ term: "Thinking steps", value: "4", icon: "thinking" });
+	});
+
+	test("every breakdown icon names a kind that actually has a drawing", () => {
+		const card = nodeDetailCard(
+			node({
+				stats: { replies: 1, toolCalls: 1, subAgents: 1, thinking: 1, inputTokens: 5, outputTokens: 5 },
+			}),
+		);
+		const withIcons = card.rows.filter((r) => r.icon !== undefined);
+		expect(withIcons.length).toBe(4);
+		for (const row of withIcons) expect(KIND_ICON[row.icon!]).toBeTruthy();
+	});
+
+	test("rows that count nothing carry no icon", () => {
+		const card = nodeDetailCard(
+			node({
+				durationMs: 1000,
+				stats: { replies: 1, toolCalls: 0, subAgents: 0, thinking: 0, inputTokens: 5, outputTokens: 5 },
+			}),
+		);
+		for (const term of ["Took", "Started", "Tokens"]) {
+			expect(card.rows.find((r) => r.term === term)?.icon).toBeUndefined();
+		}
 	});
 
 	test("zero counts are dropped, so a simple turn reads as a shorter card", () => {
 		const card = nodeDetailCard(
 			node({ stats: { replies: 1, toolCalls: 0, subAgents: 0, thinking: 0 } }),
 		);
-		expect(card.rows).toContainEqual({ term: "Replies", value: "1" });
+		expect(card.rows).toContainEqual({ term: "Replies", value: "1", icon: "assistant" });
 		for (const term of ["Tool calls", "Sub-agents", "Thinking steps"]) {
 			expect(card.rows.find((r) => r.term === term)).toBeUndefined();
 		}
@@ -441,7 +464,7 @@ describe("nodeDetailCard", () => {
 		const card = nodeDetailCard(
 			node({ stats: { replies: 0, toolCalls: 0, subAgents: 0, thinking: 0 } }),
 		);
-		expect(card.rows).toContainEqual({ term: "Replies", value: "0" });
+		expect(card.rows).toContainEqual({ term: "Replies", value: "0", icon: "assistant" });
 	});
 
 	test("a node with no stats gets no breakdown rows at all", () => {

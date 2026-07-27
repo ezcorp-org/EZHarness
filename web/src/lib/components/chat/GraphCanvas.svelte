@@ -483,7 +483,15 @@
 				{#each hover.card.rows as row (row.term)}
 					<div class="hover-row">
 						<dt>{row.term}</dt>
-						<dd>{row.term === "Started" ? formatClock(row.value) : row.value}</dd>
+						<dd>
+							<span>{row.term === "Started" ? formatClock(row.value) : row.value}</span>
+							{#if row.icon}
+								<svg class="row-icon" data-kind={row.icon} viewBox="0 0 24 24" fill="none"
+									stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+									<path stroke-linecap="round" stroke-linejoin="round" d={KIND_ICON[row.icon]} />
+								</svg>
+							{/if}
+						</dd>
 					</div>
 				{/each}
 			</dl>
@@ -767,10 +775,31 @@
 	.hover-row dt {
 		color: var(--color-text-muted);
 	}
+	/* Marks a count with the icon of the thing it counts. Tinted by kind, like
+	   the heading icon and the legend swatch. */
+	/* Trails the value at the row's RIGHT edge, marking each count with the
+	   icon of the thing it counts. Tinted by kind, like the heading icon and
+	   the legend swatch. */
+	.row-icon {
+		width: 11px;
+		height: 11px;
+		flex: none;
+		color: var(--ez-kind-prompt);
+	}
+	.row-icon[data-kind="assistant"] { color: var(--ez-kind-assistant); }
+	.row-icon[data-kind="thinking"] { color: var(--ez-kind-thinking); }
+	.row-icon[data-kind="tool"] { color: var(--ez-kind-tool); }
+	.row-icon[data-kind="subagent"] { color: var(--ez-kind-subagent); }
+	.row-icon[data-kind="error"] { color: var(--ez-kind-error); }
 	.hover-row dd {
 		margin: 0;
 		color: var(--color-text-secondary);
 		overflow-wrap: anywhere;
+		/* Value left, kind icon trailing at the row's right edge. */
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.375rem;
 	}
 	.hover-hint {
 		margin: 0.375rem 0 0;
