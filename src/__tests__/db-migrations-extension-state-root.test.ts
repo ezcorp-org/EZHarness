@@ -15,10 +15,14 @@ import { up } from "../db/migrations/normalize-extension-state-root";
  *
  * Confirms:
  *   - The stale shape is rewritten on BOTH columns, in lockstep.
- *   - The deployment root is captured, not hardcoded (a non-/app root
- *     rewrites identically).
- *   - Non-matching rows — already-canonical, github:/mcp: sources, NULL
- *     install_path, and paths that merely CONTAIN "web" — are untouched.
+ *   - The rewrite is scoped to the PASSED-IN project root: a root that
+ *     itself ends in `web`, and rows recorded under a different root, are
+ *     left alone. This is the sharp edge — see
+ *     "root-scoped, not wildcarded" below.
+ *   - Non-matching rows — already-canonical, github:/mcp: sources, NULL /
+ *     empty install_path, deeper-than-one-segment paths, and paths that
+ *     merely CONTAIN "web" — are untouched.
+ *   - Roots and names containing regex metacharacters survive verbatim.
  *   - Re-running is a no-op (idempotent), and running against zero
  *     matching rows is safe.
  *
@@ -31,6 +35,9 @@ import { up } from "../db/migrations/normalize-extension-state-root";
 const { vector } = await import("@electric-sql/pglite/vector");
 
 let pglite: PGlite | null = null;
+
+/** The root the container actually resolves; the live rows sit under it. */
+const ROOT = "/app";
 
 async function makeDb() {
   pglite = new PGlite({ extensions: { vector } });
@@ -57,6 +64,11 @@ async function seed(db: Db, name: string, source: string, installPath: string | 
   `);
 }
 
+/** Seed a row whose `source` is the `local:`-prefixed `install_path`. */
+async function seedLocal(db: Db, name: string, installPath: string) {
+  await seed(db, name, `local:${installPath}`, installPath);
+}
+
 async function read(db: Db, name: string) {
   const res = (await db.execute(
     sql`SELECT source, install_path FROM extensions WHERE name = ${name}`,
@@ -64,10 +76,21 @@ async function read(db: Db, name: string) {
   return res.rows[0];
 }
 
+/** Assert both columns landed on `installPath` / `local:<installPath>`. */
+async function expectLocal(db: Db, name: string, installPath: string) {
+  const row = await read(db, name);
+  expect(row.install_path).toBe(installPath);
+  expect(row.source).toBe(`local:${installPath}`);
+}
+
+const stalePath = (name: string, root = ROOT) =>
+  `${root}/web/.ezcorp/extensions/${name}`;
+const canonicalPath = (name: string, root = ROOT) =>
+  `${root}/.ezcorp/extensions/${name}`;
+
 /** Seed a row in the stale (cwd-anchored) shape under `root`. */
-async function seedStale(db: Db, name: string, root = "/app") {
-  const stale = `${root}/web/.ezcorp/extensions/${name}`;
-  await seed(db, name, `local:${stale}`, stale);
+async function seedStale(db: Db, name: string, root = ROOT) {
+  await seedLocal(db, name, stalePath(name, root));
 }
 
 afterEach(async () => {
@@ -80,11 +103,9 @@ describe("extension state root normalization migration", () => {
     const db = await makeDb();
     await seedStale(db, "weather");
 
-    await up(db);
+    await up(db, ROOT);
 
-    const row = await read(db, "weather");
-    expect(row.install_path).toBe("/app/.ezcorp/extensions/weather");
-    expect(row.source).toBe("local:/app/.ezcorp/extensions/weather");
+    await expectLocal(db, "weather", canonicalPath("weather"));
   });
 
   test("rewrites every legacy row (the 4 observed in production)", async () => {
@@ -92,51 +113,116 @@ describe("extension state root normalization migration", () => {
     const names = ["weather", "weather-fixed", "weather-ui", "timezone-time-hi"];
     for (const n of names) await seedStale(db, n);
 
-    await up(db);
+    await up(db, ROOT);
 
-    for (const n of names) {
-      const row = await read(db, n);
-      expect(row.install_path).toBe(`/app/.ezcorp/extensions/${n}`);
-      expect(row.source).toBe(`local:/app/.ezcorp/extensions/${n}`);
-    }
+    for (const n of names) await expectLocal(db, n, canonicalPath(n));
   });
 
-  test("deployment-agnostic: the root is captured, not assumed to be /app", async () => {
+  test("deployment-agnostic: any root works, none is hardcoded", async () => {
     const db = await makeDb();
     await seedStale(db, "notes", "/srv/ezcorp");
     await seedStale(db, "vault", "/home/dev/work/EZCorp/EZHarness");
 
-    await up(db);
+    await up(db, "/srv/ezcorp");
+    await up(db, "/home/dev/work/EZCorp/EZHarness");
 
-    expect((await read(db, "notes")).install_path).toBe(
-      "/srv/ezcorp/.ezcorp/extensions/notes",
-    );
-    expect((await read(db, "vault")).source).toBe(
-      "local:/home/dev/work/EZCorp/EZHarness/.ezcorp/extensions/vault",
+    await expectLocal(db, "notes", canonicalPath("notes", "/srv/ezcorp"));
+    await expectLocal(
+      db,
+      "vault",
+      canonicalPath("vault", "/home/dev/work/EZCorp/EZHarness"),
     );
   });
 
+  test("a trailing slash on the passed root builds the same prefix", async () => {
+    const db = await makeDb();
+    await seedStale(db, "weather");
+
+    await up(db, `${ROOT}/`);
+
+    await expectLocal(db, "weather", canonicalPath("weather"));
+  });
+});
+
+/**
+ * The regression the root parameter exists for.
+ *
+ * A wildcard `^(.*)/web/\.ezcorp/extensions/([^/]+)$` cannot tell a cwd
+ * hop from a project root that merely ends in `web`. Under it, a
+ * deployment rooted at /srv/web has its perfectly canonical
+ * /srv/web/.ezcorp/extensions/foo rewritten to
+ * /srv/.ezcorp/extensions/foo — a dangling path, produced on every boot,
+ * with the original value destroyed. Matching on the resolved root makes
+ * the distinction exact.
+ */
+describe("root-scoped, not wildcarded", () => {
+  test("a root that ENDS in /web keeps its already-canonical rows", async () => {
+    const db = await makeDb();
+    const root = "/srv/web";
+    const canonical = canonicalPath("foo", root); // /srv/web/.ezcorp/extensions/foo
+    await seedLocal(db, "foo", canonical);
+
+    await up(db, root);
+
+    await expectLocal(db, "foo", canonical);
+  });
+
+  test("a root that ends in /web still gets its genuinely stale rows fixed", async () => {
+    const db = await makeDb();
+    const root = "/srv/web";
+    await seedStale(db, "bar", root); // /srv/web/web/.ezcorp/extensions/bar
+
+    await up(db, root);
+
+    await expectLocal(db, "bar", canonicalPath("bar", root));
+  });
+
+  test("rows under a DIFFERENT root are left alone", async () => {
+    const db = await makeDb();
+    // Restored from another machine's dump: the files are not on this
+    // disk under either spelling, so rewriting would only destroy the
+    // forensic trail.
+    const foreign = stalePath("ghost", "/opt/elsewhere");
+    await seedLocal(db, "ghost", foreign);
+
+    await up(db, ROOT);
+
+    await expectLocal(db, "ghost", foreign);
+  });
+
+  test("regex metacharacters in the root are matched literally", async () => {
+    const db = await makeDb();
+    // `(`, `)`, `+` and `.` would all be operators if the root were
+    // interpolated into a pattern instead of compared as a string.
+    const root = "/opt/EZCorp (v2)/a+b";
+    await seedStale(db, "quirk", root);
+
+    await up(db, root);
+
+    await expectLocal(db, "quirk", canonicalPath("quirk", root));
+  });
+});
+
+describe("rows the migration must not touch", () => {
   test("already-canonical rows are left byte-for-byte alone", async () => {
     const db = await makeDb();
-    const canonical = "/app/.ezcorp/extensions/scratchpad";
-    await seed(db, "scratchpad", `local:${canonical}`, canonical);
+    const canonical = canonicalPath("scratchpad");
+    await seedLocal(db, "scratchpad", canonical);
 
-    await up(db);
+    await up(db, ROOT);
 
-    const row = await read(db, "scratchpad");
-    expect(row.install_path).toBe(canonical);
-    expect(row.source).toBe(`local:${canonical}`);
+    await expectLocal(db, "scratchpad", canonical);
   });
 
   test("non-local sources and NULL install_path are untouched", async () => {
     const db = await makeDb();
     // Bundled rows carry a NULL install_path; remote installs carry a
-    // scheme the `^local:` anchor must not match.
+    // scheme the `local:` prefix must not match.
     await seed(db, "builtin", "bundled", null);
     await seed(db, "gh-ext", "github:ezcorp-org/gh-ext", null);
     await seed(db, "mcp-ext", "mcp:https://example.com/sse", null);
 
-    await up(db);
+    await up(db, ROOT);
 
     expect((await read(db, "builtin")).install_path).toBeNull();
     expect((await read(db, "builtin")).source).toBe("bundled");
@@ -144,25 +230,51 @@ describe("extension state root normalization migration", () => {
     expect((await read(db, "mcp-ext")).source).toBe("mcp:https://example.com/sse");
   });
 
-  test("paths that merely contain 'web' or nest deeper do not match", async () => {
+  test("the empty install_path of the seeded builtin row survives", async () => {
     const db = await makeDb();
-    // A project literally named `web` under the canonical root — the
-    // stale infix is `/web/.ezcorp/extensions/`, which this does NOT have.
-    const named = "/app/.ezcorp/extensions/web";
-    await seed(db, "web", `local:${named}`, named);
-    // Deeper than one name segment: the `[^/]+$` anchor must reject it,
-    // so a file path inside an extension dir is never rewritten.
-    const nested = "/app/web/.ezcorp/extensions/deep/nested/index.ts";
-    await seed(db, "deep", `local:${nested}`, nested);
+    // migrate.ts seeds `('builtin', …, 'builtin', '')` — an empty string,
+    // not NULL, so it exercises a different branch of the guard.
+    await seed(db, "native-tools", "builtin", "");
 
-    await up(db);
+    await up(db, ROOT);
 
-    expect((await read(db, "web")).install_path).toBe(named);
-    expect((await read(db, "web")).source).toBe(`local:${named}`);
-    expect((await read(db, "deep")).install_path).toBe(nested);
-    expect((await read(db, "deep")).source).toBe(`local:${nested}`);
+    const row = await read(db, "native-tools");
+    expect(row.install_path).toBe("");
+    expect(row.source).toBe("builtin");
   });
 
+  test("paths that merely contain 'web' or nest deeper do not match", async () => {
+    const db = await makeDb();
+    // An extension literally named `web` under the canonical root — the
+    // stale prefix is `/app/web/.ezcorp/extensions/`, which this lacks.
+    const named = canonicalPath("web");
+    await seedLocal(db, "web", named);
+    // Deeper than one name segment: a file path inside an extension dir
+    // is never rewritten.
+    const nested = `${stalePath("deep")}/nested/index.ts`;
+    await seedLocal(db, "deep", nested);
+    // The prefix with no name after it.
+    const bare = `${ROOT}/web/.ezcorp/extensions/`;
+    await seedLocal(db, "bare", bare);
+
+    await up(db, ROOT);
+
+    await expectLocal(db, "web", named);
+    await expectLocal(db, "deep", nested);
+    await expectLocal(db, "bare", bare);
+  });
+
+  test("an extension named 'web' in the stale shape still migrates", async () => {
+    const db = await makeDb();
+    await seedStale(db, "web");
+
+    await up(db, ROOT);
+
+    await expectLocal(db, "web", canonicalPath("web"));
+  });
+});
+
+describe("convergence and re-entrancy", () => {
   test("a source/install_path pair can be rewritten independently", async () => {
     const db = await makeDb();
     // Defensive: a row whose source was already fixed by hand but whose
@@ -171,15 +283,13 @@ describe("extension state root normalization migration", () => {
     await seed(
       db,
       "halfway",
-      "local:/app/.ezcorp/extensions/halfway",
-      "/app/web/.ezcorp/extensions/halfway",
+      `local:${canonicalPath("halfway")}`,
+      stalePath("halfway"),
     );
 
-    await up(db);
+    await up(db, ROOT);
 
-    const row = await read(db, "halfway");
-    expect(row.install_path).toBe("/app/.ezcorp/extensions/halfway");
-    expect(row.source).toBe("local:/app/.ezcorp/extensions/halfway");
+    await expectLocal(db, "halfway", canonicalPath("halfway"));
   });
 
   test("idempotent — a second run changes nothing", async () => {
@@ -187,20 +297,20 @@ describe("extension state root normalization migration", () => {
     await seedStale(db, "weather");
     await seed(db, "builtin", "bundled", null);
 
-    await up(db);
+    await up(db, ROOT);
     const afterFirst = await read(db, "weather");
-    await up(db);
+    await up(db, ROOT);
     const afterSecond = await read(db, "weather");
 
     expect(afterSecond).toEqual(afterFirst);
-    expect(afterSecond.install_path).toBe("/app/.ezcorp/extensions/weather");
+    expect(afterSecond.install_path).toBe(canonicalPath("weather"));
     expect((await read(db, "builtin")).source).toBe("bundled");
   });
 
   test("safe on an empty table (zero matching rows)", async () => {
     const db = await makeDb();
 
-    await up(db);
+    await up(db, ROOT);
 
     const res = (await db.execute(sql`SELECT COUNT(*)::int AS n FROM extensions`)) as {
       rows: { n: number }[];

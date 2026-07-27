@@ -2,6 +2,9 @@ import { sql } from "drizzle-orm";
 import { backfillGithubProjectsApiTokens } from "../extensions/secrets-store";
 import { seedSelfProject } from "./seed-self-project";
 import { up as upUserCommandsUnique } from "./migrations/add-user-commands-unique-name";
+// Value import is safe: this module imports only `drizzle-orm`. Its
+// project-root ARGUMENT comes from a dynamic import at the call site —
+// see the comment there for why that one cannot be static.
 import { up as upNormalizeExtensionStateRoot } from "./migrations/normalize-extension-state-root";
 import { logger } from "../logger";
 
@@ -488,11 +491,34 @@ export async function migrate(db: any): Promise<void> {
   // recorded that path in install_path + the `local:` source. Extension
   // code resolves state from getProjectRoot() (= the dir holding src/,
   // i.e. /app), so those rows point somewhere nothing reads. up()
-  // structurally rewrites <X>/web/.ezcorp/extensions/<name> →
-  // <X>/.ezcorp/extensions/<name> (deployment root captured, never
-  // hardcoded), fires only on that exact shape, and is idempotent —
-  // the rewritten value no longer matches its own guard.
-  await upNormalizeExtensionStateRoot(db);
+  // rewrites <root>/web/.ezcorp/extensions/<name> →
+  // <root>/.ezcorp/extensions/<name>, fires only on that exact shape,
+  // and is idempotent — the rewritten value no longer matches its own
+  // guard.
+  //
+  // The root is PASSED IN, never wildcarded: a `(.*)/web/…` pattern also
+  // matches an already-correct deployment whose root simply ends in
+  // `web`, and would corrupt it on every boot (see the module header).
+  //
+  // `getProjectRoot` is reached by DYNAMIC import on purpose. A static
+  // one would close the cycle migrate.ts → bundled.ts →
+  // db/queries/extensions.ts → db/connection.ts → migrate.ts; the same
+  // dynamic-import pattern is already used by
+  // src/startup/background-timers.ts. Resolution failure SKIPS the
+  // rewrite rather than failing the boot: doing nothing leaves the rows
+  // exactly as they are (repairable next boot or by hand), whereas
+  // guessing a root and rewriting is unrecoverable — and a migrate()
+  // throw here would trip the rollback-and-exit circuit breaker in
+  // db/connection.ts over a cosmetic path repair.
+  try {
+    const { getProjectRoot } = await import("../extensions/bundled");
+    await upNormalizeExtensionStateRoot(db, getProjectRoot());
+  } catch (err) {
+    log.warn(
+      "Skipped extension-state-root normalization — could not resolve the project root",
+      { error: String(err) },
+    );
+  }
 
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS invites (

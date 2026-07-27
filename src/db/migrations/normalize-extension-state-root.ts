@@ -19,71 +19,124 @@
  * to `/app/.ezcorp/extensions` (where the code already looks), those rows
  * point at a path that no longer exists and the extensions fail to load.
  *
- * This migration rewrites exactly that stale shape:
+ * This migration rewrites exactly that stale shape, for the project root
+ * THIS deployment actually resolved:
  *
- *   install_path  <X>/web/.ezcorp/extensions/<name>
- *              →  <X>/.ezcorp/extensions/<name>
- *   source  local:<X>/web/.ezcorp/extensions/<name>
- *       →   local:<X>/.ezcorp/extensions/<name>
+ *   install_path  <root>/web/.ezcorp/extensions/<name>
+ *              →  <root>/.ezcorp/extensions/<name>
+ *   source  local:<root>/web/.ezcorp/extensions/<name>
+ *       →   local:<root>/.ezcorp/extensions/<name>
  *
- * Deployment-agnostic by construction: `<X>` is captured, never assumed,
- * so no `/app` (or any other root) is hardcoded — the same statement is
- * correct for a container, a bare-metal install, or a test fixture.
+ * ## Why the root is a PARAMETER, not a wildcard
+ *
+ * The obvious implementation — `regexp_replace(install_path,
+ * '^(.*)/web/\.ezcorp/extensions/([^/]+)$', '\1/.ezcorp/extensions/\2')` —
+ * silently corrupts a correct deployment. A row is stale iff the `/web`
+ * segment is the dev server's cwd hop, and that is only knowable by
+ * comparing against the real root. Under the wildcard, a deployment whose
+ * project root simply ENDS in `web` (`getProjectRoot() === "/srv/web"`,
+ * i.e. the repo cloned into a dir named `web`) has the perfectly canonical
+ * `/srv/web/.ezcorp/extensions/foo` rewritten to
+ * `/srv/.ezcorp/extensions/foo` — pointing at nothing, on every boot,
+ * with the original value destroyed. Anchoring on `<root>` makes that
+ * same row a non-match (its stale shape would be
+ * `/srv/web/web/.ezcorp/extensions/foo`) while still matching the real
+ * `/app/web/.ezcorp/extensions/<name>` rows under root `/app`.
+ *
+ * Rows recorded under some OTHER deployment's root are deliberately left
+ * alone: their files are not on this disk under either spelling, so
+ * rewriting them would trade one dangling path for another while
+ * destroying the forensic trail.
+ *
+ * ## Why string functions instead of a regex
+ *
+ * `<root>` is interpolated data, so a regex would have to escape it —
+ * a real root like `/home/dev/work/EZCorp (v2)/app` contains regex
+ * metacharacters and would otherwise match the wrong thing or throw.
+ * `starts_with`/`substr`/`strpos` compare literals, so there is nothing
+ * to escape: the prefix is matched byte-for-byte and the extension name
+ * is carried across verbatim, metacharacters and all.
  *
  * Safety properties:
- *   - **Fires only on the stale shape.** The `~` guard + the `[^/]+$`
- *     anchor mean a path must end in exactly one `<name>` segment under
- *     `/web/.ezcorp/extensions/`. Anything else (already-canonical rows,
- *     `github:`/`mcp:` sources, bundled rows with NULL install_path, an
- *     unrelated directory that merely contains `web`) is left untouched.
- *   - **Idempotent.** After the rewrite the value no longer contains
- *     `/web/.ezcorp/extensions/`, so the guard excludes it on every
- *     subsequent run. Re-running is a no-op by construction, not by a
- *     version ledger — which is the contract for everything in this
- *     codebase's boot migration (there is no migration version table).
+ *   - **Fires only on the stale shape.** A row must start with exactly
+ *     `<root>/web/.ezcorp/extensions/` and have a non-empty remainder
+ *     containing no `/` — i.e. exactly one `<name>` segment. Everything
+ *     else is untouched: already-canonical rows, `github:`/`mcp:`
+ *     sources, bundled rows with a NULL or empty `install_path`, paths
+ *     nested deeper than one segment, and any path under a different
+ *     root.
+ *   - **Idempotent.** After the rewrite the value no longer starts with
+ *     the stale prefix, so the guard excludes it on every subsequent
+ *     run. Re-running is a no-op by construction, not by a version
+ *     ledger — which is the contract for everything in this codebase's
+ *     boot migration (there is no migration version table).
  *   - **Safe on zero matches.** An `UPDATE ... WHERE <no rows>` is a
  *     no-op, so fresh databases and already-migrated ones both pass
  *     through without touching a row.
  *
- * Applied automatically from src/db/migrate.ts. This file is the single
- * source of truth for the SQL (migrate.ts calls `up()`, it does not
- * re-inline the statements) and parallels
+ * Applied automatically from src/db/migrate.ts, which resolves the root
+ * via `getProjectRoot()` and skips the call entirely if that resolution
+ * fails. This file is the single source of truth for the SQL (migrate.ts
+ * calls `up()`, it does not re-inline the statements) and parallels
  * add-user-commands-unique-name.ts.
  */
 import { sql } from "drizzle-orm";
 
-/**
- * POSIX-regex fragments. `\\.` keeps the dot in `.ezcorp` literal, and
- * `([^/]+)$` anchors the match to exactly ONE trailing name segment so
- * nothing deeper than `<root>/web/.ezcorp/extensions/<name>` can match.
- * `\\1` / `\\2` are backreferences to the captured deployment root and
- * extension name — both are preserved verbatim, which is what keeps this
- * migration deployment-agnostic.
- */
-const STALE_INFIX = "/web/\\.ezcorp/extensions/";
-const CANONICAL_SUB = "/.ezcorp/extensions/";
-const INSTALL_PATH_MATCH = `^(.*)${STALE_INFIX}([^/]+)$`;
-const INSTALL_PATH_SUB = `\\1${CANONICAL_SUB}\\2`;
-const SOURCE_MATCH = `^local:(.*)${STALE_INFIX}([^/]+)$`;
-const SOURCE_SUB = `local:\\1${CANONICAL_SUB}\\2`;
+/** The cwd hop the dev server added between the project root and `.ezcorp`. */
+const STALE_INFIX = "/web/.ezcorp/extensions/";
+const CANONICAL_INFIX = "/.ezcorp/extensions/";
 
-export async function up(db: {
-  execute: (q: ReturnType<typeof sql>) => Promise<unknown>;
-}): Promise<void> {
-  // install_path: <X>/web/.ezcorp/extensions/<name> → <X>/.ezcorp/…
-  await db.execute(sql`
+/**
+ * Rewrite `<stalePrefix><name>` → `<canonicalPrefix><name>` on one column.
+ *
+ * `column` is a compile-time literal from this module, never data, so
+ * `sql.raw` cannot carry injection. Both prefixes are bound as
+ * parameters and compared with literal string functions — see the
+ * "Why string functions instead of a regex" note above.
+ *
+ * The three predicates are, in order: the prefix matches; the remainder
+ * is non-empty; the remainder is a single path segment. Together they
+ * are the literal-comparison equivalent of `^<prefix>([^/]+)$`.
+ */
+function rewritePrefix(
+  column: "install_path" | "source",
+  stalePrefix: string,
+  canonicalPrefix: string,
+): ReturnType<typeof sql> {
+  const col = sql.raw(column);
+  const staleLen = sql`length(${stalePrefix}::text)`;
+  const tail = sql`substr(${col}, ${staleLen} + 1)`;
+  return sql`
     UPDATE extensions
-    SET install_path = regexp_replace(install_path, ${INSTALL_PATH_MATCH}, ${INSTALL_PATH_SUB})
-    WHERE install_path ~ ${INSTALL_PATH_MATCH}
-  `);
+    SET ${col} = ${canonicalPrefix}::text || ${tail}
+    WHERE starts_with(${col}, ${stalePrefix}::text)
+      AND length(${col}) > ${staleLen}
+      AND strpos(${tail}, '/') = 0
+  `;
+}
+
+/**
+ * @param projectRoot Absolute path `getProjectRoot()` resolved to. Rows
+ * are only rewritten when their stale path sits under exactly this root.
+ */
+export async function up(
+  db: { execute: (q: ReturnType<typeof sql>) => Promise<unknown> },
+  projectRoot: string,
+): Promise<void> {
+  // Tolerate a trailing slash on the root so `/app` and `/app/` build the
+  // same prefix instead of a `//web/...` that matches nothing.
+  const root = projectRoot.replace(/\/+$/, "");
+  const stale = `${root}${STALE_INFIX}`;
+  const canonical = `${root}${CANONICAL_INFIX}`;
+
+  // install_path: <root>/web/.ezcorp/extensions/<name> → <root>/.ezcorp/…
+  await db.execute(rewritePrefix("install_path", stale, canonical));
 
   // source: the `local:` install records the same path behind a scheme
   // prefix. installFromLocal() matches an existing row by this exact
   // string, so it has to move in lockstep with install_path or a
   // reinstall would fork a second row for the same extension.
-  await db.execute(sql`
-    UPDATE extensions
-    SET source = regexp_replace(source, ${SOURCE_MATCH}, ${SOURCE_SUB})
-    WHERE source ~ ${SOURCE_MATCH}
-  `);
+  await db.execute(
+    rewritePrefix("source", `local:${stale}`, `local:${canonical}`),
+  );
 }
