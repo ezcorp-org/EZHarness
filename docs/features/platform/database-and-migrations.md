@@ -48,6 +48,16 @@ Three distinct non-destructive failure paths, all surfacing through the `readine
 - **Migration failure (rollback + circuit breaker).** Before open+migrate, `snapshotPreBoot()` copies the DB dir to `backups/pre-boot-<sha>-<iso>/` (keep 3). If `migrate()` throws, `rollbackMigration()` closes PGlite, renames the failed dir to `.failed.<ts>` (atomic, kept for forensics), `cpSync`-restores the latest pre-boot snapshot, writes a `.migration-failed` marker keyed on `EZCORP_IMAGE_SHA`, sets readiness `degraded / migration-failed`, and `process.exit(1)`. On the **next** boot of that same image SHA, the circuit breaker reads the marker and **skips `migrate()`** entirely — booting on the restored snapshot so pre-failure features still work while `/api/ready` reports 503. A clean boot calls `clearMarker()`. (On external Postgres there is no snapshot/rollback — a failed migrate just sets `degraded` and re-throws; manual intervention.)
 - **Interval backups.** `startBackups()` copies the live DB dir to `backups/ezcorp-db-<iso>/` every 30 min (keep 5), pruned by mtime. No-ops for `:memory:`, external Postgres, or while readiness is `degraded` (don't overwrite the trusted snapshot). `stopBackups()` takes a final backup on graceful shutdown.
 
+### NUL (U+0000) scrubbing at the column boundary
+
+Postgres cannot store U+0000 in `text` **or** `jsonb` — it is a storage-format limit, not a setting. One NUL anywhere in a value aborts the whole INSERT server-side (`invalid byte sequence for encoding "UTF8": 0x00` for text, `unsupported Unicode escape sequence` for jsonb). Tool- and subprocess-derived strings carry them: extension spawn errors embed a NUL in the reported path, and from 2026-07-20 that silently stopped every `tool_error` row reaching `observability_events` and dropped the matching `tool_calls` rows. It was invisible because both writers deliberately never throw — the failed tool call just disappeared from history and from the observability panel.
+
+`src/db/nul-column-patch.ts` installs `src/db/sanitize-nul.ts`'s scrubber onto drizzle's `mapToDriverValue` for `PgText`, `PgJsonb` and `PgJson`, on **both** driver paths (`initPglite` and `initPostgres`). Each NUL becomes U+FFFD rather than being stripped, so the substitution stays visible instead of silently altering the value. `schema.ts` declares only `text()` and `jsonb()` columns, so those classes cover every string-bearing column; `text().array()` columns are covered transitively because `PgArray` delegates per element to its `PgText` base column.
+
+**The trap:** a bare `` sql`…` `` template binds values straight to the driver and therefore **bypasses the column mapper entirely**. `insertKBChunk`'s vector branch hit exactly this and needed an explicit `sanitizeNulString()`. Any new raw-SQL write that binds user- or tool-derived text must scrub it itself.
+
+The clean case costs one allocation-free scan and returns the original value by identity, so the scrubber stays off the critical path of ordinary writes.
+
 ### MCP-sandbox masking
 
 `getDbMaskDirs()` returns the DB dir + backups dir so the MCP sandbox can mask (tmpfs) them — untrusted MCP processes must not read the platform DB off disk (it holds the encrypted JWT secret in the `settings` table). Empty for external Postgres / in-memory.
@@ -77,6 +87,8 @@ Operators and code interact with the DB mostly indirectly; the surface area is:
 ## Key files
 
 - `src/db/connection.ts` — driver selection, `initDb`/`getDb`/`rawQuery`/`closeDb`, jsonb double-encode patch + repair, open-failure & migration-failure handling, `getDbMaskDirs`.
+- `src/db/sanitize-nul.ts` — the shared U+0000 scrubber: allocation-free scan for the clean case, cycle-safe rebuild when a NUL is present.
+- `src/db/nul-column-patch.ts` — installs that scrubber on drizzle's `PgText`/`PgJsonb`/`PgJson` `mapToDriverValue`, in the PGlite form or the bun-sql (identity-base) form.
 - `src/db/migrate.ts` — the single idempotent `migrate(db)`: all `CREATE TABLE IF NOT EXISTS` / `ADD COLUMN IF NOT EXISTS` DDL, indexes, CTE backfills, and seeds.
 - `src/db/schema.ts` — Drizzle table definitions (53 `pgTable`s) — the typed API the query layer consumes.
 - `src/db/backup.ts` — pre-boot snapshots, 30-min interval backups, pruning, and the `.migration-failed` / `.ezcorp-recovery-needed.json` markers.
