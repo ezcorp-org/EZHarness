@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { backfillGithubProjectsApiTokens } from "../extensions/secrets-store";
 import { seedSelfProject } from "./seed-self-project";
 import { up as upUserCommandsUnique } from "./migrations/add-user-commands-unique-name";
+import { up as upNormalizeExtensionStateRoot } from "./migrations/normalize-extension-state-root";
 import { logger } from "../logger";
 
 const log = logger.child("db-migrate");
@@ -475,6 +476,23 @@ export async function migrate(db: any): Promise<void> {
   // user does not drop their extensions.
   await db.execute(sql`ALTER TABLE extensions ADD COLUMN IF NOT EXISTS creator_user_id TEXT REFERENCES users(id) ON DELETE SET NULL`);
   await db.execute(sql`ALTER TABLE extensions ADD COLUMN IF NOT EXISTS modifiable BOOLEAN NOT NULL DEFAULT FALSE`);
+
+  // ── Extension state root normalization ─────────────────────────────
+  // SINGLE SOURCE OF TRUTH: the rewrite lives in
+  // src/db/migrations/normalize-extension-state-root.ts and is invoked
+  // here (not re-inlined), same pattern as the user_commands unique
+  // pre-flight below.
+  //
+  // Rows installed while the dev compose stack bound host
+  // ./.ezcorp/extensions at the cwd-anchored /app/web/.ezcorp/extensions
+  // recorded that path in install_path + the `local:` source. Extension
+  // code resolves state from getProjectRoot() (= the dir holding src/,
+  // i.e. /app), so those rows point somewhere nothing reads. up()
+  // structurally rewrites <X>/web/.ezcorp/extensions/<name> →
+  // <X>/.ezcorp/extensions/<name> (deployment root captured, never
+  // hardcoded), fires only on that exact shape, and is idempotent —
+  // the rewritten value no longer matches its own guard.
+  await upNormalizeExtensionStateRoot(db);
 
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS invites (
