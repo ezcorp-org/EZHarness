@@ -38,6 +38,7 @@
 		KIND_LABEL,
 		LABEL_GUTTER,
 		labelFadeStart,
+		legendSections,
 		moveFocus,
 		nodeAriaLabel,
 		nodeTitle,
@@ -74,6 +75,10 @@
 	const maskId = `${uid}-nodemask`;
 	const fadeId = `${uid}-nodefade`;
 	const arrowId = `${uid}-arrow`;
+	const legendId = `${uid}-legend`;
+
+	/** Legend visibility. Open by default — the colours mean nothing without it. */
+	let legendOpen = $state(true);
 
 	/** The canvas root, for the mount-time focus hand-off below. */
 	let rootEl: HTMLDivElement;
@@ -347,6 +352,52 @@
 		{/each}
 	</svg>
 	</div>
+
+	<!-- Legend. Inside `.graph-canvas` on purpose: that element declares the
+	     `--ez-kind-*` / `--ez-status-*` custom properties, so the swatches
+	     inherit the SAME values the nodes are drawn with and cannot drift.
+	     Sits outside the scroller so it stays pinned while the graph pans.
+	     Collapsible because at a small panel width an always-on legend covers
+	     the bottom-right nodes; the state is component-local (not persisted)
+	     since it is cheap to reopen. -->
+	<div class="absolute bottom-2 right-2 z-10 flex flex-col items-end gap-1">
+		<button
+			type="button"
+			data-testid="chat-graph-legend-toggle"
+			aria-expanded={legendOpen}
+			aria-controls={legendId}
+			onclick={() => (legendOpen = !legendOpen)}
+			class="rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-1.5 py-0.5 text-[10px] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
+		>{legendOpen ? "Hide key" : "Key"}</button>
+		{#if legendOpen}
+			<div
+				id={legendId}
+				data-testid="chat-graph-legend"
+				class="legend rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 shadow-lg"
+			>
+				{#each legendSections() as section (section.title)}
+					<p class="legend-title">{section.title}</p>
+					<ul class="legend-list">
+						{#each section.items as item (item.id)}
+							<!-- `data-legend-id` is unique only WITHIN a section: `error` is
+							     both a node kind ("Error") and a status ("failed"). Pair it with
+							     the group so a selector can name exactly one row. -->
+							<li class="legend-row" data-legend-group={section.sample} data-legend-id={item.id}>
+								{#if section.sample === "bar"}
+									<span class="sample sample-bar" data-kind={item.id}></span>
+								{:else if section.sample === "dot"}
+									<span class="sample sample-dot" data-status={item.id}></span>
+								{:else}
+									<span class="sample sample-line" data-link={item.id}></span>
+								{/if}
+								<span class="legend-label" class:capitalize={section.sample === "dot"}>{item.label}</span>
+							</li>
+						{/each}
+					</ul>
+				{/each}
+			</div>
+		{/if}
+	</div>
 </div>
 
 <style>
@@ -475,5 +526,91 @@
 	}
 	.node[data-status="interrupted"] .node-status {
 		fill: var(--ez-status-interrupted);
+	}
+
+	/* ── Legend ──────────────────────────────────────────────────────────
+	   Every swatch reads the SAME custom property as the shape it explains
+	   (`--ez-kind-*`, `--ez-status-*`, `--ez-graph-edge`, `--color-accent`),
+	   so a palette change moves both together and the key can never lie.
+	   Capped height + scroll so a future extra kind can't grow the box past
+	   the panel; `max-w` keeps it off the graph on a narrow drawer. */
+	.legend {
+		max-height: 60%;
+		max-width: 13rem;
+		overflow-y: auto;
+		font-size: 10px;
+		line-height: 1.4;
+	}
+	.legend-title {
+		margin: 0.25rem 0 0.125rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		color: var(--color-text-muted);
+	}
+	.legend-title:first-child {
+		margin-top: 0;
+	}
+	.legend-list {
+		margin: 0;
+		padding: 0;
+		list-style: none;
+	}
+	.legend-row {
+		display: flex;
+		align-items: center;
+		gap: 0.375rem;
+	}
+	.legend-label {
+		color: var(--color-text-secondary);
+	}
+	.capitalize {
+		text-transform: capitalize;
+	}
+	.sample {
+		flex: none;
+		display: inline-block;
+	}
+	/* Mirrors the node's left accent bar (3px wide, rounded). */
+	.sample-bar {
+		width: 3px;
+		height: 11px;
+		border-radius: 1.5px;
+		background: var(--ez-kind-prompt);
+	}
+	.sample-bar[data-kind="assistant"] { background: var(--ez-kind-assistant); }
+	.sample-bar[data-kind="thinking"] { background: var(--ez-kind-thinking); }
+	.sample-bar[data-kind="tool"] { background: var(--ez-kind-tool); }
+	.sample-bar[data-kind="subagent"] { background: var(--ez-kind-subagent); }
+	.sample-bar[data-kind="error"] { background: var(--ez-kind-error); }
+	/* Mirrors the node's status dot (r=3.5 ⇒ 7px). */
+	.sample-dot {
+		width: 7px;
+		height: 7px;
+		border-radius: 9999px;
+		background: var(--ez-status-success);
+	}
+	.sample-dot[data-status="error"] { background: var(--ez-status-error); }
+	.sample-dot[data-status="running"] { background: var(--ez-status-running); }
+	.sample-dot[data-status="interrupted"] { background: var(--ez-status-interrupted); }
+	/* Mirrors an edge: 2px stroke, dashed for `spawn`, accent-tinted for a
+	   fork. `excluded` reuses the node box's 4-3 dash + 0.45 dim. */
+	.sample-line {
+		width: 14px;
+		height: 0;
+		border-top: 2px solid var(--ez-graph-edge);
+	}
+	.sample-line[data-link="spawn"] {
+		border-top-style: dashed;
+	}
+	.sample-line[data-link="branch"] {
+		border-top-color: var(--color-accent);
+	}
+	.sample-line[data-link="excluded"] {
+		border-top-style: dashed;
+		opacity: 0.45;
+	}
+	.legend-row[data-legend-id="excluded"] .legend-label {
+		opacity: 0.7;
 	}
 </style>

@@ -79,6 +79,16 @@ test.describe("Chat DAG graph visual evidence", () => {
 		await expect(panel.locator(`[data-node-id="${SUBCONV_ID}"]`)).toContainText(LABEL_SUBAGENT);
 		await expect(panel.locator('[data-testid="chat-graph-edge"][data-kind="branch"]')).toHaveCount(2);
 		await expect(panel.locator(`[data-node-id="${PROMPT_ROLLBACK}"]`)).toContainText(LABEL_ROLLBACK);
+		// The key, open by default, is part of what the screenshot must show —
+		// the accent bars and dot colours are meaningless without it.
+		const legend = panel.locator('[data-testid="chat-graph-legend"]');
+		await expect(legend).toBeVisible();
+		await expect(legend.locator('[data-legend-group="bar"][data-legend-id="subagent"]')).toContainText(
+			"Sub-agent",
+		);
+		await expect(legend.locator('[data-legend-group="line"][data-legend-id="spawn"]')).toContainText(
+			"Spawns",
+		);
 		await captureEvidence(page, testInfo, "chat-graph-level-1-conversation-map");
 
 		// ── Level 2: one turn's trace ───────────────────────────────────

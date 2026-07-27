@@ -14,7 +14,7 @@ import { render, fireEvent, cleanup } from "@testing-library/svelte";
 import { describe, test, expect, afterEach, vi } from "vitest";
 import GraphCanvas from "../GraphCanvas.svelte";
 import { layoutGraph } from "$lib/graph/layout";
-import { LABEL_GUTTER, labelFadeStart, ZOOM_MAX, ZOOM_MIN } from "$lib/graph/canvas-view";
+import { LABEL_GUTTER, labelFadeStart, legendSections, ZOOM_MAX, ZOOM_MIN } from "$lib/graph/canvas-view";
 import type { ChatGraph, GraphEdge, GraphNode } from "$server/runtime/chat-graph/types";
 
 afterEach(() => cleanup());
@@ -437,5 +437,69 @@ describe("GraphCanvas pan", () => {
 		// gesture elsewhere) still does not pan without its own mousedown.
 		await fireEvent.mouseMove(window, { clientX: 400, clientY: 50, buttons: 1 });
 		expect(panOf(container)).toEqual([100, 0]);
+	});
+});
+
+describe("legend", () => {
+	test("renders open by default — the colours are meaningless without it", () => {
+		const { getByTestId } = renderCanvas();
+		expect(getByTestId("chat-graph-legend")).toBeTruthy();
+		expect(getByTestId("chat-graph-legend-toggle").getAttribute("aria-expanded")).toBe("true");
+	});
+
+	test("draws one swatch per kind, status and link, from the shared model", () => {
+		const { getByTestId } = renderCanvas();
+		const legend = getByTestId("chat-graph-legend");
+		for (const section of legendSections()) {
+			for (const item of section.items) {
+				// Group + id together: `error` is both a kind and a status.
+				const row = legend.querySelector(
+					`[data-legend-group="${section.sample}"][data-legend-id="${item.id}"]`,
+				);
+				expect(row).toBeTruthy();
+				expect(row?.textContent).toContain(item.label);
+			}
+		}
+	});
+
+	test("swatches carry the data attributes their CSS colours key off", () => {
+		const { getByTestId } = renderCanvas();
+		const legend = getByTestId("chat-graph-legend");
+		// A kind bar, a status dot and a link line — one of each shape.
+		expect(legend.querySelector('.sample-bar[data-kind="subagent"]')).toBeTruthy();
+		expect(legend.querySelector('.sample-dot[data-status="running"]')).toBeTruthy();
+		expect(legend.querySelector('.sample-line[data-link="spawn"]')).toBeTruthy();
+		expect(legend.querySelector('.sample-line[data-link="excluded"]')).toBeTruthy();
+	});
+
+	test("a kind and a status sharing an id stay distinguishable", () => {
+		const { getByTestId } = renderCanvas();
+		const legend = getByTestId("chat-graph-legend");
+		const kindRow = legend.querySelector('[data-legend-group="bar"][data-legend-id="error"]');
+		const statusRow = legend.querySelector('[data-legend-group="dot"][data-legend-id="error"]');
+		expect(kindRow?.textContent).toContain("Error");
+		expect(statusRow?.textContent).toContain("failed");
+		expect(kindRow).not.toBe(statusRow);
+	});
+
+	test("collapses and reopens, keeping aria-expanded truthful", async () => {
+		const { getByTestId, queryByTestId } = renderCanvas();
+		const toggle = getByTestId("chat-graph-legend-toggle");
+
+		await fireEvent.click(toggle);
+		expect(queryByTestId("chat-graph-legend")).toBeNull();
+		expect(toggle.getAttribute("aria-expanded")).toBe("false");
+		expect(toggle.textContent).toContain("Key");
+
+		await fireEvent.click(toggle);
+		expect(queryByTestId("chat-graph-legend")).toBeTruthy();
+		expect(toggle.getAttribute("aria-expanded")).toBe("true");
+	});
+
+	test("the toggle points at the panel it controls", () => {
+		const { getByTestId } = renderCanvas();
+		const controls = getByTestId("chat-graph-legend-toggle").getAttribute("aria-controls");
+		expect(controls).toBeTruthy();
+		expect(getByTestId("chat-graph-legend").id).toBe(controls);
 	});
 });

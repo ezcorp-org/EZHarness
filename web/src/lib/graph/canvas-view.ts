@@ -251,3 +251,72 @@ export function zoomBy(zoom: number, factor: number): number {
 export function wheelZoomFactor(deltaY: number): number {
 	return deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP;
 }
+
+// ── legend ──────────────────────────────────────────────────────────────────
+
+/**
+ * Human name for each edge kind. The graph draws three link styles and none
+ * of them is self-evident, so the legend needs words for them.
+ */
+export const EDGE_LABEL: Record<GraphEdgeKind, string> = {
+	sequence: "Next step",
+	spawn: "Spawns",
+	branch: "Fork",
+};
+
+/** One swatch row. `id` drives the CSS that colours/styles the sample. */
+export interface LegendItem {
+	/** Stable key: a `GraphNodeKind`, `GraphNodeStatus`, `GraphEdgeKind`, or `"excluded"`. */
+	id: string;
+	label: string;
+}
+
+/** A titled group of swatches. `sample` picks which sample shape to draw. */
+export interface LegendSection {
+	title: string;
+	/** `bar` = the node's left accent, `dot` = the status dot, `line` = an edge. */
+	sample: "bar" | "dot" | "line";
+	items: LegendItem[];
+}
+
+/**
+ * The legend model, derived from the SAME maps the canvas renders from
+ * (`KIND_LABEL`, `STATUS_LABEL`, `EDGE_LABEL`) so a new node kind or status
+ * can never show up in the graph without also showing up here.
+ *
+ * Pure and ordered — the component just renders it.
+ */
+export function legendSections(): LegendSection[] {
+	return [
+		{
+			title: "Node",
+			sample: "bar",
+			items: (Object.keys(KIND_LABEL) as GraphNodeKind[]).map((k) => ({
+				id: k,
+				label: KIND_LABEL[k],
+			})),
+		},
+		{
+			title: "Status",
+			sample: "dot",
+			items: (Object.keys(STATUS_LABEL) as GraphNodeStatus[]).map((s) => ({
+				id: s,
+				label: STATUS_LABEL[s],
+			})),
+		},
+		{
+			title: "Link",
+			sample: "line",
+			items: [
+				...(Object.keys(EDGE_LABEL) as GraphEdgeKind[]).map((e) => ({
+					id: e,
+					label: EDGE_LABEL[e],
+				})),
+				// Not an edge kind — a node STATE, but it reads as a line style
+				// (dashed outline + dimmed), so it belongs with the other
+				// stroke-based samples rather than in its own one-row section.
+				{ id: "excluded", label: "Rewound away" },
+			],
+		},
+	];
+}

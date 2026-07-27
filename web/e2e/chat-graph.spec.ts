@@ -465,3 +465,38 @@ test.describe("Chat DAG graph panel", () => {
 		await expect(page.getByTestId("chat-graph-btn")).toHaveAttribute("aria-pressed", "false");
 	});
 });
+
+test("the legend explains the colours and link styles, and collapses", async ({ page, mockApi }) => {
+	await gotoChat(page, mockApi);
+	const panel = await openPanel(page);
+
+	// Open by default: an unexplained colour key is worse than none.
+	const legend = panel.locator('[data-testid="chat-graph-legend"]');
+	await expect(legend).toBeVisible();
+
+	// One row per thing the canvas can draw. `error` appears twice on purpose —
+	// once as a node kind, once as a status — so both are addressed by group.
+	await expect(legend.locator('[data-legend-group="bar"][data-legend-id="prompt"]')).toContainText(
+		"Prompt",
+	);
+	await expect(legend.locator('[data-legend-group="bar"][data-legend-id="error"]')).toContainText(
+		"Error",
+	);
+	await expect(legend.locator('[data-legend-group="dot"][data-legend-id="error"]')).toContainText(
+		"failed",
+	);
+	await expect(legend.locator('[data-legend-group="line"][data-legend-id="branch"]')).toContainText(
+		"Fork",
+	);
+	await expect(
+		legend.locator('[data-legend-group="line"][data-legend-id="excluded"]'),
+	).toContainText("Rewound away");
+
+	// Collapsible, so it can be moved out of the way of the graph.
+	const toggle = panel.locator('[data-testid="chat-graph-legend-toggle"]');
+	await toggle.click();
+	await expect(legend).toBeHidden();
+	await expect(toggle).toHaveAttribute("aria-expanded", "false");
+	await toggle.click();
+	await expect(legend).toBeVisible();
+});

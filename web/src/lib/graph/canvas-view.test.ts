@@ -12,11 +12,13 @@ import {
 	clampZoom,
 	DURATION_UNKNOWN,
 	edgeDashArray,
+	EDGE_LABEL,
 	formatNodeDuration,
 	isActivationKey,
 	KIND_LABEL,
 	LABEL_FADE_PX,
 	labelFadeStart,
+	legendSections,
 	moveFocus,
 	type NavNode,
 	nodeAction,
@@ -303,5 +305,54 @@ describe("zoom", () => {
 		expect(wheelZoomFactor(-120)).toBe(ZOOM_STEP);
 		expect(wheelZoomFactor(120)).toBe(1 / ZOOM_STEP);
 		expect(wheelZoomFactor(0)).toBe(1 / ZOOM_STEP);
+	});
+});
+
+describe("legendSections", () => {
+	test("covers every node kind the canvas can draw", () => {
+		const node = legendSections().find((s) => s.title === "Node");
+		expect(node?.sample).toBe("bar");
+		expect(node?.items.map((i) => i.id).sort()).toEqual(
+			Object.keys(KIND_LABEL).sort(),
+		);
+	});
+
+	test("covers every status the canvas can draw", () => {
+		const status = legendSections().find((s) => s.title === "Status");
+		expect(status?.sample).toBe("dot");
+		expect(status?.items.map((i) => i.id).sort()).toEqual(
+			Object.keys(STATUS_LABEL).sort(),
+		);
+	});
+
+	test("covers every edge kind, plus the rewound-away node state", () => {
+		const link = legendSections().find((s) => s.title === "Link");
+		expect(link?.sample).toBe("line");
+		const ids = link?.items.map((i) => i.id) ?? [];
+		for (const kind of Object.keys(EDGE_LABEL)) expect(ids).toContain(kind);
+		// Not an edge kind — a node state that reads as a line style.
+		expect(ids).toContain("excluded");
+	});
+
+	test("labels come from the shared maps, so the key cannot drift from the graph", () => {
+		const sections = legendSections();
+		const node = sections.find((s) => s.title === "Node");
+		expect(node?.items.find((i) => i.id === "subagent")?.label).toBe(KIND_LABEL.subagent);
+		const status = sections.find((s) => s.title === "Status");
+		expect(status?.items.find((i) => i.id === "running")?.label).toBe(STATUS_LABEL.running);
+		const link = sections.find((s) => s.title === "Link");
+		expect(link?.items.find((i) => i.id === "spawn")?.label).toBe(EDGE_LABEL.spawn);
+	});
+
+	test("every item has a non-empty label and a unique id within its section", () => {
+		for (const section of legendSections()) {
+			expect(section.items.length).toBeGreaterThan(0);
+			for (const item of section.items) expect(item.label.length).toBeGreaterThan(0);
+			expect(new Set(section.items.map((i) => i.id)).size).toBe(section.items.length);
+		}
+	});
+
+	test("is pure — repeated calls deep-equal", () => {
+		expect(legendSections()).toEqual(legendSections());
 	});
 });
