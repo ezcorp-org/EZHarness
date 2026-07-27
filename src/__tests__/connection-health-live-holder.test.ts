@@ -18,11 +18,16 @@ import {
   assertNoLiveHolder,
   claimHolder,
   holderPidPath,
+  isLiveHolder,
   DbInUseError,
 } from "../db/live-holder-guard";
 
-const PATH_A = "/tmp/connection-health-holder-a";
-const PATH_B = "/tmp/connection-health-holder-b";
+// Per-process paths. These are real files under /tmp and the guard's pidfile
+// name is derived from them, so a fixed literal makes two concurrent runs of
+// this file (parallel suites, a local run alongside CI) delete each other's
+// pidfile in afterEach and fail at random.
+const PATH_A = `/tmp/connection-health-holder-a-${process.pid}`;
+const PATH_B = `/tmp/connection-health-holder-b-${process.pid}`;
 
 afterEach(async () => {
   // Drop any registry entries a test left behind so cases stay independent.
@@ -97,13 +102,13 @@ describe("process-local holder registry", () => {
 });
 
 describe("assertNoLiveHolder — cross-process pidfile guard", () => {
-  const PATH_C = "/tmp/connection-health-holder-c";
+  const PATH_C = `/tmp/connection-health-holder-c-${process.pid}`;
 
   afterEach(() => {
     try { rmSync(holderPidPath(PATH_C)); } catch { /* already gone */ }
   });
 
-  test("throws DbInUseError when a DIFFERENT live JS-runtime process holds the datadir", () => {
+  test("throws DbInUseError when a DIFFERENT live JS-runtime process holds the datadir", async () => {
     // Spawn a real, live `bun` child so the pid is alive AND its /proc cmdline
     // looks like a JS runtime (isLiveHolder => true) — the exact condition that
     // must refuse a second open. pid differs from ours, so the own-pid pass is
@@ -115,6 +120,18 @@ describe("assertNoLiveHolder — cross-process pidfile guard", () => {
     try {
       expect(child.pid).not.toBe(process.pid);
       writeFileSync(holderPidPath(PATH_C), String(child.pid));
+
+      // Bun.spawn returns as soon as the child is FORKED; `/proc/<pid>/cmdline`
+      // stays empty until it has EXEC'd. isLiveHolder reads that file and looks
+      // for a JS-runtime needle, so asserting too early sees an empty cmdline,
+      // returns false, and the expected throw never happens. Measured at ~4%
+      // (3/72) of runs under a loaded machine — enough to redden a full-suite
+      // run. Wait for the child to become observable as `bun` before asserting.
+      for (let i = 0; i < 200 && !isLiveHolder(child.pid); i++) {
+        await Bun.sleep(10);
+      }
+      expect(isLiveHolder(child.pid)).toBe(true);
+
       expect(() => assertNoLiveHolder(PATH_C)).toThrow(DbInUseError);
     } finally {
       child.kill();
