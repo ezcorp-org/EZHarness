@@ -148,6 +148,96 @@ describe("sanitizeNulDeep — arrays", () => {
   });
 });
 
+describe("sanitizeNulDeep — the clean-subtree branches of the rebuild", () => {
+  // A wholly clean value is answered by the allocation-free scan and never
+  // reaches the rebuilding walk. These drive walk anyway — by pairing a clean
+  // subtree with a dirty sibling — so its "nothing changed here, keep the
+  // original" branches stay exercised.
+  test("a clean ARRAY beside a dirty sibling keeps its identity", () => {
+    const cleanArr = ["x", "y"];
+    const out = sanitizeNulDeep({ arr: cleanArr, dirty: `d${NUL}` }) as Record<string, unknown>;
+    expect(out.dirty).toBe(`d${NUL_REPLACEMENT}`);
+    expect(out.arr).toBe(cleanArr);
+  });
+
+  test("a clean nested OBJECT beside a dirty sibling keeps its identity", () => {
+    const cleanObj = { a: 1, b: "two" };
+    const out = sanitizeNulDeep({ obj: cleanObj, dirty: `d${NUL}` }) as Record<string, unknown>;
+    expect(out.obj).toBe(cleanObj);
+  });
+
+  test("a clean array nested deep inside a dirty tree keeps its identity", () => {
+    const deepClean = [1, 2, 3];
+    const out = sanitizeNulDeep({
+      lvl1: { lvl2: { nums: deepClean, bad: `x${NUL}` } },
+    }) as { lvl1: { lvl2: { nums: unknown } } };
+    expect(out.lvl1.lvl2.nums).toBe(deepClean);
+  });
+});
+
+describe("sanitizeNulDeep — fast path agrees with the rebuild", () => {
+  // The scan is a performance shortcut that decides whether the rebuild runs at
+  // all. If it ever disagreed with walk it would wave a NUL straight through to
+  // Postgres and resurrect the original bug, so assert the invariant over
+  // randomized shapes rather than a handful of hand-written ones.
+  function randomValue(rng: () => number, depth: number): unknown {
+    const roll = rng();
+    if (depth > 4 || roll < 0.35) {
+      if (roll < 0.1) return rng() < 0.5 ? `s${NUL}t` : "plain";
+      if (roll < 0.18) return Math.floor(rng() * 100);
+      if (roll < 0.24) return null;
+      if (roll < 0.3) return rng() < 0.5;
+      return rng() < 0.3 ? `${NUL}` : "leaf";
+    }
+    if (roll < 0.65) {
+      const len = Math.floor(rng() * 4);
+      return Array.from({ length: len }, () => randomValue(rng, depth + 1));
+    }
+    const obj: Record<string, unknown> = {};
+    const keys = Math.floor(rng() * 4);
+    for (let i = 0; i < keys; i++) {
+      const key = rng() < 0.2 ? `k${NUL}${i}` : `k${i}`;
+      obj[key] = randomValue(rng, depth + 1);
+    }
+    return obj;
+  }
+
+  /** Deterministic PRNG so a failure is reproducible. */
+  function makeRng(seed: number): () => number {
+    let s = seed;
+    return () => {
+      s = (s * 1664525 + 1013904223) % 4294967296;
+      return s / 4294967296;
+    };
+  }
+
+  function hasNul(value: unknown, seen = new Set<unknown>()): boolean {
+    if (typeof value === "string") return value.includes(NUL);
+    if (value === null || typeof value !== "object") return false;
+    if (seen.has(value)) return false;
+    seen.add(value);
+    if (Array.isArray(value)) return value.some((v) => hasNul(v, seen));
+    return Object.entries(value).some(([k, v]) => k.includes(NUL) || hasNul(v, seen));
+  }
+
+  test("no NUL survives, across 400 randomized structures", () => {
+    let dirtyCount = 0;
+    for (let seed = 1; seed <= 400; seed++) {
+      const rng = makeRng(seed);
+      const input = randomValue(rng, 0);
+      const wasDirty = hasNul(input);
+      if (wasDirty) dirtyCount++;
+      const out = sanitizeNulDeep(input);
+      expect(hasNul(out)).toBe(false);
+      // A clean input must come back by identity (the scan's whole purpose).
+      if (!wasDirty) expect(out).toBe(input);
+    }
+    // Guard the generator itself: if it stopped producing NULs the assertions
+    // above would be vacuous.
+    expect(dirtyCount).toBeGreaterThan(20);
+  });
+});
+
 describe("sanitizeNulDeep — non-plain objects are left intact", () => {
   test("a Date is NOT rebuilt into a plain object", () => {
     const d = new Date("2026-07-20T00:00:00.000Z");
@@ -201,6 +291,137 @@ describe("sanitizeNulDeep — cycles and shared references", () => {
     const out = sanitizeNulDeep({ x: shared, y: shared, dirty: `d${NUL}` }) as Record<string, unknown>;
     expect(out.x).toBe(shared);
     expect(out.y).toBe(shared);
+  });
+});
+
+describe("sanitizeNulDeep — an ESCAPED \\u0000 is not a NUL", () => {
+  // The six literal characters backslash-u-0-0-0-0 are a perfectly legal text
+  // value that Postgres stores happily. Corrupting them would silently rewrite
+  // source code, JSON samples and regexes that users paste into chat.
+  const ESCAPED = "\\u0000";
+
+  test("the six-character escape is left byte-for-byte alone", () => {
+    expect(sanitizeNulString(ESCAPED)).toBe(ESCAPED);
+    expect(sanitizeNulString(ESCAPED)).toHaveLength(6);
+  });
+
+  test("it survives inside a larger string at the ORIGINAL identity", () => {
+    const code = `const NUL = "${ESCAPED}"; // not a real NUL`;
+    expect(sanitizeNulDeep(code)).toBe(code);
+  });
+
+  test("it survives nested in a jsonb payload, key and value alike", () => {
+    const payload = { [`k${ESCAPED}`]: `v${ESCAPED}`, list: [ESCAPED] };
+    expect(sanitizeNulDeep(payload)).toBe(payload);
+    expect(Object.keys(payload)).toContain(`k${ESCAPED}`);
+  });
+
+  test("an escape sitting NEXT TO a real NUL: only the real one is replaced", () => {
+    expect(sanitizeNulString(`${ESCAPED}${NUL}`)).toBe(`${ESCAPED}${NUL_REPLACEMENT}`);
+  });
+});
+
+describe("sanitizeNulDeep — binary values are never mangled", () => {
+  test("a Uint8Array containing a zero byte passes through untouched", () => {
+    const bytes = new Uint8Array([0, 65, 0]);
+    const out = sanitizeNulDeep({ bytes }) as { bytes: Uint8Array };
+    // Identity, type AND contents: a zero BYTE is not a NUL character, and
+    // rewriting one would corrupt every binary payload.
+    expect(out.bytes).toBe(bytes);
+    expect(out.bytes instanceof Uint8Array).toBe(true);
+    expect(Array.from(out.bytes)).toEqual([0, 65, 0]);
+  });
+
+  test("a Buffer keeps its type and its zero bytes", () => {
+    const buf = Buffer.from([0, 1, 0]);
+    const out = sanitizeNulDeep({ buf }) as { buf: Buffer };
+    expect(out.buf).toBe(buf);
+    expect(Buffer.isBuffer(out.buf)).toBe(true);
+    expect([...out.buf]).toEqual([0, 1, 0]);
+  });
+});
+
+describe("sanitizeNulDeep — the allocation-free fast path bails safely", () => {
+  // The scan that makes the clean case cheap does not memoize, so it has two
+  // escape hatches into the (cycle-safe, memoizing) walk. Both must produce
+  // exactly the same answer as if the scan had never existed.
+
+  test("a CLEAN self-cycle terminates and keeps its identity", () => {
+    const node: Record<string, unknown> = { name: "clean" };
+    node.self = node;
+    // Nothing to scrub, so the original comes back — cycle intact.
+    expect(sanitizeNulDeep(node)).toBe(node);
+    expect(node.self).toBe(node);
+  });
+
+  test("a cycle nested BELOW a clean prefix still terminates", () => {
+    const inner: Record<string, unknown> = { tag: "inner" };
+    inner.loop = inner;
+    const outer = { a: "fine", b: { c: inner } };
+    expect(sanitizeNulDeep(outer)).toBe(outer);
+  });
+
+  test("a value nested deeper than the scan depth cap is still scrubbed", () => {
+    // 300 levels is past the cap, so this exercises the depth bail-out and
+    // proves the fallback still finds the NUL at the bottom.
+    let deep: Record<string, unknown> = { leaf: `x${NUL}` };
+    for (let i = 0; i < 300; i++) deep = { next: deep };
+
+    let node = sanitizeNulDeep(deep) as Record<string, unknown>;
+    for (let i = 0; i < 300; i++) node = node.next as Record<string, unknown>;
+    expect(node.leaf).toBe(`x${NUL_REPLACEMENT}`);
+  });
+
+  test("a heavily SHARED graph does not blow up exponentially", () => {
+    // 25 levels of two-way sharing: 25 distinct objects but 2^25 (~33M)
+    // distinct paths. The scan visits paths, not nodes, so without the node
+    // budget this takes ~1s; with it, the walk (which memoizes) finishes in
+    // single-digit ms. Asserting the wall clock is what pins the guard.
+    let dag: unknown = { leaf: "clean" };
+    for (let i = 0; i < 25; i++) dag = { a: dag, b: dag };
+
+    const started = Bun.nanoseconds();
+    const out = sanitizeNulDeep(dag);
+    const elapsedMs = (Bun.nanoseconds() - started) / 1e6;
+
+    expect(out).toBe(dag);
+    expect(elapsedMs).toBeLessThan(250);
+  });
+
+  test("a shared graph carrying a NUL is scrubbed correctly and quickly", () => {
+    let dag: unknown = { leaf: `bad${NUL}` };
+    for (let i = 0; i < 25; i++) dag = { a: dag, b: dag };
+
+    const started = Bun.nanoseconds();
+    let node = sanitizeNulDeep(dag) as Record<string, unknown>;
+    const elapsedMs = (Bun.nanoseconds() - started) / 1e6;
+
+    for (let i = 0; i < 25; i++) node = node.a as Record<string, unknown>;
+    expect(node.leaf).toBe(`bad${NUL_REPLACEMENT}`);
+    expect(elapsedMs).toBeLessThan(250);
+  });
+});
+
+describe("sanitizeNulDeep — clean values are returned without rebuilding", () => {
+  test("a large clean payload comes back at its ORIGINAL identity", () => {
+    // The fast path is what keeps the scrubber off the critical path of every
+    // write; identity is the observable proof that nothing was cloned.
+    const payload = {
+      content: Array.from({ length: 500 }, (_, i) => ({ type: "text", text: `row ${i}` })),
+    };
+    const out = sanitizeNulDeep(payload);
+    expect(out).toBe(payload);
+    expect(out.content).toBe(payload.content);
+    expect(out.content[0]).toBe(payload.content[0]);
+  });
+
+  test("nested clean containers each keep their identity", () => {
+    const inner = { deep: ["a", "b"] };
+    const outer = { inner, n: 1 };
+    const out = sanitizeNulDeep(outer) as typeof outer;
+    expect(out).toBe(outer);
+    expect(out.inner).toBe(inner);
+    expect(out.inner.deep).toBe(inner.deep);
   });
 });
 
