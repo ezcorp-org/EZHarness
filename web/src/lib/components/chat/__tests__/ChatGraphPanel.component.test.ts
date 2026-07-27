@@ -46,6 +46,17 @@ const LEVEL_2 = graph(
 	{ level: 2, rootId: "p1" },
 );
 
+/** A level-1 prompt carrying both things the footer only renders sometimes:
+ *  a truncated label (so the full text is worth a body) and a turn roll-up. */
+const LEVEL_1_ROLLUP = graph([
+	node("p1", {
+		drillable: true,
+		label: "First ask…",
+		fullLabel: "First ask, spelled out past where the node box cut it off",
+		stats: { replies: 2, toolCalls: 3, subAgents: 1, thinking: 4 },
+	}),
+]);
+
 const SUB_GRAPH = graph([node("s-p1", { label: "sub prompt" })], { conversationId: "conv-2" });
 
 /** Route each URL to its payload; anything unrouted is a 404. */
@@ -356,6 +367,27 @@ describe("ChatGraphPanel drill-down", () => {
 		expect(detail).toHaveTextContent("Prompt · succeeded");
 		expect(detail).toHaveTextContent("Duration —");
 		expect(detail.textContent).not.toContain("0ms");
+	});
+
+	test("the footer spells out a truncated prompt and icon-marks each roll-up count", async () => {
+		// A level-1 prompt as the builder actually emits one: a label cut to fit
+		// the node box, the full text beside it, and the turn roll-up. The body
+		// exists only because the label truncated — an untruncated prompt is
+		// already fully on screen and must not be printed twice.
+		stubFetch({ [L1_URL]: LEVEL_1_ROLLUP, [L2_URL]: LEVEL_2 });
+		const { container, findByTestId } = open();
+		await findByTestId("chat-graph-canvas");
+		await fireEvent.click(nodeEl(container, "p1"));
+		const detail = await findByTestId("chat-graph-detail");
+
+		expect(detail.querySelector(".detail-body")?.textContent).toBe(
+			"First ask, spelled out past where the node box cut it off",
+		);
+		const icons = [...detail.querySelectorAll(".row-icon")].map((svg) =>
+			svg.getAttribute("data-kind"),
+		);
+		expect(icons).toEqual(["assistant", "tool", "subagent", "thinking"]);
+		expect(detail.querySelector(".row-icon path")?.getAttribute("d")).toBeTruthy();
 	});
 
 	test("hovering shows the canvas card and leaves the footer selection alone", async () => {

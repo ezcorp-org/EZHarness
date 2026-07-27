@@ -557,6 +557,25 @@ describe("floating hover card", () => {
 		expect(kind?.textContent).toBe("Sub-agent");
 	});
 
+	test("each turn-roll-up row is marked with the icon of the kind it counts", async () => {
+		// The point of the icons: a reader who has learned "this shape is a tool
+		// call" from the nodes can read the total without re-reading the word.
+		// Zero counts are dropped upstream, so only the non-zero kinds get a row.
+		const rollup = graph([
+			node("r1", { stats: { replies: 2, toolCalls: 3, subAgents: 1, thinking: 4 } }),
+		]);
+		const { container, getByTestId } = renderCanvas(rollup);
+		await hoverAt(container.querySelector('[data-node-id="r1"]')!);
+		const icons = [...getByTestId("chat-graph-hover-card").querySelectorAll(".row-icon")].map(
+			(svg) => svg.getAttribute("data-kind"),
+		);
+		expect(icons).toEqual(["assistant", "tool", "subagent", "thinking"]);
+		// Drawn, not empty: each icon carries the same path the node uses.
+		for (const svg of container.querySelectorAll(".row-icon")) {
+			expect(svg.querySelector("path")?.getAttribute("d")).toBeTruthy();
+		}
+	});
+
 	test("leaving the node closes it", async () => {
 		const { container, queryByTestId } = renderCanvas();
 		const target = container.querySelector('[data-node-id="p1"]')!;
