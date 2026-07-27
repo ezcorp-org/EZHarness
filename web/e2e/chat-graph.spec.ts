@@ -159,7 +159,7 @@ test.describe("Chat DAG graph panel", () => {
 		await expect(wide.locator("title")).toHaveCount(0);
 		await expect(wide).toHaveAttribute("aria-label", new RegExp(escapeRe(FULL_LABEL_PLAN)));
 		await wide.hover();
-		await expect(panel.locator('[data-testid="chat-graph-detail-card"]')).toContainText(
+		await expect(panel.locator('[data-testid="chat-graph-detail"]')).toContainText(
 			FULL_LABEL_PLAN,
 		);
 	});
@@ -439,7 +439,12 @@ test.describe("Chat DAG graph panel", () => {
 		await unknown.click();
 		const detail = panel.getByTestId("chat-graph-detail");
 		await expect(detail).toContainText(LABEL_TOOL_WITHOUT_DURATION);
-		await expect(detail).toContainText("Tool · succeeded · —");
+		// The em dash now lives in the Duration ROW: the glance line omits an
+		// unknown duration rather than trailing a dash after the status. The
+		// contract that matters is unchanged — never a fabricated "0ms".
+		await expect(detail).toContainText("Tool · succeeded");
+		await expect(detail).toContainText("Duration —");
+		await expect(detail).not.toContainText("0ms");
 		await expect(panel.getByRole("heading", { name: "Turn trace" })).toBeVisible();
 	});
 
@@ -521,7 +526,7 @@ test("hovering a node opens a detail card, and it follows the pointer between no
 	await gotoChat(page, mockApi);
 	const panel = await openPanel(page);
 
-	const card = panel.locator('[data-testid="chat-graph-detail-card"]');
+	const card = panel.locator('[data-testid="chat-graph-detail"]');
 	await expect(card).toBeHidden();
 
 	// A prompt: prose kind, so the card carries the full text and a drill hint.
@@ -541,6 +546,17 @@ test("hovering a node opens a detail card, and it follows the pointer between no
 	await panel.locator(`[data-node-id="${SUBCONV_ID}"]`).hover();
 	await expect(card).toHaveAttribute("data-detail-for", SUBCONV_ID);
 	await expect(card).toContainText("Sub-chat");
+
+	// The card is hoverable: the pointer can leave the node and travel into it
+	// without the card being snatched away mid-crossing.
+	await card.hover();
+	await expect(card).toBeVisible();
+	await expect(card).toHaveAttribute("data-detail-for", SUBCONV_ID);
+
+	// The kind heading is colour-coded by node kind — pink for a sub-agent.
+	const kind = card.locator(".detail-kind");
+	await expect(kind).toHaveAttribute("data-kind", "subagent");
+	await expect(kind).toHaveText("Sub-agent");
 
 	// Moving off the graph closes it.
 	await panel.locator('[data-testid="chat-graph-legend"]').hover();

@@ -359,15 +359,25 @@ describe("legendSections", () => {
 });
 
 describe("nodeDetailCard", () => {
-	test("glance answers what/how/how-long in one line", () => {
+	test("the glance splits kind from meta so the kind can be colour-coded", () => {
 		const card = nodeDetailCard(node({ kind: "tool", status: "success", durationMs: 840 }));
-		expect(card.glance).toBe("Tool · succeeded · 840ms");
+		expect(card.kind).toBe("tool");
+		expect(card.kindLabel).toBe("Tool");
+		expect(card.meta).toBe("succeeded · 840ms");
 	});
 
-	test("glance omits an unknown duration rather than showing a dash", () => {
+	test("every kind reports itself, so the heading colour can never be wrong", () => {
+		for (const kind of Object.keys(KIND_LABEL) as (keyof typeof KIND_LABEL)[]) {
+			const card = nodeDetailCard(node({ kind }));
+			expect(card.kind).toBe(kind);
+			expect(card.kindLabel).toBe(KIND_LABEL[kind]);
+		}
+	});
+
+	test("meta omits an unknown duration rather than showing a dash", () => {
 		const card = nodeDetailCard(node({ kind: "prompt", status: "success" }));
-		expect(card.glance).toBe("Prompt · succeeded");
-		expect(card.glance).not.toContain(DURATION_UNKNOWN);
+		expect(card.meta).toBe("succeeded");
+		expect(card.meta).not.toContain(DURATION_UNKNOWN);
 	});
 
 	test("a tool names its owner, translating the builtin sentinel", () => {
@@ -413,8 +423,13 @@ describe("nodeDetailCard", () => {
 		}
 	});
 
-	test("body falls back to the label when nothing was truncated", () => {
-		expect(nodeDetailCard(node({ kind: "prompt", label: "short" })).body).toBe("short");
+	test("no body when nothing was truncated — the title already shows it all", () => {
+		// Rendering the identical string as both title and body reads as a
+		// duplication bug; the body exists only to reveal what truncation hid.
+		expect(nodeDetailCard(node({ kind: "prompt", label: "short" })).body).toBeUndefined();
+		expect(
+			nodeDetailCard(node({ kind: "prompt", label: "short", fullLabel: "short" })).body,
+		).toBeUndefined();
 	});
 
 	test("hint appears only for drillable nodes", () => {

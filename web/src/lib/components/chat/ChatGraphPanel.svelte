@@ -16,6 +16,7 @@
 	import SwipeDrawer from "$lib/components/SwipeDrawer.svelte";
 	import GraphCanvas from "./GraphCanvas.svelte";
 	import { layoutGraph } from "$lib/graph/layout";
+	import { nodeDetailCard } from "$lib/graph/canvas-view";
 	import {
 		drillFrame,
 		frameTitle,
@@ -26,13 +27,7 @@
 		rootFrame,
 		type GraphFrame,
 	} from "$lib/graph/panel-logic";
-	import {
-		type ActivationSource,
-		formatNodeDuration,
-		KIND_LABEL,
-		nodeTitle,
-		STATUS_LABEL,
-	} from "$lib/graph/canvas-view";
+	import type { ActivationSource } from "$lib/graph/canvas-view";
 	import type { ChatGraph, GraphNode } from "$server/runtime/chat-graph/types";
 
 	let {
@@ -53,6 +48,50 @@
 	let loading = $state(false);
 	let error = $state<string | null>(null);
 	let selected = $state<GraphNode | null>(null);
+
+	/**
+	 * Node under the pointer/focus, reported by the canvas. The footer shows
+	 * this in preference to the click-selected node, so hovering previews
+	 * without disturbing a selection.
+	 *
+	 * A grace period covers the pointer's trip from the graph down to the
+	 * footer: the card is mouse-overable (you can select text out of it), so
+	 * closing the instant the node is left would snatch it away mid-crossing.
+	 */
+	let hovered = $state<GraphNode | null>(null);
+	const HOVER_HIDE_MS = 160;
+	let hoverTimer: ReturnType<typeof setTimeout> | null = null;
+
+	function cancelHoverHide() {
+		if (hoverTimer !== null) {
+			clearTimeout(hoverTimer);
+			hoverTimer = null;
+		}
+	}
+
+	function onNodeHover(node: GraphNode | null) {
+		cancelHoverHide();
+		if (node !== null) {
+			hovered = node;
+			return;
+		}
+		hoverTimer = setTimeout(() => {
+			hoverTimer = null;
+			hovered = null;
+		}, HOVER_HIDE_MS);
+	}
+
+	$effect(() => () => cancelHoverHide());
+
+	/** What the footer describes: the hovered node wins over the selected one. */
+	let detailNode = $derived(hovered ?? selected);
+	let detailCard = $derived(detailNode === null ? null : nodeDetailCard(detailNode));
+
+	/** Local clock for the Time row. Locale-dependent, so not in the pure module. */
+	function formatClock(iso: string): string {
+		const d = new Date(iso);
+		return Number.isNaN(d.getTime()) ? iso : d.toLocaleTimeString();
+	}
 	/**
 	 * Whether the NEXT canvas should take focus as it mounts.
 	 *
@@ -226,20 +265,130 @@
 					selectedId={selected?.id ?? null}
 					focusOnMount={focusGraphOnMount}
 					onactivate={onNodeActivate}
+					onnodehover={onNodeHover}
 				/>
 			{/if}
 		</div>
 
-		{#if selected !== null}
+		<!-- Detail card. Lives BELOW the canvas, never over it: it is
+		     mouse-overable (so text can be selected out of it), and an
+		     interactive overlay inside the graph covers the neighbouring nodes
+		     and swallows their hover. Its own hover cancels the pending close
+		     so the pointer can travel here from a node. -->
+		{#if detailNode !== null && detailCard !== null}
 			<div
 				data-testid="chat-graph-detail"
-				class="space-y-1 border-t border-[var(--color-border)] bg-[var(--color-surface-secondary)] px-4 py-3"
+				data-detail-for={detailNode.id}
+				class="detail-card border-t border-[var(--color-border)] bg-[var(--color-surface-secondary)] px-4 py-3"
+				onmouseenter={cancelHoverHide}
+				onmouseleave={() => onNodeHover(null)}
+				role="status"
+				aria-live="polite"
 			>
-				<p class="break-words text-xs font-semibold text-[var(--color-text-primary)]">{nodeTitle(selected)}</p>
-				<p class="text-[11px] text-[var(--color-text-muted)]">
-					{KIND_LABEL[selected.kind]} · {STATUS_LABEL[selected.status]} · {formatNodeDuration(selected.durationMs)}
+				<p class="detail-glance" data-testid="chat-graph-detail-glance">
+					<span class="detail-kind" data-kind={detailCard.kind}>{detailCard.kindLabel}</span>
+					<span class="detail-meta">· {detailCard.meta}</span>
 				</p>
+				<p class="detail-title">{detailCard.title}</p>
+				{#if detailCard.body}
+					<p class="detail-body">{detailCard.body}</p>
+				{/if}
+				<dl class="detail-rows">
+					{#each detailCard.rows as row (row.term)}
+						<div class="detail-row">
+							<dt>{row.term}</dt>
+							<dd>{row.term === "Time" ? formatClock(row.value) : row.value}</dd>
+						</div>
+					{/each}
+				</dl>
+				{#if detailCard.hint}
+					<p class="detail-hint">{detailCard.hint}</p>
+				{/if}
 			</div>
 		{/if}
 	</div>
 </SwipeDrawer>
+
+<style>
+	/* Kind hues, mirrored from GraphCanvas: the heading is drawn in the same
+	   colour as that kind's node accent and legend swatch, so all three move
+	   together. Declared here too because Svelte styles are scoped per
+	   component and this card lives in the panel, outside the canvas. */
+	.detail-card {
+		--ez-kind-prompt: var(--color-blue-600);
+		--ez-kind-assistant: var(--color-emerald-600);
+		--ez-kind-thinking: var(--color-purple-500);
+		--ez-kind-tool: var(--color-amber-600);
+		--ez-kind-subagent: var(--color-pink-600);
+		--ez-kind-error: var(--color-red-600);
+		max-height: 40%;
+		overflow-y: auto;
+		font-size: 11px;
+		line-height: 1.45;
+	}
+	:global(.dark) .detail-card {
+		--ez-kind-prompt: var(--color-blue-400);
+		--ez-kind-assistant: var(--color-emerald-400);
+		--ez-kind-thinking: var(--color-purple-400);
+		--ez-kind-tool: var(--color-amber-400);
+		--ez-kind-subagent: var(--color-pink-400);
+		--ez-kind-error: var(--color-red-400);
+	}
+	.detail-glance {
+		margin: 0;
+		font-size: 10px;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+	}
+	.detail-kind {
+		color: var(--ez-kind-prompt);
+	}
+	.detail-kind[data-kind="assistant"] { color: var(--ez-kind-assistant); }
+	.detail-kind[data-kind="thinking"] { color: var(--ez-kind-thinking); }
+	.detail-kind[data-kind="tool"] { color: var(--ez-kind-tool); }
+	.detail-kind[data-kind="subagent"] { color: var(--ez-kind-subagent); }
+	.detail-kind[data-kind="error"] { color: var(--ez-kind-error); }
+	.detail-meta {
+		color: var(--color-text-muted);
+	}
+	.detail-title {
+		margin: 0.125rem 0 0;
+		font-weight: 600;
+		color: var(--color-text-primary);
+		overflow-wrap: anywhere;
+	}
+	/* Clamp long prose so a whole prompt can't push the graph off-screen. */
+	.detail-body {
+		margin: 0.25rem 0 0;
+		color: var(--color-text-secondary);
+		overflow-wrap: anywhere;
+		display: -webkit-box;
+		-webkit-line-clamp: 4;
+		line-clamp: 4;
+		-webkit-box-orient: vertical;
+		overflow: hidden;
+	}
+	.detail-rows {
+		margin: 0.375rem 0 0;
+		display: grid;
+		gap: 0.125rem;
+	}
+	.detail-row {
+		display: grid;
+		grid-template-columns: 6rem 1fr;
+		gap: 0.5rem;
+	}
+	.detail-row dt {
+		color: var(--color-text-muted);
+	}
+	.detail-row dd {
+		margin: 0;
+		color: var(--color-text-secondary);
+		overflow-wrap: anywhere;
+	}
+	.detail-hint {
+		margin: 0.375rem 0 0;
+		color: var(--color-accent);
+	}
+</style>

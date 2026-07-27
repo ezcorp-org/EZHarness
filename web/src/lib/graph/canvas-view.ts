@@ -332,15 +332,22 @@ export interface NodeDetailRow {
 /**
  * The hover/focus card for a node.
  *
- * `glance` is the one-line summary — kind, status and duration — so the card
- * answers "what is this?" before the eye reaches the rows. `body` is the
- * node's full untruncated text (the prompt, the reply, the thinking blob, the
- * error message); absent for kinds whose label IS the whole story (a tool's
- * name, a sub-agent's name), where repeating it under the title is noise.
+ * The glance line is split into `kindLabel` + `meta` rather than one string so
+ * the component can colour the kind with that kind's own hue — the same colour
+ * as the node's accent bar — which is what makes the card readable at a
+ * glance. `body` is the node's full untruncated text (the prompt, the reply,
+ * the thinking blob, the error message); absent for kinds whose label IS the
+ * whole story (a tool's name, a sub-agent's name), where repeating it under
+ * the title is noise.
  */
 export interface NodeDetailCard {
+	/** Drives the kind-coloured heading. */
+	kind: GraphNodeKind;
+	/** "Sub-agent". Rendered in the kind's colour. */
+	kindLabel: string;
+	/** "succeeded · 840ms" — the rest of the glance line, in muted text. */
+	meta: string;
 	title: string;
-	glance: string;
 	body?: string;
 	rows: NodeDetailRow[];
 	/** Call-to-action for drillable nodes; absent otherwise. */
@@ -366,11 +373,13 @@ export function nodeDetailCard(node: GraphNode): NodeDetailCard {
 	const rows: NodeDetailRow[] = [];
 	const duration = formatNodeDuration(node.durationMs);
 
-	// Glance line: what it is, how it went, how long it took.
-	const glance =
+	// Glance line, minus the kind: how it went, and how long it took. An
+	// unknown duration is omitted rather than shown as a dash — the Duration
+	// row below already states it, and a dash in the heading reads as noise.
+	const meta =
 		duration === DURATION_UNKNOWN
-			? `${KIND_LABEL[node.kind]} · ${STATUS_LABEL[node.status]}`
-			: `${KIND_LABEL[node.kind]} · ${STATUS_LABEL[node.status]} · ${duration}`;
+			? STATUS_LABEL[node.status]
+			: `${STATUS_LABEL[node.status]} · ${duration}`;
 
 	if (node.kind === "tool" && node.extensionId !== undefined) {
 		rows.push({ term: "Provided by", value: toolOwner(node.extensionId) });
@@ -384,16 +393,22 @@ export function nodeDetailCard(node: GraphNode): NodeDetailCard {
 		rows.push({ term: "Branch", value: "Rewound away — not sent to the model" });
 	}
 
-	// Body only where the label is a truncation of longer prose. A tool node's
-	// label is the tool NAME and a sub-agent's is the agent name — both are
-	// already the title, so repeating them adds nothing.
+	// Body only where it says something the title does not:
+	//   - name-like kinds (a tool's name, a sub-agent's name) ARE the title, so
+	//     a body would repeat it;
+	//   - prose that was never truncated is likewise already fully shown as the
+	//     title — rendering it twice reads as a duplication bug.
+	// So: prose kinds only, and only when the full text differs from the label.
 	const proseKinds: GraphNodeKind[] = ["prompt", "assistant", "thinking", "error"];
 	const full = nodeTitle(node);
-	const body = proseKinds.includes(node.kind) && full.length > 0 ? full : undefined;
+	const body =
+		proseKinds.includes(node.kind) && full.length > 0 && full !== node.label ? full : undefined;
 
 	return {
+		kind: node.kind,
+		kindLabel: KIND_LABEL[node.kind],
+		meta,
 		title: node.label,
-		glance,
 		...(body !== undefined ? { body } : {}),
 		rows,
 		...(node.drillable === true ? { hint: nodeAction(node) } : {}),

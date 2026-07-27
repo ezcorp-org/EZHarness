@@ -109,7 +109,10 @@ test.describe("Chat DAG graph visual evidence", () => {
 
 		// Select a node so the detail pane is in frame too.
 		await unknownDuration.click();
-		await expect(panel.getByTestId("chat-graph-detail")).toContainText("Tool · succeeded · —");
+		// Em dash in the Duration ROW; the glance omits an unknown duration.
+		await expect(panel.getByTestId("chat-graph-detail")).toContainText("Tool · succeeded");
+		await expect(panel.getByTestId("chat-graph-detail")).toContainText("Duration —");
+		await expect(panel.getByTestId("chat-graph-detail")).not.toContainText("0ms");
 		await expect(panel.getByTestId("chat-graph-node-ring")).toHaveCount(1);
 		await captureEvidence(page, testInfo, "chat-graph-level-2-turn-trace");
 	});

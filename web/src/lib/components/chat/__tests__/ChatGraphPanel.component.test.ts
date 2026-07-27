@@ -221,6 +221,10 @@ describe("ChatGraphPanel quiet states", () => {
 	});
 });
 
+function queryByTestIdIn(root: HTMLElement, id: string): HTMLElement | null {
+	return root.querySelector(`[data-testid="${id}"]`);
+}
+
 describe("ChatGraphPanel drill-down", () => {
 	test("clicking a level-1 prompt loads that turn's level 2", async () => {
 		const spy = stubFetch({ [L1_URL]: LEVEL_1, [L2_URL]: LEVEL_2 });
@@ -345,12 +349,77 @@ describe("ChatGraphPanel drill-down", () => {
 		expect(queryAllByTestId("chat-graph-crumb")).toHaveLength(2);
 	});
 
-	test("a node with no known duration shows an em dash in the detail pane", async () => {
+	test("a node with no known duration shows an em dash, never 0ms", async () => {
+		// The em dash lives in the Duration ROW; the glance line omits an unknown
+		// duration entirely rather than trailing a dash after the status.
 		stubFetch({ [L1_URL]: LEVEL_1 });
 		const { container, findByTestId } = open();
 		await findByTestId("chat-graph-canvas");
 		await fireEvent.click(nodeEl(container, "p2"));
-		expect(await findByTestId("chat-graph-detail")).toHaveTextContent("Prompt · succeeded · —");
+		const detail = await findByTestId("chat-graph-detail");
+		expect(detail).toHaveTextContent("Prompt · succeeded");
+		expect(detail).toHaveTextContent("Duration —");
+		expect(detail.textContent).not.toContain("0ms");
+	});
+
+	test("hovering previews a node without disturbing the selection", async () => {
+		// Level 2: `tc1` is a LEAF, so clicking it selects without navigating —
+		// level 1 is all drillable prompts, where a click always moves.
+		stubFetch({ [L1_URL]: LEVEL_1, [L2_URL]: LEVEL_2 });
+		const { container, findByTestId } = open();
+		await findByTestId("chat-graph-canvas");
+		await fireEvent.click(nodeEl(container, "p1"));
+		await waitFor(() => expect(nodeEl(container, "tc1")).not.toBeNull());
+
+		await fireEvent.click(nodeEl(container, "tc1"));
+		expect(await findByTestId("chat-graph-detail")).toHaveAttribute("data-detail-for", "tc1");
+
+		// Hover wins while the pointer is on another node...
+		await fireEvent.mouseEnter(nodeEl(container, "think"));
+		await waitFor(() =>
+			expect(queryByTestIdIn(container, "chat-graph-detail")).toHaveAttribute(
+				"data-detail-for",
+				"think",
+			),
+		);
+
+		// ...and the selection is still intact once the hover ends.
+		await fireEvent.mouseLeave(nodeEl(container, "think"));
+		await waitFor(() =>
+			expect(queryByTestIdIn(container, "chat-graph-detail")).toHaveAttribute(
+				"data-detail-for",
+				"tc1",
+			),
+		);
+	});
+
+	test("the kind heading is colour-coded by node kind", async () => {
+		stubFetch({ [L1_URL]: LEVEL_1 });
+		const { container, findByTestId } = open();
+		await findByTestId("chat-graph-canvas");
+		await fireEvent.mouseEnter(nodeEl(container, "p1"));
+		const kind = (await findByTestId("chat-graph-detail")).querySelector(".detail-kind");
+		expect(kind?.getAttribute("data-kind")).toBe("prompt");
+	});
+
+	test("the card is mouse-overable — entering it cancels the pending close", async () => {
+		stubFetch({ [L1_URL]: LEVEL_1 });
+		const { container, findByTestId, queryByTestId } = open();
+		await findByTestId("chat-graph-canvas");
+		const target = nodeEl(container, "p1");
+		await fireEvent.mouseEnter(target);
+		const card = await findByTestId("chat-graph-detail");
+
+		// Pointer leaves the node for the card; the close is only SCHEDULED, so
+		// entering the card during the grace period keeps it open.
+		await fireEvent.mouseLeave(target);
+		await fireEvent.mouseEnter(card);
+		await new Promise((r) => setTimeout(r, 300));
+		expect(queryByTestId("chat-graph-detail")).not.toBeNull();
+
+		// Leaving the card itself does close it.
+		await fireEvent.mouseLeave(card);
+		await waitFor(() => expect(queryByTestId("chat-graph-detail")).toBeNull());
 	});
 
 	test("navigating clears the previously selected node's details", async () => {
