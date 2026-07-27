@@ -40,6 +40,7 @@
 		labelFadeStart,
 		legendSections,
 		moveFocus,
+		nodeDetailCard,
 		nodeAriaLabel,
 		nodeTitle,
 		wheelZoomFactor,
@@ -84,29 +85,87 @@
 	let legendOpen = $state(true);
 
 	/**
-	 * The node the pointer/focus is on. REPORTED UPWARD rather than rendered
-	 * here: the detail card must be mouse-overable, and any interactive
-	 * overlay inside this scroller sits on top of neighbouring nodes and
-	 * swallows their hover — the node under the card became unreachable.
-	 * The panel renders it in its footer, outside the graph, where it can
-	 * never occlude anything. This component only draws the hover outline
-	 * that links the two.
+	 * Floating hover card, positioned at the cursor.
+	 *
+	 * `pointer-events: none` is deliberate and load-bearing: an INTERACTIVE
+	 * overlay inside this scroller sits on top of the neighbouring nodes and
+	 * swallows their hover, so the node under it becomes unreachable — that is
+	 * why an earlier interactive version had to be moved out of the canvas
+	 * entirely. Transparent to the pointer, it can follow the cursor closely
+	 * without ever blocking a target. The click-SELECTED node still gets the
+	 * panel's footer card, which IS mouse-overable because it sits outside the
+	 * graph.
 	 */
-	let hoveredId = $state<string | null>(null);
+	let hover = $state<{
+		nodeId: string;
+		card: ReturnType<typeof nodeDetailCard>;
+		x: number;
+		y: number;
+		flipX: boolean;
+		flipY: boolean;
+	} | null>(null);
 
-	function enterNode(node: GraphNode) {
-		hoveredId = node.id;
+	/** Card box + cursor offset, mirrored in the `.hover-card` CSS. */
+	const HOVER_W = 260;
+	const HOVER_MAX_H = 260;
+	const CURSOR_DX = 16;
+	const CURSOR_DY = 18;
+
+	function positionFrom(e: MouseEvent) {
+		const root = rootEl.getBoundingClientRect();
+		const x = e.clientX - root.left;
+		const y = e.clientY - root.top;
+		return {
+			x,
+			y,
+			// Flip to the other side of the cursor when there isn't room, so the
+			// card never spills out of the panel.
+			flipX: x + CURSOR_DX + HOVER_W > root.width,
+			flipY: y + CURSOR_DY + HOVER_MAX_H > root.height,
+		};
+	}
+
+	function enterNode(node: GraphNode, e: MouseEvent) {
+		hover = { nodeId: node.id, card: nodeDetailCard(node), ...positionFrom(e) };
 		onnodehover?.(node);
+	}
+
+	/** Track the cursor while it is over a node so the card trails it. */
+	function moveOverNode(node: GraphNode, e: MouseEvent) {
+		if (hover?.nodeId !== node.id) return;
+		hover = { ...hover, ...positionFrom(e) };
 	}
 
 	function leaveNode(nodeId: string) {
 		// The pointer moving straight to the next node fires its `mouseenter`
 		// BEFORE this `mouseleave`, so only clear when still the current one.
-		if (hoveredId !== nodeId) return;
-		hoveredId = null;
+		if (hover?.nodeId !== nodeId) return;
+		hover = null;
 		onnodehover?.(null);
 	}
 
+	/** Keyboard focus has no cursor — anchor to the node's own box instead. */
+	function focusNodeDetail(node: GraphNode, el: SVGGElement) {
+		const root = rootEl.getBoundingClientRect();
+		const box = el.getBoundingClientRect();
+		const x = box.left - root.left + box.width / 2;
+		const y = box.bottom - root.top;
+		hover = {
+			nodeId: node.id,
+			card: nodeDetailCard(node),
+			x,
+			y,
+			flipX: x + CURSOR_DX + HOVER_W > root.width,
+			flipY: y + CURSOR_DY + HOVER_MAX_H > root.height,
+		};
+		onnodehover?.(node);
+	}
+
+	/** Local clock for the Time row. Locale-dependent, so not in the pure module. */
+	function formatClock(iso: string): string {
+		const d = new Date(iso);
+		return Number.isNaN(d.getTime()) ? iso : d.toLocaleTimeString();
+	}
 
 	/** The canvas root, for the mount-time focus hand-off below. */
 	let rootEl: HTMLDivElement;
@@ -347,16 +406,17 @@
 					data-status={n.status}
 					data-excluded={n.excluded === true ? "true" : "false"}
 					data-drillable={n.drillable === true ? "true" : "false"}
-					data-hovered={hoveredId === ln.id ? "true" : "false"}
+					data-hovered={hover?.nodeId === ln.id ? "true" : "false"}
 					transform="translate({ln.x},{ln.y})"
 					role="button"
 					tabindex={ln.id === activeId ? 0 : -1}
 					aria-label={nodeAriaLabel(n)}
 					onclick={() => activate(n, "pointer")}
 					onkeydown={(e) => onNodeKeydown(e, n)}
-					onfocus={() => { focusedId = ln.id; enterNode(n); }}
+					onfocus={(e) => { focusedId = ln.id; focusNodeDetail(n, e.currentTarget); }}
 					onblur={() => leaveNode(ln.id)}
-					onmouseenter={() => enterNode(n)}
+					onmouseenter={(e) => enterNode(n, e)}
+					onmousemove={(e) => moveOverNode(n, e)}
 					onmouseleave={() => leaveNode(ln.id)}
 				>
 					<!-- No <title>: it duplicates the detail card below and browsers
@@ -385,6 +445,42 @@
 		{/each}
 	</svg>
 	</div>
+
+	<!-- Floating hover card, anchored to the cursor.
+	     `pointer-events: none` (in CSS) is load-bearing — see the `hover` state
+	     comment. It is why this card can sit right next to the cursor without
+	     making the node beneath it unreachable. `aria-hidden` because every
+	     fact is already in the node's own `aria-label`; exposing the card too
+	     would make a screen reader read each node twice. -->
+	{#if hover}
+		<div
+			class="hover-card absolute z-30 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-2.5 py-2 shadow-xl"
+			data-testid="chat-graph-hover-card"
+			data-detail-for={hover.nodeId}
+			aria-hidden="true"
+			style="pointer-events: none; left: {hover.x}px; top: {hover.y}px; transform: translate({hover.flipX ? `calc(-100% - ${CURSOR_DX}px)` : `${CURSOR_DX}px`}, {hover.flipY ? `calc(-100% - ${CURSOR_DY}px)` : `${CURSOR_DY}px`});"
+		>
+			<p class="hover-glance" data-testid="chat-graph-hover-glance">
+				<span class="hover-kind" data-kind={hover.card.kind}>{hover.card.kindLabel}</span>
+				<span class="hover-meta">· {hover.card.meta}</span>
+			</p>
+			<p class="hover-title">{hover.card.title}</p>
+			{#if hover.card.body}
+				<p class="hover-body">{hover.card.body}</p>
+			{/if}
+			<dl class="hover-rows">
+				{#each hover.card.rows as row (row.term)}
+					<div class="hover-row">
+						<dt>{row.term}</dt>
+						<dd>{row.term === "Time" ? formatClock(row.value) : row.value}</dd>
+					</div>
+				{/each}
+			</dl>
+			{#if hover.card.hint}
+				<p class="hover-hint">{hover.card.hint}</p>
+			{/if}
+		</div>
+	{/if}
 
 	<!-- Legend. Inside `.graph-canvas` on purpose: that element declares the
 	     `--ez-kind-*` / `--ez-status-*` custom properties, so the swatches
@@ -565,6 +661,80 @@
 	}
 	.node[data-status="interrupted"] .node-status {
 		fill: var(--ez-status-interrupted);
+	}
+
+	/* ── Floating hover card ─────────────────────────────────────────────
+	   pointer-events: none is REQUIRED, not cosmetic — an interactive overlay
+	   here covers neighbouring nodes and eats their hover. Width/max-height
+	   mirror the HOVER_W / HOVER_MAX_H constants the flip math uses. */
+	.hover-card {
+		width: 260px;
+		max-height: 260px;
+		overflow: hidden;
+		/* Also set INLINE on the element: this one property is behavioural, not
+		   cosmetic — without it the card eats the hover of the nodes it covers —
+		   so it is stated where it cannot be overridden or missed. */
+		pointer-events: none;
+		font-size: 11px;
+		line-height: 1.45;
+		--ez-hover-kind: var(--ez-kind-prompt);
+	}
+	.hover-glance {
+		margin: 0;
+		font-size: 10px;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+	}
+	/* Kind heading in the kind's own hue — same property as the node accent. */
+	.hover-kind {
+		color: var(--ez-kind-prompt);
+	}
+	.hover-kind[data-kind="assistant"] { color: var(--ez-kind-assistant); }
+	.hover-kind[data-kind="thinking"] { color: var(--ez-kind-thinking); }
+	.hover-kind[data-kind="tool"] { color: var(--ez-kind-tool); }
+	.hover-kind[data-kind="subagent"] { color: var(--ez-kind-subagent); }
+	.hover-kind[data-kind="error"] { color: var(--ez-kind-error); }
+	.hover-meta {
+		color: var(--color-text-muted);
+	}
+	.hover-title {
+		margin: 0.125rem 0 0;
+		font-weight: 600;
+		color: var(--color-text-primary);
+		overflow-wrap: anywhere;
+	}
+	.hover-body {
+		margin: 0.25rem 0 0;
+		color: var(--color-text-secondary);
+		overflow-wrap: anywhere;
+		display: -webkit-box;
+		-webkit-line-clamp: 4;
+		line-clamp: 4;
+		-webkit-box-orient: vertical;
+		overflow: hidden;
+	}
+	.hover-rows {
+		margin: 0.375rem 0 0;
+		display: grid;
+		gap: 0.125rem;
+	}
+	.hover-row {
+		display: grid;
+		grid-template-columns: 6rem 1fr;
+		gap: 0.5rem;
+	}
+	.hover-row dt {
+		color: var(--color-text-muted);
+	}
+	.hover-row dd {
+		margin: 0;
+		color: var(--color-text-secondary);
+		overflow-wrap: anywhere;
+	}
+	.hover-hint {
+		margin: 0.375rem 0 0;
+		color: var(--color-accent);
 	}
 
 	/* ── Legend ──────────────────────────────────────────────────────────

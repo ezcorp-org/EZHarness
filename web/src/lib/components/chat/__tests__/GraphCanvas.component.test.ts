@@ -509,59 +509,117 @@ describe("legend", () => {
 	});
 });
 
-describe("hover reporting", () => {
-	test("reports the hovered node upward, and null when it is left", async () => {
-		const onnodehover = vi.fn();
-		const { container } = render(GraphCanvas, {
-			layout: layoutGraph(RICH),
-			selectedId: null,
-			onactivate: vi.fn(),
-			onnodehover,
-		});
+describe("floating hover card", () => {
+	function hoverAt(el: Element, clientX = 120, clientY = 90) {
+		return fireEvent.mouseEnter(el, { clientX, clientY });
+	}
+
+	test("is absent until a node is hovered", () => {
+		const { queryByTestId } = renderCanvas();
+		expect(queryByTestId("chat-graph-hover-card")).toBeNull();
+	});
+
+	test("opens at the cursor for the hovered node", async () => {
+		const { container, getByTestId } = renderCanvas();
+		await hoverAt(container.querySelector('[data-node-id="p1"]')!);
+		const card = getByTestId("chat-graph-hover-card");
+		expect(card.getAttribute("data-detail-for")).toBe("p1");
+		// Anchored by inline left/top rather than pinned to a corner.
+		expect(card.style.left).not.toBe("");
+		expect(card.style.top).not.toBe("");
+	});
+
+	test("trails the cursor while it moves over the same node", async () => {
+		const { container, getByTestId } = renderCanvas();
 		const target = container.querySelector('[data-node-id="p1"]')!;
-		await fireEvent.mouseEnter(target);
-		expect(onnodehover).toHaveBeenLastCalledWith(expect.objectContaining({ id: "p1" }));
+		await hoverAt(target, 100, 100);
+		const first = getByTestId("chat-graph-hover-card").style.left;
+		await fireEvent.mouseMove(target, { clientX: 220, clientY: 140 });
+		expect(getByTestId("chat-graph-hover-card").style.left).not.toBe(first);
+	});
+
+	test("a move over a node that is not the hovered one is ignored", async () => {
+		const { container, getByTestId } = renderCanvas();
+		await hoverAt(container.querySelector('[data-node-id="p1"]')!, 100, 100);
+		const before = getByTestId("chat-graph-hover-card").style.left;
+		await fireEvent.mouseMove(container.querySelector('[data-node-id="p2"]')!, {
+			clientX: 400,
+			clientY: 400,
+		});
+		expect(getByTestId("chat-graph-hover-card").style.left).toBe(before);
+	});
+
+	test("the kind heading carries its kind, so CSS can colour it", async () => {
+		const { container, getByTestId } = renderCanvas();
+		await hoverAt(container.querySelector('[data-node-id="s1"]')!);
+		const kind = getByTestId("chat-graph-hover-glance").querySelector(".hover-kind");
+		expect(kind?.getAttribute("data-kind")).toBe("subagent");
+		expect(kind?.textContent).toBe("Sub-agent");
+	});
+
+	test("leaving the node closes it", async () => {
+		const { container, queryByTestId } = renderCanvas();
+		const target = container.querySelector('[data-node-id="p1"]')!;
+		await hoverAt(target);
 		await fireEvent.mouseLeave(target);
-		expect(onnodehover).toHaveBeenLastCalledWith(null);
+		expect(queryByTestId("chat-graph-hover-card")).toBeNull();
 	});
 
-	test("focus reports too, so the card is not mouse-only", async () => {
-		const onnodehover = vi.fn();
-		const { container } = render(GraphCanvas, {
-			layout: layoutGraph(RICH),
-			selectedId: null,
-			onactivate: vi.fn(),
-			onnodehover,
-		});
-		const target = container.querySelector('[data-node-id="s1"]')!;
-		await fireEvent.focus(target);
-		expect(onnodehover).toHaveBeenLastCalledWith(expect.objectContaining({ id: "s1" }));
-		await fireEvent.blur(target);
-		expect(onnodehover).toHaveBeenLastCalledWith(null);
-	});
-
-	test("moving straight to another node does not report a spurious null", async () => {
+	test("moving straight to another node keeps the NEW card", async () => {
 		// The new node's mouseenter fires BEFORE the old node's mouseleave.
-		const onnodehover = vi.fn();
-		const { container } = render(GraphCanvas, {
-			layout: layoutGraph(RICH),
-			selectedId: null,
-			onactivate: vi.fn(),
-			onnodehover,
-		});
+		const { container, getByTestId } = renderCanvas();
 		const first = container.querySelector('[data-node-id="p1"]')!;
 		const second = container.querySelector('[data-node-id="p2"]')!;
-		await fireEvent.mouseEnter(first);
-		await fireEvent.mouseEnter(second);
+		await hoverAt(first);
+		await hoverAt(second);
 		await fireEvent.mouseLeave(first);
-		expect(onnodehover).toHaveBeenLastCalledWith(expect.objectContaining({ id: "p2" }));
+		expect(getByTestId("chat-graph-hover-card").getAttribute("data-detail-for")).toBe("p2");
 	});
 
-	test("the hovered node is outlined, which is what links it to the pinned card", async () => {
+	test("keyboard focus opens it too, anchored to the node box", async () => {
+		const { container, getByTestId, queryByTestId } = renderCanvas();
+		const target = container.querySelector('[data-node-id="p1"]')!;
+		await fireEvent.focus(target);
+		expect(getByTestId("chat-graph-hover-card")).toBeTruthy();
+		await fireEvent.blur(target);
+		expect(queryByTestId("chat-graph-hover-card")).toBeNull();
+	});
+
+	test("is transparent to the pointer — otherwise it would eat a node's hover", async () => {
+		const { container, getByTestId } = renderCanvas();
+		await hoverAt(container.querySelector('[data-node-id="p1"]')!);
+		const card = getByTestId("chat-graph-hover-card");
+		// Asserted on the INLINE style: jsdom does not apply Svelte's scoped
+		// <style>, and this property is behavioural enough to state inline.
+		expect(card.style.pointerEvents).toBe("none");
+	});
+
+	test("is hidden from assistive tech — the node's aria-label already says it all", async () => {
+		const { container, getByTestId } = renderCanvas();
+		await hoverAt(container.querySelector('[data-node-id="p1"]')!);
+		expect(getByTestId("chat-graph-hover-card").getAttribute("aria-hidden")).toBe("true");
+	});
+
+	test("the hovered node is outlined, linking it to the card", async () => {
 		const { container } = renderCanvas();
 		const target = container.querySelector('[data-node-id="p1"]')!;
 		expect(target.getAttribute("data-hovered")).toBe("false");
-		await fireEvent.mouseEnter(target);
+		await hoverAt(target);
 		expect(target.getAttribute("data-hovered")).toBe("true");
+	});
+
+	test("reports the hovered node upward for consumers that want it", async () => {
+		const onnodehover = vi.fn();
+		const { container } = render(GraphCanvas, {
+			layout: layoutGraph(RICH),
+			selectedId: null,
+			onactivate: vi.fn(),
+			onnodehover,
+		});
+		const target = container.querySelector('[data-node-id="p1"]')!;
+		await fireEvent.mouseEnter(target, { clientX: 10, clientY: 10 });
+		expect(onnodehover).toHaveBeenLastCalledWith(expect.objectContaining({ id: "p1" }));
+		await fireEvent.mouseLeave(target);
+		expect(onnodehover).toHaveBeenLastCalledWith(null);
 	});
 });

@@ -362,11 +362,12 @@ describe("ChatGraphPanel drill-down", () => {
 		expect(detail.textContent).not.toContain("0ms");
 	});
 
-	test("hovering previews a node without disturbing the selection", async () => {
-		// Level 2: `tc1` is a LEAF, so clicking it selects without navigating —
-		// level 1 is all drillable prompts, where a click always moves.
+	test("hovering shows the canvas card and leaves the footer selection alone", async () => {
+		// The two surfaces are deliberately split: the footer is the pinned
+		// record of what you CLICKED (mouse-overable, outside the graph), the
+		// canvas card is the transient thing that follows the cursor.
 		stubFetch({ [L1_URL]: LEVEL_1, [L2_URL]: LEVEL_2 });
-		const { container, findByTestId } = open();
+		const { container, findByTestId, queryByTestId } = open();
 		await findByTestId("chat-graph-canvas");
 		await fireEvent.click(nodeEl(container, "p1"));
 		await waitFor(() => expect(nodeEl(container, "tc1")).not.toBeNull());
@@ -374,52 +375,40 @@ describe("ChatGraphPanel drill-down", () => {
 		await fireEvent.click(nodeEl(container, "tc1"));
 		expect(await findByTestId("chat-graph-detail")).toHaveAttribute("data-detail-for", "tc1");
 
-		// Hover wins while the pointer is on another node...
-		await fireEvent.mouseEnter(nodeEl(container, "think"));
+		// Hovering a different node opens the canvas card...
+		await fireEvent.mouseEnter(nodeEl(container, "think"), { clientX: 40, clientY: 40 });
 		await waitFor(() =>
-			expect(queryByTestIdIn(container, "chat-graph-detail")).toHaveAttribute(
-				"data-detail-for",
-				"think",
-			),
+			expect(queryByTestId("chat-graph-hover-card")).toHaveAttribute("data-detail-for", "think"),
 		);
-
-		// ...and the selection is still intact once the hover ends.
-		await fireEvent.mouseLeave(nodeEl(container, "think"));
-		await waitFor(() =>
-			expect(queryByTestIdIn(container, "chat-graph-detail")).toHaveAttribute(
-				"data-detail-for",
-				"tc1",
-			),
-		);
+		// ...while the footer still records the selection.
+		expect(queryByTestId("chat-graph-detail")).toHaveAttribute("data-detail-for", "tc1");
 	});
 
-	test("the kind heading is colour-coded by node kind", async () => {
-		stubFetch({ [L1_URL]: LEVEL_1 });
+	test("the footer's kind heading is colour-coded by node kind", async () => {
+		stubFetch({ [L1_URL]: LEVEL_1, [L2_URL]: LEVEL_2 });
 		const { container, findByTestId } = open();
 		await findByTestId("chat-graph-canvas");
-		await fireEvent.mouseEnter(nodeEl(container, "p1"));
+		await fireEvent.click(nodeEl(container, "p1"));
+		await waitFor(() => expect(nodeEl(container, "sub")).not.toBeNull());
+		await fireEvent.click(nodeEl(container, "tc1"));
 		const kind = (await findByTestId("chat-graph-detail")).querySelector(".detail-kind");
-		expect(kind?.getAttribute("data-kind")).toBe("prompt");
+		expect(kind?.getAttribute("data-kind")).toBe("tool");
 	});
 
-	test("the card is mouse-overable — entering it cancels the pending close", async () => {
-		stubFetch({ [L1_URL]: LEVEL_1 });
+	test("the footer persists while the pointer roams the graph", async () => {
+		// It is the mouse-overable surface (text can be selected out of it), so
+		// it must not flicker away when the pointer merely moves over nodes.
+		stubFetch({ [L1_URL]: LEVEL_1, [L2_URL]: LEVEL_2 });
 		const { container, findByTestId, queryByTestId } = open();
 		await findByTestId("chat-graph-canvas");
-		const target = nodeEl(container, "p1");
-		await fireEvent.mouseEnter(target);
-		const card = await findByTestId("chat-graph-detail");
+		await fireEvent.click(nodeEl(container, "p1"));
+		await waitFor(() => expect(nodeEl(container, "tc1")).not.toBeNull());
+		await fireEvent.click(nodeEl(container, "tc1"));
+		await findByTestId("chat-graph-detail");
 
-		// Pointer leaves the node for the card; the close is only SCHEDULED, so
-		// entering the card during the grace period keeps it open.
-		await fireEvent.mouseLeave(target);
-		await fireEvent.mouseEnter(card);
-		await new Promise((r) => setTimeout(r, 300));
-		expect(queryByTestId("chat-graph-detail")).not.toBeNull();
-
-		// Leaving the card itself does close it.
-		await fireEvent.mouseLeave(card);
-		await waitFor(() => expect(queryByTestId("chat-graph-detail")).toBeNull());
+		await fireEvent.mouseEnter(nodeEl(container, "think"), { clientX: 30, clientY: 30 });
+		await fireEvent.mouseLeave(nodeEl(container, "think"));
+		expect(queryByTestId("chat-graph-detail")).toHaveAttribute("data-detail-for", "tc1");
 	});
 
 	test("navigating clears the previously selected node's details", async () => {

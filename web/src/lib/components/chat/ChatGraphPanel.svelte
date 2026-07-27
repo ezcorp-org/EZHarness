@@ -50,42 +50,11 @@
 	let selected = $state<GraphNode | null>(null);
 
 	/**
-	 * Node under the pointer/focus, reported by the canvas. The footer shows
-	 * this in preference to the click-selected node, so hovering previews
-	 * without disturbing a selection.
-	 *
-	 * A grace period covers the pointer's trip from the graph down to the
-	 * footer: the card is mouse-overable (you can select text out of it), so
-	 * closing the instant the node is left would snatch it away mid-crossing.
+	 * The footer describes the CLICK-SELECTED node only. Hover is handled by
+	 * the canvas's own floating card, which follows the cursor — the footer
+	 * would otherwise flicker between hovers while the user is reading it.
 	 */
-	let hovered = $state<GraphNode | null>(null);
-	const HOVER_HIDE_MS = 160;
-	let hoverTimer: ReturnType<typeof setTimeout> | null = null;
-
-	function cancelHoverHide() {
-		if (hoverTimer !== null) {
-			clearTimeout(hoverTimer);
-			hoverTimer = null;
-		}
-	}
-
-	function onNodeHover(node: GraphNode | null) {
-		cancelHoverHide();
-		if (node !== null) {
-			hovered = node;
-			return;
-		}
-		hoverTimer = setTimeout(() => {
-			hoverTimer = null;
-			hovered = null;
-		}, HOVER_HIDE_MS);
-	}
-
-	$effect(() => () => cancelHoverHide());
-
-	/** What the footer describes: the hovered node wins over the selected one. */
-	let detailNode = $derived(hovered ?? selected);
-	let detailCard = $derived(detailNode === null ? null : nodeDetailCard(detailNode));
+	let detailCard = $derived(selected === null ? null : nodeDetailCard(selected));
 
 	/** Local clock for the Time row. Locale-dependent, so not in the pure module. */
 	function formatClock(iso: string): string {
@@ -265,23 +234,18 @@
 					selectedId={selected?.id ?? null}
 					focusOnMount={focusGraphOnMount}
 					onactivate={onNodeActivate}
-					onnodehover={onNodeHover}
 				/>
 			{/if}
 		</div>
 
-		<!-- Detail card. Lives BELOW the canvas, never over it: it is
-		     mouse-overable (so text can be selected out of it), and an
-		     interactive overlay inside the graph covers the neighbouring nodes
-		     and swallows their hover. Its own hover cancels the pending close
-		     so the pointer can travel here from a node. -->
-		{#if detailNode !== null && detailCard !== null}
+		<!-- Footer detail for the CLICK-SELECTED node. Sits below the canvas, so
+		     unlike the canvas's floating hover card it can be moused over (text
+		     selected out of it) without ever covering a node. -->
+		{#if selected !== null && detailCard !== null}
 			<div
 				data-testid="chat-graph-detail"
-				data-detail-for={detailNode.id}
+				data-detail-for={selected.id}
 				class="detail-card border-t border-[var(--color-border)] bg-[var(--color-surface-secondary)] px-4 py-3"
-				onmouseenter={cancelHoverHide}
-				onmouseleave={() => onNodeHover(null)}
 				role="status"
 				aria-live="polite"
 			>
