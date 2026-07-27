@@ -133,6 +133,30 @@ describe("idempotency — patches re-derive from the pristine base", () => {
   });
 });
 
+describe("text[] columns inherit the scrub through their base column", () => {
+  // `schema.ts` has two `text().array()` columns (modes.allowed_tools,
+  // modes.extension_ids). Those are PgArray, NOT PgText — nothing patches
+  // PgArray. They are covered only because PgArray.mapToDriverValue delegates
+  // per element to `baseColumn.mapToDriverValue`, and the base column IS a
+  // PgText instance. That is an internal drizzle detail an upgrade could drop
+  // silently, and the failure mode would be a whole row refused by Postgres, so
+  // pin it here rather than trusting it.
+  test("a NUL inside a text[] element is scrubbed", async () => {
+    const { modes } = await import("../db/schema");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const column = (modes as any).allowedTools;
+    expect(column.constructor.name).toBe("PgArray");
+    expect(column.baseColumn.constructor.name).toBe("PgText");
+
+    await patchTextColumns();
+    const encoded = String(column.mapToDriverValue([`read${NUL}file`, "clean"]));
+
+    expect(encoded).toContain(`read${FFFD}file`);
+    expect(encoded).toContain("clean");
+    expect(encoded.includes(NUL)).toBe(false);
+  });
+});
+
 describe("applyPgliteNulPatches", () => {
   test("installs BOTH the json and text scrubbers in one call", async () => {
     await applyPgliteNulPatches();
