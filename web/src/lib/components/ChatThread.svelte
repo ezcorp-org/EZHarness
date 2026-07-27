@@ -268,6 +268,11 @@
 		diffFileCount: number;
 		taskSnapshot: (typeof store.taskSnapshots)[string] | null;
 		toggleSelectMode: () => void;
+		/** Send a message as the user, through the thread's own send path.
+		 *  Chrome panels are rendered by the page, outside this component, so
+		 *  they have no composer of their own — the task panel's "work on this
+		 *  task" click needs this to reach `handleSend`. */
+		sendMessage: (content: string) => void;
 		/** Header's permission-mode chooser writes through this so the
 		 *  thread's send-message factory picks it up. */
 		setPermissionMode: (mode: PermissionMode | undefined) => void;
@@ -1187,6 +1192,9 @@
 		diffFileCount,
 		taskSnapshot,
 		toggleSelectMode: () => selectMode.toggleSelectMode(),
+		sendMessage: (content: string) => {
+			void handleSend(content);
+		},
 		setPermissionMode: (mode) => {
 			permissionModeOverride = mode;
 		},

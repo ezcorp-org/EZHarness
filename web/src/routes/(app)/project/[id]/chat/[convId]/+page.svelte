@@ -329,7 +329,7 @@
 					snapshot={taskSnapshot}
 					conversationId={convId}
 					selectedModel={chrome.selectedModel}
-					onsendmessage={() => {}}
+					onsendmessage={chrome.sendMessage}
 					ontaskclick={(task) => {
 						taskLogsTask = task;
 						taskLogsOpen = true;
