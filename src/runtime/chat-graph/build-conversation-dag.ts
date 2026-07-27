@@ -28,8 +28,8 @@
  */
 
 import { truncateLabel } from "./labels";
-import { byCreatedAtThenId } from "./order";
-import type { ChatGraph, GraphEdge, GraphNode } from "./types";
+import { byCreatedAtThenId, toMs } from "./order";
+import type { ChatGraph, GraphEdge, GraphNode, TurnStats } from "./types";
 
 /** A session-tree node — the `computeSessionTree` (`SessionTreeNode`) shape. */
 export interface ConversationTreeNode {
@@ -56,11 +56,24 @@ export interface ConversationDagSubConversation {
   parentMessageId: string | null;
 }
 
+/**
+ * Per-assistant-message activity, used to roll each turn's stats up onto its
+ * prompt node. Supplied by `load.ts` from the same read that fetches the
+ * messages — no extra query.
+ */
+export interface ConversationDagActivity {
+  messageId: string;
+  toolCalls: number;
+  hasThinking: boolean;
+}
+
 export interface ConversationDagInput {
   conversationId: string;
   treeNodes: ConversationTreeNode[];
   messages: ConversationDagMessage[];
   subConversations: ConversationDagSubConversation[];
+  /** Optional: absent means the roll-up is simply omitted, never zeroed. */
+  activity?: ConversationDagActivity[];
   /** Set by `load.ts` when the topology is the flat `parentMessageId` chain. */
   degraded?: boolean;
 }
@@ -79,11 +92,62 @@ export function buildConversationDag(input: ConversationDagInput): ChatGraph {
   // node whose row didn't come back in the same read.
   const roleOf = (id: string): string | undefined => messageById.get(id)?.role ?? treeById.get(id)?.role;
 
+  const activityById = new Map((input.activity ?? []).map((a) => [a.messageId, a]));
+  const childrenByParent = new Map<string, ConversationTreeNode[]>();
+  for (const n of ordered) {
+    if (n.parentId === null) continue;
+    const bucket = childrenByParent.get(n.parentId);
+    if (bucket) bucket.push(n);
+    else childrenByParent.set(n.parentId, [n]);
+  }
+
+  /**
+   * Members of one turn: everything reachable below the prompt WITHOUT
+   * crossing into the next user row. Mirrors the level-2 builder's slicing so
+   * the counts shown here always match what drilling in renders. `seen` also
+   * bounds a corrupt parent cycle.
+   */
+  function turnMembers(promptId: string): ConversationTreeNode[] {
+    const members: ConversationTreeNode[] = [];
+    const seen = new Set<string>([promptId]);
+    const queue = [promptId];
+    while (queue.length > 0) {
+      const cur = queue.shift()!;
+      for (const child of childrenByParent.get(cur) ?? []) {
+        if (seen.has(child.id) || roleOf(child.id) === "user") continue;
+        seen.add(child.id);
+        members.push(child);
+        queue.push(child.id);
+      }
+    }
+    return members;
+  }
+
+  const subsByParent = new Map<string, number>();
+  for (const sub of input.subConversations) {
+    if (sub.parentMessageId === null) continue;
+    subsByParent.set(sub.parentMessageId, (subsByParent.get(sub.parentMessageId) ?? 0) + 1);
+  }
+
   const nodes: GraphNode[] = [];
   const promptIds = new Set<string>();
   for (const n of ordered) {
     if (roleOf(n.id) !== "user") continue;
     promptIds.add(n.id);
+    const members = turnMembers(n.id);
+    const assistants = members.filter((m) => roleOf(m.id) === "assistant");
+    const stats: TurnStats = {
+      replies: assistants.length,
+      toolCalls: members.reduce((sum, m) => sum + (activityById.get(m.id)?.toolCalls ?? 0), 0),
+      subAgents: members.reduce((sum, m) => sum + (subsByParent.get(m.id) ?? 0), 0) +
+        (subsByParent.get(n.id) ?? 0),
+      thinking: members.filter((m) => activityById.get(m.id)?.hasThinking === true).length,
+    };
+    // Elapsed SPAN of the turn, not a sum of tool durations. Omitted when the
+    // turn has no members, or when the clock did not advance — a zero here
+    // would read as "instant" when it really means "unknown".
+    const lastAt = members.reduce((max, m) => Math.max(max, toMs(m.createdAt)), Number.NEGATIVE_INFINITY);
+    const span = lastAt - toMs(n.createdAt);
     nodes.push({
       ...truncateLabel(messageById.get(n.id)?.content ?? ""),
       id: n.id,
@@ -93,6 +157,8 @@ export function buildConversationDag(input: ConversationDagInput): ChatGraph {
       // Drilling a prompt into its turn is the headline interaction, so
       // EVERY prompt node is drillable — no conditional.
       drillable: true,
+      ...(Number.isFinite(span) && span > 0 ? { durationMs: span } : {}),
+      stats,
       ...(n.excluded ? { excluded: true } : {}),
     });
   }

@@ -98,6 +98,10 @@ describe("buildConversationDag — shape", () => {
         status: "success",
         createdAt: at(0),
         drillable: true,
+        // The turn's elapsed span (u1 → a1) and its roll-up. `build()` passes
+        // no `activity`, so the tool/thinking counts are legitimately 0.
+        durationMs: 1000,
+        stats: { replies: 1, toolCalls: 0, subAgents: 0, thinking: 0 },
       },
     ]);
     expect(graph.edges).toEqual([]);
@@ -307,5 +311,97 @@ describe("buildConversationDag — degraded mode", () => {
     expect(graph.degraded).toBe(true);
     expect(graph.nodes.map((n) => n.id)).toEqual(["u1", "u2"]);
     expect(graph.edges).toEqual([{ from: "u1", to: "u2", kind: "sequence" }]);
+  });
+});
+
+describe("turn roll-up on level-1 prompt nodes", () => {
+  // u1 → a1 (2 tools, thinking) → a2 (1 tool); sub-agent off a1. Then u2.
+  const SPECS: RowSpec[] = [
+    { id: "u1", role: "user", seconds: 0 },
+    { id: "a1", role: "assistant", parentId: "u1", seconds: 2 },
+    { id: "a2", role: "assistant", parentId: "a1", seconds: 5 },
+    { id: "u2", role: "user", parentId: "a2", seconds: 60 },
+  ];
+  const ACTIVITY = [
+    { messageId: "a1", toolCalls: 2, hasThinking: true },
+    { messageId: "a2", toolCalls: 1, hasThinking: false },
+  ];
+  const SUBS: ConversationDagSubConversation[] = [
+    { id: "sub-1", agentName: "reviewer", parentMessageId: "a1" },
+  ];
+
+  function withStats(over: Partial<ConversationDagInput> = {}) {
+    return buildConversationDag({
+      conversationId: "conv-1",
+      ...rows(SPECS),
+      subConversations: SUBS,
+      activity: ACTIVITY,
+      ...over,
+    });
+  }
+
+  test("counts everything the turn contains, matching what drilling in shows", () => {
+    const u1 = withStats().nodes.find((n) => n.id === "u1");
+    expect(u1?.stats).toEqual({ replies: 2, toolCalls: 3, subAgents: 1, thinking: 1 });
+  });
+
+  test("a turn with nothing after it rolls up to zeroes, not to undefined", () => {
+    const u2 = withStats().nodes.find((n) => n.id === "u2");
+    expect(u2?.stats).toEqual({ replies: 0, toolCalls: 0, subAgents: 0, thinking: 0 });
+  });
+
+  test("durationMs is the elapsed SPAN from the prompt to the turn's last row", () => {
+    expect(withStats().nodes.find((n) => n.id === "u1")?.durationMs).toBe(5000);
+  });
+
+  test("a turn with no members reports no duration rather than 0ms", () => {
+    // The contract treats 0 as unknown; a bare 0 would read as "instant".
+    expect(withStats().nodes.find((n) => n.id === "u2")?.durationMs).toBeUndefined();
+  });
+
+  test("the span never crosses into the NEXT turn", () => {
+    // u2 is 55s after a2; if the slicing leaked, u1's span would swallow it.
+    expect(withStats().nodes.find((n) => n.id === "u1")?.durationMs).toBeLessThan(55_000);
+  });
+
+  test("a sub-agent hung directly off the prompt counts too", () => {
+    const g = withStats({
+      subConversations: [{ id: "s", agentName: "x", parentMessageId: "u1" }],
+    });
+    expect(g.nodes.find((n) => n.id === "u1")?.stats?.subAgents).toBe(1);
+  });
+
+  test("omitting activity yields zero counts, never fabricated ones", () => {
+    const u1 = withStats({ activity: undefined }).nodes.find((n) => n.id === "u1");
+    expect(u1?.stats?.toolCalls).toBe(0);
+    expect(u1?.stats?.thinking).toBe(0);
+    // Structure still present, so the card renders a consistent shape.
+    expect(u1?.stats?.replies).toBe(2);
+  });
+
+  test("an A-B retry's sibling replies both count toward the same turn", () => {
+    const g = withStats({
+      ...rows([
+        { id: "u1", role: "user", seconds: 0 },
+        { id: "a1", role: "assistant", parentId: "u1", seconds: 2 },
+        { id: "a1b", role: "assistant", parentId: "u1", seconds: 4 },
+      ]),
+      subConversations: [],
+      activity: [],
+    });
+    expect(g.nodes.find((n) => n.id === "u1")?.stats?.replies).toBe(2);
+  });
+
+  test("a corrupt parent cycle terminates instead of hanging", () => {
+    const g = buildConversationDag({
+      conversationId: "conv-1",
+      ...rows([
+        { id: "u1", role: "user", seconds: 0 },
+        { id: "a1", role: "assistant", parentId: "a2", seconds: 2 },
+        { id: "a2", role: "assistant", parentId: "a1", seconds: 3 },
+      ]),
+      subConversations: [],
+    });
+    expect(g.nodes.find((n) => n.id === "u1")?.stats).toBeDefined();
   });
 });

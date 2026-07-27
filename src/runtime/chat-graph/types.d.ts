@@ -88,8 +88,34 @@ export interface GraphNode {
   subConversationId?: string;
   /** For `tool` nodes: which extension owns it (`"builtin"` for host tools). */
   extensionId?: string;
+  /**
+   * Turn roll-up, level-1 prompt nodes only. Absent elsewhere.
+   *
+   * On those nodes `durationMs` is the turn's ELAPSED SPAN — last member's
+   * timestamp minus the prompt's — not a sum of tool durations. It is derived
+   * from timestamps the graph already holds, so it is a measurement rather
+   * than an estimate, but it includes think time and idle gaps.
+   */
+  stats?: TurnStats;
   /** Free-form extras for the detail pane. Never load-bearing for layout. */
   meta?: Record<string, unknown>;
+}
+
+/**
+ * Roll-up of what happened inside one turn. Set on LEVEL-1 prompt nodes only:
+ * level 2 already draws each of these as its own node, so repeating the counts
+ * there would restate what is on screen.
+ *
+ * Counts are of graph-visible things, so they always agree with what drilling
+ * in will show. `replies` counts assistant messages, which is > 1 whenever a
+ * turn looped through tools or an A-B retry produced a sibling.
+ */
+export interface TurnStats {
+  replies: number;
+  toolCalls: number;
+  subAgents: number;
+  /** Assistant messages that persisted a reasoning blob. */
+  thinking: number;
 }
 
 export interface GraphEdge {

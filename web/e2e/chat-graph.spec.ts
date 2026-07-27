@@ -128,7 +128,9 @@ test.describe("Chat DAG graph panel", () => {
 		}
 		await expect(panel.locator(`[data-node-id="${PROMPT_BENCH}"]`)).toHaveAttribute(
 			"aria-label",
-			`Prompt: ${LABEL_BENCH}, succeeded. Opens this turn's trace.`,
+			// The turn's elapsed span rides the accessible name too, so a screen
+			// reader hears how long the turn took without opening the card.
+			`Prompt: ${LABEL_BENCH}, succeeded, 8s. Opens this turn's trace.`,
 		);
 
 		// Level 1 is the bare endpoint — no `?turn=`.
@@ -534,8 +536,15 @@ test("hovering a node opens a card at the cursor that follows it between nodes",
 	await expect(card).toBeVisible();
 	await expect(card).toHaveAttribute("data-detail-for", PROMPT_PLAN);
 	await expect(panel.locator('[data-testid="chat-graph-hover-glance"]')).toContainText("Prompt");
-	await expect(card).toContainText("Duration");
-	await expect(card).toContainText("Time");
+	// A turn reports its elapsed span as "Took", plus a breakdown of what it
+	// contained. Zero counts are dropped, so the rollback turn shows none.
+	await expect(card).toContainText("Took");
+	await expect(card).toContainText("42s");
+	await expect(card).toContainText("Replies 2");
+	await expect(card).toContainText("Tool calls 3");
+	await expect(card).toContainText("Sub-agents 1");
+	await expect(card).toContainText("Thinking steps 1");
+	await expect(card).toContainText("Started");
 
 	// It is anchored to the cursor, not pinned to a corner.
 	const box = await card.boundingBox();
@@ -545,6 +554,9 @@ test("hovering a node opens a card at the cursor that follows it between nodes",
 	await panel.locator(`[data-node-id="${PROMPT_ROLLBACK}"]`).hover();
 	await expect(card).toHaveAttribute("data-detail-for", PROMPT_ROLLBACK);
 	await expect(card).toContainText("Rewound away");
+	// A turn that produced nothing: replies still shown at 0, the rest dropped.
+	await expect(card).toContainText("Replies 0");
+	await expect(card).not.toContainText("Tool calls");
 
 	// The sub-agent names the chat it opens, and its heading is kind-coloured.
 	await panel.locator(`[data-node-id="${SUBCONV_ID}"]`).hover();

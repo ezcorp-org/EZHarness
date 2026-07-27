@@ -387,8 +387,20 @@ export function nodeDetailCard(node: GraphNode): NodeDetailCard {
 	if (node.kind === "subagent" && node.subConversationId !== undefined) {
 		rows.push({ term: "Sub-chat", value: node.subConversationId });
 	}
-	rows.push({ term: "Duration", value: duration });
-	rows.push({ term: "Time", value: node.createdAt });
+	rows.push({ term: node.stats === undefined ? "Duration" : "Took", value: duration });
+	rows.push({ term: "Started", value: node.createdAt });
+
+	// Turn roll-up (level-1 prompts). Zero counts are DROPPED rather than shown
+	// as "0": a turn with no sub-agents should read as a shorter card, not as a
+	// list of absences. `replies` is always shown — every turn has at least one,
+	// and a 0 there is genuinely informative (the turn never produced output).
+	if (node.stats !== undefined) {
+		const s = node.stats;
+		rows.push({ term: "Replies", value: String(s.replies) });
+		if (s.toolCalls > 0) rows.push({ term: "Tool calls", value: String(s.toolCalls) });
+		if (s.subAgents > 0) rows.push({ term: "Sub-agents", value: String(s.subAgents) });
+		if (s.thinking > 0) rows.push({ term: "Thinking steps", value: String(s.thinking) });
+	}
 	if (node.excluded === true) {
 		rows.push({ term: "Branch", value: "Rewound away — not sent to the model" });
 	}

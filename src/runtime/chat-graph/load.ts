@@ -84,6 +84,12 @@ export async function loadConversationGraph(conversationId: string): Promise<Cha
     conversationId,
     treeNodes: topology.nodes,
     messages: messages.map((m) => ({ id: m.id, role: m.role, content: m.content })),
+    // Same read, no extra query: roll each turn's activity onto its prompt.
+    activity: messages.map((m) => ({
+      messageId: m.id,
+      toolCalls: m.toolCalls.length,
+      hasThinking: (m.thinkingContent ?? "").length > 0,
+    })),
     subConversations: subConversations.map((s) => ({
       id: s.id,
       agentName: s.agentName,

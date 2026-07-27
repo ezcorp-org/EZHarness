@@ -150,6 +150,10 @@ export const level1: ChatGraph = {
 			status: "success",
 			createdAt: "2026-04-01T00:00:00.000Z",
 			drillable: true,
+			// Turn roll-up: elapsed span plus what the turn contained. Mirrors
+			// what `buildConversationDag` computes for a real turn.
+			durationMs: 42_000,
+			stats: { replies: 2, toolCalls: 3, subAgents: 1, thinking: 1 },
 		},
 		{
 			id: PROMPT_ROLLBACK,
@@ -159,6 +163,9 @@ export const level1: ChatGraph = {
 			createdAt: "2026-04-01T00:01:00.000Z",
 			drillable: true,
 			excluded: true,
+			// A turn that produced nothing: every optional count is dropped from
+			// the card, and `replies: 0` is still shown because it is news.
+			stats: { replies: 0, toolCalls: 0, subAgents: 0, thinking: 0 },
 		},
 		{
 			id: PROMPT_BENCH,
@@ -167,6 +174,8 @@ export const level1: ChatGraph = {
 			status: "success",
 			createdAt: "2026-04-01T00:02:00.000Z",
 			drillable: true,
+			durationMs: 8000,
+			stats: { replies: 1, toolCalls: 2, subAgents: 1, thinking: 1 },
 		},
 		{
 			id: SUBCONV_ID,

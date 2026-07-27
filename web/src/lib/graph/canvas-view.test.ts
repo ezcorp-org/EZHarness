@@ -395,15 +395,57 @@ describe("nodeDetailCard", () => {
 		expect(card.hint).toBeTruthy();
 	});
 
-	test("the Time row carries the RAW iso — formatting is the component's job", () => {
+	test("the Started row carries the RAW iso — formatting is the component's job", () => {
 		const iso = "2026-07-26T10:00:03.000Z";
 		const card = nodeDetailCard(node({ createdAt: iso }));
-		expect(card.rows).toContainEqual({ term: "Time", value: iso });
+		expect(card.rows).toContainEqual({ term: "Started", value: iso });
 	});
 
 	test("an unknown duration still gets a row, showing the em dash", () => {
 		const card = nodeDetailCard(node({ kind: "prompt" }));
 		expect(card.rows).toContainEqual({ term: "Duration", value: DURATION_UNKNOWN });
+	});
+
+	test("a turn's duration is labelled 'Took' — it is an elapsed span, not a tool time", () => {
+		const card = nodeDetailCard(
+			node({ durationMs: 5000, stats: { replies: 2, toolCalls: 3, subAgents: 1, thinking: 1 } }),
+		);
+		expect(card.rows).toContainEqual({ term: "Took", value: "5s" });
+		expect(card.rows.find((r) => r.term === "Duration")).toBeUndefined();
+	});
+
+	test("a turn breaks down what it contains", () => {
+		const card = nodeDetailCard(
+			node({ stats: { replies: 2, toolCalls: 3, subAgents: 1, thinking: 4 } }),
+		);
+		expect(card.rows).toContainEqual({ term: "Replies", value: "2" });
+		expect(card.rows).toContainEqual({ term: "Tool calls", value: "3" });
+		expect(card.rows).toContainEqual({ term: "Sub-agents", value: "1" });
+		expect(card.rows).toContainEqual({ term: "Thinking steps", value: "4" });
+	});
+
+	test("zero counts are dropped, so a simple turn reads as a shorter card", () => {
+		const card = nodeDetailCard(
+			node({ stats: { replies: 1, toolCalls: 0, subAgents: 0, thinking: 0 } }),
+		);
+		expect(card.rows).toContainEqual({ term: "Replies", value: "1" });
+		for (const term of ["Tool calls", "Sub-agents", "Thinking steps"]) {
+			expect(card.rows.find((r) => r.term === term)).toBeUndefined();
+		}
+	});
+
+	test("replies is shown even at zero — a turn that produced nothing is news", () => {
+		const card = nodeDetailCard(
+			node({ stats: { replies: 0, toolCalls: 0, subAgents: 0, thinking: 0 } }),
+		);
+		expect(card.rows).toContainEqual({ term: "Replies", value: "0" });
+	});
+
+	test("a node with no stats gets no breakdown rows at all", () => {
+		const card = nodeDetailCard(node({ kind: "tool" }));
+		for (const term of ["Replies", "Tool calls", "Sub-agents", "Thinking steps"]) {
+			expect(card.rows.find((r) => r.term === term)).toBeUndefined();
+		}
 	});
 
 	test("a rewound-away node says so in words, not only in colour", () => {

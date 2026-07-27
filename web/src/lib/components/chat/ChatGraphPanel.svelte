@@ -261,7 +261,7 @@
 					{#each detailCard.rows as row (row.term)}
 						<div class="detail-row">
 							<dt>{row.term}</dt>
-							<dd>{row.term === "Time" ? formatClock(row.value) : row.value}</dd>
+							<dd>{row.term === "Started" ? formatClock(row.value) : row.value}</dd>
 						</div>
 					{/each}
 				</dl>
