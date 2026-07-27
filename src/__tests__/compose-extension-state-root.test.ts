@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { dirname, join } from "node:path";
+import { resolveProjectRoot } from "../extensions/bundled";
 
 /**
  * Locks the compose bind targets for extension state to the root that
@@ -14,23 +15,33 @@ import { dirname, join } from "node:path";
  * container's throwaway overlay, so installs "worked" until the next
  * container recreate silently wiped them, and the bind sat unwritten.
  *
- * Neither root is hardcoded here. Both are DERIVED from the compose file's
- * own source mounts, mirroring how each root is really computed:
+ * ## Why this is not a tautology
  *
- *   projectRoot  ← dirname of the target of the `./src` bind
- *                  (getProjectRoot() resolves from an import.meta.dir
- *                  containing src/extensions, so it lands on the dir
- *                  holding src/)
- *   webCwd       ← dirname of the target of the `./web/src` bind
- *                  (the dev server runs `cd web && bun run dev`)
+ * A compose test that re-asserts a literal it just read from the same
+ * compose file proves nothing. The bug was a MISMATCH between two
+ * independently-maintained artifacts — the compose bind target and the
+ * root the code computes — so the test has to hold one against the other.
  *
- * So the assertions stay correct if the container layout ever moves off
- * /app, and they fail if the two roots are ever conflated again.
+ * `projectRoot` is therefore not asserted to equal a string, and not
+ * merely derived by a rule restated in a comment. The container's own
+ * declared layout is fed to the REAL resolver:
  *
- * The `ext-data` named volume is asserted to STAY at <webCwd>/.ezcorp: it
- * backs the genuinely cwd-anchored generated-image store and .ezcorp/data.
- * The dual-root situation is real and deliberate — this test pins which
- * subtree belongs to which root rather than collapsing them.
+ *   `./src:<srcTarget>`  →  resolveProjectRoot({ importMetaDir:
+ *                             join(srcTarget, "extensions") })
+ *
+ * That is exactly the input `bundled.ts` sees at runtime (its
+ * `import.meta.dir` is `<root>/src/extensions`), so the root under test
+ * is produced by the shipped resolution logic, not by this file's idea of
+ * it. Change how `getProjectRoot()` resolves without moving the bind and
+ * this suite fails — which is the coupling that was missing.
+ *
+ * `webCwd` is derived from the `./web/src` bind (the dev server runs
+ * `cd web && bun run dev`), and nothing may target extension state under
+ * it. The `ext-data` named volume is asserted to STAY at <webCwd>/.ezcorp:
+ * it backs the genuinely cwd-anchored generated-image store, .ezcorp/data,
+ * and the daemon .pid lockfiles. The dual-root situation is real and
+ * deliberate — this test pins which subtree belongs to which root rather
+ * than collapsing them.
  */
 
 const ROOT = join(import.meta.dir, "..", "..");
@@ -66,21 +77,50 @@ function targets(volumes: readonly string[]): string[] {
   return volumes.map((v) => v.split(":")[1] ?? "");
 }
 
+/**
+ * The project root the SHIPPED resolver derives from the container layout
+ * the compose file declares.
+ *
+ * `env: {}` keeps a stray `EZCORP_PROJECT_ROOT` in the test environment
+ * from short-circuiting step 1, so the answer comes from the import-meta
+ * branch — the one that runs in the container, where no such env var is
+ * set.
+ */
+function resolvedProjectRoot(volumes: readonly string[]): string {
+  const srcTarget = targetOf(volumes, "./src");
+  expect(srcTarget).toBeDefined();
+  const { root, source } = resolveProjectRoot({
+    env: {},
+    importMetaDir: join(srcTarget!, "extensions"),
+  });
+  // A fallback would mean the root is no longer a function of the layout,
+  // and every assertion built on it would be vacuous.
+  expect(source).toBe("import-meta");
+  return root;
+}
+
 describe("docker-compose.yml — extension state is anchored to getProjectRoot()", () => {
-  test("the two roots are distinct and derived from the compose file itself", async () => {
+  test("the real resolver maps the container's src/ mount to the project root", async () => {
     const vols = await appVolumes("docker-compose.yml");
-    const srcTarget = targetOf(vols, "./src");
+    const srcTarget = targetOf(vols, "./src")!;
+
+    // The claim the whole suite rests on, driven through the shipped
+    // resolution order rather than restated as a comment.
+    expect(resolvedProjectRoot(vols)).toBe(dirname(srcTarget));
+  });
+
+  test("the two roots are distinct: the dev-server cwd is BELOW the project root", async () => {
+    const vols = await appVolumes("docker-compose.yml");
     const webSrcTarget = targetOf(vols, "./web/src");
-    expect(srcTarget).toBeDefined();
     expect(webSrcTarget).toBeDefined();
-    // Sanity: the dev server's cwd is a SUBdirectory of the project root.
-    // If this ever stops holding, the rest of this suite is meaningless.
-    expect(dirname(webSrcTarget!)).toBe(join(dirname(srcTarget!), "web"));
+    // `cd web && bun run dev` — if this ever stops holding, the rest of
+    // this suite is meaningless.
+    expect(dirname(webSrcTarget!)).toBe(join(resolvedProjectRoot(vols), "web"));
   });
 
   test("extensions/ + extension-data/ bind under the project root, not the dev-server cwd", async () => {
     const vols = await appVolumes("docker-compose.yml");
-    const projectRoot = dirname(targetOf(vols, "./src")!);
+    const projectRoot = resolvedProjectRoot(vols);
 
     expect(targetOf(vols, "./.ezcorp/extensions")).toBe(
       join(projectRoot, ".ezcorp/extensions"),
@@ -108,12 +148,22 @@ describe("docker-compose.yml — extension state is anchored to getProjectRoot()
 });
 
 describe("compose.prod.yml — same extension-state contract", () => {
-  test("prod binds extension state at the project root (WORKDIR=/app)", async () => {
+  /**
+   * Prod has no `./src` bind to derive from (it runs a built image), but
+   * it does not need one: prod's WORKDIR IS the project root, so its
+   * `ext-data` volume already sits at <projectRoot>/.ezcorp. Holding the
+   * extension binds against that volume couples the two prod facts to
+   * each other — move one without the other and this fails.
+   */
+  test("prod binds extension state under the same root as its ext-data volume", async () => {
     const vols = await appVolumes("compose.prod.yml");
+    const prodRoot = dirname(targetOf(vols, "ext-data")!);
 
-    expect(targetOf(vols, "./.ezcorp/extensions")).toBe("/app/.ezcorp/extensions");
+    expect(targetOf(vols, "./.ezcorp/extensions")).toBe(
+      join(prodRoot, ".ezcorp/extensions"),
+    );
     expect(targetOf(vols, "./.ezcorp/extension-data")).toBe(
-      "/app/.ezcorp/extension-data",
+      join(prodRoot, ".ezcorp/extension-data"),
     );
   });
 
