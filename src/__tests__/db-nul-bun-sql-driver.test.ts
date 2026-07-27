@@ -34,10 +34,18 @@ const SCRUBBED = `spawn /app/web/.ezcorp/extensions/timezone-time-hi${FFFD} /bin
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const { PgJsonb } = await import("drizzle-orm/pg-core/columns/jsonb");
+const { PgJson } = await import("drizzle-orm/pg-core/columns/json");
 const { PgText } = await import("drizzle-orm/pg-core/columns/text");
 
-const pristineJsonb = (PgJsonb.prototype as any).mapToDriverValue;
-const pristineText = (PgText.prototype as any).mapToDriverValue;
+// EVERY prototype these patches touch, snapshotted before any of them run.
+// `patchJsonColumns` patches PgJson as well as PgJsonb, so restoring only the
+// two prototypes this file asserts on would still leak the bun-sql form.
+const protos: Array<[string, any]> = [
+  ["jsonb", PgJsonb.prototype],
+  ["json", PgJson.prototype],
+  ["text", PgText.prototype],
+];
+const pristine = new Map(protos.map(([name, proto]) => [name, proto.mapToDriverValue]));
 
 const mapJsonb = (value: unknown) => (PgJsonb.prototype as any).mapToDriverValue(value);
 const mapText = (value: unknown) => (PgText.prototype as any).mapToDriverValue(value);
@@ -70,10 +78,7 @@ afterAll(async () => {
 // The prototypes are process-global; leaving the bun-sql form installed would
 // change how every later test in this process serializes jsonb.
 afterEach(() => {
-  /* eslint-disable @typescript-eslint/no-explicit-any */
-  (PgJsonb.prototype as any).mapToDriverValue = pristineJsonb;
-  (PgText.prototype as any).mapToDriverValue = pristineText;
-  /* eslint-enable @typescript-eslint/no-explicit-any */
+  for (const [name, proto] of protos) proto.mapToDriverValue = pristine.get(name);
 });
 
 async function insert(txt: string | null, payload: string | null): Promise<void> {
