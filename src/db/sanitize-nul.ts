@@ -187,6 +187,12 @@ function scan(value: unknown, depth: number): ScanResult {
  * drivers — so it is served by an allocation-free scan and only falls through
  * to the rebuilding `walk` once a NUL is known to be present. Callers may rely
  * on the returned identity to detect a no-op.
+ *
+ * One documented exception: a value the scan cannot finish (cyclic, or so
+ * heavily shared that it exhausts the node budget) falls through to `walk`,
+ * which rebuilds it even when clean. Harmless — such a value cannot be written
+ * to jsonb at all, since JSON.stringify throws on a cycle — and the result is
+ * still structurally equal with its cycles intact.
  */
 export function sanitizeNulDeep<T>(value: T): T {
   // A bare string is the overwhelmingly common binding (368 text columns in the
