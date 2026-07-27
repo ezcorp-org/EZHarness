@@ -149,12 +149,18 @@ services:
       # locks the invariant.
       #
       # The ext-data volume above stays at /app/web/.ezcorp on purpose —
-      # it backs the cwd-anchored generated-image store and .ezcorp/data,
-      # which really are relative to cwd=/app/web. Do not merge the two.
+      # it backs the cwd-anchored generated-image store, .ezcorp/data, and
+      # the daemon `.pid` lockfiles, all of which really are relative to
+      # cwd=/app/web. Do not merge the two.
       #
-      # Daemon `.pid` lockfiles ride along inside extension-data/; that's
-      # safe — src/startup/process-lockfile.ts uses boot-token locks that
-      # reclaim stale/foreign PIDs across the host/container PID namespace.
+      # Those `.pid` files (schedule-daemon, host-maintenance-daemon,
+      # embed-worker, preview-port-watcher) sit at the volume ROOT, not
+      # under extension-data/ — each daemon declares a cwd-relative
+      # `.ezcorp/<name>.pid`. So they stay volume-backed and unbound, as
+      # before: sharing them across the host/container PID namespace would
+      # cause false "daemon already running" detection. Moving these two
+      # binds does not reach them.
+      #
       # `.ezcorp/` is gitignored. Container runs as root, so host-side
       # files it creates here are root-owned (sudo to manage from host).
       - ./.ezcorp/extensions:/app/.ezcorp/extensions
