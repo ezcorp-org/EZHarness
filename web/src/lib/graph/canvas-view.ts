@@ -320,3 +320,82 @@ export function legendSections(): LegendSection[] {
 		},
 	];
 }
+
+// ── hover detail card ───────────────────────────────────────────────────────
+
+/** One `term: value` line in the detail card. */
+export interface NodeDetailRow {
+	term: string;
+	value: string;
+}
+
+/**
+ * The hover/focus card for a node.
+ *
+ * `glance` is the one-line summary — kind, status and duration — so the card
+ * answers "what is this?" before the eye reaches the rows. `body` is the
+ * node's full untruncated text (the prompt, the reply, the thinking blob, the
+ * error message); absent for kinds whose label IS the whole story (a tool's
+ * name, a sub-agent's name), where repeating it under the title is noise.
+ */
+export interface NodeDetailCard {
+	title: string;
+	glance: string;
+	body?: string;
+	rows: NodeDetailRow[];
+	/** Call-to-action for drillable nodes; absent otherwise. */
+	hint?: string;
+}
+
+/** Owner of a tool call. The builders write the sentinel `"builtin"` for host tools. */
+function toolOwner(extensionId: string): string {
+	return extensionId === "builtin" ? "Built-in" : extensionId;
+}
+
+/**
+ * Build the detail card for a node. Pure — the component only positions and
+ * renders it.
+ *
+ * Every value comes from a field the builders actually populate; there is no
+ * `meta` on chat-graph nodes today, so nothing here invents data. The `time`
+ * row carries the RAW ISO string: formatting it is locale- and
+ * timezone-dependent, so the component does that with `toLocaleTimeString`
+ * rather than baking a fixed format into a unit-tested pure function.
+ */
+export function nodeDetailCard(node: GraphNode): NodeDetailCard {
+	const rows: NodeDetailRow[] = [];
+	const duration = formatNodeDuration(node.durationMs);
+
+	// Glance line: what it is, how it went, how long it took.
+	const glance =
+		duration === DURATION_UNKNOWN
+			? `${KIND_LABEL[node.kind]} · ${STATUS_LABEL[node.status]}`
+			: `${KIND_LABEL[node.kind]} · ${STATUS_LABEL[node.status]} · ${duration}`;
+
+	if (node.kind === "tool" && node.extensionId !== undefined) {
+		rows.push({ term: "Provided by", value: toolOwner(node.extensionId) });
+	}
+	if (node.kind === "subagent" && node.subConversationId !== undefined) {
+		rows.push({ term: "Sub-chat", value: node.subConversationId });
+	}
+	rows.push({ term: "Duration", value: duration });
+	rows.push({ term: "Time", value: node.createdAt });
+	if (node.excluded === true) {
+		rows.push({ term: "Branch", value: "Rewound away — not sent to the model" });
+	}
+
+	// Body only where the label is a truncation of longer prose. A tool node's
+	// label is the tool NAME and a sub-agent's is the agent name — both are
+	// already the title, so repeating them adds nothing.
+	const proseKinds: GraphNodeKind[] = ["prompt", "assistant", "thinking", "error"];
+	const full = nodeTitle(node);
+	const body = proseKinds.includes(node.kind) && full.length > 0 ? full : undefined;
+
+	return {
+		title: node.label,
+		glance,
+		...(body !== undefined ? { body } : {}),
+		rows,
+		...(node.drillable === true ? { hint: nodeAction(node) } : {}),
+	};
+}

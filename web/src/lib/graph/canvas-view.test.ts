@@ -19,6 +19,7 @@ import {
 	LABEL_FADE_PX,
 	labelFadeStart,
 	legendSections,
+	nodeDetailCard,
 	moveFocus,
 	type NavNode,
 	nodeAction,
@@ -354,5 +355,77 @@ describe("legendSections", () => {
 
 	test("is pure — repeated calls deep-equal", () => {
 		expect(legendSections()).toEqual(legendSections());
+	});
+});
+
+describe("nodeDetailCard", () => {
+	test("glance answers what/how/how-long in one line", () => {
+		const card = nodeDetailCard(node({ kind: "tool", status: "success", durationMs: 840 }));
+		expect(card.glance).toBe("Tool · succeeded · 840ms");
+	});
+
+	test("glance omits an unknown duration rather than showing a dash", () => {
+		const card = nodeDetailCard(node({ kind: "prompt", status: "success" }));
+		expect(card.glance).toBe("Prompt · succeeded");
+		expect(card.glance).not.toContain(DURATION_UNKNOWN);
+	});
+
+	test("a tool names its owner, translating the builtin sentinel", () => {
+		const builtin = nodeDetailCard(node({ kind: "tool", extensionId: "builtin" }));
+		expect(builtin.rows).toContainEqual({ term: "Provided by", value: "Built-in" });
+		const ext = nodeDetailCard(node({ kind: "tool", extensionId: "web-search" }));
+		expect(ext.rows).toContainEqual({ term: "Provided by", value: "web-search" });
+	});
+
+	test("a sub-agent surfaces the chat it opens", () => {
+		const card = nodeDetailCard(
+			node({ kind: "subagent", subConversationId: "sub-42", drillable: true }),
+		);
+		expect(card.rows).toContainEqual({ term: "Sub-chat", value: "sub-42" });
+		expect(card.hint).toBeTruthy();
+	});
+
+	test("the Time row carries the RAW iso — formatting is the component's job", () => {
+		const iso = "2026-07-26T10:00:03.000Z";
+		const card = nodeDetailCard(node({ createdAt: iso }));
+		expect(card.rows).toContainEqual({ term: "Time", value: iso });
+	});
+
+	test("an unknown duration still gets a row, showing the em dash", () => {
+		const card = nodeDetailCard(node({ kind: "prompt" }));
+		expect(card.rows).toContainEqual({ term: "Duration", value: DURATION_UNKNOWN });
+	});
+
+	test("a rewound-away node says so in words, not only in colour", () => {
+		const card = nodeDetailCard(node({ excluded: true }));
+		expect(card.rows.find((r) => r.term === "Branch")?.value).toContain("Rewound away");
+		expect(nodeDetailCard(node({})).rows.find((r) => r.term === "Branch")).toBeUndefined();
+	});
+
+	test("prose kinds get a body; name-like kinds do not repeat their title", () => {
+		for (const kind of ["prompt", "assistant", "thinking", "error"] as const) {
+			expect(nodeDetailCard(node({ kind, label: "x", fullLabel: "the whole thing" })).body).toBe(
+				"the whole thing",
+			);
+		}
+		for (const kind of ["tool", "subagent"] as const) {
+			expect(nodeDetailCard(node({ kind, label: "read_file" })).body).toBeUndefined();
+		}
+	});
+
+	test("body falls back to the label when nothing was truncated", () => {
+		expect(nodeDetailCard(node({ kind: "prompt", label: "short" })).body).toBe("short");
+	});
+
+	test("hint appears only for drillable nodes", () => {
+		expect(nodeDetailCard(node({ drillable: true })).hint).toBeTruthy();
+		expect(nodeDetailCard(node({ drillable: false })).hint).toBeUndefined();
+		expect(nodeDetailCard(node({})).hint).toBeUndefined();
+	});
+
+	test("title is the truncated label, so the card header matches the node box", () => {
+		expect(nodeDetailCard(node({ label: "trunc…", fullLabel: "truncated all the way" })).title).toBe(
+			"trunc…",
+		);
 	});
 });

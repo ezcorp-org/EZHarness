@@ -133,9 +133,14 @@ describe("GraphCanvas rendering", () => {
 		expect(nodeEl(container, "t1").getAttribute("aria-label")).toContain("Shows details.");
 	});
 
-	test("the title tooltip carries the untruncated label", () => {
+	test("the untruncated label is reachable without a native <title> tooltip", () => {
+		// The <title> was REMOVED with the hover card: browsers render it as a
+		// second, slower tooltip layered on top of the card. The full text is
+		// still reachable two ways — the accessible name, and the card body.
 		const { container } = renderCanvas();
-		expect(nodeEl(container, "p1").querySelector("title")?.textContent).toBe("First ask, in full");
+		const g = container.querySelector('[data-node-id="p1"]')!;
+		expect(g.querySelector("title")).toBeNull();
+		expect(g.getAttribute("aria-label")).toContain("First ask, in full");
 	});
 
 	test("an absent durationMs renders an em dash, never 0ms", () => {
@@ -501,5 +506,68 @@ describe("legend", () => {
 		const controls = getByTestId("chat-graph-legend-toggle").getAttribute("aria-controls");
 		expect(controls).toBeTruthy();
 		expect(getByTestId("chat-graph-legend").id).toBe(controls);
+	});
+});
+
+describe("hover detail card", () => {
+	test("is absent until a node is hovered", () => {
+		const { queryByTestId } = renderCanvas();
+		expect(queryByTestId("chat-graph-detail-card")).toBeNull();
+	});
+
+	test("hovering a node opens the card for THAT node", async () => {
+		const { container, getByTestId } = renderCanvas();
+		const target = container.querySelector('[data-node-id="p1"]')!;
+		await fireEvent.mouseEnter(target);
+		const card = getByTestId("chat-graph-detail-card");
+		expect(card.getAttribute("data-detail-for")).toBe("p1");
+	});
+
+	test("the glance line leads with kind and status", async () => {
+		const { container, getByTestId } = renderCanvas();
+		await fireEvent.mouseEnter(container.querySelector('[data-node-id="p1"]')!);
+		expect(getByTestId("chat-graph-detail-glance").textContent).toContain("Prompt");
+		expect(getByTestId("chat-graph-detail-glance").textContent).toContain("succeeded");
+	});
+
+	test("leaving the node closes it", async () => {
+		const { container, queryByTestId } = renderCanvas();
+		const target = container.querySelector('[data-node-id="p1"]')!;
+		await fireEvent.mouseEnter(target);
+		await fireEvent.mouseLeave(target);
+		expect(queryByTestId("chat-graph-detail-card")).toBeNull();
+	});
+
+	test("moving straight to another node keeps the NEW card open", async () => {
+		// mouseenter on the new node fires BEFORE mouseleave on the old one, so
+		// an unguarded hide would blank the card that was just opened.
+		const { container, getByTestId } = renderCanvas();
+		const first = container.querySelector('[data-node-id="p1"]')!;
+		const second = container.querySelector('[data-node-id="p2"]')!;
+		await fireEvent.mouseEnter(first);
+		await fireEvent.mouseEnter(second);
+		await fireEvent.mouseLeave(first);
+		expect(getByTestId("chat-graph-detail-card").getAttribute("data-detail-for")).toBe("p2");
+	});
+
+	test("keyboard focus opens it too, and blur closes it", async () => {
+		const { container, getByTestId, queryByTestId } = renderCanvas();
+		const target = container.querySelector('[data-node-id="p1"]')!;
+		await fireEvent.focus(target);
+		expect(getByTestId("chat-graph-detail-card")).toBeTruthy();
+		await fireEvent.blur(target);
+		expect(queryByTestId("chat-graph-detail-card")).toBeNull();
+	});
+
+	test("is hidden from assistive tech — the node's aria-label already says it all", async () => {
+		const { container, getByTestId } = renderCanvas();
+		await fireEvent.mouseEnter(container.querySelector('[data-node-id="p1"]')!);
+		expect(getByTestId("chat-graph-detail-card").getAttribute("aria-hidden")).toBe("true");
+	});
+
+	test("does not swallow the hover that spawned it", async () => {
+		const { container, getByTestId } = renderCanvas();
+		await fireEvent.mouseEnter(container.querySelector('[data-node-id="p1"]')!);
+		expect(getByTestId("chat-graph-detail-card").style.pointerEvents).not.toBe("auto");
 	});
 });

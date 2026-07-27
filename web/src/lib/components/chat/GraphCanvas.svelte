@@ -40,6 +40,7 @@
 		labelFadeStart,
 		legendSections,
 		moveFocus,
+		nodeDetailCard,
 		nodeAriaLabel,
 		nodeTitle,
 		wheelZoomFactor,
@@ -79,6 +80,60 @@
 
 	/** Legend visibility. Open by default — the colours mean nothing without it. */
 	let legendOpen = $state(true);
+
+	/**
+	 * Hover / focus detail card.
+	 *
+	 * Position is measured from the node's own client rect rather than derived
+	 * from its laid-out x/y: the SVG sits in a scroller and is scaled by `zoom`,
+	 * so the rect is the only source that already accounts for scroll, zoom and
+	 * the panel's own offset. Stored relative to the canvas root, which is the
+	 * card's positioning context.
+	 */
+	let detail = $state<{
+		nodeId: string;
+		card: ReturnType<typeof nodeDetailCard>;
+		x: number;
+		y: number;
+		below: boolean;
+	} | null>(null);
+
+	/** Card box, for clamping. Kept in sync with the `.detail-card` CSS. */
+	const DETAIL_W = 260;
+	const DETAIL_GAP = 10;
+
+	function showDetail(node: GraphNode, el: SVGGElement) {
+		const root = rootEl.getBoundingClientRect();
+		const box = el.getBoundingClientRect();
+		// Prefer above the node; flip below when there isn't room, so the card
+		// never leaves the panel on a top-rank node.
+		const below = box.top - root.top < 150;
+		const rawX = box.left - root.left + box.width / 2 - DETAIL_W / 2;
+		detail = {
+			nodeId: node.id,
+			card: nodeDetailCard(node),
+			// Clamp horizontally so a node at either edge still shows a full card.
+			x: Math.max(4, Math.min(rawX, root.width - DETAIL_W - 4)),
+			y: below ? box.bottom - root.top + DETAIL_GAP : box.top - root.top - DETAIL_GAP,
+			below,
+		};
+	}
+
+	/**
+	 * Hide, but only if the card still belongs to the node being left. Moving
+	 * the pointer straight from one node to the next fires the new node's
+	 * `mouseenter` BEFORE the old node's `mouseleave`; without this guard that
+	 * ordering would blank the card that was just opened.
+	 */
+	function hideDetail(nodeId: string) {
+		if (detail?.nodeId === nodeId) detail = null;
+	}
+
+	/** Local clock for the card's Time row. Locale-dependent, so not in the pure module. */
+	function formatClock(iso: string): string {
+		const d = new Date(iso);
+		return Number.isNaN(d.getTime()) ? iso : d.toLocaleTimeString();
+	}
 
 	/** The canvas root, for the mount-time focus hand-off below. */
 	let rootEl: HTMLDivElement;
@@ -325,9 +380,13 @@
 					aria-label={nodeAriaLabel(n)}
 					onclick={() => activate(n, "pointer")}
 					onkeydown={(e) => onNodeKeydown(e, n)}
-					onfocus={() => (focusedId = ln.id)}
+					onfocus={(e) => { focusedId = ln.id; showDetail(n, e.currentTarget); }}
+					onblur={() => hideDetail(ln.id)}
+					onmouseenter={(e) => showDetail(n, e.currentTarget)}
+					onmouseleave={() => hideDetail(ln.id)}
 				>
-					<title>{nodeTitle(n)}</title>
+					<!-- No <title>: it duplicates the detail card below and browsers
+					     render it as a second, slower native tooltip on top of it. -->
 					<rect class="node-box" width={ln.width} height={ln.height} rx="6" />
 					<!-- Inset so the bar sits on the box's straight left edge instead
 					     of poking out past its rounded corners. -->
@@ -352,6 +411,44 @@
 		{/each}
 	</svg>
 	</div>
+
+	<!-- Hover / focus detail card.
+	     `aria-hidden` on purpose: every fact here is already in the node's own
+	     `aria-label` (kind, status, duration, rewound state, action), so
+	     exposing the card too would make a screen reader read each node twice.
+	     It is a VISUAL affordance for pointer and sighted-keyboard users;
+	     `pointer-events: none` keeps it from stealing the hover that spawns it.
+	     The owning node is recorded as `data-detail-for`, NOT `data-node-id`:
+	     that attribute enumerates the graph's NODES (roving tabindex, the
+	     mount-time focus hand-off, e2e counts), and a card carrying it would
+	     silently join every one of those queries. -->
+	{#if detail}
+		<div
+			class="detail-card absolute z-20 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-2.5 py-2 shadow-xl"
+			data-testid="chat-graph-detail-card"
+			data-detail-for={detail.nodeId}
+			data-placement={detail.below ? "below" : "above"}
+			aria-hidden="true"
+			style="left: {detail.x}px; top: {detail.y}px; {detail.below ? '' : 'transform: translateY(-100%);'}"
+		>
+			<p class="detail-glance" data-testid="chat-graph-detail-glance">{detail.card.glance}</p>
+			<p class="detail-title">{detail.card.title}</p>
+			{#if detail.card.body}
+				<p class="detail-body">{detail.card.body}</p>
+			{/if}
+			<dl class="detail-rows">
+				{#each detail.card.rows as row (row.term)}
+					<div class="detail-row">
+						<dt>{row.term}</dt>
+						<dd>{row.term === "Time" ? formatClock(row.value) : row.value}</dd>
+					</div>
+				{/each}
+			</dl>
+			{#if detail.card.hint}
+				<p class="detail-hint">{detail.card.hint}</p>
+			{/if}
+		</div>
+	{/if}
 
 	<!-- Legend. Inside `.graph-canvas` on purpose: that element declares the
 	     `--ez-kind-*` / `--ez-status-*` custom properties, so the swatches
@@ -526,6 +623,66 @@
 	}
 	.node[data-status="interrupted"] .node-status {
 		fill: var(--ez-status-interrupted);
+	}
+
+	/* ── Hover detail card ───────────────────────────────────────────────
+	   Width is pinned to the DETAIL_W constant the clamp math uses; changing
+	   one without the other lets the card hang off the panel edge. */
+	.detail-card {
+		width: 260px;
+		pointer-events: none;
+		font-size: 11px;
+		line-height: 1.45;
+	}
+	.detail-glance {
+		margin: 0;
+		font-size: 10px;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		color: var(--color-text-muted);
+	}
+	.detail-title {
+		margin: 0.125rem 0 0;
+		font-weight: 600;
+		color: var(--color-text-primary);
+		overflow-wrap: anywhere;
+	}
+	/* Long prose (a whole prompt or thinking blob) must not grow an unbounded
+	   card — clamp to a few lines and let the node's own title carry the rest. */
+	.detail-body {
+		margin: 0.25rem 0 0;
+		color: var(--color-text-secondary);
+		overflow-wrap: anywhere;
+		display: -webkit-box;
+		-webkit-line-clamp: 5;
+		line-clamp: 5;
+		-webkit-box-orient: vertical;
+		overflow: hidden;
+	}
+	.detail-rows {
+		margin: 0.375rem 0 0;
+		display: grid;
+		gap: 0.125rem;
+	}
+	.detail-row {
+		display: grid;
+		grid-template-columns: 5.5rem 1fr;
+		gap: 0.5rem;
+	}
+	.detail-row dt {
+		color: var(--color-text-muted);
+	}
+	.detail-row dd {
+		margin: 0;
+		color: var(--color-text-secondary);
+		overflow-wrap: anywhere;
+	}
+	.detail-hint {
+		margin: 0.375rem 0 0;
+		padding-top: 0.25rem;
+		border-top: 1px solid var(--color-border);
+		color: var(--color-accent);
 	}
 
 	/* ── Legend ──────────────────────────────────────────────────────────

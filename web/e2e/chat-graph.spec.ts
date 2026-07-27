@@ -58,6 +58,11 @@ import {
 	project,
 } from "./fixtures/graph-data.js";
 
+/** Escape a fixture string for use inside a RegExp (labels contain punctuation). */
+function escapeRe(v: string): string {
+	return v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 /** Load the seeded chat with the graph endpoint mocked. Returns the request log. */
 async function gotoChat(
 	page: Page,
@@ -148,7 +153,15 @@ test.describe("Chat DAG graph panel", () => {
 		await expect(page.getByTestId("chat-graph-canvas").locator("clipPath")).toHaveCount(0);
 
 		// Truncation is never lossy: the untruncated prompt is one hover away.
-		await expect(wide.locator("title")).toHaveText(FULL_LABEL_PLAN);
+		// The native <title> was REMOVED with the hover card — browsers layer it
+		// as a second, slower tooltip on top — so the card body is now where the
+		// full text lives, and the accessible name carries it for screen readers.
+		await expect(wide.locator("title")).toHaveCount(0);
+		await expect(wide).toHaveAttribute("aria-label", new RegExp(escapeRe(FULL_LABEL_PLAN)));
+		await wide.hover();
+		await expect(panel.locator('[data-testid="chat-graph-detail-card"]')).toContainText(
+			FULL_LABEL_PLAN,
+		);
 	});
 
 	test("clicking a prompt node drills into THAT turn's trace, and the breadcrumb comes back", async ({
@@ -499,4 +512,37 @@ test("the legend explains the colours and link styles, and collapses", async ({ 
 	await expect(toggle).toHaveAttribute("aria-expanded", "false");
 	await toggle.click();
 	await expect(legend).toBeVisible();
+});
+
+test("hovering a node opens a detail card, and it follows the pointer between nodes", async ({
+	page,
+	mockApi,
+}) => {
+	await gotoChat(page, mockApi);
+	const panel = await openPanel(page);
+
+	const card = panel.locator('[data-testid="chat-graph-detail-card"]');
+	await expect(card).toBeHidden();
+
+	// A prompt: prose kind, so the card carries the full text and a drill hint.
+	await panel.locator(`[data-node-id="${PROMPT_PLAN}"]`).hover();
+	await expect(card).toBeVisible();
+	await expect(card).toHaveAttribute("data-detail-for", PROMPT_PLAN);
+	await expect(panel.locator('[data-testid="chat-graph-detail-glance"]')).toContainText("Prompt");
+	await expect(card).toContainText("Duration");
+	await expect(card).toContainText("Time");
+
+	// A rewound-away node states the branch in words, not only in colour.
+	await panel.locator(`[data-node-id="${PROMPT_ROLLBACK}"]`).hover();
+	await expect(card).toHaveAttribute("data-detail-for", PROMPT_ROLLBACK);
+	await expect(card).toContainText("Rewound away");
+
+	// The sub-agent names the chat it opens.
+	await panel.locator(`[data-node-id="${SUBCONV_ID}"]`).hover();
+	await expect(card).toHaveAttribute("data-detail-for", SUBCONV_ID);
+	await expect(card).toContainText("Sub-chat");
+
+	// Moving off the graph closes it.
+	await panel.locator('[data-testid="chat-graph-legend"]').hover();
+	await expect(card).toBeHidden();
 });
