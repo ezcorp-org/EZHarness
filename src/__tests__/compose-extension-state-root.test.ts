@@ -77,6 +77,16 @@ function targets(volumes: readonly string[]): string[] {
   return volumes.map((v) => v.split(":")[1] ?? "");
 }
 
+/** ALL targets for `source` — extension-data is deliberately bound twice. */
+function targetsOf(volumes: readonly string[], source: string): string[] {
+  const out: string[] = [];
+  for (const v of volumes) {
+    const [src, target] = v.split(":");
+    if (src === source && target) out.push(target);
+  }
+  return out;
+}
+
 /**
  * The project root the SHIPPED resolver derives from the container layout
  * the compose file declares.
@@ -118,25 +128,51 @@ describe("docker-compose.yml — extension state is anchored to getProjectRoot()
     expect(dirname(webSrcTarget!)).toBe(join(resolvedProjectRoot(vols), "web"));
   });
 
-  test("extensions/ + extension-data/ bind under the project root, not the dev-server cwd", async () => {
+  test("extensions/ + extension-data/ bind under the project root", async () => {
     const vols = await appVolumes("docker-compose.yml");
     const projectRoot = resolvedProjectRoot(vols);
 
-    expect(targetOf(vols, "./.ezcorp/extensions")).toBe(
+    expect(targetsOf(vols, "./.ezcorp/extensions")).toEqual([
       join(projectRoot, ".ezcorp/extensions"),
-    );
-    expect(targetOf(vols, "./.ezcorp/extension-data")).toBe(
+    ]);
+    expect(targetsOf(vols, "./.ezcorp/extension-data")).toContain(
       join(projectRoot, ".ezcorp/extension-data"),
     );
   });
 
-  test("no volume targets extension state under the dev-server cwd (the original bug)", async () => {
+  test("nothing installs extensions under the dev-server cwd (the original bug)", async () => {
     const vols = await appVolumes("docker-compose.yml");
+    const webCwd = dirname(targetOf(vols, "./web/src")!);
+
+    // `extensions/` is the install root recorded in extensions.install_path.
+    // It must exist at exactly one place, and not under the cwd.
+    expect(targets(vols)).not.toContain(join(webCwd, ".ezcorp/extensions"));
+  });
+
+  /**
+   * extension-data IS bound twice on purpose — see the compose comment.
+   * The consumers behind /api/ext-files and /api/extensions/<n>/data still
+   * resolve it from process.cwd(). What must never happen is the two
+   * targets diverging onto DIFFERENT host trees, which would split an
+   * extension's state in half depending on which reader touched it.
+   */
+  test("both extension-data targets are the SAME host tree", async () => {
+    const vols = await appVolumes("docker-compose.yml");
+    const projectRoot = resolvedProjectRoot(vols);
     const webCwd = dirname(targetOf(vols, "./web/src")!);
     const all = targets(vols);
 
-    expect(all).not.toContain(join(webCwd, ".ezcorp/extensions"));
-    expect(all).not.toContain(join(webCwd, ".ezcorp/extension-data"));
+    const cwdTarget = join(webCwd, ".ezcorp/extension-data");
+    // Every bind landing on either target must come from one host source.
+    for (const target of [join(projectRoot, ".ezcorp/extension-data"), cwdTarget]) {
+      const sources = vols
+        .filter((v) => v.split(":")[1] === target)
+        .map((v) => v.split(":")[0]);
+      expect(sources).toEqual(["./.ezcorp/extension-data"]);
+    }
+    // And the cwd-side one is present at all — dropping it strands every
+    // already-generated tool-card image behind an empty volume stub.
+    expect(all).toContain(cwdTarget);
   });
 
   test("the ext-data volume STAYS on the cwd-anchored root (image store + .ezcorp/data)", async () => {

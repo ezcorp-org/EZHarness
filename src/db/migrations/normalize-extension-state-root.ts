@@ -11,13 +11,22 @@
  *
  *   <projectRoot>/.ezcorp/extensions/<name>
  *
- * The dev compose stack used to bind the host `./.ezcorp/extensions` at
- * `/app/web/.ezcorp/extensions` — `process.cwd()` under the vite-SSR dev
- * server, NOT the project root. Extensions installed while that bind was
- * live recorded the cwd-anchored path in `extensions.install_path` and in
- * the matching `local:`-prefixed `extensions.source`. Once the bind moves
- * to `/app/.ezcorp/extensions` (where the code already looks), those rows
- * point at a path that no longer exists and the extensions fail to load.
+ * Legacy rows record `/app/web/.ezcorp/extensions/<name>` instead —
+ * `process.cwd()` under the vite-SSR dev server, NOT the project root.
+ * Those were not the residue of an old mount: they were WRITTEN that way.
+ * `getExtensionAuthorDraftDir()` (db/queries/ez-drafts.ts) resolved draft
+ * dirs by walking up from `process.cwd()` looking for `.git`; the dev
+ * container bind-mounts the repo at `/repo`, so there is no `/app/.git`,
+ * the walk fell back to its start (`/app/web`), and `author-install.ts`
+ * — which derives `installedPath` by walking 6 segments up from the draft
+ * dir — installed every authored extension under `/app/web/.ezcorp/`.
+ * That resolver now uses `getProjectRoot()`, so no NEW row can take this
+ * shape; this migration repairs the ones already written.
+ *
+ * The dev compose stack bound the host `./.ezcorp/extensions` at the same
+ * cwd-anchored path, which is why those installs worked at all. With the
+ * bind moved to `/app/.ezcorp/extensions` (where every reader looks),
+ * un-repaired rows point at a path that no longer exists.
  *
  * This migration rewrites exactly that stale shape, for the project root
  * THIS deployment actually resolved:

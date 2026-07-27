@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readdir, rm, rmdir, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
 import { getDb } from "../connection";
+import { getProjectRoot } from "../../extensions/bundled";
 import { ezDrafts } from "../schema";
 import { logger } from "../../logger";
 
@@ -153,20 +154,36 @@ export async function consumeDraft(id: string, userId: string): Promise<EzDraftR
 }
 
 /**
- * Walk up from `from` looking for a `.git` directory. Mirrors
- * `@ezcorp/sdk/runtime`'s `findProjectRoot` — inlined here because the
- * sweep runs from inside a backend module that should not pull SDK
- * runtime helpers.
+ * The root extension-author drafts (and the extensions installed from
+ * them) live under.
+ *
+ * This USED to be a `.git` walk-up from `process.cwd()`, which silently
+ * produced the wrong answer in the dev container: the repo is bind-mounted
+ * at `/repo`, so there is no `/app/.git`, the walk reached `/` without a
+ * hit and fell back to its start — `process.cwd()`, i.e. `/app/web` under
+ * the vite-SSR dev server. Every draft dir and therefore every
+ * author-installed extension (author-install.ts derives `installedPath`
+ * by walking 6 segments up from the draft dir) landed under
+ * `/app/web/.ezcorp/…` instead of `/app/.ezcorp/…`.
+ *
+ * That is where the legacy `install_path` rows
+ * (`/app/web/.ezcorp/extensions/<name>`) come from — they were not the
+ * residue of an old mount, they were being written by this function.
+ *
+ * `getProjectRoot()` is the resolver every other extension-state
+ * consumer already uses: registry.ts injects it as
+ * `EZCORP_EXTENSION_DATA_ROOT`, permissions.ts expands `$CWD` to it, and
+ * bundled.ts resolves bundled paths against it. It tries
+ * `EZCORP_PROJECT_ROOT`, then `import.meta.dir`, then a `.git` walk-up,
+ * then cwd — so it subsumes the old behaviour and adds the two signals
+ * that actually work in a container. In production cwd IS the project
+ * root (`/app`), so this changes nothing there.
+ *
+ * Static import: `bundled.ts`'s import graph does not reach this module
+ * (author-install.ts imports ez-drafts, but nothing in bundled's graph
+ * imports author-install), so there is no cycle — the same static import
+ * permissions.ts already takes.
  */
-function findProjectRoot(from: string): string {
-  let dir = from;
-  while (true) {
-    if (existsSync(join(dir, ".git"))) return dir;
-    const parent = dirname(dir);
-    if (parent === dir) return from;
-    dir = parent;
-  }
-}
 
 /**
  * Compute the on-disk directory for a given extension-author draft,
@@ -189,7 +206,7 @@ export function getExtensionAuthorDraftDir(
   if (!userId || !/^[a-zA-Z0-9_-]+$/.test(userId)) {
     throw new Error(`Invalid userId: "${userId}"`);
   }
-  const root = projectRoot ?? findProjectRoot(process.cwd());
+  const root = projectRoot ?? getProjectRoot();
   return join(root, ".ezcorp/extension-data/extension-author/drafts", userId, draftId);
 }
 
@@ -333,11 +350,9 @@ export async function sweepExpired(now: Date = new Date()): Promise<number> {
     if (!payload || payload.mode !== "author") continue;
 
     if (projectRoot === null) {
-      try {
-        projectRoot = findProjectRoot(process.cwd());
-      } catch {
-        projectRoot = process.cwd();
-      }
+      // getProjectRoot() never throws (env -> import-meta -> git-walk
+      // -> cwd fallback), so no try/catch is needed here.
+      projectRoot = getProjectRoot();
     }
     let dir: string;
     try {

@@ -486,11 +486,13 @@ export async function migrate(db: any): Promise<void> {
   // here (not re-inlined), same pattern as the user_commands unique
   // pre-flight below.
   //
-  // Rows installed while the dev compose stack bound host
-  // ./.ezcorp/extensions at the cwd-anchored /app/web/.ezcorp/extensions
-  // recorded that path in install_path + the `local:` source. Extension
-  // code resolves state from getProjectRoot() (= the dir holding src/,
-  // i.e. /app), so those rows point somewhere nothing reads. up()
+  // Legacy rows record the cwd-anchored /app/web/.ezcorp/extensions/<name>
+  // in install_path + the `local:` source. They were WRITTEN that way:
+  // ez-drafts.ts resolved draft dirs from process.cwd() and author-install
+  // derived installedPath from those, so authored installs landed under
+  // /app/web. That resolver now uses getProjectRoot() (= the dir holding
+  // src/, i.e. /app), which is also where every reader looks — so no NEW
+  // row can take this shape and the old ones need repairing. up()
   // rewrites <root>/web/.ezcorp/extensions/<name> →
   // <root>/.ezcorp/extensions/<name>, fires only on that exact shape,
   // and is idempotent — the rewritten value no longer matches its own
