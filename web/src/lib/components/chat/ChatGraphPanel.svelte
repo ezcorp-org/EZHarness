@@ -142,7 +142,12 @@
 	}
 </script>
 
-<SwipeDrawer {open} side="right" width="w-full md:w-[26rem]" {onclose} ariaLabel="Conversation graph panel">
+<!-- 75vw from `md` up: a two-level DAG is wide before it is tall, and at the
+     old 26rem the layout engine's ranks wrapped almost immediately. Stays
+     `w-full` below `md` — 75% of a phone viewport is narrower than the panel's
+     own minimum useful width, so full-bleed is the better small-screen answer
+     (same breakpoint the drawer already used). -->
+<SwipeDrawer {open} side="right" width="w-full md:w-[75vw]" {onclose} ariaLabel="Conversation graph panel">
 	<div
 		data-testid="chat-graph-panel"
 		class="flex h-full flex-col border-l border-[var(--color-border)] bg-[var(--color-surface)] shadow-xl"
