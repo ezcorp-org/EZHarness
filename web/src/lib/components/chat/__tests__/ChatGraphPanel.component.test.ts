@@ -221,10 +221,6 @@ describe("ChatGraphPanel quiet states", () => {
 	});
 });
 
-function queryByTestIdIn(root: HTMLElement, id: string): HTMLElement | null {
-	return root.querySelector(`[data-testid="${id}"]`);
-}
-
 describe("ChatGraphPanel drill-down", () => {
 	test("clicking a level-1 prompt loads that turn's level 2", async () => {
 		const spy = stubFetch({ [L1_URL]: LEVEL_1, [L2_URL]: LEVEL_2 });
