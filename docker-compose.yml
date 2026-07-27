@@ -129,18 +129,36 @@ services:
       # mount, every container restart wipes the images and the tool-card
       # URLs 404 silently.
       - ext-data:/app/web/.ezcorp
-      # Scoped host bind mounts layered ON TOP of the ext-data volume
-      # above: authored/installed extensions and their persistent
-      # extension-data land in the host tree at ./.ezcorp/ so they're
-      # editable/inspectable from the host (the volume only ever exposed
-      # them at /var/lib/docker/volumes/ez-corp-ai_ext-data/_data). The
-      # daemon `.pid` files stay volume-backed (NOT bound) on purpose —
-      # sharing them across the host/container PID namespace would cause
-      # false "daemon already running" detection. `.ezcorp/` is
-      # gitignored. Container runs as root, so host-side files it creates
-      # here are root-owned (sudo to manage from the host).
-      - ./.ezcorp/extensions:/app/web/.ezcorp/extensions
-      - ./.ezcorp/extension-data:/app/web/.ezcorp/extension-data
+      # Scoped host bind mounts for extension state: authored/installed
+      # extensions and their persistent extension-data land in the host
+      # tree at ./.ezcorp/ so they're editable/inspectable from the host.
+      #
+      # Target is /app/.ezcorp — NOT /app/web/.ezcorp. Extension state is
+      # anchored to getProjectRoot() (src/extensions/bundled.ts), which
+      # resolves via an `import.meta.dir` that contains src/extensions and
+      # so returns the dir holding src/ — i.e. /app. registry.ts injects
+      # that value into every sandbox as EZCORP_EXTENSION_DATA_ROOT, and
+      # author-install.ts derives installedPath from the same root. It is
+      # deliberately NOT process.cwd(), which is /app/web under the
+      # vite-SSR dev server — that mismatch is exactly what these mounts
+      # got wrong before: /app/.ezcorp lived only in the container overlay,
+      # so every `docker compose up`/recreate silently wiped installed
+      # extensions and their state while these binds sat unwritten.
+      # compose.prod.yml already targets /app/.ezcorp (prod WORKDIR=/app);
+      # dev now matches it. src/__tests__/compose-extension-state-root.test.ts
+      # locks the invariant.
+      #
+      # The ext-data volume above stays at /app/web/.ezcorp on purpose —
+      # it backs the cwd-anchored generated-image store and .ezcorp/data,
+      # which really are relative to cwd=/app/web. Do not merge the two.
+      #
+      # Daemon `.pid` lockfiles ride along inside extension-data/; that's
+      # safe — src/startup/process-lockfile.ts uses boot-token locks that
+      # reclaim stale/foreign PIDs across the host/container PID namespace.
+      # `.ezcorp/` is gitignored. Container runs as root, so host-side
+      # files it creates here are root-owned (sudo to manage from host).
+      - ./.ezcorp/extensions:/app/.ezcorp/extensions
+      - ./.ezcorp/extension-data:/app/.ezcorp/extension-data
       # NOTE: a `./.env.seed:/app/.env.seed:ro` bind mount used to live
       # here so re-seeds could restore OAuth tokens. It's gitignored,
       # so on fresh clones Docker created an empty directory at the
