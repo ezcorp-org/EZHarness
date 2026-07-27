@@ -1,5 +1,6 @@
 import { test, expect } from "./fixtures/test-base.js";
 import { makeProject, makeConversation } from "./fixtures/data.js";
+import { openChatWithTasks, seedTaskSnapshot } from "./fixtures/task-seed.js";
 
 // ── Shape of a task as the TaskPanel component consumes it ──────────────────
 // Mirrors src/runtime/tools/task-tracking.ts `TrackedTask` / `TaskSnapshot`.
@@ -62,31 +63,22 @@ function makeSnapshot(
 	return { conversationId, tasks, activeTaskId };
 }
 
-// Pattern matched by the `routes` override (uses String.includes).
-// The path is `/api/conversations/:id/tasks` — `/tasks` uniquely identifies it.
-const TASKS_ROUTE_PATTERN = "/tasks";
-
 test.describe("Task Panel", () => {
 	const proj = makeProject({ id: "proj-1", name: "Task Project" });
 	const conv = makeConversation({ id: "conv-1", projectId: "proj-1", title: "Task Convo" });
 
 	test("is hidden when conversation has no tasks", async ({ page, mockApi }) => {
-		await mockApi({
-			projects: [proj],
-			conversations: [conv],
-			messages: [],
-			routes: {
-				[TASKS_ROUTE_PATTERN]: () => ({ conversationId: "conv-1", tasks: [] }),
-			},
+		await openChatWithTasks(page, mockApi, {
+			project: proj,
+			conversation: conv,
+			snapshot: { conversationId: "conv-1", tasks: [] },
 		});
-
-		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
 		// Chat should load normally (input visible)
 		await expect(page.locator("textarea").first()).toBeVisible();
 
 		// Panel is not rendered at all when tasks.length === 0
-		// (+page.svelte gates on `hasActiveTasks = !!taskSnapshot && tasks.length > 0`)
+		// (+page.svelte gates on `hasAnyTasks = !!taskSnapshot && tasks.length > 0`)
 		await expect(page.getByText("Tasks", { exact: true })).not.toBeVisible();
 	});
 
@@ -101,14 +93,7 @@ test.describe("Task Panel", () => {
 			"t2",
 		);
 
-		await mockApi({
-			projects: [proj],
-			conversations: [conv],
-			messages: [],
-			routes: { [TASKS_ROUTE_PATTERN]: () => snapshot },
-		});
-
-		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
+		await openChatWithTasks(page, mockApi, { project: proj, conversation: conv, snapshot });
 
 		// Tasks label renders inside the collapsed-header button
 		await expect(page.getByText("Tasks", { exact: true })).toBeVisible();
@@ -143,29 +128,24 @@ test.describe("Task Panel", () => {
 			makeTask({ id: "t6", title: "Six", status: "pending", priority: 5 }),
 		]);
 
-		await mockApi({
-			projects: [proj],
-			conversations: [conv],
-			messages: [],
-			routes: { [TASKS_ROUTE_PATTERN]: () => snapshot },
-		});
+		await openChatWithTasks(page, mockApi, { project: proj, conversation: conv, snapshot });
 
-		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
+		// Everything below lives in the panel's header button — scope to it so
+		// sidebar furniture (e.g. the conversation row's green "New activity"
+		// dot) can't be miscounted as a task dot.
+		const header = page.getByRole("button", { name: "Collapse task panel" });
 
-		// Counter: "2/6" + " · 1 failed"
-		await expect(page.getByText("2/6", { exact: true })).toBeVisible();
+		// Counter: "2/6" with the failed tally appended. Both live in the one
+		// counter span (the tally is a nested red span), so assert the whole
+		// rendered string rather than each half on its own.
+		await expect(header.locator("span.tabular-nums")).toHaveText("2/6 · 1 failed");
 		await expect(page.getByText("· 1 failed")).toBeVisible();
 
 		// Dots: the component caps displayed dots at 12; with 6 tasks we expect 6 dots.
-		// Dots are spans with `rounded-full` + a status color class, inside the header button.
-		const greenDots = page.locator("button span.bg-green-500.rounded-full");
-		await expect(greenDots).toHaveCount(2);
-
-		const blueDots = page.locator("button span.bg-blue-400.rounded-full");
-		await expect(blueDots).toHaveCount(1);
-
-		const redDots = page.locator("button span.bg-red-500.rounded-full");
-		await expect(redDots).toHaveCount(1);
+		// Dots are spans with `rounded-full` + a status color class.
+		await expect(header.locator("span.bg-green-500.rounded-full")).toHaveCount(2);
+		await expect(header.locator("span.bg-blue-400.rounded-full")).toHaveCount(1);
+		await expect(header.locator("span.bg-red-500.rounded-full")).toHaveCount(1);
 	});
 
 	test("collapses and expands when header is clicked", async ({ page, mockApi }) => {
@@ -174,14 +154,7 @@ test.describe("Task Panel", () => {
 			makeTask({ id: "t2", title: "Second collapsible task", status: "pending", priority: 1 }),
 		]);
 
-		await mockApi({
-			projects: [proj],
-			conversations: [conv],
-			messages: [],
-			routes: { [TASKS_ROUTE_PATTERN]: () => snapshot },
-		});
-
-		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
+		await openChatWithTasks(page, mockApi, { project: proj, conversation: conv, snapshot });
 
 		const header = page.getByRole("button", { name: /Collapse task panel|Expand task panel/ });
 		await expect(header).toBeVisible();
@@ -210,14 +183,7 @@ test.describe("Task Panel", () => {
 			"t2",
 		);
 
-		await mockApi({
-			projects: [proj],
-			conversations: [conv],
-			messages: [],
-			routes: { [TASKS_ROUTE_PATTERN]: () => snapshot },
-		});
-
-		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
+		await openChatWithTasks(page, mockApi, { project: proj, conversation: conv, snapshot });
 
 		// The row wrapping the active task gets `bg-blue-500` (via class:bg-blue-500={isActive}).
 		// Locate the div.group that contains the active title and check it carries that class.
@@ -245,14 +211,7 @@ test.describe("Task Panel", () => {
 			}),
 		]);
 
-		await mockApi({
-			projects: [proj],
-			conversations: [conv],
-			messages: [],
-			routes: { [TASKS_ROUTE_PATTERN]: () => snapshot },
-		});
-
-		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
+		await openChatWithTasks(page, mockApi, { project: proj, conversation: conv, snapshot });
 
 		// Parent task title rendered with subtask counter (2/3)
 		await expect(page.getByText("Task with subtasks")).toBeVisible();
@@ -291,14 +250,7 @@ test.describe("Task Panel", () => {
 			makeTask({ id: "t2", title: "Unassigned task", status: "pending", priority: 1 }),
 		]);
 
-		await mockApi({
-			projects: [proj],
-			conversations: [conv],
-			messages: [],
-			routes: { [TASKS_ROUTE_PATTERN]: () => snapshot },
-		});
-
-		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
+		await openChatWithTasks(page, mockApi, { project: proj, conversation: conv, snapshot });
 
 		await expect(page.getByText("@coder")).toBeVisible();
 		// Unassigned task should not render a badge
@@ -318,14 +270,7 @@ test.describe("Task Panel", () => {
 			}),
 		]);
 
-		await mockApi({
-			projects: [proj],
-			conversations: [conv],
-			messages: [],
-			routes: { [TASKS_ROUTE_PATTERN]: () => snapshot },
-		});
-
-		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
+		await openChatWithTasks(page, mockApi, { project: proj, conversation: conv, snapshot });
 
 		await expect(page.getByText("Broken step")).toBeVisible();
 		await expect(page.getByText("DB connection refused")).toBeVisible();
@@ -334,6 +279,11 @@ test.describe("Task Panel", () => {
 		await expect(reason).toHaveClass(/italic/);
 	});
 
+	// Regression guard. The chat route used to pass `onsendmessage={() => {}}`,
+	// so this click was inert for the whole life of the current history — the
+	// row rendered enabled (TaskPanel's `disabled` check only tests that the
+	// prop exists) and did nothing. It now goes through
+	// `ChatThreadChrome.sendMessage` → the thread's `handleSend`.
 	test("clicking a pending task sends a 'Work on task: ...' message", async ({ page, mockApi }) => {
 		const snapshot = makeSnapshot("conv-1", [
 			makeTask({
@@ -345,7 +295,11 @@ test.describe("Task Panel", () => {
 			}),
 		]);
 
+		await mockApi({ projects: [proj], conversations: [conv], messages: [] });
+
 		// Capture POSTed messages so we can assert the user clicked → message sent.
+		// Registered AFTER mockApi: Playwright matches handlers most-recent-first,
+		// so this has to come last to win over the generic /messages mock.
 		const sentMessages: string[] = [];
 		await page.route("**/api/conversations/*/messages", async (route) => {
 			if (route.request().method() === "POST") {
@@ -369,18 +323,12 @@ test.describe("Task Panel", () => {
 					},
 				});
 			}
-			// GET falls through to mockApi default
-			return route.continue();
-		});
-
-		await mockApi({
-			projects: [proj],
-			conversations: [conv],
-			messages: [],
-			routes: { [TASKS_ROUTE_PATTERN]: () => snapshot },
+			// GET falls through to the mockApi handler underneath.
+			return route.fallback();
 		});
 
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
+		await seedTaskSnapshot(page, snapshot);
 
 		// Pending task is rendered as a button (only pending tasks are clickable)
 		const taskButton = page.getByRole("button", { name: /Refactor billing/ });
@@ -396,7 +344,7 @@ test.describe("Task Panel", () => {
 		expect(msg).toContain("Refactor billing");
 	});
 
-	test("updates reactively when a task:snapshot WebSocket event fires", async ({ page, mockApi, emitWs }) => {
+	test("updates reactively when a task:snapshot runtime event fires", async ({ page, mockApi, emitSse }) => {
 		const initial = makeSnapshot(
 			"conv-1",
 			[
@@ -405,21 +353,14 @@ test.describe("Task Panel", () => {
 			"t1",
 		);
 
-		await mockApi({
-			projects: [proj],
-			conversations: [conv],
-			messages: [],
-			routes: { [TASKS_ROUTE_PATTERN]: () => initial },
-		});
-
-		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
+		await openChatWithTasks(page, mockApi, { project: proj, conversation: conv, snapshot: initial });
 
 		await expect(page.getByText("Initial only task")).toBeVisible();
 		// Counter starts at 0/1
 		await expect(page.getByText("0/1", { exact: true })).toBeVisible();
 
-		// Push a new snapshot via the fake WebSocket
-		await emitWs({
+		// Push a new snapshot over the runtime-event stream
+		await emitSse({
 			type: "task:snapshot",
 			data: {
 				conversationId: "conv-1",
@@ -521,14 +462,7 @@ test.describe("task assignments", () => {
 			activeTaskId: "t1",
 		};
 
-		await mockApi({
-			projects: [proj],
-			conversations: [conv],
-			messages: [],
-			routes: { [TASKS_ROUTE_PATTERN]: () => snapshot },
-		});
-
-		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
+		await openChatWithTasks(page, mockApi, { project: proj, conversation: conv, snapshot });
 
 		// Task title visible
 		await expect(page.getByText("Build feature")).toBeVisible();
@@ -553,14 +487,7 @@ test.describe("task assignments", () => {
 			activeTaskId: "t1",
 		};
 
-		await mockApi({
-			projects: [proj],
-			conversations: [conv],
-			messages: [],
-			routes: { [TASKS_ROUTE_PATTERN]: () => snapshot },
-		});
-
-		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
+		await openChatWithTasks(page, mockApi, { project: proj, conversation: conv, snapshot });
 
 		await expect(page.getByText("@ops-team")).toBeVisible();
 		// Team SVG icon has a title attribute "Team"
@@ -593,14 +520,7 @@ test.describe("task assignments", () => {
 			activeTaskId: "t1",
 		};
 
-		await mockApi({
-			projects: [proj],
-			conversations: [conv],
-			messages: [],
-			routes: { [TASKS_ROUTE_PATTERN]: () => snapshot },
-		});
-
-		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
+		await openChatWithTasks(page, mockApi, { project: proj, conversation: conv, snapshot });
 
 		await expect(page.getByText("@worker")).toBeVisible();
 		// The timer displays tabular-nums text — look for a span with the class
@@ -632,14 +552,7 @@ test.describe("task assignments", () => {
 			],
 		};
 
-		await mockApi({
-			projects: [proj],
-			conversations: [conv],
-			messages: [],
-			routes: { [TASKS_ROUTE_PATTERN]: () => snapshot },
-		});
-
-		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
+		await openChatWithTasks(page, mockApi, { project: proj, conversation: conv, snapshot });
 
 		await expect(page.getByText("@finisher")).toBeVisible();
 		// Completed assignment renders an SVG with a checkmark path (stroke "M5 13l4 4L19 7")
@@ -660,14 +573,7 @@ test.describe("task assignments", () => {
 			],
 		};
 
-		await mockApi({
-			projects: [proj],
-			conversations: [conv],
-			messages: [],
-			routes: { [TASKS_ROUTE_PATTERN]: () => snapshot },
-		});
-
-		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
+		await openChatWithTasks(page, mockApi, { project: proj, conversation: conv, snapshot });
 
 		// The "+" button has title "Assign agent or team" and starts with opacity-0
 		const assignBtn = page.getByRole("button", { name: "Assign agent or team" });
@@ -701,14 +607,7 @@ test.describe("task assignments", () => {
 			activeTaskId: "t1",
 		};
 
-		await mockApi({
-			projects: [proj],
-			conversations: [conv],
-			messages: [],
-			routes: { [TASKS_ROUTE_PATTERN]: () => snapshot },
-		});
-
-		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
+		await openChatWithTasks(page, mockApi, { project: proj, conversation: conv, snapshot });
 
 		// All three agent names visible
 		await expect(page.getByText("@coder")).toBeVisible();
@@ -737,14 +636,7 @@ test.describe("task assignments", () => {
 			activeTaskId: "t1",
 		};
 
-		await mockApi({
-			projects: [proj],
-			conversations: [conv],
-			messages: [],
-			routes: { [TASKS_ROUTE_PATTERN]: () => snapshot },
-		});
-
-		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
+		await openChatWithTasks(page, mockApi, { project: proj, conversation: conv, snapshot });
 
 		// The assignment pill shows @coder
 		await expect(page.getByText("@coder")).toBeVisible();
@@ -754,7 +646,7 @@ test.describe("task assignments", () => {
 		await expect(legacyBadges).toHaveCount(0);
 	});
 
-	test("assignment snapshot updates reactively via WebSocket", async ({ page, mockApi, emitWs }) => {
+	test("assignment snapshot updates reactively via the runtime-event stream", async ({ page, mockApi, emitSse }) => {
 		const initial = {
 			conversationId: "conv-asgn",
 			tasks: [
@@ -771,19 +663,12 @@ test.describe("task assignments", () => {
 			activeTaskId: "t1",
 		};
 
-		await mockApi({
-			projects: [proj],
-			conversations: [conv],
-			messages: [],
-			routes: { [TASKS_ROUTE_PATTERN]: () => initial },
-		});
-
-		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
+		await openChatWithTasks(page, mockApi, { project: proj, conversation: conv, snapshot: initial });
 
 		await expect(page.getByText("@coder")).toBeVisible();
 
 		// Push an updated snapshot with a new assignment added
-		await emitWs({
+		await emitSse({
 			type: "task:snapshot",
 			data: {
 				conversationId: "conv-asgn",

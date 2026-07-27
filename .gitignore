@@ -91,6 +91,12 @@ worktrees/
 # Local Claude Code agent config (per-machine, do not commit) — EXCEPT the two
 # shared, committed maintenance tools for docs/features (everything else in
 # .claude/ stays local).
+#
+# `.claude.json` is the per-machine MCP-server config that sits at the repo
+# ROOT, so `.claude/*` below does NOT cover it — it was previously unignored
+# and got swept into a `git add -A`. It holds local server commands and API
+# keys; never commit it.
+.claude.json
 .claude/*
 !.claude/commands/
 .claude/commands/*
