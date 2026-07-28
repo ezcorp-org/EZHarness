@@ -12,6 +12,7 @@ import { insertAuditEntry } from "../db/queries/audit-log";
 import { EXT_AUDIT_ACTIONS, type ExtensionAuditMetadata } from "./audit-actions";
 import { clampToBundledCeiling, getCeiling } from "./bundled-ceiling";
 import { canonicalizeAndHash, verifyManifestAgainstLock } from "./bundled-lock";
+import { computeManifestChecksums, type ManifestChecksumFields } from "./checksum";
 import { join, dirname } from "node:path";
 import { existsSync } from "node:fs";
 import { logger } from "../logger";
@@ -961,6 +962,39 @@ export function isBundledExtensionName(name: string): boolean {
   return BUNDLED_EXTENSION_NAMES.has(name);
 }
 
+/**
+ * Checksum block for a bundled extension's on-disk source, in the same
+ * shape `installFromLocal` persists on a fresh install.
+ *
+ * A bundled refresh rewrites the stored manifest from `ezcorp.config.ts`
+ * alone. Without this block, editing an extension's `index.ts` and
+ * restarting produced a BYTE-IDENTICAL persisted manifest, so
+ * `ExtensionRegistry.reload()` saw no change and left the pre-edit
+ * subprocess running — the extension kept serving the OLD code until its
+ * idle timeout. `extension-author` (whose tool list churns every boot, so
+ * it always takes the critical auto-reapprove branch) was the worst case.
+ *
+ * Never throws: a bundled refresh must still land its manifest if a file
+ * is unreadable or is being edited under us. Losing the block for one
+ * boot only costs the code-change signal, and the next boot retries.
+ */
+async function diskChecksumFields(
+  diskDir: string,
+  manifest: ExtensionManifestV2,
+  name: string,
+): Promise<ManifestChecksumFields | Record<string, never>> {
+  try {
+    return await computeManifestChecksums(diskDir, manifest.entrypoint);
+  } catch (err) {
+    log.warn("Bundled checksum computation failed — manifest refreshed without checksums", {
+      name,
+      dir: diskDir,
+      error: String(err),
+    });
+    return {};
+  }
+}
+
 export async function ensureBundledExtensions(): Promise<void> {
   for (const entry of resolveBundledExtensions()) {
     try {
@@ -1045,11 +1079,10 @@ export async function ensureBundledExtensions(): Promise<void> {
           // within-ceiling helper in bundled-ceiling.ts; open question
           // resolved).
           if (entry.critical) {
+            const criticalDiskDir = join(getProjectRoot(), entry.path);
             let diskManifest: ExtensionManifestV2 | null = null;
             try {
-              diskManifest = await loadManifestFresh(
-                join(getProjectRoot(), entry.path),
-              );
+              diskManifest = await loadManifestFresh(criticalDiskDir);
             } catch (e) {
               log.warn("critical S9: disk manifest reload failed", {
                 name: entry.name,
@@ -1095,6 +1128,11 @@ export async function ensureBundledExtensions(): Promise<void> {
                   permissions:
                     (existing.manifest as ExtensionManifestV2).permissions ??
                     diskManifest.permissions,
+                  // Carry the on-disk code hashes so a pure `index.ts`
+                  // edit (no config change) still moves the persisted
+                  // manifest — see `diskChecksumFields`. This branch is
+                  // the one `extension-author` takes on every boot.
+                  ...(await diskChecksumFields(criticalDiskDir, diskManifest, entry.name)),
                 };
                 await updateExtension(existing.id, {
                   enabled: true,
@@ -1215,6 +1253,10 @@ export async function ensureBundledExtensions(): Promise<void> {
           const refreshed: ExtensionManifestV2 = {
             ...diskManifest,
             permissions: (existing.manifest as ExtensionManifestV2).permissions ?? diskManifest.permissions,
+            // Code hashes — see `diskChecksumFields`. These are what make
+            // an `index.ts` edit visible to the registry's reload
+            // invalidation when `ezcorp.config.ts` is untouched.
+            ...(await diskChecksumFields(diskDir, diskManifest, entry.name)),
           };
           const currentJson = JSON.stringify(existing.manifest);
           const refreshedJson = JSON.stringify(refreshed);
