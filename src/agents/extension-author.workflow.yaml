@@ -1,0 +1,128 @@
+# extension-author — the authoring chain as a real workflow.
+#
+# Runs the deterministic half of "scaffold me an extension" with no LLM in
+# the loop: scaffold → assert a draft exists → run the host's canonical
+# acceptance gate → assert it PASSED → assemble a handoff payload → ask to
+# install.
+#
+# ── It parks before install, by design ────────────────────────────────
+#
+# The last step deliberately DOES attempt `install_draft`, and is
+# deliberately refused. `ezcorp:extension:install` is one of three
+# capabilities in `permission-engine.ts` that ALWAYS prompt and are NEVER
+# persisted as an always-allow grant — installing model-authored code that
+# then runs with its own permissions is the strongest trust boundary in the
+# system. A workflow has no conversation on which to render that card, so
+# `runWorkflow`'s non-interactive scope refuses the gate synchronously and
+# the run terminalizes `awaiting_approval` (never `success`, never `error`)
+# with the handoff payload in `result.output`.
+#
+# That is the whole point: the chain automates everything up to consent and
+# then STOPS at it. A human completes the install through the existing
+# owner-scoped `POST /api/extensions/author/install` (or by re-running
+# `install_draft` in a chat, where the card can actually be shown).
+#
+# We call the extension's own gated `install_draft` TOOL rather than the
+# exported `installAuthoredDraft` function on purpose — that function
+# performs no consent of its own, and calling it from a step is exactly the
+# hand-rolled bypass `drafts-handler.ts` warns about.
+#
+# ── Inputs ────────────────────────────────────────────────────────────
+#
+# `userId` is a DISPLAY HINT for whoever completes the install — it is NOT
+# an authorization input. The install endpoint derives the owner from the
+# session and refuses a draft that is not the caller's, and the draft
+# directory is already owner-scoped by the run's acting user. A wrong or
+# forged value here buys nothing.
+
+name: extension-author
+description: >
+  Scaffold a new extension, machine-verify it against the host's acceptance
+  gate, and park awaiting human consent to install. Terminal status is
+  `awaiting_approval` on success — that is the expected outcome, not a
+  failure.
+
+inputSchema:
+  type: object
+  properties:
+    name:
+      type: string
+      description: Lowercase identifier, /^[a-z0-9][a-z0-9-_.]{0,63}$/.
+    type:
+      type: string
+      enum: [tool, skill, agent, multi]
+    description:
+      type: string
+      description: One-paragraph human-readable description.
+    userId:
+      type: string
+      description: Display hint for the human who completes the install. Not an authorization input.
+  required: [name, type, description]
+
+steps:
+  # 1. Scaffold. Returns {draftId, openUrl, name, type}.
+  - name: scaffold
+    kind: tool
+    tool: extension-author__create_extension
+    input:
+      name: $input.name
+      type: $input.type
+      description: $input.description
+
+  # 2. Assert the scaffold actually produced a draft. `create_extension`
+  #    surfaces a transport/ownership failure as a tool error (which fails
+  #    the step above loudly), but a host response missing `draftId` would
+  #    otherwise sail through and make step 3 request `undefined`.
+  - name: scaffolded
+    kind: gate
+    condition:
+      all:
+        - ref: $steps.scaffold.output.draftId
+          op: exists
+        - ref: $steps.scaffold.output.draftId
+          op: truthy
+
+  # 3. The host's canonical acceptance gate (loadManifest →
+  #    validateManifestV2 → sandboxed smokeTest round-trip). Returns
+  #    {ok, pass, steps}. A FAILING verify is not a tool error — it comes
+  #    back with pass:false, which is what step 4 is for.
+  - name: validate
+    kind: tool
+    tool: extension-author__validate_extension
+    input:
+      draftId: $steps.scaffold.output.draftId
+
+  # 4. Assert the verify PASSED. `eq true` (not `truthy`) so a missing /
+  #    non-boolean `pass` fails closed rather than passing on any non-empty
+  #    value. The gate's failure reason names this exact ref and its actual
+  #    value, so a red run says which assertion broke.
+  - name: verified
+    kind: gate
+    condition:
+      ref: $steps.validate.output.pass
+      op: eq
+      value: true
+
+  # 5. Assemble the handoff payload. This is the LAST SUCCESSFUL result, so
+  #    it is what lands in `result.output` when step 6 parks the run.
+  - name: handoff
+    kind: transform
+    output:
+      draftId: $steps.scaffold.output.draftId
+      userId: $input.userId
+      verifyResult: $steps.validate.output
+      openUrl: $steps.scaffold.output.openUrl
+      nextStep: >-
+        Draft {{ $steps.scaffold.output.draftId }} passed verification and is
+        awaiting consent to install. Complete it with POST
+        /api/extensions/author/install (owner-scoped), or open
+        {{ $steps.scaffold.output.openUrl }} and install from there.
+
+  # 6. Request the install. EXPECTED to be refused — see the header. This
+  #    step is what turns a completed chain into `awaiting_approval` rather
+  #    than a `success` that misleadingly implies the extension is live.
+  - name: request-install
+    kind: tool
+    tool: extension-author__install_draft
+    input:
+      draftId: $steps.scaffold.output.draftId

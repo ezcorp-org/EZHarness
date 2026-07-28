@@ -37,6 +37,7 @@ const GRANT_PERMISSION_KEYS = [
   "spawnAgents",
   "agentConfig",
   "eventSubscriptions",
+  "workflows",
   "llm",
   "memory",
   "lessons",
@@ -142,6 +143,9 @@ export function manifestRequestedGrant(
   if (p.eventSubscriptions !== undefined) {
     requested.eventSubscriptions =
       p.eventSubscriptions as ExtensionPermissions["eventSubscriptions"];
+  }
+  if (p.workflows !== undefined) {
+    requested.workflows = p.workflows as ExtensionPermissions["workflows"];
   }
   if (p.llm !== undefined) requested.llm = p.llm as ExtensionPermissions["llm"];
   if (p.memory !== undefined) requested.memory = p.memory as ExtensionPermissions["memory"];

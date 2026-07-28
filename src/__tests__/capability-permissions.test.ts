@@ -115,7 +115,15 @@ describe("capability-flags — kill-switch gate", () => {
 
   test("CAPABILITY_PERMISSION_FIELDS lists all capability-tier fields", () => {
     expect(new Set(CAPABILITY_PERMISSION_FIELDS)).toEqual(
-      new Set(["taskEvents", "loopEvents", "spawnAgents", "agentConfig", "eventSubscriptions", "webhooks"]),
+      new Set([
+        "taskEvents", "loopEvents", "spawnAgents", "agentConfig",
+        "eventSubscriptions", "webhooks",
+        // W2 — the `ezcorp/workflows` trigger grant. A capability-TOOL field
+        // (discrete verb behind an install-time grant), not a §3.1
+        // three-state policy override, so it belongs here and NOT in
+        // CAPABILITY_POLICY_FIELDS.
+        "workflows",
+      ]),
     );
   });
 

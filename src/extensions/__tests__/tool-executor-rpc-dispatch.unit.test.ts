@@ -51,6 +51,7 @@ const HANDLER_NAMES = [
   "handlePiSearch",
   "handlePiSchedule",
   "handlePiDrafts",
+  "handlePiWorkflows",
   "handlePiRbacCheck",
   "handlePiGithubProjects",
 ] as const;

@@ -1245,9 +1245,12 @@ export const sdkCapabilityCalls = pgTable("sdk_capability_calls", {
    *  Declared as plain text to avoid Drizzle's same-table-reference
    *  ergonomics; orphans tolerated (audit-only). */
   parentCallId: text("parent_call_id"),
-  /** 'llm' | 'memory' | 'lessons' | 'schedule' | 'events' | 'search' */
-  capability: text("capability").notNull().$type<"llm" | "memory" | "lessons" | "schedule" | "events" | "search">(),
-  /** 'complete' | 'read' | 'write' | 'update' | 'delete' | 'fire' | 'register' | 'subscribe' */
+  /** 'llm' | 'memory' | 'lessons' | 'schedule' | 'events' | 'search' | 'workflows'
+   *  MUST stay in sync with `SdkCapability` in
+   *  `src/extensions/recordCapabilityCall.ts` (the column is plain text, so
+   *  drift is silent). */
+  capability: text("capability").notNull().$type<"llm" | "memory" | "lessons" | "schedule" | "events" | "search" | "workflows">(),
+  /** 'complete' | 'read' | 'write' | 'update' | 'delete' | 'fire' | 'register' | 'subscribe' | 'run' */
   action: text("action").notNull(),
   resourceType: text("resource_type"),
   resourceId: text("resource_id"),

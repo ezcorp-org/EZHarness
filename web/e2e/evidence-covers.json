@@ -42,6 +42,9 @@
   "web/e2e/extensions-sort.spec.ts": [
     "web/src/routes/(app)/extensions/+page.svelte"
   ],
+  "web/e2e/extensions-workflows-grant.spec.ts": [
+    "web/src/routes/(app)/extensions/+page.svelte"
+  ],
   "web/e2e/extension-install-granted-caps.spec.ts": [
     "web/src/routes/(app)/extensions/[id]/+page.svelte"
   ],

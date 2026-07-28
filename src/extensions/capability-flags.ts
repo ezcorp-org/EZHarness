@@ -29,6 +29,13 @@ export const CAPABILITY_PERMISSION_FIELDS = [
   "agentConfig",
   "eventSubscriptions",
   "webhooks",
+  // W2 — `{names, maxRunsPerHour}` trigger grant for the extension's own
+  // shipped workflows. Belongs to the capability-TOOL tier (a discrete
+  // reverse-RPC verb gated by an install-time grant), NOT to
+  // CAPABILITY_POLICY_FIELDS: those are the §3.1 three-state
+  // `"inherit" | {…} | false` instance-policy overrides, and a workflow
+  // trigger list has no instance-wide default to inherit from.
+  "workflows",
 ] as const;
 
 export type CapabilityPermissionField = typeof CAPABILITY_PERMISSION_FIELDS[number];

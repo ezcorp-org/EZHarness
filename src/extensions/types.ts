@@ -573,6 +573,19 @@ export interface ExtensionManifestV2 {
      *  Undeclared slugs are dropped at install (mirrors cron/event; never
      *  widens the grant). */
     webhooks?: string[];
+    /** Trigger runs of workflows this extension SHIPS, via the
+     *  `ezcorp/workflows` reverse RPC (W2). Each `names` entry is the
+     *  BARE workflow name as declared in one of the extension's own
+     *  `*.workflow.yaml` assets — the host prefixes it with the
+     *  extension's name (`<extensionName>:<name>`) before resolving, so
+     *  the wire can NEVER express a host workflow name and an extension
+     *  can never trigger another extension's (or the host's) workflow.
+     *  `maxRunsPerHour` is optional here and REQUIRED on the granted
+     *  shape (the clamp supplies the bound) — a workflow run can invoke
+     *  agent steps that cost real LLM spend, so the grant always carries
+     *  a rate ceiling. Undeclared names are dropped at clamp time
+     *  (mirrors cron/event/webhook — the grant is never widened). */
+    workflows?: { names: string[]; maxRunsPerHour?: number };
     /** Author turns directly via the `ezcorp/append-message` reverse RPC.
      *  Conversation scope is forced by the host (the extension cannot
      *  target another conversation). The host always forces the new
@@ -917,6 +930,16 @@ export interface ExtensionPermissions {
    *  grant. The host routes an authenticated inbound POST onto the delivery
    *  queue only for a slug present here. See the matching manifest field. */
   webhooks?: string[];
+  /** Granted workflow triggers (W2). `names` are BARE workflow names
+   *  clamped at install time to the intersection of the manifest
+   *  declaration and the submitted grant; the host namespaces each to
+   *  `<extensionName>:<name>` before resolving, so a granted name can
+   *  only ever reach a workflow this extension itself ships.
+   *  `maxRunsPerHour` is REQUIRED here (unlike the manifest, where it is
+   *  optional) — the clamp always supplies a bound, and
+   *  `intersectPermissions` does `Math.min` on it, so a ceiling row that
+   *  omitted it would produce `NaN`. See the matching manifest field. */
+  workflows?: { names: string[]; maxRunsPerHour: number };
   /** Grants the `ezcorp/append-message` reverse RPC. See the matching
    *  field on `ExtensionManifestV2.permissions`. */
   appendMessages?: { excludedDefault: boolean };
