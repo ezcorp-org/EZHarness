@@ -15,6 +15,26 @@ import {
 } from "./workflow-refs";
 import { evaluateCondition } from "./workflow-condition";
 import { clampMaxIterations, clampRetries, stepKind } from "./workflow-validator";
+import {
+  beginNonInteractiveScope,
+  type NonInteractiveScopeHandle,
+} from "./tools/permissions";
+import {
+  createWorkflowToolRunner,
+  type WorkflowToolRunner,
+  type WorkflowToolRunnerFactory,
+} from "./workflow-tool-runner";
+import { toolCallsThisTurn } from "../extensions/tool-executor/limits";
+import { getWorkflowByName } from "../db/queries/workflows";
+import {
+  finalizeWorkflowRunRow,
+  insertWorkflowRun,
+  upsertWorkflowStepRun,
+  type TerminalWorkflowRunStatus,
+} from "../db/queries/workflow-runs";
+import { logger } from "../logger";
+
+const log = logger.child("workflow");
 
 /** Sentinel thrown internally when a workflow is cancelled (external abort
  *  or a sibling-failure cancel cascaded onto a step's run) so the catch
@@ -26,11 +46,116 @@ class WorkflowAbortError extends Error {
   }
 }
 
+/**
+ * A `tool` step needed interactive consent that a workflow structurally
+ * cannot obtain (the PDP returned `prompt` for a sensitive capability,
+ * and there is no conversation on which to render the approval card).
+ *
+ * Distinct from a plain failure: it terminalizes the run
+ * `awaiting_approval`, not `error` — nothing went wrong, the graph is
+ * simply blocked on a human. Never `success`.
+ */
+export class WorkflowApprovalRequiredError extends Error {
+  constructor(
+    readonly stepName: string,
+    readonly capabilityKind: string,
+  ) {
+    super(
+      `Step "${stepName}" requires interactive approval for capability ` +
+        `${capabilityKind} and cannot run in a workflow`,
+    );
+    this.name = "WorkflowApprovalRequiredError";
+  }
+}
+
+export interface WorkflowExecutorOptions {
+  /**
+   * Persist run history to `workflow_runs` / `workflow_step_runs`.
+   * Defaults to **false**, mirroring `AgentExecutor`'s `persist` flag, so
+   * unit tests and any harness without a wired DB keep working. The
+   * server wires `{ persist: true }`.
+   */
+  persist?: boolean;
+  /**
+   * Build the `tool`-step dispatcher. Defaults to the real
+   * `ToolExecutor`-backed runner; tests inject a fake. Called at most
+   * once per workflow run, and only if the graph actually has a tool
+   * step (a pure agent/transform/gate workflow never touches the
+   * extension registry).
+   */
+  toolRunnerFactory?: WorkflowToolRunnerFactory;
+}
+
+/**
+ * Build the id a workflow run passes wherever the host expects a
+ * `conversationId`.
+ *
+ * A workflow has NO conversation, and both obvious shortcuts are unsafe:
+ *
+ *   • An EMPTY string fails OPEN. `shouldDeliverEvent`
+ *     (sse-conversation-filter.ts) short-circuits on a missing/empty
+ *     `conversationId` and returns `true` — i.e. every tool event of
+ *     this run would be broadcast to every SSE subscriber, before the
+ *     per-user check further down ever runs. It also makes the sec-H2
+ *     ownership check in `routes/tool-permission.ts` a no-op, because
+ *     `getPendingApprovalConversation` returns a falsy value.
+ *
+ *   • A BORROWED id (some unrelated real conversation) would be a lie
+ *     that grants this run that conversation's project scope and leaks
+ *     its events to that conversation's owner.
+ *
+ * So we mint a synthetic, self-describing, non-conversation id. It is
+ * deliberately shaped so that every conversation-keyed lookup FAILS
+ * CLOSED rather than open:
+ *   - `getConversation()` returns null ⇒ the SSE filter's
+ *     `isAuthorizedForConversation(..., "closed")` denies delivery, so
+ *     tool events from a workflow reach nobody over the chat channel
+ *     (the run's own `workflow:*` events, which ARE userId-scoped, are
+ *     how the UI follows it);
+ *   - `resolveExtensionScopeGrant` derives `projectId = null`, the
+ *     strictest RBAC coordinate — only NULL-project grants cover it;
+ *   - it can never collide with a real conversation id (real ids are
+ *     bare UUIDs).
+ *
+ * Known, accepted cost: `tool_calls.conversation_id` is an FK to
+ * `conversations`, so the per-call analytics row for a workflow tool step
+ * is rejected and swallowed by `persistToolCall` (which never throws by
+ * contract). The audit trail is not lost — the PDP's own audit row is
+ * written independently of any conversation, and this subsystem's
+ * `workflow_step_runs` records the step outcome.
+ */
+export function workflowScopeKey(workflowRunId: string): string {
+  return `workflow-run:${workflowRunId}`;
+}
+
 export class WorkflowExecutor {
+  private readonly persist: boolean;
+  private readonly toolRunnerFactory: WorkflowToolRunnerFactory;
+
   constructor(
     private agentExecutor: AgentExecutor,
     private bus: EventBus<AgentEvents>,
-  ) {}
+    opts?: WorkflowExecutorOptions,
+  ) {
+    this.persist = opts?.persist ?? false;
+    this.toolRunnerFactory =
+      opts?.toolRunnerFactory ?? (() => createWorkflowToolRunner(this.bus));
+  }
+
+  /**
+   * Run one persistence write. Never throws and never blocks the run: a
+   * DB glitch must not fail a workflow that otherwise succeeded (same
+   * contract as `persistToolCall`). A single shared wrapper keeps that
+   * decision — and its `catch` — in exactly one place.
+   */
+  private async persistWrite(what: string, fn: () => Promise<unknown>): Promise<void> {
+    if (!this.persist) return;
+    try {
+      await fn();
+    } catch (err) {
+      log.warn("workflow run persistence failed", { what, error: String(err) });
+    }
+  }
 
   async runWorkflow(
     workflow: WorkflowDefinition,
@@ -53,8 +178,53 @@ export class WorkflowExecutor {
     // have no user and are observed via stdout/DB, not SSE.
     this.bus.emit("workflow:start", { workflowRun, userId });
 
+    // Durable mirror. Written up-front (status `running`) so a crash
+    // mid-run leaves a row the boot sweep can drain, rather than no
+    // trace at all. The definition-id lookup is a name→row resolution;
+    // a YAML workflow simply has no row, which is what the nullable FK
+    // is for.
+    await this.persistWrite("insert", async () => {
+      const definition = await getWorkflowByName(workflow.name);
+      await insertWorkflowRun({
+        id: workflowRun.id,
+        workflowName: workflow.name,
+        workflowDefinitionId: definition?.id ?? null,
+        projectId: projectId ?? null,
+        userId: userId ?? null,
+        input,
+        startedAt: new Date(workflowRun.startedAt),
+      });
+    });
+
     const stepResults = new Map<string, AgentResult>();
     let prevResult: AgentResult | undefined;
+
+    // ── Tool-step scope (security) ───────────────────────────────────
+    //
+    // The id every tool step of this run passes as `conversationId`, and
+    // the key that marks the run non-interactive. Registering it means a
+    // sensitive-capability PDP `prompt` is REFUSED synchronously instead
+    // of parking a promise nobody can resolve — see
+    // `createExtensionPermissionGate`. `gateAbort` fires on cancel so any
+    // gate that did somehow open under this key is torn down with the run.
+    const scopeKey = workflowScopeKey(workflowRun.id);
+    const gateAbort = new AbortController();
+    const approvalScope = beginNonInteractiveScope(scopeKey, gateAbort.signal);
+    // Built lazily: a workflow with no tool steps never touches the
+    // extension registry or the PDP singleton.
+    let toolRunner: WorkflowToolRunner | undefined;
+    const getToolRunner = (): WorkflowToolRunner => {
+      if (!toolRunner) {
+        toolRunner = this.toolRunnerFactory();
+        if (userId) toolRunner.setCurrentUserId(userId);
+      }
+      return toolRunner;
+    };
+    const toolCtx: ToolStepContext = {
+      scopeKey,
+      scope: approvalScope,
+      getRunner: getToolRunner,
+    };
 
     // ── Cancellation plumbing (durability) ───────────────────────────
     //
@@ -119,7 +289,29 @@ export class WorkflowExecutor {
             status: "running",
           };
           workflowRun.steps.push(stepRun);
-          this.bus.emit("workflow:step", { workflowRun, step: stepRun, userId });
+          // Mirror the step row. Split from the SSE emit below on
+          // purpose: the DB must record EVERY status transition
+          // (including the terminal one), while the `workflow:step` event
+          // sequence is a published contract — the terminal step status
+          // already reaches clients on the run object carried by
+          // `workflow:complete` / `workflow:error`, so adding frames here
+          // would change the stream for no gain.
+          const persistStep = (): void => {
+            void this.persistWrite("step", () =>
+              upsertWorkflowStepRun({
+                workflowRunId: workflowRun.id,
+                stepName: stepRun.stepName,
+                runId: stepRun.runId,
+                status: stepRun.status,
+                ...(stepRun.iterations !== undefined ? { iterations: stepRun.iterations } : {}),
+              }),
+            );
+          };
+          const syncStep = (): void => {
+            this.bus.emit("workflow:step", { workflowRun, step: stepRun, userId });
+            persistStep();
+          };
+          syncStep();
 
           try {
             const result = await this.runStep(
@@ -131,10 +323,12 @@ export class WorkflowExecutor {
               projectId,
               userId,
               () => externallyAborted,
-              () => this.bus.emit("workflow:step", { workflowRun, step: stepRun, userId }),
+              syncStep,
+              toolCtx,
             );
             stepResults.set(step.name, result);
             stepRun.status = "success";
+            persistStep();
             return result;
           } catch (err) {
             // Only agent steps mirror their AgentRun's terminal status onto
@@ -149,6 +343,11 @@ export class WorkflowExecutor {
             // either branch.)
             const aborting = externallyAborted || err instanceof WorkflowAbortError;
             if (stepRun.status === "running" || stepRun.status === "success") stepRun.status = aborting ? "cancelled" : "error";
+            // A step blocked on human consent is not an error — it never
+            // ran. Stamp the distinct state so the persisted history says
+            // "this is the step to approve", not "this step failed".
+            if (err instanceof WorkflowApprovalRequiredError) stepRun.status = "awaiting_approval";
+            persistStep();
             fail(err);
             return undefined;
           }
@@ -169,6 +368,7 @@ export class WorkflowExecutor {
       this.bus.emit("workflow:complete", { workflowRun, userId });
     } catch (err) {
       cancelInFlight();
+      gateAbort.abort();
       if (externallyAborted || err instanceof WorkflowAbortError) {
         workflowRun.status = "cancelled";
         workflowRun.finishedAt = Date.now();
@@ -182,6 +382,18 @@ export class WorkflowExecutor {
           error: "workflow cancelled",
           userId,
         });
+      } else if (err instanceof WorkflowApprovalRequiredError) {
+        // Not an error: every automatable step ran, and the graph then
+        // reached one that needs a human. Reported as its own terminal
+        // state so nothing downstream can mistake it for `success`.
+        workflowRun.status = "awaiting_approval";
+        workflowRun.finishedAt = Date.now();
+        workflowRun.result = {
+          success: false,
+          output: null,
+          error: { code: "awaiting_approval", message: err.message },
+        };
+        this.bus.emit("workflow:error", { workflowRun, error: err.message, userId });
       } else {
         const error = err instanceof Error ? err.message : String(err);
         workflowRun.status = "error";
@@ -192,6 +404,21 @@ export class WorkflowExecutor {
     } finally {
       if (signal) signal.removeEventListener("abort", onAbort);
       for (const unsub of unsubs) unsub();
+      // Deregister the non-interactive scope and reject anything still
+      // parked under it — nothing may outlive the run that owned it.
+      approvalScope.end();
+      // The per-turn tool-call counter (`limits.ts`) is keyed by the id we
+      // pass as `conversationId`, and its bus-driven reset only fires for
+      // real chat runs. A workflow's key is unique per run, so without
+      // this the Map would grow by one dead entry per run forever.
+      toolCallsThisTurn.delete(scopeKey);
+      await this.persistWrite("finalize", () =>
+        finalizeWorkflowRunRow(
+          workflowRun.id,
+          workflowRun.status as TerminalWorkflowRunStatus,
+          workflowRun.result,
+        ),
+      );
     }
 
     return workflowRun;
@@ -211,6 +438,7 @@ export class WorkflowExecutor {
     userId: string | undefined,
     isAborted: () => boolean,
     emitStep: () => void,
+    toolCtx: ToolStepContext,
   ): Promise<AgentResult> {
     if (step.loop) {
       return this.runLoop(
@@ -234,6 +462,9 @@ export class WorkflowExecutor {
     }
     if (kind === "gate") {
       return runGate(step, baseCtx);
+    }
+    if (kind === "tool") {
+      return runToolStep(step, baseCtx, toolCtx);
     }
     return this.runAgentStep(
       step,
@@ -444,6 +675,69 @@ export class WorkflowExecutor {
   ): Record<string, unknown> {
     return resolveMapping(mapping, { input: workflowInput, stepResults, prevResult });
   }
+}
+
+/** Per-run wiring a `tool` step needs. Built once in `runWorkflow`. */
+interface ToolStepContext {
+  /** The synthetic `conversationId` every tool call of this run uses —
+   *  see {@link workflowScopeKey}. */
+  scopeKey: string;
+  /** This run's non-interactive scope; `takeDenial()` reports a
+   *  capability whose gate was refused. */
+  scope: NonInteractiveScopeHandle;
+  /** Lazily-built tool dispatcher (already bound to the acting user). */
+  getRunner: () => WorkflowToolRunner;
+}
+
+/**
+ * Run a `tool` step: resolve its `input` with the SAME ref language every
+ * other kind uses ({@link resolveMapping} — there is deliberately no
+ * second grammar), then dispatch through the host's one tool path so the
+ * call is authorized, audited and provenance-tracked exactly like a
+ * chat-driven one.
+ *
+ * The security-critical branch is the `catch`: when the PDP returns
+ * `prompt` for a sensitive capability, `createExtensionPermissionGate`
+ * rejects SYNCHRONOUSLY (this run's scope is registered non-interactive),
+ * so we never await a gate nobody can answer. We turn that refusal into
+ * {@link WorkflowApprovalRequiredError}, which terminalizes the run
+ * `awaiting_approval` instead of hanging it forever.
+ *
+ * Result shape mirrors the other kinds — `{ success, output }` — so
+ * `$prev` / `$steps` refs work against a tool step unchanged. `output` is
+ * the tool's text content joined with newlines, the same projection
+ * `ToolExecutor.createToolsContext` hands to code-based agents.
+ */
+async function runToolStep(
+  step: WorkflowStep,
+  refCtx: RefContext,
+  toolCtx: ToolStepContext,
+): Promise<AgentResult> {
+  const resolvedInput = resolveMapping(step.input ?? {}, refCtx);
+
+  let result: Awaited<ReturnType<WorkflowToolRunner["executeToolCall"]>>;
+  try {
+    result = await toolCtx
+      .getRunner()
+      .executeToolCall(step.tool as string, resolvedInput, toolCtx.scopeKey, null);
+  } catch (err) {
+    // `takeDenial()` is non-empty ONLY when a gate was refused for want
+    // of a human during this dispatch, which pins the failure to the
+    // capability that needed consent rather than a generic "denied".
+    const capabilityKind = toolCtx.scope.takeDenial();
+    if (capabilityKind !== undefined) {
+      throw new WorkflowApprovalRequiredError(step.name, capabilityKind);
+    }
+    throw new Error(
+      `Step "${step.name}" failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  const text = result.content.map((c) => c.text).join("\n");
+  if (result.isError) {
+    throw new Error(`Step "${step.name}" failed: ${text}`);
+  }
+  return { success: true, output: text };
 }
 
 /** Resolve a `transform` step's declarative output mapping into an

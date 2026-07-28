@@ -1,6 +1,6 @@
 # Workflows
 
-> _Declarative graphs that orchestrate a mix of **agent** steps (invoke one agent), **transform** steps (pure, declarative data reshapes — no LLM, no I/O), and **gate** steps (assert a declarative condition). Any agent/transform step may **loop** with a bounded until-condition. The executor topo-sorts steps into parallel batches with fail-fast, loud-failure semantics._
+> _Declarative graphs that orchestrate a mix of **agent** steps (invoke one agent), **tool** steps (invoke one deterministic extension tool), **transform** steps (pure, declarative data reshapes — no LLM, no I/O), and **gate** steps (assert a declarative condition). Any agent/transform step may **loop** with a bounded until-condition. The executor topo-sorts steps into parallel batches with fail-fast, loud-failure semantics._
 
 ## Intent
 
@@ -19,13 +19,14 @@ Three design constraints are load-bearing (not stylistic):
 ### Data model (`src/types.ts`)
 
 - `WorkflowDefinition` = `{ name, description, inputSchema?, steps }`.
-- `WorkflowStep` = `{ name, kind?, agent?, input?, retries?, output?, condition?, dependsOn?, loop? }`. `kind` is one of `"agent" | "transform" | "gate"` (default `"agent"`).
+- `WorkflowStep` = `{ name, kind?, agent?, tool?, input?, retries?, output?, condition?, dependsOn?, loop? }`. `kind` is one of `"agent" | "tool" | "transform" | "gate"` (default `"agent"`).
   - **agent** — `agent` is an agent name resolved by `AgentExecutor`; `input` is a `Record<string,string>` of input mappings; `retries` is a per-step retry budget (clamped 0..2).
+  - **tool** — `tool` is a runtime-namespaced extension tool (`<extension>__<tool>`, e.g. `extension-author__create_extension`) dispatched through `ToolExecutor.executeToolCall`. `input` uses the **same** ref language as an agent step (there is deliberately no second grammar). `agent` is forbidden; `loop` is forbidden (see gotchas).
   - **transform** — `output` is a `Record<string,string>` output mapping (same ref language as inputs, plus `{{…}}` template interpolation). Pure: no LLM, no I/O, no clock.
   - **gate** — `condition` is a `WorkflowCondition` tree.
 - `WorkflowCondition` = a leaf `{ ref, op, value? }` or a composite `{ all: [] } | { any: [] } | { not: … }`. Operators: `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `contains`, `exists`, `truthy`.
 - `LoopConfig` = `{ maxIterations, until?, onExhausted? }` — `maxIterations` is **required** (server-clamped 1..25); `until` is a `WorkflowCondition` evaluated after each iteration; `onExhausted` is `"fail"` (default) or `"pass"`.
-- `WorkflowRun` = `{ id, workflowName, projectId?, status, startedAt, finishedAt?, steps: WorkflowStepRun[], result? }`; `WorkflowStepRun` = `{ stepName, runId, status, iterations? }` (`iterations` is the final count for a looped step). `status` reuses the agent `AgentStatus` union.
+- `WorkflowRun` = `{ id, workflowName, projectId?, status, startedAt, finishedAt?, steps: WorkflowStepRun[], result? }`; `WorkflowStepRun` = `{ stepName, runId, status, iterations? }` (`iterations` is the final count for a looped step). `status` is `WorkflowRunStatus` = the agent `AgentStatus` union **plus `awaiting_approval`** (see below).
 - The DB table `workflow_definitions` (`src/db/schema.ts`) stores `id` (UUID PK), `name` (unique), `description`, `inputSchema` (jsonb), `steps` (jsonb), `createdAt`/`updatedAt`. A migration renames the legacy `pipeline_definitions` table in place (data preserved). It has **no** owner/user/project column — workflows are global (see gotchas).
 
 ### Loading & the in-memory cache (`workflow-loader.ts` + `context.ts`)
@@ -49,18 +50,36 @@ Workflows come from **two sources, merged into one in-memory array** at boot:
    - Push a `WorkflowStepRun` (`status: "running"`), emit **`workflow:step`**.
    - **agent** — resolve `input` via the ref language, run the agent (up to `1 + clampRetries(retries)` attempts; a *cancelled* run is never retried), copy `agentRun.id`/`status` onto the step run. A genuine failure after the budget throws `Step "<name>" failed: <error>`.
    - **transform** — resolve `output` (refs + `{{…}}` templates) into `{ success: true, output: <object> }`. `stepRun.runId` stays `""` (no agent run).
+   - **tool** — resolve `input` via the ref language, dispatch `ToolExecutor.executeToolCall(tool, resolvedInput, <synthetic conversationId>, null)`, and return `{ success: true, output: <tool text content joined with newlines> }`. An `isError` result or a thrown dispatch error throws `Step "<name>" failed: <text>`. A sensitive-capability approval prompt fails the step with `WorkflowApprovalRequiredError` — see **Tool steps & the approval guard** below.
    - **gate** — evaluate `condition`; `true` ⇒ `{ success: true, output: { passed: true } }`; `false` ⇒ throw `Gate "<name>" failed: <human-readable explanation of the decisive leaf>`.
    - The first failure records the batch error and **cancels still-running siblings** via the abort plumbing.
 4. After each batch, `prevResult` is set to the **last successful result in that batch** (array order) — this is what `$prev.*` reads next.
-5. On clean completion: `status:"success"`, `result = prevResult`, emit **`workflow:complete`**. On failure: `status:"error"` (or `"cancelled"` for an external abort), emit **`workflow:error`**.
+5. On clean completion: `status:"success"`, `result = prevResult`, emit **`workflow:complete`**. On failure: `status:"error"` (or `"cancelled"` for an external abort, or `"awaiting_approval"` when a tool step needs human consent), emit **`workflow:error`**.
 
-`runWorkflow` is **fully awaited** — it returns the terminal `WorkflowRun` (the run route blocks until the whole graph finishes). Runs are **never persisted**; they live only in the returned object + the SSE-fed client store.
+`runWorkflow` is **fully awaited** — it returns the terminal `WorkflowRun` (the run route blocks until the whole graph finishes).
+
+### Tool steps & the approval guard (`workflow-tool-runner.ts` + `tools/permissions.ts`)
+
+A tool step runs through the host's **one** tool dispatch path, so it is authorized, audited and provenance-tracked exactly like a chat-driven call. Three things make that safe without a conversation:
+
+1. **Fail fast on `prompt`, never hang.** The PDP returns `decision: "prompt"` for any `SENSITIVE_KINDS` capability (`shell`, `fs.write`, `ezcorp:extension:install`, `ezcorp:extension:modify`) with no always-allow row. In a chat turn a modal answers it; in a workflow **nobody can**. `runWorkflow` registers its scope key via `beginNonInteractiveScope()`, so `createExtensionPermissionGate` **rejects synchronously** (`NonInteractiveApprovalRequiredError`) instead of parking a promise. The executor turns that into `Step "<n>" requires interactive approval for capability <kind> and cannot run in a workflow` and terminalizes the run `awaiting_approval`.
+2. **The gate can now be torn down.** `createExtensionPermissionGate` accepts an optional `timeoutMs` and `signal`. Both default to unset, so the **chat path's behaviour is byte-identical** (block until answered). A cancelled workflow aborts its scope signal, which rejects every gate pending under its key with `PermissionGateAbortedError`.
+3. **An honest `conversationId`.** A workflow has none, so the executor mints `workflow-run:<runId>` (`workflowScopeKey()`). An **empty string** would fail *open* — `shouldDeliverEvent` short-circuits on a missing `conversationId` and broadcasts to every SSE subscriber, and it nulls out the sec-H2 ownership check in `routes/tool-permission.ts`. The synthetic id fails *closed* everywhere instead: `getConversation()` returns null so the SSE filter denies delivery, and `resolveExtensionScopeGrant` derives `projectId = null` (the strictest RBAC coordinate). `userId` is threaded to `ToolExecutor.setCurrentUserId` so the call is not ownerless.
+
+### Run persistence (`workflow_runs` + `workflow_step_runs`)
+
+`new WorkflowExecutor(agentExec, bus, { persist: true })` (the server and the CLI) mirrors every run to the DB; the default is `false` so unit harnesses without a DB are unaffected. Writes never throw — a DB glitch cannot fail a workflow that otherwise succeeded.
+
+- `workflow_runs` — the executor's **already-minted** `id` (never a column default: it is already in the `workflow:start` payload and the scope key), `workflow_definition_id` (nullable FK — YAML workflows have no row; `SET NULL` keeps history after a delete), `workflow_name` (denormalized so history survives a rename), `project_id`, `user_id` (`SET NULL`, same IDOR-guard rationale as `runs.user_id`), `status`, `input`, `result`, `started_at`, `finished_at`.
+- `workflow_step_runs` — one upserted row per step on `(workflow_run_id, step_name)`; `run_id` is a **nullable** FK to `runs.id` (transform / gate / tool steps mint no AgentRun and carry the in-memory `runId = ""` sentinel, which the query layer maps to SQL NULL).
+- `finalizeWorkflowRunRow(id, status, result?)` is an idempotent CAS on `status='running'` — a retry or a racing boot sweep is a zero-row no-op and never clobbers a richer terminal state.
+- `terminalizeOrphanedWorkflowRuns()` runs at boot (`web/src/lib/server/context.ts`): a fresh process owns zero in-flight workflow runs, so any row still `running` was orphaned by a crash/restart and is drained to `error`. Both shipped from day one — see the scar recorded on `queries/runs.ts:finalizeRunRow`.
 
 ### Loops (`runLoop`)
 
 A step with a `loop` repeats up to `clampMaxIterations(loop.maxIterations)` (1..25) times, evaluating `until` **after** each iteration:
 
-- Allowed on **agent** and **transform** steps; invalid on a **gate**. `loop` and `retries` are **mutually exclusive** (definition-time error) so the worst-case cost stays bounded.
+- Allowed on **agent** and **transform** steps; invalid on a **gate** and on a **tool** (repeating a side-effecting install/write/shell call with no LLM in the middle is deliberately out of scope). `loop` and `retries` are **mutually exclusive** (definition-time error) so the worst-case cost stays bounded.
 - Step-input refs gain `$loop.iteration` (1-based) and `$loop.last.<path>` (previous iteration's result). On iteration 1 the `$loop.last` mapping key is **omitted**, never passed as `undefined` — the single documented lenient exception to strict refs.
 - Each iteration re-emits **`workflow:step`**; `WorkflowStepRun.iterations` records the final count.
 - `until` satisfied ⇒ the step succeeds with that iteration's result. No `until` ⇒ a fixed-count loop that always passes. Budget exhausted with `until` unmet obeys `onExhausted`: `"fail"` (default) throws `Step "<name>" exhausted <max> iterations without meeting its until-condition`; `"pass"` succeeds with the last result and `iterations = max`.
@@ -88,7 +107,7 @@ One module defines the ref grammar for all three callers (step inputs, transform
 
 ### Definition-time validation (`workflow-validator.ts`)
 
-`validateWorkflow(def)` returns a list of human-readable errors (empty ⇒ valid). It is the **single shared validator** used by both the API (400 with the first message) and the YAML loader (warn-and-skip). It rejects: duplicate step names; `dependsOn` naming an unknown step; `agent` kind without `agent`; `transform` without `output`; `gate` without `condition`; a `loop` on a gate; `loop` + `retries` together; and a missing / non-integer `maxIterations`. Out-of-range **integer** loop budgets are **not** errors — they are clamped at run time.
+`validateWorkflow(def)` returns a list of human-readable errors (empty ⇒ valid). It is the **single shared validator** used by both the API (400 with the first message) and the YAML loader (warn-and-skip). It rejects: duplicate step names; `dependsOn` naming an unknown step; `agent` kind without `agent`; `tool` without `tool`; `tool` that also names an `agent`; `transform` without `output`; `gate` without `condition`; a `loop` on a gate or a tool; `loop` + `retries` together; and a missing / non-integer `maxIterations`. Out-of-range **integer** loop budgets are **not** errors — they are clamped at run time.
 
 ### Eventing & the client store
 
@@ -139,13 +158,16 @@ Three committed demos double as executable documentation and test fixtures:
 ## Key files
 
 - `src/types.ts` — `WorkflowDefinition`, `WorkflowStep`, `WorkflowStepKind`, `WorkflowCondition`, `WorkflowConditionOp`, `LoopConfig`, `WorkflowRun`, `WorkflowStepRun`, the four `workflow:*` events on `AgentEvents`.
-- `src/runtime/workflow-executor.ts` — `WorkflowExecutor`: `runWorkflow`, `resolveExecutionOrder`, `runStep`/`runAgentStep`/`runLoop`, transform/gate helpers, retry + abort/cancel plumbing.
+- `src/runtime/workflow-executor.ts` — `WorkflowExecutor`: `runWorkflow`, `resolveExecutionOrder`, `runStep`/`runAgentStep`/`runToolStep`/`runLoop`, transform/gate helpers, retry + abort/cancel plumbing, `workflowScopeKey`, `WorkflowApprovalRequiredError`, run/step persistence.
+- `src/runtime/workflow-tool-runner.ts` — `WorkflowToolRunner` (the narrow `ToolExecutor` slice a tool step uses) + `createWorkflowToolRunner` (cold-start registry/PDP wiring).
+- `src/runtime/tools/permissions.ts` — `beginNonInteractiveScope`, gate `timeoutMs`/`signal`, `NonInteractiveApprovalRequiredError` / `PermissionGateAbortedError` / `PermissionGateTimeoutError`.
+- `src/db/queries/workflow-runs.ts` — `insertWorkflowRun`, `upsertWorkflowStepRun`, `finalizeWorkflowRunRow`, `terminalizeOrphanedWorkflowRuns`, read helpers.
 - `src/runtime/workflow-refs.ts` — the shared ref grammar: `resolveMapping`, `resolveOutputMapping` (template interpolation), `resolveConditionRef`, `getNestedValue`, the `OMIT` sentinel.
 - `src/runtime/workflow-condition.ts` — `evaluateCondition` (leaf operators + `all`/`any`/`not`, non-number-safe comparisons, explanatory reasons).
 - `src/runtime/workflow-validator.ts` — `validateWorkflow` (shared by route + loader), `clampMaxIterations` (1..25), `clampRetries` (0..2), `stepKind`.
 - `src/runtime/workflow-loader.ts` — `loadYamlWorkflows`: globs `*.workflow.yaml` + legacy `*.pipeline.yaml` (deprecation warn), validates via `validateWorkflow`.
 - `src/db/queries/workflows.ts` — `list/get/getByName/create/update/delete/loadDbWorkflows` against `workflow_definitions`.
-- `src/db/schema.ts` — `workflowDefinitions` table; `src/db/migrate.ts` renames `pipeline_definitions` → `workflow_definitions` in place.
+- `src/db/schema.ts` — `workflowDefinitions`, `workflowRuns`, `workflowStepRuns` tables; `src/db/migrate.ts` renames `pipeline_definitions` → `workflow_definitions` in place and creates the two run-history tables.
 - `src/api-registry.ts` — the three `workflows`-category route entries.
 - `web/src/routes/api/workflows/**` — list/create, get/put/delete, run.
 - `web/src/lib/api.ts` — `Workflow`/`WorkflowRun` client types + `fetch/create/delete/triggerWorkflowRun` helpers.
@@ -173,7 +195,9 @@ None yet — this is the primary reference.
 
 ## Notes & gotchas
 
-- **Runs are ephemeral.** `runWorkflow` returns the `WorkflowRun` but **never persists** it. Run history lives only in the browser store and evaporates on reload. There is no `workflow_runs` table.
+- **`awaiting_approval` is not success and not error.** A run that completed its automatable steps and then hit one needing human consent terminalizes `awaiting_approval`. Anything branching on `status === "success"` (the CLI exit code, the client store) treats it as non-success for free — but code that branches on `status === "error"` will NOT match it.
+- **A workflow tool step writes no `tool_calls` row.** `tool_calls.conversation_id` is an FK to `conversations`, and the synthetic `workflow-run:<id>` id has no row, so `persistToolCall` (which never throws by contract) silently drops it. The PDP's own audit row and `workflow_step_runs` carry the trail instead.
+- **The `/workflows/new` builder does not yet offer `tool` steps.** `web/src/lib/workflow-builder-logic.ts` still models three kinds; a tool step is creatable via `POST /api/workflows` or YAML today.
 - **Synchronous / blocking.** `POST …/run` awaits the entire graph before responding; there is no async "started" handshake.
 - **No ownership or project scoping on run.** Any authenticated `chat`-scoped caller can run any workflow with arbitrary input; workflows are global.
 - **`$prev` is order-fragile in parallel batches.** Within a batch, `prevResult` is the last **successful** result in array order (the last declared step of that batch), not a graph-deterministic "previous". Prefer explicit `$steps.<name>` for parallel graphs.
@@ -186,4 +210,4 @@ None yet — this is the primary reference.
 
 ### Out of scope (deliberately not built)
 
-Run persistence / history table; async / background runs; arbitrary-code (JS) steps; conditional branching / skip-dependents; nested sub-workflows; per-step model overrides; a UI YAML editor.
+Async / background runs; **resuming** an `awaiting_approval` run (it is recorded, not resumable); a read API or UI over the persisted run history; looped tool steps; arbitrary-code (JS) steps; conditional branching / skip-dependents; nested sub-workflows; per-step model overrides; a UI YAML editor.

@@ -197,7 +197,22 @@ export interface LoopConfig {
   onExhausted?: "fail" | "pass";
 }
 
-export type WorkflowStepKind = "agent" | "transform" | "gate";
+export type WorkflowStepKind = "agent" | "transform" | "gate" | "tool";
+
+/**
+ * State of a workflow run. Extends the agent `AgentStatus`
+ * union with ONE workflow-only state:
+ *
+ *   `awaiting_approval` — the graph ran every step it could run without a
+ *   human, then hit a step whose capability needs interactive consent
+ *   (a sensitive-capability PDP `prompt`, which nobody can answer in a
+ *   workflow — there is no conversation). It is NOT `success` (nothing
+ *   was approved and the remaining steps never ran) and NOT `error`
+ *   (nothing went wrong — the run is simply blocked on a human). Callers
+ *   that branch on `=== "success"` (the CLI's exit code, the run route's
+ *   consumers) therefore treat it as a non-success outcome for free.
+ */
+export type WorkflowRunStatus = AgentStatus | "awaiting_approval";
 
 export interface WorkflowStep {
   name: string;
@@ -207,6 +222,9 @@ export interface WorkflowStep {
 
   // ── agent kind ──
   agent?: string;
+  /** Input mapping. Shared by the `agent` and `tool` kinds — both resolve
+   *  it through the SAME ref language (`workflow-refs.ts`); a tool step
+   *  passes the resolved object straight through as the tool's arguments. */
   input?: Record<string, string>;
   /**
    * Per-step retry budget (agent kind only). When a step's agent run
@@ -228,6 +246,15 @@ export interface WorkflowStep {
   /** Condition evaluated by a gate step; false ⇒ the workflow fails. */
   condition?: WorkflowCondition;
 
+  // ── tool kind ──
+  /**
+   * Runtime-namespaced extension tool name (`<extension>__<tool>`, e.g.
+   * `extension-author__create_extension`) dispatched through
+   * `ToolExecutor.executeToolCall`. Mutually exclusive with `agent` — a
+   * tool step invokes a deterministic tool, never an LLM.
+   */
+  tool?: string;
+
   dependsOn?: string[];
   /** Bounded loop (agent | transform kinds only). */
   loop?: LoopConfig;
@@ -244,7 +271,7 @@ export interface WorkflowRun {
   id: string;
   workflowName: string;
   projectId?: string;
-  status: AgentStatus;
+  status: WorkflowRunStatus;
   startedAt: number;
   finishedAt?: number;
   steps: WorkflowStepRun[];
@@ -253,8 +280,10 @@ export interface WorkflowRun {
 
 export interface WorkflowStepRun {
   stepName: string;
+  /** Owning `runs.id` for an `agent` step. `""` for transform / gate /
+   *  tool steps, which mint no AgentRun (persisted as SQL NULL). */
   runId: string;
-  status: AgentStatus;
+  status: WorkflowRunStatus;
   /** Final iteration count for a looped step (omitted for non-loop steps). */
   iterations?: number;
 }

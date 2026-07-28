@@ -12,6 +12,7 @@ import { loadYamlWorkflows } from "$server/runtime/workflow-loader";
 import { initDb, closeDb } from "$server/db/connection";
 import { validateEnv } from "$server/env-validation";
 import { loadDbWorkflows } from "$server/db/queries/workflows";
+import { terminalizeOrphanedWorkflowRuns } from "$server/db/queries/workflow-runs";
 import { startBackups, stopBackups } from "$server/db/backup";
 import {
   installShutdownHandlers,
@@ -145,7 +146,20 @@ export async function ensureInitialized(): Promise<void> {
   // (import direction), so it reads it back via the bus registry.
   registerPreviewBus(bus);
   executor = new AgentExecutor(agents, bus, { persist: true });
-  workflowExecutor = new WorkflowExecutor(executor, bus);
+  // `persist: true` mirrors the AgentExecutor above — the server writes
+  // workflow run history to workflow_runs / workflow_step_runs. Boot
+  // reconciliation drains any row a previous process left `running`
+  // (crash / OOM / restart): a fresh process owns zero in-flight workflow
+  // runs, so every such row is orphaned by definition. Fire-and-forget +
+  // self-catching so a slow or failing sweep never delays or fails boot.
+  workflowExecutor = new WorkflowExecutor(executor, bus, { persist: true });
+  void terminalizeOrphanedWorkflowRuns()
+    .then((count) => {
+      if (count > 0) console.warn(`[workflow] terminalized ${count} orphaned workflow run(s)`);
+    })
+    .catch((err) => {
+      console.error("[workflow] terminalizeOrphanedWorkflowRuns on startup failed", err);
+    });
   // Daily Briefing Phase 1: the BriefingDaemon (started later via
   // startBackgroundTimers in hooks.server.ts) and the run-now route live
   // in src/ and cannot import this web-layer executor/bus directly —
