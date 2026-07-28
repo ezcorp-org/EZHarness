@@ -32,10 +32,37 @@ export default defineExtension({
 });
 `;
 
+// Shaped like real `/api/extensions` rows: `source` + `isBundled` decide
+// what the panel may offer and which dependency source it declares.
 const INSTALLED = [
-	{ id: "ext-ai-kit", name: "ai-kit", version: "0.1.0", manifest: { tools: [] } },
-	{ id: "ext-web-search", name: "web-search", version: "1.0.0", manifest: { tools: [] } },
+	{
+		id: "ext-ai-kit",
+		name: "ai-kit",
+		version: "0.1.0",
+		source: "local:/opt/ez/extensions/ai-kit",
+		isBundled: true,
+		manifest: { tools: [] },
+	},
+	{
+		id: "ext-web-search",
+		name: "web-search",
+		version: "1.0.0",
+		source: "github:ezcorp/web-search",
+		isBundled: false,
+		manifest: { tools: [] },
+	},
 ];
+
+/** The VIRTUAL row `src/db/migrate.ts` seeds for native tool calls — not
+ *  a real extension, and never a valid dependency. */
+const VIRTUAL_BUILTIN_ROW = {
+	id: "builtin",
+	name: "Built-in Tools",
+	version: "1.0.0",
+	source: "builtin",
+	isBundled: false,
+	manifest: { tools: [] },
+};
 
 function stubExtensions(list = INSTALLED) {
 	vi.stubGlobal(
@@ -137,7 +164,62 @@ describe("AuthorCompositionPanel — recognized config", () => {
 		await fireEvent.click(getByTestId("extension-attach-picker-submit"));
 
 		await waitFor(() => expect(onsave).toHaveBeenCalled());
+		// `ai-kit` is a bundled row → source "bundled". Whatever is written
+		// here MUST be accepted by the host's `validateDependencies` —
+		// locksteped by `src/__tests__/dependency-source-parity.test.ts`.
 		expect(parseDependencies(saved)).toEqual([{ name: "ai-kit", source: "bundled", version: "^0.1.0" }]);
+	});
+
+	test("picking a NON-bundled extension declares source 'local'", async () => {
+		stubExtensions();
+		let saved = "";
+		const onsave = vi.fn(async (next: string) => {
+			saved = next;
+		});
+		const { getByTestId } = render(AuthorCompositionPanel, { props: { source: SCAFFOLD, onsave } });
+
+		await fireEvent.click(getByTestId("author-use-extensions-open"));
+		await waitFor(() => expect(getByTestId("extension-attach-picker")).toBeInTheDocument());
+		const card = await waitFor(() => {
+			const c = document.querySelector(
+				'[data-testid="extension-attach-picker-card"][data-ext-id="ext-web-search"]',
+			);
+			if (!c) throw new Error("card not yet rendered");
+			return c as HTMLElement;
+		});
+		await fireEvent.click(card.querySelector("button")!);
+		await fireEvent.click(getByTestId("extension-attach-picker-submit"));
+
+		await waitFor(() => expect(onsave).toHaveBeenCalled());
+		expect(parseDependencies(saved)).toEqual([
+			{ name: "web-search", source: "local", version: "^1.0.0" },
+		]);
+	});
+
+	test("the virtual 'Built-in Tools' row is NOT offered as a dependency", async () => {
+		// It is a DB-seeded placeholder so native tool calls have an
+		// extension_id — depending on it yields a manifest naming
+		// something that can never resolve. It used to be the FIRST card
+		// in this grid.
+		stubExtensions([VIRTUAL_BUILTIN_ROW, ...INSTALLED]);
+		const { getByTestId } = render(AuthorCompositionPanel, {
+			props: { source: SCAFFOLD, onsave: vi.fn(async () => {}) },
+		});
+
+		await fireEvent.click(getByTestId("author-use-extensions-open"));
+		await waitFor(() => expect(getByTestId("extension-attach-picker")).toBeInTheDocument());
+		// Real extensions still render...
+		await waitFor(() => {
+			const c = document.querySelector(
+				'[data-testid="extension-attach-picker-card"][data-ext-id="ext-ai-kit"]',
+			);
+			if (!c) throw new Error("card not yet rendered");
+		});
+		// ...the virtual row does not.
+		expect(
+			document.querySelector('[data-testid="extension-attach-picker-card"][data-ext-id="builtin"]'),
+		).toBeNull();
+		expect(document.querySelectorAll('[data-testid="extension-attach-picker-card"]').length).toBe(2);
 	});
 
 	test("a failed save flashes the error", async () => {
@@ -152,7 +234,7 @@ describe("AuthorCompositionPanel — recognized config", () => {
 
 	test("unresolved-dependency warning shows for a declared dep absent from the installed set", async () => {
 		// Installed set has only web-search; the config declares ghost-ext.
-		stubExtensions([{ id: "ext-web-search", name: "web-search", version: "1.0.0", manifest: { tools: [] } }]);
+		stubExtensions([INSTALLED[1]!]);
 		const ghostConfig = SCAFFOLD.replace(
 			"  permissions: {}",
 			`  // ezcorp:dependencies (managed)\n  dependencies: {\n    "ghost-ext": { source: "bundled", version: "1.0.0" },\n  },\n  // ezcorp:dependencies:end\n  permissions: {}`,

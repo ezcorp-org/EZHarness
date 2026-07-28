@@ -89,6 +89,15 @@ export const POST: RequestHandler = async ({ request, locals }) => {
             },
             { status: 422 },
           );
+        // A declared `bundled`/`local` dependency isn't installed (or is
+        // at an incompatible version). Same 422 "the draft is not
+        // installable as written" class as MANIFEST_INVALID, with the
+        // per-dependency reasons in `errors`.
+        case "DEPENDENCY_UNSATISFIED":
+          return json(
+            { message: e.message, errors: d.errors ?? [e.message] },
+            { status: 422 },
+          );
         case "ENV_KEY_LEAK":
           return json(
             {

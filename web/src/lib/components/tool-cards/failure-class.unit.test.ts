@@ -152,6 +152,7 @@ describe("FAILURE_CLASS_BY_CODE — host contract coverage", () => {
 			"VERIFY_FAILED",
 			"NAME_COLLISION",
 			"ENV_KEY_LEAK",
+			"DEPENDENCY_UNSATISFIED",
 			"INSTALL_FAILED",
 			"ROLLBACK_FAILED",
 			"ENABLE_FAILED",

@@ -851,3 +851,140 @@ describe("installAuthoredDraft — granted-permission fold (item A)", () => {
     expect(existsSync(DRAFT_DIR)).toBe(true);
   });
 });
+
+// ── PREINSTALLED dependency preflight ────────────────────────────────
+//
+// `bundled`/`local` dependency sources mean "this extension must ALREADY
+// be installed" — this pipeline never clones, so the installed set is the
+// only possible resolution. Installing anyway is the failure mode being
+// guarded: `buildDepRoutes` drops a name it cannot match, so the
+// extension installs "successfully" and every cross-extension
+// `ezcorp/invoke` it makes is then denied by `resolveDepTool` with
+// nothing pointing at the cause.
+
+describe("installAuthoredDraft — preinstalled dependency preflight", () => {
+  /** Manifest for `weather` declaring `deps`. */
+  function withDeps(deps: Record<string, { source: string; version: string }>) {
+    manifestImpl = async () => ({ name: "weather", version: "1.0.0", dependencies: deps });
+  }
+
+  /** `getExtensionByName` that knows about an installed set (and keeps
+   *  "weather" itself absent so the name-collision check still passes). */
+  function installedSet(set: Record<string, string>) {
+    getByNameImpl = async (n: string) =>
+      set[n] !== undefined
+        ? ({ id: `ext-${n}`, version: set[n] } as unknown as { id: string })
+        : null;
+  }
+
+  test("a bundled dependency that IS installed installs fine", async () => {
+    seed({});
+    withDeps({ "ai-kit": { source: "bundled", version: "^1.0.0" } });
+    installedSet({ "ai-kit": "1.2.0" });
+    const r = await installAuthoredDraft({
+      draftId: "draft-1",
+      userId: "user-a",
+      enable: false,
+    });
+    expect(r.extensionId).toBe("ext-1");
+    expect(existsSync(DRAFT_DIR)).toBe(false);
+  });
+
+  test("a local dependency that IS installed installs fine", async () => {
+    seed({});
+    withDeps({ "ai-kit": { source: "local", version: "1.2.0" } });
+    installedSet({ "ai-kit": "1.2.0" });
+    await installAuthoredDraft({ draftId: "draft-1", userId: "user-a", enable: false });
+    expect(existsSync(DRAFT_DIR)).toBe(false);
+  });
+
+  test("a bundled dependency that is NOT installed → DEPENDENCY_UNSATISFIED", async () => {
+    seed({});
+    withDeps({ "ghost-ext": { source: "bundled", version: "^1.0.0" } });
+    installedSet({});
+    expect(
+      await code(installAuthoredDraft({ draftId: "draft-1", userId: "user-a", enable: false })),
+    ).toBe("DEPENDENCY_UNSATISFIED");
+  });
+
+  test("the failure names the dependency and says what to do", async () => {
+    seed({});
+    withDeps({ "ghost-ext": { source: "bundled", version: "^1.0.0" } });
+    installedSet({});
+    try {
+      await installAuthoredDraft({ draftId: "draft-1", userId: "user-a", enable: false });
+      throw new Error("should have thrown");
+    } catch (e) {
+      expect(e).toBeInstanceOf(AuthorInstallError);
+      const err = e as InstanceType<typeof AuthorInstallError>;
+      const errors = (err.details?.errors ?? []) as string[];
+      expect(errors.length).toBe(1);
+      expect(errors[0]).toContain("ghost-ext");
+      expect(errors[0]).toContain("must ALREADY be installed");
+      expect(errors[0]).toContain('Install "ghost-ext" first');
+    }
+  });
+
+  test("nothing is moved on a preflight failure — the draft survives", async () => {
+    seed({});
+    withDeps({ "ghost-ext": { source: "bundled", version: "^1.0.0" } });
+    installedSet({});
+    await code(installAuthoredDraft({ draftId: "draft-1", userId: "user-a", enable: false }));
+    // The draft dir is untouched (the check runs before any move), and
+    // the draft row was NOT consumed — the author can install the
+    // dependency and retry.
+    expect(existsSync(DRAFT_DIR)).toBe(true);
+    expect(existsSync(join(DRAFT_DIR, "ezcorp.config.ts"))).toBe(true);
+    expect(consumeCalls).toEqual([]);
+  });
+
+  test("installed at an INCOMPATIBLE version → DEPENDENCY_UNSATISFIED with both versions", async () => {
+    seed({});
+    withDeps({ "ai-kit": { source: "bundled", version: "^2.0.0" } });
+    installedSet({ "ai-kit": "1.2.0" });
+    try {
+      await installAuthoredDraft({ draftId: "draft-1", userId: "user-a", enable: false });
+      throw new Error("should have thrown");
+    } catch (e) {
+      const err = e as InstanceType<typeof AuthorInstallError>;
+      expect(err.code).toBe("DEPENDENCY_UNSATISFIED");
+      const errors = (err.details?.errors ?? []) as string[];
+      expect(errors[0]).toContain("^2.0.0");
+      expect(errors[0]).toContain("1.2.0");
+    }
+  });
+
+  test("every unsatisfiable dependency is reported, not just the first", async () => {
+    seed({});
+    withDeps({
+      "ghost-a": { source: "bundled", version: "^1.0.0" },
+      "ghost-b": { source: "local", version: "^1.0.0" },
+    });
+    installedSet({});
+    try {
+      await installAuthoredDraft({ draftId: "draft-1", userId: "user-a", enable: false });
+      throw new Error("should have thrown");
+    } catch (e) {
+      const err = e as InstanceType<typeof AuthorInstallError>;
+      const errors = (err.details?.errors ?? []) as string[];
+      expect(errors.length).toBe(2);
+      expect(errors.join("\n")).toContain("ghost-a");
+      expect(errors.join("\n")).toContain("ghost-b");
+      expect(err.message).toContain("2 dependencies");
+    }
+  });
+
+  test("a CLONEABLE dependency source is not preflighted here (the git path owns it)", async () => {
+    seed({});
+    withDeps({ "remote-ext": { source: "github:u/remote-ext", version: "^1.0.0" } });
+    installedSet({});
+    // Not installed, but `github:` is resolved by cloning — this pipeline
+    // must not invent a failure for it.
+    const r = await installAuthoredDraft({
+      draftId: "draft-1",
+      userId: "user-a",
+      enable: false,
+    });
+    expect(r.extensionId).toBe("ext-1");
+  });
+});

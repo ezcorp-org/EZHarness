@@ -39,6 +39,10 @@ export const FAILURE_CLASS_BY_CODE: Readonly<Record<string, ToolFailureClass>> =
 	DRAFT_DIR_MISSING: "load",
 	NOT_EXTENSION_DRAFT: "load",
 	MANIFEST_INVALID: "load",
+	// A declared `bundled`/`local` dependency isn't installed: the draft
+	// as written is not installable, nothing ran — same "fix the files
+	// (or install the dependency) and retry" next step as MANIFEST_INVALID.
+	DEPENDENCY_UNSATISFIED: "load",
 	NO_INSTALL_PATH: "load",
 	NO_FILES: "load",
 	UNREADABLE_FILE: "load",
