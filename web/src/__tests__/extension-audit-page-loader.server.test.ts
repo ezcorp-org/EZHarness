@@ -48,9 +48,10 @@ function makeEvent(id: string, user: Record<string, unknown> | undefined) {
 // `load` is typed `MaybePromise<void | PageData>`; the async IIFE normalises
 // both that and a synchronously-thrown Response into a rejected promise.
 // `requireAuth`/`requireRole` throw a `Response` and `error()` an `HttpError`
-// — both carry `.status`.
-async function expectStatus(fn: () => unknown, status: number) {
-	await expect((async () => fn())()).rejects.toMatchObject({ status });
+// — both carry `.status`. Kept as a plain call (not an assertion helper) so
+// every `expect(...)` stays visible in the test body it belongs to.
+function rejection(fn: () => unknown): Promise<unknown> {
+	return (async () => fn())();
 }
 
 describe("/extensions/[id]/audit +page.server.ts", () => {
@@ -66,17 +67,23 @@ describe("/extensions/[id]/audit +page.server.ts", () => {
 	});
 
 	test("unauthenticated → 401", async () => {
-		await expectStatus(() => load(makeEvent(ROW.id, undefined)), 401);
+		await expect(
+			rejection(() => load(makeEvent(ROW.id, undefined))),
+		).rejects.toMatchObject({ status: 401 });
 	});
 
 	test("non-admin → 403", async () => {
-		await expectStatus(() => load(makeEvent(ROW.id, memberUser)), 403);
+		await expect(
+			rejection(() => load(makeEvent(ROW.id, memberUser))),
+		).rejects.toMatchObject({ status: 403 });
 		expect(vi.mocked(mergeAuditForExtension)).not.toHaveBeenCalled();
 	});
 
 	test("unknown reference → 404", async () => {
 		vi.mocked(getExtensionByRef).mockResolvedValue(null as any);
-		await expectStatus(() => load(makeEvent("no-such-ext", adminUser)), 404);
+		await expect(
+			rejection(() => load(makeEvent("no-such-ext", adminUser))),
+		).rejects.toMatchObject({ status: 404 });
 	});
 
 	test("resolves the route param as a REFERENCE, not an id", async () => {
