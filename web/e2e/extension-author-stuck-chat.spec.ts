@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures/test-base.js";
-import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
+import { makeProject, makeConversation, makeMessage, makeRun } from "./fixtures/data.js";
 
 // E2E regression guard for the "stuck chat" fix (Phases 1 + 2).
 //
@@ -27,31 +27,35 @@ import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 // (which asserts the SUCCESS path completes): here the reverse-RPC
 // fails, and the contract is that the failure is FAST and VISIBLE.
 //
+// ── WHAT THIS SPEC PROVES, AND WHAT IT DOES NOT ───────────────────────
+//
+// Mock tier: the runtime is faked over SSE, so this spec supplies the
+// events it then asserts on. The boundary, stated plainly:
+//
+//   PROVES  — the browser half. Given the failure event sequence the
+//             fixed runtime emits, the chat renders a VISIBLE error card
+//             carrying the bounded-timeout reason, tears the streaming UI
+//             down, re-enables the composer, and merges a re-fired
+//             tool:error for the same invocationId into the ONE existing
+//             card. All of that is real client pipeline (ws.ts →
+//             stores.svelte.ts → ChatThread) that regresses independently
+//             of the server.
+//   DOES NOT — prove the 20s host-side bound itself, nor that the
+//             watchdog path persists exactly one assistant error row.
+//             Those are server contracts, covered by the backend suites
+//             around the reverse-RPC dispatcher and the run finalizer.
+//
+// Falsifiability: each phase asserts the ABSENCE of its outcome before
+// the triggering event and its PRESENCE after, so a client that dropped
+// SSE handling — or a spec that merely echoed its own fixtures — fails.
+//
 // Runtime events stream over SSE (`ws.ts` EventSource →
 // `stores.svelte.ts`), injected with `emitSse` (NOT the deprecated
 // `emitWs` — see project memory "E2E streaming uses SSE"). Harness
 // mirrors extension-author-provenance.spec.ts, the sibling spec for the
 // same extension/flow.
-//
-// ─────────────────────────────────────────────────────────────────────
-// SKIPPED — ENVIRONMENT INFRA BLOCKER (not a spec defect), identical to
-// extension-author-provenance.spec.ts: the non-Docker Playwright
-// `webServer` serves `/project/:id/chat/:convId` as a SvelteKit SSR 500
-// (no reachable backend / DB / auth session), so the `<textarea>`
-// composer never renders. The proven-passing reference harness
-// (substack-pipeline.spec.ts) fails IDENTICALLY here. These chat-route
-// specs require the Docker auth setup (`DOCKER_TEST=1` →
-// `e2e/docker-auth-setup.ts` + `.docker-auth.json` storageState).
-//
-// UN-BLOCKER CONDITION: run under the Docker harness (`DOCKER_TEST=1`,
-// app on :3000 with seeded auth) → flip `test.describe.skip` to
-// `test.describe`. The spec body is kept syntactically valid + complete
-// so the un-skip is a one-token change (repo convention — see the
-// sibling provenance spec + `tool-card-rendering.spec.ts` test.fixme).
-// Verified-blocked-on: 2026-05-16 (stuck-chat Phases 1+2 e2e).
-// ─────────────────────────────────────────────────────────────────────
 
-test.describe.skip("extension-author stuck-chat — stalled create_extension fails FAST and VISIBLY (no 90s frozen bubble)", () => {
+test.describe("extension-author stuck-chat — stalled create_extension fails FAST and VISIBLY (no 90s frozen bubble)", () => {
 	const proj = makeProject({ id: "proj-1", name: "Test Project" });
 	const conv = makeConversation({
 		id: "conv-1",
@@ -73,20 +77,31 @@ test.describe.skip("extension-author stuck-chat — stalled create_extension fai
 		createdAt: "2026-01-01T00:01:00.000Z",
 	});
 
-	async function setupAndSend(page: any, mockApi: any) {
+	async function setupAndSend(
+		page: import("@playwright/test").Page,
+		mockApi: (overrides?: Record<string, unknown>) => Promise<void>,
+	) {
 		await mockApi({
 			projects: [proj],
 			conversations: [conv],
 			messages: [userMsg, assistantMsg],
 		});
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
-		const textarea = page.locator("textarea");
-		await textarea.fill("write me an extension");
-		await textarea.press("Enter");
-		await page.waitForResponse(
-			(r: any) =>
-				r.url().includes("/messages") && r.request().method() === "POST",
+		// Gate on a hydrated (enabled) composer before driving it, then TYPE
+		// rather than `fill()`: the composer maintains a compact display
+		// string projected over a wire string and re-syncs the two from a
+		// keydown-scheduled pass, so a programmatic `fill` leaves the draft
+		// empty and the Send button disabled.
+		const textarea = page.locator("textarea.chat-textarea");
+		await expect(textarea).toBeEnabled({ timeout: 15_000 });
+		await textarea.click();
+		await textarea.pressSequentially("write me an extension", { delay: 10 });
+		const sent = page.waitForResponse(
+			(r) => r.url().includes("/messages") && r.request().method() === "POST",
+			{ timeout: 20_000 },
 		);
+		await textarea.press("Enter");
+		await sent;
 	}
 
 	test("stalled ezcorp/drafts → FAST tool:error card + visible run:error within seconds, composer re-enabled (NOT a frozen bubble)", async ({
@@ -99,7 +114,7 @@ test.describe.skip("extension-author stuck-chat — stalled create_extension fai
 		// Run begins streaming + the create_extension tool starts.
 		await emitSse({
 			type: "run:token",
-			data: { runId: "run-stuck", token: "Building the extension…" },
+			data: { runId: "run-stream", token: "Building the extension…" },
 		});
 		await emitSse({
 			type: "tool:start",
@@ -114,9 +129,14 @@ test.describe.skip("extension-author stuck-chat — stalled create_extension fai
 		});
 
 		// The running card is visible (chat progressed past "Thinking…").
-		await expect(
-			page.getByText("extension-author.create_extension"),
-		).toBeVisible({ timeout: 8000 });
+		await expect(page.getByText("extension-author.create_extension").first()).toBeVisible({
+			timeout: 8000,
+		});
+
+		// CONTROL: the failure reason is NOT on screen while the call is
+		// still in flight. Without this, the post-error assertion below
+		// could pass on a UI that renders nothing at all.
+		await expect(page.getByText(/timed out after 20000ms/i)).toHaveCount(0);
 
 		// PHASE 1 OBSERVABLE EFFECT: the host's ezcorp/drafts handler
 		// stalled inside createDraft, but the bounded dispatch replied
@@ -130,58 +150,50 @@ test.describe.skip("extension-author stuck-chat — stalled create_extension fai
 				conversationId: "conv-1",
 				extensionId: "ext-extension-author",
 				toolName: "extension-author.create_extension",
-				error:
-					'Host handler for "ezcorp/drafts" timed out after 20000ms',
+				error: 'Host handler for "ezcorp/drafts" timed out after 20000ms',
 				duration: 20000,
 				invocationId: "tc-create-ext-1",
 			},
 		});
 
-		// PHASE 2 OBSERVABLE EFFECT: the run surfaces a VISIBLE assistant
-		// error message (the watchdog/finalize path persisted exactly one)
-		// + a run:error banner — NOT an empty, permanently-"thinking"
-		// bubble.
-		await emitSse({
-			type: "run:error",
-			data: {
-				runId: "run-stuck",
-				conversationId: "conv-1",
-				error:
-					'Error: Host handler for "ezcorp/drafts" timed out after 20000ms',
-			},
-		});
-
 		// 1) The tool failure is rendered as an error card with the FAST
-		//    bounded-timeout reason — the user sees WHY it failed.
-		await expect(
-			page.getByText(/timed out after 20000ms/i),
-		).toBeVisible({ timeout: 8000 });
-		await expect(
-			page.getByText(/ezcorp\/drafts/i),
-		).toBeVisible({ timeout: 8000 });
+		//    bounded-timeout reason — the user sees WHY it failed, and the
+		//    card carries the explicit failure marker.
+		await expect(page.getByText(/timed out after 20000ms/i).first()).toBeVisible({
+			timeout: 8000,
+		});
+		await expect(page.getByText(/ezcorp\/drafts/i).first()).toBeVisible({ timeout: 8000 });
+		await expect(page.getByText("Run failed", { exact: false }).first()).toBeVisible({
+			timeout: 8000,
+		});
 
 		// 2) The watchdog-kill symptom NEVER appears: no "exceeded its
 		//    90000ms call timeout", no frozen "Thinking…", no empty bubble.
-		await expect(
-			page.getByText(/exceeded its 90000ms call timeout/i),
-		).toHaveCount(0);
+		await expect(page.getByText(/exceeded its 90000ms call timeout/i)).toHaveCount(0);
 		await expect(page.getByText(/^Thinking…$/)).toHaveCount(0);
+
+		// PHASE 2 OBSERVABLE EFFECT: the run terminalizes to `error` instead
+		// of hanging until the watchdog. The client's terminal-run payload is
+		// `{ run }` (stores.svelte.ts `case "run:error"` destructures
+		// `event.data.run`), the same shape streaming-race.spec.ts uses.
+		await emitSse({
+			type: "run:error",
+			data: { run: makeRun({ id: "run-stream", status: "error" }), conversationId: "conv-1" },
+		});
 
 		// 3) Streaming UI tore down — the cursor + Stop button are gone
 		//    (the run terminalized; the chat is not perpetually streaming).
-		await expect(page.locator(".streaming-cursor")).not.toBeVisible({
+		await expect(page.locator(".streaming-cursor")).toHaveCount(0, { timeout: 8000 });
+		await expect(page.getByRole("button", { name: /stop generating/i })).toHaveCount(0, {
 			timeout: 8000,
 		});
-		await expect(
-			page.getByRole("button", { name: /stop/i }),
-		).not.toBeVisible({ timeout: 8000 });
 
 		// 4) The composer is interactive again — the user is unblocked
 		//    (the whole point: a frozen chat trapped the user forever).
-		await expect(page.locator("textarea")).toBeEnabled();
+		await expect(page.locator("textarea.chat-textarea")).toBeEnabled({ timeout: 8000 });
 	});
 
-	test("exactly ONE visible error message — no duplicate bubble when the wedged await later unblocks", async ({
+	test("a re-fired tool:error for the same call updates the ONE card instead of stacking a duplicate", async ({
 		page,
 		mockApi,
 		emitSse,
@@ -200,39 +212,36 @@ test.describe.skip("extension-author stuck-chat — stalled create_extension fai
 			},
 		});
 
-		// The watchdog-kill path persists ONE assistant error message,
-		// then the abort unblocks the suspended await and finalizeError
-		// runs — but the shared errorMessagePersisted guard makes it skip
-		// its own persist. The UI must therefore show the error text
-		// EXACTLY once even though run:error is (idempotently) emitted.
-		const errText =
-			'Error: Host handler for "ezcorp/drafts" timed out after 20000ms';
-		await emitSse({
-			type: "tool:error",
-			data: {
-				conversationId: "conv-1",
-				extensionId: "ext-extension-author",
-				toolName: "extension-author.create_extension",
-				error: 'Host handler for "ezcorp/drafts" timed out after 20000ms',
-				duration: 20000,
-				invocationId: "tc-create-ext-2",
-			},
-		});
-		await emitSse({
-			type: "run:error",
-			data: { runId: "run-stuck-2", conversationId: "conv-1", error: errText },
-		});
-		// A second (idempotent) run:error — models the finalizeError that
-		// ran after the watchdog kill. It must NOT add a second bubble.
-		await emitSse({
-			type: "run:error",
-			data: { runId: "run-stuck-2", conversationId: "conv-1", error: errText },
-		});
+		// CONTROL: nothing on screen yet carries the failure reason.
+		await expect(page.getByText(/timed out after 20000ms/i)).toHaveCount(0);
 
-		// The bounded-timeout error text renders exactly once.
-		await expect(
-			page.getByText(/timed out after 20000ms/i),
-		).toHaveCount(1, { timeout: 8000 });
-		await expect(page.locator("textarea")).toBeEnabled();
+		// The stuck-chat fix has TWO writers that can terminalize the same
+		// call: the bounded reverse-RPC dispatch rejects it, and then the
+		// watchdog/finalize path runs when the wedged await unblocks. Both
+		// emit for the SAME `invocationId`. The client keys tool events by
+		// invocationId, so the second must UPDATE the existing card — never
+		// stack a second one. (What the server-side de-dup guarantees — one
+		// persisted assistant error row — is a backend contract; this asserts
+		// the browser half, which is what the mock tier can honestly prove.)
+		const errorEvent = {
+			conversationId: "conv-1",
+			extensionId: "ext-extension-author",
+			toolName: "extension-author.create_extension",
+			error: 'Host handler for "ezcorp/drafts" timed out after 20000ms',
+			duration: 20000,
+			invocationId: "tc-create-ext-2",
+		};
+		// The card header is a button whose accessible name carries the tool
+		// name — one button per tool card, so it counts CARDS.
+		const cards = page.getByRole("button", { name: /extension-author\.create_extension/ });
+		await emitSse({ type: "tool:error", data: errorEvent });
+		await expect(page.getByText(/timed out after 20000ms/i)).toHaveCount(1, { timeout: 8000 });
+		await expect(cards).toHaveCount(1, { timeout: 8000 });
+
+		await emitSse({ type: "tool:error", data: errorEvent });
+
+		// Still exactly one card carrying the reason — the re-fire merged.
+		await expect(page.getByText(/timed out after 20000ms/i)).toHaveCount(1, { timeout: 8000 });
+		await expect(cards).toHaveCount(1);
 	});
 });
