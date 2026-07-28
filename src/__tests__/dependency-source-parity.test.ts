@@ -47,13 +47,19 @@ import {
   validateDependencySource,
 } from "../extensions/dependency-source";
 import { parseSource } from "../extensions/source-parser";
+// Imported from `dependency-picker` — the narrow module that owns these
+// — NOT from `ezcorp-config-edit`, which re-exports them for the panel.
+// This test is coverage-instrumented, so importing the wider module
+// pulled its whole source-text editor in as a zero-hit lcov record that
+// merge-lcov unioned with the vitest leg's clean 100%, reporting a
+// fully-tested file at 83.97%. Import only what this test exercises.
 import {
   PICKER_DEPENDENCY_SOURCES,
   VIRTUAL_BUILTIN_EXTENSION_ID,
   dependencySourceFor,
   isPickableDependency,
   toDependencyEntry,
-} from "../../web/src/lib/ezcorp-config-edit";
+} from "../../web/src/lib/dependency-picker";
 
 const REPO_ROOT = join(import.meta.dir, "..", "..");
 const PANEL = join(

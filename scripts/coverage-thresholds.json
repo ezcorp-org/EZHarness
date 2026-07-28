@@ -244,6 +244,7 @@
   "web/src/lib/capability-policy-ui.ts": 100,
   "web/src/lib/components/extensions/CapabilitiesPanel.svelte": 100,
   "web/src/lib/ezcorp-config-edit.ts": 100,
+  "web/src/lib/dependency-picker.ts": 100,
   "web/src/lib/components/extensions/AuthorCompositionPanel.svelte": 100,
   "web/src/lib/components/extensions/UsesList.svelte": 100,
   "web/src/lib/audit-log-view.ts": 100,

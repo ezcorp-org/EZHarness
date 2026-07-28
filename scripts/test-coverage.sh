@@ -381,6 +381,7 @@ run_legs() {
       --coverage.include='src/lib/capability-policy-ui.ts' \
       --coverage.include='src/lib/components/extensions/CapabilitiesPanel.svelte' \
       --coverage.include='src/lib/ezcorp-config-edit.ts' \
+      --coverage.include='src/lib/dependency-picker.ts' \
       --coverage.include='src/lib/workflow-run-display.ts' \
       --coverage.include='src/lib/components/extensions/AuthorCompositionPanel.svelte' \
       --coverage.include='src/lib/components/extensions/UsesList.svelte' \

@@ -124,80 +124,29 @@ function stripManagedDepBlock(source: string): string {
 // ── What the dependency picker may emit ─────────────────────────────
 
 /**
- * The `source` forms the "Use other extensions" picker may write into a
- * managed dependency block.
+ * Re-exported from `./dependency-picker.js`, which owns the picker's
+ * vocabulary (which installed rows are dependable, and what `source`
+ * each declares). Kept exported HERE so every existing importer — the
+ * composition panel, its component tests — is unchanged.
  *
- * Both are PREINSTALLED (non-cloneable) forms — they mean "this
- * extension must ALREADY be installed on this host". That is the only
- * honest thing this picker can say: it exclusively offers extensions
- * that ARE installed, and the host resolves them by NAME
- * (`ExtensionRegistry.buildDepRoutes`), never by cloning.
- *
- * LOCKSTEP (binding): every entry here MUST be accepted by the host's
- * `validateDependencies` (`src/extensions/manifest.ts`, which delegates
- * the source check to `src/extensions/dependency-source.ts`). Adding a
- * form here without teaching the host reddens
- * `src/__tests__/dependency-source-parity.test.ts` — and that test
- * exists because the failure mode is otherwise INVISIBLE: a composed
- * dependency the validator rejects looks completely fine in this panel
- * and only blows up, with a 422, when an author clicks Install.
+ * The split exists because the backend's lockstep test has to CALL
+ * `dependencySourceFor` from the coverage-instrumented bun pool;
+ * importing it from this module dragged this whole file into that
+ * shard's instrumentation as a zero-hit record, which merge-lcov then
+ * unioned with the vitest leg's clean 100%. See the header of
+ * `dependency-picker.ts` for the full account.
  */
-export const PICKER_DEPENDENCY_SOURCES = ["bundled", "local"] as const;
-export type PickerDependencySource = (typeof PICKER_DEPENDENCY_SOURCES)[number];
-
-/**
- * The VIRTUAL extension row the DB migration seeds so native tool calls
- * (`editFile`, `readFile`, …) have an `extension_id` to hang off. It is
- * not a real extension: no install path, no manifest tools, nothing to
- * depend ON. Offering it as a dependency produces a manifest naming an
- * extension that can never be resolved, so it is filtered out.
- */
-export const VIRTUAL_BUILTIN_EXTENSION_ID = "builtin";
-
-/** An installed row, as far as the dependency picker cares. */
-export interface PickableExtension {
-  id: string;
-  name: string;
-  version: string;
-  /** The row's `source` column (`"builtin"` for the virtual row). */
-  source?: string | null;
-  /** True for first-party rows that ship with EZCorp. */
-  isBundled?: boolean;
-}
-
-/**
- * Whether an installed row is a REAL extension that can be depended on.
- * Matched on both the id and the `source` column so the virtual row is
- * excluded however it is identified.
- */
-export function isPickableDependency(
-  ext: { id: string; source?: string | null },
-): boolean {
-  return (
-    ext.id !== VIRTUAL_BUILTIN_EXTENSION_ID &&
-    ext.source !== VIRTUAL_BUILTIN_EXTENSION_ID
-  );
-}
-
-/** The dependency `source` to declare for an installed extension. */
-export function dependencySourceFor(
-  ext: { isBundled?: boolean },
-): PickerDependencySource {
-  return ext.isBundled === true ? "bundled" : "local";
-}
-
-/**
- * The managed dependency entry for a picked extension. The single place
- * the picker's `{name, source, version}` shape is built — the panel must
- * not inline its own literal, or the lockstep test above cannot see it.
- */
-export function toDependencyEntry(ext: PickableExtension): DependencyEntry {
-  return {
-    name: ext.name,
-    source: dependencySourceFor(ext),
-    version: `^${ext.version}`,
-  };
-}
+export {
+  PICKER_DEPENDENCY_SOURCES,
+  VIRTUAL_BUILTIN_EXTENSION_ID,
+  dependencySourceFor,
+  isPickableDependency,
+  toDependencyEntry,
+} from "./dependency-picker.js";
+export type {
+  PickableExtension,
+  PickerDependencySource,
+} from "./dependency-picker.js";
 
 // ── Unresolved-dependency warning (§5.3) ────────────────────────────
 
