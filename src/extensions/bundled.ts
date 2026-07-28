@@ -519,6 +519,39 @@ const BUNDLED_EXTENSIONS: BundledExtension[] = [
     },
   },
   {
+    // city-conditions — current time + weather + pollen for a city,
+    // rendered by the `city-conditions` card, plus a shipped
+    // `conditions.workflow.yaml` that performs the same aggregation as a
+    // declarative graph (its `weather` / `air` steps share one parallel
+    // batch).
+    //
+    // Network is the only I/O grant and covers exactly the three keyless
+    // Open-Meteo hosts. No filesystem (nothing is written), no env (no
+    // credential exists to take, so the env-key-leak gate is never
+    // approached), no shell, no storage.
+    //
+    // `workflows` is what makes the shipped asset TRIGGERABLE — shipping
+    // a `*.workflow.yaml` is only an asset; firing it is the privileged
+    // act. `maxRunsPerHour` is REQUIRED on the granted shape (unlike the
+    // manifest declaration where it is optional) because
+    // `intersectPermissions` takes `Math.min` over it; the matching
+    // ceiling row carries the same 12 so the intersection is lossless.
+    name: "city-conditions",
+    path: "docs/extensions/examples/city-conditions",
+    permissions: {
+      network: [
+        "geocoding-api.open-meteo.com",
+        "api.open-meteo.com",
+        "air-quality-api.open-meteo.com",
+      ],
+      workflows: { names: ["conditions"], maxRunsPerHour: 12 },
+      grantedAt: {
+        network: Date.now(),
+        workflows: Date.now(),
+      },
+    },
+  },
+  {
     // In-browser Kokoro-TTS. Adds a speaker icon to the per-message
     // action toolbar via the `messageToolbar` extension point. Click
     // sends a `kokoro-tts:speak` event; the subprocess responds with
