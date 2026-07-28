@@ -8,7 +8,7 @@
  * schema-driven pipeline that produces a structured PASS/FAIL artifact.
  *
  * Pipeline:
- *   1. loadManifest → validateManifestV2 (fail ⇒ structured FAIL).
+ *   1. loadManifestFresh → validateManifestV2 (fail ⇒ structured FAIL).
  *   2. tool/multi kinds REQUIRE a `smokeTest` block (else FAIL).
  *   3. createTestExtension(extDir, {sandbox:true}) → proc.callTool(
  *      smokeTest.tool, smokeTest.input) → assertToolResult(result,
@@ -16,7 +16,7 @@
  *   4. Return `VerifyResult { pass, steps: {name,ok,detail}[] }`.
  */
 
-import { loadManifest } from "../loader";
+import { loadManifestFresh } from "../loader";
 import { validateManifestV2 } from "../manifest";
 import { createTestExtension, assertToolResult } from "./test-helpers";
 import type { ExtensionManifestV2, ToolCallResult } from "../types";
@@ -64,9 +64,17 @@ export async function verifyExtension(
   const steps: VerifyStep[] = [];
 
   // ── Step 1: load + validate manifest ──────────────────────────────
+  //
+  // MUST be `loadManifestFresh`, never `loadManifest`: verify is the
+  // gate of an EDIT→revalidate loop (write_draft_file → validate →
+  // write_draft_file → validate) that re-reads the SAME path. Bun
+  // caches an imported module by path, so the cached loader would
+  // return the PRE-edit manifest forever — the same failure repeating
+  // no matter what the author fixes, or a stale PASS that installs
+  // bytes nobody verified.
   let manifest: ExtensionManifestV2;
   try {
-    manifest = await loadManifest(extDir);
+    manifest = await loadManifestFresh(extDir);
   } catch (err) {
     steps.push({
       name: "load-manifest",

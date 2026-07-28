@@ -9,7 +9,7 @@ import { errorJson } from "$lib/server/http-errors";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import { getDraft, getExtensionAuthorDraftDir } from "$server/db/queries/ez-drafts";
-import { loadManifest } from "$server/extensions/loader";
+import { loadManifestFresh } from "$server/extensions/loader";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { RequestHandler } from "./$types";
@@ -36,12 +36,17 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 
     // Use the canonical loader (child-process compile via Bun's
     // import pipeline) — replaces the prior `new Function(body)` eval
-    // (reviewer S5). `loadManifest` runs `validateManifestV2`
+    // (reviewer S5). `loadManifestFresh` runs `validateManifestV2`
     // internally and throws on either load failure or validation
     // failure. We only need to distinguish ok/!ok here, not parse the
     // error message.
+    //
+    // FRESH, never cached: this endpoint IS the edit→revalidate loop
+    // (PUT the file, POST validate, repeat). Bun caches modules by
+    // path, so `loadManifest` would keep answering with the manifest
+    // from the FIRST validate of this draft forever.
     try {
-      await loadManifest(dir);
+      await loadManifestFresh(dir);
       return json({ ok: true, errors: [] });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);

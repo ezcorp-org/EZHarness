@@ -31,7 +31,14 @@ mock.module("../db/queries/extensions", () => ({
 // validated — a missing `name` (required by validateManifestV2) makes the
 // standalone re-check fail.
 mock.module("../extensions/loader", () => ({
-  loadManifest: async () => ({
+  // verify.ts reads through the CACHE-BUSTING loader (the edit→
+  // revalidate loop re-reads the same path); `loadManifest` is stubbed
+  // to throw so a regression back to the cached reader fails loudly
+  // here instead of silently re-validating stale bytes.
+  loadManifest: async () => {
+    throw new Error("verify.ts must call loadManifestFresh, not loadManifest");
+  },
+  loadManifestFresh: async () => ({
     schemaVersion: 2,
     // name omitted on purpose → validateManifestV2 reports it invalid.
     version: "1.0.0",

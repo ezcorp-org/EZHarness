@@ -31,7 +31,7 @@ import {
 import { getExtensionByName, updateExtension } from "../db/queries/extensions";
 import { installFromLocal } from "./installer";
 import { ExtensionRegistry } from "./registry";
-import { loadManifest } from "./loader";
+import { loadManifestFresh } from "./loader";
 import { verifyExtension } from "./sdk/verify";
 import type { ExtensionPermissions } from "./types";
 import { logger } from "../logger";
@@ -53,7 +53,7 @@ const log = logger.child("author-install");
  * to a single-volume layout. Fall back to a recursive copy + delete so
  * the move is correct under ANY mount topology. The non-atomicity of
  * the fallback is safe here: the source is already fully verified
- * (`loadManifest` + `verifyExtension` ran on it upstream), the
+ * (`loadManifestFresh` + `verifyExtension` ran on it upstream), the
  * destination's non-existence was just asserted by the caller, and the
  * pipeline already rolls back on any post-move failure.
  */
@@ -187,9 +187,14 @@ export async function installAuthoredDraft(args: {
       errors: ["Missing ezcorp.config.ts"],
     });
   }
-  let manifest: Awaited<ReturnType<typeof loadManifest>>;
+  // `loadManifestFresh`, NEVER `loadManifest`: a draft is edited in
+  // place (write_draft_file / the preview editor's PUT) and installed
+  // from the SAME path the validate step already imported. Bun's
+  // module cache is keyed by path, so the cached loader would install
+  // a manifest that differs from the bytes on disk.
+  let manifest: Awaited<ReturnType<typeof loadManifestFresh>>;
   try {
-    manifest = await loadManifest(draftDir);
+    manifest = await loadManifestFresh(draftDir);
   } catch (e) {
     throw new AuthorInstallError(
       "MANIFEST_INVALID",

@@ -62,7 +62,16 @@ mock.module("../db/queries/extensions", () => ({
   },
 }));
 mock.module("../extensions/loader", () => ({
-  loadManifest: (dir: string) => manifestImpl(dir),
+  // The pipeline MUST read the manifest cache-busted — a draft is
+  // edited in place between validate and install, and Bun caches
+  // modules by path. `loadManifest` throws so a regression to the
+  // cached reader fails this suite instead of installing stale bytes.
+  loadManifest: () => {
+    throw new Error(
+      "author-install must call loadManifestFresh, not loadManifest",
+    );
+  },
+  loadManifestFresh: (dir: string) => manifestImpl(dir),
 }));
 mock.module("../extensions/sdk/verify", () => ({
   verifyExtension: () => verifyImpl(),

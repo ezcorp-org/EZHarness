@@ -94,7 +94,13 @@ vi.mock("$server/extensions/manifest", () => ({
 // "no `new Function`" contract end-to-end while letting tests drive
 // happy-path / failure cases via fixture content.
 vi.mock("$server/extensions/loader", () => ({
-  loadManifest: vi.fn(async (dir: string) => {
+  // Validate is the edit→revalidate loop: it MUST cache-bust. A
+  // regression back to `loadManifest` throws here instead of silently
+  // re-validating pre-edit bytes.
+  loadManifest: vi.fn(() => {
+    throw new Error("validate must call loadManifestFresh, not loadManifest");
+  }),
+  loadManifestFresh: vi.fn(async (dir: string) => {
     const { readFileSync, existsSync } = await import("node:fs");
     const { join } = await import("node:path");
     const cfgPath = join(dir, "ezcorp.config.ts");
