@@ -209,6 +209,26 @@ export class WorkflowExecutor {
     // gate that did somehow open under this key is torn down with the run.
     const scopeKey = workflowScopeKey(workflowRun.id);
     const gateAbort = new AbortController();
+    // ── Cancellation plumbing (durability) ───────────────────────────
+    //
+    // Only `agent` steps mint a real AgentRun; capture each such run id
+    // from its `run:start` event and drop it on the matching terminal
+    // event, so `cancelInFlight()` can cascade a cancel down every live
+    // child. Scoped to this workflow's step agents + its own
+    // subscribe/unsubscribe window so a shared bus's unrelated runs are
+    // never touched. Transform / gate steps have no run to cancel.
+    //
+    // Computed BEFORE `beginNonInteractiveScope` on purpose: this line
+    // dereferences `workflow.steps`, and a caller that hands us a
+    // malformed definition (no `steps`) makes it throw. Registering the
+    // scope first meant that throw escaped between the registration and
+    // the try/finally that deregisters it — leaking the scope entry for
+    // the life of the process, and leaving the `workflow_runs` row
+    // stranded at `running`. Nothing between the registration below and
+    // the `try` may throw.
+    const stepAgents = new Set(
+      (workflow.steps ?? []).map((s) => s.agent).filter((a): a is string => Boolean(a)),
+    );
     const approvalScope = beginNonInteractiveScope(scopeKey, gateAbort.signal);
     // Built lazily: a workflow with no tool steps never touches the
     // extension registry or the PDP singleton.
@@ -217,6 +237,13 @@ export class WorkflowExecutor {
       if (!toolRunner) {
         toolRunner = this.toolRunnerFactory();
         if (userId) toolRunner.setCurrentUserId(userId);
+        // Pin the scope key as the executor's current conversation up
+        // front. `handlePiInvoke` resolves a nested call's conversation
+        // as `host.currentConversationId ?? \`cross-ext-${req.id}\``; if
+        // this is left unset until the first dispatch, that fallback
+        // mints a foreign key whose gate the scope registry would not
+        // match — and the run would hang on it.
+        toolRunner.setCurrentConversationId?.(scopeKey);
       }
       return toolRunner;
     };
@@ -226,17 +253,6 @@ export class WorkflowExecutor {
       getRunner: getToolRunner,
     };
 
-    // ── Cancellation plumbing (durability) ───────────────────────────
-    //
-    // Only `agent` steps mint a real AgentRun; capture each such run id
-    // from its `run:start` event and drop it on the matching terminal
-    // event, so `cancelInFlight()` can cascade a cancel down every live
-    // child. Scoped to this workflow's step agents + its own
-    // subscribe/unsubscribe window so a shared bus's unrelated runs are
-    // never touched. Transform / gate steps have no run to cancel.
-    const stepAgents = new Set(
-      workflow.steps.map((s) => s.agent).filter((a): a is string => Boolean(a)),
-    );
     const inFlightRunIds = new Set<string>();
     const drop = (id: string): void => {
       inFlightRunIds.delete(id);
@@ -717,9 +733,16 @@ async function runToolStep(
 
   let result: Awaited<ReturnType<WorkflowToolRunner["executeToolCall"]>>;
   try {
-    result = await toolCtx
-      .getRunner()
-      .executeToolCall(step.tool as string, resolvedInput, toolCtx.scopeKey, null);
+    // `scope.run` makes this run's non-interactive scope AMBIENT for the
+    // whole dispatch subtree, so a gate opened against ANY conversation
+    // id — not just this run's scope key — is refused rather than
+    // awaited. Key matching alone let a nested call that resolved a
+    // foreign id park a promise the workflow then awaited forever.
+    result = await toolCtx.scope.run(() =>
+      toolCtx
+        .getRunner()
+        .executeToolCall(step.tool as string, resolvedInput, toolCtx.scopeKey, null),
+    );
   } catch (err) {
     // `takeDenial()` is non-empty ONLY when a gate was refused for want
     // of a human during this dispatch, which pins the failure to the

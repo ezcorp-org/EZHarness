@@ -29,6 +29,16 @@ export interface WorkflowToolRunner {
    * user-scoped extension storage resolves to no bucket at all.
    */
   setCurrentUserId(userId: string): void;
+  /**
+   * Pin the conversation coordinate a nested reverse-RPC will inherit.
+   * Optional so a minimal test double need not implement it, but the
+   * real `ToolExecutor` does: `handlePiInvoke` reads
+   * `host.currentConversationId` and falls back to a synthetic
+   * `cross-ext-<reqId>` when it is unset. That synthetic is a key no
+   * non-interactive scope claims, so a gate raised against it used to
+   * park — hanging the workflow that was awaiting the outer call.
+   */
+  setCurrentConversationId?(conversationId: string): void;
   executeToolCall(
     toolName: string,
     input: Record<string, unknown>,

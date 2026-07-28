@@ -456,12 +456,13 @@ describe("workflow kind:'tool' — sensitive-capability fail-fast", () => {
     };
     const run = await workflow.runWorkflow(def, {});
 
-    // With the scope gone, a gate on the same key parks normally again
-    // (proving `end()` ran, not that the map merely still had the entry).
+    // Deregistration is proved with an UNRELATED, real conversation id:
+    // it parks normally, which it could not do if this run's ambient
+    // scope had outlived it.
     const promptId = `after-${crypto.randomUUID()}`;
     const gate = createExtensionPermissionGate({
       promptId,
-      conversationId: workflowScopeKey(run.id),
+      conversationId: `conv-${crypto.randomUUID()}`,
       userId: "user-1",
       extensionId: "ext",
       toolName: "t",
@@ -469,6 +470,22 @@ describe("workflow kind:'tool' — sensitive-capability fail-fast", () => {
       timeoutMs: 5,
     });
     await expect(gate).rejects.toThrow(/timed out/);
+
+    // The run's OWN key stays refused forever, though — it names no
+    // conversation, so nobody can ever answer a gate raised against it.
+    // (This test previously asserted the opposite: that a stale key
+    // parked and timed out. That was the escape a nested call could take
+    // to hang a concurrent run — see workflow-approval-escape.test.ts.)
+    await expect(
+      createExtensionPermissionGate({
+        promptId: `stale-${crypto.randomUUID()}`,
+        conversationId: workflowScopeKey(run.id),
+        userId: "user-1",
+        extensionId: "ext",
+        toolName: "t",
+        capabilityKind: "shell",
+      }),
+    ).rejects.toThrow(/requires interactive approval/);
   });
 
   test("a denial from an OUTER scope is not misattributed to a tool step", async () => {

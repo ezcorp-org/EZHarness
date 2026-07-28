@@ -5,6 +5,7 @@
  * with per-project settings storage and an async approval gate mechanism.
  */
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import { getSetting } from "../../db/queries/settings";
 import type { ToolCategory } from "./types";
 
@@ -261,11 +262,41 @@ export class PermissionGateTimeoutError extends Error {
 // promise that literally nobody can resolve — the run would hang until
 // the process dies.
 //
-// A non-interactive scope registers the key that such a run passes as
-// `conversationId`. `createExtensionPermissionGate` consults the registry
-// FIRST and refuses immediately (no promise, no pending entry), recording
-// which capability was refused so the caller can raise a precise,
-// human-readable error instead of a generic denial.
+// `createExtensionPermissionGate` refuses such a gate IMMEDIATELY (no
+// promise, no pending entry), recording which capability was refused so
+// the caller can raise a precise, human-readable error.
+//
+// Refusal is decided by THREE independent checks, because key matching
+// alone was demonstrably escapable (see the regression suite in
+// `workflow-approval-escape.test.ts`):
+//
+//   1. AsyncLocalStorage — any gate opened anywhere in the dispatch's
+//      async subtree, on ANY `conversationId`. This is the check that
+//      makes the guarantee unconditional for in-process call chains: a
+//      tool that opens a gate against some unrelated conversation id
+//      still cannot park a promise the workflow would await.
+//   2. The scope-key registry — the id the run passes as
+//      `conversationId`. Catches reverse-RPC handlers, which run on the
+//      subprocess transport's own async context and therefore do NOT
+//      inherit (1).
+//   3. The `NON_INTERACTIVE_KEY_PREFIX` id-space invariant. A key minted
+//      by `workflowScopeKey()` names no conversation and never will, so
+//      NOBODY can ever answer a gate raised against one — whether or not
+//      the minting run is still live. This closes the cross-run race
+//      where run B rebinds a shared subprocess's reverse-RPC handler and
+//      then finishes, leaving run A's nested calls resolving to B's
+//      now-deregistered key.
+//
+// Because a refused gate is never parked, none of the three paths can
+// leak a `pendingApprovals` entry.
+
+/**
+ * Reserved `conversationId` prefix for ids that are NOT conversations.
+ * `workflowScopeKey()` (workflow-executor.ts) is the sole minter; the
+ * constant lives here so the gate can enforce the invariant without
+ * importing the runtime (which would be a cycle).
+ */
+export const NON_INTERACTIVE_KEY_PREFIX = "workflow-run:";
 
 interface NonInteractiveScope {
   /** Capability kind of the most recent refused gate, consumed by
@@ -276,6 +307,9 @@ interface NonInteractiveScope {
 }
 
 const nonInteractiveScopes = new Map<string, NonInteractiveScope>();
+
+/** Ambient scope for the CURRENT async subtree — check (1) above. */
+const nonInteractiveAls = new AsyncLocalStorage<NonInteractiveScope>();
 
 /** Handle returned by {@link beginNonInteractiveScope}. */
 export interface NonInteractiveScopeHandle {
@@ -288,6 +322,13 @@ export interface NonInteractiveScopeHandle {
    * error and must not re-attribute it to a later step).
    */
   takeDenial(): string | undefined;
+  /**
+   * Run `fn` with this scope ambient, so a gate opened ANYWHERE in its
+   * async subtree is refused regardless of the `conversationId` it uses.
+   * Wrap the actual dispatch in this — the key registry alone only
+   * catches calls that faithfully propagate the scope key.
+   */
+  run<T>(fn: () => Promise<T>): Promise<T>;
 }
 
 /**
@@ -327,6 +368,7 @@ export function beginNonInteractiveScope(
       scope.deniedCapabilityKind = undefined;
       return kind;
     },
+    run: (fn) => nonInteractiveAls.run(scope, fn),
   };
 }
 
@@ -373,11 +415,22 @@ function abortPendingApprovalsForScope(scopeKey: string): void {
 export function createExtensionPermissionGate(
   req: ExtensionPermissionRequest,
 ): Promise<ApprovalResolution> {
-  // Fail FAST, never park: in a non-interactive scope nobody can answer,
-  // so awaiting here would hang the caller until the process dies.
-  const scope = nonInteractiveScopes.get(req.conversationId);
+  // Fail FAST, never park: where nobody can answer, awaiting here would
+  // hang the caller until the process dies. Three checks, in order of
+  // precision — see the block comment above `NON_INTERACTIVE_KEY_PREFIX`
+  // for why key matching alone is not sufficient.
+  const scope =
+    nonInteractiveAls.getStore() ?? nonInteractiveScopes.get(req.conversationId);
   if (scope) {
     scope.deniedCapabilityKind = req.capabilityKind;
+    return Promise.reject(
+      new NonInteractiveApprovalRequiredError(req.capabilityKind, req.conversationId),
+    );
+  }
+  // No live scope claims it, but the id itself names no conversation —
+  // a stale/foreign `workflow-run:` key from a run that already ended.
+  // Unanswerable by construction, so refuse rather than park forever.
+  if (req.conversationId.startsWith(NON_INTERACTIVE_KEY_PREFIX)) {
     return Promise.reject(
       new NonInteractiveApprovalRequiredError(req.capabilityKind, req.conversationId),
     );
