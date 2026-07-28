@@ -11,8 +11,9 @@
  *     throttled, never deduped.
  *   - `backgroundFetch(key, url, opts, policy?)` — use for EVERY
  *     background refresh (reactive effect, setInterval, reconnect
- *     re-sync). Returns `null` when throttled; returns the shared
- *     promise when an in-flight call for the same `key` already exists.
+ *     re-sync). Returns `null` when throttled; when an in-flight call for
+ *     the same `key` already exists it joins that call and resolves to a
+ *     PRIVATE clone of its response — every caller may read the body once.
  *   - `invalidate(keyPrefix)` — clear throttle timestamps for all keys
  *     beginning with `keyPrefix`. Call on conversation switch.
  *
@@ -25,7 +26,9 @@
 interface BackgroundOpts {
   /** Minimum time between allowed calls for the same key. Default 5_000. */
   minIntervalMs?: number;
-  /** If true and an identical-key call is in flight, return its promise. Default true. */
+  /** If true and an identical-key call is in flight, join it (resolving to a
+   *  private clone of its response) instead of issuing a second request.
+   *  Default true. */
   dedupInFlight?: boolean;
 }
 
@@ -75,7 +78,12 @@ export async function backgroundFetch(
     const existing = inFlight.get(key);
     if (existing) {
       bump('deduped', key);
-      return existing;
+      // Every caller gets its OWN readable Response. A body can only be read
+      // once, so handing out the shared one made the second reader's
+      // `.json()` throw "body stream already read" — which silently killed
+      // the chat stuck-run watchdog (its poll and its zombie check share this
+      // key, and the watchdog swallows errors and never re-arms).
+      return existing.then((r) => r.clone());
     }
   }
 
@@ -100,6 +108,9 @@ export async function backgroundFetch(
       if (inFlight.get(key) === promise) inFlight.delete(key);
     };
     promise.then(cleanup, cleanup);
+    // Clone for this caller too — the cached Response must stay unread so
+    // every later deduped caller can still clone a fresh body from it.
+    return promise.then((r) => r.clone());
   }
   return promise;
 }

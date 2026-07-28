@@ -515,15 +515,53 @@ describe("pollStaleness", () => {
 		const { host, state } = makeHost({ activeRunId: "run-poll" });
 		await pollStaleness(host);
 		expect(state.serverStalenessMs).toBe(8000);
+		expect(stopStreamingMock).not.toHaveBeenCalled();
 	});
 
-	test("ignores response when runId no longer matches activeRunId", async () => {
+	// ── Self-healing teardown ────────────────────────────────────────────
+	// The repeating poll — not just the one-shot zombie timeout — must tear
+	// streaming down when the server says the run is over. A dropped
+	// `run:complete` (dead SSE subscription, tab asleep through the gap)
+	// otherwise leaves the skeleton loader spinning until the user refreshes,
+	// because the one-shot zombie check swallows its errors and never re-arms.
+
+	test("server reports NO active run → stopStreaming (missed run:complete)", async () => {
+		backgroundFetchMock.mockImplementationOnce(async () =>
+			jsonResponse({ runId: null }),
+		);
+		const { host } = makeHost({ activeRunId: "run-gone" });
+		await pollStaleness(host);
+		expect(stopStreamingMock).toHaveBeenCalledWith("run-gone");
+	});
+
+	test("runId no longer matches activeRunId → stopStreaming, no staleness write", async () => {
 		backgroundFetchMock.mockImplementationOnce(async () =>
 			jsonResponse({ runId: "run-OLD", stalenessMs: 9999 }),
 		);
 		const { host, state } = makeHost({ activeRunId: "run-NEW" });
 		await pollStaleness(host);
 		expect(state.serverStalenessMs).toBeNull();
+		expect(stopStreamingMock).toHaveBeenCalledWith("run-NEW");
+	});
+
+	test("server reports a non-running status → stopStreaming", async () => {
+		backgroundFetchMock.mockImplementationOnce(async () =>
+			jsonResponse({ runId: "run-x", status: "success", stalenessMs: 40_000 }),
+		);
+		const { host, state } = makeHost({ activeRunId: "run-x" });
+		await pollStaleness(host);
+		expect(stopStreamingMock).toHaveBeenCalledWith("run-x");
+		expect(state.serverStalenessMs).toBeNull();
+	});
+
+	test("still running → keeps streaming attached and refreshes staleness", async () => {
+		backgroundFetchMock.mockImplementationOnce(async () =>
+			jsonResponse({ runId: "run-x", status: "running", stalenessMs: 42_000 }),
+		);
+		const { host, state } = makeHost({ activeRunId: "run-x" });
+		await pollStaleness(host);
+		expect(stopStreamingMock).not.toHaveBeenCalled();
+		expect(state.serverStalenessMs).toBe(42_000);
 	});
 
 	test("populates activeRunStartedAt only when previously null", async () => {

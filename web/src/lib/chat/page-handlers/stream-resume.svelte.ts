@@ -31,10 +31,14 @@
  *    flight, runs two timers:
  *      - a 10s `setInterval` that polls `/active-run` to refresh
  *        `serverStalenessMs` (drives the StuckRunBanner timer even when no
- *        new tokens arrive), and
+ *        new tokens arrive) AND tears streaming down if the server says the
+ *        run already finished, and
  *      - a `resumedRun ? 5s : 30s` `setTimeout` that checks for zombie state
- *        (status flipped to non-running, or stale heartbeat).
+ *        (status flipped to non-running, or stale heartbeat) sooner.
  *    Both timers are torn down on every effect re-run AND on host detach.
+ *    The teardown lives on the REPEATING timer as well as the one-shot one
+ *    deliberately: the one-shot swallows its errors, so it can only ever be
+ *    best-effort. See `pollStaleness`.
  *
  * Reactive store reads (`store.connected`, `store.streamingMessages`,
  * `store.streamingStatus`, `store.streamingToolCalls`) and the
@@ -352,10 +356,30 @@ export function shouldFireReconnectCheck(
 }
 
 /**
- * Body of the 10s staleness-poll `setInterval`. Reads metadata only —
- * doesn't touch streaming state. Refreshes `serverStalenessMs` on every
- * poll so the StuckRunBanner timer reflects the most recent server-side
- * heartbeat gap even when the user is passively watching.
+ * True when the server says the run the page is attached to is over — no
+ * active run for this conversation, a DIFFERENT run took its place, or an
+ * explicit non-running status. Shared by the repeating staleness poll and
+ * the one-shot zombie check so both agree on what "finished" means.
+ */
+function runIsFinished(data: ActiveRunResponse, attachedRunId: string): boolean {
+	if (!data.runId) return true;
+	if (data.runId !== attachedRunId) return true;
+	return Boolean(data.status && data.status !== "running");
+}
+
+/**
+ * Body of the 10s staleness-poll `setInterval`. Refreshes `serverStalenessMs`
+ * so the StuckRunBanner timer reflects the most recent server-side heartbeat
+ * gap even when the user is passively watching.
+ *
+ * It ALSO tears streaming down when the server reports the run finished. That
+ * teardown used to live only in the one-shot `runZombieCheck` timer — and a
+ * single swallowed error there (a throttled poll, a network blip, or the
+ * shared-Response `body stream already read` this file used to hit when its
+ * two timers collided on the same fetch key) left the UI wedged FOREVER: the
+ * skeleton loader spun with no run behind it until the user refreshed. Doing
+ * it on the repeating poll makes recovery self-healing — any missed terminal
+ * event costs at most one poll interval instead of the whole session.
  */
 export async function pollStaleness(host: StreamResumeHost): Promise<void> {
 	const runId = host.activeRunId.get();
@@ -370,13 +394,16 @@ export async function pollStaleness(host: StreamResumeHost): Promise<void> {
 		);
 		if (!res || !res.ok) return;
 		const data = (await res.json()) as ActiveRunResponse;
-		if (!data.runId || data.runId !== host.activeRunId.get()) return;
+		if (runIsFinished(data, host.activeRunId.get() ?? "")) {
+			stopStreaming(runId);
+			return;
+		}
 		if (typeof data.stalenessMs === "number") host.serverStalenessMs.set(data.stalenessMs);
 		if (data.startedAt && host.activeRunStartedAt.get() == null) {
 			host.activeRunStartedAt.set(new Date(data.startedAt).getTime());
 		}
 	} catch {
-		/* non-fatal */
+		/* non-fatal — the next poll retries */
 	}
 }
 
@@ -403,17 +430,13 @@ export async function runZombieCheck(
 		);
 		if (!res || !res.ok) return;
 		const data = (await res.json()) as ActiveRunResponse;
-		if (
-			!data.runId ||
-			data.runId !== host.activeRunId.get() ||
-			(data.status && data.status !== "running")
-		) {
+		if (runIsFinished(data, host.activeRunId.get() ?? "")) {
 			stopStreaming(runId);
 		} else if (typeof data.stalenessMs === "number") {
 			host.serverStalenessMs.set(data.stalenessMs);
 		}
 	} catch {
-		/* non-fatal */
+		/* non-fatal — `pollStaleness` re-checks on its repeating interval */
 	}
 }
 
@@ -441,11 +464,6 @@ const reconnectCooldownByConv = new Map<string, number>();
 export function __resetReconnectCooldown(convId?: string): void {
 	if (convId === undefined) reconnectCooldownByConv.clear();
 	else reconnectCooldownByConv.delete(convId);
-}
-
-/** Test-only: read the cooldown timestamp for a given conversation. */
-function __getReconnectCooldownAt(convId: string): number {
-	return reconnectCooldownByConv.get(convId) ?? 0;
 }
 
 // ── Rune-host wiring ─────────────────────────────────────────────────────
