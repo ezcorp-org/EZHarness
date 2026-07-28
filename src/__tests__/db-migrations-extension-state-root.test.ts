@@ -76,12 +76,21 @@ async function read(db: Db, name: string) {
   return res.rows[0];
 }
 
-/** Assert both columns landed on `installPath` / `local:<installPath>`. */
-async function expectLocal(db: Db, name: string, installPath: string) {
+/**
+ * Both columns of a row as the `[install_path, source]` pair tests compare on.
+ *
+ * The comparison itself deliberately stays at the CALL SITE rather than living
+ * in a shared `expectLocal()` helper: an assertion hidden behind a helper is
+ * invisible both to a reader skimming the test and to `scripts/gate-integrity.ts`,
+ * which reads a `test()` body with no literal `expect(` as a vacuous test.
+ */
+async function localPair(db: Db, name: string) {
   const row = await read(db, name);
-  expect(row.install_path).toBe(installPath);
-  expect(row.source).toBe(`local:${installPath}`);
+  return [row.install_path, row.source];
 }
+
+/** The pair a row must land on once it points at `installPath`. */
+const localPairFor = (installPath: string) => [installPath, `local:${installPath}`];
 
 const stalePath = (name: string, root = ROOT) =>
   `${root}/web/.ezcorp/extensions/${name}`;
@@ -105,7 +114,7 @@ describe("extension state root normalization migration", () => {
 
     await up(db, ROOT);
 
-    await expectLocal(db, "weather", canonicalPath("weather"));
+    expect(await localPair(db, "weather")).toEqual(localPairFor(canonicalPath("weather")));
   });
 
   test("rewrites every legacy row (the 4 observed in production)", async () => {
@@ -115,7 +124,7 @@ describe("extension state root normalization migration", () => {
 
     await up(db, ROOT);
 
-    for (const n of names) await expectLocal(db, n, canonicalPath(n));
+    for (const n of names) expect(await localPair(db, n)).toEqual(localPairFor(canonicalPath(n)));
   });
 
   test("deployment-agnostic: any root works, none is hardcoded", async () => {
@@ -126,11 +135,11 @@ describe("extension state root normalization migration", () => {
     await up(db, "/srv/ezcorp");
     await up(db, "/home/dev/work/EZCorp/EZHarness");
 
-    await expectLocal(db, "notes", canonicalPath("notes", "/srv/ezcorp"));
-    await expectLocal(
-      db,
-      "vault",
-      canonicalPath("vault", "/home/dev/work/EZCorp/EZHarness"),
+    expect(await localPair(db, "notes")).toEqual(
+      localPairFor(canonicalPath("notes", "/srv/ezcorp")),
+    );
+    expect(await localPair(db, "vault")).toEqual(
+      localPairFor(canonicalPath("vault", "/home/dev/work/EZCorp/EZHarness")),
     );
   });
 
@@ -140,7 +149,7 @@ describe("extension state root normalization migration", () => {
 
     await up(db, `${ROOT}/`);
 
-    await expectLocal(db, "weather", canonicalPath("weather"));
+    expect(await localPair(db, "weather")).toEqual(localPairFor(canonicalPath("weather")));
   });
 });
 
@@ -164,7 +173,7 @@ describe("root-scoped, not wildcarded", () => {
 
     await up(db, root);
 
-    await expectLocal(db, "foo", canonical);
+    expect(await localPair(db, "foo")).toEqual(localPairFor(canonical));
   });
 
   test("a root that ends in /web still gets its genuinely stale rows fixed", async () => {
@@ -174,7 +183,7 @@ describe("root-scoped, not wildcarded", () => {
 
     await up(db, root);
 
-    await expectLocal(db, "bar", canonicalPath("bar", root));
+    expect(await localPair(db, "bar")).toEqual(localPairFor(canonicalPath("bar", root)));
   });
 
   test("rows under a DIFFERENT root are left alone", async () => {
@@ -187,7 +196,7 @@ describe("root-scoped, not wildcarded", () => {
 
     await up(db, ROOT);
 
-    await expectLocal(db, "ghost", foreign);
+    expect(await localPair(db, "ghost")).toEqual(localPairFor(foreign));
   });
 
   test("regex metacharacters in the root are matched literally", async () => {
@@ -199,7 +208,7 @@ describe("root-scoped, not wildcarded", () => {
 
     await up(db, root);
 
-    await expectLocal(db, "quirk", canonicalPath("quirk", root));
+    expect(await localPair(db, "quirk")).toEqual(localPairFor(canonicalPath("quirk", root)));
   });
 });
 
@@ -211,7 +220,7 @@ describe("rows the migration must not touch", () => {
 
     await up(db, ROOT);
 
-    await expectLocal(db, "scratchpad", canonical);
+    expect(await localPair(db, "scratchpad")).toEqual(localPairFor(canonical));
   });
 
   test("non-local sources and NULL install_path are untouched", async () => {
@@ -259,9 +268,9 @@ describe("rows the migration must not touch", () => {
 
     await up(db, ROOT);
 
-    await expectLocal(db, "web", named);
-    await expectLocal(db, "deep", nested);
-    await expectLocal(db, "bare", bare);
+    expect(await localPair(db, "web")).toEqual(localPairFor(named));
+    expect(await localPair(db, "deep")).toEqual(localPairFor(nested));
+    expect(await localPair(db, "bare")).toEqual(localPairFor(bare));
   });
 
   test("an extension named 'web' in the stale shape still migrates", async () => {
@@ -270,7 +279,7 @@ describe("rows the migration must not touch", () => {
 
     await up(db, ROOT);
 
-    await expectLocal(db, "web", canonicalPath("web"));
+    expect(await localPair(db, "web")).toEqual(localPairFor(canonicalPath("web")));
   });
 });
 
@@ -289,7 +298,7 @@ describe("convergence and re-entrancy", () => {
 
     await up(db, ROOT);
 
-    await expectLocal(db, "halfway", canonicalPath("halfway"));
+    expect(await localPair(db, "halfway")).toEqual(localPairFor(canonicalPath("halfway")));
   });
 
   test("idempotent — a second run changes nothing", async () => {
