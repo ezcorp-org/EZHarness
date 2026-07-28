@@ -947,7 +947,7 @@ export async function updateAgentConfig(
 
 // ── Workflows ───────────────────────────────────────────────────────
 
-export type WorkflowStepKind = "agent" | "transform" | "gate";
+export type WorkflowStepKind = "agent" | "transform" | "gate" | "tool";
 
 export interface WorkflowLoopConfig {
 	maxIterations: number;
@@ -963,6 +963,8 @@ export interface WorkflowStep {
 	retries?: number;
 	output?: Record<string, string>;
 	condition?: unknown;
+	/** Runtime-namespaced extension tool for a `kind: "tool"` step. */
+	tool?: string;
 	dependsOn?: string[];
 	loop?: WorkflowLoopConfig;
 }
