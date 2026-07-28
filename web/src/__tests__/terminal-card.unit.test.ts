@@ -1,4 +1,4 @@
-import { test, expect, describe } from "bun:test";
+import { test, expect, describe } from "vitest";
 import { AnsiUp } from "ansi_up";
 import { stripAnsi } from "../lib/components/tool-cards/utils.js";
 

@@ -41,6 +41,7 @@ let installImpl: () => Promise<{ id: string; name: string }> = async () => ({
  *  be asserted. `[1]` is the granted `ExtensionPermissions`. */
 let installArgs: unknown[] = [];
 let updateCalls: Array<[string, Record<string, unknown>]> = [];
+let updateImpl: () => Promise<void> = async () => {};
 let reloadCalls = 0;
 let reloadImpl: () => Promise<void> = async () => {};
 
@@ -58,11 +59,21 @@ mock.module("../db/queries/extensions", () => ({
   getExtensionByName: (n: string) => getByNameImpl(n),
   updateExtension: async (id: string, data: Record<string, unknown>) => {
     updateCalls.push([id, data]);
+    await updateImpl();
     return { id, ...data };
   },
 }));
 mock.module("../extensions/loader", () => ({
-  loadManifest: (dir: string) => manifestImpl(dir),
+  // The pipeline MUST read the manifest cache-busted — a draft is
+  // edited in place between validate and install, and Bun caches
+  // modules by path. `loadManifest` throws so a regression to the
+  // cached reader fails this suite instead of installing stale bytes.
+  loadManifest: () => {
+    throw new Error(
+      "author-install must call loadManifestFresh, not loadManifest",
+    );
+  },
+  loadManifestFresh: (dir: string) => manifestImpl(dir),
 }));
 mock.module("../extensions/sdk/verify", () => ({
   verifyExtension: () => verifyImpl(),
@@ -81,6 +92,27 @@ mock.module("../extensions/registry", () => ({
         return reloadImpl();
       },
     }),
+  },
+}));
+
+// Real fs everywhere EXCEPT the pre-modify backup cleanup, which a
+// test flips to failing so the "install succeeded but the backup dir
+// leaked" warning path is driven deterministically (chmod-based
+// setups silently no-op when the suite runs as root).
+const fspModule = await import("node:fs/promises");
+// Snapshot BEFORE mock.module swaps the registry entry — reading
+// `fspModule.rm` afterwards would resolve to the mock itself and
+// recurse forever.
+const realFsp = { ...fspModule };
+const realRm = realFsp.rm;
+let failBackupCleanup = false;
+mock.module("node:fs/promises", () => ({
+  ...realFsp,
+  rm: async (p: Parameters<typeof realRm>[0], opts?: Parameters<typeof realRm>[1]) => {
+    if (failBackupCleanup && String(p).includes(".modify-bak-")) {
+      throw new Error("EACCES: permission denied");
+    }
+    return realRm(p, opts);
   },
 }));
 
@@ -126,6 +158,7 @@ beforeEach(() => {
   draftRow = undefined;
   consumeCalls = [];
   updateCalls = [];
+  updateImpl = async () => {};
   reloadCalls = 0;
   manifestImpl = async () => ({ name: "weather" });
   verifyImpl = async () => ({ pass: true, steps: [{ name: "x", ok: true, detail: "ok" }] });
@@ -133,6 +166,7 @@ beforeEach(() => {
   installImpl = async () => ({ id: "ext-1", name: "weather" });
   installArgs = [];
   reloadImpl = async () => {};
+  failBackupCleanup = false;
 });
 afterEach(() => {
   try { rmSync(TMP, { recursive: true, force: true }); } catch { /* */ }
@@ -386,6 +420,76 @@ describe("installAuthoredDraft — sanctioned in-place modify", () => {
     ).toBe("NAME_COLLISION");
   });
 
+  // A reopen draft is seeded from only the 7 SCAFFOLD_DRAFT_FILES, so a
+  // modify used to DESTROY everything else in the install dir (the dir
+  // is replaced wholesale and the backup deleted on success).
+  test("modify preserves files the draft cannot represent (node_modules et al)", async () => {
+    seed({});
+    asModifyDraft();
+    ownerModifiableRow();
+    mkdirSync(join(installedDir(), "node_modules/left-pad"), { recursive: true });
+    writeFileSync(join(installedDir(), "node_modules/left-pad/index.js"), "dep\n");
+    writeFileSync(join(installedDir(), "assets.bin"), "blob\n");
+    writeFileSync(join(installedDir(), "ezcorp.config.ts"), "OLD\n");
+    writeFileSync(join(DRAFT_DIR, "ezcorp.config.ts"), "NEW\n");
+
+    await installAuthoredDraft({
+      draftId: "draft-1",
+      userId: "user-a",
+      enable: false,
+    });
+
+    // The draft's own file wins…
+    expect(readFileSync(join(installedDir(), "ezcorp.config.ts"), "utf8")).toBe("NEW\n");
+    // …and everything the draft could not carry survives.
+    expect(
+      readFileSync(join(installedDir(), "node_modules/left-pad/index.js"), "utf8"),
+    ).toBe("dep\n");
+    expect(readFileSync(join(installedDir(), "assets.bin"), "utf8")).toBe("blob\n");
+    expect(baks()).toEqual([]);
+  });
+
+  test("carry-forward never overwrites an edited draft file", async () => {
+    seed({});
+    asModifyDraft();
+    ownerModifiableRow();
+    mkdirSync(installedDir(), { recursive: true });
+    writeFileSync(join(installedDir(), "ezcorp.config.ts"), "OLD\n");
+    writeFileSync(join(installedDir(), "README.md"), "OLD README\n");
+    writeFileSync(join(DRAFT_DIR, "ezcorp.config.ts"), "NEW\n");
+    writeFileSync(join(DRAFT_DIR, "README.md"), "NEW README\n");
+
+    await installAuthoredDraft({
+      draftId: "draft-1",
+      userId: "user-a",
+      enable: false,
+    });
+    expect(readFileSync(join(installedDir(), "README.md"), "utf8")).toBe("NEW README\n");
+  });
+
+  test("a failed backup cleanup is reported as a warning, not swallowed", async () => {
+    seed({});
+    asModifyDraft();
+    ownerModifiableRow();
+    mkdirSync(installedDir(), { recursive: true });
+    writeFileSync(join(installedDir(), "ezcorp.config.ts"), "OLD\n");
+    failBackupCleanup = true;
+
+    const r = await installAuthoredDraft({
+      draftId: "draft-1",
+      userId: "user-a",
+      enable: false,
+    });
+    // Install still succeeded — the leftover dir is inert…
+    expect(r.extensionId).toBe("ext-1");
+    // …but the caller is TOLD about it instead of it vanishing into a log.
+    expect(r.warnings?.length).toBe(1);
+    expect(r.warnings?.[0]).toContain(".modify-bak-");
+    expect(r.warnings?.[0]).toContain("EACCES");
+    // Still on disk, as the warning says.
+    expect(baks().length).toBe(1);
+  });
+
   test("no modifyOf marker + existing → NAME_COLLISION (generic create unchanged)", async () => {
     seed({});
     getByNameImpl = async () =>
@@ -434,17 +538,89 @@ describe("installAuthoredDraft — happy path + enable", () => {
     expect(reloadCalls).toBe(1);
   });
 
-  test("registry.reload failure is non-fatal (still resolves)", async () => {
+  // A reload failure means the extension is installed but NOT loaded:
+  // none of its tools exist until something else reloads the registry.
+  // Reporting `{ok:true}` for that made the install card promise the
+  // user an extension they cannot use, so it is now a typed failure.
+  test("registry.reload failure → REGISTRY_RELOAD_FAILED (not a silent success)", async () => {
     seed({});
     reloadImpl = async () => {
       throw new Error("registry boom");
     };
+    try {
+      await installAuthoredDraft({
+        draftId: "draft-1",
+        userId: "user-a",
+        enable: true,
+      });
+      throw new Error("should have thrown");
+    } catch (e) {
+      expect(e).toBeInstanceOf(AuthorInstallError);
+      const err = e as InstanceType<typeof AuthorInstallError>;
+      expect(err.code).toBe("REGISTRY_RELOAD_FAILED");
+      // The half-finished install is identified, not hidden.
+      expect(err.details?.extensionId).toBe("ext-1");
+      expect(err.details?.name).toBe("weather");
+      expect(err.message).toContain("registry boom");
+    }
+    // Everything else still ran: the draft row is consumed (no orphan)
+    // and the enable landed before the failing reload.
+    expect(consumeCalls).toEqual([["draft-1", "user-a"]]);
+    expect(updateCalls).toEqual([["ext-1", { enabled: true }]]);
+  });
+
+  test("enable failure → ENABLE_FAILED (installed-but-disabled is not ok:true)", async () => {
+    seed({});
+    updateImpl = async () => {
+      throw new Error("db offline");
+    };
+    try {
+      await installAuthoredDraft({
+        draftId: "draft-1",
+        userId: "user-a",
+        enable: true,
+      });
+      throw new Error("should have thrown");
+    } catch (e) {
+      expect(e).toBeInstanceOf(AuthorInstallError);
+      const err = e as InstanceType<typeof AuthorInstallError>;
+      expect(err.code).toBe("ENABLE_FAILED");
+      expect(err.message).toContain("could NOT be enabled");
+      expect(err.details?.extensionId).toBe("ext-1");
+    }
+    // The remaining pipeline still completed — no orphan draft row, and
+    // the registry was still reloaded.
+    expect(consumeCalls).toEqual([["draft-1", "user-a"]]);
+    expect(reloadCalls).toBe(1);
+  });
+
+  test("enable failure wins over a later reload failure (first cause reported)", async () => {
+    seed({});
+    updateImpl = async () => {
+      throw new Error("db offline");
+    };
+    reloadImpl = async () => {
+      throw new Error("registry boom");
+    };
+    expect(
+      await code(
+        installAuthoredDraft({ draftId: "draft-1", userId: "user-a", enable: true }),
+      ),
+    ).toBe("ENABLE_FAILED");
+  });
+
+  test("enable:false → a failing updateExtension is never called, install succeeds", async () => {
+    seed({});
+    updateImpl = async () => {
+      throw new Error("db offline");
+    };
     const r = await installAuthoredDraft({
       draftId: "draft-1",
       userId: "user-a",
-      enable: true,
+      enable: false,
     });
     expect(r.extensionId).toBe("ext-1");
+    expect(updateCalls.length).toBe(0);
   });
 });
 

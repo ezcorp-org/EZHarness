@@ -84,7 +84,13 @@ vi.mock("$server/db/queries/ez-drafts", async () => {
 });
 
 vi.mock("$server/extensions/loader", () => ({
-  loadManifest: vi.fn(async (dir: string) => {
+  // The install pipeline must read the manifest CACHE-BUSTED (the
+  // draft is edited in place between validate and install). A
+  // regression back to the cached `loadManifest` throws here.
+  loadManifest: vi.fn(() => {
+    throw new Error("install must call loadManifestFresh, not loadManifest");
+  }),
+  loadManifestFresh: vi.fn(async (dir: string) => {
     const { readFileSync, existsSync } = await import("node:fs");
     const { join } = await import("node:path");
     const cfgPath = join(dir, "ezcorp.config.ts");
@@ -409,7 +415,11 @@ describe("POST /api/extensions/author/install — happy path", () => {
     );
   });
 
-  test("registry reload failure is non-fatal (still 201)", async () => {
+  // A reload failure leaves the extension installed but NOT loaded —
+  // none of its tools exist until something reloads the registry. A 201
+  // told the client "created, go use it" about exactly that state, so
+  // it is now a 500 that names the code and the half-finished install.
+  test("registry reload failure → 500 REGISTRY_RELOAD_FAILED (not a silent 201)", async () => {
     mockReload = vi.fn(async () => {
       throw new Error("registry boom");
     });
@@ -417,7 +427,11 @@ describe("POST /api/extensions/author/install — happy path", () => {
       "ezcorp.config.ts": validManifestSrc("weather"),
     });
     const resp = await POST(makeReq({ draftId: "d-reload-fail" }));
-    expect(resp.status).toBe(201);
+    expect(resp.status).toBe(500);
+    const body = await resp.json();
+    expect(body.code).toBe("REGISTRY_RELOAD_FAILED");
+    expect(body.extensionId).toBe("ext-installed");
+    expect(body.message).toContain("registry boom");
   });
 });
 

@@ -1,17 +1,25 @@
 /**
- * `/api/extensions/author/draft/[id]/validate` — run the host-side
- * `validateManifestV2` against a draft's `ezcorp.config.ts`. Returns
- * `{ ok, errors }` (200 on success or validation failure; 4xx only on
- * auth/lookup errors).
+ * `/api/extensions/author/draft/[id]/validate` — run the host's FULL
+ * acceptance gate against a draft.
+ *
+ * This endpoint used to run manifest validation only, while install
+ * hard-gated on `verifyExtension` (manifest + a sandboxed `smokeTest`
+ * round-trip). Break the smokeTest in the editor and you got a green
+ * "Manifest valid. Ready to install." followed by a 422 on Install —
+ * the button lied about the only question it answers. It now calls the
+ * SAME `runAuthorAcceptanceGate` the install pipeline calls, and
+ * returns the same `{ ok, pass, steps, errors }` shape the in-chat
+ * `validate_extension` tool returns, so all three surfaces agree.
+ *
+ * Status codes are unchanged: 200 on success OR validation failure,
+ * 4xx only on auth/lookup errors.
  */
 import { json } from "@sveltejs/kit";
 import { errorJson } from "$lib/server/http-errors";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import { getDraft, getExtensionAuthorDraftDir } from "$server/db/queries/ez-drafts";
-import { loadManifest } from "$server/extensions/loader";
-import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { runAuthorAcceptanceGate } from "$server/extensions/author-gate";
 import type { RequestHandler } from "./$types";
 
 export const POST: RequestHandler = async ({ params, locals }) => {
@@ -28,33 +36,23 @@ export const POST: RequestHandler = async ({ params, locals }) => {
     if (!row) return errorJson(404, "Draft not found, expired, or not owned by the requesting user");
     if (row.kind !== "extension") return errorJson(400, "Draft is not an extension draft");
 
-    const dir = getExtensionAuthorDraftDir(draftId, user.id);
-    const cfgPath = join(dir, "ezcorp.config.ts");
-    if (!existsSync(cfgPath)) {
-      return json({ ok: false, errors: ["Missing ezcorp.config.ts"] });
-    }
+    // The scaffold type on the draft row selects whether the sandboxed
+    // round-trip is required — exactly the selector install uses, read
+    // from the same place (`payload.type`).
+    const payload = (row.payload ?? {}) as Record<string, unknown>;
+    const draftType = typeof payload.type === "string" ? payload.type : "";
 
-    // Use the canonical loader (child-process compile via Bun's
-    // import pipeline) — replaces the prior `new Function(body)` eval
-    // (reviewer S5). `loadManifest` runs `validateManifestV2`
-    // internally and throws on either load failure or validation
-    // failure. We only need to distinguish ok/!ok here, not parse the
-    // error message.
-    try {
-      await loadManifest(dir);
-      return json({ ok: true, errors: [] });
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      // The loader throws messages like `Invalid manifest: <errors>`
-      // when validation fails. Strip the prefix so the UI shows the
-      // raw error list. Other errors (no default export, file load
-      // error) come through unchanged.
-      const match = msg.match(/^Invalid manifest:\s*(.+)$/);
-      const errors = match
-        ? match[1]!.split(",").map((s) => s.trim()).filter(Boolean)
-        : [msg];
-      return json({ ok: false, errors });
-    }
+    const dir = getExtensionAuthorDraftDir(draftId, user.id);
+    const result = await runAuthorAcceptanceGate({ draftDir: dir, draftType });
+
+    return json({
+      ok: result.ok,
+      // `pass` mirrors `ok` for parity with the in-chat tool's result
+      // shape (`{ ok, pass, steps }`); both are the same verdict.
+      pass: result.ok,
+      steps: result.steps,
+      errors: result.errors,
+    });
   } catch (e) {
     if (e instanceof Response) return e;
     return errorJson(500, e instanceof Error ? e.message : "Validate failed");

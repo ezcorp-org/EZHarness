@@ -5,7 +5,8 @@
 	import { slide } from "svelte/transition";
 	import ToolCardRouter from "./tool-cards/ToolCardRouter.svelte";
 	import DockOpenPill from "./tool-cards/DockOpenPill.svelte";
-	import { shouldRenderInDock } from "./tool-cards/utils.js";
+	import { extractInputSummary, shouldRenderInDock } from "./tool-cards/utils.js";
+	import { summarizeToolFailure } from "./tool-cards/failure-class.js";
 	import { isTimeClockOutput } from "./tool-cards/time-clock-logic.js";
 	import MarkdownRenderer from "./MarkdownRenderer.svelte";
 
@@ -60,15 +61,23 @@
 		toolCall.duration != null ? `${(toolCall.duration / 1000).toFixed(1)}s` : undefined,
 	);
 
-	/** Short summary of the tool's key input arg for the collapsed header */
-	let inputSummary = $derived.by((): string | undefined => {
-		if (!toolCall.input || typeof toolCall.input !== 'object') return undefined;
-		const inp = toolCall.input as Record<string, unknown>;
-		const key = inp.file_path ?? inp.path ?? inp.pattern ?? inp.command ?? inp.query ?? inp.url ?? inp.content;
-		if (!key) return undefined;
-		const s = String(key);
-		return s.length > 60 ? s.slice(0, 57) + '...' : s;
-	});
+	/** Short summary of the tool's key input arg for the collapsed header.
+	 *  Uses the SHARED helper rather than a private copy — this used to be
+	 *  a duplicate of `extractInputSummary` that drifted: adding the
+	 *  extension-author keys (`draftId`, `name`) to the shared one left
+	 *  every card WITHOUT a `cardType` (which renders here, not in
+	 *  DefaultCard) still showing a bare header. */
+	let inputSummary = $derived(extractInputSummary(toolCall.input));
+
+	/** Same failure summary DefaultCard shows. A tool with no `cardType`
+	 *  never reaches DefaultCard, so without this a failed
+	 *  `modify_extension` was a red ✗, the tool name, and nothing else —
+	 *  exactly the state this branch's diagnostics work exists to fix. */
+	let failure = $derived(
+		toolCall.status === 'error'
+			? summarizeToolFailure(toolCall.error, toolCall.output)
+			: null,
+	);
 
 	/** Formatted output for display — uses full fetched output or falls back to summary */
 	let displayOutput = $derived.by((): string | undefined => {
@@ -138,11 +147,21 @@
 			</svg>
 		{/if}
 
-		<!-- Tool name + input summary -->
+		<!-- Tool name + input summary (or, on a failure, its class + reason) -->
 		<span class="shrink-0 text-[var(--color-text-secondary)] font-medium">{toolCall.toolName}</span>
-		{#if inputSummary}
+		{#if failure}
+			<span
+				class="shrink-0 rounded bg-red-500/15 px-1.5 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wide text-red-400"
+				data-testid="tool-card-failure-class"
+				data-failure-class={failure.failureClass}
+			>{failure.label}</span>
+			{#if inputSummary}
+				<span class="shrink-0 text-[var(--color-text-muted)] text-xs font-normal">{inputSummary}</span>
+			{/if}
+			<span class="truncate text-[var(--color-text-muted)] text-xs font-normal" data-testid="tool-card-failure-message">{failure.message}</span>
+		{:else if inputSummary}
 			<span class="truncate text-[var(--color-text-muted)] text-xs font-normal">{inputSummary}</span>
-		{:else if outputPreview && !inputSummary}
+		{:else if outputPreview}
 			<span class="truncate text-[var(--color-text-muted)] text-xs font-normal italic">{outputPreview}</span>
 		{/if}
 

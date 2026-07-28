@@ -3,11 +3,15 @@
  * `ez_drafts` rows.
  *
  * Created for the bundled `extension-author` extension so its
- * `create_extension` tool can produce a proposal-card draft (the
- * `EzToolResultCard.svelte` consumer renders `result.openUrl` as a
- * one-button "Open prefilled form"). The draft row's `payload`
- * carries `{ draftDir, name, type, mode: "author" }` — read by the
- * editable preview page at `/extensions/author?prefill=<id>`.
+ * `create_extension` tool can produce a proposal-card draft. That tool
+ * declares `cardType: "ez-draft"`, which routes its result to
+ * `EzToolResultCard.svelte` and renders `result.openUrl` as a
+ * one-button "Open draft editor" link. (Until that cardType existed the
+ * result fell through to DefaultCard, where the collapsed 50-char
+ * preview truncated the URL away entirely — this docstring described a
+ * card that was not wired up.) The draft row's `payload` carries
+ * `{ draftDir, name, type, mode: "author" }` — read by the editable
+ * preview page at `/extensions/author?prefill=<id>`.
  *
  * Defense-in-depth: bundled-only via the explicit
  * `BUNDLED_DRAFTS_ALLOWLIST` set below — checked by the calling
@@ -56,9 +60,13 @@ import {
   writeExtensionAuthorDraftFiles,
   type EzDraftKind,
 } from "../db/queries/ez-drafts";
-import { logger } from "../logger";
+import { extensionLogger } from "../logger";
 
-const log = logger.child("ext.drafts-handler");
+// Namespaced `ext.<name>[.<component>]` per the binding rule in
+// src/extensions/CLAUDE.md. The old `logger.child("ext.drafts-handler")`
+// looked namespaced but was not: `EZCORP_DEBUG=ext.extension-author`
+// (the extension this handler exists for) never matched it.
+const log = extensionLogger("extension-author", "drafts-handler");
 
 /**
  * Bundled extensions allowed to create drafts via `ezcorp/drafts`.
@@ -180,7 +188,12 @@ export async function handleDraftsRpc(
     log.warn("ezcorp/drafts rejected: extension not in bundled allowlist", {
       extensionName,
     });
-    return rpcError(req.id, -32603, "ezcorp/drafts is bundled-only");
+    // `data.code` so this reads as a PERMISSION failure, distinct from
+    // a load / execution / response-shape failure, all the way out to
+    // the card header (see `failure-class.ts`).
+    return rpcError(req.id, -32603, "ezcorp/drafts is bundled-only", {
+      code: "NOT_ALLOWLISTED",
+    });
   }
 
   // 2) The calling manifest must declare what kinds it can create.
@@ -189,7 +202,9 @@ export async function handleDraftsRpc(
   //    isn't a primary permission, so we use the same code).
   const declaredKinds = getDeclaredKinds(ctx.grantedPermissions);
   if (!declaredKinds) {
-    return rpcError(req.id, -32603, "custom.drafts.kinds not granted");
+    return rpcError(req.id, -32603, "custom.drafts.kinds not granted", {
+      code: "PERMISSION_NOT_GRANTED",
+    });
   }
 
   const params = (req.params ?? {}) as Record<string, unknown>;

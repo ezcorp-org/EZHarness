@@ -267,17 +267,28 @@ const read_draft: ToolHandler = async (args) => {
   if (!(await fsExists(dir))) return toolError(`Draft directory does not exist: ${a.draftId}`);
 
   const files: Record<string, string> = {};
+  // Files that EXIST but could not be read. Silently dropping them
+  // handed the LLM a short file map, so it would "read" the draft, not
+  // see (say) index.ts, and then confidently rewrite a file it had
+  // never actually looked at. Report them instead.
+  const unreadable: Array<{ path: string; error: string }> = [];
   for (const name of ALLOWED_DRAFT_FILES) {
     const p = join(dir, name);
     if (!(await fsExists(p))) continue;
     try {
       const content = await fsRead(p);
       files[name] = typeof content === "string" ? content : new TextDecoder().decode(content);
-    } catch {
-      // skip unreadable
+    } catch (err) {
+      unreadable.push({ path: name, error: (err as Error).message });
     }
   }
-  return toolResult(JSON.stringify({ draftId: a.draftId, files }));
+  return toolResult(
+    JSON.stringify({
+      draftId: a.draftId,
+      files,
+      ...(unreadable.length > 0 ? { unreadable } : {}),
+    }),
+  );
 };
 
 const write_draft_file: ToolHandler = async (args) => {
@@ -361,6 +372,22 @@ const install_draft: ToolHandler = async (args) => {
       action: "install",
       draftId: a.draftId,
     });
+    // VALIDATE the host response before reporting success. `?? ""`
+    // turned a shape-broken response into `{ok:true, extensionId:"",
+    // name:""}` — a green install card for an extension that may not
+    // exist, and empty ids the model then quotes back to the user.
+    if (resp.ok !== true || typeof resp.extensionId !== "string" || resp.extensionId.length === 0) {
+      return toolError(
+        JSON.stringify({
+          ok: false,
+          code: "BAD_HOST_RESPONSE",
+          error:
+            "ezcorp/drafts.install returned an unexpected shape " +
+            `(${JSON.stringify(resp)}). The install may or may not have ` +
+            "happened — check the Extensions library before retrying.",
+        }),
+      );
+    }
     // Pass `openUrl` through verbatim when the host emitted it (it is
     // the host-revalidated `/extensions/<name>` deep-link — D1/D2).
     // The subprocess does NOT synthesize or rewrite it: a relative
@@ -368,9 +395,9 @@ const install_draft: ToolHandler = async (args) => {
     // ever renders. Omitted when the host withheld it.
     return toolResult(
       JSON.stringify({
-        ok: resp.ok === true,
-        extensionId: resp.extensionId ?? "",
-        name: resp.name ?? "",
+        ok: true,
+        extensionId: resp.extensionId,
+        name: typeof resp.name === "string" ? resp.name : "",
         ...(typeof resp.openUrl === "string" && resp.openUrl.length > 0
           ? { openUrl: resp.openUrl }
           : {}),
@@ -413,11 +440,28 @@ const modify_extension: ToolHandler = async (args) => {
       draftId?: string;
       name?: string;
     }>("ezcorp/drafts", { action: "reopen", name: a.name });
+    // The success shape was HARDCODED: `ok:true` with `draftId ?? ""`.
+    // A shape-broken response therefore told the model the reopen
+    // worked, and its very next call — `read_draft("")` — failed with
+    // "Invalid draftId", an error about the wrong thing entirely that
+    // masks the real fault. Validate before claiming success.
+    if (!resp || typeof resp.draftId !== "string" || resp.draftId.length === 0) {
+      return toolError(
+        JSON.stringify({
+          ok: false,
+          code: "BAD_HOST_RESPONSE",
+          error:
+            "ezcorp/drafts.reopen returned no draftId " +
+            `(${JSON.stringify(resp)}). Nothing was re-opened; do not ` +
+            "call read_draft. Report this and stop.",
+        }),
+      );
+    }
     return toolResult(
       JSON.stringify({
         ok: true,
-        draftId: resp.draftId ?? "",
-        name: resp.name ?? a.name,
+        draftId: resp.draftId,
+        name: typeof resp.name === "string" && resp.name.length > 0 ? resp.name : a.name,
       }),
     );
   } catch (err) {
