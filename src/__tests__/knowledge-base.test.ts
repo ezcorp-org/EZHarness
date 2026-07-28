@@ -130,4 +130,31 @@ describe("Knowledge Base", () => {
     expect(chunk.chunkIndex).toBe(0);
     expect(chunk.fileId).toBe(file.id);
   });
+
+  test("insertKBChunk stores content containing a NUL byte", async () => {
+    // The embedding branch binds `content` through a bare `sql` template, which
+    // bypasses the PgText column mapper that scrubs NULs everywhere else. Text
+    // extracted from uploaded files routinely carries U+0000, and Postgres
+    // rejects it in `text` — without the scrub this insert fails outright and
+    // the chunk is lost.
+    const NUL = String.fromCharCode(0);
+    const FFFD = String.fromCharCode(0xfffd);
+
+    const file = await insertKBFile({
+      projectId,
+      filename: "binary-ish.pdf",
+      mimeType: "application/pdf",
+      fileSize: 200,
+    });
+
+    const chunk = await insertKBChunk({
+      fileId: file.id,
+      content: `extracted${NUL}text`,
+      chunkIndex: 0,
+      embedding: mockEmbedding(),
+    });
+
+    expect(chunk.content).toBe(`extracted${FFFD}text`);
+    expect(chunk.content.includes(NUL)).toBe(false);
+  });
 });

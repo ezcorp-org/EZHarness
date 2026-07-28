@@ -62,6 +62,8 @@
   "docs/extensions/examples/webhook-ticket-loop/ezcorp.config.ts": 100,
   "docs/extensions/examples/seo-watcher/ezcorp.config.ts": 100,
   "src/db/connection.ts": 41,
+  "src/db/sanitize-nul.ts": 100,
+  "src/db/nul-column-patch.ts": 100,
   "src/db/live-holder-guard.ts": 100,
   "src/db/seed-self-project.ts": 100,
   "src/db/session-storage.ts": 100,

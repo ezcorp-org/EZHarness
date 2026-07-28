@@ -129,17 +129,72 @@ services:
       # mount, every container restart wipes the images and the tool-card
       # URLs 404 silently.
       - ext-data:/app/web/.ezcorp
-      # Scoped host bind mounts layered ON TOP of the ext-data volume
-      # above: authored/installed extensions and their persistent
-      # extension-data land in the host tree at ./.ezcorp/ so they're
-      # editable/inspectable from the host (the volume only ever exposed
-      # them at /var/lib/docker/volumes/ez-corp-ai_ext-data/_data). The
-      # daemon `.pid` files stay volume-backed (NOT bound) on purpose —
-      # sharing them across the host/container PID namespace would cause
-      # false "daemon already running" detection. `.ezcorp/` is
-      # gitignored. Container runs as root, so host-side files it creates
-      # here are root-owned (sudo to manage from the host).
-      - ./.ezcorp/extensions:/app/web/.ezcorp/extensions
+      # Scoped host bind mounts for extension state: authored/installed
+      # extensions and their persistent extension-data land in the host
+      # tree at ./.ezcorp/ so they're editable/inspectable from the host.
+      #
+      # Target is /app/.ezcorp — NOT /app/web/.ezcorp. Extension state is
+      # anchored to getProjectRoot() (src/extensions/bundled.ts), which
+      # resolves via an `import.meta.dir` that contains src/extensions and
+      # so returns the dir holding src/ — i.e. /app. registry.ts injects
+      # that value into every sandbox as EZCORP_EXTENSION_DATA_ROOT, and
+      # author-install.ts derives installedPath from the same root. It is
+      # deliberately NOT process.cwd(), which is /app/web under the
+      # vite-SSR dev server — that mismatch is exactly what these mounts
+      # got wrong before: /app/.ezcorp lived only in the container overlay,
+      # so every `docker compose up`/recreate silently wiped the sandbox
+      # extension-data written there while these binds sat unwritten.
+      #
+      # The other half of that split was in the CODE, not here:
+      # db/queries/ez-drafts.ts resolved draft dirs from process.cwd(), so
+      # author-install.ts installed authored extensions to
+      # /app/web/.ezcorp/extensions/<name>. It now uses getProjectRoot(),
+      # so installs and this bind finally agree. Moving the mount without
+      # that change would just have had the next authored install recreate
+      # the stale path.
+      # compose.prod.yml already targets /app/.ezcorp (prod WORKDIR=/app);
+      # dev now matches it. src/__tests__/compose-extension-state-root.test.ts
+      # locks the invariant.
+      #
+      # The ext-data volume above stays at /app/web/.ezcorp on purpose —
+      # it backs the cwd-anchored generated-image store, .ezcorp/data, and
+      # the daemon `.pid` lockfiles, all of which really are relative to
+      # cwd=/app/web. Do not merge the two.
+      #
+      # Those `.pid` files (schedule-daemon, host-maintenance-daemon,
+      # embed-worker, preview-port-watcher) sit at the volume ROOT, not
+      # under extension-data/ — each daemon declares a cwd-relative
+      # `.ezcorp/<name>.pid`. So they stay volume-backed and unbound, as
+      # before: sharing them across the host/container PID namespace would
+      # cause false "daemon already running" detection. Moving these two
+      # binds does not reach them.
+      #
+      # `.ezcorp/` is gitignored. Container runs as root, so host-side
+      # files it creates here are root-owned (sudo to manage from host).
+      - ./.ezcorp/extensions:/app/.ezcorp/extensions
+      - ./.ezcorp/extension-data:/app/.ezcorp/extension-data
+      # SECOND target for the SAME host extension-data tree, at the
+      # cwd-anchored root. Not redundant, and not a mistake — three
+      # host-side consumers still resolve extension-data from
+      # `process.cwd()` (= /app/web) rather than getProjectRoot():
+      #
+      #   src/chat/attachments/ext-files-resolver.ts  extensionDataRoot()
+      #     → GET /api/ext-files/<name>/<path>        (tool-card images)
+      #     → GET /api/extensions/<name>/data/<path>
+      #     → src/runtime/stream-chat/load-history.ts (image rehydrate)
+      #   docs/extensions/examples/openai-image-gen-2/image-storage.ts
+      #     saveImageToDisk() — writes via the same cwd default
+      #
+      # Binding /app/.ezcorp/extension-data ALONE would leave those
+      # reading /app/web/.ezcorp/extension-data, which reverts to the
+      # ext-data volume — whose extension-data/ subdir is an empty
+      # mountpoint stub (verified). Every already-generated image would
+      # 404 and each new one would land in the volume instead of the
+      # host tree. Two targets, one host tree, so both roots agree.
+      #
+      # DELETE THIS LINE once those consumers take getProjectRoot() the
+      # way src/db/queries/ez-drafts.ts now does — then /app/.ezcorp is
+      # the single root again.
       - ./.ezcorp/extension-data:/app/web/.ezcorp/extension-data
       # NOTE: a `./.env.seed:/app/.env.seed:ro` bind mount used to live
       # here so re-seeds could restore OAuth tokens. It's gitignored,

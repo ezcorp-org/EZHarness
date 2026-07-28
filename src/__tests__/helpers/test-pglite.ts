@@ -8,6 +8,7 @@ import { pg_trgm } from "@electric-sql/pglite/contrib/pg_trgm";
 import { drizzle } from "drizzle-orm/pglite";
 import * as schema from "../../db/schema";
 import { migrate } from "../../db/migrate";
+import { applyPgliteNulPatches } from "../../db/nul-column-patch";
 
 // Use the pristine globals snapshot saved by preload.ts (captured before any test file loads).
 // Falls back to current globals at import time if preload didn't run.
@@ -49,6 +50,13 @@ async function buildMigratedSnapshot(): Promise<Blob | File> {
 }
 
 export async function setupTestDb() {
+  // Mirror production's PGlite boot: install the NUL (U+0000) scrubbers on the
+  // drizzle column prototypes. Without this the test DB would accept writes
+  // production rejects — the exact blind spot that let the dropped-tool_error
+  // bug ship. Calls the REAL production patch so the two stay in lockstep; it
+  // is idempotent, so re-running it per test is free.
+  await applyPgliteNulPatches();
+
   if (pglite) await pglite.close().catch(() => {});
   if (!migratedSnapshot) migratedSnapshot = await buildMigratedSnapshot();
   pglite = new PGlite({ loadDataDir: migratedSnapshot, extensions: EXTENSIONS });
