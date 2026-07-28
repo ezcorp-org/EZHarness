@@ -311,7 +311,7 @@ export async function getUserModifiableExtension(
   nameOrId: string,
   userId: string,
 ): Promise<Extension | null> {
-  const rows = await getDb()
+  const rows = (await getDb()
     .select()
     .from(extensions)
     .where(
@@ -321,7 +321,7 @@ export async function getUserModifiableExtension(
         eq(extensions.modifiable, true),
         eq(extensions.isBundled, false),
       ),
-    );
+    )) as Extension[];
   // Same id-wins tiebreak as `getExtensionByRef`, and for the same reason:
   // a manifest name only has to match /^[a-z0-9][a-z0-9-_.]{0,63}$/, which a
   // `crypto.randomUUID()` string satisfies, so `or(id, name)` can match two
