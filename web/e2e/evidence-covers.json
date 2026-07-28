@@ -48,6 +48,10 @@
   "web/e2e/extension-install-granted-caps.spec.ts": [
     "web/src/routes/(app)/extensions/[id]/+page.svelte"
   ],
+  "web/e2e/extension-deep-links.spec.ts": [
+    "web/src/routes/(app)/extensions/[id]/+page.svelte",
+    "web/src/routes/(app)/extensions/+page.svelte"
+  ],
   "web/e2e/pending-permission-tray.spec.ts": [
     "web/src/lib/components/tool-cards/PendingPermissionTray.svelte",
     "web/src/lib/components/tool-cards/PermissionGate.svelte",

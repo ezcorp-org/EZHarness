@@ -54,7 +54,11 @@
  * bundled code checksums, fresh manifest reads). This is the spec that
  * proves them.
  *
- * Deliberately NOT carrying the visual-evidence tag: the capture job
+ * NOT evidence-tagged on purpose (the literal marker is spelled out
+ * nowhere in this file — `isEvidenceTaggedContent` is a deliberate
+ * fail-open substring match, so even naming it in prose would enlist this
+ * spec into the capture lane and redden
+ * `src/__tests__/visual-evidence-covers.test.ts`): the capture job
  * runs the DEFAULT (mock, `PI_SKIP_INIT=1`) Playwright config over
  * `web/e2e/**`, where none of the real-auth surface exists — a
  * real-auth spec pulled into that lane would fail for environmental

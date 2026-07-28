@@ -5,6 +5,7 @@
       "web/e2e/chat-graph.spec.ts",
       "web/e2e/extension-author-provenance.spec.ts",
       "web/e2e/extension-author-stuck-chat.spec.ts",
+      "web/e2e/extension-deep-links.spec.ts",
       "web/e2e/extension-detail-pages.spec.ts",
       "web/e2e/extensions-library-tabs.spec.ts",
       "web/e2e/file-organizer-hub.spec.ts",

@@ -1,6 +1,6 @@
 import { error } from "@sveltejs/kit";
 import { mergeAuditForExtension, statsForExtension } from "$server/db/queries/audit-merge";
-import { getExtension } from "$server/db/queries/extensions";
+import { getExtensionByRef } from "$server/db/queries/extensions";
 import { requireAuth, requireRole } from "$server/auth/middleware";
 import type { PageServerLoad } from "./$types";
 
@@ -24,12 +24,18 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   requireAuth(locals);
   requireRole(locals, "admin");
 
-  const ext = await getExtension(params.id);
+  // `[id]` is a REFERENCE (id OR manifest name), matching the parent detail
+  // route — a user who arrives on `/extensions/<name>` and edits the URL, or
+  // any future link built from the post-install deep-link, must not 404 here.
+  // Resolve ONCE, then key the audit reads on the resolved `ext.id`: the
+  // audit tables store the extension id, so passing the raw reference through
+  // would have silently returned an empty trail for a name-addressed URL.
+  const ext = await getExtensionByRef(params.id);
   if (!ext) throw error(404, "Extension not found");
 
   const [{ entries, nextCursor }, stats] = await Promise.all([
-    mergeAuditForExtension(params.id, { limit: 100 }),
-    statsForExtension(params.id, 24 * 60 * 60 * 1000),
+    mergeAuditForExtension(ext.id, { limit: 100 }),
+    statsForExtension(ext.id, 24 * 60 * 60 * 1000),
   ]);
 
   return {
