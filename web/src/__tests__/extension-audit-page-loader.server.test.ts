@@ -77,6 +77,10 @@ describe("/extensions/[id]/audit +page.server.ts", () => {
 	test("unknown reference → 404", async () => {
 		vi.mocked(getExtensionByRef).mockResolvedValue(null as any);
 		await expectStatus(() => load(makeEvent("no-such-ext", adminUser)), 404);
+		// The reference was looked up, and nothing was read from the audit
+		// tables for a row that does not exist.
+		expect(vi.mocked(getExtensionByRef)).toHaveBeenCalledWith("no-such-ext");
+		expect(vi.mocked(mergeAuditForExtension)).not.toHaveBeenCalled();
 	});
 
 	test("resolves the route param as a REFERENCE, not an id", async () => {
