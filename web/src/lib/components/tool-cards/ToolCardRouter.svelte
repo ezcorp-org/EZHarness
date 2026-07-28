@@ -16,6 +16,8 @@
 	import SubstackReviewCard from "./SubstackReviewCard.svelte";
 	import WeatherCard from "./WeatherCard.svelte";
 	import { parseWeatherPayload } from "./weather-card-logic.js";
+	import CityConditionsCard from "./CityConditionsCard.svelte";
+	import { buildCityConditionsView } from "./city-conditions-card-logic.js";
 	import TimeClockCard from "./TimeClockCard.svelte";
 	import { isTimeClockOutput } from "./time-clock-logic.js";
 	import ImageGenCard from "./ImageGenCard.svelte";
@@ -70,6 +72,18 @@
 					: parseProposeCardResult(toolCall.output),
 	);
 
+	// city-conditions: the view model is built ONCE here (unit comes from
+	// the call's input; the payload is always celsius) and passed in, so
+	// the component stays template-only. A null view means the envelope is
+	// unusable — streaming, unparseable, or missing place/temperature — and
+	// we degrade to DefaultCard exactly like the ez-* cards above rather
+	// than render a blank-but-successful conditions panel.
+	let cityConditionsView = $derived(
+		cardName === 'CityConditionsCard'
+			? buildCityConditionsView(toolCall.output, toolCall.input)
+			: null,
+	);
+
 	// Secure Preview Phase 2 — the expose-consent card parses its
 	// {conversationId, port, title, summary} payload; a malformed/streaming
 	// payload returns null so the router degrades to DefaultCard.
@@ -121,6 +135,8 @@
 	<SubstackReviewCard {toolCall} {conversationId} />
 {:else if shouldRenderWeatherCard}
 	<WeatherCard {toolCall} />
+{:else if cardName === 'CityConditionsCard' && cityConditionsView}
+	<CityConditionsCard view={cityConditionsView} />
 {:else if shouldRenderTimeClockCard}
 	<TimeClockCard {toolCall} />
 {:else if cardName === 'ImageGenCard'}

@@ -313,6 +313,8 @@ run_legs() {
       src/lib/components/tool-cards/failure-class.unit.test.ts \
       src/__tests__/author-draft-files.unit.test.ts \
       src/lib/components/tool-cards/GradeDeltaCard.component.test.ts \
+      src/lib/components/tool-cards/city-conditions-card-logic.unit.test.ts \
+      src/lib/components/tool-cards/CityConditionsCard.component.test.ts \
       src/__tests__/pending-permission-tray.component.test.ts \
       src/__tests__/stores-pending-permission-tray.integration.component.test.ts \
       src/__tests__/stores-ask-user-dedup.integration.component.test.ts \
@@ -431,6 +433,8 @@ run_legs() {
       --coverage.include='src/lib/components/tool-cards/failure-class.ts' \
       --coverage.include='src/lib/server/author-draft-files.ts' \
       --coverage.include='src/lib/components/tool-cards/GradeDeltaCard.svelte' \
+      --coverage.include='src/lib/components/tool-cards/city-conditions-card-logic.ts' \
+      --coverage.include='src/lib/components/tool-cards/CityConditionsCard.svelte' \
       --coverage.include='src/lib/components/tool-cards/PendingPermissionTray.svelte' \
       --coverage.include='src/lib/stores.svelte.ts' \
       --coverage.include='src/lib/composer-suggest-logic.ts' \

@@ -35,6 +35,7 @@ import {
 	getStatusIcon,
 	isCollapsibleDevCard,
 	isNewFile,
+	isStackList,
 	parseGlobOutput,
 	parseGrepOutput,
 	parseListOutput,
@@ -59,6 +60,7 @@ describe("getCardComponentName", () => {
 		["grade-delta-chart", "GradeDeltaCard"],
 		["substack-review", "SubstackReviewCard"],
 		["weather-panel", "WeatherCard"],
+		["city-conditions", "CityConditionsCard"],
 		["time-clock", "TimeClockCard"],
 		["image-gen-grid", "ImageGenCard"],
 		["ez-install", "EzToolResultCard"],
@@ -253,6 +255,14 @@ describe("task helpers", () => {
 		expect(parseListOutput('{"id":"t1"}')).toEqual([]);
 		expect(parseListOutput("nope")).toEqual([]);
 		expect(parseListOutput(null)).toEqual([]);
+	});
+
+	test("isStackList distinguishes a stack list from a task list", () => {
+		// Stacks carry `name` and no `status`; tasks carry `status`.
+		expect(isStackList([{ name: "Backlog" }])).toBe(true);
+		expect(isStackList([{ name: "Backlog", status: "active" }])).toBe(false);
+		expect(isStackList([{ title: "Ship it", status: "active" }])).toBe(false);
+		expect(isStackList([])).toBe(false);
 	});
 
 	test("status maps, including the default arms", () => {
