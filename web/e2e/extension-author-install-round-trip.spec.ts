@@ -35,33 +35,56 @@
  * draft.
  *
  * ─────────────────────────────────────────────────────────────────────
- * SKIPPED — ENVIRONMENT INFRA BLOCKER (not a spec defect).
+ * WHICH HARNESS THIS RUNS UNDER (it is NOT a mock-tier spec).
  *
- * This spec was RUN for real (`DOCKER_TEST=1 bunx playwright test
- * extension-author-install-round-trip`) against the live app on :3000.
- * Outcome: the Docker storageState auth WORKED and `GET /api/extensions`
- * returned the installed set — but `seedExtensionAuthorDraft` got a
- * **404 "Not found"** from `POST /api/__test/seed-extension-author-draft`.
+ * Everything here needs a REAL server: the author preview page is
+ * SSR-loaded from `ez_drafts` + the on-disk draft dir (see
+ * `routes/(app)/extensions/author/+page.server.ts`), and the seed helper
+ * writes through `POST /api/__test/seed-extension-author-draft`, which
+ * `isTestSurfaceEnabled()` fail-closes to 404 unless ALL of
+ * `EZCORP_ALLOW_TEST_SURFACE=1`, `PI_E2E_REAL=1` and a non-production
+ * `NODE_ENV` hold. Playwright `page.route` cannot mock either — the draft
+ * read happens inside the SSR load, not over the wire.
  *
- * Root cause: the only running container is `ezcorp-prod-app-1`, a
- * PRODUCTION build with neither `PI_E2E_REAL` nor a non-production
- * `NODE_ENV` set. The seed/cleanup `/api/__test/*` endpoints are gated by
- * `isEnabled() === (process.env.PI_E2E_REAL === "1" && NODE_ENV !==
- * "production")` and deliberately serve 404 when off (see
- * `web/src/routes/api/__test/seed-extension-author-draft/+server.ts`).
- * So the seed harness cannot write a draft against the prod container.
+ * So this is the DOCKER lane (`DOCKER_TEST=1`, an app on :3000 booted
+ * with the test surface enabled, storageState from
+ * `e2e/docker-auth-setup.ts`) — `scripts/docker-test-all.sh`. It is NOT
+ * in the mock `E2E (mock, no Docker)` gate, because that harness boots
+ * the preview server with `PI_SKIP_INIT=1` and no test surface, where
+ * every step below 404s.
  *
- * This is the SAME class of blocker as the sibling author specs
- * (`extension-author-provenance.spec.ts`), which skip because the
- * Docker/PI_E2E_REAL harness isn't reachable here.
+ * The blocking-CI twin of this coverage is
+ * `web/e2e/real-auth/extension-release-gate.spec.ts`, which runs the
+ * install → load → invoke → upgrade gate under `playwright.real.config.ts`
+ * in the `e2e-real-auth` job. This spec is the dependency-composition
+ * slice of the same authoring surface.
  *
- * UN-BLOCKER CONDITION: bring up a dev/test app container with
- * `PI_E2E_REAL=1` and `NODE_ENV != production` on :3000 (the
- * `playwright.real.config.ts` harness or a docker-compose test profile),
- * then flip `test.describe.skip` → `test.describe`. The spec body below is
- * kept syntactically valid + was exercised end-to-end up to the seed call,
- * so the un-skip is a one-token change.
- * Verified-blocked-on: 2026-06-18 (prod container has no PI_E2E_REAL).
+ * ── CURRENT STATUS: RED, and deliberately so ──────────────────────────
+ *
+ * Steps 1-4 pass against a live server (verified: the picker opens, the
+ * managed `// ezcorp:dependencies (managed)` block is written, the draft
+ * PUT lands, the dep chip renders). Step 5 — Install — FAILS with a real
+ * product defect, not a harness problem:
+ *
+ *   Install failed (422): Invalid manifest:
+ *   dependencies.<dep>.source is invalid: Unrecognized source format:
+ *   "bundled". Expected github:user/repo, gitlab:org/project,
+ *   https://host/repo.git, or git@host:user/repo.git
+ *
+ * `AuthorCompositionPanel` writes the picked row's `source` verbatim
+ * (`ezcorp-config-edit.ts:renderDepBlock`), but `validateDependencies`
+ * (`src/extensions/manifest.ts`) REQUIRES `source` to be a git-cloneable
+ * ref via `parseSource`. Every extension the picker can offer is
+ * `bundled` or `local`, so no composed dependency can survive install.
+ * Fixing it is a product decision (accept bundled/local dependency
+ * sources, filter the picker, or emit a different source form) that
+ * spans `src/extensions/manifest.ts` + the panel — deliberately NOT made
+ * inside an e2e change.
+ *
+ * This spec therefore asserts the CORRECT contract and is the standing
+ * reproduction: it goes green the moment that is fixed. It lives in the
+ * `docker` lane, which no PR CI job runs, so it cannot redden the gate
+ * in the meantime.
  * ─────────────────────────────────────────────────────────────────────
  */
 import { test, expect } from "@playwright/test";
@@ -80,7 +103,11 @@ interface InstalledRow {
 	name: string;
 }
 
-test.describe.skip("extension-author dependency-install round trip", () => {
+// DOCKER_TEST is the harness selector for this suite (see the header):
+// the lane manifest (`web/e2e/lanes.json`) files it under `docker`, and
+// `src/__tests__/e2e-lanes.test.ts` requires every docker-lane member to
+// name it.
+test.describe("extension-author dependency-install round trip", () => {
 	let draftId: string | null = null;
 	let extensionName: string | null = null;
 
@@ -172,13 +199,13 @@ test.describe.skip("extension-author dependency-install round trip", () => {
 		await navigation;
 		expect(new URL(page.url()).pathname).toBe(`/extensions/${extensionName}`);
 
-		// 6a) The detail page's UsesList renders the dependency chip.
-		await expect(
-			page.locator(`[data-testid="extension-uses-chip"][data-dep-name="${dep.name}"]`),
-		).toBeVisible({ timeout: 10_000 });
-
-		// 6b) manifest.dependencies persisted server-side. Resolve the new
-		//     extension's id from the public list, then read it back.
+		// 6) Resolve the new extension's row id from the public list. The
+		//    install redirect above lands on `/extensions/<name>`, but the
+		//    detail ROUTE resolves its param with `getExtension(id)` — a UUID
+		//    lookup with no name fallback — so the id is what actually renders
+		//    that page (the Extensions library links `/extensions/{ext.id}`
+		//    for the same reason). Asserting the rendered detail page
+		//    therefore navigates by id.
 		const afterList = await request.get(
 			`/api/extensions?name=${encodeURIComponent(extensionName)}`,
 		);
@@ -187,6 +214,13 @@ test.describe.skip("extension-author dependency-install round trip", () => {
 		const row = afterRows.find((e) => e.name === extensionName);
 		expect(row).toBeDefined();
 
+		// 6a) The detail page's UsesList renders the dependency chip.
+		await page.goto(`/extensions/${row!.id}`);
+		await expect(
+			page.locator(`[data-testid="extension-uses-chip"][data-dep-name="${dep.name}"]`),
+		).toBeVisible({ timeout: 10_000 });
+
+		// 6b) manifest.dependencies persisted server-side.
 		const detail = await request.get(`/api/extensions/${row!.id}`);
 		expect(detail.ok()).toBe(true);
 		const detailBody = (await detail.json()) as {

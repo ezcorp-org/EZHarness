@@ -3,6 +3,8 @@
   "lanes": {
     "mock-gate": [
       "web/e2e/chat-graph.spec.ts",
+      "web/e2e/extension-author-provenance.spec.ts",
+      "web/e2e/extension-author-stuck-chat.spec.ts",
       "web/e2e/extension-detail-pages.spec.ts",
       "web/e2e/extensions-library-tabs.spec.ts",
       "web/e2e/file-organizer-hub.spec.ts",
@@ -14,6 +16,7 @@
       "web/e2e/real-auth/auth-fixture.spec.ts",
       "web/e2e/real-auth/extension-author-flow.spec.ts",
       "web/e2e/real-auth/extension-control-flow.spec.ts",
+      "web/e2e/real-auth/extension-release-gate.spec.ts",
       "web/e2e/real-auth/harness-client-flow.spec.ts",
       "web/e2e/real-auth/role-carrying-key-flow.spec.ts",
       "web/e2e/real-auth/tier-routing-flow.spec.ts"
@@ -59,8 +62,6 @@
       "web/e2e/chat-context-compaction.spec.ts",
       "web/e2e/chip-reorder.spec.ts",
       "web/e2e/extension-author-install-round-trip.spec.ts",
-      "web/e2e/extension-author-provenance.spec.ts",
-      "web/e2e/extension-author-stuck-chat.spec.ts",
       "web/e2e/goal-feature.spec.ts",
       "web/e2e/preview-consent.spec.ts",
       "web/e2e/preview-static.spec.ts",
