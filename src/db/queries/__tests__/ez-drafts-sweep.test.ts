@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setupTestDb, closeTestDb, mockDbConnection, getTestDb } from "../../../__tests__/helpers/test-pglite";
 import { restoreModuleMocks } from "../../../__tests__/helpers/mock-cleanup";
+import { __resetProjectRootCacheForTests } from "../../../extensions/bundled";
 
 mockDbConnection();
 
@@ -23,7 +24,7 @@ const { eq } = await import("drizzle-orm");
 const USER = "user-sweep";
 let TMP: string;
 let DRAFT_ROOT: string;
-let originalCwd: string;
+let savedRootEnv: string | undefined;
 
 beforeAll(async () => {
   await setupTestDb();
@@ -41,18 +42,25 @@ afterAll(async () => {
 });
 
 beforeEach(() => {
-  // Each test gets a fresh tmp dir + chdir's into it so the sweep's
-  // findProjectRoot resolves to our tmp area, not the worktree.
+  // Each test gets a fresh tmp dir pointed at by EZCORP_PROJECT_ROOT. The
+  // sweep resolves draft dirs through getProjectRoot() (NOT process.cwd()
+  // — that cwd anchoring is what wrote the legacy /app/web/.ezcorp/…
+  // paths), so a chdir no longer redirects it. getProjectRoot() only
+  // accepts an env root that looks like the repo, hence the
+  // docs/extensions/examples marker, and it caches — hence the reset.
   TMP = join(tmpdir(), `ez-drafts-sweep-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`);
-  mkdirSync(join(TMP, ".git"), { recursive: true });
+  mkdirSync(join(TMP, "docs", "extensions", "examples"), { recursive: true });
   DRAFT_ROOT = join(TMP, ".ezcorp/extension-data/extension-author/drafts");
   mkdirSync(DRAFT_ROOT, { recursive: true });
-  originalCwd = process.cwd();
-  process.chdir(TMP);
+  savedRootEnv = process.env.EZCORP_PROJECT_ROOT;
+  process.env.EZCORP_PROJECT_ROOT = TMP;
+  __resetProjectRootCacheForTests();
 });
 
 afterEach(async () => {
-  try { process.chdir(originalCwd); } catch { /* swallow */ }
+  if (savedRootEnv === undefined) delete process.env.EZCORP_PROJECT_ROOT;
+  else process.env.EZCORP_PROJECT_ROOT = savedRootEnv;
+  __resetProjectRootCacheForTests();
   try { rmSync(TMP, { recursive: true, force: true }); } catch { /* swallow */ }
   // Clear all drafts between tests so each run is isolated.
   await getTestDb().delete(ezDrafts);
