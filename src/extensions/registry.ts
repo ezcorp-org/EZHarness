@@ -387,6 +387,18 @@ export class ExtensionRegistry {
     }
   }
 
+  /** Bumped by every {@link loadFromDb}. Consumers that snapshot the tool
+   *  surface — the per-run toolset assembled in
+   *  `runtime/stream-chat/setup-tools.ts` — compare it against a stashed
+   *  value to detect that an install / uninstall / upgrade happened under
+   *  them, without re-querying the DB on every check. */
+  private loadGeneration = 0;
+
+  /** @see loadGeneration */
+  get generation(): number {
+    return this.loadGeneration;
+  }
+
   /** Load all enabled extensions from DB and rebuild maps. */
   async loadFromDb(): Promise<void> {
     this.toolMap.clear();
@@ -459,6 +471,7 @@ export class ExtensionRegistry {
     }
 
     this.buildDepRoutes();
+    this.loadGeneration++;
   }
 
   /** Get the extension ID that provides a given tool name. */
