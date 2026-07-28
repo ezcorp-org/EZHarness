@@ -1179,7 +1179,7 @@
 							<ul class="mt-1.5 flex flex-wrap gap-1.5">
 								{#each wf.names as workflowName}
 									<li>
-										<code class="rounded bg-[var(--color-surface-tertiary)] px-1.5 py-0.5 text-xs">{ext.manifest.name}:{workflowName}</code>
+										<code class="rounded bg-[var(--color-surface-tertiary)] px-1.5 py-0.5 text-xs">{ext.name}:{workflowName}</code>
 									</li>
 								{/each}
 							</ul>

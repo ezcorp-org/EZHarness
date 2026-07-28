@@ -43,6 +43,9 @@ function makeData(overrides: Partial<{
 	draftId: string;
 	payload: Record<string, unknown>;
 	files: Record<string, string>;
+	/** Files the server could not read. The loader reports these instead of
+	 *  silently dropping them, so the fixture has to carry the field. */
+	unreadable: Array<{ name: string; error: string }>;
 }> = {}) {
 	const draftId = overrides.draftId ?? "draft-abc";
 	const payload =
@@ -62,6 +65,7 @@ function makeData(overrides: Partial<{
 			consumedAt: null,
 		},
 		files,
+		unreadable: overrides.unreadable ?? [],
 	};
 }
 
