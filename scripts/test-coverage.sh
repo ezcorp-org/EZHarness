@@ -304,6 +304,7 @@ run_legs() {
       src/__tests__/extension-author-install.server.test.ts \
       src/__tests__/extension-author-page-logic.server.test.ts \
       src/__tests__/extension-author-page-server-load.server.test.ts \
+      src/__tests__/extension-audit-page-loader.server.test.ts \
       src/lib/components/tool-cards/failure-class.unit.test.ts \
       src/__tests__/author-draft-files.unit.test.ts \
       src/lib/components/tool-cards/GradeDeltaCard.component.test.ts \
@@ -421,6 +422,7 @@ run_legs() {
       --coverage.include='src/routes/api/extensions/author/draft/[id]/+server.ts' \
       --coverage.include='src/routes/api/extensions/author/draft/[id]/validate/+server.ts' \
       --coverage.include='src/routes/**/extensions/author/+page.server.ts' \
+      --coverage.include='src/routes/**/extensions/[id]/audit/+page.server.ts' \
       --coverage.include='src/lib/components/tool-cards/failure-class.ts' \
       --coverage.include='src/lib/server/author-draft-files.ts' \
       --coverage.include='src/lib/components/tool-cards/GradeDeltaCard.svelte' \

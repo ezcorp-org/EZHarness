@@ -292,6 +292,15 @@ export interface TurnExtensionToolSource extends BundledExtensionToolSource {
  * that call). Pure over its inputs so it can be driven with a fake
  * registry + executor.
  */
+/** The shape `collectMissingExtensionTools` keys by tool name while it
+ *  assembles the turn's in-scope set. Named so the generic below stays on
+ *  one line (see the note at its use site). */
+interface InScopeTool {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+}
+
 export async function collectMissingExtensionTools(args: {
   registry: TurnExtensionToolSource;
   agentConfigId: string | undefined;
@@ -306,10 +315,11 @@ export async function collectMissingExtensionTools(args: {
     existingToolNames, toolExec, conversationId, runId,
   } = args;
 
-  const inScope = new Map<
-    string,
-    { name: string; description: string; inputSchema: Record<string, unknown> }
-  >();
+  // Single-line generic on purpose: a multi-line type argument list leaves
+  // its interior lines as orphan coverable lines that no execution can ever
+  // hit, which the patch-coverage gate reads as uncovered changes (the same
+  // trap documented for multi-line `sql` templates in src/db/migrate.ts).
+  const inScope = new Map<string, InScopeTool>();
   if (agentConfigId) {
     for (const t of await registry.getToolsForAgent(agentConfigId)) inScope.set(t.name, t);
   }
