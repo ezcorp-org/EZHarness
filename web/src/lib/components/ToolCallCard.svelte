@@ -128,7 +128,7 @@
 	<!-- Collapsed header -->
 	<button
 		onclick={handleExpand}
-		class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-[var(--color-surface-secondary)]/50 transition-colors"
+		class="flex w-full flex-wrap items-center gap-2 px-3 py-2 text-left text-sm hover:bg-[var(--color-surface-secondary)]/50 transition-colors"
 		aria-expanded={expanded}
 	>
 		<!-- Status icon -->
@@ -158,7 +158,7 @@
 			{#if inputSummary}
 				<span class="shrink-0 text-[var(--color-text-muted)] text-xs font-normal">{inputSummary}</span>
 			{/if}
-			<span class="truncate text-[var(--color-text-muted)] text-xs font-normal" data-testid="tool-card-failure-message">{failure.message}</span>
+			<span class="min-w-0 basis-full truncate text-[var(--color-text-muted)] text-xs font-normal sm:basis-auto sm:flex-1" data-testid="tool-card-failure-message">{failure.message}</span>
 		{:else if inputSummary}
 			<span class="truncate text-[var(--color-text-muted)] text-xs font-normal">{inputSummary}</span>
 		{:else if outputPreview}

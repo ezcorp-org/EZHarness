@@ -97,7 +97,7 @@
 <div data-testid="tool-card-default" class="rounded-md border border-[var(--color-border)] bg-[var(--color-surface-tertiary)] overflow-hidden">
 	<button
 		onclick={handleExpand}
-		class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-[var(--color-surface-secondary)]/50 transition-colors"
+		class="flex w-full flex-wrap items-center gap-2 px-3 py-2 text-left text-sm hover:bg-[var(--color-surface-secondary)]/50 transition-colors"
 		aria-expanded={expanded}
 	>
 		{#if toolCall.status === 'running'}
@@ -125,7 +125,7 @@
 			{#if inputSummary}
 				<span class="shrink-0 text-[var(--color-text-muted)] text-xs font-normal">{inputSummary}</span>
 			{/if}
-			<span class="truncate text-[var(--color-text-muted)] text-xs font-normal" data-testid="tool-card-failure-message">{failure.message}</span>
+			<span class="min-w-0 basis-full truncate text-[var(--color-text-muted)] text-xs font-normal sm:basis-auto sm:flex-1" data-testid="tool-card-failure-message">{failure.message}</span>
 		{:else if renderFallback}
 			<span
 				class="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wide text-amber-400"
