@@ -175,6 +175,13 @@ export function firstMissingCapability(
 export function capabilityDeclarationToSet(
   decl: CapabilityDeclaration | undefined,
   _args: Record<string, unknown>,
+  /** Acting user, for a `$USER` path segment. Load-bearing: a v2
+   *  manifest's per-tool declaration is SYNTHESIZED from the
+   *  extension-wide grant by `migrateManifestV2ToV3`, so a
+   *  user-partitioned grant lands here too. Expand it with the same
+   *  identity the granted side uses or the needed cap can never be
+   *  covered and every call is denied. */
+  actingUserId?: string | null,
 ): CapabilitySet {
   if (!decl) return [];
   const caps: Capability[] = [];
@@ -194,7 +201,7 @@ export function capabilityDeclarationToSet(
       // PDP's needed↔granted comparison stays consistent. A tool that
       // declares `filesystem.paths: ["$CWD"]` for its required cap must
       // match a grant for the same logical root, not the literal string.
-      const expanded = expandGrantPrefix(path);
+      const expanded = expandGrantPrefix(path, actingUserId);
       // Default to read+list+stat when no mode is set (most permissive
       // read-only), matching the migration's read-only default.
       if (wantsRead || modes.length === 0) {
@@ -635,6 +642,11 @@ function intersectSearchProviders(
  */
 export function grantsToCapabilitySet(
   grants: ExtensionPermissions | null,
+  /** The user the authorization is for. A `$USER` grant segment expands
+   *  to it (see `permissions.ts:expandGrantPrefix`); omitting it makes
+   *  such a grant match nothing, so the PDP denies. Grants without
+   *  `$USER` are unaffected. */
+  actingUserId?: string | null,
 ): CapabilitySet {
   if (!grants) return [];
   const caps: Capability[] = [];
@@ -655,7 +667,7 @@ export function grantsToCapabilitySet(
       // fs-handler's own pre-PDP `checkFilesystemPermission` already
       // approved (which DOES expand `$CWD`). Expanding here closes the
       // mirror gap so the PDP and fs-handler agree on what `$CWD` means.
-      const expanded = expandGrantPrefix(path);
+      const expanded = expandGrantPrefix(path, actingUserId);
       caps.push({ kind: "fs.read", value: expanded });
       caps.push({ kind: "fs.list", value: expanded });
       caps.push({ kind: "fs.stat", value: expanded });

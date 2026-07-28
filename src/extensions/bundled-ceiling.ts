@@ -261,7 +261,7 @@ export const BUNDLED_CEILING: Record<string, ExtensionPermissions> = {
   // any widening (other kinds, broader filesystem) is a deliberate,
   // reviewed PR.
   "extension-author": {
-    filesystem: ["$CWD/.ezcorp/extension-data/extension-author"],
+    filesystem: ["$CWD/.ezcorp/extension-data/extension-author/drafts/$USER"],
     custom: { drafts: { kinds: ["extension"] } },
     grantedAt: {},
   },

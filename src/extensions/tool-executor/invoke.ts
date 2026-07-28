@@ -238,8 +238,11 @@ export async function handlePiInvoke(
     // top-level invokes (top-level can't be a chain by definition).
     const callerCaps: CapabilitySet =
       upstreamRuntimeCtx?.currentCapContext ??
-      grantsToCapabilitySet(host.registry.getGrantedPermissions(callerExtId) ?? null);
-    const calleeCaps = grantsToCapabilitySet(calleeGrants ?? null);
+      grantsToCapabilitySet(
+        host.registry.getGrantedPermissions(callerExtId) ?? null,
+        host.currentUserId ?? null,
+      );
+    const calleeCaps = grantsToCapabilitySet(calleeGrants ?? null, host.currentUserId ?? null);
     capContext = intersect(callerCaps, calleeCaps);
   }
   // OPT-OUT (`acceptsCallerCaps: true`): leave `capContext`

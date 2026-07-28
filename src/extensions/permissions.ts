@@ -50,11 +50,59 @@ function grantCwdBase(): string {
  * extension-author's narrower grant). Other strings pass through
  * unchanged. See {@link grantCwdBase} for why `$CWD` resolves to the
  * project root rather than the host process's cwd.
+ *
+ * Also expands `$USER` (a whole path segment) to `actingUserId` — see
+ * {@link expandUserSegment}. Callers that hold the acting user MUST
+ * pass it; a grant carrying `$USER` with no user supplied collapses to
+ * {@link UNRESOLVED_USER_PREFIX}, which matches nothing.
  */
-export function expandGrantPrefix(prefix: string): string {
-  if (prefix === "$CWD") return grantCwdBase();
-  if (prefix.startsWith("$CWD/")) return pathResolve(grantCwdBase(), prefix.slice("$CWD/".length));
-  return prefix;
+export function expandGrantPrefix(prefix: string, actingUserId?: string | null): string {
+  let out = prefix;
+  if (out === "$CWD") out = grantCwdBase();
+  else if (out.startsWith("$CWD/")) out = pathResolve(grantCwdBase(), out.slice("$CWD/".length));
+  return expandUserSegment(out, actingUserId);
+}
+
+/**
+ * Sentinel a `$USER` prefix collapses to when there is no acting user.
+ *
+ * It contains a NUL byte, which no filesystem path may contain, so it
+ * can never `===` or prefix-match a resolved path — every gate that
+ * compares against it denies. That is deliberate: `$USER` is a
+ * user-partitioned grant, and a call with no attributable user has no
+ * partition to be inside of. Fail-closed by construction rather than by
+ * every call site remembering to check.
+ */
+export const UNRESOLVED_USER_PREFIX = "/\u0000ezcorp-unresolved-user";
+
+/**
+ * Expand the `$USER` placeholder to the id of the user the call is
+ * acting on behalf of.
+ *
+ * This is what lets a grant be narrowed to ONE user's subtree of a
+ * shared, per-extension directory. `extension-author` is the motivating
+ * case: a single subprocess serves every user, and its drafts live at
+ * `.ezcorp/extension-data/extension-author/drafts/<userId>/<draftId>/`.
+ * Granting the whole `extension-author` tree meant cross-user isolation
+ * rested entirely on the extension VOLUNTARILY routing through the
+ * host's owner-scoped `ezcorp/drafts.resolveDir` — a compromised or
+ * merely buggy extension that guessed another user's path would have
+ * been allowed by the host. With `drafts/$USER` the host denies it,
+ * independent of what the extension does.
+ *
+ * Only a whole path SEGMENT is substituted (`.../drafts/$USER`), never
+ * a substring, so a directory legitimately named `$USERdata` is left
+ * alone. The id is used verbatim: ids that reach here are DB-generated
+ * UUIDs, and a `..`/separator-bearing id would only ever narrow to a
+ * path the caller could already reach through its own grant prefix.
+ */
+function expandUserSegment(prefix: string, actingUserId?: string | null): string {
+  if (!prefix.split("/").includes("$USER")) return prefix;
+  if (!actingUserId) return UNRESOLVED_USER_PREFIX;
+  return prefix
+    .split("/")
+    .map((seg) => (seg === "$USER" ? actingUserId : seg))
+    .join("/");
 }
 
 /**
@@ -229,6 +277,11 @@ export async function checkFilesystemPermission(
   granted: ExtensionPermissions,
   extensionInstallDir: string,
   mode: FilesystemMode = "read",
+  /** The user this call acts on behalf of. REQUIRED for a grant that
+   *  carries `$USER`; without it such a prefix matches nothing (see
+   *  {@link UNRESOLVED_USER_PREFIX}). Grants with no `$USER` segment are
+   *  unaffected, so existing callers keep their behavior exactly. */
+  actingUserId?: string | null,
 ): Promise<FilesystemPermissionResult> {
   // Resolve requested path via realpath
   let resolvedPath: string;
@@ -264,7 +317,7 @@ export async function checkFilesystemPermission(
   // Check granted filesystem prefixes
   const prefixes = granted.filesystem ?? [];
   for (const rawPrefix of prefixes) {
-    const prefix = expandGrantPrefix(rawPrefix);
+    const prefix = expandGrantPrefix(rawPrefix, actingUserId);
     // Relative paths resolve against installDir.
     const absolutePrefix = prefix.startsWith("/")
       ? prefix

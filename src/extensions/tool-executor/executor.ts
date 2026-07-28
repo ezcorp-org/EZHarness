@@ -319,7 +319,7 @@ export class ToolExecutor {
     const manifest = this.registry.getManifest(extensionId);
     const tool = manifest?.tools?.find((t) => t.name === originalName);
     const needed: Capability[] = [
-      ...capabilityDeclarationToSet(tool?.capabilities, input),
+      ...capabilityDeclarationToSet(tool?.capabilities, input, this.currentUserId),
     ];
 
     // Extension-RBAC (user→extension) ENFORCEMENT gate. When the tool's

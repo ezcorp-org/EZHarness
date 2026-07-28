@@ -66,10 +66,15 @@ means the install will not be rejected by the gate.
 
 ```ts
 {
-  filesystem: ["$CWD/.ezcorp/extension-data/extension-author"],
+  filesystem: ["$CWD/.ezcorp/extension-data/extension-author/drafts/$USER"],
   custom: { drafts: { kinds: ["extension"] } },
 }
 ```
+
+`$USER` expands to the id of the user the call is acting on behalf of, so
+one shared subprocess can only ever reach the *caller's own* drafts —
+cross-user isolation is enforced by the host gate, not by this extension
+remembering to route through `ezcorp/drafts.resolveDir`.
 
 No network, no shell, no env, no storage. The reverse-RPC
 `ezcorp/drafts` is the only host capability it uses beyond filesystem.
