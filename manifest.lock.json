@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-07-28T16:40:36.343Z",
+  "generatedAt": "2026-07-28T22:52:03.586Z",
   "extensions": {
     "ai-kit": {
       "version": "0.1.0",
@@ -11,6 +11,11 @@
       "version": "1.0.0",
       "entrypoint": "./index.ts",
       "toolsHash": "sha256-lYerjNPlYIl7x5j3KFMd4s2G2GMtG9rnRf/0MACSZTw="
+    },
+    "city-conditions": {
+      "version": "0.1.0",
+      "entrypoint": "./index.ts",
+      "toolsHash": "sha256-L0Vidh4FOkqB5U4+PDP3A1mwbAf4m6KOaKoaclDlzx8="
     },
     "claude-design": {
       "version": "0.1.0",
