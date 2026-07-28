@@ -336,6 +336,17 @@ shard_slice() {
 # bun+PGlite processes on a 2-core CI runner starve each other into hook/test
 # timeouts (mass '(unnamed) [10s]' failures). Callers use
 # PARALLEL=${PARALLEL:-$(default_parallel)} so an explicit PARALLEL overrides.
+#
+# DO NOT "optimise" this by widening the pool on CI. Measured, don't guess
+# (GitHub run 30387307634): the 8 production shard slices were run at
+# PARALLEL=4 / 6 / 8 simultaneously on ubuntu-latest (AMD EPYC 7763, nproc=4,
+# 16 GB). Slowest-shard wall — the number that sets the leg's wall clock —
+# was 224s at 4, 238s at 6, 239s at 8; paired per shard, PARALLEL=6 was
+# NEVER faster than 4 (8/8 shards >= 0, six clearly worse). Four per-file bun
+# processes already saturate a 4-vCPU runner, so oversubscribing only buys
+# context-switching. The cap below is load-bearing on CI, not just a guard
+# for small machines. Shard COUNT is the lever that works — see ci.yml's
+# cov-shard matrix.
 default_parallel() {
   local cores
   cores=$(nproc 2>/dev/null || echo 6)
