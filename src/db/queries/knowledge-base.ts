@@ -4,6 +4,7 @@ import { knowledgeBaseFiles, knowledgeBaseChunks } from "../schema";
 import type { KBFile, NewKBFile, KBChunk, NewKBChunk } from "../schema";
 import type { KBChunkResult } from "../../memory/types";
 import { toVectorLiteral } from "../../memory/vector-utils";
+import { sanitizeNulString } from "../sanitize-nul";
 
 export async function insertKBFile(data: NewKBFile): Promise<KBFile> {
   const db = getDb();
@@ -45,9 +46,16 @@ export async function insertKBChunk(data: NewKBChunk): Promise<KBChunk> {
   // Use raw SQL for vector insertion
   if (data.embedding) {
     const vectorLiteral = toVectorLiteral(data.embedding);
+    // A bare `sql` template binds values straight to the driver, so this branch
+    // BYPASSES the PgText column mapper that scrubs NULs everywhere else (see
+    // src/db/nul-column-patch.ts). Chunk content is extracted from
+    // user-uploaded files, which routinely yield U+0000 — and Postgres rejects
+    // it in `text`, failing the whole insert. The non-vector branch below goes
+    // through drizzle and is scrubbed for free.
+    const content = sanitizeNulString(data.content);
     const results = await db.execute(sql`
       INSERT INTO knowledge_base_chunks (id, file_id, content, chunk_index, embedding)
-      VALUES (${data.id ?? crypto.randomUUID()}, ${data.fileId}, ${data.content}, ${data.chunkIndex}, ${sql.raw(vectorLiteral)})
+      VALUES (${data.id ?? crypto.randomUUID()}, ${data.fileId}, ${content}, ${data.chunkIndex}, ${sql.raw(vectorLiteral)})
       RETURNING id, file_id as "fileId", content, chunk_index as "chunkIndex", created_at as "createdAt"
     `);
     return (results.rows ?? [])[0] as unknown as KBChunk;

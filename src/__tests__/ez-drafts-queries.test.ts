@@ -194,23 +194,39 @@ describe("ez-drafts queries", () => {
 // defense-in-depth validation that stops a (hypothetically forged)
 // subprocess from writing arbitrary paths.
 
-import { existsSync, readFileSync, mkdtempSync as mkdtemp3, rmSync as rm3 } from "node:fs";
+import {
+  existsSync,
+  readFileSync,
+  mkdtempSync as mkdtemp3,
+  mkdirSync as mkdirSync3,
+  rmSync as rm3,
+} from "node:fs";
 import { tmpdir as tmpdir3 } from "node:os";
 import { join as join3 } from "node:path";
+import { __resetProjectRootCacheForTests } from "../extensions/bundled";
 
 describe("writeExtensionAuthorDraftFiles", () => {
-  let prevCwd = "";
+  let savedRootEnv: string | undefined;
   let root = "";
 
   beforeAll(() => {
-    // chdir to a .git-free temp dir so getExtensionAuthorDraftDir's
-    // findProjectRoot(cwd) resolves HERE, not the real repo tree.
+    // Draft dirs resolve through getProjectRoot(), NOT process.cwd() — a
+    // chdir no longer redirects them (that cwd anchoring is exactly what
+    // wrote the legacy /app/web/.ezcorp/… paths). Point the resolver at a
+    // temp root via its env override instead. getProjectRoot() only
+    // accepts an env root that looks like the repo, so create the
+    // docs/extensions/examples marker, and drop the cached answer so the
+    // override is re-resolved.
     root = mkdtemp3(join3(tmpdir3(), "ezd-mat-"));
-    prevCwd = process.cwd();
-    process.chdir(root);
+    mkdirSync3(join3(root, "docs", "extensions", "examples"), { recursive: true });
+    savedRootEnv = process.env.EZCORP_PROJECT_ROOT;
+    process.env.EZCORP_PROJECT_ROOT = root;
+    __resetProjectRootCacheForTests();
   });
   afterAll(() => {
-    if (prevCwd) try { process.chdir(prevCwd); } catch { /* */ }
+    if (savedRootEnv === undefined) delete process.env.EZCORP_PROJECT_ROOT;
+    else process.env.EZCORP_PROJECT_ROOT = savedRootEnv;
+    __resetProjectRootCacheForTests();
     if (root) try { rm3(root, { recursive: true, force: true }); } catch { /* */ }
   });
 

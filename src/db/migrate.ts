@@ -2,6 +2,10 @@ import { sql } from "drizzle-orm";
 import { backfillGithubProjectsApiTokens } from "../extensions/secrets-store";
 import { seedSelfProject } from "./seed-self-project";
 import { up as upUserCommandsUnique } from "./migrations/add-user-commands-unique-name";
+// Value import is safe: this module imports only `drizzle-orm`. Its
+// project-root ARGUMENT comes from a dynamic import at the call site —
+// see the comment there for why that one cannot be static.
+import { up as upNormalizeExtensionStateRoot } from "./migrations/normalize-extension-state-root";
 import { logger } from "../logger";
 
 const log = logger.child("db-migrate");
@@ -475,6 +479,48 @@ export async function migrate(db: any): Promise<void> {
   // user does not drop their extensions.
   await db.execute(sql`ALTER TABLE extensions ADD COLUMN IF NOT EXISTS creator_user_id TEXT REFERENCES users(id) ON DELETE SET NULL`);
   await db.execute(sql`ALTER TABLE extensions ADD COLUMN IF NOT EXISTS modifiable BOOLEAN NOT NULL DEFAULT FALSE`);
+
+  // ── Extension state root normalization ─────────────────────────────
+  // SINGLE SOURCE OF TRUTH: the rewrite lives in
+  // src/db/migrations/normalize-extension-state-root.ts and is invoked
+  // here (not re-inlined), same pattern as the user_commands unique
+  // pre-flight below.
+  //
+  // Legacy rows record the cwd-anchored /app/web/.ezcorp/extensions/<name>
+  // in install_path + the `local:` source. They were WRITTEN that way:
+  // ez-drafts.ts resolved draft dirs from process.cwd() and author-install
+  // derived installedPath from those, so authored installs landed under
+  // /app/web. That resolver now uses getProjectRoot() (= the dir holding
+  // src/, i.e. /app), which is also where every reader looks — so no NEW
+  // row can take this shape and the old ones need repairing. up()
+  // rewrites <root>/web/.ezcorp/extensions/<name> →
+  // <root>/.ezcorp/extensions/<name>, fires only on that exact shape,
+  // and is idempotent — the rewritten value no longer matches its own
+  // guard.
+  //
+  // The root is PASSED IN, never wildcarded: a `(.*)/web/…` pattern also
+  // matches an already-correct deployment whose root simply ends in
+  // `web`, and would corrupt it on every boot (see the module header).
+  //
+  // `getProjectRoot` is reached by DYNAMIC import on purpose. A static
+  // one would close the cycle migrate.ts → bundled.ts →
+  // db/queries/extensions.ts → db/connection.ts → migrate.ts; the same
+  // dynamic-import pattern is already used by
+  // src/startup/background-timers.ts. Resolution failure SKIPS the
+  // rewrite rather than failing the boot: doing nothing leaves the rows
+  // exactly as they are (repairable next boot or by hand), whereas
+  // guessing a root and rewriting is unrecoverable — and a migrate()
+  // throw here would trip the rollback-and-exit circuit breaker in
+  // db/connection.ts over a cosmetic path repair.
+  try {
+    const { getProjectRoot } = await import("../extensions/bundled");
+    await upNormalizeExtensionStateRoot(db, getProjectRoot());
+  } catch (err) {
+    log.warn(
+      "Skipped extension-state-root normalization — could not resolve the project root",
+      { error: String(err) },
+    );
+  }
 
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS invites (
