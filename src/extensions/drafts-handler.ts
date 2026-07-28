@@ -3,11 +3,15 @@
  * `ez_drafts` rows.
  *
  * Created for the bundled `extension-author` extension so its
- * `create_extension` tool can produce a proposal-card draft (the
- * `EzToolResultCard.svelte` consumer renders `result.openUrl` as a
- * one-button "Open prefilled form"). The draft row's `payload`
- * carries `{ draftDir, name, type, mode: "author" }` — read by the
- * editable preview page at `/extensions/author?prefill=<id>`.
+ * `create_extension` tool can produce a proposal-card draft. That tool
+ * declares `cardType: "ez-draft"`, which routes its result to
+ * `EzToolResultCard.svelte` and renders `result.openUrl` as a
+ * one-button "Open draft editor" link. (Until that cardType existed the
+ * result fell through to DefaultCard, where the collapsed 50-char
+ * preview truncated the URL away entirely — this docstring described a
+ * card that was not wired up.) The draft row's `payload` carries
+ * `{ draftDir, name, type, mode: "author" }` — read by the editable
+ * preview page at `/extensions/author?prefill=<id>`.
  *
  * Defense-in-depth: bundled-only via the explicit
  * `BUNDLED_DRAFTS_ALLOWLIST` set below — checked by the calling
