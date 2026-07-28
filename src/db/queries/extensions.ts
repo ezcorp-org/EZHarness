@@ -322,7 +322,13 @@ export async function getUserModifiableExtension(
         eq(extensions.isBundled, false),
       ),
     );
-  return rows[0] ?? null;
+  // Same id-wins tiebreak as `getExtensionByRef`, and for the same reason:
+  // a manifest name only has to match /^[a-z0-9][a-z0-9-_.]{0,63}$/, which a
+  // `crypto.randomUUID()` string satisfies, so `or(id, name)` can match two
+  // rows. Narrower here (both must be owned by the caller, modifiable and
+  // non-bundled) but the consequence is worse — this feeds `modify_extension`,
+  // so picking the wrong row reopens and re-installs over the wrong extension.
+  return rows.find((r) => r.id === nameOrId) ?? rows[0] ?? null;
 }
 
 /**
