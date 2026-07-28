@@ -149,8 +149,12 @@ describe("bundled refresh carries on-disk code checksums", () => {
     expect(baseline.packageChecksums?.["index.ts"]).toBe(baseline.checksum!);
 
     const registry = ExtensionRegistry.getInstance();
+    const generationBefore = registry.generation;
     await registry.reload();
     expect(registry.getManifest(row!.id)).toBeDefined();
+    // The load generation moves on every reload — that counter is what
+    // tells a live run's toolset it needs re-assembling.
+    expect(registry.generation).toBe(generationBefore + 1);
 
     const killed: string[] = [];
     const fakeProcess = {
