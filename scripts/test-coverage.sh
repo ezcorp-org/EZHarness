@@ -8,11 +8,16 @@
 # THREE MODES (selected by env):
 #
 #   full (default, `bun run test:coverage`):
-#       Run the ENTIRE host set + all legs, merge every per-shard lcov into
-#       coverage/lcov.info, and enforce scripts/coverage-thresholds.json.
+#       Run the ENTIRE host set + all legs + the web-security leg, merge every
+#       per-shard lcov into coverage/lcov.info, and enforce
+#       scripts/coverage-thresholds.json.
 #       Coverage-only: pass/fail is NOT a hard failure here (the CI shards and
 #       the `Web tests` job own pass/fail). This preserves the historical local
 #       `test:coverage` behaviour.
+#       The web-security leg (run_security_leg) exists ONLY in this mode: on CI
+#       that producer is its own job (`web-security-coverage`), so full local
+#       mode is the only place that would otherwise be missing it. See
+#       run_security_leg for the parity bug this closes.
 #
 #   host-shard (CI; SHARD_INDEX + SHARD_TOTAL set):
 #       Run only the 1-of-N stride slice of the host set under --coverage and
@@ -521,6 +526,58 @@ run_legs() {
   fi
 }
 
+# ── web-security coverage leg (FULL LOCAL MODE ONLY) ────────────────────────
+# The 9 web/src/lib/server/security/** helpers can be measured by exactly ONE
+# producer: scripts/security-coverage.sh. Their bun:test suites re-register
+# mocks per `beforeEach` via `mock.module` (bun-only, no hoisted-`vi.mock`
+# equivalent), so the node/vitest v8 leg cannot run them, and that leg's
+# --coverage.include deliberately omits them. See the NOTE in
+# scripts/coverage-config.ts where they were removed from EXCLUDES.
+#
+# On CI that producer is its own job (`web-security-coverage`) whose
+# `lcov-cov-security` artifact the `Per-file coverage gate` merges — so CI has
+# always enforced them correctly. FULL LOCAL MODE HAD NO EQUIVALENT: nothing
+# here ran security-coverage.sh, so `bun run test:coverage` merged an lcov in
+# which those 9 files appeared only via INCIDENTAL instrumentation (they are
+# transitively imported by other measured modules, so only the lines reachable
+# through that indirect path were counted — 15%-66%). The gate then failed all
+# nine locally on a green main. This runs the same producer into
+# $TMPDIR/cov_security/lcov.info so the local merge sees exactly what CI's gate
+# does.
+#
+# Deliberately NOT run in the CI legs-only / host-shard modes: the dedicated
+# job already produces this lcov there, and merging it twice would double every
+# hit count for no gain.
+run_security_leg() {
+  mkdir -p "$TMPDIR/cov_security"
+  (
+    set +e
+    COV_OUT="$TMPDIR/sec_out" PARALLEL="$PARALLEL" \
+      bash "$SCRIPT_DIR/security-coverage.sh" > "$TMPDIR/security.out" 2>&1
+    echo "$?" > "$TMPDIR/security.code"
+  ) &
+}
+
+# Print the security leg's captured output and stage its lcov for the merge.
+# Must run AFTER the `wait` inside run_legs (which reaps this leg's subshell
+# too). Fail-closed: a leg that dies without writing its exit-code file counts
+# as exit 1, exactly like the gating legs in run_legs.
+collect_security_leg() {
+  echo ""
+  echo "── leg output: security ──"
+  cat "$TMPDIR/security.out" 2>/dev/null || echo "(no output captured)"
+  SECURITY_EXIT=$(cat "$TMPDIR/security.code" 2>/dev/null || echo 1)
+  # security-coverage.sh already re-roots SF paths to web/src/... and filters
+  # to exactly the 9 files, so this is a straight copy into the merge glob.
+  if [ -f "$TMPDIR/sec_out/lcov_security.info" ]; then
+    cp "$TMPDIR/sec_out/lcov_security.info" "$TMPDIR/cov_security/lcov.info"
+  fi
+  if [ "$SECURITY_EXIT" != "0" ]; then
+    FAILED_FILES+=("web security coverage leg")
+    echo "--- FAIL: web security coverage leg (exit $SECURITY_EXIT) ---"
+  fi
+}
+
 # Copy every per-leg lcov produced this run into $COV_OUT (CI artifact).
 # Used by legs-only mode (4 small files); host-shard mode PRE-MERGES its
 # ~200 per-file lcovs into one artifact file instead — see the shard branch.
@@ -711,7 +768,10 @@ if [ -n "$SHARD_TOTAL" ]; then
 fi
 
 # ── full local mode: legs + merge + threshold check ─────────────────────────
+# Started BEFORE run_legs so it overlaps them; run_legs' own `wait` reaps it.
+run_security_leg
 run_legs
+collect_security_leg
 
 echo ""
 echo "================================"
@@ -730,10 +790,13 @@ CHECK_EXIT=0
 bun scripts/check-coverage.ts || CHECK_EXIT=$?
 
 # Full local mode gates COVERAGE + the vitest leg's integrity + the
-# harness-client and ai-kit legs' pass/fail. It does NOT gate the host pool's
-# pass/fail — the CI shards own that. check-coverage catches any flaky-shard
-# coverage drop.
-if [ "$CHECK_EXIT" != "0" ] || [ "$VITEST_EXIT" != "0" ] || [ "$HC_EXIT" != "0" ] || [ "$AIKIT_EXIT" != "0" ]; then
+# harness-client, ai-kit and web-security legs' pass/fail. It does NOT gate the
+# host pool's pass/fail — the CI shards own that. check-coverage catches any
+# flaky-shard coverage drop. SECURITY_EXIT gates for the same reason the CI
+# `coverage` job requires `web-security-coverage` to have succeeded: a producer
+# that didn't run means incomplete coverage data, which must never read green.
+if [ "$CHECK_EXIT" != "0" ] || [ "$VITEST_EXIT" != "0" ] || [ "$HC_EXIT" != "0" ] || \
+   [ "$AIKIT_EXIT" != "0" ] || [ "$SECURITY_EXIT" != "0" ]; then
   exit 1
 fi
 exit 0
