@@ -299,16 +299,7 @@ run_legs() {
       src/lib/components/preprocess-result-logic.unit.test.ts \
       src/lib/components/tool-cards/grade-delta-logic.unit.test.ts \
       src/lib/components/tool-cards/ez-draft-card-logic.unit.test.ts \
-      src/lib/components/tool-cards/ez-install-card-logic.unit.test.ts \
-      src/lib/components/tool-cards/utils-gaps.unit.test.ts \
-      src/__tests__/default-card.unit.test.ts \
-      src/__tests__/tool-card-router.unit.test.ts \
-      src/__tests__/tool-card-utils-dock.unit.test.ts \
-      src/__tests__/tool-card-collapsible.unit.test.ts \
-      src/__tests__/diff-card.unit.test.ts \
-      src/__tests__/task-card.unit.test.ts \
-      src/__tests__/search-results-card.unit.test.ts \
-      src/__tests__/terminal-card.unit.test.ts \
+      src/lib/components/tool-cards/tool-cards-logic.unit.test.ts \
       src/__tests__/extension-author-install.server.test.ts \
       src/__tests__/extension-author-page-logic.server.test.ts \
       src/__tests__/extension-author-page-server-load.server.test.ts \
