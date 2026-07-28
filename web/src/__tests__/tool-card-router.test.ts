@@ -1,4 +1,4 @@
-import { test, expect, describe } from "vitest";
+import { test, expect, describe } from "bun:test";
 import { getCardComponentName } from "../lib/components/tool-cards/utils.js";
 
 describe("getCardComponentName", () => {

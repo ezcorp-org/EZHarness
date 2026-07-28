@@ -15,7 +15,7 @@
  *    a permission-gated Bash call is `PermissionGate` and is NOT
  *    collapsed — pinned end-to-end below
  */
-import { test, expect, describe } from "vitest";
+import { test, expect, describe } from "bun:test";
 import {
 	isCollapsibleDevCard,
 	getCardComponentName,
