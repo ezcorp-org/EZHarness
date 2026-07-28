@@ -13,19 +13,8 @@
 import { error } from "@sveltejs/kit";
 import { requireAuth } from "$server/auth/middleware";
 import { getDraft, getExtensionAuthorDraftDir } from "$server/db/queries/ez-drafts";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { readAuthorDraftFiles } from "$lib/server/author-draft-files";
 import type { PageServerLoad } from "./$types";
-
-const ALLOWED_FILES = new Set([
-  "ezcorp.config.ts",
-  "index.ts",
-  "index.test.ts",
-  "README.md",
-  "package.json",
-  "tsconfig.json",
-  ".gitignore",
-]);
 
 /**
  * Read the draft's file map fresh from disk. Filesystem is the source
@@ -37,17 +26,7 @@ const ALLOWED_FILES = new Set([
  * the framework's reserved names (load, actions, etc.).
  */
 export function _readDraftFiles(dir: string): Record<string, string> {
-  if (!existsSync(dir)) return {};
-  const files: Record<string, string> = {};
-  for (const name of readdirSync(dir)) {
-    if (!ALLOWED_FILES.has(name)) continue;
-    try {
-      files[name] = readFileSync(join(dir, name), "utf8");
-    } catch {
-      // skip unreadable
-    }
-  }
-  return files;
+  return readAuthorDraftFiles(dir).files;
 }
 
 export const load: PageServerLoad = async ({ url, locals }) => {
@@ -66,7 +45,10 @@ export const load: PageServerLoad = async ({ url, locals }) => {
   // Resolve the dir via the shared helper. userId scoping is in the
   // path — even with a leaked id, a non-owner gets the 404 above.
   const dir = getExtensionAuthorDraftDir(draftId, user.id);
-  const files = _readDraftFiles(dir);
+  // `unreadable` is passed through to the page rather than dropped: an
+  // author editing a SHORT file list without being told one is missing
+  // installs an extension they never fully saw.
+  const { files, unreadable } = readAuthorDraftFiles(dir);
 
   return {
     draft: {
@@ -78,5 +60,6 @@ export const load: PageServerLoad = async ({ url, locals }) => {
       consumedAt: row.consumedAt,
     },
     files,
+    unreadable,
   };
 };

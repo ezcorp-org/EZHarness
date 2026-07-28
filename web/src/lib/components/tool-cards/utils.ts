@@ -299,11 +299,16 @@ export function getStatusIcon(status?: string): string {
 
 // ── DefaultCard / PermissionGate shared utils ──
 
-/** Extract a summary key from tool input and truncate */
+/** Extract a summary key from tool input and truncate.
+ *
+ *  `draftId` / `name` are in the list because the extension-author
+ *  tools take ONLY those: without them a failed `install_draft` showed
+ *  a red ✗, the tool name, and nothing else — not even which draft it
+ *  was. `path` (already present) covers `write_draft_file`. */
 export function extractInputSummary(input: unknown, maxLen: number = 60): string | undefined {
 	if (!input || typeof input !== 'object') return undefined;
 	const inp = input as Record<string, unknown>;
-	const key = inp.file_path ?? inp.path ?? inp.pattern ?? inp.command ?? inp.query ?? inp.url ?? inp.content;
+	const key = inp.file_path ?? inp.path ?? inp.pattern ?? inp.command ?? inp.query ?? inp.url ?? inp.name ?? inp.draftId ?? inp.content;
 	if (!key) return undefined;
 	const s = String(key);
 	return s.length > maxLen ? s.slice(0, maxLen - 3) + '...' : s;

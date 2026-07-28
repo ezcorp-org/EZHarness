@@ -209,6 +209,8 @@
   "src/db/queries/preview-sessions.ts": 100,
   "web/src/lib/components/tool-cards/preview-consent-card-logic.ts": 100,
   "web/src/lib/components/tool-cards/ez-draft-card-logic.ts": 100,
+  "web/src/lib/components/tool-cards/failure-class.ts": 100,
+  "web/src/lib/server/author-draft-files.ts": 100,
   "web/src/lib/components/preprocess-result-logic.ts": 100,
   "web/src/lib/components/tool-cards/grade-delta-logic.ts": 100,
   "web/src/lib/components/tool-cards/GradeDeltaCard.svelte": 100,

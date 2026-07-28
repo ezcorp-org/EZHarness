@@ -161,4 +161,59 @@ describe("reopenInstalledAsDraft", () => {
       expect(code).toBe("NOT_FOUND_OR_NOT_MODIFIABLE");
     }
   });
+
+  // A draft seeds the re-install, and the re-install REPLACES the
+  // extension directory. Skipping an unreadable file (the old
+  // behavior) meant that file was dropped from the draft and then
+  // deleted from the installed extension — a read error turning into
+  // permanent data loss one install later. Refuse instead.
+  test("an unreadable scaffold file REFUSES the reopen (no silent partial draft)", async () => {
+    const { reopenInstalledAsDraft, ReopenError } = await import(
+      "../extensions/reopen-extension"
+    );
+    const { listActiveDraftsForUser } = await import("../db/queries/ez-drafts");
+    await seedInstalled({
+      name: "rw-unreadable",
+      creatorUserId: OWNER,
+      modifiable: true,
+    });
+    // index.ts exists (seedInstalled wrote it) but cannot be read.
+    const installPath = join(tmpRoot, ".ezcorp/extensions", "rw-unreadable");
+    const { chmodSync } = await import("node:fs");
+    chmodSync(join(installPath, "index.ts"), 0o000);
+    let unreadableIsEnforceable = true;
+    try {
+      const { readFileSync } = await import("node:fs");
+      readFileSync(join(installPath, "index.ts"), "utf8");
+      // Running as root: the chmod does not deny us, so the failure
+      // mode under test cannot be produced here.
+      unreadableIsEnforceable = false;
+    } catch {
+      unreadableIsEnforceable = true;
+    }
+
+    try {
+      let code = "";
+      let message = "";
+      try {
+        await reopenInstalledAsDraft("rw-unreadable", OWNER);
+      } catch (e) {
+        code = e instanceof ReopenError ? e.code : "OTHER";
+        message = (e as Error).message;
+      }
+      if (unreadableIsEnforceable) {
+        expect(code).toBe("UNREADABLE_FILE");
+        // The message has to name the file and say why refusing is safer.
+        expect(message).toContain("index.ts");
+        expect(message).toContain("delete it from the installed extension");
+        // And NOTHING was minted — no half-seeded draft to install.
+        expect(await listActiveDraftsForUser(OWNER)).toEqual([]);
+      } else {
+        // Root: the read succeeds, so the reopen must simply work.
+        expect(code).toBe("");
+      }
+    } finally {
+      chmodSync(join(installPath, "index.ts"), 0o644);
+    }
+  });
 });

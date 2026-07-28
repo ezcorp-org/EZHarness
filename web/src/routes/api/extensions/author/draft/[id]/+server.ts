@@ -15,20 +15,14 @@ import {
   getDraft,
   getExtensionAuthorDraftDir,
 } from "$server/db/queries/ez-drafts";
-import { existsSync, readFileSync } from "node:fs";
+import {
+  AUTHOR_DRAFT_FILES,
+  readAuthorDraftFiles,
+} from "$lib/server/author-draft-files";
+import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { RequestHandler } from "./$types";
-
-const ALLOWED_FILES = new Set([
-  "ezcorp.config.ts",
-  "index.ts",
-  "index.test.ts",
-  "README.md",
-  "package.json",
-  "tsconfig.json",
-  ".gitignore",
-]);
 
 export const PUT: RequestHandler = async ({ params, request, locals }) => {
   try {
@@ -52,7 +46,7 @@ export const PUT: RequestHandler = async ({ params, request, locals }) => {
     }
     if (typeof body.path !== "string") return errorJson(400, "`path` must be a string");
     if (typeof body.content !== "string") return errorJson(400, "`content` must be a string");
-    if (!ALLOWED_FILES.has(body.path)) {
+    if (!AUTHOR_DRAFT_FILES.has(body.path)) {
       return errorJson(400, `Path "${body.path}" not in scaffolder file allowlist`);
     }
     if (body.path.includes("..") || body.path.startsWith("/")) {
@@ -95,21 +89,10 @@ export const DELETE: RequestHandler = async ({ params, locals }) => {
 
 /**
  * Test-only export: read the file map for a draft from disk. Used by
- * `web/src/__tests__/extension-author-page-logic.test.ts`. Mirrors the
- * `+page.server.ts` load() reader.
+ * `web/src/__tests__/extension-author-page-logic.server.test.ts`. Thin
+ * delegate to the shared reader — this used to be a second, independent
+ * copy of the same loop (with its own silent skip-on-error).
  */
 export function _readDraftFiles(dir: string): Record<string, string> {
-  if (!existsSync(dir)) return {};
-  const files: Record<string, string> = {};
-  for (const name of ALLOWED_FILES) {
-    const p = join(dir, name);
-    if (existsSync(p)) {
-      try {
-        files[name] = readFileSync(p, "utf8");
-      } catch {
-        // skip
-      }
-    }
-  }
-  return files;
+  return readAuthorDraftFiles(dir).files;
 }

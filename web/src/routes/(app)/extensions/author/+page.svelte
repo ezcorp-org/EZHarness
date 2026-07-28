@@ -36,6 +36,11 @@
   // user never learned their edit had not persisted.
   let saveError = $state<string | null>(null);
   let discardError = $state<string | null>(null);
+  // Files that exist in the draft but could not be read. The loader
+  // still skips them (one bad file must not 500 the editor) but it no
+  // longer skips them SILENTLY — editing a draft you can only partly
+  // see and then installing it is how content gets lost.
+  let unreadable = $derived(data.unreadable ?? []);
 
   $effect(() => {
     // Pick the first file when the selection becomes invalid (e.g.
@@ -203,6 +208,20 @@
       {/if}
     </p>
   </header>
+
+  {#if unreadable.length > 0}
+    <section class="status err" data-testid="unreadable-files">
+      <p>
+        {unreadable.length} file{unreadable.length === 1 ? "" : "s"} in this draft could not be read and
+        {unreadable.length === 1 ? "is" : "are"} NOT shown below. Installing now would install content you cannot see here.
+      </p>
+      <ul>
+        {#each unreadable as u (u.name)}
+          <li><code>{u.name}</code> — {u.error}</li>
+        {/each}
+      </ul>
+    </section>
+  {/if}
 
   {#if files[CONFIG_FILE] !== undefined}
     <AuthorCompositionPanel source={files[CONFIG_FILE]} onsave={onCompositionSave} />

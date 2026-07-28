@@ -29,6 +29,23 @@ describe("extractInputSummary", () => {
 		expect(extractInputSummary({ foo: "bar" })).toBeUndefined();
 	});
 
+	// The extension-author tools take ONLY `draftId` / `name` / `path`.
+	// Without these keys a failed install_draft showed a red ✗, the tool
+	// name, and nothing else — not even which draft it was about.
+	test("extracts draftId (extension-author tools take nothing else)", () => {
+		expect(extractInputSummary({ draftId: "draft-abc" })).toBe("draft-abc");
+	});
+
+	test("extracts name (modify_extension)", () => {
+		expect(extractInputSummary({ name: "weather" })).toBe("weather");
+	});
+
+	test("prefers path over name/draftId (write_draft_file shows the file)", () => {
+		expect(
+			extractInputSummary({ draftId: "d1", path: "index.ts", content: "x" }),
+		).toBe("index.ts");
+	});
+
 	test("returns undefined for null input", () => {
 		expect(extractInputSummary(null)).toBeUndefined();
 	});

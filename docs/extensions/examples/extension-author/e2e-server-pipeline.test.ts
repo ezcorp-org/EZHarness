@@ -87,12 +87,27 @@ let installStub:
   | ((draftId: string) => JsonRpcResponse["error"] | { result: unknown })
   | null = null;
 
+// Per-test override for the `reopen` reverse-RPC (modify_extension).
+let reopenStub: (() => JsonRpcResponse["error"] | { result: unknown }) | null = null;
+
+// When set, `ezcorp/fs.read` fails for any path ending in this name —
+// drives `read_draft`'s unreadable-file reporting, which used to drop
+// the file from the map silently.
+let failReadForFile: string | null = null;
+
 async function handleFsRpc(req: JsonRpcRequest): Promise<JsonRpcResponse> {
   const params = (req.params ?? {}) as Record<string, unknown>;
   const path = params.path as string;
   try {
     switch (req.method) {
       case "ezcorp/fs.read": {
+        if (failReadForFile && path.endsWith(failReadForFile)) {
+          return {
+            jsonrpc: "2.0",
+            id: req.id,
+            error: { code: -32603, message: `EACCES: permission denied, open '${path}'` },
+          };
+        }
         const buf = await readFile(path);
         const body = btoa(String.fromCharCode(...buf));
         return {
@@ -300,6 +315,15 @@ function makeProc(
         store.drafts.delete(id);
         return { jsonrpc: "2.0", id: req.id, result: { ok: true } };
       }
+      if (params.action === "reopen") {
+        const out = reopenStub
+          ? reopenStub()
+          : ({ code: -32602, message: "stub: reopen not configured" } as const);
+        if (out && "result" in out) {
+          return { jsonrpc: "2.0", id: req.id, result: out.result };
+        }
+        return { jsonrpc: "2.0", id: req.id, error: out as JsonRpcResponse["error"] };
+      }
       if (params.action === "install") {
         const id = params.draftId as string;
         const out = installStub
@@ -337,6 +361,8 @@ describe("extension-author e2e — server pipeline round-trip", () => {
     }
     try { process.chdir(originalCwd); } catch { /* swallow */ }
     installStub = null;
+    reopenStub = null;
+    failReadForFile = null;
   });
 
   test("create_extension scaffolds files + creates draft + returns openUrl", async () => {
@@ -595,6 +621,126 @@ describe("extension-author e2e — server pipeline round-trip", () => {
     expect(body.ok).toBe(false);
     expect("code" in body).toBe(false);
     expect(body.error).toContain("kaboom");
+  }, 30_000);
+
+  // `?? ""` turned a shape-broken host response into
+  // `{ok:true, extensionId:"", name:""}` — a green install card for an
+  // extension that may not exist, and empty ids the model then quotes
+  // back to the user.
+  test("install_draft with a shape-broken host result → BAD_HOST_RESPONSE, never ok:true", async () => {
+    installStub = () => ({ result: { ok: true } as Record<string, unknown> });
+    const proc = makeProc(store, cwd);
+    procs.push(proc);
+    const create = JSON.parse(
+      (await proc.callTool("create_extension", { name: "weather", type: "tool", description: "x" }))
+        .content[0]!.text,
+    );
+
+    const res = await proc.callTool("install_draft", { draftId: create.draftId });
+    expect(res.isError).toBe(true);
+    const body = JSON.parse(res.content[0]!.text);
+    expect(body.ok).toBe(false);
+    expect(body.code).toBe("BAD_HOST_RESPONSE");
+    // The state really is unknown — the message must say so rather than
+    // inviting a blind retry.
+    expect(body.error).toContain("may or may not have");
+  }, 30_000);
+
+  test("install_draft with ok:false from the host → BAD_HOST_RESPONSE, not a success", async () => {
+    installStub = () => ({
+      result: { ok: false, extensionId: "ext-1", name: "weather" } as Record<string, unknown>,
+    });
+    const proc = makeProc(store, cwd);
+    procs.push(proc);
+    const create = JSON.parse(
+      (await proc.callTool("create_extension", { name: "weather", type: "tool", description: "x" }))
+        .content[0]!.text,
+    );
+    const res = await proc.callTool("install_draft", { draftId: create.draftId });
+    expect(res.isError).toBe(true);
+    expect(JSON.parse(res.content[0]!.text).ok).toBe(false);
+  }, 30_000);
+
+  // `modify_extension` used to HARDCODE `ok:true` with `draftId ?? ""`.
+  // A shape-broken response therefore told the model the reopen worked,
+  // and its next call — read_draft("") — failed with "Invalid draftId",
+  // an error about the wrong thing that masks the real fault.
+  test("modify_extension with a draftId-less host result → BAD_HOST_RESPONSE, never ok:true", async () => {
+    reopenStub = () => ({ result: { name: "weather" } as Record<string, unknown> });
+    const proc = makeProc(store, cwd);
+    procs.push(proc);
+
+    const res = await proc.callTool("modify_extension", { name: "weather" });
+    expect(res.isError).toBe(true);
+    const body = JSON.parse(res.content[0]!.text);
+    expect(body.ok).toBe(false);
+    expect(body.code).toBe("BAD_HOST_RESPONSE");
+    // Explicitly steers the model away from the masking follow-up call.
+    expect(body.error).toContain("do not");
+    expect(body.error).toContain("read_draft");
+  }, 30_000);
+
+  test("modify_extension success → {ok:true, draftId, name}", async () => {
+    reopenStub = () => ({ result: { draftId: "draft-77", name: "weather" } });
+    const proc = makeProc(store, cwd);
+    procs.push(proc);
+    const res = await proc.callTool("modify_extension", { name: "weather" });
+    expect(res.isError).toBe(false);
+    expect(JSON.parse(res.content[0]!.text)).toEqual({
+      ok: true,
+      draftId: "draft-77",
+      name: "weather",
+    });
+  }, 30_000);
+
+  test("modify_extension structured host error passes the code through", async () => {
+    reopenStub = () => ({
+      code: -32603,
+      message: "NOT_FOUND_OR_NOT_MODIFIABLE: nope",
+      data: { code: "NOT_FOUND_OR_NOT_MODIFIABLE" },
+    });
+    const proc = makeProc(store, cwd);
+    procs.push(proc);
+    const res = await proc.callTool("modify_extension", { name: "weather" });
+    expect(res.isError).toBe(true);
+    expect(JSON.parse(res.content[0]!.text).code).toBe("NOT_FOUND_OR_NOT_MODIFIABLE");
+  }, 30_000);
+
+  // A file that exists but cannot be read used to vanish from the map,
+  // so the model "read" the draft, never saw index.ts, and then
+  // rewrote a file it had never looked at.
+  test("read_draft reports unreadable files instead of dropping them", async () => {
+    const proc = makeProc(store, cwd);
+    procs.push(proc);
+    const create = JSON.parse(
+      (await proc.callTool("create_extension", { name: "weather", type: "tool", description: "x" }))
+        .content[0]!.text,
+    );
+
+    failReadForFile = "index.ts";
+    const res = await proc.callTool("read_draft", { draftId: create.draftId });
+    expect(res.isError).toBe(false);
+    const body = JSON.parse(res.content[0]!.text);
+    // Still returns what it COULD read…
+    expect(body.files["ezcorp.config.ts"]).toBeDefined();
+    expect(body.files["index.ts"]).toBeUndefined();
+    // …and says out loud what it could not.
+    expect(body.unreadable).toEqual([
+      { path: "index.ts", error: expect.stringContaining("EACCES") },
+    ]);
+  }, 30_000);
+
+  test("read_draft omits `unreadable` entirely when everything read cleanly", async () => {
+    const proc = makeProc(store, cwd);
+    procs.push(proc);
+    const create = JSON.parse(
+      (await proc.callTool("create_extension", { name: "weather", type: "tool", description: "x" }))
+        .content[0]!.text,
+    );
+    const body = JSON.parse(
+      (await proc.callTool("read_draft", { draftId: create.draftId })).content[0]!.text,
+    );
+    expect("unreadable" in body).toBe(false);
   }, 30_000);
 
   test("list_drafts surfaces known directories", async () => {
