@@ -1,6 +1,6 @@
 import { pgTable, text, timestamp, jsonb, integer, real, serial, bigserial, bigint, boolean, index, primaryKey, uniqueIndex, date, vector } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
-import type { WorkflowStep } from "../types";
+import type { AgentResult, WorkflowRunStatus, WorkflowStep } from "../types";
 import type { MemoryProvenance } from "../memory/types";
 import { EMBEDDING_DIMENSIONS } from "../memory/types";
 import type {
@@ -364,6 +364,82 @@ export const workflowDefinitions = pgTable("workflow_definitions", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+// ── Workflow run history ───────────────────────────────────────────
+//
+// Workflow runs used to be ephemeral: `runWorkflow` returned the object
+// and it lived only in the browser store until the next reload. These
+// two tables are the durable mirror — the workflow-side twin of
+// `runs` / `run_logs`.
+export const workflowRuns = pgTable("workflow_runs", {
+  // NOT `$defaultFn` — the executor mints the id (`crypto.randomUUID()`)
+  // BEFORE the row is written, because it is already baked into the
+  // `workflow:start` SSE payload, the `$prev`/`$steps` bookkeeping and
+  // the synthetic non-interactive scope key. A column default here would
+  // silently produce a SECOND id for the same run and orphan every step
+  // row that referenced the first.
+  id: text("id").primaryKey(),
+  // Nullable on purpose: a YAML workflow (`*.workflow.yaml`) has no
+  // `workflow_definitions` row at all, so there is nothing to point at.
+  // SET NULL rather than CASCADE so deleting a DB workflow definition
+  // keeps its run history (the audit value is in the history, not the
+  // definition).
+  workflowDefinitionId: text("workflow_definition_id").references(
+    () => workflowDefinitions.id,
+    { onDelete: "set null" },
+  ),
+  // Denormalized so the history stays readable after the definition is
+  // deleted or renamed — the FK above can go NULL, this never does.
+  workflowName: text("workflow_name").notNull(),
+  projectId: text("project_id").references(() => projects.id, { onDelete: "set null" }),
+  // Initiating user — the principal who fired the run. Authoritative for
+  // ownership enforcement on any future per-run read route. Null only for
+  // runs that genuinely cannot be attributed to a user (CLI / scheduled
+  // fires), which are admin-only for non-admins (fail closed). FK SET
+  // NULL: deleting a user un-attributes their historical workflow runs
+  // (then admin-only) rather than cascading them away.
+  userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+  // `WorkflowRunStatus` — the AgentStatus union plus `awaiting_approval`.
+  status: text("status").notNull().$type<WorkflowRunStatus>(),
+  input: jsonb("input").$type<Record<string, unknown>>(),
+  result: jsonb("result").$type<AgentResult>(),
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+  finishedAt: timestamp("finished_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("idx_workflow_runs_name_started").on(table.workflowName, table.startedAt),
+  // FK index — user delete fires ON DELETE SET NULL across this column.
+  index("idx_workflow_runs_user").on(table.userId),
+]);
+
+export type WorkflowRunRow = typeof workflowRuns.$inferSelect;
+export type NewWorkflowRunRow = typeof workflowRuns.$inferInsert;
+
+export const workflowStepRuns = pgTable("workflow_step_runs", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  workflowRunId: text("workflow_run_id").notNull().references(() => workflowRuns.id, { onDelete: "cascade" }),
+  stepName: text("step_name").notNull(),
+  // Nullable FK: ONLY an `agent` step mints a real `runs` row. transform /
+  // gate / tool steps carry `runId = ""` in memory — the query layer
+  // normalizes that empty string to SQL NULL, because writing `''` would
+  // fail the FK (and storing a sentinel that looks like an id is how you
+  // get a join that silently matches nothing).
+  runId: text("run_id").references(() => runs.id, { onDelete: "set null" }),
+  status: text("status").notNull().$type<WorkflowRunStatus>(),
+  /** Final iteration count for a looped step; NULL for non-loop steps. */
+  iterations: integer("iterations"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  // Step names are unique within a workflow definition (the validator
+  // rejects duplicates), so this is a valid ON CONFLICT arbiter for the
+  // "a step is written once at start, then updated on every status /
+  // iteration change" upsert.
+  uniqueIndex("uniq_workflow_step_run").on(table.workflowRunId, table.stepName),
+]);
+
+export type WorkflowStepRunRow = typeof workflowStepRuns.$inferSelect;
+export type NewWorkflowStepRunRow = typeof workflowStepRuns.$inferInsert;
 
 // ── Memory System ──────────────────────────────────────────────────
 
