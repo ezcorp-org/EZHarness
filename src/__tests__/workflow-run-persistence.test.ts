@@ -220,6 +220,73 @@ describe("workflow-runs query layer", () => {
     expect(row?.status).not.toBe("success");
   });
 
+  test("the boot sweep does NOT terminalize a run that started after the cutoff", async () => {
+    // The sweep is fired-and-forgotten during boot, so its UPDATE can
+    // still be in flight when the first request inserts a fresh row.
+    // Without the cutoff it drained that LIVE run, and the run's real
+    // finalize then lost its CAS — the row permanently (and falsely)
+    // claimed the process had restarted mid-run.
+    const cutoff = new Date();
+    const live = crypto.randomUUID();
+    const stale = crypto.randomUUID();
+    await insertWorkflowRun({
+      id: live,
+      workflowName: "started-after-boot",
+      input: {},
+      startedAt: new Date(cutoff.getTime() + 1000),
+    });
+    await insertWorkflowRun({
+      id: stale,
+      workflowName: "started-before-boot",
+      input: {},
+      startedAt: new Date(cutoff.getTime() - 1000),
+    });
+
+    await terminalizeOrphanedWorkflowRuns(cutoff);
+
+    // The cutoff DISCRIMINATES: the pre-boot row is drained in the very
+    // same sweep that leaves the post-boot one alone. (Asserting a zero
+    // row count would be vacuous — other rows in this DB are orphaned
+    // too.)
+    expect((await getWorkflowRunRow(stale))?.status).toBe("error");
+    expect((await getWorkflowRunRow(live))?.status).toBe("running");
+    // ...and the live run can still record its true outcome.
+    expect(await finalizeWorkflowRunRow(live, "success", { success: true, output: "real" })).toBe(1);
+    expect((await getWorkflowRunRow(live))?.status).toBe("success");
+  });
+
+  test("the boot sweep drains a half-written row (finished_at set, status still running)", async () => {
+    // The predicate used to carry `AND finished_at IS NULL`, which
+    // silently skipped exactly the partially-written state the sweep
+    // exists to clean up — leaving it stuck `running` forever.
+    const half = crypto.randomUUID();
+    await insertWorkflowRun({
+      id: half,
+      workflowName: "half-written",
+      input: {},
+      startedAt: new Date(Date.now() - 60_000),
+    });
+    await db.execute(sql`UPDATE workflow_runs SET finished_at = NOW() WHERE id = ${half}`);
+
+    const drained = await terminalizeOrphanedWorkflowRuns();
+
+    expect(drained).toBeGreaterThanOrEqual(1);
+    expect((await getWorkflowRunRow(half))?.status).toBe("error");
+  });
+
+  test("concurrent finalizes produce exactly one winner", async () => {
+    const id = crypto.randomUUID();
+    await insertWorkflowRun({ id, workflowName: "wf", input: {}, startedAt: new Date() });
+    const [a, b] = await Promise.all([
+      finalizeWorkflowRunRow(id, "success", { success: true, output: "A" }),
+      finalizeWorkflowRunRow(id, "error", { success: false, output: null, error: "B" }),
+    ]);
+    // The CAS is a single UPDATE ... WHERE status='running'; the loser
+    // re-evaluates its predicate against the winner's committed row.
+    expect(a + b).toBe(1);
+    expect((await getWorkflowRunRow(id))?.status).toBe("success");
+  });
+
   test("getWorkflowRunRow returns undefined for an unknown id", async () => {
     expect(await getWorkflowRunRow(crypto.randomUUID())).toBeUndefined();
   });

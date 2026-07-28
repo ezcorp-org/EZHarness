@@ -12,7 +12,7 @@
  *   • {@link finalizeWorkflowRunRow} — idempotent CAS on `status='running'`
  *   • {@link terminalizeOrphanedWorkflowRuns} — boot sweep
  */
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, lt, sql } from "drizzle-orm";
 import { getDb } from "../connection";
 import { workflowRuns, workflowStepRuns } from "../schema";
 import type { AgentResult, WorkflowRunStatus } from "../../types";
@@ -129,21 +129,39 @@ export async function finalizeWorkflowRunRow(
 }
 
 /**
- * Boot-time reconciliation: terminalize every `workflow_runs` row still
- * stuck at `status='running'` with `finished_at IS NULL`.
+ * Boot-time reconciliation: terminalize every `workflow_runs` row left at
+ * `status='running'` by a previous process.
  *
  * A freshly-started process owns zero in-flight workflow runs — they are
- * awaited in-memory and never resumed — so by definition ANY row still
- * `running` is orphaned by a crash / OOM kill / restart that skipped the
- * finalizer. Exactly the invariant `terminalizeOrphanedRuns` relies on
- * for the `runs` table.
+ * awaited in-memory and never resumed — so by definition any row still
+ * `running` when this process started is orphaned by a crash / OOM kill /
+ * restart that skipped the finalizer.
+ *
+ * `startedBefore` is what makes that "when this process started" precise,
+ * and it is load-bearing, not defensive. The caller fires this
+ * fire-and-forget during boot, so its UPDATE can still be in flight when
+ * the first request arrives. Without the cutoff the sweep matched on
+ * `status='running'` alone and would terminalize a run that had just
+ * STARTED — the live run's real outcome then lost its finalize CAS
+ * (`WHERE status='running'` matches nothing) and the row was left
+ * permanently claiming the run was orphaned. The default is evaluated
+ * when the function is CALLED, which is inside boot and therefore before
+ * any request can insert a row.
+ *
+ * Note the predicate is `status='running'` alone (plus the cutoff), NOT
+ * `AND finished_at IS NULL`. A row with a stamped `finished_at` but a
+ * status never moved off `running` is exactly the half-written state this
+ * sweep exists to clean up; the extra conjunct silently skipped it and
+ * left it stuck forever.
  *
  * Marked `error` (not `cancelled`) to match the discriminator the agent
  * side already uses for the same situation — no new status value.
  *
  * Returns the number of rows drained.
  */
-export async function terminalizeOrphanedWorkflowRuns(): Promise<number> {
+export async function terminalizeOrphanedWorkflowRuns(
+  startedBefore: Date = new Date(),
+): Promise<number> {
   const rows = await getDb()
     .update(workflowRuns)
     .set({
@@ -155,7 +173,7 @@ export async function terminalizeOrphanedWorkflowRuns(): Promise<number> {
         error: "Workflow run orphaned: process restarted while the run was active",
       },
     })
-    .where(and(eq(workflowRuns.status, "running"), isNull(workflowRuns.finishedAt)))
+    .where(and(eq(workflowRuns.status, "running"), lt(workflowRuns.startedAt, startedBefore)))
     .returning({ id: workflowRuns.id });
   return rows.length;
 }
