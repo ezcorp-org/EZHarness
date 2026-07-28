@@ -237,23 +237,19 @@ export async function installAuthoredDraft(args: {
   const gate = await runAuthorAcceptanceGate({ draftDir, draftType });
   if (!gate.ok) {
     const code = gate.code ?? "VERIFY_FAILED";
+    const details: Record<string, unknown> = { errors: gate.errors };
+    // The web route's 422 body carries `verifyResult` for a gate
+    // failure — keep that field byte-compatible with the old shape.
+    if (code === "VERIFY_FAILED") {
+      details.verifyResult = { pass: false, steps: gate.steps };
+    }
     throw new AuthorInstallError(
       code,
       code === "MANIFEST_INVALID"
         ? "Manifest invalid or failed to load"
         : "Deterministic acceptance gate failed — a passing `smokeTest` " +
             "is required for tool/multi extensions",
-      {
-        errors: gate.errors,
-        ...(code === "VERIFY_FAILED"
-          ? {
-              verifyResult: { pass: false, steps: gate.steps } as unknown as Record<
-                string,
-                unknown
-              >,
-            }
-          : {}),
-      },
+      details,
     );
   }
   // `ok` guarantees both of these are set.

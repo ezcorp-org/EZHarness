@@ -6,7 +6,7 @@
  *
  * canvas-dock-sdk.md §5 unit cases #8-9.
  */
-import { test, expect, describe } from "bun:test";
+import { test, expect, describe } from "vitest";
 import { shouldRenderInDock } from "../lib/components/tool-cards/utils.js";
 
 describe("shouldRenderInDock", () => {

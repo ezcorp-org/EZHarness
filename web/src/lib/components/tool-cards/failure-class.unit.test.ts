@@ -9,7 +9,7 @@
  * distinguishable from the collapsed header alone.
  */
 
-import { test, expect, describe } from "bun:test";
+import { test, expect, describe } from "vitest";
 import {
 	FAILURE_CLASS_BY_CODE,
 	FAILURE_CLASS_LABEL,

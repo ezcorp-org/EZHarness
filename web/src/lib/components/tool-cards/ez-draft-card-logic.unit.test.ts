@@ -9,7 +9,7 @@
  * plain text in a `<pre>`, never a link.
  */
 
-import { test, expect, describe } from "bun:test";
+import { test, expect, describe } from "vitest";
 import { parseDraftCardResult } from "./ez-draft-card-logic.js";
 
 const OPEN_URL = "/extensions/author?prefill=draft-abc";
