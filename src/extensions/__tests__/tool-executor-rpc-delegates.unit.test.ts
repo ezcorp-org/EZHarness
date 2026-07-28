@@ -10,7 +10,9 @@
 // handlePiGithubProjects ctx build, handlePiFinalizeToolCall (→ the shared
 // resolveHandlerScope resolver), handlePiStorage's actorExtensionId tripwire
 // (→ resolveStorageProvenance), handlePiAppendMessage's run:turn_saved emit,
-// and handlePiDrafts's best-effort emit try/catch (a throwing bus.emit).
+// handlePiDrafts's best-effort emit try/catch (a throwing bus.emit), and
+// handlePiWorkflows's ctx build + its two fail-closed guards (unknown
+// extension, ownerless background fire).
 
 import {
   test,
@@ -30,6 +32,7 @@ const REAL_FINALIZE = { ...(await import("../finalize-tool-call-handler")) };
 const REAL_STORAGE = { ...(await import("../storage-handler")) };
 const REAL_APPEND = { ...(await import("../append-message-handler")) };
 const REAL_DRAFTS = { ...(await import("../drafts-handler")) };
+const REAL_WORKFLOWS = { ...(await import("../workflows-handler")) };
 
 const okResponse = (id: number | string) => ({ jsonrpc: "2.0", id, result: { ok: true } });
 
@@ -61,6 +64,20 @@ mock.module("../drafts-handler", () => ({
     id: req.id,
     result: { ok: true, extensionId: "ext-installed", name: "weather" },
   }),
+}));
+// Capture the ctx the delegate builds so the identity contract (extension
+// NAME from the registry, user/conversation from the provenance token) can be
+// asserted without standing up the real enforcement ladder — that ladder has
+// its own suite in workflows-handler.test.ts.
+let workflowsCtx: Record<string, unknown> | undefined;
+mock.module("../workflows-handler", () => ({
+  handleWorkflowsRpc: async (
+    req: { id: number | string },
+    ctx: Record<string, unknown>,
+  ) => {
+    workflowsCtx = ctx;
+    return { jsonrpc: "2.0", id: req.id, result: { v: 1, started: true } };
+  },
 }));
 
 const { ToolExecutor } = await import("../tool-executor");
@@ -240,6 +257,101 @@ describe("reverse-RPC delegate bodies (downstream handlers mocked)", () => {
     }
     expect(warned).toBe(true);
   });
+
+  test("handlePiWorkflows builds ctx from the REGISTRY + the provenance token, not the wire", async () => {
+    const exec: ExecLike = new ToolExecutor(registry(), createStubPermissionEngine("allow-all"));
+    const tok = tokenFor("ext-1");
+    try {
+      const resp = (await exec.handlePiWorkflows("ext-1", {
+        jsonrpc: "2.0",
+        id: 8,
+        method: "ezcorp/workflows",
+        params: {
+          v: 1,
+          workflow: "deploy",
+          // Forged identity on the wire — must be ignored entirely.
+          extensionName: "some-other-ext",
+          userId: "attacker",
+          conversationId: "conv-attacker",
+          _meta: { ezCallId: tok },
+        },
+      })) as JsonRpcResponse;
+      expect(resp.result).toEqual({ v: 1, started: true });
+    } finally {
+      releaseCallProvenance(tok);
+    }
+
+    // The namespace prefix comes from the registry manifest name; a subprocess
+    // that could set it would be able to address another extension's (or the
+    // host's) workflows.
+    expect(workflowsCtx?.extensionName).toBe("ext");
+    expect(workflowsCtx?.extensionId).toBe("ext-1");
+    // Identity from the host-issued token, never the wire params.
+    expect(workflowsCtx?.userId).toBe("user-1");
+    expect(workflowsCtx?.conversationId).toBe("conv-1");
+  });
+
+  test("handlePiWorkflows fails closed with -32603 for an extension the registry doesn't know", async () => {
+    const emptyRegistry = {
+      getGrantedPermissions: () => null,
+      getManifest: () => null,
+      getRegisteredTool: () => null,
+    } as unknown as ExtensionRegistry;
+    const exec: ExecLike = new ToolExecutor(
+      emptyRegistry,
+      createStubPermissionEngine("allow-all"),
+    );
+    workflowsCtx = undefined;
+    const tok = tokenFor("ext-1");
+    try {
+      const resp = (await exec.handlePiWorkflows("ext-1", {
+        jsonrpc: "2.0",
+        id: 9,
+        method: "ezcorp/workflows",
+        params: { v: 1, workflow: "deploy", _meta: { ezCallId: tok } },
+      })) as JsonRpcResponse;
+      expect(resp.result).toBeUndefined();
+      expect(resp.error?.code).toBe(-32603);
+      expect(resp.error?.message).toBe("Extension not found in registry");
+    } finally {
+      releaseCallProvenance(tok);
+    }
+    // The downstream ladder was never reached — no grant, no manifest, so
+    // there is no namespace to resolve a workflow against.
+    expect(workflowsCtx).toBeUndefined();
+  });
+
+  test("handlePiWorkflows REFUSES an ownerless background fire with -32106", async () => {
+    // The attribution bound: a cron/webhook fire carries no acting user, and
+    // `runWorkflow` scopes its workflow:* SSE delivery fail-closed on userId —
+    // so an ownerless run would be both unattributed and invisible. The shared
+    // `resolveReverseRpcMeta` refuses it before the handler is ever entered.
+    const exec: ExecLike = new ToolExecutor(registry(), createStubPermissionEngine("allow-all"));
+    workflowsCtx = undefined;
+    const tok = registerCallProvenance({
+      onBehalfOf: null,
+      conversationId: null,
+      runId: null,
+      parentCallId: null,
+      actorExtensionId: "ext-1",
+      kind: "schedule",
+      ownerless: true,
+    });
+    try {
+      const resp = (await exec.handlePiWorkflows("ext-1", {
+        jsonrpc: "2.0",
+        id: 10,
+        method: "ezcorp/workflows",
+        params: { v: 1, workflow: "deploy", _meta: { ezCallId: tok } },
+      })) as JsonRpcResponse;
+      expect(resp.result).toBeUndefined();
+      expect(resp.error?.code).toBe(-32106);
+    } finally {
+      releaseCallProvenance(tok);
+    }
+    // No run was dispatched and no owner was invented for it.
+    expect(workflowsCtx).toBeUndefined();
+  });
 });
 
 afterAll(() => {
@@ -250,5 +362,6 @@ afterAll(() => {
   mock.module("../storage-handler", () => REAL_STORAGE);
   mock.module("../append-message-handler", () => REAL_APPEND);
   mock.module("../drafts-handler", () => REAL_DRAFTS);
+  mock.module("../workflows-handler", () => REAL_WORKFLOWS);
   restoreModuleMocks();
 });

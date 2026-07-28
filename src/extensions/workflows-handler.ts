@@ -76,7 +76,11 @@ import { insertAuditEntry } from "../db/queries/audit-log";
 import { EXT_AUDIT_ACTIONS } from "./audit-actions";
 import { getConversationExtensionIds } from "../db/queries/conversation-extensions";
 import { getConversation } from "../db/queries/conversations";
-import { getWorkflowRuntime } from "../runtime/workflow/runtime-registry";
+import {
+  getWorkflowRuntime,
+  type WorkflowRuntime,
+} from "../runtime/workflow/runtime-registry";
+import type { WorkflowDefinition } from "../types";
 import { isValidWorkflowName, namespacedWorkflowName } from "../runtime/workflow-name";
 import { extensionLogger } from "../logger";
 
@@ -414,10 +418,8 @@ export async function handleWorkflowsRpc(
  * the call itself sits inside the caller's try/catch.
  */
 function startWorkflowRun(
-  runtime: NonNullable<ReturnType<typeof getWorkflowRuntime>>,
-  definition: Parameters<
-    NonNullable<ReturnType<typeof getWorkflowRuntime>>["workflowExecutor"]["runWorkflow"]
-  >[0],
+  runtime: WorkflowRuntime,
+  definition: WorkflowDefinition,
   input: Record<string, unknown>,
   projectId: string | undefined,
   ctx: WorkflowsHandlerContext,
