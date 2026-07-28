@@ -308,6 +308,9 @@ run_legs() {
       src/lib/components/__tests__/SuggestionPopover.component.test.ts \
       src/lib/components/__tests__/ComposerSuggestSection.component.test.ts \
       src/__tests__/sse-resume-buffer.unit.test.ts \
+      src/__tests__/fetch-policy-dedup-clone.unit.test.ts \
+      src/lib/chat/page-handlers/__tests__/stream-resume.unit.test.ts \
+      src/lib/chat/page-handlers/__tests__/stream-resume-attach.component.test.ts \
       src/lib/dev-badge.unit.test.ts \
       src/lib/components/DevBadge.component.test.ts \
       src/lib/ez/__tests__/page-context.unit.test.ts \
@@ -412,6 +415,8 @@ run_legs() {
       --coverage.include='src/routes/api/composer/suggest/schema.ts' \
       --coverage.include='src/routes/api/composer/suggest/feedback/+server.ts' \
       --coverage.include='src/lib/server/sse-resume-buffer.ts' \
+      --coverage.include='src/lib/utils/fetch-policy.ts' \
+      --coverage.include='src/lib/chat/page-handlers/stream-resume.svelte.ts' \
       --coverage.include='src/lib/dev-badge.ts' \
       --coverage.include='src/lib/components/DevBadge.svelte' \
       --coverage.include='src/lib/ez/page-context.ts' \
