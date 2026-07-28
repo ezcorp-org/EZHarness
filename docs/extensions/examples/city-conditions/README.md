@@ -85,14 +85,23 @@ second one just renders as a blank where a health figure belongs.
 ## The `conditions` workflow
 
 ```
-locate  →  located  →  weather ∥ air  →  report  →  complete
-(tool)     (gate)      (tool)  (tool)    (transform) (gate)
+locate  →  located  →  weather ∥ air  →  report      →  complete  →  output
+(tool)     (gate)      (tool)  (tool)    (transform)     (gate)       (transform)
 ```
 
 `weather` and `air` both declare `dependsOn: [located]` and nothing else,
 so the executor's topological batcher places them in a single batch and
 runs them concurrently. Two independent upstreams, one round trip of
 latency — that concurrency is what the workflow buys over a single tool.
+
+The trailing `output` step exists because a run's `result` is the **last
+step's** output and a gate's output is the fixed `{passed: true}` — a
+persisted run row carries no per-step outputs. Ending on `complete` would
+finish green with the report unreachable, which is the same "succeeded but
+shows nothing" failure this extension refuses to produce anywhere else.
+`output` projects the gated report onto the run result, and re-asserts it
+on the way past (transform refs are strict, so a field that vanished fails
+the run by name).
 
 Run it from `/workflows` or `POST /api/workflows/city-conditions:conditions/run`.
 
