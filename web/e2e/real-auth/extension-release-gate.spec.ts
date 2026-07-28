@@ -54,7 +54,7 @@
  * bundled code checksums, fresh manifest reads). This is the spec that
  * proves them.
  *
- * NOT tagged `@evidence` on purpose: the `Visual evidence` capture job
+ * Deliberately NOT carrying the visual-evidence tag: the capture job
  * runs the DEFAULT (mock, `PI_SKIP_INIT=1`) Playwright config over
  * `web/e2e/**`, where none of the real-auth surface exists — a
  * real-auth spec pulled into that lane would fail for environmental
