@@ -447,21 +447,17 @@ export async function cli(args: string[]): Promise<void> {
       const run = await workflowExec
         .runWorkflow(workflow, parsed.input ?? {}, projectId)
         .finally(disconnect);
+      // `awaiting_approval` needs no special-casing here: the printed
+      // result already carries `{"code":"awaiting_approval","message":
+      // "Step \"…\" requires interactive approval …"}`, which names the
+      // blocking step and the capability.
       console.log(JSON.stringify(run.result, null, 2));
-      // `awaiting_approval` means the graph ran everything it could and
-      // then hit a step needing human consent. Name it explicitly on
-      // stderr — the result JSON alone reads like a plain failure, and the
-      // operator's next action (approve it in the UI) is different.
-      if (run.status === "awaiting_approval") {
-        console.error(
-          `Workflow "${workflow.name}" stopped: a step requires interactive approval and cannot run headlessly.`,
-        );
-      }
       // Exit with a meaningful code — 0 on success, 1 on
-      // error/cancelled/awaiting_approval (loud-failure semantics). This
-      // also releases the run harness's live handles (event bus, executor,
-      // DB) that would otherwise keep the event loop alive and hang the
-      // process after the result is printed.
+      // error/cancelled/awaiting_approval (loud-failure semantics; an
+      // approval-blocked run is NOT a success). This also releases the run
+      // harness's live handles (event bus, executor, DB) that would
+      // otherwise keep the event loop alive and hang the process after the
+      // result is printed.
       process.exit(run.status === "success" ? 0 : 1);
       break;
     }
