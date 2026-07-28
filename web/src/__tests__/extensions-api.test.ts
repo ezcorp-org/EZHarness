@@ -116,6 +116,15 @@ const mockDeleteExtension = mock(async (_id: string) => true);
 
 mock.module("$server/db/queries/extensions", () => ({
 	getExtension: mockGetExtension,
+	// The GET route resolves its route param as a REFERENCE (id OR manifest
+	// name) so the post-install `/extensions/<name>` deep-link renders. This
+	// double resolves by either, mirroring the real query's id-wins rule.
+	getExtensionByRef: mock(async (ref: string) => {
+		const byId = await mockGetExtension(ref);
+		if (byId) return byId;
+		const all = await mockListExtensions();
+		return (all as any[]).find((e) => e.name === ref) ?? null;
+	}),
 	updateExtension: mockUpdateExtension,
 	resetFailures: mockResetFailures,
 	listExtensions: mockListExtensions,
