@@ -324,16 +324,19 @@ describe("namespacing — an extension cannot reach the host's workflow", () => 
 });
 
 describe("enforcement ladder — rejections", () => {
-  async function expectDeny(
-    resp: Awaited<ReturnType<typeof handleWorkflowsRpc>>,
-    reason: string,
-    code: number,
-  ) {
-    expect(resp.result).toBeUndefined();
-    expect(resp.error?.code).toBe(code);
-    expect((resp.error?.data as { reason: string }).reason).toBe(reason);
+  /** Pure reader — the typed `reason` the handler put on the error's `data`.
+   *  Deliberately assertion-FREE so every test below states its own expected
+   *  reason and code inline, at the call site, rather than hiding them behind
+   *  a helper argument. */
+  function reasonOf(resp: Awaited<ReturnType<typeof handleWorkflowsRpc>>): unknown {
+    return (resp.error?.data as { reason?: unknown } | undefined)?.reason;
+  }
+
+  /** The half that IS shared: a rejection starts no run and writes exactly one
+   *  failed audit row carrying the same typed reason. Identical for every rung,
+   *  so asserting it once is the DRY part. */
+  async function expectAuditedRejection(reason: string): Promise<void> {
     expect(started).toHaveLength(0);
-    // Rung: every rejection is audited too, with the typed reason.
     const rows = await auditRows();
     expect(rows).toHaveLength(1);
     expect(rows[0]?.success).toBe(false);
@@ -343,102 +346,116 @@ describe("enforcement ladder — rejections", () => {
 
   test("1. kill-switch disables the whole capability", async () => {
     process.env.EZCORP_DISABLE_CAPABILITY_TOOLS = "1";
-    await expectDeny(await handleWorkflowsRpc(req(), ctx()), "WORKFLOWS_DISABLED", -32001);
+    const resp = await handleWorkflowsRpc(req(), ctx());
+
+    expect(reasonOf(resp)).toBe("WORKFLOWS_DISABLED");
+    expect(resp.error?.code).toBe(-32001);
+    expect(resp.result).toBeUndefined();
+    await expectAuditedRejection("WORKFLOWS_DISABLED");
   });
 
   test("2. no grant at all", async () => {
-    await expectDeny(
-      await handleWorkflowsRpc(req(), ctx({ grantedPermissions: { grantedAt: {} } })),
-      "WORKFLOWS_NOT_GRANTED",
-      -32001,
-    );
+    const resp = await handleWorkflowsRpc(req(), ctx({ grantedPermissions: { grantedAt: {} } }));
+
+    expect(reasonOf(resp)).toBe("WORKFLOWS_NOT_GRANTED");
+    expect(resp.error?.code).toBe(-32001);
+    expect(resp.result).toBeUndefined();
+    await expectAuditedRejection("WORKFLOWS_NOT_GRANTED");
   });
 
   test("2. a structurally empty grant authorizes nothing", async () => {
-    await expectDeny(
-      await handleWorkflowsRpc(req(), ctx({ grantedPermissions: granted({ names: [] }) })),
-      "WORKFLOWS_NOT_GRANTED",
-      -32001,
-    );
+    const resp = await handleWorkflowsRpc(req(), ctx({ grantedPermissions: granted({ names: [] }) }));
+
+    expect(reasonOf(resp)).toBe("WORKFLOWS_NOT_GRANTED");
+    expect(resp.error?.code).toBe(-32001);
+    expect(resp.result).toBeUndefined();
+    await expectAuditedRejection("WORKFLOWS_NOT_GRANTED");
   });
 
   test("2. a non-positive rate ceiling authorizes nothing", async () => {
-    await expectDeny(
-      await handleWorkflowsRpc(req(), ctx({ grantedPermissions: granted({ maxRunsPerHour: 0 }) })),
-      "WORKFLOWS_NOT_GRANTED",
-      -32001,
-    );
+    const resp = await handleWorkflowsRpc(req(), ctx({ grantedPermissions: granted({ maxRunsPerHour: 0 }) }));
+
+    expect(reasonOf(resp)).toBe("WORKFLOWS_NOT_GRANTED");
+    expect(resp.error?.code).toBe(-32001);
+    expect(resp.result).toBeUndefined();
+    await expectAuditedRejection("WORKFLOWS_NOT_GRANTED");
   });
 
   test("3. a missing / non-string workflow name", async () => {
-    await expectDeny(
-      await handleWorkflowsRpc(
-        { jsonrpc: "2.0", id: 1, method: "ezcorp/workflows", params: { v: 1 } },
-        ctx(),
-      ),
-      "WORKFLOW_NAME_INVALID",
-      -32602,
+    const resp = await handleWorkflowsRpc(
+      { jsonrpc: "2.0", id: 1, method: "ezcorp/workflows", params: { v: 1 } },
+      ctx(),
     );
+
+    expect(reasonOf(resp)).toBe("WORKFLOW_NAME_INVALID");
+    expect(resp.error?.code).toBe(-32602);
+    expect(resp.result).toBeUndefined();
+    await expectAuditedRejection("WORKFLOW_NAME_INVALID");
   });
 
   test("3. a path-traversal-shaped name", async () => {
-    await expectDeny(
-      await handleWorkflowsRpc(req({ workflow: "../../etc/passwd" }), ctx()),
-      "WORKFLOW_NAME_INVALID",
-      -32602,
-    );
+    const resp = await handleWorkflowsRpc(req({ workflow: "../../etc/passwd" }), ctx());
+
+    expect(reasonOf(resp)).toBe("WORKFLOW_NAME_INVALID");
+    expect(resp.error?.code).toBe(-32602);
+    expect(resp.result).toBeUndefined();
+    await expectAuditedRejection("WORKFLOW_NAME_INVALID");
   });
 
   test("4. a STALE grant naming a workflow the manifest no longer declares", async () => {
     // The exploit this rung exists for: the author narrowed the manifest but
     // the stored grant still lists the old name.
-    await expectDeny(
-      await handleWorkflowsRpc(
-        req(),
-        ctx({ manifest: manifest(["something-else"]) }),
-      ),
-      "WORKFLOW_NOT_DECLARED",
-      -32001,
+    const resp = await handleWorkflowsRpc(
+      req(),
+      ctx({ manifest: manifest(["something-else"]) }),
     );
+
+    expect(reasonOf(resp)).toBe("WORKFLOW_NOT_DECLARED");
+    expect(resp.error?.code).toBe(-32001);
+    expect(resp.result).toBeUndefined();
+    await expectAuditedRejection("WORKFLOW_NOT_DECLARED");
   });
 
   test("4. a manifest with no workflows block at all", async () => {
-    await expectDeny(
-      await handleWorkflowsRpc(
-        req(),
-        ctx({ manifest: { ...manifest(), permissions: {} } as ExtensionManifestV2 }),
-      ),
-      "WORKFLOW_NOT_DECLARED",
-      -32001,
+    const resp = await handleWorkflowsRpc(
+      req(),
+      ctx({ manifest: { ...manifest(), permissions: {} } as ExtensionManifestV2 }),
     );
+
+    expect(reasonOf(resp)).toBe("WORKFLOW_NOT_DECLARED");
+    expect(resp.error?.code).toBe(-32001);
+    expect(resp.result).toBeUndefined();
+    await expectAuditedRejection("WORKFLOW_NOT_DECLARED");
   });
 
   test("5. declared in the manifest but NOT in the grant (admin denied it)", async () => {
-    await expectDeny(
-      await handleWorkflowsRpc(
-        req({ workflow: "other" }),
-        ctx({ manifest: manifest(["deploy", "other"]) }),
-      ),
-      "WORKFLOW_NOT_GRANTED",
-      -32001,
+    const resp = await handleWorkflowsRpc(
+      req({ workflow: "other" }),
+      ctx({ manifest: manifest(["deploy", "other"]) }),
     );
+
+    expect(reasonOf(resp)).toBe("WORKFLOW_NOT_GRANTED");
+    expect(resp.error?.code).toBe(-32001);
+    expect(resp.result).toBeUndefined();
+    await expectAuditedRejection("WORKFLOW_NOT_GRANTED");
   });
 
   test("6. the PDP denies", async () => {
-    await expectDeny(
-      await handleWorkflowsRpc(
-        req(),
-        ctx({
-          engine: {
-            async authorize() {
-              return { decision: "deny", reason: "Missing capability" };
-            },
-          } as unknown as WorkflowsHandlerContext["engine"],
-        }),
-      ),
-      "WORKFLOWS_PERM_DENIED",
-      -32001,
+    const resp = await handleWorkflowsRpc(
+      req(),
+      ctx({
+        engine: {
+          async authorize() {
+            return { decision: "deny", reason: "Missing capability" };
+          },
+        } as unknown as WorkflowsHandlerContext["engine"],
+      }),
     );
+
+    expect(reasonOf(resp)).toBe("WORKFLOWS_PERM_DENIED");
+    expect(resp.error?.code).toBe(-32001);
+    expect(resp.result).toBeUndefined();
+    await expectAuditedRejection("WORKFLOWS_PERM_DENIED");
   });
 
   test("6. the PDP allows and names the PER-NAME capability", async () => {
@@ -446,12 +463,12 @@ describe("enforcement ladder — rejections", () => {
     const resp = await handleWorkflowsRpc(
       req(),
       ctx({
-        engine: {
-          async authorize(_c: unknown, needed: unknown) {
-            seen.push(needed);
-            return { decision: "allow" };
-          },
-        } as unknown as WorkflowsHandlerContext["engine"],
+      engine: {
+        async authorize(_c: unknown, needed: unknown) {
+          seen.push(needed);
+          return { decision: "allow" };
+        },
+      } as unknown as WorkflowsHandlerContext["engine"],
       }),
     );
 
@@ -496,11 +513,12 @@ describe("enforcement ladder — rejections", () => {
   test("8. the extension is not wired to the calling conversation", async () => {
     await getTestDb().delete(conversationExtensions);
 
-    await expectDeny(
-      await handleWorkflowsRpc(req(), ctx()),
-      "WORKFLOWS_NOT_WIRED",
-      -32001,
-    );
+    const resp = await handleWorkflowsRpc(req(), ctx());
+
+    expect(reasonOf(resp)).toBe("WORKFLOWS_NOT_WIRED");
+    expect(resp.error?.code).toBe(-32001);
+    expect(resp.result).toBeUndefined();
+    await expectAuditedRejection("WORKFLOWS_NOT_WIRED");
   });
 
   test("8. a conversation-less (but owned) call skips the wiring gate", async () => {
@@ -515,22 +533,24 @@ describe("enforcement ladder — rejections", () => {
   });
 
   test("10. a missing payload version", async () => {
-    await expectDeny(
-      await handleWorkflowsRpc(
-        { jsonrpc: "2.0", id: 1, method: "ezcorp/workflows", params: { workflow: "deploy" } },
-        ctx(),
-      ),
-      "WORKFLOWS_BAD_PAYLOAD",
-      -32602,
+    const resp = await handleWorkflowsRpc(
+      { jsonrpc: "2.0", id: 1, method: "ezcorp/workflows", params: { workflow: "deploy" } },
+      ctx(),
     );
+
+    expect(reasonOf(resp)).toBe("WORKFLOWS_BAD_PAYLOAD");
+    expect(resp.error?.code).toBe(-32602);
+    expect(resp.result).toBeUndefined();
+    await expectAuditedRejection("WORKFLOWS_BAD_PAYLOAD");
   });
 
   test("10. a non-object `input`", async () => {
-    await expectDeny(
-      await handleWorkflowsRpc(req({ input: ["not", "an", "object"] }), ctx()),
-      "WORKFLOWS_BAD_PAYLOAD",
-      -32602,
-    );
+    const resp = await handleWorkflowsRpc(req({ input: ["not", "an", "object"] }), ctx());
+
+    expect(reasonOf(resp)).toBe("WORKFLOWS_BAD_PAYLOAD");
+    expect(resp.error?.code).toBe(-32602);
+    expect(resp.result).toBeUndefined();
+    await expectAuditedRejection("WORKFLOWS_BAD_PAYLOAD");
   });
 
   test("10. an oversized `input`", async () => {
@@ -581,11 +601,12 @@ describe("enforcement ladder — rejections", () => {
   test("12. no registered runtime degrades to a typed soft-fail, never a crash", async () => {
     _resetWorkflowRuntimeForTests();
 
-    await expectDeny(
-      await handleWorkflowsRpc(req(), ctx()),
-      "WORKFLOWS_RUNTIME_UNAVAILABLE",
-      -32603,
-    );
+    const resp = await handleWorkflowsRpc(req(), ctx());
+
+    expect(reasonOf(resp)).toBe("WORKFLOWS_RUNTIME_UNAVAILABLE");
+    expect(resp.error?.code).toBe(-32603);
+    expect(resp.result).toBeUndefined();
+    await expectAuditedRejection("WORKFLOWS_RUNTIME_UNAVAILABLE");
   });
 
   test("13. an ASYNC run rejection is absorbed, not left unhandled", async () => {
