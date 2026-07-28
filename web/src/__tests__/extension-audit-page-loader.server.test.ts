@@ -67,6 +67,10 @@ describe("/extensions/[id]/audit +page.server.ts", () => {
 
 	test("unauthenticated → 401", async () => {
 		await expectStatus(() => load(makeEvent(ROW.id, undefined)), 401);
+		// Rejected before any lookup — an anonymous caller never reaches the
+		// row read, let alone the audit tables.
+		expect(vi.mocked(getExtensionByRef)).not.toHaveBeenCalled();
+		expect(vi.mocked(mergeAuditForExtension)).not.toHaveBeenCalled();
 	});
 
 	test("non-admin → 403", async () => {
