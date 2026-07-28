@@ -10,9 +10,14 @@ let decryptImpl: (s: string) => string = (s) => s;
 let encryptImpl: (s: string) => string = (s) => s;
 let upsertCalls: Array<{ key: string; value: unknown }> = [];
 let getOAuthApiKeyImpl: (providerId: string, creds: any) => any = async () => null;
+// Simulates the settings store being unreachable (DB down / not yet booted).
+// Both resolvers must fail CLOSED when this happens rather than surfacing a
+// stale or partial credential.
+let getSettingThrows = false;
 
 mock.module("$server/db/queries/settings", () => ({
   getSetting: async (key: string) => {
+    if (getSettingThrows) throw new Error("settings store unavailable");
     if (key === "provider:apiKey:openai") return storedApiKey;
     if (key === "provider:oauth:openai") return storedOAuth;
     return undefined;
@@ -58,6 +63,7 @@ beforeEach(() => {
   encryptImpl = (s) => s;
   upsertCalls = [];
   getOAuthApiKeyImpl = async () => null;
+  getSettingThrows = false;
 });
 
 describe("buildOpenAIInjectedEnv", () => {
@@ -190,6 +196,35 @@ describe("resolveOpenAIAccessToken", () => {
       },
     });
     expect(await resolveOpenAIAccessToken()).toBe("from-new-creds");
+  });
+
+  test("fails CLOSED when the settings store is unreachable (no token, no throw)", async () => {
+    // A usable credential IS stored — but the store itself errors on read.
+    // The resolver must swallow the error and yield null rather than
+    // propagating (which would crash the spawn) or returning anything.
+    storedOAuth = "enc";
+    decryptImpl = () => makeCreds({ expires: Date.now() + 60 * 60 * 1000 });
+    getSettingThrows = true;
+
+    expect(await resolveOpenAIAccessToken()).toBeNull();
+    // The BYOK path shares the fail-closed contract: with no env fallback
+    // configured, an unreachable store must yield null, never a partial value.
+    expect(await resolveOpenAIApiKey()).toBeNull();
+  });
+
+  test("an unreachable settings store injects NO credential env at spawn", async () => {
+    // The property that actually matters downstream: a store outage must not
+    // hand the extension subprocess a half-built env. It gets an empty map and
+    // produces its own "set OPENAI_API_KEY" error.
+    storedOAuth = "enc";
+    storedApiKey = "enc-key";
+    getSettingThrows = true;
+
+    const registry = new FakeRegistry();
+    wireOpenAIExtensionCredentials(registry as never);
+    const resolver = registry.resolvers.get(OPENAI_IMAGE_GEN_EXT_NAME);
+    expect(resolver).toBeDefined();
+    expect(await resolver!()).toEqual({});
   });
 });
 
