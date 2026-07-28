@@ -426,7 +426,11 @@ export async function cli(args: string[]): Promise<void> {
       }
 
       const { bus, executor, disconnect } = await setupRunHarness(agentsDir);
-      const workflowExec = new WorkflowExecutor(executor, bus);
+      // The harness opened the DB, so run history is persisted here too —
+      // a CLI/CI workflow run shows up in `workflow_runs` exactly like a
+      // UI-fired one (and is drained by the same boot sweep if the process
+      // is killed mid-run).
+      const workflowExec = new WorkflowExecutor(executor, bus, { persist: true });
 
       const yamlWorkflows = await loadYamlWorkflows(agentsDir);
       const dbWorkflows = await loadDbWorkflows();
@@ -444,10 +448,20 @@ export async function cli(args: string[]): Promise<void> {
         .runWorkflow(workflow, parsed.input ?? {}, projectId)
         .finally(disconnect);
       console.log(JSON.stringify(run.result, null, 2));
-      // Exit with a meaningful code — 0 on success, 1 on error/cancelled
-      // (loud-failure semantics). This also releases the run harness's live
-      // handles (event bus, executor, DB) that would otherwise keep the event
-      // loop alive and hang the process after the result is printed.
+      // `awaiting_approval` means the graph ran everything it could and
+      // then hit a step needing human consent. Name it explicitly on
+      // stderr — the result JSON alone reads like a plain failure, and the
+      // operator's next action (approve it in the UI) is different.
+      if (run.status === "awaiting_approval") {
+        console.error(
+          `Workflow "${workflow.name}" stopped: a step requires interactive approval and cannot run headlessly.`,
+        );
+      }
+      // Exit with a meaningful code — 0 on success, 1 on
+      // error/cancelled/awaiting_approval (loud-failure semantics). This
+      // also releases the run harness's live handles (event bus, executor,
+      // DB) that would otherwise keep the event loop alive and hang the
+      // process after the result is printed.
       process.exit(run.status === "success" ? 0 : 1);
       break;
     }
