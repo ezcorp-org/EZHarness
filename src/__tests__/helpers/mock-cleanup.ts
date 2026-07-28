@@ -85,6 +85,7 @@ const MODULE_PATHS = [
   "../../extensions/agent-configs-handler",
   "../../extensions/permissions",
   "../../extensions/installer",
+  "../../extensions/author-gate",
   "../../extensions/manifest",
   "../../extensions/checksum",
   // "../../extensions/bundled" was TRIMMED (wave 3): zero mock.module

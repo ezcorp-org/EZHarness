@@ -43,32 +43,38 @@ const updateCalls: Array<{ id: string; data: Record<string, unknown> }> = [];
 const resetFailuresCalls: string[] = [];
 const deleteCalls: string[] = [];
 
-const extensionsQueriesMock = () => ({
-  getExtension: async (id: string) => {
-    if (getExtensionReturnsNull) return null;
-    return {
-      id,
+const fakeExtensionRow = async (id: string) => {
+  if (getExtensionReturnsNull) return null;
+  return {
+    id,
+    name: "fake-ext",
+    version: "1.0.0",
+    description: "",
+    manifest: {
+      schemaVersion: 2,
       name: "fake-ext",
       version: "1.0.0",
       description: "",
-      manifest: {
-        schemaVersion: 2,
-        name: "fake-ext",
-        version: "1.0.0",
-        description: "",
-        author: { name: "test" },
-        permissions: {},
-      },
-      source: "local:/tmp/fake-ext",
-      installPath: "/tmp/fake-ext",
-      enabled: storedEnabled,
-      grantedPermissions: { grantedAt: {} },
-      checksumVerified: true,
-      consecutiveFailures: 0,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-  },
+      author: { name: "test" },
+      permissions: {},
+    },
+    source: "local:/tmp/fake-ext",
+    installPath: "/tmp/fake-ext",
+    enabled: storedEnabled,
+    grantedPermissions: { grantedAt: {} },
+    checksumVerified: true,
+    consecutiveFailures: 0,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
+};
+
+const extensionsQueriesMock = () => ({
+  getExtension: fakeExtensionRow,
+  // GET resolves the route param as a REFERENCE (id OR manifest name); the
+  // mutating handlers under test stay id-only. Stubbed so the route module's
+  // imports resolve either way.
+  getExtensionByRef: fakeExtensionRow,
   updateExtension: async (id: string, data: Record<string, unknown>) => {
     updateCalls.push({ id, data });
     return { id, name: "fake-ext", enabled: data.enabled };

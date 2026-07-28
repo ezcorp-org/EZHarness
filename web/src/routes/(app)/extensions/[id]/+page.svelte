@@ -152,7 +152,18 @@
 	let modifyBusy = $state(false);
 	let modifiableBusy = $state(false);
 
-	const extId = $derived($page.params.id);
+	// The route param is a REFERENCE, not necessarily the row id. The library
+	// links by id, but the deep-link the server hands a user after an install
+	// — the author page's `redirectUrl` and the `install_draft` card's "Open
+	// extension" button — is `/extensions/<manifest-name>`. ONLY
+	// `GET /api/extensions/<ref>` resolves both shapes; every other extension
+	// endpoint (settings, permissions, modifiable, reopen, activate, audit,
+	// expired-grants, violations) is id-only. So: resolve once via
+	// `loadExtension()`, then canonicalise on the row's id for every
+	// downstream call. Before the row lands `ext` is null and `extId` is the
+	// raw ref — which is exactly what the resolving GET wants.
+	const extRef = $derived($page.params.id);
+	const extId = $derived(ext?.id ?? extRef);
 	const hasViolations = $derived(violations.length > 0);
 
 	// github-projects is the ONE extension whose primary configuration is
@@ -543,8 +554,12 @@
 
 	onMount(async () => {
 		await checkAdmin();
+		// loadExtension FIRST — it is what resolves the route reference to a
+		// row, and every loader below is id-only. Firing them in one
+		// Promise.all sent the RAW route param, so on the post-install
+		// `/extensions/<name>` deep-link each one 404'd.
+		await loadExtension();
 		await Promise.all([
-			loadExtension(),
 			loadViolations(),
 			loadAuditTrail(),
 			loadSettings(),

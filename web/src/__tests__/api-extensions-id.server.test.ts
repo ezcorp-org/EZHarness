@@ -11,6 +11,7 @@ import { test, expect, describe, vi, beforeEach } from "vitest";
 
 vi.mock("$server/db/queries/extensions", () => ({
 	getExtension: vi.fn(),
+	getExtensionByRef: vi.fn(),
 	updateExtension: vi.fn(),
 	deleteExtension: vi.fn(),
 }));
@@ -23,9 +24,8 @@ vi.mock("$server/extensions/registry", () => ({
 	},
 }));
 
-const { getExtension, updateExtension, deleteExtension } = await import(
-	"$server/db/queries/extensions"
-);
+const { getExtension, getExtensionByRef, updateExtension, deleteExtension } =
+	await import("$server/db/queries/extensions");
 const { GET, PATCH, DELETE } = await import(
 	"../routes/api/extensions/[id]/+server"
 );
@@ -78,6 +78,7 @@ const ext = {
 
 describe("GET /api/extensions/[id]", () => {
 	beforeEach(() => {
+		vi.mocked(getExtensionByRef).mockReset();
 		vi.mocked(getExtension).mockReset();
 	});
 
@@ -100,7 +101,7 @@ describe("GET /api/extensions/[id]", () => {
 	});
 
 	test("happy path: returns extension row", async () => {
-		vi.mocked(getExtension).mockResolvedValue(ext as any);
+		vi.mocked(getExtensionByRef).mockResolvedValue(ext as any);
 		const res = await GET(makeEvent({ locals: { user } }));
 		expect(res.status).toBe(200);
 		const body = (await res.json()) as Record<string, unknown>;
@@ -108,11 +109,26 @@ describe("GET /api/extensions/[id]", () => {
 	});
 
 	test("returns 404 when extension not found", async () => {
-		vi.mocked(getExtension).mockResolvedValue(null as any);
+		vi.mocked(getExtensionByRef).mockResolvedValue(null as any);
 		const res = await GET(makeEvent({ locals: { user } }));
 		expect(res.status).toBe(404);
 		const body = (await res.json()) as { error?: string };
 		expect(body.error).toBe("Not found");
+	});
+
+	// The post-install deep-link is `/extensions/<manifest-name>`, so this
+	// read MUST go through the reference resolver, not the id-only lookup —
+	// `getExtension(name)` is what rendered "Extension not found".
+	test("resolves the route param as a REFERENCE (id or manifest name)", async () => {
+		vi.mocked(getExtensionByRef).mockResolvedValue(ext as any);
+		const res = await GET(makeEvent({ id: "weather", locals: { user } }));
+		expect(res.status).toBe(200);
+		expect(vi.mocked(getExtensionByRef)).toHaveBeenCalledWith("weather");
+		expect(vi.mocked(getExtension)).not.toHaveBeenCalled();
+		// The body carries the ROW id, which is what the page canonicalises
+		// every downstream (id-only) call on.
+		const body = (await res.json()) as { id: string };
+		expect(body.id).toBe("ext-1");
 	});
 });
 

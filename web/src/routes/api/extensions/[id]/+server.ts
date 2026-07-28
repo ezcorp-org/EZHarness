@@ -1,7 +1,12 @@
 import { json } from "@sveltejs/kit";
 import { z } from "zod";
 import { errorJson } from "$lib/server/http-errors";
-import { getExtension, updateExtension, deleteExtension } from "$server/db/queries/extensions";
+import {
+  getExtension,
+  getExtensionByRef,
+  updateExtension,
+  deleteExtension,
+} from "$server/db/queries/extensions";
 import { ExtensionRegistry } from "$server/extensions/registry";
 import { getPageCache } from "$server/extensions/page-cache";
 import { requireAuth, requireRole } from "$server/auth/middleware";
@@ -32,11 +37,18 @@ const extensionPatchSchema = z.object({
   enabled: z.boolean().optional(),
 }).passthrough();
 
+// GET resolves `[id]` as a REFERENCE (id OR manifest name) — it is the read
+// the `/extensions/<ref>` detail page issues, and the one deep-link the server
+// hands a user after an install is `/extensions/<manifest-name>`
+// (`installAuthoredDraft`'s redirectUrl/openUrl). The page canonicalises on
+// the returned `ext.id` for every subsequent call, so ONLY this read is
+// reference-addressed; PATCH/DELETE below stay id-only on purpose (see
+// getExtensionByRef's contract — destructive ops key on the primary key).
 export const GET: RequestHandler = async ({ params, locals }) => {
   const scopeErr = requireScope(locals, "read");
   if (scopeErr) return scopeErr;
   requireAuth(locals);
-  const ext = await getExtension(params.id);
+  const ext = await getExtensionByRef(params.id);
   if (!ext) return errorJson(404, "Not found");
   return json(ext);
 };
