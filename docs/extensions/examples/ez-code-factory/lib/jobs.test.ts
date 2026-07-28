@@ -707,3 +707,52 @@ describe("hasJobEditField", () => {
     expect(hasJobEditField({ jobId: "j1" })).toBe(false); // nothing to edit
   });
 });
+
+describe("create-form draft (one Save → a ready-to-run job)", () => {
+  // The CREATE base handleJobSave uses for a job with no jobId.
+  const createBase: JobDraft = {
+    name: "",
+    trigger: { kind: "push", branchPattern: "main" },
+    enabled: false,
+    skipSteps: [],
+  };
+
+  test("the create form's payload yields an ENABLED, fully-configured job in ONE save", () => {
+    const applied = applyJobEdit(createBase, {
+      name: "Nightly main",
+      trigger_kind: "schedule",
+      trigger_branch: "main",
+      trigger_every: "daily",
+      enabled: "yes",
+    });
+    expect(applied.ok).toBe(true);
+    if (!applied.ok) return;
+    const v = validateJobDraft(applied.draft);
+    expect(v.ok).toBe(true);
+    if (!v.ok) return;
+    expect(v.value).toMatchObject({
+      name: "Nightly main",
+      enabled: true,
+      trigger: { kind: "schedule", every: "daily", branch: "main" },
+      skipSteps: [],
+    });
+  });
+
+  test("enabled:'no' saves the job switched OFF (and the create default stays off)", () => {
+    const off = applyJobEdit(createBase, { name: "Later", enabled: "no" });
+    expect(off.ok && off.draft.enabled).toBe(false);
+    // Omitting `enabled` entirely leaves the base value untouched.
+    const untouched = applyJobEdit({ ...createBase, enabled: true }, { name: "Keep" });
+    expect(untouched.ok && untouched.draft.enabled).toBe(true);
+  });
+
+  test("a junk enabled value is a hard error — never a silent on/off", () => {
+    const r = applyJobEdit(createBase, { name: "X", enabled: "maybe" });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain("enabled must be yes or no");
+  });
+
+  test("'enabled' is a recognized edit field (a create/edit carrying only it is not rejected)", () => {
+    expect(hasJobEditField({ enabled: "yes" })).toBe(true);
+  });
+});

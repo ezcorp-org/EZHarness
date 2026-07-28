@@ -1547,10 +1547,29 @@ describe("buildConfigView", () => {
     expect(jobsTable.rows[0]!.href).toBe(`/project/proj-1/hub/${encodeURIComponent(FULL_PAGE_ID)}?view=${encodeURIComponent("job:j1")}`);
     // The last-run cell references the run id (text, not a separate link).
     expect(String(jobsTable.rows[0]!.cells[3])).toContain("run_1");
-    // New job button dispatches job-save with a name prompt.
-    const newBtn = buttonsDeep(tree).find((b) => b.label === "New job")!;
-    expect(newBtn.action.event).toBe(JOB_SAVE_EVENT);
-    expect(newBtn.action.prompt?.field).toBe("name");
+    // Creation is a FULL inline form (no name-only prompt button): every field
+    // needed for a ready-to-run job, with a conditional cadence.
+    expect(buttonsDeep(tree).some((b) => b.label === "New job")).toBe(false);
+    const createForm = formsDeep(tree).find((f) => f.submitLabel === "Create job")!;
+    expect(createForm).toBeDefined();
+    expect(createForm.action.event).toBe(JOB_SAVE_EVENT);
+    // No jobId in the payload → the handler takes the CREATE path.
+    expect(createForm.action.payload).toBeUndefined();
+    expect(createForm.fields.map((f) => f.field)).toEqual([
+      "name",
+      "trigger_kind",
+      "trigger_branch",
+      "trigger_every",
+      "enabled",
+    ]);
+    const byField = Object.fromEntries(createForm.fields.map((f) => [f.field, f]));
+    // Sensible defaults: a push job on main, ON, so one Save is enough.
+    expect(byField.name!.value).toBe("");
+    expect(byField.trigger_kind!.value).toBe("push");
+    expect(byField.trigger_branch!.value).toBe("main");
+    expect(byField.enabled!.value).toBe("yes");
+    // Cadence only shows for a schedule trigger.
+    expect(byField.trigger_every!.visibleWhen).toEqual({ field: "trigger_kind", equals: "schedule" });
     // Platform-settings pointer.
     const link = allNodes(tree.nodes).find((n) => n.type === "link" && (n.href as string) === "/extensions/ez-code-factory");
     expect(link).toBeDefined();
@@ -1590,7 +1609,12 @@ describe("buildConfigView", () => {
 
   test("an empty jobs list renders the 'No jobs' empty state", () => {
     const tree = buildConfigView({ jobs: [], runs: [], config: cfg, sweepHeartbeat: null, nowMs: Date.now(), extensionId: "ez-code-factory" });
-    expect(allNodes(tree.nodes).some((n) => n.type === "empty-state" && String(n.title) === "No jobs")).toBe(true);
+    const empty = allNodes(tree.nodes).find((n) => n.type === "empty-state" && String(n.title) === "No jobs yet")!;
+    expect(empty).toBeDefined();
+    // The empty state POINTS at the create form instead of dead-ending.
+    expect(String(empty.detail)).toContain("Create one below");
+    // …and the create form is actually there to point at.
+    expect(formsDeep(tree).some((f) => f.submitLabel === "Create job")).toBe(true);
   });
 
   test("a manual-trigger job renders its 'manual · <branch>' trigger label", () => {

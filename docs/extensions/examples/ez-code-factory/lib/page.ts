@@ -1344,8 +1344,13 @@ export function buildConfigView(input: ConfigViewInput): HubPageTree {
   // carries the per-run deep-links).
   page.heading(2, "Jobs");
   if (jobs.length === 0) {
-    page.emptyState("No jobs", "A default job is auto-seeded on the first push.");
+    page.emptyState(
+      "No jobs yet",
+      "Create one below — or push to the gate and a default job is seeded for you.",
+    );
   } else {
+    // The rows are links into the editor; say so, or the table reads read-only.
+    page.markdown("Click a job to open its editor and change anything about it.", "muted");
     page.table(
       ["Name", "Trigger", "Enabled", "Last run"],
       jobs.map((job) => {
@@ -1362,20 +1367,62 @@ export function buildConfigView(input: ConfigViewInput): HubPageTree {
       }),
     );
   }
-  page.button(
-    "New job",
-    {
-      event: JOB_SAVE_EVENT,
-      prompt: {
-        label: "New job name (creates a DISABLED push job on `main` — configure it in the editor)",
-        field: "name",
-        placeholder: "e.g. Nightly main",
-        submitLabel: "Create",
-        maxLength: MAX_JOB_NAME_LEN,
-      },
-    },
-    "primary",
-  );
+  // Create — a FULL inline form, not a name-only prompt. The old flow minted a
+  // DISABLED push job on `main` from a single name and left the author to find
+  // it, configure it, and remember to enable it (4 steps, and a job that
+  // silently did nothing in between). One Save now produces a ready-to-run job.
+  page.section("New job", (s) => {
+    s.markdown(
+      "Fill this in and press Create job — the job is saved with these settings, " +
+        "already on if you leave Enabled as yes. You can change everything later " +
+        "from the job's own page.",
+      "muted",
+    );
+    s.form(
+      [
+        { field: "name", label: "Name", value: "", placeholder: "e.g. Nightly main", maxLength: MAX_JOB_NAME_LEN },
+        {
+          field: "trigger_kind",
+          label: "Trigger — when should this job run?",
+          value: "push",
+          options: [
+            { value: "push", label: "push — every matching git push" },
+            { value: "schedule", label: "schedule — on a cadence" },
+            { value: "manual", label: "manual — only when you press Run now" },
+          ],
+        },
+        {
+          field: "trigger_branch",
+          label: "Branch (push may end with one * glob; schedule/manual need a literal)",
+          value: "main",
+          placeholder: "e.g. main or feat/*",
+          maxLength: MAX_BRANCH_PATTERN_LEN,
+        },
+        {
+          field: "trigger_every",
+          label: "Cadence",
+          value: "daily",
+          options: [
+            { value: "15m", label: "every 15 minutes" },
+            { value: "hourly" },
+            { value: "daily" },
+          ],
+          visibleWhen: { field: "trigger_kind", equals: "schedule" },
+        },
+        {
+          field: "enabled",
+          label: "Enabled — off means it is saved but never fires",
+          value: "yes",
+          options: [
+            { value: "yes", label: "yes — start running it" },
+            { value: "no", label: "no — save it switched off" },
+          ],
+        },
+      ],
+      { event: JOB_SAVE_EVENT },
+      "Create job",
+    );
+  });
 
   // Schedule / sweep health.
   page.heading(2, "Schedule health");

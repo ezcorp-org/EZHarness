@@ -38,7 +38,7 @@ const viewHref = (view: string) => `${hubBase}?view=${encodeURIComponent(view)}`
 const runHref = (id: string) => `${hubBase}?run=${id}`;
 
 /** Config view: pipeline table + jobs table (row → ?view=job:<id>) + the
- *  warning-toned "sweep has never run" cell + the New job button. */
+ *  warning-toned "sweep has never run" cell + the inline New-job form. */
 function configTree() {
 	return {
 		title: "ez-code-factory — config",
@@ -63,7 +63,40 @@ function configTree() {
 					},
 				],
 			},
-			{ type: "button", label: "New job", action: { event: "ez-code-factory:job-save", prompt: { label: "New job name", field: "name" } }, style: "primary" },
+			{
+				type: "section",
+				title: "New job",
+				nodes: [
+					{
+						type: "form",
+						action: { event: "ez-code-factory:job-save" },
+						submitLabel: "Create job",
+						fields: [
+							{ field: "name", label: "Name", value: "", maxLength: 80 },
+							{
+								field: "trigger_kind",
+								label: "Trigger — when should this job run?",
+								value: "push",
+								options: [{ value: "push" }, { value: "schedule" }, { value: "manual" }],
+							},
+							{ field: "trigger_branch", label: "Branch", value: "main", maxLength: 120 },
+							{
+								field: "trigger_every",
+								label: "Cadence",
+								value: "daily",
+								options: [{ value: "15m" }, { value: "hourly" }, { value: "daily" }],
+								visibleWhen: { field: "trigger_kind", equals: "schedule" },
+							},
+							{
+								field: "enabled",
+								label: "Enabled",
+								value: "yes",
+								options: [{ value: "yes" }, { value: "no" }],
+							},
+						],
+					},
+				],
+			},
 			{ type: "heading", level: 2, text: "Schedule health" },
 			{
 				type: "table",
@@ -354,8 +387,32 @@ test.describe("ez-code-factory control plane (?view= + job actions)", () => {
 		// Sweep-health WARNING cell (warning tone).
 		const warn = page.locator('[data-testid="hub-table-cell"][data-tone="warning"]');
 		await expect(warn).toContainText("sweep has never run");
-		// The New job button is present.
-		await expect(page.getByRole("button", { name: "New job" })).toBeVisible();
+		// Creating a job is a form ON the page (no name-only modal): filling it
+		// and pressing Create job POSTs one job-save with every setting, and the
+		// cadence only appears once the trigger is a schedule.
+		const createForm = page.getByTestId("hub-inline-form");
+		await expect(createForm).toBeVisible();
+		await expect(page.getByTestId("hub-inline-field-trigger_every")).toHaveCount(0);
+		await page.getByTestId("hub-inline-field-trigger_kind").selectOption("schedule");
+		await expect(page.getByTestId("hub-inline-field-trigger_every")).toHaveValue("daily");
+		await page.getByTestId("hub-inline-field-name").fill("Nightly main");
+		const createPost = page.waitForRequest(
+			(req) => req.method() === "POST" && req.url().includes("/events/job-save"),
+		);
+		await page.getByTestId("hub-inline-form-submit").click();
+		const createReq = await createPost;
+		// No jobId → the handler's CREATE path; enabled:"yes" → live immediately.
+		expect(createReq.postDataJSON()).toEqual({
+			source: "hub",
+			pageId: "dashboard",
+			payload: {
+				name: "Nightly main",
+				trigger_kind: "schedule",
+				trigger_branch: "main",
+				trigger_every: "daily",
+				enabled: "yes",
+			},
+		});
 
 		await captureEvidence(page, testInfo, "ez-code-factory-config-view");
 	});

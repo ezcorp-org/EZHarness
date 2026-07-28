@@ -326,6 +326,7 @@ export function parseJobIdPayload(payload: unknown): string | null {
  */
 export const JOB_EDIT_FIELDS = [
   "name",
+  "enabled",
   "branch_pattern",
   "trigger",
   "trigger_kind",
@@ -375,6 +376,16 @@ export function applyJobEdit(
     ...(base.documentInstructions !== undefined ? { documentInstructions: base.documentInstructions } : {}),
   };
   if (typeof patch.name === "string") draft.name = patch.name;
+  // `enabled` as a yes/no scalar — lets the CREATE form mint a job that is
+  // live immediately (the old create path always produced a disabled job the
+  // author then had to find and enable). Anything else is a hard error, never
+  // a silent default.
+  if (typeof patch.enabled === "string") {
+    const v = patch.enabled.trim().toLowerCase();
+    if (v === "yes" || v === "true") draft.enabled = true;
+    else if (v === "no" || v === "false") draft.enabled = false;
+    else return { ok: false, error: "enabled must be yes or no" };
+  }
   if (typeof patch.branch_pattern === "string") {
     draft.trigger =
       draft.trigger.kind === "push"
