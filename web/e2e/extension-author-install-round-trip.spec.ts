@@ -59,32 +59,31 @@
  * in the `e2e-real-auth` job. This spec is the dependency-composition
  * slice of the same authoring surface.
  *
- * ── CURRENT STATUS: RED, and deliberately so ──────────────────────────
+ * ── THE DEFECT THIS SPEC WAS WRITTEN AGAINST (now fixed) ─────────────
  *
- * Steps 1-4 pass against a live server (verified: the picker opens, the
- * managed `// ezcorp:dependencies (managed)` block is written, the draft
- * PUT lands, the dep chip renders). Step 5 — Install — FAILS with a real
- * product defect, not a harness problem:
+ * Steps 1-4 always passed; step 5 — Install — failed with a real product
+ * defect:
  *
  *   Install failed (422): Invalid manifest:
  *   dependencies.<dep>.source is invalid: Unrecognized source format:
  *   "bundled". Expected github:user/repo, gitlab:org/project,
  *   https://host/repo.git, or git@host:user/repo.git
  *
- * `AuthorCompositionPanel` writes the picked row's `source` verbatim
- * (`ezcorp-config-edit.ts:renderDepBlock`), but `validateDependencies`
- * (`src/extensions/manifest.ts`) REQUIRES `source` to be a git-cloneable
- * ref via `parseSource`. Every extension the picker can offer is
- * `bundled` or `local`, so no composed dependency can survive install.
- * Fixing it is a product decision (accept bundled/local dependency
- * sources, filter the picker, or emit a different source form) that
- * spans `src/extensions/manifest.ts` + the panel — deliberately NOT made
- * inside an e2e change.
+ * `AuthorCompositionPanel` wrote the picked row's source verbatim, but
+ * `validateDependencies` ran EVERY source through `parseSource`, which
+ * only accepts git-cloneable refs. Every extension the picker can offer
+ * is already installed, so no composed dependency could ever install.
  *
- * This spec therefore asserts the CORRECT contract and is the standing
- * reproduction: it goes green the moment that is fixed. It lives in the
- * `docker` lane, which no PR CI job runs, so it cannot redden the gate
- * in the meantime.
+ * The fix gives `bundled`/`local` an explicit meaning — "this extension
+ * must ALREADY be installed; never clone it" — as a closed set
+ * (`src/extensions/dependency-source.ts`), resolved by name at install
+ * time and hard-failing when unresolvable. The picker also no longer
+ * offers the VIRTUAL `builtin` row (native tools; not a real extension),
+ * which is what this spec used to pick first.
+ *
+ * The structural guard against a repeat is
+ * `src/__tests__/dependency-source-parity.test.ts`: every source form
+ * the picker can emit must be accepted by `validateDependencies`.
  * ─────────────────────────────────────────────────────────────────────
  */
 import { test, expect } from "@playwright/test";
@@ -101,6 +100,21 @@ function makeName(slug: string): string {
 interface InstalledRow {
 	id: string;
 	name: string;
+	source: string;
+}
+
+/**
+ * The VIRTUAL extension row `src/db/migrate.ts` seeds so native tool
+ * calls (`editFile`, `readFile`, …) have an `extension_id`. It is not a
+ * real extension and is not offerable as a dependency — mirrors
+ * `isPickableDependency` in `web/src/lib/ezcorp-config-edit.ts`.
+ */
+const VIRTUAL_BUILTIN_EXTENSION_ID = "builtin";
+
+function isPickable(row: InstalledRow): boolean {
+	return (
+		row.id !== VIRTUAL_BUILTIN_EXTENSION_ID && row.source !== VIRTUAL_BUILTIN_EXTENSION_ID
+	);
 }
 
 // DOCKER_TEST is the harness selector for this suite (see the header):
@@ -128,12 +142,15 @@ test.describe("extension-author dependency-install round trip", () => {
 	}) => {
 		extensionName = makeName("composed");
 
-		// 1) Pick a dependency target — the first installed extension the
-		//    public list returns (every real server boots the bundled set).
+		// 1) Pick a dependency target — the first REAL installed extension
+		//    the public list returns (every real server boots the bundled
+		//    set). The virtual `builtin` row is excluded: it is a seeded
+		//    placeholder for native tool calls, not a dependable
+		//    extension, and the picker does not offer it.
 		const listRes = await request.get("/api/extensions");
 		expect(listRes.ok()).toBe(true);
 		const listJson = (await listRes.json()) as unknown;
-		const installed: InstalledRow[] = (
+		const allRows: InstalledRow[] = (
 			Array.isArray(listJson)
 				? listJson
 				: Array.isArray((listJson as { extensions?: unknown[] }).extensions)
@@ -141,8 +158,13 @@ test.describe("extension-author dependency-install round trip", () => {
 					: []
 		).map((e) => {
 			const r = e as Record<string, unknown>;
-			return { id: String(r.id ?? ""), name: String(r.name ?? "") };
+			return {
+				id: String(r.id ?? ""),
+				name: String(r.name ?? ""),
+				source: String(r.source ?? ""),
+			};
 		});
+		const installed = allRows.filter(isPickable);
 		expect(installed.length).toBeGreaterThan(0);
 		const dep = installed[0]!;
 
@@ -172,6 +194,14 @@ test.describe("extension-author dependency-install round trip", () => {
 		);
 		await page.getByTestId("author-use-extensions-open").click();
 		await expect(page.getByTestId("extension-attach-picker")).toBeVisible();
+		// The virtual `builtin` row is never offered — it used to be the
+		// FIRST card in this grid, which is how a composed dependency on a
+		// non-extension ("Built-in Tools") got written in the first place.
+		await expect(
+			page.locator(
+				`[data-testid="extension-attach-picker-card"][data-ext-id="${VIRTUAL_BUILTIN_EXTENSION_ID}"]`,
+			),
+		).toHaveCount(0);
 		// Toggle-select the chosen dependency's card, then submit.
 		await page
 			.locator(`[data-testid="extension-attach-picker-card"][data-ext-id="${dep.id}"] button`)
@@ -228,6 +258,11 @@ test.describe("extension-author dependency-install round trip", () => {
 		};
 		const persistedDeps = detailBody.manifest?.dependencies ?? {};
 		expect(Object.keys(persistedDeps)).toContain(dep.name);
+		// The persisted source is one of the PREINSTALLED forms — the only
+		// thing the picker can honestly declare, since it exclusively
+		// offers extensions that are already installed. This is the exact
+		// value that used to 422 the install.
+		expect(["bundled", "local"]).toContain(persistedDeps[dep.name]?.source);
 
 		// Install consumed the draft — clear the handle so afterEach doesn't
 		// DELETE an already-consumed row.

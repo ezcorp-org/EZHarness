@@ -32,6 +32,8 @@ import { getExtensionByName, updateExtension } from "../db/queries/extensions";
 import { installFromLocal } from "./installer";
 import { ExtensionRegistry } from "./registry";
 import { runAuthorAcceptanceGate } from "./author-gate";
+import { isPreinstalledDependencySource } from "./dependency-source";
+import { resolvePreinstalledDependency } from "./dependency-resolver";
 import type { ExtensionManifestV2, ExtensionPermissions } from "./types";
 import { extensionLogger } from "../logger";
 
@@ -126,6 +128,13 @@ export type AuthorInstallErrorCode =
   | "VERIFY_FAILED"
   | "NAME_COLLISION"
   | "ENV_KEY_LEAK"
+  // A declared `bundled`/`local` dependency is not actually installed
+  // (or is installed at an incompatible version). The author flow's
+  // composition picker only ever offers INSTALLED extensions, so this
+  // means the target was uninstalled/downgraded between compose and
+  // install — installing anyway would silently produce an extension
+  // whose cross-extension calls are all denied at runtime.
+  | "DEPENDENCY_UNSATISFIED"
   | "INSTALL_FAILED"
   | "ROLLBACK_FAILED"
   // ── Post-install failures ────────────────────────────────────────
@@ -255,6 +264,37 @@ export async function installAuthoredDraft(args: {
   // `ok` guarantees both of these are set.
   const manifest = gate.manifest as ExtensionManifestV2;
   const name = manifest.name;
+
+  // 2b) PREINSTALLED dependency preflight. `bundled`/`local` dependency
+  //     sources mean "this extension must ALREADY be installed" — this
+  //     pipeline never clones anything, so the installed set is the only
+  //     possible resolution. Check it HERE, before anything has moved,
+  //     so the failure is clean (no rollback) and actionable.
+  //
+  //     Silently proceeding is the outcome this guards against: the
+  //     registry's `buildDepRoutes` drops a dependency name it cannot
+  //     match, so the extension installs "successfully" and then every
+  //     cross-extension `ezcorp/invoke` it makes is denied by
+  //     `resolveDepTool` with nothing pointing at the cause.
+  const depErrors: string[] = [];
+  for (const [depName, spec] of Object.entries(manifest.dependencies ?? {})) {
+    if (!isPreinstalledDependencySource(spec.source)) continue;
+    try {
+      await resolvePreinstalledDependency(depName, spec, async (n) => {
+        const ext = await getExtensionByName(n);
+        return ext ? { version: ext.version } : null;
+      });
+    } catch (e) {
+      depErrors.push(e instanceof Error ? e.message : String(e));
+    }
+  }
+  if (depErrors.length > 0) {
+    throw new AuthorInstallError(
+      "DEPENDENCY_UNSATISFIED",
+      `Extension "${name}" declares ${depErrors.length} dependenc${depErrors.length === 1 ? "y" : "ies"} that cannot be resolved`,
+      { errors: depErrors },
+    );
+  }
 
   // Pre-modify backup dir, set only on a sanctioned in-place modify
   // that displaces existing installed files. Function-scoped so the

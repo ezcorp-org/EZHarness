@@ -9,7 +9,7 @@ import type {
 } from "./types";
 import { validateEntitiesArray } from "./entities/clamp";
 import { KNOWN_CARD_TYPES, KNOWN_CARD_TYPES_SORTED } from "./card-types";
-import { parseSource } from "./source-parser";
+import { validateDependencySource } from "./dependency-source";
 // PURE import (no DB chain) — the scope-name grammar shared with the
 // storage layer; see src/extensions/rbac-scopes.ts.
 import { CORE_RBAC_SCOPES, validateRbacScopeDeclarations } from "./rbac-scopes";
@@ -1388,16 +1388,17 @@ export function validateDependencies(
     if (!s.source || typeof s.source !== "string") {
       errors.push(`dependencies.${name}.source is required and must be a string`);
     } else {
-      // Dependency sources drive `git clone` directly (and dependencies
-      // inherit the root install's permission grants), so reject anything
-      // the source parser wouldn't accept — including option-shaped or
-      // metacharacter-laden refs — at manifest-validation time.
-      try {
-        parseSource(s.source);
-      } catch (err) {
-        errors.push(
-          `dependencies.${name}.source is invalid: ${(err as Error).message}`,
-        );
+      // A CLONEABLE dependency source drives `git clone` directly (and
+      // dependencies inherit the root install's permission grants), so
+      // anything the source parser wouldn't accept — including
+      // option-shaped or metacharacter-laden refs — is still rejected
+      // here. The only additional forms admitted are the CLOSED,
+      // explicit `PREINSTALLED_DEPENDENCY_SOURCES` set, which is never
+      // handed to git at all (it resolves by name against the installed
+      // set). See `dependency-source.ts` for the full rationale.
+      const err = validateDependencySource(s.source);
+      if (err !== null) {
+        errors.push(`dependencies.${name}.source is invalid: ${err}`);
       }
     }
 
