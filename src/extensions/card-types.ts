@@ -32,6 +32,7 @@ export const KNOWN_CARD_TYPES: ReadonlySet<string> = new Set([
   "grade-delta-chart",
   "substack-review",
   "weather-panel",
+  "city-conditions",
   "time-clock",
   "image-gen-grid",
   "ez-install",

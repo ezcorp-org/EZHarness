@@ -59,6 +59,7 @@ describe("getCardComponentName", () => {
 		["grade-delta-chart", "GradeDeltaCard"],
 		["substack-review", "SubstackReviewCard"],
 		["weather-panel", "WeatherCard"],
+		["city-conditions", "CityConditionsCard"],
 		["time-clock", "TimeClockCard"],
 		["image-gen-grid", "ImageGenCard"],
 		["ez-install", "EzToolResultCard"],

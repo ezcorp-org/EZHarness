@@ -41,6 +41,12 @@ export function getCardComponentName(cardType: string | undefined, permissionPen
 		case 'grade-delta-chart': return 'GradeDeltaCard';
 		case 'substack-review': return 'SubstackReviewCard';
 		case 'weather-panel': return 'WeatherCard';
+		// `city-conditions` is the city-conditions extension's aggregated
+		// result (weather + the six pollen grains + mold). Mold ships
+		// `available:false` with a reason, so the card owns an explicit
+		// "not available" state — DefaultCard would have shown the health
+		// figures as a truncated JSON blob.
+		case 'city-conditions': return 'CityConditionsCard';
 		case 'time-clock': return 'TimeClockCard';
 		case 'image-gen-grid': return 'ImageGenCard';
 		// `ez-install` is declared by the bundled extension-author's
