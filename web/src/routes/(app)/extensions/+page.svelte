@@ -51,6 +51,8 @@
 				taskEvents?: boolean;
 				spawnAgents?: { maxPerHour: number; maxConcurrent?: number };
 				agentConfig?: "read";
+				// W2 — trigger grants for workflows the extension itself ships.
+				workflows?: { names: string[]; maxRunsPerHour?: number };
 			};
 			lifecycleHooks?: string[];
 			// Extension Pages Hub — declared Hub tabs (declaring IS the grant).
@@ -70,6 +72,10 @@
 		taskEvents: boolean;
 		spawnAgents: boolean; // single toggle — declaring the manifest grant means accepting the declared caps
 		agentConfig: boolean;
+		// Single toggle over the whole declared name list, same convention as
+		// spawnAgents: the manifest names a fixed set of workflows the
+		// extension ships, and the admin accepts or denies that set.
+		workflows: boolean;
 	}
 
 	// SSR-loaded so the first paint already shows cards. `loadExtensions()`
@@ -145,6 +151,7 @@
 		taskEvents: false,
 		spawnAgents: false,
 		agentConfig: false,
+		workflows: false,
 	});
 	let activating = $state(false);
 
@@ -402,6 +409,7 @@
 			taskEvents: perms.taskEvents === true,
 			spawnAgents: !!perms.spawnAgents,
 			agentConfig: perms.agentConfig === "read",
+			workflows: !!perms.workflows?.names?.length,
 		};
 		reviewExt = ext;
 	}
@@ -422,7 +430,8 @@
 			p.lifecycleHooks ||
 			p.taskEvents ||
 			p.spawnAgents ||
-			p.agentConfig,
+			p.agentConfig ||
+			p.workflows?.names?.length,
 		);
 	}
 
@@ -475,6 +484,19 @@
 		if (reviewSelection.agentConfig && manifestPerms.agentConfig === "read") {
 			granted.agentConfig = "read";
 			grantedAt.agentConfig = now;
+		}
+		if (reviewSelection.workflows && manifestPerms.workflows?.names?.length) {
+			// Send the manifest's declared names verbatim; the server's
+			// `clampWorkflowsPermission` re-intersects against the manifest and
+			// supplies the rate ceiling (default 20/hr) when the author omitted
+			// one, so a forged list here buys nothing.
+			granted.workflows = {
+				names: manifestPerms.workflows.names,
+				...(manifestPerms.workflows.maxRunsPerHour !== undefined
+					? { maxRunsPerHour: manifestPerms.workflows.maxRunsPerHour }
+					: {}),
+			};
+			grantedAt.workflows = now;
 		}
 		grantedAt.install = now;
 
@@ -1134,6 +1156,33 @@
 							<span class="mt-1.5 block text-xs text-red-300/80">
 								Sub-agents inherit this conversation's provider credentials. Uncheck to deny — the extension's task-assignment features will fail gracefully.
 							</span>
+						</span>
+					</label>
+				</div>
+			{/if}
+
+			{#if perms.workflows?.names?.length}
+				{@const wf = perms.workflows}
+				<div class="mt-4 rounded-md border border-yellow-800/60 bg-yellow-900/20 p-3" data-testid="review-workflows">
+					<label class="flex items-start gap-2 text-sm text-yellow-100">
+						<input
+							type="checkbox"
+							bind:checked={reviewSelection.workflows}
+							class="mt-0.5"
+							data-testid="review-workflows-toggle"
+						/>
+						<span>
+							<span class="font-semibold">Run its own workflows</span>
+							<span class="mt-0.5 block text-xs text-yellow-200/80">
+								Lets this extension start runs of the {wf.names.length === 1 ? "workflow" : "workflows"} it ships, up to {wf.maxRunsPerHour ?? 20} per hour. Workflow steps that need shell, file writes or an install still ask you separately. It cannot start any other extension's workflows, or yours.
+							</span>
+							<ul class="mt-1.5 flex flex-wrap gap-1.5">
+								{#each wf.names as workflowName}
+									<li>
+										<code class="rounded bg-[var(--color-surface-tertiary)] px-1.5 py-0.5 text-xs">{ext.manifest.name}:{workflowName}</code>
+									</li>
+								{/each}
+							</ul>
 						</span>
 					</label>
 				</div>

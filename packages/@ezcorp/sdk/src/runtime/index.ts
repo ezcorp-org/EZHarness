@@ -188,6 +188,9 @@ export type { ScheduleHandler, ScheduleHandlerContext } from "./schedule";
 export { Webhook } from "./webhook";
 export type { WebhookHandler, WebhookFireContext } from "./webhook";
 
+export { Workflows } from "./workflows";
+export type { WorkflowRunAccepted } from "./workflows";
+
 // ── Loop primitive (defineLoop) ─────────────────────────────────────
 
 export {

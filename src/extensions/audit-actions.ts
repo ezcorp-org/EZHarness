@@ -98,6 +98,22 @@ export const EXT_AUDIT_ACTIONS = {
   /** `ezcorp/emit-task-event` rejected an emission — rate-limited,
    *  unauthorized conversation wiring, or malformed payload (Phase 2b). */
   EMIT_EVENT_REJECTED: "ext:emit-event-rejected",
+  /**
+   * `ezcorp/workflows` refused a trigger that has NO ACTING USER (a cron /
+   * webhook background fire).
+   *
+   * Why this needs its own action rather than riding
+   * `recordCapabilityCall` like every other workflow-trigger outcome:
+   * `sdk_capability_calls.on_behalf_of` is NOT NULL with an FK to `users`,
+   * so an ownerless row is structurally impossible there — the insert fails
+   * and `recordCapabilityCall` (which never throws by contract) swallows it.
+   * The one rejection class that MOST needs a forensic trail would be the
+   * only one with none. `audit_log.user_id` is nullable, so it can hold it.
+   *
+   * Metadata: `{permission: "workflows", newValue: <requested bare name>,
+   * actor: "system", reason: "no-owner"}`.
+   */
+  WORKFLOW_TRIGGER_NO_OWNER: "ext:workflow-trigger-no-owner",
   /** `ezcorp/emit-loop-event` successfully emitted a content-free loop
    *  approval nudge onto the host bus. This is the tamper-evident MIRROR
    *  of the LOCKED per-loop approval-label store (loop-types.ts): every

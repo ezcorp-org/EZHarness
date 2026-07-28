@@ -76,6 +76,8 @@
 				storage?: boolean;
 				spawnAgents?: { maxPerHour: number; maxConcurrent?: number };
 				eventSubscriptions?: string[] | { events: string[]; includeFullPayload?: boolean };
+				// W2 — trigger grants for the workflows the extension ships.
+				workflows?: { names: string[]; maxRunsPerHour?: number };
 			};
 			settings?: SettingsSchema;
 			// Phase 5 (defineEntity SDK) — entity declarations drive the
@@ -209,13 +211,20 @@
 		if (!raw) return [];
 		return Array.isArray(raw) ? raw : (raw.events ?? []);
 	});
-	const installGrants = $derived.by((): { storage: boolean; spawnAgents: { maxPerHour: number; maxConcurrent?: number } | null; events: string[] } => ({
+	const installGrants = $derived.by((): { storage: boolean; spawnAgents: { maxPerHour: number; maxConcurrent?: number } | null; events: string[]; workflows: { names: string[]; maxRunsPerHour?: number } | null } => ({
 		storage: ext?.manifest.permissions.storage === true,
 		spawnAgents: ext?.manifest.permissions.spawnAgents ?? null,
 		events: eventSubscriptions,
+		// W2 — the extension may start runs of the workflows it ships. Shown
+		// here so an admin auditing an installed extension sees the capability
+		// without having to re-open the enable dialog.
+		workflows: ext?.manifest.permissions.workflows ?? null,
 	}));
 	const hasInstallGrants = $derived(
-		installGrants.storage || installGrants.spawnAgents !== null || installGrants.events.length > 0,
+		installGrants.storage
+		|| installGrants.spawnAgents !== null
+		|| installGrants.events.length > 0
+		|| (installGrants.workflows?.names?.length ?? 0) > 0,
 	);
 
 	function authorName(author?: string | { name: string; id?: string }): string {
@@ -1300,6 +1309,10 @@
 							{#each installGrants.events as evt}
 								<span class="rounded-full bg-[var(--color-surface-tertiary)] px-2 py-0.5 font-mono text-xs text-[var(--color-text-secondary)]" data-testid="install-grant-event">{evt}</span>
 							{/each}
+							{#if installGrants.workflows?.names?.length}
+								{@const wf = installGrants.workflows}
+								<span class="rounded-full bg-[var(--color-surface-tertiary)] px-2 py-0.5 text-xs text-[var(--color-text-secondary)]" data-testid="install-grant-workflows">Run its own workflows ({wf.names.length}, {wf.maxRunsPerHour ?? 20}/hr)</span>
+							{/if}
 						</div>
 					</div>
 				{/if}

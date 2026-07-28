@@ -29,6 +29,23 @@
  * unknown names; `clampToBundledCeiling()` becomes a passthrough on a
  * non-bundled name (callers should not normally invoke it for those).
  *
+ * ── THE FULL-FIELD-SET RULE (read before adding a row) ──
+ *
+ * `intersectPermissions` takes `Math.min` over every numeric on a
+ * structured permission. A ceiling row that lists a structured permission
+ * but OMITS one of its numerics produces `Math.min(NaN, …) === NaN` and
+ * silently kills the grant at boot. The two structured permissions this
+ * bites on today:
+ *
+ *   • `schedule` — see the SCHEDULE TRAP note on the `ez-code` row below.
+ *     All five fields (`crons`, `maxRunsPerDay`, `maxRunDurationMs`,
+ *     `missedRunPolicy`, `maxRetries`) are required by the granted type.
+ *   • `workflows` (W2) — `{names, maxRunsPerHour}`. `maxRunsPerHour` is
+ *     REQUIRED on `ExtensionPermissions["workflows"]` (deliberately, unlike
+ *     the manifest declaration where it is optional), so TypeScript refuses
+ *     a half-written row here. `bundled-ceiling-full-field-set.test.ts`
+ *     asserts the runtime invariant too, in case the type is ever loosened.
+ *
  * `permissions.rbacScopes` (extension-RBAC custom-scope DECLARATIONS) is
  * deliberately ABSENT from every ceiling row AND ignored by the clamp
  * comparator: declarations are inert — they only name per-extension

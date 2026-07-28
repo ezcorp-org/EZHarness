@@ -402,11 +402,20 @@ export class WorkflowExecutor {
         // Not an error: every automatable step ran, and the graph then
         // reached one that needs a human. Reported as its own terminal
         // state so nothing downstream can mistake it for `success`.
+        //
+        // `output` carries the LAST SUCCESSFUL result, which is what makes a
+        // parked run actionable: the human who completes it out-of-band
+        // needs the handoff payload the graph built (a draft id, a verify
+        // report, whatever the final transform assembled). With `null` there
+        // the payload died with the run and the operator had only an error
+        // message to work from. `success` stays false and the
+        // `awaiting_approval` error code is unchanged, so nothing that
+        // branches on either is affected.
         workflowRun.status = "awaiting_approval";
         workflowRun.finishedAt = Date.now();
         workflowRun.result = {
           success: false,
-          output: null,
+          output: prevResult?.output ?? null,
           error: { code: "awaiting_approval", message: err.message },
         };
         this.bus.emit("workflow:error", { workflowRun, error: err.message, userId });
@@ -721,8 +730,11 @@ interface ToolStepContext {
  *
  * Result shape mirrors the other kinds — `{ success, output }` — so
  * `$prev` / `$steps` refs work against a tool step unchanged. `output` is
- * the tool's text content joined with newlines, the same projection
- * `ToolExecutor.createToolsContext` hands to code-based agents.
+ * the tool's text content joined with newlines (the same projection
+ * `ToolExecutor.createToolsContext` hands to code-based agents), THEN
+ * {@link parseToolOutput}-ed so a JSON-returning tool is addressable by
+ * path. Without that a tool step could only ever be terminal — see the
+ * function's own doc.
  */
 async function runToolStep(
   step: WorkflowStep,
@@ -758,9 +770,46 @@ async function runToolStep(
 
   const text = result.content.map((c) => c.text).join("\n");
   if (result.isError) {
+    // The RAW text on the failure path: an error message is for a human to
+    // read, and re-shaping it would only make the loud-failure message worse.
     throw new Error(`Step "${step.name}" failed: ${text}`);
   }
-  return { success: true, output: text };
+  return { success: true, output: parseToolOutput(text) };
+}
+
+/**
+ * Project a tool's text result into the value later steps address.
+ *
+ * Extension tools overwhelmingly return `JSON.stringify(...)` of a result
+ * object — `create_extension` returns `{draftId, openUrl, name, type}`,
+ * `validate_extension` returns `{ok, pass, steps}`. Leaving that as an
+ * opaque string makes a tool step permanently TERMINAL: there is no way to
+ * thread `draftId` into the next step's `input`, and a `gate` can only do
+ * substring `contains` on the blob instead of asserting `pass === true`.
+ * Every real multi-tool chain needs this.
+ *
+ * Conservative on purpose — only a JSON **object or array** is parsed:
+ *
+ *   - A bare `42` or `"true"` would otherwise change TYPE (string → number
+ *     / boolean) and silently break an existing `eq`/`contains` condition.
+ *   - Anything that is not JSON at all (a prose tool result, a multi-part
+ *     content join) is returned verbatim, so every pre-existing tool step
+ *     keeps its exact string output.
+ *
+ * The cheap first-character check short-circuits before `JSON.parse` so a
+ * large prose result is not run through the parser just to throw.
+ */
+export function parseToolOutput(text: string): unknown {
+  const trimmed = text.trim();
+  const first = trimmed[0];
+  if (first !== "{" && first !== "[") return text;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    // Text that merely LOOKS like JSON (a truncated blob, a `{` in prose)
+    // stays a string — never a silent empty object.
+    return text;
+  }
 }
 
 /** Resolve a `transform` step's declarative output mapping into an
