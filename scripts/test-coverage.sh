@@ -267,6 +267,7 @@ run_legs() {
       src/lib/capability-policy-ui.unit.test.ts \
       src/lib/components/__tests__/CapabilitiesPanel.component.test.ts \
       src/lib/ezcorp-config-edit.unit.test.ts \
+      src/lib/workflow-run-display.unit.test.ts \
       src/lib/components/__tests__/AuthorCompositionPanel.component.test.ts \
       src/lib/components/__tests__/UsesList.component.test.ts \
       "src/routes/(app)/extensions/author/__tests__/page.component.test.ts" \
@@ -298,6 +299,14 @@ run_legs() {
       src/__tests__/settings-layout.component.test.ts \
       src/lib/components/preprocess-result-logic.unit.test.ts \
       src/lib/components/tool-cards/grade-delta-logic.unit.test.ts \
+      src/lib/components/tool-cards/ez-draft-card-logic.unit.test.ts \
+      src/lib/components/tool-cards/tool-cards-logic.unit.test.ts \
+      src/__tests__/extension-author-install.server.test.ts \
+      src/__tests__/extension-author-page-logic.server.test.ts \
+      src/__tests__/extension-author-page-server-load.server.test.ts \
+      src/__tests__/extension-audit-page-loader.server.test.ts \
+      src/lib/components/tool-cards/failure-class.unit.test.ts \
+      src/__tests__/author-draft-files.unit.test.ts \
       src/lib/components/tool-cards/GradeDeltaCard.component.test.ts \
       src/__tests__/pending-permission-tray.component.test.ts \
       src/__tests__/stores-pending-permission-tray.integration.component.test.ts \
@@ -376,6 +385,8 @@ run_legs() {
       --coverage.include='src/lib/capability-policy-ui.ts' \
       --coverage.include='src/lib/components/extensions/CapabilitiesPanel.svelte' \
       --coverage.include='src/lib/ezcorp-config-edit.ts' \
+      --coverage.include='src/lib/dependency-picker.ts' \
+      --coverage.include='src/lib/workflow-run-display.ts' \
       --coverage.include='src/lib/components/extensions/AuthorCompositionPanel.svelte' \
       --coverage.include='src/lib/components/extensions/UsesList.svelte' \
       --coverage.include='src/routes/api/users/+server.ts' \
@@ -404,6 +415,16 @@ run_legs() {
       --coverage.include='src/lib/components/settings/SaveIndicator.svelte' \
       --coverage.include='src/lib/components/preprocess-result-logic.ts' \
       --coverage.include='src/lib/components/tool-cards/grade-delta-logic.ts' \
+      --coverage.include='src/lib/components/tool-cards/ez-draft-card-logic.ts' \
+      --coverage.include='src/lib/components/tool-cards/ez-install-card-logic.ts' \
+      --coverage.include='src/lib/components/tool-cards/utils.ts' \
+      --coverage.include='src/routes/api/extensions/author/install/+server.ts' \
+      --coverage.include='src/routes/api/extensions/author/draft/[id]/+server.ts' \
+      --coverage.include='src/routes/api/extensions/author/draft/[id]/validate/+server.ts' \
+      --coverage.include='src/routes/**/extensions/author/+page.server.ts' \
+      --coverage.include='src/routes/**/extensions/[id]/audit/+page.server.ts' \
+      --coverage.include='src/lib/components/tool-cards/failure-class.ts' \
+      --coverage.include='src/lib/server/author-draft-files.ts' \
       --coverage.include='src/lib/components/tool-cards/GradeDeltaCard.svelte' \
       --coverage.include='src/lib/components/tool-cards/PendingPermissionTray.svelte' \
       --coverage.include='src/lib/stores.svelte.ts' \

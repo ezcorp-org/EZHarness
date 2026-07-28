@@ -5,6 +5,7 @@
 
 import type { ExtensionManifestV2, DependencySpec } from "./types";
 import { satisfiesRange } from "./manifest";
+import { isPreinstalledDependencySource } from "./dependency-source";
 
 // ── Types ───────────────────────────────────────────────────────────
 
@@ -37,6 +38,53 @@ export interface ResolutionOptions {
   getInstalled: (name: string) => Promise<{ version: string } | null>;
   /** Fetch the manifest for a dependency source string */
   fetchManifest: (source: string) => Promise<ExtensionManifestV2>;
+}
+
+/** Look up an installed extension by name. */
+export type InstalledLookup = (
+  name: string,
+) => Promise<{ version: string } | null>;
+
+// ── Preinstalled ("never cloned") dependencies ──────────────────────
+
+/**
+ * Resolve a dependency whose `source` is a PREINSTALLED form
+ * (`bundled` / `local` — see `dependency-source.ts`) against the
+ * installed set.
+ *
+ * Such a dependency means "this extension must ALREADY be installed" —
+ * there is nothing to clone and nothing to fetch a manifest from, so the
+ * installed row IS the resolution. Being unable to resolve it is a hard,
+ * actionable failure rather than a silent pass: at runtime
+ * `ExtensionRegistry.buildDepRoutes` would simply drop the unmatched
+ * name, and every cross-extension `ezcorp/invoke` the author wrote
+ * against it would be denied by `resolveDepTool` with no explanation.
+ *
+ * Shared by BOTH install paths (`installWithDependencies` via
+ * `resolveDependencies`, and the extension-author `installAuthoredDraft`
+ * pipeline) so they fail identically.
+ */
+export async function resolvePreinstalledDependency(
+  name: string,
+  spec: DependencySpec,
+  getInstalled: InstalledLookup,
+): Promise<{ version: string }> {
+  const installed = await getInstalled(name);
+  if (!installed) {
+    throw new Error(
+      `Dependency "${name}" declares source "${spec.source}", which means it must ALREADY be installed ` +
+        `(it is never cloned) — but no extension named "${name}" is installed. ` +
+        `Install "${name}" first, then retry.`,
+    );
+  }
+  if (!satisfiesRange(installed.version, spec.version)) {
+    throw new Error(
+      `Dependency "${name}" declares source "${spec.source}" and requires "${spec.version}", ` +
+        `but the installed "${name}" is ${installed.version}. ` +
+        `Update "${name}", or relax the declared range, then retry.`,
+    );
+  }
+  return { version: installed.version };
 }
 
 // ── Cycle Detection ─────────────────────────────────────────────────
@@ -140,6 +188,26 @@ export async function resolveDependencies(
 
       if (nodes.has(name)) continue; // Already visited
 
+      // A PREINSTALLED source is never cloned and has no remote manifest
+      // to fetch — the installed row resolves it. Its own dependencies
+      // were satisfied when IT was installed, so we don't recurse.
+      if (isPreinstalledDependencySource(spec.source)) {
+        const { version } = await resolvePreinstalledDependency(
+          name,
+          spec,
+          options.getInstalled,
+        );
+        nodes.set(name, {
+          name,
+          version,
+          source: spec.source,
+          requiredRange: spec.version,
+          deps: {},
+          alreadyInstalled: true,
+        });
+        continue;
+      }
+
       const manifest = await options.fetchManifest(spec.source);
       const installed = await options.getInstalled(name);
 
@@ -208,6 +276,17 @@ export async function resolveDependencies(
         requiredRange: uniqueRanges.join(", "),
         alreadyInstalled: node.alreadyInstalled,
       });
+    } else if (isPreinstalledDependencySource(node.source)) {
+      // Multi-version side-install is a CLONE operation; a preinstalled
+      // source has nothing to clone. Falling through would emit a
+      // `name@X.Y.Z` entry carrying `source: "bundled"`, which the
+      // installer would hand to `parseSource` → a confusing late crash.
+      // Fail here with the actionable reason instead.
+      throw new Error(
+        `Dependency "${name}" declares source "${node.source}" (it must already be installed and is never cloned), ` +
+          `but it is required at incompatible ranges: ${uniqueRanges.join(", ")}. ` +
+          `The installed "${name}" is ${node.version} — a preinstalled dependency cannot be side-installed at a second version.`,
+      );
     } else {
       // Multi-version: primary version for satisfied ranges, scoped for unsatisfied
       resolved.push({

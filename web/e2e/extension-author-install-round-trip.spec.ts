@@ -35,33 +35,55 @@
  * draft.
  *
  * ─────────────────────────────────────────────────────────────────────
- * SKIPPED — ENVIRONMENT INFRA BLOCKER (not a spec defect).
+ * WHICH HARNESS THIS RUNS UNDER (it is NOT a mock-tier spec).
  *
- * This spec was RUN for real (`DOCKER_TEST=1 bunx playwright test
- * extension-author-install-round-trip`) against the live app on :3000.
- * Outcome: the Docker storageState auth WORKED and `GET /api/extensions`
- * returned the installed set — but `seedExtensionAuthorDraft` got a
- * **404 "Not found"** from `POST /api/__test/seed-extension-author-draft`.
+ * Everything here needs a REAL server: the author preview page is
+ * SSR-loaded from `ez_drafts` + the on-disk draft dir (see
+ * `routes/(app)/extensions/author/+page.server.ts`), and the seed helper
+ * writes through `POST /api/__test/seed-extension-author-draft`, which
+ * `isTestSurfaceEnabled()` fail-closes to 404 unless ALL of
+ * `EZCORP_ALLOW_TEST_SURFACE=1`, `PI_E2E_REAL=1` and a non-production
+ * `NODE_ENV` hold. Playwright `page.route` cannot mock either — the draft
+ * read happens inside the SSR load, not over the wire.
  *
- * Root cause: the only running container is `ezcorp-prod-app-1`, a
- * PRODUCTION build with neither `PI_E2E_REAL` nor a non-production
- * `NODE_ENV` set. The seed/cleanup `/api/__test/*` endpoints are gated by
- * `isEnabled() === (process.env.PI_E2E_REAL === "1" && NODE_ENV !==
- * "production")` and deliberately serve 404 when off (see
- * `web/src/routes/api/__test/seed-extension-author-draft/+server.ts`).
- * So the seed harness cannot write a draft against the prod container.
+ * So this is the DOCKER lane (`DOCKER_TEST=1`, an app on :3000 booted
+ * with the test surface enabled, storageState from
+ * `e2e/docker-auth-setup.ts`) — `scripts/docker-test-all.sh`. It is NOT
+ * in the mock `E2E (mock, no Docker)` gate, because that harness boots
+ * the preview server with `PI_SKIP_INIT=1` and no test surface, where
+ * every step below 404s.
  *
- * This is the SAME class of blocker as the sibling author specs
- * (`extension-author-provenance.spec.ts`), which skip because the
- * Docker/PI_E2E_REAL harness isn't reachable here.
+ * The blocking-CI twin of this coverage is
+ * `web/e2e/real-auth/extension-release-gate.spec.ts`, which runs the
+ * install → load → invoke → upgrade gate under `playwright.real.config.ts`
+ * in the `e2e-real-auth` job. This spec is the dependency-composition
+ * slice of the same authoring surface.
  *
- * UN-BLOCKER CONDITION: bring up a dev/test app container with
- * `PI_E2E_REAL=1` and `NODE_ENV != production` on :3000 (the
- * `playwright.real.config.ts` harness or a docker-compose test profile),
- * then flip `test.describe.skip` → `test.describe`. The spec body below is
- * kept syntactically valid + was exercised end-to-end up to the seed call,
- * so the un-skip is a one-token change.
- * Verified-blocked-on: 2026-06-18 (prod container has no PI_E2E_REAL).
+ * ── THE DEFECT THIS SPEC WAS WRITTEN AGAINST (now fixed) ─────────────
+ *
+ * Steps 1-4 always passed; step 5 — Install — failed with a real product
+ * defect:
+ *
+ *   Install failed (422): Invalid manifest:
+ *   dependencies.<dep>.source is invalid: Unrecognized source format:
+ *   "bundled". Expected github:user/repo, gitlab:org/project,
+ *   https://host/repo.git, or git@host:user/repo.git
+ *
+ * `AuthorCompositionPanel` wrote the picked row's source verbatim, but
+ * `validateDependencies` ran EVERY source through `parseSource`, which
+ * only accepts git-cloneable refs. Every extension the picker can offer
+ * is already installed, so no composed dependency could ever install.
+ *
+ * The fix gives `bundled`/`local` an explicit meaning — "this extension
+ * must ALREADY be installed; never clone it" — as a closed set
+ * (`src/extensions/dependency-source.ts`), resolved by name at install
+ * time and hard-failing when unresolvable. The picker also no longer
+ * offers the VIRTUAL `builtin` row (native tools; not a real extension),
+ * which is what this spec used to pick first.
+ *
+ * The structural guard against a repeat is
+ * `src/__tests__/dependency-source-parity.test.ts`: every source form
+ * the picker can emit must be accepted by `validateDependencies`.
  * ─────────────────────────────────────────────────────────────────────
  */
 import { test, expect } from "@playwright/test";
@@ -78,9 +100,28 @@ function makeName(slug: string): string {
 interface InstalledRow {
 	id: string;
 	name: string;
+	source: string;
 }
 
-test.describe.skip("extension-author dependency-install round trip", () => {
+/**
+ * The VIRTUAL extension row `src/db/migrate.ts` seeds so native tool
+ * calls (`editFile`, `readFile`, …) have an `extension_id`. It is not a
+ * real extension and is not offerable as a dependency — mirrors
+ * `isPickableDependency` in `web/src/lib/ezcorp-config-edit.ts`.
+ */
+const VIRTUAL_BUILTIN_EXTENSION_ID = "builtin";
+
+function isPickable(row: InstalledRow): boolean {
+	return (
+		row.id !== VIRTUAL_BUILTIN_EXTENSION_ID && row.source !== VIRTUAL_BUILTIN_EXTENSION_ID
+	);
+}
+
+// DOCKER_TEST is the harness selector for this suite (see the header):
+// the lane manifest (`web/e2e/lanes.json`) files it under `docker`, and
+// `src/__tests__/e2e-lanes.test.ts` requires every docker-lane member to
+// name it.
+test.describe("extension-author dependency-install round trip", () => {
 	let draftId: string | null = null;
 	let extensionName: string | null = null;
 
@@ -101,12 +142,15 @@ test.describe.skip("extension-author dependency-install round trip", () => {
 	}) => {
 		extensionName = makeName("composed");
 
-		// 1) Pick a dependency target — the first installed extension the
-		//    public list returns (every real server boots the bundled set).
+		// 1) Pick a dependency target — the first REAL installed extension
+		//    the public list returns (every real server boots the bundled
+		//    set). The virtual `builtin` row is excluded: it is a seeded
+		//    placeholder for native tool calls, not a dependable
+		//    extension, and the picker does not offer it.
 		const listRes = await request.get("/api/extensions");
 		expect(listRes.ok()).toBe(true);
 		const listJson = (await listRes.json()) as unknown;
-		const installed: InstalledRow[] = (
+		const allRows: InstalledRow[] = (
 			Array.isArray(listJson)
 				? listJson
 				: Array.isArray((listJson as { extensions?: unknown[] }).extensions)
@@ -114,8 +158,13 @@ test.describe.skip("extension-author dependency-install round trip", () => {
 					: []
 		).map((e) => {
 			const r = e as Record<string, unknown>;
-			return { id: String(r.id ?? ""), name: String(r.name ?? "") };
+			return {
+				id: String(r.id ?? ""),
+				name: String(r.name ?? ""),
+				source: String(r.source ?? ""),
+			};
 		});
+		const installed = allRows.filter(isPickable);
 		expect(installed.length).toBeGreaterThan(0);
 		const dep = installed[0]!;
 
@@ -145,6 +194,14 @@ test.describe.skip("extension-author dependency-install round trip", () => {
 		);
 		await page.getByTestId("author-use-extensions-open").click();
 		await expect(page.getByTestId("extension-attach-picker")).toBeVisible();
+		// The virtual `builtin` row is never offered — it used to be the
+		// FIRST card in this grid, which is how a composed dependency on a
+		// non-extension ("Built-in Tools") got written in the first place.
+		await expect(
+			page.locator(
+				`[data-testid="extension-attach-picker-card"][data-ext-id="${VIRTUAL_BUILTIN_EXTENSION_ID}"]`,
+			),
+		).toHaveCount(0);
 		// Toggle-select the chosen dependency's card, then submit.
 		await page
 			.locator(`[data-testid="extension-attach-picker-card"][data-ext-id="${dep.id}"] button`)
@@ -172,13 +229,13 @@ test.describe.skip("extension-author dependency-install round trip", () => {
 		await navigation;
 		expect(new URL(page.url()).pathname).toBe(`/extensions/${extensionName}`);
 
-		// 6a) The detail page's UsesList renders the dependency chip.
-		await expect(
-			page.locator(`[data-testid="extension-uses-chip"][data-dep-name="${dep.name}"]`),
-		).toBeVisible({ timeout: 10_000 });
-
-		// 6b) manifest.dependencies persisted server-side. Resolve the new
-		//     extension's id from the public list, then read it back.
+		// 6) Resolve the new extension's row id from the public list. The
+		//    install redirect above lands on `/extensions/<name>`, but the
+		//    detail ROUTE resolves its param with `getExtension(id)` — a UUID
+		//    lookup with no name fallback — so the id is what actually renders
+		//    that page (the Extensions library links `/extensions/{ext.id}`
+		//    for the same reason). Asserting the rendered detail page
+		//    therefore navigates by id.
 		const afterList = await request.get(
 			`/api/extensions?name=${encodeURIComponent(extensionName)}`,
 		);
@@ -187,6 +244,13 @@ test.describe.skip("extension-author dependency-install round trip", () => {
 		const row = afterRows.find((e) => e.name === extensionName);
 		expect(row).toBeDefined();
 
+		// 6a) The detail page's UsesList renders the dependency chip.
+		await page.goto(`/extensions/${row!.id}`);
+		await expect(
+			page.locator(`[data-testid="extension-uses-chip"][data-dep-name="${dep.name}"]`),
+		).toBeVisible({ timeout: 10_000 });
+
+		// 6b) manifest.dependencies persisted server-side.
 		const detail = await request.get(`/api/extensions/${row!.id}`);
 		expect(detail.ok()).toBe(true);
 		const detailBody = (await detail.json()) as {
@@ -194,6 +258,11 @@ test.describe.skip("extension-author dependency-install round trip", () => {
 		};
 		const persistedDeps = detailBody.manifest?.dependencies ?? {};
 		expect(Object.keys(persistedDeps)).toContain(dep.name);
+		// The persisted source is one of the PREINSTALLED forms — the only
+		// thing the picker can honestly declare, since it exclusively
+		// offers extensions that are already installed. This is the exact
+		// value that used to 422 the install.
+		expect(["bundled", "local"]).toContain(persistedDeps[dep.name]?.source);
 
 		// Install consumed the draft — clear the handle so afterEach doesn't
 		// DELETE an already-consumed row.

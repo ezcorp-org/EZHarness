@@ -21,6 +21,12 @@ import {
 import { parseSource } from "../extensions/source-parser";
 
 import {
+  PREINSTALLED_DEPENDENCY_SOURCES,
+  isPreinstalledDependencySource,
+  validateDependencySource,
+} from "../extensions/dependency-source";
+
+import {
   detectCycles,
   formatDepTree,
   resolveDependencies,
@@ -1063,6 +1069,97 @@ describe("dependency-resolver.ts coverage gaps", () => {
         fetchManifest: async () => makeManifest("A", "1.0.0"),
       });
       expect(result.tree.children[0]!.status).toBe("already-installed");
+    });
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════
+// dependency-source.ts — the closed set of non-cloneable source forms
+// ══════════════════════════════════════════════════════════════════════
+
+describe("dependency-source", () => {
+  describe("isPreinstalledDependencySource", () => {
+    test("the closed set members are recognized", () => {
+      expect(isPreinstalledDependencySource("bundled")).toBe(true);
+      expect(isPreinstalledDependencySource("local")).toBe(true);
+    });
+
+    test("everything else is not — including near-misses", () => {
+      for (const s of [
+        "builtin",
+        "Bundled",
+        "BUNDLED",
+        "bundled ",
+        "bundled:x",
+        "local:/tmp/ext",
+        "installed",
+        "github:u/r",
+        "",
+      ]) {
+        expect(isPreinstalledDependencySource(s), s).toBe(false);
+      }
+    });
+  });
+
+  describe("validateDependencySource", () => {
+    test("preinstalled forms validate", () => {
+      for (const s of PREINSTALLED_DEPENDENCY_SOURCES) {
+        expect(validateDependencySource(s)).toBeNull();
+      }
+    });
+
+    test("cloneable forms still validate through parseSource", () => {
+      for (const s of [
+        "github:u/r",
+        "github:u/r@v1.0.0",
+        "gitlab:o/p",
+        "https://example.com/r.git",
+        "git@github.com:u/r.git",
+        "file:///tmp/r.git",
+      ]) {
+        expect(validateDependencySource(s), s).toBeNull();
+      }
+    });
+
+    test("an unrecognized form returns the parse error plus the preinstalled hint", () => {
+      const msg = validateDependencySource("npm:left-pad");
+      expect(msg).toContain("Unrecognized source format");
+      expect(msg).toContain('"bundled"');
+      expect(msg).toContain('"local"');
+      expect(msg).toContain("never cloned");
+    });
+
+    test("an unsafe git ref is still rejected (clone path not loosened)", () => {
+      const msg = validateDependencySource("github:u/r@--upload-pack=x");
+      expect(msg).toContain("Invalid git ref");
+    });
+  });
+
+  describe("validateDependencies accepts the preinstalled forms", () => {
+    test("bundled + local dependency specs validate", () => {
+      const r = validateDependencies({
+        "ai-kit": { source: "bundled", version: "^1.0.0" },
+        mine: { source: "local", version: "1.0.0" },
+      });
+      expect(r.valid).toBe(true);
+      expect(r.errors).toEqual([]);
+    });
+
+    test("validateManifestV2 accepts a manifest with a bundled dependency", () => {
+      const r = validateManifestV2(
+        makeManifest("t", "1.0.0", {
+          "ai-kit": { source: "bundled", version: "^1.0.0" },
+        }),
+      );
+      expect(r.valid).toBe(true);
+    });
+
+    test("a preinstalled source does NOT bypass the version rules", () => {
+      const r = validateDependencies({
+        "ai-kit": { source: "bundled", version: "~1.0.0" },
+      });
+      expect(r.valid).toBe(false);
+      expect(r.errors.some((e) => e.includes("ai-kit") && e.includes("~"))).toBe(true);
     });
   });
 });

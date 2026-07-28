@@ -387,6 +387,18 @@ export class ExtensionRegistry {
     }
   }
 
+  /** Bumped by every {@link loadFromDb}. Consumers that snapshot the tool
+   *  surface — the per-run toolset assembled in
+   *  `runtime/stream-chat/setup-tools.ts` — compare it against a stashed
+   *  value to detect that an install / uninstall / upgrade happened under
+   *  them, without re-querying the DB on every check. */
+  private loadGeneration = 0;
+
+  /** @see loadGeneration */
+  get generation(): number {
+    return this.loadGeneration;
+  }
+
   /** Load all enabled extensions from DB and rebuild maps. */
   async loadFromDb(): Promise<void> {
     this.toolMap.clear();
@@ -459,6 +471,7 @@ export class ExtensionRegistry {
     }
 
     this.buildDepRoutes();
+    this.loadGeneration++;
   }
 
   /** Get the extension ID that provides a given tool name. */
@@ -775,35 +788,107 @@ export class ExtensionRegistry {
     this.extensionTools.set(extId, tools);
   }
 
+  /**
+   * Everything a live subprocess / MCP connection was built from. Two
+   * signatures being equal means the running thing is still serving the
+   * current version of the extension; any difference invalidates it.
+   *
+   * `manifest` carries the entrypoint + package checksums that every
+   * install and refresh path stamps (`computeManifestChecksums`), which is
+   * what makes a pure CODE edit — no `ezcorp.config.ts` change — visible
+   * here.
+   */
+  private runtimeSignature(extId: string): string {
+    return JSON.stringify({
+      manifest: this.manifests.get(extId) ?? null,
+      installPath: this.installPaths.get(extId) ?? null,
+      grantedPermissions: this.grantedPerms.get(extId) ?? null,
+      isBundled: this.bundledFlags.get(extId) ?? false,
+    });
+  }
+
+  /**
+   * Retire an invalidated subprocess.
+   *
+   * The kill is DEFERRED while a host-initiated call is still awaiting its
+   * response. `installAuthoredDraft` reloads the registry from inside the
+   * `ezcorp/drafts.install` reverse-RPC — i.e. while the host is awaiting
+   * the very `install_draft` tool call that triggered it — and that install
+   * changes `extension-author`'s own signature (the bundled grant self-heal
+   * rewrites `grantedPermissions`). Killing there strands the call and
+   * wedges the chat. The caller has already dropped this process from
+   * `this.processes`, so the invalidation is complete either way: the next
+   * `getProcess` spawns a fresh subprocess against the new code, and this
+   * handle dies as soon as its last call settles.
+   */
+  private retireProcess(extId: string, proc: ExtensionProcess): void {
+    // `typeof` guard: test fixtures stub ExtensionProcess with bare
+    // `{ isRunning, kill }` objects. Same tolerance as `getMcpClient`'s
+    // `getChildProcess` probe.
+    const busy = typeof proc.inFlightCallCount === "number" && proc.inFlightCallCount > 0;
+    if (!busy) {
+      proc.kill();
+      return;
+    }
+    log.info("extension subprocess invalidated mid-call — kill deferred until it settles", {
+      extensionId: extId,
+      inFlightCalls: proc.inFlightCallCount,
+    });
+    // `whenCallsSettled()` never rejects — a crashed or killed child still
+    // settles the counter through `call()`'s finally.
+    void proc.whenCallsSettled().then(() => proc.kill());
+  }
+
   /** Re-read DB and rebuild maps. Call after install/uninstall.
+   *
+   *  A reload can refresh an extension in place while its old subprocess /
+   *  MCP connection is still live, so every one of those is compared
+   *  against its pre-reload {@link runtimeSignature} and dropped when the
+   *  extension was removed OR its runtime inputs moved. Without this an
+   *  upgraded extension keeps serving the pre-upgrade code (the
+   *  time-now-ui incident) and an upgraded MCP extension keeps a forward
+   *  proxy + connected client built from the pre-upgrade transport config.
    *
    *  Phase 7 fix-pass C3: a previous version leaked the per-MCP forward
    *  proxy on uninstall — `mcpProxies.clear()` only ran in `killAll()`,
    *  so an uninstalled MCP extension kept a listener (and its bearer
-   *  token in memory) until process exit. We now snapshot the
-   *  pre-reload extension-id set, run the reload, and stop+drop any
-   *  proxy / mcp-client whose extensionId is no longer in the DB.
+   *  token in memory) until process exit.
    */
   async reload(): Promise<void> {
+    const priorRuntimeSignatures = new Map<string, string>();
+    const trackSignature = (extId: string): void => {
+      if (!priorRuntimeSignatures.has(extId)) {
+        priorRuntimeSignatures.set(extId, this.runtimeSignature(extId));
+      }
+    };
+    for (const extId of this.processes.keys()) trackSignature(extId);
+    for (const extId of this.mcpProxies.keys()) trackSignature(extId);
+    for (const extId of this.mcpClients.keys()) trackSignature(extId);
+
     this.verifiedSessions.clear();
     await this.loadFromDb();
 
-    // After loadFromDb, `this.manifests` reflects the post-reload set
-    // of extension ids. Compare against the maps that hold live
-    // resources.
+    // After loadFromDb, `this.manifests` reflects the post-reload set.
     const liveIds = new Set(this.manifests.keys());
+    const isStale = (extId: string): boolean =>
+      !liveIds.has(extId) || priorRuntimeSignatures.get(extId) !== this.runtimeSignature(extId);
 
+    // Drop only removed or runtime-changed extensions. Unchanged ones stay
+    // live, so an unrelated install cannot interrupt them.
+    for (const [extId, proc] of this.processes) {
+      if (!isStale(extId)) continue;
+      this.processes.delete(extId);
+      this.retireProcess(extId, proc);
+    }
     for (const [extId, proxy] of this.mcpProxies) {
-      if (!liveIds.has(extId)) {
-        void proxy.stop().catch(() => {});
-        this.mcpProxies.delete(extId);
-      }
+      if (!isStale(extId)) continue;
+      void proxy.stop().catch(() => {});
+      this.mcpProxies.delete(extId);
     }
     for (const [extId, client] of this.mcpClients) {
-      if (!liveIds.has(extId)) {
-        void client.close().catch(() => {});
-        this.mcpClients.delete(extId);
-      }
+      if (!isStale(extId)) continue;
+      void client.close().catch(() => {});
+      this.mcpClients.delete(extId);
     }
   }
 

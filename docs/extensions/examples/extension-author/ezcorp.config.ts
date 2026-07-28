@@ -28,6 +28,13 @@ export default defineExtension({
   tools: [
     {
       name: "create_extension",
+      // `cardType: "ez-draft"` routes the result to EzToolResultCard so
+      // the returned `openUrl` (/extensions/author?prefill=<draftId>)
+      // renders as a one-click "Open draft editor" link. Without it the
+      // result fell through to DefaultCard, where it rendered collapsed
+      // and the 50-char header preview truncated the URL away entirely
+      // — the tool's only actionable output was invisible.
+      cardType: "ez-draft",
       description:
         "Scaffold a new EZCorp extension and create a draft. Returns { draftId, openUrl, name, type }.\n\nSUPPORTED TYPES: tool, skill, agent, multi (see docs/extensions/AUTHORING.md for the contract of each).\n\nIMPORTANT — env-key-leak install gate: do NOT declare any env name matching /(_API_KEY|TOKEN|SECRET)$/i in `permissions.env`. The install will be REFUSED. If the user needs an API credential, take it as a tool input parameter instead.\n\nREAD docs/extensions/AUTHORING.md for the full authoring contract before invoking this tool.\n\nWORKFLOW — this is STEP 1 of a fixed 3-step chain: create_extension → validate_extension → install_draft. After this returns successfully you MUST proceed to validate_extension, then install_draft, in the SAME turn, WITHOUT waiting for further user prompting — UNLESS the user explicitly said \"draft only\" / \"don't install yet\". Do NOT end your turn after only scaffolding; a scaffolded-but-uninstalled draft is an incomplete request.",
       inputSchema: {
@@ -74,7 +81,7 @@ export default defineExtension({
     {
       name: "read_draft",
       description:
-        "Return the full file map of a draft's directory. Useful for the LLM to inspect the scaffold before recommending an edit.",
+        "Return the full file map of a draft's directory. Useful for the LLM to inspect the scaffold before recommending an edit.\n\nRETURNS { draftId, files } and — only when something went wrong — `unreadable: [{ path, error }]` listing files that EXIST but could not be read. If `unreadable` is present you have NOT seen the whole draft: do not rewrite or install those files blind; report the problem.",
       inputSchema: {
         type: "object",
         properties: {
@@ -122,7 +129,7 @@ export default defineExtension({
       // DefaultCard (raw JSON) and the deep-link is never surfaced.
       cardType: "ez-install",
       description:
-        "Install a validated draft as a real, ENABLED extension so it can be tested immediately and appears in the user's Extensions/Library tab. Runs the same secure pipeline as the web install form (verifyExtension smoke-test hard-gate for tool/multi, env-key-leak gate).\n\nWORKFLOW — STEP 3 of 3 and the REQUIRED terminal step of every authoring request: always call this after a passing validate_extension. This call ALWAYS surfaces a one-time permission card the user must Allow — that is the expected, by-design security gate. Do NOT ask the user for permission yourself beforehand; just call the tool and let the card collect consent. On Deny, nothing is installed: report that and stop — do NOT retry on Deny.\n\nRESULT — on success: { ok:true, extensionId, name, openUrl }. On failure: { ok:false, code, error }. Branch DETERMINISTICALLY on `code`:\n• VERIFY_FAILED — read `error`, fix the draft with write_draft_file, then re-run validate_extension and install_draft.\n• ENV_KEY_LEAK — an env name matched the install gate; move that credential to a tool INPUT parameter (see create_extension's env guidance), rewrite with write_draft_file, then re-validate and re-install.\n• NAME_COLLISION — STOP. Do NOT rename, add a numeric suffix, or retry automatically. Tell the user that name is already installed and ask them to choose: (a) pick a different name, (b) uninstall/discard the existing extension first, or (c) cancel — then WAIT for their decision before doing anything else.",
+        "Install a validated draft as a real, ENABLED extension so it can be tested immediately and appears in the user's Extensions/Library tab. Runs the same secure pipeline as the web install form (verifyExtension smoke-test hard-gate for tool/multi, env-key-leak gate).\n\nWORKFLOW — STEP 3 of 3 and the REQUIRED terminal step of every authoring request: always call this after a passing validate_extension. This call ALWAYS surfaces a one-time permission card the user must Allow — that is the expected, by-design security gate. Do NOT ask the user for permission yourself beforehand; just call the tool and let the card collect consent. On Deny, nothing is installed: report that and stop — do NOT retry on Deny.\n\nRESULT — on success: { ok:true, extensionId, name, openUrl }. On failure: { ok:false, code, error }. Branch DETERMINISTICALLY on `code`:\n• VERIFY_FAILED — read `error`, fix the draft with write_draft_file, then re-run validate_extension and install_draft.\n• ENV_KEY_LEAK — an env name matched the install gate; move that credential to a tool INPUT parameter (see create_extension's env guidance), rewrite with write_draft_file, then re-validate and re-install.\n• NAME_COLLISION — STOP. Do NOT rename, add a numeric suffix, or retry automatically. Tell the user that name is already installed and ask them to choose: (a) pick a different name, (b) uninstall/discard the existing extension first, or (c) cancel — then WAIT for their decision before doing anything else.\n• ENABLE_FAILED / REGISTRY_RELOAD_FAILED — the extension IS installed on disk and in the library, but it is not enabled / not loaded, so its tools do not exist yet. Do NOT re-run install_draft (the draft is already consumed and a retry will only raise NAME_COLLISION). Report exactly what the error says and tell the user to enable it from the Extensions library or restart the server.\n• BAD_HOST_RESPONSE — the host replied in a shape this tool cannot trust, so whether the install happened is UNKNOWN. Do NOT retry blind. Tell the user to check the Extensions library first.",
       inputSchema: {
         type: "object",
         properties: {
@@ -137,7 +144,7 @@ export default defineExtension({
     {
       name: "modify_extension",
       description:
-        "Re-open an ALREADY-INSTALLED extension that the USER created so it can be edited and re-installed. Use this (NOT create_extension) when the user asks to change/fix/update an existing extension of theirs.\n\nELIGIBILITY (host-enforced): only an extension the requesting user created AND that an admin has flagged `modifiable` AND that is not bundled can be re-opened. The user cannot self-enable this — only an admin can. If this returns { ok:false, code:\"NOT_FOUND_OR_NOT_MODIFIABLE\" }: STOP — do not retry, do not fall back to create_extension. Tell the user that an admin must open THIS extension's detail page (Library → click the extension), go to the \"Settings\" section, and turn ON the \"Allow extension to be modified\" checkbox; built-in/bundled extensions can never be made modifiable. Then stop and wait — do not proceed until they confirm it's enabled.\n\nThis call ALWAYS surfaces a one-time permission card the user must Allow (the by-design \"the assistant can't silently rewrite my extension\" gate). Do NOT ask for permission yourself first; call the tool and let the card collect consent. On Deny: report it and stop.\n\nWORKFLOW — on success returns { ok:true, draftId, name }. Then continue IN THE SAME TURN: read_draft(draftId) to see current files → apply the user's change with write_draft_file → validate_extension(draftId) → install_draft(draftId). The re-install is a SANCTIONED IN-PLACE upgrade of the existing extension — it will NOT raise NAME_COLLISION for the same name (that is expected; do not treat the unchanged name as a problem).",
+        "Re-open an ALREADY-INSTALLED extension that the USER created so it can be edited and re-installed. Use this (NOT create_extension) when the user asks to change/fix/update an existing extension of theirs.\n\nELIGIBILITY (host-enforced): only an extension the requesting user created AND that an admin has flagged `modifiable` AND that is not bundled can be re-opened. The user cannot self-enable this — only an admin can. If this returns { ok:false, code:\"NOT_FOUND_OR_NOT_MODIFIABLE\" }: STOP — do not retry, do not fall back to create_extension. Tell the user that an admin must open THIS extension's detail page (Library → click the extension), go to the \"Settings\" section, and turn ON the \"Allow extension to be modified\" checkbox; built-in/bundled extensions can never be made modifiable. Then stop and wait — do not proceed until they confirm it's enabled.\n\nThis call ALWAYS surfaces a one-time permission card the user must Allow (the by-design \"the assistant can't silently rewrite my extension\" gate). Do NOT ask for permission yourself first; call the tool and let the card collect consent. On Deny: report it and stop.\n\nWORKFLOW — on success returns { ok:true, draftId, name }. If it instead returns { ok:false, code:\"BAD_HOST_RESPONSE\" }, nothing was re-opened: do NOT call read_draft, report it and stop. Otherwise continue IN THE SAME TURN: read_draft(draftId) to see current files → apply the user's change with write_draft_file → validate_extension(draftId) → install_draft(draftId). The re-install is a SANCTIONED IN-PLACE upgrade of the existing extension — it will NOT raise NAME_COLLISION for the same name (that is expected; do not treat the unchanged name as a problem).",
       inputSchema: {
         type: "object",
         properties: {
@@ -152,10 +159,36 @@ export default defineExtension({
     },
   ],
   permissions: {
-    filesystem: ["$CWD/.ezcorp/extension-data/extension-author"],
+    filesystem: ["$CWD/.ezcorp/extension-data/extension-author/drafts/$USER"],
     custom: { drafts: { kinds: ["extension"] } },
     // No network, no shell, no env, no storage. The reverse-RPC
     // `ezcorp/drafts` is the only host capability the extension needs
     // beyond filesystem.
+  },
+  // Deterministic acceptance. `verifyExtension` REQUIRES a smokeTest for
+  // any non-mcp manifest that declares tools — including this one, which
+  // declares eight. Without it the extension that gates everyone else's
+  // extensions could not pass its own gate.
+  //
+  // The probe targets the ONE code path that completes entirely inside
+  // the subprocess: `create_extension` validates its `type` argument
+  // before it touches the scaffolder or the `ezcorp/drafts` reverse-RPC.
+  // That matters because verify spawns the extension with NO host on the
+  // other end of the channel — any tool that round-trips to the host
+  // would block forever. This still exercises the real thing the gate
+  // asks about: the process boots under the sandbox, the JSON-RPC
+  // dispatcher accepts a `tools/call`, the handler runs, and a
+  // structured result comes back.
+  smokeTest: {
+    tool: "create_extension",
+    input: {
+      name: "smoke-test-probe",
+      type: "not-a-real-type",
+      description: "deterministic acceptance probe — never scaffolds",
+    },
+    expect: {
+      isError: true,
+      textIncludes: "must be one of tool|skill|agent|multi",
+    },
   },
 });

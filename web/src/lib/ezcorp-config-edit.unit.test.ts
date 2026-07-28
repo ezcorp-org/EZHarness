@@ -14,6 +14,11 @@ import {
 	setCapabilityPermissions,
 	unresolvedDependencies,
 	unmanagedCapabilities,
+	dependencySourceFor,
+	isPickableDependency,
+	toDependencyEntry,
+	PICKER_DEPENDENCY_SOURCES,
+	VIRTUAL_BUILTIN_EXTENSION_ID,
 } from "./ezcorp-config-edit";
 import type { DependencyEntry, ToggleableCapability } from "./ezcorp-config-edit";
 
@@ -297,5 +302,56 @@ describe("combined: deps + capabilities coexist", () => {
 		const withBoth = setCapabilityPermissions(withDeps, allCaps({ search: true })).source;
 		expect(parseDependencies(withBoth)).toEqual([DEP_A]);
 		expect(parseCapabilities(withBoth)).toEqual({ search: true, memory: false, llm: false });
+	});
+});
+
+describe("dependency picker — emitted source + what is pickable", () => {
+	test("PICKER_DEPENDENCY_SOURCES is the closed set the host validator knows", () => {
+		// Locksteped against `src/extensions/dependency-source.ts` by
+		// `src/__tests__/dependency-source-parity.test.ts`.
+		expect([...PICKER_DEPENDENCY_SOURCES].sort()).toEqual(["bundled", "local"]);
+	});
+
+	test("dependencySourceFor maps a bundled row to 'bundled', anything else to 'local'", () => {
+		expect(dependencySourceFor({ isBundled: true })).toBe("bundled");
+		expect(dependencySourceFor({ isBundled: false })).toBe("local");
+		expect(dependencySourceFor({})).toBe("local");
+	});
+
+	test("toDependencyEntry builds the managed entry (caret-ranged on the installed version)", () => {
+		expect(
+			toDependencyEntry({ id: "e1", name: "ai-kit", version: "0.1.0", isBundled: true }),
+		).toEqual({ name: "ai-kit", source: "bundled", version: "^0.1.0" });
+		expect(
+			toDependencyEntry({ id: "e2", name: "mine", version: "2.3.4", isBundled: false }),
+		).toEqual({ name: "mine", source: "local", version: "^2.3.4" });
+	});
+
+	test("a built entry round-trips through the managed block", () => {
+		const entry = toDependencyEntry({
+			id: "e1",
+			name: "ai-kit",
+			version: "0.1.0",
+			isBundled: true,
+		});
+		const written = setDependencies(SCAFFOLD, [entry]);
+		expect(written.recognized).toBe(true);
+		expect(parseDependencies(written.source)).toEqual([entry]);
+	});
+
+	test("the virtual builtin row is never pickable as a dependency", () => {
+		expect(isPickableDependency({ id: VIRTUAL_BUILTIN_EXTENSION_ID, source: "builtin" })).toBe(
+			false,
+		);
+		// Either marker alone is enough to exclude it.
+		expect(isPickableDependency({ id: "builtin", source: "local:/x" })).toBe(false);
+		expect(isPickableDependency({ id: "ext-9", source: "builtin" })).toBe(false);
+	});
+
+	test("real installed rows stay pickable", () => {
+		expect(isPickableDependency({ id: "ext-1", source: "local:/x" })).toBe(true);
+		expect(isPickableDependency({ id: "ext-2", source: "github:u/r" })).toBe(true);
+		expect(isPickableDependency({ id: "ext-3" })).toBe(true);
+		expect(isPickableDependency({ id: "ext-4", source: null })).toBe(true);
 	});
 });

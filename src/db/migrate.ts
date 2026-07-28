@@ -2201,6 +2201,52 @@ export async function migrate(db: any): Promise<void> {
       ON saved_contexts(user_id, conversation_id, topic_label)
   `);
 
+  // ── Workflow run history ─────────────────────────────────────────
+  //
+  // Placed here (near the end) purely because every FK target it needs —
+  // workflow_definitions, projects, users, runs — is created above.
+  // `workflow_definition_id` is NULLABLE: a YAML workflow has no
+  // definitions row, so the column is genuinely absent for those runs,
+  // and SET NULL keeps run history readable after a DB workflow is
+  // deleted. `user_id` is likewise SET NULL — a deleted user
+  // un-attributes their history (then admin-only) rather than cascading
+  // it away.
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS workflow_runs (
+      id TEXT PRIMARY KEY,
+      workflow_definition_id TEXT REFERENCES workflow_definitions(id) ON DELETE SET NULL,
+      workflow_name TEXT NOT NULL,
+      project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+      user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      status TEXT NOT NULL,
+      input JSONB,
+      result JSONB,
+      started_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+      finished_at TIMESTAMP WITH TIME ZONE,
+      created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+    )
+  `);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_workflow_runs_name_started ON workflow_runs(workflow_name, started_at DESC)`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_workflow_runs_user ON workflow_runs(user_id)`);
+
+  // Per-step history. `run_id` is a NULLABLE FK to runs(id): only an
+  // `agent` step mints a real run — transform / gate / tool steps carry
+  // the in-memory sentinel `runId = ""`, which the query layer maps to
+  // SQL NULL (an empty string would fail the FK outright).
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS workflow_step_runs (
+      id TEXT PRIMARY KEY,
+      workflow_run_id TEXT NOT NULL REFERENCES workflow_runs(id) ON DELETE CASCADE,
+      step_name TEXT NOT NULL,
+      run_id TEXT REFERENCES runs(id) ON DELETE SET NULL,
+      status TEXT NOT NULL,
+      iterations INTEGER,
+      created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+    )
+  `);
+  await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uniq_workflow_step_run ON workflow_step_runs(workflow_run_id, step_name)`);
+
   // One-shot, idempotent backfill: move any pre-existing github-projects PATs
   // out of the broadly-readable `settings` table into the scope-isolated,
   // AEAD-bound extension_secrets store. Runs LAST (every FK target exists by

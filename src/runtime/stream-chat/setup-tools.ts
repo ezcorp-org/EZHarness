@@ -269,6 +269,75 @@ export function wireExtensionToolsIntoTurn(args: {
   return wired;
 }
 
+/** The registry surface {@link collectMissingExtensionTools} needs — the
+ *  real {@link ExtensionRegistry} satisfies it; tests pass a fake. */
+export interface TurnExtensionToolSource extends BundledExtensionToolSource {
+  getToolsForAgent(agentConfigId: string): Promise<
+    Array<{ name: string; description: string; inputSchema: Record<string, unknown> }>
+  >;
+}
+
+/**
+ * The extension tools that are in scope for this turn but MISSING from the
+ * live tool list, wrapped and ready to append.
+ *
+ * "In scope" is the same union the initial assembly uses: the agent
+ * config's attached extensions (2b) plus the conversation-wired ones (2c).
+ * Nothing else — an extension installed under a DIFFERENT conversation
+ * never leaks into this turn.
+ *
+ * Additive by construction: a tool already present is skipped rather than
+ * re-wrapped, and tools that disappeared are not removed (the model may
+ * already have called one this turn, and pulling it mid-run would strand
+ * that call). Pure over its inputs so it can be driven with a fake
+ * registry + executor.
+ */
+/** The shape `collectMissingExtensionTools` keys by tool name while it
+ *  assembles the turn's in-scope set. Named so the generic below stays on
+ *  one line (see the note at its use site). */
+interface InScopeTool {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+}
+
+export async function collectMissingExtensionTools(args: {
+  registry: TurnExtensionToolSource;
+  agentConfigId: string | undefined;
+  conversationExtensionIds: readonly string[];
+  existingToolNames: ReadonlySet<string>;
+  toolExec: ToolExecutor;
+  conversationId: string;
+  runId: string;
+}): Promise<AgentTool[]> {
+  const {
+    registry, agentConfigId, conversationExtensionIds,
+    existingToolNames, toolExec, conversationId, runId,
+  } = args;
+
+  // Single-line generic on purpose: a multi-line type argument list leaves
+  // its interior lines as orphan coverable lines that no execution can ever
+  // hit, which the patch-coverage gate reads as uncovered changes (the same
+  // trap documented for multi-line `sql` templates in src/db/migrate.ts).
+  const inScope = new Map<string, InScopeTool>();
+  if (agentConfigId) {
+    for (const t of await registry.getToolsForAgent(agentConfigId)) inScope.set(t.name, t);
+  }
+  for (const extId of conversationExtensionIds) {
+    for (const t of registry.getToolsForExtension(extId)) inScope.set(t.name, t);
+  }
+
+  const added: AgentTool[] = [];
+  for (const [name, t] of inScope) {
+    if (existingToolNames.has(name)) continue;
+    added.push(extensionToAgentTool(
+      { name, description: t.description, inputSchema: t.inputSchema },
+      toolExec, conversationId, runId,
+    ));
+  }
+  return added;
+}
+
 /**
  * Ez concierge: wire the bundled `extension-author` extension's tools for a
  * `kind='ez'` turn so the in-app LLM can scaffold new extensions on
@@ -1250,6 +1319,51 @@ export async function setupTools(
       .filter(Boolean)
       .join("\n\n");
   }
+
+  // Mid-run re-assembly seam. Everything above runs ONCE per run, so an
+  // extension the model installs DURING the turn used to be uncallable for
+  // the rest of it — contradicting `install_draft`'s promise that the
+  // extension lands enabled "so it can be tested immediately". The executor
+  // calls this between agentic-loop iterations.
+  //
+  // Gated on the registry's load generation so the common case (nothing
+  // installed) costs one integer compare and zero DB queries.
+  let seenRegistryGeneration = ExtensionRegistry.getInstance().generation;
+  ctx.refreshExtensionTools = async (existingToolNames) => {
+    const registry = ExtensionRegistry.getInstance();
+    if (registry.generation === seenRegistryGeneration) return [];
+    seenRegistryGeneration = registry.generation;
+    try {
+      const [{ getConversationExtensionIds }, { getOrchestrationExtensionId }] =
+        await Promise.all([
+          import("../../db/queries/conversation-extensions"),
+          import("../orchestration-host"),
+        ]);
+      const [convExtIds, orchExtId] = await Promise.all([
+        getConversationExtensionIds(conversationId),
+        getOrchestrationExtensionId(),
+      ]);
+      return await collectMissingExtensionTools({
+        registry,
+        agentConfigId: options.agentConfigId,
+        // Same carve-out as the 2c wire: `wireOrchestrationToolsForTurn`
+        // owns the orchestration tools, and a namespaced duplicate would
+        // bypass its per-turn agentConfigId enum allowlist.
+        conversationExtensionIds: convExtIds.filter((id) => id !== orchExtId),
+        existingToolNames,
+        toolExec: buildExtensionToolExecutor(
+          registry, host, attachmentArgsResolver, convRecord, options,
+        ),
+        conversationId,
+        runId: run.id,
+      });
+    } catch (refreshErr) {
+      log.warn("mid-run extension tool refresh failed — tool list unchanged", {
+        error: String(refreshErr),
+      });
+      return [];
+    }
+  };
 
   // The third tuple slot is the only one we surface upward.
   return resolvedModel;

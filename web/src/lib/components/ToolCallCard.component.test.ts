@@ -116,8 +116,13 @@ describe("ToolCallCard expanded error block", () => {
 		const label = await findByText("Error");
 		expect(label.className).toContain("text-red-400");
 
-		// Error text body uses the red palette
-		const errBlock = await findByText("permission denied: /etc/foo");
+		// Error text body uses the red palette. Scoped to the <pre> because
+		// the collapsed header now ALSO shows the failure reason (a plain
+		// -text error classes as an unclassified execution failure), so a
+		// bare text query matches both nodes.
+		const errBlock = await findByText("permission denied: /etc/foo", {
+			selector: "pre",
+		});
 		expect(errBlock.className).toContain("text-red-300");
 		expect(errBlock.className).toContain("bg-red-900/20");
 	});
@@ -134,5 +139,80 @@ describe("ToolCallCard expanded error block", () => {
 		await fireEvent.click(button);
 
 		expect(queryByText("Error")).toBeNull();
+	});
+});
+
+/**
+ * A tool with NO `cardType` never reaches DefaultCard — it renders the
+ * generic card in THIS component. That is why the failure summary has
+ * to live here too: `modify_extension` declares no cardType, so a
+ * failed re-open was a red ✗, the tool name, and nothing else, with the
+ * host's structured `code` only visible after expanding.
+ */
+describe("ToolCallCard — collapsed failure summary", () => {
+	function failure(code: string, error: string): string {
+		return JSON.stringify({ ok: false, code, error });
+	}
+
+	test("shows the failure class, code, input, and reason while collapsed", () => {
+		const { getByTestId, container } = render(ToolCallCard, {
+			toolCall: baseToolCall({
+				toolName: "modify_extension",
+				status: "error",
+				input: { name: "weather" },
+				error: failure("NOT_FOUND_OR_NOT_MODIFIABLE", "an admin must enable modify"),
+			}),
+		});
+		const chip = getByTestId("tool-card-failure-class");
+		expect(chip.getAttribute("data-failure-class")).toBe("permission");
+		expect(chip.textContent).toContain("Not permitted");
+		expect(chip.textContent).toContain("NOT_FOUND_OR_NOT_MODIFIABLE");
+		expect(getByTestId("tool-card-failure-message").textContent).toContain(
+			"an admin must enable modify",
+		);
+		// The input arg is still there…
+		expect(container.textContent).toContain("weather");
+		// …and none of it required expanding.
+		expect(
+			container.querySelector("button[aria-expanded]")?.getAttribute("aria-expanded"),
+		).toBe("false");
+	});
+
+	test("reads the structured payload out of `output` when `error` is the hydrated 'Error' string", () => {
+		// This is the persisted/reload shape: inlineToolStore sets
+		// `error: "Error"` and keeps the real body in `output`.
+		const { getByTestId } = render(ToolCallCard, {
+			toolCall: baseToolCall({
+				toolName: "install_draft",
+				status: "error",
+				input: { draftId: "draft-abc" },
+				error: "Error",
+				output: failure("ENABLE_FAILED", "installed but could NOT be enabled"),
+			}),
+		});
+		expect(getByTestId("tool-card-failure-class").getAttribute("data-failure-class")).toBe(
+			"execution",
+		);
+		expect(getByTestId("tool-card-failure-message").textContent).toContain(
+			"could NOT be enabled",
+		);
+	});
+
+	test("extension-author input keys reach the header (shared extractInputSummary)", () => {
+		const { container } = render(ToolCallCard, {
+			toolCall: baseToolCall({
+				toolName: "install_draft",
+				status: "running",
+				input: { draftId: "draft-xyz" },
+			}),
+		});
+		expect(container.textContent).toContain("draft-xyz");
+	});
+
+	test("a successful call renders no failure chip", () => {
+		const { queryByTestId } = render(ToolCallCard, {
+			toolCall: baseToolCall({ status: "complete", output: "all good" }),
+		});
+		expect(queryByTestId("tool-card-failure-class")).toBeNull();
 	});
 });

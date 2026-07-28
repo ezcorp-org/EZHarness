@@ -64,6 +64,9 @@ function pageData(files: Record<string, string>) {
 	return {
 		draft: { id: "draft-1", kind: "extension" as const, payload: { name: "my-ext", type: "tool" }, createdAt: new Date(0), expiresAt: new Date(0), consumedAt: null },
 		files,
+		// The loader reports files it could not read rather than dropping
+		// them silently, so the shape carries this even when it is empty.
+		unreadable: [] as Array<{ name: string; error: string }>,
 	};
 }
 

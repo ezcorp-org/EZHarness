@@ -5,7 +5,7 @@
 
 import { ExtensionProcess, parseMemoryLimit, DEFAULT_MEMORY_LIMIT_MB } from "../subprocess";
 import { buildAllowedEnv } from "../registry";
-import { loadManifest } from "../loader";
+import { loadManifestFresh } from "../loader";
 import type { ToolCallResult } from "../types";
 import { join } from "node:path";
 
@@ -32,7 +32,11 @@ export async function createTestExtension(
     throw new Error(`Manifest not found: ${join(extDir, "ezcorp.config.ts")}`);
   }
 
-  const manifest = await loadManifest(extDir);
+  // Fresh (cache-busted) read: this helper backs the verify gate's
+  // edit→revalidate loop, where the same directory is re-read after
+  // the manifest bytes changed. Bun's module cache would otherwise
+  // hand back the pre-edit entrypoint/resources declaration.
+  const manifest = await loadManifestFresh(extDir);
 
   if (!manifest.entrypoint) {
     throw new Error("Extension manifest must declare an entrypoint");

@@ -18,6 +18,7 @@ import type { ExtensionManifestV2, ExtensionPermissions } from "./types";
 import { parseCron, type CronInstance } from "./cron";
 import { capabilityToolsDisabled } from "./capability-flags";
 import { DIRECT_CARRIER_EVENT_TYPES } from "../runtime/sse-conversation-filter";
+import { isValidWorkflowName } from "../runtime/workflow-name";
 
 /** Pi-AI provider allowlist. Manifest cannot grant any provider not
  *  in this set; clamp drops unknown providers silently. */
@@ -245,6 +246,70 @@ export function clampSearchPermission(
   }
 
   return out;
+}
+
+/** Default per-hour trigger budget when neither side names one, and the
+ *  hard ceiling any grant is clamped to. A workflow run can fan out into
+ *  `agent` steps that cost real LLM spend, so an extension-driven trigger
+ *  is always rate-bounded even when the author forgot to say so. */
+export const WORKFLOW_RUNS_PER_HOUR_DEFAULT = 20;
+export const WORKFLOW_RUNS_PER_HOUR_CEILING = 500;
+
+/**
+ * Clamp a `workflows` trigger grant (W2) to its manifest declaration.
+ *
+ * Returns `undefined` when the manifest doesn't declare `workflows` (an
+ * extension cannot grant itself a capability its author never requested —
+ * mirrors `clampLlmPermission`), and also when the name intersection is
+ * empty: a `{names: []}` husk would read as "granted" to any presence
+ * check while authorizing nothing, so it is dropped outright.
+ *
+ * The manifest is the source of truth for `names` — a submitted grant can
+ * only ever be a SUBSET. Each surviving name is re-checked against the
+ * shared `WORKFLOW_NAME_RE`, so a name carrying the `:` namespace
+ * separator can never reach the grant even if it somehow got past
+ * `validatePermissionsBlock` (defense in depth: the handler namespaces
+ * host-side, and a stale grant must not be exploitable).
+ */
+export function clampWorkflowsPermission(
+  submitted: ExtensionPermissions["workflows"] | undefined,
+  manifest: ExtensionManifestV2["permissions"]["workflows"] | undefined,
+): ExtensionPermissions["workflows"] {
+  if (!manifest || !Array.isArray(manifest.names)) return undefined;
+
+  const manifestNames = manifest.names.filter(isValidWorkflowName);
+  if (manifestNames.length === 0) return undefined;
+
+  // No submitted grant → the admin approved the declaration as-is (same
+  // convention as clampSchedulePermission).
+  const submittedNames = Array.isArray(submitted?.names) ? submitted.names : manifestNames;
+  const manifestSet = new Set(manifestNames);
+  const seen = new Set<string>();
+  const names: string[] = [];
+  for (const n of submittedNames) {
+    if (!isValidWorkflowName(n) || !manifestSet.has(n) || seen.has(n)) continue;
+    seen.add(n);
+    names.push(n);
+  }
+  if (names.length === 0) return undefined;
+
+  return {
+    names,
+    maxRunsPerHour: Math.min(
+      clampNumber(
+        submitted?.maxRunsPerHour,
+        1,
+        WORKFLOW_RUNS_PER_HOUR_CEILING,
+        WORKFLOW_RUNS_PER_HOUR_DEFAULT,
+      ),
+      clampNumber(
+        manifest.maxRunsPerHour,
+        1,
+        WORKFLOW_RUNS_PER_HOUR_CEILING,
+        WORKFLOW_RUNS_PER_HOUR_DEFAULT,
+      ),
+    ),
+  };
 }
 
 export function clampLessonsPermission(
@@ -681,6 +746,13 @@ export function clampExtensionPermissions(
       );
       if (allowed.length > 0) clamped.webhooks = allowed;
     }
+
+    // workflows (W2): trigger grants for the extension's OWN shipped
+    // workflows. Delegated to the canonical clamp helper — `undefined`
+    // means either "manifest didn't declare it" or "the intersection was
+    // empty", and both must leave the grant absent.
+    const workflows = clampWorkflowsPermission(submitted.workflows, manifest.workflows);
+    if (workflows) clamped.workflows = workflows;
 
     // ── Phase 51 capability surfaces ────────────────────────────────
     // Delegate to the canonical clamp helpers above. Each helper returns

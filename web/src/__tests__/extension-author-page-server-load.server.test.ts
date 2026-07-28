@@ -52,7 +52,7 @@ vi.mock("$server/db/queries/ez-drafts", async () => {
   };
 });
 
-import { load } from "../routes/(app)/extensions/author/+page.server";
+import { load, _readDraftFiles } from "../routes/(app)/extensions/author/+page.server";
 
 let TMP: string;
 let DRAFT_ROOT: string;
@@ -186,5 +186,28 @@ describe("+page.server.ts load() — happy path", () => {
     const result = await load(makeEvent({ prefill: "filt" })) as { files: Record<string, string> };
     expect(result.files["ezcorp.config.ts"]).toBe("// stub");
     expect("secret.key" in result.files).toBe(false);
+  });
+  // The loader now surfaces files it could NOT read instead of dropping
+  // them silently — an author editing a short file list and installing
+  // it is how content gets lost.
+  test("unreadable files are reported to the page, not silently skipped", async () => {
+    seedDraft("unread", USER.id, { "ezcorp.config.ts": "// stub" });
+    // A directory where a file is expected — readFileSync throws EISDIR
+    // for every user, root included.
+    mkdirSync(join(DRAFT_ROOT, USER.id, "unread", "README.md"), { recursive: true });
+
+    const result = (await load(makeEvent({ prefill: "unread" }))) as {
+      files: Record<string, string>;
+      unreadable: Array<{ name: string; error: string }>;
+    };
+    expect(result.files["ezcorp.config.ts"]).toBe("// stub");
+    expect(result.unreadable.map((u) => u.name)).toEqual(["README.md"]);
+  });
+
+  test("_readDraftFiles (test-only export) returns just the file map", () => {
+    seedDraft("direct", USER.id, { "README.md": "hello" });
+    expect(_readDraftFiles(join(DRAFT_ROOT, USER.id, "direct"))).toEqual({
+      "README.md": "hello",
+    });
   });
 });

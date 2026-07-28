@@ -214,6 +214,69 @@ describe("Registry dependency routing", () => {
 
     ExtensionRegistry.resetInstance();
   });
+
+  // Dependency routing is BY NAME — it never looks at `source` — so the
+  // PREINSTALLED source forms (`bundled`/`local`, the ones the
+  // extension-author composition picker writes) must route exactly like
+  // a cloneable `github:` dependency. This pins that: the install-time
+  // meaning of those sources ("must already be installed") is only
+  // coherent if the runtime then actually resolves them.
+  for (const source of ["bundled", "local"]) {
+    test(`buildDepRoutes routes a "${source}"-sourced dependency by name`, () => {
+      const registry = ExtensionRegistry.getInstance();
+
+      const callerManifest = makeManifest("caller", "1.0.0", {
+        deps: { "dep-pkg": { source, version: "^1.0.0" } },
+      });
+      registry.setManifestForTest("caller-id", callerManifest);
+      registry.setManifestForTest("dep-id", makeManifest("dep-pkg", "1.2.0"));
+      registry.registerToolForTest("dep-pkg__doStuff", {
+        name: "dep-pkg__doStuff",
+        originalName: "doStuff",
+        description: "does stuff",
+        inputSchema: { type: "object" },
+        extensionId: "dep-id",
+        extensionName: "dep-pkg",
+      });
+
+      registry.buildDepRoutes();
+
+      const result = registry.resolveDepTool("caller-id", "dep-pkg__doStuff");
+      expect(result).not.toBeNull();
+      expect(result!.extensionId).toBe("dep-id");
+
+      ExtensionRegistry.resetInstance();
+    });
+  }
+
+  test("a bundled-sourced dependency whose version misses the range does NOT route", () => {
+    // Same name-then-range rule as any other source: the install-time
+    // preflight rejects this case, and the runtime independently refuses
+    // to route it rather than silently invoking the wrong version.
+    const registry = ExtensionRegistry.getInstance();
+
+    registry.setManifestForTest(
+      "caller-id",
+      makeManifest("caller", "1.0.0", {
+        deps: { "dep-pkg": { source: "bundled", version: "^2.0.0" } },
+      }),
+    );
+    registry.setManifestForTest("dep-id", makeManifest("dep-pkg", "1.2.0"));
+    registry.registerToolForTest("dep-pkg__doStuff", {
+      name: "dep-pkg__doStuff",
+      originalName: "doStuff",
+      description: "does stuff",
+      inputSchema: { type: "object" },
+      extensionId: "dep-id",
+      extensionName: "dep-pkg",
+    });
+
+    registry.buildDepRoutes();
+
+    expect(registry.resolveDepTool("caller-id", "dep-pkg__doStuff")).toBeNull();
+
+    ExtensionRegistry.resetInstance();
+  });
 });
 
 // ── ToolExecutor: handlePiInvoke ────────────────────────────────────

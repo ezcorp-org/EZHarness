@@ -28,14 +28,18 @@ import {
   writeExtensionAuthorDraftFiles,
 } from "../db/queries/ez-drafts";
 import type { ExtensionManifestV2 } from "./types";
-import { logger } from "../logger";
+import { extensionLogger } from "../logger";
 
-const log = logger.child("reopen-extension");
+// `ext.extension-author.reopen` — the binding namespace rule in
+// src/extensions/CLAUDE.md, so `EZCORP_DEBUG=ext.extension-author`
+// reaches this module along with the rest of the author path.
+const log = extensionLogger("extension-author", "reopen");
 
 export type ReopenErrorCode =
   | "NOT_FOUND_OR_NOT_MODIFIABLE"
   | "NO_INSTALL_PATH"
   | "NO_FILES"
+  | "UNREADABLE_FILE"
   | "DRAFT_FAILED";
 
 /** Typed failure so the RPC handler maps to `rpcError` and the web
@@ -99,14 +103,32 @@ export async function reopenInstalledAsDraft(
   // Seed the draft from the installed files, restricted to the
   // scaffold allowlist (same set `writeExtensionAuthorDraftFiles`
   // enforces — anything else would be rejected on write anyway).
+  //
+  // An unreadable file is FATAL here, not skippable. The re-install
+  // replaces the extension directory with the draft's contents, so a
+  // silently-skipped file would be dropped from the draft and then
+  // deleted from the installed extension — a read error turning into
+  // permanent data loss, one install later.
   const files: Record<string, string> = {};
   for (const fname of SCAFFOLD_DRAFT_FILES) {
     const p = join(installPath, fname);
     if (!existsSync(p)) continue;
     try {
       files[fname] = await readFile(p, "utf8");
-    } catch {
-      // Skip unreadable; ezcorp.config.ts presence is asserted below.
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      log.warn("reopenInstalledAsDraft: refusing to seed an incomplete draft", {
+        extensionId: ext.id,
+        file: fname,
+        error: detail,
+      });
+      throw new ReopenError(
+        "UNREADABLE_FILE",
+        `Cannot re-open "${ext.name}": its "${fname}" could not be read ` +
+          `(${detail}). Re-opening now would drop that file from the draft ` +
+          `and delete it from the installed extension on re-install. Fix ` +
+          `the file's permissions and try again.`,
+      );
     }
   }
   if (!files["ezcorp.config.ts"]) {

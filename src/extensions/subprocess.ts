@@ -189,6 +189,10 @@ export class ExtensionProcess {
   private stderrDrained: Promise<void> = Promise.resolve();
   private nextId = 1;
   private killed = false;
+  /** Host-initiated JSON-RPC calls currently awaiting a response. */
+  private inFlightCalls = 0;
+  /** Resolvers parked by {@link whenCallsSettled} until the count hits 0. */
+  private callSettledWaiters: Array<() => void> = [];
 
   private readonly idleTimeoutMs: number;
   private readonly callTimeoutMs: number;
@@ -653,6 +657,7 @@ export class ExtensionProcess {
     this.resetIdleTimer();
 
     const responsePromise = this.transport!.send(request);
+    this.inFlightCalls++;
 
     try {
       const response = options?.skipTimeout
@@ -690,7 +695,36 @@ export class ExtensionProcess {
         }
       }
       throw error;
+    } finally {
+      this.inFlightCalls--;
+      if (this.inFlightCalls === 0) {
+        const waiters = this.callSettledWaiters;
+        this.callSettledWaiters = [];
+        for (const resolve of waiters) resolve();
+      }
     }
+  }
+
+  /** How many host-initiated calls are awaiting a response right now.
+   *
+   *  `ExtensionRegistry.reload()` reads this so an upgrade never kills a
+   *  subprocess mid-call. The install path reloads the registry from INSIDE
+   *  a reverse-RPC handler (`ezcorp/drafts.install`) — i.e. while the host
+   *  is still awaiting the `install_draft` tool call that triggered it — so
+   *  a naive kill would strand that call forever and wedge the chat. */
+  get inFlightCallCount(): number {
+    return this.inFlightCalls;
+  }
+
+  /** Resolves once no host-initiated call is in flight; resolves
+   *  immediately when the process is already idle. Never rejects — a
+   *  crashed or killed child rejects its pending call, which still settles
+   *  the counter. */
+  whenCallsSettled(): Promise<void> {
+    if (this.inFlightCalls === 0) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      this.callSettledWaiters.push(resolve);
+    });
   }
 
   /** Call a tool by name with arguments. Convenience wrapper around call().

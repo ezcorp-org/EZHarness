@@ -3,6 +3,7 @@ import { satisfiesRange, validateDependencies } from "../extensions/manifest";
 import {
   detectCycles,
   resolveDependencies,
+  resolvePreinstalledDependency,
   formatDepTree,
   type ResolvedDep,
   type DependencyTreeNode,
@@ -787,5 +788,151 @@ describe("installWithDependencies", () => {
     const alreadyInstalled = result.toInstall.filter((d: ResolvedDep) => d.alreadyInstalled);
     expect(alreadyInstalled).toHaveLength(1);
     expect(alreadyInstalled[0]!.name).toBe("lib");
+  });
+});
+
+// ── PREINSTALLED sources: resolve by name, never clone ───────────────
+//
+// `bundled`/`local` (see src/extensions/dependency-source.ts) declare
+// "this extension must ALREADY be installed". The resolver must never
+// hand such a source to the clone path, and must fail loudly rather than
+// let an unresolvable dependency through — `buildDepRoutes` would drop
+// it at runtime and every cross-extension call would be denied with no
+// explanation.
+
+describe("resolveDependencies — preinstalled (never-cloned) sources", () => {
+  /** Fails the test if the clone path is reached at all. */
+  const noFetch = async (source: string): Promise<ExtensionManifestV2> => {
+    throw new Error(`fetchManifest must NOT be called for source "${source}"`);
+  };
+
+  test("a bundled dependency resolves from the installed set without cloning", async () => {
+    const root = makeManifest("root", "1.0.0", {
+      "ai-kit": { source: "bundled", version: "^1.0.0" },
+    });
+    const result = await resolveDependencies(root, {
+      getInstalled: async (n) => (n === "ai-kit" ? { version: "1.4.2" } : null),
+      fetchManifest: noFetch,
+    });
+    expect(result.toInstall).toHaveLength(1);
+    const dep = result.toInstall[0] as ResolvedDep;
+    expect(dep.name).toBe("ai-kit");
+    expect(dep.source).toBe("bundled");
+    // Resolved to the INSTALLED version, and flagged so the installer
+    // filters it out of `depsToInstall` (i.e. never clones it).
+    expect(dep.version).toBe("1.4.2");
+    expect(dep.alreadyInstalled).toBe(true);
+    expect(result.tree.children[0]?.status).toBe("already-installed");
+  });
+
+  test("a local dependency resolves the same way", async () => {
+    const root = makeManifest("root", "1.0.0", {
+      mine: { source: "local", version: "2.0.0" },
+    });
+    const result = await resolveDependencies(root, {
+      getInstalled: async () => ({ version: "2.0.0" }),
+      fetchManifest: noFetch,
+    });
+    expect(result.toInstall[0]?.alreadyInstalled).toBe(true);
+    expect(result.toInstall[0]?.source).toBe("local");
+  });
+
+  test("NOT installed → throws, naming the dependency and the next step", async () => {
+    const root = makeManifest("root", "1.0.0", {
+      "ghost-ext": { source: "bundled", version: "^1.0.0" },
+    });
+    await expect(
+      resolveDependencies(root, {
+        getInstalled: async () => null,
+        fetchManifest: noFetch,
+      }),
+    ).rejects.toThrow(/no extension named "ghost-ext" is installed/);
+  });
+
+  test("installed at an incompatible version → throws with both versions", async () => {
+    const root = makeManifest("root", "1.0.0", {
+      "ai-kit": { source: "bundled", version: "^2.0.0" },
+    });
+    await expect(
+      resolveDependencies(root, {
+        getInstalled: async () => ({ version: "1.0.0" }),
+        fetchManifest: noFetch,
+      }),
+    ).rejects.toThrow(/requires "\^2\.0\.0", but the installed "ai-kit" is 1\.0\.0/);
+  });
+
+  test("a preinstalled dep required at incompatible ranges cannot be side-installed", async () => {
+    // Root wants ^1.0.0 (satisfied); a cloneable transitive dep wants
+    // ^2.0.0 of the same preinstalled name. The multi-version branch
+    // would emit a `ai-kit@2.0.0` entry still carrying source "bundled",
+    // which the installer would then hand to `parseSource`. Fail here.
+    const root = makeManifest("root", "1.0.0", {
+      "ai-kit": { source: "bundled", version: "^1.0.0" },
+      mid: { source: "github:u/mid", version: "^1.0.0" },
+    });
+    await expect(
+      resolveDependencies(root, {
+        getInstalled: async (n) => (n === "ai-kit" ? { version: "1.0.0" } : null),
+        fetchManifest: async (source) => {
+          if (source === "github:u/mid") {
+            return makeManifest("mid", "1.0.0", {
+              "ai-kit": { source: "bundled", version: "^2.0.0" },
+            });
+          }
+          throw new Error(`unexpected clone of "${source}"`);
+        },
+      }),
+    ).rejects.toThrow(/cannot be side-installed at a second version/);
+  });
+
+  test("preinstalled and cloneable dependencies coexist in one manifest", async () => {
+    const root = makeManifest("root", "1.0.0", {
+      "ai-kit": { source: "bundled", version: "^1.0.0" },
+      remote: { source: "github:u/remote", version: "^1.0.0" },
+    });
+    const cloned: string[] = [];
+    const result = await resolveDependencies(root, {
+      getInstalled: async (n) => (n === "ai-kit" ? { version: "1.0.0" } : null),
+      fetchManifest: async (source) => {
+        cloned.push(source);
+        return makeManifest("remote", "1.0.0");
+      },
+    });
+    // Only the cloneable one was fetched.
+    expect(cloned).toEqual(["github:u/remote"]);
+    const byName = Object.fromEntries(result.toInstall.map((d) => [d.name, d]));
+    expect(byName["ai-kit"]?.alreadyInstalled).toBe(true);
+    expect(byName.remote?.alreadyInstalled).toBe(false);
+  });
+});
+
+describe("resolvePreinstalledDependency", () => {
+  test("returns the installed version when the range is satisfied", async () => {
+    const got = await resolvePreinstalledDependency(
+      "ai-kit",
+      { source: "bundled", version: "^1.0.0" },
+      async () => ({ version: "1.9.9" }),
+    );
+    expect(got).toEqual({ version: "1.9.9" });
+  });
+
+  test("throws when nothing by that name is installed", async () => {
+    await expect(
+      resolvePreinstalledDependency(
+        "ai-kit",
+        { source: "local", version: "^1.0.0" },
+        async () => null,
+      ),
+    ).rejects.toThrow(/must ALREADY be installed/);
+  });
+
+  test("throws when the installed version misses the range", async () => {
+    await expect(
+      resolvePreinstalledDependency(
+        "ai-kit",
+        { source: "local", version: "^1.0.0" },
+        async () => ({ version: "0.9.0" }),
+      ),
+    ).rejects.toThrow(/Update "ai-kit", or relax the declared range/);
   });
 });

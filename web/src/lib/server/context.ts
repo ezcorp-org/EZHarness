@@ -3,15 +3,21 @@ import { EventBus } from "$server/runtime/events";
 import { registerPreviewBus } from "$server/runtime/preview/preview-bus-registry";
 import { registerBriefingRuntime } from "$server/runtime/briefing/runtime-registry";
 import { registerGithubProjectsEmit } from "$server/integrations/github-projects/bus-registry";
+import { registerWorkflowRuntime } from "$server/runtime/workflow/runtime-registry";
 import { ensureBriefingAgentConfig } from "$server/runtime/briefing/agent-config";
 import { registerBriefingHubPage } from "$server/runtime/briefing/hub-page";
 import { triggerBriefingRunNow } from "$lib/server/briefing-run-now";
 import { AgentExecutor } from "$server/runtime/executor";
 import { WorkflowExecutor } from "$server/runtime/workflow-executor";
 import { loadYamlWorkflows } from "$server/runtime/workflow-loader";
+import {
+  collectExtensionWorkflowSources,
+  loadExtensionWorkflows,
+} from "$server/runtime/workflow-extension-loader";
 import { initDb, closeDb } from "$server/db/connection";
 import { validateEnv } from "$server/env-validation";
 import { loadDbWorkflows } from "$server/db/queries/workflows";
+import { terminalizeOrphanedWorkflowRuns } from "$server/db/queries/workflow-runs";
 import { startBackups, stopBackups } from "$server/db/backup";
 import {
   installShutdownHandlers,
@@ -145,7 +151,28 @@ export async function ensureInitialized(): Promise<void> {
   // (import direction), so it reads it back via the bus registry.
   registerPreviewBus(bus);
   executor = new AgentExecutor(agents, bus, { persist: true });
-  workflowExecutor = new WorkflowExecutor(executor, bus);
+  // `persist: true` mirrors the AgentExecutor above — the server writes
+  // workflow run history to workflow_runs / workflow_step_runs. Boot
+  // reconciliation drains any row a previous process left `running`
+  // (crash / OOM / restart): a fresh process owns zero in-flight workflow
+  // runs, so every such row is orphaned by definition. Fire-and-forget +
+  // self-catching so a slow or failing sweep never delays or fails boot.
+  workflowExecutor = new WorkflowExecutor(executor, bus, { persist: true });
+  // The `ezcorp/workflows` reverse-RPC handler lives in src/ and cannot
+  // import this module (import direction), so register the live executor +
+  // a LIVE READER of the merged workflow cache here — same indirection as
+  // registerBriefingRuntime / registerPreviewBus above. `getWorkflows` is
+  // passed as a THUNK on purpose: `reloadWorkflows()` REASSIGNS the
+  // module-level `workflows` binding on every CRUD write, so handing over
+  // the array by value would freeze a stale list for the process lifetime.
+  registerWorkflowRuntime({ workflowExecutor, getWorkflows });
+  void terminalizeOrphanedWorkflowRuns()
+    .then((count) => {
+      if (count > 0) console.warn(`[workflow] terminalized ${count} orphaned workflow run(s)`);
+    })
+    .catch((err) => {
+      console.error("[workflow] terminalizeOrphanedWorkflowRuns on startup failed", err);
+    });
   // Daily Briefing Phase 1: the BriefingDaemon (started later via
   // startBackgroundTimers in hooks.server.ts) and the run-now route live
   // in src/ and cannot import this web-layer executor/bus directly —
@@ -372,10 +399,8 @@ export async function ensureInitialized(): Promise<void> {
     },
   });
 
-  // Load workflows from YAML + DB
-  const yamlWorkflows = await loadYamlWorkflows(agentsDir);
-  const dbWorkflows = await loadDbWorkflows();
-  workflows = [...yamlWorkflows, ...dbWorkflows];
+  // Load workflows from extension assets + YAML + DB
+  workflows = await buildWorkflowCache();
 
   // Signal-driven teardown lives in `$lib/server/shutdown.ts`. The
   // adapter (svelte-adapter-bun) emits `sveltekit:shutdown` BEFORE
@@ -425,10 +450,30 @@ export function getWorkflows(): WorkflowDefinition[] {
   return workflows;
 }
 
-export async function reloadWorkflows(): Promise<void> {
+/**
+ * Build the merged workflow cache from all three sources. ONE definition,
+ * shared by boot and by every CRUD-triggered `reloadWorkflows()`, so the
+ * two can never drift on ordering.
+ *
+ * Order is load-bearing. Lookup is `find(w => w.name === name)` with no
+ * de-duplication, so the FIRST entry wins a name. Extension-shipped
+ * workflows are namespaced `<extensionName>:<name>` and go first, which
+ * means a `workflow_definitions` row that a `chat`-scoped user deliberately
+ * named `some-extension:deploy` cannot hijack that extension's asset.
+ * Extension entries can't shadow anything in the other direction either —
+ * their names always carry a `:` and host names never do.
+ */
+async function buildWorkflowCache(): Promise<WorkflowDefinition[]> {
+  const extensionWorkflows = await loadExtensionWorkflows(
+    collectExtensionWorkflowSources(ExtensionRegistry.getInstance()),
+  );
   const yamlWorkflows = await loadYamlWorkflows(agentsDir);
   const dbWorkflows = await loadDbWorkflows();
-  workflows = [...yamlWorkflows, ...dbWorkflows];
+  return [...extensionWorkflows, ...yamlWorkflows, ...dbWorkflows];
+}
+
+export async function reloadWorkflows(): Promise<void> {
+  workflows = await buildWorkflowCache();
 }
 
 function reset(): void {

@@ -250,6 +250,36 @@ export async function getExtensionByName(name: string): Promise<Extension | null
 }
 
 /**
+ * Resolve a `/extensions/<ref>` REFERENCE to its row. `ref` is either the
+ * extension id (the library's link shape, `+page.svelte`) OR the manifest
+ * name — the shape `installAuthoredDraft` mints for both the author page's
+ * `redirectUrl` and the `install_draft` card's "Open extension" button. Id
+ * lookup alone made that post-install deep-link render "Extension not found".
+ *
+ * Ambiguity is REAL, not theoretical: a manifest name only has to satisfy
+ * `^[a-z0-9][a-z0-9-_.]{0,63}$`, which a `crypto.randomUUID()` string
+ * satisfies — so a later install can name itself byte-identically to an
+ * existing row's id and an `or(...)` match returns TWO rows. Id ALWAYS wins,
+ * so an installed extension can never be shadowed at its own URL by a
+ * squatting name. Both columns are UNIQUE, so the id branch resolves at most
+ * one row and the name branch at most one.
+ *
+ * Read-only and parameterized (drizzle `eq`) — `ref` is user-controlled but
+ * never interpolated, and names are already enumerable via `GET /api/extensions`,
+ * so this widens no read surface. Destructive/admin handlers (PATCH/DELETE)
+ * deliberately keep using `getExtension` — a destructive op should key on the
+ * primary key only, never on a user-chosen name that could collide with an id.
+ */
+export async function getExtensionByRef(ref: string): Promise<Extension | null> {
+  if (!ref) return null;
+  const rows = (await getDb()
+    .select()
+    .from(extensions)
+    .where(or(eq(extensions.id, ref), eq(extensions.name, ref)))) as Extension[];
+  return rows.find((r) => r.id === ref) ?? rows[0] ?? null;
+}
+
+/**
  * Batch-fetch extensions by name. Returns a Map<name, extension> for O(1) lookup.
  * Missing names are simply absent from the map (no throw). Empty input → empty map.
  *
@@ -281,7 +311,7 @@ export async function getUserModifiableExtension(
   nameOrId: string,
   userId: string,
 ): Promise<Extension | null> {
-  const rows = await getDb()
+  const rows = (await getDb()
     .select()
     .from(extensions)
     .where(
@@ -291,8 +321,14 @@ export async function getUserModifiableExtension(
         eq(extensions.modifiable, true),
         eq(extensions.isBundled, false),
       ),
-    );
-  return rows[0] ?? null;
+    )) as Extension[];
+  // Same id-wins tiebreak as `getExtensionByRef`, and for the same reason:
+  // a manifest name only has to match /^[a-z0-9][a-z0-9-_.]{0,63}$/, which a
+  // `crypto.randomUUID()` string satisfies, so `or(id, name)` can match two
+  // rows. Narrower here (both must be owned by the caller, modifiable and
+  // non-bundled) but the consequence is worse — this feeds `modify_extension`,
+  // so picking the wrong row reopens and re-installs over the wrong extension.
+  return rows.find((r) => r.id === nameOrId) ?? rows[0] ?? null;
 }
 
 /**

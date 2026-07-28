@@ -3,7 +3,8 @@
 	import { slide } from "svelte/transition";
 	import CopyButton from "./CopyButton.svelte";
 	import MarkdownRenderer from "../MarkdownRenderer.svelte";
-	import { extractInputSummary, formatOutputPreview } from "./utils.js";
+	import { extractInputSummary, formatOutputPreview, getCardComponentName } from "./utils.js";
+	import { FAILURE_CLASS_LABEL, summarizeToolFailure } from "./failure-class.js";
 
 	let { toolCall }: { toolCall: ToolCallState } = $props();
 	let expanded = $state(false);
@@ -23,6 +24,28 @@
 	});
 
 	let outputPreview = $derived(toolCall.status === 'complete' ? formatOutputPreview(toolCall.output) : undefined);
+
+	// A failed call used to show a red ✗ and nothing else: the output
+	// preview was gated on `status === 'complete'`, so the reason lived
+	// behind a click. Surface the failure CLASS + code in the header —
+	// load / permission / execution / bad-response are four different
+	// problems with four different next steps.
+	let failure = $derived(
+		toolCall.status === 'error'
+			? summarizeToolFailure(toolCall.error, toolCall.output)
+			: null,
+	);
+
+	// The fifth failure class: RENDERING. DefaultCard is only ever
+	// mounted by ToolCardRouter, so reaching it on a completed call
+	// whose cardType maps somewhere else means the intended card's
+	// parser rejected the payload. Previously indistinguishable from
+	// "this tool has no custom card" — the author saw a plain card and
+	// no hint that their card had been dropped.
+	let renderFallback = $derived(
+		toolCall.status === 'complete' &&
+		getCardComponentName(toolCall.cardType, toolCall.permissionPending) !== 'DefaultCard',
+	);
 
 	// Tools like openai-image-gen-2 return markdown with `![alt](url)` — render via
 	// MarkdownRenderer so images appear inline regardless of whether the model echoed
@@ -74,7 +97,7 @@
 <div data-testid="tool-card-default" class="rounded-md border border-[var(--color-border)] bg-[var(--color-surface-tertiary)] overflow-hidden">
 	<button
 		onclick={handleExpand}
-		class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-[var(--color-surface-secondary)]/50 transition-colors"
+		class="flex w-full flex-wrap items-center gap-2 px-3 py-2 text-left text-sm hover:bg-[var(--color-surface-secondary)]/50 transition-colors"
 		aria-expanded={expanded}
 	>
 		{#if toolCall.status === 'running'}
@@ -93,9 +116,28 @@
 		{/if}
 
 		<span class="shrink-0 text-[var(--color-text-secondary)] font-medium">{toolCall.toolName}</span>
-		{#if inputSummary}
+		{#if failure}
+			<span
+				class="shrink-0 rounded bg-red-500/15 px-1.5 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wide text-red-400"
+				data-testid="tool-card-failure-class"
+				data-failure-class={failure.failureClass}
+			>{failure.label}</span>
+			{#if inputSummary}
+				<span class="shrink-0 text-[var(--color-text-muted)] text-xs font-normal">{inputSummary}</span>
+			{/if}
+			<span class="min-w-0 basis-full truncate text-[var(--color-text-muted)] text-xs font-normal sm:basis-auto sm:flex-1" data-testid="tool-card-failure-message">{failure.message}</span>
+		{:else if renderFallback}
+			<span
+				class="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wide text-amber-400"
+				data-testid="tool-card-failure-class"
+				data-failure-class="render"
+			>{FAILURE_CLASS_LABEL.render} · {toolCall.cardType}</span>
+			{#if inputSummary}
+				<span class="truncate text-[var(--color-text-muted)] text-xs font-normal">{inputSummary}</span>
+			{/if}
+		{:else if inputSummary}
 			<span class="truncate text-[var(--color-text-muted)] text-xs font-normal">{inputSummary}</span>
-		{:else if outputPreview && !inputSummary}
+		{:else if outputPreview}
 			<span class="truncate text-[var(--color-text-muted)] text-xs font-normal italic">{outputPreview}</span>
 		{/if}
 

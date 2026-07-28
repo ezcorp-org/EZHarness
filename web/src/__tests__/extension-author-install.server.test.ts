@@ -84,7 +84,13 @@ vi.mock("$server/db/queries/ez-drafts", async () => {
 });
 
 vi.mock("$server/extensions/loader", () => ({
-  loadManifest: vi.fn(async (dir: string) => {
+  // The install pipeline must read the manifest CACHE-BUSTED (the
+  // draft is edited in place between validate and install). A
+  // regression back to the cached `loadManifest` throws here.
+  loadManifest: vi.fn(() => {
+    throw new Error("install must call loadManifestFresh, not loadManifest");
+  }),
+  loadManifestFresh: vi.fn(async (dir: string) => {
     const { readFileSync, existsSync } = await import("node:fs");
     const { join } = await import("node:path");
     const cfgPath = join(dir, "ezcorp.config.ts");
@@ -100,6 +106,17 @@ vi.mock("$server/extensions/loader", () => ({
     if (!topNameMatch) {
       throw new Error("Invalid manifest: name required");
     }
+    // Carry `dependencies` through when the fixture declares them: the
+    // install pipeline preflights PREINSTALLED (`bundled`/`local`)
+    // dependency sources against the installed set, and a stub that
+    // silently dropped the field would make that path untestable here.
+    // Entry shape mirrors `DependencySpec` — `"name": { source, version }`.
+    const deps: Record<string, { source: string; version: string }> = {};
+    for (const m of src.matchAll(
+      /"([^"]+)":\s*\{\s*source:\s*"([^"]*)"\s*,\s*version:\s*"([^"]*)"\s*\}/g,
+    )) {
+      deps[m[1] as string] = { source: m[2] as string, version: m[3] as string };
+    }
     return {
       schemaVersion: 2,
       name: topNameMatch[1],
@@ -107,6 +124,7 @@ vi.mock("$server/extensions/loader", () => ({
       description: "x",
       author: { name: "x" },
       permissions: {},
+      ...(Object.keys(deps).length > 0 ? { dependencies: deps } : {}),
     };
   }),
 }));
@@ -136,7 +154,14 @@ vi.mock("$server/extensions/sdk/verify", () => ({
   }),
 }));
 
-vi.mock("$server/extensions/manifest", () => ({
+vi.mock("$server/extensions/manifest", async (importOriginal) => ({
+  // REAL range check. The install pipeline's preinstalled-dependency
+  // preflight resolves `bundled`/`local` deps against the installed
+  // set and compares versions with this — stubbing it would make the
+  // version-mismatch branch assert nothing.
+  satisfiesRange: (
+    await importOriginal<typeof import("$server/extensions/manifest")>()
+  ).satisfiesRange,
   validateManifestV2: (data: unknown) => {
     if (!data || typeof data !== "object") return { valid: false, errors: ["not an object"] };
     const m = data as Record<string, unknown>;
@@ -325,6 +350,102 @@ export default defineExtension({
   });
 });
 
+// A `bundled`/`local` dependency source means "this extension must
+// ALREADY be installed" — the author pipeline never clones. Installing
+// with an unresolvable one used to be impossible (the manifest was
+// rejected outright); now it is accepted, resolved by name, and REFUSED
+// when the target is absent, rather than shipping an extension whose
+// cross-extension calls are all silently denied at runtime.
+const manifestWithDepSrc = (name: string, dep: string, source: string, range: string) =>
+  `import { defineExtension } from "@ezcorp/sdk";
+export default defineExtension({
+  schemaVersion: 2,
+  name: "${name}",
+  version: "0.1.0",
+  description: "x",
+  author: { name: "x" },
+  permissions: {},
+  dependencies: {
+    "${dep}": { source: "${source}", version: "${range}" },
+  },
+});
+`;
+
+describe("POST /api/extensions/author/install — composed dependencies", () => {
+  test("a bundled dependency that IS installed → 201 (the composed-install round trip)", async () => {
+    // The defect this covers: the picker writes source "bundled", which
+    // the manifest validator used to reject outright, so NO composed
+    // dependency could ever install.
+    mockGetExtensionByName = vi.fn(async (n: string) =>
+      n === "ai-kit" ? { id: "ext-ai-kit", name: "ai-kit", version: "1.2.0" } : null,
+    );
+    seedDraft("d-dep-ok", USER.id, "weather", {
+      "ezcorp.config.ts": manifestWithDepSrc("weather", "ai-kit", "bundled", "^1.0.0"),
+      "index.ts": "// stub",
+    });
+    const resp = await POST(makeReq({ draftId: "d-dep-ok" }));
+    expect(resp.status).toBe(201);
+    expect(existsSync(join(INSTALL_ROOT, "weather", "ezcorp.config.ts"))).toBe(true);
+  });
+
+  test("a local dependency that IS installed → 201", async () => {
+    mockGetExtensionByName = vi.fn(async (n: string) =>
+      n === "mine" ? { id: "ext-mine", name: "mine", version: "2.0.0" } : null,
+    );
+    seedDraft("d-dep-local", USER.id, "weather", {
+      "ezcorp.config.ts": manifestWithDepSrc("weather", "mine", "local", "^2.0.0"),
+      "index.ts": "// stub",
+    });
+    expect((await POST(makeReq({ draftId: "d-dep-local" }))).status).toBe(201);
+  });
+
+  test("a bundled dependency that is NOT installed → 422 naming it and the fix", async () => {
+    // mockGetExtensionByName returns null for everything by default.
+    seedDraft("d-dep-missing", USER.id, "weather", {
+      "ezcorp.config.ts": manifestWithDepSrc("weather", "ghost-ext", "bundled", "^1.0.0"),
+      "index.ts": "// stub",
+    });
+    const resp = await POST(makeReq({ draftId: "d-dep-missing" }));
+    expect(resp.status).toBe(422);
+    const body = await resp.json();
+    expect(body.errors.length).toBe(1);
+    expect(body.errors[0]).toContain("ghost-ext");
+    expect(body.errors[0]).toContain('Install "ghost-ext" first');
+    // Nothing installed, nothing consumed — the author fixes and retries.
+    expect(mockInstallFromLocal).not.toHaveBeenCalled();
+    expect(draftStore.get("d-dep-missing")?.consumed).toBe(false);
+    expect(existsSync(join(DRAFT_ROOT, USER.id, "d-dep-missing"))).toBe(true);
+  });
+
+  test("a dependency installed at an INCOMPATIBLE version → 422", async () => {
+    mockGetExtensionByName = vi.fn(async (n: string) =>
+      n === "ai-kit" ? { id: "ext-ai-kit", name: "ai-kit", version: "1.0.0" } : null,
+    );
+    seedDraft("d-dep-range", USER.id, "weather", {
+      "ezcorp.config.ts": manifestWithDepSrc("weather", "ai-kit", "bundled", "^2.0.0"),
+      "index.ts": "// stub",
+    });
+    const resp = await POST(makeReq({ draftId: "d-dep-range" }));
+    expect(resp.status).toBe(422);
+    const body = await resp.json();
+    expect(body.errors[0]).toContain("^2.0.0");
+    expect(body.errors[0]).toContain("1.0.0");
+  });
+
+  test("a CLONEABLE dependency source is not preflighted here → 201", async () => {
+    // `github:` is resolved by cloning on the git install path; this
+    // pipeline must not invent a failure for it. (That the closed
+    // preinstalled set did NOT widen into "any string" is asserted
+    // against the REAL validator — `validateManifestV2` is stubbed in
+    // this suite — in src/__tests__/dependency-source-parity.test.ts.)
+    seedDraft("d-dep-remote", USER.id, "weather", {
+      "ezcorp.config.ts": manifestWithDepSrc("weather", "remote", "github:u/remote", "^1.0.0"),
+      "index.ts": "// stub",
+    });
+    expect((await POST(makeReq({ draftId: "d-dep-remote" }))).status).toBe(201);
+  });
+});
+
 describe("POST /api/extensions/author/install — name + path collision", () => {
   test("existing extension with same name → 409", async () => {
     mockGetExtensionByName = vi.fn(async () => ({ id: "preexisting" }));
@@ -409,7 +530,11 @@ describe("POST /api/extensions/author/install — happy path", () => {
     );
   });
 
-  test("registry reload failure is non-fatal (still 201)", async () => {
+  // A reload failure leaves the extension installed but NOT loaded —
+  // none of its tools exist until something reloads the registry. A 201
+  // told the client "created, go use it" about exactly that state, so
+  // it is now a 500 that names the code and the half-finished install.
+  test("registry reload failure → 500 REGISTRY_RELOAD_FAILED (not a silent 201)", async () => {
     mockReload = vi.fn(async () => {
       throw new Error("registry boom");
     });
@@ -417,7 +542,11 @@ describe("POST /api/extensions/author/install — happy path", () => {
       "ezcorp.config.ts": validManifestSrc("weather"),
     });
     const resp = await POST(makeReq({ draftId: "d-reload-fail" }));
-    expect(resp.status).toBe(201);
+    expect(resp.status).toBe(500);
+    const body = await resp.json();
+    expect(body.code).toBe("REGISTRY_RELOAD_FAILED");
+    expect(body.extensionId).toBe("ext-installed");
+    expect(body.message).toContain("registry boom");
   });
 });
 

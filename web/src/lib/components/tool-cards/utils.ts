@@ -48,6 +48,12 @@ export function getCardComponentName(cardType: string | undefined, permissionPen
 		// the host-revalidated `/extensions/<name>` deep-link renders as a
 		// one-click "Open extension" link instead of raw JSON.
 		case 'ez-install': return 'EzToolResultCard';
+		// `ez-draft` is declared by extension-author's `create_extension`.
+		// Its `openUrl` (`/extensions/author?prefill=<draftId>`) is the
+		// tool's ONLY actionable output — in DefaultCard it was collapsed
+		// and truncated away, so the scaffold→edit hand-off the README
+		// promises was unreachable in one click.
+		case 'ez-draft': return 'EzToolResultCard';
 		// `ez-propose` is declared by the built-in concierge `propose_*`
 		// tools. Their `{ draftId, openUrl }` result routes to the same
 		// EzToolResultCard so the "Open prefilled form" button surfaces
@@ -293,11 +299,16 @@ export function getStatusIcon(status?: string): string {
 
 // ── DefaultCard / PermissionGate shared utils ──
 
-/** Extract a summary key from tool input and truncate */
+/** Extract a summary key from tool input and truncate.
+ *
+ *  `draftId` / `name` are in the list because the extension-author
+ *  tools take ONLY those: without them a failed `install_draft` showed
+ *  a red ✗, the tool name, and nothing else — not even which draft it
+ *  was. `path` (already present) covers `write_draft_file`. */
 export function extractInputSummary(input: unknown, maxLen: number = 60): string | undefined {
 	if (!input || typeof input !== 'object') return undefined;
 	const inp = input as Record<string, unknown>;
-	const key = inp.file_path ?? inp.path ?? inp.pattern ?? inp.command ?? inp.query ?? inp.url ?? inp.content;
+	const key = inp.file_path ?? inp.path ?? inp.pattern ?? inp.command ?? inp.query ?? inp.url ?? inp.name ?? inp.draftId ?? inp.content;
 	if (!key) return undefined;
 	const s = String(key);
 	return s.length > maxLen ? s.slice(0, maxLen - 3) + '...' : s;

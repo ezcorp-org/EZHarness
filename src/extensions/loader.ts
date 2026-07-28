@@ -51,6 +51,16 @@ function stripFunctions(obj: Record<string, unknown>): Record<string, unknown> {
 }
 
 /**
+ * Monotonic suffix for the cache-buster. `Date.now()` alone is NOT
+ * enough: it has millisecond resolution, so two `loadManifestFresh`
+ * calls on the same path inside one millisecond produce the SAME import
+ * URL and Bun serves the second from cache — silently re-validating
+ * pre-edit bytes, which is the exact failure `loadManifestFresh` exists
+ * to prevent. The counter makes every fresh import URL unique.
+ */
+let freshImportCounter = 0;
+
+/**
  * Shared body for loadManifest / loadManifestFresh: import the config,
  * strip handler functions, run kind-specific validation, return the typed manifest.
  * The only difference between the two callers is whether to append a cache-buster
@@ -66,7 +76,9 @@ async function loadManifestFromPath(
     throw new Error(`No ezcorp.config.ts found at ${dir}`);
   }
 
-  const importUrl = cacheBust ? `${configPath}?v=${Date.now()}` : configPath;
+  const importUrl = cacheBust
+    ? `${configPath}?v=${Date.now()}-${++freshImportCounter}`
+    : configPath;
   const mod = await import(importUrl);
   const raw = mod.default;
   if (!raw || typeof raw !== "object") {

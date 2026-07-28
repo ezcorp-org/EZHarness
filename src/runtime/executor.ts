@@ -1046,6 +1046,12 @@ export class AgentExecutor {
     // with extensionIds=null/empty (e.g. seeded Ez mode) keep their
     // existing toolRestriction='allowlist' + allowedTools behaviour.
     const { applyToolFilters } = await import("./tools/filter");
+    // Every scope narrowing applied to this run's toolset, in order. Kept
+    // so the mid-run re-assembly seam (an extension installed by a tool
+    // call during the turn) can put freshly registered tools through the
+    // SAME narrowing — a mode allowlist or a team deny-list must not be
+    // widenable by installing something.
+    const runToolScopes: import("./tools/filter").ToolFilterOptions[] = [];
     try {
       const { computeModeToolScope } = await import("./tools/mode-tool-scope");
       let mode = null;
@@ -1065,6 +1071,7 @@ export class AgentExecutor {
         ExtensionRegistry.getInstance(),
       );
       if (scope) {
+        runToolScopes.push(scope);
         ctx.agentTools = applyToolFilters(ctx.agentTools, ctx.builtinToolDefsMap, scope);
       }
     } catch { /* Mode lookup failure is non-fatal — keep all tools */ }
@@ -1073,7 +1080,7 @@ export class AgentExecutor {
     // allow/deny). Takes precedence over mode restriction. allowedTools /
     // deniedTools carry the team-level TeamToolScope when set.
     if (options.toolRestriction || options.allowedTools?.length || options.deniedTools?.length) {
-      ctx.agentTools = applyToolFilters(ctx.agentTools, ctx.builtinToolDefsMap, {
+      const invocationScope = {
         toolRestriction: options.toolRestriction,
         allowedTools: options.allowedTools,
         deniedTools: options.deniedTools,
@@ -1081,8 +1088,57 @@ export class AgentExecutor {
         // the web-search names so watchlist research survives the
         // unattended run's read-only restriction — see tools/filter.ts).
         readOnlyAllowedTools: options.readOnlyAllowedTools,
-      });
+      };
+      runToolScopes.push(invocationScope);
+      ctx.agentTools = applyToolFilters(ctx.agentTools, ctx.builtinToolDefsMap, invocationScope);
     }
+
+    /**
+     * Re-assemble the toolset between agentic-loop iterations.
+     *
+     * `setupTools` runs exactly once per run, and pi-agent COPIES the tool
+     * array at construction — so an extension installed by a tool call
+     * mid-turn could never be invoked in that turn, even though
+     * `install_draft` tells the model it lands enabled "so it can be tested
+     * immediately". pi's `prepareNextTurn` seam is the one place a turn's
+     * context (including its tools) can be swapped between iterations.
+     *
+     * Additive + scope-preserving: only tools missing from the live list
+     * are added, and they go through this run's scope narrowings first.
+     * Returning `undefined` leaves the loop's context untouched, which is
+     * what happens on every iteration where nothing was installed.
+     *
+     * pi's contract for this hook is "must not throw"; the catch honours it.
+     */
+    const prepareNextTurnWithContext = async (
+      turnContext: import("@earendil-works/pi-agent-core").PrepareNextTurnContext,
+    ) => {
+      try {
+        const current = turnContext.context.tools ?? [];
+        const added = (await ctx.refreshExtensionTools?.(
+          new Set(current.map((t) => t.name)),
+        )) ?? [];
+        if (added.length === 0) return undefined;
+        const scoped = runToolScopes.reduce(
+          (tools, s) => applyToolFilters(tools, ctx.builtinToolDefsMap, s),
+          added,
+        );
+        if (scoped.length === 0) return undefined;
+        const tools = [...current, ...scoped];
+        ctx.agentTools = tools;
+        log.info("re-assembled toolset mid-run", {
+          runId: run.id,
+          added: scoped.map((t) => t.name),
+        });
+        return { context: { ...turnContext.context, tools } };
+      } catch (refreshErr) {
+        log.warn("mid-run toolset re-assembly failed — tool list unchanged", {
+          runId: run.id,
+          error: String(refreshErr),
+        });
+        return undefined;
+      }
+    };
 
     // Wire tool:kill handler to abort running tools
     ctx.unsubKill = this.bus.on("tool:kill", ({ toolCallId }) => {
@@ -1150,8 +1206,13 @@ export class AgentExecutor {
         // so one user's provider outage never degrades another's routing.
         credentialScope: convRecord?.userId ?? undefined,
         initial: initialAttempt,
-        buildAgent: (resolved) =>
-          buildPiAgent(ctx, history, { ...options, compaction, cacheRetention }, resolved, credentialConversationId, conversationId),
+        buildAgent: (resolved) => {
+          const agent = buildPiAgent(ctx, history, { ...options, compaction, cacheRetention }, resolved, credentialConversationId, conversationId);
+          // Every failover attempt builds a fresh Agent, so each one gets
+          // the seam — the toolset must stay live across a provider swap.
+          agent.prepareNextTurnWithContext = prepareNextTurnWithContext;
+          return agent;
+        },
         // Bridge pi-agent-core events into the local EventBus + persist tool
         // calls / per-turn assistant messages. EVERY attempt (initial AND
         // fallback) passes the attempt's own provider/model — the SERVED

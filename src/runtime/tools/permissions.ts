@@ -5,6 +5,7 @@
  * with per-project settings storage and an async approval gate mechanism.
  */
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import { getSetting } from "../../db/queries/settings";
 import type { ToolCategory } from "./types";
 
@@ -107,6 +108,17 @@ interface PendingApproval {
   // resolves it can verify the caller owns the conversation before acting.
   conversationId?: string;
   /**
+   * Reject the gate's promise with a REAL error (as opposed to the
+   * `reject` field above, which on an extension gate is re-pointed at
+   * `resolve({allowed:false})` — a user *decline*, not a failure).
+   * Populated for extension gates so the timeout / abort teardown paths
+   * can settle the promise loudly instead of masquerading as a decline.
+   */
+  hardReject?: (err: Error) => void;
+  /** Clear any timer / abort listener attached to this gate. Runs on every
+   *  settlement path so a resolved gate leaves nothing behind. */
+  cleanup?: () => void;
+  /**
    * Phase 6: extension-scoped gate marker. When set, the gate was
    * created by `createExtensionPermissionGate` and the resolver
    * (`resolvePermission`) MUST be called with a structured payload
@@ -167,11 +179,207 @@ export interface ExtensionPermissionRequest {
   userId: string;
   extensionId: string;
   toolName: string;
-  /** Sensitive cap kind. Today the engine returns prompt only for
-   *  `shell` and `fs.write` — see `SENSITIVE_KINDS` in capability-types.ts. */
+  /**
+   * Sensitive cap kind, as the CALLER classified it.
+   *
+   * Caveat worth knowing when this value ends up in a user-facing
+   * message: `SENSITIVE_KINDS` (capability-types.ts) has FOUR members —
+   * `shell`, `fs.write`, `ezcorp:extension:install`,
+   * `ezcorp:extension:modify` — but `executeToolCall` collapses them to
+   * two (`sensitive.kind === "shell" ? "shell" : "fs.write"`) before
+   * calling here, because that is the granularity the always-allow
+   * persistence layer keys on. So an `ezcorp:extension:install` prompt
+   * arrives labelled `fs.write`. This field reports what it was given;
+   * it does not re-derive the PDP's true capability.
+   */
   capabilityKind: "shell" | "fs.write";
   /** Sensitive cap value (e.g. concrete path for fs.write). */
   capabilityValue?: string;
+  /**
+   * Optional wall-clock bound on how long the gate may stay open before
+   * it rejects with {@link PermissionGateTimeoutError}.
+   *
+   * DEFAULT IS UNSET — an omitted `timeoutMs` keeps the historical
+   * "block until the user answers" chat semantics exactly (the chat path
+   * is already bounded by the executor watchdog, which the caller
+   * suspends for the duration of the prompt via
+   * `registerPendingPermission`). Only non-interactive callers that have
+   * no watchdog of their own should pass one.
+   */
+  timeoutMs?: number;
+  /**
+   * Optional cancellation signal. When it fires (or if it is ALREADY
+   * aborted at creation time) the gate rejects with
+   * {@link PermissionGateAbortedError} and drops out of
+   * `pendingApprovals`, so a cancelled parent (e.g. an aborted workflow
+   * run) tears its gates down instead of leaking a promise that can only
+   * ever be settled by a user who will never see the prompt.
+   */
+  signal?: AbortSignal;
+}
+
+/**
+ * A gate was opened inside an execution scope where NO human can answer
+ * it (see {@link beginNonInteractiveScope}). Thrown synchronously — the
+ * caller never awaits, so a sensitive capability can never hang a
+ * non-interactive run.
+ */
+export class NonInteractiveApprovalRequiredError extends Error {
+  constructor(
+    readonly capabilityKind: string,
+    readonly scopeKey: string,
+  ) {
+    super(
+      `requires interactive approval for capability ${capabilityKind}, but the ` +
+        `calling scope (${scopeKey}) is non-interactive`,
+    );
+    this.name = "NonInteractiveApprovalRequiredError";
+  }
+}
+
+/** A gate was torn down by its `signal` (or its scope was cancelled). */
+export class PermissionGateAbortedError extends Error {
+  constructor() {
+    super("permission gate aborted");
+    this.name = "PermissionGateAbortedError";
+  }
+}
+
+/** A gate exceeded its caller-supplied `timeoutMs` with no answer. */
+export class PermissionGateTimeoutError extends Error {
+  constructor(readonly timeoutMs: number) {
+    super(`permission gate timed out after ${timeoutMs}ms with no response`);
+    this.name = "PermissionGateTimeoutError";
+  }
+}
+
+// ── Non-interactive execution scopes ────────────────────────────────
+//
+// A permission gate is only meaningful when SOMEONE can answer it. In a
+// chat turn the prompt rides the conversation's SSE channel to the user
+// who started it. A workflow run has no conversation and no live user
+// attached to the dispatch, so a `prompt` decision there would park a
+// promise that literally nobody can resolve — the run would hang until
+// the process dies.
+//
+// `createExtensionPermissionGate` refuses such a gate IMMEDIATELY (no
+// promise, no pending entry), recording which capability was refused so
+// the caller can raise a precise, human-readable error.
+//
+// Refusal is decided by THREE independent checks, because key matching
+// alone was demonstrably escapable (see the regression suite in
+// `workflow-approval-escape.test.ts`):
+//
+//   1. AsyncLocalStorage — any gate opened anywhere in the dispatch's
+//      async subtree, on ANY `conversationId`. This is the check that
+//      makes the guarantee unconditional for in-process call chains: a
+//      tool that opens a gate against some unrelated conversation id
+//      still cannot park a promise the workflow would await.
+//   2. The scope-key registry — the id the run passes as
+//      `conversationId`. Catches reverse-RPC handlers, which run on the
+//      subprocess transport's own async context and therefore do NOT
+//      inherit (1).
+//   3. The `NON_INTERACTIVE_KEY_PREFIX` id-space invariant. A key minted
+//      by `workflowScopeKey()` names no conversation and never will, so
+//      NOBODY can ever answer a gate raised against one — whether or not
+//      the minting run is still live. This closes the cross-run race
+//      where run B rebinds a shared subprocess's reverse-RPC handler and
+//      then finishes, leaving run A's nested calls resolving to B's
+//      now-deregistered key.
+//
+// Because a refused gate is never parked, none of the three paths can
+// leak a `pendingApprovals` entry.
+
+/**
+ * Reserved `conversationId` prefix for ids that are NOT conversations.
+ * `workflowScopeKey()` (workflow-executor.ts) is the sole minter; the
+ * constant lives here so the gate can enforce the invariant without
+ * importing the runtime (which would be a cycle).
+ */
+export const NON_INTERACTIVE_KEY_PREFIX = "workflow-run:";
+
+interface NonInteractiveScope {
+  /** Capability kind of the most recent refused gate, consumed by
+   *  `takeDenial()`. Undefined until a gate is actually refused. */
+  deniedCapabilityKind?: string;
+  /** Detaches the abort listener when the scope ends. */
+  cleanup: () => void;
+}
+
+const nonInteractiveScopes = new Map<string, NonInteractiveScope>();
+
+/** Ambient scope for the CURRENT async subtree — check (1) above. */
+const nonInteractiveAls = new AsyncLocalStorage<NonInteractiveScope>();
+
+/** Handle returned by {@link beginNonInteractiveScope}. */
+export interface NonInteractiveScopeHandle {
+  /** Deregister the scope. Idempotent — safe to call from a `finally`. */
+  end(): void;
+  /**
+   * Capability kind of a gate refused inside this scope since the last
+   * call, or `undefined` if none was. Reading CLEARS it, so each refusal
+   * is reported exactly once (the caller turns it into a step-level
+   * error and must not re-attribute it to a later step).
+   */
+  takeDenial(): string | undefined;
+  /**
+   * Run `fn` with this scope ambient, so a gate opened ANYWHERE in its
+   * async subtree is refused regardless of the `conversationId` it uses.
+   * Wrap the actual dispatch in this — the key registry alone only
+   * catches calls that faithfully propagate the scope key.
+   */
+  run<T>(fn: () => Promise<T>): Promise<T>;
+}
+
+/**
+ * Mark `scopeKey` (the id passed as `conversationId` on every tool call
+ * this scope makes) as non-interactive for the lifetime of the handle.
+ *
+ * `signal` is the scope's cancellation signal. When it fires, every gate
+ * still pending under this key is rejected with
+ * {@link PermissionGateAbortedError} — that is what makes a cancelled
+ * parent tear its gates down rather than leak them.
+ */
+export function beginNonInteractiveScope(
+  scopeKey: string,
+  signal?: AbortSignal,
+): NonInteractiveScopeHandle {
+  const onAbort = (): void => {
+    abortPendingApprovalsForScope(scopeKey);
+  };
+  if (signal) signal.addEventListener("abort", onAbort, { once: true });
+  const scope: NonInteractiveScope = {
+    cleanup: () => {
+      if (signal) signal.removeEventListener("abort", onAbort);
+    },
+  };
+  nonInteractiveScopes.set(scopeKey, scope);
+  return {
+    end: () => {
+      scope.cleanup();
+      nonInteractiveScopes.delete(scopeKey);
+      // Belt-and-braces: a gate opened before the scope was registered
+      // (or by a concurrent dispatch) would otherwise outlive its only
+      // possible answerer.
+      abortPendingApprovalsForScope(scopeKey);
+    },
+    takeDenial: () => {
+      const kind = scope.deniedCapabilityKind;
+      scope.deniedCapabilityKind = undefined;
+      return kind;
+    },
+    run: (fn) => nonInteractiveAls.run(scope, fn),
+  };
+}
+
+/** Reject every pending gate whose `conversationId` matches `scopeKey`. */
+function abortPendingApprovalsForScope(scopeKey: string): void {
+  for (const [id, pending] of [...pendingApprovals]) {
+    if (pending.conversationId !== scopeKey) continue;
+    pendingApprovals.delete(id);
+    pending.cleanup?.();
+    pending.hardReject?.(new PermissionGateAbortedError());
+  }
 }
 
 /**
@@ -192,17 +400,73 @@ export interface ExtensionPermissionRequest {
  *      `"shell"` → "shell", `"fs.write"` → "filesystem" (matches
  *      legacy operation names the persistence layer expects).
  *   2. Re-running the tool call once `{allowed: true}` arrives.
+ *
+ * Settlement paths (Phase EAW): the gate now settles on FOUR events, not
+ * one. Historically only `resolvePermission` could settle it, so a gate
+ * whose answerer never arrived hung forever.
+ *   1. `resolvePermission` — the user answered (unchanged).
+ *   2. Non-interactive scope — refused synchronously, before any promise
+ *      is parked (see {@link beginNonInteractiveScope}).
+ *   3. `req.signal` aborted — {@link PermissionGateAbortedError}.
+ *   4. `req.timeoutMs` elapsed — {@link PermissionGateTimeoutError}.
+ * Omitting both `signal` and `timeoutMs` reproduces the pre-existing
+ * chat behaviour exactly.
  */
 export function createExtensionPermissionGate(
   req: ExtensionPermissionRequest,
 ): Promise<ApprovalResolution> {
-  return new Promise<ApprovalResolution>((resolve, _reject) => {
+  // Fail FAST, never park: where nobody can answer, awaiting here would
+  // hang the caller until the process dies. Three checks, in order of
+  // precision — see the block comment above `NON_INTERACTIVE_KEY_PREFIX`
+  // for why key matching alone is not sufficient.
+  const scope =
+    nonInteractiveAls.getStore() ?? nonInteractiveScopes.get(req.conversationId);
+  if (scope) {
+    scope.deniedCapabilityKind = req.capabilityKind;
+    return Promise.reject(
+      new NonInteractiveApprovalRequiredError(req.capabilityKind, req.conversationId),
+    );
+  }
+  // No live scope claims it, but the id itself names no conversation —
+  // a stale/foreign `workflow-run:` key from a run that already ended.
+  // Unanswerable by construction, so refuse rather than park forever.
+  if (req.conversationId.startsWith(NON_INTERACTIVE_KEY_PREFIX)) {
+    return Promise.reject(
+      new NonInteractiveApprovalRequiredError(req.capabilityKind, req.conversationId),
+    );
+  }
+
+  return new Promise<ApprovalResolution>((resolve, reject) => {
+    // Settle-once + self-cleanup wrapper shared by the timeout and abort
+    // teardown paths (`resolvePermission` deletes the entry itself).
+    const settleWithError = (err: Error): void => {
+      const pending = pendingApprovals.get(req.promptId);
+      if (!pending) return;
+      pendingApprovals.delete(req.promptId);
+      pending.cleanup?.();
+      reject(err);
+    };
+    const onAbort = (): void => settleWithError(new PermissionGateAbortedError());
+    const timer =
+      req.timeoutMs !== undefined
+        ? setTimeout(
+            () => settleWithError(new PermissionGateTimeoutError(req.timeoutMs as number)),
+            req.timeoutMs,
+          )
+        : undefined;
+    if (req.signal) req.signal.addEventListener("abort", onAbort, { once: true });
+
     pendingApprovals.set(req.promptId, {
       // Legacy resolve/reject are no-ops on extension gates — the
       // structured `resolveDetailed` path drives resolution. We still
       // populate them so the same Map shape works in `getPendingApproval`.
       resolve: () => resolve({ allowed: true, scope: "session" }),
       reject: () => resolve({ allowed: false }),
+      hardReject: reject,
+      cleanup: () => {
+        if (timer !== undefined) clearTimeout(timer);
+        if (req.signal) req.signal.removeEventListener("abort", onAbort);
+      },
       conversationId: req.conversationId,
       extension: {
         extensionId: req.extensionId,
@@ -211,6 +475,10 @@ export function createExtensionPermissionGate(
         resolveDetailed: resolve,
       },
     });
+
+    // An ALREADY-aborted signal never fires `abort`, so check after the
+    // entry exists (settleWithError is a no-op without one).
+    if (req.signal?.aborted) onAbort();
   });
 }
 
@@ -256,6 +524,10 @@ export function resolvePermission(
   if (!pending) return;
 
   pendingApprovals.delete(toolCallId);
+  // Drop the gate's timeout timer / abort listener before settling, so an
+  // answered gate can't later be "timed out" onto an already-settled
+  // promise (a silent no-op) and can't pin the event loop open.
+  pending.cleanup?.();
   if (pending.extension) {
     // Phase 6/56: extension gate — resolve with `{allowed, scope,
     // ttlOverrideMs}`. The `ttlOverrideMs` field is set only when the

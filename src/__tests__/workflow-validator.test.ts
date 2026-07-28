@@ -123,6 +123,40 @@ describe("validateWorkflow — kind rejections", () => {
       'Step "s" (kind "gate") requires a "condition"',
     );
   });
+
+  test("tool is a valid kind", () => {
+    expect(stepKind({ name: "s", kind: "tool", tool: "ext__t" })).toBe("tool");
+    expect(validateWorkflow(def([{ name: "s", kind: "tool", tool: "ext__t" }]))).toEqual([]);
+  });
+
+  test("tool kind without tool", () => {
+    expect(validateWorkflow(def([{ name: "s", kind: "tool" }]))).toContain(
+      'Step "s" (kind "tool") requires a "tool"',
+    );
+  });
+
+  test("tool kind cannot also name an agent", () => {
+    expect(
+      validateWorkflow(def([{ name: "s", kind: "tool", tool: "ext__t", agent: "writer" }])),
+    ).toContain('Step "s" (kind "tool") cannot also specify an "agent"');
+  });
+
+  test("a tool step's input mapping is validated like every other kind", () => {
+    expect(
+      validateWorkflow(
+        def([
+          {
+            name: "s",
+            kind: "tool",
+            tool: "ext__t",
+            input: { n: 42 as unknown as string },
+          },
+        ]),
+      ),
+    ).toContain(
+      'Step "s" input mapping value for "n" must be a string ref, template or literal (got number)',
+    );
+  });
 });
 
 describe("validateWorkflow — dependency + loop rejections", () => {
@@ -166,10 +200,37 @@ describe("validateWorkflow — dependency + loop rejections", () => {
     ).toContain('Step "g" (kind "gate") cannot have a "loop"');
   });
 
+  test("loop on a tool step", () => {
+    // Looping a side-effecting tool call (install / write / shell) with no
+    // LLM in the middle is deliberately out of scope; rejected loudly at
+    // definition time rather than mis-dispatched onto the agent path.
+    expect(
+      validateWorkflow(
+        def([{ name: "t", kind: "tool", tool: "ext__t", loop: { maxIterations: 2 } }]),
+      ),
+    ).toContain('Step "t" (kind "tool") cannot have a "loop"');
+  });
+
   test("loop and retries together", () => {
     expect(
       validateWorkflow(def([{ name: "s", agent: "x", loop: { maxIterations: 2 }, retries: 1 }])),
     ).toContain('Step "s" cannot combine "loop" and "retries" (mutually exclusive)');
+  });
+
+  test("loop + retries mutual exclusion still applies to a tool step", () => {
+    expect(
+      validateWorkflow(
+        def([
+          {
+            name: "t",
+            kind: "tool",
+            tool: "ext__t",
+            loop: { maxIterations: 2 },
+            retries: 1,
+          },
+        ]),
+      ),
+    ).toContain('Step "t" cannot combine "loop" and "retries" (mutually exclusive)');
   });
 
   test("loop with missing / non-integer maxIterations", () => {

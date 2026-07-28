@@ -39,7 +39,18 @@ import type { HandlerContext } from "./handler-context";
 
 const log = logger.child("audit.recordCapabilityCall");
 
-export type SdkCapability = "llm" | "memory" | "lessons" | "schedule" | "events" | "search";
+/** MUST stay in sync with `sdkCapabilityCalls.capability`'s `$type<>` union
+ *  in `src/db/schema.ts` — the column is plain `text`, so a value only this
+ *  side knows about would insert fine and then read back as an impossible
+ *  type. `sdk-capability-union-drift.test.ts` asserts the two agree. */
+export type SdkCapability =
+  | "llm"
+  | "memory"
+  | "lessons"
+  | "schedule"
+  | "events"
+  | "search"
+  | "workflows";
 
 export interface CapabilityCallSpec {
   ctx: HandlerContext;

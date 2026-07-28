@@ -76,6 +76,8 @@
 				storage?: boolean;
 				spawnAgents?: { maxPerHour: number; maxConcurrent?: number };
 				eventSubscriptions?: string[] | { events: string[]; includeFullPayload?: boolean };
+				// W2 — trigger grants for the workflows the extension ships.
+				workflows?: { names: string[]; maxRunsPerHour?: number };
 			};
 			settings?: SettingsSchema;
 			// Phase 5 (defineEntity SDK) — entity declarations drive the
@@ -152,7 +154,18 @@
 	let modifyBusy = $state(false);
 	let modifiableBusy = $state(false);
 
-	const extId = $derived($page.params.id);
+	// The route param is a REFERENCE, not necessarily the row id. The library
+	// links by id, but the deep-link the server hands a user after an install
+	// — the author page's `redirectUrl` and the `install_draft` card's "Open
+	// extension" button — is `/extensions/<manifest-name>`. ONLY
+	// `GET /api/extensions/<ref>` resolves both shapes; every other extension
+	// endpoint (settings, permissions, modifiable, reopen, activate, audit,
+	// expired-grants, violations) is id-only. So: resolve once via
+	// `loadExtension()`, then canonicalise on the row's id for every
+	// downstream call. Before the row lands `ext` is null and `extId` is the
+	// raw ref — which is exactly what the resolving GET wants.
+	const extRef = $derived($page.params.id);
+	const extId = $derived(ext?.id ?? extRef);
 	const hasViolations = $derived(violations.length > 0);
 
 	// github-projects is the ONE extension whose primary configuration is
@@ -209,13 +222,20 @@
 		if (!raw) return [];
 		return Array.isArray(raw) ? raw : (raw.events ?? []);
 	});
-	const installGrants = $derived.by((): { storage: boolean; spawnAgents: { maxPerHour: number; maxConcurrent?: number } | null; events: string[] } => ({
+	const installGrants = $derived.by((): { storage: boolean; spawnAgents: { maxPerHour: number; maxConcurrent?: number } | null; events: string[]; workflows: { names: string[]; maxRunsPerHour?: number } | null } => ({
 		storage: ext?.manifest.permissions.storage === true,
 		spawnAgents: ext?.manifest.permissions.spawnAgents ?? null,
 		events: eventSubscriptions,
+		// W2 — the extension may start runs of the workflows it ships. Shown
+		// here so an admin auditing an installed extension sees the capability
+		// without having to re-open the enable dialog.
+		workflows: ext?.manifest.permissions.workflows ?? null,
 	}));
 	const hasInstallGrants = $derived(
-		installGrants.storage || installGrants.spawnAgents !== null || installGrants.events.length > 0,
+		installGrants.storage
+		|| installGrants.spawnAgents !== null
+		|| installGrants.events.length > 0
+		|| (installGrants.workflows?.names?.length ?? 0) > 0,
 	);
 
 	function authorName(author?: string | { name: string; id?: string }): string {
@@ -543,8 +563,12 @@
 
 	onMount(async () => {
 		await checkAdmin();
+		// loadExtension FIRST — it is what resolves the route reference to a
+		// row, and every loader below is id-only. Firing them in one
+		// Promise.all sent the RAW route param, so on the post-install
+		// `/extensions/<name>` deep-link each one 404'd.
+		await loadExtension();
 		await Promise.all([
-			loadExtension(),
 			loadViolations(),
 			loadAuditTrail(),
 			loadSettings(),
@@ -1300,6 +1324,10 @@
 							{#each installGrants.events as evt}
 								<span class="rounded-full bg-[var(--color-surface-tertiary)] px-2 py-0.5 font-mono text-xs text-[var(--color-text-secondary)]" data-testid="install-grant-event">{evt}</span>
 							{/each}
+							{#if installGrants.workflows?.names?.length}
+								{@const wf = installGrants.workflows}
+								<span class="rounded-full bg-[var(--color-surface-tertiary)] px-2 py-0.5 text-xs text-[var(--color-text-secondary)]" data-testid="install-grant-workflows">Run its own workflows ({wf.names.length}, {wf.maxRunsPerHour ?? 20}/hr)</span>
+							{/if}
 						</div>
 					</div>
 				{/if}

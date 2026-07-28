@@ -19,7 +19,12 @@ export const MAX_STEPS_PER_WORKFLOW = 100;
 export const MAX_MAPPING_VALUE_LENGTH = 10_000;
 export const MAX_CONDITION_DEPTH = 20;
 
-const VALID_KINDS: readonly WorkflowStepKind[] = ["agent", "transform", "gate"];
+const VALID_KINDS: readonly WorkflowStepKind[] = [
+  "agent",
+  "transform",
+  "gate",
+  "tool",
+];
 
 /** The 9 leaf operators. Kept here (not just in the union type) so the
  *  definition-time validator can reject an unknown `op` before it reaches
@@ -179,6 +184,16 @@ export function validateWorkflow(def: WorkflowDefinition): string[] {
     if (kind === "gate" && step.condition) {
       errors.push(...validateCondition(step.condition, `Step "${name}" condition`));
     }
+    if (kind === "tool" && !step.tool) {
+      errors.push(`Step "${name}" (kind "tool") requires a "tool"`);
+    }
+    // A tool step invokes a deterministic tool; an agent step invokes an
+    // LLM. Carrying both is ambiguous rather than additive, and the
+    // executor dispatches on `kind` alone — so reject it at definition
+    // time instead of silently ignoring one of the two.
+    if (kind === "tool" && step.agent) {
+      errors.push(`Step "${name}" (kind "tool") cannot also specify an "agent"`);
+    }
 
     // Every mapping value must be a string ref/template — the resolver
     // calls `ref.startsWith(...)` (the zod schema protects the API, but the
@@ -217,8 +232,14 @@ export function validateWorkflow(def: WorkflowDefinition): string[] {
       }
     }
 
-    if (step.loop && kind === "gate") {
-      errors.push(`Step "${name}" (kind "gate") cannot have a "loop"`);
+    // `loop` is supported on `agent` and `transform` only. A gate has no
+    // result to iterate on; a `tool` step would repeat a side-effecting
+    // call (install / write / shell) N times with no LLM in the middle to
+    // notice it went wrong — deliberately out of scope for v1, and
+    // rejected LOUDLY here rather than silently mis-dispatched by
+    // `runLoop` (whose non-transform branch runs the AGENT path).
+    if (step.loop && (kind === "gate" || kind === "tool")) {
+      errors.push(`Step "${name}" (kind "${kind}") cannot have a "loop"`);
     }
     if (step.loop && step.retries !== undefined) {
       errors.push(`Step "${name}" cannot combine "loop" and "retries" (mutually exclusive)`);
