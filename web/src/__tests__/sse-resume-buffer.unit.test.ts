@@ -52,6 +52,55 @@ describe("sse-resume-buffer", () => {
     off2();
   });
 
+  // Regression: the recorder used to gate on a "have we subscribed yet"
+  // boolean, so it stayed bound to whichever bus it first saw. In vite dev,
+  // editing any `src/**` file that `lib/server/context.ts` imports rebuilds
+  // that module with a FRESH EventBus while THIS module's state survives —
+  // the recorder kept feeding the orphaned bus, the SSE stream went silent
+  // (heartbeats only), and the chat skeleton loader spun forever because
+  // `run:complete` never reached the browser. Bind on bus IDENTITY instead.
+  test("re-binds when addSink is called with a DIFFERENT bus instance", () => {
+    const oldBus = fakeBus();
+    const seen: number[] = [];
+    addSink(oldBus, (e) => seen.push(e.id));
+    oldBus.emit(SAMPLE, { from: "old" });
+    expect(seen).toEqual([1]);
+
+    // The process swapped its bus (dev SSR module reload).
+    const newBus = fakeBus();
+    addSink(newBus, () => {});
+
+    // Handlers on the orphaned bus were detached — it can no longer record.
+    expect(oldBus.handlers.size).toBe(0);
+    oldBus.emit(SAMPLE, { from: "old-after-swap" });
+    expect(seen).toEqual([1]);
+
+    // ...and the new bus is fully wired, so events flow again.
+    expect(newBus.handlers.size).toBe(RUNTIME_EVENT_NAMES.length);
+    newBus.emit(SAMPLE, { from: "new" });
+    expect(seen).toEqual([1, 2]);
+    expect(replayFrom(1)).toEqual([
+      { id: 2, event: SAMPLE, data: { from: "new" } },
+    ]);
+  });
+
+  test("re-binding survives a stale bus whose unsubscribe throws", () => {
+    const throwingBus = {
+      on(_event: string, _fn: (d: unknown) => void) {
+        return () => {
+          throw new Error("bus already torn down");
+        };
+      },
+    };
+    addSink(throwingBus, () => {});
+
+    const newBus = fakeBus();
+    const seen: number[] = [];
+    addSink(newBus, (e) => seen.push(e.id));
+    newBus.emit(SAMPLE, {});
+    expect(seen).toEqual([1]);
+  });
+
   test("stamps monotonically increasing ids and fans out to live sinks", () => {
     const bus = fakeBus();
     const seen: BufferedEvent[] = [];
