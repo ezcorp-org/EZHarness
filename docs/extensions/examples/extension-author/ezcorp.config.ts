@@ -159,7 +159,7 @@ export default defineExtension({
     },
   ],
   permissions: {
-    filesystem: ["$CWD/.ezcorp/extension-data/extension-author"],
+    filesystem: ["$CWD/.ezcorp/extension-data/extension-author/drafts/$USER"],
     custom: { drafts: { kinds: ["extension"] } },
     // No network, no shell, no env, no storage. The reverse-RPC
     // `ezcorp/drafts` is the only host capability the extension needs

@@ -607,7 +607,15 @@ const BUNDLED_EXTENSIONS: BundledExtension[] = [
     // changed the tool list — so it auto-reapproves and stays enabled.
     critical: true,
     permissions: {
-      filesystem: ["$CWD/.ezcorp/extension-data/extension-author"],
+      // `$USER` expands to the id of the user the call acts on behalf of
+      // (`permissions.ts:expandGrantPrefix`). ONE subprocess serves every
+      // user, and drafts live at `drafts/<userId>/<draftId>/` — granting
+      // the whole `extension-author` tree left cross-user isolation
+      // resting entirely on the extension VOLUNTARILY routing through the
+      // host's owner-scoped `ezcorp/drafts.resolveDir`. Scoped to
+      // `drafts/$USER`, the host denies a guessed path into another
+      // user's drafts no matter what the extension does.
+      filesystem: ["$CWD/.ezcorp/extension-data/extension-author/drafts/$USER"],
       custom: { drafts: { kinds: ["extension"] } },
       grantedAt: { filesystem: Date.now(), custom: Date.now() },
     },

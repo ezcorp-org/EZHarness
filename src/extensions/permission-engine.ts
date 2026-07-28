@@ -275,8 +275,8 @@ export function createPermissionEngine(deps: PermissionEngineDeps): PermissionEn
         return { decision: "deny", reason, auditId };
       }
       granted = override
-        ? grantsToCapabilitySet(override)
-        : grantedFromRegistry(deps.registry, ctx.extensionId);
+        ? grantsToCapabilitySet(override, ctx.userId)
+        : grantedFromRegistry(deps.registry, ctx.extensionId, ctx.userId);
     }
 
     // 2. Subset check. The first missing cap is the deny reason.
@@ -505,12 +505,16 @@ export function _getPermissionEngineDepsForTests(): PermissionEngineDeps | null 
 function grantedFromRegistry(
   registry: ExtensionRegistry,
   extensionId: string,
+  /** Threaded so a `$USER` grant segment resolves to the user this
+   *  decision is for. Every decision the engine makes is already keyed
+   *  by user, so this is the same identity, not a new one. */
+  actingUserId?: string | null,
 ): CapabilitySet {
   // Phase 4 §M6 — single flattener. Both the registry-grant path
   // here and the per-conversation override path above funnel through
   // `grantsToCapabilitySet` from capability-types.ts so the two
   // routes produce identical cap shapes.
-  return grantsToCapabilitySet(registry.getGrantedPermissions(extensionId));
+  return grantsToCapabilitySet(registry.getGrantedPermissions(extensionId), actingUserId);
 }
 
 /**

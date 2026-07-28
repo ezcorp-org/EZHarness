@@ -448,7 +448,7 @@ export async function handleFsUnlinkRpc(
   if (!granted || !installPath) {
     return jsonError(req.id, -32603, "Extension not found in registry");
   }
-  const allowed = await checkPrefixForWrite(linkTarget, granted.filesystem ?? [], installPath);
+  const allowed = await checkPrefixForWrite(linkTarget, granted.filesystem ?? [], installPath, ctx.userId);
   if (!allowed) {
     await denyAndDisable(
       ctx.extensionId,
@@ -517,6 +517,10 @@ async function gatePath(
     granted,
     installPath,
     mode,
+    // Acting user — resolves a `$USER` grant segment to the caller's own
+    // subtree. `extension-author` relies on this for cross-user draft
+    // isolation; grants without `$USER` ignore it.
+    ctx.userId,
   );
 
   if (!result.allowed) {
@@ -613,6 +617,7 @@ async function gateWritePath(
     targetPath,
     granted.filesystem ?? [],
     installPath,
+    ctx.userId,
   );
   if (!allowed) {
     await denyAndDisable(
@@ -691,6 +696,7 @@ async function gateExistsPath(
     targetPath,
     granted.filesystem ?? [],
     installPath,
+    ctx.userId,
   );
   if (!allowed) {
     // M4: trip denyAndDisable on out-of-grant existence probes —
@@ -791,6 +797,10 @@ export async function checkPrefixForWrite(
   targetPath: string,
   prefixes: string[],
   installDir: string,
+  /** Acting user, for a `$USER` grant segment. Same contract as
+   *  `checkFilesystemPermission`'s parameter: omit it and a `$USER`
+   *  prefix matches nothing. */
+  actingUserId?: string | null,
 ): Promise<boolean> {
   // Hard-deny reserved sensitive paths (DB + secret dir) BEFORE any
   // allow — including the implicit install-dir allow below and every
@@ -821,7 +831,7 @@ export async function checkPrefixForWrite(
     // `null` ⇒ truly unresolvable; skip. No scope widening — the
     // resolved string is still rooted at the exact granted subtree.
     const resolvedPrefix = await resolveGrantPrefixCanonical(
-      expandGrantPrefix(rawPrefix),
+      expandGrantPrefix(rawPrefix, actingUserId),
     );
     if (resolvedPrefix === null) continue;
     if (

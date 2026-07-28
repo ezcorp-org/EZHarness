@@ -34,7 +34,7 @@ describe("extension-author bundled wiring", () => {
     const entry = entries.find((e) => e.name === "extension-author");
     expect(entry).toBeDefined();
     expect(entry!.permissions.filesystem).toContain(
-      "$CWD/.ezcorp/extension-data/extension-author",
+      "$CWD/.ezcorp/extension-data/extension-author/drafts/$USER",
     );
     expect(entry!.permissions.custom?.drafts?.kinds).toEqual(["extension"]);
   });
@@ -43,7 +43,7 @@ describe("extension-author bundled wiring", () => {
     const ceiling = getCeiling("extension-author");
     expect(ceiling).not.toBeNull();
     expect(ceiling!.filesystem).toEqual([
-      "$CWD/.ezcorp/extension-data/extension-author",
+      "$CWD/.ezcorp/extension-data/extension-author/drafts/$USER",
     ]);
     expect(ceiling!.custom?.drafts?.kinds).toEqual(["extension"]);
     // Ceiling MUST NOT widen any field beyond the bundled-install grant.
@@ -79,7 +79,7 @@ describe("extension-author bundled wiring", () => {
   test("on-disk manifest's permissions match the bundled grant", async () => {
     const manifest = await loadManifestFresh(EXT_DIR);
     expect(manifest.permissions.filesystem).toEqual([
-      "$CWD/.ezcorp/extension-data/extension-author",
+      "$CWD/.ezcorp/extension-data/extension-author/drafts/$USER",
     ]);
     expect(manifest.permissions.custom?.drafts?.kinds).toEqual(["extension"]);
     // Negative scope checks — confirm we didn't accidentally widen.
