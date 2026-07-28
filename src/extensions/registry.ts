@@ -785,13 +785,43 @@ export class ExtensionRegistry {
    *  proxy / mcp-client whose extensionId is no longer in the DB.
    */
   async reload(): Promise<void> {
+    // A registry reload can refresh an extension in place while its old
+    // subprocess is still running. Keep a signature of every live process's
+    // runtime inputs so changed code/manifests/grants invalidate that process.
+    // Without this, an upgraded extension keeps serving the pre-upgrade code
+    // until the five-minute idle timeout (the time-now-ui incident).
+    const priorRuntimeSignatures = new Map<string, string>();
+    for (const extId of this.processes.keys()) {
+      priorRuntimeSignatures.set(extId, JSON.stringify({
+        manifest: this.manifests.get(extId) ?? null,
+        installPath: this.installPaths.get(extId) ?? null,
+        grantedPermissions: this.grantedPerms.get(extId) ?? null,
+        isBundled: this.bundledFlags.get(extId) ?? false,
+      }));
+    }
+
     this.verifiedSessions.clear();
     await this.loadFromDb();
 
-    // After loadFromDb, `this.manifests` reflects the post-reload set
-    // of extension ids. Compare against the maps that hold live
-    // resources.
+    // After loadFromDb, `this.manifests` reflects the post-reload set.
     const liveIds = new Set(this.manifests.keys());
+
+    // Kill only removed or runtime-changed extension subprocesses. Unchanged
+    // extensions remain alive, so an unrelated install cannot interrupt them.
+    for (const [extId, proc] of this.processes) {
+      const currentSignature = liveIds.has(extId)
+        ? JSON.stringify({
+            manifest: this.manifests.get(extId) ?? null,
+            installPath: this.installPaths.get(extId) ?? null,
+            grantedPermissions: this.grantedPerms.get(extId) ?? null,
+            isBundled: this.bundledFlags.get(extId) ?? false,
+          })
+        : null;
+      if (currentSignature === null || priorRuntimeSignatures.get(extId) !== currentSignature) {
+        proc.kill();
+        this.processes.delete(extId);
+      }
+    }
 
     for (const [extId, proxy] of this.mcpProxies) {
       if (!liveIds.has(extId)) {
