@@ -40,6 +40,7 @@
   "web/src/routes/api/rbac/extension-grants/[id]/+server.ts": 100,
   "web/src/lib/rbac-grants-logic.ts": 100,
   "web/src/lib/workflow-builder-logic.ts": 100,
+  "web/src/lib/workflow-run-display.ts": 100,
   "web/src/lib/rbac-grants-view.ts": 100,
   "src/extensions/mcp-sandbox.ts": 91,
   "src/extensions/file-organizer-applier.ts": 100,

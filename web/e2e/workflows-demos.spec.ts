@@ -219,6 +219,58 @@ test.describe("Workflow demos — run through the UI", () => {
 			page.getByText('Step "count" exhausted 5 iterations without meeting its until-condition'),
 		).toBeVisible();
 		await captureEvidence(page, testInfo, "workflows-run-failure-detail");
+
+		// 5) Approval-blocked run: `awaiting_approval` is neither success
+		//    nor error. Regression — the detail page's message renderer used
+		//    to test `status !== "error" && status !== "cancelled"`, so this
+		//    status fell into the "nothing to show" branch and the operator
+		//    saw a bare status chip with no hint of WHICH step needed
+		//    approving. That message is the only actionable text on the page.
+		await emitSse({
+			type: "workflow:start",
+			data: {
+				workflowRun: {
+					id: "wr-ev-44",
+					workflowName: "demo-loop-counter",
+					status: "running",
+					startedAt: Date.now() - 20,
+					steps: [],
+				},
+			},
+		});
+		await emitSse({
+			type: "workflow:error",
+			data: {
+				workflowRun: {
+					id: "wr-ev-44",
+					workflowName: "demo-loop-counter",
+					status: "awaiting_approval",
+					startedAt: Date.now() - 20,
+					finishedAt: Date.now(),
+					steps: [
+						{ stepName: "prep", runId: "", status: "success" },
+						{ stepName: "install", runId: "", status: "awaiting_approval" },
+					],
+					result: {
+						success: false,
+						output: null,
+						error: {
+							code: "awaiting_approval",
+							message:
+								'Step "install" requires interactive approval for capability fs.write and cannot run in a workflow',
+						},
+					},
+				},
+			},
+		});
+		await expect(
+			page.getByText(
+				'Step "install" requires interactive approval for capability fs.write and cannot run in a workflow',
+			),
+		).toBeVisible();
+		// The run must never read as a success on this surface.
+		await expect(page.getByText("awaiting_approval").first()).toBeVisible();
+		await captureEvidence(page, testInfo, "workflows-run-awaiting-approval-detail");
 	});
 
 	test("builder submit with no name renders the validation error (no silent no-op) @evidence", async ({ page, mockApi }, testInfo) => {
