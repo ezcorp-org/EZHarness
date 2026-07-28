@@ -11,6 +11,7 @@
   "src/extensions/npm-deps.ts": 100,
   "src/extensions/registry.ts": 100,
   "src/extensions/loader.ts": 100,
+  "src/extensions/author-gate.ts": 100,
   "src/extensions/storage-handler.ts": 100,
   "src/extensions/secret-settings.ts": 100,
   "src/extensions/lifecycle-dispatcher.ts": 100,

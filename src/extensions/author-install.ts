@@ -21,7 +21,7 @@
  */
 
 import { existsSync } from "node:fs";
-import { cp, mkdir, rename, rm } from "node:fs/promises";
+import { cp, mkdir, readdir, rename, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
   consumeDraft,
@@ -31,12 +31,18 @@ import {
 import { getExtensionByName, updateExtension } from "../db/queries/extensions";
 import { installFromLocal } from "./installer";
 import { ExtensionRegistry } from "./registry";
-import { loadManifestFresh } from "./loader";
-import { verifyExtension } from "./sdk/verify";
-import type { ExtensionPermissions } from "./types";
-import { logger } from "../logger";
+import { runAuthorAcceptanceGate } from "./author-gate";
+import type { ExtensionManifestV2, ExtensionPermissions } from "./types";
+import { extensionLogger } from "../logger";
 
-const log = logger.child("author-install");
+// Host-side extension logging is namespaced `ext.<name>[.<component>]`
+// (binding rule — src/extensions/CLAUDE.md). This module is the
+// extension-author install pipeline, so it logs under
+// `ext.extension-author.author-install` and an operator can raise it
+// with `EZCORP_DEBUG=ext.extension-author` (or `EZCORP_DEBUG=ext`).
+// The previous `logger.child("author-install")` had no `ext.` prefix at
+// all, so neither toggle ever reached it.
+const log = extensionLogger("extension-author", "author-install");
 
 /**
  * Move a directory, tolerating cross-filesystem boundaries.
@@ -68,6 +74,35 @@ async function moveDir(src: string, dest: string): Promise<void> {
 }
 
 /**
+ * Carry non-draft files forward across a sanctioned in-place modify.
+ *
+ * A reopen draft is seeded from only the 7 `SCAFFOLD_DRAFT_FILES`, but
+ * the install replaces the extension directory WHOLESALE and then
+ * deletes the pre-modify backup. Every other entry that lived in the
+ * installed dir — `node_modules/` from `npm-deps`, an assets folder, a
+ * lockfile — was therefore destroyed by a modify, permanently.
+ *
+ * Copy back every TOP-LEVEL entry that exists in the backup and NOT in
+ * the freshly-installed dir. The draft's own copy always wins (we never
+ * overwrite), so an edited file keeps its edit; only entries the author
+ * flow cannot represent are restored. This is safe against "the user
+ * deleted that file on purpose" because the draft surface is
+ * write-only over a fixed allowlist — it has no delete affordance at
+ * all, so an absent entry never encodes intent.
+ */
+async function carryForwardUnauthoredEntries(
+  backupDir: string,
+  installedPath: string,
+): Promise<void> {
+  const entries = await readdir(backupDir);
+  for (const entry of entries) {
+    const dest = join(installedPath, entry);
+    if (existsSync(dest)) continue;
+    await cp(join(backupDir, entry), dest, { recursive: true });
+  }
+}
+
+/**
  * Strict manifest-name shape. Intentionally INLINED here (a verbatim
  * copy of `src/extensions/manifest.ts`'s module-private `NAME_REGEX`)
  * rather than imported — the same host-boundary convention
@@ -83,11 +118,6 @@ async function moveDir(src: string, dest: string): Promise<void> {
  */
 const NAME_REGEX = /^[a-z0-9][a-z0-9-_.]{0,63}$/;
 
-/** Kinds that MUST pass the deterministic gate (a passing `smokeTest`
- *  round-trip) before install. skill/agent have no subprocess to
- *  round-trip and skip it. Mirrors the web route verbatim. */
-const VERIFY_REQUIRED_TYPES: ReadonlySet<string> = new Set(["tool", "multi"]);
-
 export type AuthorInstallErrorCode =
   | "DRAFT_NOT_FOUND"
   | "NOT_EXTENSION_DRAFT"
@@ -97,7 +127,15 @@ export type AuthorInstallErrorCode =
   | "NAME_COLLISION"
   | "ENV_KEY_LEAK"
   | "INSTALL_FAILED"
-  | "ROLLBACK_FAILED";
+  | "ROLLBACK_FAILED"
+  // ── Post-install failures ────────────────────────────────────────
+  // The files landed and the row exists, but the extension is NOT in
+  // the state the caller asked for. These used to be a `log.warn` and
+  // an empty `catch {}`, so the caller got `{ok:true}` and the install
+  // card told the user "installed and enabled" for an extension that
+  // was neither enabled nor loaded. They are failures.
+  | "ENABLE_FAILED"
+  | "REGISTRY_RELOAD_FAILED";
 
 /** Typed pipeline failure. `details` carries the structured body the
  *  web route already returns (errors[], leakedNames, verifyResult). */
@@ -131,6 +169,13 @@ export interface AuthorInstallResult {
    * the `EzToolResultCard` button binds to.
    */
   openUrl?: string;
+  /**
+   * Non-fatal problems the caller should still SEE (today: a
+   * pre-modify backup directory that could not be deleted, which
+   * leaves an inert `*.modify-bak-*` dir behind). Previously these
+   * vanished into a `log.warn` no user ever reads. Omitted when empty.
+   */
+  warnings?: string[];
 }
 
 /**
@@ -179,57 +224,41 @@ export async function installAuthoredDraft(args: {
     );
   }
 
-  // 2) Manifest validation via the canonical loader (child-process
-  //    import — a malicious manifest cannot run JS in this process).
-  const cfgPath = join(draftDir, "ezcorp.config.ts");
-  if (!existsSync(cfgPath)) {
-    throw new AuthorInstallError("MANIFEST_INVALID", "Missing ezcorp.config.ts", {
-      errors: ["Missing ezcorp.config.ts"],
-    });
-  }
-  // `loadManifestFresh`, NEVER `loadManifest`: a draft is edited in
-  // place (write_draft_file / the preview editor's PUT) and installed
-  // from the SAME path the validate step already imported. Bun's
-  // module cache is keyed by path, so the cached loader would install
-  // a manifest that differs from the bytes on disk.
-  let manifest: Awaited<ReturnType<typeof loadManifestFresh>>;
-  try {
-    manifest = await loadManifestFresh(draftDir);
-  } catch (e) {
-    throw new AuthorInstallError(
-      "MANIFEST_INVALID",
-      "Manifest invalid or failed to load",
-      { errors: [e instanceof Error ? e.message : String(e)] },
-    );
-  }
-  const m = manifest as { name?: unknown };
-  if (typeof m.name !== "string" || m.name.length === 0) {
-    throw new AuthorInstallError("MANIFEST_INVALID", "Manifest missing name", {
-      errors: ["name required"],
-    });
-  }
-  const name = m.name;
-
-  // 2b) Deterministic acceptance gate for tool/multi — HARD-FAIL
-  //     unless a declared `smokeTest` round-trip passes.
+  // 2) Acceptance gate — the SAME `runAuthorAcceptanceGate` the web
+  //    preview page's Validate button runs, so "validated green" and
+  //    "installable" can never diverge again. Manifest validation goes
+  //    through the canonical loader (child-process import — a malicious
+  //    manifest cannot run JS in this process); tool/multi drafts
+  //    additionally HARD-FAIL unless a declared `smokeTest` round-trips
+  //    in a real sandbox.
   const draftPayload = (row.payload ?? {}) as Record<string, unknown>;
   const draftType =
     typeof draftPayload.type === "string" ? draftPayload.type : "";
-  if (VERIFY_REQUIRED_TYPES.has(draftType)) {
-    const verifyResult = await verifyExtension({ extDir: draftDir });
-    if (!verifyResult.pass) {
-      const failed = verifyResult.steps.find((s) => !s.ok);
-      throw new AuthorInstallError(
-        "VERIFY_FAILED",
-        "Deterministic acceptance gate failed — a passing `smokeTest` " +
-          "is required for tool/multi extensions",
-        {
-          errors: [failed ? `${failed.name}: ${failed.detail}` : "verify failed"],
-          verifyResult: verifyResult as unknown as Record<string, unknown>,
-        },
-      );
-    }
+  const gate = await runAuthorAcceptanceGate({ draftDir, draftType });
+  if (!gate.ok) {
+    const code = gate.code ?? "VERIFY_FAILED";
+    throw new AuthorInstallError(
+      code,
+      code === "MANIFEST_INVALID"
+        ? "Manifest invalid or failed to load"
+        : "Deterministic acceptance gate failed — a passing `smokeTest` " +
+            "is required for tool/multi extensions",
+      {
+        errors: gate.errors,
+        ...(code === "VERIFY_FAILED"
+          ? {
+              verifyResult: { pass: false, steps: gate.steps } as unknown as Record<
+                string,
+                unknown
+              >,
+            }
+          : {}),
+      },
+    );
   }
+  // `ok` guarantees both of these are set.
+  const manifest = gate.manifest as ExtensionManifestV2;
+  const name = manifest.name;
 
   // Pre-modify backup dir, set only on a sanctioned in-place modify
   // that displaces existing installed files. Function-scoped so the
@@ -292,6 +321,15 @@ export async function installAuthoredDraft(args: {
   await mkdir(dirname(installedPath), { recursive: true });
   await moveDir(draftDir, installedPath);
 
+  // 3b) MODIFY DATA-LOSS FIX. A reopen draft is seeded from only the 7
+  //     `SCAFFOLD_DRAFT_FILES`, but the move above replaced the install
+  //     directory WHOLESALE and the success tail deletes the backup —
+  //     so every other entry (installed `node_modules/`, an assets dir,
+  //     a lockfile…) used to be destroyed by a modify. Carry forward
+  //     anything the draft does not itself provide. The draft's copy
+  //     always wins; nothing is overwritten. Inside the same try as the
+  //     install below so a failure here takes the existing rollback.
+
   // 4) installFromLocal — env-key-leak gate runs HERE with
   //    `isBundled:false`. On any failure, roll the dir back so the
   //    user can fix + retry.
@@ -343,6 +381,9 @@ export async function installAuthoredDraft(args: {
 
   let installed: Awaited<ReturnType<typeof installFromLocal>>;
   try {
+    if (modifyBackupDir) {
+      await carryForwardUnauthoredEntries(modifyBackupDir, installedPath);
+    }
     installed = await installFromLocal(
       installedPath,
       grantedPermissions,
@@ -391,44 +432,93 @@ export async function installAuthoredDraft(args: {
     throw new AuthorInstallError("INSTALL_FAILED", errMsg, { errors: [errMsg] });
   }
 
+  // ── Post-install steps ───────────────────────────────────────────
+  //
+  // From here the files are in place and the row exists, so an
+  // ABORT-AND-THROW would skip the draft consume + backup cleanup and
+  // leave more mess than it prevents. Instead: run every remaining
+  // step, record the first hard failure, and throw at the END. What is
+  // NOT acceptable (and is what this code used to do) is returning
+  // `{ok:true}` for an extension the caller asked to have enabled and
+  // loaded that is neither — the install card then tells the user
+  // "installed and enabled" about an extension with no live tools.
+  let postFailure: { code: AuthorInstallErrorCode; message: string } | null =
+    null;
+  const warnings: string[] = [];
+
   // 4b) Auto-enable BEFORE the registry reload so the reload
   //     materializes it enabled and its tools enter the LLM toolset.
-  //     Non-fatal: a failed enable still leaves a valid (disabled)
-  //     install the user can flip on manually.
   if (enable) {
     try {
       await updateExtension(installed.id, { enabled: true });
     } catch (e) {
-      log.warn("installAuthoredDraft: enable failed (installed but disabled)", {
+      const detail = e instanceof Error ? e.message : String(e);
+      log.error("installAuthoredDraft: enable failed (installed but disabled)", {
         extensionId: installed.id,
-        error: String(e),
+        error: detail,
       });
+      postFailure = {
+        code: "ENABLE_FAILED",
+        message:
+          `Extension "${name}" was installed but could NOT be enabled ` +
+          `(${detail}). Its tools are not available. Enable it from the ` +
+          `Extensions library, or uninstall and retry.`,
+      };
     }
   }
 
   // 5) Consume the draft row (idempotent).
   await consumeDraft(draftId, userId);
 
-  // 6) Reload the registry so the new row is visible. Non-fatal.
+  // 6) Reload the registry so the new row is visible. A failure here
+  //    means the extension is installed but NOT loaded — none of its
+  //    tools exist in this process until something else reloads.
   try {
     await ExtensionRegistry.getInstance().reload();
-  } catch {
-    /* next reload picks it up */
+  } catch (e) {
+    const detail = e instanceof Error ? e.message : String(e);
+    log.error("installAuthoredDraft: registry reload failed after install", {
+      extensionId: installed.id,
+      error: detail,
+    });
+    postFailure ??= {
+      code: "REGISTRY_RELOAD_FAILED",
+      message:
+        `Extension "${name}" was installed but the extension registry ` +
+        `failed to reload (${detail}). Its tools are not loaded yet — ` +
+        `restart the server or reload the extensions library.`,
+    };
   }
 
-  // Sanctioned-modify succeeded — drop the pre-modify backup. Best-
-  // effort: a leftover `*.modify-bak-*` dir is inert (not a valid
-  // extension dir, never in the registry — `.ezcorp/extensions` is
-  // enumerated by DB row, not by directory scan).
+  // Sanctioned-modify succeeded — drop the pre-modify backup. A
+  // leftover `*.modify-bak-*` dir is inert (not a valid extension dir,
+  // never in the registry — `.ezcorp/extensions` is enumerated by DB
+  // row, not by directory scan) but it is NOT invisible: it eats disk
+  // and confuses anyone reading the directory, so surface it.
   if (modifyBackupDir) {
     try {
       await rm(modifyBackupDir, { recursive: true, force: true });
     } catch (e) {
+      const detail = e instanceof Error ? e.message : String(e);
       log.warn("installAuthoredDraft: modify backup cleanup failed", {
         extensionId: installed.id,
-        error: String(e),
+        backupDir: modifyBackupDir,
+        error: detail,
       });
+      warnings.push(
+        `Could not remove the pre-modify backup directory ` +
+          `"${modifyBackupDir}" (${detail}). It is inert but must be ` +
+          `deleted by hand.`,
+      );
     }
+  }
+
+  if (postFailure) {
+    throw new AuthorInstallError(postFailure.code, postFailure.message, {
+      errors: [postFailure.message, ...warnings],
+      extensionId: installed.id,
+      name,
+    });
   }
 
   // D2 defence in depth: re-assert the strict name shape HERE, right
@@ -452,5 +542,6 @@ export async function installAuthoredDraft(args: {
     name,
     redirectUrl,
     ...(openUrl !== undefined ? { openUrl } : {}),
+    ...(warnings.length > 0 ? { warnings } : {}),
   };
 }

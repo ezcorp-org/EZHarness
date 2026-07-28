@@ -213,12 +213,17 @@ describe("ExtensionAuthorPage — validate flow", () => {
 			"POST /api/extensions/author/draft/draft-abc/validate": async () => {
 				if (validateOk) {
 					return new Response(
-						JSON.stringify({ ok: true, manifest: { name: "weather" } }),
+						JSON.stringify({ ok: true, pass: true, errors: [], steps: [] }),
 						{ status: 200, headers: { "content-type": "application/json" } },
 					);
 				}
 				return new Response(
-					JSON.stringify({ ok: false, errors: ["missing version", "bad capability"] }),
+					JSON.stringify({
+						ok: false,
+						pass: false,
+						errors: ["missing version", "bad capability"],
+						steps: [],
+					}),
 					{ status: 200, headers: { "content-type": "application/json" } },
 				);
 			},
@@ -231,8 +236,9 @@ describe("ExtensionAuthorPage — validate flow", () => {
 		);
 
 		await fireEvent.click(getByTestId("validate-btn"));
-		// Success copy.
-		await findByText(/Manifest valid\. Ready to install\./i);
+		// Success copy — the gate that ran is the SAME one Install runs,
+		// so the promise made here is one the install can keep.
+		await findByText(/Acceptance gate passed\. This draft is ready to install\./i);
 		const status = getByTestId("validation-status");
 		expect(status).toHaveClass("ok");
 
@@ -240,11 +246,105 @@ describe("ExtensionAuthorPage — validate flow", () => {
 		validateOk = false;
 		await fireEvent.click(getByTestId("validate-btn"));
 		await waitFor(() => {
-			expect(queryByText(/Manifest valid/i)).toBeNull();
+			expect(queryByText(/Acceptance gate passed/i)).toBeNull();
 		});
 		await findByText(/missing version/);
 		await findByText(/bad capability/);
 		expect(getByTestId("validation-status")).toHaveClass("err");
+	});
+
+	// H2: a failing sandboxed round-trip is now visible HERE, with the
+	// step that failed — previously Validate only ran manifest checks and
+	// happily said "ready to install" for a draft that 422'd on install.
+	test("renders the per-step verdicts so a failure names the failing step", async () => {
+		fetchRig = installFetchSpy({
+			"POST /api/extensions/author/draft/draft-abc/validate": async () =>
+				new Response(
+					JSON.stringify({
+						ok: false,
+						pass: false,
+						errors: ["smoke-test-roundtrip: Smoke test failed: boom"],
+						steps: [
+							{ name: "manifest-present", ok: true, detail: "Found ezcorp.config.ts" },
+							{ name: "load-manifest", ok: true, detail: "Loaded weather@0.1.0" },
+							{
+								name: "smoke-test-roundtrip",
+								ok: false,
+								detail: "Smoke test failed: boom",
+							},
+						],
+					}),
+					{ status: 200, headers: { "content-type": "application/json" } },
+				),
+		});
+
+		const data = makeData();
+		const { getByTestId, findByTestId } = render(ExtensionAuthorPage, {
+			props: { data },
+		});
+		await fireEvent.click(getByTestId("validate-btn"));
+
+		const failing = await findByTestId("validation-step-smoke-test-roundtrip");
+		expect(failing).toHaveClass("step-err");
+		expect(failing).toHaveTextContent(/Smoke test failed: boom/);
+		expect(getByTestId("validation-step-load-manifest")).toHaveClass("step-ok");
+	});
+});
+
+describe("ExtensionAuthorPage — save failures are their own banner", () => {
+	test("a failed PUT renders the save-error block, not the install-error block", async () => {
+		vi.useFakeTimers();
+		try {
+			fetchRig = installFetchSpy({
+				"PUT /api/extensions/author/draft/draft-abc": async () =>
+					new Response("disk full", { status: 500 }),
+			});
+			const data = makeData();
+			const { getByTestId, queryByTestId } = render(ExtensionAuthorPage, {
+				props: { data },
+			});
+			const ta = getByTestId("file-content") as HTMLTextAreaElement;
+			await fireEvent.input(ta, { target: { value: "// edited" } });
+			await vi.advanceTimersByTimeAsync(700);
+
+			const banner = getByTestId("save-error");
+			expect(banner).toHaveTextContent(/Could not save ezcorp\.config\.ts/);
+			expect(banner).toHaveTextContent(/NOT on disk/);
+			// The install banner is untouched, so a later install error can
+			// never overwrite the "your edit did not persist" message.
+			expect(queryByTestId("install-error")).toBeNull();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	test("a later install error does not erase the save error", async () => {
+		vi.useFakeTimers();
+		try {
+			fetchRig = installFetchSpy({
+				"PUT /api/extensions/author/draft/draft-abc": async () =>
+					new Response("disk full", { status: 500 }),
+				"POST /api/extensions/author/install": async () =>
+					new Response(JSON.stringify({ message: "nope" }), {
+						status: 422,
+						headers: { "content-type": "application/json" },
+					}),
+			});
+			const data = makeData();
+			const { getByTestId } = render(ExtensionAuthorPage, { props: { data } });
+			const ta = getByTestId("file-content") as HTMLTextAreaElement;
+			await fireEvent.input(ta, { target: { value: "// edited" } });
+			await vi.advanceTimersByTimeAsync(700);
+			expect(getByTestId("save-error")).toBeInTheDocument();
+
+			await fireEvent.click(getByTestId("install-btn"));
+			await vi.runAllTimersAsync();
+
+			expect(getByTestId("install-error")).toHaveTextContent(/422/);
+			expect(getByTestId("save-error")).toHaveTextContent(/Could not save/);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 });
 
@@ -309,6 +409,32 @@ describe("ExtensionAuthorPage — discard flow", () => {
 
 			await waitFor(() => expect(deleted).toBe(true));
 			await waitFor(() => expect(gotoSpy).toHaveBeenCalledWith("/extensions"));
+		} finally {
+			window.confirm = originalConfirm;
+		}
+	});
+
+	// The DELETE response used to be ignored entirely: a 500 still
+	// navigated to /extensions, telling the user "discarded" about a
+	// draft that was still fully there.
+	test("failed DELETE → error banner, stays on the page", async () => {
+		fetchRig = installFetchSpy({
+			"DELETE /api/extensions/author/draft/draft-abc": async () =>
+				new Response("draft is locked", { status: 500 }),
+		});
+		const originalConfirm = window.confirm;
+		window.confirm = vi.fn().mockReturnValue(true);
+		try {
+			const data = makeData();
+			const { getByTestId, findByTestId } = render(ExtensionAuthorPage, {
+				props: { data },
+			});
+			await fireEvent.click(getByTestId("discard-btn"));
+
+			const banner = await findByTestId("discard-error");
+			expect(banner).toHaveTextContent(/Discard failed \(500\)/);
+			expect(banner).toHaveTextContent(/draft is locked/);
+			expect(gotoSpy).not.toHaveBeenCalled();
 		} finally {
 			window.confirm = originalConfirm;
 		}

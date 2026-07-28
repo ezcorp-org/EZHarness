@@ -24,8 +24,18 @@
   let validating = $state(false);
   let installing = $state(false);
   let discarding = $state(false);
-  let validationResult = $state<null | { ok: boolean; errors: string[] }>(null);
+  // The validate endpoint returns the host's FULL acceptance gate now
+  // (manifest + sandboxed smokeTest round-trip for tool/multi) — the
+  // same gate Install runs — so a green result here really does mean
+  // "this installs". `steps` is rendered so a failure says WHICH step.
+  type GateStep = { name: string; ok: boolean; detail: string };
+  let validationResult = $state<null | { ok: boolean; errors: string[]; steps: GateStep[] }>(null);
   let installError = $state<string | null>(null);
+  // Save failures get their OWN banner. They used to be written into
+  // `installError`, so the next install attempt overwrote them and the
+  // user never learned their edit had not persisted.
+  let saveError = $state<string | null>(null);
+  let discardError = $state<string | null>(null);
 
   $effect(() => {
     // Pick the first file when the selection becomes invalid (e.g.
@@ -45,8 +55,12 @@
       });
       if (!resp.ok) {
         const text = await resp.text();
-        installError = `Save failed: ${resp.status} ${text}`;
+        saveError = `Could not save ${path}: ${resp.status} ${text}. Your edit is NOT on disk — validate and install will use the previous content.`;
+      } else {
+        saveError = null;
       }
+    } catch (e) {
+      saveError = `Could not save ${path}: ${e instanceof Error ? e.message : String(e)}. Your edit is NOT on disk.`;
     } finally {
       saving = false;
     }
@@ -93,18 +107,22 @@
     validating = true;
     validationResult = null;
     try {
-      // The validate endpoint is a wrapper around the host's
-      // `validateManifestV2` — same gate the install endpoint runs.
+      // Runs the host's full acceptance gate — byte-for-byte the gate
+      // Install runs (`runAuthorAcceptanceGate`).
       const resp = await fetch(`/api/extensions/author/draft/${data.draft.id}/validate`, {
         method: "POST",
       });
       if (!resp.ok) {
         const text = await resp.text();
-        validationResult = { ok: false, errors: [`HTTP ${resp.status}: ${text}`] };
+        validationResult = { ok: false, errors: [`HTTP ${resp.status}: ${text}`], steps: [] };
         return;
       }
       const json = await resp.json();
-      validationResult = { ok: json.ok === true, errors: Array.isArray(json.errors) ? json.errors : [] };
+      validationResult = {
+        ok: json.ok === true,
+        errors: Array.isArray(json.errors) ? json.errors : [],
+        steps: Array.isArray(json.steps) ? json.steps : [],
+      };
     } finally {
       validating = false;
     }
@@ -148,9 +166,21 @@
       saveTimer = null;
     }
     discarding = true;
+    discardError = null;
     try {
-      await fetch(`/api/extensions/author/draft/${data.draft.id}`, { method: "DELETE" });
+      // Check the response. Navigating away regardless told the user
+      // "discarded" for a draft a 500 had left fully intact.
+      const resp = await fetch(`/api/extensions/author/draft/${data.draft.id}`, {
+        method: "DELETE",
+      });
+      if (!resp.ok) {
+        const text = await resp.text();
+        discardError = `Discard failed (${resp.status}): ${text || "the draft is still here."}`;
+        return;
+      }
       await goto("/extensions");
+    } catch (e) {
+      discardError = `Discard failed: ${e instanceof Error ? e.message : String(e)}`;
     } finally {
       discarding = false;
     }
@@ -230,21 +260,44 @@
   {#if validationResult}
     <section class="status" data-testid="validation-status" class:ok={validationResult.ok} class:err={!validationResult.ok}>
       {#if validationResult.ok}
-        <p>Manifest valid. Ready to install.</p>
+        <p>Acceptance gate passed. This draft is ready to install.</p>
       {:else}
-        <p>Validation failed:</p>
+        <p>Acceptance gate failed:</p>
         <ul>
           {#each validationResult.errors as err, i (i)}
             <li>{err}</li>
           {/each}
         </ul>
       {/if}
+      {#if validationResult.steps.length > 0}
+        <ul class="steps" data-testid="validation-steps">
+          {#each validationResult.steps as step (step.name)}
+            <li class:step-ok={step.ok} class:step-err={!step.ok} data-testid="validation-step-{step.name}">
+              <span class="step-mark" aria-hidden="true">{step.ok ? "✓" : "✗"}</span>
+              <span class="step-name">{step.name}</span>
+              <span class="step-detail">{step.detail}</span>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+    </section>
+  {/if}
+
+  {#if saveError}
+    <section class="status err" data-testid="save-error">
+      <p>{saveError}</p>
     </section>
   {/if}
 
   {#if installError}
     <section class="status err" data-testid="install-error">
       <p>{installError}</p>
+    </section>
+  {/if}
+
+  {#if discardError}
+    <section class="status err" data-testid="discard-error">
+      <p>{discardError}</p>
     </section>
   {/if}
 </div>
@@ -383,6 +436,44 @@
   .status.err {
     background: var(--bg-err, #fef2f2);
     border-color: var(--border-err, #fca5a5);
+  }
+
+  .steps {
+    list-style: none;
+    margin: 0.5rem 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    font-size: 0.85rem;
+  }
+
+  .steps li {
+    display: grid;
+    grid-template-columns: 1rem 10rem 1fr;
+    gap: 0.5rem;
+    align-items: baseline;
+  }
+
+  .step-mark {
+    font-weight: 700;
+  }
+
+  .step-ok .step-mark {
+    color: var(--color-ok, #059669);
+  }
+
+  .step-err .step-mark {
+    color: var(--color-err, #dc2626);
+  }
+
+  .step-name {
+    font-family: var(--font-mono, monospace);
+    color: var(--text-muted, #888);
+  }
+
+  .step-detail {
+    overflow-wrap: anywhere;
   }
 
   .empty {
