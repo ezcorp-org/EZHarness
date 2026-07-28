@@ -8,6 +8,7 @@ import type {
   ToolDefinition,
 } from "./types";
 import { validateEntitiesArray } from "./entities/clamp";
+import { KNOWN_CARD_TYPES, KNOWN_CARD_TYPES_SORTED } from "./card-types";
 import { parseSource } from "./source-parser";
 // PURE import (no DB chain) — the scope-name grammar shared with the
 // storage layer; see src/extensions/rbac-scopes.ts.
@@ -57,6 +58,20 @@ function validateToolsArray(tools: unknown, errors: string[]): void {
     }
     if (t.suggestExamples !== undefined) {
       validateSuggestExamples(`tools[${i}].suggestExamples`, t.suggestExamples, errors);
+    }
+    // `cardType` selects a frontend component. An unknown value used to
+    // install fine and then silently render as the generic collapsed
+    // card, so a typo cost the author their custom UI with no error to
+    // explain it. Reject it here, where the author can still fix it.
+    if (t.cardType !== undefined) {
+      if (typeof t.cardType !== "string") {
+        errors.push(`tools[${i}].cardType must be a string`);
+      } else if (!KNOWN_CARD_TYPES.has(t.cardType)) {
+        errors.push(
+          `tools[${i}].cardType "${t.cardType}" is not a card the UI can ` +
+            `render (known: ${KNOWN_CARD_TYPES_SORTED.join(", ")})`,
+        );
+      }
     }
   }
 }

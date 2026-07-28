@@ -48,6 +48,12 @@ export function getCardComponentName(cardType: string | undefined, permissionPen
 		// the host-revalidated `/extensions/<name>` deep-link renders as a
 		// one-click "Open extension" link instead of raw JSON.
 		case 'ez-install': return 'EzToolResultCard';
+		// `ez-draft` is declared by extension-author's `create_extension`.
+		// Its `openUrl` (`/extensions/author?prefill=<draftId>`) is the
+		// tool's ONLY actionable output — in DefaultCard it was collapsed
+		// and truncated away, so the scaffold→edit hand-off the README
+		// promises was unreachable in one click.
+		case 'ez-draft': return 'EzToolResultCard';
 		// `ez-propose` is declared by the built-in concierge `propose_*`
 		// tools. Their `{ draftId, openUrl }` result routes to the same
 		// EzToolResultCard so the "Open prefilled form" button surfaces

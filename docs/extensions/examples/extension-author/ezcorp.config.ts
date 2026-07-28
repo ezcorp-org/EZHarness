@@ -28,6 +28,13 @@ export default defineExtension({
   tools: [
     {
       name: "create_extension",
+      // `cardType: "ez-draft"` routes the result to EzToolResultCard so
+      // the returned `openUrl` (/extensions/author?prefill=<draftId>)
+      // renders as a one-click "Open draft editor" link. Without it the
+      // result fell through to DefaultCard, where it rendered collapsed
+      // and the 50-char header preview truncated the URL away entirely
+      // — the tool's only actionable output was invisible.
+      cardType: "ez-draft",
       description:
         "Scaffold a new EZCorp extension and create a draft. Returns { draftId, openUrl, name, type }.\n\nSUPPORTED TYPES: tool, skill, agent, multi (see docs/extensions/AUTHORING.md for the contract of each).\n\nIMPORTANT — env-key-leak install gate: do NOT declare any env name matching /(_API_KEY|TOKEN|SECRET)$/i in `permissions.env`. The install will be REFUSED. If the user needs an API credential, take it as a tool input parameter instead.\n\nREAD docs/extensions/AUTHORING.md for the full authoring contract before invoking this tool.\n\nWORKFLOW — this is STEP 1 of a fixed 3-step chain: create_extension → validate_extension → install_draft. After this returns successfully you MUST proceed to validate_extension, then install_draft, in the SAME turn, WITHOUT waiting for further user prompting — UNLESS the user explicitly said \"draft only\" / \"don't install yet\". Do NOT end your turn after only scaffolding; a scaffolded-but-uninstalled draft is an incomplete request.",
       inputSchema: {

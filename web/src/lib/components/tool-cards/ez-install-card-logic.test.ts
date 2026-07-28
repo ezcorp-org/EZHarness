@@ -73,4 +73,36 @@ describe("parseInstallCardResult", () => {
 		expect(parseInstallCardResult("[1,2]")).toBeNull();
 		expect(parseInstallCardResult('"just a string"')).toBeNull();
 	});
+
+	// The card's copy asserts the extension "is installed and enabled".
+	// Keying only on `openUrl` meant one host change that emitted a
+	// deep-link next to a failure would render a green success card for
+	// a failed install. Pin that the parser reads `ok`.
+	test("ok:false + a present openUrl → null (never a success card for a failure)", () => {
+		expect(
+			parseInstallCardResult(
+				JSON.stringify({
+					ok: false,
+					code: "ENABLE_FAILED",
+					name: "weather",
+					openUrl: "/extensions/weather",
+				}),
+			),
+		).toBeNull();
+	});
+
+	test("ok:true + openUrl still renders (the fix does not break the happy path)", () => {
+		const r = parseInstallCardResult(
+			JSON.stringify({ ok: true, name: "weather", openUrl: "/extensions/weather" }),
+		);
+		expect(r?.openUrl).toBe("/extensions/weather");
+		expect(r?.title).toBe('Extension "weather" installed');
+	});
+
+	test("`ok` absent → still renders (legacy hosts that omit the flag)", () => {
+		const r = parseInstallCardResult(
+			JSON.stringify({ name: "weather", openUrl: "/extensions/weather" }),
+		);
+		expect(r?.openUrl).toBe("/extensions/weather");
+	});
 });

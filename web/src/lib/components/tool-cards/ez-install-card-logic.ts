@@ -65,13 +65,21 @@ export function extractEzCardObject(out: unknown): Record<string, unknown> | nul
 
 /**
  * Parse an `install_draft` tool output into the card's render props.
+ *
  * `openUrl` is mandatory for the card to be useful — without it the
  * card has no actionable affordance, so we return `null` and let the
  * router fall back to DefaultCard (raw JSON), exactly today's behavior.
+ *
+ * `ok:false` is ALSO a hard reject. The card's copy states flatly that
+ * the extension "is installed and enabled"; keying only on `openUrl`
+ * meant one host change that emitted a deep-link alongside a failure
+ * would have rendered a green success card for a failed install. The
+ * card must never be able to contradict the result it renders.
  */
 export function parseInstallCardResult(output: unknown): EzProposeResult | null {
 	const obj = extractEzCardObject(output);
 	if (!obj) return null;
+	if (obj.ok === false) return null;
 	if (typeof obj.openUrl !== "string" || obj.openUrl.length === 0) return null;
 	const name = typeof obj.name === "string" ? obj.name : undefined;
 	return {
