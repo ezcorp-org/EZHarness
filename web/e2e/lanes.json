@@ -7,7 +7,8 @@
       "web/e2e/extensions-library-tabs.spec.ts",
       "web/e2e/file-organizer-hub.spec.ts",
       "web/e2e/file-organizer-real.spec.ts",
-      "web/e2e/hub.spec.ts"
+      "web/e2e/hub.spec.ts",
+      "web/e2e/stuck-skeleton-self-heal.spec.ts"
     ],
     "real-auth": [
       "web/e2e/real-auth/auth-fixture.spec.ts",
