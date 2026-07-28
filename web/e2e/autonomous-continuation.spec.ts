@@ -1,13 +1,12 @@
 import { test, expect } from "./fixtures/test-base.js";
 import { makeProject, makeConversation } from "./fixtures/data.js";
+import { openChatWithTasks } from "./fixtures/task-seed.js";
 
 // Observability + interruptibility of the opt-in autonomous
 // self-continuation loop. The loop itself is host-side; what the user
 // must be able to see is the cycle counter on the running assignment
 // pill, and what they must be able to do is Stop it. Both are asserted
 // here against the TaskPanel → AssignmentPill render path.
-
-const TASKS_ROUTE_PATTERN = "/tasks";
 
 interface TestAssignment {
 	id: string;
@@ -72,13 +71,7 @@ test.describe("Autonomous continuation — observable + stoppable", () => {
 			}),
 		]);
 
-		await mockApi({
-			projects: [proj],
-			conversations: [conv],
-			messages: [],
-			routes: { [TASKS_ROUTE_PATTERN]: () => snapshot },
-		});
-		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
+		await openChatWithTasks(page, mockApi, { project: proj, conversation: conv, snapshot });
 
 		await expect(page.getByText("@worker")).toBeVisible();
 
@@ -111,13 +104,7 @@ test.describe("Autonomous continuation — observable + stoppable", () => {
 			}),
 		]);
 
-		await mockApi({
-			projects: [proj],
-			conversations: [conv],
-			messages: [],
-			routes: { [TASKS_ROUTE_PATTERN]: () => snapshot },
-		});
-		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
+		await openChatWithTasks(page, mockApi, { project: proj, conversation: conv, snapshot });
 
 		await expect(page.getByText("@worker")).toBeVisible();
 		await expect(page.getByTestId("autonomous-cycle")).not.toBeVisible();

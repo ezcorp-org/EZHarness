@@ -1,5 +1,6 @@
 import { test, expect, captureEvidence } from "./fixtures/test-base.js";
 import { makeProject, makeConversation } from "./fixtures/data.js";
+import { openChatWithTasks } from "./fixtures/task-seed.js";
 
 /**
  * @evidence — Phase B4 orchestration visibility.
@@ -10,13 +11,10 @@ import { makeProject, makeConversation } from "./fixtures/data.js";
  * store captures that into a `schemaFailed` flag and the AssignmentPill renders
  * an amber "schema" chip so the pill isn't misread as a clean green success.
  *
- * This RENDER-style spec seeds a running assignment via the tasks route, then
- * drives the terminal update + an `agent:complete` over the fake runtime-event
- * transport (same channel the sibling task-panel.spec.ts uses for
- * `task:snapshot`) — no real LLM.
+ * This RENDER-style spec seeds a running assignment with a `task:snapshot`,
+ * then drives the terminal update + an `agent:complete` over the same fake
+ * runtime-event transport (the one SSE stream the app opens) — no real LLM.
  */
-
-const TASKS_ROUTE_PATTERN = "/tasks";
 
 const proj = makeProject({ id: "proj-schema", name: "Schema Project" });
 const conv = makeConversation({ id: "conv-schema", projectId: "proj-schema", title: "Schema Convo" });
@@ -58,16 +56,13 @@ test.describe("@evidence task-panel schema-failure badge", () => {
 	test("terminal update with structuredResultError renders the amber schema chip", async ({
 		page,
 		mockApi,
-		emitWs,
+		emitSse,
 	}, testInfo) => {
-		await mockApi({
-			projects: [proj],
-			conversations: [conv],
-			messages: [],
-			routes: { [TASKS_ROUTE_PATTERN]: () => seededSnapshot() },
+		await openChatWithTasks(page, mockApi, {
+			project: proj,
+			conversation: conv,
+			snapshot: seededSnapshot(),
 		});
-
-		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
 		// The running assignment pill is present, with no schema chip yet.
 		await expect(page.getByText("@schema-worker")).toBeVisible();
@@ -75,7 +70,7 @@ test.describe("@evidence task-panel schema-failure badge", () => {
 
 		// Drive the terminal update: the child COMPLETED but its output never
 		// validated — `structuredResultError` rides the top-level event field.
-		await emitWs({
+		await emitSse({
 			type: "task:assignment_update",
 			data: {
 				conversationId: "conv-schema",
@@ -99,7 +94,7 @@ test.describe("@evidence task-panel schema-failure badge", () => {
 
 		// A subsequent agent:complete for the same sub-conversation must not
 		// crash or reset the panel — it drives the sub-agent done indicator.
-		await emitWs({
+		await emitSse({
 			type: "agent:complete",
 			data: {
 				runId: "run-final-cycle",
@@ -120,18 +115,16 @@ test.describe("@evidence task-panel schema-failure badge", () => {
 		await captureEvidence(page, testInfo, "task-panel-after-agent-complete");
 	});
 
-	test("a clean completion does NOT render the schema chip", async ({ page, mockApi, emitWs }) => {
-		await mockApi({
-			projects: [proj],
-			conversations: [conv],
-			messages: [],
-			routes: { [TASKS_ROUTE_PATTERN]: () => seededSnapshot() },
+	test("a clean completion does NOT render the schema chip", async ({ page, mockApi, emitSse }) => {
+		await openChatWithTasks(page, mockApi, {
+			project: proj,
+			conversation: conv,
+			snapshot: seededSnapshot(),
 		});
 
-		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 		await expect(page.getByText("@schema-worker")).toBeVisible();
 
-		await emitWs({
+		await emitSse({
 			type: "task:assignment_update",
 			data: {
 				conversationId: "conv-schema",
