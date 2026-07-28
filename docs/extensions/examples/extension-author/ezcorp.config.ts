@@ -158,4 +158,30 @@ export default defineExtension({
     // `ezcorp/drafts` is the only host capability the extension needs
     // beyond filesystem.
   },
+  // Deterministic acceptance. `verifyExtension` REQUIRES a smokeTest for
+  // any non-mcp manifest that declares tools — including this one, which
+  // declares eight. Without it the extension that gates everyone else's
+  // extensions could not pass its own gate.
+  //
+  // The probe targets the ONE code path that completes entirely inside
+  // the subprocess: `create_extension` validates its `type` argument
+  // before it touches the scaffolder or the `ezcorp/drafts` reverse-RPC.
+  // That matters because verify spawns the extension with NO host on the
+  // other end of the channel — any tool that round-trips to the host
+  // would block forever. This still exercises the real thing the gate
+  // asks about: the process boots under the sandbox, the JSON-RPC
+  // dispatcher accepts a `tools/call`, the handler runs, and a
+  // structured result comes back.
+  smokeTest: {
+    tool: "create_extension",
+    input: {
+      name: "smoke-test-probe",
+      type: "not-a-real-type",
+      description: "deterministic acceptance probe — never scaffolds",
+    },
+    expect: {
+      isError: true,
+      textIncludes: "must be one of tool|skill|agent|multi",
+    },
+  },
 });

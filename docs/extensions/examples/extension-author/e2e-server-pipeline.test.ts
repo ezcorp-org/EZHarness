@@ -769,6 +769,50 @@ describe("extension-author e2e — server pipeline round-trip", () => {
   }, 30_000);
 });
 
+// The extension that gates every OTHER extension has to clear the same
+// bar. `verifyExtension` requires a smokeTest for any non-mcp manifest
+// declaring tools, and this one declares eight — for a long time it
+// would have failed its own gate. This runs the real gate against the
+// real directory: no stubs, no fixtures.
+describe("extension-author — passes its own deterministic gate", () => {
+  // Deliberately NO `process.chdir` here (unlike the round-trip suite
+  // above): the shipped extension imports `@ezcorp/sdk/runtime`, which
+  // only resolves while the process sits inside the workspace.
+
+  test("verifyExtension against the shipped directory ⇒ pass", async () => {
+    const result = await verifyExtension({ extDir: import.meta.dir });
+    const failed = result.steps.filter((s) => !s.ok);
+    expect(failed.map((s) => `${s.name}: ${s.detail}`)).toEqual([]);
+    expect(result.pass).toBe(true);
+    // The round-trip actually happened — a manifest-only pass would
+    // mean the smokeTest silently stopped being required.
+    const roundTrip = result.steps.find((s) => s.name === "smoke-test-roundtrip");
+    expect(roundTrip?.ok).toBe(true);
+  }, 60_000);
+
+  test("the smokeTest probe is a pure in-process path (no host round-trip)", async () => {
+    // If the probe ever targeted a tool that reverse-RPCs to the host,
+    // verify would hang forever (verify spawns the extension with no
+    // host on the other end of the channel). Assert the declared probe
+    // still resolves entirely inside the subprocess.
+    const manifest = (await import("./ezcorp.config")).default as {
+      smokeTest?: { tool: string; input: Record<string, unknown> };
+    };
+    expect(manifest.smokeTest?.tool).toBe("create_extension");
+    const proc = makeProc({ drafts: new Map(), nextId: 0 }, TEST_TMP_ROOT);
+    try {
+      const r = await proc.callTool(
+        "create_extension",
+        manifest.smokeTest!.input,
+      );
+      expect(r.isError).toBe(true);
+      expect(r.content[0]!.text).toContain("must be one of tool|skill|agent|multi");
+    } finally {
+      proc.kill();
+    }
+  }, 30_000);
+});
+
 // Cleanup TEST_TMP_ROOT after the suite.
 import { afterAll } from "bun:test";
 afterAll(() => {
