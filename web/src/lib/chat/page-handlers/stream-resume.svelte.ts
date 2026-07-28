@@ -466,11 +466,6 @@ export function __resetReconnectCooldown(convId?: string): void {
 	else reconnectCooldownByConv.delete(convId);
 }
 
-/** Test-only: read the cooldown timestamp for a given conversation. */
-function __getReconnectCooldownAt(convId: string): number {
-	return reconnectCooldownByConv.get(convId) ?? 0;
-}
-
 // ── Rune-host wiring ─────────────────────────────────────────────────────
 
 /**
