@@ -609,3 +609,28 @@ resembles what the operator parked.
 | Lease flapping under load | Lease 60s, heartbeat 20s, per-daemon not per-step (§3.4) — a slow step never loses its claim. |
 | PGlite vs Postgres claim semantics diverge | CAS only, no `FOR UPDATE SKIP LOCKED` (`schedule-daemon.ts:12-15`); the claim test runs on both drivers. |
 | Approval inbox becomes an unbounded queue | `expires_at` + `onTimeout` sweep with the injected clock (§4.4); partial index keeps the scan cheap. |
+
+---
+
+## 11. Phase-2 acceptance checklist
+
+The criteria the phase-2 review will apply, published here so the build can
+self-check before reporting. Each is **falsifiable** — a named test or a grep,
+not a judgement call. A build that cannot point at the artifact for a row has
+not met it.
+
+| # | Criterion | How it is proven | Defined in |
+|---|---|---|---|
+| 1 | **The recovery model is commit-at-boundary, not suspend-before-await smuggled back in.** No `suspended` write precedes any of the five mid-step await sites (`:340`, `:383`, `:577`, `:639`, `:780`). | A test that crashes a run mid-`tool`-step and asserts the row is `running`/`in-batch` — never `suspended`. Plus: the only writers of `status='suspended'` are the deliberate parks. | §1.4, §1.6 |
+| 2 | **`persistCritical` is used at exactly three sites** — the `'in-batch'` marker, the boundary cursor advance, the suspend transition — and `persistWrite`'s never-throw contract is untouched everywhere else. | Grep: three `persistCritical` call sites, and `persistWrite`'s `catch`-and-warn body unchanged from `:154-161`. A test asserting a failed cursor write **fails the run closed**. | §1.5 |
+| 3 | **`definition_hash` fails closed on drift, and the failure names the drift.** | A test that edits the definition between suspend and resume and asserts `status='error'`, `error_code='definition-changed'`, and a message identifying what changed. | §2.2, §9 row 7 |
+| 4 | **The approval chokepoint is one guard behind all three answer paths.** | Asserted by **call-count on a spy**, not by reading the code. A fourth surface added later must fail this test. | §4.3, ported invariant #7 |
+| 5 | **The compatibility ledger is proven by tests, not prose.** Sharpest: the CLI exits 0 only on `success`. | `web/e2e/workflows.spec.ts`, `workflows-demos.spec.ts`, `workflows-actions.spec.ts` pass **unmodified**; a CLI test pins the exit code for `success` / `error` / `awaiting_approval` / `suspended`. | §5, §6.6 |
+| 6 | **`prevStepName` faithfulness.** `prevResult` is read synchronously during `batch.map` — `syncStep()` (`:337`) never awaits, and `this.runStep(...)` reads `prevResult` (`:344`) before the `await` suspends — so it is always `batch[batch.length-1].name`. | A test **named for the property** (e.g. `"$prev resolves to the last declared step of the previous batch, resumed or not"`) so a future lazy-`prevResult` refactor fails loudly rather than silently changing `$prev`. | §2.3 |
+| 7 | **Resume does not re-emit `workflow:start`.** | A test asserting exactly one `workflow:start` across a suspend/resume cycle. | §3.3 rule 3, §9 row 5 |
+
+**And the standing one:** anything in this spec the build proves wrong. This
+document has already been reversed once on its own central claim (§1 supersedes
+the design record's rule, which this author wrote); a second reversal is a
+better outcome than defending a wrong spec. Report it as a finding against §9's
+format.
