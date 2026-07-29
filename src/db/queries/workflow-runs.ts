@@ -185,6 +185,23 @@ export async function upsertWorkflowStepRun(
  * different `$steps` than the first half saw. That is a silent
  * wrong-answer bug, strictly worse than refusing to resume, so the
  * refusal names the step and the reason instead.
+ *
+ * ## PAIRED WITH the executor — this strictness is load-bearing
+ *
+ * `WorkflowExecutor` appends a step to `cursor.completedSteps` the
+ * instant it succeeds, which is BEFORE it issues the `output` write —
+ * and that write is `void persistWrite(...)`, fire-and-forget and
+ * never-throwing. So "recorded complete, output never landed" is a
+ * genuinely reachable state, not a theoretical one.
+ *
+ * The executor's ordering is safe ONLY because this function refuses
+ * that state. Relaxing it — returning an empty map, or skipping the
+ * step — would silently reopen the window, and every executor-side test
+ * would still pass because nothing on that side changed. Neither file
+ * can be reasoned about alone.
+ *
+ * Pinned by "a step recorded complete with no persisted output refuses
+ * resume, never rehydrates empty".
  */
 export async function loadStepResults(
   workflowRunId: string,

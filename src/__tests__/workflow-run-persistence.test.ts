@@ -1644,6 +1644,51 @@ describe("suspend and resume", () => {
     expect(after?.status).not.toBe("suspended");
   });
 
+  test("a step recorded complete with no persisted output refuses resume, never rehydrates empty", async () => {
+    // THE CROSS-FILE PAIRING, named for the property rather than the
+    // scenario so a future lenient loader fails loudly here.
+    //
+    // The executor appends to `cursor.completedSteps` the instant a step
+    // succeeds — before it issues the `output` write, which is
+    // fire-and-forget and never-throwing. So this state is reachable in
+    // production, and it is constructed here by forcing exactly it
+    // rather than by mocking the refusal.
+    //
+    // Two halves, both asserted: the cursor SAYS the step completed, and
+    // the loader REFUSES rather than returning a map without it. If the
+    // loader were ever relaxed to skip the step instead, resume would
+    // run the rest of the graph against a `$steps` missing a value the
+    // first half of the run had — silently.
+    const { wf } = suspendingExecutor("gate__ask", { parkOnce: true });
+    const def: WorkflowDefinition = {
+      name: "pairing-property",
+      description: "",
+      steps: [
+        { name: "prep", kind: "transform", output: { v: "1" } },
+        { name: "ask", kind: "tool", tool: "gate__ask" },
+      ],
+    };
+    const first = await wf.runWorkflow(def, {}, undefined, undefined);
+    expect(first.status).toBe("suspended");
+
+    const parked = await getWorkflowRunRow(first.id);
+    // Half one: the cursor claims `prep` is done.
+    expect(parked?.cursor?.completedSteps).toContain("prep");
+
+    // Now lose its output, exactly as a swallowed write would.
+    await db.execute(sql`
+      UPDATE workflow_step_runs SET output = NULL
+       WHERE workflow_run_id = ${first.id} AND step_name = 'prep'
+    `);
+
+    // Half two: the loader refuses outright. NOT an empty map, NOT a map
+    // missing `prep` — a named refusal.
+    const loaded = await loadStepResults(first.id);
+    expect(loaded.ok).toBe(false);
+    if (loaded.ok) throw new Error("loader went lenient — the pairing is broken");
+    expect(loaded.reason).toContain('step "prep"');
+  });
+
   test("a refusal never clobbers a run that already reached a terminal state", async () => {
     // The other half of the widened CAS: `suspended` was added to the
     // finalize predicate, and that must not weaken the guarantee that an

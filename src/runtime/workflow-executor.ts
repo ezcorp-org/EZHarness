@@ -671,6 +671,25 @@ export class WorkflowExecutor {
             // Recorded the instant it succeeds, not at the boundary: a
             // sibling that parks the run later in this same batch must
             // not cause this step to be re-executed on resume.
+            //
+            // ── PAIRED WITH `loadStepResults` — do not break either half ──
+            //
+            // This push happens BEFORE `persistStep()` below, and that
+            // call is `void this.persistWrite(...)` — fire-and-forget,
+            // never-throwing. So the window is real: a step can be
+            // recorded complete here while its `output` write is still in
+            // flight or silently dropped.
+            //
+            // That is SAFE only because `loadStepResults`
+            // (`db/queries/workflow-runs.ts`) REFUSES to rehydrate a
+            // `success` step whose output is missing, rather than
+            // returning an empty map. Make that loader lenient and this
+            // ordering silently becomes a correctness bug: the resumed
+            // half of the run would see a different `$steps` than the
+            // first half, with no error anywhere.
+            //
+            // Pinned by "a step recorded complete with no persisted
+            // output refuses resume, never rehydrates empty".
             if (!alreadyDone.has(step.name)) {
               alreadyDone.add(step.name);
               completedSteps.push(step.name);
