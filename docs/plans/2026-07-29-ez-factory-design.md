@@ -19,8 +19,26 @@ Read alongside: [orchestration/workflows.md](../features/orchestration/workflows
 [extensions/scheduling-and-loops.md](../features/extensions/scheduling-and-loops.md).
 
 **§7 is the most important section for a reviewer** — it lists eight places the
-spec is wrong or infeasible against the real source, with the correction each
-phase must adopt.
+spec was wrong or infeasible against the real source. **All eight are now
+resolved** and the corrections are folded into both this document and the spec.
+
+> ### Decisions settled 2026-07-29
+> Phase 0's four open questions were decided by the team lead after independent
+> re-verification against `main@abc41f35`. They are binding on every later phase:
+>
+> 1. **Async opt-in is the `X-EZ-Workflow-Async: 1` request header**, never a
+>    body key — headers and workflow input are different namespaces, so the
+>    collision is impossible by construction rather than merely unlikely. Sync
+>    stays the default when the header is absent. (§7.1)
+> 2. **C6 is phase 6, C3 is phase 7.** A consent hash cannot pin a definition
+>    version that does not exist yet, and rung D7 cannot re-run an authorization
+>    ladder C6 has not built. (§7.8)
+> 3. **C3's authority lives in a real `workflow_delegations` table with
+>    `ON DELETE CASCADE`** on the owner. `SET NULL` would leave an enabled
+>    delegation naming nobody — a latent ownerless grant. (§7.4, §2.7)
+> 4. **Per-iteration telemetry goes in an additive `workflow_step_iterations`
+>    child table.** Never widen the live `(workflow_run_id, step_name)` arbiter
+>    for a purely additive need. (§7.6, §2.4)
 
 ---
 
@@ -98,7 +116,7 @@ unchanged**. A dynamic row is an ordinary `extension_schedules` row with a flag.
 slug, so it cannot collide with or forge another extension's — the same
 structural bound namespacing gives workflows.
 
-### C3 — Delegated execution (`runAs` + service accounts) · **M** · phase 6 · **security-critical**
+### C3 — Delegated execution (`runAs` + service accounts) · **M** · phase 7 · **security-critical**
 
 Full review in §3. The shape:
 
@@ -138,7 +156,7 @@ type at `src/types.ts:215`) — the run is recorded, not resumable.
 | new `src/runtime/workflow-runner-daemon.ts` | claim-before-dispatch + PID lockfile + concurrency caps, modelled on `ScheduleDaemon` |
 | `src/db/queries/workflow-runs.ts` — `finalizeWorkflowRunRow` (`:114`) | the CAS is `WHERE status='running'`; it must also accept `'suspended'` (§7.3) |
 | `src/db/queries/workflow-runs.ts` — `terminalizeOrphanedWorkflowRuns` (`:162`) | already excludes `suspended` structurally (§7.3) |
-| `web/src/routes/api/workflows/[name]/run/+server.ts` | async opt-in — **via a header, not a body field** (§7.1) |
+| `web/src/routes/api/workflows/[name]/run/+server.ts` | async opt-in via the **`X-EZ-Workflow-Async: 1` request header** — never a body field (§7.1) |
 | new `web/src/routes/api/workflows/runs/[id]/resume/+server.ts`, `…/cancel/+server.ts` | |
 | `src/api-registry.ts:195-197` | register every new route with a scope |
 | `web/src/lib/runtime-event-names.ts:16` | `workflow:approval` (and `workflow:step-log` for C5) |
@@ -188,7 +206,7 @@ prompt hygiene uses (§4, invariant 12). `jsonb` writes are NUL-scrubbed by
 mapper entirely** (`docs/features/platform/database-and-migrations.md:57`), so
 any raw-SQL writer of these columns must scrub itself.
 
-### C6 — Ownership, project scoping, versioning · **M** · phase 7
+### C6 — Ownership, project scoping, versioning · **M** · phase 6
 
 `workflow_definitions` (`src/db/schema.ts:367-375`) has **no owner, user or
 project column** — workflows are global, and
@@ -280,14 +298,17 @@ ordered relative to FK targets. The required sequence:
 3. **C5** — the remaining `workflow_step_runs` telemetry columns.
 4. **C7** — `workflow_runs.parent_run_id` (self-FK).
 5. **C2** — `extension_schedules` / `extension_webhooks` columns.
-6. **C3** — `service_accounts` (FKs `users`), then `workflow_delegations` (FKs
+6. **C6** — `workflow_definitions` columns; `workflow_definition_versions` (FKs
+   `workflow_definitions`); then `workflow_runs.definition_version_id`.
+7. **C3** — `service_accounts` (FKs `users`), then `workflow_delegations` (FKs
    `users`, `service_accounts`, `projects`), then `workflow_runs.run_as` /
    `.delegation_id` (FKs `workflow_delegations`).
-7. **C6** — `workflow_definitions` columns; `workflow_definition_versions` (FKs
-   `workflow_definitions`); then `workflow_runs.definition_version_id`.
 
-C3 before C6 is arbitrary and either order works; **C4 before C5 is not** —
-C5's telemetry columns are written by the daemon C4 introduces.
+Two of these orderings are hard requirements, not preferences. **C4 before C5** —
+C5's telemetry columns are written by the daemon C4 introduces. **C6 before C3** —
+the consent hash pins a `workflow_definition_versions` row and rung D7 re-runs
+C6's authorization ladder, so building C3 first would mean hashing a version that
+does not exist and re-running a ladder that has not been written (§6, §7.8).
 
 ### 2.2 C1 — per-step model
 
@@ -410,7 +431,7 @@ row and `iteration` can only ever record the last one. The trace view's "every
 step, every iteration" requirement needs either a widened arbiter
 `(workflow_run_id, step_name, iteration)` — a **destructive** index change
 requiring a `DROP INDEX` + backfill of `iteration = 1` on existing rows — or a
-separate `workflow_step_iterations` child table. **Recommend the child table:**
+separate `workflow_step_iterations` child table. **The child table was chosen:**
 it is purely additive, needs no backfill, and leaves the existing upsert and its
 tests untouched (§7.6).
 
@@ -946,7 +967,7 @@ no `.skip`/`.only`, no assertion-free tests, no empty `catch {}` in test files.*
            │             │             │
            ▼             ▼             ▼
      ┌───────────┐  ┌─────────┐  ┌───────────┐
-     │ 1  C1     │  │ 5  C2   │  │ 7  C6     │
+     │ 1  C1     │  │ 5  C2   │  │ 6  C6     │
      │ per-step  │  │ dynamic │  │ ownership │
      │ model     │  │ triggers│  │ + versions│
      └─────┬─────┘  └────┬────┘  └─────┬─────┘
@@ -966,8 +987,8 @@ no `.skip`/`.only`, no assertion-free tests, no empty `catch {}` in test files.*
       │         │        │             │
       └────┬────┴────────┴──────┬──────┘
            ▼                    ▼
-     ┌───────────┐        (7 also feeds 6)
-     │ 6  C3     │
+     ┌───────────┐        (6 also feeds 7)
+     │ 7  C3     │
      │ delegated │
      └─────┬─────┘
            ▼
@@ -990,15 +1011,15 @@ no `.skip`/`.only`, no assertion-free tests, no empty `catch {}` in test files.*
 | **1 → 2** | C4's daemon persists per-step `provider`/`model` on the step row; those columns are C1's migration. Landing 2 first means writing them twice. |
 | **2 → 3** | C5's telemetry columns are written **by** the C4 daemon at each step boundary. Without the daemon there is no per-step commit point to write them from. |
 | **2 → 4** | C7's `kind: "workflow"` runs a nested graph whose child must be independently suspendable and independently traced. Nesting a synchronous, unsuspendable run inside a suspendable parent produces a parent that can never park while a child is mid-flight. |
-| **3 → 6** and **4 → 6** | C3's spend cap (rung D9) sums `workflow_step_runs.cost_usd` — a C5 column. C3's consent hash covers the **transitive closure** of nested workflows — a C7 concept. Landing 6 before either means shipping a spend cap that reads nothing and a hash that misses T4. |
-| **7 → 6** | The consent hash pins `definitionVersionId` (§3.3 input 2) and rung D7 re-runs C6's authorization ladder as the owner. Without C6 there is no version to pin and no ladder to re-run — the hash would have to re-serialize the whole `steps` blob on every fire, and D7 would be a no-op. **This is the spec's one ordering error** (§7.8). |
+| **3 → 7** and **4 → 7** | C3's spend cap (rung D9) sums `workflow_step_runs.cost_usd` — a C5 column. C3's consent hash covers the **transitive closure** of nested workflows — a C7 concept. Landing C3 before either means shipping a spend cap that reads nothing and a hash that misses T4. |
+| **6 → 7** | The consent hash pins `definitionVersionId` (§3.3 input 2) and rung D7 re-runs C6's authorization ladder as the owner. Without C6 there is no version to pin and no ladder to re-run — the hash would have to re-serialize the whole `steps` blob on every fire, and D7 would be a no-op. **This was the spec's one ordering error; the phases are now swapped** (§7.8). |
 | **5 → 8** | `ez-factory` jobs are user-created triggers. Without `ctx.triggers` the extension has manual-only jobs — a demo, not the product. |
-| **6 → 8** | Without `runFor`, a cron or webhook job cannot fire at all (`-32106`). |
+| **7 → 8** | Without `runFor`, a cron or webhook job cannot fire at all (`-32106`). |
 | **8 → 9** | You cannot delete the old extension before the replacement exists. |
 
 ### Can run in parallel
 
-- **1, 5 and 7** — three disjoint file sets (runtime/model, extensions/triggers,
+- **1, 5 and 6** — three disjoint file sets (runtime/model, extensions/triggers,
   db+web/workflows-CRUD). The only shared file is `src/db/migrate.ts`, and
   because migrations are append-only idempotent DDL the conflicts are trivial
   textual ones at the end of the function. **This is the widest parallel front in
@@ -1011,7 +1032,7 @@ no `.skip`/`.only`, no assertion-free tests, no empty `catch {}` in test files.*
 
 ### The critical path
 
-`0 → 1 → 2 → {3,4} → 7 → 6 → 8 → 9`. Phase 5 is fully off it and can land any
+`0 → 1 → 2 → {3,4} → 6 → 7 → 8 → 9`. Phase 5 is fully off it and can land any
 time after 0. Phases **1–4 are a real automation engine on their own** — a
 per-step-model, async, suspendable, human-gated, traced, composable workflow
 runner. If the program stops after phase 4, core is strictly better than today
@@ -1023,7 +1044,14 @@ and nothing is half-built.
 
 Ordered by how much a phase would suffer for not knowing.
 
-### 7.1 `async: true` in the run body is swallowed by the `.loose()` schema — **blocking for phase 2**
+> **All eight are resolved.** The team lead independently re-verified the four
+> load-bearing claims against source at `main@abc41f35` and accepted every
+> recommendation on 2026-07-29; `tasks/2026-07-29-ez-factory-replan.md` now
+> carries the corrections inline under its own "Corrections applied" header.
+> This section is kept as the **audit trail** — what was wrong, how it was
+> found, and what was decided. Nothing here is open.
+
+### 7.1 `async: true` in the run body is swallowed by the `.loose()` schema — **was blocking for phase 2 · RESOLVED**
 
 The spec: "`POST /api/workflows/[name]/run` gains `async: true`".
 
@@ -1036,12 +1064,16 @@ with an input field named `async` can never receive it — exactly the
 (`docs/features/orchestration/workflows.md:156, 254`), which the team has
 already been bitten by once.
 
-**Correction:** carry the async opt-in **out of band**. Either an
-`X-EZ-Workflow-Async: 1` request header, or a sibling route
-`POST /api/workflows/[name]/run/async`. Recommend the **header** — one route, one
-registry entry, and the sync/async contract stays visibly the same call.
+**Decided — the `X-EZ-Workflow-Async: 1` request header.** The alternative was a
+sibling route (`POST /api/workflows/[name]/run/async`); the header wins because
+it keeps one route and one registry entry, and the sync/async contract stays
+visibly the same call. The deciding argument is stronger than convenience:
+**HTTP headers and workflow input are structurally different namespaces, so the
+collision is impossible by construction** — a reserved body key like `_ez` would
+only make the documented `projectId` trap rarer, not gone. Sync remains the
+default when the header is absent.
 
-### 7.2 C2 names only `reconcileSchedules`; `reconcileWebhooks` needs the identical exemption — **blocking for phase 5**
+### 7.2 C2 names only `reconcileSchedules`; `reconcileWebhooks` needs the identical exemption — **was blocking for phase 5 · RESOLVED**
 
 The spec: "`reconcileSchedules` learns to leave dynamic rows alone."
 
@@ -1061,7 +1093,7 @@ And a third, unnamed hazard: `uniq_ext_schedule ON (extension_id, cron)`
 a cron expression** — 25 jobs at "0 3 * * 1" is a plausible ask and would fail.
 Relax it to `WHERE dynamic = false`.
 
-### 7.3 The `terminalizeOrphanedWorkflowRuns` hazard is stated backwards — **matters for phase 2**
+### 7.3 The `terminalizeOrphanedWorkflowRuns` hazard is stated backwards — **mattered for phase 2 · RESOLVED**
 
 The spec: "`terminalizeOrphanedWorkflowRuns` must **skip `suspended`** — today it
 would eat every parked job on restart."
@@ -1082,7 +1114,7 @@ The real hazards are two others the spec does not mention:
    suspended** silently no-ops. Widen to `status IN ('running','suspended')`,
    keeping the zero-row-no-op contract.
 
-### 7.4 C3's `ON DELETE SET NULL → the job auto-disables` is infeasible **and** unsafe — **blocking for phase 6**
+### 7.4 C3's `ON DELETE SET NULL → the job auto-disables` is infeasible **and** unsafe — **was blocking for phase 7 · RESOLVED**
 
 Two problems.
 
@@ -1094,13 +1126,13 @@ row and has **no FK to fire**. Nothing in Postgres can auto-disable it.
 that is `enabled`, carries a valid consent hash, and names **nobody** — a latent
 ownerless grant, which is precisely the state `-32106` exists to prevent.
 
-**Correction:** put the authority in a real table (`workflow_delegations`, §2.7)
-with **`ON DELETE CASCADE`** on `owner_user_id`. Deleting the user deletes the
+**Decided — a real `workflow_delegations` table (§2.7) with `ON DELETE CASCADE`
+on `owner_user_id`.** Deleting the user deletes the
 authority. The job's next fire finds no delegation at rung D2 and refuses; the
 extension surfaces "disabled: owner removed". Same user-visible outcome, achieved
 by the database rather than by hope.
 
-### 7.5 `-32106` is not at `workflows-handler.ts:280` — **citation error**
+### 7.5 `-32106` is not at `workflows-handler.ts:280` — **citation error · RESOLVED**
 
 The spec cites `src/extensions/workflows-handler.ts:280`. Line 280 is inside
 rung 6 (the PDP branch). The ownerless guard is at **`:291-311`**, with the
@@ -1113,7 +1145,7 @@ Two smaller drifts: `sdk/src/runtime/spawn.ts:79` → the overrides field is
 comment at `:80-83` names `model`/`provider`). `sdk/src/runtime/webhook.ts:53` →
 the quoted sentence is at `:54` (comment spans `:52-55`).
 
-### 7.6 C5's "every step, every iteration" cannot be stored in `workflow_step_runs` — **matters for phase 3**
+### 7.6 C5's "every step, every iteration" cannot be stored in `workflow_step_runs` — **mattered for phase 3 · RESOLVED**
 
 The upsert arbiter is `uniq_workflow_step_run ON (workflow_run_id, step_name)`
 (`src/db/schema.ts:447`, used at `src/db/queries/workflow-runs.ts:98-99`). A
@@ -1125,9 +1157,9 @@ Two ways out. Widening the arbiter to `(workflow_run_id, step_name, iteration)`
 is a **destructive** index change requiring a `DROP INDEX` plus a backfill of
 `iteration = 1`. A child `workflow_step_iterations` table is purely additive,
 needs no backfill, and leaves the existing upsert and its tests untouched.
-**Take the child table.**
+**Decided — the child table.** Never widen a live arbiter for a purely additive need.
 
-### 7.7 C1's `defaultModel` and the "job overrides again" layer are not in the type system — **minor, phase 1/8**
+### 7.7 C1's `defaultModel` and the "job overrides again" layer are not in the type system — **minor, phase 1/8 · RESOLVED**
 
 The spec describes three precedence layers: definition `defaultModel`, per-step
 `model`, per-job override. `WorkflowDefinition` (`src/types.ts:263-268` at HEAD)
@@ -1142,7 +1174,7 @@ can only express per-step models via `$input.*` refs, which works but is a
 strictly worse authoring experience than the spec advertises. Phase 8 then
 threads the job's overrides as `$input` fields, sized against the 16KB cap.
 
-### 7.8 The phase order puts C3 (6) before C6 (7), but C3 depends on C6 — **blocking for phase 6**
+### 7.8 The phase order puts C3 (6) before C6 (7), but C3 depends on C6 — **was blocking · RESOLVED**
 
 The spec's table runs `… 5 → 6 (C3) → 7 (C6) → 8`. But:
 
@@ -1154,9 +1186,10 @@ The spec's table runs `… 5 → 6 (C3) → 7 (C6) → 8`. But:
 - and without versioning, the hash must re-serialize the whole `steps` blob on
   every fire.
 
-**Correction: swap them.** Run C6 as phase 6 and C3 as phase 7. §6's graph is
-drawn with the corrected order. The numbering in the spec's §7 table should be
-updated to match, or every later reference to "phase 6" is ambiguous.
+**Decided — swapped.** C6 is phase 6; C3 is phase 7 and ships last. §6's graph
+and the spec's §7 table both carry the corrected order, and every phase-number
+cross-reference in both documents has been re-checked (§6 edge table, the
+parallel front, the critical path, and the spec's "Phases 5–7" sentence).
 
 ### Also worth knowing (not errors)
 
