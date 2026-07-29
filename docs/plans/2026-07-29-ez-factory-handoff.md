@@ -16,7 +16,7 @@ Three worktrees under `worktrees/`, all branched from `main@abc41f35`.
 |---|---|---|---|
 | `feat/ez-factory` | `ez-factory` | `1859a761` | Trunk. Phase 1 + Phase 2 (partial) + all planning docs. |
 | `feat/ez-factory-c2` | `ez-factory-c2` | `c9904398` | **Phase 5 COMPLETE**, reviewed clean end to end. |
-| `feat/ez-factory-c6` | `ez-factory-c6` |  `3966b5df` | Phase 6, built but **8 open defects**. |
+| `feat/ez-factory-c6` | `ez-factory-c6` | `45a38487` | Phase 6. **All 8 defects FIXED** — see §3. Verified 2026-07-29: typecheck green, lint at the 52-warning baseline, `gate-integrity` PASSED, `bun run test` **15304 pass / 0 fail / 1014 files**. Not yet independently review-verified for test *discrimination* — see §3 note. |
 
 **Setup in a fresh worktree is not automatic:** `bun install` at the root, then
 `bun install` **and** `bun run prepare` inside `web/` (generates
@@ -69,7 +69,26 @@ came from exactly that kind of parallel guessing.
 
 ---
 
-## 3. Phase 6's eight open defects, in priority order
+## 3. Phase 6's eight defects — ALL FIXED, discrimination unverified
+
+**Status: all eight fixed in `3966b5df..45a38487`** (seven commits):
+`a1fae164` D1 · `eb123b54` D2+D5 · `be2ab5b7` D6 · `d0318b56` D3 ·
+`88259e0b` D4 · `ab594fd9` D7 · `45a38487` D8.
+
+**Outstanding on this phase — the one thing left.** Each fix's test must be
+checked for **discrimination**: reintroduce the defect and confirm the test
+FAILS. A test passing both before and after reads as coverage and is worse than
+none — **that is exactly how D5 got into this branch**. Two to check hardest:
+D1 has a report half *and* a UI half (`edit/+page.svelte:272-273`), and fixing
+only the report leaves the false confidence reaching the user; and D7 must not
+have added a required field while leaving `host-maintenance-daemon.ts` passing
+`{}`. Use a `/tmp` snapshot (`git archive <sha> | tar -x`) — never mutate the
+worktree.
+
+The original diagnoses follow, retained because they state what each fix had to
+achieve and are the reference for the discrimination checks.
+
+### Original diagnoses (in the priority order they were fixed)
 
 **D1 (CRITICAL) — a dry run reports green on fabricated data.** Refs into a
 stubbed step resolve to a Proxy; `applyOp` returns **true** for `exists`,
