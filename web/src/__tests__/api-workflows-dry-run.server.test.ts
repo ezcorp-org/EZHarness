@@ -12,8 +12,17 @@ import { test, expect, describe, vi, beforeEach } from "vitest";
 const ctx = vi.hoisted(() => ({
   getCachedWorkflows: vi.fn(() => [] as unknown[]),
 }));
+// The return type is annotated rather than inferred: an inferred
+// `steps: never[]` from the empty default would reject every realistic
+// report a test wants to stub in.
 const dry = vi.hoisted(() => ({
-  dryRunWorkflow: vi.fn(async () => ({ status: "success", steps: [], stubbed: [] })),
+  dryRunWorkflow: vi.fn(
+    async (): Promise<{
+      status: string;
+      steps: Array<{ name: string; kind: string; mode: string; status: string }>;
+      stubbed: string[];
+    }> => ({ status: "success", steps: [], stubbed: [] }),
+  ),
 }));
 vi.mock("$lib/server/context", () => ctx);
 vi.mock("$server/runtime/workflow-dry-run", () => dry);
