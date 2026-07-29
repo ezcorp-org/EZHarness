@@ -385,5 +385,6 @@
   "packages/@ezcorp/ai-kit/src/**": 94,
   "src/extensions/triggers-handler.ts": 100,
   "src/extensions/triggers-store.ts": 100,
-  "src/extensions/triggers-sweep.ts": 100
+  "src/extensions/triggers-sweep.ts": 100,
+  "web/src/routes/api/extensions/[id]/triggers/+server.ts": 100
 }
