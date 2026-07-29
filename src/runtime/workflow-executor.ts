@@ -1,7 +1,9 @@
 import type {
   AgentEvents,
   AgentResult,
+  ModelOverride,
   WorkflowDefinition,
+  WorkflowModelBinding,
   WorkflowRun,
   WorkflowStep,
   WorkflowStepRun,
@@ -15,6 +17,7 @@ import {
 } from "./workflow-refs";
 import { evaluateCondition } from "./workflow-condition";
 import { clampMaxIterations, clampRetries, stepKind } from "./workflow-validator";
+import { effectiveModelOverride, resolveModelOverride } from "./workflow-model";
 import {
   beginNonInteractiveScope,
   type NonInteractiveScopeHandle,
@@ -320,6 +323,10 @@ export class WorkflowExecutor {
                 runId: stepRun.runId,
                 status: stepRun.status,
                 ...(stepRun.iterations !== undefined ? { iterations: stepRun.iterations } : {}),
+                // Known only after the agent attempt, so the "running"
+                // write leaves them NULL and the terminal write fills them.
+                provider: stepRun.provider,
+                model: stepRun.model,
               }),
             );
           };
@@ -341,6 +348,10 @@ export class WorkflowExecutor {
               () => externallyAborted,
               syncStep,
               toolCtx,
+              // Step binding ?? definition binding ?? none. Resolved to
+              // concrete values later (it may hold refs), against the same
+              // ref context the step's `input` uses.
+              effectiveModelOverride(step, workflow),
             );
             stepResults.set(step.name, result);
             stepRun.status = "success";
@@ -464,6 +475,7 @@ export class WorkflowExecutor {
     isAborted: () => boolean,
     emitStep: () => void,
     toolCtx: ToolStepContext,
+    modelBinding: WorkflowModelBinding | undefined,
   ): Promise<AgentResult> {
     if (step.loop) {
       return this.runLoop(
@@ -476,6 +488,7 @@ export class WorkflowExecutor {
         userId,
         isAborted,
         emitStep,
+        modelBinding,
       );
     }
 
@@ -500,6 +513,7 @@ export class WorkflowExecutor {
       projectId,
       userId,
       isAborted,
+      modelBinding,
     );
   }
 
@@ -519,12 +533,13 @@ export class WorkflowExecutor {
     projectId: string | undefined,
     userId: string | undefined,
     isAborted: () => boolean,
+    modelBinding: WorkflowModelBinding | undefined,
   ): Promise<AgentResult> {
-    const resolvedInput = resolveMapping(step.input ?? {}, {
-      input,
-      stepResults,
-      prevResult,
-    });
+    const refCtx: RefContext = { input, stepResults, prevResult };
+    const resolvedInput = resolveMapping(step.input ?? {}, refCtx);
+    // Same ref context as the input, resolved ONCE before the retry loop:
+    // a retry re-runs the agent, it does not re-pick the model.
+    const modelOverride = resolveModelOverride(modelBinding, refCtx, step.name);
 
     const maxAttempts = 1 + clampRetries(step.retries);
     let lastError = `Step "${step.name}" failed: unknown error`;
@@ -538,6 +553,7 @@ export class WorkflowExecutor {
         stepRun,
         projectId,
         userId,
+        modelOverride,
       );
       if (result.success) return result;
 
@@ -548,22 +564,31 @@ export class WorkflowExecutor {
     throw new Error(lastError);
   }
 
-  /** Run a single agent invocation, copying its id/status onto the step run. */
+  /** Run a single agent invocation, copying its id/status — and the model
+   *  binding it RESOLVED to — onto the step run. */
   private async runAgentAttempt(
     step: WorkflowStep,
     resolvedInput: Record<string, unknown>,
     stepRun: WorkflowStepRun,
     projectId: string | undefined,
     userId: string | undefined,
+    modelOverride: ModelOverride | undefined,
   ): Promise<{ result: AgentResult; cancelled: boolean }> {
     const agentRun = await this.agentExecutor.runAgent(
       step.agent as string,
       resolvedInput,
       projectId,
       userId,
+      modelOverride,
     );
     stepRun.runId = agentRun.id;
     stepRun.status = agentRun.status;
+    // What actually served the call, not what was asked for — the run
+    // reports it after `resolveModel` collapsed override / agent binding /
+    // router pick into one answer. Stays undefined for an agent that never
+    // called an LLM.
+    stepRun.provider = agentRun.provider;
+    stepRun.model = agentRun.model;
     const result = agentRun.result ?? {
       success: false,
       output: null,
@@ -590,6 +615,7 @@ export class WorkflowExecutor {
     userId: string | undefined,
     isAborted: () => boolean,
     emitStep: () => void,
+    modelBinding: WorkflowModelBinding | undefined,
   ): Promise<AgentResult> {
     const loop = step.loop!;
     const maxIterations = clampMaxIterations(loop.maxIterations);
@@ -604,18 +630,19 @@ export class WorkflowExecutor {
       if (kind === "transform") {
         result = runTransform(step, { input, stepResults, prevResult, loop: loopCtx });
       } else {
-        const resolvedInput = resolveMapping(step.input ?? {}, {
-          input,
-          stepResults,
-          prevResult,
-          loop: loopCtx,
-        });
+        const refCtx: RefContext = { input, stepResults, prevResult, loop: loopCtx };
+        const resolvedInput = resolveMapping(step.input ?? {}, refCtx);
+        // Re-resolved per iteration, with the same context as the input —
+        // so a binding written against `$loop.*` escalates with the loop
+        // (cheap first pass, stronger model on the retry) instead of being
+        // frozen at iteration 1.
         const attempt = await this.runAgentAttempt(
           step,
           resolvedInput,
           stepRun,
           projectId,
           userId,
+          resolveModelOverride(modelBinding, refCtx, step.name),
         );
         if (!attempt.result.success) {
           if (attempt.cancelled || isAborted()) throw new WorkflowAbortError();

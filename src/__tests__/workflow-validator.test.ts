@@ -389,3 +389,57 @@ describe("validateWorkflow — condition + loop-until shape (repro: empty condit
     );
   });
 });
+
+describe("validateWorkflow — per-step model bindings", () => {
+  test("an agent step may carry a well-formed model binding", () => {
+    expect(
+      validateWorkflow(
+        def([{ name: "verify", agent: "a", model: { model: "claude-opus-5", maxTokens: 8000 } }]),
+      ),
+    ).toEqual([]);
+  });
+
+  test.each(["transform", "gate", "tool"] as const)(
+    "a %s step cannot carry a model binding (it runs no LLM)",
+    (kind) => {
+      const step: Record<string, unknown> = { name: "s", kind, model: { model: "m" } };
+      if (kind === "transform") step.output = { a: "x" };
+      if (kind === "gate") step.condition = { ref: "$input.n", op: "truthy" };
+      if (kind === "tool") step.tool = "demo__x";
+      const errs = validateWorkflow(def([step]));
+      // Silently ignoring it would be the classic "I set it and nothing
+      // happened" bug — it must be rejected at definition time.
+      expect(
+        errs.some((e) => e === `Step "s" (kind "${kind}") cannot specify a "model" override — only agent steps run an LLM`),
+      ).toBe(true);
+    },
+  );
+
+  test("a malformed agent-step binding is rejected with the step named", () => {
+    const errs = validateWorkflow(def([{ name: "verify", agent: "a", model: { temperature: 9 } }]));
+    expect(errs.some((e) => e.startsWith('Step "verify" model "temperature"'))).toBe(true);
+  });
+
+  test("a definition-level defaultModel is validated", () => {
+    const d = def([{ name: "s", agent: "a" }]);
+    d.defaultModel = { effort: "nope" } as never;
+    const errs = validateWorkflow(d);
+    expect(errs.some((e) => e.startsWith('Workflow "defaultModel" "effort" must be one of'))).toBe(true);
+  });
+
+  test("a valid defaultModel passes", () => {
+    const d = def([{ name: "s", agent: "a" }]);
+    d.defaultModel = { provider: "anthropic", model: "claude-haiku-4-5-20251001" };
+    expect(validateWorkflow(d)).toEqual([]);
+  });
+
+  test("a bad defaultModel is reported even when the step list is also invalid", () => {
+    // Checked BEFORE the steps early-return, so it is not hidden behind an
+    // unrelated fix.
+    const d: WorkflowDefinition = { name: "wf", description: "", steps: [] };
+    d.defaultModel = { maxTokens: -1 };
+    const errs = validateWorkflow(d);
+    expect(errs.some((e) => e.startsWith('Workflow "defaultModel" "maxTokens"'))).toBe(true);
+    expect(errs).toContain("Workflow must have at least one step");
+  });
+});

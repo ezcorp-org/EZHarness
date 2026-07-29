@@ -32,6 +32,25 @@ const demoLoopCounter = makeWorkflow({
 	] as any,
 });
 
+// A mixed-model workflow: a cheap extractor, an expensive verifier, and a
+// step that inherits the definition-level default. Exercises the per-step
+// model bindings the detail page now renders.
+const tieredFactory = makeWorkflow({
+	name: "tiered-factory",
+	description: "A cheap extract, a default-tier draft, and an expensive verify.",
+	defaultModel: { provider: "anthropic", model: "claude-sonnet-5" },
+	steps: [
+		{ name: "extract", agent: "summarizer", model: { provider: "anthropic", model: "claude-haiku-4-5-20251001" } },
+		{ name: "draft", agent: "summarizer", dependsOn: ["extract"] },
+		{
+			name: "verify",
+			agent: "summarizer",
+			dependsOn: ["draft"],
+			model: { provider: "anthropic", model: "claude-opus-5", maxTokens: 8000, effort: "high" },
+		},
+	] as any,
+});
+
 test.describe("Workflow demos — run through the UI", () => {
 	test("demo-deterministic reports per-step success in Run History", async ({ page, mockApi, emitSse }) => {
 		await mockApi({ workflows: [demoDeterministic] });
@@ -271,6 +290,73 @@ test.describe("Workflow demos — run through the UI", () => {
 		// The run must never read as a success on this surface.
 		await expect(page.getByText("awaiting_approval").first()).toBeVisible();
 		await captureEvidence(page, testInfo, "workflows-run-awaiting-approval-detail");
+	});
+
+	test("per-step model bindings render on the definition and on the finished run @evidence", async ({ page, mockApi, emitSse }, testInfo) => {
+		// C1 per-step model overrides, end to end on the surface a user sees:
+		// the DEFINITION card shows what each step is bound to (including the
+		// step that merely inherits `defaultModel`), and the run history shows
+		// what each step actually RESOLVED to. Without the second half a user
+		// has no way to confirm the cheap step really ran cheap.
+		await mockApi({
+			workflows: [tieredFactory],
+			agents: [makeAgent({ name: "summarizer" })],
+		});
+		await page.route("**/api/workflows/tiered-factory/run", (route) =>
+			route.fulfill({
+				json: { id: "wr-tier", workflowName: "tiered-factory", status: "running", startedAt: Date.now(), steps: [] },
+			}),
+		);
+
+		await page.goto("/workflows/tiered-factory");
+
+		// Declared bindings, one chip per agent step.
+		const chips = page.getByTestId("step-model");
+		await expect(chips).toHaveCount(3);
+		await expect(chips.nth(0)).toHaveText("anthropic/claude-haiku-4-5-20251001");
+		// The middle step declares nothing and inherits the workflow default.
+		await expect(chips.nth(1)).toHaveText("anthropic/claude-sonnet-5");
+		await expect(chips.nth(2)).toHaveText("anthropic/claude-opus-5 · 8000 tok · high");
+		await captureEvidence(page, testInfo, "workflow-step-model-bindings");
+
+		// A finished run reports the model each step actually resolved to.
+		await page.getByLabel("JSON Input").fill('{"topic": "release notes"}');
+		await page.getByRole("button", { name: "Run Workflow" }).click();
+		await emitSse({
+			type: "workflow:start",
+			data: {
+				workflowRun: {
+					id: "wr-tier-1",
+					workflowName: "tiered-factory",
+					status: "running",
+					startedAt: Date.now(),
+					steps: [],
+				},
+			},
+		});
+		await emitSse({
+			type: "workflow:complete",
+			data: {
+				workflowRun: {
+					id: "wr-tier-1",
+					workflowName: "tiered-factory",
+					status: "success",
+					startedAt: Date.now() - 40,
+					finishedAt: Date.now(),
+					steps: [
+						{ stepName: "extract", runId: "r1", status: "success", provider: "anthropic", model: "claude-haiku-4-5-20251001" },
+						{ stepName: "draft", runId: "r2", status: "success", provider: "anthropic", model: "claude-sonnet-5" },
+						{ stepName: "verify", runId: "r3", status: "success", provider: "anthropic", model: "claude-opus-5" },
+					],
+				},
+			},
+		});
+
+		const ranOn = page.getByTestId("step-ran-on");
+		await expect(ranOn).toHaveCount(3);
+		await expect(ranOn.nth(0)).toHaveText("on anthropic/claude-haiku-4-5-20251001");
+		await expect(ranOn.nth(2)).toHaveText("on anthropic/claude-opus-5");
+		await captureEvidence(page, testInfo, "workflow-run-resolved-models");
 	});
 
 	test("builder submit with no name renders the validation error (no silent no-op) @evidence", async ({ page, mockApi }, testInfo) => {

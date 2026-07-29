@@ -416,11 +416,27 @@ export class AgentExecutor {
     return { ...accountDefaults, ...projectPath, ...projectVars, ...input };
   }
 
+  /**
+   * Run a registered agent by name.
+   *
+   * `modelOverride` (optional) rebinds the LLM this run talks to —
+   * a workflow step's per-step model arrives here and nowhere else. It is
+   * applied at the ONE chokepoint every code/config-based agent shares,
+   * `ctx.llm` (see `createPiLlmAdapter`), so no `AgentDefinition` needs to
+   * know about it.
+   *
+   * **Omitted ⇒ identical to before**: `createPiLlmAdapter()` is
+   * constructed with no argument and every downstream call is unchanged,
+   * so the agent config's own binding — including the
+   * `CURRENT_MODEL_SENTINEL` inherit value — reaches the router exactly as
+   * it always has.
+   */
   async runAgent(
     name: string,
     input: Record<string, unknown>,
     projectId?: string,
     userId?: string,
+    modelOverride?: import("../types").ModelOverride,
   ): Promise<AgentRun> {
     const agent = this.agents.get(name);
     if (!agent) throw new Error(`Agent not found: ${name}`);
@@ -461,7 +477,7 @@ export class AgentExecutor {
     };
 
     // Build a pi-ai-backed LLM wrapper for code-based agents
-    const piLlm = createPiLlmAdapter();
+    const piLlm = createPiLlmAdapter(modelOverride);
 
     const ctx: AgentContext = {
       input: resolvedInput,
@@ -470,6 +486,11 @@ export class AgentExecutor {
       file: this.file,
       log: appendLog,
       signal: controller.signal,
+      // A nested spawn inherits IDENTITY (project + user), never the
+      // caller's `modelOverride`: the override binds the agent THIS call
+      // names, and silently re-pointing a sub-agent that was deliberately
+      // bound to a different model would be the more surprising of the two
+      // defaults. A caller that wants the child rebound passes its own.
       run: async (agentName, childInput) => {
         const childRun = await this.runAgent(agentName, childInput, projectId, userId);
         return childRun.result ?? { success: false, output: null, error: "No result" };
@@ -538,6 +559,17 @@ export class AgentExecutor {
         this.bus.emit("run:error", { run, runId: run.id, error: message });
       }
     } finally {
+      // Record the binding the LLM call actually resolved to (the
+      // override, the agent's own, or the router's pick — already
+      // collapsed into one answer by `resolveModel`). Stamped in the
+      // `finally` so a FAILED run still reports what it tried to run on,
+      // which is exactly the case an operator debugs. In-memory + the bus
+      // payload only: `runs` has no provider/model column, and
+      // `updateRun` writes status/finishedAt/result alone.
+      if (piLlm.lastResolved) {
+        run.provider = piLlm.lastResolved.provider;
+        run.model = piLlm.lastResolved.model;
+      }
       this.controllers.delete(run.id);
       if (this.persist) {
         await dbRuns.updateRun(run);

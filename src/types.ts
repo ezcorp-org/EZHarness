@@ -128,6 +128,11 @@ export interface AgentRun {
   agentName: string;
   projectId?: string;
   provider?: string;
+  /** Model id the run's LLM call actually resolved to. Populated on the
+   *  `runAgent` path from the pi-ai adapter's last resolution (see
+   *  `createPiLlmAdapter`); undefined for a run that never called an LLM.
+   *  `provider` is the matching half. */
+  model?: string;
   status: AgentStatus;
   startedAt: number;
   finishedAt?: number;
@@ -200,6 +205,52 @@ export interface LoopConfig {
 export type WorkflowStepKind = "agent" | "transform" | "gate" | "tool";
 
 /**
+ * Reasoning-effort level a model binding may request. Mirrors pi-ai's
+ * `ThinkingLevel` verbatim — the value is handed to `completeSimple` /
+ * `streamSimple`, which normalize it into each provider's own knob
+ * (`reasoningEffort` on OpenAI, a thinking budget on Anthropic, …).
+ *
+ * There is deliberately no `"off"`: the `runAgent` LLM path sends no
+ * reasoning option at all unless one is asked for, so "off" IS the
+ * default and a value for it would only be a second way to spell it.
+ */
+export type ModelEffort = "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+
+/**
+ * A RESOLVED model binding that overrides whatever the callee would
+ * otherwise use. Every value here is concrete — refs are already gone.
+ *
+ * Every field is optional and independently applied: an override naming
+ * only `model` keeps the agent's own `provider`, and an ABSENT override
+ * (undefined) leaves the callee's binding untouched — including the
+ * {@link CURRENT_MODEL_SENTINEL} inherit sentinel — so today's behaviour
+ * is unchanged wherever no override is supplied.
+ */
+export interface ModelOverride {
+  provider?: string;
+  model?: string;
+  temperature?: number;
+  maxTokens?: number;
+  effort?: ModelEffort;
+}
+
+/**
+ * A model binding as WRITTEN IN A WORKFLOW DEFINITION — the same fields,
+ * except that the string ones may be refs (`{ effort: "$input.tier" }`)
+ * whose value does not exist until the run resolves them. That is the one
+ * and only difference from {@link ModelOverride}, and it is why `effort`
+ * widens to `string` here: a ref is not an effort level, and typing it as
+ * one would make the ref language unusable in a binding.
+ *
+ * `resolveModelOverride` is the crossing point: a `WorkflowModelBinding`
+ * goes in, a fully-concrete `ModelOverride` comes out (or a loud throw).
+ * `temperature` / `maxTokens` are numbers and therefore never refs.
+ */
+export interface WorkflowModelBinding extends Omit<ModelOverride, "effort"> {
+  effort?: string;
+}
+
+/**
  * State of a workflow run. Extends the agent `AgentStatus`
  * union with ONE workflow-only state:
  *
@@ -255,6 +306,19 @@ export interface WorkflowStep {
    */
   tool?: string;
 
+  /**
+   * Per-step model binding (agent kind only) — the step's agent runs on
+   * THIS model instead of the one its config declares, so one workflow
+   * can mix a cheap extractor with an expensive validator. Overrides the
+   * definition's {@link WorkflowDefinition.defaultModel}; absent on both
+   * ⇒ the agent's own binding, byte-for-byte as before.
+   *
+   * Values may be refs (`{ model: "$input.verifyModel" }`), resolved with
+   * the same ref context as the step's `input`. Rejected at definition
+   * time on any non-agent step.
+   */
+  model?: WorkflowModelBinding;
+
   dependsOn?: string[];
   /** Bounded loop (agent | transform kinds only). */
   loop?: LoopConfig;
@@ -264,6 +328,12 @@ export interface WorkflowDefinition {
   name: string;
   description: string;
   inputSchema?: InputSchema;
+  /** Model binding applied to every `agent` step that does not declare its
+   *  own {@link WorkflowStep.model}. Whole-bundle fallback, NOT a
+   *  field-by-field merge: a step that names `model` replaces this
+   *  entirely, so a step can drop back to the provider default without
+   *  inheriting a definition-level `maxTokens` it never asked for. */
+  defaultModel?: WorkflowModelBinding;
   steps: WorkflowStep[];
 }
 
@@ -286,6 +356,13 @@ export interface WorkflowStepRun {
   status: WorkflowRunStatus;
   /** Final iteration count for a looped step (omitted for non-loop steps). */
   iterations?: number;
+  /** Provider / model the step's agent run RESOLVED to — what actually
+   *  served the call, not what was requested (a `$input` ref, an
+   *  agent-config binding and a bare model id all land here identically).
+   *  Undefined for a step that ran no LLM (transform / gate / tool, or an
+   *  agent whose `execute` never touched `ctx.llm`). */
+  provider?: string;
+  model?: string;
 }
 
 // ── Team Member Types ────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 import { pgTable, text, timestamp, jsonb, integer, real, serial, bigserial, bigint, boolean, index, primaryKey, uniqueIndex, date, vector } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
-import type { AgentResult, WorkflowRunStatus, WorkflowStep } from "../types";
+import type { AgentResult, WorkflowModelBinding, WorkflowRunStatus, WorkflowStep } from "../types";
 import type { MemoryProvenance } from "../memory/types";
 import { EMBEDDING_DIMENSIONS } from "../memory/types";
 import type {
@@ -369,6 +369,10 @@ export const workflowDefinitions = pgTable("workflow_definitions", {
   name: text("name").notNull().unique(),
   description: text("description").notNull().default(""),
   inputSchema: jsonb("input_schema").$type<Record<string, unknown>>(),
+  // Model binding inherited by every `agent` step that declares no `model`
+  // of its own. NULL ⇒ each step keeps its agent's own binding, which is
+  // what every pre-existing row means.
+  defaultModel: jsonb("default_model").$type<WorkflowModelBinding>(),
   steps: jsonb("steps").notNull().$type<WorkflowStep[]>(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -437,6 +441,15 @@ export const workflowStepRuns = pgTable("workflow_step_runs", {
   status: text("status").notNull().$type<WorkflowRunStatus>(),
   /** Final iteration count for a looped step; NULL for non-loop steps. */
   iterations: integer("iterations"),
+  // The binding the step's LLM call RESOLVED to — a per-step `model`
+  // override, the agent config's own binding and the router's pick all
+  // land here identically, because they are recorded after resolution.
+  // Both NULL for a step that ran no LLM (transform / gate / tool) and for
+  // the "running" write, which happens before the agent has resolved
+  // anything. Denormalized text, not an FK: the model catalog is not a
+  // table, and history must survive a model being retired.
+  provider: text("provider"),
+  model: text("model"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [

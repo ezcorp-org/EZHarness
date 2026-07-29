@@ -4,6 +4,7 @@ import type {
   WorkflowStep,
   WorkflowStepKind,
 } from "../types";
+import { validateModelOverride } from "./workflow-model";
 
 /** Server-side clamp bounds. Loop budgets are clamped (not rejected) for
  *  out-of-range integers; retries clamp to the historical 0..2. */
@@ -139,6 +140,13 @@ export function validateWorkflow(def: WorkflowDefinition): string[] {
   if (!def.name || typeof def.name !== "string" || def.name.trim() === "") {
     errors.push("Workflow must have a non-empty name");
   }
+  // Checked BEFORE the steps early-return: a definition-level model
+  // binding is wrong whether or not the step list is also wrong, and
+  // reporting it only for well-formed step lists would hide it behind an
+  // unrelated fix.
+  if (def.defaultModel !== undefined) {
+    errors.push(...validateModelOverride(def.defaultModel, 'Workflow "defaultModel"'));
+  }
   if (!Array.isArray(def.steps) || def.steps.length === 0) {
     errors.push("Workflow must have at least one step");
     return errors;
@@ -193,6 +201,20 @@ export function validateWorkflow(def: WorkflowDefinition): string[] {
     // time instead of silently ignoring one of the two.
     if (kind === "tool" && step.agent) {
       errors.push(`Step "${name}" (kind "tool") cannot also specify an "agent"`);
+    }
+
+    // A model binding only means something where an LLM runs. On a
+    // transform / gate / tool step it would be silently ignored by the
+    // executor — the classic "I set it and nothing happened" bug — so
+    // reject it at definition time instead.
+    if (step.model !== undefined) {
+      if (kind !== "agent") {
+        errors.push(
+          `Step "${name}" (kind "${kind}") cannot specify a "model" override — only agent steps run an LLM`,
+        );
+      } else {
+        errors.push(...validateModelOverride(step.model, `Step "${name}" model`));
+      }
     }
 
     // Every mapping value must be a string ref/template — the resolver

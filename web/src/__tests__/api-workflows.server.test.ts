@@ -204,6 +204,66 @@ describe("POST /api/workflows", () => {
     expect(body.error).toBe('Step "s" depends on unknown step "ghost"');
   });
 
+  test("returns 400 for a model override on a non-agent step", async () => {
+    const res = await POST(
+      makeEvent({
+        locals: authedUser,
+        body: {
+          name: "w1",
+          steps: [{ name: "t", kind: "transform", output: { a: "x" }, model: { model: "m" } }],
+        },
+      }),
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toContain('cannot specify a "model" override');
+  });
+
+  test("returns 400 for an out-of-range temperature on a step model", async () => {
+    const res = await POST(
+      makeEvent({
+        locals: authedUser,
+        body: { name: "w1", steps: [{ name: "s", agent: "a", model: { temperature: 9 } }] },
+      }),
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toContain('Step "s" model "temperature" must be between 0 and 2');
+  });
+
+  test("returns 400 for a malformed definition-level defaultModel", async () => {
+    const res = await POST(
+      makeEvent({
+        locals: authedUser,
+        body: {
+          name: "w1",
+          defaultModel: { model: "" },
+          steps: [{ name: "s", agent: "a" }],
+        },
+      }),
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toBe('Workflow "defaultModel" "model" must be a non-empty string');
+  });
+
+  test("persists per-step and definition-level model bindings", async () => {
+    // The boundary schema must not strip them: a binding accepted by the
+    // route and dropped before the DB would be a silently ignored knob.
+    const def = {
+      name: "w1",
+      defaultModel: { model: "claude-haiku-4-5-20251001" },
+      steps: [{ name: "s1", agent: "a", model: { model: "claude-opus-5", effort: "high" } }],
+    };
+    queries.createWorkflow.mockResolvedValue({ id: "wf-1", ...def, description: "" });
+    const res = await POST(makeEvent({ locals: authedUser, body: def }));
+    expect(res.status).toBe(201);
+    expect(queries.createWorkflow).toHaveBeenCalledWith(expect.objectContaining({
+      defaultModel: { model: "claude-haiku-4-5-20251001" },
+      steps: [expect.objectContaining({ model: { model: "claude-opus-5", effort: "high" } })],
+    }));
+  });
+
   test("creates a valid workflow, reloads the registry, and returns 201", async () => {
     const def = { name: "w1", steps: [{ name: "s1", agent: "a" }] };
     queries.createWorkflow.mockResolvedValue({ id: "wf-1", ...def, description: "" });

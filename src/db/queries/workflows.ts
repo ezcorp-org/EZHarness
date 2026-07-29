@@ -26,6 +26,7 @@ export async function createWorkflow(data: WorkflowDefinition): Promise<DbWorkfl
     name: data.name,
     description: data.description ?? "",
     inputSchema: (data.inputSchema as Record<string, unknown>) ?? null,
+    defaultModel: data.defaultModel ?? null,
     steps: data.steps,
     createdAt: now,
     updatedAt: now,
@@ -42,6 +43,7 @@ export async function updateWorkflow(id: string, data: Partial<WorkflowDefinitio
   if (data.name !== undefined) updates.name = data.name;
   if (data.description !== undefined) updates.description = data.description;
   if (data.inputSchema !== undefined) updates.inputSchema = data.inputSchema;
+  if (data.defaultModel !== undefined) updates.defaultModel = data.defaultModel;
   if (data.steps !== undefined) updates.steps = data.steps;
 
   await getDb().update(workflowDefinitions).set(updates).where(eq(workflowDefinitions.id, id));
@@ -61,6 +63,10 @@ export async function loadDbWorkflows(): Promise<WorkflowDefinition[]> {
     name: row.name,
     description: row.description,
     inputSchema: row.inputSchema as InputSchema | undefined,
+    // `?? undefined` (not the raw NULL): the cache holds `WorkflowDefinition`
+    // objects, where the field is optional — a literal null would defeat the
+    // `step.model ?? workflow.defaultModel` fallback's `??`.
+    defaultModel: row.defaultModel ?? undefined,
     steps: row.steps as WorkflowStep[],
   }));
 }

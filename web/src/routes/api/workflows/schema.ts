@@ -21,6 +21,11 @@ export const workflowStepSchema = z
     tool: z.string().optional(),
     dependsOn: z.array(z.string()).optional(),
     loop: z.unknown().optional(),
+    // Per-step model binding. Left `unknown` on purpose, exactly like
+    // `condition` / `loop`: `validateModelOverride` (reached through the
+    // shared `validateWorkflow`) owns the field vocabulary and bounds, and
+    // duplicating them here would be a second definition to keep in sync.
+    model: z.unknown().optional(),
   })
   .loose();
 
@@ -29,6 +34,9 @@ export const workflowBodySchema = z
     name: z.string().optional(),
     description: z.string().optional(),
     inputSchema: z.record(z.string(), z.unknown()).optional(),
+    // Definition-level fallback binding — same rationale as the step's
+    // `model` above: shape is validated by `validateWorkflow`.
+    defaultModel: z.unknown().optional(),
     steps: z.array(workflowStepSchema).optional(),
   })
   .strict();

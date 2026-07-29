@@ -71,6 +71,11 @@ export interface WorkflowStepRunUpsert {
   runId: string;
   status: WorkflowRunStatus;
   iterations?: number;
+  /** Provider / model the step's LLM call RESOLVED to. Absent for a step
+   *  that ran no LLM, and for the "running" write that happens before the
+   *  agent has resolved anything — both persist as SQL NULL. */
+  provider?: string;
+  model?: string;
 }
 
 /**
@@ -80,12 +85,19 @@ export interface WorkflowStepRunUpsert {
  * iteration change, so it upserts on the `(workflow_run_id, step_name)`
  * unique index. Step names are unique within a definition (the validator
  * rejects duplicates), which is what makes that a sound arbiter.
+ *
+ * Every column is written on every call (absent ⇒ NULL) rather than
+ * patched: the caller passes the step run's CURRENT state each time, so a
+ * later write carrying a resolved model overwrites the earlier NULL, and
+ * there is no half-updated row to reason about.
  */
 export async function upsertWorkflowStepRun(
   row: WorkflowStepRunUpsert,
 ): Promise<void> {
   const runId = row.runId === "" ? null : row.runId;
   const iterations = row.iterations ?? null;
+  const provider = row.provider ?? null;
+  const model = row.model ?? null;
   await getDb()
     .insert(workflowStepRuns)
     .values({
@@ -94,10 +106,12 @@ export async function upsertWorkflowStepRun(
       runId,
       status: row.status,
       iterations,
+      provider,
+      model,
     })
     .onConflictDoUpdate({
       target: [workflowStepRuns.workflowRunId, workflowStepRuns.stepName],
-      set: { runId, status: row.status, iterations, updatedAt: sql`NOW()` },
+      set: { runId, status: row.status, iterations, provider, model, updatedAt: sql`NOW()` },
     });
 }
 

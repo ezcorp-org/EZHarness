@@ -18,16 +18,17 @@ Three design constraints are load-bearing (not stylistic):
 
 ### Data model (`src/types.ts`)
 
-- `WorkflowDefinition` = `{ name, description, inputSchema?, steps }`.
-- `WorkflowStep` = `{ name, kind?, agent?, tool?, input?, retries?, output?, condition?, dependsOn?, loop? }`. `kind` is one of `"agent" | "tool" | "transform" | "gate"` (default `"agent"`).
-  - **agent** — `agent` is an agent name resolved by `AgentExecutor`; `input` is a `Record<string,string>` of input mappings; `retries` is a per-step retry budget (clamped 0..2).
+- `WorkflowDefinition` = `{ name, description, inputSchema?, defaultModel?, steps }`.
+- `WorkflowStep` = `{ name, kind?, agent?, tool?, input?, retries?, output?, condition?, model?, dependsOn?, loop? }`. `kind` is one of `"agent" | "tool" | "transform" | "gate"` (default `"agent"`).
+  - **agent** — `agent` is an agent name resolved by `AgentExecutor`; `input` is a `Record<string,string>` of input mappings; `retries` is a per-step retry budget (clamped 0..2); `model` is a per-step model binding (see **Per-step model bindings**).
   - **tool** — `tool` is a runtime-namespaced extension tool (`<extension>__<tool>`, e.g. `extension-author__create_extension`) dispatched through `ToolExecutor.executeToolCall`. `input` uses the **same** ref language as an agent step (there is deliberately no second grammar). `agent` is forbidden; `loop` is forbidden (see gotchas).
   - **transform** — `output` is a `Record<string,string>` output mapping (same ref language as inputs, plus `{{…}}` template interpolation). Pure: no LLM, no I/O, no clock.
   - **gate** — `condition` is a `WorkflowCondition` tree.
 - `WorkflowCondition` = a leaf `{ ref, op, value? }` or a composite `{ all: [] } | { any: [] } | { not: … }`. Operators: `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `contains`, `exists`, `truthy`.
 - `LoopConfig` = `{ maxIterations, until?, onExhausted? }` — `maxIterations` is **required** (server-clamped 1..25); `until` is a `WorkflowCondition` evaluated after each iteration; `onExhausted` is `"fail"` (default) or `"pass"`.
-- `WorkflowRun` = `{ id, workflowName, projectId?, status, startedAt, finishedAt?, steps: WorkflowStepRun[], result? }`; `WorkflowStepRun` = `{ stepName, runId, status, iterations? }` (`iterations` is the final count for a looped step). `status` is `WorkflowRunStatus` = the agent `AgentStatus` union **plus `awaiting_approval`** (see below).
-- The DB table `workflow_definitions` (`src/db/schema.ts`) stores `id` (UUID PK), `name` (unique), `description`, `inputSchema` (jsonb), `steps` (jsonb), `createdAt`/`updatedAt`. A migration renames the legacy `pipeline_definitions` table in place (data preserved). It has **no** owner/user/project column — workflows are global (see gotchas).
+- `WorkflowRun` = `{ id, workflowName, projectId?, status, startedAt, finishedAt?, steps: WorkflowStepRun[], result? }`; `WorkflowStepRun` = `{ stepName, runId, status, iterations?, provider?, model? }` (`iterations` is the final count for a looped step; `provider`/`model` are the binding the step's LLM call **resolved** to). `status` is `WorkflowRunStatus` = the agent `AgentStatus` union **plus `awaiting_approval`** (see below).
+- `ModelOverride` = `{ provider?, model?, temperature?, maxTokens?, effort? }` — a **resolved** binding (every value concrete). `WorkflowModelBinding` is the same shape as **written in a definition**, where the string fields may be refs, so `effort` widens to `string`.
+- The DB table `workflow_definitions` (`src/db/schema.ts`) stores `id` (UUID PK), `name` (unique), `description`, `inputSchema` (jsonb), `defaultModel` (jsonb, nullable), `steps` (jsonb), `createdAt`/`updatedAt`. A migration renames the legacy `pipeline_definitions` table in place (data preserved). It has **no** owner/user/project column — workflows are global (see gotchas).
 
 ### Loading & the in-memory cache (`workflow-loader.ts` + `context.ts`)
 
@@ -101,6 +102,76 @@ A step with a `loop` repeats up to `clampMaxIterations(loop.maxIterations)` (1..
 - `until` satisfied ⇒ the step succeeds with that iteration's result. No `until` ⇒ a fixed-count loop that always passes. Budget exhausted with `until` unmet obeys `onExhausted`: `"fail"` (default) throws `Step "<name>" exhausted <max> iterations without meeting its until-condition`; `"pass"` succeeds with the last result and `iterations = max`.
 - Abort/cancel is checked **between** iterations; a cancelled iteration ends the run `cancelled`.
 
+### Per-step model bindings (`workflow-model.ts`)
+
+An `agent` step may name the model it runs on, so one workflow can mix a
+cheap extractor with an expensive validator instead of paying top-tier
+prices for every step:
+
+```yaml
+name: docs-factory
+defaultModel: { provider: anthropic, model: claude-sonnet-5 }
+steps:
+  - { name: extract, agent: factory-extractor, model: { model: claude-haiku-4-5-20251001 } }
+  - { name: draft,   agent: factory-writer, dependsOn: [extract] }          # inherits defaultModel
+  - name: verify
+    agent: factory-validator
+    dependsOn: [draft]
+    model: { provider: anthropic, model: claude-opus-5, maxTokens: 8000, effort: high }
+```
+
+- **Resolution order** is `step.model ?? definition.defaultModel ?? none`
+  — a whole-bundle `??`, **not** a field-by-field merge. A step naming
+  `model` replaces the default outright, so it can drop back to the
+  provider's own sampling defaults without inheriting a `maxTokens` it
+  never asked for.
+- **Absent on both ⇒ nothing changes.** `runAgent`'s 5th argument is
+  omitted, `createPiLlmAdapter()` is built with no override, and the
+  agent config's own binding (or the `__current__` inherit sentinel)
+  reaches the router exactly as before.
+- **Fields.** `provider`, `model`, `temperature` (0..2), `maxTokens`
+  (integer 1..1,000,000), `effort` (one of `minimal` `low` `medium`
+  `high` `xhigh` `max` — pi-ai's `ThinkingLevel`; there is no `"off"`
+  because no reasoning is the default on this path). An **unknown field
+  is rejected**, so `maxtokens:` is a definition-time error, not a
+  silently-ignored typo.
+- **Refs work.** `provider` / `model` / `effort` accept the same ref
+  language as a step's `input` (`{ model: "$input.verifyModel" }`),
+  resolved through the shared `resolveMapping` with the **same ref
+  context as that step's input** — so a looped step re-resolves per
+  iteration (`$loop.last.…` can escalate the model on a retry) while a
+  retried step resolves once (a retry re-runs the agent, it does not
+  re-pick the model). `temperature`/`maxTokens` are numbers and are
+  therefore never refs. A `$input.x` ref whose field is unset means "no
+  override for that field"; a ref resolving to a non-string, or an
+  `effort` outside the vocabulary, **fails the run loudly** naming the
+  step.
+- **Where it is applied.** The binding is threaded
+  `workflow-executor → AgentExecutor.runAgent(name, input, projectId, userId, override) → createPiLlmAdapter(override)`
+  — one chokepoint, so no `AgentDefinition` knows about it and the
+  override cannot be half-applied. `effort` routes the call through
+  pi-ai's `completeSimple`/`streamSimple` (the entrypoints that normalize
+  reasoning per provider); every other call keeps the raw
+  `complete`/`stream` path. A nested `ctx.run(...)` spawn inherits the
+  parent's **identity**, never its model binding.
+- **What is recorded.** `workflow_step_runs.provider` / `.model` store
+  the binding the call actually **resolved** to (post-`resolveModel`), not
+  what was requested — so a `$input` ref, an agent-config binding and the
+  router's own pick all read the same way. NULL for a step that ran no LLM.
+  `/workflows/[name]` renders the declared binding on the step card and
+  the resolved one (`on anthropic/claude-opus-5`) in the run history.
+
+**Definition-time validation is shape-only for `provider`/`model`** — see
+the long comment on `validateModelOverride`. In short: `validateWorkflow`
+is synchronous and runs in the YAML loader at boot, while the host's real
+model universe needs I/O (`provider:customModels` /
+`provider:discoveredModels:*` settings rows); pi-ai's sync static catalog
+is incomplete (no `ollama`, no `ezcorp-mock`, no discovered models), so
+checking against it would reject working setups; and a ref has no value
+to check at all. An unresolvable model still fails at the provider with
+that provider's own error, exactly as a mistyped agent-config binding
+does today.
+
 ### Reference language (`workflow-refs.ts`)
 
 One module defines the ref grammar for all three callers (step inputs, transform templates, conditions), so it lives in exactly one place (DRY). Each mapping value is a string interpreted by prefix:
@@ -123,7 +194,7 @@ One module defines the ref grammar for all three callers (step inputs, transform
 
 ### Definition-time validation (`workflow-validator.ts`)
 
-`validateWorkflow(def)` returns a list of human-readable errors (empty ⇒ valid). It is the **single shared validator** used by both the API (400 with the first message) and the YAML loader (warn-and-skip). It rejects: duplicate step names; `dependsOn` naming an unknown step; `agent` kind without `agent`; `tool` without `tool`; `tool` that also names an `agent`; `transform` without `output`; `gate` without `condition`; a `loop` on a gate or a tool; `loop` + `retries` together; and a missing / non-integer `maxIterations`. Out-of-range **integer** loop budgets are **not** errors — they are clamped at run time.
+`validateWorkflow(def)` returns a list of human-readable errors (empty ⇒ valid). It is the **single shared validator** used by both the API (400 with the first message) and the YAML loader (warn-and-skip). It rejects: duplicate step names; `dependsOn` naming an unknown step; `agent` kind without `agent`; `tool` without `tool`; `tool` that also names an `agent`; `transform` without `output`; `gate` without `condition`; a `loop` on a gate or a tool; `loop` + `retries` together; a missing / non-integer `maxIterations`; a `model` binding on a **non-agent** step; and a malformed `model` / `defaultModel` (unknown field, non-string provider/model/effort, an `effort` outside the vocabulary, an out-of-range `temperature`/`maxTokens`). Out-of-range **integer** loop budgets are **not** errors — they are clamped at run time. `defaultModel` is checked **before** the "at least one step" early-return, so a bad binding is not hidden behind an unrelated step error. `PUT /api/workflows/[name]` is a *partial* update with no `steps` to hand the whole-definition validator, so it calls the same `validateModelOverride` directly for a `defaultModel`-only body.
 
 ### Eventing & the client store
 
@@ -136,9 +207,9 @@ The four `workflow:*` events ride the same `AgentEvents` bus that streams to the
 | Method & path | Scope | Purpose |
 |---|---|---|
 | `GET /api/workflows` | `read` | List all merged (YAML + DB) workflows. |
-| `POST /api/workflows` | `chat` | Create a DB workflow. Body `{ name, description?, inputSchema?, steps }`; `validateWorkflow` drives a **400** with the first error message. Returns the row; reloads the cache. |
+| `POST /api/workflows` | `chat` | Create a DB workflow. Body `{ name, description?, inputSchema?, defaultModel?, steps }`; `validateWorkflow` drives a **400** with the first error message. Returns the row; reloads the cache. |
 | `GET /api/workflows/[name]` | `read` | Fetch one by name from the cache; 404 `Not found`. |
-| `PUT /api/workflows/[name]` | `chat` | Partial update — merges `name`/`description`/`inputSchema`/`steps`. **DB-only** (YAML workflows are read-only). Reloads the cache. |
+| `PUT /api/workflows/[name]` | `chat` | Partial update — merges `name`/`description`/`inputSchema`/`defaultModel`/`steps`. **DB-only** (YAML workflows are read-only). Reloads the cache. |
 | `DELETE /api/workflows/[name]` | `chat` | Delete a DB workflow. **DB-only**. Reloads the cache. |
 | `POST /api/workflows/[name]/run` | `chat` | Run it. `projectId` is split off the body; **every other field is the workflow input** (Zod `.loose()`). 404 `Workflow not found`; a non-object body ⇒ **400 `Invalid request body`**. Execution errors (unknown agent, circular deps, gate/loop failure) surface **inside** the returned `WorkflowRun` (`status:"error"`, HTTP 200), not as a 400. Returns the terminal `WorkflowRun`. |
 
@@ -148,7 +219,7 @@ Only the `GET` list, `GET` by-name and `POST …/run` routes are registered in `
 
 - `/workflows` — list, fed by `store.workflows`.
 - `/workflows/new` — `WorkflowBuilder.svelte` form (with `WorkflowStepForm.svelte` per-step editor, including kind, transform output pairs, gate condition JSON, loop config, dependsOn) → `createWorkflow` → `POST /api/workflows`.
-- `/workflows/[name]` — step list, a raw JSON-textarea run form (`triggerWorkflowRun`), delete button, and a live run-history panel (`store.workflowRuns`) rendering per-step status and `(N iterations)` for looped steps.
+- `/workflows/[name]` — step list (each agent step showing its effective **model binding**, whether declared on the step or inherited from `defaultModel`), a raw JSON-textarea run form (`triggerWorkflowRun`), delete button, and a live run-history panel (`store.workflowRuns`) rendering per-step status, `(N iterations)` for looped steps, and `on <provider>/<model>` for the model a step actually resolved to.
 - `/pipelines` (the exact path only) → a permanent **308 redirect** to `/workflows` for one release. Legacy deep links (`/pipelines/<name>`, `/pipelines/new`) are **not** redirected — they 404.
 
 ### Client helpers (`web/src/lib/api.ts`)
@@ -204,6 +275,8 @@ The extension-authoring chain shipped as a real workflow — the reference examp
 - `src/runtime/workflow-refs.ts` — the shared ref grammar: `resolveMapping`, `resolveOutputMapping` (template interpolation), `resolveConditionRef`, `getNestedValue`, the `OMIT` sentinel.
 - `src/runtime/workflow-condition.ts` — `evaluateCondition` (leaf operators + `all`/`any`/`not`, non-number-safe comparisons, explanatory reasons).
 - `src/runtime/workflow-validator.ts` — `validateWorkflow` (shared by route + loader), `clampMaxIterations` (1..25), `clampRetries` (0..2), `stepKind`.
+- `src/runtime/workflow-model.ts` — the per-step model binding: `validateModelOverride` (definition-time shape + bounds + the `effort` vocabulary), `effectiveModelOverride` (step ?? definition), `resolveModelOverride` (refs → a concrete `ModelOverride`, loud on a bad value), `VALID_MODEL_EFFORTS`.
+- `src/runtime/executor-helpers.ts` — `createPiLlmAdapter(overrides?)`: the ONE place a binding reaches the LLM; reports `lastResolved` back so a run can record what actually served it.
 - `src/runtime/workflow-loader.ts` — `loadYamlWorkflows`: globs `*.workflow.yaml` + legacy `*.pipeline.yaml` (deprecation warn), validates via `validateWorkflow`.
 - `src/runtime/workflow-extension-loader.ts` — `loadExtensionWorkflows` / `collectExtensionWorkflowSources`: extension-shipped assets, namespaced + validated + warn-and-skip.
 - `src/runtime/workflow-name.ts` — the ONE shared name grammar: `WORKFLOW_NAME_RE`, `EXTENSION_WORKFLOW_SEPARATOR`, `namespacedWorkflowName`, `isValidWorkflowName`.
@@ -244,6 +317,10 @@ None yet — this is the primary reference.
 - **The parked capability name is collapsed.** `executeToolCall` maps all four `SENSITIVE_KINDS` onto the two the always-allow layer keys on (`shell` / `fs.write`) before opening the gate, so an `ezcorp:extension:install` park reports `…requires interactive approval for capability fs.write…`. The message reports what the gate was given, not the PDP's true capability.
 - **A workflow tool step writes no `tool_calls` row.** `tool_calls.conversation_id` is an FK to `conversations`, and the synthetic `workflow-run:<id>` id has no row, so `persistToolCall` (which never throws by contract) silently drops it. The PDP's own audit row and `workflow_step_runs` carry the trail instead.
 - **The `/workflows/new` builder does not yet offer `tool` steps.** `web/src/lib/workflow-builder-logic.ts` still models three kinds; a tool step is creatable via `POST /api/workflows` or YAML today.
+- **The builder does not offer `model` / `defaultModel` either.** A model binding is authored in YAML or through `POST`/`PUT /api/workflows`; `/workflows/[name]` **renders** it (step card + run history) but nothing creates one from the UI yet.
+- **A model binding on a non-agent step is an error, not a no-op.** `transform`/`gate`/`tool` steps run no LLM, so a binding there would be silently ignored — the validator rejects it instead.
+- **`workflow_step_runs.provider`/`model` are NULL for pre-existing rows** and for the `running` write (the agent has not resolved anything yet); the terminal write fills them in. NULL therefore means "no LLM ran, or this row predates the columns" — it never means "unknown model".
+- **An agent config's own `temperature`/`maxTokens` are still not forwarded on the `runAgent` path.** `createPiLlmAdapter` only sends sampling options that an explicit override supplied — this is unchanged pre-existing behaviour, deliberately left alone so the no-override path stays byte-identical. A workflow step that wants a temperature must say so in its `model` binding.
 - **Synchronous / blocking.** `POST …/run` awaits the entire graph before responding; there is no async "started" handshake.
 - **No ownership or project scoping on run.** Any authenticated `chat`-scoped caller can run any workflow with arbitrary input; workflows are global.
 - **`$prev` is order-fragile in parallel batches.** Within a batch, `prevResult` is the last **successful** result in array order (the last declared step of that batch), not a graph-deterministic "previous". Prefer explicit `$steps.<name>` for parallel graphs.
@@ -257,4 +334,4 @@ None yet — this is the primary reference.
 
 ### Out of scope (deliberately not built)
 
-Async / background runs; **resuming** an `awaiting_approval` run (it is recorded, not resumable); a read API or UI over the persisted run history; looped tool steps; arbitrary-code (JS) steps; conditional branching / skip-dependents; nested sub-workflows; per-step model overrides; a UI YAML editor.
+Async / background runs; **resuming** an `awaiting_approval` run (it is recorded, not resumable); a read API or UI over the persisted run history; looped tool steps; arbitrary-code (JS) steps; conditional branching / skip-dependents; nested sub-workflows; a UI YAML editor. Per-step **cost** telemetry (tokens, USD) is also still out of scope — only the resolved provider/model is recorded.

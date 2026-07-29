@@ -1,5 +1,6 @@
-import { stream, complete } from "@earendil-works/pi-ai/compat";
+import { stream, streamSimple, complete, completeSimple } from "@earendil-works/pi-ai/compat";
 import type { Context } from "@earendil-works/pi-ai";
+import type { ModelOverride } from "../types";
 import { resolveModel } from "../providers/router";
 import { tierForModel } from "../providers/registry";
 import { isRoutingTier } from "./tier-classifier";
@@ -78,6 +79,15 @@ export interface PiLlmAdapter {
     messages: PiLlmMessage[],
     options?: PiLlmOptions,
   ): AsyncGenerator<PiLlmStreamEvent>;
+  /**
+   * Provider + model the MOST RECENT call resolved to. Written after
+   * `resolveModel`, so it reports what actually served the call — the
+   * override, the caller's binding or the router's pick, already collapsed
+   * into one answer. Undefined until the first call. Read by `runAgent`
+   * to stamp the `AgentRun`, which is how a workflow step records the
+   * model it really ran on.
+   */
+  lastResolved?: { provider: string; model: string };
 }
 
 /**
@@ -87,12 +97,40 @@ export interface PiLlmAdapter {
  *
  * Pure factory — no executor state. Resolves provider + credential per
  * call so model overrides on each invocation work.
+ *
+ * `overrides`, when supplied, is a caller-level model binding that BEATS
+ * whatever the agent asks for per call: a workflow step's `model`
+ * reaches the LLM through this parameter and nothing else. It is the one
+ * chokepoint, so an override cannot be half-applied.
+ *
+ * **Omitting it is byte-identical to the previous behaviour**: every
+ * branch below collapses to the exact same `resolveModel(...)` inputs and
+ * the exact same `complete(model, context, { apiKey })` /
+ * `stream(model, context, { apiKey, signal })` call. In particular the
+ * agent's own `temperature` / `maxTokens` stay unforwarded (pi-ai never
+ * received them on this path and still does not) — only an explicit
+ * override sends them.
  */
-export function createPiLlmAdapter(): PiLlmAdapter {
-  return {
+export function createPiLlmAdapter(overrides?: ModelOverride): PiLlmAdapter {
+  // Sampling knobs are spread in, so with no override this is `{}` and the
+  // options object handed to pi-ai is unchanged.
+  const tuning: { temperature?: number; maxTokens?: number } = {};
+  if (overrides?.temperature !== undefined) tuning.temperature = overrides.temperature;
+  if (overrides?.maxTokens !== undefined) tuning.maxTokens = overrides.maxTokens;
+  // Reasoning effort has no home on the raw `stream`/`complete` options —
+  // each provider spells it differently. pi-ai's `*Simple` entrypoints are
+  // the normalizer, so an effort-bearing call routes through those and
+  // every other call keeps the raw path it has always used.
+  const reasoning = overrides?.effort;
+
+  const adapter: PiLlmAdapter = {
     async complete(messages, options) {
-      const resolved = await resolveModel(options?.provider, options?.model);
+      const resolved = await resolveModel(
+        overrides?.provider ?? options?.provider,
+        overrides?.model ?? options?.model,
+      );
       const cred = await getCredential(resolved.provider);
+      adapter.lastResolved = { provider: resolved.provider, model: resolved.model };
       // Only `role: "user"` carries a plain string `content` in pi-ai's
       // UserMessage shape; assistant turns would need the full pi-ai
       // AssistantMessage (api/provider/model/usage/stopReason). Code-based
@@ -104,7 +142,10 @@ export function createPiLlmAdapter(): PiLlmAdapter {
           .filter((m): m is PiLlmMessage & { role: "user" } => m.role === "user")
           .map((m) => ({ role: "user" as const, content: m.content, timestamp: Date.now() })),
       };
-      const result = await complete(resolved.piModel, context, { apiKey: cred.token });
+      const callOpts = { apiKey: cred.token, ...tuning };
+      const result = reasoning
+        ? await completeSimple(resolved.piModel, context, { ...callOpts, reasoning })
+        : await complete(resolved.piModel, context, callOpts);
       const text = result.content
         .filter((c): c is { type: "text"; text: string } => c.type === "text")
         .map((c) => c.text)
@@ -112,8 +153,12 @@ export function createPiLlmAdapter(): PiLlmAdapter {
       return { text, usage: { inputTokens: result.usage.input, outputTokens: result.usage.output } };
     },
     async *stream(messages, options) {
-      const resolved = await resolveModel(options?.provider, options?.model);
+      const resolved = await resolveModel(
+        overrides?.provider ?? options?.provider,
+        overrides?.model ?? options?.model,
+      );
       const cred = await getCredential(resolved.provider);
+      adapter.lastResolved = { provider: resolved.provider, model: resolved.model };
       // Only `role: "user"` carries a plain string `content` in pi-ai's
       // UserMessage shape; assistant turns would need the full pi-ai
       // AssistantMessage (api/provider/model/usage/stopReason). Code-based
@@ -125,7 +170,10 @@ export function createPiLlmAdapter(): PiLlmAdapter {
           .filter((m): m is PiLlmMessage & { role: "user" } => m.role === "user")
           .map((m) => ({ role: "user" as const, content: m.content, timestamp: Date.now() })),
       };
-      const s = stream(resolved.piModel, context, { apiKey: cred.token, signal: options?.signal });
+      const callOpts = { apiKey: cred.token, signal: options?.signal, ...tuning };
+      const s = reasoning
+        ? streamSimple(resolved.piModel, context, { ...callOpts, reasoning })
+        : stream(resolved.piModel, context, callOpts);
       for await (const event of s) {
         if (event.type === "text_delta") yield { type: "token", text: event.delta };
         if (event.type === "done") yield { type: "done", usage: { inputTokens: event.message.usage.input, outputTokens: event.message.usage.output } };
@@ -142,6 +190,7 @@ export function createPiLlmAdapter(): PiLlmAdapter {
       }
     },
   };
+  return adapter;
 }
 
 /**

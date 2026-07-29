@@ -146,6 +146,10 @@ export async function migrate(db: any): Promise<void> {
       updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
     )
   `);
+  // Definition-level model binding inherited by steps that declare none.
+  // Nullable with no default: NULL means "every step keeps its agent's own
+  // binding", which is exactly what every pre-existing row meant.
+  await db.execute(sql`ALTER TABLE workflow_definitions ADD COLUMN IF NOT EXISTS default_model JSONB`);
 
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS conversations (
@@ -2246,6 +2250,13 @@ export async function migrate(db: any): Promise<void> {
     )
   `);
   await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uniq_workflow_step_run ON workflow_step_runs(workflow_run_id, step_name)`);
+  // Per-step model telemetry (per-step model overrides). Nullable with no
+  // default: NULL means "this step ran no LLM" (transform / gate / tool) or
+  // "the LLM had not resolved yet", which is exactly true of every row
+  // written before this migration. ADD COLUMN IF NOT EXISTS upgrades a DB
+  // created before the change without touching its history.
+  await db.execute(sql`ALTER TABLE workflow_step_runs ADD COLUMN IF NOT EXISTS provider TEXT`);
+  await db.execute(sql`ALTER TABLE workflow_step_runs ADD COLUMN IF NOT EXISTS model TEXT`);
 
   // One-shot, idempotent backfill: move any pre-existing github-projects PATs
   // out of the broadly-readable `settings` table into the scope-isolated,

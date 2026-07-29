@@ -121,6 +121,40 @@ describe("PUT /api/workflows/[name]", () => {
 		expect(res.status).toBe(401);
 	});
 
+	test("returns 400 for a malformed defaultModel, even with no steps in the body", async () => {
+		// This route is a PARTIAL update, so a defaultModel-only body has no
+		// step list to hand the whole-definition validator — it is checked on
+		// its own, or it would slip through unvalidated.
+		const res = await PUT(
+			makeEvent({
+				locals: authedUser,
+				method: "PUT",
+				body: { defaultModel: { effort: "turbo" } },
+			}),
+		);
+		expect(res.status).toBe(400);
+		const body = (await res.json()) as { error?: string };
+		expect(body.error).toContain('Workflow "defaultModel" "effort" must be one of');
+		// Rejected before any DB work.
+		expect(queries.getWorkflowByName).not.toHaveBeenCalled();
+	});
+
+	test("forwards a valid defaultModel to the update", async () => {
+		queries.getWorkflowByName.mockResolvedValue({ id: "wf-1" });
+		queries.updateWorkflow.mockResolvedValue({ id: "wf-1", name: "w1" });
+		const res = await PUT(
+			makeEvent({
+				locals: authedUser,
+				method: "PUT",
+				body: { defaultModel: { provider: "anthropic", model: "claude-haiku-4-5-20251001" } },
+			}),
+		);
+		expect(res.status).toBe(200);
+		expect(queries.updateWorkflow).toHaveBeenCalledWith("wf-1", {
+			defaultModel: { provider: "anthropic", model: "claude-haiku-4-5-20251001" },
+		});
+	});
+
 	test("returns 400 when replacement steps fail definition-time validation", async () => {
 		const res = await PUT(
 			makeEvent({

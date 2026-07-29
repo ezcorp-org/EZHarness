@@ -99,6 +99,18 @@ describe("migrate() — workflow run history tables", () => {
     // transform / gate / tool steps mint no AgentRun.
     expect(key("workflow_step_runs", "run_id")).toBe("YES");
     expect(key("workflow_step_runs", "workflow_run_id")).toBe("NO");
+    // Per-step model telemetry: NULL means "this step ran no LLM", which
+    // is true of every row written before the columns existed.
+    expect(key("workflow_step_runs", "provider")).toBe("YES");
+    expect(key("workflow_step_runs", "model")).toBe("YES");
+  });
+
+  test("adds default_model to workflow_definitions without touching history", async () => {
+    const cols = (await db.execute(sql`
+      SELECT column_name, is_nullable FROM information_schema.columns
+       WHERE table_name = 'workflow_definitions' AND column_name = 'default_model'
+    `)) as { rows: Array<{ column_name: string; is_nullable: string }> };
+    expect(cols.rows[0]?.is_nullable).toBe("YES");
   });
 
   test("is idempotent — a second migrate() pass is a no-op", async () => {
@@ -149,6 +161,36 @@ describe("workflow-runs query layer", () => {
     // Storing "" would violate the runs FK outright.
     expect(row?.runId).toBeNull();
     expect(row?.iterations).toBeNull();
+    // A transform step ran no LLM — both model columns stay NULL.
+    expect(row?.provider).toBeNull();
+    expect(row?.model).toBeNull();
+  });
+
+  test("upsertWorkflowStepRun records the resolved provider/model", async () => {
+    const id = crypto.randomUUID();
+    await insertWorkflowRun({ id, workflowName: "wf", input: {}, startedAt: new Date() });
+    // The step starts before the agent has resolved anything...
+    await upsertWorkflowStepRun({
+      workflowRunId: id,
+      stepName: "verify",
+      runId: "",
+      status: "running",
+    });
+    expect((await listWorkflowStepRunRows(id))[0]?.model).toBeNull();
+
+    // ...and the terminal write fills the columns in.
+    await upsertWorkflowStepRun({
+      workflowRunId: id,
+      stepName: "verify",
+      runId: "",
+      status: "success",
+      provider: "anthropic",
+      model: "claude-opus-5",
+    });
+    const rows = await listWorkflowStepRunRows(id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.provider).toBe("anthropic");
+    expect(rows[0]?.model).toBe("claude-opus-5");
   });
 
   test("upsertWorkflowStepRun updates in place on the second write", async () => {

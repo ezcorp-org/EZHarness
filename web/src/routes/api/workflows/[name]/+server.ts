@@ -3,6 +3,7 @@ import { errorJson } from "$lib/server/http-errors";
 import * as workflowQueries from "$server/db/queries/workflows";
 import { getWorkflows, reloadWorkflows } from "$lib/server/context";
 import { validateWorkflow } from "$server/runtime/workflow-validator";
+import { validateModelOverride } from "$server/runtime/workflow-model";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import type { RequestHandler } from "./$types";
@@ -32,6 +33,16 @@ export const PUT: RequestHandler = async ({ request, params, locals }) => {
   const parsed = workflowBodySchema.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) {
     return errorJson(400, "Invalid request body");
+  }
+  // `defaultModel` is checked on its own rather than through
+  // `validateWorkflow`, because THIS route is a partial update: a body
+  // carrying only `defaultModel` has no `steps` to hand the whole-definition
+  // validator, which would then reject it for the missing step list. Same
+  // shared function `validateWorkflow` delegates to, so there is still
+  // exactly one definition of what a model binding may say.
+  if (parsed.data.defaultModel !== undefined) {
+    const modelErrors = validateModelOverride(parsed.data.defaultModel, 'Workflow "defaultModel"');
+    if (modelErrors.length > 0) return errorJson(400, modelErrors[0]!);
   }
   // Re-validate step-level rules when steps are being replaced.
   if (Array.isArray(parsed.data.steps)) {

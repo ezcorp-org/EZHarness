@@ -147,3 +147,55 @@ describe("workflows queries", () => {
     expect(rich!.steps).toEqual(richSteps as any);
   });
 });
+
+describe("workflows queries — definition-level model binding", () => {
+  beforeEach(async () => await setupTestDb());
+  afterAll(async () => await closeTestDb());
+
+  test("defaultModel round-trips through create → load", async () => {
+    await createWorkflow({
+      name: "bound",
+      description: "",
+      defaultModel: { provider: "anthropic", model: "claude-haiku-4-5-20251001", maxTokens: 2000 },
+      steps: sampleSteps as any,
+    });
+
+    const row = await getWorkflowByName("bound");
+    expect(row?.defaultModel).toEqual({
+      provider: "anthropic",
+      model: "claude-haiku-4-5-20251001",
+      maxTokens: 2000,
+    });
+
+    const [def] = (await loadDbWorkflows()).filter((w) => w.name === "bound");
+    expect(def?.defaultModel).toEqual({
+      provider: "anthropic",
+      model: "claude-haiku-4-5-20251001",
+      maxTokens: 2000,
+    });
+  });
+
+  test("a workflow with no defaultModel loads it as undefined, not null", async () => {
+    // `undefined` is what makes `step.model ?? workflow.defaultModel` behave.
+    await createWorkflow({ name: "unbound", description: "", steps: sampleSteps as any });
+    const row = await getWorkflowByName("unbound");
+    expect(row?.defaultModel).toBeNull();
+    const [def] = (await loadDbWorkflows()).filter((w) => w.name === "unbound");
+    expect(def?.defaultModel).toBeUndefined();
+  });
+
+  test("updateWorkflow patches defaultModel", async () => {
+    const created = await createWorkflow({
+      name: "patchable",
+      description: "",
+      steps: sampleSteps as any,
+    });
+    const updated = await updateWorkflow(created.id, {
+      defaultModel: { model: "claude-opus-5" },
+    });
+    expect(updated?.defaultModel).toEqual({ model: "claude-opus-5" });
+    // An update that does not mention it leaves it alone.
+    const again = await updateWorkflow(created.id, { description: "d" });
+    expect(again?.defaultModel).toEqual({ model: "claude-opus-5" });
+  });
+});

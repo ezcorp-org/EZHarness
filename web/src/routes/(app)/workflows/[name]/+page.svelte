@@ -3,7 +3,14 @@
 	import { goto } from "$app/navigation";
 	import { store, refreshWorkflows } from "$lib/stores.svelte.js";
 	import { triggerWorkflowRun, deleteWorkflow } from "$lib/api.js";
-	import { statusColor, kindLabel, runErrorText } from "$lib/workflow-run-display.js";
+	import {
+		statusColor,
+		kindLabel,
+		runErrorText,
+		modelBindingLabel,
+		stepModelBinding,
+		resolvedModelLabel,
+	} from "$lib/workflow-run-display.js";
 
 	let workflowName = $derived(page.params.name);
 	let workflow = $derived(store.workflows.find((w) => w.name === workflowName));
@@ -105,14 +112,22 @@
 			<div class="space-y-2">
 				{#each workflow.steps as step, idx}
 					{@const kind = step.kind ?? "agent"}
+					{@const modelLabel = kind === "agent" ? modelBindingLabel(stepModelBinding(step, workflow)) : ""}
 					<div class="rounded border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
-						<div class="flex items-center gap-2">
+						<div class="flex flex-wrap items-center gap-2">
 							<span class="text-xs text-[var(--color-text-muted)]">{idx + 1}.</span>
 							<span class="font-medium text-[var(--color-text-primary)]">{step.name}</span>
 							<span class="rounded bg-[var(--color-surface-tertiary)] px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-[var(--color-text-muted)]">{kindLabel(kind)}</span>
 							{#if kind === "agent"}
 								<span class="text-[var(--color-text-muted)]">&rarr;</span>
 								<span class="text-blue-400">{step.agent}</span>
+							{/if}
+							{#if modelLabel}
+								<span
+									class="rounded bg-[var(--color-surface-tertiary)] px-1.5 py-0.5 text-[10px] text-teal-300"
+									data-testid="step-model"
+									title={step.model ? "Per-step model override" : "Inherited from the workflow default model"}
+								>{modelLabel}</span>
 							{/if}
 							{#if step.loop}
 								<span class="text-xs text-purple-400">loop &times;{step.loop.maxIterations}{step.loop.until ? " (until)" : ""}</span>
@@ -176,8 +191,9 @@
 							{#if run.steps.length > 0}
 								<div class="mt-2 space-y-1">
 									{#each run.steps as step}
+										{@const ranOn = resolvedModelLabel(step)}
 										<div class="text-xs text-[var(--color-text-secondary)]">
-											{step.stepName}: <span class="{statusColor(step.status)}">{step.status}</span>{#if step.iterations} <span class="text-[var(--color-text-muted)]">({step.iterations} iteration{step.iterations !== 1 ? "s" : ""})</span>{/if}
+											{step.stepName}: <span class="{statusColor(step.status)}">{step.status}</span>{#if step.iterations} <span class="text-[var(--color-text-muted)]">({step.iterations} iteration{step.iterations !== 1 ? "s" : ""})</span>{/if}{#if ranOn} <span class="text-teal-300" data-testid="step-ran-on">on {ranOn}</span>{/if}
 										</div>
 									{/each}
 								</div>

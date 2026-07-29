@@ -92,6 +92,7 @@
   "src/runtime/workflow-condition.ts": 100,
   "src/runtime/workflow-validator.ts": 100,
   "src/runtime/workflow-loader.ts": 100,
+  "src/runtime/workflow-model.ts": 100,
   "src/runtime/workflow-name.ts": 100,
   "src/runtime/workflow-extension-loader.ts": 100,
   "src/runtime/workflow/runtime-registry.ts": 100,

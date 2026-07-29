@@ -962,6 +962,16 @@ export interface WorkflowLoopConfig {
 	onExhausted?: "fail" | "pass";
 }
 
+/** Model binding an agent step (or the whole definition) runs on. Mirrors
+ *  `ModelOverride` in `src/types.ts`. */
+export interface WorkflowModelOverride {
+	provider?: string;
+	model?: string;
+	temperature?: number;
+	maxTokens?: number;
+	effort?: string;
+}
+
 export interface WorkflowStep {
 	name: string;
 	kind?: WorkflowStepKind;
@@ -974,6 +984,8 @@ export interface WorkflowStep {
 	tool?: string;
 	dependsOn?: string[];
 	loop?: WorkflowLoopConfig;
+	/** Per-step model binding (agent steps only). */
+	model?: WorkflowModelOverride;
 }
 
 export interface Workflow {
@@ -981,6 +993,8 @@ export interface Workflow {
 	description: string;
 	steps: WorkflowStep[];
 	inputSchema?: Record<string, unknown>;
+	/** Binding inherited by agent steps that declare no `model`. */
+	defaultModel?: WorkflowModelOverride;
 }
 
 export interface WorkflowRun {
@@ -989,7 +1003,15 @@ export interface WorkflowRun {
 	status: string;
 	startedAt: number;
 	finishedAt?: number;
-	steps: { stepName: string; runId: string; status: string; iterations?: number }[];
+	steps: {
+		stepName: string;
+		runId: string;
+		status: string;
+		iterations?: number;
+		/** Binding the step's LLM call resolved to (absent for steps that ran no LLM). */
+		provider?: string;
+		model?: string;
+	}[];
 	result?: AgentResult;
 }
 
