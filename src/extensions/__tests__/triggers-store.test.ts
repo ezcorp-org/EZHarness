@@ -346,20 +346,46 @@ describe("webhook rows", () => {
     expect(await softDeleteDynamicWebhook(EXT_A, "job:absent", NOW)).toBeNull();
   });
 
-  test("a freed key can be registered again", async () => {
+  test("re-registering a freed key REVIVES the tombstone, keeping its history", async () => {
+    // `uniq_ext_webhook(extension_id, slug)` is TOTAL, and the slug is a
+    // deterministic digest of (extension, key) — so re-registering the same
+    // key mints the SAME slug the tombstone still holds. Inserting would
+    // collide with it forever; reviving both fixes that and hands the job
+    // back its `webhook_deliveries` history.
+    const first = await upsertDynamicWebhook({
+      extensionName: EXT_A, key: "job:1", slug: slug1, now: NOW,
+    });
+    await softDeleteDynamicWebhook(EXT_A, "job:1", NOW);
+
+    const again = await upsertDynamicWebhook({
+      extensionName: EXT_A, key: "job:1", slug: slug1, now: NOW,
+    });
+
+    expect(again.id).toBe(first.id); // the SAME row came back
+    expect(again.key).toBe("job:1");
+    expect(again.enabled).toBe(true);
+    const all = await getTestDb().select().from(extensionWebhooks)
+      .where(eq(extensionWebhooks.extensionId, EXT_A));
+    expect(all).toHaveLength(1);
+  });
+
+  test("a tombstone is NOT revived for a different key", async () => {
+    // Revival keys on the SLUG, and a different key mints a different slug,
+    // so the two can never be confused.
     await upsertDynamicWebhook({
       extensionName: EXT_A, key: "job:1", slug: slug1, now: NOW,
     });
     await softDeleteDynamicWebhook(EXT_A, "job:1", NOW);
-    const again = await upsertDynamicWebhook({
-      extensionName: EXT_A, key: "job:1", slug: slug1, now: NOW,
+
+    const other = mintWebhookSlug("factory-", EXT_A, "job:2");
+    const fresh = await upsertDynamicWebhook({
+      extensionName: EXT_A, key: "job:2", slug: other, now: NOW,
     });
-    expect(again.key).toBe("job:1");
-    expect(again.enabled).toBe(true);
-    // The tombstone is still there, holding its history.
+
+    expect(fresh.key).toBe("job:2");
     const all = await getTestDb().select().from(extensionWebhooks)
       .where(eq(extensionWebhooks.extensionId, EXT_A));
-    expect(all).toHaveLength(2);
+    expect(all).toHaveLength(2); // the tombstone plus the new row
   });
 
   test("manifestSlugExists detects a colliding author-declared slug", async () => {

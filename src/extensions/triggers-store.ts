@@ -29,7 +29,7 @@ import {
   extensionSchedules, extensionScheduleFires, extensionWebhooks,
   type ExtensionSchedule, type ExtensionWebhook,
 } from "../db/schema";
-import { eq, and, gte } from "drizzle-orm";
+import { eq, and, gte, isNull } from "drizzle-orm";
 import { WEBHOOK_SLUG_RE, WEBHOOK_PREFIX_RE } from "./manifest";
 
 export { WEBHOOK_PREFIX_RE };
@@ -201,9 +201,27 @@ export interface UpsertWebhookSpec {
   now: Date;
 }
 
-/** Register (or re-register) a dynamic webhook. Same idempotency contract as
- *  {@link upsertDynamicCron}: the row, the slug and hence the secret survive
- *  a repeat register. */
+/**
+ * Register (or re-register) a dynamic webhook. Same idempotency contract as
+ * {@link upsertDynamicCron}: the row, the slug and hence the secret survive
+ * a repeat register.
+ *
+ * THREE cases, not two, because `uniq_ext_webhook(extension_id, slug)` is a
+ * TOTAL index (it is the constraint that stops a dynamic slug from
+ * shadowing a manifest one on the public route):
+ *
+ *   1. A live row for this key → update in place.
+ *   2. A TOMBSTONE holding this slug → REVIVE it. Unregister soft-deletes
+ *      (`enabled = false`, `key = NULL`) but leaves the slug on the row so
+ *      its `webhook_deliveries` history stays coherent. Since the slug is a
+ *      deterministic digest of `(extensionName, key)`, re-registering the
+ *      same key mints the SAME slug — which would collide with that
+ *      tombstone forever. Reviving both fixes that and returns the job its
+ *      delivery history. The secret does NOT come back: unregister deleted
+ *      it, and the caller mints a fresh one, so a revoked token stays
+ *      revoked.
+ *   3. Neither → insert.
+ */
 export async function upsertDynamicWebhook(spec: UpsertWebhookSpec): Promise<ExtensionWebhook> {
   const db = getDb();
   const existing = await getDynamicWebhook(spec.extensionName, spec.key);
@@ -215,6 +233,17 @@ export async function upsertDynamicWebhook(spec: UpsertWebhookSpec): Promise<Ext
     }).where(eq(extensionWebhooks.id, existing.id)).returning();
     return updated!;
   }
+
+  const tombstone = await findDynamicTombstone(spec.extensionName, spec.slug);
+  if (tombstone) {
+    const [revived] = await db.update(extensionWebhooks).set({
+      key: spec.key,
+      enabled: true,
+      updatedAt: spec.now,
+    }).where(eq(extensionWebhooks.id, tombstone.id)).returning();
+    return revived!;
+  }
+
   const [inserted] = await db.insert(extensionWebhooks).values({
     extensionId: spec.extensionName,
     slug: spec.slug,
@@ -223,6 +252,21 @@ export async function upsertDynamicWebhook(spec: UpsertWebhookSpec): Promise<Ext
     key: spec.key,
   }).returning();
   return inserted!;
+}
+
+/** A soft-deleted dynamic row still holding `slug` (`key IS NULL`). */
+async function findDynamicTombstone(
+  extensionName: string,
+  slug: string,
+): Promise<ExtensionWebhook | undefined> {
+  const rows: ExtensionWebhook[] = await getDb().select().from(extensionWebhooks)
+    .where(and(
+      eq(extensionWebhooks.extensionId, extensionName),
+      eq(extensionWebhooks.slug, slug),
+      eq(extensionWebhooks.dynamic, true),
+      isNull(extensionWebhooks.key),
+    ));
+  return rows[0];
 }
 
 /** True iff a MANIFEST webhook row already holds this slug. A minted slug
