@@ -443,3 +443,89 @@ describe("validateWorkflow — per-step model bindings", () => {
     expect(errs).toContain("Workflow must have at least one step");
   });
 });
+
+describe("validateWorkflow — approval steps", () => {
+  const approval = (extra: Partial<WorkflowStep> = {}): WorkflowDefinition => ({
+    name: "wf",
+    description: "",
+    steps: [
+      {
+        name: "gate",
+        kind: "approval",
+        prompt: "Ship it?",
+        choices: ["approve", "reject"],
+        ...extra,
+      } as WorkflowStep,
+    ],
+  });
+
+  test("a well-formed approval step validates", () => {
+    expect(validateWorkflow(approval())).toEqual([]);
+  });
+
+  test("requires a prompt and a non-empty choices array", () => {
+    // The executor would only discover these at run time — by which point
+    // it has parked a human on a question with no answers, or suspended
+    // with nothing to render.
+    expect(validateWorkflow(approval({ prompt: undefined }))[0]).toContain('requires a "prompt"');
+    expect(validateWorkflow(approval({ choices: [] }))[0]).toContain("non-empty");
+    expect(validateWorkflow(approval({ choices: undefined }))[0]).toContain("non-empty");
+  });
+
+  test("rejects empty and duplicate choices", () => {
+    expect(validateWorkflow(approval({ choices: ["approve", ""] }))[0]).toContain(
+      "empty or non-string choice",
+    );
+    // A duplicate is ambiguous the moment anyone picks it, and resolves
+    // into `$steps.gate.output.choice` indistinguishably.
+    expect(validateWorkflow(approval({ choices: ["a", "a"] }))[0]).toContain("duplicate choices");
+  });
+
+  test("rejects an approval that also names an agent or tool", () => {
+    expect(validateWorkflow(approval({ agent: "writer" }))[0]).toContain("cannot also specify");
+    expect(validateWorkflow(approval({ tool: "x__y" }))[0]).toContain("cannot also specify");
+  });
+
+  test("rejects requireItemConsent with no itemsRef", () => {
+    // With no items the guard reads a clean gate and waves every answer
+    // through ids-free — the exact opposite of what was asked for.
+    const errs = validateWorkflow(approval({ requireItemConsent: true }));
+    expect(errs[0]).toContain("would silently pass");
+  });
+
+  test("rejects a non-positive or non-integer timeout", () => {
+    expect(validateWorkflow(approval({ timeoutMs: 0 }))[0]).toContain("positive integer");
+    expect(validateWorkflow(approval({ timeoutMs: -1 }))[0]).toContain("positive integer");
+    expect(validateWorkflow(approval({ timeoutMs: 1.5 }))[0]).toContain("positive integer");
+    expect(validateWorkflow(approval({ timeoutMs: 1000 }))).toEqual([]);
+  });
+
+  test("rejects an unknown onTimeout policy", () => {
+    const errs = validateWorkflow(approval({ onTimeout: "yolo" as never }));
+    expect(errs[0]).toContain("abort | approve | skip");
+  });
+
+  test("rejects onTimeout:approve without a timeout", () => {
+    // Deciding on a human's behalf may only be reached deliberately —
+    // never as a side effect of a default filling in a missing timeout.
+    const errs = validateWorkflow(approval({ onTimeout: "approve" }));
+    expect(errs[0]).toContain('"onTimeout: approve" without a "timeoutMs"');
+    expect(validateWorkflow(approval({ onTimeout: "approve", timeoutMs: 5000 }))).toEqual([]);
+  });
+
+  test("rejects loop and retries on an approval", () => {
+    // A human decision is not a retryable computation: re-asking would
+    // either re-park the same question or silently reuse the first answer.
+    expect(validateWorkflow(approval({ retries: 2 }))[0]).toContain('cannot specify "retries"');
+    expect(
+      validateWorkflow(approval({ loop: { maxIterations: 2 } }))[0],
+    ).toContain('cannot have a "loop"');
+  });
+
+  test("abort is the default policy — omitting onTimeout is valid", () => {
+    // An approval that silently became `approve` because nobody looked at
+    // it is a consent bypass, so the safe policy must be the one you get
+    // by not thinking about it.
+    expect(validateWorkflow(approval({ timeoutMs: 5000 }))).toEqual([]);
+  });
+});

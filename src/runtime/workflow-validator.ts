@@ -25,6 +25,7 @@ const VALID_KINDS: readonly WorkflowStepKind[] = [
   "transform",
   "gate",
   "tool",
+  "approval",
 ];
 
 /** The 9 leaf operators. Kept here (not just in the union type) so the
@@ -203,6 +204,68 @@ export function validateWorkflow(def: WorkflowDefinition): string[] {
       errors.push(`Step "${name}" (kind "tool") cannot also specify an "agent"`);
     }
 
+    // ── approval kind ──
+    //
+    // Every one of these is a structural error the executor could only
+    // discover at run time — by which point the workflow has already
+    // parked a human on a question with no valid answers, or suspended
+    // itself with no prompt to render. Definition time is where this
+    // subsystem puts structural errors, so they belong here.
+    if (kind === "approval") {
+      if (!step.prompt) {
+        errors.push(`Step "${name}" (kind "approval") requires a "prompt"`);
+      }
+      if (!Array.isArray(step.choices) || step.choices.length === 0) {
+        errors.push(`Step "${name}" (kind "approval") requires a non-empty "choices" array`);
+      } else {
+        if (step.choices.some((c) => typeof c !== "string" || c.trim() === "")) {
+          errors.push(`Step "${name}" (kind "approval") has an empty or non-string choice`);
+        }
+        // A duplicate makes the answer ambiguous the moment anyone picks
+        // it, and it would resolve into `$steps.<step>.output.choice`
+        // indistinguishably.
+        if (new Set(step.choices).size !== step.choices.length) {
+          errors.push(`Step "${name}" (kind "approval") has duplicate choices`);
+        }
+      }
+      if (step.agent || step.tool) {
+        errors.push(`Step "${name}" (kind "approval") cannot also specify an "agent" or "tool"`);
+      }
+      // `requireItemConsent` without a source of items is almost
+      // certainly a mistake: the guard would read an empty set as a clean
+      // gate and wave every answer through ids-free, which is the exact
+      // opposite of what the author asked for. Loud beats silent.
+      if (step.requireItemConsent && !step.itemsRef) {
+        errors.push(
+          `Step "${name}" (kind "approval") sets "requireItemConsent" but no "itemsRef" — ` +
+            `with no items to consent to the requirement would silently pass`,
+        );
+      }
+      if (step.timeoutMs !== undefined && (!Number.isInteger(step.timeoutMs) || step.timeoutMs <= 0)) {
+        errors.push(`Step "${name}" (kind "approval") "timeoutMs" must be a positive integer`);
+      }
+      if (step.onTimeout !== undefined && !["abort", "approve", "skip"].includes(step.onTimeout)) {
+        errors.push(
+          `Step "${name}" (kind "approval") has unknown "onTimeout" "${step.onTimeout}" ` +
+            `(expected abort | approve | skip)`,
+        );
+      }
+      // `onTimeout: approve` decides on a human's behalf, so it may only
+      // be reached deliberately — never as a side effect of a missing
+      // timeout that some later default fills in.
+      if (step.onTimeout === "approve" && step.timeoutMs === undefined) {
+        errors.push(
+          `Step "${name}" (kind "approval") sets "onTimeout: approve" without a "timeoutMs"`,
+        );
+      }
+    }
+    // An approval step's answer is a human decision, not a retryable
+    // computation: re-asking on a loop or a retry would either re-park
+    // the same question or silently reuse the first answer.
+    if (kind === "approval" && step.retries !== undefined) {
+      errors.push(`Step "${name}" (kind "approval") cannot specify "retries"`);
+    }
+
     // A model binding only means something where an LLM runs. On a
     // transform / gate / tool step it would be silently ignored by the
     // executor — the classic "I set it and nothing happened" bug — so
@@ -260,7 +323,7 @@ export function validateWorkflow(def: WorkflowDefinition): string[] {
     // notice it went wrong — deliberately out of scope for v1, and
     // rejected LOUDLY here rather than silently mis-dispatched by
     // `runLoop` (whose non-transform branch runs the AGENT path).
-    if (step.loop && (kind === "gate" || kind === "tool")) {
+    if (step.loop && (kind === "gate" || kind === "tool" || kind === "approval")) {
       errors.push(`Step "${name}" (kind "${kind}") cannot have a "loop"`);
     }
     if (step.loop && step.retries !== undefined) {

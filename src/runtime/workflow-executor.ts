@@ -1,6 +1,7 @@
 import type {
   AgentEvents,
   AgentResult,
+  ApprovalStepOutput,
   ModelOverride,
   WorkflowCursor,
   WorkflowDefinition,
@@ -42,6 +43,10 @@ import {
   type TerminalWorkflowRunStatus,
 } from "../db/queries/workflow-runs";
 import { workflowDefinitionHash } from "./workflow-definition-hash";
+import {
+  getWorkflowApproval,
+  parkWorkflowApproval,
+} from "../db/queries/workflow-approvals";
 import { logger } from "../logger";
 
 const log = logger.child("workflow");
@@ -664,6 +669,7 @@ export class WorkflowExecutor {
               // concrete values later (it may hold refs), against the same
               // ref context the step's `input` uses.
               effectiveModelOverride(step, workflow),
+              workflowRun.id,
             );
             stepResults.set(step.name, result);
             stepRun.status = "success";
@@ -921,6 +927,8 @@ export class WorkflowExecutor {
     emitStep: () => void,
     toolCtx: ToolStepContext,
     modelBinding: WorkflowModelBinding | undefined,
+    /** This run's id — an `approval` step keys its parked row on it. */
+    workflowRunId: string,
   ): Promise<AgentResult> {
     if (step.loop) {
       return this.runLoop(
@@ -948,6 +956,9 @@ export class WorkflowExecutor {
     }
     if (kind === "tool") {
       return runToolStep(step, baseCtx, toolCtx);
+    }
+    if (kind === "approval") {
+      return runApprovalStep(step, baseCtx, workflowRunId, this.persist);
     }
     return this.runAgentStep(
       step,
@@ -1286,6 +1297,113 @@ export function parseToolOutput(text: string): unknown {
     // stays a string — never a silent empty object.
     return text;
   }
+}
+
+/**
+ * Run an `approval` step: park the run for a human, or — on the resume
+ * that follows their answer — return that answer as the step's result.
+ *
+ * Both directions live here on purpose. The step is re-entered on resume
+ * (`cursor.batchIndex` still points at its batch), so "has this been
+ * answered yet?" is the only question that distinguishes the two passes,
+ * and answering it in one place is what keeps them from disagreeing.
+ *
+ * The park is a DELIBERATE one at a step boundary, which is the case the
+ * `run_phase` model already handles cleanly: nothing has been dispatched,
+ * so there is no half-applied side effect to worry about.
+ *
+ * `itemIds` is resolved HERE, at suspend time, from what the run actually
+ * produced — not at definition time from what its author hoped for. That
+ * is what makes the consent guard check the answer against reality.
+ */
+async function runApprovalStep(
+  step: WorkflowStep,
+  refCtx: RefContext,
+  workflowRunId: string,
+  persist: boolean,
+): Promise<AgentResult> {
+  // Without persistence there is no row to park in and nothing could ever
+  // answer it, so a workflow that reaches an approval in a DB-less
+  // harness would hang forever. Fail loudly instead.
+  if (!persist) {
+    throw new Error(
+      `Step "${step.name}" is an approval step, which requires run persistence ` +
+        `(the parked approval has nowhere to be recorded without it)`,
+    );
+  }
+
+  const existing = await getWorkflowApproval(workflowRunId, step.name);
+  if (existing?.status === "answered") {
+    // The shape is FIXED — every field always present — because
+    // `workflow-refs` resolves strictly and a downstream
+    // `$steps.<gate>.output.form` must not throw just because this
+    // particular answer carried no form.
+    const output: ApprovalStepOutput = {
+      choice: existing.answerChoice ?? "",
+      form: existing.answerForm ?? {},
+      itemIds: existing.answeredItemIds ?? [],
+      answeredBy: existing.answeredBy,
+      answeredAt: (existing.updatedAt ?? new Date()).toISOString(),
+    };
+    return { success: true, output };
+  }
+  if (existing?.status === "cancelled") {
+    throw new Error(`Step "${step.name}" approval was cancelled`);
+  }
+
+  // Not answered — park. `expired` re-parks deliberately: the timeout
+  // sweep decides what an expiry MEANS via `onTimeout`, and if the run
+  // got here with an expired row the sweep has not applied its policy
+  // yet, so re-asking is the conservative reading.
+  const itemIds = resolveApprovalItemIds(step, refCtx);
+  await parkWorkflowApproval({
+    workflowRunId,
+    stepName: step.name,
+    prompt: step.prompt ?? "",
+    choices: step.choices ?? [],
+    rbacScope: step.rbacScope ?? null,
+    formSchema: step.formSchema ?? null,
+    requireItemConsent: step.requireItemConsent ?? false,
+    itemIds,
+    expiresAt:
+      step.timeoutMs !== undefined ? new Date(Date.now() + step.timeoutMs) : null,
+  });
+  throw new WorkflowSuspendedError(step.name, "approval");
+}
+
+/**
+ * Resolve the step's `itemsRef` into the ids requiring consent.
+ *
+ * Tolerant by design, and only in one direction: a ref that resolves to
+ * nothing yields an EMPTY set, which the guard reads as a clean gate that
+ * may be answered ids-free. That is the correct failure mode — the
+ * alternative, treating an unresolvable ref as "everything", would
+ * manufacture consent requirements the run cannot satisfy and park the
+ * workflow permanently.
+ *
+ * Accepts an array of strings, or of objects carrying an `id`, since
+ * both shapes fall out of real steps.
+ */
+function resolveApprovalItemIds(step: WorkflowStep, refCtx: RefContext): string[] {
+  if (!step.itemsRef) return [];
+  let resolved: unknown;
+  try {
+    resolved = resolveMapping({ items: step.itemsRef }, refCtx).items;
+  } catch {
+    // A strict-ref miss means the producing step did not run or produced
+    // nothing addressable. Empty, per the doc above.
+    return [];
+  }
+  if (!Array.isArray(resolved)) return [];
+  return resolved
+    .map((item) =>
+      typeof item === "string"
+        ? item
+        : item && typeof item === "object" && "id" in item
+          ? String((item as { id: unknown }).id)
+          : undefined,
+    )
+    .filter((id): id is string => id !== undefined);
 }
 
 /** Resolve a `transform` step's declarative output mapping into an

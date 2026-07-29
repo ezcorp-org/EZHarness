@@ -202,7 +202,39 @@ export interface LoopConfig {
   onExhausted?: "fail" | "pass";
 }
 
-export type WorkflowStepKind = "agent" | "transform" | "gate" | "tool";
+export type WorkflowStepKind = "agent" | "transform" | "gate" | "tool" | "approval";
+
+/**
+ * What happens to an `approval` step whose `timeoutMs` elapses.
+ *
+ * `abort` is the default and the only safe one to default to: an approval
+ * that silently became `approve` because nobody looked at it is a consent
+ * bypass, and defaults are exactly where those hide. The other two exist
+ * because some gates genuinely are advisory, but an author has to say so.
+ */
+export type ApprovalTimeoutPolicy = "abort" | "approve" | "skip";
+
+/**
+ * The result an answered `approval` step contributes to `$steps`.
+ *
+ * The shape is FIXED and every field is always present, because
+ * `workflow-refs.ts` resolves refs strictly: a downstream
+ * `$steps.gate.output.form` against an answer that happened to omit a
+ * form would throw at run time, long after the definition was written.
+ * `form` is `{}` and `itemIds` is `[]` rather than absent.
+ */
+export interface ApprovalStepOutput {
+  /** The choice the human picked. Always one the definition declared. */
+  choice: string;
+  /** Structured answer fields, `{}` when the step declared no form. */
+  form: Record<string, unknown>;
+  /** The items the answer named, `[]` when none were required. */
+  itemIds: string[];
+  /** User id of the answerer; null for a timeout-synthesized answer. */
+  answeredBy: string | null;
+  /** ISO-8601. Set for a timeout answer too — something did decide. */
+  answeredAt: string;
+}
 
 /**
  * Reasoning-effort level a model binding may request. Mirrors pi-ai's
@@ -376,6 +408,38 @@ export interface WorkflowStep {
    * time on any non-agent step.
    */
   model?: WorkflowModelBinding;
+
+  // ── approval kind ──
+  /** What the human is being asked. Required on an `approval` step. */
+  prompt?: string;
+  /**
+   * The answers the definition allows. Required and non-empty on an
+   * `approval` step; an answer outside this set is rejected, never
+   * coerced, so the set is also the contract downstream `$steps` refs
+   * read against.
+   */
+  choices?: string[];
+  /** RBAC scope gating who may answer. Absent ⇒ project members. The
+   *  check is fail-closed: a throw is a DENY. */
+  rbacScope?: string;
+  /** Optional structured fields collected alongside the choice. */
+  formSchema?: Record<string, unknown>;
+  /**
+   * Require the answer to NAME the items it acts on. Paired with
+   * {@link itemsRef}: with nothing to consent to the requirement is
+   * vacuous, which is deliberate — a clean gate answers ids-free.
+   */
+  requireItemConsent?: boolean;
+  /**
+   * Ref to the items REQUIRING CONSENT (e.g. `$steps.review.output.asks`),
+   * resolved AT SUSPEND TIME so the answer is checked against what the
+   * run actually produced rather than what the definition hoped for.
+   */
+  itemsRef?: string;
+  /** Park for at most this long before {@link onTimeout} applies. */
+  timeoutMs?: number;
+  /** Default `abort` — see {@link ApprovalTimeoutPolicy}. */
+  onTimeout?: ApprovalTimeoutPolicy;
 
   dependsOn?: string[];
   /** Bounded loop (agent | transform kinds only). */

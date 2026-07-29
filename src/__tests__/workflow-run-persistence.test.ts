@@ -18,7 +18,7 @@ import { EventBus } from "../runtime/events";
 import { AgentExecutor } from "../runtime/executor";
 import { loadAgentsStatic } from "../runtime/loader";
 import { createExtensionPermissionGate } from "../runtime/tools/permissions";
-import type { AgentEvents, WorkflowDefinition } from "../types";
+import type { AgentEvents, WorkflowDefinition, WorkflowStep } from "../types";
 import type { ToolCallResult } from "../extensions/types";
 
 let pglite: PGlite;
@@ -46,6 +46,16 @@ const { WorkflowExecutor, WorkflowSuspendedError } = await import(
   "../runtime/workflow-executor"
 );
 const { workflowDefinitionHash } = await import("../runtime/workflow-definition-hash");
+const {
+  expireWorkflowApproval,
+  getWorkflowApproval,
+  getWorkflowApprovalById,
+  listExpiredWorkflowApprovals,
+  listPendingWorkflowApprovals,
+  parkWorkflowApproval,
+  recordWorkflowApprovalAnswer,
+} = await import("../db/queries/workflow-approvals");
+type ParkApprovalInput = Parameters<typeof parkWorkflowApproval>[0];
 
 beforeAll(async () => {
   pglite = new PGlite({ extensions: { vector, pg_trgm } });
@@ -1719,5 +1729,269 @@ describe("suspend and resume", () => {
     const after = await getWorkflowRunRow(done.id);
     expect(after?.status).toBe("success");
     expect(after?.result).toEqual({ success: true, output: { v: "1" } });
+  });
+});
+
+// ── The `approval` step kind (C4 build-order step 7a) ─────────────
+//
+// Parking only. The answer surfaces and the chokepoint land in 7b/7c —
+// here an answer is written straight to the row, which is exactly what
+// `answerApproval()` will do once it exists.
+describe("approval step kind", () => {
+  function approvalExecutor() {
+    const bus = new EventBus<AgentEvents>();
+    const agentExec = new AgentExecutor(loadAgentsStatic([]), bus);
+    return new WorkflowExecutor(agentExec, bus, { persist: true });
+  }
+
+  const gateDef = (extra: Partial<WorkflowStep> = {}): WorkflowDefinition => ({
+    name: `approval-${crypto.randomUUID().slice(0, 8)}`,
+    description: "",
+    steps: [
+      { name: "prep", kind: "transform", output: { asks: "$input.asks" } },
+      {
+        name: "gate",
+        kind: "approval",
+        prompt: "Ship it?",
+        choices: ["approve", "reject"],
+        ...extra,
+      } as WorkflowStep,
+    ],
+  });
+
+  test("parks the run and records the question", async () => {
+    const wf = approvalExecutor();
+    const def = gateDef();
+    const run = await wf.runWorkflow(def, {}, undefined, undefined);
+
+    expect(run.status).toBe("suspended");
+    const row = await getWorkflowRunRow(run.id);
+    expect(row?.suspendedReason).toBe("approval");
+
+    const approval = await getWorkflowApproval(run.id, "gate");
+    expect(approval?.status).toBe("pending");
+    expect(approval?.prompt).toBe("Ship it?");
+    expect(approval?.choices).toEqual(["approve", "reject"]);
+    // Nothing decided yet — a half-populated answer would be read as one.
+    expect(approval?.answerChoice).toBeNull();
+    expect(approval?.answeredBy).toBeNull();
+  });
+
+  test("the answer becomes the step result under a FIXED shape", async () => {
+    const wf = approvalExecutor();
+    const def = gateDef();
+    const first = await wf.runWorkflow(def, {}, undefined, undefined);
+    expect(first.status).toBe("suspended");
+
+    const approval = await getWorkflowApproval(first.id, "gate");
+    await recordWorkflowApprovalAnswer(approval!.id, {
+      choice: "approve",
+      answeredBy: "user-1",
+    });
+
+    const row = await getWorkflowRunRow(first.id);
+    const resumed = await wf.resumeWorkflow(def, {
+      id: row!.id,
+      workflowName: row!.workflowName,
+      status: row!.status,
+      input: row!.input,
+      cursor: row!.cursor,
+      definitionHash: row!.definitionHash,
+      projectId: row!.projectId,
+      userId: row!.userId,
+      startedAt: row!.startedAt,
+    });
+
+    expect(resumed.status).toBe("success");
+    const loaded = await loadStepResults(first.id);
+    if (!loaded.ok) throw new Error(loaded.reason);
+    const output = loaded.stepResults.get("gate")?.output as Record<string, unknown>;
+    expect(output.choice).toBe("approve");
+    expect(output.answeredBy).toBe("user-1");
+    // FIXED shape: `form` and `itemIds` are present-and-empty, never
+    // absent. `workflow-refs` resolves strictly, so a downstream
+    // `$steps.gate.output.form` must not throw just because this answer
+    // carried no form.
+    expect(output.form).toEqual({});
+    expect(output.itemIds).toEqual([]);
+    expect(typeof output.answeredAt).toBe("string");
+  });
+
+  test("resolves itemIds at SUSPEND time from what the run produced", async () => {
+    // Not at definition time from what its author hoped for — that is
+    // what makes the consent guard check answers against reality.
+    const wf = approvalExecutor();
+    const def = gateDef({ requireItemConsent: true, itemsRef: "$steps.prep.output.asks" });
+    const run = await wf.runWorkflow(def, { asks: ["a1", "a2"] }, undefined, undefined);
+
+    expect(run.status).toBe("suspended");
+    const approval = await getWorkflowApproval(run.id, "gate");
+    expect(approval?.requireItemConsent).toBe(true);
+    expect(approval?.itemIds).toEqual(["a1", "a2"]);
+  });
+
+  test("an unresolvable itemsRef yields an EMPTY set, never a permanent park", async () => {
+    // The tolerant direction is deliberate: treating an unresolvable ref
+    // as "everything" would manufacture consent requirements the run
+    // cannot satisfy and park the workflow forever.
+    const wf = approvalExecutor();
+    const def = gateDef({ requireItemConsent: true, itemsRef: "$steps.nope.output.x" });
+    const run = await wf.runWorkflow(def, {}, undefined, undefined);
+
+    expect(run.status).toBe("suspended");
+    const approval = await getWorkflowApproval(run.id, "gate");
+    expect(approval?.itemIds).toEqual([]);
+  });
+
+  test("re-parking clears the previous answer rather than reusing it", async () => {
+    // A step that was answered, resumed and parked again is asking a
+    // FRESH question; leaving the old answer would let the next resume
+    // read a decision nobody made this time.
+    const wf = approvalExecutor();
+    const def = gateDef();
+    const run = await wf.runWorkflow(def, {}, undefined, undefined);
+    const approval = await getWorkflowApproval(run.id, "gate");
+    await recordWorkflowApprovalAnswer(approval!.id, { choice: "approve", answeredBy: "user-1" });
+
+    await parkWorkflowApproval({
+      workflowRunId: run.id,
+      stepName: "gate",
+      prompt: "Ship it?",
+      choices: ["approve", "reject"],
+      requireItemConsent: false,
+      itemIds: [],
+    });
+
+    const reparked = await getWorkflowApproval(run.id, "gate");
+    expect(reparked?.status).toBe("pending");
+    expect(reparked?.answerChoice).toBeNull();
+    expect(reparked?.answeredBy).toBeNull();
+    expect(reparked?.consentAllUsed).toBe(false);
+    // Same row, updated in place — not a second row the inbox would
+    // render twice.
+    expect(reparked?.id).toBe(approval!.id);
+  });
+
+  test("two answers race to exactly one winner", async () => {
+    const wf = approvalExecutor();
+    const run = await wf.runWorkflow(gateDef(), {}, undefined, undefined);
+    const approval = await getWorkflowApproval(run.id, "gate");
+
+    const [a, b] = await Promise.all([
+      recordWorkflowApprovalAnswer(approval!.id, { choice: "approve", answeredBy: "user-1" }),
+      recordWorkflowApprovalAnswer(approval!.id, { choice: "reject", answeredBy: "user-1" }),
+    ]);
+    // The loser is a clean zero-row no-op, not an overwrite and not an
+    // error.
+    expect(a + b).toBe(1);
+    expect((await getWorkflowApproval(run.id, "gate"))?.status).toBe("answered");
+  });
+
+  test("an approval step fails loudly without persistence rather than hanging", async () => {
+    // With no row to park in, nothing could ever answer it — so a
+    // DB-less harness must not silently wait forever.
+    const bus = new EventBus<AgentEvents>();
+    const wf = new WorkflowExecutor(new AgentExecutor(loadAgentsStatic([]), bus), bus, {
+      persist: false,
+    });
+    const run = await wf.runWorkflow(gateDef(), {}, undefined, undefined);
+    expect(run.status).toBe("error");
+    expect(String(run.result?.error)).toContain("requires run persistence");
+  });
+});
+
+describe("workflow-approvals query layer", () => {
+  async function seedApproval(overrides: Partial<ParkApprovalInput> = {}) {
+    const runId = crypto.randomUUID();
+    await insertWorkflowRun({
+      id: runId,
+      workflowName: "approval-queries",
+      input: {},
+      startedAt: new Date(),
+    });
+    const id = await parkWorkflowApproval({
+      workflowRunId: runId,
+      stepName: "gate",
+      prompt: "?",
+      choices: ["yes"],
+      requireItemConsent: false,
+      itemIds: [],
+      ...overrides,
+    });
+    return { runId, id };
+  }
+
+  test("getWorkflowApprovalById reads the row the answer surfaces will act on", async () => {
+    const { id } = await seedApproval();
+    expect((await getWorkflowApprovalById(id))?.id).toBe(id);
+    expect(await getWorkflowApprovalById(crypto.randomUUID())).toBeUndefined();
+  });
+
+  test("getWorkflowApproval returns undefined for a step that never parked", async () => {
+    const { runId } = await seedApproval();
+    expect(await getWorkflowApproval(runId, "never-parked")).toBeUndefined();
+  });
+
+  test("the expiry sweep selects on the INJECTED clock, not the wall clock", async () => {
+    const past = new Date(Date.now() - 60_000);
+    const future = new Date(Date.now() + 3_600_000);
+    const expired = await seedApproval({ expiresAt: past });
+    const live = await seedApproval({ expiresAt: future });
+    await seedApproval(); // no expiry at all — never swept
+
+    const due = await listExpiredWorkflowApprovals(new Date());
+    const dueIds = due.map((r) => r.id);
+    expect(dueIds).toContain(expired.id);
+    expect(dueIds).not.toContain(live.id);
+
+    // Wind the injected clock forward and the live one becomes due —
+    // proving the predicate reads the parameter, not `Date.now()`.
+    const later = await listExpiredWorkflowApprovals(new Date(Date.now() + 7_200_000));
+    expect(later.map((r) => r.id)).toContain(live.id);
+  });
+
+  test("expiring is a CAS — a human who answers first wins", async () => {
+    const { id } = await seedApproval({ expiresAt: new Date(Date.now() - 1000) });
+    expect(await recordWorkflowApprovalAnswer(id, { choice: "yes" })).toBe(1);
+    // The sweep now finds nothing to expire: the clock must not overwrite
+    // a decision a human already made.
+    expect(await expireWorkflowApproval(id)).toBe(0);
+    expect((await getWorkflowApprovalById(id))?.status).toBe("answered");
+  });
+
+  test("expiring a still-pending approval transitions it once", async () => {
+    const { id } = await seedApproval({ expiresAt: new Date(Date.now() - 1000) });
+    expect(await expireWorkflowApproval(id)).toBe(1);
+    expect((await getWorkflowApprovalById(id))?.status).toBe("expired");
+    // Idempotent: a second sweep is a zero-row no-op.
+    expect(await expireWorkflowApproval(id)).toBe(0);
+  });
+
+  test("the inbox lists only pending approvals", async () => {
+    const pending = await seedApproval();
+    const answered = await seedApproval();
+    await recordWorkflowApprovalAnswer(answered.id, { choice: "yes" });
+
+    const inbox = await listPendingWorkflowApprovals();
+    const ids = inbox.map((r) => r.id);
+    expect(ids).toContain(pending.id);
+    expect(ids).not.toContain(answered.id);
+    expect(inbox.every((r) => r.status === "pending")).toBe(true);
+  });
+
+  test("an answer records the consent-all audit marker", async () => {
+    const { id } = await seedApproval({ requireItemConsent: true, itemIds: ["i1"] });
+    await recordWorkflowApprovalAnswer(id, {
+      choice: "yes",
+      itemIds: ["i1"],
+      form: { note: "ok" },
+      answeredBy: "user-1",
+      consentAllUsed: true,
+    });
+    const row = await getWorkflowApprovalById(id);
+    // A blanket clear is permitted but never silent.
+    expect(row?.consentAllUsed).toBe(true);
+    expect(row?.answeredItemIds).toEqual(["i1"]);
+    expect(row?.answerForm).toEqual({ note: "ok" });
   });
 });
