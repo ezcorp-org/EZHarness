@@ -109,6 +109,12 @@ passfail_files() {
     printf '%s\n' web/src/lib/diff-review/review-model.test.ts
     printf '%s\n' web/src/lib/diff-review/viewed-files.test.ts
     printf '%s\n' web/src/lib/diff-review/render-diff.test.ts
+    # In-app help copy. It imports `helpContent` directly (not a source scan),
+    # so it lands the string table in lcov — without which the patch-coverage
+    # gate fails "NO lcov data" the moment anyone edits a tooltip's wording.
+    # P∩C for the same reason as the trio above: its key-drift assertions must
+    # RED CI, and coverage alone would not catch a rotted one.
+    printf '%s\n' web/src/__tests__/help-content.test.ts
   } 2>/dev/null | sort -u
 }
 
@@ -169,6 +175,7 @@ coverage_host_files() {
       web/src/lib/diff-review/review-model.test.ts \
       web/src/lib/diff-review/viewed-files.test.ts \
       web/src/lib/diff-review/render-diff.test.ts \
+      web/src/__tests__/help-content.test.ts \
       web/src/lib/__tests__/timeline-normalize.test.ts \
       web/src/lib/__tests__/format-duration.test.ts \
       web/src/__tests__/test-surface.test.ts \
