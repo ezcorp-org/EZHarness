@@ -2,7 +2,7 @@
 // `renderExtensionPage` (R5 integration: "hub-render-pull variant handling").
 // The production collaborators (findPage / callPage / cache) are injectable, so
 // this drives the run-scope + cache-keying branches without a real subprocess.
-import { describe, test, expect } from "vitest";
+import { describe, test, expect, vi } from "vitest";
 import {
 	renderExtensionPage,
 	type PageRenderScope,
@@ -10,6 +10,15 @@ import {
 } from "./hub-render-pull";
 import { ExtensionPageCache } from "$server/extensions/page-cache";
 import type { Extension } from "$server/db/schema";
+
+// The FIRST `renderExtensionPage` call in this file pays a one-time ~5.7s
+// warm-up (lazy transitive imports across the server graph resolve on first
+// use); every subsequent call in the same file measures <1ms. That lands
+// right on vitest's 5s default, so the file flipped red or green purely on
+// machine load — a real flake, not a slow assertion. What's under test here
+// is scope threading and cache keying, never latency, so give the file
+// headroom rather than racing the warm-up.
+vi.setConfig({ testTimeout: 30_000 });
 
 const EXT = {
 	id: "ext-1",

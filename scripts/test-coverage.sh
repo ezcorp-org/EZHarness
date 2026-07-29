@@ -330,6 +330,13 @@ run_legs() {
       src/__tests__/fetch-policy-dedup-clone.unit.test.ts \
       src/lib/chat/page-handlers/__tests__/stream-resume.unit.test.ts \
       src/lib/chat/page-handlers/__tests__/stream-resume-attach.component.test.ts \
+      src/lib/chat/page-handlers/__tests__/task-hydrate-attach.component.test.ts \
+      src/__tests__/api-conversations-id-tasks-assign.server.test.ts \
+      src/__tests__/api-conversations-id-tasks-retry.server.test.ts \
+      src/__tests__/api-conversations-id-tasks-assignments-start.server.test.ts \
+      src/__tests__/api-conversations-id-tasks-assignments-stop.server.test.ts \
+      src/__tests__/stores-task-snapshot.integration.component.test.ts \
+      src/__tests__/api-conversations-id-tasks.server.test.ts \
       src/lib/dev-badge.unit.test.ts \
       src/lib/components/DevBadge.component.test.ts \
       src/lib/ez/__tests__/page-context.unit.test.ts \
@@ -455,6 +462,12 @@ run_legs() {
       --coverage.include='src/lib/server/sse-resume-buffer.ts' \
       --coverage.include='src/lib/utils/fetch-policy.ts' \
       --coverage.include='src/lib/chat/page-handlers/stream-resume.svelte.ts' \
+      --coverage.include='src/lib/chat/page-handlers/task-hydrate.svelte.ts' \
+      --coverage.include='src/routes/api/conversations/[id]/tasks/+server.ts' \
+      --coverage.include='src/routes/api/conversations/[id]/tasks/[taskId]/assign/+server.ts' \
+      --coverage.include='src/routes/api/conversations/[id]/tasks/[taskId]/retry/+server.ts' \
+      --coverage.include='src/routes/api/conversations/[id]/tasks/[taskId]/assignments/[assignmentId]/start/+server.ts' \
+      --coverage.include='src/routes/api/conversations/[id]/tasks/[taskId]/assignments/[assignmentId]/stop/+server.ts' \
       --coverage.include='src/lib/dev-badge.ts' \
       --coverage.include='src/lib/components/DevBadge.svelte' \
       --coverage.include='src/lib/ez/page-context.ts' \

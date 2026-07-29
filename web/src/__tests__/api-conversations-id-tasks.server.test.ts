@@ -2,8 +2,10 @@
  * Server-handler unit tests for
  * /api/conversations/[id]/tasks (+server.ts).
  *
- * Covers auth (401), missing conv (404), ownership mismatch (404), and
- * happy path — both the snapshot-present and snapshot-missing shapes.
+ * Covers auth (401), missing conv (404), ownership mismatch (404), the
+ * happy path (snapshot-present and snapshot-missing shapes), and the
+ * read-failure split: a missing extension row is a real "no tasks" 200,
+ * while an unreadable snapshot is a 503.
  *
  * Mocks `$server/db/queries/conversations` + the task-tracking-host
  * bridge so we never touch the bundled extension or PGlite.
@@ -18,8 +20,16 @@ vi.mock("$server/db/queries/conversations", () => ({
   getConversation,
 }));
 
+class TaskTrackingNotInstalledError extends Error {
+  constructor() {
+    super("task-tracking extension not installed");
+    this.name = "TaskTrackingNotInstalledError";
+  }
+}
+
 vi.mock("$server/runtime/task-tracking-host", () => ({
   getTaskSnapshotForConversation,
+  TaskTrackingNotInstalledError,
 }));
 
 const { GET } = await import(
@@ -101,9 +111,21 @@ describe("GET /api/conversations/[id]/tasks", () => {
     expect(body.tasks.length).toBe(0);
   });
 
-  test("happy path: swallows snapshot lookup failure and returns empty", async () => {
+  // The panel REPLACES what it renders with this response, so a read
+  // failure must not be indistinguishable from "this conversation has no
+  // tasks" — answering 200 + [] would blank a populated task panel.
+  test("a snapshot read failure is a 503, NOT an empty snapshot", async () => {
     getConversation.mockResolvedValue({ id: "c1", userId: "u1" });
     getTaskSnapshotForConversation.mockRejectedValue(new Error("boom"));
+    const res = await GET(makeEvent({ locals: { user } }));
+    expect(res.status).toBe(503);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toContain("temporarily unavailable");
+  });
+
+  test("a missing extension row IS a real 'no tasks' 200", async () => {
+    getConversation.mockResolvedValue({ id: "c1", userId: "u1" });
+    getTaskSnapshotForConversation.mockRejectedValue(new TaskTrackingNotInstalledError());
     const res = await GET(makeEvent({ locals: { user } }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as { tasks: unknown[] };

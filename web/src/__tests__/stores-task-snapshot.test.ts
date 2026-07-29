@@ -1,20 +1,23 @@
 import { describe, test, expect, beforeEach } from "bun:test";
+import {
+	applyAssignmentUpdate,
+	applyLiveSnapshot,
+	emptyTaskSnapshotState,
+	type TaskSnapshotState,
+} from "$lib/chat/task-snapshot-store.js";
 
 /**
- * Tests for the `task:snapshot` event handling in
+ * Tests for the `task:snapshot` / `task:assignment_update` event handling in
  * web/src/lib/stores.svelte.ts plus the `getTaskSnapshot` / `setTaskSnapshot`
  * helpers.
  *
- * Why a test double instead of importing the real store? The real store
- * uses Svelte 5 runes (`$state(...)`), which require the Svelte runtime
- * that we don't have under `bun test`. The existing
- * `permission-routing-integration.test.ts` test uses the same pattern:
- * re-implement the handler logic around plain properties and exercise it
- * so any regression in handler wiring surfaces here.
- *
- * This test mirrors the handler body in stores.svelte.ts around lines
- * 709–718 (the `task:snapshot` case) and the `getTaskSnapshot` /
- * `setTaskSnapshot` exports around lines 314–320.
+ * Why a test double instead of importing the real store? The real store uses
+ * Svelte 5 runes (`$state(...)`), which need the Svelte runtime that
+ * `bun test` doesn't have. So the double stands in for the rune container —
+ * but the REDUCER it drives is the production one from
+ * `$lib/chat/task-snapshot-store.ts`, the same module the store calls. (It
+ * used to be a hand-copy of the handler body, which meant a regression in
+ * the real handler could leave these tests green.)
  */
 
 // ── Types mirrored from src/runtime/tools/task-tracking.ts ───────────────
@@ -82,84 +85,47 @@ interface WSEvent {
 // ── Test double for the store ────────────────────────────────────────────
 
 class TestStore {
-	/** Mirrors `store.taskSnapshots = $state<Record<string, TaskSnapshot>>({})` */
-	taskSnapshots: Record<string, TaskSnapshot> = {};
+	/** Mirrors `store.taskSnapshots` + `store.taskSeq` as one reducer state. */
+	private state: TaskSnapshotState = emptyTaskSnapshotState();
+	/** Mirrors `store.taskHydrationRequests`. */
+	hydrationRequests = 0;
 
-	/**
-	 * Mirrors the exported `getTaskSnapshot` helper:
-	 *   return store.taskSnapshots[conversationId];
-	 */
+	get taskSnapshots(): Record<string, TaskSnapshot> {
+		return this.state.snapshots as Record<string, TaskSnapshot>;
+	}
+
+	/** Mirrors the exported `getTaskSnapshot` helper. */
 	getTaskSnapshot(conversationId: string): TaskSnapshot | undefined {
 		return this.taskSnapshots[conversationId];
 	}
 
-	/**
-	 * Mirrors the exported `setTaskSnapshot` helper:
-	 *   store.taskSnapshots = {
-	 *     ...store.taskSnapshots,
-	 *     [snapshot.conversationId]: snapshot,
-	 *   };
-	 */
+	/** Mirrors the exported `setTaskSnapshot` helper. */
 	setTaskSnapshot(snapshot: TaskSnapshot): void {
-		this.taskSnapshots = {
-			...this.taskSnapshots,
-			[snapshot.conversationId]: snapshot,
-		};
+		this.commit(applyLiveSnapshot(this.state, snapshot as never));
 	}
 
 	/**
-	 * Mirrors the `task:snapshot` case body in the `initStores`
-	 * WebSocket subscriber. Accepts any WSEvent and only mutates state if
-	 * it is a well-formed snapshot event.
+	 * Mirrors the `task:snapshot` / `task:assignment_update` cases in the
+	 * `initStores` subscriber. Both delegate to the real reducer in
+	 * `$lib/chat/task-snapshot-store.ts` — the store does exactly this, so
+	 * these tests exercise production logic rather than a copy of it.
 	 */
 	handleWSEvent(event: WSEvent): void {
 		switch (event.type) {
-			case "task:snapshot": {
-				const snapshot = event.data as unknown as TaskSnapshot;
-				if (snapshot?.conversationId) {
-					this.taskSnapshots = {
-						...this.taskSnapshots,
-						[snapshot.conversationId]: snapshot,
-					};
-				}
+			case "task:snapshot":
+				this.commit(applyLiveSnapshot(this.state, event.data as never));
 				break;
-			}
-			case "task:assignment_update": {
-				const { conversationId, taskId, assignment, structuredResultError, structuredResultOverCap } = event.data as {
-					conversationId: string; taskId: string; assignment: TaskAssignment;
-					structuredResultError?: string; structuredResultOverCap?: boolean;
-				};
-				const schemaFailed = structuredResultError !== undefined && !structuredResultOverCap;
-				const merged: TaskAssignment = { ...assignment, schemaFailed };
-				const snapshot = this.taskSnapshots[conversationId];
-				if (snapshot) {
-					const task = snapshot.tasks.find(t => t.id === taskId);
-					if (task) {
-						const idx = (task.assignments ?? []).findIndex(a => a.id === merged.id);
-						if (idx >= 0) {
-							task.assignments[idx] = merged;
-						} else {
-							task.assignments = [...(task.assignments ?? []), merged];
-						}
-						if (
-							task.status !== "completed" &&
-							task.status !== "failed" &&
-							task.assignments.length > 0 &&
-							task.assignments.every(a => a.status === "completed" || a.status === "failed")
-						) {
-							const anyFailed = task.assignments.some(a => a.status === "failed");
-							task.status = anyFailed ? "failed" : "completed";
-							const ts = new Date().toISOString();
-							if (anyFailed) task.failedAt = task.failedAt ?? ts;
-							else task.completedAt = task.completedAt ?? ts;
-							if (snapshot.activeTaskId === task.id) snapshot.activeTaskId = undefined;
-						}
-						this.taskSnapshots = { ...this.taskSnapshots, [conversationId]: { ...snapshot } };
-					}
-				}
+			case "task:assignment_update":
+				this.commit(
+					applyAssignmentUpdate(this.state, event.data as never, new Date().toISOString()),
+				);
 				break;
-			}
 		}
+	}
+
+	private commit(result: { state: TaskSnapshotState; hydrateNeeded: boolean }): void {
+		this.state = result.state;
+		if (result.hydrateNeeded) this.hydrationRequests++;
 	}
 }
 
@@ -489,7 +455,7 @@ describe("setTaskSnapshot", () => {
 		};
 
 		function openTeamPanel(
-			panel: TeamPanelState, conversationId: string, agentConfigId: string, teamName: string,
+			_panel: TeamPanelState, conversationId: string, agentConfigId: string, teamName: string,
 		): TeamPanelState {
 			return { open: true, agentConfigId, teamName, conversationId, drillDownAgent: null };
 		}
