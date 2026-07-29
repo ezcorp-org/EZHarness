@@ -16,6 +16,19 @@
 invalidate part of C2 as specced in the plan — read it before designing
 anything.
 
+> ### ⚠ Phase 5 alone does not deliver the headline use case
+> "A user creates a job that fires Mondays 3am and runs the docs-factory
+> workflow" **does not work when C2 ships.** The cron fires, the handler runs,
+> and `ctx.workflows.run(...)` is **refused with `-32106`** — cron fires are
+> ownerless by construction (`src/extensions/schedule-daemon.ts:409-413`), and
+> every owner-scoped capability soft-fails from them.
+>
+> **C2 delivers the trigger. C3 (phase 7) delivers the ability to act on it.**
+> The phase order is right; the expectation is the thing to manage. Do not demo
+> phase 5 with a workflow-running job, and do not describe C2 as "users can
+> create jobs" without the qualifier — the person who reads that sentence will
+> write exactly that job and hit a refusal. See §1.5.
+
 ---
 
 ## 1. Findings against the real source
@@ -29,12 +42,15 @@ anything.
   `UPDATE … SET enabled = false WHERE extension_id = $1 AND slug NOT IN (valid) AND enabled = true`.
 - `:92-100` — when the grant declares **no** slugs, it disables **all** of them.
 
-A dynamic slug is by construction absent from the manifest and therefore from
-the clamped grant (`clamp-permissions.ts:766-777` intersects
-`submitted ∩ manifest`). So **every install, update, or permission change
-silently disables every user-created webhook trigger.** The failure is invisible
-— the row stays, the secret stays, delivery history stays, and the hook simply
-stops firing.
+**This is correct behaviour today.** Every slug that currently exists is
+manifest-declared, so disabling the non-granted ones is exactly what the
+reconciler is for. The hazard is **latent, and C2 activates it**: a dynamic slug
+is by construction absent from the manifest and therefore from the clamped grant
+(`clamp-permissions.ts:766-777` intersects `submitted ∩ manifest`), so **once
+dynamic rows exist, every install, update, or permission change silently
+disables every user-created webhook trigger.** The failure is invisible — the row
+stays, the secret stays, delivery history stays, and the hook simply stops
+firing.
 
 There is a second-order defect in the same function: `disabled` is counted from
 a pre-fetch snapshot at `:55` (because PGlite's UPDATE `rowCount` is
@@ -484,8 +500,16 @@ Each step leaves the tree green and the manifest path byte-identical.
 | 8 | Orphan sweep + lifecycle sweeps (§6). | Needs everything above to have something to reconcile. |
 | 9 | Hub trigger editor + `@evidence` spec. | |
 
-Steps 1–2 are worth landing even if the phase stopped there: they remove a
-latent data-loss hazard from the current system.
+Steps 1–2 are a **prerequisite, not an independent bug fix.** The hazard in §1.1
+is **latent, not present**: every webhook slug and cron row in existence today is
+manifest-declared, so `notInArray(slug, valid)` disabling non-granted slugs is
+the *intended* behaviour, correctly implemented. **C2 is what activates the
+hazard** — the first dynamic row is the first row that can be wrongly disabled.
+
+That is why steps 1–2 come first: not because they fix something broken now, but
+because landing them after any dynamic row exists opens a window in which a user
+job can be silently killed. There is nothing here worth landing on its own
+merits if the phase stops.
 
 ---
 
