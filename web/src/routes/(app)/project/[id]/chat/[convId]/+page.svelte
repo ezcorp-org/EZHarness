@@ -359,6 +359,7 @@
 				open={diffPanelOpen}
 				onclose={() => (diffPanelOpen = false)}
 				streaming={chrome.isStreaming}
+				conversationId={convId}
 			/>
 		{/snippet}
 	</ChatThread>

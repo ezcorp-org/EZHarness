@@ -46,8 +46,11 @@
 		?
 	</button>
 	{#if show}
+		<!-- pointer-events-none: the bubble is pure text with nothing to click,
+		     and at z-50 it otherwise swallows clicks on whatever sits under it
+		     (e.g. the review toolbar's own buttons). -->
 		<div
-			class="absolute {placedBelow ? 'top-full mt-2' : 'bottom-full mb-2'} left-1/2 z-50 w-64 -translate-x-1/2 whitespace-pre-line rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] px-3 py-2 text-xs leading-relaxed text-[var(--color-text-secondary)] shadow-lg"
+			class="pointer-events-none absolute {placedBelow ? 'top-full mt-2' : 'bottom-full mb-2'} left-1/2 z-50 w-64 -translate-x-1/2 whitespace-pre-line rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] px-3 py-2 text-xs leading-relaxed text-[var(--color-text-secondary)] shadow-lg"
 			role="tooltip"
 		>
 			{displayText}

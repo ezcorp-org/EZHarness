@@ -17,7 +17,7 @@ import { makeProject, makeConversation } from "./fixtures/data.js";
  *
  * The e2e scenarios below cover the user-visible outcomes that don't depend
  * on the push path: API-hydration rendering, multi-sub file aggregation,
- * empty state, and auto-expanded sections.
+ * empty state, and expanded file cards.
  */
 
 /**
@@ -55,7 +55,7 @@ function makeSubToolCall(overrides: {
 }
 
 test.describe("Diff Summary Panel — sub-agent edits", () => {
-	test("sub-agent edit to a file renders as a File Changes section in the parent's panel", async ({ page, mockApi }) => {
+	test("sub-agent edit to a file renders as a file card in the parent's review panel", async ({ page, mockApi }) => {
 		await mockApi({
 			projects: [proj],
 			conversations: [conv],
@@ -88,13 +88,13 @@ test.describe("Diff Summary Panel — sub-agent edits", () => {
 		await btn.click();
 		await expect(page.locator('[data-testid="diff-summary-panel"]')).toBeVisible({ timeout: 5000 });
 
-		// The sub-agent's edited file should show up as a File Changes section.
-		const fileSections = page.locator('[data-testid="diff-file-section"]');
+		// The sub-agent's edited file should show up as a review file card.
+		const fileSections = page.locator('[data-testid="diff-file-card"]');
 		await expect(fileSections).toHaveCount(1);
 		await expect(fileSections.first()).toContainText("src/feature-from-sub.ts");
 	});
 
-	test("edits from multiple sub-agents on different files produce multiple sections", async ({ page, mockApi }) => {
+	test("edits from multiple sub-agents on different files produce multiple file cards", async ({ page, mockApi }) => {
 		await mockApi({
 			projects: [proj],
 			conversations: [conv],
@@ -113,14 +113,14 @@ test.describe("Diff Summary Panel — sub-agent edits", () => {
 		await page.locator('[data-testid="diff-panel-btn"]').click();
 		await expect(page.locator('[data-testid="diff-summary-panel"]')).toBeVisible({ timeout: 5000 });
 
-		const fileSections = page.locator('[data-testid="diff-file-section"]');
+		const fileSections = page.locator('[data-testid="diff-file-card"]');
 		await expect(fileSections).toHaveCount(2);
 		const paths = await fileSections.allTextContents();
 		expect(paths.some((p) => p.includes("src/a.ts"))).toBe(true);
 		expect(paths.some((p) => p.includes("src/b.ts"))).toBe(true);
 	});
 
-	test("sub-agent edit content renders inside the expanded diff section", async ({ page, mockApi }) => {
+	test("sub-agent edit content renders inside the expanded file card", async ({ page, mockApi }) => {
 		await mockApi({
 			projects: [proj],
 			conversations: [conv],
@@ -143,9 +143,9 @@ test.describe("Diff Summary Panel — sub-agent edits", () => {
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`, { waitUntil: "networkidle" });
 		await page.locator('[data-testid="diff-panel-btn"]').click();
 
-		const section = page.locator('[data-testid="diff-file-section"]').first();
+		const section = page.locator('[data-testid="diff-file-card"]').first();
 		await expect(section).toBeVisible();
-		// Auto-expanded (< 10 files) so the diff body is in the DOM.
+		// Files open expanded (GitHub behaviour) so the diff body is in the DOM.
 		await expect(section).toHaveAttribute("data-expanded", "true");
 	});
 

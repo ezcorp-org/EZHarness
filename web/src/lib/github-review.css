@@ -1,0 +1,241 @@
+/*
+ * GitHub "Files changed" review skin.
+ *
+ * The review panel renders diff2html markup, so matching GitHub means
+ * repainting the `.d2h-*` surface with Primer's diff tokens rather than
+ * writing a new diff renderer. Everything is scoped under `.gh-review` so the
+ * inline `DiffCard` and chat markdown diffs keep their existing look.
+ *
+ * Colours are Primer's published diff/blob values (light: `#e6ffec`/`#ffebe9`
+ * bodies over `#ccffd8`/`#ffd7d5` gutters; dark: the same hues at 15%/30%
+ * alpha over `#0d1117`). Dark mode keys off the app's `.dark` class, not
+ * `prefers-color-scheme`, so it follows the in-app theme toggle.
+ */
+
+.gh-review {
+	--gh-canvas: #ffffff;
+	--gh-canvas-subtle: #f6f8fa;
+	--gh-canvas-inset: #f6f8fa;
+	--gh-border: #d1d9e0;
+	--gh-border-muted: #d8dee4;
+	--gh-fg: #1f2328;
+	--gh-fg-muted: #59636e;
+	--gh-accent: #0969da;
+	--gh-success-fg: #1a7f37;
+	--gh-danger-fg: #cf222e;
+	--gh-neutral-block: #d1d9e0;
+
+	--gh-diff-add-bg: #e6ffec;
+	--gh-diff-add-gutter: #ccffd8;
+	--gh-diff-del-bg: #ffebe9;
+	--gh-diff-del-gutter: #ffd7d5;
+	--gh-diff-add-word: #abf2bc;
+	--gh-diff-del-word: #ff8182;
+	--gh-diff-hunk-bg: #f6f8fa;
+	--gh-diff-empty-bg: #f6f8fa;
+
+	--gh-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+		"Liberation Mono", monospace;
+
+	background-color: var(--gh-canvas);
+	color: var(--gh-fg);
+}
+
+.dark .gh-review {
+	--gh-canvas: #0d1117;
+	--gh-canvas-subtle: #161b22;
+	--gh-canvas-inset: #010409;
+	--gh-border: #3d444d;
+	--gh-border-muted: #30363d;
+	--gh-fg: #e6edf3;
+	--gh-fg-muted: #9198a1;
+	--gh-accent: #4493f8;
+	--gh-success-fg: #3fb950;
+	--gh-danger-fg: #f85149;
+	--gh-neutral-block: #3d444d;
+
+	--gh-diff-add-bg: rgba(46, 160, 67, 0.15);
+	--gh-diff-add-gutter: rgba(46, 160, 67, 0.3);
+	--gh-diff-del-bg: rgba(248, 81, 73, 0.15);
+	--gh-diff-del-gutter: rgba(248, 81, 73, 0.3);
+	--gh-diff-add-word: rgba(46, 160, 67, 0.4);
+	--gh-diff-del-word: rgba(248, 81, 73, 0.4);
+	--gh-diff-hunk-bg: #161b22;
+	--gh-diff-empty-bg: #0d1117;
+}
+
+/* ── diff2html re-skin ───────────────────────────────────────────────── */
+
+.gh-review .d2h-wrapper {
+	background: transparent;
+	font-family: var(--gh-mono);
+	font-size: 12px;
+	line-height: 20px;
+	text-align: left;
+}
+
+/* The panel draws its own GitHub file header — hide diff2html's. */
+.gh-review .d2h-file-header {
+	display: none;
+}
+
+.gh-review .d2h-file-wrapper {
+	border: 0;
+	border-radius: 0;
+	margin-bottom: 0;
+}
+
+.gh-review .d2h-file-diff,
+.gh-review .d2h-file-side-diff {
+	overflow-x: auto;
+}
+
+.gh-review .d2h-diff-table {
+	border-collapse: collapse;
+	font-family: var(--gh-mono);
+	font-size: 12px;
+	line-height: 20px;
+	width: 100%;
+}
+
+/*
+ * diff2html ships `display: inline-block` on its line-number cells. That takes
+ * them out of table layout, so the newline between `</td>` and `<td>` renders
+ * as real inline whitespace — a ~23px dead gutter between the line numbers and
+ * the code that GitHub does not have. Forcing table-cell puts them back in the
+ * table's box model and the gap disappears.
+ */
+.gh-review .d2h-diff-table td {
+	border: 0;
+	display: table-cell;
+	padding: 0;
+	vertical-align: top;
+}
+
+/* Line-number gutters — right-aligned, muted, non-selectable. */
+.gh-review .d2h-code-linenumber,
+.gh-review .d2h-code-side-linenumber {
+	background-color: var(--gh-canvas);
+	border: 0;
+	border-right: 1px solid var(--gh-border-muted);
+	color: var(--gh-fg-muted);
+	cursor: default;
+	font-family: var(--gh-mono);
+	font-size: 12px;
+	line-height: 20px;
+	min-width: 3.25rem;
+	padding: 0 10px;
+	text-align: right;
+}
+
+.gh-review .d2h-code-line,
+.gh-review .d2h-code-side-line {
+	padding: 0 10px 0 20px;
+	width: auto;
+}
+
+.gh-review .d2h-code-line-prefix {
+	color: var(--gh-fg-muted);
+	margin-left: -12px;
+	padding-right: 4px;
+	width: 12px;
+}
+
+/* Added / removed rows: body tint + a stronger gutter tint, like GitHub. */
+.gh-review .d2h-ins {
+	background-color: var(--gh-diff-add-bg);
+	border-color: transparent;
+}
+.gh-review .d2h-del {
+	background-color: var(--gh-diff-del-bg);
+	border-color: transparent;
+}
+/* Intra-line word highlights. */
+.gh-review .d2h-code-line ins,
+.gh-review .d2h-code-side-line ins {
+	background-color: var(--gh-diff-add-word);
+	border-radius: 0.2em;
+	text-decoration: none;
+}
+.gh-review .d2h-code-line del,
+.gh-review .d2h-code-side-line del {
+	background-color: var(--gh-diff-del-word);
+	border-radius: 0.2em;
+	text-decoration: none;
+}
+
+/*
+ * diff2html paints "changed" (paired add/delete) rows a beige
+ * `--d2h-change-del-color`. GitHub has no such state — a changed line is just
+ * an add or a delete — so fold them back into the normal tints.
+ */
+.gh-review .d2h-file-diff .d2h-ins.d2h-change,
+.gh-review .d2h-files-diff .d2h-ins.d2h-change {
+	background-color: var(--gh-diff-add-bg);
+}
+.gh-review .d2h-file-diff .d2h-del.d2h-change,
+.gh-review .d2h-files-diff .d2h-del.d2h-change {
+	background-color: var(--gh-diff-del-bg);
+}
+
+/*
+ * Gutter tints, LAST and at (0,3,0) so they outrank both the row tints and
+ * the `.d2h-change` overrides above — a line-number cell always gets the
+ * stronger GitHub gutter colour, never the body tint.
+ */
+.gh-review .d2h-diff-table .d2h-ins .d2h-code-linenumber,
+.gh-review .d2h-diff-table .d2h-ins .d2h-code-side-linenumber,
+.gh-review .d2h-diff-table .d2h-ins.d2h-code-linenumber,
+.gh-review .d2h-diff-table .d2h-ins.d2h-code-side-linenumber {
+	background-color: var(--gh-diff-add-gutter);
+	color: var(--gh-fg);
+}
+.gh-review .d2h-diff-table .d2h-del .d2h-code-linenumber,
+.gh-review .d2h-diff-table .d2h-del .d2h-code-side-linenumber,
+.gh-review .d2h-diff-table .d2h-del.d2h-code-linenumber,
+.gh-review .d2h-diff-table .d2h-del.d2h-code-side-linenumber {
+	background-color: var(--gh-diff-del-gutter);
+	color: var(--gh-fg);
+}
+
+/* `@@ -1,3 +1,5 @@` hunk headers. */
+.gh-review .d2h-info {
+	background-color: var(--gh-diff-hunk-bg);
+	border-color: var(--gh-border-muted);
+	color: var(--gh-fg-muted);
+}
+/*
+ * A hunk header is metadata, not code — but the shared hljs pass runs over
+ * every `.d2h-code-line-ctn`, and auto-detection reads `@@ … @@` as a comment
+ * and italicises it. Flatten it back to GitHub's plain muted line.
+ */
+.gh-review .d2h-info,
+.gh-review .d2h-info * {
+	color: var(--gh-fg-muted);
+	font-style: normal;
+	font-weight: 400;
+}
+
+/* Split-view filler cells opposite an add/delete. */
+.gh-review .d2h-emptyplaceholder,
+.gh-review .d2h-code-side-emptyplaceholder {
+	background-color: var(--gh-diff-empty-bg);
+	border-color: var(--gh-border-muted);
+}
+
+/* Split view: two equal columns with a hairline between them. */
+.gh-review .d2h-files-diff {
+	display: flex;
+	width: 100%;
+}
+.gh-review .d2h-file-side-diff {
+	width: 50%;
+}
+.gh-review .d2h-file-side-diff + .d2h-file-side-diff {
+	border-left: 1px solid var(--gh-border-muted);
+}
+
+/* hljs paints on top of the diff tint — keep the tint visible. */
+.gh-review .d2h-code-line-ctn.hljs {
+	background: transparent;
+}

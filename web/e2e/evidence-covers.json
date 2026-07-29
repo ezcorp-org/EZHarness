@@ -18,6 +18,16 @@
     "web/src/routes/(app)/project/[id]/chat/[convId]/+page.svelte",
     "web/src/lib/components/WaterfallTimeline.svelte"
   ],
+  "web/e2e/code-review-panel-evidence.spec.ts": [
+    "web/src/lib/components/DiffSummaryPanel.svelte",
+    "web/src/lib/components/review/DiffStatBar.svelte",
+    "web/src/lib/components/review/ReviewFileCard.svelte",
+    "web/src/lib/components/review/ReviewFileTree.svelte",
+    "web/src/lib/github-review.css",
+    "web/src/lib/components/tool-cards/DiffCard.svelte",
+    "web/src/routes/(app)/project/[id]/chat/[convId]/+page.svelte",
+    "web/src/app.css"
+  ],
   "web/e2e/composer-suggestions.spec.ts": [
     "web/src/lib/components/SuggestionPopover.svelte",
     "web/src/lib/components/ChatInput.svelte",

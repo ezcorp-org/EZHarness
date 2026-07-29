@@ -31,6 +31,7 @@ Docs are grouped into six domain folders:
 ### chat
 
 - [Attachments](chat/attachments.md) — Multi-modal file uploads: capability-gated staging, MIME + magic-byte validation, on-disk storage under `.ezcorp/attachments/`, and per-model delivery into the LLM.
+- [Code Review Panel](chat/code-review-panel.md) — The chat's "Files changed" tab: every file a conversation touched, rendered as one GitHub-shaped pull-request review — file tree, sticky diff cards, split/unified, filter, and per-file "Viewed" ticks.
 - [Context-Window Compaction](chat/context-compaction.md) — Per-model history trimming that runs before every LLM call so a long chat fits the model's context window instead of dead-ending on `context_length_exceeded`.
 - [Conversations & Threading](chat/conversations.md) — Project-scoped conversations whose messages form a branching tree (edit/regenerate forks), with sub-conversations for agent runs and root-walk ownership.
 - [Knowledge Base (RAG)](chat/knowledge-base.md) — Project-scoped uploaded documents chunked and locally embedded into a pgvector index, retrieved by cosine similarity and injected into each chat turn (as an uncached block, outside the cached system+tools prefix).

@@ -102,6 +102,19 @@ passfail_files() {
     # coverage alone would not catch a red assertion.
     printf '%s\n' web/src/lib/graph/panel-logic.test.ts
     printf '%s\n' web/src/lib/graph/canvas-view.test.ts
+    # Code-review panel model / viewed-state / diff render — same shape and
+    # same reasoning as the graph trio above: 100%-gated pure TS whose
+    # overlapping fixtures mean coverage alone would not catch a red
+    # assertion, so they need P∩C membership to hard-gate inside the shards.
+    printf '%s\n' web/src/lib/diff-review/review-model.test.ts
+    printf '%s\n' web/src/lib/diff-review/viewed-files.test.ts
+    printf '%s\n' web/src/lib/diff-review/render-diff.test.ts
+    # In-app help copy. It imports `helpContent` directly (not a source scan),
+    # so it lands the string table in lcov — without which the patch-coverage
+    # gate fails "NO lcov data" the moment anyone edits a tooltip's wording.
+    # P∩C for the same reason as the trio above: its key-drift assertions must
+    # RED CI, and coverage alone would not catch a rotted one.
+    printf '%s\n' web/src/__tests__/help-content.test.ts
   } 2>/dev/null | sort -u
 }
 
@@ -159,6 +172,10 @@ coverage_host_files() {
       web/src/lib/graph/layout.test.ts \
       web/src/lib/graph/panel-logic.test.ts \
       web/src/lib/graph/canvas-view.test.ts \
+      web/src/lib/diff-review/review-model.test.ts \
+      web/src/lib/diff-review/viewed-files.test.ts \
+      web/src/lib/diff-review/render-diff.test.ts \
+      web/src/__tests__/help-content.test.ts \
       web/src/lib/__tests__/timeline-normalize.test.ts \
       web/src/lib/__tests__/format-duration.test.ts \
       web/src/lib/chat/__tests__/task-snapshot-store.test.ts \
