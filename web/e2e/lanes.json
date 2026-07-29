@@ -3,6 +3,7 @@
   "lanes": {
     "mock-gate": [
       "web/e2e/chat-graph.spec.ts",
+      "web/e2e/chat-prompt-arrow-nav-cards.spec.ts",
       "web/e2e/diff-panel-subagent.spec.ts",
       "web/e2e/diff-panel.spec.ts",
       "web/e2e/extension-author-provenance.spec.ts",
