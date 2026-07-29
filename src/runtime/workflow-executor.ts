@@ -2,6 +2,7 @@ import type {
   AgentEvents,
   AgentResult,
   ModelOverride,
+  WorkflowCursor,
   WorkflowDefinition,
   WorkflowModelBinding,
   WorkflowRun,
@@ -34,7 +35,9 @@ import {
   advanceWorkflowRunCursor,
   finalizeWorkflowRunRow,
   insertWorkflowRun,
+  loadStepResults,
   markWorkflowRunInBatch,
+  suspendWorkflowRun,
   upsertWorkflowStepRun,
   type TerminalWorkflowRunStatus,
 } from "../db/queries/workflow-runs";
@@ -93,6 +96,30 @@ export class WorkflowCursorWriteError extends Error {
         `${cause instanceof Error ? cause.message : String(cause)}`,
     );
     this.name = "WorkflowCursorWriteError";
+  }
+}
+
+/**
+ * A step deliberately PARKED the run — it is alive, answerable, and will
+ * be resumed. Never an error.
+ *
+ * Distinct from {@link WorkflowApprovalRequiredError} on purpose. That
+ * one means a `tool` step hit a consent gate a workflow structurally
+ * cannot satisfy: the run is parked AND dead, terminal at
+ * `awaiting_approval`. This one means the graph asked for a human on
+ * purpose and can continue once answered, so it terminalizes nothing —
+ * it produces `suspended`, the only non-terminal, non-`running` state.
+ *
+ * Reusing `awaiting_approval` for this would retroactively make every
+ * historical row of that status look resumable.
+ */
+export class WorkflowSuspendedError extends Error {
+  constructor(
+    readonly stepName: string,
+    readonly reason: string,
+  ) {
+    super(`Workflow suspended at step "${stepName}": ${reason}`);
+    this.name = "WorkflowSuspendedError";
   }
 }
 
@@ -257,8 +284,149 @@ export class WorkflowExecutor {
       });
     });
 
-    const stepResults = new Map<string, AgentResult>();
-    let prevResult: AgentResult | undefined;
+    return this.executeFrom({
+      workflow,
+      input,
+      workflowRun,
+      projectId,
+      userId,
+      signal,
+      // A fresh run starts at batch 0 with nothing completed and no
+      // `$prev` — the same shape a resume supplies from its cursor.
+      cursor: { batchIndex: 0, completedSteps: [], prevStepName: null },
+      stepResults: new Map(),
+    });
+  }
+
+  /**
+   * Continue a parked run from its recorded cursor.
+   *
+   * The caller supplies the definition (the executor has no registry of
+   * its own), which is also what makes drift detectable: the run recorded
+   * a hash of the graph it was authorized against, and a definition that
+   * no longer matches FAILS CLOSED rather than resuming into a different
+   * set of batches than the operator parked.
+   *
+   * Emits **no** `workflow:start`. That event PREPENDS a run to the
+   * client store, so re-emitting it would render one parked job as two.
+   * A resumed run emits only `workflow:step` and its terminal event.
+   *
+   * Returns the run, or a run-shaped `error` result when it refuses —
+   * never throws for an expected refusal, so a daemon driving many
+   * resumes is not written around exceptions.
+   */
+  async resumeWorkflow(
+    workflow: WorkflowDefinition,
+    row: {
+      id: string;
+      workflowName: string;
+      status: string;
+      input: Record<string, unknown> | null;
+      cursor: WorkflowCursor | null;
+      definitionHash: string | null;
+      projectId?: string | null;
+      userId?: string | null;
+      startedAt: Date;
+    },
+    signal?: AbortSignal,
+  ): Promise<WorkflowRun> {
+    const workflowRun: WorkflowRun = {
+      id: row.id,
+      workflowName: row.workflowName,
+      projectId: row.projectId ?? undefined,
+      status: "running",
+      startedAt: row.startedAt.getTime(),
+      steps: [],
+    };
+    const userId = row.userId ?? undefined;
+
+    const refuse = async (code: string, message: string): Promise<WorkflowRun> => {
+      workflowRun.status = "error";
+      workflowRun.finishedAt = Date.now();
+      workflowRun.result = { success: false, output: null, error: { code, message } };
+      // Through the STRICT path. This is the interaction the review looks
+      // for: a fail-closed decision recorded by a write that can be
+      // swallowed is not fail-closed at all — the row would stay
+      // `suspended` and the next tick would resume it anyway, forever.
+      await this.persistCritical("resume-refusal", () =>
+        finalizeWorkflowRunRow(workflowRun.id, "error", workflowRun.result),
+      );
+      this.bus.emit("workflow:error", { workflowRun, error: message, userId });
+      return workflowRun;
+    };
+
+    if (row.status !== "suspended") {
+      return refuse(
+        "not-resumable",
+        `Workflow run ${row.id} is ${row.status}, not suspended`,
+      );
+    }
+
+    // Drift. Until definitions are versioned this hash is the only guard,
+    // and it names what it compared so the refusal is actionable rather
+    // than a bare "changed".
+    const currentHash = workflowDefinitionHash(workflow);
+    if (row.definitionHash !== null && row.definitionHash !== currentHash) {
+      return refuse(
+        "definition-changed",
+        `Workflow "${row.workflowName}" changed while run ${row.id} was suspended ` +
+          `(parked against ${row.definitionHash.slice(0, 12)}, now ${currentHash.slice(0, 12)}); ` +
+          `its recorded position no longer identifies the same steps, so it cannot be resumed`,
+      );
+    }
+
+    // Rehydrate `$steps`. Fails closed on a completed step whose output
+    // never landed or was truncated — resuming without it would run the
+    // rest of the graph against a different `$steps` than the first half
+    // saw, which is a silent wrong answer rather than a loud failure.
+    const loaded = await loadStepResults(row.id);
+    if (!loaded.ok) {
+      return refuse("step-output-unavailable", `Cannot resume run ${row.id}: ${loaded.reason}`);
+    }
+
+    return this.executeFrom({
+      workflow,
+      input: row.input ?? {},
+      workflowRun,
+      projectId: row.projectId ?? undefined,
+      userId,
+      signal,
+      cursor: row.cursor ?? { batchIndex: 0, completedSteps: [], prevStepName: null },
+      stepResults: loaded.stepResults,
+    });
+  }
+
+  /**
+   * Execute a workflow from a cursor position — the shared body of a
+   * fresh run and a resumed one.
+   *
+   * Extracted so `resumeWorkflow` cannot drift from `runWorkflow`: the
+   * scope registration, cancellation plumbing, batch dispatch, terminal
+   * handling and teardown are all one copy. A resumed run differs only in
+   * what it is handed (a non-zero cursor and a rehydrated `stepResults`)
+   * and in what its caller emitted beforehand — notably NOT
+   * `workflow:start`, which would prepend a second card for one job.
+   */
+  private async executeFrom(ctx: {
+    workflow: WorkflowDefinition;
+    input: Record<string, unknown>;
+    workflowRun: WorkflowRun;
+    projectId?: string;
+    userId?: string;
+    signal?: AbortSignal;
+    cursor: WorkflowCursor;
+    stepResults: Map<string, AgentResult>;
+  }): Promise<WorkflowRun> {
+    const { workflow, input, workflowRun, projectId, userId, signal } = ctx;
+    const stepResults = ctx.stepResults;
+    // `$prev` for the batch we are about to run. On a fresh run there is
+    // none; on a resume it is rebuilt from the recorded step NAME, which
+    // is what reproduces the documented order-fragility exactly rather
+    // than inventing a graph-deterministic answer the original run never
+    // saw.
+    let prevResult = ctx.cursor.prevStepName
+      ? stepResults.get(ctx.cursor.prevStepName)
+      : undefined;
 
     // ── Tool-step scope (security) ───────────────────────────────────
     //
@@ -339,15 +507,28 @@ export class WorkflowExecutor {
       signal.addEventListener("abort", onAbort, { once: true });
     }
 
+    // ── Durable position, readable from the catch ────────────────────
+    //
+    // Declared outside the `try` because a suspend has to record where it
+    // parked, and the parking point is only known inside the loop.
+    //
+    // `completedSteps` is appended by each step AS IT SUCCEEDS rather
+    // than in a batch at the boundary. That matters for a partial batch:
+    // when a step parks the run, its siblings that already finished must
+    // already be in this list, or resume would re-run them. The order is
+    // therefore completion order, which is also the more honest record.
+    const completedSteps: string[] = [...ctx.cursor.completedSteps];
+    const alreadyDone = new Set(ctx.cursor.completedSteps);
+    let suspended = false;
+    let currentBatchIndex = ctx.cursor.batchIndex;
+
     try {
       if (externallyAborted) throw new WorkflowAbortError();
 
       const batches = this.resolveExecutionOrder(workflow.steps);
-      // Durable position, maintained alongside the in-memory state so a
-      // crash leaves a row that says where to pick up.
-      const completedSteps: string[] = [];
 
-      for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+      for (let batchIndex = ctx.cursor.batchIndex; batchIndex < batches.length; batchIndex++) {
+        currentBatchIndex = batchIndex;
         const batch = batches[batchIndex]!;
         if (externallyAborted) throw new WorkflowAbortError();
 
@@ -372,6 +553,31 @@ export class WorkflowExecutor {
         };
 
         const promises = batch.map(async (step) => {
+          // ── Partial-batch resume ────────────────────────────────────
+          //
+          // A run can park PART WAY THROUGH a batch: an `approval` step
+          // reached via `dependsOn` sits alongside siblings, and those
+          // siblings may already have succeeded before it asked for a
+          // human. Re-running them on resume would duplicate their side
+          // effects — the very thing this recovery model exists to
+          // prevent — so a step already recorded as complete is served
+          // from its persisted output instead of re-executed.
+          //
+          // Returning the rehydrated result (rather than skipping the
+          // slot) keeps `results` in batch order, which is what makes
+          // `results[results.length - 1]` still the last declared step
+          // and keeps `$prev` faithful.
+          //
+          // On a fresh run `alreadyDone` is empty and this is dead
+          // weight; if suspension only ever happened between batches it
+          // would likewise never fire. It is here because it is correct
+          // under BOTH readings, and the cost of being wrong is silent
+          // duplicate execution.
+          const restored = alreadyDone.has(step.name)
+            ? stepResults.get(step.name)
+            : undefined;
+          if (restored) return restored;
+
           const stepRun: WorkflowStepRun = {
             stepName: step.name,
             runId: "",
@@ -462,6 +668,13 @@ export class WorkflowExecutor {
             stepResults.set(step.name, result);
             stepRun.status = "success";
             stepOutput = result;
+            // Recorded the instant it succeeds, not at the boundary: a
+            // sibling that parks the run later in this same batch must
+            // not cause this step to be re-executed on resume.
+            if (!alreadyDone.has(step.name)) {
+              alreadyDone.add(step.name);
+              completedSteps.push(step.name);
+            }
             persistStep();
             return result;
           } catch (err) {
@@ -481,6 +694,9 @@ export class WorkflowExecutor {
             // ran. Stamp the distinct state so the persisted history says
             // "this is the step to approve", not "this step failed".
             if (err instanceof WorkflowApprovalRequiredError) stepRun.status = "awaiting_approval";
+            // A deliberate park is likewise not a failure: the step is
+            // waiting, and on resume this same row is updated in place.
+            if (err instanceof WorkflowSuspendedError) stepRun.status = "suspended";
             persistStep();
             fail(err);
             return undefined;
@@ -507,7 +723,8 @@ export class WorkflowExecutor {
         // through. Pinned by "cursor.prevStepName names the step whose
         // result IS $prev" in `workflow-run-persistence.test.ts`, so a
         // refactor that makes `prevResult` lazy fails loudly.
-        for (const step of batch) completedSteps.push(step.name);
+        // `completedSteps` is already current — each step appended
+        // itself on success — so the boundary only has to publish it.
         await this.persistCritical("cursor", () =>
           advanceWorkflowRunCursor(workflowRun.id, {
             batchIndex: batchIndex + 1,
@@ -558,6 +775,56 @@ export class WorkflowExecutor {
           error: { code: "awaiting_approval", message: err.message },
         };
         this.bus.emit("workflow:error", { workflowRun, error: err.message, userId });
+      } else if (err instanceof WorkflowSuspendedError) {
+        // NOT terminal. The run is alive and answerable; the row records
+        // where to pick up and nothing finalizes it.
+        //
+        // The cursor keeps this batch's index, so resume RE-ENTERS the
+        // batch the parked step belongs to — siblings that already
+        // finished are restored from their persisted output rather than
+        // re-run. `prevStepName` is carried through UNCHANGED: it is the
+        // `$prev` this batch already saw, and recomputing it would give
+        // the resumed half of the run a different `$prev` than the first
+        // half.
+        //
+        // Written through the STRICT path, because a swallowed suspend
+        // leaves the row at `running` while this process walks away —
+        // and the recovery sweep would then classify it by `run_phase`
+        // instead of parking it. If the write fails we fall through to a
+        // loud `cursor-write-failed` rather than returning a `suspended`
+        // object no row agrees with.
+        try {
+          await this.persistCritical("suspend", () =>
+            suspendWorkflowRun(workflowRun.id, {
+              reason: err.reason,
+              cursor: {
+                batchIndex: currentBatchIndex,
+                completedSteps: [...completedSteps],
+                prevStepName: ctx.cursor.prevStepName,
+              },
+            }),
+          );
+          suspended = true;
+          workflowRun.status = "suspended";
+          workflowRun.result = {
+            success: false,
+            output: prevResult?.output ?? null,
+            error: { code: "suspended", message: err.message },
+          };
+          // Deliberately NOT `finishedAt` — the run has not finished.
+          this.bus.emit("workflow:error", { workflowRun, error: err.message, userId });
+        } catch (writeErr) {
+          const message =
+            writeErr instanceof Error ? writeErr.message : String(writeErr);
+          workflowRun.status = "error";
+          workflowRun.finishedAt = Date.now();
+          workflowRun.result = {
+            success: false,
+            output: null,
+            error: { code: "cursor-write-failed", message },
+          };
+          this.bus.emit("workflow:error", { workflowRun, error: message, userId });
+        }
       } else if (err instanceof WorkflowCursorWriteError) {
         // The run may well have executed correctly up to here, but its
         // recorded position is not trustworthy — and a run whose
@@ -590,13 +857,30 @@ export class WorkflowExecutor {
       // real chat runs. A workflow's key is unique per run, so without
       // this the Map would grow by one dead entry per run forever.
       toolCallsThisTurn.delete(scopeKey);
-      await this.persistWrite("finalize", () =>
-        finalizeWorkflowRunRow(
-          workflowRun.id,
-          workflowRun.status as TerminalWorkflowRunStatus,
-          workflowRun.result,
-        ),
-      );
+      // Everything above is UNCONDITIONAL — a suspended run releases its
+      // scope, its listeners and its per-turn budget exactly like a
+      // terminal one, because this process is walking away from the run
+      // either way and nothing may outlive it.
+      //
+      // Only the finalize is conditional. `TerminalWorkflowRunStatus`
+      // correctly excludes `suspended`, and the row was already moved to
+      // `suspended` through the strict path; calling the finalizer here
+      // would try to terminalize a run that is still alive.
+      //
+      // Accepted consequence of the unconditional teardown: the per-turn
+      // tool-call budget resets across a suspend. It is a runaway-loop
+      // guard, not an accounting ledger — persisting it would make a
+      // long-parked run un-resumable for a reason no operator could
+      // diagnose.
+      if (!suspended) {
+        await this.persistWrite("finalize", () =>
+          finalizeWorkflowRunRow(
+            workflowRun.id,
+            workflowRun.status as TerminalWorkflowRunStatus,
+            workflowRun.result,
+          ),
+        );
+      }
     }
 
     return workflowRun;
@@ -925,6 +1209,10 @@ async function runToolStep(
         .executeToolCall(step.tool as string, resolvedInput, toolCtx.scopeKey, null),
     );
   } catch (err) {
+    // A deliberate park is not a dispatch failure and must reach the
+    // run's catch INTACT — wrapping it in a generic Error would
+    // terminalize a run that is merely waiting for a human.
+    if (err instanceof WorkflowSuspendedError) throw err;
     // `takeDenial()` is non-empty ONLY when a gate was refused for want
     // of a human during this dispatch, which pins the failure to the
     // capability that needed consent rather than a generic "denied".

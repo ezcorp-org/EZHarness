@@ -42,7 +42,9 @@ const {
   terminalizeOrphanedWorkflowRuns,
   upsertWorkflowStepRun,
 } = await import("../db/queries/workflow-runs");
-const { WorkflowExecutor } = await import("../runtime/workflow-executor");
+const { WorkflowExecutor, WorkflowSuspendedError } = await import(
+  "../runtime/workflow-executor"
+);
 const { workflowDefinitionHash } = await import("../runtime/workflow-definition-hash");
 
 beforeAll(async () => {
@@ -1383,5 +1385,253 @@ describe("loadStepResults — fail-closed rehydration", () => {
 
     expect(run.status).toBe("success");
     expect(await getWorkflowRunRow(run.id)).toBeUndefined();
+  });
+});
+
+// ── Suspend / resume (C4 build-order step 5) ──────────────────────
+//
+// Driven directly against the executor — no daemon, no HTTP surface.
+// Suspension is triggered by a `tool` step whose dispatcher throws the
+// sentinel, which is how an `approval` step will park once that kind
+// exists; the machinery under test is identical either way.
+describe("suspend and resume", () => {
+  function suspendingExecutor(parkOn: string, opts: { parkOnce?: boolean } = {}) {
+    let parked = false;
+    const bus = new EventBus<AgentEvents>();
+    const starts: string[] = [];
+    bus.on("workflow:start", ({ workflowRun }) => starts.push(workflowRun.id));
+    const agentExec = new AgentExecutor(loadAgentsStatic([]), bus);
+    const executed: string[] = [];
+    const wf = new WorkflowExecutor(agentExec, bus, {
+      persist: true,
+      toolRunnerFactory: () => ({
+        setCurrentUserId() {},
+        async executeToolCall(toolName: string) {
+          executed.push(toolName);
+          if (toolName === parkOn && !(opts.parkOnce && parked)) {
+            parked = true;
+            throw new WorkflowSuspendedError(parkOn, "awaiting-human");
+          }
+          return ok(`{"tool":"${toolName}"}`);
+        },
+      }),
+    });
+    return { wf, bus, starts, executed };
+  }
+
+  test("a parked run is suspended, not finished, and keeps its cursor", async () => {
+    const { wf } = suspendingExecutor("gate__ask");
+    const def: WorkflowDefinition = {
+      name: "parks",
+      description: "",
+      steps: [
+        { name: "prep", kind: "transform", output: { v: "1" } },
+        { name: "ask", kind: "tool", tool: "gate__ask" },
+      ],
+    };
+
+    const run = await wf.runWorkflow(def, {}, undefined, undefined);
+
+    expect(run.status).toBe("suspended");
+    // Alive, so it must NOT look finished.
+    expect(run.finishedAt).toBeUndefined();
+
+    const row = await getWorkflowRunRow(run.id);
+    expect(row?.status).toBe("suspended");
+    expect(row?.finishedAt).toBeNull();
+    expect(row?.suspendedReason).toBe("awaiting-human");
+    // Back at a boundary: nothing is in flight, which is what makes the
+    // row safe for another process to pick up.
+    expect(row?.runPhase).toBe("boundary");
+    // Parked re-entering batch 1 (the `ask` step's batch), with the
+    // earlier batch's work recorded.
+    expect(row?.cursor?.batchIndex).toBe(1);
+    expect(row?.cursor?.completedSteps).toEqual(["prep"]);
+  });
+
+  test("resume completes the run and does NOT re-emit workflow:start", async () => {
+    const { wf, bus, starts } = suspendingExecutor("gate__ask", { parkOnce: true });
+    const def: WorkflowDefinition = {
+      name: "parks-then-resumes",
+      description: "",
+      steps: [
+        { name: "prep", kind: "transform", output: { v: "1" } },
+        { name: "ask", kind: "tool", tool: "gate__ask" },
+      ],
+    };
+
+    const first = await wf.runWorkflow(def, {}, undefined, undefined);
+    expect(first.status).toBe("suspended");
+    expect(starts).toEqual([first.id]);
+
+    const resumedEvents: string[] = [];
+    bus.on("workflow:complete", ({ workflowRun }) => resumedEvents.push(workflowRun.id));
+
+    const row = await getWorkflowRunRow(first.id);
+    const resumed = await wf.resumeWorkflow(def, {
+      id: row!.id,
+      workflowName: row!.workflowName,
+      status: row!.status,
+      input: row!.input,
+      cursor: row!.cursor,
+      definitionHash: row!.definitionHash,
+      projectId: row!.projectId,
+      userId: row!.userId,
+      startedAt: row!.startedAt,
+    });
+
+    expect(resumed.status).toBe("success");
+    expect(resumedEvents).toEqual([first.id]);
+    // THE property: re-emitting `workflow:start` prepends a second card
+    // to the client store, rendering one parked job as two runs.
+    expect(starts).toEqual([first.id]);
+
+    expect((await getWorkflowRunRow(first.id))?.status).toBe("success");
+  });
+
+  test("resume does not re-execute a step the parked run already completed", async () => {
+    // The partial-batch property. `sibling` and `ask` share a batch; the
+    // sibling succeeds, then `ask` parks. Re-running the sibling on
+    // resume would duplicate its side effect.
+    const { wf, executed } = suspendingExecutor("gate__ask", { parkOnce: true });
+    const def: WorkflowDefinition = {
+      name: "partial-batch",
+      description: "",
+      steps: [
+        { name: "seed", kind: "transform", output: { v: "s" } },
+        { name: "sibling", kind: "tool", tool: "side__effect", dependsOn: ["seed"] },
+        { name: "ask", kind: "tool", tool: "gate__ask", dependsOn: ["seed"] },
+      ],
+    };
+
+    const first = await wf.runWorkflow(def, {}, undefined, undefined);
+    expect(first.status).toBe("suspended");
+    expect(executed.filter((t) => t === "side__effect")).toHaveLength(1);
+
+    const row = await getWorkflowRunRow(first.id);
+    // The sibling is recorded as complete even though its batch never
+    // reached a boundary — appended on success, not at the boundary.
+    expect(row?.cursor?.completedSteps).toContain("sibling");
+
+    const resumed = await wf.resumeWorkflow(def, {
+      id: row!.id,
+      workflowName: row!.workflowName,
+      status: row!.status,
+      input: row!.input,
+      cursor: row!.cursor,
+      definitionHash: row!.definitionHash,
+      projectId: row!.projectId,
+      userId: row!.userId,
+      startedAt: row!.startedAt,
+    });
+
+    expect(resumed.status).toBe("success");
+    // Still exactly one dispatch across BOTH halves of the run.
+    expect(executed.filter((t) => t === "side__effect")).toHaveLength(1);
+  });
+
+  test("resume fails closed when the definition changed, naming the drift", async () => {
+    const { wf } = suspendingExecutor("gate__ask", { parkOnce: true });
+    const def: WorkflowDefinition = {
+      name: "drifts",
+      description: "",
+      steps: [{ name: "ask", kind: "tool", tool: "gate__ask" }],
+    };
+    const first = await wf.runWorkflow(def, {}, undefined, undefined);
+    expect(first.status).toBe("suspended");
+
+    // An extra step moves every later batch — `cursor.batchIndex` would
+    // now address something the operator never parked.
+    const edited: WorkflowDefinition = {
+      ...def,
+      steps: [{ name: "inserted", kind: "transform", output: {} }, ...def.steps],
+    };
+
+    const row = await getWorkflowRunRow(first.id);
+    const resumed = await wf.resumeWorkflow(edited, {
+      id: row!.id,
+      workflowName: row!.workflowName,
+      status: row!.status,
+      input: row!.input,
+      cursor: row!.cursor,
+      definitionHash: row!.definitionHash,
+      projectId: row!.projectId,
+      userId: row!.userId,
+      startedAt: row!.startedAt,
+    });
+
+    expect(resumed.status).toBe("error");
+    expect(resumed.result?.error).toMatchObject({ code: "definition-changed" });
+    // The refusal must be actionable, not a bare "changed".
+    expect(String((resumed.result?.error as { message: string }).message)).toContain("drifts");
+    // And it is RECORDED — a fail-closed decision left only in memory
+    // would leave the row `suspended` and the daemon retrying forever.
+    const after = await getWorkflowRunRow(first.id);
+    expect(after?.status).toBe("error");
+  });
+
+  test("resume refuses a run that is not suspended", async () => {
+    const { wf } = suspendingExecutor("none");
+    const def: WorkflowDefinition = {
+      name: "already-done",
+      description: "",
+      steps: [{ name: "a", kind: "transform", output: { v: "1" } }],
+    };
+    const done = await wf.runWorkflow(def, {}, undefined, undefined);
+    expect(done.status).toBe("success");
+
+    const row = await getWorkflowRunRow(done.id);
+    const resumed = await wf.resumeWorkflow(def, {
+      id: row!.id,
+      workflowName: row!.workflowName,
+      status: row!.status,
+      input: row!.input,
+      cursor: row!.cursor,
+      definitionHash: row!.definitionHash,
+      projectId: row!.projectId,
+      userId: row!.userId,
+      startedAt: row!.startedAt,
+    });
+    expect(resumed.status).toBe("error");
+    expect(resumed.result?.error).toMatchObject({ code: "not-resumable" });
+  });
+
+  test("resume fails closed when a completed step's output is gone", async () => {
+    const { wf } = suspendingExecutor("gate__ask", { parkOnce: true });
+    const def: WorkflowDefinition = {
+      name: "lost-output",
+      description: "",
+      steps: [
+        { name: "prep", kind: "transform", output: { v: "1" } },
+        { name: "ask", kind: "tool", tool: "gate__ask" },
+      ],
+    };
+    const first = await wf.runWorkflow(def, {}, undefined, undefined);
+    expect(first.status).toBe("suspended");
+
+    // Exactly what a swallowed `persistWrite` leaves behind: the cursor
+    // says the step completed, the output never landed.
+    await db.execute(sql`
+      UPDATE workflow_step_runs SET output = NULL
+       WHERE workflow_run_id = ${first.id} AND step_name = 'prep'
+    `);
+
+    const row = await getWorkflowRunRow(first.id);
+    const resumed = await wf.resumeWorkflow(def, {
+      id: row!.id,
+      workflowName: row!.workflowName,
+      status: row!.status,
+      input: row!.input,
+      cursor: row!.cursor,
+      definitionHash: row!.definitionHash,
+      projectId: row!.projectId,
+      userId: row!.userId,
+      startedAt: row!.startedAt,
+    });
+
+    // Resuming would run the rest of the graph against a different
+    // `$steps` than the first half saw — a silent wrong answer.
+    expect(resumed.status).toBe("error");
+    expect(resumed.result?.error).toMatchObject({ code: "step-output-unavailable" });
   });
 });

@@ -9,10 +9,11 @@
  * container restart) left a row stuck at `status='running',
  * finished_at=NULL` forever, and the backlog could only be drained by
  * hand. Workflows ship with both from day one:
- *   • {@link finalizeWorkflowRunRow} — idempotent CAS on `status='running'`
+ *   • {@link finalizeWorkflowRunRow} — idempotent CAS on the live statuses
+ *     (`running`, `suspended`)
  *   • {@link terminalizeOrphanedWorkflowRuns} — boot sweep
  */
-import { and, eq, isNull, lt, or, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { getDb } from "../connection";
 import { workflowRuns, workflowStepRuns, type TruncatedStepOutput } from "../schema";
 import type { AgentResult, WorkflowCursor, WorkflowRunStatus } from "../../types";
@@ -218,6 +219,44 @@ export async function loadStepResults(
 }
 
 /**
+ * Park a run: `running` → `suspended`, recording where to resume.
+ *
+ * CAS on `status='running'` for the same reason
+ * {@link finalizeWorkflowRunRow} has one — a run the recovery sweep
+ * already claimed, or that was cancelled while this process was mid-step,
+ * must not be dragged back to `suspended`. Zero rows means someone else
+ * decided this run's fate first, and the caller treats that as a lost
+ * race rather than an error.
+ *
+ * `resumable` is deliberately NOT set here. It is the SWEEP's flag,
+ * describing whether a CRASHED run may continue; a deliberate park is
+ * resumable by construction and does not need a column to say so.
+ *
+ * Returns the number of rows transitioned (0 or 1).
+ */
+export async function suspendWorkflowRun(
+  workflowRunId: string,
+  opts: { reason: string; cursor: WorkflowCursor },
+): Promise<number> {
+  const rows = await getDb()
+    .update(workflowRuns)
+    .set({
+      status: "suspended",
+      suspendedReason: opts.reason,
+      cursor: opts.cursor,
+      // Back to a boundary: nothing is in flight once this lands, which
+      // is what makes the row safe for another process to pick up.
+      runPhase: "boundary",
+      // The parking process is releasing the run.
+      claimedBy: null,
+      leaseExpiresAt: null,
+    })
+    .where(and(eq(workflowRuns.id, workflowRunId), eq(workflowRuns.status, "running")))
+    .returning({ id: workflowRuns.id });
+  return rows.length;
+}
+
+/**
  * Terminalize a workflow run row.
  *
  * Idempotent + race-safe: the WHERE clause only matches a row still at
@@ -239,7 +278,20 @@ export async function finalizeWorkflowRunRow(
       finishedAt: sql`NOW()`,
       ...(result !== undefined ? { result } : {}),
     })
-    .where(and(eq(workflowRuns.id, workflowRunId), eq(workflowRuns.status, "running")))
+    .where(
+      and(
+        eq(workflowRuns.id, workflowRunId),
+        // Widened from `running` alone to cover the two ways a PARKED run
+        // legitimately ends: a cancel while it waits, and a resume that
+        // refuses (drift, lost step output). Without `suspended` here
+        // those refusals matched zero rows and were silently dropped —
+        // the run stayed parked and every later attempt refused again,
+        // forever. The zero-row-no-op contract and the "never clobber a
+        // richer terminal state" guarantee are unchanged: a run already
+        // terminal still matches nothing.
+        inArray(workflowRuns.status, ["running", "suspended"]),
+      ),
+    )
     .returning({ id: workflowRuns.id });
   return rows.length;
 }
