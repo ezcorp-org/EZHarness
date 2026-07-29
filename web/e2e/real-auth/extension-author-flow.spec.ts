@@ -9,9 +9,18 @@
  *      visible.
  *   4. Edit the manifest's description, wait past the 600ms debounce,
  *      and assert a PUT to the save endpoint fired.
- *   5. Click Install. Assert the redirect lands on
- *      `/extensions/<name>` and the extension row exists on the
- *      server (via the public list endpoint).
+ *   5. Click Install. Assert the redirect lands on the server's own
+ *      minted `redirectUrl` (`/extensions/<name>`).
+ *   6. Assert that page RENDERS the extension — not the "Extension not
+ *      found" branch — and that every sub-resource call it makes is
+ *      addressed by the RESOLVED row id, not by the name in the URL.
+ *   7. Assert the row exists server-side (public list endpoint) and that
+ *      `GET /api/extensions/<name>` resolves to it.
+ *
+ * Step 6 exists because steps 1-5 all passed while the destination was
+ * broken: the spec asserted the URL STRING, and `/extensions/<name>`
+ * rendered "Extension not found" for every extension ever installed
+ * through this flow. A URL is not a destination — assert what rendered.
  *
  * Cleanup: every test removes both the draft (if not yet consumed by
  * install) and the installed extension. Run in single-worker mode
@@ -64,8 +73,17 @@ test.describe("extension-author preview flow", () => {
 		extensionName = null;
 	});
 
-	test("seed → edit → install lands on /extensions/<name>", async ({ page, request }) => {
+	test("seed → edit → install lands on a RENDERED /extensions/<name>", async ({ page, request }) => {
 		extensionName = makeName("weather");
+
+		// Record every extension API call the browser makes. Step 6 uses this
+		// to prove the detail page addresses its (id-only) endpoints with the
+		// RESOLVED row id, not the name it arrived by.
+		const extensionApiCalls: string[] = [];
+		page.on("request", (req) => {
+			const p = new URL(req.url()).pathname;
+			if (p.startsWith("/api/extensions/")) extensionApiCalls.push(p);
+		});
 
 		// 1) Seed.
 		const seeded = await seedExtensionAuthorDraft({
@@ -124,11 +142,50 @@ test.describe("extension-author preview flow", () => {
 		const installResult = await installResp;
 		expect(installResult.ok()).toBe(true);
 		await navigation;
-		expect(new URL(page.url()).pathname).toBe(`/extensions/${extensionName}`);
 
-		// 6) The extension is visible to the server. We don't rely on
-		// the redirect-target page's UI (would couple this test to
-		// dashboard layout); the API list endpoint is the contract.
+		// The redirect target is the server's own minted deep-link, read off
+		// the install response — not a shape re-typed here.
+		const installBody = (await installResult.json()) as {
+			extensionId: string;
+			redirectUrl: string;
+		};
+		expect(installBody.redirectUrl).toBe(`/extensions/${extensionName}`);
+		expect(new URL(page.url()).pathname).toBe(installBody.redirectUrl);
+
+		// 6) THE URL IS NOT THE DESTINATION. This spec used to stop at the
+		// pathname assertion above, which is exactly why `/extensions/<name>`
+		// shipped rendering "Extension not found": the route resolved its
+		// param by id equality only, so the single link handed to the user
+		// after a successful install was dead. Assert the RENDERED page.
+		// Level 2 + exact: the tools list below renders each tool name as its
+		// own heading, and a scaffolded tool is named `<extension>-example`.
+		await expect(
+			page.getByRole("heading", { level: 2, name: extensionName, exact: true }),
+		).toBeVisible({ timeout: 15_000 });
+		await expect(page.getByText("Extension not found")).toHaveCount(0);
+		await expect(page.getByTestId("extension-settings-section")).toBeVisible();
+
+		// …and that the page canonicalised on the RESOLVED row id: every
+		// endpoint below the detail read is id-only server-side, so a
+		// name-addressed sub-resource means each action on this page is
+		// silently targeting an extension that does not exist.
+		const nameAddressed = extensionApiCalls.filter((p) =>
+			p.startsWith(`/api/extensions/${extensionName}/`),
+		);
+		expect(
+			nameAddressed,
+			"detail page called id-only endpoint(s) with the route name",
+		).toEqual([]);
+		// Guard against the check being vacuous — the page must actually have
+		// issued at least one id-addressed sub-resource call.
+		expect(
+			extensionApiCalls.some((p) =>
+				new RegExp(`^/api/extensions/${installBody.extensionId}/`).test(p),
+			),
+			`no sub-resource call used the resolved id; saw: ${extensionApiCalls.join(", ")}`,
+		).toBe(true);
+
+		// 7) The extension is visible to the server.
 		// `GET /api/extensions?name=<exact>` returns an array of zero
 		// or one row — server-side filter saves us paginating the full
 		// list and is the same shape the resolved-settings store uses.
@@ -137,6 +194,13 @@ test.describe("extension-author preview flow", () => {
 		const listBody = (await list.json()) as Array<{ name: string }>;
 		expect(Array.isArray(listBody)).toBe(true);
 		expect(listBody.some((e) => e.name === extensionName)).toBe(true);
+
+		// 8) The name-addressed detail read is the contract the install
+		// pipeline's `redirectUrl`/`openUrl` depend on — assert it directly,
+		// so a server-side regression is caught even if the UI changes.
+		const byName = await request.get(`/api/extensions/${encodeURIComponent(extensionName)}`);
+		expect(byName.ok()).toBe(true);
+		expect(((await byName.json()) as { id: string }).id).toBe(installBody.extensionId);
 
 		// The install consumed the draft — clear the local handle so
 		// afterEach doesn't try to DELETE an already-consumed row.

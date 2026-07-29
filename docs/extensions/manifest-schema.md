@@ -794,6 +794,45 @@ See [Reverse RPC: `ezcorp/append-message`](api-reference.md#reverse-rpc-ezcorpap
 
 ---
 
+### `workflows` -- `{ names: string[]; maxRunsPerHour?: number }`
+
+Grants the `ezcorp/workflows` reverse RPC (`Workflows.run(name, input)` from `@ezcorp/sdk/runtime`), which lets your extension **trigger runs of workflows it ships itself**. Ship the definitions as `*.workflow.yaml` files at the root of your extension directory; the host loads them at boot and registers each as **`<your-extension-name>:<name>`**, listed alongside the host's own workflows at `/workflows`.
+
+| Detail | |
+|--------|---|
+| **Type** | `{ names: string[]; maxRunsPerHour?: number }` |
+| **What it controls** | Which of your shipped workflows your code may start, and how often |
+| **`names`** | **Bare** workflow names — the `name:` field inside your YAML. Must match `/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/`; a name containing `:` is **rejected at admit time** |
+| **`maxRunsPerHour`** | Optional. The host's clamp always supplies one — default **20**, hard ceiling **500** |
+| **Default** | not granted (RPC returns `-32001`) |
+
+```typescript
+permissions: {
+  workflows: { names: ["nightly-digest"], maxRunsPerHour: 4 },
+},
+```
+
+```typescript
+import { Workflows } from "@ezcorp/sdk/runtime";
+await new Workflows().run("nightly-digest", { since: "2026-07-01" });
+```
+
+**You cannot reach another extension's — or the host's — workflows.** You pass the bare name; the host applies the `<extensionName>:` prefix itself, from the registry-resolved manifest name. Since the wire name may not contain `:`, there is simply no way to express a foreign workflow name. This is also why shipping a workflow can never shadow a host one: `demo-deterministic` in your YAML becomes `your-ext:demo-deterministic`.
+
+**Shipping a workflow is not a permission** — it is an asset, like declaring a tool, and it needs no grant. *Triggering* one from code is the privileged act, which is what this permission gates. (Conversely: an extension-shipped workflow is visible and runnable by any authenticated user from `/workflows`, exactly like the host's own.)
+
+**Rate ceiling exists because runs cost money.** A workflow can contain `agent` steps that invoke an LLM, so every grant carries a per-hour bound whether or not the author declared one.
+
+**Non-blocking.** The host starts the run and returns `{v: 1, workflow, started: true}` immediately — a graph with agent steps routinely outruns the 20s reverse-RPC budget. **No run id is returned** (the host would have to await the whole graph to learn it). Follow progress via the `workflow:start` / `workflow:step` / `workflow:complete` / `workflow:error` bus events — subscribe with `eventSubscriptions`; `workflow:start` carries both the run id and the workflow name.
+
+**Background fires are refused.** A cron- or webhook-driven call has no acting user, and a workflow run with no owner is both unattributed and invisible (SSE delivery is fail-closed on `userId`). The host returns `-32106` rather than inventing an owner and billing somebody else's provider credits. Trigger workflows from a user-initiated path.
+
+**Steps that need consent still ask.** A `tool` step inside the run that requires a sensitive capability (`shell`, file writes, extension install) hits the same permission gate as anywhere else and — because a workflow has no conversation to render a card in — terminalizes the run `awaiting_approval`. Holding `workflows` grants nothing your extension could not already reach; it only sequences calls that are each independently gated.
+
+See [Workflows](../features/orchestration/workflows.md) for the full subsystem reference.
+
+---
+
 ## Lifecycle Hooks
 
 Extensions subscribe to platform events by listing hook names in the **top-level** `lifecycleHooks: string[]` manifest field (not inside `permissions` — the `permissions.lifecycleHooks` boolean is informational for install approval and is not consulted at registration). Notifications are delivered as JSON-RPC notifications via `lifecycle/<hookName>` on stdin.

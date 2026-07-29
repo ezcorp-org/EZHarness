@@ -35,6 +35,8 @@
 		id: string;
 		name: string;
 		description?: string | null;
+		/** The row's `source` column — carried so `itemFilter` can see it. */
+		source?: string | null;
 		manifest?: { tools?: Array<{ name: string }> };
 	}
 
@@ -42,12 +44,21 @@
 		open,
 		initialSelected = [],
 		initialExtensionTools = {},
+		itemFilter,
 		onclose,
 		onsubmit,
 	}: {
 		open: boolean;
 		initialSelected?: string[];
 		initialExtensionTools?: ToolScopeMap;
+		/**
+		 * Optional predicate narrowing which installed rows are offerable
+		 * at all. Applied to the fetched list, so the empty state and the
+		 * selection count both reflect it. Used by the extension-author
+		 * composition panel to keep the VIRTUAL `builtin` row (native
+		 * tools — not a real extension) out of the dependency picker.
+		 */
+		itemFilter?: (ext: { id: string; source?: string | null }) => boolean;
 		onclose: () => void;
 		onsubmit: (ids: string[], extensionTools: ToolScopeMap) => void;
 	} = $props();
@@ -96,16 +107,19 @@
 				: Array.isArray(data?.extensions)
 					? data.extensions
 					: [];
-			extensions = list.map((e) => {
-				const ext = e as Record<string, unknown>;
-				return {
-					id: String(ext.id ?? ""),
-					name: String(ext.name ?? ext.id ?? ""),
-					description:
-						(ext.description as string | undefined) ?? null,
-					manifest: ext.manifest as ExtensionItem["manifest"],
-				};
-			});
+			extensions = list
+				.map((e) => {
+					const ext = e as Record<string, unknown>;
+					return {
+						id: String(ext.id ?? ""),
+						name: String(ext.name ?? ext.id ?? ""),
+						description:
+							(ext.description as string | undefined) ?? null,
+						source: (ext.source as string | undefined) ?? null,
+						manifest: ext.manifest as ExtensionItem["manifest"],
+					};
+				})
+				.filter((ext) => (itemFilter ? itemFilter(ext) : true));
 		} catch {
 			loadError = "Failed to load extensions";
 		} finally {

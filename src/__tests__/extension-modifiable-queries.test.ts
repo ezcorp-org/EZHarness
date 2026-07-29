@@ -124,6 +124,46 @@ describe("extension creator-modify queries", () => {
     expect(await getUserModifiableExtension("nope", OWNER)).toBeNull(); // missing
   });
 
+  // A manifest name only has to match /^[a-z0-9][a-z0-9-_.]{0,63}$/, which a
+  // `crypto.randomUUID()` string satisfies. So `or(id, name)` can match TWO
+  // owned+modifiable rows, and `rows[0]` would pick whichever the planner
+  // returned first. That matters more here than on the read-only detail route:
+  // this query feeds `modify_extension`, so the wrong row is reopened and
+  // re-installed OVER — a silent overwrite of a different extension.
+  test("getUserModifiableExtension: the id wins when a rival row is NAMED like it", async () => {
+    const { getUserModifiableExtension } = await import("../db/queries/extensions");
+
+    // Pin the target's id up front so the IMPOSTOR can be inserted FIRST.
+    // Order matters for this assertion to mean anything: an unordered
+    // `or(id, name)` returns both rows, and `rows[0]` is whatever the scan
+    // yields first. With the target inserted first the buggy code picks it by
+    // luck and the test passes either way — proving nothing. Inserting the
+    // impostor first makes `rows[0]` the WRONG row, so only a real id-wins
+    // tiebreak can satisfy this.
+    const targetId = "11111111-2222-4333-8444-555555555555";
+
+    const impostor = await seedExt({
+      name: targetId, // a name that is exactly the target's id
+      creatorUserId: OWNER,
+      modifiable: true,
+    });
+    const target = await seedExt({
+      id: targetId,
+      name: "e-target",
+      creatorUserId: OWNER,
+      modifiable: true,
+    });
+
+    // One reference, two matching owned+modifiable rows.
+    const got = await getUserModifiableExtension(targetId, OWNER);
+    expect(got?.id).toBe(target.id);
+    expect(got?.id).not.toBe(impostor.id);
+
+    // The impostor is still reachable by its own id — this is a tiebreak,
+    // not a blanket preference for one row.
+    expect((await getUserModifiableExtension(impostor.id, OWNER))?.id).toBe(impostor.id);
+  });
+
   test("setExtensionModifiable flips and persists the gate", async () => {
     const { getExtension, setExtensionModifiable } = await import(
       "../db/queries/extensions"

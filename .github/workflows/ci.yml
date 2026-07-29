@@ -69,10 +69,14 @@ jobs:
       - run: cd web && bunx svelte-check
 
   # vitest runs both *.component.test.ts (Svelte DOM) and *.server.test.ts
-  # (route-handler unit tests), 2-way sharded for wall clock (per-file costs
-  # dominate the 410-file suite). Verified locally: --shard=1/2 + --shard=2/2
-  # execute 205+205 = 410 test files / 2330+2068 = 4398 tests — exactly the
-  # unsharded run's counts.
+  # (route-handler unit tests), 3-way sharded for wall clock (per-file costs
+  # dominate the 427-file suite). Verified locally via `vitest list --json`:
+  # --shard=1/3 + 2/3 + 3/3 enumerate 143+142+142 = 427 test files and
+  # 1576+1514+1534 = 4624 tests — exactly the unsharded run's counts.
+  #
+  # Went 2 → 3 alongside the cov-shard 8 → 12 bump: at 2 shards this leg ran
+  # 168s, which would have become the run's critical path once the coverage
+  # leg dropped to ~140s. At 3 it lands ~115s, back under the coverage leg.
   test-web-shard:
     name: Web tests shard ${{ matrix.i }}
     runs-on: ubuntu-latest
@@ -80,8 +84,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Keep the /2 divisor in the run step in sync with this list length.
-        i: [1, 2]
+        # Keep the /3 divisor in the run step in sync with this list length.
+        i: [1, 2, 3]
     steps:
       - uses: actions/checkout@v4
       # Root deps too: web's *.server.test.ts import backend handlers from
@@ -90,7 +94,7 @@ jobs:
         with:
           web: "true"
           sync: "true"
-      - run: cd web && bunx --bun vitest run --shard=${{ matrix.i }}/2
+      - run: cd web && bunx --bun vitest run --shard=${{ matrix.i }}/3
 
   # Required check (branch protection): thin aggregator that KEEPS the pinned
   # required-check name over the sharded vitest matrix — green iff every
@@ -275,14 +279,27 @@ jobs:
       fail-fast: false
       matrix:
         # Keep SHARD_TOTAL below in sync with this list length.
-        # 8 shards: ~1410s of measured test work / 8 ≈ 176s + ~23s fixed
-        # overhead per shard ≈ 3:20 wall for the leg (was ~5:34 at 5).
+        # 12 shards: ~5510s of CI-measured per-file work (sum of wall times
+        # under the PARALLEL=4 pool) spread over 12 runners ≈ 460s of pool
+        # work ≈ 115s wall + ~25s fixed overhead ≈ 2:20 for the leg (was
+        # ~3:50 at 8).
+        #
         # Slices come from the LPT planner (scripts/shard-plan.ts over
-        # scripts/shard-timings.json) — est. per-shard skew <1s vs the old
-        # stride's ~35-40s. KNOB: 10 shards would shave ~30s more, but the
-        # org-level concurrent-job cap is unverified (18 jobs at t=0 today;
-        # free plan caps at 20) — verify before raising.
-        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+        # scripts/shard-timings.json). That manifest is now sourced from a
+        # REAL CI sweep (run 30387307634) rather than a dev box: the old
+        # 32-core numbers ran ~3.66x faster and unevenly (per-file CI/dev
+        # ratio p10 2.1x, median 3.3x, p90 4.6x), so the plan they produced
+        # looked balanced in dev units while leaving a measured ~93s spread
+        # across the real shards (131s fastest vs 224s slowest). Re-planned
+        # on CI weights the predicted spread is ~0s — worth ~50s of leg wall
+        # on its own, before the shard-count bump.
+        #
+        # Concurrency: VERIFIED, not assumed. Runs 30367934989 (23 jobs) and
+        # 30387307634 (24 jobs) both had every job start within 8s — no
+        # queueing. This repo is PUBLIC, so the 20-job free-plan cap does not
+        # apply. At 12 shards the workflow peaks at ~27 jobs; re-verify job
+        # start spread before pushing much past that.
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
@@ -292,7 +309,7 @@ jobs:
       - name: Run shard (tests + coverage)
         env:
           SHARD_INDEX: ${{ matrix.shard }}
-          SHARD_TOTAL: "8"
+          SHARD_TOTAL: "12"
           COV_OUT: coverage-shard
         run: bash scripts/test-coverage.sh
       # 3 days (not 1): keeps "Re-run failed jobs" on the coverage gate

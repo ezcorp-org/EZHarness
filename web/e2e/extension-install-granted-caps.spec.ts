@@ -45,6 +45,8 @@ function makeDetail() {
 				storage: true,
 				spawnAgents: { maxPerHour: 200, maxConcurrent: 10 },
 				eventSubscriptions: ["ez-code-factory:push-received", "run:complete"],
+				// W2 — the extension may start runs of the workflows it ships.
+				workflows: { names: ["gate", "review"], maxRunsPerHour: 12 },
 			},
 		},
 		grantedPermissions: {
@@ -85,6 +87,11 @@ test.describe("Extension install-granted capabilities", () => {
 		await expect(page.getByTestId("install-grant-spawn-agents")).toContainText("200/hr");
 		// One badge per declared event subscription.
 		await expect(page.getByTestId("install-grant-event")).toHaveCount(2);
+		// W2 — the workflow-trigger grant is surfaced here too, so an admin
+		// auditing an INSTALLED extension sees it without re-opening the
+		// enable dialog. Count + rate, since the names themselves are the
+		// enable dialog's job.
+		await expect(page.getByTestId("install-grant-workflows")).toContainText("2, 12/hr");
 		await expect(block).toContainText("Read-only");
 
 		// These are NOT editable toggles — no checkbox inside the read-only block.

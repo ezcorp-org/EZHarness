@@ -60,7 +60,14 @@ export interface LogEntry {
 export interface AgentResult {
 	success: boolean;
 	output: unknown;
-	error?: string;
+	/**
+	 * Plain string for most failures; a `{ code, message }` object for the
+	 * ones the runtime tags — `cancelled` and `awaiting_approval`. The
+	 * server type (`src/types.ts:AgentResult`) has always been this union;
+	 * declaring it `string` here was a lie that forced every consumer to
+	 * hand-roll an `"message" in err` narrowing behind a cast.
+	 */
+	error?: string | { code: string; message: string };
 }
 
 export interface Run {
@@ -947,7 +954,7 @@ export async function updateAgentConfig(
 
 // ── Workflows ───────────────────────────────────────────────────────
 
-export type WorkflowStepKind = "agent" | "transform" | "gate";
+export type WorkflowStepKind = "agent" | "transform" | "gate" | "tool";
 
 export interface WorkflowLoopConfig {
 	maxIterations: number;
@@ -963,6 +970,8 @@ export interface WorkflowStep {
 	retries?: number;
 	output?: Record<string, string>;
 	condition?: unknown;
+	/** Runtime-namespaced extension tool for a `kind: "tool"` step. */
+	tool?: string;
 	dependsOn?: string[];
 	loop?: WorkflowLoopConfig;
 }

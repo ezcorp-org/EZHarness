@@ -8,10 +8,18 @@ import type {
   ToolDefinition,
 } from "./types";
 import { validateEntitiesArray } from "./entities/clamp";
-import { parseSource } from "./source-parser";
+import { KNOWN_CARD_TYPES, KNOWN_CARD_TYPES_SORTED } from "./card-types";
+import { validateDependencySource } from "./dependency-source";
 // PURE import (no DB chain) — the scope-name grammar shared with the
 // storage layer; see src/extensions/rbac-scopes.ts.
 import { CORE_RBAC_SCOPES, validateRbacScopeDeclarations } from "./rbac-scopes";
+// PURE import (constants + regex only, no DB / no fs / no yaml) — the ONE
+// definition of the extension-shipped workflow-name grammar, shared with the
+// asset loader and the `ezcorp/workflows` handler so they cannot drift.
+import {
+  EXTENSION_WORKFLOW_SEPARATOR,
+  WORKFLOW_NAME_RE,
+} from "../runtime/workflow-name";
 export { inferPackageType };
 
 const SEMVER_REGEX = /^\d+\.\d+\.\d+$/;
@@ -57,6 +65,20 @@ function validateToolsArray(tools: unknown, errors: string[]): void {
     }
     if (t.suggestExamples !== undefined) {
       validateSuggestExamples(`tools[${i}].suggestExamples`, t.suggestExamples, errors);
+    }
+    // `cardType` selects a frontend component. An unknown value used to
+    // install fine and then silently render as the generic collapsed
+    // card, so a typo cost the author their custom UI with no error to
+    // explain it. Reject it here, where the author can still fix it.
+    if (t.cardType !== undefined) {
+      if (typeof t.cardType !== "string") {
+        errors.push(`tools[${i}].cardType must be a string`);
+      } else if (!KNOWN_CARD_TYPES.has(t.cardType)) {
+        errors.push(
+          `tools[${i}].cardType "${t.cardType}" is not a card the UI can ` +
+            `render (known: ${KNOWN_CARD_TYPES_SORTED.join(", ")})`,
+        );
+      }
     }
   }
 }
@@ -883,6 +905,42 @@ function validatePermissionsBlock(perms: unknown, errors: string[]): void {
     }
   }
 
+  // workflows (W2): `{names: string[], maxRunsPerHour?: number}`. Each name
+  // is the BARE name declared inside one of the extension's own
+  // `*.workflow.yaml` assets, so it must satisfy the SAME grammar the
+  // extension-workflow loader enforces (`WORKFLOW_NAME_RE`) — in particular
+  // it must NOT contain the `:` namespace separator, which would let a
+  // manifest name another extension's (or a host) workflow. Rejecting here
+  // is defense-in-depth: the handler re-namespaces host-side, and the clamp
+  // drops anything undeclared.
+  if (p.workflows !== undefined) {
+    if (!p.workflows || typeof p.workflows !== "object" || Array.isArray(p.workflows)) {
+      errors.push("permissions.workflows must be an object {names, maxRunsPerHour?}");
+    } else {
+      const w = p.workflows as Record<string, unknown>;
+      if (!Array.isArray(w.names) || w.names.length === 0) {
+        errors.push("permissions.workflows.names must be a non-empty array of workflow names");
+      } else {
+        for (let i = 0; i < w.names.length; i++) {
+          const n = w.names[i];
+          if (typeof n !== "string" || !WORKFLOW_NAME_RE.test(n)) {
+            errors.push(
+              `permissions.workflows.names[${i}] must be a bare workflow name matching ${WORKFLOW_NAME_RE.source} (no "${EXTENSION_WORKFLOW_SEPARATOR}" namespace separator)`,
+            );
+          }
+        }
+      }
+      if (
+        w.maxRunsPerHour !== undefined &&
+        (typeof w.maxRunsPerHour !== "number" ||
+          !Number.isFinite(w.maxRunsPerHour) ||
+          w.maxRunsPerHour <= 0)
+      ) {
+        errors.push("permissions.workflows.maxRunsPerHour must be a positive number");
+      }
+    }
+  }
+
   // Booleans where declared.
   for (const field of ["shell", "storage", "taskEvents", "loopEvents"] as const) {
     if (p[field] !== undefined && typeof p[field] !== "boolean") {
@@ -1379,16 +1437,17 @@ export function validateDependencies(
     if (!s.source || typeof s.source !== "string") {
       errors.push(`dependencies.${name}.source is required and must be a string`);
     } else {
-      // Dependency sources drive `git clone` directly (and dependencies
-      // inherit the root install's permission grants), so reject anything
-      // the source parser wouldn't accept — including option-shaped or
-      // metacharacter-laden refs — at manifest-validation time.
-      try {
-        parseSource(s.source);
-      } catch (err) {
-        errors.push(
-          `dependencies.${name}.source is invalid: ${(err as Error).message}`,
-        );
+      // A CLONEABLE dependency source drives `git clone` directly (and
+      // dependencies inherit the root install's permission grants), so
+      // anything the source parser wouldn't accept — including
+      // option-shaped or metacharacter-laden refs — is still rejected
+      // here. The only additional forms admitted are the CLOSED,
+      // explicit `PREINSTALLED_DEPENDENCY_SOURCES` set, which is never
+      // handed to git at all (it resolves by name against the installed
+      // set). See `dependency-source.ts` for the full rationale.
+      const err = validateDependencySource(s.source);
+      if (err !== null) {
+        errors.push(`dependencies.${name}.source is invalid: ${err}`);
       }
     }
 

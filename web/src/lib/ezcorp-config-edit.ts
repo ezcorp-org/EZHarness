@@ -121,7 +121,34 @@ function stripManagedDepBlock(source: string): string {
   return source.slice(0, lineStart) + source.slice(lineEnd);
 }
 
-// ── Unresolved-dependency warning (§5.3 — non-fatal) ────────────────
+// ── What the dependency picker may emit ─────────────────────────────
+
+/**
+ * Re-exported from `./dependency-picker.js`, which owns the picker's
+ * vocabulary (which installed rows are dependable, and what `source`
+ * each declares). Kept exported HERE so every existing importer — the
+ * composition panel, its component tests — is unchanged.
+ *
+ * The split exists because the backend's lockstep test has to CALL
+ * `dependencySourceFor` from the coverage-instrumented bun pool;
+ * importing it from this module dragged this whole file into that
+ * shard's instrumentation as a zero-hit record, which merge-lcov then
+ * unioned with the vitest leg's clean 100%. See the header of
+ * `dependency-picker.ts` for the full account.
+ */
+export {
+  PICKER_DEPENDENCY_SOURCES,
+  VIRTUAL_BUILTIN_EXTENSION_ID,
+  dependencySourceFor,
+  isPickableDependency,
+  toDependencyEntry,
+} from "./dependency-picker.js";
+export type {
+  PickableExtension,
+  PickerDependencySource,
+} from "./dependency-picker.js";
+
+// ── Unresolved-dependency warning (§5.3) ────────────────────────────
 
 /** An installed extension, as far as dependency resolution cares. */
 export interface InstalledExtensionRef {
@@ -132,8 +159,14 @@ export interface InstalledExtensionRef {
 /**
  * Which declared dependencies CANNOT be resolved against the installed
  * set — by NAME (the dominant unresolvable case; `buildDepRoutes`
- * silently drops these at runtime). This is a non-fatal AUTHORING /
- * install warning, NOT an enforcement: install still proceeds.
+ * silently drops these at runtime).
+ *
+ * This is the AUTHORING-time warning. For everything this panel writes
+ * (always a PREINSTALLED source — see `PICKER_DEPENDENCY_SOURCES`) it is
+ * also a preview of a hard install failure: `installAuthoredDraft`
+ * refuses a `bundled`/`local` dependency that is not installed rather
+ * than shipping an extension whose cross-extension calls would all be
+ * denied at runtime with no explanation.
  *
  * Name-based to mirror the runtime's first resolution step (it matches a
  * candidate by `name` then checks the version range); a declared name

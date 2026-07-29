@@ -47,6 +47,12 @@ export type CapabilityKind =
   // `POST /api/hooks/:extensionId/:slug` onto the delivery queue only for
   // slugs whose cap the extension holds; undeclared slugs are dropped.
   | "ezcorp:webhooks:receive"
+  // Trigger a run of a workflow the extension SHIPS (W2). One cap per
+  // granted BARE workflow name (value = the bare name), mirroring
+  // `ezcorp:events:subscribe` / `ezcorp:webhooks:receive`. The host
+  // namespaces the name to `<extensionName>:<name>` before resolving, so
+  // the cap value can only ever address the extension's own asset.
+  | "ezcorp:workflows:run"
   // Install an authored extension draft. Sensitive + ALWAYS prompts
   // (even for the bundled extension-author) and is NEVER persisted as
   // an always-allow grant — see the carve-outs in
@@ -85,6 +91,33 @@ export const SENSITIVE_KINDS: ReadonlySet<CapabilityKind> = new Set<CapabilityKi
   // prompts every time and is never an always-allow grant.
   "ezcorp:extension:modify",
 ]);
+
+// DELIBERATE OMISSION — `ezcorp:workflows:run` is NOT sensitive.
+//
+// Three reasons, in decreasing order of weight:
+//
+//   1. It cannot launder a sensitive capability. A workflow run registers
+//      its own non-interactive scope (`beginNonInteractiveScope` in
+//      `workflow-executor.ts`), so any `tool` step inside it that needs
+//      `shell` / `fs.write` / `ezcorp:extension:install` still hits the PDP
+//      and still fails CLOSED — the run terminalizes `awaiting_approval`
+//      rather than executing. Triggering a workflow therefore grants
+//      strictly nothing the extension could not already reach; it only
+//      sequences calls that are each independently gated.
+//   2. Consent is already collected, per-name, at install. The grant is
+//      `{names, maxRunsPerHour}` clamped to the manifest declaration, so an
+//      admin approves a FIXED, reviewable list of workflows the extension
+//      itself ships — not an open-ended "run anything" verb. `prompt` adds
+//      no information a reviewer didn't already have.
+//   3. Always-prompt would make the capability unusable for its only
+//      purpose. The `ezcorp/workflows` handler refuses ownerless (cron /
+//      webhook) fires outright, and the remaining in-chat path would gain a
+//      modal per trigger for a call whose blast radius is already bounded by
+//      (1) and (2).
+//
+// The bound that DOES exist is the per-hour rate limit on the grant, which
+// caps LLM spend from `agent` steps. If a future step kind can reach a side
+// effect that is NOT independently PDP-gated, revisit this decision first.
 
 /** Lowercase, trimmed key for set-keyed comparison. */
 function keyOf(c: Capability): string {
@@ -175,6 +208,13 @@ export function firstMissingCapability(
 export function capabilityDeclarationToSet(
   decl: CapabilityDeclaration | undefined,
   _args: Record<string, unknown>,
+  /** Acting user, for a `$USER` path segment. Load-bearing: a v2
+   *  manifest's per-tool declaration is SYNTHESIZED from the
+   *  extension-wide grant by `migrateManifestV2ToV3`, so a
+   *  user-partitioned grant lands here too. Expand it with the same
+   *  identity the granted side uses or the needed cap can never be
+   *  covered and every call is denied. */
+  actingUserId?: string | null,
 ): CapabilitySet {
   if (!decl) return [];
   const caps: Capability[] = [];
@@ -194,7 +234,7 @@ export function capabilityDeclarationToSet(
       // PDP's needed↔granted comparison stays consistent. A tool that
       // declares `filesystem.paths: ["$CWD"]` for its required cap must
       // match a grant for the same logical root, not the literal string.
-      const expanded = expandGrantPrefix(path);
+      const expanded = expandGrantPrefix(path, actingUserId);
       // Default to read+list+stat when no mode is set (most permissive
       // read-only), matching the migration's read-only default.
       if (wantsRead || modes.length === 0) {
@@ -416,6 +456,34 @@ export function intersectPermissions(
     if (list.length > 0) out.webhooks = list;
   }
 
+  // workflows (W2) — name-list intersection + the NARROWER rate ceiling.
+  // Same clip semantics as eventSubscriptions/webhooks: a workflow name
+  // survives only when BOTH sides declare it, so a child conversation (or a
+  // bundled-ceiling clamp) can never introduce a trigger the other side
+  // lacks. An empty intersection drops the grant entirely rather than
+  // leaving a `{names: []}` husk that would read as "granted" to a
+  // presence check. `maxRunsPerHour` is REQUIRED on both sides by the
+  // granted type, so `Math.min` here can never see `undefined` — that is
+  // exactly the `Math.min(NaN, …)` trap documented on `schedule` in
+  // `bundled-ceiling.ts`, closed at the type level.
+  if (a.workflows && b.workflows) {
+    const bNames = new Set(b.workflows.names);
+    const seen = new Set<string>();
+    const names: string[] = [];
+    for (const n of a.workflows.names) {
+      if (bNames.has(n) && !seen.has(n)) {
+        seen.add(n);
+        names.push(n);
+      }
+    }
+    if (names.length > 0) {
+      out.workflows = {
+        names,
+        maxRunsPerHour: Math.min(a.workflows.maxRunsPerHour, b.workflows.maxRunsPerHour),
+      };
+    }
+  }
+
   // ── Phase 53 capability tiers (`llm`, `memory`, `lessons`, `schedule`).
   // These survive when both sides declare them. Bundled extension
   // ceilings are written in `bundled-ceiling.ts` to mirror the install
@@ -540,6 +608,7 @@ export function intersectPermissions(
       (key === "appendMessages" && out.appendMessages) ||
       (key === "eventSubscriptions" && out.eventSubscriptions) ||
       (key === "webhooks" && out.webhooks) ||
+      (key === "workflows" && out.workflows) ||
       (key === "llm" && out.llm) ||
       (key === "memory" && out.memory) ||
       (key === "lessons" && out.lessons) ||
@@ -635,6 +704,11 @@ function intersectSearchProviders(
  */
 export function grantsToCapabilitySet(
   grants: ExtensionPermissions | null,
+  /** The user the authorization is for. A `$USER` grant segment expands
+   *  to it (see `permissions.ts:expandGrantPrefix`); omitting it makes
+   *  such a grant match nothing, so the PDP denies. Grants without
+   *  `$USER` are unaffected. */
+  actingUserId?: string | null,
 ): CapabilitySet {
   if (!grants) return [];
   const caps: Capability[] = [];
@@ -655,7 +729,7 @@ export function grantsToCapabilitySet(
       // fs-handler's own pre-PDP `checkFilesystemPermission` already
       // approved (which DOES expand `$CWD`). Expanding here closes the
       // mirror gap so the PDP and fs-handler agree on what `$CWD` means.
-      const expanded = expandGrantPrefix(path);
+      const expanded = expandGrantPrefix(path, actingUserId);
       caps.push({ kind: "fs.read", value: expanded });
       caps.push({ kind: "fs.list", value: expanded });
       caps.push({ kind: "fs.stat", value: expanded });
@@ -702,6 +776,18 @@ export function grantsToCapabilitySet(
   if (grants.webhooks) {
     for (const slug of grants.webhooks) {
       caps.push({ kind: "ezcorp:webhooks:receive", value: slug });
+    }
+  }
+
+  // One cap PER GRANTED WORKFLOW NAME — not a single boolean
+  // `ezcorp:workflows:run`. A boolean would make the PDP's needed↔granted
+  // subset check pass for ANY name once the extension held the capability at
+  // all, which would defeat the point of clamping the grant to a specific,
+  // admin-reviewed list. The value is the BARE name; the handler namespaces
+  // it host-side before resolving.
+  if (grants.workflows) {
+    for (const name of grants.workflows.names) {
+      caps.push({ kind: "ezcorp:workflows:run", value: name });
     }
   }
 
@@ -786,6 +872,9 @@ function customToKind(key: string): CapabilityKind | null {
     case "webhooks":
     case "ezcorp:webhooks:receive":
       return "ezcorp:webhooks:receive";
+    case "workflows":
+    case "ezcorp:workflows:run":
+      return "ezcorp:workflows:run";
     default:
       return null;
   }

@@ -426,7 +426,11 @@ export async function cli(args: string[]): Promise<void> {
       }
 
       const { bus, executor, disconnect } = await setupRunHarness(agentsDir);
-      const workflowExec = new WorkflowExecutor(executor, bus);
+      // The harness opened the DB, so run history is persisted here too —
+      // a CLI/CI workflow run shows up in `workflow_runs` exactly like a
+      // UI-fired one (and is drained by the same boot sweep if the process
+      // is killed mid-run).
+      const workflowExec = new WorkflowExecutor(executor, bus, { persist: true });
 
       const yamlWorkflows = await loadYamlWorkflows(agentsDir);
       const dbWorkflows = await loadDbWorkflows();
@@ -443,11 +447,17 @@ export async function cli(args: string[]): Promise<void> {
       const run = await workflowExec
         .runWorkflow(workflow, parsed.input ?? {}, projectId)
         .finally(disconnect);
+      // `awaiting_approval` needs no special-casing here: the printed
+      // result already carries `{"code":"awaiting_approval","message":
+      // "Step \"…\" requires interactive approval …"}`, which names the
+      // blocking step and the capability.
       console.log(JSON.stringify(run.result, null, 2));
-      // Exit with a meaningful code — 0 on success, 1 on error/cancelled
-      // (loud-failure semantics). This also releases the run harness's live
-      // handles (event bus, executor, DB) that would otherwise keep the event
-      // loop alive and hang the process after the result is printed.
+      // Exit with a meaningful code — 0 on success, 1 on
+      // error/cancelled/awaiting_approval (loud-failure semantics; an
+      // approval-blocked run is NOT a success). This also releases the run
+      // harness's live handles (event bus, executor, DB) that would
+      // otherwise keep the event loop alive and hang the process after the
+      // result is printed.
       process.exit(run.status === "success" ? 0 : 1);
       break;
     }

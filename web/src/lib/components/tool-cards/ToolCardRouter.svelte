@@ -24,6 +24,7 @@
 	import EzToolResultCard from "$lib/components/ez/EzToolResultCard.svelte";
 	import { parseInstallCardResult } from "./ez-install-card-logic.js";
 	import { parseProposeCardResult } from "./ez-propose-card-logic.js";
+	import { parseDraftCardResult } from "./ez-draft-card-logic.js";
 	import PreviewConsentCard from "./PreviewConsentCard.svelte";
 	import { parseConsentCardResult } from "./preview-consent-card-logic.js";
 
@@ -64,7 +65,9 @@
 			? null
 			: toolCall.cardType === 'ez-install'
 				? parseInstallCardResult(toolCall.output)
-				: parseProposeCardResult(toolCall.output),
+				: toolCall.cardType === 'ez-draft'
+					? parseDraftCardResult(toolCall.output)
+					: parseProposeCardResult(toolCall.output),
 	);
 
 	// Secure Preview Phase 2 — the expose-consent card parses its

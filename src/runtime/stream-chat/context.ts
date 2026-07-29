@@ -51,6 +51,20 @@ export interface StreamChatContext {
   systemMemoryTail?: string;
   /** Tool list passed to pi-agent-core; mutated/filtered by tool loaders + scope filters. */
   agentTools: AgentTool[];
+  /**
+   * Re-assemble this turn's extension tools against the CURRENT registry.
+   * Set by setup-tools; invoked by the executor between agentic-loop
+   * iterations (pi-agent's `prepareNextTurn` seam), because `setupTools`
+   * runs exactly ONCE per run — so an extension installed by a tool call
+   * mid-turn was otherwise invisible for the rest of that turn.
+   *
+   * Returns only the in-scope tools MISSING from `existingToolNames`;
+   * removals are never returned (the LLM may already have called them).
+   * The executor re-applies the run's mode/team scope filters to the
+   * result, so an install can never widen a restricted turn's surface.
+   * A no-op returns `[]`, which is the common case.
+   */
+  refreshExtensionTools?: (existingToolNames: ReadonlySet<string>) => Promise<AgentTool[]>;
   /** Per-tool abort controllers, used by tool:kill bus handler + cleared in finally. */
   toolAbortControllers: Map<string, AbortController>;
   /** Built-in tool defs by name; used in tool wrappers + subscribe handler for cardType/category. */
@@ -128,6 +142,7 @@ export function createStreamChatContext(
     system: undefined,
     systemMemoryTail: undefined,
     agentTools: [],
+    refreshExtensionTools: undefined,
     toolAbortControllers: new Map(),
     builtinToolDefsMap: new Map(),
     unsubModeChange: undefined,

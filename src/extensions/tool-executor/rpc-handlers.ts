@@ -27,6 +27,10 @@ import { handlePiSearch as handleSearchRpc } from "../search-handler";
 import { handlePiSchedule as handleScheduleRpc } from "../schedule-handler";
 import { handleDraftsRpc, type DraftsContext } from "../drafts-handler";
 import {
+  handleWorkflowsRpc,
+  type WorkflowsHandlerContext,
+} from "../workflows-handler";
+import {
   handleGithubProjectsRpc,
   type GithubProjectsContext,
 } from "../github-projects-handler";
@@ -562,6 +566,45 @@ export async function handlePiDrafts(
 }
 
 /**
+ * Handle an `ezcorp/workflows` reverse-RPC request (W2) — the host side of
+ * the SDK's `ctx.workflows.run(name, input)`.
+ *
+ * Identity contract (parity with `handlePiDrafts` / `handlePiGithubProjects`):
+ *   - The USER is the host-issued provenance `onBehalfOf` resolved from the
+ *     echoed `ezCallId` token — never the wire, never the singletons.
+ *     `resolveReverseRpcMeta` additionally REFUSES an ownerless background
+ *     fire (`-32106`), which is exactly the attribution bound this
+ *     capability needs: an ownerless workflow run would be unattributed and
+ *     (fail-closed SSE scoping) invisible. See `workflows-handler.ts`.
+ *   - The EXTENSION NAME is registry-resolved
+ *     (`registry.getManifest(extensionId).name`) and is what the handler
+ *     uses as the workflow NAMESPACE PREFIX, so a subprocess can never
+ *     address the host's — or another extension's — workflow.
+ *
+ * See `workflows-handler.ts` for the full enforcement ladder.
+ */
+export async function handlePiWorkflows(
+  deps: RpcHandlerDeps,
+  extensionId: string,
+  req: JsonRpcRequest,
+): Promise<JsonRpcResponse> {
+  const base = requireGrantedAndManifest(deps.registry, extensionId, req);
+  if (!base.ok) return base.errorResponse;
+  const resolved = resolveReverseRpcMeta(extensionId, req);
+  if (!resolved.ok) return resolved.errorResponse;
+  const ctx: WorkflowsHandlerContext = {
+    extensionName: base.manifest.name,
+    extensionId,
+    userId: resolved.onBehalfOf,
+    conversationId: resolved.conversationId,
+    grantedPermissions: base.granted,
+    manifest: base.manifest,
+    engine: deps.engine,
+  };
+  return handleWorkflowsRpc(req, ctx);
+}
+
+/**
  * Handle a `ezcorp/github-projects.<verb>` reverse-RPC request.
  *
  * Bundled-only — the handler gates on `BUNDLED_GITHUB_PROJECTS_ALLOWLIST`
@@ -796,6 +839,7 @@ export interface ReverseRpcDispatch {
   handlePiSearch(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse>;
   handlePiSchedule(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse>;
   handlePiDrafts(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse>;
+  handlePiWorkflows(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse>;
   handlePiRbacCheck(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse>;
   handlePiGithubProjects(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse>;
 }
@@ -836,6 +880,9 @@ export const REVERSE_RPC_ROUTES: Record<string, RouteFn> = {
   "ezcorp/search": (s, e, r) => s.handlePiSearch(e, r),
   "ezcorp/schedule": (s, e, r) => s.handlePiSchedule(e, r),
   "ezcorp/drafts": (s, e, r) => s.handlePiDrafts(e, r),
+  // `ezcorp/workflows` — trigger a run of a workflow this extension ships.
+  // Namespace-scoped host-side; see workflows-handler.ts.
+  "ezcorp/workflows": (s, e, r) => s.handlePiWorkflows(e, r),
   // `ezcorp/rbac-check` — brokered extension-RBAC scope check
   // (`ctx.rbac.check` in the SDK). Identity is provenance/registry-derived.
   "ezcorp/rbac-check": (s, e, r) => s.handlePiRbacCheck(e, r),

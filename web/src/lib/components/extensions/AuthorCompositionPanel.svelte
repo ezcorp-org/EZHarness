@@ -27,10 +27,12 @@
 		setCapabilityPermissions,
 		unresolvedDependencies,
 		unmanagedCapabilities,
+		isPickableDependency,
+		toDependencyEntry,
 		TOGGLEABLE_CAPABILITIES,
 		type DependencyEntry,
 		type ToggleableCapability,
-		type InstalledExtensionRef,
+		type PickableExtension,
 	} from "$lib/ezcorp-config-edit.js";
 
 	let {
@@ -43,9 +45,7 @@
 		onsave: (nextSource: string) => Promise<void>;
 	} = $props();
 
-	interface InstalledExt extends InstalledExtensionRef {
-		id: string;
-	}
+	type InstalledExt = PickableExtension;
 
 	let installed = $state<InstalledExt[]>([]);
 	let pickerOpen = $state(false);
@@ -76,15 +76,23 @@
 			if (res.ok) {
 				const data = await res.json();
 				const list: unknown[] = Array.isArray(data) ? data : Array.isArray(data?.extensions) ? data.extensions : [];
-				installed = list.map((e) => {
-					const ext = e as Record<string, unknown>;
-					const manifest = ext.manifest as { version?: string } | undefined;
-					return {
-						id: String(ext.id ?? ""),
-						name: String(ext.name ?? ""),
-						version: String(ext.version ?? manifest?.version ?? "0.0.0"),
-					};
-				});
+				// Same `isPickableDependency` filter the picker applies, so
+				// the panel's own view of "what could be a dependency"
+				// (unresolved warning, preselection) can never disagree with
+				// what the grid actually offers.
+				installed = list
+					.map((e) => {
+						const ext = e as Record<string, unknown>;
+						const manifest = ext.manifest as { version?: string } | undefined;
+						return {
+							id: String(ext.id ?? ""),
+							name: String(ext.name ?? ""),
+							version: String(ext.version ?? manifest?.version ?? "0.0.0"),
+							source: (ext.source as string | undefined) ?? null,
+							isBundled: ext.isBundled === true,
+						};
+					})
+					.filter(isPickableDependency);
 			}
 		} catch {
 			/* silent — picker shows empty */
@@ -103,15 +111,18 @@
 		}
 	}
 
-	// Picker submit → map selected ids to {name, source:"bundled", version}
-	// dependency entries (caret-ranged on the installed version), write the
-	// managed dependencies block, persist.
+	// Picker submit → map selected ids to dependency entries (caret-ranged
+	// on the installed version), write the managed dependencies block,
+	// persist. The `{name, source, version}` shape is built by the shared
+	// `toDependencyEntry` — never inlined here, so the source forms this
+	// panel can emit stay locksteped to what the host's
+	// `validateDependencies` accepts.
 	async function onPickerSubmit(ids: string[]) {
 		pickerOpen = false;
 		const chosen: DependencyEntry[] = ids
 			.map((id) => installed.find((e) => e.id === id))
 			.filter((e): e is InstalledExt => e !== undefined)
-			.map((e) => ({ name: e.name, source: "bundled", version: `^${e.version}` }));
+			.map(toDependencyEntry);
 		const { source: next, recognized: ok } = setDependencies(source, chosen);
 		if (ok) await persist(next);
 	}
@@ -218,8 +229,9 @@
 					data-testid="author-unresolved-warning"
 					role="status"
 				>
-					Not installed (will be dropped at runtime until installed):
-					{unresolved.join(", ")}. Install still proceeds.
+					Not installed: {unresolved.join(", ")}. A dependency picked here must ALREADY be
+					installed on this host (it is never cloned) — install it first, or Install will
+					fail.
 				</p>
 			{/if}
 		</div>
@@ -235,6 +247,7 @@
 <ExtensionAttachPicker
 	open={pickerOpen}
 	initialSelected={selectedIds}
+	itemFilter={isPickableDependency}
 	onclose={() => (pickerOpen = false)}
 	onsubmit={onPickerSubmit}
 />

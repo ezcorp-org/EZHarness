@@ -2,23 +2,13 @@
 	import { page } from "$app/state";
 	import { goto } from "$app/navigation";
 	import { store, refreshWorkflows } from "$lib/stores.svelte.js";
-	import { triggerWorkflowRun, deleteWorkflow, type WorkflowRun } from "$lib/api.js";
+	import { triggerWorkflowRun, deleteWorkflow } from "$lib/api.js";
+	import { statusColor, kindLabel, runErrorText } from "$lib/workflow-run-display.js";
 
 	let workflowName = $derived(page.params.name);
 	let workflow = $derived(store.workflows.find((w) => w.name === workflowName));
 	let runs = $derived(store.workflowRuns.filter((r) => r.workflowName === workflowName));
 
-	const statusColor: Record<string, string> = {
-		success: "text-green-400",
-		error: "text-red-400",
-		cancelled: "text-[var(--color-text-muted)]",
-	};
-
-	const kindLabel: Record<string, string> = {
-		agent: "agent",
-		transform: "transform",
-		gate: "gate",
-	};
 
 	let inputText = $state("{}");
 	let submitting = $state(false);
@@ -82,17 +72,6 @@
 		goto("/workflows");
 	}
 
-	// A failed/cancelled run's loud message (e.g. `Gate "x" failed: …`,
-	// `exhausted N iterations…`). The backend emits either a plain string or
-	// a { code, message } object (cancellation) — tolerate both, and never
-	// render anything for a successful run.
-	function runErrorText(run: WorkflowRun): string {
-		if (run.status !== "error" && run.status !== "cancelled") return "";
-		const err: unknown = run.result?.error;
-		if (typeof err === "string") return err;
-		if (err && typeof err === "object" && "message" in err) return String((err as { message: unknown }).message);
-		return "";
-	}
 </script>
 
 <div class="space-y-6">
@@ -130,7 +109,7 @@
 						<div class="flex items-center gap-2">
 							<span class="text-xs text-[var(--color-text-muted)]">{idx + 1}.</span>
 							<span class="font-medium text-[var(--color-text-primary)]">{step.name}</span>
-							<span class="rounded bg-[var(--color-surface-tertiary)] px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-[var(--color-text-muted)]">{kindLabel[kind]}</span>
+							<span class="rounded bg-[var(--color-surface-tertiary)] px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-[var(--color-text-muted)]">{kindLabel(kind)}</span>
 							{#if kind === "agent"}
 								<span class="text-[var(--color-text-muted)]">&rarr;</span>
 								<span class="text-blue-400">{step.agent}</span>
@@ -189,16 +168,16 @@
 						<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-4">
 							<div class="flex items-center gap-2">
 								<span class="text-sm font-medium text-[var(--color-text-primary)]">{run.id.slice(0, 8)}</span>
-								<span class="rounded bg-[var(--color-surface-tertiary)] px-2 py-0.5 text-xs {statusColor[run.status] ?? 'text-yellow-400'}">{run.status}</span>
+								<span class="rounded bg-[var(--color-surface-tertiary)] px-2 py-0.5 text-xs {statusColor(run.status)}">{run.status}</span>
 							</div>
 							{#if runErrorText(run)}
-								<p class="mt-2 text-xs text-red-400" data-testid="run-error">{runErrorText(run)}</p>
+								<p class="mt-2 text-xs {statusColor(run.status)}" data-testid="run-error">{runErrorText(run)}</p>
 							{/if}
 							{#if run.steps.length > 0}
 								<div class="mt-2 space-y-1">
 									{#each run.steps as step}
 										<div class="text-xs text-[var(--color-text-secondary)]">
-											{step.stepName}: <span class="{statusColor[step.status] ?? 'text-yellow-400'}">{step.status}</span>{#if step.iterations} <span class="text-[var(--color-text-muted)]">({step.iterations} iteration{step.iterations !== 1 ? "s" : ""})</span>{/if}
+											{step.stepName}: <span class="{statusColor(step.status)}">{step.status}</span>{#if step.iterations} <span class="text-[var(--color-text-muted)]">({step.iterations} iteration{step.iterations !== 1 ? "s" : ""})</span>{/if}
 										</div>
 									{/each}
 								</div>

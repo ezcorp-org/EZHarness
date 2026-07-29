@@ -161,7 +161,7 @@ function seedStaleAuthor(
       JSON.stringify(DISK_AUTHOR_MANIFEST),
     ) as StoredExtension["manifest"],
     grantedPermissions: {
-      filesystem: ["$CWD/.ezcorp/extension-data/extension-author"],
+      filesystem: ["$CWD/.ezcorp/extension-data/extension-author/drafts/$USER"],
       // custom.drafts.kinds intentionally MISSING — the bug.
       grantedAt: { filesystem: 1 },
     },
@@ -205,7 +205,7 @@ describe("ensureBundledExtensions — extension-author custom.drafts.kinds self-
     expect(row.grantedPermissions.custom?.drafts?.kinds).toEqual(["extension"]);
     // Pre-existing within-ceiling grant preserved (not clobbered).
     expect(row.grantedPermissions.filesystem).toEqual([
-      "$CWD/.ezcorp/extension-data/extension-author",
+      "$CWD/.ezcorp/extension-data/extension-author/drafts/$USER",
     ]);
     // grantedAt preserved for the surviving stored field.
     expect(typeof row.grantedPermissions.grantedAt?.filesystem).toBe("number");
@@ -254,7 +254,7 @@ describe("ensureBundledExtensions — extension-author custom.drafts.kinds self-
   test("a row that already satisfies the declared set → no write, no audit on first boot", async () => {
     seedStaleAuthor({
       grantedPermissions: {
-        filesystem: ["$CWD/.ezcorp/extension-data/extension-author"],
+        filesystem: ["$CWD/.ezcorp/extension-data/extension-author/drafts/$USER"],
         custom: { drafts: { kinds: ["extension"] } },
         grantedAt: { filesystem: 1, custom: 2 },
       },
@@ -274,7 +274,7 @@ describe("ensureBundledExtensions — extension-author custom.drafts.kinds self-
     // { filesystem: [<the one path>], custom:{drafts:{kinds:["extension"]}} }.
     seedStaleAuthor({
       grantedPermissions: {
-        filesystem: ["$CWD/.ezcorp/extension-data/extension-author"],
+        filesystem: ["$CWD/.ezcorp/extension-data/extension-author/drafts/$USER"],
         shell: true,
         network: ["evil.example.com"],
         custom: { drafts: { kinds: ["extension", "agent"] } },
@@ -292,7 +292,7 @@ describe("ensureBundledExtensions — extension-author custom.drafts.kinds self-
     expect(g.custom?.drafts?.kinds).toEqual(["extension"]);
     // The legitimate within-ceiling filesystem grant survives.
     expect(g.filesystem).toEqual([
-      "$CWD/.ezcorp/extension-data/extension-author",
+      "$CWD/.ezcorp/extension-data/extension-author/drafts/$USER",
     ]);
   }, 30_000);
 
@@ -384,7 +384,7 @@ describe("ensureBundledExtensions — extension-author custom.drafts.kinds self-
       "extension",
     ]);
     expect(row.grantedPermissions.filesystem).toEqual([
-      "$CWD/.ezcorp/extension-data/extension-author",
+      "$CWD/.ezcorp/extension-data/extension-author/drafts/$USER",
     ]);
     // Critical auto-reapprove keeps the row enabled.
     expect(row.enabled).toBe(true);
@@ -466,7 +466,7 @@ describe("integration — reconciled grant unblocks ezcorp/drafts create", () =>
     const { handleDraftsRpc } = await import("../extensions/drafts-handler");
     // The exact broken stored grant from seedStaleAuthor().
     const brokenGrant: ExtensionPermissions = {
-      filesystem: ["$CWD/.ezcorp/extension-data/extension-author"],
+      filesystem: ["$CWD/.ezcorp/extension-data/extension-author/drafts/$USER"],
       grantedAt: { filesystem: 1 },
     };
     const resp = await handleDraftsRpc(
@@ -495,11 +495,11 @@ describe("integration — reconciled grant unblocks ezcorp/drafts create", () =>
       "../extensions/bundled-ceiling"
     );
     const stored: ExtensionPermissions = {
-      filesystem: ["$CWD/.ezcorp/extension-data/extension-author"],
+      filesystem: ["$CWD/.ezcorp/extension-data/extension-author/drafts/$USER"],
       grantedAt: { filesystem: 1 },
     };
     const declared: ExtensionPermissions = {
-      filesystem: ["$CWD/.ezcorp/extension-data/extension-author"],
+      filesystem: ["$CWD/.ezcorp/extension-data/extension-author/drafts/$USER"],
       custom: { drafts: { kinds: ["extension"] } },
       grantedAt: { filesystem: Date.now(), custom: Date.now() },
     };

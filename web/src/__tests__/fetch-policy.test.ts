@@ -75,6 +75,38 @@ describe("backgroundFetch", () => {
 		expect(s.deduped["k-inflight"]).toBe(1);
 	});
 
+	// Regression: dedup used to hand every caller the SAME Response object. A
+	// body can only be read once, so the second caller's `.json()` threw
+	// "body stream already read". That silently killed the chat stuck-run
+	// watchdog — its 10s staleness poll and its 30s zombie check share one
+	// fetch key, and the zombie check swallows errors and never re-arms, so
+	// the skeleton loader spun forever. Each caller gets its own clone.
+	test("every deduped caller can read the body independently", async () => {
+		const resolvers: Array<() => void> = [];
+		globalThis.fetch = mock(() => new Promise<Response>((resolve) => {
+			resolvers.push(() =>
+				resolve(new Response(JSON.stringify({ runId: "run-1" }), {
+					status: 200,
+					headers: { "content-type": "application/json" },
+				})),
+			);
+		})) as unknown as typeof fetch;
+
+		const p1 = backgroundFetch("k-body", "/api/x");
+		const p2 = backgroundFetch("k-body", "/api/x");
+		const p3 = backgroundFetch("k-body", "/api/x");
+		expect((globalThis.fetch as any).mock.calls.length).toBe(1);
+		for (const r of resolvers) r();
+		const [r1, r2, r3] = await Promise.all([p1, p2, p3]);
+
+		// All three read the body — none throws "body stream already read".
+		expect(await r1!.json()).toEqual({ runId: "run-1" });
+		expect(await r2!.json()).toEqual({ runId: "run-1" });
+		expect(await r3!.json()).toEqual({ runId: "run-1" });
+		const s = __getFetchStats_forTests();
+		expect(s.deduped["k-body"]).toBe(2);
+	});
+
 	test("POST is NOT deduped in-flight (mutations must all reach the server)", async () => {
 		const resolvers: Array<() => void> = [];
 		globalThis.fetch = mock(() => new Promise<Response>((resolve) => {

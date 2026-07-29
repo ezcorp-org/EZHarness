@@ -8,7 +8,13 @@ import { compareVersions } from "./manifest";
 import { formatNpmDepError, verifyNpmDependencies } from "./npm-deps";
 import { loadManifest } from "./loader";
 import { resolveDependencies, formatDepTree } from "./dependency-resolver";
-import { computeChecksum, verifyChecksum, computePackageChecksums, PACKAGE_CHECKSUM_ALGO } from "./checksum";
+import {
+  computeChecksum,
+  computeManifestChecksums,
+  verifyChecksum,
+  computePackageChecksums,
+  PACKAGE_CHECKSUM_ALGO,
+} from "./checksum";
 import { parseSource } from "./source-parser";
 import { clone, lsRemoteTags, gitExec } from "./git";
 import { ExtensionRegistry } from "./registry";
@@ -238,23 +244,16 @@ export async function installFromLocal(
   // for pre-install validation — see `InstallFromLocalOpts.preloadedManifest`.
   const manifest = opts.preloadedManifest ?? (await loadManifest(localPath));
 
-  // Compute checksum of the entrypoint when one is declared. The
-  // entrypoint is OPTIONAL in v2 for non-tool packages (agent-/skill-kind
-  // manifests have no subprocess to run) — `validateManifestV2` only
-  // *requires* an entrypoint when `tools[]` is declared. The old
-  // unconditional `Cannot install extension without entrypoint` throw here
-  // mismatched the validator and broke the bundled agent-kind extensions
-  // (`research-agent`, `multi-agent-orchestrator`) on every boot. Mirror
-  // `installFromGit`'s conditional-checksum logic: hash the entrypoint
-  // only if present, leave `checksum` undefined otherwise.
-  const checksum = manifest.entrypoint
-    ? await computeChecksum(
-        join(localPath, manifest.entrypoint.replace(/^\.\//, "")),
-      )
-    : undefined;
-
-  // Compute full-package checksums
-  const packageChecksums = await computePackageChecksums(localPath);
+  // Entrypoint hash + full-package checksums. The entrypoint is OPTIONAL
+  // in v2 for non-tool packages (agent-/skill-kind manifests have no
+  // subprocess to run) — `validateManifestV2` only *requires* an
+  // entrypoint when `tools[]` is declared. The old unconditional
+  // `Cannot install extension without entrypoint` throw here mismatched
+  // the validator and broke the bundled agent-kind extensions
+  // (`research-agent`, `multi-agent-orchestrator`) on every boot;
+  // `computeManifestChecksums` hashes the entrypoint only when present.
+  const checksumFields = await computeManifestChecksums(localPath, manifest.entrypoint);
+  const checksum = checksumFields.checksum;
 
   // v1.4 — hard install-time gate for credential-shaped env grants.
   // Run BEFORE `createExtension` so a refused install never persists a
@@ -300,7 +299,7 @@ export async function installFromLocal(
       const refreshUpdate: Parameters<typeof dbUpdateExtension>[1] = {
         version: manifest.version,
         description: manifest.description || "",
-        manifest: { ...manifest, checksum, packageChecksums, packageChecksumsAlgo: PACKAGE_CHECKSUM_ALGO },
+        manifest: { ...manifest, ...checksumFields },
         installPath: localPath,
         checksumVerified: !!checksum,
       };
@@ -359,7 +358,7 @@ export async function installFromLocal(
     name: manifest.name,
     version: manifest.version,
     description: manifest.description || "",
-    manifest: { ...manifest, checksum, packageChecksums, packageChecksumsAlgo: PACKAGE_CHECKSUM_ALGO },
+    manifest: { ...manifest, ...checksumFields },
     source,
     installPath: localPath,
     enabled,

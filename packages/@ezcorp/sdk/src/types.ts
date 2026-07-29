@@ -396,6 +396,18 @@ export interface ExtensionManifestV2 {
      *  attacker-controllable, so a webhook-triggered loop is permanently
      *  `untrusted-input`. Undeclared slugs are dropped at install. */
     webhooks?: string[];
+    /** Trigger runs of workflows THIS extension ships, via `ctx.workflows`
+     *  (the `Workflows` helper in `@ezcorp/sdk/runtime`). Ship the
+     *  definitions as `*.workflow.yaml` files at the root of your extension
+     *  directory; the host loads them under `<extensionName>:<name>` and
+     *  lists them alongside its own. Each `names` entry is the BARE name
+     *  from one of those files — the host applies the namespace prefix
+     *  itself, so you can never address another extension's (or the host's)
+     *  workflow. `maxRunsPerHour` is optional here; the host's clamp always
+     *  supplies one (default 20, ceiling 500) because a run can fan out
+     *  into agent steps that cost real LLM spend. Undeclared names are
+     *  dropped at install. */
+    workflows?: { names: string[]; maxRunsPerHour?: number };
     /** Brokered web search + URL read via `ctx.search` (shared-search
      *  Phase 1). The provider chain + SSRF guard run host-side. A bundled
      *  extension may declare `"inherit"` (full grant, tracks instance

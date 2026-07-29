@@ -62,7 +62,9 @@ let ring: BufferedEvent[] = [];
 let nextId = 0;
 const sinks = new Set<BufferedSink>();
 let unsubs: Array<() => void> = [];
-let subscribed = false;
+/** The bus instance our handlers are currently attached to, or null when
+ *  unsubscribed. Identity — NOT a boolean — see `ensureSubscribed`. */
+let subscribedBus: BusLike | null = null;
 
 // ── Per-scope dense numbering (side-channel fix) ─────────────────────────
 
@@ -163,12 +165,35 @@ function record(event: string, data: unknown): void {
   }
 }
 
-/** Subscribe the recorder to the bus exactly once per process. Kept lazy so
- *  it never runs at module import (the bus isn't wired then) and survives
- *  across connect/disconnect cycles. */
+/** Subscribe the recorder to `bus`, once per bus INSTANCE. Kept lazy so it
+ *  never runs at module import (the bus isn't wired then) and survives across
+ *  connect/disconnect cycles.
+ *
+ *  Keyed on bus identity rather than a "have we subscribed yet" boolean
+ *  because the process can swap its EventBus underneath us. In vite dev, an
+ *  edit to any `src/**` file that `lib/server/context.ts` transitively imports
+ *  invalidates that module and builds a FRESH `EventBus` — but this module is
+ *  a sibling import of the SSE route, not an importer of context, so it is NOT
+ *  invalidated and its state survives. A boolean flag then pinned the recorder
+ *  to the orphaned bus forever: every runtime event went to a dead
+ *  subscription, the SSE stream delivered nothing but heartbeats, and the chat
+ *  UI's skeleton loader spun forever because `run:complete` never arrived
+ *  (a refresh looked fine — the DB had everything). Re-binding on identity
+ *  change is a no-op in production (one bus per process lifetime) and
+ *  self-heals dev after every reload. */
 function ensureSubscribed(bus: BusLike): void {
-  if (subscribed) return;
-  subscribed = true;
+  if (subscribedBus === bus) return;
+  // Drop handlers attached to the previous (now-orphaned) bus before
+  // re-binding, so a swapped-out bus can't keep feeding the ring.
+  for (const unsub of unsubs) {
+    try {
+      unsub();
+    } catch {
+      // A stale bus that already tore itself down must not block re-binding.
+    }
+  }
+  unsubs = [];
+  subscribedBus = bus;
   for (const event of RUNTIME_EVENT_NAMES) {
     unsubs.push(bus.on(event, (data) => record(event, data)));
   }
@@ -207,5 +232,5 @@ export function __resetSseResumeBufferForTests(): void {
   nextId = 0;
   sinks.clear();
   scopes = new Map();
-  subscribed = false;
+  subscribedBus = null;
 }

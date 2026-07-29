@@ -89,6 +89,15 @@ export const POST: RequestHandler = async ({ request, locals }) => {
             },
             { status: 422 },
           );
+        // A declared `bundled`/`local` dependency isn't installed (or is
+        // at an incompatible version). Same 422 "the draft is not
+        // installable as written" class as MANIFEST_INVALID, with the
+        // per-dependency reasons in `errors`.
+        case "DEPENDENCY_UNSATISFIED":
+          return json(
+            { message: e.message, errors: d.errors ?? [e.message] },
+            { status: 422 },
+          );
         case "ENV_KEY_LEAK":
           return json(
             {
@@ -106,6 +115,22 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         case "ROLLBACK_FAILED":
           return json(
             { message: e.message, errors: d.errors ?? [e.message] },
+            { status: 500 },
+          );
+        // Post-install failures: the files landed and the row exists,
+        // but the extension is NOT in the requested state (not enabled
+        // / not loaded). 500 — the request did not do what it says on
+        // the tin — and `extensionId` so the client can point the user
+        // at the half-finished install instead of a dead end.
+        case "ENABLE_FAILED":
+        case "REGISTRY_RELOAD_FAILED":
+          return json(
+            {
+              message: e.message,
+              errors: d.errors ?? [e.message],
+              code: e.code,
+              ...(d.extensionId ? { extensionId: d.extensionId } : {}),
+            },
             { status: 500 },
           );
         default:

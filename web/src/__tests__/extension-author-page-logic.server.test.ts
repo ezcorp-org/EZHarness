@@ -94,7 +94,13 @@ vi.mock("$server/extensions/manifest", () => ({
 // "no `new Function`" contract end-to-end while letting tests drive
 // happy-path / failure cases via fixture content.
 vi.mock("$server/extensions/loader", () => ({
-  loadManifest: vi.fn(async (dir: string) => {
+  // Validate is the edit→revalidate loop: it MUST cache-bust. A
+  // regression back to `loadManifest` throws here instead of silently
+  // re-validating pre-edit bytes.
+  loadManifest: vi.fn(() => {
+    throw new Error("validate must call loadManifestFresh, not loadManifest");
+  }),
+  loadManifestFresh: vi.fn(async (dir: string) => {
     const { readFileSync, existsSync } = await import("node:fs");
     const { join } = await import("node:path");
     const cfgPath = join(dir, "ezcorp.config.ts");
@@ -118,6 +124,22 @@ vi.mock("$server/extensions/loader", () => ({
       permissions: {},
     };
   }),
+}));
+
+// Validate now runs the host's FULL acceptance gate (the same one
+// install runs), which for a tool/multi draft spawns a sandboxed
+// round-trip. Mock the round-trip so these tests stay hermetic; each
+// case swaps `mockVerify` to drive PASS/FAIL.
+let mockVerify: () => { pass: boolean; steps: Array<{ name: string; ok: boolean; detail: string }> } =
+  () => ({
+    pass: true,
+    steps: [
+      { name: "load-manifest", ok: true, detail: "Loaded weather@0.1.0" },
+      { name: "smoke-test-roundtrip", ok: true, detail: "round-tripped" },
+    ],
+  });
+vi.mock("$server/extensions/sdk/verify", () => ({
+  verifyExtension: vi.fn(async () => mockVerify()),
 }));
 
 // The route handlers expect their generated RequestEvent type. We pass
@@ -185,6 +207,13 @@ beforeEach(() => {
   mkdirSync(DRAFT_ROOT, { recursive: true });
   process.chdir(TMP);
   draftStore.clear();
+  mockVerify = () => ({
+    pass: true,
+    steps: [
+      { name: "load-manifest", ok: true, detail: "Loaded weather@0.1.0" },
+      { name: "smoke-test-roundtrip", ok: true, detail: "round-tripped" },
+    ],
+  });
 });
 
 afterEach(() => {
@@ -277,7 +306,7 @@ describe("DELETE — discard", () => {
 
 // ── POST /api/extensions/author/draft/[id]/validate ───────────────
 
-describe("POST validate — manifest check", () => {
+describe("POST validate — full acceptance gate", () => {
   test("missing draft → 404", async () => {
     const resp = await validatePOST(makeReq({ method: "POST" }));
     expect(resp.status).toBe(404);
@@ -291,7 +320,7 @@ describe("POST validate — manifest check", () => {
     expect(body.ok).toBe(false);
   });
 
-  test("valid manifest → ok:true, errors:[]", async () => {
+  test("valid manifest + passing round-trip → ok:true, errors:[]", async () => {
     seedDraft("d1", USER.id, { "ezcorp.config.ts": validManifestSrc });
     const resp = await validatePOST(makeReq({ method: "POST" }));
     expect(resp.status).toBe(200);
@@ -325,5 +354,70 @@ export default defineExtension({
     expect(resp.status).toBe(200);
     const body = await resp.json();
     expect(body.ok).toBe(false);
+  });
+
+  // H2: Validate used to run manifest validation ONLY, so a draft whose
+  // smokeTest was broken validated green and then 422'd on Install.
+  test("valid manifest but a FAILING smoke test → ok:false (same gate as install)", async () => {
+    seedDraft("d1", USER.id, { "ezcorp.config.ts": validManifestSrc });
+    mockVerify = () => ({
+      pass: false,
+      steps: [
+        { name: "load-manifest", ok: true, detail: "Loaded weather@0.1.0" },
+        { name: "smoke-test-roundtrip", ok: false, detail: "Smoke test failed: boom" },
+      ],
+    });
+    const resp = await validatePOST(makeReq({ method: "POST" }));
+    const body = await resp.json();
+    expect(body.ok).toBe(false);
+    expect(body.pass).toBe(false);
+    expect(body.errors[0]).toContain("smoke-test-roundtrip");
+  });
+
+  test("returns the same { ok, pass, steps } shape as the in-chat validate tool", async () => {
+    seedDraft("d1", USER.id, { "ezcorp.config.ts": validManifestSrc });
+    const body = await (await validatePOST(makeReq({ method: "POST" }))).json();
+    expect(body.ok).toBe(true);
+    expect(body.pass).toBe(true);
+    expect(Array.isArray(body.steps)).toBe(true);
+    for (const step of body.steps) {
+      expect(typeof step.name).toBe("string");
+      expect(typeof step.ok).toBe("boolean");
+      expect(typeof step.detail).toBe("string");
+    }
+    expect(body.steps.some((s: { name: string }) => s.name === "load-manifest")).toBe(true);
+  });
+
+  // C3: the edit→revalidate loop hits the SAME draftId repeatedly. Every
+  // other test in the suite mints a fresh id, so none of them could see
+  // a validate that answered from a cached first read.
+  test("re-validating the SAME draftId after an edit reflects the edit", async () => {
+    seedDraft("d1", USER.id, { "ezcorp.config.ts": validManifestSrc });
+    const first = await (await validatePOST(makeReq({ method: "POST" }))).json();
+    expect(first.ok).toBe(true);
+
+    // The author "breaks" the manifest through the normal save path.
+    const save = await PUT(
+      makeReq({
+        body: {
+          path: "ezcorp.config.ts",
+          content: `import { defineExtension } from "@ezcorp/sdk";
+export default defineExtension({
+  schemaVersion: 2,
+  version: "0.1.0",
+  description: "x",
+  author: { name: "x" },
+  permissions: {},
+});
+`,
+        },
+      }),
+    );
+    expect(save.status).toBe(200);
+
+    const second = await (await validatePOST(makeReq({ method: "POST" }))).json();
+    expect(second.ok).toBe(false);
+    expect(second.ok).not.toBe(first.ok);
+    expect(second.errors.length).toBeGreaterThan(0);
   });
 });

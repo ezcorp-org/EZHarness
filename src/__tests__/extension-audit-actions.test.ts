@@ -48,6 +48,11 @@ describe("extension audit action constants", () => {
       "CAPABILITY_POLICY_WRITE",
       "SPAWN_QUOTA_EXCEEDED",
       "EMIT_EVENT_REJECTED",
+      // W2 — `ezcorp/workflows` refused an OWNERLESS (cron/webhook) trigger.
+      // Lives here rather than on `sdk_capability_calls` because that
+      // table's `on_behalf_of` is NOT NULL + FK; `audit_log.user_id` is
+      // nullable, so it is the only table that can hold this row.
+      "WORKFLOW_TRIGGER_NO_OWNER",
       // Loops Phase 2 — host emit-loop-event reverse RPC (approval nudges
       // on the bus): the accepted emit + the policy/quota rejection.
       "LOOP_EVENT_EMITTED",

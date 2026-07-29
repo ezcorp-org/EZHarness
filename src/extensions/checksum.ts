@@ -81,6 +81,42 @@ export async function computePackageChecksums(
   return checksums;
 }
 
+/**
+ * The checksum block a persisted extension manifest carries: the
+ * entrypoint hash plus the full-package baseline and the algorithm tag it
+ * was recorded with.
+ */
+export interface ManifestChecksumFields {
+  /** Absent when the manifest declares no entrypoint (agent-/skill-kind). */
+  checksum?: string;
+  packageChecksums: Record<string, string>;
+  packageChecksumsAlgo: string;
+}
+
+/**
+ * Compute the checksum block for an extension's source directory.
+ *
+ * EVERY path that persists a manifest — first install, same-source
+ * refresh (`installer.ts`) and the bundled boot refresh (`bundled.ts`) —
+ * must write this block. It carries integrity data, but it is also the
+ * ONLY part of a persisted manifest that moves when an extension's CODE
+ * changes without its `ezcorp.config.ts` changing: `ExtensionRegistry.reload()`
+ * hashes the persisted manifest to decide whether a live subprocess is
+ * still serving current code, so a manifest written without these fields
+ * makes an edited entrypoint invisible to the upgrade path and the stale
+ * subprocess keeps answering until its idle timeout.
+ */
+export async function computeManifestChecksums(
+  dir: string,
+  entrypoint: string | undefined,
+): Promise<ManifestChecksumFields> {
+  const packageChecksums = await computePackageChecksums(dir);
+  const base = { packageChecksums, packageChecksumsAlgo: PACKAGE_CHECKSUM_ALGO };
+  if (!entrypoint) return base;
+  const checksum = await computeChecksum(join(dir, entrypoint.replace(/^\.\//, "")));
+  return { checksum, ...base };
+}
+
 export interface PackageVerifyResult {
   valid: boolean;
   mismatched: string[];

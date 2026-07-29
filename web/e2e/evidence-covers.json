@@ -34,6 +34,17 @@
     "web/src/routes/+layout.svelte",
     "web/src/routes/(app)/account/+page.svelte"
   ],
+  "web/e2e/extension-author-failure-cards.spec.ts": [
+    "web/src/lib/components/tool-cards/DefaultCard.svelte",
+    "web/src/lib/components/tool-cards/ToolCardRouter.svelte",
+    "web/src/lib/components/ToolCallCard.svelte",
+    "web/src/lib/components/ez/EzToolResultCard.svelte",
+    "web/src/routes/(app)/extensions/author/+page.svelte"
+  ],
+  "web/e2e/extension-deep-links.spec.ts": [
+    "web/src/routes/(app)/extensions/[id]/+page.svelte",
+    "web/src/routes/(app)/extensions/+page.svelte"
+  ],
   "web/e2e/extension-install-granted-caps.spec.ts": [
     "web/src/routes/(app)/extensions/[id]/+page.svelte"
   ],
@@ -43,6 +54,9 @@
     "web/src/routes/(app)/extensions/[id]/+page.svelte"
   ],
   "web/e2e/extensions-sort.spec.ts": [
+    "web/src/routes/(app)/extensions/+page.svelte"
+  ],
+  "web/e2e/extensions-workflows-grant.spec.ts": [
     "web/src/routes/(app)/extensions/+page.svelte"
   ],
   "web/e2e/ez-clear-conversation.spec.ts": [
