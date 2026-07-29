@@ -619,6 +619,13 @@ self-check before reporting. Each is **falsifiable** — a named test or a grep,
 not a judgement call. A build that cannot point at the artifact for a row has
 not met it.
 
+> **§11 is a floor, not a ceiling.** The failure mode of a published checklist
+> is that the review contracts to it: everything listed passes, nothing else is
+> looked at, and the build is declared clean. Publishing these criteria is only
+> safe *because* they are mechanically checkable — a build that "builds to the
+> test" here has simply built it correctly. That property does not extend to
+> whatever the list omits. §11.1 is the part the list cannot cover.
+
 | # | Criterion | How it is proven | Defined in |
 |---|---|---|---|
 | 1 | **The recovery model is commit-at-boundary, not suspend-before-await smuggled back in.** No `suspended` write precedes any of the five mid-step await sites (`:340`, `:383`, `:577`, `:639`, `:780`). | A test that crashes a run mid-`tool`-step and asserts the row is `running`/`in-batch` — never `suspended`. Plus: the only writers of `status='suspended'` are the deliberate parks. | §1.4, §1.6 |
@@ -629,8 +636,47 @@ not met it.
 | 6 | **`prevStepName` faithfulness.** `prevResult` is read synchronously during `batch.map` — `syncStep()` (`:337`) never awaits, and `this.runStep(...)` reads `prevResult` (`:344`) before the `await` suspends — so it is always `batch[batch.length-1].name`. | A test **named for the property** (e.g. `"$prev resolves to the last declared step of the previous batch, resumed or not"`) so a future lazy-`prevResult` refactor fails loudly rather than silently changing `$prev`. | §2.3 |
 | 7 | **Resume does not re-emit `workflow:start`.** | A test asserting exactly one `workflow:start` across a suspend/resume cycle. | §3.3 rule 3, §9 row 5 |
 
+
+### 11.1 Beyond the checklist — what a per-property pass cannot see
+
+Four classes of defect survive every row above, by construction. The review
+looks for them explicitly.
+
+**1. Interactions between properties.** Each row checks one property in
+isolation; a defect can live entirely in the seam between two that both pass.
+The canonical shape here: `definition_hash` fails closed correctly (row 3 green)
+**and** the failure path writes through `persistWrite` rather than
+`persistCritical` (row 2 green, because the three required sites are all
+present) — so the fail-closed transition is silently swallowed and the run
+resumes anyway. Both rows pass; the feature is broken. Trace each failure path
+to the write that records it, not just to the branch that decides it.
+
+**2. Migration that is additive-in-name-only, or that a later phase cannot
+extend.** Every column must be `ADD COLUMN IF NOT EXISTS` with a backward-safe
+default, every index `IF NOT EXISTS`, every backfill guarded to still-`NULL`
+rows (`docs/features/platform/database-and-migrations.md:125`). Then the harder
+question the migration tests will not ask: can **C5** add per-iteration rows,
+**C7** add `parent_run_id`, and **C6** add `definition_version_id` on top of
+this shape without a destructive change? `workflow_step_runs`'s arbiter is the
+known trap (§7.6) — verify C4 did not widen it.
+
+**3. Coverage that is 100% and meaningless.** The gate measures executed lines,
+not assertions. Read the tests behind each new file's threshold key: a test that
+drives a daemon tick and asserts only "did not throw" is a line-coverage
+instrument, not a test. Specifically check that the crash-recovery cases assert
+the **resulting row state**, not merely that the sweep returned a number.
+
+**4. Daemon behaviour nobody writes a test for by default.** Three cases, all
+cheap to construct with the injected clock and none of them likely to appear
+unprompted:
+- **two claims racing** on one run — exactly one CAS matches, the loser is a
+  clean skip and not an error;
+- **a lease expiring mid-step** — the losing worker must abort at its next
+  boundary check *without* writing a cursor (§3.3 rule 4);
+- **shutdown with a run in flight** — claims released rather than left to expire
+  (§3.2), so a rolling restart does not stall every parked run for a full lease.
+
 **And the standing one:** anything in this spec the build proves wrong. This
 document has already been reversed once on its own central claim (§1 supersedes
 the design record's rule, which this author wrote); a second reversal is a
-better outcome than defending a wrong spec. Report it as a finding against §9's
-format.
+better outcome than defending a wrong spec. Report it in §9's format.
