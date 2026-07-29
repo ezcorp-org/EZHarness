@@ -8,8 +8,16 @@
  * `WorkflowNameConflictError` (⇒ a 409) rather than an unhandled 500.
  *
  * The race is not reproducible by scheduling, so the driver is stubbed to
- * throw what Postgres throws. That is the honest way to test a window
- * that only opens under concurrency.
+ * throw what the driver throws. That is the honest way to test a window
+ * that only opens under concurrency — but ONLY if the thrown value has the
+ * real shape. This file previously hand-built errors whose MESSAGE text
+ * contained the tokens the matcher looked for, so it proved a fact about
+ * the fixture: every test passed while the classifier was inert against
+ * anything a real driver produces. The fixtures below are the wrapped
+ * shape drizzle actually raises, and
+ * {@link pgliteUniqueViolation}'s own test asserts the message carries
+ * none of those tokens, so message-matching can never be reintroduced and
+ * still pass here.
  */
 import { test, expect, describe, beforeEach, mock } from "bun:test";
 
@@ -64,6 +72,50 @@ const { createWorkflow, updateWorkflow, WorkflowNameConflictError } = await impo
   "../db/queries/workflows"
 );
 
+/**
+ * What a unique violation looks like by the time drizzle re-throws it
+ * under PGlite: a `DrizzleQueryError` whose message is the QUERY, with the
+ * driver's own error — the only copy of the SQLSTATE — on `.cause`.
+ *
+ * The constraint name is nowhere in the wrapper either, and it would be
+ * the wrong token even if it were: `migrate.ts` renames
+ * `pipeline_definitions → workflow_definitions`, and Postgres does not
+ * rename constraints with the table, so a lineage database still carries
+ * `pipeline_definitions_name_key`.
+ */
+function pgliteUniqueViolation(): Error {
+  return Object.assign(
+    new Error(
+      'Failed query: insert into "workflow_definitions" ("id", "name", "description", "steps") values ($1, $2, $3, $4)\nparams: wf-2,mine,,[]',
+    ),
+    {
+      cause: Object.assign(new Error("duplicate key value violates unique constraint"), {
+        code: "23505",
+      }),
+    },
+  );
+}
+
+/**
+ * The same violation from Bun.sql (external Postgres), where `.cause.code`
+ * is the transport code and the SQLSTATE lives on `.cause.errno`.
+ *
+ * Missing this second shape is what made every duplicate create propagate
+ * on external-Postgres deploys the last time this was got wrong — see
+ * `isUniqueViolation`'s own comment.
+ */
+function bunSqlUniqueViolation(): Error {
+  return Object.assign(
+    new Error('Failed query: insert into "workflow_definitions" ("id", "name") values ($1, $2)'),
+    {
+      cause: Object.assign(new Error("duplicate key value violates unique constraint"), {
+        code: "ERR_POSTGRES_SERVER_ERROR",
+        errno: "23505",
+      }),
+    },
+  );
+}
+
 beforeEach(() => {
   insertBehaviour = () => {};
   updateBehaviour = () => {};
@@ -72,20 +124,29 @@ beforeEach(() => {
 const definition = { name: "mine", description: "", steps: [] } as never;
 
 describe("a unique-violation from the driver becomes a 409-shaped error", () => {
-  test("a SQLSTATE 23505 on insert maps to WorkflowNameConflictError", async () => {
+  test("the fixture carries the SQLSTATE only on .cause, so no message match could see it", () => {
+    // The guard on this whole file: if either assertion here ever fails,
+    // the fixture has drifted back into proving a fact about itself.
+    const err = pgliteUniqueViolation();
+    expect(err.message).not.toContain("23505");
+    expect(err.message).not.toContain("workflow_definitions_name");
+    expect((err.cause as { code: string }).code).toBe("23505");
+  });
+
+  test("the PGlite shape (SQLSTATE on .cause.code) maps to WorkflowNameConflictError", async () => {
     insertBehaviour = () => {
-      throw new Error('duplicate key value violates unique constraint (SQLSTATE 23505)');
+      throw pgliteUniqueViolation();
     };
     const err = await createWorkflow(definition).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(WorkflowNameConflictError);
     expect((err as InstanceType<typeof WorkflowNameConflictError>).workflowName).toBe("mine");
   });
 
-  test("the index NAME is matched too, because the two drivers word it differently", async () => {
-    // PGlite and bun-sql do not agree on the message text; matching either
-    // the SQLSTATE or the index name is what makes this driver-agnostic.
+  test("the bun-sql shape (SQLSTATE on .cause.errno) maps to it too", async () => {
+    // The two drivers disagree about where the code lives, and an external
+    // -Postgres deploy is the one that 500s if only PGlite's shape is read.
     insertBehaviour = () => {
-      throw new Error('duplicate key value violates unique constraint "workflow_definitions_name_unique"');
+      throw bunSqlUniqueViolation();
     };
     await expect(createWorkflow(definition)).rejects.toBeInstanceOf(WorkflowNameConflictError);
   });
@@ -102,21 +163,36 @@ describe("a unique-violation from the driver becomes a 409-shaped error", () => 
     expect(err).not.toBeInstanceOf(WorkflowNameConflictError);
   });
 
-  test("a non-Error rejection is still classified rather than crashing the mapper", async () => {
+  test("a foreign-key violation is not a name conflict", async () => {
+    // 23503, one digit away. Classifying by code means classifying
+    // exactly, not by family.
+    const fk = Object.assign(new Error("Failed query: insert into …"), {
+      cause: Object.assign(new Error("violates foreign key constraint"), { code: "23503" }),
+    });
+    insertBehaviour = () => {
+      throw fk;
+    };
+    await expect(createWorkflow(definition)).rejects.toBe(fk);
+  });
+
+  test("a non-Error rejection is re-thrown rather than guessed at", async () => {
+    // No driver throws a bare string, and a mapper that read one for
+    // tokens would be back to classifying prose.
     insertBehaviour = () => {
       throw "SQLSTATE 23505";
     };
-    await expect(createWorkflow(definition)).rejects.toBeInstanceOf(WorkflowNameConflictError);
+    await expect(createWorkflow(definition)).rejects.toBe("SQLSTATE 23505");
   });
 });
 
 describe("the same mapping applies to a racing rename", () => {
-  test("a 23505 on update maps to WorkflowNameConflictError", async () => {
+  test("a unique violation on update maps to WorkflowNameConflictError", async () => {
     updateBehaviour = () => {
-      throw new Error("SQLSTATE 23505");
+      throw pgliteUniqueViolation();
     };
     const err = await updateWorkflow("wf-1", { name: "taken" }).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(WorkflowNameConflictError);
+    expect((err as InstanceType<typeof WorkflowNameConflictError>).workflowName).toBe("taken");
   });
 
   test("an unrelated update error is re-thrown unchanged", async () => {

@@ -6,6 +6,7 @@ import { getDb } from "./connection";
 import { getLatestLeaf, getMessages } from "./queries/conversations";
 import { agentSessions } from "./schema";
 import { DbSessionStorage } from "./session-storage";
+import { isUniqueViolation } from "./unique-violation";
 
 /**
  * Lazy session backfill (P2 of the Postgres SessionStorage design,
@@ -104,24 +105,6 @@ export function rowToEntry(row: ConversationMessage, knownIds: ReadonlySet<strin
     return { type: "message", ...base, message: rowToPiMessage(row) as AgentMessage };
   }
   return { type: "custom", ...base, customType: "ezcorp:filtered-row", data: { role: row.role, excluded: row.excluded } };
-}
-
-/** Postgres unique_violation (SQLSTATE 23505). drizzle wraps driver errors
- *  in a DrizzleQueryError whose `.code` is undefined — the SQLSTATE lives on
- *  `.cause`. WHERE on the cause differs by driver (verified live 2026-07-16):
- *  PGlite puts it on `.cause.code`; Bun.sql (external Postgres) sets
- *  `.cause.code = "ERR_POSTGRES_SERVER_ERROR"` and carries the SQLSTATE on
- *  `.cause.errno`. Check code AND errno at both levels (string-normalized) so
- *  the concurrent-backfill catch works under BOTH runtimes — missing the
- *  Bun.sql shape made every duplicate-create propagate and 500'd
- *  GET /api/conversations/[id]/tree on external-Postgres deploys. */
-export function isUniqueViolation(err: unknown): boolean {
-  const matches = (e: unknown): boolean => {
-    if (typeof e !== "object" || e === null) return false;
-    const { code, errno } = e as { code?: unknown; errno?: unknown };
-    return String(code) === "23505" || String(errno) === "23505";
-  };
-  return matches(err) || matches((err as { cause?: unknown } | null)?.cause);
 }
 
 /**

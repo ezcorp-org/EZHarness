@@ -1,6 +1,7 @@
 import { eq, ne, and } from "drizzle-orm";
 import { getDb } from "../connection";
 import { workflowDefinitions } from "../schema";
+import { isUniqueViolation } from "../unique-violation";
 import type {
   WorkflowDefinition,
   WorkflowStep,
@@ -78,14 +79,16 @@ export async function isWorkflowNameTaken(name: string, exceptId?: string): Prom
  * closes the TOCTOU window where two concurrent creates both pass their
  * check and the index decides. One error type either way, so the routes
  * have exactly one thing to map.
+ *
+ * Classification is delegated to the shared {@link isUniqueViolation},
+ * which reads the SQLSTATE off `.cause` under both drivers. This used to
+ * match `err.message` for "23505" or the index name — and drizzle's
+ * wrapper message is the QUERY, so it contains neither: the window this
+ * function exists to close was open the whole time and the route 500'd.
+ * A second copy of the rule is how that happened, so there is now one.
  */
 function asNameConflict(err: unknown, name: string): never {
-  const message = err instanceof Error ? err.message : String(err);
-  // 23505 = unique_violation. Matched on either the SQLSTATE or the index
-  // name because PGlite and bun-sql word the message differently.
-  if (message.includes("23505") || message.includes("workflow_definitions_name")) {
-    throw new WorkflowNameConflictError(name);
-  }
+  if (isUniqueViolation(err)) throw new WorkflowNameConflictError(name);
   throw err;
 }
 
