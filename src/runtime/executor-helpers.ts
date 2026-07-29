@@ -1,4 +1,4 @@
-import { stream, complete } from "@earendil-works/pi-ai/compat";
+import { stream, streamSimple, complete, completeSimple } from "@earendil-works/pi-ai/compat";
 import type { Context } from "@earendil-works/pi-ai";
 import type { ModelOverride } from "../types";
 import { resolveModel } from "../providers/router";
@@ -103,13 +103,13 @@ export interface PiLlmAdapter {
  * reaches the LLM through this parameter and nothing else. It is the one
  * chokepoint, so an override cannot be half-applied.
  *
- * **Omitting it is byte-identical to the previous behaviour**: `tuning`
- * is `{}`, so both calls below spread to the exact same
- * `complete(model, context, { apiKey })` /
- * `stream(model, context, { apiKey, signal })` they always were, on the
- * same `resolveModel(...)` inputs. In particular the agent's own
- * `temperature` / `maxTokens` stay unforwarded (pi-ai never received them
- * on this path and still does not) — only an explicit override sends them.
+ * **Omitting it is byte-identical to the previous behaviour**: every
+ * branch below collapses to the exact same `resolveModel(...)` inputs and
+ * the exact same `complete(model, context, { apiKey })` /
+ * `stream(model, context, { apiKey, signal })` call. In particular the
+ * agent's own `temperature` / `maxTokens` stay unforwarded (pi-ai never
+ * received them on this path and still does not) — only an explicit
+ * override sends them.
  */
 export function createPiLlmAdapter(overrides?: ModelOverride): PiLlmAdapter {
   // Sampling knobs are spread in, so with no override this is `{}` and the
@@ -117,6 +117,11 @@ export function createPiLlmAdapter(overrides?: ModelOverride): PiLlmAdapter {
   const tuning: { temperature?: number; maxTokens?: number } = {};
   if (overrides?.temperature !== undefined) tuning.temperature = overrides.temperature;
   if (overrides?.maxTokens !== undefined) tuning.maxTokens = overrides.maxTokens;
+  // Reasoning effort has no home on the raw `stream`/`complete` options —
+  // each provider spells it differently. pi-ai's `*Simple` entrypoints are
+  // the normalizer, so an effort-bearing call routes through those and
+  // every other call keeps the raw path it has always used.
+  const reasoning = overrides?.effort;
 
   const adapter: PiLlmAdapter = {
     async complete(messages, options) {
@@ -137,10 +142,10 @@ export function createPiLlmAdapter(overrides?: ModelOverride): PiLlmAdapter {
           .filter((m): m is PiLlmMessage & { role: "user" } => m.role === "user")
           .map((m) => ({ role: "user" as const, content: m.content, timestamp: Date.now() })),
       };
-      const result = await complete(resolved.piModel, context, {
-        apiKey: cred.token,
-        ...tuning,
-      });
+      const callOpts = { apiKey: cred.token, ...tuning };
+      const result = reasoning
+        ? await completeSimple(resolved.piModel, context, { ...callOpts, reasoning })
+        : await complete(resolved.piModel, context, callOpts);
       const text = result.content
         .filter((c): c is { type: "text"; text: string } => c.type === "text")
         .map((c) => c.text)
@@ -165,11 +170,10 @@ export function createPiLlmAdapter(overrides?: ModelOverride): PiLlmAdapter {
           .filter((m): m is PiLlmMessage & { role: "user" } => m.role === "user")
           .map((m) => ({ role: "user" as const, content: m.content, timestamp: Date.now() })),
       };
-      const s = stream(resolved.piModel, context, {
-        apiKey: cred.token,
-        signal: options?.signal,
-        ...tuning,
-      });
+      const callOpts = { apiKey: cred.token, signal: options?.signal, ...tuning };
+      const s = reasoning
+        ? streamSimple(resolved.piModel, context, { ...callOpts, reasoning })
+        : stream(resolved.piModel, context, callOpts);
       for await (const event of s) {
         if (event.type === "text_delta") yield { type: "token", text: event.delta };
         if (event.type === "done") yield { type: "done", usage: { inputTokens: event.message.usage.input, outputTokens: event.message.usage.output } };

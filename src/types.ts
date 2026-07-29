@@ -205,29 +205,49 @@ export interface LoopConfig {
 export type WorkflowStepKind = "agent" | "transform" | "gate" | "tool";
 
 /**
- * A model binding that overrides whatever the callee would otherwise use.
+ * Reasoning-effort level a model binding may request. Mirrors pi-ai's
+ * `ThinkingLevel` verbatim — the value is handed to `completeSimple` /
+ * `streamSimple`, which normalize it into each provider's own knob
+ * (`reasoningEffort` on OpenAI, a thinking budget on Anthropic, …).
  *
- * The four fields are exactly the ones `ctx.llm.complete` accepts
- * (`src/runtime/config-to-agent.ts`), so every field a user sets
- * demonstrably takes effect. There is deliberately NO reasoning/effort
- * field — see the note in `src/runtime/workflow-model.ts`.
+ * There is deliberately no `"off"`: the `runAgent` LLM path sends no
+ * reasoning option at all unless one is asked for, so "off" IS the
+ * default and a value for it would only be a second way to spell it.
+ */
+export type ModelEffort = "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+
+/**
+ * A RESOLVED model binding that overrides whatever the callee would
+ * otherwise use. Every value here is concrete — refs are already gone.
  *
  * Every field is optional and independently applied: an override naming
  * only `model` keeps the agent's own `provider`, and an ABSENT override
  * (undefined) leaves the callee's binding untouched — including the
  * {@link CURRENT_MODEL_SENTINEL} inherit sentinel — so today's behaviour
  * is unchanged wherever no override is supplied.
- *
- * `provider` / `model` may be workflow REFS (`{ model: "$input.tier" }`)
- * in a definition; `resolveModelOverride` turns those into concrete
- * values before the bundle reaches the runtime. `temperature` /
- * `maxTokens` are numbers and therefore never refs.
  */
 export interface ModelOverride {
   provider?: string;
   model?: string;
   temperature?: number;
   maxTokens?: number;
+  effort?: ModelEffort;
+}
+
+/**
+ * A model binding as WRITTEN IN A WORKFLOW DEFINITION — the same fields,
+ * except that the string ones may be refs (`{ effort: "$input.tier" }`)
+ * whose value does not exist until the run resolves them. That is the one
+ * and only difference from {@link ModelOverride}, and it is why `effort`
+ * widens to `string` here: a ref is not an effort level, and typing it as
+ * one would make the ref language unusable in a binding.
+ *
+ * `resolveModelOverride` is the crossing point: a `WorkflowModelBinding`
+ * goes in, a fully-concrete `ModelOverride` comes out (or a loud throw).
+ * `temperature` / `maxTokens` are numbers and therefore never refs.
+ */
+export interface WorkflowModelBinding extends Omit<ModelOverride, "effort"> {
+  effort?: string;
 }
 
 /**
@@ -297,7 +317,7 @@ export interface WorkflowStep {
    * the same ref context as the step's `input`. Rejected at definition
    * time on any non-agent step.
    */
-  model?: ModelOverride;
+  model?: WorkflowModelBinding;
 
   dependsOn?: string[];
   /** Bounded loop (agent | transform kinds only). */
@@ -313,7 +333,7 @@ export interface WorkflowDefinition {
    *  field-by-field merge: a step that names `model` replaces this
    *  entirely, so a step can drop back to the provider default without
    *  inheriting a definition-level `maxTokens` it never asked for. */
-  defaultModel?: ModelOverride;
+  defaultModel?: WorkflowModelBinding;
   steps: WorkflowStep[];
 }
 

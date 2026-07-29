@@ -9,9 +9,10 @@ import {
   MAX_MODEL_MAX_TOKENS,
   MAX_MODEL_TEMPERATURE,
   resolveModelOverride,
+  VALID_MODEL_EFFORTS,
   validateModelOverride,
 } from "../runtime/workflow-model";
-import type { AgentResult, ModelOverride, WorkflowStep } from "../types";
+import type { AgentResult, WorkflowModelBinding, WorkflowStep } from "../types";
 import type { RefContext } from "../runtime/workflow-refs";
 
 function ctx(input: Record<string, unknown> = {}, steps: Array<[string, AgentResult]> = []): RefContext {
@@ -27,6 +28,7 @@ describe("validateModelOverride", () => {
           model: "claude-haiku-4-5-20251001",
           temperature: 0.2,
           maxTokens: 8000,
+          effort: "high",
         },
         "Step \"x\" model",
       ),
@@ -50,7 +52,7 @@ describe("validateModelOverride", () => {
     expect(errors[0]).toContain('unknown field "maxtokens"');
   });
 
-  test.each(["provider", "model"] as const)(
+  test.each(["provider", "model", "effort"] as const)(
     "rejects a non-string / empty %s",
     (field) => {
       expect(validateModelOverride({ [field]: 7 }, "L")).toEqual([
@@ -72,19 +74,22 @@ describe("validateModelOverride", () => {
     ]);
   });
 
-  test("rejects a reasoning/effort field — the LLM call has no such parameter", () => {
-    // `ctx.llm.complete` accepts system/provider/model/temperature/maxTokens
-    // and nothing else, so accepting `effort` here would validate a knob
-    // that silently does nothing. See the note at the top of
-    // workflow-model.ts before re-adding it.
-    const errors = validateModelOverride({ effort: "high" }, "L");
+  test("rejects an effort outside the closed vocabulary", () => {
+    const errors = validateModelOverride({ effort: "extreme" }, "L");
     expect(errors).toHaveLength(1);
-    expect(errors[0]).toContain('unknown field "effort"');
+    expect(errors[0]).toContain('"effort" must be one of');
+    expect(errors[0]).toContain("extreme");
   });
 
-  test("accepts a REF value for a string field (unknowable at definition time)", () => {
+  test.each([...VALID_MODEL_EFFORTS])("accepts the effort level %s", (effort) => {
+    expect(validateModelOverride({ effort }, "L")).toEqual([]);
+  });
+
+  test("defers a REF-valued effort to run time (its value is unknowable here)", () => {
+    // The whole point of shape-only checking: `$input.tier` is not an
+    // effort level, and rejecting it would make refs unusable.
+    expect(validateModelOverride({ effort: "$input.tier" }, "L")).toEqual([]);
     expect(validateModelOverride({ model: "$input.reviewModel" }, "L")).toEqual([]);
-    expect(validateModelOverride({ provider: "$input.tier" }, "L")).toEqual([]);
   });
 
   test("rejects a non-numeric or out-of-range temperature", () => {
@@ -133,7 +138,7 @@ describe("validateModelOverride", () => {
 });
 
 describe("effectiveModelOverride", () => {
-  const step = (model?: ModelOverride): WorkflowStep => ({ name: "s", ...(model ? { model } : {}) });
+  const step = (model?: WorkflowModelBinding): WorkflowStep => ({ name: "s", ...(model ? { model } : {}) });
 
   test("prefers the step's own binding", () => {
     expect(
@@ -170,7 +175,7 @@ describe("resolveModelOverride", () => {
   test("passes literals through untouched", () => {
     expect(
       resolveModelOverride(
-        { provider: "anthropic", model: "claude-opus-5", temperature: 0.3, maxTokens: 100 },
+        { provider: "anthropic", model: "claude-opus-5", temperature: 0.3, maxTokens: 100, effort: "max" },
         ctx(),
         "s",
       ),
@@ -179,17 +184,18 @@ describe("resolveModelOverride", () => {
       model: "claude-opus-5",
       temperature: 0.3,
       maxTokens: 100,
+      effort: "max",
     });
   });
 
   test("resolves refs through the shared ref language", () => {
     expect(
       resolveModelOverride(
-        { model: "$input.verifyModel", provider: "$input.tier" },
-        ctx({ verifyModel: "claude-opus-5", tier: "anthropic" }),
+        { model: "$input.verifyModel", effort: "$input.tier" },
+        ctx({ verifyModel: "claude-opus-5", tier: "high" }),
         "verify",
       ),
-    ).toEqual({ model: "claude-opus-5", provider: "anthropic" });
+    ).toEqual({ model: "claude-opus-5", effort: "high" });
   });
 
   test("resolves a $steps ref (the full grammar, not a $input-only subset)", () => {
@@ -227,6 +233,14 @@ describe("resolveModelOverride", () => {
     expect(() => resolveModelOverride({ provider: "$input.p" }, ctx({ p: "  " }), "s")).toThrow(
       /model override "provider" resolved to a non-string value/,
     );
+  });
+
+  test("re-checks a REF-resolved effort against the vocabulary", () => {
+    // Definition time could not see this value; run time must not ship it
+    // to a provider that will silently ignore it.
+    expect(() =>
+      resolveModelOverride({ effort: "$input.tier" }, ctx({ tier: "turbo" }), "verify"),
+    ).toThrow(/Step "verify" model override "effort" resolved to "turbo"/);
   });
 
   test("a strict-ref failure propagates from the shared resolver", () => {

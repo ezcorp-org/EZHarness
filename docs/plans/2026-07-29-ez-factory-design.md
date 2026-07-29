@@ -6,12 +6,12 @@
 **Supersedes:** the `ez-code-factory` extension (deleted in phase 9)
 
 > **Citation anchor.** Every `file.ts:line` in this document was read and
-> verified against **`9162f601`**, whose `src/**` tree **includes phase 1**
-> (landed `0c88c133`). Citations were originally taken at the pre-phase-1
-> branch point `40d57aae` and **re-anchored on 2026-07-29** after phase 1
-> landed — 69 updates, each spot-checked to land on its named symbol. When a
-> later phase re-reads a citation, still anchor on the **symbol name**, not the
-> number: phases 2–9 will move these lines again.
+> verified against commit **`40d57aae`** — the branch point for phase 1. Phase 1
+> is already in flight in this worktree and shifts `src/types.ts`,
+> `src/runtime/executor.ts`, `src/runtime/workflow-validator.ts`,
+> `src/db/schema.ts` and `src/db/queries/workflow-runs.ts` downward by tens of
+> lines. When a later phase re-reads a citation, anchor on the **symbol name**,
+> not the number.
 
 **Per-phase specs win on detail.** Where a phase has its own implementation
 spec, that document is the authority for that phase and this record is the
@@ -59,10 +59,10 @@ The one-line statement of what core is missing today: **a workflow run is a JS
 call stack owned by whoever's HTTP request is blocked on it.** Every delta below
 is a consequence of moving that ownership into the database.
 
-### C1 — Per-step model + effort · **S** · phase 1 — **LANDED** (`0c88c133`)
+### C1 — Per-step model + effort · **S** · phase 1 (in flight)
 
 Today `AgentExecutor.runAgent(name, input, projectId?, userId?)`
-(`src/runtime/executor.ts:434`) takes no model overrides, and
+(`src/runtime/executor.ts:419`) takes no model overrides, and
 `configToAgent` (`src/runtime/config-to-agent.ts:68`) hard-binds the LLM call to
 the agent config's own `provider`/`model`/`temperature`/`maxTokens`
 (`src/runtime/config-to-agent.ts:80-89`). A workflow that wants a cheap
@@ -70,37 +70,20 @@ extractor and an expensive validator must define two agent configs.
 
 | Touch point | Change |
 |---|---|
-| `src/types.ts` — `WorkflowStep` (`:268`, `loop?` at `:324`) | add `model?: WorkflowModelOverride` |
+| `src/types.ts` — `WorkflowStep` (`:217`, `loop?` at `:260`) | add `model?: WorkflowModelOverride` |
 | `src/types.ts` — new types | `ModelEffort` (the pi-ai `ThinkingLevel` vocabulary), `WorkflowModelOverride = { provider?, model?, temperature?, maxTokens?, effort? }` |
-| `src/types.ts` — `WorkflowDefinition` (`:327`) | add `defaultModel?: WorkflowModelOverride` |
-| `src/runtime/executor.ts` — `runAgent` (`:445`) | optional 5th arg `overrides?: WorkflowModelOverride`, threaded into the `AgentContext` handed to `configToAgent` |
+| `src/types.ts` — `WorkflowDefinition` (`:263`) | add `defaultModel?: WorkflowModelOverride` |
+| `src/runtime/executor.ts` — `runAgent` (`:419`) | optional 5th arg `overrides?: WorkflowModelOverride`, threaded into the `AgentContext` handed to `configToAgent` |
 | `src/runtime/config-to-agent.ts:80-89` | override precedence at the single `ctx.llm.complete` call site |
 | `src/runtime/workflow-validator.ts` — `validateWorkflow` (`:136`) | definition-time rejection of an unknown provider/model/effort; **literal** values only — a `$input.x` ref is unresolvable at definition time and must be deferred to run time |
-| `src/runtime/workflow-executor.ts` — `runAgentStep` (`:527`) / `runAgentAttempt` (`:569`) | resolve `defaultModel` → step `model` → job override, resolving refs through `workflow-refs.ts` |
-| `src/db/schema.ts` — `workflowStepRuns` (`:431`) | `provider`, `model` (see §2) |
+| `src/runtime/workflow-executor.ts` — `runAgentStep` (`:513`) / `runAgentAttempt` (`:552`) | resolve `defaultModel` → step `model` → job override, resolving refs through `workflow-refs.ts` |
+| `src/db/schema.ts` — `workflowStepRuns` (`:427`) | `provider`, `model` (see §2) |
 
-**`effort` ships, and it reaches the provider.** It has no home on the raw
-`stream`/`complete` options — each provider spells it differently — so an
-effort-bearing call routes through pi-ai's `*Simple` normalizer. That is a
-**third** path, distinct from `config-to-agent`'s `ctx.llm.complete` and from
-`streamChat` → `build-pi-agent`, which is why a two-path trace concluded (wrongly)
-that no plumbing existed:
-
-- `src/runtime/executor.ts:480` — `createPiLlmAdapter(modelOverride)` swaps the
-  adapter for the run.
-- `src/runtime/executor-helpers.ts:124` — `const reasoning = overrides?.effort`,
-  under the comment at `:120-123` naming `*Simple` as the normalizer.
-- `src/runtime/executor-helpers.ts:146-147` / `:174-175` — `completeSimple` /
-  `streamSimple`; every other call keeps the raw path.
-- `ModelEffort` (`src/types.ts:217`) is byte-identical to pi-ai's `ThinkingLevel`
-  (`node_modules/@earendil-works/pi-ai/dist/types.d.ts:21`; consumed as
-  `reasoning?: ThinkingLevel` at `:211`). `"max"` exists; `"off"` is correctly
-  excluded — it belongs to `ModelThinkingLevel` (`:22`), model configuration
-  rather than a per-call option.
-
-Phase 1 isolated the validation + ref resolution + closed vocabulary in
-`src/runtime/workflow-model.ts`: one module, one coverage target, no vocabulary
-duplicated into the validator.
+`effort` has **no home** on the existing `stream`/`complete` options — it must
+route through the pi-ai normalizer. Phase 1 has already isolated that in a new
+`src/runtime/workflow-model.ts` (validation + ref resolution + the closed
+`ModelEffort` vocabulary), which is the right shape: one module, one coverage
+target, no vocabulary duplicated into the validator.
 
 **Absent ⇒ byte-identical behaviour.** The 5th arg is optional and the
 `configToAgent` precedence must be `override ?? config.<field>`, so an agent
@@ -124,8 +107,8 @@ to route any undeclared slug"
 | `src/extensions/clamp-permissions.ts` | `clampTriggersPermission`, modelled on `clampWorkflowsPermission` (`:274`) — intersect, never widen; drop the grant rather than leave a husk |
 | new `src/extensions/triggers-handler.ts` | the `ezcorp/triggers` reverse-RPC enforcement ladder |
 | `src/extensions/tool-executor/rpc-handlers.ts` | `handlePiTriggers` delegate, modelled on `handlePiWorkflows` (`:586`) |
-| `src/db/schema.ts` — `extensionSchedules` (`:1401`) | `dynamic BOOLEAN NOT NULL DEFAULT false`, `key TEXT`, `timezone TEXT` |
-| `src/db/schema.ts` — `extensionWebhooks` (`:1453`) | `dynamic`, `key` |
+| `src/db/schema.ts` — `extensionSchedules` (`:1388`) | `dynamic BOOLEAN NOT NULL DEFAULT false`, `key TEXT`, `timezone TEXT` |
+| `src/db/schema.ts` — `extensionWebhooks` (`:1440`) | `dynamic`, `key` |
 | `src/extensions/schedule-reconcile.ts` — `reconcileSchedules` (`:20`) | **the soft-disable sweep at `:55-73` must exclude `dynamic = true`** |
 | `src/extensions/webhook-reconcile.ts` — `reconcileWebhooks` (`:28`) | the same exclusion (the spec omits this — see §7.2) |
 | new `packages/@ezcorp/sdk/src/runtime/triggers.ts` | `register` / `unregister` / `list` |
@@ -151,7 +134,7 @@ Full review in §3. The shape:
 | `src/extensions/workflows-handler.ts` — `WorkflowTriggerDenyReason` (`:102-116`) | new codes (§3.4) |
 | new `src/db/schema.ts` — `workflow_delegations` | the consent record (§2) |
 | new `src/db/schema.ts` — `service_accounts` | the opt-in non-human identity (§2) |
-| `src/db/schema.ts` — `workflowRuns` (`:387`) | `run_as`, `run_as_kind`, `delegation_id` |
+| `src/db/schema.ts` — `workflowRuns` (`:383`) | `run_as`, `run_as_kind`, `delegation_id` |
 | new `packages/@ezcorp/sdk/src/runtime/workflows.ts` | `runFor(ownerRef, name, input)` alongside `run` (`:54`) |
 | `src/extensions/audit-actions.ts` (`:116` region) | `WORKFLOW_DELEGATED_RUN`, `WORKFLOW_CONSENT_STALE`, `WORKFLOW_DELEGATION_REVOKED` |
 
@@ -164,27 +147,27 @@ supplying a real, consenting principal.
 
 ### C4 — Async runs, suspend/resume, and the `approval` step · **L** · phase 2
 
-Today `runWorkflow` (`src/runtime/workflow-executor.ts:163`) awaits the entire
+Today `runWorkflow` (`src/runtime/workflow-executor.ts:160`) awaits the entire
 graph and the run route blocks on it
 (`web/src/routes/api/workflows/[name]/run/+server.ts:32-38`).
-`awaiting_approval` is **terminal** (`src/runtime/workflow-executor.ts:425`,
-type at `src/types.ts:266`) — the run is recorded, not resumable.
+`awaiting_approval` is **terminal** (`src/runtime/workflow-executor.ts:414`,
+type at `src/types.ts:215`) — the run is recorded, not resumable.
 
 > **Phase-2 authority:** [2026-07-29-c4-implementation.md](2026-07-29-c4-implementation.md)
 > (commit `698df1e8`). It wins on any conflict with this section or §2.3.
 
 | Touch point | Change |
 |---|---|
-| `src/db/schema.ts` — `workflowStepRuns` (`:431`) | **`output` (`JSONB`)** — moved here from C5; resume rehydrates `stepResults` from it (§2.4) |
-| `src/runtime/workflow-executor.ts` — new `persistCritical` | strict sibling of `persistWrite` (`:154-161`, which swallows errors by contract); exactly 3 call sites |
-| `src/types.ts:266` — `WorkflowRunStatus` | add `"suspended"` (**non-terminal**, distinct from the terminal `awaiting_approval`) |
-| `src/types.ts` — `WorkflowStepKind` (`:205`) | add `"approval"` |
+| `src/db/schema.ts` — `workflowStepRuns` (`:427`) | **`output` (`JSONB`)** — moved here from C5; resume rehydrates `stepResults` from it (§2.4) |
+| `src/runtime/workflow-executor.ts` — new `persistCritical` | strict sibling of `persistWrite` (`:151-158`, which swallows errors by contract); exactly 3 call sites |
+| `src/types.ts:215` — `WorkflowRunStatus` | add `"suspended"` (**non-terminal**, distinct from the terminal `awaiting_approval`) |
+| `src/types.ts` — `WorkflowStepKind` (`:200`) | add `"approval"` |
 | `src/types.ts` — `WorkflowStep` | `prompt?`, `choices?`, `rbacScope?`, `form?`, `requireItemConsent?`, `timeoutMs?`, `onTimeout?` |
-| `src/runtime/workflow-executor.ts` — `runWorkflow` (`:163`) | drive from a persisted `cursor`; a batch boundary is a commit point |
-| `src/runtime/workflow-executor.ts` — `runStep` (`:467`) | dispatch the `approval` kind |
+| `src/runtime/workflow-executor.ts` — `runWorkflow` (`:160`) | drive from a persisted `cursor`; a batch boundary is a commit point |
+| `src/runtime/workflow-executor.ts` — `runStep` (`:456`) | dispatch the `approval` kind |
 | new `src/runtime/workflow-runner-daemon.ts` | claim-before-dispatch + PID lockfile + concurrency caps, modelled on `ScheduleDaemon` |
-| `src/db/queries/workflow-runs.ts` — `finalizeWorkflowRunRow` (`:128`) | the CAS is `WHERE status='running'`; it must also accept `'suspended'` (§7.3) |
-| `src/db/queries/workflow-runs.ts` — `terminalizeOrphanedWorkflowRuns` (`:190`) | already excludes `suspended` structurally (§7.3) |
+| `src/db/queries/workflow-runs.ts` — `finalizeWorkflowRunRow` (`:114`) | the CAS is `WHERE status='running'`; it must also accept `'suspended'` (§7.3) |
+| `src/db/queries/workflow-runs.ts` — `terminalizeOrphanedWorkflowRuns` (`:162`) | already excludes `suspended` structurally (§7.3) |
 | `web/src/routes/api/workflows/[name]/run/+server.ts` | async opt-in via the **`X-EZ-Workflow-Async: 1` request header** — never a body field (§7.1) |
 | new `web/src/routes/api/workflows/runs/[id]/resume/+server.ts`, `…/cancel/+server.ts` | |
 | `src/api-registry.ts:195-197` | register every new route with a scope |
@@ -224,8 +207,8 @@ lives in exactly one place.
 
 | Touch point | Change |
 |---|---|
-| `src/db/schema.ts` — `workflowStepRuns` (`:431`) | `attempt`, `iteration`, `input_tokens`, `output_tokens`, `cost_usd`, `duration_ms`, `error_code`, `resolved_input`, `skipped_reason` (`provider`/`model` land in C1; **`output` lands in C4** — §2.4) |
-| `src/db/queries/workflow-runs.ts` — `upsertWorkflowStepRun` (`:94`) | write them; the upsert arbiter `uniq_workflow_step_run` (`src/db/schema.ts:460`) is `(workflow_run_id, step_name)` and **cannot express per-iteration rows** (§7.6) |
+| `src/db/schema.ts` — `workflowStepRuns` (`:427`) | `attempt`, `iteration`, `input_tokens`, `output_tokens`, `cost_usd`, `duration_ms`, `error_code`, `resolved_input`, `skipped_reason` (`provider`/`model` land in C1; **`output` lands in C4** — §2.4) |
+| `src/db/queries/workflow-runs.ts` — `upsertWorkflowStepRun` (`:84`) | write them; the upsert arbiter `uniq_workflow_step_run` (`src/db/schema.ts:447`) is `(workflow_run_id, step_name)` and **cannot express per-iteration rows** (§7.6) |
 | new `web/src/routes/api/workflows/runs/+server.ts` | `GET`, scope `read` |
 | new `web/src/routes/api/workflows/runs/[id]/+server.ts` | `GET`, scope `read` |
 | new `web/src/routes/api/workflows/approvals/…` | `GET` (`read`) / `POST` (`chat`) |
@@ -256,7 +239,7 @@ authenticated `chat` caller can run any workflow with any input
 |---|---|
 | `src/db/schema.ts:367` | `project_id`, `user_id`, `visibility` |
 | new `src/db/schema.ts` — `workflow_definition_versions` | immutable snapshots |
-| `src/db/schema.ts` — `workflowRuns` (`:387`) | `definition_version_id` |
+| `src/db/schema.ts` — `workflowRuns` (`:383`) | `definition_version_id` |
 | `src/db/queries/workflows.ts` — `createWorkflow` (`:22`) / `updateWorkflow` (`:38`) | write a version row on every mutation |
 | `web/src/routes/api/workflows/[name]/run/+server.ts` | the authorization ladder: system → any `chat` caller; project → project members; private → owner + admin |
 | new `web/src/routes/(app)/workflows/[name]/edit/+page.svelte` | form + raw-YAML tabs, live `validateWorkflow` errors, dry-run |
@@ -277,18 +260,18 @@ that loop.
 ### C7 — Composition & control flow · **M** · phase 4
 
 Today `condition` is gate-only and a false gate **fails** the run
-(`src/types.ts:298`). There is no way to say "skip this branch."
+(`src/types.ts:247`). There is no way to say "skip this branch."
 
 | Touch point | Change |
 |---|---|
 | `src/types.ts` — `WorkflowStep` | `when?: WorkflowCondition`, `skipDependents?: boolean` (default `true`) |
-| `src/types.ts` — `WorkflowStepKind` (`:205`) | add `"workflow"` |
+| `src/types.ts` — `WorkflowStepKind` (`:200`) | add `"workflow"` |
 | `src/types.ts` — `WorkflowStep` | `workflow?: string` (the nested definition name) |
-| `src/types.ts` — `WorkflowRunStatus` (`:266`) | add `"skipped"` for step rows |
-| `src/runtime/workflow-executor.ts` — `runStep` (`:467`) | evaluate `when` before dispatch, reusing `evaluateCondition` **unchanged** |
-| `src/runtime/workflow-executor.ts` — `runLoop` (`:608`) | permit `loop` on a `workflow` step |
+| `src/types.ts` — `WorkflowRunStatus` (`:215`) | add `"skipped"` for step rows |
+| `src/runtime/workflow-executor.ts` — `runStep` (`:456`) | evaluate `when` before dispatch, reusing `evaluateCondition` **unchanged** |
+| `src/runtime/workflow-executor.ts` — `runLoop` (`:583`) | permit `loop` on a `workflow` step |
 | `src/runtime/workflow-validator.ts:136` | depth cap 3, cycle check at definition time, `loop` still banned on `gate` and `tool` |
-| `src/db/schema.ts` — `workflowRuns` (`:387`) | `parent_run_id` |
+| `src/db/schema.ts` — `workflowRuns` (`:383`) | `parent_run_id` |
 
 **`loop` becomes legal on a `workflow` step, and only there.** That gives
 fix→re-validate loops without loosening the correct ban on looping a raw
@@ -312,7 +295,7 @@ lockstep or you get a silent runtime mismatch
 and expect it to apply (`:127`).
 
 **Placement.** The existing workflow-run DDL sits near the end of `migrate()`
-(`src/db/migrate.ts:2208-2252`) "purely because every FK target it needs —
+(`src/db/migrate.ts:2204-2248`) "purely because every FK target it needs —
 `workflow_definitions`, `projects`, `users`, `runs` — is created above." Every
 new table below FKs into `users` (`:814`), `projects` (`:13`), `extensions`, or
 `workflow_definitions`, so **all new DDL appends after `:2248`**, before the
@@ -421,9 +404,9 @@ terminal or drained by the existing sweep, nothing is misclassified.
 
 - `CASCADE` on `workflow_run_id`: an approval without its run is meaningless —
   unlike run *history*, which is deliberately preserved via `SET NULL`
-  (`src/db/schema.ts:398-403`).
+  (`src/db/schema.ts:394-399`).
 - `SET NULL` on `answered_by`: same IDOR-guard rationale as `runs.user_id` and
-  `workflow_runs.user_id` (`src/db/schema.ts:408-414`) — deleting a user
+  `workflow_runs.user_id` (`src/db/schema.ts:404-410`) — deleting a user
   un-attributes the answer, it does not erase that an approval happened.
 - `uniq_workflow_approval ON workflow_approvals(workflow_run_id, step_name)` —
   one live approval per step; a resumed-then-re-suspended step updates in place.
@@ -433,7 +416,7 @@ terminal or drained by the existing sweep, nothing is misclassified.
 
 1. **`terminalizeOrphanedWorkflowRuns` and `suspended`.** The predicate is
    `status = 'running' AND started_at < cutoff`
-   (`src/db/queries/workflow-runs.ts:190`). A `suspended` run is therefore
+   (`src/db/queries/workflow-runs.ts:176`). A `suspended` run is therefore
    **already excluded structurally** — the original spec's stated hazard does not
    exist as written (§7.3). The real hazard is the inverse: a run that is
    `running` when the process dies, having already committed a cursor, gets
@@ -442,7 +425,7 @@ terminal or drained by the existing sweep, nothing is misclassified.
    **The fix is NOT "transition to `suspended` before every await point".** That
    was this document's earlier answer and it is wrong: of the eight await sites
    in `runWorkflow`, only one precedes a step, and marking a run `suspended`
-   before the tool dispatch (`src/runtime/workflow-executor.ts:780`) would assert
+   before the tool dispatch (`src/runtime/workflow-executor.ts:753`) would assert
    "parked at a boundary, safe to resume" while a `write_file` may already have
    landed — contradicting ported invariant #16 (§4). The corrected model is
    **commit-at-boundary, claim-with-lease, decide-at-recovery**:
@@ -456,7 +439,7 @@ terminal or drained by the existing sweep, nothing is misclassified.
 
    Full derivation and the await inventory: C4 spec §1.
 2. **`persistWrite` swallows every error by contract**
-   (`src/runtime/workflow-executor.ts:154-161` — "Never throws and never blocks
+   (`src/runtime/workflow-executor.ts:151-158` — "Never throws and never blocks
    the run"). Correct for telemetry, **fatal for a cursor**: a silently-dropped
    cursor write makes the next resume start from a stale `batchIndex` and
    re-execute a completed batch. C4 adds a strict `persistCritical` with exactly
@@ -464,16 +447,16 @@ terminal or drained by the existing sweep, nothing is misclassified.
    suspend transition). `persistWrite` is left untouched so its never-fail
    contract is not weakened by accident.
 3. **`finalizeWorkflowRunRow` is a CAS on `status='running'`**
-   (`src/db/queries/workflow-runs.ts:128-140`). A resumed run that finishes is
+   (`src/db/queries/workflow-runs.ts:114-126`). A resumed run that finishes is
    at `running` again, so this holds — **but** a run cancelled while `suspended`
    would silently no-op the finalize. The CAS must widen to
    `status IN ('running','suspended')` and keep its zero-row-no-op contract.
    Widening the CAS is **necessary but not sufficient**: the `finally` block
-   (`src/runtime/workflow-executor.ts:440-458`) calls the finalizer
-   **unconditionally** at `:451`, and `TerminalWorkflowRunStatus`
+   (`src/runtime/workflow-executor.ts:429-447`) calls the finalizer
+   **unconditionally** at `:440`, and `TerminalWorkflowRunStatus`
    (`src/db/queries/workflow-runs.ts:28-32`) correctly excludes `suspended`. The
    `finally` needs a `suspended` guard around the finalize; the scope teardown
-   (`:445`, `:450`) stays unconditional.
+   (`:434`, `:439`) stays unconditional.
 4. **Resume must not re-emit `workflow:start`.** That event prepends a new run to
    `store.workflowRuns` (`docs/features/orchestration/workflows.md:130`), so a
    resumed run would render as two. `resumeWorkflow` emits only `workflow:step`
@@ -484,7 +467,7 @@ terminal or drained by the existing sweep, nothing is misclassified.
    C6 ships versioning. C4 stores `definition_hash` at start and **fails closed**
    (`error`, `definition-changed`, message naming the drift) when it differs on
    resume. C6 later replaces the hash with `definition_version_id`.
-6. **`WorkflowRunStatus` is a plain `TEXT` column** (`src/db/schema.ts:416`)
+6. **`WorkflowRunStatus` is a plain `TEXT` column** (`src/db/schema.ts:412`)
    `$type<>`-annotated only. Adding `'suspended'` needs no DDL, and old rows are
    unaffected — but nothing in the DB stops a bad write. The type is the only
    guard; there is no CHECK constraint and adding one is **not** recommended
@@ -496,7 +479,7 @@ terminal or drained by the existing sweep, nothing is misclassified.
    `web/src/lib/stores.svelte.ts`, `src/cli.ts`, `web/src/lib/workflow-run-display.ts`.
 8. **`awaiting_approval` is not reused for the `approval` step.** It keeps
    today's meaning — a sensitive-capability tool step failed closed, parked
-   *and dead* (`src/runtime/workflow-executor.ts:412-432`). Reusing it would
+   *and dead* (`src/runtime/workflow-executor.ts:401-421`). Reusing it would
    retroactively make every historical `awaiting_approval` row look resumable.
    The new step kind produces `suspended`.
 
@@ -504,7 +487,7 @@ terminal or drained by the existing sweep, nothing is misclassified.
 
 **`workflow_step_runs.output` ships in C4 (phase 2), not here.** Resume
 rehydrates `stepResults` from it, and the upsert payload carries no output today
-(`src/db/queries/workflow-runs.ts:66-79`), so phase 2 is blocked without it.
+(`src/db/queries/workflow-runs.ts:66-74`), so phase 2 is blocked without it.
 It is a **prerequisite, not telemetry**: `JSONB`, nullable, 256 KB cap after
 secret-redaction, and a resume that meets a truncated value fails closed rather
 than continuing with a silently-different `$steps`.
@@ -533,12 +516,12 @@ auto-disables jobs.
 
 Index: `idx_workflow_step_runs_run ON workflow_step_runs(workflow_run_id)` — the
 trace view's only query, and today there is no such index (only the unique
-composite at `src/db/schema.ts:460`, which does serve this prefix; add it only
+composite at `src/db/schema.ts:447`, which does serve this prefix; add it only
 if the composite is later reordered).
 
 **Hazard: the upsert arbiter cannot hold iterations.** `upsertWorkflowStepRun`
 conflicts on `(workflow_run_id, step_name)`
-(`src/db/queries/workflow-runs.ts:112-113`), so a looped step has exactly **one**
+(`src/db/queries/workflow-runs.ts:98-99`), so a looped step has exactly **one**
 row and `iteration` can only ever record the last one. The trace view's "every
 step, every iteration" requirement needs either a widened arbiter
 `(workflow_run_id, step_name, iteration)` — a **destructive** index change
@@ -557,7 +540,7 @@ tests untouched (§7.6).
 deleting a parent must not erase what its children cost. Declare it as **plain
 text with no drizzle self-reference** in `schema.ts` and add the real FK in
 `migrate.ts`, mirroring `sdk_capability_calls.parent_call_id`
-(`src/db/schema.ts:1266-1269`), which took this route for exactly the same
+(`src/db/schema.ts:1253-1256`), which took this route for exactly the same
 drizzle same-table-reference ergonomics.
 
 Index: `idx_workflow_runs_parent ON workflow_runs(parent_run_id)` — required,
@@ -565,7 +548,7 @@ because `SET NULL` on delete scans this column.
 
 ### 2.6 C2 — dynamic triggers
 
-**`extension_schedules` additions** (`src/db/schema.ts:1414`):
+**`extension_schedules` additions** (`src/db/schema.ts:1388`):
 
 | Column | Type | Null | Default |
 |---|---|---|---|
@@ -576,14 +559,14 @@ because `SET NULL` on delete scans this column.
 `DEFAULT false` is what makes this backward-compatible: every existing row is
 manifest-declared, so the reconciler keeps managing it exactly as today.
 
-**`extension_webhooks` additions** (`src/db/schema.ts:1453`): `dynamic BOOLEAN NOT NULL DEFAULT false`, `key TEXT`.
+**`extension_webhooks` additions** (`src/db/schema.ts:1440`): `dynamic BOOLEAN NOT NULL DEFAULT false`, `key TEXT`.
 
 Indexes:
 - `uniq_ext_schedule_key ON extension_schedules(extension_id, key) WHERE key IS NOT NULL` — partial, so manifest rows (NULL key) never collide.
 - `uniq_ext_webhook_key ON extension_webhooks(extension_id, key) WHERE key IS NOT NULL`.
 
 The existing `uniq_ext_schedule ON (extension_id, cron)`
-(`src/db/schema.ts:1414`) stays — but note it means **two dynamic jobs cannot
+(`src/db/schema.ts:1401`) stays — but note it means **two dynamic jobs cannot
 share a cron expression** within one extension. That is a real product
 limitation (25 jobs at "0 3 * * 1" is a plausible ask) and phase 5 must either
 relax the index to `(extension_id, cron) WHERE dynamic = false` or key dynamic
@@ -617,7 +600,7 @@ dynamic rows from that snapshot too, or the audit count lies.
 | `created_at` / `updated_at` | `TIMESTAMPTZ` | no | `NOW()` |
 
 `RESTRICT` on `created_by_user_id`, matching `sdk_capability_calls.on_behalf_of`
-(`src/db/schema.ts:1257-1264`): a service account is a standing grant of
+(`src/db/schema.ts:1244-1251`): a service account is a standing grant of
 authority, and letting the admin who created it be deleted out from under it
 would leave an unaccountable identity running jobs. An admin must
 explicitly disable or reassign it first.
@@ -675,7 +658,7 @@ delegation on its next fire and refuses; the extension surfaces
 record of who a run executed as, and it must survive the delegation being revoked
 and the owner being deleted. `delegation_id` carries the live FK and goes NULL;
 `run_as` never does. This is the same denormalization rationale as
-`workflow_runs.workflow_name` (`src/db/schema.ts:404-406`).
+`workflow_runs.workflow_name` (`src/db/schema.ts:400-402`).
 
 Index: `idx_workflow_runs_run_as ON workflow_runs(run_as_kind, run_as, started_at DESC)` — backs both the "jobs running as me" page and the daily-quota count.
 
@@ -721,7 +704,7 @@ Index: `idx_workflow_definitions_scope ON workflow_definitions(visibility, proje
 `CASCADE` here, unlike run history: a version snapshot without its definition is
 not audit evidence, it is dead weight. `workflow_runs.definition_version_id`
 therefore FKs with **`ON DELETE SET NULL`** so the run row survives, matching the
-existing `workflow_definition_id` treatment (`src/db/schema.ts:398-403`).
+existing `workflow_definition_id` treatment (`src/db/schema.ts:394-399`).
 
 - `uniq_workflow_definition_version ON workflow_definition_versions(workflow_definition_id, version)`.
 - `capability_hash` is stored here, not recomputed — this is what makes C3's
@@ -755,7 +738,7 @@ current RPC.** Everything below is a consequence.
 | T5 | Compromised webhook sender | Knows the hook URL + secret | Fire the job at 1000 rps to burn the owner's credits | Per-job daily quota + per-job spend cap + the extension's `maxRunsPerDay` envelope + the daemon's existing auto-disable-after-5. The webhook delivery queue is already claim-before-dispatch. |
 | T6 | Compromised webhook sender | Same | Supply an `input` that steers an agent step into exfiltration | `input` is capped at 16KB (`MAX_WORKFLOW_INPUT_BYTES`, `src/extensions/workflows-handler.ts:95`) and passes the ported prompt-hygiene stack (§4, invariants 10–13). The delegation's capability set — not the input — decides what the run may *do*. |
 | T7 | User narrower than the owner | Any authenticated user; `manage-jobs` scope | Edit a job whose `runAs` is a broader user, then trigger it | Editing a job's `workflow`, `trigger`, `runAs`, `projectId` or model set **invalidates the consent hash** (§3.3 input 6). A narrower user cannot re-consent on the owner's behalf — re-consent requires a session **as the owner**. |
-| T8 | User narrower than the owner | Same | Read the run's output to exfiltrate data the owner could see but they cannot | The run's SSE delivery is scoped to the owner (`userId`, fail-closed — `src/runtime/workflow-executor.ts:179-184`). The `GET /api/workflows/runs/[id]` route (C5) applies the same ladder as C6 run authorization. |
+| T8 | User narrower than the owner | Same | Read the run's output to exfiltrate data the owner could see but they cannot | The run's SSE delivery is scoped to the owner (`userId`, fail-closed — `src/runtime/workflow-executor.ts:176-181`). The `GET /api/workflows/runs/[id]` route (C5) applies the same ladder as C6 run authorization. |
 | T9 | Admin | `admin` role | Create a service account with scopes exceeding their own | Service-account scopes are clamped to the **creating admin's** scopes at creation (§3.5). Admins already hold every extension RBAC scope, so this bound is about *future* narrower roles; write it now, not later. |
 | T10 | Anyone | — | Replay a stale delegation after the extension's manifest narrowed | Rung 4 of the existing ladder — the manifest allowlist is re-read on every call (`src/extensions/workflows-handler.ts:250-253`), copied from `schedule-handler.ts`. `runFor` keeps it. |
 
@@ -888,7 +871,7 @@ typed `errorCode`, via the existing `audit` helper at `:458`.
 | **D1** | **`jobRef` payload** — a non-empty string ≤128 chars. The wire carries a **job ref, never a user id.** | `DELEGATION_BAD_REF` | `sdk_capability_calls` |
 | **D2** | **Delegation lookup** — `(extension_id = <registry-resolved id>, job_ref, revoked_at IS NULL)`. Absent ⇒ refuse. Closes T1 and T2: there is no wire field that names a principal. | `DELEGATION_NOT_FOUND` | `sdk_capability_calls` |
 | **D3** | **Delegation enabled** — `enabled = true` | `DELEGATION_DISABLED_ROW` | `sdk_capability_calls` |
-| **D4** | **Owner resolution.** `owner_kind='user'` ⇒ the `users` row must exist and be `status='active'` (`src/db/schema.ts:833`). `owner_kind='service'` ⇒ the `service_accounts` row must exist and be `enabled`. **A resolution failure here is the one rung that audits to `audit_log`, not `sdk_capability_calls`** — for the identical reason rung 7 does today (`:286-290`): `sdk_capability_calls.on_behalf_of` is `NOT NULL` with an FK to `users` (`src/db/schema.ts:1264`), so an ownerless row cannot exist there, and routing it through `deny()` would produce a swallowed insert and **no trail at all for exactly the rejection class that most needs one**. | `DELEGATION_OWNER_UNRESOLVED` | `audit_log` (`ext:workflow-delegation-no-owner`, nullable `user_id`) |
+| **D4** | **Owner resolution.** `owner_kind='user'` ⇒ the `users` row must exist and be `status='active'` (`src/db/schema.ts:820`). `owner_kind='service'` ⇒ the `service_accounts` row must exist and be `enabled`. **A resolution failure here is the one rung that audits to `audit_log`, not `sdk_capability_calls`** — for the identical reason rung 7 does today (`:286-290`): `sdk_capability_calls.on_behalf_of` is `NOT NULL` with an FK to `users` (`src/db/schema.ts:1251`), so an ownerless row cannot exist there, and routing it through `deny()` would produce a swallowed insert and **no trail at all for exactly the rejection class that most needs one**. | `DELEGATION_OWNER_UNRESOLVED` | `audit_log` (`ext:workflow-delegation-no-owner`, nullable `user_id`) |
 | **D5** | **Workflow name matches the delegation.** The consented `workflow_name` must equal the resolved `<ext>:<name>`. Prevents presenting a delegation for workflow A to run workflow B. | `DELEGATION_WORKFLOW_MISMATCH` | `sdk_capability_calls` |
 | **D6** | **Consent hash.** Recompute (§3.3) and compare. **Mismatch ⇒ suspend, not deny** — HTTP-equivalent success, `{suspended: true, reason: "consent-stale"}`, run row created at `suspended`. | `DELEGATION_CONSENT_STALE` | `sdk_capability_calls` (`success: false`) **and** `audit_log` (`ext:workflow-consent-stale`) |
 | **D7** | **Owner authorization for this workflow.** Re-run C6's run-authorization ladder **as the owner**: system → any `chat`; project → project member; private → owner or admin. The delegation cannot grant reach the owner does not have. | `DELEGATION_OWNER_UNAUTHORIZED` | `sdk_capability_calls` |
@@ -962,7 +945,7 @@ it for genuinely org-level work.
   gets `-32106`.
 - **Namespacing stays structural.** The wire carries a bare name; a name with
   `:` is rejected (`:236-243`); the host applies the `<ext>:` prefix from the
-  registry-resolved manifest (`:383`). No delegation makes a host workflow or
+  registry-resolved manifest (`:372`). No delegation makes a host workflow or
   another extension's workflow expressible.
 - **The manifest allowlist re-read stays** (`:250-253`). A stale grant against a
   narrowed manifest is not exploitable.
@@ -972,7 +955,7 @@ it for genuinely org-level work.
   (`docs/features/orchestration/workflows.md:79`). Delegation does **not**
   pre-approve tool consent — that is a separate, deliberately separate, gate.
 - **The synthetic conversation id stays** (`workflow-run:<runId>`,
-  `workflowScopeKey`, `src/runtime/workflow-executor.ts:130`). An empty string
+  `workflowScopeKey`, `src/runtime/workflow-executor.ts:127`). An empty string
   would fail *open* on SSE delivery and null the sec-H2 ownership check.
 - **No always-allow row is ever written** on the owner's behalf. A delegation is
   scoped to one job; it is not a permission grant.
@@ -1201,7 +1184,7 @@ snapshot** (`src/extensions/webhook-reconcile.ts:56`) because PGlite's UPDATE
 or the audited count lies.
 
 And a third, unnamed hazard: `uniq_ext_schedule ON (extension_id, cron)`
-(`src/db/schema.ts:1414`) means **two dynamic jobs in one extension cannot share
+(`src/db/schema.ts:1401`) means **two dynamic jobs in one extension cannot share
 a cron expression** — 25 jobs at "0 3 * * 1" is a plausible ask and would fail.
 Relax it to `WHERE dynamic = false`.
 
@@ -1211,7 +1194,7 @@ The spec: "`terminalizeOrphanedWorkflowRuns` must **skip `suspended`** — today
 would eat every parked job on restart."
 
 The predicate is `and(eq(status,'running'), lt(startedAt, cutoff))`
-(`src/db/queries/workflow-runs.ts:190`). A `suspended` run is **already excluded
+(`src/db/queries/workflow-runs.ts:176`). A `suspended` run is **already excluded
 structurally** — no change needed, and no change should be made: the sweep's
 single-predicate simplicity is the reason it is correct.
 
@@ -1225,7 +1208,7 @@ The real hazards are two others the spec does not mention:
    > `resumable` — keep the sweep dumb." **That answer is wrong** and the C4 spec
    > §1 disproves it: of the eight await sites in `runWorkflow`, only `:186`
    > precedes a step. Marking a run `suspended` before the tool dispatch
-   > (`src/runtime/workflow-executor.ts:780`) asserts "parked at a boundary, safe
+   > (`src/runtime/workflow-executor.ts:753`) asserts "parked at a boundary, safe
    > to resume" while a `write_file` may already have landed — a resume then
    > re-enters a half-executed step, contradicting ported invariant #16 (§4).
    >
@@ -1235,7 +1218,7 @@ The real hazards are two others the spec does not mention:
    > (`status='running' AND lease_expires_at < now()`); only its *action*
    > branches on an honestly-maintained `run_phase`.
 2. `finalizeWorkflowRunRow` is a CAS on `WHERE status='running'`
-   (`src/db/queries/workflow-runs.ts:128-140`). A run **cancelled while
+   (`src/db/queries/workflow-runs.ts:114-126`). A run **cancelled while
    suspended** silently no-ops. Widen to `status IN ('running','suspended')`,
    keeping the zero-row-no-op contract.
 
@@ -1273,7 +1256,7 @@ the quoted sentence is at `:54` (comment spans `:52-55`).
 ### 7.6 C5's "every step, every iteration" cannot be stored in `workflow_step_runs` — **mattered for phase 3 · RESOLVED**
 
 The upsert arbiter is `uniq_workflow_step_run ON (workflow_run_id, step_name)`
-(`src/db/schema.ts:460`, used at `src/db/queries/workflow-runs.ts:112-113`). A
+(`src/db/schema.ts:447`, used at `src/db/queries/workflow-runs.ts:98-99`). A
 looped step therefore has **exactly one row**, and `iteration` can only hold the
 last value. The trace view's stated requirement — "every step, **every
 iteration**" — is unstorable in this shape.
@@ -1287,7 +1270,7 @@ needs no backfill, and leaves the existing upsert and its tests untouched.
 ### 7.7 C1's `defaultModel` and the "job overrides again" layer are not in the type system — **minor, phase 1/8 · RESOLVED**
 
 The spec describes three precedence layers: definition `defaultModel`, per-step
-`model`, per-job override. `WorkflowDefinition` (`src/types.ts:327-332` at HEAD)
+`model`, per-job override. `WorkflowDefinition` (`src/types.ts:263-268` at HEAD)
 has only `{ name, description, inputSchema?, steps }`. The job layer lives in
 extension `Storage` and reaches the executor only through `input`, which is
 16KB-capped (`src/extensions/workflows-handler.ts:95`) and resolved by the ref

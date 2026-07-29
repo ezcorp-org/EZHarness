@@ -129,12 +129,12 @@ describe("PUT /api/workflows/[name]", () => {
 			makeEvent({
 				locals: authedUser,
 				method: "PUT",
-				body: { defaultModel: { temperature: 9 } },
+				body: { defaultModel: { effort: "turbo" } },
 			}),
 		);
 		expect(res.status).toBe(400);
 		const body = (await res.json()) as { error?: string };
-		expect(body.error).toContain('Workflow "defaultModel" "temperature" must be between 0 and 2');
+		expect(body.error).toContain('Workflow "defaultModel" "effort" must be one of');
 		// Rejected before any DB work.
 		expect(queries.getWorkflowByName).not.toHaveBeenCalled();
 	});

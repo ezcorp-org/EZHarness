@@ -969,6 +969,7 @@ export interface WorkflowModelOverride {
 	model?: string;
 	temperature?: number;
 	maxTokens?: number;
+	effort?: string;
 }
 
 export interface WorkflowStep {

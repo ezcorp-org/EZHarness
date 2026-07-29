@@ -422,9 +422,9 @@ describe("validateWorkflow — per-step model bindings", () => {
 
   test("a definition-level defaultModel is validated", () => {
     const d = def([{ name: "s", agent: "a" }]);
-    d.defaultModel = { maxTokens: 1.5 } as never;
+    d.defaultModel = { effort: "nope" } as never;
     const errs = validateWorkflow(d);
-    expect(errs.some((e) => e === 'Workflow "defaultModel" "maxTokens" must be an integer')).toBe(true);
+    expect(errs.some((e) => e.startsWith('Workflow "defaultModel" "effort" must be one of'))).toBe(true);
   });
 
   test("a valid defaultModel passes", () => {

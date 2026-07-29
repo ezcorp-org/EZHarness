@@ -164,6 +164,7 @@ describe("modelBindingLabel", () => {
 		expect(modelBindingLabel({ provider: "anthropic" })).toBe("anthropic");
 		expect(modelBindingLabel({ maxTokens: 8000 })).toBe("8000 tok");
 		expect(modelBindingLabel({ temperature: 0 })).toBe("temp 0");
+		expect(modelBindingLabel({ effort: "high" })).toBe("high");
 	});
 
 	test("composes every field in a stable order", () => {
@@ -173,8 +174,9 @@ describe("modelBindingLabel", () => {
 				model: "claude-opus-5",
 				temperature: 0.2,
 				maxTokens: 8000,
+				effort: "high",
 			}),
-		).toBe("anthropic/claude-opus-5 · temp 0.2 · 8000 tok");
+		).toBe("anthropic/claude-opus-5 · temp 0.2 · 8000 tok · high");
 	});
 
 	test("shows a ref verbatim — the ref IS what the definition says", () => {
@@ -187,6 +189,7 @@ describe("modelBindingLabel", () => {
 			{ model: "m" },
 			{ temperature: 1 },
 			{ maxTokens: 5 },
+			{ effort: "low" },
 		];
 		for (let mask = 0; mask < 1 << fields.length; mask++) {
 			const binding: Record<string, unknown> = {};

@@ -8,36 +8,28 @@
  * `workflow-name.ts` for the name grammar.
  */
 import type {
+  ModelEffort,
   ModelOverride,
   WorkflowDefinition,
+  WorkflowModelBinding,
   WorkflowStep,
 } from "../types";
 import { resolveMapping, type RefContext } from "./workflow-refs";
 
-/**
- * ── Why there is no `effort` / reasoning field ───────────────────────
- *
- * A binding may only carry knobs that the agent-step LLM call actually
- * accepts. That call is `ctx.llm.complete(msgs, { system, provider,
- * model, temperature, maxTokens })` in `config-to-agent.ts` — there is no
- * reasoning parameter on it, and `ctx.llm` is typed `any` (`types.ts`),
- * so an extra key would COMPILE and silently do nothing.
- *
- * Reasoning effort is real in this codebase, but it lives on the other
- * path: `thinkingLevel` flows `streamChat` → `build-pi-agent.ts`, which a
- * workflow `agent` step (`runAgent` → `configToAgent` → `ctx.llm.complete`)
- * never reaches. Supporting it here means plumbing `thinkingLevel`
- * through the agent execution path — a separate change to the streaming
- * runtime, not a field on this bundle.
- *
- * So: the four fields below are 1:1 with what the call accepts, and every
- * field a user sets demonstrably takes effect. Please do not re-add
- * `effort` without doing that plumbing first — a validated-but-ignored
- * config field is worse than no field.
- */
+/** The reasoning-effort vocabulary (pi-ai's `ThinkingLevel`). Kept as a
+ *  value — not only a type — so the definition-time validator can reject
+ *  an unknown effort before it reaches a provider. */
+export const VALID_MODEL_EFFORTS: readonly ModelEffort[] = [
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+];
 
 /** Fields carrying a string (and therefore possibly a ref). */
-const STRING_FIELDS = ["provider", "model"] as const;
+const STRING_FIELDS = ["provider", "model", "effort"] as const;
 /** Fields carrying a number (never a ref — a ref is a string). */
 const NUMERIC_FIELDS = ["temperature", "maxTokens"] as const;
 const KNOWN_FIELDS: readonly string[] = [...STRING_FIELDS, ...NUMERIC_FIELDS];
@@ -50,6 +42,20 @@ export const MAX_MODEL_MAX_TOKENS = 1_000_000;
 /** Provider ids and model ids are short; this only stops an untrusted
  *  definition smuggling an unbounded string into a provider request. */
 export const MAX_MODEL_FIELD_LENGTH = 200;
+
+/**
+ * True for a value that is a workflow REF rather than a literal.
+ *
+ * Every ref root in `workflow-refs.ts` (`$input.` / `$prev` / `$steps.` /
+ * `$loop.` / `$result` / `$iteration`) starts with `$`, and no real
+ * provider or model id does. A ref's VALUE is unknowable at definition
+ * time, so vocabulary checks (the `effort` enum) are deferred to
+ * {@link resolveModelOverride}, which re-checks the resolved value and
+ * fails loudly there.
+ */
+function isRef(value: string): boolean {
+  return value.startsWith("$");
+}
 
 /**
  * Validate a model override's SHAPE at definition time. Returns
@@ -74,10 +80,10 @@ export const MAX_MODEL_FIELD_LENGTH = 200;
  *   3. A value may be a REF (`$input.verifyModel`), whose value simply
  *      does not exist until the run resolves it.
  *
- * So the definition-time contract is: the closed field vocabulary, the
- * shape of each field, and the numeric bounds. An unresolvable
- * provider/model still fails at the provider with that provider's own
- * error, exactly as a mistyped agent-config binding does today.
+ * So the definition-time contract is: shape, bounds and the closed
+ * `effort` vocabulary (for literals). An unresolvable provider/model
+ * still fails at the provider with that provider's own error, exactly as
+ * a mistyped agent-config binding does today.
  */
 export function validateModelOverride(value: unknown, label: string): string[] {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
@@ -104,6 +110,14 @@ export function validateModelOverride(value: unknown, label: string): string[] {
     if (v.length > MAX_MODEL_FIELD_LENGTH) {
       errors.push(
         `${label} "${field}" exceeds the maximum length of ${MAX_MODEL_FIELD_LENGTH} characters`,
+      );
+      continue;
+    }
+    // A literal effort is checked against the closed vocabulary; a ref is
+    // checked at run time against its RESOLVED value instead.
+    if (field === "effort" && !isRef(v) && !VALID_MODEL_EFFORTS.includes(v as ModelEffort)) {
+      errors.push(
+        `${label} "effort" must be one of: ${VALID_MODEL_EFFORTS.join(", ")} (got "${v}")`,
       );
     }
   }
@@ -145,7 +159,7 @@ export function validateModelOverride(value: unknown, label: string): string[] {
 export function effectiveModelOverride(
   step: WorkflowStep,
   workflow: Pick<WorkflowDefinition, "defaultModel">,
-): ModelOverride | undefined {
+): WorkflowModelBinding | undefined {
   return step.model ?? workflow.defaultModel;
 }
 
@@ -158,16 +172,16 @@ export function effectiveModelOverride(
  *   - a `$input.x` ref whose field is unset resolves to `undefined`, which
  *     means "no override for THIS field" — the agent's own binding stands.
  *     An unset optional knob must not become a broken model id.
- *   - a ref that resolves to something unusable (a number, an object, a
- *     blank string) THROWS with the step named, matching the subsystem's
- *     loud-failure rule. Silently dropping it would run an expensive step
- *     on the wrong model.
+ *   - anything else that fails to be a usable value (a ref resolving to a
+ *     number/object, an effort outside the vocabulary) THROWS with the
+ *     step named, matching the subsystem's loud-failure rule. Silently
+ *     dropping it would run an expensive step on the wrong model.
  *
  * Returns `undefined` when nothing survives resolution, so a fully-unset
  * override is indistinguishable from no override at all.
  */
 export function resolveModelOverride(
-  override: ModelOverride | undefined,
+  override: WorkflowModelBinding | undefined,
   ctx: RefContext,
   stepName: string,
 ): ModelOverride | undefined {
@@ -198,6 +212,16 @@ export function resolveModelOverride(
   if (provider !== undefined) out.provider = provider;
   const model = str("model");
   if (model !== undefined) out.model = model;
+  const effort = str("effort");
+  if (effort !== undefined) {
+    if (!VALID_MODEL_EFFORTS.includes(effort as ModelEffort)) {
+      throw new Error(
+        `Step "${stepName}" model override "effort" resolved to "${effort}"; ` +
+          `expected one of: ${VALID_MODEL_EFFORTS.join(", ")}.`,
+      );
+    }
+    out.effort = effort as ModelEffort;
+  }
   for (const field of NUMERIC_FIELDS) {
     const v = override[field];
     if (v !== undefined) out[field] = v;
