@@ -21,7 +21,8 @@ const dry = vi.hoisted(() => ({
       status: string;
       steps: Array<{ name: string; kind: string; mode: string; status: string }>;
       stubbed: string[];
-    }> => ({ status: "success", steps: [], stubbed: [] }),
+      gatesOnStubs: Array<{ name: string; passed: boolean; reason: string }>;
+    }> => ({ status: "success", steps: [], stubbed: [], gatesOnStubs: [] }),
   ),
 }));
 vi.mock("$lib/server/context", () => ctx);
@@ -61,7 +62,9 @@ function makeEvent(opts: { body?: unknown; locals?: Record<string, unknown> }) {
 
 beforeEach(() => {
   ctx.getCachedWorkflows.mockReset().mockReturnValue([entry()]);
-  dry.dryRunWorkflow.mockReset().mockResolvedValue({ status: "success", steps: [], stubbed: [] });
+  dry.dryRunWorkflow
+    .mockReset()
+    .mockResolvedValue({ status: "success", steps: [], stubbed: [], gatesOnStubs: [] });
 });
 
 describe("POST /api/workflows/[name]/dry-run", () => {
@@ -141,13 +144,25 @@ describe("POST /api/workflows/[name]/dry-run", () => {
     expect(dry.dryRunWorkflow).not.toHaveBeenCalled();
   });
 
-  test("returns the harness report verbatim", async () => {
+  test("returns the harness report verbatim, unenforced-gate verdicts included", async () => {
+    // `status: "unverified"` + `gatesOnStubs` are the whole answer to "was
+    // this green for a reason?" — a route that dropped either would hand the
+    // editor a report it must render as a pass.
     dry.dryRunWorkflow.mockResolvedValue({
-      status: "success",
-      steps: [{ name: "s1", kind: "agent", mode: "stubbed", status: "success" }],
+      status: "unverified",
+      steps: [
+        { name: "s1", kind: "agent", mode: "stubbed", status: "success" },
+        { name: "g1", kind: "gate", mode: "evaluated-on-stubs", status: "success" },
+      ],
       stubbed: ["s1"],
+      gatesOnStubs: [{ name: "g1", passed: true, reason: "$steps.s1.output.ok satisfies truthy" }],
     });
     const res = await POST(makeEvent({ locals: authedUser, body: {} }));
-    expect((await res.json()) as { stubbed?: string[] }).toMatchObject({ stubbed: ["s1"] });
+    expect(await res.json()).toMatchObject({
+      status: "unverified",
+      stubbed: ["s1"],
+      gatesOnStubs: [{ name: "g1", passed: true }],
+      steps: [{ name: "s1" }, { name: "g1", mode: "evaluated-on-stubs" }],
+    });
   });
 });

@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
+  containsDryRunStub,
   DRY_RUN_STUB_MARKER,
+  DRY_RUN_UNVERIFIED,
   dryRunAgentExecutor,
+  dryRunStatus,
   dryRunStub,
   dryRunToolRunnerFactory,
   dryRunWorkflow,
@@ -30,6 +33,9 @@ describe("dry run cannot dispatch, structurally", () => {
     expect(report.error).toBeUndefined();
     expect(report.stubbed).toEqual(["draft", "publish"]);
     expect(report.steps.map((s) => s.mode)).toEqual(["stubbed", "stubbed", "evaluated"]);
+    // No gate in this graph, so nothing was left unenforced — the plain
+    // `success` above is honest here, and only here.
+    expect(report.gatesOnStubs).toEqual([]);
   });
 
   test("the tool runner factory throws, so a tool step reaching dispatch fails loudly", () => {
@@ -173,44 +179,197 @@ describe("dry-run stubs resolve arbitrary ref paths", () => {
   });
 });
 
-describe("dry run reports failures rather than throwing them", () => {
-  test("a gate that fails against stub data stops the run and names the gate", async () => {
-    // Gates are evaluated FOR REAL — the honest outcome, and the reason
-    // the UI warns that gates run against stub data.
+describe("a gate over fabricated operands is recorded, never enforced", () => {
+  const gatedOnStub = (op: "eq" | "truthy") => ({
+    name: "gated",
+    description: "",
+    steps: [
+      { name: "draft", kind: "agent" as const, agent: "writer" },
+      {
+        name: "check",
+        kind: "gate" as const,
+        condition:
+          op === "eq"
+            ? { ref: "$steps.draft.output.status", op: "eq" as const, value: "ok" }
+            : { ref: "$steps.draft.output.ok", op: "truthy" as const },
+      },
+      { name: "after", kind: "transform" as const, output: { done: "yes" } },
+    ],
+  });
+
+  test("a gate a stub SATISFIES never reports a bare success — the status is unverified", async () => {
+    // The critical half of the defect: the stub answers every path, so
+    // `truthy` holds against a Proxy and the run went green on data
+    // nobody produced. `success` here is indistinguishable, to a user and
+    // to a script, from a graph that really passed.
+    const report = await dryRunWorkflow(gatedOnStub("truthy"), {});
+
+    expect(report.status).toBe(DRY_RUN_UNVERIFIED);
+    expect(report.status).not.toBe("success");
+    expect(report.gatesOnStubs).toEqual([
+      {
+        name: "check",
+        passed: true,
+        reason: '$steps.draft.output.ok (="«draft.output.ok»") satisfies truthy',
+      },
+    ]);
+    // The cue sits on the GATE, not only on the upstream agent step that
+    // produced the value.
+    expect(report.steps.find((s) => s.name === "check")?.mode).toBe("evaluated-on-stubs");
+    expect(report.steps.find((s) => s.name === "draft")?.mode).toBe("stubbed");
+  });
+
+  test("a gate a stub FAILS is not enforced either — the run continues past it", async () => {
+    // The mirror: `eq` against a literal can never hold for a Proxy, so
+    // enforcing that verdict would stop the dry run at the first gate and
+    // hide every downstream finding behind a failure that is not a fact.
+    const report = await dryRunWorkflow(gatedOnStub("eq"), {});
+
+    expect(report.status).toBe(DRY_RUN_UNVERIFIED);
+    expect(report.error).toBeUndefined();
+    expect(report.gatesOnStubs[0]).toMatchObject({ name: "check", passed: false });
+    // The step AFTER the unenforced gate actually ran.
+    expect(report.steps.find((s) => s.name === "after")?.status).toBe("success");
+    expect(report.output).toEqual({ done: "yes" });
+  });
+
+  test("a gate over deterministic operands is enforced exactly as built", async () => {
+    // The useful half of the feature, unchanged: nothing about this gate
+    // is fabricated, so its verdict is a fact and it stops the run.
     const report = await dryRunWorkflow(
       {
-        name: "gated",
+        name: "real-gate",
+        description: "",
+        steps: [
+          { name: "check", kind: "gate", condition: { ref: "$input.mode", op: "eq", value: "ok" } },
+          { name: "after", kind: "transform", output: { done: "yes" } },
+        ],
+      },
+      { mode: "nope" },
+    );
+
+    expect(report.status).toBe("error");
+    expect(report.error).toContain('Gate "check" failed');
+    expect(report.gatesOnStubs).toEqual([]);
+    expect(report.steps.find((s) => s.name === "check")?.mode).toBe("evaluated");
+    expect(report.steps.find((s) => s.name === "after")?.status).toBe("skipped");
+  });
+
+  test("a passing deterministic gate leaves the report a genuine success", async () => {
+    const report = await dryRunWorkflow(
+      {
+        name: "real-gate-ok",
+        description: "",
+        steps: [
+          { name: "check", kind: "gate", condition: { ref: "$input.mode", op: "eq", value: "ok" } },
+        ],
+      },
+      { mode: "ok" },
+    );
+
+    expect(report.status).toBe("success");
+    expect(report.gatesOnStubs).toEqual([]);
+  });
+
+  test("a stub laundered through a transform still leaves the gate unenforced", async () => {
+    // The taint is deep: the transform's output is a real object with a
+    // stub INSIDE it, and a shallow check would call that operand
+    // deterministic and enforce a verdict about fabricated data.
+    const report = await dryRunWorkflow(
+      {
+        name: "laundered",
         description: "",
         steps: [
           { name: "draft", kind: "agent", agent: "writer" },
-          { name: "check", kind: "gate", condition: { ref: "$steps.draft.output.status", op: "eq", value: "ok" } },
-          { name: "after", kind: "transform", output: { done: "yes" } },
+          { name: "copy", kind: "transform", output: { text: "$steps.draft.output.text" } },
+          { name: "check", kind: "gate", condition: { ref: "$steps.copy.output", op: "exists" } },
         ],
+      },
+      {},
+    );
+
+    expect(report.status).toBe(DRY_RUN_UNVERIFIED);
+    expect(report.gatesOnStubs.map((g) => g.name)).toEqual(["check"]);
+  });
+
+  test("an unenforced gate's own result is a stub, so a gate reading it is unenforced too", async () => {
+    // Otherwise the second gate would enforce against a boolean derived
+    // from fabrication — a laundering path one hop shorter than the
+    // transform above.
+    const report = await dryRunWorkflow(
+      {
+        name: "chained",
+        description: "",
+        steps: [
+          { name: "draft", kind: "agent", agent: "writer" },
+          { name: "first", kind: "gate", condition: { ref: "$steps.draft.output.ok", op: "truthy" } },
+          { name: "second", kind: "gate", condition: { ref: "$steps.first.output.passed", op: "truthy" } },
+        ],
+      },
+      {},
+    );
+
+    expect(report.gatesOnStubs.map((g) => g.name)).toEqual(["first", "second"]);
+    expect(report.status).toBe(DRY_RUN_UNVERIFIED);
+  });
+
+  test("a gate whose ref cannot resolve reports the ref error rather than hiding behind 'unenforced'", async () => {
+    // A ref into a step that does not exist is a real defect in the
+    // graph, and it is exactly what a dry run is for. Classifying it as
+    // "operands unknown, so unenforced" would swallow the finding.
+    const report = await dryRunWorkflow(
+      {
+        name: "ghost-ref",
+        description: "",
+        steps: [{ name: "check", kind: "gate", condition: { ref: "$steps.ghost.output", op: "exists" } }],
       },
       {},
     );
 
     expect(report.status).toBe("error");
-    expect(report.error).toContain('Gate "check" failed');
-    expect(report.steps.find((s) => s.name === "after")?.status).toBe("skipped");
+    expect(report.error).toContain('step "ghost" has not produced a result');
+    expect(report.gatesOnStubs).toEqual([]);
   });
 
-  test("a gate whose condition holds against a stub passes", async () => {
+  test("a failure keeps its own status even when a gate went unenforced", async () => {
+    // `unverified` must never overwrite a real failure — the fault is the
+    // answer the caller needs, not the caveat.
     const report = await dryRunWorkflow(
       {
-        name: "gated-ok",
+        name: "both",
         description: "",
         steps: [
           { name: "draft", kind: "agent", agent: "writer" },
           { name: "check", kind: "gate", condition: { ref: "$steps.draft.output.ok", op: "truthy" } },
+          { name: "hard", kind: "gate", condition: { ref: "$input.n", op: "gt", value: 1 } },
         ],
       },
-      {},
+      { n: 0 },
     );
 
-    expect(report.status).toBe("success");
+    expect(report.status).toBe("error");
+    expect(report.gatesOnStubs.map((g) => g.name)).toEqual(["check"]);
   });
 
+  test("dryRunStatus downgrades only a success", () => {
+    expect(dryRunStatus("success", 0)).toBe("success");
+    expect(dryRunStatus("success", 1)).toBe(DRY_RUN_UNVERIFIED);
+    expect(dryRunStatus("error", 1)).toBe("error");
+    expect(dryRunStatus("cancelled", 2)).toBe("cancelled");
+  });
+
+  test("containsDryRunStub finds a stub nested anywhere, and nowhere else", () => {
+    expect(containsDryRunStub(dryRunStub("s"))).toBe(true);
+    expect(containsDryRunStub({ a: { b: [1, dryRunStub("s")] } })).toBe(true);
+    expect(containsDryRunStub([[{ deep: dryRunStub("s") }]])).toBe(true);
+    expect(containsDryRunStub({ a: { b: [1, "two"] } })).toBe(false);
+    expect(containsDryRunStub(null)).toBe(false);
+    expect(containsDryRunStub("text")).toBe(false);
+    expect(containsDryRunStub(7)).toBe(false);
+  });
+});
+
+describe("dry run reports failures rather than throwing them", () => {
   test("an unresolvable ref into an EVALUATED step is still reported", async () => {
     // The useful half of dry-run validation: refs into steps that really
     // ran are still checked strictly.

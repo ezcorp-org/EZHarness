@@ -82,7 +82,7 @@ Substitution hangs off `WorkflowExecutorOptions.stepSubstitute`, consulted at th
 
 Two honest limits, surfaced in the editor rather than left to be discovered:
 - Refs into a stubbed step resolve to a path-answering stub (the ref resolver is strict, so a plain `{}` would fail every real graph at its first `$steps.<agent>.output.<field>`). A dry run therefore **cannot** validate a ref into an `agent`/`tool` result — only refs into steps it actually evaluated.
-- A `gate` comparing stub data against a literal **will** fail and stop the dry run there. That is the truthful outcome, and the same thing a real run would report given that data.
+- A `gate` whose operands are stub-derived is **evaluated but not enforced**. The stub answers every path, so `exists`, `truthy`, `neq` and `not(eq)` — the commonest shapes over an agent's output — all hold against it, and `eq` against a literal never does; both answers are about data nobody produced. So the verdict is recorded in `gatesOnStubs`, the step reports `mode: "evaluated-on-stubs"`, the run **continues** (the rest of the graph is still worth checking), and the report's status is `unverified` rather than `success` — which the editor renders amber, with the unenforced verdict named. Taint is deep and transitive: a stub laundered through a `transform`, or through an earlier unenforced gate's own result, still leaves the gate unenforced. A gate over deterministic operands (`$input.*`, a transform over real data) is enforced exactly as built, and that is the half a dry run can actually prove.
 
 ### Fork (`workflow-fork.ts`)
 

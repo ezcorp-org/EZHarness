@@ -134,6 +134,22 @@
 		}
 	}
 
+	/** Green ONLY for an unqualified pass. `unverified` means the run
+	 *  completed while at least one gate was evaluated against stub data and
+	 *  NOT enforced — painting that the same green as a real pass is the
+	 *  false confidence the report's own status exists to prevent. */
+	const dryRunStatusClass = (status: string) =>
+		status === "success"
+			? "text-green-400"
+			: status === "unverified"
+				? "text-amber-300"
+				: "text-red-400";
+
+	/** The amber cue belongs on every row whose value is fabricated — the
+	 *  stubbed step AND the gate that decided on its output. */
+	const dryRunModeClass = (mode: string) =>
+		mode === "evaluated" ? "text-teal-300" : "text-amber-400";
+
 	const tabClass = (active: boolean) =>
 		`rounded-md px-3 py-2 text-sm font-medium transition-colors ${
 			active
@@ -236,8 +252,10 @@
 			<h3 class="mb-1 text-lg font-semibold text-[var(--color-text-primary)]">Dry run</h3>
 			<p class="mb-3 text-xs text-[var(--color-text-muted)]">
 				Runs the transform and gate steps for real and stands a stub in for every agent, tool and
-				approval step — no LLM, no side effects, no run recorded. Gates are evaluated against that
-				stub data, so a gate comparing a real value will report a failure here.
+				approval step — no LLM, no side effects, no run recorded. A gate whose operands come from a
+				stub is evaluated but <strong>not enforced</strong>: the verdict is reported, the run
+				carries on, and the result is <strong>unverified</strong> rather than a pass — a gate over
+				data nobody produced proves nothing either way.
 			</p>
 			<label class="mb-1 block text-sm text-[var(--color-text-secondary)]" for="dry-run-input"
 				>JSON input</label
@@ -269,19 +287,43 @@
 					<div class="flex items-center gap-2 text-sm">
 						<span class="text-[var(--color-text-secondary)]">Result:</span>
 						<span
-							class="rounded bg-[var(--color-surface-tertiary)] px-2 py-0.5 text-xs {dryRunReport.status === 'success' ? 'text-green-400' : 'text-red-400'}"
+							class="rounded bg-[var(--color-surface-tertiary)] px-2 py-0.5 text-xs {dryRunStatusClass(
+								dryRunReport.status,
+							)}"
 							data-testid="dry-run-status">{dryRunReport.status}</span
 						>
 					</div>
 					{#if dryRunReport.error}
 						<p class="text-xs text-red-400" data-testid="dry-run-report-error">{dryRunReport.error}</p>
 					{/if}
+					{#if dryRunReport.gatesOnStubs.length > 0}
+						<div
+							class="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-300"
+							data-testid="dry-run-unenforced-gates"
+						>
+							<p class="font-medium">
+								{dryRunReport.gatesOnStubs.length} gate{dryRunReport.gatesOnStubs.length === 1
+									? ""
+									: "s"} ran against stub data and {dryRunReport.gatesOnStubs.length === 1
+									? "was"
+									: "were"} not enforced.
+							</p>
+							<ul class="mt-1 space-y-1">
+								{#each dryRunReport.gatesOnStubs as gate (gate.name)}
+									<li>
+										<strong>{gate.name}</strong> would have {gate.passed ? "passed" : "failed"}:
+										{gate.reason}
+									</li>
+								{/each}
+							</ul>
+						</div>
+					{/if}
 					<div class="space-y-1">
 						{#each dryRunReport.steps as step}
 							<div class="flex flex-wrap items-center gap-2 rounded border border-[var(--color-border)] bg-[var(--color-surface)] p-2 text-xs">
 								<span class="font-medium text-[var(--color-text-primary)]">{step.name}</span>
 								<span class="rounded bg-[var(--color-surface-tertiary)] px-1.5 py-0.5 uppercase tracking-wide text-[var(--color-text-muted)]">{step.kind}</span>
-								<span class={step.mode === "stubbed" ? "text-amber-400" : "text-teal-300"} data-testid="dry-run-mode">{step.mode}</span>
+								<span class={dryRunModeClass(step.mode)} data-testid="dry-run-mode">{step.mode}</span>
 								<span class="text-[var(--color-text-secondary)]">{step.status}</span>
 							</div>
 						{/each}

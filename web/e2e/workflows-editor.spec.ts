@@ -126,11 +126,65 @@ test.describe("Workflow editor", () => {
 
 		await expect(page.getByTestId("dry-run-report")).toBeVisible({ timeout: 5000 });
 		await expect(page.getByTestId("dry-run-status")).toHaveText("success");
+		// Green is reserved for a run with nothing left unenforced — this graph
+		// has no gate at all. The `unverified` case below is the contrast.
+		await expect(page.getByTestId("dry-run-status")).toHaveClass(/text-green-400/);
 		// The agent step is stood in for; the transform is evaluated for real.
 		await expect(page.getByTestId("dry-run-mode").first()).toHaveText("stubbed");
 		await expect(page.getByTestId("dry-run-mode").nth(1)).toHaveText("evaluated");
 
 		await captureEvidence(page, testInfo, "workflow-editor-dry-run", { fullPage: true });
+	});
+
+	test("@evidence a dry run whose gate ran on stub data is NOT reported as green", async ({
+		page,
+	}, testInfo) => {
+		// The defect this replaces: the report said `success`, the badge was
+		// green, and the only amber cue sat on the upstream agent step — while
+		// the gate that decided on the fabricated value rendered teal. A stub
+		// satisfies `truthy`, so that green meant nothing.
+		await page.route(`**/api/workflows/${WORKFLOW.name}/dry-run`, (route) =>
+			route.fulfill({
+				json: {
+					status: "unverified",
+					stubbed: ["step-1"],
+					steps: [
+						{ name: "step-1", kind: "agent", mode: "stubbed", status: "success" },
+						{ name: "check", kind: "gate", mode: "evaluated-on-stubs", status: "success" },
+					],
+					gatesOnStubs: [
+						{
+							name: "check",
+							passed: true,
+							reason: '$steps.step-1.output.ok (="«step-1.output.ok»") satisfies truthy',
+						},
+					],
+				},
+			}),
+		);
+
+		await openEditor(page);
+		await page.getByTestId("dry-run-button").click();
+
+		const status = page.getByTestId("dry-run-status");
+		await expect(status).toHaveText("unverified");
+		// Amber, never the green a real pass gets.
+		await expect(status).toHaveClass(/text-amber-300/);
+		await expect(status).not.toHaveClass(/text-green-400/);
+
+		// The cue is on the GATE's row too, not only the stubbed agent above it.
+		await expect(page.getByTestId("dry-run-mode").nth(1)).toHaveText("evaluated-on-stubs");
+		await expect(page.getByTestId("dry-run-mode").nth(1)).toHaveClass(/text-amber-400/);
+
+		// And the verdict is named, so the user knows WHICH gate was skipped.
+		const unenforced = page.getByTestId("dry-run-unenforced-gates");
+		await expect(unenforced).toContainText("not enforced");
+		await expect(unenforced).toContainText("check");
+		await expect(unenforced).toContainText("would have passed");
+
+		await captureEvidence(page, testInfo, "workflow-editor-dry-run-unverified", {
+			fullPage: true,
+		});
 	});
 
 	test("a dry run with malformed JSON input reports it without calling the server", async ({

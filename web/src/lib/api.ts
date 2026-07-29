@@ -1088,10 +1088,28 @@ export async function forkWorkflow(
 	return res.json();
 }
 
+/** A gate the dry run evaluated against fabricated operands. The verdict
+ *  is reported and deliberately NOT enforced — a stub satisfies `exists`,
+ *  `truthy` and `neq`, so either answer would be about data nobody
+ *  produced. */
+export interface WorkflowDryRunGateVerdict {
+	name: string;
+	passed: boolean;
+	reason: string;
+}
+
 export interface WorkflowDryRunReport {
+	/** `success`, `error`, `cancelled`, or `unverified` — the run completed
+	 *  but at least one gate went unenforced, so it is not a pass. */
 	status: string;
-	steps: { name: string; kind: string; mode: "evaluated" | "stubbed"; status: string }[];
+	steps: {
+		name: string;
+		kind: string;
+		mode: "evaluated" | "stubbed" | "evaluated-on-stubs";
+		status: string;
+	}[];
 	stubbed: string[];
+	gatesOnStubs: WorkflowDryRunGateVerdict[];
 	error?: string;
 	output?: unknown;
 }

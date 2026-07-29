@@ -1124,6 +1124,9 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 						{ name: "step-1", kind: "agent", mode: "stubbed", status: "success" },
 						{ name: "summary", kind: "transform", mode: "evaluated", status: "success" },
 					],
+					// No gate in this graph, so nothing was left unenforced — the
+					// plain `success` above is only honest with this empty.
+					gatesOnStubs: [],
 					output: { note: "«step-1.output»" },
 				},
 			});

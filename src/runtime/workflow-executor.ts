@@ -125,12 +125,19 @@ export interface WorkflowExecutorOptions {
    * rather than dispatched — the failure mode of a stale skip list, but
    * inverted to fail safe.
    *
+   * The step's ref context comes with it, because the decision is not
+   * always about the step alone: the dry-run harness has to RESOLVE a
+   * gate's operands to know whether they are fabricated, and only the
+   * holder of the substitution rule can judge that. It is the BASE
+   * context — no `$loop` roots, since the hook is consulted above the
+   * loop branch.
+   *
    * The dry-run harness is the only caller. It is a BACKSTOP, not the
    * guarantee: that comes from the harness also passing a
    * `toolRunnerFactory` and an `AgentExecutor` that throw, so a step
    * reaching dispatch fails loudly instead of executing.
    */
-  stepSubstitute?: (step: WorkflowStep) => AgentResult | undefined;
+  stepSubstitute?: (step: WorkflowStep, ctx: RefContext) => AgentResult | undefined;
 }
 
 /**
@@ -178,7 +185,7 @@ export function workflowScopeKey(workflowRunId: string): string {
 export class WorkflowExecutor {
   private readonly persist: boolean;
   private readonly toolRunnerFactory: WorkflowToolRunnerFactory;
-  private readonly stepSubstitute?: (step: WorkflowStep) => AgentResult | undefined;
+  private readonly stepSubstitute?: (step: WorkflowStep, ctx: RefContext) => AgentResult | undefined;
 
   constructor(
     private agentExecutor: AgentExecutor,
@@ -652,11 +659,13 @@ export class WorkflowExecutor {
     toolCtx: ToolStepContext,
     modelBinding: WorkflowModelBinding | undefined,
   ): Promise<AgentResult> {
+    const baseCtx: RefContext = { input, stepResults, prevResult };
+
     // Checked FIRST — above the loop branch and above the kind dispatch —
     // so a substituted step can reach no dispatcher at all, whatever its
     // kind and whether or not it declares a loop. See
     // `WorkflowExecutorOptions.stepSubstitute`.
-    const substituted = this.stepSubstitute?.(step);
+    const substituted = this.stepSubstitute?.(step, baseCtx);
     if (substituted !== undefined) return substituted;
 
     if (step.loop) {
@@ -675,7 +684,6 @@ export class WorkflowExecutor {
     }
 
     const kind = stepKind(step);
-    const baseCtx: RefContext = { input, stepResults, prevResult };
 
     if (kind === "transform") {
       return runTransform(step, baseCtx);

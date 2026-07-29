@@ -44,14 +44,29 @@
  * into an `agent`/`tool` result, only refs into steps it actually
  * evaluated.
  *
- * A `gate` is evaluated for real, which means a gate comparing a stubbed
- * value against a literal WILL fail and stop the dry run there. That is
- * the truthful outcome — the same thing a real run would report given
- * that data — and the UI says so rather than letting the user discover it.
+ * ## A gate over fabricated operands is NOT enforced
+ *
+ * The stub answers every path, so `exists`, `truthy`, `neq` and
+ * `not(eq)` — the commonest shapes over an agent's output — all hold
+ * against it, and `eq` against a literal never does. Enforcing either
+ * answer would be reporting a verdict about data nobody produced: green
+ * because a Proxy exists, or red because a Proxy is not `"ok"`. Neither
+ * is a fact about the workflow, and the green one is the more dangerous
+ * because it looks like a pass.
+ *
+ * So a gate whose operands are stub-derived is **evaluated, recorded and
+ * not enforced**: its verdict lands in {@link DryRunReport.gatesOnStubs},
+ * the step reports `mode: "evaluated-on-stubs"`, the run CONTINUES so the
+ * rest of the graph is still checked, and the report's status is
+ * downgraded to {@link DRY_RUN_UNVERIFIED} so it can never be read as a
+ * clean pass. A gate over deterministic operands (`$input.*`, a
+ * `transform` over real data) is enforced exactly as built — that is the
+ * useful half of the feature and it is unchanged.
  */
 import type {
   AgentEvents,
   AgentResult,
+  WorkflowCondition,
   WorkflowDefinition,
   WorkflowRun,
   WorkflowStep,
@@ -60,6 +75,8 @@ import type {
 import type { AgentExecutor } from "./executor";
 import { EventBus } from "./events";
 import { WorkflowExecutor } from "./workflow-executor";
+import { conditionRefs, evaluateCondition } from "./workflow-condition";
+import { resolveConditionRef, type RefContext } from "./workflow-refs";
 import { stepKind } from "./workflow-validator";
 
 /**
@@ -150,6 +167,28 @@ export function isDryRunStub(value: unknown): boolean {
 }
 
 /**
+ * True when `value` IS a stub, or carries one anywhere inside it.
+ *
+ * A stub does not stay at the top level: a `transform` that copies
+ * `$steps.draft.output.text` into its own `output` hands it onward as a
+ * member of an otherwise-real object, and a gate reading THAT object is
+ * still gating on fabricated data. So the check has to be deep, or
+ * laundering a stub through one transform would buy back the false green.
+ *
+ * Recursion terminates on a stub without the marker check even firing:
+ * the proxy reports no own keys, the same property {@link renderStubs}
+ * relies on.
+ */
+export function containsDryRunStub(value: unknown): boolean {
+  if (isDryRunStub(value)) return true;
+  if (Array.isArray(value)) return value.some(containsDryRunStub);
+  if (value !== null && typeof value === "object") {
+    return Object.values(value).some(containsDryRunStub);
+  }
+  return false;
+}
+
+/**
  * A `toolRunnerFactory` that cannot build a tool runner.
  *
  * Named and exported rather than inlined at the construction site so the
@@ -185,21 +224,114 @@ export function dryRunAgentExecutor(): AgentExecutor {
 export interface DryRunStepReport {
   name: string;
   kind: WorkflowStepKind;
-  /** `evaluated` — actually run; `stubbed` — stood in for. */
-  mode: "evaluated" | "stubbed";
+  /**
+   * `evaluated` — actually run, against real data;
+   * `stubbed` — stood in for, never dispatched;
+   * `evaluated-on-stubs` — a gate that ran against fabricated operands,
+   * so its verdict was recorded and NOT enforced.
+   */
+  mode: "evaluated" | "stubbed" | "evaluated-on-stubs";
   status: string;
 }
 
+/** A gate that ran against fabricated operands. Its verdict is reported
+ *  and deliberately not acted on — see the module doc. */
+export interface DryRunGateVerdict {
+  name: string;
+  /** What the gate WOULD have decided, against data nobody produced. */
+  passed: boolean;
+  /** The decisive leaf, verbatim from the condition evaluator. */
+  reason: string;
+}
+
+/**
+ * The status of a dry run that completed while at least one gate went
+ * unenforced.
+ *
+ * Its own value rather than `success` because the two are not the same
+ * claim: this one says "nothing failed", never "the graph passes". A
+ * caller that treats every non-`error` status as a pass is the bug this
+ * exists to make visible.
+ */
+export const DRY_RUN_UNVERIFIED = "unverified";
+
 export interface DryRunReport {
-  /** Terminal status of the simulated run (`success`, `error`, …). */
+  /**
+   * Terminal status of the simulated run — `success`, `error`,
+   * `cancelled`, or {@link DRY_RUN_UNVERIFIED}.
+   *
+   * Never bare `success` when a gate ran on stubs: see
+   * {@link dryRunStatus}.
+   */
   status: string;
   steps: DryRunStepReport[];
   /** Step names that were stood in for rather than executed. */
   stubbed: string[];
+  /** Gates evaluated against stub-derived operands, verdict NOT enforced.
+   *  Empty for a graph whose gates all read deterministic data. */
+  gatesOnStubs: DryRunGateVerdict[];
   /** Failure message when the dry run did not complete. */
   error?: string;
   /** Final `$prev` output, with stubs rendered as their labels. */
   output?: unknown;
+}
+
+/**
+ * The status a caller may act on.
+ *
+ * A run that completed with a gate unenforced proved nothing about that
+ * gate, so reporting `success` would be the false green this module
+ * exists to prevent — the UI renders that word as a plain pass. A run
+ * that FAILED keeps its failure: that answer is already not green, and
+ * overwriting it would hide the real fault behind a caveat.
+ */
+export function dryRunStatus(runStatus: string, gatesOnStubs: number): string {
+  return runStatus === "success" && gatesOnStubs > 0 ? DRY_RUN_UNVERIFIED : runStatus;
+}
+
+/**
+ * True when any operand of `cond` resolves to something the dry run
+ * fabricated.
+ *
+ * An unresolvable root ref counts as NOT fabricated on purpose: letting
+ * the gate run for real then reports the ref error, which is a genuine
+ * finding a dry run should surface rather than swallow into "unenforced".
+ */
+function readsStub(cond: WorkflowCondition, ctx: RefContext): boolean {
+  return conditionRefs(cond).some((ref) => {
+    let value: unknown;
+    try {
+      value = resolveConditionRef(ref, ctx);
+    } catch {
+      return false;
+    }
+    return containsDryRunStub(value);
+  });
+}
+
+/**
+ * Record a gate's verdict WITHOUT enforcing it, when its operands are
+ * fabricated. Returns `undefined` — meaning "run it for real" — when every
+ * operand is deterministic.
+ *
+ * The substituted result is itself a stub, not `{ passed: <boolean> }`, so
+ * a later gate reading `$steps.<gate>.output.passed` inherits the taint
+ * instead of enforcing against a verdict that was never a fact. The
+ * boolean the human needs is in the report, where it is labelled.
+ */
+function unenforcedGate(
+  step: WorkflowStep,
+  ctx: RefContext,
+  into: DryRunGateVerdict[],
+): AgentResult | undefined {
+  // `condition!` mirrors `runGate`: a `gate` without one is rejected by
+  // `validateWorkflow`, and a hand-edited row that smuggles one past it
+  // should produce the executor's error, not a second message from here.
+  const condition = step.condition!;
+  if (!readsStub(condition, ctx)) return undefined;
+  const verdict = evaluateCondition(condition, ctx);
+  into.push({ name: step.name, passed: verdict.passed, reason: verdict.reason });
+  return { success: true, output: dryRunStub(`${step.name}.output`) };
 }
 
 /**
@@ -216,6 +348,7 @@ export async function dryRunWorkflow(
   input: Record<string, unknown>,
 ): Promise<DryRunReport> {
   const stubbed: string[] = [];
+  const gatesOnStubs: DryRunGateVerdict[] = [];
   const executor = new WorkflowExecutor(
     dryRunAgentExecutor(),
     // A private bus with no subscribers: a dry run's `workflow:*` frames
@@ -226,8 +359,15 @@ export async function dryRunWorkflow(
       // write no `workflow_runs` row, and that should be visible here.
       persist: false,
       toolRunnerFactory: dryRunToolRunnerFactory,
-      stepSubstitute: (step: WorkflowStep): AgentResult | undefined => {
-        if (isPureDryRunKind(stepKind(step))) return undefined;
+      stepSubstitute: (step: WorkflowStep, ctx: RefContext): AgentResult | undefined => {
+        const kind = stepKind(step);
+        if (isPureDryRunKind(kind)) {
+          // Pure by KIND is not the same as trustworthy. A transform over
+          // fabricated data is still just data movement, but a gate DECIDES
+          // on it — so a gate is handed back unenforced when its operands
+          // are stubs, and run for real when they are not.
+          return kind === "gate" ? unenforcedGate(step, ctx, gatesOnStubs) : undefined;
+        }
         stubbed.push(step.name);
         // Labelled `<step>.output` because the stub sits AT `result.output`
         // — so a `$steps.draft.output.meta.title` ref renders the ref that
@@ -239,15 +379,21 @@ export async function dryRunWorkflow(
 
   const run: WorkflowRun = await executor.runWorkflow(definition, input);
   const stubbedSet = new Set(stubbed);
+  const onStubs = new Set(gatesOnStubs.map((gate) => gate.name));
   return {
-    status: run.status,
+    status: dryRunStatus(run.status, gatesOnStubs.length),
     steps: (definition.steps ?? []).map((step) => ({
       name: step.name,
       kind: stepKind(step),
-      mode: stubbedSet.has(step.name) ? ("stubbed" as const) : ("evaluated" as const),
+      mode: stubbedSet.has(step.name)
+        ? ("stubbed" as const)
+        : onStubs.has(step.name)
+          ? ("evaluated-on-stubs" as const)
+          : ("evaluated" as const),
       status: run.steps.find((s) => s.stepName === step.name)?.status ?? "skipped",
     })),
     stubbed,
+    gatesOnStubs,
     ...(run.result?.error !== undefined
       ? { error: typeof run.result.error === "string" ? run.result.error : run.result.error.message }
       : {}),
