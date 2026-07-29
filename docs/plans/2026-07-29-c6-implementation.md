@@ -285,6 +285,13 @@ unknown (pre-versioning)".
 
 ### 3.4 Retention
 
+> **Constraint from C3 (phase 7) — binding on this sweep.** A version row pinned
+> by a live `workflow_delegations.definition_version_id` is FK'd **ON DELETE
+> RESTRICT** and **must not be reapable**, or a consent hash would reference a
+> snapshot that no longer exists. The retention sweep must exclude any version
+> referenced by a non-revoked delegation, not merely handle the FK error. See
+> [C3 spec §2.1](2026-07-29-c3-implementation.md).
+
 Versions are small (a `steps` blob) and are the audit trail for what actually
 ran, so the default is **keep all**. Bounded pragmatically: keep every version
 referenced by a surviving `workflow_runs` row, plus the most recent 50

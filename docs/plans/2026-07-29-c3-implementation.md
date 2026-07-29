@@ -137,7 +137,9 @@ is refused; the extension surfaces "disabled: owner removed". Same user-visible
 outcome, achieved by the database rather than by hope.
 
 `RESTRICT` on `definition_version_id` is deliberate and differs from every other
-FK here: a version row that a live delegation pins must not be reapable by C6's
+FK here — **and it is a constraint C6 must honour; see
+[C6 spec §3.4](2026-07-29-c6-implementation.md), which carries the matching
+note**: a version row that a live delegation pins must not be reapable by C6's
 retention sweep (C6 spec §3.4), or the consent hash would reference a snapshot
 that no longer exists.
 
@@ -276,7 +278,7 @@ existing `audit` helper.
 | **D5** | Consented `workflow_name` equals the resolved name — a delegation for A cannot run B | `DELEGATION_WORKFLOW_MISMATCH` | `sdk_capability_calls` |
 | **D6** | **Consent hash** (§3). Mismatch ⇒ **suspend, not deny** | `DELEGATION_CONSENT_STALE` | both (`ext:workflow-consent-stale`) |
 | **D7** | **Owner authorization** — re-run C6's `resolveWorkflowForCaller(name, owner)`. The delegation cannot grant reach the owner lacks. **This is what replaces rungs 4–5.** | `DELEGATION_OWNER_UNAUTHORIZED` | `sdk_capability_calls` |
-| **D8** | Per-job daily quota — count `workflow_runs WHERE delegation_id = $1 AND started_at > now() - 24h` against `max_runs_per_day`. **Durable**, unlike the in-memory hourly window (`:146-160`) — a restart must not reset a spend bound. | `DELEGATION_QUOTA_EXCEEDED` | `sdk_capability_calls` |
+| **D8** | Per-job daily quota — count `workflow_runs WHERE delegation_id = $1 AND started_at >= startOfUtcDay(now())` against `max_runs_per_day`. **Calendar day, not a rolling window** — reuse `startOfUtcDay` (`src/extensions/webhook-store.ts:92`), which the existing daemon quota already uses. A rolling window is gameable at the edges (§10.3) and two subsystems answering "per day" differently is a permanent support burden. **Durable**, unlike the in-memory hourly window (`:146-160`) — a restart must not reset a spend bound. | `DELEGATION_QUOTA_EXCEEDED` | `sdk_capability_calls` |
 | **D9** | Per-job spend cap — sum `workflow_step_runs.cost_usd` (C5) over the window. Re-checked **during** the run at each step boundary; exceeding suspends with `suspended_reason='quota'`. | `DELEGATION_SPEND_EXCEEDED` | `sdk_capability_calls` |
 | 8 | Wiring gate when a conversation is present (`:316-321`); a delegated fire normally has none | `WORKFLOWS_NOT_WIRED` | `sdk_capability_calls` |
 | 9 | Instantaneous rate limit, 50 ops/s (`:324`) | `WORKFLOWS_RATE_LIMITED` | `sdk_capability_calls` |
@@ -449,25 +451,41 @@ within the hashed set.
 
 Mitigation as specced is weak: it relies on every future step kind remembering to
 contribute to the closure. **The right attack:** add a step kind and see whether
-the hash notices. A stronger design — out of scope here, worth its own phase —
-would verify the actual capability set at each step boundary against the hashed
-one and suspend on divergence, making the guarantee dynamic rather than
-predictive.
+the hash notices.
 
-### 10.3 The 24-hour quota window is wall-clock and gameable at the edges
+> ### DEFERRED — the durable fix, and the first thing to build if C3 is revisited
+> **The computed hash is an interim mechanism with a known failure direction: it
+> fails toward MORE authority, silently.** Under-reporting produces a matching
+> hash, a fresh-looking consent, and a run executing with capability the human
+> never saw — every visible signal says the control is working.
+>
+> The durable fix is to make the guarantee **dynamic rather than predictive**:
+> verify the **actual** capability set at each step boundary against the hashed
+> one, and **suspend on divergence** (the boundary hook C4 already introduces).
+> Prediction becomes an optimization rather than the security property.
+>
+> This is deliberately out of scope for phase 7 — it depends on C4's boundary
+> hook being load-bearing for a second consumer, and it is a larger change than
+> the rest of C3. **It is recorded here so it does not become folklore.** If C3
+> is ever reopened, build this first.
 
-D8 counts `started_at > now() - 24h`. A job at the cap can fire again the instant
+### 10.3 The 24-hour quota window was rolling and gameable · **RESOLVED — aligned to `startOfUtcDay`**
+
+> **Decided 2026-07-29:** D8 uses `startOfUtcDay` (`webhook-store.ts:92`), the
+> same calendar-day boundary the existing daemon quota uses. The analysis below
+> is retained as the reason. This is no longer an open weakness; it is recorded
+> so nobody re-derives the rolling window as an "obvious" simplification.
+
+As originally specced, D8 counted `started_at > now() - 24h`. A job at the cap could fire again the instant
 the oldest run ages out, so a `max_runs_per_day: 10` job can execute 20 runs in a
 ~24-hour span straddling the boundary. For a spend bound that is probably
 acceptable; for a job with expensive `agent` steps it is a 2× overrun of a limit
 the owner believed was absolute.
 
 The daemon's own quota uses a **UTC-day** boundary (`startOfUtcDay`,
-`webhook-store.ts:92`), which is not gameable this way. **The right attack:** ask
-whether "per day" means a rolling window or a calendar day, and note that C3 and
-the existing daemon currently answer differently — which is exactly the kind of
-divergence that becomes a support burden. Recommend aligning C3 to
-`startOfUtcDay` unless there is a reason not to.
+`webhook-store.ts:92`), which is not gameable this way, and having C3 and the
+daemon answer "per day" differently would be exactly the kind of divergence that
+outlives everyone involved. **Resolution: use the existing helper.**
 
 ---
 
@@ -478,6 +496,8 @@ is what the rows cannot cover.
 
 | # | Criterion | Proven by |
 |---|---|---|
+| **P1** | **PRECONDITION — do not start phase 7 until this holds.** C6's `resolveWorkflowForCaller` demonstrably **distinguishes read from run**: a workflow a caller may *see* but not *run* must fail D7. If C6 collapses the two into one check, C3 inherits the gap directly (§10.1). | A C6 test asserting a visible-but-unrunnable workflow is denied at run; re-asserted from C3's side with the resolver as the seam. |
+| **P2** | **MANDATORY — the `capability-types.ts:118-120` revisit condition was checked and the answer recorded in that file.** A comment naming the check, the reason it held (tool steps inside a delegated run still hit the PDP under the non-interactive scope and still fail closed), and the phase that checked it. A future reader must not have to re-derive it. | Grep: `capability-types.ts` contains the comment adjacent to the standing instruction. The build cannot land without it. |
 | 1 | No wire field names a principal (§4). | Grep: the `runFor` params type has no user/owner field. A test asserting a forged `jobRef` resolves nothing. |
 | 2 | `-32106` is unchanged in both sites (§7). | Grep both call sites; the existing ownerless tests pass unmodified. |
 | 3 | D4 audits to `audit_log`, every other rung to `sdk_capability_calls`. | Asserted per-destination, not merely "an audit row was written". |
