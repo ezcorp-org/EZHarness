@@ -65,19 +65,33 @@ export const STORAGE_KEY = "tasks";
 let cachedExtId: string | undefined;
 
 /**
+ * Thrown when the bundled task-tracking extension has no row yet.
+ *
+ * A DEDICATED type because callers must tell it apart from a genuine read
+ * failure: "not installed" means there are legitimately no tasks, while a DB
+ * error means we don't KNOW. The cold-start loader used to collapse both into
+ * an empty snapshot, which let a transient failure blank a populated task
+ * panel once the panel started consuming that route.
+ */
+export class TaskTrackingNotInstalledError extends Error {
+  constructor() {
+    super("task-tracking extension not installed — did ensureBundledExtensions() run?");
+    this.name = "TaskTrackingNotInstalledError";
+  }
+}
+
+/**
  * Resolve the installed `task-tracking` extension's DB id. Cached
  * module-local after the first hit; resets on a fresh process only.
- * Throws if the extension isn't installed — every bundled install
- * happens in `ensureBundledExtensions()`, so this only fires on a
- * completely uninitialized boot.
+ * Throws {@link TaskTrackingNotInstalledError} if the extension isn't
+ * installed — every bundled install happens in `ensureBundledExtensions()`,
+ * so this only fires on a completely uninitialized boot.
  */
 export async function getTaskTrackingExtensionId(): Promise<string> {
   if (cachedExtId) return cachedExtId;
   const row = await getExtensionByName("task-tracking");
   if (!row) {
-    throw new Error(
-      "task-tracking extension not installed — did ensureBundledExtensions() run?",
-    );
+    throw new TaskTrackingNotInstalledError();
   }
   cachedExtId = row.id;
   return cachedExtId;

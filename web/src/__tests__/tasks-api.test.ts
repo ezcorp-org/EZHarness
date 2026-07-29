@@ -19,9 +19,17 @@ const mockGetTaskSnapshotForConversation = mock(async (id: string) => {
   return snapshotStore.get(id);
 });
 
+class TaskTrackingNotInstalledError extends Error {
+  constructor() {
+    super("task-tracking extension not installed");
+    this.name = "TaskTrackingNotInstalledError";
+  }
+}
+
 mock.module("$server/runtime/task-tracking-host", () => ({
   getTaskSnapshotForConversation: mockGetTaskSnapshotForConversation,
   getTaskTrackingExtensionId: async () => "ext-tt",
+  TaskTrackingNotInstalledError,
 }));
 
 // ── Mock auth + scope middleware ────────────────────────────────────
@@ -114,9 +122,23 @@ describe("GET /api/conversations/[id]/tasks", () => {
     expect(mockGetTaskSnapshotForConversation).toHaveBeenCalledWith("conv-1");
   });
 
-  test("returns empty snapshot when the read throws", async () => {
+  // The task panel REPLACES what it renders with this response, so a read
+  // failure must not be indistinguishable from "no tasks" — a 200 + [] would
+  // blank a populated panel on any transient DB blip.
+  test("a read failure is a 503, NOT an empty snapshot", async () => {
     mockGetTaskSnapshotForConversation.mockImplementation(async () => {
       throw new Error("DB connection error");
+    });
+
+    const res = await GET(makeEvent("conv-1"));
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body.error).toContain("temporarily unavailable");
+  });
+
+  test("a missing extension row IS a real 'no tasks' 200", async () => {
+    mockGetTaskSnapshotForConversation.mockImplementation(async () => {
+      throw new TaskTrackingNotInstalledError();
     });
 
     const res = await GET(makeEvent("conv-1"));

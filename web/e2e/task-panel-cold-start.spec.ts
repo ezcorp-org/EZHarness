@@ -152,6 +152,34 @@ test.describe("Task Panel — cold start", () => {
 		await expect(page.getByText("1/2", { exact: true })).toBeVisible();
 	});
 
+	test("a failing snapshot load leaves the rendered panel alone", async ({ page, mockApi }) => {
+		await mockApi({
+			projects: [proj],
+			conversations: [conv],
+			messages: [],
+			taskSnapshots: { "conv-1": { tasks: PERSISTED, activeTaskId: "t2" } },
+		});
+
+		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
+		await expect(page.getByText("Write tests")).toBeVisible();
+		await waitForLiveStream(page);
+
+		// The server can no longer read the snapshot. It answers 503 rather
+		// than an empty list, precisely so a transient failure can't wipe what
+		// the user is looking at.
+		await page.route("**/api/conversations/conv-1/tasks", (route) =>
+			route.fulfill({ status: 503, json: { error: "Task snapshot temporarily unavailable" } }),
+		);
+
+		// Force a re-hydrate through the reconnect path.
+		await emitSseEvent(page, { type: "ws:connected", data: {} }, RUNTIME_EVENTS_URL);
+
+		// Panel still shows what it had; it does NOT go blank.
+		await expect(page.getByText("Set up repo")).toBeVisible();
+		await expect(page.getByText("Write tests")).toBeVisible();
+		await expect(page.getByText("1/2", { exact: true })).toBeVisible();
+	});
+
 	test("swaps snapshots when switching conversations", async ({ page, mockApi }) => {
 		await mockApi({
 			projects: [proj],

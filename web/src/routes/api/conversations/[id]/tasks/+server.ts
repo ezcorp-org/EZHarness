@@ -4,7 +4,10 @@ import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
 import * as convQueries from "$server/db/queries/conversations";
-import { getTaskSnapshotForConversation } from "$server/runtime/task-tracking-host";
+import {
+  getTaskSnapshotForConversation,
+  TaskTrackingNotInstalledError,
+} from "$server/runtime/task-tracking-host";
 
 /**
  * Cold-start loader for the task-tracking panel.
@@ -30,7 +33,24 @@ export const GET: RequestHandler = async ({ params, locals }) => {
   // sec-H3: fail-closed — unowned rows (null userId) are admin-only
   if (conv.userId !== user.id && user.role !== "admin") return errorJson(404, "Not found");
 
-  const snapshot = await getTaskSnapshotForConversation(conversationId).catch(() => undefined);
+  // "No tasks" and "we couldn't read the tasks" must NOT look the same to the
+  // client. The panel hydrates from this route on mount / conversation switch
+  // / SSE reconnect and REPLACES what it is rendering, so answering a
+  // transient DB failure with an empty snapshot would blank a populated task
+  // panel — the failure mode this route previously had (`.catch(() =>
+  // undefined)`) and nobody saw only because nothing consumed it yet.
+  //
+  // A missing extension row IS a real "no tasks" answer (nothing has ever
+  // been persisted), so that one stays a 200.
+  let snapshot: Awaited<ReturnType<typeof getTaskSnapshotForConversation>>;
+  try {
+    snapshot = await getTaskSnapshotForConversation(conversationId);
+  } catch (err) {
+    if (!(err instanceof TaskTrackingNotInstalledError)) {
+      return errorJson(503, "Task snapshot temporarily unavailable");
+    }
+    snapshot = undefined;
+  }
 
   return json(snapshot ?? { conversationId, tasks: [], activeTaskId: undefined });
 };
