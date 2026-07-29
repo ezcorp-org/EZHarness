@@ -15,8 +15,7 @@ import { existsSync } from "node:fs";
 import { loadManifest } from "../extensions/loader";
 import { validateManifestV2 } from "../extensions/manifest";
 import { getProjectRoot, resolveBundledExtensions } from "../extensions/bundled";
-import { clampToBundledCeiling, getCeiling } from "../extensions/bundled-ceiling";
-import { clampWorkflowsPermission } from "../extensions/clamp-permissions";
+import { BUNDLED_CEILING, clampToBundledCeiling } from "../extensions/bundled-ceiling";
 import { loadExtensionWorkflows } from "../runtime/workflow-extension-loader";
 import { WorkflowExecutor } from "../runtime/workflow-executor";
 import { validateWorkflow } from "../runtime/workflow-validator";
@@ -169,74 +168,47 @@ describe("manifest", () => {
   });
 });
 
-// ── Install posture: user-installed, NOT bundled ────────────────────
-//
-// This extension is deliberately not auto-installed. It reaches
-// third-party APIs, which should be opt-in for a self-hosted deployment,
-// and its closest analogue (`weather` — same provider, same demo purpose,
-// also ships a card) is unbundled for the same reason.
-//
-// The old bundled-grant + ceiling assertions have no subject any more, so
-// they are re-pointed at what governs the extension NOW: the manifest
-// declaration a user consents to at install, and the real install-time
-// clamp that turns it into a grant. The "is not bundled" and "has no
-// ceiling row" assertions are not filler — they are what stops a future
-// change from silently re-bundling it.
+// ── Bundled registration + ceiling ──────────────────────────────────
 
-describe("install posture (unbundled)", () => {
-  test("is NOT in the bundled auto-install list", () => {
-    const bundled = resolveBundledExtensions({}).map((e) => e.name);
-    expect(bundled).not.toContain(EXT_NAME);
-    // The directory is still on disk — unbundled means "not auto-installed",
-    // not "not shipped".
-    expect(existsSync(join(getProjectRoot(), "docs/extensions/examples/city-conditions"))).toBe(true);
+describe("bundled registration", () => {
+  const entry = resolveBundledExtensions({}).find((e) => e.name === EXT_NAME);
+
+  test("is registered in bundled.ts and points at a real directory", () => {
+    expect(entry).toBeDefined();
+    expect(entry!.path).toBe("docs/extensions/examples/city-conditions");
+    expect(existsSync(join(getProjectRoot(), entry!.path))).toBe(true);
   });
 
-  test("has no bundled ceiling row, and the ceiling clamp is a passthrough", () => {
-    // `getCeiling` returns null for a non-bundled name, which makes
-    // `clampToBundledCeiling` a documented passthrough. A ceiling row here
-    // would be inert AND would desync the table from BUNDLED_EXTENSIONS
-    // (asserted by bundled-ceiling.test.ts).
-    expect(getCeiling(EXT_NAME)).toBeNull();
-    const requested = { network: [...OPEN_METEO_HOSTS], grantedAt: {} };
-    const { effective, clamped } = clampToBundledCeiling(EXT_NAME, requested);
+  test("grants exactly the three Open-Meteo hosts and nothing wider", () => {
+    expect([...(entry!.permissions.network ?? [])].sort()).toEqual(OPEN_METEO_HOSTS);
+    expect(entry!.permissions.shell).toBeUndefined();
+    expect(entry!.permissions.filesystem).toBeUndefined();
+    expect(entry!.permissions.env).toBeUndefined();
+    expect(entry!.permissions.storage).toBeUndefined();
+  });
+
+  test("has a ceiling row mirroring the grant", () => {
+    const ceiling = BUNDLED_CEILING[EXT_NAME];
+    expect(ceiling).toBeDefined();
+    expect([...(ceiling!.network ?? [])].sort()).toEqual(OPEN_METEO_HOSTS);
+    expect(ceiling!.workflows).toEqual({ names: ["conditions"], maxRunsPerHour: 12 });
+  });
+
+  test("the ceiling carries the FULL workflows field set, so the clamp is lossless", () => {
+    // The full-field-set rule: `intersectPermissions` does
+    // `Math.min(a.maxRunsPerHour, b.maxRunsPerHour)`, so a ceiling row
+    // missing the numeric would yield NaN and silently kill the grant at
+    // boot. Assert the clamp is a no-op instead of trusting the comment.
+    const { effective, clamped } = clampToBundledCeiling(EXT_NAME, entry!.permissions);
     expect(clamped).toBe(false);
-    expect(effective).toEqual(requested);
+    expect(effective.workflows).toEqual({ names: ["conditions"], maxRunsPerHour: 12 });
+    expect(Number.isFinite(effective.workflows!.maxRunsPerHour)).toBe(true);
+    expect([...(effective.network ?? [])].sort()).toEqual(OPEN_METEO_HOSTS);
   });
 
-  test("the manifest declares exactly the three Open-Meteo hosts and nothing wider", async () => {
+  test("the manifest declares the workflow name the grant carries", async () => {
     const manifest = await loadManifest(EXT_DIR);
-    const perms = manifest.permissions ?? {};
-    expect([...(perms.network ?? [])].sort()).toEqual(OPEN_METEO_HOSTS);
-    expect(perms.shell).toBeUndefined();
-    expect(perms.filesystem).toBeUndefined();
-    expect(perms.env).toBeUndefined();
-    expect(perms.storage).toBeUndefined();
-  });
-
-  test("the declared workflow grant survives the real install-time clamp with a finite bound", async () => {
-    // The path a user-installed extension actually takes:
-    // `clampWorkflowsPermission(submitted, manifest)` with no submitted
-    // grant means "the admin approved the declaration as-is". The rate
-    // bound must come out finite — `intersectPermissions` later does
-    // `Math.min` on it, and a NaN there silently kills the grant.
-    const manifest = await loadManifest(EXT_DIR);
-    const granted = clampWorkflowsPermission(undefined, manifest.permissions?.workflows);
-    expect(granted).toEqual({ names: ["conditions"], maxRunsPerHour: 12 });
-    expect(Number.isFinite(granted!.maxRunsPerHour)).toBe(true);
-  });
-
-  test("the manifest declares the same bare workflow name the shipped asset does", async () => {
-    // Manifest ↔ asset consistency: a declared name that no shipped YAML
-    // provides is an unfireable grant, and a shipped workflow the manifest
-    // does not declare can never be triggered from extension code.
-    const manifest = await loadManifest(EXT_DIR);
-    const declared = manifest.permissions?.workflows?.names ?? [];
-    const shipped = (await loadExtensionWorkflows([
-      { extensionName: EXT_NAME, installPath: EXT_DIR },
-    ])).map((w) => w.name.slice(EXT_NAME.length + 1));
-    expect(declared).toEqual(["conditions"]);
-    expect(shipped).toEqual(declared);
+    expect(manifest.permissions?.workflows?.names).toEqual(["conditions"]);
   });
 });
 

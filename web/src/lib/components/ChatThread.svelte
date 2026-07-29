@@ -97,7 +97,9 @@
 	import {
 		promptNavDirection,
 		isTextEntryTarget,
+		isNavBlockedByOverlay,
 		applyPromptNav,
+		type PromptNavPointer,
 	} from "$lib/chat-prompt-nav.js";
 	import { resolveDeepLink } from "$lib/search/deep-link-resolve.js";
 	import {
@@ -1692,7 +1694,7 @@
 	$effect(() => {
 		void conversationId;
 		initialScrollDone = false;
-		promptNavId = null;
+		promptNav = null;
 		stopAnchorWatch?.();
 		stopAnchorWatch = null;
 		const cached = getCachedScrollState(conversationId);
@@ -1822,11 +1824,11 @@
 	// decision + DOM-measurement glue lives in chat-prompt-nav.ts (applyPromptNav)
 	// so it is testable without mounting this component. `variant === "page"`
 	// only: the agent panel shares the window keydown and must not double-handle.
-	// `promptNavId` is a plain (non-reactive) pointer — it never feeds markup,
+	// `promptNav` is a plain (non-reactive) pointer — it never feeds markup,
 	// only the next keypress's relative step.
 	const PROMPT_NAV_OFFSET = 80;
 	const PROMPT_NAV_BAND = 24;
-	let promptNavId: string | null = null;
+	let promptNav: PromptNavPointer | null = null;
 	function handlePromptNavKey(e: KeyboardEvent): void {
 		if (variant !== "page") return;
 		const direction = promptNavDirection(e);
@@ -1838,11 +1840,14 @@
 			isTextEntryTarget(document.activeElement)
 		)
 			return;
+		// An open modal (image lightbox from a card, command palette, sheet)
+		// owns the arrows — the thread must not scroll behind it.
+		if (isNavBlockedByOverlay(document)) return;
 		if (!container) return;
-		const { acted, pointerId } = applyPromptNav({
+		const { acted, pointer } = applyPromptNav({
 			container,
 			direction,
-			pointerId: promptNavId,
+			pointer: promptNav,
 			isUserPrompt: (id) => userPromptIdSet.has(id),
 			anchorAttr: MESSAGE_ANCHOR_ATTR,
 			offset: PROMPT_NAV_OFFSET,
@@ -1860,7 +1865,7 @@
 			},
 		});
 		if (acted) e.preventDefault();
-		promptNavId = pointerId;
+		promptNav = pointer;
 	}
 
 	async function loadOlderMessages(): Promise<void> {
