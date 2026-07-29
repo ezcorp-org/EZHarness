@@ -64,6 +64,22 @@ export type FileTreeNode =
 export const UNNAMED_DIFF_PATH = "unnamed diff";
 
 /**
+ * Changed-line count above which a file opens COLLAPSED, mirroring GitHub's
+ * "Large diffs are not rendered by default".
+ *
+ * This is a rendering budget as much as a UI choice: every open card parses
+ * its diff through diff2html and then walks each line through highlight.js, so
+ * a conversation that rewrote a lock file would otherwise block the panel's
+ * first paint on tens of thousands of lines.
+ */
+export const LARGE_DIFF_LINES = 500;
+
+/** True when a file is big enough to open collapsed. */
+export function isLargeDiff(file: ReviewFile): boolean {
+	return file.additions + file.deletions > LARGE_DIFF_LINES;
+}
+
+/**
  * Count added / removed lines in a unified diff.
  *
  * `+++` / `---` are file headers, not content, so they are skipped — the same

@@ -7,7 +7,7 @@
 	 * button, and the Viewed checkbox. Ticking Viewed collapses the body and
 	 * greys the header, exactly like GitHub — the diff is still one click away.
 	 */
-	import type { ReviewFile } from "$lib/diff-review/review-model.js";
+	import { isLargeDiff, type ReviewFile } from "$lib/diff-review/review-model.js";
 	import type { DiffViewMode } from "$lib/diff-view-mode.js";
 	import { renderDiffHtml } from "$lib/diff-review/render-diff.js";
 	import { highlightDiff } from "$lib/highlight-diff.js";
@@ -142,6 +142,10 @@
 		<div bind:this={body} class="gh-file__body diff-panel-content" data-testid="diff-file-body">
 			{@html diffHtml}
 		</div>
+	{:else if !viewed && isLargeDiff(file)}
+		<button type="button" class="gh-file__large" data-testid="diff-large-note" onclick={ontoggle}>
+			Large diffs are not rendered by default.
+		</button>
 	{/if}
 </section>
 
@@ -265,5 +269,23 @@
 	.gh-file__body {
 		background-color: var(--gh-canvas);
 		overflow-x: auto;
+	}
+
+	/* GitHub's "Large diffs are not rendered by default." stand-in — the whole
+	   strip is the click target that renders the diff. */
+	.gh-file__large {
+		background-color: var(--gh-canvas);
+		border: 0;
+		border-top: 1px solid var(--gh-border);
+		color: var(--gh-accent);
+		cursor: pointer;
+		display: block;
+		font-size: 12px;
+		padding: 12px;
+		text-align: center;
+		width: 100%;
+	}
+	.gh-file__large:hover {
+		background-color: var(--gh-canvas-subtle);
 	}
 </style>

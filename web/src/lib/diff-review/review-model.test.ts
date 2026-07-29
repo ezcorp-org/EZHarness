@@ -16,6 +16,8 @@ import {
 	deriveStatus,
 	diffStatBlocks,
 	filterReviewFiles,
+	isLargeDiff,
+	LARGE_DIFF_LINES,
 	splitPath,
 	toggleInSet,
 	totalStats,
@@ -347,5 +349,35 @@ describe("toggleInSet", () => {
 		const after = toggleInSet(before, "b");
 		expect(before).toEqual(new Set(["a"]));
 		expect(after).not.toBe(before);
+	});
+});
+
+describe("isLargeDiff", () => {
+	function fileWith(lines: number): ReviewFile {
+		const diff = ["--- a/big.ts", "+++ b/big.ts", "@@ -1 +1 @@"]
+			.concat(Array.from({ length: lines }, (_, i) => `+line ${i}`))
+			.join("\n");
+		return buildReviewFiles([group("big.ts", [diff])], [])[0]!;
+	}
+
+	test("a normal file is not large", () => {
+		expect(isLargeDiff(fileWith(10))).toBe(false);
+	});
+
+	test("exactly at the threshold is still rendered by default", () => {
+		expect(isLargeDiff(fileWith(LARGE_DIFF_LINES))).toBe(false);
+	});
+
+	test("one line past the threshold opens collapsed", () => {
+		expect(isLargeDiff(fileWith(LARGE_DIFF_LINES + 1))).toBe(true);
+	});
+
+	test("counts both sides of the change, not just additions", () => {
+		const half = Math.ceil(LARGE_DIFF_LINES / 2) + 1;
+		const diff = ["--- a/big.ts", "+++ b/big.ts", "@@ -1 +1 @@"]
+			.concat(Array.from({ length: half }, (_, i) => `+add ${i}`))
+			.concat(Array.from({ length: half }, (_, i) => `-del ${i}`))
+			.join("\n");
+		expect(isLargeDiff(buildReviewFiles([group("big.ts", [diff])], [])[0]!)).toBe(true);
 	});
 });

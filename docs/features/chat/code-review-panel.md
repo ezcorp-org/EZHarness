@@ -40,6 +40,8 @@ While a run is streaming, the last message is excluded — a half-written hunk r
 
 `diffStatBlocks` reproduces GitHub's five-square rule: changes of five lines or fewer map one square per line and leave the rest grey; anything larger scales proportionally to fill all five.
 
+Every file opens expanded **except** those over `LARGE_DIFF_LINES` (500 changed lines), which open behind GitHub's "Large diffs are not rendered by default." strip. That is a rendering budget as much as a UI choice: each open card parses its diff through diff2html and then walks every line through highlight.js, so a conversation that rewrote a lock file would otherwise block the panel's first paint. A file's open state is `explicitly-expanded ?? !explicitly-collapsed ?? !isLargeDiff`, with both override sets cleared on conversation change.
+
 ### Rendering & skin
 
 `renderDiffHtml` (`$lib/diff-review/render-diff.ts`) is the single diff2html entry point — shared with the inline `DiffCard` — and falls back to escaped raw text when diff2html cannot parse the input. `highlightDiff` then applies hljs.

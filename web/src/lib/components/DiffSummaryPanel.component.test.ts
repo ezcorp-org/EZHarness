@@ -19,6 +19,7 @@ import DiffSummaryPanel from "./DiffSummaryPanel.svelte";
 import type { Message } from "$lib/api";
 import { DIFF_VIEW_MODE_KEY } from "$lib/diff-view-mode";
 import { viewedFilesKey } from "$lib/diff-review/viewed-files";
+import { LARGE_DIFF_LINES } from "$lib/diff-review/review-model";
 
 const CONV_ID = "conv-review";
 
@@ -178,6 +179,42 @@ describe("code review panel — file list", () => {
 		expect(cards).toHaveLength(2);
 		expect(cards.every((c) => c.getAttribute("data-path") === "src/auth.ts")).toBe(true);
 		expect(getAllByTestId("review-tree-file")).toHaveLength(2);
+	});
+
+	test("a very large diff opens collapsed behind GitHub's note, and one click renders it", async () => {
+		const huge = ["```diff", "--- a/big.ts", "+++ b/big.ts", "@@ -1 +1 @@"]
+			.concat(Array.from({ length: LARGE_DIFF_LINES + 1 }, (_, i) => `+line ${i}`))
+			.concat(["```"])
+			.join("\n");
+		const { getByTestId, getAllByTestId, queryAllByTestId } = renderPanel({
+			messages: [assistantMsg(huge)],
+		});
+
+		expect(getAllByTestId("diff-file-card")[0]).toHaveAttribute("data-expanded", "false");
+		expect(queryAllByTestId("diff-file-body")).toHaveLength(0);
+		expect(getByTestId("diff-large-note")).toHaveTextContent(
+			"Large diffs are not rendered by default.",
+		);
+
+		await fireEvent.click(getByTestId("diff-large-note"));
+		await waitFor(() => {
+			expect(getAllByTestId("diff-file-card")[0]).toHaveAttribute("data-expanded", "true");
+		});
+	});
+
+	test("Expand all opens the large files too", async () => {
+		const huge = ["```diff", "--- a/big.ts", "+++ b/big.ts", "@@ -1 +1 @@"]
+			.concat(Array.from({ length: LARGE_DIFF_LINES + 1 }, (_, i) => `+line ${i}`))
+			.concat(["```"])
+			.join("\n");
+		const { getByTestId, getAllByTestId } = renderPanel({ messages: [assistantMsg(huge)] });
+
+		// Nothing is open, so the bulk control offers "Expand all".
+		expect(getByTestId("diff-toggle-all")).toHaveTextContent("Expand all");
+		await fireEvent.click(getByTestId("diff-toggle-all"));
+		await waitFor(() => {
+			expect(getAllByTestId("diff-file-card")[0]).toHaveAttribute("data-expanded", "true");
+		});
 	});
 
 	test("a diff that only adds lines is badged as an added file", () => {

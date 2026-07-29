@@ -32,6 +32,7 @@
 		buildFileTree,
 		buildReviewFiles,
 		filterReviewFiles,
+		isLargeDiff,
 		toggleInSet,
 		totalStats,
 		type ReviewFile,
@@ -86,8 +87,11 @@
 	// Split/unified is a global personal preference — restore the last pick so a
 	// refresh doesn't snap back to split. See $lib/diff-view-mode.ts.
 	let diffView = $state<DiffViewMode>(loadDiffViewMode());
-	// GitHub opens every file expanded; this tracks the explicit exceptions.
+	// GitHub opens every file expanded EXCEPT the very large ones. Both sets
+	// hold explicit user overrides of that default, so a file's open state is
+	// `expandedKeys ?? !collapsed ?? !isLargeDiff`.
 	let collapsed = $state<Set<string>>(new Set());
+	let expandedKeys = $state<Set<string>>(new Set());
 	let collapsedDirs = $state<Set<string>>(new Set());
 	let treeOpen = $state(true);
 	let activeKey = $state<string | null>(null);
@@ -102,6 +106,7 @@
 		viewed = loadViewedFiles(conversationId);
 		filter = "";
 		collapsed = new Set();
+		expandedKeys = new Set();
 		collapsedDirs = new Set();
 		activeKey = null;
 	});
@@ -118,21 +123,44 @@
 			shownFiles.map((f) => f.key),
 		),
 	);
-	let allCollapsed = $derived(
-		shownFiles.length > 0 && shownFiles.every((f) => collapsed.has(f.key)),
-	);
+	/** A file's effective open state: explicit override, else the default. */
+	function isOpen(file: ReviewFile): boolean {
+		if (expandedKeys.has(file.key)) return true;
+		if (collapsed.has(file.key)) return false;
+		return !isLargeDiff(file);
+	}
+
+	let allCollapsed = $derived(shownFiles.length > 0 && !shownFiles.some(isOpen));
 
 	function setDiffView(mode: DiffViewMode) {
 		diffView = mode;
 		persistDiffViewMode(mode);
 	}
 
-	function toggleFile(key: string) {
-		collapsed = toggleInSet(collapsed, key);
+	/** Flip a file open/closed, recording the choice as an explicit override. */
+	function toggleFile(file: ReviewFile) {
+		const open = isOpen(file);
+		const nextCollapsed = new Set(collapsed);
+		const nextExpanded = new Set(expandedKeys);
+		if (open) {
+			nextCollapsed.add(file.key);
+			nextExpanded.delete(file.key);
+		} else {
+			nextExpanded.add(file.key);
+			nextCollapsed.delete(file.key);
+		}
+		collapsed = nextCollapsed;
+		expandedKeys = nextExpanded;
 	}
 
 	function toggleAll() {
-		collapsed = allCollapsed ? new Set() : new Set(shownFiles.map((f) => f.key));
+		// Snapshot the decision FIRST: `allCollapsed` is a $derived over the two
+		// sets below, so reading it again after the first assignment would see
+		// the half-applied state and undo the toggle.
+		const openAll = allCollapsed;
+		const keys = shownFiles.map((f) => f.key);
+		collapsed = openAll ? new Set() : new Set(keys);
+		expandedKeys = openAll ? new Set(keys) : new Set();
 	}
 
 	function toggleDir(path: string) {
@@ -308,10 +336,10 @@
 					{#each shownFiles as file (file.key)}
 						<ReviewFileCard
 							{file}
-							expanded={!collapsed.has(file.key)}
+							expanded={isOpen(file)}
 							viewed={viewed.has(file.key)}
 							{diffView}
-							ontoggle={() => toggleFile(file.key)}
+							ontoggle={() => toggleFile(file)}
 							onviewed={() => markViewed(file)}
 						/>
 					{/each}
