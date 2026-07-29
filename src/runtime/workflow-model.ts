@@ -105,7 +105,6 @@ export function validateModelOverride(value: unknown, label: string): string[] {
       errors.push(
         `${label} "${field}" exceeds the maximum length of ${MAX_MODEL_FIELD_LENGTH} characters`,
       );
-      continue;
     }
   }
 
