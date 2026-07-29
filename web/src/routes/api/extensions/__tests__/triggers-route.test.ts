@@ -86,8 +86,8 @@ function hookRow(over: Record<string, unknown> = {}) {
   };
 }
 
-function call(user: typeof ADMIN_USER | typeof MEMBER_USER | null, id = EXT.id) {
-  const event = createMockEvent({ params: { id }, user });
+function call(user: typeof ADMIN_USER | typeof MEMBER_USER | undefined, id = EXT.id) {
+  const event = createMockEvent({ params: { id }, ...(user ? { user } : {}) });
   return GET(event as never);
 }
 
@@ -113,7 +113,7 @@ describe("auth", () => {
   });
 
   test("an unauthenticated caller is rejected", async () => {
-    await expect(call(null)).rejects.toBeDefined();
+    await expect(call(undefined)).rejects.toBeDefined();
     expect(storeCalls).toHaveLength(0);
   });
 

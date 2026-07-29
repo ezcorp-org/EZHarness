@@ -482,7 +482,7 @@ describe("register — cron", () => {
       capability: "triggers", action: "register", success: true, resourceId: "job:1",
     }));
     // Destination 2: audit_log.
-    const audits = await auditRows("ext:trigger-registered");
+    const audits = await auditRows("ext:sdk-trigger-registered");
     expect(audits).toHaveLength(1);
     expect(audits[0]!.userId).toBe(userId);
   });
@@ -527,7 +527,7 @@ describe("register — webhook", () => {
     expect(captured).toContainEqual(expect.objectContaining({
       capability: "triggers", action: "register", success: true,
     }));
-    expect(await auditRows("ext:trigger-registered")).toHaveLength(1);
+    expect(await auditRows("ext:sdk-trigger-registered")).toHaveLength(1);
   });
 
   test("refuses when the minted slug collides with a MANIFEST hook", async () => {
@@ -579,7 +579,7 @@ describe("unregister", () => {
     expect(await getTestDb().select().from(extensionSchedules)
       .where(eq(extensionSchedules.extensionId, extId))).toHaveLength(0);
     expect(captured[0]).toMatchObject({ action: "unregister", success: true });
-    expect(await auditRows("ext:trigger-unregistered")).toHaveLength(1);
+    expect(await auditRows("ext:sdk-trigger-unregistered")).toHaveLength(1);
   });
 
   test("a webhook is SOFT-deleted and its secret is destroyed", async () => {

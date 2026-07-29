@@ -65,7 +65,7 @@ async function seedHook(key: string) {
 
 async function orphanAudits() {
   return getTestDb().select().from(auditLog)
-    .where(eq(auditLog.action, "ext:trigger-orphaned"));
+    .where(eq(auditLog.action, "ext:sdk-trigger-orphaned"));
 }
 
 beforeAll(async () => {
@@ -267,7 +267,7 @@ describe("revokeDynamicTriggers — the capability itself is gone", () => {
     expect((await getDynamicWebhook(EXT_NAME, "hook:c"))!.enabled).toBe(false);
 
     const audits = await getTestDb().select().from(auditLog)
-      .where(eq(auditLog.action, "ext:trigger-capability-revoked"));
+      .where(eq(auditLog.action, "ext:sdk-trigger-capability-revoked"));
     expect(audits).toHaveLength(3);
     expect(audits.every((a) => a.userId === null)).toBe(true);
   });
