@@ -7,6 +7,35 @@ unavailable, with the reason — never as a number.
 It also ships a **workflow**, `conditions`, that performs the same
 aggregation as a declarative graph.
 
+## Install
+
+This extension is **not bundled** — it does not arrive pre-installed, and
+nothing happens until you install it yourself. That is deliberate: it
+calls third-party APIs, and an extension that reaches off-box should be
+opt-in for a self-hosted deployment rather than auto-enabled everywhere.
+The `weather` example is unbundled for the same reason.
+
+```bash
+ezcorp ext install ./docs/extensions/examples/city-conditions
+```
+
+Then **activate** it and grant the permissions it asks for — a fresh
+install is disabled with nothing granted. Do that from the extension's
+page in the UI, or:
+
+```bash
+curl -X POST https://your-host/api/extensions/<id>/activate
+```
+
+The permission prompt asks for network access to the three Open-Meteo
+hosts listed below, and for the right to trigger its own `conditions`
+workflow. There is no credential to supply.
+
+Once it is installed, the shipped workflow registers as
+`city-conditions:conditions` and appears on `/workflows` — extension
+workflows are discovered from *installed* extensions, so being unbundled
+costs the capability nothing.
+
 ## The tools
 
 | Tool | Used by | Returns |
@@ -103,7 +132,8 @@ shows nothing" failure this extension refuses to produce anywhere else.
 on the way past (transform refs are strict, so a field that vanished fails
 the run by name).
 
-Run it from `/workflows` or `POST /api/workflows/city-conditions:conditions/run`.
+Once the extension is installed, run it from `/workflows` or
+`POST /api/workflows/city-conditions:conditions/run`.
 
 **The chat tool does not run the workflow.** `ezcorp/workflows` is
 fire-and-forget (the host starts the run and returns with no run id) and

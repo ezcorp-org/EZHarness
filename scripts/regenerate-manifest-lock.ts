@@ -64,7 +64,6 @@ const BUNDLED: readonly BundledEntry[] = [
   { name: "openai-image-gen-2", path: "docs/extensions/examples/openai-image-gen-2" },
   { name: "claude-design", path: "docs/extensions/examples/claude-design" },
   { name: "price-chart", path: "docs/extensions/examples/price-chart" },
-  { name: "city-conditions", path: "docs/extensions/examples/city-conditions" },
   { name: "kokoro-tts", path: "docs/extensions/examples/kokoro-tts" },
   { name: "extension-author", path: "docs/extensions/examples/extension-author" },
   { name: "ez-code", path: "docs/extensions/examples/ez-code" },

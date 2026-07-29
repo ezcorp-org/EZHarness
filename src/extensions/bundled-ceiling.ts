@@ -239,28 +239,13 @@ export const BUNDLED_CEILING: Record<string, ExtensionPermissions> = {
     grantedAt: {},
   },
 
-  // city-conditions — keyless Open-Meteo lookups (time + weather +
-  // pollen) behind one chat tool and three granular tools, plus a shipped
-  // `conditions` workflow. Mirrors the install grant in `bundled.ts`
-  // VERBATIM. Network is the only I/O tier: exactly the three Open-Meteo
-  // hosts, nothing wildcarded. NO filesystem / env / shell / storage —
-  // the extension holds no credential and keeps no state, so there is
-  // nothing for a compromise to reach.
-  //
-  // FULL-FIELD-SET RULE (see the module header): `workflows` is a
-  // structured permission and `intersectPermissions` does
-  // `Math.min(a.maxRunsPerHour, b.maxRunsPerHour)`. Omitting
-  // `maxRunsPerHour` here would produce `Math.min(NaN, …)` and silently
-  // kill the grant at boot, so it carries the same 12 as the grant.
-  "city-conditions": {
-    network: [
-      "geocoding-api.open-meteo.com",
-      "api.open-meteo.com",
-      "air-quality-api.open-meteo.com",
-    ],
-    workflows: { names: ["conditions"], maxRunsPerHour: 12 },
-    grantedAt: {},
-  },
+  // NOTE: `city-conditions` has NO row here, and must not gain one while
+  // it stays unbundled. The ceiling is scoped to bundled extensions —
+  // `getCeiling()` returns null for anything else and
+  // `clampToBundledCeiling` becomes a passthrough — so a row for a
+  // user-installed extension would be inert, and `bundled-ceiling.test.ts`
+  // asserts the table's keys track `BUNDLED_EXTENSIONS`. Its install grant
+  // is governed by the normal user-consent + checksum path instead.
 
   // kokoro-tts — speaker icon contribution + append-message reverse RPC.
   "kokoro-tts": {
