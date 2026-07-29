@@ -826,6 +826,50 @@ describe("crash recovery — the sweep branches on run_phase", () => {
     expect(row?.claimedBy).toBe("worker-1");
   });
 
+  test("ORDERING INVARIANT: a run whose cursor advance did not land is never resumable", async () => {
+    // Recovery's fail-closed behaviour rests on this ordering:
+    //   1. `run_phase = 'in-batch'` is written BEFORE the batch dispatches;
+    //   2. it returns to `'boundary'` only in the SAME UPDATE that
+    //      advances the cursor.
+    //
+    // So a cursor advance that never landed leaves the run at
+    // `in-batch`, and the sweep must fail it closed. If that ordering
+    // were ever broken — the phase cleared separately from the cursor —
+    // the row would read `boundary` with a STALE cursor, and recovery
+    // would resume it and re-execute a completed batch: duplicate tool
+    // steps, duplicated side effects, silently.
+    //
+    // This is why the cursor advance stays on the strict write path even
+    // though a swallowed advance is survivable today: relaxed, that
+    // safety would depend on this invariant holding forever, and the
+    // failure it guards against is neither loud nor recoverable.
+    const id = crypto.randomUUID();
+    await insertWorkflowRun({
+      id,
+      workflowName: "advance-never-landed",
+      input: {},
+      startedAt: new Date(BOOT.getTime() - 60_000),
+    });
+    // Exactly the state a batch that completed but whose advance was lost
+    // leaves behind: phase still `in-batch`, cursor still pointing at the
+    // batch that already ran.
+    await db.execute(sql`
+      UPDATE workflow_runs
+         SET run_phase = 'in-batch',
+             cursor = ${JSON.stringify({ batchIndex: 1, completedSteps: ["a"], prevStepName: "a" })}::jsonb
+       WHERE id = ${id}
+    `);
+
+    await terminalizeOrphanedWorkflowRuns(BOOT, NOW);
+
+    const row = await getWorkflowRunRow(id);
+    expect(row?.status).toBe("error");
+    expect(row?.resumable).toBe(false);
+    // Never parked, never picked up, never re-executed.
+    expect(row?.status).not.toBe("suspended");
+    expect(row?.suspendedReason).toBeNull();
+  });
+
   test("an already-parked run is a zero-row no-op", async () => {
     // `suspended` is excluded structurally by the `status='running'`
     // predicate — a parked run must never be re-swept, or every answer
