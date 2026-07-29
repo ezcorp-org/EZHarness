@@ -136,7 +136,15 @@ function msg(id: string, overrides: Partial<Message> = {}): Message {
  * Rendered top→bottom in path order: u1 a1 u2 a2 u3 a3 u4 a4 (leaf a4).
  */
 function alternatingTree(): Message[] {
-	const ids = ["u1", "a1", "u2", "a2", "u3", "a3", "u4", "a4"];
+	return chainOf(["u1", "a1", "u2", "a2", "u3", "a3", "u4", "a4"]);
+}
+
+/** A brand-new conversation: ONE turn, one prompt and its answer. */
+function singleTurnTree(): Message[] {
+	return chainOf(["u1", "a1"]);
+}
+
+function chainOf(ids: string[]): Message[] {
 	return ids.map((id, i) =>
 		msg(id, {
 			role: id.startsWith("u") ? "user" : "assistant",
@@ -281,13 +289,13 @@ beforeEach(() => {
 	}
 });
 
-function mountThread(total = TOTAL) {
+function mountThread(total = TOTAL, tree = alternatingTree()) {
 	const result = render(ChatThread, {
 		conversationId: "conv-1",
 		projectId: "proj-1",
 		variant: "page" as const,
-		seedMessages: alternatingTree(),
-		seedLeafId: "a4",
+		seedMessages: tree,
+		seedLeafId: tree[tree.length - 1]!.id,
 		convListRefresh: () => {},
 	});
 	const container = document.querySelector<HTMLElement>(
@@ -341,6 +349,43 @@ describe("ChatThread: arrow-key prompt navigation (real handler)", () => {
 		expect(layout.getScrollTop()).toBe(0);
 		press("ArrowLeft");
 		expect(layout.getScrollTop()).toBe(0);
+	});
+
+	describe("a one-turn conversation pages the single turn", () => {
+		// One prompt: nothing to step between, so the arrows show the start and
+		// the end of the turn. ArrowLeft used to be a dead key here — which is
+		// exactly where a first-time user tries it.
+		test("ArrowRight goes to the bottom, ArrowLeft back to the top", () => {
+			const { layout } = mountThread(TOTAL, singleTurnTree());
+			expect(layout.getScrollTop()).toBe(0);
+
+			press("ArrowRight");
+			expect(layout.getScrollTop()).toBe(layout.maxScrollTop);
+
+			press("ArrowLeft");
+			expect(layout.getScrollTop()).toBe(0);
+		});
+
+		test("repeats are idempotent at each end (no drift, no wrap)", () => {
+			const { layout } = mountThread(TOTAL, singleTurnTree());
+			press("ArrowRight");
+			press("ArrowRight");
+			press("ArrowRight");
+			expect(layout.getScrollTop()).toBe(layout.maxScrollTop);
+			press("ArrowLeft");
+			press("ArrowLeft");
+			expect(layout.getScrollTop()).toBe(0);
+		});
+
+		test("paging works from a mid-thread scroll position too", () => {
+			const { container, layout } = mountThread(TOTAL, singleTurnTree());
+			container.scrollTop = 1000;
+			press("ArrowLeft");
+			expect(layout.getScrollTop()).toBe(0);
+			container.scrollTop = 1000;
+			press("ArrowRight");
+			expect(layout.getScrollTop()).toBe(layout.maxScrollTop);
+		});
 	});
 
 	test("ArrowRight past the LAST prompt falls through to the bottom", () => {
