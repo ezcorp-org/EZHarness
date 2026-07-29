@@ -14,8 +14,12 @@
  */
 import { and, eq, lt, sql } from "drizzle-orm";
 import { getDb } from "../connection";
-import { workflowRuns, workflowStepRuns } from "../schema";
+import { workflowRuns, workflowStepRuns, type TruncatedStepOutput } from "../schema";
 import type { AgentResult, WorkflowRunStatus } from "../../types";
+import {
+  isTruncatedStepOutput,
+  MAX_STEP_OUTPUT_BYTES,
+} from "../../runtime/workflow-step-output";
 
 /**
  * Terminal statuses a workflow run may be finalized into.
@@ -76,6 +80,11 @@ export interface WorkflowStepRunUpsert {
    *  agent has resolved anything — both persist as SQL NULL. */
   provider?: string;
   model?: string;
+  /** The step's result, already redacted and size-checked by
+   *  {@link prepareStepOutput}. Absent for the "running" write and for a
+   *  step that failed — both persist as SQL NULL, which a resume treats
+   *  as "no value to rehydrate" and fails closed on. */
+  output?: AgentResult | TruncatedStepOutput;
 }
 
 /**
@@ -98,6 +107,7 @@ export async function upsertWorkflowStepRun(
   const iterations = row.iterations ?? null;
   const provider = row.provider ?? null;
   const model = row.model ?? null;
+  const output = row.output ?? null;
   await getDb()
     .insert(workflowStepRuns)
     .values({
@@ -108,11 +118,58 @@ export async function upsertWorkflowStepRun(
       iterations,
       provider,
       model,
+      output,
     })
     .onConflictDoUpdate({
       target: [workflowStepRuns.workflowRunId, workflowStepRuns.stepName],
-      set: { runId, status: row.status, iterations, provider, model, updatedAt: sql`NOW()` },
+      set: { runId, status: row.status, iterations, provider, model, output, updatedAt: sql`NOW()` },
     });
+}
+
+/**
+ * Rebuild a run's `stepResults` map from its persisted step rows, so a
+ * resumed run sees exactly the `$steps.<name>` values the original
+ * process saw.
+ *
+ * **Fails closed, and that is the whole point.** Only `success` steps
+ * contribute. A successful step whose `output` is NULL (the write was
+ * swallowed by the never-throw persistence contract, or the row predates
+ * the column) or is the truncation sentinel means the value is GONE — and
+ * resuming without it would run the rest of the graph against a
+ * different `$steps` than the first half saw. That is a silent
+ * wrong-answer bug, strictly worse than refusing to resume, so the
+ * refusal names the step and the reason instead.
+ */
+export async function loadStepResults(
+  workflowRunId: string,
+): Promise<
+  | { ok: true; stepResults: Map<string, AgentResult> }
+  | { ok: false; reason: string }
+> {
+  const rows = await listWorkflowStepRunRows(workflowRunId);
+  const stepResults = new Map<string, AgentResult>();
+  for (const row of rows) {
+    if (row.status !== "success") continue;
+    if (row.output === null || row.output === undefined) {
+      return {
+        ok: false,
+        reason:
+          `step "${row.stepName}" completed but its output was not persisted, ` +
+          `so $steps."${row.stepName}" cannot be restored`,
+      };
+    }
+    if (isTruncatedStepOutput(row.output)) {
+      return {
+        ok: false,
+        reason:
+          `step "${row.stepName}" produced ${row.output.bytes} bytes of output, ` +
+          `over the ${MAX_STEP_OUTPUT_BYTES}-byte cap, so $steps."${row.stepName}" ` +
+          `cannot be restored`,
+      };
+    }
+    stepResults.set(row.stepName, row.output);
+  }
+  return { ok: true, stepResults };
 }
 
 /**

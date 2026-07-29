@@ -18,6 +18,7 @@ import {
 import { evaluateCondition } from "./workflow-condition";
 import { clampMaxIterations, clampRetries, stepKind } from "./workflow-validator";
 import { effectiveModelOverride, resolveModelOverride } from "./workflow-model";
+import { prepareStepOutput } from "./workflow-step-output";
 import {
   beginNonInteractiveScope,
   type NonInteractiveScopeHandle,
@@ -315,6 +316,12 @@ export class WorkflowExecutor {
           // already reaches clients on the run object carried by
           // `workflow:complete` / `workflow:error`, so adding frames here
           // would change the stream for no gain.
+          // The step's result, once it has one. Carried out-of-band from
+          // `stepRun` (which is a published SSE payload) because this is
+          // a DURABILITY value, not something clients render — and a
+          // result large enough to need capping has no business on the
+          // event stream.
+          let stepOutput: AgentResult | undefined;
           const persistStep = (): void => {
             void this.persistWrite("step", () =>
               upsertWorkflowStepRun({
@@ -327,6 +334,13 @@ export class WorkflowExecutor {
                 // write leaves them NULL and the terminal write fills them.
                 provider: stepRun.provider,
                 model: stepRun.model,
+                // Resume fodder: `$steps.<name>` for every later step.
+                // NULL until the step succeeds, and NULL forever for one
+                // that failed — a resume reads that as "no value" and
+                // fails closed rather than guessing.
+                ...(stepOutput !== undefined
+                  ? { output: prepareStepOutput(stepOutput) }
+                  : {}),
               }),
             );
           };
@@ -355,6 +369,7 @@ export class WorkflowExecutor {
             );
             stepResults.set(step.name, result);
             stepRun.status = "success";
+            stepOutput = result;
             persistStep();
             return result;
           } catch (err) {

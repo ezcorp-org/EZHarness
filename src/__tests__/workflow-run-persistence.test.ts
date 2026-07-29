@@ -38,6 +38,7 @@ const {
   getWorkflowRunRow,
   insertWorkflowRun,
   listWorkflowStepRunRows,
+  loadStepResults,
   terminalizeOrphanedWorkflowRuns,
   upsertWorkflowStepRun,
 } = await import("../db/queries/workflow-runs");
@@ -705,6 +706,140 @@ describe("WorkflowExecutor persistence", () => {
     ]);
     // Neither kind mints an AgentRun.
     expect(steps.every((s) => s.runId === null)).toBe(true);
+  });
+
+  test("persists each successful step's output, so $steps can be rehydrated", async () => {
+    // The resume prerequisite, end to end through the real executor: what
+    // the sync path now records is exactly what a resumed run reads back.
+    const wf = makeExecutor({ toolHandler: () => ok('{"draftId":"d-9"}') });
+    const def: WorkflowDefinition = {
+      name: "output-persisted",
+      description: "",
+      steps: [
+        { name: "prep", kind: "transform", output: { ready: "yes" } },
+        { name: "call", kind: "tool", tool: "demo__x" },
+      ],
+    };
+
+    const run = await wf.runWorkflow(def, {}, undefined, undefined);
+    expect(run.status).toBe("success");
+
+    const loaded = await loadStepResults(run.id);
+    expect(loaded.ok).toBe(true);
+    if (!loaded.ok) throw new Error(loaded.reason);
+    // Both steps are addressable, not just the last one — any later step
+    // can reference any earlier one via `$steps.<name>`.
+    expect(loaded.stepResults.get("prep")).toEqual({
+      success: true,
+      output: { ready: "yes" },
+    });
+    // The tool step's JSON was parsed by the executor before storage, so
+    // the rehydrated value is path-addressable exactly as it was live.
+    expect(loaded.stepResults.get("call")).toEqual({
+      success: true,
+      output: { draftId: "d-9" },
+    });
+  });
+
+  test("a step output carrying an sk-… key is stored redacted", async () => {
+    const wf = makeExecutor({
+      toolHandler: () => ok('{"token":"sk-aaaaaaaaaaaaaaaaaaaaaa"}'),
+    });
+    const def: WorkflowDefinition = {
+      name: "output-redacted",
+      description: "",
+      steps: [{ name: "leaky", kind: "tool", tool: "demo__x" }],
+    };
+
+    const run = await wf.runWorkflow(def, {}, undefined, undefined);
+
+    const steps = await listWorkflowStepRunRows(run.id);
+    // Redaction is not optional: this column carries whatever an
+    // extension tool returned, and the run-history UI renders it.
+    expect(steps[0]?.output).toEqual({
+      success: true,
+      output: { token: "[REDACTED]" },
+    });
+    // The LIVE run still saw the real value — redaction is a storage
+    // concern and must not change what the graph computed on.
+    expect(run.result?.output).toEqual({ token: "sk-aaaaaaaaaaaaaaaaaaaaaa" });
+  });
+});
+
+describe("loadStepResults — fail-closed rehydration", () => {
+  async function seedStep(
+    status: "success" | "error" | "running",
+    output: unknown | undefined,
+  ): Promise<string> {
+    const runId = crypto.randomUUID();
+    await insertWorkflowRun({
+      id: runId,
+      workflowName: "rehydrate",
+      input: {},
+      startedAt: new Date(),
+    });
+    await upsertWorkflowStepRun({
+      workflowRunId: runId,
+      stepName: "s1",
+      runId: "",
+      status,
+    });
+    if (output !== undefined) {
+      await db.execute(sql`
+        UPDATE workflow_step_runs SET output = ${JSON.stringify(output)}::jsonb
+         WHERE workflow_run_id = ${runId} AND step_name = 's1'
+      `);
+    }
+    return runId;
+  }
+
+  test("only successful steps contribute", async () => {
+    // A failed or still-running step produced no value the graph can
+    // reference, so it must not appear in the map at all — and its NULL
+    // output must not be mistaken for a lost one.
+    for (const status of ["error", "running"] as const) {
+      const runId = await seedStep(status, undefined);
+      const loaded = await loadStepResults(runId);
+      expect(loaded.ok).toBe(true);
+      if (!loaded.ok) throw new Error(loaded.reason);
+      expect(loaded.stepResults.size).toBe(0);
+    }
+  });
+
+  test("fails closed when a successful step's output was never persisted", async () => {
+    // The persistence path never throws by contract, so a swallowed write
+    // is reachable. Resuming here would run the second half of the graph
+    // against a different `$steps` than the first half saw.
+    const runId = await seedStep("success", undefined);
+    const loaded = await loadStepResults(runId);
+    expect(loaded.ok).toBe(false);
+    if (loaded.ok) throw new Error("expected a fail-closed refusal");
+    expect(loaded.reason).toContain('step "s1"');
+    expect(loaded.reason).toContain("not persisted");
+  });
+
+  test("fails closed on a truncated output, naming the step and the size", async () => {
+    const runId = await seedStep("success", { __truncated: true, bytes: 999_999 });
+    const loaded = await loadStepResults(runId);
+    expect(loaded.ok).toBe(false);
+    if (loaded.ok) throw new Error("expected a fail-closed refusal");
+    expect(loaded.reason).toContain('step "s1"');
+    // The operator needs the number to know how far over the cap it went.
+    expect(loaded.reason).toContain("999999");
+  });
+
+  test("an empty run rehydrates to an empty map, not a refusal", async () => {
+    const runId = crypto.randomUUID();
+    await insertWorkflowRun({
+      id: runId,
+      workflowName: "no-steps-yet",
+      input: {},
+      startedAt: new Date(),
+    });
+    const loaded = await loadStepResults(runId);
+    expect(loaded.ok).toBe(true);
+    if (!loaded.ok) throw new Error(loaded.reason);
+    expect(loaded.stepResults.size).toBe(0);
   });
 
   test("resolves workflow_definition_id for a DB-defined workflow", async () => {
