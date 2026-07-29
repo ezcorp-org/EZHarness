@@ -195,6 +195,11 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "GET", path: "/api/workflows", description: "List workflows", category: "workflows" },
   { method: "GET", path: "/api/workflows/:name", description: "Get workflow by name", category: "workflows" },
   { method: "POST", path: "/api/workflows/:name/run", description: "Execute a workflow", category: "workflows" },
+  // NOT `controllable` yet: that flag asserts a matching
+  // `@ezcorp/harness-client` method exists, and the parity meta-test
+  // correctly fails without one. Claiming it while shipping no client
+  // method would make the registry lie about the remote surface.
+  { method: "POST", path: "/api/workflows/approvals/:id", description: "Answer a parked workflow approval and resume its run", category: "workflows", scope: "chat", responseDescription: "{ run: WorkflowRun, consentAllUsed: boolean }" },
 
   // Tools
   { method: "GET", path: "/api/tools", description: "List available tools", category: "tools" },
