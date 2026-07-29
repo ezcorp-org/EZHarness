@@ -30,6 +30,7 @@ import {
 } from "./workflow-tool-runner";
 import { toolCallsThisTurn } from "../extensions/tool-executor/limits";
 import { getWorkflowByName } from "../db/queries/workflows";
+import { getLatestWorkflowVersion } from "../db/queries/workflow-versions";
 import {
   advanceWorkflowRunCursor,
   finalizeWorkflowRunRow,
@@ -112,6 +113,24 @@ export interface WorkflowExecutorOptions {
    * extension registry).
    */
   toolRunnerFactory?: WorkflowToolRunnerFactory;
+  /**
+   * Stand a result in for a step INSTEAD of dispatching it. Returning
+   * `undefined` runs the step normally.
+   *
+   * Consulted at the very top of {@link WorkflowExecutor.runStep}, before
+   * the loop branch and before the kind dispatch, which is the whole
+   * point: it is KIND-AGNOSTIC. A dry run substitutes every kind it
+   * cannot evaluate purely, so a step kind added later (C7's `workflow`,
+   * which recursively contains tool steps) is substituted by default
+   * rather than dispatched — the failure mode of a stale skip list, but
+   * inverted to fail safe.
+   *
+   * The dry-run harness is the only caller. It is a BACKSTOP, not the
+   * guarantee: that comes from the harness also passing a
+   * `toolRunnerFactory` and an `AgentExecutor` that throw, so a step
+   * reaching dispatch fails loudly instead of executing.
+   */
+  stepSubstitute?: (step: WorkflowStep) => AgentResult | undefined;
 }
 
 /**
@@ -159,6 +178,7 @@ export function workflowScopeKey(workflowRunId: string): string {
 export class WorkflowExecutor {
   private readonly persist: boolean;
   private readonly toolRunnerFactory: WorkflowToolRunnerFactory;
+  private readonly stepSubstitute?: (step: WorkflowStep) => AgentResult | undefined;
 
   constructor(
     private agentExecutor: AgentExecutor,
@@ -168,6 +188,7 @@ export class WorkflowExecutor {
     this.persist = opts?.persist ?? false;
     this.toolRunnerFactory =
       opts?.toolRunnerFactory ?? (() => createWorkflowToolRunner(this.bus));
+    if (opts?.stepSubstitute) this.stepSubstitute = opts.stepSubstitute;
   }
 
   /**
@@ -241,6 +262,13 @@ export class WorkflowExecutor {
     // is for.
     await this.persistWrite("insert", async () => {
       const definition = await getWorkflowByName(workflow.name);
+      // The version this run executes. Resolved at START, so an edit
+      // landing mid-run cannot retroactively change what the run says it
+      // ran. Null for a YAML/extension workflow, which has no definition
+      // row to version.
+      const version = definition
+        ? await getLatestWorkflowVersion(definition.id)
+        : undefined;
       await insertWorkflowRun({
         id: workflowRun.id,
         workflowName: workflow.name,
@@ -249,11 +277,16 @@ export class WorkflowExecutor {
         userId: userId ?? null,
         input,
         startedAt: new Date(workflowRun.startedAt),
+        definitionVersionId: version?.id ?? null,
         // Pins the graph this run was authorized against. A resume
-        // compares it and refuses to continue into an edited definition,
-        // where `cursor.batchIndex` would address a different set of
-        // steps entirely.
-        definitionHash: workflowDefinitionHash(workflow),
+        // compares the VERSION ID first and reads this only when the
+        // version id is null. Taken from the version row's own
+        // `stepsHash` when there is one, so the hash is a function of the
+        // version rather than a second, independently-drifting answer to
+        // the same question; computed from the live definition otherwise,
+        // which is the pre-C6 behaviour and the only option for a
+        // workflow with no row.
+        definitionHash: version?.stepsHash ?? workflowDefinitionHash(workflow),
       });
     });
 
@@ -619,6 +652,13 @@ export class WorkflowExecutor {
     toolCtx: ToolStepContext,
     modelBinding: WorkflowModelBinding | undefined,
   ): Promise<AgentResult> {
+    // Checked FIRST — above the loop branch and above the kind dispatch —
+    // so a substituted step can reach no dispatcher at all, whatever its
+    // kind and whether or not it declares a loop. See
+    // `WorkflowExecutorOptions.stepSubstitute`.
+    const substituted = this.stepSubstitute?.(step);
+    if (substituted !== undefined) return substituted;
+
     if (step.loop) {
       return this.runLoop(
         step,

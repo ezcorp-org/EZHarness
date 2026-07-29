@@ -150,6 +150,11 @@ export async function migrate(db: any): Promise<void> {
   // Nullable with no default: NULL means "every step keeps its agent's own
   // binding", which is exactly what every pre-existing row meant.
   await db.execute(sql`ALTER TABLE workflow_definitions ADD COLUMN IF NOT EXISTS default_model JSONB`);
+  // NOTE: the C6 ownership columns and `workflow_definition_versions` do
+  // NOT live here, even though this is where the rest of this table's DDL
+  // is. They reference `users`, which is not created until much further
+  // down — so they are grouped with the `workflow_runs` block near the end
+  // of this file, next to the other FK-deferred workflow DDL.
 
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS conversations (
@@ -2205,6 +2210,61 @@ export async function migrate(db: any): Promise<void> {
       ON saved_contexts(user_id, conversation_id, topic_label)
   `);
 
+  // ── Workflow ownership (C6) ──────────────────────────────────────
+  //
+  // Placed here, NOT beside the `workflow_definitions` CREATE TABLE far
+  // above, for the same reason the run-history block below is: `user_id`
+  // references `users`, which is not created until later in this file. An
+  // ALTER next to the original DDL would fail on a FRESH install (and only
+  // there — an existing DB already has `users`, so the bug would ship
+  // green and break the first new deployment).
+  //
+  // NO BACKFILL, and that is the whole safety argument. `visibility TEXT
+  // NOT NULL DEFAULT 'system'` makes every pre-existing row system-owned
+  // in one statement with `project_id` / `user_id` NULL — which IS what
+  // system-owned means — and `system` authorizes exactly the callers who
+  // were authorized before the ladder existed. A CTE backfill inferring
+  // ownership (e.g. from `workflow_runs.user_id`) would be a re-runnable
+  // statement that could REATTRIBUTE rows on a later boot, and guessing
+  // ownership is how you hand someone's workflow to the wrong person.
+  // Non-admins do lose edit access to rows they created; the deliberate,
+  // audited admin "claim" action is the answer, not a guess.
+  //
+  // The unique index on `name` is untouched: ownership authorizes a
+  // workflow, it never namespaces one.
+  await db.execute(sql`ALTER TABLE workflow_definitions ADD COLUMN IF NOT EXISTS project_id TEXT REFERENCES projects(id) ON DELETE CASCADE`);
+  await db.execute(sql`ALTER TABLE workflow_definitions ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES users(id) ON DELETE SET NULL`);
+  await db.execute(sql`ALTER TABLE workflow_definitions ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'system'`);
+  // Fork provenance: the SOURCE's fully qualified name as a string
+  // snapshot, never an FK — the source is often an extension asset with no
+  // row, and the extension may later be uninstalled.
+  await db.execute(sql`ALTER TABLE workflow_definitions ADD COLUMN IF NOT EXISTS forked_from TEXT`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_workflow_definitions_scope ON workflow_definitions(visibility, project_id)`);
+
+  // ── Definition versions (C6) ─────────────────────────────────────
+  //
+  // The authoritative record of WHAT a run executed, demoting
+  // `workflow_runs.definition_hash` to a function of this row's `steps`.
+  // CASCADE on the definition: a snapshot without its definition is dead
+  // weight, not evidence.
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS workflow_definition_versions (
+      id TEXT PRIMARY KEY,
+      workflow_definition_id TEXT NOT NULL REFERENCES workflow_definitions(id) ON DELETE CASCADE,
+      version INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      input_schema JSONB,
+      default_model JSONB,
+      steps JSONB NOT NULL,
+      steps_hash TEXT NOT NULL,
+      created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+    )
+  `);
+  await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uniq_workflow_definition_version ON workflow_definition_versions(workflow_definition_id, version)`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_workflow_definition_versions_author ON workflow_definition_versions(created_by_user_id)`);
+
   // ── Workflow run history ─────────────────────────────────────────
   //
   // Placed here (near the end) purely because every FK target it needs —
@@ -2279,6 +2339,14 @@ export async function migrate(db: any): Promise<void> {
   await db.execute(sql`ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS claimed_by TEXT`);
   await db.execute(sql`ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS lease_expires_at TIMESTAMP WITH TIME ZONE`);
   await db.execute(sql`ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS definition_hash TEXT`);
+  // AUTHORITATIVE over `definition_hash` above. SET NULL matches the
+  // `workflow_definition_id` treatment — the run row outlives a reaped
+  // version, the pointer does not. Deliberately NOT backfilled for
+  // historical runs: we genuinely do not know which version they executed,
+  // and inventing one would be a lie in an audit surface. The trace renders
+  // NULL as "version unknown (pre-versioning)".
+  await db.execute(sql`ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS definition_version_id TEXT REFERENCES workflow_definition_versions(id) ON DELETE SET NULL`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_workflow_runs_definition_version ON workflow_runs(definition_version_id)`);
   await db.execute(sql`ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS job_ref TEXT`);
   await db.execute(sql`ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS idempotency_key TEXT`);
   // Shared by the daemon's claim scan and the recovery sweep — both read
@@ -2342,4 +2410,11 @@ export async function migrate(db: any): Promise<void> {
   // 'backfillMcpManifestSecrets' not found" on this module.
   const { backfillMcpManifestSecrets } = await import("./queries/extensions");
   await backfillMcpManifestSecrets(db);
+
+  // Seed version 1 for every definition that has none — the ONE backfill
+  // this phase adds, and guarded so a re-run selects zero rows and writes
+  // nothing. Same lazy-import rationale as the line above: the module
+  // reaches `./connection`, which imports this file.
+  const { backfillWorkflowDefinitionVersions } = await import("./queries/workflow-versions");
+  await backfillWorkflowDefinitionVersions(db);
 }

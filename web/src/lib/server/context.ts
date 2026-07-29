@@ -16,7 +16,11 @@ import {
 } from "$server/runtime/workflow-extension-loader";
 import { initDb, closeDb } from "$server/db/connection";
 import { validateEnv } from "$server/env-validation";
-import { loadDbWorkflows } from "$server/db/queries/workflows";
+import { loadDbCachedWorkflows } from "$server/db/queries/workflows";
+import {
+  systemCachedWorkflow,
+  type CachedWorkflow,
+} from "$server/runtime/workflow-scope";
 import { terminalizeOrphanedWorkflowRuns } from "$server/db/queries/workflow-runs";
 import { startBackups, stopBackups } from "$server/db/backup";
 import {
@@ -104,7 +108,7 @@ let lifecycleDispatcher: LifecycleHookDispatcher | null = null;
 let eventSubscriptionDispatcher: EventSubscriptionDispatcher | null = null;
 let commandRegistry: CommandRegistry | null = null;
 let goalHost: GoalHost | null = null;
-let workflows: WorkflowDefinition[] = [];
+let workflows: CachedWorkflow[] = [];
 let initialized = false;
 
 export async function ensureInitialized(): Promise<void> {
@@ -451,7 +455,27 @@ function getStateMediator(): ExtensionStateMediator | null {
   return stateMediator;
 }
 
+/**
+ * The merged cache as bare definitions.
+ *
+ * Unchanged in shape and order for every pre-C6 caller — the executor,
+ * the reverse-RPC handler's thunk, the run path. Authorization consumes
+ * {@link getCachedWorkflows} instead, because a bare `WorkflowDefinition`
+ * carries no provenance to authorize against.
+ */
 export function getWorkflows(): WorkflowDefinition[] {
+  return workflows.map((entry) => entry.definition);
+}
+
+/**
+ * The merged cache WITH provenance — the input to
+ * `resolveWorkflowForCaller`.
+ *
+ * Same order as {@link getWorkflows}, so a caller that resolves a name
+ * here and a caller that resolves it there can never land on different
+ * workflows.
+ */
+export function getCachedWorkflows(): CachedWorkflow[] {
   return workflows;
 }
 
@@ -468,13 +492,20 @@ export function getWorkflows(): WorkflowDefinition[] {
  * Extension entries can't shadow anything in the other direction either —
  * their names always carry a `:` and host names never do.
  */
-async function buildWorkflowCache(): Promise<WorkflowDefinition[]> {
+async function buildWorkflowCache(): Promise<CachedWorkflow[]> {
   const extensionWorkflows = await loadExtensionWorkflows(
     collectExtensionWorkflowSources(ExtensionRegistry.getInstance()),
   );
   const yamlWorkflows = await loadYamlWorkflows(agentsDir);
-  const dbWorkflows = await loadDbWorkflows();
-  return [...extensionWorkflows, ...yamlWorkflows, ...dbWorkflows];
+  // Only DB rows carry ownership. YAML and extension assets ship with the
+  // INSTALL, not with a project or a user, so they are `system` — the same
+  // authorization they have had all along.
+  const dbWorkflows = await loadDbCachedWorkflows();
+  return [
+    ...extensionWorkflows.map((w) => systemCachedWorkflow(w, "extension")),
+    ...yamlWorkflows.map((w) => systemCachedWorkflow(w, "yaml")),
+    ...dbWorkflows,
+  ];
 }
 
 export async function reloadWorkflows(): Promise<void> {

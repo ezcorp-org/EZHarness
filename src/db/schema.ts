@@ -7,6 +7,7 @@ import type {
   WorkflowRunPhase,
   WorkflowRunStatus,
   WorkflowStep,
+  WorkflowVisibility,
 } from "../types";
 import type { MemoryProvenance } from "../memory/types";
 import { EMBEDDING_DIMENSIONS } from "../memory/types";
@@ -373,6 +374,13 @@ export const agentConfigs = pgTable("agent_configs", {
 
 export const workflowDefinitions = pgTable("workflow_definitions", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  // GLOBALLY unique, and deliberately NOT composite with `project_id`.
+  // The workflow cache is a flat array and every lookup is
+  // `find(w => w.name === name)`; a composite key would let two rows share
+  // a name, and the caller in project B asking for `deploy` would silently
+  // receive project A's graph. Ownership below AUTHORIZES a workflow, it
+  // never namespaces one — so the second project to want `deploy` gets a
+  // 409 and the fork flow auto-suffixes.
   name: text("name").notNull().unique(),
   description: text("description").notNull().default(""),
   inputSchema: jsonb("input_schema").$type<Record<string, unknown>>(),
@@ -381,9 +389,72 @@ export const workflowDefinitions = pgTable("workflow_definitions", {
   // what every pre-existing row means.
   defaultModel: jsonb("default_model").$type<WorkflowModelBinding>(),
   steps: jsonb("steps").notNull().$type<WorkflowStep[]>(),
+
+  // ── Ownership ────────────────────────────────────────────────────
+  // CASCADE: a project-scoped workflow is part of the project and dies
+  // with it. NULL for `system` and for a `private` workflow bound to no
+  // project.
+  projectId: text("project_id").references(() => projects.id, { onDelete: "cascade" }),
+  // SET NULL, the same IDOR-guard rationale as `workflow_runs.user_id`: an
+  // orphaned private workflow becomes admin-only, it never disappears.
+  userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+  // NOT NULL DEFAULT 'system' is what makes the migration backward-safe.
+  // Every pre-existing row reads `system` with NULL owner columns — which
+  // IS what system-owned means — so `POST …/run` authorizes exactly the
+  // callers it authorized before C6. See `workflow-scope.ts` for the
+  // ladder each value selects.
+  visibility: text("visibility").notNull().default("system").$type<WorkflowVisibility>(),
+  // Provenance for a forked workflow: the source's fully qualified name as
+  // a STRING SNAPSHOT, never an FK. The source may be an extension asset
+  // with no row at all, and the extension may later be uninstalled.
+  forkedFrom: text("forked_from"),
+
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => [
+  index("idx_workflow_definitions_scope").on(table.visibility, table.projectId),
+]);
+
+/**
+ * Immutable snapshot of a definition's EXECUTABLE content, minted only
+ * when that content changes (`steps` / `input_schema` / `default_model` —
+ * never a description or a rename; see `workflow-versions.ts`).
+ *
+ * This is the authoritative answer to "which definition did this run
+ * execute". `workflow_runs.definition_hash` is deliberately demoted to a
+ * function of `steps` here, consulted only when `definition_version_id`
+ * is NULL — i.e. runs created before versioning existed. Two independent
+ * answers to one question is how they drift, so exactly one wins.
+ *
+ * CASCADE on the definition: a version snapshot without its definition is
+ * dead weight, not evidence.
+ */
+export const workflowDefinitionVersions = pgTable("workflow_definition_versions", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  workflowDefinitionId: text("workflow_definition_id")
+    .notNull()
+    .references(() => workflowDefinitions.id, { onDelete: "cascade" }),
+  /** Monotonic per definition, starting at 1. */
+  version: integer("version").notNull(),
+  // The name and description AT THAT VERSION, so a rename reads correctly
+  // in history even though renaming mints no version of its own.
+  name: text("name").notNull(),
+  description: text("description").notNull().default(""),
+  inputSchema: jsonb("input_schema").$type<Record<string, unknown>>(),
+  defaultModel: jsonb("default_model").$type<WorkflowModelBinding>(),
+  steps: jsonb("steps").notNull().$type<WorkflowStep[]>(),
+  /** Canonical hash of `steps` — the same function `workflow_runs.definition_hash` uses. */
+  stepsHash: text("steps_hash").notNull(),
+  createdByUserId: text("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("uniq_workflow_definition_version").on(table.workflowDefinitionId, table.version),
+  // FK index — user delete fires ON DELETE SET NULL across this column.
+  index("idx_workflow_definition_versions_author").on(table.createdByUserId),
+]);
+
+export type WorkflowDefinitionVersionRow = typeof workflowDefinitionVersions.$inferSelect;
+export type NewWorkflowDefinitionVersionRow = typeof workflowDefinitionVersions.$inferInsert;
 
 // ── Workflow run history ───────────────────────────────────────────
 //
@@ -452,10 +523,24 @@ export const workflowRuns = pgTable("workflow_runs", {
   // LOCKED, which PGlite does not honor identically.
   claimedBy: text("claimed_by"),
   leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
-  // Hash of the definition this run STARTED against. A run parked for a
-  // day may resume against an edited definition whose batches differ, so
-  // `cursor.batchIndex` would point somewhere else entirely — resume
-  // fails closed on a mismatch until definition versioning ships.
+  // The exact snapshot this run executed. AUTHORITATIVE over
+  // `definition_hash` below. SET NULL (not CASCADE) matches the
+  // `workflow_definition_id` treatment: the run row survives a reaped
+  // version, the pointer goes NULL.
+  //
+  // NULL means one of two different things, and the difference matters:
+  // a run created BEFORE C6 (never versioned — the trace renders "version
+  // unknown"), or a run of a YAML/extension workflow, which has no
+  // `workflow_definitions` row to version in the first place.
+  definitionVersionId: text("definition_version_id").references(
+    () => workflowDefinitionVersions.id,
+    { onDelete: "set null" },
+  ),
+  // Hash of the definition this run STARTED against — the INTERIM drift
+  // guard, demoted by `definition_version_id` above and now defined as a
+  // function of the version row's `steps` so the two cannot disagree.
+  // Resume compares the version id first and reads this ONLY when the
+  // version id is NULL. See `workflow-definition-hash.ts`.
   definitionHash: text("definition_hash"),
   // Caller-supplied correlation handles. No FK on `job_ref`: jobs live in
   // extension `Storage`, not a table.
@@ -465,6 +550,9 @@ export const workflowRuns = pgTable("workflow_runs", {
   index("idx_workflow_runs_name_started").on(table.workflowName, table.startedAt),
   // FK index — user delete fires ON DELETE SET NULL across this column.
   index("idx_workflow_runs_user").on(table.userId),
+  // The retention sweep's "is this version still referenced by a run?"
+  // probe, and the FK's own SET NULL scan when a version is reaped.
+  index("idx_workflow_runs_definition_version").on(table.definitionVersionId),
   // The daemon's claim scan and the recovery sweep share this one.
   index("idx_workflow_runs_claimable")
     .on(table.status, table.leaseExpiresAt)

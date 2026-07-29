@@ -11,20 +11,37 @@ import { test, expect, describe, vi, beforeEach } from "vitest";
 const ctx = vi.hoisted(() => {
   const runWorkflow = vi.fn(async () => ({ id: "run-1", status: "success" }));
   return {
-    getWorkflows: vi.fn(() => [] as Array<{ name: string }>),
+    getCachedWorkflows: vi.fn(() => [] as unknown[]),
     getWorkflowExecutor: vi.fn(() => ({ runWorkflow })),
     runWorkflow,
   };
 });
 vi.mock("$lib/server/context", () => ({
-  getWorkflows: ctx.getWorkflows,
+  getCachedWorkflows: ctx.getCachedWorkflows,
   getWorkflowExecutor: ctx.getWorkflowExecutor,
 }));
 
 import { POST } from "../routes/api/workflows/[name]/run/+server";
 
+/** The definition the executor should receive, unwrapped from its entry. */
+const W1 = { name: "w1", description: "", steps: [] };
+
+/** A `system` entry — what every pre-C6 row migrates to, and the reason
+ *  adding the ladder changed no existing caller's access. */
+function systemEntry(definition = W1) {
+  return {
+    definition,
+    source: "db",
+    id: "wf-1",
+    projectId: null,
+    userId: null,
+    visibility: "system",
+    forkedFrom: null,
+  };
+}
+
 beforeEach(() => {
-  ctx.getWorkflows.mockReset().mockReturnValue([]);
+  ctx.getCachedWorkflows.mockReset().mockReturnValue([]);
   ctx.runWorkflow.mockReset().mockResolvedValue({ id: "run-1", status: "success" });
   ctx.getWorkflowExecutor.mockReset().mockReturnValue({ runWorkflow: ctx.runWorkflow });
 });
@@ -85,7 +102,7 @@ describe("POST /api/workflows/[name]/run", () => {
 	});
 
 	test("returns 404 when the workflow is not in the registry", async () => {
-		ctx.getWorkflows.mockReturnValue([]);
+		ctx.getCachedWorkflows.mockReturnValue([]);
 		const res = await POST(makeEvent({ name: "missing", locals: authedUser, body: {} }));
 		expect(res.status).toBe(404);
 		const body = (await res.json()) as { error?: string };
@@ -93,7 +110,7 @@ describe("POST /api/workflows/[name]/run", () => {
 	});
 
 	test("returns 400 when the body fails the schema (non-string projectId)", async () => {
-		ctx.getWorkflows.mockReturnValue([{ name: "w1" }]);
+		ctx.getCachedWorkflows.mockReturnValue([systemEntry()]);
 		const res = await POST(makeEvent({ name: "w1", locals: authedUser, body: { projectId: 123 } }));
 		expect(res.status).toBe(400);
 		const body = (await res.json()) as { error?: string };
@@ -101,24 +118,44 @@ describe("POST /api/workflows/[name]/run", () => {
 	});
 
 	test("runs the workflow (with projectId + input) and returns the run", async () => {
-		ctx.getWorkflows.mockReturnValue([{ name: "w1" }]);
+		ctx.getCachedWorkflows.mockReturnValue([systemEntry()]);
 		const res = await POST(
 			makeEvent({ name: "w1", locals: authedUser, body: { projectId: "proj-1", topic: "x" } }),
 		);
 		expect(res.status).toBe(200);
-		expect(ctx.runWorkflow).toHaveBeenCalledWith({ name: "w1" }, { topic: "x" }, "proj-1", "u1");
+		expect(ctx.runWorkflow).toHaveBeenCalledWith(W1, { topic: "x" }, "proj-1", "u1");
 		expect((await res.json()) as { id?: string }).toMatchObject({ id: "run-1" });
 	});
 
 	test("runs with no projectId (undefined passed through)", async () => {
-		ctx.getWorkflows.mockReturnValue([{ name: "w1" }]);
+		ctx.getCachedWorkflows.mockReturnValue([systemEntry()]);
 		const res = await POST(makeEvent({ name: "w1", locals: authedUser, body: { topic: "y" } }));
 		expect(res.status).toBe(200);
-		expect(ctx.runWorkflow).toHaveBeenCalledWith({ name: "w1" }, { topic: "y" }, undefined, "u1");
+		expect(ctx.runWorkflow).toHaveBeenCalledWith(W1, { topic: "y" }, undefined, "u1");
+	});
+
+	test("a system workflow runs for any chat caller — byte-identical to pre-C6", async () => {
+		// Acceptance criterion 2: every row that exists at migration time is
+		// `system`, and `system` authorizes exactly who could run it before
+		// the ladder existed. Asserted for a plain member with no project.
+		ctx.getCachedWorkflows.mockReturnValue([systemEntry()]);
+		const res = await POST(makeEvent({ name: "w1", locals: authedUser, body: {} }));
+		expect(res.status).toBe(200);
+		expect(ctx.runWorkflow).toHaveBeenCalledTimes(1);
+	});
+
+	test("a private workflow the caller does not own is 404, and never dispatches", async () => {
+		ctx.getCachedWorkflows.mockReturnValue([
+			{ ...systemEntry(), visibility: "private", userId: "someone-else" },
+		]);
+		const res = await POST(makeEvent({ name: "w1", locals: authedUser, body: {} }));
+		expect(res.status).toBe(404);
+		expect((await res.json()) as { error?: string }).toEqual({ error: "Workflow not found" });
+		expect(ctx.runWorkflow).not.toHaveBeenCalled();
 	});
 
 	test("returns 400 with the error message when the executor throws", async () => {
-		ctx.getWorkflows.mockReturnValue([{ name: "w1" }]);
+		ctx.getCachedWorkflows.mockReturnValue([systemEntry()]);
 		ctx.runWorkflow.mockRejectedValue(new Error("boom"));
 		const res = await POST(makeEvent({ name: "w1", locals: authedUser, body: {} }));
 		expect(res.status).toBe(400);

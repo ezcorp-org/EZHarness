@@ -10,21 +10,46 @@
 import { test, expect, describe, vi, beforeEach } from "vitest";
 
 const ctx = vi.hoisted(() => ({
-  getWorkflows: vi.fn(() => [] as unknown[]),
+  // Provenance-carrying cache — the list route filters it by the same
+  // ladder the single-workflow routes use.
+  getCachedWorkflows: vi.fn(() => [] as unknown[]),
   reloadWorkflows: vi.fn(async () => {}),
 }));
 const queries = vi.hoisted(() => ({
   createWorkflow: vi.fn(async (def: unknown) => def),
+  WorkflowNameConflictError: class extends Error {
+    constructor(readonly workflowName: string) {
+      super(`A workflow named "${workflowName}" already exists`);
+    }
+  },
+}));
+const versions = vi.hoisted(() => ({
+  ensureWorkflowVersion: vi.fn(async () => ({ version: { version: 1 }, minted: true })),
 }));
 vi.mock("$lib/server/context", () => ctx);
 vi.mock("$server/db/queries/workflows", () => queries);
+vi.mock("$server/db/queries/workflow-versions", () => versions);
 
 import { GET, POST } from "../routes/api/workflows/+server";
 
+/** A `system` cache entry — what every row created through POST is. */
+function systemEntry(name: string) {
+  return {
+    definition: { name, description: "", steps: [] },
+    source: "db",
+    id: `id-${name}`,
+    projectId: null,
+    userId: null,
+    visibility: "system",
+    forkedFrom: null,
+  };
+}
+
 beforeEach(() => {
-  ctx.getWorkflows.mockReset().mockReturnValue([]);
+  ctx.getCachedWorkflows.mockReset().mockReturnValue([]);
   ctx.reloadWorkflows.mockReset().mockResolvedValue(undefined);
   queries.createWorkflow.mockReset().mockImplementation(async (def: unknown) => def);
+  versions.ensureWorkflowVersion.mockReset().mockResolvedValue({ version: { version: 1 }, minted: true });
 });
 
 function makeEvent(opts: {
@@ -68,10 +93,25 @@ describe("GET /api/workflows", () => {
   });
 
   test("returns the workflow list for an authed read-scoped caller", async () => {
-    ctx.getWorkflows.mockReturnValue([{ name: "w1", description: "d", steps: [] }]);
+    ctx.getCachedWorkflows.mockReturnValue([systemEntry("w1")]);
     const res = await GET(makeEvent({ locals: { ...authedUser, apiKeyScopes: ["read"] } }));
     expect(res.status).toBe(200);
-    expect((await res.json()) as unknown[]).toEqual([{ name: "w1", description: "d", steps: [] }]);
+    // Same definition fields as before, plus additive provenance.
+    expect((await res.json()) as unknown[]).toMatchObject([
+      { name: "w1", description: "", steps: [], visibility: "system", canEdit: false },
+    ]);
+  });
+
+  test("the list is filtered by the ladder — a private workflow the caller does not own is absent", async () => {
+    // The documented behaviour change: a read-scoped key with no project
+    // sees system workflows only. Shorter array, same shape.
+    ctx.getCachedWorkflows.mockReturnValue([
+      systemEntry("shared"),
+      { ...systemEntry("secret"), visibility: "private", userId: "someone-else" },
+    ]);
+    const res = await GET(makeEvent({ locals: { ...authedUser, apiKeyScopes: ["read"] } }));
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as Array<{ name: string }>).map((w) => w.name)).toEqual(["shared"]);
   });
 });
 
@@ -273,5 +313,24 @@ describe("POST /api/workflows", () => {
     expect(ctx.reloadWorkflows).toHaveBeenCalledTimes(1);
     const created = (await res.json()) as { id?: string };
     expect(created.id).toBe("wf-1");
+  });
+
+  test("mints version 1 for a newly created workflow", async () => {
+    const def = { name: "w1", steps: [{ name: "s1", agent: "a" }] };
+    queries.createWorkflow.mockResolvedValue({ id: "wf-1", ...def, description: "" });
+    await POST(makeEvent({ locals: authedUser, body: def }));
+    expect(versions.ensureWorkflowVersion).toHaveBeenCalledTimes(1);
+  });
+
+  test("returns 409 — not 500 — when the name is already taken", async () => {
+    // `name` is globally unique on purpose: ownership authorizes a
+    // workflow, it never namespaces one. A duplicate is therefore an
+    // ordinary, expected outcome and gets an ordinary status.
+    const def = { name: "taken", steps: [{ name: "s1", agent: "a" }] };
+    queries.createWorkflow.mockRejectedValue(new queries.WorkflowNameConflictError("taken"));
+    const res = await POST(makeEvent({ locals: authedUser, body: def }));
+    expect(res.status).toBe(409);
+    expect((await res.json()) as { name?: string }).toMatchObject({ name: "taken" });
+    expect(ctx.reloadWorkflows).not.toHaveBeenCalled();
   });
 });

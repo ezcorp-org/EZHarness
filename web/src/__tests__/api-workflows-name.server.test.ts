@@ -9,25 +9,46 @@
 import { test, expect, describe, vi, beforeEach } from "vitest";
 
 const ctx = vi.hoisted(() => ({
-  getWorkflows: vi.fn(() => [] as Array<{ name: string }>),
+  // The cache now carries provenance — a bare `WorkflowDefinition` has
+  // nothing to authorize against, so the routes read this instead.
+  getCachedWorkflows: vi.fn(() => [] as unknown[]),
   reloadWorkflows: vi.fn(async () => {}),
 }));
 const queries = vi.hoisted(() => ({
   getWorkflowByName: vi.fn(async (_name: string) => undefined as { id: string } | undefined),
   updateWorkflow: vi.fn(async (_id: string, _data: unknown) => undefined as unknown),
   deleteWorkflow: vi.fn(async (_id: string) => true),
+  WorkflowNameConflictError: class extends Error {},
+}));
+const versions = vi.hoisted(() => ({
+  ensureWorkflowVersion: vi.fn(async () => ({ version: { version: 1 }, minted: false })),
 }));
 vi.mock("$lib/server/context", () => ctx);
 vi.mock("$server/db/queries/workflows", () => queries);
+vi.mock("$server/db/queries/workflow-versions", () => versions);
 
 import { GET, PUT, DELETE } from "../routes/api/workflows/[name]/+server";
 
+/** A cache entry the authed member below OWNS, so it is editable. */
+function ownedEntry(name = "w1") {
+	return {
+		definition: { name, description: "", steps: [] },
+		source: "db",
+		id: "wf-1",
+		projectId: null,
+		userId: "u1",
+		visibility: "project",
+		forkedFrom: null,
+	};
+}
+
 beforeEach(() => {
-  ctx.getWorkflows.mockReset().mockReturnValue([]);
+  ctx.getCachedWorkflows.mockReset().mockReturnValue([]);
   ctx.reloadWorkflows.mockReset().mockResolvedValue(undefined);
   queries.getWorkflowByName.mockReset().mockResolvedValue(undefined);
   queries.updateWorkflow.mockReset().mockResolvedValue(undefined);
   queries.deleteWorkflow.mockReset().mockResolvedValue(true);
+  versions.ensureWorkflowVersion.mockReset().mockResolvedValue({ version: { version: 1 }, minted: false });
 });
 
 function makeEvent(opts: {
@@ -86,16 +107,34 @@ describe("GET /api/workflows/[name]", () => {
 	});
 
 	test("returns the workflow when it exists", async () => {
-		ctx.getWorkflows.mockReturnValue([{ name: "w1" }]);
+		ctx.getCachedWorkflows.mockReturnValue([ownedEntry("w1")]);
 		const res = await GET(makeEvent({ name: "w1", locals: { ...authedUser, apiKeyScopes: ["read"] } }));
 		expect(res.status).toBe(200);
-		expect((await res.json()) as { name?: string }).toEqual({ name: "w1" });
+		// Additively wrapped now: the definition plus the provenance the
+		// editor needs to decide whether to offer Edit.
+		expect((await res.json()) as { name?: string }).toMatchObject({
+			name: "w1",
+			source: "db",
+			visibility: "project",
+			canEdit: true,
+		});
 	});
 
 	test("returns 404 when the workflow is not in the registry", async () => {
-		ctx.getWorkflows.mockReturnValue([]);
+		ctx.getCachedWorkflows.mockReturnValue([]);
 		const res = await GET(makeEvent({ name: "missing", locals: authedUser }));
 		expect(res.status).toBe(404);
+	});
+
+	test("returns 404 — not 403 — for a workflow the caller may not see", async () => {
+		// The endpoint must not be an existence oracle: an unauthorized read
+		// is indistinguishable from a missing workflow.
+		ctx.getCachedWorkflows.mockReturnValue([
+			{ ...ownedEntry("secret"), visibility: "private", userId: "someone-else" },
+		]);
+		const res = await GET(makeEvent({ name: "secret", locals: authedUser }));
+		expect(res.status).toBe(404);
+		expect((await res.json()) as { error?: string }).toEqual({ error: "Not found" });
 	});
 });
 
@@ -140,6 +179,7 @@ describe("PUT /api/workflows/[name]", () => {
 	});
 
 	test("forwards a valid defaultModel to the update", async () => {
+		ctx.getCachedWorkflows.mockReturnValue([ownedEntry()]);
 		queries.getWorkflowByName.mockResolvedValue({ id: "wf-1" });
 		queries.updateWorkflow.mockResolvedValue({ id: "wf-1", name: "w1" });
 		const res = await PUT(
@@ -178,6 +218,7 @@ describe("PUT /api/workflows/[name]", () => {
 	});
 
 	test("returns 404 when the named workflow is not a DB workflow", async () => {
+		ctx.getCachedWorkflows.mockReturnValue([ownedEntry()]);
 		queries.getWorkflowByName.mockResolvedValue(undefined);
 		const res = await PUT(makeEvent({ locals: authedUser, method: "PUT", body: { description: "d" } }));
 		expect(res.status).toBe(404);
@@ -185,7 +226,33 @@ describe("PUT /api/workflows/[name]", () => {
 		expect(body.error).toBe("Not found (only DB workflows can be updated)");
 	});
 
+	test("returns 403 when the caller may not edit a system workflow", async () => {
+		// The deliberate tightening: every pre-existing row is `system`, and
+		// `system` is admin-only to edit. A 403 (not 404) because the caller
+		// can already see it — there is nothing left to conceal.
+		ctx.getCachedWorkflows.mockReturnValue([{ ...ownedEntry(), visibility: "system", userId: null }]);
+		const res = await PUT(makeEvent({ locals: authedUser, method: "PUT", body: { description: "d" } }));
+		expect(res.status).toBe(403);
+		expect((await res.json()) as { error?: string }).toMatchObject({
+			error: expect.stringContaining("admin"),
+		});
+		expect(queries.updateWorkflow).not.toHaveBeenCalled();
+	});
+
+	test("returns 409 when a rename collides with an existing name", async () => {
+		// Unreachable before the editor made renaming ordinary; it used to
+		// surface as an unhandled 500 from the unique index.
+		ctx.getCachedWorkflows.mockReturnValue([ownedEntry()]);
+		queries.getWorkflowByName.mockResolvedValue({ id: "wf-1" });
+		queries.updateWorkflow.mockRejectedValue(new queries.WorkflowNameConflictError("taken"));
+		const res = await PUT(
+			makeEvent({ locals: authedUser, method: "PUT", body: { name: "taken" } }),
+		);
+		expect(res.status).toBe(409);
+	});
+
 	test("returns 404 when the update itself resolves to nothing", async () => {
+		ctx.getCachedWorkflows.mockReturnValue([ownedEntry()]);
 		queries.getWorkflowByName.mockResolvedValue({ id: "wf-1" });
 		queries.updateWorkflow.mockResolvedValue(undefined);
 		const res = await PUT(makeEvent({ locals: authedUser, method: "PUT", body: { description: "d" } }));
@@ -193,6 +260,7 @@ describe("PUT /api/workflows/[name]", () => {
 	});
 
 	test("updates a DB workflow, reloads, and returns the updated row", async () => {
+		ctx.getCachedWorkflows.mockReturnValue([ownedEntry()]);
 		queries.getWorkflowByName.mockResolvedValue({ id: "wf-1" });
 		queries.updateWorkflow.mockResolvedValue({ id: "wf-1", name: "w1", description: "new" });
 		const res = await PUT(
@@ -225,6 +293,7 @@ describe("DELETE /api/workflows/[name]", () => {
 	});
 
 	test("returns 404 when the named workflow is not a DB workflow", async () => {
+		ctx.getCachedWorkflows.mockReturnValue([ownedEntry()]);
 		queries.getWorkflowByName.mockResolvedValue(undefined);
 		const res = await DELETE(makeEvent({ locals: authedUser, method: "DELETE" }));
 		expect(res.status).toBe(404);
@@ -233,6 +302,7 @@ describe("DELETE /api/workflows/[name]", () => {
 	});
 
 	test("deletes a DB workflow, reloads, and returns ok", async () => {
+		ctx.getCachedWorkflows.mockReturnValue([ownedEntry()]);
 		queries.getWorkflowByName.mockResolvedValue({ id: "wf-1" });
 		const res = await DELETE(makeEvent({ locals: authedUser, method: "DELETE" }));
 		expect(res.status).toBe(200);

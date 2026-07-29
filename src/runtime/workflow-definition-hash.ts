@@ -40,8 +40,16 @@ import type { WorkflowDefinition } from "../types";
  * it decides batch composition on the no-deps path and tie-breaks within
  * a batch on the topo path, which is exactly what `cursor.batchIndex` and
  * `cursor.prevStepName` are coordinates into.
+ *
+ * Exported for `workflow-versions.ts`, which compares a definition's
+ * `input_schema` across edits to decide whether an edit mints a version.
+ * That field is deliberately NOT part of the hash below (see
+ * {@link workflowDefinitionHash} — widening the hash would fail-close
+ * every parked run on upgrade), but the comparison still has to be
+ * key-order-insensitive or a DB round-trip would mint spurious versions.
+ * One serializer, two callers — never a second copy.
  */
-function stableStringify(value: unknown): string {
+export function stableStringify(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
   const entries = Object.entries(value as Record<string, unknown>)

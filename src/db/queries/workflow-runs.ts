@@ -47,8 +47,19 @@ export interface NewWorkflowRunInput {
   startedAt: Date;
   /** Fingerprint of the definition this run started against, so a resume
    *  can refuse to continue into an edited graph. Absent for a caller
-   *  that does not persist one. */
+   *  that does not persist one. AUTHORITATIVE only while
+   *  `definitionVersionId` is null — see below. */
   definitionHash?: string | null;
+  /**
+   * The exact `workflow_definition_versions` row this run executed.
+   *
+   * Authoritative over `definitionHash`. Null for a YAML/extension
+   * workflow (no definition row to version) and for any run created
+   * before versioning existed. When it IS set, `definitionHash` is
+   * written from the SAME version row's material, so the two cannot
+   * disagree by construction.
+   */
+  definitionVersionId?: string | null;
 }
 
 /**
@@ -69,6 +80,7 @@ export async function insertWorkflowRun(row: NewWorkflowRunInput): Promise<void>
     input: row.input,
     startedAt: row.startedAt,
     definitionHash: row.definitionHash ?? null,
+    definitionVersionId: row.definitionVersionId ?? null,
   });
 }
 
