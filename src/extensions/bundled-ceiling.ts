@@ -239,6 +239,14 @@ export const BUNDLED_CEILING: Record<string, ExtensionPermissions> = {
     grantedAt: {},
   },
 
+  // NOTE: `city-conditions` has NO row here, and must not gain one while
+  // it stays unbundled. The ceiling is scoped to bundled extensions —
+  // `getCeiling()` returns null for anything else and
+  // `clampToBundledCeiling` becomes a passthrough — so a row for a
+  // user-installed extension would be inert, and `bundled-ceiling.test.ts`
+  // asserts the table's keys track `BUNDLED_EXTENSIONS`. Its install grant
+  // is governed by the normal user-consent + checksum path instead.
+
   // kokoro-tts — speaker icon contribution + append-message reverse RPC.
   "kokoro-tts": {
     eventSubscriptions: ["kokoro-tts:speak", "kokoro-tts:save"],

@@ -30,6 +30,7 @@
       "web/e2e/auto-model-routing.spec.ts",
       "web/e2e/cache-stats-pill.spec.ts",
       "web/e2e/chat-durable-leaf-capability-event.spec.ts",
+      "web/e2e/city-conditions-card.spec.ts",
       "web/e2e/chat-graph-evidence.spec.ts",
       "web/e2e/code-review-panel-evidence.spec.ts",
       "web/e2e/composer-suggestions.spec.ts",

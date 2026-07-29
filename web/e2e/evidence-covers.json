@@ -133,6 +133,12 @@
     "web/src/lib/components/settings/PreferenceOrderSection.svelte",
     "web/src/routes/(app)/settings/models/+page.svelte"
   ],
+  "web/e2e/city-conditions-card.spec.ts": [
+    "web/src/lib/components/tool-cards/CityConditionsCard.svelte",
+    "web/src/lib/components/tool-cards/city-conditions-card-logic.ts",
+    "web/src/lib/components/tool-cards/ToolCardRouter.svelte",
+    "web/src/lib/components/tool-cards/DefaultCard.svelte"
+  ],
   "web/e2e/pending-permission-tray.spec.ts": [
     "web/src/lib/components/tool-cards/PendingPermissionTray.svelte",
     "web/src/lib/components/tool-cards/PermissionGate.svelte",

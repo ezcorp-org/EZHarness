@@ -518,6 +518,15 @@ const BUNDLED_EXTENSIONS: BundledExtension[] = [
       },
     },
   },
+  // NOTE: `city-conditions` (docs/extensions/examples/city-conditions) is
+  // deliberately NOT bundled. It is a user-installed demo, exactly like
+  // `weather` — its closest analogue (same provider, same demo purpose,
+  // also ships a card). An extension that reaches third-party APIs should
+  // not auto-install and auto-enable in every self-hosted deployment;
+  // opt-in is the right default. Its shipped `conditions.workflow.yaml`
+  // still registers as `city-conditions:conditions` once a user installs
+  // it — extension workflows are discovered from INSTALLED extensions, so
+  // being unbundled costs the capability nothing.
   {
     // In-browser Kokoro-TTS. Adds a speaker icon to the per-message
     // action toolbar via the `messageToolbar` extension point. Click

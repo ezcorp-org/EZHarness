@@ -1,0 +1,158 @@
+# city-conditions — the same aggregation the chat tool does, as a graph.
+#
+# Loaded from the extension's install dir by `workflow-extension-loader.ts`
+# and namespaced to `city-conditions:conditions`, so it is runnable from
+# /workflows and POST /api/workflows/city-conditions:conditions/run like
+# any host workflow.
+#
+# ── Why this exists next to the tool ─────────────────────────────────
+#
+# The chat tool does NOT run this workflow, and cannot: `ezcorp/workflows`
+# is fire-and-forget (the host starts the run and returns with no run id)
+# and `workflow:*` events are not extension-subscribable, so no tool can
+# await a run and return its aggregate for rendering. The tool composes
+# the same helpers in-process; this is the declarative path over the same
+# steps. One implementation, two front doors.
+#
+# ── The shape is the point ───────────────────────────────────────────
+#
+#   locate  →  located  →  weather ∥ air  →  report  →  complete  →  output
+#
+# `weather` and `air` BOTH declare `dependsOn: [located]` and nothing
+# else, so the executor's topological batcher puts them in ONE batch and
+# runs them concurrently. Two independent upstreams, one round trip's
+# worth of latency — that is what a workflow buys over a single tool.
+#
+# ── Gates ────────────────────────────────────────────────────────────
+#
+# Both gates assert values the next steps actually depend on, so a red run
+# names the broken assertion and its actual value instead of failing
+# somewhere downstream with a missing-field error. `located` guards the
+# coordinates the parallel batch is about to fetch with; `complete` guards
+# the assembled report — including `mold.available`, because a DROPPED
+# health field rendering as a blank is the exact failure this extension
+# refuses to produce. (`exists` is `!= null`, so a present-and-false
+# `available` passes; a missing one does not.)
+
+name: conditions
+description: >-
+  Look up a city's current weather and pollen from Open-Meteo, fetching the
+  two upstreams concurrently, and assemble one report. Same aggregation the
+  `city_conditions` chat tool performs, expressed as a graph.
+
+inputSchema:
+  city:
+    type: text
+    label: City
+    description: City or place name, e.g. "Austin" or "Paris, TX".
+    required: true
+
+steps:
+  # 1. Resolve the free-text city to one place. Returns
+  #    {v, ok, place:{name, admin1?, country, latitude, longitude, timezone}}.
+  #    An unresolvable city or a dead geocoder comes back as a TOOL ERROR,
+  #    which fails this step loudly with the upstream reason attached.
+  - name: locate
+    kind: tool
+    tool: city-conditions__geocode
+    input:
+      city: $input.city
+
+  # 2. Assert we have coordinates before spending two upstream calls on
+  #    them. `eq true` on `ok` (not `truthy`) so a missing or non-boolean
+  #    flag fails closed rather than passing on any non-empty value.
+  - name: located
+    kind: gate
+    dependsOn:
+      - locate
+    condition:
+      all:
+        - ref: $steps.locate.output.ok
+          op: eq
+          value: true
+        - ref: $steps.locate.output.place.latitude
+          op: exists
+        - ref: $steps.locate.output.place.longitude
+          op: exists
+
+  # 3a + 3b. THE PARALLEL BATCH. Both depend only on `located`, so they
+  #          resolve in the same topological level and run concurrently.
+  - name: weather
+    kind: tool
+    tool: city-conditions__current_weather
+    dependsOn:
+      - located
+    input:
+      latitude: $steps.locate.output.place.latitude
+      longitude: $steps.locate.output.place.longitude
+
+  - name: air
+    kind: tool
+    tool: city-conditions__air_quality
+    dependsOn:
+      - located
+    input:
+      latitude: $steps.locate.output.place.latitude
+      longitude: $steps.locate.output.place.longitude
+
+  # 4. Assemble the report. Transform refs are STRICT — if either upstream
+  #    step somehow produced a result without its payload, this throws
+  #    naming the missing field rather than emitting a half-filled report.
+  - name: report
+    kind: transform
+    dependsOn:
+      - weather
+      - air
+    output:
+      place: $steps.locate.output.place
+      observedAt: $steps.weather.output.observedAt
+      localTime: $steps.weather.output.localTime
+      weather: $steps.weather.output.weather
+      pollen: $steps.air.output.pollen
+      mold: $steps.air.output.mold
+      summary: >-
+        {{$steps.locate.output.place.name}} at {{$steps.weather.output.localTime}}:
+        {{$steps.weather.output.weather.label}}, {{$steps.weather.output.weather.tempC}}°C
+        (feels like {{$steps.weather.output.weather.feelsLikeC}}°C).
+        Pollen {{$steps.air.output.pollen.band}}. Mold not available.
+
+  # 5. Assert the report is whole before the run is called a success.
+  - name: complete
+    kind: gate
+    dependsOn:
+      - report
+    condition:
+      all:
+        - ref: $steps.report.output.place.name
+          op: exists
+        - ref: $steps.report.output.weather.code
+          op: exists
+        - ref: $steps.report.output.pollen.band
+          op: exists
+        - ref: $steps.report.output.mold.available
+          op: exists
+
+  # 6. Project the gated report onto the RUN's result.
+  #
+  #    A workflow run's `result` is the last step's output, and a gate's
+  #    output is the fixed `{passed: true}`. Ending on `complete` would
+  #    therefore finish green with the report unreachable — a persisted
+  #    run row carries no per-step outputs — which is the same "succeeded
+  #    but shows nothing" failure this extension refuses to produce
+  #    anywhere else. This step exists so the run returns the report.
+  #
+  #    It re-asserts as a side effect: transform refs are STRICT, so a
+  #    field that vanished between `report` and here fails the run by name
+  #    instead of emitting a hole.
+  - name: output
+    kind: transform
+    dependsOn:
+      - complete
+    output:
+      place: $steps.report.output.place
+      observedAt: $steps.report.output.observedAt
+      localTime: $steps.report.output.localTime
+      weather: $steps.report.output.weather
+      pollen: $steps.report.output.pollen
+      mold: $steps.report.output.mold
+      summary: $steps.report.output.summary
