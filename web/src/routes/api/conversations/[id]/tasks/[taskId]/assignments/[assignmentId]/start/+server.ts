@@ -14,6 +14,7 @@ import {
   pickSpawnAgentConfig,
 } from "$lib/server/task-helpers";
 import { isBlocked, unsatisfiedDeps, type ReadonlyTask } from "$server/runtime/task-dependencies";
+import { withTaskSnapshotLock } from "$server/runtime/task-snapshot-lock";
 
 // Boundary validation. Body is fully optional — the frontend may send
 // `{ model, provider }` to override the parent-turn defaults, but
@@ -46,7 +47,7 @@ const startBodySchema = z.object({
  * task-dependencies module so it stays in sync with the bundled
  * extension's auto-start gate.
  */
-export const POST: RequestHandler = async ({ params, request, locals }) => {
+const postHandler: RequestHandler = async ({ params, request, locals }) => {
   const scopeErr = requireScope(locals, "chat");
   if (scopeErr) return scopeErr;
   const user = requireAuth(locals);
@@ -148,3 +149,11 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
     subConversationId,
   });
 };
+
+// Serialized per conversation: the handler above is a read-modify-write over
+// ONE `extension_storage` row, so two overlapping requests on the same
+// conversation would both read the same base and the second write would
+// silently discard the first's mutation (assignments stuck on "running").
+// Different conversations never contend.
+export const POST: RequestHandler = (event) =>
+  withTaskSnapshotLock(event.params.id, async () => postHandler(event));

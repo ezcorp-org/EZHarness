@@ -32,6 +32,19 @@ writing extension-managed files (task stores, note vaults, config json, etc.),
 always use that path. The `.ezcorp/` directory is gitignored. See
 [../../docs/extensions/data-storage.md](../../docs/extensions/data-storage.md).
 
+## Storage read-modify-write (binding)
+
+An extension that does `storage.get(key)` → mutate → `storage.set(key)` MUST
+run that critical section inside `withLock(key, …)` (`@ezcorp/sdk/runtime`).
+The subprocess channel dispatches inbound frames fire-and-forget
+(`void handleIncoming(msg)` in `packages/@ezcorp/sdk/src/runtime/channel.ts`),
+so two `tools/call` frames — or a `tools/call` racing an
+`ezcorp/event/*` notification — interleave, and the second `set` silently
+discards the first's mutation. Symptom: state that "lags behind" or reverts,
+never an error. Precedents: `task-tracking`, `ez-code`, `ez-code-factory`.
+Host-side writers to the same row need their own lock —
+`src/runtime/task-snapshot-lock.ts` is the pattern.
+
 ## Extension logging (binding)
 
 Host-side extension code (integration daemons, reverse-RPC handlers, spawn

@@ -28,6 +28,13 @@ import {
 	type RoutingState,
 } from "./sub-agent-routing.js";
 import { readTeamPanel, writeTeamPanel } from "./panel-persistence.js";
+import {
+	applyAssignmentUpdate as reduceAssignmentUpdate,
+	applyHydratedSnapshot as reduceHydratedSnapshot,
+	applyLiveSnapshot as reduceLiveSnapshot,
+	seqFor as taskSeqFor,
+	type TaskSnapshotState,
+} from "./chat/task-snapshot-store.js";
 
 let _wsManualRetry: (() => void) | null = null;
 export function wsManualRetry() { _wsManualRetry?.(); }
@@ -213,8 +220,18 @@ class AppStore {
 	memoryUnavailableRunId = $state<string | null>(null);
 	// Track runs that completed before startStreaming was called (race condition)
 	completedBeforeStream = $state<Set<string>>(new Set());
-	// Task panel snapshots per conversation (updated via task:snapshot WS events)
+	// Task panel snapshots per conversation. Written by the `task:snapshot` /
+	// `task:assignment_update` bus events AND by the cold-start hydrate that
+	// `$lib/chat/page-handlers/task-hydrate.svelte.ts` fires on mount,
+	// conversation switch and SSE reconnect. All three go through the reducer
+	// in `$lib/chat/task-snapshot-store.ts`, which owns the ordering rules.
 	taskSnapshots = $state<Record<string, TaskSnapshot>>({});
+	// Per-conversation live-event counter backing the reducer's staleness
+	// check. Not rendered, so deliberately not reactive.
+	taskSeq: Record<string, number> = {};
+	// Bumped when an assignment delta arrives for a conversation with no
+	// loaded snapshot; the hydration effect watches it and resyncs.
+	taskHydrationRequests = $state(0);
 	// Bumped on each WS reconnect so $effects can re-fetch stale state
 	wsReconnectCount = $state(0);
 	// Server-reported staleness for the active run of each conversation. Populated by the
@@ -547,7 +564,59 @@ export function getWsReconnectCount(): number {
 }
 
 export function setTaskSnapshot(snapshot: TaskSnapshot): void {
-	store.taskSnapshots = { ...store.taskSnapshots, [snapshot.conversationId]: snapshot };
+	commitTaskState(reduceLiveSnapshot(readTaskState(), snapshot));
+}
+
+// ── Task-snapshot reducer glue ──
+//
+// The reducer (`$lib/chat/task-snapshot-store.ts`) is a plain module so it
+// can be unit-tested; these three functions are the only bridge between it
+// and the rune store.
+
+/** Read the store's two task fields as one reducer state object. */
+function readTaskState(): TaskSnapshotState {
+	return { snapshots: store.taskSnapshots, seq: store.taskSeq };
+}
+
+/**
+ * Write a reducer result back. Skips the reactive assignment when the reducer
+ * returned the state unchanged, and raises a hydration request when a delta
+ * arrived for a conversation we have no snapshot for.
+ */
+function commitTaskState(result: ReturnType<typeof reduceLiveSnapshot>): void {
+	if (result.state.snapshots !== store.taskSnapshots) {
+		store.taskSnapshots = result.state.snapshots;
+		store.taskSeq = result.state.seq;
+	}
+	if (result.hydrateNeeded) store.taskHydrationRequests++;
+}
+
+/** Reactive counter the hydration effect watches for resync requests. */
+export function taskHydrationRequests(): number {
+	return store.taskHydrationRequests;
+}
+
+/**
+ * Live-event count for a conversation. The hydration effect snapshots this
+ * BEFORE issuing its fetch and hands it back on apply, so a response that was
+ * overtaken by a newer bus event is discarded instead of rolling the panel
+ * back.
+ */
+export function getTaskSeq(conversationId: string): number {
+	return taskSeqFor(readTaskState(), conversationId);
+}
+
+/**
+ * Apply a cold-start `GET /api/conversations/:id/tasks` response. Dropped by
+ * the reducer when a live event overtook it mid-flight.
+ */
+export function hydrateTaskSnapshotInto(
+	conversationId: string,
+	payload: { tasks?: unknown; activeTaskId?: string } | null | undefined,
+	seqAtFetchStart: number,
+): void {
+	const next = reduceHydratedSnapshot(readTaskState(), conversationId, payload, seqAtFetchStart);
+	if (next.snapshots !== store.taskSnapshots) store.taskSnapshots = next.snapshots;
 }
 
 // ── Canvas Dock helpers ──
@@ -1297,61 +1366,20 @@ export function initStores() {
 			}
 
 			case "task:snapshot": {
-				const snapshot = event.data as unknown as TaskSnapshot;
-				if (snapshot?.conversationId) {
-					store.taskSnapshots = {
-						...store.taskSnapshots,
-						[snapshot.conversationId]: snapshot,
-					};
-				}
+				commitTaskState(
+					reduceLiveSnapshot(readTaskState(), event.data as unknown as TaskSnapshot),
+				);
 				break;
 			}
 
 			case "task:assignment_update": {
-				const { conversationId, taskId, assignment, structuredResultError, structuredResultOverCap } = event.data as {
-					conversationId: string; taskId: string; assignment: TaskAssignment;
-					structuredResultError?: string; structuredResultOverCap?: boolean;
-				};
-				// Schema-failure flag rides the top-level event field (the backend
-				// keeps it OFF the assignment object). Capture it into the
-				// view-model: a terminal update carrying `structuredResultError`
-				// WITHOUT `structuredResultOverCap` is a genuine schema failure; a
-				// validated-but-oversized result (overCap) is not.
-				const schemaFailed = structuredResultError !== undefined && !structuredResultOverCap;
-				const merged: TaskAssignment = { ...assignment, schemaFailed };
-				const snapshot = store.taskSnapshots[conversationId];
-				if (snapshot) {
-					const task = snapshot.tasks.find(t => t.id === taskId);
-					if (task) {
-						const idx = (task.assignments ?? []).findIndex(a => a.id === merged.id);
-						if (idx >= 0) {
-							task.assignments[idx] = merged;
-						} else {
-							task.assignments = [...(task.assignments ?? []), merged];
-						}
-						// Client-side rollup: the extension emits a fresh task:snapshot
-						// when it receives this event and auto-advances, but that round-
-						// trip goes through the subprocess RPC and can lag. Mirror the
-						// rollup here so the task visibly flips to "completed"/"failed"
-						// the instant the last running assignment finishes, rather than
-						// waiting on the extension's snapshot emit.
-						if (
-							task.status !== "completed" &&
-							task.status !== "failed" &&
-							task.assignments.length > 0 &&
-							task.assignments.every(a => a.status === "completed" || a.status === "failed")
-						) {
-							const anyFailed = task.assignments.some(a => a.status === "failed");
-							task.status = anyFailed ? "failed" : "completed";
-							const ts = new Date().toISOString();
-							if (anyFailed) task.failedAt = task.failedAt ?? ts;
-							else task.completedAt = task.completedAt ?? ts;
-							if (snapshot.activeTaskId === task.id) snapshot.activeTaskId = undefined;
-						}
-						// Trigger reactivity
-						store.taskSnapshots = { ...store.taskSnapshots, [conversationId]: { ...snapshot } };
-					}
-				}
+				commitTaskState(
+					reduceAssignmentUpdate(
+						readTaskState(),
+						event.data as unknown as Parameters<typeof reduceAssignmentUpdate>[1],
+						new Date().toISOString(),
+					),
+				);
 				break;
 			}
 

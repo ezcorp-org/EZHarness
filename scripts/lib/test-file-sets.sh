@@ -161,6 +161,8 @@ coverage_host_files() {
       web/src/lib/graph/canvas-view.test.ts \
       web/src/lib/__tests__/timeline-normalize.test.ts \
       web/src/lib/__tests__/format-duration.test.ts \
+      web/src/lib/chat/__tests__/task-snapshot-store.test.ts \
+      web/src/lib/chat/page-handlers/__tests__/task-hydrate.test.ts \
       web/src/__tests__/test-surface.test.ts \
       web/src/__tests__/test-surface-bypass.test.ts \
       web/src/__tests__/mock-llm-store.test.ts \

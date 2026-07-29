@@ -24,6 +24,7 @@
 	import { store, openTeamPanel, type AgentCallState, type TaskPanelTask } from "$lib/stores.svelte.js";
 	import { persistLastModel } from "$lib/last-model.js";
 	import { attachPanelPersistence } from "$lib/chat/page-handlers/panel-persistence.svelte.js";
+	import { attachTaskHydration } from "$lib/chat/page-handlers/task-hydrate.svelte.js";
 	import { decideInheritedMode } from "$lib/chat/page-handlers/inherit-mode.js";
 	import ConversationList from "$lib/components/ConversationList.svelte";
 	import ProjectRail from "$lib/components/ProjectRail.svelte";
@@ -68,6 +69,11 @@
 	// Task panel (driven by the thread's chrome state).
 	let taskSnapshot = $derived(store.taskSnapshots[convId] ?? null);
 	let hasAnyTasks = $derived(!!taskSnapshot && taskSnapshot.tasks.length > 0);
+
+	// Load the persisted task snapshot for this conversation. Without this the
+	// panel only ever sees live `task:snapshot` events, so a refresh, a second
+	// tab, or an SSE gap left it blank. Also re-runs on reconnect.
+	attachTaskHydration({ convId: () => convId });
 
 	attachPanelPersistence({
 		convId: () => convId,

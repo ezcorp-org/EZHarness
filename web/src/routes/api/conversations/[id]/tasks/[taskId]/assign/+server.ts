@@ -11,6 +11,7 @@ import {
   loadSnapshotAndFindTask,
   writeAndBroadcastSnapshot,
 } from "$lib/server/task-helpers";
+import { withTaskSnapshotLock } from "$server/runtime/task-snapshot-lock";
 
 // Boundary validation. POST attaches an agent config to a task (or
 // optional subtask); DELETE removes an existing assignment by id.
@@ -42,7 +43,7 @@ const assignDeleteBodySchema = z.object({
  * extension's storage authoritative without a race.
  */
 
-export const POST: RequestHandler = async ({ params, request, locals }) => {
+const postHandler: RequestHandler = async ({ params, request, locals }) => {
   const scopeErr = requireScope(locals, "chat");
   if (scopeErr) return scopeErr;
   const user = requireAuth(locals);
@@ -91,7 +92,7 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
   return json({ assignment, snapshot });
 };
 
-export const DELETE: RequestHandler = async ({ params, request, locals }) => {
+const deleteHandler: RequestHandler = async ({ params, request, locals }) => {
   const scopeErr = requireScope(locals, "chat");
   if (scopeErr) return scopeErr;
   const user = requireAuth(locals);
@@ -141,3 +142,14 @@ export const DELETE: RequestHandler = async ({ params, request, locals }) => {
 
   return json({ ok: true });
 };
+
+// Serialized per conversation: the handler above is a read-modify-write over
+// ONE `extension_storage` row, so two overlapping requests on the same
+// conversation would both read the same base and the second write would
+// silently discard the first's mutation (assignments stuck on "running").
+// Different conversations never contend.
+export const POST: RequestHandler = (event) =>
+  withTaskSnapshotLock(event.params.id, async () => postHandler(event));
+
+export const DELETE: RequestHandler = (event) =>
+  withTaskSnapshotLock(event.params.id, async () => deleteHandler(event));

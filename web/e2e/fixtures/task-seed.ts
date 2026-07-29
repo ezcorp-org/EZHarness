@@ -17,13 +17,20 @@ export interface TaskSnapshotSeed {
 }
 
 /**
- * Seed the chat page's task panel with a snapshot.
+ * Seed the chat page's task panel with a LIVE snapshot event.
  *
- * The panel renders off `store.taskSnapshots[convId]`, and that record is
- * written ONLY by the `task:snapshot` handler in `web/src/lib/stores.svelte.ts`.
- * Nothing fetches `/api/conversations/:id/tasks` on page load, so mocking that
- * REST route seeds nothing — the snapshot has to arrive over the same
- * runtime-event stream the app really uses.
+ * The panel renders off `store.taskSnapshots[convId]`. Two things write that
+ * record, and this helper is the first:
+ *
+ *   1. the `task:snapshot` handler in `web/src/lib/stores.svelte.ts` — what
+ *      this helper drives, over the same runtime-event stream the app uses
+ *   2. the cold-start hydrate against `GET /api/conversations/:id/tasks`,
+ *      which the chat page fires on mount / conversation switch / reconnect.
+ *      Seed that one with `mockApi({ taskSnapshots: { [convId]: … } })` —
+ *      see `task-panel-cold-start.spec.ts`.
+ *
+ * Use this helper for anything about live updates DURING a run; use the mock
+ * override for anything about what survives a refresh.
  *
  * Call AFTER `page.goto`. Resolves once the panel has rendered; an empty
  * snapshot renders nothing by design, so there is nothing to wait for.

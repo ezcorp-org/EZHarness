@@ -15,6 +15,7 @@ import {
   pickSpawnAgentConfig,
   writeAndBroadcastSnapshot,
 } from "$lib/server/task-helpers";
+import { withTaskSnapshotLock } from "$server/runtime/task-snapshot-lock";
 
 // Boundary validation. Same shape as the sibling /start endpoint —
 // optional `{ model, provider }` for the auto-spawn path; empty body
@@ -40,7 +41,7 @@ const retryBodySchema = z.object({
  * exist. Body optional: `{ model?, provider? }` for the spawn's
  * parent-turn model defaults (parity with the /start endpoint).
  */
-export const POST: RequestHandler = async ({ params, request, locals }) => {
+const postHandler: RequestHandler = async ({ params, request, locals }) => {
   const scopeErr = requireScope(locals, "chat");
   if (scopeErr) return scopeErr;
   const user = requireAuth(locals);
@@ -153,3 +154,11 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
     spawned: null,
   });
 };
+
+// Serialized per conversation: the handler above is a read-modify-write over
+// ONE `extension_storage` row, so two overlapping requests on the same
+// conversation would both read the same base and the second write would
+// silently discard the first's mutation (assignments stuck on "running").
+// Different conversations never contend.
+export const POST: RequestHandler = (event) =>
+  withTaskSnapshotLock(event.params.id, async () => postHandler(event));

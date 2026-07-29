@@ -255,6 +255,15 @@ export interface MockOverrides {
 	/** Active agents list returned by /api/active-agents. */
 	activeAgents?: Array<{ id: string; name: string; status: string }>;
 	/**
+	 * Persisted task snapshots keyed by conversationId, returned by
+	 * `GET /api/conversations/[id]/tasks` — the cold-start loader the chat
+	 * page hits on mount / conversation switch / SSE reconnect. This is what
+	 * makes the task panel survive a refresh or a second tab; live updates
+	 * still arrive over the runtime-event stream (see `task-seed.ts`).
+	 * Omitted conversations return an empty snapshot.
+	 */
+	taskSnapshots?: Record<string, { tasks: unknown[]; activeTaskId?: string }>;
+	/**
 	 * Phase 66 — message-grained hybrid-search fixture for
 	 * `GET /api/search/messages`. Configures the hits + degraded flag a spec
 	 * wants back. `requestedMode`/`servedMode` default to echoing the `mode`
@@ -404,6 +413,7 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 	const extensionSettings = overrides.extensionSettings ?? {};
 	const extensionViolations = overrides.extensionViolations ?? {};
 	const activeAgents = overrides.activeAgents ?? [];
+	const taskSnapshots = overrides.taskSnapshots ?? {};
 
 	// Phase 66 — message-search fixture. Default: empty hits, not degraded.
 	const searchMessages = overrides.searchMessages ?? {};
@@ -1780,6 +1790,23 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 		// /api/active-agents — active-agents-grouping consumer
 		if (path === "/api/active-agents" && method === "GET") {
 			return route.fulfill({ json: { agents: activeAgents } });
+		}
+
+		// /api/conversations/[id]/tasks — task-panel cold-start loader. The
+		// chat page hits this on mount, on conversation switch, and after an
+		// SSE reconnect, so a refresh / second tab rebuilds the panel from
+		// persisted state instead of waiting for the next live event.
+		const tasksMatch = path.match(/^\/api\/conversations\/([^/]+)\/tasks$/);
+		if (tasksMatch && method === "GET") {
+			const convId = tasksMatch[1]!;
+			const snap = taskSnapshots[convId];
+			return route.fulfill({
+				json: {
+					conversationId: convId,
+					tasks: snap?.tasks ?? [],
+					...(snap?.activeTaskId !== undefined ? { activeTaskId: snap.activeTaskId } : {}),
+				},
+			});
 		}
 
 		// Default: empty OK

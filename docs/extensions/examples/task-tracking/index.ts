@@ -31,6 +31,7 @@ import {
   cancelRun,
   toolError,
   toolResult,
+  withLock,
   type SpawnAssignmentInput,
   type SpawnAssignmentHandle,
   type ToolHandler,
@@ -1296,7 +1297,42 @@ const resumeHandler: ToolHandler = async (args) => {
   );
 };
 
-export const tools: Record<string, ToolHandler> = {
+// ── Snapshot serialization ──────────────────────────────────────────
+//
+// Every handler in this file is a read-modify-write against ONE storage
+// row: `loadSnapshot()` → mutate → `saveSnapshot()`. The SDK channel
+// dispatches inbound frames fire-and-forget (`void handleIncoming(msg)`),
+// so two frames that arrive close together run their critical sections
+// interleaved and the second `saveSnapshot` silently discards the first
+// one's mutation:
+//
+//   A: load(v0) ─► a1 completed ─► save(v0+a1)
+//   B:   load(v0) ────► a2 completed ────► save(v0+a2)   ← A's write lost
+//
+// That is the normal case, not an edge case: two sub-agents finishing
+// within the same tick both arrive as `task:assignment_update`, and an
+// LLM turn routinely issues several `task_assign` calls at once. The
+// lost write left an assignment stuck on "running" forever and the task
+// never rolled up — the "tracker lags behind / is wrong" bug.
+//
+// `withLock` (SDK) chains every critical section on one key so they run
+// start-to-finish in arrival order. Reads are serialized too, which is
+// what gives a handler read-your-writes consistency against the handler
+// before it. Rejections don't poison the chain.
+//
+// Safe against deadlock: `spawn()` returns its handle immediately (the
+// sub-run executes in the background) and the completion event comes
+// back as a separate fire-and-forget frame, so nothing inside the lock
+// ever waits on something that needs the lock.
+const SNAPSHOT_LOCK = "task-tracking:snapshot";
+
+/** Wrap a handler so its snapshot read-modify-write can't interleave. */
+function serialized(handler: ToolHandler): ToolHandler {
+  return (...args: Parameters<ToolHandler>) =>
+    withLock(SNAPSHOT_LOCK, async () => handler(...args));
+}
+
+const rawTools: Record<string, ToolHandler> = {
   task_plan: planHandler,
   task_add: addHandler,
   task_list: listHandler,
@@ -1312,6 +1348,10 @@ export const tools: Record<string, ToolHandler> = {
   task_stop: stopHandler,
   task_resume: resumeHandler,
 };
+
+export const tools: Record<string, ToolHandler> = Object.fromEntries(
+  Object.entries(rawTools).map(([name, handler]) => [name, serialized(handler)]),
+);
 
 // ── commit-4 two-hop bridge (task:assignment_update subscription) ───
 //
@@ -1389,7 +1429,19 @@ async function unblockReadyDependents(snap: PersistedSnapshot): Promise<void> {
   }
 }
 
+/**
+ * Public entry point for the `task:assignment_update` subscription.
+ * Serialized against the tool handlers — an incoming sub-agent completion
+ * and an in-flight `task_assign` are two writers to the same snapshot row
+ * (see {@link SNAPSHOT_LOCK}).
+ */
 async function handleAssignmentUpdate(
+  payload: IncomingAssignmentUpdate,
+): Promise<void> {
+  return withLock(SNAPSHOT_LOCK, () => applyAssignmentUpdate(payload));
+}
+
+async function applyAssignmentUpdate(
   payload: IncomingAssignmentUpdate,
 ): Promise<void> {
   const snap = await loadSnapshot();
@@ -1469,7 +1521,10 @@ export const _internals = {
   recordAssignmentFailure,
   toReadonly,
   handleAssignmentUpdate,
+  /** Unlocked body — only for tests that need to drive the race directly. */
+  applyAssignmentUpdate,
   unblockReadyDependents,
+  SNAPSHOT_LOCK,
 };
 
 // Export shared utilities used by later commits' handlers so unit tests
