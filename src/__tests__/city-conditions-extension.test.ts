@@ -162,6 +162,32 @@ describe("manifest", () => {
     expect(names).toContain(manifest.smokeTest!.tool);
   });
 
+  // DECLARING a smokeTest is not the same as PASSING it, and the gap is
+  // where this extension actually broke: `start()` called
+  // `createToolDispatcher` before `getChannel()`, so the subprocess threw
+  // "[@ezcorp/sdk] channel not ready" and died at spawn. Every unit test
+  // stayed green (they import `tools` directly and never spawn) and
+  // boot.test.ts could not see it either — it arms the register itself,
+  // and rpc.ts's lazy `_register` stays armed process-wide once any
+  // `getChannel()` has run. Only a real spawn catches it.
+  //
+  // `verifyExtension` is the host's own acceptance pipeline (the one
+  // `ezcorp ext verify` and `runExtensionTests` fold in), so this reuses
+  // that machinery rather than hand-rolling a spawn. The round-trip is
+  // network-free by construction: the declared smokeTest sends
+  // `{ city: "" }` and expects the BAD_INPUT envelope, so no upstream is
+  // contacted and a slow third party can never redden this gate.
+  test("the declared smokeTest actually round-trips in a spawned sandbox", async () => {
+    const { verifyExtension } = await import("../extensions/sdk/verify");
+    const result = await verifyExtension({ extDir: EXT_DIR });
+    const roundTrip = result.steps.find((s) => s.name === "smoke-test-roundtrip");
+    expect(roundTrip).toBeDefined();
+    // Name the failure detail in the assertion so a regression reports the
+    // subprocess's actual stderr instead of a bare `false !== true`.
+    expect(`${roundTrip!.ok} :: ${roundTrip!.detail}`).toBe(`true :: ${roundTrip!.detail}`);
+    expect(result.pass).toBe(true);
+  }, 30_000);
+
   test("takes no credential-shaped env grant — the install gate is never approached", async () => {
     const manifest = await loadManifest(EXT_DIR);
     expect(manifest.permissions?.env).toBeUndefined();

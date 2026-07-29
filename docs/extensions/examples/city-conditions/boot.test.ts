@@ -12,6 +12,16 @@ import { start, tools } from "./index";
 afterEach(() => __resetChannelForTests());
 
 describe("start (production boot)", () => {
+  // NOTE: this in-process test can NOT catch a dispatch-before-channel
+  // ordering bug. rpc.ts's `_register` is armed lazily by the first
+  // `getChannel()` call anywhere in the process and `__resetChannelForTests`
+  // deliberately does not re-arm it, so by the time this runs the register
+  // is already live and a wrong order still "works". The real guard is the
+  // sandboxed spawn round-trip in
+  // `src/__tests__/city-conditions-extension.test.ts` ("the declared
+  // smokeTest actually round-trips in a spawned sandbox"), which caught
+  // exactly this: `createToolDispatcher` before `getChannel()` threw
+  // "channel not ready" and killed the subprocess at spawn.
   test("mounts the dispatcher and starts the channel", () => {
     getChannel();
     expect(() => start()).not.toThrow();
