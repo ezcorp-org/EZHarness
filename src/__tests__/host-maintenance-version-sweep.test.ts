@@ -17,8 +17,9 @@ mockDbConnection();
 import { sql } from "drizzle-orm";
 import { getDb } from "../db/connection";
 import { HostMaintenanceDaemon } from "../extensions/host-maintenance-daemon";
-import { createWorkflow, updateWorkflow } from "../db/queries/workflows";
+import { createWorkflow } from "../db/queries/workflows";
 import {
+  DEFAULT_UNREFERENCED_VERSIONS_KEPT,
   ensureWorkflowVersion,
   listWorkflowVersions,
   sweepWorkflowDefinitionVersions,
@@ -40,7 +41,14 @@ beforeEach(async () => {
   await db.execute(sql`DELETE FROM workflow_definitions`);
 });
 
-/** A definition carrying `count` distinct versions. */
+/**
+ * A definition carrying `count` distinct versions.
+ *
+ * Versions are minted directly rather than through `updateWorkflow`: the
+ * sweep reads `workflow_definition_versions` and nothing else, and the
+ * cadence tests below have to seed PAST the default keep window, so
+ * halving the writes per version is what keeps that affordable.
+ */
 async function withVersions(name: string, count: number) {
   const row = await createWorkflow({
     name,
@@ -49,32 +57,45 @@ async function withVersions(name: string, count: number) {
   } as never);
   await ensureWorkflowVersion(row, null);
   for (let i = 2; i <= count; i++) {
-    const updated = await updateWorkflow(row.id, {
-      steps: [{ name: `s${i}`, agent: "writer", input: {} }],
-    } as never);
-    await ensureWorkflowVersion(updated!, null);
+    await ensureWorkflowVersion(
+      { ...row, steps: [{ name: `s${i}`, agent: "writer", input: {} }] } as never,
+      null,
+    );
   }
   return row;
 }
 
+/**
+ * Seeded PAST the daemon's default keep window so a swept table and an
+ * unswept one have DIFFERENT sizes.
+ *
+ * The pair below used to seed 3 against a keep of 50 and assert
+ * `toHaveLength(3)` on both sides, which is what a swept table and an
+ * unswept table both look like — so neither test could distinguish them
+ * and both passed with the sweep deleted, while the comment claimed a
+ * proof by contrast that did not exist.
+ */
+const SEEDED = DEFAULT_UNREFERENCED_VERSIONS_KEPT + 2;
+
 describe("HostMaintenanceDaemon version-retention sub-tick", () => {
   test("ticks 1-23 do NOT sweep versions", async () => {
-    const row = await withVersions("w", 3);
+    const row = await withVersions("w", SEEDED);
     const daemon = new HostMaintenanceDaemon({ skipLockfile: true });
     for (let i = 0; i < 23; i++) await daemon.tickOnce();
-    // Default retention keeps 50, so nothing would be reaped anyway —
-    // the cadence is proven by the sweep not having run at all, which
-    // the next test's tick-24 firing establishes by contrast.
-    expect(await listWorkflowVersions(row.id)).toHaveLength(3);
+    // Untouched: seeded above the keep window, so a sweep on ANY of these
+    // ticks would have reaped and this count would be 50.
+    expect(await listWorkflowVersions(row.id)).toHaveLength(SEEDED);
   });
 
-  test("tick 24 runs the sweep without taking the daemon down", async () => {
-    const row = await withVersions("w", 3);
+  test("tick 24 runs the sweep, reaping down to the keep window", async () => {
+    const row = await withVersions("w", SEEDED);
     const daemon = new HostMaintenanceDaemon({ skipLockfile: true });
     for (let i = 0; i < 24; i++) await daemon.tickOnce();
-    // The default keep (50) is generous on purpose — versions are the
-    // audit trail for what ran, so the daily sweep is housekeeping.
-    expect(await listWorkflowVersions(row.id)).toHaveLength(3);
+    // The contrast the pair exists for: 50, not the 52 the test above
+    // ends on. Deleting the sub-tick fails here; moving it to every tick
+    // fails above.
+    expect(await listWorkflowVersions(row.id)).toHaveLength(DEFAULT_UNREFERENCED_VERSIONS_KEPT);
+    expect(DEFAULT_UNREFERENCED_VERSIONS_KEPT).toBeLessThan(SEEDED);
   });
 
   test("a sweep failure is swallowed — housekeeping never kills the daemon", async () => {
