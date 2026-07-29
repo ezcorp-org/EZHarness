@@ -289,8 +289,17 @@ export interface VersionSweepOptions {
    * Instead the sweep EXCLUDES them, and C3 supplies its non-revoked
    * delegation ids here. Nothing about that requires editing this
    * function.
+   *
+   * **REQUIRED, deliberately — do not make this optional again.** The one
+   * production caller is a daily sub-tick inside a `try/catch` that logs
+   * `warn` and carries on (`host-maintenance-daemon.ts`). So the day C3
+   * lands and this is not supplied, the RESTRICT violation degrades to a
+   * log line and the sweep stops reaping — permanently, silently, and from
+   * a call site no test can observe. A required field turns that into a
+   * compile error at every call site, including ones not written yet.
+   * Pass an explicit empty iterable to state "nothing is pinned".
    */
-  pinnedVersionIds?: Iterable<string>;
+  pinnedVersionIds: Iterable<string>;
   executor?: DbExecutor;
 }
 
@@ -314,9 +323,13 @@ export interface VersionSweepResult {
  *
  * The newest version of a definition is always among the kept ones, so
  * this can never orphan a live definition, even with `keep` set to 1.
+ *
+ * `options` has no default: `pinnedVersionIds` is required, so every
+ * caller has to say what it is protecting — see the field's own comment
+ * for why a log line is not an acceptable substitute for a compile error.
  */
 export async function sweepWorkflowDefinitionVersions(
-  options: VersionSweepOptions = {},
+  options: VersionSweepOptions,
 ): Promise<VersionSweepResult> {
   const executor: DbExecutor = options.executor ?? getDb();
   const keep = Math.max(
@@ -338,7 +351,7 @@ export async function sweepWorkflowDefinitionVersions(
   }>;
   if (all.length === 0) return { scanned: 0, deleted: 0, retained: 0 };
 
-  const pinned = new Set<string>(options.pinnedVersionIds ?? []);
+  const pinned = new Set<string>(options.pinnedVersionIds);
   const referenced = (await executor
     .selectDistinct({ id: workflowRuns.definitionVersionId })
     .from(workflowRuns)

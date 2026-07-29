@@ -287,7 +287,7 @@ describe("retention sweep", () => {
 
   test("keeps the most recent N unreferenced versions per definition", async () => {
     const row = await mintVersions("w", 5);
-    const result = await sweepWorkflowDefinitionVersions({ keepUnreferencedPerDefinition: 2 });
+    const result = await sweepWorkflowDefinitionVersions({ keepUnreferencedPerDefinition: 2, pinnedVersionIds: [] });
     expect(result.scanned).toBe(5);
     expect(result.deleted).toBe(3);
     expect((await listWorkflowVersions(row.id)).map((v) => v.version)).toEqual([4, 5]);
@@ -305,7 +305,7 @@ describe("retention sweep", () => {
       definitionVersionId: v1!.id,
     });
 
-    await sweepWorkflowDefinitionVersions({ keepUnreferencedPerDefinition: 1 });
+    await sweepWorkflowDefinitionVersions({ keepUnreferencedPerDefinition: 1, pinnedVersionIds: [] });
     expect((await listWorkflowVersions(row.id)).map((v) => v.version)).toEqual([1, 5]);
   });
 
@@ -333,7 +333,7 @@ describe("retention sweep", () => {
 
   test("the newest version always survives, even with keep set to 1", async () => {
     const row = await mintVersions("w", 4);
-    await sweepWorkflowDefinitionVersions({ keepUnreferencedPerDefinition: 1 });
+    await sweepWorkflowDefinitionVersions({ keepUnreferencedPerDefinition: 1, pinnedVersionIds: [] });
     const remaining = await listWorkflowVersions(row.id);
     expect(remaining).toHaveLength(1);
     expect(remaining[0]!.version).toBe(4);
@@ -341,26 +341,46 @@ describe("retention sweep", () => {
 
   test("a keep below 1 is clamped, so a sweep can never orphan a definition", async () => {
     const row = await mintVersions("w", 3);
-    await sweepWorkflowDefinitionVersions({ keepUnreferencedPerDefinition: 0 });
+    await sweepWorkflowDefinitionVersions({ keepUnreferencedPerDefinition: 0, pinnedVersionIds: [] });
     expect(await listWorkflowVersions(row.id)).toHaveLength(1);
   });
 
   test("each definition is bounded independently", async () => {
     const a = await mintVersions("a", 3);
     const b = await mintVersions("b", 3);
-    await sweepWorkflowDefinitionVersions({ keepUnreferencedPerDefinition: 2 });
+    await sweepWorkflowDefinitionVersions({ keepUnreferencedPerDefinition: 2, pinnedVersionIds: [] });
     expect(await listWorkflowVersions(a.id)).toHaveLength(2);
     expect(await listWorkflowVersions(b.id)).toHaveLength(2);
   });
 
   test("an empty table sweeps to nothing", async () => {
-    expect(await sweepWorkflowDefinitionVersions()).toEqual({ scanned: 0, deleted: 0, retained: 0 });
+    expect(await sweepWorkflowDefinitionVersions({ pinnedVersionIds: [] })).toEqual({ scanned: 0, deleted: 0, retained: 0 });
+  });
+
+  test("pinnedVersionIds is REQUIRED, so a caller cannot forget it silently", async () => {
+    // The whole defence for the one production call site: a daily sub-tick
+    // inside a `try/catch` that logs `warn` and continues. A C3 that
+    // forgot its pins there would turn the FK's RESTRICT violation into a
+    // log line and stop the sweep reaping forever — permanently, silently,
+    // and from a line no runtime test can observe. A compile error beats a
+    // log line, so the omission has to be rejected by the TYPE.
+    //
+    // The directive below is the assertion: `bun run typecheck` fails if
+    // `{}` ever becomes assignable again ("Unused '@ts-expect-error'"),
+    // which is what happens the moment the field is made optional.
+    // @ts-expect-error - pinnedVersionIds must be stated explicitly
+    const omitted = () => sweepWorkflowDefinitionVersions({});
+    expect(typeof omitted).toBe("function");
+    // Stating it empty is the supported way to say "nothing is pinned".
+    await expect(sweepWorkflowDefinitionVersions({ pinnedVersionIds: [] })).resolves.toMatchObject({
+      deleted: 0,
+    });
   });
 
   test("the default keep is generous — versions are the audit trail", async () => {
     expect(DEFAULT_UNREFERENCED_VERSIONS_KEPT).toBe(50);
     const row = await mintVersions("w", 3);
-    const result = await sweepWorkflowDefinitionVersions();
+    const result = await sweepWorkflowDefinitionVersions({ pinnedVersionIds: [] });
     expect(result.deleted).toBe(0);
     expect(await listWorkflowVersions(row.id)).toHaveLength(3);
   });

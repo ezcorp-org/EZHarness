@@ -74,6 +74,8 @@ A version is minted **only** when `steps`, `input_schema` or `default_model` cha
 
 Retention runs as a daily sub-tick on `HostMaintenanceDaemon`: keep every version a surviving run references, every version named in `pinnedVersionIds`, plus the most recent 50 per definition. C3 supplies its non-revoked delegation ids through `pinnedVersionIds` — the sweep **excludes** them from the delete set rather than attempting a delete and catching the FK's `ON DELETE RESTRICT`, because making the database error the control flow is backwards.
 
+`pinnedVersionIds` is a **required** field, and that is load-bearing rather than fussy: the only production caller is that daily sub-tick, inside a `try/catch` that logs `warn` and carries on. A C3 that forgot to supply its pins would turn the RESTRICT violation into a log line and stop the sweep reaping — permanently, silently, from a call site no test can observe. Requiring the field makes the omission a compile error at every call site, including ones not written yet; `[]` is how you say "nothing is pinned". Pinned by *"pinnedVersionIds is REQUIRED, so a caller cannot forget it silently"* in `workflow-versions.test.ts`, whose `@ts-expect-error` fails `typecheck` if the field is ever made optional again.
+
 ### Dry run (`workflow-dry-run.ts`)
 
 A dry run evaluates `transform` and `gate` steps **for real** and stands a stub in for every other kind. "Zero side effects" is **structural**, not conventional — three guarantees, none of which depends on a skip list staying correct:

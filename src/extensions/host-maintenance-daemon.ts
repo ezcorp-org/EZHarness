@@ -365,9 +365,17 @@ export class HostMaintenanceDaemon {
       // ON DELETE RESTRICT — catching the violation would make the error
       // the control, which is backwards. C3 adds its ids here; the sweep
       // itself does not change.
+      //
+      // The empty set is stated explicitly, and the field is REQUIRED, for
+      // this call site specifically: the `catch` below logs `warn` and
+      // carries on, so a C3 that forgot to supply its pins would turn a
+      // RESTRICT violation into a log line and stop the sweep reaping
+      // forever, from a line no test can observe. `[]` is the truth today
+      // — no delegations exist — and the compile error is the reminder
+      // when they do.
       if (this.tickCount % VERSION_SWEEP_TICK_MODULO === 0) {
         try {
-          const swept = await sweepWorkflowDefinitionVersions({});
+          const swept = await sweepWorkflowDefinitionVersions({ pinnedVersionIds: [] });
           if (swept.deleted > 0) {
             log.info("tick: workflow version retention sweep", {
               scanned: swept.scanned,
