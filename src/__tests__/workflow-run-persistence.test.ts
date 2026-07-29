@@ -1995,3 +1995,83 @@ describe("workflow-approvals query layer", () => {
     expect(row?.answerForm).toEqual({ note: "ok" });
   });
 });
+
+describe("the approval consent boundary is structural, not conventional", () => {
+  test("resumeWorkflow REFUSES a run parked on an unanswered approval", async () => {
+    // `resumeWorkflow` is exported. Without this refusal, any caller
+    // could resume a run parked at an approval and step straight over
+    // the consent gate — and spy-counting the known answer surfaces
+    // would prove nothing about that caller. A chokepoint that merely
+    // LOOKS like a boundary is worse than an acknowledged convention,
+    // because it invites trust it has not earned.
+    const bus = new EventBus<AgentEvents>();
+    const wf = new WorkflowExecutor(new AgentExecutor(loadAgentsStatic([]), bus), bus, {
+      persist: true,
+    });
+    const def: WorkflowDefinition = {
+      name: "boundary-check",
+      description: "",
+      steps: [
+        { name: "gate", kind: "approval", prompt: "?", choices: ["approve"] } as WorkflowStep,
+      ],
+    };
+
+    const parked = await wf.runWorkflow(def, {}, undefined, undefined);
+    expect(parked.status).toBe("suspended");
+
+    const row = await getWorkflowRunRow(parked.id);
+    // Direct call, deliberately bypassing `answerApproval`.
+    const smuggled = await wf.resumeWorkflow(def, {
+      id: row!.id,
+      workflowName: row!.workflowName,
+      status: row!.status,
+      input: row!.input,
+      cursor: row!.cursor,
+      definitionHash: row!.definitionHash,
+      projectId: row!.projectId,
+      userId: row!.userId,
+      startedAt: row!.startedAt,
+    });
+
+    expect(smuggled.status).toBe("error");
+    expect(smuggled.result?.error).toMatchObject({ code: "approval-pending" });
+    // The approval is still pending — the bypass decided nothing.
+    expect((await getWorkflowApproval(parked.id, "gate"))?.status).toBe("pending");
+  });
+
+  test("...and allows the resume once the approval is answered", async () => {
+    // The same check must be transparent to the sanctioned path:
+    // `answerApproval` records the answer BEFORE resuming, so by the
+    // time it reaches the guard nothing is pending.
+    const bus = new EventBus<AgentEvents>();
+    const wf = new WorkflowExecutor(new AgentExecutor(loadAgentsStatic([]), bus), bus, {
+      persist: true,
+    });
+    const def: WorkflowDefinition = {
+      name: "boundary-check-open",
+      description: "",
+      steps: [
+        { name: "gate", kind: "approval", prompt: "?", choices: ["approve"] } as WorkflowStep,
+      ],
+    };
+
+    const parked = await wf.runWorkflow(def, {}, undefined, undefined);
+    const approval = await getWorkflowApproval(parked.id, "gate");
+    await recordWorkflowApprovalAnswer(approval!.id, { choice: "approve", answeredBy: "user-1" });
+
+    const row = await getWorkflowRunRow(parked.id);
+    const resumed = await wf.resumeWorkflow(def, {
+      id: row!.id,
+      workflowName: row!.workflowName,
+      status: row!.status,
+      input: row!.input,
+      cursor: row!.cursor,
+      definitionHash: row!.definitionHash,
+      projectId: row!.projectId,
+      userId: row!.userId,
+      startedAt: row!.startedAt,
+    });
+
+    expect(resumed.status).toBe("success");
+  });
+});

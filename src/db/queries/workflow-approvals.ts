@@ -166,3 +166,26 @@ export async function listPendingWorkflowApprovals(): Promise<WorkflowApprovalRo
     .where(eq(workflowApprovals.status, "pending"))
     .orderBy(sql`${workflowApprovals.createdAt} DESC`);
 }
+
+/**
+ * Is this run parked on an approval nobody has answered?
+ *
+ * Read by `resumeWorkflow` to refuse a resume that would step over a
+ * pending consent gate. That check is what makes `answerApproval` a
+ * structural boundary rather than a convention: `resumeWorkflow` is
+ * exported, so without it any caller could resume a run parked at an
+ * approval and skip the consent rules entirely — and spy-counting the
+ * known answer surfaces would prove nothing about that caller.
+ */
+export async function hasPendingApproval(workflowRunId: string): Promise<boolean> {
+  const rows = await getDb()
+    .select({ id: workflowApprovals.id })
+    .from(workflowApprovals)
+    .where(
+      and(
+        eq(workflowApprovals.workflowRunId, workflowRunId),
+        eq(workflowApprovals.status, "pending"),
+      ),
+    );
+  return rows.length > 0;
+}

@@ -45,6 +45,7 @@ import {
 import { workflowDefinitionHash } from "./workflow-definition-hash";
 import {
   getWorkflowApproval,
+  hasPendingApproval,
   parkWorkflowApproval,
 } from "../db/queries/workflow-approvals";
 import { logger } from "../logger";
@@ -364,6 +365,27 @@ export class WorkflowExecutor {
       return refuse(
         "not-resumable",
         `Workflow run ${row.id} is ${row.status}, not suspended`,
+      );
+    }
+
+    // ── The consent boundary, enforced here rather than by convention ──
+    //
+    // This method is EXPORTED, so without this check any caller could
+    // resume a run parked at an approval and step straight over the
+    // consent gate — and spy-counting the known answer surfaces would
+    // prove nothing about that caller. The chokepoint would be a
+    // convention that merely looks like a boundary, which is worse than
+    // an acknowledged convention because it invites trust it has not
+    // earned.
+    //
+    // `answerApproval` records the answer BEFORE it resumes, so by the
+    // time it reaches here nothing is pending and this is transparent to
+    // the sanctioned path. Every other path is refused, whoever it is.
+    if (await hasPendingApproval(row.id)) {
+      return refuse(
+        "approval-pending",
+        `Workflow run ${row.id} is parked on an unanswered approval; ` +
+          `it can only be resumed by answering that approval`,
       );
     }
 
