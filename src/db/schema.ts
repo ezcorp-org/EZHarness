@@ -1627,8 +1627,13 @@ export const extensionWebhooks = pgTable("extension_webhooks", {
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 }, (table) => [
-  uniqueIndex("uniq_ext_webhook_manifest").on(table.extensionId, table.slug)
-    .where(sql`dynamic = FALSE`),
+  // TOTAL, deliberately — not partial like the schedule twin. A dynamic slug
+  // is host-minted from `hash(extensionName, key)` and keys are unique per
+  // extension, so two dynamic rows cannot collide by construction; the only
+  // collision this ever blocked is manifest-vs-dynamic, which `getEnabledWebhook`
+  // (`rows[0] ?? null`, no ORDER BY) would otherwise resolve non-deterministically
+  // on a public inbound route. See the matching note in `migrate.ts`.
+  uniqueIndex("uniq_ext_webhook").on(table.extensionId, table.slug),
   uniqueIndex("uniq_ext_webhook_dynamic").on(table.extensionId, table.key)
     .where(sql`key IS NOT NULL`),
   index("idx_webhook_enabled").on(table.enabled),

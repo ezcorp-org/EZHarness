@@ -2366,8 +2366,16 @@ export async function migrate(db: any): Promise<void> {
   await db.execute(sql`DROP INDEX IF EXISTS uniq_ext_schedule`);
   await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uniq_ext_schedule_manifest ON extension_schedules(extension_id, cron) WHERE dynamic = FALSE`);
   await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uniq_ext_schedule_dynamic ON extension_schedules(extension_id, key) WHERE key IS NOT NULL`);
-  await db.execute(sql`DROP INDEX IF EXISTS uniq_ext_webhook`);
-  await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uniq_ext_webhook_manifest ON extension_webhooks(extension_id, slug) WHERE dynamic = FALSE`);
+  // Webhooks are NOT symmetric with schedules, and the total index STAYS.
+  // Schedules needed widening because two dynamic jobs sharing `0 9 * * 1` is
+  // the normal case. Webhooks have no equivalent: a dynamic slug is
+  // host-minted as `<prefix><sha256(extensionName \0 key)[0..12]>` and keys
+  // are unique per extension, so two dynamic rows CANNOT share a slug by
+  // construction. The only collision `uniq_ext_webhook` ever blocked was
+  // manifest-vs-dynamic — precisely the one worth blocking, because
+  // `getEnabledWebhook` returns `rows[0] ?? null` with no ORDER BY, so two
+  // matching rows would let a public inbound route resolve non-
+  // deterministically. Dropping it would remove a real constraint for nothing.
   await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uniq_ext_webhook_dynamic ON extension_webhooks(extension_id, key) WHERE key IS NOT NULL`);
 
   // One-shot, idempotent backfill: move any pre-existing github-projects PATs

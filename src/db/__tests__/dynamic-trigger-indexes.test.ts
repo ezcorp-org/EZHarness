@@ -175,8 +175,32 @@ describe("uniq_ext_schedule partials", () => {
   });
 });
 
-describe("uniq_ext_webhook partials", () => {
-  test("the MANIFEST partial still rejects a duplicate (extension, slug)", async () => {
+describe("uniq_ext_webhook — total slug index + dynamic key partial", () => {
+  // Deliberately NOT symmetric with the schedule twin. The slug index stays
+  // TOTAL, so a manifest row and a dynamic row can never share a slug —
+  // `getEnabledWebhook` is `rows[0] ?? null` with no ORDER BY, so two matching
+  // rows would let a public inbound route resolve non-deterministically.
+  test("a DYNAMIC row cannot take a slug a MANIFEST row already holds", async () => {
+    const db = getTestDb();
+    await db.insert(extensionWebhooks).values({ extensionId: extName, slug: "factory-eeeeeeeeeeee" });
+    await expect(insert(
+      db.insert(extensionWebhooks).values({
+        extensionId: extName, slug: "factory-eeeeeeeeeeee", dynamic: true, key: "job:collide",
+      }),
+    )).rejects.toThrow();
+  });
+
+  test("a MANIFEST row cannot take a slug a DYNAMIC row already holds", async () => {
+    const db = getTestDb();
+    await db.insert(extensionWebhooks).values({
+      extensionId: extName, slug: "factory-ffffffffffff", dynamic: true, key: "job:first",
+    });
+    await expect(insert(
+      db.insert(extensionWebhooks).values({ extensionId: extName, slug: "factory-ffffffffffff" }),
+    )).rejects.toThrow();
+  });
+
+  test("the total slug index still rejects a duplicate (extension, slug)", async () => {
     const db = getTestDb();
     await db.insert(extensionWebhooks).values({ extensionId: extName, slug: "tickets" });
     await expect(insert(
