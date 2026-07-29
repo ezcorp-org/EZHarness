@@ -598,11 +598,13 @@ describe("workflow-runs query layer", () => {
 
     await terminalizeOrphanedWorkflowRuns(cutoff);
 
-    // The cutoff DISCRIMINATES: the pre-boot row is drained in the very
+    // The cutoff DISCRIMINATES: the pre-boot row is swept in the very
     // same sweep that leaves the post-boot one alone. (Asserting a zero
     // row count would be vacuous — other rows in this DB are orphaned
-    // too.)
-    expect((await getWorkflowRunRow(stale))?.status).toBe("error");
+    // too.) The pre-boot row was at a boundary, so it parks as
+    // `suspended` rather than dying — that is the recovery model, not a
+    // missed sweep.
+    expect((await getWorkflowRunRow(stale))?.status).toBe("suspended");
     expect((await getWorkflowRunRow(live))?.status).toBe("running");
     // ...and the live run can still record its true outcome.
     expect(await finalizeWorkflowRunRow(live, "success", { success: true, output: "real" })).toBe(1);
@@ -625,7 +627,10 @@ describe("workflow-runs query layer", () => {
     const drained = await terminalizeOrphanedWorkflowRuns();
 
     expect(drained).toBeGreaterThanOrEqual(1);
-    expect((await getWorkflowRunRow(half))?.status).toBe("error");
+    // Swept, not skipped — which is the property this test exists for.
+    // The row was at a boundary, so the sweep parks it rather than
+    // killing it; either way it no longer claims to be running.
+    expect((await getWorkflowRunRow(half))?.status).toBe("suspended");
   });
 
   test("concurrent finalizes produce exactly one winner", async () => {
@@ -645,7 +650,7 @@ describe("workflow-runs query layer", () => {
     expect(await getWorkflowRunRow(crypto.randomUUID())).toBeUndefined();
   });
 
-  test("terminalizeOrphanedWorkflowRuns drains rows a dead process left running", async () => {
+  test("terminalizeOrphanedWorkflowRuns sweeps rows a dead process left running", async () => {
     const orphan = crypto.randomUUID();
     const healthy = crypto.randomUUID();
     await insertWorkflowRun({ id: orphan, workflowName: "wf", input: {}, startedAt: new Date() });
@@ -656,13 +661,166 @@ describe("workflow-runs query layer", () => {
     expect(drained).toBeGreaterThanOrEqual(1);
 
     const row = await getWorkflowRunRow(orphan);
-    expect(row?.status).toBe("error");
-    expect(row?.finishedAt).not.toBeNull();
-    expect(String((row?.result as { error?: unknown })?.error)).toContain("orphaned");
+    expect(row?.status).toBe("suspended");
 
     // The already-terminal run is untouched, and a second sweep finds nothing.
     expect((await getWorkflowRunRow(healthy))?.status).toBe("success");
     expect(await terminalizeOrphanedWorkflowRuns()).toBe(0);
+  });
+});
+
+// ── Crash recovery (C4 build-order step 4) ────────────────────────
+//
+// Deterministic by construction: no process is killed and no wall clock
+// is consulted. The row state a crash WOULD have left is written
+// directly, and both cutoffs are injected — the established pattern for
+// this table.
+describe("crash recovery — the sweep branches on run_phase", () => {
+  const BOOT = new Date("2026-07-29T12:00:00Z");
+  const NOW = new Date("2026-07-29T12:05:00Z");
+
+  async function orphanAt(
+    runPhase: "boundary" | "in-batch",
+    opts: { cursorBatch?: number; lease?: Date | null } = {},
+  ): Promise<string> {
+    const id = crypto.randomUUID();
+    await insertWorkflowRun({
+      id,
+      workflowName: "recovered",
+      input: {},
+      // Before the boot cutoff ⇒ the classic no-lease orphan.
+      startedAt: new Date(BOOT.getTime() - 60_000),
+    });
+    const cursor = {
+      batchIndex: opts.cursorBatch ?? 2,
+      completedSteps: ["a", "b"],
+      prevStepName: "b",
+    };
+    await db.execute(sql`
+      UPDATE workflow_runs
+         SET run_phase = ${runPhase}, cursor = ${JSON.stringify(cursor)}::jsonb,
+             lease_expires_at = ${opts.lease ?? null}, claimed_by = ${opts.lease ? "worker-1" : null}
+       WHERE id = ${id}
+    `);
+    return id;
+  }
+
+  test("a boundary orphan becomes suspended and resumable, keeping its cursor", async () => {
+    const id = await orphanAt("boundary", { cursorBatch: 2 });
+
+    await terminalizeOrphanedWorkflowRuns(BOOT, NOW);
+
+    const row = await getWorkflowRunRow(id);
+    expect(row?.status).toBe("suspended");
+    expect(row?.resumable).toBe(true);
+    expect(row?.suspendedReason).toBe("orphaned-resumable");
+    // Not finished — it is going to continue, and a finish time would
+    // make it read as terminal in any list that sorts on one.
+    expect(row?.finishedAt).toBeNull();
+    // The coordinate the daemon will resume from survives untouched.
+    expect(row?.cursor?.batchIndex).toBe(2);
+    // The dead owner's claim is cleared, or nothing could ever pick it up.
+    expect(row?.claimedBy).toBeNull();
+    expect(row?.leaseExpiresAt).toBeNull();
+  });
+
+  test("a mid-batch orphan fails closed, naming the batch and the steps in flight", async () => {
+    const id = await orphanAt("in-batch", { cursorBatch: 3 });
+    // Two steps the dead process had dispatched but never finished.
+    for (const stepName of ["charlie", "alpha"]) {
+      await upsertWorkflowStepRun({
+        workflowRunId: id,
+        stepName,
+        runId: "",
+        status: "running",
+      });
+    }
+
+    await terminalizeOrphanedWorkflowRuns(BOOT, NOW);
+
+    const row = await getWorkflowRunRow(id);
+    // A restart cannot safely re-enter a half-executed step: a
+    // `write_file` may be applied, an LLM call already billed.
+    expect(row?.status).toBe("error");
+    expect(row?.resumable).toBe(false);
+    expect(row?.finishedAt).not.toBeNull();
+    const message = String((row?.result as { error?: unknown })?.error);
+    expect(message).toContain("orphaned");
+    // The operator needs to know WHERE to retry from.
+    expect(message).toContain("batch 3");
+    expect(message).toContain("alpha, charlie");
+  });
+
+  test("an expired lease is swept even though the run started after the boot cutoff", async () => {
+    // The dead-daemon case: a run this process's boot cutoff would never
+    // match, caught by the lease half of the predicate instead.
+    const id = crypto.randomUUID();
+    await insertWorkflowRun({
+      id,
+      workflowName: "leased",
+      input: {},
+      startedAt: new Date(BOOT.getTime() + 60_000),
+    });
+    await db.execute(sql`
+      UPDATE workflow_runs
+         SET claimed_by = 'worker-1', lease_expires_at = ${new Date(NOW.getTime() - 1000)}
+       WHERE id = ${id}
+    `);
+
+    await terminalizeOrphanedWorkflowRuns(BOOT, NOW);
+    expect((await getWorkflowRunRow(id))?.status).toBe("suspended");
+  });
+
+  test("a LIVE lease is left alone", async () => {
+    const id = crypto.randomUUID();
+    await insertWorkflowRun({
+      id,
+      workflowName: "live-lease",
+      input: {},
+      // Deliberately older than the boot cutoff: the lease is what says
+      // this run is alive, and it must win over the age heuristic.
+      startedAt: new Date(BOOT.getTime() - 60_000),
+    });
+    await db.execute(sql`
+      UPDATE workflow_runs
+         SET claimed_by = 'worker-1', lease_expires_at = ${new Date(NOW.getTime() + 60_000)}
+       WHERE id = ${id}
+    `);
+
+    await terminalizeOrphanedWorkflowRuns(BOOT, NOW);
+    const row = await getWorkflowRunRow(id);
+    expect(row?.status).toBe("running");
+    expect(row?.claimedBy).toBe("worker-1");
+  });
+
+  test("an already-parked run is a zero-row no-op", async () => {
+    // `suspended` is excluded structurally by the `status='running'`
+    // predicate — a parked run must never be re-swept, or every answer
+    // would race the sweep.
+    const id = await orphanAt("boundary");
+    await terminalizeOrphanedWorkflowRuns(BOOT, NOW);
+    expect((await getWorkflowRunRow(id))?.status).toBe("suspended");
+
+    const second = await terminalizeOrphanedWorkflowRuns(BOOT, NOW);
+    expect(second).toBe(0);
+    expect((await getWorkflowRunRow(id))?.status).toBe("suspended");
+  });
+
+  test("one sweep classifies a mixed batch of orphans independently", async () => {
+    // The selection is a single predicate; only the action branches. Both
+    // kinds must therefore be handled in the SAME pass.
+    const boundary = await orphanAt("boundary");
+    const midBatch = await orphanAt("in-batch");
+
+    // ONE sweep call — the two divergent outcomes below are the proof
+    // that both were classified in the same pass. The count is only a
+    // floor: this DB carries other rows from earlier tests, so asserting
+    // an exact total would break the moment one is added above.
+    const swept = await terminalizeOrphanedWorkflowRuns(BOOT, NOW);
+    expect(swept).toBeGreaterThanOrEqual(2);
+
+    expect((await getWorkflowRunRow(boundary))?.status).toBe("suspended");
+    expect((await getWorkflowRunRow(midBatch))?.status).toBe("error");
   });
 });
 

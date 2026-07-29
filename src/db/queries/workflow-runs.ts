@@ -12,7 +12,7 @@
  *   • {@link finalizeWorkflowRunRow} — idempotent CAS on `status='running'`
  *   • {@link terminalizeOrphanedWorkflowRuns} — boot sweep
  */
-import { and, eq, lt, sql } from "drizzle-orm";
+import { and, eq, isNull, lt, or, sql } from "drizzle-orm";
 import { getDb } from "../connection";
 import { workflowRuns, workflowStepRuns, type TruncatedStepOutput } from "../schema";
 import type { AgentResult, WorkflowCursor, WorkflowRunStatus } from "../../types";
@@ -270,26 +270,86 @@ export async function finalizeWorkflowRunRow(
  * sweep exists to clean up; the extra conjunct silently skipped it and
  * left it stuck forever.
  *
- * Marked `error` (not `cancelled`) to match the discriminator the agent
- * side already uses for the same situation — no new status value.
+ * ## The action branches on `run_phase`; the selection does not
  *
- * Returns the number of rows drained.
+ * A crashed run is not uniformly unsafe, and treating it that way threw
+ * away recoverable work. What decides it is which side of a step boundary
+ * the executor was on, which it now records honestly:
+ *
+ *   • `boundary`  — nothing was in flight, the cursor is authoritative.
+ *     → `suspended`, `resumable = true`, reason `orphaned-resumable`.
+ *     The run keeps its result and gains no `finished_at`, because it is
+ *     going to continue rather than end.
+ *
+ *   • `in-batch`  — an LLM call or a side-effecting `tool` dispatch may
+ *     be half-applied. → `error`, `resumable = false`. A restart cannot
+ *     safely re-enter a half-executed step, so this fails CLOSED; the
+ *     message names the batch index and the steps that were in flight so
+ *     an operator can retry from the right one.
+ *
+ * The single-predicate SELECT is preserved deliberately — the sweep stays
+ * dumb, and only its action consults a column the executor maintained.
+ *
+ * `error` (not `cancelled`) on the failing branch matches the
+ * discriminator the agent side already uses — no new status value there.
+ *
+ * Returns the number of rows swept, across both branches.
  */
 export async function terminalizeOrphanedWorkflowRuns(
   startedBefore: Date = new Date(),
+  now: Date = new Date(),
 ): Promise<number> {
+  const atBoundary = sql`${workflowRuns.runPhase} = 'boundary'`;
   const rows = await getDb()
     .update(workflowRuns)
     .set({
-      status: "error",
-      finishedAt: sql`NOW()`,
-      result: {
-        success: false,
-        output: null,
-        error: "Workflow run orphaned: process restarted while the run was active",
-      },
+      // The action branches; the SELECTION below stays one predicate.
+      status: sql`CASE WHEN ${atBoundary} THEN 'suspended' ELSE 'error' END`,
+      resumable: sql`CASE WHEN ${atBoundary} THEN TRUE ELSE FALSE END`,
+      suspendedReason: sql`CASE WHEN ${atBoundary} THEN 'orphaned-resumable' ELSE NULL END`,
+      // A suspended run is NOT finished — stamping a finish time would
+      // make it read as terminal in every list that sorts on it.
+      finishedAt: sql`CASE WHEN ${atBoundary} THEN NULL ELSE NOW() END`,
+      // Mid-batch keeps today's `error`-as-plain-string result shape, and
+      // names the batch index and the steps that were in flight so the
+      // operator can retry from the right place. A boundary run keeps
+      // whatever result it had — it is going to continue, not end.
+      result: sql`CASE WHEN ${atBoundary} THEN ${workflowRuns.result} ELSE jsonb_build_object(
+        'success', FALSE,
+        'output', NULL,
+        'error', 'Workflow run orphaned mid-batch (batch '
+          || COALESCE(${workflowRuns.cursor} ->> 'batchIndex', '0')
+          || ', steps in flight: '
+          || COALESCE((
+               SELECT string_agg(s.step_name, ', ' ORDER BY s.step_name)
+                 FROM workflow_step_runs s
+                WHERE s.workflow_run_id = ${workflowRuns.id} AND s.status = 'running'
+             ), 'unknown')
+          || '): a restart cannot safely re-enter a half-executed step'
+      ) END`,
+      // The owner is gone either way; leaving a stale claim would stop
+      // the daemon ever picking up the resumable ones.
+      claimedBy: null,
+      leaseExpiresAt: null,
     })
-    .where(and(eq(workflowRuns.status, "running"), lt(workflowRuns.startedAt, startedBefore)))
+    .where(
+      and(
+        eq(workflowRuns.status, "running"),
+        // TWO ways a run is orphaned, and the sweep needs both.
+        //
+        // §1.4 of the C4 spec states this predicate as
+        // `lease_expires_at < now()` alone. Taken literally that silently
+        // BREAKS the pre-existing boot sweep: a synchronous run holds no
+        // lease, so `lease_expires_at` is NULL, `NULL < now()` is NULL,
+        // and every crashed sync run would stay `running` forever — the
+        // exact scar this module's header documents. So the lease
+        // predicate is added to the original, not substituted for it.
+        or(
+          and(isNull(workflowRuns.leaseExpiresAt), lt(workflowRuns.startedAt, startedBefore)),
+          lt(workflowRuns.leaseExpiresAt, now),
+        ),
+      ),
+    )
     .returning({ id: workflowRuns.id });
   return rows.length;
 }
