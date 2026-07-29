@@ -285,14 +285,16 @@ export class WorkflowExecutor {
         input,
         startedAt: new Date(workflowRun.startedAt),
         definitionVersionId: version?.id ?? null,
-        // Pins the graph this run was authorized against. A resume
-        // compares the VERSION ID first and reads this only when the
-        // version id is null. Taken from the version row's own
-        // `stepsHash` when there is one, so the hash is a function of the
-        // version rather than a second, independently-drifting answer to
-        // the same question; computed from the live definition otherwise,
-        // which is the pre-C6 behaviour and the only option for a
-        // workflow with no row.
+        // Pins the graph this run was authorized against, and it is the
+        // drift guard that actually fires: C4's resume compares this hash
+        // UNCONDITIONALLY. (Reading the version id first, and this only
+        // when that is null, is the intended precedence — see
+        // `workflow-versions.ts` — but no code implements it yet.) Taken
+        // from the version row's own `stepsHash` when there is one, so the
+        // hash is a function of the version rather than a second,
+        // independently-drifting answer to the same question; computed
+        // from the live definition otherwise, which is the pre-C6
+        // behaviour and the only option for a workflow with no row.
         definitionHash: version?.stepsHash ?? workflowDefinitionHash(workflow),
       });
     });

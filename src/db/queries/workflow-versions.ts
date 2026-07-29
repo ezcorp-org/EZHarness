@@ -12,13 +12,24 @@
  * change that would fail-close every parked run on upgrade.
  *
  * Two mechanisms answering one question is how they drift, so the
- * precedence is stated once, here, and read nowhere else:
+ * precedence is stated once, here — as the CONTRACT the resume path owes,
+ * not as a description of what runs today:
  *
  *   1. `definition_version_id` non-NULL ⇒ it decides. Full stop.
  *   2. `definition_version_id` NULL ⇒ fall back to `definition_hash`.
  *      NULL means the run predates versioning, or it ran a YAML /
  *      extension workflow that has no `workflow_definitions` row to
  *      version in the first place.
+ *
+ * **Nothing enforces that ordering yet.** No caller reads
+ * `definition_hash` at all except C4's resume, which compares it
+ * UNCONDITIONALLY and never looks at the version id; this module's
+ * version id is read only by the retention sweep and
+ * {@link getRunVersionLabel}. So the hash is the drift guard that
+ * actually fires, and rule 1 is what C4's resume has to adopt. Written
+ * down because the alternative is the next reader deriving a second
+ * answer — and a system carrying two answers eventually disagrees with
+ * itself, silently.
  *
  * ## Versions are immutable
  *
