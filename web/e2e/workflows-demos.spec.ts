@@ -46,7 +46,7 @@ const tieredFactory = makeWorkflow({
 			name: "verify",
 			agent: "summarizer",
 			dependsOn: ["draft"],
-			model: { provider: "anthropic", model: "claude-opus-5", maxTokens: 8000, effort: "high" },
+			model: { provider: "anthropic", model: "claude-opus-5", temperature: 0.1, maxTokens: 8000 },
 		},
 	] as any,
 });
@@ -316,7 +316,7 @@ test.describe("Workflow demos — run through the UI", () => {
 		await expect(chips.nth(0)).toHaveText("anthropic/claude-haiku-4-5-20251001");
 		// The middle step declares nothing and inherits the workflow default.
 		await expect(chips.nth(1)).toHaveText("anthropic/claude-sonnet-5");
-		await expect(chips.nth(2)).toHaveText("anthropic/claude-opus-5 · 8000 tok · high");
+		await expect(chips.nth(2)).toHaveText("anthropic/claude-opus-5 · temp 0.1 · 8000 tok");
 		await captureEvidence(page, testInfo, "workflow-step-model-bindings");
 
 		// A finished run reports the model each step actually resolved to.

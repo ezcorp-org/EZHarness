@@ -4,16 +4,16 @@
  *
  * The load-bearing assertion in this file is the COMPATIBILITY one:
  * constructed with no override, the adapter must issue exactly the call it
- * always did — `complete(piModel, context, { apiKey })` via the RAW
- * entrypoint, with the caller's own provider/model and no sampling or
- * reasoning options bolted on. Everything else here is the new behaviour
- * that only switches on when an override is supplied.
+ * always did — `complete(piModel, context, { apiKey })` with the caller's
+ * own provider/model and no sampling options bolted on. Everything else
+ * here is the new behaviour that only switches on when an override is
+ * supplied.
  */
 import { test, expect, describe, mock, beforeEach } from "bun:test";
 import { stubAssistantMessage } from "./helpers/mock-pi-ai";
 
 interface RecordedCall {
-  entry: "complete" | "completeSimple" | "stream" | "streamSimple";
+  entry: "complete" | "stream";
   model: { id: string };
   options: Record<string, unknown>;
 }
@@ -41,10 +41,7 @@ function recordStream(entry: RecordedCall["entry"]) {
 
 mock.module("@earendil-works/pi-ai/compat", () => ({
   complete: async (m: { id: string }, c: unknown, o: Record<string, unknown>) => record("complete")(m, c, o),
-  completeSimple: async (m: { id: string }, c: unknown, o: Record<string, unknown>) =>
-    record("completeSimple")(m, c, o),
   stream: recordStream("stream"),
-  streamSimple: recordStream("streamSimple"),
   getModel: () => ({ id: "test-model", provider: "anthropic" }),
   getModels: () => [],
   getProviders: () => ["anthropic"],
@@ -85,7 +82,6 @@ describe("createPiLlmAdapter — no override (compatibility)", () => {
     await adapter.complete(messages, { system: "s", provider: "anthropic", model: "agent-model" });
 
     expect(calls).toHaveLength(1);
-    // RAW entrypoint, never the reasoning-normalizing *Simple one.
     expect(calls[0]!.entry).toBe("complete");
     // Byte-identical options object: apiKey and nothing else. A stray
     // `temperature: undefined` key would already be a wire change.
@@ -145,34 +141,15 @@ describe("createPiLlmAdapter — with an override", () => {
     expect(calls[0]!.options).toEqual({ apiKey: "sk-test", temperature: 0.1, maxTokens: 8000 });
   });
 
-  test("effort routes through the *Simple entrypoint as `reasoning`", async () => {
-    // Reasoning effort has no home on the raw options — each provider
-    // spells it differently, and pi-ai's *Simple entrypoints are the
-    // normalizer.
-    const adapter = createPiLlmAdapter({ effort: "high", maxTokens: 100 });
-    await adapter.complete(messages, {});
-    expect(calls[0]!.entry).toBe("completeSimple");
-    expect(calls[0]!.options).toEqual({ apiKey: "sk-test", maxTokens: 100, reasoning: "high" });
-  });
-
-  test("stream() honours the same override, including effort", async () => {
-    const adapter = createPiLlmAdapter({ model: "gpt-5", temperature: 0.5, effort: "max" });
+  test("stream() honours the same override", async () => {
+    const adapter = createPiLlmAdapter({ model: "gpt-5", temperature: 0.5, maxTokens: 42 });
     for await (const _ of adapter.stream(messages, { model: "agent-model" })) {
       // drain
     }
-    expect(calls[0]!.entry).toBe("streamSimple");
-    expect(calls[0]!.options.reasoning).toBe("max");
-    expect(calls[0]!.options.temperature).toBe(0.5);
-    expect(resolveArgs).toEqual([[undefined, "gpt-5"]]);
-  });
-
-  test("stream() without effort stays on the raw entrypoint", async () => {
-    const adapter = createPiLlmAdapter({ maxTokens: 42 });
-    for await (const _ of adapter.stream(messages, {})) {
-      // drain
-    }
     expect(calls[0]!.entry).toBe("stream");
+    expect(calls[0]!.options.temperature).toBe(0.5);
     expect(calls[0]!.options.maxTokens).toBe(42);
+    expect(resolveArgs).toEqual([[undefined, "gpt-5"]]);
   });
 });
 

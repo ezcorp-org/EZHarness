@@ -3,7 +3,6 @@ import type {
   AgentResult,
   ModelOverride,
   WorkflowDefinition,
-  WorkflowModelBinding,
   WorkflowRun,
   WorkflowStep,
   WorkflowStepRun,
@@ -475,7 +474,7 @@ export class WorkflowExecutor {
     isAborted: () => boolean,
     emitStep: () => void,
     toolCtx: ToolStepContext,
-    modelBinding: WorkflowModelBinding | undefined,
+    modelBinding: ModelOverride | undefined,
   ): Promise<AgentResult> {
     if (step.loop) {
       return this.runLoop(
@@ -533,7 +532,7 @@ export class WorkflowExecutor {
     projectId: string | undefined,
     userId: string | undefined,
     isAborted: () => boolean,
-    modelBinding: WorkflowModelBinding | undefined,
+    modelBinding: ModelOverride | undefined,
   ): Promise<AgentResult> {
     const refCtx: RefContext = { input, stepResults, prevResult };
     const resolvedInput = resolveMapping(step.input ?? {}, refCtx);
@@ -615,7 +614,7 @@ export class WorkflowExecutor {
     userId: string | undefined,
     isAborted: () => boolean,
     emitStep: () => void,
-    modelBinding: WorkflowModelBinding | undefined,
+    modelBinding: ModelOverride | undefined,
   ): Promise<AgentResult> {
     const loop = step.loop!;
     const maxIterations = clampMaxIterations(loop.maxIterations);

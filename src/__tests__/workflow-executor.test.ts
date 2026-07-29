@@ -1065,12 +1065,12 @@ describe("WorkflowExecutor — per-step model bindings", () => {
       {
         name: "ref-bound",
         description: "",
-        steps: [{ name: "verify", agent: "a", model: { model: "$input.verifyModel", effort: "$input.tier" } }],
+        steps: [{ name: "verify", agent: "a", model: { model: "$input.verifyModel", provider: "$input.tier" } }],
       },
-      { verifyModel: "claude-opus-5", tier: "high" },
+      { verifyModel: "claude-opus-5", tier: "anthropic" },
     );
 
-    expect(calls[0]!.override).toEqual({ model: "claude-opus-5", effort: "high" });
+    expect(calls[0]!.override).toEqual({ model: "claude-opus-5", provider: "anthropic" });
   });
 
   test("an unsupplied $input ref leaves the agent's own binding standing", async () => {

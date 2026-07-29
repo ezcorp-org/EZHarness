@@ -88,7 +88,6 @@ export function modelBindingLabel(binding: WorkflowModelOverride | undefined): s
   if (id) parts.push(id);
   if (binding.temperature !== undefined) parts.push(`temp ${binding.temperature}`);
   if (binding.maxTokens !== undefined) parts.push(`${binding.maxTokens} tok`);
-  if (binding.effort) parts.push(binding.effort);
   return parts.join(" · ");
 }
 

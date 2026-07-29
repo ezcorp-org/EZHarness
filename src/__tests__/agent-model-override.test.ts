@@ -96,7 +96,7 @@ describe("runAgent — model binding", () => {
 
   test("a supplied binding reaches the adapter verbatim", async () => {
     const executor = setup([llmAgent()]);
-    const override: ModelOverride = { model: "claude-opus-5", maxTokens: 8000, effort: "high" };
+    const override: ModelOverride = { model: "claude-opus-5", maxTokens: 8000 };
     await executor.runAgent("a", {}, undefined, undefined, override);
     expect(adapterArgs).toEqual([override]);
   });

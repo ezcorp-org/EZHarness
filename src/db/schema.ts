@@ -1,6 +1,6 @@
 import { pgTable, text, timestamp, jsonb, integer, real, serial, bigserial, bigint, boolean, index, primaryKey, uniqueIndex, date, vector } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
-import type { AgentResult, WorkflowModelBinding, WorkflowRunStatus, WorkflowStep } from "../types";
+import type { AgentResult, ModelOverride, WorkflowRunStatus, WorkflowStep } from "../types";
 import type { MemoryProvenance } from "../memory/types";
 import { EMBEDDING_DIMENSIONS } from "../memory/types";
 import type {
@@ -372,7 +372,7 @@ export const workflowDefinitions = pgTable("workflow_definitions", {
   // Model binding inherited by every `agent` step that declares no `model`
   // of its own. NULL ⇒ each step keeps its agent's own binding, which is
   // what every pre-existing row means.
-  defaultModel: jsonb("default_model").$type<WorkflowModelBinding>(),
+  defaultModel: jsonb("default_model").$type<ModelOverride>(),
   steps: jsonb("steps").notNull().$type<WorkflowStep[]>(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

@@ -27,7 +27,7 @@ Three design constraints are load-bearing (not stylistic):
 - `WorkflowCondition` = a leaf `{ ref, op, value? }` or a composite `{ all: [] } | { any: [] } | { not: … }`. Operators: `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `contains`, `exists`, `truthy`.
 - `LoopConfig` = `{ maxIterations, until?, onExhausted? }` — `maxIterations` is **required** (server-clamped 1..25); `until` is a `WorkflowCondition` evaluated after each iteration; `onExhausted` is `"fail"` (default) or `"pass"`.
 - `WorkflowRun` = `{ id, workflowName, projectId?, status, startedAt, finishedAt?, steps: WorkflowStepRun[], result? }`; `WorkflowStepRun` = `{ stepName, runId, status, iterations?, provider?, model? }` (`iterations` is the final count for a looped step; `provider`/`model` are the binding the step's LLM call **resolved** to). `status` is `WorkflowRunStatus` = the agent `AgentStatus` union **plus `awaiting_approval`** (see below).
-- `ModelOverride` = `{ provider?, model?, temperature?, maxTokens?, effort? }` — a **resolved** binding (every value concrete). `WorkflowModelBinding` is the same shape as **written in a definition**, where the string fields may be refs, so `effort` widens to `string`.
+- `ModelOverride` = `{ provider?, model?, temperature?, maxTokens? }` — a model binding. The four fields are exactly the ones `ctx.llm.complete` accepts, so every field a user sets demonstrably takes effect. `provider`/`model` may be refs in a definition; `resolveModelOverride` makes them concrete.
 - The DB table `workflow_definitions` (`src/db/schema.ts`) stores `id` (UUID PK), `name` (unique), `description`, `inputSchema` (jsonb), `defaultModel` (jsonb, nullable), `steps` (jsonb), `createdAt`/`updatedAt`. A migration renames the legacy `pipeline_definitions` table in place (data preserved). It has **no** owner/user/project column — workflows are global (see gotchas).
 
 ### Loading & the in-memory cache (`workflow-loader.ts` + `context.ts`)
@@ -117,7 +117,7 @@ steps:
   - name: verify
     agent: factory-validator
     dependsOn: [draft]
-    model: { provider: anthropic, model: claude-opus-5, maxTokens: 8000, effort: high }
+    model: { provider: anthropic, model: claude-opus-5, temperature: 0.1, maxTokens: 8000 }
 ```
 
 - **Resolution order** is `step.model ?? definition.defaultModel ?? none`
@@ -129,13 +129,21 @@ steps:
   omitted, `createPiLlmAdapter()` is built with no override, and the
   agent config's own binding (or the `__current__` inherit sentinel)
   reaches the router exactly as before.
-- **Fields.** `provider`, `model`, `temperature` (0..2), `maxTokens`
-  (integer 1..1,000,000), `effort` (one of `minimal` `low` `medium`
-  `high` `xhigh` `max` — pi-ai's `ThinkingLevel`; there is no `"off"`
-  because no reasoning is the default on this path). An **unknown field
-  is rejected**, so `maxtokens:` is a definition-time error, not a
-  silently-ignored typo.
-- **Refs work.** `provider` / `model` / `effort` accept the same ref
+- **Fields — exactly four:** `provider`, `model`, `temperature` (0..2),
+  `maxTokens` (integer 1..1,000,000). These are 1:1 with what
+  `ctx.llm.complete` accepts (`config-to-agent.ts`), which is the whole
+  rule: a binding may only carry knobs that demonstrably take effect. An
+  **unknown field is rejected**, so `maxtokens:` is a definition-time
+  error, not a silently-ignored typo.
+- **There is deliberately NO `effort` / reasoning field.**
+  `ctx.llm.complete` has no reasoning parameter, and `ctx.llm` is typed
+  `any`, so an extra key would compile and silently do nothing. Reasoning
+  effort is real in this codebase but lives on the other path
+  (`thinkingLevel`: `streamChat` → `build-pi-agent.ts`), which an agent
+  step never reaches. Supporting it means plumbing `thinkingLevel`
+  through the agent execution path — a separate change to the streaming
+  runtime. See the note at the top of `workflow-model.ts`.
+- **Refs work.** `provider` / `model` accept the same ref
   language as a step's `input` (`{ model: "$input.verifyModel" }`),
   resolved through the shared `resolveMapping` with the **same ref
   context as that step's input** — so a looped step re-resolves per
@@ -144,16 +152,13 @@ steps:
   re-pick the model). `temperature`/`maxTokens` are numbers and are
   therefore never refs. A `$input.x` ref whose field is unset means "no
   override for that field"; a ref resolving to a non-string, or an
-  `effort` outside the vocabulary, **fails the run loudly** naming the
+  a ref resolving to a non-string, **fails the run loudly** naming the
   step.
 - **Where it is applied.** The binding is threaded
   `workflow-executor → AgentExecutor.runAgent(name, input, projectId, userId, override) → createPiLlmAdapter(override)`
   — one chokepoint, so no `AgentDefinition` knows about it and the
-  override cannot be half-applied. `effort` routes the call through
-  pi-ai's `completeSimple`/`streamSimple` (the entrypoints that normalize
-  reasoning per provider); every other call keeps the raw
-  `complete`/`stream` path. A nested `ctx.run(...)` spawn inherits the
-  parent's **identity**, never its model binding.
+  override cannot be half-applied. A nested `ctx.run(...)` spawn inherits
+  the parent's **identity**, never its model binding.
 - **What is recorded.** `workflow_step_runs.provider` / `.model` store
   the binding the call actually **resolved** to (post-`resolveModel`), not
   what was requested — so a `$input` ref, an agent-config binding and the
@@ -194,7 +199,7 @@ One module defines the ref grammar for all three callers (step inputs, transform
 
 ### Definition-time validation (`workflow-validator.ts`)
 
-`validateWorkflow(def)` returns a list of human-readable errors (empty ⇒ valid). It is the **single shared validator** used by both the API (400 with the first message) and the YAML loader (warn-and-skip). It rejects: duplicate step names; `dependsOn` naming an unknown step; `agent` kind without `agent`; `tool` without `tool`; `tool` that also names an `agent`; `transform` without `output`; `gate` without `condition`; a `loop` on a gate or a tool; `loop` + `retries` together; a missing / non-integer `maxIterations`; a `model` binding on a **non-agent** step; and a malformed `model` / `defaultModel` (unknown field, non-string provider/model/effort, an `effort` outside the vocabulary, an out-of-range `temperature`/`maxTokens`). Out-of-range **integer** loop budgets are **not** errors — they are clamped at run time. `defaultModel` is checked **before** the "at least one step" early-return, so a bad binding is not hidden behind an unrelated step error. `PUT /api/workflows/[name]` is a *partial* update with no `steps` to hand the whole-definition validator, so it calls the same `validateModelOverride` directly for a `defaultModel`-only body.
+`validateWorkflow(def)` returns a list of human-readable errors (empty ⇒ valid). It is the **single shared validator** used by both the API (400 with the first message) and the YAML loader (warn-and-skip). It rejects: duplicate step names; `dependsOn` naming an unknown step; `agent` kind without `agent`; `tool` without `tool`; `tool` that also names an `agent`; `transform` without `output`; `gate` without `condition`; a `loop` on a gate or a tool; `loop` + `retries` together; a missing / non-integer `maxIterations`; a `model` binding on a **non-agent** step; and a malformed `model` / `defaultModel` (unknown field — including `effort`, a non-string `provider`/`model`, an out-of-range `temperature`/`maxTokens`). Out-of-range **integer** loop budgets are **not** errors — they are clamped at run time. `defaultModel` is checked **before** the "at least one step" early-return, so a bad binding is not hidden behind an unrelated step error. `PUT /api/workflows/[name]` is a *partial* update with no `steps` to hand the whole-definition validator, so it calls the same `validateModelOverride` directly for a `defaultModel`-only body.
 
 ### Eventing & the client store
 
@@ -275,7 +280,7 @@ The extension-authoring chain shipped as a real workflow — the reference examp
 - `src/runtime/workflow-refs.ts` — the shared ref grammar: `resolveMapping`, `resolveOutputMapping` (template interpolation), `resolveConditionRef`, `getNestedValue`, the `OMIT` sentinel.
 - `src/runtime/workflow-condition.ts` — `evaluateCondition` (leaf operators + `all`/`any`/`not`, non-number-safe comparisons, explanatory reasons).
 - `src/runtime/workflow-validator.ts` — `validateWorkflow` (shared by route + loader), `clampMaxIterations` (1..25), `clampRetries` (0..2), `stepKind`.
-- `src/runtime/workflow-model.ts` — the per-step model binding: `validateModelOverride` (definition-time shape + bounds + the `effort` vocabulary), `effectiveModelOverride` (step ?? definition), `resolveModelOverride` (refs → a concrete `ModelOverride`, loud on a bad value), `VALID_MODEL_EFFORTS`.
+- `src/runtime/workflow-model.ts` — the per-step model binding: `validateModelOverride` (definition-time field vocabulary, shape + bounds), `effectiveModelOverride` (step ?? definition), `resolveModelOverride` (refs → a concrete `ModelOverride`, loud on a bad value), plus the note recording why there is no reasoning/effort field.
 - `src/runtime/executor-helpers.ts` — `createPiLlmAdapter(overrides?)`: the ONE place a binding reaches the LLM; reports `lastResolved` back so a run can record what actually served it.
 - `src/runtime/workflow-loader.ts` — `loadYamlWorkflows`: globs `*.workflow.yaml` + legacy `*.pipeline.yaml` (deprecation warn), validates via `validateWorkflow`.
 - `src/runtime/workflow-extension-loader.ts` — `loadExtensionWorkflows` / `collectExtensionWorkflowSources`: extension-shipped assets, namespaced + validated + warn-and-skip.

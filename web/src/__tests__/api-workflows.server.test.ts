@@ -253,14 +253,14 @@ describe("POST /api/workflows", () => {
     const def = {
       name: "w1",
       defaultModel: { model: "claude-haiku-4-5-20251001" },
-      steps: [{ name: "s1", agent: "a", model: { model: "claude-opus-5", effort: "high" } }],
+      steps: [{ name: "s1", agent: "a", model: { model: "claude-opus-5", maxTokens: 8000 } }],
     };
     queries.createWorkflow.mockResolvedValue({ id: "wf-1", ...def, description: "" });
     const res = await POST(makeEvent({ locals: authedUser, body: def }));
     expect(res.status).toBe(201);
     expect(queries.createWorkflow).toHaveBeenCalledWith(expect.objectContaining({
       defaultModel: { model: "claude-haiku-4-5-20251001" },
-      steps: [expect.objectContaining({ model: { model: "claude-opus-5", effort: "high" } })],
+      steps: [expect.objectContaining({ model: { model: "claude-opus-5", maxTokens: 8000 } })],
     }));
   });
 
