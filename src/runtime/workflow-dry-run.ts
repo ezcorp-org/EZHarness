@@ -189,6 +189,20 @@ export function containsDryRunStub(value: unknown): boolean {
 }
 
 /**
+ * Told when a guarantee fired, so {@link dryRunWorkflow} can re-throw the
+ * violation instead of letting the executor's per-step catch launder it
+ * into an ordinary run failure.
+ *
+ * Recorded AT THE THROW SITE rather than recovered from the run's error
+ * text, because the throw does not survive the trip: `runToolStep` wraps
+ * whatever its dispatch raised in `Step "<name>" failed: …`, so by the
+ * time the report exists the only trace is a string — and classifying a
+ * harness bug by matching prose is how the name-conflict 409 came to be
+ * inert.
+ */
+export type ViolationSink = (violation: WorkflowDryRunViolation) => void;
+
+/**
  * A `toolRunnerFactory` that cannot build a tool runner.
  *
  * Named and exported rather than inlined at the construction site so the
@@ -197,8 +211,10 @@ export function containsDryRunStub(value: unknown): boolean {
  * dry run this is never invoked — which is exactly why asserting it
  * throws needs a direct call rather than a workflow that reaches it.
  */
-export function dryRunToolRunnerFactory(): never {
-  throw new WorkflowDryRunViolation("tool dispatch");
+export function dryRunToolRunnerFactory(onViolation?: ViolationSink): never {
+  const violation = new WorkflowDryRunViolation("tool dispatch");
+  onViolation?.(violation);
+  throw violation;
 }
 
 /**
@@ -210,10 +226,12 @@ export function dryRunToolRunnerFactory(): never {
  * REAL `AgentExecutor` for a dry run would defeat the entire point of
  * guarantee 2.
  */
-export function dryRunAgentExecutor(): AgentExecutor {
+export function dryRunAgentExecutor(onViolation?: ViolationSink): AgentExecutor {
   const stub = {
     runAgent(): never {
-      throw new WorkflowDryRunViolation("agent invocation");
+      const violation = new WorkflowDryRunViolation("agent invocation");
+      onViolation?.(violation);
+      throw violation;
     },
     cancelRun(): void {},
   };
@@ -339,18 +357,37 @@ function unenforcedGate(
  *
  * Never throws for a workflow-level failure — a failed gate or an
  * unresolvable ref is the ANSWER the caller wanted, so it comes back in
- * `error`. It does propagate {@link WorkflowDryRunViolation}, because
- * that is a harness bug and swallowing it would hide the one thing this
- * module exists to prevent.
+ * `error`. It DOES propagate {@link WorkflowDryRunViolation}, because that
+ * is a harness bug and swallowing it would hide the one thing this module
+ * exists to prevent.
+ *
+ * That last sentence was false until the violations were recorded at their
+ * throw sites: the executor's per-step catch turned a violation into an
+ * ordinary batch failure, so an attempted real tool dispatch arrived as
+ * `status: "error"` with a message — indistinguishable, to a caller and to
+ * the editor, from a gate that failed. `input` is untrusted user data and a
+ * workflow failure is routine; a harness bug is neither, and must not be
+ * reportable as one.
+ *
+ * `isPure` is the allow list, injectable ONLY so a test can reach that
+ * path: a correct harness substitutes every impure kind, which makes the
+ * violation unreachable from outside — and an unreachable guarantee whose
+ * escape route was never exercised is how the claim came to be wrong. No
+ * caller in the product passes it.
  */
 export async function dryRunWorkflow(
   definition: WorkflowDefinition,
   input: Record<string, unknown>,
+  isPure: (kind: WorkflowStepKind) => boolean = isPureDryRunKind,
 ): Promise<DryRunReport> {
   const stubbed: string[] = [];
   const gatesOnStubs: DryRunGateVerdict[] = [];
+  const violations: WorkflowDryRunViolation[] = [];
+  const record: ViolationSink = (violation) => {
+    violations.push(violation);
+  };
   const executor = new WorkflowExecutor(
-    dryRunAgentExecutor(),
+    dryRunAgentExecutor(record),
     // A private bus with no subscribers: a dry run's `workflow:*` frames
     // must not reach the SSE stream and be mistaken for a real run.
     new EventBus<AgentEvents>(),
@@ -358,10 +395,10 @@ export async function dryRunWorkflow(
       // Asserted rather than inherited from the default — a dry run must
       // write no `workflow_runs` row, and that should be visible here.
       persist: false,
-      toolRunnerFactory: dryRunToolRunnerFactory,
+      toolRunnerFactory: () => dryRunToolRunnerFactory(record),
       stepSubstitute: (step: WorkflowStep, ctx: RefContext): AgentResult | undefined => {
         const kind = stepKind(step);
-        if (isPureDryRunKind(kind)) {
+        if (isPure(kind)) {
           // Pure by KIND is not the same as trustworthy. A transform over
           // fabricated data is still just data movement, but a gate DECIDES
           // on it — so a gate is handed back unenforced when its operands
@@ -378,6 +415,10 @@ export async function dryRunWorkflow(
   );
 
   const run: WorkflowRun = await executor.runWorkflow(definition, input);
+  // Before any report exists: a violation means a guarantee fired, and the
+  // caller must not get something that reads like a verdict on their graph.
+  const violation = violations[0];
+  if (violation !== undefined) throw violation;
   const stubbedSet = new Set(stubbed);
   const onStubs = new Set(gatesOnStubs.map((gate) => gate.name));
   return {

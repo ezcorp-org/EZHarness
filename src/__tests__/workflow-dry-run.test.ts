@@ -27,6 +27,12 @@ const toolBearing: WorkflowDefinition = {
 
 describe("dry run cannot dispatch, structurally", () => {
   test("a tool-bearing graph dry-runs to completion with stubs", async () => {
+    // Also the merge tripwire for `stepSubstitute`. If that option is ever
+    // lost from the executor, the agent and tool steps here DISPATCH, the
+    // guarantees fire, and this call now throws a WorkflowDryRunViolation
+    // naming the dispatch it attempted — rather than quietly returning a
+    // report with an error string in it, which is how the same loss used
+    // to read.
     const report = await dryRunWorkflow(toolBearing, { topic: "release notes" });
 
     expect(report.status).toBe("success");
@@ -36,6 +42,33 @@ describe("dry run cannot dispatch, structurally", () => {
     // No gate in this graph, so nothing was left unenforced — the plain
     // `success` above is honest here, and only here.
     expect(report.gatesOnStubs).toEqual([]);
+  });
+
+  test("a violation ESCAPES the harness rather than being reported as a workflow failure", async () => {
+    // Reached by simulating the ONE condition the violation exists for:
+    // the allow list and the executor's dispatch have diverged, so a step
+    // that must be substituted is claimed pure and dispatched. A correct
+    // harness substitutes every impure kind, which is why this needs the
+    // injected list — and why the propagation claim in the module doc was
+    // false for as long as nobody could exercise it: the per-step catch
+    // turned the violation into `status: "error"` with a message, which is
+    // what an ordinary failed gate looks like.
+    const agentReaches = dryRunWorkflow(toolBearing, { topic: "x" }, () => true);
+    await expect(agentReaches).rejects.toBeInstanceOf(WorkflowDryRunViolation);
+    await expect(agentReaches).rejects.toThrow(/real agent invocation/);
+  });
+
+  test("a tool step that reaches dispatch escapes as a violation, not a step failure", async () => {
+    // The tool path launders harder: `runToolStep` catches whatever its
+    // dispatch raised and re-throws `Step "<name>" failed: …`, so the
+    // original type is gone by the time the run ends. Recording at the
+    // throw site is what survives that.
+    const toolOnly = {
+      name: "publish-only",
+      description: "",
+      steps: [{ name: "publish", kind: "tool" as const, tool: "ext__write_file" }],
+    };
+    await expect(dryRunWorkflow(toolOnly, {}, () => true)).rejects.toThrow(/real tool dispatch/);
   });
 
   test("the tool runner factory throws, so a tool step reaching dispatch fails loudly", () => {
