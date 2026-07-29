@@ -31,11 +31,14 @@ import {
 import { toolCallsThisTurn } from "../extensions/tool-executor/limits";
 import { getWorkflowByName } from "../db/queries/workflows";
 import {
+  advanceWorkflowRunCursor,
   finalizeWorkflowRunRow,
   insertWorkflowRun,
+  markWorkflowRunInBatch,
   upsertWorkflowStepRun,
   type TerminalWorkflowRunStatus,
 } from "../db/queries/workflow-runs";
+import { workflowDefinitionHash } from "./workflow-definition-hash";
 import { logger } from "../logger";
 
 const log = logger.child("workflow");
@@ -69,6 +72,27 @@ export class WorkflowApprovalRequiredError extends Error {
         `${capabilityKind} and cannot run in a workflow`,
     );
     this.name = "WorkflowApprovalRequiredError";
+  }
+}
+
+/**
+ * A write the run's durable position depends on could not be made.
+ *
+ * Terminalizes the run `error` with the `cursor-write-failed` code rather
+ * than letting it report success on top of bookkeeping we know is wrong:
+ * a run whose recorded position is stale would, on resume, re-execute a
+ * batch that already ran.
+ */
+export class WorkflowCursorWriteError extends Error {
+  constructor(
+    readonly what: string,
+    override readonly cause: unknown,
+  ) {
+    super(
+      `Workflow run state could not be recorded (${what}): ` +
+        `${cause instanceof Error ? cause.message : String(cause)}`,
+    );
+    this.name = "WorkflowCursorWriteError";
   }
 }
 
@@ -161,6 +185,34 @@ export class WorkflowExecutor {
     }
   }
 
+  /**
+   * Run one persistence write that the run's CORRECTNESS depends on.
+   *
+   * The strict twin of {@link persistWrite}, and deliberately kept
+   * visibly distinct from it. That method's never-throw contract is right
+   * for telemetry — a DB glitch must not fail a workflow that otherwise
+   * succeeded — and catastrophic for a cursor: a silently-dropped cursor
+   * write leaves the next resume pointing at a stale `batchIndex`, so it
+   * re-executes a completed batch. Duplicate side effects are worse than
+   * a failed run.
+   *
+   * Kept to the smallest possible number of call sites (the `in-batch`
+   * marker, the boundary cursor advance, and later the suspend
+   * transition) so the swallow-by-default contract cannot creep onto the
+   * durability path — or the reverse.
+   *
+   * A no-op when `persist` is false, exactly like its twin, so a
+   * DB-less harness is unaffected.
+   */
+  private async persistCritical(what: string, fn: () => Promise<unknown>): Promise<void> {
+    if (!this.persist) return;
+    try {
+      await fn();
+    } catch (err) {
+      throw new WorkflowCursorWriteError(what, err);
+    }
+  }
+
   async runWorkflow(
     workflow: WorkflowDefinition,
     input: Record<string, unknown>,
@@ -197,6 +249,11 @@ export class WorkflowExecutor {
         userId: userId ?? null,
         input,
         startedAt: new Date(workflowRun.startedAt),
+        // Pins the graph this run was authorized against. A resume
+        // compares it and refuses to continue into an edited definition,
+        // where `cursor.batchIndex` would address a different set of
+        // steps entirely.
+        definitionHash: workflowDefinitionHash(workflow),
       });
     });
 
@@ -286,9 +343,21 @@ export class WorkflowExecutor {
       if (externallyAborted) throw new WorkflowAbortError();
 
       const batches = this.resolveExecutionOrder(workflow.steps);
+      // Durable position, maintained alongside the in-memory state so a
+      // crash leaves a row that says where to pick up.
+      const completedSteps: string[] = [];
 
-      for (const batch of batches) {
+      for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+        const batch = batches[batchIndex]!;
         if (externallyAborted) throw new WorkflowAbortError();
+
+        // Flushed BEFORE the batch dispatches — `batch.map` below runs
+        // each step's body synchronously up to its first await, so any
+        // write issued after it would race the side effects it is meant
+        // to describe. While this stands, a crash is not resumable.
+        await this.persistCritical("in-batch", () =>
+          markWorkflowRunInBatch(workflowRun.id),
+        );
 
         // Run every step in the batch concurrently. The FIRST failure
         // records `batchError` and immediately cancels the still-running
@@ -402,6 +471,27 @@ export class WorkflowExecutor {
 
         // Last SUCCESSFUL result in this batch feeds `$prev` of the next.
         prevResult = results[results.length - 1];
+
+        // ── Boundary ────────────────────────────────────────────────
+        //
+        // `results` is `Promise.all` over `batch.map`, so it is in BATCH
+        // ORDER, and any failure threw above — which means
+        // `results[results.length - 1]` is always the result of
+        // `batch[batch.length - 1]`. That equivalence is what lets the
+        // cursor record `$prev` as a step NAME and have a resumed run
+        // reproduce today's order-fragility exactly, instead of
+        // computing a different `$prev` than the same run straight
+        // through. Pinned by "cursor.prevStepName names the step whose
+        // result IS $prev" in `workflow-run-persistence.test.ts`, so a
+        // refactor that makes `prevResult` lazy fails loudly.
+        for (const step of batch) completedSteps.push(step.name);
+        await this.persistCritical("cursor", () =>
+          advanceWorkflowRunCursor(workflowRun.id, {
+            batchIndex: batchIndex + 1,
+            completedSteps: [...completedSteps],
+            prevStepName: batch[batch.length - 1]?.name ?? null,
+          }),
+        );
       }
 
       workflowRun.status = "success";
@@ -443,6 +533,20 @@ export class WorkflowExecutor {
           success: false,
           output: prevResult?.output ?? null,
           error: { code: "awaiting_approval", message: err.message },
+        };
+        this.bus.emit("workflow:error", { workflowRun, error: err.message, userId });
+      } else if (err instanceof WorkflowCursorWriteError) {
+        // The run may well have executed correctly up to here, but its
+        // recorded position is not trustworthy — and a run whose
+        // bookkeeping is wrong must not report success, or a later resume
+        // would re-execute a batch that already ran. Coded distinctly so
+        // an operator can tell a durability failure from a workflow one.
+        workflowRun.status = "error";
+        workflowRun.finishedAt = Date.now();
+        workflowRun.result = {
+          success: false,
+          output: null,
+          error: { code: "cursor-write-failed", message: err.message },
         };
         this.bus.emit("workflow:error", { workflowRun, error: err.message, userId });
       } else {

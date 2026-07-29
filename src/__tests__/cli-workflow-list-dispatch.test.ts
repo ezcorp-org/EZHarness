@@ -25,6 +25,20 @@ mock.module("../runtime/workflow-loader", () => ({
 mock.module("../db/queries/workflows", () => ({
   loadDbWorkflows: async () => dbWorkflows,
 }));
+// Persistence stubbed to SUCCEED. `getDb: () => ({})` above is not a DB
+// double — every call on it throws — and that was invisible only while
+// every persistence write was swallowed by contract. The executor now has
+// a strict path (the run-position bookkeeping, whose loss would let a
+// resume re-execute a completed batch), so an empty object models a
+// totally dead DB and the run fails closed on it. This suite is about CLI
+// dispatch and exit codes, not durability, so it gets a DB that works.
+mock.module("../db/queries/workflow-runs", () => ({
+  insertWorkflowRun: async () => {},
+  upsertWorkflowStepRun: async () => {},
+  finalizeWorkflowRunRow: async () => 1,
+  markWorkflowRunInBatch: async () => {},
+  advanceWorkflowRunCursor: async () => {},
+}));
 
 const { cli } = await import("../cli");
 

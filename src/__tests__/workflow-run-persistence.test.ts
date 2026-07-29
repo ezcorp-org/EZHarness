@@ -43,6 +43,7 @@ const {
   upsertWorkflowStepRun,
 } = await import("../db/queries/workflow-runs");
 const { WorkflowExecutor } = await import("../runtime/workflow-executor");
+const { workflowDefinitionHash } = await import("../runtime/workflow-definition-hash");
 
 beforeAll(async () => {
   pglite = new PGlite({ extensions: { vector, pg_trgm } });
@@ -763,6 +764,184 @@ describe("WorkflowExecutor persistence", () => {
     // The LIVE run still saw the real value — redaction is a storage
     // concern and must not change what the graph computed on.
     expect(run.result?.output).toEqual({ token: "sk-aaaaaaaaaaaaaaaaaaaaaa" });
+  });
+});
+
+describe("durable position — run_phase, cursor, definition_hash", () => {
+  async function readPosition(runId: string) {
+    const row = (await db.execute(sql`
+      SELECT run_phase, cursor, definition_hash FROM workflow_runs WHERE id = ${runId}
+    `)) as {
+      rows: Array<{
+        run_phase: string;
+        cursor: { batchIndex: number; completedSteps: string[]; prevStepName: string | null } | null;
+        definition_hash: string | null;
+      }>;
+    };
+    return row.rows[0];
+  }
+
+  test("records the definition hash at insert", async () => {
+    const wf = makeExecutor({});
+    const def: WorkflowDefinition = {
+      name: "hashed",
+      description: "",
+      steps: [{ name: "only", kind: "transform", output: { a: "1" } }],
+    };
+    const run = await wf.runWorkflow(def, {}, undefined, undefined);
+    // Pins the graph the run was authorized against, so a resume can
+    // refuse to continue into an edited one.
+    expect((await readPosition(run.id))?.definition_hash).toBe(
+      workflowDefinitionHash(def),
+    );
+  });
+
+  test("lands at a boundary with the cursor past the last batch", async () => {
+    const wf = makeExecutor({});
+    const def: WorkflowDefinition = {
+      name: "three-sequential",
+      description: "",
+      steps: [
+        { name: "a", kind: "transform", output: { v: "1" } },
+        { name: "b", kind: "transform", output: { v: "2" } },
+        { name: "c", kind: "transform", output: { v: "3" } },
+      ],
+    };
+    const run = await wf.runWorkflow(def, {}, undefined, undefined);
+    expect(run.status).toBe("success");
+
+    const pos = await readPosition(run.id);
+    // No deps ⇒ one step per batch, so a completed run sits at batch 3.
+    expect(pos?.run_phase).toBe("boundary");
+    expect(pos?.cursor?.batchIndex).toBe(3);
+    expect(pos?.cursor?.completedSteps).toEqual(["a", "b", "c"]);
+  });
+
+  test("cursor.prevStepName names the step whose result IS $prev", async () => {
+    // THE property the cursor design rests on. `results` is Promise.all
+    // over `batch.map`, so it is in batch order, and any failure throws
+    // before the cursor advances — therefore
+    // `results[results.length - 1]` is always `batch[batch.length - 1]`.
+    // A refactor that makes `prevResult` lazy, or reorders the batch,
+    // breaks this and must fail loudly here rather than silently give a
+    // resumed run a different `$prev` than the same run straight through.
+    const wf = makeExecutor({});
+    const def: WorkflowDefinition = {
+      name: "parallel-then-join",
+      description: "",
+      steps: [
+        { name: "seed", kind: "transform", output: { v: "seed" } },
+        { name: "left", kind: "transform", dependsOn: ["seed"], output: { v: "left" } },
+        { name: "right", kind: "transform", dependsOn: ["seed"], output: { v: "right" } },
+        // Reads $prev, so its output records which sibling won the race
+        // — that is the order-fragility the cursor must reproduce.
+        { name: "join", kind: "transform", dependsOn: ["left", "right"], output: { saw: "$prev.output.v" } },
+      ],
+    };
+
+    const run = await wf.runWorkflow(def, {}, undefined, undefined);
+    expect(run.status).toBe("success");
+
+    const pos = await readPosition(run.id);
+    expect(pos?.cursor?.prevStepName).toBe("join");
+
+    // And the value `join` actually saw is the LAST step of its batch in
+    // declaration order — `right`, not `left`.
+    const loaded = await loadStepResults(run.id);
+    if (!loaded.ok) throw new Error(loaded.reason);
+    expect(loaded.stepResults.get("join")).toEqual({
+      success: true,
+      output: { saw: "right" },
+    });
+  });
+
+  test("a failed cursor write fails the run closed rather than reporting success", async () => {
+    // `persistWrite` swallows by contract, which is right for telemetry
+    // and fatal for a cursor: a dropped cursor leaves the next resume at
+    // a stale batchIndex and re-executes a completed batch. Simulated by
+    // a CHECK the advance cannot satisfy — dropped again immediately so
+    // the shared DB is untouched for later tests.
+    // NOT VALID: earlier tests in this file already left non-NULL
+    // cursors, and we only want to reject the write under test, not
+    // re-validate the table.
+    await db.execute(
+      sql`ALTER TABLE workflow_runs ADD CONSTRAINT no_cursor_writes CHECK (cursor IS NULL) NOT VALID`,
+    );
+    try {
+      const wf = makeExecutor({});
+      const def: WorkflowDefinition = {
+        name: "cursor-write-fails",
+        description: "",
+        steps: [{ name: "a", kind: "transform", output: { v: "1" } }],
+      };
+      const run = await wf.runWorkflow(def, {}, undefined, undefined);
+
+      expect(run.status).toBe("error");
+      // Coded distinctly so an operator can tell a durability failure
+      // from a workflow one — the steps themselves all succeeded.
+      expect(run.result?.error).toMatchObject({ code: "cursor-write-failed" });
+      expect(run.steps.every((s) => s.status === "success")).toBe(true);
+    } finally {
+      await db.execute(sql`ALTER TABLE workflow_runs DROP CONSTRAINT no_cursor_writes`);
+    }
+  });
+
+  test("a failed in-batch marker fails closed before the batch dispatches", async () => {
+    // The marker is what makes a crash mid-step non-resumable, so losing
+    // it silently would let recovery treat a half-executed step as safe.
+    // NOT VALID for the same reason as above — and specifically because
+    // the previous test deliberately leaves a row stranded at
+    // `in-batch`, which is exactly the state recovery exists to classify.
+    await db.execute(
+      sql`ALTER TABLE workflow_runs ADD CONSTRAINT no_inbatch CHECK (run_phase <> 'in-batch') NOT VALID`,
+    );
+    let dispatched = 0;
+    try {
+      const wf = makeExecutor({
+        toolHandler: () => {
+          dispatched++;
+          return ok("{}");
+        },
+      });
+      const def: WorkflowDefinition = {
+        name: "inbatch-write-fails",
+        description: "",
+        steps: [{ name: "t", kind: "tool", tool: "demo__x" }],
+      };
+      const run = await wf.runWorkflow(def, {}, undefined, undefined);
+
+      expect(run.status).toBe("error");
+      expect(run.result?.error).toMatchObject({ code: "cursor-write-failed" });
+      // The whole point of flushing before `batch.map`: the side effect
+      // never happened.
+      expect(dispatched).toBe(0);
+    } finally {
+      await db.execute(sql`ALTER TABLE workflow_runs DROP CONSTRAINT no_inbatch`);
+    }
+  });
+
+  test("persist:false runs never touch the strict path", async () => {
+    // A DB-less harness must be unaffected by strict bookkeeping —
+    // otherwise every unit test without a wired DB would start failing.
+    const bus = new EventBus<AgentEvents>();
+    const agentExec = new AgentExecutor(loadAgentsStatic([]), bus);
+    const wf = new (await import("../runtime/workflow-executor")).WorkflowExecutor(
+      agentExec,
+      bus,
+      { persist: false },
+    );
+    const run = await wf.runWorkflow(
+      {
+        name: "unpersisted",
+        description: "",
+        steps: [{ name: "a", kind: "transform", output: { v: "1" } }],
+      },
+      {},
+      undefined,
+      undefined,
+    );
+    expect(run.status).toBe("success");
+    expect(await getWorkflowRunRow(run.id)).toBeUndefined();
   });
 });
 

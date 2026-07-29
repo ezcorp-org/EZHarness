@@ -15,7 +15,7 @@
 import { and, eq, lt, sql } from "drizzle-orm";
 import { getDb } from "../connection";
 import { workflowRuns, workflowStepRuns, type TruncatedStepOutput } from "../schema";
-import type { AgentResult, WorkflowRunStatus } from "../../types";
+import type { AgentResult, WorkflowCursor, WorkflowRunStatus } from "../../types";
 import {
   isTruncatedStepOutput,
   MAX_STEP_OUTPUT_BYTES,
@@ -45,6 +45,10 @@ export interface NewWorkflowRunInput {
   userId?: string | null;
   input: Record<string, unknown>;
   startedAt: Date;
+  /** Fingerprint of the definition this run started against, so a resume
+   *  can refuse to continue into an edited graph. Absent for a caller
+   *  that does not persist one. */
+  definitionHash?: string | null;
 }
 
 /**
@@ -64,7 +68,48 @@ export async function insertWorkflowRun(row: NewWorkflowRunInput): Promise<void>
     status: "running",
     input: row.input,
     startedAt: row.startedAt,
+    definitionHash: row.definitionHash ?? null,
   });
+}
+
+/**
+ * Mark the run as having a batch IN FLIGHT, before that batch dispatches.
+ *
+ * This is half of the honest bookkeeping crash recovery reads. While this
+ * value stands, an LLM call or a side-effecting `tool` dispatch may be
+ * half-applied, so a crash here must never be resumed — recovery fails it
+ * closed instead of re-entering a half-executed step.
+ *
+ * Throws on failure, unlike the telemetry writes. See
+ * {@link advanceWorkflowRunCursor} for why.
+ */
+export async function markWorkflowRunInBatch(workflowRunId: string): Promise<void> {
+  await getDb()
+    .update(workflowRuns)
+    .set({ runPhase: "in-batch" })
+    .where(eq(workflowRuns.id, workflowRunId));
+}
+
+/**
+ * Record that a batch completed: advance the cursor and return the run to
+ * `boundary`, where it is safe to resume.
+ *
+ * **Throws on failure, deliberately.** Every other write in this module
+ * is best-effort telemetry, where a DB glitch must not fail a run that
+ * otherwise succeeded. A cursor is not telemetry: silently dropping this
+ * write leaves the next resume pointing at a STALE `batchIndex`, so it
+ * re-executes a batch that already ran — duplicate side effects, an
+ * LLM call re-billed, a `write_file` applied twice. Failing the run loudly
+ * is strictly better than resuming it wrongly.
+ */
+export async function advanceWorkflowRunCursor(
+  workflowRunId: string,
+  cursor: WorkflowCursor,
+): Promise<void> {
+  await getDb()
+    .update(workflowRuns)
+    .set({ cursor, runPhase: "boundary" })
+    .where(eq(workflowRuns.id, workflowRunId));
 }
 
 export interface WorkflowStepRunUpsert {

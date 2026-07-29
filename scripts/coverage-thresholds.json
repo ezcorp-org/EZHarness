@@ -95,6 +95,7 @@
   "src/runtime/workflow-model.ts": 100,
   "src/runtime/workflow-name.ts": 100,
   "src/runtime/workflow-step-output.ts": 100,
+  "src/runtime/workflow-definition-hash.ts": 100,
   "src/runtime/secret-redaction.ts": 100,
   "src/runtime/workflow-extension-loader.ts": 100,
   "src/runtime/workflow/runtime-registry.ts": 100,
