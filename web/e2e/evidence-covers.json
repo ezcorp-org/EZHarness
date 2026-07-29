@@ -18,6 +18,9 @@
     "web/src/routes/(app)/project/[id]/chat/[convId]/+page.svelte",
     "web/src/lib/components/WaterfallTimeline.svelte"
   ],
+  "web/e2e/chat-prompt-arrow-nav-cards.spec.ts": [
+    "web/src/lib/components/ChatThread.svelte"
+  ],
   "web/e2e/code-review-panel-evidence.spec.ts": [
     "web/src/lib/components/DiffSummaryPanel.svelte",
     "web/src/lib/components/review/DiffStatBar.svelte",
