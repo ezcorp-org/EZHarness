@@ -192,10 +192,10 @@ describe("modelBindingLabel", () => {
 			{ effort: "low" },
 		];
 		for (let mask = 0; mask < 1 << fields.length; mask++) {
-			const binding = fields.reduce(
-				(acc, f, i) => (mask & (1 << i) ? { ...acc, ...f } : acc),
-				{} as Record<string, unknown>,
-			);
+			const binding: Record<string, unknown> = {};
+			fields.forEach((f, i) => {
+				if (mask & (1 << i)) Object.assign(binding, f);
+			});
 			const label = modelBindingLabel(binding);
 			expect(label.startsWith(" ·")).toBe(false);
 			expect(label.endsWith("· ")).toBe(false);
