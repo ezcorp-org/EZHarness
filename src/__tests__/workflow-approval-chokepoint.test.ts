@@ -221,6 +221,42 @@ describe("nothing outside the chokepoint writes an answer", () => {
     return out;
   }
 
+  test("the scan is non-vacuous — it walks a real tree", () => {
+    // A count floor, independent of the `import.meta.dir` anchoring. A
+    // scan that walked an empty directory would report success forever,
+    // and every assertion below is a NEGATIVE ("nobody else does X"),
+    // which is exactly the shape that passes when you find nothing.
+    // Borrowed from the C6 route-ladder scan, which reviewed clean.
+    const files = [...sourceFiles("src"), ...sourceFiles("web/src")];
+    expect(files.length).toBeGreaterThanOrEqual(100);
+    // And the file we expect to find is actually in the set, so a
+    // filter bug cannot quietly empty it either.
+    expect(files.map((f) => f.slice(REPO_ROOT.length + 1))).toContain(
+      "src/runtime/workflow-answer-approval.ts",
+    );
+  });
+
+  test("every answer surface reaches the chokepoint — a POSITIVE assertion", () => {
+    // The negatives above catch a surface that reimplements the rules.
+    // They do NOT catch one that reaches the boundary by no path at all
+    // — a route that answers nothing, or answers through some future
+    // helper. So: every handler under the approvals route must name
+    // `answerApproval`. Borrowed from the C6 ladder scan, which pairs
+    // its bans with a required call for the same reason.
+    const routeDir = join(REPO_ROOT, "web/src/routes/api/workflows/approvals");
+    const handlers = sourceFiles("web/src/routes/api/workflows/approvals");
+    expect(handlers.length).toBeGreaterThanOrEqual(1);
+    expect(routeDir.endsWith("approvals")).toBe(true);
+
+    for (const file of handlers) {
+      const body = readFileSync(file, "utf8");
+      expect({
+        file: file.slice(REPO_ROOT.length + 1),
+        callsChokepoint: body.includes("answerApproval"),
+      }).toEqual({ file: file.slice(REPO_ROOT.length + 1), callsChokepoint: true });
+    }
+  });
+
   test("recordWorkflowApprovalAnswer is called from exactly one module", () => {
     // This is what makes the invariant hold for surfaces that DO NOT
     // EXIST YET. A new answer path must write the answer somehow; the
@@ -258,7 +294,7 @@ describe("nothing outside the chokepoint writes an answer", () => {
     ]);
   });
 
-  test("only the queries module touches the workflow_approvals table", () => {
+  test("only the queries module WRITES the workflow_approvals table", () => {
     // The two scans above match IDENTIFIERS, so a surface that inlined
     // the consent rules and wrote with raw drizzle against
     // `workflowApprovals` would pass both. Today only the queries module
@@ -266,8 +302,13 @@ describe("nothing outside the chokepoint writes an answer", () => {
     // structural property rests on a coincidence nobody is checking.
     const touchers = [...sourceFiles("src"), ...sourceFiles("web/src")].filter((file) => {
       const body = readFileSync(file, "utf8");
+      // Match write SYNTAX, not the bare identifier: a surface that
+      // reads the table for display is fine, one that inserts or
+      // updates it is reimplementing the answer path. `.insert(x)` /
+      // `.update(x)` catches the drizzle builder regardless of how the
+      // table reference is spelled or aliased on the way in.
       return (
-        body.includes("workflowApprovals") &&
+        /\.(?:insert|update)\(\s*workflowApprovals/.test(body) &&
         !file.endsWith("db/queries/workflow-approvals.ts") &&
         !file.endsWith("db/schema.ts")
       );
