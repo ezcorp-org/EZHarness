@@ -424,6 +424,29 @@ export class WorkflowExecutor {
               step,
               input,
               stepResults,
+              // ── INVARIANT: `$prev` is per-BATCH, not per-step ──────
+              //
+              // `prevResult` is captured HERE, synchronously. Nothing
+              // above this point awaits — `syncStep()` only emits and
+              // fires `void this.persistWrite(...)` — so every step
+              // promise in this batch is constructed before any of them
+              // suspends, and all of them therefore see the SAME
+              // `prevResult`: the last declared step of the PREVIOUS
+              // batch.
+              //
+              // Resume depends on that. The cursor stores only
+              // `prevStepName` and rebuilds `$prev` from it, which is
+              // faithful precisely because the value is per-batch and
+              // positional.
+              //
+              // Do NOT make `prevResult` lazy, and do NOT `await`
+              // `persistStep()` / `syncStep()`. Either turns `$prev`
+              // into a per-step value: steps later in a batch would
+              // start seeing their siblings' results, silently changing
+              // the semantics of every existing workflow with no error
+              // anywhere. Pinned by "cursor.prevStepName names the step
+              // whose result IS $prev" in
+              // `workflow-run-persistence.test.ts`.
               prevResult,
               stepRun,
               projectId,

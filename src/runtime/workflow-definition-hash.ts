@@ -53,7 +53,33 @@ function stableStringify(value: unknown): string {
   return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${stableStringify(v)}`).join(",")}}`;
 }
 
-/** Hex SHA-256 over the execution-relevant slice of a definition. */
+/**
+ * Hex SHA-256 over the execution-relevant slice of a definition.
+ *
+ * ## Contract with definition versioning (C6)
+ *
+ * This is the **interim** drift guard, and it is deliberately the only
+ * exported entry point so a later phase can re-point its input without
+ * touching a single call site.
+ *
+ * When `workflow_definition_versions` lands, the version id is
+ * **authoritative** for "which definition did this run execute", and this
+ * hash is:
+ *
+ *   • redefined as a function of the version row's `steps`, so the two
+ *     cannot diverge by construction — a system carrying both a hash and
+ *     a version id needs exactly one to win, or they eventually disagree
+ *     and the disagreement is silent;
+ *   • consulted ONLY when the run's version id is NULL — i.e. for runs
+ *     created before versioning existed, which is every run this phase
+ *     creates.
+ *
+ * That is why the material below is the `steps` array specifically, and
+ * never the DB row or its mutable metadata: hashing `description` or
+ * `updated_at` would both fail-close resumable runs over innocuous edits
+ * AND make the later redefinition over a version's `steps` a behaviour
+ * change rather than a no-op.
+ */
 export function workflowDefinitionHash(def: WorkflowDefinition): string {
   const material = stableStringify({
     steps: def.steps ?? [],
