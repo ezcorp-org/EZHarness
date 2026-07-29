@@ -17,7 +17,7 @@ entirely.
 
 ## 1. What the SDK cannot do
 
-### 1.1 There is no shell surface. `run_command` is unmediated by construction · **the important one**
+### 1.1 There is no shell surface — and it is why `run_command` is CUT from v1 · **the important one**
 
 The plan describes `run_command` as a "jailed shell: allowlist, cwd bound,
 timeout, output cap, secret redaction", implying the host enforces those. **It
@@ -46,17 +46,24 @@ This is exactly how `ez-code-factory` works today — `productionHostRunner`
 "run OUTSIDE the sandbox preload's poisoning, so this is the supported way to
 touch git + the filesystem from extension code."
 
-**Three consequences the design must own:**
+**Decision (2026-07-29): `run_command` is cut from v1.**
 
-1. `permissions.shell: true` is the **whole** grant. An admin approving it is
-   approving arbitrary command execution, not a bounded runner. The manifest's
-   `purpose` string is the only place that can say so honestly.
-2. `run_command`'s allowlist/cwd/timeout/caps are a **defence the extension owes
-   its own users**, not a sandbox. They must be implemented as a single
-   chokepoint (§3.1) with no second spawn path anywhere in the extension.
-3. The **nested jail is the only real containment** — and it is opt-in, assembled
-   by the extension from two host-baked env vars. §3.1 specifies it as
-   mandatory, not best-effort.
+`permissions.shell: true` is the whole grant — an admin approving it approves
+arbitrary command execution, not a bounded runner, and every bound would be a
+promise verifiable only by reading the extension's source. Weigh that against the
+fact that **neither v1 template needs it**: `docs-factory` reads, drafts,
+validates and writes; `etl-factory` (§6.2, now filesystem-based) does the same.
+Nothing in v1 runs a command.
+
+Shipping an unbounded arbitrary-execution grant to enable zero v1 functionality
+is a bad trade, and a worse one for an extension whose premise is "anyone can
+install this and build factories" — the install prompt would read *"this
+extension may run arbitrary commands"* for a docs generator.
+
+`run_command` returns **with the git template**, post-v1, where it earns the
+grant and gets the full jail treatment. **Ported invariants 9, 10 and 11 defer
+with it** (design record §4), consistent with the git-specific invariants 1, 3
+and 4 already deferred. Phase 9 must not expect them.
 
 ### 1.2 fs is the opposite posture — always mediated, never raw
 
@@ -116,7 +123,6 @@ export default defineExtension({
       allowedModels: { anthropic: ["claude-haiku-4-5-20251001", "claude-sonnet-5", "claude-opus-5"] },
       maxCostCentsPerDay: 500,
     },
-    shell: true,
     filesystem: ["$CWD"],
     rbacScopes: [
       { name: "manage-jobs",  description: "Create, edit, enable/disable, delete jobs" },
@@ -137,11 +143,11 @@ export default defineExtension({
 | `triggers` | The entire point (C2). `maxCron/maxWebhooks: 25` matches the plan; `webhookPrefix` is a manifest-only namespace claim (C2 spec §2.1). | Required |
 | `workflows` | `names` are the three shipped assets; `allowDelegated` is what makes a background job able to run one at all (C3). `maxRunsPerHour: 60` bounds LLM spend. | Required |
 | `llm` | The three agents. `allowedModels` enumerated so a step cannot silently pick an unbudgeted model; `maxCostCentsPerDay: 500` is the hard spend bound. | Required |
-| `shell: true` | `run_command` only. **This is the largest grant in the manifest** (§1.1) and must carry a `purpose` string saying so. | Required for `run_command` — if `run_command` were cut from v1, this drops with it |
+| **`shell`** | **DROPPED.** It was needed only by `run_command`, which is cut (§1.1). `permissions.shell` un-poisons raw `Bun.spawn` with **no host enforcement** — an unbounded arbitrary-execution grant. Neither v1 template runs a command, so v1 requests it not at all. | **Dropped** |
 | `filesystem: ["$CWD"]` | `read_files`, `write_file`, `emit_artifact`. Project-scoped. | Required |
 | `rbacScopes` | Three-way least privilege: `run-job` ⊄ `manage-jobs` ⊄ `approve-gate`. Ported invariant 18. | Required |
 | `eventSubscriptions` | The console shows live run status without polling. Two direct-carrier events only. | Required |
-| **`network: []`** | **DROPPED.** `http_fetch` needs declared hosts, and *this* extension knows none — the hosts belong to whatever ETL job a user builds. Declaring `[]` grants nothing and declaring `["*"]` is indefensible. See §3.4. | **Dropped** |
+| **`network`** | **DROPPED.** `http_fetch` is cut (§4.4). The grant belongs to the *extension*, not the workflow, so a user forking a template cannot widen it — the tool could never work for its stated purpose. `["*"]` would be an SSRF grant no review should pass. | **Dropped** |
 | `settings` | Not needed — no instance-wide config in v1. | **Dropped** |
 | `secrets` | Not needed in v1 (no `gh` token; the git template is deferred). | **Dropped** |
 
@@ -222,45 +228,23 @@ The index keys are the residual risk (they *are* shared), so:
 
 ---
 
-## 4. The five tools
+## 4. The tools — three shipped, two cut
 
-### 4.1 `run_command` — the one a reviewer will attack
+### 4.1 `run_command` — **CUT from v1, deferred with the git template**
 
-**Given §1.1, this tool is a *self-imposed* bound, not a sandbox.** Specify it to
-the point where implementing it wrong requires ignoring the spec.
+Not shipped. See §1.1 for the reasoning: the SDK provides no mediated shell, so
+`permissions.shell` is an unbounded grant with no host enforcement, and neither
+v1 template needs it. `ez-factory` v1 therefore declares **no `shell`
+permission at all**.
 
-```ts
-input:  { command: string[], cwd?: string, timeoutMs?: number, env?: Record<string,string> }
-output: { exitCode: number, stdout: string, stderr: string, truncated: boolean, jailed: boolean }
-```
-
-Security envelope — **all seven mandatory, all in one chokepoint**:
-
-1. **argv array, never a string.** No `sh -c`, no shell interpolation, so
-   metacharacters are inert. A string input is rejected outright.
-2. **Allowlist on `command[0]`** — a fixed set from the job's declared toolchain,
-   resolved to an absolute path. Not a denylist.
-3. **cwd bound** to the project root or below, resolved via `realpath` and
-   re-checked after resolution (symlink escape).
-4. **Nested jail — mandatory when available** (ported invariant 9). Assemble
-   `[bun, shim, "--", ...cmd]` from `EZCORP_SANDBOX_TIER` +
-   `EZCORP_SANDBOX_SHIM`, rw set = the workspace + `/dev` only, with the project
-   root passed as the forbidden `.ezcorp/data` anchor. On `advisory` tier or a
-   missing shim, run unjailed **and set `jailed: false` in the output** so the
-   caller can see containment was unavailable — never silently.
-5. **Fail-safe widening** (invariant 10): any path-derived jail grant returns
-   `null` on anything unparseable; ambiguity never widens the rw set.
-6. **Hermetic, non-interactive env** (invariant 11):
-   `GIT_CONFIG_GLOBAL=/dev/null`, `GIT_TERMINAL_PROMPT=0`, no inherited
-   credentials, plus a fixed bot identity for any commit. A missing binary is
-   **exit 127, not a throw** — the runner boundary never throws.
-7. **Timeout (default 120s, cap 600s) and output cap (1 MB per stream)**, with
-   `truncated: true` when hit, and **secret redaction** over both streams before
-   they leave the tool (invariant 12).
-
-**One chokepoint.** Exactly one function in the extension may call `Bun.spawn`.
-A grep asserting that is an acceptance criterion (§9 row 1) — with no host
-enforcement, a second spawn path is an unbounded hole.
+When it returns with the git template it must carry, in one chokepoint with no
+second `Bun.spawn` path anywhere in the extension: argv-array-only (never
+`sh -c`), an allowlist on `command[0]`, a realpath-checked cwd bound, the
+**mandatory** nested jail assembled from `EZCORP_SANDBOX_TIER` +
+`EZCORP_SANDBOX_SHIM` with `jailed: false` surfaced when unavailable, fail-safe
+path widening, a hermetic non-interactive env (missing binary ⇒ exit 127, never
+a throw), timeout + output caps, and secret redaction — i.e. ported invariants
+9, 10 and 11.
 
 ### 4.2 `read_files`
 
@@ -290,26 +274,22 @@ optional sha256 precondition so a workflow that read-then-writes can detect a
 concurrent change (the workflow analogue of `withLock`, which does not span
 steps). Size cap 4 MB.
 
-### 4.4 `http_fetch` — **v1 posture: declared-host only, and this extension declares none**
+### 4.4 `http_fetch` — **CUT from v1**
 
-```ts
-input:  { url: string, method?: "GET"|"POST", headers?: …, body?: string, timeoutMs?: number }
-output: { status: number, headers: …, body: string, truncated: boolean }
-```
+Not shipped, and the reason is stronger than "the hosts are unknown": **the
+`network` grant belongs to the extension, not the workflow.** A user forking
+`etl-factory` forks the *workflow*; `ez-factory`'s declared hosts are unchanged.
+Reaching a new host requires forking and reinstalling the **extension** — the
+same manifest-only wall as cron and webhooks, one level up (design record, "The
+manifest-only pattern").
 
-The host gates every `fetch` per-host (`http.ts` — the sandbox-preload wraps
-`globalThis.fetch` itself, so SDK and raw calls are both gated). The hosts a
-factory needs belong to the **user's job**, not to `ez-factory`, and there is no
-runtime host-grant API.
+So shipping `http_fetch` would ship a tool that **cannot work for its stated
+purpose** — a capability that looks present and isn't. `ez-factory` declares no
+`network` permission; `["*"]` would be an SSRF grant no review should pass.
 
-**Therefore `http_fetch` ships in v1 but is inert until a fork declares hosts.**
-`network: []` is not declared in the manifest (§2.1). A user who wants
-`etl-factory` to fetch from `api.example.com` must fork the extension and declare
-it — which is honest, and the alternative (`network: ["*"]`) is an SSRF grant no
-review should pass. **Flagged for the lead as a product limitation of v1**, not a
-technical unknown: it makes `etl-factory` a template you must fork to use.
-
-Caps: 10 MB body, 30s timeout, no redirect to a non-declared host.
+It returns when the **dynamic network hosts** delta lands (design record,
+follow-up). Until then `etl-factory` is filesystem-based (§6.2), which still
+proves every engine property the template exists to demonstrate.
 
 ### 4.5 `emit_artifact`
 
@@ -422,21 +402,29 @@ steps:
 **Requires:** C1 (landed) · C4 `approval` · C7 `workflow` + `loop` + `when`.
 **Runnable from phase 4.**
 
-### 6.2 `etl-factory.workflow.yaml`
+### 6.2 `etl-factory.workflow.yaml` — filesystem-based
+
+Reads a dropped data file rather than fetching, since `http_fetch` is cut (§4.4).
+This still exercises **every engine property the template exists to prove** —
+deterministic transform, a schema gate, per-step models, and a conditional
+approval that clean runs skip — and it still proves the engine is not
+code-specific, which was the point of choosing ETL.
 
 ```yaml
 name: etl-factory
-description: Fetch, reshape, gate on schema, classify anomalies, ask a human only if needed.
+description: Ingest a data file, reshape it, gate on schema, ask a human only if anomalies appear.
 steps:
-  - name: fetch
+  - name: ingest
     kind: tool
-    tool: ez-factory__http_fetch
-    input: { url: "$input.url" }            # inert until a fork declares the host (§4.4)
+    tool: ez-factory__read_files
+    input: { globs: "$input.globs", maxFiles: "5" }
 
   - name: transform
     kind: transform
-    dependsOn: [fetch]
-    output: { rows: "$steps.fetch.output.body", fetchedAt: "{{ $input.now }}" }
+    dependsOn: [ingest]
+    output:
+      rows: "$steps.ingest.output.files"
+      ingestedAt: "{{ $input.now }}"
 
   - name: schema-ok
     kind: gate
@@ -462,11 +450,19 @@ steps:
     kind: tool
     tool: ez-factory__write_file
     dependsOn: [anomaly-gate]
+    when: { ref: $steps.anomaly-gate.output.choice, op: neq, value: abort }
     input: { path: "$input.outPath", content: $steps.transform.output.rows }
+
+  - name: artifact
+    kind: tool
+    tool: ez-factory__emit_artifact
+    dependsOn: [write]
+    input: { name: "etl-run.json", content: $steps.write.output }
 ```
 
-**Requires:** C4 `approval` · C7 `when`. **Runnable from phase 4**, except
-`fetch`, which needs a fork declaring the host (§4.4).
+**Requires:** C4 `approval` · C7 `when`. **Runnable in full from phase 4** — with
+`http_fetch` gone, nothing in this template is blocked on a permission the
+extension cannot hold.
 
 ### 6.3 `draft-and-verify.workflow.yaml`
 
@@ -483,7 +479,7 @@ a raw side-effecting step — the bound C7 preserves deliberately.
 | **1** (C1, landed) | Nothing — the extension does not exist | — |
 | **2** (C4) | A manual job running `etl-factory` minus `when`; an approval parking and resuming | conditional skip, sub-workflow loops |
 | **3** (C5) | The console linking to a real run trace with per-step cost | — |
-| **4** (C7) | **Both templates end-to-end, manually triggered.** The strongest pre-C3 demo | any automatic trigger |
+| **4** (C7) | **Both templates end-to-end, manually triggered** — and with `http_fetch` cut, `etl-factory` now needs no host grant, so both run complete. The strongest pre-C3 demo | any automatic trigger |
 | **5** (C2) | Creating cron/webhook triggers; the trigger fires and the handler runs | **the handler cannot run a workflow — `-32106`** (C2 spec §1.5) |
 | **6** (C6) | Forking a template into an editable project-scoped copy | — |
 | **7** (C3) | **The real product**: a cron job running a workflow as its consenting owner | — |
@@ -520,7 +516,7 @@ the trace. That is the whole reason C5 is in core.
 ## 9. Test plan and acceptance criteria
 
 **Coverage:** every `extensions/ez-factory/**` file → 100 in
-`scripts/coverage-thresholds.json`. The prompt builder, the five tools, the job
+`scripts/coverage-thresholds.json`. The prompt builder, the three shipped tools, the job
 store and the page builders are all pure or injectable-seam.
 
 **E2E:** `ez-factory-console.spec.ts` (`@evidence`),
@@ -530,9 +526,9 @@ store and the page builders are all pure or injectable-seam.
 
 | # | Criterion | Proven by |
 |---|---|---|
-| 1 | **Exactly one `Bun.spawn` call site** in the whole extension (§4.1). | Grep. With no host enforcement, a second path is an unbounded hole. |
-| 2 | `run_command` rejects a string command; argv only. | Named test. |
-| 3 | `jailed: false` is surfaced when the jail is unavailable, never silently omitted (§4.1 #4). | Test asserting the field on the advisory tier. |
+| 1 | **Zero `Bun.spawn` call sites, and no `shell` permission in the manifest** (§1.1, §4.1). | Grep for both. v1 requests no unbounded capability; a spawn appearing later must fail this. |
+| 2 | **No `network` permission, and no `http_fetch` tool** (§4.4). | Grep. Shipping either would be a capability that looks present and isn't. |
+| 3 | Every tool reaches the filesystem **only** via `ezcorp/fs.*`, never a raw primitive (§1.2). | Grep for `node:fs` / `Bun.file` in extension source. |
 | 4 | Every agent prompt passes the shared builder; no agent assembles its own. | Spy call-count, mirroring ported invariant 7's chokepoint pattern. |
 | 5 | The sanitizer stack runs in order and redacts (§5). | A prompt containing `sk-…`, `<\|im_start\|>` and `<<<<<<<` emerges clean. |
 | 6 | Every job mutation is inside `withLock`, and no packed-array write exists. | Grep for `storage.set` outside a lock; concurrent-write test asserting no lost update. |
@@ -556,13 +552,20 @@ store and the page builders are all pure or injectable-seam.
 
 ---
 
-## 10. Open questions for the lead
+## 10. Decisions taken (2026-07-29)
 
-1. **`http_fetch` is inert in v1** (§4.4). `etl-factory` becomes "fork and
-   declare your hosts" rather than "works out of the box". Accept, or cut
-   `http_fetch` from v1 and make `etl-factory` read from the filesystem instead?
-2. **`shell: true` is the largest grant in the manifest** and is unbounded by the
-   host (§1.1). Accept with the chokepoint discipline in §4.1, or defer
-   `run_command` to a later version and ship v1 with four tools?
-3. **The headline demo needs phase 7** (§7). Worth stating in the plan's §6 so
-   nobody schedules a phase-5 demo of a scheduled job.
+1. **`http_fetch`: CUT.** The `network` grant belongs to the extension, not the
+   workflow, so "fork and declare your hosts" means forking and reinstalling the
+   *extension* — the same manifest-only wall. Shipping it would ship a capability
+   that looks present and isn't. `etl-factory` is filesystem-based instead
+   (§6.2). Returns with the **dynamic network hosts** follow-up delta.
+2. **`run_command`: CUT.** `permissions.shell` is unbounded with no host
+   enforcement (§1.1) and neither v1 template needs it. Returns with the git
+   template; ported invariants 9, 10, 11 defer with it.
+3. **The phase-7 demo constraint is recorded** in §7 here and in the plan's §6.
+
+**Net effect — the headline property of v1:** `ez-factory` requests **no
+unbounded capability at all**. `storage`, `filesystem: ["$CWD"]` (host-mediated,
+realpath-checked, audited), `llm` (quota-capped), `triggers`, `workflows`. For an
+extension meant to be installed by anyone, that is a defensible install prompt
+and a product advantage — not a consolation for reduced scope.

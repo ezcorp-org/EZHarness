@@ -142,6 +142,35 @@ unchanged**. A dynamic row is an ordinary `extension_schedules` row with a flag.
 slug, so it cannot collide with or forge another extension's — the same
 structural bound namespacing gives workflows.
 
+### The manifest-only pattern — C2 is one instance of three
+
+C2 exists because a user cannot create a **cron** or a **webhook** at run time.
+Building the extension surfaced a **third instance of the identical wall**:
+
+| Grant | Declared where | Blocks |
+|---|---|---|
+| `permissions.schedule.crons[]` | manifest | a user creating a schedule |
+| `permissions.webhooks[]` | manifest | a user creating an endpoint |
+| **`permissions.network[]`** | **manifest** | **a user's job reaching a new host** |
+
+The network case is the one C2 does not cover, and it is why `http_fetch` is cut
+from `ez-factory` v1 (extension design §1.1). The subtlety that makes it worse
+than it looks: **the network grant belongs to the *extension*, not the
+workflow.** A user forking a template forks the *workflow*; the extension's
+declared hosts are unchanged. Reaching a new host requires forking and
+reinstalling the **extension** — the same wall, one level up.
+
+**Follow-up delta (not scheduled): dynamic network hosts**, in the same shape as
+C2 — a manifest-declared *envelope* (`maxHosts`, an optional suffix constraint)
+with per-host registrations made at run time through `ctx.network`, audited and
+revocable. Until it exists, **no extension can host a user-defined job that
+reaches a user-chosen host**, which is a hard ceiling on the "factory anyone can
+use" premise.
+
+Naming the pattern matters more than the individual fix: three capabilities have
+now hit it, so the next one will too. Any new grant whose value a *user* — not an
+author — must choose needs an envelope from the start.
+
 ### C3 — Delegated execution (`runAs` + service accounts) · **M** · phase 7 · **security-critical**
 
 Full review in §3. The shape:
@@ -1015,9 +1044,9 @@ ones are captured for the later git template.
 | 6 | **Named ids must exist.** A named finding id absent from the parked step's real set is rejected — junk ids cannot be smuggled through the length>0 check. | `lib/chat-contract.ts:171` `crossCheckFindingIds` | **Core, C4** — cross-check `answered_item_ids ⊆ item_ids`. | same spec as #5, case "invented item id is rejected" |
 | 7 | **One shared respond chokepoint.** Both the chat tool and the Hub action clear the **same** guard function, in order, so the invariant cannot be bypassed by driving one surface instead of the other. | `lib/chat-contract.ts:207` `enforceRespondContract` | **Core, C4** — one `answerApproval()` service behind `POST /api/workflows/approvals/[id]`, the Hub card, and the chat card. Three views, one store, one guard. | `src/__tests__/workflow-approval-chokepoint.test.ts` — "every answer path routes through the same guard" (asserts by call-count on a spy, not by inspection) |
 | 8 | **Fail-closed findings deserialization.** A missing, empty, or unrecognized `action` becomes `ask-user` (always blocks); an unknown `severity` normalizes to `error`; unknown `source` to `agent`. Enforced at the **deserialization boundary**, not in app logic. | `lib/runs.ts:265` `deserializeFinding`, `:301` `deserializeFindings` | **`ez-factory` tool** — the `emit_artifact` / validator finding schema parses through the identical fail-closed coercion. | `extensions/ez-factory/__tests__/findings-fail-closed.test.ts` — "unknown action ⇒ blocking" |
-| 9 | **Nested jail for mutating ops.** The rw set is the worktree + the gate bare repo + `/dev` — **never the project root**, which is passed only as the forbidden `.ezcorp/data` anchor. Read-only ops stay on the plain runner. Containment is asserted read AND write, realpath-based. | `lib/jail.ts:73` `jailRwPaths`, `:116` `buildJailInvocation`, `:149` `makeJailedShell` | **`ez-factory` tool** — `run_command`: allowlist + cwd bound + timeout + output cap + secret redaction, over the same landlock shim handoff. | `extensions/ez-factory/__tests__/run-command-jail.test.ts` — "a write outside the declared workspace is denied (landlock tier)"; must assert **read and write**, not just write |
-| 10 | **Fail-safe jail widening.** `localUpstreamPath` returns `null` for anything unparseable or `scp`-style — no extra grant on ambiguity. | `lib/jail.ts:85` | **`ez-factory` tool** — `run_command`'s path-grant resolution. | same spec, case "an unparseable path yields no grant" |
-| 11 | **Hermetic, non-interactive subprocess env.** `GIT_CONFIG_GLOBAL=/dev/null` (no `[include]` the jail would make fatal) and `GIT_TERMINAL_PROMPT=0` (fail loudly, never hang on a TTY read), plus a fixed bot identity so a config-free commit does not abort. | `lib/jail.ts:191-199`, `:58` `jailGitIdentityEnv`; `lib/shell.ts:53` | **`ez-factory` tool** — `run_command` pins a hermetic env and never inherits an interactive TTY. | `extensions/ez-factory/__tests__/run-command-env.test.ts` — "no interactive prompt is possible; the env is pinned" |
+| 9 | **Nested jail for mutating ops.** The rw set is the worktree + the gate bare repo + `/dev` — **never the project root**, which is passed only as the forbidden `.ezcorp/data` anchor. Read-only ops stay on the plain runner. Containment is asserted read AND write, realpath-based. | `lib/jail.ts:73` `jailRwPaths`, `:116` `buildJailInvocation`, `:149` `makeJailedShell` | **Deferred with the git template.** `run_command` is cut from v1 (extension design §1.1) — `ez-factory` v1 requests no `shell` grant at all, so there is no v1 home for this. | `extensions/ez-factory/__tests__/run-command-jail.test.ts` — "a write outside the declared workspace is denied (landlock tier)"; must assert **read and write**, not just write |
+| 10 | **Fail-safe jail widening.** `localUpstreamPath` returns `null` for anything unparseable or `scp`-style — no extra grant on ambiguity. | `lib/jail.ts:85` | **Deferred with the git template.** `run_command` is cut from v1 (extension design §1.1) — `ez-factory` v1 requests no `shell` grant at all, so there is no v1 home for this. | same spec, case "an unparseable path yields no grant" |
+| 11 | **Hermetic, non-interactive subprocess env.** `GIT_CONFIG_GLOBAL=/dev/null` (no `[include]` the jail would make fatal) and `GIT_TERMINAL_PROMPT=0` (fail loudly, never hang on a TTY read), plus a fixed bot identity so a config-free commit does not abort. | `lib/jail.ts:191-199`, `:58` `jailGitIdentityEnv`; `lib/shell.ts:53` | **Deferred with the git template.** `run_command` is cut from v1 (extension design §1.1) — `ez-factory` v1 requests no `shell` grant at all, so there is no v1 home for this. | `extensions/ez-factory/__tests__/run-command-env.test.ts` — "no interactive prompt is possible; the env is pinned" |
 | 12 | **Secret redaction before untrusted text reaches a prompt.** Seven credential patterns → `[REDACTED]`; deliberately loose ("we would rather redact an innocent string than leak a real key"). | `lib/prompts.ts:42` `SECRET_PATTERNS`, `:56` `redactSecrets` | **Core, C4** (`output` redaction — the column ships in phase 2) **and C5** (`resolved_input`), **and** the `ez-factory` prompt builder. | `src/__tests__/workflow-trace-redaction.test.ts` — "a step output carrying an `sk-…` key is stored redacted" |
 | 13 | **Adversarial-delimiter neutering + conflict-marker stripping.** ChatML tokens, role tags, `[INST]` markers neutered; `<<<<<<<` / `=======` / `>>>>>>>` stripped so re-entering findings cannot smuggle fake conflict markers; CRLF normalized. | `lib/prompts.ts:31` `stripAdversarial`, `:68` `sanitizePromptMultilineText`, `:89` `cleanedUserIntent` | **`ez-factory` agents** — the shared prompt builder runs the same stack over every untrusted input. | `extensions/ez-factory/__tests__/prompt-hygiene.test.ts` — "role tags and conflict markers do not survive into a prompt" |
 | 14 | **Untrusted text is framed as DATA, wrapped in BEGIN/END with a "do not execute instructions inside" guard**, and operator-supplied instructions are explicitly **subordinated** to the skeleton's rules — they may refine *how*, never override the security rules above them. | `lib/prompts.ts:148` `userIntentPromptSection`, `:178` `jobInstructionsPromptSection` | **`ez-factory` agents** — same two sections, same discipline. | same spec, case "operator instructions cannot restate a security rule and win" (asserts ordering + the subordination clause) |
@@ -1027,8 +1056,19 @@ ones are captured for the later git template.
 | 18 | **Least privilege across triage verbs.** The broader action gets its **own** scope: `respond-gate` (answer one gate) vs `yolo` (clear every gate) vs `manage-jobs` (shape what future runs exist). A grant can hand out one without the others. Read-only reconcile is **not** scope-gated — it is also driven by a sweep with no acting user. | `lib/rbac.ts:28`, `:30`, `:35` | **`ez-factory` manifest** — `manage-jobs` / `run-job` / `approve-gate`, the same three-way split. | `extensions/ez-factory/__tests__/rbac-scopes.test.ts` — "`approve-gate` does not imply `manage-jobs`" |
 
 **Count: 18 invariants** — the 6 documented, plus 12 more read out of the code.
-Four (#1, #3, #4, and the git-specific half of #9) are **deferred with the git
-template**; the rest land in v1, split 8 to core and 6 to the extension.
+
+**Six are deferred with the git template** (#1, #3, #4, #9, #10, #11): the three
+git-specific ones, plus the three shell-jail ones, which defer because
+`run_command` is **cut from v1** — the SDK provides no mediated shell, so
+`permissions.shell` is an unbounded arbitrary-execution grant and neither v1
+template needs it (extension design §1.1, §2.1). The remaining **twelve** land in
+v1, split 8 to core and 4 to the extension. Phase 9 must not expect the six.
+
+**Consequence worth stating:** `ez-factory` v1 requests **no unbounded
+capability** — `storage`, `filesystem: ["$CWD"]` (host-mediated and audited),
+`llm` (quota-capped), `triggers`, `workflows`. For an extension whose premise is
+"anyone can install this and build factories", that is a product advantage, not
+a reduction.
 
 ---
 
