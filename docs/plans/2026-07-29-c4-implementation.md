@@ -5,11 +5,12 @@
 **Implements:** C4 of [2026-07-29-ez-factory-design.md](2026-07-29-ez-factory-design.md)
 **Scope:** `src/runtime/`, `src/db/`, `web/src/routes/api/workflows/**`, `web/src/routes/(app)/workflows/**`
 
-> **Citation anchor.** Every `file.ts:line` was read and verified at commit
-> **`0b2cb260`** (its `src/**` tree is identical to `40d57aae`). Phase 1 is in
-> flight and uncommitted in this worktree; it shifts `workflow-executor.ts`,
-> `workflow-runs.ts`, `schema.ts` and `types.ts` downward. Anchor on the
-> **symbol name**, not the number. §8 lists the phase-1 deltas C4 inherits.
+> **Citation anchor.** Every `file.ts:line` was read and verified at
+> **`5b33d731`**, whose `src/**` tree includes **phase 1 complete**
+> (`0c88c133` + `7c31806c`). Citations were originally taken pre-phase-1 and
+> **re-anchored on 2026-07-29** — 39 updates, each spot-checked to land on its
+> named symbol. Anchor on the **symbol name**, not the number. §8 lists the
+> phase-1 deltas C4 inherits.
 
 **Read §1 first.** The design record's stated suspend-before-await rule is
 **wrong**, and §1 replaces it. §9 lists everything else C4's detail proves wrong
@@ -34,14 +35,14 @@ Every `await` in `src/runtime/workflow-executor.ts`:
 
 | # | Line | Await | At a step boundary? |
 |---|---|---|---|
-| A1 | `:186-188` | `persistWrite("insert", …)` → `getWorkflowByName` + `insertWorkflowRun` | **Yes** — before any step dispatches |
-| A2 | `:372` | `Promise.all(promises)` — the whole batch | **No.** N steps concurrently in flight |
-| A3 | `:333` | `this.runStep(…)` inside each step promise | **No.** This *is* the step |
-| A4 | `:559` | `this.agentExecutor.runAgent(…)` | **No.** An LLM call is in flight |
-| A5 | `:753` | `toolCtx.scope.run(…)` — the tool dispatch | **No.** Side effects may already be applied |
-| A6 | `:613` | `runAgentAttempt(…)` inside `runLoop` | **No.** Mid-iteration |
-| A7 | `:440` | `persistWrite("finalize", …)` | Terminal — the run is over |
-| — | `:535` | `runAgentAttempt(…)` inside `runAgentStep` | Same as A4, one frame up |
+| A1 | `:189-191` | `persistWrite("insert", …)` → `getWorkflowByName` + `insertWorkflowRun` | **Yes** — before any step dispatches |
+| A2 | `:383` | `Promise.all(promises)` — the whole batch | **No.** N steps concurrently in flight |
+| A3 | `:340` | `this.runStep(…)` inside each step promise | **No.** This *is* the step |
+| A4 | `:577` | `this.agentExecutor.runAgent(…)` | **No.** An LLM call is in flight |
+| A5 | `:780` | `toolCtx.scope.run(…)` — the tool dispatch | **No.** Side effects may already be applied |
+| A6 | `:639` | `runAgentAttempt(…)` inside `runLoop` | **No.** Mid-iteration |
+| A7 | `:451` | `persistWrite("finalize", …)` | Terminal — the run is over |
+| — | `:550` | `runAgentAttempt(…)` inside `runAgentStep` | Same as A4, one frame up |
 
 Of eight await sites, exactly **one** (A1) precedes a step and one (A7) follows
 the last. **The five that matter are all inside a step.**
@@ -73,10 +74,10 @@ side of a step boundary it is on — not by lying about the status.
 
 1. **`run_phase`** (`'boundary' | 'in-batch'`) is written **synchronously and
    strictly**:
-   - `'in-batch'` immediately before A2 (`:372`), flushed before the batch
+   - `'in-batch'` immediately before A2 (`:383`), flushed before the batch
      dispatches;
    - `'boundary'` immediately after the batch resolves and the cursor advances
-     (after `:378`).
+     (after `:389`).
 2. **`suspended` is written ONLY by a deliberate park** — an `approval` step, a
    stale-consent hold (C3), or a quota hold. By construction those happen at a
    boundary: an `approval` step parks *before* dispatching anything.
@@ -100,7 +101,7 @@ on a column the executor maintained honestly. That is the honest version of
 
 ### 1.5 The sub-finding that makes or breaks it: `persistWrite` swallows errors
 
-`persistWrite` (`src/runtime/workflow-executor.ts:151-158`) is documented as:
+`persistWrite` (`src/runtime/workflow-executor.ts:154-161`) is documented as:
 
 > Never throws and never blocks the run: a DB glitch must not fail a workflow
 > that otherwise succeeded (same contract as `persistToolCall`).
@@ -143,7 +144,7 @@ record's §7.3 and §2.3 are corrected accordingly in §9.
 
 **`awaiting_approval` is not reused.** It keeps exactly today's meaning: a
 sensitive-capability tool step failed closed and the run is parked *and dead*
-(`workflow-executor.ts:401-421`, type at `src/types.ts:215`). Reusing it for the
+(`workflow-executor.ts:412-432`, type at `src/types.ts:266`). Reusing it for the
 new `approval` step would retroactively make every historical
 `awaiting_approval` row look resumable. The new step kind produces `suspended`.
 
@@ -180,14 +181,14 @@ type WorkflowCursor = {
 };
 ```
 
-`resolveExecutionOrder` (`workflow-executor.ts:651-688`) is **pure and
+`resolveExecutionOrder` (`workflow-executor.ts:678-715`) is **pure and
 deterministic**: the no-deps path emits one step per batch in declaration order
-(`:654-657`), and the topo path iterates `steps` in declaration order within each
-batch (`:666-672`). So recomputing it on resume from the same definition yields
+(`:681-684`), and the topo path iterates `steps` in declaration order within each
+batch (`:693-699`). So recomputing it on resume from the same definition yields
 byte-identical batches, and `batchIndex` is a stable coordinate.
 
 **Reproducing `$prev`.** Today `prevResult = results[results.length - 1]`
-(`:378`) — the last element of the batch's results array, which by the ordering
+(`:389`) — the last element of the batch's results array, which by the ordering
 above is `batch[batch.length - 1]`. On resume:
 
 ```ts
@@ -203,13 +204,13 @@ documented fragility.
 
 ### 2.4 Rebuilding `stepResults` — and the blocking dependency
 
-`stepResults` is an in-memory `Map<string, AgentResult>` (`:199`) that **any**
+`stepResults` is an in-memory `Map<string, AgentResult>` (`:202`) that **any**
 later step can address via `$steps.<name>` — not just the immediately preceding
 batch. A resumed run must rehydrate the whole map.
 
 **`workflow_step_runs` does not store step output today.** The upsert payload is
 `{ workflowRunId, stepName, runId, status, iterations }`
-(`src/db/queries/workflow-runs.ts:66-74`, written at `:84-99`). There is nowhere
+(`src/db/queries/workflow-runs.ts:66-79`, written at `:94-113`). There is nowhere
 to read a completed step's result from.
 
 **Therefore C4 cannot resume anything until `workflow_step_runs.output` exists.**
@@ -230,8 +231,8 @@ secret scrubber (design record §4, invariant #12).
 
 ### 2.5 A looped step's partial progress
 
-`runLoop` (`:583-649`) stamps `stepRun.iterations = i` after each iteration and
-calls `emitStep()` (`:627-628`), which persists. A crash mid-loop is `in-batch`,
+`runLoop` (`:608-676`) stamps `stepRun.iterations = i` after each iteration and
+calls `emitStep()` (`:654-655`), which persists. A crash mid-loop is `in-batch`,
 so by §1.4 it is **not resumable** — it fails closed with the recorded
 `iterations` telling the operator how far it got. *Retry from step N* restarts
 the loop at iteration 1.
@@ -243,29 +244,29 @@ against a result the new process never produced.
 ### 2.6 Where suspension exits `runWorkflow`
 
 Two structural obstacles in the current control flow, both in the `finally`
-(`:429-447`):
+(`:440-458`):
 
-1. **`finalizeWorkflowRunRow` is called unconditionally** (`:440-446`) and its
+1. **`finalizeWorkflowRunRow` is called unconditionally** (`:451-457`) and its
    parameter type `TerminalWorkflowRunStatus`
    (`src/db/queries/workflow-runs.ts:28-32`) correctly excludes `suspended`. A
    suspended run must not pass through it.
-2. **`approvalScope.end()`** (`:434`) and
-   **`toolCallsThisTurn.delete(scopeKey)`** (`:439`) must still run — the process
+2. **`approvalScope.end()`** (`:445`) and
+   **`toolCallsThisTurn.delete(scopeKey)`** (`:450`) must still run — the process
    is releasing the run and nothing may outlive it.
 
 Implementation: a `WorkflowSuspendedError` sentinel thrown from the step
 dispatcher, caught in the existing `catch` alongside `WorkflowApprovalRequiredError`
-(`:401`), setting `workflowRun.status = "suspended"` and a `suspended` flag the
+(`:412`), setting `workflowRun.status = "suspended"` and a `suspended` flag the
 `finally` checks before calling the finalizer. The scope teardown stays
 unconditional.
 
 On resume the scope is re-established with the **same** key, because
-`workflowScopeKey(runId)` is deterministic (`:127-129`) — a pure function of the
+`workflowScopeKey(runId)` is deterministic (`:130-132`) — a pure function of the
 run id. That is what makes a resumed run's tool steps land in the same
 non-interactive scope, with the same fail-closed PDP behaviour.
 
 **Accepted semantic change:** `toolCallsThisTurn` is keyed by the scope key and
-deleted on suspend (`:439`), so a resumed run starts with a fresh per-turn
+deleted on suspend (`:450`), so a resumed run starts with a fresh per-turn
 tool-call budget. Document it; do not try to persist the counter — it is a
 runaway-loop guard, not an accounting ledger, and persisting it would make a
 long-parked run un-resumable for a reason no operator could diagnose.
@@ -426,13 +427,13 @@ Every existing caller, and why the absent header leaves it byte-identical.
 | **Run route (sync)** | `web/src/routes/api/workflows/[name]/run/+server.ts:32` | Header absent ⇒ same inline `await runWorkflow(...)`, same returned `WorkflowRun`, same 200. The body schema (`:14-16`) is untouched, so the `.loose()` input contract and the documented `projectId` split (`:31`) are unchanged. |
 | **CLI `workflow run`** | `src/cli.ts:447-461` | Never sets the header; `runWorkflow`'s positional signature is unchanged (new state is on the row, not the parameter list). Exit code stays `run.status === "success" ? 0 : 1` (`:461`). **New reachable path — see §5.1.** |
 | **Extension trigger** | `src/extensions/workflows-handler.ts:427` | Fire-and-forget by design (`:420-453`); it already ignores the terminal status except for one log line (`:438-445`). A `suspended` outcome logs identically. The `-32106` ownerless refusal (`:291-311`) is untouched. |
-| **Boot orphan sweep** | `src/db/queries/workflow-runs.ts:162`, predicate `:176` | Predicate is `status='running' AND started_at < cutoff`; `suspended` is excluded **structurally**, no change needed for that. It gains the lease predicate per §1.4 and keeps its single-select shape. |
-| **`finalizeWorkflowRunRow`** | `:114`, CAS `:126` | CAS on `status='running'`. Widened to `status IN ('running','suspended')` for the cancel-while-parked path; the zero-row-no-op contract and the "never clobber a richer terminal state" guarantee are preserved. |
+| **Boot orphan sweep** | `src/db/queries/workflow-runs.ts:190`, predicate `:190` | Predicate is `status='running' AND started_at < cutoff`; `suspended` is excluded **structurally**, no change needed for that. It gains the lease predicate per §1.4 and keeps its single-select shape. |
+| **`finalizeWorkflowRunRow`** | `:128`, CAS `:140` | CAS on `status='running'`. Widened to `status IN ('running','suspended')` for the cancel-while-parked path; the zero-row-no-op contract and the "never clobber a richer terminal state" guarantee are preserved. |
 | **Client store** | `web/src/lib/stores.svelte.ts` | `workflow:start` prepends, `:step`/`:complete`/`:error` replace by id. Resume must not re-emit `workflow:start` (§3.3 rule 3) or a parked job renders twice. |
 | **`/workflows/[name]`** | route page | Renders `store.workflowRuns`; `suspended` needs a badge, nothing breaks without one. |
-| **`WorkflowRunStatus` consumers** | `src/types.ts:215` | Anything branching `=== "error"` will not match `suspended` — the same documented trap `awaiting_approval` already carries (`workflows.md:243`). Audit `web/src/lib/workflow-run-display.ts` and the CLI. |
+| **`WorkflowRunStatus` consumers** | `src/types.ts:266` | Anything branching `=== "error"` will not match `suspended` — the same documented trap `awaiting_approval` already carries (`workflows.md:243`). Audit `web/src/lib/workflow-run-display.ts` and the CLI. |
 | **Demo workflows** | `src/agents/demo-*.workflow.yaml` | No `approval` step ⇒ never suspend. `workflows-demos.spec.ts` must pass unmodified — that is the phase's regression canary. |
-| **Authoring chain** | `src/agents/extension-author.workflow.yaml` | Still terminalizes `awaiting_approval` via `WorkflowApprovalRequiredError` (`workflow-executor.ts:401-421`). C4 does not touch that path. |
+| **Authoring chain** | `src/agents/extension-author.workflow.yaml` | Still terminalizes `awaiting_approval` via `WorkflowApprovalRequiredError` (`workflow-executor.ts:412-432`). C4 does not touch that path. |
 
 ### 5.1 The CLI's new exit path — the sharpest one
 
@@ -557,7 +558,8 @@ introducing a single new run state.
 
 ## 8. Phase-1 deltas C4 inherits
 
-Phase 1 is uncommitted in this worktree at the time of writing. C4 builds on it:
+Phase 1 is **complete and validated** (`0c88c133` + `7c31806c`; typecheck green,
+192 workflow tests passing). C4 builds on it:
 
 - `WorkflowStep.model` + `WorkflowDefinition.defaultModel` (`src/types.ts`) — the
   cursor does **not** need to capture these; they are re-read from the definition
@@ -582,12 +584,12 @@ Phase 1 is uncommitted in this worktree at the time of writing. C4 builds on it:
 
 | # | Design record said (pre-fold-back) | Reality | Fix |
 |---|---|---|---|
-| 1 | §7.3, §2.3: "transition to `suspended` **before** every await point". | Holds at 1 of 8 await sites. At A5 (`tool` dispatch, `workflow-executor.ts:753`) it would mark a run resumable while side effects are mid-flight — contradicting ported invariant #16. | Replace with §1.4 commit-at-boundary / claim-with-lease / decide-at-recovery. |
+| 1 | §7.3, §2.3: "transition to `suspended` **before** every await point". | Holds at 1 of 8 await sites. At A5 (`tool` dispatch, `workflow-executor.ts:780`) it would mark a run resumable while side effects are mid-flight — contradicting ported invariant #16. | Replace with §1.4 commit-at-boundary / claim-with-lease / decide-at-recovery. |
 | 2 | §2.1, §2.4: `workflow_step_runs.output` is a **C5** column (phase 3). | Resume rehydrates `stepResults` from it. Without it C4 **cannot resume at all**. | `output` moves into C4 (phase 2). The rest of C5's telemetry stays in phase 3. |
-| 3 | §2.3 does not mention `persistWrite`. | `persistWrite` swallows every error by contract (`:151-158`). A dropped cursor write silently re-executes a completed batch. | Add `persistCritical`, strict, exactly three call sites. |
+| 3 | §2.3 does not mention `persistWrite`. | `persistWrite` swallows every error by contract (`:154-161`). A dropped cursor write silently re-executes a completed batch. | Add `persistCritical`, strict, exactly three call sites. |
 | 4 | §2.3: `resumable` is written "at suspend time" by the executor. | The executor cannot know: at suspend time it is at a boundary by construction, so the flag is always `true`. The interesting case is a *crash*, decided by the sweep. | `resumable` is written by the **sweep**, from `run_phase`. |
 | 5 | §2.3 is silent on eventing. | Re-emitting `workflow:start` on resume duplicates the run in `store.workflowRuns` (`workflows.md:130`). | `resumeWorkflow` emits only `workflow:step` + terminal events. |
-| 6 | §2.3 says widen the `finalizeWorkflowRunRow` CAS and treats that as sufficient. | Necessary but not sufficient: the `finally` (`:429-447`) calls the finalizer **unconditionally**, and `TerminalWorkflowRunStatus` (`workflow-runs.ts:28-32`) correctly excludes `suspended`. | The `finally` needs a `suspended` guard around the finalize; scope teardown stays unconditional. |
+| 6 | §2.3 says widen the `finalizeWorkflowRunRow` CAS and treats that as sufficient. | Necessary but not sufficient: the `finally` (`:440-458`) calls the finalizer **unconditionally**, and `TerminalWorkflowRunStatus` (`workflow-runs.ts:28-32`) correctly excludes `suspended`. | The `finally` needs a `suspended` guard around the finalize; scope teardown stays unconditional. |
 | 7 | §2.3 does not address definition drift. | A run suspended for a day may resume against an **edited** definition — different batches, a `cursor.batchIndex` pointing somewhere else entirely. | Until C6 ships versioning, store a `definition_hash` on the run and **fail closed** (`error`, `definition-changed`) when it differs on resume. C6 then replaces the hash with `definition_version_id`. **This is a new requirement the design record missed entirely.** |
 | 8 | §1's C4 table lists `run_as` among the columns C4 adds. | `run_as` is meaningless until C3 (phase 7) and would ship as a permanently-NULL column with no writer. | Defer `run_as` / `delegation_id` to C3's migration; C4 adds only `job_ref` and `idempotency_key`. |
 
