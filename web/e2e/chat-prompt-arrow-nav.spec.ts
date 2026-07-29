@@ -137,6 +137,36 @@ const history = Array.from({ length: 60 }, (_, i) =>
 	}),
 );
 
+// A second conversation holding exactly ONE turn — one prompt plus an answer
+// long enough that the turn itself overflows the viewport.
+const convSingle = makeConversation({
+	id: "conv-single",
+	projectId: "proj-1",
+	title: "Conv single",
+	updatedAt: "2026-01-01T00:02:00.000Z",
+});
+const singleTurn = [
+	makeMessage({
+		id: "msg-S-1",
+		conversationId: "conv-single",
+		role: "user",
+		content: "The one and only prompt in this conversation.",
+		parentMessageId: null,
+		createdAt: "2026-01-01T00:00:00.000Z",
+	}),
+	makeMessage({
+		id: "msg-S-2",
+		conversationId: "conv-single",
+		role: "assistant",
+		content: Array.from(
+			{ length: 40 },
+			(_, i) => `answer paragraph ${i} — padding so this single turn scrolls.`,
+		).join("\n\n"),
+		parentMessageId: "msg-S-1",
+		createdAt: "2026-01-01T00:00:01.000Z",
+	}),
+];
+
 test.describe("chat prompt arrow-key navigation", () => {
 	test("Left scrolls up to the previous prompt; Right scrolls back down", async ({
 		page,
@@ -470,5 +500,68 @@ test.describe("chat prompt arrow-key navigation", () => {
 			await distanceFromBottom(),
 			"ArrowLeft at the top must NOT wrap to the bottom",
 		).toBeGreaterThan(150);
+	});
+
+	test("a one-turn conversation pages the turn: Right to the bottom, Left back to the top", async ({
+		page,
+	}) => {
+		// One prompt and its (long) answer — a conversation you have just
+		// started. There is no other prompt to step to, so the arrows show the
+		// start and the end of the turn instead of doing nothing.
+		await installFakeTransports(page);
+		await setupApiMocks(page, {
+			projects: [proj],
+			conversations: [convSingle],
+			messages: singleTurn,
+			routes: { "active-run": () => ({ runId: null }) },
+		});
+
+		await page.goto(`/project/proj-1/chat/${convSingle.id}`);
+		await expect(page.getByText(/answer paragraph 39/)).toBeVisible({
+			timeout: 8000,
+		});
+		await page.waitForTimeout(150);
+
+		const distanceFromBottom = (): Promise<number> =>
+			page.evaluate(() => {
+				const el = document.querySelector(
+					'[data-testid="chat-messages-container"]',
+				) as HTMLElement;
+				return el.scrollHeight - el.clientHeight - el.scrollTop;
+			});
+
+		// Sanity: the single turn is taller than the viewport, so top and bottom
+		// are genuinely different places.
+		expect(await distanceFromBottom()).toBeLessThan(5); // opens at the bottom
+
+		await blurComposer(page);
+
+		await page.keyboard.press("ArrowLeft");
+		await page.waitForTimeout(150);
+		expect(
+			await containerScrollTop(page),
+			"ArrowLeft shows the start of the turn",
+		).toBeLessThan(5);
+		expect(
+			await distanceFromBottom(),
+			"...which is a long way from the bottom",
+		).toBeGreaterThan(150);
+
+		// Repeat presses hold at the top — never wrap.
+		await page.keyboard.press("ArrowLeft");
+		await page.waitForTimeout(120);
+		expect(await containerScrollTop(page)).toBeLessThan(5);
+
+		await page.keyboard.press("ArrowRight");
+		await page.waitForTimeout(150);
+		expect(
+			await distanceFromBottom(),
+			"ArrowRight shows the end of the turn",
+		).toBeLessThan(5);
+
+		// And holds there.
+		await page.keyboard.press("ArrowRight");
+		await page.waitForTimeout(120);
+		expect(await distanceFromBottom()).toBeLessThan(5);
 	});
 });
