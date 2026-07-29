@@ -196,6 +196,22 @@ export type { WebhookHandler, WebhookFireContext } from "./webhook";
 export { Workflows } from "./workflows";
 export type { WorkflowRunAccepted } from "./workflows";
 
+// Dynamic (runtime-registered) cron + webhook triggers — the tier above
+// `Schedule`/`Webhook`, which are manifest-declared. Keyed on `key`, so two
+// jobs may share a cron expression and stay distinguishable.
+export { Triggers, __resetTriggersForTests } from "./triggers";
+export type {
+  TriggerKind,
+  TriggerHandler,
+  TriggerFireContext,
+  RegisterOpts,
+  RegisterCronOpts,
+  RegisterWebhookOpts,
+  RegisteredTrigger,
+  CronTrigger,
+  WebhookTrigger,
+} from "./triggers";
+
 // ── Loop primitive (defineLoop) ─────────────────────────────────────
 
 export {
