@@ -384,5 +384,6 @@
   "packages/@ezcorp/ai-kit/src/mcp/tools/orchestrate.ts": 100,
   "packages/@ezcorp/ai-kit/src/**": 94,
   "src/extensions/triggers-handler.ts": 100,
-  "src/extensions/triggers-store.ts": 100
+  "src/extensions/triggers-store.ts": 100,
+  "src/extensions/triggers-sweep.ts": 100
 }

@@ -110,6 +110,22 @@ let receiverInstalled = false;
 function installReceiver(): void {
   if (receiverInstalled) return;
   receiverInstalled = true;
+
+  // The host's orphan sweep asks, on extension start, which keys are still
+  // live. Answering from the HANDLER REGISTRY is the honest answer: a key
+  // you have not wired a handler for cannot do anything when it fires.
+  //
+  // This responder is installed by `on()`, never at import. That is
+  // deliberate — an extension that has wired no handlers yet answers
+  // `-32601 Method not found`, which the host reads as "unknown, disable
+  // nothing" rather than as "zero live keys". Without that asymmetry, an
+  // extension that registers rows before wiring handlers would have every
+  // one of its users' jobs swept away on the next restart.
+  getChannel().onRequest("ezcorp/triggers-sync", async () => ({
+    v: 1,
+    keys: [...handlers.keys()],
+  }));
+
   getChannel().onRequest("ezcorp/trigger-fire", async (params: unknown) => {
     const ctx = params as TriggerFireContext;
     const handler = handlers.get(ctx.key);

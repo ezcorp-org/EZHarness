@@ -147,6 +147,52 @@ describe("list", () => {
   });
 });
 
+describe("the orphan-sync responder", () => {
+  /** Capture the `ezcorp/triggers-sync` responder the SDK installs. */
+  function captureSync() {
+    const ch: HostChannel = getChannel();
+    let responder: ((params: unknown) => Promise<unknown> | unknown) | undefined;
+    const spy = spyOn(ch, "onRequest");
+    spy.mockImplementation(((method: string, handler: (p: unknown) => Promise<unknown>) => {
+      if (method === "ezcorp/triggers-sync") responder = handler;
+    }) as HostChannel["onRequest"]);
+    return {
+      ask: () => responder?.({ v: 1, keys: [] }),
+      installed: () => responder !== undefined,
+    };
+  }
+
+  test("answers with the keys that have wired handlers", async () => {
+    // The honest answer: a key with no handler cannot do anything when it
+    // fires, so the host is right to sweep it.
+    const rx = captureSync();
+    const t = new Triggers();
+    t.on("job:a", () => {});
+    t.on("job:b", () => {});
+    expect(await rx.ask()).toEqual({ v: 1, keys: ["job:a", "job:b"] });
+  });
+
+  test("a key removed with `off` drops out of the answer", async () => {
+    const rx = captureSync();
+    const t = new Triggers();
+    t.on("job:a", () => {});
+    t.on("job:b", () => {});
+    t.off("job:a");
+    expect(await rx.ask()).toEqual({ v: 1, keys: ["job:b"] });
+  });
+
+  test("the responder is NOT installed until a handler is wired", () => {
+    // Load-bearing asymmetry: with no responder the host gets -32601 and
+    // reads it as "unknown — disable nothing", instead of as "zero live
+    // keys". Otherwise an extension that registers rows before wiring
+    // handlers would lose every one of its users' jobs on restart.
+    const rx = captureSync();
+    expect(rx.installed()).toBe(false);
+    new Triggers().on("job:a", () => {});
+    expect(rx.installed()).toBe(true);
+  });
+});
+
 describe("fire dispatch — keyed on `key`", () => {
   test("TWO JOBS SHARING A CRON reach their OWN handlers", async () => {
     // The regression this whole notification exists for.
