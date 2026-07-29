@@ -2033,10 +2033,75 @@ describe("the approval consent boundary is structural, not conventional", () => 
       startedAt: row!.startedAt,
     });
 
-    expect(smuggled.status).toBe("error");
     expect(smuggled.result?.error).toMatchObject({ code: "approval-pending" });
-    // The approval is still pending — the bypass decided nothing.
+
+    // THE ASSERTION THAT MATTERS, and the one whose absence let a
+    // critical defect through: read the ROW back, not the returned
+    // object. The first version of this guard terminalized the run it
+    // was protecting, so a single hostile `resumeWorkflow` call turned a
+    // blocked bypass into permanent denial of service — strictly worse
+    // than the attack it stopped. The returned object looked correct
+    // throughout.
+    const after = await getWorkflowRunRow(parked.id);
+    expect(after?.status).toBe("suspended");
+    expect(after?.finishedAt).toBeNull();
+    // Nothing decided, nothing destroyed.
     expect((await getWorkflowApproval(parked.id, "gate"))?.status).toBe("pending");
+    // And the refusal is reported as non-terminal on the way out too.
+    expect(smuggled.status).toBe("suspended");
+    expect(smuggled.finishedAt).toBeUndefined();
+  });
+
+  test("a refused bypass leaves the run answerable — the legitimate answer still works", async () => {
+    // The end-to-end consequence of the defect: after a hostile resume,
+    // the real human's answer must still complete the run. Previously
+    // the run was already dead and the chokepoint reported success
+    // anyway.
+    const bus = new EventBus<AgentEvents>();
+    const wf = new WorkflowExecutor(new AgentExecutor(loadAgentsStatic([]), bus), bus, {
+      persist: true,
+    });
+    const def: WorkflowDefinition = {
+      name: "bypass-then-answer",
+      description: "",
+      steps: [
+        { name: "gate", kind: "approval", prompt: "?", choices: ["approve"] } as WorkflowStep,
+      ],
+    };
+    const parked = await wf.runWorkflow(def, {}, undefined, undefined);
+    const row0 = await getWorkflowRunRow(parked.id);
+
+    // Hostile direct resume — must be a no-op.
+    await wf.resumeWorkflow(def, {
+      id: row0!.id,
+      workflowName: row0!.workflowName,
+      status: row0!.status,
+      input: row0!.input,
+      cursor: row0!.cursor,
+      definitionHash: row0!.definitionHash,
+      projectId: row0!.projectId,
+      userId: row0!.userId,
+      startedAt: row0!.startedAt,
+    });
+
+    // Now the legitimate path.
+    const approval = await getWorkflowApproval(parked.id, "gate");
+    await recordWorkflowApprovalAnswer(approval!.id, { choice: "approve", answeredBy: "user-1" });
+    const row1 = await getWorkflowRunRow(parked.id);
+    const resumed = await wf.resumeWorkflow(def, {
+      id: row1!.id,
+      workflowName: row1!.workflowName,
+      status: row1!.status,
+      input: row1!.input,
+      cursor: row1!.cursor,
+      definitionHash: row1!.definitionHash,
+      projectId: row1!.projectId,
+      userId: row1!.userId,
+      startedAt: row1!.startedAt,
+    });
+
+    expect(resumed.status).toBe("success");
+    expect((await getWorkflowRunRow(parked.id))?.status).toBe("success");
   });
 
   test("...and allows the resume once the approval is answered", async () => {

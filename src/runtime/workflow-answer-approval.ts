@@ -72,6 +72,7 @@ export type AnswerApprovalRefusal =
   | "forbidden"
   | "invalid-answer"
   | "run-unavailable"
+  | "resume-failed"
   | "lost-race";
 
 export interface AnswerApprovalDeps {
@@ -163,6 +164,18 @@ export async function answerApproval(
 
   const runtime = deps.runtime !== undefined ? deps.runtime : getWorkflowRuntime();
   const runRow = await getWorkflowRunRow(approval.workflowRunId);
+  // The run must actually be resumable. This check was PROMISED by the
+  // comment below and not implemented, which left the guarantee stated
+  // and false: a run terminalized while its approval was still pending
+  // would have its answer recorded and spent, then fail to resume, and
+  // the caller would be told it succeeded.
+  if (runRow && runRow.status !== "suspended") {
+    return {
+      ok: false,
+      code: "run-unavailable",
+      message: `Workflow run ${runRow.id} is ${runRow.status}, not suspended, so it cannot be resumed`,
+    };
+  }
   if (!runtime || !runRow) {
     // Refuse BEFORE recording: an answer written against a run we cannot
     // then resume would leave the approval `answered` and the run parked
@@ -226,5 +239,21 @@ export async function answerApproval(
     userId: runRow.userId,
     startedAt: runRow.startedAt,
   });
+  // A resume that came back `error` is NOT a successful answer. Returning
+  // `ok: true` here mapped to HTTP 200, telling the user their approval
+  // landed while the workflow was dead and their answer already spent.
+  // The answer IS recorded — the human really did decide — so the
+  // message says both things rather than pretending nothing happened.
+  if (run.status === "error") {
+    const detail =
+      run.result?.error && typeof run.result.error === "object"
+        ? run.result.error.message
+        : String(run.result?.error ?? "unknown error");
+    return {
+      ok: false,
+      code: "resume-failed",
+      message: `Your answer was recorded, but run ${run.id} could not continue: ${detail}`,
+    };
+  }
   return { ok: true, run, consentAllUsed };
 }

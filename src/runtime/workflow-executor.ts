@@ -346,14 +346,31 @@ export class WorkflowExecutor {
     };
     const userId = row.userId ?? undefined;
 
-    const refuse = async (code: string, message: string): Promise<WorkflowRun> => {
+    // ── Two kinds of refusal, and conflating them destroys runs ────────
+    //
+    // `refuseTerminal` is for a run that is genuinely DEAD — its
+    // definition changed under it, a completed step's output is gone, it
+    // was never suspended. Recording that is mandatory and goes through
+    // the STRICT path: a fail-closed decision written by a swallowable
+    // call is not fail-closed, because the row would stay `suspended`
+    // and the next tick would resume it anyway, forever.
+    //
+    // `refuseTransient` is for "not now, and that is fine" — the run is
+    // HEALTHY and waiting. It writes NOTHING, because the row is already
+    // exactly right, and it emits no `workflow:error`, because that
+    // event would replace a live run with an error card in the client
+    // store.
+    //
+    // The distinction is not cosmetic. Terminalizing a transient refusal
+    // turns a *blocked* bypass into permanent denial of service on the
+    // run being protected: an attacker who cannot get past the consent
+    // gate could instead destroy every approval-parked run, one direct
+    // call each — strictly worse than the attack the check exists to
+    // stop.
+    const refuseTerminal = async (code: string, message: string): Promise<WorkflowRun> => {
       workflowRun.status = "error";
       workflowRun.finishedAt = Date.now();
       workflowRun.result = { success: false, output: null, error: { code, message } };
-      // Through the STRICT path. This is the interaction the review looks
-      // for: a fail-closed decision recorded by a write that can be
-      // swallowed is not fail-closed at all — the row would stay
-      // `suspended` and the next tick would resume it anyway, forever.
       await this.persistCritical("resume-refusal", () =>
         finalizeWorkflowRunRow(workflowRun.id, "error", workflowRun.result),
       );
@@ -361,8 +378,16 @@ export class WorkflowExecutor {
       return workflowRun;
     };
 
+    const refuseTransient = (code: string, message: string): WorkflowRun => {
+      workflowRun.status = "suspended";
+      workflowRun.result = { success: false, output: null, error: { code, message } };
+      // No `finishedAt`, no DB write, no event. The run is untouched —
+      // which is the entire point.
+      return workflowRun;
+    };
+
     if (row.status !== "suspended") {
-      return refuse(
+      return refuseTerminal(
         "not-resumable",
         `Workflow run ${row.id} is ${row.status}, not suspended`,
       );
@@ -382,7 +407,7 @@ export class WorkflowExecutor {
     // time it reaches here nothing is pending and this is transparent to
     // the sanctioned path. Every other path is refused, whoever it is.
     if (await hasPendingApproval(row.id)) {
-      return refuse(
+      return refuseTransient(
         "approval-pending",
         `Workflow run ${row.id} is parked on an unanswered approval; ` +
           `it can only be resumed by answering that approval`,
@@ -394,7 +419,7 @@ export class WorkflowExecutor {
     // than a bare "changed".
     const currentHash = workflowDefinitionHash(workflow);
     if (row.definitionHash !== null && row.definitionHash !== currentHash) {
-      return refuse(
+      return refuseTerminal(
         "definition-changed",
         `Workflow "${row.workflowName}" changed while run ${row.id} was suspended ` +
           `(parked against ${row.definitionHash.slice(0, 12)}, now ${currentHash.slice(0, 12)}); ` +
@@ -408,7 +433,7 @@ export class WorkflowExecutor {
     // saw, which is a silent wrong answer rather than a loud failure.
     const loaded = await loadStepResults(row.id);
     if (!loaded.ok) {
-      return refuse("step-output-unavailable", `Cannot resume run ${row.id}: ${loaded.reason}`);
+      return refuseTerminal("step-output-unavailable", `Cannot resume run ${row.id}: ${loaded.reason}`);
     }
 
     return this.executeFrom({

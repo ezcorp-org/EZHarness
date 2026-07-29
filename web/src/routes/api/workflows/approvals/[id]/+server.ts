@@ -27,6 +27,8 @@ const STATUS: Record<string, number> = {
   "not-pending": 409,
   "lost-race": 409,
   "run-unavailable": 409,
+  // The answer landed; the run did not continue. 409, not 200.
+  "resume-failed": 409,
   "invalid-answer": 400,
 };
 

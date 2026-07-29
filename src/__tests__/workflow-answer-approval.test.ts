@@ -396,3 +396,76 @@ describe("the chokepoint is structurally single", () => {
     expect(callables).toEqual(["answerApproval"]);
   });
 });
+
+describe("answerApproval — never reports success for a dead run", () => {
+  test("refuses when the run is no longer suspended, before spending the answer", async () => {
+    // The guarantee the pre-flight comment promised and did not
+    // implement. A run terminalized while its approval was still
+    // pending would otherwise have its answer recorded and CONSUMED,
+    // then fail to resume, while the caller was told it worked.
+    const { runId, approvalId } = await seed();
+    await db.execute(sql`UPDATE workflow_runs SET status = 'error' WHERE id = ${runId}`);
+
+    const { runtime, resumed } = stubRuntime();
+    const res = await answerApproval(
+      approvalId,
+      { choice: "approve" },
+      { userId: "answerer" },
+      { runtime },
+    );
+
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error("expected refusal");
+    expect(res.code).toBe("run-unavailable");
+    expect(resumed).toEqual([]);
+    // The answer is NOT spent — the CAS is still available for a retry
+    // once whatever killed the run is understood.
+    expect((await getWorkflowApprovalById(approvalId))?.status).toBe("pending");
+  });
+
+  test("a resume that fails is reported as a refusal, not ok:true", async () => {
+    // Previously this returned `{ ok: true }`, which the route mapped to
+    // HTTP 200 — telling the user their approval succeeded while the
+    // workflow was dead and their answer already spent.
+    const { approvalId } = await seed();
+    const failing = {
+      workflowExecutor: {
+        async runWorkflow(): Promise<WorkflowRun> {
+          throw new Error("not exercised");
+        },
+        async resumeWorkflow(_w: WorkflowDefinition, row: { id: string }): Promise<WorkflowRun> {
+          return {
+            id: row.id,
+            workflowName: DEF.name,
+            status: "error",
+            startedAt: Date.now(),
+            finishedAt: Date.now(),
+            steps: [],
+            result: {
+              success: false,
+              output: null,
+              error: { code: "definition-changed", message: "graph drifted" },
+            },
+          };
+        },
+      },
+      getWorkflows: () => [DEF],
+    };
+
+    const res = await answerApproval(
+      approvalId,
+      { choice: "approve" },
+      { userId: "answerer" },
+      { runtime: failing },
+    );
+
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error("expected refusal");
+    expect(res.code).toBe("resume-failed");
+    // Honest on both counts: the human DID decide, and the run did not
+    // continue. Saying only one of those would mislead.
+    expect(res.message).toContain("Your answer was recorded");
+    expect(res.message).toContain("graph drifted");
+    expect((await getWorkflowApprovalById(approvalId))?.status).toBe("answered");
+  });
+});

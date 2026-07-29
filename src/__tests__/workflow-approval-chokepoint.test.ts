@@ -50,6 +50,9 @@ const guardModule = await import("../runtime/workflow-approval-guard");
 const { answerApproval } = await import("../runtime/workflow-answer-approval");
 const { parkWorkflowApproval } = await import("../db/queries/workflow-approvals");
 const { insertWorkflowRun } = await import("../db/queries/workflow-runs");
+const { registerWorkflowRuntime, _resetWorkflowRuntimeForTests } = await import(
+  "../runtime/workflow/runtime-registry"
+);
 
 const DEF: WorkflowDefinition = {
   name: "gated",
@@ -151,6 +154,41 @@ describe("every answer path routes through the one guard", () => {
     expect(spy.mock.calls.length).toBe(before + 1);
     spy.mockRestore();
   });
+
+  test("the REST route itself invokes the guard — the surface, not just the helper", async () => {
+    // Both tests above call `answerApproval` directly, which proves the
+    // CHOKEPOINT consults the guard but says nothing about whether the
+    // route reaches the chokepoint. A route that inlined the consent
+    // rules would pass them. So this drives the real handler.
+    const { POST } = await import(
+      "../../web/src/routes/api/workflows/approvals/[id]/+server"
+    );
+    // The route resolves its executor through the live registry rather
+    // than an injected dep — that indirection is the only legal route
+    // from `src/` to the web layer's executor, so the test registers a
+    // stub through the same seam.
+    registerWorkflowRuntime(stubRuntime());
+    const spy = spyOn(guardModule, "requireItemConsent");
+    const before = spy.mock.calls.length;
+
+    const approvalId = await seedApproval();
+    const res = (await POST({
+      request: new Request("http://x", {
+        method: "POST",
+        body: JSON.stringify({ choice: "approve" }),
+      }),
+      params: { id: approvalId },
+      locals: { user: { id: "u1", role: "member" } },
+      // Cast through `unknown`: a full SvelteKit RequestEvent carries a
+      // dozen fields the handler never reads, and stubbing them would
+      // add noise without adding coverage.
+    } as unknown as Parameters<typeof POST>[0])) as Response;
+
+    expect(res.status).toBe(200);
+    expect(spy.mock.calls.length).toBe(before + 1);
+    spy.mockRestore();
+    _resetWorkflowRuntimeForTests();
+  });
 });
 
 describe("nothing outside the chokepoint writes an answer", () => {
@@ -218,5 +256,23 @@ describe("nothing outside the chokepoint writes an answer", () => {
     expect(importers.map((f) => f.slice(REPO_ROOT.length + 1))).toEqual([
       "src/runtime/workflow-answer-approval.ts",
     ]);
+  });
+
+  test("only the queries module touches the workflow_approvals table", () => {
+    // The two scans above match IDENTIFIERS, so a surface that inlined
+    // the consent rules and wrote with raw drizzle against
+    // `workflowApprovals` would pass both. Today only the queries module
+    // and the schema touch that table, and this pins it — without it the
+    // structural property rests on a coincidence nobody is checking.
+    const touchers = [...sourceFiles("src"), ...sourceFiles("web/src")].filter((file) => {
+      const body = readFileSync(file, "utf8");
+      return (
+        body.includes("workflowApprovals") &&
+        !file.endsWith("db/queries/workflow-approvals.ts") &&
+        !file.endsWith("db/schema.ts")
+      );
+    });
+
+    expect(touchers.map((f) => f.slice(REPO_ROOT.length + 1))).toEqual([]);
   });
 });
