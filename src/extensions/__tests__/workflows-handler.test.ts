@@ -79,6 +79,12 @@ const HOST_WORKFLOW: WorkflowDefinition = {
 function registerRuntime(workflows: WorkflowDefinition[] = [SHIPPED, HOST_WORKFLOW]) {
   registerWorkflowRuntime({
     workflowExecutor: {
+      // Type-only: these doubles exercise the trigger path, which never
+      // resumes. Throws rather than returning a value so an accidental
+      // call fails loudly instead of silently passing.
+      async resumeWorkflow() {
+      throw new Error("resumeWorkflow is not exercised by this double");
+      },
       async runWorkflow(workflow, input, proj, uid) {
         started.push({
           workflow,
@@ -250,6 +256,12 @@ describe("accept path", () => {
     const blocked = new Promise<void>((r) => { release = r; });
     registerWorkflowRuntime({
       workflowExecutor: {
+        // Type-only: these doubles exercise the trigger path, which never
+        // resumes. Throws rather than returning a value so an accidental
+        // call fails loudly instead of silently passing.
+        async resumeWorkflow() {
+        throw new Error("resumeWorkflow is not exercised by this double");
+        },
         async runWorkflow(workflow) {
           await blocked;
           return {
@@ -306,6 +318,12 @@ describe("namespacing — an extension cannot reach the host's workflow", () => 
     let cache: WorkflowDefinition[] = [];
     registerWorkflowRuntime({
       workflowExecutor: {
+        // Type-only: these doubles exercise the trigger path, which never
+        // resumes. Throws rather than returning a value so an accidental
+        // call fails loudly instead of silently passing.
+        async resumeWorkflow() {
+        throw new Error("resumeWorkflow is not exercised by this double");
+        },
         async runWorkflow(workflow, input) {
           started.push({ workflow, input });
           return { id: "r", workflowName: workflow.name, status: "success", startedAt: 0, steps: [] };
@@ -616,6 +634,12 @@ describe("enforcement ladder — rejections", () => {
     // logged without changing the (already-sent) response.
     registerWorkflowRuntime({
       workflowExecutor: {
+        // Type-only: these doubles exercise the trigger path, which never
+        // resumes. Throws rather than returning a value so an accidental
+        // call fails loudly instead of silently passing.
+        async resumeWorkflow() {
+        throw new Error("resumeWorkflow is not exercised by this double");
+        },
         runWorkflow: () => Promise.reject(new Error("executor bug")),
       } as never,
       getWorkflows: () => [SHIPPED],
@@ -638,6 +662,12 @@ describe("enforcement ladder — rejections", () => {
   test("13. a synchronous dispatch failure is reported, not thrown", async () => {
     registerWorkflowRuntime({
       workflowExecutor: {
+        // Type-only: these doubles exercise the trigger path, which never
+        // resumes. Throws rather than returning a value so an accidental
+        // call fails loudly instead of silently passing.
+        async resumeWorkflow() {
+        throw new Error("resumeWorkflow is not exercised by this double");
+        },
         runWorkflow() {
           throw new Error("executor exploded");
         },

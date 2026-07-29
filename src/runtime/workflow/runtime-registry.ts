@@ -23,10 +23,18 @@
 import type { WorkflowDefinition } from "../../types";
 import type { WorkflowExecutor } from "../workflow-executor";
 
-/** The slice of `WorkflowExecutor` the reverse-RPC trigger consumes.
+/** The slice of `WorkflowExecutor` this registry's consumers use.
  *  Narrowed so tests can stub it without standing up the full executor
- *  (which needs an AgentExecutor + a bus). */
-export type WorkflowRuntimeExecutor = Pick<WorkflowExecutor, "runWorkflow">;
+ *  (which needs an AgentExecutor + a bus).
+ *
+ *  `resumeWorkflow` joined `runWorkflow` because answering an approval
+ *  continues a parked run, and the answer path lives in `src/` — it
+ *  cannot reach the web layer's executor any other way. This registry is
+ *  the only legal seam for it. */
+export type WorkflowRuntimeExecutor = Pick<
+  WorkflowExecutor,
+  "runWorkflow" | "resumeWorkflow"
+>;
 
 export interface WorkflowRuntime {
   workflowExecutor: WorkflowRuntimeExecutor;
