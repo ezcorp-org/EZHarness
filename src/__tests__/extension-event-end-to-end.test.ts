@@ -44,6 +44,11 @@ mock.module("$server/db/queries/conversations", () => ({
     conversationCalls.push(id);
     return mockConv;
   },
+  // The hub events route now imports this for gate-push spawn scoping
+  // (service conversation, P2 of the control plane). Returning null keeps
+  // this suite on the fail-closed path: token minted conversationless,
+  // exactly the pre-P2 behavior these cases assert.
+  getOrCreateExtServiceConversation: async () => null,
 }));
 mock.module("$server/db/queries/tool-calls", () => ({
   getToolCallConversationById: async (_id: string) => mockToolCall,

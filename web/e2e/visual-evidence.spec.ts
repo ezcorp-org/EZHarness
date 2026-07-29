@@ -1,3 +1,6 @@
+// re-evidence 2026-07-22: a covered surface changed in feat/hub-project-pages
+// (per-project hub pages + ECF control plane); this touch triggers the visual
+// evidence pipeline to re-capture this spec's screenshots for PR review.
 /**
  * Visual-evidence capture mechanism — e2e self-check, mockApi, no Docker.
  *

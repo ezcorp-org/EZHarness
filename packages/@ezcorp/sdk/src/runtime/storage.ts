@@ -3,9 +3,14 @@
 // Wraps the host's storage-handler (src/extensions/storage-handler.ts)
 // with a scoped, promise-returning class. Pre-send 1 MB guard mirrors
 // the host's MAX_VALUE_BYTES so callers fail fast instead of eating a
-// round-trip for a doomed `set`. Throttle backoff on error code
-// -32029 rides out transient rate-limit spikes with exponential
-// spacing from 20ms.
+// round-trip for a doomed `set`. Backoff rides out TRANSIENT rate-limit
+// spikes — both the throttle code (-32029) and the per-second token-bucket
+// limit (-32004, host MAX_OPS_PER_SECOND) — with exponential spacing from
+// 20ms; a persistent limit still surfaces on the final attempt.
+//
+// `list()` NORMALIZES its wire payload: the host returns `listStorageKeys()`
+// output verbatim, whose DB query yields row OBJECTS, not the bare strings the
+// declared `StorageListResult` promises (see `list` below).
 
 import { getChannel, JsonRpcError } from "./channel";
 
@@ -15,10 +20,19 @@ export type StorageScope = "global" | "conversation" | "user";
 // src/extensions/storage-handler.ts MAX_VALUE_BYTES.
 const MAX_VALUE_BYTES = 1 * 1024 * 1024;
 
-// -32029 throttle backoff — start 20ms, double each retry, 5 max.
+// Transient-limit backoff — start 20ms, double each retry, 5 max.
 const THROTTLE_BASE_DELAY_MS = 20;
 const THROTTLE_MAX_RETRIES = 5;
+// -32029: the storage handler's own throttle. -32004: the host's per-second
+// token-bucket limit (MAX_OPS_PER_SECOND) — a burst (pipeline writes + an
+// SSE-triggered render re-pull storm) trips it; a short backoff clears the
+// bucket. Both are TRANSIENT, so both retry on the same ladder.
 const THROTTLE_ERROR_CODE = -32029;
+const RATE_LIMIT_ERROR_CODE = -32004;
+const TRANSIENT_ERROR_CODES: ReadonlySet<number> = new Set([
+  THROTTLE_ERROR_CODE,
+  RATE_LIMIT_ERROR_CODE,
+]);
 
 export interface StorageGetResult<T> {
   value: T | null;
@@ -85,6 +99,30 @@ function errorCode(err: unknown): number | null {
   return null;
 }
 
+/**
+ * Normalize the host's `list` payload into the declared `string[]`. The host's
+ * `handleList` returns `listStorageKeys()` output VERBATIM, and that DB query
+ * yields row OBJECTS — `{ key, sizeBytes, encrypted, expiresAt }` — not the
+ * bare strings `StorageListResult` promises (src/db/queries/extension-storage.ts
+ * :110). Left unhandled, a consumer that feeds these back into `get(key)` sends
+ * an object where a string is required and the host rejects it with
+ * -32602 "Key contains invalid characters". Normalizing HERE (the SDK boundary,
+ * DRY) fixes every consumer with no ext change. Accept `string | { key: string
+ * }` per element; drop anything else (defence against future shape drift).
+ */
+function normalizeListKeys(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const keys: string[] = [];
+  for (const el of raw) {
+    if (typeof el === "string") {
+      keys.push(el);
+    } else if (el && typeof el === "object" && typeof (el as { key?: unknown }).key === "string") {
+      keys.push((el as { key: string }).key);
+    }
+  }
+  return keys;
+}
+
 export class Storage {
   private readonly scope: StorageScope;
 
@@ -132,7 +170,10 @@ export class Storage {
     };
     if (opts?.prefix !== undefined) params.prefix = opts.prefix;
     if (opts?.limit !== undefined) params.limit = opts.limit;
-    return this.request<StorageListResult>(params);
+    // The host may deliver `keys` as row objects, not strings — normalize to the
+    // declared `string[]` so consumers can feed each key straight into `get()`.
+    const result = await this.request<{ keys?: unknown }>(params);
+    return { keys: normalizeListKeys(result.keys) };
   }
 
   async batch(operations: StorageBatchOp[]): Promise<unknown[]> {
@@ -153,8 +194,10 @@ export class Storage {
       try {
         return await getChannel().request<T>("ezcorp/storage", params);
       } catch (err) {
+        const code = errorCode(err);
         if (
-          errorCode(err) === THROTTLE_ERROR_CODE &&
+          code !== null &&
+          TRANSIENT_ERROR_CODES.has(code) &&
           attempt < THROTTLE_MAX_RETRIES
         ) {
           await sleep(delay);

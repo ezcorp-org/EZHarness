@@ -12,8 +12,15 @@
 -->
 <script lang="ts">
 	import HubComponentRenderer from "./HubComponentRenderer.svelte";
+	import HubInlineForm from "./HubInlineForm.svelte";
 	import { renderMarkdown } from "$lib/markdown.js";
-	import { isSafeInternalHref, type PageAction, type PageNode } from "$lib/hub";
+	import {
+		isSafeInternalHref,
+		type PageAction,
+		type PageCell,
+		type PageFormNode,
+		type PageNode,
+	} from "$lib/hub";
 
 	let {
 		nodes,
@@ -105,6 +112,33 @@
 		}
 	}
 
+	// ── Table cell tone (mirrors listStatusColor's status palette) ───
+	// A cell is a plain string (neutral) or a `{text, tone}` object. The
+	// tone maps to the SAME status colour family the list/status nodes
+	// above use, so a red "failed" / green "completed" / orange
+	// "awaiting" status cell matches the rest of the Hub's status styling
+	// — no new hardcoded palette.
+	function cellText(cell: PageCell): string {
+		return typeof cell === "string" ? cell : cell.text;
+	}
+
+	function cellToneClass(cell: PageCell): string {
+		const tone = typeof cell === "string" ? undefined : cell.tone;
+		switch (tone) {
+			case "success": return "font-medium text-green-400";
+			case "danger":  return "font-medium text-red-400";
+			case "warning": return "font-medium text-yellow-400";
+			default:        return "";
+		}
+	}
+
+	/** Stable signature of an inline form's field list + prefills — the
+	 *  remount key that reconciles server refreshes with in-progress typing
+	 *  (see the form branch below). */
+	function formPrefillSig(node: PageFormNode): string {
+		return JSON.stringify(node.fields.map((f) => [f.field, f.value ?? ""]));
+	}
+
 	function buttonStyleClass(style?: string): string {
 		switch (style) {
 			case "danger":
@@ -181,7 +215,7 @@
 							}}
 						>
 							{#each row.cells as cell, cellIdx}
-								<td class="break-words px-3 py-2 text-xs text-[var(--color-text-secondary)] [overflow-wrap:anywhere]">
+								<td class="break-words px-3 py-2 text-xs text-[var(--color-text-secondary)] [overflow-wrap:anywhere]" data-testid="hub-table-cell" data-tone={typeof cell === "string" ? "neutral" : (cell.tone ?? "neutral")}>
 									{#if safeHref && cellIdx === 0}
 										<!-- A row may carry BOTH href and action: the anchor must not
 										          bubble to the tr onclick, or the action fires mid-navigation. -->
@@ -189,9 +223,13 @@
 											href={safeHref}
 											class="text-[var(--color-accent)] hover:underline"
 											data-testid="hub-row-link"
-											onclick={(e) => e.stopPropagation()}>{cell}</a>
+											onclick={(e) => e.stopPropagation()}>{cellText(cell)}</a>
 									{:else}
-										{cell}
+										<!-- A toned cell wraps its text in a span so the tone colour
+										     (set directly on the child) wins over the td's default
+										     secondary text colour; a neutral cell renders a plain,
+										     class-less span (no visual change). -->
+										<span class={cellToneClass(cell)}>{cellText(cell)}</span>
 									{/if}
 								</td>
 							{/each}
@@ -215,6 +253,15 @@
 		{#if isSafeInternalHref(node.href)}
 			<a href={node.href} class="break-words text-sm text-[var(--color-accent)] hover:underline [overflow-wrap:anywhere]" data-testid="hub-node-link">{node.label}</a>
 		{/if}
+
+	{:else if node.type === "form"}
+		<!-- Keyed on the prefill signature: a server-side value change (e.g.
+		     the save round-tripping back through the SSE re-pull) remounts
+		     with fresh prefills, while a no-change re-pull preserves the
+		     user's in-progress typing. -->
+		{#key formPrefillSig(node)}
+			<HubInlineForm {node} {onAction} />
+		{/key}
 
 	{:else if node.type === "empty-state"}
 		<div class="flex flex-col items-center py-8 text-center" data-testid="hub-node-empty-state">

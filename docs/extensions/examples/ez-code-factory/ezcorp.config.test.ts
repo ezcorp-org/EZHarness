@@ -23,9 +23,9 @@ describe("ez-code-factory manifest", () => {
     expect((respond as { rbacScope?: string }).rbacScope).toBe("respond-gate");
   });
 
-  test("M6: declares the two triage RBAC scopes (respond-gate + yolo)", () => {
+  test("declares the triage + control-plane RBAC scopes (respond-gate + yolo + manage-jobs)", () => {
     const scopes = (manifest.permissions?.rbacScopes ?? []).map((s) => s.name).sort();
-    expect(scopes).toEqual(["respond-gate", "yolo"]);
+    expect(scopes).toEqual(["manage-jobs", "respond-gate", "yolo"]);
     // Every declared scope carries a non-empty description (the grant-UI text).
     for (const s of manifest.permissions?.rbacScopes ?? []) {
       expect(s.description.length).toBeGreaterThan(0);
@@ -65,12 +65,17 @@ describe("ez-code-factory manifest", () => {
     expect(perms.network).toEqual(["api.github.com"]);
   });
 
-  test("subscribes to the gate events + the spawn terminal-update carrier", () => {
+  test("subscribes to the gate events + the control-plane job actions + the spawn terminal-update carrier", () => {
     expect(manifest.permissions?.eventSubscriptions).toEqual([
       "ez-code-factory:push-received",
       "ez-code-factory:respond",
       "ez-code-factory:yolo",
       "ez-code-factory:reconcile",
+      // Control plane (L7): the four job-management actions.
+      "ez-code-factory:job-save",
+      "ez-code-factory:job-toggle",
+      "ez-code-factory:job-delete",
+      "ez-code-factory:run-now",
       // Direct-carrier platform event — the spawn dispatcher's resolver is
       // dead without it (every agent dispatch times out at 10 minutes).
       "task:assignment_update",

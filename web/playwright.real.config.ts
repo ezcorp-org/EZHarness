@@ -79,7 +79,37 @@ export default defineConfig({
     ...(process.env.EZCORP_E2E_EVIDENCE_VIDEO === "1" && { video: "on" }),
     storageState: "./e2e/.real-auth.json",
   },
-  projects: [{ name: "chromium", use: { browserName: "chromium" } }],
+  // `channel: "chromium"` runs the FULL Chromium binary instead of
+  // `chrome-headless-shell`, which is what Playwright picks by default for a
+  // headless `browserName: "chromium"` project.
+  //
+  // Why: the headless shell crashed this suite repeatedly on CI — always the
+  // same way. `browser.newContext` for the FIRST test of
+  // extension-author-flow.spec.ts died with
+  //
+  //     Error: browser.newContext: Target page, context or browser has been closed
+  //     [pid=…][err] Received signal 11 SEGV_MAPERR 0000000001b0
+  //
+  // i.e. a null-deref INSIDE the browser process, before a single line of the
+  // spec ran. Same fault address, same test slot, on runs 30232207318,
+  // 30302723973 and both attempts of 30407225727 — so it is a recurring
+  // browser-binary fault, not a flaky assertion and not app code. It is always
+  // the third test, which is the first `newContext` after the one test that
+  // loads the full chat page (auth-fixture.spec.ts) and therefore the only one
+  // whose context is torn down with a live `/api/runtime-events` EventSource
+  // and its reconnect timer still attached (see web/src/lib/ws.ts).
+  //
+  // The headless shell is a separate, stripped-down binary; the full Chromium
+  // headless path is the maintained one. `bunx playwright install chromium`
+  // (see .github/actions/setup) already fetches BOTH, so this costs no extra
+  // download — it only selects the other binary.
+  //
+  // NB: this is a mitigation, not a root-cause fix. The upstream null-deref is
+  // not ours to fix and does not reproduce on a fast dev machine (15 clean
+  // local runs); it only shows up on the 4-vCPU CI runner.
+  projects: [
+    { name: "chromium", use: { browserName: "chromium", channel: "chromium" } },
+  ],
   webServer: {
     // Use Vite preview against the production build, identical to the
     // default config — but WITHOUT `PI_SKIP_INIT`, so the DB layer

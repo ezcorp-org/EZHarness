@@ -70,6 +70,7 @@ export const PUT: RequestHandler = async ({ request, params, locals }) => {
     {
       acceptsCallerCaps: ext.manifest?.acceptsCallerCaps,
       escalateChildCaps: ext.manifest?.escalateChildCaps,
+      name: ext.manifest?.name,
     },
   );
 

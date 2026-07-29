@@ -282,7 +282,11 @@ describe("LifecycleHookDispatcher — Security", () => {
     } as any);
 
     const payload = at(proc.calls, 0, "proc.calls").params;
-    expect(Object.keys(payload).sort()).toEqual(["agentName", "runId", "timestamp"]);
+    // Sanitized DATA fields are exactly the allowlist; `_meta` is host-added
+    // ownerless provenance (a UUID), not sanitizer output — excluded here.
+    expect(Object.keys(payload).filter((k) => k !== "_meta").sort())
+      .toEqual(["agentName", "runId", "timestamp"]);
+    expect(typeof (payload._meta as { ezCallId?: string } | undefined)?.ezCallId).toBe("string");
     expect(payload).not.toHaveProperty("projectId");
     expect(payload).not.toHaveProperty("provider");
     expect(payload).not.toHaveProperty("logs");

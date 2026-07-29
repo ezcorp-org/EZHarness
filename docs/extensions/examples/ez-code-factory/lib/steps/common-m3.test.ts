@@ -16,6 +16,7 @@ import {
   repoDispatchOptions,
   type StepContext,
 } from "./common";
+import { makeStepIOSink } from "../step-io";
 
 describe("RunShared", () => {
   test("set → take returns once, then null; clear discards", () => {
@@ -84,12 +85,42 @@ describe("detectNewTestFiles", () => {
 });
 
 describe("runStepShellCommand", () => {
-  test("returns combined output + exit code", async () => {
-    const ok = await runStepShellCommand((await import("../shell")).productionHostRunner, "/tmp", "echo hi");
+  test("returns combined output + exit code, timing + recording each command into the sink", async () => {
+    const { productionHostRunner } = await import("../shell");
+    const sink = makeStepIOSink();
+    let clock = 1000;
+    const sctx = {
+      hostRunner: productionHostRunner,
+      worktree: "/tmp",
+      now: () => (clock += 5), // advances 5ms per read → a positive duration
+      ioSink: sink,
+    } as unknown as StepContext;
+
+    const ok = await runStepShellCommand(sctx, "echo hi");
     expect(ok.exitCode).toBe(0);
     expect(ok.output).toContain("hi");
-    const bad = await runStepShellCommand((await import("../shell")).productionHostRunner, "/tmp", "exit 5");
+    const bad = await runStepShellCommand(sctx, "exit 5");
     expect(bad.exitCode).toBe(5);
+
+    const cmds = sink.shellCommands();
+    expect(cmds).toHaveLength(2);
+    expect(cmds[0]!.command).toBe("echo hi");
+    expect(cmds[0]!.output).toContain("hi");
+    expect(cmds[0]!.durationMs).toBeGreaterThanOrEqual(0);
+    expect(cmds[1]!.command).toBe("exit 5");
+    expect(cmds[1]!.exitCode).toBe(5);
+  });
+
+  test("runs with no sink present — recording is a silent no-op", async () => {
+    const { productionHostRunner } = await import("../shell");
+    const sctx = {
+      hostRunner: productionHostRunner,
+      worktree: "/tmp",
+      now: () => 0,
+    } as unknown as StepContext;
+    const r = await runStepShellCommand(sctx, "echo ok");
+    expect(r.output).toContain("ok");
+    expect(r.exitCode).toBe(0);
   });
 });
 
@@ -101,5 +132,26 @@ describe("repoDispatchOptions", () => {
     expect(withBoth).toEqual({ agentName: "a", disableProjectSettings: true });
     const withNone = repoDispatchOptions({ repoConfig: emptyRepoConfig() } as StepContext);
     expect(withNone).toEqual({});
+  });
+
+  test("L4: a job's agentName OVERRIDES the repo-config agent (job.agentName || repoConfig.agent)", () => {
+    const overridden = repoDispatchOptions({
+      jobAgentName: "job-agent",
+      repoConfig: { ...emptyRepoConfig(), agent: "repo-agent" },
+    } as StepContext);
+    // The job override wins the dispatch's agent; disableProjectSettings stays
+    // repo-config-only (a job never sets it).
+    expect(overridden.agentName).toBe("job-agent");
+  });
+
+  test("L4: an empty/absent job agentName FALLS BACK to the repo-config agent", () => {
+    const fallback = repoDispatchOptions({
+      jobAgentName: "",
+      repoConfig: { ...emptyRepoConfig(), agent: "repo-agent" },
+    } as StepContext);
+    expect(fallback.agentName).toBe("repo-agent");
+    // No job agent AND no repo agent → the deployment default (agentName omitted).
+    const neither = repoDispatchOptions({ jobAgentName: undefined, repoConfig: emptyRepoConfig() } as StepContext);
+    expect(neither.agentName).toBeUndefined();
   });
 });

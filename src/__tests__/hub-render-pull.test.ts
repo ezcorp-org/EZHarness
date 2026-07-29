@@ -9,9 +9,19 @@
 import { test, expect, describe, mock, afterAll } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 
-// $lib/server/context pulls the whole server boot — stub the one
-// accessor the module needs (the PRODUCTION callPage path reads it).
-mock.module("$lib/server/context", () => ({ getBus: () => null }));
+// $lib/server/context pulls the whole server boot — stub the accessors
+// the module needs (the PRODUCTION callPage path reads them). getExecutor
+// MUST be present even though this file never wants an executor: a
+// partial mock that omits a named export fails EVERY import of the
+// module for the rest of the process (see the identical note in
+// extension-events-hub-branch.test.ts). Throwing keeps the guarded
+// executor-less path exercised.
+mock.module("$lib/server/context", () => ({
+  getBus: () => null,
+  getExecutor: () => {
+    throw new Error("executor not booted (test context)");
+  },
+}));
 // Fake the subprocess collaborators so the DEFAULT (non-injected)
 // callPage path is coverable without spawning anything. The fakes
 // record the wiring sequence; `__fakeProcResponse` drives the result.
@@ -47,6 +57,16 @@ mock.module("$server/extensions/tool-executor", () => ({
 mock.module("$server/extensions/permission-engine", () => ({
   getPermissionEngine: () => ({}),
 }));
+// The production path late-imports listProjects for the GLOBAL render of
+// a perProject page — controllable fake, no DB. DELEGATE every other
+// export to the real module (same partial-mock rule as the context stub
+// above: hub-api.test.ts's route needs getProject from this module id
+// when the two files share a process).
+let __fakeProjects: Array<{ id: string; name: string; path: string }> = [];
+mock.module("$server/db/queries/projects", () => ({
+  ...require("../db/queries/projects"),
+  listProjects: async () => __fakeProjects,
+}));
 mock.module("$server/extensions/page-schema", () => require("../extensions/page-schema"));
 mock.module("$server/extensions/page-cache", () => require("../extensions/page-cache"));
 mock.module("$server/extensions/types", () => require("../extensions/types"));
@@ -60,7 +80,8 @@ mock.module("$lib/server/hub-extension-pages", () => require("../../web/src/lib/
 // Dynamic import AFTER the mocks above — the fake registry/tool-executor
 // factories must be registered before this module binds its imports
 // (same pattern as extension-events-hub-branch.test.ts).
-const { renderExtensionPage } = await import("../../web/src/lib/server/hub-render-pull");
+const { renderExtensionPage, ensurePageStateInvalidation, __resetPageStateInvalidationForTests } =
+  await import("../../web/src/lib/server/hub-render-pull");
 import type { RenderPullDeps } from "../../web/src/lib/server/hub-render-pull";
 import { resolveCallProvenance } from "../extensions/call-provenance";
 import { ExtensionPageCache } from "../extensions/page-cache";
@@ -72,6 +93,7 @@ afterAll(() => {
   // factories already point at the real modules.
   mock.module("$lib/hub", () => require("../../web/src/lib/hub"));
   mock.module("$lib/server/hub-extension-pages", () => require("../../web/src/lib/server/hub-extension-pages"));
+  mock.module("$server/db/queries/projects", () => require("../db/queries/projects"));
   mock.module("$server/logger", () => realLogger);
   restoreModuleMocks();
 });
@@ -308,6 +330,7 @@ describe("renderExtensionPage", () => {
     let sets = 0;
     const throwingCache = {
       get: inner.get.bind(inner),
+      generation: inner.generation.bind(inner),
       invalidate: inner.invalidate.bind(inner),
       invalidateExtension: inner.invalidateExtension.bind(inner),
       clear: inner.clear.bind(inner),
@@ -324,5 +347,225 @@ describe("renderExtensionPage", () => {
     expect(result.stale).toBe(true);
     await new Promise((r) => setTimeout(r, 10));
     expect(sets).toBe(2); // refresh attempted; its throw was folded, not unhandled
+  });
+});
+
+// ── perProject scope (project-aware renders) ─────────────────────────
+
+describe("perProject scope", () => {
+  const PER_PROJECT_PAGE = { id: "dashboard", title: "Dash", perProject: true };
+  const PROJECT = { id: "proj-1", name: "My App", path: "/home/dev/my-app" };
+
+  function makeScopedDeps(overrides: Partial<RenderPullDeps> = {}) {
+    const scopes: unknown[] = [];
+    const extension = makeExtension();
+    const deps: RenderPullDeps & { scopes: unknown[] } = {
+      scopes,
+      findPage: async () => ({ extension, page: PER_PROJECT_PAGE }),
+      callPage: async (_ext, _pageId, _userId, scope) => {
+        scopes.push(scope);
+        return okResponse(VALID_RESULT);
+      },
+      cache: new ExtensionPageCache(),
+      timeoutMs: 200,
+      ...overrides,
+    };
+    return deps;
+  }
+
+  test("project render: callPage gets {project}, result caches under the project variant", async () => {
+    const deps = makeScopedDeps();
+    const result = await renderExtensionPage("cron-dashboard", "dashboard", "u1", deps, PROJECT);
+    expect(result.page!.title).toBe("Cron Dashboard");
+    expect(deps.scopes).toEqual([{ project: PROJECT }]);
+    expect(deps.cache.get("ext-1", "dashboard", PROJECT.id)).not.toBeNull();
+    expect(deps.cache.get("ext-1", "dashboard")).toBeNull();
+  });
+
+  test("global render of a perProject page requests the project LIST", async () => {
+    const deps = makeScopedDeps();
+    const result = await renderExtensionPage("cron-dashboard", "dashboard", "u1", deps);
+    expect(result.page).toBeDefined();
+    expect(deps.scopes).toEqual([{ listProjects: true }]);
+    expect(deps.cache.get("ext-1", "dashboard")).not.toBeNull();
+  });
+
+  test("variants are cached independently — a project render never serves the global tree", async () => {
+    const deps = makeScopedDeps();
+    await renderExtensionPage("cron-dashboard", "dashboard", "u1", deps);
+    const second = await renderExtensionPage("cron-dashboard", "dashboard", "u1", deps, PROJECT);
+    expect(second.page).toBeDefined();
+    // Two real pulls (no cross-variant cache hit), one per scope.
+    expect(deps.scopes).toEqual([{ listProjects: true }, { project: PROJECT }]);
+  });
+
+  test("non-perProject page IGNORES a provided project (global scope + global cache)", async () => {
+    const extension = makeExtension();
+    const deps = makeScopedDeps({
+      findPage: async () => ({ extension, page: PAGE }),
+    });
+    await renderExtensionPage("cron-dashboard", "dashboard", "u1", deps, PROJECT);
+    expect(deps.scopes).toEqual([undefined]);
+    expect(deps.cache.get("ext-1", "dashboard")).not.toBeNull();
+    expect(deps.cache.get("ext-1", "dashboard", PROJECT.id)).toBeNull();
+  });
+
+  test("run + step render variants cache under distinct keys (step isolated from the run detail)", async () => {
+    const deps = makeScopedDeps();
+    await renderExtensionPage("cron-dashboard", "dashboard", "u1", deps, undefined, "run_a"); // run detail
+    await renderExtensionPage("cron-dashboard", "dashboard", "u1", deps, undefined, "run_a", "review"); // step detail
+    // Two real pulls, distinct scopes (step rides alongside the run + listProjects).
+    expect(deps.scopes).toEqual([
+      { listProjects: true, run: "run_a" },
+      { listProjects: true, run: "run_a", step: "review" },
+    ]);
+    // The run detail caches under `run:run_a`; the step detail under
+    // `run:run_a:step:review` — independent slots, no collision.
+    expect(deps.cache.get("ext-1", "dashboard", "run:run_a")).not.toBeNull();
+    expect(deps.cache.get("ext-1", "dashboard", "run:run_a:step:review")).not.toBeNull();
+    expect(deps.cache.get("ext-1", "dashboard", "run:run_a:step:test")).toBeNull();
+  });
+
+  test("a stray step WITHOUT run does not fork a step cache variant", async () => {
+    const deps = makeScopedDeps();
+    // perProject page, no run, stray step → the dashboard (listProjects) scope,
+    // no step; hub-render-pull drops the meaningless step.
+    await renderExtensionPage("cron-dashboard", "dashboard", "u1", deps, undefined, undefined, "review");
+    expect(deps.scopes).toEqual([{ listProjects: true }]);
+    expect(deps.cache.get("ext-1", "dashboard")).not.toBeNull();
+  });
+
+  test("production callPage forwards {project} on the render RPC", async () => {
+    __fakeProcResponse = VALID_RESULT;
+    const seen: Record<string, unknown>[] = [];
+    __fakeProcInspect = (_method, params) => seen.push(params);
+    try {
+      const extension = makeExtension();
+      await renderExtensionPage("cron-dashboard", "dashboard", "u1", {
+        findPage: async () => ({ extension, page: PER_PROJECT_PAGE }),
+        cache: new ExtensionPageCache(),
+      }, PROJECT);
+    } finally {
+      __fakeProcInspect = null;
+    }
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.project).toEqual(PROJECT);
+    expect(seen[0]!.projects).toBeUndefined();
+  });
+
+  test("production callPage forwards the {projects} list on a global render", async () => {
+    __fakeProcResponse = VALID_RESULT;
+    __fakeProjects = [
+      { id: "p-a", name: "A", path: "/a" },
+      { id: "p-b", name: "B", path: "/b" },
+    ];
+    const seen: Record<string, unknown>[] = [];
+    __fakeProcInspect = (_method, params) => seen.push(params);
+    try {
+      const extension = makeExtension();
+      await renderExtensionPage("cron-dashboard", "dashboard", "u1", {
+        findPage: async () => ({ extension, page: PER_PROJECT_PAGE }),
+        cache: new ExtensionPageCache(),
+      });
+    } finally {
+      __fakeProcInspect = null;
+      __fakeProjects = [];
+    }
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.projects).toEqual([
+      { id: "p-a", name: "A", path: "/a" },
+      { id: "p-b", name: "B", path: "/b" },
+    ]);
+    expect(seen[0]!.project).toBeUndefined();
+  });
+
+  test("production callPage forwards {view} on the render RPC (independent of run/project)", async () => {
+    __fakeProcResponse = VALID_RESULT;
+    const seen: Record<string, unknown>[] = [];
+    __fakeProcInspect = (_method, params) => seen.push(params);
+    try {
+      const extension = makeExtension();
+      // A non-perProject page, no run — view still forwards (independent).
+      await renderExtensionPage(
+        "cron-dashboard",
+        "dashboard",
+        "u1",
+        { findPage: async () => ({ extension, page: PAGE }), cache: new ExtensionPageCache() },
+        undefined,
+        undefined,
+        undefined,
+        "config",
+      );
+    } finally {
+      __fakeProcInspect = null;
+    }
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.view).toBe("config");
+    expect(seen[0]!.run).toBeUndefined();
+    expect(seen[0]!.step).toBeUndefined();
+  });
+});
+
+// ── single-flight dedup ──────────────────────────────────────────────
+
+describe("single-flight pull dedup", () => {
+  test("concurrent renders of the SAME variant share one subprocess pull", async () => {
+    let resolvePull: ((r: JsonRpcResponse) => void) | null = null;
+    let pulls = 0;
+    const deps = makeDeps({
+      callPage: () => {
+        pulls++;
+        return new Promise<JsonRpcResponse>((resolve) => {
+          resolvePull = resolve;
+        });
+      },
+    });
+    const first = renderExtensionPage("cron-dashboard", "dashboard", "u1", deps);
+    const second = renderExtensionPage("cron-dashboard", "dashboard", "u2", deps);
+    await new Promise((r) => setTimeout(r, 5));
+    resolvePull!(okResponse(VALID_RESULT));
+    const [a, b] = await Promise.all([first, second]);
+    expect(a.page).toBeDefined();
+    expect(b.page).toBeDefined();
+    expect(pulls).toBe(1); // the herd collapsed to one render
+  });
+
+  test("different variants of one page pull independently", async () => {
+    const seen: Array<string | undefined> = [];
+    const perProjectPage = { id: "dashboard", title: "Dash", perProject: true };
+    const extension = makeExtension();
+    const deps = makeDeps({
+      findPage: async () => ({ extension, page: perProjectPage }),
+      callPage: async (_e, _p, _u, scope) => {
+        seen.push(scope?.project?.id);
+        return okResponse(VALID_RESULT);
+      },
+    });
+    await Promise.all([
+      renderExtensionPage("cron-dashboard", "dashboard", "u1", deps, {
+        id: "p-1",
+        name: "A",
+        path: "/a",
+      }),
+      renderExtensionPage("cron-dashboard", "dashboard", "u1", deps, {
+        id: "p-2",
+        name: "B",
+        path: "/b",
+      }),
+    ]);
+    expect(seen.sort()).toEqual(["p-1", "p-2"]); // two variants, two pulls
+  });
+});
+
+describe("page-state invalidation wiring (bun-side seams)", () => {
+  test("ensure is fail-open when the server context is uninitialized, and the reset seam re-arms retries", async () => {
+    // In this process the real `$lib/server/context` is importable but
+    // uninitialized (getBus throws) — ensure must swallow that and resolve
+    // (the render path awaits it on EVERY pull; a throw would break renders).
+    await expect(ensurePageStateInvalidation()).resolves.toBeUndefined();
+    // The test seam drops the wired flag; a subsequent ensure retries and
+    // again resolves instead of wedging.
+    __resetPageStateInvalidationForTests();
+    await expect(ensurePageStateInvalidation()).resolves.toBeUndefined();
   });
 });

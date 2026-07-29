@@ -262,6 +262,7 @@ Hub tabs contributed by the extension (max **3**). Each declared page becomes a 
 | `title` | `string` | Yes | Tab label, ≤ 50 chars. |
 | `icon` | `string` | No | Lucide icon name; unknown names fall back to a generic icon. |
 | `description` | `string` | No | ≤ 200 chars; shown on the extension detail page. |
+| `perProject` | `boolean` | No | Project-aware renders: `render` gets `{ project }` on `/project/<id>/hub/...` and `{ projects }` (the full list) on the global hub. See [Hub Pages § 4b](pages.md#4b-per-project-pages-perproject-true). |
 
 ```typescript
 pages: [

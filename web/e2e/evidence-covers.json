@@ -34,6 +34,20 @@
     "web/src/routes/+layout.svelte",
     "web/src/routes/(app)/account/+page.svelte"
   ],
+  "web/e2e/extension-author-failure-cards.spec.ts": [
+    "web/src/lib/components/tool-cards/DefaultCard.svelte",
+    "web/src/lib/components/tool-cards/ToolCardRouter.svelte",
+    "web/src/lib/components/ToolCallCard.svelte",
+    "web/src/lib/components/ez/EzToolResultCard.svelte",
+    "web/src/routes/(app)/extensions/author/+page.svelte"
+  ],
+  "web/e2e/extension-deep-links.spec.ts": [
+    "web/src/routes/(app)/extensions/[id]/+page.svelte",
+    "web/src/routes/(app)/extensions/+page.svelte"
+  ],
+  "web/e2e/extension-install-granted-caps.spec.ts": [
+    "web/src/routes/(app)/extensions/[id]/+page.svelte"
+  ],
   "web/e2e/extension-secret-settings.spec.ts": [
     "web/src/lib/components/SchemaForm.svelte",
     "web/src/routes/(app)/extensions/[id]/SettingsPanel.svelte",
@@ -45,22 +59,15 @@
   "web/e2e/extensions-workflows-grant.spec.ts": [
     "web/src/routes/(app)/extensions/+page.svelte"
   ],
-  "web/e2e/extension-install-granted-caps.spec.ts": [
-    "web/src/routes/(app)/extensions/[id]/+page.svelte"
-  ],
-  "web/e2e/extension-deep-links.spec.ts": [
-    "web/src/routes/(app)/extensions/[id]/+page.svelte",
-    "web/src/routes/(app)/extensions/+page.svelte"
-  ],
-  "web/e2e/pending-permission-tray.spec.ts": [
-    "web/src/lib/components/tool-cards/PendingPermissionTray.svelte",
-    "web/src/lib/components/tool-cards/PermissionGate.svelte",
-    "web/src/routes/(app)/+layout.svelte"
-  ],
   "web/e2e/ez-clear-conversation.spec.ts": [
     "web/src/lib/components/ez/**",
     "web/src/lib/components/ChatInput.svelte",
     "web/src/routes/(app)/project/[id]/chat/+page.svelte"
+  ],
+  "web/e2e/ez-code-factory-control-plane.spec.ts": [
+    "docs/extensions/examples/ez-code-factory/lib/page.ts",
+    "web/src/lib/components/hub/**/*.svelte",
+    "web/src/routes/(app)/project/[id]/hub/[pageId]/+page.svelte"
   ],
   "web/e2e/ez-code-factory-gates.spec.ts": [
     "docs/extensions/examples/ez-code-factory/lib/page.ts",
@@ -69,6 +76,16 @@
   "web/e2e/ez-code-factory-hub.spec.ts": [
     "docs/extensions/examples/ez-code-factory/lib/page.ts",
     "web/src/lib/components/hub/HubComponentRenderer.svelte"
+  ],
+  "web/e2e/ez-code-factory-run-links.spec.ts": [
+    "docs/extensions/examples/ez-code-factory/lib/page.ts",
+    "web/src/lib/components/hub/**/*.svelte",
+    "web/src/routes/(app)/project/[id]/hub/[pageId]/+page.svelte"
+  ],
+  "web/e2e/ez-code-factory-step-detail.spec.ts": [
+    "docs/extensions/examples/ez-code-factory/lib/page.ts",
+    "web/src/lib/components/hub/**/*.svelte",
+    "web/src/routes/(app)/project/[id]/hub/[pageId]/+page.svelte"
   ],
   "web/e2e/ez-tool-list.spec.ts": [
     "web/src/lib/components/ez/**",
@@ -94,6 +111,10 @@
   "web/e2e/graded-card-scanner.spec.ts": [
     "docs/extensions/examples/graded-card-scanner/app/**"
   ],
+  "web/e2e/hub-side-nav.spec.ts": [
+    "web/src/lib/components/hub/**/*.svelte",
+    "web/src/routes/(app)/+layout.svelte"
+  ],
   "web/e2e/loops-kill-switch.spec.ts": [
     "web/src/routes/(app)/settings/admin/+page.svelte"
   ],
@@ -107,6 +128,11 @@
     "web/src/lib/components/tool-cards/city-conditions-card-logic.ts",
     "web/src/lib/components/tool-cards/ToolCardRouter.svelte",
     "web/src/lib/components/tool-cards/DefaultCard.svelte"
+  ],
+  "web/e2e/pending-permission-tray.spec.ts": [
+    "web/src/lib/components/tool-cards/PendingPermissionTray.svelte",
+    "web/src/lib/components/tool-cards/PermissionGate.svelte",
+    "web/src/routes/(app)/+layout.svelte"
   ],
   "web/e2e/preprocess-grade-delta.spec.ts": [
     "web/src/lib/components/tool-cards/GradeDeltaCard.svelte",
@@ -177,12 +203,5 @@
     "web/src/lib/components/WorkflowBuilder.svelte",
     "web/src/lib/components/WorkflowStepForm.svelte",
     "web/src/routes/(app)/+layout.svelte"
-  ],
-  "web/e2e/extension-author-failure-cards.spec.ts": [
-    "web/src/lib/components/tool-cards/DefaultCard.svelte",
-    "web/src/lib/components/tool-cards/ToolCardRouter.svelte",
-    "web/src/lib/components/ToolCallCard.svelte",
-    "web/src/lib/components/ez/EzToolResultCard.svelte",
-    "web/src/routes/(app)/extensions/author/+page.svelte"
   ]
 }

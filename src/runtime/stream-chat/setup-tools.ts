@@ -94,8 +94,12 @@ export interface SetupToolsConvRecord {
   /** Phase 48: 'ez' marks the conversation as the user's dedicated Ez
    *  concierge thread. setup-tools branches on this to wire the
    *  Ez tools (propose_*, summarize_conversation, find_agents,
-   *  fill_form, navigate_to) BEFORE the allowlist filter runs. */
-  kind?: "regular" | "ez" | null;
+   *  fill_form, navigate_to) BEFORE the allowlist filter runs.
+   *  `ext-service` (ECF control plane) is a persistent per-(project, extension)
+   *  gate-spawn owner conversation — it is NOT an Ez thread, so it takes the
+   *  non-`ez` path here (the only branch this field drives). Mirrors the widened
+   *  `conversations.kind` schema enum so a real conversation row assigns cleanly. */
+  kind?: "regular" | "ez" | "ext-service" | null;
   /** WS3: the conversation's extension-tool toggle map (keyed by extension
    *  ID). Feeds the quality-tier classifier so an attached extension can
    *  declare a tier need via its manifest `routing.tier`. */

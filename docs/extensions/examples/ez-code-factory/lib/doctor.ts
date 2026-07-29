@@ -14,7 +14,7 @@
 // gate is broken; `warn` = degraded-but-usable (gh/token/PR paths skip-not-fail
 // per spec §11); `ok` = nominal. `report.ok` is true iff nothing FAILED.
 
-import { isManagedHook } from "./gate";
+import { isManagedHook, mintCredentialCommand } from "./gate";
 import type { GhRunner } from "./github";
 import type { ShellRunner } from "./shell";
 import type { SweepHeartbeat } from "./sweep";
@@ -42,6 +42,8 @@ export interface DoctorDeps {
   gateDir: string;
   /** The configured default branch (reported for context). */
   defaultBranch: string;
+  /** Path the hook reads its minted key from (`credentialPath(projectRoot)`). */
+  credentialPath: string;
   /** Host runner for the read-only git + `cat` probes. */
   run: ShellRunner;
   /** gh runner (production injects GH_TOKEN); used for `gh auth status`. */
@@ -80,6 +82,50 @@ async function checkHook(deps: DoctorDeps): Promise<DoctorCheck> {
     };
   }
   return { name: "hook", status: "ok", detail: "managed post-receive hook installed" };
+}
+
+/** Gate credential present + non-empty? The managed hook reads its minted key
+ *  from this FILE at push time; a missing/empty key makes it log one line and
+ *  exit 0 — every push is accepted but silently DROPPED, so the dashboard stays
+ *  empty forever (the #1 silent-setup gap). `test -s` = exists AND non-empty. */
+async function checkCredential(deps: DoctorDeps): Promise<DoctorCheck> {
+  const r = await deps.run(["test", "-s", deps.credentialPath], deps.gateDir);
+  if (r.exitCode === 0) {
+    return { name: "credential", status: "ok", detail: `gate credential present at ${deps.credentialPath}` };
+  }
+  return {
+    name: "credential",
+    status: "fail",
+    detail:
+      `no gate credential at ${deps.credentialPath} — the post-receive hook drops every push ` +
+      `(accepted but never recorded). Mint one: ${mintCredentialCommand(deps.credentialPath)}`,
+  };
+}
+
+/** `curl` available on PATH in the environment the hook runs in? The hook POSTs
+ *  the push-received event with curl; if it is not on PATH it logs one line to
+ *  notify-push.log and exits 0 — every push is silently dropped. `command -v` is
+ *  a shell builtin, so it runs via `sh -c` (a bare `["command", …]` argv would
+ *  just 127 as a missing binary). */
+async function checkCurl(deps: DoctorDeps): Promise<DoctorCheck> {
+  const r = await deps.run(["sh", "-c", "command -v curl"], deps.gateDir);
+  if (r.exitCode === 0) {
+    const path = r.stdout.trim();
+    return {
+      name: "curl",
+      status: "ok",
+      detail: path
+        ? `curl available (${path}) — the hook can POST push events`
+        : "curl available — the hook can POST push events",
+    };
+  }
+  return {
+    name: "curl",
+    status: "fail",
+    detail:
+      "curl not found on PATH — the post-receive hook cannot POST push events, so every push is " +
+      "silently dropped (install curl in the environment the hook runs in)",
+  };
 }
 
 /** gh available + authenticated? (pr/ci skip-not-fail when it is not). */
@@ -124,6 +170,47 @@ async function checkDefaultBranch(deps: DoctorDeps): Promise<DoctorCheck> {
   };
 }
 
+/** Trusted upstream fetchable? `resolveTrustedRepoConfig` does `git fetch origin
+ *  <defaultBranch>` BEFORE any step; a gate whose origin is unreachable /
+ *  unauthenticated fail-closes EVERY run at "trusted config unreadable: … failed
+ *  to fetch or resolve trusted default branch" before an agent ever launches.
+ *  `git ls-remote` hits the SAME connect/auth path read-only (no object
+ *  download), so it is the cheapest faithful probe of that precondition. A
+ *  missing origin is left to `checkDefaultBranch` (deferred to as a warn) rather
+ *  than double-reported as a fetch failure with no URL to fetch. */
+async function checkTrustedUpstream(deps: DoctorDeps): Promise<DoctorCheck> {
+  const origin = await deps.run(["git", "-C", deps.gateDir, "remote", "get-url", "origin"], deps.gateDir);
+  const url = origin.stdout.trim();
+  if (origin.exitCode !== 0 || url === "") {
+    return {
+      name: "trusted-upstream",
+      status: "warn",
+      detail:
+        `gate has no origin remote to fetch '${deps.defaultBranch}' from — see the default-branch ` +
+        `check (re-run init_gate with an upstream)`,
+    };
+  }
+  const r = await deps.run(
+    ["git", "-C", deps.gateDir, "ls-remote", "--heads", "origin", deps.defaultBranch],
+    deps.gateDir,
+  );
+  if (r.exitCode === 0) {
+    return {
+      name: "trusted-upstream",
+      status: "ok",
+      detail: `origin (${url}) reachable — the trusted-config fetch of '${deps.defaultBranch}' can connect`,
+    };
+  }
+  return {
+    name: "trusted-upstream",
+    status: "fail",
+    detail:
+      `gate origin '${url}' is not fetchable — every run fail-closes at "trusted config unreadable: ` +
+      `… failed to fetch or resolve trusted default branch '${deps.defaultBranch}'" before any step: ` +
+      `${r.stderr.trim() || r.stdout.trim() || `git ls-remote origin ${deps.defaultBranch} exited ${r.exitCode}`}`,
+  };
+}
+
 /** Reconcile-sweep loop healthy? (a heartbeat means the cron has fired). */
 async function checkSweep(deps: DoctorDeps): Promise<DoctorCheck> {
   const hb = await deps.readHeartbeat();
@@ -151,9 +238,12 @@ export async function runDoctor(deps: DoctorDeps): Promise<DoctorReport> {
   const checks: DoctorCheck[] = [
     await checkGate(deps),
     await checkHook(deps),
+    await checkCredential(deps),
+    await checkCurl(deps),
     await checkGh(deps),
     await checkToken(deps),
     await checkDefaultBranch(deps),
+    await checkTrustedUpstream(deps),
     await checkSweep(deps),
   ];
   return { ok: checks.every((c) => c.status !== "fail"), checks };

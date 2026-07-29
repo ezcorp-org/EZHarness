@@ -117,6 +117,36 @@ human to see). It drives the SAME approve/fix respond path the Hub buttons use
 (no gate-semantics bypass) and is bounded so a pathological re-park can never
 spin.
 
+## Jobs & the Hub job editor
+
+Multiple named pipeline jobs per project (`lib/jobs.ts`), each independently
+triggered by **push** (branch pattern — literal or ONE trailing `*` glob),
+**schedule** (`15m`/`hourly`/`daily`, routed off the every-15-min sweep tick;
+literal branch), or **manual** ("Run now"). A default catch-all push job is
+auto-seeded on first read so pre-jobs behavior is preserved exactly.
+
+The Hub job page (`?view=job:<id>`, `buildJobView` in `lib/page.ts`) edits a
+job in **one inline on-page form** (the Hub `form` node — no modal dialogs;
+the earlier "Edit job"/"Edit prompts" prompt-and-dialog editors are gone):
+name, the trigger as three components — a **kind select**
+(push/schedule/manual), a branch text field, and a **cadence select** that
+renders and submits only while the kind reads `schedule` (`visibleWhen`;
+hidden = key omitted, so a non-schedule save never clears the cadence) — the
+agent override, the intent template, and the three operator prompt-instruction
+textareas (review/fix/document, ≤ 500 chars each). One Save submits every
+visible field (blank clears an optional field); `applyJobEdit` (`lib/jobs.ts`)
+reassembles the trigger from the `trigger_kind`/`trigger_branch`/
+`trigger_every` components (the legacy free-text `trigger` spec — `push
+<pattern>` / `schedule <every> <branch>` / `manual <branch>` — is still
+accepted, and the components win when both are present), then the whole draft
+re-validates (`validateJobDraft`) and one diff is audited. Skip-steps are
+toggled per-step in the Flow table (protected steps —
+intent/rebase/review/push — always run and carry no toggle). The read-only
+Prompts section previews what the job will send the agent (render-knowable
+values substituted) and points at the Edit form's intent + instruction fields
+as the editable prompt parts — the base prompt skeleton is fixed on purpose
+(it carries the structured-output contract the pipeline parses).
+
 ## Background reconcile sweep
 
 A run rests at `checks_passed` (or is parked at CI on an idle timeout) until its

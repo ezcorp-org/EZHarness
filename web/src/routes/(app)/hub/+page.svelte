@@ -11,21 +11,32 @@
 	let loading = $state(true);
 	let error = $state("");
 
-	onMount(async () => {
-		try {
-			const res = await fetch("/api/hub/pages");
-			if (!res.ok) throw new Error(`HTTP ${res.status}`);
-			const data = (await res.json()) as { pages: HubPageListing[] };
-			const first = data.pages[0];
-			if (first) {
-				await goto(`/hub/${encodeURIComponent(first.id)}`, { replaceState: true });
-				return;
+	onMount(() => {
+		// `cancelled` guards the post-fetch redirect: if the user navigates
+		// away while the listing is in flight, a late goto() would yank them
+		// back to the hub. Same guard as the project-hub shell — change both.
+		let cancelled = false;
+		void (async () => {
+			try {
+				const res = await fetch("/api/hub/pages");
+				const data = res.ok ? ((await res.json()) as { pages: HubPageListing[] }) : null;
+				if (cancelled) return;
+				if (!data) throw new Error(`HTTP ${res.status}`);
+				const first = data.pages[0];
+				if (first) {
+					await goto(`/hub/${encodeURIComponent(first.id)}`, { replaceState: true });
+					return;
+				}
+				loading = false;
+			} catch (e) {
+				if (cancelled) return;
+				error = e instanceof Error ? e.message : "Failed to load Hub";
+				loading = false;
 			}
-			loading = false;
-		} catch (e) {
-			error = e instanceof Error ? e.message : "Failed to load Hub";
-			loading = false;
-		}
+		})();
+		return () => {
+			cancelled = true;
+		};
 	});
 </script>
 

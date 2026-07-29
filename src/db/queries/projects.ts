@@ -62,3 +62,18 @@ export async function getProjectByName(name: string): Promise<Project | undefine
   const rows = await getDb().select().from(projects).where(eq(projects.name, name));
   return rows[0];
 }
+
+/**
+ * Resolve a project by its absolute filesystem `path` (exact match). Used by
+ * the extension events route to turn a gate push's shape-validated
+ * `payload.projectRoot` into the REAL project — the fail-closed host-side
+ * trust boundary: an unregistered path returns `undefined`, so the caller
+ * mints a null-scope token and the spawn keeps rejecting (never borrow ambient
+ * scope). `path` is unique per project in practice (one checkout → one
+ * project); the first match wins if a path were ever duplicated.
+ */
+export async function getProjectByPath(path: string): Promise<Project | undefined> {
+  if (!path) return undefined;
+  const rows = await getDb().select().from(projects).where(eq(projects.path, path));
+  return rows[0];
+}

@@ -106,9 +106,22 @@ no-op on git too old to know the keys.
 
 ## Dashboard (Hub page)
 
-`/hub/ext:ez-code-factory:dashboard` renders a stats header and a runs table
-(Run · Branch · Head · Status · Updated), refreshed live via a content-free
-`ext:page-state` SSE signal (`pushPage`) after each run state change.
+The `dashboard` page is declared `perProject: true`, so one page id serves
+three views (see docs/extensions/pages.md § 4b):
+
+- **`/hub/ext:ez-code-factory:dashboard`** (global hub) — the home: a stats
+  header, one row per registered project (runs / active / parked / last push)
+  deep-linking into that project's view, and a "Runs outside registered
+  projects" triage section for gates on non-project checkouts.
+- **`/project/<id>/hub/ext:ez-code-factory:dashboard`** — only that project's
+  runs + inline parked-run triage. Runs map to projects by the same
+  `repoId(path)` derivation the gate uses.
+- **No context** (host without perProject support) — the classic combined
+  runs table.
+
+All views refresh live via the content-free `ext:page-state` SSE signal —
+`invalidatePage` after each run state change, so every open variant re-pulls
+its own context.
 
 ## PR + CI (GitHub only)
 

@@ -23,6 +23,7 @@
 	import BottomSheet from "./BottomSheet.svelte";
 	import { useBreakpoint } from "$lib/use-breakpoint.svelte.js";
 	import { store } from "$lib/stores.svelte.js";
+	import { isIconUrl } from "$lib/project-icon.js";
 
 	let {
 		open,
@@ -194,12 +195,14 @@
 	// Project icon image source for a hit's owning project, looked up from the
 	// shared store (already populated by the sidebar — same source `buildCommands`
 	// uses). A project `icon` is an image URL / data-URI (ProjectRail renders it
-	// via <img>), NOT an emoji. null when the project has no icon set OR isn't in
-	// the store, so the badge falls back to the colored-initial avatar. Cheap
+	// via <img>), NOT an emoji. null when the project has no icon set, carries a
+	// non-URL token (e.g. a Lucide name that would 404 as an <img src>), OR isn't
+	// in the store — so the badge falls back to the colored-initial avatar. Cheap
 	// linear scan — the project list is small.
 	function projectIconSrc(projectId: string | undefined): string | null {
 		if (!projectId) return null;
-		return store.projects.find((p) => p.id === projectId)?.icon ?? null;
+		const icon = store.projects.find((p) => p.id === projectId)?.icon ?? null;
+		return isIconUrl(icon) ? icon : null;
 	}
 
 	// Relative-time formatter — Phase 66 parity (ConversationList.svelte).
