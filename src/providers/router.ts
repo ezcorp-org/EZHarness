@@ -3,8 +3,14 @@
  */
 
 import { type Model } from "@earendil-works/pi-ai";
-import { resolveModelObject, findModelForProviderInTier, resolveDiscoveredModel } from "./registry";
+import {
+  resolveModelObject,
+  findModelForProviderInTier,
+  findRunnableModelForProviderInTier,
+  resolveDiscoveredModel,
+} from "./registry";
 import { getCircuitBreaker } from "./circuit-breaker";
+import { tryGetCredential } from "./credentials";
 import { getSetting } from "../db/queries/settings";
 import { isTestSurfaceEnabled, MOCK_PROVIDER, mockLlmBaseUrl } from "../test-surface";
 // Tier vocabulary lives in the pure routing classifier (single source of
@@ -133,19 +139,53 @@ export async function resolveModel(
     return { provider, model: provider, piModel: resolveModelObject(provider, provider) };
   }
 
-  // Level 3: No provider -- iterate preference order, skip open circuit breakers
+  // Level 3: No provider -- iterate preference order, skipping providers
+  // with an open circuit breaker, no model in the tier, or NO USABLE
+  // CREDENTIAL.
+  //
+  // The credential check is what makes this branch honest. Having a model
+  // in the tier says nothing about being able to CALL it: with the default
+  // order below, a deployment that connected only OpenAI still resolved
+  // every unpinned turn to `anthropic` (first in the order, and it always
+  // has catalog models), then threw "No credentials available for
+  // anthropic" from getCredential — while the model picker showed a
+  // ChatGPT model. This branch runs whenever no provider is pinned, which
+  // includes Auto-routing turns and any conversation whose row carries a
+  // null provider, so the failure looked like it came from whatever the
+  // user happened to be doing at the time.
+  //
+  // Cost is bounded: at most one probe per provider, short-circuited at
+  // the first usable one, and the probe for the WINNER is the same lookup
+  // the caller performs moments later.
   const order = await getPreferenceOrder();
+  let skippedForCredentials: string | null = null;
   for (const p of order) {
     const cb = getCircuitBreaker(p, credentialScope);
     if (cb.isOpen()) continue;
 
-    const entry = findModelForProviderInTier(p, tier);
-    if (entry) {
-      return { provider: p, model: entry.id, piModel: resolveModelObject(p, entry.id) };
+    const cred = await tryGetCredential(p);
+    if (!cred) {
+      skippedForCredentials ??= p;
+      continue;
     }
+
+    // The credential's TYPE narrows the catalog: an OAuth token can only
+    // serve subscription-eligible models. Picking from the api-key catalog
+    // here is how a ChatGPT-plan deployment ended up pinned to `gpt-4`.
+    const entry = findRunnableModelForProviderInTier(p, tier, cred.type);
+    if (!entry) continue;
+
+    return { provider: p, model: entry.id, piModel: resolveModelObject(p, entry.id) };
   }
 
-  throw new Error("No available providers");
+  // Name the real constraint. "No available providers" sent people looking
+  // for a routing/catalog problem when the answer was "connect a provider".
+  throw new Error(
+    skippedForCredentials
+      ? `No available providers with credentials (tier "${tier}"). ` +
+        `Connect a provider via OAuth or add an API key — e.g. ${skippedForCredentials}.`
+      : "No available providers",
+  );
 }
 
 // ── Fallback suggestion ──────────────────────────────────────────────
@@ -165,10 +205,17 @@ export async function suggestFallback(
     const cb = getCircuitBreaker(provider, credentialScope);
     if (cb.isOpen()) continue;
 
-    const entry = findModelForProviderInTier(provider, tier as TierName);
-    if (entry) {
-      return { provider, model: entry.id, tier };
-    }
+    // Same rule as resolveModel's Level 3: a provider we cannot
+    // authenticate is not a fallback. Suggesting one turns a recoverable
+    // provider error into a second, more confusing credentials error, and
+    // the user is shown a "try X instead" that could never have worked.
+    const cred = await tryGetCredential(provider);
+    if (!cred) continue;
+
+    const entry = findRunnableModelForProviderInTier(provider, tier as TierName, cred.type);
+    if (!entry) continue;
+
+    return { provider, model: entry.id, tier };
   }
 
   return null;
