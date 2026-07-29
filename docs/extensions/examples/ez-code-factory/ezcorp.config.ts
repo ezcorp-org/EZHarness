@@ -46,7 +46,14 @@ export default defineExtension({
         "clobber a foreign remote of the same name). Safe to re-run: it only " +
         "rewrites hooks it wrote itself and only repoints gate wiring it owns. " +
         "After running, `git push gate <branch>` routes the push through this " +
-        "extension. Returns the gate repo id + paths.",
+        "extension. Returns the gate repo id + paths. CONTRACT — MISSING " +
+        "CREDENTIAL: the gate is INERT without a minted key file, which init_gate " +
+        "does NOT create (README §Setup step 2 is a required manual step). When " +
+        "the result has `credentialPresent:false`, the always-exit-0 hook accepts " +
+        "pushes but silently drops every one (nothing recorded, the dashboard " +
+        "stays empty) — your reply MUST LEAD with that gap and the `nextStep` mint " +
+        "command; do NOT report a bare 'initialized successfully', setup is " +
+        "incomplete until the key exists.",
       inputSchema: {
         type: "object",
         properties: {
@@ -229,16 +236,21 @@ export default defineExtension({
 
   // Hub page declaration (Extension Pages Hub). Declaring the page IS the
   // grant — the tab appears at /hub/ext:ez-code-factory:dashboard once the
-  // extension is enabled.
+  // extension is enabled. `perProject` splits the one page id into
+  // context-aware variants: the global hub renders the all-projects home
+  // (project rows deep-link into `/project/<id>/hub/...`), the project hub
+  // renders only that project's runs, and hosts without perProject support
+  // fall back to the classic combined dashboard.
   pages: [
     {
       id: "dashboard",
       title: "ez-code-factory",
       icon: "GitBranch",
+      perProject: true,
       description:
         "Gate runs — one row per `git push gate` intercepted, with branch, " +
-        "head SHA, and lifecycle status, refreshed live via a content-free " +
-        "page-state SSE signal.",
+        "head SHA, and lifecycle status, live via SSE. Per-project view on " +
+        "each project's hub; the global hub lists every project.",
     },
   ],
 
@@ -346,6 +358,14 @@ export default defineExtension({
       // M4: re-check a run parked at the CI gate — a read-only ReconcileApproval
       // Gate poll that auto-resolves the gate when its PR has merged/closed.
       "ez-code-factory:reconcile",
+      // Control plane (L7): job-definition management from the config/job views —
+      // create/edit (job-save), enable/disable (job-toggle), delete (job-delete),
+      // and manual fire (run-now). All gated on the `manage-jobs` RBAC scope
+      // host-side + in-code (guardScope FIRST) and audited with the acting user.
+      "ez-code-factory:job-save",
+      "ez-code-factory:job-toggle",
+      "ez-code-factory:job-delete",
+      "ez-code-factory:run-now",
       // Platform direct-carrier event (DIRECT_CARRIER_EVENT_TYPES): the
       // terminal status of every `ezcorp/spawn-assignment` sub-agent this
       // pipeline dispatches. WITHOUT this subscription the spawn dispatcher's
@@ -366,6 +386,10 @@ export default defineExtension({
     rbacScopes: [
       { name: "respond-gate", description: "Answer a parked gate (approve / fix / skip / abort) from chat or the Hub" },
       { name: "yolo", description: "Run the yolo autopilot — bulk fix-once-then-approve every remaining gate of a run" },
+      // Control plane (L7): manage job DEFINITIONS (create / edit / toggle /
+      // delete a job, and fire a job "run now") from the config/job views.
+      // Distinct from respond-gate: it shapes what future runs a trigger creates.
+      { name: "manage-jobs", description: "Create, edit, enable/disable, delete, and manually run code-factory jobs from the config plane" },
     ],
     // Persistent cron for the background reconcile sweep (M6): every 15 min the
     // host fires `ez-code-factory`'s `Schedule.on(SWEEP_CRON)` handler, which

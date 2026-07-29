@@ -24,6 +24,8 @@ import {
   type PageMarkdown,
   type PageLink,
   type PageEmptyState,
+  type PageForm,
+  type PageFormNode,
 } from "../extensions/page-schema";
 
 const EVENTS = ["demo:refresh", "demo:clear"] as const;
@@ -302,6 +304,76 @@ describe("table", () => {
     const t = result!.nodes[0] as PageTable;
     expect(t.rows).toEqual([{ cells: ["", "ok"] }]);
   });
+
+  test("object cell with a valid tone keeps its {text, tone} shape", () => {
+    const result = validate([
+      {
+        type: "table",
+        columns: ["A", "B", "C"],
+        rows: [
+          {
+            cells: [
+              { text: "failed", tone: "danger" },
+              { text: "completed", tone: "success" },
+              { text: "awaiting", tone: "warning" },
+            ],
+          },
+        ],
+      },
+    ]);
+    const t = result!.nodes[0] as PageTable;
+    expect(t.rows[0]!.cells).toEqual([
+      { text: "failed", tone: "danger" },
+      { text: "completed", tone: "success" },
+      { text: "awaiting", tone: "warning" },
+    ]);
+  });
+
+  test("neutral / absent / unknown tone folds an object cell back to a plain string", () => {
+    const result = validate([
+      {
+        type: "table",
+        columns: ["A", "B", "C"],
+        rows: [
+          {
+            cells: [
+              { text: "running", tone: "neutral" },
+              { text: "no-tone" },
+              { text: "bogus", tone: "chartreuse" },
+            ],
+          },
+        ],
+      },
+    ]);
+    const t = result!.nodes[0] as PageTable;
+    // Every one collapses to a bare string — the wire stays minimal and a
+    // pre-tone consumer sees exactly what it saw before tones existed.
+    expect(t.rows[0]!.cells).toEqual(["running", "no-tone", "bogus"]);
+  });
+
+  test("object cell text is <>-stripped + truncated; text-less object becomes empty", () => {
+    const result = validate([
+      {
+        type: "table",
+        columns: ["A", "B"],
+        rows: [
+          {
+            cells: [
+              { text: `<b>x</b>${"y".repeat(400)}`, tone: "danger" },
+              { tone: "success" },
+            ],
+          },
+        ],
+      },
+    ]);
+    const t = result!.nodes[0] as PageTable;
+    const first = t.rows[0]!.cells[0] as { text: string; tone: string };
+    expect(first.tone).toBe("danger");
+    expect(first.text.startsWith("bx")).toBe(true);
+    expect(first.text.length).toBe(300);
+    // A tone with no `text` string is not a valid cell — it degrades to "".
+    expect(t.rows[0]!.cells[1]).toBe("");
+  });
 });
 
 // ── button + actions ───────────────────────────────────────────────
@@ -493,6 +565,177 @@ describe("action prompt", () => {
       },
     ])!.nodes[0] as PageTable;
     expect(t.rows[0]!.action!.prompt).toEqual({ label: "Rename", field: "name", maxLength: 200 });
+  });
+});
+
+// ── action form (PageAction.form) ──────────────────────────────────
+
+describe("action form", () => {
+  function actionWith(form: unknown, extra: Record<string, unknown> = {}): PageButton["action"] {
+    return (
+      validate([
+        { type: "button", label: "Edit", action: { event: "demo:refresh", form, ...extra } },
+      ])!.nodes[0] as PageButton
+    ).action;
+  }
+  function formOf(form: unknown): PageForm | undefined {
+    return actionWith(form).form;
+  }
+
+  test("a valid multi-field form is normalized (defaults + optional title)", () => {
+    const f = formOf({
+      title: "Edit job",
+      fields: [
+        { field: "name", label: "Name", value: "Nightly", maxLength: 80 },
+        { field: "trigger", label: "Trigger", placeholder: "push feat/*" },
+      ],
+    });
+    expect(f).toEqual({
+      title: "Edit job",
+      fields: [
+        { field: "name", label: "Name", maxLength: 80, value: "Nightly" },
+        { field: "trigger", label: "Trigger", maxLength: 200, placeholder: "push feat/*" },
+      ],
+    });
+  });
+
+  test("a non-slug field is DROPPED (no 'value' fall-back) — siblings survive", () => {
+    // Unlike a prompt (which rewrites a bad field to "value"), a form drops the
+    // offending field so it can never clobber a sibling's payload key.
+    const f = formOf({
+      fields: [
+        { field: "Name", label: "bad camelCase" },
+        { field: "with-dash", label: "bad dash" },
+        { field: "ok_field", label: "good" },
+      ],
+    });
+    expect(f!.fields).toHaveLength(1);
+    expect(f!.fields[0]!.field).toBe("ok_field");
+  });
+
+  test("a `jobId` form field is DROPPED (camelCase is not slug-legal — the anti-spoof symmetry)", () => {
+    // The mirror of the client's jobId-can-never-be-a-form-field pin: an action's
+    // static `jobId` payload key can never be overridden by a form field, because
+    // the slug regex rejects the capital `I`. A form of ONLY jobId degrades away.
+    expect(formOf({ fields: [{ field: "jobId", label: "spoof" }] })).toBeUndefined();
+    // Alongside a legal sibling, only jobId is dropped.
+    const f = formOf({ fields: [{ field: "jobId", label: "spoof" }, { field: "name", label: "Name" }] });
+    expect(f!.fields.map((x) => x.field)).toEqual(["name"]);
+  });
+
+  test("fields cap at 10 (excess dropped)", () => {
+    const many = Array.from({ length: 12 }, (_, i) => ({ field: `f${i}`, label: `L${i}` }));
+    const f = formOf({ fields: many });
+    expect(f!.fields).toHaveLength(10);
+    expect(f!.fields.map((x) => x.field)).toEqual(["f0", "f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9"]);
+  });
+
+  test("a form with ZERO surviving fields degrades away — action still valid", () => {
+    for (const bad of [
+      { fields: [] },
+      { fields: [{ field: "Bad", label: "x" }, { field: "also-bad", label: "y" }] },
+      { fields: [{ label: "no field key" }] },
+      { fields: [{ field: "ok", label: "" }] }, // empty label drops the only field
+      { fields: "not-array" },
+      { title: "T" }, // no fields array
+    ]) {
+      const a = actionWith(bad);
+      expect(a.event).toBe("demo:refresh"); // action survives
+      expect(a.form).toBeUndefined(); // only the form is dropped
+    }
+  });
+
+  test("non-object form is dropped; action survives", () => {
+    for (const bad of [null, "str", 7, ["a"]]) {
+      expect(actionWith(bad).form).toBeUndefined();
+    }
+  });
+
+  test("form WINS over a co-present prompt (both → form, prompt dropped)", () => {
+    const a = actionWith(
+      { fields: [{ field: "name", label: "Name" }] },
+      { prompt: { label: "Old single field", field: "name" } },
+    );
+    expect(a.form).toBeDefined();
+    expect(a.prompt).toBeUndefined();
+  });
+
+  test("a MALFORMED form falls back to a co-present valid prompt (degrades gracefully)", () => {
+    const a = actionWith(
+      { fields: [] }, // no surviving field → form drops
+      { prompt: { label: "Fallback", field: "name" } },
+    );
+    expect(a.form).toBeUndefined();
+    expect(a.prompt).toEqual({ label: "Fallback", field: "name", maxLength: 200 });
+  });
+
+  test("value prefill is truncated to the field's own maxLength", () => {
+    const f = formOf({
+      fields: [{ field: "n", label: "N", maxLength: 5, value: "abcdefghij" }],
+    });
+    expect(f!.fields[0]!.value).toBe("abcde");
+  });
+
+  test("maxLength clamps to [1,500]; non-numeric → default 200", () => {
+    const ml = (v: unknown) => formOf({ fields: [{ field: "n", label: "N", maxLength: v }] })!.fields[0]!.maxLength;
+    expect(ml(0)).toBe(1);
+    expect(ml(-5)).toBe(1);
+    expect(ml(9999)).toBe(500);
+    expect(ml(12.9)).toBe(12);
+    expect(ml("big")).toBe(200);
+    expect(ml(NaN)).toBe(200);
+  });
+
+  test("label / placeholder / value / title are <>-stripped + truncated", () => {
+    const f = formOf({
+      title: `<b>${"T".repeat(200)}</b>`,
+      fields: [
+        {
+          field: "n",
+          label: `<i>${"L".repeat(200)}</i>`,
+          placeholder: `<u>${"P".repeat(200)}</u>`,
+          maxLength: 500,
+          value: `<s>${"V".repeat(600)}</s>`,
+        },
+      ],
+    });
+    expect(f!.title).not.toContain("<");
+    expect(f!.title!.length).toBe(120);
+    const field = f!.fields[0]!;
+    expect(field.label).not.toContain("<");
+    expect(field.label.length).toBe(120);
+    expect(field.placeholder!.length).toBe(120);
+    expect(field.value).not.toContain("<");
+    expect(field.value!.length).toBe(500); // clamped to maxLength
+  });
+
+  test("an all-`<>` title is omitted (not an empty string)", () => {
+    const f = formOf({ title: "<>", fields: [{ field: "n", label: "N" }] });
+    expect(f!.title).toBeUndefined();
+  });
+
+  test("a form on a table-row action validates the same way", () => {
+    const t = validate([
+      {
+        type: "table",
+        columns: ["A"],
+        rows: [{ cells: ["x"], action: { event: "demo:refresh", form: { fields: [{ field: "name", label: "Name" }] } } }],
+      },
+    ])!.nodes[0] as PageTable;
+    expect(t.rows[0]!.action!.form).toEqual({ fields: [{ field: "name", label: "Name", maxLength: 200 }] });
+  });
+
+  test("BACK-COMPAT: a form-less action serializes byte-identically (no `form` key emitted)", () => {
+    const plain = validate([
+      { type: "button", label: "Go", action: { event: "demo:clear", payload: { a: "1" } } },
+    ]);
+    const withPrompt = validate([
+      { type: "button", label: "Add", action: { event: "demo:refresh", prompt: { label: "Topic" } } },
+    ]);
+    expect(JSON.stringify(plain)).not.toContain("form");
+    expect(JSON.stringify(withPrompt)).not.toContain("form");
+    // Exact shape unchanged from the pre-form validator.
+    expect((plain!.nodes[0] as PageButton).action).toEqual({ event: "demo:clear", payload: { a: "1" } });
   });
 });
 
@@ -697,5 +940,313 @@ describe("empty allowlist", () => {
     expect(t1.rows).toHaveLength(0); // action row dropped
     const t2 = result!.nodes[1] as PageTable;
     expect(t2.rows).toHaveLength(1); // plain row kept
+  });
+});
+
+// ── ECF job-view prompt-field survival (the missing tier) ────────────
+//
+// The live camelCase-field bug slipped past because the ext's unit tests build
+// payloads with the expected keys and the e2e mocks the render — NEITHER meets
+// the REAL host validator. This tier runs the exact button/prompt shapes the
+// ext's buildJobView emits through the production validatePageTree with the
+// granted event allowlist, and asserts the slug-legal fields SURVIVE intact
+// (not silently rewritten to the reserved "value" fallback). It fails the moment
+// a job-view prompt field is not slug-legal again.
+describe("ECF job-view prompt fields survive the real validator", () => {
+  const JOB_SAVE = "ez-code-factory:job-save";
+  /** A job-edit button exactly as buildJobView emits it (event + payload + prompt). */
+  function editButton(field: string) {
+    return {
+      type: "button",
+      label: `Edit ${field}`,
+      action: { event: JOB_SAVE, payload: { jobId: "j1" }, prompt: { label: `Edit ${field}`, field, submitLabel: "Save" } },
+    };
+  }
+
+  test("every slug-legal job-edit field is PRESERVED (never the 'value' fallback)", () => {
+    const fields = ["name", "branch_pattern", "trigger", "skip_steps", "agent_name"];
+    const result = validate(fields.map(editButton), [JOB_SAVE]);
+    expect(result).not.toBeNull();
+    const buttons = result!.nodes.filter((n) => (n as { type: string }).type === "button") as PageButton[];
+    expect(buttons).toHaveLength(fields.length);
+    const seen = buttons.map((b) => b.action.prompt!.field);
+    expect(seen).toEqual(fields); // each field survived exactly
+    expect(seen).not.toContain("value"); // nothing fell back
+  });
+
+  test("a camelCase field IS rewritten to 'value' — the regression's mechanism", () => {
+    // Pins WHY the ext must emit snake_case + the handler's no-recognized-field
+    // guard: the typed value would land under `value`, not `agentName`.
+    const result = validate([editButton("agentName")], [JOB_SAVE]);
+    const btn = result!.nodes.find((n) => (n as { type: string }).type === "button") as PageButton;
+    expect(btn.action.prompt!.field).toBe("value");
+  });
+
+  test("the ECF Edit-job FORM survives the real validator with every field slug-legal", () => {
+    // The multi-field analogue of the prompt survival test above: the exact
+    // "Edit job" button buildJobView emits (name / trigger / agent_name /
+    // intent_template) run through the production validator with the granted
+    // event allowlist. A drift back to camelCase would DROP the field here.
+    const editJob = {
+      type: "button",
+      label: 'Edit job "Nightly"',
+      action: {
+        event: JOB_SAVE,
+        payload: { jobId: "j1" },
+        form: {
+          title: 'Edit job "Nightly"',
+          fields: [
+            { field: "name", label: "Name", value: "Nightly", maxLength: 80 },
+            { field: "trigger", label: "Trigger spec", value: "push feat/*", maxLength: 120 },
+            { field: "agent_name", label: "Agent", value: "reviewer", maxLength: 120 },
+            { field: "intent_template", label: "Intent template", value: "", maxLength: 500 },
+          ],
+        },
+      },
+    };
+    const result = validate([editJob], [JOB_SAVE]);
+    const btn = result!.nodes.find((n) => (n as { type: string }).type === "button") as PageButton;
+    expect(btn.action.form).toBeDefined();
+    expect(btn.action.form!.fields.map((f) => f.field)).toEqual([
+      "name",
+      "trigger",
+      "agent_name",
+      "intent_template",
+    ]);
+    // The intent field's maxLength sits at the validator's 500 ceiling (the ECF
+    // constant now equals the cap); an empty prefill survives as "".
+    expect(btn.action.form!.fields[3]!.maxLength).toBe(500);
+    expect(btn.action.form!.fields[3]!.value).toBe("");
+  });
+});
+
+// ── Inline form NODE (the page-embedded sibling of the dialog form) ──
+
+describe("form node", () => {
+  const FIELDS = [
+    { field: "name", label: "Name", value: "Default", maxLength: 80 },
+    { field: "review_instructions", label: "Review instructions", multiline: true, maxLength: 500 },
+  ];
+
+  test("a valid form node survives with action, fields, and submitLabel", () => {
+    const result = validate([
+      { type: "form", action: { event: "demo:refresh", payload: { jobId: "j1" } }, fields: FIELDS, submitLabel: "Save job" },
+    ]);
+    const form = result!.nodes[0] as PageFormNode;
+    expect(form.type).toBe("form");
+    expect(form.action).toEqual({ event: "demo:refresh", payload: { jobId: "j1" } });
+    expect(form.fields.map((f) => f.field)).toEqual(["name", "review_instructions"]);
+    expect(form.submitLabel).toBe("Save job");
+  });
+
+  test("multiline survives only as literal true; the flag is display-only", () => {
+    const result = validate([
+      {
+        type: "form",
+        action: { event: "demo:refresh" },
+        fields: [
+          { field: "a", label: "A", multiline: true },
+          { field: "b", label: "B", multiline: "yes" },
+          { field: "c", label: "C" },
+        ],
+      },
+    ]);
+    const form = result!.nodes[0] as PageFormNode;
+    expect(form.fields[0]!.multiline).toBe(true);
+    expect(form.fields[1]!.multiline).toBeUndefined();
+    expect(form.fields[2]!.multiline).toBeUndefined();
+  });
+
+  test("an undeclared event drops the whole node", () => {
+    const result = validate([
+      { type: "form", action: { event: "evil:exfil" }, fields: FIELDS },
+    ]);
+    expect(result!.nodes).toHaveLength(0);
+  });
+
+  test("zero surviving fields drops the whole node", () => {
+    const result = validate([
+      { type: "form", action: { event: "demo:refresh" }, fields: [{ field: "Bad-Slug", label: "X" }] },
+      { type: "form", action: { event: "demo:refresh" }, fields: [] },
+      { type: "form", action: { event: "demo:refresh" } },
+    ]);
+    expect(result!.nodes).toHaveLength(0);
+  });
+
+  test("the action's prompt AND dialog-form are STRIPPED — a submit must dispatch directly", () => {
+    const result = validate([
+      {
+        type: "form",
+        action: {
+          event: "demo:refresh",
+          confirm: "Sure?",
+          prompt: { label: "Should not survive" },
+          form: { fields: [{ field: "x", label: "X" }] },
+        },
+        fields: FIELDS,
+      },
+    ]);
+    const form = result!.nodes[0] as PageFormNode;
+    expect(form.action.prompt).toBeUndefined();
+    expect(form.action.form).toBeUndefined();
+    // confirm survives — a destructive full-form save may still gate on it.
+    expect(form.action.confirm).toBe("Sure?");
+  });
+
+  test("fields cap at 10, values truncate to maxLength, labels are <>-stripped", () => {
+    const manyFields = Array.from({ length: 10 }, (_, i) => ({
+      field: `f${i}`,
+      label: `<b>Label ${i}</b>`,
+      value: "x".repeat(600),
+      maxLength: 500,
+    }));
+    const result = validate([
+      { type: "form", action: { event: "demo:refresh" }, fields: manyFields },
+    ]);
+    const form = result!.nodes[0] as PageFormNode;
+    expect(form.fields).toHaveLength(10);
+    expect(form.fields[0]!.label).toBe("bLabel 0/b");
+    expect(form.fields[0]!.value).toHaveLength(500);
+  });
+
+  test("a form node consumes ONE node-budget slot and counts toward the tree cap", () => {
+    const result = validate([
+      { type: "form", action: { event: "demo:refresh" }, fields: FIELDS },
+      { type: "heading", level: 2, text: "after" },
+    ]);
+    expect(result!.nodes).toHaveLength(2);
+  });
+});
+
+describe("form-field select options", () => {
+  const NODE = (fields: unknown[]) => ({ type: "form", action: { event: "demo:refresh" }, fields });
+
+  test("valid options survive; an out-of-set prefill clamps to the first option; same-as-value labels are elided", () => {
+    const result = validate([
+      NODE([
+        {
+          field: "kind",
+          label: "Kind",
+          value: "bogus",
+          options: [
+            { value: "push", label: "push — every matching git push" },
+            { value: "hourly", label: "hourly" },
+          ],
+        },
+      ]),
+    ]);
+    const f = (result!.nodes[0] as PageFormNode).fields[0]!;
+    expect(f.options).toEqual([
+      { value: "push", label: "push — every matching git push" },
+      { value: "hourly" },
+    ]);
+    expect(f.value).toBe("push"); // clamped into the set
+  });
+
+  test("an in-set prefill is kept", () => {
+    const result = validate([
+      NODE([{ field: "k", label: "K", value: "b", options: [{ value: "a" }, { value: "b" }] }]),
+    ]);
+    expect((result!.nodes[0] as PageFormNode).fields[0]!.value).toBe("b");
+  });
+
+  test("fewer than 2 valid options drops the list (text fall-back, field survives)", () => {
+    const result = validate([
+      NODE([
+        { field: "one", label: "One", options: [{ value: "solo" }] },
+        { field: "junk", label: "Junk", value: "typed", options: [{ value: "" }, { label: "no value" }, "str", null] },
+      ]),
+    ]);
+    const fields = (result!.nodes[0] as PageFormNode).fields;
+    expect(fields[0]!.options).toBeUndefined();
+    expect(fields[1]!.options).toBeUndefined();
+    expect(fields[1]!.value).toBe("typed"); // untouched — no set to clamp into
+  });
+
+  test("options cap at 12 and strings are <>-stripped + truncated", () => {
+    const many = Array.from({ length: 15 }, (_, i) => ({ value: `v${i}`, label: `<b>L${i}</b>` }));
+    const result = validate([NODE([{ field: "k", label: "K", options: many }])]);
+    const f = (result!.nodes[0] as PageFormNode).fields[0]!;
+    expect(f.options).toHaveLength(12);
+    expect(f.options![0]!.label).toBe("bL0/b");
+  });
+});
+
+describe("form-field visibleWhen conditions", () => {
+  const NODE = (fields: unknown[]) => ({ type: "form", action: { event: "demo:refresh" }, fields });
+  const KIND = { field: "kind", label: "Kind", options: [{ value: "a" }, { value: "b" }] };
+
+  test("a valid sibling condition survives (string and one-of-array forms)", () => {
+    const result = validate([
+      NODE([
+        KIND,
+        { field: "only_a", label: "A-only", visibleWhen: { field: "kind", equals: "a" } },
+        { field: "a_or_b", label: "Either", visibleWhen: { field: "kind", equals: ["a", "b"] } },
+      ]),
+    ]);
+    const fields = (result!.nodes[0] as PageFormNode).fields;
+    expect(fields[1]!.visibleWhen).toEqual({ field: "kind", equals: "a" });
+    expect(fields[2]!.visibleWhen).toEqual({ field: "kind", equals: ["a", "b"] });
+  });
+
+  test("a condition on an UNKNOWN or SELF field is pruned — the field stays, always visible", () => {
+    const result = validate([
+      NODE([
+        KIND,
+        { field: "ghost_ref", label: "G", visibleWhen: { field: "nope", equals: "a" } },
+        { field: "self_ref", label: "S", visibleWhen: { field: "self_ref", equals: "x" } },
+      ]),
+    ]);
+    const fields = (result!.nodes[0] as PageFormNode).fields;
+    expect(fields).toHaveLength(3);
+    expect(fields[1]!.visibleWhen).toBeUndefined();
+    expect(fields[2]!.visibleWhen).toBeUndefined();
+  });
+
+  test("malformed conditions are dropped: non-slug field, empty/non-string equals, junk shapes", () => {
+    const result = validate([
+      NODE([
+        KIND,
+        { field: "f1", label: "F1", visibleWhen: { field: "Bad-Slug", equals: "a" } },
+        { field: "f2", label: "F2", visibleWhen: { field: "kind", equals: ["", 7, null] } },
+        { field: "f3", label: "F3", visibleWhen: "kind=a" },
+      ]),
+    ]);
+    const fields = (result!.nodes[0] as PageFormNode).fields;
+    for (const f of fields.slice(1)) expect(f.visibleWhen).toBeUndefined();
+  });
+
+  test("equals values are <>-stripped, clamped to 64 chars, capped at 12 entries", () => {
+    const many = Array.from({ length: 15 }, (_, i) => `v${i}`);
+    many[0] = `<x>${"y".repeat(70)}`;
+    const result = validate([
+      NODE([KIND, { field: "f", label: "F", visibleWhen: { field: "kind", equals: many } }]),
+    ]);
+    const cond = (result!.nodes[0] as PageFormNode).fields[1]!.visibleWhen!;
+    const equals = cond.equals as string[];
+    expect(equals).toHaveLength(12);
+    expect(equals[0]).toBe(`x${"y".repeat(70)}`.slice(0, 64)); // <> stripped, then 64-clamped
+  });
+
+  test("the dialog form prunes dangling conditions too (shared post-pass)", () => {
+    const result = validate([
+      {
+        type: "button",
+        label: "Edit",
+        action: {
+          event: "demo:refresh",
+          form: {
+            fields: [
+              KIND,
+              { field: "dep", label: "Dep", visibleWhen: { field: "kind", equals: "a" } },
+              { field: "ghost", label: "G", visibleWhen: { field: "gone", equals: "z" } },
+            ],
+          },
+        },
+      },
+    ]);
+    const form = (result!.nodes[0] as PageButton).action.form!;
+    expect(form.fields[1]!.visibleWhen).toEqual({ field: "kind", equals: "a" });
+    expect(form.fields[2]!.visibleWhen).toBeUndefined();
   });
 });

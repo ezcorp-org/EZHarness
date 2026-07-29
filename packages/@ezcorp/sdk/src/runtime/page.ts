@@ -59,6 +59,60 @@ export interface PagePromptDescriptor {
   format?: string;
 }
 
+/**
+ * One field of a host-rendered multi-field form. Mirror of page-schema's
+ * `PageFormField` (source of truth + validation point) and `web/src/lib/hub.ts`.
+ * `field` MUST be a `/^[a-z0-9][a-z0-9_]{0,31}$/` slug (a non-slug field is
+ * DROPPED host-side — no fall-back, unlike a prompt); `maxLength` is clamped to
+ * [1,500] and the `value` prefill truncated to it. Author-side hints only.
+ */
+export interface PageFormFieldDescriptor {
+  field: string;
+  label: string;
+  /** Prefill value (truncated host-side to the field's maxLength). */
+  value?: string;
+  placeholder?: string;
+  /** Input length hint; host clamps to [1,500], default 200. */
+  maxLength?: number;
+  /** Render a multi-row textarea instead of the single-line input — for
+   *  long free-text fields. Display-only; the submitted value is the same
+   *  clamped scalar string either way. */
+  multiline?: boolean;
+  /** Render a SELECT of these options (inline form node only; the dialog
+   *  form ignores them and shows a text input). Host keeps 2..12 valid
+   *  options or drops the list (text fall-back), and clamps an out-of-set
+   *  `value` prefill to the first option. The submitted value is a plain
+   *  scalar string — the handler must still validate it (a select
+   *  constrains the UI, never the wire). */
+  options?: { value: string; label?: string }[];
+  /** DYNAMIC visibility: show this field only while the named SIBLING
+   *  field's current value equals `equals` (or one of them, when an
+   *  array) AND that controller is ITSELF effectively visible — hiding a
+   *  controller transitively hides every field conditioned on it, even
+   *  while the controller's retained value still matches. Inline form
+   *  node only. A hidden field is OMITTED from the submitted payload
+   *  (absent key — "don't touch"), so it composes with
+   *  present-string-clears handler semantics. The host prunes a condition
+   *  referencing an unknown or self field (fails open to visible) and
+   *  breaks a condition CYCLE by treating the re-entered field as visible
+   *  (fail-open, so evaluation terminates deterministically); visibility
+   *  is UX only — the handler must validate whatever arrives. */
+  visibleWhen?: { field: string; equals: string | string[] };
+}
+
+/**
+ * Host-rendered multi-field form attached to an action — the multi-field
+ * superset of `PagePromptDescriptor`. On submit every field's typed string
+ * merges into `payload[field]` (including empty strings — clear-to-empty) and
+ * the action dispatches through its UNCHANGED, eventSubscriptions-gated path —
+ * `form` grants NO new authority. At most 10 fields survive; a field-less form
+ * is dropped host-side. Mirror of page-schema's `PageForm`.
+ */
+export interface PageFormDescriptor {
+  title?: string;
+  fields: PageFormFieldDescriptor[];
+}
+
 export interface PageActionDescriptor {
   /** Namespaced event (`<ext>:<event>`) — must be declared in
    *  `permissions.eventSubscriptions`. */
@@ -68,6 +122,9 @@ export interface PageActionDescriptor {
   confirm?: string;
   /** Optional host-rendered text prompt collected before dispatch. */
   prompt?: PagePromptDescriptor;
+  /** Optional host-rendered multi-field form. Supersedes `prompt` when both
+   *  are present (form wins; the host drops the prompt). */
+  form?: PageFormDescriptor;
 }
 
 export interface PageStatItem {
@@ -76,8 +133,24 @@ export interface PageStatItem {
   hint?: string;
 }
 
+/** A table cell's semantic tone. Mirror of page-schema's `CellTone`
+ *  (source of truth + validation point). The host normalises `neutral`
+ *  (and any unknown value) back to a plain string cell. */
+export type PageCellTone = "success" | "danger" | "warning" | "neutral";
+
+/** Object cell form — mirror of page-schema's `PageTableCell`. Lets a
+ *  builder tone a single cell (e.g. a run-status column) without an
+ *  index-aligned parallel array. */
+export interface PageTableCellInput {
+  text: string;
+  tone?: PageCellTone;
+}
+
+/** A table cell input: a plain string (neutral) or a toned object. */
+export type PageCellInput = string | PageTableCellInput;
+
 export interface PageTableRowInput {
-  cells: string[];
+  cells: PageCellInput[];
   action?: PageActionDescriptor;
   /** Relative internal link (must start with a single `/`). */
   href?: string;
@@ -130,6 +203,29 @@ export class PageBuilder extends ComponentListBuilder {
     return this;
   }
 
+  /**
+   * INLINE on-page form node — the page-embedded sibling of the
+   * `PageActionDescriptor.form` modal. Fields (1..10, same shape/caps as the
+   * dialog form; `multiline` renders a textarea) appear directly in the page
+   * flow with one submit button. On submit every field's typed value merges
+   * into `action.payload[field]` and the action dispatches through its
+   * eventSubscriptions-gated path — NO new authority. The host STRIPS any
+   * `prompt`/`form` off the action (the inline fields are the input surface);
+   * `confirm` survives. `submitLabel` defaults to "Save".
+   */
+  form(
+    fields: PageFormFieldDescriptor[],
+    action: PageActionDescriptor,
+    submitLabel?: string,
+  ): this {
+    this.components.push(
+      submitLabel !== undefined
+        ? { type: "form", action, fields, submitLabel }
+        : { type: "form", action, fields },
+    );
+    return this;
+  }
+
   emptyState(title: string, detail?: string): this {
     this.components.push(
       detail !== undefined
@@ -178,15 +274,57 @@ export interface PageActionEvent {
   payload?: Record<string, unknown>;
 }
 
+/** One platform project, as the host passes it into a `perProject`
+ *  page render. `path` is the project's checkout root on the host. */
+export interface PageProjectRef {
+  id: string;
+  name: string;
+  path: string;
+}
+
+/**
+ * Context handed to `render` for pages declared `perProject: true` in
+ * the manifest:
+ *   - project hub (`/project/<id>/hub/...`) → `{ project }`
+ *   - global hub (`/hub/...`)               → `{ projects }` (all of them)
+ * Pages without the flag — or older hosts — render with NO context, so
+ * a zero-arg `render` keeps working unchanged.
+ */
+export interface PageRenderContext {
+  project?: PageProjectRef;
+  projects?: PageProjectRef[];
+  /** Run-detail variant: the host threads `?run=<id>` through the render pull
+   *  as `run`, so a page can render ONE run's detail instead of its dashboard.
+   *  Orthogonal to project context — a run detail is reachable from either the
+   *  project hub (`?project=<id>&run=<id>`) or the global hub (`?run=<id>`). */
+  run?: string;
+  /** Step-detail sub-variant: `?run=<id>&step=<name>` renders ONE step's detail
+   *  within a run. Present only alongside `run` (the host drops a stray step),
+   *  so a page branches on `run && step` for the step view, falling back to the
+   *  run detail when only `run` is set. */
+  step?: string;
+  /** Render-variant selector: the host threads `?view=<value>` through the pull
+   *  as `view`, so a page can render an alternate surface (e.g. a config,
+   *  job-editor, or audit view) instead of its dashboard. INDEPENDENT of `run`
+   *  (unlike `step`): included whenever present, even with no project and no run.
+   *  Compound values (`audit:<day>`, `job:<id>`) are parsed by the page, not the
+   *  host — the host passes the raw string opaquely. */
+  view?: string;
+}
+
 export interface PageDefinition {
   /** Must match a `manifest.pages[].id`. */
   id: string;
   /** Produce the page tree. May return a `PageBuilder` (built
-   *  automatically) or a finished `{title, nodes}` tree. */
-  render: () => Promise<PageBuilder | HubPageTree> | PageBuilder | HubPageTree;
+   *  automatically) or a finished `{title, nodes}` tree. `ctx` carries
+   *  project context for `perProject` pages (see `PageRenderContext`). */
+  render: (
+    ctx?: PageRenderContext,
+  ) => Promise<PageBuilder | HubPageTree> | PageBuilder | HubPageTree;
   /** Action handlers keyed by FULL namespaced event name
    *  (`<ext>:<event>`, as declared in eventSubscriptions). Handlers
-   *  typically mutate state then `pushPage(...)` a fresh tree. */
+   *  typically mutate state then `pushPage(...)` a fresh tree (or
+   *  `invalidatePage(...)` for perProject pages). */
   actions?: Record<string, (event: PageActionEvent) => Promise<void> | void>;
 }
 
@@ -197,19 +335,67 @@ function toTree(result: PageBuilder | HubPageTree): HubPageTree {
   return result instanceof PageBuilder ? result.build() : result;
 }
 
+/** Defensive reader for a host-supplied project ref. */
+function readProjectRef(value: unknown): PageProjectRef | null {
+  if (!value || typeof value !== "object") return null;
+  const p = value as Record<string, unknown>;
+  if (typeof p.id !== "string" || typeof p.name !== "string" || typeof p.path !== "string") {
+    return null;
+  }
+  return { id: p.id, name: p.name, path: p.path };
+}
+
+/** Build the render context from the host's params — undefined when the
+ *  host sent no (valid) project context, so plain pages see no change. */
+function readRenderContext(params: Record<string, unknown>): PageRenderContext | undefined {
+  // `run` is read independently of project context — a run-detail request is
+  // honourable on its own, even from the global hub with no project. `step` is
+  // a sub-variant of `run` (one step's detail): folded ONLY when `run` is also
+  // present, so a stray `step` never reaches a page that requires both. `view`
+  // is INDEPENDENT of `run` (unlike `step`): folded whenever present, so a page
+  // can render an alternate surface with no project and no run.
+  const run = typeof params.run === "string" && params.run ? params.run : undefined;
+  const step = typeof params.step === "string" && params.step ? params.step : undefined;
+  const view = typeof params.view === "string" && params.view ? params.view : undefined;
+  const withExtras = (ctx: PageRenderContext): PageRenderContext => {
+    let out: PageRenderContext = run ? (step ? { ...ctx, run, step } : { ...ctx, run }) : ctx;
+    if (view) out = { ...out, view };
+    return out;
+  };
+
+  const project = readProjectRef(params.project);
+  if (project) return withExtras({ project });
+  if (Array.isArray(params.projects)) {
+    const projects: PageProjectRef[] = [];
+    for (const raw of params.projects) {
+      const ref = readProjectRef(raw);
+      if (ref) projects.push(ref);
+    }
+    // A truly empty list is a real "no projects registered" home render;
+    // a non-empty list where EVERY ref was malformed is host-contract
+    // drift — fall back to the no-context render instead of showing an
+    // empty home over data that exists (but still honour a `run`/`step`/`view`
+    // request, each of which is project-independent).
+    if (projects.length === 0 && params.projects.length > 0) {
+      return run || view ? withExtras({}) : undefined;
+    }
+    return withExtras({ projects });
+  }
+  return run || view ? withExtras({}) : undefined;
+}
+
 function installRenderHandler(): void {
   if (renderHandlerInstalled) return;
   renderHandlerInstalled = true;
   getChannel().onRequest("ezcorp/page.render", async (params: unknown) => {
-    const pageId =
-      params && typeof params === "object"
-        ? (params as Record<string, unknown>).pageId
-        : undefined;
+    const record =
+      params && typeof params === "object" ? (params as Record<string, unknown>) : {};
+    const pageId = record.pageId;
     const def = typeof pageId === "string" ? pages.get(pageId) : undefined;
     if (!def) {
       throw new JsonRpcError(-32602, `Unknown page: ${String(pageId)}`);
     }
-    return toTree(await def.render());
+    return toTree(await def.render(readRenderContext(record)));
   });
 }
 
@@ -239,6 +425,17 @@ export function definePage(def: PageDefinition): void {
  */
 export function pushPage(pageId: string, tree: PageBuilder | HubPageTree): void {
   getChannel().notify("ezcorp/page-state", { pageId, page: toTree(tree) });
+}
+
+/**
+ * Invalidate a page WITHOUT pushing a tree: the host drops every cached
+ * variant and broadcasts the content-free signal, so each open view
+ * re-pulls with its own context. THE refresh pattern for `perProject`
+ * pages — one pushed tree can't cover the global + per-project variants,
+ * and the extension can't know which of them is on screen.
+ */
+export function invalidatePage(pageId: string): void {
+  getChannel().notify("ezcorp/page-state", { pageId });
 }
 
 /** @internal — test-only: clear registered pages + the render handler

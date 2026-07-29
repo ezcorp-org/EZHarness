@@ -38,6 +38,99 @@ const log = logger.child("hub.render-pull");
 
 export const RENDER_PULL_TIMEOUT_MS = 10_000;
 
+// ── ext:page-state → cache invalidation (module-graph coherence) ─────
+//
+// The state mediator already invalidates the page cache it imports when an
+// extension pushes `ezcorp/page-state` (the SDK's `invalidatePage`). But in
+// dev the mediator's module graph and THIS (route-serving) graph can hold
+// separate `page-cache` singletons — the mediator's invalidation then never
+// reaches the cache renders are actually served from, and an edited page
+// keeps serving its old tree as "fresh" for the full 60s TTL (the SSE nudge
+// re-pulls straight into the stale entry; observed live on ez-code-factory
+// job edits). Subscribing HERE — from the module whose `getPageCache()` the
+// render path reads, on the same bus object the SSE route demonstrably
+// receives — pins invalidation to the right cache instance whichever graph
+// the mediator lives in. Double invalidation (when the graphs coincide) is
+// an idempotent no-op.
+
+let pageStateWired = false;
+let pageStateWireWarned = false;
+
+/** Idempotently subscribe this module's page cache to the bus's content-free
+ *  `ext:page-state` invalidations. Lazy + fail-open: before the server
+ *  context initializes (unit tests, boot-early requests) there is no bus —
+ *  the flag resets so the NEXT render retries instead of wedging
+ *  invalidation off forever (warned once, so a persistent failure is
+ *  visible instead of silently reverting to 60s-TTL staleness). Exported
+ *  for direct unit coverage. */
+export async function ensurePageStateInvalidation(): Promise<void> {
+  if (pageStateWired) return;
+  pageStateWired = true;
+  try {
+    const { getBus } = await import("$lib/server/context");
+    getBus().on("ext:page-state", ({ extensionId, pageId }) => {
+      getPageCache().invalidate(extensionId, pageId);
+    });
+  } catch (err) {
+    // Not initialized yet — allow a retry on the next render.
+    pageStateWired = false;
+    if (!pageStateWireWarned) {
+      pageStateWireWarned = true;
+      log.warn("page-state invalidation wiring failed — will retry on the next render", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+}
+
+/** @internal — test-only: drop the wired flag so a test can re-arm the
+ *  subscription against its own mocked bus. */
+export function __resetPageStateInvalidationForTests(): void {
+  pageStateWired = false;
+}
+
+/** Project context threaded into a `perProject` page render. */
+export interface HubProjectRef {
+  id: string;
+  name: string;
+  path: string;
+}
+
+/** What a render call should carry: one project (project-hub view) or
+ *  the full project list (global-hub view of a `perProject` page), plus an
+ *  optional run-detail request (`?run=<id>`) that is orthogonal to project
+ *  context — a run detail renders the same content from either hub. */
+export interface PageRenderScope {
+  project?: HubProjectRef;
+  listProjects?: boolean;
+  run?: string;
+  /** Step-detail sub-variant (`?step=<name>`) of a run detail — one step's
+   *  detail within `run`. Meaningful only alongside `run`; callers never set it
+   *  without `run`. */
+  step?: string;
+  /** Render-variant selector (`?view=<value>`) — an alternate page surface
+   *  (config / job-editor / audit). INDEPENDENT of `run`/project: included
+   *  whenever present. Parsed opaquely by the extension. */
+  view?: string;
+}
+
+/** The cache/single-flight variant key for a scope. A run-detail is keyed by
+ *  the run id ALONE (independent of which hub/project surfaced the link), so
+ *  the same run detail caches once; a step detail adds a `:step:<name>` suffix
+ *  so it caches SEPARATELY from the run detail. The bare `run:<id>` key stays
+ *  byte-identical (cache + single-flight backward compat). Otherwise the project
+ *  id (`""` = global). A `view` selector appends `:view:<value>` to whatever the
+ *  base key is — so a `view` render caches SEPARATELY, and a bare (no-view) key
+ *  stays byte-identical to the pre-view behaviour. */
+function variantKey(scope?: PageRenderScope): string {
+  const base = scope?.run
+    ? scope.step
+      ? `run:${scope.run}:step:${scope.step}`
+      : `run:${scope.run}`
+    : scope?.project?.id ?? "";
+  return scope?.view ? `${base}:view:${scope.view}` : base;
+}
+
 export type RenderExtensionPageResult =
   | { notFound: true; error?: undefined; page?: undefined; renderedAt?: undefined; stale?: undefined }
   | { notFound?: undefined; error: string; page?: undefined; renderedAt?: undefined; stale?: undefined }
@@ -54,8 +147,14 @@ export interface RenderPullDeps {
   /** Spawn (if needed) + wire the subprocess, returning a caller. The
    *  viewing `userId` scopes the render's reverse-RPC provenance so the
    *  subprocess can read its OWN extension data (config/state) during
-   *  render — see `productionCallPage`. */
-  callPage: (extension: Extension, pageId: string, userId: string) => Promise<JsonRpcResponse>;
+   *  render — see `productionCallPage`. `scope` (perProject pages only)
+   *  adds project context to the RPC params. */
+  callPage: (
+    extension: Extension,
+    pageId: string,
+    userId: string,
+    scope?: PageRenderScope,
+  ) => Promise<JsonRpcResponse>;
   cache: ExtensionPageCache;
   timeoutMs: number;
 }
@@ -90,6 +189,7 @@ async function productionCallPage(
   extension: Extension,
   pageId: string,
   userId: string,
+  scope?: PageRenderScope,
 ): Promise<JsonRpcResponse> {
   const [
     { ExtensionRegistry },
@@ -139,8 +239,38 @@ async function productionCallPage(
     kind: "render",
     ownerless: false,
   });
+  // perProject context: one project on the project hub; the FULL list on
+  // the global hub (so the page can render its all-projects home view).
+  // Late-bound import, same rationale as the collaborators above.
+  let projectParams: Record<string, unknown> = {};
+  if (scope?.project) {
+    projectParams = { project: scope.project };
+  } else if (scope?.listProjects) {
+    const { listProjects } = await import("$server/db/queries/projects");
+    const all = await listProjects();
+    projectParams = {
+      projects: all.map((p) => ({ id: p.id, name: p.name, path: p.path })),
+    };
+  }
+  // A run-detail request rides ALONGSIDE any project context — the page reads
+  // `run` to switch to its detail render; project context stays available for
+  // building in-hub links back to the project dashboard. `step` (a sub-variant
+  // of `run`) rides along only when `run` is present.
+  const runParam = scope?.run ? { run: scope.run } : {};
+  const stepParam = scope?.run && scope?.step ? { step: scope.step } : {};
+  // `view` rides ALONGSIDE any project/run context — the page reads it to switch
+  // to an alternate surface. Independent of `run` (unlike `step`), so it is
+  // forwarded whenever present.
+  const viewParam = scope?.view ? { view: scope.view } : {};
   try {
-    return await proc.call("ezcorp/page.render", { pageId, _meta: { ezCallId } });
+    return await proc.call("ezcorp/page.render", {
+      pageId,
+      ...projectParams,
+      ...runParam,
+      ...stepParam,
+      ...viewParam,
+      _meta: { ezCallId },
+    });
   } finally {
     releaseCallProvenance(ezCallId);
   }
@@ -161,16 +291,54 @@ function grantedEvents(extension: Extension): string[] {
   return Array.isArray(subs) ? subs : [];
 }
 
-/** Pull + validate + cache. Returns the error string on any failure. */
-async function pullAndCache(
+/** In-flight pulls keyed (extensionId, pageId, variant) — single-flight
+ *  dedup. An invalidation empties the cache and broadcasts to EVERY open
+ *  viewer at once; without this, N tabs re-pulling the same cold variant
+ *  spawn N identical subprocess renders (thundering herd at exactly the
+ *  busy moments that fire invalidations). Module-level on purpose: the
+ *  cache singleton it protects is module-level too. */
+const inflightPulls = new Map<string, Promise<{ tree: HubPageTree } | { error: string }>>();
+
+/** Pull + validate + cache, deduping concurrent identical pulls. The dedup
+ *  key INCLUDES the page's invalidation generation: a re-pull arriving after
+ *  an invalidation must start a FRESH render (the change that invalidated is
+ *  exactly what it came to see), never join a pre-invalidation pull that is
+ *  about to produce stale content. */
+function pullAndCache(
   extension: Extension,
   pageId: string,
   userId: string,
   deps: RenderPullDeps,
+  scope?: PageRenderScope,
+): Promise<{ tree: HubPageTree } | { error: string }> {
+  const generation = deps.cache.generation(extension.id, pageId);
+  const key = `${extension.id}:${pageId}:${variantKey(scope)}:g${generation}`;
+  const existing = inflightPulls.get(key);
+  if (existing) return existing;
+  const pull = doPullAndCache(extension, pageId, userId, deps, scope, generation).finally(() => {
+    inflightPulls.delete(key);
+  });
+  inflightPulls.set(key, pull);
+  return pull;
+}
+
+/** The actual pull. Returns the error string on any failure. `generation`
+ *  (captured before the pull began) stamps the cache write so a result that
+ *  an invalidation overtook is discarded instead of cached as fresh. */
+async function doPullAndCache(
+  extension: Extension,
+  pageId: string,
+  userId: string,
+  deps: RenderPullDeps,
+  scope?: PageRenderScope,
+  generation?: number,
 ): Promise<{ tree: HubPageTree } | { error: string }> {
   let response: JsonRpcResponse;
   try {
-    response = await withTimeout(deps.callPage(extension, pageId, userId), deps.timeoutMs);
+    response = await withTimeout(
+      deps.callPage(extension, pageId, userId, scope),
+      deps.timeoutMs,
+    );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.warn("extension page render failed", { extension: extension.name, pageId, error: message });
@@ -194,7 +362,7 @@ async function pullAndCache(
     return { error: "This page produced invalid content." };
   }
 
-  deps.cache.set(extension.id, pageId, tree);
+  deps.cache.set(extension.id, pageId, tree, variantKey(scope), generation);
   return { tree };
 }
 
@@ -203,21 +371,49 @@ export async function renderExtensionPage(
   pageId: string,
   userId: string,
   depsOverride?: Partial<RenderPullDeps>,
+  project?: HubProjectRef,
+  run?: string,
+  step?: string,
+  view?: string,
 ): Promise<RenderExtensionPageResult> {
   const deps: RenderPullDeps = { ...defaultDeps(), ...depsOverride };
+  // Arm the bus→cache invalidation before this render can cache anything —
+  // awaited so the first cached entry is never orphaned from invalidation.
+  await ensurePageStateInvalidation();
 
   const found = await deps.findPage(extensionName, pageId);
   if (!found) return { notFound: true };
   const { extension } = found;
 
-  const cached = deps.cache.get(extension.id, pageId);
+  // Project context applies ONLY to pages that opted in — for everything
+  // else a `?project=` query is inert and the render stays global. A `?run=`
+  // request is honoured on a perProject page alongside (or instead of) project
+  // context; on a non-perProject page it still routes a run-detail render.
+  // `step` is a sub-variant of `run` and is meaningless without it — dropped
+  // when `run` is absent, so a stray `?step=` never forks the cache. `view` is
+  // INDEPENDENT of run/project — folded in whenever present (even a bare global
+  // render with no project and no run), so an alternate surface is reachable
+  // from any hub.
+  const perProject = found.page.perProject === true;
+  const runStepScope: PageRenderScope | undefined = run
+    ? { run, ...(step ? { step } : {}) }
+    : undefined;
+  const baseScope: PageRenderScope | undefined = perProject
+    ? { ...(project ? { project } : { listProjects: true }), ...(runStepScope ?? {}) }
+    : runStepScope;
+  const scope: PageRenderScope | undefined = view
+    ? { ...(baseScope ?? {}), view }
+    : baseScope;
+  const variant = variantKey(scope);
+
+  const cached = deps.cache.get(extension.id, pageId, variant);
   if (cached && !cached.stale) {
     return { page: cached.tree, renderedAt: cached.renderedAt };
   }
   if (cached) {
     // Serve stale instantly; refresh in the background so the NEXT
     // request (or the client's invalidation-driven re-pull) is fresh.
-    void pullAndCache(extension, pageId, userId, deps).catch((err) => {
+    void pullAndCache(extension, pageId, userId, deps, scope).catch((err) => {
       log.warn("background page refresh failed", {
         extension: extension.name,
         pageId,
@@ -227,7 +423,7 @@ export async function renderExtensionPage(
     return { page: cached.tree, renderedAt: cached.renderedAt, stale: true };
   }
 
-  const pulled = await pullAndCache(extension, pageId, userId, deps);
+  const pulled = await pullAndCache(extension, pageId, userId, deps, scope);
   if ("error" in pulled) return { error: pulled.error };
   return { page: pulled.tree, renderedAt: Date.now() };
 }

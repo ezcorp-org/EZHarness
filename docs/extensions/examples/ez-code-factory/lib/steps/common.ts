@@ -18,6 +18,7 @@ import type { GhRunner } from "../github";
 import type { RepoConfig } from "../repo-config";
 import type { StepWithRounds } from "../runs";
 import type { ShellRunner } from "../shell";
+import type { StepIOSink } from "../step-io";
 
 // ── Run-scoped in-memory hand-off (pipeline/shared.go) ──────────────
 
@@ -111,6 +112,19 @@ export interface StepContext {
    *  agent + document policy come trusted-only; see lib/repo-config.ts). Every
    *  step receives it; test/document/lint consume its executing fields. */
   repoConfig: RepoConfig;
+  /** Control plane (L4): the matched job's agent-name OVERRIDE, when the run
+   *  belongs to a job that pinned one. `repoDispatchOptions` prefers it over
+   *  `repoConfig.agent` (`job.agentName || repoConfig.agent`). Absent → the repo
+   *  config's agent (or the deployment default) applies. */
+  jobAgentName?: string;
+  /** Control plane (L4): the matched job's operator prompt instructions, threaded
+   *  from the job like {@link jobAgentName}. The step call sites feed the relevant
+   *  ones into `jobInstructionsPromptSection` and PREPEND the result to
+   *  `historySection` (mapping: review → review-main + review-fix; fix → the three
+   *  fix rounds; document → document). Absent → no operator section is appended. */
+  jobReviewInstructions?: string;
+  jobFixInstructions?: string;
+  jobDocumentInstructions?: string;
   /** Run-scoped in-memory hand-off (the document→lint housekeeping stash). */
   shared: RunShared;
   fixing: boolean;
@@ -142,6 +156,11 @@ export interface StepContext {
   /** Load every pipeline step's result + rounds (the PR step reads the whole
    *  history to build the deterministic Risk/Testing/Pipeline body sections). */
   loadStepHistory: () => Promise<StepWithRounds[]>;
+  /** Per-round observability sink (L2): `runStepShellCommand` records its timed
+   *  shell command here. One instance per round, drained into the step_io record
+   *  at round end. Absent on the reconcile path (out of scope) and in step-unit
+   *  tests that don't assert IO — recording is then a silent no-op. */
+  ioSink?: StepIOSink;
 }
 
 /** Bind read-only host git to an arbitrary dir (e.g. the working repo for the
@@ -162,8 +181,12 @@ export function gitAt(sctx: StepContext, dir: string): Git {
 export function repoDispatchOptions(
   sctx: StepContext,
 ): Pick<DispatchOptions, "agentName" | "disableProjectSettings"> {
+  // Control plane (L4): a job's pinned agent OVERRIDES the trusted repo-config
+  // agent (`job.agentName || repoConfig.agent`); the repo config still gates
+  // `disableProjectSettings` (a trusted-branch-only field a job never sets).
+  const agentName = sctx.jobAgentName || sctx.repoConfig.agent;
   return {
-    ...(sctx.repoConfig.agent ? { agentName: sctx.repoConfig.agent } : {}),
+    ...(agentName ? { agentName } : {}),
     ...(sctx.repoConfig.disableProjectSettings ? { disableProjectSettings: true } : {}),
   };
 }
@@ -387,19 +410,26 @@ export interface StepShellResult {
  * pushed SHA — this is where the supply-chain boundary earns its keep, so the
  * caller must pass a trusted-sourced command. Verbatim runShellCommandWithEnv.
  *
- * NOTE: `runner` here is the UNJAILED host runner, deliberately — trusted
- * `commands.test`/`commands.lint` run on the daemon host exactly as upstream
- * runs them (they need the repo's own toolchain), and they're only reachable via
- * the trusted-branch opt-in, so they bypass the mutating-git nested jail by
- * design. Only pass a trusted-sourced `cmd`; never a pushed-branch value.
+ * NOTE: the UNJAILED host runner is used deliberately (`sctx.hostRunner`) —
+ * trusted `commands.test`/`commands.lint` run on the daemon host exactly as
+ * upstream runs them (they need the repo's own toolchain), and they're only
+ * reachable via the trusted-branch opt-in, so they bypass the mutating-git
+ * nested jail by design. Only pass a trusted-sourced `cmd`; never a
+ * pushed-branch value.
+ *
+ * Times the command with `sctx.now` and records it into `sctx.ioSink` (when
+ * present) so the step_io observability record captures the exact command, its
+ * combined output, exit code, and duration (L2 shell IO capture). Git plumbing
+ * is deliberately NOT routed through here (L7) — only these trusted repo
+ * commands are recorded.
  */
-export async function runStepShellCommand(
-  runner: ShellRunner,
-  cwd: string,
-  cmd: string,
-): Promise<StepShellResult> {
-  const r = await runner(["sh", "-c", cmd], cwd);
-  return { output: `${r.stdout}${r.stderr}`, exitCode: r.exitCode };
+export async function runStepShellCommand(sctx: StepContext, cmd: string): Promise<StepShellResult> {
+  const start = sctx.now();
+  const r = await sctx.hostRunner(["sh", "-c", cmd], sctx.worktree);
+  const output = `${r.stdout}${r.stderr}`;
+  const durationMs = sctx.now() - start;
+  sctx.ioSink?.recordShell({ command: cmd, exitCode: r.exitCode, output, durationMs });
+  return { output, exitCode: r.exitCode };
 }
 
 // ── New-test-file detection (common_diff.go) ────────────────────────

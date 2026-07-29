@@ -49,22 +49,68 @@ export interface PagePrompt {
    *  `PROMPT_FORMATS`; unknown → plain text input. */
   format?: string;
 }
+/** One field of a host-rendered multi-field form. Mirror of page-schema's
+ *  `PageFormField` (source of truth) — keep aligned. */
+export interface PageFormField {
+  field: string;
+  label: string;
+  value?: string;
+  placeholder?: string;
+  maxLength?: number;
+  /** Render a multi-row textarea instead of the single-line input. */
+  multiline?: boolean;
+  /** Render a select of these options (inline form node; the dialog form
+   *  falls back to the text input). Validated server-side: 2..12 options,
+   *  prefill clamped into the set. */
+  options?: { value: string; label?: string }[];
+  /** Show only while the named SIBLING field's current value matches (string
+   *  or one-of-array) AND that controller is ITSELF effectively visible —
+   *  hiding a controller cascades to its dependents, transitively. A
+   *  condition cycle fails open at the re-entered field (evaluation always
+   *  terminates). Inline form node only; a hidden field is OMITTED from
+   *  the submitted payload. Mirror of page-schema's `PageFormFieldCondition`
+   *  (source of truth) — dangling/self references are pruned server-side. */
+  visibleWhen?: { field: string; equals: string | string[] };
+}
+/** Host-rendered multi-field form. Mirror of page-schema's `PageForm`
+ *  (source of truth) — keep aligned. Every field's typed value merges into
+ *  `payload[field]` on submit (including empty strings — clear-to-empty). */
+export interface PageForm {
+  title?: string;
+  fields: PageFormField[];
+}
 export interface PageAction {
   event: string;
   payload?: Record<string, string | number | boolean>;
   confirm?: string;
   /** Optional host-rendered text prompt collected before dispatch. */
   prompt?: PagePrompt;
+  /** Optional host-rendered multi-field form. Supersedes `prompt` when both
+   *  are present (form wins) — the validator drops the prompt server-side. */
+  form?: PageForm;
 }
 export interface PageSectionNode { type: "section"; title?: string; nodes: PageNode[] }
 export interface PageHeadingNode { type: "heading"; level: 1 | 2 | 3; text: string }
 export interface PageMarkdownNode { type: "markdown"; content: string }
 export interface PageStatsNode { type: "stats"; items: { label: string; value: string; hint?: string }[] }
-export interface PageTableRow { cells: string[]; action?: PageAction; href?: string }
+/** A table cell's semantic tone. Mirror of page-schema's `CellTone`
+ *  (source of truth). `neutral` is normalised away server-side, so a toned
+ *  cell reaching the renderer only ever carries success/danger/warning. */
+export type CellTone = "success" | "danger" | "warning" | "neutral";
+/** Object cell form — mirror of page-schema's `PageTableCell`. */
+export interface PageTableCell { text: string; tone?: CellTone }
+/** A table cell: a plain string (neutral) or a toned object. */
+export type PageCell = string | PageTableCell;
+export interface PageTableRow { cells: PageCell[]; action?: PageAction; href?: string }
 export interface PageTableNode { type: "table"; columns: string[]; rows: PageTableRow[] }
 export interface PageButtonNode { type: "button"; label: string; action: PageAction; style?: "primary" | "secondary" | "danger" }
 export interface PageLinkNode { type: "link"; label: string; href: string }
 export interface PageEmptyStateNode { type: "empty-state"; title: string; detail?: string }
+/** INLINE on-page form — mirror of page-schema's `PageFormNode` (source of
+ *  truth). Fields render in the page flow; Save merges EVERY field value
+ *  into `action.payload[field]` and dispatches (the validator strips any
+ *  `prompt`/`form` off the action — a submit never opens a dialog). */
+export interface PageFormNode { type: "form"; action: PageAction; fields: PageFormField[]; submitLabel?: string }
 
 export type PageNode =
   | PanelHeaderNode
@@ -83,7 +129,8 @@ export type PageNode =
   | PageTableNode
   | PageButtonNode
   | PageLinkNode
-  | PageEmptyStateNode;
+  | PageEmptyStateNode
+  | PageFormNode;
 
 export interface HubPageTree {
   title: string;
@@ -96,8 +143,34 @@ export interface HubPageListing {
   title: string;
   icon?: string;
   description?: string;
+  /** True for a project-scoped extension page — the project hub index
+   *  auto-opens the first such tab. Only extension listings set it; core
+   *  pages never do. */
+  projectScoped?: boolean;
   kind: "core" | "ext";
 }
+
+/**
+ * Sort a Hub page listing ALPHABETICALLY by title (case-insensitive), with the
+ * page id as a stable tiebreaker for equal titles. Returns a NEW array — the
+ * source order from `/api/hub/pages` is intentionally preserved for callers
+ * that still depend on it (the project-hub index auto-open lands on "the first
+ * projectScoped page" from the raw listing).
+ *
+ * Shared by BOTH the sidebar Hub dropdown (`HubNavSection`) and the Hub tab bar
+ * (`HubPageView`) so their page ordering can never drift apart.
+ */
+// Written as a `const` arrow (not a `function` declaration) deliberately: the
+// bun server-test legs import this module transitively (via hub-extension-pages)
+// and instrument every line, but never CALL this frontend-only helper — a bare
+// `function` declaration line then shows as a bun zero-hit that the v8 leg emits
+// no positive DA for, dragging the merged lcov below 100%. A `const` initializer
+// executes at import time, so v8 counts the line in every leg. Keep it an arrow.
+export const sortHubPagesByTitle = (pages: HubPageListing[]): HubPageListing[] =>
+  [...pages].sort((a, b) => {
+    const byTitle = a.title.localeCompare(b.title, undefined, { sensitivity: "base" });
+    return byTitle !== 0 ? byTitle : a.id.localeCompare(b.id);
+  });
 
 // ── Page id parsing ────────────────────────────────────────────────
 

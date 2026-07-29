@@ -44,6 +44,14 @@ let webhookDaemonCtorMock = mock(() => {});
 let webhookDaemonStopMock = mock(() => {});
 let lastWebhookDaemonInstance: object | undefined;
 
+// Phase 1 (schedule-fire delivery fix): the ScheduleDaemon stub captures the
+// ctor OPTIONS so a test can assert the bootstrap passes the registry
+// singleton (`new ScheduleDaemon({ registry })`) — mirroring the
+// WebhookDeliveryDaemon. Without the registry `dispatchFire` drops every fire
+// behind a false `completion("ok")`, so the construction-site arg is the fix.
+let scheduleDaemonCtorMock = mock((_opts?: unknown) => {});
+let lastScheduleDaemonOpts: { registry?: unknown } | undefined;
+
 // HostMaintenanceDaemon stub instrumentation. The bootstrap reads
 // `new HostMaintenanceDaemon()` then `.start()`; we capture both so
 // tests can assert (a) the daemon WAS instantiated and (b) the
@@ -220,6 +228,10 @@ function installModuleMocks(): void {
   // src/extensions/__tests__/schedule-daemon.test.ts.
   mock.module("../extensions/schedule-daemon", () => ({
     ScheduleDaemon: class {
+      constructor(opts?: { registry?: unknown }) {
+        scheduleDaemonCtorMock(opts);
+        lastScheduleDaemonOpts = opts;
+      }
       start() { return Promise.resolve(true); }
       stop() {}
     },
@@ -486,6 +498,8 @@ beforeEach(async () => {
   webhookDaemonCtorMock = mock(() => {});
   webhookDaemonStopMock = mock(() => {});
   lastWebhookDaemonInstance = undefined;
+  scheduleDaemonCtorMock = mock((_opts?: unknown) => {});
+  lastScheduleDaemonOpts = undefined;
   permSweepDaemonCtorMock = mock(() => {});
   permSweepDaemonStartMock = mock(() => Promise.resolve<boolean>(true));
   permSweepDaemonStopMock = mock(() => {});
@@ -638,6 +652,43 @@ describe("startBackgroundTimers", () => {
     expect(compactionCall.delay).toBe(2 * hourMs);
 
     expect(loggerInfoMock).toHaveBeenCalledWith("Compaction started", { intervalHours: 2 });
+  });
+});
+
+// Phase 1 (schedule-fire delivery fix) — the ScheduleDaemon MUST be
+// constructed WITH the registry singleton. Without it, `dispatchFire` takes
+// the registry-less branch and silently drops every fire (the production bug
+// where `sweep-heartbeat` was never written). This mirrors the
+// WebhookDeliveryDaemon construction site.
+describe("startBackgroundTimers — ScheduleDaemon registry wiring", () => {
+  const PRIOR = process.env.EZCORP_DISABLE_SCHEDULE_DAEMON;
+  afterEach(() => {
+    if (PRIOR === undefined) delete process.env.EZCORP_DISABLE_SCHEDULE_DAEMON;
+    else process.env.EZCORP_DISABLE_SCHEDULE_DAEMON = PRIOR;
+  });
+
+  test("ScheduleDaemon is constructed with the registry singleton", async () => {
+    delete process.env.EZCORP_DISABLE_SCHEDULE_DAEMON;
+    installModuleMocks();
+
+    const { startBackgroundTimers } = await import("../startup/background-timers");
+    await startBackgroundTimers();
+
+    expect(scheduleDaemonCtorMock).toHaveBeenCalledTimes(1);
+    // The load-bearing assertion: a registry was passed (registry-less
+    // construction is the bug this fixes).
+    expect(lastScheduleDaemonOpts).toBeDefined();
+    expect(lastScheduleDaemonOpts!.registry).toBeDefined();
+  });
+
+  test("EZCORP_DISABLE_SCHEDULE_DAEMON=1 kill switch: never constructed", async () => {
+    process.env.EZCORP_DISABLE_SCHEDULE_DAEMON = "1";
+    installModuleMocks();
+
+    const { startBackgroundTimers } = await import("../startup/background-timers");
+    await startBackgroundTimers();
+
+    expect(scheduleDaemonCtorMock).not.toHaveBeenCalled();
   });
 });
 

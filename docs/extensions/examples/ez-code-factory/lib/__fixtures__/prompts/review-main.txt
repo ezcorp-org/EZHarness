@@ -1,0 +1,36 @@
+Review the code changes and return structured findings with a risk assessment.
+
+Context:
+- branch: feature/widget
+- base commit: aaaa111
+- target commit: bbbb222
+- review scope: branch changes between aaaa111 and bbbb222
+- default branch: main
+- ignore patterns: *.md, dist/**
+
+Task:
+- Read the relevant history and diff yourself.
+- Focus findings on risks introduced by changed code, but inspect surrounding code, call sites, shared helpers, tests, and invariants when needed to understand root cause.
+- Do NOT run tests during review. The pipeline has a dedicated test step after review.
+- Analyze for bugs, risks, and code simplification opportunities.
+- "Simplification" means reducing code complexity through non-functional refactoring (e.g. deduplication, clearer control flow). It does NOT mean removing features, changing product behavior, or stripping intentional user-facing output.
+- Treat security issues, performance regressions, breaking changes, and insufficient error handling as risks.
+- Do a full review pass before returning. Do not stop after the first valid finding. Continue inspecting the rest of the changed code until you have enumerated all material issues you can substantiate.
+
+Rules:
+- Anchor every finding to a specific file and one-indexed line number in the changed code when possible.
+- Use severity "error" for problems that should absolutely not get merged, "warning" for things that are worth addressing but can be done in a follow up, and "info" for things that are nice to have.
+- Be concise and actionable. No generic advice like "add more tests".
+- Only comment on things that genuinely matter.
+- Do NOT report styling, formatting, linting, compilation, or type-checking issues.
+- If the change is clean, return an empty findings array.
+- For each finding, set the action field to one of:
+  - "ask-user": the finding is about functional requirements or product behavior, or otherwise challenges the author's deliberate intent. Even if it seems obviously wrong, we should ask the user for review. Examples: "this feature seems unnecessary", "this hardcoded value should be configurable", "this deletion looks wrong". When in doubt, default to "ask-user".
+  - "auto-fix": the finding is a non-functional, non user-visible issue (correctness, error handling, security, performance, mechanical code quality) that can be safely fixed without any discussion about the author's intent.
+  - "no-op": the finding is informational and does not require any action (e.g. noting a pattern, acknowledging a tradeoff).
+
+Risk assessment (after listing all findings):
+- Set risk_level to "low" if the change is well-bounded, mostly cosmetic, or straightforward with little ambiguity.
+- Set risk_level to "medium" if the change has room to improve but is safe to merge first with concerns addressed as follow-ups.
+- Set risk_level to "high" if the change should not be merged without explicit human approval - it is fundamental, risky, ambiguous, or has strong negative signals.
+- Provide a one-sentence risk_rationale explaining why you chose that risk level.

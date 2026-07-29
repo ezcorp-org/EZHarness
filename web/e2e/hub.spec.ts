@@ -124,6 +124,43 @@ test.describe("Hub", () => {
 		await expect(page.getByTestId("hub-row-link")).toHaveAttribute("href", "/project/proj-1/chat/conv-1");
 	});
 
+	test("in-project nav entry → the sidebar Hub link opens the project hub and auto-lands on the scoped page", async ({
+		page,
+		mockApi,
+	}) => {
+		await mockApi({ projects: [proj] });
+		// Core FIRST, project-scoped ext SECOND → the index auto-opens the scoped one.
+		const scopedListing = {
+			pages: [
+				{ id: CORE_ID, title: "Daily Briefing", kind: "core" },
+				{ id: EXT_ID, title: "Cron Dashboard", kind: "ext", projectScoped: true },
+			],
+		};
+		await page.route("**/api/hub/pages", (route) => route.fulfill({ json: scopedListing }));
+		await page.route(
+			(url) => decodeURIComponent(url.pathname).endsWith(`/api/hub/pages/${EXT_ID}`),
+			(route) => route.fulfill({ json: { page: cronTree(3), renderedAt: Date.now() } }),
+		);
+
+		// Land on an in-project (non-chat) route so the sidebar renders the
+		// in-project navLinks branch (activeProjectId = proj-1).
+		await page.goto("/project/proj-1/settings");
+		// Mobile: the sidebar lives in the hamburger drawer.
+		const hamburger = page.getByTestId("mobile-menu-toggle");
+		if (await hamburger.isVisible()) {
+			await hamburger.click();
+		}
+
+		// The in-project Hub link points at the project hub index, not /hub.
+		const hubLink = page.getByRole("link", { name: "Hub", exact: true }).first();
+		await expect(hubLink).toHaveAttribute("href", "/project/proj-1/hub");
+		await hubLink.click();
+
+		// The index redirects onward to the auto-opened project-scoped page.
+		await expect(page).toHaveURL(/\/project\/proj-1\/hub\/ext%3Acron-dashboard%3Adashboard$/);
+		await expect(page.getByTestId("hub-page-title")).toHaveText("Cron Dashboard");
+	});
+
 	test("action button: confirm dialog gates the POST; fresh tree updates inline", async ({ page, mockApi }) => {
 		await mockApi({ projects: [proj] });
 		let actionPosts = 0;

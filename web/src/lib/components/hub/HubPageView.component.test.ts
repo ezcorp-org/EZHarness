@@ -145,6 +145,21 @@ describe("HubPageView · tab bar + initial load", () => {
 		expect(tabs[1]).toHaveAttribute("aria-selected", "false");
 	});
 
+	test("renders tabs ALPHABETICALLY by title regardless of the listing order", async () => {
+		// A deliberately out-of-order listing → the tab bar must sort it ABC.
+		tabsHandler = () =>
+			jsonResponse({
+				pages: [
+					{ id: "ext:myext:zed", title: "Zed", kind: "ext" },
+					{ id: EXT_PAGE_ID, title: "Home", icon: "home", kind: "ext" },
+					{ id: "ext:myext:logs", title: "Logs", kind: "ext" },
+				],
+			});
+		const { findAllByTestId } = await renderView();
+		const tabs = await findAllByTestId("hub-tab");
+		expect(tabs.map((t) => t.textContent?.trim())).toEqual(["Home", "Logs", "Zed"]);
+	});
+
 	test("renders the page title + body (real HubComponentRenderer) once the tree loads", async () => {
 		pageHandler = () => jsonResponse({ page: PLAIN_TREE });
 		const { findByTestId } = await renderView();
@@ -276,6 +291,8 @@ describe("HubPageView · requestAction precedence", () => {
 		await fireEvent.click(await findByTestId("hub-node-button"));
 		const dialog = await findByTestId("hub-confirm-dialog");
 		expect(dialog).toHaveTextContent("Really wipe?");
+		// Announced as a modal dialog (a11y): role + aria-modal live on the panel.
+		expect(dialog.querySelector('[role="dialog"][aria-modal="true"]')).not.toBeNull();
 		expect(fetchCalls.some((c) => c.method === "POST")).toBe(false);
 	});
 
@@ -288,11 +305,16 @@ describe("HubPageView · requestAction precedence", () => {
 		pageHandler = () => jsonResponse({ page: treeWith(action) });
 		const { findByTestId, queryByTestId } = await renderView();
 		await fireEvent.click(await findByTestId("hub-node-button"));
-		expect(await findByTestId("hub-prompt-dialog")).toBeInTheDocument();
+		const promptDialog = await findByTestId("hub-prompt-dialog");
+		expect(promptDialog).toBeInTheDocument();
 		// The confirm text shows as the prompt body, but the confirm dialog
 		// itself must NOT be open (prompt wins).
 		expect(queryByTestId("hub-confirm-dialog")).toBeNull();
-		expect(await findByTestId("hub-prompt-dialog")).toHaveTextContent("are you sure");
+		expect(promptDialog).toHaveTextContent("are you sure");
+		// Announced as a modal dialog (a11y), labelled by the prompt label.
+		const promptPanel = promptDialog.querySelector('[role="dialog"][aria-modal="true"]');
+		expect(promptPanel).not.toBeNull();
+		expect(promptPanel).toHaveAttribute("aria-label", "Topic");
 	});
 });
 
@@ -475,6 +497,137 @@ describe("HubPageView · prompt dialog", () => {
 	});
 });
 
+describe("HubPageView · form dialog (PageAction.form)", () => {
+	/** A four-field Edit-job form exactly as the ECF Edit-job button emits it. */
+	const editJobAction: PageAction = {
+		event: "myext:job-save",
+		payload: { jobId: "j1" },
+		form: {
+			title: 'Edit job "Nightly"',
+			fields: [
+				{ field: "name", label: "Name", value: "Nightly", maxLength: 80 },
+				{ field: "trigger", label: "Trigger spec", value: "push feat/*", maxLength: 120 },
+				{ field: "agent_name", label: "Agent", value: "reviewer", maxLength: 120 },
+				{ field: "intent_template", label: "Intent template", value: "keep api", maxLength: 500 },
+			],
+		},
+	};
+
+	test("form takes precedence over confirm+prompt: only the form dialog opens, N prefilled fields", async () => {
+		// A form co-present with confirm (and even a stray prompt) shows ONLY the
+		// form — its Save is the consent act, so no dialog stacking.
+		const action: PageAction = {
+			...editJobAction,
+			confirm: "are you sure",
+			prompt: { label: "old single field", field: "name" },
+		};
+		pageHandler = () => jsonResponse({ page: treeWith(action) });
+		const { findByTestId, queryByTestId } = await renderView();
+		await fireEvent.click(await findByTestId("hub-node-button"));
+
+		const dialog = await findByTestId("hub-form-dialog");
+		expect(dialog).toBeInTheDocument();
+		expect(queryByTestId("hub-confirm-dialog")).toBeNull();
+		expect(queryByTestId("hub-prompt-dialog")).toBeNull();
+		expect(await findByTestId("hub-form-title")).toHaveTextContent('Edit job "Nightly"');
+		// Announced as a modal dialog (a11y), labelled by the form title.
+		const panel = dialog.querySelector('[role="dialog"][aria-modal="true"]');
+		expect(panel).not.toBeNull();
+		expect(panel).toHaveAttribute("aria-label", 'Edit job "Nightly"');
+
+		// Each field is prefilled with its validated `value`, keyed by testid.
+		expect(((await findByTestId("hub-form-field-name")) as HTMLInputElement).value).toBe("Nightly");
+		expect(((await findByTestId("hub-form-field-trigger")) as HTMLInputElement).value).toBe("push feat/*");
+		expect(((await findByTestId("hub-form-field-agent_name")) as HTMLInputElement).value).toBe("reviewer");
+		expect(((await findByTestId("hub-form-field-intent_template")) as HTMLInputElement).value).toBe("keep api");
+		// maxLength attribute is threaded per field.
+		expect(await findByTestId("hub-form-field-name")).toHaveAttribute("maxlength", "80");
+	});
+
+	test("Save merges EVERY field into payload (incl. a CLEARED empty string) + keeps static payload", async () => {
+		pageHandler = () => jsonResponse({ page: treeWith(editJobAction) });
+		let dispatchedBody: { payload?: Record<string, unknown> } | undefined;
+		actionHandler = (_url, body) => {
+			dispatchedBody = body as typeof dispatchedBody;
+			return jsonResponse({ ok: true });
+		};
+		const { findByTestId } = await renderView();
+		await fireEvent.click(await findByTestId("hub-node-button"));
+
+		// Change two fields; CLEAR one to empty (clear-to-empty is first-class).
+		await fireEvent.input(await findByTestId("hub-form-field-name"), { target: { value: "Renamed" } });
+		await fireEvent.input(await findByTestId("hub-form-field-agent_name"), { target: { value: "docbot" } });
+		await fireEvent.input(await findByTestId("hub-form-field-intent_template"), { target: { value: "" } });
+
+		await fireEvent.click(await findByTestId("hub-form-submit"));
+		await waitFor(() => expect(dispatchedBody?.payload).toBeDefined());
+		// Every field present (the emptied one as ""), untouched `trigger` re-sent
+		// verbatim, and the static `jobId` payload key preserved.
+		expect(dispatchedBody?.payload).toEqual({
+			jobId: "j1",
+			name: "Renamed",
+			trigger: "push feat/*",
+			agent_name: "docbot",
+			intent_template: "",
+		});
+	});
+
+	test("a field value overrides a colliding static payload key (form wins)", async () => {
+		// `name` is both a static payload key AND a form field — the typed field
+		// value must win (prompt parity).
+		const action: PageAction = {
+			event: "myext:job-save",
+			payload: { name: "stale", jobId: "j1" },
+			form: { fields: [{ field: "name", label: "Name", value: "fresh" }] },
+		};
+		pageHandler = () => jsonResponse({ page: treeWith(action) });
+		let dispatchedBody: { payload?: Record<string, unknown> } | undefined;
+		actionHandler = (_url, body) => {
+			dispatchedBody = body as typeof dispatchedBody;
+			return jsonResponse({ ok: true });
+		};
+		const { findByTestId } = await renderView();
+		await fireEvent.click(await findByTestId("hub-node-button"));
+		await fireEvent.click(await findByTestId("hub-form-submit"));
+		await waitFor(() => expect(dispatchedBody?.payload).toBeDefined());
+		expect(dispatchedBody?.payload).toEqual({ jobId: "j1", name: "fresh" });
+	});
+
+	test("Cancel closes the form WITHOUT dispatching", async () => {
+		pageHandler = () => jsonResponse({ page: treeWith(editJobAction) });
+		const { findByTestId, queryByTestId } = await renderView();
+		await fireEvent.click(await findByTestId("hub-node-button"));
+		await findByTestId("hub-form-dialog");
+		await fireEvent.click(await findByTestId("hub-form-cancel"));
+		await waitFor(() => expect(queryByTestId("hub-form-dialog")).toBeNull());
+		expect(fetchCalls.some((c) => c.method === "POST")).toBe(false);
+	});
+
+	test("Escape in a field cancels the form (no dispatch)", async () => {
+		pageHandler = () => jsonResponse({ page: treeWith(editJobAction) });
+		const { findByTestId, queryByTestId } = await renderView();
+		await fireEvent.click(await findByTestId("hub-node-button"));
+		const input = await findByTestId("hub-form-field-name");
+		await fireEvent.keyDown(input, { key: "Escape" });
+		await waitFor(() => expect(queryByTestId("hub-form-dialog")).toBeNull());
+		expect(fetchCalls.some((c) => c.method === "POST")).toBe(false);
+	});
+
+	test("a title-less form omits the title heading (fields still render)", async () => {
+		const action: PageAction = {
+			event: "myext:job-save",
+			form: { fields: [{ field: "name", label: "Name" }] },
+		};
+		pageHandler = () => jsonResponse({ page: treeWith(action) });
+		const { findByTestId, queryByTestId } = await renderView();
+		await fireEvent.click(await findByTestId("hub-node-button"));
+		await findByTestId("hub-form-dialog");
+		expect(queryByTestId("hub-form-title")).toBeNull();
+		// A field with no `value` seeds to an empty string.
+		expect(((await findByTestId("hub-form-field-name")) as HTMLInputElement).value).toBe("");
+	});
+});
+
 describe("HubPageView · dispatchAction result branches", () => {
 	const plainAction: PageAction = { event: "myext:go" };
 
@@ -600,5 +753,185 @@ describe("HubPageView · ext:page-state SSE live-invalidation", () => {
 		await tick();
 		await tick();
 		expect(pageGets().length).toBe(before);
+	});
+});
+
+describe("projectId prop (project-scoped hub route)", () => {
+	test("render pull carries ?project= on the initial load AND on re-pulls", async () => {
+		render(HubPageView, {
+			props: { pageId: EXT_PAGE_ID, hubBase: "/project/p-1/hub", projectId: "p-1" },
+		});
+		await tick();
+		await tick();
+		const pagePulls = fetchCalls.filter((c) => c.url.startsWith("/api/hub/pages/ext"));
+		expect(pagePulls.length).toBeGreaterThan(0);
+		for (const call of pagePulls) {
+			expect(call.url).toContain("?project=p-1");
+		}
+		// SSE invalidation re-pull keeps the project context.
+		fetchCalls = [];
+		window.dispatchEvent(
+			new CustomEvent("ext:page-state", { detail: { extensionName: "myext", pageId: "home" } }),
+		);
+		await waitFor(() => {
+			expect(
+				fetchCalls.some((c) => c.url.startsWith("/api/hub/pages/ext") && c.url.includes("?project=p-1")),
+			).toBe(true);
+		});
+	});
+
+	test("without projectId the pull URL stays clean (no query)", async () => {
+		await renderView();
+		const pagePulls = fetchCalls.filter((c) => c.url.startsWith("/api/hub/pages/ext"));
+		expect(pagePulls.length).toBeGreaterThan(0);
+		for (const call of pagePulls) {
+			expect(call.url).not.toContain("?project=");
+		}
+	});
+
+	test("with projectId, the active pageId is remembered under the per-project key", async () => {
+		localStorage.clear();
+		render(HubPageView, {
+			props: { pageId: EXT_PAGE_ID, hubBase: "/project/p-1/hub", projectId: "p-1" },
+		});
+		await tick();
+		await tick();
+		expect(localStorage.getItem("ezcorp-hub-last-page:p-1")).toBe(EXT_PAGE_ID);
+	});
+
+	test("without projectId, localStorage is left untouched (global hub never writes)", async () => {
+		localStorage.clear();
+		await renderView();
+		expect(localStorage.getItem("ezcorp-hub-last-page:p-1")).toBeNull();
+		expect(localStorage.length).toBe(0);
+	});
+});
+
+describe("run prop (?run= detail variant)", () => {
+	test("the render pull carries ?run= (and ?project= when both are set)", async () => {
+		render(HubPageView, {
+			props: { pageId: EXT_PAGE_ID, hubBase: "/project/p-1/hub", projectId: "p-1", run: "run_abc" },
+		});
+		await tick();
+		await tick();
+		const pagePulls = fetchCalls.filter((c) => c.url.startsWith("/api/hub/pages/ext"));
+		expect(pagePulls.length).toBeGreaterThan(0);
+		for (const call of pagePulls) {
+			expect(call.url).toContain("run=run_abc");
+			expect(call.url).toContain("project=p-1");
+		}
+	});
+
+	test("run alone (global hub) carries ?run= with no project", async () => {
+		render(HubPageView, {
+			props: { pageId: EXT_PAGE_ID, hubBase: "/hub", run: "run_abc" },
+		});
+		await tick();
+		await tick();
+		const pagePulls = fetchCalls.filter((c) => c.url.startsWith("/api/hub/pages/ext"));
+		expect(pagePulls.length).toBeGreaterThan(0);
+		for (const call of pagePulls) {
+			expect(call.url).toContain("run=run_abc");
+			expect(call.url).not.toContain("project=");
+		}
+	});
+});
+
+describe("step prop (?run=&step= sub-variant)", () => {
+	test("the render pull carries ?step= alongside ?run= (and ?project= when set)", async () => {
+		render(HubPageView, {
+			props: {
+				pageId: EXT_PAGE_ID,
+				hubBase: "/project/p-1/hub",
+				projectId: "p-1",
+				run: "run_abc",
+				step: "review",
+			},
+		});
+		await tick();
+		await tick();
+		const pagePulls = fetchCalls.filter((c) => c.url.startsWith("/api/hub/pages/ext"));
+		expect(pagePulls.length).toBeGreaterThan(0);
+		for (const call of pagePulls) {
+			expect(call.url).toContain("run=run_abc");
+			expect(call.url).toContain("step=review");
+			expect(call.url).toContain("project=p-1");
+		}
+	});
+
+	test("step WITHOUT run is NOT sent (step is meaningless without run)", async () => {
+		render(HubPageView, {
+			props: { pageId: EXT_PAGE_ID, hubBase: "/hub", step: "review" },
+		});
+		await tick();
+		await tick();
+		const pagePulls = fetchCalls.filter((c) => c.url.startsWith("/api/hub/pages/ext"));
+		expect(pagePulls.length).toBeGreaterThan(0);
+		for (const call of pagePulls) {
+			expect(call.url).not.toContain("step=");
+			expect(call.url).not.toContain("run=");
+		}
+	});
+
+	test("changing the step prop re-pulls with the new step ($effect reads step)", async () => {
+		const { rerender } = render(HubPageView, {
+			props: { pageId: EXT_PAGE_ID, hubBase: "/hub", run: "run_abc", step: "review" },
+		});
+		await tick();
+		await tick();
+		fetchCalls = [];
+		await rerender({ pageId: EXT_PAGE_ID, hubBase: "/hub", run: "run_abc", step: "test" });
+		await tick();
+		await waitFor(() => {
+			const pulls = fetchCalls.filter((c) => c.url.startsWith("/api/hub/pages/ext"));
+			expect(pulls.some((c) => c.url.includes("step=test"))).toBe(true);
+		});
+	});
+});
+
+describe("view prop (?view= alternate-surface variant)", () => {
+	test("the render pull carries ?view= on its own (independent of run, with ?project= when set)", async () => {
+		render(HubPageView, {
+			props: { pageId: EXT_PAGE_ID, hubBase: "/project/p-1/hub", projectId: "p-1", view: "config" },
+		});
+		await tick();
+		await tick();
+		const pagePulls = fetchCalls.filter((c) => c.url.startsWith("/api/hub/pages/ext"));
+		expect(pagePulls.length).toBeGreaterThan(0);
+		for (const call of pagePulls) {
+			expect(call.url).toContain("view=config");
+			expect(call.url).toContain("project=p-1");
+			// view needs no run — it must send even without one.
+			expect(call.url).not.toContain("run=");
+		}
+	});
+
+	test("view rides ALONGSIDE run (a run-scoped alternate surface)", async () => {
+		render(HubPageView, {
+			props: { pageId: EXT_PAGE_ID, hubBase: "/hub", run: "run_abc", view: "job:abc" },
+		});
+		await tick();
+		await tick();
+		const pagePulls = fetchCalls.filter((c) => c.url.startsWith("/api/hub/pages/ext"));
+		expect(pagePulls.length).toBeGreaterThan(0);
+		for (const call of pagePulls) {
+			expect(call.url).toContain("run=run_abc");
+			expect(call.url).toContain(`view=${encodeURIComponent("job:abc")}`);
+		}
+	});
+
+	test("changing the view prop re-pulls with the new view ($effect reads view)", async () => {
+		const { rerender } = render(HubPageView, {
+			props: { pageId: EXT_PAGE_ID, hubBase: "/hub", view: "config" },
+		});
+		await tick();
+		await tick();
+		fetchCalls = [];
+		await rerender({ pageId: EXT_PAGE_ID, hubBase: "/hub", view: "audit" });
+		await tick();
+		await waitFor(() => {
+			const pulls = fetchCalls.filter((c) => c.url.startsWith("/api/hub/pages/ext"));
+			expect(pulls.some((c) => c.url.includes("view=audit"))).toBe(true);
+		});
 	});
 });

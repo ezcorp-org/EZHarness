@@ -3,6 +3,7 @@
 	import { goto } from "$app/navigation";
 	import { store, refreshProjects, setActiveProjectId } from "$lib/stores.svelte.js";
 	import { updateProject, deleteProject as apiDeleteProject, fetchSettings, upsertSetting } from "$lib/api.js";
+	import { isIconUrl } from "$lib/project-icon.js";
 	import ProjectForm from "$lib/components/ProjectForm.svelte";
 	import InfoTooltip from "$lib/components/InfoTooltip.svelte";
 	import FeatureIndex from "$lib/components/FeatureIndex.svelte";
@@ -117,7 +118,7 @@
 		<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-6">
 			<div class="mb-4 flex items-center justify-between">
 				<div class="flex items-center gap-3">
-					{#if project.icon}
+					{#if isIconUrl(project.icon)}
 						<img src={project.icon} alt={project.name} class="h-10 w-10 rounded-xl object-cover" />
 					{/if}
 					<h2 class="text-2xl font-bold text-[var(--color-text-primary)]">{project.name}</h2>

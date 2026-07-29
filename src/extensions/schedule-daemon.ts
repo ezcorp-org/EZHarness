@@ -334,8 +334,11 @@ export class ScheduleDaemon {
         // counter before the next loop iteration runs the cap check.
         // For the per-tick cap to bite, we additionally enforce
         // `claimed >= maxConcurrentPerExt` as a hard cap below.
-        await this.dispatchFire(row, fire!.id, firedAt, isCatchUp, 0);
-        dispatched++;
+        // `dispatched` counts only a REAL delivery — an undispatched fire
+        // (no registry / asleep subprocess) returns false and is NOT counted.
+        if (await this.dispatchFire(row, fire!.id, firedAt, isCatchUp, 0, grant.maxRunDurationMs)) {
+          dispatched++;
+        }
       } catch (err) {
         log.warn("claim-failed", { scheduleId: row.id, error: String(err) });
       }
@@ -383,7 +386,7 @@ export class ScheduleDaemon {
     this.inFlightHost++;
     this.inFlight.set(extensionId, (this.inFlight.get(extensionId) ?? 0) + 1);
 
-    await this.dispatchFire(row, fire!.id, now, false, 0, /* fireNow */ true);
+    await this.dispatchFire(row, fire!.id, now, false, 0, grant.maxRunDurationMs, /* fireNow */ true);
     return { ok: true, fireId: fire!.id };
   }
 
@@ -395,8 +398,9 @@ export class ScheduleDaemon {
     firedAt: Date,
     catchUp: boolean,
     attempt: number,
+    maxRunDurationMs: number,
     fireNow = false,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const proc = this.opts.registry?.getProcessIfRunning(schedule.extensionId);
     const completion = (status: "ok" | "error" | "timeout", error?: string): Promise<void> =>
       this.completeFire(schedule, fireId, firedAt, status, error);
@@ -405,9 +409,18 @@ export class ScheduleDaemon {
         // Cron fires have NO conversation or user — they are ownerless.
         // We still mint a host-issued correlation token so a reverse-RPC
         // from the fire handler resolves to a CLEAN soft-fail (-32106 +
-        // info log) instead of the old `missing onBehalfOf` throw /
-        // 90s-watchdog hang. The token's `ownerless` flag is what the
-        // capability handlers key the soft-fail on.
+        // info log) for owner-scoped caps, and SUCCEEDS for the install-wide
+        // global storage scope (the reconcile sweep's own reads/writes).
+        // The token's lifetime is sized to the grant's `maxRunDurationMs`
+        // (default 5 min) — a fire-and-forget dispatch has no completion
+        // callback to release on, and the sweep's storage writes must still
+        // resolve this token when they land (a 2-min window dropped them
+        // mid-sweep as `-32602`). The bounded auto-release timer IS the
+        // deterministic release; the TTL sweep (per-token `expiresAt`) is the
+        // final backstop. We deliberately do NOT release in `completeFire`:
+        // that runs immediately after this fire-and-forget send, so releasing
+        // there would reap the token BEFORE the subprocess's reverse-RPC
+        // arrives — re-introducing the exact `-32602` this phase fixes.
         const ezCallId = registerFireCallProvenance({
           onBehalfOf: null,
           conversationId: null,
@@ -416,9 +429,9 @@ export class ScheduleDaemon {
           actorExtensionId: schedule.extensionId,
           kind: "schedule",
           ownerless: true,
-        });
+        }, { autoReleaseMs: maxRunDurationMs });
         log.info(
-          "scheduled cron fire has no resolvable owner — extension capability calls will be skipped (clean soft-fail)",
+          "scheduled cron fire has no resolvable owner — owner-scoped capability calls will be skipped (clean soft-fail); global-scope storage still resolves",
           { extensionId: schedule.extensionId, cron: schedule.cron, fireId },
         );
         proc.sendNotification("ezcorp/schedule-fire", {
@@ -440,14 +453,50 @@ export class ScheduleDaemon {
           ).catch(() => {});
         }
         await completion("ok");
+        return true;
       } catch (err) {
         await this.handleFireError(schedule, fireId, err, attempt);
+        return false;
       }
-    } else {
-      // No registry / not running — mark as ok so the daemon doesn't
-      // wedge on a sleeping subprocess (test-mode + production no-op).
-      await completion("ok");
     }
+    // No registry, or the subprocess is not running: the fire could NOT be
+    // delivered. This MUST NOT masquerade as success. A registry-less daemon
+    // is the production misconfiguration this phase fixes (`new
+    // ScheduleDaemon()` with no registry silently dropped EVERY fire behind a
+    // false `completion("ok")`); an asleep subprocess likewise never received
+    // the notification. Record the drop distinctly (status `error`,
+    // `undispatched:` prefix) + WARN so it can never hide again.
+    const reason = !this.opts.registry ? "no-registry" : "subprocess-not-running";
+    await this.completeUndispatched(schedule, fireId, firedAt, reason);
+    return false;
+  }
+
+  /**
+   * A fire that could not be dispatched (no registry wired, or the target
+   * subprocess is not running). Records a DISTINCT non-`ok` status + WARN so
+   * the registry-less production bug can never again hide behind a false
+   * `ok`. Deliberately does NOT bump `consecutiveErrors`: a delivery miss is
+   * not the extension's fault, so it must not count toward the 5-error
+   * auto-disable (which is reserved for handler-thrown errors).
+   */
+  private async completeUndispatched(
+    schedule: typeof extensionSchedules.$inferSelect,
+    fireId: string,
+    firedAt: Date,
+    reason: string,
+  ): Promise<void> {
+    log.warn(
+      "schedule fire not dispatched — no live subprocess to deliver to; fire dropped (NOT completed ok)",
+      { extensionId: schedule.extensionId, cron: schedule.cron, fireId, reason },
+    );
+    const db = getDb();
+    const durationMs = this.opts.now().getTime() - firedAt.getTime();
+    await db.update(extensionScheduleFires)
+      .set({ status: "error", durationMs, error: `undispatched: ${reason}` })
+      .where(eq(extensionScheduleFires.id, fireId));
+    const cur = this.inFlight.get(schedule.extensionId) ?? 0;
+    if (cur > 0) this.inFlight.set(schedule.extensionId, cur - 1);
+    if (this.inFlightHost > 0) this.inFlightHost--;
   }
 
   private async completeFire(
@@ -505,7 +554,7 @@ export class ScheduleDaemon {
       }).returning();
       this.inFlightHost++;
       this.inFlight.set(schedule.extensionId, (this.inFlight.get(schedule.extensionId) ?? 0) + 1);
-      await this.dispatchFire(schedule, retryFire!.id, retryFiredAt, false, attempt + 1);
+      await this.dispatchFire(schedule, retryFire!.id, retryFiredAt, false, attempt + 1, grant.maxRunDurationMs);
       return;
     }
 
@@ -733,7 +782,7 @@ export class ScheduleDaemon {
             }).returning();
             this.inFlightHost++;
             this.inFlight.set(row.extensionId, (this.inFlight.get(row.extensionId) ?? 0) + 1);
-            await this.dispatchFire(row, fire!.id, fa, true, 0);
+            await this.dispatchFire(row, fire!.id, fa, true, 0, grant.maxRunDurationMs);
             firedAny = true;
             usedToday++;
             cursor = parseCron(row.cron, grant.tz).next(cursor);
@@ -756,7 +805,7 @@ export class ScheduleDaemon {
           }).returning();
           this.inFlightHost++;
           this.inFlight.set(row.extensionId, (this.inFlight.get(row.extensionId) ?? 0) + 1);
-          await this.dispatchFire(row, fire!.id, fa, true, 0);
+          await this.dispatchFire(row, fire!.id, fa, true, 0, grant.maxRunDurationMs);
           const next = parseCron(row.cron, grant.tz).next(now);
           await db.update(extensionSchedules)
             .set({ nextFireAt: next, lastFireAt: fa, lastFireId: fire!.id, updatedAt: now })

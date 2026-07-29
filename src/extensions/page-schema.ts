@@ -48,6 +48,11 @@ const PROMPT_MAX_LENGTH_CAP = 500;
 const PROMPT_LABEL_MAX = 120;
 const PROMPT_SUBMIT_LABEL_MAX = 40;
 
+/** A `PageAction.form` may carry at most this many fields; excess dropped. */
+const MAX_FORM_FIELDS = 10;
+/** A select-rendered form field may carry at most this many options. */
+const MAX_FORM_FIELD_OPTIONS = 12;
+
 /**
  * Input `format`s a prompt may opt into. Each maps (client-side) to a
  * shared format component in `web/src/lib/components/ui/format-map.ts`
@@ -99,6 +104,93 @@ export interface PagePrompt {
   format?: string;
 }
 
+/**
+ * One field of a host-rendered multi-field `PageAction.form`. A superset of
+ * `PagePrompt`'s single-field shape: the host renders a labeled text input
+ * (optionally prefilled with `value`), and every field's typed string merges
+ * into `payload[field]` on submit. Unlike a prompt, `field` is REQUIRED and
+ * slug-clamped — a non-slug key drops the FIELD (not a fall-back to `"value"`,
+ * which would clobber a sibling field), and a field-less form degrades away.
+ *
+ * SOURCE OF TRUTH — mirrored (types only) in `web/src/lib/hub.ts`
+ * (`PageFormField`) and `packages/@ezcorp/sdk/src/runtime/page.ts`
+ * (`PageFormFieldInput`). Keep the three aligned (same as `PagePrompt`).
+ */
+export interface PageFormField {
+  /** Payload key the typed value merges under. Slug-clamped
+   *  (`/^[a-z0-9][a-z0-9_]{0,31}$/`); a non-slug field is DROPPED. */
+  field: string;
+  /** Input label (required — an empty/all-`<>` label drops the field). */
+  label: string;
+  /** Prefill value, truncated to the field's `maxLength`. */
+  value?: string;
+  placeholder?: string;
+  /** Host clamps the input length; default 200, hard cap 500. */
+  maxLength?: number;
+  /** Render a multi-row textarea instead of the single-line input — for
+   *  long free-text fields (instructions, templates). Display-only: the
+   *  submitted value is the same clamped scalar string either way. */
+  multiline?: boolean;
+  /** Render a SELECT of these options instead of a free-text input (inline
+   *  form node only; the dialog form ignores options and falls back to the
+   *  text input). 2..12 validated options survive, else the whole list is
+   *  dropped (text fall-back). A `value` prefill outside the option set is
+   *  clamped to the first option. The submitted value is still an ordinary
+   *  scalar string — handlers must validate it like any typed input (a
+   *  select constrains the UI, never the wire). */
+  options?: PageFormFieldOption[];
+  /** Show this field ONLY while a SIBLING field's current value matches
+   *  (inline form node only; the dialog form ignores it and shows every
+   *  field). Visibility CASCADES: the controlling sibling must be
+   *  EFFECTIVELY visible itself — hiding a controller transitively hides
+   *  every field conditioned on it, even while the controller's retained
+   *  value still matches. A HIDDEN field is OMITTED from the submitted
+   *  payload — absent key, never an empty string — so conditional fields
+   *  compose with present-string-clears handler semantics ("hidden" means
+   *  "don't touch"). Validated form-level: a condition referencing an
+   *  unknown or SELF field is dropped (fail-open to always-visible); a
+   *  condition CYCLE (two fields conditioned on each other) survives
+   *  validation and fails open at the point of re-entry — the re-entered
+   *  field is treated as visible so evaluation terminates
+   *  deterministically. Visibility is UX, never an authorization surface;
+   *  handlers must validate whatever arrives regardless. */
+  visibleWhen?: PageFormFieldCondition;
+}
+
+/** A field-visibility condition: the named sibling field's CURRENT value
+ *  must equal `equals` (or one of them, when an array) AND that sibling
+ *  must itself be EFFECTIVELY visible — hiding a controller cascades to
+ *  its dependents, transitively. A condition cycle fails open at the
+ *  re-entered field, so evaluation always terminates. */
+export interface PageFormFieldCondition {
+  /** The controlling sibling field's payload key (slug). */
+  field: string;
+  /** Match value(s); 1..12 strings, each ≤64 chars. */
+  equals: string | string[];
+}
+
+/** One option of a select-rendered form field. */
+export interface PageFormFieldOption {
+  /** The scalar submitted under the field's payload key. */
+  value: string;
+  /** Visible option text; defaults to `value` when omitted. */
+  label?: string;
+}
+
+/**
+ * A host-rendered multi-field form attached to an action — the multi-field
+ * superset of `PagePrompt`. The host renders ONE modal of labeled inputs
+ * (prefilled from each field's `value`); on submit every field's typed string
+ * merges into `action.payload[field]` and the action dispatches through its
+ * UNCHANGED, already-gated event path. Grants ZERO new authority.
+ */
+export interface PageForm {
+  /** Optional dialog title. */
+  title?: string;
+  /** 1..10 validated fields; a form with zero surviving fields is dropped. */
+  fields: PageFormField[];
+}
+
 export interface PageAction {
   /** Namespaced event (`<ext>:<event>`) or core action name. Must be in
    *  the validator's `allowedEvents` allowlist. */
@@ -110,6 +202,11 @@ export interface PageAction {
    *  prompt is dropped (the action degrades to a plain dispatch); it is
    *  never fatal to the whole action. Grants ZERO new authority. */
   prompt?: PagePrompt;
+  /** Optional host-rendered multi-field form — see `PageForm`. Supersedes
+   *  `prompt` when both are present (form wins, prompt dropped). A malformed
+   *  or field-less form is dropped (the action degrades). Grants ZERO new
+   *  authority. */
+  form?: PageForm;
 }
 
 export interface PageSection {
@@ -135,8 +232,36 @@ export interface PageStats {
   type: "stats";
   items: PageStatItem[];
 }
+/**
+ * A table cell's optional semantic tone. Maps client-side to the app's
+ * existing status colour tokens (success→green, danger→red, warning→orange);
+ * `neutral` is the default (no colour) and is normalised AWAY by the
+ * validator — a neutral/absent/invalid tone collapses back to a plain string
+ * cell so the wire stays minimal and every pre-tone `string[]` cell is
+ * byte-for-byte unchanged.
+ */
+export type CellTone = "success" | "danger" | "warning" | "neutral";
+
+const CELL_TONES = new Set<string>(["success", "danger", "warning", "neutral"]);
+
+/**
+ * Object cell form (backward-compatible superset of a plain string cell).
+ * A cell may be a bare `string` OR `{text, tone}` — the object form only
+ * survives validation when it carries a MEANINGFUL tone; otherwise it is
+ * folded to its `text` string. Chosen over a per-row `cellTones[]` parallel
+ * array so a single status column can be toned without index-aligning a
+ * second array against `cells`.
+ */
+export interface PageTableCell {
+  text: string;
+  tone?: CellTone;
+}
+
+/** A table cell on the wire: a plain string (neutral) or a toned object. */
+export type PageCell = string | PageTableCell;
+
 export interface PageTableRow {
-  cells: string[];
+  cells: PageCell[];
   action?: PageAction;
   href?: string;
 }
@@ -162,6 +287,26 @@ export interface PageEmptyState {
   detail?: string;
 }
 
+/**
+ * An INLINE on-page form — the page-embedded sibling of the `PageAction.form`
+ * modal. The host renders the labeled inputs (textarea when `multiline`)
+ * directly in the page flow with one submit button; on submit every field's
+ * typed string merges into `action.payload[field]` and the action dispatches
+ * through its UNCHANGED, already-gated event path. Grants ZERO new authority
+ * (same contract as the dialog form). The action's own `prompt`/`form` are
+ * STRIPPED by validation — the inline fields ARE the input surface, so a
+ * submit must never open a second collection dialog; `confirm` survives.
+ */
+export interface PageFormNode {
+  type: "form";
+  /** Dispatched on submit with every field value merged into its payload. */
+  action: PageAction;
+  /** 1..10 validated fields (same shape + caps as the dialog form). */
+  fields: PageFormField[];
+  /** Submit-button label; default "Save". */
+  submitLabel?: string;
+}
+
 export type PageOnlyNode =
   | PageSection
   | PageHeading
@@ -170,7 +315,8 @@ export type PageOnlyNode =
   | PageTable
   | PageButton
   | PageLink
-  | PageEmptyState;
+  | PageEmptyState
+  | PageFormNode;
 
 /** Full Hub page vocabulary: panel nodes (wire-shapes unchanged) + page nodes. */
 export type PageNode = PanelComponent | PageOnlyNode;
@@ -219,6 +365,7 @@ const PAGE_ONLY_TYPES = new Set<string>([
   "button",
   "link",
   "empty-state",
+  "form",
 ]);
 
 const BUTTON_STYLES = new Set(["primary", "secondary", "danger"]);
@@ -269,6 +416,120 @@ function validatePrompt(raw: unknown): PagePrompt | null {
   return out;
 }
 
+/**
+ * Validate ONE form field. Returns `null` (drop the field) when `field` is
+ * missing/non-slug or the label is empty — unlike a prompt, there is NO
+ * fall-back `"value"` key, because a form's fields share one payload and a
+ * silent collision would clobber a sibling. `maxLength` is clamped to [1,500]
+ * (prompt parity) and the `value` prefill is truncated to it.
+ */
+function validateFormField(raw: unknown): PageFormField | null {
+  if (raw == null || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const f = raw as Record<string, unknown>;
+  if (typeof f.field !== "string" || !PROMPT_FIELD_REGEX.test(f.field)) return null;
+  if (typeof f.label !== "string") return null;
+  const label = truncate(f.label, PROMPT_LABEL_MAX);
+  if (label.length === 0) return null;
+
+  // maxLength clamped to [1, 500]; non-numeric → default (mirrors prompt).
+  const ml = typeof f.maxLength === "number" && Number.isFinite(f.maxLength)
+    ? Math.min(PROMPT_MAX_LENGTH_CAP, Math.max(1, Math.floor(f.maxLength)))
+    : DEFAULT_PROMPT_MAX_LENGTH;
+
+  const out: PageFormField = { field: f.field, label, maxLength: ml };
+  // Prefill truncated to the field's own maxLength (a value longer than the
+  // input can hold would never round-trip).
+  if (f.value != null) out.value = truncate(f.value, ml);
+  if (f.placeholder != null) out.placeholder = truncate(f.placeholder, PROMPT_LABEL_MAX);
+  if (f.multiline === true) out.multiline = true;
+  // Select options: keep 2..MAX_FORM_FIELD_OPTIONS valid entries or drop the
+  // list entirely (the field falls back to a text input — never fatal). An
+  // out-of-set `value` prefill clamps to the first option so the rendered
+  // select always shows a real state.
+  if (Array.isArray(f.options)) {
+    const options: PageFormFieldOption[] = [];
+    for (const rawOpt of f.options) {
+      if (options.length >= MAX_FORM_FIELD_OPTIONS) break;
+      if (rawOpt == null || typeof rawOpt !== "object" || Array.isArray(rawOpt)) continue;
+      const o = rawOpt as Record<string, unknown>;
+      if (typeof o.value !== "string") continue;
+      const value = truncate(o.value, 64);
+      if (value.length === 0) continue;
+      const opt: PageFormFieldOption = { value };
+      if (o.label != null) {
+        const optLabel = truncate(o.label, PROMPT_LABEL_MAX);
+        if (optLabel.length > 0 && optLabel !== value) opt.label = optLabel;
+      }
+      options.push(opt);
+    }
+    if (options.length >= 2) {
+      out.options = options;
+      if (out.value === undefined || !options.some((o) => o.value === out.value)) {
+        out.value = options[0]!.value;
+      }
+    }
+  }
+  // Visibility condition — shape-validated here; the SIBLING-reference check
+  // (unknown/self controlling field → drop the condition) runs form-level in
+  // pruneDanglingConditions once the surviving field set is known.
+  if (f.visibleWhen != null && typeof f.visibleWhen === "object" && !Array.isArray(f.visibleWhen)) {
+    const c = f.visibleWhen as Record<string, unknown>;
+    if (typeof c.field === "string" && PROMPT_FIELD_REGEX.test(c.field)) {
+      const rawEquals = Array.isArray(c.equals) ? c.equals : [c.equals];
+      const equals: string[] = [];
+      for (const v of rawEquals) {
+        if (equals.length >= MAX_FORM_FIELD_OPTIONS) break;
+        if (typeof v !== "string") continue;
+        const clamped = truncate(v, 64);
+        if (clamped.length > 0) equals.push(clamped);
+      }
+      if (equals.length > 0) {
+        out.visibleWhen = { field: c.field, equals: equals.length === 1 ? equals[0]! : equals };
+      }
+    }
+  }
+  return out;
+}
+
+/** Drop any `visibleWhen` that references an unknown or SELF field — the
+ *  condition could never toggle, so it fails OPEN to always-visible (the
+ *  field survives; visibility is UX, not authorization). Shared by the
+ *  dialog form and the inline form node. */
+function pruneDanglingConditions(fields: PageFormField[]): void {
+  const keys = new Set(fields.map((f) => f.field));
+  for (const f of fields) {
+    if (f.visibleWhen && (f.visibleWhen.field === f.field || !keys.has(f.visibleWhen.field))) {
+      delete f.visibleWhen;
+    }
+  }
+}
+
+/**
+ * Validate an action's optional form. Returns `null` (omit the field, so the
+ * action degrades to a plain/prompt dispatch) when the shape is wrong or NO
+ * field survives — never fatal to the whole action. Fields cap at
+ * {@link MAX_FORM_FIELDS}; excess (and invalid) fields are dropped.
+ */
+function validateForm(raw: unknown): PageForm | null {
+  if (raw == null || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const f = raw as Record<string, unknown>;
+  if (!Array.isArray(f.fields)) return null;
+  const fields: PageFormField[] = [];
+  for (const rawField of f.fields) {
+    if (fields.length >= MAX_FORM_FIELDS) break;
+    const field = validateFormField(rawField);
+    if (field) fields.push(field);
+  }
+  if (fields.length === 0) return null; // a field-less form degrades away
+  pruneDanglingConditions(fields);
+  const out: PageForm = { fields };
+  if (f.title != null) {
+    const title = truncate(f.title, PROMPT_LABEL_MAX);
+    if (title.length > 0) out.title = title;
+  }
+  return out;
+}
+
 function validateAction(
   raw: unknown,
   allowedEvents: readonly string[],
@@ -293,9 +554,15 @@ function validateAction(
     out.payload = payload;
   }
   if (a.confirm != null) out.confirm = truncate(a.confirm, 300);
-  // A malformed prompt is dropped (omit the field) — never fatal to the
-  // action, which still dispatches as a plain (prompt-less) action.
-  if (a.prompt != null) {
+  // A form supersedes a prompt (multi-field wins over single-field): validate
+  // the form FIRST, and only fall back to the prompt when no valid form
+  // survives. A malformed form OR prompt is dropped (omit the field) — never
+  // fatal to the action, which still dispatches as a plain action.
+  if (a.form != null) {
+    const form = validateForm(a.form);
+    if (form) out.form = form;
+  }
+  if (out.form === undefined && a.prompt != null) {
     const prompt = validatePrompt(a.prompt);
     if (prompt) out.prompt = prompt;
   }
@@ -339,6 +606,30 @@ function validateStats(raw: Record<string, unknown>): PageStats | null {
   return { type: "stats", items };
 }
 
+/**
+ * Validate ONE table cell. A plain string is truncated (unchanged wire
+ * shape). An object cell keeps its `{text, tone}` form ONLY when `tone` is a
+ * recognised, non-neutral tone; a neutral/absent/unknown tone (or a
+ * text-less object) folds to the plain truncated string — so a toned cell
+ * never bloats the wire and every existing `string[]` cell round-trips
+ * identically. A non-string/non-object cell becomes `""` (matches the
+ * pre-tone fallback for a malformed cell).
+ */
+function validateCell(c: unknown): PageCell {
+  if (typeof c === "string") return truncate(c, 300);
+  if (c != null && typeof c === "object" && !Array.isArray(c)) {
+    const obj = c as Record<string, unknown>;
+    if (typeof obj.text === "string") {
+      const text = truncate(obj.text, 300);
+      if (typeof obj.tone === "string" && CELL_TONES.has(obj.tone) && obj.tone !== "neutral") {
+        return { text, tone: obj.tone as CellTone };
+      }
+      return text;
+    }
+  }
+  return "";
+}
+
 function validateTableRow(
   raw: unknown,
   columnCount: number,
@@ -347,9 +638,7 @@ function validateTableRow(
   if (raw == null || typeof raw !== "object" || Array.isArray(raw)) return null;
   const r = raw as Record<string, unknown>;
   if (!Array.isArray(r.cells)) return null;
-  const cells = r.cells
-    .slice(0, columnCount)
-    .map((c) => (typeof c === "string" ? truncate(c, 300) : ""));
+  const cells = r.cells.slice(0, columnCount).map(validateCell);
   const out: PageTableRow = { cells };
   if (r.action !== undefined) {
     const action = validateAction(r.action, allowedEvents);
@@ -394,6 +683,38 @@ function validateButton(
       ? { style: raw.style as PageButton["style"] }
       : {}),
   };
+}
+
+/**
+ * Validate an INLINE form node. Dropped (null) when the action fails the
+ * event allowlist / payload rules or when no field survives — a form that
+ * can't dispatch or has nothing to type into is useless. The action's
+ * `prompt`/`form` are STRIPPED: the inline fields are the input surface, so
+ * a submit must dispatch directly (never open a second collection dialog).
+ */
+function validateFormNode(
+  raw: Record<string, unknown>,
+  allowedEvents: readonly string[],
+): PageFormNode | null {
+  const action = validateAction(raw.action, allowedEvents);
+  if (!action) return null;
+  delete action.prompt;
+  delete action.form;
+  if (!Array.isArray(raw.fields)) return null;
+  const fields: PageFormField[] = [];
+  for (const rawField of raw.fields) {
+    if (fields.length >= MAX_FORM_FIELDS) break;
+    const field = validateFormField(rawField);
+    if (field) fields.push(field);
+  }
+  if (fields.length === 0) return null;
+  pruneDanglingConditions(fields);
+  const out: PageFormNode = { type: "form", action, fields };
+  if (raw.submitLabel != null) {
+    const sl = truncate(raw.submitLabel, PROMPT_SUBMIT_LABEL_MAX);
+    if (sl.length > 0) out.submitLabel = sl;
+  }
+  return out;
 }
 
 function validateLink(raw: Record<string, unknown>): PageLink | null {
@@ -454,6 +775,7 @@ function validateNode(
     case "button":      return validateButton(obj, allowedEvents);
     case "link":        return validateLink(obj);
     case "empty-state": return validateEmptyState(obj);
+    case "form":        return validateFormNode(obj, allowedEvents);
     default:            return null;
   }
 }

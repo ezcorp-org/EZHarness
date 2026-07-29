@@ -170,4 +170,57 @@ describe("call-provenance registry", () => {
       globalThis.setTimeout = realSetTimeout;
     }
   });
+
+  test("registerFireCallProvenance honors a custom autoReleaseMs (timer + sweep expiry)", () => {
+    // A caller opting into a LONGER window (schedule fire → maxRunDurationMs,
+    // hub fire → 4 h) must (a) arm the auto-release timer for THAT window and
+    // (b) survive the short kind-based TTL sweep until then — otherwise the
+    // token is reaped mid-run and the reverse-RPC fails -32602 (the exact bug).
+    const realSetTimeout = globalThis.setTimeout;
+    let captured: { ms: number } | null = null;
+    globalThis.setTimeout = ((_fn: () => void, ms: number) => {
+      captured = { ms };
+      return { unref() { return this; } };
+    }) as unknown as typeof setTimeout;
+
+    try {
+      const customMs = 30 * 60_000; // 30 min — well past the 10-min fire TTL
+      const id = registerFireCallProvenance(makeProv("schedule"), { autoReleaseMs: customMs });
+      expect(captured!.ms).toBe(customMs);
+
+      // The default fire TTL is 10 min; without a per-token expiry the sweep
+      // would evict at ~10 min. With the opt-in window pinned, a sweep at
+      // 11 min must NOT evict it.
+      __sweepForTests(Date.now() + FIRE_TOKEN_TTL_MS + 60_000);
+      expect(resolveCallProvenance(id)).toBeDefined();
+
+      // A sweep past the custom window DOES evict it (the backstop still bites).
+      __sweepForTests(Date.now() + customMs + 1_000);
+      expect(resolveCallProvenance(id)).toBeUndefined();
+    } finally {
+      globalThis.setTimeout = realSetTimeout;
+    }
+  });
+
+  test("registerFireCallProvenance without opts keeps the 2-min default + 10-min sweep TTL", () => {
+    const realSetTimeout = globalThis.setTimeout;
+    let captured: { ms: number } | null = null;
+    globalThis.setTimeout = ((_fn: () => void, ms: number) => {
+      captured = { ms };
+      return { unref() { return this; } };
+    }) as unknown as typeof setTimeout;
+
+    try {
+      const id = registerFireCallProvenance(makeProv("event"));
+      // Default auto-release window unchanged.
+      expect(captured!.ms).toBe(FIRE_TOKEN_AUTO_RELEASE_MS);
+      // No per-token expiry → the kind-based 10-min fire TTL governs the sweep.
+      __sweepForTests(Date.now() + FIRE_TOKEN_TTL_MS - 1_000);
+      expect(resolveCallProvenance(id)).toBeDefined();
+      __sweepForTests(Date.now() + FIRE_TOKEN_TTL_MS + 1_000);
+      expect(resolveCallProvenance(id)).toBeUndefined();
+    } finally {
+      globalThis.setTimeout = realSetTimeout;
+    }
+  });
 });

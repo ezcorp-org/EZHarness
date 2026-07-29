@@ -1,5 +1,5 @@
 import { test, expect, describe, beforeEach, afterEach, spyOn } from "bun:test";
-import { mkdtempSync, rmSync, mkdirSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -22,7 +22,7 @@ import {
   _setProjectRootForTests,
   _setShellForTests,
   _setStoreForTests,
-  _setPushPageForTests,
+  _setInvalidatePageForTests,
   _setTmpBaseForTests,
   _setBaseUrlForTests,
   _setRunPipelineForTests,
@@ -42,17 +42,35 @@ import {
   _setChatToolDepsForTests,
   _setRbacCheckForTests,
   _setHeartbeatKVForTests,
+  _setRunHeartbeatKVForTests,
   runReconcileSweep,
   handleScheduleFire,
+  synthesizeScheduledRuns,
   recoverOnStart,
+  _setJobStoreForTests,
+  _setAuditForTests,
+  handleJobSave,
+  handleJobToggle,
+  handleJobDelete,
+  handleRunNow,
 } from "./index";
+import { buildDefaultJob, DEFAULT_JOB_ID, type Job, type JobStore } from "./lib/jobs";
+import type { AuditEntry, AuditLog } from "./lib/audit";
 import type { ChatToolDeps } from "./lib/chat-tools";
-import { gateDir as gateDirFor, repoId as repoIdOf, GATE_REMOTE, HOOK_MARKER } from "./lib/gate";
+import {
+  gateDir as gateDirFor,
+  repoId as repoIdOf,
+  dataDir as dataDirFor,
+  credentialPath as credentialPathFor,
+  GATE_REMOTE,
+  HOOK_MARKER,
+} from "./lib/gate";
 import { SWEEP_CRON, type SweepHeartbeat } from "./lib/sweep";
 import { productionHostRunner, type ShellRunner } from "./lib/shell";
 import { _setLogSinkForTests } from "./lib/log";
 import { emptyFindings } from "./lib/runs";
 import type { Finding, ParsedRespond, RunRecord, RunStore, StepResultRecord, StepRoundRecord, StepStatus } from "./lib/runs";
+import type { StepIORecord } from "./lib/step-io";
 
 // ── in-memory store + fakes ─────────────────────────────────────────
 
@@ -60,6 +78,7 @@ function memStore(): RunStore & { runs: Map<string, RunRecord> } {
   const runs = new Map<string, RunRecord>();
   const steps = new Map<string, StepResultRecord>();
   const rounds = new Map<string, StepRoundRecord[]>();
+  const stepIO = new Map<string, StepIORecord>();
   return {
     runs,
     async createRun(run) {
@@ -98,6 +117,19 @@ function memStore(): RunStore & { runs: Map<string, RunRecord> } {
       if (!list || list.length === 0) return;
       list[list.length - 1] = { ...list[list.length - 1]!, ...patch };
     },
+    async putStepIO(record) {
+      stepIO.set(`${record.runId}/${record.step}/${record.round}`, record);
+    },
+    async getStepIO(runId, step, round) {
+      return stepIO.get(`${runId}/${step}/${round}`) ?? null;
+    },
+    async listStepIO(runId, step) {
+      const prefix = `${runId}/${step}/`;
+      return [...stepIO.entries()]
+        .filter(([k]) => k.startsWith(prefix))
+        .map(([, v]) => v)
+        .sort((a, b) => a.round - b.round);
+    },
   };
 }
 
@@ -127,19 +159,66 @@ const VALID_PUSH = {
 // (no host answers). `{}` → resolvePipelineConfig defaults — the same config
 // the pipeline used before the M2 live-read seam. Tests that assert settings
 // resolution override this locally.
+/** In-memory JobStore fake (control plane). Seeded with the default job so the
+ *  existing push tests proceed exactly as before (default matches every branch). */
+function fakeJobStore(jobs: Job[]): JobStore & { jobs: Map<string, Job> } {
+  const map = new Map<string, Job>(jobs.map((j) => [j.id, j]));
+  return {
+    jobs: map,
+    async createJob(j) { map.set(j.id, j); },
+    async getJob(id) { return map.get(id) ?? null; },
+    async updateJob(id, patch) {
+      const cur = map.get(id);
+      if (!cur) return null;
+      const next: Job = { ...cur, ...patch, updatedAt: new Date().toISOString() };
+      map.set(id, next);
+      return next;
+    },
+    async deleteJob(id) { return map.delete(id); },
+    async listJobs() { return [...map.values()]; },
+  };
+}
+
+/** Collected audit entries for the current test (reset per test). */
+const auditEntries: AuditEntry[] = [];
+function fakeAudit(): AuditLog {
+  return {
+    async append(e) {
+      auditEntries.push({
+        at: e.at ?? "t",
+        actor: e.actor,
+        kind: e.kind,
+        ...(e.jobId !== undefined ? { jobId: e.jobId } : {}),
+        ...(e.runId !== undefined ? { runId: e.runId } : {}),
+        ...(e.step !== undefined ? { step: e.step } : {}),
+        ...(e.detail !== undefined ? { detail: e.detail } : {}),
+      });
+    },
+    async readDay() { return []; },
+    async listDays() { return []; },
+    async pruneRetention() { return []; },
+  };
+}
+
 beforeEach(() => {
   _setSettingsReadForTests(async () => ({}));
   // Default: the acting user HOLDS every triage scope (the pre-M6 ungated
   // behaviour). The production default calls `new Rbac().check`, which hangs
   // against the stub channel; RBAC-specific tests override this per-scope.
   _setRbacCheckForTests(async () => true);
+  // Control plane: inject in-memory job store (seeded with the default job) +
+  // audit so push handling never hits the real Storage channel. Tests that
+  // exercise specific jobs re-inject their own store.
+  auditEntries.length = 0;
+  _setJobStoreForTests(fakeJobStore([buildDefaultJob("2026-07-15T00:00:00.000Z")]));
+  _setAuditForTests(fakeAudit());
 });
 
 afterEach(() => {
   _setProjectRootForTests(null);
   _setShellForTests(null);
   _setStoreForTests(null);
-  _setPushPageForTests(null);
+  _setInvalidatePageForTests(null);
   _setTmpBaseForTests(null);
   _setBaseUrlForTests(null);
   _setRunPipelineForTests(null);
@@ -150,6 +229,9 @@ afterEach(() => {
   _setChatToolDepsForTests(null);
   _setRbacCheckForTests(null);
   _setHeartbeatKVForTests(null);
+  _setRunHeartbeatKVForTests(null);
+  _setJobStoreForTests(null);
+  _setAuditForTests(null);
 });
 
 /** A fake pipeline runner that drives the run to a chosen terminal/parked state
@@ -253,6 +335,29 @@ describe("initGateTool", () => {
     expect(out.gateRemote).toBe(GATE_REMOTE);
     expect(out.pushHint).toBe(`git push ${GATE_REMOTE} <branch>`);
     expect(existsSync(gateDirFor(work, out.repoId))).toBe(true);
+    // No credential was minted → the result reports the gap + the exact next step
+    // so the "initialized" reply cannot be a bare success (silent-setup gap #1).
+    expect(out.credentialPresent).toBe(false);
+    expect(out.nextStep).toContain("ezcorp key mint --scopes read,chat");
+    expect(out.nextStep).toContain("umask 077");
+  });
+
+  test("with the credential minted → credentialPresent true and no nextStep", async () => {
+    const work = join(root, "with-cred");
+    mkdirSync(work);
+    await productionHostRunner(["git", "init", "-b", "main"], work);
+    await productionHostRunner(["git", "remote", "add", "origin", "https://up/x.git"], work);
+    mkdirSync(dataDirFor(work), { recursive: true });
+    writeFileSync(credentialPathFor(work), "minted-key");
+    _setProjectRootForTests(() => work);
+    _setShellForTests(productionHostRunner);
+    _setBaseUrlForTests(() => "http://127.0.0.1:9");
+
+    const res = await initGateTool({});
+    expect(res.isError).toBe(false);
+    const out = JSON.parse(res.content[0]!.text);
+    expect(out.credentialPresent).toBe(true);
+    expect(out.nextStep).toBeUndefined();
   });
 
   test("surfaces an init failure as a tool error", async () => {
@@ -369,7 +474,7 @@ describe("handlePushReceived", () => {
     const store = memStore();
     _setStoreForTests(store);
     _setRunPipelineForTests(fakePipeline(store, "completed"));
-    _setPushPageForTests(() => {});
+    _setInvalidatePageForTests(() => {});
     const root = "/proj/from-hook";
     await handlePushReceived({
       source: "hub",
@@ -397,7 +502,7 @@ describe("handlePushReceived", () => {
     const store = memStore();
     _setStoreForTests(store);
     _setRunPipelineForTests(fakePipeline(store, "completed"));
-    _setPushPageForTests(() => {});
+    _setInvalidatePageForTests(() => {});
     const root = "/proj/from-hook";
     await handlePushReceived({
       source: "hub",
@@ -448,7 +553,7 @@ describe("handlePushReceived", () => {
     _setStoreForTests(store);
     _setRunPipelineForTests(fakePipeline(store, "completed"));
     const pushes: string[] = [];
-    _setPushPageForTests((pageId) => pushes.push(pageId));
+    _setInvalidatePageForTests((pageId) => pushes.push(pageId));
 
     await handlePushReceived({ source: "hub", pageId: "dashboard", userId: "u", payload: VALID_PUSH });
 
@@ -473,7 +578,7 @@ describe("handlePushReceived", () => {
     const store = memStore();
     _setStoreForTests(store);
     _setRunPipelineForTests(fakePipeline(store, "parked"));
-    _setPushPageForTests(() => {});
+    _setInvalidatePageForTests(() => {});
 
     await handlePushReceived({ source: "hub", pageId: "dashboard", userId: "u", payload: VALID_PUSH });
 
@@ -493,7 +598,7 @@ describe("handlePushReceived", () => {
     );
     const store = memStore();
     _setStoreForTests(store);
-    _setPushPageForTests(() => {});
+    _setInvalidatePageForTests(() => {});
 
     await handlePushReceived({ source: "hub", pageId: "dashboard", userId: "u", payload: VALID_PUSH });
     const run = [...store.runs.values()][0]!;
@@ -514,7 +619,7 @@ describe("handlePushReceived", () => {
     const tstore = memStore();
     _setStoreForTests(tstore);
     _setRunPipelineForTests(fakePipeline(tstore, "completed")); // terminal → teardown reached
-    _setPushPageForTests(() => {});
+    _setInvalidatePageForTests(() => {});
     const cap = captureStderr();
     try {
       await handlePushReceived({ source: "hub", pageId: "dashboard", userId: "u", payload: VALID_PUSH });
@@ -522,6 +627,218 @@ describe("handlePushReceived", () => {
     } finally {
       cap.restore();
     }
+  });
+});
+
+// ── handlePushReceived — job matching (control plane, L4) ────────────
+
+describe("handlePushReceived — job matching", () => {
+  test("stamps the matched job's id onto the created run", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setTmpBaseForTests(() => "/tmp/ext");
+    const store = memStore();
+    _setStoreForTests(store);
+    _setRunPipelineForTests(fakePipeline(store, "completed"));
+    _setInvalidatePageForTests(() => {});
+    // A specific enabled job for feat/x beats the default catch-all.
+    _setJobStoreForTests(fakeJobStore([
+      buildDefaultJob("2026-07-15T00:00:00.000Z"),
+      { ...buildDefaultJob("2026-07-15T00:00:00.000Z"), id: "featjob", name: "Feature", trigger: { kind: "push", branchPattern: "feat/*" } },
+    ]));
+    await handlePushReceived({ source: "hub", pageId: "dashboard", userId: "u", payload: VALID_PUSH });
+    const run = [...store.runs.values()][0]!;
+    expect(run.jobId).toBe("featjob");
+  });
+
+  test("a push matching NO enabled job is IGNORED (no run) and audited push-ignored", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setTmpBaseForTests(() => "/tmp/ext");
+    const store = memStore();
+    _setStoreForTests(store);
+    _setInvalidatePageForTests(() => {});
+    // Only the default job, DISABLED → nothing matches feat/x.
+    _setJobStoreForTests(fakeJobStore([
+      { ...buildDefaultJob("2026-07-15T00:00:00.000Z"), enabled: false },
+    ]));
+    await handlePushReceived({ source: "hub", pageId: "dashboard", userId: "u", payload: VALID_PUSH });
+    // No run was created.
+    expect([...store.runs.values()]).toHaveLength(0);
+    // The ignore was audited (never silent), with branch + reason.
+    const ignored = auditEntries.find((e) => e.kind === "push-ignored");
+    expect(ignored).toBeDefined();
+    expect((ignored!.detail as { branch: string }).branch).toBe("feat/x");
+    expect(ignored!.actor).toBe("system");
+  });
+
+  test("the auto-seeded default job matches any branch (today's behavior preserved)", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setTmpBaseForTests(() => "/tmp/ext");
+    const store = memStore();
+    _setStoreForTests(store);
+    _setRunPipelineForTests(fakePipeline(store, "completed"));
+    _setInvalidatePageForTests(() => {});
+    // Empty store → loadJobsWithDefault seeds the default job on first read.
+    _setJobStoreForTests(fakeJobStore([]));
+    await handlePushReceived({ source: "hub", pageId: "dashboard", userId: "u", payload: VALID_PUSH });
+    const run = [...store.runs.values()][0]!;
+    expect(run.jobId).toBe("default");
+    // The seed itself is audited as actor "system".
+    expect(auditEntries.some((e) => e.kind === "job-seed" && e.actor === "system")).toBe(true);
+  });
+});
+
+// ── audit sinks (control plane, L5) ─────────────────────────────────
+
+describe("audit sinks", () => {
+  test("a respond action is audited with the acting user + action + finding ids (no content)", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setInvalidatePageForTests(() => {});
+    const store = memStore();
+    const id = await seedParkedRun(store); // parked at review (clean gate → approve ok)
+    _setStoreForTests(store);
+    _setRespondRunnerForTests(() => async () => ({ parked: false }));
+    _setShellForTests(async () => ({ exitCode: 0, stdout: "", stderr: "" }));
+
+    await handleRespond({
+      source: "hub", pageId: "dashboard", userId: "alice",
+      payload: { runId: id, step: "review", action: "approve" },
+    });
+
+    const respondAudit = auditEntries.find((e) => e.kind === "respond");
+    expect(respondAudit).toBeDefined();
+    expect(respondAudit!.actor).toBe("alice"); // event.userId stamped as actor
+    expect(respondAudit!.runId).toBe(id);
+    const detail = respondAudit!.detail as { action: string; findingIds: string[] };
+    expect(detail.action).toBe("approve");
+    // Privacy: the detail carries ids/action only — no finding descriptions.
+    expect(JSON.stringify(respondAudit!.detail)).not.toContain("description");
+  });
+
+  test("handleScheduleFire audits the sweep summary and prunes audit retention", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setStoreForTests(memStore());
+    _setHeartbeatKVForTests(() => ({ async read() { return null; }, async write() {} }));
+    _setRunHeartbeatKVForTests(() => ({ async read() { return null; }, async write() {} }));
+    _setShellForTests(async () => ({ exitCode: 0, stdout: "", stderr: "" }));
+    // Only a push job → no schedule synthesis; we just want the sweep + prune.
+    _setJobStoreForTests(fakeJobStore([buildDefaultJob("t")]));
+    // A fake audit that records appends AND the prune call.
+    let pruneCalled = false;
+    _setAuditForTests({
+      async append(e) {
+        auditEntries.push({ at: e.at ?? "t", actor: e.actor, kind: e.kind, ...(e.detail !== undefined ? { detail: e.detail } : {}) });
+      },
+      async readDay() { return []; },
+      async listDays() { return []; },
+      async pruneRetention() { pruneCalled = true; return []; },
+    });
+
+    await handleScheduleFire({ cron: SWEEP_CRON, scheduledAt: "t", firedAt: "t", fireId: "f", catchUp: false, retry: false, attempt: 1 });
+
+    const sweepAudit = auditEntries.find((e) => e.kind === "sweep");
+    expect(sweepAudit).toBeDefined();
+    expect(sweepAudit!.actor).toBe("system");
+    expect(sweepAudit!.detail).toMatchObject({ scanned: expect.any(Number), stalled: expect.any(Number) });
+    expect(pruneCalled).toBe(true);
+  });
+});
+
+// ── synthesizeScheduledRuns — schedule tick routing (control plane, L4) ──
+
+describe("synthesizeScheduledRuns", () => {
+  const NEW_SHA = "cafebabecafebabecafebabecafebabecafebabe";
+  /** Shell that returns `sha` for rev-parse and exit 0 for every other git op. */
+  function revParseShell(sha: string): ShellRunner {
+    return async (cmd) =>
+      cmd.includes("rev-parse")
+        ? { exitCode: 0, stdout: `${sha}\n`, stderr: "" }
+        : { exitCode: 0, stdout: "", stderr: "" };
+  }
+  function schedJob(over: Partial<Job>): Job {
+    return { ...buildDefaultJob("2026-07-15T00:00:00.000Z"), id: "nightly", name: "Nightly", trigger: { kind: "schedule", every: "daily", branch: "main" }, ...over };
+  }
+
+  test("a due schedule job whose head advanced synthesizes a run + audits + bookkeeps the head", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setTmpBaseForTests(() => "/tmp/ext");
+    _setInvalidatePageForTests(() => {});
+    _setShellForTests(revParseShell(NEW_SHA));
+    const store = memStore();
+    _setStoreForTests(store);
+    _setRunPipelineForTests(fakePipeline(store, "completed"));
+    const jobStore = fakeJobStore([schedJob({ lastHeadSha: "oldsha" })]);
+    _setJobStoreForTests(jobStore);
+
+    await synthesizeScheduledRuns(new Date("2026-07-21T00:00:00.000Z"));
+
+    const run = [...store.runs.values()][0]!;
+    expect(run.jobId).toBe("nightly");
+    expect(run.branch).toBe("main");
+    expect(run.headSha).toBe(NEW_SHA);
+    expect(auditEntries.some((e) => e.kind === "schedule-fire" && e.jobId === "nightly" && e.runId === run.id)).toBe(true);
+    // Head + fire-time bookkept for the next tick's no-change check.
+    expect(jobStore.jobs.get("nightly")!.lastHeadSha).toBe(NEW_SHA);
+    expect(jobStore.jobs.get("nightly")!.lastScheduleFireAt).toBeDefined();
+  });
+
+  test("no-change (head unchanged) mints NO run and audits schedule-no-change", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setShellForTests(revParseShell("samesha"));
+    const store = memStore();
+    _setStoreForTests(store);
+    _setJobStoreForTests(fakeJobStore([schedJob({ trigger: { kind: "schedule", every: "15m", branch: "main" }, lastHeadSha: "samesha" })]));
+
+    await synthesizeScheduledRuns(new Date());
+
+    expect([...store.runs.values()]).toHaveLength(0);
+    expect(auditEntries.some((e) => e.kind === "schedule-no-change")).toBe(true);
+  });
+
+  test("a branch the gate never received audits schedule-no-branch, no run", async () => {
+    _setProjectRootForTests(() => "/proj");
+    // rev-parse fails (branch absent) → exit 128.
+    _setShellForTests(async (cmd) => cmd.includes("rev-parse") ? { exitCode: 128, stdout: "", stderr: "unknown revision" } : { exitCode: 0, stdout: "", stderr: "" });
+    const store = memStore();
+    _setStoreForTests(store);
+    _setJobStoreForTests(fakeJobStore([schedJob({ trigger: { kind: "schedule", every: "15m", branch: "ghost" } })]));
+
+    await synthesizeScheduledRuns(new Date());
+
+    expect([...store.runs.values()]).toHaveLength(0);
+    expect(auditEntries.some((e) => e.kind === "schedule-no-branch")).toBe(true);
+  });
+
+  test("a NOT-due schedule job (already fired this hour) is skipped", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setShellForTests(revParseShell(NEW_SHA));
+    const store = memStore();
+    _setStoreForTests(store);
+    _setJobStoreForTests(fakeJobStore([schedJob({ trigger: { kind: "schedule", every: "hourly", branch: "main" }, lastScheduleFireAt: "2026-07-21T13:00:00.000Z" })]));
+
+    await synthesizeScheduledRuns(new Date("2026-07-21T13:15:00.000Z")); // same hour → not due
+    expect([...store.runs.values()]).toHaveLength(0);
+  });
+
+  test("push-trigger + disabled schedule jobs are never synthesized", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setShellForTests(revParseShell(NEW_SHA));
+    const store = memStore();
+    _setStoreForTests(store);
+    _setJobStoreForTests(fakeJobStore([
+      buildDefaultJob("t"), // push
+      schedJob({ id: "off", enabled: false, trigger: { kind: "schedule", every: "15m", branch: "main" } }),
+    ]));
+    await synthesizeScheduledRuns(new Date());
+    expect([...store.runs.values()]).toHaveLength(0);
+  });
+
+  test("no resolvable project root → context-free no-op", async () => {
+    _setProjectRootForTests(() => undefined);
+    const store = memStore();
+    _setStoreForTests(store);
+    _setJobStoreForTests(fakeJobStore([schedJob({ trigger: { kind: "schedule", every: "15m", branch: "main" } })]));
+    await synthesizeScheduledRuns(new Date());
+    expect([...store.runs.values()]).toHaveLength(0);
   });
 });
 
@@ -543,7 +860,7 @@ describe("production env defaults", () => {
       const store = memStore();
       _setStoreForTests(store);
       _setRunPipelineForTests(fakePipeline(store, "completed"));
-      _setPushPageForTests(() => {});
+      _setInvalidatePageForTests(() => {});
 
       // UNSET → defaultProjectRoot() returns undefined → the tool errors out.
       delete process.env.EZCORP_PROJECT_ROOT;
@@ -1052,7 +1369,7 @@ describe("production pipeline wiring (default runners)", () => {
     _setShellForTests(trustedOkShell);
     const store = memStore();
     _setStoreForTests(store);
-    _setPushPageForTests(() => {});
+    _setInvalidatePageForTests(() => {});
     // No _setRunPipelineForTests → the DEFAULT factory (buildExecutorDeps +
     // startPipeline) runs. With host no-ops the pipeline skips to completion
     // without ever dispatching an agent.
@@ -1070,7 +1387,7 @@ describe("production pipeline wiring (default runners)", () => {
     const store = memStore();
     _setStoreForTests(store);
     await seedParkedRun(store); // parked at review
-    _setPushPageForTests(() => {});
+    _setInvalidatePageForTests(() => {});
     // The DEFAULT respond runner drives the real respondToGate, which REJECTS
     // an approve aimed at a step that is not awaiting approval ("rebase").
     await handleRespond({
@@ -1096,7 +1413,7 @@ describe("production pipeline wiring (default runners)", () => {
     const store = memStore();
     _setStoreForTests(store);
     await seedParkedRun(store);
-    _setPushPageForTests(() => {});
+    _setInvalidatePageForTests(() => {});
     // Abort never advances to push, so the real jail/agent are never touched.
     await handleRespond({
       source: "hub",
@@ -1199,7 +1516,7 @@ describe("handleReconcile", () => {
     const store = memStore();
     _setStoreForTests(store);
     await seedParkedRun(store); // parked at review (no reconcile hook)
-    _setPushPageForTests(() => {});
+    _setInvalidatePageForTests(() => {});
     await handleReconcile(evt({ runId: "run-parked" }));
     // The review gate has no reconcile hook → the run stays parked, worktree kept.
     expect((await store.getRun("run-parked"))!.status).toBe("awaiting_approval");
@@ -1216,7 +1533,7 @@ describe("handleReconcile", () => {
     const store = memStore();
     _setStoreForTests(store);
     await seedParkedRun(store);
-    _setPushPageForTests(() => {});
+    _setInvalidatePageForTests(() => {});
     // A reconcile runner that resolves the gate (marks the run completed).
     _setReconcileRunnerForTests((_projectRoot, _gateDir) => async ({ runId }) => {
       await store.updateRun(runId, { status: "completed" });
@@ -1390,7 +1707,7 @@ describe("settings live-read", () => {
     _setShellForTests(trustedOkShell);
     const store = memStore();
     _setStoreForTests(store);
-    _setPushPageForTests(() => {});
+    _setInvalidatePageForTests(() => {});
     try {
       await handlePushReceived({ source: "hub", pageId: "dashboard", userId: "u", payload: VALID_PUSH });
       expect([...store.runs.values()][0]!.status).toBe("completed");
@@ -1412,7 +1729,7 @@ describe("settings live-read", () => {
     _setShellForTests(trustedOkShell);
     const store = memStore();
     _setStoreForTests(store);
-    _setPushPageForTests(() => {});
+    _setInvalidatePageForTests(() => {});
     try {
       await handlePushReceived({ source: "hub", pageId: "dashboard", userId: "u", payload: VALID_PUSH });
       // Defaults applied → the pipeline still runs to completion.
@@ -1439,7 +1756,7 @@ describe("settings live-read", () => {
     _setShellForTests(trustedOkShell); // host no-ops + resolvable trusted branch → real executor runs to completion
     const store = memStore();
     _setStoreForTests(store);
-    _setPushPageForTests(() => {});
+    _setInvalidatePageForTests(() => {});
     // No _setRunPipelineForTests → the DEFAULT defaultRunPipeline runs, and it is
     // the one that calls resolveLiveConfig() → resolvePipelineConfig(stub).
     await handlePushReceived({ source: "hub", pageId: "dashboard", userId: "u", payload: VALID_PUSH });
@@ -1813,7 +2130,7 @@ describe("chat-entry tool handlers", () => {
   test("DEFAULT wiring: code_factory_run triggers a run via runGateLifecycle", async () => {
     _setProjectRootForTests(() => "/proj");
     _setTmpBaseForTests(() => "/tmp/ext");
-    _setPushPageForTests(() => {});
+    _setInvalidatePageForTests(() => {});
     // Resolve branch=main, project head, no prior gate tip, empty diff, fetch ok.
     const chatShell: ShellRunner = async (cmd) => {
       const c = cmd.join(" ");
@@ -1838,7 +2155,7 @@ describe("chat-entry tool handlers", () => {
   test("DEFAULT wiring: code_factory_respond drives resumeGateLifecycle (abort)", async () => {
     _setProjectRootForTests(() => "/proj");
     _setShellForTests(okShell);
-    _setPushPageForTests(() => {});
+    _setInvalidatePageForTests(() => {});
     const store = memStore();
     _setStoreForTests(store);
     await seedParkedRun(store); // parked at review, worktree kept
@@ -1859,7 +2176,7 @@ describe("RBAC on triage actions (M6)", () => {
   test("handleRespond proceeds when `respond-gate` is granted", async () => {
     _setProjectRootForTests(() => "/proj");
     _setShellForTests(okShell);
-    _setPushPageForTests(() => {});
+    _setInvalidatePageForTests(() => {});
     const store = memStore();
     _setStoreForTests(store);
     await seedParkedRun(store);
@@ -1906,7 +2223,7 @@ describe("RBAC on triage actions (M6)", () => {
   test("handleYolo checks the `yolo` scope (granted → autopilot runs)", async () => {
     _setProjectRootForTests(() => "/proj");
     _setShellForTests(okShell);
-    _setPushPageForTests(() => {});
+    _setInvalidatePageForTests(() => {});
     const store = memStore();
     _setStoreForTests(store);
     await seedParkedRun(store); // empty review findings → approve
@@ -1958,7 +2275,7 @@ describe("yolo fix-once semantics (M6)", () => {
   test("FIXES an auto-fix finding once, then APPROVES the re-parked gate", async () => {
     _setProjectRootForTests(() => "/proj");
     _setShellForTests(okShell);
-    _setPushPageForTests(() => {});
+    _setInvalidatePageForTests(() => {});
     const store = memStore();
     _setStoreForTests(store);
     await seedParkedRun(store);
@@ -2037,9 +2354,12 @@ describe("code_factory_doctor tool (M6)", () => {
     expect(report.checks.map((c) => c.name)).toEqual([
       "gate",
       "hook",
+      "credential",
+      "curl",
       "gh",
       "token",
       "default-branch",
+      "trusted-upstream",
       "reconcile-sweep",
     ]);
     expect(report.checks.find((c) => c.name === "gate")!.status).toBe("ok");
@@ -2051,7 +2371,7 @@ describe("reconcile sweep wiring (M6)", () => {
   test("runReconcileSweep with no ctx/env root: a run WITHOUT a stamped root is skipped, one WITH a stamped root advances", async () => {
     _setProjectRootForTests(() => undefined);
     _setShellForTests(okShell);
-    _setPushPageForTests(() => {});
+    _setInvalidatePageForTests(() => {});
     const store = memStore();
     _setStoreForTests(store);
     const base = {
@@ -2088,7 +2408,7 @@ describe("reconcile sweep wiring (M6)", () => {
   test("runReconcileSweep advances a checks_passed run whose reconcile completes it + writes a heartbeat", async () => {
     _setProjectRootForTests(() => "/proj");
     _setShellForTests(okShell);
-    _setPushPageForTests(() => {});
+    _setInvalidatePageForTests(() => {});
     const store = memStore();
     _setStoreForTests(store);
     await store.createRun({
@@ -2107,6 +2427,25 @@ describe("reconcile sweep wiring (M6)", () => {
     expect(summary!.advanced).toBe(1);
     expect(wrote).toBe(1);
     expect(store.runs.get("g")!.status).toBe("completed");
+  });
+
+  test("runReconcileSweep marks a running run whose per-run heartbeat is silent as stalled (L3 wiring)", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setShellForTests(okShell);
+    _setInvalidatePageForTests(() => {});
+    const store = memStore();
+    _setStoreForTests(store);
+    await store.createRun({
+      id: "dead", repoId: "0123456789ab", branch: "feat/x", ref: "refs/heads/feat/x",
+      headSha: "abc", baseSha: "0".repeat(40), status: "running", worktreePath: "/wt/dead",
+      createdAt: "t", updatedAt: "t", parkedMs: 0, awaitingAgentSince: null, intent: null, intentSource: null,
+    });
+    _setHeartbeatKVForTests(() => ({ async read() { return null; }, async write() {} }));
+    // No per-run heartbeat + frozen updatedAt → trips the stall threshold now.
+    _setRunHeartbeatKVForTests(() => ({ async read() { return null; }, async write() {} }));
+    const summary = await runReconcileSweep();
+    expect(summary.stalled).toBe(1);
+    expect(store.runs.get("dead")!.status).toBe("stalled");
   });
 
   test("handleScheduleFire swallows a thrown sweep", async () => {
@@ -2149,7 +2488,7 @@ describe("reconcile sweep wiring (M6)", () => {
     // terminal run was skipped, never scanned).
     expect(wrote).toBe(1);
     expect(lastHeartbeat).not.toBeNull();
-    expect(lastHeartbeat!.summary).toEqual({ scanned: 0, advanced: 0, stillParked: 0, skipped: 0 });
+    expect(lastHeartbeat!.summary).toEqual({ scanned: 0, advanced: 0, stillParked: 0, skipped: 0, stalled: 0 });
   });
 });
 
@@ -2218,7 +2557,7 @@ describe("production default seams (M6)", () => {
     }) as HostChannel["request"]);
     _setProjectRootForTests(() => "/proj");
     _setShellForTests(okShell);
-    _setPushPageForTests(() => {});
+    _setInvalidatePageForTests(() => {});
     const store = memStore();
     _setStoreForTests(store);
     await seedParkedRun(store);
@@ -2251,5 +2590,1017 @@ describe("production default seams (M6)", () => {
     } finally {
       __resetChannelForTests();
     }
+  });
+});
+
+// ── renderDashboard — perProject context dispatch ────────────────────
+
+describe("renderDashboard — perProject context dispatch", () => {
+  const PROJECT = { id: "6f9619ff-8b86-4d01-b42d-00cf4fc964ff", name: "My App", path: "/home/dev/my-app" };
+
+  async function seededStore() {
+    const store = memStore();
+    await store.createRun({
+      id: "r-mine",
+      repoId: repoIdOf(PROJECT.path),
+      branch: "feat/mine",
+      ref: "refs/heads/feat/mine",
+      headSha: "abcdef0123456789",
+      baseSha: "0000000000000000",
+      status: "completed",
+      worktreePath: null,
+      createdAt: "2026-07-17T08:00:00.000Z",
+      updatedAt: "2026-07-17T08:00:00.000Z",
+      parkedMs: 0,
+      awaitingAgentSince: null,
+      intent: null,
+      intentSource: null,
+    });
+    await store.createRun({
+      id: "r-foreign",
+      repoId: "feedfacecafe",
+      branch: "feat/other",
+      ref: "refs/heads/feat/other",
+      headSha: "1234567890abcdef",
+      baseSha: "0000000000000000",
+      status: "completed",
+      worktreePath: null,
+      createdAt: "2026-07-17T09:00:00.000Z",
+      updatedAt: "2026-07-17T09:00:00.000Z",
+      parkedMs: 0,
+      awaitingAgentSince: null,
+      intent: null,
+      intentSource: null,
+    });
+    return store;
+  }
+
+  function tableRowIds(tree: { nodes: unknown[] }): string[] {
+    const tables = (tree.nodes as Array<Record<string, unknown>>).filter(
+      (n) => n.type === "table",
+    ) as Array<{ rows: Array<{ cells: string[] }> }>;
+    return tables.flatMap((t) => t.rows.map((r) => r.cells[0]!));
+  }
+
+  test("ctx.project renders ONLY that project's runs, titled per project", async () => {
+    _setStoreForTests(await seededStore());
+    const tree = await renderDashboard({ project: PROJECT });
+    expect(tree.title).toBe("ez-code-factory — My App");
+    expect(tableRowIds(tree)).toEqual(["r-mine"]);
+  });
+
+  test("ctx.projects renders the home view with a project row + orphan triage", async () => {
+    _setStoreForTests(await seededStore());
+    const tree = await renderDashboard({ projects: [PROJECT] });
+    expect(tree.title).toBe("ez-code-factory");
+    const ids = tableRowIds(tree);
+    expect(ids).toContain("My App"); // projects table row
+    expect(ids).toContain("r-foreign"); // orphan runs table row
+    expect(ids).not.toContain("r-mine"); // project-owned run lives on its project page
+  });
+
+  test("no ctx falls back to the classic combined dashboard", async () => {
+    _setStoreForTests(await seededStore());
+    const tree = await renderDashboard();
+    expect(tree.title).toBe("ez-code-factory");
+    expect(tableRowIds(tree).sort()).toEqual(["r-foreign", "r-mine"]);
+  });
+
+  test("ctx.run renders the run-detail view, taking precedence over project", async () => {
+    const store = await seededStore();
+    const sr: StepResultRecord = {
+      runId: "r-mine",
+      step: "review",
+      status: "completed",
+      findings: { ...emptyFindings(), summary: "looked good" },
+      agentPid: null,
+      autoFixLimit: 0,
+      round: 1,
+      autoFixAttempts: 0,
+      executionMs: 0,
+      fixSummary: null,
+      agentDispatches: [
+        {
+          role: "reviewer",
+          assignmentId: "asg-1",
+          subConversationId: "sub-1",
+          agentRunId: "arun-1",
+          at: "2026-07-18T09:30:00.000Z",
+        },
+      ],
+    };
+    await store.putStepResult(sr);
+    _setStoreForTests(store);
+
+    // `run` wins even with project context present.
+    const tree = await renderDashboard({ project: PROJECT, run: "r-mine" });
+    expect(tree.title).toContain("run r-mine");
+    // The step table + the agent-turn provenance table both render.
+    const tableCols = (tree.nodes as Array<Record<string, unknown>>)
+      .flatMap((n) => {
+        if (n.type === "table") return [n];
+        if (n.type === "section" && Array.isArray(n.nodes)) return n.nodes as Array<Record<string, unknown>>;
+        return [];
+      })
+      .filter((n) => n.type === "table")
+      .map((n) => (n.columns as string[])[0]);
+    expect(tableCols).toContain("Step");
+  });
+
+  test("ctx.run for an unknown id renders a 'Run not found' note (never an error)", async () => {
+    _setStoreForTests(await seededStore());
+    const tree = await renderDashboard({ run: "r-nope" });
+    expect(tree.title).toContain("run r-nope");
+    const empty = (tree.nodes as Array<Record<string, unknown>>).find((n) => n.type === "empty-state");
+    expect(empty).toBeTruthy();
+    expect(String((empty as Record<string, unknown>).title)).toContain("not found");
+  });
+});
+
+// ── renderDashboard — step-detail routing + loader + derived stalled ──
+
+describe("renderDashboard — step-detail + stalled", () => {
+  const PROJECT = { id: "6f9619ff-8b86-4d01-b42d-00cf4fc964ff", name: "My App", path: "/home/dev/my-app" };
+
+  function allNodes(nodes: unknown[]): Array<Record<string, unknown>> {
+    const out: Array<Record<string, unknown>> = [];
+    for (const raw of nodes) {
+      const n = raw as Record<string, unknown>;
+      out.push(n);
+      if (n.type === "section" && Array.isArray(n.nodes)) out.push(...allNodes(n.nodes as unknown[]));
+    }
+    return out;
+  }
+
+  async function seedRunWithStep(store: ReturnType<typeof memStore>, id: string): Promise<void> {
+    await store.createRun({
+      id,
+      repoId: repoIdOf(PROJECT.path),
+      branch: "feat/mine",
+      ref: "refs/heads/feat/mine",
+      headSha: "abcdef0123456789",
+      baseSha: "0000000000000000",
+      status: "completed",
+      worktreePath: null,
+      createdAt: "2026-07-17T08:00:00.000Z",
+      updatedAt: "2026-07-17T08:00:00.000Z",
+      parkedMs: 0,
+      awaitingAgentSince: null,
+      intent: null,
+      intentSource: null,
+    });
+    await store.putStepResult({
+      runId: id,
+      step: "review",
+      status: "completed",
+      findings: emptyFindings(),
+      agentPid: null,
+      autoFixLimit: 0,
+      round: 1,
+      autoFixAttempts: 0,
+      executionMs: 4200,
+      fixSummary: null,
+    });
+  }
+
+  const ioRec = (runId: string, round: number, over: Record<string, unknown> = {}) => ({
+    runId,
+    step: "review" as const,
+    round,
+    trigger: (round === 1 ? "initial" : "auto_fix") as "initial" | "auto_fix",
+    branch: "feat/mine",
+    headSha: "abcdef0123456789",
+    worktreePath: "/wt",
+    repoConfig: { agent: "", allowRepoCommands: false, disableProjectSettings: false, commandTest: "", commandLint: "" },
+    startedAt: "2026-07-17T08:00:00.000Z",
+    dispatches: [],
+    shellCommands: [],
+    endedAt: "2026-07-17T08:00:05.000Z",
+    durationMs: 5000,
+    error: null,
+    outcome: { needsApproval: false, autoFixable: false, skipped: false, skipRemaining: false, checksPassed: false },
+    ...over,
+  });
+
+  test("ctx.run + ctx.step renders the STEP detail, taking precedence over run + project", async () => {
+    const store = memStore();
+    await seedRunWithStep(store, "r-mine");
+    await store.putStepIO(ioRec("r-mine", 1));
+    _setStoreForTests(store);
+    const tree = await renderDashboard({ project: PROJECT, run: "r-mine", step: "review" });
+    expect(tree.title).toBe("ez-code-factory — step");
+    const stats = allNodes(tree.nodes).find((n) => n.type === "stats") as {
+      items: Array<{ label: string; value: string }>;
+    };
+    expect(stats.items.find((i) => i.label === "Step")!.value).toBe("review");
+    expect(stats.items.find((i) => i.label === "Run")!.value).toBe("r-mine");
+  });
+
+  test("an unknown step → 'Step not found' empty state (never throws)", async () => {
+    const store = memStore();
+    await seedRunWithStep(store, "r-mine");
+    _setStoreForTests(store);
+    const tree = await renderDashboard({ run: "r-mine", step: "bogus-step" });
+    const empty = (tree.nodes as Array<Record<string, unknown>>).find((n) => n.type === "empty-state");
+    expect(String((empty as Record<string, unknown>).title)).toContain("not found");
+  });
+
+  test("an unknown run with a valid step → 'Step not found' empty state", async () => {
+    _setStoreForTests(memStore());
+    const tree = await renderDashboard({ run: "r-nope", step: "review" });
+    const empty = (tree.nodes as Array<Record<string, unknown>>).find((n) => n.type === "empty-state");
+    expect(String((empty as Record<string, unknown>).title)).toContain("not found");
+  });
+
+  test("the loader lists IO by PREFIX — an errored round beyond sr.round still renders (LEFT-join)", async () => {
+    const store = memStore();
+    await seedRunWithStep(store, "r-mine"); // sr.round = 1
+    await store.appendStepRound({
+      runId: "r-mine", step: "review", round: 1, trigger: "initial",
+      findingsJson: null, userFindingsJson: null, selectedFindingIds: null,
+      selectionSource: null, fixSummary: null, durationMs: 0,
+    });
+    await store.putStepIO(ioRec("r-mine", 1));
+    // An errored final attempt wrote an IO record at round 2 with NO step_round.
+    await store.putStepIO(ioRec("r-mine", 2, { error: "step review failed: boom" }));
+    _setStoreForTests(store);
+    const tree = await renderDashboard({ run: "r-mine", step: "review" });
+    const titles = allNodes(tree.nodes).filter((n) => n.type === "section").map((n) => String(n.title));
+    expect(titles.some((t) => t.startsWith("Round 2"))).toBe(true);
+    const content = JSON.stringify(tree.nodes);
+    expect(content).toContain("step review failed: boom");
+  });
+
+  test("DERIVED stalled: a running run with a silent heartbeat renders ⚠ stalled on the dashboard", async () => {
+    const store = memStore();
+    await store.createRun({
+      id: "r-live",
+      repoId: repoIdOf(PROJECT.path),
+      branch: "feat/mine",
+      ref: "refs/heads/feat/mine",
+      headSha: "abcdef0123456789",
+      baseSha: "0000000000000000",
+      status: "running",
+      worktreePath: "/wt/live",
+      createdAt: "2020-01-01T00:00:00.000Z",
+      updatedAt: "2020-01-01T00:00:00.000Z", // frozen far in the past → stale now
+      parkedMs: 0,
+      awaitingAgentSince: null,
+      intent: null,
+      intentSource: null,
+    });
+    _setStoreForTests(store);
+    // No per-run heartbeat → the frozen updatedAt trips the stall threshold.
+    _setRunHeartbeatKVForTests(() => ({ async read() { return null; }, async write() {} }));
+    const tree = await renderDashboard();
+    const row = allNodes(tree.nodes)
+      .filter((n) => n.type === "table")
+      .flatMap((n) => n.rows as Array<{ cells: unknown[] }>)
+      .find((r) => r.cells[0] === "r-live");
+    expect(row!.cells[3]).toEqual({ text: "⚠ stalled", tone: "warning" });
+    const stats = (tree.nodes as Array<Record<string, unknown>>).find((n) => n.type === "stats") as {
+      items: Array<{ label: string; value: string }>;
+    };
+    expect(stats.items.find((i) => i.label === "Stalled")!.value).toBe("1");
+  });
+});
+
+// ── Control-plane views + job actions (L6/L7) ────────────────────────
+
+function allNodesDeep(nodes: unknown[]): Array<Record<string, unknown>> {
+  const out: Array<Record<string, unknown>> = [];
+  for (const raw of nodes) {
+    const n = raw as Record<string, unknown>;
+    out.push(n);
+    if (n.type === "section" && Array.isArray(n.nodes)) out.push(...allNodesDeep(n.nodes as unknown[]));
+  }
+  return out;
+}
+
+describe("renderDashboard — ?view= routing (L6 precedence)", () => {
+  beforeEach(() => {
+    _setHeartbeatKVForTests(() => ({ async read() { return null; }, async write() {} }));
+  });
+
+  test("view=config renders the config surface", async () => {
+    _setStoreForTests(memStore());
+    _setJobStoreForTests(fakeJobStore([buildDefaultJob("t")]));
+    const tree = await renderDashboard({ view: "config" });
+    expect(tree.title).toBe("ez-code-factory — config");
+  });
+
+  test("view=job:<id> renders that job's editor; an unknown id → not-found", async () => {
+    _setStoreForTests(memStore());
+    _setJobStoreForTests(fakeJobStore([{ ...buildDefaultJob("t"), id: "j1", name: "Nightly" }]));
+    const ok = await renderDashboard({ view: "job:j1" });
+    expect(ok.title).toContain("Nightly");
+    const missing = await renderDashboard({ view: "job:ghost" });
+    expect(allNodesDeep(missing.nodes).some((n) => n.type === "empty-state" && String(n.title).includes("not found"))).toBe(true);
+  });
+
+  test("view=audit renders the audit surface (newest day)", async () => {
+    _setStoreForTests(memStore());
+    _setJobStoreForTests(fakeJobStore([buildDefaultJob("t")]));
+    _setAuditForTests({
+      async append() {},
+      async readDay() { return [{ at: "2026-07-21T00:00:00.000Z", actor: "system", kind: "sweep" }]; },
+      async listDays() { return ["2026-07-21"]; },
+      async pruneRetention() { return []; },
+    });
+    const tree = await renderDashboard({ view: "audit" });
+    expect(tree.title).toContain("audit 2026-07-21");
+  });
+
+  test("an unknown/malformed view → empty state (never throws)", async () => {
+    _setStoreForTests(memStore());
+    const tree = await renderDashboard({ view: "bogus" });
+    expect(allNodesDeep(tree.nodes).some((n) => n.type === "empty-state" && String(n.title).includes("Unknown view"))).toBe(true);
+  });
+
+  test("view WINS over project context, but run+step/run WIN over view (precedence)", async () => {
+    _setStoreForTests(memStore());
+    _setJobStoreForTests(fakeJobStore([buildDefaultJob("t")]));
+    // view beats project (a config render on the project hub is the config).
+    const cfg = await renderDashboard({ project: { id: "p1", name: "P", path: "/p" }, view: "config" });
+    expect(cfg.title).toBe("ez-code-factory — config");
+    // run beats view (a run detail is reachable everywhere).
+    _setRunHeartbeatKVForTests(() => ({ async read() { return null; }, async write() {} }));
+    const runDetail = await renderDashboard({ run: "run_missing", view: "config" });
+    expect(runDetail.title).toContain("run run_missing");
+  });
+
+  test("view=job threads the settings seam (non-default ignore patterns + default branch) into the prompt preview", async () => {
+    _setStoreForTests(memStore());
+    _setJobStoreForTests(fakeJobStore([{ ...buildDefaultJob("t"), id: "j1", name: "N", agentName: "critic" }]));
+    // The SETTINGS seam (resolveLiveConfig) — NOT a repo-file read — supplies the
+    // render-knowable ignore patterns + default branch the preview substitutes.
+    _setSettingsReadForTests(async () => ({ ignore_patterns: ["*.snap", "vendor/**"], default_branch: "trunk" }));
+    const tree = await renderDashboard({ view: "job:j1" });
+    const cellText = allNodesDeep(tree.nodes)
+      .flatMap((n) =>
+        n.type === "table"
+          ? (n.rows as Array<{ cells: unknown[] }>).flatMap((r) =>
+              r.cells.map((c) => (typeof c === "object" && c ? String((c as { text?: string }).text ?? "") : String(c))),
+            )
+          : [],
+      )
+      .join("  ");
+    expect(cellText).toContain("*.snap, vendor/**"); // settings-derived ignore patterns reach a cell
+    expect(cellText).toContain("trunk"); // settings-derived default branch reaches a cell
+    expect(cellText).toContain("critic"); // the job's agent is substituted
+  });
+});
+
+describe("handleJobSave", () => {
+  const ev = (payload: Record<string, unknown>, userId = "alice") => ({ source: "hub" as const, pageId: "dashboard", userId, payload });
+
+  test("RBAC deny → refuses, mutates NOTHING, audits NOTHING", async () => {
+    _setRbacCheckForTests(async () => false);
+    const store = fakeJobStore([{ ...buildDefaultJob("t"), id: "j1", name: "Old" }]);
+    _setJobStoreForTests(store);
+    _setInvalidatePageForTests(() => {});
+    const cap = captureStderr();
+    try {
+      await handleJobSave(ev({ jobId: "j1", name: "Hacked" }));
+    } finally {
+      cap.restore();
+    }
+    expect(cap.text()).toContain("job-save refused");
+    expect(store.jobs.get("j1")!.name).toBe("Old"); // unchanged
+    expect(auditEntries).toHaveLength(0); // audits nothing
+  });
+
+  test("create (no jobId) → a new DISABLED push/main job, audited job-create with the acting user", async () => {
+    const store = fakeJobStore([buildDefaultJob("t")]);
+    _setJobStoreForTests(store);
+    _setInvalidatePageForTests(() => {});
+    await handleJobSave(ev({ name: "Nightly main" }));
+    const created = [...store.jobs.values()].find((j) => j.name === "Nightly main");
+    expect(created).toBeDefined();
+    expect(created!.enabled).toBe(false);
+    expect(created!.trigger).toEqual({ kind: "push", branchPattern: "main" });
+    expect(created!.createdBy).toBe("alice");
+    const audit = auditEntries.find((e) => e.kind === "job-create" && e.jobId === created!.id);
+    expect(audit).toBeDefined();
+    expect(audit!.actor).toBe("alice");
+  });
+
+  test("edit → validates the merged draft, applies it, audits the field DIFF", async () => {
+    const store = fakeJobStore([{ ...buildDefaultJob("t"), id: "j1", name: "Old", trigger: { kind: "push", branchPattern: "feat/*" } }]);
+    _setJobStoreForTests(store);
+    _setInvalidatePageForTests(() => {});
+    await handleJobSave(ev({ jobId: "j1", name: "Renamed" }));
+    expect(store.jobs.get("j1")!.name).toBe("Renamed");
+    const audit = auditEntries.find((e) => e.kind === "job-save" && e.jobId === "j1");
+    expect(audit).toBeDefined();
+    expect((audit!.detail as { name: { from: string; to: string } }).name).toEqual({ from: "Old", to: "Renamed" });
+    expect(audit!.actor).toBe("alice");
+  });
+
+  test("a PROTECTED-step skip fails validation → no-op (job unchanged) + audited job-edit-rejected", async () => {
+    const store = fakeJobStore([{ ...buildDefaultJob("t"), id: "j1", name: "Keep", skipSteps: [] }]);
+    _setJobStoreForTests(store);
+    _setInvalidatePageForTests(() => {});
+    const cap = captureStderr();
+    try {
+      await handleJobSave(ev({ jobId: "j1", skip_steps: "review" })); // review is protected
+    } finally {
+      cap.restore();
+    }
+    expect(cap.text()).toContain("protected");
+    expect(store.jobs.get("j1")!.skipSteps).toEqual([]); // unchanged
+    expect(auditEntries.some((e) => e.kind === "job-save")).toBe(false);
+    // A failed validateJobDraft now leaves a trail, mirroring the no-field case.
+    const rejected = auditEntries.find((e) => e.kind === "job-edit-rejected" && e.jobId === "j1");
+    expect(rejected).toBeDefined();
+    expect((rejected!.detail as { reason: string }).reason).toContain("protected");
+  });
+
+  test("a payload with NO recognized editable field is REJECTED — no mutation, audits job-edit-rejected", async () => {
+    // The live bug's guard: a camelCase field the host rewrote to `value` (or any
+    // drift) carries no recognized key → we must NOT re-persist the unchanged job
+    // (which would stamp updatedBy + a bogus audit). Simulate the host fallback.
+    const store = fakeJobStore([{ ...buildDefaultJob("t"), id: "j1", name: "Keep", updatedBy: "system" }]);
+    _setJobStoreForTests(store);
+    _setInvalidatePageForTests(() => {});
+    const cap = captureStderr();
+    try {
+      await handleJobSave({ source: "hub", pageId: "dashboard", userId: "alice", payload: { jobId: "j1", value: "typed-but-lost" } });
+    } finally {
+      cap.restore();
+    }
+    // No mutation: updatedBy unchanged (NOT stamped to alice), agentName untouched.
+    expect(store.jobs.get("j1")!.updatedBy).toBe("system");
+    // No job-save audit; a job-edit-rejected entry names the offending key + reason.
+    expect(auditEntries.some((e) => e.kind === "job-save")).toBe(false);
+    const rejected = auditEntries.find((e) => e.kind === "job-edit-rejected" && e.jobId === "j1");
+    expect(rejected).toBeDefined();
+    expect(rejected!.actor).toBe("alice");
+    expect((rejected!.detail as { reason: string; keys: string[] }).keys).toEqual(["value"]);
+    expect(cap.text()).toContain("no recognized editable field");
+  });
+
+  test("an unparseable trigger spec is refused (no save) + audited job-edit-rejected", async () => {
+    const store = fakeJobStore([{ ...buildDefaultJob("t"), id: "j1", name: "Keep" }]);
+    _setJobStoreForTests(store);
+    _setInvalidatePageForTests(() => {});
+    const cap = captureStderr();
+    try {
+      await handleJobSave(ev({ jobId: "j1", trigger: "nonsense" }));
+    } finally {
+      cap.restore();
+    }
+    expect(cap.text()).toContain("trigger must be like");
+    expect(auditEntries.some((e) => e.kind === "job-save")).toBe(false);
+    // A failed applyJobEdit now audits the refusal (reason + offending keys).
+    const rejected = auditEntries.find((e) => e.kind === "job-edit-rejected" && e.jobId === "j1");
+    expect(rejected).toBeDefined();
+    expect((rejected!.detail as { reason: string; keys: string[] }).keys).toEqual(["trigger"]);
+  });
+
+  test("toggle_step round-trips: skip a running step, then run it again (audits skipSteps diff)", async () => {
+    const store = fakeJobStore([{ ...buildDefaultJob("t"), id: "j1", name: "N", skipSteps: [] }]);
+    _setJobStoreForTests(store);
+    _setInvalidatePageForTests(() => {});
+    // Skip `test`.
+    await handleJobSave(ev({ jobId: "j1", toggle_step: "test" }));
+    expect(store.jobs.get("j1")!.skipSteps).toEqual(["test"]);
+    const skipAudit = auditEntries.find((e) => e.kind === "job-save" && e.jobId === "j1");
+    expect((skipAudit!.detail as { skipSteps: { from: unknown; to: unknown } }).skipSteps).toEqual({ from: [], to: ["test"] });
+    // Toggle again → runs again.
+    await handleJobSave(ev({ jobId: "j1", toggle_step: "test" }));
+    expect(store.jobs.get("j1")!.skipSteps).toEqual([]);
+  });
+
+  test("a PROTECTED-step toggle is refused (no mutation) + audited job-edit-rejected", async () => {
+    const store = fakeJobStore([{ ...buildDefaultJob("t"), id: "j1", name: "Keep", skipSteps: [] }]);
+    _setJobStoreForTests(store);
+    _setInvalidatePageForTests(() => {});
+    const cap = captureStderr();
+    try {
+      await handleJobSave(ev({ jobId: "j1", toggle_step: "review" }));
+    } finally {
+      cap.restore();
+    }
+    expect(store.jobs.get("j1")!.skipSteps).toEqual([]); // unchanged
+    expect(auditEntries.some((e) => e.kind === "job-save")).toBe(false);
+    const rejected = auditEntries.find((e) => e.kind === "job-edit-rejected" && e.jobId === "j1");
+    expect(rejected).toBeDefined();
+    expect((rejected!.detail as { reason: string }).reason).toContain("protected step 'review'");
+  });
+
+  test("an UNKNOWN-step toggle is refused + audited job-edit-rejected", async () => {
+    const store = fakeJobStore([{ ...buildDefaultJob("t"), id: "j1", name: "Keep", skipSteps: [] }]);
+    _setJobStoreForTests(store);
+    _setInvalidatePageForTests(() => {});
+    const cap = captureStderr();
+    try {
+      await handleJobSave(ev({ jobId: "j1", toggle_step: "bogus" }));
+    } finally {
+      cap.restore();
+    }
+    expect(auditEntries.some((e) => e.kind === "job-save")).toBe(false);
+    const rejected = auditEntries.find((e) => e.kind === "job-edit-rejected" && e.jobId === "j1");
+    expect((rejected!.detail as { reason: string }).reason).toContain("unknown step: bogus");
+  });
+
+  test("an intent-template edit round-trips, including clear-to-empty", async () => {
+    const store = fakeJobStore([{ ...buildDefaultJob("t"), id: "j1", name: "N" }]);
+    _setJobStoreForTests(store);
+    _setInvalidatePageForTests(() => {});
+    await handleJobSave(ev({ jobId: "j1", intent_template: "Keep the API stable" }));
+    expect(store.jobs.get("j1")!.intentTemplate).toBe("Keep the API stable");
+    // Clearing it (blank) removes the override.
+    await handleJobSave(ev({ jobId: "j1", intent_template: "   " }));
+    expect(store.jobs.get("j1")!.intentTemplate).toBeUndefined();
+  });
+
+  test("a single-field edit preserves the OTHER optional override (sibling agent / intent survive the explicit-clear patch)", async () => {
+    // The clear-to-empty fix carries agentName + intentTemplate EXPLICITLY in the
+    // update patch. Pin that editing one never clobbers the sibling (and an
+    // unrelated edit leaves both intact) — a regression guard for that patch.
+    const store = fakeJobStore([{ ...buildDefaultJob("t"), id: "j1", name: "N", skipSteps: [], agentName: "critic", intentTemplate: "keep API" }]);
+    _setJobStoreForTests(store);
+    _setInvalidatePageForTests(() => {});
+    // Edit ONLY the intent template → the agent override survives.
+    await handleJobSave(ev({ jobId: "j1", intent_template: "ship it safely" }));
+    expect(store.jobs.get("j1")!.intentTemplate).toBe("ship it safely");
+    expect(store.jobs.get("j1")!.agentName).toBe("critic");
+    // Mirror: edit ONLY the agent → the intent template survives.
+    await handleJobSave(ev({ jobId: "j1", agent_name: "reviewer" }));
+    expect(store.jobs.get("j1")!.agentName).toBe("reviewer");
+    expect(store.jobs.get("j1")!.intentTemplate).toBe("ship it safely");
+    // An UNRELATED edit (a flow toggle) leaves BOTH optional overrides intact.
+    await handleJobSave(ev({ jobId: "j1", toggle_step: "test" }));
+    expect(store.jobs.get("j1")!.skipSteps).toEqual(["test"]);
+    expect(store.jobs.get("j1")!.agentName).toBe("reviewer");
+    expect(store.jobs.get("j1")!.intentTemplate).toBe("ship it safely");
+  });
+
+  test("prompt-instruction edits round-trip (set + clear-to-empty) and audit the diff", async () => {
+    const store = fakeJobStore([{ ...buildDefaultJob("t"), id: "j1", name: "N" }]);
+    _setJobStoreForTests(store);
+    _setInvalidatePageForTests(() => {});
+    await handleJobSave(
+      ev({
+        jobId: "j1",
+        review_instructions: "focus on API stability",
+        fix_instructions: "prefer guard clauses",
+        document_instructions: "note the migration",
+      }),
+    );
+    expect(store.jobs.get("j1")!.reviewInstructions).toBe("focus on API stability");
+    expect(store.jobs.get("j1")!.fixInstructions).toBe("prefer guard clauses");
+    expect(store.jobs.get("j1")!.documentInstructions).toBe("note the migration");
+    const audit = auditEntries.find((e) => e.kind === "job-save" && e.jobId === "j1");
+    expect((audit!.detail as { reviewInstructions?: unknown }).reviewInstructions).toEqual({
+      from: null,
+      to: "focus on API stability",
+    });
+    // Clearing one (blank) removes it via the explicit-carry patch.
+    await handleJobSave(ev({ jobId: "j1", review_instructions: "  " }));
+    expect(store.jobs.get("j1")!.reviewInstructions).toBeUndefined();
+  });
+
+  test("the Edit-prompts dialog preserves siblings: editing ONE instruction keeps the other two + agent + intent", async () => {
+    const store = fakeJobStore([
+      {
+        ...buildDefaultJob("t"),
+        id: "j1",
+        name: "N",
+        agentName: "critic",
+        intentTemplate: "keep API",
+        reviewInstructions: "review keep",
+        fixInstructions: "fix keep",
+        documentInstructions: "doc keep",
+      },
+    ]);
+    _setJobStoreForTests(store);
+    _setInvalidatePageForTests(() => {});
+    // Edit ONLY the fix instruction → the other two + agent + intent survive (all
+    // four carry sites hold — the pinned silent-clear class).
+    await handleJobSave(ev({ jobId: "j1", fix_instructions: "fix NEW" }));
+    const after = store.jobs.get("j1")!;
+    expect(after.fixInstructions).toBe("fix NEW");
+    expect(after.reviewInstructions).toBe("review keep");
+    expect(after.documentInstructions).toBe("doc keep");
+    expect(after.agentName).toBe("critic");
+    expect(after.intentTemplate).toBe("keep API");
+  });
+});
+
+describe("handleJobToggle", () => {
+  const ev = (payload: Record<string, unknown>) => ({ source: "hub" as const, pageId: "dashboard", userId: "bob", payload });
+
+  test("flips enabled and audits job-toggle with the new state", async () => {
+    const store = fakeJobStore([{ ...buildDefaultJob("t"), id: "j1", name: "N", enabled: true }]);
+    _setJobStoreForTests(store);
+    _setInvalidatePageForTests(() => {});
+    await handleJobToggle(ev({ jobId: "j1" }));
+    expect(store.jobs.get("j1")!.enabled).toBe(false);
+    const audit = auditEntries.find((e) => e.kind === "job-toggle" && e.jobId === "j1");
+    expect(audit).toBeDefined();
+    expect((audit!.detail as { enabled: boolean }).enabled).toBe(false);
+    expect(audit!.actor).toBe("bob");
+  });
+
+  test("RBAC deny → no toggle, audits nothing", async () => {
+    _setRbacCheckForTests(async () => false);
+    const store = fakeJobStore([{ ...buildDefaultJob("t"), id: "j1", enabled: true }]);
+    _setJobStoreForTests(store);
+    const cap = captureStderr();
+    try {
+      await handleJobToggle(ev({ jobId: "j1" }));
+    } finally {
+      cap.restore();
+    }
+    expect(store.jobs.get("j1")!.enabled).toBe(true);
+    expect(auditEntries).toHaveLength(0);
+  });
+});
+
+describe("handleJobDelete", () => {
+  const ev = (payload: Record<string, unknown>) => ({ source: "hub" as const, pageId: "dashboard", userId: "carol", payload });
+
+  test("deletes a non-default job and audits job-delete with its name", async () => {
+    const store = fakeJobStore([buildDefaultJob("t"), { ...buildDefaultJob("t"), id: "j1", name: "Nightly" }]);
+    _setJobStoreForTests(store);
+    _setInvalidatePageForTests(() => {});
+    await handleJobDelete(ev({ jobId: "j1" }));
+    expect(store.jobs.has("j1")).toBe(false);
+    const audit = auditEntries.find((e) => e.kind === "job-delete" && e.jobId === "j1");
+    expect(audit).toBeDefined();
+    expect((audit!.detail as { name: string }).name).toBe("Nightly");
+    expect(audit!.actor).toBe("carol");
+  });
+
+  test("the DEFAULT job is protected — deletion refused, no audit", async () => {
+    const store = fakeJobStore([buildDefaultJob("t")]);
+    _setJobStoreForTests(store);
+    _setInvalidatePageForTests(() => {});
+    const cap = captureStderr();
+    try {
+      await handleJobDelete(ev({ jobId: DEFAULT_JOB_ID }));
+    } finally {
+      cap.restore();
+    }
+    expect(cap.text()).toContain("default job cannot be deleted");
+    expect(store.jobs.has(DEFAULT_JOB_ID)).toBe(true);
+    expect(auditEntries.some((e) => e.kind === "job-delete")).toBe(false);
+  });
+
+  test("RBAC deny → no delete, audits nothing", async () => {
+    _setRbacCheckForTests(async () => false);
+    const store = fakeJobStore([{ ...buildDefaultJob("t"), id: "j1" }]);
+    _setJobStoreForTests(store);
+    const cap = captureStderr();
+    try {
+      await handleJobDelete(ev({ jobId: "j1" }));
+    } finally {
+      cap.restore();
+    }
+    expect(store.jobs.has("j1")).toBe(true);
+    expect(auditEntries).toHaveLength(0);
+  });
+});
+
+describe("handleRunNow", () => {
+  const NEW_SHA = "feedfacefeedfacefeedfacefeedfacefeedface";
+  function revParseShell(sha: string): ShellRunner {
+    return async (cmd) =>
+      cmd.includes("rev-parse") ? { exitCode: 0, stdout: `${sha}\n`, stderr: "" } : { exitCode: 0, stdout: "", stderr: "" };
+  }
+  const ev = (payload: Record<string, unknown>) => ({ source: "hub" as const, pageId: "dashboard", userId: "dana", payload });
+
+  test("an ENABLED job with a concrete branch synthesizes a run (jobId stamped) + audits run-now + bookkeeps head", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setTmpBaseForTests(() => "/tmp/ext");
+    _setShellForTests(revParseShell(NEW_SHA));
+    _setInvalidatePageForTests(() => {});
+    const store = memStore();
+    _setStoreForTests(store);
+    _setRunPipelineForTests(fakePipeline(store, "completed"));
+    const jobStore = fakeJobStore([{ ...buildDefaultJob("t"), id: "j1", name: "Manual", enabled: true, trigger: { kind: "manual", branch: "main" } }]);
+    _setJobStoreForTests(jobStore);
+
+    await handleRunNow(ev({ jobId: "j1" }));
+
+    const created = [...store.runs.values()][0]!;
+    expect(created.jobId).toBe("j1");
+    expect(created.branch).toBe("main");
+    expect(created.headSha).toBe(NEW_SHA);
+    const audit = auditEntries.find((e) => e.kind === "run-now" && e.jobId === "j1");
+    expect(audit).toBeDefined();
+    expect(audit!.runId).toBe(created.id);
+    expect(audit!.actor).toBe("dana");
+    expect(jobStore.jobs.get("j1")!.lastHeadSha).toBe(NEW_SHA);
+  });
+
+  test("a DISABLED job is refused (run-now requires an enabled job) — no run, no run-now audit", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setShellForTests(revParseShell(NEW_SHA));
+    const store = memStore();
+    _setStoreForTests(store);
+    _setInvalidatePageForTests(() => {});
+    _setJobStoreForTests(fakeJobStore([{ ...buildDefaultJob("t"), id: "j1", enabled: false, trigger: { kind: "manual", branch: "main" } }]));
+    const cap = captureStderr();
+    try {
+      await handleRunNow(ev({ jobId: "j1" }));
+    } finally {
+      cap.restore();
+    }
+    expect([...store.runs.values()]).toHaveLength(0);
+    expect(cap.text()).toContain("is disabled");
+    expect(auditEntries.some((e) => e.kind === "run-now")).toBe(false);
+  });
+
+  test("a glob push job (no concrete branch) is refused — no run", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setShellForTests(revParseShell(NEW_SHA));
+    const store = memStore();
+    _setStoreForTests(store);
+    _setInvalidatePageForTests(() => {});
+    _setJobStoreForTests(fakeJobStore([{ ...buildDefaultJob("t"), id: "j1", enabled: true, trigger: { kind: "push", branchPattern: "feat/*" } }]));
+    const cap = captureStderr();
+    try {
+      await handleRunNow(ev({ jobId: "j1" }));
+    } finally {
+      cap.restore();
+    }
+    expect([...store.runs.values()]).toHaveLength(0);
+    expect(cap.text()).toContain("needs a concrete branch");
+  });
+
+  test("a branch the gate never received audits run-now-no-branch, no run", async () => {
+    _setProjectRootForTests(() => "/proj");
+    // rev-parse fails (branch absent).
+    _setShellForTests(async (cmd) => (cmd.includes("rev-parse") ? { exitCode: 128, stdout: "", stderr: "unknown" } : { exitCode: 0, stdout: "", stderr: "" }));
+    const store = memStore();
+    _setStoreForTests(store);
+    _setInvalidatePageForTests(() => {});
+    _setJobStoreForTests(fakeJobStore([{ ...buildDefaultJob("t"), id: "j1", enabled: true, trigger: { kind: "manual", branch: "ghost" } }]));
+    await handleRunNow(ev({ jobId: "j1" }));
+    expect([...store.runs.values()]).toHaveLength(0);
+    expect(auditEntries.some((e) => e.kind === "run-now-no-branch")).toBe(true);
+  });
+
+  test("RBAC deny → no run, audits nothing", async () => {
+    _setRbacCheckForTests(async () => false);
+    _setProjectRootForTests(() => "/proj");
+    _setShellForTests(revParseShell(NEW_SHA));
+    const store = memStore();
+    _setStoreForTests(store);
+    _setJobStoreForTests(fakeJobStore([{ ...buildDefaultJob("t"), id: "j1", enabled: true, trigger: { kind: "manual", branch: "main" } }]));
+    const cap = captureStderr();
+    try {
+      await handleRunNow(ev({ jobId: "j1" }));
+    } finally {
+      cap.restore();
+    }
+    expect([...store.runs.values()]).toHaveLength(0);
+    expect(auditEntries).toHaveLength(0);
+  });
+});
+
+describe("handleJobSave — agentName edit (L4)", () => {
+  test("editing agent_name round-trips + audits the diff; the override reaches future dispatches", async () => {
+    const store = fakeJobStore([{ ...buildDefaultJob("t"), id: "j1", name: "Nightly" }]);
+    _setJobStoreForTests(store);
+    _setInvalidatePageForTests(() => {});
+    // The slug-legal key the Edit-agent prompt emits (camelCase would be dropped).
+    await handleJobSave({ source: "hub", pageId: "dashboard", userId: "alice", payload: { jobId: "j1", agent_name: "critic" } });
+    // Persisted on the job (buildExecutorDeps threads it into jobAgentName).
+    expect(store.jobs.get("j1")!.agentName).toBe("critic");
+    const audit = auditEntries.find((e) => e.kind === "job-save" && e.jobId === "j1");
+    expect(audit).toBeDefined();
+    expect((audit!.detail as { agentName: { from: unknown; to: string } }).agentName).toEqual({ from: null, to: "critic" });
+  });
+});
+
+// ── Control-plane audit sinks — lifecycle transitions (L5) ───────────
+//
+// The three transitions OUTSIDE the executor's setRunStatus sink — run CREATION
+// + SUPERSEDE (runs.ts) and the sweep's STALL (sweep.ts) — plus the yolo +
+// reconcile triage sinks, all emit `run-status`/action audit entries with the
+// acting identity. Mirrors the existing respond-sink assertion.
+
+describe("audit sinks — L5 lifecycle transitions", () => {
+  test("run CREATION emits a run-status 'created' entry (bypasses the executor sink)", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setTmpBaseForTests(() => "/tmp/ext");
+    _setShellForTests(async () => ({ exitCode: 0, stdout: "", stderr: "" }));
+    const store = memStore();
+    _setStoreForTests(store);
+    _setRunPipelineForTests(fakePipeline(store, "completed"));
+    _setInvalidatePageForTests(() => {});
+    await handlePushReceived({ source: "hub", pageId: "dashboard", userId: "u", payload: VALID_PUSH });
+    const created = auditEntries.find((e) => e.kind === "run-status" && (e.detail as { status?: string }).status === "created");
+    expect(created).toBeDefined();
+    expect(created!.actor).toBe("system");
+    expect(created!.runId).toBe([...store.runs.values()][0]!.id);
+  });
+
+  test("SUPERSEDE emits a run-status 'aborted' entry with reason 'superseded'", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setTmpBaseForTests(() => "/tmp/ext");
+    _setShellForTests(async () => ({ exitCode: 0, stdout: "", stderr: "" }));
+    const store = memStore();
+    _setStoreForTests(store);
+    _setRunPipelineForTests(fakePipeline(store, "parked")); // both runs park (non-terminal)
+    _setInvalidatePageForTests(() => {});
+    // Two pushes to the SAME branch/default job → the 2nd supersedes the 1st.
+    await handlePushReceived({ source: "hub", pageId: "dashboard", userId: "u", payload: VALID_PUSH });
+    await handlePushReceived({ source: "hub", pageId: "dashboard", userId: "u", payload: VALID_PUSH });
+    const aborted = auditEntries.find(
+      (e) => e.kind === "run-status" && (e.detail as { status?: string; reason?: string }).status === "aborted",
+    );
+    expect(aborted).toBeDefined();
+    expect((aborted!.detail as { reason: string }).reason).toBe("superseded");
+  });
+
+  test("the sweep's STALL transition emits a run-status 'stalled' entry", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setShellForTests(async () => ({ exitCode: 0, stdout: "", stderr: "" }));
+    _setHeartbeatKVForTests(() => ({ async read() { return null; }, async write() {} }));
+    _setRunHeartbeatKVForTests(() => ({ async read() { return null; }, async write() {} }));
+    const store = memStore();
+    // A `running` run with a frozen updatedAt + no heartbeat → stale.
+    await store.createRun({
+      id: "run-live", repoId: "0123456789ab", branch: "feat/x", ref: "refs/heads/feat/x",
+      headSha: "abc", baseSha: "0".repeat(40), status: "running", worktreePath: "/wt",
+      createdAt: "2020-01-01T00:00:00.000Z", updatedAt: "2020-01-01T00:00:00.000Z",
+      parkedMs: 0, awaitingAgentSince: null, intent: null, intentSource: null,
+    });
+    _setStoreForTests(store);
+    await runReconcileSweep();
+    const stalled = auditEntries.find((e) => e.kind === "run-status" && (e.detail as { status?: string }).status === "stalled");
+    expect(stalled).toBeDefined();
+    expect(stalled!.runId).toBe("run-live");
+    expect((await store.getRun("run-live"))!.status).toBe("stalled");
+  });
+
+  test("YOLO emits a 'yolo' entry with the acting user", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setInvalidatePageForTests(() => {});
+    _setShellForTests(async () => ({ exitCode: 0, stdout: "", stderr: "" }));
+    const store = memStore();
+    await seedParkedRun(store);
+    _setStoreForTests(store);
+    _setRespondRunnerForTests(() => async () => ({ parked: false }));
+    await handleYolo({ source: "hub", pageId: "dashboard", userId: "dana", payload: { runId: "run-parked" } });
+    const audit = auditEntries.find((e) => e.kind === "yolo" && e.runId === "run-parked");
+    expect(audit).toBeDefined();
+    expect(audit!.actor).toBe("dana");
+  });
+
+  test("RECONCILE emits a 'reconcile' entry with the acting user", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setInvalidatePageForTests(() => {});
+    _setShellForTests(async () => ({ exitCode: 0, stdout: "", stderr: "" }));
+    const store = memStore();
+    await seedParkedRun(store);
+    _setStoreForTests(store);
+    _setReconcileRunnerForTests(() => async () => ({ parked: true }));
+    await handleReconcile({ source: "hub", pageId: "dashboard", userId: "erin", payload: { runId: "run-parked" } });
+    const audit = auditEntries.find((e) => e.kind === "reconcile" && e.runId === "run-parked");
+    expect(audit).toBeDefined();
+    expect(audit!.actor).toBe("erin");
+  });
+
+  test("synthesizeScheduledRuns audits schedule-error when a per-job synthesis throws", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setTmpBaseForTests(() => "/tmp/ext");
+    // rev-parse THROWS → resolveJobHead throws → the per-job catch audits schedule-error.
+    _setShellForTests(async (cmd) => {
+      if (cmd.includes("rev-parse")) throw new Error("git exploded");
+      return { exitCode: 0, stdout: "", stderr: "" };
+    });
+    const store = memStore();
+    _setStoreForTests(store);
+    _setJobStoreForTests(fakeJobStore([
+      { ...buildDefaultJob("t"), id: "nightly", name: "Nightly", enabled: true, trigger: { kind: "schedule", every: "15m", branch: "main" } },
+    ]));
+    const cap = captureStderr();
+    try {
+      await synthesizeScheduledRuns(new Date());
+    } finally {
+      cap.restore();
+    }
+    expect([...store.runs.values()]).toHaveLength(0);
+    const err = auditEntries.find((e) => e.kind === "schedule-error" && e.jobId === "nightly");
+    expect(err).toBeDefined();
+    expect((err!.detail as { error: string }).error).toContain("git exploded");
+  });
+});
+
+// ── job-action handlers: no-op + error branches (coverage) ───────────
+
+describe("job-action handlers — no-op + error branches", () => {
+  const ev = (payload: Record<string, unknown>) => ({ source: "hub" as const, pageId: "dashboard", userId: "u", payload });
+  /** fakeJobStore whose ONE named method throws (the rest delegate). */
+  function throwingJobStore(jobs: Job[], method: "updateJob" | "deleteJob" | "listJobs"): JobStore {
+    const inner = fakeJobStore(jobs);
+    return {
+      ...inner,
+      updateJob: method === "updateJob" ? async () => { throw new Error("store boom"); } : inner.updateJob,
+      deleteJob: method === "deleteJob" ? async () => { throw new Error("store boom"); } : inner.deleteJob,
+      listJobs: method === "listJobs" ? async () => { throw new Error("store boom"); } : inner.listJobs,
+    };
+  }
+
+  test("job-save: a store throw is caught + logged (handler error path)", async () => {
+    _setJobStoreForTests(throwingJobStore([{ ...buildDefaultJob("t"), id: "j1", name: "Old" }], "updateJob"));
+    _setInvalidatePageForTests(() => {});
+    const cap = captureStderr();
+    try { await handleJobSave(ev({ jobId: "j1", name: "New" })); } finally { cap.restore(); }
+    expect(cap.text()).toContain("job-save handler error");
+  });
+
+  test("job-toggle: invalid payload / unknown job / store throw", async () => {
+    _setInvalidatePageForTests(() => {});
+    // invalid payload (no jobId)
+    _setJobStoreForTests(fakeJobStore([buildDefaultJob("t")]));
+    let cap = captureStderr();
+    try { await handleJobToggle(ev({})); } finally { cap.restore(); }
+    expect(cap.text()).toContain("job-toggle with invalid payload");
+    // unknown job
+    _setJobStoreForTests(fakeJobStore([buildDefaultJob("t")]));
+    cap = captureStderr();
+    try { await handleJobToggle(ev({ jobId: "ghost" })); } finally { cap.restore(); }
+    expect(cap.text()).toContain("job-toggle for unknown job");
+    // store throw → caught
+    _setJobStoreForTests(throwingJobStore([{ ...buildDefaultJob("t"), id: "j1", enabled: true }], "updateJob"));
+    cap = captureStderr();
+    try { await handleJobToggle(ev({ jobId: "j1" })); } finally { cap.restore(); }
+    expect(cap.text()).toContain("job-toggle handler error");
+  });
+
+  test("job-delete: invalid payload / unknown job / store throw", async () => {
+    _setInvalidatePageForTests(() => {});
+    _setJobStoreForTests(fakeJobStore([buildDefaultJob("t")]));
+    let cap = captureStderr();
+    try { await handleJobDelete(ev({})); } finally { cap.restore(); }
+    expect(cap.text()).toContain("job-delete with invalid payload");
+    _setJobStoreForTests(fakeJobStore([buildDefaultJob("t")]));
+    cap = captureStderr();
+    try { await handleJobDelete(ev({ jobId: "ghost" })); } finally { cap.restore(); }
+    expect(cap.text()).toContain("job-delete for unknown job");
+    _setJobStoreForTests(throwingJobStore([buildDefaultJob("t"), { ...buildDefaultJob("t"), id: "j1" }], "deleteJob"));
+    cap = captureStderr();
+    try { await handleJobDelete(ev({ jobId: "j1" })); } finally { cap.restore(); }
+    expect(cap.text()).toContain("job-delete handler error");
+  });
+
+  test("run-now: invalid payload / no project root / unknown job / shell throw", async () => {
+    _setInvalidatePageForTests(() => {});
+    // invalid payload
+    _setProjectRootForTests(() => "/proj");
+    _setJobStoreForTests(fakeJobStore([buildDefaultJob("t")]));
+    let cap = captureStderr();
+    try { await handleRunNow(ev({})); } finally { cap.restore(); }
+    expect(cap.text()).toContain("run-now with invalid payload");
+    // no resolvable project root
+    _setProjectRootForTests(() => undefined);
+    cap = captureStderr();
+    try { await handleRunNow(ev({ jobId: "j1" })); } finally { cap.restore(); }
+    expect(cap.text()).toContain("no resolvable project root");
+    // unknown job
+    _setProjectRootForTests(() => "/proj");
+    _setJobStoreForTests(fakeJobStore([buildDefaultJob("t")]));
+    cap = captureStderr();
+    try { await handleRunNow(ev({ jobId: "ghost" })); } finally { cap.restore(); }
+    expect(cap.text()).toContain("run-now for unknown job");
+    // shell throw (rev-parse) → caught by the handler
+    _setProjectRootForTests(() => "/proj");
+    _setJobStoreForTests(fakeJobStore([{ ...buildDefaultJob("t"), id: "j1", enabled: true, trigger: { kind: "manual", branch: "main" } }]));
+    _setShellForTests(async (c) => { if (c.includes("rev-parse")) throw new Error("git boom"); return { exitCode: 0, stdout: "", stderr: "" }; });
+    cap = captureStderr();
+    try { await handleRunNow(ev({ jobId: "j1" })); } finally { cap.restore(); }
+    expect(cap.text()).toContain("run-now handler error");
+  });
+
+  test("handleScheduleFire: a synthesize throw AND a retention-prune throw are each caught + logged", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setStoreForTests(memStore());
+    _setHeartbeatKVForTests(() => ({ async read() { return null; }, async write() {} }));
+    _setRunHeartbeatKVForTests(() => ({ async read() { return null; }, async write() {} }));
+    _setShellForTests(async () => ({ exitCode: 0, stdout: "", stderr: "" }));
+    // jobStore.listJobs throws → synthesizeScheduledRuns throws → caught (routing error).
+    _setJobStoreForTests(throwingJobStore([buildDefaultJob("t")], "listJobs"));
+    // audit.pruneRetention throws → caught (retention prune error). append records the sweep summary.
+    _setAuditForTests({
+      async append() {},
+      async readDay() { return []; },
+      async listDays() { return []; },
+      async pruneRetention() { throw new Error("prune boom"); },
+    });
+    const cap = captureStderr();
+    try {
+      await handleScheduleFire({ cron: SWEEP_CRON, scheduledAt: "t", firedAt: "t", fireId: "f", catchUp: false, retry: false, attempt: 1 });
+    } finally {
+      cap.restore();
+    }
+    expect(cap.text()).toContain("schedule job routing error");
+    expect(cap.text()).toContain("audit retention prune error");
   });
 });

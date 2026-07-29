@@ -2,6 +2,7 @@
 	import { goto } from "$app/navigation";
 	import { store, setActiveProjectId } from "$lib/stores.svelte.js";
 	import { unreadStore, formatBadgeCount } from "$lib/unread.js";
+	import { isIconUrl } from "$lib/project-icon.js";
 	import EzButton from "$lib/components/ez/EzButton.svelte";
 
 	// Reactive unread tracking — bump revision on store changes so per-project
@@ -134,9 +135,9 @@
 				<div class="relative ml-2.5">
 					<div
 						class="flex h-10 w-10 items-center justify-center overflow-hidden rounded-md transition-all duration-150
-							{isActive ? 'ring-1 ring-[var(--color-accent)]' : 'opacity-90 group-hover:opacity-100'} {project.icon ? '' : hashColor(project.name)}"
+							{isActive ? 'ring-1 ring-[var(--color-accent)]' : 'opacity-90 group-hover:opacity-100'} {isIconUrl(project.icon) ? '' : hashColor(project.name)}"
 					>
-						{#if project.icon}
+						{#if isIconUrl(project.icon)}
 							<img src={project.icon} alt={project.name} class="h-full w-full object-cover" />
 						{:else}
 							<span class="font-mono text-base font-semibold text-white">{project.name.charAt(0).toUpperCase()}</span>

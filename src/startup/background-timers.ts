@@ -220,7 +220,13 @@ export async function startBackgroundTimers(): Promise<void> {
   // mechanism — see schedule-daemon.ts.
   try {
     if (process.env.EZCORP_DISABLE_SCHEDULE_DAEMON !== "1") {
-      scheduleDaemon = new ScheduleDaemon();
+      // Pass the registry singleton (mirror WebhookDeliveryDaemon at :246).
+      // WITHOUT it, `dispatchFire` takes the registry-less branch and drops
+      // EVERY fire behind a false `completion("ok")` — no `sendNotification`
+      // ever reaches the subprocess, so schedule-driven extensions (the ECF
+      // reconcile sweep) never actually run. This is the schedule-fire
+      // delivery bug; the registry is what makes the dispatch real.
+      scheduleDaemon = new ScheduleDaemon({ registry: ExtensionRegistry.getInstance() });
       const ok = await scheduleDaemon.start();
       if (ok) {
         log.info("ScheduleDaemon started");

@@ -8,7 +8,9 @@
 	import { matchShortcut, loadCustomShortcuts, type ShortcutBinding } from "$lib/shortcuts.js";
 	import { startAuthKeepalive } from "$lib/auth-keepalive.js";
 	import { clearResumeState } from "$lib/resume-path.js";
+	import { isIconUrl } from "$lib/project-icon.js";
 	import ProjectRail from "$lib/components/ProjectRail.svelte";
+	import HubNavSection from "$lib/components/hub/HubNavSection.svelte";
 	import ThemeToggle from "$lib/components/ThemeToggle.svelte";
 	import CommandPalette from "$lib/components/CommandPalette.svelte";
 	import ShortcutHelp from "$lib/components/ShortcutHelp.svelte";
@@ -209,11 +211,11 @@
 		return path === href || path.startsWith(href + "/");
 	}
 
-	let navLinks = $derived<{ href: string; label: string; group?: string }[]>([
+	let navLinks = $derived<{ href: string; label: string; group?: string; hub?: boolean }[]>([
 		...(isGlobalProject
 			? [
 					{ href: "/project/global/chat", label: "Chat" },
-					{ href: "/hub", label: "Hub" },
+					{ href: "/hub", label: "Hub", hub: true },
 					{ href: "/active-agents", label: "Active Agents" },
 					{ href: "/agents", label: "Agents", group: "Build" },
 					{ href: "/commands", label: "Commands", group: "Build" },
@@ -226,7 +228,7 @@
 				]
 			: [
 					{ href: `/project/${store.activeProjectId}/chat`, label: "Chat" },
-					{ href: "/hub", label: "Hub" },
+					{ href: `/project/${store.activeProjectId}/hub`, label: "Hub", hub: true },
 					{ href: "/memories", label: "Memories" },
 					{ href: `/project/${store.activeProjectId}/settings`, label: "Project Settings" },
 					{ href: "/agents", label: "Agents", group: "Platform" },
@@ -318,17 +320,19 @@
 			<!-- Project logo (ProjectRail / command-palette parity): the project's
 			     icon image when one is set, else a colored first-letter avatar. -->
 			<span
-				class="flex h-5 w-5 shrink-0 items-center justify-center overflow-hidden rounded-sm font-mono text-[10px] font-bold text-[var(--color-accent-contrast)] {activeProject?.icon ? '' : 'bg-[var(--color-accent)]'}"
+				class="flex h-5 w-5 shrink-0 items-center justify-center overflow-hidden rounded-sm font-mono text-[10px] font-bold text-[var(--color-accent-contrast)] {isIconUrl(activeProject?.icon) ? '' : 'bg-[var(--color-accent)]'}"
 				data-testid="active-context-avatar"
 			>
-				{#if activeProject?.icon}
+				{#if activeProject && isIconUrl(activeProject.icon)}
 					<img src={activeProject.icon} alt={activeProject.name} class="h-full w-full object-cover" />
 				{:else}
 					{(activeProject?.name ?? "EZ").charAt(0).toUpperCase()}
 				{/if}
 			</span>
 			<span class="min-w-0 flex-1">
-				<span class="block truncate text-sm font-semibold leading-tight text-[var(--color-text-primary)]">{activeProject?.name ?? "EZCorp"}</span>
+				<span
+					class="block truncate text-sm font-semibold leading-tight text-[var(--color-text-primary)]"
+					data-testid="active-context-name">{activeProject?.name ?? "EZCorp"}</span>
 				<span class="block truncate font-mono text-[10px] uppercase tracking-wider text-[var(--color-text-muted)]">{isGlobalProject ? "workspace" : "project"}</span>
 			</span>
 		</a>
@@ -341,13 +345,17 @@
 					</div>
 				{/if}
 				{@const active = isLinkActive(link.href)}
-				<a
-					href={link.href}
-					class="deck-row"
-					aria-current={active ? 'page' : undefined}
-				>
-					<span class="truncate">{link.label}</span>
-				</a>
+				{#if link.hub}
+					<HubNavSection hubBase={link.href} currentPath={page.url.pathname} {active} />
+				{:else}
+					<a
+						href={link.href}
+						class="deck-row"
+						aria-current={active ? 'page' : undefined}
+					>
+						<span class="truncate">{link.label}</span>
+					</a>
+				{/if}
 			{/each}
 			<div class="mt-auto">
 				<BriefingNudge />
@@ -542,15 +550,24 @@
 						</div>
 					{/if}
 					{@const active = isLinkActive(link.href)}
-					<a
-						href={link.href}
-						onclick={() => (store.mobileMenuOpen = false)}
-						class="deck-row text-sm"
-						style="min-height: 44px; display: flex; align-items: center;"
-						aria-current={active ? 'page' : undefined}
-					>
-						{link.label}
-					</a>
+					{#if link.hub}
+						<HubNavSection
+							hubBase={link.href}
+							currentPath={page.url.pathname}
+							{active}
+							onnavigate={() => (store.mobileMenuOpen = false)}
+						/>
+					{:else}
+						<a
+							href={link.href}
+							onclick={() => (store.mobileMenuOpen = false)}
+							class="deck-row text-sm"
+							style="min-height: 44px; display: flex; align-items: center;"
+							aria-current={active ? 'page' : undefined}
+						>
+							{link.label}
+						</a>
+					{/if}
 				{/each}
 			</nav>
 		</aside>

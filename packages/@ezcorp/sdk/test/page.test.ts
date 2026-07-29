@@ -11,6 +11,7 @@ import {
   PageBuilder,
   definePage,
   pushPage,
+  invalidatePage,
   __resetPagesForTests,
   type HubPageTree,
 } from "../src/runtime/page";
@@ -116,6 +117,60 @@ describe("PageBuilder page-only components", () => {
     ];
     expect(build((b) => b.table(["C"], rows)).nodes).toEqual([
       { type: "table", columns: ["C"], rows },
+    ]);
+  });
+
+  test("button with a multi-field form descriptor passes the form through the action", () => {
+    const form = {
+      title: "Edit job",
+      fields: [
+        { field: "name", label: "Name", value: "Nightly", maxLength: 80 },
+        { field: "trigger", label: "Trigger", placeholder: "push feat/*" },
+      ],
+    };
+    expect(build((b) => b.button("Edit job", { event: "e:save", form })).nodes).toEqual([
+      { type: "button", label: "Edit job", action: { event: "e:save", form } },
+    ]);
+  });
+
+  test("button without a form is form-less (additive — no regression)", () => {
+    const action = (build((b) => b.button("Go", { event: "e:go" })).nodes[0] as {
+      action: { form?: unknown };
+    }).action;
+    expect(action.form).toBeUndefined();
+  });
+
+  test("form node: fields + action + submitLabel", () => {
+    const fields = [
+      { field: "name", label: "Name", value: "Default", maxLength: 80 },
+      { field: "review_instructions", label: "Review", multiline: true, maxLength: 500 },
+    ];
+    expect(
+      build((b) => b.form(fields, { event: "e:save", payload: { jobId: "j1" } }, "Save job")).nodes,
+    ).toEqual([
+      {
+        type: "form",
+        action: { event: "e:save", payload: { jobId: "j1" } },
+        fields,
+        submitLabel: "Save job",
+      },
+    ]);
+  });
+
+  test("form node passes select options + visibleWhen conditions through verbatim", () => {
+    const fields = [
+      { field: "kind", label: "Kind", value: "a", options: [{ value: "a" }, { value: "b", label: "Bee" }] },
+      { field: "dep", label: "Dep", visibleWhen: { field: "kind", equals: "a" } },
+    ];
+    expect(build((b) => b.form(fields, { event: "e:save" })).nodes).toEqual([
+      { type: "form", action: { event: "e:save" }, fields },
+    ]);
+  });
+
+  test("form node without submitLabel omits the key (host defaults to Save)", () => {
+    const fields = [{ field: "name", label: "Name" }];
+    expect(build((b) => b.form(fields, { event: "e:save" })).nodes).toEqual([
+      { type: "form", action: { event: "e:save" }, fields },
     ]);
   });
 
@@ -291,5 +346,203 @@ describe("pushPage", () => {
     const tree = { title: "Raw", nodes: [] };
     pushPage("dash", tree);
     expect(notifies[0]!.params).toEqual({ pageId: "dash", page: tree });
+  });
+});
+
+describe("invalidatePage", () => {
+  test("notifies ezcorp/page-state with the pageId and NO tree", () => {
+    const { notifies } = stubChannel();
+    invalidatePage("dash");
+    expect(notifies).toEqual([
+      { method: "ezcorp/page-state", params: { pageId: "dash" } },
+    ]);
+  });
+});
+
+describe("render context (perProject pages)", () => {
+  const PROJECT = { id: "p-1", name: "My App", path: "/home/dev/my-app" };
+
+  async function renderWith(params: Record<string, unknown>) {
+    const { handlers } = stubChannel();
+    const seen: unknown[] = [];
+    definePage({
+      id: "dash",
+      render: (ctx) => {
+        seen.push(ctx);
+        return { title: "T", nodes: [] };
+      },
+    });
+    await handlers.get("ezcorp/page.render")!({ pageId: "dash", ...params });
+    return seen[0];
+  }
+
+  test("host {project} arrives as ctx.project", async () => {
+    expect(await renderWith({ project: PROJECT })).toEqual({ project: PROJECT });
+  });
+
+  test("host {projects} list arrives as ctx.projects (malformed refs dropped)", async () => {
+    const ctx = await renderWith({
+      projects: [PROJECT, { id: 1 }, "junk", { id: "p-2", name: "B", path: "/b" }],
+    });
+    expect(ctx).toEqual({
+      projects: [PROJECT, { id: "p-2", name: "B", path: "/b" }],
+    });
+  });
+
+  test("no project params → ctx is undefined (zero-arg renders unaffected)", async () => {
+    expect(await renderWith({})).toBeUndefined();
+  });
+
+  test("malformed project object → ctx is undefined, render still succeeds", async () => {
+    expect(await renderWith({ project: { id: "x", name: 42 } })).toBeUndefined();
+  });
+
+  test("host {run} arrives as ctx.run — on its own (no project)", async () => {
+    expect(await renderWith({ run: "run_abc" })).toEqual({ run: "run_abc" });
+  });
+
+  test("run rides ALONGSIDE a single project", async () => {
+    expect(await renderWith({ project: PROJECT, run: "run_abc" })).toEqual({
+      project: PROJECT,
+      run: "run_abc",
+    });
+  });
+
+  test("run rides alongside a {projects} list", async () => {
+    expect(await renderWith({ projects: [PROJECT], run: "run_abc" })).toEqual({
+      projects: [PROJECT],
+      run: "run_abc",
+    });
+  });
+
+  test("an empty run string is ignored (no ctx.run, no context)", async () => {
+    expect(await renderWith({ run: "" })).toBeUndefined();
+  });
+
+  test("a non-string run is ignored but project context survives", async () => {
+    expect(await renderWith({ project: PROJECT, run: 42 })).toEqual({ project: PROJECT });
+  });
+
+  test("host {run, step} arrives as ctx.run + ctx.step — on its own (no project)", async () => {
+    expect(await renderWith({ run: "run_abc", step: "review" })).toEqual({
+      run: "run_abc",
+      step: "review",
+    });
+  });
+
+  test("step rides ALONGSIDE a single project + run", async () => {
+    expect(await renderWith({ project: PROJECT, run: "run_abc", step: "test" })).toEqual({
+      project: PROJECT,
+      run: "run_abc",
+      step: "test",
+    });
+  });
+
+  test("step rides alongside a {projects} list + run", async () => {
+    expect(await renderWith({ projects: [PROJECT], run: "run_abc", step: "lint" })).toEqual({
+      projects: [PROJECT],
+      run: "run_abc",
+      step: "lint",
+    });
+  });
+
+  test("a step WITHOUT run (and no project) is dropped → no context", async () => {
+    expect(await renderWith({ step: "review" })).toBeUndefined();
+  });
+
+  test("a step WITHOUT run is dropped but project context survives", async () => {
+    expect(await renderWith({ project: PROJECT, step: "review" })).toEqual({ project: PROJECT });
+  });
+
+  test("an empty step string is ignored (run survives, no ctx.step)", async () => {
+    expect(await renderWith({ run: "run_abc", step: "" })).toEqual({ run: "run_abc" });
+  });
+
+  test("a non-string step is ignored (run survives, no ctx.step)", async () => {
+    expect(await renderWith({ run: "run_abc", step: 42 })).toEqual({ run: "run_abc" });
+  });
+
+  test("host {view} arrives as ctx.view — on its own (no project, no run)", async () => {
+    expect(await renderWith({ view: "config" })).toEqual({ view: "config" });
+  });
+
+  test("view rides ALONGSIDE a single project (independent of run)", async () => {
+    expect(await renderWith({ project: PROJECT, view: "audit" })).toEqual({
+      project: PROJECT,
+      view: "audit",
+    });
+  });
+
+  test("view rides alongside a {projects} list", async () => {
+    expect(await renderWith({ projects: [PROJECT], view: "audit:2026-07-21" })).toEqual({
+      projects: [PROJECT],
+      view: "audit:2026-07-21",
+    });
+  });
+
+  test("view rides alongside run + step (all three present)", async () => {
+    expect(await renderWith({ run: "run_abc", step: "review", view: "config" })).toEqual({
+      run: "run_abc",
+      step: "review",
+      view: "config",
+    });
+  });
+
+  test("view folds in WITHOUT a run (unlike step — view is independent)", async () => {
+    expect(await renderWith({ project: PROJECT, view: "job:abc" })).toEqual({
+      project: PROJECT,
+      view: "job:abc",
+    });
+  });
+
+  test("an empty view string is ignored (no ctx.view, no context)", async () => {
+    expect(await renderWith({ view: "" })).toBeUndefined();
+  });
+
+  test("a non-string view is ignored but project context survives", async () => {
+    expect(await renderWith({ project: PROJECT, view: 42 })).toEqual({ project: PROJECT });
+  });
+});
+
+describe("render context — malformed-list fallback", () => {
+  async function renderWith(params: Record<string, unknown>) {
+    const { handlers } = stubChannel();
+    const seen: unknown[] = [];
+    definePage({
+      id: "dash2",
+      render: (ctx) => {
+        seen.push(ctx);
+        return { title: "T", nodes: [] };
+      },
+    });
+    await handlers.get("ezcorp/page.render")!({ pageId: "dash2", ...params });
+    return seen[0];
+  }
+
+  test("a genuinely EMPTY projects list is a real (no projects yet) home render", async () => {
+    expect(await renderWith({ projects: [] })).toEqual({ projects: [] });
+  });
+
+  test("a non-empty list where every ref is malformed falls back to NO context", async () => {
+    expect(await renderWith({ projects: [{ id: 1 }, "junk", null] })).toBeUndefined();
+  });
+
+  test("a run request survives the malformed-list fallback (detail is project-independent)", async () => {
+    expect(await renderWith({ projects: [{ id: 1 }, "junk"], run: "run_abc" })).toEqual({
+      run: "run_abc",
+    });
+  });
+
+  test("a run+step request survives the malformed-list fallback", async () => {
+    expect(await renderWith({ projects: [{ id: 1 }, "junk"], run: "run_abc", step: "review" })).toEqual({
+      run: "run_abc",
+      step: "review",
+    });
+  });
+
+  test("a view request survives the malformed-list fallback (view is project-independent)", async () => {
+    expect(await renderWith({ projects: [{ id: 1 }, "junk"], view: "config" })).toEqual({
+      view: "config",
+    });
   });
 });

@@ -228,4 +228,369 @@ describe("links + href re-check", () => {
 		expect(table).toHaveTextContent("Name");
 		expect(table).toHaveTextContent("When");
 	});
+
+	test("toned cells render their text + the matching status colour class; neutral stays plain", () => {
+		const { getAllByTestId } = renderNodes([
+			{
+				type: "table",
+				columns: ["Run", "Status"],
+				rows: [
+					{ cells: ["r1", { text: "failed", tone: "danger" }] },
+					{ cells: ["r2", { text: "completed", tone: "success" }] },
+					{ cells: ["r3", { text: "awaiting", tone: "warning" }] },
+					{ cells: ["r4", "running"] },
+				],
+			},
+		]);
+		const cells = getAllByTestId("hub-table-cell");
+		// Two cells per row, four rows → the status cell is every odd index.
+		const status = [cells[1]!, cells[3]!, cells[5]!, cells[7]!];
+		expect(status[0]).toHaveTextContent("failed");
+		expect(status[0]).toHaveAttribute("data-tone", "danger");
+		expect(status[0]!.querySelector("span")?.className).toContain("text-red-400");
+		expect(status[1]).toHaveAttribute("data-tone", "success");
+		expect(status[1]!.querySelector("span")?.className).toContain("text-green-400");
+		expect(status[2]).toHaveAttribute("data-tone", "warning");
+		expect(status[2]!.querySelector("span")?.className).toContain("text-yellow-400");
+		// A plain-string cell is neutral: text present, no colour class.
+		expect(status[3]).toHaveTextContent("running");
+		expect(status[3]).toHaveAttribute("data-tone", "neutral");
+		expect(status[3]!.querySelector("span")?.className).not.toContain("text-red-400");
+	});
+
+	test("a toned FIRST cell that is also a link renders its text through the anchor", () => {
+		const { getByTestId } = renderNodes([
+			{
+				type: "table",
+				columns: ["Run"],
+				rows: [{ cells: [{ text: "run-1", tone: "danger" }], href: "/project/p/hub/x?run=run-1" }],
+			},
+		]);
+		const link = getByTestId("hub-row-link");
+		expect(link).toHaveTextContent("run-1");
+		expect(link).toHaveAttribute("href", "/project/p/hub/x?run=run-1");
+	});
+});
+
+describe("inline form node", () => {
+	const FORM_NODE: PageNode = {
+		type: "form",
+		action: { event: "ecf:job-save", payload: { jobId: "default" } },
+		fields: [
+			{ field: "name", label: "Name", value: "Default", maxLength: 80 },
+			{ field: "intent_template", label: "Intent", value: "keep api", maxLength: 500, multiline: true },
+			{ field: "agent_name", label: "Agent", maxLength: 120 },
+		],
+		submitLabel: "Save job",
+	};
+
+	test("renders prefilled inputs, a textarea for multiline, and the submit label", () => {
+		const { getByTestId } = renderNodes([FORM_NODE]);
+		expect(getByTestId("hub-inline-form")).toBeInTheDocument();
+		const name = getByTestId("hub-inline-field-name") as HTMLInputElement;
+		expect(name.tagName).toBe("INPUT");
+		expect(name.value).toBe("Default");
+		expect(name).toHaveAttribute("maxlength", "80");
+		const intent = getByTestId("hub-inline-field-intent_template") as HTMLTextAreaElement;
+		expect(intent.tagName).toBe("TEXTAREA");
+		expect(intent.value).toBe("keep api");
+		expect(getByTestId("hub-inline-field-agent_name")).toHaveValue("");
+		expect(getByTestId("hub-inline-form-submit")).toHaveTextContent("Save job");
+	});
+
+	test("multiline without maxLength gets the textarea's 200 default clamp", () => {
+		const { getByTestId } = renderNodes([
+			{
+				type: "form",
+				action: { event: "ecf:job-save" },
+				fields: [{ field: "notes", label: "Notes", multiline: true }],
+			} as PageNode,
+		]);
+		const notes = getByTestId("hub-inline-field-notes") as HTMLTextAreaElement;
+		expect(notes.tagName).toBe("TEXTAREA");
+		expect(notes).toHaveAttribute("maxlength", "200");
+	});
+
+	test("submit merges EVERY field (typed, untouched, and cleared-to-empty) over the static payload", async () => {
+		const { getByTestId, onAction } = renderNodes([FORM_NODE]);
+		await fireEvent.input(getByTestId("hub-inline-field-name"), { target: { value: "Renamed" } });
+		await fireEvent.input(getByTestId("hub-inline-field-intent_template"), { target: { value: "" } });
+		await fireEvent.click(getByTestId("hub-inline-form-submit"));
+		expect(onAction).toHaveBeenCalledExactlyOnceWith({
+			event: "ecf:job-save",
+			payload: {
+				jobId: "default",
+				name: "Renamed",
+				intent_template: "",
+				agent_name: "",
+			},
+		});
+	});
+
+	test("a confirm on the action rides the dispatched action (host confirm gates the save)", async () => {
+		const withConfirm: PageNode = {
+			...FORM_NODE,
+			action: { event: "ecf:job-save", confirm: "Save all fields?" },
+		} as PageNode;
+		const { getByTestId, onAction } = renderNodes([withConfirm]);
+		await fireEvent.click(getByTestId("hub-inline-form-submit"));
+		expect(onAction.mock.calls[0]![0].confirm).toBe("Save all fields?");
+	});
+
+	test("submitLabel defaults to Save; in-progress typing survives a no-change re-render", async () => {
+		const bare: PageNode = {
+			type: "form",
+			action: { event: "ecf:job-save" },
+			fields: [{ field: "name", label: "Name", value: "Default" }],
+		};
+		const { getByTestId, rerender } = renderNodes([bare]);
+		expect(getByTestId("hub-inline-form-submit")).toHaveTextContent("Save");
+		await fireEvent.input(getByTestId("hub-inline-field-name"), { target: { value: "Mid-edit" } });
+		// A re-pull that changes NOTHING (same prefill signature) must not
+		// clobber the user's typing…
+		await rerender({ nodes: [{ ...bare } as PageNode] });
+		expect(getByTestId("hub-inline-field-name")).toHaveValue("Mid-edit");
+		// …while a server-side prefill CHANGE (the save round-tripped, or a
+		// concurrent edit) remounts with the fresh canonical value.
+		await rerender({
+			nodes: [
+				{
+					type: "form",
+					action: { event: "ecf:job-save" },
+					fields: [{ field: "name", label: "Name", value: "Server-truth" }],
+				} as PageNode,
+			],
+		});
+		expect(getByTestId("hub-inline-field-name")).toHaveValue("Server-truth");
+	});
+});
+
+describe("inline form node without an onAction callback", () => {
+	test("submit is a safe no-op (guard, no crash)", async () => {
+		const { getByTestId } = render(HubComponentRenderer, {
+			props: {
+				nodes: [
+					{
+						type: "form",
+						action: { event: "ecf:job-save" },
+						fields: [{ field: "name", label: "Name", value: "Default" }],
+					} as PageNode,
+				],
+			},
+		});
+		await fireEvent.click(getByTestId("hub-inline-form-submit"));
+		expect(getByTestId("hub-inline-field-name")).toHaveValue("Default");
+	});
+});
+
+describe("inline form select fields", () => {
+	test("an options field renders a SELECT with the prefill chosen; changing it submits the picked value", async () => {
+		const { getByTestId, onAction } = renderNodes([
+			{
+				type: "form",
+				action: { event: "ecf:job-save", payload: { jobId: "default" } },
+				fields: [
+					{
+						field: "trigger_kind",
+						label: "Trigger",
+						value: "push",
+						options: [
+							{ value: "push", label: "push — every matching git push" },
+							{ value: "schedule", label: "schedule — on a cadence" },
+							{ value: "manual" },
+						],
+					},
+					{ field: "trigger_branch", label: "Branch", value: "main" },
+				],
+			} as PageNode,
+		]);
+		const select = getByTestId("hub-inline-field-trigger_kind") as HTMLSelectElement;
+		expect(select.tagName).toBe("SELECT");
+		expect(select.value).toBe("push");
+		expect(Array.from(select.options).map((o) => o.textContent?.trim())).toEqual([
+			"push — every matching git push",
+			"schedule — on a cadence",
+			"manual",
+		]);
+		await fireEvent.change(select, { target: { value: "schedule" } });
+		await fireEvent.click(getByTestId("hub-inline-form-submit"));
+		expect(onAction).toHaveBeenCalledExactlyOnceWith({
+			event: "ecf:job-save",
+			payload: { jobId: "default", trigger_kind: "schedule", trigger_branch: "main" },
+		});
+	});
+
+	test("a malformed nullish option value degrades to an empty-value option; a label-only re-pull updates the text in place", async () => {
+		// Defense-in-depth: the server validator drops non-string option
+		// values, but the renderer must still degrade (not crash) if one
+		// slips through — the compiled option binding falls back to "".
+		const mk = (label: string): PageNode =>
+			({
+				type: "form",
+				action: { event: "ecf:job-save" },
+				fields: [
+					{
+						field: "sel",
+						label: "Sel",
+						value: "a",
+						options: [{ value: "a" }, { value: undefined, label }],
+					},
+				],
+			}) as unknown as PageNode;
+		const { getByTestId, rerender } = renderNodes([mk("broken")]);
+		const select = getByTestId("hub-inline-field-sel") as HTMLSelectElement;
+		expect(select.options[1]!.value).toBe("");
+		expect(select.options[1]!.textContent).toBe("broken");
+		// Same prefill signature (no remount) + same option identity: only
+		// the label text updates; the option's value stays put.
+		await rerender({ nodes: [mk("fixed")] });
+		expect(select.options[1]!.textContent).toBe("fixed");
+		expect(select.options[1]!.value).toBe("");
+	});
+});
+
+describe("inline form dynamic visibility (visibleWhen)", () => {
+	const DYNAMIC_FORM: PageNode = {
+		type: "form",
+		action: { event: "ecf:job-save", payload: { jobId: "default" } },
+		fields: [
+			{
+				field: "trigger_kind",
+				label: "Trigger",
+				value: "schedule",
+				options: [{ value: "push" }, { value: "schedule" }, { value: "manual" }],
+			},
+			{ field: "trigger_branch", label: "Branch", value: "main" },
+			{
+				field: "trigger_every",
+				label: "Cadence",
+				value: "hourly",
+				options: [{ value: "15m" }, { value: "hourly" }, { value: "daily" }],
+				visibleWhen: { field: "trigger_kind", equals: "schedule" },
+			},
+		],
+	};
+
+	test("a conditional field shows/hides LIVE as its controlling select changes, keeping its value", async () => {
+		const { getByTestId, queryByTestId } = renderNodes([DYNAMIC_FORM]);
+		// Prefill kind=schedule → cadence visible.
+		expect(getByTestId("hub-inline-field-trigger_every")).toHaveValue("hourly");
+		// Flip to push → cadence disappears; unconditioned siblings stay.
+		await fireEvent.change(getByTestId("hub-inline-field-trigger_kind"), { target: { value: "push" } });
+		expect(queryByTestId("hub-inline-field-trigger_every")).toBeNull();
+		expect(getByTestId("hub-inline-field-trigger_branch")).toBeInTheDocument();
+		// Flip back → it returns with the retained value.
+		await fireEvent.change(getByTestId("hub-inline-field-trigger_kind"), { target: { value: "schedule" } });
+		expect(getByTestId("hub-inline-field-trigger_every")).toHaveValue("hourly");
+	});
+
+	test("a HIDDEN field is OMITTED from the submitted payload; visible it submits", async () => {
+		const { getByTestId, onAction } = renderNodes([DYNAMIC_FORM]);
+		await fireEvent.change(getByTestId("hub-inline-field-trigger_kind"), { target: { value: "manual" } });
+		await fireEvent.click(getByTestId("hub-inline-form-submit"));
+		expect(onAction).toHaveBeenNthCalledWith(1, {
+			event: "ecf:job-save",
+			payload: { jobId: "default", trigger_kind: "manual", trigger_branch: "main" },
+		});
+		expect(onAction.mock.calls[0]![0].payload).not.toHaveProperty("trigger_every");
+		// Back to schedule → the cadence submits again.
+		await fireEvent.change(getByTestId("hub-inline-field-trigger_kind"), { target: { value: "schedule" } });
+		await fireEvent.click(getByTestId("hub-inline-form-submit"));
+		expect(onAction).toHaveBeenNthCalledWith(2, {
+			event: "ecf:job-save",
+			payload: { jobId: "default", trigger_kind: "schedule", trigger_branch: "main", trigger_every: "hourly" },
+		});
+	});
+
+	test("a one-of-array condition matches any listed value", async () => {
+		const node: PageNode = {
+			type: "form",
+			action: { event: "ecf:job-save" },
+			fields: [
+				{ field: "mode", label: "Mode", value: "a", options: [{ value: "a" }, { value: "b" }, { value: "c" }] },
+				{ field: "dep", label: "Dep", value: "x", visibleWhen: { field: "mode", equals: ["a", "b"] } },
+			],
+		};
+		const { getByTestId, queryByTestId } = renderNodes([node]);
+		expect(getByTestId("hub-inline-field-dep")).toBeInTheDocument();
+		await fireEvent.change(getByTestId("hub-inline-field-mode"), { target: { value: "b" } });
+		expect(getByTestId("hub-inline-field-dep")).toBeInTheDocument();
+		await fireEvent.change(getByTestId("hub-inline-field-mode"), { target: { value: "c" } });
+		expect(queryByTestId("hub-inline-field-dep")).toBeNull();
+	});
+});
+
+describe("inline form CASCADING visibility (hidden controllers hide their dependents)", () => {
+	// A → B → C chain: B shows only while A is "on"; C shows only while
+	// B's value is "x". C's condition keeps matching B's RETAINED value
+	// even while B itself is hidden — effective visibility must cascade.
+	const CHAIN_FORM: PageNode = {
+		type: "form",
+		action: { event: "ecf:job-save", payload: { jobId: "default" } },
+		fields: [
+			{ field: "a", label: "A", value: "on", options: [{ value: "on" }, { value: "off" }] },
+			{
+				field: "b",
+				label: "B",
+				value: "x",
+				options: [{ value: "x" }, { value: "y" }],
+				visibleWhen: { field: "a", equals: "on" },
+			},
+			{ field: "c", label: "C", value: "deep", visibleWhen: { field: "b", equals: "x" } },
+		],
+	};
+
+	test("hiding a controller (B via A) also hides its dependents (C) even though C's condition on B's value still matches", async () => {
+		const { getByTestId, queryByTestId } = renderNodes([CHAIN_FORM]);
+		expect(getByTestId("hub-inline-field-b")).toHaveValue("x");
+		expect(getByTestId("hub-inline-field-c")).toHaveValue("deep");
+		await fireEvent.change(getByTestId("hub-inline-field-a"), { target: { value: "off" } });
+		expect(queryByTestId("hub-inline-field-b")).toBeNull();
+		expect(queryByTestId("hub-inline-field-c")).toBeNull();
+		// Flip back: the whole chain returns with retained values.
+		await fireEvent.change(getByTestId("hub-inline-field-a"), { target: { value: "on" } });
+		expect(getByTestId("hub-inline-field-b")).toHaveValue("x");
+		expect(getByTestId("hub-inline-field-c")).toHaveValue("deep");
+	});
+
+	test("submit omits the WHOLE hidden chain; the restored chain submits again", async () => {
+		const { getByTestId, onAction } = renderNodes([CHAIN_FORM]);
+		await fireEvent.change(getByTestId("hub-inline-field-a"), { target: { value: "off" } });
+		await fireEvent.click(getByTestId("hub-inline-form-submit"));
+		expect(onAction).toHaveBeenNthCalledWith(1, {
+			event: "ecf:job-save",
+			payload: { jobId: "default", a: "off" },
+		});
+		expect(onAction.mock.calls[0]![0].payload).not.toHaveProperty("b");
+		expect(onAction.mock.calls[0]![0].payload).not.toHaveProperty("c");
+		await fireEvent.change(getByTestId("hub-inline-field-a"), { target: { value: "on" } });
+		await fireEvent.click(getByTestId("hub-inline-form-submit"));
+		expect(onAction).toHaveBeenNthCalledWith(2, {
+			event: "ecf:job-save",
+			payload: { jobId: "default", a: "on", b: "x", c: "deep" },
+		});
+	});
+
+	test("a two-field condition CYCLE renders without hanging and fails open (both fields visible and submitted)", async () => {
+		// The server validator prunes SELF/dangling references only, so a
+		// two-field cycle can still arrive; re-entering a field already on
+		// the evaluation path treats it as visible (deterministic fail-open).
+		const { getByTestId, onAction } = renderNodes([
+			{
+				type: "form",
+				action: { event: "ecf:job-save" },
+				fields: [
+					{ field: "ping", label: "Ping", value: "1", visibleWhen: { field: "pong", equals: "1" } },
+					{ field: "pong", label: "Pong", value: "1", visibleWhen: { field: "ping", equals: "1" } },
+				],
+			} as PageNode,
+		]);
+		expect(getByTestId("hub-inline-field-ping")).toHaveValue("1");
+		expect(getByTestId("hub-inline-field-pong")).toHaveValue("1");
+		await fireEvent.click(getByTestId("hub-inline-form-submit"));
+		expect(onAction).toHaveBeenCalledExactlyOnceWith({
+			event: "ecf:job-save",
+			payload: { ping: "1", pong: "1" },
+		});
+	});
 });

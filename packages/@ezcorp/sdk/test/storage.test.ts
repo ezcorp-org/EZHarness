@@ -240,6 +240,40 @@ describe("Storage — list", () => {
     expect(p.prefix).toBe("p:");
     expect(p.limit).toBe(10);
   });
+
+  // The host's handleList returns listStorageKeys() output verbatim — row
+  // OBJECTS, not bare strings (src/db/queries/extension-storage.ts:110). The
+  // client normalizes to its declared string[] so a consumer can feed each key
+  // straight into get() (a live -32602 "Key contains invalid characters" bug).
+  test("list() normalizes host row OBJECTS to plain string keys", async () => {
+    stubRequest(async () => ({
+      keys: [
+        { key: "step_io/r1/review/1", sizeBytes: 200, encrypted: false, expiresAt: null },
+        { key: "step_io/r1/review/2", sizeBytes: 200, encrypted: false, expiresAt: null },
+      ],
+    }));
+    const result = await new Storage().list({ prefix: "step_io/r1/review/" });
+    expect(result).toEqual({ keys: ["step_io/r1/review/1", "step_io/r1/review/2"] });
+  });
+
+  test("list() passes plain string elements through unchanged", async () => {
+    stubRequest(async () => ({ keys: ["a", "b", "c"] }));
+    expect(await new Storage().list()).toEqual({ keys: ["a", "b", "c"] });
+  });
+
+  test("list() drops non-string / non-{key:string} garbage elements", async () => {
+    stubRequest(async () => ({
+      keys: ["good", { key: "obj" }, { notKey: "x" }, 42, null, { key: 5 }, undefined],
+    }));
+    expect(await new Storage().list()).toEqual({ keys: ["good", "obj"] });
+  });
+
+  test("list() yields [] when the host omits keys or sends a non-array", async () => {
+    stubRequest(async () => ({}));
+    expect(await new Storage().list()).toEqual({ keys: [] });
+    stubRequest(async () => ({ keys: "not-an-array" }));
+    expect(await new Storage().list()).toEqual({ keys: [] });
+  });
 });
 
 // ── batch ──────────────────────────────────────────────────────
@@ -424,5 +458,44 @@ describe("Storage — -32029 throttle backoff", () => {
     });
     await expect(new Storage().get("k")).rejects.toBeNull();
     expect(calls).toHaveLength(1);
+  });
+});
+
+// ── -32004 rate-limit backoff (host MAX_OPS_PER_SECOND token bucket) ──
+
+describe("Storage — -32004 rate-limit backoff", () => {
+  test("one transient -32004 then success → retried on the same ladder, resolves", async () => {
+    // A burst (pipeline writes + an SSE-triggered render re-pull storm) trips the
+    // host's per-second token bucket; a short backoff clears it. This froze a
+    // live gate run (run_mrv8y4r1_9wz4xc) mid-pipeline before the fix.
+    let attempts = 0;
+    const { calls } = stubRequest(async () => {
+      attempts += 1;
+      if (attempts === 1) throw new JsonRpcError(-32004, "Rate limited");
+      return { value: "ok", exists: true };
+    });
+    const result = await new Storage().get("k");
+    expect(result).toEqual({ value: "ok", exists: true });
+    expect(calls).toHaveLength(2);
+  });
+
+  test("duck-typed { code: -32004 } also triggers backoff", async () => {
+    let attempts = 0;
+    const { calls } = stubRequest(async () => {
+      attempts += 1;
+      if (attempts < 2) throw { code: -32004, message: "Rate limited" };
+      return { value: 1, exists: true };
+    });
+    await new Storage().get("k");
+    expect(calls).toHaveLength(2);
+  });
+
+  test("persistent -32004 exhausts retries and rethrows (a real limit still surfaces)", async () => {
+    const { calls } = stubRequest(async () => {
+      throw new JsonRpcError(-32004, "Rate limited");
+    });
+    await expect(new Storage().get("k")).rejects.toThrow(/Rate limited/);
+    // Initial attempt (0) + 5 retries (1..5) = 6 total calls.
+    expect(calls).toHaveLength(6);
   });
 });

@@ -103,8 +103,17 @@ export const conversations = pgTable("conversations", {
   /** Phase 48: distinguishes regular per-project chats from the global Ez
    *  concierge conversation (one per user, enforced by a unique partial index
    *  `conversations_user_ez_unique` declared in migrate.ts). Mutating modeId
-   *  on a kind='ez' row is rejected at the API layer. */
-  kind: text("kind").notNull().default("regular").$type<"regular" | "ez">(),
+   *  on a kind='ez' row is rejected at the API layer.
+   *
+   *  `ext-service` (ECF control plane): a persistent per-(project, extension)
+   *  service conversation that owns gate-push agent spawns — it carries the
+   *  REAL projectId (the spawn handler derives project from the conversation)
+   *  and the gate extension is wired into it, so a push-fired review can spawn
+   *  with a resolvable owner scope instead of failing `-32602`. Plain text
+   *  column → NO migration, no pg enum. Filtered out of `listConversations`
+   *  so it never pollutes a user's chat list; sub-conversations parent under
+   *  it so existing `/project/<id>/chat/<subConvId>` deep-links keep working. */
+  kind: text("kind").notNull().default("regular").$type<"regular" | "ez" | "ext-service">(),
   /** Per-conversation tool scoping. Keyed by extension id; the value is the
    *  list of selected tool names for that extension. Mirrors
    *  modes.extensionTools / agent_configs.extensionTools: an extension absent

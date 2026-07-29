@@ -15,7 +15,10 @@ import type { StorageScope } from "@ezcorp/sdk/runtime";
 import type { ShellRunner } from "./shell";
 import { logLine } from "./log";
 import { PIPELINE_STEPS, type PipelineStep } from "./config";
+import { DEFAULT_JOB_ID } from "./jobs";
 import type { RepoConfig } from "./repo-config";
+import { stepIOKey, stepIOPrefix, type StepIORecord } from "./step-io";
+import type { AuditLog } from "./audit";
 
 // ── Persistence schema (spec §1 subset for M0/M1) ───────────────────
 
@@ -41,7 +44,12 @@ export type RunStatus =
   | "checks_passed"
   | "completed"
   | "failed"
-  | "aborted";
+  | "aborted"
+  // A `running` run whose per-run heartbeat has gone silent past the stall
+  // threshold — the executor process died mid-step. NON-terminal: the sweep
+  // surfaces it truthfully (distinct label, warning tone) and a racing dispatch
+  // completing can still transition it onwards. See lib/heartbeat.ts isRunStale.
+  | "stalled";
 
 /** Statuses from which no respond can ever resume a run. Only these release a
  *  kept worktree — everything else (awaiting_approval, running, …) keeps it.
@@ -95,6 +103,10 @@ export interface RunRecord {
    *  structurally-unset process env. Absent on pre-fix rows — consumers fall
    *  back to ctx/env resolution. */
   projectRoot?: string;
+  /** The job (control plane, L4) that spawned this run — stamped at creation
+   *  and used to scope supersede + render the job label on run rows/detail.
+   *  Absent on legacy runs (pre-jobs); those belong to the DEFAULT job. */
+  jobId?: string;
   error?: string;
 }
 
@@ -108,6 +120,29 @@ export type StepStatus =
   | "completed"
   | "skipped"
   | "failed";
+
+/**
+ * One agent dispatch a step made — the linkage a run-detail render needs to
+ * resolve which conversation produced a step's outcome. A step dispatches at
+ * least once (the initial pass) and again per fix round, so a step accretes an
+ * ORDERED list (oldest first). Captured from the spawn handle
+ * (`DispatchResult`) at dispatch time; NOT backfilled — pre-linkage runs simply
+ * carry no refs and the detail shows "no recorded turns".
+ */
+export interface AgentDispatchRef {
+  /** Durable-session role the turn played (reviewer | fixer | generic). */
+  role: string;
+  /** Host assignment id — equals the terminal `task:assignment_update`'s
+   *  `assignment.id` for this dispatch. */
+  assignmentId: string;
+  /** The sub-conversation the dispatch spawned (parented on the extension's
+   *  conversation). The agent's turns live here in the platform's chat store. */
+  subConversationId: string;
+  /** The agent run id dispatched into the sub-conversation. */
+  agentRunId: string;
+  /** ISO time the dispatch was recorded. */
+  at: string;
+}
 
 /**
  * One step's outcome (spec §1 `step_results`). The M0 findings contract is
@@ -129,6 +164,10 @@ export interface StepResultRecord {
   executionMs: number;
   /** Agent's one-line summary from the most recent fix round, or null. */
   fixSummary: string | null;
+  /** Agent dispatches this step made (initial + each fix round), oldest first.
+   *  Persisted so a run-detail render can resolve the step's agent
+   *  conversation(s). Absent on pre-linkage rows (old runs). */
+  agentDispatches?: AgentDispatchRef[];
 }
 
 /**
@@ -339,6 +378,15 @@ export interface RunStore {
   /** Patch the most-recent round of a step (e.g. record a user fix selection on
    *  the parked round). No-op when the step has no rounds. */
   patchLastStepRound(runId: string, step: string, patch: Partial<StepRoundRecord>): Promise<void>;
+  /** Write one round's step_io observability record (keyed per round). */
+  putStepIO(record: StepIORecord): Promise<void>;
+  /** Read one round's step_io record, or null when absent (matches the
+   *  getRun/getStepResult null convention). */
+  getStepIO(runId: string, step: string, round: number): Promise<StepIORecord | null>;
+  /** Every recorded step_io record for a step, oldest round first. Lists the key
+   *  prefix (NOT a 1..round range) — an errored final attempt writes a record
+   *  beyond the completed-round count. */
+  listStepIO(runId: string, step: string): Promise<StepIORecord[]>;
 }
 
 /** A RunStore backed by the SDK `Storage` for the given scope. */
@@ -408,6 +456,24 @@ export function createRunStore(scope: StorageScope = "global"): RunStore {
       if (rounds.length === 0) return;
       rounds[rounds.length - 1] = { ...rounds[rounds.length - 1]!, ...patch };
       await storage.set(key, rounds);
+    },
+    async putStepIO(record) {
+      await storage.set(stepIOKey(record.runId, record.step, record.round), record);
+    },
+    async getStepIO(runId, step, round) {
+      const r = await storage.get<StepIORecord>(stepIOKey(runId, step, round));
+      return r.exists ? (r.value as StepIORecord) : null;
+    },
+    async listStepIO(runId, step) {
+      const { keys } = await storage.list({ prefix: stepIOPrefix(runId, step) });
+      const out: StepIORecord[] = [];
+      for (const key of keys) {
+        const r = await storage.get<StepIORecord>(key);
+        if (r.exists && r.value) out.push(r.value as StepIORecord);
+      }
+      // Oldest round first — key order from `list` is not guaranteed numeric.
+      out.sort((a, b) => a.round - b.round);
+      return out;
     },
   };
 }
@@ -625,6 +691,13 @@ export interface RunManagerDeps {
    *  RunRecord.projectRoot). Stamped onto the created run record so later
    *  context-free event fires can re-derive the gate dir from the record. */
   projectRoot?: string;
+  /** The control-plane job (L4) this run belongs to — stamped onto the record
+   *  and used to scope supersede to `(repo, branch, job)`. Absent for legacy
+   *  callers (the run then belongs to the DEFAULT job). */
+  jobId?: string;
+  /** Control-plane audit sink (L5) — when present, run CREATION and SUPERSEDE
+   *  (both of which bypass the executor's setRunStatus sink) are audited. */
+  audit?: AuditLog;
 }
 
 export interface RunLifecycleResult {
@@ -643,12 +716,39 @@ export async function removeWorktree(run: ShellRunner, gateDir: string, wtPath: 
   }
 }
 
+/**
+ * Emit a control-plane audit entry (L5) for a run status TRANSITION that does
+ * NOT flow through the executor's `setRunStatus` sink — run CREATION and
+ * SUPERSEDE here, and the sweep's STALL transition (sweep.ts). Same shape as the
+ * executor sink: actor `"system"`, kind `"run-status"`, id + status only (never
+ * prompt/finding content; a short system reason is clamped by the audit layer).
+ * Record-and-continue — `audit.append` already swallows its own write failure,
+ * so an audit line never fails the lifecycle operation. No-op without a sink.
+ */
+export async function auditRunStatusTransition(
+  audit: AuditLog | undefined,
+  runId: string,
+  status: RunStatus,
+  detailExtra?: Record<string, unknown>,
+): Promise<void> {
+  if (!audit) return;
+  await audit.append({
+    actor: "system",
+    kind: "run-status",
+    runId,
+    detail: { status, ...(detailExtra ?? {}) },
+  });
+}
+
 /** Deps for {@link supersedePriorRuns} (a subset of the run-manager deps). */
 export interface SupersedeDeps {
   store: RunStore;
   run: ShellRunner;
   gateDir: string;
   onChange?: () => Promise<void> | void;
+  /** Control-plane audit sink (L5) — when present, each superseded run's
+   *  `aborted` transition is recorded (this site bypasses the executor sink). */
+  audit?: AuditLog;
 }
 
 /**
@@ -673,12 +773,18 @@ export async function supersedePriorRuns(
   repoId: string,
   branch: string,
   exceptRunId: string,
+  jobId?: string,
 ): Promise<string[]> {
   const runs = await deps.store.listRuns();
   const superseded: string[] = [];
   for (const r of runs) {
     if (r.id === exceptRunId) continue;
     if (r.repoId !== repoId || r.branch !== branch) continue;
+    // Job-scoped (L4/C3): when a jobId is supplied, only supersede prior runs
+    // of the SAME job. A legacy run with no jobId belongs to the DEFAULT job.
+    // When no jobId is supplied (pre-jobs callers), keep the branch-wide
+    // behavior (supersede every in-flight run on the branch).
+    if (jobId !== undefined && (r.jobId ?? DEFAULT_JOB_ID) !== jobId) continue;
     if (isTerminalRunStatus(r.status)) continue;
     const staleWorktree = r.worktreePath;
     await deps.store.updateRun(r.id, {
@@ -687,6 +793,8 @@ export async function supersedePriorRuns(
       awaitingAgentSince: null,
       worktreePath: null,
     });
+    // Audit the abort (L5) — this transition bypasses the executor's setRunStatus.
+    await auditRunStatusTransition(deps.audit, r.id, "aborted", { reason: "superseded" });
     if (staleWorktree) await removeWorktree(deps.run, deps.gateDir, staleWorktree);
     superseded.push(r.id);
   }
@@ -736,18 +844,28 @@ export async function runGateLifecycle(
         // inferred HINT. Null when there is no intent.
         intentSource: intent ? (push.intentSource ?? "agent") : null,
         ...(deps.projectRoot !== undefined ? { projectRoot: deps.projectRoot } : {}),
+        ...(deps.jobId !== undefined ? { jobId: deps.jobId } : {}),
       };
       await store.createRun(record);
+      // Audit the run's birth (L5) — creation bypasses the executor sink.
+      await auditRunStatusTransition(deps.audit, runId, "created", {
+        branch: push.branch,
+        ...(deps.jobId !== undefined ? { jobId: deps.jobId } : {}),
+      });
       await notify();
 
       // M6: supersede any IN-FLIGHT prior run for this (repo, branch) — a new
       // push cancels the stale one before starting (spec §1 concurrent-push
       // semantics). Different branches stay concurrent (filtered by branch).
+      // Control plane (L4/C3): supersede is JOB-SCOPED — two jobs on one branch
+      // coexist; only a prior run of the SAME job is superseded. Legacy runs
+      // (no jobId) belong to the DEFAULT job.
       await supersedePriorRuns(
-        { store, run, gateDir, onChange: deps.onChange },
+        { store, run, gateDir, onChange: deps.onChange, audit: deps.audit },
         push.repoId,
         push.branch,
         runId,
+        deps.jobId,
       );
 
       const add = await run(
