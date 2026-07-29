@@ -995,6 +995,21 @@ export interface Workflow {
 	inputSchema?: Record<string, unknown>;
 	/** Binding inherited by agent steps that declare no `model`. */
 	defaultModel?: WorkflowModelOverride;
+
+	// ── Provenance (server-computed, additive) ──────────────────────
+	// Present on every workflow the API returns since C6. Optional here
+	// because the same interface is used as a REQUEST body by
+	// `createWorkflow`, where these fields are neither sent nor accepted.
+	/** `extension` / `yaml` / `db`. Only `db` workflows are editable. */
+	source?: "extension" | "yaml" | "db";
+	visibility?: "system" | "project" | "private";
+	projectId?: string | null;
+	userId?: string | null;
+	/** Fully qualified name this was forked from, as a string snapshot. */
+	forkedFrom?: string | null;
+	/** Whether THIS caller may edit it. Computed server-side from the one
+	 *  shared ladder — never re-derived in the browser. */
+	canEdit?: boolean;
 }
 
 export interface WorkflowRun {
@@ -1034,6 +1049,84 @@ export async function createWorkflow(data: Workflow): Promise<Workflow> {
 export async function deleteWorkflow(name: string): Promise<void> {
 	const res = await fetch(`${BASE}/api/workflows/${name}`, { method: "DELETE" });
 	await checkResponse(res);
+}
+
+/** One workflow with the provenance the editor needs. `canEdit` is
+ *  computed SERVER-side — the client must never re-derive the ladder. */
+export async function fetchWorkflow(name: string): Promise<Workflow> {
+	const res = await fetch(`${BASE}/api/workflows/${encodeURIComponent(name)}`);
+	await checkResponse(res);
+	return res.json();
+}
+
+export async function updateWorkflow(
+	name: string,
+	data: Record<string, unknown>,
+): Promise<Workflow> {
+	const res = await fetch(`${BASE}/api/workflows/${encodeURIComponent(name)}`, {
+		method: "PUT",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify(data),
+	});
+	await checkResponse(res);
+	return res.json();
+}
+
+/** Clone a workflow into an editable copy the caller owns. Returns the
+ *  FINAL name — the route auto-suffixes on collision with the global
+ *  unique index, and the UI shows the result. */
+export async function forkWorkflow(
+	name: string,
+	projectId?: string,
+): Promise<{ name: string; id: string; forkedFrom: string }> {
+	const res = await fetch(`${BASE}/api/workflows/${encodeURIComponent(name)}/fork`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify(projectId ? { projectId } : {}),
+	});
+	await checkResponse(res);
+	return res.json();
+}
+
+export interface WorkflowDryRunReport {
+	status: string;
+	steps: { name: string; kind: string; mode: "evaluated" | "stubbed"; status: string }[];
+	stubbed: string[];
+	error?: string;
+	output?: unknown;
+}
+
+/** Simulate a run. `definition` dry-runs the UNSAVED draft on screen —
+ *  requiring a save first would make the feature useless for the
+ *  edit-check-edit loop it exists to serve. */
+export async function dryRunWorkflow(
+	name: string,
+	body: { input?: Record<string, unknown>; definition?: Record<string, unknown>; projectId?: string },
+): Promise<WorkflowDryRunReport> {
+	const res = await fetch(`${BASE}/api/workflows/${encodeURIComponent(name)}/dry-run`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify(body),
+	});
+	await checkResponse(res);
+	return res.json();
+}
+
+export interface WorkflowVersionSummary {
+	id: string;
+	version: number;
+	name: string;
+	description: string;
+	stepsHash: string;
+	stepCount: number;
+	createdByUserId: string | null;
+	createdAt: string;
+}
+
+export async function fetchWorkflowVersions(name: string): Promise<WorkflowVersionSummary[]> {
+	const res = await fetch(`${BASE}/api/workflows/${encodeURIComponent(name)}/versions`);
+	await checkResponse(res);
+	return res.json();
 }
 
 export async function triggerWorkflowRun(

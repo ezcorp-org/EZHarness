@@ -2,7 +2,7 @@
 	import { page } from "$app/state";
 	import { goto } from "$app/navigation";
 	import { store, refreshWorkflows } from "$lib/stores.svelte.js";
-	import { triggerWorkflowRun, deleteWorkflow } from "$lib/api.js";
+	import { triggerWorkflowRun, deleteWorkflow, forkWorkflow } from "$lib/api.js";
 	import {
 		statusColor,
 		kindLabel,
@@ -32,6 +32,27 @@
 	let deleteConfirming = $state(false);
 	let deleteConfirmTimer: ReturnType<typeof setTimeout> | undefined;
 	let deleteErrorMsg = $state("");
+
+	let forking = $state(false);
+	let forkErrorMsg = $state("");
+
+	async function handleFork() {
+		if (!workflowName) return;
+		forking = true;
+		forkErrorMsg = "";
+		try {
+			// The route returns the FINAL name: `workflow_definitions.name` is
+			// globally unique, so a fork of an already-taken name is suffixed
+			// server-side and the user is taken to whatever it ended up called.
+			const forked = await forkWorkflow(workflowName, store.activeProjectId);
+			refreshWorkflows();
+			await goto(`/workflows/${encodeURIComponent(forked.name)}/edit`);
+		} catch (e) {
+			forkErrorMsg = e instanceof Error ? e.message : "Failed to fork workflow";
+		} finally {
+			forking = false;
+		}
+	}
 
 	async function handleRun() {
 		if (!workflowName) return;
@@ -95,17 +116,37 @@
 						<p class="mb-4 text-[var(--color-text-secondary)]">{workflow.description}</p>
 					{/if}
 				</div>
-				<button
-					onclick={handleDeleteClick}
-					data-confirming={deleteConfirming}
-					class="rounded-md bg-red-600/20 px-3 py-1 text-sm text-red-400 hover:bg-red-600/30"
-				>
-					{deleteConfirming ? "Confirm delete?" : "Delete"}
-				</button>
+				<div class="flex flex-wrap items-center gap-2">
+					<a
+						href="/workflows/{workflowName}/edit"
+						data-testid="edit-workflow"
+						class="rounded-md bg-[var(--color-surface-tertiary)] px-3 py-1 text-sm text-[var(--color-text-primary)] hover:opacity-90"
+					>
+						Edit
+					</a>
+					<button
+						onclick={handleFork}
+						disabled={forking}
+						data-testid="fork-workflow"
+						class="rounded-md bg-[var(--color-surface-tertiary)] px-3 py-1 text-sm text-[var(--color-text-primary)] hover:opacity-90 disabled:opacity-50"
+					>
+						{forking ? "Forking…" : "Fork"}
+					</button>
+					<button
+						onclick={handleDeleteClick}
+						data-confirming={deleteConfirming}
+						class="rounded-md bg-red-600/20 px-3 py-1 text-sm text-red-400 hover:bg-red-600/30"
+					>
+						{deleteConfirming ? "Confirm delete?" : "Delete"}
+					</button>
+				</div>
 			</div>
 
 			{#if deleteErrorMsg}
 				<p class="mb-3 text-sm text-red-400" data-testid="delete-error">{deleteErrorMsg}</p>
+			{/if}
+			{#if forkErrorMsg}
+				<p class="mb-3 text-sm text-red-400" data-testid="fork-error">{forkErrorMsg}</p>
 			{/if}
 
 			<h3 class="mb-2 text-sm font-medium text-[var(--color-text-secondary)]">Steps</h3>

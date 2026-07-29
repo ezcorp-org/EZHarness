@@ -58,6 +58,7 @@ import {
   type ApplyError,
 } from "./perm-expiry-sweep";
 import { acquireLockfile, releaseLockfile, isProcessAlive } from "../startup/process-lockfile";
+import { sweepWorkflowDefinitionVersions } from "../db/queries/workflow-versions";
 
 /**
  * Sub-tick cadence — every 6th `tickOnce()` fires
@@ -69,6 +70,15 @@ import { acquireLockfile, releaseLockfile, isProcessAlive } from "../startup/pro
  */
 const GIN_SWEEP_TICK_MODULO = 6;
 const GIN_TRGM_INDEX_NAME = "idx_marketplace_listings_trgm";
+
+/**
+ * Cadence for the workflow-definition-version retention sweep — every
+ * 24th tick, i.e. daily on the default 1h wake. Versions are a small
+ * `steps` blob and are the audit trail for what actually ran, so this is
+ * housekeeping, not pressure relief; a slower cadence than the GIN sweep
+ * is correct.
+ */
+const VERSION_SWEEP_TICK_MODULO = 24;
 
 const log = logger.child("perm-expiry.daemon");
 
@@ -342,6 +352,34 @@ export class HostMaintenanceDaemon {
             error: String((err as Error)?.message ?? err),
             tickCount: this.tickCount,
             index: GIN_TRGM_INDEX_NAME,
+          });
+        }
+      }
+
+      // Sub-tick: daily on the default cadence, reap unreferenced
+      // workflow-definition versions.
+      //
+      // `pinnedVersionIds` is where C3 (phase 7) supplies the version ids
+      // held by non-revoked delegations. The sweep EXCLUDES pins from its
+      // delete set rather than attempting a delete and catching the FK's
+      // ON DELETE RESTRICT — catching the violation would make the error
+      // the control, which is backwards. C3 adds its ids here; the sweep
+      // itself does not change.
+      if (this.tickCount % VERSION_SWEEP_TICK_MODULO === 0) {
+        try {
+          const swept = await sweepWorkflowDefinitionVersions({});
+          if (swept.deleted > 0) {
+            log.info("tick: workflow version retention sweep", {
+              scanned: swept.scanned,
+              deleted: swept.deleted,
+              retained: swept.retained,
+            });
+          }
+        } catch (err) {
+          // Housekeeping must never take the daemon down.
+          log.warn("tick: workflow version sweep skipped", {
+            error: String((err as Error)?.message ?? err),
+            tickCount: this.tickCount,
           });
         }
       }
