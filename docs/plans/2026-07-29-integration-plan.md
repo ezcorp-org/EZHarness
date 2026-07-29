@@ -8,6 +8,13 @@ Analysed at: trunk `e7fbd7c7` · C2 `9101cfde` · C6 `b9ffeaee`.
 
 ---
 
+> ## ⚠ RE-VERIFIED 2026-07-29 — this analysis was WRONG within hours
+>
+> Written when C2 was at step 5 and **C6 had no commits**. Both moved. §5 said
+> this had a short shelf life; it did. **The corrected analysis is §7 — read that
+> first.** §0–§6 are retained as the original, because the *method* held even
+> though the *findings* expired, and the delta is the useful part.
+
 ## 0. The headline: it is a two-branch merge, and the conflict set is one file
 
 Two results that change how this should be planned:
@@ -249,3 +256,106 @@ inputs. Both are countable, and a silent drop is the failure mode both share.
 - **Order: C2, then C6.** C2 is furthest behind and its exclusive ownership of
   the DB files expires; C6 has no commits and should branch forward from a trunk
   that already contains C2.
+
+
+---
+
+# 7. RE-VERIFICATION — corrected analysis
+
+Re-run at trunk `68ac8e01` · C2 `f8708bee` · C6 `bc53448b`. Merge bases unchanged
+(`3267cbbe`, `b9ffeaee`).
+
+**Both headline claims from §0 are now false.** C6 has landed `bc53448b`, so this
+is a genuine **three-branch** merge, and the conflict set is **six files**, not
+one.
+
+## 7.1 The corrected conflict set
+
+File counts since each base: **C2 36 · C6 28 · trunk 10.**
+
+| Intersection | Files |
+|---|---|
+| **C2 ∩ C6** — new three-way risk | `src/api-registry.ts`, `src/db/migrate.ts`, `src/db/schema.ts` |
+| **C6 ∩ trunk** — new, and the sharp one | `src/runtime/workflow-executor.ts`, `src/db/queries/workflow-runs.ts`, `src/runtime/workflow-definition-hash.ts` |
+| **C2 ∩ trunk** — unchanged from §1 | `scripts/coverage-thresholds.json` |
+
+**§1.1 is now void.** C2 no longer owns `schema.ts` / `migrate.ts` exclusively —
+C6 adds `project_id`/`user_id`/`visibility`/`forked_from` plus a
+`workflow_definition_versions` table to the same files. That property expired
+exactly as predicted.
+
+## 7.2 The one genuinely overlapping hunk — `workflow-executor.ts`
+
+This is the only place where two branches edit the **same lines**, and it needs a
+human.
+
+Hunk start lines against the shared base:
+
+```
+C6:    30, 112, 159, 168, 241, 249, 619
+trunk:  2,  34,  96, 257, 339, 372, 462, 481, 507, 558
+```
+
+**C6's `@@ -249,11` covers old lines 249–259; trunk's `@@ -257,8` covers 257–264.
+They overlap on 257–259.** Everything else is adjacent-but-disjoint.
+
+- **C6's edit** there is the `stepSubstitute` option plumbing (dry-run).
+- **Trunk's edit** is the `executeFrom` / suspend-resume restructure.
+
+Both are in the constructor/options region of `WorkflowExecutor`. A textual
+resolution that keeps both hunks is almost certainly correct — but **verify the
+`stepSubstitute` field survives**, because losing it silently removes the
+dry-run's structural guarantee (C6 spec §4.2), and nothing would fail: the dry-run
+route would simply start executing tool steps for real.
+
+That is the single highest-consequence line in this merge.
+
+## 7.3 `coverage-thresholds.json` — the number changed
+
+| | keys |
+|---|---|
+| trunk `68ac8e01` | 386 |
+| C2 `f8708bee` | 388 (+4 over its base of 384) |
+| C6 `bc53448b` | 385 (+0 over its base of 385) |
+| **merged — required** | **390** |
+
+C6 adds **no** new threshold key, which is worth a glance during review: it
+introduced `workflow-scope.ts` and several routes, so either they are covered by
+an existing glob or a key is missing. **Not a merge defect** — flagging it for
+whoever reviews C6's coverage.
+
+## 7.4 What still holds from the original analysis
+
+- **Migration ordering is still safe.** All three append idempotent DDL to
+  disjoint tables; no statement reads a column another adds; no cross-branch
+  backfill. The `DROP INDEX` caveat (§2.1) is unchanged and still the only
+  non-additive statement.
+- **The semantic risks in §3 all stand**, and §3.3 is now **resolved**: C6 added
+  `getCachedWorkflows()` and left `getWorkflows()` untouched, which was the
+  clean-merge-breaks case I rated most likely. It did not happen.
+- **§3.1 stands and grew**: C2 is now 36 files behind the current executor, none
+  of it exercised against suspend/resume.
+
+## 7.5 Revised merge order
+
+**C2 → trunk, then C6 → trunk.** Unchanged in order, changed in reasoning:
+previously C2 first because it owned the DB files; now C2 first because it is
+**furthest behind** (36 files, still branched at `3267cbbe`) and every trunk
+commit widens the gap. C6 is only one commit behind and its conflicts are
+concentrated in one file.
+
+Re-verify after **C2**: threshold count is on its way to 390; `migrate()` runs
+twice cleanly; **workflow** suites pass, not just extension ones.
+
+Re-verify after **C6**: `stepSubstitute` survives in `workflow-executor.ts`
+(§7.2) and a dry-run of a tool-bearing graph still **throws** rather than
+executing; `getWorkflows()` signature still untouched; threshold count is exactly
+**390**.
+
+## 7.6 The standing lesson
+
+This document was accurate when written and wrong within hours, and the failure
+mode was not an error in the analysis but **an assumption that branch state
+holds**. Any future integration analysis should be re-run immediately before the
+merge, not consulted from cache — and should say so in its own header, as this
+one now does.
