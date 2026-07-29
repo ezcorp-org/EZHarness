@@ -571,9 +571,16 @@ Phase 1 is uncommitted in this worktree at the time of writing. C4 builds on it:
 
 ---
 
-## 9. What C4's detail proves wrong in the design record
+## 9. What C4's detail proved wrong in the design record
 
-| # | Design record says | Reality | Fix |
+> **All eight were accepted and folded back on 2026-07-29.** The design record's
+> §1 (C4 table), §2.1, §2.3, §2.4 and §7.3, and the plan's C3/C4/C5 sections and
+> phase table, now match this document. This section is the **audit trail** —
+> the "said" column records what those documents contained *before* the fold-back,
+> not what they say now. **This spec is the authority for phase 2 detail;** on any
+> residual conflict it wins.
+
+| # | Design record said (pre-fold-back) | Reality | Fix |
 |---|---|---|---|
 | 1 | §7.3, §2.3: "transition to `suspended` **before** every await point". | Holds at 1 of 8 await sites. At A5 (`tool` dispatch, `workflow-executor.ts:753`) it would mark a run resumable while side effects are mid-flight — contradicting ported invariant #16. | Replace with §1.4 commit-at-boundary / claim-with-lease / decide-at-recovery. |
 | 2 | §2.1, §2.4: `workflow_step_runs.output` is a **C5** column (phase 3). | Resume rehydrates `stepResults` from it. Without it C4 **cannot resume at all**. | `output` moves into C4 (phase 2). The rest of C5's telemetry stays in phase 3. |

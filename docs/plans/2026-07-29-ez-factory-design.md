@@ -13,6 +13,13 @@
 > lines. When a later phase re-reads a citation, anchor on the **symbol name**,
 > not the number.
 
+**Per-phase specs win on detail.** Where a phase has its own implementation
+spec, that document is the authority for that phase and this record is the
+summary. Today: **C4 / phase 2 →
+[2026-07-29-c4-implementation.md](2026-07-29-c4-implementation.md)** (commit
+`698df1e8`). Its findings are folded into §2.1, §2.3, §2.4, §7.3 and the C4
+delta table below; on any residual conflict, the C4 spec wins.
+
 Read alongside: [orchestration/workflows.md](../features/orchestration/workflows.md),
 [platform/database-and-migrations.md](../features/platform/database-and-migrations.md),
 [platform/rbac-and-permission-modes.md](../features/platform/rbac-and-permission-modes.md),
@@ -146,8 +153,13 @@ graph and the run route blocks on it
 `awaiting_approval` is **terminal** (`src/runtime/workflow-executor.ts:414`,
 type at `src/types.ts:215`) — the run is recorded, not resumable.
 
+> **Phase-2 authority:** [2026-07-29-c4-implementation.md](2026-07-29-c4-implementation.md)
+> (commit `698df1e8`). It wins on any conflict with this section or §2.3.
+
 | Touch point | Change |
 |---|---|
+| `src/db/schema.ts` — `workflowStepRuns` (`:427`) | **`output` (`JSONB`)** — moved here from C5; resume rehydrates `stepResults` from it (§2.4) |
+| `src/runtime/workflow-executor.ts` — new `persistCritical` | strict sibling of `persistWrite` (`:151-158`, which swallows errors by contract); exactly 3 call sites |
 | `src/types.ts:215` — `WorkflowRunStatus` | add `"suspended"` (**non-terminal**, distinct from the terminal `awaiting_approval`) |
 | `src/types.ts` — `WorkflowStepKind` (`:200`) | add `"approval"` |
 | `src/types.ts` — `WorkflowStep` | `prompt?`, `choices?`, `rbacScope?`, `form?`, `requireItemConsent?`, `timeoutMs?`, `onTimeout?` |
@@ -172,6 +184,14 @@ which got this right):
   offers *retry from step N*. Re-entering a half-executed step is never safe,
   because a `tool` step may already have written files or run shell.
 
+The mechanism that decides which of those a crashed run is:
+**commit-at-boundary, claim-with-lease, decide-at-recovery** (§2.3 hazard 1, C4
+spec §1). The executor records `run_phase` strictly around the batch dispatch;
+`suspended` is written only by a deliberate park; the recovery sweep selects on
+one predicate and branches its action on `run_phase`. A run resuming against an
+edited definition **fails closed** on `definition_hash` mismatch until C6 ships
+versioning.
+
 **Synchronous stays the default.** The CLI's exit-code contract
 (`src/cli.ts` `workflow:run` — exit 0 only on terminal `success`), the
 `/workflows/[name]` page, and the extension-author chain must be byte-identical.
@@ -187,7 +207,7 @@ lives in exactly one place.
 
 | Touch point | Change |
 |---|---|
-| `src/db/schema.ts` — `workflowStepRuns` (`:427`) | `attempt`, `iteration`, `provider`, `model`, `input_tokens`, `output_tokens`, `cost_usd`, `duration_ms`, `error_code`, `resolved_input`, `output`, `skipped_reason` |
+| `src/db/schema.ts` — `workflowStepRuns` (`:427`) | `attempt`, `iteration`, `input_tokens`, `output_tokens`, `cost_usd`, `duration_ms`, `error_code`, `resolved_input`, `skipped_reason` (`provider`/`model` land in C1; **`output` lands in C4** — §2.4) |
 | `src/db/queries/workflow-runs.ts` — `upsertWorkflowStepRun` (`:84`) | write them; the upsert arbiter `uniq_workflow_step_run` (`src/db/schema.ts:447`) is `(workflow_run_id, step_name)` and **cannot express per-iteration rows** (§7.6) |
 | new `web/src/routes/api/workflows/runs/+server.ts` | `GET`, scope `read` |
 | new `web/src/routes/api/workflows/runs/[id]/+server.ts` | `GET`, scope `read` |
@@ -294,7 +314,9 @@ Migrations are idempotent and unordered relative to a version, but they **are**
 ordered relative to FK targets. The required sequence:
 
 1. **C1** — `workflow_step_runs.provider`, `.model`.
-2. **C4** — `workflow_runs` columns; `workflow_approvals` (FKs `workflow_runs`).
+2. **C4** — `workflow_runs` columns (incl. `run_phase`, `definition_hash`, the
+   lease pair); **`workflow_step_runs.output`** (moved from C5 — resume is
+   impossible without it); `workflow_approvals` (FKs `workflow_runs`).
 3. **C5** — the remaining `workflow_step_runs` telemetry columns.
 4. **C7** — `workflow_runs.parent_run_id` (self-FK).
 5. **C2** — `extension_schedules` / `extension_webhooks` columns.
@@ -324,19 +346,40 @@ would be a lie in the trace view.
 
 ### 2.3 C4 — async, suspend/resume, approvals
 
+> **Authority.** [2026-07-29-c4-implementation.md](2026-07-29-c4-implementation.md)
+> (commit `698df1e8`) is the binding detail for phase 2 and **wins on any
+> conflict with this section**. What follows is the migration-level summary,
+> corrected to match it.
+
 **`workflow_runs` additions:**
 
 | Column | Type | Null | Default | Notes |
 |---|---|---|---|---|
-| `cursor` | `JSONB` | yes | — | `{ batchIndex, completedSteps[] }`; NULL ⇒ a legacy synchronous run |
+| `cursor` | `JSONB` | yes | — | `{ batchIndex, completedSteps[], prevStepName }`; NULL ⇒ a legacy synchronous run |
+| `run_phase` | `TEXT` | no | `'boundary'` | `'boundary' \| 'in-batch'` — written **strictly** around the batch dispatch; the sole input to the recovery decision |
+| `definition_hash` | `TEXT` | yes | — | canonical hash of the definition the run started against; resume **fails closed** on mismatch |
 | `job_ref` | `TEXT` | yes | — | opaque extension-owned job id; **no FK** — jobs live in extension `Storage`, not a table |
 | `idempotency_key` | `TEXT` | yes | — | |
-| `suspended_reason` | `TEXT` | yes | — | `"approval" \| "consent-stale" \| "quota"` |
-| `resumable` | `BOOLEAN` | no | `false` | step-boundary vs mid-step, decided at suspend time |
+| `suspended_reason` | `TEXT` | yes | — | `"approval" \| "consent-stale" \| "quota" \| "orphaned-resumable" \| "approval-timeout"` |
+| `resumable` | `BOOLEAN` | no | `false` | **written by the recovery sweep**, derived from `run_phase` — never by the executor (see hazard 1) |
+| `claimed_by` | `TEXT` | yes | — | daemon instance id; set by the claim CAS |
+| `lease_expires_at` | `TIMESTAMPTZ` | yes | — | claim lease, renewed on a 20s heartbeat; 60s lease |
+
+`run_as` / `delegation_id` are **not** C4 columns — they move to C3 (phase 7).
+Shipping them here would add a permanently-NULL column with no writer, which
+reads as implemented.
+
+`workflow_step_runs.output` (`JSONB`, nullable, size-capped, secret-redacted)
+**moves from C5 into C4** — see §2.4. Resume rehydrates `stepResults` from it,
+so phase 2 cannot resume without it.
 
 Indexes:
-- `idx_workflow_runs_suspended ON workflow_runs(status, started_at) WHERE status = 'suspended'` — the daemon's claim scan.
+- `idx_workflow_runs_claimable ON workflow_runs(status, lease_expires_at) WHERE status IN ('running','suspended')` — shared by the daemon's claim scan and the recovery sweep.
 - `uniq_workflow_runs_idem ON workflow_runs(workflow_name, idempotency_key) WHERE idempotency_key IS NOT NULL` — a partial unique index; a NULL key must never collide.
+
+`DEFAULT 'boundary'` on `run_phase` is what makes the migration backward-safe:
+every pre-existing row reads as "at a boundary", and since they are all already
+terminal or drained by the existing sweep, nothing is misclassified.
 
 **New table `workflow_approvals`:**
 
@@ -374,32 +417,85 @@ Indexes:
 1. **`terminalizeOrphanedWorkflowRuns` and `suspended`.** The predicate is
    `status = 'running' AND started_at < cutoff`
    (`src/db/queries/workflow-runs.ts:176`). A `suspended` run is therefore
-   **already excluded structurally** — the spec's stated hazard does not exist as
-   written (§7.3). The real hazard is the inverse: a run that is `running` when
-   the process dies, having already committed a cursor, gets drained to `error`
-   even though it is resumable. Phase 2 must either (a) transition to `suspended`
-   before every await point, or (b) teach the sweep to check `resumable` and
-   drain to `suspended` instead. **(a) is correct** — the boot sweep must stay a
-   dumb, single-predicate drain.
-2. **`finalizeWorkflowRunRow` is a CAS on `status='running'`**
+   **already excluded structurally** — the original spec's stated hazard does not
+   exist as written (§7.3). The real hazard is the inverse: a run that is
+   `running` when the process dies, having already committed a cursor, gets
+   drained to `error` even though it is resumable.
+
+   **The fix is NOT "transition to `suspended` before every await point".** That
+   was this document's earlier answer and it is wrong: of the eight await sites
+   in `runWorkflow`, only one precedes a step, and marking a run `suspended`
+   before the tool dispatch (`src/runtime/workflow-executor.ts:753`) would assert
+   "parked at a boundary, safe to resume" while a `write_file` may already have
+   landed — contradicting ported invariant #16 (§4). The corrected model is
+   **commit-at-boundary, claim-with-lease, decide-at-recovery**:
+   - the executor writes `run_phase` strictly around the batch dispatch;
+   - `suspended` is written only by a deliberate park, which is at a boundary by
+     construction;
+   - the sweep's **selection** stays one predicate
+     (`status='running' AND lease_expires_at < now()`) and only its **action**
+     branches on `run_phase`: `'boundary'` → `suspended` + `resumable=true`;
+     `'in-batch'` → `error` + `resumable=false`.
+
+   Full derivation and the await inventory: C4 spec §1.
+2. **`persistWrite` swallows every error by contract**
+   (`src/runtime/workflow-executor.ts:151-158` — "Never throws and never blocks
+   the run"). Correct for telemetry, **fatal for a cursor**: a silently-dropped
+   cursor write makes the next resume start from a stale `batchIndex` and
+   re-execute a completed batch. C4 adds a strict `persistCritical` with exactly
+   three call sites (the `'in-batch'` marker, the boundary cursor advance, the
+   suspend transition). `persistWrite` is left untouched so its never-fail
+   contract is not weakened by accident.
+3. **`finalizeWorkflowRunRow` is a CAS on `status='running'`**
    (`src/db/queries/workflow-runs.ts:114-126`). A resumed run that finishes is
    at `running` again, so this holds — **but** a run cancelled while `suspended`
    would silently no-op the finalize. The CAS must widen to
    `status IN ('running','suspended')` and keep its zero-row-no-op contract.
-3. **`WorkflowRunStatus` is a plain `TEXT` column** (`src/db/schema.ts:412`)
+   Widening the CAS is **necessary but not sufficient**: the `finally` block
+   (`src/runtime/workflow-executor.ts:429-447`) calls the finalizer
+   **unconditionally** at `:440`, and `TerminalWorkflowRunStatus`
+   (`src/db/queries/workflow-runs.ts:28-32`) correctly excludes `suspended`. The
+   `finally` needs a `suspended` guard around the finalize; the scope teardown
+   (`:434`, `:439`) stays unconditional.
+4. **Resume must not re-emit `workflow:start`.** That event prepends a new run to
+   `store.workflowRuns` (`docs/features/orchestration/workflows.md:130`), so a
+   resumed run would render as two. `resumeWorkflow` emits only `workflow:step`
+   and the terminal `workflow:complete` / `workflow:error`.
+5. **Definition drift across a suspension.** A run parked overnight can resume
+   against an **edited** definition whose batches no longer match its
+   `cursor.batchIndex` — silent corruption, with no compensating control until
+   C6 ships versioning. C4 stores `definition_hash` at start and **fails closed**
+   (`error`, `definition-changed`, message naming the drift) when it differs on
+   resume. C6 later replaces the hash with `definition_version_id`.
+6. **`WorkflowRunStatus` is a plain `TEXT` column** (`src/db/schema.ts:412`)
    `$type<>`-annotated only. Adding `'suspended'` needs no DDL, and old rows are
    unaffected — but nothing in the DB stops a bad write. The type is the only
    guard; there is no CHECK constraint and adding one is **not** recommended
    (PGlite and external Postgres both take it, but it turns a future status
    addition into a destructive migration).
-4. **Code that branches on `status === "error"` will not match `suspended`**, the
+7. **Code that branches on `status === "error"` will not match `suspended`**, the
    same trap `awaiting_approval` already has
    (`docs/features/orchestration/workflows.md:243`). Audit every consumer:
    `web/src/lib/stores.svelte.ts`, `src/cli.ts`, `web/src/lib/workflow-run-display.ts`.
+8. **`awaiting_approval` is not reused for the `approval` step.** It keeps
+   today's meaning — a sensitive-capability tool step failed closed, parked
+   *and dead* (`src/runtime/workflow-executor.ts:401-421`). Reusing it would
+   retroactively make every historical `awaiting_approval` row look resumable.
+   The new step kind produces `suspended`.
 
 ### 2.4 C5 — telemetry
 
-**`workflow_step_runs` additions** (all nullable, no defaults — absent is
+**`workflow_step_runs.output` ships in C4 (phase 2), not here.** Resume
+rehydrates `stepResults` from it, and the upsert payload carries no output today
+(`src/db/queries/workflow-runs.ts:66-74`), so phase 2 is blocked without it.
+It is a **prerequisite, not telemetry**: `JSONB`, nullable, 256 KB cap after
+secret-redaction, and a resume that meets a truncated value fails closed rather
+than continuing with a silently-different `$steps`.
+
+`resolved_input` is **not** needed for resume (it is recomputed from `cursor` +
+`stepResults`) and stays here.
+
+**`workflow_step_runs` additions in C5** (all nullable, no defaults — absent is
 meaningful):
 
 | Column | Type |
@@ -412,7 +508,6 @@ meaningful):
 | `duration_ms` | `INTEGER` |
 | `error_code` | `TEXT` |
 | `resolved_input` | `JSONB` |
-| `output` | `JSONB` |
 | `skipped_reason` | `TEXT` |
 
 `cost_usd` is `NUMERIC`, not `DOUBLE PRECISION` — a cost dashboard that sums
@@ -904,7 +999,7 @@ ones are captured for the later git template.
 | 9 | **Nested jail for mutating ops.** The rw set is the worktree + the gate bare repo + `/dev` — **never the project root**, which is passed only as the forbidden `.ezcorp/data` anchor. Read-only ops stay on the plain runner. Containment is asserted read AND write, realpath-based. | `lib/jail.ts:73` `jailRwPaths`, `:116` `buildJailInvocation`, `:149` `makeJailedShell` | **`ez-factory` tool** — `run_command`: allowlist + cwd bound + timeout + output cap + secret redaction, over the same landlock shim handoff. | `extensions/ez-factory/__tests__/run-command-jail.test.ts` — "a write outside the declared workspace is denied (landlock tier)"; must assert **read and write**, not just write |
 | 10 | **Fail-safe jail widening.** `localUpstreamPath` returns `null` for anything unparseable or `scp`-style — no extra grant on ambiguity. | `lib/jail.ts:85` | **`ez-factory` tool** — `run_command`'s path-grant resolution. | same spec, case "an unparseable path yields no grant" |
 | 11 | **Hermetic, non-interactive subprocess env.** `GIT_CONFIG_GLOBAL=/dev/null` (no `[include]` the jail would make fatal) and `GIT_TERMINAL_PROMPT=0` (fail loudly, never hang on a TTY read), plus a fixed bot identity so a config-free commit does not abort. | `lib/jail.ts:191-199`, `:58` `jailGitIdentityEnv`; `lib/shell.ts:53` | **`ez-factory` tool** — `run_command` pins a hermetic env and never inherits an interactive TTY. | `extensions/ez-factory/__tests__/run-command-env.test.ts` — "no interactive prompt is possible; the env is pinned" |
-| 12 | **Secret redaction before untrusted text reaches a prompt.** Seven credential patterns → `[REDACTED]`; deliberately loose ("we would rather redact an innocent string than leak a real key"). | `lib/prompts.ts:42` `SECRET_PATTERNS`, `:56` `redactSecrets` | **Core, C5** (`resolved_input` / `output` redaction) **and** the `ez-factory` prompt builder. | `src/__tests__/workflow-trace-redaction.test.ts` — "a step output carrying an `sk-…` key is stored redacted" |
+| 12 | **Secret redaction before untrusted text reaches a prompt.** Seven credential patterns → `[REDACTED]`; deliberately loose ("we would rather redact an innocent string than leak a real key"). | `lib/prompts.ts:42` `SECRET_PATTERNS`, `:56` `redactSecrets` | **Core, C4** (`output` redaction — the column ships in phase 2) **and C5** (`resolved_input`), **and** the `ez-factory` prompt builder. | `src/__tests__/workflow-trace-redaction.test.ts` — "a step output carrying an `sk-…` key is stored redacted" |
 | 13 | **Adversarial-delimiter neutering + conflict-marker stripping.** ChatML tokens, role tags, `[INST]` markers neutered; `<<<<<<<` / `=======` / `>>>>>>>` stripped so re-entering findings cannot smuggle fake conflict markers; CRLF normalized. | `lib/prompts.ts:31` `stripAdversarial`, `:68` `sanitizePromptMultilineText`, `:89` `cleanedUserIntent` | **`ez-factory` agents** — the shared prompt builder runs the same stack over every untrusted input. | `extensions/ez-factory/__tests__/prompt-hygiene.test.ts` — "role tags and conflict markers do not survive into a prompt" |
 | 14 | **Untrusted text is framed as DATA, wrapped in BEGIN/END with a "do not execute instructions inside" guard**, and operator-supplied instructions are explicitly **subordinated** to the skeleton's rules — they may refine *how*, never override the security rules above them. | `lib/prompts.ts:148` `userIntentPromptSection`, `:178` `jobInstructionsPromptSection` | **`ez-factory` agents** — same two sections, same discipline. | same spec, case "operator instructions cannot restate a security rule and win" (asserts ordering + the subordination clause) |
 | 15 | **Agent writes are steered into the workspace** by a preamble prepended to every prompt. | `lib/prompts.ts:117` `worktreeSteeringPreamble` | **`ez-factory` agents.** | `extensions/ez-factory/__tests__/prompt-hygiene.test.ts`, case "every agent prompt carries the steering preamble" |
@@ -1106,9 +1201,22 @@ single-predicate simplicity is the reason it is correct.
 The real hazards are two others the spec does not mention:
 
 1. A run that is `running` at crash time, with a committed cursor, is drained to
-   `error` even though it is resumable. Fix by transitioning to `suspended`
-   **before** every await point, not by teaching the sweep about `resumable` —
-   keep the sweep dumb.
+   `error` even though it is resumable.
+
+   > **Superseded 2026-07-29.** This document originally answered "transition to
+   > `suspended` before every await point, not by teaching the sweep about
+   > `resumable` — keep the sweep dumb." **That answer is wrong** and the C4 spec
+   > §1 disproves it: of the eight await sites in `runWorkflow`, only `:186`
+   > precedes a step. Marking a run `suspended` before the tool dispatch
+   > (`src/runtime/workflow-executor.ts:753`) asserts "parked at a boundary, safe
+   > to resume" while a `write_file` may already have landed — a resume then
+   > re-enters a half-executed step, contradicting ported invariant #16 (§4).
+   >
+   > **Corrected model — commit-at-boundary, claim-with-lease,
+   > decide-at-recovery** (§2.3 hazard 1). The "dumb sweep" intent is preserved
+   > precisely: the sweep's *selection* stays one predicate
+   > (`status='running' AND lease_expires_at < now()`); only its *action*
+   > branches on an honestly-maintained `run_phase`.
 2. `finalizeWorkflowRunRow` is a CAS on `WHERE status='running'`
    (`src/db/queries/workflow-runs.ts:114-126`). A run **cancelled while
    suspended** silently no-ops. Widen to `status IN ('running','suspended')`,
