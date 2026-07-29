@@ -1,6 +1,13 @@
 import { pgTable, text, timestamp, jsonb, integer, real, serial, bigserial, bigint, boolean, index, primaryKey, uniqueIndex, date, vector } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
-import type { AgentResult, WorkflowModelBinding, WorkflowRunStatus, WorkflowStep } from "../types";
+import type {
+  AgentResult,
+  WorkflowCursor,
+  WorkflowModelBinding,
+  WorkflowRunPhase,
+  WorkflowRunStatus,
+  WorkflowStep,
+} from "../types";
 import type { MemoryProvenance } from "../memory/types";
 import { EMBEDDING_DIMENSIONS } from "../memory/types";
 import type {
@@ -412,17 +419,62 @@ export const workflowRuns = pgTable("workflow_runs", {
   // NULL: deleting a user un-attributes their historical workflow runs
   // (then admin-only) rather than cascading them away.
   userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
-  // `WorkflowRunStatus` — the AgentStatus union plus `awaiting_approval`.
+  // `WorkflowRunStatus` — the AgentStatus union plus `awaiting_approval`
+  // and `suspended` (the one non-terminal, non-`running` state).
   status: text("status").notNull().$type<WorkflowRunStatus>(),
   input: jsonb("input").$type<Record<string, unknown>>(),
   result: jsonb("result").$type<AgentResult>(),
   startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
   finishedAt: timestamp("finished_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+
+  // ── Durable resume state ─────────────────────────────────────────
+  // Where the run picks up. NULL for a run that never reached a
+  // boundary (and for every row written before this column existed).
+  cursor: jsonb("cursor").$type<WorkflowCursor>(),
+  // Which side of a step boundary the executor was last on. NOT NULL
+  // DEFAULT 'boundary' is what makes the migration backward-safe: every
+  // pre-existing row reads as "at a boundary", and they are all already
+  // terminal or drained by the existing sweep, so nothing is
+  // misclassified.
+  runPhase: text("run_phase").notNull().default("boundary").$type<WorkflowRunPhase>(),
+  // Why the run parked (`approval`, `orphaned-resumable`,
+  // `approval-timeout`, …). Free text for the trace, never branched on.
+  suspendedReason: text("suspended_reason"),
+  // Written by the recovery SWEEP, not the executor. At suspend time the
+  // executor is at a boundary by construction, so the flag would always
+  // be `true` and carry no information; the interesting case is a crash,
+  // which only the sweep can classify (from `run_phase`).
+  resumable: boolean("resumable").notNull().default(false),
+  // Lease held by the daemon instance executing this run. A dead process
+  // stops renewing, which is how recovery detects it. Claim is a CAS on
+  // (status, claimed_by, lease_expires_at) — never FOR UPDATE SKIP
+  // LOCKED, which PGlite does not honor identically.
+  claimedBy: text("claimed_by"),
+  leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+  // Hash of the definition this run STARTED against. A run parked for a
+  // day may resume against an edited definition whose batches differ, so
+  // `cursor.batchIndex` would point somewhere else entirely — resume
+  // fails closed on a mismatch until definition versioning ships.
+  definitionHash: text("definition_hash"),
+  // Caller-supplied correlation handles. No FK on `job_ref`: jobs live in
+  // extension `Storage`, not a table.
+  jobRef: text("job_ref"),
+  idempotencyKey: text("idempotency_key"),
 }, (table) => [
   index("idx_workflow_runs_name_started").on(table.workflowName, table.startedAt),
   // FK index — user delete fires ON DELETE SET NULL across this column.
   index("idx_workflow_runs_user").on(table.userId),
+  // The daemon's claim scan and the recovery sweep share this one.
+  index("idx_workflow_runs_claimable")
+    .on(table.status, table.leaseExpiresAt)
+    .where(sql`status IN ('running','suspended')`),
+  // PARTIAL unique: a NULL idempotency key must never collide with
+  // another NULL (in SQL it would not, but the partial index also keeps
+  // the index off every non-idempotent run).
+  uniqueIndex("uniq_workflow_runs_idem")
+    .on(table.workflowName, table.idempotencyKey)
+    .where(sql`idempotency_key IS NOT NULL`),
 ]);
 
 export type WorkflowRunRow = typeof workflowRuns.$inferSelect;
@@ -450,6 +502,17 @@ export const workflowStepRuns = pgTable("workflow_step_runs", {
   // table, and history must survive a model being retired.
   provider: text("provider"),
   model: text("model"),
+  // The step's `AgentResult`, size-capped and secret-redacted.
+  //
+  // This is a RESUME PREREQUISITE, not telemetry: `stepResults` is an
+  // in-memory map that ANY later step can address via `$steps.<name>`, so
+  // a resumed run must rehydrate the whole map — and before this column
+  // there was nowhere to read a completed step's result from.
+  //
+  // On overflow the value is replaced by `{ __truncated: true, bytes }`
+  // and a resume against it fails closed, rather than resuming with a
+  // silently-different `$steps` value.
+  output: jsonb("output").$type<AgentResult | TruncatedStepOutput>(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
@@ -462,6 +525,75 @@ export const workflowStepRuns = pgTable("workflow_step_runs", {
 
 export type WorkflowStepRunRow = typeof workflowStepRuns.$inferSelect;
 export type NewWorkflowStepRunRow = typeof workflowStepRuns.$inferInsert;
+
+/** Stand-in written to `workflow_step_runs.output` when a step's result
+ *  exceeds the per-step size cap. Deliberately NOT shaped like an
+ *  `AgentResult`: a resume must be able to tell "this is not the value"
+ *  apart from "this step produced nothing". */
+export interface TruncatedStepOutput {
+  __truncated: true;
+  bytes: number;
+}
+
+/**
+ * A parked `approval` step awaiting a human answer.
+ *
+ * One live row per (run, step) — a resumed-then-re-suspended step updates
+ * in place rather than accumulating duplicates. CASCADE on the run,
+ * because an approval without its run is meaningless; contrast run
+ * HISTORY, which is deliberately preserved via SET NULL.
+ */
+export const workflowApprovals = pgTable("workflow_approvals", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  workflowRunId: text("workflow_run_id")
+    .notNull()
+    .references(() => workflowRuns.id, { onDelete: "cascade" }),
+  stepName: text("step_name").notNull(),
+  prompt: text("prompt").notNull().default(""),
+  /** The declared answer set. An answer outside it is rejected, never
+   *  coerced — validated at definition time AND at answer time. */
+  choices: jsonb("choices").notNull().$type<string[]>(),
+  /** Optional RBAC scope gating who may answer. Absent ⇒ project members.
+   *  The check is fail-closed: a throw is a DENY. */
+  rbacScope: text("rbac_scope"),
+  formSchema: jsonb("form_schema").$type<Record<string, unknown>>(),
+  /** When true, an ids-free approve over a non-empty `item_ids` is
+   *  refused — the ported no-blanket-approval guard. */
+  requireItemConsent: boolean("require_item_consent").notNull().default(false),
+  /** The items this answer is accountable for, resolved AT SUSPEND TIME
+   *  from the step's declared ref — so the answer is checked against what
+   *  the run actually produced, not what the definition hoped for. */
+  itemIds: jsonb("item_ids").$type<string[]>(),
+  status: text("status").notNull().default("pending").$type<WorkflowApprovalStatus>(),
+  // SET NULL mirrors `runs.user_id` / `workflow_runs.user_id`: deleting a
+  // user un-attributes the answer, it never erases that one happened.
+  answeredBy: text("answered_by").references(() => users.id, { onDelete: "set null" }),
+  answerChoice: text("answer_choice"),
+  answerForm: jsonb("answer_form").$type<Record<string, unknown>>(),
+  answeredItemIds: jsonb("answered_item_ids").$type<string[]>(),
+  /** Audit marker for an ids-free bulk clear. A blanket clear is allowed
+   *  but NEVER silent. */
+  consentAllUsed: boolean("consent_all_used").notNull().default(false),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("uniq_workflow_approval").on(table.workflowRunId, table.stepName),
+  // The inbox and the timeout sweep both scan pending rows by expiry.
+  index("idx_workflow_approvals_pending")
+    .on(table.status, table.expiresAt)
+    .where(sql`status = 'pending'`),
+  // FK index — user delete fires ON DELETE SET NULL across this column.
+  index("idx_workflow_approvals_answered_by").on(table.answeredBy),
+]);
+
+/** Lifecycle of a `workflow_approvals` row. `expired` is distinct from
+ *  `answered` so the trace shows whether a human decided or the clock
+ *  did. */
+export type WorkflowApprovalStatus = "pending" | "answered" | "expired" | "cancelled";
+
+export type WorkflowApprovalRow = typeof workflowApprovals.$inferSelect;
+export type NewWorkflowApprovalRow = typeof workflowApprovals.$inferInsert;
 
 // ── Memory System ──────────────────────────────────────────────────
 

@@ -130,6 +130,316 @@ describe("migrate() — workflow run history tables", () => {
   });
 });
 
+// ── Durable resume state (C4 build-order step 1) ──────────────────
+//
+// Schema-only. No executor writes these yet — the point of landing them
+// alone is that the migration proves backward-safe in isolation.
+describe("migrate() — durable workflow-run columns", () => {
+  test("run_phase defaults every pre-existing row to 'boundary' and resumable to false", async () => {
+    // This is THE backward-safety property. A row written by the
+    // pre-C4 insert path (which names none of the new columns) must read
+    // as "parked at a boundary, not resumable" — anything else would
+    // misclassify historical rows the moment recovery starts branching
+    // on run_phase.
+    const id = crypto.randomUUID();
+    await insertWorkflowRun({
+      id,
+      workflowName: "pre-c4-shaped-insert",
+      input: {},
+      startedAt: new Date(),
+    });
+
+    const row = (await db.execute(sql`
+      SELECT run_phase, resumable, cursor, suspended_reason, claimed_by,
+             lease_expires_at, definition_hash, job_ref, idempotency_key
+        FROM workflow_runs WHERE id = ${id}
+    `)) as {
+      rows: Array<{
+        run_phase: string;
+        resumable: boolean;
+        cursor: unknown;
+        suspended_reason: string | null;
+        claimed_by: string | null;
+        lease_expires_at: Date | null;
+        definition_hash: string | null;
+        job_ref: string | null;
+        idempotency_key: string | null;
+      }>;
+    };
+    const r = row.rows[0];
+    expect(r?.run_phase).toBe("boundary");
+    expect(r?.resumable).toBe(false);
+    // Everything else is genuinely absent for a run that predates resume.
+    expect(r?.cursor).toBeNull();
+    expect(r?.suspended_reason).toBeNull();
+    expect(r?.claimed_by).toBeNull();
+    expect(r?.lease_expires_at).toBeNull();
+    expect(r?.definition_hash).toBeNull();
+    expect(r?.job_ref).toBeNull();
+    expect(r?.idempotency_key).toBeNull();
+  });
+
+  test("run_phase is NOT NULL; every other resume column is nullable", async () => {
+    const cols = (await db.execute(sql`
+      SELECT column_name, is_nullable FROM information_schema.columns
+       WHERE table_name = 'workflow_runs'
+    `)) as { rows: Array<{ column_name: string; is_nullable: string }> };
+    const nullable = (c: string) =>
+      cols.rows.find((r) => r.column_name === c)?.is_nullable;
+
+    expect(nullable("run_phase")).toBe("NO");
+    expect(nullable("resumable")).toBe("NO");
+    for (const c of [
+      "cursor",
+      "suspended_reason",
+      "claimed_by",
+      "lease_expires_at",
+      "definition_hash",
+      "job_ref",
+      "idempotency_key",
+    ]) {
+      expect(nullable(c)).toBe("YES");
+    }
+    // The resume prerequisite on the step table.
+    const stepCols = (await db.execute(sql`
+      SELECT column_name, is_nullable FROM information_schema.columns
+       WHERE table_name = 'workflow_step_runs' AND column_name = 'output'
+    `)) as { rows: Array<{ is_nullable: string }> };
+    expect(stepCols.rows[0]?.is_nullable).toBe("YES");
+  });
+
+  test("cursor round-trips as JSONB", async () => {
+    const id = crypto.randomUUID();
+    await insertWorkflowRun({
+      id,
+      workflowName: "cursor-roundtrip",
+      input: {},
+      startedAt: new Date(),
+    });
+    const cursor = { batchIndex: 2, completedSteps: ["a", "b"], prevStepName: "b" };
+    await db.execute(
+      sql`UPDATE workflow_runs SET cursor = ${JSON.stringify(cursor)}::jsonb WHERE id = ${id}`,
+    );
+
+    const read = (await db.execute(
+      sql`SELECT cursor FROM workflow_runs WHERE id = ${id}`,
+    )) as { rows: Array<{ cursor: typeof cursor }> };
+    expect(read.rows[0]?.cursor).toEqual(cursor);
+  });
+
+  test("the idempotency index is PARTIAL — many NULL keys coexist, a duplicate key collides", async () => {
+    // Two keyless runs of the same workflow must not collide: without the
+    // `WHERE idempotency_key IS NOT NULL` predicate this index would
+    // still permit it (SQL NULLs are distinct), but the predicate also
+    // keeps the index off every non-idempotent run, which is the point.
+    for (let i = 0; i < 2; i++) {
+      await insertWorkflowRun({
+        id: crypto.randomUUID(),
+        workflowName: "same-name-no-key",
+        input: {},
+        startedAt: new Date(),
+      });
+    }
+
+    const first = crypto.randomUUID();
+    await insertWorkflowRun({
+      id: first,
+      workflowName: "idem-workflow",
+      input: {},
+      startedAt: new Date(),
+    });
+    await db.execute(sql`UPDATE workflow_runs SET idempotency_key = 'k1' WHERE id = ${first}`);
+
+    const second = crypto.randomUUID();
+    await insertWorkflowRun({
+      id: second,
+      workflowName: "idem-workflow",
+      input: {},
+      startedAt: new Date(),
+    });
+    // `.rejects` needs a real Promise; drizzle's builder is only a
+    // thenable, so awaiting it inside an async fn is what produces one.
+    const reuseKey = async (): Promise<void> => {
+      await db.execute(sql`UPDATE workflow_runs SET idempotency_key = 'k1' WHERE id = ${second}`);
+    };
+    await expect(reuseKey()).rejects.toThrow();
+
+    // ...and the SAME key under a DIFFERENT workflow name is fine — the
+    // uniqueness is per (workflow_name, idempotency_key).
+    const third = crypto.randomUUID();
+    await insertWorkflowRun({
+      id: third,
+      workflowName: "other-workflow",
+      input: {},
+      startedAt: new Date(),
+    });
+    await db.execute(sql`UPDATE workflow_runs SET idempotency_key = 'k1' WHERE id = ${third}`);
+    const read = (await db.execute(
+      sql`SELECT idempotency_key FROM workflow_runs WHERE id = ${third}`,
+    )) as { rows: Array<{ idempotency_key: string }> };
+    expect(read.rows[0]?.idempotency_key).toBe("k1");
+  });
+
+  test("creates the claimable index the daemon and the sweep share", async () => {
+    const rows = (await db.execute(sql`
+      SELECT indexname FROM pg_indexes WHERE tablename = 'workflow_runs'
+    `)) as { rows: Array<{ indexname: string }> };
+    const names = rows.rows.map((r) => r.indexname);
+    expect(names).toContain("idx_workflow_runs_claimable");
+    expect(names).toContain("uniq_workflow_runs_idem");
+  });
+
+  test("step output round-trips, including the truncation sentinel", async () => {
+    const runId = crypto.randomUUID();
+    await insertWorkflowRun({
+      id: runId,
+      workflowName: "step-output",
+      input: {},
+      startedAt: new Date(),
+    });
+    await upsertWorkflowStepRun({
+      workflowRunId: runId,
+      stepName: "s1",
+      runId: "",
+      status: "success",
+    });
+    const result = { success: true, output: { draftId: "d-1" } };
+    await db.execute(sql`
+      UPDATE workflow_step_runs SET output = ${JSON.stringify(result)}::jsonb
+       WHERE workflow_run_id = ${runId} AND step_name = 's1'
+    `);
+    const read = (await db.execute(sql`
+      SELECT output FROM workflow_step_runs WHERE workflow_run_id = ${runId} AND step_name = 's1'
+    `)) as { rows: Array<{ output: typeof result }> };
+    expect(read.rows[0]?.output).toEqual(result);
+
+    // The overflow sentinel is deliberately NOT AgentResult-shaped, so a
+    // resume can tell "this is not the value" from "this step produced
+    // nothing".
+    const truncated = { __truncated: true, bytes: 400_000 };
+    await db.execute(sql`
+      UPDATE workflow_step_runs SET output = ${JSON.stringify(truncated)}::jsonb
+       WHERE workflow_run_id = ${runId} AND step_name = 's1'
+    `);
+    const read2 = (await db.execute(sql`
+      SELECT output FROM workflow_step_runs WHERE workflow_run_id = ${runId} AND step_name = 's1'
+    `)) as { rows: Array<{ output: typeof truncated }> };
+    expect(read2.rows[0]?.output).toEqual(truncated);
+  });
+});
+
+describe("migrate() — workflow_approvals", () => {
+  async function seedRun(): Promise<string> {
+    const id = crypto.randomUUID();
+    await insertWorkflowRun({
+      id,
+      workflowName: "approval-host",
+      input: {},
+      startedAt: new Date(),
+    });
+    return id;
+  }
+
+  test("stores an approval with the documented defaults", async () => {
+    const runId = await seedRun();
+    await db.execute(sql`
+      INSERT INTO workflow_approvals (id, workflow_run_id, step_name, choices)
+      VALUES (${crypto.randomUUID()}, ${runId}, 'publish-gate', '["approve","reject"]'::jsonb)
+    `);
+    const read = (await db.execute(sql`
+      SELECT prompt, status, require_item_consent, consent_all_used, item_ids,
+             answered_by, expires_at
+        FROM workflow_approvals WHERE workflow_run_id = ${runId}
+    `)) as {
+      rows: Array<{
+        prompt: string;
+        status: string;
+        require_item_consent: boolean;
+        consent_all_used: boolean;
+        item_ids: unknown;
+        answered_by: string | null;
+        expires_at: Date | null;
+      }>;
+    };
+    const r = read.rows[0];
+    expect(r?.status).toBe("pending");
+    expect(r?.prompt).toBe("");
+    expect(r?.require_item_consent).toBe(false);
+    // A blanket clear is allowed but never silent — it starts false and is
+    // only ever set by the guard that permitted it.
+    expect(r?.consent_all_used).toBe(false);
+    expect(r?.item_ids).toBeNull();
+    expect(r?.answered_by).toBeNull();
+    expect(r?.expires_at).toBeNull();
+  });
+
+  test("one live approval per (run, step)", async () => {
+    const runId = await seedRun();
+    // Awaited inside an async fn so `.rejects` sees a real Promise —
+    // drizzle's builder is only a thenable.
+    const insert = async (): Promise<void> => {
+      await db.execute(sql`
+        INSERT INTO workflow_approvals (id, workflow_run_id, step_name, choices)
+        VALUES (${crypto.randomUUID()}, ${runId}, 'gate', '["yes"]'::jsonb)
+      `);
+    };
+    await insert();
+    // A resumed-then-re-suspended step must update in place, not stack a
+    // second row the inbox would render twice.
+    await expect(insert()).rejects.toThrow();
+  });
+
+  test("deleting the run CASCADES its approvals away", async () => {
+    const runId = await seedRun();
+    await db.execute(sql`
+      INSERT INTO workflow_approvals (id, workflow_run_id, step_name, choices)
+      VALUES (${crypto.randomUUID()}, ${runId}, 'gate', '["yes"]'::jsonb)
+    `);
+    await db.execute(sql`DELETE FROM workflow_runs WHERE id = ${runId}`);
+    const left = (await db.execute(sql`
+      SELECT id FROM workflow_approvals WHERE workflow_run_id = ${runId}
+    `)) as { rows: Array<{ id: string }> };
+    // An approval without its run is meaningless — unlike run HISTORY,
+    // which is deliberately preserved via SET NULL.
+    expect(left.rows).toHaveLength(0);
+  });
+
+  test("deleting the answering user un-attributes the answer but keeps it", async () => {
+    const runId = await seedRun();
+    await db.execute(sql`
+      INSERT INTO users (id, email, password_hash, name)
+      VALUES ('approver-1', 'approver@example.test', 'x', 'Approver')
+    `);
+    const approvalId = crypto.randomUUID();
+    await db.execute(sql`
+      INSERT INTO workflow_approvals (id, workflow_run_id, step_name, choices, status, answered_by, answer_choice)
+      VALUES (${approvalId}, ${runId}, 'gate', '["yes"]'::jsonb, 'answered', 'approver-1', 'yes')
+    `);
+    await db.execute(sql`DELETE FROM users WHERE id = 'approver-1'`);
+
+    const read = (await db.execute(sql`
+      SELECT answered_by, answer_choice, status FROM workflow_approvals WHERE id = ${approvalId}
+    `)) as {
+      rows: Array<{ answered_by: string | null; answer_choice: string; status: string }>;
+    };
+    // Same IDOR-guard rationale as runs.user_id: the answer loses its
+    // attribution, it does not erase that an approval happened.
+    expect(read.rows[0]?.answered_by).toBeNull();
+    expect(read.rows[0]?.answer_choice).toBe("yes");
+    expect(read.rows[0]?.status).toBe("answered");
+  });
+
+  test("creates the pending-inbox and answered_by indexes", async () => {
+    const rows = (await db.execute(sql`
+      SELECT indexname FROM pg_indexes WHERE tablename = 'workflow_approvals'
+    `)) as { rows: Array<{ indexname: string }> };
+    const names = rows.rows.map((r) => r.indexname);
+    expect(names).toContain("uniq_workflow_approval");
+    expect(names).toContain("idx_workflow_approvals_pending");
+    expect(names).toContain("idx_workflow_approvals_answered_by");
+  });
+});
+
 describe("workflow-runs query layer", () => {
   test("insertWorkflowRun uses the caller's id verbatim", async () => {
     const id = crypto.randomUUID();

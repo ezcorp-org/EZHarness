@@ -262,8 +262,66 @@ export interface WorkflowModelBinding extends Omit<ModelOverride, "effort"> {
  *   (nothing went wrong — the run is simply blocked on a human). Callers
  *   that branch on `=== "success"` (the CLI's exit code, the run route's
  *   consumers) therefore treat it as a non-success outcome for free.
+ *
+ *   `suspended` — the run PARKED at a step boundary and is safe to
+ *   resume. The ONLY non-terminal, non-`running` state: no process owns
+ *   the run, its {@link WorkflowCursor} records where to pick up, and a
+ *   resume continues it in place.
+ *
+ * `suspended` deliberately does NOT reuse `awaiting_approval`, whose
+ * meaning is unchanged: parked AND dead. Reusing it would retroactively
+ * make every historical `awaiting_approval` row look resumable.
  */
-export type WorkflowRunStatus = AgentStatus | "awaiting_approval";
+export type WorkflowRunStatus = AgentStatus | "awaiting_approval" | "suspended";
+
+/**
+ * Which side of a step boundary the executor was on when it last wrote.
+ *
+ * Written synchronously and STRICTLY (never through the error-swallowing
+ * telemetry path) around the batch dispatch, so crash recovery never has
+ * to guess:
+ *
+ *   `boundary`  — between batches. Nothing is in flight; the cursor is
+ *                 authoritative and the run can be resumed from it.
+ *   `in-batch`  — a batch is mid-flight. An LLM call or a side-effecting
+ *                 `tool` dispatch may be half-applied, so a crash here
+ *                 FAILS CLOSED rather than re-entering a half-executed
+ *                 step.
+ *
+ * The recovery sweep selects on one predicate (an expired lease) and
+ * branches its ACTION on this column — that is what keeps the sweep dumb
+ * without lying about the run's status.
+ */
+export type WorkflowRunPhase = "boundary" | "in-batch";
+
+/**
+ * Where a suspended/orphaned run resumes from.
+ *
+ * `batchIndex` is a stable coordinate because `resolveExecutionOrder` is
+ * pure and deterministic: the no-deps path emits one step per batch in
+ * declaration order, and the topo path iterates `steps` in declaration
+ * order within each batch. Recomputing it on resume from the same
+ * definition yields byte-identical batches — which is also why a resume
+ * against a CHANGED definition must fail closed (`definition_hash`).
+ */
+export interface WorkflowCursor {
+  /** Index of the next batch to execute. */
+  batchIndex: number;
+  /** Every step name completed so far, in completion order. */
+  completedSteps: string[];
+  /**
+   * The step whose result is `$prev` for `batchIndex`.
+   *
+   * Recorded rather than recomputed on purpose. Today `$prev` is
+   * `results[results.length - 1]` — the LAST step of the previous batch
+   * in declaration order, which is documented as order-fragile in
+   * parallel batches. Reproducing that exactly is the point: making
+   * `$prev` graph-deterministic on resume would give a resumed run a
+   * different `$prev` than the same run straight through, which is a far
+   * worse bug than the documented fragility.
+   */
+  prevStepName: string | null;
+}
 
 export interface WorkflowStep {
   name: string;

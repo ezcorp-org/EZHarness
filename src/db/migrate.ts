@@ -2258,6 +2258,71 @@ export async function migrate(db: any): Promise<void> {
   await db.execute(sql`ALTER TABLE workflow_step_runs ADD COLUMN IF NOT EXISTS provider TEXT`);
   await db.execute(sql`ALTER TABLE workflow_step_runs ADD COLUMN IF NOT EXISTS model TEXT`);
 
+  // ── Durable / resumable workflow runs ────────────────────────────
+  // A resumed run rehydrates `stepResults` from here: any later step can
+  // address ANY completed step via `$steps.<name>`, so the whole map has
+  // to come back, and before this column there was nowhere to read a
+  // completed step's result from. NULL on every pre-existing row, which
+  // is correct — those runs are terminal and will never resume.
+  await db.execute(sql`ALTER TABLE workflow_step_runs ADD COLUMN IF NOT EXISTS output JSONB`);
+
+  // `run_phase` is NOT NULL DEFAULT 'boundary' and that default is what
+  // makes this migration backward-safe: every pre-existing row reads as
+  // "parked at a boundary", and since they are all already terminal (or
+  // get drained by the existing orphan sweep) none is misclassified.
+  // Every other column is nullable with no default — NULL means "this run
+  // predates durable resume", which is exactly true.
+  await db.execute(sql`ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS cursor JSONB`);
+  await db.execute(sql`ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS run_phase TEXT NOT NULL DEFAULT 'boundary'`);
+  await db.execute(sql`ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS suspended_reason TEXT`);
+  await db.execute(sql`ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS resumable BOOLEAN NOT NULL DEFAULT FALSE`);
+  await db.execute(sql`ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS claimed_by TEXT`);
+  await db.execute(sql`ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS lease_expires_at TIMESTAMP WITH TIME ZONE`);
+  await db.execute(sql`ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS definition_hash TEXT`);
+  await db.execute(sql`ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS job_ref TEXT`);
+  await db.execute(sql`ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS idempotency_key TEXT`);
+  // Shared by the daemon's claim scan and the recovery sweep — both read
+  // `status` + `lease_expires_at` and both only ever care about the two
+  // live statuses, so the partial index stays small on a table that grows
+  // without bound.
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_workflow_runs_claimable ON workflow_runs(status, lease_expires_at) WHERE status IN ('running','suspended')`);
+  // PARTIAL unique — a run with no idempotency key must never collide
+  // with another keyless run, and the index stays off every such row.
+  await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uniq_workflow_runs_idem ON workflow_runs(workflow_name, idempotency_key) WHERE idempotency_key IS NOT NULL`);
+
+  // Parked `approval` steps. CASCADE on the run because an approval
+  // without its run is meaningless — unlike run HISTORY, which is
+  // deliberately preserved via SET NULL. `answered_by` is SET NULL for
+  // the same IDOR-guard reason as runs.user_id: deleting a user
+  // un-attributes the answer, it does not erase that one happened.
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS workflow_approvals (
+      id TEXT PRIMARY KEY,
+      workflow_run_id TEXT NOT NULL REFERENCES workflow_runs(id) ON DELETE CASCADE,
+      step_name TEXT NOT NULL,
+      prompt TEXT NOT NULL DEFAULT '',
+      choices JSONB NOT NULL,
+      rbac_scope TEXT,
+      form_schema JSONB,
+      require_item_consent BOOLEAN NOT NULL DEFAULT FALSE,
+      item_ids JSONB,
+      status TEXT NOT NULL DEFAULT 'pending',
+      answered_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+      answer_choice TEXT,
+      answer_form JSONB,
+      answered_item_ids JSONB,
+      consent_all_used BOOLEAN NOT NULL DEFAULT FALSE,
+      expires_at TIMESTAMP WITH TIME ZONE,
+      created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+    )
+  `);
+  // One live approval per step: a resumed-then-re-suspended step updates
+  // in place instead of accumulating rows the inbox would double-render.
+  await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uniq_workflow_approval ON workflow_approvals(workflow_run_id, step_name)`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_workflow_approvals_pending ON workflow_approvals(status, expires_at) WHERE status = 'pending'`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_workflow_approvals_answered_by ON workflow_approvals(answered_by)`);
+
   // One-shot, idempotent backfill: move any pre-existing github-projects PATs
   // out of the broadly-readable `settings` table into the scope-isolated,
   // AEAD-bound extension_secrets store. Runs LAST (every FK target exists by
