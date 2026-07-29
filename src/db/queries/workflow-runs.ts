@@ -312,6 +312,15 @@ export async function terminalizeOrphanedWorkflowRuns(
   now: Date = new Date(),
 ): Promise<number> {
   const atBoundary = sql`${workflowRuns.runPhase} = 'boundary'`;
+  // Hoisted, and deliberately ONE LINE. A multi-line `sql` template leaves
+  // its interpolation-free lines — here the closing `) END` — as orphan
+  // COVERABLE lines that never receive an execution hit, because Bun
+  // attributes a tagged template to the lines carrying its `${}`
+  // substitutions. `migrate.ts` documents the same hazard on its own
+  // single-line SELECT. Keeping this on one line is what makes every line
+  // of the statement measurable; splitting it back up re-opens the gap.
+  const steppedNames = sql`COALESCE((SELECT string_agg(s.step_name, ', ' ORDER BY s.step_name) FROM workflow_step_runs s WHERE s.workflow_run_id = ${workflowRuns.id} AND s.status = 'running'), 'unknown')`;
+  const midBatchResult = sql`jsonb_build_object('success', FALSE, 'output', NULL, 'error', 'Workflow run orphaned mid-batch (batch ' || COALESCE(${workflowRuns.cursor} ->> 'batchIndex', '0') || ', steps in flight: ' || ${steppedNames} || '): a restart cannot safely re-enter a half-executed step')`;
   const rows = await getDb()
     .update(workflowRuns)
     .set({
@@ -326,18 +335,7 @@ export async function terminalizeOrphanedWorkflowRuns(
       // names the batch index and the steps that were in flight so the
       // operator can retry from the right place. A boundary run keeps
       // whatever result it had — it is going to continue, not end.
-      result: sql`CASE WHEN ${atBoundary} THEN ${workflowRuns.result} ELSE jsonb_build_object(
-        'success', FALSE,
-        'output', NULL,
-        'error', 'Workflow run orphaned mid-batch (batch '
-          || COALESCE(${workflowRuns.cursor} ->> 'batchIndex', '0')
-          || ', steps in flight: '
-          || COALESCE((
-               SELECT string_agg(s.step_name, ', ' ORDER BY s.step_name)
-                 FROM workflow_step_runs s
-                WHERE s.workflow_run_id = ${workflowRuns.id} AND s.status = 'running'
-             ), 'unknown') || '): a restart cannot safely re-enter a half-executed step'
-      ) END`,
+      result: sql`CASE WHEN ${atBoundary} THEN ${workflowRuns.result} ELSE ${midBatchResult} END`,
       // The owner is gone either way; leaving a stale claim would stop
       // the daemon ever picking up the resumable ones.
       claimedBy: null,
