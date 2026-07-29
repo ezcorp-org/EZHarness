@@ -150,6 +150,19 @@ export function isDryRunStub(value: unknown): boolean {
 }
 
 /**
+ * A `toolRunnerFactory` that cannot build a tool runner.
+ *
+ * Named and exported rather than inlined at the construction site so the
+ * backstop is a thing a test can call. `WorkflowExecutor` builds the
+ * runner lazily and only for a graph with a tool step, so in a correct
+ * dry run this is never invoked — which is exactly why asserting it
+ * throws needs a direct call rather than a workflow that reaches it.
+ */
+export function dryRunToolRunnerFactory(): never {
+  throw new WorkflowDryRunViolation("tool dispatch");
+}
+
+/**
  * An `AgentExecutor` that cannot run an agent.
  *
  * Only the two members `WorkflowExecutor` actually calls are implemented
@@ -212,9 +225,7 @@ export async function dryRunWorkflow(
       // Asserted rather than inherited from the default — a dry run must
       // write no `workflow_runs` row, and that should be visible here.
       persist: false,
-      toolRunnerFactory: () => {
-        throw new WorkflowDryRunViolation("tool dispatch");
-      },
+      toolRunnerFactory: dryRunToolRunnerFactory,
       stepSubstitute: (step: WorkflowStep): AgentResult | undefined => {
         if (isPureDryRunKind(stepKind(step))) return undefined;
         stubbed.push(step.name);

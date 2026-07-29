@@ -336,8 +336,7 @@ export async function terminalizeOrphanedWorkflowRuns(
                SELECT string_agg(s.step_name, ', ' ORDER BY s.step_name)
                  FROM workflow_step_runs s
                 WHERE s.workflow_run_id = ${workflowRuns.id} AND s.status = 'running'
-             ), 'unknown')
-          || '): a restart cannot safely re-enter a half-executed step'
+             ), 'unknown') || '): a restart cannot safely re-enter a half-executed step'
       ) END`,
       // The owner is gone either way; leaving a stale claim would stop
       // the daemon ever picking up the resumable ones.

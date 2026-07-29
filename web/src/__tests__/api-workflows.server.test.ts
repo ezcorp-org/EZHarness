@@ -322,6 +322,16 @@ describe("POST /api/workflows", () => {
     expect(versions.ensureWorkflowVersion).toHaveBeenCalledTimes(1);
   });
 
+  test("an unrelated create failure is re-thrown, never mislabelled a 409", async () => {
+    // Swallowing a dead connection into "name already exists" would tell
+    // the user to rename a workflow whose name was never the problem.
+    const def = { name: "w1", steps: [{ name: "s1", agent: "a" }] };
+    queries.createWorkflow.mockRejectedValue(new Error("connection terminated"));
+    await expect(POST(makeEvent({ locals: authedUser, body: def }))).rejects.toThrow(
+      "connection terminated",
+    );
+  });
+
   test("returns 409 — not 500 — when the name is already taken", async () => {
     // `name` is globally unique on purpose: ownership authorizes a
     // workflow, it never namespaces one. A duplicate is therefore an

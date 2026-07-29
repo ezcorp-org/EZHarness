@@ -64,6 +64,7 @@
 				<option value="agent">Agent</option>
 				<option value="transform">Transform</option>
 				<option value="gate">Gate</option>
+				<option value="tool">Tool</option>
 			</select>
 		</div>
 		{#if step.kind === "agent"}

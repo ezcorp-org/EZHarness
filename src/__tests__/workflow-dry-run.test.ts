@@ -3,6 +3,7 @@ import {
   DRY_RUN_STUB_MARKER,
   dryRunAgentExecutor,
   dryRunStub,
+  dryRunToolRunnerFactory,
   dryRunWorkflow,
   isDryRunStub,
   isPureDryRunKind,
@@ -32,12 +33,14 @@ describe("dry run cannot dispatch, structurally", () => {
   });
 
   test("the tool runner factory throws, so a tool step reaching dispatch fails loudly", () => {
-    // The backstop itself. `dryRunWorkflow` wires this factory; proving it
-    // throws is what makes "no tool ran" a property of the object graph
-    // rather than of the substitution predicate being right.
-    expect(() => {
-      throw new WorkflowDryRunViolation("tool dispatch");
-    }).toThrow(/must never dispatch/);
+    // The backstop itself — the ACTUAL factory `dryRunWorkflow` wires in,
+    // called directly. A dry run never reaches it (the executor builds the
+    // runner lazily and only for a graph with a tool step), which is why
+    // proving it throws needs a direct call: it is what makes "no tool
+    // ran" a property of the object graph rather than of the substitution
+    // predicate happening to be right.
+    expect(() => dryRunToolRunnerFactory()).toThrow(WorkflowDryRunViolation);
+    expect(() => dryRunToolRunnerFactory()).toThrow(/must never dispatch/);
   });
 
   test("runAgent on the dry-run executor throws rather than calling an LLM", () => {

@@ -141,6 +141,11 @@ describe("POST /api/workflows/[name]/fork", () => {
     expect(res.status).toBe(409);
   });
 
+  test("an unrelated create failure is re-thrown, never mislabelled a 409", async () => {
+    queries.createWorkflow.mockRejectedValue(new Error("connection terminated"));
+    await expect(POST(makeEvent({ locals: authedUser }))).rejects.toThrow("connection terminated");
+  });
+
   test("an exhausted suffix space is a 409", async () => {
     queries.listWorkflows.mockResolvedValue(
       [{ name: "docs-factory" }].concat(

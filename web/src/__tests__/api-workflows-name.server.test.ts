@@ -251,6 +251,15 @@ describe("PUT /api/workflows/[name]", () => {
 		expect(res.status).toBe(409);
 	});
 
+	test("an unrelated update failure is re-thrown, never mislabelled a 409", async () => {
+		ctx.getCachedWorkflows.mockReturnValue([ownedEntry()]);
+		queries.getWorkflowByName.mockResolvedValue({ id: "wf-1" });
+		queries.updateWorkflow.mockRejectedValue(new Error("disk full"));
+		await expect(
+			PUT(makeEvent({ locals: authedUser, method: "PUT", body: { description: "d" } })),
+		).rejects.toThrow("disk full");
+	});
+
 	test("returns 404 when the update itself resolves to nothing", async () => {
 		ctx.getCachedWorkflows.mockReturnValue([ownedEntry()]);
 		queries.getWorkflowByName.mockResolvedValue({ id: "wf-1" });
