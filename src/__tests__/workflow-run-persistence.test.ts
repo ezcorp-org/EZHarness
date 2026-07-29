@@ -1040,6 +1040,52 @@ describe("durable position — run_phase, cursor, definition_hash", () => {
     });
   });
 
+  test("a run mid-tool-step is running/in-batch — never suspended", async () => {
+    // The phase's central safety claim, asserted from INSIDE the await.
+    //
+    // The rejected design was to write `suspended` before every await
+    // point. Five of the eight await sites are mid-step, and the `tool`
+    // dispatch is the one that makes it a correctness bug rather than an
+    // imprecision: a row saying "resume me" while a side effect is
+    // in flight invites a resume that re-enters a half-executed step —
+    // a `write_file` applied twice, an LLM call re-billed.
+    //
+    // So the tool handler reads its own run's row at the moment the
+    // dispatch is suspended. `in-batch` is what makes recovery fail this
+    // run closed; `suspended` here would mean the opposite.
+    let observed: { status: string; run_phase: string } | undefined;
+    let observedFor: string | undefined;
+    const wf = makeExecutor({
+      toolHandler: async () => {
+        const row = (await db.execute(sql`
+          SELECT id, status, run_phase FROM workflow_runs
+           WHERE workflow_name = 'inspects-itself-mid-step'
+        `)) as Rows<{ id: string; status: string; run_phase: string }>;
+        observed = row.rows[0];
+        observedFor = row.rows[0]?.id;
+        return ok("{}");
+      },
+    });
+    const def: WorkflowDefinition = {
+      name: "inspects-itself-mid-step",
+      description: "",
+      steps: [{ name: "t", kind: "tool", tool: "demo__x" }],
+    };
+
+    const run = await wf.runWorkflow(def, {}, undefined, undefined);
+    expect(run.status).toBe("success");
+
+    // Read from inside the dispatch, not inferred afterwards.
+    expect(observedFor).toBe(run.id);
+    expect(observed?.status).toBe("running");
+    expect(observed?.run_phase).toBe("in-batch");
+    expect(observed?.status).not.toBe("suspended");
+
+    // ...and the completed run is back at a boundary, so the two states
+    // are genuinely distinguished rather than one being unreachable.
+    expect((await readPosition(run.id))?.run_phase).toBe("boundary");
+  });
+
   test("a failed cursor write fails the run closed rather than reporting success", async () => {
     // `persistWrite` swallows by contract, which is right for telemetry
     // and fatal for a cursor: a dropped cursor leaves the next resume at
