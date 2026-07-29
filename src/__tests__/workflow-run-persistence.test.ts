@@ -62,6 +62,63 @@ afterAll(async () => {
   await pglite?.close().catch(() => {});
 });
 
+/**
+ * Row shapes for the raw `db.execute` reads below.
+ *
+ * Named aliases rather than an inline `` `)) as { rows: … } ``, for two
+ * reasons. The first is ordinary DRY — several tests read the same
+ * shapes. The second is a gate interaction worth recording: a line that
+ * BEGINS with a backtick opens a template literal which
+ * `scripts/gate-integrity.ts`'s `stripNoise` never closes, because it
+ * declares its `quote` state per LINE (`:271-273`). The `{` of a trailing
+ * `as {` is therefore swallowed while its matching `}` a few lines down
+ * still counts, the brace depth closes the test body early, and every
+ * `expect()` below becomes invisible to the vacuous-test check — which
+ * then reports a well-asserted test as having no assertions.
+ *
+ * Keeping braces off any line that starts with a backtick avoids it
+ * entirely. Fixing `stripNoise` itself would be the real repair, but that
+ * file is CODEOWNERS-owned.
+ */
+type Rows<T> = { rows: T[] };
+type NullabilityRow = { is_nullable: string };
+type ColumnRow = { column_name: string; is_nullable: string };
+type TableColumnRow = { table_name: string; column_name: string; is_nullable: string };
+type IndexRow = { indexname: string };
+type IdRow = { id: string };
+type CursorValue = { batchIndex: number; completedSteps: string[]; prevStepName: string | null };
+type DurableRunRow = {
+  run_phase: string;
+  resumable: boolean;
+  cursor: unknown;
+  suspended_reason: string | null;
+  claimed_by: string | null;
+  lease_expires_at: Date | null;
+  definition_hash: string | null;
+  job_ref: string | null;
+  idempotency_key: string | null;
+};
+type PositionRow = {
+  run_phase: string;
+  cursor: CursorValue | null;
+  definition_hash: string | null;
+};
+type StepOutputRow<T> = { output: T };
+type ApprovalDefaultsRow = {
+  prompt: string;
+  status: string;
+  require_item_consent: boolean;
+  consent_all_used: boolean;
+  item_ids: unknown;
+  answered_by: string | null;
+  expires_at: Date | null;
+};
+type ApprovalAnswerRow = {
+  answered_by: string | null;
+  answer_choice: string;
+  status: string;
+};
+
 function ok(text: string): ToolCallResult {
   return { content: [{ type: "text", text }], isError: false };
 }
@@ -88,7 +145,7 @@ describe("migrate() — workflow run history tables", () => {
     const cols = (await db.execute(sql`
       SELECT table_name, column_name, is_nullable FROM information_schema.columns
        WHERE table_name IN ('workflow_runs', 'workflow_step_runs')
-    `)) as { rows: Array<{ table_name: string; column_name: string; is_nullable: string }> };
+    `)) as Rows<TableColumnRow>;
     const key = (t: string, c: string) =>
       cols.rows.find((r) => r.table_name === t && r.column_name === c)?.is_nullable;
 
@@ -111,7 +168,7 @@ describe("migrate() — workflow run history tables", () => {
     const cols = (await db.execute(sql`
       SELECT column_name, is_nullable FROM information_schema.columns
        WHERE table_name = 'workflow_definitions' AND column_name = 'default_model'
-    `)) as { rows: Array<{ column_name: string; is_nullable: string }> };
+    `)) as Rows<ColumnRow>;
     expect(cols.rows[0]?.is_nullable).toBe("YES");
   });
 
@@ -127,7 +184,7 @@ describe("migrate() — workflow run history tables", () => {
   test("creates the (workflow_run_id, step_name) upsert arbiter index", async () => {
     const rows = (await db.execute(sql`
       SELECT indexname FROM pg_indexes WHERE tablename = 'workflow_step_runs'
-    `)) as { rows: Array<{ indexname: string }> };
+    `)) as Rows<IndexRow>;
     expect(rows.rows.map((r) => r.indexname)).toContain("uniq_workflow_step_run");
   });
 });
@@ -155,19 +212,7 @@ describe("migrate() — durable workflow-run columns", () => {
       SELECT run_phase, resumable, cursor, suspended_reason, claimed_by,
              lease_expires_at, definition_hash, job_ref, idempotency_key
         FROM workflow_runs WHERE id = ${id}
-    `)) as {
-      rows: Array<{
-        run_phase: string;
-        resumable: boolean;
-        cursor: unknown;
-        suspended_reason: string | null;
-        claimed_by: string | null;
-        lease_expires_at: Date | null;
-        definition_hash: string | null;
-        job_ref: string | null;
-        idempotency_key: string | null;
-      }>;
-    };
+    `)) as Rows<DurableRunRow>;
     const r = row.rows[0];
     expect(r?.run_phase).toBe("boundary");
     expect(r?.resumable).toBe(false);
@@ -185,7 +230,7 @@ describe("migrate() — durable workflow-run columns", () => {
     const cols = (await db.execute(sql`
       SELECT column_name, is_nullable FROM information_schema.columns
        WHERE table_name = 'workflow_runs'
-    `)) as { rows: Array<{ column_name: string; is_nullable: string }> };
+    `)) as Rows<ColumnRow>;
     const nullable = (c: string) =>
       cols.rows.find((r) => r.column_name === c)?.is_nullable;
 
@@ -206,7 +251,7 @@ describe("migrate() — durable workflow-run columns", () => {
     const stepCols = (await db.execute(sql`
       SELECT column_name, is_nullable FROM information_schema.columns
        WHERE table_name = 'workflow_step_runs' AND column_name = 'output'
-    `)) as { rows: Array<{ is_nullable: string }> };
+    `)) as Rows<NullabilityRow>;
     expect(stepCols.rows[0]?.is_nullable).toBe("YES");
   });
 
@@ -285,7 +330,7 @@ describe("migrate() — durable workflow-run columns", () => {
   test("creates the claimable index the daemon and the sweep share", async () => {
     const rows = (await db.execute(sql`
       SELECT indexname FROM pg_indexes WHERE tablename = 'workflow_runs'
-    `)) as { rows: Array<{ indexname: string }> };
+    `)) as Rows<IndexRow>;
     const names = rows.rows.map((r) => r.indexname);
     expect(names).toContain("idx_workflow_runs_claimable");
     expect(names).toContain("uniq_workflow_runs_idem");
@@ -312,7 +357,7 @@ describe("migrate() — durable workflow-run columns", () => {
     `);
     const read = (await db.execute(sql`
       SELECT output FROM workflow_step_runs WHERE workflow_run_id = ${runId} AND step_name = 's1'
-    `)) as { rows: Array<{ output: typeof result }> };
+    `)) as Rows<StepOutputRow<typeof result>>;
     expect(read.rows[0]?.output).toEqual(result);
 
     // The overflow sentinel is deliberately NOT AgentResult-shaped, so a
@@ -325,7 +370,7 @@ describe("migrate() — durable workflow-run columns", () => {
     `);
     const read2 = (await db.execute(sql`
       SELECT output FROM workflow_step_runs WHERE workflow_run_id = ${runId} AND step_name = 's1'
-    `)) as { rows: Array<{ output: typeof truncated }> };
+    `)) as Rows<StepOutputRow<typeof truncated>>;
     expect(read2.rows[0]?.output).toEqual(truncated);
   });
 });
@@ -352,17 +397,7 @@ describe("migrate() — workflow_approvals", () => {
       SELECT prompt, status, require_item_consent, consent_all_used, item_ids,
              answered_by, expires_at
         FROM workflow_approvals WHERE workflow_run_id = ${runId}
-    `)) as {
-      rows: Array<{
-        prompt: string;
-        status: string;
-        require_item_consent: boolean;
-        consent_all_used: boolean;
-        item_ids: unknown;
-        answered_by: string | null;
-        expires_at: Date | null;
-      }>;
-    };
+    `)) as Rows<ApprovalDefaultsRow>;
     const r = read.rows[0];
     expect(r?.status).toBe("pending");
     expect(r?.prompt).toBe("");
@@ -400,7 +435,7 @@ describe("migrate() — workflow_approvals", () => {
     await db.execute(sql`DELETE FROM workflow_runs WHERE id = ${runId}`);
     const left = (await db.execute(sql`
       SELECT id FROM workflow_approvals WHERE workflow_run_id = ${runId}
-    `)) as { rows: Array<{ id: string }> };
+    `)) as Rows<IdRow>;
     // An approval without its run is meaningless — unlike run HISTORY,
     // which is deliberately preserved via SET NULL.
     expect(left.rows).toHaveLength(0);
@@ -421,9 +456,7 @@ describe("migrate() — workflow_approvals", () => {
 
     const read = (await db.execute(sql`
       SELECT answered_by, answer_choice, status FROM workflow_approvals WHERE id = ${approvalId}
-    `)) as {
-      rows: Array<{ answered_by: string | null; answer_choice: string; status: string }>;
-    };
+    `)) as Rows<ApprovalAnswerRow>;
     // Same IDOR-guard rationale as runs.user_id: the answer loses its
     // attribution, it does not erase that an approval happened.
     expect(read.rows[0]?.answered_by).toBeNull();
@@ -434,7 +467,7 @@ describe("migrate() — workflow_approvals", () => {
   test("creates the pending-inbox and answered_by indexes", async () => {
     const rows = (await db.execute(sql`
       SELECT indexname FROM pg_indexes WHERE tablename = 'workflow_approvals'
-    `)) as { rows: Array<{ indexname: string }> };
+    `)) as Rows<IndexRow>;
     const names = rows.rows.map((r) => r.indexname);
     expect(names).toContain("uniq_workflow_approval");
     expect(names).toContain("idx_workflow_approvals_pending");
@@ -929,13 +962,7 @@ describe("durable position — run_phase, cursor, definition_hash", () => {
   async function readPosition(runId: string) {
     const row = (await db.execute(sql`
       SELECT run_phase, cursor, definition_hash FROM workflow_runs WHERE id = ${runId}
-    `)) as {
-      rows: Array<{
-        run_phase: string;
-        cursor: { batchIndex: number; completedSteps: string[]; prevStepName: string | null } | null;
-        definition_hash: string | null;
-      }>;
-    };
+    `)) as Rows<PositionRow>;
     return row.rows[0];
   }
 
