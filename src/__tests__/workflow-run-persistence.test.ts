@@ -1633,5 +1633,46 @@ describe("suspend and resume", () => {
     // `$steps` than the first half saw — a silent wrong answer.
     expect(resumed.status).toBe("error");
     expect(resumed.result?.error).toMatchObject({ code: "step-output-unavailable" });
+
+    // THE assertion that matters: the refusal reached the ROW, not just
+    // the return value. A fail-closed decision recorded by a write that
+    // does not land is not fail-closed — the row would stay `suspended`
+    // and a daemon would retry this same refusal forever while every
+    // visible signal said the guard was working.
+    const after = await getWorkflowRunRow(first.id);
+    expect(after?.status).toBe("error");
+    expect(after?.status).not.toBe("suspended");
+  });
+
+  test("a refusal never clobbers a run that already reached a terminal state", async () => {
+    // The other half of the widened CAS: `suspended` was added to the
+    // finalize predicate, and that must not weaken the guarantee that an
+    // already-terminal run is never rewritten.
+    const { wf } = suspendingExecutor("none");
+    const def: WorkflowDefinition = {
+      name: "terminal-stays-terminal",
+      description: "",
+      steps: [{ name: "a", kind: "transform", output: { v: "1" } }],
+    };
+    const done = await wf.runWorkflow(def, {}, undefined, undefined);
+    expect(done.status).toBe("success");
+
+    const row = await getWorkflowRunRow(done.id);
+    await wf.resumeWorkflow(def, {
+      id: row!.id,
+      workflowName: row!.workflowName,
+      status: row!.status,
+      input: row!.input,
+      cursor: row!.cursor,
+      definitionHash: row!.definitionHash,
+      projectId: row!.projectId,
+      userId: row!.userId,
+      startedAt: row!.startedAt,
+    });
+
+    // Zero-row no-op: the successful run keeps its result.
+    const after = await getWorkflowRunRow(done.id);
+    expect(after?.status).toBe("success");
+    expect(after?.result).toEqual({ success: true, output: { v: "1" } });
   });
 });
