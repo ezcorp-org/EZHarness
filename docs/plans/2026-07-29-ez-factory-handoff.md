@@ -16,7 +16,7 @@ Three worktrees under `worktrees/`, all branched from `main@abc41f35`.
 |---|---|---|---|
 | `feat/ez-factory` | `ez-factory` | `1859a761` | Trunk. Phase 1 + Phase 2 (partial) + all planning docs. |
 | `feat/ez-factory-c2` | `ez-factory-c2` | `c9904398` | **Phase 5 COMPLETE**, reviewed clean end to end. |
-| `feat/ez-factory-c6` | `ez-factory-c6` | `5d4bb600` | Phase 6, built but **8 open defects**. |
+| `feat/ez-factory-c6` | `ez-factory-c6` |  `3966b5df` | Phase 6, built but **8 open defects**. |
 
 **Setup in a fresh worktree is not automatic:** `bun install` at the root, then
 `bun install` **and** `bun run prepare` inside `web/` (generates
