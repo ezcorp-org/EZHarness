@@ -519,6 +519,30 @@ export const EXT_AUDIT_ACTIONS = {
    *  crash mid-fire. Marked for retry only when
    *  `maxRetries > 0`. */
   SDK_SCHEDULE_REAPED: "ext:sdk-schedule-reaped",
+
+  // ── C2: dynamic triggers (`ctx.triggers`) ──
+  //
+  // These go to `audit_log` IN ADDITION to `sdk_capability_calls`, because
+  // the two have different reach. `sdk_capability_calls.on_behalf_of` is
+  // NOT NULL with an FK to `users`, so it cannot record anything done from
+  // an OWNERLESS context — and the sweeps below (uninstall, orphan
+  // reconciliation) are exactly that. `audit_log.user_id` is nullable, so
+  // it is the only destination that can hold the whole trail.
+  /** `ctx.triggers.register` created or updated a dynamic trigger.
+   *  Metadata: `{kind, key, cron?, slug?}`. */
+  SDK_TRIGGER_REGISTERED: "ext:trigger-registered",
+  /** `ctx.triggers.unregister` removed one. Metadata: `{kind, key}`. */
+  SDK_TRIGGER_UNREGISTERED: "ext:trigger-unregistered",
+  /** A register was refused. Metadata carries the typed deny code so
+   *  analytics can tell "quota" from "not granted" from "bad cron". */
+  SDK_TRIGGER_REJECTED: "ext:trigger-rejected",
+  /** The host's orphan sweep soft-disabled a dynamic trigger the
+   *  extension no longer claims. OWNERLESS — audit_log only. */
+  SDK_TRIGGER_ORPHANED: "ext:trigger-orphaned",
+  /** Every dynamic trigger was soft-disabled because the `triggers`
+   *  capability itself disappeared from the manifest. OWNERLESS. */
+  SDK_TRIGGER_CAPABILITY_REVOKED: "ext:trigger-capability-revoked",
+
   // ── Loops EZ Mode Phase 4: inbound webhook trigger ──
   /** The public `POST /api/hooks/:extensionId/:slug` route accepted a
    *  delivery (auth passed, under limits). Persisted to `webhook_deliveries`

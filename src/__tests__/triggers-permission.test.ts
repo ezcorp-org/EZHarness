@@ -126,7 +126,7 @@ describe("clamp integration", () => {
 
 describe("capability translation (the PDP's view)", () => {
   test("emits one cap PER KIND", () => {
-    const caps = grantsToCapabilitySet({ triggers: GRANT });
+    const caps = grantsToCapabilitySet({ triggers: GRANT, grantedAt: {} });
     expect(caps).toContainEqual({ kind: "ezcorp:triggers:register", value: "cron" });
     expect(caps).toContainEqual({ kind: "ezcorp:triggers:register", value: "webhook" });
   });
@@ -134,17 +134,17 @@ describe("capability translation (the PDP's view)", () => {
   test("a zero cap emits NO cap for that kind", () => {
     // Otherwise the PDP would allow a registration the handler's own cap
     // check rejects — one decision split across two layers that disagree.
-    const cronOnly = grantsToCapabilitySet({ triggers: { ...GRANT, maxWebhooks: 0 } });
+    const cronOnly = grantsToCapabilitySet({ triggers: { ...GRANT, maxWebhooks: 0 }, grantedAt: {} });
     expect(cronOnly).toContainEqual({ kind: "ezcorp:triggers:register", value: "cron" });
     expect(cronOnly).not.toContainEqual({ kind: "ezcorp:triggers:register", value: "webhook" });
 
-    const hookOnly = grantsToCapabilitySet({ triggers: { ...GRANT, maxCron: 0 } });
+    const hookOnly = grantsToCapabilitySet({ triggers: { ...GRANT, maxCron: 0 }, grantedAt: {} });
     expect(hookOnly).not.toContainEqual({ kind: "ezcorp:triggers:register", value: "cron" });
     expect(hookOnly).toContainEqual({ kind: "ezcorp:triggers:register", value: "webhook" });
   });
 
   test("no grant ⇒ no trigger caps at all", () => {
-    const caps = grantsToCapabilitySet({});
+    const caps = grantsToCapabilitySet({ grantedAt: {} });
     expect(caps.filter((c) => c.kind === "ezcorp:triggers:register")).toHaveLength(0);
   });
 
@@ -159,8 +159,11 @@ describe("capability translation (the PDP's view)", () => {
 describe("ceiling intersection", () => {
   test("takes the narrower of every numeric bound", () => {
     const out = intersectPermissions(
-      { triggers: GRANT },
-      { triggers: { maxCron: 5, maxWebhooks: 50, webhookPrefix: "factory-", maxRunsPerDay: 100 } },
+      { triggers: GRANT, grantedAt: {} },
+      {
+        triggers: { maxCron: 5, maxWebhooks: 50, webhookPrefix: "factory-", maxRunsPerDay: 100 },
+        grantedAt: {},
+      },
     );
     expect(out.triggers).toEqual({
       maxCron: 5, maxWebhooks: 10, webhookPrefix: "factory-", maxRunsPerDay: 100,
@@ -168,8 +171,10 @@ describe("ceiling intersection", () => {
   });
 
   test("survives only when BOTH sides declare it", () => {
-    expect(intersectPermissions({ triggers: GRANT }, {}).triggers).toBeUndefined();
-    expect(intersectPermissions({}, { triggers: GRANT }).triggers).toBeUndefined();
+    expect(intersectPermissions({ triggers: GRANT, grantedAt: {} }, { grantedAt: {} })
+      .triggers).toBeUndefined();
+    expect(intersectPermissions({ grantedAt: {} }, { triggers: GRANT, grantedAt: {} })
+      .triggers).toBeUndefined();
   });
 
   test("DROPS the grant when the two prefixes disagree", () => {
@@ -177,8 +182,8 @@ describe("ceiling intersection", () => {
     // would silently mint future slugs under a namespace one side never
     // agreed to.
     const out = intersectPermissions(
-      { triggers: GRANT },
-      { triggers: { ...GRANT, webhookPrefix: "other-" } },
+      { triggers: GRANT, grantedAt: {} },
+      { triggers: { ...GRANT, webhookPrefix: "other-" }, grantedAt: {} },
     );
     expect(out.triggers).toBeUndefined();
   });
@@ -187,8 +192,11 @@ describe("ceiling intersection", () => {
     // The granted type requires all four fields precisely so this cannot
     // happen; assert the runtime invariant in case the type is loosened.
     const out = intersectPermissions(
-      { triggers: GRANT },
-      { triggers: { maxCron: 3 } as NonNullable<ExtensionPermissions["triggers"]> },
+      { triggers: GRANT, grantedAt: {} },
+      {
+        triggers: { maxCron: 3 } as NonNullable<ExtensionPermissions["triggers"]>,
+        grantedAt: {},
+      },
     );
     // Prefix mismatch (undefined vs "factory-") drops it — the safe outcome.
     expect(out.triggers).toBeUndefined();

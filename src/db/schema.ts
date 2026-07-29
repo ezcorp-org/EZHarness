@@ -1403,7 +1403,7 @@ export const sdkCapabilityCalls = pgTable("sdk_capability_calls", {
    *  MUST stay in sync with `SdkCapability` in
    *  `src/extensions/recordCapabilityCall.ts` (the column is plain text, so
    *  drift is silent). */
-  capability: text("capability").notNull().$type<"llm" | "memory" | "lessons" | "schedule" | "events" | "search" | "workflows">(),
+  capability: text("capability").notNull().$type<"llm" | "memory" | "lessons" | "schedule" | "events" | "search" | "workflows" | "triggers">(),
   /** 'complete' | 'read' | 'write' | 'update' | 'delete' | 'fire' | 'register' | 'subscribe' | 'run' */
   action: text("action").notNull(),
   resourceType: text("resource_type"),
