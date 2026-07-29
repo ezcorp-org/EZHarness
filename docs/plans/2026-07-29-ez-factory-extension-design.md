@@ -226,6 +226,60 @@ The index keys are the residual risk (they *are* shared), so:
 - **`meta.version`** exists so a v2 layout can migrate; v1 writes it and reads it
   defensively.
 
+### 3.4 Two things C2 gives you that are easy to get wrong
+
+Handover from `ph5-build`, who built C2. Both are recorded here because this is
+the section a phase-8 author reads when they ask "how do I make a scheduled
+job", and neither is discoverable from the `ctx.triggers` signature.
+
+**(a) C2 delivers the trigger, not the ability to act on it.** A cron or webhook
+fire is **ownerless** — no user initiated it — so `ctx.workflows.run(...)` from
+inside a fire handler soft-fails `-32106` until C3 lands (phase 7). The trigger
+arrives, the handler runs, the workflow does not start. See the C2 spec §1.5 and
+the design record §3 for why attribution is refused rather than invented.
+
+> Practical consequence: **do not demo phase 5 with a workflow-running job.** A
+> job whose handler writes to `Storage`, emits an artifact, or logs will demo
+> correctly; one that calls `ctx.workflows.run` will look broken and is not.
+
+**(b) Re-register every handler on EVERY startup, not just at creation.**
+
+> **On boot, iterate every stored job and call `ctx.triggers.on(key, …)` for
+> each one — including disabled jobs, and including every trigger kind.**
+
+Two independent mechanisms punish a partial re-registration, and both are
+silent:
+
+1. **Fires drop.** `ezcorp/trigger-fire` looks the key up in the handler map and
+   returns `undefined` when it misses (`packages/@ezcorp/sdk/src/runtime/triggers.ts:129-141`,
+   read at `feat/ez-factory-c2`). The host records the fire as delivered; nothing
+   runs. No error anywhere.
+2. **The row is swept.** The host's orphan sweep asks the extension which keys
+   it still claims, and the SDK answers **from the handler map** —
+   `keys: [...handlers.keys()]` (`triggers.ts:124-127`). A key with no
+   registered handler is reported as not-live, and `syncDynamicTriggers`
+   (`src/extensions/triggers-sweep.ts:72`) soft-disables it.
+
+**The mechanism is sharper than "register your handlers or lose them", and the
+difference matters when you are debugging it.** The `triggers-sync` responder is
+installed by `on()` itself, never at import (`triggers.ts:118-123`). So:
+
+| What the extension does on boot | What the sweep does |
+|---|---|
+| registers **no** handlers | responder absent ⇒ `-32601` ⇒ host **fails open, disables nothing** |
+| registers **all** handlers | correct set claimed ⇒ nothing swept |
+| registers **some** handlers | responder present, answers a **partial** set ⇒ every unregistered key **swept** |
+
+The naive-worst-case (register nothing) is the *safe* one. The case that
+destroys a user's triggers is **partial** registration — iterating only
+`enabled` jobs, handling only one trigger kind, or wiring one handler at boot
+and another lazily. That is what turns the host's fail-open into a fail-closed,
+and it is why the imperative above says *every* stored job rather than *every
+active* job.
+
+This is the same silent-kill class C2 spent two build-order steps closing at the
+DB layer, reintroduced one layer up by an author who forgets to re-register.
+
 ---
 
 ## 4. The tools — three shipped, two cut

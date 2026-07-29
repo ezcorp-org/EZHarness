@@ -1205,6 +1205,34 @@ Ordered by how much a phase would suffer for not knowing.
 > This section is kept as the **audit trail** — what was wrong, how it was
 > found, and what was decided. Nothing here is open.
 
+### 7.0 Method — where spec errors actually live
+
+`ph5-build`'s closing observation, recorded here rather than left in a chat log
+because it generalises past this program:
+
+> **All nine C2 spec errors came from claims the spec made without a
+> `file:line` citation. Every cited claim held.**
+
+That is a nine-for-nine split on a single axis, and it has a mechanical reading:
+writing a citation forces the author to open the file, and opening the file is
+what catches the error. An uncited claim was never checked against source — it
+was recalled, inferred from symmetry with a neighbouring subsystem, or carried
+forward from an earlier draft.
+
+**So review a spec by citation density, not front to back.** Sort the
+assertions into cited and uncited, verify the uncited ones first, and treat a
+cited claim as low-yield until the uncited pile is exhausted. It also gives
+spec authors a cheap self-check: an assertion you cannot cite is one you have
+not verified, and the honest move is to either go and cite it or mark it
+explicitly as an assumption.
+
+Two caveats, so this is not applied further than the evidence supports. It says
+nothing about a citation that is itself *wrong* — §7.5 in this document was
+exactly that, a confidently wrong line number — so verifying citations remains
+necessary; the claim is only that uncited assertions are the richer seam. And
+it is one delta's worth of evidence. If C4, C6 and C3 land with the same split,
+it is a rule; today it is a strong prior worth acting on.
+
 ### 7.1 `async: true` in the run body is swallowed by the `.loose()` schema — **was blocking for phase 2 · RESOLVED**
 
 The spec: "`POST /api/workflows/[name]/run` gains `async: true`".

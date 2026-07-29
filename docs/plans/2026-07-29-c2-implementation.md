@@ -362,6 +362,18 @@ the difference and writes one `audit_log` row per disabled key. Ownerless, so
 audited to `audit_log` (§3.1). Without this, a deleted job's trigger fires
 forever and nothing in the system notices.
 
+**The obligation this puts on the extension author.** The sweep asks the SDK
+which keys are live, and the SDK answers from its **handler map** — so an
+extension that does not re-register a handler on every startup is telling the
+host that key is dead. Fires drop silently *and* the row is eventually swept.
+The fail-open only protects an extension that registers **nothing**; a
+**partial** re-registration reports a partial set and loses the remainder.
+Stated in the imperative, with the mechanism and the three-case table, in the
+extension design's job-model section
+(`docs/plans/2026-07-29-ez-factory-extension-design.md` §3.4) — that is where a
+phase-8 author will be looking. Cross-referenced here because this section is
+where the host half of the contract lives.
+
 **Webhook unregister and delivery history.** `webhook_deliveries.webhook_id`
 FKs `extension_webhooks.id` `ON DELETE CASCADE`, so a hard delete on unregister
 destroys the delivery history an operator may still need. Unregister therefore
