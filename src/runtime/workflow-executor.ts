@@ -276,26 +276,54 @@ export class WorkflowExecutor {
       const version = definition
         ? await getLatestWorkflowVersion(definition.id)
         : undefined;
+      // The fingerprint of the graph THIS RUN WAS HANDED — not of the row
+      // that happens to own the name.
+      const ranHash = workflowDefinitionHash(workflow);
+      // ── Only claim a version whose content is what we ran ────────────
+      //
+      // The lookup above is by NAME, and a name does not identify a graph:
+      //   • extension and YAML entries win the name race in the cache
+      //     (`buildWorkflowCache` concatenates them first), so a YAML
+      //     workflow shadowing a DB row would otherwise record the DB
+      //     row's version — a snapshot of steps this run never executed;
+      //   • `updateWorkflow` and `ensureWorkflowVersion` are two writes,
+      //     so a failure between them leaves the row's content ahead of
+      //     its newest version, and every later run would be stamped with
+      //     a stale one — permanently, and silently.
+      // Both are the same error: recording a version we did not run.
+      // Comparing content closes both, and NULL already means exactly
+      // "cannot name the snapshot this run executed" (a pre-versioning run
+      // or a workflow with no row). If a trace ever needs to name the
+      // snapshot for a run of a stale cache entry, resolve it BY
+      // `stepsHash` — do not widen this claim back to "latest".
+      const ranVersion = version?.stepsHash === ranHash ? version : undefined;
       await insertWorkflowRun({
         id: workflowRun.id,
         workflowName: workflow.name,
+        // The row that owns this NAME, which is a resolution fact and
+        // deliberately not gated on content: a run that raced a save still
+        // belongs to the definition it was launched from, and nothing
+        // reads this as a claim about which steps ran.
         workflowDefinitionId: definition?.id ?? null,
         projectId: projectId ?? null,
         userId: userId ?? null,
         input,
         startedAt: new Date(workflowRun.startedAt),
-        definitionVersionId: version?.id ?? null,
+        definitionVersionId: ranVersion?.id ?? null,
         // Pins the graph this run was authorized against, and it is the
         // drift guard that actually fires: C4's resume compares this hash
         // UNCONDITIONALLY. (Reading the version id first, and this only
         // when that is null, is the intended precedence — see
-        // `workflow-versions.ts` — but no code implements it yet.) Taken
-        // from the version row's own `stepsHash` when there is one, so the
-        // hash is a function of the version rather than a second,
-        // independently-drifting answer to the same question; computed
-        // from the live definition otherwise, which is the pre-C6
-        // behaviour and the only option for a workflow with no row.
-        definitionHash: version?.stepsHash ?? workflowDefinitionHash(workflow),
+        // `workflow-versions.ts` — but no code implements it yet.)
+        //
+        // Always the hash of what RAN. When there is a matching version
+        // this is byte-identical to its `stepsHash`, so the hash is still
+        // a function of the version rather than a second,
+        // independently-drifting answer; when there is not, writing the
+        // version's hash would have parked the run against a graph it
+        // never executed and made resume refuse a run that had not
+        // drifted.
+        definitionHash: ranHash,
       });
     });
 
