@@ -45,6 +45,15 @@
  *     the manifest declaration where it is optional), so TypeScript refuses
  *     a half-written row here. `bundled-ceiling-full-field-set.test.ts`
  *     asserts the runtime invariant too, in case the type is ever loosened.
+ *   • `triggers` (C2) — `{maxCron, maxWebhooks, webhookPrefix,
+ *     maxRunsPerDay}`. All four are REQUIRED on
+ *     `ExtensionPermissions["triggers"]` for exactly this reason. Note the
+ *     extra rule beyond the numerics: `intersectPermissions` DROPS the
+ *     grant when the two sides' `webhookPrefix` disagree, because a
+ *     namespace claim has no meaningful "narrower of the two". A ceiling
+ *     row must therefore repeat the extension's own manifest prefix
+ *     verbatim, or the extension silently loses dynamic triggers at boot.
+ *     No bundled extension declares `triggers` yet.
  *
  * `permissions.rbacScopes` (extension-RBAC custom-scope DECLARATIONS) is
  * deliberately ABSENT from every ceiling row AND ignored by the clamp

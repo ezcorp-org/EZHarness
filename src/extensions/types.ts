@@ -578,6 +578,28 @@ export interface ExtensionManifestV2 {
      *  Undeclared slugs are dropped at install (mirrors cron/event; never
      *  widens the grant). */
     webhooks?: string[];
+    /** Envelope for DYNAMIC cron + webhook triggers created at runtime via
+     *  `ctx.triggers` (C2). Deliberately a SEPARATE key from `webhooks`
+     *  above, which is a bare `string[]` of fixed author-chosen slugs — the
+     *  two coexist, and an extension may declare both.
+     *
+     *  The extension never chooses a dynamic slug: it supplies a `key` and
+     *  the host mints `<webhookPrefix><digest>` from the registry-resolved
+     *  extension name, so collision and forgery are inexpressible rather
+     *  than merely denied. `webhookPrefix` is therefore a NAMESPACE CLAIM
+     *  and is taken from the manifest only — never widened by the submitted
+     *  grant, which would let a user hand one extension another's
+     *  namespace.
+     *
+     *  `maxRunsPerDay` is an extension-wide fire ENVELOPE, not a per-job
+     *  allowance; the host additionally derives a per-key cap so one busy
+     *  job cannot starve its siblings. */
+    triggers?: {
+      maxCron?: number;
+      maxWebhooks?: number;
+      webhookPrefix?: string;
+      maxRunsPerDay?: number;
+    };
     /** Trigger runs of workflows this extension SHIPS, via the
      *  `ezcorp/workflows` reverse RPC (W2). Each `names` entry is the
      *  BARE workflow name as declared in one of the extension's own
@@ -935,6 +957,21 @@ export interface ExtensionPermissions {
    *  grant. The host routes an authenticated inbound POST onto the delivery
    *  queue only for a slug present here. See the matching manifest field. */
   webhooks?: string[];
+  /** Granted dynamic-trigger envelope (C2). Every field is REQUIRED here
+   *  (unlike the manifest, where all are optional) — the clamp always
+   *  supplies a bound, and `intersectPermissions` does `Math.min`, so a
+   *  ceiling row that omitted one would produce `NaN`. Same discipline as
+   *  `workflows.maxRunsPerHour` above.
+   *
+   *  `webhookPrefix` is copied from the MANIFEST, never from the submitted
+   *  grant: it names a slug namespace, and letting an install widen it
+   *  would let a user hand one extension another extension's namespace. */
+  triggers?: {
+    maxCron: number;
+    maxWebhooks: number;
+    webhookPrefix: string;
+    maxRunsPerDay: number;
+  };
   /** Granted workflow triggers (W2). `names` are BARE workflow names
    *  clamped at install time to the intersection of the manifest
    *  declaration and the submitted grant; the host namespaces each to
