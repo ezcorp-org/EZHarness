@@ -206,6 +206,47 @@ export function findModelForProviderInTier(
 }
 
 /**
+ * Tier pick that the CREDENTIAL can actually run.
+ *
+ * `findModelForProviderInTier` answers out of the API-key catalog. Under an
+ * OAuth (subscription) credential most of that catalog is unreachable:
+ * `resolveModelForCredential` throws for any openai/google model with no
+ * subscription-eligible sibling. Routing that consulted only the catalog
+ * therefore handed a ChatGPT-plan token `gpt-4` and failed at the first
+ * call with 'Model "gpt-4" is not supported with openai OAuth' — a dead end
+ * the user could not fix from the picker, because they never chose it.
+ *
+ * Filter to models that HAVE an OAuth sibling, prefer the requested tier,
+ * and fall back to the catalog answer for providers with no OAuth variant
+ * (where the swap is a documented no-op).
+ */
+export function findRunnableModelForProviderInTier(
+  provider: string,
+  tier: "fast" | "balanced" | "powerful",
+  credType: "oauth" | "apikey",
+): ModelEntry | null {
+  const oauthProvider = OAUTH_PROVIDER_MAP[provider];
+  if (credType !== "oauth" || !oauthProvider) {
+    return findModelForProviderInTier(provider, tier);
+  }
+
+  const candidates: ModelEntry[] = [];
+  for (const model of getModels(provider as KnownProvider)) {
+    if (resolveOAuthModel(provider, model.id)) candidates.push(piModelToEntry(model));
+  }
+  // OAuth-only ids (e.g. gpt-5.5) live in LOCAL_OAUTH_OVERRIDES and never
+  // appear in the api-key catalog above, so they must be added explicitly —
+  // on a ChatGPT-plan deployment they are frequently the ONLY runnable
+  // models, which is exactly the case this function exists to serve.
+  for (const model of LOCAL_OAUTH_OVERRIDES) {
+    if (model.provider === oauthProvider && !candidates.some((c) => c.id === model.id)) {
+      candidates.push(piModelToEntry(model));
+    }
+  }
+  return candidates.find((c) => c.tier === tier) ?? candidates[0] ?? null;
+}
+
+/**
  * Mapping from user-facing providers to their OAuth-compatible pi-ai provider.
  * When OAuth is active, only models from the OAuth provider are supported
  * because the standard API endpoints require API key auth (not OAuth tokens).

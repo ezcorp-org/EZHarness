@@ -33,6 +33,7 @@ import {
   ProviderUnavailableError,
 } from "../providers/router";
 import { getApiKey } from "../providers/credentials";
+import { resolveModelForCredential } from "../providers/registry";
 
 describe("getDefaultTier", () => {
   // The onboarding wizard historically stored quality/budget — the router
@@ -95,11 +96,32 @@ describe("mergePreferenceOrder", () => {
   });
 });
 
+/**
+ * `resolveModel`'s Level 3 and `suggestFallback` now require a provider to
+ * be AUTHENTICABLE, not merely to own a catalog model in the tier — a
+ * deployment with only OpenAI connected used to resolve every unpinned turn
+ * to `anthropic` and die with "No credentials available for anthropic".
+ *
+ * The suites below are about ORDER and BREAKER behaviour, so they grant
+ * every provider a stored BYOK key and layer their own settings on top.
+ * `extra` wins for the keys it answers; anything else falls through to the
+ * credential grant. Tests that care about the credential rule state it
+ * explicitly instead of relying on this default.
+ */
+const credentialedSettings =
+  (extra: (key: string) => unknown = () => undefined) =>
+  ((key: string) => {
+    const override = extra(key);
+    if (override !== undefined) return Promise.resolve(override);
+    if (key.startsWith("provider:apiKey:")) return Promise.resolve("encrypted:sk-test");
+    return Promise.resolve(undefined);
+  }) as any;
+
 describe("resolveModel", () => {
   beforeEach(() => {
     resetAllCircuitBreakers();
     mockGetSetting.mockReset();
-    mockGetSetting.mockImplementation(() => Promise.resolve(undefined));
+    mockGetSetting.mockImplementation(credentialedSettings());
   });
 
   test("explicit provider+model passes through unchanged", async () => {
@@ -150,12 +172,14 @@ describe("resolveModel", () => {
   });
 
   test("respects custom preference order from settings", async () => {
-    mockGetSetting.mockImplementation(((key: string) => {
-      if (key === "provider:preferenceOrder") return Promise.resolve(["google", "anthropic", "openai"]);
-      // Override default tier to "fast" since all google models are fast
-      if (key === "provider:defaultTier") return Promise.resolve("fast");
-      return Promise.resolve(undefined);
-    }) as any);
+    mockGetSetting.mockImplementation(
+      credentialedSettings((key: string) => {
+        if (key === "provider:preferenceOrder") return ["google", "anthropic", "openai"];
+        // Override default tier to "fast" since all google models are fast
+        if (key === "provider:defaultTier") return "fast";
+        return undefined;
+      }),
+    );
 
     const result = await resolveModel();
     expect(result.provider).toBe("google");
@@ -166,10 +190,11 @@ describe("resolveModel", () => {
     // before openrouter existed. getPreferenceOrder must append openrouter,
     // so once the three stored providers' circuit breakers are open, routing
     // still falls through to openrouter instead of throwing "No available".
-    mockGetSetting.mockImplementation(((key: string) => {
-      if (key === "provider:preferenceOrder") return Promise.resolve(["anthropic", "openai", "google"]);
-      return Promise.resolve(undefined);
-    }) as any);
+    mockGetSetting.mockImplementation(
+      credentialedSettings((key: string) =>
+        key === "provider:preferenceOrder" ? ["anthropic", "openai", "google"] : undefined,
+      ),
+    );
     for (const p of ["anthropic", "openai", "google"]) {
       const cb = getCircuitBreaker(p);
       for (let i = 0; i < 3; i++) cb.recordFailure();
@@ -226,6 +251,98 @@ describe("resolveModel", () => {
     // …while a context-free (shared-scope) caller still gets anthropic.
     const shared = await resolveModel();
     expect(shared.provider).toBe("anthropic");
+  });
+
+  // ── Level 3 must pick a provider it can AUTHENTICATE ────────────────
+  //
+  // Bug reproduction. Reported as "No credentials available for anthropic"
+  // while a ChatGPT model was selected in the picker. Level 3 runs whenever
+  // no provider is pinned — an Auto-routing turn, or any conversation row
+  // with a null provider — and it used to select purely on "does this
+  // provider have a model in the tier". `anthropic` is first in
+  // DEFAULT_PREFERENCE_ORDER and always has catalog models, so on an
+  // OpenAI-only deployment every such turn resolved to anthropic and then
+  // threw from getCredential. The picker was never consulted, which is why
+  // the message named a provider the user had not chosen.
+  describe("Level 3 credential gating", () => {
+    // Only openai is authenticable — the exact shape of the reported
+    // deployment (ChatGPT OAuth connected, no Anthropic key).
+    const onlyOpenAI = ((key: string) =>
+      Promise.resolve(key === "provider:apiKey:openai" ? "encrypted:sk-test" : undefined)) as any;
+
+    test("skips a credential-less anthropic and resolves the provider that can actually run", async () => {
+      mockGetSetting.mockImplementation(onlyOpenAI);
+
+      const result = await resolveModel();
+
+      expect(result.provider).toBe("openai");
+      expect(result.model).toBeDefined();
+    });
+
+    test("honors preference order among CREDENTIALED providers, not catalog presence", async () => {
+      // google sits first in the stored order but has no key; openai does.
+      mockGetSetting.mockImplementation(((key: string) => {
+        if (key === "provider:preferenceOrder") return Promise.resolve(["google", "openai"]);
+        if (key === "provider:apiKey:openai") return Promise.resolve("encrypted:sk-test");
+        return Promise.resolve(undefined);
+      }) as any);
+
+      expect((await resolveModel()).provider).toBe("openai");
+    });
+
+    test("an explicit provider+model pin is NOT credential-gated — Level 1 still passes through", async () => {
+      // The probe belongs to the CHOOSING branch only. A user who pinned a
+      // model must still reach the provider's own error (which names the
+      // real problem) rather than being silently rerouted elsewhere.
+      mockGetSetting.mockImplementation(onlyOpenAI);
+
+      const result = await resolveModel("anthropic", "claude-sonnet-4-20250514");
+      expect(result.provider).toBe("anthropic");
+      expect(result.model).toBe("claude-sonnet-4-20250514");
+    });
+
+    // Second half of the same bug. Once Level 3 stopped choosing anthropic
+    // it chose openai — then handed a ChatGPT OAuth token `gpt-4` and died
+    // with 'Model "gpt-4" is not supported with openai OAuth'. Having a
+    // credential is not enough; the MODEL has to be one that credential can
+    // serve. Only subscription-eligible ids qualify under OAuth.
+    test("under an OAuth credential, picks a subscription-eligible model — never a bare api-key catalog id", async () => {
+      // The stored value is ciphertext; this file's `decrypt` mock strips
+      // the "encrypted:" prefix, so build the token the same way.
+      const oauthBlob =
+        "encrypted:" +
+        JSON.stringify({ accessToken: "tok", refreshToken: "r", expiresAt: Date.now() + 3_600_000 });
+      mockGetSetting.mockImplementation(((key: string) =>
+        Promise.resolve(
+          key === "provider:accessMode:openai"
+            ? "oauth"
+            : key === "provider:oauth:openai"
+              ? oauthBlob
+              : undefined,
+        )) as any);
+
+      const result = await resolveModel();
+      expect(result.provider).toBe("openai");
+      // gpt-4 has no OAuth sibling; resolveModelForCredential would throw.
+      expect(result.model).not.toBe("gpt-4");
+      // The chosen id must survive the very swap that used to throw.
+      expect(() => resolveModelForCredential(result.piModel, "openai", "oauth")).not.toThrow();
+    });
+
+    test("with NO provider credentialed, the throw names the real constraint", async () => {
+      mockGetSetting.mockImplementation((() => Promise.resolve(undefined)) as any);
+      // Env keys would satisfy getApiKey's fallback and mask the case.
+      const saved: Record<string, string | undefined> = {};
+      for (const v of ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY", "OPENROUTER_API_KEY"]) {
+        saved[v] = process.env[v];
+        delete process.env[v];
+      }
+      try {
+        await expect(resolveModel()).rejects.toThrow(/No available providers with credentials/);
+      } finally {
+        for (const [v, val] of Object.entries(saved)) if (val !== undefined) process.env[v] = val;
+      }
+    });
   });
 
   describe("resolveModel with custom models", () => {
@@ -291,7 +408,7 @@ describe("suggestFallback", () => {
   beforeEach(() => {
     resetAllCircuitBreakers();
     mockGetSetting.mockReset();
-    mockGetSetting.mockImplementation(() => Promise.resolve(undefined));
+    mockGetSetting.mockImplementation(credentialedSettings());
   });
 
   test("returns next available provider+model in same tier", async () => {
@@ -358,10 +475,11 @@ describe("suggestFallback", () => {
     // Stored order predates openrouter; getPreferenceOrder appends it, so with
     // the stored anthropic/openai/google all failed/open, openrouter is the
     // only remaining fallback suggestion.
-    mockGetSetting.mockImplementation(((key: string) => {
-      if (key === "provider:preferenceOrder") return Promise.resolve(["anthropic", "openai", "google"]);
-      return Promise.resolve(undefined);
-    }) as any);
+    mockGetSetting.mockImplementation(
+      credentialedSettings((key: string) =>
+        key === "provider:preferenceOrder" ? ["anthropic", "openai", "google"] : undefined,
+      ),
+    );
     for (const p of ["openai", "google"]) {
       const cb = getCircuitBreaker(p);
       for (let i = 0; i < 3; i++) cb.recordFailure();
@@ -370,6 +488,28 @@ describe("suggestFallback", () => {
     const suggestion = await suggestFallback("anthropic", "balanced");
     expect(suggestion).not.toBeNull();
     expect(suggestion!.provider).toBe("openrouter");
+  });
+
+  // Same rule as Level 3. Suggesting a provider we cannot authenticate
+  // converts a recoverable provider error into a second credentials error,
+  // and shows the user a "try X instead" that could never have worked.
+  test("never suggests a provider with no usable credential", async () => {
+    mockGetSetting.mockImplementation(((key: string) =>
+      Promise.resolve(key === "provider:apiKey:openrouter" ? "encrypted:sk-test" : undefined)) as any);
+    const saved: Record<string, string | undefined> = {};
+    for (const v of ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"]) {
+      saved[v] = process.env[v];
+      delete process.env[v];
+    }
+    try {
+      // openai + google precede openrouter in the default order but have no
+      // credential, so the only honest suggestion is openrouter.
+      const suggestion = await suggestFallback("anthropic", "balanced");
+      expect(suggestion).not.toBeNull();
+      expect(suggestion!.provider).toBe("openrouter");
+    } finally {
+      for (const [v, val] of Object.entries(saved)) if (val !== undefined) process.env[v] = val;
+    }
   });
 });
 

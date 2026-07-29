@@ -66,9 +66,25 @@ describe("MOD-02: Per-conversation model selection", () => {
 
 // ── MOD-03: Tier-based auto-routing ──────────────────────────────────
 
+/**
+ * Grant every provider a stored BYOK key.
+ *
+ * `resolveModel`'s no-provider branch and `suggestFallback` only consider
+ * providers they can AUTHENTICATE — without this the suites below have no
+ * candidates at all and fail on the credential rule rather than on the
+ * tier/fallback behaviour they exist to verify. Encryption is real in this
+ * file, so the stored value is real ciphertext.
+ */
+function grantAllProviderKeys(): void {
+  const stored = encrypt("sk-test");
+  mockGetSetting.mockImplementation(((key: string) =>
+    Promise.resolve(key.startsWith("provider:apiKey:") ? stored : undefined)) as any);
+}
+
 describe("MOD-03: Tier-based auto-routing", () => {
   beforeEach(() => {
     resetAllCircuitBreakers();
+    grantAllProviderKeys();
   });
 
   test("resolveModel with no explicit provider returns a model from balanced tier", async () => {
@@ -85,6 +101,7 @@ describe("MOD-03: Tier-based auto-routing", () => {
 describe("MOD-04: Fallback chains", () => {
   beforeEach(() => {
     resetAllCircuitBreakers();
+    grantAllProviderKeys();
   });
 
   test("suggestFallback returns alternative provider after circuit breaker opens", async () => {
