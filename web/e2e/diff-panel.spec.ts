@@ -1,5 +1,17 @@
 import { test, expect } from "./fixtures/test-base.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
+import type { Page } from "@playwright/test";
+
+/**
+ * Code review panel (GitHub "Files changed" clone) — browser-level behaviour.
+ *
+ * The panel used to be a narrow "Diff Summary" drawer with two separate lists;
+ * it is now one GitHub-shaped review surface at 75% of the viewport with a
+ * file tree, sticky file headers, Viewed checkboxes and a filter box. These
+ * specs pin the user-visible contract of that surface: geometry, the merged
+ * file list, expand/collapse, filtering, viewed progress + persistence, and
+ * the split/unified preference.
+ */
 
 const DIFF_CONTENT = `Here is the diff:
 
@@ -30,230 +42,279 @@ const MULTI_DIFF_CONTENT = `Two changes:
 And another:
 
 \`\`\`diff
---- a/src/db.ts
-+++ b/src/db.ts
+--- a/web/db.ts
++++ b/web/db.ts
 @@ -1 +1 @@
 -old db
 +new db
 \`\`\``;
 
-test.describe("Diff Summary Panel", () => {
-	const proj = makeProject({ id: "proj-dp", name: "Diff Panel Project" });
-	const conv = makeConversation({ id: "conv-dp", projectId: "proj-dp", title: "Diff Panel Chat" });
+const proj = makeProject({ id: "proj-dp", name: "Diff Panel Project" });
+const conv = makeConversation({ id: "conv-dp", projectId: "proj-dp", title: "Diff Panel Chat" });
 
+function assistantWith(content: string) {
+	return [
+		makeMessage({ id: "m1", conversationId: "conv-dp", role: "user", content: "Show diff" }),
+		makeMessage({
+			id: "m2",
+			conversationId: "conv-dp",
+			role: "assistant",
+			content,
+			parentMessageId: "m1",
+			createdAt: "2026-01-01T00:01:00.000Z",
+		}),
+	];
+}
+
+/**
+ * Open the review panel and return its locator.
+ *
+ * Gates on a hydrated composer first: the diff button ships in the SSR markup
+ * and is clickable long before its handler is attached, so an early click is a
+ * silent no-op (same slow-hydration flake `briefing-watch-tool-card.spec.ts`
+ * guards against). The panel's open-state also persists per conversation, so
+ * only click when it isn't already showing.
+ */
+async function openReviewPanel(page: Page) {
+	await expect(page.locator("textarea").first()).toBeEnabled({ timeout: 15_000 });
+	const btn = page.locator('[data-testid="diff-panel-btn"]');
+	await expect(btn).toBeVisible({ timeout: 5000 });
+	const panel = page.locator('[data-testid="diff-summary-panel"]');
+	if (!(await panel.isVisible())) await btn.click();
+	await expect(panel).toBeVisible({ timeout: 5000 });
+	return panel;
+}
+
+test.describe("Code review panel", () => {
 	test("panel toggle: click opens panel, close dismisses it", async ({ page, mockApi }) => {
 		await mockApi({ projects: [proj], conversations: [conv], messages: [] });
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`, { waitUntil: "networkidle" });
 
-		const btn = page.locator('[data-testid="diff-panel-btn"]');
-		await expect(btn).toBeVisible({ timeout: 5000 });
-
-		// Open panel
-		await btn.click();
-		await expect(page.locator('[data-testid="diff-summary-panel"]')).toBeVisible({ timeout: 5000 });
-
-		// Close via close button
+		const panel = await openReviewPanel(page);
 		await page.locator('[data-testid="diff-panel-close"]').click();
-		await expect(page.locator('[data-testid="diff-summary-panel"]')).not.toBeVisible();
+		await expect(panel).not.toBeVisible();
 	});
 
 	test("panel toggle: backdrop dismisses panel", async ({ page, mockApi }) => {
 		await mockApi({ projects: [proj], conversations: [conv], messages: [] });
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`, { waitUntil: "networkidle" });
 
-		const btn = page.locator('[data-testid="diff-panel-btn"]');
-		await expect(btn).toBeVisible({ timeout: 5000 });
-		await btn.click();
-		await expect(page.locator('[data-testid="diff-summary-panel"]')).toBeVisible({ timeout: 5000 });
-
-		// Close via SwipeDrawer backdrop
+		const panel = await openReviewPanel(page);
 		await page.getByTestId("swipe-drawer-backdrop").click({ force: true });
-		await expect(page.locator('[data-testid="diff-summary-panel"]')).not.toBeVisible();
+		await expect(panel).not.toBeVisible();
+	});
+
+	test("panel spans 75% of the viewport, right-anchored and full height", async ({
+		page,
+		mockApi,
+	}) => {
+		await mockApi({ projects: [proj], conversations: [conv], messages: [] });
+		await page.goto(`/project/${proj.id}/chat/${conv.id}`, { waitUntil: "networkidle" });
+
+		const panel = await openReviewPanel(page);
+		const viewport = page.viewportSize()!;
+		// The drawer slides in over 300ms — poll until the right edge settles
+		// against the viewport rather than measuring mid-animation.
+		await expect
+			.poll(async () => {
+				const b = (await panel.boundingBox())!;
+				return Math.round(b.x + b.width);
+			})
+			.toBe(viewport.width);
+
+		const box = (await panel.boundingBox())!;
+		expect(box.width).toBeCloseTo(viewport.width * 0.75, -1);
+		expect(box.y).toBe(0);
+		expect(box.height).toBe(viewport.height);
+	});
+
+	test("header reads 'Files changed' with the count and +/- totals", async ({ page, mockApi }) => {
+		await mockApi({
+			projects: [proj],
+			conversations: [conv],
+			messages: assistantWith(MULTI_DIFF_CONTENT),
+		});
+		await page.goto(`/project/${proj.id}/chat/${conv.id}`, { waitUntil: "networkidle" });
+
+		const panel = await openReviewPanel(page);
+		await expect(panel.locator("h2")).toHaveText("Files changed");
+		await expect(page.getByTestId("diff-review-count")).toHaveText("2");
+		await expect(page.getByTestId("diff-review-totals")).toContainText("+2");
+		await expect(page.getByTestId("diff-review-totals")).toContainText("−2");
 	});
 
 	test("empty state: shows message when no diffs exist", async ({ page, mockApi }) => {
 		await mockApi({ projects: [proj], conversations: [conv], messages: [] });
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`, { waitUntil: "networkidle" });
 
-		const btn = page.locator('[data-testid="diff-panel-btn"]');
-		await expect(btn).toBeVisible({ timeout: 5000 });
-		await btn.click();
-		await expect(page.locator('[data-testid="diff-panel-empty"]')).toBeVisible();
-		await expect(page.locator('[data-testid="diff-panel-empty"]')).toContainText("No file changes");
+		await openReviewPanel(page);
+		await expect(page.getByTestId("diff-panel-empty")).toBeVisible();
+		await expect(page.getByTestId("diff-panel-empty")).toContainText("No file changes");
+		// Nothing to review means no tree and a disabled bulk toggle.
+		await expect(page.getByTestId("diff-file-tree")).toHaveCount(0);
+		await expect(page.getByTestId("diff-toggle-all")).toBeDisabled();
 	});
 
-	test("code diffs appear in panel from message content", async ({ page, mockApi }) => {
-		const userMsg = makeMessage({ id: "m1", conversationId: "conv-dp", role: "user", content: "Show diff" });
-		const assistantMsg = makeMessage({
-			id: "m2",
-			conversationId: "conv-dp",
-			role: "assistant",
-			content: DIFF_CONTENT,
-			parentMessageId: "m1",
-			createdAt: "2026-01-01T00:01:00.000Z",
+	test("one file card per changed file, showing the path", async ({ page, mockApi }) => {
+		await mockApi({ projects: [proj], conversations: [conv], messages: assistantWith(DIFF_CONTENT) });
+		await page.goto(`/project/${proj.id}/chat/${conv.id}`, { waitUntil: "networkidle" });
+
+		await openReviewPanel(page);
+		const cards = page.getByTestId("diff-file-card");
+		await expect(cards).toHaveCount(1);
+		await expect(cards.first()).toHaveAttribute("data-path", "src/auth.ts");
+		await expect(cards.first()).toContainText("src/auth.ts");
+	});
+
+	test("multiple diffs render multiple cards", async ({ page, mockApi }) => {
+		await mockApi({
+			projects: [proj],
+			conversations: [conv],
+			messages: assistantWith(MULTI_DIFF_CONTENT),
 		});
-
-		await mockApi({ projects: [proj], conversations: [conv], messages: [userMsg, assistantMsg] });
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`, { waitUntil: "networkidle" });
 
-		const btn = page.locator('[data-testid="diff-panel-btn"]');
-		await expect(btn).toBeVisible({ timeout: 5000 });
-		await btn.click();
-		await expect(page.locator('[data-testid="diff-summary-panel"]')).toBeVisible({ timeout: 5000 });
-
-		// Code Diffs section should have entries
-		const codeSections = page.locator('[data-testid="diff-code-section"]');
-		await expect(codeSections).toHaveCount(1);
+		await openReviewPanel(page);
+		await expect(page.getByTestId("diff-file-card")).toHaveCount(2);
 	});
 
-	test("file sections auto-expand when fewer than 10 files", async ({ page, mockApi }) => {
-		const userMsg = makeMessage({ id: "m1", conversationId: "conv-dp", role: "user", content: "Show diff" });
-		const assistantMsg = makeMessage({
-			id: "m2",
-			conversationId: "conv-dp",
-			role: "assistant",
-			content: DIFF_CONTENT,
-			parentMessageId: "m1",
-			createdAt: "2026-01-01T00:01:00.000Z",
+	test("files open expanded and the chevron collapses one", async ({ page, mockApi }) => {
+		await mockApi({ projects: [proj], conversations: [conv], messages: assistantWith(DIFF_CONTENT) });
+		await page.goto(`/project/${proj.id}/chat/${conv.id}`, { waitUntil: "networkidle" });
+
+		await openReviewPanel(page);
+		const card = page.getByTestId("diff-file-card").first();
+		await expect(card).toHaveAttribute("data-expanded", "true");
+
+		await page.getByTestId("diff-file-toggle").first().click();
+		await expect(card).toHaveAttribute("data-expanded", "false");
+		await expect(page.getByTestId("diff-file-body")).toHaveCount(0);
+	});
+
+	test("Collapse all / Expand all drives every card at once", async ({ page, mockApi }) => {
+		await mockApi({
+			projects: [proj],
+			conversations: [conv],
+			messages: assistantWith(MULTI_DIFF_CONTENT),
 		});
-
-		await mockApi({ projects: [proj], conversations: [conv], messages: [userMsg, assistantMsg] });
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`, { waitUntil: "networkidle" });
 
-		const btn = page.locator('[data-testid="diff-panel-btn"]');
-		await expect(btn).toBeVisible({ timeout: 5000 });
-		await btn.click();
+		await openReviewPanel(page);
+		const cards = page.getByTestId("diff-file-card");
+		await expect(cards).toHaveCount(2);
 
-		const section = page.locator('[data-testid="diff-code-section"]').first();
-		await expect(section).toBeVisible();
+		await page.getByTestId("diff-toggle-all").click();
+		await expect(cards.nth(0)).toHaveAttribute("data-expanded", "false");
+		await expect(cards.nth(1)).toHaveAttribute("data-expanded", "false");
+		await expect(page.getByTestId("diff-toggle-all")).toHaveText("Expand all");
 
-		// Auto-expanded because only 1 file (< 10)
-		await expect(section).toHaveAttribute("data-expanded", "true");
+		await page.getByTestId("diff-toggle-all").click();
+		await expect(cards.nth(0)).toHaveAttribute("data-expanded", "true");
 	});
 
-	test("auto-expanded section collapses on click", async ({ page, mockApi }) => {
-		const userMsg = makeMessage({ id: "m1", conversationId: "conv-dp", role: "user", content: "Show diff" });
-		const assistantMsg = makeMessage({
-			id: "m2",
-			conversationId: "conv-dp",
-			role: "assistant",
-			content: DIFF_CONTENT,
-			parentMessageId: "m1",
-			createdAt: "2026-01-01T00:01:00.000Z",
+	test("file tree lists the changed files and collapses a directory", async ({ page, mockApi }) => {
+		await mockApi({
+			projects: [proj],
+			conversations: [conv],
+			messages: assistantWith(MULTI_DIFF_CONTENT),
 		});
-
-		await mockApi({ projects: [proj], conversations: [conv], messages: [userMsg, assistantMsg] });
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`, { waitUntil: "networkidle" });
 
-		await page.locator('[data-testid="diff-panel-btn"]').click();
-		await expect(page.locator('[data-testid="diff-summary-panel"]')).toBeVisible({ timeout: 5000 });
+		await openReviewPanel(page);
+		await expect(page.getByTestId("diff-file-tree")).toBeVisible();
 
-		const section = page.locator('[data-testid="diff-code-section"]').first();
-		const toggle = page.locator('[data-testid="diff-code-toggle"]').first();
+		const dirs = page.getByTestId("review-tree-dir");
+		await expect(dirs).toHaveCount(2);
+		await expect(page.getByTestId("review-tree-file")).toHaveCount(2);
 
-		// Auto-expanded (< 10 files)
-		await expect(section).toHaveAttribute("data-expanded", "true");
-
-		// Collapse
-		await toggle.click();
-		await expect(section).toHaveAttribute("data-expanded", "false");
+		await dirs.first().click();
+		await expect(page.getByTestId("review-tree-file")).toHaveCount(1);
 	});
 
-	test("multiple code diffs show multiple sections", async ({ page, mockApi }) => {
-		const userMsg = makeMessage({ id: "m1", conversationId: "conv-dp", role: "user", content: "Show diffs" });
-		const assistantMsg = makeMessage({
-			id: "m2",
-			conversationId: "conv-dp",
-			role: "assistant",
-			content: MULTI_DIFF_CONTENT,
-			parentMessageId: "m1",
-			createdAt: "2026-01-01T00:01:00.000Z",
+	test("the file tree rail hides and comes back", async ({ page, mockApi }) => {
+		await mockApi({ projects: [proj], conversations: [conv], messages: assistantWith(DIFF_CONTENT) });
+		await page.goto(`/project/${proj.id}/chat/${conv.id}`, { waitUntil: "networkidle" });
+
+		await openReviewPanel(page);
+		await page.getByTestId("diff-tree-hide").click();
+		await expect(page.getByTestId("diff-file-tree")).toHaveCount(0);
+
+		await page.getByTestId("diff-tree-show").click();
+		await expect(page.getByTestId("diff-file-tree")).toBeVisible();
+	});
+
+	test("filter narrows the file list and the count follows it", async ({ page, mockApi }) => {
+		await mockApi({
+			projects: [proj],
+			conversations: [conv],
+			messages: assistantWith(MULTI_DIFF_CONTENT),
 		});
-
-		await mockApi({ projects: [proj], conversations: [conv], messages: [userMsg, assistantMsg] });
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`, { waitUntil: "networkidle" });
 
-		await page.locator('[data-testid="diff-panel-btn"]').click();
-		await expect(page.locator('[data-testid="diff-summary-panel"]')).toBeVisible({ timeout: 5000 });
+		await openReviewPanel(page);
+		await page.getByTestId("diff-file-filter").fill("auth");
 
-		const codeSections = page.locator('[data-testid="diff-code-section"]');
-		await expect(codeSections).toHaveCount(2);
+		await expect(page.getByTestId("diff-file-card")).toHaveCount(1);
+		await expect(page.getByTestId("diff-file-card").first()).toHaveAttribute(
+			"data-path",
+			"src/auth.ts",
+		);
+		await expect(page.getByTestId("diff-review-count")).toHaveText("1");
 	});
 
-	test("panel shows file count badge when diffs exist", async ({ page, mockApi }) => {
-		const userMsg = makeMessage({ id: "m1", conversationId: "conv-dp", role: "user", content: "Show diff" });
-		const assistantMsg = makeMessage({
-			id: "m2",
-			conversationId: "conv-dp",
-			role: "assistant",
-			content: DIFF_CONTENT,
-			parentMessageId: "m1",
-			createdAt: "2026-01-01T00:01:00.000Z",
-		});
-
-		await mockApi({ projects: [proj], conversations: [conv], messages: [userMsg, assistantMsg] });
+	test("a filter matching nothing offers a Clear filter escape hatch", async ({ page, mockApi }) => {
+		await mockApi({ projects: [proj], conversations: [conv], messages: assistantWith(DIFF_CONTENT) });
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`, { waitUntil: "networkidle" });
 
-		await page.locator('[data-testid="diff-panel-btn"]').click();
-		await expect(page.locator('[data-testid="diff-summary-panel"]')).toBeVisible({ timeout: 5000 });
+		await openReviewPanel(page);
+		await page.getByTestId("diff-file-filter").fill("no-such-file");
 
-		// Header should show file count
-		const header = page.locator('[data-testid="diff-summary-panel"]');
-		await expect(header).toContainText("1 file");
+		await expect(page.getByTestId("diff-filter-empty")).toBeVisible();
+		// The real empty state stays reserved for "no changes at all".
+		await expect(page.getByTestId("diff-panel-empty")).toHaveCount(0);
+
+		await page.getByTestId("diff-filter-empty").getByRole("button", { name: "Clear filter" }).click();
+		await expect(page.getByTestId("diff-file-card")).toHaveCount(1);
 	});
 
-	test("multiple files shows plural count", async ({ page, mockApi }) => {
-		const userMsg = makeMessage({ id: "m1", conversationId: "conv-dp", role: "user", content: "Show diffs" });
-		const assistantMsg = makeMessage({
-			id: "m2",
-			conversationId: "conv-dp",
-			role: "assistant",
-			content: MULTI_DIFF_CONTENT,
-			parentMessageId: "m1",
-			createdAt: "2026-01-01T00:01:00.000Z",
-		});
-
-		await mockApi({ projects: [proj], conversations: [conv], messages: [userMsg, assistantMsg] });
+	test("Viewed collapses the file, advances progress, and survives a reload", async ({
+		page,
+		mockApi,
+	}) => {
+		await mockApi({ projects: [proj], conversations: [conv], messages: assistantWith(DIFF_CONTENT) });
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`, { waitUntil: "networkidle" });
 
-		await page.locator('[data-testid="diff-panel-btn"]').click();
-		await expect(page.locator('[data-testid="diff-summary-panel"]')).toBeVisible({ timeout: 5000 });
+		await openReviewPanel(page);
+		await expect(page.getByTestId("diff-viewed-progress")).toContainText("0 / 1 files viewed");
 
-		const header = page.locator('[data-testid="diff-summary-panel"]');
-		await expect(header).toContainText("2 files");
+		await page.getByTestId("diff-viewed-checkbox").first().check();
+		const card = page.getByTestId("diff-file-card").first();
+		await expect(card).toHaveAttribute("data-viewed", "true");
+		await expect(card).toHaveAttribute("data-expanded", "false");
+		await expect(page.getByTestId("diff-viewed-progress")).toContainText("1 / 1 files viewed");
+
+		await page.reload({ waitUntil: "networkidle" });
+		await openReviewPanel(page);
+		await expect(page.getByTestId("diff-file-card").first()).toHaveAttribute("data-viewed", "true");
 	});
 
-	test("panel header shows 'Diff Summary' title", async ({ page, mockApi }) => {
-		await mockApi({ projects: [proj], conversations: [conv], messages: [] });
+	test("un-ticking Viewed re-opens the file", async ({ page, mockApi }) => {
+		await mockApi({ projects: [proj], conversations: [conv], messages: assistantWith(DIFF_CONTENT) });
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`, { waitUntil: "networkidle" });
 
-		await page.locator('[data-testid="diff-panel-btn"]').click();
-		await expect(page.locator('[data-testid="diff-summary-panel"]')).toBeVisible({ timeout: 5000 });
+		await openReviewPanel(page);
+		const checkbox = page.getByTestId("diff-viewed-checkbox").first();
+		await checkbox.check();
+		await expect(page.getByTestId("diff-file-card").first()).toHaveAttribute("data-viewed", "true");
 
-		await expect(page.locator('[data-testid="diff-summary-panel"] h2')).toContainText("Diff Summary");
+		await checkbox.uncheck();
+		await expect(page.getByTestId("diff-file-card").first()).toHaveAttribute(
+			"data-expanded",
+			"true",
+		);
 	});
 
-	test("diff panel button has active state when panel is open", async ({ page, mockApi }) => {
-		await mockApi({ projects: [proj], conversations: [conv], messages: [] });
-		await page.goto(`/project/${proj.id}/chat/${conv.id}`, { waitUntil: "networkidle" });
-
-		const btn = page.locator('[data-testid="diff-panel-btn"]');
-		await expect(btn).toBeVisible({ timeout: 5000 });
-
-		// Before open — class string should end without active bg (only has hover: prefix)
-		const classBefore = await btn.getAttribute("class") ?? "";
-		expect(classBefore.includes("bg-gray-700 text-white")).toBe(false);
-
-		// Open panel
-		await btn.click();
-		await expect(page.locator('[data-testid="diff-summary-panel"]')).toBeVisible({ timeout: 5000 });
-
-		// Button should now have active state (non-hover bg-gray-700)
-		const classAfter = await btn.getAttribute("class") ?? "";
-		expect(classAfter.includes("bg-gray-700 text-white")).toBe(true);
-	});
-
-	test("user messages are ignored, only assistant diffs extracted", async ({ page, mockApi }) => {
+	test("user messages are ignored, only assistant diffs are reviewed", async ({ page, mockApi }) => {
 		const userMsg = makeMessage({
 			id: "m1",
 			conversationId: "conv-dp",
@@ -272,425 +333,219 @@ test.describe("Diff Summary Panel", () => {
 		await mockApi({ projects: [proj], conversations: [conv], messages: [userMsg, assistantMsg] });
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`, { waitUntil: "networkidle" });
 
-		await page.locator('[data-testid="diff-panel-btn"]').click();
-		await expect(page.locator('[data-testid="diff-summary-panel"]')).toBeVisible({ timeout: 5000 });
-
-		// Only 1 section from assistant, not 2
-		const codeSections = page.locator('[data-testid="diff-code-section"]');
-		await expect(codeSections).toHaveCount(1);
+		await openReviewPanel(page);
+		await expect(page.getByTestId("diff-file-card")).toHaveCount(1);
+		await expect(page.getByTestId("diff-file-card").first()).toHaveAttribute(
+			"data-path",
+			"src/auth.ts",
+		);
 	});
 
-	test("code diff section shows filename in toggle button", async ({ page, mockApi }) => {
-		const userMsg = makeMessage({ id: "m1", conversationId: "conv-dp", role: "user", content: "Show diff" });
-		const assistantMsg = makeMessage({
-			id: "m2",
-			conversationId: "conv-dp",
-			role: "assistant",
-			content: DIFF_CONTENT,
-			parentMessageId: "m1",
-			createdAt: "2026-01-01T00:01:00.000Z",
-		});
-
-		await mockApi({ projects: [proj], conversations: [conv], messages: [userMsg, assistantMsg] });
-		await page.goto(`/project/${proj.id}/chat/${conv.id}`, { waitUntil: "networkidle" });
-
-		await page.locator('[data-testid="diff-panel-btn"]').click();
-		await expect(page.locator('[data-testid="diff-summary-panel"]')).toBeVisible({ timeout: 5000 });
-
-		const toggle = page.locator('[data-testid="diff-code-toggle"]').first();
-		await expect(toggle).toContainText("src/auth.ts");
-	});
-
-	test("diff without filename shows 'unnamed diff'", async ({ page, mockApi }) => {
-		const noFilenameDiff = "```diff\n@@ -1 +1 @@\n-old\n+new\n```";
-		const userMsg = makeMessage({ id: "m1", conversationId: "conv-dp", role: "user", content: "diff" });
-		const assistantMsg = makeMessage({
-			id: "m2",
-			conversationId: "conv-dp",
-			role: "assistant",
-			content: noFilenameDiff,
-			parentMessageId: "m1",
-			createdAt: "2026-01-01T00:01:00.000Z",
-		});
-
-		await mockApi({ projects: [proj], conversations: [conv], messages: [userMsg, assistantMsg] });
-		await page.goto(`/project/${proj.id}/chat/${conv.id}`, { waitUntil: "networkidle" });
-
-		await page.locator('[data-testid="diff-panel-btn"]').click();
-		await expect(page.locator('[data-testid="diff-summary-panel"]')).toBeVisible({ timeout: 5000 });
-
-		const toggle = page.locator('[data-testid="diff-code-toggle"]').first();
-		await expect(toggle).toContainText("unnamed diff");
-	});
-
-	test("auto-expanded code diff renders diff2html content", async ({ page, mockApi }) => {
-		const userMsg = makeMessage({ id: "m1", conversationId: "conv-dp", role: "user", content: "Show diff" });
-		const assistantMsg = makeMessage({
-			id: "m2",
-			conversationId: "conv-dp",
-			role: "assistant",
-			content: DIFF_CONTENT,
-			parentMessageId: "m1",
-			createdAt: "2026-01-01T00:01:00.000Z",
-		});
-
-		await mockApi({ projects: [proj], conversations: [conv], messages: [userMsg, assistantMsg] });
-		await page.goto(`/project/${proj.id}/chat/${conv.id}`, { waitUntil: "networkidle" });
-
-		await page.locator('[data-testid="diff-panel-btn"]').click();
-		await expect(page.locator('[data-testid="diff-summary-panel"]')).toBeVisible({ timeout: 5000 });
-
-		// Auto-expanded (< 10 files), diff2html content should be visible immediately
-		const diffContent = page.locator('.diff-panel-content');
-		await expect(diffContent).toBeVisible();
-	});
-
-	test("empty state disappears when assistant sends diff content", async ({ page, mockApi }) => {
-		// Start with no messages — empty state
-		await mockApi({ projects: [proj], conversations: [conv], messages: [] });
-		await page.goto(`/project/${proj.id}/chat/${conv.id}`, { waitUntil: "networkidle" });
-
-		await page.locator('[data-testid="diff-panel-btn"]').click();
-		await expect(page.locator('[data-testid="diff-panel-empty"]')).toBeVisible();
-
-		// No code diff sections
-		await expect(page.locator('[data-testid="diff-code-section"]')).toHaveCount(0);
-	});
-
-	test("panel has correct visual layout: width, border, shadow, title styling", async ({ page, mockApi }) => {
-		await mockApi({ projects: [proj], conversations: [conv], messages: [] });
-		await page.goto(`/project/${proj.id}/chat/${conv.id}`, { waitUntil: "networkidle" });
-
-		await page.locator('[data-testid="diff-panel-btn"]').click();
-		const panel = page.locator('[data-testid="diff-summary-panel"]');
-		await expect(panel).toBeVisible({ timeout: 5000 });
-
-		// Panel should be 48rem wide (768px at default font size)
-		const box = await panel.boundingBox();
-		expect(box).toBeTruthy();
-		expect(box!.width).toBeGreaterThanOrEqual(756);
-		expect(box!.width).toBeLessThanOrEqual(780);
-
-		// Panel should be anchored to right edge
-		const viewport = page.viewportSize()!;
-		expect(box!.x + box!.width).toBeCloseTo(viewport.width, -1);
-
-		// Panel should span full height
-		expect(box!.y).toBe(0);
-		expect(box!.height).toBe(viewport.height);
-
-		// Title should say "Diff Summary"
-		const title = panel.locator("h2");
-		await expect(title).toHaveText("Diff Summary");
-
-		// Title should be semibold
-		const fontWeight = await title.evaluate((el) => getComputedStyle(el).fontWeight);
-		expect(Number(fontWeight)).toBeGreaterThanOrEqual(600);
-	});
-
-	test("expanded diff renders diff2html table with proper font size", async ({ page, mockApi }) => {
-		const userMsg = makeMessage({ id: "m1", conversationId: "conv-dp", role: "user", content: "diff" });
-		const assistantMsg = makeMessage({
-			id: "m2",
-			conversationId: "conv-dp",
-			role: "assistant",
-			content: DIFF_CONTENT,
-			parentMessageId: "m1",
-			createdAt: "2026-01-01T00:01:00.000Z",
-		});
-
-		await mockApi({ projects: [proj], conversations: [conv], messages: [userMsg, assistantMsg] });
-		await page.goto(`/project/${proj.id}/chat/${conv.id}`, { waitUntil: "networkidle" });
-
-		await page.locator('[data-testid="diff-panel-btn"]').click();
-		await expect(page.locator('[data-testid="diff-summary-panel"]')).toBeVisible({ timeout: 5000 });
-
-		// Auto-expanded (< 10 files), diff2html should be rendered
-		const wrapper = page.locator('.diff-panel-content .d2h-wrapper');
-		await expect(wrapper).toBeVisible({ timeout: 3000 });
-
-		// Font size should be 11px per the CSS rule
-		const fontSize = await wrapper.evaluate((el) => getComputedStyle(el).fontSize);
-		expect(fontSize).toBe("11px");
-
-		// d2h-file-header should be hidden
-		const fileHeader = page.locator('.diff-panel-content .d2h-file-header');
-		const headerCount = await fileHeader.count();
-		if (headerCount > 0) {
-			const display = await fileHeader.first().evaluate((el) => getComputedStyle(el).display);
-			expect(display).toBe("none");
-		}
-	});
-
-	test("streaming guard: last message excluded when streaming, included when not", async ({ page, mockApi }) => {
-		// Validate the streaming guard logic at the integration level:
-		// DiffSummaryPanel receives streaming=true -> skips last message's diffs
-		// DiffSummaryPanel receives streaming=false -> includes all messages
-		//
-		// With 2 assistant messages (both with diffs), streaming=false shows both.
-		// With only 1 assistant message containing a diff, we verify it appears (non-streaming case).
-		const userMsg1 = makeMessage({ id: "m1", conversationId: "conv-dp", role: "user", content: "First" });
-		const assistantMsg1 = makeMessage({
-			id: "m2",
-			conversationId: "conv-dp",
-			role: "assistant",
-			content: DIFF_CONTENT,
-			parentMessageId: "m1",
-			createdAt: "2026-01-01T00:01:00.000Z",
-		});
-		const userMsg2 = makeMessage({
-			id: "m3",
-			conversationId: "conv-dp",
-			role: "user",
-			content: "Second",
-			parentMessageId: "m2",
-			createdAt: "2026-01-01T00:02:00.000Z",
-		});
-		const assistantMsg2 = makeMessage({
-			id: "m4",
-			conversationId: "conv-dp",
-			role: "assistant",
-			content: MULTI_DIFF_CONTENT,
-			parentMessageId: "m3",
-			createdAt: "2026-01-01T00:03:00.000Z",
-		});
-
-		// Non-streaming: all 3 diffs visible (1 from msg2 + 2 from msg4)
+	test("a diff with no filename falls back to the unnamed placeholder", async ({
+		page,
+		mockApi,
+	}) => {
 		await mockApi({
 			projects: [proj],
 			conversations: [conv],
-			messages: [userMsg1, assistantMsg1, userMsg2, assistantMsg2],
+			messages: assistantWith("```diff\n@@ -1 +1 @@\n-old\n+new\n```"),
 		});
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`, { waitUntil: "networkidle" });
 
-		await page.locator('[data-testid="diff-panel-btn"]').click();
-		await expect(page.locator('[data-testid="diff-summary-panel"]')).toBeVisible({ timeout: 5000 });
-
-		const codeSections = page.locator('[data-testid="diff-code-section"]');
-		await expect(codeSections).toHaveCount(3);
-
-		// Verify the file count in header
-		await expect(page.locator('[data-testid="diff-summary-panel"]')).toContainText("3 files");
+		await openReviewPanel(page);
+		await expect(page.getByTestId("diff-file-card").first()).toHaveAttribute(
+			"data-path",
+			"unnamed diff",
+		);
 	});
 
-	test("backdrop covers full viewport behind panel", async ({ page, mockApi }) => {
-		await mockApi({ projects: [proj], conversations: [conv], messages: [] });
+	test("file headers stick to the top of the diff column while scrolling", async ({
+		page,
+		mockApi,
+	}) => {
+		await mockApi({
+			projects: [proj],
+			conversations: [conv],
+			messages: assistantWith(MULTI_DIFF_CONTENT),
+		});
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`, { waitUntil: "networkidle" });
 
-		await page.locator('[data-testid="diff-panel-btn"]').click();
-		const backdrop = page.getByTestId("swipe-drawer-backdrop");
-		await expect(backdrop).toBeVisible({ timeout: 5000 });
-
-		const box = await backdrop.boundingBox();
-		const viewport = page.viewportSize()!;
-		expect(box).toBeTruthy();
-		expect(box!.x).toBe(0);
-		expect(box!.y).toBe(0);
-		expect(box!.width).toBe(viewport.width);
-		expect(box!.height).toBe(viewport.height);
+		await openReviewPanel(page);
+		const header = page.getByTestId("diff-file-header").first();
+		await expect(header).toBeVisible();
+		const position = await header.evaluate((el) => getComputedStyle(el).position);
+		expect(position).toBe("sticky");
 	});
 
-	test("view toggle: Split and Unified buttons are visible in header", async ({ page, mockApi }) => {
-		await mockApi({ projects: [proj], conversations: [conv], messages: [] });
+	test("diff rows use GitHub's add/delete tints", async ({ page, mockApi }) => {
+		await mockApi({ projects: [proj], conversations: [conv], messages: assistantWith(DIFF_CONTENT) });
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`, { waitUntil: "networkidle" });
 
-		await page.locator('[data-testid="diff-panel-btn"]').click();
-		await expect(page.locator('[data-testid="diff-summary-panel"]')).toBeVisible({ timeout: 5000 });
+		await openReviewPanel(page);
 
-		const toggle = page.locator('[data-testid="diff-view-toggle"]');
-		await expect(toggle).toBeVisible();
+		// Body cell of an added row (the line-number cell also carries .d2h-ins
+		// but gets the stronger gutter tint).
+		const addedBody = page
+			.locator(".diff-panel-content td.d2h-ins:not(.d2h-code-side-linenumber)")
+			.first();
+		await expect(addedBody).toBeVisible({ timeout: 3000 });
+		const bodyBg = await addedBody.evaluate((el) => getComputedStyle(el).backgroundColor);
+		// Primer light `#e6ffec`; the dark theme uses the same hue at 15% alpha.
+		expect(bodyBg).toMatch(/rgba?\(230, 255, 236|rgba\(46, 160, 67/);
+
+		const gutter = page.locator(".diff-panel-content td.d2h-code-side-linenumber.d2h-ins").first();
+		const gutterBg = await gutter.evaluate((el) => getComputedStyle(el).backgroundColor);
+		// Primer light `#ccffd8`; dark is the same hue at 30% alpha.
+		expect(gutterBg).toMatch(/rgba?\(204, 255, 216|rgba\(46, 160, 67/);
+
+		const removed = page
+			.locator(".diff-panel-content td.d2h-del:not(.d2h-code-side-linenumber)")
+			.first();
+		const removedBg = await removed.evaluate((el) => getComputedStyle(el).backgroundColor);
+		// Primer light `#ffebe9`; dark is `rgba(248, 81, 73, .15)`.
+		expect(removedBg).toMatch(/rgba?\(255, 235, 233|rgba\(248, 81, 73/);
+	});
+
+	test("view toggle: Split and Unified are both offered, Split is the default", async ({
+		page,
+		mockApi,
+	}) => {
+		await mockApi({ projects: [proj], conversations: [conv], messages: assistantWith(DIFF_CONTENT) });
+		await page.goto(`/project/${proj.id}/chat/${conv.id}`, { waitUntil: "networkidle" });
+
+		await openReviewPanel(page);
+		const toggle = page.getByTestId("diff-view-toggle");
 		await expect(toggle).toContainText("Split");
 		await expect(toggle).toContainText("Unified");
+		await expect(toggle.getByRole("button", { name: "Split" })).toHaveAttribute(
+			"aria-pressed",
+			"true",
+		);
+		await expect(page.locator(".diff-panel-content .d2h-file-side-diff").first()).toBeVisible({
+			timeout: 3000,
+		});
 	});
 
-	test("view toggle: defaults to Split (side-by-side) view", async ({ page, mockApi }) => {
-		const userMsg = makeMessage({ id: "m1", conversationId: "conv-dp", role: "user", content: "Show diff" });
-		const assistantMsg = makeMessage({
-			id: "m2",
-			conversationId: "conv-dp",
-			role: "assistant",
-			content: DIFF_CONTENT,
-			parentMessageId: "m1",
-			createdAt: "2026-01-01T00:01:00.000Z",
-		});
-
-		await mockApi({ projects: [proj], conversations: [conv], messages: [userMsg, assistantMsg] });
+	test("view toggle: Unified switches to one column and back to Split", async ({
+		page,
+		mockApi,
+	}) => {
+		await mockApi({ projects: [proj], conversations: [conv], messages: assistantWith(DIFF_CONTENT) });
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`, { waitUntil: "networkidle" });
 
-		await page.locator('[data-testid="diff-panel-btn"]').click();
-		await expect(page.locator('[data-testid="diff-summary-panel"]')).toBeVisible({ timeout: 5000 });
-
-		// Auto-expanded (< 10 files), side-by-side view uses d2h-file-side-diff class
-		await expect(page.locator('.diff-panel-content .d2h-file-side-diff').first()).toBeVisible({ timeout: 3000 });
-	});
-
-	test("view toggle: clicking Unified switches to line-by-line view", async ({ page, mockApi }) => {
-		const userMsg = makeMessage({ id: "m1", conversationId: "conv-dp", role: "user", content: "Show diff" });
-		const assistantMsg = makeMessage({
-			id: "m2",
-			conversationId: "conv-dp",
-			role: "assistant",
-			content: DIFF_CONTENT,
-			parentMessageId: "m1",
-			createdAt: "2026-01-01T00:01:00.000Z",
+		await openReviewPanel(page);
+		await expect(page.locator(".diff-panel-content .d2h-file-side-diff").first()).toBeVisible({
+			timeout: 3000,
 		});
 
-		await mockApi({ projects: [proj], conversations: [conv], messages: [userMsg, assistantMsg] });
-		await page.goto(`/project/${proj.id}/chat/${conv.id}`, { waitUntil: "networkidle" });
+		await page.getByTestId("diff-view-toggle").getByRole("button", { name: "Unified" }).click();
+		await expect(page.locator(".diff-panel-content .d2h-file-side-diff").first()).not.toBeVisible();
+		await expect(page.locator(".diff-panel-content .d2h-wrapper").first()).toBeVisible();
 
-		await page.locator('[data-testid="diff-panel-btn"]').click();
-		await expect(page.locator('[data-testid="diff-summary-panel"]')).toBeVisible({ timeout: 5000 });
-
-		// Auto-expanded, side-by-side by default
-		await expect(page.locator('.diff-panel-content .d2h-file-side-diff').first()).toBeVisible({ timeout: 3000 });
-
-		// Switch to Unified
-		await page.locator('[data-testid="diff-view-toggle"] button:text("Unified")').click();
-
-		// Side-by-side element should be gone, line-by-line d2h-diff-table should be present
-		await expect(page.locator('.diff-panel-content .d2h-file-side-diff').first()).not.toBeVisible();
-		await expect(page.locator('.diff-panel-content .d2h-wrapper')).toBeVisible();
-	});
-
-	test("view toggle: clicking Split after Unified switches back to side-by-side", async ({ page, mockApi }) => {
-		const userMsg = makeMessage({ id: "m1", conversationId: "conv-dp", role: "user", content: "Show diff" });
-		const assistantMsg = makeMessage({
-			id: "m2",
-			conversationId: "conv-dp",
-			role: "assistant",
-			content: DIFF_CONTENT,
-			parentMessageId: "m1",
-			createdAt: "2026-01-01T00:01:00.000Z",
+		await page.getByTestId("diff-view-toggle").getByRole("button", { name: "Split" }).click();
+		await expect(page.locator(".diff-panel-content .d2h-file-side-diff").first()).toBeVisible({
+			timeout: 3000,
 		});
-
-		await mockApi({ projects: [proj], conversations: [conv], messages: [userMsg, assistantMsg] });
-		await page.goto(`/project/${proj.id}/chat/${conv.id}`, { waitUntil: "networkidle" });
-
-		await page.locator('[data-testid="diff-panel-btn"]').click();
-		await expect(page.locator('[data-testid="diff-summary-panel"]')).toBeVisible({ timeout: 5000 });
-
-		// Auto-expanded, switch to Unified then back to Split
-		await page.locator('[data-testid="diff-view-toggle"] button:text("Unified")').click();
-		await page.locator('[data-testid="diff-view-toggle"] button:text("Split")').click();
-
-		await expect(page.locator('.diff-panel-content .d2h-file-side-diff').first()).toBeVisible({ timeout: 3000 });
 	});
 
 	test("view toggle: Unified choice persists across reload", async ({ page, mockApi }) => {
-		const userMsg = makeMessage({ id: "m1", conversationId: "conv-dp", role: "user", content: "Show diff" });
-		const assistantMsg = makeMessage({
-			id: "m2",
-			conversationId: "conv-dp",
-			role: "assistant",
-			content: DIFF_CONTENT,
-			parentMessageId: "m1",
-			createdAt: "2026-01-01T00:01:00.000Z",
-		});
-
-		await mockApi({ projects: [proj], conversations: [conv], messages: [userMsg, assistantMsg] });
+		await mockApi({ projects: [proj], conversations: [conv], messages: assistantWith(DIFF_CONTENT) });
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`, { waitUntil: "networkidle" });
 
-		await page.locator('[data-testid="diff-panel-btn"]').click();
-		await expect(page.locator('[data-testid="diff-summary-panel"]')).toBeVisible({ timeout: 5000 });
-		await page.locator('[data-testid="diff-view-toggle"] button:text("Unified")').click();
-		await expect(page.locator('.diff-panel-content .d2h-file-side-diff').first()).not.toBeVisible();
+		await openReviewPanel(page);
+		await page.getByTestId("diff-view-toggle").getByRole("button", { name: "Unified" }).click();
+		await expect(page.locator(".diff-panel-content .d2h-file-side-diff").first()).not.toBeVisible();
 
-		// Reload — the panel's open-state persists, so it may already be open;
-		// only click to open it if it isn't. Either way it must come back in
-		// Unified, not Split.
 		await page.reload({ waitUntil: "networkidle" });
-		const panel = page.locator('[data-testid="diff-summary-panel"]');
-		if (!(await panel.isVisible())) {
-			await page.locator('[data-testid="diff-panel-btn"]').click();
-		}
-		await expect(panel).toBeVisible({ timeout: 5000 });
-		await expect(page.locator('.diff-panel-content .d2h-wrapper').first()).toBeVisible({ timeout: 3000 });
-		await expect(page.locator('.diff-panel-content .d2h-file-side-diff').first()).not.toBeVisible();
+		await openReviewPanel(page);
+		await expect(page.locator(".diff-panel-content .d2h-wrapper").first()).toBeVisible({
+			timeout: 3000,
+		});
+		await expect(page.locator(".diff-panel-content .d2h-file-side-diff").first()).not.toBeVisible();
 	});
 
 	test("diff badge is hidden when no file changes exist", async ({ page, mockApi }) => {
 		await mockApi({ projects: [proj], conversations: [conv], messages: [] });
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`, { waitUntil: "networkidle" });
 
-		const btn = page.locator('[data-testid="diff-panel-btn"]');
-		await expect(btn).toBeVisible({ timeout: 5000 });
-
-		// Badge should not exist
+		await expect(page.locator('[data-testid="diff-panel-btn"]')).toBeVisible({ timeout: 5000 });
 		await expect(page.locator('[data-testid="diff-badge"]')).toHaveCount(0);
 	});
 
-	test("diff badge shows file count from code diffs in messages", async ({ page, mockApi }) => {
-		const userMsg = makeMessage({ id: "m1", conversationId: "conv-dp", role: "user", content: "Show diffs" });
-		const assistantMsg = makeMessage({
-			id: "m2",
-			conversationId: "conv-dp",
-			role: "assistant",
-			content: MULTI_DIFF_CONTENT,
-			parentMessageId: "m1",
-			createdAt: "2026-01-01T00:01:00.000Z",
-		});
-
-		await mockApi({ projects: [proj], conversations: [conv], messages: [userMsg, assistantMsg] });
-		await page.goto(`/project/${proj.id}/chat/${conv.id}`, { waitUntil: "networkidle" });
-
-		// Badge should not be visible because diffFileCount only counts tool call diffs, not code diffs
-		// (code diffs from messages are not counted in the badge)
-		// Badge is derived from aggregateToolCallDiffs which uses inline tool store
-		// With no tool calls, badge count = 0
-		await expect(page.locator('[data-testid="diff-badge"]')).toHaveCount(0);
-	});
-
-	test("all sections auto-expanded for multi-diff (< 10 files)", async ({ page, mockApi }) => {
-		const userMsg = makeMessage({ id: "m1", conversationId: "conv-dp", role: "user", content: "Show diffs" });
-		const assistantMsg = makeMessage({
-			id: "m2",
-			conversationId: "conv-dp",
-			role: "assistant",
-			content: MULTI_DIFF_CONTENT,
-			parentMessageId: "m1",
-			createdAt: "2026-01-01T00:01:00.000Z",
-		});
-
-		await mockApi({ projects: [proj], conversations: [conv], messages: [userMsg, assistantMsg] });
-		await page.goto(`/project/${proj.id}/chat/${conv.id}`, { waitUntil: "networkidle" });
-
-		await page.locator('[data-testid="diff-panel-btn"]').click();
-		await expect(page.locator('[data-testid="diff-summary-panel"]')).toBeVisible({ timeout: 5000 });
-
-		// Both sections should be auto-expanded (2 files < 10)
-		const sections = page.locator('[data-testid="diff-code-section"]');
-		await expect(sections).toHaveCount(2);
-		await expect(sections.nth(0)).toHaveAttribute("data-expanded", "true");
-		await expect(sections.nth(1)).toHaveAttribute("data-expanded", "true");
-	});
-
-	test("diff badge is positioned at bottom-right of icon button", async ({ page, mockApi }) => {
-		// To test badge positioning, we need tool call diffs in the inline tool store.
-		// Since we can't easily inject tool calls, verify the badge structure when present
-		// by checking the button has relative positioning for badge anchoring.
+	test("diff panel button reports the panel's open state", async ({ page, mockApi }) => {
 		await mockApi({ projects: [proj], conversations: [conv], messages: [] });
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`, { waitUntil: "networkidle" });
 
 		const btn = page.locator('[data-testid="diff-panel-btn"]');
 		await expect(btn).toBeVisible({ timeout: 5000 });
+		const before = (await btn.getAttribute("class")) ?? "";
+		expect(before).toContain("relative");
 
-		// Button should have relative class for badge positioning
-		const btnClass = await btn.getAttribute("class") ?? "";
-		expect(btnClass).toContain("relative");
+		await openReviewPanel(page);
+		const after = (await btn.getAttribute("class")) ?? "";
+		expect(after.length).toBeGreaterThan(before.length);
 	});
 
-	test("file change section shows edit count instead of tool name", async ({ page, mockApi }) => {
-		// This test requires tool call diffs which come from the inline tool store.
-		// We verify via the unit test that toolName is not rendered;
-		// here we just confirm no "editFile" text appears in the panel header area.
+	test("every settled assistant diff is reviewable", async ({ page, mockApi }) => {
+		const msgs = [
+			makeMessage({ id: "m1", conversationId: "conv-dp", role: "user", content: "First" }),
+			makeMessage({
+				id: "m2",
+				conversationId: "conv-dp",
+				role: "assistant",
+				content: DIFF_CONTENT,
+				parentMessageId: "m1",
+				createdAt: "2026-01-01T00:01:00.000Z",
+			}),
+			makeMessage({
+				id: "m3",
+				conversationId: "conv-dp",
+				role: "user",
+				content: "Second",
+				parentMessageId: "m2",
+				createdAt: "2026-01-01T00:02:00.000Z",
+			}),
+			makeMessage({
+				id: "m4",
+				conversationId: "conv-dp",
+				role: "assistant",
+				content: MULTI_DIFF_CONTENT,
+				parentMessageId: "m3",
+				createdAt: "2026-01-01T00:03:00.000Z",
+			}),
+		];
+
+		await mockApi({ projects: [proj], conversations: [conv], messages: msgs });
+		await page.goto(`/project/${proj.id}/chat/${conv.id}`, { waitUntil: "networkidle" });
+
+		await openReviewPanel(page);
+		// Not streaming, so nothing is held back: 1 diff from m2 + 2 from m4.
+		await expect(page.getByTestId("diff-file-card")).toHaveCount(3);
+		await expect(page.getByTestId("diff-review-count")).toHaveText("3");
+	});
+
+	test("backdrop covers full viewport behind panel", async ({ page, mockApi }) => {
 		await mockApi({ projects: [proj], conversations: [conv], messages: [] });
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`, { waitUntil: "networkidle" });
 
-		await page.locator('[data-testid="diff-panel-btn"]').click();
-		await expect(page.locator('[data-testid="diff-summary-panel"]')).toBeVisible({ timeout: 5000 });
+		await openReviewPanel(page);
+		const backdrop = page.getByTestId("swipe-drawer-backdrop");
+		await expect(backdrop).toBeVisible({ timeout: 5000 });
 
-		// No "editFile" text should appear anywhere in the panel
-		const panelText = await page.locator('[data-testid="diff-summary-panel"]').textContent();
+		const box = (await backdrop.boundingBox())!;
+		const viewport = page.viewportSize()!;
+		expect(box.x).toBe(0);
+		expect(box.y).toBe(0);
+		expect(box.width).toBe(viewport.width);
+		expect(box.height).toBe(viewport.height);
+	});
+
+	test("no raw tool name leaks into the review surface", async ({ page, mockApi }) => {
+		await mockApi({ projects: [proj], conversations: [conv], messages: [] });
+		await page.goto(`/project/${proj.id}/chat/${conv.id}`, { waitUntil: "networkidle" });
+
+		const panel = await openReviewPanel(page);
+		const panelText = await panel.textContent();
 		expect(panelText).not.toContain("editFile");
 	});
 });

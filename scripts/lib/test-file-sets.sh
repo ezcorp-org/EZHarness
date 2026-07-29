@@ -102,6 +102,13 @@ passfail_files() {
     # coverage alone would not catch a red assertion.
     printf '%s\n' web/src/lib/graph/panel-logic.test.ts
     printf '%s\n' web/src/lib/graph/canvas-view.test.ts
+    # Code-review panel model / viewed-state / diff render — same shape and
+    # same reasoning as the graph trio above: 100%-gated pure TS whose
+    # overlapping fixtures mean coverage alone would not catch a red
+    # assertion, so they need P∩C membership to hard-gate inside the shards.
+    printf '%s\n' web/src/lib/diff-review/review-model.test.ts
+    printf '%s\n' web/src/lib/diff-review/viewed-files.test.ts
+    printf '%s\n' web/src/lib/diff-review/render-diff.test.ts
   } 2>/dev/null | sort -u
 }
 
@@ -159,6 +166,9 @@ coverage_host_files() {
       web/src/lib/graph/layout.test.ts \
       web/src/lib/graph/panel-logic.test.ts \
       web/src/lib/graph/canvas-view.test.ts \
+      web/src/lib/diff-review/review-model.test.ts \
+      web/src/lib/diff-review/viewed-files.test.ts \
+      web/src/lib/diff-review/render-diff.test.ts \
       web/src/lib/__tests__/timeline-normalize.test.ts \
       web/src/lib/__tests__/format-duration.test.ts \
       web/src/__tests__/test-surface.test.ts \

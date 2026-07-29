@@ -1,9 +1,9 @@
 <script lang="ts">
 	import type { ToolCallState } from "$lib/stores.svelte.js";
 	import { slide } from "svelte/transition";
-	import * as Diff2Html from "diff2html";
 	// diff2html-patched.css + hljs-theme.css are loaded globally via app.css
 	// (Svelte-scoped imports confuse @tailwindcss/vite — issue #16233).
+	import { renderDiffHtml } from "$lib/diff-review/render-diff.js";
 	import { highlightDiff } from "$lib/highlight-diff.js";
 	import { loadDiffViewMode, persistDiffViewMode, type DiffViewMode } from "$lib/diff-view-mode.js";
 	import CopyButton from "./CopyButton.svelte";
@@ -41,15 +41,7 @@
 
 	let diffText = $derived(generateDiffText(oldContent, newContent, filePath));
 
-	let diffHtml = $derived.by((): string => {
-		if (!diffText) return '';
-		try {
-			const parsed = Diff2Html.parse(diffText);
-			return Diff2Html.html(parsed, { outputFormat: diffView, drawFileList: false });
-		} catch {
-			return `<pre>${diffText}</pre>`;
-		}
-	});
+	let diffHtml = $derived(diffText ? renderDiffHtml(diffText, diffView) : '');
 
 	// Apply hljs highlighting after the diff HTML mounts / changes.
 	$effect(() => {

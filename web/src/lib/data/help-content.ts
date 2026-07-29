@@ -37,5 +37,5 @@ export const helpContent: Record<string, string> = {
 	"chat.sub-conversations":
 		"Sub-conversations are scoped side-threads within a chat. They let you explore a tangent without polluting the main conversation history.",
 	"chat.diff-panel":
-		"The diff summary panel collects all file changes from the conversation into one view. Toggle between split and unified diff formats.",
+		"Every file the conversation changed, as one reviewable diff. Filter or jump from the file tree, switch between split and unified, and tick Viewed to collapse a file you've finished reading.",
 };

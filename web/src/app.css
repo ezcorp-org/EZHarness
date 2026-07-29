@@ -8,6 +8,10 @@
  * https://github.com/tailwindlabs/tailwindcss/issues/16233. */
 @import "./lib/diff2html-patched.css";
 @import "./lib/hljs-theme.css";
+/* GitHub "Files changed" skin — repaints the diff2html surface inside
+ * `.gh-review` only, so the inline DiffCard and chat markdown diffs keep
+ * their existing look. Must load AFTER diff2html-patched.css to win. */
+@import "./lib/github-review.css";
 @custom-variant dark (&:where(.dark, .dark *));
 
 /* ─────────────────────────────────────────────────────────────────────────

@@ -351,6 +351,7 @@ run_legs() {
       src/__tests__/api-extensions.server.test.ts \
       src/__tests__/api-users-id.server.test.ts \
       src/lib/command-registry.unit.test.ts \
+      src/lib/components/DiffSummaryPanel.component.test.ts \
       --coverage --coverage.provider=v8 --coverage.reporter=lcovonly \
       --coverage.reportsDirectory="$VITEST_COV" \
       --coverage.include='src/lib/search/*.ts' \
@@ -485,6 +486,9 @@ run_legs() {
       --coverage.include='**/auth/invite/*/+server.ts' \
       --coverage.include='**/api/conversations/+server.ts' \
       --coverage.include='**/api/extensions/+server.ts' \
+      --coverage.include='src/lib/components/review/DiffStatBar.svelte' \
+      --coverage.include='src/lib/components/review/ReviewFileCard.svelte' \
+      --coverage.include='src/lib/components/review/ReviewFileTree.svelte' \
       --coverage.include='**/users/[[]id]/+server.ts' ) \
     > "$legs/vitest.out" 2>&1
   echo "$?" > "$legs/vitest.code"

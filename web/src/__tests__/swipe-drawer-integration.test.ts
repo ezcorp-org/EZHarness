@@ -143,8 +143,11 @@ describe("DiffSummaryPanel uses SwipeDrawer", () => {
 		expect(diffPanelSrc).toContain('side="right"');
 	});
 
-	test('uses width="w-full md:w-[48rem]"', () => {
-		expect(diffPanelSrc).toContain('width="w-full md:w-[48rem]"');
+	// The review panel is GitHub's Files-changed tab; a split diff needs the
+	// same breathing room it gets on github.com, so it takes 75% of the
+	// viewport on desktop (full width on mobile).
+	test('uses width="w-full md:w-[75vw]"', () => {
+		expect(diffPanelSrc).toContain('width="w-full md:w-[75vw]"');
 	});
 
 	test("no manual fixed positioning", () => {
@@ -266,7 +269,7 @@ describe("SwipeDrawer ariaLabel usage across components", () => {
 	});
 
 	test("DiffSummaryPanel has ariaLabel", () => {
-		expect(diffPanelSrc).toContain('ariaLabel="Diff summary"');
+		expect(diffPanelSrc).toContain('ariaLabel="Files changed"');
 	});
 
 	test("AgentDetailPanel has ariaLabel", () => {
