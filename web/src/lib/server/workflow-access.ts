@@ -10,12 +10,15 @@
  * wrong in at least one of them.
  *
  * Grep contract, asserted in `workflow-route-ladder.server.test.ts`: no
- * file under `routes/api/workflows/**` mentions `visibility` outside a
- * body schema.
+ * file under `routes/api/workflows/**` COMPARES a `visibility` or imports
+ * the ladder module directly. (Stamping one on a row a route creates —
+ * what fork does — is ownership assignment, not an authorization
+ * decision, and stays allowed.)
  */
 import { errorJson } from "$lib/server/http-errors";
 import { getCachedWorkflows } from "$lib/server/context";
 import {
+  authorizeWorkflow,
   callerFromUser,
   denialMessage,
   denialStatus,
@@ -55,16 +58,11 @@ export function toWire(entry: CachedWorkflow, caller: WorkflowCaller): WorkflowW
     projectId: entry.projectId,
     userId: entry.userId,
     forkedFrom: entry.forkedFrom,
-    canEdit: resolveEntry(entry, caller, "edit").ok,
+    // The ladder's own answer, asked directly — the entry is already in
+    // hand, so re-resolving it by name would only add a lookup that
+    // cannot fail.
+    canEdit: authorizeWorkflow(entry, caller, "edit").ok,
   };
-}
-
-function resolveEntry(
-  entry: CachedWorkflow,
-  caller: WorkflowCaller,
-  action: WorkflowAction,
-): { ok: boolean } {
-  return resolveWorkflowForCaller([entry], entry.definition.name, caller, action);
 }
 
 /** Build the caller struct from an authenticated route context. */
