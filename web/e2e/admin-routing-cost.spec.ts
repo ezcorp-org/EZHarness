@@ -238,6 +238,9 @@ test.describe("@evidence Admin Dashboard — Routing & Cost panel", () => {
 		await expect(unpriced).toContainText("no dollar cost");
 		await expect(unpriced).not.toContainText("$0.00");
 
+		// The dashboard scrolls in an INNER container, so `fullPage` alone stops
+		// at the viewport and clips the spend sections — the whole point of the
+		// screenshot. Grow the viewport instead so the reviewer sees the panel.
 		await page.setViewportSize({ width: 1280, height: 1900 });
 		await captureEvidence(page, testInfo, "admin-routing-cost-panel", { fullPage: true });
 	});
@@ -270,6 +273,8 @@ test.describe("@evidence Admin Dashboard — Routing & Cost panel", () => {
 		);
 		await expect(page.getByTestId("routing-retries")).toContainText("No A/B retries in this period");
 
+		// See the note in the test above: inner scroll container vs `fullPage`.
+		await page.setViewportSize({ width: 1280, height: 1600 });
 		await captureEvidence(page, testInfo, "admin-routing-cost-all-unpriced", { fullPage: true });
 	});
 
