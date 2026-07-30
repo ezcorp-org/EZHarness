@@ -17,22 +17,19 @@
  * precomputed arrays.
  *
  * Honesty rules this module encodes (the reason the card exists):
- *   - a pollen grain the provider has NO value for (`null`) is "Not
- *     reported" — never rendered as 0, a dash, or a blank;
- *   - a MEASURED zero renders as the number 0.0, distinct from the
- *     above, and is flagged `reported: true` so the template can style
- *     the two differently;
- *   - `totalIndex: null` (every grain null) is "Not reported", not 0;
- *   - mold ships `available: false` with a reason and renders as an
- *     explicit not-available block carrying that reason;
- *   - the clock is the PLACE's preformatted local time, never the
- *     viewer's — if it is missing the card says so instead of
- *     substituting the browser's clock.
+ *   - a missing pollen grain is "Not reported", while a measured zero is
+ *     rendered as 0.0;
+ *   - station category bands are rendered instead of inventing per-grain
+ *     counts the station does not publish;
+ *   - pollen units come from the payload and default to grains/m³ (the old
+ *     hard-coded µg/m³ label was incorrect);
+ *   - a mold activity band is useful, available data but is never displayed
+ *     as a numeric spore count;
+ *   - unavailable health fields retain their provider-specific reason;
+ *   - the clock is the PLACE's preformatted local time, never the viewer's.
  *
- * Pollen BANDS are computed host-side (single source of truth, per the
- * contract) and shipped in the payload. This module never re-derives
- * them from `totalIndex`; it only maps the shipped band onto a label and
- * a style tone.
+ * All bands are computed by the provider layer and shipped in the payload.
+ * This module maps them to labels and tones but never re-derives them.
  */
 
 // ── Envelope types (mirror tasks/city-conditions-contract.md) ────────
@@ -103,6 +100,9 @@ export const NOT_REPORTED = "Not reported";
 export const MOLD_FALLBACK_REASON =
 	"No provider reported mold spore data for this location.";
 
+export const POLLEN_FALLBACK_REASON =
+	"No provider reported pollen data for this location and time.";
+
 /** Shown when the envelope carries no place-local clock. The viewer's
  *  own clock is NEVER substituted — it would be a different time. */
 export const LOCAL_TIME_UNAVAILABLE = "Local time not reported";
@@ -118,22 +118,37 @@ export interface PollenGrainView {
 	text: string;
 }
 
-export interface PollenView {
-	grains: PollenGrainView[];
-	/** false ⇒ `totalIndex: null` (every grain null) — NOT a zero. */
-	totalReported: boolean;
-	totalText: string;
+export interface PollenCategoryView {
+	key: string;
+	label: string;
 	bandId: PollenBandId;
 	bandLabel: string;
+	contributorsText: string;
+}
+
+export interface PollenView {
+	available: boolean;
+	grains: PollenGrainView[];
+	categories: PollenCategoryView[];
+	showCategories: boolean;
+	totalReported: boolean;
+	totalText: string;
+	unit: string;
+	bandId: PollenBandId;
+	bandLabel: string;
+	reason: string;
+	sourceLine: string;
 }
 
 export interface MoldView {
 	available: boolean;
-	/** Formatted count; only meaningful when `available` is true. */
+	countReported: boolean;
 	countText: string;
+	bandId: PollenBandId;
 	bandText: string;
-	/** Why there is no figure. Always non-empty when `available` is false. */
+	/** May explain a band-only reading even when data is available. */
 	reason: string;
+	sourceLine: string;
 }
 
 export interface CityConditionsOkView {
@@ -278,13 +293,32 @@ export function bandLabelOf(band: PollenBandId): string {
 	return BAND_LABELS[band];
 }
 
+function stringArray(value: unknown): string[] {
+	if (!Array.isArray(value)) return [];
+	return value.map(nonEmptyString).filter((item) => item !== "");
+}
+
+/** Format provider provenance without turning a date-only stamp into the viewer's timezone. */
+export function sourceLineOf(sourceRaw: unknown, observedAtRaw: unknown): string {
+	if (!isRecord(sourceRaw)) return "";
+	const name = nonEmptyString(sourceRaw.name);
+	if (name === "") return "";
+	const kind = sourceRaw.kind === "observed" ? "Observed by" : "Modeled by";
+	const certification = nonEmptyString(sourceRaw.certification);
+	const observedAt = nonEmptyString(observedAtRaw);
+	const date = /^\d{4}-\d{2}-\d{2}$/.test(observedAt)
+		? `${observedAt.slice(5, 7)}/${observedAt.slice(8, 10)}/${observedAt.slice(0, 4)}`
+		: observedAt.replace("T", " ");
+	return [
+		`${kind} ${name}`,
+		certification,
+		date === "" ? "" : `Reported ${date}`,
+	].filter((part) => part !== "").join(" · ");
+}
+
 // ── Section builders ─────────────────────────────────────────────────
 
-/**
- * Build the six grain rows plus the total. A `null` grain is
- * `reported: false` / "Not reported"; a measured 0 is `reported: true` /
- * "0.0" — the two are never collapsed into the same rendering.
- */
+/** Build station categories or Open-Meteo grain rows without conflating null and zero. */
 export function buildPollenView(raw: unknown): PollenView {
 	const pollen = isRecord(raw) ? raw : {};
 	const grainSource = isRecord(pollen.grains) ? pollen.grains : {};
@@ -297,54 +331,74 @@ export function buildPollenView(raw: unknown): PollenView {
 			text: value === null ? NOT_REPORTED : value.toFixed(1),
 		};
 	});
-	const total = finiteOrNull(pollen.totalIndex);
+	const categories = (Array.isArray(pollen.categories) ? pollen.categories : [])
+		.filter(isRecord)
+		.map<PollenCategoryView>((category, index) => {
+			const bandId = bandIdOf(category.band);
+			const label = nonEmptyString(category.label);
+			return {
+				key: nonEmptyString(category.key) || `category-${index}`,
+				label: label || "Pollen",
+				bandId,
+				bandLabel: bandLabelOf(bandId),
+				contributorsText: stringArray(category.contributors).join(", "),
+			};
+		});
+	const total = finiteOrNull(pollen.total) ?? finiteOrNull(pollen.totalIndex);
+	const bandId = bandIdOf(pollen.band);
+	const reason = nonEmptyString(pollen.reason);
+	const inferredAvailable = total !== null || grains.some((grain) => grain.reported) || categories.length > 0;
+	const available = pollen.available === false ? false : inferredAvailable;
 	return {
+		available,
 		grains,
+		categories,
+		showCategories: categories.length > 0,
 		totalReported: total !== null,
 		totalText: total === null ? NOT_REPORTED : total.toFixed(1),
-		bandId: bandIdOf(pollen.band),
-		bandLabel: bandLabelOf(bandIdOf(pollen.band)),
+		unit: nonEmptyString(pollen.unit) || "grains/m³",
+		bandId,
+		bandLabel: bandLabelOf(bandId),
+		reason: available ? reason : (reason || POLLEN_FALLBACK_REASON),
+		sourceLine: sourceLineOf(pollen.source, pollen.observedAt),
 	};
 }
 
 /**
- * Build the mold block. The contract ships `available: false` plus a
- * reason today, and the card must SAY so rather than render a blank, a
- * zero, or a dash that reads like a measurement.
- *
- * `available: true` with no usable count is treated as unavailable with
- * an explicit reason: claiming availability and then showing nothing is
- * the same lie in a different costume.
+ * Build a mold count or activity-band reading. A station band is useful data,
+ * but it remains distinct from a numeric spore count and carries that note.
  */
 export function buildMoldView(raw: unknown): MoldView {
 	const mold = isRecord(raw) ? raw : {};
 	const count = finiteOrNull(mold.count);
+	const bandId = bandIdOf(mold.band);
+	const bandReported = bandId !== "unknown" && bandId !== "none";
 	const reason = nonEmptyString(mold.reason);
-	if (mold.available === true && count !== null) {
-		const band = nonEmptyString(mold.band);
+	const available = mold.available === true && (count !== null || bandReported);
+	if (available) {
+		const unit = nonEmptyString(mold.unit) || "spores/m³";
 		return {
 			available: true,
-			countText: `${count.toFixed(1)} grains/m³`,
-			bandText: band === "" ? NOT_REPORTED : band,
-			reason: "",
-		};
-	}
-	if (mold.available === true) {
-		return {
-			available: false,
-			countText: NOT_REPORTED,
-			bandText: NOT_REPORTED,
-			reason:
-				reason === ""
-					? "The provider reported mold as available but sent no spore count."
-					: reason,
+			countReported: count !== null,
+			countText: count === null ? "Count not published" : `${count.toFixed(1)} ${unit}`,
+			bandId,
+			bandText: bandReported ? bandLabelOf(bandId) : NOT_REPORTED,
+			reason,
+			sourceLine: sourceLineOf(mold.source, mold.observedAt),
 		};
 	}
 	return {
 		available: false,
+		countReported: false,
 		countText: NOT_REPORTED,
+		bandId: "none",
 		bandText: NOT_REPORTED,
-		reason: reason === "" ? MOLD_FALLBACK_REASON : reason,
+		reason: reason || (
+			mold.available === true
+				? "The provider reported mold as available but sent no count or activity band."
+				: MOLD_FALLBACK_REASON
+		),
+		sourceLine: sourceLineOf(mold.source, mold.observedAt),
 	};
 }
 
