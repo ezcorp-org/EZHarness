@@ -64,6 +64,30 @@ export const FAST_MAX_TOKENS = 500;
 export const POWERFUL_MIN_TOKENS = 8000;
 
 /**
+ * The two SIZE thresholds as a parameter bundle.
+ *
+ * They exist so `scripts/routing-sweep.ts` can replay stored `routingSignals`
+ * against CANDIDATE thresholds through THIS function rather than through a
+ * second copy of the heuristic that would drift from it. Today's values are
+ * {@link DEFAULT_TIER_THRESHOLDS}; omitting the field classifies exactly as
+ * before, which is what makes the sweep's baseline point honest — it is not a
+ * reimplementation of today's behaviour, it IS today's behaviour.
+ */
+export interface TierThresholds {
+  /** At/under this many estimated tokens (tool-less) → the fast tier. */
+  fastMaxTokens: number;
+  /** At/over this many estimated tokens → the powerful tier. */
+  powerfulMinTokens: number;
+}
+
+/** The shipped thresholds. Both numbers are educated GUESSES — they were never
+ *  fitted to traffic, which is exactly why the sweep exists. */
+export const DEFAULT_TIER_THRESHOLDS: TierThresholds = {
+  fastMaxTokens: FAST_MAX_TOKENS,
+  powerfulMinTokens: POWERFUL_MIN_TOKENS,
+};
+
+/**
  * OVER this many messages in the turn's LLM-visible history, the turn is an
  * established multi-step interaction rather than a fresh question — route it
  * up regardless of how short the latest prompt is. 8 messages is ~4
@@ -141,6 +165,10 @@ export interface TierClassifierInput {
   /** Extension/EZ-action-declared tier need. Strongest signal — honored
    *  over both the hint and the heuristic. */
   declaredTier?: RoutingTier;
+  /** Override the two SIZE thresholds. Absent ⇒ {@link DEFAULT_TIER_THRESHOLDS},
+   *  i.e. today's classification. Only the retroactive threshold sweep sets
+   *  this; no runtime caller does. */
+  thresholds?: TierThresholds;
 }
 
 /** Which predicate actually decided the tier. Provenance only — the routing
@@ -150,6 +178,7 @@ export interface TierClassifierInput {
 export type TierReason =
   | "declared"
   | "hint"
+  | "scorer"
   | "tool-messages"
   | "history-depth"
   | "system-size"
@@ -165,6 +194,49 @@ export interface TierVerdict {
   tier: RoutingTier;
   reason: TierReason;
   estTokens: number;
+  /** Only present when an injected {@link TierScorer} decided the tier — the
+   *  score it reported alongside the tier. Absent on every heuristic verdict,
+   *  so a no-scorer verdict serializes byte-identically to the pre-seam one. */
+  confidence?: number;
+}
+
+/**
+ * WS7 — the INFERENCE SEAM for a future learned router, shipped UNUSED.
+ *
+ * No router model is trained or wired by this work: nothing in the codebase
+ * passes a scorer today, and with no scorer the classifier's output is
+ * byte-identical to the pure-heuristic version (proved in
+ * `src/__tests__/tier-scorer-seam.test.ts` against a verbatim reimplementation
+ * of the pre-seam function). What ships is the shape a learned scorer would
+ * plug into, because retrofitting a decision point this load-bearing after the
+ * fact is exactly the kind of change that quietly alters routing for every
+ * existing deployment.
+ *
+ * The score is consulted BELOW `declaredTier` and `tierHint` and ABOVE the
+ * heuristic. That ordering is not a preference: a declared tier is a
+ * CORRECTNESS requirement (an extension that needs `powerful` breaks on
+ * `fast`) and a hint is explicit user intent. A model may only ever replace
+ * the guess, never either of those.
+ *
+ * Returning `undefined` ABSTAINS — the heuristic then decides, so a scorer
+ * that is unsure (or a model that failed to load) degrades to today's
+ * behaviour instead of guessing.
+ */
+export interface TierScore {
+  tier: RoutingTier;
+  /** The scorer's own confidence, 0–1. Provenance only: the classifier does
+   *  NOT threshold on it (a scorer that wants a floor abstains instead), it is
+   *  stamped so a later sweep can measure calibration on real traffic. */
+  confidence: number;
+}
+
+/** A pluggable tier scorer. Callable, plus an optional `version` that is
+ *  stamped into `usage.routingConfig.scorerVersion` so "why did this cost more
+ *  yesterday" stays answerable across scorer rollouts. */
+export interface TierScorer {
+  (input: TierClassifierInput): TierScore | undefined;
+  /** Stable identifier for the scorer build (e.g. `"router-v3"`). */
+  version?: string;
 }
 
 /**
@@ -188,13 +260,27 @@ export function estimateTurnTokens(input: TierClassifierInput): number {
  * `reason`/`estTokens` exist so the wiring can stamp provenance without
  * re-deriving (or drifting from) the decision it actually acted on.
  */
-export function classifyTierVerdict(input: TierClassifierInput): TierVerdict {
+export function classifyTierVerdict(
+  input: TierClassifierInput,
+  scorer?: TierScorer,
+): TierVerdict {
   const estTokens = estimateTurnTokens(input);
   // 1. A declared tier need (extension manifest / EZ-action) is a
   //    correctness requirement — honor it above everything else.
   if (input.declaredTier) return { tier: input.declaredTier, reason: "declared", estTokens };
   // 2. An explicit caller/user hint.
   if (input.tierHint) return { tier: input.tierHint, reason: "hint", estTokens };
+  // 2b. WS7 inference seam — a learned scorer, when one is injected. Below
+  //     both signals above (correctness + explicit intent always win) and
+  //     above the heuristic (a model exists to replace the guess). Nothing
+  //     injects one today; an abstaining (undefined) scorer falls through, so
+  //     both no-scorer paths are the pre-seam heuristic verbatim.
+  if (scorer) {
+    const score = scorer(input);
+    if (score) {
+      return { tier: score.tier, reason: "scorer", estTokens, confidence: score.confidence };
+    }
+  }
 
   // 3a. Heuristic, STRUCTURAL half. These fire on the SHAPE of the turn, so
   //     they catch the case the length heuristic below cannot: a short
@@ -218,12 +304,15 @@ export function classifyTierVerdict(input: TierClassifierInput): TierVerdict {
   //     reasoning turn → the powerful tier.
   if (input.hasComplexTools) return { tier: "powerful", reason: "complex-tools", estTokens };
   // Large context → a powerful model earns its cost.
-  if (estTokens >= POWERFUL_MIN_TOKENS) return { tier: "powerful", reason: "context-size", estTokens };
+  const thresholds = input.thresholds ?? DEFAULT_TIER_THRESHOLDS;
+  if (estTokens >= thresholds.powerfulMinTokens) {
+    return { tier: "powerful", reason: "context-size", estTokens };
+  }
   // Any (read-class) tool use → at least balanced; tools rarely pair well
   // with the cheapest models.
   if ((input.toolCount ?? 0) > 0) return { tier: "balanced", reason: "tool-count", estTokens };
   // Short, tool-less turn → cheap/fast.
-  if (estTokens <= FAST_MAX_TOKENS) return { tier: "fast", reason: "short-turn", estTokens };
+  if (estTokens <= thresholds.fastMaxTokens) return { tier: "fast", reason: "short-turn", estTokens };
   // Everything in between.
   return { tier: "balanced", reason: "midsize-turn", estTokens };
 }
@@ -232,8 +321,8 @@ export function classifyTierVerdict(input: TierClassifierInput): TierVerdict {
  * Classify a turn into a routing tier from heuristic signals only.
  * Pure + total — always returns a tier, never throws.
  */
-export function classifyTier(input: TierClassifierInput): RoutingTier {
-  return classifyTierVerdict(input).tier;
+export function classifyTier(input: TierClassifierInput, scorer?: TierScorer): RoutingTier {
+  return classifyTierVerdict(input, scorer).tier;
 }
 
 /**
@@ -251,6 +340,18 @@ export function strongestTier(
     if (best === undefined || TIER_RANK[t] > TIER_RANK[best]) best = t;
   }
   return best;
+}
+
+/**
+ * The rung one step WEAKER than `tier`, or `undefined` at the bottom of the
+ * ladder. Lives here because this module owns `TIER_RANK` — the tier order is
+ * declared exactly once (see also {@link strongestTier}), so bounded
+ * exploration (`routing/exploration.ts`) walks the ladder down without
+ * re-declaring it.
+ */
+export function tierBelow(tier: RoutingTier): RoutingTier | undefined {
+  const rank = TIER_RANK[tier];
+  return VALID_TIERS.find((t) => TIER_RANK[t] === rank - 1);
 }
 
 /** Minimal structural view of a manifest's optional routing declaration —
@@ -408,8 +509,23 @@ export interface RoutingSignals extends HistorySignals {
   toolCount: number;
   hasComplexTools: boolean;
   estTokens: number;
+  /**
+   * The tier the CLASSIFIER decided on — NOT necessarily the tier that served
+   * the turn. When `exploration` is true the wiring deliberately routed one
+   * rung below this, and the served tier is `usage.routedTier`. Keeping both
+   * is the whole point: the counterfactual ("the heuristic wanted `powerful`,
+   * `balanced` was served, the thread continued") is the unbiased comparison
+   * exploration exists to produce, and collapsing the two would destroy it.
+   */
   tier: RoutingTier;
   reason: TierReason;
+  /** Only present (and always `true`) when bounded exploration moved this turn
+   *  one rung below `tier`. Absent on every ordinary turn — see
+   *  `routing/exploration.ts`. */
+  exploration?: boolean;
+  /** The scorer's confidence, when an injected scorer decided the tier.
+   *  Absent on every heuristic verdict — nothing injects a scorer today. */
+  confidence?: number;
 }
 
 /** {@link chooseTurnVerdict}'s result: the tier to route on + the full
@@ -417,6 +533,10 @@ export interface RoutingSignals extends HistorySignals {
 export interface TurnTierVerdict {
   tier: RoutingTier;
   signals: RoutingSignals;
+  /** Version of the injected scorer that decided this turn's tier, when one
+   *  did. Folded into `usage.routingConfig` by {@link withScorerVersion}.
+   *  Always absent today (no scorer is wired). */
+  scorerVersion?: string;
 }
 
 /**
@@ -429,6 +549,7 @@ export interface TurnTierVerdict {
 export function chooseTurnVerdict(
   input: TurnTierInput,
   resolveManifest: (extId: string) => ExtensionRoutingManifest | undefined,
+  scorer?: TierScorer,
 ): TurnTierVerdict {
   const declaredTier = declaredTierForConversation(input.convExtensionTools, resolveManifest);
   const { toolCount, hasComplexTools } = estimateToolSignals(input.options);
@@ -436,16 +557,19 @@ export function chooseTurnVerdict(
   const promptChars = input.userMessage.length;
   const systemChars = Math.max(0, input.systemChars ?? 0);
   const attachmentCount = Math.max(0, input.attachmentCount ?? 0);
-  const verdict = classifyTierVerdict({
-    promptChars,
-    ...history,
-    systemChars,
-    attachmentCount,
-    toolCount,
-    hasComplexTools,
-    tierHint: input.options.tier,
-    declaredTier,
-  });
+  const verdict = classifyTierVerdict(
+    {
+      promptChars,
+      ...history,
+      systemChars,
+      attachmentCount,
+      toolCount,
+      hasComplexTools,
+      tierHint: input.options.tier,
+      declaredTier,
+    },
+    scorer,
+  );
   return {
     tier: verdict.tier,
     signals: {
@@ -458,7 +582,13 @@ export function chooseTurnVerdict(
       estTokens: verdict.estTokens,
       tier: verdict.tier,
       reason: verdict.reason,
+      // Conditional spreads, never `undefined` keys: a heuristic turn must
+      // stamp the same jsonb shape it always has.
+      ...(verdict.confidence !== undefined ? { confidence: verdict.confidence } : {}),
     },
+    // Only reported when a scorer ACTUALLY decided — a scorer that abstained
+    // did not shape this row, so naming its version would be misleading.
+    ...(verdict.reason === "scorer" && scorer?.version ? { scorerVersion: scorer.version } : {}),
   };
 }
 
@@ -469,8 +599,9 @@ export function chooseTurnVerdict(
 export function chooseTurnTier(
   input: TurnTierInput,
   resolveManifest: (extId: string) => ExtensionRoutingManifest | undefined,
+  scorer?: TierScorer,
 ): RoutingTier {
-  return chooseTurnVerdict(input, resolveManifest).tier;
+  return chooseTurnVerdict(input, resolveManifest, scorer).tier;
 }
 
 /**
@@ -485,6 +616,29 @@ export interface RoutingConfig {
   defaultTier: RoutingTier;
   /** 8-hex-char FNV-1a digest of the effective `provider:preferenceOrder`. */
   preferenceOrderHash: string;
+  /**
+   * WS7 — version of the injected {@link TierScorer} that decided the turn.
+   * ABSENT means the heuristic decided (which is every row today: no scorer is
+   * wired). Recorded because a scorer rollout changes cost the same way a
+   * threshold change does, and "why did this cost more yesterday" must stay
+   * answerable from the row alone rather than from a deploy log.
+   */
+  scorerVersion?: string;
+}
+
+/**
+ * Fold a scorer version into the effective routing config for stamping.
+ * Returns the config UNCHANGED (same object identity) when there is no version
+ * to fold — which is the shipped path, since nothing injects a scorer. Lives
+ * here, in the pure module, so the conditional is unit-tested both ways
+ * instead of sitting as an unexercised branch at the wiring site.
+ */
+export function withScorerVersion(
+  config: RoutingConfig | undefined,
+  scorerVersion: string | undefined,
+): RoutingConfig | undefined {
+  if (!config || !scorerVersion) return config;
+  return { ...config, scorerVersion };
 }
 
 /**

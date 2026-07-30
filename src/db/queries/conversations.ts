@@ -547,13 +547,20 @@ export interface CreateMessageUsage {
     toolCount: number;
     hasComplexTools: boolean;
     estTokens: number;
+    /** The CLASSIFIER's tier — not the served one when `exploration` is set. */
     tier: "fast" | "balanced" | "powerful";
     reason: string;
+    /** WS7 — bounded exploration served one rung below `tier`. */
+    exploration?: boolean;
+    /** WS7 — an injected tier scorer's confidence, when one decided. */
+    confidence?: number;
   };
   /** Effective routing config the turn was decided under. */
   routingConfig?: {
     defaultTier: "fast" | "balanced" | "powerful";
     preferenceOrderHash: string;
+    /** WS7 — version of the scorer that decided; absent for the heuristic. */
+    scorerVersion?: string;
   };
 }
 

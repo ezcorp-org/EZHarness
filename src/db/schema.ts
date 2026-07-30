@@ -206,14 +206,28 @@ export const messages = pgTable("messages", {
       toolCount: number;
       hasComplexTools: boolean;
       estTokens: number;
+      /** The tier the CLASSIFIER chose. When `exploration` is true this is
+       *  NOT the tier that served the turn (`routedTier` is) — both are kept
+       *  so the explored counterfactual stays reconstructible. */
       tier: "fast" | "balanced" | "powerful";
       reason: string;
+      /** WS7 — true when bounded exploration (`provider:explorationRate`,
+       *  default off) deliberately served one rung below `tier`. */
+      exploration?: boolean;
+      /** WS7 — an injected tier scorer's confidence, when one decided the
+       *  tier. Absent on every heuristic verdict (which is all of them
+       *  today: no scorer is wired). */
+      confidence?: number;
     };
     /** Effective routing config the turn was decided under — lets a sweep
      *  tell a threshold change apart from a provider-config change. */
     routingConfig?: {
       defaultTier: "fast" | "balanced" | "powerful";
       preferenceOrderHash: string;
+      /** WS7 — version of the tier scorer that decided the turn; absent when
+       *  the heuristic did. Keeps a scorer rollout distinguishable from a
+       *  threshold change when comparing rows across time. */
+      scorerVersion?: string;
     };
   }>(),
   runId: text("run_id").references(() => runs.id, { onDelete: "set null" }),
