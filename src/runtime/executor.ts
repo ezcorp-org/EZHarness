@@ -153,7 +153,9 @@ const MAX_RUNS = 100;
  * Resolve per-turn history-compaction overrides from settings. Mirrors
  * the `getDefaultTier`/`getPreferenceOrder` pattern in providers/router:
  * each key is optional and falls back to the compaction module DEFAULTS
- * when unset or malformed. `compaction:strategy = "none"` disables it.
+ * when unset or malformed. `compaction:strategy = "none"` disables it —
+ * except the always-on stale-tool-result cap, which is strategy-independent
+ * and switches off with `compaction:toolResultCap = 0`.
  */
 async function resolveCompactionConfig(): Promise<Partial<CompactionConfig>> {
   const out: Partial<CompactionConfig> = {};
@@ -169,6 +171,7 @@ async function resolveCompactionConfig(): Promise<Partial<CompactionConfig>> {
     ["compaction:safetyFraction", "safetyFraction"],
     ["compaction:cacheAnchorFraction", "cacheAnchorFraction"],
     ["compaction:summarizeMaxTokens", "summarizeMaxTokens"],
+    ["compaction:toolResultCap", "toolResultCap"],
   ];
   for (const [key, field] of numeric) {
     const v = await getSetting(key);
