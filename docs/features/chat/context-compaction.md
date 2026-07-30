@@ -44,9 +44,9 @@ Compaction is fully automatic — no chat-time invocation. It is configured thro
 | `compaction:safetyFraction` | number ≥ 0 | `0.08` | Fraction of the context window held back to absorb estimator error. |
 | `compaction:cacheAnchorFraction` | number ≥ 0 | `0` | Opt-in cache-aware trim: fraction of the input budget reserved for a byte-stable prefix of the OLDEST turns. `0` = conventional trim-oldest. |
 | `compaction:cacheRetention` | string | `long` | Prompt-cache TTL shaping for the stable prefix (`long` ~1h / `short` ~5 min / `none`). Anthropic-only; read separately by `executor.streamChat`, applied in `build-pi-agent.ts`'s `onPayload` (`cache-retention.ts`). |
-| `compaction:toolResultCap` | number ≥ 0 | `32000` | Max **characters** of text kept in a stale (non-newest) `toolResult`, applied on every call regardless of budget. `0` disables. Strategy-independent — `strategy: "none"` does *not* switch it off. |
+| `compaction:toolResultCap` | number ≥ 0 | `32000` | Max **characters** of text kept in a stale (non-newest) `toolResult`, applied on every call regardless of budget. `0` disables. Strategy-independent — `strategy: "none"` does *not* switch it off. Editable at **Settings → Models → Older Tool Result Cap**, validated on write. |
 
-`charsPerToken` (4) and `imageTokens` (1200) live in `DEFAULTS` but are **not** wired to settings keys — `resolveCompactionConfig` only reads `strategy` + the numeric keys above.
+`charsPerToken` (4) and `imageTokens` (1200) live in `DEFAULTS` but are **not** wired to settings keys — `resolveCompactionConfig` only reads `strategy` + the numeric keys above. `toolResultCap` is the one exception to that loop: it has a settings editor, so its key, default, tolerant read (`parseToolResultCap`) and write-time validator (`validateToolResultCap`) live together in `src/runtime/stream-chat/tool-result-cap.ts`, which `resolveCompactionConfig` and `PUT /api/settings/[key]` both call. `DEFAULTS.toolResultCap` and `DEFAULTS.charsPerToken` are imported from there, so the editor quotes the numbers the runtime actually uses.
 
 ### Settings API (admin only)
 

@@ -38,6 +38,7 @@ import type {
   ImageContent,
 } from "../../types";
 import { logger } from "../../logger";
+import { CHARS_PER_TOKEN_ESTIMATE, DEFAULT_TOOL_RESULT_CAP } from "./tool-result-cap";
 
 /** pi-ai's `Model` is generic over its API; we only read metadata. */
 type Model = PiModel<any>;
@@ -97,7 +98,7 @@ export const DEFAULTS: CompactionConfig = {
   responseReserveCap: 16_000,
   responseReserveFloor: 1_024,
   safetyFraction: 0.08,
-  charsPerToken: 4,
+  charsPerToken: CHARS_PER_TOKEN_ESTIMATE,
   imageTokens: 1_200,
   // Default 0 = conventional trim-oldest. The oldest-anchor cache
   // optimization is opt-in (see the field doc + decision record).
@@ -105,10 +106,9 @@ export const DEFAULTS: CompactionConfig = {
   // ~1k-token summaries keep the marker small on the common path; raise it
   // (`compaction:summarizeMaxTokens`) for models that need richer recall.
   summarizeMaxTokens: 1_024,
-  // 32k chars ≈ 8k tokens of head+tail per stale tool result: generous enough
-  // that ordinary reads / grep / test logs survive intact, small enough that a
-  // runaway multi-MB result stops being re-sent at full price every iteration.
-  toolResultCap: 32_000,
+  // Defined in ./tool-result-cap alongside the settings key + validators, so
+  // the number the editor shows as "the default" is the number used here.
+  toolResultCap: DEFAULT_TOOL_RESULT_CAP,
 };
 
 const PER_MESSAGE_OVERHEAD = 4;

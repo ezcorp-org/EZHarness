@@ -484,6 +484,94 @@ describe("PUT /api/settings/provider:tierModels — write-time validation", () =
     expect(upsertSetting).not.toHaveBeenCalled();
   });
 
+  test("provider:defaultSelection stores the revert mode", async () => {
+    const res = await PUT(
+      makeEvent({
+        key: "provider:defaultSelection",
+        locals: adminLocals,
+        method: "PUT",
+        body: { value: "first" },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(upsertSetting).toHaveBeenCalledWith("provider:defaultSelection", "first");
+  });
+
+  test("provider:defaultSelection REJECTS a near-miss instead of silently keeping auto", async () => {
+    // This key is the no-deploy REVERT for routed-by-default traffic. The read
+    // degrades anything unrecognised to "auto", so a 200 here would leave the
+    // operator believing they had reverted while every user stayed on routed
+    // turns — indistinguishable from never having written.
+    const res = await PUT(
+      makeEvent({
+        key: "provider:defaultSelection",
+        locals: adminLocals,
+        method: "PUT",
+        body: { value: "First" },
+      }),
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toContain('read back as "auto"');
+    expect(upsertSetting).not.toHaveBeenCalled();
+  });
+
+  test("compaction:toolResultCap stores a whole-number character cap", async () => {
+    const res = await PUT(
+      makeEvent({
+        key: "compaction:toolResultCap",
+        locals: adminLocals,
+        method: "PUT",
+        body: { value: 8000 },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(upsertSetting).toHaveBeenCalledWith("compaction:toolResultCap", 8000);
+  });
+
+  test("compaction:toolResultCap accepts 0 — disabling the cap is a real choice", async () => {
+    const res = await PUT(
+      makeEvent({
+        key: "compaction:toolResultCap",
+        locals: adminLocals,
+        method: "PUT",
+        body: { value: 0 },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(upsertSetting).toHaveBeenCalledWith("compaction:toolResultCap", 0);
+  });
+
+  test("compaction:toolResultCap REJECTS a numeric STRING (the read would ignore it)", async () => {
+    const res = await PUT(
+      makeEvent({
+        key: "compaction:toolResultCap",
+        locals: adminLocals,
+        method: "PUT",
+        body: { value: "8000" },
+      }),
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toContain("whole number of characters");
+    expect(upsertSetting).not.toHaveBeenCalled();
+  });
+
+  test("compaction:toolResultCap REJECTS a negative cap and points at 0", async () => {
+    const res = await PUT(
+      makeEvent({
+        key: "compaction:toolResultCap",
+        locals: adminLocals,
+        method: "PUT",
+        body: { value: -1 },
+      }),
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toContain("use 0 to disable");
+    expect(upsertSetting).not.toHaveBeenCalled();
+  });
+
   test("other keys keep their pass-through (schema-less) write", async () => {
     const res = await PUT(
       makeEvent({

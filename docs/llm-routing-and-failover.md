@@ -219,12 +219,12 @@ Boundaries and guarantees:
 
 | Setting key | Default | Meaning |
 |---|---|---|
-| `provider:defaultSelection` | `auto` | What a user with **no saved model pick** defaults to in the chat composer: `auto` (the Auto sentinel — the first turn of a fresh thread is routed) or `first` (pin the first available model, the pre-routing behaviour). The revert knob for routed-by-default traffic — see above. Read back by every user via `GET /api/models/default-selection`, not the admin-only settings GET. |
+| `provider:defaultSelection` | `auto` | What a user with **no saved model pick** defaults to in the chat composer: `auto` (the Auto sentinel — the first turn of a fresh thread is routed) or `first` (pin the first available model, the pre-routing behaviour). The revert knob for routed-by-default traffic — see above. Editable at **Settings → Models → New Chat Model Default**; validated on write (an unrecognised value is a 400, not a silent no-op) and read tolerantly. Read back by every user via `GET /api/models/default-selection`, not the admin-only settings GET. |
 | `provider:defaultTier` | `balanced` | Tier used when routing fires and no stronger signal applies (`fast` / `balanced` / `powerful`). |
 | `provider:tierModels` | unset | **The tier ladder** — an ORDERED `{provider, model}` preference list per tier. Editable at **Settings → Models → Tier Model Ladder**; validated on write, ignored (never thrown) on read. See below. |
 | `provider:preferenceOrder` | `[anthropic, openai, google, openrouter]` | Provider walk order for routing and fallback suggestions. Stored orders self-heal: newly known providers are appended (`mergePreferenceOrder`). |
-| `provider:explorationRate` | `0` (off) | **Bounded exploration** — probability that a routed turn is deliberately served ONE RUNG BELOW the classifier's tier, to gather unbiased counterfactual data. Trades a little answer quality for that data; off unless an operator turns it on. Validated on write (a value outside `[0,1]` is a 400, not a silent no-op) and treated as OFF on read. See below. |
-| `provider:routingShadow` | unset (off) | **Shadow mode** — a CANDIDATE `{fastMaxTokens, powerfulMinTokens}` pair evaluated on every routed turn it could have moved, recorded into `usage.routingSignals.shadow`, and **never served**. The online half of sweep → shadow → promote. Validated on write (a malformed or inverted pair is a 400, not a silent no-op) and treated as OFF on read. See below. |
+| `provider:explorationRate` | `0` (off) | **Bounded exploration** — probability that a routed turn is deliberately served ONE RUNG BELOW the classifier's tier, to gather unbiased counterfactual data. Trades a little answer quality for that data; off unless an operator turns it on. Editable at **Settings → Models → Routing Experiments** (the box is a percentage, and raising it requires acknowledging the quality cost). Validated on write (a value outside `[0,1]` is a 400, not a silent no-op) and treated as OFF on read. See below. |
+| `provider:routingShadow` | unset (off) | **Shadow mode** — a CANDIDATE `{fastMaxTokens, powerfulMinTokens}` pair evaluated on every routed turn it could have moved, recorded into `usage.routingSignals.shadow`, and **never served**. The online half of sweep → shadow → promote. Editable at **Settings → Models → Routing Experiments**; clearing both boxes turns it off. Validated on write (a malformed or inverted pair is a 400, not a silent no-op) and treated as OFF on read. See below. |
 | `compaction:cacheRetention` | `long` | Prompt-cache TTL shaping for the stable prefix (Anthropic only) — see [context-compaction](context-compaction.md). |
 
 Settings are written via the admin-only `PUT /api/settings/<key>` API.
@@ -292,8 +292,9 @@ sweep (offline proposal) → shadow (online validation) → promote
 
 The sweep can only score turns the CURRENT policy produced. It cannot say how
 often a candidate would disagree going forward, on traffic nobody has seen yet.
-Enable it by writing the candidate pair (admin-only; there is no UI, same as
-`provider:explorationRate`):
+Enable it at **Settings → Models → Routing Experiments** (admin-only), which
+refuses an inverted pair in the form rather than letting the write route 400 it,
+or by writing the candidate pair directly:
 
 ```
 PUT /api/settings/provider:routingShadow
@@ -303,7 +304,8 @@ PUT /api/settings/provider:routingShadow
 Take those numbers from the sweep's recommendation. Every routed turn is then
 additionally classified with them; the verdict lands in
 `usage.routingSignals.shadow` as `{tier, agreed}` and the turn is served exactly
-as it would have been anyway. Delete the key to turn shadow mode off.
+as it would have been anyway. Clearing both boxes in the editor (or deleting the
+key) turns shadow mode off.
 
 Three properties make the number trustworthy:
 
@@ -436,7 +438,9 @@ moves routing upstream at **zero app-side cost**:
 - `src/runtime/routing/mode-binding.ts` — the pure mode task binding: `resolveTurnModelBinding` (the whole pin → mode model → mode tier → classifier chain, with per-field availability validation).
 - `web/src/lib/components/settings/TierLadderSection.svelte` + `web/src/lib/tier-ladder-view.ts` — the Settings → Models editor and its pure display logic.
 - `web/src/lib/components/ModeFormModal.svelte` — the mode form, including the Model Tier selector that writes `modes.preferred_tier`.
-- `web/src/lib/model-selector-logic.ts` — the client half: the Auto sentinel, `resolveDefaultSelection` (the unset-user default), `parseDefaultSelection` (tolerant read of `provider:defaultSelection`), and `resolveWireModel` (route-once on the wire).
+- `web/src/lib/model-selector-logic.ts` — the client half: the Auto sentinel, `resolveDefaultSelection` (the unset-user default), and `resolveWireModel` (route-once on the wire). It re-exports the `provider:defaultSelection` key, modes and tolerant read from the module below, so the picker keeps one import.
+- `src/runtime/routing/default-selection.ts` — the key, the two modes, `parseDefaultSelection` (tolerant read) and `validateDefaultSelection` (the write-time gate the settings PUT enforces), in one pure module so read and write cannot drift.
+- `web/src/lib/components/settings/DefaultSelectionSection.svelte` — the operator-facing editor (Settings → Models → New Chat Model Default).
 - `web/src/routes/api/models/default-selection/+server.ts` — read-scoped read of `provider:defaultSelection` so an operator's revert reaches every user, not just admins.
 - `src/runtime/stream-chat/setup-tools.ts` — `resolveModelTierAndCredential`: route-once wiring + the turn's `effectiveTier`.
 - `src/providers/router.ts` — `resolveModel` (3 levels), `suggestFallback`, `getDefaultTier`, preference-order handling.

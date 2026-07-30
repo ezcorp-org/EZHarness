@@ -16,6 +16,14 @@ import {
   ROUTING_SHADOW_SETTING_KEY,
   validateShadowThresholds,
 } from "$server/runtime/routing/shadow";
+import {
+  DEFAULT_SELECTION_SETTING_KEY,
+  validateDefaultSelection,
+} from "$server/runtime/routing/default-selection";
+import {
+  TOOL_RESULT_CAP_SETTING_KEY,
+  validateToolResultCap,
+} from "$server/runtime/stream-chat/tool-result-cap";
 import type { RequestHandler } from "./$types";
 
 // Boundary validation for setting upsert. `value` is intentionally
@@ -60,6 +68,24 @@ function validateForKey(key: string, value: unknown): { value: unknown } | Respo
     const result = validateShadowThresholds(value);
     if (!result.ok) return errorJson(400, `Invalid ${key}: ${result.error}`);
     return { value: result.thresholds };
+  }
+  // The unset-user composer default. This one is the REVERT knob for
+  // routed-by-default traffic, so a silently-ignored typo is the worst possible
+  // failure: the operator believes they have reverted, every user stays on
+  // routed turns, and the read path reports "auto" with no way to tell a bad
+  // write from never having written.
+  if (key === DEFAULT_SELECTION_SETTING_KEY) {
+    const result = validateDefaultSelection(value);
+    if (!result.ok) return errorJson(400, `Invalid ${key}: ${result.error}`);
+    return { value: result.mode };
+  }
+  // The stale-tool-result cap, read on every agentic-loop iteration. The read
+  // falls back to the 32000 default for anything malformed, so `"16000"` or
+  // `-1` would land, change nothing, and look like a broken knob.
+  if (key === TOOL_RESULT_CAP_SETTING_KEY) {
+    const result = validateToolResultCap(value);
+    if (!result.ok) return errorJson(400, `Invalid ${key}: ${result.error}`);
+    return { value: result.cap };
   }
   return { value };
 }

@@ -25,6 +25,14 @@
  *   wins over the default.
  */
 
+import {
+	DEFAULT_SELECTION_FALLBACK,
+	DEFAULT_SELECTION_MODES,
+	DEFAULT_SELECTION_SETTING_KEY,
+	type DefaultSelectionMode,
+	parseDefaultSelection,
+} from "$server/runtime/routing/default-selection";
+
 export interface ModelSelection {
 	provider: string;
 	model: string;
@@ -160,31 +168,20 @@ export function shouldAutoSelectDefault(
 }
 
 /**
- * What an unset user's default selection IS.
- *
- * - `"auto"` (shipped default) — the Auto sentinel, so the very first turn of
- *   a fresh thread is ROUTED by the server. Without this, every unset user was
- *   auto-pinned to `models[0]` and a pinned model is never routed, which left
- *   the routing engine idle.
- * - `"first"` — the pre-routing behaviour: pin `models[0]`. The operator's
- *   revert path (no deploy needed) if routed traffic misbehaves.
+ * The unset-user default (`provider:defaultSelection`) — the key, the two
+ * modes, and the tolerant read — is owned by
+ * `$server/runtime/routing/default-selection`, next to the WRITE-time
+ * validator the settings PUT route enforces. Re-exported here so the composer
+ * and the picker keep importing one module, and so read and write can never
+ * drift apart into two definitions of what `"first"` means.
  */
-export type DefaultSelectionMode = "auto" | "first";
-
-/** Admin setting that chooses the mode (`src/db/queries/settings.ts` KV). */
-export const DEFAULT_SELECTION_SETTING_KEY = "provider:defaultSelection";
-
-/** Mode used when the setting is absent or malformed. */
-export const DEFAULT_SELECTION_FALLBACK: DefaultSelectionMode = "auto";
-
-/**
- * Tolerant read of the stored setting. Absent / malformed / any unknown value
- * degrades to {@link DEFAULT_SELECTION_FALLBACK} rather than throwing — a
- * settings row must never be able to break the composer.
- */
-export function parseDefaultSelection(value: unknown): DefaultSelectionMode {
-	return value === "auto" || value === "first" ? value : DEFAULT_SELECTION_FALLBACK;
-}
+export {
+	DEFAULT_SELECTION_FALLBACK,
+	DEFAULT_SELECTION_MODES,
+	DEFAULT_SELECTION_SETTING_KEY,
+	parseDefaultSelection,
+};
+export type { DefaultSelectionMode };
 
 /**
  * The selection to apply for a user who has none, or `null` when no default

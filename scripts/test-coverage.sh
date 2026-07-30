@@ -286,6 +286,8 @@ run_legs() {
       src/lib/settings-models.unit.test.ts \
       src/lib/tier-ladder-view.unit.test.ts \
       src/lib/components/__tests__/TierLadderSection.component.test.ts \
+      src/lib/components/__tests__/DefaultSelectionSection.component.test.ts \
+      src/lib/components/__tests__/ToolResultCapSection.component.test.ts \
       src/__tests__/api-settings-key.server.test.ts \
       src/__tests__/model-selector-logic.unit.test.ts \
       src/lib/save-flash.unit.test.ts \
@@ -427,6 +429,8 @@ run_legs() {
       --coverage.include='src/lib/settings-models.ts' \
       --coverage.include='src/lib/tier-ladder-view.ts' \
       --coverage.include='src/lib/components/settings/TierLadderSection.svelte' \
+      --coverage.include='src/lib/components/settings/DefaultSelectionSection.svelte' \
+      --coverage.include='src/lib/components/settings/ToolResultCapSection.svelte' \
       --coverage.include='src/routes/api/settings/[key]/+server.ts' \
       --coverage.include='src/routes/api/models/default-selection/+server.ts' \
       --coverage.include='src/routes/api/models/capabilities/+server.ts' \

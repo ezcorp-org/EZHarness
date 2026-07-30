@@ -38,6 +38,10 @@ import { getProject } from "../db/queries/projects";
 import { getAllSettings, getSetting } from "../db/queries/settings";
 import type { CompactionConfig } from "./stream-chat/context-compaction";
 import {
+  TOOL_RESULT_CAP_SETTING_KEY,
+  parseToolResultCap,
+} from "./stream-chat/tool-result-cap";
+import {
   resolveCacheRetentionSetting,
   type CacheRetention,
 } from "./stream-chat/cache-retention";
@@ -171,7 +175,6 @@ async function resolveCompactionConfig(): Promise<Partial<CompactionConfig>> {
     ["compaction:safetyFraction", "safetyFraction"],
     ["compaction:cacheAnchorFraction", "cacheAnchorFraction"],
     ["compaction:summarizeMaxTokens", "summarizeMaxTokens"],
-    ["compaction:toolResultCap", "toolResultCap"],
   ];
   for (const [key, field] of numeric) {
     const v = await getSetting(key);
@@ -179,6 +182,10 @@ async function resolveCompactionConfig(): Promise<Partial<CompactionConfig>> {
       (out as Record<string, number>)[field] = v;
     }
   }
+  // The stale-tool-result cap has a settings EDITOR (Settings → Models), so its
+  // read lives beside its write-time validator rather than in the generic loop
+  // above — one module owns "what a stored cap means".
+  out.toolResultCap = parseToolResultCap(await getSetting(TOOL_RESULT_CAP_SETTING_KEY));
   return out;
 }
 
