@@ -229,5 +229,6 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "POST", path: "/api/quickstart", description: "Update quickstart step completion", category: "system" },
   { method: "GET", path: "/api/favicon", description: "Get application favicon", category: "system" },
   { method: "GET", path: "/api/audit-log", description: "List audit log entries (admin)", category: "admin" },
+  { method: "GET", path: "/api/admin/analytics/routing", description: "Routing + cost analytics: routed-vs-pinned share, tier mix, failover rate, mid-conversation model switches, A/B retry rate, and priced spend per provider+model (admin)", category: "admin", scope: "admin", responseDescription: "{ days, turns: { total, routed, pinned, legacy }, routedShare, tierMix, failover, switches, retries, spend: { segments, routedUsd, pinnedUsd, legacyUsd, totalUsd, unpricedTurns, unpricedTokens, conversations, usdPerConversation } }" },
   { method: "GET", path: "/api/fs/list", description: "List files in a directory", category: "system" },
 ];

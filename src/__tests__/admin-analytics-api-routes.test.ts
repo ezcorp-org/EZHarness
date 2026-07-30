@@ -6,6 +6,7 @@ import { mockServerAlias, createMockEvent, jsonFromResponse, ADMIN_USER, MEMBER_
 mockServerAlias();
 
 mock.module("../../web/src/routes/api/admin/analytics/$types", () => ({}));
+mock.module("../../web/src/routes/api/admin/analytics/routing/$types", () => ({}));
 mock.module("../../web/src/routes/api/admin/system/$types", () => ({}));
 mock.module("../../web/src/routes/api/admin/errors/$types", () => ({}));
 mock.module("$lib/server/security/validation", () =>
@@ -31,6 +32,7 @@ const analyticsMock = () => ({
   getToolUsageByAgent: async (_days: number) => mockAnalytics.toolUsageByAgent ?? [],
   getToolUsageByUser:  async (_days: number) => mockAnalytics.toolUsageByUser  ?? [],
   getToolUsageByModel: async (_days: number) => mockAnalytics.toolUsageByModel ?? [],
+  getRoutingStats: async (days: number) => ({ ...(mockAnalytics.routingStats ?? {}), days }),
   getSystemHealth: async () => mockSystem.health ?? { dbSizeBytes: 0, uptimeSeconds: 0, tableRowCounts: {} },
   getActivityFeed: async () => mockSystem.activityFeed ?? [],
   getErrorSummary: async () => mockSystem.errorSummary ?? { totalErrors: 0, errorRate: [], recentErrors: [] },
@@ -48,6 +50,7 @@ mock.module("../db/queries/error-logs", errorLogsMock);
 
 // ── Handler imports ──────────────────────────────────────────────
 import { GET as analyticsGet } from "../../web/src/routes/api/admin/analytics/+server";
+import { GET as routingGet } from "../../web/src/routes/api/admin/analytics/routing/+server";
 import { GET as systemGet } from "../../web/src/routes/api/admin/system/+server";
 import { GET as errorsGet } from "../../web/src/routes/api/admin/errors/+server";
 
@@ -74,6 +77,18 @@ beforeEach(() => {
     toolUsageByModel: [
       { model: "claude-opus-4-7", provider: "anthropic", toolName: "read_file", count: 15, successCount: 14, errorCount: 1 },
     ],
+    routingStats: {
+      turns: { total: 10, routed: 3, pinned: 5, legacy: 2 },
+      routedShare: 0.375,
+      tierMix: [{ tier: "fast", count: 3 }],
+      failover: { count: 1, rate: 0.125 },
+      switches: { pairs: 4, total: 1, escalations: 1, downgrades: 0, lateral: 0, rate: 0.25, samples: [] },
+      retries: { answeredTurns: 8, retriedTurns: 1, extraSiblings: 1, rate: 0.125, samples: [] },
+      spend: {
+        segments: [], routedUsd: 1.5, pinnedUsd: 2.5, legacyUsd: 0, totalUsd: 4,
+        unpricedTurns: 1, unpricedTokens: 500, conversations: 2, usdPerConversation: 2,
+      },
+    },
   };
   mockSystem = {
     health: { dbSizeBytes: 1024, uptimeSeconds: 3600, tableRowCounts: { users: 2 } },
@@ -165,6 +180,69 @@ describe("GET /api/admin/analytics", () => {
     let res: Response;
     try {
       res = await analyticsGet(event);
+    } catch (e) {
+      res = e as Response;
+    }
+    expect(res.status).toBe(403);
+  });
+});
+
+// ── GET /api/admin/analytics/routing ─────────────────────────────
+
+describe("GET /api/admin/analytics/routing", () => {
+  test("returns the routing + spend payload for admin", async () => {
+    const event = createMockEvent({
+      url: "http://localhost/api/admin/analytics/routing",
+      user: ADMIN_USER,
+    });
+
+    const res = await routingGet(event);
+    expect(res.status).toBe(200);
+
+    const data = await jsonFromResponse(res);
+    expect(data.turns).toEqual({ total: 10, routed: 3, pinned: 5, legacy: 2 });
+    expect(data.routedShare).toBe(0.375);
+    expect(data.tierMix[0].tier).toBe("fast");
+    expect(data.failover.count).toBe(1);
+    expect(data.switches.escalations).toBe(1);
+    expect(data.retries.retriedTurns).toBe(1);
+    expect(data.spend.routedUsd).toBe(1.5);
+    expect(data.spend.usdPerConversation).toBe(2);
+    // Unpriced turns ride their own axis, never folded into the dollars.
+    expect(data.spend.unpricedTurns).toBe(1);
+  });
+
+  test("defaults to 30 days and clamps the days param to [1, 365]", async () => {
+    const dflt = await jsonFromResponse(
+      await routingGet(createMockEvent({ url: "http://localhost/api/admin/analytics/routing", user: ADMIN_USER })),
+    );
+    expect(dflt.days).toBe(30);
+
+    const low = await jsonFromResponse(
+      await routingGet(createMockEvent({ url: "http://localhost/api/admin/analytics/routing?days=0", user: ADMIN_USER })),
+    );
+    expect(low.days).toBe(30); // parseInt("0") is falsy → the ?? 30 default
+
+    const high = await jsonFromResponse(
+      await routingGet(createMockEvent({ url: "http://localhost/api/admin/analytics/routing?days=9999", user: ADMIN_USER })),
+    );
+    expect(high.days).toBe(365);
+
+    const ok = await jsonFromResponse(
+      await routingGet(createMockEvent({ url: "http://localhost/api/admin/analytics/routing?days=7", user: ADMIN_USER })),
+    );
+    expect(ok.days).toBe(7);
+  });
+
+  test("returns 403 for a non-admin member (role gate, not just scope)", async () => {
+    const event = createMockEvent({
+      url: "http://localhost/api/admin/analytics/routing",
+      user: MEMBER_USER,
+    });
+
+    let res: Response;
+    try {
+      res = await routingGet(event);
     } catch (e) {
       res = e as Response;
     }

@@ -19,6 +19,49 @@
 		};
 	};
 
+	// Mirrors RoutingStats in src/db/queries/analytics.ts. `cost: null` means the
+	// model is UNPRICED (a subscription/OAuth plan is rate-limited, not billed
+	// per token) — it is NOT a measured $0.00, and this panel must never render
+	// it as one.
+	type SegmentCost = {
+		input: number;
+		output: number;
+		cacheRead: number;
+		cacheWrite: number;
+		cacheWrite1h: number;
+		total: number;
+	};
+	type RoutingData = {
+		days: number;
+		turns: { total: number; routed: number; pinned: number; legacy: number };
+		routedShare: number;
+		tierMix: { tier: string; count: number }[];
+		failover: { count: number; rate: number };
+		switches: {
+			pairs: number; total: number; escalations: number; downgrades: number; lateral: number; rate: number;
+			samples: {
+				conversationId: string; turnIndex: number;
+				fromProvider: string; fromModel: string; fromTier: string;
+				toProvider: string; toModel: string; toTier: string;
+				kind: "escalation" | "downgrade" | "lateral";
+			}[];
+		};
+		retries: {
+			answeredTurns: number; retriedTurns: number; extraSiblings: number; rate: number;
+			samples: { conversationId: string; parentMessageId: string; siblingCount: number; continuedThroughMessageId: string | null }[];
+		};
+		spend: {
+			segments: {
+				provider: string; model: string; provenance: "routed" | "pinned" | "legacy"; turnCount: number;
+				tokens: { input: number; output: number; cacheRead: number; cacheWrite: number; cacheWrite1h: number };
+				cost: SegmentCost | null;
+			}[];
+			routedUsd: number; pinnedUsd: number; legacyUsd: number; totalUsd: number;
+			unpricedTurns: number; unpricedTokens: number;
+			conversations: number; usdPerConversation: number | null;
+		};
+	};
+
 	type SystemData = {
 		health: { dbSizeBytes: number; uptimeSeconds: number; tableRowCounts: Record<string, number> };
 		activityFeed: { id: string; action: string; target?: string; metadata?: object; createdAt: string; userName: string; userEmail: string }[];
@@ -30,8 +73,9 @@
 		coverage: { eligibleMessages: number; embeddedMessages: number };
 	};
 
-	let activeTab = $state<"overview" | "usage" | "activity" | "system">("overview");
+	let activeTab = $state<"overview" | "usage" | "routing" | "activity" | "system">("overview");
 	let analyticsData = $state<AnalyticsData | null>(null);
+	let routingData = $state<RoutingData | null>(null);
 	let systemData = $state<SystemData | null>(null);
 	let embedProgress = $state<EmbedProgress | null>(null);
 	let lastUpdated = $state<Date | null>(null);
@@ -45,9 +89,11 @@
 	// and `refreshAll` fires them concurrently WITHOUT a shared
 	// Promise.all barrier.
 	let analyticsLoading = $state(true);
+	let routingLoading = $state(true);
 	let systemLoading = $state(true);
 	let embedLoading = $state(true);
 	let analyticsError = $state(false);
+	let routingError = $state(false);
 	let systemError = $state(false);
 	let embedError = $state(false);
 
@@ -78,6 +124,22 @@
 			analyticsError = true;
 		} finally {
 			analyticsLoading = false;
+		}
+	}
+
+	async function fetchRouting() {
+		routingError = false;
+		try {
+			const res = await fetch("/api/admin/analytics/routing?days=30");
+			if (res.ok) {
+				routingData = await res.json();
+			} else {
+				routingError = true;
+			}
+		} catch {
+			routingError = true;
+		} finally {
+			routingLoading = false;
 		}
 	}
 
@@ -119,6 +181,7 @@
 		// source resolves so the "Updated Ns ago" indicator stays live even
 		// while a slow endpoint is still in flight.
 		void fetchAnalytics().finally(() => (lastUpdated = new Date()));
+		void fetchRouting().finally(() => (lastUpdated = new Date()));
 		void fetchSystem().finally(() => (lastUpdated = new Date()));
 		void fetchEmbedProgress().finally(() => (lastUpdated = new Date()));
 	}
@@ -143,6 +206,23 @@
 
 	function formatDate(dateStr: string): string {
 		return new Date(dateStr).toLocaleString();
+	}
+
+	function formatPct(fraction: number): string {
+		return `${(fraction * 100).toFixed(1)}%`;
+	}
+
+	// Sub-cent spend is real money at scale, so don't round it away to "$0.00" —
+	// that reads like "free" when it means "very cheap".
+	function formatUsd(usd: number): string {
+		if (usd > 0 && usd < 0.01) return "<$0.01";
+		return `$${usd.toFixed(2)}`;
+	}
+
+	/** All billable tokens in a segment. `cacheWrite1h` is a SUBSET of
+	 *  `cacheWrite`, so adding it would double-count. */
+	function segmentTokens(t: RoutingData["spend"]["segments"][number]["tokens"]): number {
+		return t.input + t.output + t.cacheRead + t.cacheWrite;
 	}
 
 	function shortDate(dateStr: string): string {
@@ -300,9 +380,29 @@
 		{ key: "time", label: "Time" },
 	];
 
+	// Routing tab scaling + the "is there anything to show at all?" predicate.
+	// With no traffic yet every rate is legitimately 0, so the panel decides
+	// between "no data" and "measured zero" on TURN COUNT, never on a rate.
+	let routingHasTurns = $derived((routingData?.turns.total ?? 0) > 0);
+	let maxTierCount = $derived(
+		(routingData?.tierMix ?? []).reduce((m, t) => Math.max(m, t.count), 1)
+	);
+	let maxSegmentTurns = $derived(
+		(routingData?.spend.segments ?? []).reduce((m, s) => Math.max(m, s.turnCount), 1)
+	);
+	// A model with no known per-token price (a subscription/OAuth plan). Dollars
+	// are meaningless for these, so they get a tokens-only row.
+	let unpricedSegments = $derived(
+		(routingData?.spend.segments ?? []).filter((s) => s.cost === null)
+	);
+	let pricedSegments = $derived(
+		(routingData?.spend.segments ?? []).filter((s) => s.cost !== null)
+	);
+
 	const tabs = [
 		{ id: "overview" as const, label: "Overview" },
 		{ id: "usage" as const, label: "Usage" },
+		{ id: "routing" as const, label: "Routing" },
 		{ id: "activity" as const, label: "Activity" },
 		{ id: "system" as const, label: "System" },
 	];
@@ -640,6 +740,215 @@
 				</div>
 				{/if}
 
+			{:else if activeTab === "routing"}
+				{#if routingLoading}
+					<SkeletonLoader type="card-grid" count={4} />
+				{:else if routingError}
+					{@render sourceError(fetchRouting)}
+				{:else if !routingHasTurns}
+					<!-- No assistant turns at all in the window. Every rate below
+					     would be a truthful 0, which reads like failure — so say
+					     "nothing measured yet" outright instead. -->
+					<div class="section" data-testid="routing-empty">
+						<h3 class="section-title">Routing &amp; Cost (Last 30 Days)</h3>
+						<p class="empty-text">
+							No assistant turns in this period yet — nothing to route, and nothing to price.
+						</p>
+					</div>
+				{:else}
+				<div data-testid="routing-panel">
+					<!-- Headline: the routed share is the number that decides
+					     whether routing is doing anything at all. -->
+					<div class="stat-grid">
+						<div class="stat-card" data-testid="routing-routed-share">
+							<div class="stat-value">{formatPct(routingData?.routedShare ?? 0)}</div>
+							<div class="stat-label">Turns Routed</div>
+							<div class="stat-trend-muted">
+								{(routingData?.turns.routed ?? 0).toLocaleString()} routed
+								· {(routingData?.turns.pinned ?? 0).toLocaleString()} pinned
+							</div>
+						</div>
+						<div class="stat-card">
+							<div class="stat-value">{(routingData?.turns.total ?? 0).toLocaleString()}</div>
+							<div class="stat-label">Assistant Turns</div>
+							{#if (routingData?.turns.legacy ?? 0) > 0}
+								<div class="stat-trend-muted" data-testid="routing-legacy">
+									{(routingData?.turns.legacy ?? 0).toLocaleString()} without provenance
+								</div>
+							{/if}
+						</div>
+						<div class="stat-card">
+							<div class="stat-value">{formatPct(routingData?.failover.rate ?? 0)}</div>
+							<div class="stat-label">Failover Rate</div>
+							<div class="stat-trend-muted">
+								{(routingData?.failover.count ?? 0).toLocaleString()} turn{(routingData?.failover.count ?? 0) === 1 ? "" : "s"}
+							</div>
+						</div>
+						<div class="stat-card" data-testid="routing-usd-per-conversation">
+							{#if routingData?.spend.usdPerConversation !== null && routingData?.spend.usdPerConversation !== undefined}
+								<div class="stat-value">{formatUsd(routingData.spend.usdPerConversation)}</div>
+								<div class="stat-label">Cost per Conversation</div>
+								<div class="stat-trend-muted">
+									{formatUsd(routingData.spend.totalUsd)} over
+									{routingData.spend.conversations.toLocaleString()} conversation{routingData.spend.conversations === 1 ? "" : "s"}
+								</div>
+							{:else}
+								<!-- Nothing priced landed. "$0.00" here would be a lie. -->
+								<div class="stat-value stat-value-none">&mdash;</div>
+								<div class="stat-label">Cost per Conversation</div>
+								<div class="stat-trend-muted">No priced turns in this period</div>
+							{/if}
+						</div>
+					</div>
+
+					<!-- Tier mix (routed turns only — a pinned turn stamps no tier) -->
+					<div class="section" data-testid="routing-tier-mix">
+						<h3 class="section-title">Routed Tier Mix</h3>
+						{#if routingData?.tierMix.length}
+							<div class="h-bar-list">
+								{#each routingData.tierMix as t}
+									<div class="h-bar-row">
+										<span class="h-bar-label">{t.tier}</span>
+										<div class="h-bar-track">
+											<div class="h-bar-fill" style="width: {(t.count / maxTierCount) * 100}%"></div>
+										</div>
+										<span class="h-bar-value">{t.count.toLocaleString()}</span>
+									</div>
+								{/each}
+							</div>
+						{:else}
+							<p class="empty-text">No routed turns in this period — every turn arrived with a pinned model.</p>
+						{/if}
+					</div>
+
+					<!-- Mid-conversation model switches -->
+					<div class="section" data-testid="routing-switches">
+						<h3 class="section-title">Mid-Conversation Model Switches</h3>
+						{#if routingData?.switches.samples.length}
+							<div class="stat-inline">
+								<strong>{routingData.switches.total.toLocaleString()}</strong>
+								of {routingData.switches.pairs.toLocaleString()} comparable turn pairs
+								({formatPct(routingData.switches.rate)})
+								&mdash; {routingData.switches.escalations} up
+								· {routingData.switches.downgrades} down
+								· {routingData.switches.lateral} lateral
+							</div>
+							<div class="switch-list">
+								{#each routingData.switches.samples as s}
+									<div class="switch-entry">
+										<span class="switch-kind {s.kind}">{s.kind}</span>
+										<span class="switch-models">
+											{s.fromModel} <span class="text-muted">({s.fromTier})</span>
+											&rarr; {s.toModel} <span class="text-muted">({s.toTier})</span>
+										</span>
+										<span class="switch-meta">turn {s.turnIndex}</span>
+									</div>
+								{/each}
+							</div>
+						{:else}
+							<p class="empty-text">
+								No mid-conversation model switches in this period. Detecting one needs two
+								consecutive turns that each pinned a model.
+							</p>
+						{/if}
+					</div>
+
+					<!-- A/B retries -->
+					<div class="section" data-testid="routing-retries">
+						<h3 class="section-title">A/B Retries</h3>
+						{#if routingData?.retries.samples.length}
+							<div class="stat-inline">
+								<strong>{routingData.retries.retriedTurns.toLocaleString()}</strong>
+								of {routingData.retries.answeredTurns.toLocaleString()} answered turns retried
+								({formatPct(routingData.retries.rate)})
+								&mdash; {routingData.retries.extraSiblings.toLocaleString()} extra answer{routingData.retries.extraSiblings === 1 ? "" : "s"}
+							</div>
+							<div class="switch-list">
+								{#each routingData.retries.samples as r}
+									<div class="switch-entry">
+										<span class="switch-kind retry">{r.siblingCount} answers</span>
+										<span class="switch-models">turn {r.parentMessageId}</span>
+										<span class="switch-meta">
+											{#if r.continuedThroughMessageId}
+												continued through {r.continuedThroughMessageId}
+											{:else}
+												no branch continued
+											{/if}
+										</span>
+									</div>
+								{/each}
+							</div>
+						{:else}
+							<p class="empty-text">
+								No A/B retries in this period &mdash; every user turn has exactly one answer.
+							</p>
+						{/if}
+					</div>
+
+					<!-- Priced spend per provider + model -->
+					<div class="section" data-testid="routing-spend">
+						<h3 class="section-title">Spend by Model</h3>
+						<div class="stat-inline">
+							Routed <strong>{formatUsd(routingData?.spend.routedUsd ?? 0)}</strong>
+							· Pinned <strong>{formatUsd(routingData?.spend.pinnedUsd ?? 0)}</strong>
+							{#if (routingData?.spend.legacyUsd ?? 0) > 0}
+								· No provenance <strong>{formatUsd(routingData?.spend.legacyUsd ?? 0)}</strong>
+							{/if}
+						</div>
+						{#if pricedSegments.length}
+							<div class="h-bar-list">
+								{#each pricedSegments as s}
+									<div class="h-bar-row">
+										<span class="h-bar-label" use:hoverTooltip={`${s.model} (${s.provider}) · ${s.provenance} · ${s.turnCount} turn${s.turnCount === 1 ? '' : 's'}`}>
+											{s.model}
+											<span class="text-muted">({s.provider}) · {s.provenance}</span>
+										</span>
+										<div class="h-bar-track">
+											<div
+												class="h-bar-fill {s.provenance === 'routed' ? '' : 'agent'}"
+												style="width: {(s.turnCount / maxSegmentTurns) * 100}%"
+											></div>
+										</div>
+										<span class="h-bar-value">{formatUsd(s.cost?.total ?? 0)}</span>
+									</div>
+								{/each}
+							</div>
+						{:else}
+							<p class="empty-text">No priced turns in this period.</p>
+						{/if}
+					</div>
+
+					<!-- Unpriced (subscription / OAuth) models: TOKENS, never dollars -->
+					{#if unpricedSegments.length}
+						<div class="section" data-testid="routing-unpriced">
+							<h3 class="section-title">Unpriced Models (Subscription)</h3>
+							<p class="routing-note">
+								These models are rate-limited rather than billed per token, so they have no
+								dollar cost to report. Tokens are the honest unit.
+							</p>
+							<div class="h-bar-list">
+								{#each unpricedSegments as s}
+									<div class="h-bar-row">
+										<span class="h-bar-label" use:hoverTooltip={`${s.model} (${s.provider}) · ${s.provenance} · ${s.turnCount} turn${s.turnCount === 1 ? '' : 's'}`}>
+											{s.model}
+											<span class="text-muted">({s.provider}) · {s.provenance}</span>
+										</span>
+										<div class="h-bar-track">
+											<div class="h-bar-fill unpriced" style="width: {(s.turnCount / maxSegmentTurns) * 100}%"></div>
+										</div>
+										<span class="h-bar-value">{segmentTokens(s.tokens).toLocaleString()} tok</span>
+									</div>
+								{/each}
+							</div>
+							<div class="stat-inline stat-inline-tight">
+								{routingData?.spend.unpricedTurns.toLocaleString()} turn{routingData?.spend.unpricedTurns === 1 ? "" : "s"}
+								· {routingData?.spend.unpricedTokens.toLocaleString()} tokens, no dollar cost
+							</div>
+						</div>
+					{/if}
+				</div>
+				{/if}
+
 			{:else if activeTab === "activity"}
 				{#if systemLoading}
 					<SkeletonLoader type="card-grid" count={4} />
@@ -881,6 +1190,23 @@
 		color: var(--color-text-secondary);
 		margin-bottom: 1rem;
 	}
+	.stat-inline-tight {
+		margin-top: 0.75rem;
+		margin-bottom: 0;
+		font-size: 0.8125rem;
+		color: var(--color-text-muted);
+	}
+	/* Like .stat-trend but neutral — a routed share or failover rate is a
+	   measurement, not good news, so it must not render in the success green. */
+	.stat-trend-muted {
+		font-size: 0.75rem;
+		color: var(--color-text-muted);
+		margin-top: 0.375rem;
+	}
+	/* "No data" reads as an absence, not as a zero value. */
+	.stat-value-none {
+		color: var(--color-text-muted);
+	}
 
 	/* Sections */
 	.section {
@@ -992,6 +1318,11 @@
 	.h-bar-fill.error {
 		background: var(--color-error, #ef4444);
 	}
+	/* Unpriced (subscription) models are measured in tokens, so their bars are
+	   deliberately NOT the spend colour. */
+	.h-bar-fill.unpriced {
+		background: var(--color-text-muted);
+	}
 	.h-bar-value {
 		font-size: 0.75rem;
 		color: var(--color-text-muted);
@@ -1030,6 +1361,59 @@
 		font-size: 0.875rem;
 		font-weight: 500;
 		color: var(--color-text-primary);
+	}
+
+	/* Routing: switch + retry sample lists */
+	.routing-note {
+		font-size: 0.8125rem;
+		color: var(--color-text-muted);
+		margin-bottom: 0.75rem;
+	}
+	.switch-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.375rem;
+	}
+	.switch-entry {
+		display: flex;
+		align-items: baseline;
+		gap: 0.5rem;
+		font-size: 0.8125rem;
+		padding: 0.375rem 0;
+		border-bottom: 1px solid var(--color-border);
+	}
+	.switch-entry:last-child {
+		border-bottom: none;
+	}
+	.switch-kind {
+		font-size: 0.6875rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		padding: 0.125rem 0.375rem;
+		border-radius: 0.25rem;
+		flex-shrink: 0;
+		background: var(--color-surface-tertiary);
+		color: var(--color-text-muted);
+	}
+	.switch-kind.escalation {
+		background: rgba(99, 102, 241, 0.15);
+		color: #6366f1;
+	}
+	.switch-kind.downgrade {
+		background: rgba(34, 197, 94, 0.15);
+		color: #22c55e;
+	}
+	.switch-models {
+		color: var(--color-text-secondary);
+		flex: 1;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.switch-meta {
+		font-size: 0.75rem;
+		color: var(--color-text-muted);
+		flex-shrink: 0;
 	}
 
 	/* Activity feed */

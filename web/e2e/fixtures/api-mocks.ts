@@ -1661,7 +1661,28 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 			return route.fulfill({ json: { success: true, revokedCount: 0 } });
 		}
 
-		// Admin analytics & system
+		// Admin analytics & system.
+		// The routing sub-route is matched FIRST (it is a longer path under the
+		// same prefix) and returns a fully-zeroed RoutingStats envelope so the
+		// dashboard's Routing tab has a real shape to read on every spec, not a
+		// bare `{}` from the catch-all.
+		if (path === "/api/admin/analytics/routing" && method === "GET") {
+			return route.fulfill({
+				json: {
+					days: 30,
+					turns: { total: 0, routed: 0, pinned: 0, legacy: 0 },
+					routedShare: 0,
+					tierMix: [],
+					failover: { count: 0, rate: 0 },
+					switches: { pairs: 0, total: 0, escalations: 0, downgrades: 0, lateral: 0, rate: 0, samples: [] },
+					retries: { answeredTurns: 0, retriedTurns: 0, extraSiblings: 0, rate: 0, samples: [] },
+					spend: {
+						segments: [], routedUsd: 0, pinnedUsd: 0, legacyUsd: 0, totalUsd: 0,
+						unpricedTurns: 0, unpricedTokens: 0, conversations: 0, usdPerConversation: null,
+					},
+				},
+			});
+		}
 		if (path === "/api/admin/analytics" && method === "GET") {
 			return route.fulfill({ json: { chatActivity: [], modelUsage: [], agentStats: [], extensionStats: [], userStats: { totalUsers: 0, activeUsers30d: 0, signupsLast30d: [] } } });
 		}
