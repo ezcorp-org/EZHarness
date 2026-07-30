@@ -3,6 +3,9 @@ import { sql } from "drizzle-orm";
 import type { AgentResult, WorkflowRunStatus, WorkflowStep } from "../types";
 import type { MemoryProvenance } from "../memory/types";
 import { EMBEDDING_DIMENSIONS } from "../memory/types";
+// Tier vocabulary lives in the pure routing classifier (single source of
+// truth). Type-only import — erased at build, so it adds no runtime dep.
+import type { RoutingTier } from "../runtime/tier-classifier";
 import type {
   GithubColumnActionMap,
   GithubProposalAction,
@@ -758,6 +761,16 @@ export const modes = pgTable("modes", {
   instructionPosition: text("instruction_position").notNull().default("prepend").$type<"prepend" | "append" | "replace">(),
   preferredModel: text("preferred_model"),
   preferredProvider: text("preferred_provider"),
+  /** WS3b: the routing TIER this kind of task wants, when the mode has no
+   *  reason to name a specific model. Applied at thread start as the tier
+   *  classifier's hint (see src/runtime/routing/mode-binding.ts), so the
+   *  binding keeps working as the tier ladder changes underneath it —
+   *  `preferredModel` pins a model, this pins the CLASS of model. NULL = no
+   *  preference. Plain TEXT with no CHECK: the union narrows at the
+   *  TypeScript layer only (same convention as every other enum-ish column
+   *  here), and `mode-binding.ts` re-validates the value at read time so a
+   *  hand-edited row degrades instead of routing on garbage. */
+  preferredTier: text("preferred_tier").$type<RoutingTier>(),
   preferredThinkingLevel: text("preferred_thinking_level").$type<"off" | "minimal" | "low" | "medium" | "high" | "xhigh">(),
   temperature: real("temperature"),
   toolRestriction: text("tool_restriction").notNull().default("all").$type<"all" | "read-only" | "none" | "allowlist">(),

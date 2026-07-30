@@ -359,6 +359,10 @@ export interface Mode {
 	instructionPosition: "prepend" | "append" | "replace";
 	preferredModel: string | null;
 	preferredProvider: string | null;
+	/** WS3b: routing tier this kind of task wants ("fast" | "balanced" |
+	 *  "powerful"), when the mode names no specific model. Applied server-side
+	 *  at thread start as the tier classifier's hint. */
+	preferredTier: string | null;
 	preferredThinkingLevel: string | null;
 	temperature: number | null;
 	toolRestriction: "all" | "read-only" | "none" | "allowlist";

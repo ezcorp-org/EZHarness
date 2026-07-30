@@ -51,6 +51,7 @@ function makeMode(overrides: Partial<Mode> = {}): Mode {
 		instructionPosition: "prepend",
 		preferredModel: null,
 		preferredProvider: null,
+		preferredTier: null,
 		preferredThinkingLevel: null,
 		temperature: null,
 		toolRestriction: "all",

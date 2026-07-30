@@ -15,6 +15,9 @@
  *      extensionIds field (even when empty)
  *   6. View mode (custom) with extensionIds=null — italic
  *      "No extensions attached." line replaces the chip strip
+ *   7. WS3b Model Tier selector — the mode → routing-tier task binding:
+ *      renders, defaults to Auto, hydrates from an existing row, submits the
+ *      chosen tier (and `null` for Auto), and is disabled in readonly view
  */
 
 import { describe, test, expect, vi, beforeEach } from "vitest";
@@ -77,6 +80,7 @@ beforeEach(() => {
 					instructionPosition: body?.instructionPosition ?? "prepend",
 					preferredModel: null,
 					preferredProvider: null,
+					preferredTier: null,
 					preferredThinkingLevel: null,
 					temperature: null,
 					toolRestriction: "all",
@@ -101,6 +105,7 @@ beforeEach(() => {
 					instructionPosition: body?.instructionPosition ?? "prepend",
 					preferredModel: null,
 					preferredProvider: null,
+					preferredTier: null,
 					preferredThinkingLevel: null,
 					temperature: null,
 					toolRestriction: "all",
@@ -133,6 +138,7 @@ function makeMode(overrides: Partial<Mode> = {}): Mode {
 		instructionPosition: "prepend",
 		preferredModel: null,
 		preferredProvider: null,
+		preferredTier: null,
 		preferredThinkingLevel: null,
 		temperature: null,
 		toolRestriction: "all",
@@ -582,5 +588,140 @@ describe("ModeFormModal — per-tool subset (extensionTools)", () => {
 		// Readonly summary text, not an interactive checkbox.
 		expect(await findByText("summarize")).toBeInTheDocument();
 		expect(queryByTestId("tool-a-summarize")).toBeNull();
+	});
+});
+
+/**
+ * WS3b — the Model Tier selector (`modes.preferredTier`).
+ *
+ * The mode → routing-tier task binding: "this KIND of task wants a powerful
+ * model", named as a tier rather than a model id so the binding survives model
+ * churn. The form's empty option is the wire-level `null` ("no preference" →
+ * the turn falls through to the heuristic classifier), so the null/"" mapping
+ * in both directions is the thing worth pinning.
+ */
+describe("ModeFormModal — Model Tier (preferredTier)", () => {
+	test("create flow renders the selector, defaulting to Auto (no preference)", () => {
+		const { getByText, getByTestId } = render(ModeFormModal, {
+			open: true,
+			editMode: null,
+			viewMode: false,
+			onsaved: () => {},
+			onclose: () => {},
+		});
+
+		expect(getByText("Model Tier")).toBeInTheDocument();
+		const select = getByTestId("mode-form-preferred-tier") as HTMLSelectElement;
+		expect(select.value).toBe("");
+		// All three tiers plus the Auto option are offered.
+		expect([...select.options].map((o) => o.value)).toEqual(["", "fast", "balanced", "powerful"]);
+		expect(select.disabled).toBe(false);
+	});
+
+	test("submit (create) with Auto selected sends preferredTier: null, not an empty string", async () => {
+		const onsaved = vi.fn();
+		const { container } = render(ModeFormModal, {
+			open: true,
+			editMode: null,
+			viewMode: false,
+			onsaved,
+			onclose: () => {},
+		});
+
+		await fireEvent.input(container.querySelector("#mode-form-name") as HTMLInputElement, {
+			target: { value: "Auto Tier Mode" },
+		});
+		await fireEvent.input(container.querySelector("#mode-form-system-prompt") as HTMLTextAreaElement, {
+			target: { value: "Be helpful." },
+		});
+		await fireEvent.click(container.querySelector("button.bg-blue-600") as HTMLButtonElement);
+		await flush();
+
+		const postCall = fetchCalls.find((c) => c.method === "POST" && /\/api\/modes(\?|$)/.test(c.url));
+		expect(postCall).toBeDefined();
+		expect(postCall!.body).toHaveProperty("preferredTier");
+		// The API column is nullable; "" would fail the zod tier enum.
+		expect(postCall!.body.preferredTier).toBeNull();
+		expect(onsaved).toHaveBeenCalledTimes(1);
+	});
+
+	test("choosing a tier carries it to the POST body", async () => {
+		const { container, getByTestId } = render(ModeFormModal, {
+			open: true,
+			editMode: null,
+			viewMode: false,
+			onsaved: vi.fn(),
+			onclose: () => {},
+		});
+
+		await fireEvent.input(container.querySelector("#mode-form-name") as HTMLInputElement, {
+			target: { value: "Careful Review" },
+		});
+		await fireEvent.input(container.querySelector("#mode-form-system-prompt") as HTMLTextAreaElement, {
+			target: { value: "Review carefully." },
+		});
+		const select = getByTestId("mode-form-preferred-tier") as HTMLSelectElement;
+		await fireEvent.change(select, { target: { value: "powerful" } });
+
+		await fireEvent.click(container.querySelector("button.bg-blue-600") as HTMLButtonElement);
+		await flush();
+
+		const postCall = fetchCalls.find((c) => c.method === "POST" && /\/api\/modes(\?|$)/.test(c.url));
+		expect(postCall!.body.preferredTier).toBe("powerful");
+	});
+
+	test("edit flow hydrates the stored tier and carries it to the PUT body", async () => {
+		const { container, getByTestId } = render(ModeFormModal, {
+			open: true,
+			editMode: makeMode({ id: "tier-edit", preferredTier: "fast" }),
+			viewMode: false,
+			onsaved: vi.fn(),
+			onclose: () => {},
+		});
+
+		const select = getByTestId("mode-form-preferred-tier") as HTMLSelectElement;
+		expect(select.value).toBe("fast");
+
+		await fireEvent.change(select, { target: { value: "balanced" } });
+		await fireEvent.click(container.querySelector("button.bg-blue-600") as HTMLButtonElement);
+		await flush();
+
+		const putCall = fetchCalls.find(
+			(c) => c.method === "PUT" && c.url.includes("/api/modes/tier-edit"),
+		);
+		expect(putCall!.body.preferredTier).toBe("balanced");
+	});
+
+	test("clearing a stored tier back to Auto submits null", async () => {
+		const { container, getByTestId } = render(ModeFormModal, {
+			open: true,
+			editMode: makeMode({ id: "tier-clear", preferredTier: "powerful" }),
+			viewMode: false,
+			onsaved: vi.fn(),
+			onclose: () => {},
+		});
+
+		await fireEvent.change(getByTestId("mode-form-preferred-tier"), { target: { value: "" } });
+		await fireEvent.click(container.querySelector("button.bg-blue-600") as HTMLButtonElement);
+		await flush();
+
+		const putCall = fetchCalls.find(
+			(c) => c.method === "PUT" && c.url.includes("/api/modes/tier-clear"),
+		);
+		expect(putCall!.body.preferredTier).toBeNull();
+	});
+
+	test("readonly view shows the stored tier but disables the selector", () => {
+		const { getByTestId } = render(ModeFormModal, {
+			open: true,
+			editMode: makeMode({ id: "tier-view", preferredTier: "balanced", builtin: true }),
+			viewMode: true,
+			onsaved: () => {},
+			onclose: () => {},
+		});
+
+		const select = getByTestId("mode-form-preferred-tier") as HTMLSelectElement;
+		expect(select.value).toBe("balanced");
+		expect(select.disabled).toBe(true);
 	});
 });

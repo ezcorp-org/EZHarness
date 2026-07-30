@@ -134,6 +134,10 @@
   "web/e2e/loops-kill-switch.spec.ts": [
     "web/src/routes/(app)/settings/admin/+page.svelte"
   ],
+  "web/e2e/mode-preferred-tier.spec.ts": [
+    "web/src/lib/components/ModeFormModal.svelte",
+    "web/src/lib/components/settings/ModesSection.svelte"
+  ],
   "web/e2e/openrouter-provider.spec.ts": [
     "web/src/lib/components/ProviderSettings.svelte",
     "web/src/lib/components/settings/PreferenceOrderSection.svelte",

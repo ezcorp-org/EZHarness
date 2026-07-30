@@ -26,7 +26,8 @@ order:
    (correctness requirement — e.g. an orchestration extension that needs a
    powerful model).
 2. **Explicit tier hint** — a caller-supplied `tier` option.
-3. **Heuristic** — complex tools (write/shell/orchestration) → `powerful`;
+3. **The active mode's `preferred_tier`** — the mode task binding below.
+4. **Heuristic** — complex tools (write/shell/orchestration) → `powerful`;
    estimated prompt ≥ 8 000 tokens → `powerful`; any tool present → at least
    `balanced`; ≤ 500 tokens and tool-less → `fast`; else `balanced`. The
    estimate is `chars / 4` — no LLM pre-call, zero added latency.
@@ -45,6 +46,33 @@ default tier (`provider:defaultTier`, default `balanced`) and proceeds.
 explicit provider+model → passthrough (pins are never re-routed); provider
 only → best model in the tier; neither → walk `provider:preferenceOrder`,
 skipping providers whose circuit breaker is open.
+
+### The mode task binding — "this KIND of task wants that model"
+
+A **mode** is EZCorp's task-type concept, and it can bind its kind of task to a
+model or a quality class: `modes.preferred_model` (+ `preferred_provider`) pins
+an exact model, `modes.preferred_tier` pins the class and lets the ladder pick.
+`resolveTurnModelBinding` (`src/runtime/routing/mode-binding.ts`) resolves the
+full chain, most specific first:
+
+```
+per-turn UI pin → conversation pin → mode preferred model → mode preferred tier → classifier
+```
+
+The first two are already folded into the turn's `model` option, so the binding
+is only consulted on a **fresh thread** — a mode preference is a pin applied at
+thread start and inherited afterwards, never a per-turn re-route (same cache
+protection as above; a pinned turn doesn't even read the mode row). It is wired
+server-side at the routing decision point
+(`stream-chat/setup-tools.ts#resolveModelTierAndCredential`) rather than in the
+composer, so API, agent and extension callers get it too.
+
+Every named preference is validated against the models the deployment can
+actually run, independently: a mode naming a retired model, a model on the
+wrong provider, a provider that's gone, or an unrecognized tier **degrades to
+the next level** rather than failing the turn. `preferred_tier` NULL means "no
+preference" — route per turn, exactly as before the column existed. The
+selector lives in the mode form (Settings → Personalization → Modes).
 
 ### The tier ladder — which model a tier actually gets
 
@@ -240,7 +268,9 @@ moves routing upstream at **zero app-side cost**:
 
 - `src/runtime/tier-classifier.ts` — the pure tier classifier (`chooseTurnTier`, thresholds, `RoutingTier`).
 - `src/runtime/routing/tier-ladder.ts` — the pure tier ladder: `validateTierLadder` (write-time), `parseTierLadder` (tolerant read), `resolveLadderEntry`, `ladderCandidates`, `DEFAULT_TIER_LADDER`.
+- `src/runtime/routing/mode-binding.ts` — the pure mode task binding: `resolveTurnModelBinding` (the whole pin → mode model → mode tier → classifier chain, with per-field availability validation).
 - `web/src/lib/components/settings/TierLadderSection.svelte` + `web/src/lib/tier-ladder-view.ts` — the Settings → Models editor and its pure display logic.
+- `web/src/lib/components/ModeFormModal.svelte` — the mode form, including the Model Tier selector that writes `modes.preferred_tier`.
 - `src/runtime/stream-chat/setup-tools.ts` — `resolveModelTierAndCredential`: route-once wiring + the turn's `effectiveTier`.
 - `src/providers/router.ts` — `resolveModel` (3 levels), `suggestFallback`, `getDefaultTier`, preference-order handling.
 - `src/runtime/stream-chat/failover.ts` — `runWithFailover`: same-provider retry, cross-provider pre-stream failover, breaker feeding.

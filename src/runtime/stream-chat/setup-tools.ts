@@ -2,7 +2,12 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { logger } from "../../logger";
 import { getProject } from "../../db/queries/projects";
 import { resolveModel, getDefaultTier } from "../../providers/router";
-import { tierForModel } from "../../providers/registry";
+import { tierForModel, getModelRegistry } from "../../providers/registry";
+import {
+  resolveTurnModelBinding,
+  type AvailableModel,
+  type ModeRoutingPreference,
+} from "../routing/mode-binding";
 import {
   chooseTurnVerdict,
   preferenceOrderHash,
@@ -472,6 +477,41 @@ async function readRoutingConfig(): Promise<RoutingConfig | undefined> {
 }
 
 /**
+ * The active mode's routing columns plus the models the deployment can
+ * actually run — the two inputs {@link resolveTurnModelBinding} validates a
+ * mode's preference against.
+ *
+ * Fail-open BY CONSTRUCTION, like {@link readRoutingConfig}: a deleted mode,
+ * a DB hiccup, or a catalog read failure all return `undefined`, which the
+ * binding reads as "this mode contributes nothing" and the next precedence
+ * level then decides. Nothing here can throw into the turn.
+ *
+ * The catalog read is skipped entirely for a mode that names neither a model
+ * nor a provider — a tier-only binding (and every mode with no routing
+ * preference at all, which is all of the built-ins) needs no availability
+ * check, so the common case costs one primary-key SELECT.
+ */
+async function readModeRouting(
+  modeId: string | undefined,
+): Promise<{ mode: ModeRoutingPreference; availableModels: AvailableModel[] } | undefined> {
+  if (!modeId) return undefined;
+  try {
+    const { getMode } = await import("../../db/queries/modes");
+    const mode = await getMode(modeId);
+    if (!mode) return undefined;
+    const namesTarget = Boolean(mode.preferredModel || mode.preferredProvider);
+    const availableModels = namesTarget ? await getModelRegistry() : [];
+    return { mode, availableModels };
+  } catch (err) {
+    log.warn("mode routing preference read failed — mode contributes no model or tier this turn", {
+      modeId,
+      err: err instanceof Error ? err.message : String(err),
+    });
+    return undefined;
+  }
+}
+
+/**
  * Model resolution + credential pre-validation (setup phase 3 — runs in
  * parallel with memory injection and tool loading inside {@link setupTools}'s
  * `Promise.all`). Exported so the tier semantics are directly unit-testable
@@ -502,6 +542,20 @@ async function readRoutingConfig(): Promise<RoutingConfig | undefined> {
  * turn. All of it is in memory before this runs — no new I/O, no new await,
  * and no dependency on the racing tool-load phase. `turnContext` is optional
  * so any caller that omits it keeps the pre-WS5 classification exactly.
+ *
+ * WS3b folds the active MODE's task→model binding in, between the caller's
+ * pin and the classifier: `modes.preferred_model`/`_provider`/`_tier` finally
+ * select a model. The precedence, most specific first, is
+ * `per-turn UI pin → conversation pin → mode preferred model → mode preferred
+ * tier → classifier` — implemented in `../routing/mode-binding.ts`, which owns
+ * the whole chain as one pure function. It is wired HERE, server-side, rather
+ * than in the composer, because this is the authoritative seam: it also covers
+ * the API, agent, and extension callers that never touch a composer.
+ *
+ * The cache anchor still holds: the binding is read only when the turn
+ * arrived with NO model, so a mode preference behaves like a pin applied at
+ * thread start (and inherited from then on), never a per-turn re-route. A
+ * pinned turn does not even read the mode row.
  */
 export async function resolveModelTierAndCredential(
   run: AgentRun,
@@ -518,12 +572,40 @@ export async function resolveModelTierAndCredential(
   // added latency. Left undefined on a pinned turn — that path reads no
   // settings at all.
   let routingConfigPromise: Promise<RoutingConfig | undefined> | undefined;
-  if (!options.model) {
+  // WS3b: fold the mode's task binding into the turn's pin. Read ONLY on a
+  // turn that arrived without a model — an established/pinned thread is never
+  // re-routed (the cache anchor above), so a pinned turn pays no added read
+  // and behaves byte-identically to before.
+  const modeRouting = options.model ? undefined : await readModeRouting(options.modeId);
+  const binding = resolveTurnModelBinding(
+    { provider: options.provider, model: options.model },
+    modeRouting?.mode,
+    modeRouting?.availableModels ?? [],
+  );
+  if (modeRouting) {
+    // The one log line that makes "my mode's preferred model did nothing" a
+    // diagnosis instead of a mystery: `source` names the precedence level that
+    // actually decided, so a dropped (unavailable) model is visible as
+    // `mode-tier`/`classifier` rather than silently absent.
+    log.info("mode routing binding applied", {
+      modeId: options.modeId,
+      source: binding.source,
+      provider: binding.provider,
+      model: binding.model,
+      tier: binding.tier,
+    });
+  }
+  if (!binding.model) {
     try {
       const verdict = chooseTurnVerdict(
         {
           userMessage,
-          options,
+          // The mode's tier rides in as the classifier's `tierHint`, where it
+          // already ranks above the heuristic and below an extension's
+          // DECLARED tier need (a correctness requirement, not a preference).
+          // An explicit per-turn `options.tier` is more specific still, so it
+          // wins. Spread, never mutated: `options` is the caller's object.
+          options: { ...options, tier: options.tier ?? binding.tier },
           convExtensionTools: convRecord?.extensionTools ?? null,
           history: turnContext?.history,
           systemChars: turnContext?.systemChars,
@@ -546,13 +628,16 @@ export async function resolveModelTierAndCredential(
     // and are about to route on. Provenance is the most expendable thing here.
     routingConfigPromise = readRoutingConfig();
   }
-  const r = await resolveModel(options.provider, options.model, routedTier);
+  const r = await resolveModel(binding.provider, binding.model, routedTier);
   const routingConfig = await routingConfigPromise;
   // Effective tier for THIS turn (see SetupToolsResult.effectiveTier): a
   // pinned model carries its OWN tier so failover stays tier-peer; a routed
   // turn carries the classifier's tier, or the configured default when
   // classification failed above (best-effort — never aborts the turn).
-  const effectiveTier = options.model
+  // A MODE-pinned model is a pin like any other here: failover should look for
+  // a peer of the model actually serving the turn, not of the tier the mode
+  // would have hinted (which the pin superseded).
+  const effectiveTier = binding.model
     ? tierForModel(r.piModel)
     // The routing-config provenance read above already fetched the default
     // tier on a routed turn — reuse it instead of reading the setting twice.
