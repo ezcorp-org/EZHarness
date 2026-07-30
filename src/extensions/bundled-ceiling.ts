@@ -243,9 +243,10 @@ export const BUNDLED_CEILING: Record<string, ExtensionPermissions> = {
   // pollen) behind one chat tool and three granular tools, plus a shipped
   // `conditions` workflow. Mirrors the install grant in `bundled.ts`
   // VERBATIM. Network is the only I/O tier: exactly the three Open-Meteo
-  // hosts, nothing wildcarded. NO filesystem / env / shell / storage —
-  // the extension holds no credential and keeps no state, so there is
-  // nothing for a compromise to reach.
+  // hosts plus the Atlanta NAB-certified station page, nothing wildcarded.
+  // NO filesystem / env / shell / storage — the extension holds no
+  // credential and keeps no state, so there is nothing for a compromise to
+  // reach.
   //
   // FULL-FIELD-SET RULE (see the module header): `workflows` is a
   // structured permission and `intersectPermissions` does
@@ -257,6 +258,7 @@ export const BUNDLED_CEILING: Record<string, ExtensionPermissions> = {
       "geocoding-api.open-meteo.com",
       "api.open-meteo.com",
       "air-quality-api.open-meteo.com",
+      "www.atlantaallergy.com",
     ],
     workflows: { names: ["conditions"], maxRunsPerHour: 12 },
     grantedAt: {},

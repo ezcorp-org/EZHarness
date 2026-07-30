@@ -34,10 +34,11 @@ import {
 const EXT_NAME = "city-conditions";
 const EXT_DIR = join(getProjectRoot(), "docs/extensions/examples/city-conditions");
 
-const OPEN_METEO_HOSTS = [
+const CONDITIONS_HOSTS = [
   "air-quality-api.open-meteo.com",
   "api.open-meteo.com",
   "geocoding-api.open-meteo.com",
+  "www.atlantaallergy.com",
 ];
 
 // ── Upstream fixtures (the suite never touches the network) ──────────
@@ -68,6 +69,7 @@ const FORECAST_BODY = {
 
 const AIR_BODY = {
   current: {
+    time: "2026-07-28T15:00",
     alder_pollen: null,
     birch_pollen: 0.2,
     grass_pollen: 8.1,
@@ -205,8 +207,8 @@ describe("bundled registration", () => {
     expect(existsSync(join(getProjectRoot(), entry!.path))).toBe(true);
   });
 
-  test("grants exactly the three Open-Meteo hosts and nothing wider", () => {
-    expect([...(entry!.permissions.network ?? [])].sort()).toEqual(OPEN_METEO_HOSTS);
+  test("grants only the three Open-Meteo hosts and Atlanta station", () => {
+    expect([...(entry!.permissions.network ?? [])].sort()).toEqual(CONDITIONS_HOSTS);
     expect(entry!.permissions.shell).toBeUndefined();
     expect(entry!.permissions.filesystem).toBeUndefined();
     expect(entry!.permissions.env).toBeUndefined();
@@ -216,7 +218,7 @@ describe("bundled registration", () => {
   test("has a ceiling row mirroring the grant", () => {
     const ceiling = BUNDLED_CEILING[EXT_NAME];
     expect(ceiling).toBeDefined();
-    expect([...(ceiling!.network ?? [])].sort()).toEqual(OPEN_METEO_HOSTS);
+    expect([...(ceiling!.network ?? [])].sort()).toEqual(CONDITIONS_HOSTS);
     expect(ceiling!.workflows).toEqual({ names: ["conditions"], maxRunsPerHour: 12 });
   });
 
@@ -229,7 +231,7 @@ describe("bundled registration", () => {
     expect(clamped).toBe(false);
     expect(effective.workflows).toEqual({ names: ["conditions"], maxRunsPerHour: 12 });
     expect(Number.isFinite(effective.workflows!.maxRunsPerHour)).toBe(true);
-    expect([...(effective.network ?? [])].sort()).toEqual(OPEN_METEO_HOSTS);
+    expect([...(effective.network ?? [])].sort()).toEqual(CONDITIONS_HOSTS);
   });
 
   test("the manifest declares the workflow name the grant carries", async () => {
@@ -308,7 +310,27 @@ describe("conditions workflow — end to end", () => {
       expect((out.pollen as { band: string }).band).toBe("moderate");
       expect((out.mold as { available: boolean }).available).toBe(false);
       expect(String(out.summary)).toContain("Austin at 3:04 PM");
-      expect(String(out.summary)).toContain("Mold not available");
+      expect(String(out.summary)).toContain("Mold status:");
+    } finally {
+      _resetBindingsForTests();
+    }
+  });
+
+  test("an allergen outage keeps the workflow green with explicit unavailable fields", async () => {
+    _setFetchImplForTests((async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("geocoding-api")) return json(GEO_BODY);
+      if (url.includes("air-quality-api")) return json({}, 503);
+      return json(FORECAST_BODY);
+    }) as typeof fetch);
+    try {
+      const run = await executor().runWorkflow(await loadConditionsWorkflow(), { city: "Austin" });
+      expect(run.status).toBe("success");
+      const out = run.result!.output as Record<string, unknown>;
+      expect((out.pollen as { available: boolean }).available).toBe(false);
+      expect((out.pollen as { reason: string }).reason).toContain("HTTP 503");
+      expect((out.mold as { available: boolean }).available).toBe(false);
+      expect(String(out.summary)).toContain("Pollen status: none");
     } finally {
       _resetBindingsForTests();
     }

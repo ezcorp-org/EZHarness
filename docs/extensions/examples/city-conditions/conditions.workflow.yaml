@@ -36,8 +36,9 @@
 
 name: conditions
 description: >-
-  Look up a city's current weather and pollen from Open-Meteo, fetching the
-  two upstreams concurrently, and assemble one report. Same aggregation the
+  Look up a city's current weather and best available allergen data, fetching
+  the two upstream paths concurrently, and assemble one report with source,
+  unit, timestamp, and availability metadata. Same aggregation the
   `city_conditions` chat tool performs, expressed as a graph.
 
 inputSchema:
@@ -114,7 +115,9 @@ steps:
         {{$steps.locate.output.place.name}} at {{$steps.weather.output.localTime}}:
         {{$steps.weather.output.weather.label}}, {{$steps.weather.output.weather.tempC}}°C
         (feels like {{$steps.weather.output.weather.feelsLikeC}}°C).
-        Pollen {{$steps.air.output.pollen.band}}. Mold not available.
+        Pollen status: {{$steps.air.output.pollen.band}}
+        (available={{$steps.air.output.pollen.available}}). Mold status:
+        {{$steps.air.output.mold.band}} (available={{$steps.air.output.mold.available}}).
 
   # 5. Assert the report is whole before the run is called a success.
   - name: complete

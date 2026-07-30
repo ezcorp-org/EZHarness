@@ -525,10 +525,10 @@ const BUNDLED_EXTENSIONS: BundledExtension[] = [
     // declarative graph (its `weather` / `air` steps share one parallel
     // batch).
     //
-    // Network is the only I/O grant and covers exactly the three keyless
-    // Open-Meteo hosts. No filesystem (nothing is written), no env (no
-    // credential exists to take, so the env-key-leak gate is never
-    // approached), no shell, no storage.
+    // Network is the only I/O grant and covers the three keyless Open-Meteo
+    // hosts plus the Atlanta NAB-certified station page. No filesystem
+    // (nothing is written), no env (no credential exists to take, so the
+    // env-key-leak gate is never approached), no shell, no storage.
     //
     // `workflows` is what makes the shipped asset TRIGGERABLE — shipping
     // a `*.workflow.yaml` is only an asset; firing it is the privileged
@@ -543,6 +543,7 @@ const BUNDLED_EXTENSIONS: BundledExtension[] = [
         "geocoding-api.open-meteo.com",
         "api.open-meteo.com",
         "air-quality-api.open-meteo.com",
+        "www.atlantaallergy.com",
       ],
       workflows: { names: ["conditions"], maxRunsPerHour: 12 },
       grantedAt: {

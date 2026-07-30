@@ -12,15 +12,14 @@
   it does not get to happen here.
 
   The honesty contract this markup carries:
-    - mold ships `available: false` with a reason, and renders as an
-      explicit "Not available" block SHOWING that reason — not a blank,
-      not a 0, not a dash that reads like a measurement;
-    - a grain the provider has no value for renders the words "Not
-      reported" in the muted/unreported treatment, while a MEASURED zero
-      renders as the number 0.0 in the normal numeric treatment — the two
-      are never visually the same;
-    - `ok:false` gets a readable failure block (code + message), so a
-      failed run can never look like a successful empty one.
+    - a station mold activity band renders as available while a missing
+      numeric count says "Count not published"; no band becomes a count;
+    - unavailable mold or pollen renders an explicit reason;
+    - a missing grain says "Not reported", while a measured zero renders
+      as 0.0; station categories replace grain rows when that is what the
+      provider actually publishes;
+    - source, certification, report date, and units remain visible;
+    - `ok:false` gets a readable failure block (code + message).
 
   Style follows GradeDeltaCard/PriceChartCard (article.card + scoped CSS
   custom properties). Every row wraps and every text cell sets `min-width:
@@ -88,7 +87,7 @@
 
 		<section class="panel" data-testid="city-conditions-pollen">
 			<header class="panel-head">
-				<h4 class="panel-title">Pollen <span class="unit">µg/m³</span></h4>
+				<h4 class="panel-title">Pollen <span class="unit">{view.pollen.unit}</span></h4>
 				<div class="total">
 					<span
 						class="total-value"
@@ -103,19 +102,43 @@
 					>
 				</div>
 			</header>
-			<ul class="grains">
-				{#each view.pollen.grains as grain (grain.key)}
-					<li class="grain" data-testid="city-conditions-grain" data-grain={grain.key}>
-						<span class="grain-label">{grain.label}</span>
-						<span
-							class="grain-value"
-							class:unreported={!grain.reported}
-							data-testid="city-conditions-grain-value"
-							data-reported={grain.reported}>{grain.text}</span
-						>
-					</li>
-				{/each}
-			</ul>
+			{#if !view.pollen.available}
+				<div class="allergen-missing" data-testid="city-conditions-pollen-unavailable">
+					<span class="mold-flag">Not available</span>
+					<p class="allergen-reason" data-testid="city-conditions-pollen-reason">{view.pollen.reason}</p>
+				</div>
+			{:else if view.pollen.showCategories}
+				<ul class="categories" data-testid="city-conditions-pollen-categories">
+					{#each view.pollen.categories as category (category.key)}
+						<li class="category" data-testid="city-conditions-pollen-category" data-category={category.key}>
+							<div class="category-head">
+								<span class="grain-label">{category.label}</span>
+								<span class="band band-{category.bandId}" data-testid="city-conditions-category-band">{category.bandLabel}</span>
+							</div>
+							{#if category.contributorsText}
+								<span class="contributors">{category.contributorsText}</span>
+							{/if}
+						</li>
+					{/each}
+				</ul>
+			{:else}
+				<ul class="grains">
+					{#each view.pollen.grains as grain (grain.key)}
+						<li class="grain" data-testid="city-conditions-grain" data-grain={grain.key}>
+							<span class="grain-label">{grain.label}</span>
+							<span
+								class="grain-value"
+								class:unreported={!grain.reported}
+								data-testid="city-conditions-grain-value"
+								data-reported={grain.reported}>{grain.text}</span
+							>
+						</li>
+					{/each}
+				</ul>
+			{/if}
+			{#if view.pollen.sourceLine}
+				<p class="source-line" data-testid="city-conditions-pollen-source">{view.pollen.sourceLine}</p>
+			{/if}
 		</section>
 
 		<section class="panel" data-testid="city-conditions-mold">
@@ -124,14 +147,20 @@
 			</header>
 			{#if view.mold.available}
 				<div class="mold-reading">
-					<span class="mold-count" data-testid="city-conditions-mold-count">{view.mold.countText}</span>
-					<span class="band band-reading" data-testid="city-conditions-mold-band">{view.mold.bandText}</span>
+					<span class="mold-count" class:unreported={!view.mold.countReported} data-testid="city-conditions-mold-count">{view.mold.countText}</span>
+					<span class="band band-{view.mold.bandId}" data-testid="city-conditions-mold-band">{view.mold.bandText}</span>
 				</div>
+				{#if view.mold.reason}
+					<p class="allergen-note" data-testid="city-conditions-mold-note">{view.mold.reason}</p>
+				{/if}
 			{:else}
 				<div class="mold-missing" data-testid="city-conditions-mold-unavailable">
 					<span class="mold-flag">Not available</span>
 					<p class="mold-reason" data-testid="city-conditions-mold-reason">{view.mold.reason}</p>
 				</div>
+			{/if}
+			{#if view.mold.sourceLine}
+				<p class="source-line" data-testid="city-conditions-mold-source">{view.mold.sourceLine}</p>
 			{/if}
 		</section>
 	</article>
@@ -390,6 +419,41 @@
 		font-variant-numeric: tabular-nums;
 		overflow-wrap: anywhere;
 	}
+	.categories {
+		display: grid;
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+		gap: 0.375rem;
+		margin: 0;
+		padding: 0;
+		list-style: none;
+	}
+	.category {
+		display: flex;
+		flex-direction: column;
+		gap: 0.375rem;
+		min-width: 0;
+		padding: 0.5rem;
+		border-radius: 6px;
+		background: var(--color-surface-tertiary, #e0e5ef);
+	}
+	.category-head {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: 0.25rem;
+	}
+	.contributors {
+		font-size: 0.75rem;
+		line-height: 1.35;
+		color: var(--color-text-secondary, #434b5e);
+		overflow-wrap: anywhere;
+	}
+	@container (max-width: 25.99rem) {
+		.categories {
+			grid-template-columns: 1fr;
+		}
+	}
 
 	/*
 	  The "no value here" treatment. Deliberately WORDS in italic muted
@@ -417,7 +481,8 @@
 		font-weight: 700;
 		font-variant-numeric: tabular-nums;
 	}
-	.mold-missing {
+	.mold-missing,
+	.allergen-missing {
 		display: flex;
 		flex-direction: column;
 		align-items: flex-start;
@@ -442,12 +507,21 @@
 	  wrapping paragraph — not a flex sibling that can be squeezed to zero
 	  width next to the badge on a narrow viewport.
 	*/
-	.mold-reason {
+	.mold-reason,
+	.allergen-reason,
+	.allergen-note {
 		margin: 0;
 		min-width: 0;
 		font-size: 0.8125rem;
 		line-height: 1.45;
 		color: var(--color-text-secondary, #434b5e);
+		overflow-wrap: anywhere;
+	}
+	.source-line {
+		margin: 0;
+		font-size: 0.6875rem;
+		line-height: 1.4;
+		color: var(--color-text-muted, #565d72);
 		overflow-wrap: anywhere;
 	}
 
