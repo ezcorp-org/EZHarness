@@ -272,6 +272,10 @@ web_bunleg_files() {
     {
       set +e
       printf '%s\n' web/src/__tests__/relative-time.test.ts
+      # Also vitest-owned despite the plain `.test.ts` name — see the matching
+      # explicit entry in web/vitest.config.ts (kept at this basename so the
+      # Gate-integrity test-rename check stays satisfied).
+      printf '%s\n' web/src/lib/chat/page-handlers/__tests__/send-message.test.ts
       passfail_files
       coverage_host_files
     } 2>/dev/null | sort -u

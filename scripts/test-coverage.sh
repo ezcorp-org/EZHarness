@@ -364,7 +364,7 @@ run_legs() {
       src/__tests__/api-users-id.server.test.ts \
       src/__tests__/api-models-default-selection.server.test.ts \
       src/__tests__/api-models-capabilities.server.test.ts \
-      src/lib/chat/page-handlers/__tests__/send-message.unit.test.ts \
+      src/lib/chat/page-handlers/__tests__/send-message.test.ts \
       src/lib/command-registry.unit.test.ts \
       src/lib/components/DiffSummaryPanel.component.test.ts \
       --coverage --coverage.provider=v8 --coverage.reporter=lcovonly \
