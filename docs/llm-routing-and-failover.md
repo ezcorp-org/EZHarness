@@ -46,6 +46,41 @@ explicit provider+model → passthrough (pins are never re-routed); provider
 only → best model in the tier; neither → walk `provider:preferenceOrder`,
 skipping providers whose circuit breaker is open.
 
+### The tier ladder — which model a tier actually gets
+
+A tier is a *quality class*, not a model. `provider:tierModels` is the ordered
+list that turns one into the other: per tier, per provider, the models a routed
+turn may be served by, best first.
+
+```json
+{ "fast":     [{ "provider": "anthropic", "model": "claude-haiku-4-5" }],
+  "balanced": [{ "provider": "anthropic", "model": "claude-sonnet-4-5" }],
+  "powerful": [{ "provider": "anthropic", "model": "claude-opus-4-1" }] }
+```
+
+`findModelForProviderInTier` (`src/providers/registry.ts`) consults the ladder
+first and takes the first entry for that provider whose model the provider's
+catalog currently lists. Everything about it degrades:
+
+- **Unset** → the heuristic scan runs exactly as it did before the setting
+  existed (first catalog model whose inferred tier matches, plus the one
+  built-in rung: openrouter → `openrouter/auto`, because openrouter's 300+
+  models are listed alphabetically and the scan is meaningless there).
+- **Names an unavailable model** (retired id, provider not connected) → that
+  entry is skipped, in order, then the scan.
+- **Malformed row** → ignored. Validation is enforced at WRITE time
+  (`PUT /api/settings/provider:tierModels` → 400), never at read time, because
+  a settings row must not be able to fail a turn.
+- **A rung can name a model whose inferred tier differs.** The ladder is the
+  operator's decision; the heuristic is only the fallback.
+
+The ladder's `fast` rung is also the **single source of the host-internal cheap
+model per provider** — the `/goal` evaluator's credential fallback chain walks
+it in order (`resolveEvaluatorModel`), and the memory-compaction merge reads the
+same rung via `src/lib/cheap-models.ts`. Reordering the `fast` rung reorders
+those chains with it. An empty/absent `fast` rung falls back to the built-in
+default, so no misconfiguration can silently disable goal evaluation.
+
 ### Pre-stream failover
 
 `runWithFailover` (`src/runtime/stream-chat/failover.ts`) wraps the LLM call
@@ -120,6 +155,7 @@ Boundaries and guarantees:
 | Setting key | Default | Meaning |
 |---|---|---|
 | `provider:defaultTier` | `balanced` | Tier used when routing fires and no stronger signal applies (`fast` / `balanced` / `powerful`). |
+| `provider:tierModels` | unset | **The tier ladder** — an ORDERED `{provider, model}` preference list per tier. Editable at **Settings → Models → Tier Model Ladder**; validated on write, ignored (never thrown) on read. See below. |
 | `provider:preferenceOrder` | `[anthropic, openai, google, openrouter]` | Provider walk order for routing and fallback suggestions. Stored orders self-heal: newly known providers are appended (`mergePreferenceOrder`). |
 | `compaction:cacheRetention` | `long` | Prompt-cache TTL shaping for the stable prefix (Anthropic only) — see [context-compaction](context-compaction.md). |
 
@@ -203,6 +239,8 @@ moves routing upstream at **zero app-side cost**:
 ## Key files
 
 - `src/runtime/tier-classifier.ts` — the pure tier classifier (`chooseTurnTier`, thresholds, `RoutingTier`).
+- `src/runtime/routing/tier-ladder.ts` — the pure tier ladder: `validateTierLadder` (write-time), `parseTierLadder` (tolerant read), `resolveLadderEntry`, `ladderCandidates`, `DEFAULT_TIER_LADDER`.
+- `web/src/lib/components/settings/TierLadderSection.svelte` + `web/src/lib/tier-ladder-view.ts` — the Settings → Models editor and its pure display logic.
 - `src/runtime/stream-chat/setup-tools.ts` — `resolveModelTierAndCredential`: route-once wiring + the turn's `effectiveTier`.
 - `src/providers/router.ts` — `resolveModel` (3 levels), `suggestFallback`, `getDefaultTier`, preference-order handling.
 - `src/runtime/stream-chat/failover.ts` — `runWithFailover`: same-provider retry, cross-provider pre-stream failover, breaker feeding.

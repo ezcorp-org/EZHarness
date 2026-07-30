@@ -337,3 +337,70 @@ describe("PUT /api/settings/[key] — value persistence", () => {
     expect(upsertSetting).toHaveBeenCalledWith("ui:theme", "light");
   });
 });
+
+// WS3a — `provider:tierModels` is the one key with a write-time schema. Routing
+// IGNORES a malformed ladder by design, so without this gate a typo would be a
+// silent no-op the operator never learns about.
+describe("PUT /api/settings/provider:tierModels — write-time validation", () => {
+  beforeEach(() => vi.mocked(upsertSetting).mockClear());
+
+  test("stores the NORMALIZED ladder (trimmed, all three tiers present)", async () => {
+    const res = await PUT(
+      makeEvent({
+        key: "provider:tierModels",
+        locals: adminLocals,
+        method: "PUT",
+        body: { value: { fast: [{ provider: " openai ", model: " gpt-4o-mini " }] } },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(upsertSetting).toHaveBeenCalledWith("provider:tierModels", {
+      fast: [{ provider: "openai", model: "gpt-4o-mini" }],
+      balanced: [],
+      powerful: [],
+    });
+  });
+
+  test("a malformed ladder is REJECTED with 400 and never written", async () => {
+    const res = await PUT(
+      makeEvent({
+        key: "provider:tierModels",
+        locals: adminLocals,
+        method: "PUT",
+        body: { value: { blazing: [] } },
+      }),
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toContain('unknown tier "blazing"');
+    expect(upsertSetting).not.toHaveBeenCalled();
+  });
+
+  test("a rung missing its model is rejected, naming the offending index", async () => {
+    const res = await PUT(
+      makeEvent({
+        key: "provider:tierModels",
+        locals: adminLocals,
+        method: "PUT",
+        body: { value: { powerful: [{ provider: "anthropic" }] } },
+      }),
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toContain("powerful[0]");
+    expect(upsertSetting).not.toHaveBeenCalled();
+  });
+
+  test("other keys keep their pass-through (schema-less) write", async () => {
+    const res = await PUT(
+      makeEvent({
+        key: "provider:defaultTier",
+        locals: adminLocals,
+        method: "PUT",
+        body: { value: { anything: true } },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(upsertSetting).toHaveBeenCalledWith("provider:defaultTier", { anything: true });
+  });
+});

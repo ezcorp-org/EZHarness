@@ -100,7 +100,10 @@ const TIER_RANK: Record<RoutingTier, number> = {
   powerful: 2,
 };
 
-const VALID_TIERS: readonly RoutingTier[] = ["fast", "balanced", "powerful"];
+/** The three tiers as a value list, in ascending strength order. Exported so
+ *  modules that must enumerate tiers (the tier ladder's validator + editor)
+ *  never re-declare the vocabulary this module owns. */
+export const VALID_TIERS: readonly RoutingTier[] = ["fast", "balanced", "powerful"];
 
 /** True for one of the three routing tiers (narrows `unknown`). */
 export function isRoutingTier(value: unknown): value is RoutingTier {

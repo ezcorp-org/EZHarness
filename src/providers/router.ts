@@ -16,6 +16,11 @@ import { isTestSurfaceEnabled, MOCK_PROVIDER, mockLlmBaseUrl } from "../test-sur
 // Tier vocabulary lives in the pure routing classifier (single source of
 // truth). Type-only import — erased at build, so it adds no runtime dep.
 import type { RoutingTier } from "../runtime/tier-classifier";
+import {
+  parseTierLadder,
+  TIER_LADDER_SETTING_KEY,
+  type TierLadder,
+} from "../runtime/routing/tier-ladder";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -59,6 +64,18 @@ export async function getDefaultTier(): Promise<TierName> {
     if (TIER_ALIASES[tier]) return TIER_ALIASES[tier];
   }
   return DEFAULT_TIER;
+}
+
+/**
+ * The operator-configured tier ladder (`provider:tierModels`), or `undefined`
+ * when unset OR malformed — routing then keeps its pre-ladder behaviour rather
+ * than failing a turn (see `runtime/routing/tier-ladder.ts`). Deliberately
+ * returns undefined instead of the built-in default: the registry applies the
+ * built-in itself, and only for the providers whose built-in rung was already
+ * in force, so an unconfigured deployment routes exactly as before.
+ */
+export async function getConfiguredTierLadder(): Promise<TierLadder | undefined> {
+  return parseTierLadder(await getSetting(TIER_LADDER_SETTING_KEY));
 }
 
 /**
@@ -129,9 +146,14 @@ export async function resolveModel(
     return { provider, model: modelId, piModel: resolveModelObject(provider, modelId, custom?.baseUrl) };
   }
 
+  // Past the pinned-passthrough level, every remaining branch picks a model
+  // for a tier — so the ladder is loaded once, here, and never on the pinned
+  // hot path above.
+  const ladder = await getConfiguredTierLadder();
+
   // Level 2: Provider only -- find best model in default tier
   if (provider) {
-    const entry = findModelForProviderInTier(provider, tier);
+    const entry = findModelForProviderInTier(provider, tier, ladder);
     if (entry) {
       return { provider, model: entry.id, piModel: resolveModelObject(provider, entry.id) };
     }
@@ -172,7 +194,7 @@ export async function resolveModel(
     // The credential's TYPE narrows the catalog: an OAuth token can only
     // serve subscription-eligible models. Picking from the api-key catalog
     // here is how a ChatGPT-plan deployment ended up pinned to `gpt-4`.
-    const entry = findRunnableModelForProviderInTier(p, tier, cred.type);
+    const entry = findRunnableModelForProviderInTier(p, tier, cred.type, ladder);
     if (!entry) continue;
 
     return { provider: p, model: entry.id, piModel: resolveModelObject(p, entry.id) };
@@ -198,6 +220,7 @@ export async function suggestFallback(
   credentialScope = "shared",
 ): Promise<FallbackSuggestion | null> {
   const order = await getPreferenceOrder();
+  const ladder = await getConfiguredTierLadder();
 
   for (const provider of order) {
     if (provider === failedProvider) continue;
@@ -212,7 +235,7 @@ export async function suggestFallback(
     const cred = await tryGetCredential(provider);
     if (!cred) continue;
 
-    const entry = findRunnableModelForProviderInTier(provider, tier as TierName, cred.type);
+    const entry = findRunnableModelForProviderInTier(provider, tier as TierName, cred.type, ladder);
     if (!entry) continue;
 
     return { provider, model: entry.id, tier };

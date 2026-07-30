@@ -4,13 +4,21 @@
 	import ProvidersSection from "$lib/components/settings/ProvidersSection.svelte";
 	import DefaultTierSection from "$lib/components/settings/DefaultTierSection.svelte";
 	import PreferenceOrderSection from "$lib/components/settings/PreferenceOrderSection.svelte";
+	import TierLadderSection from "$lib/components/settings/TierLadderSection.svelte";
 	import CustomModelsSection from "$lib/components/settings/CustomModelsSection.svelte";
 	import { scrollToLocationHash } from "$lib/scroll-to-hash.js";
 	import { DEFAULT_PREFERENCE_ORDER, mergePreferenceOrder, type CustomModelEntry } from "$lib/settings-models.js";
+	import {
+		emptyTierLadder,
+		parseTierLadder,
+		TIER_LADDER_SETTING_KEY,
+		type TierLadder,
+	} from "$server/runtime/routing/tier-ladder";
 
 	let pageLoading = $state(true);
 	let defaultTier = $state<string>("balanced");
 	let preferenceOrder = $state<string[]>([...DEFAULT_PREFERENCE_ORDER]);
+	let tierLadder = $state<TierLadder>(emptyTierLadder());
 	let customModels = $state<CustomModelEntry[]>([]);
 	let ollamaUrl = $state("http://localhost:11434");
 
@@ -24,6 +32,9 @@
 					storedOrder && storedOrder.length > 0
 						? mergePreferenceOrder(storedOrder)
 						: [...DEFAULT_PREFERENCE_ORDER];
+				// A malformed stored ladder degrades to the empty (unconfigured)
+				// editor rather than throwing the page — same posture as routing.
+				tierLadder = parseTierLadder(settings[TIER_LADDER_SETTING_KEY]) ?? emptyTierLadder();
 				customModels = (settings["provider:customModels"] as CustomModelEntry[]) ?? [];
 				ollamaUrl = (settings["provider:ollamaUrl"] as string) ?? "http://localhost:11434";
 			} catch { /* silent */ }
@@ -39,5 +50,6 @@
 	<ProvidersSection bind:customModels bind:ollamaUrl />
 	<DefaultTierSection bind:defaultTier />
 	<PreferenceOrderSection bind:preferenceOrder />
+	<TierLadderSection bind:tierLadder {preferenceOrder} />
 	<CustomModelsSection bind:customModels />
 {/if}

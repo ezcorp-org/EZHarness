@@ -284,6 +284,9 @@ run_legs() {
       src/__tests__/api-users.server.test.ts \
       src/lib/audit-log-view.unit.test.ts \
       src/lib/settings-models.unit.test.ts \
+      src/lib/tier-ladder-view.unit.test.ts \
+      src/lib/components/__tests__/TierLadderSection.component.test.ts \
+      src/__tests__/api-settings-key.server.test.ts \
       src/__tests__/model-selector-logic.unit.test.ts \
       src/lib/save-flash.unit.test.ts \
       src/lib/admin-guard.unit.test.ts \
@@ -419,6 +422,9 @@ run_legs() {
       --coverage.include='src/routes/api/users/+server.ts' \
       --coverage.include='src/lib/audit-log-view.ts' \
       --coverage.include='src/lib/settings-models.ts' \
+      --coverage.include='src/lib/tier-ladder-view.ts' \
+      --coverage.include='src/lib/components/settings/TierLadderSection.svelte' \
+      --coverage.include='src/routes/api/settings/[key]/+server.ts' \
       --coverage.include='src/lib/model-selector-logic.ts' \
       --coverage.include='src/lib/save-flash.svelte.ts' \
       --coverage.include='src/lib/admin-guard.ts' \
