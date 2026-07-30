@@ -1519,3 +1519,107 @@ describe("handleSend — Auto (smart routing) sentinel", () => {
 		expect(dataArg.model).toBe("claude-sonnet");
 	});
 });
+
+// `handleRerun` is the "run this prompt again" affordance: it re-sends a USER
+// turn's content unchanged with `editOf` pointing at the user message itself,
+// so the server forks a sibling user turn under the same parent and streams a
+// fresh assistant answer. Same wire shape as a no-op edit — the UX win is
+// skipping the edit modal. It was the last wholly unmeasured handler in this
+// module.
+describe("handleRerun (re-send a user turn unchanged)", () => {
+	test("re-sends the user content with editOf pointing at the message itself", async () => {
+		const u1 = makeMessage("u1", { role: "user", content: "Q" });
+		const { host, state } = makeHost({
+			allMessages: [u1],
+			activeLeafId: "u1",
+			selectedModel: { provider: "anthropic", model: "claude-sonnet-5" },
+			modelSupportsReasoning: true,
+			thinkingLevel: "medium",
+		});
+		const handlers = makeSendMessage(host);
+		await handlers.handleRerun(u1);
+
+		const [convArg, dataArg] = sendMessageMock.mock.calls[0]!;
+		expect(convArg).toBe("conv-1");
+		expect(dataArg.content).toBe("Q");
+		// editOf === the user message's OWN id is what makes this a re-run
+		// rather than an edit of some other turn.
+		expect(dataArg.editOf).toBe("u1");
+		expect(dataArg.provider).toBe("anthropic");
+		expect(dataArg.model).toBe("claude-sonnet-5");
+		expect(dataArg.thinkingLevel).toBe("medium");
+
+		// Both the forked user turn and the assistant placeholder land, and the
+		// placeholder parents on the NEW user row so it renders as a sibling.
+		expect(state.activeRunId).toBe("run-1");
+		const placeholder = state.allMessages.find((m) => m.id === "streaming-run-1");
+		expect(placeholder).toBeDefined();
+		expect(placeholder!.role).toBe("assistant");
+		expect(placeholder!.parentMessageId).toBe("real-user-id");
+		expect(placeholder!.provider).toBe("anthropic");
+		expect(placeholder!.model).toBe("claude-sonnet-5");
+		expect(state.activeLeafId).toBe("streaming-run-1");
+	});
+
+	test("omits thinkingLevel when the model lacks reasoning", async () => {
+		const u1 = makeMessage("u1", { role: "user", content: "Q" });
+		const { host } = makeHost({ allMessages: [u1], modelSupportsReasoning: false });
+		const handlers = makeSendMessage(host);
+		await handlers.handleRerun(u1);
+		const [, dataArg] = sendMessageMock.mock.calls[0]!;
+		expect(dataArg.thinkingLevel).toBeUndefined();
+	});
+
+	test("ignores a non-user message", async () => {
+		const a1 = makeMessage("a1", { role: "assistant", content: "A" });
+		const { host } = makeHost({ allMessages: [a1] });
+		const handlers = makeSendMessage(host);
+		await handlers.handleRerun(a1);
+		expect(sendMessageMock).not.toHaveBeenCalled();
+	});
+
+	test("is a no-op with no active conversation", async () => {
+		const u1 = makeMessage("u1", { role: "user", content: "Q" });
+		// `convId` is typed non-nullable on the host, so the "no conversation
+		// yet" state is the empty string — which is what the handler's falsy
+		// guard actually tests for.
+		const { host } = makeHost({ allMessages: [u1], convId: "" });
+		const handlers = makeSendMessage(host);
+		await handlers.handleRerun(u1);
+		expect(sendMessageMock).not.toHaveBeenCalled();
+	});
+
+	test("a null runId stops before streaming (action-only turn)", async () => {
+		const u1 = makeMessage("u1", { role: "user", content: "Q" });
+		sendMessageMock.mockImplementationOnce(async () => ({
+			userMessage: {
+				id: "real-user-id",
+				conversationId: "conv-1",
+				role: "user",
+				content: "Q",
+				createdAt: "2024-01-01T00:00:00.000Z",
+				parentMessageId: null,
+				excluded: false,
+			} as Message,
+			runId: null as unknown as string,
+		}));
+		const { host, state } = makeHost({ allMessages: [u1] });
+		const handlers = makeSendMessage(host);
+		await handlers.handleRerun(u1);
+		// The forked user turn still lands; no placeholder, no stream.
+		expect(state.activeRunId).toBeNull();
+		expect(startStreamingMock).not.toHaveBeenCalled();
+		expect(state.allMessages.find((m) => m.id?.startsWith("streaming-"))).toBeUndefined();
+	});
+
+	test("surfaces a send failure without throwing", async () => {
+		const u1 = makeMessage("u1", { role: "user", content: "Q" });
+		sendMessageMock.mockImplementationOnce(async () => {
+			throw new Error("network down");
+		});
+		const { host, state } = makeHost({ allMessages: [u1] });
+		const handlers = makeSendMessage(host);
+		await handlers.handleRerun(u1);
+		expect(state.error).toBe("Failed to re-run prompt");
+	});
+});
