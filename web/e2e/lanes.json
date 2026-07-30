@@ -38,6 +38,7 @@
       "web/e2e/code-review-panel-evidence.spec.ts",
       "web/e2e/composer-suggestions.spec.ts",
       "web/e2e/conversation-list-sidebar-nav.spec.ts",
+      "web/e2e/default-model-selection.spec.ts",
       "web/e2e/dev-badge.spec.ts",
       "web/e2e/extension-author-failure-cards.spec.ts",
       "web/e2e/extension-install-granted-caps.spec.ts",
