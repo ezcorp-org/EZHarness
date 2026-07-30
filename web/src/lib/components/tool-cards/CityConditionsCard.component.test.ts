@@ -233,8 +233,11 @@ describe("CityConditionsCard — mold", () => {
 			...ENVELOPE,
 			mold: { available: true, reason: null, count: 1240.5, band: "high" },
 		});
-		expect(getByTestId("city-conditions-mold-count")).toHaveTextContent("1240.5 grains/m³");
-		expect(getByTestId("city-conditions-mold-band")).toHaveTextContent("high");
+		// Mold is measured in SPORES. `grains/m³` is the pollen unit and was
+		// what this assertion pinned before the envelope carried units.
+		expect(getByTestId("city-conditions-mold-count")).toHaveTextContent("1240.5 spores/m³");
+		// The card shows the user-facing label now, not the raw band token.
+		expect(getByTestId("city-conditions-mold-band")).toHaveTextContent("High");
 		expect(queryByTestId("city-conditions-mold-unavailable")).toBeNull();
 	});
 
@@ -244,7 +247,11 @@ describe("CityConditionsCard — mold", () => {
 			mold: { available: true, reason: "", count: null, band: null },
 		});
 		expect(queryByTestId("city-conditions-mold-count")).toBeNull();
-		expect(getByTestId("city-conditions-mold-reason")).toHaveTextContent("no spore count");
+		// A count is no longer the only thing that makes mold real — a station
+		// activity band counts too — so the reason names both.
+		expect(getByTestId("city-conditions-mold-reason")).toHaveTextContent(
+			"sent no count or activity band",
+		);
 	});
 });
 
