@@ -420,11 +420,13 @@ export const workflowDefinitions = pgTable("workflow_definitions", {
  * when that content changes (`steps` / `input_schema` / `default_model` —
  * never a description or a rename; see `workflow-versions.ts`).
  *
- * This is the authoritative answer to "which definition did this run
- * execute". `workflow_runs.definition_hash` is deliberately demoted to a
- * function of `steps` here, consulted only when `definition_version_id`
- * is NULL — i.e. runs created before versioning existed. Two independent
- * answers to one question is how they drift, so exactly one wins.
+ * This is the intended authoritative answer to "which definition did this
+ * run execute", and `workflow_runs.definition_hash` is defined as a
+ * function of this row's `steps` so the two cannot disagree WITH EACH
+ * OTHER. Being authoritative is a CONTRACT, not yet a mechanism: no code
+ * reads the version id in preference to the hash today. The ordering, and
+ * what does enforce drift meanwhile, is stated once in
+ * `workflow-versions.ts` — do not re-derive it here.
  *
  * CASCADE on the definition: a version snapshot without its definition is
  * dead weight, not evidence.
@@ -523,24 +525,34 @@ export const workflowRuns = pgTable("workflow_runs", {
   // LOCKED, which PGlite does not honor identically.
   claimedBy: text("claimed_by"),
   leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
-  // The exact snapshot this run executed. AUTHORITATIVE over
-  // `definition_hash` below. SET NULL (not CASCADE) matches the
-  // `workflow_definition_id` treatment: the run row survives a reaped
-  // version, the pointer goes NULL.
+  // The exact snapshot this run executed — written only when the graph the
+  // run was HANDED matches this version's `steps_hash`, so it can never
+  // name a snapshot the run did not execute. Intended to be authoritative
+  // over `definition_hash` below; that precedence is a contract nothing
+  // implements yet (stated once in `workflow-versions.ts`).
+  // SET NULL (not CASCADE) matches the `workflow_definition_id` treatment:
+  // the run row survives a reaped version, the pointer goes NULL.
   //
-  // NULL means one of two different things, and the difference matters:
+  // NULL means one of three different things, and the difference matters:
   // a run created BEFORE C6 (never versioned — the trace renders "version
-  // unknown"), or a run of a YAML/extension workflow, which has no
-  // `workflow_definitions` row to version in the first place.
+  // unknown"); a run of a YAML/extension workflow, which has no
+  // `workflow_definitions` row to version in the first place; or a run
+  // whose graph did not match the row's newest version — a YAML/extension
+  // entry shadowing the row's NAME, or a row left ahead of its newest
+  // version by a torn `updateWorkflow`/`ensureWorkflowVersion` pair. All
+  // three are the same honest answer: we cannot name the snapshot that ran.
   definitionVersionId: text("definition_version_id").references(
     () => workflowDefinitionVersions.id,
     { onDelete: "set null" },
   ),
-  // Hash of the definition this run STARTED against — the INTERIM drift
-  // guard, demoted by `definition_version_id` above and now defined as a
-  // function of the version row's `steps` so the two cannot disagree.
-  // Resume compares the version id first and reads this ONLY when the
-  // version id is NULL. See `workflow-definition-hash.ts`.
+  // Hash of the graph this run STARTED against, always — the drift guard
+  // that actually FIRES: C4's resume compares this unconditionally and
+  // never reads `definition_version_id`. When a version was claimed above
+  // it is that version's own `steps_hash`, so the two cannot disagree with
+  // each other. Reading the version id first and this only when it is NULL
+  // is the intended precedence and is not implemented — see
+  // `workflow-versions.ts`, which states it once. Hash function:
+  // `workflow-definition-hash.ts`.
   definitionHash: text("definition_hash"),
   // Caller-supplied correlation handles. No FK on `job_ref`: jobs live in
   // extension `Storage`, not a table.

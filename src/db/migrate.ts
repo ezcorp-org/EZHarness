@@ -2243,8 +2243,11 @@ export async function migrate(db: any): Promise<void> {
 
   // ── Definition versions (C6) ─────────────────────────────────────
   //
-  // The authoritative record of WHAT a run executed, demoting
-  // `workflow_runs.definition_hash` to a function of this row's `steps`.
+  // The record of WHAT a run executed — intended to be authoritative over
+  // `workflow_runs.definition_hash`, which is defined over the same `steps`
+  // material so the two agree whenever a version is claimed. That
+  // precedence is a contract nothing implements yet; `workflow-versions.ts`
+  // states it once.
   // CASCADE on the definition: a snapshot without its definition is dead
   // weight, not evidence.
   await db.execute(sql`
@@ -2339,7 +2342,9 @@ export async function migrate(db: any): Promise<void> {
   await db.execute(sql`ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS claimed_by TEXT`);
   await db.execute(sql`ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS lease_expires_at TIMESTAMP WITH TIME ZONE`);
   await db.execute(sql`ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS definition_hash TEXT`);
-  // AUTHORITATIVE over `definition_hash` above. SET NULL matches the
+  // Intended to be authoritative over `definition_hash` above — a contract
+  // nothing implements yet; `workflow-versions.ts` states it once and says
+  // what guards drift meanwhile. SET NULL matches the
   // `workflow_definition_id` treatment — the run row outlives a reaped
   // version, the pointer does not. Deliberately NOT backfilled for
   // historical runs: we genuinely do not know which version they executed,

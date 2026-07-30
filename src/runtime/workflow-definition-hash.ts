@@ -66,21 +66,23 @@ export function stableStringify(value: unknown): string {
  *
  * ## Contract with definition versioning (C6)
  *
- * This is the **interim** drift guard, and it is deliberately the only
- * exported entry point so a later phase can re-point its input without
- * touching a single call site.
+ * This is the drift guard that actually fires, and it is deliberately the
+ * only exported entry point so a later phase can re-point its input
+ * without touching a single call site.
  *
- * When `workflow_definition_versions` lands, the version id is
- * **authoritative** for "which definition did this run execute", and this
- * hash is:
+ * `workflow_definition_versions` has since landed (C6). The version id is
+ * *intended* to be **authoritative** for "which definition did this run
+ * execute", with this hash consulted only when the version id is NULL —
+ * but **nothing implements that ordering**: C4's resume compares this hash
+ * unconditionally and never reads the version id. The precedence, and what
+ * guards drift meanwhile, is stated once in `db/queries/workflow-versions.ts`.
  *
- *   • redefined as a function of the version row's `steps`, so the two
- *     cannot diverge by construction — a system carrying both a hash and
- *     a version id needs exactly one to win, or they eventually disagree
- *     and the disagreement is silent;
- *   • consulted ONLY when the run's version id is NULL — i.e. for runs
- *     created before versioning existed, which is every run this phase
- *     creates.
+ * What C6 did change: a run records a version only when the graph it was
+ * HANDED matches that version's `steps_hash`, and `definition_hash` is
+ * always this function over the graph that ran. So when a version is
+ * claimed the two are the same value and cannot diverge; when none is
+ * claimed the hash still describes what executed, which is what makes a
+ * resume compare against the right graph.
  *
  * That is why the material below is the `steps` array specifically, and
  * never the DB row or its mutable metadata: hashing `description` or

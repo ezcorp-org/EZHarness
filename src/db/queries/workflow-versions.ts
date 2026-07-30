@@ -4,9 +4,10 @@
  * ## Why this exists, and what it demotes
  *
  * Phase 2 shipped `workflow_runs.definition_hash` as the interim drift
- * guard for suspend/resume. This module makes `definition_version_id`
- * **authoritative** for "which definition did this run execute", and
- * demotes the hash to a function of a version row's `steps`
+ * guard for suspend/resume. This module makes `definition_version_id` the
+ * field *intended* to be **authoritative** for "which definition did this
+ * run execute" (a contract — see below for what actually runs), and
+ * redefines the hash as a function of a version row's `steps`
  * ({@link versionStepsHash}) — the same input `workflowDefinitionHash`
  * already took, so the redefinition is a no-op rather than a behaviour
  * change that would fail-close every parked run on upgrade.
@@ -17,9 +18,14 @@
  *
  *   1. `definition_version_id` non-NULL ⇒ it decides. Full stop.
  *   2. `definition_version_id` NULL ⇒ fall back to `definition_hash`.
- *      NULL means the run predates versioning, or it ran a YAML /
+ *      NULL means the run predates versioning; or it ran a YAML /
  *      extension workflow that has no `workflow_definitions` row to
- *      version in the first place.
+ *      version in the first place; or its graph did not match the row's
+ *      newest version, so no version could honestly be named (a shadowed
+ *      name, or a row left ahead of its versions by a torn
+ *      `updateWorkflow`/`ensureWorkflowVersion` pair — the executor
+ *      compares content precisely so this stays NULL rather than a
+ *      confident wrong answer).
  *
  * **Nothing enforces that ordering yet.** No caller reads
  * `definition_hash` at all except C4's resume, which compares it
