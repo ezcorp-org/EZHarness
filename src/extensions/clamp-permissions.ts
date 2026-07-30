@@ -19,6 +19,15 @@ import { parseCron, type CronInstance } from "./cron";
 import { capabilityToolsDisabled } from "./capability-flags";
 import { DIRECT_CARRIER_EVENT_TYPES } from "../runtime/sse-conversation-filter";
 import { isValidWorkflowName } from "../runtime/workflow-name";
+import { WEBHOOK_PREFIX_RE } from "./manifest";
+
+/** Default cap per dynamic-trigger kind when neither side states one. Low
+ *  on purpose — an author who wants more says so, and the install-time
+ *  grant is where a user widens it. */
+const MAX_DYNAMIC_TRIGGERS_DEFAULT = 10;
+
+/** Default extension-wide daily fire envelope for dynamic triggers. */
+const TRIGGER_RUNS_PER_DAY_DEFAULT = 100;
 
 /** Pi-AI provider allowlist. Manifest cannot grant any provider not
  *  in this set; clamp drops unknown providers silently. */
@@ -446,6 +455,71 @@ export function clampSchedulePermission(
   };
 }
 
+/**
+ * Clamp the dynamic-trigger envelope (C2). Mirrors
+ * `clampSchedulePermission`: the manifest is the ceiling, the submitted
+ * grant can only narrow it.
+ *
+ * `webhookPrefix` is the exception to "intersect submitted with manifest" —
+ * it is read from the MANIFEST ONLY and the submitted value is ignored
+ * outright. The prefix is a namespace claim, and host-minted slugs derive
+ * from it; letting an install-time grant widen or redirect it would let a
+ * user hand one extension another extension's slug namespace. A manifest
+ * whose prefix fails `WEBHOOK_PREFIX_RE` gets no grant at all rather than a
+ * defaulted one — silently substituting a namespace is worse than refusing.
+ *
+ * Returns `undefined` when the manifest doesn't declare `triggers` (an
+ * extension cannot grant itself a capability its author never requested),
+ * and also when BOTH caps clamp to zero: an envelope authorizing zero
+ * registrations is a husk that reads as "granted" to any presence check
+ * while authorizing nothing. `clampWorkflowsPermission` sets that
+ * drop-rather-than-store precedent.
+ */
+export function clampTriggersPermission(
+  submitted: ExtensionPermissions["triggers"] | undefined,
+  manifest: ExtensionManifestV2["permissions"]["triggers"] | undefined,
+): ExtensionPermissions["triggers"] {
+  if (!manifest) return undefined;
+
+  // Manifest-only, never the submitted value. No default: an absent or
+  // malformed prefix means the author never staked a namespace, so there is
+  // nothing to mint under.
+  const prefix = manifest.webhookPrefix;
+  if (typeof prefix !== "string" || !WEBHOOK_PREFIX_RE.test(prefix)) return undefined;
+
+  // No submitted grant → the admin approved the declaration as-is, so the
+  // submitted side defaults to the manifest's own values (same convention
+  // as clampSchedulePermission). Taking the shared fallback on both sides
+  // instead would silently narrow every un-negotiated install to the
+  // default rather than to what the author declared.
+  const sub = submitted ?? {
+    maxCron: manifest.maxCron,
+    maxWebhooks: manifest.maxWebhooks,
+    maxRunsPerDay: manifest.maxRunsPerDay,
+  };
+
+  const maxCron = Math.min(
+    clampNumber(sub.maxCron, 0, 50, MAX_DYNAMIC_TRIGGERS_DEFAULT),
+    clampNumber(manifest.maxCron, 0, 50, MAX_DYNAMIC_TRIGGERS_DEFAULT),
+  );
+  const maxWebhooks = Math.min(
+    clampNumber(sub.maxWebhooks, 0, 50, MAX_DYNAMIC_TRIGGERS_DEFAULT),
+    clampNumber(manifest.maxWebhooks, 0, 50, MAX_DYNAMIC_TRIGGERS_DEFAULT),
+  );
+  // Both caps zero ⇒ the envelope authorizes nothing. Drop it.
+  if (maxCron === 0 && maxWebhooks === 0) return undefined;
+
+  return {
+    maxCron,
+    maxWebhooks,
+    webhookPrefix: prefix,
+    maxRunsPerDay: Math.min(
+      clampNumber(sub.maxRunsPerDay, 1, 2000, TRIGGER_RUNS_PER_DAY_DEFAULT),
+      clampNumber(manifest.maxRunsPerDay, 1, 2000, TRIGGER_RUNS_PER_DAY_DEFAULT),
+    ),
+  };
+}
+
 // ── Env-key leak detection ──────────────────────────────────────
 
 const ENV_KEY_LEAK_PATTERN = /(_API_KEY|TOKEN|SECRET)$/i;
@@ -783,6 +857,14 @@ export function clampExtensionPermissions(
     // empty", and both must leave the grant absent.
     const workflows = clampWorkflowsPermission(submitted.workflows, manifest.workflows);
     if (workflows) clamped.workflows = workflows;
+
+    // triggers (C2): the DYNAMIC cron/webhook envelope. Separate from
+    // `webhooks` above — that one intersects fixed author-chosen slugs;
+    // this one bounds how many triggers the extension may mint at runtime.
+    // `undefined` means "manifest didn't declare it" OR "the envelope
+    // authorized nothing", and both must leave the grant absent.
+    const triggers = clampTriggersPermission(submitted.triggers, manifest.triggers);
+    if (triggers) clamped.triggers = triggers;
 
     // ── Phase 51 capability surfaces ────────────────────────────────
     // Delegate to the canonical clamp helpers above. Each helper returns

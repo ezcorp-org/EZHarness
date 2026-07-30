@@ -52,6 +52,29 @@ disables every user-created webhook trigger.** The failure is invisible — the 
 stays, the secret stays, delivery history stays, and the hook simply stops
 firing.
 
+> **AMENDED (build, finding 3) — this understated the trigger frequency by a
+> lot.** It is not "install, update, or permission change". It is **every
+> enable**. `activateExtension`
+> (`web/src/lib/server/extensions/activate-extension.ts:146-148`) computes
+> `(update.grantedPermissions ?? ext.grantedPermissions)?.webhooks ?? []` and
+> calls `reconcileWebhooks` **unconditionally**, so the disable-all branch at
+> `:92-100` runs for any extension with no manifest-declared webhooks — which
+> is precisely `ez-factory`'s shape. An all-dynamic extension would have every
+> user hook disabled every single time it was enabled.
+>
+> **Observed divergence, recorded so the next reader does not assume symmetry:**
+> this section describes both reconcilers as grant-intersected, but they are
+> not. `reconcileSchedules` is fed the **raw manifest** crons
+> (`activate-extension.ts:135`, `ext.manifest?.permissions?.schedule?.crons`)
+> while `reconcileWebhooks` is fed the **clamped grant** (`:148`). C2 does not
+> need to fix this — the `dynamic = false` filter is correct against either
+> source — but the asymmetry is real and undocumented.
+>
+> A third site also needed the filter, not two: the pre-fetch SELECT **and**
+> both UPDATE branches. The UPDATEs never read `existing`, so filtering the
+> SELECT alone would have fixed the audited count while leaving the writes
+> broken.
+
 There is a second-order defect in the same function: `disabled` is counted from
 a pre-fetch snapshot at `:55` (because PGlite's UPDATE `rowCount` is
 unreliable). Dynamic rows must be excluded from **that snapshot too**, or the
@@ -89,10 +112,44 @@ statement in C2 — it is safe because the replacement is created in the same
 migration pass and covers a strict superset of the old constraint's rows. It is
 idempotent: `DROP … IF EXISTS` + `CREATE … IF NOT EXISTS` re-runs cleanly.
 
-Same treatment for `uniq_ext_webhook` (`src/db/schema.ts:1595`, DDL
+~~Same treatment for `uniq_ext_webhook` (`src/db/schema.ts:1595`, DDL
 `migrate.ts:1636`) — slug is already unique per extension and host-minted slugs
 are collision-free by construction (§4), so the dynamic partial is on
-`(extension_id, key)` and the manifest partial keeps `(extension_id, slug)`.
+`(extension_id, key)` and the manifest partial keeps `(extension_id, slug)`.~~
+
+> **AMENDED — the struck sentence was WRONG, and it is the one defect this
+> document put into shipped code.** "Same treatment" assumed schedules and
+> webhooks are symmetric. They are not.
+>
+> Splitting `uniq_ext_webhook` into a `WHERE dynamic = FALSE` partial plus a
+> key partial leaves **nothing forbidding a manifest row and a dynamic row
+> from sharing a slug**. The total index made that unreachable.
+> `getEnabledWebhook` (`src/extensions/webhook-store.ts:19-29`) is a plain
+> `select().where(ext, slug, enabled)` returning **`rows[0] ?? null`** — no
+> `ORDER BY`, no uniqueness assertion — so two matching rows mean a **public
+> inbound route resolving non-deterministically** between them.
+>
+> **Why the asymmetry is real.** Schedules needed the widening because two
+> dynamic jobs sharing `0 9 * * 1` is the normal case (hazard B). Webhooks have
+> no equivalent: a dynamic slug is host-minted as
+> `<prefix><sha256(extensionName \0 key)[0..12]>` (§4) and keys are unique per
+> extension, so **two dynamic rows cannot share a slug by construction**. The
+> only collision the total index ever blocked was manifest-vs-dynamic —
+> precisely the one worth blocking. The widening removed a real constraint and
+> bought nothing.
+>
+> **Correct prescription:** keep `uniq_ext_webhook ON (extension_id, slug)`
+> **TOTAL** (no `DROP`), add only
+> `uniq_ext_webhook_dynamic ON (extension_id, key) WHERE key IS NOT NULL`, and
+> do not create a manifest partial — the total index subsumes it. Schedules are
+> unchanged. This also leaves C2 with **one** non-additive statement, not two.
+>
+> Landed as `dc19d3c2`. One consequence needs its own handling: the total index
+> means an unregistered row's tombstone still holds the slug, and since the slug
+> is a deterministic digest, re-registering the same key mints the SAME slug and
+> collides with that tombstone forever. `upsertDynamicWebhook` therefore
+> **revives** the tombstone rather than inserting (`4bd29882`), which also hands
+> the job back its delivery history.
 
 ### 1.3 Finding C — **the SDK dispatch is keyed by cron string, so it cannot be reused** · NEW
 
@@ -148,7 +205,25 @@ no job.
 per-job allowance**, and C2 must add per-job fairness or the feature is unusable
 at its own advertised limits. The cheapest correct design:
 
-- keep the extension-wide gate exactly as-is (it is the spend bound);
+> **AMENDED (build, finding 1) — "keep the extension-wide gate exactly as-is"
+> would have shipped a DEAD KNOB.** `readGrant` (`schedule-daemon.ts:598-643`)
+> destructures only `granted.schedule`, and `clampSchedulePermission` returns
+> `undefined` when the manifest declares no crons. So an extension declaring
+> `triggers` but no manifest `schedule` block — `ez-factory`'s exact shape —
+> gets the daemon's `DEFAULT_MAX_RUNS_PER_DAY = 24`, and
+> `permissions.triggers.maxRunsPerDay` is read by nothing at all. A declared
+> 500 envelope would be ignored and the whole extension would throttle at 24
+> fires/day with a quota audit naming a limit nobody configured.
+>
+> `readGrant` therefore gains a `triggers.maxRunsPerDay` fallback with explicit
+> precedence: **`schedule` wins when present** (it is the narrower,
+> manifest-tier bound and must never be raised by the presence of a `triggers`
+> block), `triggers` fills in only when `schedule` is absent, daemon default
+> otherwise. Implemented as `envelopeFrom()` so the precedence is one commented
+> function rather than an inline `??` chain.
+
+- keep the extension-wide gate as the spend bound, but WIRE IT (see the
+  amendment above — as specced it read a value nothing set);
 - add a **per-key daily cap** — `extension_schedules.max_runs_per_day`,
   nullable, defaulting to `floor(envelope / maxCron)` at registration — checked
   against a per-key count before the extension-wide check;
@@ -362,6 +437,32 @@ the difference and writes one `audit_log` row per disabled key. Ownerless, so
 audited to `audit_log` (§3.1). Without this, a deleted job's trigger fires
 forever and nothing in the system notices.
 
+> **AMENDED (build, finding 2) — the transport exists, but the spec omits the
+> rule that makes the sweep safe.**
+>
+> Transport is fine: `ExtensionSubprocess.call()` (`subprocess.ts:643`) is a
+> real host→extension request/reply, and an extension with no such handler gets
+> a clean `-32601` from the SDK channel (`channel.ts:469-477`) rather than a
+> timeout — so the sweep cannot kill a subprocess by asking.
+>
+> **The sweep MUST fail OPEN on an unknown answer and CLOSED only on a definite
+> empty one.** `-32601`, a transport failure, and a malformed reply all mean
+> "unknown — disable nothing". Only a well-formed `{keys: [...]}` is evidence.
+> Reading silence as "the extension claims zero live keys" would wipe every
+> user's triggers on any SDK or extension version skew — Hazard A's silent-kill
+> class arriving through the upgrade path instead of the reconcile path, and
+> unbounded where an orphan that keeps firing is bounded and visible.
+>
+> That distinction is a **named test** (`` `-32601 Method not found` disables
+> NOTHING ``, `a transport failure disables NOTHING`, `a malformed reply
+> disables NOTHING`, versus `a key the extension DROPS is soft-disabled`),
+> precisely because a later refactor will be tempted to collapse the two into
+> one branch.
+>
+> The SDK side answers from its **handler registry** (a key with no handler can
+> do nothing when it fires) and installs that responder only from `on()` — so an
+> extension that has wired nothing answers `-32601` and loses nothing.
+
 **The obligation this puts on the extension author.** The sweep asks the SDK
 which keys are live, and the SDK answers from its **handler map** — so an
 extension that does not re-register a handler on every startup is telling the
@@ -429,18 +530,29 @@ the new partial indexes cover them identically to the old total ones.
 
 **Indexes** — the one non-additive step, justified in §1.2:
 
+**AMENDED — the webhook half of this block was wrong (see §1.2).** The shipped
+form, with schedules unchanged and the webhook slug index left TOTAL:
+
 ```sql
+-- Schedules: widened, because two dynamic jobs sharing one cron is normal.
 DROP INDEX IF EXISTS uniq_ext_schedule;
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_ext_schedule_manifest
   ON extension_schedules(extension_id, cron) WHERE dynamic = FALSE;
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_ext_schedule_dynamic
   ON extension_schedules(extension_id, key) WHERE key IS NOT NULL;
-DROP INDEX IF EXISTS uniq_ext_webhook;
-CREATE UNIQUE INDEX IF NOT EXISTS uniq_ext_webhook_manifest
-  ON extension_webhooks(extension_id, slug) WHERE dynamic = FALSE;
+
+-- Webhooks: NOT symmetric. `uniq_ext_webhook ON (extension_id, slug)` stays
+-- TOTAL and is never dropped — it is the only thing forbidding a manifest row
+-- and a dynamic row from sharing a slug, which `getEnabledWebhook`'s
+-- `rows[0] ?? null` would otherwise resolve non-deterministically on a public
+-- route. Two DYNAMIC rows cannot collide by construction (host-minted digest
+-- of a per-extension-unique key), so no manifest partial is needed.
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_ext_webhook_dynamic
   ON extension_webhooks(extension_id, key) WHERE key IS NOT NULL;
 ```
+
+This makes `DROP INDEX IF EXISTS uniq_ext_schedule` the **only** non-additive
+statement in C2.
 
 **No backfill.** Every column's default is already the correct value for every
 existing row, so a CTE backfill would be a re-runnable statement that could only
@@ -561,3 +673,43 @@ floor, not a ceiling**; §11.1 is what the rows cannot cover.
 **And the standing one:** anything here the build proves wrong. §1 already
 records four findings against the plan, two of which invalidate part of it —
 a fifth is a better outcome than a spec defended past its evidence.
+
+---
+
+## 12. What the build proved wrong (appendix)
+
+The standing invitation above was taken up. Nine findings, all verified against
+source before acting; the amendments are inline at §1.1, §1.2, §1.4, §6 and §8.
+Recorded here as one list because the pattern matters more than any single item:
+**every one was a claim this document made confidently and did not cite.**
+
+| # | Finding | Where |
+|---|---|---|
+| 1 | `triggers.maxRunsPerDay` was a **dead knob** — `readGrant` reads only `granted.schedule`, so the envelope was set by the manifest and read by nothing. | §1.4 |
+| 2 | The orphan sweep's transport works, but the spec omits the **fail-open rule**; reading `-32601` as "zero live keys" would wipe every user's triggers on version skew. | §6 |
+| 3 | Hazard A fires on **every enable**, not "install/update/permission-change" — `activateExtension` calls `reconcileWebhooks` unconditionally with a `?? []` fallback. Also: the two reconcilers take **different sources** (manifest vs grant), which §1.1 described as symmetric. | §1.1 |
+| 4 | `todaysFireCount` used **wall-clock `new Date()`**, not the injected clock — a quota test could not deterministically cross UTC midnight. | §9 |
+| 5 | §6's scope line omits the only production reconciler call site, `web/src/lib/server/extensions/activate-extension.ts`. | §6 |
+| 6 | **`data.reason` collision.** The spec's `TRIGGER_CRON_INVALID.data.reason` shadows the typed deny code that every handler in this tier puts on `reason`, making the rejection unclassifiable. The validator string ships as **`cronReason`**. | §7 |
+| 7 | `ext:trigger-*` **breaks an invariant** — `audit-actions-sdk.test.ts` requires every `SDK_*` value to start with `ext:sdk-`. Shipped as `ext:sdk-trigger-*`. | §3.1 |
+| 8 | `permissions.triggers` needed wiring into **six sites the spec never names**: `grantsToCapabilitySet`, `intersectPermissions`, `normalizeKind`, `install-grant`, `CAPABILITY_PERMISSION_FIELDS`, manifest validation. A half-wired permission fails silently. | §2 |
+| 9 | **§1.2's webhook prescription was wrong** — the one defect this document put into shipped code. Assumed symmetry with schedules; removed the only constraint blocking a manifest/dynamic slug collision. | §1.2 |
+
+Two of these (1, 9) would have shipped a feature that looks delivered and does
+nothing — the failure mode this document was written to prevent. The lesson for
+the next spec in this program: **an assertion about behaviour with no file:line
+citation is a hypothesis.** §1's own four findings were cited and all four held;
+the uncited claims around them are where all nine of these came from.
+
+### 12.1 A test that passes either way is worse than no test
+
+The index tests as first written asserted *behaviour* (a duplicate is rejected)
+and so **passed with the §1.2 defect present and passed with it fixed** — the
+manifest-vs-dynamic collision the fix exists for was never covered in either
+direction. The fix added both directions and then verified they **discriminate**
+by reintroducing the defect and confirming exactly those two fail.
+
+Generalised: assert the property the change exists for, not the property
+adjacent to it. `gate-integrity`'s vacuous-test scanner has a documented
+false-negative path (`docs/plans/2026-07-29-tooling-defects.md`), so a green
+gate is not evidence that assertions are being seen.

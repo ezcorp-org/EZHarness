@@ -2323,6 +2323,61 @@ export async function migrate(db: any): Promise<void> {
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_workflow_approvals_pending ON workflow_approvals(status, expires_at) WHERE status = 'pending'`);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_workflow_approvals_answered_by ON workflow_approvals(answered_by)`);
 
+  // ── C2: dynamic cron + webhook triggers (`ctx.triggers`) ─────────
+  //
+  // `dynamic` is the discriminator between a MANIFEST-declared row (every
+  // row that exists today) and a USER-created one. `NOT NULL DEFAULT FALSE`
+  // is what makes this backward-safe: every pre-existing row reads as
+  // manifest-declared, so the reconcilers keep managing them exactly as
+  // before and the partial indexes below cover them identically to the
+  // total indexes they replace. No backfill — the default is already the
+  // correct value for every existing row.
+  //
+  // `key` is the extension-supplied trigger identity for a dynamic row and
+  // is NULL on every manifest row. It is what makes two dynamic jobs that
+  // share a cron expression distinguishable — both in the DB (the partial
+  // unique index below) and at dispatch (`ezcorp/trigger-fire`).
+  //
+  // `max_runs_per_day` is the PER-KEY daily cap. The extension-wide
+  // envelope alone lets one busy job starve every other job under the same
+  // install, and the only signal would be a quota audit row naming no job.
+  await db.execute(sql`ALTER TABLE extension_schedules ADD COLUMN IF NOT EXISTS dynamic BOOLEAN NOT NULL DEFAULT FALSE`);
+  await db.execute(sql`ALTER TABLE extension_schedules ADD COLUMN IF NOT EXISTS key TEXT`);
+  await db.execute(sql`ALTER TABLE extension_schedules ADD COLUMN IF NOT EXISTS timezone TEXT`);
+  await db.execute(sql`ALTER TABLE extension_schedules ADD COLUMN IF NOT EXISTS max_runs_per_day INTEGER`);
+  await db.execute(sql`ALTER TABLE extension_webhooks ADD COLUMN IF NOT EXISTS dynamic BOOLEAN NOT NULL DEFAULT FALSE`);
+  await db.execute(sql`ALTER TABLE extension_webhooks ADD COLUMN IF NOT EXISTS key TEXT`);
+
+  // The ONLY non-additive statements in C2. `(extension_id, cron)` unique
+  // blocks two dynamic jobs sharing a cron expression, which is the normal
+  // case, not an edge case. Each total index is replaced by two partials in
+  // this same pass:
+  //   - the MANIFEST partial preserves today's dedupe EXACTLY for every
+  //     existing row (all of which are `dynamic = FALSE`);
+  //   - the DYNAMIC partial makes `key` the identity for user-created rows,
+  //     so a cron expression may repeat freely.
+  // Together they cover a strict superset of the dropped constraint's rows,
+  // which is why the DROP is safe. Idempotent: `DROP … IF EXISTS` +
+  // `CREATE … IF NOT EXISTS` re-runs cleanly.
+  //
+  // Keyed on `dynamic` rather than on a trigger KIND deliberately — a later
+  // phase can add a second dynamic kind (`event`, …) additively, with no
+  // second DROP INDEX.
+  await db.execute(sql`DROP INDEX IF EXISTS uniq_ext_schedule`);
+  await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uniq_ext_schedule_manifest ON extension_schedules(extension_id, cron) WHERE dynamic = FALSE`);
+  await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uniq_ext_schedule_dynamic ON extension_schedules(extension_id, key) WHERE key IS NOT NULL`);
+  // Webhooks are NOT symmetric with schedules, and the total index STAYS.
+  // Schedules needed widening because two dynamic jobs sharing `0 9 * * 1` is
+  // the normal case. Webhooks have no equivalent: a dynamic slug is
+  // host-minted as `<prefix><sha256(extensionName \0 key)[0..12]>` and keys
+  // are unique per extension, so two dynamic rows CANNOT share a slug by
+  // construction. The only collision `uniq_ext_webhook` ever blocked was
+  // manifest-vs-dynamic — precisely the one worth blocking, because
+  // `getEnabledWebhook` returns `rows[0] ?? null` with no ORDER BY, so two
+  // matching rows would let a public inbound route resolve non-
+  // deterministically. Dropping it would remove a real constraint for nothing.
+  await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uniq_ext_webhook_dynamic ON extension_webhooks(extension_id, key) WHERE key IS NOT NULL`);
+
   // One-shot, idempotent backfill: move any pre-existing github-projects PATs
   // out of the broadly-readable `settings` table into the scope-isolated,
   // AEAD-bound extension_secrets store. Runs LAST (every FK target exists by

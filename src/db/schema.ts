@@ -1403,7 +1403,7 @@ export const sdkCapabilityCalls = pgTable("sdk_capability_calls", {
    *  MUST stay in sync with `SdkCapability` in
    *  `src/extensions/recordCapabilityCall.ts` (the column is plain text, so
    *  drift is silent). */
-  capability: text("capability").notNull().$type<"llm" | "memory" | "lessons" | "schedule" | "events" | "search" | "workflows">(),
+  capability: text("capability").notNull().$type<"llm" | "memory" | "lessons" | "schedule" | "events" | "search" | "workflows" | "triggers">(),
   /** 'complete' | 'read' | 'write' | 'update' | 'delete' | 'fire' | 'register' | 'subscribe' | 'run' */
   action: text("action").notNull(),
   resourceType: text("resource_type"),
@@ -1540,10 +1540,35 @@ export const extensionSchedules = pgTable("extension_schedules", {
   lastFireId: text("last_fire_id"),
   enabled: boolean("enabled").notNull().default(true),
   consecutiveErrors: integer("consecutive_errors").notNull().default(0),
+  // ── C2: dynamic triggers ─────────────────────────────────────────
+  // `false` = manifest-declared (every row that predates C2, via the
+  // column default). `true` = user-created through `ctx.triggers`. The
+  // reconcilers key on this: they own manifest rows and must leave dynamic
+  // rows completely alone, or every install/update silently disables every
+  // user-created job.
+  dynamic: boolean("dynamic").notNull().default(false),
+  // Extension-supplied trigger identity; NULL on manifest rows. This — not
+  // the cron expression — is a dynamic row's identity, which is what lets
+  // two jobs share `0 9 * * 1` and stay distinguishable at dispatch.
+  key: text("key"),
+  // IANA zone for a dynamic row's cron. Manifest rows read their zone from
+  // the grant (`schedule.tz`) instead.
+  timezone: text("timezone"),
+  // Per-key daily fire cap. NULL = fall back to the extension-wide
+  // envelope. Without this, one busy dynamic job starves every sibling.
+  maxRunsPerDay: integer("max_runs_per_day"),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 }, (table) => [
-  uniqueIndex("uniq_ext_schedule").on(table.extensionId, table.cron),
+  // Two partials replace the old total `(extension_id, cron)` unique. The
+  // manifest partial preserves that constraint exactly for every row that
+  // predates C2; the dynamic partial moves identity to `key` so a cron
+  // expression may repeat across user-created jobs. See migrate.ts for why
+  // the DROP INDEX is safe.
+  uniqueIndex("uniq_ext_schedule_manifest").on(table.extensionId, table.cron)
+    .where(sql`dynamic = FALSE`),
+  uniqueIndex("uniq_ext_schedule_dynamic").on(table.extensionId, table.key)
+    .where(sql`key IS NOT NULL`),
   index("idx_schedule_ready").on(table.enabled, table.nextFireAt),
 ]);
 
@@ -1589,10 +1614,28 @@ export const extensionWebhooks = pgTable("extension_webhooks", {
   enabled: boolean("enabled").notNull().default(true),
   lastDeliveryAt: timestamp("last_delivery_at", { withTimezone: true, mode: "date" }),
   lastDeliveryStatus: text("last_delivery_status").$type<"ok" | "error" | null>(),
+  // ── C2: dynamic triggers ─────────────────────────────────────────
+  // See `extensionSchedules` above — same discriminator, same reason. A
+  // dynamic slug is HOST-MINTED under the manifest's declared prefix, so it
+  // is by construction absent from the clamped grant; without the
+  // reconciler's `dynamic = false` filter every enable would disable it.
+  dynamic: boolean("dynamic").notNull().default(false),
+  // Extension-supplied trigger identity; NULL on manifest rows. Unregister
+  // clears it (soft-delete) to free the dynamic partial unique index while
+  // preserving the row and its delivery history.
+  key: text("key"),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 }, (table) => [
+  // TOTAL, deliberately — not partial like the schedule twin. A dynamic slug
+  // is host-minted from `hash(extensionName, key)` and keys are unique per
+  // extension, so two dynamic rows cannot collide by construction; the only
+  // collision this ever blocked is manifest-vs-dynamic, which `getEnabledWebhook`
+  // (`rows[0] ?? null`, no ORDER BY) would otherwise resolve non-deterministically
+  // on a public inbound route. See the matching note in `migrate.ts`.
   uniqueIndex("uniq_ext_webhook").on(table.extensionId, table.slug),
+  uniqueIndex("uniq_ext_webhook_dynamic").on(table.extensionId, table.key)
+    .where(sql`key IS NOT NULL`),
   index("idx_webhook_enabled").on(table.enabled),
 ]);
 

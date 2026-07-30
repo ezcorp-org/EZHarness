@@ -50,7 +50,8 @@ export type SdkCapability =
   | "schedule"
   | "events"
   | "search"
-  | "workflows";
+  | "workflows"
+  | "triggers";
 
 export interface CapabilityCallSpec {
   ctx: HandlerContext;

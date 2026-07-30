@@ -36,6 +36,12 @@ export const CAPABILITY_PERMISSION_FIELDS = [
   // `"inherit" | {…} | false` instance-policy overrides, and a workflow
   // trigger list has no instance-wide default to inherit from.
   "workflows",
+  // C2 — `{maxCron, maxWebhooks, webhookPrefix, maxRunsPerDay}`, the
+  // envelope for DYNAMIC triggers minted at runtime via `ctx.triggers`.
+  // Capability-TOOL tier for the same reason as `workflows`: it gates a
+  // discrete reverse-RPC verb behind an install-time grant, and there is no
+  // instance-wide default for it to inherit from.
+  "triggers",
 ] as const;
 
 export type CapabilityPermissionField = typeof CAPABILITY_PERMISSION_FIELDS[number];

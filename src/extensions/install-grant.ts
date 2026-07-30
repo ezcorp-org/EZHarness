@@ -38,6 +38,7 @@ const GRANT_PERMISSION_KEYS = [
   "agentConfig",
   "eventSubscriptions",
   "workflows",
+  "triggers",
   "llm",
   "memory",
   "lessons",
@@ -146,6 +147,9 @@ export function manifestRequestedGrant(
   }
   if (p.workflows !== undefined) {
     requested.workflows = p.workflows as ExtensionPermissions["workflows"];
+  }
+  if (p.triggers !== undefined) {
+    requested.triggers = p.triggers as ExtensionPermissions["triggers"];
   }
   if (p.llm !== undefined) requested.llm = p.llm as ExtensionPermissions["llm"];
   if (p.memory !== undefined) requested.memory = p.memory as ExtensionPermissions["memory"];

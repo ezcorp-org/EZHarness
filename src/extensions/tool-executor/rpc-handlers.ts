@@ -31,6 +31,10 @@ import {
   type WorkflowsHandlerContext,
 } from "../workflows-handler";
 import {
+  handleTriggersRpc,
+  type TriggersHandlerContext,
+} from "../triggers-handler";
+import {
   handleGithubProjectsRpc,
   type GithubProjectsContext,
 } from "../github-projects-handler";
@@ -605,6 +609,43 @@ export async function handlePiWorkflows(
 }
 
 /**
+ * Handle an `ezcorp/triggers` reverse-RPC request (C2) — the host side of
+ * `ctx.triggers.{register,unregister,list}`.
+ *
+ * Identity contract (parity with `handlePiWorkflows`):
+ *   - The USER is the host-issued provenance `onBehalfOf` resolved from the
+ *     echoed `ezCallId`, never the wire. `resolveReverseRpcMeta` REFUSES an
+ *     ownerless background fire (`-32106`), so a registration is always
+ *     attributable to a human — which is what lets the handler write to
+ *     `sdk_capability_calls` (whose `on_behalf_of` is NOT NULL).
+ *   - The EXTENSION NAME is registry-resolved and is BOTH the webhook rows'
+ *     FK and the slug-digest input, so a subprocess can never mint a slug
+ *     in another extension's namespace.
+ *
+ * See `triggers-handler.ts` for the full enforcement ladder.
+ */
+export async function handlePiTriggers(
+  deps: RpcHandlerDeps,
+  extensionId: string,
+  req: JsonRpcRequest,
+): Promise<JsonRpcResponse> {
+  const base = requireGrantedAndManifest(deps.registry, extensionId, req);
+  if (!base.ok) return base.errorResponse;
+  const resolved = resolveReverseRpcMeta(extensionId, req);
+  if (!resolved.ok) return resolved.errorResponse;
+  const ctx: TriggersHandlerContext = {
+    extensionName: base.manifest.name,
+    extensionId,
+    userId: resolved.onBehalfOf,
+    conversationId: resolved.conversationId,
+    grantedPermissions: base.granted,
+    manifest: base.manifest,
+    engine: deps.engine,
+  };
+  return handleTriggersRpc(req, ctx);
+}
+
+/**
  * Handle a `ezcorp/github-projects.<verb>` reverse-RPC request.
  *
  * Bundled-only — the handler gates on `BUNDLED_GITHUB_PROJECTS_ALLOWLIST`
@@ -840,6 +881,7 @@ export interface ReverseRpcDispatch {
   handlePiSchedule(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse>;
   handlePiDrafts(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse>;
   handlePiWorkflows(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse>;
+  handlePiTriggers(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse>;
   handlePiRbacCheck(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse>;
   handlePiGithubProjects(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse>;
 }
@@ -883,6 +925,10 @@ export const REVERSE_RPC_ROUTES: Record<string, RouteFn> = {
   // `ezcorp/workflows` — trigger a run of a workflow this extension ships.
   // Namespace-scoped host-side; see workflows-handler.ts.
   "ezcorp/workflows": (s, e, r) => s.handlePiWorkflows(e, r),
+  // `ezcorp/triggers` — register/unregister/list DYNAMIC cron + webhook
+  // triggers. Slugs are host-minted under the manifest's declared prefix;
+  // see triggers-handler.ts.
+  "ezcorp/triggers": (s, e, r) => s.handlePiTriggers(e, r),
   // `ezcorp/rbac-check` — brokered extension-RBAC scope check
   // (`ctx.rbac.check` in the SDK). Identity is provenance/registry-derived.
   "ezcorp/rbac-check": (s, e, r) => s.handlePiRbacCheck(e, r),
