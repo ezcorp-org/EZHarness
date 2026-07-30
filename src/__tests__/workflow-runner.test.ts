@@ -508,9 +508,20 @@ describe("WorkflowRunner lifecycle", () => {
     expect(row?.claimedBy).toBeNull();
   });
 
-  test("stop is safe with nothing claimed and before start", async () => {
+  test("stop before start is a no-op, not an error and not a release", async () => {
+    await parkedRun("r1");
+    await claimWorkflowRun({ workflowRunId: "r1", claimedBy: "someone-else", now: T0 });
     const { runtime } = fakeRuntime();
+
     await runner(runtime, { instanceId: "idle" }).stop();
+
+    // The assertion that matters: a daemon that never started must not
+    // release claims it does not hold. `releaseWorkflowRunClaims` is scoped
+    // to `claimed_by = me`, and this pins that scoping from the caller's
+    // side too.
+    const row = await getWorkflowRunRow("r1");
+    expect(row?.status).toBe("running");
+    expect(row?.claimedBy).toBe("someone-else");
   });
 
   test("the default instanceId carries a PID and an identity token", async () => {
@@ -601,24 +612,52 @@ describe("WorkflowRunner lifecycle", () => {
     }
   });
 
-  test("a tick that throws is caught by the wake loop rather than killing it", async () => {
+  test("a tick that throws is caught by the wake loop, which keeps ticking", async () => {
     // `void this.tick().catch(...)` — without the catch an unhandled
     // rejection would take the process down and every parked run with it.
-    const boom: WorkflowRuntime = {
-      getWorkflows: () => {
-        throw new Error("cache exploded");
-      },
-      workflowExecutor: fakeRuntime().runtime.workflowExecutor,
-    };
+    //
+    // The throw has to come from `tick` ITSELF, which means the runtime
+    // LOOKUP: `getWorkflows` is called inside the resume task, whose own
+    // containment is a different test. Getting that wrong the first time
+    // produced a test that passed for the wrong reason — the run was
+    // claimed once and then no longer claimable, so nothing ticked again.
+    await parkedRun("r1");
+    let lookups = 0;
+    let explode = true;
+    const { runtime: good } = fakeRuntime();
     const d = new WorkflowRunner({
       skipLockfile: true,
-      runtime: () => boom,
+      runtime: () => {
+        lookups++;
+        if (explode) throw new Error("runtime registry exploded");
+        return good;
+      },
+      now: () => T0,
       wakeIntervalMs: 5,
       instanceId: "boom",
     });
     await d.start();
-    await new Promise((r) => setTimeout(r, 60));
-    await d.stop();
+    try {
+      const deadline = Date.now() + 2_000;
+      while (lookups < 3 && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      // Repeated ticks are the property. "No exception escaped" would also
+      // be true of a loop that died on its first throw — and a dead loop
+      // means every parked run stays parked forever.
+      expect(lookups).toBeGreaterThanOrEqual(3);
+      expect((await getWorkflowRunRow("r1"))?.status).toBe("suspended");
+
+      // And it still does real work once the fault clears.
+      explode = false;
+      const claimed = Date.now() + 2_000;
+      while ((await getWorkflowRunRow("r1"))?.status === "suspended" && Date.now() < claimed) {
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      expect((await getWorkflowRunRow("r1"))?.status).toBe("running");
+    } finally {
+      await d.stop();
+    }
   });
 
   test("the heartbeat timer actually renews this instance's claims", async () => {
@@ -651,10 +690,11 @@ describe("WorkflowRunner lifecycle", () => {
     }
   });
 
-  test("a heartbeat whose renewal REJECTS is caught, not left unhandled", async () => {
+  test("a heartbeat whose renewal REJECTS is caught, and the timer keeps firing", async () => {
     // The renewal runs on a timer with no caller to await it, so an
     // unhandled rejection here would take the process down and every parked
     // run with it.
+    let ticks = 0;
     const failing = new WorkflowRunner({
       skipLockfile: true,
       runtime: () => null,
@@ -663,12 +703,23 @@ describe("WorkflowRunner lifecycle", () => {
       // A `now` that throws makes `renewLeases()` reject before it reaches
       // the DB, which is the cheapest honest way to fail that call.
       now: () => {
+        ticks++;
         throw new Error("clock unavailable");
       },
     });
     await failing.start();
-    await new Promise((r) => setTimeout(r, 60));
-    await failing.stop();
+    try {
+      const deadline = Date.now() + 2_000;
+      while (ticks < 3 && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      // Repeated firing is the property. "It did not throw" would also be
+      // true of a heartbeat that died on its first rejection — which is the
+      // bug: claims would silently lapse 60s later.
+      expect(ticks).toBeGreaterThanOrEqual(3);
+    } finally {
+      await failing.stop();
+    }
   });
 });
 

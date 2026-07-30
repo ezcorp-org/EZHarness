@@ -200,6 +200,12 @@ export const apiRegistry: ApiRouteEntry[] = [
   // correctly fails without one. Claiming it while shipping no client
   // method would make the registry lie about the remote surface.
   { method: "POST", path: "/api/workflows/approvals/:id", description: "Answer a parked workflow approval and resume its run", category: "workflows", scope: "chat", responseDescription: "{ run: WorkflowRun, consentAllUsed: boolean }" },
+  // Operator control over a durable run. NOT an approval-answering path:
+  // resume takes no choice and cannot clear a pending consent gate — a run
+  // parked on an unanswered approval comes back 409 and stays answerable.
+  // See `workflow-run-control.ts` and ported invariant 7.
+  { method: "POST", path: "/api/workflows/runs/:id/resume", description: "Continue a suspended workflow run", category: "workflows", scope: "chat", responseDescription: "{ run: WorkflowRun }" },
+  { method: "POST", path: "/api/workflows/runs/:id/cancel", description: "Cancel a running or suspended workflow run", category: "workflows", scope: "chat", responseDescription: "{ cancelled: true }" },
 
   // Tools
   { method: "GET", path: "/api/tools", description: "List available tools", category: "tools" },

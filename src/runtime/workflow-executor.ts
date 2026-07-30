@@ -252,9 +252,22 @@ export class WorkflowExecutor {
     projectId?: string,
     userId?: string,
     signal?: AbortSignal,
+    /**
+     * Optional caller-supplied run id.
+     *
+     * Added as a trailing OPTIONS BAG rather than a sixth positional so the
+     * documented positional signature every existing caller uses — the run
+     * route, the CLI, the extension trigger path — stays exactly as it was.
+     *
+     * The async run route is the only user: it must name the run in a 202
+     * before the run finishes, and reading the id off the `workflow:start`
+     * frame instead would be a race against a response it has no ordering
+     * guarantee about. Absent ⇒ minted here, as always.
+     */
+    opts?: { runId?: string },
   ): Promise<WorkflowRun> {
     const workflowRun: WorkflowRun = {
-      id: crypto.randomUUID(),
+      id: opts?.runId ?? crypto.randomUUID(),
       workflowName: workflow.name,
       projectId,
       status: "running",

@@ -33,6 +33,7 @@ function makeEvent(opts: {
 	name?: string;
 	body?: unknown;
 	locals?: Record<string, unknown>;
+	headers?: Record<string, string>;
 }) {
 	const name = opts.name ?? "does-not-exist";
 	return {
@@ -41,7 +42,7 @@ function makeEvent(opts: {
 		params: { name },
 		request: new Request(`http://localhost/api/workflows/${name}/run`, {
 			method: "POST",
-			headers: { "content-type": "application/json" },
+			headers: { "content-type": "application/json", ...(opts.headers ?? {}) },
 			body: opts.body !== undefined ? JSON.stringify(opts.body) : "{}",
 		}),
 	} as any;
@@ -124,5 +125,90 @@ describe("POST /api/workflows/[name]/run", () => {
 		expect(res.status).toBe(400);
 		const body = (await res.json()) as { error?: string };
 		expect(body.error).toBe("boom");
+	});
+});
+
+/**
+ * `X-EZ-Workflow-Async: 1` — the opt-in non-blocking run.
+ *
+ * The compatibility ledger's claim is that the ABSENT header leaves every
+ * existing caller byte-identical, so the cases above are the other half of
+ * this block: they all run without the header and must keep passing
+ * unchanged.
+ */
+describe("POST /api/workflows/[name]/run — X-EZ-Workflow-Async", () => {
+	test("with the header: 202, a run id, and the response does NOT wait for the run", async () => {
+		ctx.getWorkflows.mockReturnValue([{ name: "w1" }]);
+		// A run that never settles. If the handler awaited it, this test
+		// would time out rather than fail — which is the point: the property
+		// is "does not block", and only a never-resolving run can prove it.
+		ctx.runWorkflow.mockReturnValue(new Promise(() => {}));
+
+		const res = await POST(
+			makeEvent({
+				name: "w1",
+				locals: authedUser,
+				body: { topic: "x" },
+				headers: { "X-EZ-Workflow-Async": "1" },
+			}),
+		);
+
+		expect(res.status).toBe(202);
+		const body = (await res.json()) as { id?: string; status?: string };
+		expect(body.status).toBe("running");
+		expect(typeof body.id).toBe("string");
+		// The id in the 202 is the id the executor was told to use — a
+		// response naming a different run than the one that started would be
+		// worse than no id at all.
+		const call = ctx.runWorkflow.mock.calls[0] as unknown as unknown[];
+		expect(call[5]).toEqual({ runId: body.id });
+	});
+
+	test("the header only counts as opt-in when it is exactly \"1\"", async () => {
+		ctx.getWorkflows.mockReturnValue([{ name: "w1" }]);
+		for (const value of ["0", "false", "true", "yes", ""]) {
+			ctx.runWorkflow.mockClear();
+			const res = await POST(
+				makeEvent({
+					name: "w1",
+					locals: authedUser,
+					body: {},
+					headers: { "X-EZ-Workflow-Async": value },
+				}),
+			);
+			// A header that accepted "0" as async is the sort of thing nobody
+			// notices until a workflow they expected to have finished has not.
+			expect(res.status).toBe(200);
+			expect((ctx.runWorkflow.mock.calls[0] as unknown as unknown[]).length).toBe(4);
+		}
+	});
+
+	test("without the header the executor is called with the UNCHANGED positional signature", async () => {
+		// The ledger's core claim, asserted rather than asserted-in-prose:
+		// no sixth argument, so the CLI / trigger / demo callers see exactly
+		// what they saw before.
+		ctx.getWorkflows.mockReturnValue([{ name: "w1" }]);
+		await POST(makeEvent({ name: "w1", locals: authedUser, body: { topic: "z" } }));
+		expect(ctx.runWorkflow).toHaveBeenCalledWith({ name: "w1" }, { topic: "z" }, undefined, "u1");
+	});
+
+	test("an async run that rejects does not become an unhandled rejection", async () => {
+		ctx.getWorkflows.mockReturnValue([{ name: "w1" }]);
+		ctx.runWorkflow.mockRejectedValue(new Error("executor exploded"));
+
+		const res = await POST(
+			makeEvent({
+				name: "w1",
+				locals: authedUser,
+				body: {},
+				headers: { "X-EZ-Workflow-Async": "1" },
+			}),
+		);
+
+		// Still 202 — the run was accepted; its failure is recorded on the
+		// row, not in this response. An unhandled rejection here would take
+		// the process down along with every other run in flight.
+		expect(res.status).toBe(202);
+		await new Promise((r) => setTimeout(r, 10));
 	});
 });
