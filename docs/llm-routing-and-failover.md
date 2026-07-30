@@ -224,7 +224,7 @@ Boundaries and guarantees:
 | `provider:tierModels` | unset | **The tier ladder** — an ORDERED `{provider, model}` preference list per tier. Editable at **Settings → Models → Tier Model Ladder**; validated on write, ignored (never thrown) on read. See below. |
 | `provider:preferenceOrder` | `[anthropic, openai, google, openrouter]` | Provider walk order for routing and fallback suggestions. Stored orders self-heal: newly known providers are appended (`mergePreferenceOrder`). |
 | `provider:explorationRate` | `0` (off) | **Bounded exploration** — probability that a routed turn is deliberately served ONE RUNG BELOW the classifier's tier, to gather unbiased counterfactual data. Trades a little answer quality for that data; off unless an operator turns it on. Validated on write (a value outside `[0,1]` is a 400, not a silent no-op) and treated as OFF on read. See below. |
-| `provider:routingShadow` | unset (off) | **Shadow mode** — a CANDIDATE `{fastMaxTokens, powerfulMinTokens}` pair evaluated on every routed turn it could have moved, recorded into `usage.routingSignals.shadow`, and **never served**. The online half of sweep → shadow → promote. Malformed or inverted values disable it rather than failing a turn. See below. |
+| `provider:routingShadow` | unset (off) | **Shadow mode** — a CANDIDATE `{fastMaxTokens, powerfulMinTokens}` pair evaluated on every routed turn it could have moved, recorded into `usage.routingSignals.shadow`, and **never served**. The online half of sweep → shadow → promote. Validated on write (a malformed or inverted pair is a 400, not a silent no-op) and treated as OFF on read. See below. |
 | `compaction:cacheRetention` | `long` | Prompt-cache TTL shaping for the stable prefix (Anthropic only) — see [context-compaction](context-compaction.md). |
 
 Settings are written via the admin-only `PUT /api/settings/<key>` API.
@@ -292,10 +292,18 @@ sweep (offline proposal) → shadow (online validation) → promote
 
 The sweep can only score turns the CURRENT policy produced. It cannot say how
 often a candidate would disagree going forward, on traffic nobody has seen yet.
-Set `provider:routingShadow` to a candidate `{fastMaxTokens, powerfulMinTokens}`
-pair and every routed turn is additionally classified with those numbers; the
-verdict lands in `usage.routingSignals.shadow` as `{tier, agreed}` and the turn
-is served exactly as it would have been anyway.
+Enable it by writing the candidate pair (admin-only; there is no UI, same as
+`provider:explorationRate`):
+
+```
+PUT /api/settings/provider:routingShadow
+{ "value": { "fastMaxTokens": 250, "powerfulMinTokens": 4000 } }
+```
+
+Take those numbers from the sweep's recommendation. Every routed turn is then
+additionally classified with them; the verdict lands in
+`usage.routingSignals.shadow` as `{tier, agreed}` and the turn is served exactly
+as it would have been anyway. Delete the key to turn shadow mode off.
 
 Three properties make the number trustworthy:
 

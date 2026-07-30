@@ -435,6 +435,55 @@ describe("PUT /api/settings/provider:tierModels — write-time validation", () =
     expect(upsertSetting).not.toHaveBeenCalled();
   });
 
+  test("provider:routingShadow stores a normalized threshold pair", async () => {
+    const res = await PUT(
+      makeEvent({
+        key: "provider:routingShadow",
+        locals: adminLocals,
+        method: "PUT",
+        // Extra keys are dropped — only the two thresholds are persisted.
+        body: { value: { fastMaxTokens: 250, powerfulMinTokens: 4000, note: "from the sweep" } },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(upsertSetting).toHaveBeenCalledWith("provider:routingShadow", {
+      fastMaxTokens: 250,
+      powerfulMinTokens: 4000,
+    });
+  });
+
+  test("provider:routingShadow REJECTS an inverted pair instead of silently disabling", async () => {
+    // WS7d: the READ ignores anything malformed (shadow must never fail a
+    // turn), so a swapped pair would otherwise land, disable shadow mode, and
+    // leave the panel reading "not configured" — indistinguishable from never
+    // having set it. The write says exactly what is wrong.
+    const res = await PUT(
+      makeEvent({
+        key: "provider:routingShadow",
+        locals: adminLocals,
+        method: "PUT",
+        body: { value: { fastMaxTokens: 8000, powerfulMinTokens: 500 } },
+      }),
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toContain("must be BELOW");
+    expect(upsertSetting).not.toHaveBeenCalled();
+  });
+
+  test("provider:routingShadow REJECTS a malformed value", async () => {
+    const res = await PUT(
+      makeEvent({
+        key: "provider:routingShadow",
+        locals: adminLocals,
+        method: "PUT",
+        body: { value: "250/4000" },
+      }),
+    );
+    expect(res.status).toBe(400);
+    expect(upsertSetting).not.toHaveBeenCalled();
+  });
+
   test("other keys keep their pass-through (schema-less) write", async () => {
     const res = await PUT(
       makeEvent({

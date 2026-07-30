@@ -12,6 +12,10 @@ import {
   EXPLORATION_RATE_SETTING_KEY,
   validateExplorationRate,
 } from "$server/runtime/routing/exploration";
+import {
+  ROUTING_SHADOW_SETTING_KEY,
+  validateShadowThresholds,
+} from "$server/runtime/routing/shadow";
 import type { RequestHandler } from "./$types";
 
 // Boundary validation for setting upsert. `value` is intentionally
@@ -47,6 +51,15 @@ function validateForKey(key: string, value: unknown): { value: unknown } | Respo
     const result = validateExplorationRate(value);
     if (!result.ok) return errorJson(400, `Invalid ${key}: ${result.error}`);
     return { value: result.rate };
+  }
+  // Shadow-mode thresholds, same reasoning again: the read ignores anything
+  // malformed (shadow must never be able to fail a turn), so an inverted or
+  // typo'd pair would silently disable the feature and the panel would just
+  // read "not configured" — indistinguishable from never having set it.
+  if (key === ROUTING_SHADOW_SETTING_KEY) {
+    const result = validateShadowThresholds(value);
+    if (!result.ok) return errorJson(400, `Invalid ${key}: ${result.error}`);
+    return { value: result.thresholds };
   }
   return { value };
 }

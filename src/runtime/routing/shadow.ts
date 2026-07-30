@@ -81,6 +81,43 @@ function isPositiveInt(v: unknown): v is number {
   return typeof v === "number" && Number.isFinite(v) && Number.isInteger(v) && v > 0;
 }
 
+export type ShadowThresholdsValidation =
+  | { ok: true; thresholds: TierThresholds }
+  | { ok: false; error: string };
+
+/**
+ * WRITE-time validation for `provider:routingShadow`.
+ *
+ * The read path ({@link parseShadowThresholds}) is deliberately tolerant — it
+ * must never be able to fail a turn — which means a typo would otherwise land
+ * silently and simply look like "shadow mode isn't working". So the write is
+ * strict and SAYS WHY, which is the only place an operator can be told their
+ * edit was wrong. Same convention `provider:tierModels` and
+ * `provider:explorationRate` follow.
+ */
+export function validateShadowThresholds(value: unknown): ShadowThresholdsValidation {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return { ok: false, error: "expected an object { fastMaxTokens, powerfulMinTokens }" };
+  }
+  const { fastMaxTokens, powerfulMinTokens } = value as Record<string, unknown>;
+  if (!isPositiveInt(fastMaxTokens)) {
+    return { ok: false, error: "fastMaxTokens must be a positive whole number of tokens" };
+  }
+  if (!isPositiveInt(powerfulMinTokens)) {
+    return { ok: false, error: "powerfulMinTokens must be a positive whole number of tokens" };
+  }
+  if (fastMaxTokens >= powerfulMinTokens) {
+    return {
+      ok: false,
+      error:
+        `fastMaxTokens (${fastMaxTokens}) must be BELOW powerfulMinTokens ` +
+        `(${powerfulMinTokens}) — an inverted pair leaves no balanced band and ` +
+        "would classify almost everything as powerful",
+    };
+  }
+  return { ok: true, thresholds: { fastMaxTokens, powerfulMinTokens } };
+}
+
 /**
  * The heuristic inputs, as they appear on a stamped `routingSignals` row.
  * Structural on purpose: the ONLINE path holds a live `RoutingSignals` and the

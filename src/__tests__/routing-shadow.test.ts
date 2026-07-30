@@ -5,6 +5,7 @@ import {
   evaluateShadow,
   parseShadowThresholds,
   replayWithThresholds,
+  validateShadowThresholds,
 } from "../runtime/routing/shadow";
 import {
   DEFAULT_TIER_THRESHOLDS,
@@ -165,5 +166,69 @@ describe("evaluateShadow", () => {
       fastMaxTokens: FAST_MAX_TOKENS,
       powerfulMinTokens: POWERFUL_MIN_TOKENS,
     });
+  });
+});
+
+/**
+ * WRITE-time validation. The read path is tolerant on purpose (shadow must
+ * never fail a turn), which is exactly why the write has to be strict: a typo
+ * that silently disabled the feature would be indistinguishable from never
+ * having configured it.
+ */
+describe("validateShadowThresholds", () => {
+  test("accepts a well-formed candidate and returns the normalized pair", () => {
+    const result = validateShadowThresholds({ fastMaxTokens: 250, powerfulMinTokens: 4000 });
+    expect(result).toEqual({ ok: true, thresholds: { fastMaxTokens: 250, powerfulMinTokens: 4000 } });
+  });
+
+  test("drops unknown keys — only the two thresholds are stored", () => {
+    const result = validateShadowThresholds({
+      fastMaxTokens: 250,
+      powerfulMinTokens: 4000,
+      note: "from last week's sweep",
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.thresholds).toEqual({ fastMaxTokens: 250, powerfulMinTokens: 4000 });
+  });
+
+  test.each([
+    ["a non-object", "250/4000", "expected an object"],
+    ["null", null, "expected an object"],
+    ["an array", [250, 4000], "expected an object"],
+    ["a missing fast bound", { powerfulMinTokens: 4000 }, "fastMaxTokens"],
+    ["a missing powerful bound", { fastMaxTokens: 250 }, "powerfulMinTokens"],
+    ["a fractional fast bound", { fastMaxTokens: 1.5, powerfulMinTokens: 4000 }, "fastMaxTokens"],
+    ["a zero bound", { fastMaxTokens: 0, powerfulMinTokens: 4000 }, "fastMaxTokens"],
+    ["a negative bound", { fastMaxTokens: 250, powerfulMinTokens: -1 }, "powerfulMinTokens"],
+    ["NaN", { fastMaxTokens: Number.NaN, powerfulMinTokens: 4000 }, "fastMaxTokens"],
+  ])("rejects %s with an explanatory error", (_label, value, expectedFragment) => {
+    const result = validateShadowThresholds(value);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain(expectedFragment as string);
+  });
+
+  test("rejects an INVERTED pair and explains what it would have done", () => {
+    const result = validateShadowThresholds({ fastMaxTokens: 8000, powerfulMinTokens: 500 });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toContain("must be BELOW");
+      // The operator is told the CONSEQUENCE, not just "invalid".
+      expect(result.error).toContain("powerful");
+    }
+  });
+
+  test("everything the strict write accepts, the tolerant read also accepts", () => {
+    // The two must never disagree, or a value could pass validation and then be
+    // silently ignored at routing time — the exact failure this pairing exists
+    // to prevent.
+    for (const candidate of [
+      { fastMaxTokens: 1, powerfulMinTokens: 2 },
+      { fastMaxTokens: 250, powerfulMinTokens: 4000 },
+      { fastMaxTokens: 500, powerfulMinTokens: 8000 },
+    ]) {
+      const written = validateShadowThresholds(candidate);
+      expect(written.ok).toBe(true);
+      if (written.ok) expect(parseShadowThresholds(written.thresholds)).toEqual(written.thresholds);
+    }
   });
 });
