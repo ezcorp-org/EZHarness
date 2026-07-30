@@ -8,6 +8,16 @@ import {
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
+import { getSetting } from "$server/db/queries/settings";
+import {
+  DEFAULT_TIER_LADDER,
+  TIER_LADDER_SETTING_KEY,
+  ladderCandidates,
+  parseTierLadder,
+} from "$server/runtime/routing/tier-ladder";
+import { intersectCapabilities } from "$server/runtime/routing/auto-capabilities";
+import { VALID_TIERS } from "$server/runtime/tier-classifier";
+import { AUTO_MODEL, AUTO_PROVIDER } from "$lib/model-selector-logic";
 
 export const GET: RequestHandler = async ({ url, locals }) => {
   const scopeErr = requireScope(locals, "read");
@@ -43,6 +53,28 @@ export const GET: RequestHandler = async ({ url, locals }) => {
       for (const m of getExtensionMimesByNames(pendingNames)) mimeSet.add(m);
     } catch { /* non-fatal */ }
   }
+  // "Auto (smart routing)" has no concrete model yet, so answer with what
+  // EVERY rung of the configured ladder accepts (see auto-capabilities.ts for
+  // why an intersection and not a guess). An unconfigured/empty ladder yields
+  // no candidates — we 404 rather than invent limits, and the composer keeps
+  // its text-only fallback.
+  if (provider === AUTO_PROVIDER && model === AUTO_MODEL) {
+    const ladder = parseTierLadder(await getSetting(TIER_LADDER_SETTING_KEY)) ?? DEFAULT_TIER_LADDER;
+    const seen = new Set<string>();
+    const candidates: ReturnType<typeof getCapabilitiesWithExtensions>[] = [];
+    for (const tier of VALID_TIERS) {
+      for (const rung of ladderCandidates(ladder, tier)) {
+        const key = `${rung.provider}::${rung.model}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        candidates.push(getCapabilitiesWithExtensions(rung.provider, rung.model, [...mimeSet]));
+      }
+    }
+    const merged = intersectCapabilities(candidates);
+    if (!merged) return errorJson(404, "no routable models configured for auto selection");
+    return json({ provider, model, ...merged });
+  }
+
   const caps = getCapabilitiesWithExtensions(provider, model, [...mimeSet]);
   // Avoid leaking the internal delivery-strategy enum to clients; the UI only
   // needs to know what's accepted and the limits.

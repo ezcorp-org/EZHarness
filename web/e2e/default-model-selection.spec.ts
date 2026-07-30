@@ -91,6 +91,12 @@ test.describe("@evidence default model selection", () => {
 		await expect(selector).toContainText("Auto (smart routing)", { timeout: 5000 });
 		await expect(selector).not.toContainText(FIRST_MODEL_LABEL);
 
+		// Turn-1 attachments must still work. Auto has no concrete model, so the
+		// server answers capabilities with the INTERSECTION of the tier ladder;
+		// without that the paperclip would be hidden on EVERY new conversation
+		// now that Auto is the default. This is the regression guard.
+		await expect(page.getByTestId("attachment-button")).toBeVisible({ timeout: 5000 });
+
 		await captureEvidence(page, testInfo, "default-model-selection-auto");
 
 		// Turn 1 goes out with the explicit-null sentinel → the server routes it.

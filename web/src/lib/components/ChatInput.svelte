@@ -44,7 +44,6 @@
 	} from "$lib/chat/attachment-client";
 	import {
 		DEFAULT_SELECTION_FALLBACK,
-		isAutoSelection,
 		type DefaultSelectionMode,
 		type ModelSelection,
 	} from "$lib/model-selector-logic.js";
@@ -281,9 +280,13 @@
 	$effect(() => {
 		const sel = selectedModel;
 		// Auto (smart routing) has no concrete model until the first turn is
-		// served — capabilities can't be resolved, so the paperclip stays
-		// hidden (text-only) exactly like the no-selection state.
-		if (!sel || isAutoSelection(sel)) { capabilities = null; return; }
+		// served, so the server answers with the INTERSECTION of every rung of
+		// the tier ladder — what any model it could route to will accept. That
+		// keeps the paperclip usable on turn 1 (it is the DEFAULT selection now,
+		// so nulling here would hide attachments on every new conversation)
+		// without ever over-promising a capability the served model lacks.
+		// A no-selection state still resolves nothing.
+		if (!sel) { capabilities = null; return; }
 		// Re-read pendingExtensionNames inside the effect so Svelte tracks it.
 		const extNames = pendingExtensionNames;
 		let cancelled = false;
