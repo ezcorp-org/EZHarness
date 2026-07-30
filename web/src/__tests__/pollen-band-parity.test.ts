@@ -46,15 +46,17 @@ describe("pollen band parity — extension ↔ card", () => {
 		const emitted = unionMembers(readFileSync(EXT_BANDS_PATH, "utf8"), "PollenBand");
 		const known = unionMembers(readFileSync(CARD_LOGIC_PATH, "utf8"), "PollenBandId");
 
-		// The card carries one EXTRA member, `unknown`, as its fallback slot
-		// for a band string it does not recognise. That is intentional, so
-		// compare against the card's set minus that slot.
+		// `unknown` wears two hats and must exist on the card either way: it
+		// is the card's fallback slot for a band string it does not
+		// recognise, AND (since the station provider landed) a band the
+		// extension genuinely emits when a source reports no category data.
+		// The two roles agree on the rendered label, so the sets match
+		// exactly rather than the card carrying a spare member.
 		expect(known).toContain("unknown");
-		const labellable = known.filter((b) => b !== "unknown");
 
 		expect(
-			labellable,
-			`the card labels ${JSON.stringify(labellable)} but the extension emits ` +
+			known,
+			`the card labels ${JSON.stringify(known)} but the extension emits ` +
 				`${JSON.stringify(emitted)} — teach ` +
 				`web/src/lib/components/tool-cards/city-conditions-card-logic.ts about the ` +
 				`new band (or stop emitting it), otherwise those readings render as "unknown"`,

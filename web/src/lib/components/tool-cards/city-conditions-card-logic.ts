@@ -74,8 +74,9 @@ const GRAIN_LABELS: Record<PollenGrainKey, string> = {
 	ragweed: "Ragweed",
 };
 
-/** `none|low|moderate|high|very-high` per the contract, plus the
- *  `unknown` slot for a band string the card does not recognise. */
+/** `none|low|moderate|high|very-high` per the contract, plus `unknown` —
+ *  both the slot for a band string the card does not recognise AND a band
+ *  the host emits when a source reports no category data. */
 export type PollenBandId = "none" | "low" | "moderate" | "high" | "very-high" | "unknown";
 
 /**
@@ -281,9 +282,16 @@ export function formatPlaceLine(place: CityConditionsPlace): string {
 		.join(", ");
 }
 
-/** Map the host-computed band onto its label. Never re-derives the band. */
+/**
+ * Map the host-computed band onto its label. Never re-derives the band.
+ *
+ * A literal `"unknown"` from the host takes the recognised path now that the
+ * host emits it deliberately; anything else unrecognised falls through to the
+ * same value. Both land on "Unknown", so the two routes agree — the point is
+ * that the host's `unknown` is no longer treated as a parse failure.
+ */
 export function bandIdOf(raw: unknown): PollenBandId {
-	if (typeof raw === "string" && raw in BAND_LABELS && raw !== "unknown") {
+	if (typeof raw === "string" && raw in BAND_LABELS) {
 		return raw as PollenBandId;
 	}
 	return "unknown";
