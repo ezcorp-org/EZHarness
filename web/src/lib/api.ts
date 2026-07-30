@@ -410,6 +410,26 @@ export interface Message {
 		routedTier?: "fast" | "balanced" | "powerful";
 		/** True when the served provider ≠ the initially resolved provider. */
 		failover?: boolean;
+		/** WS5 routing provenance — the raw signals the tier was classified
+		 *  from, and the effective config it was decided under. Only present
+		 *  when routing fired (absent on pinned turns and legacy rows). */
+		routingSignals?: {
+			promptChars: number;
+			historyChars: number;
+			historyMessageCount: number;
+			hasToolMessages: boolean;
+			systemChars: number;
+			attachmentCount: number;
+			toolCount: number;
+			hasComplexTools: boolean;
+			estTokens: number;
+			tier: "fast" | "balanced" | "powerful";
+			reason: string;
+		};
+		routingConfig?: {
+			defaultTier: "fast" | "balanced" | "powerful";
+			preferenceOrderHash: string;
+		};
 	} | null;
 	runId: string | null;
 	parentMessageId: string | null;

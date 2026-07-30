@@ -535,6 +535,26 @@ export interface CreateMessageUsage {
   routedTier?: "fast" | "balanced" | "powerful";
   /** True when the served provider ≠ the initially resolved provider. */
   failover?: boolean;
+  /** WS5 routing provenance — raw classifier inputs + the verdict they
+   *  produced. Only present when routing fired. */
+  routingSignals?: {
+    promptChars: number;
+    historyChars: number;
+    historyMessageCount: number;
+    hasToolMessages: boolean;
+    systemChars: number;
+    attachmentCount: number;
+    toolCount: number;
+    hasComplexTools: boolean;
+    estTokens: number;
+    tier: "fast" | "balanced" | "powerful";
+    reason: string;
+  };
+  /** Effective routing config the turn was decided under. */
+  routingConfig?: {
+    defaultTier: "fast" | "balanced" | "powerful";
+    preferenceOrderHash: string;
+  };
 }
 
 export async function createMessage(

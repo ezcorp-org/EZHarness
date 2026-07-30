@@ -3,7 +3,15 @@ import { logger } from "../../logger";
 import { getProject } from "../../db/queries/projects";
 import { resolveModel, getDefaultTier } from "../../providers/router";
 import { tierForModel } from "../../providers/registry";
-import { chooseTurnTier, type RoutingTier } from "../tier-classifier";
+import {
+  chooseTurnVerdict,
+  preferenceOrderHash,
+  type RoutingConfig,
+  type RoutingSignals,
+  type RoutingTier,
+  type TierHistoryMessage,
+} from "../tier-classifier";
+import { getSetting } from "../../db/queries/settings";
 import { getCredential } from "../../providers/credentials";
 import { extensionToAgentTool, ToolExecutor, type ArgsResolver } from "../../extensions/tool-executor";
 import { ExtensionRegistry } from "../../extensions/registry";
@@ -120,6 +128,15 @@ export interface SetupToolsResult {
    * the "balanced" default.
    */
   effectiveTier: RoutingTier;
+  /**
+   * WS5 routing provenance, stamped onto `messages.usage`. Present ONLY on
+   * a turn that was actually ROUTED (no pinned model) — a pinned turn has no
+   * classifier verdict to report, and `usage.requestedModel !== null`
+   * already marks it as pinned. Absent (not `undefined`-keyed) whenever
+   * routing didn't fire or the best-effort provenance read failed.
+   */
+  routingSignals?: RoutingSignals;
+  routingConfig?: RoutingConfig;
 }
 
 /**
@@ -409,6 +426,52 @@ export async function wireExtensionAuthorToolsIfEz(args: {
 }
 
 /**
+ * WS5: the turn context the tier classifier scores, beyond the user's
+ * message. Every field is READ-ONLY and already resolved before the setup
+ * phase starts, which is what keeps the routing decision I/O-free:
+ *  - `history` is the `loadHistory` result (awaited in the executor before
+ *    `setupTools` is called).
+ *  - `systemChars` is a SNAPSHOT length, not a live read of `ctx.system`.
+ *    The memory/KB-injection closure runs in the same `Promise.all` as model
+ *    resolution, so reading `ctx.system` from inside the race would make the
+ *    scored size depend on which branch won. Snapshot before the race.
+ *  - `attachmentCount` counts THIS turn's staged attachments.
+ */
+export interface TurnRoutingContext {
+  history?: readonly TierHistoryMessage[] | null;
+  systemChars?: number;
+  attachmentCount?: number;
+}
+
+/**
+ * Read the effective routing config a turn was decided under, for
+ * provenance. Fail-open BY CONSTRUCTION: it swallows any settings failure
+ * and returns undefined, so the caller can hold it as a bare promise without
+ * a rejection ever reaching (let alone aborting) the routing decision.
+ */
+async function readRoutingConfig(): Promise<RoutingConfig | undefined> {
+  try {
+    const [defaultTier, preferenceOrder] = await Promise.all([
+      getDefaultTier(),
+      getSetting("provider:preferenceOrder"),
+    ]);
+    return {
+      defaultTier,
+      preferenceOrderHash: preferenceOrderHash(
+        Array.isArray(preferenceOrder)
+          ? preferenceOrder.filter((p): p is string => typeof p === "string")
+          : null,
+      ),
+    };
+  } catch (err) {
+    log.warn("routing-config provenance read failed — routing unaffected", {
+      err: err instanceof Error ? err.message : String(err),
+    });
+    return undefined;
+  }
+}
+
+/**
  * Model resolution + credential pre-validation (setup phase 3 — runs in
  * parallel with memory injection and tool loading inside {@link setupTools}'s
  * `Promise.all`). Exported so the tier semantics are directly unit-testable
@@ -432,6 +495,13 @@ export async function wireExtensionAuthorToolsIfEz(args: {
  * Tier routing is a best-effort optimization: it must NEVER break a
  * turn. If the registry can't resolve a manifest (or isn't ready), fall
  * back to the default tier rather than failing model resolution.
+ *
+ * WS5 widens what the classifier sees: `turnContext` carries the turn's
+ * already-loaded history, its system-prompt size, and its attachment count,
+ * so a short follow-up inside a tool loop is no longer mis-read as a cheap
+ * turn. All of it is in memory before this runs — no new I/O, no new await,
+ * and no dependency on the racing tool-load phase. `turnContext` is optional
+ * so any caller that omits it keeps the pre-WS5 classification exactly.
  */
 export async function resolveModelTierAndCredential(
   run: AgentRun,
@@ -439,32 +509,66 @@ export async function resolveModelTierAndCredential(
   options: SetupToolsOptions,
   convRecord: SetupToolsConvRecord | null,
   credentialConversationId: string,
+  turnContext?: TurnRoutingContext,
 ): Promise<SetupToolsResult> {
   let routedTier: RoutingTier | undefined;
+  let routingSignals: RoutingSignals | undefined;
+  // Started but NOT awaited inside the branch: it resolves concurrently with
+  // resolveModel below, so stamping provenance costs the routing hot path no
+  // added latency. Left undefined on a pinned turn — that path reads no
+  // settings at all.
+  let routingConfigPromise: Promise<RoutingConfig | undefined> | undefined;
   if (!options.model) {
     try {
-      routedTier = chooseTurnTier(
-        { userMessage, options, convExtensionTools: convRecord?.extensionTools ?? null },
+      const verdict = chooseTurnVerdict(
+        {
+          userMessage,
+          options,
+          convExtensionTools: convRecord?.extensionTools ?? null,
+          history: turnContext?.history,
+          systemChars: turnContext?.systemChars,
+          attachmentCount: turnContext?.attachmentCount,
+        },
         (extId) => ExtensionRegistry.getInstance().getManifest(extId),
       );
+      routedTier = verdict.tier;
+      routingSignals = verdict.signals;
     } catch (err) {
       log.warn("tier classification failed — using default tier this turn", {
         err: err instanceof Error ? err.message : String(err),
       });
       routedTier = undefined;
+      routingSignals = undefined;
     }
+    // Effective-config provenance, in its OWN fail-open envelope (inside the
+    // helper) rather than folded into the classifier's above: a settings-read
+    // blip must not discard a tier verdict we already computed successfully
+    // and are about to route on. Provenance is the most expendable thing here.
+    routingConfigPromise = readRoutingConfig();
   }
   const r = await resolveModel(options.provider, options.model, routedTier);
+  const routingConfig = await routingConfigPromise;
   // Effective tier for THIS turn (see SetupToolsResult.effectiveTier): a
   // pinned model carries its OWN tier so failover stays tier-peer; a routed
   // turn carries the classifier's tier, or the configured default when
   // classification failed above (best-effort — never aborts the turn).
   const effectiveTier = options.model
     ? tierForModel(r.piModel)
-    : (routedTier ?? (await getDefaultTier()));
+    // The routing-config provenance read above already fetched the default
+    // tier on a routed turn — reuse it instead of reading the setting twice.
+    // Same value, so the classifier-failed fallback is unchanged.
+    : (routedTier ?? routingConfig?.defaultTier ?? (await getDefaultTier()));
   run.provider = r.provider;
   const cred = await getCredential(r.provider, credentialConversationId);
-  return { resolved: r, initialCred: cred, effectiveTier };
+  // Conditional spread, not `undefined` keys: absent provenance must not
+  // write `routingSignals: undefined` into the usage jsonb downstream.
+  return {
+    resolved: r,
+    initialCred: cred,
+    effectiveTier,
+    ...(routingSignals ? { routingSignals } : {}),
+    ...(routingConfig ? { routingConfig } : {}),
+  };
 }
 
 /**
@@ -490,12 +594,24 @@ export async function setupTools(
   allPastAttachments: import("../../chat/attachments/content-builder").StagedAttachment[],
   convRecord: SetupToolsConvRecord | null,
   credentialConversationId: string,
+  history?: readonly TierHistoryMessage[] | null,
 ): Promise<SetupToolsResult> {
   const { run } = ctx;
   // Typed view onto the orchestration scratch fields set by tool-loader 2d
   // and consumed by auto-spin-up. Replaces the inline `(run as any)` casts
   // — same underlying object, but the compiler now knows the field shapes.
   const orchRun = run as OrchestratedRun;
+
+  // WS5: snapshot the routing context BEFORE the Promise.all below. The
+  // memory/KB closure in that race mutates the system prompt, so reading its
+  // length from inside the race would make the classifier's input depend on
+  // scheduling. Captured here, the scored value is deterministic — and it is
+  // a plain `.length` on already-resolved state, so it adds no I/O.
+  const turnRoutingContext: TurnRoutingContext = {
+    history,
+    systemChars: ctx.system?.length ?? 0,
+    attachmentCount: options.attachments?.length ?? 0,
+  };
 
   // ── Parallel setup: memory/KB, tools, model resolution all run concurrently ──
   host.bus.emit("run:status", { runId: run.id, status: "Preparing..." });
@@ -1303,7 +1419,14 @@ export async function setupTools(
     })(),
 
     // 3. Model resolution + credential pre-validation (runs in parallel with 1 & 2)
-    resolveModelTierAndCredential(run, userMessage, options, convRecord, credentialConversationId),
+    resolveModelTierAndCredential(
+      run,
+      userMessage,
+      options,
+      convRecord,
+      credentialConversationId,
+      turnRoutingContext,
+    ),
   ]);
 
   // Deterministic-preprocess grounding notes ride the UNCACHED

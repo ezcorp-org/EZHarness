@@ -185,6 +185,33 @@ export const messages = pgTable("messages", {
     routedTier?: "fast" | "balanced" | "powerful";
     /** True when the served provider ≠ the initially resolved provider. */
     failover?: boolean;
+    /**
+     * WS5 routing provenance — only present when routing fired. The RAW
+     * classifier inputs plus the verdict they produced, so tier thresholds
+     * can be swept retroactively against real traffic instead of by replay.
+     * Mirrors `RoutingSignals` in `src/runtime/tier-classifier.ts` (inlined
+     * here, like every other key in this shape, so the db layer keeps no
+     * runtime dependency).
+     */
+    routingSignals?: {
+      promptChars: number;
+      historyChars: number;
+      historyMessageCount: number;
+      hasToolMessages: boolean;
+      systemChars: number;
+      attachmentCount: number;
+      toolCount: number;
+      hasComplexTools: boolean;
+      estTokens: number;
+      tier: "fast" | "balanced" | "powerful";
+      reason: string;
+    };
+    /** Effective routing config the turn was decided under — lets a sweep
+     *  tell a threshold change apart from a provider-config change. */
+    routingConfig?: {
+      defaultTier: "fast" | "balanced" | "powerful";
+      preferenceOrderHash: string;
+    };
   }>(),
   runId: text("run_id").references(() => runs.id, { onDelete: "set null" }),
   parentMessageId: text("parent_message_id"),

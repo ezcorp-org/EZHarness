@@ -990,6 +990,11 @@ export class AgentExecutor {
       allPastAttachments,
       convRecord ?? null,
       credentialConversationId,
+      // WS5: the tier classifier scores the WHOLE turn, not just the user's
+      // message. `history` is already resolved (awaited above) — passing it
+      // adds no I/O and no await, and it is what lets a short follow-up
+      // inside a tool loop route as the context-heavy turn it really is.
+      history,
     );
 
     // Stash the resolved endpoint so the error-finalize path can name the
@@ -1239,6 +1244,13 @@ export class AgentExecutor {
               requestedModel: options.model ?? null,
               routedTier: options.model ? undefined : resolvedModel.effectiveTier,
               failover: attempt !== initialAttempt,
+              // WS5: the raw classifier inputs + the tier they produced, and
+              // the effective routing config. Both are already undefined on a
+              // pinned turn (setup-tools only computes them when routing
+              // fired), so no extra guard is needed here — subscribeBridge's
+              // conditional spread drops absent values.
+              routingSignals: resolvedModel.routingSignals,
+              routingConfig: resolvedModel.routingConfig,
               sessionHistoryProducer,
             },
             convRecord ?? null,
