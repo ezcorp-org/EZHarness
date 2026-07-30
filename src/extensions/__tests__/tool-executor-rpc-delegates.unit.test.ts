@@ -69,6 +69,18 @@ mock.module("../drafts-handler", () => ({
 // NAME from the registry, user/conversation from the provenance token) can be
 // asserted without standing up the real enforcement ladder — that ladder has
 // its own suite in workflows-handler.test.ts.
+let triggersCtx: Record<string, unknown> | undefined;
+mock.module("../triggers-handler", () => ({
+  handleTriggersRpc: async (
+    req: { id: number | string },
+    ctx: Record<string, unknown>,
+  ) => {
+    triggersCtx = ctx;
+    return { jsonrpc: "2.0", id: req.id, result: { v: 1, ok: true } };
+  },
+  dynamicTriggersDisabled: () => false,
+}));
+
 let workflowsCtx: Record<string, unknown> | undefined;
 mock.module("../workflows-handler", () => ({
   handleWorkflowsRpc: async (
@@ -289,6 +301,41 @@ describe("reverse-RPC delegate bodies (downstream handlers mocked)", () => {
     // Identity from the host-issued token, never the wire params.
     expect(workflowsCtx?.userId).toBe("user-1");
     expect(workflowsCtx?.conversationId).toBe("conv-1");
+  });
+
+  test("handlePiTriggers builds ctx from the REGISTRY + the provenance token, not the wire", async () => {
+    // Same property as handlePiWorkflows above, and it matters for the
+    // same reason: a subprocess that could set `extensionName` would be
+    // able to register or cancel ANOTHER extension's triggers. C2 shipped
+    // this delegate with no test that executed it — the dispatch-table
+    // test names it, which is not the same as calling it.
+    const exec: ExecLike = new ToolExecutor(registry(), createStubPermissionEngine("allow-all"));
+    const tok = tokenFor("ext-1");
+    try {
+      const resp = (await exec.handlePiTriggers("ext-1", {
+        jsonrpc: "2.0",
+        id: 9,
+        method: "ezcorp/triggers",
+        params: {
+          v: 1,
+          op: "list",
+          // Forged identity on the wire — must be ignored entirely.
+          extensionName: "some-other-ext",
+          userId: "attacker",
+          conversationId: "conv-attacker",
+          _meta: { ezCallId: tok },
+        },
+      })) as JsonRpcResponse;
+      expect(resp.result).toEqual({ v: 1, ok: true });
+    } finally {
+      releaseCallProvenance(tok);
+    }
+
+    expect(triggersCtx?.extensionName).toBe("ext");
+    expect(triggersCtx?.extensionId).toBe("ext-1");
+    // Identity from the host-issued token, never the wire params.
+    expect(triggersCtx?.userId).toBe("user-1");
+    expect(triggersCtx?.conversationId).toBe("conv-1");
   });
 
   test("handlePiWorkflows fails closed with -32603 for an extension the registry doesn't know", async () => {

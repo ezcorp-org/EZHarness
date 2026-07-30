@@ -48,6 +48,26 @@ function applyOp(op: WorkflowConditionOp, actual: unknown, value: unknown): bool
   }
 }
 
+/**
+ * Every `ref` a condition tree reads, in evaluation order.
+ *
+ * Exported for the dry-run harness, which has to know whether a gate's
+ * OPERANDS were fabricated before it decides to enforce the verdict — a
+ * question about the refs, not about the outcome. It lives here because
+ * this module owns the tree shape: a second walker elsewhere would
+ * silently miss a node kind the day one is added.
+ *
+ * A malformed leaf contributes nothing. {@link evaluateCondition} is the
+ * single place that rejects one, so this stays a pure reader.
+ */
+export function conditionRefs(cond: WorkflowCondition): string[] {
+  if ("all" in cond) return cond.all.flatMap(conditionRefs);
+  if ("any" in cond) return cond.any.flatMap(conditionRefs);
+  if ("not" in cond) return conditionRefs(cond.not);
+  const leaf = cond as { ref?: unknown };
+  return typeof leaf.ref === "string" ? [leaf.ref] : [];
+}
+
 function deepEq(a: unknown, b: unknown): boolean {
   if (a === b) return true;
   if (typeof a === "object" && a !== null && typeof b === "object" && b !== null) {

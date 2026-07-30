@@ -193,8 +193,8 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "POST", path: "/api/teams/:id/members", description: "Add member to team", category: "teams" },
 
   // Workflows
-  { method: "GET", path: "/api/workflows", description: "List workflows", category: "workflows" },
-  { method: "GET", path: "/api/workflows/:name", description: "Get workflow by name", category: "workflows" },
+  { method: "GET", path: "/api/workflows", description: "List workflows the caller may see — filtered by ownership, so a read-scoped key with no project sees system workflows only (shorter array than pre-C6, same shape)", category: "workflows" },
+  { method: "GET", path: "/api/workflows/:name", description: "Get workflow by name (404, not 403, when unauthorized — the endpoint is not an existence oracle)", category: "workflows" },
   { method: "POST", path: "/api/workflows/:name/run", description: "Execute a workflow", category: "workflows" },
   // NOT `controllable` yet: that flag asserts a matching
   // `@ezcorp/harness-client` method exists, and the parity meta-test
@@ -208,6 +208,10 @@ export const apiRegistry: ApiRouteEntry[] = [
   // See `workflow-run-control.ts` and ported invariant 7.
   { method: "POST", path: "/api/workflows/runs/:id/resume", description: "Continue a suspended workflow run", category: "workflows", scope: "chat", responseDescription: "{ run: WorkflowRun }" },
   { method: "POST", path: "/api/workflows/runs/:id/cancel", description: "Cancel a running or suspended workflow run", category: "workflows", scope: "chat", responseDescription: "{ cancelled: true }" },
+  { method: "POST", path: "/api/workflows/:name/dry-run", description: "Simulate a workflow — transform/gate steps evaluated, everything else stubbed; zero LLM, zero side effects, no run row", category: "workflows" },
+  { method: "POST", path: "/api/workflows/:name/fork", description: "Clone a workflow into an editable project-scoped copy owned by the caller", category: "workflows" },
+  { method: "GET", path: "/api/workflows/:name/versions", description: "Version history for a workflow", category: "workflows" },
+  { method: "POST", path: "/api/workflows/:name/claim", description: "Assign an owner to a system-owned workflow (admin)", category: "workflows", scope: "admin" },
 
   // Tools
   { method: "GET", path: "/api/tools", description: "List available tools", category: "tools" },

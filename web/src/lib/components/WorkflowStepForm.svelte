@@ -64,6 +64,7 @@
 				<option value="agent">Agent</option>
 				<option value="transform">Transform</option>
 				<option value="gate">Gate</option>
+				<option value="tool">Tool</option>
 			</select>
 		</div>
 		{#if step.kind === "agent"}
@@ -77,10 +78,22 @@
 				</select>
 			</div>
 		{/if}
+		{#if step.kind === "tool"}
+			<div>
+				<label for="step-tool-{step.name}" class="mb-1 block text-xs text-[var(--color-text-secondary)]">Tool</label>
+				<input
+					id="step-tool-{step.name}"
+					type="text"
+					bind:value={step.tool}
+					placeholder="extension__tool_name"
+					class={inputClass}
+				/>
+			</div>
+		{/if}
 	</div>
 
-	{#if step.kind === "agent"}
-		<!-- Input Mapping (agent only — the executor never reads `input` on a
+	{#if step.kind === "agent" || step.kind === "tool"}
+		<!-- Input Mapping (agent + tool — the executor never reads `input` on a
 		     transform step, so surfacing the editor there is dead/misleading UX). -->
 		<div>
 			<div class="mb-1 flex items-center justify-between">
@@ -134,8 +147,10 @@
 		</div>
 	{/if}
 
-	{#if step.kind !== "gate"}
-		<!-- Loop -->
+	{#if step.kind === "agent" || step.kind === "transform"}
+		<!-- Loop — `agent` and `transform` only. The server rejects a loop on a
+		     gate (no result to iterate) and on a tool (it would repeat a
+		     side-effecting call N times with no LLM in the middle to notice). -->
 		<div class="rounded border border-[var(--color-border)] p-2">
 			<label class="flex items-center gap-2 text-xs text-[var(--color-text-secondary)]">
 				<input type="checkbox" bind:checked={step.loopEnabled} />
@@ -173,6 +188,23 @@
 		<div>
 			<label for="retries-{step.name}" class="mb-1 block text-xs text-[var(--color-text-secondary)]">Retries (0–2)</label>
 			<input id="retries-{step.name}" type="number" min="0" max="2" bind:value={step.retries} class="{inputClass} w-24" />
+		</div>
+	{/if}
+
+	{#if step.kind === "agent"}
+		<!-- Per-step model binding, carried as raw JSON: the server's
+		     `validateModelOverride` owns the field vocabulary, and a form that
+		     modelled only the fields it knew about would DROP the rest when the
+		     editor saved a workflow it had loaded. -->
+		<div>
+			<label for="model-{step.name}" class="mb-1 block text-xs text-[var(--color-text-secondary)]">Model override (JSON, optional)</label>
+			<textarea
+				id="model-{step.name}"
+				bind:value={step.modelText}
+				rows="2"
+				placeholder={'{ "provider": "anthropic", "model": "claude-opus-5" }'}
+				class="{inputClass} font-mono"
+			></textarea>
 		</div>
 	{/if}
 

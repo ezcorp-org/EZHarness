@@ -32,6 +32,7 @@ import {
 } from "./workflow-tool-runner";
 import { toolCallsThisTurn } from "../extensions/tool-executor/limits";
 import { getWorkflowByName } from "../db/queries/workflows";
+import { getLatestWorkflowVersion } from "../db/queries/workflow-versions";
 import {
   advanceWorkflowRunCursor,
   finalizeWorkflowRunRow,
@@ -145,6 +146,31 @@ export interface WorkflowExecutorOptions {
    * extension registry).
    */
   toolRunnerFactory?: WorkflowToolRunnerFactory;
+  /**
+   * Stand a result in for a step INSTEAD of dispatching it. Returning
+   * `undefined` runs the step normally.
+   *
+   * Consulted at the very top of {@link WorkflowExecutor.runStep}, before
+   * the loop branch and before the kind dispatch, which is the whole
+   * point: it is KIND-AGNOSTIC. A dry run substitutes every kind it
+   * cannot evaluate purely, so a step kind added later (C7's `workflow`,
+   * which recursively contains tool steps) is substituted by default
+   * rather than dispatched — the failure mode of a stale skip list, but
+   * inverted to fail safe.
+   *
+   * The step's ref context comes with it, because the decision is not
+   * always about the step alone: the dry-run harness has to RESOLVE a
+   * gate's operands to know whether they are fabricated, and only the
+   * holder of the substitution rule can judge that. It is the BASE
+   * context — no `$loop` roots, since the hook is consulted above the
+   * loop branch.
+   *
+   * The dry-run harness is the only caller. It is a BACKSTOP, not the
+   * guarantee: that comes from the harness also passing a
+   * `toolRunnerFactory` and an `AgentExecutor` that throw, so a step
+   * reaching dispatch fails loudly instead of executing.
+   */
+  stepSubstitute?: (step: WorkflowStep, ctx: RefContext) => AgentResult | undefined;
 }
 
 /**
@@ -192,6 +218,7 @@ export function workflowScopeKey(workflowRunId: string): string {
 export class WorkflowExecutor {
   private readonly persist: boolean;
   private readonly toolRunnerFactory: WorkflowToolRunnerFactory;
+  private readonly stepSubstitute?: (step: WorkflowStep, ctx: RefContext) => AgentResult | undefined;
 
   constructor(
     private agentExecutor: AgentExecutor,
@@ -201,6 +228,7 @@ export class WorkflowExecutor {
     this.persist = opts?.persist ?? false;
     this.toolRunnerFactory =
       opts?.toolRunnerFactory ?? (() => createWorkflowToolRunner(this.bus));
+    if (opts?.stepSubstitute) this.stepSubstitute = opts.stepSubstitute;
   }
 
   /**
@@ -287,19 +315,61 @@ export class WorkflowExecutor {
     // is for.
     await this.persistWrite("insert", async () => {
       const definition = await getWorkflowByName(workflow.name);
+      // The version this run executes. Resolved at START, so an edit
+      // landing mid-run cannot retroactively change what the run says it
+      // ran. Null for a YAML/extension workflow, which has no definition
+      // row to version.
+      const version = definition
+        ? await getLatestWorkflowVersion(definition.id)
+        : undefined;
+      // The fingerprint of the graph THIS RUN WAS HANDED — not of the row
+      // that happens to own the name.
+      const ranHash = workflowDefinitionHash(workflow);
+      // ── Only claim a version whose content is what we ran ────────────
+      //
+      // The lookup above is by NAME, and a name does not identify a graph:
+      //   • extension and YAML entries win the name race in the cache
+      //     (`buildWorkflowCache` concatenates them first), so a YAML
+      //     workflow shadowing a DB row would otherwise record the DB
+      //     row's version — a snapshot of steps this run never executed;
+      //   • `updateWorkflow` and `ensureWorkflowVersion` are two writes,
+      //     so a failure between them leaves the row's content ahead of
+      //     its newest version, and every later run would be stamped with
+      //     a stale one — permanently, and silently.
+      // Both are the same error: recording a version we did not run.
+      // Comparing content closes both, and NULL already means exactly
+      // "cannot name the snapshot this run executed" (a pre-versioning run
+      // or a workflow with no row). If a trace ever needs to name the
+      // snapshot for a run of a stale cache entry, resolve it BY
+      // `stepsHash` — do not widen this claim back to "latest".
+      const ranVersion = version?.stepsHash === ranHash ? version : undefined;
       await insertWorkflowRun({
         id: workflowRun.id,
         workflowName: workflow.name,
+        // The row that owns this NAME, which is a resolution fact and
+        // deliberately not gated on content: a run that raced a save still
+        // belongs to the definition it was launched from, and nothing
+        // reads this as a claim about which steps ran.
         workflowDefinitionId: definition?.id ?? null,
         projectId: projectId ?? null,
         userId: userId ?? null,
         input,
         startedAt: new Date(workflowRun.startedAt),
-        // Pins the graph this run was authorized against. A resume
-        // compares it and refuses to continue into an edited definition,
-        // where `cursor.batchIndex` would address a different set of
-        // steps entirely.
-        definitionHash: workflowDefinitionHash(workflow),
+        definitionVersionId: ranVersion?.id ?? null,
+        // Pins the graph this run was authorized against, and it is the
+        // drift guard that actually fires: C4's resume compares this hash
+        // UNCONDITIONALLY. (Reading the version id first, and this only
+        // when that is null, is the intended precedence — see
+        // `workflow-versions.ts` — but no code implements it yet.)
+        //
+        // Always the hash of what RAN. When there is a matching version
+        // this is byte-identical to its `stepsHash`, so the hash is still
+        // a function of the version rather than a second,
+        // independently-drifting answer; when there is not, writing the
+        // version's hash would have parked the run against a graph it
+        // never executed and made resume refuse a run that had not
+        // drifted.
+        definitionHash: ranHash,
       });
     });
 
@@ -994,6 +1064,15 @@ export class WorkflowExecutor {
     /** This run's id — an `approval` step keys its parked row on it. */
     workflowRunId: string,
   ): Promise<AgentResult> {
+    const baseCtx: RefContext = { input, stepResults, prevResult };
+
+    // Checked FIRST — above the loop branch and above the kind dispatch —
+    // so a substituted step can reach no dispatcher at all, whatever its
+    // kind and whether or not it declares a loop. See
+    // `WorkflowExecutorOptions.stepSubstitute`.
+    const substituted = this.stepSubstitute?.(step, baseCtx);
+    if (substituted !== undefined) return substituted;
+
     if (step.loop) {
       return this.runLoop(
         step,
@@ -1010,7 +1089,6 @@ export class WorkflowExecutor {
     }
 
     const kind = stepKind(step);
-    const baseCtx: RefContext = { input, stepResults, prevResult };
 
     if (kind === "transform") {
       return runTransform(step, baseCtx);

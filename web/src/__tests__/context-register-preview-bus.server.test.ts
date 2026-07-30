@@ -115,7 +115,7 @@ vi.mock("$server/runtime/workflow-loader", () => ({
   loadYamlWorkflows: vi.fn(async () => []),
 }));
 vi.mock("$server/db/queries/workflows", () => ({
-  loadDbWorkflows: vi.fn(async () => []),
+  loadDbCachedWorkflows: vi.fn(async () => []),
 }));
 vi.mock("$server/runtime/executor", () => ({
   AgentExecutor: class {

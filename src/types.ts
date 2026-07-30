@@ -459,6 +459,28 @@ export interface WorkflowDefinition {
   steps: WorkflowStep[];
 }
 
+/**
+ * Who a DB-backed workflow belongs to.
+ *
+ * Deliberately NOT a field on {@link WorkflowDefinition}, which is the
+ * shape of the GRAPH and is shared by YAML- and extension-shipped
+ * workflows that have no owner, by `runWorkflow`, by the CLI and by
+ * `validateWorkflow`. Provenance travels alongside the definition on
+ * `CachedWorkflow` instead (`src/runtime/workflow-scope.ts`).
+ *
+ *   `system`  — ships with the install. No project, no owner. Any `chat`
+ *               caller may run it; only an admin may edit it. Every row
+ *               that predates C6 is this, which is why adding the ladder
+ *               changed no existing caller's access.
+ *   `project` — bound to a project. NOTE: this platform has no
+ *               project-membership model (see `isProjectMember`), so
+ *               today this is a LABEL and an edit boundary, not a
+ *               confidentiality boundary.
+ *   `private` — the one real confidentiality boundary in C6: readable and
+ *               runnable by its owner and admins only.
+ */
+export type WorkflowVisibility = "system" | "project" | "private";
+
 export interface WorkflowRun {
   id: string;
   workflowName: string;

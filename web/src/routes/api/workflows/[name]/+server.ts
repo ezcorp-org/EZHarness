@@ -1,11 +1,13 @@
 import { json } from "@sveltejs/kit";
 import { errorJson } from "$lib/server/http-errors";
 import * as workflowQueries from "$server/db/queries/workflows";
-import { getWorkflows, reloadWorkflows } from "$lib/server/context";
+import { reloadWorkflows } from "$lib/server/context";
+import { ensureWorkflowVersion } from "$server/db/queries/workflow-versions";
 import { validateWorkflow } from "$server/runtime/workflow-validator";
 import { validateModelOverride } from "$server/runtime/workflow-model";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
+import { resolveWorkflowOr, toWire } from "$lib/server/workflow-access";
 import type { RequestHandler } from "./$types";
 import type { WorkflowDefinition } from "$server/types";
 import { workflowBodySchema } from "../schema";
@@ -16,20 +18,25 @@ import { workflowBodySchema } from "../schema";
 // top-level fields; the 400 "Invalid request body" surfaces malformed
 // bodies while existing 404 branches drive their messages downstream. When
 // `steps` are supplied they are re-validated (definition-time rules).
+//
+// Authorization is NOT performed here. Every handler below resolves
+// through `resolveWorkflowOr`, which does the lookup and the ladder
+// together — see `lib/server/workflow-access.ts` for why a route
+// physically cannot do this itself.
 
-export const GET: RequestHandler = async ({ params, locals }) => {
+export const GET: RequestHandler = async ({ params, locals, url }) => {
   const scopeErr = requireScope(locals, "read");
   if (scopeErr) return scopeErr;
-  requireAuth(locals);
-  const workflow = getWorkflows().find((w) => w.name === params.name);
-  if (!workflow) return errorJson(404, "Not found");
-  return json(workflow);
+  const user = requireAuth(locals);
+  const resolved = resolveWorkflowOr(user, params.name, "read", url.searchParams.get("projectId"));
+  if (resolved instanceof Response) return resolved;
+  return json(toWire(resolved.entry, resolved.caller));
 };
 
 export const PUT: RequestHandler = async ({ request, params, locals }) => {
   const scopeErr = requireScope(locals, "chat");
   if (scopeErr) return scopeErr;
-  requireAuth(locals);
+  const user = requireAuth(locals);
   const parsed = workflowBodySchema.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) {
     return errorJson(400, "Invalid request body");
@@ -53,23 +60,44 @@ export const PUT: RequestHandler = async ({ request, params, locals }) => {
     } as WorkflowDefinition);
     if (errors.length > 0) return errorJson(400, errors[0]!);
   }
+
+  const resolved = resolveWorkflowOr(user, params.name, "edit");
+  if (resolved instanceof Response) return resolved;
   const dbWorkflow = await workflowQueries.getWorkflowByName(params.name);
   if (!dbWorkflow) return errorJson(404, "Not found (only DB workflows can be updated)");
 
-  const updated = await workflowQueries.updateWorkflow(
-    dbWorkflow.id,
-    parsed.data as Partial<WorkflowDefinition>,
-  );
+  let updated: workflowQueries.DbWorkflow | undefined;
+  try {
+    updated = await workflowQueries.updateWorkflow(
+      dbWorkflow.id,
+      parsed.data as Partial<WorkflowDefinition>,
+    );
+  } catch (err) {
+    // A rename onto a taken name. Unreachable before the editor existed —
+    // nothing renamed a workflow — which is why it used to surface as an
+    // unhandled 500 from the unique index.
+    if (err instanceof workflowQueries.WorkflowNameConflictError) {
+      return errorJson(409, err.message, { name: err.workflowName });
+    }
+    throw err;
+  }
   if (!updated) return errorJson(404, "Not found");
 
+  // Mints a version ONLY if the executable content actually changed. A
+  // description-only edit (or a rename) returns the existing version, so
+  // C3's consent hash is not invalidated by prose — see
+  // `ensureWorkflowVersion`.
+  const { version, minted } = await ensureWorkflowVersion(updated, user.id);
   await reloadWorkflows();
-  return json(updated);
+  return json({ ...updated, version: version.version, versionMinted: minted });
 };
 
 export const DELETE: RequestHandler = async ({ params, locals }) => {
   const scopeErr = requireScope(locals, "chat");
   if (scopeErr) return scopeErr;
-  requireAuth(locals);
+  const user = requireAuth(locals);
+  const resolved = resolveWorkflowOr(user, params.name, "edit");
+  if (resolved instanceof Response) return resolved;
   const dbWorkflow = await workflowQueries.getWorkflowByName(params.name);
   if (!dbWorkflow) return errorJson(404, "Not found (only DB workflows can be deleted)");
 

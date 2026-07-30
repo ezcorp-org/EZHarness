@@ -56,6 +56,8 @@ const {
   recordWorkflowApprovalAnswer,
 } = await import("../db/queries/workflow-approvals");
 type ParkApprovalInput = Parameters<typeof parkWorkflowApproval>[0];
+const { createWorkflow, updateWorkflow } = await import("../db/queries/workflows");
+const { ensureWorkflowVersion } = await import("../db/queries/workflow-versions");
 
 beforeAll(async () => {
   pglite = new PGlite({ extensions: { vector, pg_trgm } });
@@ -116,6 +118,11 @@ type PositionRow = {
   definition_hash: string | null;
 };
 type StepOutputRow<T> = { output: T };
+type ProvenanceRow = {
+  workflow_definition_id: string | null;
+  definition_version_id: string | null;
+  definition_hash: string | null;
+};
 type ApprovalDefaultsRow = {
   prompt: string;
   status: string;
@@ -2138,5 +2145,77 @@ describe("the approval consent boundary is structural, not conventional", () => 
     });
 
     expect(resumed.status).toBe("success");
+  });
+});
+
+describe("a run records the version it EXECUTED, never the one that owns the name", () => {
+  async function readProvenance(runId: string) {
+    const row = (await db.execute(sql`
+      SELECT workflow_definition_id, definition_version_id, definition_hash FROM workflow_runs WHERE id = ${runId}
+    `)) as Rows<ProvenanceRow>;
+    return row.rows[0];
+  }
+
+  const stepsA = [{ name: "a", kind: "transform" as const, output: { v: "1" } }];
+  const stepsB = [{ name: "b", kind: "transform" as const, output: { v: "2" } }];
+
+  function definition(name: string, steps: typeof stepsA): WorkflowDefinition {
+    return { name, description: "", steps };
+  }
+
+  test("records the version when the graph it was handed IS that version's content", async () => {
+    const row = await createWorkflow(definition("prov-match", stepsA) as never);
+    const { version } = await ensureWorkflowVersion(row, null);
+
+    const run = await makeExecutor({}).runWorkflow(definition("prov-match", stepsA), {});
+
+    const prov = await readProvenance(run.id);
+    expect(prov?.definition_version_id).toBe(version.id);
+    expect(prov?.definition_hash).toBe(version.stepsHash);
+  });
+
+  test("a graph shadowing a DB row by NAME records NO version, not the row's", async () => {
+    // The cache concatenates extension and YAML entries FIRST, so they win
+    // a name — and the executor's own lookup is by name. Recording the DB
+    // row's version here would put a snapshot of steps this run never ran
+    // into the audit trail.
+    const row = await createWorkflow(definition("prov-shadowed", stepsA) as never);
+    const { version } = await ensureWorkflowVersion(row, null);
+
+    const shadow = definition("prov-shadowed", stepsB);
+    const run = await makeExecutor({}).runWorkflow(shadow, {});
+
+    const prov = await readProvenance(run.id);
+    expect(prov?.definition_version_id).toBeNull();
+    expect(prov?.definition_version_id).not.toBe(version.id);
+    // And the hash is of what RAN, so a resume compares against the right
+    // graph instead of refusing a run that never drifted.
+    expect(prov?.definition_hash).toBe(workflowDefinitionHash(shadow));
+    // The name still resolves to the row: that is a resolution fact, and
+    // deliberately not gated on content.
+    expect(prov?.workflow_definition_id).toBe(row.id);
+  });
+
+  test("a row whose newest version is STALE records no version either", async () => {
+    // `updateWorkflow` and `ensureWorkflowVersion` are two writes with no
+    // transaction around them. A failure between them used to stamp every
+    // later run with the pre-edit version — permanently, and silently.
+    const row = await createWorkflow(definition("prov-stale", stepsA) as never);
+    const { version: v1 } = await ensureWorkflowVersion(row, null);
+    // The second write never happens.
+    const updated = await updateWorkflow(row.id, { steps: stepsB } as never);
+
+    const run = await makeExecutor({}).runWorkflow(definition("prov-stale", stepsB), {});
+
+    const prov = await readProvenance(run.id);
+    expect(updated?.steps).toEqual(stepsB);
+    expect(prov?.definition_version_id).toBeNull();
+    expect(prov?.definition_version_id).not.toBe(v1.id);
+    // Self-heals: the next successful save mints the missing version, and
+    // a run after it is attributable again.
+    const { version: v2, minted } = await ensureWorkflowVersion(updated!, null);
+    expect(minted).toBe(true);
+    const after = await makeExecutor({}).runWorkflow(definition("prov-stale", stepsB), {});
+    expect((await readProvenance(after.id))?.definition_version_id).toBe(v2.id);
   });
 });

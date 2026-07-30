@@ -137,4 +137,69 @@ describe("WorkflowBuilder", () => {
     const button = getByText("Saving...") as HTMLButtonElement;
     expect(button.disabled).toBe(true);
   });
+
+  test("loads a SAVED definition into the form, including tool steps and model bindings", async () => {
+    // The editor reuses this component with `initial` in API shape. If the
+    // form could not represent a tool step or a model binding, saving a
+    // loaded workflow would silently delete them.
+    const onsubmit = vi.fn();
+    const { getByLabelText, getByText } = render(WorkflowBuilder, {
+      props: {
+        initial: {
+          name: "docs",
+          description: "d",
+          defaultModel: { model: "claude-sonnet-5" },
+          steps: [
+            { name: "draft", agent: "writer", model: { model: "claude-opus-5" } },
+            { name: "publish", kind: "tool", tool: "ext__write" },
+          ],
+        },
+        agents: [{ name: "writer" } as never],
+        onsubmit,
+        submitLabel: "Save changes",
+      },
+    });
+
+    expect((getByLabelText("Workflow Name") as HTMLInputElement).value).toBe("docs");
+    expect((getByLabelText("Default model (JSON, optional)") as HTMLTextAreaElement).value).toContain(
+      "claude-sonnet-5",
+    );
+
+    await fireEvent.click(getByText("Save changes"));
+    expect(onsubmit).toHaveBeenCalledWith({
+      name: "docs",
+      description: "d",
+      defaultModel: { model: "claude-sonnet-5" },
+      steps: [
+        { name: "draft", agent: "writer", model: { model: "claude-opus-5" } },
+        { name: "publish", kind: "tool", tool: "ext__write" },
+      ],
+    });
+  });
+
+  test("a malformed default model is reported and blocks submit", async () => {
+    const onsubmit = vi.fn();
+    const { getByLabelText, getByText } = render(WorkflowBuilder, {
+      props: {
+        initial: { name: "w", description: "", steps: [{ name: "s", agent: "writer" }] },
+        agents: [{ name: "writer" } as never],
+        onsubmit,
+      },
+    });
+
+    await fireEvent.input(getByLabelText("Default model (JSON, optional)"), {
+      target: { value: "{ nope" },
+    });
+    await fireEvent.click(getByText("Save Workflow"));
+
+    expect(getByText("Workflow default model is not valid JSON")).toBeTruthy();
+    expect(onsubmit).not.toHaveBeenCalled();
+  });
+
+  test("the submit label is overridable, so the editor can say Save changes", () => {
+    const { getByText } = render(WorkflowBuilder, {
+      props: { agents: [], onsubmit: vi.fn(), submitLabel: "Save changes" },
+    });
+    expect(getByText("Save changes")).toBeTruthy();
+  });
 });

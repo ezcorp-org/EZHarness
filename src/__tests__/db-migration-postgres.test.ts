@@ -7,7 +7,7 @@ import { sql } from "drizzle-orm";
 import * as schema from "../db/schema";
 import { migrate } from "../db/migrate";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
-import { isUniqueViolation } from "../db/session-backfill";
+import { isUniqueViolation } from "../db/unique-violation";
 
 /**
  * Migration tests for external Postgres mode (PGDB-04).

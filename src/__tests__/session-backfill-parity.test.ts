@@ -8,7 +8,11 @@ import type { StreamChatContext } from "../runtime/stream-chat/context";
 // Must mock before importing modules that use db/connection.
 mockDbConnection();
 
-const { backfillSessionForConversation, isLlmTurn, isUniqueViolation, rowToPiMessage } = await import("../db/session-backfill");
+const { backfillSessionForConversation, isLlmTurn, rowToPiMessage } = await import("../db/session-backfill");
+// The 23505 predicate moved to its own module when the workflow
+// name-collision 409 turned out to need the same rule (and had written a
+// second, broken copy of it) — see `db/unique-violation.ts`.
+const { isUniqueViolation } = await import("../db/unique-violation");
 const { loadHistory } = await import("../runtime/stream-chat/load-history");
 
 const PROJECT_ID = "p-parity";

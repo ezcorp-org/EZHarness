@@ -6,6 +6,8 @@
 	import {
 		blankStep,
 		buildWorkflowPayload,
+		defaultModelToText,
+		definitionToDrafts,
 		pruneDependsOn,
 		remapDependsOn,
 		type StepDraft,
@@ -16,19 +18,30 @@
 		agents = [],
 		onsubmit,
 		submitting = false,
+		submitLabel = "Save Workflow",
 	}: {
 		initial?: Record<string, unknown>;
 		agents: Agent[];
 		onsubmit: (data: Record<string, unknown>) => void;
 		submitting?: boolean;
+		submitLabel?: string;
 	} = $props();
 
 	let name = $state(untrack(() => (initial.name as string) ?? ""));
 	let description = $state(untrack(() => (initial.description as string) ?? ""));
 
+	// `initial.steps` arrives in API shape when the EDITOR loads a saved
+	// workflow, so it is converted rather than cast. Dropping what the form
+	// cannot represent would silently delete a user's tool steps and model
+	// bindings on the next save — see `definitionToDrafts`.
 	let steps = $state<StepDraft[]>(
-		untrack(() => (initial.steps as StepDraft[]) ?? [blankStep(0)]),
+		untrack(() =>
+			Array.isArray(initial.steps) && initial.steps.length > 0
+				? definitionToDrafts(initial.steps)
+				: [blankStep(0)],
+		),
 	);
+	let defaultModelText = $state(untrack(() => defaultModelToText(initial.defaultModel)));
 
 	let allStepNames = $derived(steps.map((s) => s.name));
 
@@ -53,7 +66,7 @@
 	function handleSubmit(e: Event) {
 		e.preventDefault();
 		errorMsg = "";
-		const result = buildWorkflowPayload(name, description, steps);
+		const result = buildWorkflowPayload(name, description, steps, defaultModelText);
 		// `!== null` (not truthiness): `error` is typed `string | null` and a
 		// bare `if (result.error)` can't discriminate the union for TS (an
 		// empty-string error would also be falsy). Every producer returns a
@@ -75,6 +88,17 @@
 	<div>
 		<label for="wf-desc" class="mb-1 block text-sm font-medium text-[var(--color-text-secondary)]">Description</label>
 		<input id="wf-desc" type="text" bind:value={description} class={inputClass} placeholder="What does this workflow do?" />
+	</div>
+
+	<div>
+		<label for="wf-default-model" class="mb-1 block text-sm font-medium text-[var(--color-text-secondary)]">Default model (JSON, optional)</label>
+		<textarea
+			id="wf-default-model"
+			bind:value={defaultModelText}
+			rows="2"
+			placeholder={'{ "provider": "anthropic", "model": "claude-sonnet-5" }'}
+			class="{inputClass} font-mono"
+		></textarea>
 	</div>
 
 	<div>
@@ -100,6 +124,6 @@
 		disabled={submitting}
 		class="rounded-md bg-blue-600 px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-blue-500 disabled:opacity-50" style="min-height: 44px;"
 	>
-		{submitting ? "Saving..." : "Save Workflow"}
+		{submitting ? "Saving..." : submitLabel}
 	</button>
 </form>

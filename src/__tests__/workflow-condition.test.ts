@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { evaluateCondition } from "../runtime/workflow-condition";
+import { conditionRefs, evaluateCondition } from "../runtime/workflow-condition";
 import type { RefContext } from "../runtime/workflow-refs";
 import type { AgentResult, WorkflowCondition } from "../types";
 
@@ -118,5 +118,28 @@ describe("evaluateCondition — malformed leaf (defense-in-depth)", () => {
     expect(() =>
       evaluateCondition({ ref: "$input.a" } as unknown as WorkflowCondition, ctx()),
     ).toThrow(/Malformed condition leaf/);
+  });
+});
+
+describe("conditionRefs", () => {
+  test("collects every leaf ref through all / any / not, in evaluation order", () => {
+    expect(
+      conditionRefs({
+        all: [
+          { ref: "$input.a", op: "truthy" },
+          { any: [{ ref: "$prev.output.b", op: "exists" }, { not: { ref: "$steps.s.output.c", op: "eq", value: 1 } }] },
+        ],
+      }),
+    ).toEqual(["$input.a", "$prev.output.b", "$steps.s.output.c"]);
+  });
+
+  test("a malformed leaf contributes nothing rather than throwing", () => {
+    // The dry-run harness asks this BEFORE evaluation, which is the one
+    // place that rejects a malformed leaf — so this stays a pure reader and
+    // the error keeps coming from evaluateCondition.
+    expect(conditionRefs({ op: "eq", value: 1 } as unknown as WorkflowCondition)).toEqual([]);
+    expect(
+      conditionRefs({ all: [{ ref: "$input.a", op: "truthy" }, {} as unknown as WorkflowCondition] }),
+    ).toEqual(["$input.a"]);
   });
 });

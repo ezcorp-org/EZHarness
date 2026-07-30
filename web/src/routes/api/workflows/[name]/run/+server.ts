@@ -1,9 +1,10 @@
 import { json } from "@sveltejs/kit";
 import { z } from "zod";
-import { getWorkflowExecutor, getWorkflows } from "$lib/server/context";
+import { getWorkflowExecutor } from "$lib/server/context";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
+import { resolveWorkflowOr } from "$lib/server/workflow-access";
 import type { RequestHandler } from "./$types";
 
 // Boundary validation. POST splits `projectId` off the body; every other
@@ -36,8 +37,6 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
   const scopeErr = requireScope(locals, "chat");
   if (scopeErr) return scopeErr;
   const user = requireAuth(locals);
-  const workflow = getWorkflows().find((w) => w.name === params.name);
-  if (!workflow) return errorJson(404, "Workflow not found");
 
   try {
     const parsed = postBodySchema.safeParse(await request.json().catch(() => ({})));
@@ -45,7 +44,27 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
       return errorJson(400, "Invalid request body");
     }
     const { projectId, ...input } = parsed.data;
+    // Authorized for RUN specifically — not for read, and not by the
+    // route. `run` is asked as its own question so C3 can narrow it
+    // without touching this handler. Every row that existed before C6 is
+    // `system`, which authorizes exactly the callers this endpoint
+    // authorized before the ladder: any `chat` caller.
+    const resolved = resolveWorkflowOr(
+      user,
+      params.name,
+      "run",
+      typeof projectId === "string" ? projectId : null,
+      "Workflow not found",
+    );
+    if (resolved instanceof Response) return resolved;
+
     const workflowExec = getWorkflowExecutor();
+    // C6's ownership ladder decides WHICH definition runs; the trunk's
+    // async header decides whether the caller waits for it. Both apply:
+    // the async branch must run the AUTHORIZED definition, not a
+    // re-resolved one, or it would bypass the ladder for exactly the
+    // callers that opted out of waiting.
+    const definition = resolved.entry.definition;
     const scopedProjectId = typeof projectId === "string" ? projectId : undefined;
 
     if (wantsAsync(request)) {
@@ -60,17 +79,17 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
       // rejection, which would take the process down along with every
       // other run in flight.
       void workflowExec
-        .runWorkflow(workflow, input, scopedProjectId, user.id, undefined, { runId })
+        .runWorkflow(definition, input, scopedProjectId, user.id, undefined, { runId })
         .catch((err) => {
           console.error("async workflow run failed outside the executor", runId, err);
         });
       // 202 Accepted: the run is started, not finished. The caller follows
       // it on the `workflow:*` SSE frames (scoped to this user) or by
       // reading the row.
-      return json({ id: runId, workflowName: workflow.name, status: "running" }, { status: 202 });
+      return json({ id: runId, workflowName: definition.name, status: "running" }, { status: 202 });
     }
 
-    const run = await workflowExec.runWorkflow(workflow, input, scopedProjectId, user.id);
+    const run = await workflowExec.runWorkflow(definition, input, scopedProjectId, user.id);
     return json(run);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

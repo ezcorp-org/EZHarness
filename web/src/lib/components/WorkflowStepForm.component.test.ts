@@ -139,4 +139,64 @@ describe("WorkflowStepForm", () => {
     expect(queryByText("Loop this step")).toBeNull();
     expect(queryByText("Retries (0–2)")).toBeNull();
   });
+
+  test("tool kind: a tool field and the input-mapping editor, no loop and no model", async () => {
+    // The editor LOADS saved definitions, so the form has to be able to
+    // represent a tool step — a form that could not would silently DELETE
+    // every tool step the moment the user pressed Save.
+    const s = step({ name: "t1", kind: "tool", tool: "ext__write_file" });
+    const { getByLabelText, queryByText, getByText } = render(WorkflowStepForm, {
+      props: { step: s, agents: [], allStepNames: ["t1"], onremove: vi.fn() },
+    });
+
+    const toolInput = getByLabelText("Tool") as HTMLInputElement;
+    expect(toolInput.value).toBe("ext__write_file");
+    await fireEvent.input(toolInput, { target: { value: "ext__read_file" } });
+    expect(s.tool).toBe("ext__read_file");
+
+    // A tool step takes input like an agent step does.
+    expect(getByText("Input Mapping")).toBeTruthy();
+    // …but the server rejects a loop on one (it would repeat a
+    // side-effecting call with no LLM in the middle to notice), and a
+    // model binding (no LLM runs).
+    expect(queryByText("Loop this step")).toBeNull();
+    expect(queryByText("Model override (JSON, optional)")).toBeNull();
+  });
+
+  test("agent kind exposes the model-override field and binds it", async () => {
+    const s = step({ name: "a1", kind: "agent" });
+    const { getByLabelText } = render(WorkflowStepForm, {
+      props: { step: s, agents: [], allStepNames: ["a1"], onremove: vi.fn() },
+    });
+
+    const model = getByLabelText("Model override (JSON, optional)") as HTMLTextAreaElement;
+    await fireEvent.input(model, { target: { value: '{"model":"claude-opus-5"}' } });
+    expect(s.modelText).toBe('{"model":"claude-opus-5"}');
+  });
+
+  test("transform kind still offers a loop, gate kind does not", () => {
+    const t = render(WorkflowStepForm, {
+      props: { step: step({ kind: "transform" }), agents: [], allStepNames: [], onremove: vi.fn() },
+    });
+    expect(t.queryByText("Loop this step")).toBeTruthy();
+    cleanup();
+
+    const g = render(WorkflowStepForm, {
+      props: { step: step({ kind: "gate" }), agents: [], allStepNames: [], onremove: vi.fn() },
+    });
+    expect(g.queryByText("Loop this step")).toBeNull();
+  });
+
+  test("the kind select offers all four step kinds", () => {
+    const { getByLabelText } = render(WorkflowStepForm, {
+      props: { step: step(), agents: [], allStepNames: [], onremove: vi.fn() },
+    });
+    const select = getByLabelText("Kind") as HTMLSelectElement;
+    expect(Array.from(select.options).map((o) => o.value)).toEqual([
+      "agent",
+      "transform",
+      "gate",
+      "tool",
+    ]);
+  });
 });

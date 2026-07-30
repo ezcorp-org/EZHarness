@@ -222,6 +222,10 @@ run_legs() {
       src/__tests__/api-workflows-run-control.server.test.ts \
       src/__tests__/api-workflows-approvals-list.server.test.ts \
       src/__tests__/workflow-approvals-logic.unit.test.ts \
+      src/__tests__/api-workflows-fork.server.test.ts \
+      src/__tests__/api-workflows-dry-run.server.test.ts \
+      src/__tests__/api-workflows-claim-versions.server.test.ts \
+      src/__tests__/workflow-route-ladder.server.test.ts \
       src/__tests__/pipelines-redirect.server.test.ts \
       src/lib/components/WorkflowStepForm.component.test.ts \
       src/lib/components/WorkflowBuilder.component.test.ts \
@@ -499,6 +503,11 @@ run_legs() {
       --coverage.include='src/routes/api/workflows/schema.ts' \
       --coverage.include='src/routes/api/workflows/[name]/+server.ts' \
       --coverage.include='src/routes/api/workflows/[name]/run/+server.ts' \
+      --coverage.include='src/routes/api/workflows/[name]/fork/+server.ts' \
+      --coverage.include='src/routes/api/workflows/[name]/dry-run/+server.ts' \
+      --coverage.include='src/routes/api/workflows/[name]/claim/+server.ts' \
+      --coverage.include='src/routes/api/workflows/[name]/versions/+server.ts' \
+      --coverage.include='src/lib/server/workflow-access.ts' \
       --coverage.include='src/routes/**/pipelines/+page.server.ts' \
       --coverage.include='src/lib/components/WorkflowStepForm.svelte' \
       --coverage.include='src/lib/components/WorkflowBuilder.svelte' \

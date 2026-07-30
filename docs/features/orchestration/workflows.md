@@ -36,9 +36,63 @@ Workflows come from **three sources, merged into one in-memory array** at boot:
 
 1. **Extension assets** — `loadExtensionWorkflows()` (`workflow-extension-loader.ts`) globs `*.workflow.yaml` at the root of each installed extension's **own install path** (`ExtensionRegistry.getInstallPath` — deliberately NOT the host's agents dir) and renames every definition to **`<extensionName>:<declaredName>`**. See **Extension-shipped workflows** below.
 2. **YAML** — `loadYamlWorkflows(dir)` globs both `*.workflow.yaml` and the legacy `*.pipeline.yaml` (deprecation warning on the latter) in the agents dir (`resolveAgentsDir()`, overridable via `EZCORP_AGENTS_DIR`, default `src/agents/`), parses each with the `yaml` package, and runs the shared `validateWorkflow`; any invalid file is skipped with a warning (warn-and-continue, never throws).
-3. **DB** — `loadDbWorkflows()` (`src/db/queries/workflows.ts`) maps every `workflow_definitions` row to a `WorkflowDefinition`.
+3. **DB** — `loadDbCachedWorkflows()` (`src/db/queries/workflows.ts`) maps every `workflow_definitions` row to a `CachedWorkflow`. (`loadDbWorkflows()` still returns bare definitions and is retained for the CLI, which has no auth context at all.)
 
 `context.ts`'s `buildWorkflowCache()` concatenates them: `workflows = [...extensionWorkflows, ...yamlWorkflows, ...dbWorkflows]` (ONE definition, shared by boot and by every CRUD-triggered `reloadWorkflows()`). There is still no de-duplication — lookup is `find(w => w.name === name)`, so the **first** entry wins a name. Extension entries go first so a `workflow_definitions` row a `chat`-scoped user deliberately named `some-extension:deploy` cannot hijack that extension's asset.
+
+The cache holds **`CachedWorkflow`** entries — `{ definition, source, id, projectId, userId, visibility, forkedFrom }` — not bare definitions. `getWorkflows()` still returns `WorkflowDefinition[]` for every pre-existing caller; `getCachedWorkflows()` returns the wrapped entries and is what authorization consumes. YAML and extension entries are wrapped as `system` with `id: null`: they ship with the install, not with a project.
+
+### Ownership and authorization (`workflow-scope.ts`)
+
+`WorkflowDefinition` is the shape of the **graph** and carries no provenance — it is shared by YAML and extension workflows that have no owner, by `runWorkflow`, by the CLI and by `validateWorkflow`. `loadDbWorkflows` used to project each row into it and **drop `id`**, so by the time a route held a workflow it knew only the name and the steps: there was nothing to authorize against. Adding owner *columns* alone would not have changed that.
+
+So authorization lives in the **lookup**, not the route. `resolveWorkflowForCaller(entries, name, caller, action)` does both, and every consumer routes through it (the REST handlers reach it via `web/src/lib/server/workflow-access.ts`). `workflow-route-ladder.server.test.ts` asserts structurally that no route under `routes/api/workflows/**` compares a `visibility` itself.
+
+| `visibility` | `project_id` | `user_id` | Who may **read/run** | Who may **edit/delete** |
+|---|---|---|---|---|
+| `system` | NULL | NULL | any `chat` caller — today's behaviour | admin only |
+| `project` | set | set (creator) | project members | creator + admin |
+| `private` | optional | set | owner + admin | owner + admin |
+
+**`read` and `run` are asked as separate questions.** They share a rung today, but a workflow a caller may *see* is not automatically one they may *fire*; C3 (delegated execution) narrows `run` without touching a call site. Pinned by *"read and run are separate questions — a readable workflow is not automatically runnable"* in `workflow-scope.test.ts`.
+
+**An unauthorized read is a 404, not a 403**, so the endpoint is not an existence oracle. A denied *edit* is a 403 — the caller can already see the workflow, so there is nothing left to conceal.
+
+> **`project` is not a confidentiality boundary today.** This platform has no project-membership model: `projects` has no owner column, there is no `project_members` table, and `GET /api/projects` returns every project to every authenticated caller. `isProjectMember()` therefore returns true for any principal carrying a user identity, which makes `project` an **edit boundary and a label**. `private` is the one real confidentiality boundary in this phase. The predicate is a named single-call-site function precisely so that the day membership lands, its body is the only thing that changes.
+
+### Definition versions (`workflow-versions.ts`)
+
+`workflow_definition_versions` records an immutable snapshot of a definition's **executable content**. `workflow_runs.definition_version_id` names the snapshot a run executed, and only ever one it really did — see *"a run only claims a version whose content it actually executed"* below. `definition_hash` is always the hash of the graph that ran; `versionStepsHash` delegates to the same `workflowDefinitionHash` the runtime writes, so whenever a version *is* claimed the two are the same value and **cannot disagree with each other** — that is the whole of what the identity buys. Both are recorded at run start, so both can still disagree with what a *resume* would execute after an edit; neither is a guard by being written.
+
+> **The precedence is a contract, not yet a mechanism.** `definition_version_id` is meant to be authoritative, with `definition_hash` read only when the version id is NULL (a pre-versioning run, a YAML/extension workflow with no row to version, or a graph whose content matched no version). **No code implements that rule today.** This phase writes both fields and reads neither for drift: `definition_version_id` is consulted only by the retention sweep and the trace label, and C4's resume compares `definition_hash` **unconditionally**, ignoring the version id — so the hash is currently the only drift guard that fires. Adopting the precedence is C4's resume path's job; it is stated here so whoever does it inherits an answer instead of inventing a second one.
+
+A version is minted **only** when `steps`, `input_schema` or `default_model` changes. A description edit mints nothing; neither does a rename (the name is recorded *on* the version, so a rename becomes visible at the next minted version rather than rewriting history). This matters because C3's consent hash pins a version: minting one on a typo fix would suspend every delegated job for re-consent over prose, which trains users to click through.
+
+**A run only claims a version whose content it actually executed.** The executor resolves the definition row by NAME, and a name does not identify a graph: extension and YAML entries win a name in the cache, and `updateWorkflow` + `ensureWorkflowVersion` are two writes with no transaction around them. So the run compares the hash of the graph it was **handed** against the newest version's `steps_hash` and records `definition_version_id` only on a match — otherwise NULL. `definition_hash` is always the hash of what ran, so a resume compares against the right graph. Pinned by *"a graph shadowing a DB row by NAME records NO version, not the row's"* in `workflow-run-persistence.test.ts`.
+
+**No backfill for historical runs** — `definition_version_id` stays NULL for every run created before versioning, and the trace renders "version unknown (pre-versioning)" rather than inventing one. NULL therefore means exactly one thing everywhere: *we cannot name the snapshot this run executed*.
+
+Retention runs as a daily sub-tick on `HostMaintenanceDaemon`: keep every version a surviving run references, every version named in `pinnedVersionIds`, plus the most recent 50 per definition. C3 supplies its non-revoked delegation ids through `pinnedVersionIds` — the sweep **excludes** them from the delete set rather than attempting a delete and catching the FK's `ON DELETE RESTRICT`, because making the database error the control flow is backwards.
+
+`pinnedVersionIds` is a **required** field, and that is load-bearing rather than fussy: the only production caller is that daily sub-tick, inside a `try/catch` that logs `warn` and carries on. A C3 that forgot to supply its pins would turn the RESTRICT violation into a log line and stop the sweep reaping — permanently, silently, from a call site no test can observe. Requiring the field makes the omission a compile error at every call site, including ones not written yet; `[]` is how you say "nothing is pinned". Pinned by *"pinnedVersionIds is REQUIRED, so a caller cannot forget it silently"* in `workflow-versions.test.ts`, whose `@ts-expect-error` fails `typecheck` if the field is ever made optional again.
+
+### Dry run (`workflow-dry-run.ts`)
+
+A dry run evaluates `transform` and `gate` steps **for real** and stands a stub in for every other kind. "Zero side effects" is **structural**, not conventional — three guarantees, none of which depends on a skip list staying correct:
+
+1. the `toolRunnerFactory` **throws**, so a tool step that reaches dispatch fails loudly;
+2. the `AgentExecutor`'s `runAgent` **throws**, so zero LLM is a property of the object graph;
+3. `persist: false` is asserted explicitly, so no `workflow_runs` row is written.
+
+Substitution hangs off `WorkflowExecutorOptions.stepSubstitute`, consulted at the top of `runStep` **before** the loop branch and the kind dispatch — so it is kind-agnostic and C7's `workflow` step will be stubbed by default rather than executed by a stale deny list. `isPureDryRunKind` is an **allow** list for exactly that reason.
+
+Two honest limits, surfaced in the editor rather than left to be discovered:
+- Refs into a stubbed step resolve to a path-answering stub (the ref resolver is strict, so a plain `{}` would fail every real graph at its first `$steps.<agent>.output.<field>`). A dry run therefore **cannot** validate a ref into an `agent`/`tool` result — only refs into steps it actually evaluated.
+- A `gate` whose operands are stub-derived is **evaluated but not enforced**. The stub answers every path, so `exists`, `truthy`, `neq` and `not(eq)` — the commonest shapes over an agent's output — all hold against it, and `eq` against a literal never does; both answers are about data nobody produced. So the verdict is recorded in `gatesOnStubs`, the step reports `mode: "evaluated-on-stubs"`, the run **continues** (the rest of the graph is still worth checking), and the report's status is `unverified` rather than `success` — which the editor renders amber, with the unenforced verdict named. Taint is deep and transitive: a stub laundered through a `transform`, or through an earlier unenforced gate's own result, still leaves the gate unenforced. A gate over deterministic operands (`$input.*`, a transform over real data) is enforced exactly as built, and that is the half a dry run can actually prove.
+
+### Fork (`workflow-fork.ts`)
+
+Forking clones a workflow the caller can **read** into an editable, project-scoped row they own. `WORKFLOW_NAME_RE` excludes `:`, which is what makes extension namespacing structural — so a fork **cannot** keep a namespaced source name and takes the **bare** half (`ez-factory:docs-factory` → `docs-factory`). On collision with the global unique index the route suffixes `-2`, `-3`, … and returns the **final** name so the UI can show it. A fork of a fork is an ordinary DB→DB clone through the same rule; `forked_from` records the *immediate* parent as a **string snapshot, not an FK** (the source is often an extension asset with no row, and the extension may be uninstalled later). A fork never widens the original.
 
 ### Extension-shipped workflows (`workflow-extension-loader.ts`)
 
@@ -206,25 +260,30 @@ The four `workflow:*` events ride the same `AgentEvents` bus that streams to the
 
 | Method & path | Scope | Purpose |
 |---|---|---|
-| `GET /api/workflows` | `read` | List all merged (YAML + DB) workflows. |
+| `GET /api/workflows` | `read` | List the merged workflows **the caller may see**. **Behaviour change:** this used to return the whole cache to any `read`-scoped caller; it is now filtered by the ownership ladder, so a `read` key with no project sees `system` workflows plus what its principal owns — a shorter array, same shape (plus additive provenance fields). |
 | `POST /api/workflows` | `chat` | Create a DB workflow. Body `{ name, description?, inputSchema?, defaultModel?, steps }`; `validateWorkflow` drives a **400** with the first error message. Returns the row; reloads the cache. |
-| `GET /api/workflows/[name]` | `read` | Fetch one by name from the cache; 404 `Not found`. |
-| `PUT /api/workflows/[name]` | `chat` | Partial update — merges `name`/`description`/`inputSchema`/`defaultModel`/`steps`. **DB-only** (YAML workflows are read-only). Reloads the cache. |
-| `DELETE /api/workflows/[name]` | `chat` | Delete a DB workflow. **DB-only**. Reloads the cache. |
+| `GET /api/workflows/[name]` | `read` | Fetch one by name; returns the definition **plus** provenance (`source`, `visibility`, `projectId`, `userId`, `forkedFrom`, `canEdit`). **404 (not 403) when unauthorized**, so the endpoint is not an existence oracle. |
+| `PUT /api/workflows/[name]` | `chat` | Partial update — merges `name`/`description`/`inputSchema`/`defaultModel`/`steps`. **DB-only**. Gated on the `edit` rung, so a `system` workflow is admin-only. A rename onto a taken name is a **409** (it used to be an unhandled 500). Mints a version only if the executable content changed. Reloads the cache. |
+| `DELETE /api/workflows/[name]` | `chat` | Delete a DB workflow. **DB-only**, `edit` rung. Reloads the cache. |
+| `POST /api/workflows/[name]/dry-run` | `chat` | Simulate. Body `{ input?, projectId?, definition? }` — `definition` dry-runs the **unsaved draft** on screen. Gated on `run`. A draft that would fail `validateWorkflow` is a 400, so the editor cannot report green for a graph the save rejects. |
+| `POST /api/workflows/[name]/fork` | `chat` | Clone into an editable project-scoped copy owned by the caller. Body `{ projectId? }` — taken from the body because there is no server-side "active project". Returns `{ name, id, forkedFrom }` with the **final** name. |
+| `GET /api/workflows/[name]/versions` | `read` | Version history (no `steps` blob). Same ladder; a YAML/extension workflow returns `[]`, not a 404. |
+| `POST /api/workflows/[name]/claim` | `admin` | Assign an explicit owner to a workflow. Audited (`workflow.claim`, with the before-values). |
 | `POST /api/workflows/[name]/run` | `chat` | Run it. `projectId` is split off the body; **every other field is the workflow input** (Zod `.loose()`). 404 `Workflow not found`; a non-object body ⇒ **400 `Invalid request body`**. Execution errors (unknown agent, circular deps, gate/loop failure) surface **inside** the returned `WorkflowRun` (`status:"error"`, HTTP 200), not as a 400. Returns the terminal `WorkflowRun`. |
 
-Only the `GET` list, `GET` by-name and `POST …/run` routes are registered in `src/api-registry.ts` (category `workflows`) — create/update/delete are not registered (parity with `main`'s pipelines registration). All routes gate on `requireScope` + `requireAuth`. There is **no project- or owner-scoping** beyond the scope check (see gotchas).
+The `GET` list, `GET` by-name, `POST …/run`, `…/dry-run`, `…/fork`, `…/versions` and `…/claim` routes are registered in `src/api-registry.ts` (category `workflows`) — create/update/delete are not (parity with `main`'s pipelines registration). All routes gate on `requireScope` + `requireAuth`, **and** on the ownership ladder via `resolveWorkflowOr`.
 
 ### UI entry points
 
 - `/workflows` — list, fed by `store.workflows`.
 - `/workflows/new` — `WorkflowBuilder.svelte` form (with `WorkflowStepForm.svelte` per-step editor, including kind, transform output pairs, gate condition JSON, loop config, dependsOn) → `createWorkflow` → `POST /api/workflows`.
-- `/workflows/[name]` — step list (each agent step showing its effective **model binding**, whether declared on the step or inherited from `defaultModel`), a raw JSON-textarea run form (`triggerWorkflowRun`), delete button, and a live run-history panel (`store.workflowRuns`) rendering per-step status, `(N iterations)` for looped steps, and `on <provider>/<model>` for the model a step actually resolved to.
+- `/workflows/[name]` — step list (each agent step showing its effective **model binding**, whether declared on the step or inherited from `defaultModel`), a raw JSON-textarea run form (`triggerWorkflowRun`), Edit / Fork / Delete actions, and a live run-history panel (`store.workflowRuns`) rendering per-step status, `(N iterations)` for looped steps, and `on <provider>/<model>` for the model a step actually resolved to.
+- `/workflows/[name]/edit` — the editor: a **form tab** over the shared `WorkflowBuilder`, a **raw-YAML tab** (same `yaml` package the server loader uses), a **dry-run panel** that simulates whatever is on screen including an unsaved draft, and the version history. `canEdit` comes from the server; a workflow the caller cannot edit says so up front rather than failing on save.
 - `/pipelines` (the exact path only) → a permanent **308 redirect** to `/workflows` for one release. Legacy deep links (`/pipelines/<name>`, `/pipelines/new`) are **not** redirected — they 404.
 
 ### Client helpers (`web/src/lib/api.ts`)
 
-`fetchWorkflows`, `createWorkflow`, `deleteWorkflow`, `triggerWorkflowRun(name, input, projectId?)`. **Trap (unchanged from pipelines):** `triggerWorkflowRun` folds `projectId` **into** the input body (`{ ...input, projectId }`); the run route's `.loose()` schema splits it back out, so a workflow input field literally named `projectId` would be swallowed.
+`fetchWorkflows`, `fetchWorkflow`, `createWorkflow`, `updateWorkflow`, `deleteWorkflow`, `forkWorkflow`, `dryRunWorkflow`, `fetchWorkflowVersions`, `triggerWorkflowRun(name, input, projectId?)`. **Trap (unchanged from pipelines):** `triggerWorkflowRun` folds `projectId` **into** the input body (`{ ...input, projectId }`); the run route's `.loose()` schema splits it back out, so a workflow input field literally named `projectId` would be swallowed.
 
 ### Extension-triggered runs (`ezcorp/workflows`)
 
@@ -283,15 +342,21 @@ The extension-authoring chain shipped as a real workflow — the reference examp
 - `src/runtime/workflow/runtime-registry.ts` — `registerWorkflowRuntime` / `getWorkflowRuntime`: the import-direction bridge letting `src/` reach the web layer's live `WorkflowExecutor` + workflow cache. `getWorkflows` is a THUNK (the cache array is replaced on every CRUD write).
 - `src/extensions/workflows-handler.ts` — `handleWorkflowsRpc`: the `ezcorp/workflows` enforcement ladder + hourly trigger quota.
 - `packages/@ezcorp/sdk/src/runtime/workflows.ts` — the `Workflows` SDK client (`ctx.workflows.run`).
-- `src/db/queries/workflows.ts` — `list/get/getByName/create/update/delete/loadDbWorkflows` against `workflow_definitions`.
-- `src/db/schema.ts` — `workflowDefinitions`, `workflowRuns`, `workflowStepRuns` tables; `src/db/migrate.ts` renames `pipeline_definitions` → `workflow_definitions` in place and creates the two run-history tables.
-- `src/api-registry.ts` — the three `workflows`-category route entries.
-- `web/src/routes/api/workflows/**` — list/create, get/put/delete, run.
+- `src/db/queries/workflows.ts` — `list/get/getByName/create/update/delete/claim/loadDbCachedWorkflows/loadDbWorkflows` against `workflow_definitions`, plus `WorkflowNameConflictError` (the 409 for a create or rename onto a taken name).
+- `src/db/queries/workflow-versions.ts` — `ensureWorkflowVersion` (the ONE writer; mints only on an executable-content change), `versionStepsHash`/`versionMaterialKey`, `getLatest/list/get`, `getRunVersionLabel`, `backfillWorkflowDefinitionVersions` (the migration's one guarded backfill), `sweepWorkflowDefinitionVersions` (+ the `pinnedVersionIds` C3 extension point).
+- `src/runtime/workflow-scope.ts` — `CachedWorkflow`, `resolveWorkflowForCaller`, `authorizeWorkflow`, `visibleWorkflows`, `isProjectMember`, `denialStatus`/`denialMessage`, `systemCachedWorkflow`, `callerFromUser`.
+- `src/runtime/workflow-dry-run.ts` — `dryRunWorkflow`, `dryRunStub` (the path-answering Proxy), `dryRunAgentExecutor` (throws), `isPureDryRunKind` (an ALLOW list), `WorkflowDryRunViolation`.
+- `src/runtime/workflow-fork.ts` — `bareWorkflowName`, `pickForkName` (bare name, then `-2`/`-3`/…).
+- `web/src/lib/server/workflow-access.ts` — the ONE route↔ladder adapter: `resolveWorkflowOr`, `listVisibleWorkflows`, `toWire`.
+- `web/src/lib/workflow-yaml.ts` — the editor's YAML tab: `parseWorkflowYaml`, `workflowToYaml`, `definitionFields`.
+- `src/db/schema.ts` — `workflowDefinitions` (+ `project_id`/`user_id`/`visibility`/`forked_from`), `workflowDefinitionVersions`, `workflowRuns` (+ `definition_version_id`), `workflowStepRuns`; `src/db/migrate.ts` renames `pipeline_definitions` → `workflow_definitions` in place, creates the run-history tables, and adds the ownership columns + versions table **next to the run-history block, not next to the `workflow_definitions` DDL** — `users` is not created until ~370 lines later, so an ALTER beside the original DDL would fail on a FRESH install only.
+- `src/api-registry.ts` — the seven `workflows`-category route entries.
+- `web/src/routes/api/workflows/**` — list/create, get/put/delete, run, dry-run, fork, versions, claim.
 - `web/src/lib/api.ts` — `Workflow`/`WorkflowRun` client types + `fetch/create/delete/triggerWorkflowRun` helpers.
 - `web/src/lib/workflow-builder-logic.ts` — framework-free builder logic (mirrors the server rules for client-side form UX).
 - `web/src/lib/stores.svelte.ts` — `workflows` / `workflowRuns` state + the four `workflow:*` SSE handlers.
-- `web/src/routes/(app)/workflows/{+page,[name]/+page,new/+page}.svelte` — list / detail+run / create UI; `web/src/routes/(app)/pipelines/+page.server.ts` — the 308 redirect.
-- `web/src/lib/components/{WorkflowBuilder,WorkflowStepForm}.svelte` — the create form.
+- `web/src/routes/(app)/workflows/{+page,[name]/+page,[name]/edit/+page,new/+page}.svelte` — list / detail+run+fork / editor+dry-run / create UI; `web/src/routes/(app)/pipelines/+page.server.ts` — the 308 redirect.
+- `web/src/lib/components/{WorkflowBuilder,WorkflowStepForm}.svelte` — the create form, reused by the editor. Models all four step kinds and both model-binding levels because the editor LOADS: a form that could not represent a `tool` step or a `model` override would silently delete them on save (`definitionToDrafts` is the asserted inverse of `stepToPayload`).
 - `src/cli.ts` — `workflow:list` / `workflow:run` commands + hidden `pipeline` alias.
 - `src/agents/demo-{deterministic,loop-counter,mixed}.workflow.yaml` — the shipped demo workflows.
 - `src/agents/extension-author.workflow.yaml` — the authoring chain (tool + gate steps, parks `awaiting_approval`).
@@ -316,18 +381,20 @@ None yet — this is the primary reference.
 - **`awaiting_approval` is not success and not error.** A run that completed its automatable steps and then hit one needing human consent terminalizes `awaiting_approval`, with `result.output` set to the LAST SUCCESSFUL step's output (the handoff payload) so the parked run is actionable. Anything branching on `status === "success"` (the CLI exit code, the client store) treats it as non-success for free — but code that branches on `status === "error"` will NOT match it.
 - **The parked capability name is collapsed.** `executeToolCall` maps all four `SENSITIVE_KINDS` onto the two the always-allow layer keys on (`shell` / `fs.write`) before opening the gate, so an `ezcorp:extension:install` park reports `…requires interactive approval for capability fs.write…`. The message reports what the gate was given, not the PDP's true capability.
 - **A workflow tool step writes no `tool_calls` row.** `tool_calls.conversation_id` is an FK to `conversations`, and the synthetic `workflow-run:<id>` id has no row, so `persistToolCall` (which never throws by contract) silently drops it. The PDP's own audit row and `workflow_step_runs` carry the trail instead.
-- **The `/workflows/new` builder does not yet offer `tool` steps.** `web/src/lib/workflow-builder-logic.ts` still models three kinds; a tool step is creatable via `POST /api/workflows` or YAML today.
-- **The builder does not offer `model` / `defaultModel` either.** A model binding is authored in YAML or through `POST`/`PUT /api/workflows`; `/workflows/[name]` **renders** it (step card + run history) but nothing creates one from the UI yet.
+- **The builder models all four step kinds and both model-binding levels.** It has to: the editor LOADS a saved definition into the same form, so a form that could not represent a `tool` step or a `model` override would silently DELETE them the moment the user pressed Save. `definitionToDrafts` is the asserted inverse of `stepToPayload`, per step kind.
 - **A model binding on a non-agent step is an error, not a no-op.** `transform`/`gate`/`tool` steps run no LLM, so a binding there would be silently ignored — the validator rejects it instead.
 - **`workflow_step_runs.provider`/`model` are NULL for pre-existing rows** and for the `running` write (the agent has not resolved anything yet); the terminal write fills them in. NULL therefore means "no LLM ran, or this row predates the columns" — it never means "unknown model".
 - **An agent config's own `temperature`/`maxTokens` are still not forwarded on the `runAgent` path.** `createPiLlmAdapter` only sends sampling options that an explicit override supplied — this is unchanged pre-existing behaviour, deliberately left alone so the no-override path stays byte-identical. A workflow step that wants a temperature must say so in its `model` binding.
 - **Synchronous / blocking.** `POST …/run` awaits the entire graph before responding; there is no async "started" handshake.
-- **No ownership or project scoping on run.** Any authenticated `chat`-scoped caller can run any workflow with arbitrary input; workflows are global.
+- **Ownership authorizes; it does not namespace.** `workflow_definitions.name` is still **globally unique** and deliberately not composite with `project_id`: the cache is a flat array and lookup is `find(w => w.name === name)`, so a composite key would let two rows share a name and hand a caller in project B project A's graph. The cost is real and stated: two projects cannot both own `deploy`, and the second create is a **409**. Fork auto-suffixes.
+- **Every pre-existing row is `system`, and that is what makes the upgrade safe.** `visibility TEXT NOT NULL DEFAULT 'system'` is the whole migration — no backfill, no inference — and `system` authorizes exactly the callers who could run a workflow before the ladder existed.
+- **Non-admins lose EDIT access to workflows they created.** A deliberate, known regression: those rows are all `system`, and `system` is admin-only to edit. Ownership is **not** inferred from `workflow_runs.user_id` — that is a guess, and guessing ownership is how you hand someone's workflow to the wrong person. The remedy is the audited admin `POST …/claim` action, which states the owner explicitly and is reversible.
+- **The list route returns fewer entries than it used to.** A `read`-scoped API key with no project context sees `system` workflows only. Anything scripted against the full list gets a shorter array (same shape, plus additive provenance fields).
 - **`$prev` is order-fragile in parallel batches.** Within a batch, `prevResult` is the last **successful** result in array order (the last declared step of that batch), not a graph-deterministic "previous". Prefer explicit `$steps.<name>` for parallel graphs.
 - **Fail-fast is loud.** The first non-`success` step (or a thrown gate, or an exhausted loop) fails the run; still-dispatched siblings are cancelled and no later batch starts. Retries (agent, ≤2) and loops are the only bounded re-execution.
 - **YAML vs DB asymmetry.** YAML workflows are read-only via the API (only DB workflows can be PUT/DELETE'd). Editing a YAML workflow means editing the file and reloading.
 - **Name collisions aren't de-duped.** The merged cache is `[...extension, ...yaml, ...db]`; `find(w => w.name === …)` returns the first match. The DB enforces `name` unique only within the table. Extension entries are namespaced (`<ext>:<name>`) and ordered first, so they can neither shadow nor be shadowed — but a YAML and a DB workflow sharing a bare name still both appear (YAML first).
-- **An extension-shipped workflow is visible and runnable by anyone.** Namespacing bounds *naming*, not *access*: the merged cache is global and `POST …/run` has no owner or project scoping, so any authenticated `chat`-scoped caller can run `<ext>:<name>` with arbitrary input. `permissions.workflows` gates only the extension-code trigger path.
+- **An extension-shipped workflow is visible and runnable by anyone.** Namespacing bounds *naming*, not *access*, and extension/YAML assets are `system` — they ship with the install, so any authenticated `chat`-scoped caller can run `<ext>:<name>` with arbitrary input. `permissions.workflows` gates only the extension-code trigger path. Fork one to get a scoped copy you own.
 - **`projectId` field-name collision.** The client helper folds `projectId` into the input object and the route splits it back out, so a workflow needing an input field literally named `projectId` cannot receive it through the standard path.
 - **`inputSchema` is advisory.** It is stored and surfaced but not enforced at run time.
 - **Legacy compatibility is one release only.** The `*.pipeline.yaml` glob, the `ezcorp pipeline` CLI alias, and the `/pipelines` redirect all warn/deprecate and are slated for removal.

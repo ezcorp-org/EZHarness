@@ -144,6 +144,7 @@ const MODULE_PATHS = [
   "../../runtime/mention-wiring",
   "../../runtime/workflow-loader",
   "../../runtime/workflow-runner",
+  "../../extensions/triggers-handler",
   "../../runtime/executor-helpers",
   "../../runtime/start-assignment",
   "../../runtime/tools/permissions",

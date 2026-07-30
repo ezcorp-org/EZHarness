@@ -48,8 +48,26 @@ export interface NewWorkflowRunInput {
   startedAt: Date;
   /** Fingerprint of the definition this run started against, so a resume
    *  can refuse to continue into an edited graph. Absent for a caller
-   *  that does not persist one. */
+   *  that does not persist one. This is the drift guard that actually
+   *  fires — C4's resume compares it unconditionally, whatever
+   *  `definitionVersionId` says. */
   definitionHash?: string | null;
+  /**
+   * The exact `workflow_definition_versions` row this run executed — set
+   * only when the graph the run was handed matches that version's own
+   * `steps_hash`, so it never names a snapshot the run did not execute.
+   *
+   * Null for a YAML/extension workflow (no definition row to version), a
+   * run created before versioning existed, or a graph whose content did
+   * not match the row's newest version. When it IS set, `definitionHash`
+   * is the SAME version row's hash, so the two cannot disagree with each
+   * other.
+   *
+   * Intended to be authoritative over `definitionHash`; that precedence is
+   * a contract no code implements yet, stated once in
+   * `workflow-versions.ts`.
+   */
+  definitionVersionId?: string | null;
 }
 
 /**
@@ -70,6 +88,7 @@ export async function insertWorkflowRun(row: NewWorkflowRunInput): Promise<void>
     input: row.input,
     startedAt: row.startedAt,
     definitionHash: row.definitionHash ?? null,
+    definitionVersionId: row.definitionVersionId ?? null,
   });
 }
 
@@ -369,23 +388,20 @@ export async function terminalizeOrphanedWorkflowRuns(
   now: Date = new Date(),
 ): Promise<number> {
   const atBoundary = sql`${workflowRuns.runPhase} = 'boundary'`;
-  // Hoisted out of the `result` CASE below, and each fragment kept to ONE
-  // line. Both halves are deliberate.
+  // Hoisted, and deliberately ONE LINE. A multi-line `sql` template leaves
+  // its interpolation-free lines — here the closing `) END` — as orphan
+  // COVERABLE lines that never receive an execution hit, because Bun
+  // attributes a tagged template to the lines carrying its `${}`
+  // substitutions. `migrate.ts` documents the same hazard on its own
+  // single-line SELECT. Keeping this on one line is what makes every line
+  // of the statement measurable; splitting it back up re-opens the gap.
   //
-  // Hoisting is readability: the inline version was a 14-line SQL string
-  // wrapped around three interpolations.
-  //
-  // One line each is the tooling: bun's line coverage attributes a
-  // multi-line template only to the lines carrying its interpolations, so
-  // every other line of it reports as uncovered while its own neighbours in
-  // the same template report hundreds of hits. Wrapping these for prettiness
-  // silently costs coverage on a file held at 100%. Same family as the
-  // `gate-integrity.ts` `stripNoise` workaround (hoisting row shapes to
-  // named type aliases) — see `2026-07-29-tooling-defects.md`.
-  const inFlightNames = sql`SELECT string_agg(s.step_name, ', ' ORDER BY s.step_name) FROM workflow_step_runs s WHERE s.workflow_run_id = ${workflowRuns.id} AND s.status = 'running'`;
-  const stepsInFlight = sql`COALESCE((${inFlightNames}), 'unknown')`;
-  const orphanedBatchIndex = sql`COALESCE(${workflowRuns.cursor} ->> 'batchIndex', '0')`;
-  const midBatchError = sql`'Workflow run orphaned mid-batch (batch ' || ${orphanedBatchIndex} || ', steps in flight: ' || ${stepsInFlight} || '): a restart cannot safely re-enter a half-executed step'`;
+  // Phase 2 and Phase 6 hit this INDEPENDENTLY and arrived at the same
+  // single-line fix, which is the strongest evidence available that the
+  // hazard is a real property of the coverage tooling rather than a
+  // one-off. Do not "tidy" these back onto several lines.
+  const steppedNames = sql`COALESCE((SELECT string_agg(s.step_name, ', ' ORDER BY s.step_name) FROM workflow_step_runs s WHERE s.workflow_run_id = ${workflowRuns.id} AND s.status = 'running'), 'unknown')`;
+  const midBatchResult = sql`jsonb_build_object('success', FALSE, 'output', NULL, 'error', 'Workflow run orphaned mid-batch (batch ' || COALESCE(${workflowRuns.cursor} ->> 'batchIndex', '0') || ', steps in flight: ' || ${steppedNames} || '): a restart cannot safely re-enter a half-executed step')`;
   const rows = await getDb()
     .update(workflowRuns)
     .set({
@@ -400,7 +416,7 @@ export async function terminalizeOrphanedWorkflowRuns(
       // names the batch index and the steps that were in flight so the
       // operator can retry from the right place. A boundary run keeps
       // whatever result it had — it is going to continue, not end.
-      result: sql`CASE WHEN ${atBoundary} THEN ${workflowRuns.result} ELSE jsonb_build_object('success', FALSE, 'output', NULL, 'error', ${midBatchError}) END`,
+      result: sql`CASE WHEN ${atBoundary} THEN ${workflowRuns.result} ELSE ${midBatchResult} END`,
       // The owner is gone either way; leaving a stale claim would stop
       // the daemon ever picking up the resumable ones.
       claimedBy: null,
