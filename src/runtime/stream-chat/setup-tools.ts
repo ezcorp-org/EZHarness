@@ -16,6 +16,7 @@ import {
   type RoutingSignals,
   type RoutingTier,
   type TierHistoryMessage,
+  type TierThresholds,
 } from "../tier-classifier";
 import {
   applyExploration,
@@ -23,6 +24,11 @@ import {
   EXPLORATION_RATE_SETTING_KEY,
   parseExplorationRate,
 } from "../routing/exploration";
+import {
+  ROUTING_SHADOW_SETTING_KEY,
+  evaluateShadow,
+  parseShadowThresholds,
+} from "../routing/shadow";
 import { getSetting } from "../../db/queries/settings";
 import { getCredential } from "../../providers/credentials";
 import { extensionToAgentTool, ToolExecutor, type ArgsResolver } from "../../extensions/tool-executor";
@@ -502,6 +508,23 @@ async function readExplorationRate(): Promise<number> {
 }
 
 /**
+ * Candidate thresholds for WS7d shadow mode, or `undefined` when the setting is
+ * unset/malformed. Same fail-open contract as the reads above: shadow mode is
+ * pure observability, so any failure here silently disables it for the turn
+ * rather than disturbing a routing decision that already succeeded.
+ */
+async function readShadowThresholds(): Promise<TierThresholds | undefined> {
+  try {
+    return parseShadowThresholds(await getSetting(ROUTING_SHADOW_SETTING_KEY));
+  } catch (err) {
+    log.warn("routing-shadow read failed — shadow mode off this turn", {
+      err: err instanceof Error ? err.message : String(err),
+    });
+    return undefined;
+  }
+}
+
+/**
  * Injected dependencies of the routing decision. Exists so bounded
  * exploration's randomness is deterministic under test — the production caller
  * passes nothing and gets `Math.random`.
@@ -619,6 +642,7 @@ export async function resolveModelTierAndCredential(
   // the one unavoidable cost of the feature: a routed turn pays one extra
   // settings SELECT, on a row the same path already reads.
   let explorationRatePromise: Promise<number> | undefined;
+  let shadowThresholdsPromise: Promise<TierThresholds | undefined> | undefined;
   // WS3b: fold the mode's task binding into the turn's pin. Read ONLY on a
   // turn that arrived without a model — an established/pinned thread is never
   // re-routed (the cache anchor above), so a pinned turn pays no added read
@@ -677,6 +701,16 @@ export async function resolveModelTierAndCredential(
     // and are about to route on. Provenance is the most expendable thing here.
     routingConfigPromise = readRoutingConfig();
     explorationRatePromise = readExplorationRate();
+    shadowThresholdsPromise = readShadowThresholds();
+  }
+  // WS7d shadow mode — evaluate a candidate policy and stamp what it WOULD have
+  // done. Deliberately BEFORE exploration: the comparison is against the
+  // classifier's own verdict, because exploration's deviation is intentional
+  // and scoring a candidate against it would manufacture disagreements. Cannot
+  // change `routedTier`; the value is discarded into provenance only.
+  if (routedTier && routingSignals && shadowThresholdsPromise) {
+    const shadow = evaluateShadow(routingSignals, await shadowThresholdsPromise);
+    if (shadow) routingSignals = { ...routingSignals, shadow };
   }
   // WS7 bounded exploration — applied AFTER the verdict and BEFORE
   // resolveModel, the only window where it can change which model serves the

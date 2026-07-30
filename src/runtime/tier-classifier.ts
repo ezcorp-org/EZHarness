@@ -532,6 +532,14 @@ export interface RoutingSignals extends HistorySignals {
   /** The scorer's confidence, when an injected scorer decided the tier.
    *  Absent on every heuristic verdict — nothing injects a scorer today. */
   confidence?: number;
+  /**
+   * WS7d shadow mode: what a CANDIDATE policy would have chosen for this turn,
+   * and whether it matched what we acted on. Never served — `tier` above is
+   * always the decision. Absent unless `provider:routingShadow` is configured,
+   * and absent on threshold-immune turns (see `routing/shadow.ts`), so an
+   * ordinary deployment writes nothing extra.
+   */
+  shadow?: { tier: RoutingTier; agreed: boolean };
 }
 
 /** {@link chooseTurnVerdict}'s result: the tier to route on + the full

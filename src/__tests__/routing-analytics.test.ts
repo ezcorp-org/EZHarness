@@ -151,7 +151,12 @@ beforeAll(async () => {
   seedMessage({ id: "a5", conversationId: CONV_A, role: "assistant", parentMessageId: "u5",
     model: "claude-haiku-4-5", provider: "anthropic",
     usage: routed("fast", {
-      routingSignals: { estTokens: 900, tier: "balanced", reason: "midsize-turn", exploration: true },
+      // Also carries a WS7d shadow verdict that AGREED — exploration and shadow
+      // are independent: one changes what was served, the other cannot.
+      routingSignals: {
+        estTokens: 900, tier: "balanced", reason: "midsize-turn", exploration: true,
+        shadow: { tier: "balanced", agreed: true },
+      },
     }), createdAt: at(5) });
   // The failover turn, and the only turn with output + cache tokens (so the
   // 1h-write premium is exercised end to end).
@@ -199,7 +204,12 @@ beforeAll(async () => {
       // A STRING "true" — what a sloppy future writer might emit. The
       // exploration count matches the jsonb boolean only, so this must NOT be
       // counted as an explored turn.
-      routingSignals: { estTokens: 10, tier: "fast", reason: "short-turn", exploration: "true" },
+      // WS7d: a shadow verdict that DISAGREED — the candidate would have served
+      // `balanced`; `fast` went out anyway, because shadow can never change a turn.
+      routingSignals: {
+        estTokens: 10, tier: "fast", reason: "short-turn", exploration: "true",
+        shadow: { tier: "balanced", agreed: false },
+      },
     }), createdAt: at(14) });
 
   // ── conv-b users + a row OUTSIDE the window ──
@@ -316,6 +326,20 @@ describe("getRoutingStats — routed share and provenance", () => {
     expect(s.exploration.rate).toBeCloseTo(1 / 4, 10);
     // a11's `exploration: "true"` STRING is not a boolean true — not counted.
     expect(s.exploration.turns).not.toBe(2);
+  });
+
+  test("shadow agreement is measured over SHADOWED turns, not all routed turns", async () => {
+    const s = await getRoutingStats(30);
+    // a5 (agreed) + a11 (disagreed). Every other seeded turn carries no
+    // `shadow` key and is therefore outside the denominator entirely.
+    expect(s.shadow.turns).toBe(2);
+    expect(s.shadow.agreed).toBe(1);
+    expect(s.shadow.disagreed).toBe(1);
+    expect(s.shadow.agreementRate).toBeCloseTo(1 / 2, 10);
+    // The load-bearing property: unshadowed turns must NOT dilute the rate.
+    // Spread over all 4 routed turns this would read 1/4, making a perfectly
+    // reasonable candidate look far worse than it is.
+    expect(s.shadow.agreementRate).not.toBeCloseTo(1 / 4, 10);
   });
 });
 

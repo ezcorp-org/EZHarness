@@ -38,6 +38,8 @@ let preferenceOrder: unknown = ["anthropic", "openai"];
 // "never explore a DECLARED tier" contract can be driven through the real
 // declaredTierForConversation path rather than a hand-set field).
 let explorationRate: unknown;
+// WS7d: the stored shadow-mode candidate thresholds (unset ⇒ shadow off).
+let shadowThresholds: unknown;
 let manifestTier: string | undefined;
 let getSettingShouldThrow = false;
 let settingReads: string[] = [];
@@ -80,6 +82,7 @@ mock.module("../db/queries/settings", () => ({
     if (getSettingShouldThrow) throw new Error("settings table unavailable");
     if (key === "provider:preferenceOrder") return preferenceOrder;
     if (key === "provider:explorationRate") return explorationRate;
+    if (key === "provider:routingShadow") return shadowThresholds;
     return undefined;
   },
 }));
@@ -110,6 +113,7 @@ beforeEach(() => {
   manifestLookups = [];
   preferenceOrder = ["anthropic", "openai"];
   explorationRate = undefined;
+  shadowThresholds = undefined;
   manifestTier = undefined;
   getSettingShouldThrow = false;
   settingReads = [];
@@ -276,9 +280,14 @@ describe("resolveModelTierAndCredential — WS5 turn context + provenance", () =
       defaultTier: "powerful",
       preferenceOrderHash: preferenceOrderHash(["openai", "anthropic", "google"]),
     });
-    // WS7 adds the exploration-rate read to the routed path — the ONE extra
-    // settings SELECT the feature costs, and only on a routed turn.
-    expect(settingReads.sort()).toEqual(["provider:explorationRate", "provider:preferenceOrder"]);
+    // WS7 adds the exploration-rate read and WS7d the shadow-thresholds read to
+    // the routed path — the only extra settings SELECTs the features cost, and
+    // only on a routed turn (a pinned turn reads neither).
+    expect(settingReads.sort()).toEqual([
+      "provider:explorationRate",
+      "provider:preferenceOrder",
+      "provider:routingShadow",
+    ]);
     // The classifier's tier still won — routingConfig is provenance only.
     expect(result.effectiveTier).toBe("fast");
   });
@@ -608,5 +617,101 @@ describe("resolveModelTierAndCredential — bounded exploration", () => {
       preferenceOrderHash: preferenceOrderHash(["anthropic", "openai"]),
     });
     expect(result.routingConfig && "scorerVersion" in result.routingConfig).toBe(false);
+  });
+});
+
+/**
+ * WS7d — SHADOW MODE at the routing seam.
+ *
+ * Shadow mode's entire value is that it CANNOT affect a turn, so every test
+ * here is a containment property:
+ *   1. OFF by default — an unset setting stamps nothing and leaves the routed
+ *      tier byte-identical to the behaviour above.
+ *   2. When on, `routingSignals.shadow` records what the candidate WOULD have
+ *      served, and `routedTier` (→ resolveModel → `usage.routedTier`) is
+ *      untouched even when the candidate disagrees.
+ *   3. A pinned turn never reads the setting.
+ *   4. A malformed setting, or a settings failure, disables shadow rather than
+ *      disturbing a verdict that already succeeded.
+ */
+describe("resolveModelTierAndCredential — shadow mode", () => {
+  test("OFF by default: no shadow key is stamped and the tier is unchanged", async () => {
+    const result = await resolveModelTierAndCredential(makeRun(), "hi", {}, null, "conv-1");
+    expect(result.routingSignals?.shadow).toBeUndefined();
+    expect(result.routingSignals?.tier).toBe("fast");
+    expect(resolveModelArgs[0]?.tier).toBe("fast");
+  });
+
+  test("records AGREEMENT without touching the served tier", async () => {
+    // The shipped numbers as the candidate — it must agree on every turn.
+    shadowThresholds = { fastMaxTokens: 500, powerfulMinTokens: 8000 };
+    const result = await resolveModelTierAndCredential(makeRun(), "hi", {}, null, "conv-1");
+    expect(result.routingSignals?.shadow).toEqual({ tier: "fast", agreed: true });
+    expect(result.routingSignals?.tier).toBe("fast");
+    expect(resolveModelArgs[0]?.tier).toBe("fast");
+  });
+
+  test("records a DISAGREEMENT and still serves the classifier's tier", async () => {
+    // 2000 chars ≈ 500 est. tokens — exactly at the shipped `fast` ceiling, so
+    // the live verdict is `fast`. A candidate that halves that ceiling would
+    // have served `balanced` instead. That gap is the disagreement.
+    const atFastCeiling = "x".repeat(2000);
+    shadowThresholds = { fastMaxTokens: 250, powerfulMinTokens: 8000 };
+    const result = await resolveModelTierAndCredential(
+      makeRun(),
+      atFastCeiling,
+      {},
+      null,
+      "conv-1",
+    );
+    expect(result.routingSignals?.shadow).toEqual({ tier: "balanced", agreed: false });
+    // The load-bearing assertion: the candidate changed NOTHING about the turn.
+    expect(result.routingSignals?.tier).toBe("fast");
+    expect(resolveModelArgs[0]?.tier).toBe("fast");
+    expect(result.effectiveTier).toBe("fast");
+  });
+
+  test("a pinned turn never reads the shadow setting", async () => {
+    shadowThresholds = { fastMaxTokens: 1, powerfulMinTokens: 8000 };
+    const result = await resolveModelTierAndCredential(
+      makeRun(),
+      "hi",
+      { provider: "anthropic", model: "claude-sonnet-4-5" },
+      null,
+      "conv-1",
+    );
+    expect(settingReads).not.toContain("provider:routingShadow");
+    expect(result.routingSignals).toBeUndefined();
+  });
+
+  test("a malformed candidate disables shadow instead of stamping nonsense", async () => {
+    shadowThresholds = { fastMaxTokens: 8000, powerfulMinTokens: 500 };
+    const result = await resolveModelTierAndCredential(makeRun(), "hi", {}, null, "conv-1");
+    expect(result.routingSignals?.shadow).toBeUndefined();
+    expect(result.routingSignals?.tier).toBe("fast");
+  });
+
+  test("a settings failure turns shadow off but keeps the verdict", async () => {
+    getSettingShouldThrow = true;
+    const result = await resolveModelTierAndCredential(makeRun(), "hi", {}, null, "conv-1");
+    expect(result.routingSignals?.shadow).toBeUndefined();
+    // Provenance is the expendable part — the routing decision survives.
+    expect(result.routingSignals?.tier).toBe("fast");
+    expect(resolveModelArgs[0]?.tier).toBe("fast");
+  });
+
+  test("a manifest-DECLARED tier is never shadowed — thresholds cannot move it", async () => {
+    manifestTier = "powerful";
+    shadowThresholds = { fastMaxTokens: 1, powerfulMinTokens: 2 };
+    const result = await resolveModelTierAndCredential(
+      makeRun(),
+      "hi",
+      {},
+      { extensionTools: { "ext-1": ["a"] } } as never,
+      "conv-1",
+    );
+    expect(result.routingSignals?.reason).toBe("declared");
+    expect(result.routingSignals?.shadow).toBeUndefined();
+    expect(result.routingSignals?.tier).toBe("powerful");
   });
 });

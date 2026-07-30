@@ -37,6 +37,7 @@
 		routedShare: number;
 		tierMix: { tier: string; count: number }[];
 		exploration: { turns: number; rate: number };
+		shadow: { turns: number; agreed: number; disagreed: number; agreementRate: number };
 		failover: { count: number; rate: number };
 		switches: {
 			pairs: number; total: number; escalations: number; downgrades: number; lateral: number; rate: number;
@@ -810,6 +811,29 @@
 								</div>
 							{:else}
 								<div class="stat-trend-muted">Exploration off &mdash; no turn traded quality for data</div>
+							{/if}
+						</div>
+						<!-- Shadow mode (WS7d). A CANDIDATE routing policy scored against
+						     live traffic without ever serving a turn — the online half of
+						     sweep → shadow → promote. Agreement is over SHADOWED turns only
+						     (turns the candidate could actually have moved), and 0 shadowed
+						     turns reads as "not configured" rather than 0% agreement, which
+						     would look like a catastrophic candidate instead of an absent one. -->
+						<div class="stat-card" data-testid="routing-shadow">
+							{#if (routingData?.shadow.turns ?? 0) > 0}
+								<div class="stat-value">{formatPct(routingData?.shadow.agreementRate ?? 0)}</div>
+								<div class="stat-label">Shadow Agreement</div>
+								<div class="stat-trend-muted">
+									{(routingData?.shadow.disagreed ?? 0).toLocaleString()} of
+									{(routingData?.shadow.turns ?? 0).toLocaleString()} shadowed turn{routingData?.shadow.turns === 1 ? "" : "s"}
+									would have routed differently
+								</div>
+							{:else}
+								<div class="stat-value stat-value-none">&mdash;</div>
+								<div class="stat-label">Shadow Agreement</div>
+								<div class="stat-trend-muted">
+									No candidate policy configured &mdash; set <code>provider:routingShadow</code>
+								</div>
 							{/if}
 						</div>
 						<div class="stat-card" data-testid="routing-usd-per-conversation">

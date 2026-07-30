@@ -224,6 +224,7 @@ Boundaries and guarantees:
 | `provider:tierModels` | unset | **The tier ladder** — an ORDERED `{provider, model}` preference list per tier. Editable at **Settings → Models → Tier Model Ladder**; validated on write, ignored (never thrown) on read. See below. |
 | `provider:preferenceOrder` | `[anthropic, openai, google, openrouter]` | Provider walk order for routing and fallback suggestions. Stored orders self-heal: newly known providers are appended (`mergePreferenceOrder`). |
 | `provider:explorationRate` | `0` (off) | **Bounded exploration** — probability that a routed turn is deliberately served ONE RUNG BELOW the classifier's tier, to gather unbiased counterfactual data. Trades a little answer quality for that data; off unless an operator turns it on. Validated on write (a value outside `[0,1]` is a 400, not a silent no-op) and treated as OFF on read. See below. |
+| `provider:routingShadow` | unset (off) | **Shadow mode** — a CANDIDATE `{fastMaxTokens, powerfulMinTokens}` pair evaluated on every routed turn it could have moved, recorded into `usage.routingSignals.shadow`, and **never served**. The online half of sweep → shadow → promote. Malformed or inverted values disable it rather than failing a turn. See below. |
 | `compaction:cacheRetention` | `long` | Prompt-cache TTL shaping for the stable prefix (Anthropic only) — see [context-compaction](context-compaction.md). |
 
 Settings are written via the admin-only `PUT /api/settings/<key>` API.
@@ -281,6 +282,39 @@ explored turn is counted in the admin **Routing** panel ("Turns Explored")
 rather than silently absorbed. Exploration can never override a `declaredTier`
 (a correctness requirement) or an explicit `tierHint`, and never fires on `fast`
 — there is no cheaper rung.
+
+**Shadow mode** (`src/runtime/routing/shadow.ts`) is the online counterpart of
+the sweep, and closes the loop:
+
+```
+sweep (offline proposal) → shadow (online validation) → promote
+```
+
+The sweep can only score turns the CURRENT policy produced. It cannot say how
+often a candidate would disagree going forward, on traffic nobody has seen yet.
+Set `provider:routingShadow` to a candidate `{fastMaxTokens, powerfulMinTokens}`
+pair and every routed turn is additionally classified with those numbers; the
+verdict lands in `usage.routingSignals.shadow` as `{tier, agreed}` and the turn
+is served exactly as it would have been anyway.
+
+Three properties make the number trustworthy:
+
+- **It cannot change a turn.** The shadow verdict is computed after the real one
+  and discarded into provenance. There is no code path from it to `resolveModel`.
+- **It runs the REAL classifier**, just with the candidate's thresholds
+  (`classifyTierVerdict` is threshold-parameterised), so a disagreement is a
+  genuine policy difference and never drift between two lookalike
+  implementations. `scripts/routing-sweep.ts` calls the same
+  `replayWithThresholds`, so the offline proposal and its online validation can
+  never diverge for implementation reasons.
+- **Threshold-immune turns stamp nothing.** A `declared`/`hint`/`scorer` turn
+  could never have been moved by thresholds, so it is absent from the record
+  rather than counted as agreement — otherwise every candidate would look good.
+  The admin **Routing** panel therefore reports agreement over SHADOWED turns,
+  and renders "no candidate policy configured" instead of 0% when it is off.
+
+The same field carries a learned scorer's verdict when one exists, so promoting
+a model later needs no new plumbing.
 
 **Export + sweep**, both derived on demand from `messages` (no new table):
 
@@ -389,6 +423,7 @@ moves routing upstream at **zero app-side cost**:
 - `src/runtime/routing/tier-ladder.ts` — the pure tier ladder: `validateTierLadder` (write-time), `parseTierLadder` (tolerant read), `resolveLadderEntry`, `ladderCandidates`, `DEFAULT_TIER_LADDER`.
 - `src/runtime/routing/labels.ts` — the pure label definition: `labelConversation`, `countLabels`, and the capability-driven-switch exclusions.
 - `src/runtime/routing/exploration.ts` — pure bounded exploration: `parseExplorationRate` (tolerant read), `validateExplorationRate` (write-time gate), `applyExploration` (injected randomness).
+- `src/runtime/routing/shadow.ts` — pure shadow mode: `parseShadowThresholds` (tolerant read), `replayWithThresholds` (shared with the sweep), `evaluateShadow`, and the `THRESHOLD_IMMUNE_REASONS` both halves agree on.
 - `scripts/routing-export.ts` / `scripts/routing-sweep.ts` — the labelled-JSONL export and the retroactive threshold sweep.
 - `src/runtime/routing/mode-binding.ts` — the pure mode task binding: `resolveTurnModelBinding` (the whole pin → mode model → mode tier → classifier chain, with per-field availability validation).
 - `web/src/lib/components/settings/TierLadderSection.svelte` + `web/src/lib/tier-ladder-view.ts` — the Settings → Models editor and its pure display logic.

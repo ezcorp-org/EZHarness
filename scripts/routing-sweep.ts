@@ -54,12 +54,12 @@ import { nowMinusInterval } from "../src/db/queries/sql-interval";
 import { modelPrices } from "../src/providers/registry";
 import { priceSegment } from "../src/runtime/usage/cache-stats";
 import {
-  classifyTierVerdict,
   DEFAULT_TIER_THRESHOLDS,
   VALID_TIERS,
   type RoutingTier,
   type TierThresholds,
 } from "../src/runtime/tier-classifier";
+import { THRESHOLD_IMMUNE_REASONS, replayWithThresholds } from "../src/runtime/routing/shadow";
 import type { StoredRoutingSignals } from "../src/runtime/routing/labels";
 
 /** Candidate grids default to a spread around today's values (halved, today,
@@ -137,35 +137,20 @@ export interface SweepTurn {
 }
 
 /**
- * Verdict reasons the thresholds cannot move. `declared`/`hint` bypass the
- * heuristic entirely, and `scorer` is a model's call — replaying any of them
- * against new thresholds would invent a change that could not happen, so their
- * tier is held FIXED and they are counted (`fixedTurns`) rather than dropped:
- * they are real spend under every candidate.
+ * The tier a candidate would have chosen for this turn.
+ *
+ * Verdict reasons the thresholds cannot move — `declared`/`hint` bypass the
+ * heuristic entirely and `scorer` is a model's call — are held FIXED and counted
+ * (`fixedTurns`) rather than dropped: they are real spend under every candidate.
+ *
+ * Both `THRESHOLD_IMMUNE_REASONS` and `replayWithThresholds` come from
+ * `routing/shadow.ts` rather than being redeclared here, so the OFFLINE sweep
+ * and ONLINE shadow mode share one definition. If they diverged, shadow would
+ * stop validating the proposal this script produced.
  */
-const THRESHOLD_IMMUNE_REASONS: readonly string[] = ["declared", "hint", "scorer"];
-
-/** Rebuild the classifier input from stored signals. Deliberately omits
- *  `tierHint`/`declaredTier`: turns decided by either are held fixed above, so
- *  every input that reaches the classifier here is a heuristic turn. */
-function inputFromSignals(s: StoredRoutingSignals, thresholds: TierThresholds) {
-  return {
-    promptChars: s.promptChars,
-    historyChars: s.historyChars,
-    historyMessageCount: s.historyMessageCount,
-    hasToolMessages: s.hasToolMessages,
-    systemChars: s.systemChars,
-    attachmentCount: s.attachmentCount,
-    toolCount: s.toolCount,
-    hasComplexTools: s.hasComplexTools,
-    thresholds,
-  };
-}
-
-/** The tier a candidate would have chosen for this turn. */
 export function replayTier(turn: SweepTurn, thresholds: TierThresholds): RoutingTier {
   if (THRESHOLD_IMMUNE_REASONS.includes(turn.signals.reason)) return turn.signals.tier;
-  return classifyTierVerdict(inputFromSignals(turn.signals, thresholds)).tier;
+  return replayWithThresholds(turn.signals, thresholds);
 }
 
 /** USD per token, per tier, derived from the deployment's own priced spend. A

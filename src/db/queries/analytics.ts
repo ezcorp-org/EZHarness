@@ -537,6 +537,24 @@ export type RoutingStats = {
     /** turns / routed. 0 when nothing was routed. */
     rate: number;
   };
+  /**
+   * WS7d shadow mode. A CANDIDATE routing policy (`provider:routingShadow`) is
+   * evaluated on every routed turn it could have moved, and what it would have
+   * done is recorded without ever being served. This is the online half of the
+   * sweep→shadow→promote loop: `scripts/routing-sweep.ts` proposes thresholds
+   * from history, and these numbers say how that proposal behaves on live
+   * traffic before anyone promotes it.
+   *
+   * `turns` is 0 when shadow mode is off — treat that as "not configured",
+   * NOT as 0% agreement.
+   */
+  shadow: {
+    turns: number;
+    agreed: number;
+    disagreed: number;
+    /** agreed / turns. 0 when nothing was shadowed. */
+    agreementRate: number;
+  };
   failover: {
     count: number;
     /** Over provenance-carrying turns — the same writer stamps both keys. */
@@ -610,6 +628,14 @@ const IS_LEGACY = sql`(${messages.usage} IS NULL OR NOT ${HAS_REQUESTED_MODEL})`
 // the jsonb `true` literal (not `->>'exploration' = 'true'`) so a string
 // `"true"` written by some future non-boolean writer can't count as one.
 const IS_EXPLORED = sql`${messages.usage}->'routingSignals'->'exploration' = 'true'::jsonb`;
+
+// WS7d shadow mode. A turn carries `routingSignals.shadow` ONLY when a candidate
+// policy was configured AND the turn was one the candidate could have moved
+// (threshold-immune turns stamp nothing — see routing/shadow.ts). So the
+// denominator here is "shadowed turns", never "all routed turns": counting
+// unmovable turns as agreement would flatter every candidate.
+const IS_SHADOWED = sql`${messages.usage}->'routingSignals'->'shadow' IS NOT NULL`;
+const SHADOW_AGREED = sql`${messages.usage}->'routingSignals'->'shadow'->'agreed' = 'true'::jsonb`;
 const PROVENANCE = sql`CASE WHEN ${IS_ROUTED} THEN 'routed' WHEN ${IS_PINNED} THEN 'pinned' ELSE 'legacy' END`;
 
 /**
@@ -677,6 +703,8 @@ export async function getRoutingStats(days = 30): Promise<RoutingStats> {
       COUNT(*) FILTER (WHERE ${IS_LEGACY}) AS legacy,
       COUNT(*) FILTER (WHERE ${messages.usage}->'failover' = 'true'::jsonb) AS failover,
       COUNT(*) FILTER (WHERE ${IS_EXPLORED}) AS explored,
+      COUNT(*) FILTER (WHERE ${IS_SHADOWED}) AS shadowed,
+      COUNT(*) FILTER (WHERE ${IS_SHADOWED} AND ${SHADOW_AGREED}) AS shadow_agreed,
       COUNT(DISTINCT ${messages.conversationId}) AS conversations,
       COUNT(DISTINCT ${messages.parentMessageId}) AS answered_turns
     FROM ${messages}
@@ -688,6 +716,8 @@ export async function getRoutingStats(days = 30): Promise<RoutingStats> {
   const provenanceTurns = routed + pinned;
   const failoverCount = aggNum(headline.failover);
   const exploredTurns = aggNum(headline.explored);
+  const shadowedTurns = aggNum(headline.shadowed);
+  const shadowAgreedTurns = aggNum(headline.shadow_agreed);
   const answeredTurns = aggNum(headline.answered_turns);
   const conversations = aggNum(headline.conversations);
 
@@ -892,6 +922,16 @@ export async function getRoutingStats(days = 30): Promise<RoutingStats> {
     exploration: {
       turns: exploredTurns,
       rate: routed > 0 ? exploredTurns / routed : 0,
+    },
+    // Agreement is over SHADOWED turns only (see IS_SHADOWED). 0 shadowed turns
+    // means shadow mode is off — the panel renders that as "not configured",
+    // never as 0% agreement, which would read as a catastrophically bad
+    // candidate rather than an absent one.
+    shadow: {
+      turns: shadowedTurns,
+      agreed: shadowAgreedTurns,
+      disagreed: shadowedTurns - shadowAgreedTurns,
+      agreementRate: shadowedTurns > 0 ? shadowAgreedTurns / shadowedTurns : 0,
     },
     failover: {
       count: failoverCount,

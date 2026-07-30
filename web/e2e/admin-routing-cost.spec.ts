@@ -57,6 +57,8 @@ const routingWithTraffic = {
 	// WS7: one of the three routed turns was deliberately served a rung down to
 	// gather counterfactual data. The panel must say so out loud.
 	exploration: { turns: 1, rate: 1 / 3 },
+	// WS7d: a configured candidate policy that disagreed on 1 of 4 shadowed turns.
+	shadow: { turns: 4, agreed: 3, disagreed: 1, agreementRate: 0.75 },
 	failover: { count: 1, rate: 1 / 12 },
 	switches: {
 		pairs: 6, total: 2, escalations: 1, downgrades: 1, lateral: 0, rate: 2 / 6,
@@ -121,6 +123,8 @@ const routingAllUnpriced = {
 	routedShare: 1,
 	tierMix: [{ tier: "balanced", count: 4 }],
 	exploration: { turns: 0, rate: 0 },
+	// Shadow mode OFF — no candidate configured.
+	shadow: { turns: 0, agreed: 0, disagreed: 0, agreementRate: 0 },
 	failover: { count: 0, rate: 0 },
 	switches: { pairs: 0, total: 0, escalations: 0, downgrades: 0, lateral: 0, rate: 0, samples: [] },
 	retries: { answeredTurns: 4, retriedTurns: 0, extraSiblings: 0, rate: 0, samples: [] },
@@ -144,6 +148,8 @@ const routingNoTraffic = {
 	routedShare: 0,
 	tierMix: [],
 	exploration: { turns: 0, rate: 0 },
+	// Shadow mode OFF — no candidate configured.
+	shadow: { turns: 0, agreed: 0, disagreed: 0, agreementRate: 0 },
 	failover: { count: 0, rate: 0 },
 	switches: { pairs: 0, total: 0, escalations: 0, downgrades: 0, lateral: 0, rate: 0, samples: [] },
 	retries: { answeredTurns: 0, retriedTurns: 0, extraSiblings: 0, rate: 0, samples: [] },
@@ -212,6 +218,15 @@ test.describe("@evidence Admin Dashboard — Routing & Cost panel", () => {
 		await expect(exploration).toContainText("1");
 		await expect(exploration).toContainText("Turns Explored");
 		await expect(exploration).toContainText("33.3% of routed turns");
+
+		// ── Shadow mode (WS7d): a candidate policy scored, never served ──
+		// This is what makes sweep → shadow → promote usable: the operator can
+		// see how a proposed threshold pair behaves on live traffic BEFORE
+		// promoting it, at zero risk to any turn.
+		const shadow = page.getByTestId("routing-shadow");
+		await expect(shadow).toContainText("75.0%");
+		await expect(shadow).toContainText("Shadow Agreement");
+		await expect(shadow).toContainText("1 of 4 shadowed turns would have routed differently");
 
 		// ── Escalations, split by ladder direction, with the turn index ──
 		const switches = page.getByTestId("routing-switches");
@@ -285,6 +300,14 @@ test.describe("@evidence Admin Dashboard — Routing & Cost panel", () => {
 			"No mid-conversation model switches in this period",
 		);
 		await expect(page.getByTestId("routing-retries")).toContainText("No A/B retries in this period");
+
+		// Shadow mode OFF must read as "not configured", NOT as 0% agreement —
+		// the latter would look like a catastrophic candidate rather than an
+		// absent one, which is exactly the kind of fake-precision this panel
+		// avoids elsewhere for unpriced models.
+		const shadowOff = page.getByTestId("routing-shadow");
+		await expect(shadowOff).toContainText("No candidate policy configured");
+		await expect(shadowOff).not.toContainText("0.0%");
 
 		// Exploration OFF reads as "off", not as a bare 0 that looks like failure.
 		await expect(page.getByTestId("routing-exploration")).toContainText(
