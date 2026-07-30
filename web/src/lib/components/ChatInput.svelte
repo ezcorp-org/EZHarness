@@ -42,7 +42,12 @@
 		describeRejection,
 		type ClientCapabilities,
 	} from "$lib/chat/attachment-client";
-	import { isAutoSelection, type ModelSelection } from "$lib/model-selector-logic.js";
+	import {
+		DEFAULT_SELECTION_FALLBACK,
+		isAutoSelection,
+		type DefaultSelectionMode,
+		type ModelSelection,
+	} from "$lib/model-selector-logic.js";
 
 	let connState = $state<"connected" | "disconnected" | "reconnecting" | "failed">("connected");
 	connectionState.subscribe((info) => { connState = info.state; });
@@ -62,6 +67,7 @@
 		onautoselect,
 		allowAuto = false,
 		autoServed = null,
+		defaultSelection = DEFAULT_SELECTION_FALLBACK,
 		thinkingLevel = "medium",
 		onthinkinglevelchange,
 		modelSupportsReasoning = false,
@@ -96,6 +102,10 @@
 		allowAuto?: boolean;
 		/** Served model of the last routed turn — picker shows "Auto → <model>". */
 		autoServed?: ModelSelection | null;
+		/** Instance default for an unset selection (`provider:defaultSelection`);
+		 *  `null` while the parent is still fetching it. Forwarded verbatim to
+		 *  <ModelSelector>. */
+		defaultSelection?: DefaultSelectionMode | null;
 		thinkingLevel?: string;
 		onthinkinglevelchange?: (level: string) => void;
 		modelSupportsReasoning?: boolean;
@@ -1036,7 +1046,7 @@
 				<div class="flex items-center gap-3">
 					<div class="flex flex-col">
 						<span class="toolbar-label" data-tip="Choose which AI model powers this conversation">Model</span>
-						<ModelSelector selected={selectedModel} onselect={onmodelchange} {onreasoningchange} {oncontextwindowchange} {onautoselect} {allowAuto} {autoServed} />
+						<ModelSelector selected={selectedModel} onselect={onmodelchange} {onreasoningchange} {oncontextwindowchange} {onautoselect} {allowAuto} {autoServed} {defaultSelection} />
 					</div>
 					{#if modelSupportsReasoning && onthinkinglevelchange}
 						<div class="flex flex-col">

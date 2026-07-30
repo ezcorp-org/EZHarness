@@ -178,6 +178,7 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "POST", path: "/api/providers/:provider/test", description: "Test provider connection", category: "providers" },
   { method: "POST", path: "/api/providers/:provider/refresh-models", description: "Fetch latest models from the provider (direct /v1/models, enriched/backed by the models.dev catalog)", category: "providers" },
   { method: "GET", path: "/api/models", description: "List available AI models", category: "providers" },
+  { method: "GET", path: "/api/models/default-selection", description: "Default model selection for a user with no saved pick — `provider:defaultSelection`, \"auto\" (route the first turn) or \"first\" (pin models[0]). Read-scoped, not admin-only, so an operator's revert reaches every user", category: "providers", scope: "read", responseDescription: '{ value: "auto" | "first" }' },
 
   // Users & Teams
   { method: "GET", path: "/api/users", description: "List users (admin)", category: "users" },

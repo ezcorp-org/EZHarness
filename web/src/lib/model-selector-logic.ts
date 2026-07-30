@@ -19,6 +19,10 @@
  *   turn reconciles, `resolveWireModel` re-sends the SERVED identity (read
  *   from the last auto-routed assistant message) instead of `null`, so Auto
  *   never re-routes mid-conversation.
+ * - Auto is also the DEFAULT for a user with no saved selection
+ *   (`resolveDefaultSelection`, gated on the `provider:defaultSelection`
+ *   setting). An explicit saved pick — including an explicit Auto — always
+ *   wins over the default.
  */
 
 export interface ModelSelection {
@@ -153,6 +157,57 @@ export function shouldAutoSelectDefault(
 	models: ModelOptionLike[],
 ): boolean {
 	return selected === null && models.length > 0;
+}
+
+/**
+ * What an unset user's default selection IS.
+ *
+ * - `"auto"` (shipped default) — the Auto sentinel, so the very first turn of
+ *   a fresh thread is ROUTED by the server. Without this, every unset user was
+ *   auto-pinned to `models[0]` and a pinned model is never routed, which left
+ *   the routing engine idle.
+ * - `"first"` — the pre-routing behaviour: pin `models[0]`. The operator's
+ *   revert path (no deploy needed) if routed traffic misbehaves.
+ */
+export type DefaultSelectionMode = "auto" | "first";
+
+/** Admin setting that chooses the mode (`src/db/queries/settings.ts` KV). */
+export const DEFAULT_SELECTION_SETTING_KEY = "provider:defaultSelection";
+
+/** Mode used when the setting is absent or malformed. */
+export const DEFAULT_SELECTION_FALLBACK: DefaultSelectionMode = "auto";
+
+/**
+ * Tolerant read of the stored setting. Absent / malformed / any unknown value
+ * degrades to {@link DEFAULT_SELECTION_FALLBACK} rather than throwing — a
+ * settings row must never be able to break the composer.
+ */
+export function parseDefaultSelection(value: unknown): DefaultSelectionMode {
+	return value === "auto" || value === "first" ? value : DEFAULT_SELECTION_FALLBACK;
+}
+
+/**
+ * The selection to apply for a user who has none, or `null` when no default
+ * should be applied at all.
+ *
+ * {@link shouldAutoSelectDefault} is the gate — any existing selection
+ * (including a deliberate Auto) suppresses the default, and an empty model
+ * list yields nothing, exactly as before.
+ *
+ * The Auto default additionally requires `allowAuto`: only a chat composer
+ * speaks the explicit-null wire sentinel, so agent-config / board-default /
+ * settings pickers keep the `models[0]` default verbatim and can never have
+ * the "auto" sentinel strings persisted onto them.
+ */
+export function resolveDefaultSelection(
+	selected: ModelSelection | null,
+	models: ModelOptionLike[],
+	mode: DefaultSelectionMode = DEFAULT_SELECTION_FALLBACK,
+	allowAuto = false,
+): ModelSelection | null {
+	if (!shouldAutoSelectDefault(selected, models)) return null;
+	if (mode === "auto" && allowAuto) return AUTO_SELECTION;
+	return { provider: models[0]!.provider, model: models[0]!.model };
 }
 
 /** Whether the dedicated Auto row is visible for the current search text. */

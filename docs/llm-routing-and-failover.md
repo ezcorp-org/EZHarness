@@ -109,6 +109,43 @@ same rung via `src/lib/cheap-models.ts`. Reordering the `fast` rung reorders
 those chains with it. An empty/absent `fast` rung falls back to the built-in
 default, so no misconfiguration can silently disable goal evaluation.
 
+### Routed by default (and how to revert)
+
+Routing only fires for a turn with **no model pinned**, so what the composer
+defaults to decides whether the engine runs at all. A user with **no saved
+selection** defaults to **Auto**, which puts the explicit
+`model: null, provider: null` sentinel on the wire and hands the first turn of a
+fresh thread to the classifier. (Before this, an unset user was auto-pinned to
+the first model in the picker list, and a pinned model is never routed — the
+engine sat idle.)
+
+An explicit saved pick always wins over the default, and there are three of
+them, in this order: the conversation's stored `provider`+`model` (which is also
+where the server pins the SERVED model after a routed turn), the user's
+localStorage last-used model, and a deliberate in-session Auto. So the default
+applies to genuinely fresh state only, and route-once is unaffected: once a
+thread has a served model, the client re-sends that pair instead of the null
+sentinel.
+
+`provider:defaultSelection` is the revert. Setting it to `"first"` restores the
+pre-routing default (pin the first available model) with no deploy:
+
+```
+PUT /api/settings/provider:defaultSelection   { "value": "first" }
+```
+
+The value is read back by every user through the read-scoped
+`GET /api/models/default-selection` — deliberately **not** the admin-only
+`GET /api/settings/:key`, because a revert that only reached admins would leave
+members on routed turns. An absent or malformed row degrades to `"auto"`, and
+the composer holds off on applying any default until the read lands, so a
+revert can never lose a race with the model-list fetch.
+
+The Auto default is scoped to the **chat composer** (the only surface that
+speaks the null sentinel). Agent-config, board-default, and settings pickers
+keep the first-model default, so the `"auto"` sentinel strings can never be
+persisted onto them.
+
 ### Pre-stream failover
 
 `runWithFailover` (`src/runtime/stream-chat/failover.ts`) wraps the LLM call
@@ -182,6 +219,7 @@ Boundaries and guarantees:
 
 | Setting key | Default | Meaning |
 |---|---|---|
+| `provider:defaultSelection` | `auto` | What a user with **no saved model pick** defaults to in the chat composer: `auto` (the Auto sentinel — the first turn of a fresh thread is routed) or `first` (pin the first available model, the pre-routing behaviour). The revert knob for routed-by-default traffic — see above. Read back by every user via `GET /api/models/default-selection`, not the admin-only settings GET. |
 | `provider:defaultTier` | `balanced` | Tier used when routing fires and no stronger signal applies (`fast` / `balanced` / `powerful`). |
 | `provider:tierModels` | unset | **The tier ladder** — an ORDERED `{provider, model}` preference list per tier. Editable at **Settings → Models → Tier Model Ladder**; validated on write, ignored (never thrown) on read. See below. |
 | `provider:preferenceOrder` | `[anthropic, openai, google, openrouter]` | Provider walk order for routing and fallback suggestions. Stored orders self-heal: newly known providers are appended (`mergePreferenceOrder`). |
@@ -271,6 +309,8 @@ moves routing upstream at **zero app-side cost**:
 - `src/runtime/routing/mode-binding.ts` — the pure mode task binding: `resolveTurnModelBinding` (the whole pin → mode model → mode tier → classifier chain, with per-field availability validation).
 - `web/src/lib/components/settings/TierLadderSection.svelte` + `web/src/lib/tier-ladder-view.ts` — the Settings → Models editor and its pure display logic.
 - `web/src/lib/components/ModeFormModal.svelte` — the mode form, including the Model Tier selector that writes `modes.preferred_tier`.
+- `web/src/lib/model-selector-logic.ts` — the client half: the Auto sentinel, `resolveDefaultSelection` (the unset-user default), `parseDefaultSelection` (tolerant read of `provider:defaultSelection`), and `resolveWireModel` (route-once on the wire).
+- `web/src/routes/api/models/default-selection/+server.ts` — read-scoped read of `provider:defaultSelection` so an operator's revert reaches every user, not just admins.
 - `src/runtime/stream-chat/setup-tools.ts` — `resolveModelTierAndCredential`: route-once wiring + the turn's `effectiveTier`.
 - `src/providers/router.ts` — `resolveModel` (3 levels), `suggestFallback`, `getDefaultTier`, preference-order handling.
 - `src/runtime/stream-chat/failover.ts` — `runWithFailover`: same-provider retry, cross-provider pre-stream failover, breaker feeding.

@@ -45,6 +45,12 @@
     "web/src/lib/components/chat/ChatHeader.svelte",
     "web/src/routes/(app)/project/[id]/chat/[convId]/+page.svelte"
   ],
+  "web/e2e/default-model-selection.spec.ts": [
+    "web/src/lib/components/ModelSelector.svelte",
+    "web/src/lib/components/ChatInput.svelte",
+    "web/src/lib/components/ChatThread.svelte",
+    "web/src/routes/(app)/project/[id]/chat/[convId]/+page.svelte"
+  ],
   "web/e2e/dev-badge.spec.ts": [
     "web/src/lib/components/DevBadge.svelte",
     "web/src/routes/+layout.svelte",
