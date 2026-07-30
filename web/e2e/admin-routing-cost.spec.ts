@@ -238,6 +238,7 @@ test.describe("@evidence Admin Dashboard — Routing & Cost panel", () => {
 		await expect(unpriced).toContainText("no dollar cost");
 		await expect(unpriced).not.toContainText("$0.00");
 
+		await page.setViewportSize({ width: 1280, height: 1900 });
 		await captureEvidence(page, testInfo, "admin-routing-cost-panel", { fullPage: true });
 	});
 

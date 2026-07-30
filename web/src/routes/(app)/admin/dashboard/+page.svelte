@@ -387,9 +387,6 @@
 	let maxTierCount = $derived(
 		(routingData?.tierMix ?? []).reduce((m, t) => Math.max(m, t.count), 1)
 	);
-	let maxSegmentTurns = $derived(
-		(routingData?.spend.segments ?? []).reduce((m, s) => Math.max(m, s.turnCount), 1)
-	);
 	// A model with no known per-token price (a subscription/OAuth plan). Dollars
 	// are meaningless for these, so they get a tokens-only row.
 	let unpricedSegments = $derived(
@@ -398,6 +395,20 @@
 	let pricedSegments = $derived(
 		(routingData?.spend.segments ?? []).filter((s) => s.cost !== null)
 	);
+	// Each bar is scaled by the QUANTITY ITS ROW DISPLAYS — dollars for priced
+	// models, tokens for unpriced ones. Scaling both by turn count instead would
+	// draw a high-volume cheap model as the longest bar next to a bigger dollar
+	// figure, which reads as the opposite of the truth.
+	let maxPricedUsd = $derived(
+		pricedSegments.reduce((m, s) => Math.max(m, s.cost?.total ?? 0), 0)
+	);
+	let maxUnpricedTokens = $derived(
+		unpricedSegments.reduce((m, s) => Math.max(m, segmentTokens(s.tokens)), 0)
+	);
+	/** Bar width %, guarding the all-zero case (a priced model with no tokens). */
+	function barPct(value: number, max: number): number {
+		return max > 0 ? (value / max) * 100 : 0;
+	}
 
 	const tabs = [
 		{ id: "overview" as const, label: "Overview" },
@@ -906,7 +917,7 @@
 										<div class="h-bar-track">
 											<div
 												class="h-bar-fill {s.provenance === 'routed' ? '' : 'agent'}"
-												style="width: {(s.turnCount / maxSegmentTurns) * 100}%"
+												style="width: {barPct(s.cost?.total ?? 0, maxPricedUsd)}%"
 											></div>
 										</div>
 										<span class="h-bar-value">{formatUsd(s.cost?.total ?? 0)}</span>
@@ -934,7 +945,7 @@
 											<span class="text-muted">({s.provider}) · {s.provenance}</span>
 										</span>
 										<div class="h-bar-track">
-											<div class="h-bar-fill unpriced" style="width: {(s.turnCount / maxSegmentTurns) * 100}%"></div>
+											<div class="h-bar-fill unpriced" style="width: {barPct(segmentTokens(s.tokens), maxUnpricedTokens)}%"></div>
 										</div>
 										<span class="h-bar-value">{segmentTokens(s.tokens).toLocaleString()} tok</span>
 									</div>
@@ -1395,10 +1406,13 @@
 		background: var(--color-surface-tertiary);
 		color: var(--color-text-muted);
 	}
+	/* Escalating is informational, not an error — a hard turn may genuinely need
+	   the stronger model, so this is the neutral accent rather than red. */
 	.switch-kind.escalation {
 		background: rgba(99, 102, 241, 0.15);
 		color: #6366f1;
 	}
+	/* Moving DOWN the ladder spends less, so it reads as the good outcome. */
 	.switch-kind.downgrade {
 		background: rgba(34, 197, 94, 0.15);
 		color: #22c55e;
