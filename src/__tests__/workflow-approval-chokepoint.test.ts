@@ -102,6 +102,10 @@ async function seedApproval(): Promise<string> {
     workflowName: DEF.name,
     input: {},
     startedAt: new Date(),
+    // Owned by the user every case answers as: with no `rbacScope`
+    // declared, the run's OWNER is who may answer. A fixture that left
+    // this null was exercising the unowned path, which is now refused.
+    userId: "u1",
   });
   await db.execute(sql`UPDATE workflow_runs SET status = 'suspended' WHERE id = ${runId}`);
   return parkWorkflowApproval({

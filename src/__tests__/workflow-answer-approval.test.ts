@@ -42,7 +42,8 @@ beforeAll(async () => {
   await migrate(db);
   await db.execute(sql`
     INSERT INTO users (id, email, password_hash, name)
-    VALUES ('answerer', 'a@example.test', 'x', 'Answerer')
+    VALUES ('answerer', 'a@example.test', 'x', 'Answerer'),
+           ('a-reviewer', 'r@example.test', 'x', 'Reviewer')
   `);
 });
 
@@ -85,7 +86,15 @@ function stubRuntime(workflows: WorkflowDefinition[] = [DEF]) {
 }
 
 async function seed(
-  opts: { requireItemConsent?: boolean; itemIds?: string[]; rbacScope?: string } = {},
+  opts: {
+    requireItemConsent?: boolean;
+    itemIds?: string[];
+    rbacScope?: string;
+    /** Who owns the run. Defaults to the user every test answers as —
+     *  without a scope, the OWNER is who may answer, so a fixture that
+     *  left this null was testing a path that is now (correctly) refused. */
+    ownerUserId?: string | null;
+  } = {},
 ): Promise<{ runId: string; approvalId: string }> {
   const runId = crypto.randomUUID();
   await insertWorkflowRun({
@@ -93,6 +102,7 @@ async function seed(
     workflowName: DEF.name,
     input: {},
     startedAt: new Date(),
+    userId: opts.ownerUserId === undefined ? "answerer" : opts.ownerUserId,
   });
   await db.execute(sql`UPDATE workflow_runs SET status = 'suspended' WHERE id = ${runId}`);
   const approvalId = await parkWorkflowApproval({
@@ -467,5 +477,87 @@ describe("answerApproval — never reports success for a dead run", () => {
     expect(res.message).toContain("Your answer was recorded");
     expect(res.message).toContain("graph drifted");
     expect((await getWorkflowApprovalById(approvalId))?.status).toBe("answered");
+  });
+});
+
+describe("authorization — who may answer", () => {
+  test("a STRANGER cannot answer an approval that declares no scope", async () => {
+    // The hole this closes: `rbacScope` is null by default — every
+    // `approval` step without an explicit one — and the scope check simply
+    // did not run. Nothing else consulted the run, so any authenticated
+    // caller could clear any other user's consent gate through either
+    // answer surface.
+    const { approvalId } = await seed({ ownerUserId: "answerer" });
+
+    const res = await answerApproval(
+      approvalId,
+      { choice: "approve" },
+      { userId: "someone-else" },
+      { runtime: stubRuntime().runtime },
+    );
+
+    expect(res).toMatchObject({ ok: false, code: "forbidden" });
+    // Asserted on the ROW: a refusal that still recorded the answer would
+    // be worse than no check at all.
+    const row = await getWorkflowApprovalById(approvalId);
+    expect(row?.status).toBe("pending");
+    expect(row?.answeredBy).toBeNull();
+  });
+
+  test("the OWNER may answer their own", async () => {
+    const { approvalId } = await seed({ ownerUserId: "answerer" });
+    const res = await answerApproval(
+      approvalId,
+      { choice: "approve" },
+      { userId: "answerer" },
+      { runtime: stubRuntime().runtime },
+    );
+    expect(res.ok).toBe(true);
+  });
+
+  test("an UNOWNED run (CLI, extension trigger) is admin-only", async () => {
+    const a = await seed({ ownerUserId: null });
+    expect(
+      await answerApproval(a.approvalId, { choice: "approve" }, { userId: "answerer" }, { runtime: stubRuntime().runtime }),
+    ).toMatchObject({ ok: false, code: "forbidden" });
+
+    const b = await seed({ ownerUserId: null });
+    expect(
+      await answerApproval(
+        b.approvalId,
+        { choice: "approve" },
+        { userId: "answerer", isAdmin: true },
+        { runtime: stubRuntime().runtime },
+      ),
+    ).toMatchObject({ ok: true });
+  });
+
+  test("a DECLARED scope still decides on its own — ownership is not also required", async () => {
+    // Deliberate: an approval can be raised precisely so someone other
+    // than the run's owner (a reviewer) answers it. Requiring both would
+    // break that, so the scope branch is an alternative, not an addition.
+    const { approvalId } = await seed({ ownerUserId: "answerer", rbacScope: "workflows:approve" });
+
+    const res = await answerApproval(
+      approvalId,
+      { choice: "approve" },
+      { userId: "a-reviewer" },
+      { runtime: stubRuntime().runtime, checkScope: async () => true },
+    );
+
+    expect(res.ok).toBe(true);
+  });
+
+  test("a declared scope the actor lacks is still refused", async () => {
+    const { approvalId } = await seed({ ownerUserId: "answerer", rbacScope: "workflows:approve" });
+    const res = await answerApproval(
+      approvalId,
+      { choice: "approve" },
+      // Even the OWNER is refused when the scope is declared and unmet —
+      // a declared scope raises the bar, it does not lower it.
+      { userId: "answerer" },
+      { runtime: stubRuntime().runtime, checkScope: async () => false },
+    );
+    expect(res).toMatchObject({ ok: false, code: "forbidden" });
   });
 });

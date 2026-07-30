@@ -6,6 +6,7 @@ import { registerGithubProjectsEmit } from "$server/integrations/github-projects
 import { registerWorkflowRuntime } from "$server/runtime/workflow/runtime-registry";
 import { ensureBriefingAgentConfig } from "$server/runtime/briefing/agent-config";
 import { registerBriefingHubPage } from "$server/runtime/briefing/hub-page";
+import { registerWorkflowApprovalsHubPage } from "$server/runtime/workflow-approvals-hub-page";
 import { triggerBriefingRunNow } from "$lib/server/briefing-run-now";
 import { AgentExecutor } from "$server/runtime/executor";
 import { WorkflowExecutor } from "$server/runtime/workflow-executor";
@@ -204,6 +205,10 @@ export async function ensureInitialized(): Promise<void> {
   // layer so the Hub action and POST /api/briefing/run-now share ONE
   // rate bucket ($lib/server/briefing-run-now.ts).
   registerBriefingHubPage({ triggerRunNow: triggerBriefingRunNow });
+  // The Hub's approvals tab — the second answer surface. Needs no deps:
+  // it answers through `answerApproval`, which resolves the live executor
+  // from the runtime registry registered just above.
+  registerWorkflowApprovalsHubPage();
   // Teardown order matters here: the executor owns the watchdog interval
   // + in-flight tool runs; it must stop BEFORE the dispatchers it can
   // emit events on, and BEFORE the registry that owns its extension

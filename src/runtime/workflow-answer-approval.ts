@@ -56,6 +56,8 @@ export interface ApprovalAnswerInput {
 /** Who is answering. `userId` is null for a system/timeout answer. */
 export interface ApprovalActor {
   userId: string | null;
+  /** Admins may answer any approval, including one on an unowned run. */
+  isAdmin?: boolean;
 }
 
 export type AnswerApprovalResult =
@@ -118,6 +120,38 @@ export async function answerApproval(
   }
 
   // ── Authorization (read-only) ──────────────────────────────────────
+  //
+  // Two rules, and the SECOND one used to be missing entirely.
+  //
+  //   • A declared `rbacScope` decides. That is the documented way to say
+  //     "answering this needs a permission", and it deliberately does NOT
+  //     also require ownership — an approval can be raised precisely so
+  //     that someone other than the run's owner (a reviewer) answers it.
+  //
+  //   • With NO scope declared, the run's OWNER decides. Before this
+  //     branch existed, an approval that declared no scope — which is the
+  //     default, and what every `approval` step without an `rbacScope:`
+  //     produces — was answerable by ANY authenticated caller on ANY run.
+  //     The scope check simply did not run, and nothing else consulted the
+  //     run at all, so a stranger could clear another user's consent gate
+  //     through either answer surface.
+  //
+  // A NULL `user_id` (CLI, extension trigger) is admin-only, matching
+  // `workflow-run-control.ts` and the inbox query: "unowned" must never
+  // read as "anyone's".
+  if (!approval.rbacScope) {
+    const runRow = await getWorkflowRunRow(approval.workflowRunId);
+    const owns =
+      actor.isAdmin === true ||
+      (runRow?.userId != null && actor.userId != null && runRow.userId === actor.userId);
+    if (!owns) {
+      return {
+        ok: false,
+        code: "forbidden",
+        message: "Not permitted to answer this approval",
+      };
+    }
+  }
   if (approval.rbacScope) {
     let granted: boolean;
     try {

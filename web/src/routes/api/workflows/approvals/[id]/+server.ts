@@ -45,7 +45,7 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
   const result = await answerApproval(
     params.id,
     parsed.data,
-    { userId: user.id },
+    { userId: user.id, isAdmin: user.role === "admin" },
     {
       // Fail-closed by construction: a throw inside this check is caught
       // by the chokepoint and treated as a DENY, never as an allow. The
