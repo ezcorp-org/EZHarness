@@ -236,19 +236,35 @@ describe("nothing outside the chokepoint writes an answer", () => {
     );
   });
 
-  test("every answer surface reaches the chokepoint — a POSITIVE assertion", () => {
+  test("every MUTATING answer surface reaches the chokepoint — a POSITIVE assertion", () => {
     // The negatives above catch a surface that reimplements the rules.
     // They do NOT catch one that reaches the boundary by no path at all
     // — a route that answers nothing, or answers through some future
-    // helper. So: every handler under the approvals route must name
-    // `answerApproval`. Borrowed from the C6 ladder scan, which pairs
-    // its bans with a required call for the same reason.
+    // helper. So: every handler under the approvals route that can WRITE
+    // must name `answerApproval`. Borrowed from the C6 ladder scan, which
+    // pairs its bans with a required call for the same reason.
+    //
+    // Scoped to mutating handlers because the inbox (`GET .../approvals`)
+    // lives here too and legitimately answers nothing — it lists
+    // questions. Keying on the exported verb rather than on a filename
+    // keeps the guard strong where it matters: a new POST/PUT/PATCH/DELETE
+    // under this directory still has to go through the chokepoint, and
+    // adding one is exactly the change this test exists to catch.
     const routeDir = join(REPO_ROOT, "web/src/routes/api/workflows/approvals");
     const handlers = sourceFiles("web/src/routes/api/workflows/approvals");
     expect(handlers.length).toBeGreaterThanOrEqual(1);
     expect(routeDir.endsWith("approvals")).toBe(true);
 
-    for (const file of handlers) {
+    const MUTATING = /export const (POST|PUT|PATCH|DELETE)\b/;
+    const mutating = handlers.filter((f) => MUTATING.test(readFileSync(f, "utf8")));
+    // The answer route itself must always be in this set — otherwise a
+    // regex that matched nothing would make this whole test vacuous, the
+    // failure mode every negative assertion here already guards against.
+    expect(mutating.map((f) => f.slice(REPO_ROOT.length + 1))).toContain(
+      "web/src/routes/api/workflows/approvals/[id]/+server.ts",
+    );
+
+    for (const file of mutating) {
       const body = readFileSync(file, "utf8");
       expect({
         file: file.slice(REPO_ROOT.length + 1),

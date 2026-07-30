@@ -199,6 +199,7 @@ export const apiRegistry: ApiRouteEntry[] = [
   // `@ezcorp/harness-client` method exists, and the parity meta-test
   // correctly fails without one. Claiming it while shipping no client
   // method would make the registry lie about the remote surface.
+  { method: "GET", path: "/api/workflows/approvals", description: "List pending workflow approvals this caller may answer", category: "workflows", scope: "read", responseDescription: "{ approvals: PendingApproval[] }" },
   { method: "POST", path: "/api/workflows/approvals/:id", description: "Answer a parked workflow approval and resume its run", category: "workflows", scope: "chat", responseDescription: "{ run: WorkflowRun, consentAllUsed: boolean }" },
   // Operator control over a durable run. NOT an approval-answering path:
   // resume takes no choice and cannot clear a pending consent gate — a run

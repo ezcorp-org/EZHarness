@@ -36,7 +36,13 @@ mock.module("../db/connection", () => ({
 const { resumeParkedRun, cancelParkedRun } = await import("../runtime/workflow-run-control");
 const { getWorkflowRunRow, insertWorkflowRun, suspendWorkflowRun, finalizeWorkflowRunRow } =
   await import("../db/queries/workflow-runs");
-const { getWorkflowApproval } = await import("../db/queries/workflow-approvals");
+const {
+  getWorkflowApproval,
+  parkWorkflowApproval,
+  recordWorkflowApprovalAnswer,
+  listPendingWorkflowApprovals,
+  listPendingWorkflowApprovalsForUser,
+} = await import("../db/queries/workflow-approvals");
 const { WorkflowExecutor } = await import("../runtime/workflow-executor");
 const { EventBus } = await import("../runtime/events");
 const { AgentExecutor } = await import("../runtime/executor");
@@ -277,5 +283,71 @@ describe("cancel", () => {
 
   test("cancelling a run that does not exist is not-found", async () => {
     expect(await cancelParkedRun("ghost", OWNER)).toMatchObject({ ok: false, code: "not-found" });
+  });
+});
+
+describe("the approvals inbox is scoped by the RUN's owner", () => {
+  /** A pending approval on a run owned by `userId`. */
+  async function pendingOn(runId: string, userId: string | null, step: string) {
+    await insertWorkflowRun({
+      id: runId,
+      workflowName: trivial.name,
+      input: {},
+      startedAt: T0,
+      userId,
+      definitionHash: null,
+    });
+    await parkWorkflowApproval({
+      workflowRunId: runId,
+      stepName: step,
+      prompt: `secret plan for ${runId}`,
+      choices: ["approve"],
+      requireItemConsent: false,
+      itemIds: [],
+    });
+  }
+
+  test("a user sees only their own, never another user's", async () => {
+    await pendingOn("mine", "owner", "s1");
+    await pendingOn("theirs", "stranger", "s2");
+
+    const mine = await listPendingWorkflowApprovalsForUser("owner");
+
+    expect(mine.map((p) => p.workflowRunId)).toEqual(["mine"]);
+    // The leak this scoping exists to prevent is the PROMPT, which names
+    // what is about to be done and to what.
+    expect(JSON.stringify(mine)).not.toContain("secret plan for theirs");
+  });
+
+  test("an UNOWNED run's approval is invisible to a member and visible to an admin", async () => {
+    await pendingOn("cli", null, "s1");
+
+    expect(await listPendingWorkflowApprovalsForUser("owner")).toEqual([]);
+    expect((await listPendingWorkflowApprovalsForUser("owner", true)).map((p) => p.workflowRunId))
+      .toEqual(["cli"]);
+  });
+
+  test("an admin sees every pending approval — the same set the sweep sees", async () => {
+    await pendingOn("mine", "owner", "s1");
+    await pendingOn("theirs", "stranger", "s2");
+
+    const admin = await listPendingWorkflowApprovalsForUser("owner", true);
+    const sweep = await listPendingWorkflowApprovals();
+
+    expect(admin.map((p) => p.approval.id).sort()).toEqual(sweep.map((a) => a.id).sort());
+  });
+
+  test("an ANSWERED approval leaves the inbox", async () => {
+    await pendingOn("mine", "owner", "s1");
+    const [only] = await listPendingWorkflowApprovalsForUser("owner");
+    expect(await recordWorkflowApprovalAnswer(only!.approval.id, { choice: "approve" })).toBe(1);
+    expect(await listPendingWorkflowApprovalsForUser("owner")).toEqual([]);
+  });
+
+  test("it carries the workflow NAME, which is the only thing making a row recognisable", async () => {
+    await pendingOn("mine", "owner", "s1");
+    const [row] = await listPendingWorkflowApprovalsForUser("owner");
+    expect(row?.workflowName).toBe("trivial");
+    expect(row?.approval.stepName).toBe("s1");
   });
 });

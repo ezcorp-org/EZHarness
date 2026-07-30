@@ -7,7 +7,7 @@
  */
 import { and, eq, lte, sql } from "drizzle-orm";
 import { getDb } from "../connection";
-import { workflowApprovals, type WorkflowApprovalRow } from "../schema";
+import { workflowApprovals, workflowRuns, type WorkflowApprovalRow } from "../schema";
 
 export interface ParkApprovalInput {
   workflowRunId: string;
@@ -158,13 +158,73 @@ export async function expireWorkflowApproval(id: string): Promise<number> {
   return rows.length;
 }
 
-/** Pending approvals for the inbox, newest first. */
+/**
+ * Every pending approval, newest first. **Unscoped — host-side only.**
+ *
+ * Used by the expiry sweep and by admin surfaces, both of which legitimately
+ * see the whole table. Do NOT hand this to a per-user surface: see
+ * {@link listPendingWorkflowApprovalsForUser}.
+ */
 export async function listPendingWorkflowApprovals(): Promise<WorkflowApprovalRow[]> {
   return getDb()
     .select()
     .from(workflowApprovals)
     .where(eq(workflowApprovals.status, "pending"))
     .orderBy(sql`${workflowApprovals.createdAt} DESC`);
+}
+
+/** An approval plus the bit of its run a human needs to recognise it. */
+export interface PendingApprovalForUser {
+  approval: WorkflowApprovalRow;
+  workflowName: string;
+  workflowRunId: string;
+}
+
+/**
+ * Pending approvals this user may act on, newest first.
+ *
+ * An approval carries no owner of its own — the RUN does — so the scoping
+ * is a join, not a column filter. That is the whole reason this exists
+ * separately from {@link listPendingWorkflowApprovals}: an inbox built on
+ * the unscoped list would render every user's parked decisions, including
+ * the prompt text, which routinely names what is about to be done and to
+ * what.
+ *
+ * A run with a NULL `user_id` (CLI, extension trigger) is admin-only, for
+ * the same reason it is in `workflow-run-control.ts`: "unowned" must not
+ * read as "anyone's".
+ *
+ * Admins see everything, which is what makes the sweep's view and the
+ * admin view the same set.
+ */
+export async function listPendingWorkflowApprovalsForUser(
+  userId: string,
+  isAdmin = false,
+): Promise<PendingApprovalForUser[]> {
+  // The predicate is built first rather than inlined as a ternary in
+  // `.where(...)`: drizzle cannot infer the row type through the branch,
+  // and an inferred `any` here would silently drop the compile-time link
+  // between this projection and the schema.
+  const pending = eq(workflowApprovals.status, "pending");
+  const scoped = isAdmin ? pending : and(pending, eq(workflowRuns.userId, userId));
+  // Cast because drizzle does not infer a partial select through the join
+  // in this version — the same shape `workflow-versions.ts` uses for its
+  // joined reads. The alias is named so a schema change still has ONE place
+  // to update rather than an inline literal per call site.
+  const rows = (await getDb()
+    .select({ approval: workflowApprovals, workflowName: workflowRuns.workflowName })
+    .from(workflowApprovals)
+    .innerJoin(workflowRuns, eq(workflowApprovals.workflowRunId, workflowRuns.id))
+    .where(scoped)
+    .orderBy(sql`${workflowApprovals.createdAt} DESC`)) as Array<{
+    approval: WorkflowApprovalRow;
+    workflowName: string;
+  }>;
+  return rows.map((r) => ({
+    approval: r.approval,
+    workflowName: r.workflowName,
+    workflowRunId: r.approval.workflowRunId,
+  }));
 }
 
 /**
