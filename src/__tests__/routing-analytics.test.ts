@@ -145,9 +145,14 @@ beforeAll(async () => {
   seedMessage({ id: "a4", conversationId: CONV_A, role: "assistant", parentMessageId: "u4",
     model: "claude-haiku-4-5", provider: "anthropic",
     usage: pinned("claude-haiku-4-5", "anthropic"), createdAt: at(4) });
+  // The one EXPLORED turn (WS7): the classifier wanted `balanced`, exploration
+  // served `fast`. Both are kept — `routedTier` is what served, and
+  // `routingSignals.tier` is what the heuristic asked for.
   seedMessage({ id: "a5", conversationId: CONV_A, role: "assistant", parentMessageId: "u5",
     model: "claude-haiku-4-5", provider: "anthropic",
-    usage: routed("fast"), createdAt: at(5) });
+    usage: routed("fast", {
+      routingSignals: { estTokens: 900, tier: "balanced", reason: "midsize-turn", exploration: true },
+    }), createdAt: at(5) });
   // The failover turn, and the only turn with output + cache tokens (so the
   // 1h-write premium is exercised end to end).
   seedMessage({ id: "a6", conversationId: CONV_A, role: "assistant", parentMessageId: "u6",
@@ -189,7 +194,13 @@ beforeAll(async () => {
   // A routed turn stamped with a tier OUTSIDE the current vocabulary (what a
   // renamed tier would look like in an old row) and no served model.
   seedMessage({ id: "a11", conversationId: CONV_A, role: "assistant", parentMessageId: "u11",
-    usage: routed("turbo", { inputTokens: 0 }), createdAt: at(14) });
+    usage: routed("turbo", {
+      inputTokens: 0,
+      // A STRING "true" — what a sloppy future writer might emit. The
+      // exploration count matches the jsonb boolean only, so this must NOT be
+      // counted as an explored turn.
+      routingSignals: { estTokens: 10, tier: "fast", reason: "short-turn", exploration: "true" },
+    }), createdAt: at(14) });
 
   // ── conv-b users + a row OUTSIDE the window ──
   seedMessage({ id: "ub1", conversationId: CONV_B, role: "user", createdAt: at(2) });
@@ -294,6 +305,17 @@ describe("getRoutingStats — routed share and provenance", () => {
     const s = await getRoutingStats(30);
     expect(s.failover.count).toBe(1);
     expect(s.failover.rate).toBeCloseTo(1 / 13, 10);
+  });
+
+  test("explored turns are counted over ROUTED turns, and only a jsonb boolean counts", async () => {
+    // WS7: exploration deliberately serves a weaker model to gather unbiased
+    // data. It must never be silent, so the panel gets a real count — over
+    // ROUTED turns, since only a routed turn can be explored.
+    const s = await getRoutingStats(30);
+    expect(s.exploration.turns).toBe(1); // a5 only
+    expect(s.exploration.rate).toBeCloseTo(1 / 4, 10);
+    // a11's `exploration: "true"` STRING is not a boolean true — not counted.
+    expect(s.exploration.turns).not.toBe(2);
   });
 });
 

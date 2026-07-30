@@ -102,6 +102,7 @@
   "src/runtime/tier-classifier.ts": 100,
   "src/runtime/routing/tier-ladder.ts": 100,
   "src/runtime/routing/labels.ts": 100,
+  "src/runtime/routing/exploration.ts": 100,
   "scripts/routing-export.ts": 100,
   "scripts/routing-sweep.ts": 100,
   "src/runtime/routing/mode-binding.ts": 100,

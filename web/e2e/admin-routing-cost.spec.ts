@@ -54,6 +54,9 @@ const routingWithTraffic = {
 		{ tier: "powerful", count: 2 },
 		{ tier: "fast", count: 1 },
 	],
+	// WS7: one of the three routed turns was deliberately served a rung down to
+	// gather counterfactual data. The panel must say so out loud.
+	exploration: { turns: 1, rate: 1 / 3 },
 	failover: { count: 1, rate: 1 / 12 },
 	switches: {
 		pairs: 6, total: 2, escalations: 1, downgrades: 1, lateral: 0, rate: 2 / 6,
@@ -117,6 +120,7 @@ const routingAllUnpriced = {
 	turns: { total: 4, routed: 4, pinned: 0, legacy: 0 },
 	routedShare: 1,
 	tierMix: [{ tier: "balanced", count: 4 }],
+	exploration: { turns: 0, rate: 0 },
 	failover: { count: 0, rate: 0 },
 	switches: { pairs: 0, total: 0, escalations: 0, downgrades: 0, lateral: 0, rate: 0, samples: [] },
 	retries: { answeredTurns: 4, retriedTurns: 0, extraSiblings: 0, rate: 0, samples: [] },
@@ -139,6 +143,7 @@ const routingNoTraffic = {
 	turns: { total: 0, routed: 0, pinned: 0, legacy: 0 },
 	routedShare: 0,
 	tierMix: [],
+	exploration: { turns: 0, rate: 0 },
 	failover: { count: 0, rate: 0 },
 	switches: { pairs: 0, total: 0, escalations: 0, downgrades: 0, lateral: 0, rate: 0, samples: [] },
 	retries: { answeredTurns: 0, retriedTurns: 0, extraSiblings: 0, rate: 0, samples: [] },
@@ -199,6 +204,14 @@ test.describe("@evidence Admin Dashboard — Routing & Cost panel", () => {
 		const tierMix = page.getByTestId("routing-tier-mix");
 		await expect(tierMix).toContainText("powerful");
 		await expect(tierMix).toContainText("fast");
+
+		// ── Bounded exploration (WS7): never silent ──
+		// An explored turn traded answer quality for unbiased training data. The
+		// operator who enabled that has to be able to see what it cost.
+		const exploration = page.getByTestId("routing-exploration");
+		await expect(exploration).toContainText("1");
+		await expect(exploration).toContainText("Turns Explored");
+		await expect(exploration).toContainText("33.3% of routed turns");
 
 		// ── Escalations, split by ladder direction, with the turn index ──
 		const switches = page.getByTestId("routing-switches");
@@ -272,6 +285,11 @@ test.describe("@evidence Admin Dashboard — Routing & Cost panel", () => {
 			"No mid-conversation model switches in this period",
 		);
 		await expect(page.getByTestId("routing-retries")).toContainText("No A/B retries in this period");
+
+		// Exploration OFF reads as "off", not as a bare 0 that looks like failure.
+		await expect(page.getByTestId("routing-exploration")).toContainText(
+			"Exploration off",
+		);
 
 		// See the note in the test above: inner scroll container vs `fullPage`.
 		await page.setViewportSize({ width: 1280, height: 1600 });

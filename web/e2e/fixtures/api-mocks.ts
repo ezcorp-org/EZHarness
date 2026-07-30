@@ -1673,6 +1673,7 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 					turns: { total: 0, routed: 0, pinned: 0, legacy: 0 },
 					routedShare: 0,
 					tierMix: [],
+					exploration: { turns: 0, rate: 0 },
 					failover: { count: 0, rate: 0 },
 					switches: { pairs: 0, total: 0, escalations: 0, downgrades: 0, lateral: 0, rate: 0, samples: [] },
 					retries: { answeredTurns: 0, retriedTurns: 0, extraSiblings: 0, rate: 0, samples: [] },

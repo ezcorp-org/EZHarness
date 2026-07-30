@@ -8,6 +8,10 @@ import {
   TIER_LADDER_SETTING_KEY,
   validateTierLadder,
 } from "$server/runtime/routing/tier-ladder";
+import {
+  EXPLORATION_RATE_SETTING_KEY,
+  validateExplorationRate,
+} from "$server/runtime/routing/exploration";
 import type { RequestHandler } from "./$types";
 
 // Boundary validation for setting upsert. `value` is intentionally
@@ -31,10 +35,20 @@ const upsertSettingSchema = z.object({
  * Returns the value to store, or a Response describing the rejection.
  */
 function validateForKey(key: string, value: unknown): { value: unknown } | Response {
-  if (key !== TIER_LADDER_SETTING_KEY) return { value };
-  const result = validateTierLadder(value);
-  if (!result.ok) return errorJson(400, `Invalid ${key}: ${result.error}`);
-  return { value: result.ladder };
+  if (key === TIER_LADDER_SETTING_KEY) {
+    const result = validateTierLadder(value);
+    if (!result.ok) return errorJson(400, `Invalid ${key}: ${result.error}`);
+    return { value: result.ladder };
+  }
+  // The exploration rate is strict at WRITE time for the same reason: the read
+  // treats anything outside [0,1] as OFF, so a `100`-meaning-percent typo would
+  // otherwise land silently and look like a broken feature.
+  if (key === EXPLORATION_RATE_SETTING_KEY) {
+    const result = validateExplorationRate(value);
+    if (!result.ok) return errorJson(400, `Invalid ${key}: ${result.error}`);
+    return { value: result.rate };
+  }
+  return { value };
 }
 
 function denyIfSensitive(key: string): Response | null {

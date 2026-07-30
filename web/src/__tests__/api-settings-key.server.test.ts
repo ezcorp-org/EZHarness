@@ -391,6 +391,50 @@ describe("PUT /api/settings/provider:tierModels — write-time validation", () =
     expect(upsertSetting).not.toHaveBeenCalled();
   });
 
+  test("provider:explorationRate stores a probability", async () => {
+    const res = await PUT(
+      makeEvent({
+        key: "provider:explorationRate",
+        locals: adminLocals,
+        method: "PUT",
+        body: { value: 0.05 },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(upsertSetting).toHaveBeenCalledWith("provider:explorationRate", 0.05);
+  });
+
+  test("provider:explorationRate REJECTS a percent-shaped typo instead of silently disabling", async () => {
+    // WS7: the READ treats anything outside [0,1] as OFF (a bad row must never
+    // fail a turn), which is exactly why the write has to be loud — an operator
+    // who typed 100 meaning "one percent" would otherwise see nothing happen.
+    const res = await PUT(
+      makeEvent({
+        key: "provider:explorationRate",
+        locals: adminLocals,
+        method: "PUT",
+        body: { value: 100 },
+      }),
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toContain("not a probability");
+    expect(upsertSetting).not.toHaveBeenCalled();
+  });
+
+  test("provider:explorationRate REJECTS a non-number", async () => {
+    const res = await PUT(
+      makeEvent({
+        key: "provider:explorationRate",
+        locals: adminLocals,
+        method: "PUT",
+        body: { value: "0.5" },
+      }),
+    );
+    expect(res.status).toBe(400);
+    expect(upsertSetting).not.toHaveBeenCalled();
+  });
+
   test("other keys keep their pass-through (schema-less) write", async () => {
     const res = await PUT(
       makeEvent({

@@ -525,6 +525,18 @@ export type RoutingStats = {
   routedShare: number;
   /** Only routed turns stamp a tier, so this mix is over routed turns. */
   tierMix: RoutingTierShare[];
+  /**
+   * WS7 bounded exploration. `turns` counts routed turns that were deliberately
+   * served one rung BELOW the classifier's tier to gather unbiased
+   * counterfactual data (`provider:explorationRate`, default off). Reported so
+   * the tradeoff is never silent: an operator who turned it on can see exactly
+   * how many answers paid for the data.
+   */
+  exploration: {
+    turns: number;
+    /** turns / routed. 0 when nothing was routed. */
+    rate: number;
+  };
   failover: {
     count: number;
     /** Over provenance-carrying turns — the same writer stamps both keys. */
@@ -594,6 +606,10 @@ const HAS_REQUESTED_MODEL = sql`jsonb_exists(${messages.usage}, 'requestedModel'
 const IS_ROUTED = sql`(${HAS_REQUESTED_MODEL} AND ${messages.usage}->'requestedModel' = 'null'::jsonb)`;
 const IS_PINNED = sql`(${HAS_REQUESTED_MODEL} AND ${messages.usage}->'requestedModel' <> 'null'::jsonb)`;
 const IS_LEGACY = sql`(${messages.usage} IS NULL OR NOT ${HAS_REQUESTED_MODEL})`;
+// WS7: an EXPLORED turn stamps `routingSignals.exploration = true`. Matched on
+// the jsonb `true` literal (not `->>'exploration' = 'true'`) so a string
+// `"true"` written by some future non-boolean writer can't count as one.
+const IS_EXPLORED = sql`${messages.usage}->'routingSignals'->'exploration' = 'true'::jsonb`;
 const PROVENANCE = sql`CASE WHEN ${IS_ROUTED} THEN 'routed' WHEN ${IS_PINNED} THEN 'pinned' ELSE 'legacy' END`;
 
 /**
@@ -660,6 +676,7 @@ export async function getRoutingStats(days = 30): Promise<RoutingStats> {
       COUNT(*) FILTER (WHERE ${IS_PINNED}) AS pinned,
       COUNT(*) FILTER (WHERE ${IS_LEGACY}) AS legacy,
       COUNT(*) FILTER (WHERE ${messages.usage}->'failover' = 'true'::jsonb) AS failover,
+      COUNT(*) FILTER (WHERE ${IS_EXPLORED}) AS explored,
       COUNT(DISTINCT ${messages.conversationId}) AS conversations,
       COUNT(DISTINCT ${messages.parentMessageId}) AS answered_turns
     FROM ${messages}
@@ -670,6 +687,7 @@ export async function getRoutingStats(days = 30): Promise<RoutingStats> {
   const pinned = aggNum(headline.pinned);
   const provenanceTurns = routed + pinned;
   const failoverCount = aggNum(headline.failover);
+  const exploredTurns = aggNum(headline.explored);
   const answeredTurns = aggNum(headline.answered_turns);
   const conversations = aggNum(headline.conversations);
 
@@ -869,6 +887,12 @@ export async function getRoutingStats(days = 30): Promise<RoutingStats> {
     },
     routedShare: provenanceTurns > 0 ? routed / provenanceTurns : 0,
     tierMix,
+    // Over ROUTED turns, not all turns: only a routed turn can be explored, so
+    // a pinned-heavy install must not have its exploration share diluted.
+    exploration: {
+      turns: exploredTurns,
+      rate: routed > 0 ? exploredTurns / routed : 0,
+    },
     failover: {
       count: failoverCount,
       rate: provenanceTurns > 0 ? failoverCount / provenanceTurns : 0,

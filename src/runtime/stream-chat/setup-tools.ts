@@ -11,11 +11,18 @@ import {
 import {
   chooseTurnVerdict,
   preferenceOrderHash,
+  withScorerVersion,
   type RoutingConfig,
   type RoutingSignals,
   type RoutingTier,
   type TierHistoryMessage,
 } from "../tier-classifier";
+import {
+  applyExploration,
+  DEFAULT_EXPLORATION_RATE,
+  EXPLORATION_RATE_SETTING_KEY,
+  parseExplorationRate,
+} from "../routing/exploration";
 import { getSetting } from "../../db/queries/settings";
 import { getCredential } from "../../providers/credentials";
 import { extensionToAgentTool, ToolExecutor, type ArgsResolver } from "../../extensions/tool-executor";
@@ -477,6 +484,34 @@ async function readRoutingConfig(): Promise<RoutingConfig | undefined> {
 }
 
 /**
+ * Read the operator-configured exploration probability. Fail-open BY
+ * CONSTRUCTION like {@link readRoutingConfig}: any settings failure returns
+ * {@link DEFAULT_EXPLORATION_RATE} (off), so a DB blip can only ever turn
+ * exploration OFF for a turn — never on, and never into a thrown error on the
+ * routing path.
+ */
+async function readExplorationRate(): Promise<number> {
+  try {
+    return parseExplorationRate(await getSetting(EXPLORATION_RATE_SETTING_KEY));
+  } catch (err) {
+    log.warn("exploration-rate read failed — exploration off this turn", {
+      err: err instanceof Error ? err.message : String(err),
+    });
+    return DEFAULT_EXPLORATION_RATE;
+  }
+}
+
+/**
+ * Injected dependencies of the routing decision. Exists so bounded
+ * exploration's randomness is deterministic under test — the production caller
+ * passes nothing and gets `Math.random`.
+ */
+export interface TurnRoutingDeps {
+  /** Uniform [0,1) source for the exploration draw. Defaults to `Math.random`. */
+  random?: () => number;
+}
+
+/**
  * The active mode's routing columns plus the models the deployment can
  * actually run — the two inputs {@link resolveTurnModelBinding} validates a
  * mode's preference against.
@@ -564,14 +599,26 @@ export async function resolveModelTierAndCredential(
   convRecord: SetupToolsConvRecord | null,
   credentialConversationId: string,
   turnContext?: TurnRoutingContext,
+  routingDeps?: TurnRoutingDeps,
 ): Promise<SetupToolsResult> {
   let routedTier: RoutingTier | undefined;
   let routingSignals: RoutingSignals | undefined;
+  // WS7 inference seam, shipped UNUSED: no scorer is injected below, so this
+  // stays undefined and `withScorerVersion` is a no-op. The assignment is here
+  // rather than added later because a scorer rollout must be attributable from
+  // the row itself the day it happens.
+  let scorerVersion: string | undefined;
   // Started but NOT awaited inside the branch: it resolves concurrently with
   // resolveModel below, so stamping provenance costs the routing hot path no
   // added latency. Left undefined on a pinned turn — that path reads no
   // settings at all.
   let routingConfigPromise: Promise<RoutingConfig | undefined> | undefined;
+  // WS7 exploration rate. Started alongside the provenance read (so the two
+  // settings reads overlap) but — unlike provenance — it MUST be awaited before
+  // resolveModel, because it can change the tier resolveModel is given. That is
+  // the one unavoidable cost of the feature: a routed turn pays one extra
+  // settings SELECT, on a row the same path already reads.
+  let explorationRatePromise: Promise<number> | undefined;
   // WS3b: fold the mode's task binding into the turn's pin. Read ONLY on a
   // turn that arrived without a model — an established/pinned thread is never
   // re-routed (the cache anchor above), so a pinned turn pays no added read
@@ -615,21 +662,53 @@ export async function resolveModelTierAndCredential(
       );
       routedTier = verdict.tier;
       routingSignals = verdict.signals;
+      scorerVersion = verdict.scorerVersion;
     } catch (err) {
       log.warn("tier classification failed — using default tier this turn", {
         err: err instanceof Error ? err.message : String(err),
       });
       routedTier = undefined;
       routingSignals = undefined;
+      scorerVersion = undefined;
     }
     // Effective-config provenance, in its OWN fail-open envelope (inside the
     // helper) rather than folded into the classifier's above: a settings-read
     // blip must not discard a tier verdict we already computed successfully
     // and are about to route on. Provenance is the most expendable thing here.
     routingConfigPromise = readRoutingConfig();
+    explorationRatePromise = readExplorationRate();
+  }
+  // WS7 bounded exploration — applied AFTER the verdict and BEFORE
+  // resolveModel, the only window where it can change which model serves the
+  // turn. Off by default (`provider:explorationRate` unset ⇒ 0), and it can
+  // never fire above a DECLARED tier or an explicit hint: `applyExploration`
+  // reads the verdict's own `reason` to enforce that, so the precedence lives
+  // in one place. Cache-anchor safe by construction — this whole branch only
+  // runs on a turn that arrived with NO model, i.e. at thread start.
+  if (routedTier && routingSignals && explorationRatePromise) {
+    const decision = applyExploration({
+      verdict: { tier: routedTier, reason: routingSignals.reason },
+      rate: await explorationRatePromise,
+      random: routingDeps?.random,
+    });
+    if (decision.exploration) {
+      // `signals.tier` deliberately KEEPS the classifier's verdict; the served
+      // tier goes out as `routedTier` (→ `usage.routedTier`). The pair is the
+      // counterfactual exploration exists to record — collapsing them would
+      // throw away the only unbiased comparison in the dataset.
+      log.info("routing exploration fired — serving one rung below the classifier's tier", {
+        classifierTier: routedTier,
+        servedTier: decision.tier,
+        reason: routingSignals.reason,
+      });
+      routedTier = decision.tier;
+      routingSignals = { ...routingSignals, exploration: true };
+    }
   }
   const r = await resolveModel(binding.provider, binding.model, routedTier);
-  const routingConfig = await routingConfigPromise;
+  // `withScorerVersion` returns the config untouched when no scorer decided —
+  // which is every turn today (the seam ships unwired).
+  const routingConfig = withScorerVersion(await routingConfigPromise, scorerVersion);
   // Effective tier for THIS turn (see SetupToolsResult.effectiveTier): a
   // pinned model carries its OWN tier so failover stays tier-peer; a routed
   // turn carries the classifier's tier, or the configured default when

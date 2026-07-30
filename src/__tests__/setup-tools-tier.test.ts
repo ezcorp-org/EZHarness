@@ -34,6 +34,11 @@ let manifestLookups: string[] = [];
 // WS5 provenance knobs: what the settings read returns, whether it blows up,
 // and which keys were actually read (proves the pinned path reads nothing).
 let preferenceOrder: unknown = ["anthropic", "openai"];
+// WS7 knobs: the stored exploration rate, and a manifest-declared tier (so the
+// "never explore a DECLARED tier" contract can be driven through the real
+// declaredTierForConversation path rather than a hand-set field).
+let explorationRate: unknown;
+let manifestTier: string | undefined;
 let getSettingShouldThrow = false;
 let settingReads: string[] = [];
 let getDefaultTierCalls = 0;
@@ -73,7 +78,9 @@ mock.module("../db/queries/settings", () => ({
   getSetting: async (key: string) => {
     settingReads.push(key);
     if (getSettingShouldThrow) throw new Error("settings table unavailable");
-    return key === "provider:preferenceOrder" ? preferenceOrder : undefined;
+    if (key === "provider:preferenceOrder") return preferenceOrder;
+    if (key === "provider:explorationRate") return explorationRate;
+    return undefined;
   },
 }));
 
@@ -83,7 +90,7 @@ mock.module("../extensions/registry", () => ({
       getManifest: (extId: string) => {
         manifestLookups.push(extId);
         if (getManifestShouldThrow) throw new Error("registry not ready");
-        return undefined;
+        return manifestTier ? { routing: { tier: manifestTier } } : undefined;
       },
     }),
   },
@@ -102,6 +109,8 @@ beforeEach(() => {
   getManifestShouldThrow = false;
   manifestLookups = [];
   preferenceOrder = ["anthropic", "openai"];
+  explorationRate = undefined;
+  manifestTier = undefined;
   getSettingShouldThrow = false;
   settingReads = [];
   getDefaultTierCalls = 0;
@@ -267,7 +276,9 @@ describe("resolveModelTierAndCredential — WS5 turn context + provenance", () =
       defaultTier: "powerful",
       preferenceOrderHash: preferenceOrderHash(["openai", "anthropic", "google"]),
     });
-    expect(settingReads).toEqual(["provider:preferenceOrder"]);
+    // WS7 adds the exploration-rate read to the routed path — the ONE extra
+    // settings SELECT the feature costs, and only on a routed turn.
+    expect(settingReads.sort()).toEqual(["provider:explorationRate", "provider:preferenceOrder"]);
     // The classifier's tier still won — routingConfig is provenance only.
     expect(result.effectiveTier).toBe("fast");
   });
@@ -391,5 +402,211 @@ describe("resolveModelTierAndCredential — WS5 turn context + provenance", () =
     expect(legacy.effectiveTier).toBe("fast");
     expect(legacy.effectiveTier).toBe(withContext.effectiveTier);
     expect(legacy.routingSignals).toEqual(withContext.routingSignals);
+  });
+});
+
+/**
+ * WS7 — bounded exploration at the routing seam.
+ *
+ * Exploration deliberately serves a WEAKER model than the classifier asked for,
+ * so every test here is a safety property:
+ *   1. OFF by default — an unset `provider:explorationRate` explores nothing and
+ *      leaves the routed tier byte-identical to the WS5 behaviour above.
+ *   2. When it fires, `routedTier` (→ resolveModel, → `usage.routedTier`) drops
+ *      one rung while `routingSignals.tier` KEEPS the classifier's verdict. That
+ *      pair is the counterfactual the whole feature exists to record.
+ *   3. It NEVER fires above a manifest-DECLARED tier (a correctness requirement)
+ *      or an explicit per-turn hint.
+ *   4. A pinned turn never even reads the setting, and a settings failure turns
+ *      exploration off rather than failing the turn.
+ *
+ * The randomness is injected, so nothing here samples.
+ */
+describe("resolveModelTierAndCredential — bounded exploration", () => {
+  const always = () => 0;
+  const never = () => 0.999999;
+
+  test("OFF by default: an unset rate explores nothing and never draws", async () => {
+    let draws = 0;
+    const result = await resolveModelTierAndCredential(
+      makeRun(),
+      "now fix it",
+      {},
+      null,
+      "conv-1",
+      { history: [{ role: TOOL_RESULT_ROLE, content: "tool output" }] },
+      {
+        random: () => {
+          draws += 1;
+          return 0;
+        },
+      },
+    );
+
+    expect(result.effectiveTier).toBe("powerful");
+    expect(result.routingSignals?.tier).toBe("powerful");
+    expect(result.routingSignals?.exploration).toBeUndefined();
+    expect(resolveModelArgs).toEqual([{ provider: undefined, model: undefined, tier: "powerful" }]);
+    expect(draws).toBe(0);
+  });
+
+  test("when it fires: the SERVED tier drops one rung, the classifier's verdict is kept", async () => {
+    explorationRate = 1;
+
+    const result = await resolveModelTierAndCredential(
+      makeRun(),
+      "now fix it",
+      {},
+      null,
+      "conv-1",
+      { history: [{ role: TOOL_RESULT_ROLE, content: "tool output" }] },
+      { random: always },
+    );
+
+    // Served one rung below `powerful` …
+    expect(resolveModelArgs).toEqual([{ provider: undefined, model: undefined, tier: "balanced" }]);
+    expect(result.effectiveTier).toBe("balanced");
+    // … while the stamped signals still say what the HEURISTIC wanted. Losing
+    // this would destroy the only unbiased comparison in the dataset.
+    expect(result.routingSignals?.tier).toBe("powerful");
+    expect(result.routingSignals?.reason).toBe("tool-messages");
+    expect(result.routingSignals?.exploration).toBe(true);
+  });
+
+  test("a lost draw leaves the turn exactly as it would have been", async () => {
+    explorationRate = 0.5;
+
+    const result = await resolveModelTierAndCredential(
+      makeRun(),
+      "now fix it",
+      {},
+      null,
+      "conv-1",
+      { history: [{ role: TOOL_RESULT_ROLE, content: "tool output" }] },
+      { random: never },
+    );
+
+    expect(resolveModelArgs).toEqual([{ provider: undefined, model: undefined, tier: "powerful" }]);
+    expect(result.routingSignals?.exploration).toBeUndefined();
+  });
+
+  test("NEVER above a manifest-DECLARED tier, even at rate 1", async () => {
+    explorationRate = 1;
+    manifestTier = "powerful";
+
+    const result = await resolveModelTierAndCredential(
+      makeRun(),
+      "hi",
+      {},
+      { extensionTools: { "ext-needs-power": ["tool-a"] } },
+      "conv-1",
+      undefined,
+      { random: always },
+    );
+
+    expect(manifestLookups).toEqual(["ext-needs-power"]);
+    expect(result.routingSignals?.reason).toBe("declared");
+    expect(result.routingSignals?.exploration).toBeUndefined();
+    expect(resolveModelArgs).toEqual([{ provider: undefined, model: undefined, tier: "powerful" }]);
+  });
+
+  test("NEVER against an explicit per-turn tier hint, even at rate 1", async () => {
+    explorationRate = 1;
+
+    const result = await resolveModelTierAndCredential(
+      makeRun(),
+      "hi",
+      { tier: "powerful" },
+      null,
+      "conv-1",
+      undefined,
+      { random: always },
+    );
+
+    expect(result.routingSignals?.reason).toBe("hint");
+    expect(result.routingSignals?.exploration).toBeUndefined();
+    expect(resolveModelArgs).toEqual([{ provider: undefined, model: undefined, tier: "powerful" }]);
+  });
+
+  test("the FAST tier is never explored — no cheaper rung exists", async () => {
+    explorationRate = 1;
+
+    const result = await resolveModelTierAndCredential(
+      makeRun(),
+      "hi",
+      {},
+      null,
+      "conv-1",
+      undefined,
+      { random: always },
+    );
+
+    expect(result.routingSignals?.tier).toBe("fast");
+    expect(result.routingSignals?.exploration).toBeUndefined();
+    expect(resolveModelArgs).toEqual([{ provider: undefined, model: undefined, tier: "fast" }]);
+  });
+
+  test("a PINNED turn never reads the exploration setting at all", async () => {
+    explorationRate = 1;
+
+    const result = await resolveModelTierAndCredential(
+      makeRun(),
+      "hi",
+      { provider: "anthropic", model: "my-opus-4" },
+      null,
+      "conv-1",
+      undefined,
+      { random: always },
+    );
+
+    expect(settingReads).toEqual([]);
+    expect(result.routingSignals).toBeUndefined();
+    expect(result.effectiveTier).toBe("powerful");
+  });
+
+  test("a settings failure turns exploration OFF rather than failing the turn", async () => {
+    explorationRate = 1;
+    getSettingShouldThrow = true;
+
+    const result = await resolveModelTierAndCredential(
+      makeRun(),
+      "now fix it",
+      {},
+      null,
+      "conv-1",
+      { history: [{ role: TOOL_RESULT_ROLE, content: "tool output" }] },
+      { random: always },
+    );
+
+    expect(result.routingSignals?.exploration).toBeUndefined();
+    expect(resolveModelArgs).toEqual([{ provider: undefined, model: undefined, tier: "powerful" }]);
+  });
+
+  test("an OUT-OF-RANGE rate (a 'percent' typo) explores nothing", async () => {
+    explorationRate = 100;
+
+    const result = await resolveModelTierAndCredential(
+      makeRun(),
+      "now fix it",
+      {},
+      null,
+      "conv-1",
+      { history: [{ role: TOOL_RESULT_ROLE, content: "tool output" }] },
+      { random: always },
+    );
+
+    expect(result.routingSignals?.exploration).toBeUndefined();
+    expect(resolveModelArgs).toEqual([{ provider: undefined, model: undefined, tier: "powerful" }]);
+  });
+
+  test("no scorer is wired, so routingConfig carries NO scorerVersion", async () => {
+    // The WS7 inference seam ships UNUSED: the fold-in point is exercised on
+    // every routed turn, and it must be a no-op until a scorer is injected.
+    const result = await resolveModelTierAndCredential(makeRun(), "hi", {}, null, "conv-1");
+    expect(result.routingConfig).toEqual({
+      defaultTier: "balanced",
+      preferenceOrderHash: preferenceOrderHash(["anthropic", "openai"]),
+    });
+    expect(result.routingConfig && "scorerVersion" in result.routingConfig).toBe(false);
   });
 });

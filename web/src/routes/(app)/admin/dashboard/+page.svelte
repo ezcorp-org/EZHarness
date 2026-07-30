@@ -36,6 +36,7 @@
 		turns: { total: number; routed: number; pinned: number; legacy: number };
 		routedShare: number;
 		tierMix: { tier: string; count: number }[];
+		exploration: { turns: number; rate: number };
 		failover: { count: number; rate: number };
 		switches: {
 			pairs: number; total: number; escalations: number; downgrades: number; lateral: number; rate: number;
@@ -794,6 +795,22 @@
 							<div class="stat-trend-muted">
 								{(routingData?.failover.count ?? 0).toLocaleString()} turn{(routingData?.failover.count ?? 0) === 1 ? "" : "s"}
 							</div>
+						</div>
+						<!-- Bounded exploration (WS7). Always rendered, never silent: an
+						     explored turn deliberately served a WEAKER model than the
+						     classifier asked for, so the operator who enabled that has to be
+						     able to see what it cost. Reads "off" rather than a bare 0 when the
+						     setting is unset, so nothing is mistaken for a failure. -->
+						<div class="stat-card" data-testid="routing-exploration">
+							<div class="stat-value">{(routingData?.exploration.turns ?? 0).toLocaleString()}</div>
+							<div class="stat-label">Turns Explored</div>
+							{#if (routingData?.exploration.turns ?? 0) > 0}
+								<div class="stat-trend-muted">
+									{formatPct(routingData?.exploration.rate ?? 0)} of routed turns, served one tier down
+								</div>
+							{:else}
+								<div class="stat-trend-muted">Exploration off &mdash; no turn traded quality for data</div>
+							{/if}
 						</div>
 						<div class="stat-card" data-testid="routing-usd-per-conversation">
 							{#if routingData?.spend.usdPerConversation !== null && routingData?.spend.usdPerConversation !== undefined}
