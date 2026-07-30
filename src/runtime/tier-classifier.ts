@@ -230,14 +230,20 @@ export interface TierScore {
   confidence: number;
 }
 
+/** The scoring call itself. Spelled as a standalone function type rather than a
+ *  call signature INSIDE `TierScorer` on purpose: a call-signature member is
+ *  type-only, but some coverage shards still emit a phantom zero-hit lcov line
+ *  for it, which no test can ever cover and which fails the 100% gate on this
+ *  file. A plain arrow type erases cleanly on every shard. */
+export type TierScoreFn = (input: TierClassifierInput) => TierScore | undefined;
+
 /** A pluggable tier scorer. Callable, plus an optional `version` that is
  *  stamped into `usage.routingConfig.scorerVersion` so "why did this cost more
  *  yesterday" stays answerable across scorer rollouts. */
-export interface TierScorer {
-  (input: TierClassifierInput): TierScore | undefined;
+export type TierScorer = TierScoreFn & {
   /** Stable identifier for the scorer build (e.g. `"router-v3"`). */
   version?: string;
-}
+};
 
 /**
  * Estimated total input tokens for the turn: prompt + history + system text
