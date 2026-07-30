@@ -888,6 +888,11 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 		if (path.match(/^\/api\/settings\//) && method === "PUT") {
 			return route.fulfill({ json: { ok: true } });
 		}
+		// A key whose ABSENCE is its off state (`provider:routingShadow`) is
+		// turned off by deleting the row, so the editor issues a DELETE.
+		if (path.match(/^\/api\/settings\//) && method === "DELETE") {
+			return route.fulfill({ json: { ok: true } });
+		}
 		// Developer API keys — ApiKeyManager.svelte reads `data.keys` and
 		// dereferences `.length` on the result, so the fallback `{}` body
 		// would trigger a runtime TypeError that propagates up Svelte's

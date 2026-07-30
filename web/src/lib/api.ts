@@ -204,6 +204,14 @@ export async function upsertSetting(key: string, value: unknown): Promise<void> 
 	await checkResponse(res);
 }
 
+/** Remove a setting row entirely. For keys whose ABSENCE is the off state
+ *  (`provider:routingShadow`), this is the only way to turn them off — the
+ *  write route validates the value and has no "off" it would accept. */
+export async function deleteSetting(key: string): Promise<void> {
+	const res = await fetch(`${BASE}/api/settings/${key}`, { method: "DELETE" });
+	await checkResponse(res);
+}
+
 // ── Providers ───────────────────────────────────────────────────────
 
 export interface ProviderStatus {
