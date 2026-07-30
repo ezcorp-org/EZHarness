@@ -2,7 +2,9 @@ import { test, expect, describe } from "bun:test";
 import {
   computeTurnCacheStats,
   aggregateCacheStats,
+  priceSegment,
   type CacheTurnInput,
+  type ModelPrices,
 } from "../runtime/usage/cache-stats";
 
 describe("computeTurnCacheStats", () => {
@@ -145,5 +147,163 @@ describe("aggregateCacheStats", () => {
     // Overall roll-up carries the 1h subset too.
     expect(agg.overall.cacheWrite1hTokens).toBe(150);
     expect(agg.overall.cacheWrite).toBe(930);
+  });
+});
+
+describe("priceSegment", () => {
+  // Real claude-sonnet-4-5 rates from pi-ai's catalog, USD per 1M tokens.
+  const SONNET: ModelPrices = { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 };
+  // Real gpt-5.5 rates: cache writes are FREE on OpenAI (a legitimate 0 rate).
+  const GPT: ModelPrices = { input: 5, output: 30, cacheRead: 0.5, cacheWrite: 0 };
+  // How an OAuth-subscription model arrives (registry.ts LOCAL_OAUTH_OVERRIDES).
+  const OAUTH: ModelPrices = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+
+  test("prices each bucket at its USD-per-1M rate", () => {
+    // Exactly 1M tokens in every bucket → each line equals its rate.
+    const c = priceSegment(
+      { input: 1_000_000, output: 1_000_000, cacheRead: 1_000_000, cacheWrite: 1_000_000 },
+      SONNET,
+    )!;
+    expect(c.input).toBeCloseTo(3, 10);
+    expect(c.output).toBeCloseTo(15, 10);
+    expect(c.cacheRead).toBeCloseTo(0.3, 10);
+    expect(c.cacheWrite).toBeCloseTo(3.75, 10);
+    expect(c.total).toBeCloseTo(3 + 15 + 0.3 + 3.75, 10);
+  });
+
+  test("sub-million token counts scale linearly", () => {
+    // 250k input @ $3/1M = $0.75 ; 40k output @ $15/1M = $0.60 ;
+    // 800k cacheRead @ $0.30/1M = $0.24.
+    const c = priceSegment({ input: 250_000, output: 40_000, cacheRead: 800_000, cacheWrite: 0 }, SONNET)!;
+    expect(c.input).toBeCloseTo(0.75, 10);
+    expect(c.output).toBeCloseTo(0.6, 10);
+    expect(c.cacheRead).toBeCloseTo(0.24, 10);
+    expect(c.cacheWrite).toBe(0);
+    expect(c.total).toBeCloseTo(1.59, 10);
+  });
+
+  test("the 1h-retention write share bills at 2x BASE INPUT, not the 5m write rate", () => {
+    // 1M written, 400k of it at 1h retention. Split:
+    //   600k at the 5m rate  $3.75/1M = $2.25
+    //   400k at 2x input     $6.00/1M = $2.40
+    const c = priceSegment(
+      { input: 0, output: 0, cacheRead: 0, cacheWrite: 1_000_000, cacheWrite1h: 400_000 },
+      SONNET,
+    )!;
+    expect(c.cacheWrite1h).toBeCloseTo(2.4, 10);
+    // The premium line is exactly tokens x 2 x input rate.
+    expect(c.cacheWrite1h).toBeCloseTo((400_000 * 2 * SONNET.input) / 1_000_000, 10);
+    expect(c.cacheWrite).toBeCloseTo(2.25 + 2.4, 10);
+    // 2x input ($6) beats the 5m write rate ($3.75), so the same tokens cost
+    // MORE than they would without the 1h split — that is the premium.
+    const flat = priceSegment({ input: 0, output: 0, cacheRead: 0, cacheWrite: 1_000_000 }, SONNET)!;
+    expect(flat.cacheWrite).toBeCloseTo(3.75, 10);
+    expect(c.cacheWrite).toBeGreaterThan(flat.cacheWrite);
+  });
+
+  test("the 1h line is a SUBSET of cacheWrite and is never added into total twice", () => {
+    const c = priceSegment(
+      { input: 100_000, output: 20_000, cacheRead: 500_000, cacheWrite: 900_000, cacheWrite1h: 900_000 },
+      SONNET,
+    )!;
+    // All 900k written at 1h → the write line IS the 1h line.
+    expect(c.cacheWrite1h).toBeCloseTo(c.cacheWrite, 10);
+    expect(c.cacheWrite1h).toBeCloseTo((900_000 * 6) / 1_000_000, 10);
+    expect(c.total).toBeCloseTo(c.input + c.output + c.cacheRead + c.cacheWrite, 10);
+  });
+
+  test("missing cacheWrite1h (non-Anthropic providers) prices the whole write at the base rate", () => {
+    const c = priceSegment({ input: 0, output: 0, cacheRead: 0, cacheWrite: 800_000 }, SONNET)!;
+    expect(c.cacheWrite1h).toBe(0);
+    expect(c.cacheWrite).toBeCloseTo(3, 10);
+  });
+
+  test("cacheWrite1h larger than cacheWrite (malformed usage) is clamped, never over-billed", () => {
+    // 1h subset reported as 5M against a 1M write — bill 1M at 2x input ($6/1M),
+    // and never a negative remainder at the 5m rate.
+    const c = priceSegment(
+      { input: 0, output: 0, cacheRead: 0, cacheWrite: 1_000_000, cacheWrite1h: 5_000_000 },
+      SONNET,
+    )!;
+    expect(c.cacheWrite1h).toBeCloseTo(6, 10);
+    expect(c.cacheWrite).toBeCloseTo(6, 10);
+    expect(c.total).toBeCloseTo(6, 10);
+  });
+
+  test("UNPRICED (OAuth subscription, all-zero rates) returns null, NOT a $0.00 cost", () => {
+    const busy = { input: 500_000, output: 100_000, cacheRead: 900_000, cacheWrite: 200_000 };
+    // Hard requirement: a rate-limited subscription model must be reported as
+    // "no price known" so the caller renders tokens, not a fabricated $0.00.
+    expect(priceSegment(busy, OAUTH)).toBeNull();
+    // Contrast: the SAME tokens on a priced model do produce a real figure.
+    expect(priceSegment(busy, SONNET)!.total).toBeGreaterThan(0);
+  });
+
+  test("absent prices (unknown model) returns null", () => {
+    expect(priceSegment({ input: 10, output: 10, cacheRead: 0, cacheWrite: 0 }, undefined)).toBeNull();
+  });
+
+  test("non-finite rates are unpriced, not NaN dollars", () => {
+    const garbage: ModelPrices = {
+      input: Number.NaN,
+      output: Number.NaN,
+      cacheRead: Number.NaN,
+      cacheWrite: Number.NaN,
+    };
+    expect(priceSegment({ input: 1_000, output: 1_000, cacheRead: 0, cacheWrite: 0 }, garbage)).toBeNull();
+  });
+
+  test("a zero-TOKEN segment on a PRICED model costs a real $0 (that zero is data)", () => {
+    const c = priceSegment({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, SONNET);
+    expect(c).not.toBeNull();
+    expect(c!.total).toBe(0);
+    expect(c!.cacheWrite1h).toBe(0);
+  });
+
+  test("a single zero rate does not make a model unpriced (OpenAI cache writes are free)", () => {
+    const c = priceSegment(
+      { input: 200_000, output: 50_000, cacheRead: 1_000_000, cacheWrite: 400_000 },
+      GPT,
+    )!;
+    // 200k @ $5 = $1.00 ; 50k @ $30 = $1.50 ; 1M @ $0.50 = $0.50 ; writes free.
+    expect(c.input).toBeCloseTo(1, 10);
+    expect(c.output).toBeCloseTo(1.5, 10);
+    expect(c.cacheRead).toBeCloseTo(0.5, 10);
+    expect(c.cacheWrite).toBe(0);
+    expect(c.total).toBeCloseTo(3, 10);
+  });
+
+  test("non-finite token counts coerce to 0 instead of poisoning the total", () => {
+    const c = priceSegment(
+      {
+        input: Number.NaN,
+        output: 1_000_000,
+        cacheRead: Number.POSITIVE_INFINITY,
+        cacheWrite: Number.NaN,
+      },
+      SONNET,
+    )!;
+    expect(c.input).toBe(0);
+    expect(c.cacheRead).toBe(0);
+    expect(c.cacheWrite).toBe(0);
+    expect(c.output).toBeCloseTo(15, 10);
+    expect(c.total).toBeCloseTo(15, 10);
+  });
+
+  test("prices an aggregated CacheSegment and the overall roll-up", () => {
+    const turns: CacheTurnInput[] = [
+      { provider: "anthropic", model: "claude-sonnet-4-5", input: 1_000_000, output: 0, cacheRead: 0, cacheWrite: 0 },
+      { provider: "anthropic", model: "claude-sonnet-4-5", input: 0, output: 1_000_000, cacheRead: 0, cacheWrite: 0 },
+      { provider: "openai", model: "gpt-5.5", input: 1_000_000, output: 0, cacheRead: 0, cacheWrite: 0 },
+    ];
+    const agg = aggregateCacheStats(turns);
+    const anthropic = priceSegment(agg.segments.find((s) => s.provider === "anthropic")!, SONNET)!;
+    const openai = priceSegment(agg.segments.find((s) => s.provider === "openai")!, GPT)!;
+    expect(anthropic.total).toBeCloseTo(3 + 15, 10);
+    expect(openai.total).toBeCloseTo(5, 10);
+    // The overall roll-up spans two models, so it can only be priced against
+    // one rate table — here Sonnet's: 2M input + 1M output.
+    const overall = priceSegment(agg.overall, SONNET)!;
+    expect(overall.total).toBeCloseTo(6 + 15, 10);
   });
 });
