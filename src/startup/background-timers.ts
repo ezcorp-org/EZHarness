@@ -9,6 +9,7 @@ import { WebhookDeliveryDaemon } from "../extensions/webhook-delivery-daemon";
 import { ExtensionRegistry } from "../extensions/registry";
 import { BriefingDaemon } from "../runtime/briefing/daemon";
 import { HostMaintenanceDaemon } from "../extensions/host-maintenance-daemon";
+import { WorkflowRunner } from "../runtime/workflow-runner";
 import { EmbedWorker } from "../extensions/embed-worker";
 import { FileOrganizerDaemon, DEFAULT_SETTINGS, mergeFileOrganizerSettings, type FileOrganizerSettings } from "../extensions/file-organizer-daemon";
 import { getGithubProjectsDaemon, reconcileOrphanedProposals } from "../integrations/github-projects/daemon";
@@ -29,6 +30,7 @@ let scheduleDaemon: ScheduleDaemon | undefined;
 let webhookDeliveryDaemon: WebhookDeliveryDaemon | undefined;
 let briefingDaemon: BriefingDaemon | undefined;
 let permSweepDaemon: HostMaintenanceDaemon | undefined;
+let workflowRunner: WorkflowRunner | undefined;
 let embedWorker: EmbedWorker | undefined;
 let previewPortWatcher: PreviewPortWatcher | undefined;
 let fileOrganizerDaemon: FileOrganizerDaemon | undefined;
@@ -57,6 +59,12 @@ export function _getScheduleDaemonForTests(): ScheduleDaemon | undefined {
  *  `_getScheduleDaemonForTests`. */
 export function _getWebhookDeliveryDaemonForTests(): WebhookDeliveryDaemon | undefined {
   return webhookDeliveryDaemon;
+}
+
+/** Test-only handle to the workflow-runner singleton. Mirror of
+ *  `_getScheduleDaemonForTests`. */
+export function _getWorkflowRunnerForTests(): WorkflowRunner | undefined {
+  return workflowRunner;
 }
 
 /** Test-only handle to the briefing-daemon singleton — mirrors
@@ -239,6 +247,41 @@ export async function startBackgroundTimers(): Promise<void> {
     }
   } catch (e) {
     log.warn("Failed to start ScheduleDaemon", { error: String(e) });
+  }
+
+  // C4: WorkflowRunner — resumes workflow runs parked at an `approval`
+  // step. No registry argument: it reaches the live executor + workflow
+  // cache through `workflow/runtime-registry`, which the web layer
+  // populates at init (`src/` may not import the web layer). Before that
+  // registration lands its ticks are no-ops, so boot order is not a
+  // constraint. Gated by `EZCORP_DISABLE_WORKFLOW_RUNNER=1`.
+  //
+  // Like ScheduleDaemon it holds a PID lockfile, so `start()` can refuse
+  // and the singleton must be cleared on refusal — otherwise
+  // `stopBackgroundTimers` would later release a lockfile this process
+  // never owned and hand back claims belonging to the live sibling.
+  try {
+    if (process.env.EZCORP_DISABLE_WORKFLOW_RUNNER !== "1") {
+      workflowRunner = new WorkflowRunner();
+      const ok = await workflowRunner.start();
+      if (ok) {
+        log.info("WorkflowRunner started");
+      } else {
+        log.warn("WorkflowRunner refused to start (sibling daemon detected via lockfile)");
+        workflowRunner = undefined;
+      }
+    } else {
+      log.info("WorkflowRunner disabled via EZCORP_DISABLE_WORKFLOW_RUNNER");
+    }
+  } catch (e) {
+    // Drop the handle, exactly as the refusal branch does. A daemon whose
+    // `start()` threw is not running, and keeping the reference would let
+    // `stopBackgroundTimers` call `stop()` on it — handing back claims and
+    // unlinking a lockfile this process may never have owned.
+    // `WorkflowRunner.start()` releases its own lockfile before throwing,
+    // so there is nothing left here to clean up.
+    workflowRunner = undefined;
+    log.warn("Failed to start WorkflowRunner", { error: String(e) });
   }
 
   // Loops EZ Mode Phase 4: WebhookDeliveryDaemon — drains the durable
@@ -615,6 +658,19 @@ export async function stopBackgroundTimers(): Promise<void> {
     }
     scheduleDaemon = undefined;
   }
+  if (workflowRunner) {
+    try {
+      // AWAITED, unlike its siblings: this `stop()` hands every claim back
+      // to `suspended` so another instance can pick the runs up at once.
+      // Letting shutdown race that write would leave them held by an
+      // instance that no longer exists until the lease expired — the
+      // rolling-restart stall the release exists to prevent.
+      await workflowRunner.stop();
+    } catch (e) {
+      log.warn("WorkflowRunner.stop() failed", { error: String(e) });
+    }
+    workflowRunner = undefined;
+  }
   if (webhookDeliveryDaemon) {
     try {
       webhookDeliveryDaemon.stop();
@@ -683,6 +739,12 @@ export function _resetForTests(): void {
   if (scheduleDaemon) {
     scheduleDaemon.stop();
     scheduleDaemon = undefined;
+  }
+  if (workflowRunner) {
+    // Fire-and-forget: this reset is sync by contract, and the claim
+    // release is best-effort (the lease is the backstop).
+    void workflowRunner.stop();
+    workflowRunner = undefined;
   }
   if (webhookDeliveryDaemon) {
     webhookDeliveryDaemon.stop();

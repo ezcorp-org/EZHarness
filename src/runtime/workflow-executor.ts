@@ -307,6 +307,10 @@ export class WorkflowExecutor {
   /**
    * Continue a parked run from its recorded cursor.
    *
+   * Callers holding a `workflow_runs` row should build the second argument
+   * with {@link resumeArgsFromRow} rather than by hand — see its comment
+   * for why.
+   *
    * The caller supplies the definition (the executor has no registry of
    * its own), which is also what makes drift detectable: the run recorded
    * a hash of the graph it was authorized against, and a definition that
@@ -1475,4 +1479,43 @@ function errorText(result: AgentResult): string {
   if (typeof result.error === "string") return result.error;
   if (result.error) return result.error.message;
   return "unknown error";
+}
+
+/**
+ * The exact second argument {@link WorkflowExecutor.resumeWorkflow} wants,
+ * projected from a `workflow_runs` row.
+ *
+ * Exists because there are two resume callers — `answerApproval` and the
+ * `WorkflowRunner` daemon — and this projection was being written out by
+ * hand at each. That is a shape whose owner is the executor, so a column
+ * the resume path starts depending on (C6's `definition_version_id` is the
+ * next one) would otherwise have to be remembered at every call site, and
+ * missing one is silent: the run resumes with that field `undefined`
+ * rather than failing. One projection, one place to update.
+ *
+ * Typed off the parameter itself, so widening `resumeWorkflow` makes the
+ * MAPPER the compile error instead of leaving callers quietly short.
+ */
+export function resumeArgsFromRow(row: {
+  id: string;
+  workflowName: string;
+  status: string;
+  input: Record<string, unknown> | null;
+  cursor: WorkflowCursor | null;
+  definitionHash: string | null;
+  projectId?: string | null;
+  userId?: string | null;
+  startedAt: Date;
+}): Parameters<WorkflowExecutor["resumeWorkflow"]>[1] {
+  return {
+    id: row.id,
+    workflowName: row.workflowName,
+    status: row.status,
+    input: row.input,
+    cursor: row.cursor,
+    definitionHash: row.definitionHash,
+    projectId: row.projectId,
+    userId: row.userId,
+    startedAt: row.startedAt,
+  };
 }

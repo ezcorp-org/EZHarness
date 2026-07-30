@@ -369,6 +369,23 @@ export async function terminalizeOrphanedWorkflowRuns(
   now: Date = new Date(),
 ): Promise<number> {
   const atBoundary = sql`${workflowRuns.runPhase} = 'boundary'`;
+  // Hoisted out of the `result` CASE below, and each fragment kept to ONE
+  // line. Both halves are deliberate.
+  //
+  // Hoisting is readability: the inline version was a 14-line SQL string
+  // wrapped around three interpolations.
+  //
+  // One line each is the tooling: bun's line coverage attributes a
+  // multi-line template only to the lines carrying its interpolations, so
+  // every other line of it reports as uncovered while its own neighbours in
+  // the same template report hundreds of hits. Wrapping these for prettiness
+  // silently costs coverage on a file held at 100%. Same family as the
+  // `gate-integrity.ts` `stripNoise` workaround (hoisting row shapes to
+  // named type aliases) — see `2026-07-29-tooling-defects.md`.
+  const inFlightNames = sql`SELECT string_agg(s.step_name, ', ' ORDER BY s.step_name) FROM workflow_step_runs s WHERE s.workflow_run_id = ${workflowRuns.id} AND s.status = 'running'`;
+  const stepsInFlight = sql`COALESCE((${inFlightNames}), 'unknown')`;
+  const orphanedBatchIndex = sql`COALESCE(${workflowRuns.cursor} ->> 'batchIndex', '0')`;
+  const midBatchError = sql`'Workflow run orphaned mid-batch (batch ' || ${orphanedBatchIndex} || ', steps in flight: ' || ${stepsInFlight} || '): a restart cannot safely re-enter a half-executed step'`;
   const rows = await getDb()
     .update(workflowRuns)
     .set({
@@ -383,19 +400,7 @@ export async function terminalizeOrphanedWorkflowRuns(
       // names the batch index and the steps that were in flight so the
       // operator can retry from the right place. A boundary run keeps
       // whatever result it had — it is going to continue, not end.
-      result: sql`CASE WHEN ${atBoundary} THEN ${workflowRuns.result} ELSE jsonb_build_object(
-        'success', FALSE,
-        'output', NULL,
-        'error', 'Workflow run orphaned mid-batch (batch '
-          || COALESCE(${workflowRuns.cursor} ->> 'batchIndex', '0')
-          || ', steps in flight: '
-          || COALESCE((
-               SELECT string_agg(s.step_name, ', ' ORDER BY s.step_name)
-                 FROM workflow_step_runs s
-                WHERE s.workflow_run_id = ${workflowRuns.id} AND s.status = 'running'
-             ), 'unknown')
-          || '): a restart cannot safely re-enter a half-executed step'
-      ) END`,
+      result: sql`CASE WHEN ${atBoundary} THEN ${workflowRuns.result} ELSE jsonb_build_object('success', FALSE, 'output', NULL, 'error', ${midBatchError}) END`,
       // The owner is gone either way; leaving a stale claim would stop
       // the daemon ever picking up the resumable ones.
       claimedBy: null,
@@ -440,4 +445,153 @@ export async function listWorkflowStepRunRows(
     .select()
     .from(workflowStepRuns)
     .where(eq(workflowStepRuns.workflowRunId, workflowRunId));
+}
+
+// ── Claim / lease: the WorkflowRunner daemon's half of `workflow_runs` ──
+//
+// Grouped here rather than in the daemon because they are writes to this
+// table and this module is its one home (see the header). The daemon owns
+// the POLICY — how often, how many at once, what to do on a lost race —
+// and none of the SQL.
+
+/**
+ * Lease duration. 60s, renewed every {@link WORKFLOW_LEASE_RENEW_MS} while
+ * a claim is held.
+ *
+ * The lease detects a **dead process**, not a slow step: the heartbeat is
+ * per *daemon*, so a 30-minute agent step keeps its claim for as long as
+ * the daemon renewing it is alive. Sizing it to step duration instead
+ * would make every long step look like a crash.
+ */
+export const WORKFLOW_LEASE_MS = 60_000;
+
+/** Renew at a third of the lease, so two consecutive misses are survivable. */
+export const WORKFLOW_LEASE_RENEW_MS = 20_000;
+
+/**
+ * Suspended runs this instance may attempt to claim: unheld, or held on a
+ * lease that has expired (the holder died).
+ *
+ * Deliberately NOT filtered on `resumable`. That flag is the recovery
+ * sweep's verdict on a **crashed** run; a deliberately parked run is
+ * resumable by construction and never carries it — see
+ * {@link suspendWorkflowRun}. Filtering on it here would make the daemon
+ * ignore every approval-parked run, which is the entire population it
+ * exists to serve.
+ *
+ * Served by `idx_workflow_runs_claimable` on
+ * `(status, lease_expires_at) WHERE status IN ('running','suspended')`.
+ */
+export async function listClaimableWorkflowRuns(
+  now: Date,
+  limit: number,
+): Promise<Array<{ id: string; workflowName: string; projectId: string | null }>> {
+  return getDb()
+    .select({
+      id: workflowRuns.id,
+      workflowName: workflowRuns.workflowName,
+      projectId: workflowRuns.projectId,
+    })
+    .from(workflowRuns)
+    .where(
+      and(
+        eq(workflowRuns.status, "suspended"),
+        or(isNull(workflowRuns.claimedBy), lt(workflowRuns.leaseExpiresAt, now)),
+      ),
+    )
+    .limit(limit);
+}
+
+/**
+ * Claim one suspended run. Returns true iff this caller won it.
+ *
+ * A compare-and-swap, never `FOR UPDATE SKIP LOCKED` — PGlite does not
+ * honor that identically, and this has to behave the same on both drivers
+ * (the multi-instance / external-Postgres topology is the whole reason the
+ * lease exists). Of N instances racing one row exactly one UPDATE matches;
+ * the losers match zero rows and skip.
+ *
+ * Winning the CAS **is** the `suspended → running` transition, so the
+ * claim and the state change are one atomic act: there is no window in
+ * which two workers both believe they own the run. `run_phase` is left
+ * alone — the cursor decides where to resume, and rewriting the phase here
+ * would discard the sweep's reading of how the previous attempt ended.
+ */
+export async function claimWorkflowRun(opts: {
+  workflowRunId: string;
+  claimedBy: string;
+  now: Date;
+  leaseMs?: number;
+}): Promise<boolean> {
+  const rows = await getDb()
+    .update(workflowRuns)
+    .set({
+      status: "running",
+      claimedBy: opts.claimedBy,
+      leaseExpiresAt: new Date(opts.now.getTime() + (opts.leaseMs ?? WORKFLOW_LEASE_MS)),
+    })
+    .where(
+      and(
+        eq(workflowRuns.id, opts.workflowRunId),
+        eq(workflowRuns.status, "suspended"),
+        or(isNull(workflowRuns.claimedBy), lt(workflowRuns.leaseExpiresAt, opts.now)),
+      ),
+    )
+    .returning({ id: workflowRuns.id });
+  return rows.length === 1;
+}
+
+/**
+ * Push every live claim this instance holds forward by one lease.
+ *
+ * Scoped to `claimed_by = $me` AND `status = 'running'`: a run this
+ * instance parked or finished must not be dragged back under lease, and a
+ * run another instance legitimately reclaimed after our lease lapsed is
+ * no longer ours to renew.
+ *
+ * Returns the number of claims renewed.
+ */
+export async function renewWorkflowRunLeases(
+  claimedBy: string,
+  now: Date,
+  leaseMs: number = WORKFLOW_LEASE_MS,
+): Promise<number> {
+  const rows = await getDb()
+    .update(workflowRuns)
+    .set({ leaseExpiresAt: new Date(now.getTime() + leaseMs) })
+    .where(and(eq(workflowRuns.claimedBy, claimedBy), eq(workflowRuns.status, "running")))
+    .returning({ id: workflowRuns.id });
+  return rows.length;
+}
+
+/**
+ * Hand back every claim this instance holds, returning those runs to
+ * `suspended` so a sibling can pick them up immediately.
+ *
+ * Called on graceful shutdown. Waiting out the lease instead would stall
+ * every parked run for a full lease period on every rolling restart —
+ * this is the one place this daemon is deliberately better than the
+ * schedule daemon it is modelled on.
+ *
+ * Only runs still at a **boundary** are released: `run_phase='in-batch'`
+ * means a batch was dispatched and may have applied side effects, so the
+ * recovery sweep — which is the component that owns that judgement — must
+ * be the one to decide its fate. Releasing it here would invite a second
+ * process to re-execute it.
+ *
+ * Returns the number of claims released.
+ */
+export async function releaseWorkflowRunClaims(claimedBy: string): Promise<number> {
+  const rows = await getDb()
+    .update(workflowRuns)
+    .set({ status: "suspended", claimedBy: null, leaseExpiresAt: null })
+    .where(
+      and(
+        eq(workflowRuns.claimedBy, claimedBy),
+        eq(workflowRuns.status, "running"),
+        eq(workflowRuns.runPhase, "boundary"),
+      ),
+    )
+    .returning({ id: workflowRuns.id });
+  return rows.length;
 }

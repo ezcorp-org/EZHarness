@@ -43,6 +43,9 @@ let lastBriefingDaemonInstance: object | undefined;
 let webhookDaemonCtorMock = mock(() => {});
 let webhookDaemonStopMock = mock(() => {});
 let lastWebhookDaemonInstance: object | undefined;
+let workflowRunnerCtorMock = mock(() => {});
+let workflowRunnerStopMock = mock(() => {});
+let workflowRunnerStartResult: (() => Promise<boolean>) | undefined;
 
 // Phase 1 (schedule-fire delivery fix): the ScheduleDaemon stub captures the
 // ctor OPTIONS so a test can assert the bootstrap passes the registry
@@ -234,6 +237,25 @@ function installModuleMocks(): void {
       }
       start() { return Promise.resolve(true); }
       stop() {}
+    },
+  }));
+  // C4: stub the WorkflowRunner. Same rationale as the ScheduleDaemon stub,
+  // doubled — the real daemon arms TWO intervals (the wake loop and the
+  // lease heartbeat), so leaving it real breaks every `intervalCalls`
+  // length assertion in this file. Its own coverage is
+  // src/__tests__/workflow-runner.test.ts.
+  mock.module("../runtime/workflow-runner", () => ({
+    WorkflowRunner: class {
+      constructor() {
+        workflowRunnerCtorMock();
+      }
+      start() {
+        return workflowRunnerStartResult ? workflowRunnerStartResult() : Promise.resolve(true);
+      }
+      stop() {
+        workflowRunnerStopMock();
+        return Promise.resolve();
+      }
     },
   }));
   // Loops EZ Mode Phase 4: stub the WebhookDeliveryDaemon (same rationale as
@@ -497,6 +519,9 @@ beforeEach(async () => {
   lastBriefingDaemonInstance = undefined;
   webhookDaemonCtorMock = mock(() => {});
   webhookDaemonStopMock = mock(() => {});
+  workflowRunnerCtorMock = mock(() => {});
+  workflowRunnerStopMock = mock(() => {});
+  workflowRunnerStartResult = undefined;
   lastWebhookDaemonInstance = undefined;
   scheduleDaemonCtorMock = mock((_opts?: unknown) => {});
   lastScheduleDaemonOpts = undefined;
@@ -689,6 +714,103 @@ describe("startBackgroundTimers — ScheduleDaemon registry wiring", () => {
     await startBackgroundTimers();
 
     expect(scheduleDaemonCtorMock).not.toHaveBeenCalled();
+  });
+});
+
+// C4 — bootstrap wiring for WorkflowRunner. Mirrors the ScheduleDaemon
+// block: constructed + started + exposed, the kill-switch env gate, and the
+// two fail-safe branches (start() resolving false; start() rejecting).
+//
+// The refusal branch carries the load-bearing assertion: a daemon that
+// refused the lockfile must be DROPPED, because `stopBackgroundTimers`
+// would otherwise call `stop()` on it and hand back claims — and delete a
+// lockfile — belonging to the live sibling that actually owns them.
+describe("startBackgroundTimers — WorkflowRunner bootstrap", () => {
+  const PRIOR = process.env.EZCORP_DISABLE_WORKFLOW_RUNNER;
+  afterEach(() => {
+    if (PRIOR === undefined) delete process.env.EZCORP_DISABLE_WORKFLOW_RUNNER;
+    else process.env.EZCORP_DISABLE_WORKFLOW_RUNNER = PRIOR;
+  });
+
+  test("constructed, started, exposed — and arms no interval of its own here", async () => {
+    delete process.env.EZCORP_DISABLE_WORKFLOW_RUNNER;
+    installModuleMocks();
+
+    const { startBackgroundTimers, _getWorkflowRunnerForTests } = await import(
+      "../startup/background-timers"
+    );
+    await startBackgroundTimers();
+
+    expect(workflowRunnerCtorMock).toHaveBeenCalledTimes(1);
+    expect(_getWorkflowRunnerForTests()).toBeDefined();
+    // The stub arms none; this pins that the assertion above is about
+    // wiring, not about the real daemon's two timers leaking in.
+    expect(intervalCalls).toHaveLength(4);
+  });
+
+  test("EZCORP_DISABLE_WORKFLOW_RUNNER=1 kill switch: never constructed", async () => {
+    process.env.EZCORP_DISABLE_WORKFLOW_RUNNER = "1";
+    installModuleMocks();
+
+    const { startBackgroundTimers, _getWorkflowRunnerForTests } = await import(
+      "../startup/background-timers"
+    );
+    await startBackgroundTimers();
+
+    expect(workflowRunnerCtorMock).not.toHaveBeenCalled();
+    expect(_getWorkflowRunnerForTests()).toBeUndefined();
+  });
+
+  test("start() resolving false: the handle is DROPPED, rest of boot ran", async () => {
+    delete process.env.EZCORP_DISABLE_WORKFLOW_RUNNER;
+    installModuleMocks();
+    workflowRunnerStartResult = () => Promise.resolve(false);
+
+    const { startBackgroundTimers, _getWorkflowRunnerForTests, stopBackgroundTimers } =
+      await import("../startup/background-timers");
+    await startBackgroundTimers();
+
+    expect(workflowRunnerCtorMock).toHaveBeenCalledTimes(1);
+    // Dropped — see the block comment. This is the property, not the log.
+    expect(_getWorkflowRunnerForTests()).toBeUndefined();
+    expect(intervalCalls).toHaveLength(4);
+
+    // And because it was dropped, shutdown must not call stop() on it:
+    // that would release the live sibling's claims and unlink its lockfile.
+    await stopBackgroundTimers();
+    expect(workflowRunnerStopMock).not.toHaveBeenCalled();
+  });
+
+  test("start() rejecting: handle dropped, no exception bubbles, boot continues", async () => {
+    delete process.env.EZCORP_DISABLE_WORKFLOW_RUNNER;
+    installModuleMocks();
+    workflowRunnerStartResult = () => Promise.reject(new Error("lockfile io blew up"));
+
+    const { startBackgroundTimers, _getWorkflowRunnerForTests } = await import(
+      "../startup/background-timers"
+    );
+    // Must not throw: one daemon failing to start cannot take the whole
+    // boot — and every other timer down — with it.
+    await startBackgroundTimers();
+
+    expect(_getWorkflowRunnerForTests()).toBeUndefined();
+    expect(intervalCalls).toHaveLength(4);
+  });
+
+  test("stopBackgroundTimers AWAITS the runner's stop and clears the handle", async () => {
+    delete process.env.EZCORP_DISABLE_WORKFLOW_RUNNER;
+    installModuleMocks();
+
+    const { startBackgroundTimers, stopBackgroundTimers, _getWorkflowRunnerForTests } =
+      await import("../startup/background-timers");
+    await startBackgroundTimers();
+    await stopBackgroundTimers();
+
+    // `stop()` hands every claim back to `suspended`; letting shutdown race
+    // that write leaves parked runs held by a process that no longer exists
+    // until the lease lapses.
+    expect(workflowRunnerStopMock).toHaveBeenCalledTimes(1);
+    expect(_getWorkflowRunnerForTests()).toBeUndefined();
   });
 });
 

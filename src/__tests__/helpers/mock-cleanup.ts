@@ -143,6 +143,7 @@ const MODULE_PATHS = [
   "../../runtime/ask-user-host",
   "../../runtime/mention-wiring",
   "../../runtime/workflow-loader",
+  "../../runtime/workflow-runner",
   "../../runtime/executor-helpers",
   "../../runtime/start-assignment",
   "../../runtime/tools/permissions",

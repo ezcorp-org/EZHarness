@@ -34,6 +34,7 @@ import {
 } from "../db/queries/workflow-approvals";
 import { getWorkflowRunRow } from "../db/queries/workflow-runs";
 import { requireItemConsent } from "./workflow-approval-guard";
+import { resumeArgsFromRow } from "./workflow-executor";
 import {
   getWorkflowRuntime,
   type WorkflowRuntime,
@@ -228,17 +229,10 @@ export async function answerApproval(
   }
 
   // ── Resume ─────────────────────────────────────────────────────────
-  const run = await runtime.workflowExecutor.resumeWorkflow(workflow, {
-    id: runRow.id,
-    workflowName: runRow.workflowName,
-    status: runRow.status,
-    input: runRow.input,
-    cursor: runRow.cursor,
-    definitionHash: runRow.definitionHash,
-    projectId: runRow.projectId,
-    userId: runRow.userId,
-    startedAt: runRow.startedAt,
-  });
+  const run = await runtime.workflowExecutor.resumeWorkflow(
+    workflow,
+    resumeArgsFromRow(runRow),
+  );
   // A resume that came back `error` is NOT a successful answer. Returning
   // `ok: true` here mapped to HTTP 200, telling the user their approval
   // landed while the workflow was dead and their answer already spent.
