@@ -254,10 +254,40 @@ describe("resolvePromptNav", () => {
 		});
 	});
 
-	test("prev at the top → null (never wrap)", () => {
-		// Single prompt parked at the fold → current 0, prev underflows.
-		const state = layout([80]);
+	test("prev on the first of several prompts → null (never wrap)", () => {
+		// p0 parked at the fold → current 0, prev underflows. Two prompts, so
+		// the one-turn paging rule below does not apply.
+		const state = layout([80, 400]);
 		expect(resolvePromptNav(state, "prev", null, view(0), ANCHOR)).toBeNull();
+	});
+
+	describe("a one-turn conversation pages the single turn", () => {
+		// Nothing to step to in either direction, so the arrows show the start
+		// and the end of the turn instead of ArrowLeft being a dead key.
+		const single = layout([80]);
+
+		test("prev → top, next → bottom", () => {
+			expect(resolvePromptNav(single, "prev", null, view(0), ANCHOR)).toEqual({
+				kind: "top",
+			});
+			expect(resolvePromptNav(single, "next", null, view(0), ANCHOR)).toEqual({
+				kind: "bottom",
+			});
+		});
+
+		test("holds wherever the turn has been scrolled to, and whatever the pointer says", () => {
+			// Below the fold (fresh, unscrolled), above it (scrolled down), and
+			// with a live pointer on the prompt — all page the same way.
+			for (const positions of [[400], [-900], [80]]) {
+				const state = layout(positions);
+				expect(resolvePromptNav(state, "prev", at("p0"), view(), ANCHOR)).toEqual({
+					kind: "top",
+				});
+				expect(resolvePromptNav(state, "next", at("p0"), view(), ANCHOR)).toEqual({
+					kind: "bottom",
+				});
+			}
+		});
 	});
 
 	test("band tolerance: a prompt just outside anchor+band is not the current", () => {
@@ -573,9 +603,61 @@ describe("applyPromptNav (DOM glue)", () => {
 		expect(result).toEqual({ acted: true, pointer: null });
 	});
 
-	test("no-op (prev at the top) → not acted, pointer unchanged, no scroll, no callbacks", () => {
-		// Single prompt parked at the fold → current 0, prev underflows → null.
+	test("one-turn thread: prev → scrollTop 0, breaks stick-to-bottom, pointer cleared", () => {
 		const container = buildContainer([["u0", OFFSET]]);
+		setScroll(container, 5000, 800);
+		container.scrollTop = 900;
+		const onPromptScroll = vi.fn();
+		const onBottomScroll = vi.fn();
+		const scrollTopForAnchor = vi.fn(() => 0);
+
+		const result = applyPromptNav({
+			container,
+			direction: "prev",
+			pointer: { id: "u0", scrollTop: 900, scrollHeight: 5000 },
+			isUserPrompt,
+			anchorAttr: ATTR,
+			offset: OFFSET,
+			scrollTopForAnchor,
+			onPromptScroll,
+			onBottomScroll,
+		});
+
+		expect(container.scrollTop).toBe(0);
+		expect(onPromptScroll).toHaveBeenCalledTimes(1);
+		expect(onBottomScroll).not.toHaveBeenCalled();
+		// Paging the turn never measures a prompt — it is the whole thread.
+		expect(scrollTopForAnchor).not.toHaveBeenCalled();
+		expect(result).toEqual({ acted: true, pointer: null });
+	});
+
+	test("one-turn thread: next → the bottom", () => {
+		const container = buildContainer([["u0", OFFSET]]);
+		setScroll(container, 5000, 800);
+		const onBottomScroll = vi.fn();
+
+		const result = applyPromptNav({
+			container,
+			direction: "next",
+			pointer: null,
+			isUserPrompt,
+			anchorAttr: ATTR,
+			offset: OFFSET,
+			scrollTopForAnchor: () => 0,
+			onBottomScroll,
+		});
+
+		expect(container.scrollTop).toBe(4200); // clamped end of the range
+		expect(onBottomScroll).toHaveBeenCalledTimes(1);
+		expect(result).toEqual({ acted: true, pointer: null });
+	});
+
+	test("no-op (prev on the first of several prompts) → not acted, pointer unchanged, no scroll, no callbacks", () => {
+		// u0 parked at the fold → current 0, prev underflows → null.
+		const container = buildContainer([
+			["u0", OFFSET],
+			["u1", 400],
+		]);
 		setScroll(container, 5000);
 		container.scrollTop = 123;
 		const onPromptScroll = vi.fn();

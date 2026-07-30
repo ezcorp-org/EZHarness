@@ -77,11 +77,13 @@ export interface PromptNavState {
  * Resolution of a single nav step:
  *  - `prompt` — scroll to / park this prompt at the fold.
  *  - `bottom` — ArrowRight past the last prompt: fall through to the very bottom.
- * `null` (returned by {@link resolvePromptNav}) means no-op (e.g. ArrowLeft at
- * the top — we stop, never wrap).
+ *  - `top` — ArrowLeft with nowhere to step: go to the very top of the thread.
+ * `null` (returned by {@link resolvePromptNav}) means no-op (ArrowLeft already
+ * on the first of several prompts — we stop, never wrap).
  */
 export type PromptNavResult =
 	| { kind: "prompt"; index: number; id: string }
+	| { kind: "top" }
 	| { kind: "bottom" };
 
 /** The container's scroll state at the moment of a keypress. */
@@ -138,8 +140,15 @@ function pointerIsLive(
  * {@link pointerIsLive}) we step relative to it; otherwise the user scrolled
  * by hand since, so we re-derive the current prompt from the live geometry.
  *
- * ArrowLeft stops at the top (`null`). ArrowRight past the last prompt returns
- * `{ kind: "bottom" }` so the caller can scroll to the bottom of the thread.
+ * ArrowLeft stops at the first prompt (`null`). ArrowRight past the last prompt
+ * returns `{ kind: "bottom" }` so the caller can scroll to the bottom.
+ *
+ * A ONE-TURN conversation is the exception: there is no prompt to step to in
+ * either direction, so the arrows page the single turn instead — ArrowLeft to
+ * the top of the thread, ArrowRight to the bottom. Stepping between prompts and
+ * paging one turn are the same gesture to the reader: "show me the start of
+ * this / show me the end of it". (Before, ArrowLeft was simply a dead key in a
+ * brand-new conversation, which is where a first-time user meets it.)
  */
 export function resolvePromptNav(
 	state: PromptNavState,
@@ -151,6 +160,10 @@ export function resolvePromptNav(
 ): PromptNavResult | null {
 	const { ids, positions } = state;
 	if (ids.length === 0) return null;
+
+	if (ids.length === 1) {
+		return direction === "prev" ? { kind: "top" } : { kind: "bottom" };
+	}
 
 	const pointerIndex = pointerIsLive(pointer, view)
 		? ids.indexOf(pointer.id)
@@ -256,6 +269,14 @@ export function applyPromptNav(
 	};
 
 	if (res.kind === "bottom") return toBottom();
+
+	if (res.kind === "top") {
+		// Same stick-to-bottom break as a prompt step: we are deliberately
+		// leaving the live end of the thread.
+		onPromptScroll?.();
+		container.scrollTop = 0;
+		return { acted: true, pointer: null };
+	}
 
 	const top = scrollTopForAnchor(container, res.id, offset);
 	// A prompt inside the final screenful CANNOT be parked at the fold — the

@@ -4,6 +4,7 @@
     "mock-gate": [
       "web/e2e/chat-graph.spec.ts",
       "web/e2e/chat-prompt-arrow-nav-cards.spec.ts",
+      "web/e2e/chat-prompt-arrow-nav.spec.ts",
       "web/e2e/diff-panel-subagent.spec.ts",
       "web/e2e/diff-panel.spec.ts",
       "web/e2e/extension-author-provenance.spec.ts",
@@ -153,7 +154,6 @@
       "web/e2e/chat-multi-select.spec.ts",
       "web/e2e/chat-no-provider-banner.spec.ts",
       "web/e2e/chat-pending-gates-no-doubleup-on-switch.spec.ts",
-      "web/e2e/chat-prompt-arrow-nav.spec.ts",
       "web/e2e/chat-reconnect-spam.spec.ts",
       "web/e2e/chat-resume-roundtrip.spec.ts",
       "web/e2e/chat-resume.spec.ts",
