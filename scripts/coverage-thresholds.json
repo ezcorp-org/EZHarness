@@ -104,6 +104,7 @@
   "web/src/routes/api/workflows/runs/[id]/resume/+server.ts": 100,
   "web/src/routes/api/workflows/runs/[id]/cancel/+server.ts": 100,
   "web/src/routes/api/workflows/approvals/+server.ts": 100,
+  "web/src/lib/workflow-approvals-logic.ts": 100,
   "src/runtime/secret-redaction.ts": 100,
   "src/runtime/workflow-extension-loader.ts": 100,
   "src/runtime/workflow/runtime-registry.ts": 100,

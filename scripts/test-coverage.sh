@@ -221,6 +221,7 @@ run_legs() {
       src/__tests__/api-workflows-name-run.server.test.ts \
       src/__tests__/api-workflows-run-control.server.test.ts \
       src/__tests__/api-workflows-approvals-list.server.test.ts \
+      src/__tests__/workflow-approvals-logic.unit.test.ts \
       src/__tests__/pipelines-redirect.server.test.ts \
       src/lib/components/WorkflowStepForm.component.test.ts \
       src/lib/components/WorkflowBuilder.component.test.ts \
@@ -401,6 +402,7 @@ run_legs() {
       --coverage.include='src/routes/api/workflows/runs/[id]/resume/+server.ts' \
       --coverage.include='src/routes/api/workflows/runs/[id]/cancel/+server.ts' \
       --coverage.include='src/routes/api/workflows/approvals/+server.ts' \
+      --coverage.include='src/lib/workflow-approvals-logic.ts' \
       --coverage.include='src/routes/api/conversations/[id]/graph/+server.ts' \
       --coverage.include='src/lib/components/chat/GraphCanvas.svelte' \
       --coverage.include='src/lib/components/chat/ChatGraphPanel.svelte' \
