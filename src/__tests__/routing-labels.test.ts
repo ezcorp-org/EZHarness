@@ -2,8 +2,8 @@
  * WS7 — the routing LABEL DEFINITION (`src/runtime/routing/labels.ts`).
  *
  * The exclusion tests here are the blocking ones. A capability-driven switch
- * ("I attached an image, so I moved to a vision model"; "the context no longer
- * fit") that got labelled as a quality escalation would teach a future router to
+ * ("I attached an image, so I moved to a vision model"; "the context outgrew the
+ * window") labelled as a quality escalation would teach a future router to
  * escalate on every attachment, forever — and unlike a bad threshold, a poisoned
  * label survives every later fix. So each exclusion class has a test that pins
  * it to `excluded`, and specifically NOT to `negative`.

@@ -65,6 +65,7 @@
       "web/e2e/project-hub.spec.ts",
       "web/e2e/rbac-permissions.spec.ts",
       "web/e2e/resume-last-path.spec.ts",
+      "web/e2e/routing-retry-with-model.spec.ts",
       "web/e2e/session-ab-retry.spec.ts",
       "web/e2e/session-rewind-checkpoint.spec.ts",
       "web/e2e/task-panel-schema-badge.spec.ts",

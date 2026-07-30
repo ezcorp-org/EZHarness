@@ -835,7 +835,8 @@
 	});
 	const handleSend = sendApi.handleSend;
 	const handleRegenerate = (msg: Message) => sendApi.handleRegenerate(msg);
-	const handleAbRetry = (msg: Message) => sendApi.handleAbRetry(msg);
+	const handleAbRetry = (msg: Message, override?: { provider: string; model: string }) =>
+		sendApi.handleAbRetry(msg, override);
 	const handleRerun = (msg: Message) => sendApi.handleRerun(msg);
 	const handleBranchNavigate = sendApi.handleBranchNavigate;
 	const handleSaveMemory = (msg: Message) => sendApi.handleSaveMemory(msg);

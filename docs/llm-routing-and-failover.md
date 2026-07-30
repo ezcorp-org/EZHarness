@@ -223,10 +223,91 @@ Boundaries and guarantees:
 | `provider:defaultTier` | `balanced` | Tier used when routing fires and no stronger signal applies (`fast` / `balanced` / `powerful`). |
 | `provider:tierModels` | unset | **The tier ladder** — an ORDERED `{provider, model}` preference list per tier. Editable at **Settings → Models → Tier Model Ladder**; validated on write, ignored (never thrown) on read. See below. |
 | `provider:preferenceOrder` | `[anthropic, openai, google, openrouter]` | Provider walk order for routing and fallback suggestions. Stored orders self-heal: newly known providers are appended (`mergePreferenceOrder`). |
+| `provider:explorationRate` | `0` (off) | **Bounded exploration** — probability that a routed turn is deliberately served ONE RUNG BELOW the classifier's tier, to gather unbiased counterfactual data. Trades a little answer quality for that data; off unless an operator turns it on. Validated on write (a value outside `[0,1]` is a 400, not a silent no-op) and treated as OFF on read. See below. |
 | `compaction:cacheRetention` | `long` | Prompt-cache TTL shaping for the stable prefix (Anthropic only) — see [context-compaction](context-compaction.md). |
 
 Settings are written via the admin-only `PUT /api/settings/<key>` API.
 Extensions opt into tier needs via the manifest `routing: { tier }` block.
+
+### Bounded exploration, and the training substrate (WS7)
+
+**No router model is trained or shipped.** What exists is everything a learned
+router would need EXCEPT the model: the labels, the export, the threshold sweep,
+and the inference seam. There is no production traffic yet, so a router fitted
+today would fit noise — but each of these is cheap now and awkward to retrofit,
+and the provenance they read cannot be reconstructed after the fact.
+
+**Labels** (`src/runtime/routing/labels.ts`, pure) turn a conversation's message
+tree into samples of "given these classifier inputs, did the model we picked
+suffice?":
+
+- **negative** — the user moved UP: a mid-conversation switch to a strictly
+  stronger tier, an A/B retry whose continued branch used the stronger model, or
+  a regeneration.
+- **positive** — the thread ran on for two more assistant turns on the same
+  model with no retry and no regeneration.
+- **excluded** (counted as neither, and emitted with a reason so the exclusions
+  are auditable): a lateral (same-tier) switch; a **capability-driven** switch;
+  a single-turn abandonment; and any turn with no stamped `routingSignals` (a
+  legacy row, or a pinned turn where the router never decided).
+
+The exclusions matter more than the labels. A capability switch read as a
+quality escalation would teach a router to escalate on every image attachment,
+forever — and a poisoned label outlives every later fix to the model, the
+features, and the thresholds. So a switch is only ever `negative` when it is
+NOT explained by:
+
+- an attachment MIME the from-model does not accept and the to-model does
+  (`getCapabilities`, `src/providers/model-capabilities.ts`), or
+- context pressure: the turn's estimated input was ≥ 90 % of the from-model's
+  `contextWindow` AND the to-model's window is genuinely larger.
+
+Both checks require the to-model to actually REMOVE the deficit, so "the
+context window" cannot become a blanket excuse. If model facts cannot be
+resolved at all, the sample is excluded rather than guessed at.
+
+**Bounded exploration** (`src/runtime/routing/exploration.ts`) fixes the bias in
+those labels. Every label derived from ordinary traffic is confounded: the
+classifier chose the model, so we only ever observe a cheap model on turns the
+heuristic already thought were cheap. With `provider:explorationRate` set,
+that fraction of routed turns is served one rung DOWN, and the row records both
+tiers — `routingSignals.tier` stays the classifier's verdict, `routedTier` is
+what served — so each explored turn is a labelled counterfactual.
+
+This trades answer quality for data. On an explored turn the user gets a weaker
+model than the heuristic asked for, and some of those answers will be worse.
+That is the operator's call, not ours: admin-gated, default `0`, and every
+explored turn is counted in the admin **Routing** panel ("Turns Explored")
+rather than silently absorbed. Exploration can never override a `declaredTier`
+(a correctness requirement) or an explicit `tierHint`, and never fires on `fast`
+— there is no cheaper rung.
+
+**Export + sweep**, both derived on demand from `messages` (no new table):
+
+```
+bun run scripts/routing-export.ts --days 90 --include-excluded   # labelled JSONL
+bun run scripts/routing-sweep.ts  --fast 250,500,1000 --powerful 4000,8000,16000
+```
+
+The sweep replays stored `routingSignals` against candidate thresholds through
+the REAL `classifyTierVerdict` (via its `thresholds` override), so today's
+values are one of the candidate points and the report states whether replaying
+them reproduces the tier stored on every row (`baselineMismatches`). It ranks on
+**cost at a fixed escalation rate**, not accuracy: most turns produce no
+escalation, so "keep the current tier" scores near-perfectly on accuracy while
+saving nothing. Per-tier dollar rates come from the deployment's own observed
+spend; a turn on an UNPRICED (subscription) model is reported separately rather
+than counted as $0.00.
+
+**The inference seam** ships unused. `classifyTier`/`classifyTierVerdict` accept
+an optional injected `scorer`, consulted BELOW `declaredTier` and `tierHint`
+(correctness and explicit intent always win) and ABOVE the heuristic; an
+abstaining scorer falls through. With no scorer — which is every call today —
+the output is byte-identical to the pre-seam classifier, proved in
+`src/__tests__/tier-scorer-seam.test.ts` against a verbatim reimplementation
+over 80k+ generated inputs. `usage.routingConfig.scorerVersion` records which
+scorer decided a turn, so a scorer rollout stays distinguishable from a
+threshold change when comparing rows across time.
 
 ### What the native layer deliberately does NOT do
 
@@ -306,6 +387,9 @@ moves routing upstream at **zero app-side cost**:
 
 - `src/runtime/tier-classifier.ts` — the pure tier classifier (`chooseTurnTier`, thresholds, `RoutingTier`).
 - `src/runtime/routing/tier-ladder.ts` — the pure tier ladder: `validateTierLadder` (write-time), `parseTierLadder` (tolerant read), `resolveLadderEntry`, `ladderCandidates`, `DEFAULT_TIER_LADDER`.
+- `src/runtime/routing/labels.ts` — the pure label definition: `labelConversation`, `countLabels`, and the capability-driven-switch exclusions.
+- `src/runtime/routing/exploration.ts` — pure bounded exploration: `parseExplorationRate` (tolerant read), `validateExplorationRate` (write-time gate), `applyExploration` (injected randomness).
+- `scripts/routing-export.ts` / `scripts/routing-sweep.ts` — the labelled-JSONL export and the retroactive threshold sweep.
 - `src/runtime/routing/mode-binding.ts` — the pure mode task binding: `resolveTurnModelBinding` (the whole pin → mode model → mode tier → classifier chain, with per-field availability validation).
 - `web/src/lib/components/settings/TierLadderSection.svelte` + `web/src/lib/tier-ladder-view.ts` — the Settings → Models editor and its pure display logic.
 - `web/src/lib/components/ModeFormModal.svelte` — the mode form, including the Model Tier selector that writes `modes.preferred_tier`.

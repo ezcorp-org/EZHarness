@@ -1076,6 +1076,41 @@ describe("handleAbRetry (clean /retry — same-role sibling)", () => {
 		await handlers.handleAbRetry(a1);
 		expect(state.error).toBe("Failed to retry response");
 	});
+
+	// WS7 "Retry with…": the /retry route already accepted a provider/model
+	// override, which makes the sibling a prompt-held-constant paired comparison
+	// — the most informative routing signal the product can produce.
+	test("an override sends the PICKED model, not the thread's wire identity", async () => {
+		const u1 = makeMessage("u1", { role: "user", content: "Q" });
+		const a1 = makeMessage("a1", { role: "assistant", content: "A", parentMessageId: "u1" });
+		const { host, state } = makeHost({
+			allMessages: [u1, a1],
+			selectedModel: { provider: "anthropic", model: "claude-haiku-4-5" },
+		});
+		const handlers = makeSendMessage(host);
+		await handlers.handleAbRetry(a1, { provider: "openai", model: "gpt-5" });
+		const [, , optsArg] = retryMessageMock.mock.calls[0]!;
+		expect(optsArg?.provider).toBe("openai");
+		expect(optsArg?.model).toBe("gpt-5");
+		// The placeholder shows the model the sibling will actually run on.
+		const placeholder = state.allMessages.find((m) => m.id === "streaming-run-1");
+		expect(placeholder!.provider).toBe("openai");
+		expect(placeholder!.model).toBe("gpt-5");
+	});
+
+	test("no override keeps today's behaviour — the thread's own wire identity", async () => {
+		const u1 = makeMessage("u1", { role: "user", content: "Q" });
+		const a1 = makeMessage("a1", { role: "assistant", content: "A", parentMessageId: "u1" });
+		const { host } = makeHost({
+			allMessages: [u1, a1],
+			selectedModel: { provider: "anthropic", model: "claude-haiku-4-5" },
+		});
+		const handlers = makeSendMessage(host);
+		await handlers.handleAbRetry(a1);
+		const [, , optsArg] = retryMessageMock.mock.calls[0]!;
+		expect(optsArg?.provider).toBe("anthropic");
+		expect(optsArg?.model).toBe("claude-haiku-4-5");
+	});
 });
 
 describe("handleBranchNavigate", () => {

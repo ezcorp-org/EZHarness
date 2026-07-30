@@ -185,6 +185,11 @@
     "web/src/app.css",
     "web/src/routes/(app)/project/[id]/chat/[convId]/+page.svelte"
   ],
+  "web/e2e/routing-retry-with-model.spec.ts": [
+    "web/src/lib/components/ChatMessage.svelte",
+    "web/src/lib/components/ChatThread.svelte",
+    "web/src/routes/(app)/project/[id]/chat/[convId]/+page.svelte"
+  ],
   "web/e2e/session-ab-retry.spec.ts": [
     "web/src/lib/components/ChatMessage.svelte",
     "web/src/lib/components/BranchNavigator.svelte",
