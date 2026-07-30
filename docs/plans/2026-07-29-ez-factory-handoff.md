@@ -10,13 +10,15 @@ program's specs were wrong nine times out of nine** — see §7.
 
 ## 1. Branch state
 
-Three worktrees under `worktrees/`, all branched from `main@abc41f35`.
+Three worktrees under `worktrees/`, all branched from `main@abc41f35`. **`main`
+has since moved to `afac7d36`, so all three are 3 commits behind** — rebase or
+merge `main` in before opening the PR.
 
 | Branch | Worktree | HEAD | State |
 |---|---|---|---|
-| `feat/ez-factory` | `ez-factory` | `1859a761` | Trunk. Phase 1 + Phase 2 (partial) + all planning docs. |
+| `feat/ez-factory` | `ez-factory` | `895308c9` | Trunk. Phase 1 + Phase 2 (partial) + all planning docs. |
 | `feat/ez-factory-c2` | `ez-factory-c2` | `c9904398` | **Phase 5 COMPLETE**, reviewed clean end to end. |
-| `feat/ez-factory-c6` | `ez-factory-c6` | `45a38487` | Phase 6. **All 8 defects FIXED** — see §3. Verified 2026-07-29: typecheck green, lint at the 52-warning baseline, `gate-integrity` PASSED, `bun run test` **15304 pass / 0 fail / 1014 files**. Not yet independently review-verified for test *discrimination* — see §3 note. |
+| `feat/ez-factory-c6` | `ez-factory-c6` | `4fe5c23d` | Phase 6. **All 8 defects FIXED and their tests VERIFIED to discriminate** — see §3. Verified 2026-07-29: typecheck green, lint at the 52-warning baseline, `gate-integrity` PASSED, `bun run test` **15304 pass / 0 fail / 1014 files**, `bun run test:coverage` **20444 pass / 0 fail**, coverage gate PASSED (916 files), **e2e blocking `mock-gate` lane 105 pass / 0 fail**, visual-evidence lane 8 pass. |
 
 **Setup in a fresh worktree is not automatic:** `bun install` at the root, then
 `bun install` **and** `bun run prepare` inside `web/` (generates
@@ -52,12 +54,19 @@ Three worktrees under `worktrees/`, all branched from `main@abc41f35`.
   boundary. **Remaining:** the Hub-action and chat-card answer surfaces, step 8
   (async `X-EZ-Workflow-Async: 1` header + `WorkflowRunner` daemon), step 9
   (resume/cancel routes).
-  **One outstanding item:** `src/__tests__/workflow-run-persistence.test.ts:2036`
-  asserts the *returned object* only. Add a run-**row** assertion
-  (`expect(afterRow?.status).toBe("suspended")`); its absence is exactly what hid
-  the original critical defect.
+  ~~**One outstanding item:** `workflow-run-persistence.test.ts:2036` asserts the
+  returned object only — add a run-**row** assertion.~~ **DONE, and this entry
+  was wrong when written.** The row assertions landed in `8098ea0a` at 15:40,
+  21 minutes *before* this doc was first written, and survived two later
+  amendments. They are at
+  `src/__tests__/workflow-run-persistence.test.ts:2045-2048`
+  (`after?.status === "suspended"`, `after?.finishedAt === null`, plus the
+  approval row still `pending`). Verified to **discriminate**: routing the
+  `approval-pending` refusal through `refuseTerminal` instead of
+  `refuseTransient` fails two tests.
 - **Phase 6 — C6.** Ownership ladder, definition versions, fork, dry-run, editor
-  UI, e2e specs, 10 threshold keys. **8 open defects — §3.**
+  UI, e2e specs, **15** threshold keys (all at 100). **All 8 defects fixed and
+  their tests verified to discriminate — §3.** Phase 6 is DONE.
 
 **Not started:** Phase 3 (C5 trace/telemetry), Phase 4 (C7 skip/sub-workflows),
 Phase 7 (C3 delegated execution), Phase 8 (the `ez-factory` extension),
@@ -69,21 +78,53 @@ came from exactly that kind of parallel guessing.
 
 ---
 
-## 3. Phase 6's eight defects — ALL FIXED, discrimination unverified
+## 3. Phase 6's eight defects — ALL FIXED, discrimination VERIFIED
 
 **Status: all eight fixed in `3966b5df..45a38487`** (seven commits):
 `a1fae164` D1 · `eb123b54` D2+D5 · `be2ab5b7` D6 · `d0318b56` D3 ·
 `88259e0b` D4 · `ab594fd9` D7 · `45a38487` D8.
+Plus **`4fe5c23d`** — the D6 completion, below.
 
-**Outstanding on this phase — the one thing left.** Each fix's test must be
-checked for **discrimination**: reintroduce the defect and confirm the test
-FAILS. A test passing both before and after reads as coverage and is worse than
-none — **that is exactly how D5 got into this branch**. Two to check hardest:
-D1 has a report half *and* a UI half (`edit/+page.svelte:272-273`), and fixing
-only the report leaves the false confidence reaching the user; and D7 must not
-have added a required field while leaving `host-maintenance-daemon.ts` passing
-`{}`. Use a `/tmp` snapshot (`git archive <sha> | tar -x`) — never mutate the
-worktree.
+**Discrimination audit COMPLETE (2026-07-29).** Every fix's defect was
+reintroduced in a `/tmp` snapshot and its test observed to FAIL. Results:
+
+| Defect | Discriminates | Proof |
+|---|---|---|
+| D1 report | ✅ 4 sub-properties | enforce gates on stubs → 5 fails; drop the status downgrade → 4; drop the gate-row mode cue → 1; make taint shallow → 2 |
+| D1 **UI** | ✅ | `edit/+page.svelte` reverted to pre-fix → the e2e test fails on both projects |
+| D2+D5 | ✅ | message-matching classifier restored → 4 fails |
+| D3 | ✅ | latest-version stamping restored → 2 fails, asserted on the **DB row** via SQL |
+| D4 | ✅ | re-throw removed → 2 fails |
+| D6 | n/a (comment-only) | claims verified true against source — **but the fix was incomplete; see below** |
+| D7 | ✅ (typecheck) | field made optional → `TS2578: Unused '@ts-expect-error' directive` |
+| D8 | ✅ **both directions** | delete the sub-tick → tick-24 fails; sweep every tick → ticks-1-23 fails |
+
+Two specific worries in the original version of this section, both resolved:
+D1's UI half **is** covered (the only surface is the e2e spec — there is no
+component test for that page), and D7 does **not** leave the daemon passing
+`{}` — `host-maintenance-daemon.ts:378` passes `{ pinnedVersionIds: [] }`, and
+it is the only production call site.
+
+**D6 was NINE SITES SHORT — fixed in `4fe5c23d`.** The original fix scoped the
+claim in `workflows.md`, `workflow-versions.ts` and `workflow-executor.ts` and
+missed every other place the same two claims are made, so the branch shipped a
+direct self-contradiction: `schema.ts:542` said *"Resume compares the version id
+first and reads this ONLY when the version id is NULL"* — verbatim the rule the
+doc three files away says **no code implements** — and
+`workflow-definition-hash.ts` still forecast the redefinition in the future
+tense as though C6 had not landed on this very branch. Whichever a reader opened
+first is what they inherited, which is the whole failure D6 was filed against.
+The rule is now stated once (`db/queries/workflow-versions.ts`) and every other
+site points at it. Two follow-on staleness bugs from D3 came out with it:
+`definition_version_id` NULL means **three** things after D3, not two (the third
+— content matched no version — is the only one a live system can newly
+produce), and `definition_hash` is no longer "the version row's hash" but always
+the hash of the graph that **ran**.
+
+**Lesson this adds:** a comment-only fix has no test that can fail, so the only
+control is *grep for every other site making the same claim*. D6 changed three
+of twelve. `grep -rniE "consulted only when|cannot disagree|AUTHORITATIVE"` over
+`src/` found the rest in seconds.
 
 The original diagnoses follow, retained because they state what each fix had to
 achieve and are the reference for the discrimination checks.
@@ -191,9 +232,38 @@ anything whose output you will act on.
 **Playwright reuses another tree's server.** `web/playwright.config.ts:74` is
 `reuseExistingServer: !process.env.CI` on fixed port 4173. With multiple
 worktrees, a bare `bun run test:e2e` can silently test a different branch's build
-and report green. **Always `CI=1 bun run test:e2e`**, and check
-`ss -ltnp | grep :4173` is empty first. `CI=1` also sets `forbidOnly`,
-`workers: 4`, `reporter: list`; `retries` stays 0 in both modes.
+and report green. **Always pass `CI=1`**, and check `ss -ltnp | grep :4173` is
+empty first — a killed run leaves the `vite preview` process holding the port,
+and the next run dies with "port already used". `CI=1` also sets `forbidOnly`,
+`workers: 4`, `reporter: list`; `retries: 0` in both modes (verified,
+`playwright.config.ts:25`).
+
+**`bun run test:e2e` is NOT the gate, and running it whole is meaningless.**
+A blanket run gives **622 failures on clean `main`** (measured 2026-07-29, both
+`main@afac7d36` and `feat/ez-factory-c6`; c6 ≈614, i.e. not worse). CI never does
+this. The blocking check derives ANCHORED args from the **`mock-gate` lane** of
+`web/e2e/lanes.json` (`ci.yml:165-168`), chromium only:
+
+```bash
+cd web && mapfile -t ARGS < <(bun ../scripts/e2e-lane-args.ts mock-gate)
+CI=1 bunx playwright test --project=chromium "${ARGS[@]}"   # 105 pass / 12 skip / 0 fail
+```
+
+`lanes.json` gives every spec exactly one lane and documents `unwired` as *"the
+HONEST backlog: runs in NO CI job today"* — **230+ specs**, including
+`branding`, `workflows`, `accessibility`, `marketplace`, `validate-prod-shape`.
+Those are the 622. `mock-gate` (13 specs) and `real-auth` (8) are blocking;
+`evidence-soft` hard-fails the visual-evidence job only for diff-credited specs;
+`docker` runs via `scripts/docker-test-all.sh`. `src/__tests__/e2e-lanes.test.ts`
+enforces exhaustiveness, so a new spec with no lane entry fails the backend
+suite — C6's three workflow specs are all in `evidence-soft`. Re-run that lane
+with `CI=1 EZCORP_E2E_EVIDENCE=1 bunx playwright test --project=chromium
+--grep @evidence <specs>`.
+
+This supersedes the old "ignore `marketplace.spec.ts`" note, which understated
+the situation by two orders of magnitude: marketplace is simply one of 230+
+unwired specs. **A "clean full-suite e2e baseline" does not exist and cannot be
+obtained** — do not spend time chasing one.
 
 **Running a repro safely.** `git archive <sha> | tar -x -C /tmp/<name>`, symlink
 `node_modules`. Gives a runnable tree that cannot touch anyone's worktree. Do
@@ -225,12 +295,16 @@ tests landed after c2's base.
    worked around by hoisting row shapes to named type aliases.
 2. **The Playwright port reuse** above. `playwright.config.ts` is CODEOWNERS-owned
    (`.github/CODEOWNERS:61`).
-3. **`web/e2e/marketplace.spec.ts:210` is broken on `main`.** It asserts
-   `border-blue-500`; the marketplace page migrated to design tokens
-   (`border-[var(--color-border)]`), and `git diff main..feat/ez-factory` on that
-   path is **empty**. A design-token migration landed without updating its specs.
-   Get a clean e2e baseline on a quiet machine before the PR — one run was taken
-   at load average ~20 and its failures could not be attributed.
+3. **~230 e2e specs are red on `main` and gate nothing.** Originally filed as
+   "`marketplace.spec.ts:210` is broken on `main`" (true — it asserts
+   `border-blue-500` after the page migrated to design tokens, and
+   `git diff main..feat/ez-factory` on that path is empty). The real scope is
+   far larger: a full-suite run is **622 failures on clean `main`**, and
+   `web/e2e/lanes.json` classifies 230+ specs as `unwired` — *"the HONEST
+   backlog: runs in NO CI job today"*. So they cannot regress a PR, and fixing
+   them is not this program's job. See §5 for the command that IS the gate.
+   Worth raising as its own issue; do **not** try to get a clean full-suite
+   baseline before this PR (the earlier advice to do so was unachievable).
 
 ---
 
@@ -274,12 +348,19 @@ immediately before merging, never from cache.**
 Order: **C2 first** (furthest behind; every trunk commit widens the gap), then
 **C6**.
 
-**The single most dangerous line: `src/runtime/workflow-executor.ts`** — the only
-file where two branches edit the same lines. C6's `stepSubstitute` plumbing
-overlaps the trunk's `executeFrom`/suspend-resume restructure. Keeping both hunks
-is almost certainly right, but **if `stepSubstitute` is lost, nothing fails** —
-the dry-run route silently starts executing tool steps for real. Verify it
-survives, and note D4's test is what *should* catch this and currently would not.
+**The riskiest line is still `src/runtime/workflow-executor.ts`** — the only file
+where two branches edit the same lines. C6's `stepSubstitute` plumbing overlaps
+the trunk's `executeFrom`/suspend-resume restructure, and keeping both hunks is
+almost certainly right.
+
+**This is no longer a SILENT hazard — D4's fix closed it.** The old warning
+("if `stepSubstitute` is lost, nothing fails … D4's test currently would not
+catch this") was true when written and is now false. Verified 2026-07-29 by
+deleting the call site: **9 tests in `workflow-dry-run.test.ts` fail**, and the
+first one throws `WorkflowDryRunViolation` naming the dispatch it attempted,
+because violations are now recorded at their throw sites and re-thrown before a
+report is built. So the merge check is simply: run
+`bun test src/__tests__/workflow-dry-run.test.ts` after resolving that file.
 
 Other checks: `coverage-thresholds.json` (three branches adding keys to one JSON
 object — a botched resolution silently drops a threshold, which is a gate
