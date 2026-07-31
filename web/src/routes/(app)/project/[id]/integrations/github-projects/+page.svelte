@@ -464,7 +464,7 @@
 {#snippet commentScopeBanner(state: "yes" | "no" | "unknown" | null, testidSuffix: string)}
 	{#if state === "no"}
 		<p
-			class="mt-3 rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-sm text-amber-300"
+			class="mt-3 rounded-md border border-[var(--color-warning,#f59e0b)]/50 bg-[var(--color-warning,#f59e0b)]/10 px-3 py-2 text-sm text-[var(--color-text-secondary)]"
 			data-testid={`gh-comment-scope-warning${testidSuffix}`}
 		>
 			⚠ This token can manage the board but can't post issue comments (missing the <code>repo</code> scope). Progress comments won't appear on cards. Re-create the token with <code>repo</code> (classic) or Issues: Read and write (fine-grained).
@@ -651,7 +651,7 @@
 
 					{#if anyAutoSpawn(link.id)}
 						<p
-							class="mb-4 rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-sm text-amber-300"
+							class="mb-4 rounded-md border border-[var(--color-warning,#f59e0b)]/50 bg-[var(--color-warning,#f59e0b)]/10 px-3 py-2 text-sm text-[var(--color-text-secondary)]"
 							data-testid={`gh-projects-autospawn-warning-${link.id}`}
 						>
 							⚠ Auto-spawn is enabled on one or more columns. A card moving there will

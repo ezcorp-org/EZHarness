@@ -310,7 +310,7 @@
 		{:else}
 			{#if actionError}
 				<div
-					class="mb-3 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-300"
+					class="mb-3 rounded-md border border-[var(--color-warning,#f59e0b)]/50 bg-[var(--color-warning,#f59e0b)]/10 px-3 py-2 text-xs text-[var(--color-text-secondary)]"
 					role="alert"
 					data-testid="review-action-error"
 				>
