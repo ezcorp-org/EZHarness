@@ -36,7 +36,9 @@ import type { JsonRpcRequest } from "../extensions/types";
 
 const mockGetConversation = mock(async (_id: string) => null as { id: string; projectId: string | null } | null);
 const mockGetMessages = mock(async (_id: string) => [] as { id: string; role: string; content: string }[]);
-const mockListToolCallsByConversation = mock(async (_id: string) => [] as { success: boolean }[]);
+const mockListToolCallsByConversation = mock(
+  async (_id: string, _sinceMs?: number) => [] as { success: boolean }[],
+);
 const mockResolveExtensionSettings = mock(
   async (_extId: string, _userId: string | null, _schema: unknown) => ({}) as Record<string, unknown>,
 );
@@ -50,7 +52,11 @@ mock.module("../db/queries/conversations", () => ({
   getMessages: (id: string) => mockGetMessages(id),
 }));
 mock.module("../db/queries/tool-calls", () => ({
-  listToolCallsByConversation: (id: string) => mockListToolCallsByConversation(id),
+  // Pass `sinceMs` through so the run-scoping tests can assert the
+  // handler pushes the filter down to the query layer instead of
+  // fetching everything and filtering in JS.
+  listToolCallsByConversation: (id: string, sinceMs?: number) =>
+    mockListToolCallsByConversation(id, sinceMs),
 }));
 mock.module("../db/queries/extension-settings", () => ({
   resolveExtensionSettings: (extId: string, userId: string | null, schema: unknown) =>
@@ -386,6 +392,18 @@ describe("handleRuntimeInvoke — runtime.lessons.triggerGate", () => {
     expect(result.reason).toMatch(/errorRecovery=false/);
     expect(result.reason).toMatch(/userCorrection=false/);
     expect(result.reason).toMatch(/tagged=false/);
+    // No run scope supplied → the window is the conversation lifetime.
+    expect(result.reason).toMatch(/window=conversation-lifetime/);
+  });
+
+  test("legacy call passes NO sinceMs to the query (lifetime scope)", async () => {
+    await handleRuntimeInvoke(
+      "runtime.lessons.triggerGate",
+      { conversationId: "conv-1" },
+      makeCtx({ currentConversationId: "conv-1" }),
+      makeReq("runtime.lessons.triggerGate"),
+    );
+    expect(mockListToolCallsByConversation).toHaveBeenCalledWith("conv-1", undefined);
   });
 
   test("listToolCallsByConversation throws (DB error) → -32603", async () => {
@@ -400,6 +418,269 @@ describe("handleRuntimeInvoke — runtime.lessons.triggerGate", () => {
     );
     expect(res.error?.code).toBe(-32603);
     expect(res.error?.message).toMatch(/triggergate read failed.*pglite died/i);
+  });
+});
+
+// ── runtime.lessons.triggerGate — per-run scoping ─────────────────────
+//
+// The gate used to measure the whole CONVERSATION LIFETIME: every tool
+// call ever made, plus a last-20-message scan for correction words. Both
+// signals are sticky, so once a conversation crossed 5 tool calls (or
+// one "actually" landed in the window) EVERY later turn distilled — a
+// paid LLM call and a lesson write per turn. `{runId, runStartedAtMs}`
+// scope the signals to the run that just finished.
+
+describe("handleRuntimeInvoke — runtime.lessons.triggerGate run scoping", () => {
+  const RUN_STARTED_MS = Date.UTC(2026, 6, 31, 12, 0, 0);
+  const BEFORE = RUN_STARTED_MS - 60_000;
+  const AFTER = RUN_STARTED_MS + 1_000;
+
+  /** Behaves like the real query: rows are filtered by `sinceMs` in the
+   *  QUERY layer, so a handler that forgot to push the filter down
+   *  (or filtered in JS after fetching everything) shows up here. */
+  function seedToolCalls(rows: Array<{ success: boolean; createdAt: number }>) {
+    mockListToolCallsByConversation.mockImplementation(async (_id, sinceMs) =>
+      rows
+        .filter((r) => sinceMs === undefined || r.createdAt >= sinceMs)
+        .map((r) => ({ success: r.success })),
+    );
+  }
+
+  function seedMessages(rows: Array<{ role: string; content: string }>) {
+    mockGetMessages.mockImplementation(async () =>
+      rows.map((r, i) => ({ id: `m${i}`, role: r.role, content: r.content })),
+    );
+  }
+
+  /** Real-semantics doubles for the two signals these tests exercise.
+   *  The canonical truth table + full pattern list live in
+   *  `lessons-trigger-gate.test.ts`; here they only need to be faithful
+   *  enough that "fires" / "does not fire" means what it says. */
+  function useRealisticHeuristics() {
+    mockDetectUserCorrection.mockImplementation((texts) =>
+      (texts as string[]).some((t) => /\bactually\b/i.test(t)),
+    );
+    mockShouldDistill.mockImplementation((input) => {
+      const i = input as {
+        toolCallCount: number;
+        errorRecoveryObserved: boolean;
+        userCorrectionObserved: boolean;
+        explicitlyTagged: boolean;
+      };
+      return (
+        i.toolCallCount >= 5 ||
+        i.errorRecoveryObserved ||
+        i.userCorrectionObserved ||
+        i.explicitlyTagged
+      );
+    });
+  }
+
+  function gate(args: Record<string, unknown>) {
+    return handleRuntimeInvoke(
+      "runtime.lessons.triggerGate",
+      { conversationId: "conv-1", ...args },
+      makeCtx({ currentConversationId: "conv-1" }),
+      makeReq("runtime.lessons.triggerGate"),
+    );
+  }
+
+  const scoped = { runId: "run-9", runStartedAtMs: RUN_STARTED_MS };
+
+  beforeEach(() => {
+    useRealisticHeuristics();
+    seedMessages([]);
+  });
+
+  test("tool calls from BEFORE runStartedAtMs are not counted (and the filter is pushed to the query)", async () => {
+    // Six successful calls in this conversation's history, none of them
+    // in the finished run. Lifetime-scoped this is an instant fire.
+    seedToolCalls([
+      { success: true, createdAt: BEFORE },
+      { success: true, createdAt: BEFORE },
+      { success: true, createdAt: BEFORE },
+      { success: true, createdAt: BEFORE },
+      { success: true, createdAt: BEFORE },
+      { success: true, createdAt: BEFORE },
+    ]);
+
+    const res = await gate(scoped);
+
+    expect(mockListToolCallsByConversation).toHaveBeenCalledWith("conv-1", RUN_STARTED_MS);
+    expect(mockShouldDistill).toHaveBeenCalledWith({
+      toolCallCount: 0,
+      errorRecoveryObserved: false,
+      userCorrectionObserved: false,
+      explicitlyTagged: false,
+    });
+    const result = res.result as { shouldDistill: boolean; reason: string };
+    expect(result.shouldDistill).toBe(false);
+    expect(result.reason).toMatch(/toolCalls=0/);
+  });
+
+  test("five IN-WINDOW tool calls fire", async () => {
+    seedToolCalls([
+      { success: true, createdAt: BEFORE },
+      ...Array.from({ length: 5 }, () => ({ success: true, createdAt: AFTER })),
+    ]);
+
+    const res = await gate(scoped);
+
+    expect(mockShouldDistill).toHaveBeenCalledWith({
+      toolCallCount: 5,
+      errorRecoveryObserved: false,
+      userCorrectionObserved: false,
+      explicitlyTagged: false,
+    });
+    expect(res.result).toEqual({ shouldDistill: true, reason: "trigger-fired" });
+  });
+
+  test("error recovery is judged on the in-window rows only", async () => {
+    // error → ok exists across the conversation, but ONLY the trailing
+    // `ok` belongs to this run, so there is no recovery to observe.
+    seedToolCalls([
+      { success: false, createdAt: BEFORE },
+      { success: true, createdAt: AFTER },
+    ]);
+
+    await gate(scoped);
+
+    expect(mockDetectErrorRecovery).toHaveBeenCalledWith([{ status: "ok" }]);
+  });
+
+  test("a correction in an OLD user message does NOT fire", async () => {
+    // This is the behaviour that made one "actually" distill every
+    // subsequent turn for the next 20 messages.
+    seedToolCalls([]);
+    seedMessages([
+      { role: "user", content: "actually, use the other file" },
+      { role: "assistant", content: "done" },
+      { role: "user", content: "thanks, looks good" },
+    ]);
+
+    const res = await gate(scoped);
+
+    // Only the LATEST user message is scanned.
+    expect(mockDetectUserCorrection).toHaveBeenCalledWith(["thanks, looks good"]);
+    expect(mockDetectExplicitTag).toHaveBeenCalledWith(["thanks, looks good"]);
+    const result = res.result as { shouldDistill: boolean; reason: string };
+    expect(result.shouldDistill).toBe(false);
+    expect(result.reason).toMatch(/userCorrection=false/);
+  });
+
+  test("a correction in the LATEST user message DOES fire", async () => {
+    seedToolCalls([]);
+    seedMessages([
+      { role: "user", content: "thanks, looks good" },
+      { role: "assistant", content: "ok" },
+      { role: "user", content: "actually, use the other file" },
+    ]);
+
+    const res = await gate(scoped);
+
+    expect(mockDetectUserCorrection).toHaveBeenCalledWith(["actually, use the other file"]);
+    expect(res.result).toEqual({ shouldDistill: true, reason: "trigger-fired" });
+  });
+
+  test("no user message at all → both text signals are false", async () => {
+    seedToolCalls([]);
+    seedMessages([{ role: "assistant", content: "hello" }]);
+
+    const res = await gate(scoped);
+
+    expect(mockDetectUserCorrection).toHaveBeenCalledWith([]);
+    expect(mockDetectExplicitTag).toHaveBeenCalledWith([]);
+    expect((res.result as { shouldDistill: boolean }).shouldDistill).toBe(false);
+  });
+
+  test("non-string latest-user content is coerced before the scan", async () => {
+    seedToolCalls([]);
+    mockGetMessages.mockImplementation(async () => [
+      { id: "m0", role: "user", content: { blocks: ["x"] } as unknown as string },
+    ]);
+
+    await gate(scoped);
+
+    const [texts] = mockDetectUserCorrection.mock.calls.at(-1) as [string[]];
+    expect(typeof texts[0]).toBe("string");
+  });
+
+  test("OMITTING runStartedAtMs keeps the legacy lifetime behaviour exactly", async () => {
+    // Same fixtures as the two "does not fire" cases above — with no run
+    // scope they both fire, which is the bug this param exists to fix.
+    seedToolCalls([
+      { success: true, createdAt: BEFORE },
+      { success: true, createdAt: BEFORE },
+      { success: true, createdAt: BEFORE },
+      { success: true, createdAt: BEFORE },
+      { success: true, createdAt: BEFORE },
+    ]);
+    seedMessages([
+      { role: "user", content: "actually, use the other file" },
+      { role: "user", content: "thanks, looks good" },
+    ]);
+
+    const res = await gate({});
+
+    expect(mockListToolCallsByConversation).toHaveBeenCalledWith("conv-1", undefined);
+    // Last-20 window, not just the latest message.
+    expect(mockDetectUserCorrection).toHaveBeenCalledWith([
+      "actually, use the other file",
+      "thanks, looks good",
+    ]);
+    expect(mockShouldDistill).toHaveBeenCalledWith({
+      toolCallCount: 5,
+      errorRecoveryObserved: false,
+      userCorrectionObserved: true,
+      explicitlyTagged: false,
+    });
+    expect(res.result).toEqual({ shouldDistill: true, reason: "trigger-fired" });
+  });
+
+  test("runStartedAtMs: null is treated as absent (legacy scope)", async () => {
+    seedToolCalls([{ success: true, createdAt: BEFORE }]);
+
+    const res = await gate({ runStartedAtMs: null });
+
+    expect(mockListToolCallsByConversation).toHaveBeenCalledWith("conv-1", undefined);
+    expect((res.result as { reason: string }).reason).toMatch(/window=conversation-lifetime/);
+  });
+
+  test("malformed runStartedAtMs → -32602 (never a silent fall-back to lifetime scope)", async () => {
+    for (const bad of ["1753876800000", Number.NaN, Number.POSITIVE_INFINITY, -1, {}]) {
+      const res = await gate({ runStartedAtMs: bad });
+      expect(res.error?.code).toBe(-32602);
+      expect(res.error?.message).toMatch(/runstartedatms must be a non-negative finite epoch-ms number/i);
+    }
+    expect(mockListToolCallsByConversation).not.toHaveBeenCalled();
+  });
+
+  test("no-signal reason exposes the run window (runId + ISO instant)", async () => {
+    seedToolCalls([]);
+
+    const res = await gate(scoped);
+
+    const { reason } = res.result as { reason: string };
+    expect(reason).toMatch(/^no-signal \(toolCalls=0, errorRecovery=false, userCorrection=false, tagged=false, /);
+    expect(reason).toContain(`window=run:run-9@${new Date(RUN_STARTED_MS).toISOString()}`);
+  });
+
+  test("runStartedAtMs without runId still reports the window", async () => {
+    seedToolCalls([]);
+
+    const res = await gate({ runStartedAtMs: RUN_STARTED_MS });
+
+    expect((res.result as { reason: string }).reason).toContain(
+      `window=run:unknown@${new Date(RUN_STARTED_MS).toISOString()}`,
+    );
+  });
+
+  test("a non-string runId is ignored rather than interpolated", async () => {
+    seedToolCalls([]);
+
+    const res = await gate({ ...scoped, runId: 42 });
+
+    expect((res.result as { reason: string }).reason).toContain("window=run:unknown@");
   });
 });
 

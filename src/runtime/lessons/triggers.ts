@@ -1,12 +1,23 @@
 /**
  * Pure trigger heuristics for the lessons distiller.
  *
- * The distiller pipeline (`distiller.ts`) calls `shouldDistill` after
- * each `run:complete` event to decide whether the conversation slice is
- * worth handing to the LLM for lesson extraction. Calling the LLM on
- * every run would burn tokens for no benefit; the heuristics below
- * filter to runs that produced enough signal to plausibly contain a
- * reusable insight.
+ * The host's `runtime.lessons.triggerGate` handler
+ * (`src/extensions/runtime-invoke-handler.ts`) calls `shouldDistill`
+ * after each `run:complete` event to decide whether the conversation
+ * slice is worth handing to the LLM for lesson extraction. Calling the
+ * LLM on every run would burn tokens for no benefit; the heuristics
+ * below filter to runs that produced enough signal to plausibly contain
+ * a reusable insight.
+ *
+ * SCOPING IS THE CALLER'S JOB. These functions judge whatever rows they
+ * are handed; they cannot tell a single run's tool calls from a whole
+ * conversation's. `handleTriggerGate` narrows both inputs to the run
+ * that just finished when its caller supplies `runStartedAtMs` (tool
+ * calls filtered in SQL to that window; user-text scan limited to the
+ * latest user message). Widen those inputs back to the conversation
+ * lifetime and every signal below turns sticky — one qualifying run
+ * makes each later turn fire forever. Fix the caller's inputs, not this
+ * truth table.
  *
  * All four checks are PURE — no DB, no async, no I/O — so the truth
  * table can be unit-tested exhaustively without setup.

@@ -39,6 +39,21 @@
  *     texts, error-recovery flags, and user-correction signals. Same
  *     event-driven fallback as `getMessages`.
  *
+ *     RUN SCOPING — optional `{runId, runStartedAtMs}` params. The gate
+ *     originally measured the whole CONVERSATION LIFETIME: it counted
+ *     every tool call ever made in the conversation and scanned the last
+ *     20 messages for correction words. Both signals are sticky, so once
+ *     a conversation crossed 5 tool calls (or one "actually" landed in
+ *     the recent window) EVERY later turn distilled — a paid LLM call
+ *     and a lesson write per turn, forever. When the caller supplies
+ *     `runStartedAtMs` (the `run:complete` payload's `run.startedAt`)
+ *     the signals describe only the run that just finished: tool calls
+ *     are filtered in SQL to that window, and the user-text scan looks
+ *     at ONLY the latest user message — the one that drove this run.
+ *     `runId` is carried for the operator-facing `reason` string. Both
+ *     params are optional and OMITTING them preserves the legacy
+ *     lifetime behaviour exactly.
+ *
  *   - `runtime.settings.getMine` — resolves the calling extension's
  *     effective per-extension settings for the acting user. The
  *     `tool-executor` already attaches these to `invocationMetadata`
@@ -84,9 +99,14 @@ export interface RuntimeInvokeContext {
    *  field is NOT read from `args` or `rpcMeta`). Optional only so the
    *  test harness can construct a minimal ctx without a registry. */
   extensionName?: string;
-  /** Acting user id, resolved by the host from the per-call rpcMeta.
-   *  May be null for system-driven calls (the only `runtime.settings.getMine`
-   *  caller in v1 is the `run:complete` listener path). */
+  /** Acting user id. The host resolves it from the per-call provenance
+   *  token first (`resolveTokenPreferredScope` in
+   *  `tool-executor/provenance.ts`) and only falls back to the
+   *  executor's `currentUserId` singleton — so an event-driven
+   *  `run:complete` fire resolves the CONVERSATION OWNER, not null.
+   *  Still null for a genuinely ownerless fire (e.g. a cron with no
+   *  conversation), in which case `runtime.settings.getMine` returns the
+   *  manifest's declared defaults. */
   userId: string | null;
   /** The conversation the executor is currently wired into. The
    *  per-method gate for `getMessages` and `triggerGate` requires
@@ -254,6 +274,15 @@ async function checkConversationGate(
   };
 }
 
+/**
+ * Message `content` is text on chat rows but can be a structured block
+ * union on assistant rows. Coerce to the text the SDK contract promises
+ * (the legacy distiller did this implicitly via `String(content)`).
+ */
+function messageText(m: { content: unknown }): string {
+  return typeof m.content === "string" ? m.content : String(m.content ?? "");
+}
+
 async function handleGetMessages(
   args: Record<string, unknown>,
   ctx: RuntimeInvokeContext,
@@ -303,10 +332,7 @@ async function handleGetMessages(
     messages = rows.map((m) => ({
       id: m.id,
       role: m.role,
-      // `content` is text on chat messages; cast covers the union with
-      // structured assistant blocks (the legacy distiller handles those
-      // via `String(content)` implicitly through the join).
-      content: typeof m.content === "string" ? m.content : String(m.content ?? ""),
+      content: messageText(m),
     }));
   } catch (err) {
     return {
@@ -332,15 +358,46 @@ async function handleTriggerGate(
   if (!gate.ok) return gate.response;
   const { conversationId } = gate;
 
-  // Mirror the legacy `runDistillation` trigger-gate body verbatim
-  // (src/runtime/lessons/distiller.ts:256-272). `triggers.ts` stays
-  // host-side because the heuristics need privileged signals
-  // (`tool_calls.success`, `messages.role` for user-message tokens)
-  // that aren't safe to expose to extensions wholesale.
+  // ── Run-scoping params (both optional) ──────────────────────────
+  // `runStartedAtMs` is the finished run's `startedAt` (epoch ms —
+  // `AgentRun.startedAt` is already a number on the `run:complete`
+  // payload). Present → per-run scoping; absent/null → legacy
+  // conversation-lifetime scoping. A present-but-malformed value is a
+  // hard -32602 rather than a silent fall-back to lifetime scope: the
+  // whole point of this param is that over-firing is invisible, so a
+  // caller that gets the shape wrong must hear about it.
+  const runStartedAtRaw = args.runStartedAtMs;
+  let runStartedAtMs: number | undefined;
+  if (runStartedAtRaw !== undefined && runStartedAtRaw !== null) {
+    if (
+      typeof runStartedAtRaw !== "number" ||
+      !Number.isFinite(runStartedAtRaw) ||
+      runStartedAtRaw < 0
+    ) {
+      return {
+        jsonrpc: "2.0",
+        id: req.id,
+        error: {
+          code: -32602,
+          message: "runStartedAtMs must be a non-negative finite epoch-ms number when provided",
+        },
+      };
+    }
+    runStartedAtMs = runStartedAtRaw;
+  }
+  const runId = typeof args.runId === "string" && args.runId ? args.runId : null;
+
+  // `triggers.ts` stays host-side because the heuristics need
+  // privileged signals (`tool_calls.success`, `messages.role` for
+  // user-message tokens) that aren't safe to expose to extensions
+  // wholesale. The heuristics themselves are pure and unchanged — this
+  // handler only decides WHICH rows they see.
   let toolCallRows: Awaited<ReturnType<typeof listToolCallsByConversation>>;
   let messages: Awaited<ReturnType<typeof getMessages>>;
   try {
-    toolCallRows = await listToolCallsByConversation(conversationId);
+    // Scoped in SQL, not in JS — a long conversation must not drag its
+    // entire tool-call history across the wire just to discard it.
+    toolCallRows = await listToolCallsByConversation(conversationId, runStartedAtMs);
     messages = await getMessages(conversationId);
   } catch (err) {
     return {
@@ -350,12 +407,16 @@ async function handleTriggerGate(
     };
   }
 
-  // Only consider the last 20 messages (matches the legacy slice) for
-  // user-text scans — the same window the LLM eventually sees.
-  const recent = messages.slice(-20);
-  const userMessageTexts = recent
-    .filter((m) => m.role === "user")
-    .map((m) => (typeof m.content === "string" ? m.content : String(m.content ?? "")));
+  // User-text scan window.
+  //   RUN-SCOPED: ONLY the latest user message — the one that drove
+  //   this run. This is what stops a single "actually" from re-firing
+  //   the distiller on the next 20 messages.
+  //   LEGACY: the last 20 messages (the same window the LLM eventually
+  //   sees). Preserved verbatim for callers that send no run scope.
+  const userMessageTexts =
+    runStartedAtMs === undefined
+      ? messages.slice(-20).filter((m) => m.role === "user").map(messageText)
+      : latestUserMessageText(messages);
 
   const triggerInput = {
     toolCallCount: toolCallRows.length,
@@ -366,6 +427,13 @@ async function handleTriggerGate(
     explicitlyTagged: detectExplicitTag(userMessageTexts),
   };
   const fire = shouldDistill(triggerInput);
+  // Same structured, greppable shape as before plus a `window=` field so
+  // an operator reading the decline log can tell run-scoped evaluations
+  // from legacy lifetime ones at a glance.
+  const window =
+    runStartedAtMs === undefined
+      ? "conversation-lifetime"
+      : `run:${runId ?? "unknown"}@${new Date(runStartedAtMs).toISOString()}`;
   return {
     jsonrpc: "2.0",
     id: req.id,
@@ -373,9 +441,22 @@ async function handleTriggerGate(
       shouldDistill: fire,
       reason: fire
         ? "trigger-fired"
-        : `no-signal (toolCalls=${triggerInput.toolCallCount}, errorRecovery=${triggerInput.errorRecoveryObserved}, userCorrection=${triggerInput.userCorrectionObserved}, tagged=${triggerInput.explicitlyTagged})`,
+        : `no-signal (toolCalls=${triggerInput.toolCallCount}, errorRecovery=${triggerInput.errorRecoveryObserved}, userCorrection=${triggerInput.userCorrectionObserved}, tagged=${triggerInput.explicitlyTagged}, window=${window})`,
     },
   };
+}
+
+/**
+ * The text of the LAST user message, as a single-element array (or an
+ * empty one when the conversation has no user message yet). Feeds the
+ * run-scoped `detectUserCorrection` / `detectExplicitTag` scans, which
+ * take an array so the legacy multi-message window still works.
+ */
+function latestUserMessageText(
+  messages: readonly { role: string; content: unknown }[],
+): string[] {
+  const latest = messages.findLast((m) => m.role === "user");
+  return latest ? [messageText(latest)] : [];
 }
 
 async function handleGetMySettings(
