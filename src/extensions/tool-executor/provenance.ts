@@ -130,6 +130,54 @@ export function resolveReverseRpcMeta(
 }
 
 /**
+ * TOKEN-WINS scope resolution, soft variant — the shared core behind
+ * `resolveHandlerScope` (legacy reverse-RPC handlers) and the
+ * `runtime.*` invoke path (`handlePiInvoke`).
+ *
+ * WHY the per-call token beats the executor's `currentUserId` /
+ * `currentConversationId`: those are PROCESS-WIDE MUTABLE fields on the
+ * `ToolExecutor` instance. They're only right for a per-turn executor
+ * that just set them, and they are wrong in exactly the two ways
+ * `call-provenance.ts`'s header calls out —
+ *
+ *   1. **Background fires** — the boot executor (`{bus,
+ *      eventDriven: true}` in `web/src/lib/server/context.ts`) never
+ *      calls `setCurrentUserId`, so every `run:complete`-driven call
+ *      observes "no user" and silently resolves to system defaults.
+ *   2. **Concurrency** — one mutable field is shared by every
+ *      conversation, so a slow reverse-RPC observes whichever turn
+ *      dispatched last.
+ *
+ * The per-call snapshot registered at forward-dispatch / fire time is
+ * neither: the `EventSubscriptionDispatcher` stamps the conversation
+ * OWNER onto the fire token (`registerFireCallProvenance`), and the
+ * subprocess can only echo the opaque token back — it cannot
+ * manufacture identity.
+ *
+ * Returns `null` (not a sentinel) for an unresolvable field so each
+ * caller applies its own default. Only consults the registry when a
+ * token is actually on the wire — `resolveCallProvenance(undefined)`
+ * warn-logs, and the tokenless fallback is an expected (legacy) path
+ * for both callers, not an anomaly.
+ */
+export function resolveTokenPreferredScope(
+  req: JsonRpcRequest,
+  currentUserId: string | undefined,
+  currentConversationId: string | undefined,
+): { userId: string | null; conversationId: string | null } {
+  const rawMeta = (req.params as { _meta?: Record<string, unknown> } | undefined)?._meta;
+  const ezCallId = typeof rawMeta?.ezCallId === "string" ? rawMeta.ezCallId : undefined;
+  const prov = ezCallId ? resolveCallProvenance(ezCallId) : undefined;
+  if (prov && !prov.ownerless && prov.onBehalfOf) {
+    return { userId: prov.onBehalfOf, conversationId: prov.conversationId };
+  }
+  return {
+    userId: currentUserId ?? null,
+    conversationId: currentConversationId ?? null,
+  };
+}
+
+/**
  * Per-call provenance for the LEGACY singleton-reading reverse-RPC
  * handlers (emit-task-event, spawn-assignment, cancel-run,
  * network-internal, finalize-tool-call, agent-configs). TOKEN WINS:
@@ -150,21 +198,10 @@ export function resolveHandlerScope(
   currentUserId: string | undefined,
   currentConversationId: string | undefined,
 ): { userId: string; conversationId: string } {
-  const rawMeta = (req.params as { _meta?: Record<string, unknown> } | undefined)?._meta;
-  const ezCallId = typeof rawMeta?.ezCallId === "string" ? rawMeta.ezCallId : undefined;
-  // Only consult the registry when a token is actually on the wire —
-  // `resolveCallProvenance(undefined)` warn-logs, and the tokenless
-  // fallback is an expected (legacy) path here, not an anomaly.
-  const prov = ezCallId ? resolveCallProvenance(ezCallId) : undefined;
-  if (prov && !prov.ownerless && prov.onBehalfOf) {
-    return {
-      userId: prov.onBehalfOf,
-      conversationId: prov.conversationId ?? "unknown",
-    };
-  }
+  const scope = resolveTokenPreferredScope(req, currentUserId, currentConversationId);
   return {
-    userId: currentUserId ?? "unknown",
-    conversationId: currentConversationId ?? "unknown",
+    userId: scope.userId ?? "unknown",
+    conversationId: scope.conversationId ?? "unknown",
   };
 }
 
