@@ -584,7 +584,9 @@ const BUNDLED_EXTENSIONS: BundledExtension[] = [
     // pipelines produce identical outcomes during Stage 1.
     name: "lessons-distiller",
     path: "extensions/lessons-distiller",
-    // Event-only extension (no tools, no manual triggers post-53.3).
+    // Event-driven extension: the auto-distill path is a `run:complete`
+    // subscription (it also ships one tool, `distill_now`, backing the
+    // manual `!EZ:distill` action).
     // Without bootSpawn, `run:complete` is silently dropped by
     // `EventSubscriptionDispatcher.dispatch` because the subprocess
     // never starts — see `bootSpawnFlaggedBundledExtensions`.
