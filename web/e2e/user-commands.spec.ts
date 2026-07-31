@@ -29,7 +29,13 @@ test.describe("/commands authoring UI", () => {
 	}) => {
 		await mockApi({ userCommands: [] });
 		await page.goto("/commands");
-		await expect(page.getByRole("heading", { name: "Commands" })).toBeVisible();
+		// `exact` because the accessible-name match is a case-insensitive
+		// SUBSTRING: the empty state's own "No commands yet" heading also
+		// matches "Commands", so the un-exact locator resolves to two
+		// elements and trips strict mode. It passed only by racing — when
+		// the assertion ran before the empty state mounted, one element
+		// matched and it went green. Under load the h3 wins and it fails.
+		await expect(page.getByRole("heading", { name: "Commands", exact: true })).toBeVisible();
 		await expect(page.getByRole("link", { name: "+ New Command" })).toBeVisible();
 		await expect(page.getByText("No commands yet")).toBeVisible();
 	});
