@@ -3,6 +3,8 @@
 	import {
 		buildAnswerBody,
 		canSubmit,
+		describeAge,
+		describeDeadline,
 		describeOutcome,
 		toggleItem,
 		type PendingApproval,
@@ -122,14 +124,32 @@
 							class="rounded bg-[var(--color-surface-tertiary)] px-1.5 py-0.5 uppercase tracking-wide text-[var(--color-text-muted)]"
 							data-testid="approval-step">{approval.stepName}</span
 						>
+						<span class="text-[var(--color-text-muted)]" data-testid="approval-age"
+							>parked {describeAge(approval.createdAt, new Date())}</span
+						>
+						{#if describeDeadline(approval.expiresAt, new Date())}
+							{@const deadline = describeDeadline(approval.expiresAt, new Date())}
+							<!-- Rendered because the timeout sweep answers on the clock's
+							     behalf: a decision that expires unseen is indistinguishable,
+							     afterwards, from one nobody looked at. -->
+							<span
+								class="rounded px-1.5 py-0.5 font-medium {deadline?.urgent
+									? 'bg-red-900/50 text-red-200'
+									: 'bg-[var(--color-surface-tertiary)] text-[var(--color-text-secondary)]'}"
+								data-testid="approval-deadline">{deadline?.text}</span
+							>
+						{/if}
 					</div>
 					<p class="mt-2 text-sm text-[var(--color-text-primary)]" data-testid="approval-prompt">
 						{approval.prompt}
 					</p>
 
 					{#if approval.requireItemConsent}
-						<div class="mt-3 rounded-md border border-amber-500/40 bg-amber-500/10 p-3">
-							<p class="text-xs font-medium text-amber-300" data-testid="approval-consent-note">
+						<div
+							class="mt-3 rounded-md border border-[var(--color-warning,#f59e0b)]/50 bg-[var(--color-warning,#f59e0b)]/10 p-3"
+						>
+							<p class="text-xs font-semibold text-[var(--color-text-primary)]"
+								data-testid="approval-consent-note">
 								Tick each item you are consenting to. Nothing is approved by default.
 							</p>
 							<ul class="mt-2 space-y-1">

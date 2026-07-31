@@ -101,3 +101,40 @@ export function describeOutcome(runStatus: string | undefined): {
 	if (runStatus === "running") return { tone: "ok", text: "Answered — the run is continuing" };
 	return { tone: "error", text: `Answered, but the run is ${runStatus}` };
 }
+
+/**
+ * How a parked decision's deadline should read.
+ *
+ * `expiresAt` was being FETCHED and never rendered, which is the worst of
+ * both: the timeout sweep will answer this approval on the clock's behalf,
+ * and the human deciding it could not see that it had a clock at all. A
+ * decision that silently times out is indistinguishable, afterwards, from
+ * one nobody looked at.
+ *
+ * `now` is injected so this is testable without freezing time.
+ */
+export function describeDeadline(
+	expiresAt: string | null,
+	now: Date,
+): { text: string; urgent: boolean } | null {
+	if (!expiresAt) return null;
+	const ms = new Date(expiresAt).getTime() - now.getTime();
+	// Already past: say so plainly rather than rendering "in -3 hours".
+	if (ms <= 0) return { text: "Expired — this run may already have been failed", urgent: true };
+	const mins = Math.floor(ms / 60_000);
+	if (mins < 60) return { text: `Expires in ${mins} min`, urgent: true };
+	const hours = Math.floor(mins / 60);
+	// Under a day is the window where a human still has to act today.
+	if (hours < 24) return { text: `Expires in ${hours}h`, urgent: hours < 4 };
+	return { text: `Expires in ${Math.floor(hours / 24)}d`, urgent: false };
+}
+
+/** Relative age of a parked decision — how long it has been blocking. */
+export function describeAge(createdAt: string, now: Date): string {
+	const mins = Math.max(0, Math.floor((now.getTime() - new Date(createdAt).getTime()) / 60_000));
+	if (mins < 1) return "just now";
+	if (mins < 60) return `${mins} min ago`;
+	const hours = Math.floor(mins / 60);
+	if (hours < 24) return `${hours}h ago`;
+	return `${Math.floor(hours / 24)}d ago`;
+}

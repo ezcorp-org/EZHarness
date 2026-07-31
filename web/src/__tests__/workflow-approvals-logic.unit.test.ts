@@ -9,6 +9,8 @@ import { test, expect, describe } from "vitest";
 import {
 	buildAnswerBody,
 	canSubmit,
+	describeAge,
+	describeDeadline,
 	describeOutcome,
 	toggleItem,
 } from "../lib/workflow-approvals-logic";
@@ -90,5 +92,52 @@ describe("describeOutcome", () => {
 
 	test("an absent status is reported as unknown rather than assumed good", () => {
 		expect(describeOutcome(undefined)).toMatchObject({ tone: "warn" });
+	});
+});
+
+describe("describeDeadline — an approval that expires must SAY so", () => {
+	const now = new Date("2026-07-30T12:00:00.000Z");
+
+	test("no expiry renders nothing rather than a fake deadline", () => {
+		expect(describeDeadline(null, now)).toBeNull();
+	});
+
+	test("an already-passed expiry says expired, never 'in -3 hours'", () => {
+		const d = describeDeadline("2026-07-30T09:00:00.000Z", now)!;
+		expect(d.urgent).toBe(true);
+		expect(d.text).toContain("Expired");
+	});
+
+	test("under an hour is urgent", () => {
+		expect(describeDeadline("2026-07-30T12:30:00.000Z", now)).toEqual({
+			text: "Expires in 30 min",
+			urgent: true,
+		});
+	});
+
+	test("under four hours is still urgent; beyond that it is not", () => {
+		expect(describeDeadline("2026-07-30T15:00:00.000Z", now)?.urgent).toBe(true);
+		expect(describeDeadline("2026-07-30T22:00:00.000Z", now)?.urgent).toBe(false);
+	});
+
+	test("days are rendered in days", () => {
+		expect(describeDeadline("2026-08-02T12:00:00.000Z", now)?.text).toBe("Expires in 3d");
+	});
+});
+
+describe("describeAge", () => {
+	const now = new Date("2026-07-30T12:00:00.000Z");
+
+	test("renders how long a decision has been blocking", () => {
+		expect(describeAge("2026-07-30T11:59:30.000Z", now)).toBe("just now");
+		expect(describeAge("2026-07-30T11:30:00.000Z", now)).toBe("30 min ago");
+		expect(describeAge("2026-07-30T09:00:00.000Z", now)).toBe("3h ago");
+		expect(describeAge("2026-07-28T12:00:00.000Z", now)).toBe("2d ago");
+	});
+
+	test("a future createdAt clamps to 'just now' rather than going negative", () => {
+		// Clock skew between the host and the browser is real; "-4 min ago"
+		// would look like a bug in the data rather than in the clock.
+		expect(describeAge("2026-07-30T12:05:00.000Z", now)).toBe("just now");
 	});
 });
