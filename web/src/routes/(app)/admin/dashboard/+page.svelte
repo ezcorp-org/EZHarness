@@ -58,6 +58,9 @@
 				tokens: { input: number; output: number; cacheRead: number; cacheWrite: number; cacheWrite1h: number };
 				cost: SegmentCost | null;
 			}[];
+			/** The table below is a top-N DISPLAY list; the dollar figures beside
+			 *  it are aggregated over every segment. This says so out loud. */
+			segmentsTruncated: boolean;
 			routedUsd: number; pinnedUsd: number; legacyUsd: number; totalUsd: number;
 			unpricedTurns: number; unpricedTokens: number;
 			conversations: number; usdPerConversation: number | null;
@@ -947,6 +950,14 @@
 								· No provenance <strong>{formatUsd(routingData?.spend.legacyUsd ?? 0)}</strong>
 							{/if}
 						</div>
+						{#if routingData?.spend.segmentsTruncated}
+							<!-- The totals above cover every segment; only this TABLE is
+							     capped. Saying so prevents an admin adding up the rows and
+							     concluding the total is wrong. -->
+							<p class="text-muted text-xs" data-testid="routing-spend-truncated">
+								Showing the busiest models only — the totals above cover all of them.
+							</p>
+						{/if}
 						{#if pricedSegments.length}
 							<div class="h-bar-list">
 								{#each pricedSegments as s}

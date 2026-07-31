@@ -451,8 +451,15 @@ export async function getToolUsageByModel(days = 30): Promise<ToolUsageByModel[]
 /**
  * Cap on each returned sample list (mid-conversation model switches, A/B retry
  * groups) and on the spend-segment table — same bounded-payload reasoning as
- * `TOOL_USAGE_TOP_N`. Every COUNT and RATE beside a list is aggregated
- * UNCAPPED in SQL, so a truncated sample list can never distort a rate.
+ * `TOOL_USAGE_TOP_N`. Every COUNT, RATE and DOLLAR TOTAL beside a list is
+ * aggregated UNCAPPED, so a truncated sample list can never distort them.
+ *
+ * For spend that means the cap is applied in JS to the returned `segments`
+ * array AFTER the totals are summed — never as a SQL `LIMIT` on the aggregate
+ * the totals read from. Moving it back into the query would understate
+ * `totalUsd`, because the rows it drops are the lowest-volume ones and volume
+ * does not track cost. `spend.segmentsTruncated` tells the UI the table is
+ * partial while the totals are whole.
  */
 const ROUTING_SAMPLE_CAP = 50;
 
@@ -582,7 +589,13 @@ export type RoutingStats = {
     samples: RoutingRetryGroup[];
   };
   spend: {
+    /** The busiest segments, capped at `ROUTING_SAMPLE_CAP` for payload size.
+     *  A DISPLAY list — never the basis of any total below, which are summed
+     *  uncapped so a truncated table can never understate spend. */
     segments: RoutingSpendSegment[];
+    /** True when the window had more segments than `segments` shows, so the
+     *  panel can say the table is partial while the totals are not. */
+    segmentsTruncated: boolean;
     routedUsd: number;
     pinnedUsd: number;
     legacyUsd: number;
@@ -848,6 +861,18 @@ export async function getRoutingStats(days = 30): Promise<RoutingStats> {
   }));
 
   // ── Priced spend per provider+model+provenance ──
+  // Deliberately NOT capped in SQL. Every USD figure below is summed from these
+  // rows, so a `LIMIT` here would silently truncate the money numbers rather
+  // than a display list — and `ORDER BY turn_count DESC` drops the lowest-
+  // VOLUME groups, which are emphatically NOT the lowest-COST ones (a handful
+  // of opus turns outweighs thousands of haiku ones). That would understate a
+  // figure the UI presents as a TOTAL, breaking this module's stated invariant
+  // that every count and rate beside a list is aggregated uncapped.
+  //
+  // ROUTING_SAMPLE_CAP is a bounded-PAYLOAD rule, so it is applied to the
+  // returned `segments` list instead — after the totals are complete. Row count
+  // here is bounded by (models actually used × 3 provenances): tens in
+  // practice, and hard-bounded by the catalog, so there is no unbounded scan.
   const spendRes = await db.execute(sql`
     SELECT
       ${messages.provider} AS provider,
@@ -865,7 +890,6 @@ export async function getRoutingStats(days = 30): Promise<RoutingStats> {
       AND ${messages.model} IS NOT NULL
     GROUP BY 1, 2, 3
     ORDER BY 4 DESC
-    LIMIT ${ROUTING_SAMPLE_CAP}
   `);
 
   const segments: RoutingSpendSegment[] = [];
@@ -954,7 +978,11 @@ export async function getRoutingStats(days = 30): Promise<RoutingStats> {
       samples: retrySamples,
     },
     spend: {
-      segments,
+      // Payload cap applied HERE, not in SQL — the totals above are complete.
+      // Rows arrive ordered by turn_count DESC, so this keeps the busiest
+      // segments, which is what the panel's table is for.
+      segments: segments.slice(0, ROUTING_SAMPLE_CAP),
+      segmentsTruncated: segments.length > ROUTING_SAMPLE_CAP,
       routedUsd,
       pinnedUsd,
       legacyUsd,

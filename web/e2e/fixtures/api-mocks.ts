@@ -869,6 +869,15 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 		if (path === "/api/models/capabilities" && method === "GET") {
 			const provider = url.searchParams.get("provider") ?? "";
 			const model = url.searchParams.get("model") ?? "";
+			// NOTE for `model=auto`: this mock ASSERTS a vision-capable answer, it
+			// does not derive one. The real endpoint intersects the routable
+			// tier-ladder rungs, so a bad rung can make it text-only while these
+			// specs stay green — that happened once (a ladder id the catalog did
+			// not list). This tier cannot catch that class of bug; the guards that
+			// can are src/__tests__/tier-ladder.test.ts (every built-in rung
+			// resolves to a real model, not a synthesized text-only stub) and
+			// src/__tests__/auto-capabilities.test.ts. Keep them in mind before
+			// trusting a green paperclip assertion here.
 			const isVision = !/text-only|local/i.test(model);
 			return route.fulfill({ json: {
 				provider, model,
@@ -1683,7 +1692,8 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 					switches: { pairs: 0, total: 0, escalations: 0, downgrades: 0, lateral: 0, rate: 0, samples: [] },
 					retries: { answeredTurns: 0, retriedTurns: 0, extraSiblings: 0, rate: 0, samples: [] },
 					spend: {
-						segments: [], routedUsd: 0, pinnedUsd: 0, legacyUsd: 0, totalUsd: 0,
+						segments: [], segmentsTruncated: false,
+						routedUsd: 0, pinnedUsd: 0, legacyUsd: 0, totalUsd: 0,
 						unpricedTurns: 0, unpricedTokens: 0, conversations: 0, usdPerConversation: null,
 					},
 				},
