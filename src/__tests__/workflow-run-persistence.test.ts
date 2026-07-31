@@ -2059,6 +2059,79 @@ describe("the approval consent boundary is structural, not conventional", () => 
     expect(smuggled.finishedAt).toBeUndefined();
   });
 
+  test("parking announces an answerable approval on the bus — the third surface's only trigger", async () => {
+    // Nothing else tells a client a run just parked. The workflows page
+    // sees `workflow:error`, which says "this run stopped" and not "and
+    // YOU can unblock it" — so without this event the pending-decisions
+    // tray has no reason to render and the run waits unseen.
+    const bus = new EventBus<AgentEvents>();
+    const notices: unknown[] = [];
+    bus.on("workflow:approval_request", (p) => notices.push(p));
+    const wf = new WorkflowExecutor(new AgentExecutor(loadAgentsStatic([]), bus), bus, {
+      persist: true,
+    });
+    const def: WorkflowDefinition = {
+      name: "announce-park",
+      description: "",
+      steps: [
+        {
+          name: "gate",
+          kind: "approval",
+          prompt: "Ship it?",
+          choices: ["approve", "reject"],
+          timeoutMs: 60_000,
+        } as WorkflowStep,
+      ],
+    };
+
+    const parked = await wf.runWorkflow(def, {}, undefined, "user-1");
+    expect(parked.status).toBe("suspended");
+
+    expect(notices).toHaveLength(1);
+    const notice = notices[0] as Record<string, unknown>;
+    // The approval id is what the answer route is keyed by — a notice
+    // without it names a decision nobody can act on.
+    const row = await getWorkflowApproval(parked.id, "gate");
+    expect(notice.approvalId).toBe(row!.id);
+    expect(notice.workflowRunId).toBe(parked.id);
+    expect(notice.workflowName).toBe("announce-park");
+    expect(notice.stepName).toBe("gate");
+    expect(notice.prompt).toBe("Ship it?");
+    expect(notice.choices).toEqual(["approve", "reject"]);
+    expect(notice.requireItemConsent).toBe(false);
+    // The owner is what the fail-closed SSE filter scopes on.
+    expect(notice.userId).toBe("user-1");
+    expect(typeof notice.expiresAt).toBe("string");
+
+    // Announced only AFTER the row says `suspended`. A card offered on a
+    // still-`running` run is one `answerApproval` refuses.
+    expect((await getWorkflowRunRow(parked.id))?.status).toBe("suspended");
+  });
+
+  test("an UNOWNED run announces no owner, so the filter has nobody to deliver to", async () => {
+    const bus = new EventBus<AgentEvents>();
+    const notices: Record<string, unknown>[] = [];
+    bus.on("workflow:approval_request", (p) => notices.push(p as Record<string, unknown>));
+    const wf = new WorkflowExecutor(new AgentExecutor(loadAgentsStatic([]), bus), bus, {
+      persist: true,
+    });
+    const def: WorkflowDefinition = {
+      name: "unowned-park",
+      description: "",
+      steps: [
+        { name: "gate", kind: "approval", prompt: "?", choices: ["approve"] } as WorkflowStep,
+      ],
+    };
+
+    await wf.runWorkflow(def, {}, undefined, undefined);
+
+    expect(notices).toHaveLength(1);
+    // Absent, not empty-string: the filter drops an event whose userId is
+    // not a non-empty string, and `""` would be a userId nobody has.
+    expect(notices[0]!.userId).toBeUndefined();
+    expect(notices[0]!.expiresAt).toBeNull();
+  });
+
   test("a refused bypass leaves the run answerable — the legitimate answer still works", async () => {
     // The end-to-end consequence of the defect: after a hostile resume,
     // the real human's answer must still complete the run. Previously

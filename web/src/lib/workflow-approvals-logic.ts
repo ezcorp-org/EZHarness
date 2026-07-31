@@ -21,10 +21,68 @@ export interface PendingApproval {
 	createdAt: string;
 }
 
+/**
+ * A parked approval as the `workflow:approval_request` event delivers it.
+ *
+ * Deliberately NOT {@link PendingApproval}: that is the inbox's projection
+ * of a row the client FETCHED, and it carries `createdAt` / `formSchema`
+ * which the push notice has no business inventing. The fields the two
+ * share are named identically so the shared logic below takes either.
+ */
+export interface PendingApprovalNotice {
+	approvalId: string;
+	workflowRunId: string;
+	workflowName: string;
+	stepName: string;
+	prompt: string;
+	choices: string[];
+	requireItemConsent: boolean;
+	itemIds: string[];
+	expiresAt: string | null;
+}
+
 /** The body `POST /api/workflows/approvals/:id` expects. */
 export interface AnswerBody {
 	choice: string;
 	itemIds?: string[];
+}
+
+/**
+ * How many consent items the tray will let a user tick before it stops
+ * pretending to be the right surface for the job.
+ *
+ * Not a styling number. See {@link trayConsentPlan}.
+ */
+export const TRAY_ITEM_LIMIT = 6;
+
+/**
+ * What the tray card may do about this approval's consent items.
+ *
+ *   - `none`   — nothing to consent to (either the step does not require
+ *                it, or it resolved to an empty set, which the server
+ *                guard reads as a clean gate answerable ids-free).
+ *   - `tick`   — the list is short enough to READ in a corner overlay,
+ *                so the user ticks what they are consenting to.
+ *   - `inbox`  — too long. The card refuses to take the decision and
+ *                sends the user to the inbox.
+ *
+ * That last branch is a consent rule, not a layout preference. A tray
+ * that truncated the list would let someone tick 6 of 40 items and send
+ * exactly those 6 — a complete, valid, server-accepted answer to a
+ * question they were never shown the whole of. Refusing to answer at all
+ * is the only honest option once the surface cannot display what is being
+ * consented to.
+ */
+export function trayConsentPlan(
+	approval: Pick<PendingApprovalNotice, "requireItemConsent" | "itemIds">,
+): { mode: "none" | "tick" | "inbox"; items: string[] } {
+	if (!approval.requireItemConsent || approval.itemIds.length === 0) {
+		return { mode: "none", items: [] };
+	}
+	if (approval.itemIds.length > TRAY_ITEM_LIMIT) {
+		return { mode: "inbox", items: approval.itemIds };
+	}
+	return { mode: "tick", items: approval.itemIds };
 }
 
 /**
@@ -78,6 +136,44 @@ export function toggleItem(selected: string[], itemId: string): string[] {
 	return selected.includes(itemId)
 		? selected.filter((id) => id !== itemId)
 		: [...selected, itemId];
+}
+
+/** What {@link submitApprovalAnswer} learned. `ok: false` carries the
+ *  server's own sentence — never a re-worded one, because the refusals that
+ *  matter (`resume-failed`) say something the client cannot re-derive. */
+export type SubmitResult =
+	| { ok: true; runStatus: string | undefined }
+	| { ok: false; message: string };
+
+/**
+ * POST one answer to the single answer route.
+ *
+ * Extracted because there are now two client surfaces sending it — the
+ * inbox page and the pending-decisions tray — and a second hand-rolled
+ * `fetch` is how the two would drift on the thing that matters most: a
+ * non-OK response NEVER reads as "not answered". `resume-failed` means the
+ * decision WAS recorded and only the resume failed, so a card that said
+ * "failed, try again" would send the user to answer something the CAS will
+ * refuse.
+ *
+ * `fetcher` is injected so this is testable without a network or a DOM.
+ */
+export async function submitApprovalAnswer(
+	approvalId: string,
+	body: AnswerBody,
+	fetcher: typeof fetch = fetch,
+): Promise<SubmitResult> {
+	const res = await fetcher(`/api/workflows/approvals/${approvalId}`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify(body),
+	});
+	const parsed = (await res.json().catch(() => ({}))) as {
+		run?: { status?: string };
+		error?: string;
+	};
+	if (!res.ok) return { ok: false, message: parsed.error ?? `Failed (${res.status})` };
+	return { ok: true, runStatus: parsed.run?.status };
 }
 
 /**

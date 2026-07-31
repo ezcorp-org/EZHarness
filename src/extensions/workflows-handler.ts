@@ -82,6 +82,8 @@ import {
 } from "../runtime/workflow/runtime-registry";
 import type { WorkflowDefinition } from "../types";
 import { isValidWorkflowName, namespacedWorkflowName } from "../runtime/workflow-name";
+import { listPendingWorkflowApprovalsForUser } from "../db/queries/workflow-approvals";
+import { formatGateRelay } from "../runtime/workflow-approval-relay";
 import { extensionLogger } from "../logger";
 
 const log = extensionLogger("workflows", "handler");
@@ -113,7 +115,8 @@ export type WorkflowTriggerDenyReason =
   | "WORKFLOWS_QUOTA_EXCEEDED"
   | "WORKFLOW_NOT_FOUND"
   | "WORKFLOWS_RUNTIME_UNAVAILABLE"
-  | "WORKFLOWS_DISPATCH_FAILED";
+  | "WORKFLOWS_DISPATCH_FAILED"
+  | "WORKFLOWS_BAD_OP";
 
 export interface WorkflowsHandlerContext {
   /** Manifest NAME of the calling extension, resolved host-side from the
@@ -228,6 +231,25 @@ export async function handleWorkflowsRpc(
     granted.maxRunsPerHour <= 0
   ) {
     return deny("WORKFLOWS_NOT_GRANTED", "workflows permission not granted");
+  }
+
+  // 2b. Which OPERATION. Absent ⇒ `run`, so every existing caller — the
+  //     SDK's `ctx.workflows.run()`, every shipped extension — takes the
+  //     identical path it always did, ladder rungs and all.
+  //
+  //     `approvals` is a READ, and it branches out here rather than
+  //     threading a flag through the rungs below: rungs 3-6 are per-NAME
+  //     authorization for a trigger, and rung 11 is the hourly RUN quota.
+  //     A status read has no name and starts nothing, so making it clear
+  //     those would either be meaningless (which name?) or actively wrong
+  //     (a poll burning the run budget until the extension can no longer
+  //     do the thing it was granted).
+  const op = params.op === undefined ? "run" : params.op;
+  if (op !== "run" && op !== "approvals") {
+    return deny("WORKFLOWS_BAD_OP", `Unknown 'op': ${String(op)}`, -32602);
+  }
+  if (op === "approvals") {
+    return readApprovals(req, ctx, startedAt, deps, granted.names, deny);
   }
 
   // 3. The workflow NAME. Read before the PDP call because the capability
@@ -407,6 +429,118 @@ export async function handleWorkflowsRpc(
   // (it carries both `workflowRun.id` and `workflowName`) or on the run
   // history keyed by `workflow_name`.
   return rpcResult(req.id, { v: 1, workflow: fullName, started: true });
+}
+
+/** The caller's own `deny` closure — it owns the audit row, so the read
+ *  path borrows it rather than writing a second one that could drift. */
+type DenyFn = (
+  reason: WorkflowTriggerDenyReason,
+  message: string,
+  code?: number,
+) => Promise<JsonRpcResponse>;
+
+/**
+ * `op: "approvals"` — the parked decisions this extension's workflows are
+ * waiting on, for the ACTING USER, each carrying its verbatim relay.
+ *
+ * ## Why this exists at all
+ *
+ * A trigger is fire-and-forget: `runWorkflow` is not awaited and the
+ * response deliberately carries no run id, because a graph with agent
+ * steps outlives the reverse-RPC budget. So by the time a run parks on an
+ * approval — routinely minutes later, after the agent steps that decide
+ * what the human is even being asked about — the tool result that started
+ * it is long gone. Without a read, an extension driving a workflow from a
+ * chat has NO way to learn its run is waiting on the user, and the LLM
+ * simply goes quiet on a question it should be relaying.
+ *
+ * ## The relay is the point
+ *
+ * Every entry carries `formatGateRelay(...)`, which is the only thing that
+ * renders a parked approval for an LLM and always leads with the
+ * "relay verbatim, do not pre-judge, STOP" directive (ported invariant 2).
+ * The caller cannot get the items without it — there is no other exported
+ * shape to reach for.
+ *
+ * ## Scoping
+ *
+ * Two filters, both structural:
+ *
+ *   - **The user.** `listPendingWorkflowApprovalsForUser` joins on the
+ *     RUN's owner, and an unowned run is admin-only. The extension never
+ *     passes an admin flag, so it sees the acting user's runs and no one
+ *     else's — the prompt text names what is about to be done and to what.
+ *   - **The extension's own workflows.** Restricted to the GRANTED names,
+ *     namespaced host-side exactly as rung 12 does it, so the wire can
+ *     never express another extension's asset.
+ *
+ * It reuses the `workflows` grant rather than introducing a second one: a
+ * read of parked approvals for workflows you are already permitted to RUN
+ * is strictly narrower than the trigger you hold. It does NOT consume the
+ * hourly run quota — see the branch that routes here.
+ */
+async function readApprovals(
+  req: JsonRpcRequest,
+  ctx: WorkflowsHandlerContext,
+  startedAt: number,
+  deps: WorkflowsHandlerDeps,
+  grantedNames: string[],
+  deny: DenyFn,
+): Promise<JsonRpcResponse> {
+  // Rung 7 — a bound acting user. The whole result set is defined by who
+  // is asking, so an ownerless read is not a narrower read, it is a
+  // different question with no answer.
+  if (!ctx.userId || ctx.userId === "unknown") {
+    return rpcError(
+      req.id,
+      -32106,
+      "Reading parked approvals requires an acting user — there is no owner whose decisions to list",
+      { reason: "WORKFLOWS_NO_OWNER" },
+    );
+  }
+  // Rung 8 — the same wiring gate the trigger clears.
+  if (ctx.conversationId) {
+    const wired = await getConversationExtensionIds(ctx.conversationId);
+    if (!wired.includes(ctx.extensionId)) {
+      return deny("WORKFLOWS_NOT_WIRED", "Extension not wired to this conversation");
+    }
+  }
+  // Rung 9 — the instantaneous bucket still applies. A read is cheap, not
+  // free, and this one runs a join.
+  if (!consumeTokens(ctx.extensionId, 1)) {
+    return deny("WORKFLOWS_RATE_LIMITED", "Rate limited", -32029);
+  }
+
+  const mine = new Set(
+    grantedNames.map((n) => namespacedWorkflowName(ctx.extensionName, n)),
+  );
+  const pending = await listPendingWorkflowApprovalsForUser(ctx.userId);
+  const approvals = pending
+    .filter((p) => mine.has(p.workflowName))
+    .map((p) => ({
+      approvalId: p.approval.id,
+      workflowRunId: p.workflowRunId,
+      workflowName: p.workflowName,
+      stepName: p.approval.stepName,
+      choices: p.approval.choices ?? [],
+      requireItemConsent: p.approval.requireItemConsent,
+      itemIds: p.approval.itemIds ?? [],
+      expiresAt: p.approval.expiresAt ? p.approval.expiresAt.toISOString() : null,
+      relay: formatGateRelay({
+        workflowName: p.workflowName,
+        stepName: p.approval.stepName,
+        prompt: p.approval.prompt,
+        choices: p.approval.choices ?? [],
+        requireItemConsent: p.approval.requireItemConsent,
+        itemIds: p.approval.itemIds ?? [],
+      }),
+    }));
+
+  await audit(ctx, startedAt, deps, {
+    success: true,
+    after: { op: "approvals", count: approvals.length },
+  });
+  return rpcResult(req.id, { v: 1, approvals });
 }
 
 /**

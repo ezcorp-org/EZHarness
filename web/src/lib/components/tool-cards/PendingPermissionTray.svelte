@@ -9,8 +9,10 @@
 	 * shell). The backend permission gate works; without this surface the
 	 * approval card simply never renders and the gate hangs forever.
 	 *
-	 * Mounted once at (app)-layout scope alongside DockHost. Renders as a
-	 * fixed bottom-right stack so it overlays every route. Each card resolves
+	 * Rendered inside `PendingDecisionsTray`, which owns the fixed
+	 * bottom-right positioning — this component used to own it too, and two
+	 * fixed stacks at the same corner rendered on top of each other the
+	 * moment a parked workflow approval joined the party. Each card resolves
 	 * through the same PermissionGate + POST /api/tool-calls/:id/permission
 	 * path as the inline gate — we only add a render surface, we do NOT change
 	 * any permission-decision logic (fail-closed: no auto-approve, ever).
@@ -20,7 +22,7 @@
 
 {#if prompts.length > 0}
 	<div
-		class="fixed bottom-4 right-4 z-[60] flex w-[min(28rem,calc(100vw-2rem))] flex-col gap-3"
+		class="flex w-full flex-col gap-3"
 		data-testid="pending-permission-tray"
 		role="region"
 		aria-label="Pending permission requests"

@@ -583,6 +583,33 @@ export interface AgentEvents {
   "workflow:step": { workflowRun: WorkflowRun; step: WorkflowStepRun; userId?: string };
   "workflow:complete": { workflowRun: WorkflowRun; userId?: string };
   "workflow:error": { workflowRun: WorkflowRun; error: string; userId?: string };
+  /**
+   * A run just parked on an `approval` step and a human has to decide.
+   *
+   * Emitted alongside the `workflow:error` suspend signal rather than
+   * folded into it, because the two answer different questions: that one
+   * says "this run stopped", this one says "and YOU can unblock it".
+   * Everything the tray card renders rides here, so the surface can paint
+   * the moment the run parks without a round-trip.
+   *
+   * `userId` is the run's owner and is what the fail-closed SSE filter
+   * scopes on. It is OPTIONAL because an unowned run (CLI, extension
+   * trigger with no acting user) has nobody to notify — the filter drops
+   * an event with no user rather than broadcasting a prompt that names
+   * what is about to be done and to what.
+   */
+  "workflow:approval_request": {
+    approvalId: string;
+    workflowRunId: string;
+    workflowName: string;
+    stepName: string;
+    prompt: string;
+    choices: string[];
+    requireItemConsent: boolean;
+    itemIds: string[];
+    expiresAt: string | null;
+    userId?: string;
+  };
   "tool:start": { conversationId: string; extensionId: string; toolName: string; input: unknown; timestamp: number; source?: 'inline' | 'agent-run'; invocationId?: string; cardType?: string; cardLayout?: string; category?: string };
   "tool:complete": { conversationId: string; extensionId: string; toolName: string; output: unknown; duration: number; success: boolean; source?: 'inline' | 'agent-run'; invocationId?: string; cardType?: string; cardLayout?: string };
   "tool:error": { conversationId: string; extensionId: string; toolName: string; error: string; duration: number; source?: 'inline' | 'agent-run'; invocationId?: string; cardType?: string; cardLayout?: string };
