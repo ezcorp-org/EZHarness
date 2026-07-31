@@ -52,6 +52,32 @@ export function shouldFailOnLcovAbsence(file: string, addedLineCount: number): b
   return addedLineCount > 0 && !file.endsWith(".svelte");
 }
 
+/**
+ * Source files git classified as BINARY in the diff.
+ *
+ * A binary diff emits `Binary files … differ` and NO `@@` hunks, so
+ * `parseUnifiedDiff` never records the file and every per-file check below —
+ * including {@link shouldFailOnLcovAbsence}, the net for "changed source with
+ * no lcov data" — is silently skipped while the gate still reports PASSED.
+ *
+ * A single stray control character is enough to trigger it: one raw NUL in a
+ * `.ts` source makes git call the whole file binary, hiding every added line
+ * from this gate. That is indistinguishable from "no changes" here, which is
+ * why it is checked explicitly rather than left to the hunk parser.
+ *
+ * Only the `b/` (new) side is matched, so a DELETED binary file — whose new
+ * side is `/dev/null` — is correctly ignored; there are no added lines to
+ * cover. Caller applies `isSourceFile`/`isExcluded`, same as the hunk path.
+ */
+export function binaryDiffFiles(diff: string): string[] {
+  const out: string[] = [];
+  for (const line of diff.split("\n")) {
+    const m = line.match(/^Binary files .* and b\/(.+) differ$/);
+    if (m?.[1]) out.push(m[1]);
+  }
+  return out;
+}
+
 async function git(args: string[]): Promise<string> {
   const proc = Bun.spawn(["git", ...args], { cwd: REPO_ROOT, stdout: "pipe", stderr: "pipe" });
   const [out, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
@@ -71,6 +97,19 @@ async function main(): Promise<void> {
 
   const violations: string[] = [];
   let checkedFiles = 0;
+
+  // Binary-classified sources contribute no hunks, so they would slip past the
+  // whole loop below unmeasured. Fail loudly instead — see binaryDiffFiles.
+  for (const file of binaryDiffFiles(diff)) {
+    if (!isSourceFile(file) || isExcluded(file)) continue;
+    violations.push(
+      `${file}: git classified this SOURCE file as BINARY, so it contributes no diff ` +
+        `hunks and every patch-coverage check on it is skipped. Usually one stray ` +
+        `control character (e.g. a raw NUL) — replace it with its source escape ` +
+        `("\\0"), then re-run.`,
+    );
+  }
+
   for (const [file, info] of perFileDiff) {
     if (!isSourceFile(file) || isExcluded(file)) continue;
     const fileCov = cov.get(file);
