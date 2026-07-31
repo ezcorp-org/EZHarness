@@ -1,6 +1,7 @@
 import { json } from "@sveltejs/kit";
 import { z } from "zod";
 import { answerApproval } from "$server/runtime/workflow-answer-approval";
+import { workflowRefusalStatus } from "$server/runtime/workflow-refusal-status";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
@@ -17,20 +18,6 @@ const answerBodySchema = z.object({
   itemIds: z.array(z.string()).optional(),
   consentAll: z.boolean().optional(),
 });
-
-/** Refusal code → HTTP status. The chokepoint returns typed codes rather
- *  than throwing precisely so each surface can map them to its own
- *  conventions without re-deciding what they mean. */
-const STATUS: Record<string, number> = {
-  "not-found": 404,
-  forbidden: 403,
-  "not-pending": 409,
-  "lost-race": 409,
-  "run-unavailable": 409,
-  // The answer landed; the run did not continue. 409, not 200.
-  "resume-failed": 409,
-  "invalid-answer": 400,
-};
 
 export const POST: RequestHandler = async ({ request, params, locals }) => {
   const scopeErr = requireScope(locals, "chat");
@@ -61,7 +48,7 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
   );
 
   if (!result.ok) {
-    return errorJson(STATUS[result.code] ?? 400, result.message);
+    return errorJson(workflowRefusalStatus(result.code), result.message);
   }
   return json({ run: result.run, consentAllUsed: result.consentAllUsed });
 };

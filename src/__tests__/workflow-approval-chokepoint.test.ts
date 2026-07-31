@@ -193,6 +193,41 @@ describe("every answer path routes through the one guard", () => {
     spy.mockRestore();
     _resetWorkflowRuntimeForTests();
   });
+
+  test("the REST route maps refusals through the shared status table", async () => {
+    // The case above drives only the SUCCESS path. The refusal path is
+    // where this route used to keep its own hand-written code→status
+    // object — one of four copies — so it needs a surface-level assertion
+    // of its own, not just the table's unit test.
+    //
+    // Two DIFFERENT statuses, because a route that had quietly collapsed
+    // to a single constant (or to the `?? 400` default) would satisfy one.
+    const { POST } = await import(
+      "../../web/src/routes/api/workflows/approvals/[id]/+server"
+    );
+    const answer = async (id: string) =>
+      (await POST({
+        request: new Request("http://x", {
+          method: "POST",
+          body: JSON.stringify({ choice: "approve" }),
+        }),
+        params: { id },
+        locals: { user: { id: "u1", role: "member" } },
+      } as unknown as Parameters<typeof POST>[0])) as Response;
+
+    // `not-found` → 404. No runtime is registered here on purpose: both
+    // refusals are returned before the chokepoint reaches for one.
+    expect((await answer(crypto.randomUUID())).status).toBe(404);
+
+    // `not-pending` → 409, the "someone got there first" refusal. Reported
+    // distinctly from 404 precisely so the caller is not told the approval
+    // never existed.
+    const approvalId = await seedApproval();
+    await db.execute(
+      sql`UPDATE workflow_approvals SET status = 'answered' WHERE id = ${approvalId}`,
+    );
+    expect((await answer(approvalId)).status).toBe(409);
+  });
 });
 
 describe("nothing outside the chokepoint writes an answer", () => {

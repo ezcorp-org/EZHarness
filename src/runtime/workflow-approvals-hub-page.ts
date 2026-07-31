@@ -36,22 +36,10 @@ import {
 import type { HubPageTree, PageNode } from "../extensions/page-schema";
 import { listPendingWorkflowApprovalsForUser } from "../db/queries/workflow-approvals";
 import { answerApproval } from "./workflow-answer-approval";
+import { workflowRefusalStatus } from "./workflow-refusal-status";
 
 export const WORKFLOW_APPROVALS_HUB_PAGE_ID = "workflow-approvals";
 export const WORKFLOW_APPROVALS_ANSWER_ACTION = "answer";
-
-/** Refusal code → HTTP status. Same mapping the REST surface uses; the
- *  chokepoint returns typed codes precisely so each surface can map them
- *  without re-deciding what they mean. */
-const STATUS: Record<string, number> = {
-  "not-found": 404,
-  forbidden: 403,
-  "not-pending": 409,
-  "lost-race": 409,
-  "run-unavailable": 409,
-  "resume-failed": 409,
-  "invalid-answer": 400,
-};
 
 /**
  * Renders only the caller's OWN pending approvals — never the admin-wide
@@ -137,7 +125,7 @@ export function createWorkflowApprovalsHubPageProvider(): HubPageProvider {
         // No `isAdmin` — `HubPageContext` carries a userId and nothing
         // else, so this surface answers strictly as the run's owner.
         if (!result.ok) {
-          throw new HubPageActionError(STATUS[result.code] ?? 400, result.message);
+          throw new HubPageActionError(workflowRefusalStatus(result.code), result.message);
         }
         // Re-render so the tab drops the answered row immediately.
         return renderApprovalsPage(ctx.userId);
