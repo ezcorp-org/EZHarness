@@ -120,7 +120,14 @@ export function describeDeadline(
 	if (!expiresAt) return null;
 	const ms = new Date(expiresAt).getTime() - now.getTime();
 	// Already past: say so plainly rather than rendering "in -3 hours".
-	if (ms <= 0) return { text: "Expired — this run may already have been failed", urgent: true };
+	//
+	// Deliberately NEUTRAL about what happens next. The step's `onTimeout`
+	// decides that — `abort` cancels the run, `approve` and `skip` carry it
+	// on — and the policy is a field of the workflow DEFINITION, not of the
+	// row this inbox reads. An earlier version of this string promised the
+	// run "may already have been failed", which is true for exactly one of
+	// the three policies and was a lie for the other two.
+	if (ms <= 0) return { text: "Past deadline — the timeout policy decides this", urgent: true };
 	const mins = Math.floor(ms / 60_000);
 	if (mins < 60) return { text: `Expires in ${mins} min`, urgent: true };
 	const hours = Math.floor(mins / 60);

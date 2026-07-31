@@ -98,6 +98,27 @@ test.describe("Workflow approvals inbox", () => {
 		await expect(page.getByTestId("approval-outcome")).toContainText("next approval");
 	});
 
+	test("@evidence a past-deadline row says its policy decides, not that the run failed", async ({
+		page,
+		mockApi,
+	}, testInfo) => {
+		await mockApi({});
+		// The timeout sweep applies the step's `onTimeout` — `abort` cancels
+		// the run, `approve` and `skip` carry it on. The inbox reads a row
+		// that does not carry the policy, so it must not name an outcome.
+		await inbox(page, [{ ...PLAIN, expiresAt: "2020-01-01T00:00:00.000Z" }]);
+
+		const deadline = page.getByTestId("approval-deadline");
+		await expect(deadline).toContainText("Past deadline");
+		await expect(deadline).not.toContainText("failed");
+		await captureEvidence(page, testInfo, "workflow-approvals-past-deadline", {
+			fullPage: true,
+		});
+
+		// Still answerable: past the deadline is not the same as decided.
+		await expect(page.getByTestId("approval-choice").first()).toBeEnabled();
+	});
+
 	test("an empty inbox says so rather than rendering nothing", async ({ page, mockApi }) => {
 		await mockApi({});
 		await inbox(page, []);

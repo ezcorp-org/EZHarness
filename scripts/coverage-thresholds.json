@@ -106,6 +106,7 @@
   "src/runtime/workflow-approvals-hub-page.ts": 100,
   "src/runtime/workflow-refusal-status.ts": 100,
   "src/runtime/workflow-approval-relay.ts": 100,
+  "src/runtime/workflow-approval-timeout-sweep.ts": 100,
   "web/src/routes/api/workflows/runs/[id]/resume/+server.ts": 100,
   "web/src/routes/api/workflows/runs/[id]/cancel/+server.ts": 100,
   "web/src/routes/api/workflows/approvals/+server.ts": 100,

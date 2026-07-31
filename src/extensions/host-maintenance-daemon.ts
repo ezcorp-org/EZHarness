@@ -59,6 +59,10 @@ import {
 } from "./perm-expiry-sweep";
 import { acquireLockfile, releaseLockfile, isProcessAlive } from "../startup/process-lockfile";
 import { sweepWorkflowDefinitionVersions } from "../db/queries/workflow-versions";
+import {
+  sweepExpiredWorkflowApprovals,
+  type ApprovalTimeoutSweepResult,
+} from "../runtime/workflow-approval-timeout-sweep";
 
 /**
  * Sub-tick cadence — every 6th `tickOnce()` fires
@@ -173,7 +177,18 @@ export interface TickOutcome {
   audits: number;
   /** Per-extension hard errors (DB connection, FK violation, …). */
   errors: ApplyError[];
+  /** What the approval-timeout sub-tick did this pass. */
+  approvalTimeouts: ApprovalTimeoutSweepResult;
 }
+
+/** Zeroed sub-tick result — the shape a tick that swept nothing reports. */
+const NO_APPROVAL_TIMEOUTS: ApprovalTimeoutSweepResult = {
+  scanned: 0,
+  answered: 0,
+  aborted: 0,
+  deferred: 0,
+  raced: 0,
+};
 
 export class HostMaintenanceDaemon {
   private readonly opts: {
@@ -288,6 +303,7 @@ export class HostMaintenanceDaemon {
       skippedConcurrent: 0,
       audits: 0,
       errors: [],
+      approvalTimeouts: NO_APPROVAL_TIMEOUTS,
     };
     try {
       const db = getDb();
@@ -327,6 +343,7 @@ export class HostMaintenanceDaemon {
           skippedConcurrent: applied.skippedConcurrent,
           audits: applied.audits,
           errors: applied.errors,
+          approvalTimeouts: NO_APPROVAL_TIMEOUTS,
         };
       }
 
@@ -392,7 +409,32 @@ export class HostMaintenanceDaemon {
         }
       }
 
-      return outcome;
+      // Sub-tick: apply `onTimeout` to every parked approval whose
+      // deadline has passed.
+      //
+      // No modulo, unlike its two siblings above, and the difference is
+      // deliberate. Those are HOUSEKEEPING — a GIN pending list and an
+      // unreferenced-version reap — where a slower cadence costs nothing
+      // a human can perceive. A timeout is a PROMISE made to the person
+      // staring at "Expires in 30 min" in the approvals inbox, so its
+      // resolution is bounded by the wake interval and nothing else.
+      // C4 §4.4: "the daemon sweeps expired approvals on each tick".
+      //
+      // The daemon's injected clock is what the sweep selects on, so a
+      // test drives a deadline by passing `now` rather than by waiting.
+      // Wrapped like its siblings: a parked run nobody can resume must
+      // never take the host's maintenance daemon down with it.
+      let approvalTimeouts = NO_APPROVAL_TIMEOUTS;
+      try {
+        approvalTimeouts = await sweepExpiredWorkflowApprovals({ now: new Date(now) });
+      } catch (err) {
+        log.warn("tick: approval timeout sweep skipped", {
+          error: String((err as Error)?.message ?? err),
+          tickCount: this.tickCount,
+        });
+      }
+
+      return { ...outcome, approvalTimeouts };
     } catch (err) {
       log.warn("tick: sweep crashed — daemon continues", {
         error: String((err as Error)?.message ?? err),

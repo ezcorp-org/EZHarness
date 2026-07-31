@@ -258,6 +258,24 @@ export function validateWorkflow(def: WorkflowDefinition): string[] {
           `Step "${name}" (kind "approval") sets "onTimeout: approve" without a "timeoutMs"`,
         );
       }
+      // The timeout sweep answers with the POLICY NAME as the choice
+      // (C4 §4.4), and the consent guard rejects a choice the definition
+      // never declared — an answer outside the set is rejected, never
+      // coerced. So `onTimeout: approve` over `choices: [ship, hold]` is
+      // a policy that can only ever fail, and it would fail at 3am, on a
+      // deadline, by cancelling the run instead of approving it. The
+      // coupling is real; this is where it becomes visible.
+      if (
+        (step.onTimeout === "approve" || step.onTimeout === "skip") &&
+        Array.isArray(step.choices) &&
+        !step.choices.includes(step.onTimeout)
+      ) {
+        errors.push(
+          `Step "${name}" (kind "approval") sets "onTimeout: ${step.onTimeout}" but does not ` +
+            `declare "${step.onTimeout}" in its "choices" — the timeout sweep answers with the ` +
+            `policy name, and an undeclared choice is rejected`,
+        );
+      }
     }
     // An approval step's answer is a human decision, not a retryable
     // computation: re-asking on a loop or a retry would either re-park

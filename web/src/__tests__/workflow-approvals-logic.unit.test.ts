@@ -102,10 +102,22 @@ describe("describeDeadline — an approval that expires must SAY so", () => {
 		expect(describeDeadline(null, now)).toBeNull();
 	});
 
-	test("an already-passed expiry says expired, never 'in -3 hours'", () => {
+	test("an already-passed expiry says so, never 'in -3 hours'", () => {
 		const d = describeDeadline("2026-07-30T09:00:00.000Z", now)!;
 		expect(d.urgent).toBe(true);
-		expect(d.text).toContain("Expired");
+		expect(d.text).toContain("Past deadline");
+		expect(d.text).not.toContain("-");
+	});
+
+	test("a passed expiry does not claim the run was failed", () => {
+		// Only `onTimeout: abort` fails the run; `approve` and `skip` carry
+		// it on. The inbox reads a row that does not carry the policy, so
+		// naming ANY of the three outcomes here would be a guess rendered
+		// as a fact.
+		const text = describeDeadline("2026-07-30T09:00:00.000Z", now)!.text;
+		expect(text).not.toContain("failed");
+		expect(text).not.toContain("cancelled");
+		expect(text).not.toContain("approved");
 	});
 
 	test("under an hour is urgent", () => {
