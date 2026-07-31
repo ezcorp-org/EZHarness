@@ -11,7 +11,12 @@
  * subprocess (same transport the host uses) and answers its reverse-RPC
  * from an in-process host mimic, recording every frame. It asserts the
  * auto-distill path actually reaches `ezcorp/lessons` with the parsed
- * lesson.
+ * lesson — and pins the wire COST SHAPE: one conversation read, the
+ * trigger gate before the LLM call, and the finished run's scope
+ * forwarded to the gate.
+ *
+ * The mimic answers the reverse-RPC, so it — not the real host — defines
+ * gate behaviour here. Assert on the params the extension SENDS.
  */
 import { test, expect, describe, beforeEach, afterEach, afterAll, mock } from "bun:test";
 import { join } from "path";
@@ -41,6 +46,10 @@ const ENTRYPOINT = join(
 
 const CONV_ID = "conv-distill-1";
 const PROJECT_ID = "proj-1";
+/** `run.startedAt` on the emitted `run:complete` payload — the
+ *  dispatcher forwards `AgentRun` unsanitised, so the extension reads
+ *  this straight off the wire and forwards it to the trigger gate. */
+const RUN_STARTED_AT = 1_700_000_000_000;
 
 interface HostState {
   kv: Map<string, unknown>;
@@ -153,8 +162,8 @@ function wireHost(proc: ExtensionProcess, state: HostState): void {
       return ok(req.id, { ok: true });
     }
 
-    // Anything else (fs writes for the artifact mirror, loop events, …)
-    // answers permissively so a miss doesn't look like a distiller bug.
+    // Anything else (loop events, …) answers permissively so a miss
+    // doesn't look like a distiller bug.
     return ok(req.id, { ok: true });
   });
 }
@@ -212,7 +221,7 @@ describe("lessons-distiller — real subprocess auto-distill", () => {
     proc = await start(state);
     proc.sendNotification("ezcorp/event/run:complete", {
       conversationId: CONV_ID,
-      run: { id: "run-1", agentName: "chat", status: "success" },
+      run: { id: "run-1", agentName: "chat", status: "success", startedAt: RUN_STARTED_AT },
     });
 
     await waitFor(() => state.written.length > 0, 8000);
@@ -231,71 +240,119 @@ describe("lessons-distiller — real subprocess auto-distill", () => {
     expect(String(llmCall?.params.systemPrompt)).toContain("lessons-keeper");
     expect(JSON.stringify(llmCall?.params.messages)).toContain("no, use bun not npm here");
 
-    // FINDING (artifact mirror): `defineDistillLoop`'s `log.artifact`
-    // claims to mirror the lesson to
-    // `.ezcorp/extension-data/distill/lessons/<slug>.md`, but the SDK's
-    // `fsWrite` throws client-side (`EZCORP_FS_ALLOWED !== "1"` — the
-    // distiller has no `filesystem` grant) and `runTerminalLog`
-    // swallows it. No fs RPC is ever attempted.
+    // The distiller writes NO files — it holds no `filesystem` grant and
+    // the lesson row in the DB is the source of truth. (The loop used to
+    // declare a `log.artifact` mirror that silently never wrote; it is
+    // gone.) Give a late fs frame time to show up before asserting none.
     await waitFor(() => state.calls.some((c) => c.method.startsWith("ezcorp/fs")), 1500);
     expect(state.calls.filter((c) => c.method.startsWith("ezcorp/fs"))).toEqual([]);
 
-    // FINDING (redundant reads): the auto path fetches the SAME
-    // conversation twice over RPC — `distillRunComplete` for the
-    // projectId, then `distill` again for the LLM slice — and does it
-    // BEFORE the trigger gate is consulted.
+    // COST SHAPE: settings once (loop primitive), the conversation read
+    // ONCE, then the gate. No second read, and nothing billable before
+    // the gate has said yes.
     const invokeTools = state.calls
       .filter((c) => c.method === "ezcorp/invoke")
       .map((c) => c.params.tool);
     expect(invokeTools).toEqual([
       "runtime.settings.getMine",
       "runtime.conversations.getMessages",
-      "runtime.conversations.getMessages",
       "runtime.lessons.triggerGate",
     ]);
+
+    // …and the gate frame precedes the LLM frame on the wire.
+    const gateAt = state.calls.findIndex(
+      (c) => c.method === "ezcorp/invoke" && c.params.tool === "runtime.lessons.triggerGate",
+    );
+    const llmAt = state.calls.findIndex((c) => c.method === "ezcorp/llm-complete");
+    expect(gateAt).toBeGreaterThanOrEqual(0);
+    expect(llmAt).toBeGreaterThan(gateAt);
+
+    // RUN SCOPE: the finished run's id + start time reach the gate, so
+    // the host heuristics score that run rather than the whole
+    // conversation.
+    const gateCall = state.calls.find(
+      (c) => c.method === "ezcorp/invoke" && c.params.tool === "runtime.lessons.triggerGate",
+    );
+    expect(gateCall?.params.arguments).toEqual({
+      conversationId: CONV_ID,
+      runId: "run-1",
+      runStartedAtMs: RUN_STARTED_AT,
+    });
   }, 20_000);
 
-  test("gate says no → no LLM call, no write", async () => {
+  test("gate says no → no LLM call, no write, one conversation read", async () => {
     state.gate = { shouldDistill: false, reason: "no-signal" };
     proc = await start(state);
     proc.sendNotification("ezcorp/event/run:complete", {
       conversationId: CONV_ID,
-      run: { id: "run-2", agentName: "chat", status: "success" },
+      run: { id: "run-2", agentName: "chat", status: "success", startedAt: RUN_STARTED_AT },
     });
 
     await waitFor(() => state.calls.some((c) => c.method === "ezcorp/lessons"), 3000);
     expect(state.written.length).toBe(0);
     expect(state.calls.find((c) => c.method === "ezcorp/llm-complete")).toBeUndefined();
+    // A rejected fire is the common case — it must cost exactly ONE
+    // message read, not two.
+    expect(
+      state.calls.filter(
+        (c) => c.method === "ezcorp/invoke" && c.params.tool === "runtime.conversations.getMessages",
+      ).length,
+    ).toBe(1);
   }, 20_000);
 
-  test("every subsequent turn on the same conversation pays another LLM call", async () => {
+  test("every subsequent turn distills under its OWN run scope", async () => {
     proc = await start(state);
-    for (const runId of ["run-a", "run-b", "run-c"]) {
+    const runIds = ["run-a", "run-b", "run-c"];
+    for (const [i, runId] of runIds.entries()) {
       proc.sendNotification("ezcorp/event/run:complete", {
         conversationId: CONV_ID,
-        run: { id: runId, agentName: "chat", status: "success" },
+        run: {
+          id: runId,
+          agentName: "chat",
+          status: "success",
+          startedAt: RUN_STARTED_AT + i * 1000,
+        },
       });
-      // Serialise the fires so the count is deterministic.
-      await waitFor(
-        () => state.calls.filter((c) => c.method === "ezcorp/llm-complete").length >= 1,
-        4000,
-      );
-      await new Promise((r) => setTimeout(r, 200));
+      // Serialise the fires so the counts are deterministic.
+      await waitFor(() => state.written.length >= i + 1, 6000);
     }
+
     const llmCalls = state.calls.filter((c) => c.method === "ezcorp/llm-complete").length;
     expect(llmCalls).toBe(3);
     expect(state.written.length).toBe(3);
+
+    // Each fire scopes the gate to the run that just finished — the id
+    // and start time differ per turn, which is what lets the host stop
+    // re-scoring the whole conversation.
+    const gateArgs = state.calls
+      .filter((c) => c.method === "ezcorp/invoke" && c.params.tool === "runtime.lessons.triggerGate")
+      .map((c) => c.params.arguments);
+    expect(gateArgs.length).toBe(3);
+    expect(
+      [...gateArgs]
+        .map((a) => (a as { runId?: string }).runId)
+        .sort(),
+    ).toEqual(runIds);
+    expect(
+      new Set(gateArgs.map((a) => (a as { runStartedAtMs?: number }).runStartedAtMs)).size,
+    ).toBe(3);
+    // Still one message read per fire, never two.
+    expect(
+      state.calls.filter(
+        (c) => c.method === "ezcorp/invoke" && c.params.tool === "runtime.conversations.getMessages",
+      ).length,
+    ).toBe(3);
   }, 30_000);
 
   test("non-chat and failed runs never distill", async () => {
     proc = await start(state);
     proc.sendNotification("ezcorp/event/run:complete", {
       conversationId: CONV_ID,
-      run: { id: "run-x", agentName: "researcher", status: "success" },
+      run: { id: "run-x", agentName: "researcher", status: "success", startedAt: RUN_STARTED_AT },
     });
     proc.sendNotification("ezcorp/event/run:complete", {
       conversationId: CONV_ID,
-      run: { id: "run-y", agentName: "chat", status: "error" },
+      run: { id: "run-y", agentName: "chat", status: "error", startedAt: RUN_STARTED_AT },
     });
     await waitFor(() => state.written.length > 0, 2500);
     expect(state.written.length).toBe(0);
