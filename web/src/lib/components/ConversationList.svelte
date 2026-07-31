@@ -423,7 +423,7 @@
 			{#if semanticDegraded}
 				<!-- Non-blocking degraded notice (UI): does NOT mutate the stored mode -->
 				<div
-					class="border-b border-[var(--color-border)] bg-amber-500/10 px-3 py-2 text-[11px] text-amber-300"
+					class="border-b border-[var(--color-border)] bg-[var(--color-warning,#f59e0b)]/10 px-3 py-2 text-[11px] text-[var(--color-text-secondary)]"
 					role="status"
 					data-testid="search-degraded-notice"
 				>

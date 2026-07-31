@@ -25,11 +25,11 @@
 
 {#if hasProvider === false}
 	<div
-		class="mx-4 mt-4 rounded-md border border-amber-700 bg-amber-900/20 p-4 text-sm"
+		class="mx-4 mt-4 rounded-md border border-[var(--color-warning,#f59e0b)]/50 bg-[var(--color-warning,#f59e0b)]/10 p-4 text-sm"
 		role="status"
 		data-testid="no-provider-banner"
 	>
-		<p class="font-medium text-amber-300">Connect a provider to start chatting</p>
+		<p class="font-semibold text-[var(--color-text-primary)]">Connect a provider to start chatting</p>
 		<p class="mt-1 text-[var(--color-text-secondary)]">
 			You haven't connected an LLM provider yet. Add an API key or sign in with OAuth to send your first message.
 		</p>

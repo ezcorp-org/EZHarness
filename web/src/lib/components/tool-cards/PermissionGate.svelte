@@ -189,7 +189,7 @@
 	}
 </script>
 
-<div data-testid="tool-card-permission" class="rounded-md border border-amber-500/40 bg-amber-900/10 overflow-hidden">
+<div data-testid="tool-card-permission" class="rounded-md border border-[var(--color-warning,#f59e0b)]/50 bg-[var(--color-warning,#f59e0b)]/10 overflow-hidden">
 	<div class="px-3 py-2">
 		<div class="flex items-center gap-2 mb-2">
 			<svg class="h-4 w-4 text-amber-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -212,7 +212,7 @@
 				<span class="rounded-full bg-blue-500/20 px-2 py-0.5 text-[10px] font-medium text-blue-300" data-testid="permission-extension-badge">{toolCall.extensionId}</span>
 			{/if}
 			{#if toolCall.category}
-				<span class="rounded-full bg-amber-500/20 px-2 py-0.5 text-[10px] font-medium text-amber-300">{toolCall.category}</span>
+				<span class="rounded-full bg-[var(--color-warning,#f59e0b)]/20 px-2 py-0.5 text-[10px] font-medium text-[var(--color-text-primary)]">{toolCall.category}</span>
 			{/if}
 		</div>
 
@@ -238,7 +238,7 @@
 		{/if}
 
 		{#if securityNote && !isExpiredRequest}
-			<p class="mb-3 text-xs text-amber-300/80">{securityNote}</p>
+			<p class="mb-3 text-xs text-[var(--color-text-secondary)]">{securityNote}</p>
 		{/if}
 
 		{#if isExpiredRequest && expiredCopy}

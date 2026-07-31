@@ -84,10 +84,10 @@
 
 {#if expiredGrants.length > 0}
 	<div
-		class="rounded-lg border border-amber-500/40 bg-amber-900/10 p-4"
+		class="rounded-lg border border-[var(--color-warning,#f59e0b)]/50 bg-[var(--color-warning,#f59e0b)]/10 p-4"
 		data-testid="expired-grants-banner"
 	>
-		<h3 class="mb-1 text-sm font-medium text-amber-300">
+		<h3 class="mb-1 text-sm font-semibold text-[var(--color-text-primary)]">
 			Recent permission expirations
 		</h3>
 		<p class="mb-3 text-xs text-[var(--color-text-secondary)]">
@@ -103,7 +103,7 @@
 				>
 					<div class="flex min-w-0 flex-1 items-center gap-2">
 						<span
-							class="rounded-full bg-amber-500/20 px-2 py-0.5 text-xs font-medium text-amber-300"
+							class="rounded-full bg-[var(--color-warning,#f59e0b)]/20 px-2 py-0.5 text-xs font-medium text-[var(--color-text-primary)]"
 							data-testid="expired-grants-row-capability"
 						>{grant.capability}</span>
 						<span

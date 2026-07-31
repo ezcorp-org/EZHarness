@@ -199,7 +199,7 @@
 			     system-owned workflow is admin-only to edit, which is every row
 			     that existed before ownership shipped. -->
 			<p
-				class="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-300"
+				class="rounded-md border border-[var(--color-warning,#f59e0b)]/50 bg-[var(--color-warning,#f59e0b)]/10 p-3 text-sm text-[var(--color-text-secondary)]"
 				data-testid="editor-readonly"
 			>
 				You can view this workflow but not change it. It is
@@ -298,10 +298,10 @@
 					{/if}
 					{#if dryRunReport.gatesOnStubs.length > 0}
 						<div
-							class="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-300"
+							class="rounded-md border border-[var(--color-warning,#f59e0b)]/50 bg-[var(--color-warning,#f59e0b)]/10 p-3 text-xs text-[var(--color-text-secondary)]"
 							data-testid="dry-run-unenforced-gates"
 						>
-							<p class="font-medium">
+							<p class="font-semibold text-[var(--color-text-primary)]">
 								{dryRunReport.gatesOnStubs.length} gate{dryRunReport.gatesOnStubs.length === 1
 									? ""
 									: "s"} ran against stub data and {dryRunReport.gatesOnStubs.length === 1
