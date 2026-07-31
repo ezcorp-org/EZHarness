@@ -572,16 +572,17 @@ const BUNDLED_EXTENSIONS: BundledExtension[] = [
     },
   },
   {
-    // Phase 53 Stage 1 — bundled port of the legacy lessons distiller
-    // (src/runtime/lessons/distiller.ts). Lives at the milestone-spec'd
-    // path `extensions/<name>/` rather than the docs/examples or
+    // The lessons distiller. Lives at the milestone-spec'd path
+    // `extensions/<name>/` rather than the docs/examples or
     // packages/@ezcorp paths used by older bundled extensions. The
     // `getProjectRoot()`-relative join handles any in-repo path.
     //
-    // Shipped alongside the legacy implementation; Stage 2 (a separate
-    // commit gated on UAT signoff) deletes the legacy code. The parity
-    // test at `src/__tests__/distiller-port-parity.test.ts` proves both
-    // pipelines produce identical outcomes during Stage 1.
+    // This is the SOLE auto-distill path. Phase 53 Stage 1 briefly ran
+    // it alongside a legacy host-side distiller under a parity test;
+    // Stage 2 deleted both (`src/runtime/lessons/distiller.ts` and
+    // `src/__tests__/distiller-port-parity.test.ts` no longer exist —
+    // `src/runtime/lessons/` now holds only the shared `triggers.ts`
+    // heuristics, called host-side via `runtime.lessons.triggerGate`).
     name: "lessons-distiller",
     path: "extensions/lessons-distiller",
     // Event-driven extension: the auto-distill path is a `run:complete`
