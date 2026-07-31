@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import {
   type IntersectableCapabilities,
   intersectCapabilities,
+  routableRungs,
+  uniqueRungs,
 } from "../runtime/routing/auto-capabilities";
 
 function caps(over: Partial<IntersectableCapabilities> = {}): IntersectableCapabilities {
@@ -98,5 +100,65 @@ describe("intersectCapabilities", () => {
     const ba = intersectCapabilities([b, a]);
     expect([...(ab?.kinds ?? [])].sort()).toEqual([...(ba?.kinds ?? [])].sort());
     expect(ab?.maxBytesPerFile).toBe(ba!.maxBytesPerFile);
+  });
+});
+
+describe("uniqueRungs", () => {
+  const A = { provider: "anthropic", model: "m1" };
+  const B = { provider: "openai", model: "m2" };
+  const OR = { provider: "openrouter", model: "openrouter/auto" };
+
+  test("flattens tiers in order", () => {
+    expect(uniqueRungs([[A], [B]])).toEqual([A, B]);
+  });
+
+  test("dedupes a rung repeated across tiers — the built-in ladder's shape", () => {
+    // openrouter/auto is listed in fast, balanced AND powerful; probing it
+    // three times would also weight it three times in the intersection.
+    expect(uniqueRungs([[A, OR], [OR], [OR]])).toEqual([A, OR]);
+  });
+
+  test("same model id on DIFFERENT providers stays distinct", () => {
+    const ollama = { provider: "ollama", model: "m1" };
+    expect(uniqueRungs([[A, ollama]])).toEqual([A, ollama]);
+  });
+
+  test("no tiers, and empty tiers, yield nothing", () => {
+    expect(uniqueRungs([])).toEqual([]);
+    expect(uniqueRungs([[], []])).toEqual([]);
+  });
+});
+
+describe("routableRungs", () => {
+  const anthropic = { provider: "anthropic", model: "claude" };
+  const ollama = { provider: "ollama", model: "gemma" };
+  const openai = { provider: "openai", model: "gpt" };
+
+  test("drops rungs on providers with no credential", () => {
+    expect(routableRungs([anthropic, ollama, openai], new Set(["anthropic", "openai"]))).toEqual([
+      anthropic,
+      openai,
+    ]);
+  });
+
+  test("keeps ladder order among the survivors", () => {
+    expect(routableRungs([openai, anthropic], new Set(["anthropic", "openai"]))).toEqual([
+      openai,
+      anthropic,
+    ]);
+  });
+
+  test("NO available provider falls back to the full set, never to empty", () => {
+    // Empty would 404 the endpoint and hide the paperclip. Degrade to the
+    // pre-filter answer instead of to a broken composer.
+    expect(routableRungs([anthropic, ollama], new Set())).toEqual([anthropic, ollama]);
+  });
+
+  test("an available provider absent from the ladder changes nothing", () => {
+    expect(routableRungs([anthropic], new Set(["anthropic", "google"]))).toEqual([anthropic]);
+  });
+
+  test("an empty ladder stays empty — the fallback must not invent rungs", () => {
+    expect(routableRungs([], new Set(["anthropic"]))).toEqual([]);
   });
 });

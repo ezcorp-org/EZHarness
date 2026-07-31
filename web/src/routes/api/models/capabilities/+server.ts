@@ -15,7 +15,12 @@ import {
   ladderCandidates,
   parseTierLadder,
 } from "$server/runtime/routing/tier-ladder";
-import { intersectCapabilities } from "$server/runtime/routing/auto-capabilities";
+import {
+  intersectCapabilities,
+  routableRungs,
+  uniqueRungs,
+} from "$server/runtime/routing/auto-capabilities";
+import { resolveProviderAvailability } from "$lib/server/provider-availability";
 import { VALID_TIERS } from "$server/runtime/tier-classifier";
 import { AUTO_MODEL, AUTO_PROVIDER } from "$lib/model-selector-logic";
 
@@ -60,16 +65,15 @@ export const GET: RequestHandler = async ({ url, locals }) => {
   // its text-only fallback.
   if (provider === AUTO_PROVIDER && model === AUTO_MODEL) {
     const ladder = parseTierLadder(await getSetting(TIER_LADDER_SETTING_KEY)) ?? DEFAULT_TIER_LADDER;
-    const seen = new Set<string>();
-    const candidates: ReturnType<typeof getCapabilitiesWithExtensions>[] = [];
-    for (const tier of VALID_TIERS) {
-      for (const rung of ladderCandidates(ladder, tier)) {
-        const key = `${rung.provider}::${rung.model}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        candidates.push(getCapabilitiesWithExtensions(rung.provider, rung.model, [...mimeSet]));
-      }
-    }
+    const rungs = uniqueRungs(VALID_TIERS.map((tier) => ladderCandidates(ladder, tier)));
+    // Only rungs this deployment can actually be served by. Without this a
+    // provider the install has no credential for still clamps the intersection
+    // — which is how the built-in ladder's ollama rung stripped image support
+    // from every Auto conversation. See routableRungs for the fallback rule.
+    const { available } = await resolveProviderAvailability(rungs.map((r) => r.provider));
+    const candidates = routableRungs(rungs, available).map((rung) =>
+      getCapabilitiesWithExtensions(rung.provider, rung.model, [...mimeSet]),
+    );
     const merged = intersectCapabilities(candidates);
     if (!merged) return errorJson(404, "no routable models configured for auto selection");
     return json({ provider, model, ...merged });

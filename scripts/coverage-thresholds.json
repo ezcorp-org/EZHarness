@@ -389,6 +389,7 @@
   "web/src/lib/components/settings/TopicContextsSection.svelte": 100,
   "web/src/lib/components/ModeFormModal.svelte": 100,
   "web/src/routes/api/admin/analytics/routing/+server.ts": 100,
+  "web/src/lib/server/provider-availability.ts": 100,
   "web/src/lib/**": 90,
   "src/**": 0,
   "web/src/**": 32,

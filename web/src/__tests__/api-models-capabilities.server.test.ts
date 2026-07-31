@@ -142,6 +142,40 @@ describe("GET /api/models/capabilities?provider=auto&model=auto", () => {
 		expect(body.error).toContain("auto selection");
 	});
 
+	test("drafted `!ext:NAME` mentions widen the accepted MIME set", async () => {
+		// The `extensions=` param carries extension names the user has typed but
+		// not yet sent, so an .xlsx can be dragged into a fresh chat mentioning
+		// `!ext:excel` on the FIRST message instead of after a round-trip.
+		const ext = await import("$server/db/queries/conversation-extensions");
+		vi.mocked(ext.getExtensionMimesByNames).mockReturnValueOnce([
+			"application/vnd.ms-excel",
+		] as never);
+
+		const res = await GET(
+			makeEvent(
+				"http://localhost/api/models/capabilities?provider=anthropic&model=claude-opus&extensions=excel,%20sheets",
+				authedUser,
+			),
+		);
+		expect(res.status).toBe(200);
+		// Names are trimmed and blanks dropped before the registry lookup.
+		expect(vi.mocked(ext.getExtensionMimesByNames)).toHaveBeenCalledWith(["excel", "sheets"]);
+	});
+
+	test("an empty `extensions=` param resolves to no drafted names", async () => {
+		const ext = await import("$server/db/queries/conversation-extensions");
+		vi.mocked(ext.getExtensionMimesByNames).mockClear();
+		const res = await GET(
+			makeEvent(
+				"http://localhost/api/models/capabilities?provider=anthropic&model=claude-opus&extensions=%20,%20",
+				authedUser,
+			),
+		);
+		expect(res.status).toBe(200);
+		// All-blank list filters to empty, so the registry is never consulted.
+		expect(vi.mocked(ext.getExtensionMimesByNames)).not.toHaveBeenCalled();
+	});
+
 	test("a concrete model is unaffected by the auto branch", async () => {
 		const res = await GET(
 			makeEvent(

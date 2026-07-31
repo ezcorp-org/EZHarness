@@ -48,6 +48,58 @@ export interface AutoCapabilities {
   maxFilesPerMessage: number;
 }
 
+/** One ladder rung — the shape `ladderCandidates` yields. */
+export interface LadderRung {
+  provider: string;
+  model: string;
+}
+
+/**
+ * Rungs the deployment could ACTUALLY be served, given the providers it holds
+ * credentials for.
+ *
+ * This exists because the intersection is only conservative in the useful
+ * direction if its inputs are reachable. A rung on an unconfigured provider can
+ * never answer a turn, so folding its capabilities in narrows what the composer
+ * offers for no reason — an install with vision-capable models everywhere it
+ * can actually route would still lose images to one unreachable text-only rung.
+ *
+ * Falls back to the FULL set when nothing matches, rather than returning
+ * empty. An empty result would 404 the endpoint and hide the paperclip
+ * entirely; a deployment with no credentials at all cannot chat anyway, and
+ * this way the answer degrades to exactly the pre-filter behaviour instead of
+ * to a broken composer.
+ */
+export function routableRungs(
+  rungs: readonly LadderRung[],
+  availableProviders: ReadonlySet<string>,
+): LadderRung[] {
+  const routable = rungs.filter((r) => availableProviders.has(r.provider));
+  return routable.length > 0 ? routable : [...rungs];
+}
+
+/**
+ * Every DISTINCT rung across the tiers given, in tier then ladder order.
+ * Deduped on `provider::model` because a rung repeated across tiers (the
+ * built-in ladder lists `openrouter/auto` in all three) must not be probed —
+ * or weighted — more than once.
+ */
+export function uniqueRungs(
+  perTier: ReadonlyArray<readonly LadderRung[]>,
+): LadderRung[] {
+  const seen = new Set<string>();
+  const out: LadderRung[] = [];
+  for (const tier of perTier) {
+    for (const rung of tier) {
+      const key = `${rung.provider}::${rung.model}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(rung);
+    }
+  }
+  return out;
+}
+
 /** Values every candidate agrees on, or undefined when there are none. */
 function intersectStrings(lists: ReadonlyArray<readonly string[]>): string[] {
   const [first, ...rest] = lists;
