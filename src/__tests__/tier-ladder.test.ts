@@ -50,6 +50,8 @@ import { CHEAP_MODEL_BY_PROVIDER } from "../lib/cheap-models";
 import {
   findModelForProviderInTier,
   findRunnableModelForProviderInTier,
+  modelPrices,
+  resolveModelObject,
   tierForModel,
 } from "../providers/registry";
 
@@ -458,5 +460,57 @@ describe("T4 — a configured ladder decides which model a tier gets", () => {
     expect(findRunnableModelForProviderInTier("openai", "fast", "oauth", unrunnable)!.id).toBe(
       baseline,
     );
+  });
+});
+
+// ── T5: every built-in rung must be a REAL model ────────────────────────────
+//
+// `resolveModelObject` never throws for an unknown id — it synthesizes a
+// text-only, zero-cost stand-in. That makes a typo'd rung invisible: it routes,
+// it just quietly strips image support from Auto's capability intersection and
+// reports every turn it serves as "unpriced". Exactly that shipped once
+// (`claude-haiku-4-5-20250514`, an id the catalog does not list), so the ladder
+// is now pinned against the live catalog rather than against itself.
+describe("DEFAULT_TIER_LADDER rungs resolve to real catalog models", () => {
+  // Local runtimes serve models the catalog cannot know about, and they are
+  // genuinely unpriced, so a stub is indistinguishable from the real thing.
+  const LOCAL_PROVIDERS = new Set(["ollama", "lmstudio", "llamacpp"]);
+
+  const rungs = VALID_TIERS.flatMap((tier) =>
+    ladderCandidates(DEFAULT_TIER_LADDER, tier).map((r) => ({ ...r, tier })),
+  );
+
+  test("the ladder is non-empty, so this suite cannot pass vacuously", () => {
+    expect(rungs.length).toBeGreaterThan(0);
+  });
+
+  for (const rung of rungs) {
+    if (LOCAL_PROVIDERS.has(rung.provider)) continue;
+    test(`${rung.tier}: ${rung.provider}/${rung.model} is not a synthesized stub`, () => {
+      const m = resolveModelObject(rung.provider, rung.model) as { input?: string[] };
+      // The stub's signature is input exactly ["text"] (registry.ts's fallback
+      // returns that verbatim). Every real cloud rung in the built-in ladder
+      // accepts more, so text-only here means the id missed the catalog.
+      //
+      // Modality, not price, is the detector on purpose: `openrouter/auto` is a
+      // genuine catalog entry with NO fixed price (it bills as whatever it
+      // routes to), so a price-based check would fail on a perfectly good rung.
+      expect(m.input ?? []).toContain("text");
+      expect(
+        (m.input ?? []).length > 1,
+        `${rung.provider}/${rung.model} resolved to text-only — the signature of a ` +
+          "synthesized stub, i.e. an id the catalog does not list",
+      ).toBe(true);
+    });
+  }
+
+  test("a deliberately bogus id DOES trip the stub detector", () => {
+    // Guards the guard: proves the assertion above can fail, so a future
+    // catalog change that made everything text-only wouldn't pass silently.
+    const stub = resolveModelObject("anthropic", "claude-haiku-4-5-20250514") as {
+      input?: string[];
+    };
+    expect(stub.input ?? []).toEqual(["text"]);
+    expect(modelPrices("anthropic", "claude-haiku-4-5-20250514")?.input ?? 0).toBe(0);
   });
 });

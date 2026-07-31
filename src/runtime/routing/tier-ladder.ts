@@ -73,7 +73,11 @@ export const MAX_LADDER_ENTRIES_PER_TIER = 20;
  */
 export const DEFAULT_TIER_LADDER: TierLadder = {
   fast: [
-    { provider: "anthropic", model: "claude-haiku-4-5-20250514" },
+    // Must be an id the catalog actually lists. An unresolvable id does NOT
+    // fail loudly — `resolveModelObject` synthesizes a text-only, zero-cost
+    // stand-in, which would silently strip image support from Auto's capability
+    // intersection AND make every turn it served report as "unpriced".
+    { provider: "anthropic", model: "claude-haiku-4-5-20251001" },
     { provider: "openai", model: "gpt-4o-mini" },
     { provider: "google", model: "gemini-2.0-flash-lite" },
     { provider: "ollama", model: "gemma4:e2b" },
