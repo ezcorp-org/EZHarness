@@ -1,5 +1,6 @@
 import { realpath } from "node:fs/promises";
 import { parseMentions, STRUCTURED_NAME_CHAR_CLASS } from "../../web/src/lib/mention-logic";
+import type { InputField, InputSchema } from "../types";
 import { getExtensionsByNames } from "../db/queries/extensions";
 import { getAgentConfigsByNames, getAgentConfigsByIds } from "../db/queries/agent-configs";
 import { getConversationExtensionIds, addConversationExtensions } from "../db/queries/conversation-extensions";
@@ -155,6 +156,71 @@ export async function applyCommandExpansion(
   return notes + expanded;
 }
 
+// ─── Shared expansion primitives ───────────────────────────────────
+//
+// The `$[feature:…]`, `%[lesson:…]` and `![workflow:…]` passes below all
+// follow the same three beats: scan tokens in source order → dedupe →
+// render one block per resolved target, joined by a blank line. These
+// helpers hold the parts that are byte-identical across the passes so a
+// fix (e.g. the join-budget accounting) lands once instead of three
+// times. What legitimately DIFFERS per pass — the caps, whether lookups
+// are serial or parallel, the block wording — stays in the pass itself.
+
+/**
+ * Raw capture-group-1 values for every match of `tokenRe` in `text`, in
+ * source order. A fresh regex instance is used per call so a `lastIndex`
+ * from a previous call can never leak in.
+ */
+function tokenNames(text: string, tokenRe: RegExp): string[] {
+  const re = new RegExp(tokenRe.source, "g");
+  const names: string[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) names.push(m[1]!);
+  return names;
+}
+
+/**
+ * Trim each name, drop empties, and dedupe — preserving the order of
+ * FIRST occurrence. `$[feature:x] … $[feature:x]` therefore resolves and
+ * renders exactly once, and `$[feature:]` never reaches a resolver.
+ */
+function orderedUniqueNames(rawNames: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const ordered: string[] = [];
+  for (const raw of rawNames) {
+    const name = raw.trim();
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    ordered.push(name);
+  }
+  return ordered;
+}
+
+/**
+ * Longest PREFIX of `blocks` whose `join("\n\n")` length stays within
+ * `maxChars`.
+ *
+ * The budget is measured against what the LLM actually sees post-join,
+ * so each block after the first is charged the 2-char separator as well.
+ * A block that would overflow is dropped WHOLE — never truncated
+ * mid-sentence — and since every later block would still owe its own
+ * separator, the scan stops at the first miss rather than trying to
+ * squeeze a smaller block into the remaining space. That keeps the
+ * output a stable prefix of source order instead of an order-scrambling
+ * best-fit packing.
+ */
+function takeWithinJoinBudget(blocks: readonly string[], maxChars: number): string[] {
+  const kept: string[] = [];
+  let totalChars = 0;
+  for (const block of blocks) {
+    const separatorCost = kept.length > 0 ? 2 : 0;
+    if (totalChars + separatorCost + block.length > maxChars) break;
+    kept.push(block);
+    totalChars += separatorCost + block.length;
+  }
+  return kept;
+}
+
 // ─── Feature-mention expansion ─────────────────────────────────────
 
 /**
@@ -216,18 +282,8 @@ export async function applyFeatureExpansion(
   userMessage: string,
   resolver: FeatureResolver,
 ): Promise<string> {
-  // Walk tokens in source order, dedupe by name. Using a fresh regex
-  // instance per call keeps `lastIndex` from leaking across calls.
-  const re = new RegExp(FEATURE_TOKEN_RE.source, "g");
-  const seen = new Set<string>();
-  const orderedNames: string[] = [];
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(userMessage)) !== null) {
-    const name = m[1]!.trim();
-    if (!name || seen.has(name)) continue;
-    seen.add(name);
-    orderedNames.push(name);
-  }
+  // Walk tokens in source order, dedupe by name.
+  const orderedNames = orderedUniqueNames(tokenNames(userMessage, FEATURE_TOKEN_RE));
   if (orderedNames.length === 0) return "";
 
   const blocks: string[] = [];
@@ -430,18 +486,8 @@ export async function applyLessonExpansion(
   resolver: LessonResolver,
   onFired?: (lessonId: string) => void,
 ): Promise<string> {
-  // Walk tokens in source order, dedupe by slug. Fresh regex per call
-  // so `lastIndex` doesn't leak between invocations.
-  const re = new RegExp(LESSON_TOKEN_RE.source, "g");
-  const seen = new Set<string>();
-  const orderedSlugs: string[] = [];
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(userMessage)) !== null) {
-    const slug = m[1]!.trim();
-    if (!slug || seen.has(slug)) continue;
-    seen.add(slug);
-    orderedSlugs.push(slug);
-  }
+  // Walk tokens in source order, dedupe by slug.
+  const orderedSlugs = orderedUniqueNames(tokenNames(userMessage, LESSON_TOKEN_RE));
   if (orderedSlugs.length === 0) return "";
 
   // Cap-then-parallelize: slice to MAX_LESSON_EXPANSIONS_PER_TURN BEFORE
@@ -457,30 +503,187 @@ export async function applyLessonExpansion(
   // shape is what bounds resolver work against paste-bomb messages
   // (100 unique tokens still triggers exactly 5 lookups).
   const slugsToResolve = orderedSlugs.slice(0, MAX_LESSON_EXPANSIONS_PER_TURN);
-  const resolved = await Promise.all(slugsToResolve.map(resolver));
+  const resolved = (await Promise.all(slugsToResolve.map(resolver)))
+    // Truthiness (not `!== null`) so a resolver that yields `undefined`
+    // for a missing slug is treated as the same silent no-op.
+    .filter((lesson): lesson is NonNullable<typeof lesson> => Boolean(lesson));
 
-  const blocks: string[] = [];
-  let totalChars = 0;
-  for (const lesson of resolved) {
-    if (!lesson) continue; // unknown / deleted → silent no-op
+  // Byte cap applied to the RENDERED blocks; `takeWithinJoinBudget`
+  // always returns a prefix, so index i of the kept list is index i of
+  // `resolved` — that's what lets `onFired` fire for exactly the lessons
+  // that made it into the prompt (not the ones merely looked up).
+  const kept = takeWithinJoinBudget(
+    resolved.map((lesson) => `**Lesson: ${lesson.title}**\n${lesson.body}`),
+    MAX_LESSON_EXPANDED_CHARS,
+  );
+  for (let i = 0; i < kept.length; i++) onFired?.(resolved[i]!.lessonId);
+  return kept.join("\n\n");
+}
 
-    const block = `**Lesson: ${lesson.title}**\n${lesson.body}`;
-    // Joined output cost = previous-blocks + "\n\n" separator (when
-    // there is a previous block) + this block. Use that exact size
-    // as the would-exceed check so the cap reflects what the LLM
-    // actually sees post-`join("\n\n")`.
-    const separatorCost = blocks.length > 0 ? 2 : 0;
-    if (totalChars + separatorCost + block.length > MAX_LESSON_EXPANDED_CHARS) {
-      // Drop this whole block — no partial-truncation. Subsequent
-      // blocks will also fail the check (they'd still need the
-      // separator), so break early.
-      break;
-    }
-    blocks.push(block);
-    totalChars += separatorCost + block.length;
-    onFired?.(lesson.lessonId);
+// ─── Workflow-mention expansion ────────────────────────────────────
+
+/**
+ * Resolves a `![workflow:name]` token to the workflow's description and
+ * (optional) `inputSchema`. `null` for unknown / deleted workflows —
+ * caller MUST treat that as a silent no-op (mirroring how
+ * `$[feature:…]`, `%[lesson:…]` and `@[file:…]` handle a missing
+ * target).
+ *
+ * Resolver-injected like `FeatureResolver` / `LessonResolver` so this
+ * module stays free of both the DB and the workflow runtime, and the
+ * expansion is unit-testable in isolation. The build-prompt path
+ * supplies the real resolver, which reads the merged (extension + YAML +
+ * DB) cache through `getWorkflowRuntime()`.
+ */
+export type WorkflowResolver = (
+  name: string,
+) => Promise<{ description: string; inputSchema?: InputSchema } | null>;
+
+/**
+ * Hard caps on workflow expansion within a single user turn.
+ *
+ * Deliberately the SAME numbers as the lesson caps (5 expansions /
+ * 8 KiB of joined text), for the same reason and so reviewers have one
+ * budget to remember across mention passes rather than two.
+ *
+ * Workflows need the cap MORE than lessons do, not less: a block's size
+ * is driven by `inputSchema`, which is unbounded — every field
+ * contributes a label, an optional description, its options list and its
+ * default. A handful of schema-heavy workflows can therefore out-weigh
+ * the actual user message, and a paste-bomb of 20 `![workflow:…]` tokens
+ * would otherwise hand an attacker a cheap way to crowd out the rest of
+ * the context window. Excess is dropped silently — fail closed.
+ *
+ * Caps apply AFTER dedupe, so a name repeated three times consumes one
+ * slot (matching `applyFeatureExpansion` / `applyLessonExpansion`).
+ */
+const MAX_WORKFLOW_EXPANSIONS_PER_TURN = 5;
+// 8 KiB measured as JS string length (UTF-16 code units), NOT bytes —
+// same caveat as MAX_LESSON_EXPANDED_CHARS.
+const MAX_WORKFLOW_EXPANDED_CHARS = 8 * 1024;
+
+/**
+ * Render one `inputSchema` entry as a plain-text bullet the model can
+ * read off when composing a `run_workflow` input object. Every part
+ * after the type/required prefix is optional, so a minimal field
+ * degrades to `- key (string): Label`.
+ */
+function formatInputField(key: string, field: InputField): string {
+  const facets = field.required ? `${field.type}, required` : field.type;
+  let line = `- ${key} (${facets}): ${field.label}`;
+  if (field.description) line += ` — ${field.description}`;
+  if (field.options && field.options.length > 0) {
+    line += ` [options: ${field.options.join(", ")}]`;
   }
-  return blocks.join("\n\n");
+  if (field.default !== undefined) {
+    line += ` [default: ${formatDefaultValue(field.default)}]`;
+  }
+  return line;
+}
+
+/**
+ * Stringify an `InputField.default` (typed `unknown`) for the note.
+ * Strings pass through unquoted; everything else is JSON. A value that
+ * can't be serialised (a circular object in a hand-built definition)
+ * falls back to `String()` rather than throwing — one malformed default
+ * must not cost the user every workflow note in the turn.
+ */
+function formatDefaultValue(value: unknown): string {
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value) ?? String(value);
+  } catch {
+    return String(value);
+  }
+}
+
+/**
+ * The reference/execution split, restated for the model on every block.
+ *
+ * A `![workflow:…]` mention is a REFERENCE — it does not start anything.
+ * Without this sentence the note reads like an instruction and the model
+ * is liable to call `run_workflow` the moment a workflow is named.
+ */
+const WORKFLOW_RUN_HINT =
+  "The user referenced this workflow; it has NOT been started. Call the `run_workflow` tool only if running it is what the user asked for.";
+
+/** Render the full system-note block for one resolved workflow. */
+function formatWorkflowBlock(
+  name: string,
+  workflow: { description: string; inputSchema?: InputSchema },
+): string {
+  const header = `**Workflow: ${name}**\n${workflow.description}`;
+  const fields = Object.entries(workflow.inputSchema ?? {});
+  if (fields.length === 0) {
+    // Say so explicitly — an absent Inputs section would leave the model
+    // guessing at parameters that don't exist.
+    return `${header}\nTakes no inputs.\n${WORKFLOW_RUN_HINT}`;
+  }
+  const lines = fields.map(([key, field]) => formatInputField(key, field)).join("\n");
+  return `${header}\nInputs:\n${lines}\n${WORKFLOW_RUN_HINT}`;
+}
+
+/**
+ * Expand `![workflow:<name>]` tokens in `userMessage` into a system-note
+ * block per resolved workflow: name, description, and the `inputSchema`
+ * rendered as plain-text bullets.
+ *
+ * Returns the JOINED system-note text (or `""` when there are no tokens
+ * / nothing resolves). The caller prepends it — the user-visible message
+ * text is NEVER modified, exactly like `applyFeatureExpansion` and
+ * `applyLessonExpansion`: the raw token survives in the persisted
+ * message and the LLM sees an ADDITIONAL note. (Contrast
+ * `stripEzActionTokens`, which DOES rewrite the LLM-facing text — that
+ * is EZ's behaviour, not this one.)
+ *
+ * Critical correctness rules:
+ *   - The mention is a REFERENCE, never a trigger. Nothing is executed
+ *     here; the note exists so the model knows the workflow is available
+ *     and what input it takes, and execution goes through the separate
+ *     `run_workflow` tool.
+ *   - Expansion is LITERAL. Tokens are read from the ORIGINAL message
+ *     and the rendered block is NEVER re-parsed for further sigils, so a
+ *     workflow description or field label containing `$[feature:x]` /
+ *     `![ext:evil]` is emitted verbatim and stays inert. This is the
+ *     indirect prompt-injection block.
+ *   - Plain text only — no paths or values are re-emitted as mention
+ *     tokens, so there is nothing downstream to double-expand.
+ *   - Unknown / deleted workflows → silent no-op. No note, no error, no
+ *     advisory; a misspelling reads exactly like a deleted `@[file:…]`.
+ *   - Tokens walk in source order, deduped by name; per-turn caps are
+ *     `MAX_WORKFLOW_EXPANSIONS_PER_TURN` blocks and
+ *     `MAX_WORKFLOW_EXPANDED_CHARS` of joined text.
+ *
+ * Tokens come from the shared `parseMentions` (rather than a local
+ * regex like the feature/lesson passes use) because `![workflow:…]`
+ * lives in `MENTION_REGEX`'s `!` alternation alongside agent/ext/team/EZ
+ * — reusing the composer's own parser is what guarantees the server
+ * accepts exactly the tokens the composer emits.
+ */
+export async function applyWorkflowExpansion(
+  userMessage: string,
+  resolver: WorkflowResolver,
+): Promise<string> {
+  const orderedNames = orderedUniqueNames(
+    parseMentions(userMessage)
+      .filter((m) => m.kind === "workflow")
+      .map((m) => m.name),
+  );
+  if (orderedNames.length === 0) return "";
+
+  // Cap-then-parallelize, same shape as `applyLessonExpansion`: slice to
+  // the count cap BEFORE resolving so a 100-token paste-bomb still costs
+  // exactly 5 lookups, then resolve those concurrently. Promise.all
+  // preserves input order, so source order survives.
+  const namesToResolve = orderedNames.slice(0, MAX_WORKFLOW_EXPANSIONS_PER_TURN);
+  const resolved = await Promise.all(
+    namesToResolve.map(async (name) => ({ name, workflow: await resolver(name) })),
+  );
+
+  const blocks = resolved
+    .filter((r) => Boolean(r.workflow)) // unknown / deleted → silent no-op
+    .map((r) => formatWorkflowBlock(r.name, r.workflow!));
+  return takeWithinJoinBudget(blocks, MAX_WORKFLOW_EXPANDED_CHARS).join("\n\n");
 }
 
 /**

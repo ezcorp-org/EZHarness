@@ -31,13 +31,24 @@ export interface BuildPromptResult {
 }
 
 /**
- * Build the prompt body for `piAgent.prompt`. Three independent
- * non-fatal expansions:
+ * Build the prompt body for `piAgent.prompt`. Independent, non-fatal
+ * expansions — each wrapped so one failure can't 500 the chat turn:
+ *   - EZ-action strip (`![EZ:name]` removed from the LLM-facing text)
  *   - slash-command expansion (rewrite `/[cmd:name]` → command body)
  *   - file-mention prepend (`@[file:…]` → system note listing the
  *     resolved paths so the agent knows which files were referenced)
+ *   - feature-mention prepend (`$[feature:…]` → description + files)
+ *   - workflow-mention prepend (`![workflow:…]` → description +
+ *     `inputSchema`, so the model can compose a `run_workflow` call)
+ *   - lesson-mention prepend (`%[lesson:…]` → title + body)
  *   - multi-modal attachment lift (image/text/pdf parts → either
  *     inlined into text, or split into the images return value)
+ *
+ * Every prepending pass parses the ORIGINAL `userMessage`, never the
+ * partially-expanded `text` — expansion is literal, and re-parsing
+ * expanded output for further sigils is the indirect prompt-injection
+ * hole this ordering closes. Later passes prepend above earlier ones,
+ * so the final order is lesson → workflow → feature → file → message.
  *
  * Pure function — no IO except the project lookup for file mentions.
  */
@@ -118,6 +129,35 @@ export async function buildPromptInput(
       if (note) text = `${note}\n\n${text}`;
     } catch { /* Feature mention resolution failure is non-fatal */ }
   }
+
+  // Resolve ![workflow:…] mentions against the merged (extension + YAML
+  // + DB) workflow cache and prepend one system note per workflow so the
+  // model knows it exists and what input it takes. The mention is a
+  // REFERENCE, not a trigger — nothing runs here; execution is the
+  // separate `run_workflow` tool.
+  //
+  // Unlike the file/feature/lesson passes this one is NOT project-gated:
+  // `workflow_definitions` has no project column, so workflows are
+  // global and a mention resolves the same way from any conversation.
+  //
+  // The cache lives in the web layer (`$lib/server/context`), which
+  // `src/` may not import, so we reach it through the runtime registry.
+  // `getWorkflowRuntime()` and `getWorkflows()` are BOTH called inside
+  // the resolver, per lookup: `context.ts` REPLACES its workflows array
+  // wholesale on every CRUD write, so hoisting either read out of the
+  // resolver would risk pinning a stale list. A backend-only boot (CLI,
+  // pre-web-init) has no registration and the resolver returns null —
+  // i.e. the same silent no-op as an unknown name.
+  try {
+    const { applyWorkflowExpansion } = await import("../mention-wiring");
+    const { getWorkflowRuntime } = await import("../workflow/runtime-registry");
+    const note = await applyWorkflowExpansion(userMessage, async (name) => {
+      const workflow = getWorkflowRuntime()?.getWorkflows().find((w) => w.name === name);
+      if (!workflow) return null;
+      return { description: workflow.description, inputSchema: workflow.inputSchema };
+    });
+    if (note) text = `${note}\n\n${text}`;
+  } catch { /* Workflow mention resolution failure is non-fatal */ }
 
   // Resolve %[lesson:…] mentions against the lessons table. The resolver
   // delegates visibility precedence (user > project > global) to

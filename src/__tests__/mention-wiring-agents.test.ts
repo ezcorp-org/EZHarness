@@ -98,6 +98,27 @@ describe("resolveMentionedAgents", () => {
   });
 });
 
+describe("![workflow:…] is INERT for agent delegation", () => {
+  // `![workflow:…]` shares the `!` sigil with agent/ext/team/EZ, so a
+  // workflow name that collides with an agent name is a real misrouting
+  // risk: if any of these resolvers matched on the sigil rather than the
+  // exact `kind`, mentioning a workflow would silently spin up an agent.
+  // They all filter on `m.kind === "agent"` / `"team"` — these lock it.
+
+  test("![workflow:code-reviewer] does NOT resolve to the same-named agent", async () => {
+    const result = await resolveMentionedAgents("run ![workflow:code-reviewer] now");
+    expect(result).toEqual([]);
+  });
+
+  test("a workflow token alongside an agent token resolves ONLY the agent", async () => {
+    const result = await resolveMentionedAgents(
+      "![workflow:planner] then ![agent:planner] please",
+    );
+    expect(result.length).toBe(1);
+    expect(result[0]!.id).toBe(plannerId);
+  });
+});
+
 describe("resolveMentionedAgents — bareword fallback is REMOVED", () => {
   // The old bareword `@Name` fallback was removed when `@` became the file sigil.
   // These tests lock in the removal: no plain-text reference resolves to an agent.
@@ -229,6 +250,11 @@ describe("resolveMentionedTeams", () => {
     expect(result[0].members.length).toBe(1);
     expect(result[0].members[0].id).toBe(refMember.id);
     expect(result[0].members[0].name).toBe("ref-member-agent");
+  });
+
+  test("ignores ![workflow:…] mentions (only resolves team kind)", async () => {
+    const result = await resolveMentionedTeams("![workflow:TestTeam] handle this");
+    expect(result).toEqual([]);
   });
 
   test("returns autoSpinUp flag from team config", async () => {
