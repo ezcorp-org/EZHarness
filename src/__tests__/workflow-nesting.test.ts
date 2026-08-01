@@ -527,6 +527,31 @@ describe("validateWorkflow — nesting", () => {
     );
   });
 
+  test("with no injected resolver it reads the LIVE merged cache", async () => {
+    // The default is what gives the API create/update routes, the fork route
+    // and the dry-run route cycle detection with no call-site change. If it
+    // silently fell back to "this definition only", a mutual cycle created
+    // through the API would pass validation and only surface at run time,
+    // after real child runs had already had their effects.
+    const { registerWorkflowRuntime, _resetWorkflowRuntimeForTests } = await import(
+      "../runtime/workflow/runtime-registry"
+    );
+    const a = def("live-a", [{ name: "n", kind: "workflow", workflow: "live-b" }]);
+    const b = def("live-b", [{ name: "n", kind: "workflow", workflow: "live-a" }]);
+    registerWorkflowRuntime({
+      workflowExecutor: {} as never,
+      getWorkflows: () => [a, b],
+    });
+    try {
+      expect(validateWorkflow(a)).toContain("Nested workflow cycle: live-a -> live-b -> live-a");
+    } finally {
+      _resetWorkflowRuntimeForTests();
+    }
+    // And with nothing registered the same definition falls back to
+    // self-only resolution, which cannot see the second hop.
+    expect(validateWorkflow(a)).toEqual([]);
+  });
+
   test("a forward reference to a workflow that does not exist yet is NOT an error", () => {
     // Rejecting it would make "create the parent, then the child"
     // impossible; the run-time lookup reports it when it actually matters.
