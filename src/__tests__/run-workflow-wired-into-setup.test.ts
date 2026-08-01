@@ -334,14 +334,17 @@ describe("wireRunWorkflowIfEligible — gate", () => {
     }));
     try {
       const turn = freshTurn();
-      await expect(
-        wireRunWorkflowIfEligible({
-          agentTools: turn.agentTools,
-          builtinToolDefsMap: turn.builtinToolDefsMap,
-          conversationId: "conv-1",
-          convRecord: convRecord(),
-        }),
-      ).resolves.toBeUndefined();
+      // The await is on the real promise (load-bearing — the wire is async
+      // and the fail-soft catch has to run before we assert). bun's
+      // `expect(...).resolves` returns undefined rather than a thenable, so
+      // `await expect(...)` would be inert; assert on the resolved value.
+      const outcome = await wireRunWorkflowIfEligible({
+        agentTools: turn.agentTools,
+        builtinToolDefsMap: turn.builtinToolDefsMap,
+        conversationId: "conv-1",
+        convRecord: convRecord(),
+      });
+      expect(outcome).toBeUndefined();
       expect(turn.agentTools).toHaveLength(0);
     } finally {
       mock.module("../runtime/workflow-tools-host", () => realHost);
