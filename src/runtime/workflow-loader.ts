@@ -51,6 +51,9 @@ async function scanGlob(
       }
 
       def.description ??= "";
+      // Unconditional assignment, not `??=`: a YAML file that declares its
+      // own `source:` must not be able to claim another provenance.
+      def.source = "yaml";
       out.push(def);
     } catch (err) {
       log.warn("Failed to load workflow", { file, error: String(err) });

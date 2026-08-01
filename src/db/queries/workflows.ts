@@ -19,7 +19,17 @@ export async function getWorkflowByName(name: string): Promise<DbWorkflow | unde
   return rows[0];
 }
 
-export async function createWorkflow(data: WorkflowDefinition): Promise<DbWorkflow> {
+/**
+ * Insert a workflow definition. `createdBy` records the authoring user and
+ * is what `canRunWorkflow` / `canActOnWorkflow` gate run, update and delete
+ * on. It is optional and defaults to NULL: rows created before the column
+ * existed — and any caller with no principal (the CLI) — stay unowned, i.e.
+ * runnable and editable by anyone, exactly as before.
+ */
+export async function createWorkflow(
+  data: WorkflowDefinition,
+  createdBy?: string,
+): Promise<DbWorkflow> {
   const now = new Date();
   const row = {
     id: crypto.randomUUID(),
@@ -27,6 +37,7 @@ export async function createWorkflow(data: WorkflowDefinition): Promise<DbWorkfl
     description: data.description ?? "",
     inputSchema: (data.inputSchema as Record<string, unknown>) ?? null,
     steps: data.steps,
+    createdBy: createdBy ?? null,
     createdAt: now,
     updatedAt: now,
   };
@@ -62,5 +73,10 @@ export async function loadDbWorkflows(): Promise<WorkflowDefinition[]> {
     description: row.description,
     inputSchema: row.inputSchema as InputSchema | undefined,
     steps: row.steps as WorkflowStep[],
+    // `createdBy` is deliberately NOT projected here: the cache is served
+    // verbatim by `GET /api/workflows`, and a user id has no business
+    // leaking to every read-scoped caller. `canRunWorkflow` re-reads the
+    // owner from the row, which is also the fresher answer.
+    source: "db" as const,
   }));
 }

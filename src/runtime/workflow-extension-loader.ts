@@ -160,10 +160,14 @@ async function loadOne(
     // Validate the NAMESPACED definition — what actually enters the cache
     // — through the one shared validator, same contract as the host
     // loader: warn-and-skip, never throw.
+    // `source` is stamped AFTER the spread so a `source:` key declared in
+    // the asset YAML cannot forge a different provenance and dodge the
+    // extension-enabled re-check in `canRunWorkflow`.
     const namespaced: WorkflowDefinition = {
       ...def,
       name,
       description: def.description ?? "",
+      source: "extension",
     };
     const errors = validateWorkflow(namespaced);
     if (errors.length > 0) {
