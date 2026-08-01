@@ -708,35 +708,61 @@ function workflowFenceNonce(): string {
   return crypto.randomUUID().replaceAll("-", "").slice(0, 12);
 }
 
+// ── A note on comment placement in this section ──────────────────────
+//
+// The functions below keep their statement sequences FREE of interleaved
+// comments, with the explanation hoisted into each doc block instead.
+// That is not a style preference: bun's coverage sourcemap credits a
+// statement's execution to an immediately-preceding comment line, so an
+// inline comment leaves the real statement reported with zero hits. The
+// merged lcov then shows `DA:<stmt>,0` (filled in from the function span
+// by shards that never call it) and the patch-coverage gate fails on a
+// line the tests demonstrably execute. Verified by experiment: deleting
+// two comment lines above a `return` moved it from `DA:750,0` to
+// `DA:748,62`. Keep prose in the doc blocks.
+
+/**
+ * The `inputSchema` entries that can actually be rendered as bullets.
+ *
+ * `inputSchema` is `z.record(z.string(), z.unknown())` at the API
+ * boundary, so both the schema and each field interior are whatever the
+ * author sent. A non-object schema is rejected outright — `Object.entries
+ * ("abc")` would otherwise yield one bullet per character — and entries
+ * whose field is not a plain object are dropped, since `formatInputField`
+ * would read `.label` / `.options` off them.
+ */
+function renderableSchemaFields(schema: InputSchema | undefined): Array<[string, InputField]> {
+  if (!schema || typeof schema !== "object" || Array.isArray(schema)) return [];
+  return Object.entries(schema).filter(
+    ([, field]) => field !== null && typeof field === "object" && !Array.isArray(field),
+  );
+}
+
 /**
  * Render the system-note block for one resolved workflow. All
  * interpolated values are author-supplied and pass through
  * `sanitizeNoteValue` at every interpolation point.
+ *
+ * Every line of a block begins with HOST-controlled text — `**Workflow: `,
+ * `Description: `, `Inputs:`, `- ` or `Takes no inputs.`. That is
+ * load-bearing, not cosmetic: sanitising newlines stops an author creating
+ * an EXTRA line, but the description already owns one, so without the
+ * `Description: ` prefix a value could still sit at line start and
+ * impersonate a marker or a header there.
+ *
+ * A workflow with no renderable fields says so explicitly — an absent
+ * Inputs section would leave the model guessing at parameters that don't
+ * exist.
  */
 function formatWorkflowBlock(
   name: string,
   workflow: { description: string; inputSchema?: InputSchema },
 ): string {
-  // Every line of a block begins with HOST-controlled text — `**Workflow:
-  // `, `Description: `, `Inputs:`, `- ` or `Takes no inputs.`. That is
-  // load-bearing, not cosmetic: sanitising newlines stops an author
-  // creating an EXTRA line, but the description already owns one, so
-  // without the `Description: ` prefix a value could still sit at line
-  // start and impersonate a marker or a header there.
-  const header = `**Workflow: ${sanitizeNoteValue(name)}**\nDescription: ${sanitizeNoteValue(workflow.description)}`;
-  const schema = workflow.inputSchema;
-  // Reject a non-object `inputSchema` outright (the API accepts any JSON
-  // value here), then drop entries whose field is not an object —
-  // `Object.entries("abc")` would otherwise yield character bullets.
-  const fields =
-    schema && typeof schema === "object" && !Array.isArray(schema)
-      ? Object.entries(schema).filter(
-          ([, field]) => field !== null && typeof field === "object" && !Array.isArray(field),
-        )
-      : [];
+  const safeName = sanitizeNoteValue(name);
+  const safeDescription = sanitizeNoteValue(workflow.description);
+  const header = `**Workflow: ${safeName}**\nDescription: ${safeDescription}`;
+  const fields = renderableSchemaFields(workflow.inputSchema);
   if (fields.length === 0) {
-    // Say so explicitly — an absent Inputs section would leave the model
-    // guessing at parameters that don't exist.
     return `${header}\nTakes no inputs.`;
   }
   const lines = fields.map(([key, field]) => formatInputField(key, field)).join("\n");
@@ -804,6 +830,25 @@ function formatWorkflowSection(blocks: readonly string[]): string {
  * lives in `MENTION_REGEX`'s `!` alternation alongside agent/ext/team/EZ
  * — reusing the composer's own parser is what guarantees the server
  * accepts exactly the tokens the composer emits.
+ *
+ * Body shape, in order:
+ *   - Cap-then-parallelize, same shape as `applyLessonExpansion`: slice to
+ *     the count cap BEFORE resolving, so a 100-token paste-bomb still
+ *     costs exactly 5 lookups, then resolve those concurrently.
+ *     `Promise.all` preserves input order, so source order survives.
+ *   - Entries whose resolver returned null are dropped — unknown /
+ *     deleted workflows are a silent no-op.
+ *   - The budget bounds the AUTHOR-SUPPLIED blocks. The fence + preamble
+ *     is fixed-size host text added on top, deliberately outside the cap
+ *     — it is what makes the region safe to read, so it must never be
+ *     what gets dropped.
+ *   - `"skip"`, not `"stop"`: one oversized workflow must not suppress
+ *     the others the user named. Since `description` is
+ *     attacker-controlled and uncapped at the API boundary, `"stop"`
+ *     would hand any chat user a one-line way to blank every workflow
+ *     reference in someone else's turn — publish a workflow with a 9 KiB
+ *     description, get it mentioned first, and everything after it
+ *     vanishes.
  */
 export async function applyWorkflowExpansion(
   userMessage: string,
@@ -816,32 +861,12 @@ export async function applyWorkflowExpansion(
   );
   if (orderedNames.length === 0) return "";
 
-  // Cap-then-parallelize, same shape as `applyLessonExpansion`: slice to
-  // the count cap BEFORE resolving so a 100-token paste-bomb still costs
-  // exactly 5 lookups, then resolve those concurrently. Promise.all
-  // preserves input order, so source order survives.
   const namesToResolve = orderedNames.slice(0, MAX_WORKFLOW_EXPANSIONS_PER_TURN);
-  const resolved = await Promise.all(
-    namesToResolve.map(async (name) => ({ name, workflow: await resolver(name) })),
-  );
-
-  const blocks = resolved
-    .filter((r) => Boolean(r.workflow)) // unknown / deleted → silent no-op
-    .map((r) => formatWorkflowBlock(r.name, r.workflow!));
-  // The budget bounds the AUTHOR-SUPPLIED blocks. The fence + preamble is
-  // fixed-size host text added on top, deliberately outside the cap — it
-  // is the thing that makes the region safe to read, so it must never be
-  // what gets dropped.
-  //
-  // `"skip"`, not `"stop"`: one oversized workflow must not suppress the
-  // others the user named. Since `description` is attacker-controlled and
-  // uncapped at the API boundary, `"stop"` would hand any chat user a
-  // one-line way to blank every workflow reference in someone else's turn
-  // — publish a workflow with a 9 KiB description, get it mentioned first,
-  // and everything after it vanishes.
-  return formatWorkflowSection(
-    joinWithinBudget(blocks, MAX_WORKFLOW_EXPANDED_CHARS, "skip"),
-  );
+  const resolved = await Promise.all(namesToResolve.map(async (name) => ({ name, workflow: await resolver(name) })));
+  const found = resolved.filter((r) => Boolean(r.workflow));
+  const blocks = found.map((r) => formatWorkflowBlock(r.name, r.workflow!));
+  const kept = joinWithinBudget(blocks, MAX_WORKFLOW_EXPANDED_CHARS, "skip");
+  return formatWorkflowSection(kept);
 }
 
 /**
