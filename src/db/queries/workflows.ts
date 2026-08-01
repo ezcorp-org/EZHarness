@@ -66,6 +66,14 @@ export async function deleteWorkflow(id: string): Promise<boolean> {
   return true;
 }
 
+/**
+ * Project DB rows into the merged workflow cache.
+ *
+ * `createdBy` is deliberately NOT projected: the cache is served verbatim
+ * by `GET /api/workflows`, and a user id has no business reaching every
+ * read-scoped caller. `canRunWorkflow` re-reads the owner from the row,
+ * which is also the fresher answer. `source` is what tells it to.
+ */
 export async function loadDbWorkflows(): Promise<WorkflowDefinition[]> {
   const rows = await listWorkflows();
   return rows.map((row) => ({
@@ -73,10 +81,6 @@ export async function loadDbWorkflows(): Promise<WorkflowDefinition[]> {
     description: row.description,
     inputSchema: row.inputSchema as InputSchema | undefined,
     steps: row.steps as WorkflowStep[],
-    // `createdBy` is deliberately NOT projected here: the cache is served
-    // verbatim by `GET /api/workflows`, and a user id has no business
-    // leaking to every read-scoped caller. `canRunWorkflow` re-reads the
-    // owner from the row, which is also the fresher answer.
     source: "db" as const,
   }));
 }
