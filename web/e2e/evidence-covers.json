@@ -257,6 +257,12 @@
     "web/src/app.css",
     "web/src/routes/(app)/hub/+page.svelte"
   ],
+  "web/e2e/workflow-mention.spec.ts": [
+    "web/src/lib/components/MentionChip.svelte",
+    "web/src/lib/components/MentionPopover.svelte",
+    "web/src/lib/components/ChatInput.svelte",
+    "web/src/lib/components/ChatMessage.svelte"
+  ],
   "web/e2e/workflows-demos.spec.ts": [
     "web/src/routes/(app)/workflows/**",
     "web/src/lib/components/WorkflowBuilder.svelte",

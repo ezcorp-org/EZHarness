@@ -36,7 +36,9 @@ import { getSegments } from "./mention-logic";
  * the visible chip painted over it.
  *
  * `kind` is the wire/segment kind emitted by `MENTION_REGEX`
- * (`agent | ext | team | EZ | file | dir | cmd | feature | lesson`).
+ * (`agent | ext | team | EZ | workflow | file | dir | cmd | feature |
+ * lesson`). `workflow` needs no special case — it projects through the
+ * bare `!<name>` default, matching how `MentionChip` renders it.
  */
 /**
  * Trailing pad appended to every compact label. The visible chip pill is wider

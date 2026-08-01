@@ -12,4 +12,4 @@
 	let hasMentions = $derived(segments.some(s => s.type === "mention"));
 </script>
 
-{#if hasMentions}{#each segments as seg}{#if seg.type === "text"}{seg.text}{:else if seg.type === "mention"}<MentionChip name={seg.name} kind={seg.kind === 'ext' ? 'extension' : seg.kind === 'cmd' ? 'command' : seg.kind as 'agent' | 'team' | 'file' | 'dir' | 'feature'} />{/if}{/each}{:else}{text}{/if}
+{#if hasMentions}{#each segments as seg}{#if seg.type === "text"}{seg.text}{:else if seg.type === "mention"}<MentionChip name={seg.name} kind={seg.kind === 'ext' ? 'extension' : seg.kind === 'cmd' ? 'command' : seg.kind as 'agent' | 'team' | 'workflow' | 'file' | 'dir' | 'feature'} />{/if}{/each}{:else}{text}{/if}

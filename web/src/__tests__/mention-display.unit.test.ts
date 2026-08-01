@@ -35,6 +35,17 @@ describe("displayTokenText — compact label per kind", () => {
 		expect(displayTokenText("EZ", "distill")).toBe("!EZ:distill" + PAD);
 	});
 
+	test("workflow projects BARE through the ! default — no `workflow:` prefix", () => {
+		// The composer's transparent textarea reserves exactly this width and
+		// the visible chip is painted on top of it. If the reservation ever
+		// grew a `workflow:` prefix that the chip doesn't render, the caret
+		// and every following character would drift right by 9 characters.
+		expect(displayTokenText("workflow", "deploy")).toBe("!deploy" + PAD);
+		expect(displayTokenText("workflow", "deployer:release")).toBe(
+			"!deployer:release" + PAD,
+		);
+	});
+
 	test("file/dir collapse to the basename (dir keeps trailing slash)", () => {
 		expect(displayTokenText("file", "src/very/deep/component.svelte")).toBe("@component.svelte" + PAD);
 		expect(displayTokenText("file", "app.ts")).toBe("@app.ts" + PAD);
@@ -95,6 +106,21 @@ describe("toDisplay — wire → compact display + span map", () => {
 
 	test("wireToDisplayString is the display-only shortcut", () => {
 		expect(wireToDisplayString("x ![team:Ops] y")).toBe("x " + displayTokenText("team", "Ops") + " y");
+	});
+
+	test("a workflow token compacts to `!name` and records its wire span", () => {
+		// `![workflow:deploy]` is 18 wire chars projecting onto a 7-char
+		// label — the widest wire-vs-display gap of any `!` kind, so it's
+		// the one most likely to expose a bad span if the projection drifts.
+		const wire = "run ![workflow:deploy] now";
+		const { display, spans } = toDisplay(wire);
+		expect(display).toBe("run " + displayTokenText("workflow", "deploy") + " now");
+		expect(spans).toHaveLength(1);
+		expect(spans[0]).toMatchObject({ kind: "workflow", name: "deploy" });
+		expect(wire.slice(spans[0]!.wStart, spans[0]!.wEnd)).toBe("![workflow:deploy]");
+		expect(display.slice(spans[0]!.dStart, spans[0]!.dEnd)).toBe(
+			displayTokenText("workflow", "deploy"),
+		);
 	});
 });
 

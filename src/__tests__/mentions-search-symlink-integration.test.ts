@@ -42,6 +42,11 @@ mock.module("$lib/server/security/api-keys", () => ({
 mock.module("$lib/server/context", () => ({
   getExecutor: () => ({ listAgents: () => [] }),
   getCommandRegistry: () => ({ listCommands: () => [] }),
+  // The route statically imports `getWorkflows` for the `type=workflow`
+  // branch and the bare-`!` merge. This spec only exercises `type=path`,
+  // which returns first — but the export has to exist for the module to
+  // link at all.
+  getWorkflows: () => [],
 }));
 
 mock.module("$server/db/connection", () => ({

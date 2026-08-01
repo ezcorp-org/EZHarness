@@ -1541,6 +1541,31 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 				});
 			}
 
+			// Workflow search — mirror the real route's `type=workflow`
+			// branch. Reads the same mutable `workflows` array as
+			// /api/workflows, so a spec that seeds workflows gets them in
+			// the picker too. NOTE the deliberate absence of a projectId
+			// gate: `workflow_definitions` has no project column, so the
+			// real route is global here and the mock must be as well —
+			// otherwise a spec would pass against a mock the server
+			// doesn't match.
+			if (type === "workflow") {
+				const matched = q
+					? workflows.filter(
+							(w) =>
+								w.name.toLowerCase().includes(q.toLowerCase()) ||
+								(w.description ?? "").toLowerCase().includes(q.toLowerCase()),
+						)
+					: workflows;
+				return route.fulfill({
+					json: matched.slice(0, 10).map((w) => ({
+						name: w.name,
+						description: w.description ?? "",
+						kind: "workflow" as const,
+					})),
+				});
+			}
+
 			// Lesson search — mirror the real route's `type=lesson` branch.
 			// Project-scoped, returns `{name: slug, description, kind: "lesson"}`.
 			// Reads from the same mutable `lessons` array as /api/lessons,
@@ -1623,7 +1648,29 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 			const filtered = q
 				? allMentions.filter((m) => m.name.toLowerCase().includes(q.toLowerCase()) || m.description.toLowerCase().includes(q.toLowerCase()))
 				: allMentions;
-			return route.fulfill({ json: filtered.slice(0, 10) });
+			// Workflows merge into the bare-`!` fallback, appended after
+			// teams/agents/extensions exactly as the real route orders them.
+			// Same kind-label rule too: typing `!w` / `!work` surfaces ALL
+			// workflows even when no name or description contains that
+			// substring, because typing a kind's name means "show me this
+			// kind's stuff".
+			const wfIsKindPrefix = !q || "workflow".startsWith(q.toLowerCase());
+			const workflowMerge =
+				type !== "agent" && type !== "team" && type !== "ext"
+					? workflows
+							.filter(
+								(w) =>
+									wfIsKindPrefix ||
+									w.name.toLowerCase().includes(q.toLowerCase()) ||
+									(w.description ?? "").toLowerCase().includes(q.toLowerCase()),
+							)
+							.map((w) => ({
+								name: w.name,
+								description: w.description ?? "",
+								kind: "workflow" as const,
+							}))
+					: [];
+			return route.fulfill({ json: [...filtered, ...workflowMerge].slice(0, 10) });
 		}
 
 		// Orchestrator

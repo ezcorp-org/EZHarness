@@ -13,7 +13,13 @@
  * live smoke test on 2026-05-06 — chip rendered `!use-bun-not-node`
  * despite the canonical token being `%[lesson:use-bun-not-node]`).
  * The bug existed because Phase 2A updated the parser + popover but
- * not this chip. The test cases below now lock all eight kinds.
+ * not this chip. The test cases below now lock all nine kinds.
+ *
+ * The COLOUR ternary had the same fall-through shape as the sigil one,
+ * and it had already bitten: `extension` and `feature` both landed on the
+ * purple default, so two different kinds rendered identically with no
+ * type error. The palette test at the bottom now asserts every kind's
+ * pill colour is unique, which is the property the union alone can't give.
  */
 
 import { render } from "@testing-library/svelte";
@@ -39,7 +45,8 @@ describe("MentionChip — sigil per kind", () => {
 			| "dir"
 			| "command"
 			| "feature"
-			| "lesson";
+			| "lesson"
+			| "workflow";
 		name: string;
 		expectedText: string;
 	}> = [
@@ -53,6 +60,11 @@ describe("MentionChip — sigil per kind", () => {
 		{ kind: "command", name: "review", expectedText: "/review" },
 		{ kind: "feature", name: "chat-attachments", expectedText: "$chat-attachments" },
 		{ kind: "lesson", name: "use-bun-not-node", expectedText: "%use-bun-not-node" },
+		// Workflow chips render BARE (`!deploy`), not `!workflow:deploy` —
+		// agent / extension / team all render bare under the `!` sigil and
+		// are told apart by colour. EZ is the deliberate exception because
+		// it isn't a nameable entity.
+		{ kind: "workflow", name: "deploy", expectedText: "!deploy" },
 	];
 
 	for (const c of cases) {
@@ -69,21 +81,57 @@ describe("MentionChip — sigil per kind", () => {
 		});
 	}
 
-	test("unknown kinds never silently fall through to '!' — kind union locks them out at compile time", () => {
-		// Static sanity check: the kind union covers every sigil branch
-		// in MentionChip's ternary. If you add a new kind to mention-logic
-		// without extending the chip, TypeScript will fail this file's
-		// strict cast above before the runtime fall-through can bite.
+	test("every kind gets a pill colour of its own — no two kinds render alike", () => {
+		// The union alone can't catch a colour collision: `extension` and
+		// `feature` were both valid kinds that both fell through to the
+		// purple default, so they were indistinguishable on screen with no
+		// type error. Render each kind and assert the palette classes are
+		// pairwise distinct, which is the property users actually rely on.
+		//
+		// `EZ` is included here (it's a real kind) even though the sigil
+		// cases above cover it via its `EZ:`-prefixed display name.
 		const known = [
 			"agent",
 			"extension",
 			"team",
+			"EZ",
+			"workflow",
 			"file",
 			"dir",
 			"command",
 			"feature",
 			"lesson",
 		] as const;
-		expect(known).toHaveLength(8);
+
+		// Palette classes only: `border-teal-500/30`, `bg-teal-500/20`,
+		// `text-teal-300`. Skips layout/typography utilities (`border`,
+		// `text-xs`, `px-1.5`) which are identical for every kind.
+		const PALETTE_CLASS = /^(border|bg|text)-[a-z]+-\d+/;
+
+		const byPalette = new Map<string, string>();
+		for (const kind of known) {
+			const { container } = render(MentionChip, { name: "thing", kind });
+			const chip = container.querySelector(
+				`[data-mention-kind="${kind}"]`,
+			) as HTMLElement | null;
+			expect(chip).not.toBeNull();
+
+			const palette = [...chip!.classList]
+				.filter((c) => PALETTE_CLASS.test(c))
+				.sort()
+				.join(" ");
+			// A kind with no palette classes at all would mean the lookup
+			// silently returned undefined without even the fallback.
+			expect(palette).not.toBe("");
+
+			const collidesWith = byPalette.get(palette);
+			expect(
+				collidesWith,
+				`kind "${kind}" renders the same pill colour as "${collidesWith}"`,
+			).toBeUndefined();
+			byPalette.set(palette, kind);
+		}
+
+		expect(byPalette.size).toBe(known.length);
 	});
 });

@@ -57,7 +57,7 @@ async function handleChipClickLogic(
 
 interface MentionItem {
 	name: string;
-	kind: "agent" | "extension";
+	kind: "agent" | "extension" | "workflow";
 	description?: string;
 }
 
@@ -82,7 +82,7 @@ async function handleMentionSelectLogic(
 ): Promise<MentionSelectResult> {
 	const kind = item.kind === "extension" ? "ext" : item.kind;
 	const result = insertMentionToken(currentText, cursorPos, {
-		kind: kind as "agent" | "ext",
+		kind: kind as "agent" | "ext" | "workflow",
 		name: item.name,
 	});
 
@@ -740,6 +740,39 @@ describe("e2e: mention select → auto-open → form confirm → submit", () => 
 
 		const sim = new StagingSimulator();
 		sim.submit(selectResult.text + "help me");
+		expect(sim.invokedCalls).toHaveLength(0);
+	});
+
+	test("workflow mention: reference-only — selecting one opens and fires nothing", async () => {
+		// A workflow mention is a REFERENCE. It expands server-side into a
+		// note describing the workflow; EXECUTION goes through the
+		// `run_workflow` tool, which the model has to call deliberately.
+		// If selecting the chip auto-opened a form (or worse, auto-ran), a
+		// user browsing the popover could kick off a real deployment.
+		//
+		// The kind also passes through the API→wire mapping UNCHANGED —
+		// only `extension`→`ext` and `command`→`cmd` are remapped.
+		let fetchCalls = 0;
+		globalThis.fetch = (async (...args: Parameters<typeof fetch>) => {
+			fetchCalls++;
+			return originalFetch(...args);
+		}) as typeof fetch;
+
+		const selectResult = await handleMentionSelectLogic(
+			{ name: "deploy", kind: "workflow" },
+			"!dep",
+			4,
+			globalThis.fetch,
+		);
+
+		expect(selectResult.autoOpenTriggered).toBe(false);
+		expect(selectResult.chipClickResult).toBeUndefined();
+		expect(fetchCalls).toBe(0);
+		// Wire token carries the unremapped kind.
+		expect(selectResult.text).toBe("![workflow:deploy] ");
+
+		const sim = new StagingSimulator();
+		sim.submit(selectResult.text + "please");
 		expect(sim.invokedCalls).toHaveLength(0);
 	});
 });

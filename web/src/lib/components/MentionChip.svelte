@@ -12,7 +12,7 @@
 		tooltip,
 	}: {
 		name: string;
-		kind: 'agent' | 'extension' | 'team' | 'EZ' | 'file' | 'dir' | 'command' | 'feature' | 'lesson';
+		kind: 'agent' | 'extension' | 'team' | 'EZ' | 'workflow' | 'file' | 'dir' | 'command' | 'feature' | 'lesson';
 		status?: 'pending' | 'running' | 'complete' | 'error';
 		onclick?: () => void;
 		tooltip?: string;
@@ -82,11 +82,39 @@
 		error: 'bg-red-500',
 	};
 
+	// Pill palette, one entry per mention kind. This replaced a 10-deep
+	// nested ternary in the class attribute: a flat map makes adding a kind
+	// one line, and — more importantly — makes a MISSING kind visible
+	// instead of silently borrowing the default. `extension` and `feature`
+	// both used to fall through to purple, so two different kinds rendered
+	// identically; `feature` now has its own violet entry and purple belongs
+	// to `extension` alone.
+	//
+	// `workflow` is teal. Keep it in step with `markdown.ts`'s
+	// MENTION_COLORS.workflow so a workflow pill looks the same in the
+	// composer overlay and in rendered assistant markdown.
+	const KIND_PILL_CLASSES: Record<string, string> = {
+		agent: 'border-blue-500/30 bg-blue-500/20 text-blue-300',
+		team: 'border-indigo-500/30 bg-indigo-500/20 text-indigo-300',
+		EZ: 'border-orange-500/30 bg-orange-500/20 text-orange-300',
+		file: 'border-green-500/30 bg-green-500/20 text-green-300',
+		dir: 'border-amber-500/30 bg-amber-500/20 text-amber-300',
+		command: 'border-pink-500/30 bg-pink-500/20 text-pink-300',
+		lesson: 'border-sky-500/30 bg-sky-500/20 text-sky-300',
+		workflow: 'border-teal-500/30 bg-teal-500/20 text-teal-300',
+		feature: 'border-violet-500/30 bg-violet-500/20 text-violet-300',
+		extension: 'border-purple-500/30 bg-purple-500/20 text-purple-300',
+	};
+	// Purple is `extension`'s colour AND the fallback for an unknown kind —
+	// unchanged from the pre-map behaviour.
+	const FALLBACK_PILL_CLASSES = KIND_PILL_CLASSES.extension!;
+
 	let isPath = $derived(kind === 'file' || kind === 'dir');
 	let isCommand = $derived(kind === 'command');
 	let isFeature = $derived(kind === 'feature');
 	let isLesson = $derived(kind === 'lesson');
 	let isEz = $derived(kind === 'EZ');
+	let pillClasses = $derived(KIND_PILL_CLASSES[kind] ?? FALLBACK_PILL_CLASSES);
 
 	// File / dir chips show the basename in the pill; full path goes into the
 	// tooltip. Dir chips append a trailing `/` so folders are visually distinct
@@ -247,21 +275,7 @@
 <span class="{effectiveTooltip || isCommand || isFeature ? 'relative inline-block' : ''}" bind:this={chipEl}>
 	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 	<span
-		class="relative inline-flex items-center whitespace-nowrap rounded-full border px-1.5 py-0.5 text-xs font-medium {kind === 'agent'
-			? 'border-blue-500/30 bg-blue-500/20 text-blue-300'
-			: kind === 'team'
-				? 'border-indigo-500/30 bg-indigo-500/20 text-indigo-300'
-				: kind === 'EZ'
-					? 'border-orange-500/30 bg-orange-500/20 text-orange-300'
-					: kind === 'file'
-						? 'border-green-500/30 bg-green-500/20 text-green-300'
-						: kind === 'dir'
-							? 'border-amber-500/30 bg-amber-500/20 text-amber-300'
-							: kind === 'command'
-								? 'border-pink-500/30 bg-pink-500/20 text-pink-300'
-								: kind === 'lesson'
-									? 'border-sky-500/30 bg-sky-500/20 text-sky-300'
-									: 'border-purple-500/30 bg-purple-500/20 text-purple-300'} {onclick ? 'cursor-pointer hover:brightness-125' : 'cursor-default'}"
+		class="relative inline-flex items-center whitespace-nowrap rounded-full border px-1.5 py-0.5 text-xs font-medium {pillClasses} {onclick ? 'cursor-pointer hover:brightness-125' : 'cursor-default'}"
 		onclick={onclick}
 		onkeydown={onclick ? (e) => { if (e.key === 'Enter' || e.key === ' ') onclick?.(); } : undefined}
 		onmouseenter={() => {
