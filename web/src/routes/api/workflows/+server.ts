@@ -24,7 +24,7 @@ export const GET: RequestHandler = async ({ locals }) => {
 export const POST: RequestHandler = async ({ request, locals }) => {
   const scopeErr = requireScope(locals, "chat");
   if (scopeErr) return scopeErr;
-  requireAuth(locals);
+  const user = requireAuth(locals);
   const parsed = workflowBodySchema.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) {
     return errorJson(400, "name and steps required");
@@ -41,7 +41,10 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     return errorJson(400, errors[0]!);
   }
 
-  const workflow = await workflowQueries.createWorkflow(body as WorkflowDefinition);
+  // Record the author. `created_by` is what the owner-or-admin rule in
+  // `src/runtime/workflow-authz.ts` gates run / update / delete on; a
+  // workflow created without one stays unowned (global) forever.
+  const workflow = await workflowQueries.createWorkflow(body as WorkflowDefinition, user.id);
   await reloadWorkflows();
 
   return json(workflow, { status: 201 });

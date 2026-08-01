@@ -2,6 +2,7 @@ import { json } from "@sveltejs/kit";
 import { z } from "zod";
 import { getWorkflowExecutor, getWorkflows } from "$lib/server/context";
 import { requireAuth } from "$server/auth/middleware";
+import { canRunWorkflow } from "$server/runtime/workflow-authz";
 import { requireScope } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
@@ -21,6 +22,12 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
   const user = requireAuth(locals);
   const workflow = getWorkflows().find((w) => w.name === params.name);
   if (!workflow) return errorJson(404, "Workflow not found");
+
+  // Authorize the definition the executor will ACTUALLY run — the same
+  // object, not a re-lookup by name. Shared with the `run_workflow` tool so
+  // the chat path and the REST path can never diverge.
+  const decision = await canRunWorkflow(workflow, user);
+  if (!decision.allowed) return errorJson(403, decision.reason);
 
   try {
     const parsed = postBodySchema.safeParse(await request.json().catch(() => ({})));

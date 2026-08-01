@@ -1,5 +1,5 @@
 import { test, expect, describe, beforeEach, afterAll } from "bun:test";
-import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglite";
+import { setupTestDb, getTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglite";
 
 mockDbConnection();
 
@@ -12,6 +12,8 @@ const {
   deleteWorkflow,
   loadDbWorkflows,
 } = await import("../db/queries/workflows");
+
+const { users } = await import("../db/schema");
 
 const sampleSteps = [{ name: "s1", agent: "writer", input: {} as Record<string, string> }];
 
@@ -32,6 +34,24 @@ describe("workflows queries", () => {
     expect(p.steps).toEqual(sampleSteps as any);
     expect(p.inputSchema).toBeNull();
     expect(p.createdAt).toBeInstanceOf(Date);
+    // No principal supplied ⇒ unowned (global) row, the pre-column default.
+    expect(p.createdBy).toBeNull();
+  });
+
+  test("createWorkflow records the authoring user when one is supplied", async () => {
+    await getTestDb().insert(users).values({
+      id: "u-author",
+      email: "author@example.com",
+      passwordHash: "h",
+      name: "Author",
+      role: "member",
+    });
+    const p = await createWorkflow(
+      { name: "owned", description: "", steps: sampleSteps as any },
+      "u-author",
+    );
+    expect(p.createdBy).toBe("u-author");
+    expect((await getWorkflowByName("owned"))!.createdBy).toBe("u-author");
   });
 
   test("createWorkflow accepts inputSchema and defaults description to empty", async () => {
@@ -127,6 +147,24 @@ describe("workflows queries", () => {
     expect(defs[0]!.name).toBe("loaded");
     expect(defs[0]!.description).toBe("loaded desc");
     expect(defs[0]!.steps).toEqual(sampleSteps as any);
+    // The provenance stamp `canRunWorkflow` dispatches on.
+    expect(defs[0]!.source).toBe("db");
+  });
+
+  test("loadDbWorkflows does NOT project createdBy into the served cache", async () => {
+    // The cache is returned verbatim by GET /api/workflows — a user id has
+    // no business reaching every read-scoped caller. The authz helper reads
+    // the owner from the row instead.
+    await getTestDb().insert(users).values({
+      id: "u-leak",
+      email: "leak@example.com",
+      passwordHash: "h",
+      name: "Leak",
+      role: "member",
+    });
+    await createWorkflow({ name: "owned", description: "", steps: sampleSteps as any }, "u-leak");
+    const defs = await loadDbWorkflows();
+    expect(JSON.stringify(defs)).not.toContain("u-leak");
   });
 
   test("migrated legacy rows (transform/gate/loop steps) round-trip as workflows", async () => {

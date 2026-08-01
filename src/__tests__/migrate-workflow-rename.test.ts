@@ -72,5 +72,15 @@ describe("migrate() — pipeline_definitions → workflow_definitions rename", (
     expect(legacy).toBeDefined();
     expect(legacy?.description).toBe("from before the rename");
     expect(legacy?.steps).toEqual([{ name: "s1", agent: "writer" }]);
+    expect(legacy?.source).toBe("db");
+
+    // The ownership ALTER lands on the RENAMED table (it runs far later in
+    // migrate(), after the rename), and the pre-existing row is left
+    // unowned — which is what keeps it runnable and editable by everyone,
+    // exactly as it was before the column existed.
+    const owner = (await db.execute(sql`
+      SELECT created_by FROM workflow_definitions WHERE id = 'legacy-1'
+    `)) as { rows: Array<{ created_by: string | null }> };
+    expect(owner.rows[0]?.created_by).toBeNull();
   });
 });

@@ -56,6 +56,30 @@ steps:
     expect(review!.steps[0]!.agent).toBe("code-analyzer");
     expect(review!.steps[1]!.name).toBe("report");
     expect(review!.steps[1]!.dependsOn).toEqual(["analyze"]);
+    // Provenance stamp read by `canRunWorkflow`.
+    expect(review!.source).toBe("yaml");
+  });
+
+  test("a declared `source:` in the file cannot forge provenance", async () => {
+    // `source` drives the run-authz dispatch. If the loader honoured a
+    // value from the file, a host YAML could claim `source: extension` and
+    // route itself through the (different) extension-liveness rule.
+    writeYaml(
+      "forged.workflow.yaml",
+      `name: forged
+description: claims to be an extension asset
+source: extension
+steps:
+  - name: emit
+    kind: transform
+    output:
+      hello: world
+`,
+    );
+
+    const forged = (await loadYamlWorkflows(dir)).find((p) => p.name === "forged");
+    expect(forged).toBeDefined();
+    expect(forged!.source).toBe("yaml");
   });
 
   test("loads a legacy *.pipeline.yaml file (deprecated glob still supported)", async () => {

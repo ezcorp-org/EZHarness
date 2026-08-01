@@ -4,6 +4,7 @@ import * as workflowQueries from "$server/db/queries/workflows";
 import { getWorkflows, reloadWorkflows } from "$lib/server/context";
 import { validateWorkflow } from "$server/runtime/workflow-validator";
 import { requireAuth } from "$server/auth/middleware";
+import { canActOnWorkflow } from "$server/runtime/workflow-authz";
 import { requireScope } from "$lib/server/security/api-keys";
 import type { RequestHandler } from "./$types";
 import type { WorkflowDefinition } from "$server/types";
@@ -15,6 +16,15 @@ import { workflowBodySchema } from "../schema";
 // top-level fields; the 400 "Invalid request body" surfaces malformed
 // bodies while existing 404 branches drive their messages downstream. When
 // `steps` are supplied they are re-validated (definition-time rules).
+//
+// PUT and DELETE additionally apply the shared owner-or-admin rule
+// (`canActOnWorkflow`) to the resolved row. Before that, any `chat`-scoped
+// caller could edit or delete another user's workflow — a strictly larger
+// hole than the run one. Rows with a NULL `created_by` (every row predating
+// the column) stay editable by anyone, so this is not a breaking change.
+//
+// Note the `.strict()` body schema has no `source` key on purpose: `source`
+// is server-derived provenance served by GET, never accepted on a write.
 
 export const GET: RequestHandler = async ({ params, locals }) => {
   const scopeErr = requireScope(locals, "read");
@@ -28,7 +38,7 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 export const PUT: RequestHandler = async ({ request, params, locals }) => {
   const scopeErr = requireScope(locals, "chat");
   if (scopeErr) return scopeErr;
-  requireAuth(locals);
+  const user = requireAuth(locals);
   const parsed = workflowBodySchema.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) {
     return errorJson(400, "Invalid request body");
@@ -44,6 +54,9 @@ export const PUT: RequestHandler = async ({ request, params, locals }) => {
   }
   const dbWorkflow = await workflowQueries.getWorkflowByName(params.name);
   if (!dbWorkflow) return errorJson(404, "Not found (only DB workflows can be updated)");
+  if (!canActOnWorkflow(dbWorkflow.createdBy, user)) {
+    return errorJson(403, "Only the workflow's owner or an admin can update it");
+  }
 
   const updated = await workflowQueries.updateWorkflow(
     dbWorkflow.id,
@@ -58,9 +71,12 @@ export const PUT: RequestHandler = async ({ request, params, locals }) => {
 export const DELETE: RequestHandler = async ({ params, locals }) => {
   const scopeErr = requireScope(locals, "chat");
   if (scopeErr) return scopeErr;
-  requireAuth(locals);
+  const user = requireAuth(locals);
   const dbWorkflow = await workflowQueries.getWorkflowByName(params.name);
   if (!dbWorkflow) return errorJson(404, "Not found (only DB workflows can be deleted)");
+  if (!canActOnWorkflow(dbWorkflow.createdBy, user)) {
+    return errorJson(403, "Only the workflow's owner or an admin can delete it");
+  }
 
   await workflowQueries.deleteWorkflow(dbWorkflow.id);
   await reloadWorkflows();
