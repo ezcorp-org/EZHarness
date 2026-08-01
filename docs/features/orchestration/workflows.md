@@ -26,7 +26,7 @@ Three design constraints are load-bearing (not stylistic):
   - **tool** — `tool` is a runtime-namespaced extension tool (`<extension>__<tool>`, e.g. `extension-author__create_extension`) dispatched through `ToolExecutor.executeToolCall`. `input` uses the **same** ref language as an agent step (there is deliberately no second grammar). `agent` is forbidden; `loop` is forbidden (see gotchas).
   - **transform** — `output` is a `Record<string,string>` output mapping (same ref language as inputs, plus `{{…}}` template interpolation). Pure: no LLM, no I/O, no clock.
   - **gate** — `condition` is a `WorkflowCondition` tree.
-  - **workflow** — `workflow` names a **nested definition**, resolved through the same merged cache (and the same authorization ladder) the run route uses. `input` uses the same ref language; the child's terminal `result` becomes the step's result. `agent`/`tool` are forbidden. `loop` **is** allowed — see **Composition**.
+  - **workflow** — `workflow` names a **nested definition**, resolved through the same merged cache (and the same authorization ladder) the run route uses. It is a **LITERAL name, never a ref** — see **Composition**. `input` uses the same ref language; the child's terminal `result` becomes the step's result. `agent`/`tool` are forbidden. `loop` **is** allowed.
   - **approval** — parks the run for a human. `prompt` (required) is the question; `choices` (required, non-empty, unique, non-blank strings) is the answer set; `rbacScope` names a permission that gates answering; `formSchema` collects structured fields alongside the choice; `requireItemConsent` + `itemsRef` demand the answer name the items it acts on; `timeoutMs` / `onTimeout` (`"abort" | "approve" | "skip"`, default `abort`) are **recorded but not yet enforced** — see gotchas. `agent`/`tool`, `retries` and `loop` are all rejected on it (`src/runtime/workflow-validator.ts:214-266,326`).
 - `WorkflowCondition` = a leaf `{ ref, op, value? }` or a composite `{ all: [] } | { any: [] } | { not: … }`. Operators: `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `contains`, `exists`, `truthy`.
 - `LoopConfig` = `{ maxIterations, until?, onExhausted? }` — `maxIterations` is **required** (server-clamped 1..25); `until` is a `WorkflowCondition` evaluated after each iteration; `onExhausted` is `"fail"` (default) or `"pass"`.
@@ -322,6 +322,34 @@ becomes the step's result, so `$steps.<step>.output.…` addresses the nested
 graph's final output through the unchanged ref grammar. A child that fails
 throws in the parent, exactly like a failed agent step.
 
+#### The target name is static, and that is load-bearing
+
+`workflow` is a **literal name** — bare, or namespaced `<ext>:<name>`. It is
+**never** a ref: `runNestedWorkflow` uses the string verbatim as its lookup key
+and deliberately does not run it through `resolveMapping`, and
+`validateWorkflow` rejects anything that is not a well-formed name
+(`isResolvableWorkflowName`, `src/runtime/workflow-name.ts`).
+
+The ref language could resolve one — this step already resolves `input` that
+way — so refusing is a choice. Three things depend on it, and each breaks
+differently:
+
+- **The cycle check and the depth cap are DEFINITION-time checks.** Neither is
+  computable against a name that is not known until the run, so a cycle would be
+  caught only by hitting the cap — after three real nested runs had already had
+  their side effects.
+- **The definition hash and version pinning** claim "this is the graph that
+  ran". That is untrue if the graph can pick its own children.
+- **C3's delegated-execution consent hashes the transitive closure** of nested
+  workflows. A runtime-resolved target means a human consenting to a graph that
+  decides later what it calls.
+
+The predicate is the LOOSER twin of `isValidWorkflowName` and deliberately not a
+replacement for it: that one guards what an extension may **declare**, where the
+`:` separator must stay illegal or an extension could forge another's namespace;
+this one guards what a caller may **look up**, where a namespaced name is the
+legitimate case.
+
 - **Depth is capped at 3** levels below the root
   (`MAX_WORKFLOW_NESTING_DEPTH`), enforced at **run time** by a counter threaded
   through the child's execution context *and* at **definition time** wherever the
@@ -489,7 +517,7 @@ changes only the message, never the strictness. See **The skip/ref rule**.
 
 ### Definition-time validation (`workflow-validator.ts`)
 
-`validateWorkflow(def)` returns a list of human-readable errors (empty ⇒ valid). It is the **single shared validator** used by both the API (400 with the first message) and the YAML loader (warn-and-skip). It rejects: duplicate step names; `dependsOn` naming an unknown step; `agent` kind without `agent`; `tool` without `tool`; `tool` that also names an `agent`; `transform` without `output`; `gate` without `condition`; an `approval` without a `prompt` or without a non-empty `choices` array, with an empty/non-string or duplicate choice, that also names an `agent`/`tool`, that sets `requireItemConsent` without an `itemsRef`, whose `timeoutMs` is not a positive integer, whose `onTimeout` is outside `abort|approve|skip`, or that sets `onTimeout: approve` with no `timeoutMs` (deciding on a human's behalf must be bounded by a clock the author named); `retries` on an approval (a human decision is not retryable); a `loop` on a gate, a tool or an approval; `loop` + `retries` together; a missing / non-integer `maxIterations`; a `model` binding on a **non-agent** step; a `workflow` step without a `workflow` or that also names an `agent`/`tool`; a malformed `when`; a non-boolean `skipDependents`; a **nesting cycle** (named: `a -> b -> a`) and a nest deeper than 3 levels; a step reading `$steps.<X>` where X can be **skipped** without declaring `dependsOn: [X]` (see **The skip/ref rule**); and a malformed `model` / `defaultModel` (unknown field, non-string provider/model/effort, an `effort` outside the vocabulary, an out-of-range `temperature`/`maxTokens`). Out-of-range **integer** loop budgets are **not** errors — they are clamped at run time. `defaultModel` is checked **before** the "at least one step" early-return, so a bad binding is not hidden behind an unrelated step error. `PUT /api/workflows/[name]` is a *partial* update with no `steps` to hand the whole-definition validator, so it calls the same `validateModelOverride` directly for a `defaultModel`-only body.
+`validateWorkflow(def)` returns a list of human-readable errors (empty ⇒ valid). It is the **single shared validator** used by both the API (400 with the first message) and the YAML loader (warn-and-skip). It rejects: duplicate step names; `dependsOn` naming an unknown step; `agent` kind without `agent`; `tool` without `tool`; `tool` that also names an `agent`; `transform` without `output`; `gate` without `condition`; an `approval` without a `prompt` or without a non-empty `choices` array, with an empty/non-string or duplicate choice, that also names an `agent`/`tool`, that sets `requireItemConsent` without an `itemsRef`, whose `timeoutMs` is not a positive integer, whose `onTimeout` is outside `abort|approve|skip`, or that sets `onTimeout: approve` with no `timeoutMs` (deciding on a human's behalf must be bounded by a clock the author named); `retries` on an approval (a human decision is not retryable); a `loop` on a gate, a tool or an approval; `loop` + `retries` together; a missing / non-integer `maxIterations`; a `model` binding on a **non-agent** step; a `workflow` step without a `workflow`, one that also names an `agent`/`tool`, or one whose `workflow` is not a literal name (a ref or `{{…}}` template is rejected — the nested graph must be knowable from the definition); a malformed `when`; a non-boolean `skipDependents`; a **nesting cycle** (named: `a -> b -> a`) and a nest deeper than 3 levels; a step reading `$steps.<X>` where X can be **skipped** without declaring `dependsOn: [X]` (see **The skip/ref rule**); and a malformed `model` / `defaultModel` (unknown field, non-string provider/model/effort, an `effort` outside the vocabulary, an out-of-range `temperature`/`maxTokens`). Out-of-range **integer** loop budgets are **not** errors — they are clamped at run time. `defaultModel` is checked **before** the "at least one step" early-return, so a bad binding is not hidden behind an unrelated step error. `PUT /api/workflows/[name]` is a *partial* update with no `steps` to hand the whole-definition validator, so it calls the same `validateModelOverride` directly for a `defaultModel`-only body.
 
 ### Eventing & the client store
 
@@ -598,7 +626,7 @@ The extension-authoring chain shipped as a real workflow — the reference examp
 - `src/runtime/executor-helpers.ts` — `createPiLlmAdapter(overrides?)`: the ONE place a binding reaches the LLM; reports `lastResolved` back so a run can record what actually served it.
 - `src/runtime/workflow-loader.ts` — `loadYamlWorkflows`: globs `*.workflow.yaml` + legacy `*.pipeline.yaml` (deprecation warn), validates via `validateWorkflow`.
 - `src/runtime/workflow-extension-loader.ts` — `loadExtensionWorkflows` / `collectExtensionWorkflowSources`: extension-shipped assets, namespaced + validated + warn-and-skip.
-- `src/runtime/workflow-name.ts` — the ONE shared name grammar: `WORKFLOW_NAME_RE`, `EXTENSION_WORKFLOW_SEPARATOR`, `namespacedWorkflowName`, `isValidWorkflowName`.
+- `src/runtime/workflow-name.ts` — the ONE shared name grammar: `WORKFLOW_NAME_RE`, `EXTENSION_WORKFLOW_SEPARATOR`, `namespacedWorkflowName`, `isValidWorkflowName` (what an extension may DECLARE — separator illegal), `isResolvableWorkflowName` (what a caller may LOOK UP — bare or `<ext>:<name>`; what makes a C7 nested target statically knowable).
 - `src/runtime/workflow/runtime-registry.ts` — `registerWorkflowRuntime` / `getWorkflowRuntime`: the import-direction bridge letting `src/` reach the web layer's live `WorkflowExecutor` + workflow cache. `getWorkflows` is a THUNK (the cache array is replaced on every CRUD write).
 - `src/extensions/workflows-handler.ts` — `handleWorkflowsRpc`: the `ezcorp/workflows` enforcement ladder + hourly trigger quota.
 - `packages/@ezcorp/sdk/src/runtime/workflows.ts` — the `Workflows` SDK client (`ctx.workflows.run`).
@@ -669,6 +697,7 @@ None yet — this is the primary reference.
 - **`$steps.<skipped>` still throws — the skip changes the message, not the strictness.** Substituting `undefined` would hand a downstream step a broken value. `validateWorkflow` makes the throw unreachable by requiring the reader to declare the dependency, but a definition that predates the check still hits it at run time, with a message naming the fix.
 - **A skipped step never becomes `$prev`, and a fully skipped batch leaves `$prev` alone.** `prevResult` and `cursor.prevStepName` are taken from the same index — the last EXECUTED slot — so a resumed run rebuilds the same `$prev` the straight-through run saw.
 - **`workflow_step_runs.skipped_reason` is C5's column and does not exist yet.** The reason is in memory and on the `workflow:step` SSE frame; the persisted row carries `status = 'skipped'` alone, so a resume rehydrates a generic reason (`REHYDRATED_SKIP_REASON`). Wiring the column is a one-line change at the `upsertWorkflowStepRun` call site once phase 3 lands.
+- **A nested workflow target cannot be a ref.** `workflow: "$input.child"` is a definition-time error, not a clever feature. If you need to choose between graphs at run time, branch with `when` over two `kind: "workflow"` steps — the reachable set stays statically knowable, which is what the cycle check, the depth cap, the definition hash and C3's consent closure all read.
 - **A nested workflow step is not available without a `workflowResolver`.** The executor has no registry of its own, so composition is wired, not assumed. The server wires it; the **CLI deliberately does not** — a CLI run carries no principal, and resolving a nested workflow without one would bypass the authorization the server-side resolver applies. A `kind: "workflow"` step under `ezcorp workflow run` therefore fails loudly rather than running unauthorized.
 - **The nesting depth cap is enforced at run time, and the run-time check is the authoritative one.** A chain can be formed across sources (a YAML workflow naming a DB row that names an extension asset) that no single `validateWorkflow` call can see whole. The definition-time check is an early, better-worded copy — not a replacement.
 - **A parent whose child parks is `suspended` with reason `nested-suspended`, and neither run resumes the other.** The daemon picks each up independently. Answering the child's approval resumes the *child*; the parent continues on the daemon's next tick, finds the child by its derived `idempotency_key`, and returns its result. A parent that could not find its child would dispatch a second one and duplicate its side effects.
