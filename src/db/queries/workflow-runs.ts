@@ -306,6 +306,19 @@ export async function finalizeWorkflowRunRow(
   workflowRunId: string,
   status: TerminalWorkflowRunStatus,
   result?: AgentResult,
+  opts?: {
+    /**
+     * Overwrite `suspended_reason` as the row terminalizes.
+     *
+     * Only the approval-timeout sweep passes it, and it is what makes a
+     * cancelled run say WHY on the row rather than only inside
+     * `result.error`: the column reads `approval` from the park, so a
+     * timed-out run would otherwise be indistinguishable from one an
+     * operator cancelled while it waited. Omitted ⇒ the column is left
+     * exactly as the park wrote it.
+     */
+    suspendedReason?: string;
+  },
 ): Promise<number> {
   const rows = await getDb()
     .update(workflowRuns)
@@ -313,6 +326,9 @@ export async function finalizeWorkflowRunRow(
       status,
       finishedAt: sql`NOW()`,
       ...(result !== undefined ? { result } : {}),
+      ...(opts?.suspendedReason !== undefined
+        ? { suspendedReason: opts.suspendedReason }
+        : {}),
     })
     .where(
       and(

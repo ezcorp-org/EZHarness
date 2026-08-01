@@ -513,6 +513,26 @@ describe("validateWorkflow — approval steps", () => {
     expect(validateWorkflow(approval({ onTimeout: "approve", timeoutMs: 5000 }))).toEqual([]);
   });
 
+  test("rejects onTimeout:approve|skip whose policy name is not a declared choice", () => {
+    // The sweep answers with the POLICY NAME, and the consent guard
+    // rejects an undeclared choice rather than coercing it. Without this
+    // rule the failure surfaces at 3am as a cancelled run.
+    const errs = validateWorkflow(
+      approval({ onTimeout: "approve", timeoutMs: 5000, choices: ["ship", "hold"] }),
+    );
+    expect(errs[0]).toContain('does not declare "approve" in its "choices"');
+
+    expect(
+      validateWorkflow(approval({ onTimeout: "skip", choices: ["ship", "hold"] }))[0],
+    ).toContain('does not declare "skip" in its "choices"');
+
+    // Declared ⇒ valid. `abort` never answers, so it needs no choice.
+    expect(validateWorkflow(approval({ onTimeout: "skip", choices: ["skip", "go"] }))).toEqual(
+      [],
+    );
+    expect(validateWorkflow(approval({ onTimeout: "abort", choices: ["ship"] }))).toEqual([]);
+  });
+
   test("rejects loop and retries on an approval", () => {
     // A human decision is not a retryable computation: re-asking would
     // either re-park the same question or silently reuse the first answer.
