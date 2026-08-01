@@ -20,10 +20,15 @@ const trace = vi.hoisted(() => ({
   getWorkflowRunTrace: vi.fn(),
   listWorkflowRunsForCaller: vi.fn(),
 }));
-vi.mock("$server/runtime/workflow-run-trace", () => ({
+// Spread the REAL module and override only the two DB-backed readers. The
+// constants (`RUN_PAGE_MAX`, `RUN_STATUS_FILTERS`) come through untouched,
+// so this double cannot drift from the vocabulary the route validates
+// against — a re-declared copy here would let the route accept a status
+// the real surface rejects, and the test would still pass.
+vi.mock("$server/runtime/workflow-run-trace", async (importActual) => ({
+  ...(await importActual<typeof import("$server/runtime/workflow-run-trace")>()),
   getWorkflowRunTrace: trace.getWorkflowRunTrace,
   listWorkflowRunsForCaller: trace.listWorkflowRunsForCaller,
-  RUN_PAGE_MAX: 200,
 }));
 
 const { GET: LIST } = await import("../routes/api/workflows/runs/+server");

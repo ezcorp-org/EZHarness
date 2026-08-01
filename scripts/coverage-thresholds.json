@@ -126,6 +126,7 @@
   "src/runtime/workflow-extension-loader.ts": 100,
   "src/runtime/workflow/runtime-registry.ts": 100,
   "src/extensions/workflows-handler.ts": 100,
+  "src/extensions/ez-factory-agents.ts": 100,
   "src/lib/cheap-models.ts": 100,
   "src/lib/pi-complete.ts": 100,
   "src/runtime/sentinels.ts": 100,

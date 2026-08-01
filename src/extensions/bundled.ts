@@ -1580,6 +1580,35 @@ export async function ensureBundledExtensions(): Promise<void> {
       error: String(coderErr),
     });
   }
+
+  // ez-factory's three pipeline agents. Same shape and same reason as the
+  // ez-code coder above: a workflow `agent` step resolves by name out of
+  // `agent_configs` (via `loadDbAgents`), an extension cannot create a row,
+  // and a manifest `agent:` block is not spawnable — so without these rows
+  // every agent step in every ez-factory template fails `Agent not found`.
+  //
+  // MUST stay the last statement of this function: `context.ts` calls
+  // `loadAgents(..., { includeDb: true })` immediately after this returns,
+  // so a row seeded here is in the executor map in the same boot.
+  //
+  // The seeded prompts carry two security invariants (untrusted input is
+  // DATA; writes stay in the workspace) that cannot live in the extension,
+  // because `configToAgent` — not the extension — builds agent-step
+  // prompts. See `ez-factory-agents.ts`.
+  //
+  // Gated on the extension row existing, so an install without ez-factory
+  // gains no agents. Idempotent; safe on every boot.
+  try {
+    const ezFactoryRow = await getExtensionByName("ez-factory");
+    if (ezFactoryRow) {
+      const { ensureEzFactoryAgents } = await import("./ez-factory-agents");
+      await ensureEzFactoryAgents();
+    }
+  } catch (factoryErr) {
+    log.warn("ez-factory agents ensure threw during ensureBundledExtensions", {
+      error: String(factoryErr),
+    });
+  }
 }
 
 /**

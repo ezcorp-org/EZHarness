@@ -37,6 +37,7 @@ const {
   listWorkflowRunsForCaller,
   RUN_PAGE_DEFAULT,
   RUN_PAGE_MAX,
+  RUN_STATUS_FILTERS,
 } = await import("../runtime/workflow-run-trace");
 const { upsertWorkflowStepRun } = await import("../db/queries/workflow-runs");
 const { upsertWorkflowStepIteration } = await import("../db/queries/workflow-step-iterations");
@@ -771,5 +772,111 @@ describe("run list — scoping and keyset pagination", () => {
       OWNER,
     );
     expect(insideWindow.runs.map((r) => r.id)).toEqual(["run-failed"]);
+  });
+});
+
+describe("run list — the `workflowNames` SET filter", () => {
+  // Added for the `ezcorp/workflows` `op: "runs"` extension read, which
+  // scopes to the SET of names an extension's grant covers. It has to be
+  // in the WHERE for the same reason `user_id` is: post-filtering a keyset
+  // page returns short pages and eventually an empty one with a cursor
+  // still pointing forward, which a client reads as "no more runs".
+  beforeAll(async () => {
+    for (const name of ["set-a", "set-b", "set-c"]) {
+      await seedRun({
+        id: `set-${name}`,
+        userId: "user-owner",
+        workflowName: name,
+        startedAt: "2026-03-01T00:00:00Z",
+      });
+    }
+  });
+
+  test("matches every name in the set and nothing outside it", async () => {
+    const { runs } = await listWorkflowRunsForCaller(
+      { workflowNames: ["set-a", "set-b"] },
+      OWNER,
+    );
+    expect(new Set(runs.map((r) => r.workflowName))).toEqual(new Set(["set-a", "set-b"]));
+  });
+
+  test("a one-element set behaves exactly like `workflowName`", async () => {
+    const bySet = await listWorkflowRunsForCaller({ workflowNames: ["set-c"] }, OWNER);
+    const byName = await listWorkflowRunsForCaller({ workflowName: "set-c" }, OWNER);
+    expect(bySet.runs.map((r) => r.id)).toEqual(byName.runs.map((r) => r.id));
+    expect(bySet.runs).toHaveLength(1);
+  });
+
+  test("an EMPTY set matches NOTHING — fail-closed, never 'unscoped'", async () => {
+    // The bug this pins: if an empty array degraded to "no filter", an
+    // extension whose grant named nothing would be handed every run the
+    // user ever started.
+    const { runs } = await listWorkflowRunsForCaller({ workflowNames: [] }, OWNER);
+    expect(runs).toEqual([]);
+  });
+
+  test("a name nobody has run yields an empty page, not an error", async () => {
+    const { runs } = await listWorkflowRunsForCaller({ workflowNames: ["nonesuch"] }, OWNER);
+    expect(runs).toEqual([]);
+  });
+
+  test("the set filter does NOT bypass the ownership filter", async () => {
+    // Both predicates AND together; naming a workflow cannot widen who you
+    // are allowed to see it for.
+    await seedRun({
+      id: "set-stranger",
+      userId: "user-stranger",
+      workflowName: "set-a",
+      startedAt: "2026-03-02T00:00:00Z",
+    });
+
+    const { runs } = await listWorkflowRunsForCaller({ workflowNames: ["set-a"] }, OWNER);
+
+    expect(runs.map((r) => r.id)).toEqual(["set-set-a"]);
+    expect(runs.every((r) => r.userId === "user-owner")).toBe(true);
+  });
+
+  test("combines with `status`", async () => {
+    await seedRun({
+      id: "set-errored",
+      userId: "user-owner",
+      workflowName: "set-a",
+      status: "error",
+      startedAt: "2026-03-03T00:00:00Z",
+    });
+
+    const { runs } = await listWorkflowRunsForCaller(
+      { workflowNames: ["set-a", "set-b"], status: "error" },
+      OWNER,
+    );
+
+    expect(runs.map((r) => r.id)).toEqual(["set-errored"]);
+  });
+});
+
+describe("RUN_STATUS_FILTERS — the ONE run-status vocabulary", () => {
+  // Shared by `GET /api/workflows/runs` and the `op: "runs"` extension
+  // read so the two surfaces cannot drift into accepting different sets.
+  test("is exactly the six RUN statuses", () => {
+    expect([...RUN_STATUS_FILTERS].sort()).toEqual(
+      ["awaiting_approval", "cancelled", "error", "running", "success", "suspended"].sort(),
+    );
+  });
+
+  test("excludes the STEP-only states — a run never terminalizes into them", () => {
+    // Offering `skipped` or `idle` as a run filter would advertise a page
+    // that is always empty.
+    expect(RUN_STATUS_FILTERS.has("skipped")).toBe(false);
+    expect(RUN_STATUS_FILTERS.has("idle")).toBe(false);
+  });
+
+  test("every member is a status the list query actually accepts", async () => {
+    for (const status of RUN_STATUS_FILTERS) {
+      const { runs } = await listWorkflowRunsForCaller(
+        { workflowName: "no-such-workflow", status: status as never },
+        OWNER,
+      );
+      expect(runs).toEqual([]);
+    }
   });
 });

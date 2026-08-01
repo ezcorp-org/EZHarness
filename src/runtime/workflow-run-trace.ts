@@ -42,6 +42,26 @@ import type { WorkflowRunStatus } from "../types";
 export const RUN_PAGE_DEFAULT = 50;
 export const RUN_PAGE_MAX = 200;
 
+/**
+ * The statuses a run-list caller may filter on — the ONE vocabulary, shared
+ * by `GET /api/workflows/runs` and the `ezcorp/workflows` `op: "runs"`
+ * extension read, so the two surfaces cannot drift into accepting different
+ * sets.
+ *
+ * These are the RUN statuses. `idle` and `skipped` are deliberately absent:
+ * both belong to `WorkflowRunStatus`'s STEP half (a run never terminalizes
+ * `skipped` — see the type's doc), so offering them as run filters would
+ * advertise a page that is always empty.
+ */
+export const RUN_STATUS_FILTERS: ReadonlySet<string> = new Set([
+  "running",
+  "success",
+  "error",
+  "cancelled",
+  "awaiting_approval",
+  "suspended",
+]);
+
 /** One row of the run list. Deliberately NOT the whole run: the list must
  *  not carry `input`, which is the same untrusted payload surface the
  *  trace redacts. A caller who wants it opens the run. */
@@ -232,6 +252,10 @@ function summarize(row: Awaited<ReturnType<typeof getWorkflowRunRow>> & object):
 
 export interface ListRunsQuery {
   workflowName?: string;
+  /** Scope to a set of names. Passes straight through to
+   *  {@link listWorkflowRunsPage}; see `WorkflowRunPageQuery.workflowNames`
+   *  for why an empty array matches nothing. */
+  workflowNames?: string[];
   status?: WorkflowRunStatus;
   projectId?: string;
   since?: Date;
