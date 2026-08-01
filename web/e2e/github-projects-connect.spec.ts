@@ -742,13 +742,19 @@ test.describe("GitHub Projects connect sub-route", () => {
 		// Wait for the POST connect + the subsequent GET link reload to complete,
 		// then assert. Using waitForResponse guards against Svelte rendering the
 		// state update before both requests settle.
+		//
+		// BOTH waiters are armed BEFORE the click. `waitForResponse` only sees
+		// responses that arrive after it is called, so registering the GET
+		// waiter after awaiting the POST loses the race whenever loadLinks()
+		// answers before the next statement runs — the test then waits 30s for
+		// a response already delivered and times out. Observed in a full
+		// `evidence-soft` lane; the specs pass in isolation.
 		const [connectRes] = await Promise.all([
 			page.waitForResponse((r) => r.url().includes("/api/integrations/github-projects/connect") && r.request().method() === "POST"),
+			page.waitForResponse((r) => r.url().includes("/api/integrations/github-projects/link") && r.request().method() === "GET"),
 			page.getByTestId("gh-projects-connect").click(),
 		]);
 		expect(connectRes.status()).toBe(200);
-		// Wait for the link-list reload triggered by loadLinks() to complete.
-		await page.waitForResponse((r) => r.url().includes("/api/integrations/github-projects/link") && r.request().method() === "GET");
 
 		// The warning banner must appear.
 		const banner = page.getByTestId("gh-comment-scope-warning");
