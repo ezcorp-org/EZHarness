@@ -148,6 +148,34 @@ export async function buildPromptInput(
   // resolver would risk pinning a stale list. A backend-only boot (CLI,
   // pre-web-init) has no registration and the resolver returns null —
   // i.e. the same silent no-op as an unknown name.
+  //
+  // ── REFERENCING IS DELIBERATELY UNFILTERED (decision, not oversight) ──
+  //
+  // This resolver runs NO authorization check. Any name in the merged
+  // cache resolves for any caller, and the note carries the workflow's
+  // description AND its `inputSchema`. `canRunWorkflow` is NOT consulted
+  // here and must not be added without revisiting this decision.
+  //
+  // Enforcement is at the point of ACTION instead: `run_workflow` calls
+  // `canRunWorkflow` and surfaces a denial as a visible error card
+  // (`Workflow "x" is owned by another user`). That was judged better
+  // than filtering here, where an unauthorized reference would silently
+  // expand to nothing and be indistinguishable from a typo — the user
+  // would get no feedback at all. `inputSchema` stays for the same
+  // reason: without it the model cannot compose a run, so a reference the
+  // user IS allowed to act on would be useless.
+  //
+  // Residual gap, accepted knowingly: a caller can read a workflow
+  // description + input schema they could not run, and a `chat`-scoped
+  // API key can therefore obtain metadata that `GET /api/workflows`
+  // would refuse it (that route requires the `read` scope). Referencing
+  // is a weaker gate than listing.
+  //
+  // Consequence for `mention-wiring.ts`: because descriptions reach the
+  // model unfiltered by authz, the sanitisation + nonce fence in
+  // `applyWorkflowExpansion` is the ONLY thing between an
+  // attacker-controlled description and a forged instruction to call the
+  // tool. Weakening it re-opens this path — see `sanitizeNoteValue`.
   try {
     const { applyWorkflowExpansion } = await import("../mention-wiring");
     const { getWorkflowRuntime } = await import("../workflow/runtime-registry");
