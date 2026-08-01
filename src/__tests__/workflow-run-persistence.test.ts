@@ -39,6 +39,7 @@ const {
   insertWorkflowRun,
   listWorkflowStepRunRows,
   loadStepResults,
+  REHYDRATED_SKIP_REASON,
   terminalizeOrphanedWorkflowRuns,
   upsertWorkflowStepRun,
 } = await import("../db/queries/workflow-runs");
@@ -1101,6 +1102,89 @@ describe("durable position — run_phase, cursor, definition_hash", () => {
       success: true,
       output: { saw: "right" },
     });
+  });
+
+  test("a fully skipped batch leaves cursor.prevStepName naming an EARLIER batch", async () => {
+    // The C7 extension of the test above, not a replacement for it. The
+    // rule the original encodes — "prevStepName names the step whose result
+    // IS $prev" — is preserved, but the last step of a batch is no longer
+    // necessarily the last EXECUTED one, so both must now come from the
+    // same index rather than from `batch[batch.length - 1]`.
+    //
+    // Getting this wrong is silent: the resumed half of the run would
+    // rebuild `$prev` from a step that produced nothing.
+    const wf = makeExecutor({});
+    const def: WorkflowDefinition = {
+      name: "skipped-middle-batch",
+      description: "",
+      steps: [
+        { name: "seed", kind: "transform", output: { v: "SEED" } },
+        {
+          name: "gap",
+          kind: "transform",
+          output: { v: "GAP" },
+          dependsOn: ["seed"],
+          when: { ref: "$input.go", op: "truthy" },
+          // Its dependent must still run, or there would be no later batch
+          // to observe `$prev` from.
+          skipDependents: false,
+        },
+        {
+          name: "tail",
+          kind: "transform",
+          dependsOn: ["gap"],
+          output: { saw: "$prev.output.v" },
+        },
+      ],
+    };
+
+    const run = await wf.runWorkflow(def, { go: false }, undefined, undefined);
+    expect(run.status).toBe("success");
+    // `$prev` skipped straight over the empty batch.
+    expect(run.result?.output).toEqual({ saw: "SEED" });
+
+    const pos = await readPosition(run.id);
+    // Batch 1 executed nothing, so the recorded `$prev` still names a step
+    // from batch 0 — and after batch 2 it names `tail`, the last step that
+    // actually ran.
+    expect(pos?.cursor?.prevStepName).toBe("tail");
+    expect(pos?.cursor?.completedSteps).toEqual(["seed", "tail"]);
+
+    const skippedRow = (await db.execute(sql`
+      SELECT status FROM workflow_step_runs
+       WHERE workflow_run_id = ${run.id} AND step_name = 'gap'
+    `)) as Rows<{ status: string }>;
+    expect(skippedRow.rows[0]?.status).toBe("skipped");
+  });
+
+  test("loadStepResults returns a skipped step as SKIPPED, never as a result", async () => {
+    // Both halves matter. Putting the step in `stepResults` would make
+    // `$steps.<skipped>` resolve to a fabricated value; leaving it out
+    // entirely would make the resumed half read it as "has not run yet"
+    // and run a dependent it should have suppressed.
+    const wf = makeExecutor({});
+    const def: WorkflowDefinition = {
+      name: "rehydrates-skips",
+      description: "",
+      steps: [
+        { name: "kept", kind: "transform", output: { v: "K" } },
+        {
+          name: "dropped",
+          kind: "transform",
+          output: { v: "D" },
+          when: { ref: "$input.go", op: "truthy" },
+        },
+      ],
+    };
+
+    const run = await wf.runWorkflow(def, { go: false }, undefined, undefined);
+    expect(run.status).toBe("success");
+
+    const loaded = await loadStepResults(run.id);
+    if (!loaded.ok) throw new Error(loaded.reason);
+    expect(loaded.stepResults.has("dropped")).toBe(false);
+    expect(loaded.skippedSteps.get("dropped")).toBe(REHYDRATED_SKIP_REASON);
+    expect(loaded.stepResults.get("kept")).toEqual({ success: true, output: { v: "K" } });
   });
 
   test("a run mid-tool-step is running/in-batch — never suspended", async () => {
