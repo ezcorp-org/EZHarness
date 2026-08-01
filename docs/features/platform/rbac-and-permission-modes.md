@@ -142,6 +142,7 @@ await requireTeamRole(locals, teamId, "editor"); // team ladder; admins bypass
 - [[marketplace]] — flags/delete/install are admin-gated via `requireRole("admin")`.
 - [[sandbox-and-isolation]] — extension sensitive-cap prompts (`shell`/`fs.write`) complement OS-level jail isolation.
 - [[projects]] — permission mode is a per-project setting (`project:${id}:tool_permission_mode`).
+- [[workflows]] — run/update/delete apply a per-resource owner-or-admin rule (`workflow_definitions.created_by`) on top of the `chat` scope check. It compares `user.role === "admin"` directly rather than calling `checkRole`, which would also demand the `admin` API-key scope and so reject a cookie-authed admin on a `chat`-scoped route.
 
 ## Related docs
 
