@@ -29,10 +29,16 @@ export const workflowStepSchema = z
     tool: z.string().optional(),
     // Nested definition name for a `kind: "workflow"` step.
     workflow: z.string().optional(),
-    // Skip guard. `unknown` for the same reason as `condition` — it is the
-    // same `WorkflowCondition` grammar and `validateCondition` owns it.
+    // Skip guard and its opt-out. Both `unknown` for the same reason as
+    // `condition` / `loop` / `model`: the shared `validateWorkflow` owns the
+    // vocabulary, and a duplicate rule here would be a second definition to
+    // keep in sync. `skipDependents` is deliberately NOT `z.boolean()` —
+    // that would reject a bad value at the boundary with the generic
+    // "name and steps required" instead of the validator's
+    // `Step "s" "skipDependents" must be a boolean`, which is the message
+    // that actually tells the author what to fix.
     when: z.unknown().optional(),
-    skipDependents: z.boolean().optional(),
+    skipDependents: z.unknown().optional(),
     dependsOn: z.array(z.string()).optional(),
     loop: z.unknown().optional(),
     // Per-step model binding. Left `unknown` on purpose, exactly like

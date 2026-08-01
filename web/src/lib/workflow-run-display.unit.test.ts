@@ -26,7 +26,7 @@ import {
 } from "./workflow-run-display.js";
 
 /** Every step kind the server's `WorkflowStepKind` union can emit. */
-const STEP_KINDS = ["agent", "transform", "gate", "tool"] as const;
+const STEP_KINDS = ["agent", "transform", "gate", "tool", "approval", "workflow"] as const;
 
 /** Every run/step status the page can be handed. */
 const STATUSES = [
@@ -36,11 +36,19 @@ const STATUSES = [
 	"error",
 	"cancelled",
 	"awaiting_approval",
+	"suspended",
+	"skipped",
 ] as const;
 
 describe("kindLabel — never renders an empty badge", () => {
 	test.each(STEP_KINDS)("%s has a non-empty label", (kind) => {
-		expect(kindLabel(kind)).toBe(kind);
+		expect(kindLabel(kind).length).toBeGreaterThan(0);
+	});
+
+	test("a sub-workflow step is labelled by what it DOES, not by its kind", () => {
+		// On a workflow's own page a badge reading `workflow` says nothing;
+		// the point of the step is that it runs another one.
+		expect(kindLabel("workflow")).toBe("sub-workflow");
 	});
 
 	test("an unmapped kind falls back to the raw value, not an empty string", () => {
@@ -76,6 +84,20 @@ describe("statusColor — every status is visually resolvable", () => {
 			statusColor("running"),
 		];
 		expect(new Set(colors).size).toBe(colors.length);
+	});
+
+	test("a skipped step is neither failed nor in-progress", () => {
+		// The two readings that send an operator hunting a problem that is
+		// not there. `skipped` shares the muted treatment with `cancelled`
+		// deliberately — both mean "this did not run" — and the page adds a
+		// reason line beside it.
+		expect(statusColor("skipped")).not.toBe(statusColor("error"));
+		expect(statusColor("skipped")).not.toBe(statusColor("running"));
+		expect(statusColor("skipped")).toBe(statusColor("cancelled"));
+	});
+
+	test("a suspended run is not mistakable for a failed one", () => {
+		expect(statusColor("suspended")).not.toBe(statusColor("error"));
 	});
 
 	test("an unknown status reads as in-progress, never blank", () => {
