@@ -45,7 +45,6 @@ const { resumeParkedRun } = await import("../runtime/workflow-run-control");
 const { getWorkflowApproval, recordWorkflowApprovalAnswer } = await import(
   "../db/queries/workflow-approvals"
 );
-const { canRetryFrom } = await import("../../web/src/lib/workflow-trace-logic");
 
 const OWNER = { userId: "user-owner", isAdmin: false };
 const STRANGER = { userId: "user-stranger", isAdmin: false };
@@ -485,9 +484,15 @@ describe("a parked run RESUMED to completion, through the real machinery", () =>
     expect((refused as { code: string }).code).toBe("resume-failed");
 
     const stillParked = (await getWorkflowRunTrace(runId, OWNER))!;
+    // Still `suspended`, which is the exact state `canRetryFrom` keys on,
+    // so the button stays offered and the human can answer and retry.
+    // The predicate itself is covered in
+    // `web/src/lib/workflow-trace-logic.unit.test.ts` — deliberately NOT
+    // imported here: pulling a `web/src` module into a backend bun test
+    // makes that shard emit a partial coverage record for it, which
+    // dilutes the vitest leg's full one and drops the file below its
+    // threshold.
     expect(stillParked.run.status).toBe("suspended");
-    // And the button is still offered, because the run is still resumable.
-    expect(canRetryFrom(stillParked.run, { status: "suspended" })).toBe(true);
   });
 
   test("once answered, resume drives the run to a terminal state", async () => {
@@ -583,13 +588,22 @@ describe("a parked run RESUMED to completion, through the real machinery", () =>
     expect(agentCalls).toBe(1);
   });
 
-  test("Retry from here is NOT offered on the finished run", async () => {
+  test("a finished run REFUSES a further resume — belt as well as braces", async () => {
     // A retry button still showing on a completed run is how a second
-    // execution of already-applied side effects happens.
+    // execution of already-applied side effects happens. `canRetryFrom`
+    // hides it (covered in the trace-logic unit test), but the stronger
+    // property is that the MECHANISM refuses even if it were shown —
+    // which is what actually prevents the double execution.
     const trace = (await getWorkflowRunTrace(runId, OWNER))!;
-    for (const step of trace.steps) {
-      expect(canRetryFrom(trace.run, step)).toBe(false);
-    }
+    expect(trace.run.status).not.toBe("suspended");
+
+    const again = await resumeParkedRun(
+      runId,
+      { userId: "user-owner", isAdmin: false },
+      { runtime: runtime as never },
+    );
+    expect(again.ok).toBe(false);
+    expect((again as { code: string }).code).toBe("not-resumable");
   });
 });
 
