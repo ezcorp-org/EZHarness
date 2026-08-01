@@ -255,16 +255,31 @@ lives in exactly one place.
 
 | Touch point | Change |
 |---|---|
-| `src/db/schema.ts` — `workflowStepRuns` (`:431`) | `attempt`, `iteration`, `input_tokens`, `output_tokens`, `cost_usd`, `duration_ms`, `error_code`, `resolved_input`, `skipped_reason` (`provider`/`model` land in C1; **`output` lands in C4** — §2.4) |
+| `src/db/schema.ts` — `workflowStepRuns` (`:431`) | `attempt`, ~~`iteration`~~, `input_tokens`, `output_tokens`, `cost_usd`, `duration_ms`, `error_code`, `resolved_input`, `skipped_reason` (`provider`/`model` land in C1; **`output` lands in C4** — §2.4). **CORRECTED in phase 3: eight columns, not nine.** A singular `iteration` was dropped — `workflow_step_runs.iterations` (the final count) already exists and predates C5, so the column would have been redundant with it, and per-iteration DETAIL lives in the `workflow_step_iterations` child table (§7.6) rather than in either. |
 | `src/db/queries/workflow-runs.ts` — `upsertWorkflowStepRun` (`:94`) | write them; the upsert arbiter `uniq_workflow_step_run` (`src/db/schema.ts:460`) is `(workflow_run_id, step_name)` and **cannot express per-iteration rows** (§7.6) |
 | new `web/src/routes/api/workflows/runs/+server.ts` | `GET`, scope `read` |
 | new `web/src/routes/api/workflows/runs/[id]/+server.ts` | `GET`, scope `read` |
-| new `web/src/routes/api/workflows/approvals/…` | `GET` (`read`) / `POST` (`chat`) |
+| ~~new `web/src/routes/api/workflows/approvals/…`~~ | **Already shipped in C4 (phase 2)** — `web/src/routes/api/workflows/approvals/{,[id]}/+server.ts` exist. Nothing to add. |
 | new `web/src/routes/(app)/workflows/runs/[id]/+page.svelte` | the trace view — DAG + timeline, per-step model/tokens/cost/duration, resolved input, output, loop iterations, linked agent transcript, **Retry from here** |
-| `src/api-registry.ts` | four new entries, category `workflows` |
+| `src/api-registry.ts` | **two** new entries, category `workflows` (the approvals pair registered with C4) |
 
-Agent steps already mint real `AgentRun`s, so emitting `obs:turn` puts factory
-spend in the **existing** observability cost dashboard for free.
+~~Agent steps already mint real `AgentRun`s, so emitting `obs:turn` puts factory
+spend in the **existing** observability cost dashboard for free.~~
+**CORRECTED during phase 3 — this was wrong, for two independent reasons,
+either of which alone kills it.** (a) A workflow `agent` step never traverses
+the path that emits `obs:turn`: it is emitted in exactly one place
+(`src/runtime/stream-chat/finalize.ts:110`), and `configToAgent`'s LLM call is
+`ctx.llm.complete(...)` (`src/runtime/config-to-agent.ts:80`), which does not go
+through `streamChat` at all. (b) Even if it were emitted, the row cannot be
+written: `insertObservabilityEvent` takes a **required** `conversationId`
+(`src/db/queries/observability.ts:7-13`) into
+`observability_events.conversation_id`, which is `NOT NULL` FK to
+`conversations` (`src/db/schema.ts:1037`) — and a workflow has no conversation,
+only the synthetic `workflow-run:<id>` scope key. This is the same structural
+fact already documented for tool calls. **Resolution: aggregate, do not widen.**
+`workflow_step_runs` is the authoritative per-step cost record; a dashboard that
+wants factory spend learns to read it as a second source. Widening a shared
+audit table's FK to serve one subsystem was rejected.
 
 **Redaction is not optional.** `resolved_input` and `output` carry whatever a
 workflow author threaded in — including anything an extension tool returned.

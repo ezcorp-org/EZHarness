@@ -2338,6 +2338,56 @@ export async function migrate(db: any): Promise<void> {
   // is correct — those runs are terminal and will never resume.
   await db.execute(sql`ALTER TABLE workflow_step_runs ADD COLUMN IF NOT EXISTS output JSONB`);
 
+  // ── C5: per-step telemetry ───────────────────────────────────────
+  //
+  // All nullable, all without a default, and deliberately NOT backfilled.
+  // Every one of these facts is genuinely absent for a historical row, and
+  // NULL is the only honest value: inventing zeros would corrupt the first
+  // aggregate anyone runs over this table, and a zero token count or a
+  // zero cost reads as a measurement rather than as a gap.
+  //
+  // `cost_usd` is NUMERIC, not DOUBLE PRECISION — a dashboard that sums
+  // floats accumulates error, and C3's per-job spend cap reads it.
+  await db.execute(sql`ALTER TABLE workflow_step_runs ADD COLUMN IF NOT EXISTS attempt INTEGER`);
+  await db.execute(sql`ALTER TABLE workflow_step_runs ADD COLUMN IF NOT EXISTS input_tokens INTEGER`);
+  await db.execute(sql`ALTER TABLE workflow_step_runs ADD COLUMN IF NOT EXISTS output_tokens INTEGER`);
+  await db.execute(sql`ALTER TABLE workflow_step_runs ADD COLUMN IF NOT EXISTS cost_usd NUMERIC(12,6)`);
+  await db.execute(sql`ALTER TABLE workflow_step_runs ADD COLUMN IF NOT EXISTS duration_ms INTEGER`);
+  await db.execute(sql`ALTER TABLE workflow_step_runs ADD COLUMN IF NOT EXISTS error_code TEXT`);
+  await db.execute(sql`ALTER TABLE workflow_step_runs ADD COLUMN IF NOT EXISTS resolved_input JSONB`);
+  await db.execute(sql`ALTER TABLE workflow_step_runs ADD COLUMN IF NOT EXISTS skipped_reason TEXT`);
+
+  // Per-iteration detail for a looped step. A child table rather than a
+  // widened `uniq_workflow_step_run`, because the arbiter is
+  // `(workflow_run_id, step_name)` — a looped step has exactly ONE parent
+  // row, so per-iteration facts have nowhere to live there, and widening
+  // a live unique index means DROP INDEX plus a backfill in service of a
+  // purely additive need. CASCADE on the step: an iteration without its
+  // step is meaningless, unlike run HISTORY which is preserved via SET
+  // NULL. Bounded by the loop ceiling × the retry ceiling, so no sweep.
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS workflow_step_iterations (
+      id TEXT PRIMARY KEY,
+      workflow_step_run_id TEXT NOT NULL REFERENCES workflow_step_runs(id) ON DELETE CASCADE,
+      iteration INTEGER NOT NULL,
+      attempt INTEGER NOT NULL,
+      status TEXT NOT NULL,
+      run_id TEXT REFERENCES runs(id) ON DELETE SET NULL,
+      provider TEXT,
+      model TEXT,
+      input_tokens INTEGER,
+      output_tokens INTEGER,
+      cost_usd NUMERIC(12,6),
+      duration_ms INTEGER,
+      error_code TEXT,
+      created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+    )
+  `);
+  // `attempt` is in the arbiter because a retried iteration is a distinct
+  // event, not an overwrite of the try that failed.
+  await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uniq_workflow_step_iteration ON workflow_step_iterations(workflow_step_run_id, iteration, attempt)`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_workflow_step_iterations_step ON workflow_step_iterations(workflow_step_run_id)`);
+
   // `run_phase` is NOT NULL DEFAULT 'boundary' and that default is what
   // makes this migration backward-safe: every pre-existing row reads as
   // "parked at a boundary", and since they are all already terminal (or

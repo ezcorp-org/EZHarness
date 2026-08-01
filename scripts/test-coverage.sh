@@ -220,6 +220,7 @@ run_legs() {
       src/__tests__/api-workflows-name.server.test.ts \
       src/__tests__/api-workflows-name-run.server.test.ts \
       src/__tests__/api-workflows-run-control.server.test.ts \
+      src/__tests__/api-workflows-run-trace.server.test.ts \
       src/__tests__/api-workflows-approvals-list.server.test.ts \
       src/__tests__/workflow-approvals-logic.unit.test.ts \
       src/__tests__/api-workflows-fork.server.test.ts \
@@ -285,6 +286,7 @@ run_legs() {
       src/lib/components/__tests__/CapabilitiesPanel.component.test.ts \
       src/lib/ezcorp-config-edit.unit.test.ts \
       src/lib/workflow-run-display.unit.test.ts \
+      src/lib/workflow-trace-logic.unit.test.ts \
       src/lib/components/__tests__/AuthorCompositionPanel.component.test.ts \
       src/lib/components/__tests__/UsesList.component.test.ts \
       "src/routes/(app)/extensions/author/__tests__/page.component.test.ts" \
@@ -417,6 +419,8 @@ run_legs() {
       --coverage.include='src/routes/api/extensions/[id]/reapprove-drift/+server.ts' \
       --coverage.include='src/routes/api/projects/[id]/features/scan/+server.ts' \
       --coverage.include='src/routes/api/conversations/[id]/tree/+server.ts' \
+      --coverage.include='src/routes/api/workflows/runs/+server.ts' \
+      --coverage.include='src/routes/api/workflows/runs/[id]/+server.ts' \
       --coverage.include='src/routes/api/workflows/runs/[id]/resume/+server.ts' \
       --coverage.include='src/routes/api/workflows/runs/[id]/cancel/+server.ts' \
       --coverage.include='src/routes/api/workflows/approvals/+server.ts' \
@@ -439,6 +443,7 @@ run_legs() {
       --coverage.include='src/lib/ezcorp-config-edit.ts' \
       --coverage.include='src/lib/dependency-picker.ts' \
       --coverage.include='src/lib/workflow-run-display.ts' \
+      --coverage.include='src/lib/workflow-trace-logic.ts' \
       --coverage.include='src/lib/components/extensions/AuthorCompositionPanel.svelte' \
       --coverage.include='src/lib/components/extensions/UsesList.svelte' \
       --coverage.include='src/routes/api/users/+server.ts' \

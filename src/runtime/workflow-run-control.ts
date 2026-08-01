@@ -69,17 +69,39 @@ export interface RunControlDeps {
 }
 
 /**
- * Owner check.
+ * Owner check — the ONE opinion about who a workflow run belongs to.
  *
  * A run with a NULL `user_id` (a CLI run, an extension trigger) has no
  * owner to compare against, so only an admin may act on it. Treating
  * "unowned" as "anyone's" would make every CLI-started run controllable by
  * every logged-in member.
+ *
+ * ## Also governs READING a run, and is deliberately narrower than C6
+ *
+ * The trace read (`workflow-run-trace.ts`) routes through this rather than
+ * through `resolveWorkflowForCaller`. That looks backwards — C6 landed the
+ * richer ladder — but the C6 ladder answers a question about the
+ * WORKFLOW, and for `visibility: 'system'` its answer for `read` is
+ * "anyone". Every row that existed at C6's migration is `system`, so
+ * routing a run trace through it would let any authenticated caller read
+ * any other user's `resolved_input` and `output` for a shared workflow.
+ *
+ * A run's payload belongs to whoever fired it, not to whoever may see the
+ * graph. So workflow visibility can only ever NARROW this, never widen it,
+ * and today this predicate alone is the whole rule.
+ *
+ * The two surfaces differ only in how a refusal RENDERS: control returns
+ * 403 (the caller already knows the run exists — they named it and got a
+ * real answer from a sibling surface), while the read returns 404, so the
+ * endpoint is not an existence oracle for runs the caller may not see.
  */
-function mayControl(rowUserId: string | null, actor: RunActor): boolean {
+export function mayControlRun(rowUserId: string | null, actor: RunActor): boolean {
   if (actor.isAdmin === true) return true;
   return rowUserId !== null && rowUserId === actor.userId;
 }
+
+/** Local alias — the module's own call sites read better unqualified. */
+const mayControl = mayControlRun;
 
 /**
  * Continue a parked run.

@@ -580,6 +580,16 @@ export class AgentExecutor {
         run.provider = piLlm.lastResolved.provider;
         run.model = piLlm.lastResolved.model;
       }
+      // Same `finally`, same reason: a run that FAILED still consumed the
+      // tokens it consumed, and that is exactly the run whose cost an
+      // operator goes looking for. Guarded rather than defaulted — the
+      // adapter only creates `usage` when a call actually reported finite
+      // counts, so "no call reported" stays undefined all the way to SQL
+      // NULL instead of becoming a zero that SUM believes.
+      if (piLlm.usage) {
+        run.inputTokens = piLlm.usage.inputTokens;
+        run.outputTokens = piLlm.usage.outputTokens;
+      }
       this.controllers.delete(run.id);
       if (this.persist) {
         await dbRuns.updateRun(run);

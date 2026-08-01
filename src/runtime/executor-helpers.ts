@@ -88,6 +88,42 @@ export interface PiLlmAdapter {
    * model it really ran on.
    */
   lastResolved?: { provider: string; model: string };
+  /**
+   * Tokens reported by every call this adapter has served, SUMMED.
+   *
+   * Cumulative, not last-call, because one `runAgent` may drive several
+   * LLM calls and the number an operator wants is what the run consumed.
+   *
+   * **Undefined means "no call reported usage", and that is different
+   * from zero.** A provider can legitimately omit usage — a cached
+   * response, a stream that errors before `done` — and a run that never
+   * touched `ctx.llm` reports nothing at all. Storing 0 for those would
+   * be a claim ("this cost nothing") that every SUM downstream believes;
+   * undefined becomes SQL NULL, which every SQL aggregate already
+   * ignores. So this field is only ever created by a call that actually
+   * reported finite counts.
+   */
+  usage?: { inputTokens: number; outputTokens: number };
+}
+
+/**
+ * Fold one call's reported usage into the adapter's running total.
+ *
+ * Non-finite counts (a provider that omitted the field, a `NaN` from a
+ * partial frame) are dropped rather than coerced: adding `NaN` once would
+ * poison the total for the whole run, and adding 0 would invent a
+ * measurement that was never taken.
+ */
+function accumulateUsage(
+  adapter: PiLlmAdapter,
+  usage: { inputTokens: number; outputTokens: number },
+): void {
+  if (!Number.isFinite(usage.inputTokens) || !Number.isFinite(usage.outputTokens)) return;
+  const prev = adapter.usage ?? { inputTokens: 0, outputTokens: 0 };
+  adapter.usage = {
+    inputTokens: prev.inputTokens + usage.inputTokens,
+    outputTokens: prev.outputTokens + usage.outputTokens,
+  };
 }
 
 /**
@@ -150,7 +186,9 @@ export function createPiLlmAdapter(overrides?: ModelOverride): PiLlmAdapter {
         .filter((c): c is { type: "text"; text: string } => c.type === "text")
         .map((c) => c.text)
         .join("");
-      return { text, usage: { inputTokens: result.usage.input, outputTokens: result.usage.output } };
+      const usage = { inputTokens: result.usage.input, outputTokens: result.usage.output };
+      accumulateUsage(adapter, usage);
+      return { text, usage };
     },
     async *stream(messages, options) {
       const resolved = await resolveModel(
@@ -176,7 +214,10 @@ export function createPiLlmAdapter(overrides?: ModelOverride): PiLlmAdapter {
         : stream(resolved.piModel, context, callOpts);
       for await (const event of s) {
         if (event.type === "text_delta") yield { type: "token", text: event.delta };
-        if (event.type === "done") yield { type: "done", usage: { inputTokens: event.message.usage.input, outputTokens: event.message.usage.output } };
+        // A stream that errors before `done` never reaches this line, so
+        // it contributes nothing — which is the honest reading: no usage
+        // was reported for it.
+        if (event.type === "done") { const usage = { inputTokens: event.message.usage.input, outputTokens: event.message.usage.output }; accumulateUsage(adapter, usage); yield { type: "done", usage }; }
         if (event.type === "error") {
           // pi-ai's error event carries a partial AssistantMessage whose
           // content array mixes TextContent / ThinkingContent / ToolCall.

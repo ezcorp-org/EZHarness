@@ -94,7 +94,15 @@ describe("the workflow ownership ladder lives in exactly one place", () => {
         source.includes("answerApproval") ||
         source.includes("resumeParkedRun") ||
         source.includes("cancelParkedRun") ||
-        source.includes("listPendingWorkflowApprovalsForUser");
+        source.includes("listPendingWorkflowApprovalsForUser") ||
+        // The run-TRACE read pair. Same narrowing, same single-homing:
+        // both resolve no workflow by name, and both authorize through
+        // `mayControlRun` inside `workflow-run-trace.ts` — the identical
+        // predicate `resumeParkedRun` / `cancelParkedRun` use, exported
+        // from `workflow-run-control.ts` so there is one opinion about
+        // who a run belongs to rather than two that agree today.
+        source.includes("getWorkflowRunTrace") ||
+        source.includes("listWorkflowRunsForCaller");
 
       expect(usesResolver || isAdminGated || delegatesToRunAuthority).toBe(true);
     },
@@ -108,7 +116,7 @@ describe("the workflow ownership ladder lives in exactly one place", () => {
     // caller, which is precisely the hole the ladder closed for the
     // name-scoped ones.
     const AUTHORITIES =
-      /answerApproval|resumeParkedRun|cancelParkedRun|listPendingWorkflowApprovalsForUser/;
+      /answerApproval|resumeParkedRun|cancelParkedRun|listPendingWorkflowApprovalsForUser|getWorkflowRunTrace|listWorkflowRunsForCaller/;
     for (const file of files) {
       const source = readFileSync(file, "utf8");
       if (source.includes("resolveWorkflowOr") || source.includes("listVisibleWorkflows")) continue;

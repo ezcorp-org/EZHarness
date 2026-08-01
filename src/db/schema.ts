@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, jsonb, integer, real, serial, bigserial, bigint, boolean, index, primaryKey, uniqueIndex, date, vector } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, jsonb, integer, numeric, real, serial, bigserial, bigint, boolean, index, primaryKey, uniqueIndex, date, vector } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import type {
   AgentResult,
@@ -657,6 +657,57 @@ export const workflowStepRuns = pgTable("workflow_step_runs", {
   // and a resume against it fails closed, rather than resuming with a
   // silently-different `$steps` value.
   output: jsonb("output").$type<AgentResult | TruncatedStepOutput>(),
+
+  // ── Telemetry (C5) ───────────────────────────────────────────────
+  // Every column nullable with no default. "Absent" is a real answer
+  // here and it is the honest one for every row written before this
+  // migration — a zero would be a CLAIM ("this step made no LLM call
+  // and cost nothing") that silently deflates the first aggregate
+  // anyone runs over the table.
+  //
+  /** Attempts the step consumed, 1-based: 1 means it succeeded first try.
+   *  NULL for a step that runs no retry loop (transform / gate / tool). */
+  attempt: integer("attempt"),
+  /** Tokens the step's LLM call(s) reported, summed across retries and
+   *  loop iterations. NULL — never 0 — when the step ran no LLM, or when
+   *  the provider reported no usage (a cached response, a stream that
+   *  errored mid-flight). NULL is "not reported" and every SQL aggregate
+   *  already ignores it; 0 would be a lie that SUM believes. */
+  inputTokens: integer("input_tokens"),
+  outputTokens: integer("output_tokens"),
+  /** `NUMERIC`, not `DOUBLE PRECISION`: a cost dashboard that sums floats
+   *  accumulates error, and C3's per-job spend cap reads this column.
+   *
+   *  **NULL in this phase, by design.** There is no host-side price table
+   *  — no per-token price map anywhere in `src/providers/` or
+   *  `src/runtime/` — so nothing can compute a cost honestly yet. The
+   *  column lands now so the trace, the dashboard and C3's cap all have
+   *  one place to read from the day a price source exists; until then the
+   *  trace renders "—", not a fabricated number. */
+  costUsd: numeric("cost_usd", { precision: 12, scale: 6 }),
+  /** Wall-clock for the whole step INCLUDING its retries and loop
+   *  iterations — the number an operator asking "why was this run slow"
+   *  wants. Per-iteration timings live on the child table. */
+  durationMs: integer("duration_ms"),
+  /** The typed reason a step failed, not its message: `error`,
+   *  `cancelled`, `approval-required`, `suspended`. Stable enough to
+   *  GROUP BY, which a message is not. */
+  errorCode: text("error_code"),
+  /** What the ref language actually resolved the step's `input` mapping
+   *  to — the single most useful thing when a run did something
+   *  unexpected, because it is the difference between "the graph is
+   *  wrong" and "the graph got the wrong data".
+   *
+   *  Redacted then size-capped by `prepareResolvedInput`, sharing
+   *  `output`'s redactor and sentinel shape. Not needed for resume (a
+   *  resume recomputes it from `cursor` + `stepResults`), so a truncated
+   *  value here costs an operator detail and costs correctness nothing. */
+  resolvedInput: jsonb("resolved_input").$type<Record<string, unknown> | TruncatedStepOutput>(),
+  /** Why a step did not run at all. Written by C7's `when` conditions;
+   *  inert until then. NULL means "this step was not skipped", which is
+   *  true of every row today. */
+  skippedReason: text("skipped_reason"),
+
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
@@ -664,6 +715,13 @@ export const workflowStepRuns = pgTable("workflow_step_runs", {
   // rejects duplicates), so this is a valid ON CONFLICT arbiter for the
   // "a step is written once at start, then updated on every status /
   // iteration change" upsert.
+  //
+  // DO NOT widen this to include `iteration` to make room for per-loop
+  // rows. That is a DROP INDEX plus a backfill against live history, to
+  // serve a purely additive need — and narrowing a live unique index can
+  // silently remove a constraint that was doing useful work. Per-iteration
+  // facts go in `workflow_step_iterations` instead, which costs one join
+  // and risks nothing.
   uniqueIndex("uniq_workflow_step_run").on(table.workflowRunId, table.stepName),
 ]);
 
@@ -678,6 +736,76 @@ export interface TruncatedStepOutput {
   __truncated: true;
   bytes: number;
 }
+
+/**
+ * Per-iteration detail for a looped step.
+ *
+ * ## Why this is a table and not columns on `workflow_step_runs`
+ *
+ * `upsertWorkflowStepRun` conflicts on `(workflow_run_id, step_name)`, so
+ * a looped step has exactly **one** parent row and an `iteration` column
+ * there could only ever hold the LAST value. The trace view's requirement
+ * is "every step, every iteration", which that shape cannot express.
+ *
+ * The alternative — widening the arbiter to include `iteration` — is a
+ * `DROP INDEX` plus a backfill of `iteration = 1` across live history, in
+ * service of a need that is purely additive. This table needs no backfill,
+ * leaves the existing upsert and its tests untouched, and cannot remove a
+ * constraint that was doing useful work.
+ *
+ * `workflow_step_runs.iterations` (the COUNT) stays and is not duplicated
+ * here: it is the summary the SSE payload already carries, and this is the
+ * detail behind it.
+ *
+ * **Retention needs no sweep.** A step is bounded by the loop ceiling
+ * (`MAX_ITERATIONS_CEILING`) times the retry ceiling (`RETRIES_CEILING`),
+ * so it can produce at most a few dozen rows, and they CASCADE with the
+ * step — an iteration without its step is meaningless. Contrast run
+ * HISTORY, which is deliberately preserved via SET NULL.
+ */
+export const workflowStepIterations = pgTable("workflow_step_iterations", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  workflowStepRunId: text("workflow_step_run_id")
+    .notNull()
+    .references(() => workflowStepRuns.id, { onDelete: "cascade" }),
+  /** 1-based, matching what `$loop.iteration` sees inside the step. */
+  iteration: integer("iteration").notNull(),
+  /** Retry attempt within this iteration; 0 for the first try. */
+  attempt: integer("attempt").notNull(),
+  status: text("status").notNull().$type<WorkflowRunStatus>(),
+  /** The `AgentRun` this iteration minted. NULL for a `transform` loop,
+   *  which mints none, and SET NULL so reaping a run does not erase the
+   *  record that an iteration happened. */
+  runId: text("run_id").references(() => runs.id, { onDelete: "set null" }),
+  /** May legitimately DIFFER per iteration: a `$loop.*` model binding is
+   *  re-resolved each pass, so a workflow can escalate cheap → strong on
+   *  the retry. Recording only the parent's last value would hide that. */
+  provider: text("provider"),
+  model: text("model"),
+  inputTokens: integer("input_tokens"),
+  outputTokens: integer("output_tokens"),
+  /** NULL until a price table exists — see `workflowStepRuns.costUsd`. */
+  costUsd: numeric("cost_usd", { precision: 12, scale: 6 }),
+  durationMs: integer("duration_ms"),
+  errorCode: text("error_code"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  // The upsert arbiter. `attempt` is in the key because a retried
+  // iteration is a distinct event, not an overwrite of the try that
+  // failed — collapsing them would hide exactly the retry an operator is
+  // reading the trace to find.
+  uniqueIndex("uniq_workflow_step_iteration").on(
+    table.workflowStepRunId,
+    table.iteration,
+    table.attempt,
+  ),
+  // Serves the trace query, and the FK's own delete scan when a step row
+  // cascades away.
+  index("idx_workflow_step_iterations_step").on(table.workflowStepRunId),
+]);
+
+export type WorkflowStepIterationRow = typeof workflowStepIterations.$inferSelect;
+export type NewWorkflowStepIterationRow = typeof workflowStepIterations.$inferInsert;
 
 /**
  * A parked `approval` step awaiting a human answer.

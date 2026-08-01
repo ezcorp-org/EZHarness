@@ -209,6 +209,8 @@ export const apiRegistry: ApiRouteEntry[] = [
   // resume takes no choice and cannot clear a pending consent gate — a run
   // parked on an unanswered approval comes back 409 and stays answerable.
   // See `workflow-run-control.ts` and ported invariant 7.
+  { method: "GET", path: "/api/workflows/runs", description: "Workflow run history, newest first — keyset paginated on (started_at, id); a non-admin sees only runs they initiated", category: "workflows", scope: "read", responseDescription: "{ runs: WorkflowRunSummary[], nextCursor?: { startedAt, id } }" },
+  { method: "GET", path: "/api/workflows/runs/:id", description: "One run's trace: the run, its steps with per-step model/tokens/duration/resolved input/output, and each step's loop iterations (404, not 403, when unauthorized — a trace carries redacted-but-untrusted payloads)", category: "workflows", scope: "read", responseDescription: "{ run, steps: WorkflowTraceStep[], totals }" },
   { method: "POST", path: "/api/workflows/runs/:id/resume", description: "Continue a suspended workflow run", category: "workflows", scope: "chat", responseDescription: "{ run: WorkflowRun }" },
   { method: "POST", path: "/api/workflows/runs/:id/cancel", description: "Cancel a running or suspended workflow run", category: "workflows", scope: "chat", responseDescription: "{ cancelled: true }" },
   { method: "POST", path: "/api/workflows/:name/dry-run", description: "Simulate a workflow — transform/gate steps evaluated, everything else stubbed; zero LLM, zero side effects, no run row", category: "workflows" },

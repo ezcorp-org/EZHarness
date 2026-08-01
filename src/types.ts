@@ -133,6 +133,15 @@ export interface AgentRun {
    *  `createPiLlmAdapter`); undefined for a run that never called an LLM.
    *  `provider` is the matching half. */
   model?: string;
+  /** Tokens this run's LLM call(s) reported, summed across every call.
+   *  Populated on the `runAgent` path from the pi-llm adapter's running
+   *  total; **undefined — never 0 — when nothing reported usage** (a run
+   *  that never touched `ctx.llm`, a cached response, a stream that
+   *  errored before its `done` frame). Zero is a claim that deflates
+   *  every aggregate summing it; undefined becomes SQL NULL, which every
+   *  SQL aggregate already ignores. */
+  inputTokens?: number;
+  outputTokens?: number;
   status: AgentStatus;
   startedAt: number;
   finishedAt?: number;
@@ -507,7 +516,53 @@ export interface WorkflowStepRun {
    *  agent whose `execute` never touched `ctx.llm`). */
   provider?: string;
   model?: string;
+  /** Agent invocations this step consumed. Counts retries AND loop
+   *  iterations, so for a looped step it is the total number of LLM
+   *  calls, not the iteration count — `iterations` is that. Undefined
+   *  for a step that invokes no agent. */
+  attempt?: number;
+  /** Tokens this step consumed, SUMMED across its retries and loop
+   *  iterations — overwriting per attempt would undercount a step that
+   *  retried. Contrast `provider`/`model`, which are deliberately
+   *  last-write: "what served the call" has one answer, "what did this
+   *  step cost" is a total.
+   *
+   *  Undefined — never 0 — when nothing reported usage. See
+   *  `AgentRun.inputTokens`. */
+  inputTokens?: number;
+  outputTokens?: number;
+  /** Typed failure reason, stable enough to GROUP BY — unlike a message.
+   *  Derived from the exception CLASS the step threw, so it says which
+   *  kind of ending this was (`cancelled`, `approval-required`,
+   *  `suspended`, `step-failed`) rather than restating the text. */
+  errorCode?: string;
 }
+
+/**
+ * Out-of-band sink for a step's RESOLVED INPUT, on its way to
+ * `workflow_step_runs.resolved_input`.
+ *
+ * **Deliberately not a field on {@link WorkflowStepRun}.** That object is
+ * a published SSE payload, and this value is the raw mapping the ref
+ * language produced — whatever the author threaded through `$input`,
+ * credentials included. It is redacted and capped by
+ * `prepareResolvedInput` on the way into the row; putting it on the event
+ * stream would publish it unredacted to every subscribed client.
+ *
+ * The same reasoning already keeps a step's `output` off the payload.
+ */
+export interface WorkflowStepInputSink {
+  resolvedInput?: Record<string, unknown>;
+}
+
+/* NOTE: a step's `durationMs` is deliberately NOT a field on
+ * {@link WorkflowStepRun} either, for a second and independent reason: it
+ * is a CLOCK READING, and this object is compared byte-for-byte by the
+ * demo-workflow determinism test ("a transform/gate-only workflow is a
+ * pure function — no LLM, no I/O, no clock"). Putting a wall-clock value
+ * on a published payload makes two identical runs differ whenever they
+ * straddle a millisecond. It lives in the executor's per-step closure and
+ * goes straight to the column. */
 
 // ── Team Member Types ────────────────────────────────────────────────
 
