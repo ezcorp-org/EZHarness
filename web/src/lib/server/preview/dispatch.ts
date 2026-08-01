@@ -1,6 +1,7 @@
 import {
   parsePreviewHost,
   handlePreviewRequest,
+  resolvePreviewAppHost,
   sanitizeInboundHeaders,
   type ParsedPreviewHost,
 } from "$server/runtime/preview/preview-proxy";
@@ -31,17 +32,19 @@ import { getPreviewQuota } from "$server/runtime/preview/preview-rate-limit";
 // (the app origin's ezcorp_session is not sent here by design — D4).
 
 /**
- * The bare app host (no scheme/port) that owns the `*.preview.<host>`
- * wildcard. Read once from `EZCORP_PREVIEW_APP_HOST`; when unset the
- * preview origin is DISABLED (parse returns null for every host) so a
- * misconfigured deploy never accidentally serves untrusted content on
- * an unexpected origin. Operators set this to e.g. `localhost` (dev,
- * `*.localhost` auto-resolves) or `ezcorp.example.com` (prod, behind a
- * wildcard TLS cert — see docs/preview-hosting.md).
+ * The app host that owns the `*.preview.<host>` wildcard. Delegates to the
+ * shared `resolvePreviewAppHost` so this matcher and the open-URL builder
+ * (`src/startup/background-timers.ts`) can never disagree about which
+ * origin is live. When it returns null the preview origin is DISABLED
+ * (parse returns null for every host) so a misconfigured deploy never
+ * accidentally serves untrusted content on an unexpected origin.
+ * Operators set `EZCORP_PREVIEW_APP_HOST` to e.g. `localhost` (dev,
+ * `*.localhost` auto-resolves), `ezcorp.example.com` (prod, behind a
+ * wildcard TLS cert — see docs/preview-hosting.md), or `auto` to track
+ * `EZCORP_PUBLIC_URL`.
  */
 function appHost(): string | null {
-  const h = process.env.EZCORP_PREVIEW_APP_HOST;
-  return h && h.trim().length > 0 ? h.trim() : null;
+  return resolvePreviewAppHost();
 }
 
 /**
