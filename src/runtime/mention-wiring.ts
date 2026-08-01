@@ -854,6 +854,23 @@ function formatWorkflowSection(blocks: readonly string[]): string {
  *     reference in someone else's turn — publish a workflow with a 9 KiB
  *     description, get it mentioned first, and everything after it
  *     vanishes.
+ *
+ * Shape notes:
+ *   - A plain loop, not a `.map().filter().map()` chain. `.filter(Boolean)`
+ *     does not narrow, so the chain needed a `!` assertion that masked a
+ *     genuine `null` rather than excluding it; `if (workflow)` narrows for
+ *     real.
+ *   - Blocks are labelled from the TOKEN, not the resolved entry: a cache
+ *     entry can carry a different `name`, and the reader needs to see what
+ *     they actually typed.
+ *   - The body is kept free of interior comments on purpose. Bun derives its
+ *     lcov line records from spans, and the executable lines immediately
+ *     following an in-body comment block came back with zero-hit records
+ *     even when provably executed (a line INSIDE this loop reported 40 hits
+ *     while the loop header reported 0). Same dual-instrumentation family as
+ *     the `mention-logic` / `markdown` excludes in `scripts/coverage-config.ts`
+ *     — keeping the rationale up here in the doc comment sidesteps it without
+ *     an EXCLUDES entry.
  */
 export function applyWorkflowExpansion(
   userMessage: string,
@@ -865,15 +882,6 @@ export function applyWorkflowExpansion(
       .map((m) => m.name),
   );
   if (orderedNames.length === 0) return "";
-
-  // A plain loop rather than a `.map().filter().map()` chain: bun's coverage
-  // attributes a per-line arrow inconsistently, so the chained form left lines
-  // with no DA record at all and the patch gate read them as uncovered even
-  // though every test exercised them. It also lets `if (workflow)` narrow the
-  // type properly — the chain needed a `!` assertion, because `.filter(Boolean)`
-  // never narrows, which was masking a genuine `null` rather than excluding it.
-  // Blocks are labelled from the TOKEN, not the resolved entry: a cache entry
-  // can carry a different `name`, and the reader needs to see what they typed.
   const blocks: string[] = [];
   for (const name of orderedNames.slice(0, MAX_WORKFLOW_EXPANSIONS_PER_TURN)) {
     const workflow = resolver(name);
