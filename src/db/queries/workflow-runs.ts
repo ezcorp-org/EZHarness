@@ -13,7 +13,7 @@
  *     (`running`, `suspended`)
  *   • {@link terminalizeOrphanedWorkflowRuns} — boot sweep
  */
-import { and, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { getDb } from "../connection";
 import { workflowRuns, workflowStepRuns, type TruncatedStepOutput } from "../schema";
 import type { AgentResult, WorkflowCursor, WorkflowRunStatus } from "../../types";
@@ -493,6 +493,92 @@ export async function getWorkflowRunRow(
 ): Promise<typeof workflowRuns.$inferSelect | undefined> {
   const rows = await getDb().select().from(workflowRuns).where(eq(workflowRuns.id, id));
   return rows[0];
+}
+
+/** Filters and cursor for {@link listWorkflowRunsPage}. */
+export interface WorkflowRunPageQuery {
+  workflowName?: string;
+  status?: WorkflowRunStatus;
+  projectId?: string;
+  since?: Date;
+  until?: Date;
+  /**
+   * Scope to one user's runs. `undefined` means "no ownership filter",
+   * which the route only ever passes for an admin.
+   *
+   * A run with `user_id IS NULL` (CLI, extension-triggered) matches NO
+   * user filter, so it is admin-only — the fail-closed reading, and the
+   * same one `mayControlRun` takes.
+   */
+  userId?: string;
+  /** Exclusive cursor: the last row of the previous page. */
+  cursor?: { startedAt: Date; id: string };
+  limit: number;
+}
+
+/** One page, plus the cursor that continues it. */
+export interface WorkflowRunPage {
+  runs: Array<typeof workflowRuns.$inferSelect>;
+  /** Absent when this was the last page. */
+  nextCursor?: { startedAt: string; id: string };
+}
+
+/**
+ * List runs newest-first, with keyset pagination.
+ *
+ * **Keyset, not OFFSET, and that is the point.** This list is ordered by
+ * `started_at DESC` on a table that gains rows at the head continuously.
+ * With OFFSET, a run that starts between page 1 and page 2 shifts every
+ * later row down by one, so page 2 re-serves the last row of page 1 and
+ * skips nothing visibly — the reader silently loses a row per insert.
+ * Comparing against the previous page's `(started_at, id)` is stable
+ * under inserts because it names a POSITION rather than a count.
+ *
+ * `id` is in the key because `started_at` is not unique — two runs fired
+ * in the same millisecond would otherwise make the boundary ambiguous and
+ * either duplicate or drop one.
+ *
+ * Served by `idx_workflow_runs_name_started`; the user filter is served by
+ * `idx_workflow_runs_user`.
+ */
+export async function listWorkflowRunsPage(
+  q: WorkflowRunPageQuery,
+): Promise<WorkflowRunPage> {
+  const filters = [
+    q.workflowName !== undefined ? eq(workflowRuns.workflowName, q.workflowName) : undefined,
+    q.status !== undefined ? eq(workflowRuns.status, q.status) : undefined,
+    q.projectId !== undefined ? eq(workflowRuns.projectId, q.projectId) : undefined,
+    q.since !== undefined ? gte(workflowRuns.startedAt, q.since) : undefined,
+    q.until !== undefined ? lte(workflowRuns.startedAt, q.until) : undefined,
+    q.userId !== undefined ? eq(workflowRuns.userId, q.userId) : undefined,
+    // The keyset predicate, as one expression so it cannot be split by a
+    // later edit: strictly older, OR the same instant with a smaller id.
+    q.cursor !== undefined
+      ? or(
+          lt(workflowRuns.startedAt, q.cursor.startedAt),
+          and(eq(workflowRuns.startedAt, q.cursor.startedAt), lt(workflowRuns.id, q.cursor.id)),
+        )
+      : undefined,
+  ].filter((f) => f !== undefined);
+
+  // One extra row, discarded, purely to learn whether a next page exists
+  // without a second COUNT over a growing table.
+  const rows = await getDb()
+    .select()
+    .from(workflowRuns)
+    .where(filters.length > 0 ? and(...filters) : undefined)
+    .orderBy(desc(workflowRuns.startedAt), desc(workflowRuns.id))
+    .limit(q.limit + 1);
+
+  const page = rows.slice(0, q.limit);
+  const last = page[page.length - 1];
+  const hasMore = rows.length > q.limit;
+  return {
+    runs: page,
+    ...(hasMore && last !== undefined
+      ? { nextCursor: { startedAt: last.startedAt.toISOString(), id: last.id } }
+      : {}),
+  };
 }
 
 /** Read a run's step rows. Order is unspecified — callers that care sort

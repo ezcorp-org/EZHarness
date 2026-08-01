@@ -220,6 +220,7 @@ run_legs() {
       src/__tests__/api-workflows-name.server.test.ts \
       src/__tests__/api-workflows-name-run.server.test.ts \
       src/__tests__/api-workflows-run-control.server.test.ts \
+      src/__tests__/api-workflows-run-trace.server.test.ts \
       src/__tests__/api-workflows-approvals-list.server.test.ts \
       src/__tests__/workflow-approvals-logic.unit.test.ts \
       src/__tests__/api-workflows-fork.server.test.ts \
@@ -403,6 +404,8 @@ run_legs() {
       --coverage.include='src/routes/api/extensions/[id]/reapprove-drift/+server.ts' \
       --coverage.include='src/routes/api/projects/[id]/features/scan/+server.ts' \
       --coverage.include='src/routes/api/conversations/[id]/tree/+server.ts' \
+      --coverage.include='src/routes/api/workflows/runs/+server.ts' \
+      --coverage.include='src/routes/api/workflows/runs/[id]/+server.ts' \
       --coverage.include='src/routes/api/workflows/runs/[id]/resume/+server.ts' \
       --coverage.include='src/routes/api/workflows/runs/[id]/cancel/+server.ts' \
       --coverage.include='src/routes/api/workflows/approvals/+server.ts' \
