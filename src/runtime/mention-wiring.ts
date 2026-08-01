@@ -866,12 +866,19 @@ export function applyWorkflowExpansion(
   );
   if (orderedNames.length === 0) return "";
 
-  const blocks = orderedNames.slice(0, MAX_WORKFLOW_EXPANSIONS_PER_TURN)
-    // Pair each name with its lookup so a block can still be labelled from
-    // the token when a cache entry carries a different `name`.
-    .map((name) => ({ name, workflow: resolver(name) }))
-    .filter((r) => Boolean(r.workflow))
-    .map((r) => formatWorkflowBlock(r.name, r.workflow!));
+  // A plain loop rather than a `.map().filter().map()` chain: bun's coverage
+  // attributes a per-line arrow inconsistently, so the chained form left lines
+  // with no DA record at all and the patch gate read them as uncovered even
+  // though every test exercised them. It also lets `if (workflow)` narrow the
+  // type properly — the chain needed a `!` assertion, because `.filter(Boolean)`
+  // never narrows, which was masking a genuine `null` rather than excluding it.
+  const blocks: string[] = [];
+  for (const name of orderedNames.slice(0, MAX_WORKFLOW_EXPANSIONS_PER_TURN)) {
+    // Label the block from the TOKEN, not the resolved entry: a cache entry can
+    // carry a different `name`, and the reader needs to see what they typed.
+    const workflow = resolver(name);
+    if (workflow) blocks.push(formatWorkflowBlock(name, workflow));
+  }
   return formatWorkflowSection(joinWithinBudget(blocks, MAX_WORKFLOW_EXPANDED_CHARS, "skip"));
 }
 
