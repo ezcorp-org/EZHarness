@@ -1,38 +1,52 @@
 # Wildcard DNS for the secure preview origin. — TEMPLATE
 #
-# Copy to `Corefile` and substitute the two placeholders below. The copy is
-# gitignored on purpose: it holds a private tailnet address, and this repo is
-# public.
+# Copy to `Corefile` (gitignored, as the local copy):
 #
 #     cp Corefile.example Corefile
-#     # then replace <MAGICDNS_NAME> and <TAILSCALE_IP>
+#
+# Nothing to hand-edit: both values are read from the ENVIRONMENT at parse
+# time, so the same file works on any host and no private address is ever
+# committed to this public repo.
+#
+#     EZCORP_PREVIEW_ZONE        the wildcard parent, e.g. preview.myhost.example
+#     EZCORP_PREVIEW_TARGET_IP   IP every preview name resolves to (the host
+#                                running the stack)
 #
 # The preview proxy routes by hostname only — `<preview-id>.preview.<appHost>`
 # (LOCKED decision D4, docs/features/tools/preview-port-exposure.md). Preview
 # ids are minted per exposure, so no static hosts file can cover them; the
-# origin needs a real wildcard answer. Tailscale MagicDNS resolves exact
-# machine names only and has no wildcard support, hence this sidecar.
+# origin needs a real wildcard answer. Most private/VPN DNS (Tailscale MagicDNS
+# included) resolves exact machine names only and has no wildcard support,
+# hence this sidecar.
 #
-# Pair it with a Tailscale **split DNS** entry (admin console → DNS →
-# Nameservers → "Restrict to domain"):
+# Run it (full flow: docs/local-prod-test-stack.md):
 #
-#     domain:     preview.<MAGICDNS_NAME>
-#     nameserver: <TAILSCALE_IP>
+#     docker run -d --name ezcorp-preview-dns --restart unless-stopped \
+#       -e EZCORP_PREVIEW_ZONE=preview.<your-host> \
+#       -e EZCORP_PREVIEW_TARGET_IP=<host-ip> \
+#       -p <bind-ip>:53:53/udp -p <bind-ip>:53:53/tcp \
+#       -v "$PWD/deploy/preview-dns/Corefile:/Corefile:ro" \
+#       coredns/coredns:1.11.3 -conf /Corefile
 #
-# Every tailnet device then resolves preview hostnames here, and ONLY those —
-# all other lookups keep flowing through their normal resolvers.
+# Then point your resolver at it for that zone ONLY (split DNS), so every other
+# lookup keeps flowing through its normal path:
+#
+#     dnsmasq            server=/preview.<host>/<host-ip>
+#     systemd-resolved   DNS=<host-ip>  +  Domains=~preview.<host>
+#     Tailscale          admin console → DNS → Nameservers → Add nameserver
+#                        → Custom → Restrict to domain
+#     corporate DNS      a conditional-forwarding rule for the zone
 #
 # Deliberately non-recursive: the second block REFUSEs everything outside the
 # preview zone, so this can never be turned into an open resolver or a DNS
-# amplification reflector. Bind it to the tailscale IP only (see the
-# `docker run -p <TAILSCALE_IP>:53:53` in the deploy notes) so it is
-# unreachable from the LAN or the public internet.
+# amplification reflector. Bind the container to a private interface (the
+# `-p <bind-ip>:53:53` above) so it is unreachable from the public internet.
 
-preview.<MAGICDNS_NAME> {
-    # Answer EVERY label under the zone with the host's tailscale IP. 60s TTL
-    # keeps a re-point cheap; preview ids are ephemeral so caching buys little.
+{$EZCORP_PREVIEW_ZONE} {
+    # Answer EVERY label under the zone with the stack host's IP. 60s TTL keeps
+    # a re-point cheap; preview ids are ephemeral so caching buys little.
     template IN A {
-        answer "{{ .Name }} 60 IN A <TAILSCALE_IP>"
+        answer "{{ .Name }} 60 IN A {$EZCORP_PREVIEW_TARGET_IP}"
     }
     # Empty-NOERROR for AAAA rather than NXDOMAIN: a dual-stack client that
     # gets NXDOMAIN for AAAA may abandon the name instead of falling back to
