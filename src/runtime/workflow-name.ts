@@ -25,21 +25,14 @@ export const EXTENSION_WORKFLOW_SEPARATOR = ":";
  *  token that cannot be re-split ambiguously or used to traverse a path. */
 export const WORKFLOW_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/;
 
-/**
- * Build the cache name for an extension-shipped workflow. The ONE place
- * the prefix is applied, so the loader (which writes the name) and the
- * reverse-RPC handler (which resolves it) can never disagree.
- *
- * Signature deliberately kept to ONE line. A multi-line signature leaves
- * its opening and closing lines as orphan COVERABLE lines that never
- * receive an execution hit — Bun attributes the call to the body — and the
- * per-file gate then flags the file depending on which shard's record wins
- * the merge. `migrate.ts:125-131` and `terminalizeOrphanedWorkflowRuns`
- * document the identical hazard for multi-line `sql` templates and take the
- * identical remedy. Do not "tidy" this back onto several lines.
- */
-export function namespacedWorkflowName(ext: string, declared: string): string {
-  return `${ext}${EXTENSION_WORKFLOW_SEPARATOR}${declared}`;
+/** Build the cache name for an extension-shipped workflow. The ONE place
+ *  the prefix is applied, so the loader (which writes the name) and the
+ *  reverse-RPC handler (which resolves it) can never disagree. */
+export function namespacedWorkflowName(
+  extensionName: string,
+  declaredName: string,
+): string {
+  return `${extensionName}${EXTENSION_WORKFLOW_SEPARATOR}${declaredName}`;
 }
 
 /** True when `name` is a well-formed BARE workflow name. */

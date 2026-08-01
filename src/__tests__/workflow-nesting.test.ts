@@ -549,6 +549,30 @@ describe("validateWorkflow — nesting", () => {
     expect(isValidWorkflowName("ez-factory:draft-and-verify")).toBe(false);
   });
 
+  test("what the loader BUILDS is what a nested target may name", async () => {
+    // The producer/consumer round trip, and the reason C7 can nest an
+    // extension workflow at all. `namespacedWorkflowName` writes the name
+    // into the cache; `isResolvableWorkflowName` decides whether a
+    // `kind: "workflow"` step may name it. If those two ever disagreed,
+    // every extension-shipped workflow would be nestable in principle and
+    // rejected at definition time in practice — and neither function's own
+    // tests would notice, because each is correct in isolation.
+    const { namespacedWorkflowName, isResolvableWorkflowName, isValidWorkflowName } =
+      await import("../runtime/workflow-name");
+
+    for (const declared of ["draft-and-verify", "a", "x.y_z-1"]) {
+      // Precondition: the loader only ever namespaces a name it accepted.
+      expect(isValidWorkflowName(declared)).toBe(true);
+      const full = namespacedWorkflowName("ez-factory", declared);
+      expect(full).toBe(`ez-factory:${declared}`);
+      expect(isResolvableWorkflowName(full)).toBe(true);
+      // And the validator agrees, which is the property that actually ships.
+      expect(
+        validateWorkflow(def("v", [{ name: "n", kind: "workflow", workflow: full }])),
+      ).toEqual([]);
+    }
+  });
+
   test("a workflow nesting itself is a definition-time cycle, named", () => {
     const self = def("selfie", [{ name: "n", kind: "workflow", workflow: "selfie" }]);
     // No resolver: self-reference is the one cycle that is ALWAYS statically
