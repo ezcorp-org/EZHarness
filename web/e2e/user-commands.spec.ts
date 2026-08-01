@@ -29,7 +29,13 @@ test.describe("/commands authoring UI", () => {
 	}) => {
 		await mockApi({ userCommands: [] });
 		await page.goto("/commands");
-		await expect(page.getByRole("heading", { name: "Commands" })).toBeVisible();
+		// `exact` matters here and only here: accessible-name matching is a
+		// case-insensitive SUBSTRING match, so a bare "Commands" also matches
+		// the empty state's own "No commands yet" heading and trips strict
+		// mode. It passed whenever the poll happened to win the race against
+		// that heading rendering — i.e. it was a load-dependent flake, not a
+		// pass.
+		await expect(page.getByRole("heading", { name: "Commands", exact: true })).toBeVisible();
 		await expect(page.getByRole("link", { name: "+ New Command" })).toBeVisible();
 		await expect(page.getByText("No commands yet")).toBeVisible();
 	});

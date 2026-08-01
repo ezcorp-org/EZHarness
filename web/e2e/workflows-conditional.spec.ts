@@ -29,6 +29,9 @@ const CONDITIONAL = makeWorkflow({
 			kind: "workflow",
 			workflow: "verify-suite",
 			dependsOn: ["seed"],
+			when: { ref: "$input.verify", op: "truthy" },
+			// Declares the opt-out too, so the badge has to distinguish the
+			// two conditional shapes rather than rendering one word for both.
 			skipDependents: false,
 		},
 	],
@@ -66,6 +69,27 @@ async function openDetail(page: import("@playwright/test").Page) {
 	await expect(page.getByRole("heading", { name: "conditional" })).toBeVisible();
 }
 
+/**
+ * Deliver a finished run to the page.
+ *
+ * `workflow:start` first, deliberately: the client store PREPENDS on start
+ * and only REPLACES on a terminal event (`stores.svelte.ts`), so a terminal
+ * frame for a run it never saw start is dropped on the floor. Firing the
+ * pair is what a real run does, and skipping the start is how an e2e ends
+ * up asserting against an empty Run History.
+ */
+async function deliverRun(
+	emitSse: (event: { type: string; data: unknown }) => Promise<void>,
+	run: Record<string, unknown>,
+	terminal: "workflow:complete" | "workflow:error",
+) {
+	await emitSse({
+		type: "workflow:start",
+		data: { workflowRun: { ...run, status: "running", finishedAt: undefined, result: undefined } },
+	});
+	await emitSse({ type: terminal, data: { workflowRun: run } });
+}
+
 test.describe("Workflows — conditional steps and sub-workflows", () => {
 	test("@evidence a skipped step reads as skipped, never as failed", async ({
 		page,
@@ -88,7 +112,7 @@ test.describe("Workflows — conditional steps and sub-workflows", () => {
 		await expect(nested).toHaveText("verify-suite");
 		await expect(nested).toHaveAttribute("href", "/workflows/verify-suite");
 
-		await emitSse({ type: "workflow:complete", data: { workflowRun: SKIPPED_RUN } });
+		await deliverRun(emitSse, SKIPPED_RUN, "workflow:complete");
 
 		await expect(page.getByRole("heading", { name: "Run History" })).toBeVisible();
 		// THE property: the run succeeded even though two steps never ran.
@@ -126,18 +150,17 @@ test.describe("Workflows — conditional steps and sub-workflows", () => {
 		await mockApi({ workflows: [CONDITIONAL] });
 		await openDetail(page);
 
-		await emitSse({
-			type: "workflow:error",
-			data: {
-				workflowRun: {
-					...SKIPPED_RUN,
-					id: "run-failed-9876",
-					status: "error",
-					steps: [{ stepName: "seed", runId: "", status: "error" }],
-					result: { success: false, output: null, error: 'Step "seed" failed: boom' },
-				},
+		await deliverRun(
+			emitSse,
+			{
+				...SKIPPED_RUN,
+				id: "run-failed-9876",
+				status: "error",
+				steps: [{ stepName: "seed", runId: "", status: "error" }],
+				result: { success: false, output: null, error: 'Step "seed" failed: boom' },
 			},
-		});
+			"workflow:error",
+		);
 
 		await expect(page.getByTestId("run-error")).toContainText('Step "seed" failed: boom');
 		await expect(page.getByTestId("run-step-skipped")).toHaveCount(0);
