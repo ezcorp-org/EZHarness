@@ -1,0 +1,53 @@
+# Wildcard DNS for the secure preview origin. — TEMPLATE
+#
+# Copy to `Corefile` and substitute the two placeholders below. The copy is
+# gitignored on purpose: it holds a private tailnet address, and this repo is
+# public.
+#
+#     cp Corefile.example Corefile
+#     # then replace <MAGICDNS_NAME> and <TAILSCALE_IP>
+#
+# The preview proxy routes by hostname only — `<preview-id>.preview.<appHost>`
+# (LOCKED decision D4, docs/features/tools/preview-port-exposure.md). Preview
+# ids are minted per exposure, so no static hosts file can cover them; the
+# origin needs a real wildcard answer. Tailscale MagicDNS resolves exact
+# machine names only and has no wildcard support, hence this sidecar.
+#
+# Pair it with a Tailscale **split DNS** entry (admin console → DNS →
+# Nameservers → "Restrict to domain"):
+#
+#     domain:     preview.<MAGICDNS_NAME>
+#     nameserver: <TAILSCALE_IP>
+#
+# Every tailnet device then resolves preview hostnames here, and ONLY those —
+# all other lookups keep flowing through their normal resolvers.
+#
+# Deliberately non-recursive: the second block REFUSEs everything outside the
+# preview zone, so this can never be turned into an open resolver or a DNS
+# amplification reflector. Bind it to the tailscale IP only (see the
+# `docker run -p <TAILSCALE_IP>:53:53` in the deploy notes) so it is
+# unreachable from the LAN or the public internet.
+
+preview.<MAGICDNS_NAME> {
+    # Answer EVERY label under the zone with the host's tailscale IP. 60s TTL
+    # keeps a re-point cheap; preview ids are ephemeral so caching buys little.
+    template IN A {
+        answer "{{ .Name }} 60 IN A <TAILSCALE_IP>"
+    }
+    # Empty-NOERROR for AAAA rather than NXDOMAIN: a dual-stack client that
+    # gets NXDOMAIN for AAAA may abandon the name instead of falling back to
+    # the A record.
+    template IN AAAA {
+        rcode NOERROR
+    }
+    errors
+    log
+}
+
+. {
+    # Fail closed for anything else. No `forward`, no recursion.
+    template IN ANY {
+        rcode REFUSED
+    }
+    errors
+}
