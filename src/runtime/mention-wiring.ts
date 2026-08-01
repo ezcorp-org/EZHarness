@@ -573,7 +573,7 @@ export async function applyLessonExpansion(
  */
 export type WorkflowResolver = (
   name: string,
-) => Promise<{ description: string; inputSchema?: InputSchema } | null>;
+) => { description: string; inputSchema?: InputSchema } | null;
 
 /**
  * Hard caps on workflow expansion within a single user turn.
@@ -831,11 +831,16 @@ function formatWorkflowSection(blocks: readonly string[]): string {
  * — reusing the composer's own parser is what guarantees the server
  * accepts exactly the tokens the composer emits.
  *
+ * SYNCHRONOUS, unlike the feature and lesson passes. Those await a DB
+ * round trip per target; a workflow resolves out of the merged in-memory
+ * cache (`getWorkflows()` is a sync accessor), so there is no I/O to wait
+ * on and no reason to pay for `Promise.all` fan-out. Keeping it sync also
+ * keeps the whole pass free of the await-resumption seam that made bun's
+ * coverage sourcemap misattribute lines here.
+ *
  * Body shape, in order:
- *   - Cap-then-parallelize, same shape as `applyLessonExpansion`: slice to
- *     the count cap BEFORE resolving, so a 100-token paste-bomb still
- *     costs exactly 5 lookups, then resolve those concurrently.
- *     `Promise.all` preserves input order, so source order survives.
+ *   - Cap BEFORE resolving, same discipline as `applyLessonExpansion`, so
+ *     a 100-token paste-bomb still costs exactly 5 lookups.
  *   - Entries whose resolver returned null are dropped — unknown /
  *     deleted workflows are a silent no-op.
  *   - The budget bounds the AUTHOR-SUPPLIED blocks. The fence + preamble
@@ -850,10 +855,10 @@ function formatWorkflowSection(blocks: readonly string[]): string {
  *     description, get it mentioned first, and everything after it
  *     vanishes.
  */
-export async function applyWorkflowExpansion(
+export function applyWorkflowExpansion(
   userMessage: string,
   resolver: WorkflowResolver,
-): Promise<string> {
+): string {
   const orderedNames = orderedUniqueNames(
     parseMentions(userMessage)
       .filter((m) => m.kind === "workflow")
@@ -861,12 +866,11 @@ export async function applyWorkflowExpansion(
   );
   if (orderedNames.length === 0) return "";
 
-  const namesToResolve = orderedNames.slice(0, MAX_WORKFLOW_EXPANSIONS_PER_TURN);
-  const resolved = await Promise.all(namesToResolve.map(async (name) => ({ name, workflow: await resolver(name) })));
-  const found = resolved.filter((r) => Boolean(r.workflow));
-  const blocks = found.map((r) => formatWorkflowBlock(r.name, r.workflow!));
-  const kept = joinWithinBudget(blocks, MAX_WORKFLOW_EXPANDED_CHARS, "skip");
-  return formatWorkflowSection(kept);
+  const blocks = orderedNames.slice(0, MAX_WORKFLOW_EXPANSIONS_PER_TURN)
+    .map((name) => ({ name, workflow: resolver(name) }))
+    .filter((r) => Boolean(r.workflow))
+    .map((r) => formatWorkflowBlock(r.name, r.workflow!));
+  return formatWorkflowSection(joinWithinBudget(blocks, MAX_WORKFLOW_EXPANDED_CHARS, "skip"));
 }
 
 /**

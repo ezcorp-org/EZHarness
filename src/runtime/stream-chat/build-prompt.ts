@@ -179,7 +179,7 @@ export async function buildPromptInput(
   try {
     const { applyWorkflowExpansion } = await import("../mention-wiring");
     const { getWorkflowRuntime } = await import("../workflow/runtime-registry");
-    const note = await applyWorkflowExpansion(userMessage, async (name) => {
+    const note = applyWorkflowExpansion(userMessage, (name) => {
       const workflow = getWorkflowRuntime()?.getWorkflows().find((w) => w.name === name);
       if (!workflow) return null;
       return { description: workflow.description, inputSchema: workflow.inputSchema };
