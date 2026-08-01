@@ -1,0 +1,280 @@
+/**
+ * Framework-free display logic for the run trace
+ * (`routes/(app)/workflows/runs/[id]/+page.svelte`).
+ *
+ * Same role `workflow-run-display.ts` plays for the workflow detail page,
+ * and split out for the same reason: these are the mappings that silently
+ * drift when a new status or column lands on the server, and a Svelte
+ * template is where a silent drift is least visible.
+ *
+ * **The governing rule here is that "not reported" must never render as a
+ * number.** Every telemetry column is nullable and NULL means the fact was
+ * not measured — a provider that omitted usage, a step that ran no LLM, a
+ * cost nothing can compute yet. Rendering those as `0` would turn a gap
+ * into a measurement, and the person reading the trace would have no way
+ * to tell. So every formatter below maps null to a dash, and none of them
+ * defaults to zero.
+ */
+/** Run/step status as the API reports it. Kept as a widened string
+ *  rather than imported from the server union: the trace must render a
+ *  status this build has never heard of (an older server, a newer one)
+ *  as ITSELF, not crash or blank. `statusLabel` handles the fallback. */
+type WorkflowRunStatus = string;
+
+/** What the UI shows where a value was never reported. */
+export const NOT_REPORTED = "—";
+
+export interface TraceIteration {
+  iteration: number;
+  attempt: number;
+  status: WorkflowRunStatus;
+  runId: string | null;
+  provider: string | null;
+  model: string | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  costUsd: string | null;
+  durationMs: number | null;
+  errorCode: string | null;
+}
+
+export interface TraceStep {
+  stepName: string;
+  status: WorkflowRunStatus;
+  runId: string | null;
+  provider: string | null;
+  model: string | null;
+  attempt: number | null;
+  iterations: number | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  costUsd: string | null;
+  durationMs: number | null;
+  errorCode: string | null;
+  skippedReason: string | null;
+  resolvedInput: unknown;
+  output: unknown;
+  startedAt: string;
+  updatedAt: string;
+  iterationRows: TraceIteration[];
+}
+
+export interface RunTrace {
+  run: {
+    id: string;
+    workflowName: string;
+    status: WorkflowRunStatus;
+    projectId: string | null;
+    userId: string | null;
+    startedAt: string;
+    finishedAt: string | null;
+    suspendedReason: string | null;
+    resumable: boolean;
+    jobRef: string | null;
+    definitionHash: string | null;
+    definitionVersionId: string | null;
+    runPhase: string;
+    idempotencyKey: string | null;
+    result: unknown;
+  };
+  steps: TraceStep[];
+  totals: {
+    inputTokens: number | null;
+    outputTokens: number | null;
+    durationMs: number | null;
+    steps: number;
+  };
+}
+
+/** A whole number with thousands separators, or the dash. */
+export function formatTokens(value: number | null): string {
+  return value === null ? NOT_REPORTED : value.toLocaleString("en-US");
+}
+
+/**
+ * A duration in the largest unit that stays readable.
+ *
+ * Sub-second stays in ms (a 40 ms transform reading "0.0s" hides the
+ * difference between fast and instant), minutes appear past 60s.
+ */
+export function formatDuration(ms: number | null): string {
+  if (ms === null) return NOT_REPORTED;
+  if (ms < 1000) return `${ms}ms`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
+  const minutes = Math.floor(ms / 60_000);
+  const seconds = Math.round((ms % 60_000) / 1000);
+  return `${minutes}m ${seconds}s`;
+}
+
+/**
+ * A cost, or the dash — which today is always the dash.
+ *
+ * There is no host-side price table, so `cost_usd` is NULL on every row
+ * and nothing can compute one honestly. The formatter is written for the
+ * real column anyway so that the day a price source lands, this is not
+ * where the work is.
+ */
+export function formatCost(costUsd: string | null): string {
+  if (costUsd === null) return NOT_REPORTED;
+  const n = Number(costUsd);
+  return Number.isFinite(n) ? `$${n.toFixed(4)}` : NOT_REPORTED;
+}
+
+/** Why the cost column is empty, shown as a tooltip rather than silently. */
+export const COST_UNAVAILABLE_HINT =
+  "Cost is not computed yet — there is no price table, so this reports nothing rather than guessing.";
+
+/**
+ * Whether a run is still going, in any sense.
+ *
+ * `suspended` counts: a parked run is alive and answerable, and the trace
+ * must not present it as an ending. `awaiting_approval` likewise — the
+ * graph ran everything it could and then hit a step that needs a human,
+ * which is neither success nor failure.
+ */
+export function isLiveRun(status: string): boolean {
+  return status === "running" || status === "suspended" || status === "awaiting_approval";
+}
+
+/** Human label for a run status, so the UI never shows a raw enum. */
+const STATUS_LABEL: Record<string, string> = {
+  running: "Running",
+  success: "Succeeded",
+  error: "Failed",
+  cancelled: "Cancelled",
+  suspended: "Paused",
+  awaiting_approval: "Waiting for approval",
+  idle: "Idle",
+};
+
+export function statusLabel(status: string): string {
+  return STATUS_LABEL[status] ?? status;
+}
+
+/**
+ * Whether "Retry from here" can be offered for a step.
+ *
+ * The button re-enters the run at this step, which is only meaningful
+ * when the run is PARKED and the platform is willing to continue it:
+ * `suspended` plus `resumable`, exactly the pair the daemon's claim scan
+ * looks for. A `running` run is already being driven and retrying it
+ * would execute a batch twice; a terminal run has no cursor to resume
+ * from.
+ *
+ * Deliberately conservative: offering a button that cannot work is worse
+ * than not offering one, because the operator learns nothing from the
+ * failure.
+ */
+export function canRetryFrom(
+  run: Pick<RunTrace["run"], "status" | "resumable">,
+  step: Pick<TraceStep, "status">,
+): boolean {
+  if (run.status !== "suspended" || !run.resumable) return false;
+  // A step that already succeeded is served from its persisted output on
+  // resume rather than re-run, so "retry from here" would be a lie.
+  return step.status !== "success";
+}
+
+/**
+ * Is this value the truncation sentinel rather than real content?
+ *
+ * The stored shape is `{ __truncated: true, bytes }` for both
+ * `resolved_input` and `output`, so a reader has one case to handle.
+ */
+export function isTruncated(value: unknown): value is { __truncated: true; bytes: number } {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    (value as { __truncated?: unknown }).__truncated === true
+  );
+}
+
+/**
+ * How a payload cell should render: a JSON block, the truncation notice,
+ * or nothing at all.
+ *
+ * Returned as a tagged union rather than a pre-rendered string so the
+ * template can style the three cases differently — and so the truncation
+ * case cannot be mistaken for a payload that happens to contain the word
+ * "truncated".
+ */
+export type PayloadView =
+  | { kind: "absent" }
+  | { kind: "truncated"; bytes: number }
+  | { kind: "json"; text: string };
+
+export function payloadView(value: unknown): PayloadView {
+  if (value === null || value === undefined) return { kind: "absent" };
+  if (isTruncated(value)) return { kind: "truncated", bytes: value.bytes };
+  return { kind: "json", text: JSON.stringify(value, null, 2) };
+}
+
+/**
+ * Timeline geometry: each step's offset and width as a percentage of the
+ * run's total elapsed time.
+ *
+ * Computed from `startedAt` + `durationMs` rather than from
+ * `startedAt`/`updatedAt`, because `updatedAt` moves on every status
+ * write and a step whose row was re-written after it finished would
+ * render wider than it ran.
+ *
+ * Steps with no duration get a zero-width marker at their start offset —
+ * visible as a tick, so an unmeasured step is not silently absent from
+ * the timeline.
+ */
+export interface TimelineBar {
+  stepName: string;
+  status: WorkflowRunStatus;
+  /** Percent from the left edge, 0..100. */
+  offsetPct: number;
+  /** Percent of the total width, 0..100. Floored at a visible minimum. */
+  widthPct: number;
+}
+
+export function timelineBars(trace: RunTrace): TimelineBar[] {
+  const runStart = Date.parse(trace.run.startedAt);
+  const ends = trace.steps.map(
+    (s) => Date.parse(s.startedAt) + (s.durationMs ?? 0),
+  );
+  const runEnd = trace.run.finishedAt !== null ? Date.parse(trace.run.finishedAt) : Math.max(runStart, ...ends);
+  // A run whose steps all landed in the same millisecond (every test
+  // fixture, and any all-transform workflow) would divide by zero.
+  const span = Math.max(runEnd - runStart, 1);
+
+  return trace.steps.map((s) => {
+    const start = Date.parse(s.startedAt);
+    const offsetPct = Math.min(Math.max(((start - runStart) / span) * 100, 0), 100);
+    const raw = ((s.durationMs ?? 0) / span) * 100;
+    return {
+      stepName: s.stepName,
+      status: s.status,
+      offsetPct,
+      // Clamped so a bar cannot run off the right edge, and floored at a
+      // sliver so a fast step is still findable.
+      widthPct: Math.min(Math.max(raw, 0.75), 100 - offsetPct),
+    };
+  });
+}
+
+/**
+ * The DAG's edges, inferred from execution order.
+ *
+ * The trace deliberately does NOT re-read the workflow definition to draw
+ * this: the definition may have been edited or deleted since the run, and
+ * a graph drawn from today's steps over yesterday's run would be a
+ * confident lie. Execution order is what actually happened.
+ *
+ * Steps that started at the same instant ran CONCURRENTLY (the executor
+ * dispatches a batch with `Promise.all`), so they share a rank rather
+ * than chaining.
+ */
+export function dagRanks(steps: TraceStep[]): TraceStep[][] {
+  const byStart = new Map<number, TraceStep[]>();
+  for (const step of steps) {
+    const t = Date.parse(step.startedAt);
+    byStart.set(t, [...(byStart.get(t) ?? []), step]);
+  }
+  return [...byStart.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([, group]) => group);
+}

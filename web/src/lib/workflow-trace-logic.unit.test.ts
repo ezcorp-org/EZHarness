@@ -1,0 +1,303 @@
+/**
+ * Display logic for the run trace.
+ *
+ * The theme of this file is the NULL/zero distinction. Every telemetry
+ * column is nullable and NULL means "not measured" — a provider that
+ * omitted usage, a step that ran no LLM, a cost nothing can compute yet.
+ * A formatter that rendered those as `0` would turn a gap into a
+ * measurement with no way for the reader to tell, so each one is asserted
+ * against BOTH null and a genuine zero.
+ */
+import { test, expect, describe } from "vitest";
+import {
+	canRetryFrom,
+	dagRanks,
+	formatCost,
+	formatDuration,
+	formatTokens,
+	isLiveRun,
+	isTruncated,
+	NOT_REPORTED,
+	payloadView,
+	statusLabel,
+	timelineBars,
+	type RunTrace,
+	type TraceStep,
+} from "./workflow-trace-logic";
+
+function step(over: Partial<TraceStep> = {}): TraceStep {
+	return {
+		stepName: "draft",
+		status: "success",
+		runId: null,
+		provider: null,
+		model: null,
+		attempt: null,
+		iterations: null,
+		inputTokens: null,
+		outputTokens: null,
+		costUsd: null,
+		durationMs: null,
+		errorCode: null,
+		skippedReason: null,
+		resolvedInput: null,
+		output: null,
+		startedAt: "2026-07-01T00:00:00.000Z",
+		updatedAt: "2026-07-01T00:00:00.000Z",
+		iterationRows: [],
+		...over,
+	};
+}
+
+function trace(over: Partial<RunTrace> = {}): RunTrace {
+	return {
+		run: {
+			id: "r1",
+			workflowName: "nightly",
+			status: "success",
+			projectId: null,
+			userId: "u1",
+			startedAt: "2026-07-01T00:00:00.000Z",
+			finishedAt: "2026-07-01T00:00:10.000Z",
+			suspendedReason: null,
+			resumable: false,
+			jobRef: null,
+			definitionHash: null,
+			definitionVersionId: null,
+			runPhase: "boundary",
+			idempotencyKey: null,
+			result: null,
+		},
+		steps: [],
+		totals: { inputTokens: null, outputTokens: null, durationMs: null, steps: 0 },
+		...over,
+	};
+}
+
+describe("formatTokens", () => {
+	test("renders a dash for NULL, and a real 0 for zero", () => {
+		// The whole point. "Not reported" and "reported zero" are different
+		// facts, and collapsing them loses the only signal that a provider
+		// went quiet.
+		expect(formatTokens(null)).toBe(NOT_REPORTED);
+		expect(formatTokens(0)).toBe("0");
+		expect(formatTokens(0)).not.toBe(NOT_REPORTED);
+	});
+
+	test("groups thousands so a big number stays readable", () => {
+		expect(formatTokens(1234567)).toBe("1,234,567");
+	});
+});
+
+describe("formatDuration", () => {
+	test("renders a dash for NULL, and 0ms for a genuine zero", () => {
+		expect(formatDuration(null)).toBe(NOT_REPORTED);
+		expect(formatDuration(0)).toBe("0ms");
+	});
+
+	test("stays in ms below a second", () => {
+		// A 40 ms transform reading "0.0s" would hide the difference
+		// between fast and instant.
+		expect(formatDuration(40)).toBe("40ms");
+		expect(formatDuration(999)).toBe("999ms");
+	});
+
+	test("switches to seconds, then to minutes", () => {
+		expect(formatDuration(1000)).toBe("1.0s");
+		expect(formatDuration(45_600)).toBe("45.6s");
+		expect(formatDuration(60_000)).toBe("1m 0s");
+		expect(formatDuration(125_000)).toBe("2m 5s");
+	});
+});
+
+describe("formatCost", () => {
+	test("renders a dash for NULL — which is every row today", () => {
+		// There is no price table, so nothing can compute a cost honestly.
+		// A "$0.0000" here would be a claim that the run was free.
+		expect(formatCost(null)).toBe(NOT_REPORTED);
+	});
+
+	test("formats a real numeric cost when one eventually exists", () => {
+		// NUMERIC arrives from the driver as a string, so this must not
+		// assume a number.
+		expect(formatCost("0.123456")).toBe("$0.1235");
+		expect(formatCost("0")).toBe("$0.0000");
+	});
+
+	test("falls back to the dash rather than rendering NaN", () => {
+		expect(formatCost("not-a-number")).toBe(NOT_REPORTED);
+	});
+});
+
+describe("statusLabel and isLiveRun", () => {
+	test("never shows a raw enum for a known status", () => {
+		expect(statusLabel("awaiting_approval")).toBe("Waiting for approval");
+		expect(statusLabel("suspended")).toBe("Paused");
+		expect(statusLabel("success")).toBe("Succeeded");
+	});
+
+	test("falls back to the raw value for an unknown status", () => {
+		// An older or newer server must render as ITSELF, not blank.
+		expect(statusLabel("teleported")).toBe("teleported");
+	});
+
+	test("a parked run counts as live, not as an ending", () => {
+		// The trace must not assume a run is terminal: `suspended` and
+		// `awaiting_approval` are both alive and answerable.
+		expect(isLiveRun("suspended")).toBe(true);
+		expect(isLiveRun("awaiting_approval")).toBe(true);
+		expect(isLiveRun("running")).toBe(true);
+		expect(isLiveRun("success")).toBe(false);
+		expect(isLiveRun("error")).toBe(false);
+		expect(isLiveRun("cancelled")).toBe(false);
+	});
+});
+
+describe("canRetryFrom", () => {
+	test("offered only on a suspended AND resumable run", () => {
+		const failing = step({ status: "error" });
+		expect(canRetryFrom({ status: "suspended", resumable: true }, failing)).toBe(true);
+		// Parked but the sweep judged it unsafe to continue.
+		expect(canRetryFrom({ status: "suspended", resumable: false }, failing)).toBe(false);
+		// Already being driven — retrying would execute a batch twice.
+		expect(canRetryFrom({ status: "running", resumable: true }, failing)).toBe(false);
+		// Terminal: no cursor to resume from.
+		for (const status of ["success", "error", "cancelled"]) {
+			expect(canRetryFrom({ status, resumable: true }, failing)).toBe(false);
+		}
+	});
+
+	test("never offered on a step that already succeeded", () => {
+		// A resume serves a completed step from its persisted output rather
+		// than re-running it, so the button would be a lie.
+		expect(
+			canRetryFrom({ status: "suspended", resumable: true }, step({ status: "success" })),
+		).toBe(false);
+		expect(
+			canRetryFrom({ status: "suspended", resumable: true }, step({ status: "awaiting_approval" })),
+		).toBe(true);
+	});
+});
+
+describe("payloadView", () => {
+	test("absent for null and undefined", () => {
+		expect(payloadView(null)).toEqual({ kind: "absent" });
+		expect(payloadView(undefined)).toEqual({ kind: "absent" });
+	});
+
+	test("recognizes the truncation sentinel and carries its size", () => {
+		expect(payloadView({ __truncated: true, bytes: 70011 })).toEqual({
+			kind: "truncated",
+			bytes: 70011,
+		});
+	});
+
+	test("a payload that MENTIONS truncation is still a payload", () => {
+		// The tagged union exists so this cannot be confused with the
+		// sentinel — a step whose output discusses truncation must render
+		// as content, not as a "too large" notice.
+		const view = payloadView({ note: "__truncated was mentioned here" });
+		expect(view.kind).toBe("json");
+		expect((view as { text: string }).text).toContain("__truncated was mentioned");
+	});
+
+	test("pretty-prints real content", () => {
+		const view = payloadView({ token: "[REDACTED]", repo: "ezcorp/harness" });
+		expect(view.kind).toBe("json");
+		expect((view as { text: string }).text).toContain('"token": "[REDACTED]"');
+		// Indented, because an operator reads this by eye.
+		expect((view as { text: string }).text).toContain("\n");
+	});
+
+	test("isTruncated rejects everything that is not the sentinel", () => {
+		expect(isTruncated({ __truncated: true, bytes: 1 })).toBe(true);
+		expect(isTruncated({ __truncated: false, bytes: 1 })).toBe(false);
+		expect(isTruncated(null)).toBe(false);
+		expect(isTruncated("__truncated")).toBe(false);
+		expect(isTruncated({ success: true })).toBe(false);
+	});
+});
+
+describe("timelineBars", () => {
+	test("places each step by offset and width against the run's span", () => {
+		const t = trace({
+			steps: [
+				step({ stepName: "a", startedAt: "2026-07-01T00:00:00.000Z", durationMs: 2000 }),
+				step({ stepName: "b", startedAt: "2026-07-01T00:00:05.000Z", durationMs: 5000 }),
+			],
+		});
+		const bars = timelineBars(t);
+		expect(bars[0]!.offsetPct).toBe(0);
+		expect(bars[0]!.widthPct).toBeCloseTo(20, 1);
+		expect(bars[1]!.offsetPct).toBeCloseTo(50, 1);
+		expect(bars[1]!.widthPct).toBeCloseTo(50, 1);
+	});
+
+	test("an unmeasured step still gets a visible sliver", () => {
+		// Floored rather than zero-width, so a step with no duration is not
+		// silently absent from the timeline.
+		const t = trace({
+			steps: [step({ stepName: "a", durationMs: null })],
+		});
+		expect(timelineBars(t)[0]!.widthPct).toBeGreaterThan(0);
+	});
+
+	test("a run whose steps all landed in one millisecond does not divide by zero", () => {
+		// Every test fixture, and any all-transform workflow.
+		const t = trace({
+			run: { ...trace().run, startedAt: "2026-07-01T00:00:00.000Z", finishedAt: "2026-07-01T00:00:00.000Z" },
+			steps: [step({ stepName: "a", durationMs: 0 }), step({ stepName: "b", durationMs: 0 })],
+		});
+		const bars = timelineBars(t);
+		expect(bars).toHaveLength(2);
+		for (const bar of bars) {
+			expect(Number.isFinite(bar.offsetPct)).toBe(true);
+			expect(Number.isFinite(bar.widthPct)).toBe(true);
+		}
+	});
+
+	test("a bar never runs off the right edge", () => {
+		const t = trace({
+			steps: [step({ stepName: "a", startedAt: "2026-07-01T00:00:09.000Z", durationMs: 999_999 })],
+		});
+		const bar = timelineBars(t)[0]!;
+		expect(bar.offsetPct + bar.widthPct).toBeLessThanOrEqual(100.001);
+	});
+
+	test("an unfinished run is spanned by its last step, not by NaN", () => {
+		// A running/parked run has no `finishedAt`; parsing null would give
+		// NaN and every bar would vanish.
+		const t = trace({
+			run: { ...trace().run, status: "running", finishedAt: null },
+			steps: [step({ stepName: "a", startedAt: "2026-07-01T00:00:00.000Z", durationMs: 4000 })],
+		});
+		const bar = timelineBars(t)[0]!;
+		expect(Number.isFinite(bar.widthPct)).toBe(true);
+		expect(bar.widthPct).toBeGreaterThan(0);
+	});
+});
+
+describe("dagRanks", () => {
+	test("steps that started at the same instant share a rank", () => {
+		// The executor dispatches a batch with `Promise.all`, so same-instant
+		// steps ran concurrently and must not be drawn as a chain.
+		const ranks = dagRanks([
+			step({ stepName: "a", startedAt: "2026-07-01T00:00:00.000Z" }),
+			step({ stepName: "b", startedAt: "2026-07-01T00:00:01.000Z" }),
+			step({ stepName: "c", startedAt: "2026-07-01T00:00:01.000Z" }),
+		]);
+		expect(ranks.map((r) => r.map((s) => s.stepName))).toEqual([["a"], ["b", "c"]]);
+	});
+
+	test("ranks are ordered oldest first regardless of input order", () => {
+		const ranks = dagRanks([
+			step({ stepName: "late", startedAt: "2026-07-01T00:00:09.000Z" }),
+			step({ stepName: "early", startedAt: "2026-07-01T00:00:00.000Z" }),
+		]);
+		expect(ranks.map((r) => r[0]!.stepName)).toEqual(["early", "late"]);
+	});
+
+	test("an empty run has no ranks", () => {
+		expect(dagRanks([])).toEqual([]);
+	});
+});

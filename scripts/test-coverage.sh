@@ -286,6 +286,7 @@ run_legs() {
       src/lib/components/__tests__/CapabilitiesPanel.component.test.ts \
       src/lib/ezcorp-config-edit.unit.test.ts \
       src/lib/workflow-run-display.unit.test.ts \
+      src/lib/workflow-trace-logic.unit.test.ts \
       src/lib/components/__tests__/AuthorCompositionPanel.component.test.ts \
       src/lib/components/__tests__/UsesList.component.test.ts \
       "src/routes/(app)/extensions/author/__tests__/page.component.test.ts" \
@@ -428,6 +429,7 @@ run_legs() {
       --coverage.include='src/lib/ezcorp-config-edit.ts' \
       --coverage.include='src/lib/dependency-picker.ts' \
       --coverage.include='src/lib/workflow-run-display.ts' \
+      --coverage.include='src/lib/workflow-trace-logic.ts' \
       --coverage.include='src/lib/components/extensions/AuthorCompositionPanel.svelte' \
       --coverage.include='src/lib/components/extensions/UsesList.svelte' \
       --coverage.include='src/routes/api/users/+server.ts' \

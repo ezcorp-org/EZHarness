@@ -232,5 +232,9 @@
   ],
   "web/e2e/workflows-fork.spec.ts": [
     "web/src/routes/(app)/workflows/[name]/+page.svelte"
+  ],
+  "web/e2e/workflows-run-trace.spec.ts": [
+    "web/src/routes/(app)/workflows/runs/[id]/+page.svelte",
+    "web/src/lib/workflow-trace-logic.ts"
   ]
 }
