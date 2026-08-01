@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { goto } from "$app/navigation";
 	import { requireAdmin } from "$lib/admin-guard.js";
-	import { SETTINGS_DEFAULT_ROUTE } from "$lib/settings-nav.js";
+	import { settingsDefaultRoute } from "$lib/settings-nav.js";
 	import SkeletonLoader from "$lib/components/SkeletonLoader.svelte";
 	import AuditLogSection from "$lib/components/settings/AuditLogSection.svelte";
 
@@ -11,7 +11,7 @@
 		(async () => {
 			const user = await requireAdmin();
 			if (!user) {
-				goto(SETTINGS_DEFAULT_ROUTE, { replaceState: true });
+				goto(settingsDefaultRoute(false), { replaceState: true });
 				return;
 			}
 			pageLoading = false;

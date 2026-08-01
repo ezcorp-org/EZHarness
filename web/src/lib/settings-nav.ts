@@ -32,7 +32,12 @@ export const SETTINGS_NAV: SettingsNavItem[] = [
 		id: "models",
 		label: "Models & Providers",
 		href: "/settings/models",
-		adminOnly: false,
+		// Every control on this page is instance-wide config whose read AND
+		// write endpoints require the admin role (`GET /api/settings`,
+		// `PUT /api/settings/:key`). Listing it for members showed them a page
+		// rendered entirely from DEFAULTS — "exploration off, ladder
+		// unconfigured" regardless of the truth — whose saves then failed.
+		adminOnly: true,
 		anchors: ["providers", "tier", "order", "custom-models"],
 	},
 	{
@@ -118,12 +123,25 @@ export const SETTINGS_NAV: SettingsNavItem[] = [
 	},
 ];
 
-/** Default landing page for `/settings` and for unknown / disallowed anchors. */
-export const SETTINGS_DEFAULT_ROUTE = "/settings/models";
-
 /** Nav items visible to a user (admin entries filtered for non-admins). */
 export function visibleNavItems(isAdmin: boolean): SettingsNavItem[] {
 	return SETTINGS_NAV.filter((item) => !item.adminOnly || isAdmin);
+}
+
+/**
+ * Landing page for `/settings`, and the redirect target for a disallowed
+ * anchor or an admin-only page a non-admin reached directly.
+ *
+ * DERIVED from the nav rather than hardcoded, because it must be a route the
+ * user can actually open: this used to be the constant `/settings/models`,
+ * which became a redirect LOOP the moment that page turned admin-only (a
+ * member bounced off it straight back onto it). Taking the first visible item
+ * means re-flagging or reordering a page can never reintroduce that.
+ */
+export function settingsDefaultRoute(isAdmin: boolean): string {
+	// SETTINGS_NAV is a non-empty literal with member-visible entries, so this
+	// fallback is unreachable; it exists so the signature stays total.
+	return visibleNavItems(isAdmin)[0]?.href ?? "/settings/personalization";
 }
 
 /**
@@ -135,18 +153,19 @@ export function visibleNavItems(isAdmin: boolean): SettingsNavItem[] {
  * - Unknown / empty hash → default route.
  */
 export function resolveLegacyHash(hash: string, isAdmin: boolean): string {
+	const fallback = settingsDefaultRoute(isAdmin);
 	const anchor = hash.replace(/^#/, "").trim();
-	if (!anchor) return SETTINGS_DEFAULT_ROUTE;
+	if (!anchor) return fallback;
 	for (const item of SETTINGS_NAV) {
 		const allowed = !item.adminOnly || isAdmin;
 		if (item.anchors.includes(anchor)) {
-			return allowed ? `${item.href}#${anchor}` : SETTINGS_DEFAULT_ROUTE;
+			return allowed ? `${item.href}#${anchor}` : fallback;
 		}
 		if (item.bareAnchors?.includes(anchor)) {
-			return allowed ? item.href : SETTINGS_DEFAULT_ROUTE;
+			return allowed ? item.href : fallback;
 		}
 	}
-	return SETTINGS_DEFAULT_ROUTE;
+	return fallback;
 }
 
 /**
