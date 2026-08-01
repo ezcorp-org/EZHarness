@@ -30,6 +30,7 @@ import {
 	LOCAL_TIME_UNAVAILABLE,
 	MOLD_FALLBACK_REASON,
 	NOT_REPORTED,
+	POLLEN_FALLBACK_REASON,
 	POLLEN_GRAIN_KEYS,
 	resolveUnit,
 	type CityConditionsOkView,
@@ -257,6 +258,15 @@ describe("buildPollenView — null grain vs measured zero", () => {
 			expect(view.grains.every((g) => g.text === NOT_REPORTED)).toBe(true);
 			expect(view.totalReported).toBe(false);
 			expect(view.bandId).toBe("unknown");
+		}
+	});
+
+	test("available:false with no reason still explains pollen unavailability", () => {
+		for (const raw of [{ available: false }, { available: false, reason: "  " }, undefined]) {
+			const view = buildPollenView(raw);
+			expect(view.available).toBe(false);
+			expect(view.reason).toBe(POLLEN_FALLBACK_REASON);
+			expect(view.reason.length).toBeGreaterThan(0);
 		}
 	});
 

@@ -146,6 +146,8 @@ export const ATLANTA_ALLERGY_SOURCE: AllergenSource = {
 
 const OPEN_METEO_COVERAGE_REASON =
   "Open-Meteo pollen is available only in Europe during pollen season; it reported no value for this location and time.";
+const ATLANTA_STATION_PERMISSION_REASON =
+  "Website access to www.atlantaallergy.com is not approved. Approve the city-conditions extension's Website access permission, then retry.";
 const NO_LOCAL_MOLD_REASON =
   "No reporting-station mold source is configured for this location; forecast APIs do not provide a measured mold-spore count.";
 const STATION_BAND_ONLY_REASON =
@@ -599,6 +601,15 @@ export async function fetchOpenMeteoAirQuality(
  * is used directly. Any allergen outage degrades only these fields; it never
  * erases an otherwise valid weather card.
  */
+function describeAtlantaStationFailure(error: unknown): string {
+  const detail = error instanceof Error ? error.message : String(error);
+  const lower = detail.toLowerCase();
+  if (lower.includes("www.atlantaallergy.com") && lower.includes("allowlist")) {
+    return `${ATLANTA_STATION_PERMISSION_REASON} Original error: ${detail}`;
+  }
+  return detail;
+}
+
 export async function fetchAirQuality(
   latitude: number,
   longitude: number,
@@ -607,7 +618,7 @@ export async function fetchAirQuality(
     try {
       return await fetchAtlantaStation();
     } catch (stationError) {
-      const stationReason = stationError instanceof Error ? stationError.message : String(stationError);
+      const stationReason = describeAtlantaStationFailure(stationError);
       try {
         const fallback = await fetchOpenMeteoAirQuality(latitude, longitude);
         if (!fallback.pollen.available) {

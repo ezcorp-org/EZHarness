@@ -77,9 +77,25 @@ type CoreResult =
 let coreResult: CoreResult;
 const reapproveBundledDrift = vi.fn(async () => coreResult);
 
+// Read-only preview backing the GET route. Same collaborator module, so it is
+// stubbed alongside the heal rather than in a second vi.mock.
+type PreviewResult =
+	| {
+			ok: true;
+			manifest: { version: string };
+			grant: Record<string, unknown>;
+			diffs: unknown[];
+			ceilingClamped: boolean;
+	  }
+	| { ok: false; code: string; message: string };
+let previewResult: PreviewResult;
+const previewBundledDrift = vi.fn(async () => previewResult);
+
 vi.mock("$server/extensions/bundled-drift-reapprove", () => ({
 	reapproveBundledDrift: (...args: unknown[]) =>
 		(reapproveBundledDrift as unknown as (...a: unknown[]) => unknown)(...args),
+	previewBundledDrift: (...args: unknown[]) =>
+		(previewBundledDrift as unknown as (...a: unknown[]) => unknown)(...args),
 }));
 
 // ── Registry reload spy ─────────────────────────────────────────────
@@ -91,7 +107,7 @@ vi.mock("$server/extensions/registry", () => ({
 }));
 
 // ── Import handler AFTER mocks ──────────────────────────────────────
-const { POST } = await import(
+const { GET, POST } = await import(
 	"../routes/api/extensions/[id]/reapprove-drift/+server"
 );
 
@@ -132,6 +148,7 @@ async function expectThrownOrResponse(
 
 beforeEach(() => {
 	reapproveBundledDrift.mockClear();
+	previewBundledDrift.mockClear();
 	reload.mockClear();
 	extensionRow = {
 		id: "ext-1",
@@ -147,6 +164,15 @@ beforeEach(() => {
 		diffs: [
 			{ field: "network", oldValue: ["api.tavily.com"], newValue: ["api.tavily.com", "searxng"] },
 		],
+	};
+	previewResult = {
+		ok: true,
+		manifest: { version: "1.0.0" },
+		grant: { network: ["api.tavily.com", "searxng"], grantedAt: { network: 2 } },
+		diffs: [
+			{ field: "network", oldValue: ["api.tavily.com"], newValue: ["api.tavily.com", "searxng"] },
+		],
+		ceilingClamped: false,
 	};
 });
 
@@ -228,6 +254,111 @@ describe("POST /api/extensions/[id]/reapprove-drift", () => {
 	test("core not-bundled (defensive re-check) → 400", async () => {
 		coreResult = { ok: false, code: "not-bundled", message: "'web-search' is not a bundled extension" };
 		const res = await expectThrownOrResponse(() => POST(makeEvent() as never));
+		expect(res.status).toBe(400);
+	});
+});
+
+/**
+ * GET is the read-only half: it projects the CURRENT on-disk, ceiling-clamped
+ * grant so an admin can see a newly requested host before consenting. Same
+ * auth gate and error mapping as POST, but it must never mutate — no core heal
+ * and no registry reload.
+ */
+describe("GET /api/extensions/[id]/reapprove-drift", () => {
+	test("admin + bundled → 200 with { version, permissions, diffs, ceilingClamped }; nothing mutated", async () => {
+		const res = await expectThrownOrResponse(() => GET(makeEvent() as never));
+		expect(res.status).toBe(200);
+
+		const body = (await res.json()) as {
+			version: string;
+			permissions: { network: string[] };
+			diffs: unknown[];
+			ceilingClamped: boolean;
+		};
+		expect(body.version).toBe("1.0.0");
+		expect(body.permissions.network).toContain("searxng");
+		expect(body.diffs).toHaveLength(1);
+		expect(body.ceilingClamped).toBe(false);
+
+		expect(previewBundledDrift).toHaveBeenCalledTimes(1);
+		expect(previewBundledDrift).toHaveBeenCalledWith(extensionRow);
+		expect(reapproveBundledDrift).not.toHaveBeenCalled();
+		expect(reload).not.toHaveBeenCalled();
+	});
+
+	test("ceilingClamped is surfaced when the disk manifest exceeds the bundled ceiling", async () => {
+		previewResult = {
+			ok: true,
+			manifest: { version: "1.0.0" },
+			grant: { network: ["api.tavily.com"] },
+			diffs: [],
+			ceilingClamped: true,
+		};
+		const res = await expectThrownOrResponse(() => GET(makeEvent() as never));
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as { ceilingClamped: boolean };
+		expect(body.ceilingClamped).toBe(true);
+	});
+
+	test("member (non-admin) → 403; preview never called", async () => {
+		const res = await expectThrownOrResponse(() => GET(makeEvent("member") as never));
+		expect(res.status).toBe(403);
+		expect(previewBundledDrift).not.toHaveBeenCalled();
+	});
+
+	test("API key without the extensions scope → 403; preview never called", async () => {
+		const res = await expectThrownOrResponse(() =>
+			GET(makeEvent("admin", { apiKeyScopes: ["chat"] }) as never),
+		);
+		expect(res.status).toBe(403);
+		expect(previewBundledDrift).not.toHaveBeenCalled();
+	});
+
+	test("unknown extension id → 404", async () => {
+		extensionRow = null;
+		const res = await expectThrownOrResponse(() => GET(makeEvent() as never));
+		expect(res.status).toBe(404);
+		expect(previewBundledDrift).not.toHaveBeenCalled();
+	});
+
+	test("non-bundled extension → 400; preview never called", async () => {
+		extensionRow = { ...extensionRow!, name: "user-installed-thing" };
+		const res = await expectThrownOrResponse(() => GET(makeEvent() as never));
+		expect(res.status).toBe(400);
+		const body = (await res.json()) as { error: string };
+		expect(body.error).toMatch(/bundled/i);
+		expect(previewBundledDrift).not.toHaveBeenCalled();
+	});
+
+	test("preview lockfile-mismatch → 409", async () => {
+		previewResult = {
+			ok: false,
+			code: "lockfile-mismatch",
+			message: "On-disk manifest fails the manifest.lock.json check (tool-list drift)",
+		};
+		const res = await expectThrownOrResponse(() => GET(makeEvent() as never));
+		expect(res.status).toBe(409);
+		const body = (await res.json()) as { error: string };
+		expect(body.error).toMatch(/manifest\.lock\.json/);
+	});
+
+	test("preview manifest-unreadable → 500", async () => {
+		previewResult = {
+			ok: false,
+			code: "manifest-unreadable",
+			message: "Could not load on-disk manifest",
+		};
+		const res = await expectThrownOrResponse(() => GET(makeEvent() as never));
+		expect(res.status).toBe(500);
+	});
+
+	test("preview not-bundled (defensive re-check) → 400", async () => {
+		previewResult = {
+			ok: false,
+			code: "not-bundled",
+			message: "'web-search' is not a bundled extension",
+		};
+		const res = await expectThrownOrResponse(() => GET(makeEvent() as never));
 		expect(res.status).toBe(400);
 	});
 });

@@ -18,6 +18,16 @@ one-time extension re-approval after upgrading because v0.2 adds the narrowly
 scoped `www.atlantaallergy.com` network permission; the bundled update gate will
 otherwise keep the extension disabled, as designed.
 
+Deployment checklist:
+
+- No `*_API_KEY`, token, secret, or per-user setting is needed.
+- Ensure the install grant and bundled ceiling both include
+  `www.atlantaallergy.com` alongside the three Open-Meteo hosts.
+- Re-approve existing bundled installs after the v0.2 permission change; the
+  extension detail page shows the current Website access list (including
+  `www.atlantaallergy.com`) and provides the approval action. Fresh installs
+  receive the clamped grant automatically.
+
 ## Provider strategy
 
 | Data | Source | Coverage / freshness | Credential | Notes |

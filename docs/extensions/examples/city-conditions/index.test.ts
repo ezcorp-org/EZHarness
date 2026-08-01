@@ -428,6 +428,32 @@ describe("allergen providers", () => {
     );
   });
 
+  test("a partial Atlanta station report keeps pollen and explains missing mold", () => {
+    const air = parseAtlantaStationReport(`
+      <h3>Total Pollen Count for 07/30/2026:
+        <span class="pollen-num"> 12 </span>
+      </h3>
+      <h3>Trees (Top Contributors)</h3><p>OAK&nbsp;</p>
+      <div><span class="low">L=0-14</span><span class="medium active">M=15-89</span></div>
+    `);
+    expect(air.pollen).toMatchObject({
+      available: true,
+      total: 12,
+      unit: "grains/m³",
+      band: "moderate",
+      observedAt: "2026-07-30",
+      source: { id: "atlanta-allergy" },
+    });
+    expect(air.mold).toMatchObject({
+      available: false,
+      count: null,
+      band: null,
+      observedAt: null,
+      source: { id: "atlanta-allergy" },
+    });
+    expect(air.mold.reason).toContain("did not publish a mold activity band");
+  });
+
   test("Atlanta station failure falls back to Open-Meteo and preserves the reason", async () => {
     route({ station: () => html("down", 503) });
     const air = await fetchAirQuality(33.749, -84.388);
@@ -435,6 +461,38 @@ describe("allergen providers", () => {
     expect(air.pollen.source?.id).toBe("open-meteo");
     expect(air.mold.reason).toContain("Atlanta station unavailable");
     expect(air.mold.reason).toContain("HTTP 503");
+  });
+
+  test("Atlanta station failure plus all-null Open-Meteo stays unavailable with both reasons", async () => {
+    route({
+      station: () => html("down", 503),
+      air: () => json({ current: { time: "2026-07-30T10:00" } }),
+    });
+    const air = await fetchAirQuality(33.749, -84.388);
+    expect(air.pollen.available).toBe(false);
+    expect(air.pollen.source?.id).toBe("open-meteo");
+    expect(air.pollen.reason).toContain("Atlanta station unavailable");
+    expect(air.pollen.reason).toContain("HTTP 503");
+    expect(air.pollen.reason).toContain("only in Europe during pollen season");
+    expect(air.mold.available).toBe(false);
+    expect(air.mold.reason).toContain("Atlanta station unavailable");
+  });
+
+  test("an Atlanta allowlist failure tells the user to approve Website access", async () => {
+    route({
+      station: () => {
+        throw new Error(
+          "Extension sandbox: hostname 'www.atlantaallergy.com' is not in the granted network allowlist",
+        );
+      },
+      air: () => json({ current: { time: "2026-07-30T10:00" } }),
+    });
+    const air = await fetchAirQuality(33.749, -84.388);
+    expect(air.pollen.available).toBe(false);
+    expect(air.pollen.reason).toContain("Website access to www.atlantaallergy.com is not approved");
+    expect(air.pollen.reason).toContain("city-conditions extension's Website access permission");
+    expect(air.pollen.reason).toContain("only in Europe during pollen season");
+    expect(air.mold.reason).toContain("Website access to www.atlantaallergy.com is not approved");
   });
 
   test("dual provider failure returns explicit unavailable fields instead of rejecting", async () => {
