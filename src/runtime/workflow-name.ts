@@ -39,3 +39,42 @@ export function namespacedWorkflowName(
 export function isValidWorkflowName(name: unknown): name is string {
   return typeof name === "string" && WORKFLOW_NAME_RE.test(name);
 }
+
+/**
+ * True when `name` is a well-formed name a workflow can be RESOLVED by in
+ * the merged cache — a bare host name, or one namespaced
+ * `<extension>:<declared>`.
+ *
+ * The looser twin of {@link isValidWorkflowName}, and the two are not
+ * interchangeable. That one guards what an extension may DECLARE, where the
+ * separator must be illegal or an extension could forge another's
+ * namespace. This one guards what a caller may LOOK UP, where a namespaced
+ * name is exactly the legitimate case.
+ *
+ * Both halves are checked against the same {@link WORKFLOW_NAME_RE}, which
+ * excludes the separator — so a name carrying two of them is rejected here
+ * rather than silently resolving against a re-split that means something
+ * else.
+ *
+ * ## Why C7 needs this as a PREDICATE and not a convention
+ *
+ * A `kind: "workflow"` step's target is a literal name, never a ref. The
+ * grammar is what enforces it: `$input.child`, `$steps.pick.output.name`
+ * and `{{ … }}` all fail the leading `[a-zA-Z0-9]`, so "static" becomes a
+ * definition-time error with a message instead of a run-time lookup miss.
+ *
+ * That matters beyond tidiness. The nesting cycle check and the depth-3 cap
+ * are DEFINITION-time checks, and neither is computable against a name that
+ * is not known until the run — a cycle would then be discovered only by
+ * hitting the cap, after real nested runs had already applied side effects.
+ * The same staticness is what lets C3 hash the transitive closure of a
+ * graph at consent time: a runtime-resolved target would mean a human
+ * consenting to a graph that decides later what it calls.
+ */
+export function isResolvableWorkflowName(name: unknown): name is string {
+  if (typeof name !== "string") return false;
+  const parts = name.split(EXTENSION_WORKFLOW_SEPARATOR);
+  if (parts.length === 1) return isValidWorkflowName(parts[0]);
+  if (parts.length !== 2) return false;
+  return isValidWorkflowName(parts[0]) && isValidWorkflowName(parts[1]);
+}

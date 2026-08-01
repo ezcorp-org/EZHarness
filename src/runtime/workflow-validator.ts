@@ -13,6 +13,7 @@ import {
   MAX_WORKFLOW_NESTING_DEPTH,
   type WorkflowResolver,
 } from "./workflow-closure";
+import { isResolvableWorkflowName } from "./workflow-name";
 import { getWorkflowRuntime } from "./workflow/runtime-registry";
 
 /** Server-side clamp bounds. Loop budgets are clamped (not rejected) for
@@ -347,6 +348,36 @@ export function validateWorkflow(
     if (kind === "workflow" && (step.agent || step.tool)) {
       errors.push(
         `Step "${name}" (kind "workflow") cannot also specify an "agent" or "tool"`,
+      );
+    }
+    // ── The nested target is a LITERAL name, never a ref ──
+    //
+    // The ref language would happily resolve one — `resolveMapping` is
+    // right there, and this step already uses it for `input`. Refusing is
+    // the deliberate choice, and the three things it buys are all
+    // structural rather than stylistic:
+    //
+    //   • the cycle check and the depth cap below are DEFINITION-time
+    //     checks, and neither is computable against a name that is not
+    //     known until the run — a cycle would then be caught only by
+    //     hitting the cap, after real nested runs had applied side effects;
+    //   • the definition hash and version pinning claim "this is the graph
+    //     that ran", which is untrue if the graph can pick its own children;
+    //   • C3's delegated-execution consent hashes the TRANSITIVE CLOSURE of
+    //     nested workflows, so a human would otherwise be consenting to a
+    //     graph that decides later what it calls.
+    //
+    // Enforced by the shared name grammar rather than by a bespoke `$`
+    // check, so `$input.x`, `$steps.pick.output.name` and `{{ … }}` are all
+    // rejected by the same rule that already rejects whitespace and path
+    // characters — and the executor uses `step.workflow` VERBATIM as its
+    // lookup key (`runNestedWorkflow`), which is what makes this the only
+    // place the decision lives.
+    if (kind === "workflow" && step.workflow && !isResolvableWorkflowName(step.workflow)) {
+      errors.push(
+        `Step "${name}" (kind "workflow") "workflow" must be a literal workflow name ` +
+          `(optionally namespaced "<extension>:<name>"), not a ref or template — ` +
+          `the nested graph has to be knowable from the definition`,
       );
     }
 

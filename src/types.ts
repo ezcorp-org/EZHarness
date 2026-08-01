@@ -472,6 +472,16 @@ export interface WorkflowStep {
    * same merged cache the top-level run route uses, so an extension
    * workflow is addressed by its namespaced `<ext>:<name>`.
    *
+   * **A LITERAL name, never a ref.** `$input.child` and
+   * `$steps.pick.output.name` are rejected at definition time
+   * (`isResolvableWorkflowName`, enforced in `validateWorkflow`), and the
+   * executor uses this string verbatim as its lookup key. The ref language
+   * could resolve one — refusing is the choice, because the nesting cycle
+   * check and the depth cap are definition-time checks that a run-time name
+   * makes uncomputable, and because C3's delegated-execution consent hashes
+   * the transitive closure of nested workflows: a graph that picks its own
+   * children cannot be consented to.
+   *
    * The child is a first-class run: its own `workflow_runs` row, its own
    * cursor, its own `definition_hash`, and its own `parent_run_id`
    * pointing here. That independence is what lets a nested graph containing

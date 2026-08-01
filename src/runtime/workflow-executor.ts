@@ -1337,6 +1337,14 @@ export class WorkflowExecutor {
       iteration: number;
     },
   ): Promise<AgentResult> {
+    // VERBATIM — `step.workflow` is a literal name and is deliberately not
+    // run through `resolveMapping`. The ref language would resolve one, and
+    // that is exactly what is refused: the cycle check and the depth cap
+    // are definition-time checks a run-time name makes uncomputable, and
+    // C3 hashes the transitive closure of nested workflows at consent time.
+    // Rejected at definition time by `isResolvableWorkflowName` in
+    // `validateWorkflow`; a legacy row that predates that check simply
+    // fails the lookup below, naming the literal string it could not find.
     const name = step.workflow ?? "";
     const depth = opts.flow.depth + 1;
     // Enforced at RUN time as well as at definition time, because a chain

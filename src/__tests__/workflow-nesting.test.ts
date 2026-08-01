@@ -493,6 +493,62 @@ describe("validateWorkflow — nesting", () => {
     );
   });
 
+  test("the nested target is a LITERAL name — a ref is a definition-time error", () => {
+    // The decision this pins: the ref language COULD resolve
+    // `$input.child` (this step already uses `resolveMapping` for its
+    // `input`), and refusing is deliberate. A run-time target would make
+    // the cycle check and the depth cap below uncomputable — a cycle would
+    // be caught only by hitting the cap, after real nested runs had applied
+    // side effects — and it would make C3's consent hash meaningless, since
+    // the closure it hashes is the set of graphs the run can reach.
+    for (const target of [
+      "$input.childWorkflow",
+      "$steps.pick.output.name",
+      "{{ $input.child }}",
+      "$prev.output.name",
+    ]) {
+      const errors = validateWorkflow(
+        def("v", [{ name: "n", kind: "workflow", workflow: target }]),
+      );
+      expect(
+        errors.some((e) => e.includes("must be a literal workflow name")),
+        `expected "${target}" to be rejected`,
+      ).toBe(true);
+    }
+  });
+
+  test("a namespaced extension target is still accepted", () => {
+    // The rule must not overshoot: `<ext>:<name>` is the legitimate shape
+    // for nesting an extension-shipped workflow, and rejecting it would
+    // make composition useless across the one boundary it matters most.
+    expect(
+      validateWorkflow(
+        def("v", [{ name: "n", kind: "workflow", workflow: "ez-factory:draft-and-verify" }]),
+      ),
+    ).toEqual([]);
+  });
+
+  test("isResolvableWorkflowName accepts a lookup name and rejects a forgeable one", async () => {
+    const { isResolvableWorkflowName, isValidWorkflowName } = await import(
+      "../runtime/workflow-name"
+    );
+    expect(isResolvableWorkflowName("draft-and-verify")).toBe(true);
+    expect(isResolvableWorkflowName("ez-factory:draft-and-verify")).toBe(true);
+    // Two separators would resolve against a re-split that means something
+    // else, so it is rejected rather than silently accepted.
+    expect(isResolvableWorkflowName("a:b:c")).toBe(false);
+    expect(isResolvableWorkflowName(":leading")).toBe(false);
+    expect(isResolvableWorkflowName("trailing:")).toBe(false);
+    expect(isResolvableWorkflowName("$input.x")).toBe(false);
+    expect(isResolvableWorkflowName("has space")).toBe(false);
+    expect(isResolvableWorkflowName("../escape")).toBe(false);
+    expect(isResolvableWorkflowName(undefined)).toBe(false);
+    // The DECLARE-side predicate stays strictly narrower: an extension may
+    // not declare a name carrying the separator, or it could forge another
+    // extension's namespace. The two are not interchangeable.
+    expect(isValidWorkflowName("ez-factory:draft-and-verify")).toBe(false);
+  });
+
   test("a workflow nesting itself is a definition-time cycle, named", () => {
     const self = def("selfie", [{ name: "n", kind: "workflow", workflow: "selfie" }]);
     // No resolver: self-reference is the one cycle that is ALWAYS statically
