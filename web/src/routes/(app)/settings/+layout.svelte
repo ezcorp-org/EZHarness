@@ -39,29 +39,49 @@
 	}
 </script>
 
-<div class="mx-auto max-w-5xl">
-	<h1 class="mb-4 text-2xl font-bold text-[var(--color-text-primary)]">Settings</h1>
-	<div class="md:flex md:items-start md:gap-8">
-		<div class="mb-4 md:mb-0 md:w-48 md:shrink-0">
-			<label for="settings-nav-search" class="sr-only">Search settings</label>
-			<input
-				id="settings-nav-search"
-				type="search"
-				bind:value={navQuery}
-				onkeydown={onSearchKeydown}
-				placeholder="Search settings..."
-				data-testid="settings-nav-search"
-				autocomplete="off"
-				aria-controls="settings-nav-list"
-				class="mb-2 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:border-[var(--color-accent)] focus:outline-none"
-			/>
-			<nav
-				id="settings-nav-list"
-				aria-label="Settings sections"
-				data-testid="settings-nav"
-				class="-mx-1 flex gap-1 overflow-x-auto px-1 pb-2 md:mx-0 md:flex-col md:overflow-visible md:px-0 md:pb-0"
-			>
-				{#each navItems as item}
+<!--
+  Desktop (`md+`) is a two-column GRID rather than a flex row so the nav can
+  span both rows and therefore START at the container's top edge — level with
+  the "Settings" heading, which sits in the content column's first row. That
+  alignment is what makes the sticky column exact: its natural top and its
+  pinned top are both the shell's 24px `p-6` gutter, so it never hangs below
+  the fold at scroll 0 (a flex row would start it one heading lower and
+  overflow by exactly that much on a short viewport).
+
+  Sticky is relative to the app shell's scroll container
+  (`<main class="overflow-y-auto">` in the (app) layout), so the nav stays put
+  while the settings content scrolls past. `top-6` / `calc(100dvh-3rem)` mirror
+  that same gutter, keeping 24px of breathing room above and below when pinned.
+  `self-start` is required — a stretched grid item has no room to slide.
+
+  Below `md` the grid is off and everything is plain block flow: heading, then
+  the nav as a horizontal scroller, then the content. Unchanged.
+-->
+<div class="mx-auto max-w-5xl md:grid md:grid-cols-[12rem_minmax(0,1fr)] md:gap-x-8">
+	<h1 class="mb-4 text-2xl font-bold text-[var(--color-text-primary)] md:col-start-2 md:row-start-1">Settings</h1>
+	<div
+		data-testid="settings-nav-column"
+		class="mb-4 md:sticky md:top-6 md:col-start-1 md:row-span-2 md:row-start-1 md:mb-0 md:flex md:max-h-[calc(100dvh-3rem)] md:flex-col md:self-start"
+	>
+		<label for="settings-nav-search" class="sr-only">Search settings</label>
+		<input
+			id="settings-nav-search"
+			type="search"
+			bind:value={navQuery}
+			onkeydown={onSearchKeydown}
+			placeholder="Search settings..."
+			data-testid="settings-nav-search"
+			autocomplete="off"
+			aria-controls="settings-nav-list"
+			class="mb-2 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:border-[var(--color-accent)] focus:outline-none md:shrink-0"
+		/>
+		<nav
+			id="settings-nav-list"
+			aria-label="Settings sections"
+			data-testid="settings-nav"
+			class="-mx-1 flex gap-1 overflow-x-auto px-1 pb-2 md:mx-0 md:min-h-0 md:flex-col md:overflow-y-auto md:px-0 md:pb-0"
+		>
+			{#each navItems as item}
 				<a
 					href={item.href}
 					aria-current={activeId === item.id ? "page" : undefined}
@@ -70,18 +90,17 @@
 						? 'bg-[var(--color-surface-tertiary)] font-medium text-[var(--color-text-primary)]'
 						: 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)] hover:text-[var(--color-text-primary)]'}"
 				>
-						{item.label}
-						{#if item.adminOnly}
-							<span class="rounded bg-[var(--color-surface-tertiary)] px-1.5 py-0.5 text-[10px] text-[var(--color-text-secondary)]">admin</span>
-						{/if}
-					</a>
-				{:else}
-					<p class="px-3 py-2 text-sm text-[var(--color-text-muted)]" data-testid="settings-nav-empty">No matching settings.</p>
-				{/each}
-			</nav>
-		</div>
-		<div class="min-w-0 flex-1 space-y-6">
-			{@render children()}
-		</div>
+					{item.label}
+					{#if item.adminOnly}
+						<span class="rounded bg-[var(--color-surface-tertiary)] px-1.5 py-0.5 text-[10px] text-[var(--color-text-secondary)]">admin</span>
+					{/if}
+				</a>
+			{:else}
+				<p class="px-3 py-2 text-sm text-[var(--color-text-muted)]" data-testid="settings-nav-empty">No matching settings.</p>
+			{/each}
+		</nav>
+	</div>
+	<div class="min-w-0 space-y-6 md:col-start-2 md:row-start-2">
+		{@render children()}
 	</div>
 </div>
