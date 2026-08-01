@@ -266,7 +266,10 @@ exemplar docs already exist.)
   - **Five sigils — keep CLAUDE.md and the composer docs in lockstep.**
     `web/src/lib/mention-logic.ts` defines **five** mention sigils (`!`, `@`,
     `/`, `$`, **`%`** for `lesson` / Lessons-Keeper), and the `!` sigil nests
-    the `EZ` runtime-action kind (`![EZ:name]`). CLAUDE.md's "Mention grammar"
+    the `EZ` runtime-action kind (`![EZ:name]`) **and the `workflow` kind**
+    (`![workflow:name]`). Adding a KIND under an existing sigil does NOT
+    change the sigil count — `workflow` was added under `!` and the count
+    stayed five; don't "fix" it to six. CLAUDE.md's "Mention grammar"
     table already lists all five rows plus the `EZ` kind; composer/chat docs
     (e.g. `conversations.md`, `mention-grammar.md`) must stay consistent with
     it. If the grammar changes in source, update CLAUDE.md, the composer docs,

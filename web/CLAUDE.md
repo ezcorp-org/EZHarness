@@ -53,7 +53,7 @@ Five sigils share one pure-logic module `src/lib/mention-logic.ts`; the single
 
 | Sigil | Kind(s) | Token format | Source |
 |---|---|---|---|
-| `!` | `agent`, `ext`, `team`, `EZ` | `![kind:name]` | DB (`agentConfigs`, `extensions`) + executor's in-memory map + EZ-action registry + built-in tool categories |
+| `!` | `agent`, `ext`, `team`, `EZ`, `workflow` | `![kind:name]` | DB (`agentConfigs`, `extensions`) + executor's in-memory map + EZ-action registry + built-in tool categories + the merged workflow cache |
 | `@` | `file`, `dir` | `@[kind:relpath]` | Active project's filesystem (symlink-escape filtered) |
 | `/` | `cmd` | `/[cmd:name]` | `.claude/{commands,agents}`, `.codex/prompts`, `agents/` (project + home) + `user_commands` DB table |
 | `$` | `feature` | `$[feature:name]` | DB (`features` table, scoped to active project) |
@@ -62,10 +62,14 @@ Five sigils share one pure-logic module `src/lib/mention-logic.ts`; the single
 `![ext:<name>/` nests tool autocomplete (`type=tool`). `![EZ:name]`
 (case-insensitive) is stripped pre-prompt and invokes a runtime action instead
 of reaching the LLM. Slash commands (discovery gated by
-`EZCORP_SCAN_GLOBAL_COMMANDS`, default on), feature, and lesson mentions
-expand **server-side** in `src/runtime/mention-wiring.ts` (repo root): raw
-token persisted, expansion literal — never re-parse expanded text; unknown
+`EZCORP_SCAN_GLOBAL_COMMANDS`, default on), feature, lesson, and workflow
+mentions expand **server-side** in `src/runtime/mention-wiring.ts` (repo root):
+raw token persisted, expansion literal — never re-parse expanded text; unknown
 targets are silent no-ops. Feature expansion emits plain-text file paths,
-never `@[file:…]` tokens (no double-expansion). Full specs:
+never `@[file:…]` tokens (no double-expansion). `![workflow:name]` is a
+REFERENCE — it expands to a note describing the workflow and never runs it;
+the separate `run_workflow` built-in executes (wired only at
+`orchestrationDepth === 0`, on owned conversations). `workflow` is a 5th KIND
+under `!`, NOT a 6th sigil — the count above stays five. Full specs:
 [../docs/features/composer/mention-grammar.md](../docs/features/composer/mention-grammar.md),
 [../docs/slash-commands.md](../docs/slash-commands.md).

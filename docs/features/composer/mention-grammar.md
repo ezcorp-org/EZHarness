@@ -4,7 +4,7 @@
 
 ## Intent
 
-Mentions let a user reference EZCorp entities inline while typing — agents, extensions, teams, runtime actions, project files/dirs, slash commands, Feature-Index buckets, and Lessons-Keeper lessons — without leaving the composer. Each reference is persisted as a stable structured token (`![agent:Code Assistant]`, `@[file:src/app.ts]`, …) so the raw message stays faithful, while the LLM sees a resolved / expanded variant produced server-side. The grammar is deliberately one shared pure module (`mention-logic.ts`) plus one routing endpoint (`/api/mentions/search`) so trigger detection, tokenization, display projection, and server expansion can never drift apart.
+Mentions let a user reference EZCorp entities inline while typing — agents, extensions, teams, runtime actions, workflows, project files/dirs, slash commands, Feature-Index buckets, and Lessons-Keeper lessons — without leaving the composer. Each reference is persisted as a stable structured token (`![agent:Code Assistant]`, `@[file:src/app.ts]`, …) so the raw message stays faithful, while the LLM sees a resolved / expanded variant produced server-side. The grammar is deliberately one shared pure module (`mention-logic.ts`) plus one routing endpoint (`/api/mentions/search`) so trigger detection, tokenization, display projection, and server expansion can never drift apart.
 
 ## How it works
 
@@ -14,13 +14,15 @@ Mentions let a user reference EZCorp entities inline while typing — agents, ex
 
 | Sigil | Kind(s) | Token | Resolved from |
 |---|---|---|---|
-| `!` | `agent`, `ext`, `team`, **`EZ`** | `![kind:name]` | DB (`agentConfigs`, `extensions`) + executor's in-memory agent map + EZ-action registry |
+| `!` | `agent`, `ext`, `team`, **`EZ`**, `workflow` | `![kind:name]` | DB (`agentConfigs`, `extensions`) + executor's in-memory agent map + EZ-action registry + the merged workflow cache |
 | `@` | `file`, `dir` | `@[kind:relpath]` | Active project's filesystem (symlink-escape filtered) |
 | `/` | `cmd` | `/[cmd:name]` | Command registry (`.claude`/`.codex`/`agents` dirs + `user_commands` DB) |
 | `$` | `feature` | `$[feature:name]` | DB (`features` table, scoped to the active project) |
 | `%` | `lesson` | `%[lesson:slug]` | DB (`lessons` table, scoped to user + project, visibility-filtered) |
 
 `EZ` (uppercase) is a fourth kind nested under the `!` sigil. It is distinct from `agent`/`ext`/`team` because the LLM **never sees** `![EZ:…]` tokens — they are stripped pre-prompt server-side and invoke a code-defined runtime action instead.
+
+`workflow` is a fifth kind under the same `!` sigil — **not a sixth sigil**; `MENTION_REGEX` is still five alternatives, one per sigil, and `!` is simply the alternative with the most kinds. `![workflow:<name>]` is a **reference, not a trigger**: it expands server-side to a system note describing the workflow (name, description, `inputSchema`) so the model knows what input the workflow takes, and execution goes through the separate `run_workflow` built-in. Full subsystem reference: [workflows](../orchestration/workflows.md).
 
 ### Client lifecycle (typing → chip)
 
@@ -47,9 +49,10 @@ The textarea text is **not** the wire text. `ChatInput.svelte` keeps two strings
 - **`@[file|dir:…]` resolution** (`resolveFileMentions` + `formatFileMentionSystemNotes`) resolves paths against the project root, rejecting absolute paths, `..` traversal (via `validatePath`), and symlink-escape (via `realpathInsideRoot`). Emits a plain-text system note per reference (lazy injection — **no file content is embedded**).
 - **`$[feature:…]` expansion** (`applyFeatureExpansion`, resolver = `getFeature`) emits one system-note block per resolved feature: its description + plain-text file paths.
 - **`%[lesson:…]` expansion** (`applyLessonExpansion`, resolver = `getLessonBySlug`) emits one block per resolved lesson (title + body), capped at 5 expansions / 8 KiB joined per turn; `onFired` bumps `firedCount` / `lastFiredAt`.
+- **`![workflow:…]` expansion** (`applyWorkflowExpansion`, resolver reads the merged workflow cache) emits one block per resolved workflow — name, description, `inputSchema` as bullets — capped at 5 expansions / 8 KiB joined per turn. It is a **reference, not a trigger**; running goes through the `run_workflow` built-in. Because a workflow's strings are writable by any `chat`-scoped caller, every value is passed through `sanitizeNoteValue` (whitespace collapsed, `*` stripped) and the section is wrapped in a per-turn nonce fence, so an author cannot forge a note block or a host instruction.
 - **`![agent|ext|team:…]` wiring** (`resolveMentionedAgents`, `resolveMentionedTeams`, `wireMentionedExtensions` in `setup-tools.ts`) resolves agent/team configs and wires referenced extensions' tools into the conversation.
 
-For feature/lesson/file passes, the user-visible message text is **never modified** — the raw token survives in the persisted message while the LLM sees an additional system note. This mirrors how a deleted `@[file:…]` is a silent no-op.
+For feature/lesson/workflow/file passes, the user-visible message text is **never modified** — the raw token survives in the persisted message while the LLM sees an additional system note. This mirrors how a deleted `@[file:…]` is a silent no-op.
 
 ## Usage
 
@@ -97,7 +100,7 @@ All branches cap at `MAX_RESULTS = 10`. Query params: `q`, `type`, `projectId`, 
 - `web/src/lib/components/ChatInput.svelte` — composer: wire/display sync (`setWire`), atomic chip delete, overlay chip rendering, mention search wiring.
 - `web/src/lib/components/MentionChip.svelte` — the visible chip pill rendered over the transparent textarea and in history.
 - `web/src/lib/components/MentionText.svelte` — read-only segment renderer for persisted messages.
-- `src/runtime/mention-wiring.ts` — server expansion/resolution: `stripEzActionTokens`, `applyCommandExpansion`, `applyFeatureExpansion`, `applyLessonExpansion`, `resolveFileMentions`, `formatFileMentionSystemNotes`, `resolveMentionedAgents`, `resolveMentionedTeams`, `wireMentionedExtensions`; `FEATURE_TOKEN_RE`, `EZ_ACTION_TOKEN_RE`, `LESSON_TOKEN_RE`.
+- `src/runtime/mention-wiring.ts` — server expansion/resolution: `stripEzActionTokens`, `applyCommandExpansion`, `applyFeatureExpansion`, `applyLessonExpansion`, `applyWorkflowExpansion` (+ `sanitizeNoteValue`, `formatWorkflowSection`), `resolveFileMentions`, `formatFileMentionSystemNotes`, `resolveMentionedAgents`, `resolveMentionedTeams`, `wireMentionedExtensions`; `FEATURE_TOKEN_RE`, `EZ_ACTION_TOKEN_RE`, `LESSON_TOKEN_RE`.
 - `src/runtime/stream-chat/build-prompt.ts` — wires the EZ-strip / command / file / feature / lesson passes into the prompt, injecting DB-backed resolvers (`getFeature`, `getLessonBySlug`).
 - `src/runtime/stream-chat/setup-tools.ts` — wires `wireMentionedExtensions` + agent/team resolution into the tool surface.
 - `src/runtime/fs/scan-fs.ts` — shared `EXCLUDED_DIR_NAMES`, `realpathInsideRoot`, `listFilteredChildren` used by both the `@`-autocomplete and the file-mention resolver.
@@ -110,6 +113,7 @@ All branches cap at `MAX_RESULTS = 10`. Query params: `q`, `type`, `projectId`, 
 - [[slash-commands]] — the `/` sigil; `applyCommandExpansion` renders command bodies with `$ARGUMENTS`/`$N` substitution. The built-in `/goal` is inserted as literal text.
 - [[feature-index]] — the `$` sigil; `applyFeatureExpansion` emits a feature's description + file paths as a system note.
 - [[lessons]] — the `%` sigil; `applyLessonExpansion` injects lesson bodies (capped per turn) and bumps fired counts.
+- [[workflows]] — the `workflow` kind under `!`; `applyWorkflowExpansion` injects a reference note, and the separate `run_workflow` built-in is what actually executes.
 - [[ez-concierge-and-actions]] — the `![EZ:…]` kind; tokens are stripped pre-prompt and dispatch runtime actions.
 - [[agents]] — `![agent:…]` resolves agent configs; an `@agent` mention spawns a sub-conversation.
 - [[teams]] — `![team:…]` resolves a team config and its members.
