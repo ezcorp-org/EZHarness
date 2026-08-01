@@ -37,7 +37,9 @@ test.describe("settings nav search", () => {
 	});
 
 	test("typing narrows the nav; clearing restores it", async ({ page, mockApi }) => {
-		await mockApi({ projects: [proj], routes: { "/api/auth/me": () => memberMe } });
+		// Admin: /settings/models is admin-only (its reads and writes both
+		// require the admin role), and "provider" is one of its anchors.
+		await mockApi({ projects: [proj], routes: { "/api/auth/me": () => adminMe } });
 		await page.goto("/settings/models");
 
 		const search = page.getByTestId("settings-nav-search");
@@ -53,7 +55,9 @@ test.describe("settings nav search", () => {
 	});
 
 	test("no match shows the empty state", async ({ page, mockApi }) => {
-		await mockApi({ projects: [proj], routes: { "/api/auth/me": () => memberMe } });
+		// Admin: /settings/models is admin-only (its reads and writes both
+		// require the admin role), and "provider" is one of its anchors.
+		await mockApi({ projects: [proj], routes: { "/api/auth/me": () => adminMe } });
 		await page.goto("/settings/models");
 
 		await page.getByTestId("settings-nav-search").fill("zzz-nonexistent");
@@ -62,12 +66,19 @@ test.describe("settings nav search", () => {
 	});
 
 	test("admin-only matches stay hidden for members", async ({ page, mockApi }) => {
+		// Genuinely a MEMBER case — start from a page members may open, since
+		// /settings/models is itself admin-only now.
 		await mockApi({ projects: [proj], routes: { "/api/auth/me": () => memberMe } });
-		await page.goto("/settings/models");
+		await page.goto("/settings/personalization");
 
 		// "teams" only matches the admin entry.
 		await page.getByTestId("settings-nav-search").fill("teams");
 		await expect(page.getByTestId("settings-nav-empty")).toBeVisible();
 		await expect(page.getByTestId("settings-nav-admin")).toHaveCount(0);
+
+		// "provider" only matches Models & Providers, which is admin-only too.
+		await page.getByTestId("settings-nav-search").fill("provider");
+		await expect(page.getByTestId("settings-nav-empty")).toBeVisible();
+		await expect(page.getByTestId("settings-nav-models")).toHaveCount(0);
 	});
 });
