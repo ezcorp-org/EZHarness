@@ -49,10 +49,29 @@ const S_ISUID = 0o4000;
  * omit `--size` (and only `--size`) on those hosts; all confinement flags
  * stay intact.
  *
- * Returns false when `bwrap` can't be found on PATH or can't be stat'd —
- * the caller only consults this on the bwrap tier, where bwrap exists.
+ * Returns false when `bwrap` can't be found on PATH or can't be stat'd.
  */
 export function bwrapIsSetuid(): boolean {
+  return findBwrap()?.setuid ?? false;
+}
+
+/**
+ * The `bwrap` an exec would actually resolve, or null when PATH has none.
+ *
+ * One walk answers both questions the tier selector asks — does bwrap exist
+ * at all, and is it the SETUID-root wrapper — so the two can never end up
+ * describing different binaries.
+ *
+ * Presence is not cosmetic. `selectTier` used to infer the bwrap tier from
+ * `userns && !bwrapSetuid`, and a MISSING bwrap reports `setuid: false`
+ * exactly like a present-and-plain one — so an image without bubblewrap
+ * selected a tier it could not execute, and every sandboxed subprocess died
+ * on `Executable not found in $PATH: "bwrap"`. Docker hid this for years by
+ * blocking unprivileged userns (forcing the landlock tier regardless);
+ * rootless Podman permits userns, which surfaced it. Hence: presence is
+ * probed, not assumed.
+ */
+export function findBwrap(): { path: string; setuid: boolean } | null {
   try {
     const pathEnv = process.env.PATH ?? "";
     for (const dir of pathEnv.split(delimiter)) {
@@ -60,16 +79,15 @@ export function bwrapIsSetuid(): boolean {
       const candidate = join(dir, "bwrap");
       try {
         const st = statSync(candidate);
-        if ((st.mode & S_ISUID) !== 0) return true;
-        // Found a non-setuid bwrap first on PATH — that's the one exec'd.
-        return false;
+        // First hit wins — that is the one exec() would resolve.
+        return { path: candidate, setuid: (st.mode & S_ISUID) !== 0 };
       } catch {
         // Not in this PATH entry; keep looking.
       }
     }
-    return false;
+    return null;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -94,6 +112,12 @@ export interface ProbeOutcomes {
    *  reach, so the jailed exec fails. Landlock has neither problem
    *  (in-process, no namespace remap), so we drop to it instead. */
   bwrapSetuid: boolean;
+  /** Whether a `bwrap` binary exists on PATH at all. Must be checked
+   *  SEPARATELY from `bwrapSetuid`, which is false both for a plain bwrap
+   *  and for no bwrap — so without this the tier selector cannot tell a
+   *  usable bubblewrap from an absent one, and picks a tier whose argv
+   *  (`["bwrap", ...]`) fails to exec. */
+  bwrapPresent: boolean;
 }
 
 export interface SandboxCapabilities extends ProbeOutcomes {
@@ -110,8 +134,11 @@ export interface SandboxCapabilities extends ProbeOutcomes {
  *   - Landlock is "usable" only on x86_64 (we refuse to guess syscall
  *     numbers on other arches) AND when the probed ABI is >= 1.
  *   - bwrap tier requires usable Landlock AND working userns (the bwrap
- *     upgrade rides on top of the Landlock fs-jail) AND a NON-setuid
- *     bwrap. A setuid-root bwrap can't run our jail (rejects `--size`;
+ *     upgrade rides on top of the Landlock fs-jail) AND a bwrap that is
+ *     actually PRESENT on PATH AND is NON-setuid. Presence is explicit
+ *     because `bwrapSetuid` is false for an absent bwrap just as it is for
+ *     a plain one; selecting the tier without it yields an argv that cannot
+ *     exec. A setuid-root bwrap can't run our jail (rejects `--size`;
  *     and on setuid-bwrap hosts the runtime lives behind `/run/...`
  *     symlinks the minimal bind-set misses), so we drop to the landlock
  *     tier — same real fs confinement, just no PID/proc hiding.
@@ -126,7 +153,7 @@ export function selectTier(o: ProbeOutcomes): {
   if (!landlockUsable) {
     return { tier: "advisory", landlockUsable: false };
   }
-  if (o.userns && !o.bwrapSetuid) {
+  if (o.userns && o.bwrapPresent && !o.bwrapSetuid) {
     return { tier: "bwrap", landlockUsable: true };
   }
   return { tier: "landlock", landlockUsable: true };
@@ -181,13 +208,17 @@ export function probeKvm(): boolean {
  * Side-effecting (spawns/syscalls); the cached accessor below memoizes it.
  */
 export function probeSandboxCapabilities(): SandboxCapabilities {
+  // One lookup feeds both bwrap facts, so they always describe the same
+  // binary (or agree that there isn't one).
+  const bwrap = findBwrap();
   const outcomes: ProbeOutcomes = {
     landlockAbi: probeLandlockAbi(),
     userns: probeUserns(),
     cgroupV2Delegation: probeCgroupV2Delegation(),
     kvm: probeKvm(),
     arch: arch(),
-    bwrapSetuid: bwrapIsSetuid(),
+    bwrapSetuid: bwrap?.setuid ?? false,
+    bwrapPresent: bwrap !== null,
   };
   const { tier, landlockUsable } = selectTier(outcomes);
   return { ...outcomes, tier, landlockUsable };
