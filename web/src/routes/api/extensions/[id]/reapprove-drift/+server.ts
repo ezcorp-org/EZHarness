@@ -5,7 +5,10 @@ import { requireRole } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
 import { isBundledExtensionName } from "$server/extensions/bundled";
-import { reapproveBundledDrift } from "$server/extensions/bundled-drift-reapprove";
+import {
+  previewBundledDrift,
+  reapproveBundledDrift,
+} from "$server/extensions/bundled-drift-reapprove";
 import type { RequestHandler } from "./$types";
 
 /**
@@ -42,6 +45,46 @@ import type { RequestHandler } from "./$types";
  * 404 unknown id; 400 non-bundled extension; 409 lockfile mismatch;
  * 500 unreadable on-disk manifest.
  */
+
+/**
+ * Preview the current, ceiling-clamped bundled grant. This is separate from
+ * the mutation so the admin can see newly added website hosts (for example,
+ * Atlanta's station page) before consenting to the update.
+ */
+export const GET: RequestHandler = async ({ params, locals }) => {
+  const scopeErr = requireScope(locals, "extensions");
+  if (scopeErr) return scopeErr;
+  requireRole(locals, "admin");
+
+  const ext = await getExtension(params.id);
+  if (!ext) return errorJson(404, "Not found");
+  if (!isBundledExtensionName(ext.name)) {
+    return errorJson(
+      400,
+      "Not a bundled extension — drift re-approval only applies to bundled extensions",
+    );
+  }
+
+  const result = await previewBundledDrift(ext);
+  if (!result.ok) {
+    switch (result.code) {
+      case "lockfile-mismatch":
+        return errorJson(409, result.message);
+      case "manifest-unreadable":
+        return errorJson(500, result.message);
+      default:
+        return errorJson(400, result.message);
+    }
+  }
+
+  return json({
+    version: result.manifest.version,
+    permissions: result.grant,
+    diffs: result.diffs,
+    ceilingClamped: result.ceilingClamped,
+  });
+};
+
 export const POST: RequestHandler = async ({ params, locals }) => {
   const scopeErr = requireScope(locals, "extensions");
   if (scopeErr) return scopeErr;

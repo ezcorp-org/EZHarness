@@ -75,6 +75,9 @@
     "web/src/routes/(app)/extensions/[id]/SettingsPanel.svelte",
     "web/src/routes/(app)/extensions/[id]/+page.svelte"
   ],
+  "web/e2e/extensions-bundled-drift-reapproval.spec.ts": [
+    "web/src/routes/(app)/extensions/[id]/+page.svelte"
+  ],
   "web/e2e/extensions-sort.spec.ts": [
     "web/src/routes/(app)/extensions/+page.svelte"
   ],

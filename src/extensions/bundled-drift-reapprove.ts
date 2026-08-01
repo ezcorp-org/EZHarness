@@ -100,17 +100,50 @@ function diffGrants(
 }
 
 /**
- * Re-approve a bundled extension's permission drift from its current
- * on-disk manifest. See the module doc for the full contract.
+ * Read and safely project the current bundled manifest for the UI.
  *
- * Atomic: one `updateExtension` call writes grant + manifest + version
- * + enabled together (single UPDATE), so a crash can never leave the
- * row half-healed.
+ * This is deliberately the same source + lockfile + ceiling path used by
+ * `reapproveBundledDrift`. Existing rows can still contain the previous
+ * manifest after S9 disables a permission-changing update; exposing the
+ * current clamped grant lets an administrator see the newly requested
+ * website before approving it instead of presenting a stale three-host list.
  */
-export async function reapproveBundledDrift(
+export type DriftReapprovePreviewResult =
+  | {
+      ok: true;
+      manifest: ExtensionManifestV2;
+      grant: ExtensionPermissions;
+      diffs: DriftReapproveDiff[];
+      ceilingClamped: boolean;
+    }
+  | {
+      ok: false;
+      code: "not-bundled" | "manifest-unreadable" | "lockfile-mismatch";
+      message: string;
+    };
+
+/**
+ * Why the manifest is being read. Only affects operator-facing wording —
+ * the read, the lockfile gate, and the ceiling clamp are identical either
+ * way. Kept explicit so the mutation path never reports itself as a
+ * read-only preview (and vice versa).
+ */
+export type DriftReadIntent = "preview" | "re-grant";
+
+const INTENT_REFUSAL: Record<DriftReadIntent, string> = {
+  preview: "refusing to preview permissions",
+  "re-grant": "refusing to re-grant",
+};
+
+const INTENT_LOG_LABEL: Record<DriftReadIntent, string> = {
+  preview: "Drift preview refused — manifest fails lockfile check",
+  "re-grant": "Drift re-approval refused — manifest fails lockfile check",
+};
+
+export async function previewBundledDrift(
   ext: BundledExtensionRowLike,
-  actorUserId: string,
-): Promise<DriftReapproveResult> {
+  intent: DriftReadIntent = "preview",
+): Promise<DriftReapprovePreviewResult> {
   const bundledPath = getBundledExtensionPath(ext.name);
   if (!bundledPath) {
     return {
@@ -120,8 +153,6 @@ export async function reapproveBundledDrift(
     };
   }
 
-  // Same loader the boot path uses — the on-disk manifest is the
-  // source of truth for bundled extensions.
   let diskManifest: ExtensionManifestV2;
   try {
     diskManifest = await loadManifestFresh(join(getProjectRoot(), bundledPath));
@@ -133,13 +164,9 @@ export async function reapproveBundledDrift(
     };
   }
 
-  // Lockfile gate — reuse the boot path's verification helper. A
-  // mismatch means either a maintainer forgot to regenerate
-  // manifest.lock.json or the file was tampered with; either way this
-  // endpoint refuses (it heals grant drift, not tampering).
   const lockResult = await verifyManifestAgainstLock(ext.name, diskManifest);
   if (!lockResult.ok) {
-    log.warn("Drift re-approval refused — manifest fails lockfile check", {
+    log.warn(INTENT_LOG_LABEL[intent], {
       name: ext.name,
       extensionId: ext.id,
       reason: lockResult.reason,
@@ -149,40 +176,59 @@ export async function reapproveBundledDrift(
     return {
       ok: false,
       code: "lockfile-mismatch",
-      message: `On-disk manifest for '${ext.name}' fails the manifest.lock.json check (${lockResult.reason}) — refusing to re-grant. Regenerate the lockfile if this is a legitimate release, or investigate tampering.`,
+      message: `On-disk manifest for '${ext.name}' fails the manifest.lock.json check (${lockResult.reason}) — ${INTENT_REFUSAL[intent]}. Regenerate the lockfile if this is a legitimate release, or investigate tampering.`,
     };
   }
 
-  // Build the requested grant from the DISK manifest's declared
-  // permissions with fresh grantedAt stamps (the admin is re-consenting
-  // to the whole set now — mirrors the fresh-install grant shape).
-  // `intersectPermissions` (via clampToBundledCeiling) only retains
-  // grantedAt keys whose permission survived the intersection.
   const rawPerms = (diskManifest.permissions ?? {}) as ExtensionPermissions;
   const now = Date.now();
-  const stampedGrantedAt: Record<string, number> = {};
+  const grantedAt: Record<string, number> = {};
   for (const key of Object.keys(rawPerms)) {
-    if (key !== "grantedAt") stampedGrantedAt[key] = now;
+    if (key !== "grantedAt") grantedAt[key] = now;
   }
-  const requested: ExtensionPermissions = { ...rawPerms, grantedAt: stampedGrantedAt };
-
-  // Ceiling clamp — the hard security bound. A disk manifest declaring
-  // anything beyond `bundled-ceiling.ts` gets that excess silently
-  // dropped (the ceiling table is the code-review-time artifact a
-  // compromised manifest cannot self-match).
-  const { effective: clamped, clamped: wasClamped } = clampToBundledCeiling(
+  const requested: ExtensionPermissions = { ...rawPerms, grantedAt };
+  const { effective: grant, clamped: ceilingClamped } = clampToBundledCeiling(
     ext.name,
     requested,
   );
-
   const priorGrant = (ext.grantedPermissions ?? { grantedAt: {} }) as ExtensionPermissions;
-  const diffs = diffGrants(priorGrant, clamped);
 
+  return {
+    ok: true,
+    manifest: diskManifest,
+    grant,
+    diffs: diffGrants(priorGrant, grant),
+    ceilingClamped,
+  };
+}
+
+/**
+ * Re-approve a bundled extension's permission drift from its current
+ * on-disk manifest. See the module doc for the full contract.
+ *
+ * Atomic: one `updateExtension` call writes grant + manifest + version
+ * + enabled together (single UPDATE), so a crash can never leave the
+ * row half-healed.
+ */
+export async function reapproveBundledDrift(
+  ext: BundledExtensionRowLike,
+  actorUserId: string,
+): Promise<DriftReapproveResult> {
+  const preview = await previewBundledDrift(ext, "re-grant");
+  if (!preview.ok) return preview;
+
+  const { manifest: diskManifest, grant: clamped, diffs, ceilingClamped: wasClamped } = preview;
+  const priorGrant = (ext.grantedPermissions ?? { grantedAt: {} }) as ExtensionPermissions;
   const oldVersion =
     ext.version ?? (ext.manifest as ExtensionManifestV2 | undefined)?.version;
 
   const updated = await updateExtension(ext.id, {
     grantedPermissions: clamped,
+    // Drift re-approval is a fresh admin consent event. Persist the same
+    // ceiling-clamped snapshot as the install-time baseline so a later
+    // expiry re-approval cannot silently fall back to the old three-host
+    // grant and remove the Atlanta website again.
+    installedPermissions: clamped,
     manifest: diskManifest,
     version: diskManifest.version,
     // Sync the denormalized description column from disk too. The UI +
@@ -236,8 +282,8 @@ export async function reapproveBundledDrift(
 
     // Typed capability-POLICY rows (additive — the summary row above is
     // kept). For each brokered-capability policy field whose value
-    // changed under the heal, emit a CAPABILITY_POLICY_WRITE carrying the
-    // full before→after policy value so a search (or future memory/llm/…)
+    // changed under the heal, emit a CAPABILITY_POLICY_WRITE carrying
+    // the full before→after policy value so a search (or future memory/llm/…)
     // policy change is first-class + queryable, not buried in the diff
     // blob. Written generically over the field set.
     const priorRec = priorGrant as unknown as Record<string, unknown>;

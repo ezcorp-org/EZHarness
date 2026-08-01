@@ -93,6 +93,7 @@ interface StoredExtension {
   enabled: boolean;
   isBundled?: boolean;
   grantedPermissions: ExtensionPermissions;
+  installedPermissions?: ExtensionPermissions;
   version?: string;
 }
 
@@ -175,6 +176,56 @@ function seedStaleWebSearch(): StoredExtension {
 }
 
 describe("bundled drift re-approval", () => {
+  test("preview exposes the newly added Atlanta station website before approval", async () => {
+    const { previewBundledDrift } = await import("../extensions/bundled-drift-reapprove");
+    const row: StoredExtension = {
+      id: "seed-city-conditions",
+      name: "city-conditions",
+      enabled: true,
+      isBundled: true,
+      installPath: "docs/extensions/examples/city-conditions",
+      version: "0.1.0",
+      manifest: {
+        name: "city-conditions",
+        version: "0.1.0",
+        permissions: {
+          network: [
+            "geocoding-api.open-meteo.com",
+            "api.open-meteo.com",
+            "air-quality-api.open-meteo.com",
+          ],
+        },
+      },
+      grantedPermissions: {
+        network: [
+          "geocoding-api.open-meteo.com",
+          "api.open-meteo.com",
+          "air-quality-api.open-meteo.com",
+        ],
+        grantedAt: { network: 1 },
+      } as ExtensionPermissions,
+    };
+
+    const result = await previewBundledDrift(row);
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("unreachable");
+    expect(result.grant.network).toContain("www.atlantaallergy.com");
+    expect(result.diffs).toContainEqual({
+      field: "network",
+      oldValue: [
+        "geocoding-api.open-meteo.com",
+        "api.open-meteo.com",
+        "air-quality-api.open-meteo.com",
+      ],
+      newValue: [
+        "geocoding-api.open-meteo.com",
+        "api.open-meteo.com",
+        "air-quality-api.open-meteo.com",
+        "www.atlantaallergy.com",
+      ],
+    });
+  }, 30_000);
+
   test("the bug + happy path + boot convergence: S9 disables, reapprove heals from disk, next boot stays enabled", async () => {
     const { ensureBundledExtensions } = await import("../extensions/bundled");
     const { reapproveBundledDrift } = await import("../extensions/bundled-drift-reapprove");
@@ -200,6 +251,8 @@ describe("bundled drift re-approval", () => {
     expect(granted.network ?? []).toEqual([]);
     expect(granted.env ?? []).toEqual([]);
     expect(granted.filesystem ?? []).toEqual([]);
+    // The approved snapshot is also the future expiry-reapproval ceiling.
+    expect(row.installedPermissions).toEqual(granted);
     // Fresh grantedAt stamp for the surviving `search` field.
     expect(typeof granted.grantedAt?.search).toBe("number");
 

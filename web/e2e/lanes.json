@@ -43,6 +43,7 @@
       "web/e2e/extension-author-failure-cards.spec.ts",
       "web/e2e/extension-install-granted-caps.spec.ts",
       "web/e2e/extension-secret-settings.spec.ts",
+      "web/e2e/extensions-bundled-drift-reapproval.spec.ts",
       "web/e2e/extensions-sort.spec.ts",
       "web/e2e/extensions-workflows-grant.spec.ts",
       "web/e2e/ez-clear-conversation.spec.ts",
