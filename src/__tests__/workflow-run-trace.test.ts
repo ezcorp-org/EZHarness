@@ -41,6 +41,11 @@ const {
 const { upsertWorkflowStepRun } = await import("../db/queries/workflow-runs");
 const { upsertWorkflowStepIteration } = await import("../db/queries/workflow-step-iterations");
 const { WorkflowExecutor } = await import("../runtime/workflow-executor");
+const { resumeParkedRun } = await import("../runtime/workflow-run-control");
+const { getWorkflowApproval, recordWorkflowApprovalAnswer } = await import(
+  "../db/queries/workflow-approvals"
+);
+const { canRetryFrom } = await import("../../web/src/lib/workflow-trace-logic");
 
 const OWNER = { userId: "user-owner", isAdmin: false };
 const STRANGER = { userId: "user-stranger", isAdmin: false };
@@ -385,6 +390,206 @@ describe("a REAL parked run, read through the real trace path", () => {
     // A park changes the run's state, not its ownership.
     expect(await getWorkflowRunTrace(parkedRunId, STRANGER)).toBeUndefined();
     expect(await getWorkflowRunTrace(parkedRunId, ADMIN)).toBeDefined();
+  });
+});
+
+describe("a parked run RESUMED to completion, through the real machinery", () => {
+  // The companion to the block above. That one proves the retry button is
+  // OFFERED correctly; this proves it WORKS — a different claim, and the
+  // one still resting on a mock.
+  //
+  // Everything here is the production path: a real `approval` step parks
+  // the run, `resumeParkedRun` (the authority `canRetryFrom` matches) is
+  // the same function the button's route calls, and the trace is read
+  // back through `getWorkflowRunTrace`.
+  let runId: string;
+  let agentCalls = 0;
+  let runtime: { workflowExecutor: unknown; getWorkflows: () => WorkflowDefinition[] };
+
+  beforeAll(async () => {
+    agentCalls = 0;
+    const bus = new EventBus<AgentEvents>();
+    const agentExec = {
+      cancelRun() {},
+      async runAgent(): Promise<AgentRun> {
+        agentCalls++;
+        const id = crypto.randomUUID();
+        await db.execute(sql`
+          INSERT INTO runs (id, agent_name, status, started_at)
+          VALUES (${id}, 'stub', 'success', NOW())
+        `);
+        return {
+          id,
+          agentName: "stub",
+          status: "success",
+          startedAt: Date.now(),
+          logs: [],
+          result: { success: true, output: "drafted" },
+          provider: "anthropic",
+          model: "claude-opus-5",
+          inputTokens: 500,
+          outputTokens: 100,
+        };
+      },
+    } as unknown as AgentExecutor;
+    const wf = new WorkflowExecutor(agentExec, bus, { persist: true });
+
+    const def: WorkflowDefinition = {
+      name: `wf-resumed-${crypto.randomUUID().slice(0, 8)}`,
+      description: "",
+      steps: [
+        // `draft` and `confirm` declare NO dependency on each other, so
+        // `resolveExecutionOrder` puts them in the SAME batch and
+        // dispatches them concurrently. That is load-bearing: it is the
+        // only shape in which a resume RE-ENTERS a batch containing a
+        // step that already succeeded, which is the partial-batch restore
+        // path — and therefore the only shape in which a double-count
+        // could occur. Chaining them with `dependsOn` puts `draft` in an
+        // earlier batch that a resume never revisits, and the test passes
+        // for a reason that has nothing to do with the property.
+        { name: "draft", agent: "stub" },
+        {
+          name: "confirm",
+          kind: "approval",
+          prompt: "Ship it?",
+          choices: ["approve", "reject"],
+        } as WorkflowStep,
+        // Runs only AFTER the resume — proof the graph actually continued
+        // rather than merely being re-marked terminal.
+        {
+          name: "publish",
+          kind: "transform",
+          output: { done: "yes" },
+          dependsOn: ["draft", "confirm"],
+        },
+      ],
+    };
+    runtime = { workflowExecutor: wf, getWorkflows: () => [def] };
+
+    const parked = await wf.runWorkflow(def, {}, undefined, "user-owner");
+    runId = parked.id;
+    expect(parked.status).toBe("suspended");
+    for (let i = 0; i < 20; i++) await new Promise((r) => setTimeout(r, 0));
+  });
+
+  test("resume is REFUSED while the approval is unanswered, and the run stays answerable", async () => {
+    // A safety property, not a limitation: `resumeParkedRun` cannot step
+    // over a consent gate. The refusal is TRANSIENT — the run is left
+    // alive and still parked, so the human can still answer it.
+    const refused = await resumeParkedRun(
+      runId,
+      { userId: "user-owner", isAdmin: false },
+      { runtime: runtime as never },
+    );
+    expect(refused.ok).toBe(false);
+    expect((refused as { code: string }).code).toBe("resume-failed");
+
+    const stillParked = (await getWorkflowRunTrace(runId, OWNER))!;
+    expect(stillParked.run.status).toBe("suspended");
+    // And the button is still offered, because the run is still resumable.
+    expect(canRetryFrom(stillParked.run, { status: "suspended" })).toBe(true);
+  });
+
+  test("once answered, resume drives the run to a terminal state", async () => {
+    // Answering the row directly, then resuming, is exactly the case
+    // `resumeParkedRun` documents itself for: "a run whose approval was
+    // answered while the process that would have continued it was gone."
+    // Same test seam `workflow-run-persistence.test.ts` uses.
+    const approval = await getWorkflowApproval(runId, "confirm");
+    expect(approval).toBeDefined();
+    await recordWorkflowApprovalAnswer(approval!.id, {
+      choice: "approve",
+      answeredBy: "user-owner",
+    });
+
+    const resumed = await resumeParkedRun(
+      runId,
+      { userId: "user-owner", isAdmin: false },
+      { runtime: runtime as never },
+    );
+    expect(resumed.ok).toBe(true);
+    for (let i = 0; i < 20; i++) await new Promise((r) => setTimeout(r, 0));
+
+    const trace = (await getWorkflowRunTrace(runId, OWNER))!;
+    expect(trace.run.status).toBe("success");
+    expect(trace.run.status).not.toBe("suspended");
+    // A terminal run gains a finish time; a parked one never does.
+    expect(trace.run.finishedAt).not.toBeNull();
+    // `suspended_reason` deliberately SURVIVES the resume. The column is
+    // documented as "free text for the trace, never branched on" — it is
+    // HISTORY ("this run was parked for an approval once"), not current
+    // state, and `finalizeWorkflowRunRow` correctly leaves it alone.
+    // The UI is what has to say so in the past tense; see `pauseNote`.
+    expect(trace.run.suspendedReason).toBe("approval");
+  });
+
+  test("the previously-parked step is no longer parked", async () => {
+    const trace = (await getWorkflowRunTrace(runId, OWNER))!;
+    const confirm = trace.steps.find((s) => s.stepName === "confirm")!;
+    expect(confirm.status).toBe("success");
+    // The `suspended` marker from the first pass must be cleared, not
+    // left behind on a step that has since completed.
+    expect(confirm.errorCode).toBeNull();
+    // Its duration is the RESUMED pass, not park-to-answer wall clock —
+    // otherwise a run a human sat on for a day would report a day.
+    expect(confirm.durationMs).not.toBeNull();
+    expect(confirm.durationMs!).toBeLessThan(60_000);
+  });
+
+  test("the graph actually CONTINUED — the post-approval step ran", async () => {
+    const trace = (await getWorkflowRunTrace(runId, OWNER))!;
+    const publish = trace.steps.find((s) => s.stepName === "publish");
+    expect(publish, "the step after the approval never ran").toBeDefined();
+    expect(publish!.status).toBe("success");
+  });
+
+  test("a step completed BEFORE the park is not re-executed or double-counted", async () => {
+    // The failure mode the lead asked to be checked rather than assumed.
+    // A resume re-enters the batch the parked step belongs to, and
+    // `draft` is IN that batch (see the definition above). A sibling
+    // already recorded complete is served from its persisted output
+    // rather than re-run — but if any telemetry column were ADDED to
+    // rather than SET on that path, the resume would inflate it. Tokens
+    // are deliberately summed across retries and loop iterations, so
+    // "summing" is the established behaviour here and this is precisely
+    // the case where summing would be WRONG.
+    //
+    // CHECKED, and the answer is that TWO independent things protect it:
+    //
+    //   1. the restore path returns before the step reaches any
+    //      dispatcher, so it is not re-executed at all; and
+    //   2. `upsertWorkflowStepRun` SETs these columns on its conflict
+    //      branch rather than adding to them, so a re-execution would
+    //      overwrite the row with the new pass's numbers rather than
+    //      inflating it.
+    //
+    // Confirmed empirically: breaking (1) makes `agentCalls` go 1 → 2
+    // while `inputTokens` stays 500, because (2) still holds. So the
+    // token assertion below does NOT discriminate on its own — the
+    // invocation count is what does. Both are kept: the counts pin the
+    // stored values, the counter pins the no-re-execution guarantee.
+    const trace = (await getWorkflowRunTrace(runId, OWNER))!;
+    const draft = trace.steps.find((s) => s.stepName === "draft")!;
+
+    // Exactly what the single pre-park invocation reported — not doubled.
+    expect(draft.inputTokens).toBe(500);
+    expect(draft.outputTokens).toBe(100);
+    expect(draft.attempt).toBe(1);
+    // The run-level rollup is over the step rows, so it inherits this.
+    expect(trace.totals.inputTokens).toBe(500);
+
+    // And the agent was invoked ONCE across the whole run+resume: the
+    // restored step returns before it can reach a dispatcher at all.
+    expect(agentCalls).toBe(1);
+  });
+
+  test("Retry from here is NOT offered on the finished run", async () => {
+    // A retry button still showing on a completed run is how a second
+    // execution of already-applied side effects happens.
+    const trace = (await getWorkflowRunTrace(runId, OWNER))!;
+    for (const step of trace.steps) {
+      expect(canRetryFrom(trace.run, step)).toBe(false);
+    }
   });
 });
 

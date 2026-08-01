@@ -10,6 +10,7 @@
 		formatDuration,
 		formatTokens,
 		isLiveRun,
+		pauseNote,
 		payloadView,
 		statusLabel,
 		timelineBars,
@@ -112,9 +113,9 @@
 				<p class="text-lg font-semibold {statusColor(trace.run.status)}" data-testid="trace-status">
 					{statusLabel(trace.run.status)}
 				</p>
-				{#if trace.run.suspendedReason}
+				{#if pauseNote(trace.run)}
 					<p class="text-xs text-[var(--color-text-muted)]" data-testid="trace-suspended-reason">
-						paused: {trace.run.suspendedReason}
+						{pauseNote(trace.run)}
 					</p>
 				{/if}
 				{#if isLiveRun(trace.run.status)}

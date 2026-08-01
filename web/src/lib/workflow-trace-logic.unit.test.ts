@@ -17,6 +17,7 @@ import {
 	formatTokens,
 	isLiveRun,
 	isTruncated,
+	pauseNote,
 	NOT_REPORTED,
 	payloadView,
 	statusLabel,
@@ -150,6 +151,33 @@ describe("statusLabel and isLiveRun", () => {
 		expect(isLiveRun("success")).toBe(false);
 		expect(isLiveRun("error")).toBe(false);
 		expect(isLiveRun("cancelled")).toBe(false);
+	});
+});
+
+describe("pauseNote", () => {
+	test("present tense only while the run is actually parked", () => {
+		expect(pauseNote({ status: "suspended", suspendedReason: "approval" })).toBe(
+			"paused: approval",
+		);
+	});
+
+	test("past tense once the run has moved on", () => {
+		// `suspended_reason` survives a resume by design — it is history,
+		// not current state. Rendering it unconditionally in the present
+		// tense labelled a SUCCEEDED run "paused: approval", which reads as
+		// a live claim about a run that ended.
+		expect(pauseNote({ status: "success", suspendedReason: "approval" })).toBe(
+			"was paused: approval",
+		);
+		expect(pauseNote({ status: "error", suspendedReason: "orphaned-resumable" })).toBe(
+			"was paused: orphaned-resumable",
+		);
+	});
+
+	test("nothing to say for a run that never parked", () => {
+		// null, not "", so the template renders no empty element.
+		expect(pauseNote({ status: "success", suspendedReason: null })).toBeNull();
+		expect(pauseNote({ status: "running", suspendedReason: null })).toBeNull();
 	});
 });
 

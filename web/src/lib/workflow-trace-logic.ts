@@ -152,6 +152,27 @@ export function statusLabel(status: string): string {
 }
 
 /**
+ * How to render `suspended_reason`, if at all.
+ *
+ * The column SURVIVES a resume by design — it is documented as "free text
+ * for the trace, never branched on", so it records that a run was parked
+ * once, not that it is parked now. Rendering it unconditionally in the
+ * present tense therefore labels a finished run "paused: approval", which
+ * is a live-sounding claim about a run that ended.
+ *
+ * Returns null when there is nothing to say, so the template renders no
+ * empty element.
+ */
+export function pauseNote(
+  run: Pick<RunTrace["run"], "status" | "suspendedReason">,
+): string | null {
+  if (run.suspendedReason === null) return null;
+  return run.status === "suspended"
+    ? `paused: ${run.suspendedReason}`
+    : `was paused: ${run.suspendedReason}`;
+}
+
+/**
  * Whether "Retry from here" can be offered for a step.
  *
  * The button re-enters the run at its cursor, which is only meaningful
