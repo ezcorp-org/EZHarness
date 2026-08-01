@@ -150,6 +150,26 @@ export interface WorkflowStepRunUpsert {
    *  step that failed — both persist as SQL NULL, which a resume treats
    *  as "no value to rehydrate" and fails closed on. */
   output?: AgentResult | TruncatedStepOutput;
+  /** Agent invocations the step consumed (retries + loop iterations). */
+  attempt?: number;
+  /**
+   * Tokens the step reported, summed.
+   *
+   * **Absent must persist as SQL NULL, never 0.** "The provider reported
+   * nothing" and "the call used no tokens" are different facts, and only
+   * NULL says the first one — every SQL aggregate ignores NULL, while a 0
+   * is counted and silently deflates the total.
+   */
+  inputTokens?: number;
+  outputTokens?: number;
+  /** Wall-clock for the step, including retries and loop iterations. */
+  durationMs?: number;
+  /** Typed failure reason (`cancelled`, `step-failed`, …), not a message. */
+  errorCode?: string;
+  /** The step's resolved input mapping, already redacted and size-checked
+   *  by {@link prepareResolvedInput}. Never the raw value — that object
+   *  carries whatever credentials the author threaded in. */
+  resolvedInput?: Record<string, unknown> | TruncatedStepOutput;
 }
 
 /**
@@ -173,6 +193,19 @@ export async function upsertWorkflowStepRun(
   const provider = row.provider ?? null;
   const model = row.model ?? null;
   const output = row.output ?? null;
+  const attempt = row.attempt ?? null;
+  // `?? null`, deliberately NOT `?? 0`. Absent means the provider
+  // reported nothing; a zero would be a measurement that was never taken
+  // and every SUM over this column would believe it.
+  const inputTokens = row.inputTokens ?? null;
+  const outputTokens = row.outputTokens ?? null;
+  const durationMs = row.durationMs ?? null;
+  const errorCode = row.errorCode ?? null;
+  const resolvedInput = row.resolvedInput ?? null;
+  // `cost_usd` is deliberately NOT written by any code path: there is no
+  // host-side price table, so nothing here can compute a cost honestly.
+  // The column exists so the trace, the dashboard and C3's spend cap have
+  // one place to read from the day a price source lands.
   await getDb()
     .insert(workflowStepRuns)
     .values({
@@ -184,10 +217,20 @@ export async function upsertWorkflowStepRun(
       provider,
       model,
       output,
+      attempt,
+      inputTokens,
+      outputTokens,
+      durationMs,
+      errorCode,
+      resolvedInput,
     })
     .onConflictDoUpdate({
       target: [workflowStepRuns.workflowRunId, workflowStepRuns.stepName],
-      set: { runId, status: row.status, iterations, provider, model, output, updatedAt: sql`NOW()` },
+      set: {
+        runId, status: row.status, iterations, provider, model, output,
+        attempt, inputTokens, outputTokens, durationMs, errorCode, resolvedInput,
+        updatedAt: sql`NOW()`,
+      },
     });
 }
 
