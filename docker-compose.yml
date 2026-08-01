@@ -1,6 +1,14 @@
+# Dev stack. Runs on Docker as-is; for Podman use `bun run podman <args>`,
+# which layers `compose.podman.yml` on top (see docs/deployment.md §Podman).
+# That override is REQUIRED under Podman — the `tmpfs:` secret masks below
+# fail open without it. The boot-time guard in the app `command:` enforces it.
+#
+# Image names are fully qualified (docker.io/...) so this file resolves the
+# same way on a host whose containers/registries.conf has no
+# unqualified-search-registries configured. Harmless under Docker.
 services:
   postgres:
-    image: pgvector/pgvector:pg16
+    image: docker.io/pgvector/pgvector:pg16
     environment:
       POSTGRES_DB: ezcorp
       POSTGRES_USER: ezcorp
@@ -82,6 +90,14 @@ services:
       # dubious-ownership check — safe.directory clears it. The identity
       # entries make any future in-container commit attributable. GIT_CONFIG_*
       # env survives every spawn path (chat shell tool, extension runners).
+      #
+      # safe.directory is load-bearing under DOCKER and merely redundant
+      # under rootless Podman: Podman maps the invoking uid to container uid
+      # 0, so /repo's owner and git's euid already agree and the check never
+      # fires. Verified both ways — bare `git log` in the bind fails with
+      # "detected dubious ownership" under Docker and succeeds under Podman.
+      # Keep the entry: it is harmless where it is unnecessary, and dropping
+      # it would break every Docker user.
       - GIT_CONFIG_COUNT=3
       - GIT_CONFIG_KEY_0=safe.directory
       - GIT_CONFIG_VALUE_0=/repo
@@ -93,6 +109,33 @@ services:
       - sh
       - -c
       - |
+        # Fail-closed check on the `tmpfs:` secret masks (see the block
+        # below the volume list). They hide the prod PGlite DB/keys and the
+        # multi-GB agent-scratch worktrees from this container, and they are
+        # a BLACKLIST — when one fails it fails OPEN and nothing complains.
+        # That is not hypothetical: Podman seeds a tmpfs with the directory
+        # underneath it (`tmpcopyup`) unless `compose.podman.yml` is layered
+        # on, so a plain `docker compose -f docker-compose.yml up` against a
+        # Podman socket silently exposes both trees. Assert the masks landed
+        # rather than trusting that they were declared.
+        #
+        # The paths here MUST match the `tmpfs:` list —
+        # src/__tests__/compose-podman-masks.test.ts holds the two together.
+        # Doubled dollar signs below are deliberate: Compose interpolates
+        # single-dollar references (even inside these comments) and would
+        # substitute the loop variable away to an empty string before sh ever
+        # sees it — which silently makes the check pass unconditionally.
+        for masked in /repo/.ezcorp /repo/worktrees; do
+          if [ -n "$$(ls -A "$$masked" 2>/dev/null)" ]; then
+            echo "FATAL: $$masked is not empty inside the container." >&2
+            echo "       Its tmpfs mask is not in effect, so host secrets or" >&2
+            echo "       the agent-scratch tree are exposed to this container." >&2
+            echo "       On Podman, start the stack with:  bun run podman up -d" >&2
+            echo "       (layers compose.podman.yml, which adds notmpcopyup)." >&2
+            echo "       See docs/deployment.md section 'Running under Podman'." >&2
+            exit 1
+          fi
+        done
         # Reconcile deps with the committed lockfile BEFORE anything else.
         # node_modules is baked into the dev image (it is NOT bind-mounted),
         # so when a merged PR advances bun.lock — e.g. the pi-ai 0.79→0.80
@@ -169,8 +212,26 @@ services:
       # cause false "daemon already running" detection. Moving these two
       # binds does not reach them.
       #
-      # `.ezcorp/` is gitignored. Container runs as root, so host-side
-      # files it creates here are root-owned (sudo to manage from host).
+      # `.ezcorp/` is gitignored.
+      #
+      # HOST OWNERSHIP OF CONTAINER-CREATED FILES — the canonical note; the
+      # /repo mount below refers back here. The container runs as uid 0, and
+      # what that means on the host depends on the runtime:
+      #
+      #   Docker            uid 0 IS host root. Files the container creates
+      #                     here land ROOT-OWNED on the host — you need sudo
+      #                     to manage them, and the host tree (owned by your
+      #                     uid) appears foreign inside the container.
+      #   rootless Podman   INVERTED. uid 0 maps to the uid that invoked
+      #                     podman, so created files land owned by YOU and
+      #                     need no sudo; conversely the host tree shows up
+      #                     inside the container as uid 0.
+      #
+      # Measured, not assumed: same `alpine` container writing into the same
+      # bind produced a root-owned file under Docker and a dev-owned file
+      # under rootless Podman. Nothing here depends on which way it falls, so
+      # the stack needs no --userns=keep-id; only the sudo-or-not ergonomics
+      # differ, and this note exists so the difference isn't a surprise.
       - ./.ezcorp/extensions:/app/.ezcorp/extensions
       - ./.ezcorp/extension-data:/app/.ezcorp/extension-data
       # SECOND target for the SAME host extension-data tree, at the
@@ -250,10 +311,11 @@ services:
       # ── Self-modification project (EZCORP_SELF_PROJECT_PATH) ─────────
       # Whole checkout rw, including everything the scoped mounts above
       # don't cover. Shares inodes with ./src and ./web/src, so agent edits
-      # write through to the host tree and Vite HMR fires unchanged. The
-      # container runs as root, so files the agent CREATES here land
-      # root-owned on the host (same caveat as .ezcorp above); edits to
-      # EXISTING files keep their owner.
+      # write through to the host tree and Vite HMR fires unchanged. Files
+      # the agent CREATES here follow the runtime-dependent ownership rule
+      # documented at the .ezcorp bind above (root-owned under Docker,
+      # your-uid-owned under rootless Podman); edits to EXISTING files keep
+      # their owner either way.
       - .:/repo
       # Read-only .git: git diff/log/status work for agent context, but
       # commits/branches/stashes fail with EROFS — keeps root-owned
@@ -271,8 +333,33 @@ services:
       # Mask the prod DB/keys dir and the multi-GB agent-scratch worktrees
       # out of /repo (mounts nest by target-path depth — same mechanism as
       # the .ezcorp bind-over-volume layering above).
-      - /repo/.ezcorp
-      - /repo/worktrees
+      #
+      # RUNTIME CAVEAT — these masks are the one thing in this file that does
+      # NOT behave the same on Docker and Podman. Docker gives an empty
+      # tmpfs. Podman defaults tmpfs mounts to `tmpcopyup`, which SEEDS the
+      # tmpfs with the contents of the directory underneath — i.e. with
+      # exactly what the mask exists to hide. Under Podman that means the
+      # prod PGlite DB/keys become readable in-container, and the copy-up
+      # targets a RAM-backed fs, so a large worktrees/ tree (13 GB on the
+      # primary dev box) is copied into memory at container start.
+      # `compose.podman.yml` re-declares both entries with `notmpcopyup` to
+      # restore Docker's semantics; `bun run podman` layers it automatically.
+      # Docker REJECTS `notmpcopyup` outright ("invalid tmpfs option"), which
+      # is why it lives in an override rather than here.
+      #
+      # A blacklist mask fails OPEN, so the app `command:` re-verifies both
+      # paths are empty at boot and exits non-zero if not. Do not rely on the
+      # declaration alone.
+      #
+      # size= caps the mask. Nothing should legitimately write here — these
+      # are hiding places, not scratch space — and the tmpfs default is half
+      # of host RAM, which is not a bound worth having next to a 13 GB tree.
+      # NOTE: `compose.podman.yml` REPLACES this whole list (YAML `!override`,
+      # because compose otherwise APPENDS and then errors on the duplicate
+      # target), so any option added here must be repeated there or it is
+      # silently dropped under Podman. A test locks that.
+      - /repo/.ezcorp:size=16m
+      - /repo/worktrees:size=64m
     depends_on:
       postgres:
         condition: service_healthy
@@ -286,7 +373,7 @@ services:
   # depends_on). The port publishes on loopback ONLY — the app reaches
   # it via host networking; nothing off-host can.
   searxng:
-    image: searxng/searxng:latest
+    image: docker.io/searxng/searxng:latest
     restart: unless-stopped
     mem_limit: 256m
     cpus: 0.5
@@ -309,7 +396,7 @@ services:
   # service is down or removed. Model weights persist in the named volume,
   # so the ~1GB download happens once.
   ollama:
-    image: ollama/ollama:latest
+    image: docker.io/ollama/ollama:latest
     restart: unless-stopped
     mem_limit: 4g
     cpus: 4
@@ -328,7 +415,7 @@ services:
   # (restart "no"). Idempotent — `ollama pull` no-ops when the tag is
   # already current in the shared volume.
   ollama-init:
-    image: ollama/ollama:latest
+    image: docker.io/ollama/ollama:latest
     depends_on:
       ollama:
         condition: service_healthy
