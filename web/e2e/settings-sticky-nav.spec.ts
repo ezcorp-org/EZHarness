@@ -153,6 +153,16 @@ test.describe("settings nav — sticky + self-scrolling", () => {
 		const nav = page.getByTestId("settings-nav");
 		await expect(page.getByTestId("settings-nav-column")).toBeVisible();
 
+		// An element that does not overflow cannot be scrolled, so assigning
+		// `scrollTop` leaves it at 0 and the assertion below reads as a
+		// failure of the sticky layout. Between `goto` and here the admin
+		// page is still filling in, and under a loaded 4-worker run it can
+		// still be short at this point — observed once in a full
+		// `evidence-soft` lane, and 12/12 green when this spec runs alone.
+		// Wait for the overflow to exist, THEN assert the scroll moved.
+		await expect
+			.poll(() => main.evaluate((el) => el.scrollHeight - el.clientHeight))
+			.toBeGreaterThan(0);
 		await main.evaluate((el) => {
 			el.scrollTop = el.scrollHeight;
 		});
