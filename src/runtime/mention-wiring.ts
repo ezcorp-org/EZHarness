@@ -872,10 +872,10 @@ export function applyWorkflowExpansion(
   // though every test exercised them. It also lets `if (workflow)` narrow the
   // type properly — the chain needed a `!` assertion, because `.filter(Boolean)`
   // never narrows, which was masking a genuine `null` rather than excluding it.
+  // Blocks are labelled from the TOKEN, not the resolved entry: a cache entry
+  // can carry a different `name`, and the reader needs to see what they typed.
   const blocks: string[] = [];
   for (const name of orderedNames.slice(0, MAX_WORKFLOW_EXPANSIONS_PER_TURN)) {
-    // Label the block from the TOKEN, not the resolved entry: a cache entry can
-    // carry a different `name`, and the reader needs to see what they typed.
     const workflow = resolver(name);
     if (workflow) blocks.push(formatWorkflowBlock(name, workflow));
   }
