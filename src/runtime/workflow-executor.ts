@@ -16,11 +16,13 @@ import {
 import { evaluateCondition } from "./workflow-condition";
 import { clampMaxIterations, clampRetries, stepKind } from "./workflow-validator";
 import {
+  abortPendingApprovalsForScope,
   beginNonInteractiveScope,
   type NonInteractiveScopeHandle,
 } from "./tools/permissions";
 import {
   createWorkflowToolRunner,
+  type PendingPermissionGate,
   type WorkflowToolRunner,
   type WorkflowToolRunnerFactory,
 } from "./workflow-tool-runner";
@@ -84,6 +86,62 @@ export interface WorkflowExecutorOptions {
    * extension registry).
    */
   toolRunnerFactory?: WorkflowToolRunnerFactory;
+}
+
+/**
+ * Per-RUN options. Everything here is about ONE mode switch: is there a
+ * human attached to this run?
+ *
+ * Omitting the object entirely (REST, CLI, extension reverse-RPC, the boot
+ * sweep) reproduces the fail-closed path byte for byte — those callers have
+ * no conversation, so a sensitive step's consent card would have nobody to
+ * render to and the run parks `awaiting_approval` instead of hanging.
+ */
+export interface WorkflowRunOptions {
+  /**
+   * The REAL chat conversation this run belongs to. Set ⇒ INTERACTIVE: no
+   * non-interactive scope is registered, so a sensitive step's permission
+   * gate parks normally and the user's consent card can answer it.
+   *
+   * An empty string is deliberately NOT interactive — it would fail the SSE
+   * filter OPEN (see {@link workflowScopeKey}) — and falls back to the
+   * synthetic key.
+   */
+  conversationId?: string;
+  /**
+   * Interactive only: the surrounding turn's pending-permission map, so a
+   * parked consent card is visible to the run watchdog. See
+   * {@link PendingPermissionGate}.
+   */
+  pendingPermissions?: PendingPermissionGate;
+}
+
+/**
+ * The {@link NonInteractiveScopeHandle} an INTERACTIVE run installs: a
+ * deliberate no-op, so `runToolStep` needs no branch of its own.
+ *
+ * Interactive mode is the ABSENCE of a non-interactive scope. Each member
+ * is load-bearing by what it does NOT do:
+ *
+ *   • `run(fn)` calls `fn` directly. It installs no ambient scope, so a
+ *     gate parks and the consent card renders. Critically it also does not
+ *     CLEAR an outer one: a non-interactive REST/CLI run whose agent step
+ *     reaches `run_workflow` still has that run's scope ambient in
+ *     AsyncLocalStorage, so the inner gate is refused. A non-interactive
+ *     workflow cannot launder itself into interactive mode.
+ *   • `takeDenial()` always returns undefined, so a user DECLINE lands in
+ *     `runToolStep`'s generic failure branch and terminalizes the run
+ *     `error`. That is correct — a decline IS a failure, and
+ *     `awaiting_approval` ("blocked on a human we cannot reach") is by
+ *     construction unreachable when a human was reached and said no.
+ *   • `end()` has nothing to deregister.
+ */
+function interactiveScopeStub(): NonInteractiveScopeHandle {
+  return {
+    end: () => {},
+    takeDenial: () => undefined,
+    run: (fn) => fn(),
+  };
 }
 
 /**
@@ -163,6 +221,7 @@ export class WorkflowExecutor {
     projectId?: string,
     userId?: string,
     signal?: AbortSignal,
+    opts?: WorkflowRunOptions,
   ): Promise<WorkflowRun> {
     const workflowRun: WorkflowRun = {
       id: crypto.randomUUID(),
@@ -201,13 +260,22 @@ export class WorkflowExecutor {
 
     // ── Tool-step scope (security) ───────────────────────────────────
     //
-    // The id every tool step of this run passes as `conversationId`, and
-    // the key that marks the run non-interactive. Registering it means a
-    // sensitive-capability PDP `prompt` is REFUSED synchronously instead
-    // of parking a promise nobody can resolve — see
-    // `createExtensionPermissionGate`. `gateAbort` fires on cancel so any
-    // gate that did somehow open under this key is torn down with the run.
-    const scopeKey = workflowScopeKey(workflowRun.id);
+    // The id every tool step of this run passes as `conversationId`.
+    //
+    // NON-INTERACTIVE (the default — REST, CLI, extension, schedule): a
+    // synthetic key that names no conversation, registered as a
+    // non-interactive scope. A sensitive-capability PDP `prompt` is then
+    // REFUSED synchronously instead of parking a promise nobody can
+    // resolve — see `createExtensionPermissionGate`. `gateAbort` fires on
+    // cancel so any gate that did somehow open under this key is torn
+    // down with the run.
+    //
+    // INTERACTIVE (`opts.conversationId`, i.e. the `run_workflow` tool):
+    // the REAL conversation id, and no scope at all — there IS a human
+    // here, so the gate must park and let the consent card resolve it.
+    const interactiveConversationId = opts?.conversationId || undefined;
+    const interactive = interactiveConversationId !== undefined;
+    const scopeKey = interactiveConversationId ?? workflowScopeKey(workflowRun.id);
     const gateAbort = new AbortController();
     // ── Cancellation plumbing (durability) ───────────────────────────
     //
@@ -229,13 +297,15 @@ export class WorkflowExecutor {
     const stepAgents = new Set(
       (workflow.steps ?? []).map((s) => s.agent).filter((a): a is string => Boolean(a)),
     );
-    const approvalScope = beginNonInteractiveScope(scopeKey, gateAbort.signal);
+    const approvalScope = interactive
+      ? interactiveScopeStub()
+      : beginNonInteractiveScope(scopeKey, gateAbort.signal);
     // Built lazily: a workflow with no tool steps never touches the
     // extension registry or the PDP singleton.
     let toolRunner: WorkflowToolRunner | undefined;
     const getToolRunner = (): WorkflowToolRunner => {
       if (!toolRunner) {
-        toolRunner = this.toolRunnerFactory();
+        toolRunner = this.toolRunnerFactory(opts?.pendingPermissions);
         if (userId) toolRunner.setCurrentUserId(userId);
         // Pin the scope key as the executor's current conversation up
         // front. `handlePiInvoke` resolves a nested call's conversation
@@ -273,6 +343,19 @@ export class WorkflowExecutor {
     const onAbort = (): void => {
       externallyAborted = true;
       cancelInFlight();
+      // INTERACTIVE ONLY, and it is what makes cancel actually cancel.
+      //
+      // A non-interactive run never parks a gate, so aborting it needs no
+      // gate teardown (and `beginNonInteractiveScope` installs one on
+      // `gateAbort` anyway). An interactive run's tool step CAN be sitting
+      // on a consent card, and `cancelInFlight()` only reaches agent runs
+      // — so without this the batch would keep awaiting a card the user
+      // has just walked away from, and the run would never terminalize.
+      //
+      // `scopeKey` is the real conversation id here, so this rejects every
+      // gate pending on that conversation. That is right on this path and
+      // only this path: the whole turn is being torn down.
+      if (interactive) abortPendingApprovalsForScope(scopeKey);
     };
     if (signal && !signal.aborted) {
       signal.addEventListener("abort", onAbort, { once: true });
@@ -434,9 +517,15 @@ export class WorkflowExecutor {
       approvalScope.end();
       // The per-turn tool-call counter (`limits.ts`) is keyed by the id we
       // pass as `conversationId`, and its bus-driven reset only fires for
-      // real chat runs. A workflow's key is unique per run, so without
-      // this the Map would grow by one dead entry per run forever.
-      toolCallsThisTurn.delete(scopeKey);
+      // real chat runs. A NON-interactive workflow's key is unique per run,
+      // so without this the Map would grow by one dead entry per run
+      // forever.
+      //
+      // An INTERACTIVE run must NOT touch it: the key is then the
+      // surrounding chat turn's conversation id, and deleting it would
+      // silently refund that turn's whole per-turn tool-call budget. That
+      // turn owns the entry and the bus reset already clears it.
+      if (!interactive) toolCallsThisTurn.delete(scopeKey);
       await this.persistWrite("finalize", () =>
         finalizeWorkflowRunRow(
           workflowRun.id,

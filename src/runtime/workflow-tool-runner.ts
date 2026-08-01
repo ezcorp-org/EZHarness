@@ -15,6 +15,7 @@ import { ToolExecutor } from "../extensions/tool-executor";
 import type { ToolCallResult } from "../extensions/types";
 import type { EventBus } from "./events";
 import type { AgentEvents } from "../types";
+import type { PendingPermissionInfo } from "./stream-chat/host";
 
 /**
  * The slice of `ToolExecutor` a workflow tool step uses. Structural, so
@@ -47,8 +48,33 @@ export interface WorkflowToolRunner {
   ): Promise<ToolCallResult>;
 }
 
-/** Factory shape the executor injects; see `WorkflowExecutorOptions`. */
-export type WorkflowToolRunnerFactory = () => WorkflowToolRunner;
+/**
+ * The executor's `pendingPermissions` map, as two plain functions.
+ *
+ * ONLY meaningful for an INTERACTIVE run (one started from a chat turn by
+ * the `run_workflow` tool). While a sensitive step's consent card is up,
+ * the surrounding turn's tool call is still "in flight", so the run
+ * watchdog's `deferralReason` must be able to see the gate and defer
+ * indefinitely — it reads `host.pendingPermissions` and nothing else. A
+ * workflow gate that never registers there is invisible to it, and the
+ * watchdog kills the run at the `callTimeoutMs` ceiling, tearing the
+ * prompt down before the user can answer it (the "stuck chat" defect —
+ * see `wireHostPendingPermissions` in stream-chat/setup-tools.ts).
+ *
+ * A NON-interactive run never needs it: its gates are refused
+ * synchronously and never park, so there is no wait to explain.
+ */
+export interface PendingPermissionGate {
+  register: (key: string, info: PendingPermissionInfo) => void;
+  deregister: (key: string) => void;
+}
+
+/** Factory shape the executor injects; see `WorkflowExecutorOptions`.
+ *  The gate is per-RUN (it names the surrounding chat turn's host), so it
+ *  arrives as an argument rather than being baked into the factory. */
+export type WorkflowToolRunnerFactory = (
+  pendingPermissions?: PendingPermissionGate,
+) => WorkflowToolRunner;
 
 /**
  * Build the production runner: the process-wide extension registry + the
@@ -63,6 +89,7 @@ export type WorkflowToolRunnerFactory = () => WorkflowToolRunner;
  */
 export function createWorkflowToolRunner(
   bus: EventBus<AgentEvents>,
+  pendingPermissions?: PendingPermissionGate,
 ): WorkflowToolRunner {
   const registry = ExtensionRegistry.getInstance();
   const engine = getPermissionEngine({
@@ -70,5 +97,12 @@ export function createWorkflowToolRunner(
     bus,
     db: { _token: "workflow-tool-step" },
   });
-  return new ToolExecutor(registry, engine, { bus });
+  const executor = new ToolExecutor(registry, engine, { bus });
+  if (pendingPermissions) {
+    executor.setPendingPermissionGate(
+      pendingPermissions.register,
+      pendingPermissions.deregister,
+    );
+  }
+  return executor;
 }
