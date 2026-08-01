@@ -976,3 +976,76 @@ describe("spawn-assignment — Phase 6 PDP-deny + quota-invalid reason", () => {
     expect(a?.metadata).toMatchObject({ reason: "quota-invalid" });
   });
 });
+
+describe("spawn-assignment — orchestration depth is normalized, never caller-chosen", () => {
+  const base = { v: 1, task: "hi", agentConfigId: "cfg-alice-helper" };
+
+  /** Dispatch a spawn and return the depth `startAssignment` actually got. */
+  async function depthReaching(
+    params: Record<string, unknown>,
+    id: string,
+  ): Promise<unknown> {
+    const before = startAssignmentCalls.length;
+    const resp = await handleSpawnAssignmentRpc(EXT_WIRED, rpc(params, id), makeCtx());
+    expect(resp.error).toBeUndefined();
+    expect(startAssignmentCalls.length).toBe(before + 1);
+    return startAssignmentCalls[startAssignmentCalls.length - 1]!.orchestrationDepth;
+  }
+
+  test("THE SPOOF: an explicit orchestrationDepth: 0 is floored to 1", async () => {
+    // 0 means "top-level user chat turn". A reverse-RPC spawn never is one,
+    // and depth 0 is what gates `run_workflow` into a turn — so a caller that
+    // could assert 0 could hand its spawned turn a workflow-execution tool
+    // and defeat the recursion bound.
+    expect(await depthReaching({ ...base, orchestrationDepth: 0 }, "d-spoof-0")).toBe(1);
+  });
+
+  test("THE OMISSION BYPASS: no orchestrationDepth at all still yields 1, not undefined", async () => {
+    // Flooring a SUPPLIED value alone would be theatre: omitting the field
+    // left it unforwarded, `streamChat` saw undefined, and setup-tools read
+    // that back as `?? 0` — the identical bypass with one less keystroke.
+    expect(await depthReaching({ ...base }, "d-omit")).toBe(1);
+  });
+
+  test("negative and fractional depths are floored to 1", async () => {
+    expect(await depthReaching({ ...base, orchestrationDepth: -5 }, "d-neg")).toBe(1);
+    expect(await depthReaching({ ...base, orchestrationDepth: 0.9 }, "d-frac")).toBe(1);
+  });
+
+  test("a non-numeric depth falls back to 1 rather than through", async () => {
+    expect(await depthReaching({ ...base, orchestrationDepth: "0" }, "d-str")).toBe(1);
+    expect(await depthReaching({ ...base, orchestrationDepth: Number.NaN }, "d-nan")).toBe(1);
+  });
+
+  test("a legitimate deeper depth is preserved (the floor only raises)", async () => {
+    expect(await depthReaching({ ...base, orchestrationDepth: 2 }, "d-two")).toBe(2);
+    expect(await depthReaching({ ...base, orchestrationDepth: 3.7 }, "d-trunc")).toBe(3);
+  });
+
+  test("COMPOSED: the depth a spoofing caller achieves cannot wire run_workflow", async () => {
+    // The end the guard exists for. Feed the depth that ACTUALLY reaches
+    // streamChat (captured above, not a hand-written constant) into the real
+    // gate and assert the tool is absent.
+    const { wireRunWorkflowIfEligible } = await import("../runtime/stream-chat/setup-tools");
+    const { RUN_WORKFLOW_TOOL_NAME } = await import("../runtime/tools/run-workflow");
+
+    for (const [label, spoof] of [
+      ["explicit 0", { ...base, orchestrationDepth: 0 }],
+      ["omitted", { ...base }],
+      ["negative", { ...base, orchestrationDepth: -1 }],
+    ] as const) {
+      const depth = await depthReaching(spoof, `d-composed-${label.replace(/\s/g, "-")}`);
+      const agentTools: Array<{ name: string }> = [];
+      const builtinToolDefsMap = new Map();
+      await wireRunWorkflowIfEligible({
+        agentTools: agentTools as never,
+        builtinToolDefsMap,
+        conversationId: "conv-spawned",
+        convRecord: { userId: "user-alice", kind: "regular" },
+        orchestrationDepth: depth as number,
+      });
+      expect(agentTools.map((t) => t.name), label).not.toContain(RUN_WORKFLOW_TOOL_NAME);
+      expect(builtinToolDefsMap.size, label).toBe(0);
+    }
+  });
+});
