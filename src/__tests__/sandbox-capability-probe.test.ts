@@ -13,11 +13,12 @@
  * they fail-closed to false/null) plus the cache accessor + reset.
  */
 import { test, expect, describe, afterEach } from "bun:test";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, delimiter } from "node:path";
 import {
+  findBwrap,
   selectTier,
   probeUserns,
   probeCgroupV2Delegation,
@@ -39,6 +40,9 @@ function outcomes(over: Partial<ProbeOutcomes>): ProbeOutcomes {
     kvm: false,
     arch: "x64",
     bwrapSetuid: false,
+    // Default to a bwrap being installed: these cases are about the OTHER
+    // primitives, and the absent-bwrap case gets its own explicit test.
+    bwrapPresent: true,
     ...over,
   };
 }
@@ -60,6 +64,19 @@ describe("selectTier — pure tier selection", () => {
     // even though userns is available — real fs confinement is preserved.
     const r = selectTier(
       outcomes({ landlockAbi: 5, userns: true, bwrapSetuid: true }),
+    );
+    expect(r).toEqual({ tier: "landlock", landlockUsable: true });
+  });
+
+  test("landlock (not bwrap): userns works but NO bwrap is installed", () => {
+    // The regression this guards: `bwrapSetuid` is false both for a plain
+    // bwrap and for no bwrap at all, so selecting on `!bwrapSetuid` alone
+    // picked the bwrap tier on images without bubblewrap and produced an
+    // argv (`["bwrap", ...]`) that dies with "Executable not found in
+    // $PATH". Docker masked it by blocking userns; rootless Podman allows
+    // userns, so the dev stack hit it the moment it moved runtimes.
+    const r = selectTier(
+      outcomes({ landlockAbi: 5, userns: true, bwrapPresent: false }),
     );
     expect(r).toEqual({ tier: "landlock", landlockUsable: true });
   });
@@ -181,5 +198,70 @@ describe("bwrapIsSetuid — detects setuid-root bwrap on PATH", () => {
     dir = mkdtempSync(join(tmpdir(), "bwrap-none-"));
     process.env.PATH = dir;
     expect(bwrapIsSetuid()).toBe(false);
+  });
+});
+
+describe("findBwrap — presence and setuid-ness from ONE lookup", () => {
+  const ORIG_PATH = process.env.PATH;
+  let dir: string | null = null;
+
+  afterEach(() => {
+    process.env.PATH = ORIG_PATH;
+    if (dir) rmSync(dir, { recursive: true, force: true });
+    dir = null;
+  });
+
+  test("null when PATH holds no bwrap — the case that used to read as 'plain'", () => {
+    dir = mkdtempSync(join(tmpdir(), "findbwrap-none-"));
+    process.env.PATH = dir;
+    expect(findBwrap()).toBeNull();
+  });
+
+  test("reports the resolved path and setuid=false for a plain bwrap", () => {
+    dir = mkdtempSync(join(tmpdir(), "findbwrap-plain-"));
+    const fake = join(dir, "bwrap");
+    writeFileSync(fake, "#!/bin/sh\nexit 0\n");
+    process.env.PATH = dir;
+    expect(findBwrap()).toEqual({ path: fake, setuid: false });
+  });
+
+  test("reports setuid=true for a setuid-root bwrap", () => {
+    dir = mkdtempSync(join(tmpdir(), "findbwrap-setuid-"));
+    const fake = join(dir, "bwrap");
+    writeFileSync(fake, "#!/bin/sh\nexit 0\n");
+    const r = spawnSync("chmod", ["4755", fake]);
+    if (r.status !== 0) throw new Error("chmod 4755 failed in test setup");
+    process.env.PATH = dir;
+    expect(findBwrap()).toEqual({ path: fake, setuid: true });
+  });
+
+  test("skips PATH entries that do not contain bwrap and takes the first hit", () => {
+    dir = mkdtempSync(join(tmpdir(), "findbwrap-order-"));
+    const empty = join(dir, "empty");
+    const holding = join(dir, "holding");
+    mkdirSync(empty);
+    mkdirSync(holding);
+    const fake = join(holding, "bwrap");
+    writeFileSync(fake, "#!/bin/sh\nexit 0\n");
+    // Empty dir first, plus a stray "" entry — exec() would skip both.
+    process.env.PATH = `${empty}${delimiter}${delimiter}${holding}`;
+    expect(findBwrap()).toEqual({ path: fake, setuid: false });
+  });
+});
+
+describe("the probe never selects a tier it cannot execute", () => {
+  /**
+   * Live host check, and the coupling the unit cases can't give: it holds
+   * the RESOLVED tier against the actual filesystem rather than against
+   * synthetic outcomes. If `probeSandboxCapabilities` ever reports the
+   * bwrap tier on a machine with no bwrap, extension spawning is broken on
+   * that machine and this fails there — regardless of which container
+   * runtime or distro CI happens to run on.
+   */
+  test("bwrapPresent mirrors the filesystem, and bwrap tier implies a binary", () => {
+    __resetSandboxCapabilitiesCache();
+    const caps = probeSandboxCapabilities();
+    expect(caps.bwrapPresent).toBe(findBwrap() !== null);
+    expect(caps.tier === "bwrap" && !caps.bwrapPresent).toBe(false);
   });
 });
