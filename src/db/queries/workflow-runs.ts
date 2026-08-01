@@ -858,6 +858,49 @@ export async function renewWorkflowRunLeases(
  * Returns the number of claims released.
  */
 export async function releaseWorkflowRunClaims(claimedBy: string): Promise<number> {
+  return releaseBoundaryClaims(claimedBy);
+}
+
+/**
+ * Hand back ONE claim, by run id.
+ *
+ * The single-run twin of {@link releaseWorkflowRunClaims}, for a daemon
+ * that claimed a run and then could not take it anywhere — a resume
+ * refused TRANSIENTLY, the pending-approval gate above all. Holding the
+ * claim after that would leave the row at `running` for a full lease
+ * period, and `answerApproval` refuses a run that is not `suspended`: the
+ * daemon would have locked the human out of the very decision it was
+ * waiting for.
+ *
+ * Scoped to one id rather than reusing the plural form, which would yank
+ * the claims of every OTHER resume this instance has in flight — they
+ * sit at `boundary` between batches, so they match its WHERE exactly.
+ *
+ * Every other guarantee is the plural one's, because it is the same
+ * predicate: only this instance's claims, only a run still `running`,
+ * only at a `boundary`.
+ *
+ * Returns 1 if the claim was released, 0 if there was nothing to release.
+ */
+export async function releaseWorkflowRunClaim(
+  workflowRunId: string,
+  claimedBy: string,
+): Promise<number> {
+  return releaseBoundaryClaims(claimedBy, workflowRunId);
+}
+
+/**
+ * The one predicate both release forms use — see
+ * {@link releaseWorkflowRunClaims} for what each conjunct is protecting.
+ *
+ * Shared rather than duplicated because the `run_phase='boundary'`
+ * condition is the load-bearing one: a copy that lost it would hand a run
+ * with side effects in flight to a second process.
+ */
+async function releaseBoundaryClaims(
+  claimedBy: string,
+  workflowRunId?: string,
+): Promise<number> {
   const rows = await getDb()
     .update(workflowRuns)
     .set({ status: "suspended", claimedBy: null, leaseExpiresAt: null })
@@ -866,6 +909,7 @@ export async function releaseWorkflowRunClaims(claimedBy: string): Promise<numbe
         eq(workflowRuns.claimedBy, claimedBy),
         eq(workflowRuns.status, "running"),
         eq(workflowRuns.runPhase, "boundary"),
+        ...(workflowRunId !== undefined ? [eq(workflowRuns.id, workflowRunId)] : []),
       ),
     )
     .returning({ id: workflowRuns.id });

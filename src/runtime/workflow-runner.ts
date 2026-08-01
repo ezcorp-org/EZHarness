@@ -37,6 +37,14 @@
  *     `in-batch` means side effects may be mid-flight, and the recovery
  *     sweep owns that judgement.
  *
+ *   - **A claim it could not use is handed back at once**, on the same
+ *     terms. A resume that comes back `suspended` — most often a run
+ *     parked on an unanswered approval, which `resumeWorkflow` refuses
+ *     TRANSIENTLY without writing anything — leaves the row `running`
+ *     under this instance's claim, and `answerApproval` refuses a run
+ *     that is not `suspended`. Holding it would lock the human out of
+ *     the very decision this daemon is waiting on.
+ *
  * ## Why resume goes through the runtime registry
  *
  * The live `WorkflowExecutor` and the merged workflow cache are built in
@@ -53,6 +61,7 @@ import { logger } from "../logger";
 import {
   claimWorkflowRun,
   listClaimableWorkflowRuns,
+  releaseWorkflowRunClaim,
   releaseWorkflowRunClaims,
   renewWorkflowRunLeases,
   WORKFLOW_LEASE_MS,
@@ -357,8 +366,43 @@ export class WorkflowRunner {
     // refusal (drift, a pending approval, unavailable step output) rather
     // than throwing, so this is not written around exceptions. A throw
     // here is a genuine bug and propagates to `tick`'s caller.
-    const run = await runtime.workflowExecutor.resumeWorkflow(workflow, resumeArgsFromRow(row));
+    //
+    // `resumedBy` is what stops that first sentence from being a lie. The
+    // claim above took the row `suspended → running`, and without an
+    // identity to check the executor's status guard cannot tell this
+    // resume from one aimed at a run another process is driving — so it
+    // refused, TERMINALLY, every run this daemon ever claimed. See
+    // `workflow-executor.ts`'s status-guard comment.
+    const run = await runtime.workflowExecutor.resumeWorkflow(
+      workflow,
+      resumeArgsFromRow(row),
+      undefined,
+      { resumedBy: this.instanceId },
+    );
     log.info("resumed a parked run", { runId, status: run.status });
+
+    // A run that came back PARKED is not ours to keep holding.
+    //
+    // `suspended` is the executor's one word for "this run is waiting",
+    // and it covers both ways that happens. Either it refused
+    // TRANSIENTLY — a pending approval, the case this daemon used to
+    // destroy — in which case it wrote NOTHING and the row is still
+    // `running` under our claim; or the run legitimately re-parked at a
+    // later step, in which case `suspendWorkflowRun` already cleared the
+    // claim and this is a zero-row no-op. Neither one wants a 60s lease
+    // held over it: `answerApproval` refuses a run that is not
+    // `suspended`, so a held claim locks the human out of exactly the
+    // decision the daemon is waiting on, one wake interval at a time.
+    //
+    // Deliberately NOT unconditional. A run that came back `success` or
+    // `error` and yet still reads `running` is a run whose terminal write
+    // did not land — releasing that would make it claimable again and
+    // re-execute a batch that already ran. Leaving it under lease for the
+    // recovery sweep is the existing, safe answer, and it stays.
+    if (run.status === "suspended") {
+      const released = await releaseWorkflowRunClaim(runId, this.instanceId);
+      if (released > 0) log.info("released the claim on a still-parked run", { runId });
+    }
   }
 
   /** Push this instance's live claims forward by one lease. */

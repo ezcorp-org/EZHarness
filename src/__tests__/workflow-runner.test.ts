@@ -20,7 +20,7 @@ import { drizzle } from "drizzle-orm/pglite";
 import { sql } from "drizzle-orm";
 import * as schema from "../db/schema";
 import { migrate } from "../db/migrate";
-import type { WorkflowDefinition, WorkflowRun } from "../types";
+import type { AgentEvents, WorkflowDefinition, WorkflowRun } from "../types";
 import type { WorkflowRuntime } from "../runtime/workflow/runtime-registry";
 
 let pglite: PGlite;
@@ -40,13 +40,20 @@ const {
   getWorkflowRunRow,
   insertWorkflowRun,
   listClaimableWorkflowRuns,
+  releaseWorkflowRunClaim,
   releaseWorkflowRunClaims,
   renewWorkflowRunLeases,
   suspendWorkflowRun,
   WORKFLOW_LEASE_MS,
 } = await import("../db/queries/workflow-runs");
+const { getWorkflowApprovalById, parkWorkflowApproval } = await import(
+  "../db/queries/workflow-approvals"
+);
 const { WorkflowRunner } = await import("../runtime/workflow-runner");
-const { resumeArgsFromRow } = await import("../runtime/workflow-executor");
+const { resumeArgsFromRow, WorkflowExecutor } = await import("../runtime/workflow-executor");
+const { EventBus } = await import("../runtime/events");
+const { AgentExecutor } = await import("../runtime/executor");
+const { loadAgentsStatic } = await import("../runtime/loader");
 
 beforeAll(async () => {
   pglite = new PGlite({ extensions: { vector, pg_trgm } });
@@ -95,6 +102,65 @@ async function parkedRun(id: string, projectId: string | null = null): Promise<v
     cursor: { batchIndex: 0, completedSteps: [], prevStepName: null },
   });
   expect(moved).toBe(1);
+}
+
+/**
+ * A definition whose first step is a real consent gate.
+ *
+ * A run parked here is the population the daemon exists to serve AND the
+ * one it must never destroy, so the approval tests below need a graph the
+ * REAL executor can look up by name — `definition` above has no gate.
+ */
+const gatedDefinition: WorkflowDefinition = {
+  name: "gated",
+  description: "",
+  steps: [
+    { name: "gate", kind: "approval", prompt: "Ship it?", choices: ["approve", "reject"] },
+    { name: "after", kind: "transform", output: { v: "2" } },
+  ],
+};
+
+/** A run parked at `gate` with a real PENDING `workflow_approvals` row. */
+async function approvalParkedRun(id: string): Promise<string> {
+  await insertWorkflowRun({
+    id,
+    workflowName: gatedDefinition.name,
+    input: {},
+    startedAt: T0,
+    projectId: null,
+    definitionHash: null,
+  });
+  const moved = await suspendWorkflowRun(id, {
+    reason: "approval",
+    cursor: { batchIndex: 0, completedSteps: [], prevStepName: null },
+  });
+  expect(moved).toBe(1);
+  return parkWorkflowApproval({
+    workflowRunId: id,
+    stepName: "gate",
+    prompt: "Ship it?",
+    choices: ["approve", "reject"],
+    requireItemConsent: false,
+    itemIds: [],
+  });
+}
+
+/**
+ * A runtime wired to the REAL `WorkflowExecutor`, persisting.
+ *
+ * The stub in {@link fakeRuntime} answers `success` to every resume, so it
+ * proves the daemon CALLED the executor and nothing about what the executor
+ * does when it is called. Every property in "the daemon must not destroy a
+ * parked run" lives in `resumeWorkflow`, so these tests use the real one.
+ */
+function liveRuntime(): WorkflowRuntime {
+  const bus = new EventBus<AgentEvents>();
+  return {
+    getWorkflows: () => [definition, gatedDefinition],
+    workflowExecutor: new WorkflowExecutor(new AgentExecutor(loadAgentsStatic([]), bus), bus, {
+      persist: true,
+    }),
+  };
 }
 
 /** A promise a test can hold open, so resumes really do overlap. */
@@ -723,6 +789,199 @@ describe("WorkflowRunner lifecycle", () => {
   });
 });
 
+describe("the daemon must not destroy a run parked on an unanswered approval", () => {
+  test("one tick leaves the run suspended and its approval pending", async () => {
+    // Driven through the REAL executor: the claim takes the row to
+    // `running`, and everything that then decides the run's fate is inside
+    // `resumeWorkflow`. A stub that answers `success` proves none of it.
+    const approvalId = await approvalParkedRun("gated-1");
+    const d = runner(liveRuntime());
+
+    await d.tick();
+    await d.drain();
+
+    const row = await getWorkflowRunRow("gated-1");
+    // THE property. A parked decision that the daemon terminalizes is a
+    // consent gate nobody can ever answer — the wake interval is 5s, so
+    // no human is fast enough.
+    expect(row?.status).toBe("suspended");
+    expect(row?.result).toBeNull();
+    // And the question is still on the table.
+    expect((await getWorkflowApprovalById(approvalId))?.status).toBe("pending");
+  });
+
+  test("the claim is handed back, so the answer surface is not locked out", async () => {
+    // Leaving the row at `running` under a 60s lease would be a quieter
+    // version of the same bug: `answerApproval` refuses a run that is not
+    // `suspended` (`workflow-answer-approval.ts:192-198`), so a human
+    // answering inside that window is told the run is unavailable.
+    const approvalId = await approvalParkedRun("gated-2");
+    const d = runner(liveRuntime());
+
+    await d.tick();
+    await d.drain();
+
+    const row = await getWorkflowRunRow("gated-2");
+    expect(row?.claimedBy).toBeNull();
+    expect(row?.leaseExpiresAt).toBeNull();
+    expect((await getWorkflowApprovalById(approvalId))?.status).toBe("pending");
+  });
+
+  test("it survives repeated ticks, not just the first", async () => {
+    // The daemon wakes every 5s forever. A fix that merely survives one
+    // pass — by leaving the row somewhere the next pass then eats — is not
+    // a fix, and a single-tick test would not tell them apart.
+    const approvalId = await approvalParkedRun("gated-3");
+    const d = runner(liveRuntime());
+
+    for (let i = 0; i < 3; i++) {
+      await d.tick();
+      await d.drain();
+    }
+
+    expect((await getWorkflowRunRow("gated-3"))?.status).toBe("suspended");
+    expect((await getWorkflowApprovalById(approvalId))?.status).toBe("pending");
+  });
+});
+
+describe("the daemon can actually resume the runs it claims", () => {
+  test("a run parked for a NON-approval reason runs to completion", async () => {
+    // The other half of the same defect, and the half no consent check
+    // would ever have caught: a parent parked at `nested-suspended`
+    // (`workflow-executor.ts:1931`) has no approval of its own, so it was
+    // terminalized on the daemon's first tick with nothing to protect it.
+    // Driven through the REAL executor, because "the daemon resumes work"
+    // is a claim about the executor accepting the resume.
+    await parkedRun("plain-1");
+    const d = runner(liveRuntime());
+
+    await d.tick();
+    await d.drain();
+
+    const row = await getWorkflowRunRow("plain-1");
+    // Not merely "not error" — the step's own output is on the row, so
+    // the graph really ran rather than being waved through.
+    expect(row?.status).toBe("success");
+    expect(row?.result?.output).toEqual({ v: "1" });
+  });
+});
+
+describe("the status guard still refuses everyone it was aimed at", () => {
+  /** The row as the daemon leaves it mid-resume: `running`, under claim. */
+  async function claimedRow(id: string) {
+    await parkedRun(id);
+    expect(await claimWorkflowRun({ workflowRunId: id, claimedBy: "inst-A", now: T0 })).toBe(true);
+    return (await getWorkflowRunRow(id))!;
+  }
+
+  test("a caller naming NO instance is refused, and the run is terminalized", async () => {
+    // The double-execution guard (`workflow-runner.ts:17-21`): a `running`
+    // run is being driven by someone, and a caller that cannot say it holds
+    // the claim has no standing to resume it.
+    const row = await claimedRow("guard-1");
+    const rt = liveRuntime();
+
+    const run = await rt.workflowExecutor.resumeWorkflow(definition, resumeArgsFromRow(row));
+
+    expect(run.status).toBe("error");
+    expect(run.result?.error).toMatchObject({ code: "not-resumable" });
+  });
+
+  test("a caller naming the WRONG instance is refused too", async () => {
+    // The check is against `claimed_by` on the ROW, so an identity that
+    // does not hold the lease buys nothing. Without this the parameter
+    // would be a self-certification and the guard would be decorative.
+    const row = await claimedRow("guard-2");
+    const rt = liveRuntime();
+
+    const run = await rt.workflowExecutor.resumeWorkflow(
+      definition,
+      resumeArgsFromRow(row),
+      undefined,
+      { resumedBy: "inst-B" },
+    );
+
+    expect(run.status).toBe("error");
+    expect(run.result?.error).toMatchObject({ code: "not-resumable" });
+  });
+
+  test("a TERMINAL run is refused however the caller identifies itself", async () => {
+    // The guard's original job, untouched: naming an instance must not be
+    // a way to resume a run that is already over.
+    await parkedRun("guard-3");
+    await claimWorkflowRun({ workflowRunId: "guard-3", claimedBy: "inst-A", now: T0 });
+    await db.execute(sql`UPDATE workflow_runs SET status = 'success' WHERE id = 'guard-3'`);
+    const row = (await getWorkflowRunRow("guard-3"))!;
+    const rt = liveRuntime();
+
+    const run = await rt.workflowExecutor.resumeWorkflow(
+      definition,
+      resumeArgsFromRow(row),
+      undefined,
+      { resumedBy: "inst-A" },
+    );
+
+    expect(run.status).toBe("error");
+    expect(run.result?.error).toMatchObject({ code: "not-resumable" });
+  });
+
+  test("the matching instance IS let through, and the run continues", async () => {
+    const row = await claimedRow("guard-4");
+    const rt = liveRuntime();
+
+    const run = await rt.workflowExecutor.resumeWorkflow(
+      definition,
+      resumeArgsFromRow(row),
+      undefined,
+      { resumedBy: "inst-A" },
+    );
+
+    expect(run.status).toBe("success");
+  });
+});
+
+describe("releaseWorkflowRunClaim releases exactly one run", () => {
+  test("hands back the named claim and leaves this instance's others alone", async () => {
+    // Why the singular form exists: the plural one matches every claim
+    // this instance holds at a boundary, which is where a healthy resume
+    // sits BETWEEN batches. Reusing it to give one run back would yank
+    // the claims out from under every concurrent resume.
+    await parkedRun("one");
+    await parkedRun("two");
+    await claimWorkflowRun({ workflowRunId: "one", claimedBy: "A", now: T0 });
+    await claimWorkflowRun({ workflowRunId: "two", claimedBy: "A", now: T0 });
+
+    expect(await releaseWorkflowRunClaim("one", "A")).toBe(1);
+
+    const one = await getWorkflowRunRow("one");
+    expect(one?.status).toBe("suspended");
+    expect(one?.claimedBy).toBeNull();
+    expect(one?.leaseExpiresAt).toBeNull();
+    const two = await getWorkflowRunRow("two");
+    expect(two?.status).toBe("running");
+    expect(two?.claimedBy).toBe("A");
+  });
+
+  test("will not release another instance's claim", async () => {
+    await parkedRun("r1");
+    await claimWorkflowRun({ workflowRunId: "r1", claimedBy: "A", now: T0 });
+
+    expect(await releaseWorkflowRunClaim("r1", "B")).toBe(0);
+    expect((await getWorkflowRunRow("r1"))?.claimedBy).toBe("A");
+  });
+
+  test("will not release an IN-BATCH run — the sweep owns that call", async () => {
+    // Same reasoning as the plural form: `in-batch` means side effects may
+    // be mid-flight, so handing the run to a sibling invites re-execution.
+    await parkedRun("r1");
+    await claimWorkflowRun({ workflowRunId: "r1", claimedBy: "A", now: T0 });
+    await db.execute(sql`UPDATE workflow_runs SET run_phase = 'in-batch' WHERE id = 'r1'`);
+
+    expect(await releaseWorkflowRunClaim("r1", "A")).toBe(0);
+    expect((await getWorkflowRunRow("r1"))?.status).toBe("running");
+  });
+});
+
 describe("resumeArgsFromRow", () => {
   test("projects every field resumeWorkflow reads off a run row", async () => {
     await parkedRun("r1", "proj-9");
@@ -747,6 +1006,11 @@ describe("resumeArgsFromRow", () => {
       // pointer, so a projection that dropped it would resume a nested run
       // at depth 0 — making the nesting cap evadable by parking.
       parentRunId: null,
+      // Read by the status guard against the caller's `resumedBy`. Null
+      // here because nothing has claimed this run; a projection that
+      // dropped it would refuse the daemon on every run it claims, which
+      // is the defect this column was threaded through to fix.
+      claimedBy: null,
     });
   });
 });

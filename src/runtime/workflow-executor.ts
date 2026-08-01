@@ -235,6 +235,29 @@ export interface WorkflowExecutorOptions {
   workflowResolver?: NestedWorkflowResolver;
 }
 
+/** Per-call inputs to {@link WorkflowExecutor.resumeWorkflow} that come
+ *  from the CALLER rather than from the run's row. */
+export interface ResumeWorkflowOptions {
+  /**
+   * The caller's `claimed_by` identity, when it is resuming a run whose
+   * claim it already holds.
+   *
+   * Exists because winning `claimWorkflowRun`'s CAS
+   * (`db/queries/workflow-runs.ts`) *is* the
+   * `suspended → running` transition, so a claiming caller re-reading its
+   * own row finds it `running` — indistinguishable, by status alone, from
+   * a run some other process is driving. This is how it says which one it
+   * is, and it is checked against the row's `claimed_by` rather than
+   * trusted: an identity that does not hold the lease proves nothing.
+   *
+   * Absent for every non-claiming caller (`answerApproval`,
+   * `resumeParkedRun`), both of which refuse a non-`suspended` run before
+   * they ever get here — so the status guard behaves for them exactly as
+   * it always has.
+   */
+  resumedBy?: string;
+}
+
 /** Resolve + authorize a nested workflow for the run's principal. See
  *  {@link WorkflowExecutorOptions.workflowResolver}. */
 export type NestedWorkflowResolver = (
@@ -669,8 +692,12 @@ export class WorkflowExecutor {
        *  depth, so a resumed child's own `workflow` steps stay bounded by
        *  the same cap the first process enforced. */
       parentRunId?: string | null;
+      /** Who holds this run's claim, if anyone. Read ONLY by the status
+       *  guard below, against {@link ResumeWorkflowOptions.resumedBy}. */
+      claimedBy?: string | null;
     },
     signal?: AbortSignal,
+    opts?: ResumeWorkflowOptions,
   ): Promise<WorkflowRun> {
     const workflowRun: WorkflowRun = {
       id: row.id,
@@ -722,7 +749,43 @@ export class WorkflowExecutor {
       return workflowRun;
     };
 
-    if (row.status !== "suspended") {
+    // ── "not suspended" and "not resumable" are different questions ────
+    //
+    // Winning the claim CAS **is** the `suspended → running` transition
+    // (`db/queries/workflow-runs.ts:786-801`), and `WorkflowRunner`
+    // deliberately re-reads the row AFTER claiming it
+    // (`workflow-runner.ts:342`). So every run the daemon brings here
+    // reads `running`, and a bare `status !== "suspended"` test
+    // terminalized ALL of them — including the approval-parked runs the
+    // transient refusal twenty lines below exists to protect, which is
+    // the denial of service the `refuseTransient` docblock above warns
+    // about, arriving through the front door. The daemon wakes every 5s,
+    // so no human was ever fast enough to answer first.
+    //
+    // `running` is not a dead run. It means one of two things, and only
+    // the caller can tell them apart:
+    //
+    //   • "running because I just claimed it" — the CAS already proved
+    //     the row was `suspended` an instant ago, which is a STRONGER
+    //     statement than any status read could make. Such a caller says
+    //     so with `resumedBy`, and it has to match `claimed_by` on the
+    //     row: naming an identity that does not hold the lease proves
+    //     nothing.
+    //   • "running because something else owns it" — a synchronous run
+    //     mid-flight, or a sibling instance's claim. Resuming that would
+    //     execute a batch twice, which is the double-execution guard
+    //     named at `workflow-runner.ts:17-21`.
+    //
+    // A caller that names no `resumedBy`, or the wrong one, is refused
+    // exactly as before. The guard keeps every bit of its force against
+    // everyone it was ever aimed at; it simply stops firing on the one
+    // caller that had already earned its way past it.
+    const holdsClaim =
+      row.status === "running" &&
+      opts?.resumedBy != null &&
+      row.claimedBy != null &&
+      row.claimedBy === opts.resumedBy;
+    if (row.status !== "suspended" && !holdsClaim) {
       return refuseTerminal(
         "not-resumable",
         `Workflow run ${row.id} is ${row.status}, not suspended`,
@@ -2350,6 +2413,7 @@ export function resumeArgsFromRow(row: {
   userId?: string | null;
   startedAt: Date;
   parentRunId?: string | null;
+  claimedBy?: string | null;
 }): Parameters<WorkflowExecutor["resumeWorkflow"]>[1] {
   return {
     id: row.id,
@@ -2365,5 +2429,10 @@ export function resumeArgsFromRow(row: {
     // no resume call site has to remember it — a missed one would resume a
     // nested run at depth 0 and let the nesting cap be evaded by parking.
     parentRunId: row.parentRunId,
+    // The status guard reads this against the caller's
+    // `ResumeWorkflowOptions.resumedBy`. Dropping it would silently take
+    // the daemon back to being refused on every run it claims — this is
+    // exactly the class of omission the one-projection rule exists for.
+    claimedBy: row.claimedBy,
   };
 }
