@@ -1,6 +1,7 @@
 /**
  * DOM tests for the settings shell (`settings/+layout.svelte`):
- *   1. Nav renders all member items; admin entry hidden for members
+ *   1. Nav renders member items; admin entries (incl. Models & Providers)
+ *      hidden for members
  *   2. Admin entry (with "admin" badge) appears for admin users
  *   3. Active item derives from page.url.pathname (aria-current)
  *   4. Nested audit route highlights the Audit Log child, not Admin
@@ -56,7 +57,9 @@ describe("settings layout nav", () => {
 		const { getByTestId, queryByTestId } = render(Layout, { props: { children } });
 
 		expect(getByTestId("layout-children")).toBeInTheDocument();
-		expect(getByTestId("settings-nav-models")).toBeInTheDocument();
+		// Models & Providers is admin-only: its reads and writes both require
+		// the admin role, so members are not offered it.
+		expect(queryByTestId("settings-nav-models")).not.toBeInTheDocument();
 		expect(getByTestId("settings-nav-personalization")).toBeInTheDocument();
 		expect(getByTestId("settings-nav-developer")).toBeInTheDocument();
 		expect(getByTestId("settings-nav-briefing")).toBeInTheDocument();
@@ -85,7 +88,7 @@ describe("settings layout nav", () => {
 		const { getByTestId } = render(Layout, { props: { children } });
 
 		expect(getByTestId("settings-nav-personalization")).toHaveAttribute("aria-current", "page");
-		expect(getByTestId("settings-nav-models")).not.toHaveAttribute("aria-current");
+		expect(getByTestId("settings-nav-briefing")).not.toHaveAttribute("aria-current");
 	});
 
 	test("System and Moderation links render for admins with canonical hrefs", async () => {
@@ -126,18 +129,22 @@ describe("settings layout nav", () => {
 		stubMe(null);
 		const { getByTestId, queryByTestId } = render(Layout, { props: { children } });
 
-		expect(getByTestId("settings-nav-models")).toBeInTheDocument();
+		expect(getByTestId("settings-nav-personalization")).toBeInTheDocument();
 		await waitFor(() => {
 			expect(queryByTestId("settings-nav-admin")).not.toBeInTheDocument();
+			expect(queryByTestId("settings-nav-models")).not.toBeInTheDocument();
 		});
 	});
 });
 
 describe("settings layout search filter", () => {
 	test("typing narrows the visible nav entries", async () => {
-		stubMe("member");
+		// Admin: "provider" is an anchor of Models & Providers, which is
+		// admin-only, so a member would correctly match nothing here.
+		stubMe("admin");
 		const { getByTestId, queryByTestId } = render(Layout, { props: { children } });
 
+		await waitFor(() => expect(getByTestId("settings-nav-models")).toBeInTheDocument());
 		await fireEvent.input(getByTestId("settings-nav-search"), { target: { value: "provider" } });
 
 		// "provider" is an anchor of Models & Providers only.

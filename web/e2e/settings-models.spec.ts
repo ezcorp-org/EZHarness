@@ -9,8 +9,10 @@ import { test, expect } from "./fixtures/test-base.js";
 import { makeProject } from "./fixtures/data.js";
 
 const proj = makeProject({ id: "proj-1", name: "Test Project" });
-const memberMe = {
-	user: { id: "member-1", email: "member@test.local", name: "Member", role: "member" },
+// Models & Providers is admin-only: its reads and writes both require the
+// admin role, so driving it as a member exercised a state that cannot exist.
+const adminMe = {
+	user: { id: "admin-1", email: "admin@test.local", name: "Admin", role: "admin" },
 };
 
 const mixedSettings = {
@@ -28,7 +30,7 @@ test.describe("merged models page", () => {
 		await mockApi({
 			projects: [proj],
 			settings: mixedSettings,
-			routes: { "/api/auth/me": () => memberMe },
+			routes: { "/api/auth/me": () => adminMe },
 		});
 		await page.goto("/settings/models");
 
@@ -54,7 +56,7 @@ test.describe("merged models page", () => {
 		await mockApi({
 			projects: [proj],
 			settings: mixedSettings,
-			routes: { "/api/auth/me": () => memberMe },
+			routes: { "/api/auth/me": () => adminMe },
 		});
 		await page.goto("/settings/models");
 

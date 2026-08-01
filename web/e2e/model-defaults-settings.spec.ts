@@ -150,3 +150,54 @@ test.describe("@evidence model defaults", () => {
 		await captureEvidence(page, testInfo, "tool-result-cap-refused");
 	});
 });
+
+/**
+ * The page is instance-wide admin config: `GET /api/settings` and
+ * `PUT /api/settings/:key` both require the admin role. Two states follow from
+ * that, and both used to be wrong.
+ */
+test.describe("@evidence models settings — who may see it, and what a failed read shows", () => {
+	test("a failed settings read hides the editors instead of showing defaults", async ({
+		page,
+		mockApi,
+	}, testInfo) => {
+		await mockApi({ projects: [proj], settings: baseSettings });
+		// The read fails AFTER the admin check passes — a transient 500, not an
+		// authz problem.
+		await page.route("**/api/settings", (route) =>
+			route.fulfill({ status: 500, json: { error: "settings store unavailable" } }),
+		);
+		await page.goto("/settings/models");
+
+		// Rendering the editors here would show "exploration off, ladder
+		// unconfigured" — indistinguishable from those being the SAVED values,
+		// so an operator could believe exploration is off while it is live.
+		const error = page.getByTestId("models-settings-load-error");
+		await expect(error).toBeVisible();
+		await expect(error).toContainText("would show default values");
+		await expect(page.getByTestId("tier-ladder-fast")).toHaveCount(0);
+		await expect(page.getByTestId("default-selection-auto")).toHaveCount(0);
+		await expect(error.getByRole("button", { name: "Retry" })).toBeVisible();
+
+		await captureEvidence(page, testInfo, "models-settings-load-error");
+	});
+
+	test("a member is redirected away rather than shown an unusable page", async ({
+		page,
+		mockApi,
+	}, testInfo) => {
+		await mockApi({
+			projects: [proj],
+			settings: baseSettings,
+			routes: {
+				"/api/auth/me": () => ({
+					user: { id: "m1", email: "m@test.local", name: "Member", role: "member" },
+				}),
+			},
+		});
+		await page.goto("/settings/models");
+
+		await expect(page).toHaveURL(/\/settings\/personalization$/);
+		await captureEvidence(page, testInfo, "models-settings-member-redirect");
+	});
+});

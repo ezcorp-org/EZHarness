@@ -454,6 +454,25 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 			}
 		}
 
+		// Identity. Defaults to an ADMIN because almost every mocked spec drives
+		// instance configuration (settings pages, admin dashboard), which is
+		// admin-gated in the real app — an anonymous default silently redirected
+		// those specs away from the page under test. Declared AFTER the override
+		// loop above, so a spec that wants a member (`routes: { "/api/auth/me":
+		// () => memberMe }`) still wins.
+		if (path === "/api/auth/me" && method === "GET") {
+			return route.fulfill({
+				json: {
+					user: {
+						id: "e2e-admin",
+						email: "admin@test.local",
+						name: "E2E Admin",
+						role: "admin",
+					},
+				},
+			});
+		}
+
 		// Phase 48 — Ez API. Lives near the top so per-spec tests get
 		// deterministic responses without falling through to "default empty".
 		if (path === "/api/ez/conversation" && (method === "GET" || method === "POST")) {
