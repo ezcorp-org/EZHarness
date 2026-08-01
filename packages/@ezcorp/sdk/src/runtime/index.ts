@@ -194,7 +194,12 @@ export { Webhook } from "./webhook";
 export type { WebhookHandler, WebhookFireContext } from "./webhook";
 
 export { Workflows } from "./workflows";
-export type { WorkflowRunAccepted } from "./workflows";
+export type {
+  WorkflowRunAccepted,
+  WorkflowRunList,
+  WorkflowRunSummary,
+  WorkflowRunsQuery,
+} from "./workflows";
 
 // Dynamic (runtime-registered) cron + webhook triggers — the tier above
 // `Schedule`/`Webhook`, which are manifest-declared. Keyed on `key`, so two

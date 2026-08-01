@@ -613,6 +613,21 @@ export async function getWorkflowRunRow(
 /** Filters and cursor for {@link listWorkflowRunsPage}. */
 export interface WorkflowRunPageQuery {
   workflowName?: string;
+  /**
+   * Scope to a SET of workflow names — the extension read
+   * (`ezcorp/workflows` `op: "runs"`) filtering to the names its grant
+   * covers.
+   *
+   * In the WHERE rather than over the result for the same reason
+   * `userId` is: post-filtering a keyset page returns short pages and
+   * eventually an empty one with a cursor still pointing forward, which
+   * a client reads as "no more runs" while runs remain.
+   *
+   * An EMPTY array matches nothing (drizzle's `inArray` emits `false`),
+   * which is the fail-closed reading — "scoped to no names" must never
+   * widen to "unscoped".
+   */
+  workflowNames?: string[];
   status?: WorkflowRunStatus;
   projectId?: string;
   since?: Date;
@@ -661,6 +676,7 @@ export async function listWorkflowRunsPage(
 ): Promise<WorkflowRunPage> {
   const filters = [
     q.workflowName !== undefined ? eq(workflowRuns.workflowName, q.workflowName) : undefined,
+    q.workflowNames !== undefined ? inArray(workflowRuns.workflowName, q.workflowNames) : undefined,
     q.status !== undefined ? eq(workflowRuns.status, q.status) : undefined,
     q.projectId !== undefined ? eq(workflowRuns.projectId, q.projectId) : undefined,
     q.since !== undefined ? gte(workflowRuns.startedAt, q.since) : undefined,

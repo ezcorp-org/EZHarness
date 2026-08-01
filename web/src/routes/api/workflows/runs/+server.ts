@@ -1,5 +1,9 @@
 import { json } from "@sveltejs/kit";
-import { listWorkflowRunsForCaller, RUN_PAGE_MAX } from "$server/runtime/workflow-run-trace";
+import {
+  listWorkflowRunsForCaller,
+  RUN_PAGE_MAX,
+  RUN_STATUS_FILTERS,
+} from "$server/runtime/workflow-run-trace";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
@@ -18,10 +22,6 @@ import type { RequestHandler } from "./$types";
  *
  * `read` scope: this lists history, it starts nothing.
  */
-const STATUSES = new Set<string>([
-  "running", "success", "error", "cancelled", "awaiting_approval", "suspended",
-]);
-
 /** Parse an ISO date, refusing garbage rather than silently ignoring it —
  *  a dropped `since` would quietly widen the window the caller asked for. */
 function parseDate(raw: string | null, field: string): { date?: Date; error?: string } {
@@ -37,7 +37,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
   const user = requireAuth(locals);
 
   const status = url.searchParams.get("status");
-  if (status !== null && !STATUSES.has(status)) {
+  if (status !== null && !RUN_STATUS_FILTERS.has(status)) {
     return errorJson(400, `Invalid status: ${status}`);
   }
 

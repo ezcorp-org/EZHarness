@@ -151,3 +151,116 @@ describe("Workflows.pendingApprovals", () => {
     spy.mockRestore();
   });
 });
+
+describe("Workflows.runs", () => {
+  const RUN = {
+    workflowRunId: "run-1",
+    workflowName: "my-ext:deploy",
+    status: "awaiting_approval",
+    projectId: "p-1",
+    startedAt: "2026-08-01T00:00:00.000Z",
+    finishedAt: null,
+    suspendedReason: "approval",
+    resumable: false,
+  };
+
+  test("sends { v:1, op:'runs' } with NO filters when called bare", async () => {
+    const { calls, spy } = spyRequest({ v: 1, runs: [] });
+
+    await new Workflows().runs();
+
+    expect(calls[0]?.method).toBe("ezcorp/workflows");
+    // `Object.keys`, not `toEqual`: `toEqual` treats `{workflow: undefined}`
+    // as equal to `{}`, so it would NOT catch a refactor that started
+    // sending the key set to undefined. The key list does.
+    expect(Object.keys(calls[0]!.params).sort()).toEqual(["op", "v"]);
+    expect(calls[0]?.params).toEqual({ v: 1, op: "runs" });
+    spy.mockRestore();
+  });
+
+  test("an empty query object OMITS every filter key, rather than sending undefined", async () => {
+    // An unset filter must be ABSENT. The host branches on
+    // `params.<field> !== undefined` to tell "no filter" from a
+    // present-but-invalid value it rejects, so a key that is present and
+    // undefined is relying on JSON serialization to erase it — true over
+    // the subprocess channel, not true for an in-process caller.
+    const { calls, spy } = spyRequest({ v: 1, runs: [] });
+
+    await new Workflows().runs({});
+
+    expect(Object.keys(calls[0]!.params).sort()).toEqual(["op", "v"]);
+    expect("workflow" in calls[0]!.params).toBe(false);
+    expect("status" in calls[0]!.params).toBe(false);
+    expect("limit" in calls[0]!.params).toBe(false);
+    spy.mockRestore();
+  });
+
+  test("forwards each filter only when the caller set it", async () => {
+    const { calls, spy } = spyRequest({ v: 1, runs: [] });
+
+    await new Workflows().runs({ workflow: "deploy", status: "error", limit: 5 });
+
+    expect(calls[0]?.params).toEqual({
+      v: 1,
+      op: "runs",
+      workflow: "deploy",
+      status: "error",
+      limit: 5,
+    });
+    spy.mockRestore();
+  });
+
+  test.each([
+    ["workflow", { workflow: "deploy" }],
+    ["status", { status: "success" }],
+    ["limit", { limit: 1 }],
+  ])("forwarding %s alone leaves the other keys absent", async (key, query) => {
+    const { calls, spy } = spyRequest({ v: 1, runs: [] });
+
+    await new Workflows().runs(query);
+
+    expect(Object.keys(calls[0]!.params).sort()).toEqual(["op", "v", key].sort());
+    spy.mockRestore();
+  });
+
+  test("sends the BARE name verbatim — the host owns the namespace prefix", async () => {
+    const { calls, spy } = spyRequest({ v: 1, runs: [] });
+
+    await new Workflows().runs({ workflow: "deploy" });
+
+    expect(calls[0]?.params.workflow).toBe("deploy");
+    expect(String(calls[0]?.params.workflow)).not.toContain(":");
+    spy.mockRestore();
+  });
+
+  test("returns the host's envelope, run ids intact", async () => {
+    // The run id is the entire point: `run()` does not return one and the
+    // `workflow:*` events cannot reach an extension, so this is the only
+    // way a trigger is ever correlated with its run.
+    const { spy } = spyRequest({ v: 1, runs: [RUN] });
+
+    const res = await new Workflows().runs();
+
+    expect(res.v).toBe(1);
+    expect(res.runs).toHaveLength(1);
+    expect(res.runs[0]?.workflowRunId).toBe("run-1");
+    expect(res.runs[0]?.status).toBe("awaiting_approval");
+    expect(res.runs[0]?.finishedAt).toBeNull();
+    expect(res.runs[0]?.suspendedReason).toBe("approval");
+    spy.mockRestore();
+  });
+
+  test("propagates a host refusal (never swallowed into an empty list)", async () => {
+    // An empty list means "nothing ran", which is the exact opposite of
+    // "we could not look" — and an extension polling for completion would
+    // read the difference as a run that vanished.
+    const ch: HostChannel = getChannel();
+    const spy = spyOn(ch, "request");
+    spy.mockImplementation((async () => {
+      throw new Error("'limit' must be an integer 1..50");
+    }) as HostChannel["request"]);
+
+    await expect(new Workflows().runs({ limit: 999 })).rejects.toThrow("must be an integer");
+    spy.mockRestore();
+  });
+});
