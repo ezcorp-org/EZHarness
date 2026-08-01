@@ -227,6 +227,16 @@ services:
       - ./web/vite.config.ts:/app/web/vite.config.ts
       - ./web/tsconfig.json:/app/web/tsconfig.json
       - ./docs:/app/docs
+      # The bundled-extension lockfile must ride the same live-reload set,
+      # for the same reason as the SDK mount below. `ensureBundledExtensions`
+      # verifies every bundled manifest against manifest.lock.json on each
+      # boot; with ./src + ./docs bind-mounted but the lockfile baked at
+      # image-build time, adding or changing a bundled extension makes the
+      # CURRENT manifest disagree with the STALE lock. That reads as
+      # "Manifest tamper detected — no lockfile entry" and auto-disables the
+      # extension, which looks exactly like a broken extension rather than a
+      # stale container. :ro is safe — the host only ever reads it.
+      - ./manifest.lock.json:/app/manifest.lock.json:ro
       # SDK source must ride the same live-reload set: extension
       # subprocesses resolve the workspace SDK through its "bun" exports
       # condition to packages/@ezcorp/sdk/src/*.ts, so without this

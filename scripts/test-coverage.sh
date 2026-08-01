@@ -291,6 +291,13 @@ run_legs() {
       src/__tests__/api-users.server.test.ts \
       src/lib/audit-log-view.unit.test.ts \
       src/lib/settings-models.unit.test.ts \
+      src/lib/tier-ladder-view.unit.test.ts \
+      src/lib/components/__tests__/TierLadderSection.component.test.ts \
+      src/lib/components/__tests__/DefaultSelectionSection.component.test.ts \
+      src/lib/components/__tests__/ToolResultCapSection.component.test.ts \
+      src/lib/components/__tests__/RoutingExperimentsSection.component.test.ts \
+      src/lib/routing-experiments-view.unit.test.ts \
+      src/__tests__/api-settings-key.server.test.ts \
       src/__tests__/model-selector-logic.unit.test.ts \
       src/lib/save-flash.unit.test.ts \
       src/lib/admin-guard.unit.test.ts \
@@ -369,6 +376,10 @@ run_legs() {
       src/__tests__/security-web-conversations-parent-idor.server.test.ts \
       src/__tests__/api-extensions.server.test.ts \
       src/__tests__/api-users-id.server.test.ts \
+      src/__tests__/api-models-default-selection.server.test.ts \
+      src/__tests__/api-models-capabilities.server.test.ts \
+      src/__tests__/provider-availability.server.test.ts \
+      src/lib/chat/page-handlers/__tests__/send-message.test.ts \
       src/lib/command-registry.unit.test.ts \
       src/lib/components/DiffSummaryPanel.component.test.ts \
       --coverage --coverage.provider=v8 --coverage.reporter=lcovonly \
@@ -433,6 +444,17 @@ run_legs() {
       --coverage.include='src/routes/api/users/+server.ts' \
       --coverage.include='src/lib/audit-log-view.ts' \
       --coverage.include='src/lib/settings-models.ts' \
+      --coverage.include='src/lib/tier-ladder-view.ts' \
+      --coverage.include='src/lib/components/settings/TierLadderSection.svelte' \
+      --coverage.include='src/lib/components/settings/DefaultSelectionSection.svelte' \
+      --coverage.include='src/lib/components/settings/ToolResultCapSection.svelte' \
+      --coverage.include='src/lib/components/settings/RoutingExperimentsSection.svelte' \
+      --coverage.include='src/lib/routing-experiments-view.ts' \
+      --coverage.include='src/routes/api/settings/[key]/+server.ts' \
+      --coverage.include='src/routes/api/models/default-selection/+server.ts' \
+      --coverage.include='src/routes/api/models/capabilities/+server.ts' \
+      --coverage.include='src/lib/server/provider-availability.ts' \
+      --coverage.include='src/lib/chat/page-handlers/send-message.ts' \
       --coverage.include='src/lib/model-selector-logic.ts' \
       --coverage.include='src/lib/save-flash.svelte.ts' \
       --coverage.include='src/lib/admin-guard.ts' \

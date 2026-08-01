@@ -337,3 +337,251 @@ describe("PUT /api/settings/[key] — value persistence", () => {
     expect(upsertSetting).toHaveBeenCalledWith("ui:theme", "light");
   });
 });
+
+// WS3a — `provider:tierModels` is the one key with a write-time schema. Routing
+// IGNORES a malformed ladder by design, so without this gate a typo would be a
+// silent no-op the operator never learns about.
+describe("PUT /api/settings/provider:tierModels — write-time validation", () => {
+  beforeEach(() => vi.mocked(upsertSetting).mockClear());
+
+  test("stores the NORMALIZED ladder (trimmed, all three tiers present)", async () => {
+    const res = await PUT(
+      makeEvent({
+        key: "provider:tierModels",
+        locals: adminLocals,
+        method: "PUT",
+        body: { value: { fast: [{ provider: " openai ", model: " gpt-4o-mini " }] } },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(upsertSetting).toHaveBeenCalledWith("provider:tierModels", {
+      fast: [{ provider: "openai", model: "gpt-4o-mini" }],
+      balanced: [],
+      powerful: [],
+    });
+  });
+
+  test("a malformed ladder is REJECTED with 400 and never written", async () => {
+    const res = await PUT(
+      makeEvent({
+        key: "provider:tierModels",
+        locals: adminLocals,
+        method: "PUT",
+        body: { value: { blazing: [] } },
+      }),
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toContain('unknown tier "blazing"');
+    expect(upsertSetting).not.toHaveBeenCalled();
+  });
+
+  test("a rung missing its model is rejected, naming the offending index", async () => {
+    const res = await PUT(
+      makeEvent({
+        key: "provider:tierModels",
+        locals: adminLocals,
+        method: "PUT",
+        body: { value: { powerful: [{ provider: "anthropic" }] } },
+      }),
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toContain("powerful[0]");
+    expect(upsertSetting).not.toHaveBeenCalled();
+  });
+
+  test("provider:explorationRate stores a probability", async () => {
+    const res = await PUT(
+      makeEvent({
+        key: "provider:explorationRate",
+        locals: adminLocals,
+        method: "PUT",
+        body: { value: 0.05 },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(upsertSetting).toHaveBeenCalledWith("provider:explorationRate", 0.05);
+  });
+
+  test("provider:explorationRate REJECTS a percent-shaped typo instead of silently disabling", async () => {
+    // WS7: the READ treats anything outside [0,1] as OFF (a bad row must never
+    // fail a turn), which is exactly why the write has to be loud — an operator
+    // who typed 100 meaning "one percent" would otherwise see nothing happen.
+    const res = await PUT(
+      makeEvent({
+        key: "provider:explorationRate",
+        locals: adminLocals,
+        method: "PUT",
+        body: { value: 100 },
+      }),
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toContain("not a probability");
+    expect(upsertSetting).not.toHaveBeenCalled();
+  });
+
+  test("provider:explorationRate REJECTS a non-number", async () => {
+    const res = await PUT(
+      makeEvent({
+        key: "provider:explorationRate",
+        locals: adminLocals,
+        method: "PUT",
+        body: { value: "0.5" },
+      }),
+    );
+    expect(res.status).toBe(400);
+    expect(upsertSetting).not.toHaveBeenCalled();
+  });
+
+  test("provider:routingShadow stores a normalized threshold pair", async () => {
+    const res = await PUT(
+      makeEvent({
+        key: "provider:routingShadow",
+        locals: adminLocals,
+        method: "PUT",
+        // Extra keys are dropped — only the two thresholds are persisted.
+        body: { value: { fastMaxTokens: 250, powerfulMinTokens: 4000, note: "from the sweep" } },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(upsertSetting).toHaveBeenCalledWith("provider:routingShadow", {
+      fastMaxTokens: 250,
+      powerfulMinTokens: 4000,
+    });
+  });
+
+  test("provider:routingShadow REJECTS an inverted pair instead of silently disabling", async () => {
+    // WS7d: the READ ignores anything malformed (shadow must never fail a
+    // turn), so a swapped pair would otherwise land, disable shadow mode, and
+    // leave the panel reading "not configured" — indistinguishable from never
+    // having set it. The write says exactly what is wrong.
+    const res = await PUT(
+      makeEvent({
+        key: "provider:routingShadow",
+        locals: adminLocals,
+        method: "PUT",
+        body: { value: { fastMaxTokens: 8000, powerfulMinTokens: 500 } },
+      }),
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toContain("must be BELOW");
+    expect(upsertSetting).not.toHaveBeenCalled();
+  });
+
+  test("provider:routingShadow REJECTS a malformed value", async () => {
+    const res = await PUT(
+      makeEvent({
+        key: "provider:routingShadow",
+        locals: adminLocals,
+        method: "PUT",
+        body: { value: "250/4000" },
+      }),
+    );
+    expect(res.status).toBe(400);
+    expect(upsertSetting).not.toHaveBeenCalled();
+  });
+
+  test("provider:defaultSelection stores the revert mode", async () => {
+    const res = await PUT(
+      makeEvent({
+        key: "provider:defaultSelection",
+        locals: adminLocals,
+        method: "PUT",
+        body: { value: "first" },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(upsertSetting).toHaveBeenCalledWith("provider:defaultSelection", "first");
+  });
+
+  test("provider:defaultSelection REJECTS a near-miss instead of silently keeping auto", async () => {
+    // This key is the no-deploy REVERT for routed-by-default traffic. The read
+    // degrades anything unrecognised to "auto", so a 200 here would leave the
+    // operator believing they had reverted while every user stayed on routed
+    // turns — indistinguishable from never having written.
+    const res = await PUT(
+      makeEvent({
+        key: "provider:defaultSelection",
+        locals: adminLocals,
+        method: "PUT",
+        body: { value: "First" },
+      }),
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toContain('read back as "auto"');
+    expect(upsertSetting).not.toHaveBeenCalled();
+  });
+
+  test("compaction:toolResultCap stores a whole-number character cap", async () => {
+    const res = await PUT(
+      makeEvent({
+        key: "compaction:toolResultCap",
+        locals: adminLocals,
+        method: "PUT",
+        body: { value: 8000 },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(upsertSetting).toHaveBeenCalledWith("compaction:toolResultCap", 8000);
+  });
+
+  test("compaction:toolResultCap accepts 0 — disabling the cap is a real choice", async () => {
+    const res = await PUT(
+      makeEvent({
+        key: "compaction:toolResultCap",
+        locals: adminLocals,
+        method: "PUT",
+        body: { value: 0 },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(upsertSetting).toHaveBeenCalledWith("compaction:toolResultCap", 0);
+  });
+
+  test("compaction:toolResultCap REJECTS a numeric STRING (the read would ignore it)", async () => {
+    const res = await PUT(
+      makeEvent({
+        key: "compaction:toolResultCap",
+        locals: adminLocals,
+        method: "PUT",
+        body: { value: "8000" },
+      }),
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toContain("whole number of characters");
+    expect(upsertSetting).not.toHaveBeenCalled();
+  });
+
+  test("compaction:toolResultCap REJECTS a negative cap and points at 0", async () => {
+    const res = await PUT(
+      makeEvent({
+        key: "compaction:toolResultCap",
+        locals: adminLocals,
+        method: "PUT",
+        body: { value: -1 },
+      }),
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toContain("use 0 to disable");
+    expect(upsertSetting).not.toHaveBeenCalled();
+  });
+
+  test("other keys keep their pass-through (schema-less) write", async () => {
+    const res = await PUT(
+      makeEvent({
+        key: "provider:defaultTier",
+        locals: adminLocals,
+        method: "PUT",
+        body: { value: { anything: true } },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(upsertSetting).toHaveBeenCalledWith("provider:defaultTier", { anything: true });
+  });
+});

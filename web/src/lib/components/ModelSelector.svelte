@@ -6,12 +6,14 @@
 	import {
 		AUTO_MODEL,
 		AUTO_PROVIDER,
+		DEFAULT_SELECTION_FALLBACK,
 		autoRowVisible,
 		displayLabel as computeDisplayLabel,
 		filterAvailable,
 		groupModels,
 		isAutoSelection,
-		shouldAutoSelectDefault,
+		resolveDefaultSelection,
+		type DefaultSelectionMode,
 		type ModelSelection,
 	} from "$lib/model-selector-logic.js";
 
@@ -36,6 +38,7 @@
 		onautoselect,
 		allowAuto = false,
 		autoServed = null,
+		defaultSelection = DEFAULT_SELECTION_FALLBACK,
 	}: {
 		selected: { provider: string; model: string } | null;
 		onselect: (provider: string, model: string) => void;
@@ -51,6 +54,13 @@
 		 *  renders the button label as "Auto → <model>" while Auto stays
 		 *  the active selection. */
 		autoServed?: ModelSelection | null;
+		/** Instance default for a user with no saved selection
+		 *  (`provider:defaultSelection`). `null` means "the parent is still
+		 *  fetching it" — the picker then applies NO default until it knows,
+		 *  so an operator's `"first"` revert cannot lose a race with the
+		 *  `/api/models` fetch. Pickers that don't pass it get the shipped
+		 *  default, which without `allowAuto` still means `models[0]`. */
+		defaultSelection?: DefaultSelectionMode | null;
 	} = $props();
 
 	let models = $state<ModelOption[]>([]);
@@ -72,9 +82,10 @@
 					const m = models.find((m) => m.provider === selected!.provider && m.model === selected!.model);
 					onreasoningchange?.(!!m?.reasoning);
 					oncontextwindowchange?.(m?.contextWindow ?? null);
-				} else if (shouldAutoSelectDefault(selected, models)) {
-					onautoselect?.(models[0]!.provider, models[0]!.model);
 				}
+				// The unset-user default is applied by the effect below, not
+				// here: it must wait for BOTH the model list and the
+				// `defaultSelection` mode, which arrive independently.
 				return;
 			}
 		} catch {}
@@ -86,6 +97,20 @@
 	}
 
 	onMount(() => { loadModels(); });
+
+	// Default for a user with no saved selection — fires at most once, and only
+	// once BOTH inputs are known: the loaded model list and the instance
+	// `defaultSelection` mode (null while the parent is still fetching it).
+	// Waiting on the mode is what makes the operator's "first" revert
+	// deterministic instead of a race against /api/models.
+	let defaultApplied = false;
+	$effect(() => {
+		if (defaultApplied) return;
+		if (defaultSelection === null || models.length === 0) return;
+		defaultApplied = true;
+		const fallback = resolveDefaultSelection(selected, models, defaultSelection, allowAuto);
+		if (fallback) onautoselect?.(fallback.provider, fallback.model);
+	});
 
 	// Re-evaluate reasoning capability whenever selected model or models list changes
 	$effect(() => {

@@ -17,6 +17,11 @@
  * disables it. A future LLM `summarize` strategy drops in via
  * {@link registerCompactionStrategy} with no rewiring.
  *
+ * Independent of the budget, {@link capStaleToolResults} bounds STALE tool
+ * results on every call. That one is a cost control, not an overflow guard:
+ * fitting the window is free of charge, but re-sending a multi-megabyte tool
+ * result on every loop iteration is not.
+ *
  * Trimming is INPUT-ONLY. `model.maxTokens` is never mutated — for the
  * Codex API it is metadata only (no `max_output_tokens` is sent), and
  * for other providers pi-ai already clamps output sanely; shrinking it
@@ -24,8 +29,16 @@
  */
 
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { Model as PiModel, Message, UserMessage } from "../../types";
+import type {
+  Model as PiModel,
+  Message,
+  UserMessage,
+  ToolResultMessage,
+  TextContent,
+  ImageContent,
+} from "../../types";
 import { logger } from "../../logger";
+import { CHARS_PER_TOKEN_ESTIMATE, DEFAULT_TOOL_RESULT_CAP } from "./tool-result-cap";
 
 /** pi-ai's `Model` is generic over its API; we only read metadata. */
 type Model = PiModel<any>;
@@ -67,6 +80,17 @@ export interface CompactionConfig {
    * recent verbatim window is sized around it. Ignored by `trim`/`none`.
    */
   summarizeMaxTokens: number;
+  /**
+   * Max characters of text kept in a STALE (non-newest) `toolResult`, applied
+   * on EVERY call regardless of the budget — see {@link capStaleToolResults}.
+   * This is a pure COST control, not an overflow guard: a fat tool result is
+   * re-sent verbatim on every subsequent agentic-loop iteration and every
+   * later turn, so bounding it pays even while the thread comfortably fits.
+   * Strategy-independent (`strategy: "none"` does NOT disable it); `0` (or any
+   * non-positive / non-finite value) disables it, restoring the pre-cap
+   * behaviour byte-for-byte.
+   */
+  toolResultCap: number;
 }
 
 export const DEFAULTS: CompactionConfig = {
@@ -74,7 +98,7 @@ export const DEFAULTS: CompactionConfig = {
   responseReserveCap: 16_000,
   responseReserveFloor: 1_024,
   safetyFraction: 0.08,
-  charsPerToken: 4,
+  charsPerToken: CHARS_PER_TOKEN_ESTIMATE,
   imageTokens: 1_200,
   // Default 0 = conventional trim-oldest. The oldest-anchor cache
   // optimization is opt-in (see the field doc + decision record).
@@ -82,6 +106,9 @@ export const DEFAULTS: CompactionConfig = {
   // ~1k-token summaries keep the marker small on the common path; raise it
   // (`compaction:summarizeMaxTokens`) for models that need richer recall.
   summarizeMaxTokens: 1_024,
+  // Defined in ./tool-result-cap alongside the settings key + validators, so
+  // the number the editor shows as "the default" is the number used here.
+  toolResultCap: DEFAULT_TOOL_RESULT_CAP,
 };
 
 const PER_MESSAGE_OVERHEAD = 4;
@@ -238,6 +265,130 @@ export function isCompactionMarker(m: AgentMessage): boolean {
     typeof (m as UserMessage).content === "string" &&
     ((m as UserMessage).content as string).startsWith(MARKER_PREFIX)
   );
+}
+
+// ── Stale tool-result cap (always-on cost control) ───────────────────
+
+/**
+ * Elision mark embedded in a capped stale tool result. Its ONLY variable is
+ * the elided character count — a pure function of the text and the cap — so
+ * the same input always renders the same bytes. Nothing time-, budget-,
+ * position- or count-of-messages-dependent may ever go in here: Anthropic's
+ * cache is prefix-matched, so a marker that changed per turn would rewrite
+ * the history prefix on every send (guaranteed miss + 25% cache-write
+ * surcharge) and cost MORE than the bytes it saves.
+ */
+function staleToolMark(elided: number): string {
+  return `\n…[${elided} chars of this older tool result elided to cut re-sent context]…\n`;
+}
+
+function isToolResult(m: AgentMessage): m is ToolResultMessage {
+  return "role" in m && m.role === "toolResult";
+}
+
+/**
+ * Head slice that never ends on a lone high surrogate, and tail slice that
+ * never starts on a lone low surrogate — an arbitrary UTF-16 cut through a
+ * surrogate pair would otherwise emit invalid UTF-8 on the wire. Dropping the
+ * orphan is itself deterministic, so byte-stability is preserved.
+ */
+function sliceHead(text: string, len: number): string {
+  const s = text.slice(0, len);
+  const last = s.charCodeAt(s.length - 1);
+  return last >= 0xd800 && last <= 0xdbff ? s.slice(0, -1) : s;
+}
+
+function sliceTail(text: string, len: number): string {
+  const s = text.slice(text.length - len);
+  const first = s.charCodeAt(0);
+  return first >= 0xdc00 && first <= 0xdfff ? s.slice(1) : s;
+}
+
+/**
+ * Head+tail retention for one over-cap `toolResult`. Returns `undefined` when
+ * the message already fits (so callers can preserve identity).
+ *
+ * Every text part is collapsed into ONE capped part, landing where the FIRST
+ * text part was, with non-text (image) parts kept in their relative order — so
+ * the bound is on the message's TOTAL text, not per-part (many just-under-cap
+ * parts can't smuggle a megabyte through). Head+tail (not head-only) because
+ * tool output usually carries its verdict at the end — the failing assertion,
+ * the last log line — while the start carries the invocation shape.
+ */
+function capToolResult(m: ToolResultMessage, cap: number): ToolResultMessage | undefined {
+  const joined = m.content
+    .filter((p): p is TextContent => p.type === "text")
+    .map((p) => p.text)
+    .join("\n");
+  if (joined.length <= cap) return undefined;
+
+  const headLen = Math.ceil(cap / 2);
+  const head = sliceHead(joined, headLen);
+  const tail = sliceTail(joined, cap - headLen);
+  const text = `${head}${staleToolMark(joined.length - head.length - tail.length)}${tail}`;
+
+  let emitted = false;
+  const content: (TextContent | ImageContent)[] = [];
+  for (const part of m.content) {
+    if (part.type !== "text") {
+      content.push(part);
+    } else if (!emitted) {
+      content.push({ type: "text", text });
+      emitted = true;
+    }
+  }
+  return { ...m, content };
+}
+
+/**
+ * Cap the text of every `toolResult` EXCEPT the newest one, unconditionally.
+ *
+ * Distinct from {@link truncateOversizedToolResults}, which is the emergency
+ * backstop that only fires once a conversation is already over budget and then
+ * destroys the content outright. This runs on EVERY call, under budget
+ * included, because that is where the money leaks: a tool result is persisted
+ * once and then re-sent verbatim on every remaining agentic-loop iteration and
+ * every later turn, so a single multi-MB result is billed over and over.
+ *
+ * The NEWEST `toolResult` is never capped — it is the output of the tool the
+ * agent just ran, and the loop reasons over it in full. (Newest across the
+ * whole array, not per-turn: whatever the agent last saw stays whole.) A
+ * result stops being newest exactly when the next one lands, so at most one
+ * uncapped fat result is in flight at a time.
+ *
+ * Deterministic by construction: the replacement text depends only on the
+ * message's own text and `cfg.toolResultCap`, never on the budget, the model,
+ * the clock, or the message's position/neighbours. So a given stale result
+ * caps to identical bytes on every turn for the rest of the thread's life,
+ * which is what keeps the prefix cache (and the `trim` cache anchor) warm.
+ *
+ * Returns the input array by identity when nothing was capped.
+ */
+export function capStaleToolResults(
+  messages: AgentMessage[],
+  cfg: CompactionConfig = DEFAULTS,
+): AgentMessage[] {
+  const cap = cfg.toolResultCap;
+  if (!Number.isFinite(cap) || cap <= 0) return messages;
+
+  let newest = -1;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (isToolResult(messages[i]!)) {
+      newest = i;
+      break;
+    }
+  }
+
+  let out: AgentMessage[] | undefined;
+  for (let i = 0; i < newest; i++) {
+    const m = messages[i]!;
+    if (!isToolResult(m)) continue;
+    const capped = capToolResult(m, cap);
+    if (!capped) continue;
+    out ??= [...messages];
+    out[i] = capped;
+  }
+  return out ?? messages;
 }
 
 // ── Strategy interface + registry ────────────────────────────────────
@@ -494,9 +645,10 @@ export interface CompactionDeps {
 }
 
 /**
- * Build the pi-agent-core `transformContext` hook for `model`. Returns
- * messages untouched while under budget; otherwise runs the configured
- * strategy. Resolved once per turn in `build-pi-agent.ts`.
+ * Build the pi-agent-core `transformContext` hook for `model`. Applies the
+ * always-on {@link capStaleToolResults} cost control, then returns messages
+ * untouched while under budget; otherwise runs the configured strategy.
+ * Resolved once per turn in `build-pi-agent.ts`.
  */
 export function makeCompactionTransform(
   model: Model,
@@ -508,7 +660,19 @@ export function makeCompactionTransform(
   const strategy = getCompactionStrategy(cfg.strategy);
 
   return async (messages, signal) => {
-    if (estimateTokens(messages, cfg) <= budget) return messages;
+    // Always-on cost control, deliberately AHEAD of the budget check: stale
+    // fat tool results are re-sent on every call whether or not the thread
+    // fits, and a capped history may now fit and skip compaction entirely.
+    const capped = capStaleToolResults(messages, cfg);
+    const cappedTokens = estimateTokens(capped, cfg);
+    if (capped !== messages) {
+      logger.debug("stale tool results capped", {
+        model: model.id,
+        cap: cfg.toolResultCap,
+        savedTokens: estimateTokens(messages, cfg) - cappedTokens,
+      });
+    }
+    if (cappedTokens <= budget) return capped;
 
     const ctx: CompactionContext = {
       model,
@@ -525,14 +689,17 @@ export function makeCompactionTransform(
     // still surfaces a precise overflow rather than an opaque failure).
     let res: CompactionResult;
     try {
-      res = await strategy.compact(messages, ctx, signal);
+      res = await strategy.compact(capped, ctx, signal);
     } catch (err) {
       logger.warn("compaction strategy threw; passing history through unchanged", {
         strategy: cfg.strategy,
         model: model.id,
         error: String(err),
       });
-      return messages;
+      // "Unchanged" apart from the tool-result cap: that is a deterministic
+      // pure transform, not the thing that failed, so a strategy bug must not
+      // silently switch the cost control off.
+      return capped;
     }
 
     logger.warn("context compaction applied", {

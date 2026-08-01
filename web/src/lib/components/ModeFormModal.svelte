@@ -21,15 +21,38 @@
 		onclose: () => void;
 	} = $props();
 
-	let form = $state({
-		name: "",
-		slug: "",
-		icon: "",
-		description: "",
-		systemPromptInstruction: "",
-		instructionPosition: "prepend" as "prepend" | "append" | "replace",
-		extensionIds: [] as string[],
-		extensionTools: {} as Record<string, string[]>,
+	// WS3b: the mode → routing-tier task binding. "" is the wire-level `null`
+	// (no preference) — a <select> can't hold null, so the empty option maps to
+	// it on submit and back on load.
+	const TIER_OPTIONS = [
+		{ value: "", label: "Auto (route per turn)" },
+		{ value: "fast", label: "Fast — cheapest model that fits" },
+		{ value: "balanced", label: "Balanced" },
+		{ value: "powerful", label: "Powerful — most capable model" },
+	];
+
+	// One definition of "a blank form" — used for the initial state, the
+	// create-flow reset when the modal opens, and reset() after submit/close.
+	function emptyForm() {
+		return {
+			name: "",
+			slug: "",
+			icon: "",
+			description: "",
+			systemPromptInstruction: "",
+			instructionPosition: "prepend" as "prepend" | "append" | "replace",
+			preferredTier: "",
+			extensionIds: [] as string[],
+			extensionTools: {} as Record<string, string[]>,
+		};
+	}
+
+	let form = $state(emptyForm());
+
+	// Empty string is "no preference" in the form; the API column is nullable.
+	let submitPayload = $derived({
+		...form,
+		preferredTier: form.preferredTier === "" ? null : form.preferredTier,
 	});
 
 	// Lookup table for resolving extension IDs → human names in read-only mode.
@@ -77,11 +100,12 @@
 					description: editMode.description,
 					systemPromptInstruction: editMode.systemPromptInstruction,
 					instructionPosition: editMode.instructionPosition,
+					preferredTier: editMode.preferredTier ?? "",
 					extensionIds: editMode.extensionIds ?? [],
 					extensionTools: editMode.extensionTools ?? {},
 				};
 			} else {
-				form = { name: "", slug: "", icon: "", description: "", systemPromptInstruction: "", instructionPosition: "prepend", extensionIds: [], extensionTools: {} };
+				form = emptyForm();
 			}
 		}
 	});
@@ -93,7 +117,7 @@
 	}
 
 	function reset() {
-		form = { name: "", slug: "", icon: "", description: "", systemPromptInstruction: "", instructionPosition: "prepend", extensionIds: [], extensionTools: {} };
+		form = emptyForm();
 		error = null;
 		saving = false;
 	}
@@ -131,9 +155,9 @@
 		try {
 			let mode: Mode;
 			if (isExisting && editMode) {
-				mode = await apiUpdateMode(editMode.id, form);
+				mode = await apiUpdateMode(editMode.id, submitPayload);
 			} else {
-				mode = await createMode(form);
+				mode = await createMode(submitPayload);
 			}
 			reset();
 			onsaved(mode);
@@ -295,6 +319,22 @@
 						<option value="append">Append (after system prompt)</option>
 						<option value="replace">Replace (override system prompt)</option>
 					</select>
+				</div>
+				<!-- WS3b: the mode → routing-tier task binding. A tier (not a model
+				     name) so the binding survives model churn and tier-ladder edits;
+				     it applies at the START of a conversation and the thread keeps
+				     that model afterwards, so an already-running chat is unaffected. -->
+				<div>
+					<label for="mode-form-preferred-tier" class="block text-xs text-[var(--color-text-secondary)] mb-1">Model Tier</label>
+					<select id="mode-form-preferred-tier" data-testid="mode-form-preferred-tier" bind:value={form.preferredTier} disabled={readonly} class="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface-tertiary)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] focus:border-[var(--color-accent)] focus:outline-none disabled:opacity-70 disabled:cursor-not-allowed">
+						{#each TIER_OPTIONS as opt (opt.value)}
+							<option value={opt.value}>{opt.label}</option>
+						{/each}
+					</select>
+					<p class="mt-1 text-xs text-[var(--color-text-muted)]">
+						Which class of model this kind of task should start on. Applied when a
+						chat begins; picking a model yourself always wins.
+					</p>
 				</div>
 
 				{#if error}

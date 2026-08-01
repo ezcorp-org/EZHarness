@@ -3,9 +3,10 @@
  * (`$lib/model-selector-logic.ts`) — grouping/label rules the picker
  * renders with, plus the Auto (smart routing) selection semantics:
  * the `{provider:"auto",model:"auto"}` sentinel, auto-persist
- * suppression, the "Auto (smart routing)" / "Auto → <served>" labels,
- * and the wire resolution (`model: null` sentinel on turn 1, served
- * pin afterwards — the client half of route-once-per-conversation).
+ * suppression, the unset-user default (`provider:defaultSelection`),
+ * the "Auto (smart routing)" / "Auto → <served>" labels, and the wire
+ * resolution (`model: null` sentinel on turn 1, served pin afterwards
+ * — the client half of route-once-per-conversation).
  *
  * Runs in the vitest leg (`*.unit.test.ts`) so v8 line-covers the
  * module for the coverage gate.
@@ -18,12 +19,16 @@ import {
 	AUTO_PROVIDER,
 	AUTO_SELECTION,
 	COST_LABELS,
+	DEFAULT_SELECTION_FALLBACK,
+	DEFAULT_SELECTION_SETTING_KEY,
 	autoRowVisible,
 	autoServedFromMessages,
 	displayLabel,
 	filterAvailable,
 	groupModels,
 	isAutoSelection,
+	parseDefaultSelection,
+	resolveDefaultSelection,
 	resolveWireModel,
 	shouldAutoSelectDefault,
 	sortNewestFirst,
@@ -310,6 +315,79 @@ describe("shouldAutoSelectDefault — auto-persist suppression", () => {
 
 	test("suppressed when there are no models to pick from", () => {
 		expect(shouldAutoSelectDefault(null, [])).toBe(false);
+	});
+});
+
+describe("parseDefaultSelection — tolerant read of provider:defaultSelection", () => {
+	test("the setting key is the documented one", () => {
+		expect(DEFAULT_SELECTION_SETTING_KEY).toBe("provider:defaultSelection");
+	});
+
+	test("defaults to auto when the setting is absent", () => {
+		expect(DEFAULT_SELECTION_FALLBACK).toBe("auto");
+		expect(parseDefaultSelection(undefined)).toBe("auto");
+		expect(parseDefaultSelection(null)).toBe("auto");
+	});
+
+	test("defaults to auto for every malformed value", () => {
+		expect(parseDefaultSelection("Auto")).toBe("auto");
+		expect(parseDefaultSelection("firstish")).toBe("auto");
+		expect(parseDefaultSelection(1)).toBe("auto");
+		expect(parseDefaultSelection(true)).toBe("auto");
+		expect(parseDefaultSelection({ mode: "first" })).toBe("auto");
+		expect(parseDefaultSelection(["first"])).toBe("auto");
+	});
+
+	test("passes both valid modes through verbatim", () => {
+		expect(parseDefaultSelection("auto")).toBe("auto");
+		expect(parseDefaultSelection("first")).toBe("first");
+	});
+});
+
+describe("resolveDefaultSelection — the unset-user default", () => {
+	// `models[0]` is the FIRST entry of the (availability-filtered) list, which
+	// is what the pre-routing code persisted verbatim.
+	const models = [
+		makeModel({ provider: "openai", model: "gpt-4o" }),
+		makeModel({ provider: "anthropic", model: "claude-sonnet-4-5" }),
+	];
+	const first = { provider: "openai", model: "gpt-4o" };
+
+	test("unset + mode auto + allowAuto → the Auto sentinel (routing fires)", () => {
+		expect(resolveDefaultSelection(null, models, "auto", true)).toEqual(AUTO_SELECTION);
+	});
+
+	test('unset + mode "first" → models[0], byte-identical to the pre-routing default', () => {
+		expect(resolveDefaultSelection(null, models, "first", true)).toEqual(first);
+		// …and identically when the surface doesn't offer Auto at all.
+		expect(resolveDefaultSelection(null, models, "first", false)).toEqual(first);
+	});
+
+	test("mode auto WITHOUT allowAuto → models[0] (non-chat pickers never get the sentinel)", () => {
+		expect(resolveDefaultSelection(null, models, "auto", false)).toEqual(first);
+		// The default for `allowAuto` is off, so an omitted flag is also safe.
+		expect(resolveDefaultSelection(null, models, "auto")).toEqual(first);
+	});
+
+	test("defaults to the auto mode when no mode is passed", () => {
+		expect(resolveDefaultSelection(null, models, undefined, true)).toEqual(AUTO_SELECTION);
+	});
+
+	test("an explicit saved model wins — no default is applied", () => {
+		const saved = { provider: "google", model: "gemini-2.5-pro" };
+		expect(resolveDefaultSelection(saved, models, "auto", true)).toBeNull();
+		expect(resolveDefaultSelection(saved, models, "first", true)).toBeNull();
+	});
+
+	test("an explicit saved Auto wins — no default is applied", () => {
+		expect(resolveDefaultSelection(AUTO_SELECTION, models, "auto", true)).toBeNull();
+		expect(resolveDefaultSelection(AUTO_SELECTION, models, "first", true)).toBeNull();
+	});
+
+	test("an empty model list yields null in every mode (no crash)", () => {
+		expect(resolveDefaultSelection(null, [], "auto", true)).toBeNull();
+		expect(resolveDefaultSelection(null, [], "first", true)).toBeNull();
+		expect(resolveDefaultSelection(null, [], "first", false)).toBeNull();
 	});
 });
 

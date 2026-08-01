@@ -96,6 +96,12 @@ the oldest oversized `toolResult` contents are truncated with a
 untouched. The user's own prompt text is never silently truncated — a
 precise overflow error is better than a mangled question.
 
+**Stale tool-result cap.** Independently of all of the above, and
+independently of the budget, older `toolResult` messages are bounded to
+`compaction:toolResultCap` characters on **every** call. That one is a
+*cost* control rather than an overflow guard — see [Stale tool-result
+cap](#stale-tool-result-cap).
+
 **Input-only invariant.** Compaction never mutates the model. In
 particular it does **not** shrink `model.maxTokens`:
 
@@ -160,6 +166,7 @@ malformed keys fall back to the defaults.
 | `compaction:cacheRetention` | string | `long` | Prompt-cache TTL for the stable prefix: `long` (~1h), `short` (~5 min), or `none` (disable caching). Anthropic-only; other providers ignore it. |
 | `compaction:summarizeMaxTokens` | number | `1024` | Output-token cap for the `summarize` strategy's summary, and the budget it reserves for the inserted summary marker. Raise it for models that need richer recall; lower it to shrink the marker. Ignored by `trim`/`none`. |
 | `compaction:summarizeModel` | string | *(turn model)* | Model the `summarize` strategy uses, as `"provider/modelId"` (e.g. `anthropic/claude-haiku-4-5`). Unset, malformed, or unresolvable → the conversation's own turn model. Ignored by `trim`/`none`. |
+| `compaction:toolResultCap` | number | `32000` | Max **characters** of text kept in a STALE (non-newest) `toolResult`, applied on every call whether or not the thread fits. `0` disables it (restoring the pre-cap behaviour byte-for-byte). **Strategy-independent** — `strategy: "none"` does *not* switch it off. Editable at **Settings → Models → Older Tool Result Cap**; validated on write (a string, a negative, or a fractional value is a 400, not a silent no-op) and read tolerantly (anything malformed falls back to `32000`). Key, default, read and validator live in `src/runtime/stream-chat/tool-result-cap.ts`. See [Stale tool-result cap](#stale-tool-result-cap). |
 
 `responseReserve = clamp(model.maxTokens, floor, cap)`, so a model
 advertising a huge `maxTokens` (e.g. Codex's 128k) is reserved at most
@@ -207,7 +214,68 @@ the API is the supported switch.
   `safetyFraction` toward `0.03`.
 - **Diagnosing** — when trimming fires, the backend logs a single
   `warn`: `context compaction applied` with `strategy`, `model`,
-  `budget`, `before`, `after`, `droppedCount`, `droppedTokens`.
+  `budget`, `before`, `after`, `droppedCount`, `droppedTokens`. When the
+  stale tool-result cap fires it logs a `debug`: `stale tool results
+  capped` with `model`, `cap`, `savedTokens`.
+
+---
+
+## Stale tool-result cap
+
+Fitting the context window is free; *re-sending* the same bytes is not.
+A tool result is persisted once and then replayed verbatim on **every**
+remaining agentic-loop iteration and every later turn of the thread, so
+one runaway multi-megabyte result is billed over and over — while the
+conversation may still be comfortably under budget, where every
+mechanism above is a no-op by design.
+
+`capStaleToolResults` closes that leak. On every call, before the budget
+check, each `toolResult` is bounded to `compaction:toolResultCap`
+characters of head **+** tail:
+
+```
+first cap/2 chars …[N chars of this older tool result elided to cut re-sent context]… last cap/2 chars
+```
+
+Head *and* tail because tool output usually carries its verdict at the
+end (the failing assertion, the last log line) and its shape at the
+start. Every text part of the message collapses into one capped part at
+the position of the first; image parts are kept, in order.
+
+**The newest `toolResult` is never capped.** It is the output of the
+tool the agent just ran and the loop reasons over it in full. Newest
+across the whole array, not per turn — whatever the agent last saw stays
+whole. A result stops being newest exactly when the next one lands, so
+at most one uncapped fat result is ever in flight.
+
+**This is not the degenerate-case truncation.**
+`truncateOversizedToolResults` is the emergency backstop: it fires only
+once a conversation is already over budget and then destroys the content
+outright. The cap is always on and retains a usable window. Both can
+apply in one pass, and the backstop still wins on the newest result if
+the active turn alone overflows.
+
+**Determinism is load-bearing.** The replacement text is a pure function
+of the message's own text and the cap — never of the budget, the model,
+the clock, or the message's position or neighbours. So a given stale
+result caps to byte-identical output on every turn for the rest of the
+thread's life. That is not a nicety: Anthropic's cache is
+prefix-matched, so a marker that varied per turn would rewrite the
+history prefix on every send (guaranteed miss **plus** the 25%
+cache-write surcharge) and cost more than the bytes it saved. It is also
+what lets the cap coexist with `trim`'s [cache
+anchor](#cache-aware-trim--retention) — anchored blocks cap identically
+each turn, so the anchor stays byte-stable. Cuts that would land inside
+a UTF-16 surrogate pair drop the orphaned half, which is deterministic
+too.
+
+Where the ordering pays off twice: capping runs **ahead** of the budget
+check, so a history that only overflowed because of stale tool output
+now fits and no turn is evicted at all.
+
+Unrelated to `src/runtime/tools/output-limits.ts`. Those 8 MiB / 1 MiB
+per-tool caps exist only to stay under a provider's hard string-length
+error and deliberately do nothing else; this cap is about spend.
 
 ---
 
@@ -394,7 +462,7 @@ Notes:
 
 | Concern | Location |
 |---------|----------|
-| Algorithm, budget math, registry, cache-aware `trim`/`none` | `src/runtime/stream-chat/context-compaction.ts` |
+| Algorithm, budget math, registry, cache-aware `trim`/`none`, stale tool-result cap | `src/runtime/stream-chat/context-compaction.ts` |
 | `summarize` strategy + default LLM summarizer (fail-open, memo) | `src/runtime/stream-chat/context-summarize.ts` |
 | Cache-retention TTL shaping (stable prefix long, tail short) | `src/runtime/stream-chat/cache-retention.ts` |
 | Memory/KB tail split (uncached trailing system block) | `src/runtime/stream-chat/system-cache-split.ts` |

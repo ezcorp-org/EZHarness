@@ -28,6 +28,7 @@ const mode: Mode = {
 	instructionPosition: "append",
 	preferredModel: null,
 	preferredProvider: null,
+	preferredTier: null,
 	preferredThinkingLevel: null,
 	temperature: null,
 	toolRestriction: "all",

@@ -11,19 +11,15 @@
  * What is pinned here is what a USER can see, which is where the failure
  * this card exists to kill lives:
  *
- *  1. MOLD. The provider publishes no mold spore data, so the payload
- *     ships `available: false` with a reason. The card must render an
- *     explicit "Not available" block SHOWING that reason — a blank, a 0,
- *     or a dash where a health figure belongs is the "execution
- *     succeeded, presentation lied" failure.
- *  2. A pollen grain the provider has NO value for (`null`) must be
- *     visually distinct from a MEASURED zero. Both are asserted in the
- *     same DOM so a regression that collapses them is caught.
- *  3. Honest degradation: an `ok:false` envelope renders a readable
- *     failure block, and an unparseable one falls through to DefaultCard
- *     rather than a blank-but-successful card.
+ *  1. Atlanta's NAB-certified station report renders observed category
+ *     pollen, correct grains/m³ units, provenance, date, and mold activity.
+ *     A band-only mold report never becomes a numeric spore count.
+ *  2. Persisted v1 output remains compatible: missing vs measured-zero
+ *     pollen stays visually distinct and unavailable mold retains its reason.
+ *  3. Honest degradation: `ok:false` renders a readable failure block and
+ *     unparseable output falls through to DefaultCard.
  *  4. MOBILE. A prior bug collapsed a failure message to zero width in a
- *     non-wrapping flex row; the mold reason is measured at 390px.
+ *     non-wrapping flex row; the unavailable reason is measured at 390px.
  *
  * `captureEvidence` is a hard no-op unless `EZCORP_E2E_EVIDENCE=1`.
  */
@@ -67,6 +63,55 @@ const ENVELOPE = {
 		band: "moderate",
 	},
 	mold: { available: false, reason: MOLD_REASON, count: null, band: null },
+};
+
+const ATLANTA_ENVELOPE = {
+	...ENVELOPE,
+	v: 2,
+	place: {
+		name: "Atlanta",
+		admin1: "Georgia",
+		country: "United States",
+		timezone: "America/New_York",
+	},
+	pollen: {
+		available: true,
+		grains: null,
+		total: 4,
+		unit: "grains/m³",
+		band: "low",
+		categories: [
+			{ key: "trees", label: "Trees", band: "low", contributors: ["MULBERRY"] },
+			{ key: "grass", label: "Grass", band: "low", contributors: ["GRASS"] },
+			{
+				key: "weeds",
+				label: "Weeds",
+				band: "low",
+				contributors: ["PIGWEED", "RAGWEED", "PLANTAIN"],
+			},
+		],
+		observedAt: "2026-07-29",
+		source: {
+			id: "atlanta-allergy",
+			name: "Atlanta Allergy & Asthma",
+			kind: "observed",
+			certification: "National Allergy Bureau-certified station",
+		},
+	},
+	mold: {
+		available: true,
+		count: null,
+		unit: null,
+		band: "very-high",
+		reason: "The station publishes a mold activity band, not a numeric spore count.",
+		observedAt: "2026-07-29",
+		source: {
+			id: "atlanta-allergy",
+			name: "Atlanta Allergy & Asthma",
+			kind: "observed",
+			certification: "National Allergy Bureau-certified station",
+		},
+	},
 };
 
 /** A persisted tool call in the shape `withToolCalls=true` returns. */
@@ -215,6 +260,70 @@ test.describe("city-conditions card in the transcript", () => {
 			).toBe(true);
 		} else {
 			expect(testInfo.attachments.some((a) => a.name === "city-conditions-card")).toBe(false);
+		}
+	});
+
+	test("Atlanta renders NAB station categories, provenance, and mold activity @evidence", async ({
+		page,
+		mockApi,
+	}, testInfo) => {
+		const convId = "conv-city-conditions-atlanta";
+		await seedConditions(
+			mockApi,
+			convId,
+			persistedCall({
+				id: "tc-city-atlanta",
+				input: { city: "Atlanta" },
+				messageId: `${convId}-a1`,
+				cardType: "city-conditions",
+				output: JSON.stringify(ATLANTA_ENVELOPE),
+			}),
+		);
+		await page.goto(`/project/${PROJECT_ID}/chat/${convId}`);
+
+		const card = page.getByTestId("city-conditions-card");
+		await expect(card).toBeVisible({ timeout: 10_000 });
+		await expect(page.getByTestId("city-conditions-place")).toHaveText(
+			"Atlanta, Georgia, United States",
+		);
+		await expect(page.getByTestId("city-conditions-pollen-total")).toHaveText("4.0");
+		await expect(page.getByText("grains/m³", { exact: true })).toBeVisible();
+		await expect(page.getByTestId("city-conditions-pollen-category")).toHaveCount(3);
+		await expect(card.locator('[data-category="weeds"]')).toContainText(
+			"PIGWEED, RAGWEED, PLANTAIN",
+		);
+		const pollenSource = page.getByTestId("city-conditions-pollen-source");
+		await expect(pollenSource).toContainText("Observed by Atlanta Allergy & Asthma");
+		await expect(pollenSource).toContainText("National Allergy Bureau-certified station");
+		await expect(pollenSource).toContainText("Reported 07/29/2026");
+
+		await expect(page.getByTestId("city-conditions-mold-unavailable")).toHaveCount(0);
+		await expect(page.getByTestId("city-conditions-mold-count")).toHaveText(
+			"Count not published",
+		);
+		await expect(page.getByTestId("city-conditions-mold-band")).toHaveText("Very high");
+		await expect(page.getByTestId("city-conditions-mold-note")).toContainText(
+			"activity band, not a numeric spore count",
+		);
+		await expect(page.getByTestId("city-conditions-mold-source")).toContainText(
+			"Reported 07/29/2026",
+		);
+
+		await captureEvidence(page, testInfo, "city-conditions-atlanta-station");
+		if (process.env.EZCORP_E2E_EVIDENCE === "1") {
+			expect(
+				testInfo.attachments.some(
+					(attachment) =>
+						attachment.name === "city-conditions-atlanta-station" &&
+						attachment.contentType === "image/png",
+				),
+			).toBe(true);
+		} else {
+			expect(
+				testInfo.attachments.some(
+					(attachment) => attachment.name === "city-conditions-atlanta-station",
+				),
+			).toBe(false);
 		}
 	});
 

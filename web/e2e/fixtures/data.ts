@@ -72,6 +72,9 @@ export interface ModeData {
 	instructionPosition: "prepend" | "append" | "replace";
 	preferredModel: string | null;
 	preferredProvider: string | null;
+	/** WS3b: routing tier this mode's kind of task wants, when it names no
+	 *  specific model. */
+	preferredTier: string | null;
 	preferredThinkingLevel: string | null;
 	temperature: number | null;
 	toolRestriction: "all" | "read-only" | "none" | "allowlist";
@@ -107,6 +110,7 @@ export function makeMode(overrides: Partial<ModeData> = {}): ModeData {
 		instructionPosition: "prepend",
 		preferredModel: null,
 		preferredProvider: null,
+		preferredTier: null,
 		preferredThinkingLevel: null,
 		temperature: null,
 		toolRestriction: "all",

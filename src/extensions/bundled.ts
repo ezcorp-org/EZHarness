@@ -518,15 +518,40 @@ const BUNDLED_EXTENSIONS: BundledExtension[] = [
       },
     },
   },
-  // NOTE: `city-conditions` (docs/extensions/examples/city-conditions) is
-  // deliberately NOT bundled. It is a user-installed demo, exactly like
-  // `weather` — its closest analogue (same provider, same demo purpose,
-  // also ships a card). An extension that reaches third-party APIs should
-  // not auto-install and auto-enable in every self-hosted deployment;
-  // opt-in is the right default. Its shipped `conditions.workflow.yaml`
-  // still registers as `city-conditions:conditions` once a user installs
-  // it — extension workflows are discovered from INSTALLED extensions, so
-  // being unbundled costs the capability nothing.
+  {
+    // city-conditions — current time + weather + pollen for a city,
+    // rendered by the `city-conditions` card, plus a shipped
+    // `conditions.workflow.yaml` that performs the same aggregation as a
+    // declarative graph (its `weather` / `air` steps share one parallel
+    // batch).
+    //
+    // Network is the only I/O grant and covers the three keyless Open-Meteo
+    // hosts plus the Atlanta NAB-certified station page. No filesystem
+    // (nothing is written), no env (no credential exists to take, so the
+    // env-key-leak gate is never approached), no shell, no storage.
+    //
+    // `workflows` is what makes the shipped asset TRIGGERABLE — shipping
+    // a `*.workflow.yaml` is only an asset; firing it is the privileged
+    // act. `maxRunsPerHour` is REQUIRED on the granted shape (unlike the
+    // manifest declaration where it is optional) because
+    // `intersectPermissions` takes `Math.min` over it; the matching
+    // ceiling row carries the same 12 so the intersection is lossless.
+    name: "city-conditions",
+    path: "docs/extensions/examples/city-conditions",
+    permissions: {
+      network: [
+        "geocoding-api.open-meteo.com",
+        "api.open-meteo.com",
+        "air-quality-api.open-meteo.com",
+        "www.atlantaallergy.com",
+      ],
+      workflows: { names: ["conditions"], maxRunsPerHour: 12 },
+      grantedAt: {
+        network: Date.now(),
+        workflows: Date.now(),
+      },
+    },
+  },
   {
     // In-browser Kokoro-TTS. Adds a speaker icon to the per-message
     // action toolbar via the `messageToolbar` extension point. Click
@@ -547,19 +572,22 @@ const BUNDLED_EXTENSIONS: BundledExtension[] = [
     },
   },
   {
-    // Phase 53 Stage 1 — bundled port of the legacy lessons distiller
-    // (src/runtime/lessons/distiller.ts). Lives at the milestone-spec'd
-    // path `extensions/<name>/` rather than the docs/examples or
+    // The lessons distiller. Lives at the milestone-spec'd path
+    // `extensions/<name>/` rather than the docs/examples or
     // packages/@ezcorp paths used by older bundled extensions. The
     // `getProjectRoot()`-relative join handles any in-repo path.
     //
-    // Shipped alongside the legacy implementation; Stage 2 (a separate
-    // commit gated on UAT signoff) deletes the legacy code. The parity
-    // test at `src/__tests__/distiller-port-parity.test.ts` proves both
-    // pipelines produce identical outcomes during Stage 1.
+    // This is the SOLE auto-distill path. Phase 53 Stage 1 briefly ran
+    // it alongside a legacy host-side distiller under a parity test;
+    // Stage 2 deleted both (`src/runtime/lessons/distiller.ts` and
+    // `src/__tests__/distiller-port-parity.test.ts` no longer exist —
+    // `src/runtime/lessons/` now holds only the shared `triggers.ts`
+    // heuristics, called host-side via `runtime.lessons.triggerGate`).
     name: "lessons-distiller",
     path: "extensions/lessons-distiller",
-    // Event-only extension (no tools, no manual triggers post-53.3).
+    // Event-driven extension: the auto-distill path is a `run:complete`
+    // subscription (it also ships one tool, `distill_now`, backing the
+    // manual `!EZ:distill` action).
     // Without bootSpawn, `run:complete` is silently dropped by
     // `EventSubscriptionDispatcher.dispatch` because the subprocess
     // never starts — see `bootSpawnFlaggedBundledExtensions`.

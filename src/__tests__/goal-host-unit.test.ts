@@ -548,6 +548,69 @@ describe("U3 — resolveEvaluatorModel", () => {
     });
     expect(got?.provider).toBe("anthropic");
   });
+
+  // WS3a — the FR-6 chain IS the tier ladder's `fast` rung, so an operator who
+  // edits Settings → Models edits the evaluator's provider order with it.
+  const okDeps = () => ({
+    resolveModel: mock(async (p?: string, m?: string) => ({
+      provider: p!,
+      model: m!,
+      piModel: {},
+    })) as unknown as ResolveModelFn,
+    getCredential: mock(async () => ({ type: "apikey", token: "k" })) as unknown as CredentialFn,
+  });
+
+  test("a configured fast rung overrides the built-in chain", async () => {
+    const got = await resolveEvaluatorModel(undefined, "c", {
+      ...okDeps(),
+      loadTierLadder: async () => ({
+        fast: [
+          { provider: "google", model: "gemini-3-nano" },
+          { provider: "anthropic", model: "claude-haiku-4-5" },
+        ],
+        balanced: [],
+        powerful: [],
+      }),
+    });
+    expect(got?.provider).toBe("google");
+    expect(got?.model).toBe("gemini-3-nano");
+  });
+
+  test("the preferred provider is still hoisted inside a configured rung", async () => {
+    const got = await resolveEvaluatorModel("anthropic", "c", {
+      ...okDeps(),
+      loadTierLadder: async () => ({
+        fast: [
+          { provider: "google", model: "gemini-3-nano" },
+          { provider: "anthropic", model: "claude-haiku-4-5" },
+        ],
+        balanced: [],
+        powerful: [],
+      }),
+    });
+    expect(got?.provider).toBe("anthropic");
+    expect(got?.model).toBe("claude-haiku-4-5");
+  });
+
+  test("a configured ladder with an EMPTY fast rung falls back to the built-in", async () => {
+    const got = await resolveEvaluatorModel(undefined, "c", {
+      ...okDeps(),
+      loadTierLadder: async () => ({ fast: [], balanced: [], powerful: [] }),
+    });
+    expect(got?.provider).toBe("anthropic");
+    expect(got?.model).toBe(CHEAP_MODEL_BY_PROVIDER.anthropic);
+  });
+
+  test("a settings read that THROWS degrades to the built-in rung (never stalls a goal)", async () => {
+    const got = await resolveEvaluatorModel(undefined, "c", {
+      ...okDeps(),
+      loadTierLadder: async () => {
+        throw new Error("db down");
+      },
+    });
+    expect(got?.provider).toBe("anthropic");
+    expect(got?.model).toBe(CHEAP_MODEL_BY_PROVIDER.anthropic);
+  });
 });
 
 // ── U4: canonical armed predicate + state-machine asserts ──────────
