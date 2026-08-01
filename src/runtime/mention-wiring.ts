@@ -867,6 +867,8 @@ export function applyWorkflowExpansion(
   if (orderedNames.length === 0) return "";
 
   const blocks = orderedNames.slice(0, MAX_WORKFLOW_EXPANSIONS_PER_TURN)
+    // Pair each name with its lookup so a block can still be labelled from
+    // the token when a cache entry carries a different `name`.
     .map((name) => ({ name, workflow: resolver(name) }))
     .filter((r) => Boolean(r.workflow))
     .map((r) => formatWorkflowBlock(r.name, r.workflow!));
