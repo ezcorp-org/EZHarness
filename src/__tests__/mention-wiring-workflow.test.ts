@@ -495,6 +495,51 @@ describe("applyWorkflowExpansion — per-turn caps", () => {
     expect(out.length).toBeLessThanOrEqual(8 * 1024);
   });
 
+  test("the byte cap boundary is exact: a block AT the budget is kept, one char more is dropped", async () => {
+    // The budget check is `> maxChars`, so a block landing exactly on
+    // 8192 must survive. Derive the block overhead from a rendered
+    // sample rather than hardcoding it, so this test keeps testing the
+    // boundary if the block wording ever changes.
+    const probe = await applyWorkflowExpansion(
+      "![workflow:w]",
+      dictResolver({ w: { description: "x" } }),
+    );
+    const overhead = probe.length - 1;
+    const budget = 8 * 1024;
+
+    const exact = await applyWorkflowExpansion(
+      "![workflow:w]",
+      dictResolver({ w: { description: "x".repeat(budget - overhead) } }),
+    );
+    expect(exact.length).toBe(budget);
+    expect(exact).toContain("**Workflow: w**");
+
+    const oneOver = await applyWorkflowExpansion(
+      "![workflow:w]",
+      dictResolver({ w: { description: "x".repeat(budget - overhead + 1) } }),
+    );
+    expect(oneOver).toBe("");
+  });
+
+  test("the separator is charged to the budget, not counted for free", async () => {
+    // Two blocks that each fit alone and whose lengths sum to exactly
+    // the budget must NOT both be kept — the "\n\n" join costs 2 more.
+    const probe = await applyWorkflowExpansion(
+      "![workflow:a]",
+      dictResolver({ a: { description: "x" } }),
+    );
+    const overhead = probe.length - 1;
+    const half = (8 * 1024) / 2;
+
+    const out = await applyWorkflowExpansion("![workflow:a] ![workflow:b]", dictResolver({
+      a: { description: "x".repeat(half - overhead) },
+      b: { description: "y".repeat(half - overhead) },
+    }));
+
+    expect(out).toContain("**Workflow: a**");
+    expect(out).not.toContain("**Workflow: b**");
+  });
+
   test("a single block larger than the whole budget yields nothing", async () => {
     const resolver = dictResolver({
       huge: { description: "y".repeat(9 * 1024) },
