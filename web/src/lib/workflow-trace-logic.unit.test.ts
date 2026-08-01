@@ -154,28 +154,59 @@ describe("statusLabel and isLiveRun", () => {
 });
 
 describe("canRetryFrom", () => {
-	test("offered only on a suspended AND resumable run", () => {
+	test("offered on a suspended run", () => {
 		const failing = step({ status: "error" });
-		expect(canRetryFrom({ status: "suspended", resumable: true }, failing)).toBe(true);
-		// Parked but the sweep judged it unsafe to continue.
-		expect(canRetryFrom({ status: "suspended", resumable: false }, failing)).toBe(false);
+		expect(canRetryFrom({ status: "suspended" }, failing)).toBe(true);
 		// Already being driven — retrying would execute a batch twice.
-		expect(canRetryFrom({ status: "running", resumable: true }, failing)).toBe(false);
+		expect(canRetryFrom({ status: "running" }, failing)).toBe(false);
 		// Terminal: no cursor to resume from.
 		for (const status of ["success", "error", "cancelled"]) {
-			expect(canRetryFrom({ status, resumable: true }, failing)).toBe(false);
+			expect(canRetryFrom({ status }, failing)).toBe(false);
+		}
+	});
+
+	test("an APPROVAL-parked run gets the button — the population it exists for", () => {
+		// The regression this pins. A deliberate park leaves `resumable` at
+		// its `false` default, because that column is the crash-sweep's
+		// verdict and `suspendWorkflowRun` pointedly does not set it. An
+		// earlier version of this predicate required `resumable`, which hid
+		// the button on every approval-parked run — the same mistake
+		// `listClaimableWorkflowRuns` warns against in its own docblock.
+		//
+		// Passing the real shape of a parked row, `resumable: false`
+		// included, so a re-added check fails here rather than in
+		// production. The extra key is deliberate: the signature takes only
+		// `status`, so this also asserts the predicate ignores it.
+		const parked = { status: "suspended", resumable: false };
+		expect(canRetryFrom(parked, step({ status: "awaiting_approval" }))).toBe(true);
+		expect(canRetryFrom(parked, step({ status: "suspended" }))).toBe(true);
+		expect(canRetryFrom(parked, step({ status: "error" }))).toBe(true);
+	});
+
+	test("matches resumeParkedRun's own gate, which never reads resumable", () => {
+		// A UI predicate stricter than the mechanism it drives is a button
+		// that lies about what the platform can do. `resumeParkedRun`
+		// refuses anything not `suspended` and consults nothing else, so
+		// these two must agree exactly.
+		// Bound to a variable, not passed inline: the parameter is
+		// `Pick<…, "status">`, so an object LITERAL carrying `resumable`
+		// is an excess-property error — which is itself the guarantee
+		// (the type now makes consulting it impossible). Widening through
+		// a variable still hands the field over at runtime, so this
+		// asserts the predicate ignores a value it is given.
+		for (const resumable of [true, false]) {
+			const parked = { status: "suspended", resumable };
+			const failed = { status: "error", resumable };
+			expect(canRetryFrom(parked, step({ status: "error" }))).toBe(true);
+			expect(canRetryFrom(failed, step({ status: "error" }))).toBe(false);
 		}
 	});
 
 	test("never offered on a step that already succeeded", () => {
 		// A resume serves a completed step from its persisted output rather
 		// than re-running it, so the button would be a lie.
-		expect(
-			canRetryFrom({ status: "suspended", resumable: true }, step({ status: "success" })),
-		).toBe(false);
-		expect(
-			canRetryFrom({ status: "suspended", resumable: true }, step({ status: "awaiting_approval" })),
-		).toBe(true);
+		expect(canRetryFrom({ status: "suspended" }, step({ status: "success" }))).toBe(false);
+		expect(canRetryFrom({ status: "suspended" }, step({ status: "awaiting_approval" }))).toBe(true);
 	});
 });
 

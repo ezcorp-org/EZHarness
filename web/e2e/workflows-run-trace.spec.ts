@@ -111,7 +111,13 @@ const PARKED = {
 		status: "suspended",
 		finishedAt: null,
 		suspendedReason: "approval",
-		resumable: true,
+		// FALSE, matching a real approval-parked row. `suspendWorkflowRun`
+		// deliberately never sets `resumable` — it is the crash-sweep's
+		// flag — so the column stays at its default. This fixture used to
+		// say `true`, a value the production path never produces, and that
+		// lie hid a real bug: `canRetryFrom` required it and therefore hid
+		// the button on every approval-parked run.
+		resumable: false,
 	},
 	steps: [
 		TRACE.steps[0]!,

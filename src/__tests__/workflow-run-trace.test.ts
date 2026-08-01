@@ -16,6 +16,9 @@ import { drizzle } from "drizzle-orm/pglite";
 import { sql } from "drizzle-orm";
 import * as schema from "../db/schema";
 import { migrate } from "../db/migrate";
+import { EventBus } from "../runtime/events";
+import type { AgentEvents, AgentRun, WorkflowDefinition, WorkflowStep } from "../types";
+import type { AgentExecutor } from "../runtime/executor";
 
 let pglite: PGlite;
 let db: ReturnType<typeof drizzle<typeof schema>>;
@@ -37,6 +40,7 @@ const {
 } = await import("../runtime/workflow-run-trace");
 const { upsertWorkflowStepRun } = await import("../db/queries/workflow-runs");
 const { upsertWorkflowStepIteration } = await import("../db/queries/workflow-step-iterations");
+const { WorkflowExecutor } = await import("../runtime/workflow-executor");
 
 const OWNER = { userId: "user-owner", isAdmin: false };
 const STRANGER = { userId: "user-stranger", isAdmin: false };
@@ -233,6 +237,154 @@ describe("trace payload shape", () => {
     expect(trace.run.suspendedReason).toBe("approval");
     expect(trace.run.resumable).toBe(true);
     expect(trace.run.finishedAt).toBeNull();
+  });
+});
+
+describe("a REAL parked run, read through the real trace path", () => {
+  // The gap this closes: every other assertion about a `suspended` run in
+  // this file seeds the row by hand, and the trace page's e2e MOCKS the
+  // API. Neither can catch a disagreement between what the executor
+  // actually writes when it parks and what the trace assumes it wrote —
+  // and one such disagreement was live (see `canRetryFrom`).
+  //
+  // Driven through the production path: a real `approval` step calls
+  // `parkWorkflowApproval` and throws `WorkflowSuspendedError`, whose
+  // catch site calls `suspendWorkflowRun`.
+  let parkedRunId: string;
+
+  beforeAll(async () => {
+    const bus = new EventBus<AgentEvents>();
+    const agentExec = {
+      cancelRun() {},
+      async runAgent(): Promise<AgentRun> {
+        const runId = crypto.randomUUID();
+        await db.execute(sql`
+          INSERT INTO runs (id, agent_name, status, started_at)
+          VALUES (${runId}, 'stub', 'success', NOW())
+        `);
+        return {
+          id: runId,
+          agentName: "stub",
+          status: "success",
+          startedAt: Date.now(),
+          logs: [],
+          result: { success: true, output: "drafted" },
+          provider: "anthropic",
+          model: "claude-opus-5",
+          inputTokens: 640,
+          outputTokens: 120,
+        };
+      },
+    } as unknown as AgentExecutor;
+    const wf = new WorkflowExecutor(agentExec, bus, { persist: true });
+
+    const def: WorkflowDefinition = {
+      name: `wf-parked-${crypto.randomUUID().slice(0, 8)}`,
+      description: "",
+      steps: [
+        // Completes, carrying real telemetry AND a credential in its
+        // resolved input — the trace has to survive the park with both.
+        { name: "draft", agent: "stub", input: { token: "$input.token" } },
+        // Parks the run.
+        {
+          name: "confirm",
+          kind: "approval",
+          prompt: "Ship it?",
+          choices: ["approve", "reject"],
+          dependsOn: ["draft"],
+        } as WorkflowStep,
+      ],
+    };
+
+    const run = await wf.runWorkflow(def, { token: "ghp_aaaaaaaaaaaaaaaaaaaaaa" }, undefined, "user-owner");
+    parkedRunId = run.id;
+    // Fail loudly here rather than letting every assertion below degrade
+    // into a vacuous pass if the park path ever stops parking.
+    expect(run.status).toBe("suspended");
+    for (let i = 0; i < 20; i++) await new Promise((r) => setTimeout(r, 0));
+  });
+
+  test("the run reads as suspended, alive, and names why it parked", async () => {
+    const trace = (await getWorkflowRunTrace(parkedRunId, OWNER))!;
+    expect(trace).toBeDefined();
+    expect(trace.run.status).toBe("suspended");
+    expect(trace.run.suspendedReason).toBe("approval");
+    // NOT finished. Stamping a finish time would make a live run sort and
+    // read as terminal everywhere.
+    expect(trace.run.finishedAt).toBeNull();
+  });
+
+  test("a REAL parked run carries resumable=false — the value the mock got wrong", async () => {
+    // This is the assertion that would have caught the `canRetryFrom`
+    // bug. `suspendWorkflowRun` deliberately never sets `resumable` (it
+    // is the crash-sweep's flag), so a deliberate park leaves the column
+    // at its `false` default. Any UI or query that requires it to be true
+    // silently excludes every approval-parked run.
+    const trace = (await getWorkflowRunTrace(parkedRunId, OWNER))!;
+    expect(trace.run.resumable).toBe(false);
+    // And the platform still considers it resumable, which is the point:
+    // the daemon's claim scan selects on status alone.
+    expect(trace.run.status).toBe("suspended");
+  });
+
+  test("the step that parked is identifiable as the parked one", async () => {
+    const trace = (await getWorkflowRunTrace(parkedRunId, OWNER))!;
+    const confirm = trace.steps.find((s) => s.stepName === "confirm");
+    expect(confirm, "the approval step has no row in the trace").toBeDefined();
+    // `suspended`, not `error` — the step is waiting, it did not fail.
+    expect(confirm!.status).toBe("suspended");
+    expect(confirm!.errorCode).toBe("suspended");
+  });
+
+  test("steps that completed BEFORE the park keep their telemetry", async () => {
+    // The question a human opens a parked trace to answer is "what got
+    // done before this stopped". A park that dropped the completed
+    // steps' telemetry would erase exactly that.
+    const trace = (await getWorkflowRunTrace(parkedRunId, OWNER))!;
+    const draft = trace.steps.find((s) => s.stepName === "draft")!;
+    expect(draft.status).toBe("success");
+    expect(draft.model).toBe("claude-opus-5");
+    expect(draft.inputTokens).toBe(640);
+    expect(draft.outputTokens).toBe(120);
+    expect(draft.durationMs).not.toBeNull();
+    // And the run-level rollup counts them.
+    expect(trace.totals.inputTokens).toBe(640);
+  });
+
+  test("resolved_input for the completed step survives the park, REDACTED", async () => {
+    const trace = (await getWorkflowRunTrace(parkedRunId, OWNER))!;
+    const draft = trace.steps.find((s) => s.stepName === "draft")!;
+    expect(draft.resolvedInput).toEqual({ token: "[REDACTED]" });
+
+    // Belt and braces: the raw credential is nowhere in the stored JSON.
+    const raw = (await db.execute(sql`
+      SELECT resolved_input::text AS t FROM workflow_step_runs
+       WHERE workflow_run_id = ${parkedRunId} AND step_name = 'draft'
+    `)) as { rows: Array<{ t: string }> };
+    expect(raw.rows[0]!.t).not.toContain("ghp_aaaaaaaaaaaaaaaaaaaaaa");
+  });
+
+  test("the approval step reports no LLM telemetry, as NULL not zero", async () => {
+    // The §7 dependency that said an approval step's row shape was
+    // "undefined until the kind exists". The kind exists; this is the
+    // shape. It invokes no agent, so every LLM column is genuinely
+    // absent — and absent must read as NULL, not as a measured zero.
+    const trace = (await getWorkflowRunTrace(parkedRunId, OWNER))!;
+    const confirm = trace.steps.find((s) => s.stepName === "confirm")!;
+    expect(confirm.inputTokens).toBeNull();
+    expect(confirm.outputTokens).toBeNull();
+    expect(confirm.attempt).toBeNull();
+    expect(confirm.provider).toBeNull();
+    expect(confirm.model).toBeNull();
+    expect(confirm.costUsd).toBeNull();
+    // It did take wall-clock time, and that IS measured.
+    expect(confirm.durationMs).not.toBeNull();
+  });
+
+  test("a parked run is still owner-scoped — parking grants no one access", async () => {
+    // A park changes the run's state, not its ownership.
+    expect(await getWorkflowRunTrace(parkedRunId, STRANGER)).toBeUndefined();
+    expect(await getWorkflowRunTrace(parkedRunId, ADMIN)).toBeDefined();
   });
 });
 

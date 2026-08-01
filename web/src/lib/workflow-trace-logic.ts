@@ -154,22 +154,37 @@ export function statusLabel(status: string): string {
 /**
  * Whether "Retry from here" can be offered for a step.
  *
- * The button re-enters the run at this step, which is only meaningful
- * when the run is PARKED and the platform is willing to continue it:
- * `suspended` plus `resumable`, exactly the pair the daemon's claim scan
- * looks for. A `running` run is already being driven and retrying it
- * would execute a batch twice; a terminal run has no cursor to resume
- * from.
+ * The button re-enters the run at its cursor, which is only meaningful
+ * when the run is PARKED: `status === "suspended"`. A `running` run is
+ * already being driven and retrying it would execute a batch twice; a
+ * terminal run has no cursor to resume from.
  *
- * Deliberately conservative: offering a button that cannot work is worse
- * than not offering one, because the operator learns nothing from the
- * failure.
+ * ## `resumable` is deliberately NOT consulted
+ *
+ * It reads like the obvious second condition and it is the wrong one.
+ * `resumable` is the recovery SWEEP's verdict on a **crashed** run; a
+ * deliberately parked run never carries it, because `suspendWorkflowRun`
+ * pointedly does not set it and the column defaults to `false`
+ * (`src/db/queries/workflow-runs.ts` — "a deliberate park is resumable by
+ * construction and does not need a column to say so").
+ *
+ * So requiring it hides the button on every approval-parked run — which
+ * is the entire population it exists to serve. That is the same mistake
+ * `listClaimableWorkflowRuns` warns against in its own docblock, and this
+ * code made it: the mocked e2e fixture set `resumable: true`, a value a
+ * real approval-parked run never has, so nothing caught it until a real
+ * parked run was driven through the trace.
+ *
+ * The authority is `resumeParkedRun`, which gates on `status ===
+ * "suspended"` alone and never reads `resumable`. This matches it exactly
+ * — a UI predicate stricter than the mechanism it drives is a button that
+ * lies about what the platform can do.
  */
 export function canRetryFrom(
-  run: Pick<RunTrace["run"], "status" | "resumable">,
+  run: Pick<RunTrace["run"], "status">,
   step: Pick<TraceStep, "status">,
 ): boolean {
-  if (run.status !== "suspended" || !run.resumable) return false;
+  if (run.status !== "suspended") return false;
   // A step that already succeeded is served from its persisted output on
   // resume rather than re-run, so "retry from here" would be a lie.
   return step.status !== "success";
