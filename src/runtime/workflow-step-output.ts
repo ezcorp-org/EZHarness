@@ -39,6 +39,18 @@ import { redactSecretsDeep } from "./secret-redaction";
  */
 export const MAX_STEP_OUTPUT_BYTES = 256 * 1024;
 
+/**
+ * Per-step cap on the stored `resolved_input`, in bytes of UTF-8 JSON.
+ *
+ * Deliberately SMALLER than the output cap. A step's input mapping is a
+ * handful of resolved refs; one large enough to need 256 KB is a smell,
+ * not a use case. And unlike `output` this column is pure telemetry — a
+ * resume recomputes the mapping from `cursor` + `stepResults` and never
+ * reads it — so truncating one costs an operator some detail and costs
+ * correctness nothing.
+ */
+export const MAX_RESOLVED_INPUT_BYTES = 64 * 1024;
+
 /** Is this stored output the overflow sentinel rather than a real result? */
 export function isTruncatedStepOutput(
   value: unknown,
@@ -52,7 +64,51 @@ export function isTruncatedStepOutput(
 
 /**
  * Redact, measure, and either return the storable result or the overflow
- * sentinel.
+ * sentinel. See {@link prepareForStorage} for the ordering rationale, all
+ * of which applies here — this is the resume-critical caller.
+ */
+export function prepareStepOutput(
+  result: AgentResult,
+): AgentResult | TruncatedStepOutput | undefined {
+  return prepareForStorage(result, MAX_STEP_OUTPUT_BYTES) as
+    | AgentResult
+    | TruncatedStepOutput
+    | undefined;
+}
+
+/**
+ * The same treatment for `workflow_step_runs.resolved_input`.
+ *
+ * ## Why this is four lines and not its own module
+ *
+ * `resolved_input` is the value the ref language produced for a step —
+ * whatever the workflow author threaded in through `$input`, `$steps` or
+ * `$prev`, which routinely includes credentials and always includes
+ * whatever an extension tool returned. That is the same untrusted surface
+ * `output` is, so it gets the same guarantee, and it gets it by calling
+ * the same code rather than by a second implementation that agrees today.
+ *
+ * There must be exactly ONE redactor in the tree
+ * (`redactSecretsDeep`) and exactly one redact-then-measure path. A
+ * second one would not fail loudly when it drifted — it would keep
+ * storing values, just less redacted ones, in a table the trace UI
+ * renders.
+ *
+ * Only the cap differs; see {@link MAX_RESOLVED_INPUT_BYTES} for why it
+ * is smaller.
+ */
+export function prepareResolvedInput(
+  input: Record<string, unknown>,
+): Record<string, unknown> | TruncatedStepOutput | undefined {
+  return prepareForStorage(input, MAX_RESOLVED_INPUT_BYTES) as
+    | Record<string, unknown>
+    | TruncatedStepOutput
+    | undefined;
+}
+
+/**
+ * Redact, measure, and either return the storable value or the overflow
+ * sentinel. The single body behind both public wrappers.
  *
  * Three ordering decisions, each load-bearing:
  *
@@ -63,12 +119,17 @@ export function isTruncatedStepOutput(
  *    walking turns "crash the run" into "store NULL and fail closed on
  *    resume", which is the behaviour the column's contract promises.
  *
- * 2. **Redaction runs before measurement.** `[REDACTED]` is shorter than
- *    the credential it replaces, so measuring first would reject
- *    payloads that do in fact fit and make their steps needlessly
- *    unrecoverable.
+ * 2. **Redaction runs before measurement**, so the bytes measured are the
+ *    bytes STORED. Under today's patterns every match is longer than
+ *    `[REDACTED]` (the shortest, `xox?-` plus ten characters, is 15), so
+ *    measuring first would only ever reject payloads that do in fact fit
+ *    and make their steps needlessly unrecoverable. This order does not
+ *    depend on that: it is what makes the cap mean "bytes stored"
+ *    whichever way a future pattern moves the length, and it is why the
+ *    overflow sentinel's `bytes` describes the value that would have been
+ *    written rather than the one that came in.
  *
- * 3. **The cap is `>`, not `>=`.** A result landing exactly on the cap is
+ * 3. **The cap is `>`, not `>=`.** A value landing exactly on the cap is
  *    storable.
  *
  * Returns `undefined` when there is nothing faithful to store. The caller
@@ -77,18 +138,19 @@ export function isTruncatedStepOutput(
  * in the caller's `catch` — is what stops a half-value reaching a row a
  * resume would trust.
  */
-export function prepareStepOutput(
-  result: AgentResult,
-): AgentResult | TruncatedStepOutput | undefined {
+function prepareForStorage(
+  value: object,
+  maxBytes: number,
+): object | TruncatedStepOutput | undefined {
   try {
-    JSON.stringify(result);
+    JSON.stringify(value);
   } catch {
     return undefined;
   }
-  const redacted = redactSecretsDeep(result) as AgentResult;
+  const redacted = redactSecretsDeep(value) as object;
   // Cannot throw: redaction maps strings to strings and rebuilds plain
   // objects/arrays, so it preserves serializability.
   const bytes = Buffer.byteLength(JSON.stringify(redacted), "utf8");
-  if (bytes > MAX_STEP_OUTPUT_BYTES) return { __truncated: true, bytes };
+  if (bytes > maxBytes) return { __truncated: true, bytes };
   return redacted;
 }
