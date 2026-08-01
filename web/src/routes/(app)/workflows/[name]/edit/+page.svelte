@@ -20,7 +20,12 @@
 		workflowToYaml,
 	} from "$lib/workflow-yaml.js";
 
-	let workflowName = $derived(page.params.name);
+	// `?? ""` because SvelteKit types every route param as `string |
+	// undefined`, and the four call sites below all take a `string`. The
+	// param is always present on this route — the fallback is a type-level
+	// statement, not a behaviour. Same idiom as the sibling routes
+	// (`commands/[name]`, `workflows/runs/[id]`).
+	let workflowName = $derived(page.params.name ?? "");
 
 	let workflow = $state<Workflow | null>(null);
 	let versions = $state<WorkflowVersionSummary[]>([]);
