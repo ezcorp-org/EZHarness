@@ -648,6 +648,7 @@ describe("makeLoadMessages.loadMessages", () => {
 			instructionPosition: "append",
 			preferredModel: null,
 			preferredProvider: null,
+			preferredTier: null,
 			preferredThinkingLevel: null,
 			temperature: null,
 			toolRestriction: "all",
@@ -669,7 +670,7 @@ describe("makeLoadMessages.loadMessages", () => {
 		const mode: Mode = {
 			id: "mode-x", name: "X", slug: "x", icon: null, description: "",
 			systemPromptInstruction: "", instructionPosition: "append",
-			preferredModel: null, preferredProvider: null, preferredThinkingLevel: null,
+			preferredModel: null, preferredProvider: null, preferredTier: null, preferredThinkingLevel: null,
 			temperature: null, toolRestriction: "all", extensionIds: null, extensionTools: null, builtin: false,
 		};
 		backgroundFetchMock.mockImplementation(async (key: string) => {

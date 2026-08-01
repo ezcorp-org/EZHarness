@@ -17,7 +17,7 @@ import {
   LONG_BLOCKING_ORCHESTRATION_TOOLS,
   LONG_BLOCKING_WATCHDOG_BUDGET_MS,
 } from "../tools/filter";
-import type { RoutingTier } from "../tier-classifier";
+import type { RoutingConfig, RoutingSignals, RoutingTier } from "../tier-classifier";
 import type { StreamChatContext } from "./context";
 import type { StreamChatHost } from "./host";
 
@@ -63,6 +63,12 @@ export interface SubscribeBridgeOptions {
   /** Tier the classifier routed this turn to — set only when routing fired
    *  (no pinned model). */
   routedTier?: RoutingTier;
+  /** WS5 routing provenance — the raw signals the tier was classified from
+   *  and the effective config it was decided under. Set only when routing
+   *  fired; absent on a pinned turn and whenever the best-effort provenance
+   *  read failed. Enables retroactive threshold sweeps over stored rows. */
+  routingSignals?: RoutingSignals;
+  routingConfig?: RoutingConfig;
   /** True when the serving attempt differs from the initially resolved one
    *  (a pre-stream failover rebuilt the agent). */
   failover?: boolean;
@@ -475,6 +481,12 @@ export function subscribeBridge(
                   ...(options.requestedModel !== undefined ? { requestedModel: options.requestedModel } : {}),
                   ...(options.routedTier !== undefined ? { routedTier: options.routedTier } : {}),
                   ...(options.failover !== undefined ? { failover: options.failover } : {}),
+                  // WS5 routing provenance — same conditional-spread contract
+                  // as the fields above: a pinned turn (and any direct
+                  // subscribeBridge caller) writes no key at all, so legacy
+                  // rows and pinned rows stay distinguishable from routed ones.
+                  ...(options.routingSignals !== undefined ? { routingSignals: options.routingSignals } : {}),
+                  ...(options.routingConfig !== undefined ? { routingConfig: options.routingConfig } : {}),
                 },
                 runId: run.id,
                 parentMessageId: capturedParent ?? undefined,

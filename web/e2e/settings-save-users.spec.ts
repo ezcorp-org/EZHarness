@@ -8,16 +8,14 @@ import { test, expect } from "./fixtures/test-base.js";
 import { makeProject } from "./fixtures/data.js";
 
 const proj = makeProject({ id: "proj-1", name: "Test Project" });
-const memberMe = {
-	user: { id: "member-1", email: "member@test.local", name: "Member", role: "member" },
-};
 const adminMe = {
 	user: { id: "admin-1", email: "admin@test.local", name: "Admin", role: "admin" },
 };
 
 test.describe("tier auto-save", () => {
 	test("clicking a tier persists without a Save button and survives reload", async ({ page, mockApi }) => {
-		await mockApi({ projects: [proj], routes: { "/api/auth/me": () => memberMe } });
+		// The tier control lives on /settings/models, which is admin-only.
+		await mockApi({ projects: [proj], routes: { "/api/auth/me": () => adminMe } });
 
 		// Stateful settings mock layered over the generic fixture: PUT
 		// writes into the same object GET serves, so a reload reflects

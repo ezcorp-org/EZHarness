@@ -2,8 +2,9 @@
  * Settings hub route split (Phase 1 of the settings UX overhaul):
  *   - each new sub-route renders its sections under the shared nav shell
  *   - legacy /settings#anchor deep links redirect to the new routes
- *   - non-admin direct-nav to /settings/admin* bounces to /settings/models
- *   - admin nav entry hidden for members, shown (with badge) for admins
+ *   - non-admin direct-nav to an admin-only page bounces to the first
+ *     page that role can open (Models & Providers is admin-only)
+ *   - admin nav entries hidden for members, shown (with badge) for admins
  */
 import { test, expect } from "./fixtures/test-base.js";
 import { makeProject } from "./fixtures/data.js";
@@ -29,7 +30,8 @@ const adminRoutes = {
 
 test.describe("settings sub-routes", () => {
 	test("models page renders providers, tier, order, custom models", async ({ page, mockApi }) => {
-		await mockApi({ projects: [proj], routes: { "/api/auth/me": () => memberMe } });
+		// Admin: this page's reads and writes are both admin-gated.
+		await mockApi({ projects: [proj], routes: adminRoutes });
 		await page.goto("/settings/models");
 
 		await expect(page.locator("#providers")).toBeVisible();
@@ -79,15 +81,15 @@ test.describe("settings sub-routes", () => {
 });
 
 test.describe("legacy anchor redirects", () => {
-	test("/settings redirects to /settings/models", async ({ page, mockApi }) => {
+	test("/settings redirects a member to their first allowed page", async ({ page, mockApi }) => {
 		await mockApi({ projects: [proj], routes: { "/api/auth/me": () => memberMe } });
 		await page.goto("/settings");
 
-		await expect(page).toHaveURL(/\/settings\/models$/);
+		await expect(page).toHaveURL(/\/settings\/personalization$/);
 	});
 
-	test("/settings#providers lands on models page with the anchor", async ({ page, mockApi }) => {
-		await mockApi({ projects: [proj], routes: { "/api/auth/me": () => memberMe } });
+	test("/settings#providers lands on models page with the anchor (admin)", async ({ page, mockApi }) => {
+		await mockApi({ projects: [proj], routes: adminRoutes });
 		await page.goto("/settings#providers");
 
 		await expect(page).toHaveURL(/\/settings\/models#providers$/);
@@ -110,11 +112,11 @@ test.describe("legacy anchor redirects", () => {
 		await expect(page.locator("#users")).toBeVisible();
 	});
 
-	test("/settings#users routes members to the default page", async ({ page, mockApi }) => {
+	test("/settings#users routes members to their default page", async ({ page, mockApi }) => {
 		await mockApi({ projects: [proj], routes: { "/api/auth/me": () => memberMe } });
 		await page.goto("/settings#users");
 
-		await expect(page).toHaveURL(/\/settings\/models$/);
+		await expect(page).toHaveURL(/\/settings\/personalization$/);
 	});
 
 	test("/settings#audit routes admins to the audit log page", async ({ page, mockApi }) => {
@@ -124,39 +126,58 @@ test.describe("legacy anchor redirects", () => {
 		await expect(page).toHaveURL(/\/settings\/admin\/audit$/);
 	});
 
-	test("unknown hash falls back to /settings/models", async ({ page, mockApi }) => {
+	test("unknown hash falls back to the member default page", async ({ page, mockApi }) => {
 		await mockApi({ projects: [proj], routes: { "/api/auth/me": () => memberMe } });
 		await page.goto("/settings#nonsense");
 
-		await expect(page).toHaveURL(/\/settings\/models$/);
+		await expect(page).toHaveURL(/\/settings\/personalization$/);
 	});
 });
 
 test.describe("admin gating", () => {
-	test("non-admin direct nav to /settings/admin redirects to models", async ({ page, mockApi }) => {
+	test("non-admin direct nav to /settings/admin redirects to their default page", async ({ page, mockApi }) => {
 		await mockApi({ projects: [proj], routes: { "/api/auth/me": () => memberMe } });
 		await page.goto("/settings/admin");
 
-		await expect(page).toHaveURL(/\/settings\/models$/);
+		await expect(page).toHaveURL(/\/settings\/personalization$/);
 	});
 
-	test("non-admin direct nav to /settings/admin/audit redirects to models", async ({ page, mockApi }) => {
+	test("non-admin direct nav to /settings/admin/audit redirects to their default page", async ({ page, mockApi }) => {
 		await mockApi({ projects: [proj], routes: { "/api/auth/me": () => memberMe } });
 		await page.goto("/settings/admin/audit");
 
-		await expect(page).toHaveURL(/\/settings\/models$/);
+		await expect(page).toHaveURL(/\/settings\/personalization$/);
 	});
 
-	test("nav hides admin entry for members, shows it for admins", async ({ page, mockApi }) => {
+	test("nav hides admin entries for members, shows them for admins", async ({ page, mockApi }) => {
 		await mockApi({ projects: [proj], routes: { "/api/auth/me": () => memberMe } });
-		await page.goto("/settings/models");
-		await expect(page.getByTestId("settings-nav-models")).toBeVisible();
-		await expect(page.getByTestId("settings-nav-admin")).not.toBeVisible();
+		await page.goto("/settings/personalization");
+		// Models & Providers is admin-only now: every control on it reads and
+		// writes admin-gated endpoints, so listing it for members showed a page
+		// rendered from defaults whose saves then failed.
+		await expect(page.getByTestId("settings-nav-models")).toHaveCount(0);
+		await expect(page.getByTestId("settings-nav-admin")).toHaveCount(0);
 
 		await mockApi({ projects: [proj], routes: adminRoutes });
 		await page.goto("/settings/admin");
+		await expect(page.getByTestId("settings-nav-models")).toBeVisible();
 		await expect(page.getByTestId("settings-nav-admin")).toBeVisible();
 		await expect(page.getByTestId("settings-nav-admin")).toContainText("admin");
+	});
+
+	test("a member hitting /settings/models directly is redirected, not shown defaults", async ({
+		page,
+		mockApi,
+	}) => {
+		// The nav no longer links it, so this covers the typed/bookmarked URL.
+		// Landing here previously rendered every editor at its DEFAULT value —
+		// "exploration off, ladder unconfigured" — indistinguishable from those
+		// being the real stored values.
+		await mockApi({ projects: [proj], routes: { "/api/auth/me": () => memberMe } });
+		await page.goto("/settings/models");
+
+		await expect(page).toHaveURL(/\/settings\/personalization$/);
+		await expect(page.getByTestId("tier-ladder-fast")).toHaveCount(0);
 	});
 
 	test("active nav item tracks the current route", async ({ page, mockApi }) => {
@@ -164,7 +185,7 @@ test.describe("admin gating", () => {
 		await page.goto("/settings/personalization");
 
 		await expect(page.getByTestId("settings-nav-personalization")).toHaveAttribute("aria-current", "page");
-		await expect(page.getByTestId("settings-nav-models")).not.toHaveAttribute("aria-current", "page");
+		await expect(page.getByTestId("settings-nav-briefing")).not.toHaveAttribute("aria-current", "page");
 	});
 });
 

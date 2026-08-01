@@ -20,6 +20,7 @@ import {
   resolveStaticFile,
   handlePreviewRequest,
   contentTypeFor,
+  resolvePreviewAppHost,
   sanitizeUpstreamResponse,
   sanitizeInboundHeaders,
   neutralizeSetCookieDomain,
@@ -69,6 +70,112 @@ describe("parsePreviewHost", () => {
   test("rejects null/empty inputs", () => {
     expect(parsePreviewHost(null, APP_HOST)).toBeNull();
     expect(parsePreviewHost(`${VALID_ID}.preview.${APP_HOST}`, "")).toBeNull();
+  });
+});
+
+describe("resolvePreviewAppHost", () => {
+  test("returns an explicit host verbatim", () => {
+    expect(
+      resolvePreviewAppHost({ EZCORP_PREVIEW_APP_HOST: "ezcorp.example.com" }),
+    ).toBe("ezcorp.example.com");
+  });
+
+  test("trims surrounding whitespace off an explicit host", () => {
+    expect(resolvePreviewAppHost({ EZCORP_PREVIEW_APP_HOST: "  localhost:4000  " })).toBe(
+      "localhost:4000",
+    );
+  });
+
+  test("an explicit host WINS over EZCORP_PUBLIC_URL (split-horizon deploys)", () => {
+    expect(
+      resolvePreviewAppHost({
+        EZCORP_PREVIEW_APP_HOST: "previews.example.com",
+        EZCORP_PUBLIC_URL: "https://app.example.com",
+      }),
+    ).toBe("previews.example.com");
+  });
+
+  test("fail-closed: unset disables the preview origin", () => {
+    expect(resolvePreviewAppHost({})).toBeNull();
+    expect(resolvePreviewAppHost({ EZCORP_PUBLIC_URL: "https://app.example.com" })).toBeNull();
+  });
+
+  test("fail-closed: empty / whitespace-only disables the preview origin", () => {
+    expect(resolvePreviewAppHost({ EZCORP_PREVIEW_APP_HOST: "" })).toBeNull();
+    expect(resolvePreviewAppHost({ EZCORP_PREVIEW_APP_HOST: "   " })).toBeNull();
+  });
+
+  test("auto derives host from EZCORP_PUBLIC_URL", () => {
+    expect(
+      resolvePreviewAppHost({
+        EZCORP_PREVIEW_APP_HOST: "auto",
+        EZCORP_PUBLIC_URL: "https://ezcorp.example.com",
+      }),
+    ).toBe("ezcorp.example.com");
+  });
+
+  test("auto KEEPS the port — buildPreviewOpenUrl needs it to be reachable", () => {
+    expect(
+      resolvePreviewAppHost({
+        EZCORP_PREVIEW_APP_HOST: "auto",
+        EZCORP_PUBLIC_URL: "http://nixos-amd.taile1c5b0.ts.net:4000",
+      }),
+    ).toBe("nixos-amd.taile1c5b0.ts.net:4000");
+  });
+
+  test("auto ignores path/query/fragment on the public URL", () => {
+    expect(
+      resolvePreviewAppHost({
+        EZCORP_PREVIEW_APP_HOST: "auto",
+        EZCORP_PUBLIC_URL: "https://ezcorp.example.com:8443/some/path?a=1#x",
+      }),
+    ).toBe("ezcorp.example.com:8443");
+  });
+
+  test("auto is case-insensitive", () => {
+    expect(
+      resolvePreviewAppHost({
+        EZCORP_PREVIEW_APP_HOST: "AUTO",
+        EZCORP_PUBLIC_URL: "https://ezcorp.example.com",
+      }),
+    ).toBe("ezcorp.example.com");
+  });
+
+  test("auto fails closed when EZCORP_PUBLIC_URL is missing or empty", () => {
+    expect(resolvePreviewAppHost({ EZCORP_PREVIEW_APP_HOST: "auto" })).toBeNull();
+    expect(
+      resolvePreviewAppHost({ EZCORP_PREVIEW_APP_HOST: "auto", EZCORP_PUBLIC_URL: "  " }),
+    ).toBeNull();
+  });
+
+  test("auto fails closed on an unparseable EZCORP_PUBLIC_URL", () => {
+    expect(
+      resolvePreviewAppHost({
+        EZCORP_PREVIEW_APP_HOST: "auto",
+        EZCORP_PUBLIC_URL: "not-a-url",
+      }),
+    ).toBeNull();
+  });
+
+  test("auto fails closed on a URL with no host (e.g. file:)", () => {
+    expect(
+      resolvePreviewAppHost({
+        EZCORP_PREVIEW_APP_HOST: "auto",
+        EZCORP_PUBLIC_URL: "file:///tmp/app",
+      }),
+    ).toBeNull();
+  });
+
+  test("the auto-derived host round-trips through parsePreviewHost", () => {
+    const host = resolvePreviewAppHost({
+      EZCORP_PREVIEW_APP_HOST: "auto",
+      EZCORP_PUBLIC_URL: "http://nixos-amd.taile1c5b0.ts.net:4000",
+    });
+    // The browser sends the port in the Host header; the resolved appHost
+    // carries one too. Matching must survive both.
+    expect(
+      parsePreviewHost(`${VALID_ID}.preview.nixos-amd.taile1c5b0.ts.net:4000`, host!),
+    ).toEqual({ previewId: VALID_ID });
   });
 });
 

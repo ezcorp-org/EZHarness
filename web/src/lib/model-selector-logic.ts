@@ -19,7 +19,19 @@
  *   turn reconciles, `resolveWireModel` re-sends the SERVED identity (read
  *   from the last auto-routed assistant message) instead of `null`, so Auto
  *   never re-routes mid-conversation.
+ * - Auto is also the DEFAULT for a user with no saved selection
+ *   (`resolveDefaultSelection`, gated on the `provider:defaultSelection`
+ *   setting). An explicit saved pick — including an explicit Auto — always
+ *   wins over the default.
  */
+
+import {
+	DEFAULT_SELECTION_FALLBACK,
+	DEFAULT_SELECTION_MODES,
+	DEFAULT_SELECTION_SETTING_KEY,
+	type DefaultSelectionMode,
+	parseDefaultSelection,
+} from "$server/runtime/routing/default-selection";
 
 export interface ModelSelection {
 	provider: string;
@@ -153,6 +165,46 @@ export function shouldAutoSelectDefault(
 	models: ModelOptionLike[],
 ): boolean {
 	return selected === null && models.length > 0;
+}
+
+/**
+ * The unset-user default (`provider:defaultSelection`) — the key, the two
+ * modes, and the tolerant read — is owned by
+ * `$server/runtime/routing/default-selection`, next to the WRITE-time
+ * validator the settings PUT route enforces. Re-exported here so the composer
+ * and the picker keep importing one module, and so read and write can never
+ * drift apart into two definitions of what `"first"` means.
+ */
+export {
+	DEFAULT_SELECTION_FALLBACK,
+	DEFAULT_SELECTION_MODES,
+	DEFAULT_SELECTION_SETTING_KEY,
+	parseDefaultSelection,
+};
+export type { DefaultSelectionMode };
+
+/**
+ * The selection to apply for a user who has none, or `null` when no default
+ * should be applied at all.
+ *
+ * {@link shouldAutoSelectDefault} is the gate — any existing selection
+ * (including a deliberate Auto) suppresses the default, and an empty model
+ * list yields nothing, exactly as before.
+ *
+ * The Auto default additionally requires `allowAuto`: only a chat composer
+ * speaks the explicit-null wire sentinel, so agent-config / board-default /
+ * settings pickers keep the `models[0]` default verbatim and can never have
+ * the "auto" sentinel strings persisted onto them.
+ */
+export function resolveDefaultSelection(
+	selected: ModelSelection | null,
+	models: ModelOptionLike[],
+	mode: DefaultSelectionMode = DEFAULT_SELECTION_FALLBACK,
+	allowAuto = false,
+): ModelSelection | null {
+	if (!shouldAutoSelectDefault(selected, models)) return null;
+	if (mode === "auto" && allowAuto) return AUTO_SELECTION;
+	return { provider: models[0]!.provider, model: models[0]!.model };
 }
 
 /** Whether the dedicated Auto row is visible for the current search text. */

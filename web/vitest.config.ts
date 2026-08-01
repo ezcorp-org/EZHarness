@@ -67,6 +67,18 @@ export default defineConfig({
 			// and `sticky-last-ttl-pick.server.test.ts` use `vi.*` and live
 			// under the `*.server.test.ts` glob above instead.
 			"src/__tests__/relative-time.test.ts",
+			// The send-message suite moved from the bun leg to vitest so its
+			// coverage finally counts: per scripts/test-coverage.sh the Node-run
+			// vitest leg is the ONLY coverage producer for `web/src/lib/**`, so
+			// on the bun leg these ~60 tests measured `send-message.ts` (1069
+			// lines of the chat send path) at 0%. Listed explicitly rather than
+			// renamed to a `.unit.` suffix: the basename is load-bearing (a
+			// rename trips the `Gate integrity` test-rename check, which exists
+			// precisely because renames can silently de-gate pattern-matched
+			// test sets). Registering it here AND subtracting it from
+			// `web_bunleg_files()` keeps it in exactly one runner, explicitly —
+			// same mechanism relative-time.test.ts uses above.
+			"src/lib/chat/page-handlers/__tests__/send-message.test.ts",
 		],
 		setupFiles: ["./src/__tests__/vitest-setup.ts"],
 		globals: true,

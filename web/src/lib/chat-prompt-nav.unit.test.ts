@@ -10,6 +10,7 @@ import { describe, test, expect, vi } from "vitest";
 import {
 	promptNavDirection,
 	isTextEntryTarget,
+	isNavBlockedByOverlay,
 	resolvePromptNav,
 	applyPromptNav,
 	type PromptNavState,
@@ -31,6 +32,36 @@ describe("promptNavDirection", () => {
 		expect(promptNavDirection({ key: "ArrowLeft", ctrlKey: true })).toBeNull();
 		expect(promptNavDirection({ key: "ArrowRight", metaKey: true })).toBeNull();
 		expect(promptNavDirection({ key: "ArrowRight", shiftKey: true })).toBeNull();
+	});
+
+	test("an already-handled (defaultPrevented) arrow → null", () => {
+		// A card in the thread — an image carousel, say — got there first. The
+		// thread must not ALSO scroll under it.
+		expect(
+			promptNavDirection({ key: "ArrowLeft", defaultPrevented: true }),
+		).toBeNull();
+		expect(
+			promptNavDirection({ key: "ArrowRight", defaultPrevented: true }),
+		).toBeNull();
+	});
+});
+
+describe("isNavBlockedByOverlay", () => {
+	const doc = (selector: string | null) => ({
+		querySelector: (q: string) => (q === selector ? ({} as Element) : null),
+	});
+
+	test("an open modal (aria-modal=true) blocks the nav", () => {
+		expect(isNavBlockedByOverlay(doc('[aria-modal="true"]'))).toBe(true);
+	});
+
+	test("no modal in the DOM → not blocked", () => {
+		expect(isNavBlockedByOverlay(doc(null))).toBe(false);
+	});
+
+	test("a non-modal panel (aria-modal=false, e.g. the Ez panel) → not blocked", () => {
+		// Only `aria-modal="true"` is queried, so the inline panel never matches.
+		expect(isNavBlockedByOverlay(doc('[aria-modal="false"]'))).toBe(false);
 	});
 });
 
@@ -78,17 +109,25 @@ describe("resolvePromptNav", () => {
 		ids: positions.map((_, i) => `p${i}`),
 		positions,
 	});
+	// The scroll state the pointer was recorded in. Every "pointer is live" case
+	// passes the same state back in as the container's live view; a user scroll
+	// is a different `scrollTop` at the SAME `scrollHeight`, and a reflow is a
+	// different `scrollHeight`.
+	const AT = 500;
+	const HEIGHT = 4000;
+	const view = (scrollTop = AT, scrollHeight = HEIGHT) => ({ scrollTop, scrollHeight });
+	const at = (id: string) => ({ id, scrollTop: AT, scrollHeight: HEIGHT });
 
 	test("no prompts → null", () => {
 		expect(
-			resolvePromptNav({ ids: [], positions: [] }, "next", null, ANCHOR),
+			resolvePromptNav({ ids: [], positions: [] }, "next", null, view(0), ANCHOR),
 		).toBeNull();
 	});
 
 	test("next from a fresh (no pointer) state picks the first prompt below the fold", () => {
 		// All three prompts are below the fold (nothing parked yet → current -1).
 		const state = layout([200, 400, 600]);
-		expect(resolvePromptNav(state, "next", null, ANCHOR)).toEqual({
+		expect(resolvePromptNav(state, "next", null, view(0), ANCHOR)).toEqual({
 			kind: "prompt",
 			index: 0,
 			id: "p0",
@@ -97,95 +136,169 @@ describe("resolvePromptNav", () => {
 
 	test("prev from a fresh state above all prompts → null (nothing higher)", () => {
 		const state = layout([200, 400, 600]);
-		expect(resolvePromptNav(state, "prev", null, ANCHOR)).toBeNull();
+		expect(resolvePromptNav(state, "prev", null, view(0), ANCHOR)).toBeNull();
 	});
 
 	test("re-derives current as the last prompt at/above the fold, then steps both ways", () => {
 		// p0 above fold (-120), p1 parked near fold (80), p2 below (280).
 		const state = layout([-120, 80, 280]);
 		// next → the prompt below the current (p1) → p2.
-		expect(resolvePromptNav(state, "next", null, ANCHOR)).toEqual({
+		expect(resolvePromptNav(state, "next", null, view(0), ANCHOR)).toEqual({
 			kind: "prompt",
 			index: 2,
 			id: "p2",
 		});
 		// prev → the prompt above the current (p1) → p0.
-		expect(resolvePromptNav(state, "prev", null, ANCHOR)).toEqual({
+		expect(resolvePromptNav(state, "prev", null, view(0), ANCHOR)).toEqual({
 			kind: "prompt",
 			index: 0,
 			id: "p0",
 		});
 	});
 
-	test("trusts a still-parked pointer over the scroll-derived current", () => {
-		// p1 is parked at the fold AND is the pointer → step strictly from it.
-		const state = layout([-120, 80, 280]);
-		expect(resolvePromptNav(state, "next", "p1", ANCHOR)).toEqual({
+	test("trusts a live pointer over the scroll-derived current", () => {
+		// p1 is the pointer and nothing has scrolled → step strictly from it,
+		// even though the fold-derived current would be p0.
+		const state = layout([-500, -300, 280]);
+		expect(resolvePromptNav(state, "next", at("p1"), view(), ANCHOR)).toEqual({
 			kind: "prompt",
 			index: 2,
 			id: "p2",
 		});
-		expect(resolvePromptNav(state, "prev", "p1", ANCHOR)).toEqual({
+		expect(resolvePromptNav(state, "prev", at("p1"), view(), ANCHOR)).toEqual({
 			kind: "prompt",
 			index: 0,
 			id: "p0",
 		});
 	});
 
-	test("stale pointer (scrolled far from anchor) falls back to scroll-derived current", () => {
-		// Pointer p2, but p2 is far from the fold (user mouse-scrolled). Derive
-		// from positions instead: last prompt <= anchor+band is p1.
+	test("a pointer whose prompt drifted off the fold is STILL live (layout moved, not the user)", () => {
+		// p1 was parked at the fold; a card above it grew and pushed it to 600.
+		// Nothing scrolled, so the pointer still decides — the regression this
+		// guards is the nav re-deriving p0 and refusing to move past p1.
+		const state = layout([-120, 600, 900]);
+		expect(resolvePromptNav(state, "next", at("p1"), view(), ANCHOR)).toEqual({
+			kind: "prompt",
+			index: 2,
+			id: "p2",
+		});
+	});
+
+	test("stale pointer (the user scrolled since) falls back to scroll-derived current", () => {
+		// Same layout, but the container has moved 40px from where the nav left
+		// it → the pointer is dropped and the fold decides (current = p1).
 		const state = layout([-120, 80, 600]);
-		expect(resolvePromptNav(state, "next", "p2", ANCHOR)).toEqual({
+		expect(resolvePromptNav(state, "next", at("p2"), view(AT + 40), ANCHOR)).toEqual({
 			kind: "prompt",
 			index: 2,
 			id: "p2",
 		});
-		expect(resolvePromptNav(state, "prev", "p2", ANCHOR)).toEqual({
+		expect(resolvePromptNav(state, "prev", at("p2"), view(AT + 40), ANCHOR)).toEqual({
 			kind: "prompt",
 			index: 0,
 			id: "p0",
 		});
+	});
+
+	test("sub-pixel scroll drift keeps the pointer live", () => {
+		const state = layout([-500, -300, 280]);
+		expect(resolvePromptNav(state, "next", at("p1"), view(AT + 1), ANCHOR)).toEqual({
+			kind: "prompt",
+			index: 2,
+			id: "p2",
+		});
+	});
+
+	test("a scroll that came WITH a reflow is the browser, not the user — pointer stays live", () => {
+		// A card mounted above the fold and the thread got taller; the browser's
+		// scroll anchoring shifted scrollTop to hold the view steady. That must
+		// not read as "the user scrolled" — it is the exact case where the fold
+		// re-derive hands back a prompt the user already walked past (p0 → the
+		// press skips p1 entirely).
+		const state = layout([-120, 280, 900]);
+		expect(
+			resolvePromptNav(
+				state,
+				"prev",
+				at("p1"),
+				view(AT + 201, HEIGHT + 402),
+				ANCHOR,
+			),
+		).toEqual({ kind: "prompt", index: 0, id: "p0" });
 	});
 
 	test("pointer id absent from the list falls back to scroll-derived current", () => {
 		const state = layout([-120, 80, 280]);
-		expect(resolvePromptNav(state, "next", "ghost", ANCHOR)).toEqual({
-			kind: "prompt",
-			index: 2,
-			id: "p2",
-		});
+		expect(
+			resolvePromptNav(
+				state,
+				"next",
+				{ id: "ghost", scrollTop: AT, scrollHeight: HEIGHT },
+				view(),
+				ANCHOR,
+			),
+		).toEqual({ kind: "prompt", index: 2, id: "p2" });
 	});
 
 	test("next on/past the last prompt → { kind: 'bottom' }", () => {
 		// All prompts at/above the fold; current = last index → next overflows.
 		const state = layout([-280, -120, 40]);
-		expect(resolvePromptNav(state, "next", null, ANCHOR)).toEqual({
+		expect(resolvePromptNav(state, "next", null, view(0), ANCHOR)).toEqual({
 			kind: "bottom",
 		});
 		// prev still works (steps up off the last index).
-		expect(resolvePromptNav(state, "prev", null, ANCHOR)).toEqual({
+		expect(resolvePromptNav(state, "prev", null, view(0), ANCHOR)).toEqual({
 			kind: "prompt",
 			index: 1,
 			id: "p1",
 		});
 	});
 
-	test("prev at the top → null (never wrap)", () => {
-		// Single prompt parked at the fold → current 0, prev underflows.
-		const state = layout([80]);
-		expect(resolvePromptNav(state, "prev", null, ANCHOR)).toBeNull();
+	test("prev on the first of several prompts → null (never wrap)", () => {
+		// p0 parked at the fold → current 0, prev underflows. Two prompts, so
+		// the one-turn paging rule below does not apply.
+		const state = layout([80, 400]);
+		expect(resolvePromptNav(state, "prev", null, view(0), ANCHOR)).toBeNull();
+	});
+
+	describe("a one-turn conversation pages the single turn", () => {
+		// Nothing to step to in either direction, so the arrows show the start
+		// and the end of the turn instead of ArrowLeft being a dead key.
+		const single = layout([80]);
+
+		test("prev → top, next → bottom", () => {
+			expect(resolvePromptNav(single, "prev", null, view(0), ANCHOR)).toEqual({
+				kind: "top",
+			});
+			expect(resolvePromptNav(single, "next", null, view(0), ANCHOR)).toEqual({
+				kind: "bottom",
+			});
+		});
+
+		test("holds wherever the turn has been scrolled to, and whatever the pointer says", () => {
+			// Below the fold (fresh, unscrolled), above it (scrolled down), and
+			// with a live pointer on the prompt — all page the same way.
+			for (const positions of [[400], [-900], [80]]) {
+				const state = layout(positions);
+				expect(resolvePromptNav(state, "prev", at("p0"), view(), ANCHOR)).toEqual({
+					kind: "top",
+				});
+				expect(resolvePromptNav(state, "next", at("p0"), view(), ANCHOR)).toEqual({
+					kind: "bottom",
+				});
+			}
+		});
 	});
 
 	test("band tolerance: a prompt just outside anchor+band is not the current", () => {
 		// p0 at anchor+band+1 (just below the line) → current stays -1.
 		const state = layout([ANCHOR + 24 + 1, 400]);
-		expect(resolvePromptNav(state, "next", null, ANCHOR)).toEqual({
+		expect(resolvePromptNav(state, "next", null, view(0), ANCHOR)).toEqual({
 			kind: "prompt",
 			index: 0,
 			id: "p0",
 		});
-		expect(resolvePromptNav(state, "prev", null, ANCHOR)).toBeNull();
+		expect(resolvePromptNav(state, "prev", null, view(0), ANCHOR)).toBeNull();
 	});
 });
 
@@ -228,17 +341,31 @@ describe("applyPromptNav (DOM glue)", () => {
 		});
 	}
 
-	function setScroll(container: HTMLElement, scrollHeight: number): void {
+	/**
+	 * Give the container a scroll range. `clientHeight` (default 0, i.e. the
+	 * whole `scrollHeight` is scrollable) sets the browser's clamp: a write past
+	 * `scrollHeight - clientHeight` comes to rest AT that maximum, exactly as a
+	 * real element does.
+	 */
+	function setScroll(
+		container: HTMLElement,
+		scrollHeight: number,
+		clientHeight = 0,
+	): void {
 		Object.defineProperty(container, "scrollHeight", {
 			configurable: true,
 			value: scrollHeight,
+		});
+		Object.defineProperty(container, "clientHeight", {
+			configurable: true,
+			value: clientHeight,
 		});
 		let scrollTop = 0;
 		Object.defineProperty(container, "scrollTop", {
 			configurable: true,
 			get: () => scrollTop,
 			set: (v: number) => {
-				scrollTop = v;
+				scrollTop = Math.max(0, Math.min(v, scrollHeight - clientHeight));
 			},
 		});
 	}
@@ -246,7 +373,7 @@ describe("applyPromptNav (DOM glue)", () => {
 	// Only "u*" ids are user prompts.
 	const isUserPrompt = (id: string) => id.startsWith("u");
 
-	test("prompt step → onPromptScroll fires, scrollTop = max(0, stub), returns the prompt id", () => {
+	test("prompt step → onPromptScroll fires, scrollTop = max(0, stub), pointer records where we landed", () => {
 		// u0 below fold (200), u1 (400). Fresh pointer → next picks u0.
 		const container = buildContainer([
 			["u0", 200],
@@ -260,7 +387,7 @@ describe("applyPromptNav (DOM glue)", () => {
 		const result = applyPromptNav({
 			container,
 			direction: "next",
-			pointerId: null,
+			pointer: null,
 			isUserPrompt,
 			anchorAttr: ATTR,
 			offset: OFFSET,
@@ -273,7 +400,10 @@ describe("applyPromptNav (DOM glue)", () => {
 		expect(onBottomScroll).not.toHaveBeenCalled();
 		expect(scrollTopForAnchor).toHaveBeenCalledWith(container, "u0", OFFSET);
 		expect(container.scrollTop).toBe(333);
-		expect(result).toEqual({ acted: true, pointerId: "u0" });
+		expect(result).toEqual({
+			acted: true,
+			pointer: { id: "u0", scrollTop: 333, scrollHeight: 5000 },
+		});
 	});
 
 	test("stub returns a negative number → scrollTop clamps to 0", () => {
@@ -287,7 +417,7 @@ describe("applyPromptNav (DOM glue)", () => {
 		const result = applyPromptNav({
 			container,
 			direction: "next",
-			pointerId: null,
+			pointer: null,
 			isUserPrompt,
 			anchorAttr: ATTR,
 			offset: OFFSET,
@@ -295,7 +425,7 @@ describe("applyPromptNav (DOM glue)", () => {
 		});
 
 		expect(container.scrollTop).toBe(0);
-		expect(result).toEqual({ acted: true, pointerId: "u0" });
+		expect(result).toEqual({ acted: true, pointer: { id: "u0", scrollTop: 0, scrollHeight: 5000 } });
 	});
 
 	test("stub returns null → scrollTop unchanged but still acted", () => {
@@ -310,7 +440,7 @@ describe("applyPromptNav (DOM glue)", () => {
 		const result = applyPromptNav({
 			container,
 			direction: "next",
-			pointerId: null,
+			pointer: null,
 			isUserPrompt,
 			anchorAttr: ATTR,
 			offset: OFFSET,
@@ -318,10 +448,131 @@ describe("applyPromptNav (DOM glue)", () => {
 		});
 
 		expect(container.scrollTop).toBe(999); // untouched
-		expect(result).toEqual({ acted: true, pointerId: "u0" });
+		expect(result).toEqual({
+			acted: true,
+			pointer: { id: "u0", scrollTop: 999, scrollHeight: 5000 },
+		});
 	});
 
-	test("next past the last prompt → onBottomScroll fires, scrollTop = scrollHeight, pointerId null", () => {
+	test("a live pointer keeps stepping even when the prompt could not be parked at the fold", () => {
+		// u0/u1 sit in the final screenful; u1 is 300px below the fold because
+		// the scroll clamped. Nothing has scrolled since, so the pointer holds
+		// and `prev` walks back up instead of re-deriving the same prompt.
+		const container = buildContainer([
+			["u0", 100],
+			["u1", 380],
+		]);
+		setScroll(container, 2000, 1200); // max scroll 800
+		container.scrollTop = 800;
+		const scrollTopForAnchor = vi.fn(() => 120);
+
+		const result = applyPromptNav({
+			container,
+			direction: "prev",
+			pointer: { id: "u1", scrollTop: 800, scrollHeight: 2000 },
+			isUserPrompt,
+			anchorAttr: ATTR,
+			offset: OFFSET,
+			scrollTopForAnchor,
+		});
+
+		expect(scrollTopForAnchor).toHaveBeenCalledWith(container, "u0", OFFSET);
+		expect(result).toEqual({
+			acted: true,
+			pointer: { id: "u0", scrollTop: 120, scrollHeight: 2000 },
+		});
+	});
+
+	test("next onto a prompt that cannot be parked (past the scroll range) → bottom", () => {
+		// The next prompt is inside the last screenful: parking it at the fold
+		// would need scrollTop 900 but the range ends at 800. It is already
+		// visible down there, so go to the bottom rather than freeze in place —
+		// the stall this whole fix is about.
+		const container = buildContainer([
+			["u0", 40],
+			["u1", 300],
+		]);
+		setScroll(container, 2000, 1200); // max scroll 800
+		const onPromptScroll = vi.fn();
+		const onBottomScroll = vi.fn();
+		const scrollTopForAnchor = vi.fn(() => 900);
+
+		const result = applyPromptNav({
+			container,
+			direction: "next",
+			pointer: null,
+			isUserPrompt,
+			anchorAttr: ATTR,
+			offset: OFFSET,
+			scrollTopForAnchor,
+			onPromptScroll,
+			onBottomScroll,
+		});
+
+		expect(onBottomScroll).toHaveBeenCalledTimes(1);
+		expect(onPromptScroll).not.toHaveBeenCalled();
+		expect(container.scrollTop).toBe(800); // the clamped bottom
+		expect(result).toEqual({ acted: true, pointer: null });
+	});
+
+	test("a next step that exactly reaches the end of the range still parks (no off-by-one to bottom)", () => {
+		const container = buildContainer([
+			["u0", 40],
+			["u1", 300],
+		]);
+		setScroll(container, 2000, 1200); // max scroll 800
+		const onBottomScroll = vi.fn();
+		const scrollTopForAnchor = vi.fn(() => 800);
+
+		const result = applyPromptNav({
+			container,
+			direction: "next",
+			pointer: null,
+			isUserPrompt,
+			anchorAttr: ATTR,
+			offset: OFFSET,
+			scrollTopForAnchor,
+			onBottomScroll,
+		});
+
+		expect(onBottomScroll).not.toHaveBeenCalled();
+		expect(result).toEqual({
+			acted: true,
+			pointer: { id: "u1", scrollTop: 800, scrollHeight: 2000 },
+		});
+	});
+
+	test("prev is never redirected to the bottom, even past the scroll range", () => {
+		// Same unparkable target, going UP: falling through to the bottom would
+		// be backwards, so we scroll as far as we can and keep the pointer.
+		const container = buildContainer([
+			["u0", 40],
+			["u1", 300],
+		]);
+		setScroll(container, 2000, 1200); // max scroll 800
+		container.scrollTop = 800;
+		const onBottomScroll = vi.fn();
+		const scrollTopForAnchor = vi.fn(() => 900);
+
+		const result = applyPromptNav({
+			container,
+			direction: "prev",
+			pointer: { id: "u1", scrollTop: 800, scrollHeight: 2000 },
+			isUserPrompt,
+			anchorAttr: ATTR,
+			offset: OFFSET,
+			scrollTopForAnchor,
+			onBottomScroll,
+		});
+
+		expect(onBottomScroll).not.toHaveBeenCalled();
+		expect(result).toEqual({
+			acted: true,
+			pointer: { id: "u0", scrollTop: 800, scrollHeight: 2000 },
+		});
+	});
+
+	test("next past the last prompt → onBottomScroll fires, scrollTop = scrollHeight, pointer null", () => {
 		// Both prompts at/above fold → current = last → next overflows to bottom.
 		const container = buildContainer([
 			["u0", -200],
@@ -335,7 +586,7 @@ describe("applyPromptNav (DOM glue)", () => {
 		const result = applyPromptNav({
 			container,
 			direction: "next",
-			pointerId: null,
+			pointer: null,
 			isUserPrompt,
 			anchorAttr: ATTR,
 			offset: OFFSET,
@@ -349,12 +600,64 @@ describe("applyPromptNav (DOM glue)", () => {
 		expect(scrollTopForAnchor).not.toHaveBeenCalled();
 		expect(container.scrollTop).toBe(4242);
 		expect(container.scrollTop).toBe(container.scrollHeight);
-		expect(result).toEqual({ acted: true, pointerId: null });
+		expect(result).toEqual({ acted: true, pointer: null });
 	});
 
-	test("no-op (prev at the top) → not acted, pointer unchanged, no scroll, no callbacks", () => {
-		// Single prompt parked at the fold → current 0, prev underflows → null.
+	test("one-turn thread: prev → scrollTop 0, breaks stick-to-bottom, pointer cleared", () => {
 		const container = buildContainer([["u0", OFFSET]]);
+		setScroll(container, 5000, 800);
+		container.scrollTop = 900;
+		const onPromptScroll = vi.fn();
+		const onBottomScroll = vi.fn();
+		const scrollTopForAnchor = vi.fn(() => 0);
+
+		const result = applyPromptNav({
+			container,
+			direction: "prev",
+			pointer: { id: "u0", scrollTop: 900, scrollHeight: 5000 },
+			isUserPrompt,
+			anchorAttr: ATTR,
+			offset: OFFSET,
+			scrollTopForAnchor,
+			onPromptScroll,
+			onBottomScroll,
+		});
+
+		expect(container.scrollTop).toBe(0);
+		expect(onPromptScroll).toHaveBeenCalledTimes(1);
+		expect(onBottomScroll).not.toHaveBeenCalled();
+		// Paging the turn never measures a prompt — it is the whole thread.
+		expect(scrollTopForAnchor).not.toHaveBeenCalled();
+		expect(result).toEqual({ acted: true, pointer: null });
+	});
+
+	test("one-turn thread: next → the bottom", () => {
+		const container = buildContainer([["u0", OFFSET]]);
+		setScroll(container, 5000, 800);
+		const onBottomScroll = vi.fn();
+
+		const result = applyPromptNav({
+			container,
+			direction: "next",
+			pointer: null,
+			isUserPrompt,
+			anchorAttr: ATTR,
+			offset: OFFSET,
+			scrollTopForAnchor: () => 0,
+			onBottomScroll,
+		});
+
+		expect(container.scrollTop).toBe(4200); // clamped end of the range
+		expect(onBottomScroll).toHaveBeenCalledTimes(1);
+		expect(result).toEqual({ acted: true, pointer: null });
+	});
+
+	test("no-op (prev on the first of several prompts) → not acted, pointer unchanged, no scroll, no callbacks", () => {
+		// u0 parked at the fold → current 0, prev underflows → null.
+		const container = buildContainer([
+			["u0", OFFSET],
+			["u1", 400],
+		]);
 		setScroll(container, 5000);
 		container.scrollTop = 123;
 		const onPromptScroll = vi.fn();
@@ -364,7 +667,7 @@ describe("applyPromptNav (DOM glue)", () => {
 		const result = applyPromptNav({
 			container,
 			direction: "prev",
-			pointerId: "u0",
+			pointer: { id: "u0", scrollTop: 123, scrollHeight: 5000 },
 			isUserPrompt,
 			anchorAttr: ATTR,
 			offset: OFFSET,
@@ -373,7 +676,10 @@ describe("applyPromptNav (DOM glue)", () => {
 			onBottomScroll,
 		});
 
-		expect(result).toEqual({ acted: false, pointerId: "u0" });
+		expect(result).toEqual({
+			acted: false,
+			pointer: { id: "u0", scrollTop: 123, scrollHeight: 5000 },
+		});
 		expect(container.scrollTop).toBe(123); // no scroll
 		expect(onPromptScroll).not.toHaveBeenCalled();
 		expect(onBottomScroll).not.toHaveBeenCalled();
@@ -396,7 +702,7 @@ describe("applyPromptNav (DOM glue)", () => {
 		const result = applyPromptNav({
 			container,
 			direction: "next",
-			pointerId: null,
+			pointer: null,
 			isUserPrompt,
 			anchorAttr: ATTR,
 			offset: OFFSET,
@@ -405,7 +711,7 @@ describe("applyPromptNav (DOM glue)", () => {
 		});
 
 		expect(scrollTopForAnchor).toHaveBeenCalledWith(container, "u0", OFFSET);
-		expect(result).toEqual({ acted: true, pointerId: "u0" });
+		expect(result).toEqual({ acted: true, pointer: { id: "u0", scrollTop: 0, scrollHeight: 5000 } });
 	});
 
 	test("missing onPromptScroll / onBottomScroll callbacks (optional-chaining no-ops)", () => {
@@ -418,13 +724,16 @@ describe("applyPromptNav (DOM glue)", () => {
 		const promptResult = applyPromptNav({
 			container: promptContainer,
 			direction: "next",
-			pointerId: null,
+			pointer: null,
 			isUserPrompt,
 			anchorAttr: ATTR,
 			offset: OFFSET,
 			scrollTopForAnchor: () => 10,
 		});
-		expect(promptResult).toEqual({ acted: true, pointerId: "u0" });
+		expect(promptResult).toEqual({
+			acted: true,
+			pointer: { id: "u0", scrollTop: 10, scrollHeight: 5000 },
+		});
 		expect(promptContainer.scrollTop).toBe(10);
 
 		// Bottom fall-through without onBottomScroll.
@@ -436,13 +745,13 @@ describe("applyPromptNav (DOM glue)", () => {
 		const bottomResult = applyPromptNav({
 			container: bottomContainer,
 			direction: "next",
-			pointerId: null,
+			pointer: null,
 			isUserPrompt,
 			anchorAttr: ATTR,
 			offset: OFFSET,
 			scrollTopForAnchor: () => 0,
 		});
-		expect(bottomResult).toEqual({ acted: true, pointerId: null });
+		expect(bottomResult).toEqual({ acted: true, pointer: null });
 		expect(bottomContainer.scrollTop).toBe(7777);
 	});
 });

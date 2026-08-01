@@ -26,6 +26,18 @@
 	// `row.stickyTtlMs ?? DEFAULT_TTL_FIRST_USE_MS` to the modal's
 	// `initialTtlMs` prop so the dropdown opens at the sticky default.
 
+	interface DriftPreview {
+		version: string;
+		permissions: {
+			network?: string[];
+			filesystem?: string[];
+			shell?: boolean;
+			env?: string[];
+		};
+		diffs: Array<{ field: string; oldValue?: unknown; newValue?: unknown }>;
+		ceilingClamped?: boolean;
+	}
+
 	interface ExtensionDetail {
 		id: string;
 		name: string;
@@ -115,6 +127,9 @@
 	}
 
 	let ext = $state<ExtensionDetail | null>(null);
+	let driftPreview = $state<DriftPreview | null>(null);
+	let driftLoading = $state(false);
+	let driftApproving = $state(false);
 	let loading = $state(true);
 	let errorMsg = $state("");
 	let successMsg = $state("");
@@ -432,6 +447,55 @@
 		}
 	}
 
+	/**
+	 * Load the current on-disk grant for bundled extensions. S9 deliberately
+	 * keeps the database manifest stale while waiting for consent, so the
+	 * ordinary permissions section cannot show a newly added website host.
+	 */
+	async function loadDriftPreview() {
+		driftPreview = null;
+		if (!isAdmin || !ext?.isBundled) return;
+		driftLoading = true;
+		try {
+			const res = await fetch(`/api/extensions/${ext.id}/reapprove-drift`);
+			if (!res.ok) return;
+			const data = (await res.json()) as Partial<DriftPreview>;
+			if (!Array.isArray(data.diffs) || !data.permissions || typeof data.version !== "string") return;
+			if (data.diffs.length > 0 || !ext.enabled) {
+				driftPreview = data as DriftPreview;
+			}
+		} catch {
+			// Preview is an optional admin affordance; the normal detail page
+			// remains usable if the endpoint is unavailable.
+		} finally {
+			driftLoading = false;
+		}
+	}
+
+	async function approveBundledDrift() {
+		if (!ext || driftApproving) return;
+		driftApproving = true;
+		errorMsg = "";
+		try {
+			const res = await fetch(`/api/extensions/${ext.id}/reapprove-drift`, { method: "POST" });
+			if (!res.ok) {
+				const data = await res.json().catch(() => ({}));
+				throw new Error(data.error || `Permission approval failed (HTTP ${res.status})`);
+			}
+			const hadDrift = (driftPreview?.diffs.length ?? 0) > 0;
+			driftPreview = null;
+			showTemporarySuccess(
+				hadDrift ? "Updated website access approved" : "Permissions re-approved",
+			);
+			await loadExtension();
+			await loadDriftPreview();
+		} catch (e) {
+			errorMsg = e instanceof Error ? e.message : "Permission approval failed";
+		} finally {
+			driftApproving = false;
+		}
+	}
+
 	// Phase 4 (capability-expiry) — expired-grants banner state. Loaded
 	// for any authenticated user (the audit rows for a single extension
 	// are not admin-gated; the more detailed audit drill-down at
@@ -573,6 +637,7 @@
 			loadAuditTrail(),
 			loadSettings(),
 			loadExpiredGrants(),
+			loadDriftPreview(),
 		]);
 	});
 
@@ -768,6 +833,50 @@
 		{#if expiredGrantsError}
 			<div class="rounded-lg bg-amber-900/40 px-4 py-2 text-xs text-amber-300" data-testid="expired-grants-error">
 				{expiredGrantsError}
+			</div>
+		{/if}
+
+		{#if driftLoading}
+			<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] px-4 py-3 text-xs text-[var(--color-text-muted)]" data-testid="bundled-drift-loading">
+				Checking for updated website permissions…
+			</div>
+		{:else if driftPreview}
+			{@const hasDrift = driftPreview.diffs.length > 0}
+			<div class="rounded-lg border border-amber-700/70 bg-amber-900/20 p-4" data-testid="bundled-drift-preview">
+				<h3 class="text-sm font-semibold text-amber-200">
+					{hasDrift ? "Updated permissions need approval" : "Disabled — re-approve to enable"}
+				</h3>
+				<p class="mt-1 text-xs text-amber-200/80">
+					{#if hasDrift}
+						This bundled extension has a newer permission set (v{driftPreview.version}). Review the current website access before enabling it.
+					{:else}
+						This bundled extension is disabled. Its permissions (v{driftPreview.version}) already match what is on disk — re-approving grants them again and enables it.
+					{/if}
+				</p>
+				{#if driftPreview.permissions.network?.length}
+					<div class="mt-3">
+						<div class="text-xs font-medium uppercase tracking-wide text-amber-200">Website access</div>
+						<ul class="mt-1 flex flex-wrap gap-1.5">
+							{#each driftPreview.permissions.network as domain}
+								<li>
+									<code class="inline-block rounded bg-[var(--color-surface-tertiary)] px-2 py-1 text-xs text-[var(--color-text-primary)]" data-testid="bundled-drift-website">{domain}</code>
+								</li>
+							{/each}
+						</ul>
+					</div>
+				{/if}
+				<button
+					onclick={approveBundledDrift}
+					disabled={driftApproving || !isAdmin}
+					data-testid="approve-bundled-drift"
+					class="mt-3 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50"
+				>
+					{driftApproving
+						? "Enabling…"
+						: hasDrift
+							? "Approve website access and enable"
+							: "Re-approve and enable"}
+				</button>
 			</div>
 		{/if}
 
@@ -1203,6 +1312,7 @@
 				<!-- Network -->
 				<div>
 					<div class="text-xs font-medium text-[var(--color-text-secondary)]">Network Access</div>
+					<p class="mt-0.5 text-[10px] text-[var(--color-text-muted)]">Website domains this extension may contact.</p>
 					<div class="mt-1 flex flex-wrap gap-1">
 						{#each ext.manifest.permissions.network ?? [] as domain}
 							<label class="flex items-center gap-1 rounded-full bg-[var(--color-surface-tertiary)] px-2 py-0.5 text-xs text-[var(--color-text-secondary)]">

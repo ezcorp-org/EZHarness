@@ -1,0 +1,67 @@
+# Wildcard DNS for the secure preview origin. — TEMPLATE
+#
+# Copy to `Corefile` (gitignored, as the local copy):
+#
+#     cp Corefile.example Corefile
+#
+# Nothing to hand-edit: both values are read from the ENVIRONMENT at parse
+# time, so the same file works on any host and no private address is ever
+# committed to this public repo.
+#
+#     EZCORP_PREVIEW_ZONE        the wildcard parent, e.g. preview.myhost.example
+#     EZCORP_PREVIEW_TARGET_IP   IP every preview name resolves to (the host
+#                                running the stack)
+#
+# The preview proxy routes by hostname only — `<preview-id>.preview.<appHost>`
+# (LOCKED decision D4, docs/features/tools/preview-port-exposure.md). Preview
+# ids are minted per exposure, so no static hosts file can cover them; the
+# origin needs a real wildcard answer. Most private/VPN DNS (Tailscale MagicDNS
+# included) resolves exact machine names only and has no wildcard support,
+# hence this sidecar.
+#
+# Run it (full flow: docs/local-prod-test-stack.md):
+#
+#     docker run -d --name ezcorp-preview-dns --restart unless-stopped \
+#       -e EZCORP_PREVIEW_ZONE=preview.<your-host> \
+#       -e EZCORP_PREVIEW_TARGET_IP=<host-ip> \
+#       -p <bind-ip>:53:53/udp -p <bind-ip>:53:53/tcp \
+#       -v "$PWD/deploy/preview-dns/Corefile:/Corefile:ro" \
+#       coredns/coredns:1.11.3 -conf /Corefile
+#
+# Then point your resolver at it for that zone ONLY (split DNS), so every other
+# lookup keeps flowing through its normal path:
+#
+#     dnsmasq            server=/preview.<host>/<host-ip>
+#     systemd-resolved   DNS=<host-ip>  +  Domains=~preview.<host>
+#     Tailscale          admin console → DNS → Nameservers → Add nameserver
+#                        → Custom → Restrict to domain
+#     corporate DNS      a conditional-forwarding rule for the zone
+#
+# Deliberately non-recursive: the second block REFUSEs everything outside the
+# preview zone, so this can never be turned into an open resolver or a DNS
+# amplification reflector. Bind the container to a private interface (the
+# `-p <bind-ip>:53:53` above) so it is unreachable from the public internet.
+
+{$EZCORP_PREVIEW_ZONE} {
+    # Answer EVERY label under the zone with the stack host's IP. 60s TTL keeps
+    # a re-point cheap; preview ids are ephemeral so caching buys little.
+    template IN A {
+        answer "{{ .Name }} 60 IN A {$EZCORP_PREVIEW_TARGET_IP}"
+    }
+    # Empty-NOERROR for AAAA rather than NXDOMAIN: a dual-stack client that
+    # gets NXDOMAIN for AAAA may abandon the name instead of falling back to
+    # the A record.
+    template IN AAAA {
+        rcode NOERROR
+    }
+    errors
+    log
+}
+
+. {
+    # Fail closed for anything else. No `forward`, no recursion.
+    template IN ANY {
+        rcode REFUSED
+    }
+    errors
+}

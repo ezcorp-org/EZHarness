@@ -204,6 +204,14 @@ export async function upsertSetting(key: string, value: unknown): Promise<void> 
 	await checkResponse(res);
 }
 
+/** Remove a setting row entirely. For keys whose ABSENCE is the off state
+ *  (`provider:routingShadow`), this is the only way to turn them off — the
+ *  write route validates the value and has no "off" it would accept. */
+export async function deleteSetting(key: string): Promise<void> {
+	const res = await fetch(`${BASE}/api/settings/${key}`, { method: "DELETE" });
+	await checkResponse(res);
+}
+
 // ── Providers ───────────────────────────────────────────────────────
 
 export interface ProviderStatus {
@@ -359,6 +367,10 @@ export interface Mode {
 	instructionPosition: "prepend" | "append" | "replace";
 	preferredModel: string | null;
 	preferredProvider: string | null;
+	/** WS3b: routing tier this kind of task wants ("fast" | "balanced" |
+	 *  "powerful"), when the mode names no specific model. Applied server-side
+	 *  at thread start as the tier classifier's hint. */
+	preferredTier: string | null;
 	preferredThinkingLevel: string | null;
 	temperature: number | null;
 	toolRestriction: "all" | "read-only" | "none" | "allowlist";
@@ -410,6 +422,34 @@ export interface Message {
 		routedTier?: "fast" | "balanced" | "powerful";
 		/** True when the served provider ≠ the initially resolved provider. */
 		failover?: boolean;
+		/** WS5 routing provenance — the raw signals the tier was classified
+		 *  from, and the effective config it was decided under. Only present
+		 *  when routing fired (absent on pinned turns and legacy rows). */
+		routingSignals?: {
+			promptChars: number;
+			historyChars: number;
+			historyMessageCount: number;
+			hasToolMessages: boolean;
+			systemChars: number;
+			attachmentCount: number;
+			toolCount: number;
+			hasComplexTools: boolean;
+			estTokens: number;
+			/** The CLASSIFIER's tier — when `exploration` is true the SERVED
+			 *  tier is `routedTier`, one rung below this. */
+			tier: "fast" | "balanced" | "powerful";
+			reason: string;
+			/** WS7 — bounded exploration served one rung below `tier`. */
+			exploration?: boolean;
+			/** WS7 — an injected tier scorer's confidence, when one decided. */
+			confidence?: number;
+		};
+		routingConfig?: {
+			defaultTier: "fast" | "balanced" | "powerful";
+			preferenceOrderHash: string;
+			/** WS7 — version of the scorer that decided; absent for the heuristic. */
+			scorerVersion?: string;
+		};
 	} | null;
 	runId: string | null;
 	parentMessageId: string | null;

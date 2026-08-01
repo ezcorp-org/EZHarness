@@ -60,6 +60,8 @@ import { TASK_DONE_RE, TASK_BLOCKED_RE } from "./sentinels";
 import { PREPROCESS_RESULT_ROLE } from "./stream-chat/preprocess-shared";
 import { piComplete, type PiCompleteFn } from "../lib/pi-complete";
 import { CHEAP_MODEL_BY_PROVIDER } from "../lib/cheap-models";
+import { getConfiguredTierLadder } from "../providers/router";
+import { DEFAULT_TIER_LADDER, ladderCandidates, type TierLadder } from "./routing/tier-ladder";
 import type { EzActionResult } from "./ez-actions/types";
 
 const log = logger.child("goal-host");
@@ -87,20 +89,16 @@ export const EVALUATOR_MAX_OUTPUT_TOKENS = 512;
 /** Pause trigger — FR-8 (anti-garbage-loop). */
 export const EVALUATOR_FAILURE_THRESHOLD = 3;
 
-/** Pinned Haiku/flash-lite triple — D5. The canonical host-internal cheap
- *  model registry lives in `../lib/cheap-models` (shared with the memory
- *  compaction merge); re-exported here under its historical name so existing
- *  importers (and tests) keep their path. Indexed by provider; values pass
- *  to `resolveModel(provider, model)` verbatim. */
+/** Pinned Haiku/flash-lite triple — D5. A derived view of the tier ladder's
+ *  `fast` rung (`./routing/tier-ladder`) exposed by `../lib/cheap-models`
+ *  (shared with the memory compaction merge); re-exported here under its
+ *  historical name so existing importers (and tests) keep their path. Indexed
+ *  by provider; values pass to `resolveModel(provider, model)` verbatim.
+ *
+ *  The evaluator itself no longer reads this map — it walks the ladder's
+ *  `fast` rung directly (see {@link resolveEvaluatorModel}), so an operator
+ *  who reorders the rung reorders the FR-6 credential fallback chain with it. */
 export { CHEAP_MODEL_BY_PROVIDER };
-
-/** Credential fallback chain (FR-6): conv provider → anthropic → any. */
-export const FALLBACK_PROVIDERS: readonly string[] = [
-  "anthropic",
-  "openai",
-  "google",
-  "ollama",
-];
 
 // Sentinel detection — D11 (cooperative main model can end a goal in
 // zero evaluator calls). Shared with `start-assignment.ts`'s autonomous
@@ -388,10 +386,20 @@ export interface ResolvedEvaluatorModel {
 /**
  * Resolve a cheap evaluator model + credential, with the FR-6
  * fallback chain:
- *   1. Conversation's provider (if it has a cheap-model mapping)
- *   2. Anthropic Haiku
- *   3. Any provider in {@link FALLBACK_PROVIDERS} with a working
- *      credential + cheap-model mapping.
+ *   1. Conversation's provider (if the ladder's `fast` rung names it)
+ *   2. The rest of the `fast` rung, in the operator's declared order
+ *      (built-in default: anthropic Haiku, openai, google, ollama, openrouter)
+ *
+ * The chain IS the tier ladder's `fast` rung (`provider:tierModels`, see
+ * `./routing/tier-ladder`) — the evaluator is a cheap-model call, so it asks
+ * the same configured ladder every other cheap-model decision asks instead of
+ * carrying its own provider→model map. An unset, malformed, or `fast`-empty
+ * ladder falls back to the built-in rung, so a misconfigured settings row can
+ * never silently disable goal evaluation.
+ *
+ * Availability is NOT pre-filtered (unlike registry routing): "usable" here
+ * means resolveModel + getCredential both succeed, which is only knowable by
+ * trying, so each rung is attempted in order.
  *
  * Returns `null` when NO provider can satisfy the call — caller MUST
  * pause the goal with the reason "No evaluator model available" (FR-6,
@@ -403,23 +411,30 @@ export async function resolveEvaluatorModel(
   deps: {
     resolveModel?: ResolveModelFn;
     getCredential?: CredentialFn;
+    loadTierLadder?: () => Promise<TierLadder | undefined>;
   } = {},
 ): Promise<ResolvedEvaluatorModel | null> {
   const resolveFn = deps.resolveModel ?? defaultResolveModel;
   const credFn = deps.getCredential ?? defaultGetCredential;
+  const ladderFn = deps.loadTierLadder ?? getConfiguredTierLadder;
 
-  // Build the candidate order: preferred first (if it has a cheap-model
-  // mapping), then the canonical fallback chain, deduped.
-  const ordered: string[] = [];
-  if (preferredProvider && CHEAP_MODEL_BY_PROVIDER[preferredProvider]) {
-    ordered.push(preferredProvider);
+  // A settings read must never be the reason a goal stops evaluating, so a
+  // throw here degrades to the built-in rung exactly like an unset row.
+  let configured: TierLadder | undefined;
+  try {
+    configured = await ladderFn();
+  } catch (err) {
+    log.debug("resolveEvaluatorModel: tier-ladder read failed", {
+      error: String((err as Error)?.message ?? err),
+    });
   }
-  for (const p of FALLBACK_PROVIDERS) {
-    if (!ordered.includes(p)) ordered.push(p);
-  }
-  for (const provider of ordered) {
-    const modelId = CHEAP_MODEL_BY_PROVIDER[provider];
-    if (!modelId) continue;
+  const fromSetting = ladderCandidates(configured, "fast", preferredProvider);
+  const candidates =
+    fromSetting.length > 0
+      ? fromSetting
+      : ladderCandidates(DEFAULT_TIER_LADDER, "fast", preferredProvider);
+
+  for (const { provider, model: modelId } of candidates) {
     let resolved: { provider: string; model: string; piModel: unknown };
     try {
       resolved = await resolveFn(provider, modelId);

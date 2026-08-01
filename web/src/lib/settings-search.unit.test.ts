@@ -13,7 +13,10 @@ describe("filterSettings — admin gating", () => {
 	test("non-admins never see adminOnly items (empty query)", () => {
 		const result = filterSettings("", SETTINGS_NAV, false);
 		expect(result.every((i) => !i.adminOnly)).toBe(true);
-		expect(ids(result)).toContain("models");
+		expect(ids(result)).toContain("personalization");
+		// Models & Providers is admin-only: its reads and writes both require
+		// the admin role, so a member must not be offered it.
+		expect(ids(result)).not.toContain("models");
 		expect(ids(result)).not.toContain("admin");
 		expect(ids(result)).not.toContain("admin-audit");
 	});

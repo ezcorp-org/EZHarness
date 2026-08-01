@@ -9,10 +9,11 @@ import { defineExtension } from "../../../../src/extensions/sdk/define";
 //
 // ── Capability posture ───────────────────────────────────────────────
 //
-// `network` is the ONLY runtime permission, allowlisted to exactly the
-// three keyless Open-Meteo hosts this extension talks to. No shell, no
-// filesystem, no env, no storage: the extension holds no credential and
-// keeps no state, so there is nothing for a compromise to reach or leak.
+// `network` is the ONLY runtime permission, allowlisted to the three
+// keyless Open-Meteo hosts plus the Atlanta NAB-certified station page.
+// No shell, filesystem, env, or storage: the extension holds no
+// credential and keeps no state, so there is nothing for a compromise to
+// reach or leak.
 // Because it takes no credential it also never approaches the
 // env-key-leak install gate (which refuses any `permissions.env` name
 // ending in `_API_KEY` / `TOKEN` / `SECRET`).
@@ -25,26 +26,25 @@ import { defineExtension } from "../../../../src/extensions/sdk/define";
 export default defineExtension({
   schemaVersion: 2,
   name: "city-conditions",
-  version: "0.1.0",
+  version: "0.2.0",
   description:
-    "Current time, weather, and pollen for any city, rendered as a city-conditions card. " +
-    "Mold is reported as explicitly unavailable — no keyless provider publishes spore counts, " +
-    "and this extension will not invent a health figure. Ships a `conditions` workflow that " +
-    "performs the same aggregation as a declarative graph.",
+    "Current time, weather, pollen, and available mold activity for any city, rendered as a " +
+    "city-conditions card. Uses Open-Meteo generally and a NAB-certified reporting station in " +
+    "the Atlanta metro, with source, timestamp, unit, and honest unavailable reasons. Ships a " +
+    "`conditions` workflow that performs the same aggregation as a declarative graph.",
   author: { name: "EZCorp" },
   entrypoint: "./index.ts",
   category: "Utilities",
-  tags: ["weather", "pollen", "air-quality", "time", "open-meteo", "workflow", "ui"],
+  tags: ["weather", "pollen", "mold", "allergies", "time", "open-meteo", "workflow", "ui"],
 
   tools: [
     {
       name: "city_conditions",
       description:
-        "Get current local time, weather, and pollen for one city, rendered inline as a " +
-        "city-conditions card. Call once per city the user names; the returned card already " +
-        "shows the local time, temperature, feels-like, humidity, wind, per-grain pollen with " +
-        "a severity band, and an explicit 'mold not available' state — so answer with one " +
-        "short summary afterwards instead of calling again.",
+        "Get current local time, weather, pollen, and available mold activity for one city, " +
+        "rendered inline as a city-conditions card. Call once per city; the card includes units, " +
+        "source provenance, report time, category or per-grain pollen, and a precise unavailable " +
+        "reason when no provider covers a health field. Answer with one short summary afterwards.",
       inputSchema: {
         type: "object",
         properties: {
@@ -100,9 +100,10 @@ export default defineExtension({
     {
       name: "air_quality",
       description:
-        "Read current pollen for a latitude/longitude: the six grains Open-Meteo publishes " +
-        "(alder, birch, grass, mugwort, olive, ragweed) with a summed index and severity band, " +
-        "plus the mold block, which always reports as unavailable with its reason.",
+        "Read the best available pollen and mold data for a latitude/longitude. In the Atlanta " +
+        "metro this uses a NAB-certified reporting station with observed total/category pollen " +
+        "and mold activity; elsewhere it uses Open-Meteo's Europe-only modeled pollen coverage. " +
+        "Every field includes units, provenance, timestamp, or a precise unavailable reason.",
       inputSchema: {
         type: "object",
         properties: {
@@ -117,17 +118,16 @@ export default defineExtension({
   agent: {
     prompt: [
       "You can look up live conditions for a city with `city_conditions`.",
-      "Use it whenever the user names a place and asks about the weather, the time there,",
-      "pollen, or allergies. Call it once per city: the card it returns already shows the",
-      "local time, temperature, feels-like, humidity, wind, per-grain pollen and its band,",
-      "so follow up with one short summary rather than another call.",
-      "Mold always comes back `available: false` with a reason — say so plainly if asked.",
-      "Never state a mold count; no keyless provider publishes one.",
-      "`geocode`, `current_weather` and `air_quality` are the granular steps the `conditions`",
-      "workflow runs. Prefer `city_conditions` in chat — it is the one that renders a card.",
+      "Use it whenever the user names a place and asks about weather, local time, pollen,",
+      "mold, or allergies. Call it once per city and follow with one short summary.",
+      "Use the card's source, report date, units, and availability state exactly as returned.",
+      "A mold activity band is not a numeric spore count; never turn one into a count.",
+      "If a health field is unavailable, repeat its provider-specific reason rather than saying zero.",
+      "`geocode`, `current_weather` and `air_quality` are granular workflow steps.",
+      "Prefer `city_conditions` in chat because it is the tool that renders the card.",
     ].join("\n"),
     category: "Utilities",
-    capabilities: ["weather", "pollen", "time"],
+    capabilities: ["weather", "pollen", "mold", "allergies", "time"],
   },
 
   // Deterministic acceptance round-trip: spawn the subprocess, call the
@@ -151,6 +151,7 @@ export default defineExtension({
       "geocoding-api.open-meteo.com",
       "api.open-meteo.com",
       "air-quality-api.open-meteo.com",
+      "www.atlantaallergy.com",
     ],
     workflows: { names: ["conditions"], maxRunsPerHour: 12 },
   },

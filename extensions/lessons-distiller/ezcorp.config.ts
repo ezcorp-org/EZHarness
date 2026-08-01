@@ -1,21 +1,18 @@
-// Lessons-distiller — bundled extension manifest (Phase 53 Stage 1).
+// Lessons-distiller — bundled extension manifest.
 //
-// Ports the legacy host-side distiller (src/runtime/lessons/distiller.ts)
-// onto the SDK capability surfaces. Trigger heuristics stay host-side
-// (called via `ctx.invoke("runtime.lessons.triggerGate", …)`); the
-// per-conversation message slice is fetched via
+// Declares the grants `index.ts` needs to capture one lesson per
+// completed chat run. Trigger heuristics stay host-side (called via
+// `ctx.invoke("runtime.lessons.triggerGate", …)`); the per-conversation
+// message slice + projectId arrive in one
 // `ctx.invoke("runtime.conversations.getMessages", …)`. Lesson writes
 // flow through `ctx.lessons.write` (audited, slug-collision soft).
 //
-// Stage 1 ships alongside the legacy implementation; the parity test in
-// `src/__tests__/distiller-port-parity.test.ts` proves both code paths
-// agree across every `DistillationOutcome` variant before Stage 2
-// deletes the legacy code.
+// `permissions.lessons.maxVisibility = "user"` caps what the extension
+// can write — promotion to project/global is owner-gated curation, not
+// something the distiller can self-grant.
 //
-// `permissions.lessons.maxVisibility = "user"` mirrors the legacy
-// pipeline's `visibility: "user"` write (promotion ladder is v1.5+).
-// `permissions.llm` mirrors `DISTILLATION_MODELS` from the legacy file
-// (claude-haiku, gpt-4o-mini, gemini-2.0-flash-lite).
+// No `filesystem` grant, by design: the lesson row in the DB is the only
+// source of truth, so the extension writes no files.
 
 import { defineExtension } from "../../src/extensions/sdk/define";
 

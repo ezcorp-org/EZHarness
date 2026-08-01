@@ -53,8 +53,8 @@ import {
   geocodeCity,
 } from "./lib/open-meteo";
 
-/** Envelope schema version. Bump only with the card, never silently. */
-export const ENVELOPE_VERSION = 1;
+/** Envelope schema version. v2 adds provider provenance, correct units, and station bands. */
+export const ENVELOPE_VERSION = 2;
 
 /** Display unit the caller asked for. Readings stay celsius regardless. */
 export type Unit = "celsius" | "fahrenheit";
@@ -181,10 +181,22 @@ export const tools: Record<string, ToolHandler> = {
   air_quality: airQuality,
 };
 
-/** Production boot: mount the dispatcher and start the channel read loop. */
+/**
+ * Production boot: mount the dispatcher and start the channel read loop.
+ *
+ * ORDER MATTERS. `getChannel()` must be CALLED before
+ * `createToolDispatcher` — channel.ts has zero top-level side effects by
+ * design, and arms rpc.ts's `_register` lazily from
+ * `ensureDispatcherRegistered()` on the first `getChannel()` call.
+ * Importing `getChannel` is not enough. Dispatching first hits the
+ * default register, which throws "channel not ready" and kills the
+ * subprocess at spawn — every tool call then fails as a crash.
+ * `price-chart` holds the same `const ch = getChannel()` shape.
+ */
 export function start(): void {
+  const ch = getChannel();
   createToolDispatcher(tools);
-  getChannel().start();
+  ch.start();
 }
 
 // Gated on `import.meta.main` so test imports don't open stdin.

@@ -114,6 +114,8 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "GET", path: "/api/extensions/:id/permissions", description: "Get extension permissions", category: "extensions" },
   { method: "PUT", path: "/api/extensions/:id/permissions", description: "Update extension permissions — clamped to the manifest (requires an admin-role key)", category: "extensions", scope: "admin", harness: { controllable: true } },
   { method: "GET", path: "/api/extensions/:id/triggers", description: "List an extension's DYNAMIC cron + webhook triggers (created at runtime via ctx.triggers; invisible to the manifest and both reconcilers)", category: "extensions", scope: "admin" },
+  { method: "GET", path: "/api/extensions/:id/reapprove-drift", description: "Preview a bundled extension's current on-disk, ceiling-clamped permissions and how they differ from the stored grant (requires an admin-role key)", category: "extensions", scope: "admin", responseDescription: "{ version, permissions, diffs: [{ field, oldValue, newValue }], ceilingClamped }" },
+  { method: "POST", path: "/api/extensions/:id/reapprove-drift", description: "Re-approve a bundled extension's permission drift from its current on-disk manifest, clamped to the bundled ceiling (requires an admin-role key)", category: "extensions", scope: "admin", responseDescription: "{ extension, diffs: [{ field, oldValue, newValue }] }" },
   { method: "GET", path: "/api/extensions/:name/tools", description: "List tools provided by extension", category: "extensions", scope: "read" },
   { method: "POST", path: "/api/extensions/:id/secrets", description: "Set (or rotate) an extension secret — encrypted, scope-isolated, AAD-bound; value never echoed back", category: "extensions", scope: "extensions", harness: { controllable: true } },
   { method: "DELETE", path: "/api/extensions/:id/secrets", description: "Delete an extension secret", category: "extensions", scope: "extensions", harness: { controllable: true } },
@@ -179,6 +181,7 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "POST", path: "/api/providers/:provider/test", description: "Test provider connection", category: "providers" },
   { method: "POST", path: "/api/providers/:provider/refresh-models", description: "Fetch latest models from the provider (direct /v1/models, enriched/backed by the models.dev catalog)", category: "providers" },
   { method: "GET", path: "/api/models", description: "List available AI models", category: "providers" },
+  { method: "GET", path: "/api/models/default-selection", description: "Default model selection for a user with no saved pick — `provider:defaultSelection`, \"auto\" (route the first turn) or \"first\" (pin models[0]). Read-scoped, not admin-only, so an operator's revert reaches every user", category: "providers", scope: "read", responseDescription: '{ value: "auto" | "first" }' },
 
   // Users & Teams
   { method: "GET", path: "/api/users", description: "List users (admin)", category: "users" },
@@ -246,5 +249,6 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "POST", path: "/api/quickstart", description: "Update quickstart step completion", category: "system" },
   { method: "GET", path: "/api/favicon", description: "Get application favicon", category: "system" },
   { method: "GET", path: "/api/audit-log", description: "List audit log entries (admin)", category: "admin" },
+  { method: "GET", path: "/api/admin/analytics/routing", description: "Routing + cost analytics: routed-vs-pinned share, tier mix, failover rate, mid-conversation model switches, A/B retry rate, and priced spend per provider+model (admin)", category: "admin", scope: "admin", responseDescription: "{ days, turns: { total, routed, pinned, legacy }, routedShare, tierMix, failover, switches, retries, spend: { segments, routedUsd, pinnedUsd, legacyUsd, totalUsd, unpricedTurns, unpricedTokens, conversations, usdPerConversation } }" },
   { method: "GET", path: "/api/fs/list", description: "List files in a directory", category: "system" },
 ];

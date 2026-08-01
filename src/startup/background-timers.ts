@@ -20,6 +20,7 @@ import { previewCapabilities } from "../runtime/preview/preview-netns";
 import { enforceDataDirLockdown } from "../runtime/preview/preview-uid-pool";
 import { onPreviewDetected } from "../runtime/preview/preview-detection-bridge";
 import { getRegisteredPreviewBus } from "../runtime/preview/preview-bus-registry";
+import { resolvePreviewAppHost } from "../runtime/preview/preview-proxy";
 import type { PreviewPortSource } from "../runtime/preview/preview-port-source";
 import { logger } from "../logger";
 
@@ -524,7 +525,7 @@ export async function startBackgroundTimers(): Promise<void> {
         // the daemon tick.
         void onPreviewDetected(event, {
           getBus: getRegisteredPreviewBus,
-          appHost: () => process.env.EZCORP_PREVIEW_APP_HOST ?? null,
+          appHost: () => resolvePreviewAppHost(),
           secure: () => process.env.FORCE_SECURE_COOKIES === "true",
         });
       },

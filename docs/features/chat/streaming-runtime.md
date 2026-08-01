@@ -76,7 +76,7 @@ Sub-agent bus events (`agent:spawn`/`agent:status`/`agent:complete`) for this `r
 
 ### Settings & env vars
 
-- `compaction:strategy` (`trim` default, `none` to disable), `compaction:responseReserveCap` / `:responseReserveFloor` / `:safetyFraction` / `:cacheAnchorFraction` — per-model context trimming; `compaction:cacheRetention` — Anthropic prompt-cache TTL shaping.
+- `compaction:strategy` (`trim` default, `none` to disable), `compaction:responseReserveCap` / `:responseReserveFloor` / `:safetyFraction` / `:cacheAnchorFraction` — per-model context trimming; `compaction:cacheRetention` — Anthropic prompt-cache TTL shaping; `compaction:toolResultCap` (`32000` chars, `0` to disable) — always-on cap on stale tool results, independent of the strategy and the budget.
 - `EZCORP_WATCHDOG_IDLE_MS` (default `90000`), `EZCORP_WATCHDOG_IDLE_REASONING_MS` (`300000`), `EZCORP_WATCHDOG_IDLE_REASONING_HIGH_MS` (`900000`) — idle-kill thresholds.
 
 ## Key files

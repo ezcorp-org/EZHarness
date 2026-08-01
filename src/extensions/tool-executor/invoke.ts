@@ -13,6 +13,7 @@ import {
   isRuntimeInvokeMethod,
 } from "../runtime-invoke-handler";
 import { getRuntimeToolContext } from "../runtime-tool-context";
+import { resolveTokenPreferredScope } from "./provenance";
 import { grantsToCapabilitySet, intersect, type CapabilitySet } from "../capability-types";
 
 /**
@@ -112,6 +113,37 @@ export async function handlePiInvoke(
       };
     }
     const manifest = host.registry.getManifest(callerExtId);
+    // Acting user — PROVENANCE FIRST, singleton second.
+    //
+    // `host.currentUserId` is a process-wide mutable field on the
+    // ToolExecutor instance. The boot / event-driven executor
+    // (`{bus, eventDriven: true}` in `web/src/lib/server/context.ts`)
+    // never calls `setCurrentUserId`, so on the `run:complete` auto
+    // path it is ALWAYS undefined — which made
+    // `runtime.settings.getMine` resolve the manifest's declared
+    // defaults instead of the conversation owner's stored settings
+    // (their "Enabled" toggle and provider/model overrides were
+    // silently ignored). It is also racy under concurrency: one field
+    // shared by every conversation.
+    //
+    // The per-call snapshot the subprocess echoes back on
+    // `_meta.ezCallId` has neither problem — the
+    // EventSubscriptionDispatcher stamps the conversation OWNER onto
+    // the fire token, and the token is host-issued/host-resolved so
+    // identity can't be spoofed from the wire. Same reasoning as
+    // `provenance.ts` / `call-provenance.ts`.
+    //
+    // Soft, NOT fail-fast: an unresolved/absent token falls back to the
+    // singleton. Tokenless callers are legitimate here (per-turn manual
+    // invokes made outside a tool ALS, plus existing tests), and the
+    // runtime-invoke path has its own conversation-scope gate
+    // (`checkConversationGate`) that is deliberately left untouched.
+    // An OWNERLESS fire still resolves to null → declared defaults.
+    const actingUserId = resolveTokenPreferredScope(
+      req,
+      host.currentUserId,
+      host.currentConversationId,
+    ).userId;
     // Per-call conversation-scope auth: thread the executor's
     // current conversation id (and acting user id) into the
     // RuntimeInvokeContext so `runtime.conversations.getMessages` /
@@ -127,7 +159,10 @@ export async function handlePiInvoke(
       // only gate. Filled from the registry; never read from the
       // calling extension's params (spoofing defense).
       ...(manifest?.name ? { extensionName: manifest.name } : {}),
-      userId: host.currentUserId ?? null,
+      userId: actingUserId,
+      // Deliberately NOT provenance-sourced: the conversation gate's
+      // event-driven `wiringLookup` fallback is the sanctioned path for
+      // background fires and stays exactly as it was.
       currentConversationId: host.currentConversationId ?? null,
       granted,
       ...(manifest?.settings ? { settingsSchema: manifest.settings } : {}),

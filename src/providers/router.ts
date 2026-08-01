@@ -3,13 +3,24 @@
  */
 
 import { type Model } from "@earendil-works/pi-ai";
-import { resolveModelObject, findModelForProviderInTier, resolveDiscoveredModel } from "./registry";
+import {
+  resolveModelObject,
+  findModelForProviderInTier,
+  findRunnableModelForProviderInTier,
+  resolveDiscoveredModel,
+} from "./registry";
 import { getCircuitBreaker } from "./circuit-breaker";
+import { tryGetCredential } from "./credentials";
 import { getSetting } from "../db/queries/settings";
 import { isTestSurfaceEnabled, MOCK_PROVIDER, mockLlmBaseUrl } from "../test-surface";
 // Tier vocabulary lives in the pure routing classifier (single source of
 // truth). Type-only import — erased at build, so it adds no runtime dep.
 import type { RoutingTier } from "../runtime/tier-classifier";
+import {
+  parseTierLadder,
+  TIER_LADDER_SETTING_KEY,
+  type TierLadder,
+} from "../runtime/routing/tier-ladder";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -53,6 +64,18 @@ export async function getDefaultTier(): Promise<TierName> {
     if (TIER_ALIASES[tier]) return TIER_ALIASES[tier];
   }
   return DEFAULT_TIER;
+}
+
+/**
+ * The operator-configured tier ladder (`provider:tierModels`), or `undefined`
+ * when unset OR malformed — routing then keeps its pre-ladder behaviour rather
+ * than failing a turn (see `runtime/routing/tier-ladder.ts`). Deliberately
+ * returns undefined instead of the built-in default: the registry applies the
+ * built-in itself, and only for the providers whose built-in rung was already
+ * in force, so an unconfigured deployment routes exactly as before.
+ */
+export async function getConfiguredTierLadder(): Promise<TierLadder | undefined> {
+  return parseTierLadder(await getSetting(TIER_LADDER_SETTING_KEY));
 }
 
 /**
@@ -123,9 +146,14 @@ export async function resolveModel(
     return { provider, model: modelId, piModel: resolveModelObject(provider, modelId, custom?.baseUrl) };
   }
 
+  // Past the pinned-passthrough level, every remaining branch picks a model
+  // for a tier — so the ladder is loaded once, here, and never on the pinned
+  // hot path above.
+  const ladder = await getConfiguredTierLadder();
+
   // Level 2: Provider only -- find best model in default tier
   if (provider) {
-    const entry = findModelForProviderInTier(provider, tier);
+    const entry = findModelForProviderInTier(provider, tier, ladder);
     if (entry) {
       return { provider, model: entry.id, piModel: resolveModelObject(provider, entry.id) };
     }
@@ -133,19 +161,53 @@ export async function resolveModel(
     return { provider, model: provider, piModel: resolveModelObject(provider, provider) };
   }
 
-  // Level 3: No provider -- iterate preference order, skip open circuit breakers
+  // Level 3: No provider -- iterate preference order, skipping providers
+  // with an open circuit breaker, no model in the tier, or NO USABLE
+  // CREDENTIAL.
+  //
+  // The credential check is what makes this branch honest. Having a model
+  // in the tier says nothing about being able to CALL it: with the default
+  // order below, a deployment that connected only OpenAI still resolved
+  // every unpinned turn to `anthropic` (first in the order, and it always
+  // has catalog models), then threw "No credentials available for
+  // anthropic" from getCredential — while the model picker showed a
+  // ChatGPT model. This branch runs whenever no provider is pinned, which
+  // includes Auto-routing turns and any conversation whose row carries a
+  // null provider, so the failure looked like it came from whatever the
+  // user happened to be doing at the time.
+  //
+  // Cost is bounded: at most one probe per provider, short-circuited at
+  // the first usable one, and the probe for the WINNER is the same lookup
+  // the caller performs moments later.
   const order = await getPreferenceOrder();
+  let skippedForCredentials: string | null = null;
   for (const p of order) {
     const cb = getCircuitBreaker(p, credentialScope);
     if (cb.isOpen()) continue;
 
-    const entry = findModelForProviderInTier(p, tier);
-    if (entry) {
-      return { provider: p, model: entry.id, piModel: resolveModelObject(p, entry.id) };
+    const cred = await tryGetCredential(p);
+    if (!cred) {
+      skippedForCredentials ??= p;
+      continue;
     }
+
+    // The credential's TYPE narrows the catalog: an OAuth token can only
+    // serve subscription-eligible models. Picking from the api-key catalog
+    // here is how a ChatGPT-plan deployment ended up pinned to `gpt-4`.
+    const entry = findRunnableModelForProviderInTier(p, tier, cred.type, ladder);
+    if (!entry) continue;
+
+    return { provider: p, model: entry.id, piModel: resolveModelObject(p, entry.id) };
   }
 
-  throw new Error("No available providers");
+  // Name the real constraint. "No available providers" sent people looking
+  // for a routing/catalog problem when the answer was "connect a provider".
+  throw new Error(
+    skippedForCredentials
+      ? `No available providers with credentials (tier "${tier}"). ` +
+        `Connect a provider via OAuth or add an API key — e.g. ${skippedForCredentials}.`
+      : "No available providers",
+  );
 }
 
 // ── Fallback suggestion ──────────────────────────────────────────────
@@ -158,6 +220,7 @@ export async function suggestFallback(
   credentialScope = "shared",
 ): Promise<FallbackSuggestion | null> {
   const order = await getPreferenceOrder();
+  const ladder = await getConfiguredTierLadder();
 
   for (const provider of order) {
     if (provider === failedProvider) continue;
@@ -165,10 +228,17 @@ export async function suggestFallback(
     const cb = getCircuitBreaker(provider, credentialScope);
     if (cb.isOpen()) continue;
 
-    const entry = findModelForProviderInTier(provider, tier as TierName);
-    if (entry) {
-      return { provider, model: entry.id, tier };
-    }
+    // Same rule as resolveModel's Level 3: a provider we cannot
+    // authenticate is not a fallback. Suggesting one turns a recoverable
+    // provider error into a second, more confusing credentials error, and
+    // the user is shown a "try X instead" that could never have worked.
+    const cred = await tryGetCredential(provider);
+    if (!cred) continue;
+
+    const entry = findRunnableModelForProviderInTier(provider, tier as TierName, cred.type, ladder);
+    if (!entry) continue;
+
+    return { provider, model: entry.id, tier };
   }
 
   return null;

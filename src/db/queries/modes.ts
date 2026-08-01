@@ -1,6 +1,9 @@
 import { eq, or } from "drizzle-orm";
 import { getDb } from "../connection";
 import { modes } from "../schema";
+// Tier vocabulary lives in the pure routing classifier (single source of
+// truth). Type-only import — erased at build, so it adds no runtime dep.
+import type { RoutingTier } from "../../runtime/tier-classifier";
 
 export type DbMode = typeof modes.$inferSelect;
 
@@ -33,6 +36,10 @@ export async function createMode(data: {
   instructionPosition?: "prepend" | "append" | "replace";
   preferredModel?: string | null;
   preferredProvider?: string | null;
+  /** WS3b: the routing tier this kind of task wants, when the mode has no
+   *  reason to name a specific model. Applied at thread start as the tier
+   *  classifier's hint (src/runtime/routing/mode-binding.ts). */
+  preferredTier?: RoutingTier | null;
   preferredThinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | null;
   temperature?: number | null;
   toolRestriction?: "all" | "read-only" | "none" | "allowlist";
@@ -57,6 +64,7 @@ export async function createMode(data: {
     instructionPosition: (data.instructionPosition ?? "prepend") as "prepend" | "append" | "replace",
     preferredModel: data.preferredModel ?? null,
     preferredProvider: data.preferredProvider ?? null,
+    preferredTier: data.preferredTier ?? null,
     preferredThinkingLevel: (data.preferredThinkingLevel ?? null) as any,
     temperature: data.temperature ?? null,
     toolRestriction: (data.toolRestriction ?? "all") as "all" | "read-only" | "none" | "allowlist",
@@ -81,6 +89,7 @@ export async function updateMode(id: string, data: Partial<{
   instructionPosition: "prepend" | "append" | "replace";
   preferredModel: string | null;
   preferredProvider: string | null;
+  preferredTier: RoutingTier | null;
   preferredThinkingLevel: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | null;
   temperature: number | null;
   toolRestriction: "all" | "read-only" | "none" | "allowlist";

@@ -17,6 +17,7 @@ import {
   getCompactionStrategy,
   listCompactionStrategies,
   isCompactionMarker,
+  capStaleToolResults,
   makeCompactionTransform,
   type CompactionContext,
   type CompactionStrategy,
@@ -50,6 +51,15 @@ const toolResult = (id: string, text: string): Msg => ({
   isError: false,
   timestamp: 1,
 });
+const toolResultParts = (id: string, content: any[]): Msg => ({
+  role: "toolResult",
+  toolCallId: id,
+  toolName: "t",
+  content,
+  isError: false,
+  timestamp: 1,
+});
+const imagePart = { type: "image", data: "x", mimeType: "image/png" };
 
 const fakeModel = (contextWindow: number, maxTokens: number): any => ({
   id: "test-model",
@@ -384,6 +394,154 @@ describe("trim strategy", () => {
   });
 });
 
+// ── Stale tool-result cap ────────────────────────────────────────────
+
+/**
+ * The exact wire format of the elision mark, re-declared here on purpose: it
+ * is a byte-stability contract (Anthropic's prefix cache), so a careless edit
+ * to the marker must fail a test rather than silently bust the cache.
+ */
+const elided = (n: number) =>
+  `\n…[${n} chars of this older tool result elided to cut re-sent context]…\n`;
+
+const trText = (m: Msg): string => m.content[0].text;
+
+describe("capStaleToolResults", () => {
+  const cfg = (toolResultCap: number) => ({ ...DEFAULTS, toolResultCap });
+
+  test("caps older tool results and NEVER the newest one", () => {
+    const msgs = [
+      userMsg("q1"),
+      toolResult("c1", "A".repeat(500)),
+      userMsg("q2"),
+      toolResult("c2", "B".repeat(500)),
+      userMsg("q3"),
+      toolResult("c3", "C".repeat(500)),
+    ];
+    const out = capStaleToolResults(msgs, cfg(100));
+
+    // Older two are capped to head+tail …
+    expect(trText(out[1])).toBe("A".repeat(50) + elided(400) + "A".repeat(50));
+    expect(trText(out[3])).toBe("B".repeat(50) + elided(400) + "B".repeat(50));
+    // … the newest is passed through BY IDENTITY (the agent just ran it).
+    expect(out[5]).toBe(msgs[5]);
+    expect(trText(out[5])).toBe("C".repeat(500));
+    // Non-toolResult messages are untouched by identity; length is preserved.
+    expect(out.length).toBe(msgs.length);
+    expect(out[0]).toBe(msgs[0]);
+    expect(out[2]).toBe(msgs[2]);
+    // Input array is never mutated.
+    expect(trText(msgs[1])).toBe("A".repeat(500));
+  });
+
+  test("retains head AND tail — the verdict at the end survives", () => {
+    const body = `START${"m".repeat(200)}VERDICT`;
+    const msgs = [toolResult("c1", body), userMsg("next"), toolResult("c2", "newest")];
+    const out = capStaleToolResults(msgs, cfg(20));
+    const text = trText(out[0]);
+    expect(text.startsWith("START")).toBe(true);
+    expect(text.endsWith("VERDICT")).toBe(true);
+    expect(text).toBe(`START${"m".repeat(5)}${elided(192)}${"m".repeat(3)}VERDICT`);
+  });
+
+  test("DETERMINISTIC: identical input caps to byte-identical output", () => {
+    const build = () => [
+      toolResult("c1", "Z".repeat(9_999)),
+      userMsg("next"),
+      toolResult("c2", "newest"),
+    ];
+    const first = capStaleToolResults(build(), cfg(64));
+    const second = capStaleToolResults(build(), cfg(64));
+    expect(trText(first[0])).toBe(trText(second[0]));
+    expect(JSON.stringify(first)).toBe(JSON.stringify(second));
+    // Asserted twice: the same value both times, no hidden per-call state.
+    const third = capStaleToolResults(build(), cfg(64));
+    expect(JSON.stringify(third)).toBe(JSON.stringify(first));
+  });
+
+  test("CACHE-STABLE: a stale result caps identically as the thread grows", () => {
+    // Turn N, then the same history plus a new turn — the shape that would
+    // bust a prefix-matched cache if the capped bytes shifted per turn.
+    const stale = () => toolResult("c1", "hist".repeat(5_000));
+    const turnN = [userMsg("q1"), stale(), userMsg("q2"), toolResult("c2", "fresh")];
+    const turnN1 = [...turnN, userMsg("q3"), toolResult("c3", "newer")];
+
+    const outN = capStaleToolResults(turnN, cfg(256));
+    const outN1 = capStaleToolResults(turnN1, cfg(256));
+
+    expect(trText(outN[1])).toBe(trText(outN1[1]));
+    // And the leading byte-identical run covers the capped stale result, so
+    // the provider's cached prefix survives the growth.
+    expect(JSON.stringify(outN.slice(0, 2))).toBe(JSON.stringify(outN1.slice(0, 2)));
+  });
+
+  test("cap 0 / negative / NaN disables it → the input array by identity", () => {
+    const msgs = [toolResult("c1", "A".repeat(5_000)), userMsg("q"), toolResult("c2", "b")];
+    expect(capStaleToolResults(msgs, cfg(0))).toBe(msgs);
+    expect(capStaleToolResults(msgs, cfg(-1))).toBe(msgs);
+    expect(capStaleToolResults(msgs, cfg(Number.NaN))).toBe(msgs);
+    expect(capStaleToolResults(msgs, cfg(Number.POSITIVE_INFINITY))).toBe(msgs);
+  });
+
+  test("nothing to cap → the input array by identity", () => {
+    // No toolResult at all.
+    const none = [userMsg("a"), asstText("b")];
+    expect(capStaleToolResults(none)).toBe(none);
+    // A single toolResult IS the newest, so it is exempt.
+    const one = [userMsg("a"), toolResult("c1", "A".repeat(100_000))];
+    expect(capStaleToolResults(one)).toBe(one);
+    // Stale but already under the cap.
+    const small = [toolResult("c1", "tiny"), userMsg("q"), toolResult("c2", "x")];
+    expect(capStaleToolResults(small, cfg(100))).toBe(small);
+  });
+
+  test("defaults to a live cap (enabled out of the box)", () => {
+    expect(DEFAULTS.toolResultCap).toBeGreaterThan(0);
+    const msgs = [
+      toolResult("c1", "A".repeat(DEFAULTS.toolResultCap * 4)),
+      userMsg("q"),
+      toolResult("c2", "b"),
+    ];
+    const out = capStaleToolResults(msgs);
+    expect(trText(out[0]).length).toBeLessThan(DEFAULTS.toolResultCap + 200);
+  });
+
+  test("collapses multiple text parts into one, keeping image parts", () => {
+    const msgs = [
+      toolResultParts("c1", [
+        { type: "text", text: "A".repeat(100) },
+        imagePart,
+        { type: "text", text: "B".repeat(100) },
+      ]),
+      userMsg("q"),
+      toolResult("c2", "newest"),
+    ];
+    const out = capStaleToolResults(msgs, cfg(50));
+    const content = (out[0] as any).content;
+    // Parts joined with "\n" → 100 + 1 + 100 = 201 chars, 151 elided.
+    expect(content.length).toBe(2);
+    expect(content[0].text).toBe("A".repeat(25) + elided(151) + "B".repeat(25));
+    expect(content[1]).toBe(imagePart);
+  });
+
+  test("an image-only tool result has no text to cap", () => {
+    const msgs = [toolResultParts("c1", [imagePart]), userMsg("q"), toolResult("c2", "n")];
+    expect(capStaleToolResults(msgs, cfg(1))).toBe(msgs);
+  });
+
+  test("never cuts a surrogate pair in half", () => {
+    // cap 10 → head 5 / tail 5, both landing mid-emoji.
+    const body = `abcd😀${"F".repeat(50)}😀wxyz`;
+    const msgs = [toolResult("c1", body), userMsg("q"), toolResult("c2", "newest")];
+    const out = capStaleToolResults(msgs, cfg(10));
+    const text = trText(out[0]);
+    // The orphaned halves are dropped, so 54 (not 52) chars are elided.
+    expect(text).toBe(`abcd${elided(54)}wxyz`);
+    // No lone surrogate survived (a lone surrogate would not round-trip).
+    expect(Buffer.from(text, "utf8").toString("utf8")).toBe(text);
+  });
+});
+
 // ── makeCompactionTransform ──────────────────────────────────────────
 
 describe("makeCompactionTransform", () => {
@@ -447,6 +605,128 @@ describe("makeCompactionTransform", () => {
     // Over budget → compact() runs → throws → net returns the input verbatim
     // (never throws through transformContext, never fails the turn).
     expect(await transform(msgs)).toBe(msgs);
+  });
+
+  test("caps stale tool results while comfortably UNDER budget", async () => {
+    // 2 × 200k chars ≈ 100k tokens against a ~234k budget: the existing
+    // over-budget truncation never fires, but the stale result is still
+    // re-sent on every loop iteration — which is exactly the wasted spend.
+    const msgs = [
+      userMsg("q1"),
+      asstToolCall("c1", "read", {}),
+      toolResult("c1", "F".repeat(200_000)),
+      asstText("ok"),
+      userMsg("q2"),
+      asstToolCall("c2", "read", {}),
+      toolResult("c2", "G".repeat(200_000)),
+    ];
+    const transform = makeCompactionTransform(fakeModel(272_000, 128_000));
+    expect(estimateTokens(msgs)).toBeLessThan(computeInputBudget(fakeModel(272_000, 128_000)));
+
+    const out = await transform(msgs);
+
+    expect(out).not.toBe(msgs);
+    expect(out.length).toBe(msgs.length);
+    // No turn was evicted — this is the cap acting alone, not compaction.
+    expect(out.some(isCompactionMarker)).toBe(false);
+    expect(trText(out[2])).toContain("elided to cut re-sent context");
+    expect(trText(out[2]).length).toBeLessThan(DEFAULTS.toolResultCap + 200);
+    // Newest tool result kept in full, by identity.
+    expect(out[6]).toBe(msgs[6]);
+    expect(estimateTokens(out)).toBeLessThan(estimateTokens(msgs));
+  });
+
+  test("toolResultCap 0 leaves an under-budget history byte-identical", async () => {
+    const msgs = [
+      toolResult("c1", "F".repeat(200_000)),
+      userMsg("q2"),
+      toolResult("c2", "G".repeat(200_000)),
+    ];
+    const off = makeCompactionTransform(fakeModel(272_000, 128_000), { toolResultCap: 0 });
+    expect(await off(msgs)).toBe(msgs);
+    // …and it is strategy-independent: 'none' does NOT switch the cap off.
+    const on = makeCompactionTransform(fakeModel(272_000, 128_000), { strategy: "none" });
+    const out = await on(msgs);
+    expect(out).not.toBe(msgs);
+    expect(trText(out[0])).toContain("elided to cut re-sent context");
+  });
+
+  test("running ahead of the budget check, the cap can avert compaction", async () => {
+    const model = fakeModel(272_000, 128_000);
+    const budget = computeInputBudget(model);
+    const msgs = [
+      toolResult("c1", "F".repeat(1_200_000)), // ~300k tokens on its own
+      userMsg("q2"),
+      toolResult("c2", "small"),
+    ];
+    // Genuinely over budget BEFORE the cap …
+    expect(estimateTokens(msgs)).toBeGreaterThan(budget);
+
+    const out = await makeCompactionTransform(model)(msgs);
+
+    // … and under it after, so no turn had to be evicted at all.
+    expect(estimateTokens(out)).toBeLessThanOrEqual(budget);
+    expect(out.some(isCompactionMarker)).toBe(false);
+    expect(out.length).toBe(msgs.length);
+    expect(trText(out[0])).toContain("elided to cut re-sent context");
+  });
+
+  test("the strategy receives already-capped history", async () => {
+    let seen: Msg[] = [];
+    registerCompactionStrategy({
+      name: "xform-records",
+      async compact(messages) {
+        seen = messages as Msg[];
+        return { messages, droppedCount: 0, droppedTokens: 0, strategy: "xform-records" };
+      },
+    });
+    const transform = makeCompactionTransform(fakeModel(10, 0), {
+      strategy: "xform-records",
+      safetyFraction: 0,
+      responseReserveFloor: 0,
+      responseReserveCap: 0,
+      toolResultCap: 100,
+    });
+    const msgs = [
+      toolResult("c1", "A".repeat(5_000)),
+      userMsg("q"),
+      toolResult("c2", "B".repeat(5_000)),
+    ];
+    await transform(msgs);
+
+    expect(trText(seen[0])).toBe("A".repeat(50) + elided(4_900) + "A".repeat(50));
+    // The newest is still whole when the strategy runs — capping is the cost
+    // control, evicting/truncating it is the strategy's own call.
+    expect(seen[2]).toBe(msgs[2]);
+  });
+
+  test("cap + the over-budget emergency truncation compose", async () => {
+    // Even after capping, this history is far over a 1k budget, so trim also
+    // evicts turns and the backstop truncates the newest result — which the
+    // cap deliberately left whole.
+    const msgs: Msg[] = [];
+    for (let i = 0; i < 6; i++) {
+      msgs.push(userMsg("u".repeat(50) + i));
+      msgs.push(asstToolCall("c" + i, "read", {}));
+      msgs.push(toolResult("c" + i, "BIG".repeat(2_000)));
+    }
+    const transform = makeCompactionTransform(fakeModel(1_000, 1_000), {
+      safetyFraction: 0,
+      responseReserveFloor: 0,
+      responseReserveCap: 0,
+      toolResultCap: 400,
+    });
+    const out = await transform(msgs);
+
+    // The trim strategy evicted turns …
+    expect(out.filter(isCompactionMarker).length).toBe(1);
+    // … and it is the EMERGENCY backstop, not the cap, that finally shrinks
+    // the newest tool result (the cap never touches it, at any budget).
+    const last = out[out.length - 1] as any;
+    expect(last.role).toBe("toolResult");
+    expect(trText(last)).toContain("truncated to fit context");
+    expect(trText(last)).not.toContain("elided to cut re-sent context");
+    expect(estimateTokens(out)).toBeLessThanOrEqual(1_000);
   });
 
   test("strategy 'none' leaves an over-budget history unchanged", async () => {

@@ -107,3 +107,20 @@ worktrees/
 coverage-shard/
 
 web/playwright.local.config.ts
+
+# Local-only deploy overrides (per-machine; this repo is PUBLIC).
+#
+# Same idiom as the .env rules above: the `.example` template is tracked so
+# contributors know the shape, the concrete file never is.
+#
+# `deploy/preview-dns/Corefile` is the local copy of Corefile.example. The
+# template is now env-driven (EZCORP_PREVIEW_ZONE / EZCORP_PREVIEW_TARGET_IP),
+# so the copy no longer needs hand-edited host values — but it stays ignored so
+# a local tweak can't leak a private address into this public repo.
+deploy/preview-dns/Corefile
+
+# NOTE: `compose.prod.projects.yml` used to be ignored here as a local-only
+# override. It is now `compose.prod.localtest.yml` and is TRACKED: every
+# host-specific value became an env knob with a safe default
+# (EZCORP_TEST_BIND_IP defaults to loopback), so it is shareable.
+# See docs/local-prod-test-stack.md.

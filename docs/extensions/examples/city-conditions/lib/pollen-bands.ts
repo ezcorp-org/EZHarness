@@ -17,9 +17,9 @@ export const POLLEN_GRAINS = ["alder", "birch", "grass", "mugwort", "olive", "ra
 
 export type PollenGrain = (typeof POLLEN_GRAINS)[number];
 
-export type PollenBand = "none" | "low" | "moderate" | "high" | "very-high";
+export type PollenBand = "none" | "low" | "moderate" | "high" | "very-high" | "unknown";
 
-/** Per-grain µg/m³, or `null` where the provider has no value here. */
+/** Per-grain grains/m³, or `null` where the provider has no value here. */
 export type PollenGrains = Record<PollenGrain, number | null>;
 
 /**

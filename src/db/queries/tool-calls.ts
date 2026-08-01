@@ -1,4 +1,4 @@
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, gte, inArray } from "drizzle-orm";
 import { getDb } from "../connection";
 import { toolCalls } from "../schema";
 import { redactToolCallOutputContent } from "../../extensions/audit-redaction";
@@ -82,16 +82,32 @@ export async function listToolCallOutputsForMessages(
  * Selects only the `success` column — the gate doesn't need outputs,
  * names, or timing, so we keep the row footprint tiny. Row order is
  * load-bearing for the recovery detector; do not reorder.
+ *
+ * `sinceMs` (optional, epoch ms) narrows the scan to rows created at or
+ * after that instant. The trigger gate passes the finished run's
+ * `startedAt` so both signals describe THE RUN THAT JUST ENDED rather
+ * than the conversation's whole lifetime — without it, one conversation
+ * that ever made 5 tool calls distills on every subsequent turn forever
+ * (a paid LLM call + a lesson write per turn). Filtering lives in SQL,
+ * not in the caller, so a long conversation doesn't drag every historic
+ * row across the wire. OMITTED → unchanged lifetime behaviour for every
+ * existing caller.
  */
 export async function listToolCallsByConversation(
   conversationId: string,
+  sinceMs?: number,
 ): Promise<Array<{ success: boolean }>> {
   if (!conversationId) return [];
   const db = getDb();
+  const scope = eq(toolCalls.conversationId, conversationId);
   const rows: Array<{ success: boolean }> = await db
     .select({ success: toolCalls.success })
     .from(toolCalls)
-    .where(eq(toolCalls.conversationId, conversationId))
+    .where(
+      sinceMs === undefined
+        ? scope
+        : and(scope, gte(toolCalls.createdAt, new Date(sinceMs))),
+    )
     .orderBy(toolCalls.createdAt);
   return rows;
 }

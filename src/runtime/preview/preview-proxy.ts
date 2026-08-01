@@ -30,6 +30,59 @@ type ResponseBody = NonNullable<ConstructorParameters<typeof Response>[0]>;
 /** The fixed infix that marks the preview origin: `<id>.preview.<host>`. */
 export const PREVIEW_HOST_INFIX = ".preview.";
 
+/**
+ * Sentinel value for `EZCORP_PREVIEW_APP_HOST` meaning "derive the preview
+ * origin from the app's own public URL" — see `resolvePreviewAppHost`.
+ */
+export const PREVIEW_APP_HOST_AUTO = "auto";
+
+/**
+ * Resolve the app host that owns the `*.preview.<host>` wildcard, from the
+ * process environment. THE single source of truth: both readers — the proxy
+ * matcher (`web/src/lib/server/preview/dispatch.ts`) and the open-URL builder
+ * wired in `src/startup/background-timers.ts` — must go through this, or a
+ * deploy can end up matching one origin while handing the user links to
+ * another.
+ *
+ * Precedence:
+ *   1. `EZCORP_PREVIEW_APP_HOST` set to anything but `auto` → used verbatim.
+ *      An explicit value still wins, so a split-horizon deploy can serve
+ *      previews on a host that differs from the app's public URL.
+ *   2. `EZCORP_PREVIEW_APP_HOST=auto` → derived from `EZCORP_PUBLIC_URL`'s
+ *      `host` (hostname AND port, e.g. `ezcorp.example.com:4000`). This is
+ *      what "follow the host the app is actually served on" means: one
+ *      config value moves both, so re-pointing the deploy can't silently
+ *      leave previews on a stale origin. `parsePreviewHost` strips the port
+ *      when matching, and `buildPreviewOpenUrl` needs it to build a
+ *      reachable link — carrying `host` (not `hostname`) satisfies both.
+ *   3. Unset / empty / unparseable `EZCORP_PUBLIC_URL` under `auto` → null.
+ *
+ * Null keeps the ORIGINAL fail-closed contract: the preview origin is
+ * DISABLED entirely, so a misconfigured deploy never accidentally serves
+ * untrusted user content on an unexpected origin. `auto` is deliberately
+ * opt-in for the same reason — merely setting a public URL must not switch
+ * the preview origin on for a deploy that never asked for it.
+ */
+export function resolvePreviewAppHost(
+  /** Injected for tests; an index signature so `process.env` (ProcessEnv,
+   *  which is index-signature-typed) assigns without a weak-type error. */
+  env: Record<string, string | undefined> = process.env,
+): string | null {
+  const configured = env.EZCORP_PREVIEW_APP_HOST?.trim();
+  if (!configured) return null;
+  if (configured.toLowerCase() !== PREVIEW_APP_HOST_AUTO) return configured;
+
+  const publicUrl = env.EZCORP_PUBLIC_URL?.trim();
+  if (!publicUrl) return null;
+  try {
+    const host = new URL(publicUrl).host;
+    return host.length > 0 ? host : null;
+  } catch {
+    // Not a parseable absolute URL — fail closed rather than guessing.
+    return null;
+  }
+}
+
 export interface ParsedPreviewHost {
   /** The preview id (well-formed; still must exist in the registry). */
   previewId: string;

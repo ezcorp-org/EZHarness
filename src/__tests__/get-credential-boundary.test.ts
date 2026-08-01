@@ -63,9 +63,15 @@ const ALLOWLIST = new Set<string>([
   // fallback (PRD FR-6 / D5). Loaded only by the runtime when a
   // conversation has an active goal; never bundled into extensions.
   "src/runtime/goal-host.ts",
+  // Shared server-side provider-availability probe ("does this deployment hold
+  // a usable credential?"), extracted verbatim FROM
+  // `web/src/routes/api/models/+server.ts` so that route and
+  // `/api/models/capabilities` cannot disagree about what is callable. Same
+  // host-side audited callsite as the route it came from, in one place instead
+  // of two; server-only (`$lib/server/**`), never bundled into extensions.
+  "web/src/lib/server/provider-availability.ts",
   // SvelteKit route handlers — server-side endpoints, never bundled
   // into extension subprocesses.
-  "web/src/routes/api/models/+server.ts",
   "web/src/routes/api/providers/[provider]/test/+server.ts",
   "web/src/routes/api/providers/[provider]/refresh-models/+server.ts",
   "web/src/routes/api/agent-configs/generate/+server.ts",

@@ -256,6 +256,29 @@ describe("AgentExecutor.streamChat — pre-stream provider failover", () => {
     expect(assistant.usage?.requestedModel).toBeNull();
     expect(assistant.usage?.routedTier).toBe("fast");
     expect(assistant.usage?.failover).toBe(false);
+
+    // WS5: the routing provenance round-trips through the REAL write path
+    // (setup-tools → executor subscribe seam → subscribeBridge → createMessage
+    // → usage jsonb) and comes back off the row intact.
+    expect(assistant.usage?.routingSignals).toEqual({
+      promptChars: "hello".length,
+      // Fresh conversation: the executor does not persist the user turn, so
+      // the routed turn genuinely has no history behind it.
+      historyChars: 0,
+      historyMessageCount: 0,
+      hasToolMessages: false,
+      systemChars: 0,
+      attachmentCount: 0,
+      toolCount: 0,
+      hasComplexTools: false,
+      estTokens: Math.ceil("hello".length / 4),
+      tier: "fast",
+      reason: "short-turn",
+    });
+    // The effective config is read from the REAL settings table (unset here →
+    // the empty-order hash) and stamped alongside the signals.
+    expect(assistant.usage?.routingConfig?.defaultTier).toBe("balanced");
+    expect(assistant.usage?.routingConfig?.preferenceOrderHash).toMatch(/^[0-9a-f]{8}$/);
   });
 
   test("pinned powerful-tier model 429s pre-token → failover searches the PINNED tier, not 'balanced'", async () => {
@@ -287,6 +310,13 @@ describe("AgentExecutor.streamChat — pre-stream provider failover", () => {
     expect(assistant.usage?.failover).toBe(true);
     // Pinned turn → routing never fired → no routedTier written.
     expect(assistant.usage?.routedTier).toBeUndefined();
+    // WS5: nor any routing provenance. A pinned row carries NO key at all
+    // (not a null/undefined one), so pinned, routed, and legacy pre-WS5 rows
+    // stay distinguishable to a later sweep.
+    expect(assistant.usage?.routingSignals).toBeUndefined();
+    expect(assistant.usage?.routingConfig).toBeUndefined();
+    expect(Object.keys(assistant.usage ?? {})).not.toContain("routingSignals");
+    expect(Object.keys(assistant.usage ?? {})).not.toContain("routingConfig");
   });
 
   test("failure AFTER the first token → NOT retried (mid-stream boundary)", async () => {

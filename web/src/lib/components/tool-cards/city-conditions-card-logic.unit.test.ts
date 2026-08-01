@@ -30,6 +30,7 @@ import {
 	LOCAL_TIME_UNAVAILABLE,
 	MOLD_FALLBACK_REASON,
 	NOT_REPORTED,
+	POLLEN_FALLBACK_REASON,
 	POLLEN_GRAIN_KEYS,
 	resolveUnit,
 	type CityConditionsOkView,
@@ -260,6 +261,48 @@ describe("buildPollenView — null grain vs measured zero", () => {
 		}
 	});
 
+	test("available:false with no reason still explains pollen unavailability", () => {
+		for (const raw of [{ available: false }, { available: false, reason: "  " }, undefined]) {
+			const view = buildPollenView(raw);
+			expect(view.available).toBe(false);
+			expect(view.reason).toBe(POLLEN_FALLBACK_REASON);
+			expect(view.reason.length).toBeGreaterThan(0);
+		}
+	});
+
+	test("station categories, correct units, source, and report date render without fake grain counts", () => {
+		const view = buildPollenView({
+			available: true,
+			grains: null,
+			total: 4,
+			unit: "grains/m³",
+			band: "low",
+			categories: [
+				{ key: "trees", label: "Trees", band: "low", contributors: ["MULBERRY"] },
+				{ key: "weeds", label: "Weeds", band: "moderate", contributors: ["RAGWEED", "PLANTAIN"] },
+			],
+			observedAt: "2026-07-29",
+			source: {
+				name: "Atlanta Allergy & Asthma",
+				kind: "observed",
+				certification: "National Allergy Bureau-certified station",
+			},
+		});
+		expect(view.available).toBe(true);
+		expect(view.showCategories).toBe(true);
+		expect(view.totalText).toBe("4.0");
+		expect(view.unit).toBe("grains/m³");
+		expect(view.categories[1]).toMatchObject({
+			key: "weeds",
+			bandLabel: "Moderate",
+			contributorsText: "RAGWEED, PLANTAIN",
+		});
+		expect(view.grains.every((grain) => !grain.reported)).toBe(true);
+		expect(view.sourceLine).toBe(
+			"Observed by Atlanta Allergy & Asthma · National Allergy Bureau-certified station · Reported 07/29/2026",
+		);
+	});
+
 	test("a non-finite grain is treated as unreported, not as NaN on screen", () => {
 		const view = buildPollenView({
 			grains: { alder: Number.NaN, birch: "8.1", grass: Number.POSITIVE_INFINITY },
@@ -290,12 +333,41 @@ describe("buildMoldView — the figure that must never render blank", () => {
 		}
 	});
 
-	test("available:true with a count renders the reading and its band", () => {
-		const view = buildMoldView({ available: true, count: 1240.5, band: "high", reason: null });
+	test("available:true with a count renders a spore count and its band", () => {
+		const view = buildMoldView({
+			available: true,
+			count: 1240.5,
+			unit: "spores/m³",
+			band: "high",
+			reason: null,
+		});
 		expect(view.available).toBe(true);
-		expect(view.countText).toBe("1240.5 grains/m³");
-		expect(view.bandText).toBe("high");
+		expect(view.countReported).toBe(true);
+		expect(view.countText).toBe("1240.5 spores/m³");
+		expect(view.bandText).toBe("High");
 		expect(view.reason).toBe("");
+	});
+
+	test("a station activity band is available without pretending it is a count", () => {
+		const view = buildMoldView({
+			available: true,
+			count: null,
+			band: "very-high",
+			reason: "The station publishes a mold activity band, not a numeric spore count.",
+			observedAt: "2026-07-29",
+			source: {
+				name: "Atlanta Allergy & Asthma",
+				kind: "observed",
+				certification: "National Allergy Bureau-certified station",
+			},
+		});
+		expect(view.available).toBe(true);
+		expect(view.countReported).toBe(false);
+		expect(view.countText).toBe("Count not published");
+		expect(view.bandText).toBe("Very high");
+		expect(view.reason).toContain("activity band");
+		expect(view.sourceLine).toContain("Observed by Atlanta Allergy & Asthma");
+		expect(view.sourceLine).toContain("Reported 07/29/2026");
 	});
 
 	test("available:true with a count but no band names the gap", () => {
@@ -303,12 +375,10 @@ describe("buildMoldView — the figure that must never render blank", () => {
 		expect(view.bandText).toBe(NOT_REPORTED);
 	});
 
-	test("available:true with NO count degrades to not-available with a reason", () => {
-		// Claiming availability then showing nothing is the same lie in a
-		// different costume — the card says why instead.
+	test("available:true with NO count or band degrades with a reason", () => {
 		const view = buildMoldView({ available: true, count: null });
 		expect(view.available).toBe(false);
-		expect(view.reason).toContain("no spore count");
+		expect(view.reason).toContain("no count or activity band");
 	});
 
 	test("available:true with no count uses the producer's reason when it sent one", () => {

@@ -4,132 +4,202 @@
  * split).
  *
  * The handlers are plain async functions over a host of getter/setter slots,
- * so `bun test` drives them directly — no Svelte runtime required.
+ * so the tests drive them directly — no Svelte runtime required.
+ *
+ * ── Why Vitest and not `bun:test` ──
+ * This suite used to run on the bun leg (`scripts/test-web.sh`). Per
+ * `scripts/test-coverage.sh`, the Node-run **Vitest leg is the ONLY coverage
+ * producer for `web/src/lib/**`** — so on the bun leg these ~54 tests produced
+ * no lcov at all, and `send-message.ts` (1069 lines of the chat send path) sat
+ * completely unmeasured. Moving the suite here makes that coverage count.
+ * Vitest is also the sanctioned surface for this tree (see `web/CLAUDE.md`).
  *
  * Heavy mocking. The module imports from `$lib/api.js`, `$lib/oauth.js`,
- * `$lib/commands.js`, `$lib/stores.svelte.js`, `$lib/sub-conversation-store.svelte.js`,
- * `$lib/mention-logic.js`, `$lib/utils/fetch-policy.js`. Each is replaced
- * with a dedicated `mock.module(...)` so we can assert the wiring without
- * touching real fetch / DOM / streaming machinery.
+ * `$lib/commands.js`, `$lib/stores.svelte.js`,
+ * `$lib/sub-conversation-store.svelte.js`, `$lib/mention-logic.js`,
+ * `$lib/utils/fetch-policy.js`. Each is replaced with a `vi.mock(...)` so we
+ * can assert the wiring without touching real fetch / DOM / streaming.
  *
- * `mock.module()` replaces exports for the whole bun-test process; sibling
- * test files (`useSelectMode`, `load-messages`, etc.) MUST keep working
- * after this file installs its mocks. We provide every export those
- * sibling tests use so a transitive import doesn't see `undefined`.
+ * `vi.mock` factories are HOISTED above module-level `const`s, so every stub a
+ * factory closes over is created inside `vi.hoisted()` and then aliased back to
+ * its original local name below — that keeps the ~1180 lines of test bodies
+ * byte-identical to the bun-leg original.
  */
 
-import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
+import { test, expect, describe, beforeEach, vi } from "vitest";
 import type { Message } from "$lib/api.js";
 import type { OAuthPending } from "$lib/oauth.js";
 import type { ToolDefinition } from "../../../../../../src/extensions/types";
 
-// ── Mocks ────────────────────────────────────────────────────────────────
+interface SubConvoRecord {
+	id: string;
+	agentConfigId: string;
+	agentName: string;
+	parentConversationId: string;
+	parentMessageId: string;
+}
 
-const sendMessageMock = mock(
-	async (
-		_convId: string,
-		_data: {
-			content: string;
-			provider?: string;
-			model?: string;
-			parentMessageId?: string;
-			editOf?: string;
-			permissionMode?: string;
-			thinkingLevel?: string;
-			attachments?: File[];
-		},
-	): Promise<{
-		userMessage: Message;
-		runId: string;
-		attachments?: unknown[];
-	}> => ({
-		userMessage: {
-			id: "real-user-id",
-			conversationId: "conv-1",
-			role: "user",
-			content: _data.content,
-			createdAt: "2024-01-01T00:00:00.000Z",
-			parentMessageId: _data.parentMessageId ?? null,
-			excluded: false,
-		} as Message,
-		runId: "run-1",
-	}),
-);
+interface MentionToken {
+	kind: "agent" | "ext" | "team" | "file" | "dir" | "cmd";
+	name: string;
+}
 
-const retryMessageMock = mock(
-	async (
-		_convId: string,
-		_messageId: string,
-		_opts?: { provider?: string; model?: string; thinkingLevel?: string },
-	): Promise<{ userMessage: Message; retriedMessageId: string; runId: string | null }> => ({
-		// The clean /retry returns the EXISTING user turn (no new row) — model it
-		// as a fixed anchor id so the placeholder-parent assertion is meaningful.
-		userMessage: {
-			id: "anchor-user-id",
-			conversationId: "conv-1",
-			role: "user",
-			content: "Q",
-			createdAt: "2024-01-01T00:00:00.000Z",
-			parentMessageId: null,
-			excluded: false,
-		} as Message,
-		retriedMessageId: _messageId,
-		runId: "run-1",
-	}),
-);
+// ── Mocks (hoisted so the vi.mock factories below may close over them) ──
 
-const updateConversationMock = mock(
-	async (_convId: string, _data: Record<string, unknown>) => ({
-		id: _convId,
-	}),
-);
+const h = vi.hoisted(() => {
+	const sendMessageMock = vi.fn(
+		async (
+			_convId: string,
+			_data: {
+				content: string;
+				provider?: string;
+				model?: string;
+				parentMessageId?: string;
+				editOf?: string;
+				permissionMode?: string;
+				thinkingLevel?: string;
+				attachments?: File[];
+			},
+		): Promise<{
+			userMessage: Message;
+			runId: string;
+			attachments?: unknown[];
+		}> => ({
+			userMessage: {
+				id: "real-user-id",
+				conversationId: "conv-1",
+				role: "user",
+				content: _data.content,
+				createdAt: "2024-01-01T00:00:00.000Z",
+				parentMessageId: _data.parentMessageId ?? null,
+				excluded: false,
+			} as Message,
+			runId: "run-1",
+		}),
+	);
 
-const createSubConversationMock = mock(
-	async (
-		_parent: string,
-		_opts: {
-			parentMessageId: string;
-			agentConfigId: string;
-			title: string;
-			projectId: string;
-		},
-	) => ({
-		id: "sub-convo-1",
-		agentConfigId: "agent-config-1",
-	}),
-);
+	const retryMessageMock = vi.fn(
+		async (
+			_convId: string,
+			_messageId: string,
+			_opts?: { provider?: string; model?: string; thinkingLevel?: string },
+		): Promise<{
+			userMessage: Message;
+			retriedMessageId: string;
+			runId: string | null;
+		}> => ({
+			// The clean /retry returns the EXISTING user turn (no new row) — model
+			// it as a fixed anchor id so the placeholder-parent assertion is
+			// meaningful.
+			userMessage: {
+				id: "anchor-user-id",
+				conversationId: "conv-1",
+				role: "user",
+				content: "Q",
+				createdAt: "2024-01-01T00:00:00.000Z",
+				parentMessageId: null,
+				excluded: false,
+			} as Message,
+			retriedMessageId: _messageId,
+			runId: "run-1",
+		}),
+	);
 
-mock.module("$lib/api.js", () => ({
-	sendMessage: sendMessageMock,
-	retryMessage: retryMessageMock,
-	updateConversation: updateConversationMock,
-	createSubConversation: createSubConversationMock,
-	// Exports used by sibling page-handler tests (load-messages, etc.) —
-	// keep them present so transitive imports resolve.
-	cloneTurns: mock(async () => ({ id: "x", title: "x", projectId: "p", createdAt: "", updatedAt: "" })),
-	setMessageExcluded: mock(async () => undefined),
-	fetchAllMessages: mock(async () => []),
-	patchMessageContent: mock(async () => ({ content: "" })),
+	const updateConversationMock = vi.fn(
+		async (_convId: string, _data: Record<string, unknown>) => ({ id: _convId }),
+	);
+
+	const createSubConversationMock = vi.fn(
+		async (
+			_parent: string,
+			_opts: {
+				parentMessageId: string;
+				agentConfigId: string;
+				title: string;
+				projectId: string;
+			},
+		) => ({ id: "sub-convo-1", agentConfigId: "agent-config-1" }),
+	);
+
+	const startOAuthFlowMock = vi.fn(async (_provider: string) => ({
+		authUrl: "https://example.com/oauth?x=1",
+		codeVerifier: "verifier",
+		state: "state-1",
+		provider: _provider,
+		redirectUri: "http://localhost/callback",
+	}));
+
+	const completeOAuthWithCodeMock = vi.fn(
+		async (_pending: { provider: string }, _input: string) => ({
+			provider: _pending.provider,
+			success: true,
+		}),
+	);
+
+	const startStreamingMock = vi.fn((_runId: string, _convId: string): boolean => true);
+
+	const subConversationStoreState: {
+		active: SubConvoRecord | null;
+		streaming: boolean;
+		messages: Array<{ id: string; role: string; content: string; createdAt: Date }>;
+		addedMessages: Array<{ id: string; role: string; content: string; createdAt: Date }>;
+		startCalls: SubConvoRecord[];
+		endCalls: number;
+	} = {
+		active: null,
+		streaming: false,
+		messages: [],
+		addedMessages: [],
+		startCalls: [],
+		endCalls: 0,
+	};
+
+	const parseMentionsMock = vi.fn((_text: string): MentionToken[] => []);
+
+	const userFetchMock = vi.fn(
+		async (_url: string, _init?: RequestInit) =>
+			new Response(JSON.stringify({ id: "mem-1" }), {
+				status: 201,
+				headers: { "Content-Type": "application/json" },
+			}),
+	);
+
+	return {
+		sendMessageMock,
+		retryMessageMock,
+		updateConversationMock,
+		createSubConversationMock,
+		startOAuthFlowMock,
+		completeOAuthWithCodeMock,
+		startStreamingMock,
+		subConversationStoreState,
+		parseMentionsMock,
+		userFetchMock,
+	};
+});
+
+vi.mock("$lib/api.js", () => ({
+	sendMessage: h.sendMessageMock,
+	retryMessage: h.retryMessageMock,
+	updateConversation: h.updateConversationMock,
+	createSubConversation: h.createSubConversationMock,
+	// Exports used by sibling page-handler modules — keep them present so
+	// transitive imports resolve.
+	cloneTurns: vi.fn(async () => ({
+		id: "x",
+		title: "x",
+		projectId: "p",
+		createdAt: "",
+		updatedAt: "",
+	})),
+	setMessageExcluded: vi.fn(async () => undefined),
+	fetchAllMessages: vi.fn(async () => []),
+	patchMessageContent: vi.fn(async () => ({ content: "" })),
 }));
 
-const startOAuthFlowMock = mock(async (_provider: string): Promise<OAuthPending> => ({
-	authUrl: "https://example.com/oauth?x=1",
-	codeVerifier: "verifier",
-	state: "state-1",
-	provider: _provider,
-	redirectUri: "http://localhost/callback",
-}));
-
-const completeOAuthWithCodeMock = mock(
-	async (_pending: OAuthPending, _input: string) => ({
-		provider: _pending.provider,
-		success: true,
-	}),
-);
-
-mock.module("$lib/oauth.js", () => ({
-	startOAuthFlow: startOAuthFlowMock,
-	completeOAuthWithCode: completeOAuthWithCodeMock,
+vi.mock("$lib/oauth.js", () => ({
+	startOAuthFlow: h.startOAuthFlowMock,
+	completeOAuthWithCode: h.completeOAuthWithCodeMock,
 	// `isLoginCommand` is a pure parser — keep the real implementation so
 	// the `/login` arm exercises the real grammar instead of a stub.
 	isLoginCommand: (content: string) => {
@@ -141,10 +211,10 @@ mock.module("$lib/oauth.js", () => ({
 		}
 		return { provider: match[1]!.toLowerCase() };
 	},
-	listenForOAuthResult: mock(() => () => {}),
+	listenForOAuthResult: vi.fn(() => () => {}),
 }));
 
-mock.module("$lib/commands.js", () => ({
+vi.mock("$lib/commands.js", () => ({
 	// Real parser semantics.
 	isModelCommand: (content: string) => {
 		const trimmed = content.trim();
@@ -164,89 +234,65 @@ mock.module("$lib/commands.js", () => ({
 	},
 }));
 
-const startStreamingMock = mock(
-	(_runId: string, _convId: string): boolean => true,
-);
-mock.module("$lib/stores.svelte.js", () => ({
-	startStreaming: startStreamingMock,
-	stopStreaming: mock(() => {}),
+vi.mock("$lib/stores.svelte.js", () => ({
+	startStreaming: h.startStreamingMock,
+	stopStreaming: vi.fn(() => {}),
 }));
 
-interface SubConvoRecord {
-	id: string;
-	agentConfigId: string;
-	agentName: string;
-	parentConversationId: string;
-	parentMessageId: string;
-}
-
-const subConversationStoreState: {
-	active: SubConvoRecord | null;
-	streaming: boolean;
-	messages: Array<{ id: string; role: string; content: string; createdAt: Date }>;
-	addedMessages: Array<{ id: string; role: string; content: string; createdAt: Date }>;
-	startCalls: SubConvoRecord[];
-	endCalls: number;
-} = {
-	active: null,
-	streaming: false,
-	messages: [],
-	addedMessages: [],
-	startCalls: [],
-	endCalls: 0,
-};
-
-mock.module("$lib/sub-conversation-store.svelte.js", () => ({
+vi.mock("$lib/sub-conversation-store.svelte.js", () => ({
 	subConversationStore: {
 		get activeSubConversation() {
-			return subConversationStoreState.active;
+			return h.subConversationStoreState.active;
 		},
 		get isInSubConversation() {
-			return subConversationStoreState.active !== null;
+			return h.subConversationStoreState.active !== null;
 		},
 		startSubConversation(opts: SubConvoRecord) {
-			subConversationStoreState.active = opts;
-			subConversationStoreState.startCalls.push(opts);
+			h.subConversationStoreState.active = opts;
+			h.subConversationStoreState.startCalls.push(opts);
 		},
 		endSubConversation() {
-			subConversationStoreState.endCalls += 1;
-			const msgs = subConversationStoreState.messages;
-			subConversationStoreState.active = null;
-			subConversationStoreState.messages = [];
+			h.subConversationStoreState.endCalls += 1;
+			const msgs = h.subConversationStoreState.messages;
+			h.subConversationStoreState.active = null;
+			h.subConversationStoreState.messages = [];
 			return msgs;
 		},
 		addMessage(msg: { id: string; role: string; content: string; createdAt: Date }) {
-			subConversationStoreState.messages = [...subConversationStoreState.messages, msg];
-			subConversationStoreState.addedMessages.push(msg);
+			h.subConversationStoreState.messages = [
+				...h.subConversationStoreState.messages,
+				msg,
+			];
+			h.subConversationStoreState.addedMessages.push(msg);
 		},
 		setStreaming(v: boolean) {
-			subConversationStoreState.streaming = v;
+			h.subConversationStoreState.streaming = v;
 		},
 	},
 }));
 
-interface MentionToken {
-	kind: "agent" | "ext" | "team" | "file" | "dir" | "cmd";
-	name: string;
-}
-const parseMentionsMock = mock((_text: string): MentionToken[] => []);
-mock.module("$lib/mention-logic.js", () => ({
-	parseMentions: parseMentionsMock,
+vi.mock("$lib/mention-logic.js", () => ({
+	parseMentions: h.parseMentionsMock,
 }));
 
-const userFetchMock = mock(async (_url: string, _init?: RequestInit) =>
-	new Response(JSON.stringify({ id: "mem-1" }), {
-		status: 201,
-		headers: { "Content-Type": "application/json" },
-	}),
-);
-mock.module("$lib/utils/fetch-policy.js", () => ({
-	userFetch: userFetchMock,
-	backgroundFetch: mock(async () => null),
-	invalidate: mock(() => {}),
+vi.mock("$lib/utils/fetch-policy.js", () => ({
+	userFetch: h.userFetchMock,
+	backgroundFetch: vi.fn(async () => null),
+	invalidate: vi.fn(() => {}),
 }));
 
-afterAll(() => mock.restore());
+// Aliases back to the original local names so the test bodies below are
+// unchanged from the bun-leg original.
+const sendMessageMock = h.sendMessageMock;
+const retryMessageMock = h.retryMessageMock;
+const updateConversationMock = h.updateConversationMock;
+const createSubConversationMock = h.createSubConversationMock;
+const startOAuthFlowMock = h.startOAuthFlowMock;
+const completeOAuthWithCodeMock = h.completeOAuthWithCodeMock;
+const startStreamingMock = h.startStreamingMock;
+const subConversationStoreState = h.subConversationStoreState;
+const parseMentionsMock = h.parseMentionsMock;
+const userFetchMock = h.userFetchMock;
 
 // ── Global stubs ────────────────────────────────────────────────────────
 
@@ -274,7 +320,7 @@ const windowOpenCalls: Array<{ url: string; target: string }> = [];
 // Stub `fetch` for the `/api/models` and `/api/memories` endpoints used
 // by the `/model` arm and `handleSaveMemory` respectively. Tests
 // override per-call via `fetchMock.mockImplementationOnce`.
-const fetchMock = mock(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
 	new Response(JSON.stringify([]), {
 		status: 200,
 		headers: { "Content-Type": "application/json" },
@@ -284,8 +330,8 @@ const fetchMock = mock(async (_input: RequestInfo | URL, _init?: RequestInit) =>
 
 // ── Now safe to import the SUT. ────────────────────────────────────────
 
-const { makeSendMessage } = await import("../send-message.ts");
-type SendMessageHost = import("../send-message.ts").SendMessageHost;
+const { makeSendMessage } = await import("../send-message.js");
+type SendMessageHost = import("../send-message.js").SendMessageHost;
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -1076,6 +1122,41 @@ describe("handleAbRetry (clean /retry — same-role sibling)", () => {
 		await handlers.handleAbRetry(a1);
 		expect(state.error).toBe("Failed to retry response");
 	});
+
+	// WS7 "Retry with…": the /retry route already accepted a provider/model
+	// override, which makes the sibling a prompt-held-constant paired comparison
+	// — the most informative routing signal the product can produce.
+	test("an override sends the PICKED model, not the thread's wire identity", async () => {
+		const u1 = makeMessage("u1", { role: "user", content: "Q" });
+		const a1 = makeMessage("a1", { role: "assistant", content: "A", parentMessageId: "u1" });
+		const { host, state } = makeHost({
+			allMessages: [u1, a1],
+			selectedModel: { provider: "anthropic", model: "claude-haiku-4-5" },
+		});
+		const handlers = makeSendMessage(host);
+		await handlers.handleAbRetry(a1, { provider: "openai", model: "gpt-5" });
+		const [, , optsArg] = retryMessageMock.mock.calls[0]!;
+		expect(optsArg?.provider).toBe("openai");
+		expect(optsArg?.model).toBe("gpt-5");
+		// The placeholder shows the model the sibling will actually run on.
+		const placeholder = state.allMessages.find((m) => m.id === "streaming-run-1");
+		expect(placeholder!.provider).toBe("openai");
+		expect(placeholder!.model).toBe("gpt-5");
+	});
+
+	test("no override keeps today's behaviour — the thread's own wire identity", async () => {
+		const u1 = makeMessage("u1", { role: "user", content: "Q" });
+		const a1 = makeMessage("a1", { role: "assistant", content: "A", parentMessageId: "u1" });
+		const { host } = makeHost({
+			allMessages: [u1, a1],
+			selectedModel: { provider: "anthropic", model: "claude-haiku-4-5" },
+		});
+		const handlers = makeSendMessage(host);
+		await handlers.handleAbRetry(a1);
+		const [, , optsArg] = retryMessageMock.mock.calls[0]!;
+		expect(optsArg?.provider).toBe("anthropic");
+		expect(optsArg?.model).toBe("claude-haiku-4-5");
+	});
 });
 
 describe("handleBranchNavigate", () => {
@@ -1436,5 +1517,109 @@ describe("handleSend — Auto (smart routing) sentinel", () => {
 		expect(dataArg.editOf).toBe("a-1");
 		expect(dataArg.provider).toBe("anthropic");
 		expect(dataArg.model).toBe("claude-sonnet");
+	});
+});
+
+// `handleRerun` is the "run this prompt again" affordance: it re-sends a USER
+// turn's content unchanged with `editOf` pointing at the user message itself,
+// so the server forks a sibling user turn under the same parent and streams a
+// fresh assistant answer. Same wire shape as a no-op edit — the UX win is
+// skipping the edit modal. It was the last wholly unmeasured handler in this
+// module.
+describe("handleRerun (re-send a user turn unchanged)", () => {
+	test("re-sends the user content with editOf pointing at the message itself", async () => {
+		const u1 = makeMessage("u1", { role: "user", content: "Q" });
+		const { host, state } = makeHost({
+			allMessages: [u1],
+			activeLeafId: "u1",
+			selectedModel: { provider: "anthropic", model: "claude-sonnet-5" },
+			modelSupportsReasoning: true,
+			thinkingLevel: "medium",
+		});
+		const handlers = makeSendMessage(host);
+		await handlers.handleRerun(u1);
+
+		const [convArg, dataArg] = sendMessageMock.mock.calls[0]!;
+		expect(convArg).toBe("conv-1");
+		expect(dataArg.content).toBe("Q");
+		// editOf === the user message's OWN id is what makes this a re-run
+		// rather than an edit of some other turn.
+		expect(dataArg.editOf).toBe("u1");
+		expect(dataArg.provider).toBe("anthropic");
+		expect(dataArg.model).toBe("claude-sonnet-5");
+		expect(dataArg.thinkingLevel).toBe("medium");
+
+		// Both the forked user turn and the assistant placeholder land, and the
+		// placeholder parents on the NEW user row so it renders as a sibling.
+		expect(state.activeRunId).toBe("run-1");
+		const placeholder = state.allMessages.find((m) => m.id === "streaming-run-1");
+		expect(placeholder).toBeDefined();
+		expect(placeholder!.role).toBe("assistant");
+		expect(placeholder!.parentMessageId).toBe("real-user-id");
+		expect(placeholder!.provider).toBe("anthropic");
+		expect(placeholder!.model).toBe("claude-sonnet-5");
+		expect(state.activeLeafId).toBe("streaming-run-1");
+	});
+
+	test("omits thinkingLevel when the model lacks reasoning", async () => {
+		const u1 = makeMessage("u1", { role: "user", content: "Q" });
+		const { host } = makeHost({ allMessages: [u1], modelSupportsReasoning: false });
+		const handlers = makeSendMessage(host);
+		await handlers.handleRerun(u1);
+		const [, dataArg] = sendMessageMock.mock.calls[0]!;
+		expect(dataArg.thinkingLevel).toBeUndefined();
+	});
+
+	test("ignores a non-user message", async () => {
+		const a1 = makeMessage("a1", { role: "assistant", content: "A" });
+		const { host } = makeHost({ allMessages: [a1] });
+		const handlers = makeSendMessage(host);
+		await handlers.handleRerun(a1);
+		expect(sendMessageMock).not.toHaveBeenCalled();
+	});
+
+	test("is a no-op with no active conversation", async () => {
+		const u1 = makeMessage("u1", { role: "user", content: "Q" });
+		// `convId` is typed non-nullable on the host, so the "no conversation
+		// yet" state is the empty string — which is what the handler's falsy
+		// guard actually tests for.
+		const { host } = makeHost({ allMessages: [u1], convId: "" });
+		const handlers = makeSendMessage(host);
+		await handlers.handleRerun(u1);
+		expect(sendMessageMock).not.toHaveBeenCalled();
+	});
+
+	test("a null runId stops before streaming (action-only turn)", async () => {
+		const u1 = makeMessage("u1", { role: "user", content: "Q" });
+		sendMessageMock.mockImplementationOnce(async () => ({
+			userMessage: {
+				id: "real-user-id",
+				conversationId: "conv-1",
+				role: "user",
+				content: "Q",
+				createdAt: "2024-01-01T00:00:00.000Z",
+				parentMessageId: null,
+				excluded: false,
+			} as Message,
+			runId: null as unknown as string,
+		}));
+		const { host, state } = makeHost({ allMessages: [u1] });
+		const handlers = makeSendMessage(host);
+		await handlers.handleRerun(u1);
+		// The forked user turn still lands; no placeholder, no stream.
+		expect(state.activeRunId).toBeNull();
+		expect(startStreamingMock).not.toHaveBeenCalled();
+		expect(state.allMessages.find((m) => m.id?.startsWith("streaming-"))).toBeUndefined();
+	});
+
+	test("surfaces a send failure without throwing", async () => {
+		const u1 = makeMessage("u1", { role: "user", content: "Q" });
+		sendMessageMock.mockImplementationOnce(async () => {
+			throw new Error("network down");
+		});
+		const { host, state } = makeHost({ allMessages: [u1] });
+		const handlers = makeSendMessage(host);
+		await handlers.handleRerun(u1);
+		expect(state.error).toBe("Failed to re-run prompt");
 	});
 });
