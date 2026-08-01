@@ -492,3 +492,118 @@ describe("per-step prompt bodies — substitution + structure", () => {
     expect(out).toContain("Previous findings to address:");
   });
 });
+
+// ── INVARIANT #14 — untrusted text is SUBORDINATE to the rules ──────────
+//
+// `jobInstructionsPromptSection` promises, in its own body, that "the rules
+// above take precedence". That promise is only TRUE because every prompt-body
+// builder interpolates the untrusted section at its TAIL — after the `Rules:`
+// block. The promise is prose; the ordering is the control.
+//
+// The sections' wording, delimiters and subordination clause were already
+// asserted (see the `jobInstructionsPromptSection` describe above), but the
+// GEOMETRY was not: move `${ctx.historySection}` above the `Rules:` block in a
+// builder and an operator- or author-supplied string is suddenly positioned as
+// a premise the rules must be read against, rather than as data the rules
+// govern. The byte-equality fixtures cannot catch that — they render with
+// `historySection: ""`, so relocating an empty interpolation is a no-op.
+//
+// Checked for ALL SEVEN builders. The two `reassessHistory` builders take no
+// operator section from their current call sites (lint-cold / test-evidence
+// deliberately pass none), but the contract under test is the builder's — "any
+// untrusted section I am handed lands after my rules" — which is what protects
+// a future call site that starts passing one.
+
+const UNTRUSTED_HISTORY =
+  jobInstructionsPromptSection("operator: prefer small diffs") +
+  executionContextPromptSection() +
+  roundHistoryPromptSection([]) +
+  userIntentPromptSection({ intent: "add a --dry-run flag", authoritative: true });
+
+const orderedBodies: { name: string; body: string }[] = [
+  { name: "review-main", body: reviewMainPromptBody({ ...reviewBase, historySection: UNTRUSTED_HISTORY }) },
+  {
+    name: "review-fix",
+    body: reviewFixPromptBody({ ...reviewBase, historySection: UNTRUSTED_HISTORY, previousFindings: prev }),
+  },
+  {
+    name: "test-evidence",
+    body: testEvidencePromptBody({
+      ...commit,
+      configuredTestCommand: "",
+      evidenceGuidance: "",
+      reassessHistory: UNTRUSTED_HISTORY,
+    }),
+  },
+  {
+    name: "test-fix",
+    body: testFixPromptBody({ ...commit, historySection: UNTRUSTED_HISTORY, previousFindings: prev }),
+  },
+  {
+    name: "lint-cold",
+    body: lintColdPromptBody({ ...commit, reassessHistory: UNTRUSTED_HISTORY, previousFindings: prev }),
+  },
+  {
+    name: "lint-fix",
+    body: lintFixPromptBody({ ...commit, historySection: UNTRUSTED_HISTORY, previousFindings: prev }),
+  },
+  {
+    name: "document",
+    body: documentPromptBody({
+      ...commit,
+      defaultBranch: "main",
+      ignoreLabel: "none",
+      combinedLint: false,
+      trustedPolicy: "",
+      historySection: UNTRUSTED_HISTORY,
+      previousFindings: prev,
+    }),
+  },
+];
+
+describe("prompt ordering — untrusted sections are subordinate to the rules", () => {
+  for (const { name, body } of orderedBodies) {
+    test(`${name} places the job-instructions + user-intent blocks AFTER its rules`, () => {
+      // Vacuous-pass guards: if the rules heading were renamed or either
+      // untrusted block silently stopped rendering, the ordering comparisons
+      // below would be meaningless. Prove all three are present first.
+      const rules = body.lastIndexOf("Rules:");
+      const job = body.indexOf("-----BEGIN JOB INSTRUCTIONS-----");
+      const intent = body.indexOf("-----BEGIN USER INTENT-----");
+      expect(rules).toBeGreaterThan(-1);
+      expect(job).toBeGreaterThan(-1);
+      expect(intent).toBeGreaterThan(-1);
+
+      // The invariant. `lastIndexOf` is deliberate: even the LAST rules block
+      // must precede the untrusted text, so appending a new rules section
+      // below the history would fail too.
+      expect(job).toBeGreaterThan(rules);
+      expect(intent).toBeGreaterThan(rules);
+    });
+  }
+
+  test("the subordination clause's claim is literally true, not just present", () => {
+    // The section asserts the rules are "above". Assert BOTH that the clause
+    // is in the assembled prompt and that the geometry it describes holds —
+    // wording alone is worthless if the rules moved below it.
+    for (const { name, body } of orderedBodies) {
+      const marker = `${name}: `;
+      expect(marker + body.includes("the rules above take precedence")).toBe(marker + "true");
+      expect(marker + (body.lastIndexOf("Rules:") < body.indexOf("Job instructions (operator-configured, advisory)"))).toBe(
+        marker + "true",
+      );
+    }
+  });
+
+  test("prior-round findings — also untrusted — render after the rules", () => {
+    // `sanitizedPreviousFindingsForPrompt` strips markers/whitespace but does
+    // NOT redact secrets (see redactSecrets' single caller). Its containment is
+    // therefore positional too: the findings heading must sit below the rules.
+    const withFindings = orderedBodies.filter(({ body }) => body.includes("findings to address:"));
+    expect(withFindings.length).toBeGreaterThan(0);
+    for (const { name, body } of withFindings) {
+      const marker = `${name}: `;
+      expect(marker + (body.lastIndexOf("Rules:") < body.indexOf("findings to address:"))).toBe(marker + "true");
+    }
+  });
+});

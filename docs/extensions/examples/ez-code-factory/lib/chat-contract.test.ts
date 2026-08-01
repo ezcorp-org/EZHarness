@@ -39,6 +39,27 @@ function findings(items: Finding[]): Findings {
 
 // ── (a) verbatim ask-user relay ─────────────────────────────────────
 
+describe("RELAY_DIRECTIVE — the directive's CONTENT, not just its attachment", () => {
+  test("keeps the four load-bearing clauses (verbatim / no-paraphrase / no-pre-judge / stop)", () => {
+    // Every other assertion in this file compares `relay.directive` against
+    // RELAY_DIRECTIVE — the constant against ITSELF. That proves the directive
+    // is ATTACHED to the right findings, but it is self-referential about the
+    // wording: soften the constant to "summarize … feel free to paraphrase"
+    // and every one of those assertions still passes, because both sides of
+    // the comparison change together.
+    //
+    // The invariant is what the directive SAYS. Mirrors the platform's
+    // equivalent guard on its own relay directive
+    // (src/__tests__/workflow-approval-relay.test.ts:74-77).
+    expect(RELAY_DIRECTIVE).toContain("VERBATIM");
+    expect(RELAY_DIRECTIVE).toContain("paraphrase");
+    expect(RELAY_DIRECTIVE).toContain("pre-judge");
+    expect(RELAY_DIRECTIVE).toContain("STOP");
+    // …and that it hands the decision back rather than taking it.
+    expect(RELAY_DIRECTIVE).toContain("do not decide on the");
+  });
+});
+
 describe("formatGateRelay", () => {
   test("an ask-user finding is wrapped with stop + the verbatim relay directive", () => {
     const relay = formatGateRelay(
