@@ -7,6 +7,7 @@ import type {
   WorkflowDefinition,
   WorkflowModelBinding,
   WorkflowRun,
+  WorkflowRunStatus,
   WorkflowStep,
   WorkflowStepInputSink,
   WorkflowStepRun,
@@ -44,6 +45,10 @@ import {
   upsertWorkflowStepRun,
   type TerminalWorkflowRunStatus,
 } from "../db/queries/workflow-runs";
+import {
+  upsertWorkflowStepIteration,
+  type WorkflowStepIterationUpsert,
+} from "../db/queries/workflow-step-iterations";
 import { workflowDefinitionHash } from "./workflow-definition-hash";
 import {
   getWorkflowApproval,
@@ -212,6 +217,26 @@ export interface WorkflowExecutorOptions {
  * written independently of any conversation, and this subsystem's
  * `workflow_step_runs` records the step outcome.
  */
+/**
+ * What one agent invocation produced.
+ *
+ * The `attempt*` fields are THIS invocation's own facts, deliberately
+ * separate from the running totals `runAgentAttempt` folds onto the step
+ * run: a child iteration row needs the per-pass numbers, and deriving
+ * them by diffing the total before and after would give the same answer
+ * today and break silently the moment anything else writes to it.
+ */
+interface AgentAttemptOutcome {
+  result: AgentResult;
+  cancelled: boolean;
+  attemptRunId: string;
+  attemptProvider?: string;
+  attemptModel?: string;
+  attemptInputTokens?: number;
+  attemptOutputTokens?: number;
+  attemptStatus: WorkflowRunStatus;
+}
+
 export function workflowScopeKey(workflowRunId: string): string {
   return `workflow-run:${workflowRunId}`;
 }
@@ -273,6 +298,46 @@ export class WorkflowExecutor {
     } catch (err) {
       throw new WorkflowCursorWriteError(what, err);
     }
+  }
+
+  /**
+   * Record one loop iteration's child row. Telemetry, so it rides
+   * {@link persistWrite}'s never-throw contract — a trace row must never
+   * be able to fail a run that otherwise succeeded.
+   *
+   * `attempt: 0` because `runLoop` has no retry budget of its own: the
+   * loop IS the repetition, and a retried agent step reaches
+   * {@link runAgentAttempt} through the other path. The column exists so
+   * a future retrying loop has somewhere to put a second try without
+   * colliding on the arbiter.
+   *
+   * Fire-and-forget for the same reason the parent step write is: an
+   * awaited telemetry write inside the loop would add a DB round-trip to
+   * every iteration of every looped step.
+   */
+  private persistIteration(
+    workflowRunId: string,
+    stepName: string,
+    row: Omit<WorkflowStepIterationUpsert, "workflowRunId" | "stepName" | "attempt">,
+  ): void {
+    void this.persistWrite("iteration", async () => {
+      const written = await upsertWorkflowStepIteration({
+        ...row,
+        workflowRunId,
+        stepName,
+        attempt: 0,
+      });
+      // The parent row is written fire-and-forget, so "not visible yet" is
+      // reachable rather than impossible. Logged rather than swallowed: a
+      // hole in a trace should be findable.
+      if (!written) {
+        log.warn("workflow iteration row skipped — parent step row not visible", {
+          workflowRunId,
+          stepName,
+          iteration: row.iteration,
+        });
+      }
+    });
   }
 
   async runWorkflow(
@@ -1120,6 +1185,7 @@ export class WorkflowExecutor {
         emitStep,
         modelBinding,
         inputSink,
+        workflowRunId,
       );
     }
 
@@ -1210,7 +1276,7 @@ export class WorkflowExecutor {
     userId: string | undefined,
     modelOverride: ModelOverride | undefined,
     inputSink: WorkflowStepInputSink,
-  ): Promise<{ result: AgentResult; cancelled: boolean }> {
+  ): Promise<AgentAttemptOutcome> {
     const agentRun = await this.agentExecutor.runAgent(
       step.agent as string,
       resolvedInput,
@@ -1248,7 +1314,21 @@ export class WorkflowExecutor {
       output: null,
       error: "No result",
     };
-    return { result, cancelled: agentRun.status === "cancelled" };
+    // The per-ATTEMPT facts are returned as well as folded onto `stepRun`,
+    // because the child iteration rows need this invocation's own numbers
+    // and `stepRun` only ever holds the running total. Diffing the total
+    // before and after would produce the same answer today and silently
+    // break the day anything else touches it.
+    return {
+      result,
+      cancelled: agentRun.status === "cancelled",
+      attemptRunId: agentRun.id,
+      attemptProvider: agentRun.provider,
+      attemptModel: agentRun.model,
+      attemptInputTokens: agentRun.inputTokens,
+      attemptOutputTokens: agentRun.outputTokens,
+      attemptStatus: agentRun.status,
+    };
   }
 
   /**
@@ -1271,6 +1351,7 @@ export class WorkflowExecutor {
     emitStep: () => void,
     modelBinding: WorkflowModelBinding | undefined,
     inputSink: WorkflowStepInputSink,
+    workflowRunId: string,
   ): Promise<AgentResult> {
     const loop = step.loop!;
     const maxIterations = clampMaxIterations(loop.maxIterations);
@@ -1282,8 +1363,17 @@ export class WorkflowExecutor {
       if (isAborted()) throw new WorkflowAbortError();
 
       const loopCtx = { iteration: i, last };
+      const iterationStartedAt = Date.now();
       if (kind === "transform") {
         result = runTransform(step, { input, stepResults, prevResult, loop: loopCtx });
+        // A transform loop mints no AgentRun, so its row carries timing
+        // and status alone — which is still the difference between "this
+        // loop ran three times" and "this is which pass was slow".
+        this.persistIteration(workflowRunId, step.name, {
+          iteration: i,
+          status: "success",
+          durationMs: Date.now() - iterationStartedAt,
+        });
       } else {
         const refCtx: RefContext = { input, stepResults, prevResult, loop: loopCtx };
         const resolvedInput = resolveMapping(step.input ?? {}, refCtx);
@@ -1300,6 +1390,21 @@ export class WorkflowExecutor {
           resolveModelOverride(modelBinding, refCtx, step.name),
           inputSink,
         );
+        // Written BEFORE the failure check, so a loop that dies on
+        // iteration 3 still records that iterations 1 and 2 happened and
+        // what the failing one cost. Recording only successes would erase
+        // exactly the pass an operator opened the trace to find.
+        this.persistIteration(workflowRunId, step.name, {
+          iteration: i,
+          status: attempt.result.success ? "success" : attempt.attemptStatus,
+          runId: attempt.attemptRunId,
+          provider: attempt.attemptProvider,
+          model: attempt.attemptModel,
+          inputTokens: attempt.attemptInputTokens,
+          outputTokens: attempt.attemptOutputTokens,
+          durationMs: Date.now() - iterationStartedAt,
+          errorCode: attempt.result.success ? undefined : "step-failed",
+        });
         if (!attempt.result.success) {
           if (attempt.cancelled || isAborted()) throw new WorkflowAbortError();
           throw new Error(`Step "${step.name}" failed: ${errorText(attempt.result)}`);

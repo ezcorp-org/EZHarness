@@ -36,6 +36,27 @@ mock.module("../db/connection", () => ({
 
 const { WorkflowExecutor } = await import("../runtime/workflow-executor");
 const { listWorkflowStepRunRows } = await import("../db/queries/workflow-runs");
+const { listWorkflowStepIterations, upsertWorkflowStepIteration } = await import(
+  "../db/queries/workflow-step-iterations"
+);
+
+/**
+ * Let the executor's fire-and-forget telemetry writes land.
+ *
+ * The parent step row and every iteration row are `void
+ * persistWrite(...)` by design — awaiting them inside the step promise
+ * would turn `$prev` into a per-step value and change the semantics of
+ * every existing workflow. So a test that reads straight after
+ * `runWorkflow` resolves is racing writes the production code
+ * deliberately does not wait for.
+ *
+ * Draining the microtask queue a few times is enough because PGlite
+ * serializes on one connection: once the queued statements have been
+ * issued and their promises resolved, the rows are visible.
+ */
+async function settle(): Promise<void> {
+  for (let i = 0; i < 20; i++) await new Promise((r) => setTimeout(r, 0));
+}
 
 beforeAll(async () => {
   pglite = new PGlite({ extensions: { vector, pg_trgm } });
@@ -388,5 +409,190 @@ describe("resolved_input is stored redacted", () => {
     // handle rather than two.
     expect(row.resolvedInput).toMatchObject({ __truncated: true });
     expect((row.resolvedInput as { bytes: number }).bytes).toBeGreaterThan(64 * 1024);
+  });
+});
+
+describe("per-iteration child rows", () => {
+  test("a 3-iteration loop writes 3 rows with distinct iteration numbers", async () => {
+    // Acceptance criterion 1's behavioural half. The parent row cannot
+    // express this — its arbiter is (workflow_run_id, step_name), so a
+    // looped step has exactly one row there.
+    const { wf } = scriptedExecutor([
+      { inputTokens: 10, outputTokens: 1 },
+      { inputTokens: 20, outputTokens: 2 },
+      { inputTokens: 30, outputTokens: 3 },
+    ]);
+    const def: WorkflowDefinition = {
+      name: `wf-iters-${crypto.randomUUID().slice(0, 8)}`,
+      description: "",
+      steps: [{ name: "revise", agent: "stub", loop: { maxIterations: 3 } }],
+    };
+    const run = await wf.runWorkflow(def, {});
+    await settle();
+
+    const iters = await listWorkflowStepIterations(run.id);
+    expect(iters.map((r) => r.iteration)).toEqual([1, 2, 3]);
+    expect(iters.every((r) => r.stepName === "revise")).toBe(true);
+    // Each row carries ITS OWN tokens, not the step's running total —
+    // 10/20/30, never 10/30/60.
+    expect(iters.map((r) => r.inputTokens)).toEqual([10, 20, 30]);
+    expect(iters.map((r) => r.outputTokens)).toEqual([1, 2, 3]);
+  });
+
+  test("a per-iteration model change is visible", async () => {
+    // The reason per-iteration provider/model exist at all: a `$loop.*`
+    // binding is re-resolved each pass, so a workflow can escalate
+    // cheap → strong. The parent row records only the last one.
+    const { wf } = scriptedExecutor([
+      { model: "claude-haiku-4-5", provider: "anthropic", inputTokens: 1, outputTokens: 1 },
+      { model: "claude-opus-5", provider: "anthropic", inputTokens: 1, outputTokens: 1 },
+    ]);
+    const def: WorkflowDefinition = {
+      name: `wf-escalate-${crypto.randomUUID().slice(0, 8)}`,
+      description: "",
+      steps: [{ name: "escalate", agent: "stub", loop: { maxIterations: 2 } }],
+    };
+    const run = await wf.runWorkflow(def, {});
+    await settle();
+
+    const iters = await listWorkflowStepIterations(run.id);
+    expect(iters.map((r) => r.model)).toEqual(["claude-haiku-4-5", "claude-opus-5"]);
+    // And the parent still reports the LAST one, which is the honest
+    // summary — the detail is what the child table is for.
+    expect((await stepRow(run.id, "escalate")).model).toBe("claude-opus-5");
+  });
+
+  test("a loop that dies mid-way keeps the rows for the passes that ran", async () => {
+    // Recording only successes would erase exactly the iteration an
+    // operator opened the trace to find.
+    const { wf } = scriptedExecutor([
+      { inputTokens: 5, outputTokens: 1 },
+      { inputTokens: 6, outputTokens: 1 },
+      { success: false, inputTokens: 7, outputTokens: 1 },
+    ]);
+    const def: WorkflowDefinition = {
+      name: `wf-loopfail-${crypto.randomUUID().slice(0, 8)}`,
+      description: "",
+      steps: [{ name: "flaky", agent: "stub", loop: { maxIterations: 5 } }],
+    };
+    const run = await wf.runWorkflow(def, {});
+    await settle();
+    expect(run.status).toBe("error");
+
+    const iters = await listWorkflowStepIterations(run.id);
+    expect(iters.map((r) => r.iteration)).toEqual([1, 2, 3]);
+    expect(iters.map((r) => r.status)).toEqual(["success", "success", "error"]);
+    expect(iters[2]!.errorCode).toBe("step-failed");
+    // The failing pass still reports what it consumed.
+    expect(iters[2]!.inputTokens).toBe(7);
+  });
+
+  test("a transform loop records timing with no LLM columns", async () => {
+    const { wf } = scriptedExecutor([]);
+    const def: WorkflowDefinition = {
+      name: `wf-tloop-${crypto.randomUUID().slice(0, 8)}`,
+      description: "",
+      steps: [{ name: "shape", kind: "transform", output: { a: "x" }, loop: { maxIterations: 2 } }],
+    };
+    const run = await wf.runWorkflow(def, {});
+    await settle();
+
+    const iters = await listWorkflowStepIterations(run.id);
+    expect(iters.map((r) => r.iteration)).toEqual([1, 2]);
+    // It mints no AgentRun, so these are NULL — the truth, not a gap.
+    expect(iters.every((r) => r.runId === null && r.model === null)).toBe(true);
+    expect(iters.every((r) => r.durationMs !== null)).toBe(true);
+  });
+
+  test("a NON-looped step writes no iteration rows", async () => {
+    // The child table is loop detail. A plain step's single execution is
+    // already fully described by its parent row, and duplicating it here
+    // would double every trace's row count for no information.
+    const { wf } = scriptedExecutor([{ inputTokens: 1, outputTokens: 1 }]);
+    const run = await wf.runWorkflow(agentStep("plain"), {});
+    await settle();
+    expect(await listWorkflowStepIterations(run.id)).toEqual([]);
+  });
+
+  test("iteration rows cascade away with their run", async () => {
+    const { wf } = scriptedExecutor([{ inputTokens: 1, outputTokens: 1 }]);
+    const def: WorkflowDefinition = {
+      name: `wf-cascade-${crypto.randomUUID().slice(0, 8)}`,
+      description: "",
+      steps: [{ name: "revise", agent: "stub", loop: { maxIterations: 2 } }],
+    };
+    const run = await wf.runWorkflow(def, {});
+    await settle();
+    expect(await listWorkflowStepIterations(run.id)).toHaveLength(2);
+
+    // run → step (CASCADE) → iteration (CASCADE). An iteration without
+    // its step is meaningless; contrast run HISTORY, kept via SET NULL.
+    await db.execute(sql`DELETE FROM workflow_runs WHERE id = ${run.id}`);
+    expect(await listWorkflowStepIterations(run.id)).toEqual([]);
+  });
+
+  test("upsertWorkflowStepIteration reports a missing parent instead of throwing", async () => {
+    // The parent row is written fire-and-forget, so "not visible yet" is
+    // reachable. It must be a reported no-op, never an exception that
+    // takes down the run it was only describing.
+    const written = await upsertWorkflowStepIteration({
+      workflowRunId: crypto.randomUUID(),
+      stepName: "nope",
+      iteration: 1,
+      attempt: 0,
+      status: "success",
+    });
+    expect(written).toBe(false);
+  });
+
+  test("re-writing the same (iteration, attempt) updates in place", async () => {
+    const { wf } = scriptedExecutor([{ inputTokens: 1, outputTokens: 1 }]);
+    const def: WorkflowDefinition = {
+      name: `wf-upsert-${crypto.randomUUID().slice(0, 8)}`,
+      description: "",
+      steps: [{ name: "revise", agent: "stub", loop: { maxIterations: 1 } }],
+    };
+    const run = await wf.runWorkflow(def, {});
+    await settle();
+    expect(await listWorkflowStepIterations(run.id)).toHaveLength(1);
+
+    const again = await upsertWorkflowStepIteration({
+      workflowRunId: run.id,
+      stepName: "revise",
+      iteration: 1,
+      attempt: 0,
+      status: "error",
+      errorCode: "rewritten",
+    });
+    expect(again).toBe(true);
+    const iters = await listWorkflowStepIterations(run.id);
+    expect(iters).toHaveLength(1);
+    expect(iters[0]!.status).toBe("error");
+    expect(iters[0]!.errorCode).toBe("rewritten");
+
+    // A different ATTEMPT of the same iteration is a NEW row — a retried
+    // iteration is a distinct event, not an overwrite of the failed try.
+    await upsertWorkflowStepIteration({
+      workflowRunId: run.id,
+      stepName: "revise",
+      iteration: 1,
+      attempt: 1,
+      status: "success",
+    });
+    expect(await listWorkflowStepIterations(run.id)).toHaveLength(2);
+  });
+
+  test("iteration rows never carry a cost", async () => {
+    const { wf } = scriptedExecutor([{ inputTokens: 9, outputTokens: 9 }]);
+    const def: WorkflowDefinition = {
+      name: `wf-nocost-${crypto.randomUUID().slice(0, 8)}`,
+      description: "",
+      steps: [{ name: "revise", agent: "stub", loop: { maxIterations: 2 } }],
+    };
+    const run = await wf.runWorkflow(def, {});
+    await settle();
+    const iters = await listWorkflowStepIterations(run.id);
+    expect(iters).toHaveLength(2);
+    expect(iters.every((r) => r.costUsd === null)).toBe(true);
   });
 });
