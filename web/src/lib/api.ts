@@ -954,7 +954,13 @@ export async function updateAgentConfig(
 
 // ── Workflows ───────────────────────────────────────────────────────
 
-export type WorkflowStepKind = "agent" | "transform" | "gate" | "tool";
+export type WorkflowStepKind =
+	| "agent"
+	| "transform"
+	| "gate"
+	| "tool"
+	| "approval"
+	| "workflow";
 
 export interface WorkflowLoopConfig {
 	maxIterations: number;
@@ -982,6 +988,14 @@ export interface WorkflowStep {
 	condition?: unknown;
 	/** Runtime-namespaced extension tool for a `kind: "tool"` step. */
 	tool?: string;
+	/** Nested definition name for a `kind: "workflow"` step. */
+	workflow?: string;
+	/** Guard evaluated before dispatch; false ⇒ the step is `skipped` and
+	 *  the run CONTINUES (unlike a gate, which fails it). */
+	when?: unknown;
+	/** Skip this step's declared dependents too when it is skipped.
+	 *  Defaults to true. */
+	skipDependents?: boolean;
 	dependsOn?: string[];
 	loop?: WorkflowLoopConfig;
 	/** Per-step model binding (agent steps only). */
@@ -1026,6 +1040,9 @@ export interface WorkflowRun {
 		/** Binding the step's LLM call resolved to (absent for steps that ran no LLM). */
 		provider?: string;
 		model?: string;
+		/** Why a `skipped` step was skipped — its own `when`, or the skipped
+		 *  dependency that suppressed it. Absent for every other status. */
+		skippedReason?: string;
 	}[];
 	result?: AgentResult;
 }

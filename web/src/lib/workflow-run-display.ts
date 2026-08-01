@@ -19,6 +19,14 @@ const STATUS_COLOR: Record<string, string> = {
   // Blocked on a human, not failed and not running — amber, distinct
   // from the yellow used for the in-progress fallback below.
   awaiting_approval: "text-amber-400",
+  // Parked and answerable: the same "waiting on something" family as
+  // awaiting_approval, and deliberately not red.
+  suspended: "text-amber-400",
+  // Never ran, and that is FINE. A skipped step must not read as failed
+  // (red) and must not read as still-going (the yellow fallback) — both
+  // send an operator hunting a problem that is not there. Muted, the same
+  // weight as `cancelled`, and the page adds a reason beside it.
+  skipped: "text-[var(--color-text-muted)]",
 };
 
 /** Colour for a run/step status; unknown statuses read as in-progress. */
@@ -31,6 +39,11 @@ const KIND_LABEL: Record<WorkflowStepKind, string> = {
   transform: "transform",
   gate: "gate",
   tool: "tool",
+  approval: "approval",
+  // "sub-workflow", not "workflow": on a workflow's own page a badge
+  // reading `workflow` says nothing, while the point of the step is that
+  // it runs ANOTHER one.
+  workflow: "sub-workflow",
 };
 
 /**
