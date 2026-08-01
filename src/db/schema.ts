@@ -414,6 +414,12 @@ export const workflowDefinitions = pgTable("workflow_definitions", {
   description: text("description").notNull().default(""),
   inputSchema: jsonb("input_schema").$type<Record<string, unknown>>(),
   steps: jsonb("steps").notNull().$type<WorkflowStep[]>(),
+  /** Authoring user. NULLABLE and never backfilled: a NULL row is an
+   *  unowned legacy/global workflow that anyone with `chat` may run, edit
+   *  and delete — today's behaviour. A non-NULL row is owner-or-admin only
+   *  (`src/runtime/workflow-authz.ts`). SET NULL on user delete so a
+   *  departed author's workflow degrades to global rather than vanishing. */
+  createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

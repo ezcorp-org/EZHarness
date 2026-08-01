@@ -31,6 +31,7 @@ type MentionKind =
 	| "extension"
 	| "team"
 	| "EZ"
+	| "workflow"
 	| "file"
 	| "dir"
 	| "dir-target"

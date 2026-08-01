@@ -23,6 +23,10 @@ describe("helpContent.chat.mentions tooltip", () => {
 		expect(text.toLowerCase()).toContain("files");
 		expect(text.toLowerCase()).toContain("agents");
 		expect(text.toLowerCase()).toContain("extensions");
+		// This tooltip is the ONLY in-product discovery path for what the
+		// `!` sigil can reach — a kind missing here is a kind users never
+		// find.
+		expect(text.toLowerCase()).toContain("workflows");
 	});
 
 	test("explains argument substitution so users know /cmd args does something", () => {

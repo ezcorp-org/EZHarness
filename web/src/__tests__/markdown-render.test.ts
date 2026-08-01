@@ -301,6 +301,31 @@ describe("styleMentions", () => {
 		expect(html).toContain("rgb(252,211,77)"); // dir amber
 	});
 
+	test("converts ![workflow:name] to a teal pill with the bare name", () => {
+		const html = renderMarkdown("run ![workflow:deploy] tonight");
+		// Bare `!deploy` — no visible `workflow:` prefix, matching how the
+		// composer chip renders it.
+		expect(html).toContain("!deploy</span>");
+		expect(html).not.toContain("![workflow:deploy]");
+		// Teal. These rgb values mirror MentionChip's
+		// `border-teal-500/30 bg-teal-500/20 text-teal-300`.
+		expect(html).toContain("rgba(20,184,166,0.3)"); // border
+		expect(html).toContain("rgba(20,184,166,0.2)"); // background
+		expect(html).toContain("rgb(94,234,212)"); // text
+	});
+
+	test("a workflow pill is visually distinct from every other rendered kind", () => {
+		// `extension` and `feature` shipped identical purple pills for a
+		// while because both fell through a default. Assert the four kinds
+		// this renderer actually colours stay pairwise distinct.
+		const html = renderMarkdown(
+			"![workflow:deploy] ![agent:Bot] ![ext:analyzer] ![team:ops] @[file:a.ts] @[dir:src] /[cmd:review]",
+		);
+		const colors = [...html.matchAll(/color:(rgb\([^)]*\))/g)].map((m) => m[1]);
+		expect(colors).toHaveLength(7);
+		expect(new Set(colors).size).toBe(7);
+	});
+
 	test("handles multiple mentions in one string", () => {
 		const html = renderMarkdown("Use ![ext:analyzer] and ![agent:Summarizer] together");
 		expect(html).toContain("!analyzer</span>");

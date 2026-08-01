@@ -8,7 +8,7 @@
 		 * descended folder view — selecting it commits the current folder as
 		 * a `@[dir:…]` token instead of descending further.
 		 */
-		kind: 'agent' | 'extension' | 'team' | 'EZ' | 'file' | 'dir' | 'dir-target' | 'command' | 'feature' | 'lesson';
+		kind: 'agent' | 'extension' | 'team' | 'EZ' | 'workflow' | 'file' | 'dir' | 'dir-target' | 'command' | 'feature' | 'lesson';
 		/**
 		 * For `command` kind: origin namespace, e.g. `"project:claude-commands"`,
 		 * `"user:codex-prompts"`, `"user:db"`. Rendered as a scope + folder
@@ -70,6 +70,7 @@
 	let features = $derived(items.filter((i) => i.kind === 'feature'));
 	let lessons = $derived(items.filter((i) => i.kind === 'lesson'));
 	let ezActions = $derived(items.filter((i) => i.kind === 'EZ'));
+	let workflows = $derived(items.filter((i) => i.kind === 'workflow'));
 	let dirs = $derived(items.filter((i) => i.kind === 'dir'));
 	let files = $derived(items.filter((i) => i.kind === 'file'));
 
@@ -91,6 +92,8 @@
 			: [],
 	);
 
+	// Render order of the groups, top to bottom.
+	//
 	// `dir-target` always leads the list so the commit action is the most
 	// prominent thing when the user is in a descended view. `commands`,
 	// `features`, and `lessons` (the `/`, `$`, and `%` sigils) sit at the
@@ -98,18 +101,55 @@
 	// coexist with other kinds in `items` — keyboard-nav still needs a
 	// deterministic order for offset arithmetic, but in practice each
 	// %-trigger / $-trigger / /-trigger produces a single homogeneous group.
-	let flatItems = $derived([
-		...dirTarget,
-		...commands,
-		...features,
-		...lessons,
-		...ezActions,
-		...teams,
-		...agents,
-		...extensions,
-		...dirs,
-		...files,
-	]);
+	//
+	// This array is the SINGLE source of truth for both the flat keyboard-nav
+	// list and each section's starting index. Those two used to be derived
+	// independently — a hand-written `...spread` list here plus ten cumulative
+	// `dirTarget.length + commands.length + …` sums in the markup below — so
+	// inserting a group meant editing every later sum, and missing one made
+	// ArrowDown/Enter select a different row than the one shown highlighted.
+	const GROUP_ORDER = [
+		'dirTarget',
+		'commands',
+		'features',
+		'lessons',
+		'ezActions',
+		'workflows',
+		'teams',
+		'agents',
+		'extensions',
+		'dirs',
+		'files',
+	] as const;
+	type GroupName = (typeof GROUP_ORDER)[number];
+
+	let groups = $derived<Record<GroupName, MentionItem[]>>({
+		dirTarget,
+		commands,
+		features,
+		lessons,
+		ezActions,
+		workflows,
+		teams,
+		agents,
+		extensions,
+		dirs,
+		files,
+	});
+
+	let flatItems = $derived(GROUP_ORDER.flatMap((g) => groups[g]));
+
+	// First flat index of each group — what each section's `{@const idx}`
+	// adds its local loop index to.
+	let offset = $derived.by(() => {
+		const out = {} as Record<GroupName, number>;
+		let n = 0;
+		for (const g of GROUP_ORDER) {
+			out[g] = n;
+			n += groups[g].length;
+		}
+		return out;
+	});
 
 	// Reset highlight when items change
 	$effect(() => {
@@ -213,7 +253,7 @@
 						Slash commands
 					</div>
 					{#each commands as item, i}
-						{@const idx = dirTarget.length + i}
+						{@const idx = offset.commands + i}
 						{@const label = commandSourceLabel(item.source)}
 						<button
 							id="mention-item-{idx}"
@@ -249,7 +289,7 @@
 						Features
 					</div>
 					{#each features as item, i}
-						{@const idx = dirTarget.length + commands.length + i}
+						{@const idx = offset.features + i}
 						<button
 							id="mention-item-{idx}"
 							role="option"
@@ -281,7 +321,7 @@
 						Lessons
 					</div>
 					{#each lessons as item, i}
-						{@const idx = dirTarget.length + commands.length + features.length + i}
+						{@const idx = offset.lessons + i}
 						<button
 							id="mention-item-{idx}"
 							role="option"
@@ -305,7 +345,7 @@
 						EZ actions
 					</div>
 					{#each ezActions as item, i}
-						{@const idx = dirTarget.length + commands.length + features.length + lessons.length + i}
+						{@const idx = offset.ezActions + i}
 						<button
 							id="mention-item-{idx}"
 							role="option"
@@ -325,12 +365,37 @@
 					{/each}
 				{/if}
 
+				{#if workflows.length > 0}
+					<div class="px-2 pb-1 pt-2 text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
+						Workflows
+					</div>
+					{#each workflows as item, i}
+						{@const idx = offset.workflows + i}
+						<button
+							id="mention-item-{idx}"
+							role="option"
+							data-mention-kind="workflow"
+							aria-selected={idx === highlightedIndex}
+							class="flex w-full flex-col gap-0.5 px-4 py-2 text-left transition-colors border-l-2 border-teal-500/60 {idx === highlightedIndex
+								? 'bg-[var(--color-surface-tertiary)]'
+								: 'hover:bg-[var(--color-surface-tertiary)]/50'}"
+							onclick={() => onselect(item)}
+							onmouseenter={() => (highlightedIndex = idx)}
+						>
+							<div class="flex items-baseline gap-2">
+								<span class="text-sm font-medium text-teal-300">!{item.name}</span>
+							</div>
+							<span class="truncate text-xs text-[var(--color-text-muted)]">{item.description || "—"}</span>
+						</button>
+					{/each}
+				{/if}
+
 				{#if teams.length > 0}
 					<div class="px-2 pb-1 pt-2 text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
 						Teams
 					</div>
 					{#each teams as item, i}
-						{@const idx = dirTarget.length + commands.length + features.length + lessons.length + ezActions.length + i}
+						{@const idx = offset.teams + i}
 						<button
 							id="mention-item-{idx}"
 							role="option"
@@ -352,7 +417,7 @@
 						Agents
 					</div>
 					{#each agents as item, i}
-						{@const idx = dirTarget.length + commands.length + features.length + lessons.length + ezActions.length + teams.length + i}
+						{@const idx = offset.agents + i}
 						<button
 							id="mention-item-{idx}"
 							role="option"
@@ -374,7 +439,7 @@
 						Extensions
 					</div>
 					{#each extensions as item, i}
-						{@const idx = dirTarget.length + commands.length + features.length + lessons.length + ezActions.length + teams.length + agents.length + i}
+						{@const idx = offset.extensions + i}
 						<button
 							id="mention-item-{idx}"
 							role="option"
@@ -396,7 +461,7 @@
 						Folders
 					</div>
 					{#each dirs as item, i}
-						{@const idx = dirTarget.length + commands.length + features.length + lessons.length + ezActions.length + teams.length + agents.length + extensions.length + i}
+						{@const idx = offset.dirs + i}
 						<button
 							id="mention-item-{idx}"
 							role="option"
@@ -419,7 +484,7 @@
 						Files
 					</div>
 					{#each files as item, i}
-						{@const idx = dirTarget.length + commands.length + features.length + lessons.length + ezActions.length + teams.length + agents.length + extensions.length + dirs.length + i}
+						{@const idx = offset.files + i}
 						<button
 							id="mention-item-{idx}"
 							role="option"

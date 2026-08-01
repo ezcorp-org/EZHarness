@@ -2210,6 +2210,24 @@ export async function migrate(db: any): Promise<void> {
       ON saved_contexts(user_id, conversation_id, topic_label)
   `);
 
+  // ── Workflow ownership ───────────────────────────────────────────
+  //
+  // `workflow_definitions` is created far above (before `users` exists), so
+  // the ALTER lives down here where the FK target is already present — the
+  // same reason the run-history block below sits at the end.
+  //
+  // NULLABLE and deliberately NOT backfilled. NULL means "unowned legacy /
+  // global workflow": every existing row keeps today's behaviour (any
+  // `chat` caller may run, update and delete it), so this is not a breaking
+  // change. Copying the first-admin backfill CTE used for
+  // conversations/memories would instead retroactively hand every existing
+  // workflow to one admin and lock everyone else out.
+  //
+  // Enforcement lives at the call sites (`src/runtime/workflow-authz.ts`),
+  // never inside `WorkflowExecutor.runWorkflow` — the CLI runs workflows
+  // with no principal at all and must keep working.
+  await db.execute(sql`ALTER TABLE workflow_definitions ADD COLUMN IF NOT EXISTS created_by TEXT REFERENCES users(id) ON DELETE SET NULL`);
+
   // ── Workflow run history ─────────────────────────────────────────
   //
   // Placed here (near the end) purely because every FK target it needs —

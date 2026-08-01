@@ -43,7 +43,7 @@ function makeEvent(opts: {
   } as any;
 }
 
-const authedUser = { user: { id: "u1", email: "u@x", name: "u", role: "user" } };
+const authedUser = { user: { id: "u1", email: "u@x", name: "u", role: "member" } };
 
 describe("GET /api/workflows", () => {
   test("returns 403 when API-key scope missing 'read'", async () => {
@@ -213,5 +213,14 @@ describe("POST /api/workflows", () => {
     expect(ctx.reloadWorkflows).toHaveBeenCalledTimes(1);
     const created = (await res.json()) as { id?: string };
     expect(created.id).toBe("wf-1");
+  });
+
+  test("records the authoring user as created_by", async () => {
+    // Without this the row is created unowned and the owner-or-admin gate
+    // on run / update / delete can never engage.
+    const def = { name: "w1", steps: [{ name: "s1", agent: "a" }] };
+    queries.createWorkflow.mockResolvedValue({ id: "wf-1", ...def, description: "" });
+    await POST(makeEvent({ locals: authedUser, body: def }));
+    expect(queries.createWorkflow).toHaveBeenCalledWith(expect.objectContaining(def), "u1");
   });
 });

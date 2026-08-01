@@ -1267,8 +1267,20 @@ export interface MentionResult {
 	 * the result is always `"feature"`. For `type=lesson` the result is
 	 * always `"lesson"`. For `type=EZ` the result is always `"EZ"` —
 	 * runtime actions from the in-memory registry (not project-scoped).
+	 * For `type=workflow` the result is always `"workflow"` — entries from
+	 * the merged workflow cache (also global, not project-scoped).
 	 */
-	kind: "agent" | "extension" | "team" | "EZ" | "file" | "dir" | "command" | "feature" | "lesson";
+	kind:
+		| "agent"
+		| "extension"
+		| "team"
+		| "EZ"
+		| "workflow"
+		| "file"
+		| "dir"
+		| "command"
+		| "feature"
+		| "lesson";
 	/**
 	 * For `type=cmd` results: the source namespace the command was
 	 * discovered from — e.g. `"project:claude-commands"`,
@@ -1420,7 +1432,16 @@ export function _resetFeatureDetailsCache(): void {
 
 export async function searchMentions(
 	query: string,
-	type?: "ext" | "agent" | "team" | "EZ" | "path" | "cmd" | "feature" | "lesson",
+	type?:
+		| "ext"
+		| "agent"
+		| "team"
+		| "EZ"
+		| "workflow"
+		| "path"
+		| "cmd"
+		| "feature"
+		| "lesson",
 	projectId?: string,
 ): Promise<MentionResult[]> {
 	const params = new URLSearchParams({ q: query });

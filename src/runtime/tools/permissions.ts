@@ -372,8 +372,21 @@ export function beginNonInteractiveScope(
   };
 }
 
-/** Reject every pending gate whose `conversationId` matches `scopeKey`. */
-function abortPendingApprovalsForScope(scopeKey: string): void {
+/**
+ * Reject every pending gate whose `conversationId` matches `scopeKey`.
+ *
+ * Called automatically for a NON-interactive scope (on its abort signal and
+ * on `end()`). Exported for the one caller that has no such scope to hang
+ * it off: an INTERACTIVE workflow run
+ * (`WorkflowExecutor.runWorkflow({conversationId})`) registers nothing, so
+ * on cancel it must tear its own consent cards down or they stand forever
+ * with no run left to answer into.
+ *
+ * `scopeKey` is a real conversation id in that case, so this rejects every
+ * gate pending on that conversation — only ever called when the whole turn
+ * is being cancelled.
+ */
+export function abortPendingApprovalsForScope(scopeKey: string): void {
   for (const [id, pending] of [...pendingApprovals]) {
     if (pending.conversationId !== scopeKey) continue;
     pendingApprovals.delete(id);

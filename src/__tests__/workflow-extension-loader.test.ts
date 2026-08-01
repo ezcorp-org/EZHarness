@@ -61,6 +61,22 @@ describe("loadExtensionWorkflows — discovery", () => {
     expect(loaded[0]?.name).toBe("my-ext:deploy");
     expect(loaded[0]?.description).toBe("a shipped workflow");
     expect(loaded[0]?.steps).toHaveLength(1);
+    // Provenance stamp read by `canRunWorkflow`.
+    expect(loaded[0]?.source).toBe("extension");
+  });
+
+  test("a declared `source:` in the asset cannot forge provenance", async () => {
+    // The stamp is applied AFTER the spread precisely so an extension
+    // cannot label its own asset `db` (or anything else) and change which
+    // authorization rule it is held to.
+    const src = await installExtension("my-ext", {
+      "deploy.workflow.yaml": `${VALID_YAML("deploy")}source: db\n`,
+    });
+
+    const loaded = await loadExtensionWorkflows([src]);
+
+    expect(loaded).toHaveLength(1);
+    expect(loaded[0]?.source).toBe("extension");
   });
 
   test("ignores files that are not *.workflow.yaml", async () => {

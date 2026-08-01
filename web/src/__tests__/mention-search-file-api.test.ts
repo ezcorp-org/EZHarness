@@ -25,6 +25,11 @@ mock.module("$lib/server/context", () => ({
 	// to resolve — return an empty registry shape to keep the mock surface
 	// matched.
 	getCommandRegistry: () => ({ listCommands: () => [] }),
+	// Same reason: the route statically imports `getWorkflows` for the
+	// `type=workflow` branch and the bare-`!` merge. The `type=path`
+	// branch returns before either runs, so an empty list is enough —
+	// but the export must exist or the module fails to link.
+	getWorkflows: () => [],
 }));
 
 mock.module("$server/db/connection", () => ({

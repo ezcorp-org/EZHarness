@@ -136,6 +136,10 @@ const MENTION_COLORS = {
 	file: { border: "rgba(34,197,94,0.3)", bg: "rgba(34,197,94,0.2)", text: "rgb(134,239,172)" },
 	dir: { border: "rgba(245,158,11,0.3)", bg: "rgba(245,158,11,0.2)", text: "rgb(252,211,77)" },
 	cmd: { border: "rgba(236,72,153,0.3)", bg: "rgba(236,72,153,0.2)", text: "rgb(249,168,212)" },
+	// Teal — must stay in step with `MentionChip.svelte`'s workflow branch
+	// (`border-teal-500/30 bg-teal-500/20 text-teal-300`) so a workflow pill
+	// looks identical in the composer overlay and in rendered chat markdown.
+	workflow: { border: "rgba(20,184,166,0.3)", bg: "rgba(20,184,166,0.2)", text: "rgb(94,234,212)" },
 } as const;
 
 /**

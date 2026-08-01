@@ -1,9 +1,11 @@
 /**
  * Server-handler unit tests for /api/workflows/[name]/+server.ts.
  *
- * Covers the scope/auth gates, the strict-body + definition-time validation
- * rejections, and the GET/PUT/DELETE success + 404 branches (the workflow
- * registry + DB query layer are mocked).
+ * Covers the scope/auth gates, the owner-or-admin gate on PUT/DELETE, the
+ * strict-body + definition-time validation rejections, and the
+ * GET/PUT/DELETE success + 404 branches (the workflow registry + DB query
+ * layer are mocked; the ownership rule itself is tested in
+ * src/__tests__/workflow-authz.test.ts).
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
@@ -13,12 +15,16 @@ const ctx = vi.hoisted(() => ({
   reloadWorkflows: vi.fn(async () => {}),
 }));
 const queries = vi.hoisted(() => ({
-  getWorkflowByName: vi.fn(async (_name: string) => undefined as { id: string } | undefined),
+  getWorkflowByName: vi.fn(
+    async (_name: string) => undefined as { id: string; createdBy?: string | null } | undefined,
+  ),
   updateWorkflow: vi.fn(async (_id: string, _data: unknown) => undefined as unknown),
   deleteWorkflow: vi.fn(async (_id: string) => true),
 }));
+const authz = vi.hoisted(() => ({ canActOnWorkflow: vi.fn(() => true) }));
 vi.mock("$lib/server/context", () => ctx);
 vi.mock("$server/db/queries/workflows", () => queries);
+vi.mock("$server/runtime/workflow-authz", () => authz);
 
 import { GET, PUT, DELETE } from "../routes/api/workflows/[name]/+server";
 
@@ -28,6 +34,7 @@ beforeEach(() => {
   queries.getWorkflowByName.mockReset().mockResolvedValue(undefined);
   queries.updateWorkflow.mockReset().mockResolvedValue(undefined);
   queries.deleteWorkflow.mockReset().mockResolvedValue(true);
+  authz.canActOnWorkflow.mockReset().mockReturnValue(true);
 });
 
 function makeEvent(opts: {
@@ -65,7 +72,7 @@ async function expectThrownResponse(
 }
 
 const authedUser = {
-	user: { id: "u1", email: "u@x", name: "u", role: "user" },
+	user: { id: "u1", email: "u@x", name: "u", role: "member" },
 };
 
 describe("GET /api/workflows/[name]", () => {
@@ -151,6 +158,23 @@ describe("PUT /api/workflows/[name]", () => {
 		expect(body.error).toBe("Not found (only DB workflows can be updated)");
 	});
 
+	test("returns 403 when the caller does not own the row", async () => {
+		queries.getWorkflowByName.mockResolvedValue({ id: "wf-1", createdBy: "someone-else" });
+		authz.canActOnWorkflow.mockReturnValue(false);
+		const res = await PUT(makeEvent({ locals: authedUser, method: "PUT", body: { description: "d" } }));
+		expect(res.status).toBe(403);
+		const body = (await res.json()) as { error?: string };
+		expect(body.error).toBe("Only the workflow's owner or an admin can update it");
+		expect(queries.updateWorkflow).not.toHaveBeenCalled();
+	});
+
+	test("applies the ownership rule to the row's created_by and the caller", async () => {
+		queries.getWorkflowByName.mockResolvedValue({ id: "wf-1", createdBy: "u1" });
+		queries.updateWorkflow.mockResolvedValue({ id: "wf-1", name: "w1" });
+		await PUT(makeEvent({ locals: authedUser, method: "PUT", body: { description: "d" } }));
+		expect(authz.canActOnWorkflow).toHaveBeenCalledWith("u1", authedUser.user);
+	});
+
 	test("returns 404 when the update itself resolves to nothing", async () => {
 		queries.getWorkflowByName.mockResolvedValue({ id: "wf-1" });
 		queries.updateWorkflow.mockResolvedValue(undefined);
@@ -196,6 +220,22 @@ describe("DELETE /api/workflows/[name]", () => {
 		expect(res.status).toBe(404);
 		const body = (await res.json()) as { error?: string };
 		expect(body.error).toBe("Not found (only DB workflows can be deleted)");
+	});
+
+	test("returns 403 when the caller does not own the row", async () => {
+		queries.getWorkflowByName.mockResolvedValue({ id: "wf-1", createdBy: "someone-else" });
+		authz.canActOnWorkflow.mockReturnValue(false);
+		const res = await DELETE(makeEvent({ locals: authedUser, method: "DELETE" }));
+		expect(res.status).toBe(403);
+		const body = (await res.json()) as { error?: string };
+		expect(body.error).toBe("Only the workflow's owner or an admin can delete it");
+		expect(queries.deleteWorkflow).not.toHaveBeenCalled();
+	});
+
+	test("applies the ownership rule to the row's created_by and the caller", async () => {
+		queries.getWorkflowByName.mockResolvedValue({ id: "wf-1", createdBy: "u1" });
+		await DELETE(makeEvent({ locals: authedUser, method: "DELETE" }));
+		expect(authz.canActOnWorkflow).toHaveBeenCalledWith("u1", authedUser.user);
 	});
 
 	test("deletes a DB workflow, reloads, and returns ok", async () => {

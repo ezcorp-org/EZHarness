@@ -2,8 +2,9 @@
  * Server-handler unit tests for /api/workflows/[name]/run/+server.ts.
  *
  * Covers the scope gate, the auth gate, the 404 "Workflow not found" branch,
- * the strict-body 400, the run success path, and the executor-throws 400
- * (the registry + executor are mocked).
+ * the authorization gate, the strict-body 400, the run success path, and the
+ * executor-throws 400 (the registry + executor + authz are mocked; the rules
+ * themselves are tested in src/__tests__/workflow-authz.test.ts).
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
@@ -16,10 +17,14 @@ const ctx = vi.hoisted(() => {
     runWorkflow,
   };
 });
+const authz = vi.hoisted(() => ({
+  canRunWorkflow: vi.fn(async () => ({ allowed: true }) as { allowed: boolean; reason?: string }),
+}));
 vi.mock("$lib/server/context", () => ({
   getWorkflows: ctx.getWorkflows,
   getWorkflowExecutor: ctx.getWorkflowExecutor,
 }));
+vi.mock("$server/runtime/workflow-authz", () => authz);
 
 import { POST } from "../routes/api/workflows/[name]/run/+server";
 
@@ -27,6 +32,7 @@ beforeEach(() => {
   ctx.getWorkflows.mockReset().mockReturnValue([]);
   ctx.runWorkflow.mockReset().mockResolvedValue({ id: "run-1", status: "success" });
   ctx.getWorkflowExecutor.mockReset().mockReturnValue({ runWorkflow: ctx.runWorkflow });
+  authz.canRunWorkflow.mockReset().mockResolvedValue({ allowed: true });
 });
 
 function makeEvent(opts: {
@@ -63,7 +69,7 @@ async function expectThrownResponse(
 }
 
 const authedUser = {
-	user: { id: "u1", email: "u@x", name: "u", role: "user" },
+	user: { id: "u1", email: "u@x", name: "u", role: "member" },
 };
 
 describe("POST /api/workflows/[name]/run", () => {
@@ -90,6 +96,37 @@ describe("POST /api/workflows/[name]/run", () => {
 		expect(res.status).toBe(404);
 		const body = (await res.json()) as { error?: string };
 		expect(body.error).toBe("Workflow not found");
+	});
+
+	test("returns 403 with the deny reason when authorization refuses the run", async () => {
+		ctx.getWorkflows.mockReturnValue([{ name: "w1" }]);
+		authz.canRunWorkflow.mockResolvedValue({
+			allowed: false,
+			reason: 'Workflow "w1" is owned by another user',
+		});
+		const res = await POST(makeEvent({ name: "w1", locals: authedUser, body: {} }));
+		expect(res.status).toBe(403);
+		const body = (await res.json()) as { error?: string };
+		expect(body.error).toBe('Workflow "w1" is owned by another user');
+		expect(ctx.runWorkflow).not.toHaveBeenCalled();
+	});
+
+	test("authorizes the resolved definition, not a re-lookup by name", async () => {
+		const resolved = { name: "w1", source: "yaml" };
+		ctx.getWorkflows.mockReturnValue([resolved]);
+		await POST(makeEvent({ name: "w1", locals: authedUser, body: {} }));
+		expect(authz.canRunWorkflow).toHaveBeenCalledWith(resolved, authedUser.user);
+	});
+
+	test("the authorization gate runs BEFORE the body is parsed", async () => {
+		// A denied caller must not be able to tell a malformed body from a
+		// well-formed one — the 403 is the only signal either way.
+		ctx.getWorkflows.mockReturnValue([{ name: "w1" }]);
+		authz.canRunWorkflow.mockResolvedValue({ allowed: false, reason: "nope" });
+		const res = await POST(
+			makeEvent({ name: "w1", locals: authedUser, body: { projectId: 123 } }),
+		);
+		expect(res.status).toBe(403);
 	});
 
 	test("returns 400 when the body fails the schema (non-string projectId)", async () => {
