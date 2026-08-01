@@ -53,12 +53,19 @@ async function waitForComposer(page: any) {
 	await expect(textarea).toBeVisible({ timeout: 5000 });
 	await page.waitForFunction(
 		() => {
-			const listeners = (window as any).__fakeWsListeners;
+			const w = window as any;
+			const listeners = w.__fakeWsListeners;
 			if (listeners?.open) {
 				for (const fn of listeners.open) {
+					// The predicate is polled, so one listener throwing must not
+					// abort the whole wait. But swallowing it silently turns a real
+					// wiring bug into an opaque 5s timeout — record instead, and
+					// assert below so the failure names its own cause.
 					try {
 						fn(new Event("open"));
-					} catch {}
+					} catch (err) {
+						w.__wsOpenErrors = [...(w.__wsOpenErrors ?? []), String(err)];
+					}
 				}
 			}
 			const ta = document.querySelector("textarea");
@@ -66,6 +73,7 @@ async function waitForComposer(page: any) {
 		},
 		{ timeout: 5000 },
 	);
+	expect(await page.evaluate(() => (window as any).__wsOpenErrors ?? [])).toEqual([]);
 	await expect(textarea).toBeEnabled({ timeout: 5000 });
 	await textarea.click();
 	return textarea;
