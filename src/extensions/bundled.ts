@@ -928,6 +928,63 @@ const BUNDLED_EXTENSIONS: BundledExtension[] = [
       },
     },
   },
+  {
+    // ez-factory — job console over the three workflow templates it ships
+    // (Phase 8). Lives at `extensions/<name>/` like the other first-party
+    // bundled extensions.
+    //
+    // BUNDLED SITING IS LOAD-BEARING, NOT A PREFERENCE. Its `write_file` /
+    // `emit_artifact` tools (8.4) only authorize inside a workflow because
+    // the sensitive-capability gate in `permission-engine.ts`
+    // short-circuits to allow on `registry.isBundled(...) === true`
+    // (`bundled-ceiling-auto-allow`). `fs.write` IS sensitive; for a
+    // non-bundled extension the PDP returns `prompt`, and a workflow's
+    // non-interactive scope rejects a prompt synchronously →
+    // `WorkflowApprovalRequiredError` → the run terminalizes
+    // `awaiting_approval`. Shipped under `docs/extensions/examples/` those
+    // tools would be structurally unusable inside a workflow.
+    //
+    // Registering here is ALSO what activates `ensureEzFactoryAgents()` at
+    // the bottom of this file: that seeder is gated on the `ez-factory`
+    // extension row existing, so until this entry landed it was inert.
+    //
+    // `triggers` is the first such grant on any bundled extension. All
+    // four fields are REQUIRED on the granted shape (`Math.min(NaN, …)`
+    // otherwise) and `webhookPrefix` must match BOTH the manifest and the
+    // `bundled-ceiling.ts` row byte for byte —
+    // `intersectPermissions` DROPS the whole grant when a namespace claim
+    // disagrees, silently, at boot.
+    //
+    // `workflows` is what makes the shipped `*.workflow.yaml` assets
+    // TRIGGERABLE; `maxRunsPerHour` is required on the granted shape and
+    // is this extension's only real spend bound.
+    //
+    // No `bootSpawn`: the entrypoint arrives in 8.6, and even then the
+    // console is user-driven (page render + page actions), not
+    // event-subscription-only — the case `bootSpawn` exists for.
+    name: "ez-factory",
+    path: "extensions/ez-factory",
+    permissions: {
+      storage: true,
+      triggers: {
+        maxCron: 25,
+        maxWebhooks: 25,
+        webhookPrefix: "factory-",
+        maxRunsPerDay: 500,
+      },
+      workflows: {
+        names: ["docs-factory", "etl-factory", "draft-and-verify"],
+        maxRunsPerHour: 60,
+      },
+      filesystem: ["$CWD"],
+      grantedAt: {
+        storage: Date.now(),
+        triggers: Date.now(),
+        workflows: Date.now(),
+        filesystem: Date.now(),
+      },
+    },
+  },
 ];
 
 /** Opt-OUT switches: each maps a bundled-extension name to the env var that

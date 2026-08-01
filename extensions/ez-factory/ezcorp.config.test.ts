@@ -1,0 +1,196 @@
+/**
+ * The ez-factory manifest's DECLARED SURFACE, asserted exactly.
+ *
+ * Every permission below was argued for or against by reading the host
+ * code, and four of them were removed after that reading showed they buy
+ * nothing (`llm`), do not exist (`workflows.allowDelegated`), can never
+ * fire (`eventSubscriptions`), or have no consumer (`shell`, `network`,
+ * `settings`, `secrets`). Absence is the design, and absence is invisible
+ * in a diff — a future author "restoring" one would widen the grant with
+ * nothing failing.
+ *
+ * So this file pins the EXACT key set rather than spot-checking presence:
+ * add a key and `permission keys are EXACTLY the six declared` fails; add
+ * a page and `declares exactly two pages` fails.
+ *
+ * Companion coverage:
+ *   - `src/__tests__/ez-factory-bundled-install.test.ts` — the ceiling
+ *     row, the three-way `webhookPrefix` byte-match, and the boot proof
+ *     that the trigger grant survives `intersectPermissions`.
+ *   - `src/__tests__/ez-factory-agents-bundled-wiring.test.ts` — the
+ *     agent seeder this manifest's registration activates.
+ */
+import { describe, expect, test } from "bun:test";
+
+import config from "./ezcorp.config";
+
+/** The manifest's permission block, read as a bag so absence assertions
+ *  can name keys the type does not declare (`allowDelegated`). */
+const perms = config.permissions as unknown as Record<string, unknown>;
+
+describe("ez-factory manifest — identity", () => {
+  test("is a v2 manifest named ez-factory", () => {
+    expect(config.schemaVersion).toBe(2);
+    expect(config.name).toBe("ez-factory");
+    expect(config.version).toBe("0.1.0");
+  });
+
+  test("declares no tools and therefore no entrypoint (8.1 skeleton)", () => {
+    // `validateManifestV2` only requires an entrypoint when tools are
+    // declared, and `bundled-manifests-installable.test.ts` asserts the
+    // pairing across the whole bundled list. The tools + entrypoint land
+    // in 8.4/8.6; until then the pairing must stay coherent, or the
+    // bundled install fails closed at boot.
+    expect(config.tools).toEqual([]);
+    expect(config.entrypoint).toBeUndefined();
+  });
+});
+
+describe("ez-factory manifest — the exact permission key set", () => {
+  test("permission keys are EXACTLY the six declared", () => {
+    // Adding a seventh is the regression this test exists for. If a key
+    // genuinely belongs here, change this list DELIBERATELY and say why
+    // in the commit — do not widen it to make a red test green.
+    expect(Object.keys(perms).sort()).toEqual([
+      "filesystem",
+      "rbacScopes",
+      "storage",
+      "triggers",
+      "workflows",
+    ].sort());
+  });
+
+  test("storage is granted", () => {
+    expect(perms.storage).toBe(true);
+  });
+
+  test("triggers declares all four fields with the factory- namespace", () => {
+    // All four matter: the GRANTED shape requires every one of them
+    // because `intersectPermissions` does `Math.min` over the numerics,
+    // and `webhookPrefix` is a namespace claim the ceiling must repeat.
+    expect(perms.triggers).toEqual({
+      maxCron: 25,
+      maxWebhooks: 25,
+      webhookPrefix: "factory-",
+      maxRunsPerDay: 500,
+    });
+  });
+
+  test("workflows names exactly the three shipped templates, with a rate bound", () => {
+    expect(perms.workflows).toEqual({
+      names: ["docs-factory", "etl-factory", "draft-and-verify"],
+      maxRunsPerHour: 60,
+    });
+  });
+
+  test("workflows does NOT carry allowDelegated — the field does not exist", () => {
+    // The design sketch had `allowDelegated: true`. The granted type is
+    // `{names, maxRunsPerHour}` and there are zero references to
+    // `allowDelegated` repo-wide: it belongs to C3 (delegated execution),
+    // which is unbuilt. Declaring it would read as a bound that nothing
+    // enforces.
+    const workflows = perms.workflows as Record<string, unknown>;
+    expect(workflows.allowDelegated).toBeUndefined();
+    expect(Object.keys(workflows).sort()).toEqual(["maxRunsPerHour", "names"]);
+  });
+
+  test("filesystem is $CWD only — never $USER", () => {
+    // `$USER` collapses to `UNRESOLVED_USER_PREFIX` (a NUL-bearing
+    // sentinel that matches no path) when there is no acting user to
+    // partition by. Workflow tool steps run under a synthetic
+    // `workflow-run:<uuid>` key with none, so a `$USER` grant would
+    // fail-closed on every write inside a workflow.
+    expect(perms.filesystem).toEqual(["$CWD"]);
+    for (const prefix of perms.filesystem as string[]) {
+      expect(prefix).not.toContain("$USER");
+    }
+  });
+
+  test("declares exactly the three console RBAC scopes", () => {
+    expect(perms.rbacScopes).toEqual([
+      { name: "manage-jobs", description: "Create, edit, enable/disable, and delete factory jobs" },
+      { name: "run-job", description: "Fire a factory job manually" },
+      { name: "approve-gate", description: "Answer a parked approval step on a factory run" },
+    ]);
+  });
+});
+
+describe("ez-factory manifest — the capabilities deliberately NOT requested", () => {
+  // One test per removed capability, each naming the reason, so a failure
+  // message tells the next author what reading produced the decision.
+
+  test("no `llm` — it does not bound workflow agent-step spend", () => {
+    // `permissions.llm` gates the `ctx.llm.complete()` reverse-RPC only.
+    // Workflow agent steps go `AgentExecutor.runAgent` →
+    // `createPiLlmAdapter`, which resolves host credentials directly and
+    // never consults the extension grant. This extension never calls
+    // `ctx.llm`, so an `llm` block would be an unused capability
+    // masquerading as a spend bound.
+    expect(perms.llm).toBeUndefined();
+  });
+
+  test("no `eventSubscriptions` — a workflow:* event can never reach an extension", () => {
+    // `EventSubscriptionDispatcher.dispatch` returns early on any payload
+    // with no top-level string `conversationId`; `WorkflowRun` has none.
+    // The `workflow:*` names ARE in `DIRECT_CARRIER_EVENT_TYPES`, so
+    // registration is ACCEPTED and then never fires — registered, silent,
+    // forever.
+    expect(perms.eventSubscriptions).toBeUndefined();
+  });
+
+  test("no `shell` — run_command was cut from the tool list", () => {
+    expect(perms.shell).toBeUndefined();
+  });
+
+  test("no `network` — http_fetch was cut from the tool list", () => {
+    expect(perms.network).toBeUndefined();
+  });
+
+  test("no `settings` and no `secrets`", () => {
+    expect(perms.settings).toBeUndefined();
+    expect(perms.secrets).toBeUndefined();
+  });
+
+  test("no `env`, `schedule`, `webhooks`, `spawnAgents`, `memory`, `lessons`, `search`, `custom`", () => {
+    // The remainder of the permission vocabulary, pinned so the
+    // exact-key-set test above is not the only thing standing between a
+    // careless edit and a wider grant.
+    for (const key of [
+      "env",
+      "schedule",
+      "webhooks",
+      "spawnAgents",
+      "memory",
+      "lessons",
+      "search",
+      "custom",
+      "agentConfig",
+      "taskEvents",
+      "loopEvents",
+      "appendMessages",
+      "acceptsCallerCaps",
+      "escalateChildCaps",
+    ]) {
+      expect(perms[key]).toBeUndefined();
+    }
+  });
+});
+
+describe("ez-factory manifest — pages", () => {
+  test("declares exactly two pages: factory and job", () => {
+    // Two of the three-page Hub budget. The third slot is deliberately
+    // left free; the approvals inbox is NOT a page (it is per-acting-user
+    // while the page cache is shared across viewers) — the console links
+    // to core's `/workflows/approvals` instead.
+    expect(config.pages).toBeDefined();
+    expect(config.pages).toHaveLength(2);
+    expect(config.pages?.map((p) => p.id)).toEqual(["factory", "job"]);
+  });
+
+  test("every page carries the title the Hub tab needs", () => {
+    for (const page of config.pages ?? []) {
+      expect(typeof page.title).toBe("string");
+      expect(page.title.length).toBeGreaterThan(0);
+    }
+  });
+});

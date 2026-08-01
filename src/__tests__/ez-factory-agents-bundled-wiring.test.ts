@@ -5,9 +5,10 @@
  * verifiable HERE, and only here, is the WIRING — that boot actually
  * reaches it, and on the right condition:
  *
- *   - it is GATED on the `ez-factory` extension row existing, so an
- *     install without the extension gains no agents (three unexplained
- *     agents in every user's list would be a real regression);
+ *   - it is GATED on the `ez-factory` extension row existing, so a boot
+ *     whose ez-factory install did not land gains no agents (three
+ *     unexplained agents in every user's list would be a real
+ *     regression);
  *   - a failure inside it is WARNED, NOT PROPAGATED. This block is the
  *     last statement of `ensureBundledExtensions`, which `context.ts`
  *     awaits during server boot — an escaping throw would take the boot
@@ -17,6 +18,19 @@
  * visible in the same boot: `context.ts` calls
  * `loadAgents(agentsDir, { includeDb: true })` immediately after this
  * returns, and that reads `agent_configs`.
+ *
+ * ── WHAT CHANGED WHEN 8.1 LANDED ──────────────────────────────────────
+ *
+ * Until `ez-factory` was registered in `BUNDLED_EXTENSIONS`, this seeder
+ * was INERT: nothing ever created an `ez-factory` extension row, so the
+ * gate never opened and the tests here had to fake the row by hand.
+ * Registration is what turns it on, so the happy-path tests below now
+ * call `ensureBundledExtensions()` with an EMPTY store and let the real
+ * install path create the row — the same sequence a first boot runs.
+ * The gate is exercised by making that install fail instead (which the
+ * boot loop catches per-extension, exactly as it does today for
+ * `github-stats`), because the condition the gate protects is "the
+ * extension is not there", not "someone forgot to fake a row".
  *
  * Mock shape is copied from `ez-code-bundled-install.test.ts` — the
  * extensions table is an in-memory store so `ensureBundledExtensions` can
@@ -49,10 +63,19 @@ interface StoredExtension {
 
 let store: Map<string, StoredExtension>;
 let nextId = 0;
+/** Simulates the ez-factory install not landing on this boot (bad disk
+ *  state, a manifest the validator rejects, an operator opt-out). The
+ *  boot loop catches per-extension install failures and moves on, so the
+ *  run continues to the seeder — with no `ez-factory` row for the gate to
+ *  find. That is the condition the gate exists for. */
+let ezFactoryInstallFails = false;
 
 mock.module("../db/queries/extensions", () => ({
   getExtensionByName: async (name: string) => store.get(name) ?? null,
   createExtension: async (data: Omit<StoredExtension, "id">) => {
+    if (ezFactoryInstallFails && data.name === "ez-factory") {
+      throw new Error("simulated ez-factory install failure");
+    }
     const id = `ext-${++nextId}`;
     const row = { id, ...data } as StoredExtension;
     store.set(data.name, row);
@@ -115,24 +138,6 @@ const { EZ_FACTORY_AGENTS, EZ_FACTORY_EXTENSION_NAME } = await import(
   "../extensions/ez-factory-agents"
 );
 
-/** Put an `ez-factory` row in the extensions table — the gate condition. */
-function installEzFactory(): void {
-  store.set(EZ_FACTORY_EXTENSION_NAME, {
-    id: "ext-ez-factory",
-    name: EZ_FACTORY_EXTENSION_NAME,
-    version: "0.0.1",
-    description: "",
-    manifest: {},
-    source: "bundled",
-    installPath: "/tmp/ez-factory",
-    enabled: true,
-    isBundled: true,
-    grantedPermissions: { grantedAt: {} },
-    checksumVerified: true,
-    consecutiveFailures: 0,
-  });
-}
-
 /** Only the ez-factory rows. `ensureBundledExtensions` also seeds the
  *  ez-code coder into the same mocked table, so every assertion here has
  *  to name its own rows rather than counting the whole table. */
@@ -145,12 +150,21 @@ beforeEach(() => {
   nextId = 0;
   agents = [];
   agentReadThrows = false;
+  ezFactoryInstallFails = false;
 });
 
 describe("ensureBundledExtensions → ensureEzFactoryAgents", () => {
-  test("seeds all three agents when the ez-factory extension row exists", async () => {
-    installEzFactory();
+  test("registering ez-factory is what opens the gate — a first boot creates the row", async () => {
+    // Before 8.1 there was no `ez-factory` entry in BUNDLED_EXTENSIONS,
+    // so nothing ever created this row and the seeder below it could
+    // never fire. This assertion is the hinge: the registration itself
+    // satisfies the gate condition, on a completely empty store.
+    await ensureBundledExtensions();
 
+    expect(store.get(EZ_FACTORY_EXTENSION_NAME)).toBeDefined();
+  });
+
+  test("seeds all three agents on a boot that installs ez-factory", async () => {
     await ensureBundledExtensions();
 
     expect(factoryRows().map((a) => a.name).sort()).toEqual(
@@ -164,8 +178,6 @@ describe("ensureBundledExtensions → ensureEzFactoryAgents", () => {
   test("the seeded rows carry the security prompt, not an empty one", async () => {
     // The wiring is only worth anything if what lands in the DB is the
     // prompt carrying the two invariants.
-    installEzFactory();
-
     await ensureBundledExtensions();
 
     expect(factoryRows()).toHaveLength(3);
@@ -175,17 +187,20 @@ describe("ensureBundledExtensions → ensureEzFactoryAgents", () => {
     }
   });
 
-  test("seeds NOTHING when the ez-factory extension is not installed", async () => {
-    // The gate. Three unexplained agents in the list of every install that
-    // never asked for ez-factory would be a real regression.
-    await ensureBundledExtensions();
+  test("seeds NOTHING when the ez-factory install did not land", async () => {
+    // The gate. Three unexplained agents in the list of an install that
+    // does not have ez-factory would be a real regression. The boot loop
+    // swallows a per-extension install failure and keeps going, so the
+    // seeder IS reached — it just must find no row.
+    ezFactoryInstallFails = true;
 
+    await expect(ensureBundledExtensions()).resolves.toBeUndefined();
+
+    expect(store.get(EZ_FACTORY_EXTENSION_NAME)).toBeUndefined();
     expect(factoryRows()).toEqual([]);
   });
 
   test("is idempotent across boots", async () => {
-    installEzFactory();
-
     await ensureBundledExtensions();
     await ensureBundledExtensions();
 
@@ -196,7 +211,6 @@ describe("ensureBundledExtensions → ensureEzFactoryAgents", () => {
     // This block is the last statement of `ensureBundledExtensions`, which
     // `context.ts` awaits at boot. An escaping throw would take the whole
     // server down over a cosmetic seeding problem.
-    installEzFactory();
     agentReadThrows = true;
 
     await expect(ensureBundledExtensions()).resolves.toBeUndefined();

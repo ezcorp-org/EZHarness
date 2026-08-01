@@ -1,0 +1,187 @@
+// ez-factory — bundled extension manifest (Phase 8.1).
+//
+// A job console for workflows: named, saved job definitions over the
+// `*.workflow.yaml` assets this extension ships, run by hand or from chat,
+// with real approval gates and links out to core's run traces.
+//
+// ── WHY THIS EXTENSION MUST BE BUNDLED (not an examples/ reference) ─────
+//
+// `write_file` / `emit_artifact` only authorize INSIDE a workflow because
+// the sensitive-capability gate in `src/extensions/permission-engine.ts`
+// short-circuits to allow on `deps.registry.isBundled?.(ctx.extensionId)
+// === true` (the `bundled-ceiling-auto-allow` branch). `fs.write` IS a
+// sensitive capability. For a non-bundled extension the PDP returns
+// `prompt`, and a workflow's non-interactive scope rejects a prompt
+// synchronously → `WorkflowApprovalRequiredError` → the run terminalizes
+// `awaiting_approval`. Siting is load-bearing, not a preference: shipped
+// under `docs/extensions/examples/` these tools would be structurally
+// unusable inside a workflow.
+//
+// ── SKELETON STATE ─────────────────────────────────────────────────────
+//
+// This commit ships the manifest, the bundled-ceiling row, and the
+// bundled registration ONLY. `tools`, `lib/`, the workflow templates, and
+// the page renderer (`index.ts`) land in 8.2-8.6. The manifest therefore
+// declares NO tools and NO entrypoint — legal per `validateManifestV2`
+// ("entrypoint is required when tools are declared"), and asserted by
+// `src/__tests__/bundled-manifests-installable.test.ts`. Every permission
+// below is a subprocess-facing reverse-RPC capability, so the grant is
+// inert until the entrypoint lands; it is declared now because the
+// ceiling row, the `webhookPrefix` byte-match, and the agent-seeder gate
+// all key off this manifest and must land together (see 8.0-D).
+//
+// ── WHAT IS DELIBERATELY ABSENT ────────────────────────────────────────
+//
+// Each of these was in the design sketch and was REMOVED after reading
+// the code. `ezcorp.config.test.ts` asserts the exact key set so a future
+// author who adds one back fails a named test rather than silently
+// widening the grant.
+//
+//   • `llm` — does NOT bound workflow agent-step spend. `permissions.llm`
+//     gates the `ctx.llm.complete()` reverse-RPC only. Agent steps go
+//     `AgentExecutor.runAgent` → `createPiLlmAdapter`
+//     (`src/runtime/executor-helpers.ts`), which resolves host
+//     credentials directly and never consults the extension grant. This
+//     extension never calls `ctx.llm`, so requesting `llm` would buy a
+//     capability nobody uses and weaken the "no unbounded capability"
+//     claim rather than earn it. The real spend bound on the path that
+//     exists is `workflows.maxRunsPerHour`.
+//
+//   • `workflows.allowDelegated` — does not exist. The type is
+//     `{ names: string[]; maxRunsPerHour?: number }`
+//     (`src/extensions/types.ts`), zero hits repo-wide. It belongs to C3
+//     (delegated execution / `runAs` / consent hashes), which is unbuilt.
+//
+//   • `eventSubscriptions` — a `workflow:*` event can never reach an
+//     extension. `EventSubscriptionDispatcher.dispatch` returns early on
+//     any payload with no top-level string `conversationId`, and
+//     `WorkflowRun` has none. The four `workflow:*` names ARE in
+//     `DIRECT_CARRIER_EVENT_TYPES`, so registration is ACCEPTED and then
+//     never fires: registered, silent, forever. A declaration here would
+//     be a promise the host cannot keep.
+//
+//   • `shell` / `network` / `settings` / `secrets` — no code path wants
+//     them. `run_command` and `http_fetch` were cut from the tool list
+//     (the sandbox preload poisons the process-spawn surface anyway), and
+//     every write goes through the host-mediated fs handler.
+//
+// ── TWO RIDERS ON THE FILESYSTEM GRANT ─────────────────────────────────
+//
+//   1. `$CWD` ONLY, never `$USER`. An unresolved `$USER` segment collapses
+//      to `UNRESOLVED_USER_PREFIX` (`src/extensions/permissions.ts`), a
+//      NUL-bearing sentinel that matches no path — fail-closed by
+//      construction. Tool steps inside a workflow run under a synthetic
+//      `workflow-run:<uuid>` conversation key with no acting user to
+//      partition by, so a `$USER` grant would deny every write. `$CWD`
+//      expands via `grantCwdBase()` → `getProjectRoot()`, which is
+//      process-level and conversation-independent.
+//
+//   2. NO `rbacScope` on any tool this extension ships (8.4/8.5).
+//      `ToolExecutor.executeToolCall` resolves a tool-level `rbacScope`
+//      against a project DERIVED FROM THE CONVERSATION
+//      (`src/extensions/tool-executor/executor.ts`) — the one remaining
+//      conversation-derived decision on the workflow tool path, and the
+//      synthetic run key has no project. The scopes declared below are
+//      for CONSOLE BUTTONS (`ctx.rbac.check`), which resolve the
+//      extension from the subprocess identity, not from a conversation.
+
+import { defineExtension } from "../../src/extensions/sdk/define";
+
+export default defineExtension({
+  schemaVersion: 2,
+  name: "ez-factory",
+  version: "0.1.0",
+  description:
+    "A job console for workflows — saved job definitions over the shipped factory templates, run by hand or from chat, with real approval gates and links out to core run traces.",
+  author: { name: "EZCorp" },
+
+  // Two of the three-page Hub budget. `factory` multiplexes its sub-views
+  // through `?view=`; `job` is the single-job editor. The approvals inbox
+  // deliberately does NOT live here — `pendingApprovals()` is
+  // per-acting-user while the page cache is keyed `(extensionId, pageId,
+  // variant=projectId)` and shared across every viewer, so rendering it
+  // into the extension tree would hand one user's parked decisions to
+  // everyone. The console links to core's `/workflows/approvals` instead.
+  pages: [
+    {
+      id: "factory",
+      title: "Factory",
+      icon: "Factory",
+      description:
+        "Saved jobs with status and last run, the shipped workflow templates, and recent runs. Jobs are install-wide: everyone with access to this Hub sees the same list.",
+    },
+    {
+      id: "job",
+      title: "Job",
+      icon: "SquarePen",
+      description:
+        "Edit one job — name, which shipped workflow it runs, its trigger, and its inputs. One Save, one audited diff.",
+    },
+  ],
+
+  permissions: {
+    // Job definitions + run bookkeeping. Storage is INSTALL-WIDE (global
+    // scope), not per-user — the console says so.
+    storage: true,
+
+    // Dynamic cron + webhook triggers minted at runtime via `ctx.triggers`
+    // (C2). The extension never chooses a slug: it supplies a key and the
+    // host mints `<webhookPrefix><digest>`, so collision and forgery are
+    // inexpressible rather than merely denied.
+    //
+    // THE CEILING ROW MUST REPEAT `webhookPrefix` BYTE FOR BYTE.
+    // `intersectPermissions` does not intersect or merge a namespace claim
+    // — when the two sides disagree it DROPS the whole `triggers` grant,
+    // silently, at boot. All four fields are likewise required on the
+    // granted shape: a missing numeric would make `Math.min(NaN, …)` and
+    // kill the grant the same silent way. No bundled extension had ever
+    // declared `triggers` before this one, so that path ships unexercised
+    // — `src/__tests__/ez-factory-bundled-install.test.ts` exercises it.
+    triggers: {
+      maxCron: 25,
+      maxWebhooks: 25,
+      webhookPrefix: "factory-",
+      maxRunsPerDay: 500,
+    },
+
+    // The three templates this extension SHIPS. Shipping a
+    // `*.workflow.yaml` is only an asset; FIRING it is the privileged act,
+    // and this is the grant that authorizes it. Names are BARE — the host
+    // prefixes each with `ez-factory:` before resolving, so the wire can
+    // never express a host workflow or another extension's.
+    //
+    // `maxRunsPerHour` is the extension's only real spend bound (see the
+    // `llm` note in the header) and is REQUIRED on the granted shape.
+    workflows: {
+      names: ["docs-factory", "etl-factory", "draft-and-verify"],
+      maxRunsPerHour: 60,
+    },
+
+    // Read sources and write artifacts inside the active project. `$CWD`
+    // only — see rider 1 in the header.
+    filesystem: ["$CWD"],
+
+    // DECLARATIONS, not privileges. Each names a per-extension scope an
+    // admin can grant (`extension_rbac_grants`) and console code can query
+    // via `ctx.rbac.check`. Holding one always requires an explicit grant
+    // row, `intersectPermissions` drops them from every intersection, and
+    // the bundled ceiling deliberately carries none — so these are absent
+    // from both the ceiling row and the install grant by design.
+    //
+    // Console buttons ONLY. They are NOT attached to any tool, and NOT to
+    // the workflow approval gates: `answerApproval` checks a declared
+    // scope at `{projectId: null, extensionId: null}`, which an
+    // ez-factory-scoped grant does not cover, AND declaring one REPLACES
+    // the owner check — the person who created the job could no longer
+    // answer their own gate.
+    rbacScopes: [
+      { name: "manage-jobs", description: "Create, edit, enable/disable, and delete factory jobs" },
+      { name: "run-job", description: "Fire a factory job manually" },
+      { name: "approve-gate", description: "Answer a parked approval step on a factory run" },
+    ],
+  },
+
+  // Empty until 8.4. `read_files` / `write_file` / `emit_artifact` land
+  // with their own entrypoint; `run_command` and `http_fetch` are CUT.
+  tools: [],
+});

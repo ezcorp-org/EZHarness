@@ -53,7 +53,10 @@
  *     namespace claim has no meaningful "narrower of the two". A ceiling
  *     row must therefore repeat the extension's own manifest prefix
  *     verbatim, or the extension silently loses dynamic triggers at boot.
- *     No bundled extension declares `triggers` yet.
+ *     `ez-factory` is the FIRST and only bundled extension to declare
+ *     `triggers`; `src/__tests__/ez-factory-bundled-install.test.ts`
+ *     proves its grant actually survives `intersectPermissions` (a test
+ *     that only checked the row exists would pass on a mismatched prefix).
  *
  * `permissions.rbacScopes` (extension-RBAC custom-scope DECLARATIONS) is
  * deliberately ABSENT from every ceiling row AND ignored by the clamp
@@ -507,6 +510,56 @@ export const BUNDLED_CEILING: Record<string, ExtensionPermissions> = {
       maxCallsPerDay: 600,
       maxTokensPerCall: 4096,
     },
+    grantedAt: {},
+  },
+
+  // ez-factory — job console over the three workflow templates it ships.
+  // Mirrors the install grant in `bundled.ts` VERBATIM.
+  //
+  // FIRST BUNDLED ROW TO CARRY `triggers` — the path documented in the
+  // module header but never exercised until now. Two ways this row kills
+  // the grant SILENTLY at boot if edited carelessly:
+  //
+  //   1. Drop any one of the four numerics and `intersectPermissions`
+  //      computes `Math.min(NaN, …) === NaN`. The granted type makes all
+  //      four required, so TypeScript catches this one.
+  //   2. Change `webhookPrefix` by a single byte and `intersectPermissions`
+  //      DROPS the entire `triggers` grant — a namespace claim has no
+  //      "narrower of the two", so disagreement means no grant rather than
+  //      a winner. TypeScript cannot catch this; `factory-` must match
+  //      `extensions/ez-factory/ezcorp.config.ts` exactly, and
+  //      `src/__tests__/ez-factory-bundled-install.test.ts` asserts the byte match
+  //      AND that the grant survives the intersection.
+  //
+  // `workflows` follows the same FULL-FIELD-SET RULE as city-conditions:
+  // `maxRunsPerHour` carries the same 60 as the grant so the intersection
+  // is lossless. It is also the extension's only real spend bound — the
+  // `llm` permission does NOT bound workflow agent-step spend (those go
+  // `runAgent` → `createPiLlmAdapter` and never consult the grant), which
+  // is why there is no `llm` row here and none in the manifest.
+  //
+  // NO `shell` / `network` / `env` / `eventSubscriptions` / `llm`. The
+  // filesystem grant is `$CWD` only — never `$USER`, which collapses to a
+  // NUL-bearing sentinel matching nothing when there is no acting user to
+  // partition by, and workflow tool steps run under a synthetic
+  // `workflow-run:<uuid>` key that has none.
+  //
+  // `permissions.rbacScopes` (manage-jobs / run-job / approve-gate) is
+  // deliberately absent, like every other row: declarations are inert and
+  // the clamp comparator ignores them (see the module header).
+  "ez-factory": {
+    storage: true,
+    triggers: {
+      maxCron: 25,
+      maxWebhooks: 25,
+      webhookPrefix: "factory-",
+      maxRunsPerDay: 500,
+    },
+    workflows: {
+      names: ["docs-factory", "etl-factory", "draft-and-verify"],
+      maxRunsPerHour: 60,
+    },
+    filesystem: ["$CWD"],
     grantedAt: {},
   },
 };
