@@ -148,6 +148,12 @@ export const SOURCE_GLOBS: readonly string[] = [
   "web/src/**/*.svelte",
   "packages/@ezcorp/sdk/src/**/*.ts",
   "docs/extensions/examples/**/*.ts",
+  // First-party BUNDLED extensions (registered in src/extensions/bundled.ts).
+  // They ship in the product exactly like `src/**` does — the reference
+  // extensions under `docs/extensions/examples/**` were already gated while
+  // this tree was not, so `extensions/**` was outside BOTH the new-file and
+  // patch-coverage gates and its three test files ran in no CI job.
+  "extensions/**/*.ts",
 ];
 
 // Test/spec/type files are never "product code" for the new-file gate.

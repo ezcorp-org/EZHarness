@@ -715,7 +715,15 @@ export const tools: Record<string, ToolHandler> = {
   distill_now: distillNow,
 };
 
-if (import.meta.main) {
+/**
+ * Production boot: register the loop, mount the `tools/call` plumbing and
+ * start the channel's stdin read loop. Exported (not inlined under
+ * `import.meta.main`) so a unit test can drive the boot body IN-process
+ * against the SDK test channel — a spawned subprocess's coverage never
+ * reaches this process's lcov. Same shape as the reference extensions
+ * (`docs/extensions/examples/webhook-ticket-loop/index.ts`).
+ */
+export function start(): void {
   defineDistillLoop();
   // Merge the loop's manual-trigger tools (none here) with the
   // hand-written `distill_now` (which returns the DistillerEnvelope the
@@ -724,3 +732,6 @@ if (import.meta.main) {
   createToolDispatcher({ ...getLoopTools(), ...tools });
   getChannel().start();
 }
+
+// Gated on `import.meta.main` so test imports don't open stdin.
+if (import.meta.main) start();

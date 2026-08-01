@@ -574,28 +574,48 @@ export function defineMemoryLoops(compactionCron: string): void {
   });
 }
 
-if (import.meta.main) {
-  // Resolve the compaction cadence at boot (errors → default 6h cron).
-  let resolvedCron: string = DEFAULT_COMPACTION_CRON;
+/**
+ * Resolve the compaction cadence at boot from the user's settings. Every
+ * failure mode (unreadable settings, unsupported value) degrades to the
+ * default 6h cron and warns: the schedule must always register SOMETHING,
+ * because a silently-unregistered cron means compaction never runs at all.
+ * Split out of `start()` so its three branches are testable without
+ * opening a channel.
+ */
+export async function resolveBootCron(): Promise<string> {
   try {
     const settings = await runtimeApi.getMySettings();
     const resolved = resolveCompactionCron(settings.compaction_interval_hours);
-    resolvedCron = resolved.cron;
     if (resolved.usedFallback) {
       console.warn("[memory-extractor] compaction_interval_hours fallback to default 6h", {
         resolvedFrom: resolved.resolvedFrom,
       });
     }
+    return resolved.cron;
   } catch (err) {
     console.warn("[memory-extractor] could not read settings at boot; defaulting to 6h", {
       error: err instanceof Error ? err.message : String(err),
     });
+    return DEFAULT_COMPACTION_CRON;
   }
+}
 
-  defineMemoryLoops(resolvedCron);
+/**
+ * Production boot: resolve the cadence, register both loops, mount the
+ * `tools/call` plumbing and start the channel's stdin read loop. Exported
+ * (not inlined under `import.meta.main`) so a unit test can drive the boot
+ * body IN-process against the SDK test channel — a spawned subprocess's
+ * coverage never reaches this process's lcov. Same shape as the reference
+ * extensions (`docs/extensions/examples/webhook-ticket-loop/index.ts`).
+ */
+export async function start(): Promise<void> {
+  defineMemoryLoops(await resolveBootCron());
   // The extension declares no manual tools; the dispatcher still mounts
   // the `tools/call` plumbing the host expects (merged with the loops'
   // tools, of which there are none).
   createToolDispatcher({ ...getLoopTools(), ...tools });
   getChannel().start();
 }
+
+// Gated on `import.meta.main` so test imports don't open stdin.
+if (import.meta.main) await start();
