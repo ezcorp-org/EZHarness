@@ -1089,6 +1089,11 @@ export class WorkflowExecutor {
                 outputTokens: stepRun.outputTokens,
                 durationMs: stepDurationMs,
                 errorCode: stepRun.errorCode,
+                // Set only on the `skipped` path, immediately before this
+                // runs. Without persisting it a reloaded trace shows a
+                // skipped step with no reason, which reads exactly like a
+                // step that was never reached.
+                skippedReason: stepRun.skippedReason,
                 // Resume fodder: `$steps.<name>` for every later step.
                 // NULL until the step succeeds, and NULL forever for one
                 // that failed — a resume reads that as "no value" and

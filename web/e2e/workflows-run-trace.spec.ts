@@ -164,12 +164,14 @@ test.describe("Workflow run trace", () => {
 		await expect(page.getByTestId("step-model").first()).toHaveText("claude-opus-5");
 		await expect(page.getByTestId("step-input-tokens").first()).toHaveText("12,400");
 
-		// Cost is a dash everywhere, with the reason on the cell rather than
-		// left as a mystery — there is no price table, so a number here
-		// would be invented.
+		// This fixture's steps carry no cost, so every cell is a dash — and
+		// the tooltip says the cost could not be MEASURED rather than
+		// implying the step was free, which is the distinction the column
+		// exists to preserve.
 		const costs = page.getByTestId("step-cost");
 		for (let i = 0; i < 3; i++) await expect(costs.nth(i)).toHaveText("—");
-		await expect(costs.first()).toHaveAttribute("title", /no price table/i);
+		await expect(costs.first()).toHaveAttribute("title", /could not be measured/i);
+		await expect(costs.first()).toHaveAttribute("title", /not mean the step was free/i);
 
 		await captureEvidence(page, testInfo, "workflow-run-trace", { fullPage: true });
 	});

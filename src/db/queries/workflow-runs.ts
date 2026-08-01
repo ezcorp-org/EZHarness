@@ -21,6 +21,7 @@ import {
   isTruncatedStepOutput,
   MAX_STEP_OUTPUT_BYTES,
 } from "../../runtime/workflow-step-output";
+import { stepCostUsd } from "../../runtime/workflow-step-cost";
 
 /**
  * Terminal statuses a workflow run may be finalized into.
@@ -248,6 +249,12 @@ export interface WorkflowStepRunUpsert {
    *  by {@link prepareResolvedInput}. Never the raw value — that object
    *  carries whatever credentials the author threaded in. */
   resolvedInput?: Record<string, unknown> | TruncatedStepOutput;
+  /** Why a `skipped` step did not run — its own `when`, or the name of the
+   *  skipped dependency that suppressed it. Absent for every other status,
+   *  and absent persists as SQL NULL: "this step was not skipped". Without
+   *  it a reloaded trace shows `status = 'skipped'` and no reason, which is
+   *  indistinguishable from a step that was never reached. */
+  skippedReason?: string;
 }
 
 /**
@@ -280,10 +287,18 @@ export async function upsertWorkflowStepRun(
   const durationMs = row.durationMs ?? null;
   const errorCode = row.errorCode ?? null;
   const resolvedInput = row.resolvedInput ?? null;
-  // `cost_usd` is deliberately NOT written by any code path: there is no
-  // host-side price table, so nothing here can compute a cost honestly.
-  // The column exists so the trace, the dashboard and C3's spend cap have
-  // one place to read from the day a price source lands.
+  const skippedReason = row.skippedReason ?? null;
+  // Derived from the three columns above rather than passed in, so the
+  // cost is always a function of the tokens actually recorded and cannot
+  // be set independently of them.
+  //
+  // NULL here means the cost could not be MEASURED — it never means
+  // "free". A `tool` / `transform` / `gate` step reports no tokens, so it
+  // prices as NULL while its real-world cost is simply unmeasured; an
+  // unpriced (OAuth-subscription) model prices as NULL too. Anything
+  // summing this column therefore bounds LLM spend and nothing else. See
+  // {@link stepCostUsd}, which owns that distinction.
+  const costUsd = stepCostUsd(row);
   await getDb()
     .insert(workflowStepRuns)
     .values({
@@ -298,15 +313,18 @@ export async function upsertWorkflowStepRun(
       attempt,
       inputTokens,
       outputTokens,
+      costUsd,
       durationMs,
       errorCode,
       resolvedInput,
+      skippedReason,
     })
     .onConflictDoUpdate({
       target: [workflowStepRuns.workflowRunId, workflowStepRuns.stepName],
       set: {
         runId, status: row.status, iterations, provider, model, output,
-        attempt, inputTokens, outputTokens, durationMs, errorCode, resolvedInput,
+        attempt, inputTokens, outputTokens, costUsd, durationMs, errorCode,
+        resolvedInput, skippedReason,
         updatedAt: sql`NOW()`,
       },
     });
@@ -353,9 +371,11 @@ export async function upsertWorkflowStepRun(
  * SKIPPED" rather than the misleading "has not run yet". So they are
  * returned in a second, parallel map.
  *
- * The reason string is generic here because
- * `workflow_step_runs.skipped_reason` is C5's column and does not exist
- * yet; the status alone is what survives a restart today.
+ * The row's own `skipped_reason` is used when it has one, so a resumed run
+ * reports the SAME reason the first process did. This constant is the
+ * fallback for a row written before that column had a writer — the status
+ * survived a restart, the reason did not, and inventing a specific one for
+ * those rows would be worse than admitting the generic truth.
  */
 export const REHYDRATED_SKIP_REASON = "it was skipped earlier in this run";
 
@@ -370,7 +390,7 @@ export async function loadStepResults(
   const skippedSteps = new Map<string, string>();
   for (const row of rows) {
     if (row.status === "skipped") {
-      skippedSteps.set(row.stepName, REHYDRATED_SKIP_REASON);
+      skippedSteps.set(row.stepName, row.skippedReason ?? REHYDRATED_SKIP_REASON);
       continue;
     }
     if (row.status !== "success") continue;

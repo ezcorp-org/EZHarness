@@ -107,12 +107,14 @@ export function formatDuration(ms: number | null): string {
 }
 
 /**
- * A cost, or the dash — which today is always the dash.
+ * A cost, or the dash.
  *
- * There is no host-side price table, so `cost_usd` is NULL on every row
- * and nothing can compute one honestly. The formatter is written for the
- * real column anyway so that the day a price source lands, this is not
- * where the work is.
+ * The dash means the cost could not be MEASURED — never that the step was
+ * free. Three things produce it: a step that ran no LLM (`tool` /
+ * `transform` / `gate`), a provider that reported no usage, and an
+ * unpriced model (an OAuth subscription is rate-limited rather than billed
+ * per token). A step that really did cost nothing arrives as `"0.000000"`
+ * and renders as `$0.0000`, which is why the two must not be collapsed.
  */
 export function formatCost(costUsd: string | null): string {
   if (costUsd === null) return NOT_REPORTED;
@@ -120,9 +122,11 @@ export function formatCost(costUsd: string | null): string {
   return Number.isFinite(n) ? `$${n.toFixed(4)}` : NOT_REPORTED;
 }
 
-/** Why the cost column is empty, shown as a tooltip rather than silently. */
+/** Why a cost cell can be empty, shown as a tooltip rather than silently.
+ *  Deliberately says "not measured" rather than "free" — a tool step's
+ *  real cost is unknown here, not zero. */
 export const COST_UNAVAILABLE_HINT =
-  "Cost is not computed yet — there is no price table, so this reports nothing rather than guessing.";
+  "A dash means the cost could not be measured — a step that ran no model, a provider that reported no usage, or a subscription model with no per-token price. It does not mean the step was free.";
 
 /**
  * Whether a run is still going, in any sense.

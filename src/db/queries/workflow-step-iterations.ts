@@ -27,6 +27,7 @@ import { and, eq } from "drizzle-orm";
 import { getDb } from "../connection";
 import { workflowStepIterations, workflowStepRuns } from "../schema";
 import type { WorkflowRunStatus } from "../../types";
+import { stepCostUsd } from "../../runtime/workflow-step-cost";
 
 export interface WorkflowStepIterationUpsert {
   workflowRunId: string;
@@ -61,8 +62,12 @@ export interface WorkflowStepIterationUpsert {
  * collapsing the two would hide exactly the retry an operator is reading
  * the trace to find.
  *
- * `cost_usd` is not written — there is no host-side price table, so
- * nothing can compute it honestly. Same reading as the parent table.
+ * `cost_usd` is DERIVED from this row's own `provider` / `model` / tokens
+ * via {@link stepCostUsd}, not passed in — an iteration may resolve a
+ * different model than its siblings (a `$loop.*` binding re-resolves each
+ * pass), so pricing it from the parent's binding would misprice exactly
+ * the escalate-on-retry case the per-iteration table exists to show. NULL
+ * means "not measurable", never "free"; same reading as the parent table.
  *
  * Returns `true` iff a row landed. `false` means the parent step row was
  * not yet visible; the caller decides whether that is worth a log line.
@@ -77,6 +82,7 @@ export async function upsertWorkflowStepIteration(
   const outputTokens = row.outputTokens ?? null;
   const durationMs = row.durationMs ?? null;
   const errorCode = row.errorCode ?? null;
+  const costUsd = stepCostUsd(row);
 
   const parent = await getDb()
     .select({ id: workflowStepRuns.id })
@@ -101,7 +107,7 @@ export async function upsertWorkflowStepIteration(
       iteration: row.iteration,
       attempt: row.attempt,
       status: row.status,
-      runId, provider, model, inputTokens, outputTokens, durationMs, errorCode,
+      runId, provider, model, inputTokens, outputTokens, costUsd, durationMs, errorCode,
     })
     .onConflictDoUpdate({
       target: [
@@ -109,7 +115,10 @@ export async function upsertWorkflowStepIteration(
         workflowStepIterations.iteration,
         workflowStepIterations.attempt,
       ],
-      set: { status: row.status, runId, provider, model, inputTokens, outputTokens, durationMs, errorCode },
+      set: {
+        status: row.status, runId, provider, model, inputTokens, outputTokens,
+        costUsd, durationMs, errorCode,
+      },
     });
   return true;
 }

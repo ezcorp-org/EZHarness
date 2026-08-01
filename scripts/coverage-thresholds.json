@@ -109,6 +109,7 @@
   "src/runtime/workflow-model.ts": 100,
   "src/runtime/workflow-name.ts": 100,
   "src/runtime/workflow-step-output.ts": 100,
+  "src/runtime/workflow-step-cost.ts": 100,
   "src/runtime/workflow-definition-hash.ts": 100,
   "src/runtime/workflow-approval-guard.ts": 100,
   "src/runtime/workflow-answer-approval.ts": 100,
