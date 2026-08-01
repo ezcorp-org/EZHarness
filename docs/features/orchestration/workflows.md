@@ -1,6 +1,6 @@
 # Workflows
 
-> _Declarative graphs that orchestrate a mix of **agent** steps (invoke one agent), **tool** steps (invoke one deterministic extension tool), **transform** steps (pure, declarative data reshapes — no LLM, no I/O), **gate** steps (assert a declarative condition), and **approval** steps (park the run for a human and continue once they answer). Any agent/transform step may **loop** with a bounded until-condition. The executor topo-sorts steps into parallel batches with fail-fast, loud-failure semantics; a parked run is **durable** — it records a cursor, survives a restart, and is resumed by the `WorkflowRunner` daemon._
+> _Declarative graphs that orchestrate a mix of **agent** steps (invoke one agent), **tool** steps (invoke one deterministic extension tool), **transform** steps (pure, declarative data reshapes — no LLM, no I/O), **gate** steps (assert a declarative condition), **approval** steps (park the run for a human and continue once they answer), and **workflow** steps (run a nested definition as a first-class child run). Any step may declare a **`when`** guard that skips it — and its dependents — without failing the run. Any agent/transform/workflow step may **loop** with a bounded until-condition. The executor topo-sorts steps into parallel batches with fail-fast, loud-failure semantics; a parked run is **durable** — it records a cursor, survives a restart, and is resumed by the `WorkflowRunner` daemon._
 
 ## Intent
 
@@ -12,6 +12,7 @@ Three design constraints are load-bearing (not stylistic):
 2. **No arbitrary code steps.** DB workflows are creatable by any `chat`-scoped caller, so deterministic steps must be **declarative** (a mapping/condition DSL), never evaluated JS. This is a security constraint.
 3. **Loud failure.** Loop exhaustion fails the run by default, gates throw with a descriptive message, and nothing silently truncates.
 4. **A parked run is alive, not dead.** An `approval` step suspends the run at a step boundary and records where to pick up (`suspended`), which is the one non-terminal, non-`running` status. It is deliberately NOT the older `awaiting_approval`, whose meaning is unchanged — *parked and dead* (`src/types.ts:303-307`, `src/runtime/workflow-executor.ts:109-131`).
+5. **Skipping is not failing, and it is not a licence to break rule 3.** A false `when` skips a step and the run still succeeds — but a downstream `$steps.<skipped>` still throws, because handing a step a value nobody produced is exactly the silent wrong answer rule 3 exists to prevent. The definition-time skip/ref rule is what makes that throw unreachable in practice.
 
 `kind` defaults to `"agent"`, so **every legacy pipeline definition (YAML or DB row) remains valid with zero edits.**
 
@@ -20,15 +21,16 @@ Three design constraints are load-bearing (not stylistic):
 ### Data model (`src/types.ts`)
 
 - `WorkflowDefinition` = `{ name, description, inputSchema?, defaultModel?, steps }`.
-- `WorkflowStep` = `{ name, kind?, agent?, tool?, input?, retries?, output?, condition?, model?, dependsOn?, loop?, prompt?, choices?, rbacScope?, formSchema?, requireItemConsent?, itemsRef?, timeoutMs?, onTimeout? }`. `kind` is one of `"agent" | "tool" | "transform" | "gate" | "approval"` (default `"agent"`; `src/types.ts:205`).
+- `WorkflowStep` = `{ name, kind?, agent?, tool?, workflow?, input?, retries?, output?, condition?, when?, skipDependents?, model?, dependsOn?, loop?, prompt?, choices?, rbacScope?, formSchema?, requireItemConsent?, itemsRef?, timeoutMs?, onTimeout? }`. `kind` is one of `"agent" | "tool" | "transform" | "gate" | "approval" | "workflow"` (default `"agent"`).
   - **agent** — `agent` is an agent name resolved by `AgentExecutor`; `input` is a `Record<string,string>` of input mappings; `retries` is a per-step retry budget (clamped 0..2); `model` is a per-step model binding (see **Per-step model bindings**).
   - **tool** — `tool` is a runtime-namespaced extension tool (`<extension>__<tool>`, e.g. `extension-author__create_extension`) dispatched through `ToolExecutor.executeToolCall`. `input` uses the **same** ref language as an agent step (there is deliberately no second grammar). `agent` is forbidden; `loop` is forbidden (see gotchas).
   - **transform** — `output` is a `Record<string,string>` output mapping (same ref language as inputs, plus `{{…}}` template interpolation). Pure: no LLM, no I/O, no clock.
   - **gate** — `condition` is a `WorkflowCondition` tree.
+  - **workflow** — `workflow` names a **nested definition**, resolved through the same merged cache (and the same authorization ladder) the run route uses. `input` uses the same ref language; the child's terminal `result` becomes the step's result. `agent`/`tool` are forbidden. `loop` **is** allowed — see **Composition**.
   - **approval** — parks the run for a human. `prompt` (required) is the question; `choices` (required, non-empty, unique, non-blank strings) is the answer set; `rbacScope` names a permission that gates answering; `formSchema` collects structured fields alongside the choice; `requireItemConsent` + `itemsRef` demand the answer name the items it acts on; `timeoutMs` / `onTimeout` (`"abort" | "approve" | "skip"`, default `abort`) are **recorded but not yet enforced** — see gotchas. `agent`/`tool`, `retries` and `loop` are all rejected on it (`src/runtime/workflow-validator.ts:214-266,326`).
 - `WorkflowCondition` = a leaf `{ ref, op, value? }` or a composite `{ all: [] } | { any: [] } | { not: … }`. Operators: `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `contains`, `exists`, `truthy`.
 - `LoopConfig` = `{ maxIterations, until?, onExhausted? }` — `maxIterations` is **required** (server-clamped 1..25); `until` is a `WorkflowCondition` evaluated after each iteration; `onExhausted` is `"fail"` (default) or `"pass"`.
-- `WorkflowRun` = `{ id, workflowName, projectId?, status, startedAt, finishedAt?, steps: WorkflowStepRun[], result? }`; `WorkflowStepRun` = `{ stepName, runId, status, iterations?, provider?, model? }` (`iterations` is the final count for a looped step; `provider`/`model` are the binding the step's LLM call **resolved** to). `status` is `WorkflowRunStatus` = the agent `AgentStatus` union **plus `awaiting_approval` and `suspended`** (`src/types.ts:307`).
+- `WorkflowRun` = `{ id, workflowName, projectId?, status, startedAt, finishedAt?, steps: WorkflowStepRun[], result? }`; `WorkflowStepRun` = `{ stepName, runId, status, iterations?, provider?, model?, skippedReason? }` (`iterations` is the final count for a looped step; `provider`/`model` are the binding the step's LLM call **resolved** to; `skippedReason` explains a `skipped` step). `status` is `WorkflowRunStatus` = the agent `AgentStatus` union **plus `awaiting_approval`, `suspended` and `skipped`**. `skipped` is a **step** status only — a *run* never terminalizes it, which `TerminalWorkflowRunStatus` states in the type system.
 - `WorkflowCursor` = `{ batchIndex, completedSteps, prevStepName }` — where a parked run picks up. `prevStepName` is **recorded, not recomputed**, so a resumed run reproduces the same order-fragile `$prev` the straight-through run saw rather than a graph-deterministic one (`src/types.ts:339-353`).
 - `WorkflowRunPhase` = `"boundary" | "in-batch"` — which side of a step boundary the executor was on when it last wrote. Written strictly (never through the swallow-on-error telemetry path), so crash recovery never guesses (`src/types.ts:309-321`).
 - `ApprovalStepOutput` = `{ choice, form, itemIds, answeredBy, answeredAt }` — what an answered `approval` step contributes to `$steps`. **Every field is always present** (`form: {}`, `itemIds: []`) because refs resolve strictly: a downstream `$steps.<gate>.output.form` must not throw just because this answer carried no form (`src/types.ts:226-237`, `src/runtime/workflow-executor.ts:1483-1489`).
@@ -122,14 +124,16 @@ Each file is validated with the same shared `validateWorkflow`; invalid files, u
    - Otherwise a **topological sort** groups steps whose deps are all resolved into the same batch; an empty batch with steps remaining ⇒ **`Circular dependency detected`** thrown.
 3. For each batch, all steps run **in parallel** (`Promise.all`). Per step, the executor dispatches by kind (and delegates to the loop runner if the step declares a `loop`):
    - Push a `WorkflowStepRun` (`status: "running"`), emit **`workflow:step`**.
+   - **Skip decision, before any dispatch.** A step is `skipped` if a step it `dependsOn` was skipped (and that step did not set `skipDependents: false`), or if its own `when` evaluates false. The step returns **no result at all** — that is what keeps it out of `$prev` and out of `$steps` — and the run carries on. See **Conditional skip**.
    - **agent** — resolve `input` via the ref language, run the agent (up to `1 + clampRetries(retries)` attempts; a *cancelled* run is never retried), copy `agentRun.id`/`status` onto the step run. A genuine failure after the budget throws `Step "<name>" failed: <error>`.
    - **transform** — resolve `output` (refs + `{{…}}` templates) into `{ success: true, output: <object> }`. `stepRun.runId` stays `""` (no agent run).
    - **tool** — resolve `input` via the ref language, dispatch `ToolExecutor.executeToolCall(tool, resolvedInput, <synthetic conversationId>, null)`, and return `{ success: true, output: parseToolOutput(<tool text content joined with newlines>) }`. An `isError` result or a thrown dispatch error throws `Step "<name>" failed: <text>` (the RAW text — an error message is for a human). A sensitive-capability approval prompt fails the step with `WorkflowApprovalRequiredError` — see **Tool steps & the approval guard** below.
    - **gate** — evaluate `condition`; `true` ⇒ `{ success: true, output: { passed: true } }`; `false` ⇒ throw `Gate "<name>" failed: <human-readable explanation of the decisive leaf>`.
    - **approval** — already answered ⇒ return the answer as an `ApprovalStepOutput`; cancelled ⇒ throw; otherwise park the run and throw `WorkflowSuspendedError` (see **Approval steps**).
+   - **workflow** — run the nested definition as a child run through **this same executor instance** and return its result; a child that parked throws `WorkflowSuspendedError` so the parent parks too (see **Composition**).
    - The first failure records the batch error and **cancels still-running siblings** via the abort plumbing.
    - A step already named in the cursor's `completedSteps` is **served from its persisted output, not re-executed** — that is what makes a partial-batch resume safe (`src/runtime/workflow-executor.ts:694-718`).
-4. After each batch, `prevResult` is set to the **last successful result in that batch** (array order) — this is what `$prev.*` reads next. The batch boundary then writes the cursor **strictly** (`advanceWorkflowRunCursor`, `src/runtime/workflow-executor.ts:887-893`).
+4. After each batch, `prevResult` is set to the **last EXECUTED result in that batch** (array order, skipping over skipped steps) — this is what `$prev.*` reads next — and `prevStepName` is taken from the **same index**, so the two can never name different steps. A batch that executed nothing leaves both untouched, so `$prev` keeps naming the last real result from an earlier batch. The batch boundary then writes the cursor **strictly** (`advanceWorkflowRunCursor`).
 5. On clean completion: `status:"success"`, `result = prevResult`, emit **`workflow:complete`**. On failure: `status:"error"` (or `"cancelled"` for an external abort, `"awaiting_approval"` when a tool step needs consent a workflow structurally cannot obtain, `"suspended"` when an `approval` step deliberately parked it, or `"error"` with code `cursor-write-failed` when a durability write failed), emit **`workflow:error`**. A `suspended` run gets **no `finishedAt`** and is **not** finalized — it has not finished (`src/runtime/workflow-executor.ts:937-1042`).
 
 `runWorkflow` is **fully awaited by default** — the run route blocks until the graph finishes or parks. `X-EZ-Workflow-Async: 1` opts out (see the REST table). The returned run is terminal *unless* its status is `suspended`.
@@ -149,7 +153,8 @@ A tool step runs through the host's **one** tool dispatch path, so it is authori
 `new WorkflowExecutor(agentExec, bus, { persist: true })` (the server and the CLI) mirrors every run to the DB; the default is `false` so unit harnesses without a DB are unaffected. Writes never throw — a DB glitch cannot fail a workflow that otherwise succeeded.
 
 - `workflow_runs` — the executor's **already-minted** `id` (never a column default: it is already in the `workflow:start` payload and the scope key), `workflow_definition_id` (nullable FK — YAML workflows have no row; `SET NULL` keeps history after a delete), `workflow_name` (denormalized so history survives a rename), `project_id`, `user_id` (`SET NULL`, same IDOR-guard rationale as `runs.user_id`), `status`, `input`, `result`, `started_at`, `finished_at`.
-  Plus the durability columns: `cursor` (jsonb `WorkflowCursor`), `run_phase`, `suspended_reason`, `resumable`, `definition_hash`, `definition_version_id`, and the daemon's `claimed_by` / `lease_expires_at` (`src/db/schema.ts:507-569`).
+  Plus the durability columns: `cursor` (jsonb `WorkflowCursor`), `run_phase`, `suspended_reason`, `resumable`, `definition_hash`, `definition_version_id`, and the daemon's `claimed_by` / `lease_expires_at`.
+  Plus the composition columns: `parent_run_id` (self-FK, **ON DELETE SET NULL** — a child's history records what a nested attempt cost and must survive its parent's deletion; declared as plain text in `schema.ts` with the real FK added in `migrate.ts`, mirroring `sdk_capability_calls.parent_call_id`) and `idempotency_key`, which a nested dispatch derives so it is re-entrant across a parent's suspend.
 - `workflow_step_runs` — one upserted row per step on `(workflow_run_id, step_name)`; `run_id` is a **nullable** FK to `runs.id` (transform / gate / tool / approval steps mint no AgentRun and carry the in-memory `runId = ""` sentinel, which the query layer maps to SQL NULL). The row also stores the step's `output` — resume fodder for `$steps.<name>`, written only once the step succeeds, and passed through `prepareStepOutput` first: secrets are redacted (`redactSecretsDeep`) and anything over **256 KiB** (`MAX_STEP_OUTPUT_BYTES`) is replaced by a truncation sentinel (`src/runtime/workflow-step-output.ts:40,80-93`).
 - `finalizeWorkflowRunRow(id, status, result?)` is an idempotent CAS on `status IN ('running','suspended')` — a retry or a racing sweep is a zero-row no-op and never clobbers a richer terminal state. `suspended` is in the set deliberately: without it, a cancel-while-parked and a resume that refuses both matched zero rows and were **silently dropped**, leaving the run parked and refusing forever (`src/db/queries/workflow-runs.ts:305-333`).
 - `terminalizeOrphanedWorkflowRuns()` runs at boot (`web/src/lib/server/context.ts:174`). Its SELECT stays one predicate — `status='running'` plus "orphaned", which is *either* a NULL lease with `started_at` before this process started *or* an expired lease. **Its action branches on `run_phase`**: `boundary` ⇒ `suspended` + `resumable = true` + reason `orphaned-resumable`, keeping its result and gaining no `finished_at` (it is going to continue, not end); `in-batch` ⇒ `error` + `resumable = false`, because a restart cannot safely re-enter a half-executed step, with a message naming the batch index and the steps that were in flight. Either way the stale `claimed_by` / `lease_expires_at` are cleared, or the daemon could never pick the resumable ones up (`src/db/queries/workflow-runs.ts:386-445`).
@@ -250,11 +255,140 @@ The daemon that resumes parked runs, modelled on `ScheduleDaemon` so anyone who 
 - **No crash recovery of its own.** A run left `running` by a dead process is `terminalizeOrphanedWorkflowRuns`'s business, which reads `run_phase` to decide whether continuing is even safe. Duplicating that judgement is how two mechanisms start disagreeing.
 - **No registered runtime ⇒ a no-op tick**, not a crash. The live executor and workflow cache are built in the web layer, which `src/` may not import; `workflow/runtime-registry.ts` is the sanctioned seam and `getWorkflows()` there is a **thunk**, because the cache array is replaced on every workflow CRUD write and a daemon holding a snapshot would resume against a stale list.
 
+### Conditional skip (`when` / `skipDependents`)
+
+`condition` is gate-only and a false gate **fails** the run. `when` is the other
+answer: evaluated **before dispatch**, in the same `WorkflowCondition` grammar,
+through the **unchanged** `evaluateCondition`, against the same ref context the
+step's `input` would have used. False ⇒ the step is `skipped` and **the run
+still succeeds**. That is the whole distinction from a gate.
+
+- **Legal on every kind**, including `workflow`. On a step that also declares
+  `loop` it is evaluated **once, before the loop** — a per-iteration guard is
+  `loop.until`.
+- **Transitive by default.** A step is also skipped when any step it
+  `dependsOn` was skipped. `skipDependents: false` **on the skipped step** opts
+  its dependents back in; the flag is read off the *producer*, never off the
+  consumer, because only the producer knows whether its absence is survivable.
+- **A skipped step explains itself.** `WorkflowStepRun.skippedReason` names
+  either the guard (`its "when" was not met: …`) or the dependency
+  (`step "draft" was skipped`), so the trace never shows a skipped step with no
+  explanation. It rides the `workflow:step` SSE frame.
+- **An unresolvable ref inside `when` FAILS the step.** Reading it as "run it"
+  or as "skip it" would decide a branch by accident; loud failure is the rule.
+
+#### The skip/ref rule — the sharp edge
+
+`$steps.<name>` is **strict on the step**, and a skipped step produces no
+result. Two facts make that dangerous rather than merely inconvenient:
+
+1. `dependsOn` and refs are **independent** today. Nothing requires a step
+   reading `$steps.X` to declare `dependsOn: [X]`, and the resolver never
+   consults the graph. So `skipDependents` alone does not protect an
+   *undeclared* reader: it would run, hit the strict ref, and throw — failing a
+   run this feature promises succeeds.
+2. Substituting `undefined` instead would hand a downstream step a broken value,
+   which is precisely the silent breakage design constraint 3 forbids.
+
+So three rules, in order:
+
+- **A skipped step is recorded in a second map, never in `stepResults`.** A
+  sentinel *inside* `stepResults` would make `has()` true and make a bare
+  `$steps.<skipped>` resolve to it. Kept apart, the strict throw still fires,
+  and `RefContext.skippedSteps` only changes the **message**.
+- **That message names the skip and the fix** — `step "draft" was SKIPPED (…).
+  Declare dependsOn: ["draft"] so this step is skipped too, or guard it with its
+  own "when".` — instead of the misleading "has not run yet".
+- **`validateWorkflow` makes it unreachable.** Every step that reads
+  `$steps.<X>` where X **can be skipped** must declare `dependsOn: [X]`. The
+  skippable set is computed to a **fixpoint** over `dependsOn` (so a
+  transitively-skippable step's reader is caught too), and the scan covers
+  `input`, `output` — **including `{{…}}` templates** — `condition`, `when`,
+  `loop.until`, `itemsRef` and `model`. A graph with no `when` anywhere is
+  completely unaffected, so nothing that predates this feature can start
+  failing.
+
+A skipped step is **not** added to `cursor.completedSteps` (nothing completed);
+its persisted step row carries `status = 'skipped'`, and `loadStepResults`
+rehydrates it into `skippedSteps` — **not** into `stepResults` — so a resumed run
+suppresses the same dependents the first process did.
+
+### Composition — `kind: "workflow"` (`runNestedWorkflow`)
+
+A `workflow` step runs a nested definition as a **first-class child run**: its
+own `workflow_runs` row, its own cursor, its own `definition_hash`, and
+`parent_run_id` pointing at the step's run. The child's terminal `result`
+becomes the step's result, so `$steps.<step>.output.…` addresses the nested
+graph's final output through the unchanged ref grammar. A child that fails
+throws in the parent, exactly like a failed agent step.
+
+- **Depth is capped at 3** levels below the root
+  (`MAX_WORKFLOW_NESTING_DEPTH`), enforced at **run time** by a counter threaded
+  through the child's execution context *and* at **definition time** wherever the
+  chain is statically visible.
+- **Cycles are a definition-time error naming the loop**
+  (`Nested workflow cycle: a -> b -> a`). A workflow nesting *itself* is caught
+  with no resolver at all, because the walk seeds its path with the root's name.
+- **An unresolved nested name is deliberately NOT a definition-time error.** A
+  resolver only sees the world as it is right now, and rejecting a forward
+  reference would make "create the parent, then the child" impossible. The
+  run-time lookup reports it when it matters.
+- **`loop` is legal on a `workflow` step, and only there among the kinds the
+  `tool` ban covers.** What a looped nested run repeats is a graph with an LLM or
+  a gate in it (fix → re-validate); the nested graph may itself contain a tool
+  step, but the *loop* wraps a decision, not a bare install/write/shell call.
+  **Each iteration is its own child run**, which is what makes the trace read
+  "3 attempts, here is each".
+- **The child is executed by the SAME `WorkflowExecutor` instance** —
+  `this.runWorkflow`, never `new WorkflowExecutor`. That is what makes a dry
+  run's guarantees hold at any depth: a tool step three levels down hits the same
+  throwing `toolRunnerFactory`, because `getToolRunner` closes over it. A
+  refactor that constructs its own executor here evaporates that guarantee
+  silently.
+
+#### Suspend, resume, and why re-entrancy is the whole design
+
+A nested graph may contain an `approval`, so a **child can park**. When it does,
+the step throws `WorkflowSuspendedError` and the parent parks alongside it, at
+its own batch, with its already-finished siblings recorded — the mechanism an
+`approval` step in a parallel batch already uses. Parent and child are then two
+independent suspended runs: the child is resumed by answering its approval (or by
+the daemon), the parent by the daemon.
+
+The parent's resume **re-enters the same step**. Without a lookup it would
+dispatch a second child and duplicate every side effect the first one applied —
+the failure the durable cursor exists to prevent, reintroduced one level down.
+So each nested dispatch derives an `idempotency_key`:
+
+```
+nested:<parentRunId>:<stepName>#<iteration>
+```
+
+and looks it up first. `success` ⇒ return the recorded result; `suspended` or
+`running` ⇒ park again (the child is alive, and waiting is the only
+non-destructive answer); anything else ⇒ throw. The **partial unique index** on
+`(workflow_name, idempotency_key)` makes that an invariant rather than a
+convention. It also makes a replayed loop cheap: iterations 1..n−1 are served
+from their recorded child results and only the parked one continues.
+
+#### Authorization
+
+Nesting **is** a run of another workflow, so it asks the same question the run
+route asks. `WorkflowExecutorOptions.workflowResolver` carries the run's
+principal, and the server wires it through `resolveWorkflowForCaller(…, "run")`.
+Without that, anyone who could author a workflow could nest someone else's
+`private` one and read its behaviour back through `$steps`.
+
+The role is clamped to `member`: a run carries a principal id, not a role (a CLI
+or scheduled run has neither), and the safe reading of "we do not know" is the
+lower privilege. A denial and a missing name produce the **same** message, so a
+nested step is not an existence oracle for private names.
+
 ### Loops (`runLoop`)
 
 A step with a `loop` repeats up to `clampMaxIterations(loop.maxIterations)` (1..25) times, evaluating `until` **after** each iteration:
 
-- Allowed on **agent** and **transform** steps; invalid on a **gate**, a **tool** (repeating a side-effecting install/write/shell call with no LLM in the middle is deliberately out of scope) and an **approval** (`src/runtime/workflow-validator.ts:326`). `loop` and `retries` are **mutually exclusive** (definition-time error) so the worst-case cost stays bounded.
+- Allowed on **agent**, **transform** and **workflow** steps; invalid on a **gate**, a **tool** (repeating a side-effecting install/write/shell call with no LLM in the middle is deliberately out of scope) and an **approval**. `workflow` joined the allow list in C7 and the `tool` ban did **not** loosen — see **Composition**. `loop` and `retries` are **mutually exclusive** (definition-time error) so the worst-case cost stays bounded.
 - Step-input refs gain `$loop.iteration` (1-based) and `$loop.last.<path>` (previous iteration's result). On iteration 1 the `$loop.last` mapping key is **omitted**, never passed as `undefined` — the single documented lenient exception to strict refs.
 - Each iteration re-emits **`workflow:step`**; `WorkflowStepRun.iterations` records the final count.
 - `until` satisfied ⇒ the step succeeds with that iteration's result. No `until` ⇒ a fixed-count loop that always passes. Budget exhausted with `until` unmet obeys `onExhausted`: `"fail"` (default) throws `Step "<name>" exhausted <max> iterations without meeting its until-condition`; `"pass"` succeeds with the last result and `iterations = max`.
@@ -344,6 +478,9 @@ One module defines the ref grammar for all three callers (step inputs, transform
 | `$result[.path]` / `$iteration` | current iteration's result / number — **loop `until` only** | strict root |
 | _anything else_ | a **literal** string value | — |
 
+A `$steps.<name>` naming a **skipped** step still throws — `RefContext.skippedSteps`
+changes only the message, never the strictness. See **The skip/ref rule**.
+
 **Template interpolation** (transform `output` only): any value containing `{{ ref }}` has each placeholder resolved as a strict ref and string-interpolated (objects are `JSON.stringify`-ed; `null`/`undefined`/omit render empty). A value with no `{{…}}` is resolved as a direct ref instead.
 
 ### Conditions (`workflow-condition.ts`)
@@ -352,7 +489,7 @@ One module defines the ref grammar for all three callers (step inputs, transform
 
 ### Definition-time validation (`workflow-validator.ts`)
 
-`validateWorkflow(def)` returns a list of human-readable errors (empty ⇒ valid). It is the **single shared validator** used by both the API (400 with the first message) and the YAML loader (warn-and-skip). It rejects: duplicate step names; `dependsOn` naming an unknown step; `agent` kind without `agent`; `tool` without `tool`; `tool` that also names an `agent`; `transform` without `output`; `gate` without `condition`; an `approval` without a `prompt` or without a non-empty `choices` array, with an empty/non-string or duplicate choice, that also names an `agent`/`tool`, that sets `requireItemConsent` without an `itemsRef`, whose `timeoutMs` is not a positive integer, whose `onTimeout` is outside `abort|approve|skip`, or that sets `onTimeout: approve` with no `timeoutMs` (deciding on a human's behalf must be bounded by a clock the author named); `retries` on an approval (a human decision is not retryable); a `loop` on a gate, a tool or an approval; `loop` + `retries` together; a missing / non-integer `maxIterations`; a `model` binding on a **non-agent** step; and a malformed `model` / `defaultModel` (unknown field, non-string provider/model/effort, an `effort` outside the vocabulary, an out-of-range `temperature`/`maxTokens`). Out-of-range **integer** loop budgets are **not** errors — they are clamped at run time. `defaultModel` is checked **before** the "at least one step" early-return, so a bad binding is not hidden behind an unrelated step error. `PUT /api/workflows/[name]` is a *partial* update with no `steps` to hand the whole-definition validator, so it calls the same `validateModelOverride` directly for a `defaultModel`-only body.
+`validateWorkflow(def)` returns a list of human-readable errors (empty ⇒ valid). It is the **single shared validator** used by both the API (400 with the first message) and the YAML loader (warn-and-skip). It rejects: duplicate step names; `dependsOn` naming an unknown step; `agent` kind without `agent`; `tool` without `tool`; `tool` that also names an `agent`; `transform` without `output`; `gate` without `condition`; an `approval` without a `prompt` or without a non-empty `choices` array, with an empty/non-string or duplicate choice, that also names an `agent`/`tool`, that sets `requireItemConsent` without an `itemsRef`, whose `timeoutMs` is not a positive integer, whose `onTimeout` is outside `abort|approve|skip`, or that sets `onTimeout: approve` with no `timeoutMs` (deciding on a human's behalf must be bounded by a clock the author named); `retries` on an approval (a human decision is not retryable); a `loop` on a gate, a tool or an approval; `loop` + `retries` together; a missing / non-integer `maxIterations`; a `model` binding on a **non-agent** step; a `workflow` step without a `workflow` or that also names an `agent`/`tool`; a malformed `when`; a non-boolean `skipDependents`; a **nesting cycle** (named: `a -> b -> a`) and a nest deeper than 3 levels; a step reading `$steps.<X>` where X can be **skipped** without declaring `dependsOn: [X]` (see **The skip/ref rule**); and a malformed `model` / `defaultModel` (unknown field, non-string provider/model/effort, an `effort` outside the vocabulary, an out-of-range `temperature`/`maxTokens`). Out-of-range **integer** loop budgets are **not** errors — they are clamped at run time. `defaultModel` is checked **before** the "at least one step" early-return, so a bad binding is not hidden behind an unrelated step error. `PUT /api/workflows/[name]` is a *partial* update with no `steps` to hand the whole-definition validator, so it calls the same `validateModelOverride` directly for a `defaultModel`-only body.
 
 ### Eventing & the client store
 
@@ -437,11 +574,11 @@ The extension-authoring chain shipped as a real workflow — the reference examp
 
 ## Key files
 
-- `src/types.ts` — `WorkflowDefinition`, `WorkflowStep`, `WorkflowStepKind`, `WorkflowCondition`, `WorkflowConditionOp`, `LoopConfig`, `WorkflowRun`, `WorkflowStepRun`, the four `workflow:*` events on `AgentEvents`.
-- `src/runtime/workflow-executor.ts` — `WorkflowExecutor`: `runWorkflow`, `resolveExecutionOrder`, `runStep`/`runAgentStep`/`runToolStep`/`runLoop`, transform/gate helpers, retry + abort/cancel plumbing, `workflowScopeKey`, `WorkflowApprovalRequiredError`, run/step persistence.
+- `src/types.ts` — `WorkflowDefinition`, `WorkflowStep` (incl. `when` / `skipDependents` / `workflow`), `WorkflowStepKind`, `WorkflowCondition`, `WorkflowConditionOp`, `LoopConfig`, `WorkflowRun`, `WorkflowStepRun`, the four `workflow:*` events on `AgentEvents`.
+- `src/runtime/workflow-executor.ts` — `WorkflowExecutor`: `runWorkflow`, `resumeWorkflow`, `resolveExecutionOrder`, `runStep`/`runAgentStep`/`runToolStep`/`runLoop`/`runNestedWorkflow`, `skipDecision` + `nestedOutcome`, transform/gate helpers, retry + abort/cancel plumbing, `workflowScopeKey`, `nestedRunKey`, `WorkflowApprovalRequiredError` / `WorkflowSuspendedError`, run/step persistence.
 - `src/runtime/workflow-tool-runner.ts` — `WorkflowToolRunner` (the narrow `ToolExecutor` slice a tool step uses) + `createWorkflowToolRunner` (cold-start registry/PDP wiring).
 - `src/runtime/tools/permissions.ts` — `beginNonInteractiveScope`, gate `timeoutMs`/`signal`, `NonInteractiveApprovalRequiredError` / `PermissionGateAbortedError` / `PermissionGateTimeoutError`.
-- `src/db/queries/workflow-runs.ts` — `insertWorkflowRun`, `upsertWorkflowStepRun`, `finalizeWorkflowRunRow` (CAS over `running`+`suspended`), `terminalizeOrphanedWorkflowRuns` (the `run_phase`-branching boot sweep), `markWorkflowRunInBatch` / `advanceWorkflowRunCursor` (the strict, throw-on-failure cursor writes), `suspendWorkflowRun`, `loadStepResults` (fails closed on a lost output), read helpers — **plus the daemon's half**: `WORKFLOW_LEASE_MS` / `WORKFLOW_LEASE_RENEW_MS`, `listClaimableWorkflowRuns`, `claimWorkflowRun` (the CAS), `renewWorkflowRunLeases`, `releaseWorkflowRunClaims`. The daemon owns the policy and none of the SQL.
+- `src/db/queries/workflow-runs.ts` — `insertWorkflowRun` (incl. `parent_run_id` / `idempotency_key`), `findWorkflowRunByIdempotencyKey` (the nested re-entrancy lookup), `workflowRunNestingDepth` (derives a resumed run's depth from the parent chain), `upsertWorkflowStepRun`, `finalizeWorkflowRunRow` (CAS over `running`+`suspended`), `terminalizeOrphanedWorkflowRuns` (the `run_phase`-branching boot sweep), `markWorkflowRunInBatch` / `advanceWorkflowRunCursor` (the strict, throw-on-failure cursor writes), `suspendWorkflowRun`, `loadStepResults` (fails closed on a lost output; rehydrates `skipped` steps into a parallel map, never into `stepResults`), read helpers — **plus the daemon's half**: `WORKFLOW_LEASE_MS` / `WORKFLOW_LEASE_RENEW_MS`, `listClaimableWorkflowRuns`, `claimWorkflowRun` (the CAS), `renewWorkflowRunLeases`, `releaseWorkflowRunClaims`. The daemon owns the policy and none of the SQL.
 - `src/runtime/workflow-runner.ts` — `WorkflowRunner`: the resume daemon. Lockfile + wake loop + lease heartbeat, per-project / host caps, `tick()` (public so tests need not wait out an interval), `drain()` (test seam), graceful `stop()` that hands claims back.
 - `src/runtime/workflow-answer-approval.ts` — `answerApproval`: the ONE answer path. Authorization (the two-branch rule), consent guard, CAS, resume — everything below it non-exported. Typed `AnswerApprovalRefusal` codes.
 - `src/runtime/workflow-approval-guard.ts` — the pure consent rules: `requireItemConsent` (the only function an answer path may call), `enforceNamedApproval`, `crossCheckItemIds`.
@@ -453,9 +590,10 @@ The extension-authoring chain shipped as a real workflow — the reference examp
 - `src/runtime/workflow-definition-hash.ts` — `workflowDefinitionHash`: the drift fingerprint a resume compares unconditionally.
 - `web/src/lib/workflow-approvals-logic.ts` — the inbox's pure logic: `buildAnswerBody`, `canSubmit`, `toggleItem`, `describeOutcome`, `describeDeadline`, `describeAge`.
 - `src/startup/background-timers.ts` — starts the `WorkflowRunner` behind `EZCORP_DISABLE_WORKFLOW_RUNNER`, clearing the singleton on a refused or thrown `start()` so shutdown never releases a lockfile this process did not own.
-- `src/runtime/workflow-refs.ts` — the shared ref grammar: `resolveMapping`, `resolveOutputMapping` (template interpolation), `resolveConditionRef`, `getNestedValue`, the `OMIT` sentinel.
+- `src/runtime/workflow-refs.ts` — the shared ref grammar: `resolveMapping`, `resolveOutputMapping` (template interpolation), `resolveConditionRef`, `getNestedValue`, `templateRefs` (the read-only twin of the interpolator, so the validator's scan cannot see a different set of refs than the resolver), the `OMIT` sentinel, `RefContext.skippedSteps`.
 - `src/runtime/workflow-condition.ts` — `evaluateCondition` (leaf operators + `all`/`any`/`not`, non-number-safe comparisons, explanatory reasons).
-- `src/runtime/workflow-validator.ts` — `validateWorkflow` (shared by route + loader), `clampMaxIterations` (1..25), `clampRetries` (0..2), `stepKind`.
+- `src/runtime/workflow-validator.ts` — `validateWorkflow` (shared by route + loader; optional `resolve` for the nesting walk, defaulting to the runtime registry), `validateCondition`, the skip/ref rule + its fixpoint `skippableSteps`, `clampMaxIterations` (1..25), `clampRetries` (0..2), `stepKind`.
+- `src/runtime/workflow-closure.ts` — `collectWorkflowClosure`, `nestedWorkflowNames`, `MAX_WORKFLOW_NESTING_DEPTH`: ONE walk over `kind: "workflow"` edges, shared by the validator's cycle/depth check and (by design) C3's transitive capability hash. Cycles are detected against the current path rather than followed; expansion is memoized on `depth:name` so a shared subtree is re-checked from the deeper path.
 - `src/runtime/workflow-model.ts` — the per-step model binding: `validateModelOverride` (definition-time shape + bounds + the `effort` vocabulary), `effectiveModelOverride` (step ?? definition), `resolveModelOverride` (refs → a concrete `ModelOverride`, loud on a bad value), `VALID_MODEL_EFFORTS`.
 - `src/runtime/executor-helpers.ts` — `createPiLlmAdapter(overrides?)`: the ONE place a binding reaches the LLM; reports `lastResolved` back so a run can record what actually served it.
 - `src/runtime/workflow-loader.ts` — `loadYamlWorkflows`: globs `*.workflow.yaml` + legacy `*.pipeline.yaml` (deprecation warn), validates via `validateWorkflow`.
@@ -526,6 +664,17 @@ None yet — this is the primary reference.
 - **Every pre-existing row is `system`, and that is what makes the upgrade safe.** `visibility TEXT NOT NULL DEFAULT 'system'` is the whole migration — no backfill, no inference — and `system` authorizes exactly the callers who could run a workflow before the ladder existed.
 - **Non-admins lose EDIT access to workflows they created.** A deliberate, known regression: those rows are all `system`, and `system` is admin-only to edit. Ownership is **not** inferred from `workflow_runs.user_id` — that is a guess, and guessing ownership is how you hand someone's workflow to the wrong person. The remedy is the audited admin `POST …/claim` action, which states the owner explicitly and is reversible.
 - **The list route returns fewer entries than it used to.** A `read`-scoped API key with no project context sees `system` workflows only. Anything scripted against the full list gets a shorter array (same shape, plus additive provenance fields).
+- **A skipped step is `skipped`, and a run is never `skipped`.** `WorkflowRunStatus` is shared by runs and step rows, but only a *step* takes this value. Code branching on `status === "error"` will not match it, and neither will code branching on `"success"` — which is the point: a skipped step is neither.
+- **`skipDependents` is read off the SKIPPED step, never off the dependent.** Only the producer knows whether its absence is survivable; a consumer cannot opt itself into running against a value nobody produced. Declaring `skipDependents: false` on the *dependent* does nothing.
+- **`$steps.<skipped>` still throws — the skip changes the message, not the strictness.** Substituting `undefined` would hand a downstream step a broken value. `validateWorkflow` makes the throw unreachable by requiring the reader to declare the dependency, but a definition that predates the check still hits it at run time, with a message naming the fix.
+- **A skipped step never becomes `$prev`, and a fully skipped batch leaves `$prev` alone.** `prevResult` and `cursor.prevStepName` are taken from the same index — the last EXECUTED slot — so a resumed run rebuilds the same `$prev` the straight-through run saw.
+- **`workflow_step_runs.skipped_reason` is C5's column and does not exist yet.** The reason is in memory and on the `workflow:step` SSE frame; the persisted row carries `status = 'skipped'` alone, so a resume rehydrates a generic reason (`REHYDRATED_SKIP_REASON`). Wiring the column is a one-line change at the `upsertWorkflowStepRun` call site once phase 3 lands.
+- **A nested workflow step is not available without a `workflowResolver`.** The executor has no registry of its own, so composition is wired, not assumed. The server wires it; the **CLI deliberately does not** — a CLI run carries no principal, and resolving a nested workflow without one would bypass the authorization the server-side resolver applies. A `kind: "workflow"` step under `ezcorp workflow run` therefore fails loudly rather than running unauthorized.
+- **The nesting depth cap is enforced at run time, and the run-time check is the authoritative one.** A chain can be formed across sources (a YAML workflow naming a DB row that names an extension asset) that no single `validateWorkflow` call can see whole. The definition-time check is an early, better-worded copy — not a replacement.
+- **A parent whose child parks is `suspended` with reason `nested-suspended`, and neither run resumes the other.** The daemon picks each up independently. Answering the child's approval resumes the *child*; the parent continues on the daemon's next tick, finds the child by its derived `idempotency_key`, and returns its result. A parent that could not find its child would dispatch a second one and duplicate its side effects.
+- **`idempotency_key` is now load-bearing for nesting.** It had no writer before C7. A caller that starts using it for its own correlation must not collide with the `nested:<parent>:<step>#<n>` shape, and the partial unique index on `(workflow_name, idempotency_key)` is what enforces the nested invariant.
+- **A racing duplicate insert is swallowed, by the standing persistence contract.** `insertWorkflowRun` runs through the never-throwing `persistWrite`, so if two processes somehow raced past the re-entrancy lookup, the unique index would reject the second row and the second child would execute with no row. The lookup makes the window narrow; it does not close it.
+- **The nested closure walk has one caller today.** `collectWorkflowClosure` was built as the single shared walk for the validator *and* C3's transitive capability hash; C3 has not landed, so the second caller does not exist yet. Reach for this function rather than writing a second walk.
 - **`$prev` is order-fragile in parallel batches.** Within a batch, `prevResult` is the last **successful** result in array order (the last declared step of that batch), not a graph-deterministic "previous". Prefer explicit `$steps.<name>` for parallel graphs.
 - **Fail-fast is loud.** The first non-`success` step (or a thrown gate, or an exhausted loop) fails the run; still-dispatched siblings are cancelled and no later batch starts. Retries (agent, ≤2) and loops are the only bounded re-execution.
 - **YAML vs DB asymmetry.** YAML workflows are read-only via the API (only DB workflows can be PUT/DELETE'd). Editing a YAML workflow means editing the file and reloading.
