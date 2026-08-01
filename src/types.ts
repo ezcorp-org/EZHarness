@@ -531,9 +531,6 @@ export interface WorkflowStepRun {
    *  `AgentRun.inputTokens`. */
   inputTokens?: number;
   outputTokens?: number;
-  /** Wall-clock for the whole step, including its retries and loop
-   *  iterations. Undefined until the step settles. */
-  durationMs?: number;
   /** Typed failure reason, stable enough to GROUP BY — unlike a message.
    *  Derived from the exception CLASS the step threw, so it says which
    *  kind of ending this was (`cancelled`, `approval-required`,
@@ -557,6 +554,15 @@ export interface WorkflowStepRun {
 export interface WorkflowStepInputSink {
   resolvedInput?: Record<string, unknown>;
 }
+
+/* NOTE: a step's `durationMs` is deliberately NOT a field on
+ * {@link WorkflowStepRun} either, for a second and independent reason: it
+ * is a CLOCK READING, and this object is compared byte-for-byte by the
+ * demo-workflow determinism test ("a transform/gate-only workflow is a
+ * pure function — no LLM, no I/O, no clock"). Putting a wall-clock value
+ * on a published payload makes two identical runs differ whenever they
+ * straddle a millisecond. It lives in the executor's per-step closure and
+ * goes straight to the column. */
 
 // ── Team Member Types ────────────────────────────────────────────────
 

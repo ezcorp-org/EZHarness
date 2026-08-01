@@ -813,6 +813,11 @@ export class WorkflowExecutor {
           // success path and the catch, so a step that failed still
           // reports how long it took to fail.
           const startedAt = Date.now();
+          // Closure-local, NOT a field on `stepRun`: that object is a
+          // published SSE payload AND is compared byte-for-byte by the
+          // demo determinism test, so a clock reading on it makes two
+          // identical runs differ. Same reasoning as `stepOutput`.
+          let stepDurationMs: number | undefined;
           const persistStep = (): void => {
             void this.persistWrite("step", () =>
               upsertWorkflowStepRun({
@@ -831,7 +836,7 @@ export class WorkflowExecutor {
                 // that sums this column would believe it.
                 inputTokens: stepRun.inputTokens,
                 outputTokens: stepRun.outputTokens,
-                durationMs: stepRun.durationMs,
+                durationMs: stepDurationMs,
                 errorCode: stepRun.errorCode,
                 // Resume fodder: `$steps.<name>` for every later step.
                 // NULL until the step succeeds, and NULL forever for one
@@ -896,7 +901,7 @@ export class WorkflowExecutor {
             );
             stepResults.set(step.name, result);
             stepRun.status = "success";
-            stepRun.durationMs = Date.now() - startedAt;
+            stepDurationMs = Date.now() - startedAt;
             stepOutput = result;
             // Recorded the instant it succeeds, not at the boundary: a
             // sibling that parks the run later in this same batch must
@@ -939,7 +944,7 @@ export class WorkflowExecutor {
             // either branch.)
             const aborting = externallyAborted || err instanceof WorkflowAbortError;
             if (stepRun.status === "running" || stepRun.status === "success") stepRun.status = aborting ? "cancelled" : "error";
-            stepRun.durationMs = Date.now() - startedAt;
+            stepDurationMs = Date.now() - startedAt;
             // The typed reason, not the message. Derived from the
             // exception CLASS so it stays stable enough to GROUP BY: a
             // message carries the step name and the provider's wording

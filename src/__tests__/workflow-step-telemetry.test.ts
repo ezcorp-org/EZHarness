@@ -131,7 +131,7 @@ function scriptedExecutor(script: ScriptedRun[], opts: { toolHandler?: () => Too
       },
     }),
   });
-  return { wf, seen, invocations: () => i };
+  return { wf, bus, seen, invocations: () => i };
 }
 
 /** Read the one step row a single-step workflow produced. */
@@ -273,6 +273,50 @@ describe("token usage reaches workflow_step_runs", () => {
     expect(row.outputTokens).toBeNull();
     expect(row.attempt).toBeNull();
     expect(row.provider).toBeNull();
+  });
+});
+
+describe("the workflow:step SSE payload carries no clock", () => {
+  test("no step payload has a durationMs field", async () => {
+    // `WorkflowStepRun` is a PUBLISHED payload, and it is compared
+    // byte-for-byte by the demo determinism test, whose own comment says
+    // "a transform/gate-only workflow is a pure function — no LLM, no
+    // I/O, no clock". A wall-clock reading on it makes two identical runs
+    // differ whenever they straddle a millisecond.
+    //
+    // Asserted on the KEY rather than by re-running and comparing,
+    // because a timing-dependent assertion only fails some of the time —
+    // this one names the defect and fails every time.
+    const { wf, bus } = scriptedExecutor([{ inputTokens: 1, outputTokens: 1 }]);
+    const seen: Array<Record<string, unknown>> = [];
+    bus.on("workflow:step", (e) => {
+      seen.push(e.step as unknown as Record<string, unknown>);
+    });
+    await wf.runWorkflow(agentStep("draft"), {});
+
+    expect(seen.length).toBeGreaterThan(0);
+    for (const payload of seen) {
+      expect(Object.keys(payload)).not.toContain("durationMs");
+    }
+  });
+
+  test("two runs of a deterministic workflow emit byte-identical step payloads", async () => {
+    // The general form: any future clock-like field on the payload breaks
+    // this. Kept alongside the key check because the key check only knows
+    // about the one field that has already gone wrong.
+    const def: WorkflowDefinition = {
+      name: `wf-determinism-${crypto.randomUUID().slice(0, 8)}`,
+      description: "",
+      steps: [{ name: "shape", kind: "transform", output: { a: "x" } }],
+    };
+    const capture = async (): Promise<string> => {
+      const { wf, bus } = scriptedExecutor([]);
+      const seen: unknown[] = [];
+      bus.on("workflow:step", (e) => seen.push(e.step));
+      await wf.runWorkflow(def, {});
+      return JSON.stringify(seen);
+    };
+    expect(await capture()).toBe(await capture());
   });
 });
 
