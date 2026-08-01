@@ -202,7 +202,20 @@ export interface LoopConfig {
   onExhausted?: "fail" | "pass";
 }
 
-export type WorkflowStepKind = "agent" | "transform" | "gate" | "tool" | "approval";
+/**
+ * `workflow` runs a NESTED definition as one step of this graph. It is the
+ * only kind whose body is another workflow, which is why it is also the
+ * only kind added to the `loop` allow-list: looping a graph that contains
+ * an LLM or a gate is bounded re-execution, while looping a raw
+ * side-effecting `tool` call is not — and that ban is unchanged.
+ */
+export type WorkflowStepKind =
+  | "agent"
+  | "transform"
+  | "gate"
+  | "tool"
+  | "approval"
+  | "workflow";
 
 /**
  * What happens to an `approval` step whose `timeoutMs` elapses.
@@ -303,8 +316,20 @@ export interface WorkflowModelBinding extends Omit<ModelOverride, "effort"> {
  * `suspended` deliberately does NOT reuse `awaiting_approval`, whose
  * meaning is unchanged: parked AND dead. Reusing it would retroactively
  * make every historical `awaiting_approval` row look resumable.
+ *
+ *   `skipped` — **a STEP status only.** The step's `when` evaluated false,
+ *   or a step it depends on was skipped. Nothing ran, nothing failed, and
+ *   the RUN keeps going: that is the entire distinction from `gate`, which
+ *   throws. A *run* never terminalizes `skipped` — the union is shared by
+ *   {@link WorkflowRun} and {@link WorkflowStepRun}, and
+ *   `TerminalWorkflowRunStatus` (`db/queries/workflow-runs.ts`) is the
+ *   narrower type that says so for runs.
  */
-export type WorkflowRunStatus = AgentStatus | "awaiting_approval" | "suspended";
+export type WorkflowRunStatus =
+  | AgentStatus
+  | "awaiting_approval"
+  | "suspended"
+  | "skipped";
 
 /**
  * Which side of a step boundary the executor was on when it last wrote.
@@ -441,8 +466,48 @@ export interface WorkflowStep {
   /** Default `abort` — see {@link ApprovalTimeoutPolicy}. */
   onTimeout?: ApprovalTimeoutPolicy;
 
+  // ── workflow kind ──
+  /**
+   * Name of the NESTED definition this step runs — resolved through the
+   * same merged cache the top-level run route uses, so an extension
+   * workflow is addressed by its namespaced `<ext>:<name>`.
+   *
+   * The child is a first-class run: its own `workflow_runs` row, its own
+   * cursor, its own `definition_hash`, and its own `parent_run_id`
+   * pointing here. That independence is what lets a nested graph containing
+   * an `approval` step park on its own while the parent parks alongside it.
+   */
+  workflow?: string;
+
+  // ── control flow (any kind) ──
+  /**
+   * Guard evaluated BEFORE the step dispatches. False ⇒ the step is
+   * `skipped` and **the run continues**.
+   *
+   * The whole distinction from `condition` (gate): a false gate THROWS and
+   * fails the run — there was no way to say "skip this branch" before this.
+   * Same {@link WorkflowCondition} grammar and the same `evaluateCondition`,
+   * against the same ref context the step's `input` would have used.
+   *
+   * On a step that also declares `loop`, evaluated ONCE, before the loop —
+   * a per-iteration guard is `loop.until`, not this.
+   */
+  when?: WorkflowCondition;
+  /**
+   * Skip this step's declared dependents too when it is skipped. Default
+   * **true**, because that is the only reading that keeps a graph
+   * consistent: a step exists to consume what its dependency produced, and
+   * running it against a value nobody produced is the silent-wrong-answer
+   * outcome this subsystem refuses everywhere else.
+   *
+   * `false` opts a step out — its dependents run anyway — which is only
+   * safe when they do not read `$steps.<this step>`. `validateWorkflow`
+   * enforces exactly that at definition time.
+   */
+  skipDependents?: boolean;
+
   dependsOn?: string[];
-  /** Bounded loop (agent | transform kinds only). */
+  /** Bounded loop (agent | transform | workflow kinds only). */
   loop?: LoopConfig;
 }
 
@@ -500,6 +565,21 @@ export interface WorkflowStepRun {
   status: WorkflowRunStatus;
   /** Final iteration count for a looped step (omitted for non-loop steps). */
   iterations?: number;
+  /**
+   * Why a `skipped` step was skipped — its own `when`, or the name of the
+   * skipped dependency that suppressed it.
+   *
+   * Carried on the step run (and therefore on the `workflow:step` SSE
+   * frame) rather than left to the reader to infer, because a trace showing
+   * a skipped step with no explanation is indistinguishable from a step
+   * that was never reached. Omitted for every other status.
+   *
+   * NOTE: `workflow_step_runs.skipped_reason` is C5's column and does not
+   * exist on this branch, so this value is in-memory + SSE only today; the
+   * persisted step row carries `status = 'skipped'` alone. See the C7
+   * section of `docs/features/orchestration/workflows.md`.
+   */
+  skippedReason?: string;
   /** Provider / model the step's agent run RESOLVED to — what actually
    *  served the call, not what was requested (a `$input` ref, an
    *  agent-config binding and a bare model id all land here identically).
