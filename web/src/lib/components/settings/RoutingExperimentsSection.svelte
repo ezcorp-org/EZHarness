@@ -274,7 +274,10 @@
 				<li>Paste the recommended pair below and save.</li>
 				<li>
 					Watch <strong>Shadow Agreement</strong> in the
-					<a href="/admin/dashboard" class="text-[var(--color-accent)] hover:underline">
+					<!-- Always underlined, not just on hover: this link sits INSIDE a
+					     text block, where colour alone is not a sufficient distinction
+					     (WCAG 1.4.1 / axe link-in-text-block). -->
+					<a href="/admin/dashboard" class="text-[var(--color-accent)] underline">
 						admin Routing panel
 					</a> as real traffic arrives.
 				</li>

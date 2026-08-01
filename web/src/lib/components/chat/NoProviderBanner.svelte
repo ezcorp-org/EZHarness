@@ -29,13 +29,21 @@
 		role="status"
 		data-testid="no-provider-banner"
 	>
-		<p class="font-medium text-amber-300">Connect a provider to start chatting</p>
+		<!-- Theme token, not a fixed amber step. Any single amber shade fails
+		     contrast on one of the two themes (amber-300 failed on light,
+		     amber-200 worse); the tinted-background + primary-text pairing is
+		     what RoutingExperimentsSection's ERROR_CLASS uses for the same
+		     reason, and it survives both. -->
+		<p class="font-medium text-[var(--color-text-primary)]">Connect a provider to start chatting</p>
 		<p class="mt-1 text-[var(--color-text-secondary)]">
 			You haven't connected an LLM provider yet. Add an API key or sign in with OAuth to send your first message.
 		</p>
+		<!-- White on amber-600 is ~3.2:1, below the 4.5:1 AA floor. amber-700
+		     clears it at ~5:1, and hover goes DARKER (amber-800, ~7:1) so the
+		     hover state does not fall back under the floor. -->
 		<a
 			href="/settings/models#providers"
-			class="mt-3 inline-flex items-center gap-1.5 rounded-md bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-500 transition-colors"
+			class="mt-3 inline-flex items-center gap-1.5 rounded-md bg-amber-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-800 transition-colors"
 			data-testid="no-provider-banner-cta"
 		>
 			Open Settings
