@@ -136,6 +136,7 @@ describe("modes CRUD", () => {
       instructionPosition: "append",
       preferredModel: "claude-haiku-4-5-20251001",
       preferredProvider: "anthropic",
+      preferredTier: "fast",
       preferredThinkingLevel: "off",
       temperature: 20,
       toolRestriction: "none",
@@ -143,9 +144,27 @@ describe("modes CRUD", () => {
     expect(mode.instructionPosition).toBe("append");
     expect(mode.preferredModel).toBe("claude-haiku-4-5-20251001");
     expect(mode.preferredProvider).toBe("anthropic");
+    expect(mode.preferredTier).toBe("fast");
     expect(mode.preferredThinkingLevel).toBe("off");
     expect(mode.temperature).toBe(20);
     expect(mode.toolRestriction).toBe("none");
+  });
+
+  test("createMode defaults preferredTier to null, and updateMode can set + clear it", async () => {
+    // WS3b: the mode -> routing-tier task binding. NULL is "no preference"
+    // (route per turn), so a mode created without it must not acquire a tier.
+    const created = await createMode({
+      name: "Tier Binding",
+      slug: "tier-binding",
+      systemPromptInstruction: "Do the thing.",
+    });
+    expect(created.preferredTier).toBeNull();
+
+    const bound = await updateMode(created.id, { preferredTier: "powerful" });
+    expect(bound?.preferredTier).toBe("powerful");
+
+    const cleared = await updateMode(created.id, { preferredTier: null });
+    expect(cleared?.preferredTier).toBeNull();
   });
 
   test("updateMode updates custom mode fields", async () => {

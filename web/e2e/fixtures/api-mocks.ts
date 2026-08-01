@@ -869,6 +869,15 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 		if (path === "/api/models/capabilities" && method === "GET") {
 			const provider = url.searchParams.get("provider") ?? "";
 			const model = url.searchParams.get("model") ?? "";
+			// NOTE for `model=auto`: this mock ASSERTS a vision-capable answer, it
+			// does not derive one. The real endpoint intersects the routable
+			// tier-ladder rungs, so a bad rung can make it text-only while these
+			// specs stay green — that happened once (a ladder id the catalog did
+			// not list). This tier cannot catch that class of bug; the guards that
+			// can are src/__tests__/tier-ladder.test.ts (every built-in rung
+			// resolves to a real model, not a synthesized text-only stub) and
+			// src/__tests__/auto-capabilities.test.ts. Keep them in mind before
+			// trusting a green paperclip assertion here.
 			const isVision = !/text-only|local/i.test(model);
 			return route.fulfill({ json: {
 				provider, model,
@@ -886,6 +895,11 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 			return route.fulfill({ json: settings });
 		}
 		if (path.match(/^\/api\/settings\//) && method === "PUT") {
+			return route.fulfill({ json: { ok: true } });
+		}
+		// A key whose ABSENCE is its off state (`provider:routingShadow`) is
+		// turned off by deleting the row, so the editor issues a DELETE.
+		if (path.match(/^\/api\/settings\//) && method === "DELETE") {
 			return route.fulfill({ json: { ok: true } });
 		}
 		// Developer API keys — ApiKeyManager.svelte reads `data.keys` and
@@ -1661,7 +1675,30 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 			return route.fulfill({ json: { success: true, revokedCount: 0 } });
 		}
 
-		// Admin analytics & system
+		// Admin analytics & system.
+		// The routing sub-route is matched FIRST (it is a longer path under the
+		// same prefix) and returns a fully-zeroed RoutingStats envelope so the
+		// dashboard's Routing tab has a real shape to read on every spec, not a
+		// bare `{}` from the catch-all.
+		if (path === "/api/admin/analytics/routing" && method === "GET") {
+			return route.fulfill({
+				json: {
+					days: 30,
+					turns: { total: 0, routed: 0, pinned: 0, legacy: 0 },
+					routedShare: 0,
+					tierMix: [],
+					exploration: { turns: 0, rate: 0 },
+					failover: { count: 0, rate: 0 },
+					switches: { pairs: 0, total: 0, escalations: 0, downgrades: 0, lateral: 0, rate: 0, samples: [] },
+					retries: { answeredTurns: 0, retriedTurns: 0, extraSiblings: 0, rate: 0, samples: [] },
+					spend: {
+						segments: [], segmentsTruncated: false,
+						routedUsd: 0, pinnedUsd: 0, legacyUsd: 0, totalUsd: 0,
+						unpricedTurns: 0, unpricedTokens: 0, conversations: 0, usdPerConversation: null,
+					},
+				},
+			});
+		}
 		if (path === "/api/admin/analytics" && method === "GET") {
 			return route.fulfill({ json: { chatActivity: [], modelUsage: [], agentStats: [], extensionStats: [], userStats: { totalUsers: 0, activeUsers30d: 0, signupsLast30d: [] } } });
 		}

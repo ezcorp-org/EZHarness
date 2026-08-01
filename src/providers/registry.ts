@@ -8,6 +8,16 @@ import type { Model, KnownProvider } from "@earendil-works/pi-ai";
 import { getSetting } from "../db/queries/settings";
 // Tier vocabulary single source of truth (type-only — erased at build).
 import type { RoutingTier } from "../runtime/tier-classifier";
+// Tier ladder: the operator-configured "which model for this tier" list. The
+// pure resolution logic lives in src/runtime/** so it is coverage-gated.
+import {
+  DEFAULT_TIER_LADDER,
+  isBuiltinRouterProvider,
+  resolveLadderEntry,
+  type TierLadder,
+} from "../runtime/routing/tier-ladder";
+// Price-rate shape single source of truth (type-only — erased at build).
+import type { ModelPrices } from "../runtime/usage/cache-stats";
 
 // Fallback entries for OAuth-only users (ChatGPT Codex login).
 // The OAuth token can't call api.openai.com/v1/models, so discovery can't
@@ -175,29 +185,35 @@ export function getModelsForTier(tier: "fast" | "balanced" | "powerful"): ModelE
 }
 
 /**
- * Provider → preferred model-id overrides consulted before the alphabetical
- * tier scan in findModelForProviderInTier. pi-ai lists openrouter's ~259
- * models in alphabetical order, so the plain scan picks e.g.
- * `ai21/jamba-large-1.7` (balanced) or `amazon/nova-2-lite-v1` (fast) — poor
- * implicit defaults for tier routing / fallback / the summarizer. OpenRouter's
- * own `openrouter/auto` router chooses a sensible model server-side, so we
- * prefer it for every tier when present. Falls through to the scan if the
- * preferred id is not in the registry.
+ * Best model for a provider at a tier: the TIER LADDER first, then the
+ * alphabetical catalog scan.
+ *
+ * `ladder` is the operator-configured ladder (`provider:tierModels`, loaded by
+ * `router.ts`'s getConfiguredTierLadder) — `undefined` when unset or
+ * malformed. Consulted first because the scan is close to arbitrary: pi-ai
+ * lists openrouter's 300+ models alphabetically, so it picks
+ * `ai21/jamba-large-1.7` (balanced) or `amazon/nova-2-lite-v1` (fast).
+ *
+ * With no configured ladder the answer is what it was before the ladder
+ * existed: the built-in ladder is consulted only for
+ * `BUILTIN_ROUTER_PROVIDERS` (openrouter → `openrouter/auto`, the old
+ * `PREFERRED_TIER_MODELS`), and everything else runs the scan below verbatim.
+ * A ladder entry naming a model this provider's catalog does not list is
+ * skipped in favour of the next entry, then the scan — so a stale ladder
+ * degrades, never fails.
  */
-const PREFERRED_TIER_MODELS: Record<string, string> = {
-  openrouter: "openrouter/auto",
-};
-
 export function findModelForProviderInTier(
   provider: string,
   tier: "fast" | "balanced" | "powerful",
+  ladder?: TierLadder,
 ): ModelEntry | null {
   const models = getModels(provider as KnownProvider);
-  const preferredId = PREFERRED_TIER_MODELS[provider];
-  if (preferredId) {
-    const preferred = models.find((m) => m.id === preferredId);
-    if (preferred) return piModelToEntry(preferred);
-  }
+  const laddered =
+    resolveLadderEntry(ladder, tier, provider, models) ??
+    (isBuiltinRouterProvider(provider)
+      ? resolveLadderEntry(DEFAULT_TIER_LADDER, tier, provider, models)
+      : undefined);
+  if (laddered) return piModelToEntry(laddered);
   for (const model of models) {
     const entry = piModelToEntry(model);
     if (entry.tier === tier) return entry;
@@ -224,10 +240,11 @@ export function findRunnableModelForProviderInTier(
   provider: string,
   tier: "fast" | "balanced" | "powerful",
   credType: "oauth" | "apikey",
+  ladder?: TierLadder,
 ): ModelEntry | null {
   const oauthProvider = OAUTH_PROVIDER_MAP[provider];
   if (credType !== "oauth" || !oauthProvider) {
-    return findModelForProviderInTier(provider, tier);
+    return findModelForProviderInTier(provider, tier, ladder);
   }
 
   const candidates: ModelEntry[] = [];
@@ -243,7 +260,16 @@ export function findRunnableModelForProviderInTier(
       candidates.push(piModelToEntry(model));
     }
   }
-  return candidates.find((c) => c.tier === tier) ?? candidates[0] ?? null;
+  // A configured ladder wins here too, but only over the SUBSCRIPTION-eligible
+  // candidates gathered above: a rung naming a model this OAuth credential
+  // cannot run is exactly the dead end this function exists to prevent, so it
+  // is skipped like any other unavailable entry.
+  return (
+    resolveLadderEntry(ladder, tier, provider, candidates) ??
+    candidates.find((c) => c.tier === tier) ??
+    candidates[0] ??
+    null
+  );
 }
 
 /**
@@ -425,4 +451,20 @@ export function resolveModelObject(provider: string, modelId: string, baseUrl?: 
     contextWindow: 128_000,
     maxTokens: 16_384,
   };
+}
+
+/**
+ * USD-per-1M-token rates for a provider+model — a thin LOOKUP over
+ * `resolveModelObject` so OAuth overrides, retired pins and unknown providers
+ * resolve exactly as they do everywhere else. Deliberately does NO arithmetic
+ * and makes NO judgement about the numbers: `src/providers/**` is outside the
+ * coverage gate, so all cost math (and the "is this model priced at all?"
+ * decision) lives in `priceSegment` in src/runtime/usage/cache-stats.ts.
+ *
+ * Models `resolveModelObject` has to synthesize — and every OAuth-subscription
+ * model, which is rate-limited rather than billed per token — carry all-zero
+ * rates, which `priceSegment` reports as UNPRICED rather than as "$0.00".
+ */
+export function modelPrices(provider: string, modelId: string): ModelPrices {
+  return resolveModelObject(provider, modelId).cost;
 }

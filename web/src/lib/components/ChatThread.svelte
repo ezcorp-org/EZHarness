@@ -67,7 +67,14 @@
 	import type { LoadedTool } from "$lib/loaded-tools-logic";
 	import { recordSnapshot, type StreamSnapshot } from "$lib/chat/reconcile-stream.js";
 	import { runReconcileAfterStream } from "$lib/chat/reconcile-after-stream.js";
-	import { autoServedFromMessages, isAutoSelection, resolveWireModel } from "$lib/model-selector-logic.js";
+	import {
+		DEFAULT_SELECTION_FALLBACK,
+		autoServedFromMessages,
+		isAutoSelection,
+		parseDefaultSelection,
+		resolveWireModel,
+		type DefaultSelectionMode,
+	} from "$lib/model-selector-logic.js";
 	import { filterEmptyAssistantTurns } from "$lib/chat/filter-empty-turns.js";
 	import { shouldShowPill } from "$lib/ez/pill-visibility";
 	import { parseCapabilityEventContent } from "$lib/components/CapabilityEventPill.svelte";
@@ -728,6 +735,27 @@
 	// client half of route-once: sends after the first routed turn re-send
 	// the served pair instead of the null sentinel.
 	let autoServed = $derived(autoServedFromMessages(allMessages));
+
+	// What a user with NO saved selection defaults to — Auto (route the first
+	// turn) unless the operator set `provider:defaultSelection` to "first".
+	// `null` until the read lands, which is what stops the picker from
+	// applying the shipped default before it learns about a revert.
+	let defaultSelection = $state<DefaultSelectionMode | null>(null);
+	onMount(() => {
+		void (async () => {
+			try {
+				const res = await fetch("/api/models/default-selection");
+				if (res.ok) {
+					const data = (await res.json()) as { value?: unknown };
+					defaultSelection = parseDefaultSelection(data.value);
+					return;
+				}
+			} catch {
+				// Non-fatal — the composer must never be blocked by this read.
+			}
+			defaultSelection = DEFAULT_SELECTION_FALLBACK;
+		})();
+	});
 	function handleThinkingLevelChange(level: string) {
 		thinkingLevel = level;
 		if (typeof localStorage !== "undefined")
@@ -807,7 +835,8 @@
 	});
 	const handleSend = sendApi.handleSend;
 	const handleRegenerate = (msg: Message) => sendApi.handleRegenerate(msg);
-	const handleAbRetry = (msg: Message) => sendApi.handleAbRetry(msg);
+	const handleAbRetry = (msg: Message, override?: { provider: string; model: string }) =>
+		sendApi.handleAbRetry(msg, override);
 	const handleRerun = (msg: Message) => sendApi.handleRerun(msg);
 	const handleBranchNavigate = sendApi.handleBranchNavigate;
 	const handleSaveMemory = (msg: Message) => sendApi.handleSaveMemory(msg);
@@ -2549,6 +2578,7 @@
 			onautoselect={handleModelAutoSelect}
 			allowAuto={true}
 			{autoServed}
+			{defaultSelection}
 			{thinkingLevel}
 			onthinkinglevelchange={handleThinkingLevelChange}
 			{modelSupportsReasoning}

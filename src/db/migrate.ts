@@ -1854,6 +1854,15 @@ export async function migrate(db: any): Promise<void> {
   // behaviour (see src/runtime/executor.ts). Idempotent.
   await db.execute(sql`ALTER TABLE modes ADD COLUMN IF NOT EXISTS extension_tools JSONB`);
 
+  // WS3b: the mode → routing-TIER task binding ('fast' | 'balanced' |
+  // 'powerful'). NULL for existing rows means "no tier preference", which
+  // routes exactly as it did before the column existed — the turn falls
+  // through to the heuristic classifier. Plain TEXT with no CHECK: the union
+  // narrows at the TypeScript layer and mode-binding.ts re-validates the
+  // stored value, so an unrecognized tier degrades instead of routing on
+  // garbage. Idempotent. Rationale: src/db/migrations/add-mode-preferred-tier.ts.
+  await db.execute(sql`ALTER TABLE modes ADD COLUMN IF NOT EXISTS preferred_tier TEXT`);
+
   // Per-extension tool subset for agent configs (mirrors modes.extension_tools).
   // Keyed by extension id → selected tool names; an attached extension absent
   // here (or mapped to []) contributes ALL its tools at agent execution time.

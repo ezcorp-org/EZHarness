@@ -220,7 +220,9 @@ export interface SendMessageHandlers {
 	 *  SIBLING from `msg`'s parent user turn — no duplicate user row (unlike
 	 *  `handleRegenerate`'s `editOf` path). Only the assistant placeholder is
 	 *  added optimistically; the existing user turn is untouched. */
-	handleAbRetry(msg: Message): Promise<void>;
+	/** `override` runs the sibling on a DIFFERENT model than the thread's
+	 *  own pin — the "Retry with…" affordance. Omitted ⇒ today's behaviour. */
+	handleAbRetry(msg: Message, override?: { provider: string; model: string }): Promise<void>;
 	handleRerun(msg: Message): Promise<void>;
 	handleBranchNavigate(messageId: string): void;
 	/** Rewind/checkpoint to `msg` (Sessions P4): POST /rewind + move the active
@@ -784,7 +786,10 @@ export function makeSendMessage(host: SendMessageHost): SendMessageHandlers {
 		}
 	}
 
-	async function handleAbRetry(msg: Message): Promise<void> {
+	async function handleAbRetry(
+		msg: Message,
+		override?: { provider: string; model: string },
+	): Promise<void> {
 		const convId = host.convId();
 		if (!convId) return;
 
@@ -793,7 +798,10 @@ export function makeSendMessage(host: SendMessageHost): SendMessageHandlers {
 		// we add only the assistant placeholder here (contrast handleRegenerate,
 		// which appends a duplicate user message from the editOf fork).
 		try {
-			const wire = resolveWireModel(
+			// An explicit override REPLACES the thread's wire identity for this
+			// sibling only — the conversation's own pin is never written, so the
+			// A/B stays a one-turn experiment rather than a model change.
+			const wire = override ?? resolveWireModel(
 				host.selectedModel.get(),
 				host.allMessages.get(),
 			);

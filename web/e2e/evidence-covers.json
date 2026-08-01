@@ -1,4 +1,7 @@
 {
+  "web/e2e/admin-routing-cost.spec.ts": [
+    "web/src/routes/(app)/admin/dashboard/+page.svelte"
+  ],
   "web/e2e/auto-model-routing.spec.ts": [
     "web/src/lib/components/ChatMessage.svelte",
     "web/src/lib/components/ModelSelector.svelte",
@@ -40,6 +43,12 @@
   "web/e2e/conversation-list-sidebar-nav.spec.ts": [
     "web/src/lib/components/ConversationList.svelte",
     "web/src/lib/components/chat/ChatHeader.svelte",
+    "web/src/routes/(app)/project/[id]/chat/[convId]/+page.svelte"
+  ],
+  "web/e2e/default-model-selection.spec.ts": [
+    "web/src/lib/components/ModelSelector.svelte",
+    "web/src/lib/components/ChatInput.svelte",
+    "web/src/lib/components/ChatThread.svelte",
     "web/src/routes/(app)/project/[id]/chat/[convId]/+page.svelte"
   ],
   "web/e2e/dev-badge.spec.ts": [
@@ -131,6 +140,15 @@
   "web/e2e/loops-kill-switch.spec.ts": [
     "web/src/routes/(app)/settings/admin/+page.svelte"
   ],
+  "web/e2e/mode-preferred-tier.spec.ts": [
+    "web/src/lib/components/ModeFormModal.svelte",
+    "web/src/lib/components/settings/ModesSection.svelte"
+  ],
+  "web/e2e/model-defaults-settings.spec.ts": [
+    "web/src/lib/components/settings/DefaultSelectionSection.svelte",
+    "web/src/lib/components/settings/ToolResultCapSection.svelte",
+    "web/src/routes/(app)/settings/models/+page.svelte"
+  ],
   "web/e2e/openrouter-provider.spec.ts": [
     "web/src/lib/components/ProviderSettings.svelte",
     "web/src/lib/components/settings/PreferenceOrderSection.svelte",
@@ -172,6 +190,16 @@
     "web/src/app.css",
     "web/src/routes/(app)/project/[id]/chat/[convId]/+page.svelte"
   ],
+  "web/e2e/routing-experiments-settings.spec.ts": [
+    "web/src/lib/components/settings/RoutingExperimentsSection.svelte",
+    "web/src/lib/routing-experiments-view.ts",
+    "web/src/routes/(app)/settings/models/+page.svelte"
+  ],
+  "web/e2e/routing-retry-with-model.spec.ts": [
+    "web/src/lib/components/ChatMessage.svelte",
+    "web/src/lib/components/ChatThread.svelte",
+    "web/src/routes/(app)/project/[id]/chat/[convId]/+page.svelte"
+  ],
   "web/e2e/session-ab-retry.spec.ts": [
     "web/src/lib/components/ChatMessage.svelte",
     "web/src/lib/components/BranchNavigator.svelte",
@@ -200,6 +228,11 @@
     "web/src/lib/components/ChatThread.svelte",
     "web/src/lib/components/TaskPanel.svelte",
     "web/src/routes/(app)/project/[id]/chat/[convId]/+page.svelte"
+  ],
+  "web/e2e/tier-ladder-settings.spec.ts": [
+    "web/src/lib/components/settings/TierLadderSection.svelte",
+    "web/src/lib/tier-ladder-view.ts",
+    "web/src/routes/(app)/settings/models/+page.svelte"
   ],
   "web/e2e/topic-contexts.spec.ts": [
     "web/src/lib/components/chat/**",
