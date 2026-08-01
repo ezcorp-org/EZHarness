@@ -215,6 +215,9 @@
     "web/src/lib/components/ChatMessage.svelte",
     "web/src/routes/(app)/project/[id]/chat/[convId]/+page.svelte"
   ],
+  "web/e2e/settings-sticky-nav.spec.ts": [
+    "web/src/routes/(app)/settings/+layout.svelte"
+  ],
   "web/e2e/task-panel-cold-start.spec.ts": [
     "web/src/lib/components/TaskPanel.svelte",
     "web/src/lib/chat/task-snapshot-store.ts",
