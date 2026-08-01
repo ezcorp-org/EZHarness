@@ -1,0 +1,90 @@
+# Local prod TEST overlay — makes the production image usable as a hands-on
+# test stack. Safe to commit: every host-specific value is an env knob with a
+# safe default. NOT for a real deployment — see the security note on `ports:`.
+#
+# Usage (with the dev-DB overlay):
+#   docker compose --env-file .env.prod \
+#     -f compose.prod.yml -f compose.prod.devdb.yml -f compose.prod.localtest.yml up -d
+#
+# Knobs (set in the environment or .env.prod):
+#   EZCORP_TEST_PROJECTS_DIR    host dir mounted as /app/projects   (default ./projects)
+#   EZCORP_TEST_BIND_IP         interface the test ports publish on (default 127.0.0.1)
+#   EZCORP_TEST_PRIMARY_PORT    host port mapped to container 8000  (default 8000)
+#
+# Full runbook: docs/local-prod-test-stack.md
+services:
+  app:
+    volumes:
+      # The prod image intentionally mounts nothing but its data dirs, which is
+      # correct for a real install. But a test stack pointed at a COPY of a dev
+      # database inherits that database's `projects` rows, and those store
+      # absolute container paths like `/app/projects/<name>`. With no matching
+      # mount they resolve to nothing, and the failure is badly misleading:
+      #
+      #   - the `shell` tool spawns with cwd=<project path>, and a missing cwd
+      #     surfaces as `posix_spawn '/bin/sh' — ENOENT`, which reads like a
+      #     broken image rather than a missing directory;
+      #   - the file tools' containment check rejects it as
+      #     "Path traversal detected".
+      #
+      # So mount the same host tree at the path the database already expects.
+      #
+      # OWNERSHIP: this image runs unprivileged as uid 1000 (`bun`), which is
+      # usually NOT the host login user, so a plain bind mount is read-only in
+      # practice and agents silently cannot build. Grant shared-group write once:
+      #
+      #   sudo chgrp -R 1000 <projects-dir>
+      #   sudo chmod -R g+rwX <projects-dir>
+      #   sudo find <projects-dir> -type d -exec chmod g+s {} +   # inherit group
+      - ${EZCORP_TEST_PROJECTS_DIR:-./projects}:/app/projects
+
+    # ── Direct access to servers an agent starts ──────────────────────────
+    #
+    # The consent-gated preview proxy is the secure path, but it only works when
+    # four independent things line up: the agent's command matches the
+    # dev-server allowlist, the user clicks Expose, wildcard DNS for
+    # *.preview.<host> resolves, and the one-time-code handoff succeeds. Any one
+    # failing produces the same symptom — "the site isn't reachable" — with no
+    # signal about which. This range is the deterministic fallback.
+    #
+    # SECURITY: this bypasses every control the preview proxy provides — no
+    # per-user attribution, no signed token, no rate/byte caps, no uid isolation
+    # for the served process. Anything reachable here is reachable by anything
+    # that can reach EZCORP_TEST_BIND_IP. The default (127.0.0.1) keeps that to
+    # this machine. Widen it deliberately, and never for a multi-user or
+    # internet-facing deploy — delete this block instead.
+    #
+    # CAVEAT: docker forwards a published port to the CONTAINER's interface, so
+    # the server inside must bind 0.0.0.0. A 127.0.0.1-bound server inside the
+    # container is unreachable through any of these mappings — a property of
+    # docker port publishing, not of this file. vite/astro need `--host 0.0.0.0`.
+    #
+    # NOT 3000: the app itself listens on container :3000, so an agent binding
+    # 3000 dies with EADDRINUSE. 3001/3002 are the usual fallbacks.
+    ports:
+      # Primary port for agent servers. The host side is configurable because
+      # something else may already hold it (a reverse proxy, `tailscale serve`,
+      # another stack) — docker fails the whole `up` with "address already in
+      # use" if so. Point it elsewhere rather than fighting for the port.
+      - "${EZCORP_TEST_BIND_IP:-127.0.0.1}:${EZCORP_TEST_PRIMARY_PORT:-8000}:8000"
+      - "${EZCORP_TEST_BIND_IP:-127.0.0.1}:8002-8010:8002-8010"
+      # Framework DEFAULT ports, so an agent that just runs `vite` or
+      # `astro dev` and never reads the convention still lands somewhere
+      # reachable. This is the "works without being told" layer.
+      - "${EZCORP_TEST_BIND_IP:-127.0.0.1}:5173-5175:5173-5175"
+      - "${EZCORP_TEST_BIND_IP:-127.0.0.1}:4321:4321"
+      - "${EZCORP_TEST_BIND_IP:-127.0.0.1}:3001-3002:3001-3002"
+
+    environment:
+      # Bind-address default honoured by a good chunk of dev tooling, so a
+      # server that reads it lands on 0.0.0.0 (reachable through docker's port
+      # publishing) instead of loopback (invisible) with no prompting at all.
+      # Harmless for the app itself, which already binds 0.0.0.0.
+      #
+      # DELIBERATELY NOT SETTING `PORT`. It looks like the obvious companion,
+      # but svelte-adapter-bun reads PORT for the APP's own listener — so
+      # `PORT=8000` moves the platform off container :3000, silently breaking
+      # the 4000->3000 publish and taking the entire UI down. The app's port is
+      # EZCORP_PORT; leave PORT alone.
+      HOST: "0.0.0.0"
+      HOSTNAME: "0.0.0.0"
