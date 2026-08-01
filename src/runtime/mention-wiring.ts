@@ -197,28 +197,64 @@ function orderedUniqueNames(rawNames: readonly string[]): string[] {
 }
 
 /**
- * Longest PREFIX of `blocks` whose `join("\n\n")` length stays within
- * `maxChars`.
+ * What to do when a block would overflow the budget.
+ *
+ * - `"stop"` — drop it and everything after it. One oversized block
+ *   therefore suppresses every later block, even ones that would fit.
+ * - `"skip"` — drop just that block and keep testing the rest.
+ *
+ * Both keep the output in SOURCE ORDER; neither truncates a block
+ * mid-sentence. There is no best-fit packing option on purpose — that
+ * would reorder blocks, which is what actually confuses a reader.
+ *
+ * `"stop"` exists because it is what the lesson pass has always done
+ * (its pre-extraction loop `break`s, justified by a comment claiming
+ * later blocks "will also fail the check" — which is only true when they
+ * are no smaller). Changing it would change lesson behaviour, so it is
+ * preserved verbatim and named rather than silently fixed here.
+ */
+type JoinBudgetOverflow = "stop" | "skip";
+
+/**
+ * Indices of the blocks that fit within `maxChars` once joined by
+ * `"\n\n"`, in source order.
  *
  * The budget is measured against what the LLM actually sees post-join,
- * so each block after the first is charged the 2-char separator as well.
- * A block that would overflow is dropped WHOLE — never truncated
- * mid-sentence — and since every later block would still owe its own
- * separator, the scan stops at the first miss rather than trying to
- * squeeze a smaller block into the remaining space. That keeps the
- * output a stable prefix of source order instead of an order-scrambling
- * best-fit packing.
+ * so each block after the first is charged the 2-char separator too.
+ *
+ * Returns INDICES rather than the strings so callers that carry a
+ * parallel array (the lesson pass maps kept blocks back to lesson ids
+ * for `onFired`) stay correct under either overflow policy. Returning
+ * strings only worked while the result was guaranteed to be a prefix —
+ * a latent trap the moment anything used `"skip"`.
  */
-function takeWithinJoinBudget(blocks: readonly string[], maxChars: number): string[] {
-  const kept: string[] = [];
+function indicesWithinJoinBudget(
+  blocks: readonly string[],
+  maxChars: number,
+  overflow: JoinBudgetOverflow,
+): number[] {
+  const kept: number[] = [];
   let totalChars = 0;
-  for (const block of blocks) {
+  for (let i = 0; i < blocks.length; i++) {
+    const block = blocks[i]!;
     const separatorCost = kept.length > 0 ? 2 : 0;
-    if (totalChars + separatorCost + block.length > maxChars) break;
-    kept.push(block);
+    if (totalChars + separatorCost + block.length > maxChars) {
+      if (overflow === "stop") break;
+      continue;
+    }
+    kept.push(i);
     totalChars += separatorCost + block.length;
   }
   return kept;
+}
+
+/** Join the blocks selected by {@link indicesWithinJoinBudget}. */
+function joinWithinBudget(
+  blocks: readonly string[],
+  maxChars: number,
+  overflow: JoinBudgetOverflow,
+): string[] {
+  return indicesWithinJoinBudget(blocks, maxChars, overflow).map((i) => blocks[i]!);
 }
 
 // ─── Feature-mention expansion ─────────────────────────────────────
@@ -508,16 +544,16 @@ export async function applyLessonExpansion(
     // for a missing slug is treated as the same silent no-op.
     .filter((lesson): lesson is NonNullable<typeof lesson> => Boolean(lesson));
 
-  // Byte cap applied to the RENDERED blocks; `takeWithinJoinBudget`
-  // always returns a prefix, so index i of the kept list is index i of
-  // `resolved` — that's what lets `onFired` fire for exactly the lessons
-  // that made it into the prompt (not the ones merely looked up).
-  const kept = takeWithinJoinBudget(
-    resolved.map((lesson) => `**Lesson: ${lesson.title}**\n${lesson.body}`),
-    MAX_LESSON_EXPANDED_CHARS,
-  );
-  for (let i = 0; i < kept.length; i++) onFired?.(resolved[i]!.lessonId);
-  return kept.join("\n\n");
+  // Byte cap applied to the RENDERED blocks. `"stop"` preserves this
+  // pass's long-standing behaviour exactly (see JoinBudgetOverflow):
+  // an oversized lesson body suppresses the lessons after it. Indices
+  // map each kept block back to its lesson id so `onFired` fires for
+  // exactly the lessons that reached the prompt, not the ones merely
+  // looked up.
+  const rendered = resolved.map((lesson) => `**Lesson: ${lesson.title}**\n${lesson.body}`);
+  const kept = indicesWithinJoinBudget(rendered, MAX_LESSON_EXPANDED_CHARS, "stop");
+  for (const i of kept) onFired?.(resolved[i]!.lessonId);
+  return kept.map((i) => rendered[i]!).join("\n\n");
 }
 
 // ─── Workflow-mention expansion ────────────────────────────────────
@@ -796,8 +832,15 @@ export async function applyWorkflowExpansion(
   // fixed-size host text added on top, deliberately outside the cap — it
   // is the thing that makes the region safe to read, so it must never be
   // what gets dropped.
+  //
+  // `"skip"`, not `"stop"`: one oversized workflow must not suppress the
+  // others the user named. Since `description` is attacker-controlled and
+  // uncapped at the API boundary, `"stop"` would hand any chat user a
+  // one-line way to blank every workflow reference in someone else's turn
+  // — publish a workflow with a 9 KiB description, get it mentioned first,
+  // and everything after it vanishes.
   return formatWorkflowSection(
-    takeWithinJoinBudget(blocks, MAX_WORKFLOW_EXPANDED_CHARS),
+    joinWithinBudget(blocks, MAX_WORKFLOW_EXPANDED_CHARS, "skip"),
   );
 }
 

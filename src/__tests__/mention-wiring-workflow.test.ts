@@ -739,9 +739,10 @@ describe("applyWorkflowExpansion — per-turn caps", () => {
     expect(out).not.toContain("**Workflow: w6**");
   });
 
-  test("byte cap drops the whole overflowing block (and everything after it)", async () => {
+  test("byte cap drops the overflowing block WHOLE but keeps later ones that fit", async () => {
     // Two ~5 KiB descriptions: the first fits, the second would push the
     // joined text past 8 KiB, so it is dropped WHOLE — never truncated.
+    // `tiny` still fits in the leftover space and MUST survive.
     const big = "x".repeat(5 * 1024);
     const resolver = dictResolver({
       big1: { description: big },
@@ -756,10 +757,33 @@ describe("applyWorkflowExpansion — per-turn caps", () => {
 
     expect(out).toContain("**Workflow: big1**");
     expect(out).not.toContain("**Workflow: big2**");
-    // `tiny` would still fit in the remaining ~3 KiB, but the scan stops
-    // at the first miss so output stays a prefix of source order.
-    expect(out).not.toContain("**Workflow: tiny**");
-    expect(out.length).toBeLessThanOrEqual(8 * 1024);
+    expect(out).toContain("**Workflow: tiny**");
+    // Source order is preserved for the survivors — skipping is not
+    // reordering.
+    expect(out.indexOf("**Workflow: big1**")).toBeLessThan(
+      out.indexOf("**Workflow: tiny**"),
+    );
+    expect(blocksRegion(out).length).toBeLessThanOrEqual(8 * 1024);
+  });
+
+  test("one oversized workflow does NOT suppress the others in the turn", async () => {
+    // The regression this pass had: `break`-on-overflow meant a single
+    // huge description blanked every workflow note in the message.
+    // `description` is attacker-controlled and uncapped at the API
+    // boundary, so that was a one-line denial of the whole feature.
+    const resolver = dictResolver({
+      huge: { description: "y".repeat(9 * 1024) },
+      small: { description: "I still fit." },
+    });
+
+    const out = await applyWorkflowExpansion(
+      "![workflow:huge] ![workflow:small]",
+      resolver,
+    );
+
+    expect(out).not.toContain("**Workflow: huge**");
+    expect(out).toContain("**Workflow: small**");
+    expect(out).toContain("I still fit.");
   });
 
   test("the byte cap boundary is exact: a block AT the budget is kept, one char more is dropped", async () => {
@@ -807,7 +831,15 @@ describe("applyWorkflowExpansion — per-turn caps", () => {
     expect(out).not.toContain("**Workflow: b**");
   });
 
-  test("a single block larger than the whole budget yields nothing", async () => {
+  test("a single block larger than the whole budget yields nothing — silently", async () => {
+    // Deliberate contract: an over-budget workflow is indistinguishable
+    // from an unknown one. Truncating would emit a half-sentence of
+    // attacker-controlled text, and an explicit "too large" advisory
+    // would both break the unknown-target silence rule and hand an
+    // author a way to make the host emit text about their workflow.
+    // A >8 KiB single description is pathological — it exceeds the entire
+    // per-turn budget for ALL workflows — and with skip semantics the
+    // blast radius is now just that one entry.
     const resolver = dictResolver({
       huge: { description: "y".repeat(9 * 1024) },
     });
