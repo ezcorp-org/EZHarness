@@ -19,6 +19,7 @@ import { initDb, closeDb } from "$server/db/connection";
 import { validateEnv } from "$server/env-validation";
 import { loadDbCachedWorkflows } from "$server/db/queries/workflows";
 import {
+  resolveWorkflowForCaller,
   systemCachedWorkflow,
   type CachedWorkflow,
 } from "$server/runtime/workflow-scope";
@@ -162,7 +163,34 @@ export async function ensureInitialized(): Promise<void> {
   // (crash / OOM / restart): a fresh process owns zero in-flight workflow
   // runs, so every such row is orphaned by definition. Fire-and-forget +
   // self-catching so a slow or failing sweep never delays or fails boot.
-  workflowExecutor = new WorkflowExecutor(executor, bus, { persist: true });
+  workflowExecutor = new WorkflowExecutor(executor, bus, {
+    persist: true,
+    // C7 composition: a `kind: "workflow"` step resolves its child HERE,
+    // through the same ladder the run route uses, because nesting IS a run
+    // of another workflow. A bare name lookup would let anyone who can
+    // author a workflow nest someone else's `private` one and read its
+    // behaviour back through `$steps`.
+    //
+    // `role: "member"` is deliberate and conservative: a run carries a
+    // principal id, not a role (a CLI or scheduled run has neither), and
+    // the safe reading of "we do not know" is the lower privilege. The
+    // practical effect is that nesting reaches `system` workflows always,
+    // `project` ones for any run with a user, and `private` ones only for
+    // their owner.
+    //
+    // Reads the live `workflows` binding rather than a captured array, for
+    // the same reason `getWorkflows` is registered as a thunk below:
+    // `reloadWorkflows()` REASSIGNS it on every CRUD write.
+    workflowResolver: (name, ctx) => {
+      const resolved = resolveWorkflowForCaller(
+        workflows,
+        name,
+        { userId: ctx.userId ?? null, role: "member", projectId: ctx.projectId ?? null },
+        "run",
+      );
+      return resolved.ok ? resolved.entry.definition : undefined;
+    },
+  });
   // The `ezcorp/workflows` reverse-RPC handler lives in src/ and cannot
   // import this module (import direction), so register the live executor +
   // a LIVE READER of the merged workflow cache here — same indirection as
