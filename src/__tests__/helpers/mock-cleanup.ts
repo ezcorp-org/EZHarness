@@ -60,6 +60,7 @@ const MODULE_PATHS = [
   "../../db/queries/password-resets",
   "../../db/queries/workflows",
   "../../db/queries/workflow-runs",
+  "../../db/queries/workflow-approvals",
   "../../db/queries/users",
   "../../db/queries/attachments",
   "../../db/queries/modes",

@@ -95,7 +95,7 @@ function stubRuntime() {
   };
 }
 
-async function seedApproval(): Promise<string> {
+async function seedApproval(rbacScope?: string): Promise<string> {
   const runId = crypto.randomUUID();
   await insertWorkflowRun({
     id: runId,
@@ -115,6 +115,7 @@ async function seedApproval(): Promise<string> {
     choices: ["approve", "reject"],
     requireItemConsent: false,
     itemIds: [],
+    ...(rbacScope !== undefined ? { rbacScope } : {}),
   });
 }
 
@@ -191,6 +192,48 @@ describe("every answer path routes through the one guard", () => {
     expect(res.status).toBe(200);
     expect(spy.mock.calls.length).toBe(before + 1);
     spy.mockRestore();
+    _resetWorkflowRuntimeForTests();
+  });
+
+  test("the REST route's rbacScope check reaches the REAL resolver, and denies by default", async () => {
+    // The two cases above drive approvals that declare NO `rbacScope`, so
+    // the route's `checkScope` callback is never called and its wiring is
+    // unasserted end-to-end. A declared scope is the documented way to say
+    // "answering this needs a permission", and it deliberately does NOT
+    // also require ownership — so if the route resolved it wrongly (looser
+    // coordinates, a swallowed failure read as a grant, the wrong
+    // principal) a reviewer could be let through a gate they do not hold,
+    // on a run they do not own. Nothing else exercises that callback
+    // against real grant rows.
+    const { POST } = await import(
+      "../../web/src/routes/api/workflows/approvals/[id]/+server"
+    );
+    registerWorkflowRuntime(stubRuntime());
+    const answerAs = async (id: string, role: "member" | "admin") =>
+      (await POST({
+        request: new Request("http://x", {
+          method: "POST",
+          body: JSON.stringify({ choice: "approve" }),
+        }),
+        params: { id },
+        locals: { user: { id: "u1", role } },
+      } as unknown as Parameters<typeof POST>[0])) as Response;
+
+    // A member holding NO grant at (NULL project, NULL extension) is
+    // refused — deny-by-default, even though `u1` OWNS this run. A
+    // declared scope REPLACES ownership as the rule; reading it as
+    // "owner OR scope" would make every declared scope decorative.
+    const denied = await answerAs(await seedApproval("workflows:approve"), "member");
+    expect(denied.status).toBe(403);
+    expect(await denied.json()).toEqual({
+      error: 'You need the "workflows:approve" permission to answer this approval',
+    });
+
+    // An admin resolves every scope (the resolver's admin sentinel), so
+    // the same request lands. Two DIFFERENT outcomes from one seeded
+    // shape: a route that hard-coded `false` would pass the case above.
+    const allowed = await answerAs(await seedApproval("workflows:approve"), "admin");
+    expect(allowed.status).toBe(200);
     _resetWorkflowRuntimeForTests();
   });
 

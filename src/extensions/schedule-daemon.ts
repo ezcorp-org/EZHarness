@@ -103,6 +103,25 @@ interface DaemonGrant {
 }
 
 /**
+ * The stored `granted_permissions` slice `readGrant` reads, from EITHER
+ * source. Named rather than written inline at both call sites: the registry
+ * read and the extensions-table read must agree on this shape by
+ * construction — a `triggers` key added to one copy and not the other would
+ * silently change which envelope the daemon enforces depending on whether a
+ * registry happened to be wired.
+ */
+interface StoredScheduleGrant {
+  schedule?: {
+    maxRetries?: number;
+    maxRunsPerDay?: number;
+    maxRunDurationMs?: number;
+    missedRunPolicy?: "skip" | "fire-once" | "fire-all";
+    tz?: string;
+  };
+  triggers?: { maxRunsPerDay?: number };
+}
+
+/**
  * The IANA zone a row's cron is evaluated in. A DYNAMIC row carries its own
  * (the user picked it when creating the job); a manifest row reads the
  * grant's, exactly as before C2.
@@ -691,12 +710,7 @@ export class ScheduleDaemon {
     };
     const reg = this.opts.registry;
     if (reg && typeof reg.getGrantedPermissions === "function") {
-      const granted = reg.getGrantedPermissions(extensionId) as
-        {
-          schedule?: { maxRetries?: number; maxRunsPerDay?: number; maxRunDurationMs?: number; missedRunPolicy?: "skip" | "fire-once" | "fire-all"; tz?: string };
-          triggers?: { maxRunsPerDay?: number };
-        }
-        | undefined;
+      const granted = reg.getGrantedPermissions(extensionId) as StoredScheduleGrant | undefined;
       const sched = granted?.schedule;
       if (sched || granted?.triggers) {
         return {
@@ -715,10 +729,7 @@ export class ScheduleDaemon {
       const rows = await getDb().select({ granted: extensions.grantedPermissions })
         .from(extensions)
         .where(eq(extensions.id, extensionId));
-      const granted = rows[0]?.granted as {
-        schedule?: { maxRetries?: number; maxRunsPerDay?: number; maxRunDurationMs?: number; missedRunPolicy?: "skip" | "fire-once" | "fire-all"; tz?: string };
-        triggers?: { maxRunsPerDay?: number };
-      } | undefined;
+      const granted = rows[0]?.granted as StoredScheduleGrant | undefined;
       const sched = granted?.schedule;
       if (sched || granted?.triggers) {
         return {

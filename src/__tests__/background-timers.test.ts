@@ -46,6 +46,10 @@ let lastWebhookDaemonInstance: object | undefined;
 let workflowRunnerCtorMock = mock(() => {});
 let workflowRunnerStopMock = mock(() => {});
 let workflowRunnerStartResult: (() => Promise<boolean>) | undefined;
+// The runner's stop() is the one shutdown call that is AWAITED, so it is also
+// the only one whose rejection could abort the rest of teardown. Re-pointable
+// per-test to drive that branch.
+let workflowRunnerStopResult: (() => Promise<void>) | undefined;
 
 // Phase 1 (schedule-fire delivery fix): the ScheduleDaemon stub captures the
 // ctor OPTIONS so a test can assert the bootstrap passes the registry
@@ -254,7 +258,7 @@ function installModuleMocks(): void {
       }
       stop() {
         workflowRunnerStopMock();
-        return Promise.resolve();
+        return workflowRunnerStopResult ? workflowRunnerStopResult() : Promise.resolve();
       }
     },
   }));
@@ -522,6 +526,7 @@ beforeEach(async () => {
   workflowRunnerCtorMock = mock(() => {});
   workflowRunnerStopMock = mock(() => {});
   workflowRunnerStartResult = undefined;
+  workflowRunnerStopResult = undefined;
   lastWebhookDaemonInstance = undefined;
   scheduleDaemonCtorMock = mock((_opts?: unknown) => {});
   lastScheduleDaemonOpts = undefined;
@@ -811,6 +816,40 @@ describe("startBackgroundTimers — WorkflowRunner bootstrap", () => {
     // until the lease lapses.
     expect(workflowRunnerStopMock).toHaveBeenCalledTimes(1);
     expect(_getWorkflowRunnerForTests()).toBeUndefined();
+  });
+
+  // The runner's stop() is the ONLY awaited stop in the shutdown sequence,
+  // which makes it the only one whose rejection can propagate. An unguarded
+  // `await workflowRunner.stop()` would reject `stopBackgroundTimers()`
+  // itself, so every teardown AFTER it — the webhook, briefing, maintenance
+  // and preview daemons, the raw setInterval handles, the decay disposer —
+  // would never run, and the shutdown orchestrator would then close PGlite
+  // with live timers still issuing queries against the closing handle. That
+  // is precisely the failure the whole function exists to prevent, reached
+  // by the one daemon whose stop() does real I/O (handing claims back).
+  test("a REJECTING stop() is logged, the handle is still cleared, and teardown continues", async () => {
+    delete process.env.EZCORP_DISABLE_WORKFLOW_RUNNER;
+    installModuleMocks();
+    workflowRunnerStopResult = () => Promise.reject(new Error("claim handback failed"));
+
+    const { startBackgroundTimers, stopBackgroundTimers, _getWorkflowRunnerForTests } =
+      await import("../startup/background-timers");
+    await startBackgroundTimers();
+
+    // Must RESOLVE, not reject.
+    await stopBackgroundTimers();
+
+    expect(workflowRunnerStopMock).toHaveBeenCalledTimes(1);
+    expect(loggerWarnMock).toHaveBeenCalledWith("WorkflowRunner.stop() failed", {
+      error: "Error: claim handback failed",
+    });
+    // Cleared despite the failure: a retained handle would be stop()ed again
+    // by a second shutdown pass, re-running the handback that just failed.
+    expect(_getWorkflowRunnerForTests()).toBeUndefined();
+    // The siblings that come AFTER the runner in the sequence still ran —
+    // this is the containment property, not the log line.
+    expect(webhookDaemonStopMock).toHaveBeenCalledTimes(1);
+    expect(briefingDaemonStopMock).toHaveBeenCalledTimes(1);
   });
 });
 

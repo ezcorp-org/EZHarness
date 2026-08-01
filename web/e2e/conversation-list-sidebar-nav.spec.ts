@@ -1,5 +1,6 @@
 import { test, expect, captureEvidence } from "./fixtures/test-base.js";
-import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
+import { makeProject, makeConversation, makeMessage, makeSearchHit } from "./fixtures/data.js";
+import { expectReadable, expectWarningTinted, useLightTheme } from "./fixtures/readable.js";
 
 /**
  * Read-page excerpt fix — sidebar landmark.
@@ -62,5 +63,68 @@ test.describe("Conversation list sidebar — nav landmark", () => {
 		await expect(sidebar.getByText("Another conversation")).toBeVisible();
 
 		await captureEvidence(page, testInfo, "conversation-list-sidebar-nav");
+	});
+
+	/**
+	 * Degraded-search notice — readable on the LIGHT theme.
+	 *
+	 * This notice used to be `bg-amber-500/10` + `text-amber-300`, a pairing
+	 * tuned on a dark surface. `:root` is the LIGHT theme, so by default it
+	 * rendered pale amber prose on a near-white tint — the one line telling
+	 * the user their results are NOT what they asked for was the least
+	 * readable line in the sidebar. It now takes its colour from the theme's
+	 * own text token while keeping the warning tint behind it.
+	 */
+	test("the degraded-search notice is legible on the light theme @evidence", async ({
+		page,
+		mockApi,
+	}, testInfo) => {
+		await useLightTheme(page);
+		await mockApi({
+			projects: [proj],
+			conversations: [conv, other],
+			searchMessages: {
+				degraded: true,
+				servedMode: "keyword",
+				hits: [
+					makeSearchHit({
+						conversationId: conv.id,
+						conversationTitle: "Active chat",
+						messageId: "hit-1",
+						snippet: "a <mark>roadmap</mark> match",
+					}),
+				],
+			},
+		});
+
+		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
+
+		const mobile = testInfo.project.name === "mobile-chromium";
+		if (mobile) {
+			await page.getByRole("button", { name: "Open conversations" }).click();
+			await expect(page.getByTestId("swipe-drawer")).toBeVisible({ timeout: 3000 });
+		}
+		// Scope to the VISIBLE ConversationList: both a desktop and a mobile
+		// instance are mounted, so an unscoped testid would be ambiguous.
+		const sidebar = mobile
+			? page.getByTestId("swipe-drawer").locator(".flex.h-full.w-full")
+			: page.locator(".flex.h-full.w-full").first();
+
+		await sidebar.locator('[title="Search conversations"]').click();
+		await sidebar.locator('input[placeholder="Search..."]').fill("roadmap");
+
+		const notice = sidebar.getByTestId("search-degraded-notice");
+		await expect(notice).toBeVisible({ timeout: 3000 });
+		await expect(notice).toHaveText(/Semantic search unavailable/);
+
+		// The visual claim, asserted numerically: the notice's prose clears
+		// WCAG AA against the surface it is actually composited onto. Before
+		// the fix this measured ≈1.4:1.
+		const m = await expectReadable(notice, "ConversationList degraded-search notice");
+		expect(m.dark, "the regression only shows on light surfaces").toBe(false);
+		// ...and it is still visibly a WARNING, not plain body text.
+		await expectWarningTinted(notice, "ConversationList degraded-search notice");
+
+		await captureEvidence(page, testInfo, "conversation-list-degraded-notice");
 	});
 });

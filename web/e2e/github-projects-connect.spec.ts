@@ -1,4 +1,5 @@
 import { test, expect, captureEvidence } from "./fixtures/test-base.js";
+import { expectReadable, expectWarningTinted, useLightTheme } from "./fixtures/readable.js";
 import { makeProject, makeExtension } from "./fixtures/data.js";
 import type { Page } from "@playwright/test";
 
@@ -730,6 +731,7 @@ test.describe("GitHub Projects connect sub-route", () => {
 
 	test("connect with canComment=false shows WARNING banner with missing-scope guidance @evidence", async ({ page, mockApi }, testInfo) => {
 		// Simulate a classic PAT that lacks the 'repo' scope.
+		await useLightTheme(page);
 		await mockApi({ projects: [proj] });
 		await installGhRoutes(page, { connectCanComment: false });
 		await page.goto(CONNECT_PATH);
@@ -757,7 +759,48 @@ test.describe("GitHub Projects connect sub-route", () => {
 		// The info note for fine-grained tokens must NOT appear.
 		await expect(page.getByTestId("gh-comment-scope-note")).toHaveCount(0);
 
+		// ── Readability on the LIGHT theme ────────────────────────────────
+		// This banner was `bg-amber-500/10` + `text-amber-300`, tuned on a
+		// dark surface. `:root` is the LIGHT theme, so it rendered pale amber
+		// on a near-white tint: the sentence explaining that progress
+		// comments will silently never appear was the least readable thing on
+		// the page. Asserted numerically because a washed-out panel is
+		// something a reviewer has to NOTICE in a screenshot.
+		const m = await expectReadable(banner, "github-projects missing-repo-scope warning");
+		expect(m.dark, "the regression only shows on light surfaces").toBe(false);
+		// And it must still look like a warning, not plain body copy.
+		await expectWarningTinted(banner, "github-projects missing-repo-scope warning");
+
 		await captureEvidence(page, testInfo, "gh-comment-scope-warning");
+	});
+
+	/**
+	 * The auto-spawn warning is the loudest thing on this page for a reason:
+	 * it says that moving a card will launch a tool-running agent with NO
+	 * human approval step. It carried the same dark-tuned amber pairing, so
+	 * on the default theme the one sentence describing an unattended
+	 * privileged action washed out. Same fix, same numeric assertion.
+	 */
+	test("the auto-spawn no-approval warning is legible on the light theme @evidence", async ({ page, mockApi }, testInfo) => {
+		await useLightTheme(page);
+		await mockApi({ projects: [proj] });
+		const state = await installGhRoutes(page);
+		state.links = [connectedLink({ id: "link-1" })];
+		await page.goto(CONNECT_PATH);
+
+		await page.getByTestId("gh-projects-card-toggle-link-1").click();
+		await page.getByTestId("gh-projects-column-enable-link-1-opt-doing").check();
+		await page.getByTestId("gh-projects-column-autospawn-link-1-opt-doing").check();
+
+		const warning = page.getByTestId("gh-projects-autospawn-warning-link-1");
+		await expect(warning).toBeVisible();
+		await expect(warning).toContainText("Auto-spawn is enabled");
+
+		const m = await expectReadable(warning, "github-projects auto-spawn warning");
+		expect(m.dark, "the regression only shows on light surfaces").toBe(false);
+		await expectWarningTinted(warning, "github-projects auto-spawn warning");
+
+		await captureEvidence(page, testInfo, "gh-autospawn-warning");
 	});
 
 	test("connect with canComment=true shows NO banner (token has repo scope)", async ({ page, mockApi }) => {
