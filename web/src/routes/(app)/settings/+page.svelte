@@ -1,19 +1,18 @@
 <script lang="ts">
 	import { goto } from "$app/navigation";
-	import { resolveLegacyHash, SETTINGS_DEFAULT_ROUTE } from "$lib/settings-nav.js";
+	import { resolveLegacyHash, settingsDefaultRoute } from "$lib/settings-nav.js";
 	import SkeletonLoader from "$lib/components/SkeletonLoader.svelte";
 
 	// `/settings` is now a redirect shim: the mega-page was split into
 	// sub-routes (see $lib/settings-nav.ts). Legacy `#anchor` deep links
-	// are mapped onto their new pages; everything else lands on the
-	// default Models & Providers page.
+	// are mapped onto their new pages; everything else lands on the first
+	// page the visitor is actually allowed to open.
 	$effect(() => {
 		(async () => {
-			const hash = window.location.hash;
-			if (!hash) {
-				goto(SETTINGS_DEFAULT_ROUTE, { replaceState: true });
-				return;
-			}
+			// Role is resolved BEFORE the no-hash branch on purpose. It used to
+			// redirect straight to a hardcoded default; now that the default
+			// differs by role, doing that would bounce a member off an
+			// admin-only page — two navigations to reach the same place.
 			let isAdmin = false;
 			try {
 				const res = await fetch("/api/auth/me");
@@ -22,7 +21,10 @@
 					isAdmin = data.user?.role === "admin";
 				}
 			} catch { /* silent — non-admin fallback */ }
-			goto(resolveLegacyHash(hash, isAdmin), { replaceState: true });
+			const hash = window.location.hash;
+			goto(hash ? resolveLegacyHash(hash, isAdmin) : settingsDefaultRoute(isAdmin), {
+				replaceState: true,
+			});
 		})();
 	});
 </script>

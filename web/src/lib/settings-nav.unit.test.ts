@@ -7,6 +7,7 @@ import { describe, test, expect } from "vitest";
 import {
 	SETTINGS_NAV,
 	SETTINGS_DEFAULT_ROUTE,
+	settingsDefaultRoute,
 	resolveLegacyHash,
 	visibleNavItems,
 	activeNavId,
@@ -15,9 +16,14 @@ import {
 describe("resolveLegacyHash — full redirect table", () => {
 	const modelAnchors = ["providers", "tier", "order", "custom-models"];
 	for (const a of modelAnchors) {
-		test(`#${a} → /settings/models#${a}`, () => {
-			expect(resolveLegacyHash(`#${a}`, false)).toBe(`/settings/models#${a}`);
+		test(`#${a} → /settings/models#${a} for admins`, () => {
 			expect(resolveLegacyHash(`#${a}`, true)).toBe(`/settings/models#${a}`);
+		});
+		// Models & Providers became admin-only: its reads and writes both
+		// require the admin role, so a member deep-linking here must land
+		// somewhere they can actually open.
+		test(`#${a} → member default for non-admins (admin-gated)`, () => {
+			expect(resolveLegacyHash(`#${a}`, false)).toBe(settingsDefaultRoute(false));
 		});
 	}
 
@@ -41,7 +47,7 @@ describe("resolveLegacyHash — full redirect table", () => {
 			expect(resolveLegacyHash(`#${a}`, true)).toBe(`/settings/search#${a}`);
 		});
 		test(`#${a} → default route for non-admins (admin-gated)`, () => {
-			expect(resolveLegacyHash(`#${a}`, false)).toBe(SETTINGS_DEFAULT_ROUTE);
+			expect(resolveLegacyHash(`#${a}`, false)).toBe(settingsDefaultRoute(false));
 		});
 	}
 
@@ -51,34 +57,72 @@ describe("resolveLegacyHash — full redirect table", () => {
 			expect(resolveLegacyHash(`#${a}`, true)).toBe(`/settings/admin#${a}`);
 		});
 		test(`#${a} → default route for non-admins`, () => {
-			expect(resolveLegacyHash(`#${a}`, false)).toBe(SETTINGS_DEFAULT_ROUTE);
+			expect(resolveLegacyHash(`#${a}`, false)).toBe(settingsDefaultRoute(false));
 		});
 	}
 
 	test("#audit → /settings/admin/audit for admins, default for members", () => {
 		expect(resolveLegacyHash("#audit", true)).toBe("/settings/admin/audit");
-		expect(resolveLegacyHash("#audit", false)).toBe(SETTINGS_DEFAULT_ROUTE);
+		expect(resolveLegacyHash("#audit", false)).toBe(settingsDefaultRoute(false));
 	});
 
 	test("unknown hash → default route", () => {
-		expect(resolveLegacyHash("#does-not-exist", true)).toBe(SETTINGS_DEFAULT_ROUTE);
-		expect(resolveLegacyHash("#does-not-exist", false)).toBe(SETTINGS_DEFAULT_ROUTE);
+		expect(resolveLegacyHash("#does-not-exist", true)).toBe(settingsDefaultRoute(true));
+		expect(resolveLegacyHash("#does-not-exist", false)).toBe(settingsDefaultRoute(false));
 	});
 
 	test("empty / bare hash → default route", () => {
-		expect(resolveLegacyHash("", false)).toBe(SETTINGS_DEFAULT_ROUTE);
-		expect(resolveLegacyHash("#", true)).toBe(SETTINGS_DEFAULT_ROUTE);
+		expect(resolveLegacyHash("", false)).toBe(settingsDefaultRoute(false));
+		expect(resolveLegacyHash("#", true)).toBe(settingsDefaultRoute(true));
 	});
 
 	test("accepts the anchor without a leading #", () => {
-		expect(resolveLegacyHash("providers", false)).toBe("/settings/models#providers");
+		expect(resolveLegacyHash("providers", true)).toBe("/settings/models#providers");
+	});
+});
+
+describe("settingsDefaultRoute", () => {
+	test("never returns a page that role cannot open — the redirect-loop guard", () => {
+		// This is the whole point of deriving it. When Models & Providers turned
+		// admin-only, a hardcoded `/settings/models` default sent members to a
+		// page that immediately bounced them back to the same default, forever.
+		for (const isAdmin of [true, false]) {
+			const route = settingsDefaultRoute(isAdmin);
+			const target = SETTINGS_NAV.find((i) => i.href === route);
+			expect(target, `${route} must be a real nav entry`).toBeDefined();
+			expect(target!.adminOnly && !isAdmin).toBe(false);
+		}
+	});
+
+	test("SETTINGS_DEFAULT_ROUTE is the NON-ADMIN answer", () => {
+		// Its callers have all already established the visitor is not an admin,
+		// so it must never resolve to an admin-only page.
+		expect(SETTINGS_DEFAULT_ROUTE).toBe(settingsDefaultRoute(false));
+		const target = SETTINGS_NAV.find((i) => i.href === SETTINGS_DEFAULT_ROUTE);
+		expect(target?.adminOnly).toBe(false);
+	});
+
+	test("admins land on Models & Providers, members on the first page they may open", () => {
+		expect(settingsDefaultRoute(true)).toBe("/settings/models");
+		expect(settingsDefaultRoute(false)).toBe("/settings/personalization");
+	});
+
+	test("resolveLegacyHash never sends a member to an admin-only page", () => {
+		const adminHrefs = new Set(SETTINGS_NAV.filter((i) => i.adminOnly).map((i) => i.href));
+		const everyAnchor = SETTINGS_NAV.flatMap((i) => [...i.anchors, ...(i.bareAnchors ?? [])]);
+		for (const anchor of [...everyAnchor, "", "#", "unknown-anchor"]) {
+			const dest = resolveLegacyHash(anchor, false).split("#")[0]!;
+			expect(adminHrefs.has(dest), `member routed to admin-only ${dest} via "${anchor}"`).toBe(
+				false,
+			);
+		}
 	});
 });
 
 describe("visibleNavItems", () => {
 	test("hides admin entries for members", () => {
 		const ids = visibleNavItems(false).map((i) => i.id);
-		expect(ids).toEqual(["models", "personalization", "briefing", "developer"]);
+		expect(ids).toEqual(["personalization", "briefing", "developer"]);
 	});
 
 	test("shows admin entries for admins", () => {
