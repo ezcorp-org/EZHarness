@@ -23,7 +23,7 @@ interface TreeResult {
 	tree: { conversationId: string; currentLeaf: string | null; nodes: unknown[] } | null;
 }
 
-const { sendMessageMock, retryMessageMock, fetchAllMessagesMock, fetchConversationTreeMock } = vi.hoisted(() => ({
+const { sendMessageMock, retryMessageMock, fetchAllMessagesMock, fetchConversationTreeMock, userFetchMock } = vi.hoisted(() => ({
 	sendMessageMock: vi.fn(async (_c: string, d: { content: string; editOf?: string }) => ({
 		userMessage: {
 			id: "srv-1",
@@ -40,7 +40,7 @@ const { sendMessageMock, retryMessageMock, fetchAllMessagesMock, fetchConversati
 	})),
 	// The clean /retry: returns the EXISTING user turn as the anchor (no new
 	// row), a runId to stream, and the id of the assistant being retried.
-	retryMessageMock: vi.fn(async (_c: string, messageId: string) => ({
+	retryMessageMock: vi.fn(async (_c: string, messageId: string, _opts?: { provider?: string; model?: string; thinkingLevel?: string }) => ({
 		userMessage: {
 			id: "u1",
 			conversationId: "conv-1",
@@ -54,6 +54,9 @@ const { sendMessageMock, retryMessageMock, fetchAllMessagesMock, fetchConversati
 		runId: "run-ab",
 	})),
 	fetchAllMessagesMock: vi.fn(async () => [] as Message[]),
+	// Controllable so the "Retry with…" menu's lazy /api/models fetch can be
+	// driven per test. Defaults to the empty envelope the rest of the file relies on.
+	userFetchMock: vi.fn(async (_url: string) => ({ ok: true, json: async () => ({}) as unknown })),
 	fetchConversationTreeMock: vi.fn(
 		async (): Promise<TreeResult> => ({
 			enabled: true,
@@ -91,7 +94,7 @@ vi.mock("$lib/sub-conversation-store.svelte.js", () => ({
 	},
 }));
 vi.mock("$lib/utils/fetch-policy.js", () => ({
-	userFetch: vi.fn(async () => ({ ok: true, json: async () => ({}) })),
+	userFetch: userFetchMock,
 	backgroundFetch: vi.fn(async () => null),
 	invalidate: vi.fn(),
 }));
@@ -137,6 +140,8 @@ beforeEach(() => {
 	sendMessageMock.mockClear();
 	retryMessageMock.mockClear();
 	fetchConversationTreeMock.mockClear();
+	userFetchMock.mockClear();
+	userFetchMock.mockImplementation(async () => ({ ok: true, json: async () => ({}) as unknown }));
 	fetchConversationTreeMock.mockResolvedValue({
 		enabled: true,
 		tree: { conversationId: "conv-1", currentLeaf: "a1", nodes: [] },
@@ -176,5 +181,141 @@ describe("ChatThread A/B retry affordance (Sessions P5)", () => {
 		await vi.waitFor(() => expect(fetchConversationTreeMock).toHaveBeenCalled());
 		await new Promise((r) => setTimeout(r, 0));
 		expect(container.querySelector('[data-testid="ab-retry-btn"]')).toBeNull();
+	});
+});
+
+/**
+ * WS7 — "Retry with…": the same clean /retry fork, against a model the user
+ * picks. The route ALREADY accepted a provider/model override; only the
+ * affordance was missing, and it is the most informative routing signal the
+ * product can produce (one user turn, two models, the prompt held constant).
+ *
+ * The plain one-click Retry is deliberately left intact — "Current chat model"
+ * in the menu is that same behaviour — so the tests above still describe the
+ * shipped default path.
+ */
+describe("ChatThread 'Retry with…' model picker (WS7)", () => {
+	const MODELS = [
+		{ provider: "anthropic", model: "claude-haiku-4-5", tier: "fast", costTier: "low", available: true, displayName: "Haiku 4.5" },
+		{ provider: "anthropic", model: "claude-opus-4-5", tier: "powerful", costTier: "high", available: true, displayName: "Opus 4.5" },
+		{ provider: "openai", model: "gpt-unavailable", tier: "balanced", costTier: "medium", available: false },
+	];
+
+	function serveModels() {
+		userFetchMock.mockImplementation(async (url: string) =>
+			url === "/api/models"
+				? { ok: true, json: async () => MODELS as unknown }
+				: { ok: true, json: async () => ({}) as unknown },
+		);
+	}
+
+	async function openMenu(container: HTMLElement) {
+		const caret = await vi.waitFor(() => {
+			const el = container.querySelector('[data-testid="ab-retry-with-btn"]');
+			if (!el) throw new Error("caret not yet rendered");
+			return el as HTMLButtonElement;
+		});
+		await fireEvent.click(caret);
+		return vi.waitFor(() => {
+			const menu = container.querySelector('[data-testid="ab-retry-model-menu"]');
+			if (!menu) throw new Error("menu not open");
+			return menu as HTMLElement;
+		});
+	}
+
+	test("the model list is fetched LAZILY — not until the menu is opened", async () => {
+		serveModels();
+		const { container } = mount();
+		await vi.waitFor(() => {
+			if (!container.querySelector('[data-testid="ab-retry-with-btn"]')) throw new Error("not yet");
+		});
+		// A thread renders many assistant rows; fetching per row on mount would be
+		// one /api/models request each.
+		expect(userFetchMock.mock.calls.some(([url]) => url === "/api/models")).toBe(false);
+		await openMenu(container);
+		expect(userFetchMock.mock.calls.some(([url]) => url === "/api/models")).toBe(true);
+	});
+
+	test("picking a model retries with THAT model, tier-grouped and availability-filtered", async () => {
+		serveModels();
+		const { container } = mount();
+		const menu = await openMenu(container);
+		await vi.waitFor(() => {
+			if (menu.querySelectorAll('[data-testid="ab-retry-model-option"]').length === 0) {
+				throw new Error("options not yet rendered");
+			}
+		});
+		const options = Array.from(menu.querySelectorAll('[data-testid="ab-retry-model-option"]'));
+		// Unavailable models are filtered out; the strongest tier leads.
+		expect(options).toHaveLength(2);
+		expect(options[0]!.textContent).toContain("Opus 4.5");
+		expect(menu.textContent).not.toContain("gpt-unavailable");
+
+		await fireEvent.click(options[0]! as HTMLButtonElement);
+		await vi.waitFor(() => expect(retryMessageMock).toHaveBeenCalled());
+		const [convId, messageId, opts] = retryMessageMock.mock.calls[0]!;
+		expect(convId).toBe("conv-1");
+		expect(messageId).toBe("a1");
+		expect(opts).toMatchObject({ provider: "anthropic", model: "claude-opus-4-5" });
+		// The menu closes on pick.
+		expect(container.querySelector('[data-testid="ab-retry-model-menu"]')).toBeNull();
+	});
+
+	test("'Current chat model' is the plain retry — no model override on the wire", async () => {
+		serveModels();
+		const { container } = mount();
+		const menu = await openMenu(container);
+		const current = menu.querySelector('[data-testid="ab-retry-model-current"]') as HTMLButtonElement;
+		expect(current).not.toBeNull();
+		await fireEvent.click(current);
+		await vi.waitFor(() => expect(retryMessageMock).toHaveBeenCalled());
+		const [, , opts] = retryMessageMock.mock.calls[0]!;
+		// The thread has no explicit selection in this harness, so the wire model
+		// resolves to undefined — i.e. exactly the pre-WS7 one-click Retry.
+		expect(opts?.model).toBeUndefined();
+	});
+
+	test("a failed model list still offers the plain retry", async () => {
+		userFetchMock.mockImplementation(async () => {
+			throw new Error("offline");
+		});
+		const { container } = mount();
+		const menu = await openMenu(container);
+		expect(menu.querySelectorAll('[data-testid="ab-retry-model-option"]')).toHaveLength(0);
+		await fireEvent.click(menu.querySelector('[data-testid="ab-retry-model-current"]') as HTMLButtonElement);
+		await vi.waitFor(() => expect(retryMessageMock).toHaveBeenCalled());
+	});
+
+	test("a non-array payload degrades to an empty list instead of throwing", async () => {
+		userFetchMock.mockImplementation(async () => ({ ok: true, json: async () => ({ error: "nope" }) as unknown }));
+		const { container } = mount();
+		const menu = await openMenu(container);
+		expect(menu.querySelectorAll('[data-testid="ab-retry-model-option"]')).toHaveLength(0);
+	});
+
+	test("the caret toggles the menu shut again", async () => {
+		serveModels();
+		const { container } = mount();
+		await openMenu(container);
+		await fireEvent.click(container.querySelector('[data-testid="ab-retry-with-btn"]') as HTMLButtonElement);
+		expect(container.querySelector('[data-testid="ab-retry-model-menu"]')).toBeNull();
+	});
+
+	test("Escape closes the menu", async () => {
+		serveModels();
+		const { container } = mount();
+		await openMenu(container);
+		await fireEvent.keyDown(window, { key: "Escape" });
+		await vi.waitFor(() =>
+			expect(container.querySelector('[data-testid="ab-retry-model-menu"]')).toBeNull(),
+		);
+	});
+
+	test("flag OFF → no caret either", async () => {
+		fetchConversationTreeMock.mockResolvedValue({ enabled: false, tree: null });
+		const { container } = mount();
+		await vi.waitFor(() => expect(fetchConversationTreeMock).toHaveBeenCalled());
+		await new Promise((r) => setTimeout(r, 0));
+		expect(container.querySelector('[data-testid="ab-retry-with-btn"]')).toBeNull();
 	});
 });

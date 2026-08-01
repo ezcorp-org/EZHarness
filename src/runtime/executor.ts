@@ -38,6 +38,10 @@ import { getProject } from "../db/queries/projects";
 import { getAllSettings, getSetting } from "../db/queries/settings";
 import type { CompactionConfig } from "./stream-chat/context-compaction";
 import {
+  TOOL_RESULT_CAP_SETTING_KEY,
+  parseToolResultCap,
+} from "./stream-chat/tool-result-cap";
+import {
   resolveCacheRetentionSetting,
   type CacheRetention,
 } from "./stream-chat/cache-retention";
@@ -153,7 +157,9 @@ const MAX_RUNS = 100;
  * Resolve per-turn history-compaction overrides from settings. Mirrors
  * the `getDefaultTier`/`getPreferenceOrder` pattern in providers/router:
  * each key is optional and falls back to the compaction module DEFAULTS
- * when unset or malformed. `compaction:strategy = "none"` disables it.
+ * when unset or malformed. `compaction:strategy = "none"` disables it —
+ * except the always-on stale-tool-result cap, which is strategy-independent
+ * and switches off with `compaction:toolResultCap = 0`.
  */
 async function resolveCompactionConfig(): Promise<Partial<CompactionConfig>> {
   const out: Partial<CompactionConfig> = {};
@@ -176,6 +182,10 @@ async function resolveCompactionConfig(): Promise<Partial<CompactionConfig>> {
       (out as Record<string, number>)[field] = v;
     }
   }
+  // The stale-tool-result cap has a settings EDITOR (Settings → Models), so its
+  // read lives beside its write-time validator rather than in the generic loop
+  // above — one module owns "what a stored cap means".
+  out.toolResultCap = parseToolResultCap(await getSetting(TOOL_RESULT_CAP_SETTING_KEY));
   return out;
 }
 
@@ -1019,6 +1029,11 @@ export class AgentExecutor {
       allPastAttachments,
       convRecord ?? null,
       credentialConversationId,
+      // WS5: the tier classifier scores the WHOLE turn, not just the user's
+      // message. `history` is already resolved (awaited above) — passing it
+      // adds no I/O and no await, and it is what lets a short follow-up
+      // inside a tool loop route as the context-heavy turn it really is.
+      history,
     );
 
     // Stash the resolved endpoint so the error-finalize path can name the
@@ -1268,6 +1283,13 @@ export class AgentExecutor {
               requestedModel: options.model ?? null,
               routedTier: options.model ? undefined : resolvedModel.effectiveTier,
               failover: attempt !== initialAttempt,
+              // WS5: the raw classifier inputs + the tier they produced, and
+              // the effective routing config. Both are already undefined on a
+              // pinned turn (setup-tools only computes them when routing
+              // fired), so no extra guard is needed here — subscribeBridge's
+              // conditional spread drops absent values.
+              routingSignals: resolvedModel.routingSignals,
+              routingConfig: resolvedModel.routingConfig,
               sessionHistoryProducer,
             },
             convRecord ?? null,

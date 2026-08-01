@@ -11,6 +11,9 @@ import type {
 } from "../types";
 import type { MemoryProvenance } from "../memory/types";
 import { EMBEDDING_DIMENSIONS } from "../memory/types";
+// Tier vocabulary lives in the pure routing classifier (single source of
+// truth). Type-only import — erased at build, so it adds no runtime dep.
+import type { RoutingTier } from "../runtime/tier-classifier";
 import type {
   GithubColumnActionMap,
   GithubProposalAction,
@@ -193,6 +196,47 @@ export const messages = pgTable("messages", {
     routedTier?: "fast" | "balanced" | "powerful";
     /** True when the served provider ≠ the initially resolved provider. */
     failover?: boolean;
+    /**
+     * WS5 routing provenance — only present when routing fired. The RAW
+     * classifier inputs plus the verdict they produced, so tier thresholds
+     * can be swept retroactively against real traffic instead of by replay.
+     * Mirrors `RoutingSignals` in `src/runtime/tier-classifier.ts` (inlined
+     * here, like every other key in this shape, so the db layer keeps no
+     * runtime dependency).
+     */
+    routingSignals?: {
+      promptChars: number;
+      historyChars: number;
+      historyMessageCount: number;
+      hasToolMessages: boolean;
+      systemChars: number;
+      attachmentCount: number;
+      toolCount: number;
+      hasComplexTools: boolean;
+      estTokens: number;
+      /** The tier the CLASSIFIER chose. When `exploration` is true this is
+       *  NOT the tier that served the turn (`routedTier` is) — both are kept
+       *  so the explored counterfactual stays reconstructible. */
+      tier: "fast" | "balanced" | "powerful";
+      reason: string;
+      /** WS7 — true when bounded exploration (`provider:explorationRate`,
+       *  default off) deliberately served one rung below `tier`. */
+      exploration?: boolean;
+      /** WS7 — an injected tier scorer's confidence, when one decided the
+       *  tier. Absent on every heuristic verdict (which is all of them
+       *  today: no scorer is wired). */
+      confidence?: number;
+    };
+    /** Effective routing config the turn was decided under — lets a sweep
+     *  tell a threshold change apart from a provider-config change. */
+    routingConfig?: {
+      defaultTier: "fast" | "balanced" | "powerful";
+      preferenceOrderHash: string;
+      /** WS7 — version of the tier scorer that decided the turn; absent when
+       *  the heuristic did. Keeps a scorer rollout distinguishable from a
+       *  threshold change when comparing rows across time. */
+      scorerVersion?: string;
+    };
   }>(),
   runId: text("run_id").references(() => runs.id, { onDelete: "set null" }),
   parentMessageId: text("parent_message_id"),
@@ -976,6 +1020,16 @@ export const modes = pgTable("modes", {
   instructionPosition: text("instruction_position").notNull().default("prepend").$type<"prepend" | "append" | "replace">(),
   preferredModel: text("preferred_model"),
   preferredProvider: text("preferred_provider"),
+  /** WS3b: the routing TIER this kind of task wants, when the mode has no
+   *  reason to name a specific model. Applied at thread start as the tier
+   *  classifier's hint (see src/runtime/routing/mode-binding.ts), so the
+   *  binding keeps working as the tier ladder changes underneath it —
+   *  `preferredModel` pins a model, this pins the CLASS of model. NULL = no
+   *  preference. Plain TEXT with no CHECK: the union narrows at the
+   *  TypeScript layer only (same convention as every other enum-ish column
+   *  here), and `mode-binding.ts` re-validates the value at read time so a
+   *  hand-edited row degrades instead of routing on garbage. */
+  preferredTier: text("preferred_tier").$type<RoutingTier>(),
   preferredThinkingLevel: text("preferred_thinking_level").$type<"off" | "minimal" | "low" | "medium" | "high" | "xhigh">(),
   temperature: real("temperature"),
   toolRestriction: text("tool_restriction").notNull().default("all").$type<"all" | "read-only" | "none" | "allowlist">(),

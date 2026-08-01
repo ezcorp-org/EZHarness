@@ -233,8 +233,11 @@ describe("CityConditionsCard — mold", () => {
 			...ENVELOPE,
 			mold: { available: true, reason: null, count: 1240.5, band: "high" },
 		});
-		expect(getByTestId("city-conditions-mold-count")).toHaveTextContent("1240.5 grains/m³");
-		expect(getByTestId("city-conditions-mold-band")).toHaveTextContent("high");
+		// Mold is measured in SPORES. `grains/m³` is the pollen unit and was
+		// what this assertion pinned before the envelope carried units.
+		expect(getByTestId("city-conditions-mold-count")).toHaveTextContent("1240.5 spores/m³");
+		// The card shows the user-facing label now, not the raw band token.
+		expect(getByTestId("city-conditions-mold-band")).toHaveTextContent("High");
 		expect(queryByTestId("city-conditions-mold-unavailable")).toBeNull();
 	});
 
@@ -244,7 +247,114 @@ describe("CityConditionsCard — mold", () => {
 			mold: { available: true, reason: "", count: null, band: null },
 		});
 		expect(queryByTestId("city-conditions-mold-count")).toBeNull();
-		expect(getByTestId("city-conditions-mold-reason")).toHaveTextContent("no spore count");
+		// A count is no longer the only thing that makes mold real — a station
+		// activity band counts too — so the reason names both.
+		expect(getByTestId("city-conditions-mold-reason")).toHaveTextContent(
+			"sent no count or activity band",
+		);
+	});
+});
+
+/**
+ * A reporting station shapes the card differently from a forecast grid: it
+ * publishes per-CATEGORY bands instead of per-grain numbers, and a mold
+ * ACTIVITY band with no spore count. Both render through branches the
+ * Open-Meteo payload never reaches, and both must carry their provenance —
+ * an observed reading and a modeled one are not interchangeable to a reader
+ * deciding whether to go outside.
+ */
+describe("CityConditionsCard — a reporting station's shape", () => {
+	const STATION_SOURCE = {
+		id: "atlanta-allergy",
+		name: "Atlanta Allergy & Asthma",
+		url: "https://www.atlantaallergy.com/pollen_counts",
+		kind: "observed",
+		certification: "National Allergy Bureau-certified station",
+	};
+
+	const STATION_ENVELOPE = {
+		...ENVELOPE,
+		pollen: {
+			available: true,
+			grains: null,
+			total: 1240.5,
+			unit: "grains/m³",
+			band: "very-high",
+			categories: [
+				{ key: "trees", label: "Trees", band: "high", contributors: ["Oak", "Pine"] },
+				// No contributors — the station names them only for some categories.
+				{ key: "grass", label: "Grass", band: "low", contributors: [] },
+			],
+			observedAt: "2026-07-28",
+			source: STATION_SOURCE,
+			reason: null,
+		},
+		mold: {
+			available: true,
+			reason: "The station publishes a mold activity band, not a numeric spore count.",
+			count: null,
+			unit: null,
+			band: "moderate",
+			observedAt: "2026-07-28",
+			source: STATION_SOURCE,
+		},
+	};
+
+	test("categories replace the per-grain rows, each with its own band", () => {
+		const { getByTestId, getAllByTestId, queryAllByTestId } = renderCard(STATION_ENVELOPE);
+		expect(getByTestId("city-conditions-pollen-categories")).toBeInTheDocument();
+		const categories = getAllByTestId("city-conditions-pollen-category");
+		expect(categories.map((c) => c.getAttribute("data-category"))).toEqual(["trees", "grass"]);
+		const bands = getAllByTestId("city-conditions-category-band");
+		expect(bands[0]).toHaveTextContent("High");
+		expect(bands[1]).toHaveTextContent("Low");
+		// The grain list is the OTHER branch — a station payload has no grains.
+		expect(queryAllByTestId("city-conditions-grain")).toHaveLength(0);
+	});
+
+	test("top contributors show for the category that names them, and only that one", () => {
+		const { getAllByTestId } = renderCard(STATION_ENVELOPE);
+		const categories = getAllByTestId("city-conditions-pollen-category");
+		expect(categories[0]).toHaveTextContent("Oak, Pine");
+		// Grass named none; the card renders nothing rather than an empty line.
+		expect(categories[1]?.textContent).not.toContain(",");
+	});
+
+	test("both readings carry provenance — observed, certified, and dated", () => {
+		const { getByTestId } = renderCard(STATION_ENVELOPE);
+		const pollenSource = getByTestId("city-conditions-pollen-source");
+		expect(pollenSource).toHaveTextContent("Observed by Atlanta Allergy & Asthma");
+		expect(pollenSource).toHaveTextContent("National Allergy Bureau-certified station");
+		// A date-only stamp stays the station's date; no timezone shifting.
+		expect(pollenSource).toHaveTextContent("Reported 07/28/2026");
+		expect(getByTestId("city-conditions-mold-source")).toHaveTextContent(
+			"Observed by Atlanta Allergy & Asthma",
+		);
+	});
+
+	test("a band-only mold reading says so instead of implying a count", () => {
+		const { getByTestId, queryByTestId } = renderCard(STATION_ENVELOPE);
+		expect(getByTestId("city-conditions-mold-band")).toHaveTextContent("Moderate");
+		expect(getByTestId("city-conditions-mold-count")).toHaveTextContent("Count not published");
+		// The note is what stops a band being read as a measured spore figure.
+		expect(getByTestId("city-conditions-mold-note")).toHaveTextContent(
+			"not a numeric spore count",
+		);
+		expect(queryByTestId("city-conditions-mold-unavailable")).toBeNull();
+	});
+
+	test("modeled data is labelled modeled, not observed", () => {
+		const { getByTestId } = renderCard({
+			...STATION_ENVELOPE,
+			pollen: {
+				...STATION_ENVELOPE.pollen,
+				source: { id: "open-meteo", name: "Open-Meteo / CAMS", kind: "modeled" },
+				observedAt: "2026-07-28T15:00",
+			},
+		});
+		const line = getByTestId("city-conditions-pollen-source");
+		expect(line).toHaveTextContent("Modeled by Open-Meteo / CAMS");
+		expect(line.textContent).not.toContain("Observed by");
 	});
 });
 

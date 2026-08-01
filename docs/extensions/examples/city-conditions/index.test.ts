@@ -14,10 +14,13 @@ import {
   _setFetchImplForTests,
   fetchAirQuality,
   fetchCurrentWeather,
+  fetchOpenMeteoAirQuality,
   geocodeCity,
   offsetSuffix,
+  parseAtlantaStationReport,
   toLocalTime,
   toObservedAt,
+  usesAtlantaStation,
   wmoLabel,
 } from "./lib/open-meteo";
 import { pollenBand, totalPollenIndex } from "./lib/pollen-bands";
@@ -69,6 +72,7 @@ const FORECAST_BODY = {
 
 const AIR_BODY = {
   current: {
+    time: "2026-07-28T15:00",
     alder_pollen: null,
     birch_pollen: 0.2,
     grass_pollen: 8.1,
@@ -78,8 +82,41 @@ const AIR_BODY = {
   },
 };
 
+const ATLANTA_GEO_BODY = {
+  results: [{
+    name: "Atlanta",
+    admin1: "Georgia",
+    country: "United States",
+    latitude: 33.749,
+    longitude: -84.388,
+    timezone: "America/New_York",
+  }],
+};
+
+const ATLANTA_STATION_HTML = `
+  <h3>Total Pollen Count for 07/29/2026:
+    <span class="pollen-num"> 4 </span>
+  </h3>
+  <h3>Trees (Top Contributors)</h3><p>MULBERRY&nbsp;</p>
+  <div><span class="low active">L=0-14</span><span class="medium">M=15-89</span></div>
+  <h3>Grass</h3><p>GRASS&nbsp;</p>
+  <div><span class="low active">L=0-4</span><span class="medium">M=5-19</span></div>
+  <h3>Weeds (Top Contributors)</h3><p>PIGWEED, RAGWEED, PLANTAIN&nbsp;</p>
+  <div><span class="low active">L=0-9</span><span class="medium">M=10-49</span></div>
+  <hr>
+  <h4>Mold Activity for 07/29/2026:</h4>
+  <div class="gauge-segments-inner">
+    <span class="low">Low</span><span class="medium">Moderate</span>
+    <span class="high">High</span><span class="extreme active">Extremely High</span>
+  </div>
+`;
+
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status });
+}
+
+function html(body: string, status = 200): Response {
+  return new Response(body, { status, headers: { "content-type": "text/html" } });
 }
 
 /** Route by host so a test only overrides the leg it cares about. */
@@ -87,10 +124,14 @@ function route(overrides: {
   geo?: () => Response;
   forecast?: () => Response;
   air?: () => Response;
+  station?: () => Response;
 } = {}): void {
   _setFetchImplForTests((async (input: string | URL | Request) => {
     const url = String(input);
     if (url.includes("geocoding-api")) return (overrides.geo ?? (() => json(GEO_BODY)))();
+    if (url.includes("atlantaallergy.com")) {
+      return (overrides.station ?? (() => html(ATLANTA_STATION_HTML)))();
+    }
     if (url.includes("air-quality-api")) return (overrides.air ?? (() => json(AIR_BODY)))();
     return (overrides.forecast ?? (() => json(FORECAST_BODY)))();
   }) as typeof fetch);
@@ -304,37 +345,106 @@ describe("fetchCurrentWeather", () => {
   });
 });
 
-describe("fetchAirQuality", () => {
-  test("keeps missing grains null and bands the measured total", async () => {
+describe("allergen providers", () => {
+  test("keeps missing Open-Meteo grains null, uses grains/m³, and records provenance", async () => {
     route();
     const air = await fetchAirQuality(30.267, -97.743);
     expect(air.pollen.grains).toEqual({
       alder: null, birch: 0.2, grass: 8.1, mugwort: null, olive: null, ragweed: 1.4,
     });
-    expect(air.pollen.totalIndex).toBe(9.7);
+    expect(air.pollen.total).toBe(9.7);
+    expect(air.pollen.unit).toBe("grains/m³");
     expect(air.pollen.band).toBe("moderate");
+    expect(air.pollen.source?.id).toBe("open-meteo");
+    expect(air.pollen.observedAt).toBe("2026-07-28T15:00");
   });
 
-  test("an all-null reading yields totalIndex null and band none — never a zero", async () => {
+  test("an all-null U.S. grid result is unavailable, never zero", async () => {
     route({ air: () => json({ current: { time: "2026-07-28T15:00" } }) });
     const air = await fetchAirQuality(1, 2);
-    expect(air.pollen.totalIndex).toBeNull();
+    expect(air.pollen.available).toBe(false);
+    expect(air.pollen.total).toBeNull();
     expect(air.pollen.band).toBe("none");
-    expect(Object.values(air.pollen.grains).every((v) => v === null)).toBe(true);
+    expect(air.pollen.reason).toContain("only in Europe during pollen season");
+    expect(Object.values(air.pollen.grains ?? {}).every((value) => value === null)).toBe(true);
   });
 
-  test("always carries the mold block, present and honest", async () => {
+  test("outside a station area, mold carries a precise unavailable reason", async () => {
     route();
     const air = await fetchAirQuality(1, 2);
     expect(air.mold).toEqual(MOLD_UNAVAILABLE);
     expect(air.mold.available).toBe(false);
     expect(air.mold.count).toBeNull();
-    expect(air.mold.reason).toContain("Open-Meteo does not publish mold spore counts");
+    expect(air.mold.reason).toContain("No reporting-station mold source");
   });
 
-  test("a response without `current` fails loudly", async () => {
+  test("the raw Open-Meteo reader fails loudly on a malformed response", async () => {
     route({ air: () => json({}) });
-    await expect(fetchAirQuality(1, 2)).rejects.toThrow(/"current"/);
+    await expect(fetchOpenMeteoAirQuality(1, 2)).rejects.toThrow(/"current"/);
+  });
+
+  test("a pollen outage degrades the health fields without erasing weather", async () => {
+    route({ air: () => json({}, 503) });
+    const air = await fetchAirQuality(1, 2);
+    expect(air.pollen.available).toBe(false);
+    expect(air.pollen.reason).toContain("HTTP 503");
+    expect(air.mold.available).toBe(false);
+  });
+
+  test("uses the local station only inside the Atlanta metro radius", () => {
+    expect(usesAtlantaStation(33.749, -84.388)).toBe(true);
+    expect(usesAtlantaStation(33.95, -84.55)).toBe(true);
+    expect(usesAtlantaStation(30.267, -97.743)).toBe(false);
+  });
+
+  test("parses the NAB-certified Atlanta total, categories, and band-only mold reading", () => {
+    const air = parseAtlantaStationReport(ATLANTA_STATION_HTML);
+    expect(air.pollen).toMatchObject({
+      available: true,
+      total: 4,
+      unit: "grains/m³",
+      band: "low",
+      observedAt: "2026-07-29",
+      source: { id: "atlanta-allergy", kind: "observed" },
+    });
+    expect(air.pollen.categories).toEqual([
+      { key: "trees", label: "Trees", band: "low", contributors: ["MULBERRY"] },
+      { key: "grass", label: "Grass", band: "low", contributors: ["GRASS"] },
+      { key: "weeds", label: "Weeds", band: "low", contributors: ["PIGWEED", "RAGWEED", "PLANTAIN"] },
+    ]);
+    expect(air.mold).toMatchObject({
+      available: true,
+      count: null,
+      band: "very-high",
+      observedAt: "2026-07-29",
+      source: { id: "atlanta-allergy", kind: "observed" },
+    });
+    expect(air.mold.reason).toContain("activity band");
+  });
+
+  test("rejects a station page with neither report instead of inventing data", () => {
+    expect(() => parseAtlantaStationReport("<html>No report today</html>")).toThrow(
+      /did not contain a pollen total or mold activity band/,
+    );
+  });
+
+  test("Atlanta station failure falls back to Open-Meteo and preserves the reason", async () => {
+    route({ station: () => html("down", 503) });
+    const air = await fetchAirQuality(33.749, -84.388);
+    expect(air.pollen.available).toBe(true);
+    expect(air.pollen.source?.id).toBe("open-meteo");
+    expect(air.mold.reason).toContain("Atlanta station unavailable");
+    expect(air.mold.reason).toContain("HTTP 503");
+  });
+
+  test("dual provider failure returns explicit unavailable fields instead of rejecting", async () => {
+    route({ station: () => html("down", 503), air: () => json({}, 502) });
+    const air = await fetchAirQuality(33.749, -84.388);
+    expect(air.pollen.available).toBe(false);
+    expect(air.mold.available).toBe(false);
+    expect(air.pollen.reason).toContain("Allergen providers unavailable");
+    expect(air.pollen.reason).toContain("HTTP 503");
+    expect(air.pollen.reason).toContain("HTTP 502");
   });
 });
 
@@ -369,16 +479,49 @@ describe("city_conditions", () => {
         isDay: true,
       },
       pollen: {
+        available: true,
         grains: { alder: null, birch: 0.2, grass: 8.1, mugwort: null, olive: null, ragweed: 1.4 },
-        totalIndex: 9.7,
+        total: 9.7,
+        unit: "grains/m³",
         band: "moderate",
+        categories: [],
+        observedAt: "2026-07-28T15:00",
+        source: {
+          id: "open-meteo",
+          name: "Open-Meteo / CAMS",
+          url: "https://air-quality-api.open-meteo.com/v1/air-quality",
+          kind: "modeled",
+        },
+        reason: null,
       },
-      mold: {
-        available: false,
-        reason: "No keyless provider. Open-Meteo does not publish mold spore counts.",
-        count: null,
-        band: null,
+      mold: MOLD_UNAVAILABLE,
+    });
+  });
+
+  test("Atlanta gets observed station pollen and mold activity instead of all-null CAMS", async () => {
+    let airGridCalled = false;
+    route({
+      geo: () => json(ATLANTA_GEO_BODY),
+      air: () => {
+        airGridCalled = true;
+        return json(AIR_BODY);
       },
+    });
+    const env = envelope(await tools.city_conditions!({ city: "Atlanta" }));
+    expect(env.ok).toBe(true);
+    expect(airGridCalled).toBe(false);
+    expect(env.pollen).toMatchObject({
+      available: true,
+      total: 4,
+      unit: "grains/m³",
+      band: "low",
+      source: { id: "atlanta-allergy", kind: "observed" },
+    });
+    expect(env.mold).toMatchObject({
+      available: true,
+      count: null,
+      band: "very-high",
+      source: { id: "atlanta-allergy", kind: "observed" },
     });
   });
 
@@ -439,15 +582,14 @@ describe("city_conditions", () => {
     expect(env.code).toBe("CITY_NOT_FOUND");
   });
 
-  test("a dead upstream is an UPSTREAM_UNAVAILABLE envelope, never a blank success", async () => {
+  test("a dead allergen upstream preserves weather and explains the partial gap", async () => {
     route({ air: () => json({}, 500) });
     const env = envelope(await tools.city_conditions!({ city: "Austin" }));
-    expect(env.ok).toBe(false);
-    expect(env.code).toBe("UPSTREAM_UNAVAILABLE");
-    expect(env.error).toContain("air-quality");
-    // The failure envelope carries NO half-filled readings.
-    expect(env.weather).toBeUndefined();
-    expect(env.pollen).toBeUndefined();
+    expect(env.ok).toBe(true);
+    expect((env.weather as { tempC: number }).tempC).toBe(34.2);
+    expect(env.pollen).toMatchObject({ available: false, total: null, band: "none" });
+    expect((env.pollen as { reason: string }).reason).toContain("HTTP 500");
+    expect(env.mold).toMatchObject({ available: false, count: null });
   });
 
   test("an unexpected throw still becomes a structured failure", async () => {
@@ -544,9 +686,11 @@ describe("granular workflow tools", () => {
   test("air_quality reports an all-null reading honestly", async () => {
     route({ air: () => json({ current: {} }) });
     const env = envelope(await tools.air_quality!({ latitude: 1, longitude: 2 }));
-    const pollen = env.pollen as { totalIndex: number | null; band: string };
-    expect(pollen.totalIndex).toBeNull();
+    const pollen = env.pollen as { available: boolean; total: number | null; band: string; reason: string };
+    expect(pollen.available).toBe(false);
+    expect(pollen.total).toBeNull();
     expect(pollen.band).toBe("none");
+    expect(pollen.reason).toContain("only in Europe");
   });
 
   test("air_quality rejects a bad coordinate", async () => {
@@ -565,11 +709,12 @@ describe("manifest", () => {
     expect(Object.keys(tools).sort()).toEqual(declared);
   });
 
-  test("allowlists exactly the three Open-Meteo hosts and nothing else", () => {
+  test("allowlists only the three Open-Meteo hosts and the Atlanta station", () => {
     expect([...(manifest.permissions?.network ?? [])].sort()).toEqual([
       "air-quality-api.open-meteo.com",
       "api.open-meteo.com",
       "geocoding-api.open-meteo.com",
+      "www.atlantaallergy.com",
     ]);
   });
 

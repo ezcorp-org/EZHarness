@@ -535,6 +535,33 @@ export interface CreateMessageUsage {
   routedTier?: "fast" | "balanced" | "powerful";
   /** True when the served provider ≠ the initially resolved provider. */
   failover?: boolean;
+  /** WS5 routing provenance — raw classifier inputs + the verdict they
+   *  produced. Only present when routing fired. */
+  routingSignals?: {
+    promptChars: number;
+    historyChars: number;
+    historyMessageCount: number;
+    hasToolMessages: boolean;
+    systemChars: number;
+    attachmentCount: number;
+    toolCount: number;
+    hasComplexTools: boolean;
+    estTokens: number;
+    /** The CLASSIFIER's tier — not the served one when `exploration` is set. */
+    tier: "fast" | "balanced" | "powerful";
+    reason: string;
+    /** WS7 — bounded exploration served one rung below `tier`. */
+    exploration?: boolean;
+    /** WS7 — an injected tier scorer's confidence, when one decided. */
+    confidence?: number;
+  };
+  /** Effective routing config the turn was decided under. */
+  routingConfig?: {
+    defaultTier: "fast" | "balanced" | "powerful";
+    preferenceOrderHash: string;
+    /** WS7 — version of the scorer that decided; absent for the heuristic. */
+    scorerVersion?: string;
+  };
 }
 
 export async function createMessage(

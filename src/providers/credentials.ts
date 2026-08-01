@@ -179,6 +179,36 @@ async function getApiKeyCredential(
 
 // ── Main Credential Resolution ────────────────────────────────────────
 
+/**
+ * The provider's credential, or null if it cannot authenticate right now.
+ *
+ * A non-throwing probe over `getCredential`, for callers that must CHOOSE
+ * a provider rather than use one. Returns the credential rather than a
+ * boolean because the CHOICE depends on its `type`: an OAuth token can only
+ * run subscription-eligible models, so the caller needs the type to pick a
+ * model the credential can actually serve. `resolveModel`'s no-provider branch used
+ * to pick the first entry in the preference order (`anthropic` by default)
+ * that merely had a model in the tier — availability of a model, not of a
+ * credential. On a deployment with only OpenAI connected, every unpinned
+ * turn resolved to anthropic and died with "No credentials available for
+ * anthropic", no matter which model the picker showed.
+ *
+ * Deliberately delegates to `getCredential` instead of re-deriving the
+ * OAuth → BYOK → env precedence (including the BYOK-only and local-baseUrl
+ * carve-outs). A second copy of that order would drift from the real one,
+ * and a probe that disagrees with the resolver is worse than no probe.
+ */
+export async function tryGetCredential(
+  provider: string,
+  conversationId?: string,
+): Promise<ProviderCredential | null> {
+  try {
+    return await getCredential(provider, conversationId);
+  } catch {
+    return null;
+  }
+}
+
 export async function getCredential(
   provider: string,
   conversationId?: string,

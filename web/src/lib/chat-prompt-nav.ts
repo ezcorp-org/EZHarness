@@ -15,6 +15,10 @@ export type PromptNavDirection = "prev" | "next";
  * Map a keydown to a prompt-nav direction. Only a BARE ArrowLeft / ArrowRight
  * navigates — any modifier (Alt/Ctrl/Meta/Shift) is left to the browser so we
  * never hijack word-jump / history-back / accessibility shortcuts.
+ *
+ * An already-`defaultPrevented` event is left alone too: some in-thread UI
+ * component (an image carousel, a card that owns the arrows) handled it
+ * first, and the thread must not ALSO scroll underneath it.
  */
 export function promptNavDirection(e: {
 	key: string;
@@ -22,11 +26,29 @@ export function promptNavDirection(e: {
 	ctrlKey?: boolean;
 	metaKey?: boolean;
 	shiftKey?: boolean;
+	defaultPrevented?: boolean;
 }): PromptNavDirection | null {
+	if (e.defaultPrevented) return null;
 	if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return null;
 	if (e.key === "ArrowLeft") return "prev";
 	if (e.key === "ArrowRight") return "next";
 	return null;
+}
+
+/**
+ * True while a modal overlay owns the keyboard — the image lightbox opened
+ * from a chat card, the command palette, a bottom sheet, any dialog. Every
+ * one of them renders `aria-modal="true"` ONLY while open (the inline Ez
+ * panel deliberately renders `aria-modal="false"`, so it doesn't match).
+ *
+ * Without this the thread scrolls behind an open lightbox: both the card and
+ * the thread listen for arrows on `window`, so one press flipped the image
+ * AND moved the conversation the user was reading.
+ */
+export function isNavBlockedByOverlay(
+	doc: Pick<Document, "querySelector">,
+): boolean {
+	return doc.querySelector('[aria-modal="true"]') !== null;
 }
 
 /**
@@ -55,40 +77,100 @@ export interface PromptNavState {
  * Resolution of a single nav step:
  *  - `prompt` — scroll to / park this prompt at the fold.
  *  - `bottom` — ArrowRight past the last prompt: fall through to the very bottom.
- * `null` (returned by {@link resolvePromptNav}) means no-op (e.g. ArrowLeft at
- * the top — we stop, never wrap).
+ *  - `top` — ArrowLeft with nowhere to step: go to the very top of the thread.
+ * `null` (returned by {@link resolvePromptNav}) means no-op (ArrowLeft already
+ * on the first of several prompts — we stop, never wrap).
  */
 export type PromptNavResult =
 	| { kind: "prompt"; index: number; id: string }
+	| { kind: "top" }
 	| { kind: "bottom" };
+
+/** The container's scroll state at the moment of a keypress. */
+export interface ScrollView {
+	scrollTop: number;
+	scrollHeight: number;
+}
+
+/**
+ * Where the nav left off: the prompt last navigated to, plus the container's
+ * scroll state we came to rest in — `scrollTop` is the ACTUAL post-scroll
+ * value (the browser may have clamped it to the end of the range) and
+ * `scrollHeight` is how tall the thread was at that moment.
+ */
+export interface PromptNavPointer extends ScrollView {
+	id: string;
+}
+
+/** Px of `scrollTop` drift still counted as "the user hasn't scrolled". */
+const POINTER_SCROLL_EPSILON = 2;
+
+/**
+ * Is the pointer still authoritative? Yes unless the USER has scrolled since we
+ * parked — the prompt we navigated to is then still the one we are "on",
+ * wherever the layout has since pushed it on screen.
+ *
+ * Two things move `scrollTop` without the user touching anything, and both are
+ * ruled out here:
+ *  - the thread reflowing (a card mounting, an image or iframe arriving): the
+ *    browser's scroll anchoring shifts `scrollTop` to hold the view steady.
+ *    That always comes with a change in `scrollHeight`, which is how we tell it
+ *    apart from a wheel/drag.
+ *  - a scroll the browser clamped to the end of the range.
+ *
+ * Judging the pointer by the prompt's live offset instead (the old rule) broke
+ * on exactly those reflows: a card growing pushed the parked prompt off the
+ * fold, the pointer was written off as stale, and the next press re-derived a
+ * prompt the user had already walked past — the arrows skipped, or stopped.
+ */
+function pointerIsLive(
+	pointer: PromptNavPointer | null,
+	view: ScrollView,
+): pointer is PromptNavPointer {
+	if (pointer === null) return false;
+	if (view.scrollHeight !== pointer.scrollHeight) return true;
+	return Math.abs(view.scrollTop - pointer.scrollTop) <= POINTER_SCROLL_EPSILON;
+}
 
 /**
  * Pick the next nav step.
  *
  * `anchor` is the fold line (px from the top of the scroll container) that a
- * navigated-to prompt is parked at. `pointerId` is the prompt we last parked
- * there: if it is still within `band` px of the anchor we step relative to it
- * (so repeated presses walk cleanly without oscillating), otherwise we
- * re-derive the current prompt from the live scroll position (handles a
- * mouse-scroll between key presses).
+ * navigated-to prompt is parked at. When `pointer` is still live (see
+ * {@link pointerIsLive}) we step relative to it; otherwise the user scrolled
+ * by hand since, so we re-derive the current prompt from the live geometry.
  *
- * ArrowLeft stops at the top (`null`). ArrowRight past the last prompt returns
- * `{ kind: "bottom" }` so the caller can scroll to the bottom of the thread.
+ * ArrowLeft stops at the first prompt (`null`). ArrowRight past the last prompt
+ * returns `{ kind: "bottom" }` so the caller can scroll to the bottom.
+ *
+ * A ONE-TURN conversation is the exception: there is no prompt to step to in
+ * either direction, so the arrows page the single turn instead — ArrowLeft to
+ * the top of the thread, ArrowRight to the bottom. Stepping between prompts and
+ * paging one turn are the same gesture to the reader: "show me the start of
+ * this / show me the end of it". (Before, ArrowLeft was simply a dead key in a
+ * brand-new conversation, which is where a first-time user meets it.)
  */
 export function resolvePromptNav(
 	state: PromptNavState,
 	direction: PromptNavDirection,
-	pointerId: string | null,
+	pointer: PromptNavPointer | null,
+	view: ScrollView,
 	anchor: number,
 	band = 24,
 ): PromptNavResult | null {
 	const { ids, positions } = state;
 	if (ids.length === 0) return null;
 
-	const pointerIndex = pointerId !== null ? ids.indexOf(pointerId) : -1;
+	if (ids.length === 1) {
+		return direction === "prev" ? { kind: "top" } : { kind: "bottom" };
+	}
+
+	const pointerIndex = pointerIsLive(pointer, view)
+		? ids.indexOf(pointer.id)
+		: -1;
 	let current: number;
-	if (pointerIndex >= 0 && Math.abs(positions[pointerIndex]! - anchor) <= band) {
-		// The pointer is still parked where we left it — step from it.
+	if (pointerIndex >= 0) {
+		// Nothing has scrolled since we parked it — step from it.
 		current = pointerIndex;
 	} else {
 		// Re-derive: the last prompt at or above the fold line. Positions are
@@ -117,15 +199,16 @@ export function resolvePromptNav(
 export interface ApplyPromptNavOptions {
 	container: HTMLElement;
 	direction: PromptNavDirection;
-	/** Last prompt we parked at the fold (relative-step pointer), or null. */
-	pointerId: string | null;
+	/** Where the last nav left off (relative-step pointer), or null. */
+	pointer: PromptNavPointer | null;
 	/** Predicate: is this `data-message-id` a user prompt (vs assistant/tool)? */
 	isUserPrompt: (id: string) => boolean;
 	/** Attribute the message rows are keyed by (`data-message-id`). */
 	anchorAttr: string;
 	/** Px from the fold to park a navigated prompt at (also the nav anchor). */
 	offset: number;
-	/** Tolerance band for the "still parked" pointer check. */
+	/** Tolerance band for "at or above the fold" when re-deriving the current
+	 *  prompt from the live geometry. */
 	band?: number;
 	scrollTopForAnchor: (
 		container: HTMLElement,
@@ -141,15 +224,15 @@ export interface ApplyPromptNavOptions {
 /**
  * Measure the rendered user prompts inside `container`, resolve the nav step for
  * `direction`, and apply the scroll. Returns `acted` (did we move — the caller
- * `preventDefault`s only then) and the new `pointerId` to persist.
+ * `preventDefault`s only then) and the new `pointer` to persist.
  */
 export function applyPromptNav(
 	opts: ApplyPromptNavOptions,
-): { acted: boolean; pointerId: string | null } {
+): { acted: boolean; pointer: PromptNavPointer | null } {
 	const {
 		container,
 		direction,
-		pointerId,
+		pointer,
 		isUserPrompt,
 		anchorAttr,
 		offset,
@@ -169,17 +252,52 @@ export function applyPromptNav(
 		positions.push(node.getBoundingClientRect().top - containerTop);
 	}
 
-	const res = resolvePromptNav({ ids, positions }, direction, pointerId, offset, band);
-	if (!res) return { acted: false, pointerId };
+	const res = resolvePromptNav(
+		{ ids, positions },
+		direction,
+		pointer,
+		{ scrollTop: container.scrollTop, scrollHeight: container.scrollHeight },
+		offset,
+		band,
+	);
+	if (!res) return { acted: false, pointer };
 
-	if (res.kind === "bottom") {
+	const toBottom = (): { acted: boolean; pointer: null } => {
 		onBottomScroll?.();
 		container.scrollTop = container.scrollHeight;
-		return { acted: true, pointerId: null };
+		return { acted: true, pointer: null };
+	};
+
+	if (res.kind === "bottom") return toBottom();
+
+	if (res.kind === "top") {
+		// Same stick-to-bottom break as a prompt step: we are deliberately
+		// leaving the live end of the thread.
+		onPromptScroll?.();
+		container.scrollTop = 0;
+		return { acted: true, pointer: null };
 	}
 
-	onPromptScroll?.();
 	const top = scrollTopForAnchor(container, res.id, offset);
+	// A prompt inside the final screenful CANNOT be parked at the fold — the
+	// browser clamps the scroll at the end of the range. It is already on
+	// screen there, so stepping onto it means the same thing as stepping past
+	// the last prompt: go to the bottom. (Scrolling to the clamped position
+	// instead would leave the thread visually frozen for several presses.)
+	const maxScroll = Math.max(0, container.scrollHeight - container.clientHeight);
+	if (direction === "next" && top !== null && top > maxScroll) return toBottom();
+
+	onPromptScroll?.();
 	if (top !== null) container.scrollTop = Math.max(0, top);
-	return { acted: true, pointerId: res.id };
+	// Record where we actually came to rest, not where we aimed — the browser
+	// may have clamped the write, and the pointer's liveness is judged against
+	// this exact resting state.
+	return {
+		acted: true,
+		pointer: {
+			id: res.id,
+			scrollTop: container.scrollTop,
+			scrollHeight: container.scrollHeight,
+		},
+	};
 }

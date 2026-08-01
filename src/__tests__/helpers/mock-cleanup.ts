@@ -132,6 +132,12 @@ const MODULE_PATHS = [
   "../../chat/attachments/storage",
   "../../chat/attachments/validator",
   "../../lib/cache-utils",
+  // lessons-distiller-host-integration.test.ts mocks the shared pi-ai
+  // `complete()` wrapper — the ONE LLM seam in an otherwise fully-real
+  // subprocess↔host run. Snapshot so restoreModuleMocks() re-registers
+  // the real wrapper in afterAll and the fake model never leaks into
+  // llm-handler / goal-host suites.
+  "../../lib/pi-complete",
   "../../mcp/client",
   "../../runtime/task-tracking-host",
   // watchdog-runs-terminalize.integration.test.ts mocks the C2 boot

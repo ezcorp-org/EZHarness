@@ -868,10 +868,26 @@ describe("modes schema validation", () => {
       systemPromptInstruction: "test",
       preferredModel: null,
       preferredProvider: null,
+      preferredTier: null,
       preferredThinkingLevel: null,
       temperature: null,
     });
     expect(result.success).toBe(true);
+  });
+
+  test("createModeSchema accepts every routing tier and rejects anything else", async () => {
+    // WS3b: the enum is DERIVED from the router's VALID_TIERS, so routing and
+    // this validator cannot drift. The legacy onboarding vocabulary
+    // ("quality"/"budget") is deliberately not accepted here.
+    const { createModeSchema } = await import("../../web/src/routes/api/modes/schema");
+    const { VALID_TIERS } = await import("../runtime/tier-classifier");
+    const base = { name: "Tier", slug: "tier", systemPromptInstruction: "test" };
+    for (const tier of VALID_TIERS) {
+      expect(createModeSchema.safeParse({ ...base, preferredTier: tier }).success).toBe(true);
+    }
+    for (const bad of ["quality", "budget", "POWERFUL", "", "cheap"]) {
+      expect(createModeSchema.safeParse({ ...base, preferredTier: bad }).success).toBe(false);
+    }
   });
 
   test("createModeSchema rejects name over max length", async () => {

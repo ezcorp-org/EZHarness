@@ -4,13 +4,49 @@
 	import ProvidersSection from "$lib/components/settings/ProvidersSection.svelte";
 	import DefaultTierSection from "$lib/components/settings/DefaultTierSection.svelte";
 	import PreferenceOrderSection from "$lib/components/settings/PreferenceOrderSection.svelte";
+	import TierLadderSection from "$lib/components/settings/TierLadderSection.svelte";
+	import RoutingExperimentsSection from "$lib/components/settings/RoutingExperimentsSection.svelte";
+	import DefaultSelectionSection from "$lib/components/settings/DefaultSelectionSection.svelte";
+	import ToolResultCapSection from "$lib/components/settings/ToolResultCapSection.svelte";
 	import CustomModelsSection from "$lib/components/settings/CustomModelsSection.svelte";
 	import { scrollToLocationHash } from "$lib/scroll-to-hash.js";
 	import { DEFAULT_PREFERENCE_ORDER, mergePreferenceOrder, type CustomModelEntry } from "$lib/settings-models.js";
+	import {
+		emptyTierLadder,
+		parseTierLadder,
+		TIER_LADDER_SETTING_KEY,
+		type TierLadder,
+	} from "$server/runtime/routing/tier-ladder";
+	import {
+		DEFAULT_EXPLORATION_RATE,
+		EXPLORATION_RATE_SETTING_KEY,
+		parseExplorationRate,
+	} from "$server/runtime/routing/exploration";
+	import {
+		parseShadowThresholds,
+		ROUTING_SHADOW_SETTING_KEY,
+	} from "$server/runtime/routing/shadow";
+	import type { TierThresholds } from "$server/runtime/tier-classifier";
+	import {
+		DEFAULT_SELECTION_FALLBACK,
+		DEFAULT_SELECTION_SETTING_KEY,
+		parseDefaultSelection,
+		type DefaultSelectionMode,
+	} from "$server/runtime/routing/default-selection";
+	import {
+		DEFAULT_TOOL_RESULT_CAP,
+		TOOL_RESULT_CAP_SETTING_KEY,
+		parseToolResultCap,
+	} from "$server/runtime/stream-chat/tool-result-cap";
 
 	let pageLoading = $state(true);
 	let defaultTier = $state<string>("balanced");
+	let defaultSelection = $state<DefaultSelectionMode>(DEFAULT_SELECTION_FALLBACK);
+	let toolResultCap = $state<number>(DEFAULT_TOOL_RESULT_CAP);
 	let preferenceOrder = $state<string[]>([...DEFAULT_PREFERENCE_ORDER]);
+	let tierLadder = $state<TierLadder>(emptyTierLadder());
+	let explorationRate = $state<number>(DEFAULT_EXPLORATION_RATE);
+	let shadowThresholds = $state<TierThresholds | undefined>(undefined);
 	let customModels = $state<CustomModelEntry[]>([]);
 	let ollamaUrl = $state("http://localhost:11434");
 
@@ -24,6 +60,18 @@
 					storedOrder && storedOrder.length > 0
 						? mergePreferenceOrder(storedOrder)
 						: [...DEFAULT_PREFERENCE_ORDER];
+				// A malformed stored ladder degrades to the empty (unconfigured)
+				// editor rather than throwing the page — same posture as routing.
+				tierLadder = parseTierLadder(settings[TIER_LADDER_SETTING_KEY]) ?? emptyTierLadder();
+				// Same tolerant posture for the two experiment keys: a malformed
+				// row reads as OFF here exactly as it does at the routing seam.
+				explorationRate = parseExplorationRate(settings[EXPLORATION_RATE_SETTING_KEY]);
+				shadowThresholds = parseShadowThresholds(settings[ROUTING_SHADOW_SETTING_KEY]);
+				// Both editors show the value the RUNTIME would read, so they use the
+				// runtime's own tolerant parsers: an unset or malformed row renders as
+				// the effective default rather than as a blank control.
+				defaultSelection = parseDefaultSelection(settings[DEFAULT_SELECTION_SETTING_KEY]);
+				toolResultCap = parseToolResultCap(settings[TOOL_RESULT_CAP_SETTING_KEY]);
 				customModels = (settings["provider:customModels"] as CustomModelEntry[]) ?? [];
 				ollamaUrl = (settings["provider:ollamaUrl"] as string) ?? "http://localhost:11434";
 			} catch { /* silent */ }
@@ -37,7 +85,11 @@
 	<SkeletonLoader type="form" />
 {:else}
 	<ProvidersSection bind:customModels bind:ollamaUrl />
+	<DefaultSelectionSection bind:defaultSelection />
 	<DefaultTierSection bind:defaultTier />
 	<PreferenceOrderSection bind:preferenceOrder />
+	<TierLadderSection bind:tierLadder {preferenceOrder} />
+	<RoutingExperimentsSection bind:explorationRate bind:shadowThresholds />
+	<ToolResultCapSection bind:toolResultCap />
 	<CustomModelsSection bind:customModels />
 {/if}

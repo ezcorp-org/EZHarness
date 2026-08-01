@@ -20,6 +20,7 @@
 	import TopicPills from "./chat/TopicPills.svelte";
 	import type { Topic } from "$lib/topic-contexts-logic.js";
 	import { getSegments } from "$lib/mention-logic.js";
+	import { filterAvailable, groupModels, type ModelOptionLike } from "$lib/model-selector-logic.js";
 	import { fmtTokens } from "$lib/context-usage-logic.js";
 	import { formatMessageForCopy } from "$lib/message-copy.js";
 	import { extensionToolbarStore } from "$lib/stores/extension-toolbar.svelte.js";
@@ -96,7 +97,9 @@
 		 *  this message's parent user turn via POST /retry (no duplicate user
 		 *  row — distinct from `onregenerate`'s editOf fork). Drives the labeled
 		 *  "Retry" A/B affordance; wired by ChatThread on assistant rows only. */
-		onabretry?: (message: Message) => void;
+		/** `override` picks a DIFFERENT model for the sibling. Omitted ⇒ the
+		 *  conversation's own model, i.e. the plain one-click Retry. */
+		onabretry?: (message: Message, override?: { provider: string; model: string }) => void;
 		/** Re-run this user message's prompt as a sibling fork — no edit
 		 *  modal. Surfaces a circle-arrows affordance on the user-row
 		 *  toolbar that mirrors the assistant-row regenerate button. */
@@ -519,7 +522,52 @@
 			return `Tool: ${c.toolName}${inputs ? '\n' + inputs : ''}`;
 		}).join('\n\n');
 	}
+
+	// ── "Retry with…" (WS7): pick the model the A/B sibling runs on ──
+	// The /retry route already forks a same-role assistant sibling off ONE user
+	// turn and already accepts a provider/model override, which makes it a
+	// prompt-held-constant paired comparison — the single most informative
+	// routing signal the product can produce. Only the affordance to choose the
+	// other side of the comparison was missing.
+	let retryPickerOpen = $state(false);
+	let retryModels = $state<ModelOptionLike[]>([]);
+	let retryModelsLoaded = $state(false);
+	// Grouped through the SAME helpers the composer's model picker uses, so the
+	// tier order and family sort never drift between the two surfaces.
+	let retryGroups = $derived(groupModels(filterAvailable(retryModels)));
+
+	/** Lazy: a thread renders many assistant rows, so the model list is fetched
+	 *  on FIRST OPEN of this row's menu — never on mount, which would fire one
+	 *  /api/models request per message. */
+	async function openRetryPicker() {
+		retryPickerOpen = !retryPickerOpen;
+		if (!retryPickerOpen || retryModelsLoaded) return;
+		try {
+			const res = await userFetch("/api/models");
+			const data = res.ok ? await res.json() : null;
+			// Shape-guard the payload: a non-array (an error envelope, a proxy
+			// interstitial) must degrade to "no models listed", never throw inside
+			// the derived that renders the menu.
+			if (Array.isArray(data)) retryModels = data;
+			retryModelsLoaded = true;
+		} catch {
+			// Non-fatal: the menu still offers "Current chat model", which is the
+			// plain retry. A failed list must not block retrying at all.
+			retryModelsLoaded = true;
+		}
+	}
+
+	function pickRetryModel(override?: { provider: string; model: string }) {
+		retryPickerOpen = false;
+		onabretry?.(message, override);
+	}
+
+	function onRetryPickerKeydown(e: KeyboardEvent) {
+		if (e.key === "Escape") retryPickerOpen = false;
+	}
 </script>
+
+<svelte:window onkeydown={retryPickerOpen ? onRetryPickerKeydown : undefined} />
 
 {#if message.role === "capability-event"}
 	{@const capPayload = parseCapabilityEventContent(message.content)}
@@ -712,6 +760,53 @@
 							</svg>
 							Retry
 						</button>
+						<!-- "Retry with…" — same clean /retry fork, but against a model the
+						     user picks. Kept as a SEPARATE caret so one-click Retry stays one
+						     click; "Current chat model" in the menu is that same behaviour. -->
+						<div class="relative">
+							<button
+								onclick={openRetryPicker}
+								class="inline-flex items-center gap-0.5 rounded px-1 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] {retryPickerOpen ? 'bg-[var(--color-surface-tertiary)] text-[var(--color-text-primary)]' : ''}"
+								data-testid="ab-retry-with-btn"
+								title="Retry with a different model"
+								aria-label="Retry with a different model"
+								aria-expanded={retryPickerOpen}
+							>
+								with&hellip;
+								<svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>
+							</button>
+							{#if retryPickerOpen}
+								<!-- svelte-ignore a11y_no_static_element_interactions -->
+								<div class="fixed inset-0 z-40" onclick={() => (retryPickerOpen = false)} onkeydown={() => {}}></div>
+								<div
+									class="absolute left-0 top-full z-50 mt-1 max-h-72 w-64 overflow-y-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] shadow-lg"
+									data-testid="ab-retry-model-menu"
+								>
+									<button
+										onclick={() => pickRetryModel()}
+										class="flex w-full items-center px-3 py-2 text-left text-xs text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] transition-colors"
+										data-testid="ab-retry-model-current"
+									>
+										Current chat model
+									</button>
+									{#each retryGroups as group (group.tier)}
+										<div class="border-t border-[var(--color-border)] px-3 py-1 text-[10px] uppercase tracking-wide text-[var(--color-text-muted)]">{group.label}</div>
+										{#each group.models as m (m.provider + m.model)}
+											<button
+												onclick={() => pickRetryModel({ provider: m.provider, model: m.model })}
+												class="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs hover:bg-[var(--color-surface-tertiary)] transition-colors"
+												data-testid="ab-retry-model-option"
+											>
+												<span class="truncate text-[var(--color-text-primary)]">{m.displayName ?? m.model}</span>
+												{#if m.provider === message.provider && m.model === message.model}
+													<span class="shrink-0 text-[10px] text-[var(--color-text-muted)]">served this turn</span>
+												{/if}
+											</button>
+										{/each}
+									{/each}
+								</div>
+							{/if}
+						</div>
 					{/if}
 				</div>
 			{/if}

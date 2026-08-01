@@ -100,7 +100,12 @@ test.describe("Code review panel", () => {
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`, { waitUntil: "networkidle" });
 
 		const panel = await openReviewPanel(page);
-		await page.getByTestId("swipe-drawer-backdrop").click({ force: true });
+		// Click the EXPOSED strip of backdrop on the left. The backdrop spans the
+		// whole overlay (`inset-0`), so a default centre-point click lands on the
+		// panel sitting on top of it (75vw, right-anchored) — which stops
+		// propagation and leaves the panel open, exactly as a user clicking
+		// inside the panel expects.
+		await page.getByTestId("swipe-drawer-backdrop").click({ position: { x: 8, y: 8 } });
 		await expect(panel).not.toBeVisible();
 	});
 

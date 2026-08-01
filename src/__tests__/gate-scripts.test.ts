@@ -36,7 +36,11 @@ import {
   unassertedAddedBlocks,
 } from "../../scripts/gate-integrity.ts";
 import { addedOrRewrittenFiles, newFileViolations } from "../../scripts/check-new-file-coverage.ts";
-import { shouldFailOnLcovAbsence, uncoveredAddedLines } from "../../scripts/check-patch-coverage.ts";
+import {
+  binaryDiffFiles,
+  shouldFailOnLcovAbsence,
+  uncoveredAddedLines,
+} from "../../scripts/check-patch-coverage.ts";
 import {
   BACKEND_RATCHET_BASELINE,
   BACKEND_RATCHET_CEILING,
@@ -683,5 +687,74 @@ describe("check-patch-coverage: uncoveredAddedLines", () => {
   });
   test("all-covered change passes", () => {
     expect(uncoveredAddedLines(new Set([1, 2]), new Set([1, 2]), new Set())).toEqual([]);
+  });
+});
+
+// A binary-classified source emits no hunks, so parseUnifiedDiff never sees it
+// and every per-file check is skipped while the gate still says PASSED. These
+// pin the explicit detection that closes that hole.
+describe("check-patch-coverage: binaryDiffFiles", () => {
+  // Verbatim shape git emits for a NEW file it considers binary — this is
+  // exactly what one raw NUL in a .ts source produced in PR #37.
+  const NEW_BINARY = [
+    "diff --git a/scripts/routing-export.ts b/scripts/routing-export.ts",
+    "new file mode 100644",
+    "index 00000000..7e95a672",
+    "Binary files /dev/null and b/scripts/routing-export.ts differ",
+    "",
+  ].join("\n");
+
+  test("flags a new binary-classified file", () => {
+    expect(binaryDiffFiles(NEW_BINARY)).toEqual(["scripts/routing-export.ts"]);
+  });
+
+  test("flags a MODIFIED binary file (both sides present)", () => {
+    const diff = [
+      "diff --git a/src/runtime/x.ts b/src/runtime/x.ts",
+      "index aaaaaaa..bbbbbbb 100644",
+      "Binary files a/src/runtime/x.ts and b/src/runtime/x.ts differ",
+    ].join("\n");
+    expect(binaryDiffFiles(diff)).toEqual(["src/runtime/x.ts"]);
+  });
+
+  test("ignores a DELETED binary file — no added lines to cover", () => {
+    const diff = [
+      "diff --git a/src/runtime/gone.ts b/src/runtime/gone.ts",
+      "deleted file mode 100644",
+      "Binary files a/src/runtime/gone.ts and /dev/null differ",
+    ].join("\n");
+    expect(binaryDiffFiles(diff)).toEqual([]);
+  });
+
+  test("an ordinary text diff yields nothing", () => {
+    const diff = [
+      "diff --git a/src/runtime/y.ts b/src/runtime/y.ts",
+      "--- a/src/runtime/y.ts",
+      "+++ b/src/runtime/y.ts",
+      "@@ -1,0 +2,1 @@",
+      "+const a = 1;",
+    ].join("\n");
+    expect(binaryDiffFiles(diff)).toEqual([]);
+  });
+
+  test("an added line that merely LOOKS like the marker is not matched", () => {
+    // `+Binary files … differ` is diff CONTENT, not a git status line.
+    const diff = [
+      "+++ b/src/runtime/z.ts",
+      "@@ -0,0 +1 @@",
+      "+Binary files a/fake.ts and b/fake.ts differ",
+    ].join("\n");
+    expect(binaryDiffFiles(diff)).toEqual([]);
+  });
+
+  test("collects every binary source in a multi-file diff", () => {
+    expect(binaryDiffFiles(`${NEW_BINARY}\nBinary files a/b.ts and b/src/c.ts differ`)).toEqual([
+      "scripts/routing-export.ts",
+      "src/c.ts",
+    ]);
+  });
+
+  test("empty diff yields nothing", () => {
+    expect(binaryDiffFiles("")).toEqual([]);
   });
 });
