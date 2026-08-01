@@ -124,10 +124,32 @@ export class WorkflowSuspendedError extends Error {
   constructor(
     readonly stepName: string,
     readonly reason: string,
+    /**
+     * The parked approval, when the park was an `approval` step.
+     *
+     * Carried on the error rather than re-read at the catch site because
+     * the step is the only place that knows what it just wrote — and a
+     * second read would race the answer surfaces, which are live the
+     * instant the row lands. Absent for any other suspend reason.
+     */
+    readonly approval?: ParkedApprovalNotice,
   ) {
     super(`Workflow suspended at step "${stepName}": ${reason}`);
     this.name = "WorkflowSuspendedError";
   }
+}
+
+/** What a park hands to the notification surfaces. Shape-identical to the
+ *  `workflow:approval_request` payload minus the fields only the executor
+ *  can fill in (the run's id, name and owner). */
+export interface ParkedApprovalNotice {
+  approvalId: string;
+  stepName: string;
+  prompt: string;
+  choices: string[];
+  requireItemConsent: boolean;
+  itemIds: string[];
+  expiresAt: string | null;
 }
 
 export interface WorkflowExecutorOptions {
@@ -972,6 +994,26 @@ export class WorkflowExecutor {
           };
           // Deliberately NOT `finishedAt` — the run has not finished.
           this.bus.emit("workflow:error", { workflowRun, error: err.message, userId });
+          // ...and, when the park was an approval, say who can unblock it.
+          //
+          // A separate event rather than a field on the one above: that
+          // one is consumed as "this run stopped" by the workflows page,
+          // and widening its meaning would make every existing consumer
+          // responsible for noticing a new branch. The answer surfaces
+          // subscribe to THIS one and nothing else.
+          //
+          // Emitted only AFTER the suspend write landed. Announcing an
+          // answerable approval on a run whose row still says `running`
+          // would hand the user a card whose answer `answerApproval`
+          // refuses — it requires `suspended`.
+          if (err.approval) {
+            this.bus.emit("workflow:approval_request", {
+              ...err.approval,
+              workflowRunId: workflowRun.id,
+              workflowName: workflowRun.workflowName,
+              ...(userId ? { userId } : {}),
+            });
+          }
         } catch (writeErr) {
           const message =
             writeErr instanceof Error ? writeErr.message : String(writeErr);
@@ -1498,7 +1540,9 @@ async function runApprovalStep(
   // got here with an expired row the sweep has not applied its policy
   // yet, so re-asking is the conservative reading.
   const itemIds = resolveApprovalItemIds(step, refCtx);
-  await parkWorkflowApproval({
+  const expiresAt =
+    step.timeoutMs !== undefined ? new Date(Date.now() + step.timeoutMs) : null;
+  const approvalId = await parkWorkflowApproval({
     workflowRunId,
     stepName: step.name,
     prompt: step.prompt ?? "",
@@ -1507,10 +1551,22 @@ async function runApprovalStep(
     formSchema: step.formSchema ?? null,
     requireItemConsent: step.requireItemConsent ?? false,
     itemIds,
-    expiresAt:
-      step.timeoutMs !== undefined ? new Date(Date.now() + step.timeoutMs) : null,
+    expiresAt,
   });
-  throw new WorkflowSuspendedError(step.name, "approval");
+  // The notice rides the error so the catch site can announce the park
+  // without re-reading the row it just wrote. `itemIds` is passed through
+  // in the order the step resolved it — the consent surfaces render this
+  // list, and re-ordering it here would be the first of the quiet
+  // rewrites ported invariant 2 exists to forbid.
+  throw new WorkflowSuspendedError(step.name, "approval", {
+    approvalId,
+    stepName: step.name,
+    prompt: step.prompt ?? "",
+    choices: step.choices ?? [],
+    requireItemConsent: step.requireItemConsent ?? false,
+    itemIds,
+    expiresAt: expiresAt ? expiresAt.toISOString() : null,
+  });
 }
 
 /**

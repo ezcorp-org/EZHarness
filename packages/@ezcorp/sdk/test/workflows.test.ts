@@ -87,3 +87,67 @@ describe("Workflows.run", () => {
     spy.mockRestore();
   });
 });
+
+describe("Workflows.pendingApprovals", () => {
+  const RELAY = {
+    stop: true,
+    directive: "RELAY THIS TO THE USER VERBATIM…",
+    text: "RELAY THIS TO THE USER VERBATIM…\n\nWorkflow **ext:deploy**…",
+    items: ["a.ts"],
+  };
+
+  test("sends { v:1, op:'approvals' } and nothing else — the read names no workflow", async () => {
+    // Deliberately no `workflow` field: the read is scoped host-side to
+    // the extension's GRANTED names, so a name on the wire could only
+    // ever narrow it or be ignored, and either would be a second opinion
+    // about what this extension owns.
+    const { calls, spy } = spyRequest({ v: 1, approvals: [] });
+
+    await new Workflows().pendingApprovals();
+
+    expect(calls[0]?.method).toBe("ezcorp/workflows");
+    expect(calls[0]?.params).toEqual({ v: 1, op: "approvals" });
+    spy.mockRestore();
+  });
+
+  test("returns the host's envelope with the relay intact", async () => {
+    const { spy } = spyRequest({
+      v: 1,
+      approvals: [
+        {
+          approvalId: "ap-1",
+          workflowRunId: "run-1",
+          workflowName: "my-ext:deploy",
+          stepName: "gate",
+          choices: ["approve", "reject"],
+          requireItemConsent: true,
+          itemIds: ["a.ts"],
+          expiresAt: null,
+          relay: RELAY,
+        },
+      ],
+    });
+
+    const res = await new Workflows().pendingApprovals();
+
+    expect(res.approvals).toHaveLength(1);
+    // The relay is the point of the read — an LLM cannot be handed the
+    // items without the instruction not to decide on the user's behalf.
+    expect(res.approvals[0]?.relay.directive).toContain("VERBATIM");
+    expect(res.approvals[0]?.relay.items).toEqual(["a.ts"]);
+    spy.mockRestore();
+  });
+
+  test("propagates a host refusal (never swallowed into an empty list)", async () => {
+    // An empty list means "nothing is waiting on you", which is the exact
+    // opposite of "we could not ask".
+    const ch: HostChannel = getChannel();
+    const spy = spyOn(ch, "request");
+    spy.mockImplementation((async () => {
+      throw new Error("Extension not wired to this conversation");
+    }) as HostChannel["request"]);
+
+    await expect(new Workflows().pendingApprovals()).rejects.toThrow("not wired");
+    spy.mockRestore();
+  });
+});

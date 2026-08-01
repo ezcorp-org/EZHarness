@@ -35,6 +35,39 @@ export interface WorkflowRunAccepted {
   started: true;
 }
 
+/** One parked decision, as `pendingApprovals()` reports it. */
+export interface PendingWorkflowApproval {
+  /** Pass this to the answer surface — it is what identifies the decision. */
+  approvalId: string;
+  workflowRunId: string;
+  /** Fully-namespaced (`<extensionName>:<name>`). */
+  workflowName: string;
+  stepName: string;
+  /** The answers the definition allows. Anything else is rejected, never
+   *  coerced. */
+  choices: string[];
+  /** When true, an answer must NAME the items it acts on. */
+  requireItemConsent: boolean;
+  itemIds: string[];
+  /** ISO deadline, or null when the step declared no `timeoutMs`. */
+  expiresAt: string | null;
+  /**
+   * The message to put in front of the user, VERBATIM.
+   *
+   * `text` already leads with the stop-and-relay directive, and `directive`
+   * is non-null exactly when `stop` is. Do not paraphrase it, do not
+   * summarise the items, and do not answer on the user's behalf — the
+   * whole point of this field is that you cannot render the decision
+   * without also rendering the instruction not to make it for them.
+   */
+  relay: { stop: boolean; directive: string | null; text: string; items: string[] };
+}
+
+export interface PendingWorkflowApprovals {
+  v: 1;
+  approvals: PendingWorkflowApproval[];
+}
+
 export class Workflows {
   /**
    * Trigger a run of one of this extension's shipped workflows.
@@ -59,6 +92,37 @@ export class Workflows {
       v: 1,
       workflow: name,
       input,
+    });
+  }
+
+  /**
+   * The decisions YOUR workflows are currently waiting on, for the user
+   * who is asking.
+   *
+   * This is how a chat-driven workflow gets its question in front of a
+   * human. `run()` returns the moment the run STARTS — the approval step
+   * is usually minutes away, behind the agent steps that work out what the
+   * user is even being asked — so the run's own tool result cannot carry
+   * it. Call this from a status/check tool and put `relay.text` in your
+   * result verbatim.
+   *
+   * Scoped twice, host-side: to the acting user (you never see another
+   * user's parked decisions, and the prompt routinely names what is about
+   * to be done and to what) and to workflows you are granted to run.
+   *
+   * Does NOT consume your hourly run quota — a status read must never be
+   * able to exhaust the budget for the thing it is reporting on. It does
+   * share the instantaneous rate limit.
+   *
+   * Answering is a separate, deliberate act: the user does it from the
+   * approvals inbox or the pending-decisions tray. An extension cannot
+   * answer on their behalf, which is the same rule every other surface
+   * clears.
+   */
+  async pendingApprovals(): Promise<PendingWorkflowApprovals> {
+    return getChannel().request<PendingWorkflowApprovals>("ezcorp/workflows", {
+      v: 1,
+      op: "approvals",
     });
   }
 }

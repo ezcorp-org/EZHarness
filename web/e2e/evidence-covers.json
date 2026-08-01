@@ -257,6 +257,12 @@
     "web/src/app.css",
     "web/src/routes/(app)/hub/+page.svelte"
   ],
+  "web/e2e/workflow-approval-tray.spec.ts": [
+    "web/src/lib/components/tool-cards/PendingDecisionsTray.svelte",
+    "web/src/lib/components/tool-cards/PendingApprovalCard.svelte",
+    "web/src/lib/components/tool-cards/PendingPermissionTray.svelte",
+    "web/src/lib/workflow-approvals-logic.ts"
+  ],
   "web/e2e/workflows-approvals.spec.ts": [
     "web/src/routes/(app)/workflows/approvals/+page.svelte",
     "web/src/lib/workflow-approvals-logic.ts"

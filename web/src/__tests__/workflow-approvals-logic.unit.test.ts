@@ -11,6 +11,9 @@ import {
 	canSubmit,
 	describeAge,
 	describeDeadline,
+	submitApprovalAnswer,
+	trayConsentPlan,
+	TRAY_ITEM_LIMIT,
 	describeOutcome,
 	toggleItem,
 } from "../lib/workflow-approvals-logic";
@@ -151,5 +154,101 @@ describe("describeAge", () => {
 		// Clock skew between the host and the browser is real; "-4 min ago"
 		// would look like a bug in the data rather than in the clock.
 		expect(describeAge("2026-07-30T12:05:00.000Z", now)).toBe("just now");
+	});
+});
+
+describe("trayConsentPlan — what a corner overlay may decide", () => {
+	const base = { requireItemConsent: true, itemIds: [] as string[] };
+
+	test("a step that requires no consent has nothing to tick", () => {
+		expect(trayConsentPlan({ requireItemConsent: false, itemIds: ["a"] })).toEqual({
+			mode: "none",
+			items: [],
+		});
+	});
+
+	test("a clean gate (no items resolved) is answerable ids-free", () => {
+		// Matches the server guard, which reads an empty set as nothing
+		// withheld from the human.
+		expect(trayConsentPlan(base)).toEqual({ mode: "none", items: [] });
+	});
+
+	test("a short list is ticked in place", () => {
+		const items = ["a.ts", "b.ts", "c.ts"];
+		expect(trayConsentPlan({ ...base, itemIds: items })).toEqual({ mode: "tick", items });
+	});
+
+	test("the limit itself still ticks; one more goes to the inbox", () => {
+		const atLimit = Array.from({ length: TRAY_ITEM_LIMIT }, (_, i) => `f${i}`);
+		expect(trayConsentPlan({ ...base, itemIds: atLimit }).mode).toBe("tick");
+		expect(trayConsentPlan({ ...base, itemIds: [...atLimit, "one-more"] }).mode).toBe("inbox");
+	});
+
+	test("the inbox branch keeps the WHOLE list, never a truncated one", () => {
+		// This is the consent rule, not a layout choice: showing 6 of 40 and
+		// taking the answer would let someone consent to a set they were
+		// never shown. The plan carries everything so the card can say how
+		// many there really are.
+		const many = Array.from({ length: 40 }, (_, i) => `f${i}`);
+		const plan = trayConsentPlan({ ...base, itemIds: many });
+		expect(plan.mode).toBe("inbox");
+		expect(plan.items).toHaveLength(40);
+	});
+});
+
+describe("submitApprovalAnswer", () => {
+	function fakeFetch(status: number, body: unknown) {
+		const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
+		const fn = (async (url: string, init?: RequestInit) => {
+			calls.push({ url, init });
+			return {
+				ok: status >= 200 && status < 300,
+				status,
+				json: async () => body,
+			} as Response;
+		}) as unknown as typeof fetch;
+		return { fn, calls };
+	}
+
+	test("POSTs the body to the ONE answer route and reports the run's status", async () => {
+		const { fn, calls } = fakeFetch(200, { run: { status: "success" } });
+		const res = await submitApprovalAnswer("ap-1", { choice: "approve" }, fn);
+
+		expect(res).toEqual({ ok: true, runStatus: "success" });
+		expect(calls[0]?.url).toBe("/api/workflows/approvals/ap-1");
+		expect(calls[0]?.init?.method).toBe("POST");
+		expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({ choice: "approve" });
+	});
+
+	test("a refusal carries the SERVER's sentence, never a re-worded one", async () => {
+		// `resume-failed` says the answer WAS recorded and only the resume
+		// failed. Nothing the client could invent says that.
+		const { fn } = fakeFetch(409, {
+			error: "Your answer was recorded, but run r1 could not continue: drift",
+		});
+		const res = await submitApprovalAnswer("ap-1", { choice: "approve" }, fn);
+
+		expect(res.ok).toBe(false);
+		expect(res.ok === false && res.message).toContain("was recorded");
+	});
+
+	test("a body-less failure still reports the status rather than nothing", async () => {
+		const { fn } = fakeFetch(500, {});
+		const res = await submitApprovalAnswer("ap-1", { choice: "approve" }, fn);
+		expect(res).toEqual({ ok: false, message: "Failed (500)" });
+	});
+
+	test("an unparseable body is not a crash", async () => {
+		const fn = (async () => ({
+			ok: true,
+			status: 200,
+			json: async () => {
+				throw new Error("not json");
+			},
+		})) as unknown as typeof fetch;
+		expect(await submitApprovalAnswer("ap-1", { choice: "approve" }, fn)).toEqual({
+			ok: true,
+			runStatus: undefined,
+		});
 	});
 });

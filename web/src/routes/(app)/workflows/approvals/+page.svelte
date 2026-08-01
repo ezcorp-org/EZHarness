@@ -6,6 +6,7 @@
 		describeAge,
 		describeDeadline,
 		describeOutcome,
+		submitApprovalAnswer,
 		toggleItem,
 		type PendingApproval,
 	} from "$lib/workflow-approvals-logic";
@@ -42,25 +43,17 @@
 	async function answer(approval: PendingApproval, choice: string) {
 		submitting = { ...submitting, [approval.id]: true };
 		try {
-			const res = await fetch(`/api/workflows/approvals/${approval.id}`, {
-				method: "POST",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify(buildAnswerBody(approval, choice, selected[approval.id] ?? [])),
-			});
-			const body = (await res.json().catch(() => ({}))) as {
-				run?: { status?: string };
-				error?: string;
-			};
-			if (!res.ok) {
+			const result = await submitApprovalAnswer(
+				approval.id,
+				buildAnswerBody(approval, choice, selected[approval.id] ?? []),
+			);
+			if (!result.ok) {
 				// The answer may still have been RECORDED — `resume-failed`
 				// means exactly that — so this never says "not answered".
-				outcome = {
-					...outcome,
-					[approval.id]: { tone: "error", text: body.error ?? `Failed (${res.status})` },
-				};
+				outcome = { ...outcome, [approval.id]: { tone: "error", text: result.message } };
 				return;
 			}
-			outcome = { ...outcome, [approval.id]: describeOutcome(body.run?.status) };
+			outcome = { ...outcome, [approval.id]: describeOutcome(result.runStatus) };
 			// Drop the answered row locally rather than refetching: the list is
 			// the set of OPEN questions, and this one is closed.
 			approvals = approvals.filter((a) => a.id !== approval.id);

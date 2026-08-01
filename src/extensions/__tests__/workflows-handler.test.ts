@@ -39,6 +39,7 @@ import { addConversationExtensions } from "../../db/queries/conversation-extensi
 import {
   extensions, conversations, projects, conversationExtensions,
   sdkCapabilityCalls, messages, errorLogs, auditLog,
+  workflowApprovals, workflowRuns,
 } from "../../db/schema";
 import { eq } from "drizzle-orm";
 import type {
@@ -716,5 +717,193 @@ describe("audit", () => {
     const rows = await auditRows();
     expect(rows).toHaveLength(1);
     expect(rows[0]?.success).toBe(false);
+  });
+});
+
+describe("op: approvals — the LLM-facing read", () => {
+  beforeEach(async () => {
+    // The outer beforeEach does not know about workflow rows, and every
+    // test here asserts on the EXACT set returned — a leftover park from
+    // a neighbour would make "reports nothing" pass or fail for reasons
+    // that have nothing to do with the scoping under test.
+    await getTestDb().delete(workflowApprovals);
+    await getTestDb().delete(workflowRuns);
+  });
+
+  /** Park an approval on a run of `workflowName`, owned by `owner`. */
+  async function park(opts: {
+    workflowName: string;
+    stepName?: string;
+    owner?: string | null;
+    prompt?: string;
+    itemIds?: string[];
+    requireItemConsent?: boolean;
+  }): Promise<string> {
+    const { insertWorkflowRun } = await import("../../db/queries/workflow-runs");
+    const { parkWorkflowApproval } = await import("../../db/queries/workflow-approvals");
+    const runId = crypto.randomUUID();
+    await insertWorkflowRun({
+      id: runId,
+      workflowName: opts.workflowName,
+      input: {},
+      startedAt: new Date(),
+      userId: opts.owner === undefined ? userId : opts.owner,
+    });
+    return parkWorkflowApproval({
+      workflowRunId: runId,
+      stepName: opts.stepName ?? "gate",
+      prompt: opts.prompt ?? "Ship it?",
+      choices: ["approve", "reject"],
+      requireItemConsent: opts.requireItemConsent ?? false,
+      itemIds: opts.itemIds ?? [],
+    });
+  }
+
+  function readReq(): JsonRpcRequest {
+    return {
+      jsonrpc: "2.0",
+      id: 9,
+      method: "ezcorp/workflows",
+      params: { v: 1, op: "approvals" },
+    };
+  }
+
+  test("reports this extension's parked approval WITH the verbatim relay", async () => {
+    // The relay is the whole reason the read exists: an LLM cannot be
+    // handed the items without also being handed the instruction not to
+    // decide on the user's behalf.
+    const approvalId = await park({
+      workflowName: `${EXT_NAME}:deploy`,
+      requireItemConsent: true,
+      itemIds: ["a.ts", "b.ts"],
+      prompt: "Delete these?",
+    });
+
+    const resp = await handleWorkflowsRpc(readReq(), ctx());
+
+    expect(resp.error).toBeUndefined();
+    const body = resp.result as {
+      v: number;
+      approvals: Array<Record<string, unknown>>;
+    };
+    expect(body.v).toBe(1);
+    expect(body.approvals).toHaveLength(1);
+    const first = body.approvals[0]!;
+    expect(first.approvalId).toBe(approvalId);
+    expect(first.stepName).toBe("gate");
+    expect(first.requireItemConsent).toBe(true);
+    expect(first.itemIds).toEqual(["a.ts", "b.ts"]);
+
+    const relay = first.relay as { stop: boolean; directive: string | null; text: string; items: string[] };
+    expect(relay.stop).toBe(true);
+    expect(relay.directive).toContain("VERBATIM");
+    expect(relay.text.startsWith(relay.directive!)).toBe(true);
+    // Verbatim means verbatim — the prompt and every item, unaltered and
+    // in the order the run produced them.
+    expect(relay.text).toContain("Delete these?");
+    expect(relay.items).toEqual(["a.ts", "b.ts"]);
+  });
+
+  test("never reports another user's parked decision", async () => {
+    // The prompt names what is about to be done and to what.
+    const other = await createUser({
+      email: "wf-other@example.com", passwordHash: "h", name: "O",
+      role: "member", status: "active",
+    });
+    await park({ workflowName: `${EXT_NAME}:deploy`, owner: other.id, prompt: "Secret" });
+
+    const body = (await handleWorkflowsRpc(readReq(), ctx())).result as {
+      approvals: unknown[];
+    };
+    expect(body.approvals).toEqual([]);
+  });
+
+  test("never reports a workflow this extension was not granted", async () => {
+    // The host workflow shares the bare name `deploy`; only the
+    // namespaced one is this extension's.
+    await park({ workflowName: "deploy", prompt: "Host workflow" });
+    await park({ workflowName: "other-ext:deploy", prompt: "Someone else's" });
+
+    const body = (await handleWorkflowsRpc(readReq(), ctx())).result as {
+      approvals: unknown[];
+    };
+    expect(body.approvals).toEqual([]);
+  });
+
+  test("an UNOWNED run's approval is admin-only and is not reported", async () => {
+    await park({ workflowName: `${EXT_NAME}:deploy`, owner: null });
+
+    const body = (await handleWorkflowsRpc(readReq(), ctx())).result as {
+      approvals: unknown[];
+    };
+    expect(body.approvals).toEqual([]);
+  });
+
+  test("clears the same wiring gate the trigger does", async () => {
+    await getTestDb().delete(conversationExtensions);
+    const resp = await handleWorkflowsRpc(readReq(), ctx());
+    expect(resp.error?.data).toMatchObject({ reason: "WORKFLOWS_NOT_WIRED" });
+  });
+
+  test("refuses an ownerless read — there is no owner whose decisions to list", async () => {
+    const resp = await handleWorkflowsRpc(readReq(), ctx({ userId: "" }));
+    expect(resp.error?.code).toBe(-32106);
+    expect(resp.error?.data).toMatchObject({ reason: "WORKFLOWS_NO_OWNER" });
+  });
+
+  test("refuses without a workflows grant, like every other op", async () => {
+    const resp = await handleWorkflowsRpc(
+      readReq(),
+      ctx({ grantedPermissions: { grantedAt: {} } as never }),
+    );
+    expect(resp.error?.data).toMatchObject({ reason: "WORKFLOWS_NOT_GRANTED" });
+  });
+
+  test("does NOT consume the hourly RUN quota", async () => {
+    // A status poll that burned the run budget would take away the
+    // capability it is reporting on. One run's worth of quota, then reads
+    // until the cows come home, then the run still works.
+    await park({ workflowName: `${EXT_NAME}:deploy` });
+    for (let i = 0; i < 30; i++) {
+      _resetWorkflowRateLimitForTests(extensionId);
+      const resp = await handleWorkflowsRpc(readReq(), ctx({ grantedPermissions: granted({ maxRunsPerHour: 1 }) }));
+      expect(resp.error).toBeUndefined();
+    }
+    _resetWorkflowRateLimitForTests(extensionId);
+    const triggered = await handleWorkflowsRpc(req(), ctx({ grantedPermissions: granted({ maxRunsPerHour: 1 }) }));
+    expect(triggered.error).toBeUndefined();
+    expect(started).toHaveLength(1);
+  });
+
+  test("an unknown op is refused rather than silently treated as a run", async () => {
+    const resp = await handleWorkflowsRpc(
+      { jsonrpc: "2.0", id: 3, method: "ezcorp/workflows", params: { v: 1, op: "delete" } },
+      ctx(),
+    );
+    expect(resp.error?.data).toMatchObject({ reason: "WORKFLOWS_BAD_OP" });
+    expect(started).toHaveLength(0);
+  });
+
+  test("an ABSENT op still runs — every existing caller is untouched", async () => {
+    const resp = await handleWorkflowsRpc(req(), ctx());
+    expect(resp.result).toMatchObject({ started: true });
+    expect(started).toHaveLength(1);
+  });
+
+  test("audits the read, like every other outcome", async () => {
+    await park({ workflowName: `${EXT_NAME}:deploy` });
+    await handleWorkflowsRpc(readReq(), ctx());
+    const rows = await auditRows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.success).toBe(true);
+  });
+
+  test("is rate limited — a read is cheap, not free", async () => {
+    let refused: unknown;
+    for (let i = 0; i < 200; i++) {
+      const resp = await handleWorkflowsRpc(readReq(), ctx());
+      if (resp.error) { refused = resp.error.data; break; }
+    }
+    expect(refused).toMatchObject({ reason: "WORKFLOWS_RATE_LIMITED" });
   });
 });

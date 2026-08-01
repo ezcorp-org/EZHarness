@@ -177,6 +177,26 @@ The consent rules are pure and live in one module, so all three answer surfaces 
 
 The guard is deliberately **choice-agnostic** — a workflow's `choices` are author-defined strings, so the executor cannot know which means "approve", and guessing would be a consent bypass the first time someone wrote `choices: [ship, hold]`. The requirement keys on the *parked step* instead: if it carries items, every answer names what it acted on, whichever choice it picked.
 
+### The three answer surfaces
+
+Ported invariant 7 is *three views over one store, one guard* — and what makes each a real surface is that it clears `answerApproval`, not where it is painted:
+
+| Surface | Where | Per-item consent |
+|---|---|---|
+| **Inbox** — `/workflows/approvals` | a page you go to | yes |
+| **Hub action** — `workflow-approvals-hub-page.ts` | the extension Hub tab | **no**, on purpose: a page action's payload admits only flat values, so a ticked list cannot ride in one, and a button sending none (refused) or all (consent laundering) is worse than a pointer to the inbox |
+| **Tray card** — `PendingDecisionsTray` / `PendingApprovalCard` | pushed to you, app-wide | yes, up to `TRAY_ITEM_LIMIT` (6) |
+
+The tray card is **push, not pull**, and that is the whole reason it is a tray and not a message in a conversation. A run parks minutes or hours after whatever started it (the agent steps that decide what the human is even being asked about run first), on no conversation the client can map — `workflowScopeKey()` mints a synthetic `workflow-run:<id>` precisely so every conversation-keyed lookup fails closed — and a durable run outlives the tab. So the executor emits `workflow:approval_request` when the row lands, the SSE filter scopes it **fail-closed on the run's owner** (an unowned run emits no `userId` and the event is dropped: the payload carries the prompt and the consent item ids, which name what is about to be done and to what), and the tray renders it wherever the user happens to be.
+
+`trayConsentPlan` decides whether the card may take the decision at all. Past `TRAY_ITEM_LIMIT` items it renders a count and a link to the inbox instead of a truncated list — a **consent rule, not a layout preference**: a tray that showed 6 of 40 and took the answer would let someone send a complete, valid, server-accepted consent to a set they were never shown.
+
+### Reading a parked approval from an extension (`op: "approvals"`)
+
+`ctx.workflows.run()` is fire-and-forget — it returns the moment the run *starts* and deliberately carries no run id — so the tool result that started a workflow cannot report a gate that appears long afterwards. `ctx.workflows.pendingApprovals()` is that read: the decisions **this extension's** workflows are waiting on, for the **acting user**, each carrying `formatGateRelay(...)` so an LLM cannot be handed the items without the "relay verbatim, do not pre-judge, STOP" directive. Scoped twice and structurally — the owner-scoped inbox join (no admin flag, so an unowned run is invisible) and the granted names, namespaced host-side. It reuses the `workflows` grant (a read of approvals for workflows you may already run is strictly narrower than the trigger) and does **not** consume the hourly run quota, because a status poll that exhausted the run budget would take away the capability it is reporting on. It does share the instantaneous rate limit.
+
+An extension can **read** a parked approval; it cannot answer one. Answering stays a deliberate human act on one of the three surfaces above.
+
 ### Answering an approval — one chokepoint (`workflow-answer-approval.ts`)
 
 `answerApproval` is the **only** path by which a parked approval is answered. Every surface (REST, the Hub tab, the chat card) calls it, and everything it does — authorization, the consent guard, the CAS, the resume — is non-exported below it, so a fourth surface cannot plausibly reimplement the sequence. The order is the contract:
@@ -445,7 +465,8 @@ The extension-authoring chain shipped as a real workflow — the reference examp
 - `src/runtime/workflow-runner.ts` — `WorkflowRunner`: the resume daemon. Lockfile + wake loop + lease heartbeat, per-project / host caps, `tick()` (public so tests need not wait out an interval), `drain()` (test seam), graceful `stop()` that hands claims back.
 - `src/runtime/workflow-answer-approval.ts` — `answerApproval`: the ONE answer path. Authorization (the two-branch rule), consent guard, CAS, resume — everything below it non-exported. Typed `AnswerApprovalRefusal` codes.
 - `src/runtime/workflow-approval-guard.ts` — the pure consent rules: `requireItemConsent` (the only function an answer path may call), `enforceNamedApproval`, `crossCheckItemIds`.
-- `src/runtime/workflow-approval-relay.ts` — `formatGateRelay` + `RELAY_DIRECTIVE`: the verbatim ask-user relay; fencing, and `directive` non-null iff `stop`.
+- `src/runtime/workflow-approval-relay.ts` — `formatGateRelay` + `RELAY_DIRECTIVE`: the verbatim ask-user relay; fencing, and `directive` non-null iff `stop`. Rendered by the `op: "approvals"` read so an LLM cannot be handed the items without the stop directive. **Not** rendered by the tray card — that string is addressed to a model.
+- `web/src/lib/components/tool-cards/PendingDecisionsTray.svelte` / `PendingApprovalCard.svelte` — the third answer surface. One bottom-right stack shared with the run-less permission tray (two `fixed` containers at one corner would overlap); the card answers through the same REST route, so the chokepoint holds by construction.
 - `src/runtime/workflow-approvals-hub-page.ts` — the Hub approvals tab (the second answer surface); `createWorkflowApprovalsHubPageProvider`, `registerWorkflowApprovalsHubPage`.
 - `src/runtime/workflow-run-control.ts` — `resumeParkedRun` / `cancelParkedRun` + `mayControl` (NULL `user_id` ⇒ admin-only); typed `RunControlCode`s.
 - `src/db/queries/workflow-approvals.ts` — `parkWorkflowApproval` (upsert-in-place, clears the previous answer), `getWorkflowApproval(ById)`, `recordWorkflowApprovalAnswer` (CAS on `pending`), `hasPendingApproval` (what makes the chokepoint structural), `listPendingWorkflowApprovalsForUser` (the owner-scoped inbox join) vs. the **unscoped, host-side-only** `listPendingWorkflowApprovals`, `listExpiredWorkflowApprovals` / `expireWorkflowApproval` (both CAS on `pending`; the timeout sweep is their caller).
