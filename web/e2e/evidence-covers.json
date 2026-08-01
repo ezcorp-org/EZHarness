@@ -267,6 +267,10 @@
     "web/src/routes/(app)/workflows/approvals/+page.svelte",
     "web/src/lib/workflow-approvals-logic.ts"
   ],
+  "web/e2e/workflows-conditional.spec.ts": [
+    "web/src/routes/(app)/workflows/[name]/+page.svelte",
+    "web/src/lib/workflow-run-display.ts"
+  ],
   "web/e2e/workflows-demos.spec.ts": [
     "web/src/routes/(app)/workflows/**",
     "web/src/lib/components/WorkflowBuilder.svelte",

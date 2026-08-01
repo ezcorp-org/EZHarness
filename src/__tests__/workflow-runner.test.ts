@@ -743,6 +743,10 @@ describe("resumeArgsFromRow", () => {
       projectId: "proj-9",
       userId: null,
       startedAt: row!.startedAt,
+      // C7. A resumed run re-derives its nesting depth by walking this
+      // pointer, so a projection that dropped it would resume a nested run
+      // at depth 0 — making the nesting cap evadable by parking.
+      parentRunId: null,
     });
   });
 });

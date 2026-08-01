@@ -163,6 +163,23 @@
 								<span class="text-[var(--color-text-muted)]">&rarr;</span>
 								<span class="text-blue-400">{step.agent}</span>
 							{/if}
+							{#if kind === "workflow"}
+								<span class="text-[var(--color-text-muted)]">&rarr;</span>
+								<a
+									class="text-blue-400 underline decoration-dotted underline-offset-2 hover:text-blue-300"
+									data-testid="step-nested-workflow"
+									href="/workflows/{encodeURIComponent(step.workflow ?? '')}"
+								>{step.workflow}</a>
+							{/if}
+							{#if step.when}
+								<span
+									class="rounded bg-[var(--color-surface-tertiary)] px-1.5 py-0.5 text-[10px] text-[var(--color-text-muted)]"
+									data-testid="step-when"
+									title={step.skipDependents === false
+										? "Conditional — skipped if the condition is false; its dependents still run"
+										: "Conditional — skipped if the condition is false, along with its dependents"}
+								>conditional{step.skipDependents === false ? " (dependents still run)" : ""}</span>
+							{/if}
 							{#if modelLabel}
 								<span
 									class="rounded bg-[var(--color-surface-tertiary)] px-1.5 py-0.5 text-[10px] text-teal-300"
@@ -233,8 +250,15 @@
 								<div class="mt-2 space-y-1">
 									{#each run.steps as step}
 										{@const ranOn = resolvedModelLabel(step)}
-										<div class="text-xs text-[var(--color-text-secondary)]">
-											{step.stepName}: <span class="{statusColor(step.status)}">{step.status}</span>{#if step.iterations} <span class="text-[var(--color-text-muted)]">({step.iterations} iteration{step.iterations !== 1 ? "s" : ""})</span>{/if}{#if ranOn} <span class="text-teal-300" data-testid="step-ran-on">on {ranOn}</span>{/if}
+										<!-- A skipped step is dimmed and struck through, so the eye
+										     separates "never ran" from "ran and failed" before it
+										     reads a single word. Failure is the only thing that
+										     should ever look alarming here. -->
+										<div
+											class="text-xs text-[var(--color-text-secondary)]{step.status === 'skipped' ? ' opacity-60' : ''}"
+											data-testid={step.status === "skipped" ? "run-step-skipped" : "run-step"}
+										>
+											<span class={step.status === "skipped" ? "line-through" : ""}>{step.stepName}</span>: <span class="{statusColor(step.status)}">{step.status}</span>{#if step.skippedReason} <span class="text-[var(--color-text-muted)]" data-testid="step-skipped-reason">— {step.skippedReason}</span>{/if}{#if step.iterations} <span class="text-[var(--color-text-muted)]">({step.iterations} iteration{step.iterations !== 1 ? "s" : ""})</span>{/if}{#if ranOn} <span class="text-teal-300" data-testid="step-ran-on">on {ranOn}</span>{/if}
 										</div>
 									{/each}
 								</div>

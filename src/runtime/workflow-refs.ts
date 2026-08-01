@@ -30,6 +30,57 @@ export interface RefContext {
   /** Present only while evaluating a loop `until` condition. */
   result?: AgentResult;
   iteration?: number;
+  /**
+   * Steps this run SKIPPED (`when` false, or a skipped dependency), keyed
+   * by step name and valued by the human-readable reason.
+   *
+   * Deliberately a SECOND map rather than a sentinel inside
+   * `stepResults`. A sentinel there would make `stepResults.has(name)`
+   * return true, so a bare `$steps.<skipped>` would resolve to it and hand
+   * a downstream step a fabricated value — the silent-wrong-answer outcome
+   * this whole module exists to refuse. Kept apart, `has()` stays false,
+   * the strict throw still fires, and this map only makes the MESSAGE name
+   * the skip and the fix.
+   *
+   * Absent for every pre-C7 caller, which is why nothing they see changes.
+   */
+  skippedSteps?: ReadonlyMap<string, string>;
+}
+
+/**
+ * The one message for "`$steps.<name>` names a step with no result".
+ *
+ * Shared by the strict input resolver and the lenient-on-fields condition
+ * resolver so the two cannot drift — and, more importantly, so the SKIPPED
+ * wording is written once. A skipped step is a KNOWN outcome, not a graph
+ * error, and telling an author "has not run yet" for it sends them looking
+ * for a missing step that is right there in the definition.
+ *
+ * `forKey` is the input-mapping key when there is one; conditions have no
+ * key and get the shorter prefix, which is exactly the wording both
+ * resolvers used before this was factored out.
+ */
+function unresolvedStepRef(
+  ref: string,
+  stepName: string,
+  ctx: RefContext,
+  forKey?: string,
+): Error {
+  const where =
+    forKey === undefined
+      ? `Cannot resolve "${ref}"`
+      : `Cannot resolve "${ref}" for step input "${forKey}"`;
+  const reason = ctx.skippedSteps?.get(stepName);
+  if (reason !== undefined) {
+    return new Error(
+      `${where}: step "${stepName}" was SKIPPED (${reason}). ` +
+        `Declare dependsOn: ["${stepName}"] so this step is skipped too, ` +
+        `or guard it with its own "when".`,
+    );
+  }
+  return new Error(
+    `${where}: step "${stepName}" has not produced a result (unknown step or it has not run yet).`,
+  );
 }
 
 /** Sentinel: the ref resolved to "omit this key entirely" (the single
@@ -121,9 +172,7 @@ export function resolveInputRef(
     const dotIdx = rest.indexOf(".");
     const stepName = dotIdx === -1 ? rest : rest.slice(0, dotIdx);
     if (!ctx.stepResults.has(stepName)) {
-      throw new Error(
-        `Cannot resolve "${ref}" for step input "${key}": step "${stepName}" has not produced a result (unknown step or it has not run yet).`,
-      );
+      throw unresolvedStepRef(ref, stepName, ctx, key);
     }
     if (dotIdx === -1) return ctx.stepResults.get(stepName);
     const field = rest.slice(dotIdx + 1);
@@ -226,9 +275,7 @@ export function resolveConditionRef(ref: string, ctx: RefContext): unknown {
     const dotIdx = rest.indexOf(".");
     const stepName = dotIdx === -1 ? rest : rest.slice(0, dotIdx);
     if (!ctx.stepResults.has(stepName)) {
-      throw new Error(
-        `Cannot resolve "${ref}": step "${stepName}" has not produced a result (unknown step or it has not run yet).`,
-      );
+      throw unresolvedStepRef(ref, stepName, ctx);
     }
     if (dotIdx === -1) return ctx.stepResults.get(stepName);
     return getNestedValue(ctx.stepResults.get(stepName), rest.slice(dotIdx + 1));
@@ -264,7 +311,24 @@ export function interpolateTemplate(
 }
 
 /** True if a mapping value contains at least one `{{…}}` placeholder.
- *  Same linear (backtrack-free) pattern as {@link interpolateTemplate}. */
+ *  Same linear (backtrack-free) pattern as {@link interpolateTemplate}.
+ *  Its own non-global copy of the pattern deliberately: `.test` on a `/g`
+ *  regex advances `lastIndex` and would answer differently on alternate
+ *  calls for the same string. */
 export function hasTemplate(value: string): boolean {
   return /\{\{[^{}]*\}\}/.test(value);
+}
+
+/**
+ * Every `{{ ref }}` placeholder's ref, trimmed, in order.
+ *
+ * The read-only twin of {@link interpolateTemplate}, sharing its exact
+ * pattern and its `.trim()`. `validateWorkflow` needs to know which steps
+ * a template READS in order to enforce the skip/dependsOn rule, and a
+ * second pattern would eventually disagree with the resolver about what
+ * counts as a ref — which fails in the direction of a definition the
+ * validator passed and the run then broke on.
+ */
+export function templateRefs(value: string): string[] {
+  return [...value.matchAll(/\{\{([^{}]*)\}\}/g)].map((m) => (m[1] ?? "").trim());
 }

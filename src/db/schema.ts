@@ -601,7 +601,25 @@ export const workflowRuns = pgTable("workflow_runs", {
   // Caller-supplied correlation handles. No FK on `job_ref`: jobs live in
   // extension `Storage`, not a table.
   jobRef: text("job_ref"),
+  // Also the re-entrancy handle for a nested run: a `kind: "workflow"`
+  // step derives `nested:<parentRunId>:<stepName>#<iteration>` for its
+  // child, so a parent that parks and later resumes FINDS the child it
+  // already dispatched instead of starting a second one. The partial
+  // unique index below is what makes that an invariant rather than a
+  // convention. See `nestedRunKey` in `runtime/workflow-executor.ts`.
   idempotencyKey: text("idempotency_key"),
+  // The run whose `kind: "workflow"` step dispatched this one; NULL for
+  // every top-level run (and for every row written before C7).
+  //
+  // Declared as PLAIN TEXT with no drizzle self-reference — the real FK
+  // (ON DELETE SET NULL) is added in `migrate.ts`, mirroring
+  // `sdkCapabilityCalls.parentCallId` above, which took this route for the
+  // same same-table-reference ergonomics.
+  //
+  // SET NULL, never CASCADE: a child run's history is independently
+  // valuable — it records what a nested attempt cost and why it failed —
+  // and deleting a parent must not erase it.
+  parentRunId: text("parent_run_id"),
 }, (table) => [
   index("idx_workflow_runs_name_started").on(table.workflowName, table.startedAt),
   // FK index — user delete fires ON DELETE SET NULL across this column.
@@ -619,6 +637,9 @@ export const workflowRuns = pgTable("workflow_runs", {
   uniqueIndex("uniq_workflow_runs_idem")
     .on(table.workflowName, table.idempotencyKey)
     .where(sql`idempotency_key IS NOT NULL`),
+  // Required, not optional: ON DELETE SET NULL scans this column on every
+  // parent delete, and the trace view reads a run's children by it.
+  index("idx_workflow_runs_parent").on(table.parentRunId),
 ]);
 
 export type WorkflowRunRow = typeof workflowRuns.$inferSelect;

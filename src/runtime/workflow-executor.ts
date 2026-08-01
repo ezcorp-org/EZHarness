@@ -33,16 +33,19 @@ import {
   type WorkflowToolRunnerFactory,
 } from "./workflow-tool-runner";
 import { toolCallsThisTurn } from "../extensions/tool-executor/limits";
+import { MAX_WORKFLOW_NESTING_DEPTH } from "./workflow-closure";
 import { getWorkflowByName } from "../db/queries/workflows";
 import { getLatestWorkflowVersion } from "../db/queries/workflow-versions";
 import {
   advanceWorkflowRunCursor,
   finalizeWorkflowRunRow,
+  findWorkflowRunByIdempotencyKey,
   insertWorkflowRun,
   loadStepResults,
   markWorkflowRunInBatch,
   suspendWorkflowRun,
   upsertWorkflowStepRun,
+  workflowRunNestingDepth,
   type TerminalWorkflowRunStatus,
 } from "../db/queries/workflow-runs";
 import {
@@ -199,6 +202,64 @@ export interface WorkflowExecutorOptions {
    * reaching dispatch fails loudly instead of executing.
    */
   stepSubstitute?: (step: WorkflowStep, ctx: RefContext) => AgentResult | undefined;
+  /**
+   * Resolve a `kind: "workflow"` step's nested definition by name — and
+   * AUTHORIZE it for the run's principal.
+   *
+   * The executor deliberately has no registry of its own — the same reason
+   * `resumeWorkflow` takes the definition from its caller — so composition
+   * is wired, not assumed. Absent ⇒ a `workflow` step fails loudly rather
+   * than silently succeeding with nothing, which matters because a harness
+   * with no resolver is exactly one that could not have run the child.
+   *
+   * `ctx.userId` is passed because nesting is a RUN of another workflow and
+   * has to answer the same question the run route answers: a bare
+   * name→definition lookup would let anyone who can author a workflow nest
+   * someone else's `private` one and read its behaviour through
+   * `$steps`. The POLICY stays in the web layer, which is where
+   * `CachedWorkflow` and its visibility live; this seam only carries the
+   * principal the decision needs. Returning `undefined` for a denial is
+   * deliberate — the step's error must not confirm that a name it may not
+   * see exists (the same reason a denied read is a 404, not a 403).
+   *
+   * The server wires the live merged cache through
+   * `resolveWorkflowForCaller`; the CLI wires its loaded YAML list. A
+   * nested run is executed by THIS executor instance, so whatever the
+   * resolver returns inherits this executor's `toolRunnerFactory`,
+   * `AgentExecutor` and `persist` flag — which is what makes a dry run's
+   * guarantees hold three levels down without the dry-run harness knowing
+   * nesting exists.
+   */
+  workflowResolver?: NestedWorkflowResolver;
+}
+
+/** Resolve + authorize a nested workflow for the run's principal. See
+ *  {@link WorkflowExecutorOptions.workflowResolver}. */
+export type NestedWorkflowResolver = (
+  name: string,
+  ctx: { userId?: string; projectId?: string },
+) => WorkflowDefinition | undefined;
+
+/**
+ * The `idempotency_key` a `kind: "workflow"` step gives its child run.
+ *
+ * Derived, not random, and that is the whole mechanism: a parent that parks
+ * mid-nest and later resumes re-enters the same step, derives the SAME key,
+ * and finds the child it already dispatched instead of starting a second
+ * one. The partial unique index on `(workflow_name, idempotency_key)`
+ * enforces it at the DB rather than leaving it to this function.
+ *
+ * The iteration is part of the key because each loop iteration is its own
+ * child run — that is what makes a 3-attempt loop read as "3 attempts, here
+ * is each" in the trace, and what lets a replayed loop serve its earlier
+ * iterations from their recorded results instead of re-running them.
+ */
+export function nestedRunKey(
+  parentRunId: string,
+  stepName: string,
+  iteration: number,
+): string {
+  return `nested:${parentRunId}:${stepName}#${iteration}`;
 }
 
 /**
@@ -267,6 +328,7 @@ export class WorkflowExecutor {
   private readonly persist: boolean;
   private readonly toolRunnerFactory: WorkflowToolRunnerFactory;
   private readonly stepSubstitute?: (step: WorkflowStep, ctx: RefContext) => AgentResult | undefined;
+  private readonly workflowResolver?: NestedWorkflowResolver;
 
   constructor(
     private agentExecutor: AgentExecutor,
@@ -277,6 +339,7 @@ export class WorkflowExecutor {
     this.toolRunnerFactory =
       opts?.toolRunnerFactory ?? (() => createWorkflowToolRunner(this.bus));
     if (opts?.stepSubstitute) this.stepSubstitute = opts.stepSubstitute;
+    if (opts?.workflowResolver) this.workflowResolver = opts.workflowResolver;
   }
 
   /**
@@ -380,7 +443,17 @@ export class WorkflowExecutor {
      * frame instead would be a race against a response it has no ordering
      * guarantee about. Absent ⇒ minted here, as always.
      */
-    opts?: { runId?: string },
+    opts?: {
+      runId?: string;
+      /** The run whose `kind: "workflow"` step dispatched this one. Set
+       *  only by {@link WorkflowExecutor.runNestedWorkflow}. */
+      parentRunId?: string;
+      /** Re-entrancy handle — see {@link nestedRunKey}. */
+      idempotencyKey?: string;
+      /** Nesting level; 0 (the default) for a top-level run. Threaded so a
+       *  child's OWN nested steps are bounded by the same cap. */
+      depth?: number;
+    },
   ): Promise<WorkflowRun> {
     const workflowRun: WorkflowRun = {
       id: opts?.runId ?? crypto.randomUUID(),
@@ -458,6 +531,8 @@ export class WorkflowExecutor {
         // never executed and made resume refuse a run that had not
         // drifted.
         definitionHash: ranHash,
+        parentRunId: opts?.parentRunId ?? null,
+        idempotencyKey: opts?.idempotencyKey ?? null,
       });
     });
 
@@ -472,6 +547,8 @@ export class WorkflowExecutor {
       // `$prev` — the same shape a resume supplies from its cursor.
       cursor: { batchIndex: 0, completedSteps: [], prevStepName: null },
       stepResults: new Map(),
+      skippedSteps: new Map(),
+      depth: opts?.depth ?? 0,
     });
   }
 
@@ -508,6 +585,10 @@ export class WorkflowExecutor {
       projectId?: string | null;
       userId?: string | null;
       startedAt: Date;
+      /** Set for a NESTED run. Read only to re-derive this run's nesting
+       *  depth, so a resumed child's own `workflow` steps stay bounded by
+       *  the same cap the first process enforced. */
+      parentRunId?: string | null;
     },
     signal?: AbortSignal,
   ): Promise<WorkflowRun> {
@@ -620,6 +701,14 @@ export class WorkflowExecutor {
       signal,
       cursor: row.cursor ?? { batchIndex: 0, completedSteps: [], prevStepName: null },
       stepResults: loaded.stepResults,
+      // Rehydrated, not recomputed. A step skipped in an EARLIER batch is
+      // never re-visited, so without this the resumed half of the run would
+      // see it as "has not run yet" — and a dependent it should suppress
+      // would execute against a dependency that produced nothing.
+      skippedSteps: loaded.skippedSteps,
+      // DERIVED from the parent chain rather than defaulted to 0: resuming
+      // at depth 0 would let a nested run escape the cap simply by parking.
+      depth: await workflowRunNestingDepth(row.parentRunId, MAX_WORKFLOW_NESTING_DEPTH),
     });
   }
 
@@ -643,9 +732,15 @@ export class WorkflowExecutor {
     signal?: AbortSignal;
     cursor: WorkflowCursor;
     stepResults: Map<string, AgentResult>;
+    /** Steps already known to be skipped — empty on a fresh run, rehydrated
+     *  from the persisted step rows on a resume. */
+    skippedSteps: Map<string, string>;
+    /** This run's nesting level; 0 for a top-level run. */
+    depth: number;
   }): Promise<WorkflowRun> {
     const { workflow, input, workflowRun, projectId, userId, signal } = ctx;
     const stepResults = ctx.stepResults;
+    const skippedSteps = ctx.skippedSteps;
     // `$prev` for the batch we are about to run. On a fresh run there is
     // none; on a resume it is rebuilt from the recorded step NAME, which
     // is what reproduces the documented order-fragility exactly rather
@@ -654,6 +749,18 @@ export class WorkflowExecutor {
     let prevResult = ctx.cursor.prevStepName
       ? stepResults.get(ctx.cursor.prevStepName)
       : undefined;
+    // The NAME whose result `prevResult` currently is — a running variable,
+    // advanced at each boundary alongside `prevResult` so the two can never
+    // name different steps.
+    //
+    // It has to be a variable rather than `ctx.cursor.prevStepName`, on two
+    // counts. A suspend records `$prev` for the batch it parked in, and a
+    // run that advanced past its entry batch before parking would otherwise
+    // record the ENTRY batch's `$prev` — stale, and silently a different
+    // `$prev` for the resumed half than the first half saw. And a fully
+    // skipped batch must leave `$prev` exactly where it was, which is only
+    // expressible by not touching this.
+    let prevStepName = ctx.cursor.prevStepName;
 
     // ── Tool-step scope (security) ───────────────────────────────────
     //
@@ -685,6 +792,12 @@ export class WorkflowExecutor {
     const stepAgents = new Set(
       (workflow.steps ?? []).map((s) => s.agent).filter((a): a is string => Boolean(a)),
     );
+    // Name → step, for the one question the dispatch loop cannot answer
+    // from the step it is holding: whether a SKIPPED DEPENDENCY opted out
+    // of suppressing its dependents. Built once, from the same
+    // `workflow.steps` dereference above, so a malformed definition still
+    // throws before the scope is registered.
+    const stepsByName = new Map((workflow.steps ?? []).map((s) => [s.name, s] as const));
     const approvalScope = beginNonInteractiveScope(scopeKey, gateAbort.signal);
     // Built lazily: a workflow with no tool steps never touches the
     // extension registry or the PDP singleton.
@@ -880,6 +993,36 @@ export class WorkflowExecutor {
           syncStep();
 
           try {
+            // ── Control flow, BEFORE any dispatch ───────────────────
+            //
+            // Inside the try because `when` resolves refs and a bad one
+            // must fail the step loudly, exactly like a bad `input` —
+            // silently treating an unresolvable guard as "run it" would
+            // decide a branch by accident.
+            //
+            // Above `runStep` (rather than inside it) so a skip needs no
+            // result to represent: the step returns nothing at all, which
+            // is what keeps it out of `$prev` and out of `stepResults`.
+            // It also means a DRY RUN evaluates `when` for real — the
+            // substitution hook lives one level down, inside `runStep`.
+            const skipReason = skipDecision(step, skippedSteps, stepsByName, {
+              input,
+              stepResults,
+              prevResult,
+              skippedSteps,
+            });
+            if (skipReason !== undefined) {
+              skippedSteps.set(step.name, skipReason);
+              stepRun.status = "skipped";
+              stepRun.skippedReason = skipReason;
+              persistStep();
+              // NOT pushed to `completedSteps`: nothing completed. On a
+              // resume the decision is simply re-made — `when` is pure —
+              // and for a step in an already-passed batch the persisted
+              // `skipped` row is what `loadStepResults` rehydrates.
+              return undefined;
+            }
+
             const result = await this.runStep(
               step,
               input,
@@ -920,6 +1063,7 @@ export class WorkflowExecutor {
               effectiveModelOverride(step, workflow),
               workflowRun.id,
               inputSink,
+              { skippedSteps, depth: ctx.depth, signal },
             );
             stepResults.set(step.name, result);
             stepRun.status = "success";
@@ -990,28 +1134,39 @@ export class WorkflowExecutor {
         if (externallyAborted) throw new WorkflowAbortError();
         if (batchError) throw batchError;
 
-        // Last SUCCESSFUL result in this batch feeds `$prev` of the next.
-        prevResult = results[results.length - 1];
+        // ── `$prev` for the next batch ──────────────────────────────
+        //
+        // `results` is `Promise.all` over `batch.map`, so it is in BATCH
+        // ORDER, and any failure threw above — so the only `undefined`
+        // entries left are SKIPPED steps.
+        //
+        // A skipped step therefore never becomes `$prev`: the scan takes
+        // the last EXECUTED slot, and when the batch executed nothing at
+        // all both variables are left exactly as they were, so `$prev`
+        // keeps naming the last real result from an earlier batch. Any
+        // other reading hands the next batch a value nobody produced.
+        //
+        // Name and value are taken from the SAME index, which is what
+        // preserves "cursor.prevStepName names the step whose result IS
+        // $prev" (pinned in `workflow-run-persistence.test.ts`) now that
+        // the last slot of a batch is no longer necessarily the last
+        // executed one.
+        for (let i = results.length - 1; i >= 0; i--) {
+          if (results[i] === undefined) continue;
+          prevResult = results[i];
+          prevStepName = batch[i]?.name ?? null;
+          break;
+        }
 
         // ── Boundary ────────────────────────────────────────────────
         //
-        // `results` is `Promise.all` over `batch.map`, so it is in BATCH
-        // ORDER, and any failure threw above — which means
-        // `results[results.length - 1]` is always the result of
-        // `batch[batch.length - 1]`. That equivalence is what lets the
-        // cursor record `$prev` as a step NAME and have a resumed run
-        // reproduce today's order-fragility exactly, instead of
-        // computing a different `$prev` than the same run straight
-        // through. Pinned by "cursor.prevStepName names the step whose
-        // result IS $prev" in `workflow-run-persistence.test.ts`, so a
-        // refactor that makes `prevResult` lazy fails loudly.
         // `completedSteps` is already current — each step appended
         // itself on success — so the boundary only has to publish it.
         await this.persistCritical("cursor", () =>
           advanceWorkflowRunCursor(workflowRun.id, {
             batchIndex: batchIndex + 1,
             completedSteps: [...completedSteps],
-            prevStepName: batch[batch.length - 1]?.name ?? null,
+            prevStepName,
           }),
         );
       }
@@ -1065,9 +1220,14 @@ export class WorkflowExecutor {
         // batch the parked step belongs to — siblings that already
         // finished are restored from their persisted output rather than
         // re-run. `prevStepName` is carried through UNCHANGED: it is the
-        // `$prev` this batch already saw, and recomputing it would give
-        // the resumed half of the run a different `$prev` than the first
-        // half.
+        // `$prev` THIS batch saw, and recomputing it would give the
+        // resumed half of the run a different `$prev` than the first half.
+        //
+        // It reads the running variable, not `ctx.cursor.prevStepName`.
+        // Those are the same value only while the run is still in the
+        // batch it entered on; a run that advanced a batch and then parked
+        // would otherwise record the entry batch's `$prev` — stale, and
+        // silently wrong on resume.
         //
         // Written through the STRICT path, because a swallowed suspend
         // leaves the row at `running` while this process walks away —
@@ -1082,7 +1242,7 @@ export class WorkflowExecutor {
               cursor: {
                 batchIndex: currentBatchIndex,
                 completedSteps: [...completedSteps],
-                prevStepName: ctx.cursor.prevStepName,
+                prevStepName,
               },
             }),
           );
@@ -1204,13 +1364,20 @@ export class WorkflowExecutor {
     emitStep: () => void,
     toolCtx: ToolStepContext,
     modelBinding: WorkflowModelBinding | undefined,
-    /** This run's id — an `approval` step keys its parked row on it. */
+    /** This run's id — an `approval` step keys its parked row on it, and a
+     *  nested run records it as its `parent_run_id`. */
     workflowRunId: string,
     /** Off-payload sink for the resolved input — see
      *  {@link WorkflowStepInputSink} for why it is not on `stepRun`. */
     inputSink: WorkflowStepInputSink,
+    flow: FlowContext,
   ): Promise<AgentResult> {
-    const baseCtx: RefContext = { input, stepResults, prevResult };
+    const baseCtx: RefContext = {
+      input,
+      stepResults,
+      prevResult,
+      skippedSteps: flow.skippedSteps,
+    };
 
     // Checked FIRST — above the loop branch and above the kind dispatch —
     // so a substituted step can reach no dispatcher at all, whatever its
@@ -1233,6 +1400,7 @@ export class WorkflowExecutor {
         modelBinding,
         inputSink,
         workflowRunId,
+        flow,
       );
     }
 
@@ -1250,6 +1418,18 @@ export class WorkflowExecutor {
     if (kind === "approval") {
       return runApprovalStep(step, baseCtx, workflowRunId, this.persist);
     }
+    if (kind === "workflow") {
+      // Iteration 1 — a `workflow` step without a `loop` runs its child
+      // exactly once, and the key still carries the iteration so the
+      // looped and unlooped forms derive keys the same way.
+      return this.runNestedWorkflow(step, baseCtx, {
+        parentRunId: workflowRunId,
+        projectId,
+        userId,
+        flow,
+        iteration: 1,
+      });
+    }
     return this.runAgentStep(
       step,
       input,
@@ -1261,7 +1441,104 @@ export class WorkflowExecutor {
       isAborted,
       modelBinding,
       inputSink,
+      flow.skippedSteps,
     );
+  }
+
+  /**
+   * Run one `kind: "workflow"` step: execute a nested definition as a
+   * first-class child run.
+   *
+   * ## Same executor instance, deliberately
+   *
+   * `this.runWorkflow` — never `new WorkflowExecutor`. The child therefore
+   * shares this executor's `toolRunnerFactory`, `AgentExecutor`, `persist`
+   * flag and `stepSubstitute`, which is what makes a DRY RUN's guarantees
+   * hold at any depth: a tool step three levels down hits the same throwing
+   * factory as one at the top, because `getToolRunner` closes over it.
+   * A future refactor that constructs its own executor here would evaporate
+   * that guarantee silently. Pinned by test and by grep.
+   *
+   * ## Re-entrancy is the whole design
+   *
+   * A nested graph may contain an `approval`, so a child can PARK. When it
+   * does, this step throws {@link WorkflowSuspendedError} and the parent
+   * parks alongside it, at its own batch, with its finished siblings
+   * already recorded. The child and the parent are then two independent
+   * suspended runs: the child is resumed by answering its approval (or by
+   * the daemon), the parent by the daemon — which re-enters THIS step,
+   * derives the same {@link nestedRunKey}, finds the child, and returns its
+   * result instead of dispatching a second one.
+   *
+   * Without that lookup a parked parent would duplicate every side effect
+   * its child already applied, which is the exact failure the durable
+   * cursor exists to prevent, reintroduced one level down.
+   */
+  private async runNestedWorkflow(
+    step: WorkflowStep,
+    refCtx: RefContext,
+    opts: {
+      parentRunId: string;
+      projectId: string | undefined;
+      userId: string | undefined;
+      flow: FlowContext;
+      iteration: number;
+    },
+  ): Promise<AgentResult> {
+    // VERBATIM — `step.workflow` is a literal name and is deliberately not
+    // run through `resolveMapping`. The ref language would resolve one, and
+    // that is exactly what is refused: the cycle check and the depth cap
+    // are definition-time checks a run-time name makes uncomputable, and
+    // C3 hashes the transitive closure of nested workflows at consent time.
+    // Rejected at definition time by `isResolvableWorkflowName` in
+    // `validateWorkflow`; a legacy row that predates that check simply
+    // fails the lookup below, naming the literal string it could not find.
+    const name = step.workflow ?? "";
+    const depth = opts.flow.depth + 1;
+    // Enforced at RUN time as well as at definition time, because a chain
+    // can be formed across sources that no single `validateWorkflow` call
+    // could see whole — and because a resumed child re-derives its depth
+    // from the parent chain rather than trusting a caller.
+    if (depth > MAX_WORKFLOW_NESTING_DEPTH) {
+      throw new Error(
+        `Step "${step.name}" would run workflow "${name}" at nesting depth ` +
+          `${depth}, over the maximum of ${MAX_WORKFLOW_NESTING_DEPTH}`,
+      );
+    }
+    const definition = this.workflowResolver?.(name, {
+      ...(opts.userId !== undefined ? { userId: opts.userId } : {}),
+      ...(opts.projectId !== undefined ? { projectId: opts.projectId } : {}),
+    });
+    if (!definition) {
+      // One message for "no such workflow" and "not yours", on purpose:
+      // distinguishing them would turn a nested step into an existence
+      // oracle for private workflow names.
+      throw new Error(
+        `Step "${step.name}" (kind "workflow") could not resolve workflow "${name}"`,
+      );
+    }
+
+    const childInput = resolveMapping(step.input ?? {}, refCtx);
+    const idempotencyKey = nestedRunKey(opts.parentRunId, step.name, opts.iteration);
+    // Only meaningful with persistence: without a row there is nothing to
+    // find, and without a row there is also no suspend, so the re-entrant
+    // case cannot arise.
+    const existing = this.persist
+      ? await findWorkflowRunByIdempotencyKey(name, idempotencyKey)
+      : undefined;
+    if (existing) return nestedOutcome(step, name, existing.status, existing.result);
+
+    const child = await this.runWorkflow(
+      definition,
+      childInput,
+      opts.projectId,
+      opts.userId,
+      // The parent's signal, so a cancel cascades into the child rather
+      // than leaving an orphan run the sweep has to clean up later.
+      opts.flow.signal,
+      { parentRunId: opts.parentRunId, idempotencyKey, depth },
+    );
+    return nestedOutcome(step, name, child.status, child.result ?? null);
   }
 
   /**
@@ -1282,8 +1559,9 @@ export class WorkflowExecutor {
     isAborted: () => boolean,
     modelBinding: WorkflowModelBinding | undefined,
     inputSink: WorkflowStepInputSink,
+    skippedSteps: ReadonlyMap<string, string>,
   ): Promise<AgentResult> {
-    const refCtx: RefContext = { input, stepResults, prevResult };
+    const refCtx: RefContext = { input, stepResults, prevResult, skippedSteps };
     const resolvedInput = resolveMapping(step.input ?? {}, refCtx);
     // Same ref context as the input, resolved ONCE before the retry loop:
     // a retry re-runs the agent, it does not re-pick the model.
@@ -1379,12 +1657,19 @@ export class WorkflowExecutor {
   }
 
   /**
-   * Run a looped `agent` / `transform` step: repeat up to
+   * Run a looped `agent` / `transform` / `workflow` step: repeat up to
    * `clampMaxIterations(loop.maxIterations)` times, evaluating `until`
    * AFTER each iteration. `until` satisfied ⇒ success. Budget exhausted
    * with `until` unmet obeys `onExhausted` (default `"fail"` throws). No
    * `until` ⇒ a fixed-count loop that always succeeds. Abort is checked
    * between iterations.
+   *
+   * `workflow` is the one kind C7 added to this list, and the `tool` ban
+   * did not move: what a looped nested run repeats is a graph with an LLM
+   * or a gate in it (fix → re-validate), not a bare side-effecting call.
+   * Each iteration is its OWN child run — see {@link nestedRunKey} — which
+   * is what makes a replayed loop serve its earlier iterations from their
+   * recorded results instead of re-executing them.
    */
   private async runLoop(
     step: WorkflowStep,
@@ -1399,10 +1684,12 @@ export class WorkflowExecutor {
     modelBinding: WorkflowModelBinding | undefined,
     inputSink: WorkflowStepInputSink,
     workflowRunId: string,
+    flow: FlowContext,
   ): Promise<AgentResult> {
     const loop = step.loop!;
     const maxIterations = clampMaxIterations(loop.maxIterations);
     const kind = stepKind(step);
+    const skippedSteps = flow.skippedSteps;
     let last: AgentResult | undefined;
     let result: AgentResult = { success: true, output: null };
 
@@ -1412,7 +1699,13 @@ export class WorkflowExecutor {
       const loopCtx = { iteration: i, last };
       const iterationStartedAt = Date.now();
       if (kind === "transform") {
-        result = runTransform(step, { input, stepResults, prevResult, loop: loopCtx });
+        result = runTransform(step, {
+          input,
+          stepResults,
+          prevResult,
+          skippedSteps,
+          loop: loopCtx,
+        });
         // A transform loop mints no AgentRun, so its row carries timing
         // and status alone — which is still the difference between "this
         // loop ran three times" and "this is which pass was slow".
@@ -1421,8 +1714,25 @@ export class WorkflowExecutor {
           status: "success",
           durationMs: Date.now() - iterationStartedAt,
         });
+      } else if (kind === "workflow") {
+        // `$loop.last` composes with the child's result through the
+        // unchanged grammar: it IS the previous iteration's
+        // `WorkflowRun.result`, so `$loop.last.output.valid` addresses the
+        // child's final step output. Iteration 1 omits the key, the
+        // documented lenient exception.
+        result = await this.runNestedWorkflow(
+          step,
+          { input, stepResults, prevResult, skippedSteps, loop: loopCtx },
+          { parentRunId: workflowRunId, projectId, userId, flow, iteration: i },
+        );
       } else {
-        const refCtx: RefContext = { input, stepResults, prevResult, loop: loopCtx };
+        const refCtx: RefContext = {
+          input,
+          stepResults,
+          prevResult,
+          skippedSteps,
+          loop: loopCtx,
+        };
         const resolvedInput = resolveMapping(step.input ?? {}, refCtx);
         // Re-resolved per iteration, with the same context as the input —
         // so a binding written against `$loop.*` escalates with the loop
@@ -1468,6 +1778,7 @@ export class WorkflowExecutor {
           input,
           stepResults,
           prevResult,
+          skippedSteps,
           result,
           iteration: i,
         };
@@ -1535,6 +1846,94 @@ export class WorkflowExecutor {
   ): Record<string, unknown> {
     return resolveMapping(mapping, { input: workflowInput, stepResults, prevResult });
   }
+}
+
+/**
+ * Control-flow wiring every step dispatch needs, threaded as one object so
+ * adding a control-flow concern does not mean re-threading four positional
+ * parameters through `runStep` and `runLoop`.
+ */
+interface FlowContext {
+  /** Steps this run has skipped, name → reason. MUTABLE: `executeFrom`
+   *  owns it and each skipped step records itself into it, which is what
+   *  makes the skip transitive and what makes a downstream ref error say
+   *  "was SKIPPED" instead of "has not run yet". */
+  skippedSteps: Map<string, string>;
+  /** This run's nesting level; 0 for a top-level run. */
+  depth: number;
+  /** The run's abort signal, inherited by a nested child run so a cancel
+   *  cascades rather than orphaning it. */
+  signal: AbortSignal | undefined;
+}
+
+/**
+ * Should this step be skipped, and why?
+ *
+ * Two independent causes, checked cheapest-first:
+ *
+ *   1. a DEPENDENCY was skipped and did not opt out of suppressing its
+ *      dependents. Transitive for free: a dependency is always in an
+ *      EARLIER batch (topological batching guarantees it), so by the time
+ *      this runs the dependency has already recorded itself — including a
+ *      dependency that was itself only skipped transitively.
+ *   2. this step's own `when` evaluated false.
+ *
+ * `skipDependents` is read off the DEPENDENCY, not off this step: it is the
+ * producer that knows whether its absence is survivable, and a consumer
+ * cannot opt into running against a value nobody produced.
+ *
+ * Returns the reason, or `undefined` to run the step. Never swallows a ref
+ * error out of `when` — an unresolvable guard must fail the step loudly
+ * rather than silently decide a branch by accident.
+ */
+function skipDecision(
+  step: WorkflowStep,
+  skippedSteps: ReadonlyMap<string, string>,
+  stepsByName: ReadonlyMap<string, WorkflowStep>,
+  ctx: RefContext,
+): string | undefined {
+  for (const dep of step.dependsOn ?? []) {
+    if (!skippedSteps.has(dep)) continue;
+    if (stepsByName.get(dep)?.skipDependents === false) continue;
+    return `step "${dep}" was skipped`;
+  }
+  if (step.when === undefined) return undefined;
+  const verdict = evaluateCondition(step.when, ctx);
+  return verdict.passed ? undefined : `its "when" was not met: ${verdict.reason}`;
+}
+
+/**
+ * Turn a child run's terminal state into the parent step's result — or
+ * into the throw that parks or fails the parent.
+ *
+ * Three outcomes, and collapsing any two of them loses something:
+ *
+ *   • `success` — the child's own result becomes this step's result, so
+ *     `$steps.<step>.output.…` addresses the nested graph's final output
+ *     through the unchanged ref grammar.
+ *   • `suspended` / `running` — the child is ALIVE. The parent parks rather
+ *     than failing, and resumes into this same step later. `running` lands
+ *     here on the re-entrant path only: another process (the daemon) is
+ *     driving the child right now, and waiting is the only non-destructive
+ *     answer.
+ *   • anything else — the child failed, was cancelled, or is parked AND
+ *     dead (`awaiting_approval`). A failed child throws in the parent,
+ *     exactly like a failed agent step.
+ */
+function nestedOutcome(
+  step: WorkflowStep,
+  workflowName: string,
+  status: string,
+  result: AgentResult | null | undefined,
+): AgentResult {
+  if (status === "success") return result ?? { success: true, output: null };
+  if (status === "suspended" || status === "running") {
+    throw new WorkflowSuspendedError(step.name, "nested-suspended");
+  }
+  const detail = result ? errorText(result) : status;
+  throw new Error(
+    `Step "${step.name}" failed: nested workflow "${workflowName}" ended ${status} (${detail})`,
+  );
 }
 
 /** Per-run wiring a `tool` step needs. Built once in `runWorkflow`. */
@@ -1826,6 +2225,7 @@ export function resumeArgsFromRow(row: {
   projectId?: string | null;
   userId?: string | null;
   startedAt: Date;
+  parentRunId?: string | null;
 }): Parameters<WorkflowExecutor["resumeWorkflow"]>[1] {
   return {
     id: row.id,
@@ -1837,5 +2237,9 @@ export function resumeArgsFromRow(row: {
     projectId: row.projectId,
     userId: row.userId,
     startedAt: row.startedAt,
+    // The column C7 added, threaded through the ONE projection precisely so
+    // no resume call site has to remember it — a missed one would resume a
+    // nested run at depth 0 and let the nesting cap be evaded by parking.
+    parentRunId: row.parentRunId,
   };
 }

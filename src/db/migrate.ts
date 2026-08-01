@@ -2422,6 +2422,30 @@ export async function migrate(db: any): Promise<void> {
   // with another keyless run, and the index stays off every such row.
   await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uniq_workflow_runs_idem ON workflow_runs(workflow_name, idempotency_key) WHERE idempotency_key IS NOT NULL`);
 
+  // ── C7: composition — a run dispatched by another run's step ─────
+  //
+  // Additive and un-backfilled: `parent_run_id` is genuinely NULL for
+  // every historical run, and inventing a parent would be a lie in a trace.
+  await db.execute(sql`ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS parent_run_id TEXT`);
+  // The FK is added SEPARATELY from the column, and guarded, for the
+  // reasons the `sdk_capability_calls` FK block above records: Postgres has
+  // no `ADD CONSTRAINT IF NOT EXISTS`, and an unconditional DROP + ADD
+  // re-validates the whole table on every boot while holding a lock on it —
+  // and leaves the constraint absent if the process dies between the two.
+  // Probing `pg_constraint` first makes every boot after the first a pure
+  // catalog read. Single-line `sql` templates deliberately: a multi-line
+  // tagged template leaves its interpolation-free lines as orphan coverable
+  // lines that never receive a hit (documented at `:125-131`).
+  {
+    const parentFk = (await db.execute(sql`SELECT 1 AS present FROM pg_constraint WHERE conname = 'workflow_runs_parent_run_id_fkey' AND conrelid = 'workflow_runs'::regclass LIMIT 1`)) as { rows: Array<{ present: number }> };
+    if (parentFk.rows.length === 0) {
+      await db.execute(sql`ALTER TABLE workflow_runs ADD CONSTRAINT workflow_runs_parent_run_id_fkey FOREIGN KEY (parent_run_id) REFERENCES workflow_runs(id) ON DELETE SET NULL`);
+    }
+  }
+  // Required, not nice-to-have: ON DELETE SET NULL scans this column on
+  // every parent delete, and the child lookup reads it directly.
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_workflow_runs_parent ON workflow_runs(parent_run_id)`);
+
   // Parked `approval` steps. CASCADE on the run because an approval
   // without its run is meaningless — unlike run HISTORY, which is
   // deliberately preserved via SET NULL. `answered_by` is SET NULL for

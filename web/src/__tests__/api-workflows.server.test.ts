@@ -304,6 +304,67 @@ describe("POST /api/workflows", () => {
     }));
   });
 
+  test("accepts every step kind the executor dispatches, and their control-flow fields", async () => {
+    // The `kind` enum is the ONE place the boundary schema is not loose, so
+    // it is the one place a kind added server-side becomes uncreatable
+    // through the API — silently, with a generic "name and steps required".
+    // It was already short by `approval` before C7 added `workflow`.
+    const def = {
+      name: "w1",
+      steps: [
+        { name: "t", kind: "transform", output: { v: "$input.v" } },
+        {
+          name: "ask",
+          kind: "approval",
+          prompt: "Ship it?",
+          choices: ["yes", "no"],
+          dependsOn: ["t"],
+        },
+        {
+          name: "nest",
+          kind: "workflow",
+          workflow: "verify-suite",
+          when: { ref: "$input.v", op: "truthy" },
+          skipDependents: false,
+          dependsOn: ["ask"],
+        },
+      ],
+    };
+    queries.createWorkflow.mockResolvedValue({ id: "wf-1", ...def, description: "" });
+    const res = await POST(makeEvent({ locals: authedUser, body: def }));
+    expect(res.status).toBe(201);
+    // And the control-flow fields survive to the DB — a field the route
+    // accepted and then stripped would be a silently ignored knob.
+    expect(queries.createWorkflow).toHaveBeenCalledWith(expect.objectContaining({
+      steps: expect.arrayContaining([
+        expect.objectContaining({
+          kind: "workflow",
+          workflow: "verify-suite",
+          when: { ref: "$input.v", op: "truthy" },
+          skipDependents: false,
+        }),
+      ]),
+    }));
+  });
+
+  test("a bad skipDependents gets the VALIDATOR's message, not the generic boundary one", async () => {
+    // Pinning a decision that is easy to get backwards. Declaring
+    // `skipDependents: z.boolean()` in the boundary schema would reject this
+    // one step earlier — and hand the author "name and steps required",
+    // which names neither the step nor the field. Leaving it `unknown` lets
+    // the shared validator answer, exactly as `condition` / `loop` / `model`
+    // already do.
+    const res = await POST(
+      makeEvent({
+        locals: authedUser,
+        body: { name: "w1", steps: [{ name: "s", agent: "a", skipDependents: "false" }] },
+      }),
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toBe('Step "s" "skipDependents" must be a boolean');
+  });
+
   test("creates a valid workflow, reloads the registry, and returns 201", async () => {
     const def = { name: "w1", steps: [{ name: "s1", agent: "a" }] };
     queries.createWorkflow.mockResolvedValue({ id: "wf-1", ...def, description: "" });

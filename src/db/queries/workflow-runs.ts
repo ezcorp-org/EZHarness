@@ -68,6 +68,16 @@ export interface NewWorkflowRunInput {
    * `workflow-versions.ts`.
    */
   definitionVersionId?: string | null;
+  /** The run whose `kind: "workflow"` step dispatched this one. Null for
+   *  every top-level run. */
+  parentRunId?: string | null;
+  /**
+   * Correlation handle. For a nested run this is the derived
+   * `nested:<parent>:<step>#<iteration>` key, and the partial unique index
+   * on `(workflow_name, idempotency_key)` is what stops a resumed parent
+   * dispatching a second child for the same slot.
+   */
+  idempotencyKey?: string | null;
 }
 
 /**
@@ -89,7 +99,75 @@ export async function insertWorkflowRun(row: NewWorkflowRunInput): Promise<void>
     startedAt: row.startedAt,
     definitionHash: row.definitionHash ?? null,
     definitionVersionId: row.definitionVersionId ?? null,
+    parentRunId: row.parentRunId ?? null,
+    idempotencyKey: row.idempotencyKey ?? null,
   });
+}
+
+/**
+ * The run a `kind: "workflow"` step already dispatched for this slot, if
+ * any.
+ *
+ * The whole point of the nested dispatch being idempotent. A parent that
+ * parked while its child was mid-flight re-enters the same step on resume;
+ * without this lookup it would start a SECOND child and duplicate every
+ * side effect the first one had — which is the exact failure the durable
+ * cursor exists to prevent, reintroduced one level down.
+ *
+ * Reads by `(workflow_name, idempotency_key)`, which is served by the
+ * partial unique index, so the answer is unique by construction rather
+ * than by convention.
+ */
+export async function findWorkflowRunByIdempotencyKey(
+  workflowName: string,
+  idempotencyKey: string,
+): Promise<{ id: string; status: WorkflowRunStatus; result: AgentResult | null } | undefined> {
+  const rows = await getDb()
+    .select({
+      id: workflowRuns.id,
+      status: workflowRuns.status,
+      result: workflowRuns.result,
+    })
+    .from(workflowRuns)
+    .where(
+      and(
+        eq(workflowRuns.workflowName, workflowName),
+        eq(workflowRuns.idempotencyKey, idempotencyKey),
+      ),
+    );
+  return rows[0];
+}
+
+/**
+ * How deep a run sits in the nesting chain, by walking `parent_run_id`
+ * upward.
+ *
+ * A RESUMED run has to know this or the depth cap is evadable: park a
+ * child, resume it, and its own nested step would compute depth from zero
+ * again — so the cap would bound one process's recursion rather than the
+ * chain. Nothing stores the depth (it is derivable, and a stored copy could
+ * disagree with the pointers), so it is derived.
+ *
+ * Bounded by construction: the walk stops after `max + 1` hops and reports
+ * that count, which the caller reads as "already at or past the cap". A
+ * cycle in `parent_run_id` — impossible through the executor, but the
+ * column is plain text — therefore terminates rather than spinning.
+ */
+export async function workflowRunNestingDepth(
+  parentRunId: string | null | undefined,
+  max: number,
+): Promise<number> {
+  let depth = 0;
+  let cursor = parentRunId ?? null;
+  while (cursor !== null && depth <= max) {
+    depth += 1;
+    const rows = await getDb()
+      .select({ parentRunId: workflowRuns.parentRunId })
+      .from(workflowRuns)
+      .where(eq(workflowRuns.id, cursor));
+    cursor = rows[0]?.parentRunId ?? null;
+  }
+  return depth;
 }
 
 /**
@@ -264,16 +342,37 @@ export async function upsertWorkflowStepRun(
  *
  * Pinned by "a step recorded complete with no persisted output refuses
  * resume, never rehydrates empty".
+ *
+ * ## Skipped steps come back too, and NOT as results
+ *
+ * A `skipped` step produced no value, so it must not appear in
+ * `stepResults` — a downstream `$steps.<skipped>` has to keep throwing.
+ * But the resumed half of the run still has to KNOW it was skipped: that is
+ * what makes a transitively-skipped dependent skip again instead of running
+ * against a missing dependency, and what makes the ref error say "was
+ * SKIPPED" rather than the misleading "has not run yet". So they are
+ * returned in a second, parallel map.
+ *
+ * The reason string is generic here because
+ * `workflow_step_runs.skipped_reason` is C5's column and does not exist
+ * yet; the status alone is what survives a restart today.
  */
+export const REHYDRATED_SKIP_REASON = "it was skipped earlier in this run";
+
 export async function loadStepResults(
   workflowRunId: string,
 ): Promise<
-  | { ok: true; stepResults: Map<string, AgentResult> }
+  | { ok: true; stepResults: Map<string, AgentResult>; skippedSteps: Map<string, string> }
   | { ok: false; reason: string }
 > {
   const rows = await listWorkflowStepRunRows(workflowRunId);
   const stepResults = new Map<string, AgentResult>();
+  const skippedSteps = new Map<string, string>();
   for (const row of rows) {
+    if (row.status === "skipped") {
+      skippedSteps.set(row.stepName, REHYDRATED_SKIP_REASON);
+      continue;
+    }
     if (row.status !== "success") continue;
     if (row.output === null || row.output === undefined) {
       return {
@@ -294,7 +393,7 @@ export async function loadStepResults(
     }
     stepResults.set(row.stepName, row.output);
   }
-  return { ok: true, stepResults };
+  return { ok: true, stepResults, skippedSteps };
 }
 
 /**
