@@ -64,7 +64,7 @@ describe("the workflow ownership ladder lives in exactly one place", () => {
       // adapter to audit rather than seven call sites.
       expect(source).not.toMatch(/from\s+["'][^"']*workflow-scope["']/);
       expect(source).not.toMatch(/\bauthorizeWorkflow\b/);
-      expect(source).not.toMatch(/\bisProjectMember\b/);
+      expect(source).not.toMatch(/\breadRunAudience\b/);
       expect(source).not.toMatch(/\bresolveWorkflowForCaller\b/);
     },
   );

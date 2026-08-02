@@ -57,17 +57,26 @@ The cache holds **`CachedWorkflow`** entries — `{ definition, source, id, proj
 
 So authorization lives in the **lookup**, not the route. `resolveWorkflowForCaller(entries, name, caller, action)` does both, and every consumer routes through it (the REST handlers reach it via `web/src/lib/server/workflow-access.ts`). `workflow-route-ladder.server.test.ts` asserts structurally that no route under `routes/api/workflows/**` compares a `visibility` itself.
 
-| `visibility` | `project_id` | `user_id` | Who may **read/run** | Who may **edit/delete** |
-|---|---|---|---|---|
-| `system` | NULL | NULL | any `chat` caller — today's behaviour | admin only |
-| `project` | set | set (creator) | project members | creator + admin |
-| `private` | optional | set | owner + admin | owner + admin |
+| `visibility` | `project_id` | `user_id` | Who may **read/run** | Who may **edit/delete** | Reachable? |
+|---|---|---|---|---|---|
+| `system` | NULL | NULL | anyone — no login required | admin only | yes |
+| `project` | optional | set (creator) | any authenticated principal | creator + admin | yes |
+| `private` | optional | set | owner + admin | owner + admin | **no — nothing writes it** |
+
+The read/run column is the audience each tier *actually* admits, named by `WorkflowAudience` in `workflow-scope.ts` rather than inferred from the tier's name.
 
 **`read` and `run` are asked as separate questions.** They share a rung today, but a workflow a caller may *see* is not automatically one they may *fire*; C3 (delegated execution) narrows `run` without touching a call site. Pinned by *"read and run are separate questions — a readable workflow is not automatically runnable"* in `workflow-scope.test.ts`.
 
 **An unauthorized read is a 404, not a 403**, so the endpoint is not an existence oracle. A denied *edit* is a 403 — the caller can already see the workflow, so there is nothing left to conceal.
 
-> **`project` is not a confidentiality boundary today.** This platform has no project-membership model: `projects` has no owner column, there is no `project_members` table, and `GET /api/projects` returns every project to every authenticated caller. `isProjectMember()` therefore returns true for any principal carrying a user identity, which makes `project` an **edit boundary and a label**. `private` is the one real confidentiality boundary in this phase. The predicate is a named single-call-site function precisely so that the day membership lands, its body is the only thing that changes.
+> **There is no confidentiality boundary on the read/run axis at all today.** Two facts compose into that, and only the first was previously written down.
+>
+> 1. **`project` is not a membership check.** The platform has no project-membership model: `projects` has no owner column, there is no `project_members` table, and `GET /api/projects` returns every project to every authenticated caller. So `project` admits **every user on the instance**, and the ladder never compares `caller.projectId` to the row's `project_id` — nor could it, since the caller's project arrives on the request and would be a boundary the caller picks.
+> 2. **`private` — the one tier that *is* narrower — is unreachable.** No code path writes it. `POST /api/workflows` stamps `system` and its `.strict()` body schema has no `visibility` key; `PUT` likewise; fork and the admin claim both stamp `project`.
+>
+> Together: every workflow that can exist is readable and runnable by every authenticated principal. The ladder is real, but it is an **edit** ladder. **For C3 (delegated execution) this is the load-bearing consequence:** a bound of *"could the owner have run it?"* excludes nothing, because for every reachable workflow the answer is yes for every user. A delegated fire held by the lowest-privilege account on the instance reaches **every workflow in it**. C3 must bring its own bound — the ladder is not one.
+>
+> This is pinned executably in `src/__tests__/workflow-visibility-reach.test.ts`, which sweeps the tree for visibility writers and fails the day one produces `private` (at which point the paragraph above is stale and must be re-derived). It is stated as a test and not only as prose because it *was* only prose — in this file and in the module header — and a delegated-execution design still came within review of shipping on top of it.
 
 ### Definition versions (`workflow-versions.ts`)
 
@@ -780,7 +789,7 @@ The extension-authoring chain shipped as a real workflow — the reference examp
 - `packages/@ezcorp/sdk/src/runtime/workflows.ts` — the `Workflows` SDK client (`ctx.workflows.run`).
 - `src/db/queries/workflows.ts` — `list/get/getByName/create/update/delete/claim/loadDbCachedWorkflows/loadDbWorkflows` against `workflow_definitions`, plus `WorkflowNameConflictError` (the 409 for a create or rename onto a taken name).
 - `src/db/queries/workflow-versions.ts` — `ensureWorkflowVersion` (the ONE writer; mints only on an executable-content change), `versionStepsHash`/`versionMaterialKey`, `getLatest/list/get`, `getRunVersionLabel`, `backfillWorkflowDefinitionVersions` (the migration's one guarded backfill), `sweepWorkflowDefinitionVersions` (+ the `pinnedVersionIds` C3 extension point).
-- `src/runtime/workflow-scope.ts` — `CachedWorkflow`, `resolveWorkflowForCaller`, `authorizeWorkflow`, `visibleWorkflows`, `isProjectMember`, `denialStatus`/`denialMessage`, `systemCachedWorkflow`, `callerFromUser`.
+- `src/runtime/workflow-scope.ts` — `CachedWorkflow`, `resolveWorkflowForCaller`, `authorizeWorkflow`, `visibleWorkflows`, `readRunAudience`, `denialStatus`/`denialMessage`, `systemCachedWorkflow`, `callerFromUser`.
 - `src/runtime/workflow-dry-run.ts` — `dryRunWorkflow`, `dryRunStub` (the path-answering Proxy), `dryRunAgentExecutor` (throws), `isPureDryRunKind` (an ALLOW list), `WorkflowDryRunViolation`.
 - `src/runtime/workflow-fork.ts` — `bareWorkflowName`, `pickForkName` (bare name, then `-2`/`-3`/…).
 - `web/src/lib/server/workflow-access.ts` — the ONE route↔ladder adapter: `resolveWorkflowOr`, `listVisibleWorkflows`, `toWire`.

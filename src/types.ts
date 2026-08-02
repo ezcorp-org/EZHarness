@@ -572,13 +572,20 @@ export interface WorkflowDefinition {
  *   `system`  — ships with the install. No project, no owner. Any `chat`
  *               caller may run it; only an admin may edit it. Every row
  *               that predates C6 is this, which is why adding the ladder
- *               changed no existing caller's access.
- *   `project` — bound to a project. NOTE: this platform has no
- *               project-membership model (see `isProjectMember`), so
- *               today this is a LABEL and an edit boundary, not a
- *               confidentiality boundary.
- *   `private` — the one real confidentiality boundary in C6: readable and
- *               runnable by its owner and admins only.
+ *               changed no existing caller's access. Written by the
+ *               ordinary create route and by `systemCachedWorkflow`.
+ *   `project` — carries a project id and a creator. The platform has no
+ *               project-membership model, so on the read/run axis this
+ *               admits EVERY AUTHENTICATED PRINCIPAL — see
+ *               `WorkflowAudience` in `src/runtime/workflow-scope.ts`.
+ *               Its real content is the EDIT boundary it holds (the
+ *               creator, which `system` has no room for). Written by
+ *               fork and by the admin claim route.
+ *   `private` — owner and admins only, and the one tier narrower than
+ *               "everyone with a login". **Nothing writes it**, so no
+ *               workflow that can exist today is confidential. Pinned by
+ *               `src/__tests__/workflow-visibility-reach.test.ts`, which
+ *               fails the moment a producer appears.
  */
 export type WorkflowVisibility = "system" | "project" | "private";
 

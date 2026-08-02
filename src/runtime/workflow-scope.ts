@@ -29,6 +29,30 @@
  * it on someone else's behalf. Pinned by
  * "read and run are separate questions — a readable workflow is not
  * automatically runnable" in `workflow-scope.test.ts`.
+ *
+ * ## The read/run audience is a VALUE, not a predicate
+ *
+ * There used to be an `isProjectMember(caller, projectId)` here that
+ * returned `caller.userId !== null` — it consulted neither project id,
+ * and its name asserted a membership check the platform cannot perform.
+ * A module comment said so and it still nearly shipped a delegated
+ * -execution feature resting on it, so the name is gone: read/run now
+ * routes through {@link readRunAudience}, which returns one of three
+ * {@link WorkflowAudience} values that each say who they admit.
+ * `project` resolves to `"any-authenticated-principal"` — a string you
+ * cannot read as "a member".
+ *
+ * **What is reachable today** (pinned behaviourally, not asserted, in
+ * `workflow-visibility-reach.test.ts`): nothing in the tree writes
+ * `visibility: "private"`, so `"owner-and-admins"` — the only audience
+ * narrower than "everyone with a login" — is unreachable. Every workflow
+ * that can exist is `system` or `project`, and both are runnable by every
+ * authenticated principal. The ladder is an EDIT ladder today; on the
+ * read/run axis it has no confidentiality boundary at all.
+ *
+ * That is the answer C3 (delegated execution) needs: a bound of "could
+ * the owner run it?" excludes nothing, because for every workflow that
+ * can exist the answer is yes for every user.
  */
 import type { WorkflowDefinition, WorkflowVisibility } from "../types";
 
@@ -86,21 +110,39 @@ export type WorkflowAction = "read" | "run" | "edit";
  * Deliberately a `userId` + `role` + `projectId` STRUCT rather than three
  * positional arguments, because C3 needs to add a service-account
  * principal without re-threading every call site. A future principal kind
- * becomes a field here and a branch in {@link isProjectMember} /
+ * becomes a field here and a branch in {@link readRunAudience} /
  * {@link authorizeWorkflow}, not a new signature.
  */
 export interface WorkflowCaller {
   /** `null` for a principal with no user identity (the CLI). */
   userId: string | null;
   role: "admin" | "member";
-  /** The project the caller is acting in, when they named one. */
+  /**
+   * The project the caller is acting in, when they named one.
+   *
+   * **Read by nothing in this module.** It is carried for call sites and
+   * for the day a membership model lands; {@link authorizeWorkflow}
+   * never compares it to `entry.projectId`, and a test pins that both
+   * ids are decision-irrelevant. It could not be otherwise today: this
+   * value comes off the request (a query param or a body field), so a
+   * caller names their own project and comparing the two would be a
+   * boundary the caller controls — theatre that reads like a check.
+   */
   projectId?: string | null;
 }
 
 /** Why a workflow was refused. Callers branch on this, not on a message. */
 export type WorkflowDenialReason =
   | "not-found"
-  | "not-project-member"
+  /**
+   * The caller carries no user identity at all (the CLI).
+   *
+   * Named for what it actually tests. It was `not-project-member`, which
+   * described a check that never ran — the only principal it ever
+   * refused is one with `userId === null`, and never because of a
+   * project. Status and message are unchanged.
+   */
+  | "not-authenticated"
   | "not-owner"
   | "not-editable-source"
   | "requires-admin";
@@ -110,38 +152,74 @@ export type WorkflowResolution =
   | { ok: false; reason: WorkflowDenialReason };
 
 /**
- * Is `userId` a member of `projectId`?
+ * Who a visibility tier admits on the read/run axis, named for the set it
+ * actually is.
  *
- * **This platform has no project-membership model.** `projects`
- * (`src/db/schema.ts`) has no owner column, there is no `project_members`
- * table, and `GET /api/projects` returns every project to every
- * authenticated caller without a filter. `teams` / `team_members` exist
- * but they are the AGENT-SHARING model and are not attached to projects.
- *
- * So today every authenticated principal is a member of every project,
- * and this returns true for any caller carrying a user identity. That
- * makes `visibility: "project"` an *edit boundary and a label*, not a
- * confidentiality boundary — `private` is the only real confidentiality
- * boundary in this phase, and the UI says so rather than implying
- * otherwise.
- *
- * It is a named function with a single call site precisely so that the
- * day project membership lands, this body is the only thing that changes
- * and the whole ladder tightens at once.
+ * A value rather than a boolean predicate because the predicate is where
+ * this went wrong: `isProjectMember(caller, projectId) => true` reads as
+ * a membership check at every call site, and no call site is where you
+ * find out it isn't one. `"any-authenticated-principal"` cannot be
+ * misread the same way — it names the set, so the weakness is legible
+ * wherever the value surfaces.
  */
-export function isProjectMember(caller: WorkflowCaller, _projectId: string | null): boolean {
-  return caller.userId !== null;
+export type WorkflowAudience =
+  /** No identity required at all — includes the userless CLI principal. */
+  | "anyone"
+  /**
+   * Anyone holding a login. **Not a membership check, and not a
+   * confidentiality boundary** — the platform has no project-membership
+   * model: `projects` (`src/db/schema.ts`) has no owner column, there is
+   * no `project_members` table, and `GET /api/projects`
+   * (`web/src/routes/api/projects/+server.ts`) returns every project to
+   * every authenticated caller unfiltered. `teams` / `team_members`
+   * exist but are the AGENT-SHARING model and are not attached to
+   * projects. So this set is every user on the instance.
+   */
+  | "any-authenticated-principal"
+  /**
+   * The one audience narrower than "everyone with a login" — and today
+   * **unreachable**, because nothing in the tree writes
+   * `visibility: "private"`. See `workflow-visibility-reach.test.ts`.
+   */
+  | "owner-and-admins";
+
+/**
+ * The read/run audience for a visibility tier. The single place that
+ * decision is made.
+ *
+ * Takes the visibility ALONE, deliberately: no caller, no project id.
+ * The old predicate took a `projectId` it never read, which is how the
+ * ladder looked project-scoped while being nothing of the sort. A
+ * signature that cannot accept a project id cannot imply it consults
+ * one.
+ *
+ * The day a membership model lands, `"any-authenticated-principal"`
+ * splits and this function grows the argument it needs — and every
+ * exhaustive `switch` over {@link WorkflowAudience} fails to compile
+ * until it is handled.
+ */
+export function readRunAudience(visibility: WorkflowVisibility): WorkflowAudience {
+  if (visibility === "system") return "anyone";
+  if (visibility === "private") return "owner-and-admins";
+  return "any-authenticated-principal";
 }
 
 /**
  * The authorization ladder. Pure — no I/O, no DB, no clock — so the
  * matrix that covers it is cheap enough to be exhaustive.
  *
- * | visibility | read            | run             | edit                        |
+ * | visibility | read + run                  | edit              | reachable? |
  * |---|---|---|---|
- * | `system`   | anyone          | anyone          | admin only                  |
- * | `project`  | project members | project members | creator, or admin           |
- * | `private`  | owner or admin  | owner or admin  | owner or admin              |
+ * | `system`   | anyone (no login needed)    | admin only        | yes        |
+ * | `project`  | any authenticated principal | creator, or admin | yes        |
+ * | `private`  | owner or admin              | owner or admin    | **no**     |
+ *
+ * Read the read/run column as the audience it is: the two REACHABLE
+ * tiers admit every user on the instance, differing only on whether a
+ * login is required. `project` is not narrower than `system` for any
+ * principal that has logged in — it is narrower only for the userless
+ * CLI. The tier's real content is its EDIT column, where it holds a
+ * creator that `system` does not.
  *
  * `system` → run-by-anyone is not a new grant: every row that exists at
  * migration time is `system`, and that is exactly who could run it
@@ -166,24 +244,33 @@ export function authorizeWorkflow(
     if (entry.visibility === "private") {
       return isOwner ? { ok: true, entry } : { ok: false, reason: "not-owner" };
     }
-    // `project`: the creator may edit; any other member may not. Editing
-    // is the narrower right — a member can run a project workflow without
-    // being able to rewrite what it does for everyone else.
-    if (!isProjectMember(caller, entry.projectId)) {
-      return { ok: false, reason: "not-project-member" };
-    }
+    // `project`: the creator may edit, nobody else. Editing is the
+    // narrower right — anyone can RUN a project workflow without being
+    // able to rewrite what it does for everyone else.
+    if (caller.userId === null) return { ok: false, reason: "not-authenticated" };
     return isOwner ? { ok: true, entry } : { ok: false, reason: "not-owner" };
   }
 
   // read / run share a ladder today, but they are asked separately so C3
   // can diverge them without touching a single call site.
-  if (entry.visibility === "system") return { ok: true, entry };
-  if (entry.visibility === "private") {
-    if (isAdmin || isOwner) return { ok: true, entry };
-    return { ok: false, reason: "not-owner" };
+  //
+  // Exhaustive on purpose: adding a `WorkflowAudience` without deciding
+  // what it admits here is a type error, not a silent fallthrough to
+  // whichever branch happened to be last.
+  switch (readRunAudience(entry.visibility)) {
+    case "anyone":
+      return { ok: true, entry };
+    case "owner-and-admins":
+      if (isAdmin || isOwner) return { ok: true, entry };
+      return { ok: false, reason: "not-owner" };
+    case "any-authenticated-principal":
+      // `isAdmin` is redundant with the userId test for every principal
+      // that can reach a route — kept because the role is what a future
+      // membership model would exempt, and losing it here is how an
+      // admin later gets locked out of a project they do not belong to.
+      if (isAdmin || caller.userId !== null) return { ok: true, entry };
+      return { ok: false, reason: "not-authenticated" };
   }
-  if (isAdmin || isProjectMember(caller, entry.projectId)) return { ok: true, entry };
-  return { ok: false, reason: "not-project-member" };
 }
 
 /**

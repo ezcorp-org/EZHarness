@@ -4,7 +4,7 @@ import {
   callerFromUser,
   denialMessage,
   denialStatus,
-  isProjectMember,
+  readRunAudience,
   resolveWorkflowForCaller,
   systemCachedWorkflow,
   visibleWorkflows,
@@ -298,7 +298,7 @@ describe("list filtering agrees with the single-entry resolver", () => {
 describe("denial status and message", () => {
   test("an unauthorized READ is a 404, so the endpoint is not an existence oracle", () => {
     expect(denialStatus("not-owner", "read")).toBe(404);
-    expect(denialStatus("not-project-member", "read")).toBe(404);
+    expect(denialStatus("not-authenticated", "read")).toBe(404);
     expect(denialStatus("not-owner", "run")).toBe(404);
     expect(denialMessage("not-owner", "read")).toBe("Not found");
   });
@@ -318,37 +318,52 @@ describe("denial status and message", () => {
     expect(denialMessage("requires-admin", "edit")).toContain("admin");
     expect(denialMessage("not-editable-source", "edit")).toContain("only DB workflows");
     expect(denialMessage("not-owner", "edit")).toContain("permission");
-    expect(denialMessage("not-project-member", "edit")).toContain("permission");
+    expect(denialMessage("not-authenticated", "edit")).toContain("permission");
   });
 });
 
-describe("project membership is not a confidentiality boundary today", () => {
-  // Recorded as a test, not a comment, because it is a real limitation
-  // and the day it stops being true this test SHOULD fail and be updated.
-  // `projects` has no owner column, there is no `project_members` table,
-  // and `GET /api/projects` returns every project to every authenticated
-  // caller — so `project` visibility is an edit boundary and a label,
-  // never a confidentiality boundary. `private` is the real one.
-  test("every authenticated caller is a member of every project", () => {
-    expect(isProjectMember(member, PROJECT)).toBe(true);
-    expect(isProjectMember(stranger, PROJECT)).toBe(true);
-    expect(isProjectMember(keyNoProject, PROJECT)).toBe(true);
+describe("readRunAudience names the set each tier admits", () => {
+  // The audience is the honest replacement for an `isProjectMember` that
+  // returned `caller.userId !== null` and read, at every call site, as a
+  // membership check the platform cannot perform. Which tiers are
+  // REACHABLE, and what that leaves a delegated fire able to touch, is
+  // pinned separately in `workflow-visibility-reach.test.ts`.
+  test("each tier maps to its own audience", () => {
+    expect(readRunAudience("system")).toBe("anyone");
+    expect(readRunAudience("project")).toBe("any-authenticated-principal");
+    expect(readRunAudience("private")).toBe("owner-and-admins");
   });
 
-  test("a principal with no user identity is a member of nothing", () => {
-    expect(isProjectMember({ userId: null, role: "member" }, PROJECT)).toBe(false);
+  test("`project` admits every authenticated caller, member or not", () => {
+    // Same audience for the project's own "member", a total stranger and
+    // an API key that named no project: there is nothing to distinguish
+    // them by. Asserted through the ladder, not the predicate, so it is
+    // the real decision being pinned.
+    for (const caller of [member, stranger, keyNoProject]) {
+      expect(authorizeWorkflow(projectEntry, caller, "run").ok).toBe(true);
+    }
+  });
+
+  test("`private` refuses that same stranger — the audiences discriminate", () => {
+    expect(authorizeWorkflow(privateEntry, stranger, "run")).toEqual({
+      ok: false,
+      reason: "not-owner",
+    });
   });
 
   test("a userless principal is denied a project workflow but still gets system ones", () => {
+    // The whole read/run difference between `system` and `project`: a
+    // login, not an identity. `not-authenticated` says exactly that,
+    // where `not-project-member` named a check that never ran.
     const cli: WorkflowCaller = { userId: null, role: "member" };
     expect(authorizeWorkflow(systemEntry, cli, "run").ok).toBe(true);
     expect(authorizeWorkflow(projectEntry, cli, "run")).toEqual({
       ok: false,
-      reason: "not-project-member",
+      reason: "not-authenticated",
     });
     expect(authorizeWorkflow(projectEntry, cli, "edit")).toEqual({
       ok: false,
-      reason: "not-project-member",
+      reason: "not-authenticated",
     });
   });
 });
