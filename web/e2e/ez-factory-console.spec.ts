@@ -314,21 +314,37 @@ test.describe("ez-factory console", () => {
     expect(hrefs).toEqual(["/workflows/runs/wr-9", "/workflows/runs/wr-8"]);
   });
 
-  test("INVARIANT K: the run rows carry no transcript content, only ids and a link", async ({
+  test("the shell renders a run row as its cells plus a trace link, and nothing more", async ({
     page,
     mockApi,
   }) => {
-    // The tree is cached and served to EVERY viewer, so a run's work product
-    // must be reachable only through the authz'd trace route. This asserts
-    // the rendered page holds no step output / artifact body.
+    // NOT a proof of invariant K. The tree here is authored by this spec, so
+    // "no run content in it" would be a fact about the fixture; the real
+    // control is `lib/page.test.ts`'s "run-derived PROSE never renders",
+    // which drives the BUILDER with a probe reason on the record.
+    //
+    // What this does prove is the other half, which no bun test can reach:
+    // the Hub shell renders exactly the cells it was given and turns the row
+    // `href` into a real anchor — so a builder that withholds run content
+    // really does produce a page from which that content is unreachable
+    // except through the authorized trace route.
     await mockApi({ projects: [proj] });
     await routeConsole(page);
 
     await page.goto(`/hub/${encodeURIComponent(FACTORY)}?view=runs`);
-    const body = await page.getByTestId("hub-page-body").innerText();
-    expect(body).toContain("wr-9".slice(0, 0) + "Nightly docs");
-    // No user id, no prose from a run.
-    expect(body).not.toMatch(/user-[0-9a-f]{4}/);
+    const cells = await page
+      .getByTestId("hub-table-row")
+      .first()
+      .getByTestId("hub-table-cell")
+      .allInnerTexts();
+    expect(cells.map((c) => c.trim())).toEqual([
+      "Nightly docs",
+      "ez-factory:docs-factory",
+      "completed",
+      "2026-08-01 12:00",
+      "2026-08-01 12:05",
+      "no",
+    ]);
     // The trace link is present — the ONE way run content is reachable.
     await expect(page.getByTestId("hub-row-link").first()).toHaveAttribute(
       "href",
