@@ -419,14 +419,18 @@ describe("ez-factory templates — ref integrity (the validator does not check t
     // otherwise only found by running the graph.
     const def = mutantOf("etl-factory");
     delete stepNamed(def, "report").dependsOn;
-    // Three, not two: `skippedJson` is a `{{…}}` template, and the
-    // template reader finds the same ref the direct `skipped` mapping
-    // carries. That both are reported is the point — the C7 spec calls a
-    // ref inside a transform template "the ref the validator cannot see".
+    // Severing ONE edge orphans every ref that reached `ingest` through
+    // it, downstream steps included — which is what a real ordering bug
+    // looks like. All four refs inside the single `{{…}}`-bearing
+    // `document` value are reported too: the C7 spec calls a ref inside a
+    // transform template "the ref the validator cannot see".
     expect(danglingStepRefs([def]).sort()).toEqual([
+      "etl-factory.anomaly-gate.when -> $steps.ingest.output.skippedCount",
+      "etl-factory.consent.when -> $steps.ingest.output.skippedCount",
       "etl-factory.report.output -> $steps.classify.output",
+      "etl-factory.report.output -> $steps.ingest.output.fileCount",
       "etl-factory.report.output -> $steps.ingest.output.skipped",
-      "etl-factory.report.output -> $steps.ingest.output.skipped",
+      "etl-factory.report.output -> $steps.ingest.output.skippedCount",
     ]);
     // And the validator says nothing about any of them.
     expect(validateWorkflow(asLoaderWouldName(def))).toEqual([]);
@@ -819,8 +823,14 @@ describe("ez-factory templates — dry run (the graph actually executes)", () =>
     // And the impure ones were stood in for rather than dispatched.
     expect(report.stubbed).toContain("ingest");
     expect(report.stubbed).toContain("classify");
-    expect(report.stubbed).toContain("anomaly-gate");
     expect(report.stubbed).toContain("write");
+    // `anomaly-gate` is SKIPPED here, not stubbed: its guard reads
+    // `$steps.ingest.output.skippedCount`, `ingest` is a stub, and `gt` on
+    // a non-number is false. A dry run therefore takes the CLEAN side — it
+    // never fabricates a reason to ask a human — which is also why the
+    // branch tests below substitute the guard to reach the other side.
+    expect(report.stubbed).not.toContain("anomaly-gate");
+    expect(statusIn(report, "anomaly-gate")).toBe("skipped");
   });
 
   test("etl-factory's composed document interpolates — no {{…}} survives", async () => {
@@ -836,36 +846,84 @@ describe("ez-factory templates — dry run (the graph actually executes)", () =>
     const report = await dryRunWorkflow(def, inputs["etl-factory"]!);
     expect(report.error).toBeUndefined();
     const output = report.output as Record<string, string>;
-    expect(output.document).toContain("Inputs skipped during ingest:");
+    expect(output.document).toContain("file(s) read,");
+    expect(output.document).toContain("skipped.");
     // A placeholder that survived means the interpolator never saw it —
     // the classic `{{ $steps… }}` typo that renders as literal source.
     expect(output.document).not.toContain("{{");
-    expect(output.skippedJson).not.toContain("{{");
   });
 
   // ── The conditional-approval branch, executed both ways ────────────
   //
-  // `ingest` is stubbed, so its real `skipped` renders `{}` and the branch
-  // would always take one side. Overwriting `skippedJson` with a LITERAL
-  // (a transform mapping value that does not start with `$` is passed
-  // through verbatim by the ref resolver) pins it — and the executor's
-  // real `skipDecision` then runs for both cases.
+  // The shipped guard is `$steps.ingest.output.skippedCount gt 0`, and
+  // `ingest` is a TOOL — stubbed in a dry run. A stub answers every path
+  // with another stub, and `gt` on a non-number is false, so the real
+  // guard could only ever take the clean side here.
+  //
+  // So the mutant swaps BOTH guards for an equivalent comparison over a
+  // literal-valued transform field (a mapping value that does not start
+  // with `$` is passed through verbatim by the ref resolver). What that
+  // buys is the TOPOLOGY — the executor's real `skipDecision`, the real
+  // `skipDependents` propagation and the real `dependsOn` graph run for
+  // both cases. The guard's own shape is pinned separately, below, so the
+  // substitution cannot hide a change to what the templates actually read.
 
-  const etlWithSkipped = async (skippedJson: string): Promise<DryRunReport> => {
+  const etlBranch = async (taken: boolean): Promise<DryRunReport> => {
     const def = asLoaderWouldName(mutantOf("etl-factory"));
-    stepNamed(def, "report").output!.skippedJson = skippedJson;
+    stepNamed(def, "report").output!.branchPin = taken ? "take" : "skip";
+    const when = { ref: "$steps.report.output.branchPin", op: "eq" as const, value: "take" };
+    stepNamed(def, "anomaly-gate").when = when;
+    stepNamed(def, "consent").when = when;
     return dryRunWorkflow(def, inputs["etl-factory"]!);
   };
 
   const statusIn = (report: DryRunReport, name: string): string | undefined =>
     report.steps.find((s) => s.name === name)?.status;
 
+  /** The same substitution the two discrimination cases below need: pin the
+   *  branch to its CLEAN side so what they demonstrate is the skip
+   *  topology, not a coin toss over a stub. */
+  const pinCleanBranch = (def: WorkflowDefinition): void => {
+    stepNamed(def, "report").output!.branchPin = "skip";
+    const when = { ref: "$steps.report.output.branchPin", op: "eq" as const, value: "take" };
+    stepNamed(def, "anomaly-gate").when = when;
+    const consent = def.steps.find((s) => s.name === "consent");
+    if (consent) consent.when = when;
+  };
+
+  test("the SHIPPED guard is a scalar count, identical on both branch steps", () => {
+    // Pins what the substitution above stands in for. Two properties, both
+    // load-bearing:
+    //
+    //   • `consent` must carry the guard BYTE-IDENTICAL to `anomaly-gate`'s
+    //     or it stops skipping in lockstep, and it reads the gate's answer.
+    //   • the operand is `skippedCount gt 0`, never the `skipped` ARRAY.
+    //     `neq` is `!deepEq(actual, value)`, so comparing a real array
+    //     against the string "[]" is unconditionally TRUE and the gate
+    //     would fire on every run, clean ones included. There is no
+    //     non-empty-array operator; the scalar is the only honest test.
+    const def = byBareName.get("etl-factory")!;
+    const guard = { ref: "$steps.ingest.output.skippedCount", op: "gt", value: 0 };
+    expect(stepNamed(def, "anomaly-gate").when).toEqual(guard);
+    expect(stepNamed(def, "consent").when).toEqual(guard);
+  });
+
+  test("the shipped guard's operand is asserted before anything branches on it", () => {
+    // `gt` on a non-number is false, so a `skippedCount` that stopped being
+    // returned would read exactly like a clean ingest — the gate would stop
+    // gating and nothing would say so. The `schema-ok` gate is what turns
+    // that silence into a named failure.
+    const def = byBareName.get("etl-factory")!;
+    const refs = conditionRefs(stepNamed(def, "schema-ok").condition!);
+    expect(refs).toContain("$steps.ingest.output.skippedCount");
+  });
+
   test("CLEAN path: the gate is skipped and write STILL runs", async () => {
     // The whole point of the template, and the exact thing design §6.2 got
     // wrong: with `skipDependents` defaulting to true, a skipped gate takes
     // `write` and `artifact` down with it and the common case writes
     // nothing at all.
-    const report = await etlWithSkipped("[]");
+    const report = await etlBranch(false);
     expect(report.error).toBeUndefined();
     expect(statusIn(report, "anomaly-gate")).toBe("skipped");
     expect(statusIn(report, "consent")).toBe("skipped");
@@ -874,7 +932,7 @@ describe("ez-factory templates — dry run (the graph actually executes)", () =>
   });
 
   test("ANOMALOUS path: the gate is asked, and consent reads its answer", async () => {
-    const report = await etlWithSkipped('[{"path":"oversize.csv"}]');
+    const report = await etlBranch(true);
     expect(report.error).toBeUndefined();
     expect(statusIn(report, "anomaly-gate")).not.toBe("skipped");
     expect(report.stubbed).toContain("anomaly-gate");
@@ -886,7 +944,7 @@ describe("ez-factory templates — dry run (the graph actually executes)", () =>
 
   test("discrimination — design §6.2's default skipDependents kills the clean path", async () => {
     const def = asLoaderWouldName(mutantOf("etl-factory"));
-    stepNamed(def, "report").output!.skippedJson = "[]";
+    pinCleanBranch(def);
     delete stepNamed(def, "anomaly-gate").skipDependents;
     delete stepNamed(def, "consent").skipDependents;
     const report = await dryRunWorkflow(def, inputs["etl-factory"]!);
@@ -908,7 +966,7 @@ describe("ez-factory templates — dry run (the graph actually executes)", () =>
     // That is why the shipped template splits the branch across `consent`
     // (which carries the same `when`, so it skips in lockstep) instead.
     const def = asLoaderWouldName(mutantOf("etl-factory"));
-    stepNamed(def, "report").output!.skippedJson = "[]";
+    pinCleanBranch(def);
     def.steps = def.steps.filter((s) => s.name !== "consent");
     const write = stepNamed(def, "write");
     write.dependsOn = ["anomaly-gate", "report"];

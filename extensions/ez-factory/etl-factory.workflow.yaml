@@ -45,20 +45,26 @@
 # `read_files` reports what it could not take — over-budget, unreadable,
 # past a bound — in `skipped[]`, and it never throws for it. A derived
 # artifact written from a PARTIAL ingest is exactly the thing a human
-# should be asked about, so that list is the anomaly signal.
+# should be asked about, so that is the anomaly signal.
 #
-# It is compared as JSON text because the condition vocabulary has no
-# "array is non-empty" operator: `exists` is true for `[]`, and `contains`
-# needs a member to look for. `{{…}}` interpolation renders the array with
-# `JSON.stringify`, so an empty one is exactly `[]` and anything else is
-# not. Deliberately NOT derived from the classifier: an agent step's output
-# is raw LLM text, so `$steps.classify.output.anomalyCount` would resolve to
-# `undefined` and the gate would never fire — a branch that silently cannot
-# happen is worse than no branch.
+# The guard reads the SCALAR `skippedCount`, never the array, and that is
+# not a style preference. There is no "array is non-empty" operator:
+# `exists` is true for `[]`, and `contains` needs a member to look for.
+# The tempting `{ref: …skipped, op: neq, value: "[]"}` is a trap — `neq` is
+# `!deepEq(actual, value)`, comparing a real ARRAY against a STRING, so it
+# is unconditionally TRUE and the gate fires on every run including the
+# clean ones. `skippedCount` is set from `skipped.length` inside the tool,
+# so the two cannot disagree.
 #
-# If `read_files` ever stops returning `skipped`, the `{{…}}` ref is STRICT
-# and this run fails loudly at the `report` step. That is the intended
-# direction: never a gate that quietly stops gating.
+# Deliberately NOT derived from the classifier: an agent step's output is
+# raw LLM text, so `$steps.classify.output.anomalyCount` would resolve to
+# `undefined` and the gate would never fire — a branch that silently
+# cannot happen is worse than no branch.
+#
+# `schema-ok` asserts `skippedCount` is present before anything reads it,
+# so a tool that stopped returning it fails the run by name rather than
+# leaving a guard that quietly stops guarding (`gt` on a non-number is
+# false, which would look exactly like a clean ingest).
 
 name: etl-factory
 description: >-
@@ -111,6 +117,12 @@ steps:
           op: exists
         - ref: $steps.ingest.output.skipped
           op: exists
+        # The guard operand, asserted BEFORE anything branches on it.
+        # `gt` on a non-number is false, so a missing `skippedCount` would
+        # be indistinguishable from a clean ingest — the gate would stop
+        # gating and nothing would say so. `exists` passes for 0.
+        - ref: $steps.ingest.output.skippedCount
+          op: exists
 
   # ── 3. Classify ──────────────────────────────────────────────────────
   #
@@ -141,17 +153,21 @@ steps:
       files: $steps.ingest.output.files
       skipped: $steps.ingest.output.skipped
 
-  # ── 4. The report, and the anomaly signal ────────────────────────────
+  # ── 4. The report ────────────────────────────────────────────────────
   #
   # The document is composed HERE rather than in `write`, because `{{…}}`
   # interpolation runs only in a transform's `output` mapping — a tool
   # step's `input` goes through `resolveMapping`, which never interpolates.
   #
-  # The skipped-input line is unconditional on purpose. A report generated
-  # from a partial ingest that does not say so is exactly the failure the
-  # gate below exists to prevent, and a caveat that shows up only sometimes
-  # is one a reader learns to stop looking for. On a clean run it reads
-  # `[]`, which is the claim being made.
+  # The ingest line is unconditional on purpose. A report generated from a
+  # partial ingest that does not say so is exactly the failure the gate
+  # below exists to prevent, and a caveat that shows up only sometimes is
+  # one a reader learns to stop looking for. On a clean run it reads
+  # `0 skipped` over an empty list, which is the claim being made.
+  #
+  # Carries no branch operand: the gates below read
+  # `$steps.ingest.output.skippedCount` from the tool directly, so there is
+  # no second copy of the signal that could disagree with the first.
   #
   # Deliberately does NOT copy `$steps.ingest.output.files` through: that
   # is the whole ingested corpus, and duplicating it into a second step's
@@ -172,10 +188,9 @@ steps:
         ---
 
 
-        Inputs skipped during ingest: {{$steps.ingest.output.skipped}}
-      # The gate signal — see the header for why an array is compared as
-      # JSON text rather than with an operator.
-      skippedJson: "{{$steps.ingest.output.skipped}}"
+        Ingest: {{$steps.ingest.output.fileCount}} file(s) read,
+        {{$steps.ingest.output.skippedCount}} skipped.
+        {{$steps.ingest.output.skipped}}
 
   # ── 5. Ask, but only about an incomplete ingest ──────────────────────
   #
@@ -195,9 +210,9 @@ steps:
     dependsOn:
       - report
     when:
-      ref: $steps.report.output.skippedJson
-      op: neq
-      value: "[]"
+      ref: $steps.ingest.output.skippedCount
+      op: gt
+      value: 0
     skipDependents: false
     prompt: >-
       Some of the requested input could not be read, so this report describes a
@@ -224,9 +239,9 @@ steps:
     dependsOn:
       - anomaly-gate
     when:
-      ref: $steps.report.output.skippedJson
-      op: neq
-      value: "[]"
+      ref: $steps.ingest.output.skippedCount
+      op: gt
+      value: 0
     skipDependents: false
     condition:
       ref: $steps.anomaly-gate.output.choice
