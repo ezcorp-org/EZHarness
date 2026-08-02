@@ -97,6 +97,26 @@ async function readProposals(): Promise<ProposalsFile> {
   return JSON.parse(text) as ProposalsFile;
 }
 
+/**
+ * Poll until `check()` holds, or the deadline passes.
+ *
+ * Replaces a fixed `setTimeout` sleep in the two timer-driven tests below.
+ * The assertion that follows is unchanged — this only decides how long to
+ * wait for it. A fixed sleep encodes an assumption about how fast the
+ * machine is, and the backend pool runs one bun process PER FILE with many
+ * in flight, so under load a 30ms/60ms budget for real fs work is a coin
+ * flip: `file-organizer-daemon.test.ts` was observed failing in a full
+ * `bun run test` and passing 3/3 in isolation. Returning as soon as the
+ * condition holds also makes the common case faster than the old sleep.
+ */
+async function until(check: () => Promise<boolean>, timeoutMs = 5_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await check()) return;
+    await new Promise((r) => setTimeout(r, 5));
+  }
+}
+
 /** Drive the stability gate: tick `n` times so a quiescent file becomes stable. */
 async function tickN(d: FileOrganizerDaemon, n: number): Promise<void> {
   for (let i = 0; i < n; i++) await d.tick();
@@ -546,7 +566,7 @@ describe("daemon — lifecycle", () => {
     d.stop();
     // stop() releases the lockfile fire-and-forget (void releaseLockfile);
     // let the microtask + unlink settle before asserting removal.
-    await new Promise((r) => setTimeout(r, 30));
+    await until(async () => !(await Bun.file(join(dataDir, ".daemon.pid")).exists()));
     expect(await Bun.file(join(dataDir, ".daemon.pid")).exists()).toBe(false);
   });
 
@@ -566,7 +586,12 @@ describe("daemon — lifecycle", () => {
     });
     await d.start({ ...DEFAULT_SETTINGS, stabilityTicks: 1 });
     // Two wake cycles: the first records stability, the second proposes.
-    await new Promise((r) => setTimeout(r, 60));
+    // Each does real fs work, so wait for the OUTCOME rather than budgeting
+    // a wall-clock guess for it.
+    await until(async () => {
+      if (!(await Bun.file(join(dataDir, "proposals.json")).exists())) return false;
+      return (await readProposals()).proposals.length > 0;
+    });
     d.stop();
     const file = await readProposals();
     expect(file.proposals.length).toBeGreaterThan(0);
