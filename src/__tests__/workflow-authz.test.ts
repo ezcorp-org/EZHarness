@@ -12,7 +12,9 @@ import { setupTestDb, getTestDb, closeTestDb, mockDbConnection } from "./helpers
 mockDbConnection();
 
 const { extensions, users, workflowDefinitions } = await import("../db/schema");
-const { canRunWorkflow, canActOnWorkflow } = await import("../runtime/workflow-authz");
+const { canRunWorkflow, canActOnWorkflow, canManageWorkflow } = await import(
+  "../runtime/workflow-authz",
+);
 const { createWorkflow } = await import("../db/queries/workflows");
 
 import type { WorkflowDefinition } from "../types";
@@ -236,5 +238,41 @@ describe("canRunWorkflow", () => {
     // ON DELETE SET NULL ⇒ the row degrades to global, still runnable.
     const decision = await canRunWorkflow(def({ name: "mine", source: "db" }), stranger);
     expect(decision).toEqual({ allowed: true });
+  });
+});
+
+describe("canManageWorkflow", () => {
+  // The predicate `GET /api/workflows` serves as `canManage`. It must be
+  // exactly the conjunction PUT/DELETE enforce, or the UI paints an Edit
+  // button that only ever 403s (or 404s).
+  test("allows the owner of a DB workflow", () => {
+    expect(canManageWorkflow({ source: "db" }, "u-owner", owner)).toBe(true);
+  });
+
+  test("allows an admin over another user's DB workflow", () => {
+    expect(canManageWorkflow({ source: "db" }, "u-owner", admin)).toBe(true);
+  });
+
+  test("denies a stranger", () => {
+    expect(canManageWorkflow({ source: "db" }, "u-owner", stranger)).toBe(false);
+  });
+
+  test("allows anyone on an unowned legacy row", () => {
+    // NULL created_by predates the column; those stay editable by anyone,
+    // which is what makes the migration non-breaking.
+    expect(canManageWorkflow({ source: "db" }, null, stranger)).toBe(true);
+    expect(canManageWorkflow({ source: "db" }, undefined, stranger)).toBe(true);
+  });
+
+  test("denies YAML and extension-shipped workflows outright", () => {
+    // Files on disk — PUT/DELETE resolve through getWorkflowByName and 404.
+    // Even the admin cannot write them through the API.
+    expect(canManageWorkflow({ source: "yaml" }, null, admin)).toBe(false);
+    expect(canManageWorkflow({ source: "extension" }, null, admin)).toBe(false);
+  });
+
+  test("denies a definition with no source", () => {
+    // Hand-built definitions have no row to update; fail closed.
+    expect(canManageWorkflow({}, null, admin)).toBe(false);
   });
 });

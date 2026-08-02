@@ -2,17 +2,68 @@
 	import { page } from "$app/state";
 	import { goto } from "$app/navigation";
 	import { store, refreshWorkflows } from "$lib/stores.svelte.js";
-	import { triggerWorkflowRun, deleteWorkflow } from "$lib/api.js";
+	import { triggerWorkflowRun, deleteWorkflow, updateWorkflow, type Workflow } from "$lib/api.js";
 	import { statusColor, kindLabel, runErrorText } from "$lib/workflow-run-display.js";
+	import WorkflowBuilder from "$lib/components/WorkflowBuilder.svelte";
 
 	let workflowName = $derived(page.params.name);
 	let workflow = $derived(store.workflows.find((w) => w.name === workflowName));
 	let runs = $derived(store.workflowRuns.filter((r) => r.workflowName === workflowName));
 
+	// Server-resolved: `source === "db"` AND owner-or-admin. Gating on it
+	// means Edit/Delete are never painted on a request that would 403 (someone
+	// else's workflow) or 404 (a YAML/extension asset — a file on disk, with
+	// nothing to write).
+	let canManage = $derived(workflow?.canManage === true);
 
 	let inputText = $state("{}");
 	let submitting = $state(false);
 	let errorMsg = $state("");
+
+	// ── Inline editing ──────────────────────────────────────────────
+	// The editor replaces the step list IN PLACE rather than living on its
+	// own route: authoring a workflow is a fix→save→run loop (refs resolve
+	// strictly and throw on a miss), and a separate page would cost two
+	// navigations per lap and discard the JSON input already typed below.
+	let editing = $state(false);
+	let editSubmitting = $state(false);
+	let editErrorMsg = $state("");
+
+	function startEditing() {
+		editErrorMsg = "";
+		editing = true;
+	}
+
+	function cancelEditing() {
+		editing = false;
+		editErrorMsg = "";
+	}
+
+	async function handleEditSubmit(data: Record<string, unknown>) {
+		if (!workflowName) return;
+		editSubmitting = true;
+		editErrorMsg = "";
+		try {
+			const saved = await updateWorkflow(workflowName, data as unknown as Workflow);
+			await refreshWorkflows();
+			editing = false;
+			// A rename moves the resource: this page is keyed by name, so
+			// staying put would show "not found" for the name we just freed.
+			const newName = saved?.name ?? (data.name as string | undefined);
+			if (newName && newName !== workflowName) goto(`/workflows/${encodeURIComponent(newName)}`);
+		} catch (e) {
+			editErrorMsg = e instanceof Error ? e.message : "Failed to update workflow";
+		} finally {
+			editSubmitting = false;
+		}
+	}
+
+	// Duplicate is offered for EVERY workflow, manageable or not — it is the
+	// only productive action on a read-only YAML demo, which otherwise dead-ends.
+	function handleDuplicate() {
+		if (!workflowName) return;
+		goto(`/workflows/new?from=${encodeURIComponent(workflowName)}`);
+	}
 
 	// Inline click-to-confirm for the destructive delete. We deliberately do
 	// NOT use native `window.confirm()`: browsers silently suppress repeated
@@ -81,28 +132,66 @@
 
 	{#if workflow}
 		<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-6">
-			<div class="flex items-start justify-between">
+			<div class="flex items-start justify-between gap-3">
 				<div>
-					<h2 class="mb-2 text-2xl font-bold text-[var(--color-text-primary)]">{workflow.name}</h2>
-					{#if workflow.description}
+					<h2 class="mb-2 text-2xl font-bold text-[var(--color-text-primary)]">
+						{editing ? `Editing ${workflow.name}` : workflow.name}
+					</h2>
+					{#if workflow.description && !editing}
 						<p class="mb-4 text-[var(--color-text-secondary)]">{workflow.description}</p>
 					{/if}
 				</div>
-				<button
-					onclick={handleDeleteClick}
-					data-confirming={deleteConfirming}
-					class="rounded-md bg-red-600/20 px-3 py-1 text-sm text-red-400 hover:bg-red-600/30"
-				>
-					{deleteConfirming ? "Confirm delete?" : "Delete"}
-				</button>
+				{#if !editing}
+					<div class="flex flex-wrap items-center justify-end gap-2">
+						{#if canManage}
+							<button
+								onclick={startEditing}
+								data-testid="workflow-edit"
+								class="rounded-md bg-[var(--color-surface-tertiary)] px-3 py-1 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-border)]"
+							>
+								Edit
+							</button>
+						{/if}
+						<button
+							onclick={handleDuplicate}
+							data-testid="workflow-duplicate"
+							class="rounded-md bg-[var(--color-surface-tertiary)] px-3 py-1 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-border)]"
+						>
+							Duplicate
+						</button>
+						{#if canManage}
+							<button
+								onclick={handleDeleteClick}
+								data-confirming={deleteConfirming}
+								data-testid="workflow-delete"
+								class="rounded-md bg-red-600/80 px-3 py-1 text-sm font-medium text-white transition-colors hover:bg-red-500"
+							>
+								{deleteConfirming ? "Confirm delete?" : "Delete"}
+							</button>
+						{/if}
+					</div>
+				{/if}
 			</div>
 
 			{#if deleteErrorMsg}
 				<p class="mb-3 text-sm text-red-400" data-testid="delete-error">{deleteErrorMsg}</p>
 			{/if}
 
+			{#if editing}
+				<WorkflowBuilder
+					initial={workflow as unknown as Record<string, unknown>}
+					agents={store.agents}
+					onsubmit={handleEditSubmit}
+					oncancel={cancelEditing}
+					submitting={editSubmitting}
+					submitLabel="Save"
+				/>
+				{#if editErrorMsg}
+					<p class="mt-3 text-sm text-red-400" data-testid="workflow-edit-error">{editErrorMsg}</p>
+				{/if}
+			{:else}
 			<h3 class="mb-2 text-sm font-medium text-[var(--color-text-secondary)]">Steps</h3>
-			<div class="space-y-2">
+			<div class="space-y-2" data-testid="workflow-steps-view">
 				{#each workflow.steps as step, idx}
 					{@const kind = step.kind ?? "agent"}
 					<div class="rounded border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
@@ -113,6 +202,10 @@
 							{#if kind === "agent"}
 								<span class="text-[var(--color-text-muted)]">&rarr;</span>
 								<span class="text-blue-400">{step.agent}</span>
+							{/if}
+							{#if kind === "tool"}
+								<span class="text-[var(--color-text-muted)]">&rarr;</span>
+								<span class="font-mono text-xs text-teal-400">{step.tool}</span>
 							{/if}
 							{#if step.loop}
 								<span class="text-xs text-purple-400">loop &times;{step.loop.maxIterations}{step.loop.until ? " (until)" : ""}</span>
@@ -136,8 +229,14 @@
 					</div>
 				{/each}
 			</div>
+			{/if}
 		</div>
 
+		<!-- Hidden while editing: Run posts the SAVED definition, so leaving it
+		     live next to unsaved edits invites running the old graph and
+		     reading the result as if it reflected the change. Run History
+		     stays visible below — it is what you are editing against. -->
+		{#if !editing}
 		<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-6">
 			<h3 class="mb-3 text-lg font-semibold text-[var(--color-text-primary)]">Run Workflow</h3>
 			<label class="mb-2 block text-sm text-[var(--color-text-secondary)]" for="workflow-input">JSON Input</label>
@@ -159,6 +258,7 @@
 				{submitting ? "Running..." : "Run Workflow"}
 			</button>
 		</div>
+		{/if}
 
 		{#if runs.length > 0}
 			<section>

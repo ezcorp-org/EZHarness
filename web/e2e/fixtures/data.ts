@@ -182,6 +182,10 @@ export function makeWorkflow(overrides: Partial<Workflow> = {}): Workflow {
 		name: overrides.name ?? "test-workflow",
 		description: "A test workflow",
 		steps: [{ name: "step-1", agent: "test-agent" }],
+		// Defaults to an editable DB workflow — the common case. Override with
+		// `source: "yaml", canManage: false` to assert the read-only surface.
+		source: "db",
+		canManage: true,
 		...overrides,
 	};
 }

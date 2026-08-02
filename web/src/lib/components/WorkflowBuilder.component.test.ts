@@ -9,15 +9,18 @@
 import { render, fireEvent, cleanup } from "@testing-library/svelte";
 import { describe, test, expect, afterEach, vi } from "vitest";
 import WorkflowBuilder from "./WorkflowBuilder.svelte";
-import { blankStep, type StepDraft } from "$lib/workflow-builder-logic.js";
+import type { StoredStep } from "$lib/workflow-builder-logic.js";
 import type { Agent } from "$lib/api.js";
 
 afterEach(() => cleanup());
 
 const agents = [{ name: "alpha" }, { name: "beta" }] as Agent[];
 
-function draft(name: string, overrides: Partial<StepDraft> = {}): StepDraft {
-  return { ...blankStep(0), name, agent: "alpha", ...overrides };
+/** A step in the shape the API actually serves — an `input` RECORD, a
+ *  `condition` object, a `loop` object. `initial` carries these, not drafts;
+ *  the component inflates them via `workflowToDrafts`. */
+function draft(name: string, overrides: Partial<StoredStep> = {}): StoredStep {
+  return { name, agent: "alpha", ...overrides };
 }
 
 function submitForm(container: HTMLElement) {
@@ -136,5 +139,133 @@ describe("WorkflowBuilder", () => {
     });
     const button = getByText("Saving...") as HTMLButtonElement;
     expect(button.disabled).toBe(true);
+  });
+
+  // ── Edit mode ────────────────────────────────────────────────────
+  // The same component serves create and edit. Editing hydrates from a
+  // STORED workflow, so the inverse mapping is what these pin.
+
+  test("inflates a stored workflow's every step kind back into editable fields", async () => {
+    // The regression this guards: `initial.steps` used to be cast straight
+    // to StepDraft[], binding the form to fields a stored step does not
+    // have — so an edit rendered blank and saved an erased definition.
+    const onsubmit = vi.fn();
+    const steps: StoredStep[] = [
+      { name: "compose", kind: "transform", output: { headline: "Report on {{$input.topic}}" } },
+      {
+        name: "assert",
+        kind: "gate",
+        dependsOn: ["compose"],
+        condition: { ref: "$steps.compose.output.headline", op: "contains", value: "Report" },
+      },
+      { name: "ask", agent: "beta", dependsOn: ["assert"], input: { q: "$prev.output" }, retries: 2 },
+    ];
+    const { container, getByLabelText } = render(WorkflowBuilder, {
+      props: { initial: { name: "wf", description: "d", steps }, agents, onsubmit },
+    });
+
+    // Values reached the DOM, not just the payload.
+    expect((getByLabelText("Workflow Name") as HTMLInputElement).value).toBe("wf");
+    expect((getByLabelText("Retries (0–2)") as HTMLInputElement).value).toBe("2");
+
+    await submitForm(container);
+    expect(onsubmit).toHaveBeenCalledWith({ name: "wf", description: "d", steps });
+  });
+
+  test("round-trips a looped step's iteration budget and until-condition", async () => {
+    const onsubmit = vi.fn();
+    const steps: StoredStep[] = [
+      {
+        name: "count",
+        kind: "transform",
+        output: { n: "$loop.iteration" },
+        loop: {
+          maxIterations: 5,
+          until: { ref: "$result.output.n", op: "gte", value: 3 },
+          onExhausted: "pass",
+        },
+      },
+    ];
+    const { container, getByLabelText } = render(WorkflowBuilder, {
+      props: { initial: { name: "wf", description: "", steps }, agents, onsubmit },
+    });
+
+    expect((getByLabelText("Max iterations (1–25)") as HTMLInputElement).value).toBe("5");
+    await submitForm(container);
+    expect(onsubmit).toHaveBeenCalledWith(expect.objectContaining({ steps }));
+  });
+
+  test("renders a Cancel button only when oncancel is supplied", async () => {
+    const oncancel = vi.fn();
+    const { queryByTestId, rerender } = render(WorkflowBuilder, {
+      props: { agents, onsubmit: () => {} },
+    });
+    // Create route: nothing to return to.
+    expect(queryByTestId("workflow-builder-cancel")).toBeNull();
+
+    await rerender({ agents, onsubmit: () => {}, oncancel });
+    const cancel = queryByTestId("workflow-builder-cancel") as HTMLButtonElement;
+    expect(cancel).not.toBeNull();
+    await fireEvent.click(cancel);
+    expect(oncancel).toHaveBeenCalledTimes(1);
+  });
+
+  test("uses the supplied submit label", () => {
+    const { getByText } = render(WorkflowBuilder, {
+      props: { agents, onsubmit: () => {}, submitLabel: "Save" },
+    });
+    expect(getByText("Save")).toBeInTheDocument();
+  });
+
+  test("a tool step offers the fetched extension tools grouped by extension", async () => {
+    // The picker's options come from one /api/extensions fetch made by the
+    // builder (not per step), normalized through extension-tool-options.
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => [
+        { id: "notes", name: "Notes", manifest: { tools: [{ name: "add" }, { name: "drop" }] } },
+      ],
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const onsubmit = vi.fn();
+    const { container, findByTestId } = render(WorkflowBuilder, {
+      props: {
+        initial: { name: "wf", description: "", steps: [{ name: "call", kind: "tool" }] },
+        agents,
+        onsubmit,
+      },
+    });
+
+    const select = (await findByTestId("step-tool-select")) as HTMLSelectElement;
+    await vi.waitFor(() => expect(select.querySelectorAll("optgroup")).toHaveLength(1));
+    expect(select.querySelector("optgroup")?.label).toBe("Notes");
+    // Values are runtime-namespaced `<ext>__<tool>`, which is what dispatch needs.
+    expect([...select.querySelectorAll("option")].map((o) => o.value)).toEqual([
+      "",
+      "notes__add",
+      "notes__drop",
+    ]);
+
+    await fireEvent.change(select, { target: { value: "notes__add" } });
+    await submitForm(container);
+    expect(onsubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ steps: [{ name: "call", kind: "tool", tool: "notes__add" }] }),
+    );
+    vi.unstubAllGlobals();
+  });
+
+  test("a tool step with no tool selected is rejected before submit", async () => {
+    const onsubmit = vi.fn();
+    const { container, getByText } = render(WorkflowBuilder, {
+      props: {
+        initial: { name: "wf", description: "", steps: [{ name: "call", kind: "tool" }] },
+        agents,
+        onsubmit,
+      },
+    });
+    await submitForm(container);
+    expect(getByText('Step "call" (tool) needs a tool')).toBeInTheDocument();
+    expect(onsubmit).not.toHaveBeenCalled();
   });
 });

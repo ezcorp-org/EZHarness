@@ -1021,6 +1021,16 @@ export interface Workflow {
 	description: string;
 	steps: WorkflowStep[];
 	inputSchema?: Record<string, unknown>;
+	/** Which loader produced this definition. Server-derived provenance,
+	 *  served by GET and never accepted on a write (`workflowBodySchema` is
+	 *  `.strict()`). */
+	source?: "db" | "yaml" | "extension";
+	/** Whether THIS caller may edit or delete it — `source === "db"` AND
+	 *  owner-or-admin, resolved server-side. Gates the Edit/Delete
+	 *  affordances so they are never painted on a request that would 403 or
+	 *  404. Optional because a hand-built fixture may omit it; absent is
+	 *  treated as not manageable. */
+	canManage?: boolean;
 }
 
 export interface WorkflowRun {
@@ -1049,8 +1059,23 @@ export async function createWorkflow(data: Workflow): Promise<Workflow> {
 	return res.json();
 }
 
+/** Replace a DB workflow's definition. Server-side this is owner-or-admin
+ *  and DB-only; the UI gates on `Workflow.canManage` so it is not called
+ *  speculatively. A rename is expressed by sending a different `name`. */
+export async function updateWorkflow(name: string, data: Workflow): Promise<Workflow> {
+	const res = await fetch(`${BASE}/api/workflows/${encodeURIComponent(name)}`, {
+		method: "PUT",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify(data),
+	});
+	await checkResponse(res);
+	return res.json();
+}
+
 export async function deleteWorkflow(name: string): Promise<void> {
-	const res = await fetch(`${BASE}/api/workflows/${name}`, { method: "DELETE" });
+	// Encoded: an extension-shipped workflow is namespaced `<ext>:<name>`,
+	// and the separator must survive as one path segment.
+	const res = await fetch(`${BASE}/api/workflows/${encodeURIComponent(name)}`, { method: "DELETE" });
 	await checkResponse(res);
 }
 

@@ -5,6 +5,7 @@ import { validateWorkflow } from "$server/runtime/workflow-validator";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
+import { withCanManage } from "$lib/server/workflow-can-manage";
 import type { RequestHandler } from "./$types";
 import type { WorkflowDefinition } from "$server/types";
 import { workflowBodySchema } from "./schema";
@@ -17,8 +18,11 @@ import { workflowBodySchema } from "./schema";
 export const GET: RequestHandler = async ({ locals }) => {
   const scopeErr = requireScope(locals, "read");
   if (scopeErr) return scopeErr;
-  requireAuth(locals);
-  return json(getWorkflows());
+  const user = requireAuth(locals);
+  // `canManage` is derived per caller, so the UI can hide Edit/Delete on the
+  // workflows this user would only get a 403/404 for (YAML + extension
+  // assets, and other users' rows).
+  return json(await withCanManage(getWorkflows(), user));
 };
 
 export const POST: RequestHandler = async ({ request, locals }) => {
