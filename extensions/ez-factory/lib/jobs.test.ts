@@ -177,9 +177,34 @@ describe("invariant B — a job cannot skip a gate or approval step", () => {
     expect(validateJobDraft({ name: "J", workflow: "docs-factory", input: { globs: "**/*.ts" } }).ok).toBe(true);
   });
 
-  test("door 1: an allowlist is per workflow — etl's 'now' is not settable on docs-factory", () => {
-    expect(validateJobDraft({ name: "J", workflow: "etl-factory", input: { now: "2026-08-01" } }).ok).toBe(true);
-    expect(rejection({ name: "J", workflow: "docs-factory", input: { now: "2026-08-01" } })).toContain("not settable");
+  test("door 1: the allowlist is PER WORKFLOW — a key legal on one is refused on another", () => {
+    // Both directions, so a single shared allowlist would fail this.
+    expect(validateJobDraft({ name: "J", workflow: "draft-and-verify", input: { draft: "d" } }).ok).toBe(true);
+    expect(rejection({ name: "J", workflow: "docs-factory", input: { draft: "d" } })).toContain("not settable");
+    expect(validateJobDraft({ name: "J", workflow: "docs-factory", input: { globs: "**/*" } }).ok).toBe(true);
+    expect(rejection({ name: "J", workflow: "draft-and-verify", input: { globs: "**/*" } })).toContain("not settable");
+  });
+
+  test("door 1: 'priorContent'/'priorVerdict' are NOT job-settable on draft-and-verify", () => {
+    // The template declares them in `inputSchema`, but `docs-factory` supplies
+    // them through its `review-loop` step's `input` mapping ($loop.last.*),
+    // resolved by the executor — they never pass through this store. The gap
+    // is the correct shape, not an oversight to "fix".
+    expect(rejection({ name: "J", workflow: "draft-and-verify", input: { priorContent: "x" } })).toContain(
+      "not settable",
+    );
+    expect(rejection({ name: "J", workflow: "draft-and-verify", input: { priorVerdict: "x" } })).toContain(
+      "not settable",
+    );
+  });
+
+  test("door 1: 'now' is not settable on etl-factory — a saved job would freeze one timestamp", () => {
+    // A transform does no I/O and reads no clock, so `{{ $input.now }}` is a
+    // caller-supplied string. Saved on a job it would stamp the same instant
+    // on every run it ever fired. The run's own `startedAt` is on the trace.
+    expect(rejection({ name: "J", workflow: "etl-factory", input: { now: "2026-08-01" } })).toContain(
+      "not settable",
+    );
   });
 
   test("door 2: 'skipDependents' is refused BY NAME, with the security message", () => {
@@ -576,13 +601,13 @@ describe("createJobStore — jobs", () => {
     await store.createJob(draft({ name: "Old", input: { globs: "a" } }), { id: "j1", ...OPTS });
     const saved = await store.saveJob(
       "j1",
-      draft({ name: "New", workflow: "etl-factory", input: { now: "t" } }),
+      draft({ name: "New", workflow: "etl-factory", input: { outPath: "out.md" } }),
       { actor: "user-2", now: "2026-08-02T00:00:00.000Z" },
     );
     expect(saved).toMatchObject({
       name: "New",
       workflow: "etl-factory",
-      input: { now: "t" },
+      input: { outPath: "out.md" },
       updatedBy: "user-2",
       updatedAt: "2026-08-02T00:00:00.000Z",
       // Creation attribution is never rewritten by an edit.

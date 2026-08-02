@@ -121,23 +121,45 @@ export function isFactoryWorkflow(name: unknown): name is FactoryWorkflow {
  * The rule the templates must hold up their end of: **a `gate` or `approval`
  * step's guard reads `$steps.*` only, never `$input.*`.** Run inputs are
  * operator-supplied; step outputs are produced by the graph. Only the second
- * kind can decide whether a human gets asked.
+ * kind can decide whether a human gets asked. Verified to hold across all
+ * three shipped assets: `docs-factory.accepted` reads
+ * `$steps.review-loop.output.choice`; `etl-factory.schema-ok` reads
+ * `$steps.ingest.output.*`; `etl-factory.anomaly-gate` and `.consent` both
+ * read `$steps.report.output.skippedJson`; `draft-and-verify.review` carries
+ * no `when` at all.
  *
- * A listed key is still operator-controlled data with real reach — a template
- * may bind a model by ref (`model: {model: "$input.verifyModel"}`,
- * `src/types.ts`), so exposing such a key would let an operator downgrade the
- * model on a verification step. Legitimate, but a decision to take on
- * purpose rather than by omission.
+ * A listed key is still operator-controlled data with real reach. A template
+ * CAN bind a model by ref (`model: {model: "$input.verifyModel"}`,
+ * `src/types.ts`), which would let an operator point a verification step at a
+ * weaker model and disable the check while the graph still reported a pass —
+ * so the shipped templates bind no `provider`/`model` at all, `effort` and
+ * `maxTokens` only. If that ever changes, the key lands here and the tradeoff
+ * gets taken on purpose rather than by omission.
+ *
+ * **This is the single source of truth.** `workflow-templates.test.ts` (8.5)
+ * checks the templates against it — by import once the branches merge, so the
+ * two cannot drift. Keep it a directly importable named export.
  */
 export const JOB_SETTABLE_INPUT_KEYS: Readonly<
   Record<FactoryWorkflow, readonly string[]>
 > = {
-  // Source globs to read, and where the approved doc is written.
+  // Source globs to read, and where the accepted doc is written.
   "docs-factory": ["globs", "outPath"],
-  // Same, plus the ingest timestamp the transform step stamps.
-  "etl-factory": ["globs", "outPath", "now"],
+  // The same two. NOT `now`: the design's `ingestedAt: "{{ $input.now }}"`
+  // is a caller-supplied string, not a clock — a transform does no I/O and
+  // reads no clock — so a SAVED job would freeze one timestamp across every
+  // run it ever fired. Worse than having none, and the run's own `startedAt`
+  // is already on the trace.
+  "etl-factory": ["globs", "outPath"],
   // The sub-workflow, addressable directly: the draft under review and the
   // sources it is verified against.
+  //
+  // `priorContent` / `priorVerdict` are deliberately absent even though the
+  // template declares them in `inputSchema`. `docs-factory` supplies them
+  // through its `review-loop` step's `input` mapping (`$loop.last.output.*`),
+  // resolved by the executor — they never pass through this store. The
+  // declaration documents the full input contract; the gap here is the
+  // correct shape, not an oversight to "fix".
   "draft-and-verify": ["draft", "sources"],
 };
 
