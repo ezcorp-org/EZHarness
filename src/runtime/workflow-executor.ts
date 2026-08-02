@@ -196,8 +196,17 @@ export class WorkflowExecutor {
     opts?: WorkflowExecutorOptions,
   ) {
     this.persist = opts?.persist ?? false;
+    // The default MUST forward `pending`. A zero-arg arrow here still
+    // satisfies `WorkflowToolRunnerFactory` (TS lets a function ignore
+    // parameters), so dropping the gate type-checks and fails silently —
+    // and production takes exactly this path (`web/src/lib/server/context.ts`
+    // and `src/cli.ts` both construct with only `{ persist: true }`). The
+    // result was that an INTERACTIVE workflow's consent card was invisible
+    // to the run watchdog, which killed the surrounding turn at the
+    // `callTimeoutMs` ceiling — the "stuck chat" defect the gate exists to
+    // prevent.
     this.toolRunnerFactory =
-      opts?.toolRunnerFactory ?? (() => createWorkflowToolRunner(this.bus));
+      opts?.toolRunnerFactory ?? ((pending) => createWorkflowToolRunner(this.bus, pending));
   }
 
   /**
