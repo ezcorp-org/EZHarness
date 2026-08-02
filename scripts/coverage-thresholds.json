@@ -55,6 +55,7 @@
   "extensions/memory-extractor/index.ts": 100,
   "extensions/memory-extractor/ezcorp.config.ts": 100,
   "extensions/ez-factory/ezcorp.config.ts": 100,
+  "extensions/ez-factory/lib/jobs.ts": 100,
   "docs/extensions/examples/file-organizer/index.ts": 100,
   "docs/extensions/examples/file-organizer/lib/**": 100,
   "docs/extensions/examples/ping-loop/ezcorp.config.ts": 100,
