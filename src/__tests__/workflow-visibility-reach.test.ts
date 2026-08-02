@@ -225,7 +225,7 @@ describe("which visibilities any code path can actually produce", () => {
     // Guards against a fourth visibility landing in `WorkflowVisibility`
     // and silently escaping this file's analysis.
     expect(ALL_VISIBILITIES).toEqual(["system", "project", "private"]);
-    expect(ALL_VISIBILITIES.filter((v) => PRODUCED.has(v))).toEqual(ALL_VISIBILITIES);
+    expect(ALL_VISIBILITIES.filter((v) => PRODUCED.has(v))).toEqual([...ALL_VISIBILITIES]);
   });
 });
 
