@@ -13,9 +13,9 @@
       "toolsHash": "sha256-lYerjNPlYIl7x5j3KFMd4s2G2GMtG9rnRf/0MACSZTw="
     },
     "city-conditions": {
-      "version": "0.2.0",
+      "version": "0.3.0",
       "entrypoint": "./index.ts",
-      "toolsHash": "sha256-n5aYy/0WrOKRK2kIhhFdu7Iq7M5z+KkTuEbCrJid78Y="
+      "toolsHash": "sha256-ddwhXHtNP2j0nVUxfHfOiIcgOjoRfzKz4gj89tvjboo="
     },
     "claude-design": {
       "version": "0.1.0",

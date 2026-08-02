@@ -303,6 +303,32 @@ describe("buildPollenView — null grain vs measured zero", () => {
 		);
 	});
 
+	test("Google UPI renders as an index with category values, not a grain concentration", () => {
+		const view = buildPollenView({
+			available: true,
+			grains: null,
+			total: 4,
+			unit: "UPI",
+			band: "high",
+			categories: [
+				{ key: "trees", label: "Tree", band: "high", value: 4, contributors: [] },
+				{ key: "grass", label: "Grass", band: "low", value: 2, contributors: [] },
+			],
+			observedAt: "2026-07-28",
+			source: { name: "Google Pollen API", kind: "modeled" },
+		});
+		expect(view.available).toBe(true);
+		expect(view.unit).toBe("UPI");
+		expect(view.totalText).toBe("4.0");
+		expect(view.bandLabel).toBe("High");
+		expect(view.categories).toMatchObject([
+			{ key: "trees", valueText: "4.0", bandLabel: "High" },
+			{ key: "grass", valueText: "2.0", bandLabel: "Low" },
+		]);
+		expect(view.sourceLine).toBe("Modeled by Google Pollen API · Reported 07/28/2026");
+		expect(view.grains.every((grain) => !grain.reported)).toBe(true);
+	});
+
 	test("a non-finite grain is treated as unreported, not as NaN on screen", () => {
 		const view = buildPollenView({
 			grains: { alder: Number.NaN, birch: "8.1", grass: Number.POSITIVE_INFINITY },

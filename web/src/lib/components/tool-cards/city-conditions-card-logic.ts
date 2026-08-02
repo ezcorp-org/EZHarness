@@ -124,6 +124,8 @@ export interface PollenCategoryView {
 	label: string;
 	bandId: PollenBandId;
 	bandLabel: string;
+	/** Provider-native category value (Google UPI), blank for band-only stations. */
+	valueText: string;
 	contributorsText: string;
 }
 
@@ -344,11 +346,13 @@ export function buildPollenView(raw: unknown): PollenView {
 		.map<PollenCategoryView>((category, index) => {
 			const bandId = bandIdOf(category.band);
 			const label = nonEmptyString(category.label);
+			const value = finiteOrNull(category.value);
 			return {
 				key: nonEmptyString(category.key) || `category-${index}`,
 				label: label || "Pollen",
 				bandId,
 				bandLabel: bandLabelOf(bandId),
+				valueText: value === null ? "" : value.toFixed(1),
 				contributorsText: stringArray(category.contributors).join(", "),
 			};
 		});

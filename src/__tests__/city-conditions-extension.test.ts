@@ -9,7 +9,7 @@
  * than a comment: the batcher's own output is asserted, and the run is
  * then executed end-to-end through it.
  */
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
 import { loadManifest } from "../extensions/loader";
@@ -25,7 +25,10 @@ import { loadAgentsStatic } from "../runtime/loader";
 import type { WorkflowToolRunner } from "../runtime/workflow-tool-runner";
 import type { ToolCallResult } from "../extensions/types";
 import type { AgentEvents, WorkflowDefinition, WorkflowStep } from "../types";
-import { tools } from "../../docs/extensions/examples/city-conditions/index";
+import {
+  _resetGooglePollenKeyResolverForTests,
+  tools,
+} from "../../docs/extensions/examples/city-conditions/index";
 import {
   _resetBindingsForTests,
   _setFetchImplForTests,
@@ -38,8 +41,11 @@ const CONDITIONS_HOSTS = [
   "air-quality-api.open-meteo.com",
   "api.open-meteo.com",
   "geocoding-api.open-meteo.com",
+  "pollen.googleapis.com",
   "www.atlantaallergy.com",
 ];
+
+beforeEach(() => _resetGooglePollenKeyResolverForTests());
 
 // ── Upstream fixtures (the suite never touches the network) ──────────
 
@@ -190,9 +196,14 @@ describe("manifest", () => {
     expect(result.pass).toBe(true);
   }, 30_000);
 
-  test("takes no credential-shaped env grant — the install gate is never approached", async () => {
+  test("stores the Google key as a secret instead of a credential-shaped env grant", async () => {
     const manifest = await loadManifest(EXT_DIR);
     expect(manifest.permissions?.env).toBeUndefined();
+    expect(manifest.permissions?.storage).toBe(true);
+    expect(manifest.settings?.google_pollen_api_key).toMatchObject({
+      type: "secret",
+      storageKey: "google-pollen-api-key",
+    });
   });
 });
 
@@ -207,18 +218,19 @@ describe("bundled registration", () => {
     expect(existsSync(join(getProjectRoot(), entry!.path))).toBe(true);
   });
 
-  test("grants only the three Open-Meteo hosts and Atlanta station", () => {
+  test("grants only provider network access plus encrypted-key Storage", () => {
     expect([...(entry!.permissions.network ?? [])].sort()).toEqual(CONDITIONS_HOSTS);
+    expect(entry!.permissions.storage).toBe(true);
     expect(entry!.permissions.shell).toBeUndefined();
     expect(entry!.permissions.filesystem).toBeUndefined();
     expect(entry!.permissions.env).toBeUndefined();
-    expect(entry!.permissions.storage).toBeUndefined();
   });
 
   test("has a ceiling row mirroring the grant", () => {
     const ceiling = BUNDLED_CEILING[EXT_NAME];
     expect(ceiling).toBeDefined();
     expect([...(ceiling!.network ?? [])].sort()).toEqual(CONDITIONS_HOSTS);
+    expect(ceiling!.storage).toBe(true);
     expect(ceiling!.workflows).toEqual({ names: ["conditions"], maxRunsPerHour: 12 });
   });
 
@@ -231,6 +243,7 @@ describe("bundled registration", () => {
     expect(clamped).toBe(false);
     expect(effective.workflows).toEqual({ names: ["conditions"], maxRunsPerHour: 12 });
     expect(Number.isFinite(effective.workflows!.maxRunsPerHour)).toBe(true);
+    expect(effective.storage).toBe(true);
     expect([...(effective.network ?? [])].sort()).toEqual(CONDITIONS_HOSTS);
   });
 

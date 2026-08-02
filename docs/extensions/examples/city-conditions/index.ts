@@ -39,6 +39,7 @@
  */
 
 import {
+  Storage,
   createToolDispatcher,
   getChannel,
   toolError,
@@ -48,16 +49,53 @@ import {
 import {
   ConditionsError,
   type FailureCode,
+  GOOGLE_POLLEN_API_KEY_STORAGE_KEY,
   fetchAirQuality,
   fetchCurrentWeather,
   geocodeCity,
 } from "./lib/open-meteo";
 
-/** Envelope schema version. v2 adds provider provenance, correct units, and station bands. */
-export const ENVELOPE_VERSION = 2;
+/** Envelope schema version. v3 adds Google UPI readings and category index values. */
+export const ENVELOPE_VERSION = 3;
 
 /** Display unit the caller asked for. Readings stay celsius regardless. */
 export type Unit = "celsius" | "fahrenheit";
+
+type GooglePollenKeyResolver = () => Promise<string | null>;
+type KeyStorage = {
+  get(key: string): Promise<{ value: unknown; exists: boolean }>;
+};
+
+/** Imported unit tests stay channel-free; production start() installs the Storage resolver. */
+let googlePollenKeyResolver: GooglePollenKeyResolver = async () => null;
+
+export async function resolveGooglePollenApiKey(storage: KeyStorage): Promise<string | null> {
+  try {
+    const stored = await storage.get(GOOGLE_POLLEN_API_KEY_STORAGE_KEY);
+    const value = stored.exists && typeof stored.value === "string" ? stored.value.trim() : "";
+    return value === "" ? null : value;
+  } catch {
+    // A stale, unapproved storage grant must not erase otherwise-valid weather.
+    return null;
+  }
+}
+
+/** Inject a per-call key resolver without touching Storage/network in tests. */
+export function _setGooglePollenKeyResolverForTests(resolver: GooglePollenKeyResolver): void {
+  googlePollenKeyResolver = resolver;
+}
+
+export function _resetGooglePollenKeyResolverForTests(): void {
+  googlePollenKeyResolver = async () => null;
+}
+
+async function configuredGooglePollenKey(): Promise<string | null> {
+  try {
+    return await googlePollenKeyResolver();
+  } catch {
+    return null;
+  }
+}
 
 // ── Input validation ─────────────────────────────────────────────────
 
@@ -125,7 +163,9 @@ const cityConditions: ToolHandler = async (args) => {
     const place = await geocodeCity(city);
     const [observation, air] = await Promise.all([
       fetchCurrentWeather(place.latitude, place.longitude),
-      fetchAirQuality(place.latitude, place.longitude),
+      configuredGooglePollenKey().then((key) =>
+        fetchAirQuality(place.latitude, place.longitude, key)
+      ),
     ]);
     return toolResult(JSON.stringify({
       v: ENVELOPE_VERSION,
@@ -167,7 +207,7 @@ const airQuality: ToolHandler = async (args) => {
   try {
     const latitude = requireCoordinate(args, "latitude", 90);
     const longitude = requireCoordinate(args, "longitude", 180);
-    const air = await fetchAirQuality(latitude, longitude);
+    const air = await fetchAirQuality(latitude, longitude, await configuredGooglePollenKey());
     return toolResult(JSON.stringify({ v: ENVELOPE_VERSION, ok: true, ...air }));
   } catch (err) {
     return stepFailure(err);
@@ -194,6 +234,8 @@ export const tools: Record<string, ToolHandler> = {
  * `price-chart` holds the same `const ch = getChannel()` shape.
  */
 export function start(): void {
+  const keyStorage = new Storage("user");
+  googlePollenKeyResolver = () => resolveGooglePollenApiKey(keyStorage);
   const ch = getChannel();
   createToolDispatcher(tools);
   ch.start();

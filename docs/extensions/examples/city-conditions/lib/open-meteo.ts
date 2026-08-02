@@ -1,11 +1,11 @@
 /**
  * Upstream layer for city-conditions.
  *
- * Weather and general pollen coverage come from Open-Meteo. For the Atlanta
- * metro, allergen observations come from Atlanta Allergy & Asthma's
- * National Allergy Bureau-certified station. That station is both more local
- * than a forecast grid and the only keyless source in this provider set that
- * publishes a mold activity reading.
+ * Weather/geocoding come from Open-Meteo. Pollen uses an observed
+ * National Allergy Bureau-certified station in Atlanta, Google Pollen's
+ * modeled UPI wherever a per-user key is configured, then Open-Meteo's
+ * Europe-only model as the keyless fallback. The Atlanta station is also the
+ * configured provider that publishes a mold activity reading.
  *
  * Provider policy:
  *   - weather/geocoding failures are fatal because a conditions card cannot
@@ -30,7 +30,11 @@ import {
 export const GEOCODE_URL = "https://geocoding-api.open-meteo.com/v1/search";
 export const FORECAST_URL = "https://api.open-meteo.com/v1/forecast";
 export const AIR_QUALITY_URL = "https://air-quality-api.open-meteo.com/v1/air-quality";
+export const GOOGLE_POLLEN_URL = "https://pollen.googleapis.com/v1/forecast:lookup";
 export const ATLANTA_STATION_URL = "https://www.atlantaallergy.com/pollen_counts";
+
+/** Encrypted per-user Storage key populated by the manifest's secret setting. */
+export const GOOGLE_POLLEN_API_KEY_STORAGE_KEY = "google-pollen-api-key";
 
 export const ATLANTA_STATION = {
   latitude: 33.749,
@@ -84,7 +88,7 @@ export interface WeatherObservation {
 }
 
 export interface AllergenSource {
-  id: "open-meteo" | "atlanta-allergy";
+  id: "open-meteo" | "google-pollen" | "atlanta-allergy";
   name: string;
   url: string;
   kind: "modeled" | "observed";
@@ -96,15 +100,18 @@ export interface PollenCategoryReading {
   label: string;
   band: PollenBand;
   contributors: string[];
+  /** Provider-native category index. Google supplies UPI; stations may omit it. */
+  value?: number;
 }
 
 export interface PollenReading {
   available: boolean;
   /** Per-grain values when the provider publishes them; null for station totals. */
   grains: PollenGrains | null;
-  /** A concentration/count, never a provider-specific normalized index. */
+  /** Provider-native headline value: concentration/count, or Google's 0–5 UPI. */
   total: number | null;
-  unit: "grains/m³";
+  /** Concentration for station/Open-Meteo data, or Google's 0–5 Universal Pollen Index. */
+  unit: "grains/m³" | "UPI";
   band: PollenBand;
   categories: PollenCategoryReading[];
   /** Provider-local observation/model timestamp. */
@@ -136,6 +143,13 @@ export const OPEN_METEO_SOURCE: AllergenSource = {
   kind: "modeled",
 };
 
+export const GOOGLE_POLLEN_SOURCE: AllergenSource = {
+  id: "google-pollen",
+  name: "Google Pollen API",
+  url: GOOGLE_POLLEN_URL,
+  kind: "modeled",
+};
+
 export const ATLANTA_ALLERGY_SOURCE: AllergenSource = {
   id: "atlanta-allergy",
   name: "Atlanta Allergy & Asthma",
@@ -146,10 +160,14 @@ export const ATLANTA_ALLERGY_SOURCE: AllergenSource = {
 
 const OPEN_METEO_COVERAGE_REASON =
   "Open-Meteo pollen is available only in Europe during pollen season; it reported no value for this location and time.";
+const GOOGLE_POLLEN_NOT_CONFIGURED_REASON =
+  "Google Pollen API is not configured. Add a Google Pollen API key in the city-conditions extension settings for broad U.S. pollen coverage.";
+const GOOGLE_POLLEN_NO_DATA_REASON =
+  "Google Pollen API reported no Universal Pollen Index value for this location and date.";
 const ATLANTA_STATION_PERMISSION_REASON =
   "Website access to www.atlantaallergy.com is not approved. Approve the city-conditions extension's Website access permission, then retry.";
 const NO_LOCAL_MOLD_REASON =
-  "No reporting-station mold source is configured for this location; forecast APIs do not provide a measured mold-spore count.";
+  "No configured National Allergy Bureau reporting station covers this location; Google Pollen and Open-Meteo do not provide mold-spore data.";
 const STATION_BAND_ONLY_REASON =
   "The station publishes a mold activity band, not a numeric spore count.";
 
@@ -292,7 +310,7 @@ async function request(url: string, what: string, accept: string): Promise<Respo
     res = await fetchImpl(url, {
       headers: {
         Accept: accept,
-        "User-Agent": "EZCorp city-conditions/0.2",
+        "User-Agent": "EZCorp city-conditions/0.3",
       },
     });
   } catch (err) {
@@ -405,6 +423,105 @@ function maxCategoryBand(categories: PollenCategoryReading[]): PollenBand {
     (highest, category) => rank[category.band] > rank[highest] ? category.band : highest,
     "unknown",
   );
+}
+
+const GOOGLE_CATEGORY_META: Record<string, { key: PollenCategoryReading["key"]; label: string }> = {
+  TREE: { key: "trees", label: "Trees" },
+  GRASS: { key: "grass", label: "Grass" },
+  WEED: { key: "weeds", label: "Weeds" },
+};
+
+/** Map Google's UPI category/value to the card's coarser severity bands. */
+function googlePollenBand(category: unknown, value: number): PollenBand {
+  const normalized = typeof category === "string"
+    ? category.trim().toLowerCase().replaceAll("_", " ")
+    : "";
+  if (normalized === "very high") return "very-high";
+  if (normalized === "high") return "high";
+  if (normalized === "moderate" || normalized === "medium") return "moderate";
+  if (normalized === "low" || normalized === "very low" || normalized === "none") return "low";
+  if (value >= 5) return "very-high";
+  if (value >= 4) return "high";
+  if (value >= 3) return "moderate";
+  return "low";
+}
+
+function googleDate(value: unknown): string | null {
+  const record = asRecord(value);
+  if (!record) return null;
+  const year = record.year;
+  const month = record.month;
+  const day = record.day;
+  if (![year, month, day].every((part) => typeof part === "number" && Number.isInteger(part))) {
+    return null;
+  }
+  const y = year as number;
+  const m = month as number;
+  const d = day as number;
+  const date = new Date(Date.UTC(y, m - 1, d));
+  if (date.getUTCFullYear() !== y || date.getUTCMonth() !== m - 1 || date.getUTCDate() !== d) {
+    return null;
+  }
+  return `${String(y).padStart(4, "0")}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+}
+
+/** Parse day zero of Google Pollen's forecast without confusing UPI with grains/m³. */
+export function parseGooglePollenResponse(body: unknown): AirObservation {
+  const root = asRecord(body);
+  const days = root?.dailyInfo;
+  const today = Array.isArray(days) ? asRecord(days[0]) : null;
+  const rawTypes = today?.pollenTypeInfo;
+  const categories: PollenCategoryReading[] = [];
+
+  if (Array.isArray(rawTypes)) {
+    for (const rawType of rawTypes) {
+      const pollenType = asRecord(rawType);
+      if (!pollenType || typeof pollenType.code !== "string") continue;
+      const meta = GOOGLE_CATEGORY_META[pollenType.code.toUpperCase()];
+      if (!meta) continue;
+      const indexInfo = asRecord(pollenType.indexInfo);
+      const value = indexInfo?.value;
+      if (typeof value !== "number" || !Number.isFinite(value)) continue;
+      categories.push({
+        key: meta.key,
+        label: typeof pollenType.displayName === "string" && pollenType.displayName.trim() !== ""
+          ? pollenType.displayName
+          : meta.label,
+        band: googlePollenBand(indexInfo?.category, value),
+        contributors: [],
+        value,
+      });
+    }
+  }
+
+  const observedAt = googleDate(today?.date);
+  if (categories.length === 0) {
+    return {
+      pollen: {
+        ...unavailablePollen(GOOGLE_POLLEN_NO_DATA_REASON, GOOGLE_POLLEN_SOURCE),
+        grains: null,
+        unit: "UPI",
+        observedAt,
+      },
+      mold: unavailableMold(NO_LOCAL_MOLD_REASON),
+    };
+  }
+
+  const total = Math.max(...categories.map((category) => category.value ?? 0));
+  return {
+    pollen: {
+      available: true,
+      grains: null,
+      total,
+      unit: "UPI",
+      band: maxCategoryBand(categories),
+      categories,
+      observedAt,
+      source: GOOGLE_POLLEN_SOURCE,
+      reason: null,
+    },
+    mold: unavailableMold(NO_LOCAL_MOLD_REASON),
+  };
 }
 
 /** Parse the server-rendered, robots-allowed Atlanta station report. */
@@ -548,6 +665,25 @@ export async function fetchCurrentWeather(
   };
 }
 
+/** Google's modeled Universal Pollen Index. The API key remains in encrypted user Storage. */
+export async function fetchGooglePollen(
+  latitude: number,
+  longitude: number,
+  apiKey: string,
+): Promise<AirObservation> {
+  const key = apiKey.trim();
+  if (key === "") {
+    throw new ConditionsError("BAD_INPUT", "Google Pollen API key must not be blank");
+  }
+  const url = new URL(GOOGLE_POLLEN_URL);
+  url.searchParams.set("key", key);
+  url.searchParams.set("location.latitude", String(latitude));
+  url.searchParams.set("location.longitude", String(longitude));
+  url.searchParams.set("days", "1");
+  url.searchParams.set("plantsDescription", "false");
+  return parseGooglePollenResponse(await getJson(url, "Google Pollen API"));
+}
+
 /** Open-Meteo's modeled pollen result. Exported for focused provider tests. */
 export async function fetchOpenMeteoAirQuality(
   latitude: number,
@@ -595,11 +731,11 @@ export async function fetchOpenMeteoAirQuality(
 /**
  * Best allergen source for a coordinate.
  *
- * The NAB-certified Atlanta station wins inside its documented metro-area
- * scope. A station outage falls back to Open-Meteo for pollen, while carrying
- * the local failure in both unavailable reasons. Outside Atlanta, Open-Meteo
- * is used directly. Any allergen outage degrades only these fields; it never
- * erases an otherwise valid weather card.
+ * The observed NAB-certified Atlanta station wins inside its documented
+ * metro scope. Elsewhere (and after a station outage), a configured Google
+ * Pollen API key supplies broad U.S. modeled UPI coverage. Open-Meteo remains
+ * the keyless Europe fallback. Google/Open-Meteo do not claim mold coverage;
+ * the Atlanta station is the configured observed mold source.
  */
 function describeAtlantaStationFailure(error: unknown): string {
   const detail = error instanceof Error ? error.message : String(error);
@@ -610,42 +746,65 @@ function describeAtlantaStationFailure(error: unknown): string {
   return detail;
 }
 
+function errorDetail(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+async function openMeteoFallback(
+  latitude: number,
+  longitude: number,
+  priorPollenReasons: string[],
+  moldPrefix: string | null,
+): Promise<AirObservation> {
+  try {
+    const fallback = await fetchOpenMeteoAirQuality(latitude, longitude);
+    if (!fallback.pollen.available && priorPollenReasons.length > 0) {
+      fallback.pollen.reason = `${priorPollenReasons.join(" ")} ${fallback.pollen.reason}`;
+    }
+    if (moldPrefix) fallback.mold.reason = `${moldPrefix} ${fallback.mold.reason}`;
+    return fallback;
+  } catch (error) {
+    const reasons = [...priorPollenReasons, `Open-Meteo unavailable (${errorDetail(error)}).`];
+    return {
+      pollen: unavailablePollen(`Pollen providers unavailable: ${reasons.join(" ")}`, null),
+      mold: unavailableMold(moldPrefix ? `${moldPrefix} ${NO_LOCAL_MOLD_REASON}` : NO_LOCAL_MOLD_REASON),
+    };
+  }
+}
+
 export async function fetchAirQuality(
   latitude: number,
   longitude: number,
+  googleApiKey: string | null = null,
 ): Promise<AirObservation> {
+  const pollenReasons: string[] = [];
+  let moldPrefix: string | null = null;
+
   if (usesAtlantaStation(latitude, longitude)) {
     try {
       return await fetchAtlantaStation();
     } catch (stationError) {
       const stationReason = describeAtlantaStationFailure(stationError);
-      try {
-        const fallback = await fetchOpenMeteoAirQuality(latitude, longitude);
-        if (!fallback.pollen.available) {
-          fallback.pollen.reason = `Atlanta station unavailable (${stationReason}). ${fallback.pollen.reason}`;
-        }
-        fallback.mold.reason = `Atlanta station unavailable (${stationReason}). ${fallback.mold.reason}`;
-        return fallback;
-      } catch (openMeteoError) {
-        const openMeteoReason = openMeteoError instanceof Error
-          ? openMeteoError.message
-          : String(openMeteoError);
-        const reason = `Allergen providers unavailable: Atlanta station (${stationReason}); Open-Meteo (${openMeteoReason}).`;
-        return {
-          pollen: unavailablePollen(reason, null),
-          mold: unavailableMold(reason),
-        };
-      }
+      pollenReasons.push(`Atlanta station unavailable (${stationReason}).`);
+      moldPrefix = `Atlanta station unavailable (${stationReason}).`;
     }
   }
 
-  try {
-    return await fetchOpenMeteoAirQuality(latitude, longitude);
-  } catch (err) {
-    const detail = err instanceof Error ? err.message : String(err);
-    return {
-      pollen: unavailablePollen(`Pollen provider unavailable: ${detail}`, OPEN_METEO_SOURCE),
-      mold: unavailableMold(NO_LOCAL_MOLD_REASON),
-    };
+  const key = googleApiKey?.trim() ?? "";
+  if (key !== "") {
+    try {
+      const google = await fetchGooglePollen(latitude, longitude, key);
+      if (google.pollen.available) {
+        if (moldPrefix) google.mold.reason = `${moldPrefix} ${google.mold.reason}`;
+        return google;
+      }
+      pollenReasons.push(google.pollen.reason ?? GOOGLE_POLLEN_NO_DATA_REASON);
+    } catch (googleError) {
+      pollenReasons.push(`Google Pollen API unavailable (${errorDetail(googleError)}).`);
+    }
+  } else {
+    pollenReasons.push(GOOGLE_POLLEN_NOT_CONFIGURED_REASON);
   }
+
+  return await openMeteoFallback(latitude, longitude, pollenReasons, moldPrefix);
 }
