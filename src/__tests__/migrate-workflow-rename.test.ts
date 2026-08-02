@@ -107,6 +107,18 @@ describe("migrate() — pipeline_definitions → workflow_definitions rename", (
  * guards (a well-meaning backfill silently reassigning every existing row)
  * is not specific to workflows.
  */
+/** The ownership columns this block reads back off `workflow_definitions`.
+ *  A `type`, not an `interface`: only an alias gets the implicit index
+ *  signature that lets drizzle's `Results<Record<string, unknown>>` be cast
+ *  to it directly, the way every other query in this file is. */
+type OwnedRow = {
+  id: string;
+  name: string;
+  description: string;
+  user_id: string | null;
+  visibility: string;
+};
+
 describe("migrate() — ownership upgrade path over an existing database", () => {
   beforeAll(async () => {
     await pglite?.close().catch(() => {});
@@ -183,15 +195,7 @@ describe("migrate() — ownership upgrade path over an existing database", () =>
     const rows = (await db.execute(sql`
       SELECT id, name, description, user_id, visibility FROM workflow_definitions
       WHERE id IN ('up-1', 'up-2') ORDER BY id
-    `)) as {
-      rows: Array<{
-        id: string;
-        name: string;
-        description: string;
-        user_id: string | null;
-        visibility: string;
-      }>;
-    };
+    `)) as { rows: OwnedRow[] };
 
     expect(rows.rows).toHaveLength(2);
     expect(rows.rows.map((r) => r.name)).toEqual(["upgrade-alpha", "upgrade-beta"]);
