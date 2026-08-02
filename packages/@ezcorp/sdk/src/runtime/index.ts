@@ -76,6 +76,12 @@ export type {
   PageActionEvent,
   PageActionDescriptor,
   PagePromptDescriptor,
+  // The inline `form` node's field shape. `PageBuilder.form()` takes
+  // `PageFormFieldDescriptor[]`, so without these an author cannot type the
+  // array they are required to pass — the method was reachable and its
+  // parameter type was not.
+  PageFormFieldDescriptor,
+  PageFormDescriptor,
   PageProjectRef,
   PageRenderContext,
   PageStatItem,

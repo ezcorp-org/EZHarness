@@ -28,9 +28,22 @@
 // filesystem to the pure factories in `lib/tools/` and nothing else; the
 // two Hub page renderers mount alongside it in 8.6.
 //
-// ADDING A TOOL HERE REQUIRES REGENERATING `manifest.lock.json` IN THE
-// SAME COMMIT (`bun run scripts/regenerate-manifest-lock.ts`). A missing
-// lock entry does not fail on first install — it fails on the NEXT boot,
+// ANY EDIT TO THIS FILE'S `tools` **OR `permissions`** REQUIRES
+// REGENERATING `manifest.lock.json` IN THE SAME COMMIT
+// (`bun run scripts/regenerate-manifest-lock.ts`).
+//
+// The permissions half is NOT obvious and cost a debugging session at 8.6.
+// The lock hashes `manifest.tools`, and a tool that declares no
+// `capabilities` of its own INHERITS one derived from this permissions
+// block (`src/extensions/manifest.ts` — `capabilities: t.capabilities ??
+// inherited`). None of the three tools below declares its own, so adding
+// `eventSubscriptions` rewrote every tool's canonical form as
+// `custom: {"ezcorp:events:subscribe": [...]}` and moved `toolsHash`
+// without a single character of the `tools` array changing. The error the
+// host then logs is `reason: "tool-list drift"`, which points at the one
+// thing that did not drift.
+//
+// A stale lock does not fail on first install — it fails on the NEXT boot,
 // fail-closed with `enabled: false`, so the extension looks perfect and
 // then silently disables itself. The pre-commit hook catches it locally;
 // CI's `--check` is the gate.
@@ -57,13 +70,21 @@
 //     (`src/extensions/types.ts`), zero hits repo-wide. It belongs to C3
 //     (delegated execution / `runAs` / consent hashes), which is unbuilt.
 //
-//   • `eventSubscriptions` — a `workflow:*` event can never reach an
-//     extension. `EventSubscriptionDispatcher.dispatch` returns early on
-//     any payload with no top-level string `conversationId`, and
-//     `WorkflowRun` has none. The four `workflow:*` names ARE in
+//   • `eventSubscriptions` FOR PLATFORM EVENTS — specifically the
+//     `workflow:*` family. Such an event can never reach an extension:
+//     `EventSubscriptionDispatcher.dispatch` returns early on any payload
+//     with no top-level string `conversationId`, and `WorkflowRun` has
+//     none. The four `workflow:*` names ARE in
 //     `DIRECT_CARRIER_EVENT_TYPES`, so registration is ACCEPTED and then
-//     never fires: registered, silent, forever. A declaration here would
-//     be a promise the host cannot keep.
+//     never fires: registered, silent, forever. A declaration would be a
+//     promise the host cannot keep.
+//
+//     This is NOT a reason to drop the field, and 8.1 dropping it whole
+//     was a real defect (see the `eventSubscriptions` block below): the
+//     same manifest key ALSO declares extension-namespaced HUB PAGE
+//     ACTIONS, which take a completely different delivery path and do
+//     work. Conflating the two shipped a console whose only control the
+//     host silently deleted.
 //
 //   • `shell` / `network` / `settings` / `secrets` — no code path wants
 //     them. `run_command` and `http_fetch` were cut from the tool list
@@ -108,11 +129,19 @@ export default defineExtension({
   // variant=projectId)` and shared across every viewer, so rendering it
   // into the extension tree would hand one user's parked decisions to
   // everyone. The console links to core's `/workflows/approvals` instead.
+  // `perProject` does NOT scope the DATA — jobs are install-wide either
+  // way (storage has no project scope). It scopes the RENDER CONTEXT: a
+  // project-hub pull carries `ctx.project`, a global-hub pull carries the
+  // project list, so the pages' own hrefs can stay inside whichever hub
+  // the viewer is actually in instead of bouncing them to the global one.
+  // It also makes `projectId` the page-cache variant, which keeps the two
+  // href flavours from serving each other's cached tree.
   pages: [
     {
       id: "factory",
       title: "Factory",
       icon: "Factory",
+      perProject: true,
       description:
         "Saved jobs with status and last run, the shipped workflow templates, and recent runs. Jobs are install-wide: everyone with access to this Hub sees the same list.",
     },
@@ -120,6 +149,7 @@ export default defineExtension({
       id: "job",
       title: "Job",
       icon: "SquarePen",
+      perProject: true,
       description:
         "Edit one job — name, which shipped workflow it runs, its trigger, and its inputs. One Save, one audited diff.",
     },
@@ -166,6 +196,35 @@ export default defineExtension({
     // Read sources and write artifacts inside the active project. `$CWD`
     // only — see rider 1 in the header.
     filesystem: ["$CWD"],
+
+    // ── THE HUB PAGE ACTION (8.6) ────────────────────────────────────
+    //
+    // NOT a platform-event subscription — see the `workflow:*` note in
+    // the header. This one name is what makes the console's Save button
+    // EXIST, and without it the failure is silent rather than loud:
+    //
+    //   1. `validatePageTree` validates every action against
+    //      `allowedEvents`, which `hub-render-pull.ts` derives from the
+    //      runtime GRANT's `eventSubscriptions` (empty ⇒ `[]`). A
+    //      `form` / `button` / table row whose action fails that check is
+    //      DROPPED FROM THE TREE — not rendered disabled, not an error.
+    //      The page renders, looks complete, and has no Save.
+    //   2. The POST route gates on `isRegisteredExtensionEvent`, whose
+    //      registry is populated from the same grant, and 404s otherwise.
+    //
+    // The event is extension-namespaced, so `registerExtension`'s
+    // branch-2 namespace check (`ns !== ownNamespace` ⇒ skip) means this
+    // extension can only ever declare its OWN actions — a cross-namespace
+    // subscription is inexpressible, not merely denied.
+    //
+    // DELIBERATELY ONE. Every page action is attack surface on a tree
+    // that is SHARED across users, so v1 buys exactly the one that makes
+    // the console writable. Retire a job with `enabled: false` rather
+    // than deleting it; fire one from chat or core's workflow UI. Adding
+    // a second here means adding it to the bundled-ceiling row and the
+    // install grant in `src/extensions/bundled.ts` too — all three, or
+    // `intersectPermissions` drops what the two disagree on.
+    eventSubscriptions: ["ez-factory:job-save"],
 
     // DECLARATIONS, not privileges. Each names a per-extension scope an
     // admin can grant (`extension_rbac_grants`) and console code can query

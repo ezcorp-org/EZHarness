@@ -2,12 +2,20 @@
  * The ez-factory manifest's DECLARED SURFACE, asserted exactly.
  *
  * Every permission below was argued for or against by reading the host
- * code, and four of them were removed after that reading showed they buy
- * nothing (`llm`), do not exist (`workflows.allowDelegated`), can never
- * fire (`eventSubscriptions`), or have no consumer (`shell`, `network`,
- * `settings`, `secrets`). Absence is the design, and absence is invisible
- * in a diff — a future author "restoring" one would widen the grant with
- * nothing failing.
+ * code, and three of them were removed after that reading showed they buy
+ * nothing (`llm`), do not exist (`workflows.allowDelegated`), or have no
+ * consumer (`shell`, `network`, `settings`, `secrets`). Absence is the
+ * design, and absence is invisible in a diff — a future author "restoring"
+ * one would widen the grant with nothing failing.
+ *
+ * `eventSubscriptions` was a FOURTH removal at 8.1 and is back at 8.6,
+ * narrowed to what it is actually for. The 8.1 reasoning — a `workflow:*`
+ * event can never reach an extension — is correct and still asserted
+ * below; it just does not apply to the other thing this one manifest key
+ * declares, Hub PAGE ACTIONS, which reach the extension by a different
+ * path entirely. Dropping the key whole cost the console its only control:
+ * `validatePageTree` deletes an action whose event is not granted, so the
+ * job editor rendered without its Save and nothing failed.
  *
  * So this file pins the EXACT key set rather than spot-checking presence:
  * add a key and `permission keys are EXACTLY the six declared` fails; add
@@ -23,6 +31,7 @@
 import { describe, expect, test } from "bun:test";
 
 import config from "./ezcorp.config";
+import { JOB_SAVE_EVENT } from "./lib/page";
 
 /** The manifest's permission block, read as a bag so absence assertions
  *  can name keys the type does not declare (`allowDelegated`). */
@@ -74,7 +83,16 @@ describe("ez-factory manifest — the exact permission key set", () => {
     // Adding a seventh is the regression this test exists for. If a key
     // genuinely belongs here, change this list DELIBERATELY and say why
     // in the commit — do not widen it to make a red test green.
+    //
+    // `eventSubscriptions` was added at 8.6, deliberately: it is what makes
+    // the console's Save button exist. Without it `hub-render-pull.ts`
+    // computes `allowedEvents: []` and `validatePageTree` DELETES the job
+    // editor's form node from the tree — a page that renders, looks
+    // finished, and cannot be written to. 8.1 dropped the key on the
+    // strength of the `workflow:*` reasoning below, which is correct about
+    // platform events and does not apply to Hub page actions.
     expect(Object.keys(perms).sort()).toEqual([
+      "eventSubscriptions",
       "filesystem",
       "rbacScopes",
       "storage",
@@ -152,13 +170,45 @@ describe("ez-factory manifest — the capabilities deliberately NOT requested", 
     expect(perms.llm).toBeUndefined();
   });
 
-  test("no `eventSubscriptions` — a workflow:* event can never reach an extension", () => {
+  test("no PLATFORM event subscription — a workflow:* event can never reach an extension", () => {
     // `EventSubscriptionDispatcher.dispatch` returns early on any payload
     // with no top-level string `conversationId`; `WorkflowRun` has none.
     // The `workflow:*` names ARE in `DIRECT_CARRIER_EVENT_TYPES`, so
     // registration is ACCEPTED and then never fires — registered, silent,
-    // forever.
-    expect(perms.eventSubscriptions).toBeUndefined();
+    // forever. Declaring one would be a promise the host cannot keep.
+    //
+    // The field itself is NOT empty (see below) — it carries Hub page
+    // actions, which take an entirely different delivery path. The rule is
+    // "no platform event", not "no eventSubscriptions", and this asserts
+    // the rule rather than the 8.1 over-correction.
+    const subs = perms.eventSubscriptions as string[];
+    for (const name of subs) {
+      expect(name.startsWith("workflow:")).toBe(false);
+      expect(name.startsWith("run:")).toBe(false);
+      expect(name.startsWith("task:")).toBe(false);
+    }
+  });
+
+  test("every declared event is an OWN-NAMESPACE hub page action", () => {
+    // `EventSubscriptionDispatcher.registerExtension` branch 2 skips any
+    // name whose namespace is not the extension's own, so a cross-namespace
+    // subscription is inexpressible rather than merely denied. Declaring one
+    // anyway would register nothing and fail silently at click time.
+    const subs = perms.eventSubscriptions as string[];
+    // Vacuous-pass guard: an empty list would satisfy the loop above AND the
+    // loop below while leaving the console unwritable. It is the empty case
+    // that is the bug, so assert against it first.
+    expect(subs.length).toBeGreaterThan(0);
+    for (const name of subs) {
+      expect(name.startsWith(`${config.name}:`)).toBe(true);
+    }
+  });
+
+  test("the declared events are exactly the actions the pages dispatch", () => {
+    // One list, two files: the manifest declares what the host will deliver,
+    // `lib/page.ts` decides what the tree asks for. A name in one and not the
+    // other is a control that either cannot fire or is granted for nothing.
+    expect(perms.eventSubscriptions).toEqual([JOB_SAVE_EVENT]);
   });
 
   test("no `shell` — run_command was cut from the tool list", () => {

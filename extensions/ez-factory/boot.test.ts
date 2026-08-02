@@ -36,8 +36,39 @@ let channelStarted = false;
 let toolContext: { projectRoot?: string; conversationId?: string } | undefined;
 let readReturnsBinary = false;
 
+/** Page definitions `definePage` received, and the ids `invalidatePage`
+ *  dropped — the 8.6 surface's half of the production wiring. */
+let pages: Array<{ id: string; render: unknown; actions?: Record<string, unknown> }> = [];
+let invalidated: string[] = [];
+
+/** Backing store for the mocked `ezcorp/storage` RPC, so the job store and
+ *  the audit log run for real against an in-memory bucket. */
+let storage = new Map<string, unknown>();
+
 const record = (method: string, ...args: unknown[]): void => {
   rpc.push({ method, args });
+};
+
+/** The storage half of the channel's `request`, matching the host handler's
+ *  wire contract (`storage-handler.ts`). */
+const storageRequest = (params: unknown): unknown => {
+  const p = params as Record<string, unknown>;
+  const key = String(p.key ?? "");
+  switch (p.action) {
+    case "set":
+      storage.set(key, JSON.parse(JSON.stringify(p.value)));
+      return { ok: true, sizeBytes: 1 };
+    case "delete":
+      return { deleted: storage.delete(key) };
+    case "list": {
+      const prefix = typeof p.prefix === "string" ? p.prefix : "";
+      return { keys: [...storage.keys()].filter((k) => k.startsWith(prefix)) };
+    }
+    default:
+      return storage.has(key)
+        ? { value: storage.get(key), exists: true }
+        : { value: null, exists: false };
+  }
 };
 
 mock.module("@ezcorp/sdk/runtime", () => ({
@@ -45,10 +76,19 @@ mock.module("@ezcorp/sdk/runtime", () => ({
   createToolDispatcher: (handlers: Record<string, unknown>) => {
     registered = handlers;
   },
+  definePage: (def: { id: string; render: unknown; actions?: Record<string, unknown> }) => {
+    pages.push(def);
+  },
+  invalidatePage: (pageId: string) => {
+    invalidated.push(pageId);
+  },
   getChannel: () => ({
     start: () => {
       channelStarted = true;
     },
+    request: async (_method: string, params: unknown) => storageRequest(params),
+    onRequest: () => {},
+    notify: () => {},
   }),
   getToolContext: () => toolContext,
   fsList: async (path: string) => {
@@ -77,7 +117,21 @@ mock.module("@ezcorp/sdk/runtime", () => ({
   },
 }));
 
-const { activeConversationId, activeProjectRoot, deps, hostFs, start } = await import("./index");
+const {
+  __resetStateForTests,
+  activeConversationId,
+  activeProjectRoot,
+  auditLog,
+  deps,
+  handleJobSave,
+  hostFs,
+  jobStore,
+  recentRuns,
+  registerPages,
+  renderFactoryPage,
+  renderJobPage,
+  start,
+} = await import("./index");
 
 beforeEach(() => {
   rpc = [];
@@ -85,6 +139,10 @@ beforeEach(() => {
   channelStarted = false;
   toolContext = { projectRoot: "/active-project" };
   readReturnsBinary = false;
+  pages = [];
+  invalidated = [];
+  storage = new Map();
+  __resetStateForTests();
 });
 
 describe("boot", () => {
@@ -94,6 +152,14 @@ describe("boot", () => {
       ["emit_artifact", "read_files", "write_file"].sort(),
     );
     expect(channelStarted).toBe(true);
+  });
+
+  test("start also mounts both Hub pages", () => {
+    // The 8.6 half of production wiring: a page the entrypoint never
+    // registers renders nothing, and the failure is a 404 at pull time
+    // rather than anything this extension's own tests would see.
+    start();
+    expect(pages.map((p) => p.id).sort()).toEqual(["factory", "job"]);
   });
 
   test("the registered handlers are live against the real host adapter", async () => {
@@ -202,5 +268,204 @@ describe("activeProjectRoot", () => {
     } finally {
       if (previous !== undefined) process.env.EZCORP_PROJECT_ROOT = previous;
     }
+  });
+});
+
+// ── Hub page wiring (8.6) ───────────────────────────────────────────
+//
+// The pure builders are covered in `lib/page.test.ts`. What is covered here
+// is the GLUE: that each page id maps to the right builder, that the render
+// reads the store, and that the one action writes through the validator and
+// audits what it did. None of that is visible to a test that calls the
+// builders directly.
+
+describe("page registration", () => {
+  test("both pages carry the SAME single save action, namespaced", () => {
+    // One handler, two mount points: the editor is reachable from either
+    // page id, and a second action name would need a second grant.
+    registerPages();
+    for (const page of pages) {
+      expect(Object.keys(page.actions ?? {})).toEqual(["ez-factory:job-save"]);
+    }
+  });
+});
+
+describe("renderFactoryPage", () => {
+  test("an empty install renders the jobs view's empty state", async () => {
+    const tree = await renderFactoryPage();
+    expect(tree.title).toBe("ez-factory");
+    expect(JSON.stringify(tree.nodes)).toContain("No jobs yet");
+  });
+
+  test("reads saved jobs out of the store", async () => {
+    await handleJobSave({
+      source: "hub",
+      pageId: "job",
+      userId: "user-1",
+      payload: { name: "Docs", workflow: "docs-factory", input_globs: "src/**" },
+    });
+    const tree = await renderFactoryPage();
+    expect(JSON.stringify(tree.nodes)).toContain("Docs");
+  });
+
+  test("`?view=` selects the surface, and an unknown one is an empty state", async () => {
+    expect(JSON.stringify((await renderFactoryPage({ view: "templates" })).nodes)).toContain(
+      "docs-factory",
+    );
+    expect(JSON.stringify((await renderFactoryPage({ view: "runs" })).nodes)).toContain(
+      "No runs recorded",
+    );
+    expect(JSON.stringify((await renderFactoryPage({ view: "nonsense" })).nodes)).toContain(
+      "Unknown view",
+    );
+  });
+
+  test("a project-scoped render keeps its links inside that project's hub", async () => {
+    const tree = await renderFactoryPage({
+      project: { id: "p1", name: "P", path: "/p" },
+    });
+    expect(JSON.stringify(tree.nodes)).toContain("/project/p1/hub/");
+  });
+
+  test("the GLOBAL hub's project LIST addresses nothing, so links stay global", async () => {
+    // `ctx.projects` is every project; a page-level href needs one project
+    // or none. Picking one arbitrarily would send viewers into a project
+    // they may not have been looking at.
+    const tree = await renderFactoryPage({
+      projects: [{ id: "p1", name: "P", path: "/p" }],
+    });
+    expect(JSON.stringify(tree.nodes)).not.toContain("/project/p1/hub/");
+  });
+});
+
+describe("renderJobPage", () => {
+  test("no view renders the create form", async () => {
+    const tree = await renderJobPage();
+    expect(tree.title).toBe("ez-factory — job");
+    expect(JSON.stringify(tree.nodes)).toContain("Create job");
+  });
+
+  test("`job:<id>` loads that job from the store and prefills it", async () => {
+    await handleJobSave({
+      source: "hub",
+      pageId: "job",
+      userId: "user-1",
+      payload: { name: "Loaded", workflow: "docs-factory" },
+    });
+    const id = (await jobStore().listJobs())[0]!.id;
+    const tree = await renderJobPage({ view: `job:${id}` });
+    expect(JSON.stringify(tree.nodes)).toContain("Loaded");
+    expect(JSON.stringify(tree.nodes)).toContain("Save job");
+  });
+
+  test("an id that resolves to nothing renders 'not found', never a create form", async () => {
+    const tree = await renderJobPage({ view: "job:missing" });
+    expect(JSON.stringify(tree.nodes)).toContain("Job not found");
+    expect(JSON.stringify(tree.nodes)).not.toContain("Create job");
+  });
+});
+
+describe("recentRuns", () => {
+  test("interleaves per-job indexes newest-first and bounds the result", async () => {
+    await jobStore().recordRun({
+      jobId: "a", workflowRunId: "r1", workflowName: "w",
+      status: "completed", startedAt: "2026-08-01T01:00:00.000Z",
+      finishedAt: null, suspendedReason: null, resumable: false,
+    });
+    await jobStore().recordRun({
+      jobId: "b", workflowRunId: "r2", workflowName: "w",
+      status: "completed", startedAt: "2026-08-01T03:00:00.000Z",
+      finishedAt: null, suspendedReason: null, resumable: false,
+    });
+    const jobs = [{ id: "a" }, { id: "b" }] as Parameters<typeof recentRuns>[0];
+    expect((await recentRuns(jobs)).map((r) => r.workflowRunId)).toEqual(["r2", "r1"]);
+    // Bounded: a hundred jobs cannot produce a tree the host's node/byte
+    // caps would reject wholesale.
+    expect(await recentRuns(jobs, 1)).toHaveLength(1);
+  });
+});
+
+describe("handleJobSave", () => {
+  const save = (payload: Record<string, unknown>) =>
+    handleJobSave({ source: "hub", pageId: "job", userId: "user-7", payload });
+
+  test("a valid create writes the job and audits the create by id", async () => {
+    await save({ name: "Docs", workflow: "docs-factory", input_globs: "src/**" });
+
+    const jobs = await jobStore().listJobs();
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]!.name).toBe("Docs");
+    expect(jobs[0]!.input).toEqual({ globs: "src/**" });
+    // Attribution the host will accept, written but never acted on.
+    expect(jobs[0]!.createdBy).toBe("user-7");
+
+    const day = await auditLog().readDay(new Date().toISOString().slice(0, 10));
+    expect(day.map((e) => (e as { kind: string }).kind)).toEqual(["job-create"]);
+    expect((day[0] as { jobId: string }).jobId).toBe(jobs[0]!.id);
+  });
+
+  test("an edit replaces the job and audits the CHANGED FIELD NAMES only", async () => {
+    await save({ name: "Docs", workflow: "docs-factory", input_globs: "src/**" });
+    const id = (await jobStore().listJobs())[0]!.id;
+
+    const secret = "CONFIDENTIAL draft body";
+    await save({
+      job_id: id,
+      name: "Docs",
+      workflow: "draft-and-verify",
+      input_draft: secret,
+    });
+
+    const jobs = await jobStore().listJobs();
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]!.workflow).toBe("draft-and-verify");
+
+    const day = await auditLog().readDay(new Date().toISOString().slice(0, 10));
+    const saveEntry = day.find((e) => (e as { kind: string }).kind === "job-save")!;
+    expect((saveEntry as { detail: { changed: string[] } }).detail.changed).toEqual([
+      "input",
+      "workflow",
+    ]);
+    // INVARIANT I: the value never reaches the durable trail.
+    expect(JSON.stringify(day)).not.toContain(secret);
+  });
+
+  test("a REJECTED draft writes nothing and is audited by reason", async () => {
+    // The Hub gives a page action no error channel, so the alternative to
+    // recording a refusal is that it leaves no trace anywhere.
+    await save({ name: "", workflow: "docs-factory" });
+    expect(await jobStore().listJobs()).toHaveLength(0);
+    const day = await auditLog().readDay(new Date().toISOString().slice(0, 10));
+    expect(day.map((e) => (e as { kind: string }).kind)).toEqual(["job-rejected"]);
+  });
+
+  test("an input outside the workflow's allowlist is REFUSED, not silently dropped", async () => {
+    // Invariant B reaching the console: `needsReview` could resolve a gate
+    // step's `when` to false. The form cannot offer it, and the handler
+    // does not get to accept it either.
+    await save({ name: "J", workflow: "docs-factory", input_needsreview: "false" });
+    // The unknown input field is not in the reverse map, so it never
+    // becomes an input key at all — the job saves WITHOUT it.
+    const jobs = await jobStore().listJobs();
+    expect(jobs[0]!.input).toEqual({});
+  });
+
+  test("a save against a vanished job is audited as missing, not recreated", async () => {
+    await save({ job_id: "ghost", name: "X", workflow: "docs-factory" });
+    expect(await jobStore().listJobs()).toHaveLength(0);
+    const day = await auditLog().readDay(new Date().toISOString().slice(0, 10));
+    expect(day.map((e) => (e as { kind: string }).kind)).toEqual(["job-missing"]);
+  });
+
+  test("both pages are invalidated after a write", async () => {
+    // `invalidatePage`, not `pushPage`: these are perProject pages, so one
+    // pushed tree could not cover the global and per-project variants.
+    await save({ name: "Docs", workflow: "docs-factory" });
+    expect(invalidated.sort()).toEqual(["factory", "job"]);
+  });
+
+  test("the store and audit log are singletons across calls", async () => {
+    expect(jobStore()).toBe(jobStore());
+    expect(auditLog()).toBe(auditLog());
   });
 });
