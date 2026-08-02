@@ -1,23 +1,40 @@
 <script lang="ts">
 	import type { Agent } from "$lib/api.js";
 	import { inputClass } from "$lib/styles.js";
-	import type { StepDraft } from "$lib/workflow-builder-logic.js";
+	import {
+		acceptsInputMapping,
+		acceptsLoop,
+		acceptsRetries,
+		type StepDraft,
+	} from "$lib/workflow-builder-logic.js";
+	import type { ToolOption } from "$lib/extension-tool-options.js";
 
 	let {
 		step,
 		agents = [],
 		allStepNames = [],
+		toolGroups = [],
 		onremove,
 		onnamechange = () => {},
 	}: {
 		step: StepDraft;
 		agents: Agent[];
 		allStepNames: string[];
+		/** Extension tools, pre-grouped for `<optgroup>`. Empty until the
+		 *  parent's one fetch resolves. */
+		toolGroups?: { extension: string; label: string; options: ToolOption[] }[];
 		onremove: () => void;
 		/** Fired after a rename is applied to the draft, so the parent can
 		 *  retarget sibling dependsOn entries (old name → new name). */
 		onnamechange?: (oldName: string, newName: string) => void;
 	} = $props();
+
+	// Which sub-editors this kind supports. The predicates are the same ones
+	// `stepToPayload` emits by, so the form can never show a field the
+	// payload would silently drop.
+	let showInputMapping = $derived(acceptsInputMapping(step.kind));
+	let showLoop = $derived(acceptsLoop(step.kind));
+	let showRetries = $derived(acceptsRetries(step.kind) && !step.loopEnabled);
 
 	function handleNameInput(e: Event) {
 		const newName = (e.currentTarget as HTMLInputElement).value;
@@ -62,9 +79,9 @@
 			<label for="step-kind-{step.name}" class="mb-1 block text-xs text-[var(--color-text-secondary)]">Kind</label>
 			<select id="step-kind-{step.name}" bind:value={step.kind} class={inputClass}>
 				<option value="agent">Agent</option>
+				<option value="tool">Tool</option>
 				<option value="transform">Transform</option>
 				<option value="gate">Gate</option>
-				<option value="tool">Tool</option>
 			</select>
 		</div>
 		{#if step.kind === "agent"}
@@ -81,20 +98,31 @@
 		{#if step.kind === "tool"}
 			<div>
 				<label for="step-tool-{step.name}" class="mb-1 block text-xs text-[var(--color-text-secondary)]">Tool</label>
-				<input
-					id="step-tool-{step.name}"
-					type="text"
-					bind:value={step.tool}
-					placeholder="extension__tool_name"
-					class={inputClass}
-				/>
+				<select id="step-tool-{step.name}" bind:value={step.tool} class={inputClass} data-testid="step-tool-select">
+					<option value="">-- Select Tool --</option>
+					{#each toolGroups as group (group.extension)}
+						<optgroup label={group.label}>
+							{#each group.options as option (option.value)}
+								<option value={option.value}>{option.tool}</option>
+							{/each}
+						</optgroup>
+					{/each}
+				</select>
 			</div>
 		{/if}
 	</div>
 
-	{#if step.kind === "agent" || step.kind === "tool"}
-		<!-- Input Mapping (agent + tool — the executor never reads `input` on a
-		     transform step, so surfacing the editor there is dead/misleading UX). -->
+	{#if step.kind === "tool" && toolGroups.length === 0}
+		<p class="text-xs text-[var(--color-text-muted)]">
+			No extension tools available — install an extension that exposes tools.
+		</p>
+	{/if}
+
+	{#if showInputMapping}
+		<!-- Input Mapping. Agent and tool steps share ONE ref grammar; a
+		     transform reads `output` and a gate reads `condition`, and the
+		     executor never reads `input` on either, so the editor stays
+		     hidden there rather than accepting values that get dropped. -->
 		<div>
 			<div class="mb-1 flex items-center justify-between">
 				<div class="text-xs text-[var(--color-text-secondary)]">Input Mapping</div>
@@ -147,7 +175,7 @@
 		</div>
 	{/if}
 
-	{#if step.kind === "agent" || step.kind === "transform"}
+	{#if showLoop}
 		<!-- Loop — `agent` and `transform` only. The server rejects a loop on a
 		     gate (no result to iterate) and on a tool (it would repeat a
 		     side-effecting call N times with no LLM in the middle to notice). -->
@@ -184,7 +212,7 @@
 		</div>
 	{/if}
 
-	{#if step.kind === "agent" && !step.loopEnabled}
+	{#if showRetries}
 		<div>
 			<label for="retries-{step.name}" class="mb-1 block text-xs text-[var(--color-text-secondary)]">Retries (0–2)</label>
 			<input id="retries-{step.name}" type="number" min="0" max="2" bind:value={step.retries} class="{inputClass} w-24" />

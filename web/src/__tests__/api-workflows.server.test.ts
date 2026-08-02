@@ -17,6 +17,12 @@ const ctx = vi.hoisted(() => ({
 }));
 const queries = vi.hoisted(() => ({
   createWorkflow: vi.fn(async (def: unknown) => def),
+  // Owners come back keyed by name with the OWNER COLUMN our ladder
+  // populates (`userId`), not upstream's `created_by` — see
+  // `workflow-can-manage.ts`.
+  getWorkflowOwnersByName: vi.fn(
+    async () => new Map<string, { userId: string | null; visibility: string }>(),
+  ),
   WorkflowNameConflictError: class extends Error {
     constructor(readonly workflowName: string) {
       super(`A workflow named "${workflowName}" already exists`);
@@ -45,11 +51,18 @@ function systemEntry(name: string) {
   };
 }
 
+/** A YAML- or extension-shipped cache entry: an ownerless file on disk,
+ *  `system` because it ships with the INSTALL and never a row. */
+function assetEntry(name: string, source: "yaml" | "extension") {
+  return { ...systemEntry(name), source, id: null };
+}
+
 beforeEach(() => {
   ctx.getCachedWorkflows.mockReset().mockReturnValue([]);
   ctx.reloadWorkflows.mockReset().mockResolvedValue(undefined);
   queries.createWorkflow.mockReset().mockImplementation(async (def: unknown) => def);
   versions.ensureWorkflowVersion.mockReset().mockResolvedValue({ version: { version: 1 }, minted: true });
+  queries.getWorkflowOwnersByName.mockReset().mockResolvedValue(new Map());
 });
 
 function makeEvent(opts: {
@@ -68,7 +81,7 @@ function makeEvent(opts: {
   } as any;
 }
 
-const authedUser = { user: { id: "u1", email: "u@x", name: "u", role: "user" } };
+const authedUser = { user: { id: "u1", email: "u@x", name: "u", role: "member" } };
 
 describe("GET /api/workflows", () => {
   test("returns 403 when API-key scope missing 'read'", async () => {
@@ -112,6 +125,107 @@ describe("GET /api/workflows", () => {
     const res = await GET(makeEvent({ locals: { ...authedUser, apiKeyScopes: ["read"] } }));
     expect(res.status).toBe(200);
     expect(((await res.json()) as Array<{ name: string }>).map((w) => w.name)).toEqual(["shared"]);
+  });
+
+  // ── canManage ──────────────────────────────────────────────────
+  // Gates the UI's Edit/Delete affordances. Getting it wrong paints
+  // buttons that can only 403 (someone else's row) or 404 (a YAML or
+  // extension asset, which is a file on disk with nothing to write).
+  //
+  // Rewritten from upstream's originals onto the merged surface: the list
+  // is now the ladder-filtered CACHE (`getCachedWorkflows`), not the raw
+  // `getWorkflows()` registry, and the owner map is keyed by our `userId`
+  // column rather than upstream's `created_by`. The assertions are
+  // upstream's unchanged.
+
+  test("marks a DB workflow the caller owns as manageable", async () => {
+    ctx.getCachedWorkflows.mockReturnValue([
+      { ...systemEntry("mine"), visibility: "private", userId: "u1" },
+    ]);
+    queries.getWorkflowOwnersByName.mockResolvedValue(
+      new Map([["mine", { userId: "u1", visibility: "private" }]]),
+    );
+    const res = await GET(makeEvent({ locals: authedUser }));
+    const [workflow] = (await res.json()) as { canManage: boolean }[];
+    expect(workflow.canManage).toBe(true);
+  });
+
+  test("marks another user's DB workflow as not manageable", async () => {
+    // `system` so the caller can still SEE it — an invisible row would
+    // prove nothing about the flag.
+    ctx.getCachedWorkflows.mockReturnValue([
+      { ...systemEntry("theirs"), userId: "u-other" },
+    ]);
+    queries.getWorkflowOwnersByName.mockResolvedValue(
+      new Map([["theirs", { userId: "u-other", visibility: "system" }]]),
+    );
+    const res = await GET(makeEvent({ locals: authedUser }));
+    const [workflow] = (await res.json()) as { canManage: boolean }[];
+    expect(workflow.canManage).toBe(false);
+  });
+
+  test("lets an admin manage another user's DB workflow", async () => {
+    ctx.getCachedWorkflows.mockReturnValue([
+      { ...systemEntry("theirs"), userId: "u-other" },
+    ]);
+    queries.getWorkflowOwnersByName.mockResolvedValue(
+      new Map([["theirs", { userId: "u-other", visibility: "system" }]]),
+    );
+    const res = await GET(
+      makeEvent({ locals: { user: { id: "u-admin", email: "a@x", name: "a", role: "admin" } } }),
+    );
+    const [workflow] = (await res.json()) as { canManage: boolean }[];
+    expect(workflow.canManage).toBe(true);
+  });
+
+  test("marks an unowned legacy DB row as manageable by anyone", async () => {
+    ctx.getCachedWorkflows.mockReturnValue([systemEntry("legacy")]);
+    queries.getWorkflowOwnersByName.mockResolvedValue(
+      new Map([["legacy", { userId: null, visibility: "system" }]]),
+    );
+    const res = await GET(makeEvent({ locals: authedUser }));
+    const [workflow] = (await res.json()) as { canManage: boolean }[];
+    expect(workflow.canManage).toBe(true);
+  });
+
+  test("never marks YAML or extension workflows as manageable", async () => {
+    ctx.getCachedWorkflows.mockReturnValue([
+      assetEntry("demo", "yaml"),
+      assetEntry("ext:deploy", "extension"),
+    ]);
+    const res = await GET(
+      makeEvent({ locals: { user: { id: "u-admin", email: "a@x", name: "a", role: "admin" } } }),
+    );
+    const workflows = (await res.json()) as { canManage: boolean }[];
+    expect(workflows.map((w) => w.canManage)).toEqual([false, false]);
+  });
+
+  test("skips the owner query entirely when no workflow is DB-sourced", async () => {
+    // A fresh install serving only the YAML demos should not hit the DB to
+    // be told every answer is false.
+    ctx.getCachedWorkflows.mockReturnValue([assetEntry("demo", "yaml")]);
+    await GET(makeEvent({ locals: authedUser }));
+    expect(queries.getWorkflowOwnersByName).not.toHaveBeenCalled();
+  });
+
+  test("never reveals the owner of a workflow the caller may not see", async () => {
+    // Upstream asserted the owner id was absent from EVERY response,
+    // because its list route served the whole registry to every caller.
+    // The ladder makes that a narrower and stronger property: an
+    // unreadable row is dropped whole, so nothing about it — owner
+    // included — reaches the caller. `WorkflowWire` still carries `userId`
+    // for rows the caller IS entitled to, which is what the editor's
+    // provenance is derived from.
+    ctx.getCachedWorkflows.mockReturnValue([
+      { ...systemEntry("secret"), visibility: "private", userId: "u-other" },
+    ]);
+    queries.getWorkflowOwnersByName.mockResolvedValue(
+      new Map([["secret", { userId: "u-other", visibility: "private" }]]),
+    );
+    const res = await GET(makeEvent({ locals: authedUser }));
+    const body = await res.json();
+    expect(body).toEqual([]);
+    expect(JSON.stringify(body)).not.toContain("u-other");
   });
 });
 
@@ -403,5 +517,26 @@ describe("POST /api/workflows", () => {
     expect(res.status).toBe(409);
     expect((await res.json()) as { name?: string }).toMatchObject({ name: "taken" });
     expect(ctx.reloadWorkflows).not.toHaveBeenCalled();
+  });
+
+  test("does NOT stamp the caller as the row's owner", async () => {
+    // Replaces upstream's "records the authoring user as created_by",
+    // which asserted the opposite. The two rules cannot both hold, and
+    // this one is deliberate: a workflow created through this route is
+    // `system`, exactly as every row created before C6 was. Ownership
+    // arrives through fork (which sets a project) or the admin claim
+    // action — never as a silent side effect of an ordinary create.
+    //
+    // Upstream wanted the stamp so the author could Edit and Delete their
+    // own rows. The ladder already grants that: `edit` on a `system`
+    // workflow is open to any `chat`-scoped caller, which is who just
+    // created it.
+    const def = { name: "w1", steps: [{ name: "s1", agent: "a" }] };
+    queries.createWorkflow.mockResolvedValue({ id: "wf-1", ...def, description: "" });
+    await POST(makeEvent({ locals: authedUser, body: def }));
+    expect(queries.createWorkflow).toHaveBeenCalledTimes(1);
+    // One argument only — no owner threaded in behind the definition.
+    expect(queries.createWorkflow.mock.calls[0]).toHaveLength(1);
+    expect(queries.createWorkflow).toHaveBeenCalledWith(expect.objectContaining(def));
   });
 });

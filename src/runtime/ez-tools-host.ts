@@ -29,6 +29,7 @@ import type { EventBus } from "./events";
 import type { AgentEvents } from "../types";
 import type { BuiltinToolDef } from "./tools/types";
 import { getEzToolDefs, EZ_TOOL_NAMES } from "./tools/ez";
+import { builtinToAgentTool } from "./tools/agent-tool";
 import { logger } from "../logger";
 const log = logger.child("ez-tools-host");
 
@@ -86,13 +87,7 @@ export function wireEzToolsForTurn(params: WireEzToolsForTurnParams): void {
   for (const def of defs) {
     if (existingNames.has(def.name)) continue;
     builtinToolDefsMap.set(def.name, def);
-    agentTools.push({
-      name: def.name,
-      label: def.label,
-      description: def.description,
-      parameters: def.parameters,
-      execute: def.execute,
-    });
+    agentTools.push(builtinToAgentTool(def));
     registered++;
   }
 

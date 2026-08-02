@@ -2,10 +2,11 @@
  * The production `WorkflowToolRunner` factory: the cold-start wiring a
  * workflow tool step uses when no fake is injected.
  */
-import { test, expect, describe } from "bun:test";
+import { test, expect, describe, spyOn } from "bun:test";
 import { EventBus } from "../runtime/events";
 import { createWorkflowToolRunner } from "../runtime/workflow-tool-runner";
 import { _resetPermissionEngineForTests } from "../extensions/permission-engine";
+import { ToolExecutor } from "../extensions/tool-executor";
 import type { AgentEvents } from "../types";
 
 describe("createWorkflowToolRunner", () => {
@@ -36,5 +37,39 @@ describe("createWorkflowToolRunner", () => {
     );
     expect(result.isError).toBe(true);
     expect(result.content[0]?.text).toContain("Unknown tool");
+  });
+});
+
+describe("createWorkflowToolRunner — pending-permission gate", () => {
+  test("wires a supplied gate into the ToolExecutor", () => {
+    // Only an INTERACTIVE run supplies one. It is what makes a parked
+    // consent card visible to the run watchdog: `deferralReason` reads
+    // `host.pendingPermissions` and nothing else, so an unregistered gate
+    // is mis-read as a hung in-flight tool and the run is killed at the
+    // callTimeoutMs ceiling — tearing the prompt down before the user can
+    // answer it (the "stuck chat" defect).
+    _resetPermissionEngineForTests();
+    const spy = spyOn(ToolExecutor.prototype, "setPendingPermissionGate");
+    try {
+      const gate = { register: () => {}, deregister: () => {} };
+      createWorkflowToolRunner(new EventBus<AgentEvents>(), gate);
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy.mock.calls[0]).toEqual([gate.register, gate.deregister]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  test("omitting the gate leaves the executor's no-op default in place", () => {
+    // A non-interactive run never parks a gate, so there is no wait to
+    // explain to the watchdog and nothing to register.
+    _resetPermissionEngineForTests();
+    const spy = spyOn(ToolExecutor.prototype, "setPendingPermissionGate");
+    try {
+      createWorkflowToolRunner(new EventBus<AgentEvents>());
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

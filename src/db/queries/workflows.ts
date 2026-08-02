@@ -92,6 +92,38 @@ function asNameConflict(err: unknown, name: string): never {
   throw err;
 }
 
+/**
+ * Every DB workflow's owner, keyed by name, in ONE query.
+ *
+ * Exists so `GET /api/workflows` can stamp `canManage` onto a merged cache
+ * of N definitions without N `getWorkflowByName` round-trips. Deliberately
+ * NOT folded into `toDefinition`: that projection stays owner-free (see its
+ * doc) because the cache it feeds is served verbatim to every read-scoped
+ * caller. Here the owner is consumed server-side and only the resulting
+ * boolean is serialized, so no user id leaves the process.
+ *
+ * Projects OUR owner columns (`user_id` + `visibility`), not upstream's
+ * `created_by`: the ladder in `workflow-scope.ts` needs both to answer
+ * `edit`, since an orphaned `private` row (NULL owner) is admin-only
+ * rather than public.
+ */
+export async function getWorkflowOwnersByName(): Promise<
+  Map<string, { userId: string | null; visibility: WorkflowVisibility }>
+> {
+  // Annotated explicitly: the drizzle handle is held as broadly-typed `any`
+  // (see `getDb`), so a projected select infers nothing on its own — the
+  // same reason `audit-global.ts` annotates its projected rows.
+  const rows: Array<{ name: string; userId: string | null; visibility: WorkflowVisibility }> =
+    await getDb()
+      .select({
+        name: workflowDefinitions.name,
+        userId: workflowDefinitions.userId,
+        visibility: workflowDefinitions.visibility,
+      })
+      .from(workflowDefinitions);
+  return new Map(rows.map((row) => [row.name, { userId: row.userId, visibility: row.visibility }]));
+}
+
 export async function createWorkflow(
   data: WorkflowDefinition,
   ownership: WorkflowOwnership = {},
@@ -110,6 +142,12 @@ export async function createWorkflow(
     // does not care about ownership produces exactly a pre-C6 row.
     visibility: ownership.visibility ?? ("system" as WorkflowVisibility),
     forkedFrom: ownership.forkedFrom ?? null,
+    // Upstream's owner column, which this path deliberately never
+    // populates — ownership lives in `userId`/`visibility` above. Written
+    // as an explicit NULL rather than omitted so the row satisfies the
+    // schema; the column itself is dropped in the follow-up commit that
+    // unifies the two rule sets.
+    createdBy: null,
     createdAt: now,
     updatedAt: now,
   };
@@ -196,7 +234,15 @@ export async function deleteWorkflow(id: string): Promise<boolean> {
   return true;
 }
 
-/** Project one row into the graph shape the executor consumes. */
+/**
+ * Project one row into the graph shape the executor consumes.
+ *
+ * No OWNER column is projected — not `user_id`, not `created_by`. The
+ * definition feeds the merged cache, which `GET /api/workflows` serves
+ * verbatim to every read-scoped caller, and a user id has no business
+ * reaching all of them. Ownership travels beside the definition on
+ * {@link CachedWorkflow} instead, where only the server reads it.
+ */
 function toDefinition(row: DbWorkflow): WorkflowDefinition {
   return {
     name: row.name,
@@ -207,6 +253,12 @@ function toDefinition(row: DbWorkflow): WorkflowDefinition {
     // `step.model ?? workflow.defaultModel` fallback's `??`.
     defaultModel: row.defaultModel ?? undefined,
     steps: row.steps as WorkflowStep[],
+    // Server-derived provenance, never accepted on a write (the body
+    // schema is `.strict()` and has no `source` key). Stamped on the
+    // DEFINITION as well as on the cache entry because the authz helpers
+    // and the UI's `canManage` both ask `workflow.source === "db"` — a
+    // YAML or extension-shipped graph has no row to update.
+    source: "db" as const,
   };
 }
 

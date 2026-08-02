@@ -144,14 +144,28 @@ describe("WorkflowStepForm", () => {
     // The editor LOADS saved definitions, so the form has to be able to
     // represent a tool step — a form that could not would silently DELETE
     // every tool step the moment the user pressed Save.
+    // The field is a PICKER over the extension tools the parent fetched,
+    // not free text: a hand-typed `<ext>__<tool>` that matches nothing
+    // dispatches to a tool that does not exist, and the failure surfaces
+    // only at run time. `toolGroups` is supplied by the parent's one fetch.
     const s = step({ name: "t1", kind: "tool", tool: "ext__write_file" });
+    const toolGroups = [
+      {
+        extension: "ext",
+        label: "Ext",
+        options: [
+          { value: "ext__write_file", extension: "ext", tool: "write_file" },
+          { value: "ext__read_file", extension: "ext", tool: "read_file" },
+        ],
+      },
+    ];
     const { getByLabelText, queryByText, getByText } = render(WorkflowStepForm, {
-      props: { step: s, agents: [], allStepNames: ["t1"], onremove: vi.fn() },
+      props: { step: s, agents: [], allStepNames: ["t1"], toolGroups, onremove: vi.fn() },
     });
 
-    const toolInput = getByLabelText("Tool") as HTMLInputElement;
-    expect(toolInput.value).toBe("ext__write_file");
-    await fireEvent.input(toolInput, { target: { value: "ext__read_file" } });
+    const toolSelect = getByLabelText("Tool") as HTMLSelectElement;
+    expect(toolSelect.value).toBe("ext__write_file");
+    await fireEvent.change(toolSelect, { target: { value: "ext__read_file" } });
     expect(s.tool).toBe("ext__read_file");
 
     // A tool step takes input like an agent step does.
@@ -192,11 +206,14 @@ describe("WorkflowStepForm", () => {
       props: { step: step(), agents: [], allStepNames: [], onremove: vi.fn() },
     });
     const select = getByLabelText("Kind") as HTMLSelectElement;
+    // `tool` sits second, beside `agent`: the two kinds that dispatch work
+    // share one input grammar, and the picker reads better grouped that way
+    // than with `tool` appended last.
     expect(Array.from(select.options).map((o) => o.value)).toEqual([
       "agent",
+      "tool",
       "transform",
       "gate",
-      "tool",
     ]);
   });
 });

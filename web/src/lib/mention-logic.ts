@@ -7,6 +7,10 @@
  *   ![EZ:Name]                                   — runtime actions (silent
  *     server-side ops; LLM never sees them — token is stripped pre-prompt
  *     by `src/runtime/mention-wiring.ts::stripEzActionTokens`)
+ *   ![workflow:Name]                             — workflow REFERENCES
+ *     (resolved from the merged workflow cache. Reference-only: the token
+ *      expands to a system note describing the workflow; it never fires a
+ *      run — execution goes through the `run_workflow` tool.)
  *   @[file:relative/path.ts]                     — project file references
  *   @[dir:relative/path]                         — project directory references
  *     (agent should read-all-files / write-into-folder for dir mentions)
@@ -38,11 +42,19 @@
  */
 export const STRUCTURED_NAME_CHAR_CLASS = "[^\\]]+";
 
-// Structured token regex: matches `![kind:name]` (kind ∈ agent/ext/team/EZ),
-// `@[file|dir:name]`, `/[cmd:name]`, `$[feature:name]`, or `%[lesson:name]`.
+// Structured token regex: matches `![kind:name]` (kind ∈
+// agent/ext/team/EZ/workflow), `@[file|dir:name]`, `/[cmd:name]`,
+// `$[feature:name]`, or `%[lesson:name]`.
 // The five sigils are mutually exclusive at the trigger layer.
+//
+// The alternative COUNT is load-bearing: `web/src/lib/markdown.ts`'s
+// `styleMentions` destructures these capture groups POSITIONALLY as named
+// callback params. A new kind must go INSIDE an existing alternative's kind
+// alternation (as `EZ` and `workflow` did) — adding a 6th top-level
+// alternative renumbers groups 3-10 and silently mis-renders pills with no
+// type error.
 // Capture groups:
-//   1 = kind  (agent|ext|team|EZ) when the ! alternative matches
+//   1 = kind  (agent|ext|team|EZ|workflow) when the ! alternative matches
 //   2 = name  when the ! alternative matches
 //   3 = kind  (file|dir)         when the @ alternative matches
 //   4 = name  when the @ alternative matches
@@ -60,9 +72,14 @@ export const STRUCTURED_NAME_CHAR_CLASS = "[^\\]]+";
 // The kind is uppercase to make it visually distinct from the
 // lowercase logical-mention kinds at a glance and avoid collision with
 // any existing or future agent/extension/team named "ez".
+//
+// `workflow` also sits under the `!` sigil — it's the "actor" sigil family,
+// and a workflow is an actor. Unlike EZ, the token IS visible to the LLM:
+// it expands server-side into a system note describing the workflow so the
+// model can decide whether to call the `run_workflow` tool.
 export const MENTION_REGEX = new RegExp(
 	[
-		`!\\[(agent|ext|team|EZ):(${STRUCTURED_NAME_CHAR_CLASS})\\]`,
+		`!\\[(agent|ext|team|EZ|workflow):(${STRUCTURED_NAME_CHAR_CLASS})\\]`,
 		`@\\[(file|dir):(${STRUCTURED_NAME_CHAR_CLASS})\\]`,
 		`\\/\\[(cmd):(${STRUCTURED_NAME_CHAR_CLASS})\\]`,
 		`\\$\\[(feature):(${STRUCTURED_NAME_CHAR_CLASS})\\]`,
@@ -76,6 +93,7 @@ export type MentionKind =
 	| "ext"
 	| "team"
 	| "EZ"
+	| "workflow"
 	| "file"
 	| "dir"
 	| "cmd"
@@ -87,7 +105,7 @@ export interface MentionTrigger {
 	query: string;
 	/**
 	 * For the `!` sigil, may be undefined (no explicit prefix) or the concrete
-	 * kind when the user typed `!agent:` / `!ext:` / `!team:`.
+	 * kind when the user typed `!agent:` / `!ext:` / `!team:` / `!workflow:`.
 	 * For the `@` sigil, always `"path"` — the popover shows mixed file + dir
 	 * results. The search API uses this to route to the project-filesystem
 	 * branch (returning entries whose concrete `kind` is `"file"` or `"dir"`).
@@ -97,7 +115,16 @@ export interface MentionTrigger {
 	 * For the `%` sigil, always `"lesson"` — the popover shows Lessons-Keeper
 	 * entries scoped to the active user + project (visibility-filtered).
 	 */
-	type?: "ext" | "agent" | "team" | "EZ" | "path" | "cmd" | "feature" | "lesson";
+	type?:
+		| "ext"
+		| "agent"
+		| "team"
+		| "EZ"
+		| "workflow"
+		| "path"
+		| "cmd"
+		| "feature"
+		| "lesson";
 	/** Which sigil activated the trigger. */
 	sigil: "!" | "@" | "/" | "$" | "%";
 }
@@ -114,11 +141,19 @@ export type Segment =
 	| { type: "mention"; kind: string; name: string; raw: string };
 
 // Trigger regexes anchored to end-of-input-before-cursor.
-// `!` captures an optional agent/ext/team/EZ: prefix and the query.
+// `!` captures an optional agent/ext/team/EZ/workflow: prefix and the query.
 // `EZ:` is uppercase by design (matches the kind in the structured
 // token `![EZ:name]`) — keeping the prefix case-sensitive prevents
 // false-positive triggers on lowercase `ez:` typed mid-prose.
-const BANG_TRIGGER_RE = /(?:^|\s)!((?:ext:|agent:|team:|EZ:)?[^\s]*)$/;
+//
+// SINGLE SOURCE OF TRUTH for the `!` kind-prefix alternation. It is used by
+// BOTH {@link detectMentionTrigger} (live trigger detection) and
+// {@link insertMentionToken} (span replacement). The two used to carry
+// separate copies — a silent trap, because the replacement copy's `[^\s]*`
+// tail swallows an unlisted prefix (`workflow:foo`) and keeps working, so a
+// missed edit there is invisible until the day the tail stops matching.
+const BANG_KIND_PREFIX = "(?:ext:|agent:|team:|EZ:|workflow:)?";
+const BANG_TRIGGER_RE = new RegExp(`(?:^|\\s)!(${BANG_KIND_PREFIX}[^\\s]*)$`);
 // `@` is dedicated to file references; the whole non-space tail is the query.
 const AT_TRIGGER_RE = /(?:^|\s)@([^\s]*)$/;
 // `/` is dedicated to slash-command references; same tail semantics as `@`.
@@ -186,6 +221,8 @@ export function detectMentionTrigger(
 		// the typed casing, so persistence stays uniform.
 		if (/^ez:/i.test(raw))
 			return { active: true, query: raw.slice(3), type: "EZ", sigil: "!" };
+		if (raw.startsWith("workflow:"))
+			return { active: true, query: raw.slice(9), type: "workflow", sigil: "!" };
 		return { active: true, query: raw, type: undefined, sigil: "!" };
 	}
 
@@ -229,10 +266,10 @@ export function parseMentions(text: string): MentionToken[] {
 	const regex = new RegExp(MENTION_REGEX.source, "g");
 	let match;
 	while ((match = regex.exec(text)) !== null) {
-		// Alternative 1 matched (! sigil, agent/ext/team/EZ)
+		// Alternative 1 matched (! sigil, agent/ext/team/EZ/workflow)
 		if (match[1] !== undefined) {
 			mentions.push({
-				kind: match[1] as "agent" | "ext" | "team" | "EZ",
+				kind: match[1] as "agent" | "ext" | "team" | "EZ" | "workflow",
 				name: match[2]!,
 				start: match.index,
 				end: match.index + match[0].length,
@@ -299,7 +336,8 @@ function triggerSpanStart(before: string, triggerRe: RegExp): number | null {
  *   kind === "cmd"                    → `/[kind:name] ` (slash commands)
  *   kind === "feature"                → `$[kind:name] ` (Feature Index)
  *   kind === "lesson"                 → `%[kind:name] ` (Lessons-Keeper)
- *   kind === "agent" | "ext" | "team" → `![kind:name] ` (logical mentions)
+ *   kind === "agent" | "ext" | "team"
+ *          | "EZ" | "workflow"        → `![kind:name] ` (logical mentions)
  *
  * Returns new text and cursor position after the inserted token (including
  * the trailing space).
@@ -317,7 +355,9 @@ export function insertMentionToken(
 
 	// Match the trigger span that corresponds to the target sigil. We inspect
 	// the same underlying regex used for detection — the replacement only
-	// succeeds if the user is actually in a trigger for this sigil.
+	// succeeds if the user is actually in a trigger for this sigil. The `!`
+	// case reuses BANG_TRIGGER_RE verbatim; `triggerSpanStart` reads only
+	// `match[0]`, so its capture group is inert here.
 	const triggerRe = isAtSigil
 		? /(?:^|\s)@[^\s]*$/
 		: isSlashSigil
@@ -326,7 +366,7 @@ export function insertMentionToken(
 		? /(?:^|\s)\$[^\s]*$/
 		: isPercentSigil
 		? /(?:^|\s)%[^\s]*$/
-		: /(?:^|\s)!(?:(?:ext:|agent:|team:|EZ:)?[^\s]*)$/;
+		: BANG_TRIGGER_RE;
 	const atStart = triggerSpanStart(before, triggerRe);
 	if (atStart === null) return { text: value, cursor: cursorPos };
 

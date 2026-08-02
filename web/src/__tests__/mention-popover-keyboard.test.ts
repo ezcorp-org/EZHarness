@@ -8,11 +8,59 @@ import { describe, test, expect, mock, beforeEach } from "bun:test";
 interface MentionItem {
   name: string;
   description: string;
-  kind: "agent" | "extension";
+  kind:
+    | "agent"
+    | "extension"
+    | "team"
+    | "EZ"
+    | "workflow"
+    | "file"
+    | "dir"
+    | "dir-target"
+    | "command"
+    | "feature"
+    | "lesson";
 }
 
 /**
- * Mirrors the handleKeydown + grouping logic from MentionPopover.svelte exactly.
+ * Render order of MentionPopover's groups, top to bottom.
+ *
+ * MUST stay in step with the `GROUP_ORDER` array in MentionPopover.svelte.
+ * The component derives BOTH its flat keyboard-nav list and every section's
+ * starting index from that one array; this file is a bun-leg mirror and
+ * can't import the `.svelte` module (it needs the Svelte compiler), so the
+ * order is restated here.
+ *
+ * This used to be a hard-coded `[...agents, ...extensions]` under a comment
+ * claiming it mirrored the grouping "exactly" — it modelled 2 of the 11
+ * groups, so it would have green-lit any regression in the other 9. Deriving
+ * from a named order at least makes the drift surface visible in one place.
+ *
+ * (`dir-target` is synthetic in the component — injected from `triggerQuery`
+ * rather than filtered out of `items` — but it leads the list either way, so
+ * treating it as a filterable kind here preserves the index arithmetic.)
+ */
+const GROUP_ORDER = [
+  "dir-target",
+  "command",
+  "feature",
+  "lesson",
+  "EZ",
+  "workflow",
+  "team",
+  "agent",
+  "extension",
+  "dir",
+  "file",
+] as const;
+
+/** Flatten `items` into keyboard-nav order — the mirror of `flatItems`. */
+function flatten(items: MentionItem[]): MentionItem[] {
+  return GROUP_ORDER.flatMap((kind) => items.filter((i) => i.kind === kind));
+}
+
+/**
+ * Mirrors the handleKeydown + grouping logic from MentionPopover.svelte.
  */
 function createPopoverLogic(
   items: MentionItem[],
@@ -22,10 +70,7 @@ function createPopoverLogic(
   let highlightedIndex = 0;
   let open = true;
 
-  // Mirrors the $derived grouping: agents first, then extensions
-  const agents = items.filter((i) => i.kind === "agent");
-  const extensions = items.filter((i) => i.kind === "extension");
-  const flatItems = [...agents, ...extensions];
+  const flatItems = flatten(items);
 
   function handleKeydown(key: string) {
     if (!open) return;
@@ -204,5 +249,75 @@ describe("MentionPopover keyboard navigation logic", () => {
     const tabResult = selected;
 
     expect(enterResult).toEqual(tabResult);
+  });
+});
+
+describe("group order — keyboard nav walks the sections top-to-bottom", () => {
+  /** One item per group, deliberately supplied in scrambled order. */
+  const mixed: MentionItem[] = [
+    { name: "app.ts", description: "file", kind: "file" },
+    { name: "ops", description: "team", kind: "team" },
+    { name: "deploy", description: "workflow", kind: "workflow" },
+    { name: "review", description: "command", kind: "command" },
+    { name: "analyzer", description: "extension", kind: "extension" },
+    { name: "src", description: "dir", kind: "dir" },
+    { name: "distill", description: "ez", kind: "EZ" },
+    { name: "coder", description: "agent", kind: "agent" },
+    { name: "chat", description: "feature", kind: "feature" },
+    { name: "use-bun", description: "lesson", kind: "lesson" },
+  ];
+
+  test("flatItems follows GROUP_ORDER regardless of input order", () => {
+    const order = flatten(mixed).map((i) => i.kind);
+    expect(order).toEqual([
+      "command",
+      "feature",
+      "lesson",
+      "EZ",
+      "workflow",
+      "team",
+      "agent",
+      "extension",
+      "dir",
+      "file",
+    ]);
+  });
+
+  test("workflow sits between EZ actions and teams", () => {
+    // Pins the slot the `workflow` group was inserted into. The component
+    // computes each section's `id="mention-item-{idx}"` from the same order,
+    // so a change here without a matching change there means ArrowDown/Enter
+    // selects a different row than the one rendered as highlighted.
+    const kinds = flatten(mixed).map((i) => i.kind);
+    expect(kinds.indexOf("workflow")).toBe(kinds.indexOf("EZ") + 1);
+    expect(kinds.indexOf("team")).toBe(kinds.indexOf("workflow") + 1);
+  });
+
+  test("ArrowDown steps through every group in render order", () => {
+    let picked: MentionItem | null = null;
+    const expected = flatten(mixed);
+    const popover = createPopoverLogic(
+      mixed,
+      (item) => {
+        picked = item;
+      },
+      () => {},
+    );
+
+    for (let i = 0; i < expected.length; i++) {
+      expect(popover.getHighlightedIndex()).toBe(i);
+      popover.handleKeydown("Enter");
+      expect(picked!.name).toBe(expected[i]!.name);
+      expect(picked!.kind).toBe(expected[i]!.kind);
+      popover.handleKeydown("ArrowDown");
+    }
+  });
+
+  test("ArrowUp from the top wraps to the last group's item", () => {
+    const expected = flatten(mixed);
+    const popover = createPopoverLogic(mixed, () => {}, () => {});
+    popover.handleKeydown("ArrowUp");
+    expect(popover.getHighlightedIndex()).toBe(expected.length - 1);
+    expect(popover.getFlatItems()[popover.getHighlightedIndex()]!.kind).toBe("file");
   });
 });

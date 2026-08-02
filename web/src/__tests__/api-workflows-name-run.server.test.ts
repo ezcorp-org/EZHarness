@@ -2,8 +2,9 @@
  * Server-handler unit tests for /api/workflows/[name]/run/+server.ts.
  *
  * Covers the scope gate, the auth gate, the 404 "Workflow not found" branch,
- * the strict-body 400, the run success path, and the executor-throws 400
- * (the registry + executor are mocked).
+ * the authorization gate, the strict-body 400, the run success path, and the
+ * executor-throws 400 (the registry + executor + authz are mocked; the rules
+ * themselves are tested in src/__tests__/workflow-authz.test.ts).
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
@@ -16,10 +17,14 @@ const ctx = vi.hoisted(() => {
     runWorkflow,
   };
 });
+const authz = vi.hoisted(() => ({
+  canRunWorkflow: vi.fn(async () => ({ allowed: true }) as { allowed: boolean; reason?: string }),
+}));
 vi.mock("$lib/server/context", () => ({
   getCachedWorkflows: ctx.getCachedWorkflows,
   getWorkflowExecutor: ctx.getWorkflowExecutor,
 }));
+vi.mock("$server/runtime/workflow-authz", () => authz);
 
 import { POST } from "../routes/api/workflows/[name]/run/+server";
 
@@ -44,6 +49,7 @@ beforeEach(() => {
   ctx.getCachedWorkflows.mockReset().mockReturnValue([]);
   ctx.runWorkflow.mockReset().mockResolvedValue({ id: "run-1", status: "success" });
   ctx.getWorkflowExecutor.mockReset().mockReturnValue({ runWorkflow: ctx.runWorkflow });
+  authz.canRunWorkflow.mockReset().mockResolvedValue({ allowed: true });
 });
 
 function makeEvent(opts: {
@@ -81,7 +87,7 @@ async function expectThrownResponse(
 }
 
 const authedUser = {
-	user: { id: "u1", email: "u@x", name: "u", role: "user" },
+	user: { id: "u1", email: "u@x", name: "u", role: "member" },
 };
 
 describe("POST /api/workflows/[name]/run", () => {
@@ -108,6 +114,45 @@ describe("POST /api/workflows/[name]/run", () => {
 		expect(res.status).toBe(404);
 		const body = (await res.json()) as { error?: string };
 		expect(body.error).toBe("Workflow not found");
+	});
+
+	test("returns 403 with the deny reason when authorization refuses the run", async () => {
+		ctx.getCachedWorkflows.mockReturnValue([systemEntry()]);
+		authz.canRunWorkflow.mockResolvedValue({
+			allowed: false,
+			reason: 'Workflow "w1" is owned by another user',
+		});
+		const res = await POST(makeEvent({ name: "w1", locals: authedUser, body: {} }));
+		expect(res.status).toBe(403);
+		const body = (await res.json()) as { error?: string };
+		expect(body.error).toBe('Workflow "w1" is owned by another user');
+		expect(ctx.runWorkflow).not.toHaveBeenCalled();
+	});
+
+	test("authorizes the resolved definition, not a re-lookup by name", async () => {
+		// The object handed to the gate must be the one the executor will
+		// run — on a YAML/DB name collision a re-lookup would authorize a
+		// different graph than the one that executes.
+		const resolved = { name: "w1", description: "", steps: [], source: "yaml" };
+		ctx.getCachedWorkflows.mockReturnValue([systemEntry(resolved)]);
+		await POST(makeEvent({ name: "w1", locals: authedUser, body: {} }));
+		expect(authz.canRunWorkflow).toHaveBeenCalledWith(resolved, authedUser.user);
+	});
+
+	test("a refused run never reaches the executor", async () => {
+		// Replaces upstream's "the authorization gate runs BEFORE the body is
+		// parsed". That ordering is not reachable here: this gate takes the
+		// definition `resolveWorkflowOr` returns, and the ladder needs the
+		// `projectId` that only exists once the body is parsed. The property
+		// upstream bought with the early check — a denied caller cannot tell
+		// a malformed body from a well-formed one — was already spent by the
+		// ladder's own post-parse 404. What must still hold, and does, is
+		// that a refusal stops the side effect.
+		ctx.getCachedWorkflows.mockReturnValue([systemEntry()]);
+		authz.canRunWorkflow.mockResolvedValue({ allowed: false, reason: "nope" });
+		const res = await POST(makeEvent({ name: "w1", locals: authedUser, body: {} }));
+		expect(res.status).toBe(403);
+		expect(ctx.runWorkflow).not.toHaveBeenCalled();
 	});
 
 	test("returns 400 when the body fails the schema (non-string projectId)", async () => {

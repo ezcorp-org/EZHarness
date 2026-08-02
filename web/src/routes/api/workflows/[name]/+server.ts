@@ -6,8 +6,10 @@ import { ensureWorkflowVersion } from "$server/db/queries/workflow-versions";
 import { validateWorkflow } from "$server/runtime/workflow-validator";
 import { validateModelOverride } from "$server/runtime/workflow-model";
 import { requireAuth } from "$server/auth/middleware";
+import { canActOnWorkflow } from "$server/runtime/workflow-authz";
 import { requireScope } from "$lib/server/security/api-keys";
 import { resolveWorkflowOr, toWire } from "$lib/server/workflow-access";
+import { withCanManage } from "$lib/server/workflow-can-manage";
 import type { RequestHandler } from "./$types";
 import type { WorkflowDefinition } from "$server/types";
 import { workflowBodySchema } from "../schema";
@@ -22,7 +24,16 @@ import { workflowBodySchema } from "../schema";
 // Authorization is NOT performed here. Every handler below resolves
 // through `resolveWorkflowOr`, which does the lookup and the ladder
 // together — see `lib/server/workflow-access.ts` for why a route
-// physically cannot do this itself.
+// physically cannot do this itself. That ladder is THE gate.
+//
+// PUT and DELETE additionally run upstream's owner-or-admin rule
+// (`canActOnWorkflow`) on the resolved row. It is redundant as of this
+// merge — it reads `created_by`, which nothing writes — and is collapsed
+// into the ladder in the follow-up commit. Left in place here so this
+// merge changes no security behaviour in either direction.
+//
+// Note the `.strict()` body schema has no `source` key on purpose: `source`
+// is server-derived provenance served by GET, never accepted on a write.
 
 export const GET: RequestHandler = async ({ params, locals, url }) => {
   const scopeErr = requireScope(locals, "read");
@@ -30,7 +41,13 @@ export const GET: RequestHandler = async ({ params, locals, url }) => {
   const user = requireAuth(locals);
   const resolved = resolveWorkflowOr(user, params.name, "read", url.searchParams.get("projectId"));
   if (resolved instanceof Response) return resolved;
-  return json(toWire(resolved.entry, resolved.caller));
+  // The ladder decides visibility; `withCanManage` then stamps the same
+  // `canManage` shape the list serves, so a workflow does not gain or lose
+  // the field depending on which route returned it. `toWire` already
+  // carries the ladder's own `canEdit` — the two answer the same question
+  // and are collapsed in the follow-up commit.
+  const [decorated] = await withCanManage([toWire(resolved.entry, resolved.caller)], user);
+  return json(decorated);
 };
 
 export const PUT: RequestHandler = async ({ request, params, locals }) => {
@@ -65,6 +82,9 @@ export const PUT: RequestHandler = async ({ request, params, locals }) => {
   if (resolved instanceof Response) return resolved;
   const dbWorkflow = await workflowQueries.getWorkflowByName(params.name);
   if (!dbWorkflow) return errorJson(404, "Not found (only DB workflows can be updated)");
+  if (!canActOnWorkflow(dbWorkflow.createdBy, user)) {
+    return errorJson(403, "Only the workflow's owner or an admin can update it");
+  }
 
   let updated: workflowQueries.DbWorkflow | undefined;
   try {
@@ -100,6 +120,9 @@ export const DELETE: RequestHandler = async ({ params, locals }) => {
   if (resolved instanceof Response) return resolved;
   const dbWorkflow = await workflowQueries.getWorkflowByName(params.name);
   if (!dbWorkflow) return errorJson(404, "Not found (only DB workflows can be deleted)");
+  if (!canActOnWorkflow(dbWorkflow.createdBy, user)) {
+    return errorJson(403, "Only the workflow's owner or an admin can delete it");
+  }
 
   await workflowQueries.deleteWorkflow(dbWorkflow.id);
   await reloadWorkflows();

@@ -2277,6 +2277,13 @@ export async function migrate(db: any): Promise<void> {
   await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uniq_workflow_definition_version ON workflow_definition_versions(workflow_definition_id, version)`);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_workflow_definition_versions_author ON workflow_definition_versions(created_by_user_id)`);
 
+  // Upstream's owner column, superseded by `user_id` + `visibility` above
+  // and dropped in the follow-up commit — kept here so this merge stays a
+  // pure integration and the two migrations can be reviewed apart. Safe to
+  // co-exist: it is additive, idempotent, and nothing reads it as of this
+  // commit.
+  await db.execute(sql`ALTER TABLE workflow_definitions ADD COLUMN IF NOT EXISTS created_by TEXT REFERENCES users(id) ON DELETE SET NULL`);
+
   // ── Workflow run history ─────────────────────────────────────────
   //
   // Placed here (near the end) purely because every FK target it needs —

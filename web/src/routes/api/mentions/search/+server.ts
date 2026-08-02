@@ -1,5 +1,5 @@
 import { json } from "@sveltejs/kit";
-import { getExecutor, getCommandRegistry } from "$lib/server/context";
+import { getExecutor, getCommandRegistry, getWorkflows } from "$lib/server/context";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import { getDb } from "$server/db/connection";
@@ -23,6 +23,7 @@ type FileType =
 	| "agent"
 	| "team"
 	| "EZ"
+	| "workflow"
 	| "path"
 	| "cmd"
 	| "feature"
@@ -33,6 +34,71 @@ interface PathCandidate {
 	name: string;
 	description: string;
 	kind: "file" | "dir";
+}
+
+/** One entry on the wire. Also the element type of the `results` accumulator. */
+interface MentionSearchResult {
+	name: string;
+	description: string;
+	kind:
+		| "agent"
+		| "extension"
+		| "team"
+		| "EZ"
+		| "workflow"
+		| "file"
+		| "dir"
+		| "command"
+		| "feature"
+		| "lesson"
+		| "tool";
+	source?: string;
+	body?: string;
+	fileCount?: number;
+	/** For built-in literal commands (e.g. `/goal`): the raw text the
+	 *  composer inserts on selection, in place of a `/[cmd:name]` token.
+	 *  Such commands are handled by a server-side interceptor and must
+	 *  reach `body.content` as literal text. */
+	insertText?: string;
+	/** Phase 4: when the tool was auto-generated from an entity
+	 *  declaration, surface the entity type so the popover can
+	 *  group hand-rolled vs SDK-served tools (the v2 sigil
+	 *  affordance will use this to deep-link into a slug picker). */
+	entityType?: string;
+}
+
+/**
+ * Merge a GLOBAL, code/cache-defined kind into the bare-`!` fallback list.
+ *
+ * Shared by the EZ-action and workflow merges — both are global (no project
+ * scope, no DB query), both stop at MAX_RESULTS, and both want the same
+ * "typing the kind label itself surfaces everything" behaviour.
+ *
+ * `kindLabel` makes typing the label (`!`, `!e`, `!ez` / `!w`, `!work`)
+ * surface ALL entries of that kind. Without it the substring match against
+ * name/description would exclude everything when no entry happens to contain
+ * the label — the live case for EZ actions (`distill`, "Force-trigger lesson
+ * distillation"). Typing a kind's name should mean "show me this kind's
+ * stuff," matching how the user thinks.
+ */
+function mergeGlobalBangKind(
+	results: MentionSearchResult[],
+	entries: ReadonlyArray<{ name: string; description: string }>,
+	kindLabel: string,
+	kind: "EZ" | "workflow",
+	lowerQ: string,
+): void {
+	const isKindPrefix = !lowerQ || kindLabel.startsWith(lowerQ);
+	for (const e of entries) {
+		if (results.length >= MAX_RESULTS) break;
+		if (
+			isKindPrefix ||
+			e.name.toLowerCase().includes(lowerQ) ||
+			e.description.toLowerCase().includes(lowerQ)
+		) {
+			results.push({ name: e.name, description: e.description, kind });
+		}
+	}
 }
 
 /**
@@ -149,34 +215,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 	const q = url.searchParams.get("q") ?? "";
 	const type = url.searchParams.get("type") as FileType | null;
 	const projectId = url.searchParams.get("projectId");
-	const results: Array<{
-		name: string;
-		description: string;
-		kind:
-			| "agent"
-			| "extension"
-			| "team"
-			| "EZ"
-			| "file"
-			| "dir"
-			| "command"
-			| "feature"
-			| "lesson"
-			| "tool";
-		source?: string;
-		body?: string;
-		fileCount?: number;
-		/** For built-in literal commands (e.g. `/goal`): the raw text the
-		 *  composer inserts on selection, in place of a `/[cmd:name]` token.
-		 *  Such commands are handled by a server-side interceptor and must
-		 *  reach `body.content` as literal text. */
-		insertText?: string;
-		/** Phase 4: when the tool was auto-generated from an entity
-		 *  declaration, surface the entity type so the popover can
-		 *  group hand-rolled vs SDK-served tools (the v2 sigil
-		 *  affordance will use this to deep-link into a slug picker). */
-		entityType?: string;
-	}> = [];
+	const results: MentionSearchResult[] = [];
 	const lowerQ = q.toLowerCase();
 	const pattern = `%${q}%`;
 
@@ -343,6 +382,36 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 		return json(results);
 	}
 
+	// Workflow searches are mutually exclusive with other kinds — the
+	// `!workflow:` prefix's popover lists workflows from the merged
+	// in-memory cache (`getWorkflows()`: extension + YAML + DB, in that
+	// precedence order).
+	//
+	// NO project gate, unlike `feature` / `lesson`: `workflow_definitions`
+	// has no project column — workflows are global. Gating on projectId here
+	// would return [] for every global-project chat and read as a scoping
+	// control that nothing downstream enforces.
+	//
+	// Fuzzy-ranked on name + description, mirroring the `feature` branch.
+	if (type === "workflow") {
+		const workflows = getWorkflows();
+		const matched = q
+			? workflows
+					.map((w) => ({
+						w,
+						score: bestFuzzyScore([fuzzyScore(q, w.name), fuzzyScore(q, w.description)]),
+					}))
+					.filter((x): x is { w: typeof workflows[number]; score: number } => x.score !== null)
+					.sort((a, b) => b.score - a.score)
+					.map((x) => x.w)
+			: workflows;
+
+		for (const w of matched.slice(0, MAX_RESULTS)) {
+			results.push({ name: w.name, description: w.description, kind: "workflow" });
+		}
+		return json(results);
+	}
+
 	// Phase 4 — tool listing for a specific extension. Used by the
 	// `![ext:<name>/` autocomplete path to surface every tool the
 	// extension exposes: hand-rolled (manifest `tools[]`) AND auto-
@@ -488,31 +557,16 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 		}
 	}
 
-	// Merge EZ actions into the no-colon `!` fallback. `type === "EZ"` is
-	// already handled by the dedicated branch above, so this fires only when
-	// the user typed bare `!` / `!ez` / `!e` etc. — discoverability parity
-	// with agent/ext/team. Skipped when explicitly filtering to a sibling
-	// kind (`!agent:` / `!ext:` / `!team:`).
-	//
-	// `isKindPrefix` makes typing the kind label itself (`!`, `!e`, `!ez`)
-	// surface ALL EZ actions. Without it, the substring match against
-	// name/description would exclude every action when no name happens to
-	// contain "ez" — which is the live case in v1 (`distill`,
-	// "Force-trigger lesson distillation"). Typing the kind name should
-	// mean "show me this kind's stuff," matching how the user thinks.
-	if (type !== "agent" && type !== "ext" && type !== "team" && results.length < MAX_RESULTS) {
+	// Merge the two GLOBAL `!`-family kinds into the no-colon `!` fallback.
+	// `type === "EZ"` / `type === "workflow"` are already handled by their
+	// dedicated branches above, so these fire only when the user typed bare
+	// `!` / `!e` / `!wo` etc. — discoverability parity with agent/ext/team.
+	// Skipped when explicitly filtering to a sibling kind (`!agent:` /
+	// `!ext:` / `!team:`).
+	if (type !== "agent" && type !== "ext" && type !== "team") {
 		const { listEzActions } = await import("$server/runtime/ez-actions/registry");
-		const isKindPrefix = !q || "ez".startsWith(lowerQ);
-		for (const a of listEzActions()) {
-			if (
-				isKindPrefix ||
-				a.name.toLowerCase().includes(lowerQ) ||
-				a.description.toLowerCase().includes(lowerQ)
-			) {
-				results.push({ name: a.name, description: a.description, kind: "EZ" });
-			}
-			if (results.length >= MAX_RESULTS) break;
-		}
+		mergeGlobalBangKind(results, listEzActions(), "ez", "EZ", lowerQ);
+		mergeGlobalBangKind(results, getWorkflows(), "workflow", "workflow", lowerQ);
 	}
 
 	return json(results);

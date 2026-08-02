@@ -1064,6 +1064,16 @@ export interface Workflow {
 	/** Whether THIS caller may edit it. Computed server-side from the one
 	 *  shared ladder — never re-derived in the browser. */
 	canEdit?: boolean;
+	/** Whether THIS caller may edit or delete it — `source === "db"` AND
+	 *  owner-or-admin, resolved server-side. Gates the Edit/Delete
+	 *  affordances so they are never painted on a request that would 403 or
+	 *  404. Optional because a hand-built fixture may omit it; absent is
+	 *  treated as not manageable.
+	 *
+	 *  Answers the same question as `canEdit` above and is collapsed into
+	 *  it in the follow-up commit; both are served today so neither side's
+	 *  components had to be rewritten inside the merge. */
+	canManage?: boolean;
 }
 
 export interface WorkflowRun {
@@ -1104,7 +1114,9 @@ export async function createWorkflow(data: Workflow): Promise<Workflow> {
 }
 
 export async function deleteWorkflow(name: string): Promise<void> {
-	const res = await fetch(`${BASE}/api/workflows/${name}`, { method: "DELETE" });
+	// Encoded: an extension-shipped workflow is namespaced `<ext>:<name>`,
+	// and the separator must survive as one path segment.
+	const res = await fetch(`${BASE}/api/workflows/${encodeURIComponent(name)}`, { method: "DELETE" });
 	await checkResponse(res);
 }
 
@@ -1116,6 +1128,15 @@ export async function fetchWorkflow(name: string): Promise<Workflow> {
 	return res.json();
 }
 
+/** Replace a DB workflow's definition. Server-side this is owner-or-admin
+ *  and DB-only; the UI gates on the server-computed edit flag so it is not
+ *  called speculatively. A rename is expressed by sending a different
+ *  `name`.
+ *
+ *  Takes an open record, not a `Workflow`: the builder emits one, and the
+ *  PUT body is a PARTIAL definition with provenance stripped
+ *  (`definitionFields`) — the strict server schema rejects the extra
+ *  members a whole `Workflow` carries. */
 export async function updateWorkflow(
 	name: string,
 	data: Record<string, unknown>,
@@ -1417,8 +1438,20 @@ export interface MentionResult {
 	 * the result is always `"feature"`. For `type=lesson` the result is
 	 * always `"lesson"`. For `type=EZ` the result is always `"EZ"` —
 	 * runtime actions from the in-memory registry (not project-scoped).
+	 * For `type=workflow` the result is always `"workflow"` — entries from
+	 * the merged workflow cache (also global, not project-scoped).
 	 */
-	kind: "agent" | "extension" | "team" | "EZ" | "file" | "dir" | "command" | "feature" | "lesson";
+	kind:
+		| "agent"
+		| "extension"
+		| "team"
+		| "EZ"
+		| "workflow"
+		| "file"
+		| "dir"
+		| "command"
+		| "feature"
+		| "lesson";
 	/**
 	 * For `type=cmd` results: the source namespace the command was
 	 * discovered from — e.g. `"project:claude-commands"`,
@@ -1570,7 +1603,16 @@ export function _resetFeatureDetailsCache(): void {
 
 export async function searchMentions(
 	query: string,
-	type?: "ext" | "agent" | "team" | "EZ" | "path" | "cmd" | "feature" | "lesson",
+	type?:
+		| "ext"
+		| "agent"
+		| "team"
+		| "EZ"
+		| "workflow"
+		| "path"
+		| "cmd"
+		| "feature"
+		| "lesson",
 	projectId?: string,
 ): Promise<MentionResult[]> {
 	const params = new URLSearchParams({ q: query });

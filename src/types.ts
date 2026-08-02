@@ -541,6 +541,23 @@ export interface WorkflowDefinition {
    *  inheriting a definition-level `maxTokens` it never asked for. */
   defaultModel?: WorkflowModelBinding;
   steps: WorkflowStep[];
+  /**
+   * Which loader produced this definition. Stamped by the loader itself —
+   * NEVER read from the YAML/JSON a definition was parsed out of, so an
+   * extension asset that declares `source: db` is overwritten, not trusted.
+   *
+   * `canRunWorkflow` dispatches on it: the alternative (looking the name up
+   * in `workflow_definitions` to infer the source) is wrong, because on a
+   * YAML/DB name collision the YAML entry wins execution — authz would gate
+   * a different object than the executor runs.
+   *
+   * Optional because a definition can also be hand-built (tests, an ad-hoc
+   * caller); an absent source falls through to the permissive default.
+   *
+   * NOTE: `GET /api/workflows` serves this field, and
+   * `workflowBodySchema` is `.strict()` — never echo it back into a `PUT`.
+   */
+  source?: "extension" | "yaml" | "db";
 }
 
 /**

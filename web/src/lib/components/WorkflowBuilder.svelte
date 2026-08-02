@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { untrack } from "svelte";
+	import { untrack, onMount } from "svelte";
 	import type { Agent } from "$lib/api.js";
 	import { inputClass } from "$lib/styles.js";
 	import WorkflowStepForm from "./WorkflowStepForm.svelte";
@@ -7,22 +7,33 @@
 		blankStep,
 		buildWorkflowPayload,
 		defaultModelToText,
-		definitionToDrafts,
 		pruneDependsOn,
 		remapDependsOn,
+		workflowToDrafts,
 		type StepDraft,
+		type StoredStep,
 	} from "$lib/workflow-builder-logic.js";
+	import {
+		groupToolOptions,
+		parseExtensionList,
+		toToolOptions,
+		type ToolOption,
+	} from "$lib/extension-tool-options.js";
 
 	let {
 		initial = {},
 		agents = [],
 		onsubmit,
+		oncancel,
 		submitting = false,
 		submitLabel = "Save Workflow",
 	}: {
 		initial?: Record<string, unknown>;
 		agents: Agent[];
 		onsubmit: (data: Record<string, unknown>) => void;
+		/** When supplied, renders a Cancel button beside Save. Absent on the
+		 *  create route, where there is nothing to return to. */
+		oncancel?: () => void;
 		submitting?: boolean;
 		submitLabel?: string;
 	} = $props();
@@ -30,18 +41,32 @@
 	let name = $state(untrack(() => (initial.name as string) ?? ""));
 	let description = $state(untrack(() => (initial.description as string) ?? ""));
 
-	// `initial.steps` arrives in API shape when the EDITOR loads a saved
-	// workflow, so it is converted rather than cast. Dropping what the form
-	// cannot represent would silently delete a user's tool steps and model
-	// bindings on the next save — see `definitionToDrafts`.
+	// `initial` carries STORED steps (an `input` record, a `condition` object,
+	// a `loop` object, a per-step `model` binding) — not drafts.
+	// `workflowToDrafts` is the inverse of the `stepToPayload` used on submit;
+	// casting straight to `StepDraft[]` here (as this did before editing
+	// existed) yields a form bound to fields that do not exist, which renders
+	// blank and saves an erased definition. It also supplies the one blank
+	// row an empty step list opens on.
 	let steps = $state<StepDraft[]>(
-		untrack(() =>
-			Array.isArray(initial.steps) && initial.steps.length > 0
-				? definitionToDrafts(initial.steps)
-				: [blankStep(0)],
-		),
+		untrack(() => workflowToDrafts(initial.steps as StoredStep[] | undefined)),
 	);
 	let defaultModelText = $state(untrack(() => defaultModelToText(initial.defaultModel)));
+
+	// Fetched once for the whole form rather than per step: a 6-step workflow
+	// would otherwise issue 6 identical requests.
+	let toolOptions = $state<ToolOption[]>([]);
+	let toolGroups = $derived(groupToolOptions(toolOptions));
+
+	onMount(async () => {
+		try {
+			const res = await fetch("/api/extensions");
+			if (res.ok) toolOptions = toToolOptions(parseExtensionList(await res.json()));
+		} catch {
+			// Non-fatal: the tool picker degrades to empty and every other
+			// step kind stays usable.
+		}
+	});
 
 	let allStepNames = $derived(steps.map((s) => s.name));
 
@@ -110,7 +135,7 @@
 		</div>
 		<div class="space-y-3">
 			{#each steps as step, idx}
-				<WorkflowStepForm {step} {agents} {allStepNames} onremove={() => removeStep(idx)} onnamechange={renameStep} />
+				<WorkflowStepForm {step} {agents} {allStepNames} {toolGroups} onremove={() => removeStep(idx)} onnamechange={renameStep} />
 			{/each}
 		</div>
 	</div>
@@ -119,11 +144,24 @@
 		<p class="text-sm text-red-400">{errorMsg}</p>
 	{/if}
 
-	<button
-		type="submit"
-		disabled={submitting}
-		class="rounded-md bg-blue-600 px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-blue-500 disabled:opacity-50" style="min-height: 44px;"
-	>
-		{submitting ? "Saving..." : submitLabel}
-	</button>
+	<div class="flex flex-wrap items-center gap-2">
+		<button
+			type="submit"
+			disabled={submitting}
+			class="rounded-md bg-blue-600 px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-blue-500 disabled:opacity-50" style="min-height: 44px;"
+		>
+			{submitting ? "Saving..." : submitLabel}
+		</button>
+		{#if oncancel}
+			<button
+				type="button"
+				onclick={oncancel}
+				disabled={submitting}
+				data-testid="workflow-builder-cancel"
+				class="rounded-md bg-[var(--color-surface-tertiary)] px-4 py-3 text-sm font-medium text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-border)] disabled:opacity-50" style="min-height: 44px;"
+			>
+				Cancel
+			</button>
+		{/if}
+	</div>
 </form>

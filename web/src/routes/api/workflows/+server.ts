@@ -7,6 +7,7 @@ import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
 import { listVisibleWorkflows } from "$lib/server/workflow-access";
+import { withCanManage } from "$lib/server/workflow-can-manage";
 import type { RequestHandler } from "./$types";
 import type { WorkflowDefinition } from "$server/types";
 import { workflowBodySchema } from "./schema";
@@ -29,7 +30,12 @@ export const GET: RequestHandler = async ({ locals, url }) => {
   const scopeErr = requireScope(locals, "read");
   if (scopeErr) return scopeErr;
   const user = requireAuth(locals);
-  return json(listVisibleWorkflows(user, url.searchParams.get("projectId")));
+  // The ladder decides WHICH workflows this caller may see; `canManage` is
+  // then derived per caller so the UI can hide Edit/Delete on the ones it
+  // would only get a 403/404 for (YAML + extension assets, and other
+  // users' rows). Filter first, stamp second — stamping the whole cache
+  // would compute a flag for rows the caller is not allowed to know exist.
+  return json(await withCanManage(listVisibleWorkflows(user, url.searchParams.get("projectId")), user));
 };
 
 export const POST: RequestHandler = async ({ request, locals }) => {
@@ -59,6 +65,14 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     // scoping arrives deliberately, through fork (which sets a project)
     // or the admin claim action, never as a silent side effect of an
     // ordinary create.
+    //
+    // This deliberately SUPERSEDES upstream's `createWorkflow(body,
+    // user.id)`, which stamped the caller as author on every create. The
+    // two cannot both hold: that rule makes an ordinary create
+    // owner-scoped, which is the exact silent side effect C6 ruled out.
+    // The affordance upstream wanted it for — Edit/Delete on your own
+    // rows — is served by the ladder, which already grants `edit` on a
+    // `system` workflow to any `chat` caller.
     workflow = await workflowQueries.createWorkflow(body as WorkflowDefinition);
   } catch (err) {
     // `name` is globally unique on purpose (ownership authorizes, it does

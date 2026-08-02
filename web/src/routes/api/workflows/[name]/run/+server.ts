@@ -2,6 +2,7 @@ import { json } from "@sveltejs/kit";
 import { z } from "zod";
 import { getWorkflowExecutor } from "$lib/server/context";
 import { requireAuth } from "$server/auth/middleware";
+import { canRunWorkflow } from "$server/runtime/workflow-authz";
 import { requireScope } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
 import { resolveWorkflowOr } from "$lib/server/workflow-access";
@@ -57,6 +58,19 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
       "Workflow not found",
     );
     if (resolved instanceof Response) return resolved;
+
+    // Authorize the definition the executor will ACTUALLY run — the same
+    // object, not a re-lookup by name. Shared with the `run_workflow` tool
+    // so the chat path and the REST path can never diverge.
+    //
+    // Ordered AFTER `resolveWorkflowOr` because it takes that call's
+    // output. Upstream ran it before the body was parsed so a denied
+    // caller could not tell a malformed body from a well-formed one; the
+    // ladder cannot be asked that early — it needs `projectId`, which
+    // only exists once the body is parsed — so that property is already
+    // spent by the 404 above, and this ordering spends nothing further.
+    const decision = await canRunWorkflow(resolved.entry.definition, user);
+    if (!decision.allowed) return errorJson(403, decision.reason);
 
     const workflowExec = getWorkflowExecutor();
     // C6's ownership ladder decides WHICH definition runs; the trunk's

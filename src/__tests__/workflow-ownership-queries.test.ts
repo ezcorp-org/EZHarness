@@ -192,7 +192,14 @@ describe("the cache projection carries provenance", () => {
 
   test("loadDbWorkflows still returns bare definitions for the CLI", async () => {
     // The CLI has no auth context at all and resolves YAML + DB directly,
-    // bypassing the routes. Deliberately unchanged.
+    // bypassing the routes. Still carries NO ownership — no `userId`, no
+    // `projectId`, no `visibility` — which is the property that matters
+    // here: a user id must not ride out on the CLI projection.
+    //
+    // `source` IS present. It is loader-stamped provenance, not ownership,
+    // and it is load-bearing: `canRunWorkflow` dispatches on it, and on a
+    // YAML/DB name collision inferring it by re-looking-up the name would
+    // authorize a different object than the one that runs.
     await createWorkflow({ name: "cli", description: "d", steps } as never);
     const [def] = await loadDbWorkflows();
     expect(Object.keys(def!).sort()).toEqual([
@@ -200,8 +207,11 @@ describe("the cache projection carries provenance", () => {
       "description",
       "inputSchema",
       "name",
+      "source",
       "steps",
     ]);
+    expect(def).not.toHaveProperty("userId");
+    expect(def).not.toHaveProperty("visibility");
   });
 
   test("the two loaders agree on the definition, so there is one projection", async () => {

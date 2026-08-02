@@ -916,17 +916,17 @@
 			return;
 		}
 
-		// Leaf selection (file / agent / ext / team / command / EZ). API
-		// returns `extension` / `command` but mention-logic uses `ext` /
-		// `cmd`. `EZ` is the runtime-action kind under the `!` sigil and
-		// keeps its API/wire name unchanged.
+		// Leaf selection (file / agent / ext / team / command / EZ /
+		// workflow). API returns `extension` / `command` but mention-logic
+		// uses `ext` / `cmd`. `EZ` and `workflow` are `!`-sigil kinds that
+		// keep their API/wire name unchanged.
 		const kind = item.kind === 'extension'
 			? 'ext'
 			: item.kind === 'command'
 				? 'cmd'
 				: item.kind;
 		const result = insertMentionToken(value, wireCaret(), {
-			kind: kind as 'agent' | 'ext' | 'team' | 'EZ' | 'file' | 'dir' | 'cmd',
+			kind: kind as 'agent' | 'ext' | 'team' | 'EZ' | 'workflow' | 'file' | 'dir' | 'cmd',
 			name: item.name,
 		});
 		setWire(result.text, result.cursor);
@@ -936,7 +936,10 @@
 		adjustHeight();
 
 		// Auto-open tool form/picker for extension mentions. File mentions are
-		// passive references — no auto-open.
+		// passive references — no auto-open. Workflow mentions are likewise
+		// reference-only: the token expands to a system note describing the
+		// workflow, and EXECUTION goes through the `run_workflow` tool, so
+		// selecting one must never open or fire anything here.
 		if (kind === 'ext') {
 			handleChipClick(item.name);
 		}
@@ -1195,7 +1198,7 @@
 							aria-hidden="true"
 						>
 							{#each segments as seg}
-								{#if seg.type === 'text'}{seg.text}{:else if seg.type === 'mention'}<span class="pointer-events-auto relative inline"><span class="invisible">{displayTokenText(seg.kind, seg.name)}</span><span class="absolute inset-0 flex items-center"><MentionChip name={seg.name} kind={seg.kind === 'ext' ? 'extension' : seg.kind === 'cmd' ? 'command' : seg.kind as 'agent' | 'team' | 'file' | 'dir' | 'feature'} status={seg.kind === 'ext' ? getExtensionStatus(seg.name) : undefined} onclick={seg.kind === 'ext' ? () => handleChipClick(seg.name) : undefined} /></span></span>{/if}
+								{#if seg.type === 'text'}{seg.text}{:else if seg.type === 'mention'}<span class="pointer-events-auto relative inline"><span class="invisible">{displayTokenText(seg.kind, seg.name)}</span><span class="absolute inset-0 flex items-center"><MentionChip name={seg.name} kind={seg.kind === 'ext' ? 'extension' : seg.kind === 'cmd' ? 'command' : seg.kind as 'agent' | 'team' | 'workflow' | 'file' | 'dir' | 'feature'} status={seg.kind === 'ext' ? getExtensionStatus(seg.name) : undefined} onclick={seg.kind === 'ext' ? () => handleChipClick(seg.name) : undefined} /></span></span>{/if}
 							{/each}
 						</div>
 					</div>

@@ -33,6 +33,7 @@
 import { Type } from "@earendil-works/pi-ai";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { BuiltinToolDef } from "../tools/types";
+import { builtinToAgentTool } from "../tools/agent-tool";
 import {
   getBriefingConfig,
   upsertBriefingConfig,
@@ -401,13 +402,7 @@ export function wireBriefingChatToolsForTurn(params: WireBriefingChatToolsParams
   for (const def of defs) {
     if (existingNames.has(def.name)) continue;
     builtinToolDefsMap?.set(def.name, def);
-    agentTools.push({
-      name: def.name,
-      label: def.label,
-      description: def.description,
-      parameters: def.parameters,
-      execute: def.execute,
-    });
+    agentTools.push(builtinToAgentTool(def));
     registered++;
   }
 

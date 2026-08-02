@@ -4,7 +4,7 @@
 
 ## Intent
 
-A workflow is a named, reusable graph of steps. Where a single `@agent` run answers one prompt, a workflow chains steps: step B can depend on step A and consume A's output. Workflows are the renamed, extended successor to the old **pipelines** subsystem — they exist as a **separate subsystem from teams** (no chat-mention sigil, no per-member tool-scoping, no conversation). They are defined (in YAML or the DB), listed, and fired through a small REST surface and a dedicated `/workflows` UI. The runner is intentionally thin: topo-sort, fan out each batch with `Promise.all`, thread prior outputs into dependents, emit SSE events, halt loudly on the first failure.
+A workflow is a named, reusable graph of steps. Where a single `@agent` run answers one prompt, a workflow chains steps: step B can depend on step A and consume A's output. Workflows are the renamed, extended successor to the old **pipelines** subsystem — they exist as a **separate subsystem from teams** (no per-member tool-scoping, no team roster). They are defined (in YAML or the DB), listed, and fired through a small REST surface, a dedicated `/workflows` UI, and — since the chat path landed — a `!workflow:` mention plus the `run_workflow` tool (see **The chat path** below). The runner is intentionally thin: topo-sort, fan out each batch with `Promise.all`, thread prior outputs into dependents, emit SSE events, halt loudly on the first failure.
 
 Three design constraints are load-bearing (not stylistic):
 
@@ -20,7 +20,7 @@ Three design constraints are load-bearing (not stylistic):
 
 ### Data model (`src/types.ts`)
 
-- `WorkflowDefinition` = `{ name, description, inputSchema?, defaultModel?, steps }`.
+- `WorkflowDefinition` = `{ name, description, inputSchema?, defaultModel?, steps, source? }`. `source` is `"extension" | "yaml" | "db"` — the provenance stamp applied by whichever loader produced the definition, never read from the asset's own content. It is optional: a hand-built definition (a test, an ad-hoc caller) carries none.
 - `WorkflowStep` = `{ name, kind?, agent?, tool?, workflow?, input?, retries?, output?, condition?, when?, skipDependents?, model?, dependsOn?, loop?, prompt?, choices?, rbacScope?, formSchema?, requireItemConsent?, itemsRef?, timeoutMs?, onTimeout? }`. `kind` is one of `"agent" | "tool" | "transform" | "gate" | "approval" | "workflow"` (default `"agent"`).
   - **agent** — `agent` is an agent name resolved by `AgentExecutor`; `input` is a `Record<string,string>` of input mappings; `retries` is a per-step retry budget (clamped 0..2); `model` is a per-step model binding (see **Per-step model bindings**).
   - **tool** — `tool` is a runtime-namespaced extension tool (`<extension>__<tool>`, e.g. `extension-author__create_extension`) dispatched through `ToolExecutor.executeToolCall`. `input` uses the **same** ref language as an agent step (there is deliberately no second grammar). `agent` is forbidden; `loop` is forbidden (see gotchas).
@@ -35,7 +35,7 @@ Three design constraints are load-bearing (not stylistic):
 - `WorkflowRunPhase` = `"boundary" | "in-batch"` — which side of a step boundary the executor was on when it last wrote. Written strictly (never through the swallow-on-error telemetry path), so crash recovery never guesses (`src/types.ts:309-321`).
 - `ApprovalStepOutput` = `{ choice, form, itemIds, answeredBy, answeredAt }` — what an answered `approval` step contributes to `$steps`. **Every field is always present** (`form: {}`, `itemIds: []`) because refs resolve strictly: a downstream `$steps.<gate>.output.form` must not throw just because this answer carried no form (`src/types.ts:226-237`, `src/runtime/workflow-executor.ts:1483-1489`).
 - `ModelOverride` = `{ provider?, model?, temperature?, maxTokens?, effort? }` — a **resolved** binding (every value concrete). `WorkflowModelBinding` is the same shape as **written in a definition**, where the string fields may be refs, so `effort` widens to `string`.
-- The DB table `workflow_definitions` (`src/db/schema.ts`) stores `id` (UUID PK), `name` (unique), `description`, `inputSchema` (jsonb), `defaultModel` (jsonb, nullable), `steps` (jsonb), `createdAt`/`updatedAt`. A migration renames the legacy `pipeline_definitions` table in place (data preserved). It has **no** owner/user/project column — workflows are global (see gotchas).
+- The DB table `workflow_definitions` (`src/db/schema.ts`) stores `id` (UUID PK), `name` (unique), `description`, `inputSchema` (jsonb), `defaultModel` (jsonb, nullable), `steps` (jsonb), the ownership columns `project_id`/`user_id`/`visibility`/`forked_from`, and `createdAt`/`updatedAt`. A migration renames the legacy `pipeline_definitions` table in place (data preserved).
 
 ### Loading & the in-memory cache (`workflow-loader.ts` + `context.ts`)
 
@@ -46,6 +46,8 @@ Workflows come from **three sources, merged into one in-memory array** at boot:
 3. **DB** — `loadDbCachedWorkflows()` (`src/db/queries/workflows.ts`) maps every `workflow_definitions` row to a `CachedWorkflow`. (`loadDbWorkflows()` still returns bare definitions and is retained for the CLI, which has no auth context at all.)
 
 `context.ts`'s `buildWorkflowCache()` concatenates them: `workflows = [...extensionWorkflows, ...yamlWorkflows, ...dbWorkflows]` (ONE definition, shared by boot and by every CRUD-triggered `reloadWorkflows()`). There is still no de-duplication — lookup is `find(w => w.name === name)`, so the **first** entry wins a name. Extension entries go first so a `workflow_definitions` row a `chat`-scoped user deliberately named `some-extension:deploy` cannot hijack that extension's asset.
+
+**Each loader stamps `source` itself, always AFTER the parsed object.** The extension loader spreads the parsed YAML and then sets `source: "extension"`; the YAML loader assigns `def.source = "yaml"` unconditionally (not `??=`); `loadDbWorkflows` projects `source: "db"`. Provenance is therefore a property of *which loader produced the definition*, never of the asset's content — a YAML file that declares its own `source:` key has it overwritten, so it cannot relabel itself into a different authorization rule. Both loaders have a test asserting exactly that.
 
 The cache holds **`CachedWorkflow`** entries — `{ definition, source, id, projectId, userId, visibility, forkedFrom }` — not bare definitions. `getWorkflows()` still returns `WorkflowDefinition[]` for every pre-existing caller; `getCachedWorkflows()` returns the wrapped entries and is what authorization consumes. YAML and extension entries are wrapped as `system` with `id: null`: they ship with the install, not with a project.
 
@@ -103,7 +105,7 @@ Forking clones a workflow the caller can **read** into an editable, project-scop
 
 ### Extension-shipped workflows (`workflow-extension-loader.ts`)
 
-An installed extension may ship `*.workflow.yaml` files at the root of its install directory; they appear in `GET /api/workflows`, on `/workflows`, and run through the same `POST /api/workflows/[name]/run` route as everything else. Shipping one is an **asset**, not a permission (like declaring a tool) — *triggering* one from extension code is the privileged act, gated by `permissions.workflows`.
+An installed extension may ship `*.workflow.yaml` files at the root of its install directory; they appear in `GET /api/workflows`, on `/workflows`, and run through the same `POST /api/workflows/[name]/run` route as everything else — which re-checks that the owning extension is still installed and enabled before running one (rule 1 in **Run & manage authorization**). Shipping one is an **asset**, not a permission (like declaring a tool) — *triggering* one from extension code is the privileged act, gated by `permissions.workflows`.
 
 Namespacing is the load-bearing security property. Without it an extension could ship a workflow named `demo-deterministic` and silently shadow the host's in the un-de-duplicated cache. Two rules make that impossible:
 
@@ -113,6 +115,80 @@ Namespacing is the load-bearing security property. Without it an extension could
 Extension names are admit-time-validated against `/^[a-z0-9][a-z0-9-_.]{0,63}$/` (no `:`), so a namespaced name always carries exactly one separator and can never equal a bare host name. The grammar for both halves lives in exactly one place — `src/runtime/workflow-name.ts` (`WORKFLOW_NAME_RE`, `EXTENSION_WORKFLOW_SEPARATOR`, `namespacedWorkflowName`, `isValidWorkflowName`) — shared by the loader, the manifest validator, the permission clamp and the reverse-RPC handler so they cannot drift.
 
 Each file is validated with the same shared `validateWorkflow`; invalid files, unparseable YAML, bad names, unreadable install dirs and intra-extension duplicate names are all **warn-and-skip**. The loader never throws — a broken asset in one extension must not take down boot or block a later extension.
+
+### Run & manage authorization (`workflow-authz.ts`)
+
+One module holds the rules for every caller that can trigger or mutate a workflow, so the REST path and any future caller cannot drift into two different answers for the same action. It exports two things:
+
+- `canRunWorkflow(workflow, principal)` → `Promise<{ allowed: true } | { allowed: false; reason: string }>` — the full decision for a run.
+- `canActOnWorkflow(createdBy, principal)` → `boolean` — the owner-or-admin primitive, called directly by `PUT`/`DELETE` (which already hold the row) and delegated to by rule 2 below. The *rule* is shared; each call site phrases its own denial message, because "can update it" and "can delete it" are not the same sentence.
+
+**The three rules**, checked in an order that mirrors `buildWorkflowCache`'s `[...extension, ...yaml, ...db]` precedence. The order is load-bearing where the rules overlap: a `workflow_definitions` row named `some-extension:deploy` matches both rule 1 and rule 2, and extension-first is the only order consistent with how the cache resolves that name — so a disabled extension denies the run even when the caller owns the row.
+
+1. **Extension-namespaced** — a name carrying the `:` separator with a non-empty prefix claims an extension namespace, and that extension must still be installed **and** `enabled === true`, read live from `extensions` via `getExtensionByName`. Ownership does not apply; an extension asset has no `created_by`. (A leading separator names no extension and falls through — `namespacedWorkflowName` can never produce one, since extension names are admit-time-validated non-empty.)
+2. **DB workflow** (`source === "db"`) — owner-or-admin. `created_by` is read live from the row: `createdBy === user.id || user.role === "admin"`. A NULL owner is unowned and allows.
+3. **Everything else** — YAML, host, hand-built, unknown source — unchanged: any caller that got past the route's scope gate.
+
+Four details are load-bearing:
+
+- **Rule 1 is not a formality — it closes a real staleness window.** `reloadWorkflows()` fires only on workflow CRUD; it is never called on extension install, uninstall, or disable. So disabling an extension leaves its workflows sitting in the in-memory cache, fully runnable, until somebody happens to write a workflow or the process restarts. The live DB re-check is what actually stops them. For the same reason the check reads the `extensions` table and **not** `ExtensionRegistry.getAllManifests()` — the registry is an in-memory snapshot with exactly the staleness problem this check exists to close. Note also that `getExtensionByName` does not filter on `enabled`, so the helper tests that field explicitly.
+- **Rule 1 dispatches on the NAME, not on `source`.** That is strictly the stronger test: `source === "extension"` implies a separator (`namespacedWorkflowName` always inserts one), so the name test subsumes it — and it additionally catches a `workflow_definitions` row squatting on `some-extension:deploy`, which would otherwise slide through as an ordinary DB workflow the moment that extension is uninstalled. Cache ordering stops such a row from *shadowing* the real asset; this stops it from *outliving* it.
+- **Pass the RESOLVED definition, never a re-lookup by name.** Callers hand `canRunWorkflow` the object they pulled out of the merged cache — the one the executor will actually run. Re-looking the name up in the DB would be wrong: on a YAML/DB name collision both entries exist and YAML wins execution, so a by-name lookup would gate the DB row while the executor ran the YAML one. This is also why `source` had to be a stamped field rather than something inferred from a DB query.
+- **Admin is `role === "admin"`, compared directly — deliberately not `checkRole`.** That middleware helper also demands the `admin` API-key *scope*, so it would reject a cookie-authed admin on these `chat`-scoped routes, and it returns an HTTP `Response`, which is meaningless to a non-HTTP caller.
+
+**Enforcement lives at the call sites, never inside `WorkflowExecutor.runWorkflow`.** The CLI (`src/cli.ts`) runs workflows with no principal at all and is documented as auth-free (a local operator tool); an authorization check in the executor would break it instantly. The executor's contract is "run this definition", not "decide who may". The module is likewise registry-free — it knows nothing about the live executor or the workflow cache — so it stays unit-testable and importable from both a SvelteKit route (via the `$server` alias) and the runtime.
+
+**`created_by` and why the migration is not breaking.** The column is nullable, added by `ALTER TABLE … ADD COLUMN IF NOT EXISTS` near the end of `migrate()` — `workflow_definitions` is created long before `users` exists, so an inline FK at the CREATE would have no target. There is **no backfill**: NULL means "unowned legacy / global workflow", so every row that predates the column keeps exactly today's behaviour (any `chat` caller may run, update and delete it). Copying the first-admin backfill CTE used for conversations and memories would instead have retroactively handed every existing workflow to one admin and locked everyone else out. `ON DELETE SET NULL` means a departed author's workflow degrades to global rather than vanishing. Only `POST /api/workflows` records an owner, from the already-required principal.
+
+### The chat path — `!workflow:` + `run_workflow`
+
+**Reference and execution are split on purpose.** The mention grammar carries a bare name and nothing else, while a workflow takes arbitrary JSON matching its `inputSchema` — a token cannot express input. So `![workflow:<name>]` only *describes*, and a separate tool *runs*.
+
+**`![workflow:<name>]` — the reference.** A 6th mention KIND under the existing `!` sigil (not a 6th sigil; the sigil count is unchanged — see [mention-grammar](../composer/mention-grammar.md)). `applyWorkflowExpansion` (`mention-wiring.ts`) emits one system-note block per resolved workflow carrying its name, description and `inputSchema` as plain-text bullets, so the model knows the workflow exists and what input it takes. It follows the feature/lesson passes exactly: resolver-injected, parses the ORIGINAL message, never re-parses its own output, never modifies the user-visible text (the raw token survives in the persisted message), and an unknown name is a silent no-op.
+
+**`run_workflow` — the execution.** A built-in wired per turn by `wireRunWorkflowIfEligible` (`stream-chat/setup-tools.ts`). Its schema has exactly **two** fields, `name` and `input`: every RBAC coordinate (`userId`, `conversationId`, `projectId`) comes from the turn closure, never the tool arguments — an argument is LLM-controlled, and letting the model choose its own principal is letting it choose its own authorization. It calls the **same `canRunWorkflow`** described above, on the definition resolved out of the merged cache, so the chat path and the REST path cannot disagree. The acting user's `role` is read from the DB (`getUserById`), not carried on the turn; a vanished user row fails closed. Denials surface as a normal tool error card carrying the helper's reason.
+
+Two wire-time gates, both security-relevant:
+
+- **Depth 0 only** — skipped entirely when `orchestrationDepth > 0`. A workflow's `agent` step runs an agent turn; if that turn were itself wired with `run_workflow`, a graph could recurse without bound inside a single chat turn. Worse than the recursion: one *"always allow for this conversation"* click would then auto-approve every sensitive step of every nested run. The user's own turn is the only place the tool belongs.
+- **Owned conversations only** — the acting principal is the conversation OWNER (`convRecord.userId`). An ownerless row is skipped with a warning rather than run as nobody.
+
+Both gates fail soft: a failure degrades to a turn that cannot run workflows, never a 500.
+
+`RUN_WORKFLOW_CALL_TIMEOUT_MS` is **10 minutes**, matching `shell` — a workflow is a graph of agent turns and would otherwise be reaped by the 90 s undeclared-built-in default mid-run. Time spent waiting on a consent card does **not** burn it: an open gate registers in `pendingPermissions`, which the watchdog defers on indefinitely.
+
+#### Interactive approval mode
+
+`runWorkflow`'s options object takes an optional `conversationId`. Supplying it means **interactive**; omitting it reproduces the previous fail-closed path byte for byte.
+
+| | Non-interactive (REST, CLI, extension RPC, boot sweep) | Interactive (`run_workflow`) |
+|---|---|---|
+| `conversationId` | synthetic `workflow-run:<runId>` | the REAL conversation id |
+| Non-interactive scope | registered | **none** — that absence *is* the mode |
+| Sensitive step | PDP `prompt` refused synchronously | gate parks; the user's consent card resolves it |
+| Terminal state | `awaiting_approval` | `success` / `error` — `awaiting_approval` is **unreachable** |
+| `tool_calls` row | dropped (FK has no conversation) | written |
+
+Three details are load-bearing:
+
+- **A user DECLINE is a normal step failure, not `awaiting_approval`.** The interactive scope stub's `takeDenial()` always returns `undefined`, so a decline falls into `runToolStep`'s generic failure branch and terminalizes the run `error`. That is correct: `awaiting_approval` means "blocked on a human we cannot reach", which is by construction impossible when a human was reached and said no.
+- **An empty-string `conversationId` is deliberately NOT interactive.** It would fail the SSE ownership filter *open*, so it falls back to the synthetic key.
+- **Interactive mode cannot be laundered.** The stub never CLEARS an outer non-interactive scope, so a REST/CLI run whose agent step reaches back into a chat still has the outer scope live in `AsyncLocalStorage` and the inner gate is refused.
+
+#### Deliberate decisions
+
+- **Referencing is NOT authorization-filtered — enforcement is at the run boundary.** The mention resolver (`build-prompt.ts`) does a bare cache lookup with no `canRunWorkflow` call, and the note carries the description AND `inputSchema` for any caller. This is a choice, not an oversight. Filtering here would make an unauthorized reference expand to nothing, indistinguishable from a typo, giving the user no feedback at all; letting it through means the denial arrives at the point of action as a visible error card. `inputSchema` stays for the same reason — without it the model cannot compose a run, so a reference the user IS allowed to act on would be useless. **Accepted residual gap:** a caller can read a description + input schema for a workflow they cannot run, and because the mention rides a `chat`-scoped route while `GET /api/workflows` requires `read`, a `chat`-only API key can obtain workflow metadata that listing would refuse it. Referencing is a weaker gate than listing. The consequence is that the sanitisation below is the only thing between an attacker-controlled description and a forged instruction — do not weaken it.
+- **Per-turn caps: 5 expansions / 8 KiB of joined text**, applied after dedupe, and the count cap is applied BEFORE resolution so a 100-token paste-bomb still costs exactly 5 lookups. `inputSchema` is unbounded and workflows are globally writable by any `chat`-scoped caller, so a paste-bomb of mentions would otherwise be a cheap way to crowd out the context window. The budget bounds the author-supplied blocks; the fence and preamble are host text and are not charged. Overflow uses **skip**, not stop — one oversized workflow drops itself and the rest still render. (The lesson pass deliberately keeps `stop` to preserve its long-standing behaviour.)
+- **`run_workflow` is absent from `getBuiltinToolDefs()` and from `/api/tools`.** Same reason as the Ez tools: it is a per-turn factory over per-USER context (`userId`, `conversationId`, `projectId`) and needs no project root, so caching it alongside the project-rooted built-ins would leak one conversation's coordinates into another across a project switch. It is wired per turn instead, and the metadata listing has nothing static to show.
+
+#### Author-supplied text cannot forge structure
+
+Every workflow string is attacker-controlled — `POST /api/workflows` needs only the `chat` scope and workflows are global — so the note is built defensively:
+
+- `sanitizeNoteValue` is applied at **every** interpolation point (name, description, field key/type/label/description/options/default). It collapses all whitespace **including newlines** to single spaces, strips `*`, and trims. A description therefore cannot emit `\n\n**Workflow: …**` and forge a second block that the host never wrote.
+- Every line of output begins with host-controlled text.
+- The whole section is wrapped in a **per-turn nonce fence** (`<<<ez-workflow-reference:NONCE>>> … <<<end-…>>>`) with the run hint hoisted ABOVE it as a preamble, so a description that restates "you may run this" reads as data inside a marked region rather than as host instruction.
+- `inputSchema` interiors are unvalidated at the API boundary, so `sanitizeNoteValue` takes `unknown` and every field access is defensive — a non-object field is skipped, and `options` is only read when it really is an array (otherwise `"abc".join` would throw and take the whole turn's workflow notes down).
 
 ### Execution (`workflow-executor.ts`)
 
@@ -573,6 +649,8 @@ The four `workflow:*` events ride the same `AgentEvents` bus that streams to the
 
 Every route above **except create/update/delete** is registered in `src/api-registry.ts` (category `workflows`, lines 196-214) — create/update/delete are not (parity with `main`'s pipelines registration). All routes gate on `requireScope` + `requireAuth`; the by-name routes additionally gate on the ownership ladder via `resolveWorkflowOr`, and the run-control and approvals routes on their own owner/scope rules (above). None is marked `harness: { controllable: true }` yet — that flag asserts a matching `@ezcorp/harness-client` method exists, and claiming it while shipping none would make the registry lie about the remote surface.
 
+The `.strict()` body schema shared by `POST` and `PUT` (`web/src/routes/api/workflows/schema.ts`) has **no `source` key** on purpose. `source` is server-derived provenance served by `GET`; echoing a fetched definition straight back into a `PUT` would be rejected as an unknown top-level field.
+
 ### UI entry points
 
 - `/workflows` — list, fed by `store.workflows`.
@@ -623,7 +701,7 @@ The extension-authoring chain shipped as a real workflow — the reference examp
 `scaffold` (tool) → `scaffolded` (gate) → `validate` (tool) → `verified` (gate) → `handoff` (transform) → `request-install` (tool).
 
 - The two gates assert real things: `$steps.scaffold.output.draftId` must `exist` **and** be `truthy`; `$steps.validate.output.pass` must `eq true` (not `truthy`, so a missing or non-boolean `pass` fails closed). Both come from `parseToolOutput`-projected JSON, and a failure names the decisive ref and its actual value.
-- The final step deliberately attempts `extension-author__install_draft` and is deliberately **refused**: `ezcorp:extension:install` always prompts and is never persisted as an always-allow grant, and a workflow has no conversation on which to render that card. The run terminalizes **`awaiting_approval`** — never `success` (which would misleadingly imply the extension is live) and never `error` (nothing went wrong).
+- The final step deliberately attempts `extension-author__install_draft` and is deliberately **refused** when the chain runs non-interactively (REST / CLI / extension trigger): `ezcorp:extension:install` always prompts and is never persisted as an always-allow grant, and a non-interactive run has no conversation on which to render that card. The run terminalizes **`awaiting_approval`** — never `success` (which would misleadingly imply the extension is live) and never `error` (nothing went wrong). Started from a chat via `run_workflow` the same step instead renders a real consent card: approving proceeds, declining fails the step and the run ends `error`.
 - A parked run's `result.output` carries the **last successful result**, i.e. the `handoff` payload (`{draftId, userId, verifyResult, openUrl, nextStep}`), so the human who completes the install out-of-band has what they need. (Before this it was `null` and the payload died with the run.) `result.success` stays `false` and the `awaiting_approval` error code is unchanged.
 - A human completes it via the owner-scoped `POST /api/extensions/author/install`, or by re-running `install_draft` in a chat where the card can actually be shown. The chain calls the extension's **gated tool**, never the exported `installAuthoredDraft` function — that function performs no consent of its own, and calling it from a step would be the hand-rolled bypass `drafts-handler.ts` warns about.
 - `userId` is an input, and it is a **display hint only** — not an authorization input. The install endpoint derives the owner from the session and the draft directory is already owner-scoped by the run's acting user, so a forged value buys nothing.
@@ -660,6 +738,11 @@ The extension-authoring chain shipped as a real workflow — the reference examp
 - `src/runtime/workflow-loader.ts` — `loadYamlWorkflows`: globs `*.workflow.yaml` + legacy `*.pipeline.yaml` (deprecation warn), validates via `validateWorkflow`.
 - `src/runtime/workflow-extension-loader.ts` — `loadExtensionWorkflows` / `collectExtensionWorkflowSources`: extension-shipped assets, namespaced + validated + warn-and-skip.
 - `src/runtime/workflow-name.ts` — the ONE shared name grammar: `WORKFLOW_NAME_RE`, `EXTENSION_WORKFLOW_SEPARATOR`, `namespacedWorkflowName`, `isValidWorkflowName` (what an extension may DECLARE — separator illegal), `isResolvableWorkflowName` (what a caller may LOOK UP — bare or `<ext>:<name>`; what makes a C7 nested target statically knowable).
+- `src/runtime/tools/run-workflow.ts` — the `run_workflow` built-in: two-field schema, authorization gate, DB-read role, 10-minute watchdog budget, run projection. Not in `getBuiltinToolDefs()`.
+- `src/runtime/workflow-tools-host.ts` — `wireRunWorkflowForTurn`: the per-turn wire that supplies the RBAC coordinates from the turn closure.
+- `src/runtime/stream-chat/setup-tools.ts` — `wireRunWorkflowIfEligible`: the depth-0 and owned-conversation gates, fail-soft.
+- `src/runtime/mention-wiring.ts` — `applyWorkflowExpansion`, `formatWorkflowSection` (nonce fence), `sanitizeNoteValue`, `indicesWithinJoinBudget` / `joinWithinBudget` (shared `stop`/`skip` budget helper).
+- `src/runtime/workflow-authz.ts` — the run/manage entry points `canRunWorkflow` / `canManageWorkflow`, implemented over the ladder in `workflow-scope.ts`. `canRunWorkflow` additionally re-checks that a namespaced workflow's owning extension is still installed AND enabled, read live from the DB — the cache cannot answer it, because `reloadWorkflows()` never fires on extension disable.
 - `src/runtime/workflow/runtime-registry.ts` — `registerWorkflowRuntime` / `getWorkflowRuntime`: the import-direction bridge letting `src/` reach the web layer's live `WorkflowExecutor` + workflow cache. `getWorkflows` is a THUNK (the cache array is replaced on every CRUD write).
 - `src/extensions/workflows-handler.ts` — `handleWorkflowsRpc`: the `ezcorp/workflows` enforcement ladder + hourly trigger quota.
 - `packages/@ezcorp/sdk/src/runtime/workflows.ts` — the `Workflows` SDK client (`ctx.workflows.run`).
@@ -689,9 +772,9 @@ The extension-authoring chain shipped as a real workflow — the reference examp
 - [[agents]] — every `agent` step invokes one agent by name via `AgentExecutor.runAgent`; agent orchestration is one of the three step kinds.
 - [[runs-lifecycle]] — each agent step produces a real `AgentRun` (its `runId`/status copied onto the step run); transform/gate steps mint no run. The `AgentStatus` union is shared.
 - [[streaming-runtime]] — the `workflow:*` events ride the same `AgentEvents` bus / SSE channel that streams agent runs to the browser.
-- [[teams]] — the sibling multi-agent subsystem; workflows are the **declarative-graph** alternative (no chat mention, no tool-scoping, no conversation).
+- [[teams]] — the sibling multi-agent subsystem; workflows are the **declarative-graph** alternative (no per-member tool-scoping, no roster). Both are now chat-reachable: a team via `![team:…]`, a workflow via `![workflow:…]` + `run_workflow`.
 - [[projects]] — `projectId` threads through to each `runAgent` call, though workflows themselves are not project-listed.
-- [[api-security]] — every route is gated by `requireScope` + `requireAuth`; note the missing owner/project scoping below.
+- [[api-security]] — every route is gated by `requireScope` + `requireAuth`; the by-name routes add the ownership ladder, and `…/run` adds the extension-liveness re-check on top.
 - [[rbac-and-permission-modes]] — an `approval` step's `rbacScope` is checked through `hasExtensionScope` at the strictest coordinates (NULL project, NULL extension), fail-closed: a throw is a DENY.
 - [[ask-user]] — the verbatim relay is how a parked approval reaches a human through an LLM without being answered on their behalf.
 - [[hub-pages]] — the Hub's approvals tab is the second answer surface, registered as a host-side page provider.
@@ -711,7 +794,7 @@ None yet — this is the primary reference.
 - **A run trace is 404 for a stranger, while a run CANCEL is 403.** Deliberate, not an inconsistency: by the time a caller cancels a run they have already been told it exists, whereas a trace carries `resolved_input` and `output` and a 403 would make the endpoint an existence oracle. `workflow-scope.ts` draws the same read/edit line for workflows themselves.
 - **The trace read does NOT use C6's `resolveWorkflowForCaller`, and that is the tighter choice.** The C6 ladder answers a question about the *workflow*, and for `visibility: "system"` its `read` answer is "anyone" — and every row that existed at C6's migration is `system`. Routing a run trace through it would let any authenticated caller read any other user's payloads for a shared workflow. A run's payload belongs to whoever fired it, not to whoever may see the graph, so workflow visibility can only ever narrow `mayControlRun`, never widen it.
 - **Workflow spend does NOT reach the observability dashboard, and cannot without a change there.** `obs:turn` is emitted in exactly one place (`src/runtime/stream-chat/finalize.ts`) and a workflow `agent` step never traverses it — `configToAgent` calls `ctx.llm.complete` directly. Even if it did, `insertObservabilityEvent` requires a `conversationId` and `observability_events.conversation_id` is `NOT NULL` FK to `conversations`, which the synthetic `workflow-run:<id>` scope key has no row for. This is the same structural fact as the `tool_calls` gotcha below. `workflow_step_runs` is the authoritative per-step cost record; a dashboard that wants factory spend must learn to read it as a second source rather than the events table being widened.
-- **A workflow tool step writes no `tool_calls` row.** `tool_calls.conversation_id` is an FK to `conversations`, and the synthetic `workflow-run:<id>` id has no row, so `persistToolCall` (which never throws by contract) silently drops it. The PDP's own audit row and `workflow_step_runs` carry the trail instead.
+- **A NON-INTERACTIVE workflow tool step writes no `tool_calls` row.** `tool_calls.conversation_id` is an FK to `conversations`, and the synthetic `workflow-run:<id>` id has no row, so `persistToolCall` (which never throws by contract) silently drops it; the PDP's own audit row and `workflow_step_runs` carry the trail instead. In **interactive** mode (a run started by the `run_workflow` tool) the scope key IS a real conversation id, the FK resolves, and the row is written normally — so the same step audits differently depending on which path started the run.
 - **The builder models all four step kinds and both model-binding levels.** It has to: the editor LOADS a saved definition into the same form, so a form that could not represent a `tool` step or a `model` override would silently DELETE them the moment the user pressed Save. `definitionToDrafts` is the asserted inverse of `stepToPayload`, per step kind.
 - **A model binding on a non-agent step is an error, not a no-op.** `transform`/`gate`/`tool` steps run no LLM, so a binding there would be silently ignored — the validator rejects it instead.
 - **`workflow_step_runs.provider`/`model` are NULL for pre-existing rows** and for the `running` write (the agent has not resolved anything yet); the terminal write fills them in. NULL therefore means "no LLM ran, or this row predates the columns" — it never means "unknown model".
@@ -748,13 +831,18 @@ None yet — this is the primary reference.
 - **Fail-fast is loud.** The first non-`success` step (or a thrown gate, or an exhausted loop) fails the run; still-dispatched siblings are cancelled and no later batch starts. Retries (agent, ≤2) and loops are the only bounded re-execution.
 - **YAML vs DB asymmetry.** YAML workflows are read-only via the API (only DB workflows can be PUT/DELETE'd). Editing a YAML workflow means editing the file and reloading.
 - **Name collisions aren't de-duped.** The merged cache is `[...extension, ...yaml, ...db]`; `find(w => w.name === …)` returns the first match. The DB enforces `name` unique only within the table. Extension entries are namespaced (`<ext>:<name>`) and ordered first, so they can neither shadow nor be shadowed — but a YAML and a DB workflow sharing a bare name still both appear (YAML first).
-- **An extension-shipped workflow is visible and runnable by anyone.** Namespacing bounds *naming*, not *access*, and extension/YAML assets are `system` — they ship with the install, so any authenticated `chat`-scoped caller can run `<ext>:<name>` with arbitrary input. `permissions.workflows` gates only the extension-code trigger path. Fork one to get a scoped copy you own.
+- **An extension-shipped workflow is visible to anyone, and runnable by anyone while its extension is live.** Namespacing bounds *naming*, not *access*, and extension/YAML assets are `system` — they ship with the install, so any authenticated `chat`-scoped caller can run `<ext>:<name>` with arbitrary input — but only while that extension is still installed and `enabled`, which the run path re-checks against the DB on every call. There is no per-user scoping on extension workflows (an extension asset has no author). `permissions.workflows` gates only the extension-code trigger path. Fork one to get a scoped copy you own.
+- **Disabling an extension does not evict its workflows from the cache.** `reloadWorkflows()` fires on workflow CRUD only — never on extension install, uninstall or disable. So a disabled extension's workflows keep appearing in `GET /api/workflows` and on `/workflows` until a workflow is written or the process restarts. They are no longer *runnable* (the liveness re-check fires at run time), but the listing is stale and the refusal is the only signal.
 - **`projectId` field-name collision.** The client helper folds `projectId` into the input object and the route splits it back out, so a workflow needing an input field literally named `projectId` cannot receive it through the standard path.
 - **`inputSchema` is advisory.** It is stored and surfaced but not enforced at run time.
 - **Legacy compatibility is one release only.** The `*.pipeline.yaml` glob, the `ezcorp pipeline` CLI alias, and the `/pipelines` redirect all warn/deprecate and are slated for removal.
 
 ### Out of scope (deliberately not built)
 
-**Resuming an `awaiting_approval` run** — that status stays terminal; only `suspended` runs resume. **Enforcing the approval timeout** — the columns and the validation exist, the sweep does not (above). A read API or UI over the persisted run history; looped tool steps; arbitrary-code (JS) steps; conditional branching / skip-dependents; nested sub-workflows; a UI YAML editor; distributed scheduling for the runner (the lease makes a second host *safe*, it does not coordinate them). Per-step **cost** telemetry (tokens, USD) is also still out of scope — only the resolved provider/model is recorded.
+**Resuming an `awaiting_approval` run** — that status stays terminal; only `suspended` runs resume (and note it can only arise on the non-interactive path). **Enforcing the approval timeout** — the columns and the validation exist, the sweep does not (above). A read API or UI over the persisted run history; looped tool steps; arbitrary-code (JS) steps; a UI YAML editor; distributed scheduling for the runner (the lease makes a second host *safe*, it does not coordinate them). Per-step **cost** telemetry (tokens, USD) is also still out of scope — only the resolved provider/model is recorded.
 
 Async / background runs and resuming a **parked** run are no longer out of scope — see the async header, `WorkflowRunner`, and the two run-control routes above.
+
+**Nested sub-workflows** exist as a `kind: "workflow"` step (C7). What stays actively blocked is reaching a workflow through the `run_workflow` TOOL from inside one: it is not wired at `orchestrationDepth > 0`, so a workflow's `agent` step cannot start another workflow that way (see **The chat path** for why the always-allow blast radius, not just the recursion, is the reason).
+
+The **chat path is no longer out of scope** — it was, until `![workflow:…]` and `run_workflow` landed. What remains deliberately absent there is any way to run a workflow from a mention alone: referencing and executing stay separate.

@@ -15,6 +15,8 @@ import { loadAgentsStatic } from "../runtime/loader";
 import {
   beginNonInteractiveScope,
   createExtensionPermissionGate,
+  getPendingApproval,
+  resolvePermission,
 } from "../runtime/tools/permissions";
 import { toolCallsThisTurn } from "../extensions/tool-executor/limits";
 import type { AgentDefinition, AgentEvents, WorkflowDefinition } from "../types";
@@ -501,6 +503,223 @@ describe("workflow kind:'tool' — sensitive-capability fail-fast", () => {
       };
       const run = await workflow.runWorkflow(def, {});
       expect(run.status).toBe("success");
+    } finally {
+      outer.end();
+    }
+  });
+});
+
+describe("workflow kind:'tool' — INTERACTIVE mode (a chat conversation is attached)", () => {
+  const singleToolStep: WorkflowDefinition = {
+    name: "wf",
+    description: "",
+    steps: [{ name: "call", kind: "tool", tool: "ext__deploy" }],
+  };
+
+  /** A runner that opens a REAL permission gate, records whether it parked
+   *  (rather than being refused), and answers it with `allow`. */
+  function consentRunner(promptId: string, allow: boolean, parked: boolean[]) {
+    return makeRunner(async (call) => {
+      const gate = createExtensionPermissionGate({
+        promptId,
+        conversationId: call.conversationId,
+        userId: "u1",
+        extensionId: "ext",
+        toolName: "deploy",
+        capabilityKind: "fs.write",
+      });
+      // TRUE here is the whole point of interactive mode: the gate is
+      // parked and answerable, not refused synchronously.
+      parked.push(getPendingApproval(promptId));
+      resolvePermission(promptId, allow, "session");
+      const resolution = await gate;
+      if (!resolution.allowed) throw new Error("User declined permission prompt");
+      return ok("deployed");
+    });
+  }
+
+  function interactiveExecutor(runner: WorkflowToolRunner) {
+    const bus = new EventBus<AgentEvents>();
+    const executor = new AgentExecutor(loadAgentsStatic([]), bus);
+    return new WorkflowExecutor(executor, bus, { toolRunnerFactory: () => runner });
+  }
+
+  test("a sensitive step's gate PARKS and the user's approval completes the run", async () => {
+    const promptId = `p-${crypto.randomUUID()}`;
+    const conversationId = `conv-${crypto.randomUUID()}`;
+    const parked: boolean[] = [];
+    const { runner, calls } = consentRunner(promptId, true, parked);
+
+    const run = await interactiveExecutor(runner).runWorkflow(
+      singleToolStep,
+      {},
+      undefined,
+      "u1",
+      undefined,
+      { conversationId },
+    );
+
+    expect(parked).toEqual([true]);
+    expect(run.status).toBe("success");
+    expect(run.result?.output).toBe("deployed");
+    // The REAL conversation id is what the dispatch carries — that is what
+    // routes the consent card to the right chat and lets the sec-H2
+    // ownership check on the resolve route work.
+    expect(calls[0]?.conversationId).toBe(conversationId);
+  });
+
+  test("a DECLINE terminalizes the run `error` — never `awaiting_approval`", async () => {
+    // `awaiting_approval` means "blocked on a human we cannot reach". In
+    // interactive mode the human WAS reached and said no, so it is
+    // structurally unreachable — the stub's takeDenial() always returns
+    // undefined, which routes the failure to the generic branch.
+    const promptId = `p-${crypto.randomUUID()}`;
+    const parked: boolean[] = [];
+    const { runner } = consentRunner(promptId, false, parked);
+
+    const run = await interactiveExecutor(runner).runWorkflow(
+      singleToolStep,
+      {},
+      undefined,
+      "u1",
+      undefined,
+      { conversationId: `conv-${crypto.randomUUID()}` },
+    );
+
+    expect(parked).toEqual([true]);
+    expect(run.status).toBe("error");
+    expect(run.status).not.toBe("awaiting_approval");
+    expect(run.result?.error).toBe('Step "call" failed: User declined permission prompt');
+    expect(run.steps[0]?.status).toBe("error");
+  });
+
+  test("does NOT wipe the surrounding chat turn's per-turn tool-call budget", async () => {
+    // The counter is keyed by whatever is passed as `conversationId`. In
+    // interactive mode that IS the surrounding turn's conversation, and
+    // the turn — not this run — owns the entry. Deleting it here would
+    // silently refund the whole per-turn tool-call budget mid-turn.
+    const conversationId = `conv-${crypto.randomUUID()}`;
+    toolCallsThisTurn.set(conversationId, 7);
+    const { runner } = makeRunner(() => ok("x"));
+    try {
+      await interactiveExecutor(runner).runWorkflow(
+        singleToolStep,
+        {},
+        undefined,
+        "u1",
+        undefined,
+        { conversationId },
+      );
+      expect(toolCallsThisTurn.get(conversationId)).toBe(7);
+    } finally {
+      toolCallsThisTurn.delete(conversationId);
+    }
+  });
+
+  test("cancelling the chat rejects the open consent card and cancels the run", async () => {
+    // `cancelInFlight()` only reaches agent runs, so without an explicit
+    // gate teardown the batch would keep awaiting a card the user has just
+    // walked away from and the run would never terminalize.
+    const promptId = `p-${crypto.randomUUID()}`;
+    const conversationId = `conv-${crypto.randomUUID()}`;
+    const controller = new AbortController();
+    const { runner } = makeRunner(async (call) => {
+      const gate = createExtensionPermissionGate({
+        promptId,
+        conversationId: call.conversationId,
+        userId: "u1",
+        extensionId: "ext",
+        toolName: "deploy",
+        capabilityKind: "fs.write",
+      });
+      controller.abort(); // the user hits stop while the card is up
+      await gate;
+      return ok("unreachable — the card was torn down");
+    });
+
+    const run = await Promise.race([
+      interactiveExecutor(runner).runWorkflow(
+        singleToolStep,
+        {},
+        undefined,
+        "u1",
+        controller.signal,
+        { conversationId },
+      ),
+      new Promise<never>((_r, rej) =>
+        setTimeout(() => rej(new Error("runWorkflow HUNG on a cancelled consent card")), 2000),
+      ),
+    ]);
+
+    expect(run.status).toBe("cancelled");
+    // Nothing left standing on the conversation.
+    expect(getPendingApproval(promptId)).toBe(false);
+  });
+
+  test("an EMPTY conversationId is NOT interactive — it falls back to the fail-closed key", async () => {
+    // An empty string fails the SSE filter OPEN, so it must never be
+    // honored as a conversation.
+    const { workflow, calls } = setup(() => ok("x"));
+    const run = await workflow.runWorkflow(singleToolStep, {}, undefined, "u1", undefined, {
+      conversationId: "",
+    });
+    expect(calls[0]?.conversationId).toBe(workflowScopeKey(run.id));
+    expect(toolCallsThisTurn.has(workflowScopeKey(run.id))).toBe(false);
+  });
+
+  test("the pending-permission gate reaches the tool-runner factory", async () => {
+    // It is what makes an open card visible to the run watchdog; a gate
+    // that never arrives reproduces the "stuck chat" defect.
+    const bus = new EventBus<AgentEvents>();
+    const executor = new AgentExecutor(loadAgentsStatic([]), bus);
+    const { runner } = makeRunner(() => ok("x"));
+    const seen: unknown[] = [];
+    const wf = new WorkflowExecutor(executor, bus, {
+      toolRunnerFactory: (gate) => {
+        seen.push(gate);
+        return runner;
+      },
+    });
+    const gate = { register: () => {}, deregister: () => {} };
+
+    await wf.runWorkflow(singleToolStep, {}, undefined, "u1", undefined, {
+      conversationId: `conv-${crypto.randomUUID()}`,
+      pendingPermissions: gate,
+    });
+
+    expect(seen).toEqual([gate]);
+  });
+
+  test("NO-LAUNDERING: an outer non-interactive scope still refuses an inner interactive run", async () => {
+    // The free property worth locking: check 1 of
+    // `createExtensionPermissionGate` is AsyncLocalStorage-based, and the
+    // interactive stub's `run(fn)` deliberately does not CLEAR an outer
+    // store. So a REST/CLI-fired non-interactive workflow whose agent step
+    // reaches `run_workflow` cannot promote itself to interactive and
+    // start prompting a user who never asked for anything.
+    const outer = beginNonInteractiveScope(`workflow-run:${crypto.randomUUID()}`);
+    try {
+      const status = await outer.run(async () => {
+        const promptId = `p-${crypto.randomUUID()}`;
+        const parked: boolean[] = [];
+        const { runner } = consentRunner(promptId, true, parked);
+        const run = await interactiveExecutor(runner).runWorkflow(
+          singleToolStep,
+          {},
+          undefined,
+          "u1",
+          undefined,
+          { conversationId: `conv-${crypto.randomUUID()}` },
+        );
+        // The gate was REFUSED, not parked — no card was ever raised.
+        expect(parked).toEqual([false]);
+        return run.status;
+      });
+
+      expect(status).not.toBe("success");
+      // The refusal was recorded against the OUTER scope, which is the
+      // proof it was the outer scope that claimed the gate.
+      expect(outer.takeDenial()).toBe("fs.write");
     } finally {
       outer.end();
     }

@@ -7,13 +7,15 @@
 		toggleTool as logicToggleTool,
 		selectAllTools as logicSelectAllTools,
 	} from "$lib/tool-scope-logic";
+	import { parseExtensionList, type ExtensionToolSource } from "$lib/extension-tool-options";
 
 	// Per-extension tool subset selector. Renders one section per attached
 	// extension with a checklist of its tools. The toggle/collapse rules live
 	// in the shared pure module `$lib/tool-scope-logic` (the data model: a key
-	// absent or mapping to an empty array means "all tools").
-	interface ToolInfo { name: string; description?: string | null }
-	interface ExtInfo { id: string; name: string; tools: ToolInfo[] }
+	// absent or mapping to an empty array means "all tools"); parsing the
+	// /api/extensions payload lives in `$lib/extension-tool-options`, shared
+	// with the workflow builder's tool-step picker.
+	type ExtInfo = ExtensionToolSource;
 
 	let {
 		extensionIds = [],
@@ -34,18 +36,8 @@
 		try {
 			const res = await fetch("/api/extensions");
 			if (res.ok) {
-				const data = await res.json();
-				const list: unknown[] = Array.isArray(data)
-					? data
-					: Array.isArray(data?.extensions) ? data.extensions : [];
 				const map: Record<string, ExtInfo> = {};
-				for (const e of list as Array<{ id: string; name?: string; manifest?: { tools?: ToolInfo[] } }>) {
-					map[e.id] = {
-						id: e.id,
-						name: e.name ?? e.id,
-						tools: Array.isArray(e.manifest?.tools) ? e.manifest!.tools! : [],
-					};
-				}
+				for (const ext of parseExtensionList(await res.json())) map[ext.id] = ext;
 				extData = map;
 			}
 		} catch { /* non-fatal */ }

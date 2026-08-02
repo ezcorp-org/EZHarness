@@ -31,7 +31,7 @@ export const helpContent: Record<string, string> = {
 
 	// Chat features
 	"chat.mentions":
-		"Type a trigger to open a searchable popover, then Enter to insert:\n\n/  Slash commands (/review, /commit…)\n@  Project files & folders\n!  Agents, extensions, teams\n\nEach inserts a structured chip you can delete atomically. Arg text after a /command is substituted into its body as $ARGUMENTS.",
+		"Type a trigger to open a searchable popover, then Enter to insert:\n\n/  Slash commands (/review, /commit…)\n@  Project files & folders\n!  Agents, extensions, teams, workflows\n\nEach inserts a structured chip you can delete atomically. Arg text after a /command is substituted into its body as $ARGUMENTS.",
 	"chat.inline-tools":
 		"Inline tools run extension actions directly in the chat. Click an extension mention chip to pick a tool and fill in its arguments.",
 	"chat.sub-conversations":

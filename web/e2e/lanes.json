@@ -82,6 +82,7 @@
       "web/e2e/user-commands.spec.ts",
       "web/e2e/visual-evidence.spec.ts",
       "web/e2e/workflow-approval-tray.spec.ts",
+      "web/e2e/workflow-mention.spec.ts",
       "web/e2e/workflows-approvals.spec.ts",
       "web/e2e/workflows-conditional.spec.ts",
       "web/e2e/workflows-demos.spec.ts",

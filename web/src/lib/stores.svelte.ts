@@ -335,9 +335,18 @@ export function refreshAgentConfigs() {
 		.catch(() => {});
 }
 
-export function refreshWorkflows() {
-	fetchWorkflows()
-		.then((data) => (store.workflows = data))
+/** Reload the workflow list into the store.
+ *
+ *  Returns the promise (existing fire-and-forget callers are unaffected) so
+ *  a caller that must act on the FRESH list can await it — the rename path
+ *  on `/workflows/[name]` navigates to the new name and would otherwise
+ *  race the refetch and land on "not found". Always resolves; a failed
+ *  refresh leaves the previous list in place. */
+export function refreshWorkflows(): Promise<void> {
+	return fetchWorkflows()
+		.then((data) => {
+			store.workflows = data;
+		})
 		.catch(() => {});
 }
 

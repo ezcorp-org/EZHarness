@@ -177,6 +177,7 @@ coverage_host_files() {
       web/src/__tests__/snippet-sanitize.test.ts \
       web/src/__tests__/workflow-builder-logic.test.ts \
       web/src/__tests__/workflow-editor-logic.test.ts \
+      web/src/__tests__/extension-tool-options.test.ts \
       web/src/lib/__tests__/rbac-grants-view.test.ts \
       web/src/__tests__/permission-mode-indicator.test.ts \
       web/src/__tests__/search-mode.test.ts \

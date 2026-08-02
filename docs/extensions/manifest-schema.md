@@ -819,7 +819,7 @@ await new Workflows().run("nightly-digest", { since: "2026-07-01" });
 
 **You cannot reach another extension's — or the host's — workflows.** You pass the bare name; the host applies the `<extensionName>:` prefix itself, from the registry-resolved manifest name. Since the wire name may not contain `:`, there is simply no way to express a foreign workflow name. This is also why shipping a workflow can never shadow a host one: `demo-deterministic` in your YAML becomes `your-ext:demo-deterministic`.
 
-**Shipping a workflow is not a permission** — it is an asset, like declaring a tool, and it needs no grant. *Triggering* one from code is the privileged act, which is what this permission gates. (Conversely: an extension-shipped workflow is visible and runnable by any authenticated user from `/workflows`, exactly like the host's own.)
+**Shipping a workflow is not a permission** — it is an asset, like declaring a tool, and it needs no grant. *Triggering* one from code is the privileged act, which is what this permission gates. (Conversely: an extension-shipped workflow is visible to any authenticated user from `/workflows`, and runnable by any of them **while your extension is installed and enabled** — the run route re-checks that against the database on every call, so disabling your extension stops its workflows even though they linger in the in-memory listing.)
 
 **Rate ceiling exists because runs cost money.** A workflow can contain `agent` steps that invoke an LLM, so every grant carries a per-hour bound whether or not the author declared one.
 

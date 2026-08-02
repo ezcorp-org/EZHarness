@@ -453,6 +453,16 @@ export const workflowDefinitions = pgTable("workflow_definitions", {
   // with no row at all, and the extension may later be uninstalled.
   forkedFrom: text("forked_from"),
 
+  /** Authoring user, from upstream's owner-or-admin rule.
+   *
+   *  SUPERSEDED by `userId` + `visibility` above and removed in the
+   *  follow-up commit — it is retained here only so this merge stays a
+   *  pure integration. The two models disagree about what NULL MEANS
+   *  (upstream: "unowned, anyone may act"; ours: an orphaned `private`
+   *  row is admin-only), so they cannot share a column. Nothing gates on
+   *  this column as of this commit: every write route authorizes through
+   *  `resolveWorkflowForCaller`. */
+  createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [

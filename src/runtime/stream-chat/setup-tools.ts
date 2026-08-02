@@ -242,6 +242,65 @@ export async function wireBriefingChatToolsIfEligible(args: {
   }
 }
 
+/**
+ * Wire the `run_workflow` built-in for turns that may execute a workflow.
+ *
+ * Two gates, both security-relevant:
+ *
+ * 1. **BOUND RECURSION** — skipped entirely once `orchestrationDepth > 0`.
+ *    A workflow's `agent` step runs an agent turn; if that turn were itself
+ *    wired with `run_workflow`, a graph could recurse without bound under a
+ *    single chat turn — and one "always allow for this conversation" click
+ *    would then auto-approve every sensitive step of every nested run.
+ *    Depth 0, the user's own turn, is the only place this tool belongs.
+ * 2. **Owned conversations only** — the acting principal is the
+ *    conversation OWNER (`convRecord.userId`), which is what
+ *    `canRunWorkflow` authorizes. An ownerless row is skipped and warned
+ *    about rather than run as nobody.
+ *
+ * Runs in phase 2c so the tool reaches `ctx.agentTools` BEFORE the
+ * executor's `applyToolFilters`; fail-soft like every sibling wire — a
+ * failure degrades to a turn that cannot run workflows, never a 500.
+ *
+ * Exported standalone so the gate contract (both negatives, the depth
+ * guard, and the fail-soft path) is unit-testable without driving the whole
+ * setupTools phase — see run-workflow-wired-into-setup.test.ts.
+ */
+export async function wireRunWorkflowIfEligible(args: {
+  agentTools: AgentTool[];
+  builtinToolDefsMap: Map<string, import("../tools/types").BuiltinToolDef>;
+  conversationId: string;
+  convRecord: SetupToolsConvRecord | null;
+  orchestrationDepth?: number;
+  projectId?: string;
+  pendingPermissions?: Map<string, PendingPermissionInfo>;
+}): Promise<void> {
+  const { agentTools, builtinToolDefsMap, conversationId, convRecord } = args;
+  try {
+    if ((args.orchestrationDepth ?? 0) > 0) return;
+    if (!convRecord?.userId) {
+      log.warn(
+        "run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized",
+        { conversationId },
+      );
+      return;
+    }
+    const { wireRunWorkflowForTurn } = await import("../workflow-tools-host");
+    wireRunWorkflowForTurn({
+      agentTools,
+      builtinToolDefsMap,
+      conversationId,
+      userId: convRecord.userId,
+      ...(args.projectId ? { projectId: args.projectId } : {}),
+      ...(args.pendingPermissions ? { pendingPermissions: args.pendingPermissions } : {}),
+    });
+  } catch (workflowWireErr) {
+    log.warn("run_workflow wire failed — workflows unavailable this turn", {
+      error: String(workflowWireErr),
+    });
+  }
+}
+
 /** Minimal registry surface the bundled-extension wire needs — the real
  *  {@link ExtensionRegistry} satisfies it; tests pass a fake. */
 interface BundledExtensionToolSource {
@@ -1149,6 +1208,19 @@ export async function setupTools(
           builtinToolDefsMap: ctx.builtinToolDefsMap,
           conversationId,
           convRecord,
+        });
+        // `run_workflow` — the execution half of the `!workflow:` mention
+        // (the mention itself only adds a describing note). Gated on
+        // orchestrationDepth so a workflow's agent step can't re-enter it
+        // — see wireRunWorkflowIfEligible.
+        await wireRunWorkflowIfEligible({
+          agentTools: ctx.agentTools,
+          builtinToolDefsMap: ctx.builtinToolDefsMap,
+          conversationId,
+          convRecord,
+          orchestrationDepth: options.orchestrationDepth,
+          projectId: options.projectId,
+          pendingPermissions: host.pendingPermissions,
         });
         await wireMentionedExtensions(conversationId, userMessage, options.parentMessageId ?? run.id);
         const convExtIds = await getConversationExtensionIds(conversationId);

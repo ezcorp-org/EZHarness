@@ -108,7 +108,11 @@ test.describe("Workflows", () => {
 		});
 		await page.goto("/workflows/my-workflow");
 
-		await page.getByText("Workflows").first().click();
+		// Target the back LINK by its accessible name. `getByText("Workflows")
+		// .first()` matched the sidebar nav entry instead — which is hidden at
+		// the mobile viewport, so this test could never pass on
+		// mobile-chromium (it timed out clicking an invisible element).
+		await page.getByRole("link", { name: "← Workflows" }).click();
 		await expect(page).toHaveURL(/\/workflows$/);
 	});
 

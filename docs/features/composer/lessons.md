@@ -112,7 +112,7 @@ None yet — this is the primary reference. (See [mention-grammar](../composer/m
 
 ## Notes & gotchas
 
-- **Five sigils, not four.** The composer grammar has five active sigils in code — `!` `@` `/` `$` `%` (plus the `EZ` kind nested under `!`). `%[lesson:slug]` is the lesson sigil. CLAUDE.md's mention table predates `%` and lists only four; the code (`web/src/lib/mention-logic.ts`) is authoritative.
+- **Five sigils, not four.** The composer grammar has five active sigils in code — `!` `@` `/` `$` `%` (plus the `EZ` and `workflow` kinds nested under `!`). `%[lesson:slug]` is the lesson sigil. `web/CLAUDE.md`'s mention table now lists all five rows; the code (`web/src/lib/mention-logic.ts`) stays authoritative if they ever drift.
 - **Distiller is bundled, not an example.** `lessons-distiller` lives at `extensions/lessons-distiller/` and is wired at boot via `BUNDLED_EXTENSIONS` — it is not under `docs/extensions/examples/`. Don't conflate the boot-bundled set with the example/test-fixture dirs on disk.
 - **Visibility clamp ≠ promotion.** The SDK `ctx.lessons.write` path clamps to the grant ceiling (distiller can only write `user`). Promotion to `project`/`global` happens only through the **owner-gated** `PATCH /api/lessons/[id]` curation route, and is **monotonic** — you cannot demote (409). Rationale: a project lesson's `firedCount` accrues across members; demoting would orphan that shared signal. Bad project lessons are hard-deleted, not demoted.
 - **404 collapses ownership.** `DELETE` and `PATCH` return 404 for both "row missing" and "not owned by caller" (no 403) to prevent id enumeration. `PATCH` does a second owner-ignoring read (`getLessonByIdForOwnerCheck`) purely to disambiguate the legitimate-owner backward-transition (409) from a 404.

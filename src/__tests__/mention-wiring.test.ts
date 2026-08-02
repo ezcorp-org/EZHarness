@@ -50,6 +50,26 @@ describe("parseMentions", () => {
     expect(parseMentions("")).toEqual([]);
   });
 
+  test("extracts workflow mentions", () => {
+    const result = parseMentions("run ![workflow:deploy-prod] please");
+    expect(result).toEqual([
+      { kind: "workflow", name: "deploy-prod", start: 4, end: 27 },
+    ]);
+  });
+
+  test("keeps the workflow kind distinct from the other ! kinds", () => {
+    const result = parseMentions(
+      "![agent:A] ![ext:B] ![team:C] ![EZ:D] ![workflow:E]",
+    );
+    expect(result.map((m) => m.kind)).toEqual([
+      "agent",
+      "ext",
+      "team",
+      "EZ",
+      "workflow",
+    ]);
+  });
+
   test("does not match legacy @[agent:…] tokens (graceful degradation)", () => {
     expect(parseMentions("@[agent:Legacy]")).toEqual([]);
     expect(parseMentions("@[ext:legacy]")).toEqual([]);
@@ -174,5 +194,37 @@ describe("wireMentionedExtensions", () => {
     expect(result).toEqual([]);
     expect(mockGetExtsByNames).not.toHaveBeenCalled();
     expect(mockGetAgentsByNames).not.toHaveBeenCalled();
+  });
+
+  test("ignores ![workflow:…] mentions (does not wire any extension)", async () => {
+    // Shares the `!` sigil with ext/agent, so a workflow whose name
+    // matches an extension must NOT pull that extension's tools into the
+    // conversation. The kind filter is what prevents it — no DB round
+    // trip is even attempted.
+    const wire = await loadWire();
+    const result = await wire("conv-1", "run ![workflow:analyzer]", "msg-1");
+
+    expect(result).toEqual([]);
+    expect(mockGetExtsByNames).not.toHaveBeenCalled();
+    expect(mockGetAgentsByNames).not.toHaveBeenCalled();
+    expect(mockAddConvExts).not.toHaveBeenCalled();
+  });
+
+  test("a workflow token alongside an ext token wires ONLY the extension", async () => {
+    mockGetExtsByNames.mockResolvedValueOnce(
+      mapFromRecord({ analyzer: { id: "ext-123", name: "analyzer" } }) as any,
+    );
+    mockGetConvExtIds.mockResolvedValue([]);
+
+    const wire = await loadWire();
+    const result = await wire(
+      "conv-1",
+      "![workflow:analyzer] then ![ext:analyzer]",
+      "msg-1",
+    );
+
+    // Only the ext token contributed a name to the lookup.
+    expect(mockGetExtsByNames).toHaveBeenCalledWith(["analyzer"]);
+    expect(result).toEqual(["ext-123"]);
   });
 });

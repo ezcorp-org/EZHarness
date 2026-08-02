@@ -158,6 +158,46 @@ describe("migration on Postgres-compatible backend", () => {
     expect(colResult.rows.length).toBe(1);
     expect((colResult.rows[0] as any).data_type).toBe("USER-DEFINED"); // vector type
   });
+
+  test("workflow_definitions.created_by exists, is nullable, and FKs to users", async () => {
+    // The ALTER lives near the END of migrate() on purpose: the table is
+    // created long before `users`, so an inline FK there would have no
+    // target. Assert both the column and the constraint so a regression
+    // that moves it back is caught here rather than at install time.
+    const col = await pg.query(
+      "SELECT is_nullable FROM information_schema.columns WHERE table_name = 'workflow_definitions' AND column_name = 'created_by'",
+    );
+    expect(col.rows.length).toBe(1);
+    expect((col.rows[0] as any).is_nullable).toBe("YES");
+
+    const fk = await pg.query(`
+      SELECT ccu.table_name AS referenced, rc.delete_rule
+      FROM information_schema.table_constraints tc
+      JOIN information_schema.key_column_usage kcu ON kcu.constraint_name = tc.constraint_name
+      JOIN information_schema.constraint_column_usage ccu ON ccu.constraint_name = tc.constraint_name
+      JOIN information_schema.referential_constraints rc ON rc.constraint_name = tc.constraint_name
+      WHERE tc.table_name = 'workflow_definitions'
+        AND tc.constraint_type = 'FOREIGN KEY'
+        AND kcu.column_name = 'created_by'
+    `);
+    expect(fk.rows.length).toBe(1);
+    expect((fk.rows[0] as any).referenced).toBe("users");
+    expect((fk.rows[0] as any).delete_rule).toBe("SET NULL");
+  });
+
+  test("the created_by migration does not backfill existing rows", async () => {
+    // NULL is what keeps every pre-existing workflow global (runnable and
+    // editable by anyone). A first-admin backfill would silently lock them
+    // all to one user.
+    await pg.query(
+      "INSERT INTO workflow_definitions (id, name, description, steps) VALUES ('wf-legacy', 'legacy-wf', '', '[]'::jsonb)",
+    );
+    await migrate(db);
+    const rows = await pg.query(
+      "SELECT created_by FROM workflow_definitions WHERE id = 'wf-legacy'",
+    );
+    expect((rows.rows[0] as any).created_by).toBeNull();
+  });
 });
 
 // ── Real external Postgres (Bun.sql) ─────────────────────────────────

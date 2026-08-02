@@ -380,3 +380,76 @@ test.describe("Workflow demos — run through the UI", () => {
 		await captureEvidence(page, testInfo, "workflow-builder-validation-error");
 	});
 });
+
+test.describe("Workflow editing — visual", () => {
+	// The inline editor, the tool step picker and the manage-gated header
+	// actions are all new visual surface on `/workflows/**` and the two
+	// builder components, which this spec already covers in
+	// e2e/evidence-covers.json.
+	const editable = makeWorkflow({
+		name: "report-flow",
+		description: "Compose a headline, gate it, then publish.",
+		steps: [
+			{ name: "compose", kind: "transform", output: { headline: "Report on {{$input.topic}}" } },
+			{ name: "gate-it", kind: "gate", dependsOn: ["compose"], condition: { ref: "$steps.compose.output.headline", op: "contains", value: "Report on" } },
+			{ name: "summarize", agent: "summarizer", dependsOn: ["gate-it"], input: { text: "$prev.output.headline" } },
+		] as any,
+	});
+
+	test("detail actions, the inline editor and a tool step render correctly @evidence", async ({ page, mockApi }, testInfo) => {
+		await mockApi({ workflows: [editable], agents: [makeAgent({ name: "summarizer" })] });
+		// Registered AFTER mockApi: Playwright matches routes in reverse
+		// registration order, so an earlier handler would lose to mockApi's
+		// own /api/extensions response and the picker would render empty.
+		await page.route("**/api/extensions", (route) =>
+			route.request().method() === "GET"
+				? route.fulfill({
+						json: [
+							{ id: "notes", name: "Notes", manifest: { tools: [{ name: "add_note", description: "Append a note" }] } },
+							{ id: "publisher", name: "Publisher", manifest: { tools: [{ name: "publish" }] } },
+						],
+					})
+				: route.fallback(),
+		);
+
+		// 1) Read-only detail with the manage-gated Edit / Duplicate / Delete row.
+		const resp = await page.goto("/workflows/report-flow");
+		expect(resp ? new URL(resp.url()).pathname : "").toBe("/workflows/report-flow");
+		await expect(page.getByTestId("workflow-steps-view")).toBeVisible();
+		await expect(page.getByTestId("workflow-edit")).toBeVisible();
+		await captureEvidence(page, testInfo, "workflow-detail-actions");
+
+		// 2) The inline editor, prefilled from the stored definition. The Run
+		//    panel is deliberately gone while editing.
+		await page.getByTestId("workflow-edit").click();
+		await expect(page.getByRole("heading", { name: "Editing report-flow" })).toBeVisible();
+		await expect(page.getByLabel("Workflow Name")).toHaveValue("report-flow");
+		await expect(page.getByRole("heading", { name: "Run Workflow" })).toBeHidden();
+		await captureEvidence(page, testInfo, "workflow-inline-editor");
+
+		// 3) A tool step: the kind picker's new option and the grouped
+		//    extension-tool select it reveals.
+		await page.getByRole("button", { name: "+ Add Step" }).click();
+		await page.getByLabel("Kind").last().selectOption("tool");
+		const toolSelect = page.getByTestId("step-tool-select");
+		await expect(toolSelect).toBeVisible();
+		await toolSelect.selectOption("notes__add_note");
+		await captureEvidence(page, testInfo, "workflow-tool-step");
+	});
+
+	test("a read-only YAML workflow offers Duplicate only @evidence", async ({ page, mockApi }, testInfo) => {
+		// The four shipped demos are files on disk — Edit/Delete would 404,
+		// so the header must offer the one action that does work.
+		await mockApi({
+			workflows: [makeWorkflow({ ...demoDeterministic, source: "yaml", canManage: false })],
+			agents: [makeAgent({ name: "summarizer" })],
+		});
+		const resp = await page.goto("/workflows/demo-deterministic");
+		expect(resp ? new URL(resp.url()).pathname : "").toBe("/workflows/demo-deterministic");
+
+		await expect(page.getByTestId("workflow-duplicate")).toBeVisible();
+		await expect(page.getByTestId("workflow-edit")).toHaveCount(0);
+		await expect(page.getByTestId("workflow-delete")).toHaveCount(0);
+		await captureEvidence(page, testInfo, "workflow-readonly-detail");
+	});
+});

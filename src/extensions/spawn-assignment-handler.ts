@@ -260,10 +260,26 @@ export async function handleSpawnAssignmentRpc(
     params.teamToolScope && typeof params.teamToolScope === "object" && !Array.isArray(params.teamToolScope)
       ? (params.teamToolScope as TeamToolScope)
       : undefined;
+  // A spawn that arrives over reverse-RPC is BY DEFINITION a nested turn, so
+  // its depth can never legitimately be 0 — 0 means "top-level user chat
+  // turn", which a spawned sub-agent never is. Normalize to >= 1.
+  //
+  // `Number.isFinite` alone was the only validation, which left the depth
+  // caller-chosen. That is load-bearing now that depth gates tool wiring
+  // (`wireRunWorkflowIfEligible`, stream-chat/setup-tools.ts): a caller that
+  // sent `orchestrationDepth: 0` — or simply OMITTED the field, which reached
+  // `streamChat` as undefined and read back as 0 — got a spawned turn wired
+  // with `run_workflow`, defeating the recursion bound and the
+  // always-allow blast-radius argument behind it. Both holes close here:
+  // absent ⇒ 1, and any supplied value floors to 1.
+  //
+  // Deliberately NOT clamped from above: a larger depth only makes the
+  // downstream guards stricter, so an inflated value can cost the caller its
+  // own orchestration tools but can never grant anything.
   const callerOrchestrationDepth =
     typeof params.orchestrationDepth === "number" && Number.isFinite(params.orchestrationDepth)
-      ? (params.orchestrationDepth as number)
-      : undefined;
+      ? Math.max(1, Math.trunc(params.orchestrationDepth))
+      : 1;
   // Parent orchestrator run id — when present, startAssignment registers
   // every run it starts under this parent so a parent cancel cascades.
   const callerParentRunId =
@@ -451,7 +467,10 @@ export async function handleSpawnAssignmentRpc(
       ...(callerParentMessageId ? { parentMessageId: callerParentMessageId } : {}),
       ...(callerOverrides ? { overrides: callerOverrides } : {}),
       ...(callerTeamToolScope ? { teamToolScope: callerTeamToolScope } : {}),
-      ...(callerOrchestrationDepth !== undefined ? { orchestrationDepth: callerOrchestrationDepth } : {}),
+      // ALWAYS forwarded (never conditional): omitting it let the child turn
+      // read back as depth 0, i.e. "top-level", which is exactly the bypass
+      // the normalization above exists to close.
+      orchestrationDepth: callerOrchestrationDepth,
       ...(callerParentRunId ? { parentRunId: callerParentRunId } : {}),
       ...(callerAutonomous ? { autonomousContinuation: callerAutonomous } : {}),
       ...(callerOutputSchema ? { outputSchema: callerOutputSchema } : {}),

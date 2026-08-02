@@ -1,9 +1,11 @@
 /**
  * Server-handler unit tests for /api/workflows/[name]/+server.ts.
  *
- * Covers the scope/auth gates, the strict-body + definition-time validation
- * rejections, and the GET/PUT/DELETE success + 404 branches (the workflow
- * registry + DB query layer are mocked).
+ * Covers the scope/auth gates, the owner-or-admin gate on PUT/DELETE, the
+ * strict-body + definition-time validation rejections, and the
+ * GET/PUT/DELETE success + 404 branches (the workflow registry + DB query
+ * layer are mocked; the ownership rule itself is tested in
+ * src/__tests__/workflow-authz.test.ts).
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
@@ -15,17 +17,30 @@ const ctx = vi.hoisted(() => ({
   reloadWorkflows: vi.fn(async () => {}),
 }));
 const queries = vi.hoisted(() => ({
-  getWorkflowByName: vi.fn(async (_name: string) => undefined as { id: string } | undefined),
+  getWorkflowByName: vi.fn(
+    async (_name: string) => undefined as { id: string; createdBy?: string | null } | undefined,
+  ),
   updateWorkflow: vi.fn(async (_id: string, _data: unknown) => undefined as unknown),
   deleteWorkflow: vi.fn(async (_id: string) => true),
+  getWorkflowOwnersByName: vi.fn(
+    async () => new Map<string, { userId: string | null; visibility: string }>(),
+  ),
   WorkflowNameConflictError: class extends Error {},
 }));
 const versions = vi.hoisted(() => ({
   ensureWorkflowVersion: vi.fn(async () => ({ version: { version: 1 }, minted: false })),
 }));
+// Upstream's rule set, mocked so these tests can prove it is still WIRED
+// (both gates run on PUT/DELETE as of this merge) without re-testing the
+// rule itself — that lives in src/__tests__/workflow-authz.test.ts.
+const authz = vi.hoisted(() => ({
+  canActOnWorkflow: vi.fn(() => true),
+  canManageWorkflow: vi.fn(() => false),
+}));
 vi.mock("$lib/server/context", () => ctx);
 vi.mock("$server/db/queries/workflows", () => queries);
 vi.mock("$server/db/queries/workflow-versions", () => versions);
+vi.mock("$server/runtime/workflow-authz", () => authz);
 
 import { GET, PUT, DELETE } from "../routes/api/workflows/[name]/+server";
 
@@ -49,6 +64,9 @@ beforeEach(() => {
   queries.updateWorkflow.mockReset().mockResolvedValue(undefined);
   queries.deleteWorkflow.mockReset().mockResolvedValue(true);
   versions.ensureWorkflowVersion.mockReset().mockResolvedValue({ version: { version: 1 }, minted: false });
+  queries.getWorkflowOwnersByName.mockReset().mockResolvedValue(new Map());
+  authz.canActOnWorkflow.mockReset().mockReturnValue(true);
+  authz.canManageWorkflow.mockReset().mockReturnValue(false);
 });
 
 function makeEvent(opts: {
@@ -86,7 +104,7 @@ async function expectThrownResponse(
 }
 
 const authedUser = {
-	user: { id: "u1", email: "u@x", name: "u", role: "user" },
+	user: { id: "u1", email: "u@x", name: "u", role: "member" },
 };
 
 describe("GET /api/workflows/[name]", () => {
@@ -112,11 +130,24 @@ describe("GET /api/workflows/[name]", () => {
 		expect(res.status).toBe(200);
 		// Additively wrapped now: the definition plus the provenance the
 		// editor needs to decide whether to offer Edit.
+		// The detail route must serve the SAME shape as the list — a workflow
+		// must not gain or lose a field depending on which route returned it.
 		expect((await res.json()) as { name?: string }).toMatchObject({
 			name: "w1",
 			source: "db",
 			visibility: "project",
 			canEdit: true,
+			canManage: false,
+		});
+	});
+
+	test("reports canManage true for a workflow this caller may write", async () => {
+		ctx.getCachedWorkflows.mockReturnValue([ownedEntry("w1")]);
+		authz.canManageWorkflow.mockReturnValue(true);
+		const res = await GET(makeEvent({ name: "w1", locals: authedUser }));
+		expect((await res.json()) as { canManage?: boolean }).toMatchObject({
+			name: "w1",
+			canManage: true,
 		});
 	});
 
@@ -226,6 +257,12 @@ describe("PUT /api/workflows/[name]", () => {
 		expect(body.error).toBe("Not found (only DB workflows can be updated)");
 	});
 
+	// PUT runs TWO gates as of this merge: the ladder (via
+	// `resolveWorkflowOr`) and upstream's owner-or-admin rule on the row's
+	// `created_by`. Both are exercised below — the ladder ones reach
+	// upstream's gate with `canActOnWorkflow` defaulted to true, and the
+	// upstream ones get past the ladder with an owned cache entry.
+
 	test("returns 403 when the caller may not edit a system workflow", async () => {
 		// The deliberate tightening: every pre-existing row is `system`, and
 		// `system` is admin-only to edit. A 403 (not 404) because the caller
@@ -258,6 +295,27 @@ describe("PUT /api/workflows/[name]", () => {
 		await expect(
 			PUT(makeEvent({ locals: authedUser, method: "PUT", body: { description: "d" } })),
 		).rejects.toThrow("disk full");
+	});
+
+	test("returns 403 when the caller does not own the row", async () => {
+		// Past the ladder (the caller owns the cache entry), refused by
+		// upstream's rule on the ROW — proof that gate is still wired.
+		ctx.getCachedWorkflows.mockReturnValue([ownedEntry()]);
+		queries.getWorkflowByName.mockResolvedValue({ id: "wf-1", createdBy: "someone-else" });
+		authz.canActOnWorkflow.mockReturnValue(false);
+		const res = await PUT(makeEvent({ locals: authedUser, method: "PUT", body: { description: "d" } }));
+		expect(res.status).toBe(403);
+		const body = (await res.json()) as { error?: string };
+		expect(body.error).toBe("Only the workflow's owner or an admin can update it");
+		expect(queries.updateWorkflow).not.toHaveBeenCalled();
+	});
+
+	test("applies the ownership rule to the row's created_by and the caller", async () => {
+		ctx.getCachedWorkflows.mockReturnValue([ownedEntry()]);
+		queries.getWorkflowByName.mockResolvedValue({ id: "wf-1", createdBy: "u1" });
+		queries.updateWorkflow.mockResolvedValue({ id: "wf-1", name: "w1" });
+		await PUT(makeEvent({ locals: authedUser, method: "PUT", body: { description: "d" } }));
+		expect(authz.canActOnWorkflow).toHaveBeenCalledWith("u1", authedUser.user);
 	});
 
 	test("returns 404 when the update itself resolves to nothing", async () => {
@@ -308,6 +366,26 @@ describe("DELETE /api/workflows/[name]", () => {
 		expect(res.status).toBe(404);
 		const body = (await res.json()) as { error?: string };
 		expect(body.error).toBe("Not found (only DB workflows can be deleted)");
+	});
+
+	test("returns 403 when the caller does not own the row", async () => {
+		// Past the ladder, refused by upstream's rule on the ROW — the same
+		// two-gate arrangement PUT has.
+		ctx.getCachedWorkflows.mockReturnValue([ownedEntry()]);
+		queries.getWorkflowByName.mockResolvedValue({ id: "wf-1", createdBy: "someone-else" });
+		authz.canActOnWorkflow.mockReturnValue(false);
+		const res = await DELETE(makeEvent({ locals: authedUser, method: "DELETE" }));
+		expect(res.status).toBe(403);
+		const body = (await res.json()) as { error?: string };
+		expect(body.error).toBe("Only the workflow's owner or an admin can delete it");
+		expect(queries.deleteWorkflow).not.toHaveBeenCalled();
+	});
+
+	test("applies the ownership rule to the row's created_by and the caller", async () => {
+		ctx.getCachedWorkflows.mockReturnValue([ownedEntry()]);
+		queries.getWorkflowByName.mockResolvedValue({ id: "wf-1", createdBy: "u1" });
+		await DELETE(makeEvent({ locals: authedUser, method: "DELETE" }));
+		expect(authz.canActOnWorkflow).toHaveBeenCalledWith("u1", authedUser.user);
 	});
 
 	test("deletes a DB workflow, reloads, and returns ok", async () => {
