@@ -367,15 +367,21 @@ describe("sec-SB2/Phase2: Worker constructor always denied (FFI / spawn-graph le
   });
 });
 
-describe("sec-SB2/Phase2: Bun.dlopen always denied (no FFI permission)", () => {
-  test("Bun.dlopen throws regardless of network permission", async () => {
+describe("sec-SB2/Phase2: FFI always denied (no FFI permission)", () => {
+  // This used to probe `Bun.dlopen`, which Bun has never had — so it was
+  // asserting against the preload's own phantom property rather than against
+  // FFI, and passed while `require("bun:ffi").dlopen` stayed fully live.
+  // Probe the module that actually carries the capability. (Depth — dynamic
+  // import, real native execution — lives in `sb4-fs-egress.test.ts`; this
+  // case owns the "regardless of granted permissions" angle.)
+  test("bun:ffi throws regardless of network/shell permission", async () => {
     const out = await runUnderPreload(
-      probeSync(`Bun.dlopen('/lib/x.so', {})`),
+      probeSync(`require('bun:ffi').dlopen('/lib/x.so', {})`),
       { networkAllowed: true, shellAllowed: true },
     );
     // FFI is unconditionally denied — the manifest has no permission
     // surface for it.
-    expect(out.stdout).toMatch(/blocked|FFI|never granted/);
+    expect(out.stdout).toMatch(/requires 'native' permission/);
   });
 });
 

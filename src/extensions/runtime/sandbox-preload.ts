@@ -49,6 +49,10 @@ const SHELL_MODULES = ["child_process"] as const;
 // pillar 6.
 const FS_MODULES = ["fs", "fs/promises"] as const;
 
+// FFI — never granted to any extension (the manifest has no `native`
+// permission to grant). Poisoned unconditionally, like the fs modules.
+const NATIVE_MODULES = ["bun:ffi"] as const;
+
 const networkAllowed = process.env.EZCORP_NETWORK_ALLOWED === "1";
 const shellAllowed = process.env.EZCORP_SHELL_ALLOWED === "1";
 
@@ -112,17 +116,23 @@ function poisonModule(modName: string, permission: string): void {
   }
 }
 
-const blockedRequireIds = new Set<string>();
+/** Blocked module id → the permission label its denier reports. A map (not a
+ *  set) so `checkBlockedId` is a single lookup instead of one `includes` scan
+ *  per permission group — adding a group is data, not another branch. */
+const blockedRequireIds = new Map<string, string>();
 
-function registerBlockedRequire(modName: string): void {
-  blockedRequireIds.add(modName);
-  blockedRequireIds.add("node:" + modName);
+function registerBlockedRequire(modName: string, permission: string): void {
+  blockedRequireIds.set(modName, permission);
+  // `bun:`-prefixed builtins have no `node:` alias, so don't invent one.
+  if (!modName.startsWith("bun:")) {
+    blockedRequireIds.set("node:" + modName, permission);
+  }
 }
 
 if (!networkAllowed) {
   for (const mod of NETWORK_MODULES) {
     poisonModule(mod, "network");
-    registerBlockedRequire(mod);
+    registerBlockedRequire(mod, "network");
   }
   // fetch is a global alias for http/https client capability
   (globalThis as unknown as { fetch: unknown }).fetch = makeDenier(
@@ -177,7 +187,7 @@ if ((globalThis as Record<string, unknown>).EventSource !== undefined) {
 if (!shellAllowed) {
   for (const mod of SHELL_MODULES) {
     poisonModule(mod, "shell");
-    registerBlockedRequire(mod);
+    registerBlockedRequire(mod, "shell");
   }
   // Bun's native spawn bypasses Node's child_process entirely, so we have to
   // deny it on the Bun global as well.
@@ -207,7 +217,7 @@ if (!shellAllowed) {
 // to the host). The deniers below fire regardless of that flag.
 for (const mod of FS_MODULES) {
   poisonModule(mod, "filesystem");
-  registerBlockedRequire(mod);
+  registerBlockedRequire(mod, "filesystem");
 }
 if (typeof (globalThis as { Bun?: unknown }).Bun !== "undefined") {
   const BunNs = (globalThis as unknown as { Bun: Record<string, unknown> }).Bun;
@@ -219,10 +229,44 @@ if (typeof (globalThis as { Bun?: unknown }).Bun !== "undefined") {
     "filesystem",
     "Bun.write — use @ezcorp/sdk/runtime fsWrite",
   );
-  BunNs.glob = makeDenier(
-    "filesystem",
-    "Bun.glob — use @ezcorp/sdk/runtime fsList",
-  );
+  // Glob is a CLASS (`new Bun.Glob(pattern)`), not a `Bun.glob()` function.
+  // This used to assign a denier to `BunNs.glob` — a property Bun has never
+  // had — which merely CREATED a phantom and left the real class untouched,
+  // so `new Bun.Glob(p).scanSync({cwd})` walked directories with no realpath
+  // check, no PDP decision and no audit entry: exactly the mediation
+  // `ezcorp/fs.list` exists to enforce.
+  //
+  // Deny the two fs-touching methods and REPLACE the class, rather than
+  // denying the property outright: `.match()` is pure string matching against
+  // a caller-supplied string — it opens nothing — and is the legitimate way
+  // to filter the result of a host-mediated `fsList`. Killing it would break
+  // that pattern for no security gain.
+  const RealGlob = BunNs.Glob;
+  if (typeof RealGlob === "function") {
+    const denyScan = makeDenier(
+      "filesystem",
+      "Bun.Glob#scan/scanSync — use @ezcorp/sdk/runtime fsList",
+    );
+    type Matcher = { match(input: string): boolean };
+    const GlobCtor = RealGlob as unknown as new (...args: unknown[]) => Matcher;
+    // Named `Glob` so `Bun.Glob.name` and error text still read naturally.
+    BunNs.Glob = class Glob {
+      #inner: Matcher;
+      constructor(...args: unknown[]) {
+        this.#inner = new GlobCtor(...args);
+      }
+      /** Pure string matching — no filesystem access, so it stays live. */
+      match(input: string): boolean {
+        return this.#inner.match(input);
+      }
+      scan(): never {
+        return denyScan();
+      }
+      scanSync(): never {
+        return denyScan();
+      }
+    };
+  }
 }
 
 // Always deny — extension manifest has no concept of FFI or Worker
@@ -230,12 +274,16 @@ if (typeof (globalThis as { Bun?: unknown }).Bun !== "undefined") {
 // spawn fresh module graphs that may not run --preload, breaking the
 // sandbox's invariants. If/when extensions need worker-style parallelism
 // or FFI, a host-mediated alternative will land in a future phase.
-if (typeof (globalThis as { Bun?: unknown }).Bun !== "undefined") {
-  const BunNs = (globalThis as unknown as { Bun: Record<string, unknown> }).Bun;
-  BunNs.dlopen = makeDenier(
-    "native",
-    "Bun.dlopen — FFI is never granted to extensions",
-  );
+// FFI is reached as `import { dlopen } from "bun:ffi"` — NOT as `Bun.dlopen`,
+// which has never existed. The denier that used to sit on `BunNs.dlopen` was
+// the same mistake as the `Bun.glob` one above (a phantom property), and it
+// left FFI fully live: `dlopen("libc.so.6", …)` in a sandboxed subprocess runs
+// arbitrary native code, which defeats EVERY denier in this file — an
+// extension could call `open`/`getdents64` straight through libc. Poison the
+// module that actually carries the capability instead.
+for (const mod of NATIVE_MODULES) {
+  poisonModule(mod, "native");
+  registerBlockedRequire(mod, "native");
 }
 (globalThis as Record<string, unknown>).Worker = makeCtorDenier(
   "native",
@@ -455,19 +503,9 @@ try {
   };
 
   function checkBlockedId(id: string): void {
-    if (!blockedRequireIds.has(id)) return;
-    const bare = id.replace(/^node:/, "");
-    if ((NETWORK_MODULES as readonly string[]).includes(bare)) {
-      makeDenier("network", `${id} module`)();
-    }
-    if ((SHELL_MODULES as readonly string[]).includes(bare)) {
-      makeDenier("shell", `${id} module`)();
-    }
-    // Phase 3: filesystem modules are unconditionally poisoned (no
-    // granted-permission unblock — see the FS_MODULES block above).
-    if ((FS_MODULES as readonly string[]).includes(bare)) {
-      makeDenier("filesystem", `${id} module`)();
-    }
+    const permission = blockedRequireIds.get(id);
+    if (permission === undefined) return;
+    makeDenier(permission, `${id} module`)();
   }
 
   const originalRequire = Module.prototype.require;
