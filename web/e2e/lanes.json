@@ -12,6 +12,8 @@
       "web/e2e/extension-deep-links.spec.ts",
       "web/e2e/extension-detail-pages.spec.ts",
       "web/e2e/extensions-library-tabs.spec.ts",
+      "web/e2e/ez-factory-console.spec.ts",
+      "web/e2e/ez-factory-job-editor.spec.ts",
       "web/e2e/file-organizer-hub.spec.ts",
       "web/e2e/file-organizer-real.spec.ts",
       "web/e2e/hub.spec.ts",

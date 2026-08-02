@@ -580,8 +580,10 @@ export function validateJobDraft(draft: unknown): JobResult<ValidatedJobDraft> {
   return { ok: true, value: value as ValidatedJobDraft };
 }
 
-/** Fields an operator edits, and therefore the fields an audit diff reports. */
-const DIFFABLE_FIELDS: readonly (keyof FactoryJob)[] = [
+/** Fields an operator edits, and therefore the fields an audit diff reports.
+ *  Exported so `lib/audit.ts` can report the NAMES that moved without also
+ *  importing `diffJob`'s `{from, to}` values — see that module's header. */
+export const DIFFABLE_FIELDS: readonly (keyof FactoryJob)[] = [
   "name",
   "description",
   "workflow",

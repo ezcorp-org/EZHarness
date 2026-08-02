@@ -154,14 +154,24 @@ describe("bundled registry — ez-factory entry", () => {
     }
   });
 
-  test("the install grant carries no llm / shell / network / eventSubscriptions", () => {
+  test("the install grant carries no llm / shell / network / env / schedule", () => {
     const p = bundledEntry().permissions;
     expect(p.llm).toBeUndefined();
     expect(p.shell).toBeUndefined();
     expect(p.network).toBeUndefined();
-    expect(p.eventSubscriptions).toBeUndefined();
     expect(p.env).toBeUndefined();
     expect(p.schedule).toBeUndefined();
+  });
+
+  test("the install grant's ONLY event is the console's own page action", () => {
+    // The grant is what `hub-render-pull.ts` turns into `allowedEvents`, so
+    // this list is exactly the set of page actions the host will render and
+    // deliver. Anything outside the extension's own namespace could not
+    // register anyway (the dispatcher's namespace check), and a `workflow:*`
+    // name would register and then never fire.
+    const p = bundledEntry().permissions;
+    expect(p.eventSubscriptions).toEqual(["ez-factory:job-save"]);
+    expect(p.grantedAt.eventSubscriptions).toBeGreaterThan(0);
   });
 
   test("the install grant carries NO rbacScopes — declarations live in the manifest", () => {
@@ -314,8 +324,19 @@ describe("ensureBundledExtensions — ez-factory first-boot install", () => {
     expect(granted.shell).toBeUndefined();
     expect(granted.network).toBeUndefined();
     expect(granted.env).toBeUndefined();
-    expect(granted.eventSubscriptions).toBeUndefined();
     expect(granted.schedule).toBeUndefined();
+  });
+
+  test("the page action SURVIVES intersectPermissions — the grant, not just the manifest", async () => {
+    // The one that matters at render time. `intersectPermissions` clamps the
+    // install grant against the bundled ceiling, and a name missing from the
+    // ceiling row is dropped HERE, silently — after which `allowedEvents`
+    // loses it and `validatePageTree` deletes the job editor's form node
+    // from the tree. Asserting the manifest alone would not have caught a
+    // ceiling row that forgot the name.
+    await ensureBundledExtensions();
+    const granted = store.get("ez-factory")!.grantedPermissions;
+    expect(granted.eventSubscriptions).toEqual(["ez-factory:job-save"]);
   });
 
   test("appears in the bundled (isBundled=true) list", async () => {

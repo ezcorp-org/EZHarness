@@ -64,6 +64,7 @@ import {
   EZ_FACTORY_EXTENSION_NAME,
 } from "../../src/extensions/ez-factory-agents";
 import manifest from "./ezcorp.config";
+import { isFactoryWorkflow, JOB_SETTABLE_INPUT_KEYS } from "./lib/jobs";
 
 const TEMPLATE_FILES = [
   "docs-factory.workflow.yaml",
@@ -494,10 +495,11 @@ describe("ez-factory templates — ref integrity (the validator does not check t
 
 describe("ez-factory templates — the job store's input allowlist", () => {
   /**
-   * The keys a SAVED JOB may set, from `extensions/ez-factory/lib/jobs.ts`
-   * (8.2). Duplicated here rather than imported because that file lands on
-   * a sibling branch; when the two merge this should become an import, and
-   * the test below is what will notice if the two ever disagree.
+   * The keys a SAVED JOB may set — IMPORTED from `lib/jobs.ts`, never
+   * restated. The import is the anti-drift mechanism: while this file
+   * carried its own copy the two disagreed (the copy still listed
+   * `etl-factory.now`, which the store had already dropped) and every
+   * assertion below kept passing against the stale copy.
    *
    * The store refuses a job at SAVE time for an unlisted key, so the
    * property that actually matters is one-directional: every input a
@@ -505,10 +507,18 @@ describe("ez-factory templates — the job store's input allowlist", () => {
    * be saved in a runnable state. The converse is not a defect — a
    * template may declare inputs a job cannot set (see `draft-and-verify`).
    */
-  const jobSettable: Record<string, string[]> = {
-    "docs-factory": ["globs", "outPath"],
-    "etl-factory": ["globs", "outPath", "now"],
-    "draft-and-verify": ["draft", "sources"],
+  const jobSettable = JOB_SETTABLE_INPUT_KEYS;
+
+  /** The allowlist for a template, looked up through the store's own type
+   *  guard. The narrowing is the point: an asset whose bare name is not in
+   *  `FACTORY_WORKFLOWS` has no allowlist at all, and a job targeting it
+   *  could never be saved — so a rename on either side throws here rather
+   *  than reading `undefined` and vacuously passing. */
+  const settableFor = (name: string): readonly string[] => {
+    if (!isFactoryWorkflow(name)) {
+      throw new Error(`template "${name}" is not one of FACTORY_WORKFLOWS`);
+    }
+    return jobSettable[name];
   };
 
   const requiredKeys = (def: WorkflowDefinition): string[] =>
@@ -519,7 +529,7 @@ describe("ez-factory templates — the job store's input allowlist", () => {
 
   test("every REQUIRED input of every template is job-settable", () => {
     for (const def of templates) {
-      const missing = requiredKeys(def).filter((k) => !jobSettable[def.name]!.includes(k));
+      const missing = requiredKeys(def).filter((k) => !settableFor(def.name).includes(k));
       expect({ workflow: def.name, missing }).toEqual({ workflow: def.name, missing: [] });
     }
   });
@@ -527,7 +537,7 @@ describe("ez-factory templates — the job store's input allowlist", () => {
   test("the check discriminates — a new required input outside the list is reported", () => {
     const def = mutantOf("docs-factory");
     def.inputSchema!.reviewer = { type: "string", label: "Reviewer", required: true };
-    const missing = requiredKeys(def).filter((k) => !jobSettable["docs-factory"]!.includes(k));
+    const missing = requiredKeys(def).filter((k) => !settableFor("docs-factory").includes(k));
     expect(missing).toEqual(["reviewer"]);
   });
 

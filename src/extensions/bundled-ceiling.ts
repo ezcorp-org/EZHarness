@@ -538,11 +538,21 @@ export const BUNDLED_CEILING: Record<string, ExtensionPermissions> = {
   // `runAgent` → `createPiLlmAdapter` and never consult the grant), which
   // is why there is no `llm` row here and none in the manifest.
   //
-  // NO `shell` / `network` / `env` / `eventSubscriptions` / `llm`. The
-  // filesystem grant is `$CWD` only — never `$USER`, which collapses to a
-  // NUL-bearing sentinel matching nothing when there is no acting user to
-  // partition by, and workflow tool steps run under a synthetic
-  // `workflow-run:<uuid>` key that has none.
+  // NO `shell` / `network` / `env` / `llm`. The filesystem grant is `$CWD`
+  // only — never `$USER`, which collapses to a NUL-bearing sentinel
+  // matching nothing when there is no acting user to partition by, and
+  // workflow tool steps run under a synthetic `workflow-run:<uuid>` key
+  // that has none.
+  //
+  // `eventSubscriptions` carries exactly ONE name, and it is a HUB PAGE
+  // ACTION, not a platform event: the ceiling for the console's Save.
+  // `intersectPermissions` intersects this list with the install grant, so
+  // a name missing HERE is dropped from the grant, `allowedEvents` loses
+  // it, and `validatePageTree` deletes the form node from the rendered
+  // tree — a console that looks finished and cannot be written to. No
+  // `workflow:*` name appears here or in the manifest: those are accepted
+  // at registration and then never fire, because `WorkflowRun` has no
+  // `conversationId` for the dispatcher to route on.
   //
   // `permissions.rbacScopes` (manage-jobs / run-job / approve-gate) is
   // deliberately absent, like every other row: declarations are inert and
@@ -560,6 +570,7 @@ export const BUNDLED_CEILING: Record<string, ExtensionPermissions> = {
       maxRunsPerHour: 60,
     },
     filesystem: ["$CWD"],
+    eventSubscriptions: ["ez-factory:job-save"],
     grantedAt: {},
   },
 };
