@@ -69,9 +69,15 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     // user.id)`, which stamped the caller as author on every create. The
     // two cannot both hold: that rule makes an ordinary create
     // owner-scoped, which is the exact silent side effect C6 ruled out.
-    // The affordance upstream wanted it for — Edit/Delete on your own
-    // rows — is served by the ladder, which already grants `edit` on a
-    // `system` workflow to any `chat` caller.
+    //
+    // KNOWN CONSEQUENCE: a `system` row is admin-only to EDIT
+    // (`workflow-scope.ts`), so a non-admin who creates a workflow here
+    // cannot subsequently edit or delete it — `canEdit` is false and the
+    // page hides both affordances. That is the ladder answering
+    // consistently on the button and the endpoint, not a UI bug; the way
+    // to get an editable copy is Fork, which stamps ownership. Granting
+    // edit on `system` to its creator would need a real creator column,
+    // which is exactly what was just removed.
     workflow = await workflowQueries.createWorkflow(body as WorkflowDefinition);
   } catch (err) {
     // `name` is globally unique on purpose (ownership authorizes, it does
