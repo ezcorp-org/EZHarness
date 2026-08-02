@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { store, initStores, noteSidebarUserOverride } from "$lib/stores.svelte.js";
+	import { store, initStores, noteSidebarUserOverride, setActiveProjectId } from "$lib/stores.svelte.js";
 	import { onMount } from "svelte";
 	import { afterNavigate } from "$app/navigation";
 	import { goto } from "$app/navigation";
@@ -7,7 +7,7 @@
 	import { initTheme } from "$lib/theme.js";
 	import { matchShortcut, loadCustomShortcuts, type ShortcutBinding } from "$lib/shortcuts.js";
 	import { startAuthKeepalive } from "$lib/auth-keepalive.js";
-	import { clearResumeState } from "$lib/resume-path.js";
+	import { clearResumeState, projectIdFromPath } from "$lib/resume-path.js";
 	import { isIconUrl } from "$lib/project-icon.js";
 	import ProjectRail from "$lib/components/ProjectRail.svelte";
 	import HubNavSection from "$lib/components/hub/HubNavSection.svelte";
@@ -158,13 +158,18 @@
 	// (`/project/:id/...`, bookmark, refresh, first load) would otherwise leave
 	// the store showing the previously-cached project — which breaks downstream
 	// consumers that read `activeProjectId` (file-mention search, etc.).
+	//
+	// Match on the PATHNAME, not `page.params.id`: `[id]` is not unique to the
+	// project route — `/extensions/[id]`, `/extensions/[id]/audit`,
+	// `/marketplace/[id]` and `/runs/[id]` declare the same param name, so
+	// reading the param wrote an extension / listing / run id into
+	// `activeProjectId` and kicked the user out of their project.
+	// `projectIdFromPath` returns null for every non-project route, which
+	// leaves the active project untouched.
 	$effect(() => {
-		const routeProjectId = page.params.id;
+		const routeProjectId = projectIdFromPath(page.url.pathname);
 		if (routeProjectId && routeProjectId !== store.activeProjectId) {
-			store.activeProjectId = routeProjectId;
-			if (typeof localStorage !== "undefined") {
-				try { localStorage.setItem("activeProjectId", routeProjectId); } catch {}
-			}
+			setActiveProjectId(routeProjectId);
 		}
 	});
 
