@@ -332,12 +332,13 @@ test.describe("ez-factory console", () => {
     await routeConsole(page);
 
     await page.goto(`/hub/${encodeURIComponent(FACTORY)}?view=runs`);
-    const cells = await page
-      .getByTestId("hub-table-row")
-      .first()
-      .getByTestId("hub-table-cell")
-      .allInnerTexts();
-    expect(cells.map((c) => c.trim())).toEqual([
+    // `toHaveText` with an array, NOT a one-shot `allInnerTexts()`: the
+    // latter does not retry, so it can read the jobs tree still on screen
+    // while the `?view=runs` pull is in flight. It did exactly that on the
+    // first full-lane run and passed in isolation.
+    await expect(
+      page.getByTestId("hub-table-row").first().getByTestId("hub-table-cell"),
+    ).toHaveText([
       "Nightly docs",
       "ez-factory:docs-factory",
       "completed",
