@@ -35,14 +35,37 @@ describe("ez-factory manifest — identity", () => {
     expect(config.version).toBe("0.1.0");
   });
 
-  test("declares no tools and therefore no entrypoint (8.1 skeleton)", () => {
-    // `validateManifestV2` only requires an entrypoint when tools are
+  test("declares the three tools and the entrypoint they require (8.4)", () => {
+    // `validateManifestV2` requires an entrypoint whenever tools are
     // declared, and `bundled-manifests-installable.test.ts` asserts the
-    // pairing across the whole bundled list. The tools + entrypoint land
-    // in 8.4/8.6; until then the pairing must stay coherent, or the
-    // bundled install fails closed at boot.
-    expect(config.tools).toEqual([]);
-    expect(config.entrypoint).toBeUndefined();
+    // pairing across the whole bundled list — plus that the entrypoint
+    // FILE exists, since the install path checksums it. Declaring tools
+    // without it fails the bundled install closed at boot.
+    expect(config.entrypoint).toBe("./index.ts");
+    expect(config.tools?.map((t) => t.name)).toEqual([
+      "read_files",
+      "write_file",
+      "emit_artifact",
+    ]);
+  });
+
+  test("no tool declares an rbacScope", () => {
+    // `ToolExecutor.executeToolCall` resolves a declared tool scope
+    // against a project DERIVED FROM THE CONVERSATION, and a workflow
+    // tool step runs under the synthetic key `workflow-run:<uuid>` — a
+    // conversation row that does not exist and therefore has no project.
+    // A scope here would deny every call made from the only place these
+    // tools are called from. Asserted here AND in
+    // `lib/tools/index.test.ts`, because absence is invisible in a diff.
+    for (const tool of config.tools ?? []) {
+      expect(tool.rbacScope).toBeUndefined();
+    }
+  });
+
+  test("run_command and http_fetch stay CUT", () => {
+    const names = (config.tools ?? []).map((t) => t.name);
+    expect(names).not.toContain("run_command");
+    expect(names).not.toContain("http_fetch");
   });
 });
 
