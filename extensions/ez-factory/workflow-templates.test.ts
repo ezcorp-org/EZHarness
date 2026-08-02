@@ -240,6 +240,32 @@ const undeclaredInputRefs = (defs: WorkflowDefinition[]): string[] =>
     );
   });
 
+/**
+ * A `gate`'s `condition` or ANY step's `when` that reads `$input.*`.
+ *
+ * Binding rule, and the reason is mechanical rather than stylistic.
+ * `resolveConditionRef` resolves `$input.<field>` LENIENTLY — an absent
+ * field is `undefined`, not an error — and `undefined` fails `eq`, `gt`,
+ * `exists` and `truthy` alike. So a review gate guarded by
+ * `when: {ref: $input.needsReview, op: eq, value: true}` is skipped both by
+ * an operator who supplies `false` AND by one who merely omits the key. A
+ * human-review gate an operator can disable by omission is not a gate.
+ *
+ * `$steps.*` is the opposite: an unresolvable ROOT throws, so a guard over
+ * a step result fails loudly instead of silently deciding a branch.
+ */
+const controlFlowReadingInput = (defs: WorkflowDefinition[]): string[] =>
+  defs.flatMap((def) =>
+    def.steps.flatMap((step) =>
+      refsOf(step)
+        .filter(
+          (r) =>
+            (r.field === "when" || r.field === "condition") && r.ref.startsWith("$input."),
+        )
+        .map((r) => `${def.name}.${r.step}.${r.field} -> ${r.ref}`),
+    ),
+  );
+
 /** `$loop.*` outside a looped step, or `$result` / `$iteration` outside a
  *  `loop.until` — both throw at run time, neither is caught at definition
  *  time. */
@@ -421,6 +447,28 @@ describe("ez-factory templates — ref integrity (the validator does not check t
     ]);
   });
 
+  test("no gate condition or when reads $input.* — control flow reads $steps only", () => {
+    // `$input.*` is LENIENT in a condition: an omitted key resolves to
+    // `undefined`, which fails every operator. A gate guarded that way is
+    // turned off by an operator who simply leaves the field blank.
+    expect(controlFlowReadingInput(templates)).toEqual([]);
+  });
+
+  test("the check discriminates — a gate guarded on $input is reported", () => {
+    const def = mutantOf("etl-factory");
+    stepNamed(def, "anomaly-gate").when = {
+      ref: "$input.needsReview",
+      op: "eq",
+      value: true,
+    };
+    expect(controlFlowReadingInput([def])).toEqual([
+      "etl-factory.anomaly-gate.when -> $input.needsReview",
+    ]);
+    // And `validateWorkflow` is silent about it, which is why this guard
+    // has to exist here.
+    expect(validateWorkflow(asLoaderWouldName(def))).toEqual([]);
+  });
+
   test("$loop / $result refs appear only where the grammar allows them", () => {
     expect(misplacedLoopRefs(templates)).toEqual([]);
   });
@@ -431,6 +479,72 @@ describe("ez-factory templates — ref integrity (the validator does not check t
     expect(misplacedLoopRefs([def])).toEqual([
       "docs-factory.draft.input -> $loop.last.output",
     ]);
+  });
+});
+
+describe("ez-factory templates — the job store's input allowlist", () => {
+  /**
+   * The keys a SAVED JOB may set, from `extensions/ez-factory/lib/jobs.ts`
+   * (8.2). Duplicated here rather than imported because that file lands on
+   * a sibling branch; when the two merge this should become an import, and
+   * the test below is what will notice if the two ever disagree.
+   *
+   * The store refuses a job at SAVE time for an unlisted key, so the
+   * property that actually matters is one-directional: every input a
+   * template REQUIRES has to be settable, or no job targeting it can ever
+   * be saved in a runnable state. The converse is not a defect — a
+   * template may declare inputs a job cannot set (see `draft-and-verify`).
+   */
+  const jobSettable: Record<string, string[]> = {
+    "docs-factory": ["globs", "outPath"],
+    "etl-factory": ["globs", "outPath", "now"],
+    "draft-and-verify": ["draft", "sources"],
+  };
+
+  const requiredKeys = (def: WorkflowDefinition): string[] =>
+    Object.entries(def.inputSchema ?? {})
+      .filter(([, field]) => field.required === true)
+      .map(([key]) => key)
+      .sort();
+
+  test("every REQUIRED input of every template is job-settable", () => {
+    for (const def of templates) {
+      const missing = requiredKeys(def).filter((k) => !jobSettable[def.name]!.includes(k));
+      expect({ workflow: def.name, missing }).toEqual({ workflow: def.name, missing: [] });
+    }
+  });
+
+  test("the check discriminates — a new required input outside the list is reported", () => {
+    const def = mutantOf("docs-factory");
+    def.inputSchema!.reviewer = { type: "string", label: "Reviewer", required: true };
+    const missing = requiredKeys(def).filter((k) => !jobSettable["docs-factory"]!.includes(k));
+    expect(missing).toEqual(["reviewer"]);
+  });
+
+  test("draft-and-verify's loop-carried inputs are declared but NOT job-settable", () => {
+    // `priorContent` / `priorVerdict` are supplied by `docs-factory`'s
+    // nested-step `input` mapping through `$loop.last.*`, resolved by the
+    // executor — they never pass through the job store. Declared because
+    // `inputSchema` documents the whole input contract, optional because a
+    // standalone first pass has no prior.
+    const def = byBareName.get("draft-and-verify")!;
+    for (const key of ["priorContent", "priorVerdict"]) {
+      expect(def.inputSchema?.[key]).toBeDefined();
+      expect(def.inputSchema?.[key]?.required).toBeUndefined();
+      expect(jobSettable["draft-and-verify"]).not.toContain(key);
+    }
+  });
+
+  test("no template declares a model-tier input — the store keeps those off the list", () => {
+    // The job store excludes model keys deliberately: a template CAN bind a
+    // model by ref, so a job-settable model key could downgrade a
+    // verification step. These templates bind no model at all, which closes
+    // the same hole from the other side.
+    for (const def of templates) {
+      for (const key of Object.keys(def.inputSchema ?? {})) {
+        expect(key).not.toMatch(/provider|model/i);
+      }
+    }
   });
 });
 
@@ -508,15 +622,22 @@ describe("ez-factory templates — per-step model bindings", () => {
     }
   });
 
-  test("provider and model are REFS, never hardcoded ids", () => {
-    // A hardcoded `provider: anthropic` breaks every install that has not
-    // configured it. An unset `$input.x` ref resolves to "no override for
-    // this field" (`resolveModelOverride`), so the agent's own binding —
-    // including the CURRENT_MODEL_SENTINEL inherit value — stands.
+  test("no agent step binds provider or model — effort and maxTokens only", () => {
+    // Two failure modes, one rule. A LITERAL `provider: anthropic` breaks
+    // every install that has not configured anthropic. A `$input.*` REF
+    // makes the step's model settable by whoever supplies the input — and
+    // `draft-and-verify`'s `verify` step is the CHECK, so a caller able to
+    // point it at a weaker model quietly disables the verification while
+    // the graph still reports a pass. `ez-factory`'s job store keeps model
+    // keys off its closed input allowlist for that reason; declaring the
+    // ref here would ask for the capability that layer refuses.
+    //
+    // Omitting both fields leaves each seeded agent's own binding standing
+    // (`CURRENT_MODEL_SENTINEL` — whatever the operator configured), which
+    // is what makes these templates portable across installs.
     for (const step of everyStep()) {
       if (stepKindOf(step) !== "agent") continue;
-      expect(step.model?.provider).toStartWith("$input.");
-      expect(step.model?.model).toStartWith("$input.");
+      expect(Object.keys(step.model ?? {}).sort()).toEqual(["effort", "maxTokens"]);
     }
   });
 
@@ -720,6 +841,83 @@ describe("ez-factory templates — dry run (the graph actually executes)", () =>
     // the classic `{{ $steps… }}` typo that renders as literal source.
     expect(output.document).not.toContain("{{");
     expect(output.skippedJson).not.toContain("{{");
+  });
+
+  // ── The conditional-approval branch, executed both ways ────────────
+  //
+  // `ingest` is stubbed, so its real `skipped` renders `{}` and the branch
+  // would always take one side. Overwriting `skippedJson` with a LITERAL
+  // (a transform mapping value that does not start with `$` is passed
+  // through verbatim by the ref resolver) pins it — and the executor's
+  // real `skipDecision` then runs for both cases.
+
+  const etlWithSkipped = async (skippedJson: string): Promise<DryRunReport> => {
+    const def = asLoaderWouldName(mutantOf("etl-factory"));
+    stepNamed(def, "report").output!.skippedJson = skippedJson;
+    return dryRunWorkflow(def, inputs["etl-factory"]!);
+  };
+
+  const statusIn = (report: DryRunReport, name: string): string | undefined =>
+    report.steps.find((s) => s.name === name)?.status;
+
+  test("CLEAN path: the gate is skipped and write STILL runs", async () => {
+    // The whole point of the template, and the exact thing design §6.2 got
+    // wrong: with `skipDependents` defaulting to true, a skipped gate takes
+    // `write` and `artifact` down with it and the common case writes
+    // nothing at all.
+    const report = await etlWithSkipped("[]");
+    expect(report.error).toBeUndefined();
+    expect(statusIn(report, "anomaly-gate")).toBe("skipped");
+    expect(statusIn(report, "consent")).toBe("skipped");
+    expect(statusIn(report, "write")).not.toBe("skipped");
+    expect(statusIn(report, "artifact")).not.toBe("skipped");
+  });
+
+  test("ANOMALOUS path: the gate is asked, and consent reads its answer", async () => {
+    const report = await etlWithSkipped('[{"path":"oversize.csv"}]');
+    expect(report.error).toBeUndefined();
+    expect(statusIn(report, "anomaly-gate")).not.toBe("skipped");
+    expect(report.stubbed).toContain("anomaly-gate");
+    // `consent` is a real gate over the stubbed answer, so its verdict is
+    // recorded and NOT enforced — which is why the run still completes.
+    expect(report.gatesOnStubs.map((g) => g.name)).toContain("consent");
+    expect(statusIn(report, "write")).not.toBe("skipped");
+  });
+
+  test("discrimination — design §6.2's default skipDependents kills the clean path", async () => {
+    const def = asLoaderWouldName(mutantOf("etl-factory"));
+    stepNamed(def, "report").output!.skippedJson = "[]";
+    delete stepNamed(def, "anomaly-gate").skipDependents;
+    delete stepNamed(def, "consent").skipDependents;
+    const report = await dryRunWorkflow(def, inputs["etl-factory"]!);
+    // Completes "successfully" having written nothing. Silent, which is
+    // what makes it worth a test rather than a comment.
+    expect(report.error).toBeUndefined();
+    expect(statusIn(report, "write")).toBe("skipped");
+    expect(statusIn(report, "artifact")).toBe("skipped");
+  });
+
+  test("discrimination — skipDependents:false ALONE is not the fix", async () => {
+    // The one-line repair (`skipDependents: false` on the gate, keep
+    // `write`'s `when` reading the gate's answer) trades a silent no-op for
+    // a hard failure: `write` now runs, and its `when` resolves
+    // `$steps.anomaly-gate` — a STRICT root ref — against a step that
+    // produced no result. `resolveConditionRef` throws, and `skipDecision`
+    // deliberately never swallows a ref error out of a `when`.
+    //
+    // That is why the shipped template splits the branch across `consent`
+    // (which carries the same `when`, so it skips in lockstep) instead.
+    const def = asLoaderWouldName(mutantOf("etl-factory"));
+    stepNamed(def, "report").output!.skippedJson = "[]";
+    def.steps = def.steps.filter((s) => s.name !== "consent");
+    const write = stepNamed(def, "write");
+    write.dependsOn = ["anomaly-gate", "report"];
+    write.when = { ref: "$steps.anomaly-gate.output.choice", op: "neq", value: "abort" };
+    // Definition-legal — this failure is invisible until the run.
+    expect(validateWorkflow(def)).toEqual([]);
+    const report = await dryRunWorkflow(def, inputs["etl-factory"]!);
+    expect(report.status).toBe("error");
+    expect(report.error).toContain("SKIPPED");
   });
 
   test("docs-factory's nested step is substituted, never dispatched", async () => {

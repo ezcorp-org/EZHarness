@@ -78,17 +78,6 @@ inputSchema:
     type: text
     label: Previous verdict
     description: The previous pass's validator report. Empty on the first pass.
-  provider:
-    type: string
-    label: Provider override
-    description: >-
-      Leave blank to use whatever provider each seeded agent is configured with.
-      An unset override resolves to "no override for this field", so a blank one
-      is not a broken provider id.
-  model:
-    type: string
-    label: Model override
-    description: Leave blank to inherit each seeded agent's own model binding.
 
 steps:
   # ── 1. Normalize the two OPTIONAL carry-over fields ──────────────────
@@ -122,15 +111,24 @@ steps:
   # `effort` is real end to end: `WorkflowModelBinding.effort` → the closed
   # vocabulary in `workflow-model.ts` → `completeSimple(..., {reasoning})`.
   # It is the cost lever that needs no configuration at all, which is why
-  # every agent step here sets one and only `provider`/`model` are refs.
+  # every agent step here sets one — and why none of them binds `provider`
+  # or `model`.
+  #
+  # Binding those would take a `$input.*` ref (a literal `provider:
+  # anthropic` breaks every install without anthropic configured), and a
+  # model bound by ref is settable by whoever supplies the input. The
+  # `verify` step below is the one this matters for: it is the CHECK, and a
+  # caller able to point it at a weaker model can quietly disable the
+  # verification while the graph still reports a pass. `ez-factory`'s job
+  # store keeps model keys off its closed input allowlist for exactly that
+  # reason; not declaring the ref is the same decision made one layer down.
+  # Omitting both fields leaves each seeded agent's own binding standing.
   - name: revise
     kind: agent
     agent: ez-factory writer
     dependsOn:
       - prior
     model:
-      provider: $input.provider
-      model: $input.model
       effort: medium
       # Bounds the STORED step output. Every step's result has to serialize
       # under `MAX_STEP_OUTPUT_BYTES` (256 KB) or a resume refuses the run
@@ -154,8 +152,6 @@ steps:
     dependsOn:
       - revise
     model:
-      provider: $input.provider
-      model: $input.model
       effort: high
       maxTokens: 8000
     input:

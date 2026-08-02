@@ -78,16 +78,6 @@ inputSchema:
     label: Output path
     description: Where the report is written, relative to the project root.
     required: true
-  fastProvider:
-    type: string
-    label: Classifier provider
-    description: >-
-      Leave blank to use whatever the seeded `ez-factory extractor` is configured
-      with — an unset override means "no override for this field", not a broken
-      provider id.
-  fastModel:
-    type: string
-    label: Classifier model
 
 steps:
   # ── 1. Ingest ────────────────────────────────────────────────────────
@@ -139,8 +129,12 @@ steps:
     dependsOn:
       - schema-ok
     model:
-      provider: $input.fastProvider
-      model: $input.fastModel
+      # No `provider`/`model` — only `effort` and `maxTokens`. A literal
+      # provider id breaks every install that has not configured it, and
+      # the `$input.*` ref that would fix that makes the step's model
+      # settable by whoever supplies the input, which is the capability
+      # `ez-factory`'s job store keeps off its closed input allowlist.
+      # Omitting both leaves the seeded agent's own binding standing.
       effort: minimal
       maxTokens: 8000
     input:

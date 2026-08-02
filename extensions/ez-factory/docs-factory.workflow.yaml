@@ -50,6 +50,27 @@
 # iteration budget runs out. The `accepted` gate below is what turns
 # anything other than an accept into a loud, named failure.
 #
+# ── Why no step binds `provider` or `model` ───────────────────────────
+#
+# Only `effort` and `maxTokens`. Two reasons, and the second is the one
+# that decided it:
+#
+#   • A literal `provider: anthropic` breaks every install that has not
+#     configured anthropic. Omitting both fields leaves each seeded
+#     agent's own binding standing — `CURRENT_MODEL_SENTINEL` on all
+#     three, i.e. whatever the operator has configured — so the template
+#     is portable by construction.
+#   • The alternative was a `$input.*` ref so an operator could tier the
+#     steps. A model bound by ref is settable by whoever supplies the
+#     input, and `ez-factory`'s job store deliberately keeps model keys
+#     OFF its closed input allowlist (`lib/jobs.ts`) precisely so a saved
+#     job cannot downgrade a step's model. Declaring the ref anyway would
+#     be asking for a capability the layer above is built to refuse.
+#
+# `effort` is what differentiates the steps, and it is the cost lever that
+# needs no configuration at all: minimal for extraction, medium for the
+# draft, high for verification, on whatever model the install runs.
+#
 # ── Every step's output has to fit in 256 KB ──────────────────────────
 #
 # `MAX_STEP_OUTPUT_BYTES` (`src/runtime/workflow-step-output.ts`) is a
@@ -79,23 +100,6 @@ inputSchema:
     label: Output path
     description: Where the accepted document is written, relative to the project root.
     required: true
-  fastProvider:
-    type: string
-    label: Extractor provider
-    description: >-
-      Leave blank to use whatever the seeded `ez-factory extractor` is configured
-      with. An unset override resolves to "no override for this field", so blank
-      is never a broken provider id.
-  fastModel:
-    type: string
-    label: Extractor model
-    description: The cheap tier. Extraction is the highest-volume, lowest-judgement step.
-  mainProvider:
-    type: string
-    label: Writer and validator provider
-  mainModel:
-    type: string
-    label: Writer and validator model
 
 steps:
   # ── 1. Read the sources ──────────────────────────────────────────────
@@ -139,12 +143,11 @@ steps:
     dependsOn:
       - read
     model:
-      provider: $input.fastProvider
-      model: $input.fastModel
       # The cheapest rung of the closed vocabulary
       # (minimal|low|medium|high|xhigh|max). Extraction is transcription
       # with attribution, not judgement — spending reasoning here buys
-      # nothing and is charged per run.
+      # nothing and is charged per run. No `provider`/`model`: see the
+      # header.
       effort: minimal
       maxTokens: 8000
     input:
@@ -162,8 +165,6 @@ steps:
     dependsOn:
       - extract
     model:
-      provider: $input.mainProvider
-      model: $input.mainModel
       effort: medium
       maxTokens: 8000
     input:
@@ -191,8 +192,6 @@ steps:
       sources: $steps.read.output.files
       priorContent: $loop.last.output.content
       priorVerdict: $loop.last.output.verdict
-      provider: $input.mainProvider
-      model: $input.mainModel
     loop:
       maxIterations: 3
       # "Keep going only while the human asked for another revision."
