@@ -8,6 +8,7 @@ import type { ExtensionProcess } from "./subprocess";
 import { getExtensionByName, updateExtension } from "../db/queries/extensions";
 import { installFromLocal } from "./installer";
 import { loadManifestFresh } from "./loader";
+import { migrateManifestV2ToV3 } from "./manifest";
 import { insertAuditEntry } from "../db/queries/audit-log";
 import { EXT_AUDIT_ACTIONS, type ExtensionAuditMetadata } from "./audit-actions";
 import { clampToBundledCeiling, getCeiling } from "./bundled-ceiling";
@@ -525,10 +526,10 @@ const BUNDLED_EXTENSIONS: BundledExtension[] = [
     // declarative graph (its `weather` / `air` steps share one parallel
     // batch).
     //
-    // Network is the only I/O grant and covers the three keyless Open-Meteo
-    // hosts plus the Atlanta NAB-certified station page. No filesystem
-    // (nothing is written), no env (no credential exists to take, so the
-    // env-key-leak gate is never approached), no shell, no storage.
+    // I/O is network plus per-user Storage. Network covers Open-Meteo,
+    // Google Pollen, and the Atlanta NAB-certified station. Storage contains
+    // only the Google key written encrypted by the manifest secret setting.
+    // No filesystem, env, or shell; no credential-shaped env escape hatch.
     //
     // `workflows` is what makes the shipped asset TRIGGERABLE — shipping
     // a `*.workflow.yaml` is only an asset; firing it is the privileged
@@ -539,10 +540,12 @@ const BUNDLED_EXTENSIONS: BundledExtension[] = [
     name: "city-conditions",
     path: "docs/extensions/examples/city-conditions",
     permissions: {
+      storage: true,
       network: [
         "geocoding-api.open-meteo.com",
         "api.open-meteo.com",
         "air-quality-api.open-meteo.com",
+        "pollen.googleapis.com",
         "www.atlantaallergy.com",
       ],
       workflows: { names: ["conditions"], maxRunsPerHour: 12 },
@@ -1997,8 +2000,26 @@ async function detectVersionBumpRequiringReapproval(
   // Tool-list signature: canonical-JSON SHA-256. Drift on this signal
   // is independent of the version-vs-permissions trigger and ALWAYS
   // requires re-approval (Phase 5).
-  const dbToolHash = canonicalizeAndHash(dbManifest.tools ?? []);
-  const diskToolHash = canonicalizeAndHash(diskManifest.tools ?? []);
+  //
+  // Both sides are normalized to v3 shape FIRST. `loadManifestFresh`
+  // already migrates disk (so this is a no-op there — the migration
+  // returns v3 manifests untouched), but a row installed before the v3
+  // migration shipped still stores the v2-shaped manifest: same tools,
+  // no host-derived per-tool `capabilities`. Hashing them as-stored made
+  // that derived field alone read as a tool-list change, disabling the
+  // extension fail-closed on the first boot after the migration landed —
+  // and because the disable `continue`s BEFORE the manifest-refresh
+  // block below, the stored manifest never caught up and every
+  // subsequent boot re-detected the same phantom drift. 14 bundled
+  // extensions were stranded this way on the live host.
+  //
+  // Normalizing does NOT blunt the gate: `migrateManifestV2ToV3` derives
+  // capabilities from `manifest.permissions` (compared field-by-field
+  // just below) and never overwrites an authored per-tool declaration,
+  // so a real tool add/remove/schema-edit — or a v3 author widening one
+  // tool's caps — still flips this hash.
+  const dbToolHash = canonicalizeAndHash(migrateManifestV2ToV3(dbManifest).tools ?? []);
+  const diskToolHash = canonicalizeAndHash(migrateManifestV2ToV3(diskManifest).tools ?? []);
   const toolListChanged = dbToolHash !== diskToolHash;
 
   // Version + permissions trigger (legacy S9).
@@ -2039,7 +2060,14 @@ async function detectVersionBumpRequiringReapproval(
         oldValue: d.oldValue,
         newValue: d.newValue,
         actor: "system",
-        reason: `version-bump-blocked: ${dbManifest.version} → ${diskManifest.version} changed permissions`,
+        // Name the trigger that actually fired. The old text always read
+        // "version-bump … changed permissions", so a tool-list-only
+        // block reported a version bump that never happened
+        // (`0.1.0 → 0.1.0`) alongside byte-identical permissions —
+        // actively misleading when triaging a disabled extension.
+        reason: toolListChanged
+          ? `tool-list-drift-blocked: tool signature changed at version ${diskManifest.version}`
+          : `version-bump-blocked: ${dbManifest.version} → ${diskManifest.version} changed permissions`,
       };
       await insertAuditEntry(null, EXT_AUDIT_ACTIONS.UPDATE_BLOCKED, extensionId, meta);
     }
