@@ -250,6 +250,31 @@ describe("run_workflow — authorization", () => {
     expect(calls).toHaveLength(0);
   });
 
+  test("a runtime with no provenance reader fails CLOSED", async () => {
+    // `getCachedWorkflows` is optional on the registry so the many
+    // registrations that never authorize a run need not supply it. A
+    // process that cannot say who owns a workflow must refuse rather than
+    // fall back to the bare definition, which carries no owner at all —
+    // that fallback would run every private workflow on an LLM's say-so.
+    const calls: RecordedRun[] = [];
+    registerWorkflowRuntime({
+      getWorkflows: () => [YAML_WORKFLOW],
+      workflowExecutor: {
+        runWorkflow: async () => {
+          calls.push({} as RecordedRun);
+          return successRun();
+        },
+        resumeWorkflow: (async () => {}) as never,
+      },
+    });
+
+    const result = await makeTool().execute("tc-1", { name: "deploy" });
+
+    expect(result.details).toMatchObject({ isError: true });
+    expect(textOf(result)).toContain("workflow authorization is unavailable");
+    expect(calls).toHaveLength(0);
+  });
+
   test("the definition handed to authz is the one the executor runs (same object)", async () => {
     // A re-lookup by name would authorize a DIFFERENT object on a YAML/DB
     // name collision, because YAML wins execution.

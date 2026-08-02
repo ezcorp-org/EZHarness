@@ -277,7 +277,9 @@ export function buildWorkflowPayload(
     if (step.kind === "agent" && !step.agent) {
       return { error: `Step "${step.name}" (agent) needs an agent` };
     }
-    if (step.kind === "tool" && !step.tool) {
+    // `.trim()`, so a whitespace-only selection is rejected too — the
+    // dispatch key must be a real `<ext>__<tool>`.
+    if (step.kind === "tool" && !step.tool.trim()) {
       return { error: `Step "${step.name}" (tool) needs a tool` };
     }
     if (step.kind === "transform" && Object.keys(pairsToRecord(step.outputPairs)).length === 0) {
@@ -285,9 +287,6 @@ export function buildWorkflowPayload(
     }
     if (step.kind === "gate" && !step.conditionText.trim()) {
       return { error: `Step "${step.name}" (gate) needs a condition` };
-    }
-    if (step.kind === "tool" && !step.tool.trim()) {
-      return { error: `Step "${step.name}" (tool) needs a tool` };
     }
   }
 
@@ -362,7 +361,10 @@ export function definitionToDrafts(steps: unknown): StepDraft[] {
       inputPairs: recordToPairs(step.input),
       outputPairs: recordToPairs(step.output),
       conditionText: jsonFieldText(step.condition),
-      dependsOn: Array.isArray(step.dependsOn) ? (step.dependsOn as string[]) : [],
+      // COPIED, never aliased: the draft is edited in place by the form, and
+      // sharing the array would let a dependsOn toggle mutate the store's
+      // own copy of the workflow behind its back.
+      dependsOn: Array.isArray(step.dependsOn) ? [...(step.dependsOn as string[])] : [],
       loopEnabled: loop !== undefined,
       maxIterations:
         typeof loop?.maxIterations === "number" ? loop.maxIterations : DEFAULT_MAX_ITERATIONS,
