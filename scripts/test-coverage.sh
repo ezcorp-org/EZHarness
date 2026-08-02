@@ -386,6 +386,7 @@ run_legs() {
       --coverage.include='src/lib/server/shutdown.ts' \
       --coverage.include='src/lib/server/extension-helpers.ts' \
       --coverage.include='src/lib/server/conversation-ownership.ts' \
+      --coverage.include='src/lib/server/workflow-can-manage.ts' \
       --coverage.include='src/lib/mention-logic.ts' \
       --coverage.include='src/lib/markdown.ts' \
       --coverage.include='src/lib/safe-redirect.ts' \

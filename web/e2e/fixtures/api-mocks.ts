@@ -1098,6 +1098,11 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 		if (path.match(/^\/api\/workflows\/[^/]+$/) && method === "DELETE") {
 			return route.fulfill({ json: { success: true } });
 		}
+		if (path.match(/^\/api\/workflows\/[^/]+$/) && method === "PUT") {
+			// Echo the submitted definition back, as the real route does — the
+			// rename redirect reads `name` off this response.
+			return route.fulfill({ json: route.request().postDataJSON() });
+		}
 		if (path.match(/^\/api\/workflows\/[^/]+\/run$/) && method === "POST") {
 			return route.fulfill({
 				json: {

@@ -20,6 +20,26 @@ export async function getWorkflowByName(name: string): Promise<DbWorkflow | unde
 }
 
 /**
+ * Every DB workflow's owner, keyed by name, in ONE query.
+ *
+ * Exists so `GET /api/workflows` can stamp `canManage` onto a merged cache
+ * of N definitions without N `getWorkflowByName` round-trips. Deliberately
+ * NOT folded into `loadDbWorkflows`: that projection stays owner-free (see
+ * its doc) because the cache it feeds is served verbatim to every
+ * read-scoped caller. Here the owner is consumed server-side and only the
+ * resulting boolean is serialized, so no user id leaves the process.
+ */
+export async function getWorkflowOwnersByName(): Promise<Map<string, string | null>> {
+  // Annotated explicitly: the drizzle handle is held as broadly-typed `any`
+  // (see `getDb`), so a projected select infers nothing on its own — the
+  // same reason `audit-global.ts` annotates its projected rows.
+  const rows: Array<{ name: string; createdBy: string | null }> = await getDb()
+    .select({ name: workflowDefinitions.name, createdBy: workflowDefinitions.createdBy })
+    .from(workflowDefinitions);
+  return new Map(rows.map((row) => [row.name, row.createdBy]));
+}
+
+/**
  * Insert a workflow definition. `createdBy` records the authoring user and
  * is what `canRunWorkflow` / `canActOnWorkflow` gate run, update and delete
  * on. It is optional and defaults to NULL: rows created before the column

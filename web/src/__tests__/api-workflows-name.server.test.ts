@@ -20,8 +20,12 @@ const queries = vi.hoisted(() => ({
   ),
   updateWorkflow: vi.fn(async (_id: string, _data: unknown) => undefined as unknown),
   deleteWorkflow: vi.fn(async (_id: string) => true),
+  getWorkflowOwnersByName: vi.fn(async () => new Map<string, string | null>()),
 }));
-const authz = vi.hoisted(() => ({ canActOnWorkflow: vi.fn(() => true) }));
+const authz = vi.hoisted(() => ({
+  canActOnWorkflow: vi.fn(() => true),
+  canManageWorkflow: vi.fn(() => false),
+}));
 vi.mock("$lib/server/context", () => ctx);
 vi.mock("$server/db/queries/workflows", () => queries);
 vi.mock("$server/runtime/workflow-authz", () => authz);
@@ -34,7 +38,9 @@ beforeEach(() => {
   queries.getWorkflowByName.mockReset().mockResolvedValue(undefined);
   queries.updateWorkflow.mockReset().mockResolvedValue(undefined);
   queries.deleteWorkflow.mockReset().mockResolvedValue(true);
+  queries.getWorkflowOwnersByName.mockReset().mockResolvedValue(new Map());
   authz.canActOnWorkflow.mockReset().mockReturnValue(true);
+  authz.canManageWorkflow.mockReset().mockReturnValue(false);
 });
 
 function makeEvent(opts: {
@@ -92,11 +98,23 @@ describe("GET /api/workflows/[name]", () => {
 		expect(res.status).toBe(401);
 	});
 
-	test("returns the workflow when it exists", async () => {
+	test("returns the workflow when it exists, stamped with canManage", async () => {
+		// The detail route must serve the SAME shape as the list — a workflow
+		// must not gain or lose `canManage` depending on which route returned it.
 		ctx.getWorkflows.mockReturnValue([{ name: "w1" }]);
 		const res = await GET(makeEvent({ name: "w1", locals: { ...authedUser, apiKeyScopes: ["read"] } }));
 		expect(res.status).toBe(200);
-		expect((await res.json()) as { name?: string }).toEqual({ name: "w1" });
+		expect((await res.json()) as { name?: string }).toEqual({ name: "w1", canManage: false });
+	});
+
+	test("reports canManage true for a workflow this caller may write", async () => {
+		ctx.getWorkflows.mockReturnValue([{ name: "w1" }]);
+		authz.canManageWorkflow.mockReturnValue(true);
+		const res = await GET(makeEvent({ name: "w1", locals: authedUser }));
+		expect((await res.json()) as { canManage?: boolean }).toEqual({
+			name: "w1",
+			canManage: true,
+		});
 	});
 
 	test("returns 404 when the workflow is not in the registry", async () => {

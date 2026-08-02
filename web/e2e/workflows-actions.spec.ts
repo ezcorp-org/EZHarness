@@ -1,5 +1,6 @@
 import { test, expect } from "./fixtures/test-base.js";
 import { makeWorkflow, makeAgent } from "./fixtures/data.js";
+import type { Page } from "@playwright/test";
 
 // Fills coverage gaps left by `workflows.spec.ts` (list/detail) and
 // `workflows-new.spec.ts` (create form). Those specs assert the static
@@ -345,5 +346,175 @@ test.describe("Workflows — interactions and rendering gaps", () => {
 
 		await expect(page.getByText('Step "step-1" (agent) needs an agent')).toBeVisible({ timeout: 3000 });
 		await expect(page).toHaveURL(/\/workflows\/new$/);
+	});
+});
+
+// ── Inline editing, duplicate, and the canManage gate ──────────────
+//
+// Editing lives ON the detail page rather than a separate route: authoring
+// is a fix→save→run loop (refs resolve strictly and throw on a miss), so
+// each lap must not cost two navigations or discard the typed JSON input.
+
+test.describe("Workflows — inline editing", () => {
+	const editable = makeWorkflow({
+		name: "editme",
+		description: "before",
+		steps: [{ name: "fetch", agent: "alpha", input: { q: "$input.query" } }] as never,
+	});
+
+	async function gotoDetail(page: Page, name: string) {
+		const response = await page.goto(`/workflows/${name}`);
+		const finalUrl = response ? new URL(response.url()).pathname : "";
+		test.skip(
+			!finalUrl.startsWith("/workflows/"),
+			"auth gate redirected away from the workflow detail page in this environment",
+		);
+	}
+
+	test("Edit swaps the step list for the builder in place and PUTs the edited definition", async ({ page, mockApi }) => {
+		await mockApi({ workflows: [editable], agents: [makeAgent({ name: "alpha" })] });
+
+		let putBody: any = null;
+		let putUrl = "";
+		await page.route("**/api/workflows/editme", (route) => {
+			if (route.request().method() !== "PUT") return route.fallback();
+			putUrl = route.request().url();
+			putBody = route.request().postDataJSON();
+			return route.fulfill({ json: putBody });
+		});
+
+		await gotoDetail(page, "editme");
+		// Read-only view first.
+		await expect(page.getByTestId("workflow-steps-view")).toBeVisible();
+
+		await page.getByTestId("workflow-edit").click();
+
+		// The builder replaced the step list, prefilled from the stored steps.
+		// (Targeted by test id, not the "Steps" heading — the builder renders
+		// a heading by that name too.)
+		await expect(page.getByTestId("workflow-steps-view")).toBeHidden();
+		await expect(page.getByLabel("Workflow Name")).toHaveValue("editme");
+		await expect(page.getByLabel("Step Name")).toHaveValue("fetch");
+		// The input mapping survived the record→pairs inflation.
+		await expect(page.getByPlaceholder("$input.x or $prev.output")).toHaveValue("$input.query");
+
+		// Change an input ref — the canonical reason to edit at all.
+		await page.getByPlaceholder("$input.x or $prev.output").fill("$input.topic");
+		await page.getByRole("button", { name: "Save", exact: true }).click();
+
+		await expect.poll(() => putBody).not.toBeNull();
+		expect(putUrl).toContain("/api/workflows/editme");
+		expect(putBody.steps[0].input).toEqual({ q: "$input.topic" });
+		// Provenance fields are server-derived and the body schema is strict —
+		// sending them back would 400.
+		expect(putBody).not.toHaveProperty("canManage");
+		expect(putBody).not.toHaveProperty("source");
+	});
+
+	test("the Run panel is hidden while editing and returns on cancel", async ({ page, mockApi }) => {
+		// Run posts the SAVED definition; leaving it live beside unsaved edits
+		// invites running the old graph and misreading the result.
+		await mockApi({ workflows: [editable], agents: [makeAgent({ name: "alpha" })] });
+		await gotoDetail(page, "editme");
+
+		await expect(page.getByRole("heading", { name: "Run Workflow" })).toBeVisible();
+		await page.getByTestId("workflow-edit").click();
+		await expect(page.getByRole("heading", { name: "Run Workflow" })).toBeHidden();
+
+		await page.getByTestId("workflow-builder-cancel").click();
+		await expect(page.getByRole("heading", { name: "Run Workflow" })).toBeVisible();
+		await expect(page.getByTestId("workflow-steps-view")).toBeVisible();
+		await expect(page.getByLabel("Workflow Name")).toBeHidden();
+	});
+
+	test("renaming on save navigates to the new name", async ({ page, mockApi }) => {
+		// The page is keyed by name, so staying put would render "not found"
+		// for the name that was just freed.
+		await mockApi({ workflows: [editable], agents: [makeAgent({ name: "alpha" })] });
+		await page.route("**/api/workflows/editme", (route) =>
+			route.request().method() === "PUT"
+				? route.fulfill({ json: route.request().postDataJSON() })
+				: route.fallback(),
+		);
+
+		await gotoDetail(page, "editme");
+		await page.getByTestId("workflow-edit").click();
+		await page.getByLabel("Workflow Name").fill("renamed");
+		await page.getByRole("button", { name: "Save", exact: true }).click();
+
+		await expect(page).toHaveURL(/\/workflows\/renamed$/, { timeout: 5000 });
+	});
+
+	test("a failed save surfaces the error and keeps the editor open", async ({ page, mockApi }) => {
+		await mockApi({ workflows: [editable], agents: [makeAgent({ name: "alpha" })] });
+		await page.route("**/api/workflows/editme", (route) =>
+			route.request().method() === "PUT"
+				? route.fulfill({ status: 403, json: { error: "Only the workflow's owner or an admin can update it" } })
+				: route.fallback(),
+		);
+
+		await gotoDetail(page, "editme");
+		await page.getByTestId("workflow-edit").click();
+		await page.getByRole("button", { name: "Save", exact: true }).click();
+
+		await expect(page.getByTestId("workflow-edit-error")).toBeVisible({ timeout: 5000 });
+		// Still editing — the user's changes are not thrown away on failure.
+		await expect(page.getByLabel("Workflow Name")).toBeVisible();
+	});
+
+	test("Edit and Delete are hidden on a workflow the caller cannot manage", async ({ page, mockApi }) => {
+		// A YAML demo is a file on disk: PUT/DELETE 404. Painting the buttons
+		// would only teach the user to discover that by clicking.
+		await mockApi({
+			workflows: [makeWorkflow({ name: "demo-mixed", source: "yaml", canManage: false })],
+			agents: [makeAgent({ name: "alpha" })],
+		});
+		await gotoDetail(page, "demo-mixed");
+
+		await expect(page.getByRole("heading", { name: "demo-mixed" })).toBeVisible();
+		await expect(page.getByTestId("workflow-edit")).toHaveCount(0);
+		await expect(page.getByTestId("workflow-delete")).toHaveCount(0);
+		// Duplicate stays — it is the only productive action on a read-only demo.
+		await expect(page.getByTestId("workflow-duplicate")).toBeVisible();
+	});
+
+	test("Duplicate prefills the create form from the source workflow", async ({ page, mockApi }) => {
+		await mockApi({
+			workflows: [
+				makeWorkflow({
+					name: "demo-mixed",
+					source: "yaml",
+					canManage: false,
+					description: "shipped demo",
+					steps: [
+						{ name: "compose", kind: "transform", output: { headline: "Report on {{$input.topic}}" } },
+						{ name: "gate-it", kind: "gate", dependsOn: ["compose"], condition: { ref: "$steps.compose.output.headline", op: "contains", value: "Report" } },
+					] as never,
+				}),
+			],
+			agents: [makeAgent({ name: "alpha" })],
+		});
+
+		let postBody: any = null;
+		await page.route("**/api/workflows", (route) => {
+			if (route.request().method() !== "POST") return route.fallback();
+			postBody = route.request().postDataJSON();
+			return route.fulfill({ status: 201, json: postBody });
+		});
+
+		await gotoDetail(page, "demo-mixed");
+		await page.getByTestId("workflow-duplicate").click();
+
+		await expect(page).toHaveURL(/\/workflows\/new\?from=demo-mixed$/, { timeout: 5000 });
+		await expect(page.getByLabel("Workflow Name")).toHaveValue("demo-mixed-copy");
+		await expect(page.getByLabel("Description")).toHaveValue("shipped demo");
+		await expect(page.getByLabel("Step Name")).toHaveCount(2);
+
+		// The copy saves as a new, editable DB workflow.
+		await page.getByRole("button", { name: "Save Workflow" }).click();
+		await expect.poll(() => postBody).not.toBeNull();
+		expect(postBody.name).toBe("demo-mixed-copy");
+		expect(postBody.steps).toHaveLength(2);
+		expect(postBody.steps[0]).toMatchObject({ name: "compose", kind: "transform" });
 	});
 });

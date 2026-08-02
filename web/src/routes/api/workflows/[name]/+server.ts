@@ -6,6 +6,7 @@ import { validateWorkflow } from "$server/runtime/workflow-validator";
 import { requireAuth } from "$server/auth/middleware";
 import { canActOnWorkflow } from "$server/runtime/workflow-authz";
 import { requireScope } from "$lib/server/security/api-keys";
+import { withCanManage } from "$lib/server/workflow-can-manage";
 import type { RequestHandler } from "./$types";
 import type { WorkflowDefinition } from "$server/types";
 import { workflowBodySchema } from "../schema";
@@ -29,10 +30,13 @@ import { workflowBodySchema } from "../schema";
 export const GET: RequestHandler = async ({ params, locals }) => {
   const scopeErr = requireScope(locals, "read");
   if (scopeErr) return scopeErr;
-  requireAuth(locals);
+  const user = requireAuth(locals);
   const workflow = getWorkflows().find((w) => w.name === params.name);
   if (!workflow) return errorJson(404, "Not found");
-  return json(workflow);
+  // Same `canManage` shape the list serves — a workflow must not gain or
+  // lose the field depending on which route returned it.
+  const [decorated] = await withCanManage([workflow], user);
+  return json(decorated);
 };
 
 export const PUT: RequestHandler = async ({ request, params, locals }) => {

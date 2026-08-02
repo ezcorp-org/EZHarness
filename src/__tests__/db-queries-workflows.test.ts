@@ -11,6 +11,7 @@ const {
   updateWorkflow,
   deleteWorkflow,
   loadDbWorkflows,
+  getWorkflowOwnersByName,
 } = await import("../db/queries/workflows");
 
 const { users } = await import("../db/schema");
@@ -183,5 +184,29 @@ describe("workflows queries", () => {
     const defs = await loadDbWorkflows();
     const rich = defs.find((d) => d.name === "rich");
     expect(rich!.steps).toEqual(richSteps as any);
+  });
+  // ── getWorkflowOwnersByName ──────────────────────────────────────
+  // Backs the `canManage` flag GET /api/workflows serves: one query for
+  // every owner, so the list route does not issue a lookup per workflow.
+
+  test("getWorkflowOwnersByName maps every workflow name to its owner", async () => {
+    await getTestDb().insert(users).values({
+      id: "u-owner", email: "o@x", name: "o", role: "member", passwordHash: "x",
+    });
+    await createWorkflow({ name: "owned", description: "", steps: sampleSteps as any }, "u-owner");
+    await createWorkflow({ name: "unowned", description: "", steps: sampleSteps as any });
+
+    const owners = await getWorkflowOwnersByName();
+    expect(owners.get("owned")).toBe("u-owner");
+    // NULL created_by is an unowned legacy/global row — present in the map
+    // with a null value, NOT absent (absent and null must read the same to
+    // the caller, but the row genuinely exists).
+    expect(owners.get("unowned")).toBeNull();
+    expect(owners.has("unowned")).toBe(true);
+  });
+
+  test("getWorkflowOwnersByName returns an empty map when there are no workflows", async () => {
+    const owners = await getWorkflowOwnersByName();
+    expect(owners.size).toBe(0);
   });
 });

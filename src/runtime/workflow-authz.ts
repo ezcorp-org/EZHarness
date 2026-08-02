@@ -72,6 +72,36 @@ export function canActOnWorkflow(
 }
 
 /**
+ * May `user` EDIT or DELETE the workflow this definition describes?
+ *
+ * The predicate `GET /api/workflows` serves as `canManage`, so the UI can
+ * hide an Edit/Delete affordance that would only 403 or 404. It is the
+ * exact conjunction the write routes enforce, expressed once:
+ *
+ * 1. **`source` must be `"db"`** — `PUT`/`DELETE /api/workflows/[name]`
+ *    resolve the target through `getWorkflowByName`, so a YAML or
+ *    extension-shipped definition 404s ("only DB workflows can be
+ *    updated"). Those are files on disk; there is nothing to write.
+ * 2. **owner-or-admin** — the same {@link canActOnWorkflow} call the write
+ *    routes make, so the button and the endpoint can never disagree.
+ *
+ * Deliberately synchronous and owner-taking rather than name-taking: the
+ * list route resolves every owner in ONE query and maps over the cache,
+ * instead of issuing a `getWorkflowByName` per workflow. `canRunWorkflow`
+ * re-reads the row because it guards an actual side effect and wants the
+ * freshest answer; this one only decides whether to paint a button, and a
+ * stale `true` degrades to the write route's own 403.
+ */
+export function canManageWorkflow(
+  workflow: Pick<WorkflowDefinition, "source">,
+  createdBy: string | null | undefined,
+  user: WorkflowPrincipal,
+): boolean {
+  if (workflow.source !== "db") return false;
+  return canActOnWorkflow(createdBy, user);
+}
+
+/**
  * The extension namespace a workflow name claims, or null if it claims
  * none. `at <= 0` covers both "no separator" and a leading separator (an
  * empty prefix names no extension — `namespacedWorkflowName` can never
