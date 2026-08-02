@@ -695,6 +695,24 @@ describe("city_conditions", () => {
     expect((env.pollen as { categories: unknown[] }).categories).toHaveLength(3);
   });
 
+  test("a throwing key resolver degrades pollen instead of failing the whole card", async () => {
+    // A revoked or unapproved Storage grant makes the resolver throw. That
+    // must not erase valid weather — the card falls through to the keyless
+    // provider and reports why Google was skipped.
+    route();
+    _setGooglePollenKeyResolverForTests(async () => {
+      throw new Error("storage grant revoked");
+    });
+    const env = envelope(await tools.city_conditions!({ city: "Austin" }));
+    expect(env.ok).toBe(true);
+    expect(env.weather).toMatchObject({ tempC: expect.any(Number) });
+    expect(env.pollen).toMatchObject({
+      available: true,
+      unit: "grains/m³",
+      source: { id: "open-meteo" },
+    });
+  });
+
   test("Atlanta gets observed station pollen and mold activity instead of Google/CAMS", async () => {
     let airGridCalled = false;
     route({
