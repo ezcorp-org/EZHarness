@@ -29,6 +29,7 @@
  *     agent seeder this manifest's registration activates.
  */
 import { describe, expect, test } from "bun:test";
+import type { ToolDefinition } from "@ezcorp/sdk";
 
 import config from "./ezcorp.config";
 import { JOB_SAVE_EVENT } from "./lib/page";
@@ -66,7 +67,11 @@ describe("ez-factory manifest — identity", () => {
     // A scope here would deny every call made from the only place these
     // tools are called from. Asserted here AND in
     // `lib/tools/index.test.ts`, because absence is invisible in a diff.
-    for (const tool of config.tools ?? []) {
+    // Typed as the DECLARED manifest shape: `defineExtension` returns `T`
+    // exactly, so the optional-and-absent `rbacScope` is not on the config
+    // literal's inferred type and this assertion would not compile.
+    const tools: ToolDefinition[] = config.tools ?? [];
+    for (const tool of tools) {
       expect(tool.rbacScope).toBeUndefined();
     }
   });

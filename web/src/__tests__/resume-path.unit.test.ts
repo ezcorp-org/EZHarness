@@ -53,6 +53,24 @@ describe("projectIdFromPath", () => {
 		expect(projectIdFromPath("/")).toBeNull();
 		expect(projectIdFromPath("/project/")).toBeNull();
 	});
+
+	// The `(app)` layout mirrors this into `store.activeProjectId`, so any
+	// route below returning non-null would kick the user out of their project.
+	// `[id]` is deliberately NOT unique to `/project/[id]` — these four routes
+	// declare the same param name, which is exactly why the layout parses the
+	// PATHNAME instead of reading `page.params.id`.
+	test("returns null for the other routes that also declare an [id] param", () => {
+		expect(projectIdFromPath("/extensions/ext-1")).toBeNull();
+		expect(projectIdFromPath("/extensions/ext-1/audit")).toBeNull();
+		expect(projectIdFromPath("/marketplace/listing-9")).toBeNull();
+		expect(projectIdFromPath("/runs/run-3")).toBeNull();
+	});
+
+	test("only matches the project segment at the start of the path", () => {
+		// A nested or suffixed segment must not be mistaken for the real one.
+		expect(projectIdFromPath("/extensions/project/p1")).toBeNull();
+		expect(projectIdFromPath("/projects/p1")).toBeNull();
+	});
 });
 
 describe("isResumablePath", () => {

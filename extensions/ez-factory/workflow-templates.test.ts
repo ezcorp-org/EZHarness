@@ -919,7 +919,11 @@ describe("ez-factory templates — dry run (the graph actually executes)", () =>
     //     would fire on every run, clean ones included. There is no
     //     non-empty-array operator; the scalar is the only honest test.
     const def = byBareName.get("etl-factory")!;
-    const guard = { ref: "$steps.ingest.output.skippedCount", op: "gt", value: 0 };
+    const guard: WorkflowCondition = {
+      ref: "$steps.ingest.output.skippedCount",
+      op: "gt",
+      value: 0,
+    };
     expect(stepNamed(def, "anomaly-gate").when).toEqual(guard);
     expect(stepNamed(def, "consent").when).toEqual(guard);
   });

@@ -4,6 +4,7 @@
  * that not one tool declares an `rbacScope`.
  */
 import { describe, expect, test } from "bun:test";
+import type { ToolDefinition } from "@ezcorp/sdk";
 
 import config from "../../ezcorp.config";
 import { makeFakeFs } from "../../__tests__/fake-fs";
@@ -15,7 +16,11 @@ import {
   createFactoryToolHandlers,
 } from "./index";
 
-const manifestTools = config.tools ?? [];
+// Typed as the DECLARED manifest shape, not the config literal's inferred
+// one. `defineExtension` returns `T` exactly, so `rbacScope` — optional and
+// absent from every tool here — is not on the inferred type at all, and the
+// absence assertion below would not compile against it.
+const manifestTools: ToolDefinition[] = config.tools ?? [];
 
 describe("the manifest and the dispatcher name the same tools", () => {
   test("FACTORY_TOOL_NAMES is exactly the manifest's tool list", () => {
@@ -23,7 +28,8 @@ describe("the manifest and the dispatcher name the same tools", () => {
     // install: the manifest advertises a tool the subprocess never
     // answers, and the call surfaces as an opaque dispatch error at run
     // time. This is the check that turns that into a red test.
-    expect([...FACTORY_TOOL_NAMES]).toEqual(manifestTools.map((t) => t.name));
+    const declared: string[] = [...FACTORY_TOOL_NAMES];
+    expect(declared).toEqual(manifestTools.map((t) => t.name));
   });
 
   test("the handler map serves exactly those names", () => {

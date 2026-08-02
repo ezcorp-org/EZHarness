@@ -394,6 +394,62 @@ default_parallel() {
   echo $(( cores < 6 ? cores : 6 ))
 }
 
+# ── coverage-leg lcov registry ──────────────────────────────────────────────
+# ONE definition of every coverage LEG that is expected to emit an lcov and of
+# the $TMPDIR sub-directory it writes into. scripts/test-coverage.sh's leg
+# producers take their --coverage-dir from LEG_COV_DIR, and check_leg_lcov
+# walks the SAME registry — so a leg can neither run unguarded nor be guarded
+# without running. src/__tests__/coverage-leg-lcov-guard.test.ts asserts the
+# producers never hardcode a covdir around the registry.
+#
+# WHY THIS EXISTS: the merge globs "$TMPDIR"/cov_*/lcov.info, so a leg that
+# died before writing one is simply ABSENT from the union — no error, no
+# mention. Shard mode has always guarded the analogous case (its N_LCOV check
+# in test-coverage.sh); the two leg-running modes did not. That never allowed
+# a false GREEN — the gating legs' exit codes and the coverage gate itself
+# still red the run — but it destroyed DIAGNOSABILITY: one dead leg dropped
+# 173 files out of the merged lcov, 146 of which had no other producer, and
+# the gate printed 126 "listed in thresholds but no lcov data" violations for
+# files the change never touched, burying the one real failure.
+declare -A LEG_COV_DIR=()
+LEG_NAMES=()
+
+# Register a leg: its NAME (what the guard prints) and the $TMPDIR
+# sub-directory it writes lcov.info into. Called by the leg producer itself,
+# so a leg that doesn't run in the current mode is never expected to have
+# produced anything (the web-security leg is full-local-mode only).
+#
+# MUST run in the PARENT shell, before the leg is backgrounded. Inside a
+# `( … ) &` subshell these arrays are a COPY: the registration would be lost,
+# the parent would never expect that leg, and the silent skip this whole
+# registry exists to stop would be back — for the one leg someone just added.
+# That is a one-line mistake a later "tidy-up" could make invisibly, so it is
+# ENFORCED, not just documented: $BASHPID differs from $$ only in a subshell.
+register_leg() {
+  if [ "$BASHPID" != "$$" ]; then
+    echo "::error::register_leg '$1' was called from a SUBSHELL — the registration would be discarded with the subshell and the leg would go unguarded. Call it in the parent shell, before backgrounding the leg." >&2
+    exit 1
+  fi
+  LEG_NAMES+=("$1")
+  LEG_COV_DIR["$1"]="$TMPDIR/$2"
+}
+
+# Fail loud, NAMING each registered leg that produced no lcov. Mirrors the
+# shard-mode guard's shape and message style; the per-leg name is the
+# diagnostic the silent skip destroyed. An EMPTY lcov counts as missing (-s):
+# it contributes exactly as much to the merge as an absent one.
+check_leg_lcov() {
+  local leg missing=()
+  for leg in "${LEG_NAMES[@]}"; do
+    if [ ! -s "${LEG_COV_DIR[$leg]}/lcov.info" ]; then missing+=("$leg"); fi
+  done
+  if [ "${#missing[@]}" -eq 0 ]; then return 0; fi
+  for leg in "${missing[@]}"; do
+    echo "::error::$leg coverage leg produced no lcov output (infrastructure failure) — expected ${LEG_COV_DIR[$leg]}/lcov.info"
+  done
+  return 1
+}
+
 # Extract the last "N pass" / "N fail" count from a bun test summary.
 # Usage: summary_count "$OUTPUT" pass|fail — prints nothing when no summary
 # was printed (module-load error, crash, SIGKILL); callers default with :-0.

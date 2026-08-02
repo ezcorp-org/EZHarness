@@ -92,5 +92,23 @@ export default defineConfig({
 				inline: ["zod"],
 			},
 		},
+		coverage: {
+			// A single failing test must NOT erase the whole coverage report.
+			// Vitest defaults `coverage.reportOnFailure` to false and writes no
+			// reporter output at all once any test fails, so ONE timed-out test
+			// left `lcov.info` unwritten entirely. scripts/test-coverage.sh
+			// globs `$TMPDIR/cov_*/lcov.info` into the merge, so a missing file
+			// is silently skipped rather than raised: the merge then lost all
+			// 173 files this leg measures (146 of which no other leg produces),
+			// and the gate reported 126 enforced files as "listed in thresholds
+			// but no lcov data" — measured by replaying check-coverage.ts on a
+			// merge with this leg's records removed. That buried the one real
+			// failure under 126 phantom ones. Reporting on failure cannot turn
+			// red into green: the leg's exit code (VITEST_EXIT) still gates
+			// independently in test-coverage.sh, and coverage measured during a
+			// failed run is never higher than a clean one. Inert outside the
+			// coverage leg — nothing else runs vitest with --coverage.
+			reportOnFailure: true,
+		},
 	},
 });

@@ -20,11 +20,18 @@
  * the read below is the only correlation path there is.
  *
  * ── Enforcement ladder (strict order) ──────────────────────────────────
- *   0. Provenance — resolved by the CALLER (`handlePiWorkflows` →
- *      `resolveReverseRpcMeta`) from the host-issued `_meta.ezCallId` the
- *      subprocess echoed back, NEVER the wire. That helper also refuses an
- *      OWNERLESS background fire outright (`-32106`); see the attribution
- *      note below for why that refusal is the whole design here.
+ *   0. Provenance — resolved by the CALLER from the host-issued
+ *      `_meta.ezCallId` the subprocess echoed back, NEVER the wire. Which
+ *      resolver runs depends on the RPC method, and it is the ONLY thing
+ *      that differs between the two entry points:
+ *        - `ezcorp/workflows` → `handlePiWorkflows` →
+ *          `resolveReverseRpcMeta`, which ALSO refuses an OWNERLESS
+ *          background fire outright (`-32106`) before this ladder starts.
+ *        - `ezcorp/workflows-delegated` → `handlePiWorkflowsDelegated` →
+ *          `resolveDelegatedProvenance`, which passes an ownerless fire
+ *          through with `userId: null` so it reaches rung 7 instead.
+ *      Either way an ownerless fire is REFUSED — see the attribution note
+ *      below. The delegated method only decides WHERE.
  *   1. Kill-switch (`EZCORP_DISABLE_CAPABILITY_TOOLS=1`)
  *   2. Grant check — a structurally valid `permissions.workflows` grant
  *   3. Payload: the workflow NAME. Read before the PDP call on purpose —
@@ -61,11 +68,22 @@
  * We REFUSE ownerless triggers rather than inventing an owner. Attributing
  * a background fire to (say) the installing user would bill that user's
  * provider credits for work they did not initiate and would push the run's
- * event stream at them; both are worse than a clean, typed failure. The
- * refusal is inherited for free from `resolveReverseRpcMeta` (`-32106`,
- * "No owner scope for this background fire"), and this handler re-asserts
- * it at rung 7 so the bound is testable in isolation and cannot be lost by
- * a future caller that skips the shared helper.
+ * event stream at them; both are worse than a clean, typed failure. On the
+ * `ezcorp/workflows` path the refusal is inherited for free from
+ * `resolveReverseRpcMeta` (`-32106`, "No owner scope for this background
+ * fire"), and this handler re-asserts it at rung 7 so the bound is testable
+ * in isolation and cannot be lost by a future caller that skips the shared
+ * helper.
+ *
+ * `ezcorp/workflows-delegated` IS that future caller, and rung 7 is why it
+ * is safe to add. It skips the rung-0 refusal deliberately — a delegated
+ * fire is ownerless by definition, so refusing at rung 0 would make the
+ * whole ladder unreachable for it — and rung 7 catches it instead, with the
+ * same `-32106` plus the `audit_log` row rung 0 never wrote. Rung 7 is
+ * therefore no longer a belt-and-braces re-assertion; it is the LOAD-BEARING
+ * ownerless bound for that method. Do not weaken it, and do not "simplify"
+ * it away on the grounds that the caller already checks — one caller does,
+ * one deliberately does not.
  */
 import type {
   ExtensionManifestV2,
@@ -132,9 +150,17 @@ export interface WorkflowsHandlerContext {
   extensionName: string;
   /** Registry extension id (the audit/actor anchor). */
   extensionId: string;
-  /** Acting user, from the host-issued provenance token. The caller
-   *  guarantees this is non-empty; rung 7 re-asserts it. */
-  userId: string;
+  /** Acting user, from the host-issued provenance token.
+   *
+   *  NULLABLE on purpose. The `ezcorp/workflows` caller
+   *  (`handlePiWorkflows` → `resolveReverseRpcMeta`) still guarantees a
+   *  non-empty value — it refuses ownerless at rung 0. The
+   *  `ezcorp/workflows-delegated` caller (`handlePiWorkflowsDelegated` →
+   *  `resolveDelegatedProvenance`) deliberately does NOT, so that an
+   *  ownerless fire reaches rung 7 and is refused THERE — audited, typed,
+   *  and in one place — instead of dying before the ladder starts.
+   *  Rung 7 has always coded for the falsy case; this type now says so. */
+  userId: string | null;
   /** Calling conversation, or null for a non-chat (but still owned) call. */
   conversationId: string | null;
   /** The INSTALLED grant. */
@@ -145,6 +171,19 @@ export interface WorkflowsHandlerContext {
    *  handler; production always threads it. */
   engine?: PermissionEngine;
 }
+
+/**
+ * The handler context AFTER rung 7 — the ownerless bound has been applied,
+ * so the acting user is known.
+ *
+ * Exists so the compiler, not a comment, enforces that the RUN DISPATCH
+ * sits below the ownerless bound. `runWorkflow` scopes its `workflow:*` SSE
+ * delivery on this id and is fail-closed on a missing one, so a null here
+ * would execute real LLM spend that nobody can see. If a future edit moves
+ * `startWorkflowRun` above rung 7, this type fails the build instead of
+ * shipping an invisible run.
+ */
+type OwnedWorkflowsHandlerContext = WorkflowsHandlerContext & { userId: string };
 
 // ── Per-hour trigger quota ─────────────────────────────────────────────
 //
@@ -325,24 +364,13 @@ export async function handleWorkflowsRpc(
   if (!ctx.userId || ctx.userId === "unknown") {
     const message =
       "Workflow triggers require an acting user — a background (cron/webhook) fire has no owner to attribute the run to";
-    try {
-      await insertAuditEntry(
-        null,
-        EXT_AUDIT_ACTIONS.WORKFLOW_TRIGGER_NO_OWNER,
-        ctx.extensionId,
-        {
-          permission: "workflows",
-          oldValue: undefined,
-          newValue: name,
-          actor: "system",
-          reason: "no-owner",
-        },
-      );
-    } catch {
-      // Audit failure must never change the response.
-    }
+    await auditOwnerless(ctx.extensionId, name, "no-owner");
     return rpcError(req.id, -32106, message, { reason: "WORKFLOWS_NO_OWNER" });
   }
+  // Past the bound: the acting user is known. Everything below that can
+  // start a run takes THIS context, so the ownerless check above cannot be
+  // bypassed by a future reordering without a compile error.
+  const ownedCtx: OwnedWorkflowsHandlerContext = { ...ctx, userId: ctx.userId };
 
   // 8. Wiring gate. Only meaningful when the call carries a conversation;
   //    an owned but conversation-less call (a lifecycle/event dispatch)
@@ -417,7 +445,7 @@ export async function handleWorkflowsRpc(
     : undefined;
 
   try {
-    startWorkflowRun(runtime, definition, input, projectId, ctx);
+    startWorkflowRun(runtime, definition, input, projectId, ownedCtx);
   } catch (err) {
     return deny(
       "WORKFLOWS_DISPATCH_FAILED",
@@ -716,7 +744,7 @@ function startWorkflowRun(
   definition: WorkflowDefinition,
   input: Record<string, unknown>,
   projectId: string | undefined,
-  ctx: WorkflowsHandlerContext,
+  ctx: OwnedWorkflowsHandlerContext,
 ): void {
   const promise = runtime.workflowExecutor.runWorkflow(
     definition,
@@ -746,6 +774,46 @@ function startWorkflowRun(
     });
 }
 
+/**
+ * The ONE way an OWNERLESS trigger is audited: an `audit_log` row with a
+ * NULL user, never `sdk_capability_calls`.
+ *
+ * `sdk_capability_calls.on_behalf_of` is NOT NULL with an FK to `users`
+ * (`schema.ts`), so an ownerless row cannot exist there — the insert is
+ * swallowed and the rejection class that most needs a trail gets none.
+ * `audit_log.user_id` is nullable, so it can hold one.
+ *
+ * Shared by rung 7 (`reason: "no-owner"` — the ownerless bound itself) and
+ * by {@link audit}'s ownerless fallback (`reason: <deny code>` — an
+ * ownerless call refused by an EARLIER rung, reachable only via
+ * `ezcorp/workflows-delegated`, whose rung 0 lets ownerless through). One
+ * writer so the two can never disagree about destination or shape.
+ *
+ * Never throws: an audit failure must not change the RPC response.
+ */
+async function auditOwnerless(
+  extensionId: string,
+  workflowName: unknown,
+  reason: string,
+): Promise<void> {
+  try {
+    await insertAuditEntry(
+      null,
+      EXT_AUDIT_ACTIONS.WORKFLOW_TRIGGER_NO_OWNER,
+      extensionId,
+      {
+        permission: "workflows",
+        oldValue: undefined,
+        newValue: typeof workflowName === "string" ? workflowName : undefined,
+        actor: "system",
+        reason,
+      },
+    );
+  } catch {
+    // Audit failure must never change the response.
+  }
+}
+
 /** Single audit site for both outcomes — `recordCapabilityCall` never
  *  throws by contract, but wrap anyway so an audit hiccup can never turn a
  *  successful trigger into an RPC error. */
@@ -761,6 +829,19 @@ async function audit(
     resourceId?: string;
   },
 ): Promise<void> {
+  // An OWNERLESS call cannot be recorded in `sdk_capability_calls` at all
+  // — see {@link auditOwnerless}. Only `ezcorp/workflows-delegated` can get
+  // here with no owner (its rung 0 is tolerant); `ezcorp/workflows` is
+  // refused before the ladder starts. Without this branch the insert would
+  // be silently swallowed by the NOT NULL FK and the deny would vanish.
+  if (!ctx.userId || ctx.userId === "unknown") {
+    await auditOwnerless(
+      ctx.extensionId,
+      spec.after?.workflow ?? spec.resourceId,
+      spec.errorCode ?? "ownerless",
+    );
+    return;
+  }
   try {
     await deps.recordCapabilityCall({
       ctx: {

@@ -189,13 +189,14 @@
 	// surface here. Gate on the extension name — the top-level `ext.name`
 	// (mirrors `manifest.name`) is the stable identity.
 	const isGithubProjects = $derived(ext?.name === "github-projects");
-	// Where the per-project connect surface lives. This route's `[id]` is the
-	// EXTENSION id, and the (app) layout syncs `store.activeProjectId` to the
-	// URL's `[id]` param — so on this page `activeProjectId` is polluted with
-	// the extension id. We therefore resolve the target project from the real
-	// project list: use `activeProjectId` only if it names an actual project,
-	// else the first non-global project. Falls back to project selection ("/")
-	// when there is none, so the link never dead-ends.
+	// Where the per-project connect surface lives. The (app) layout only syncs
+	// `store.activeProjectId` from a `/project/<id>/…` pathname, so this route's
+	// `[id]` (the EXTENSION id) no longer leaks into it and the user's real
+	// project survives the visit. It can still legitimately be the "global"
+	// sentinel (a cross-project scope, not a workspace), so resolve the target
+	// from the real project list: use `activeProjectId` only if it names an
+	// actual project, else the first non-global project. Falls back to project
+	// selection ("/") when there is none, so the link never dead-ends.
 	const targetProjectId = $derived.by((): string | null => {
 		const active = store.activeProjectId;
 		if (active && active !== "global" && store.projects.some((p) => p.id === active)) {

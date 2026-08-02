@@ -377,7 +377,11 @@ describe("recentRuns", () => {
       status: "completed", startedAt: "2026-08-01T03:00:00.000Z",
       finishedAt: null, suspendedReason: null, resumable: false,
     });
-    const jobs = [{ id: "a" }, { id: "b" }] as Parameters<typeof recentRuns>[0];
+    // `recentRuns` reads nothing but `.id`, so an id-only stub is the
+    // honest fixture; the double cast is what lets it stand in for the
+    // full `FactoryJob` without inventing fields the function never
+    // touches.
+    const jobs = [{ id: "a" }, { id: "b" }] as unknown as Parameters<typeof recentRuns>[0];
     expect((await recentRuns(jobs)).map((r) => r.workflowRunId)).toEqual(["r2", "r1"]);
     // Bounded: a hundred jobs cannot produce a tree the host's node/byte
     // caps would reject wholesale.
