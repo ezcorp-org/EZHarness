@@ -176,7 +176,7 @@ function seedStaleWebSearch(): StoredExtension {
 }
 
 describe("bundled drift re-approval", () => {
-  test("preview exposes the newly added Atlanta station website before approval", async () => {
+  test("preview exposes every newly added capability before approval", async () => {
     const { previewBundledDrift } = await import("../extensions/bundled-drift-reapprove");
     const row: StoredExtension = {
       id: "seed-city-conditions",
@@ -210,20 +210,42 @@ describe("bundled drift re-approval", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error("unreachable");
     expect(result.grant.network).toContain("www.atlantaallergy.com");
+    expect(result.grant.network).toContain("pollen.googleapis.com");
+
+    // The point of the preview is that NOTHING new is granted silently:
+    // every tier the row is about to gain must appear as its own diff, with
+    // the pre-approval value on the left. The three hosts already granted
+    // stay put; the v0.2 station host, the v0.3 Google host, and the v0.3
+    // Storage tier (which holds the user's Google key) are all new.
+    const network = result.diffs.find((d) => d.field === "network");
+    expect(network?.oldValue).toEqual([
+      "geocoding-api.open-meteo.com",
+      "api.open-meteo.com",
+      "air-quality-api.open-meteo.com",
+    ]);
+    expect(network?.newValue).toEqual([
+      "geocoding-api.open-meteo.com",
+      "api.open-meteo.com",
+      "air-quality-api.open-meteo.com",
+      "pollen.googleapis.com",
+      "www.atlantaallergy.com",
+    ]);
     expect(result.diffs).toContainEqual({
-      field: "network",
-      oldValue: [
-        "geocoding-api.open-meteo.com",
-        "api.open-meteo.com",
-        "air-quality-api.open-meteo.com",
-      ],
-      newValue: [
-        "geocoding-api.open-meteo.com",
-        "api.open-meteo.com",
-        "air-quality-api.open-meteo.com",
-        "www.atlantaallergy.com",
-      ],
+      field: "storage",
+      oldValue: undefined,
+      newValue: true,
     });
+    expect(result.diffs).toContainEqual({
+      field: "workflows",
+      oldValue: undefined,
+      newValue: { names: ["conditions"], maxRunsPerHour: 12 },
+    });
+
+    // Still fail-closed on the tiers this extension must never hold, so a
+    // widened preview can't quietly become a blanket approval.
+    for (const field of ["shell", "filesystem", "env"]) {
+      expect(result.diffs.some((d) => d.field === field)).toBe(false);
+    }
   }, 30_000);
 
   test("the bug + happy path + boot convergence: S9 disables, reapprove heals from disk, next boot stays enabled", async () => {
