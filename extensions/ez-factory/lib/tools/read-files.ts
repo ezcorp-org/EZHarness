@@ -50,7 +50,7 @@ import {
   optionalBoundedInt,
   optionalString,
   requireObject,
-  requireStringArray,
+  requireStringList,
   resolveWithinRoot,
   runTool,
   serializedBytes,
@@ -103,8 +103,23 @@ export interface ReadFilesPayload {
   root: string;
   files: ReadFilesEntry[];
   skipped: ReadFilesSkip[];
+  /**
+   * `files.length` and `skipped.length` as SCALARS.
+   *
+   * Redundant on purpose, and load-bearing for workflow gates. A
+   * condition compares with `deepEq` (`src/runtime/workflow-condition.ts`),
+   * so a gate written as `{ref: "…skipped", op: "neq", value: "[]"}`
+   * compares an ARRAY against the STRING `"[]"` — never equal, so `neq`
+   * is ALWAYS TRUE and the branch always fires. `exists` is no better:
+   * `[]` is neither undefined nor null. There is no "non-empty array"
+   * operator, so without a scalar there is no correct way to gate on
+   * "was anything skipped". Gate on `skippedCount` with `gt`/`eq`.
+   */
+  fileCount: number;
+  skippedCount: number;
   /** Which aggregate bound bit, if any. Fixed-size on purpose: a
-   *  variable-length "why" list would itself need a budget. */
+   *  variable-length "why" list would itself need a budget. Booleans, so a
+   *  gate can use `truthy` directly. */
   truncated: { depth: boolean; dirs: boolean; files: boolean; budget: boolean };
   limits: {
     maxDepth: number;
@@ -127,10 +142,16 @@ export function createReadFiles(deps: ToolDeps) {
       const projectRoot = deps.projectRoot();
       const rootRel = optionalString(args, "root") ?? ".";
       const absRoot = resolveWithinRoot(projectRoot, rootRel, "root");
-      const patterns = requireStringArray(args, "globs", MAX_GLOBS, MAX_GLOB_LEN);
+      // `globs` takes an array OR a newline-separated string, and
+      // `maxFiles` / `maxTotalBytes` take a number OR a numeric string,
+      // because a workflow step's `input` mapping values must ALL be
+      // strings (`src/runtime/workflow-validator.ts`). Over-cap is still
+      // rejected, never clamped.
+      const patterns = requireStringList(args, "globs", MAX_GLOBS, MAX_GLOB_LEN);
       const budget =
         optionalBoundedInt(args, "maxTotalBytes", MAX_TOOL_OUTPUT_BYTES) ??
         DEFAULT_READ_TOTAL_BYTES;
+      const fileLimit = optionalBoundedInt(args, "maxFiles", MAX_FILES) ?? MAX_FILES;
 
       // `Bun.Glob(...).match(...)` is pure string matching — it touches no
       // filesystem, which is why it survives the sandbox where
@@ -143,31 +164,46 @@ export function createReadFiles(deps: ToolDeps) {
         root: rootRel,
         files: [],
         skipped: [],
+        fileCount: 0,
+        skippedCount: 0,
         truncated: { depth: false, dirs: false, files: false, budget: false },
         limits: {
           maxDepth: MAX_DEPTH,
           maxDirs: MAX_DIRS,
-          maxFiles: MAX_FILES,
+          maxFiles: fileLimit,
           maxFileBytes: MAX_FILE_BYTES,
           maxTotalBytes: budget,
         },
       };
 
-      // Exact budget accounting. The empty payload is measured with every
-      // `truncated` flag FALSE, which is the widest each one serializes
-      // (`false` is five bytes, `true` is four), so the baseline can only
-      // over-estimate. Each appended array element then costs its own
-      // serialized bytes plus one for the separating comma.
+      // Budget accounting, exact rather than approximately-safe:
+      //
+      //   · The baseline is the empty payload, measured with every
+      //     `truncated` flag FALSE — five bytes, wider than `true`, so
+      //     flipping one can only free space.
+      //   · An appended element costs its own serialized bytes, plus one
+      //     for the separating comma ONLY when the array is already
+      //     non-empty, which is what `JSON.stringify` actually emits.
+      //
+      // The enforcement is `the serialized payload stays within
+      // maxTotalBytes across a swept range` in `read-files.test.ts`, a
+      // property test over 1400 consecutive budgets. Reasoning about this
+      // arithmetic is easy to get wrong in a direction nothing reports:
+      // an earlier version charged a comma unconditionally AND padded the
+      // baseline for the two counters' digit growth, and the two errors
+      // cancelled — so neither could be shown to matter, and the padding
+      // turned out to be unreachable defence. Both are gone. If a future
+      // change makes the accounting under-count, the sweep goes red.
       let used = serializedBytes(payload);
-      const fits = (entry: unknown): boolean => {
-        const cost = serializedBytes(entry) + 1;
+      const fits = (entry: unknown, into: readonly unknown[]): boolean => {
+        const cost = serializedBytes(entry) + (into.length > 0 ? 1 : 0);
         if (used + cost > budget) return false;
         used += cost;
         return true;
       };
       const addSkip = (path: string, reason: SkipReason): void => {
         const entry: ReadFilesSkip = { path, reason };
-        if (fits(entry)) payload.skipped.push(entry);
+        if (fits(entry, payload.skipped)) payload.skipped.push(entry);
         else payload.truncated.budget = true;
       };
 
@@ -229,7 +265,7 @@ export function createReadFiles(deps: ToolDeps) {
             continue;
           }
           if (!matches(rel)) continue;
-          if (candidates.length >= MAX_FILES) {
+          if (candidates.length >= fileLimit) {
             payload.truncated.files = true;
             break walk;
           }
@@ -255,13 +291,18 @@ export function createReadFiles(deps: ToolDeps) {
 
         // THE chokepoint. Not injected, not conditional, not skippable.
         const entry: ReadFilesEntry = { path: rel, bytes: size, content: frameUntrusted(raw) };
-        if (!fits(entry)) {
+        if (!fits(entry, payload.files)) {
           payload.truncated.budget = true;
           addSkip(rel, "budget-exhausted");
           continue;
         }
         payload.files.push(entry);
       }
+
+      // Set LAST, from the arrays themselves, so the scalars a gate reads
+      // can never disagree with the lists a later step reads.
+      payload.fileCount = payload.files.length;
+      payload.skippedCount = payload.skipped.length;
 
       return payload as unknown as Record<string, unknown>;
     });

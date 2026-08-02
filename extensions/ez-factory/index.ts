@@ -75,7 +75,21 @@ export function activeProjectRoot(): string {
   return getToolContext()?.projectRoot ?? process.env.EZCORP_PROJECT_ROOT ?? process.cwd();
 }
 
-export const deps: ToolDeps = { fs: hostFs, projectRoot: activeProjectRoot };
+/**
+ * The host's conversation coordinate for the running call, forwarded on
+ * `_meta.ezConversationId`. Inside a workflow this is the synthetic
+ * `workflow-run:<uuid>` scope key, which is how `emit_artifact` learns
+ * its run id without an argument no template could supply.
+ */
+export function activeConversationId(): string | undefined {
+  return getToolContext()?.conversationId;
+}
+
+export const deps: ToolDeps = {
+  fs: hostFs,
+  projectRoot: activeProjectRoot,
+  conversationId: activeConversationId,
+};
 
 /**
  * Production boot. Exported rather than inlined under `import.meta.main`

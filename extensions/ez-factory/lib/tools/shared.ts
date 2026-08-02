@@ -166,15 +166,38 @@ export function optionalString(
  * Over `max` is REJECTED rather than clamped — invariant E. A caller that
  * asked for a 4 MB read budget has a mistaken model of what will happen,
  * and silently handing back 200 KB would confirm it.
+ *
+ * A NUMERIC STRING is accepted, and that is a workflow requirement rather
+ * than laxity: `validateWorkflow` rejects any step `input` mapping value
+ * that is not a string (`src/runtime/workflow-validator.ts`), so a
+ * template literally cannot write `maxFiles: 40` — only `maxFiles: "40"`.
+ * Nothing applies `inputSchema.default` at run time either, so an unset
+ * `$input.x` arrives as `undefined` with its key present; that is the
+ * `undefined` branch above.
+ *
+ * The coercion is STRICT: only a canonical base-10 integer. `"1.5"`,
+ * `"0x10"`, `"40abc"`, `" "` and `""` are rejected, so a mis-typed ref
+ * fails loudly instead of silently becoming `NaN` or `0`.
  */
 export function optionalBoundedInt(
   input: Record<string, unknown>,
   field: string,
   max: number,
 ): number | undefined {
-  const value = input[field];
-  if (value === undefined || value === null) return undefined;
-  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
+  const raw = input[field];
+  if (raw === undefined || raw === null) return undefined;
+  let value: number;
+  if (typeof raw === "number") {
+    value = raw;
+  } else if (typeof raw === "string" && /^[0-9]+$/.test(raw.trim())) {
+    value = Number(raw.trim());
+  } else {
+    throw new ToolInputError(
+      "invalid-input",
+      `"${field}" must be a positive integer, or a string holding one`,
+    );
+  }
+  if (!Number.isInteger(value) || value <= 0) {
     throw new ToolInputError("invalid-input", `"${field}" must be a positive integer`);
   }
   if (value > max) {
@@ -187,30 +210,50 @@ export function optionalBoundedInt(
 }
 
 /**
- * A non-empty array of bounded strings. Over the count cap or the
- * per-entry length cap is REJECTED, not sliced.
+ * A non-empty list of bounded strings, given EITHER as an array or as a
+ * newline-separated string.
+ *
+ * Both forms exist for the same reason the numeric coercion does: a
+ * workflow step's `input` mapping values must be strings, so a template
+ * can only write a literal list as one string. A `$input.x` /
+ * `$steps.x.output.y` ref can still deliver a real array, so both are
+ * accepted and normalized here.
+ *
+ * NEWLINE, not comma: a glob may legitimately contain a comma inside a
+ * brace expansion (`src/**\/*.{ts,tsx}`), and splitting on it would
+ * silently turn one correct pattern into two broken ones.
+ *
+ * Over the count cap or the per-entry length cap is REJECTED, not sliced.
  */
-export function requireStringArray(
+export function requireStringList(
   input: Record<string, unknown>,
   field: string,
   maxCount: number,
   maxLen: number,
 ): string[] {
-  const value = input[field];
-  if (!Array.isArray(value)) {
-    throw new ToolInputError("invalid-input", `"${field}" must be an array of strings`);
+  const raw = input[field];
+  let entries: unknown[];
+  if (Array.isArray(raw)) {
+    entries = raw;
+  } else if (typeof raw === "string") {
+    entries = raw.split("\n").filter((line) => line.trim() !== "");
+  } else {
+    throw new ToolInputError(
+      "invalid-input",
+      `"${field}" must be an array of strings, or a newline-separated string`,
+    );
   }
-  if (value.length === 0) {
+  if (entries.length === 0) {
     throw new ToolInputError("invalid-input", `"${field}" must not be empty`);
   }
-  if (value.length > maxCount) {
+  if (entries.length > maxCount) {
     throw new ToolInputError(
       "over-cap",
-      `"${field}" has ${value.length} entries, over the ${maxCount} cap — rejected, not truncated`,
+      `"${field}" has ${entries.length} entries, over the ${maxCount} cap — rejected, not truncated`,
     );
   }
   const out: string[] = [];
-  for (const entry of value) {
+  for (const entry of entries) {
     if (typeof entry !== "string" || entry.trim() === "") {
       throw new ToolInputError("invalid-input", `every "${field}" entry must be a non-empty string`);
     }
@@ -225,12 +268,36 @@ export function requireStringArray(
   return out;
 }
 
-/** Required content, size-capped in UTF-8 BYTES (not UTF-16 code units —
- *  a multi-byte payload must be measured the way the host measures it). */
+/**
+ * Required file content, size-capped in UTF-8 BYTES (not UTF-16 code
+ * units — a multi-byte payload must be measured the way the host measures
+ * it).
+ *
+ * An OBJECT or ARRAY is accepted and pretty-printed as JSON. A workflow
+ * threading a previous step's whole result into an artifact
+ * (`content: "$steps.write.output"`) is the ordinary case, and the ref
+ * language hands that over as a real object — rejecting it would force
+ * every template to add a `transform` step whose only job is
+ * `JSON.stringify`.
+ *
+ * A bare number, boolean or null is REJECTED. Those are what a mis-typed
+ * ref produces, and writing `"null"` into an artifact a human will later
+ * read is exactly the silent-wrong-output failure invariant E exists to
+ * prevent. The cap applies to the SERIALIZED bytes, and over it is
+ * rejected, never truncated.
+ */
 export function requireContent(input: Record<string, unknown>, field: string): string {
-  const value = input[field];
-  if (typeof value !== "string") {
-    throw new ToolInputError("invalid-input", `"${field}" must be a string`);
+  const raw = input[field];
+  let value: string;
+  if (typeof raw === "string") {
+    value = raw;
+  } else if (typeof raw === "object" && raw !== null) {
+    value = JSON.stringify(raw, null, 2);
+  } else {
+    throw new ToolInputError(
+      "invalid-input",
+      `"${field}" must be a string, or an object/array to serialize as JSON`,
+    );
   }
   const bytes = utf8Bytes(value);
   if (bytes > MAX_WRITE_BYTES) {
@@ -292,7 +359,13 @@ export function requireSlug(
   field: string,
   maxLen: number,
 ): string {
-  const value = requireString(input, field);
+  return assertSlug(requireString(input, field), field, maxLen);
+}
+
+/** {@link requireSlug} for a value that did not come from the input bag —
+ *  the run id derived from the host's conversation coordinate. Host-supplied
+ *  or not, it is validated identically before it becomes a path segment. */
+export function assertSlug(value: string, field: string, maxLen: number): string {
   if (value.length > maxLen) {
     throw new ToolInputError(
       "over-cap",
@@ -369,8 +442,8 @@ export interface FactoryFs {
   exists(path: string): Promise<boolean>;
 }
 
-/** What every tool factory needs: the fs surface and the project root the
- *  `$CWD` grant resolves to. */
+/** What every tool factory needs: the fs surface, the project root the
+ *  `$CWD` grant resolves to, and the host's conversation coordinate. */
 export interface ToolDeps {
   fs: FactoryFs;
   /** Absolute path of the active project. Resolved per call by `index.ts`
@@ -378,6 +451,39 @@ export interface ToolDeps {
    *  actually bounds writes, so a wrong value here denies rather than
    *  escapes. */
   projectRoot(): string;
+  /** The host's conversation coordinate for THIS call, forwarded on
+   *  `_meta.ezConversationId`. Inside a workflow it is the synthetic
+   *  `workflow-run:<uuid>` scope key — see {@link runIdFromConversation}. */
+  conversationId(): string | undefined;
+}
+
+/** Prefix the workflow executor puts on its synthetic conversation key
+ *  (`workflowScopeKey` in `src/runtime/workflow-executor.ts`). */
+export const WORKFLOW_SCOPE_PREFIX = "workflow-run:";
+
+/**
+ * The workflow run id for the current call, or `undefined` outside a
+ * workflow.
+ *
+ * **This is why `emit_artifact` has no required `runId` argument.** There
+ * is no `$run.*` root in the ref language — `resolveInputRef` handles
+ * `$input.`, `$loop.`, `$prev`, `$steps.` and `$result`, and nothing else
+ * — so a workflow template has no way to name its own run id. A required
+ * argument would have made the tool uncallable from the templates it
+ * exists to serve.
+ *
+ * Deriving it here is also strictly safer than taking it as input: the
+ * value comes from the HOST (`executeToolCall` sets
+ * `_meta.ezConversationId` from the scope key it was dispatched with), so
+ * a run cannot claim another run's artifact directory. An explicit
+ * `runId` still overrides, for chat-driven calls that have no workflow.
+ */
+export function runIdFromConversation(conversationId: string | undefined): string | undefined {
+  if (conversationId === undefined || !conversationId.startsWith(WORKFLOW_SCOPE_PREFIX)) {
+    return undefined;
+  }
+  const runId = conversationId.slice(WORKFLOW_SCOPE_PREFIX.length).trim();
+  return runId === "" ? undefined : runId;
 }
 
 /**

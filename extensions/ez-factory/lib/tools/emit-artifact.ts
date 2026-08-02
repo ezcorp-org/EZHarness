@@ -29,11 +29,15 @@ import {
   ARTIFACT_DIR_SEGMENTS,
   MAX_ARTIFACT_NAME_LEN,
   MAX_RUN_ID_LEN,
+  ToolInputError,
   type ToolDeps,
   type ToolOutcome,
+  assertSlug,
+  optionalString,
   requireContent,
   requireObject,
   requireSlug,
+  runIdFromConversation,
   runTool,
   writeAndDescribe,
 } from "./shared";
@@ -51,10 +55,16 @@ export function createEmitArtifact(deps: ToolDeps) {
     return runTool(EMIT_ARTIFACT_TOOL, async () => {
       const args = requireObject(input);
       const projectRoot = deps.projectRoot();
-      // Both slugs, both validated the same way. `runId` is as untrusted
-      // as `name` — it arrives through the same ref-resolved input — so it
-      // gets the same treatment rather than being assumed to be a UUID.
-      const runId = requireSlug(args, "runId", MAX_RUN_ID_LEN);
+      // `runId` is DERIVED, not required. A workflow template has no way
+      // to name its own run — the ref language has no `$run.*` root — so
+      // it comes from the host's conversation coordinate, which a run
+      // cannot forge. An explicit `runId` overrides for a chat-driven
+      // call, and is then as untrusted as `name`: same slug validation.
+      const explicitRunId = optionalString(args, "runId");
+      const runId =
+        explicitRunId !== undefined && explicitRunId !== ""
+          ? assertSlug(explicitRunId, "runId", MAX_RUN_ID_LEN)
+          : derivedRunId(deps);
       const name = requireSlug(args, "name", MAX_ARTIFACT_NAME_LEN);
       const content = requireContent(args, "content");
 
@@ -64,4 +74,23 @@ export function createEmitArtifact(deps: ToolDeps) {
       return writeAndDescribe(deps, absPath, relPath, content);
     });
   };
+}
+
+/**
+ * The run id the host bound to this call, validated as a path segment.
+ *
+ * Rejects rather than inventing a fallback. A call with no workflow run
+ * and no explicit `runId` has no partition to write into, and dropping
+ * every such artifact into a shared directory would let two runs
+ * overwrite each other's output with nothing reporting it.
+ */
+function derivedRunId(deps: ToolDeps): string {
+  const runId = runIdFromConversation(deps.conversationId());
+  if (runId === undefined) {
+    throw new ToolInputError(
+      "no-run-context",
+      'no workflow run is bound to this call, so there is no artifact directory to write into — pass an explicit "runId"',
+    );
+  }
+  return assertSlug(runId, "runId", MAX_RUN_ID_LEN);
 }

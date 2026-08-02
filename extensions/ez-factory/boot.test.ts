@@ -33,7 +33,7 @@ interface RpcCall {
 let rpc: RpcCall[] = [];
 let registered: Record<string, unknown> | null = null;
 let channelStarted = false;
-let toolContext: { projectRoot?: string } | undefined;
+let toolContext: { projectRoot?: string; conversationId?: string } | undefined;
 let readReturnsBinary = false;
 
 const record = (method: string, ...args: unknown[]): void => {
@@ -77,7 +77,7 @@ mock.module("@ezcorp/sdk/runtime", () => ({
   },
 }));
 
-const { activeProjectRoot, deps, hostFs, start } = await import("./index");
+const { activeConversationId, activeProjectRoot, deps, hostFs, start } = await import("./index");
 
 beforeEach(() => {
   rpc = [];
@@ -151,6 +151,22 @@ describe("the host-mediated fs adapter", () => {
   test("exists forwards the path", async () => {
     expect(await hostFs.exists("/p/a.md")).toBe(false);
     expect(rpc).toEqual([{ method: "fsExists", args: ["/p/a.md"] }]);
+  });
+});
+
+describe("activeConversationId", () => {
+  test("forwards the host's conversation coordinate", () => {
+    // Inside a workflow this is the synthetic `workflow-run:<uuid>` scope
+    // key, which is how `emit_artifact` learns its run id without an
+    // argument no template could supply (there is no `$run.*` ref root).
+    toolContext = { conversationId: "workflow-run:abc-123" };
+    expect(activeConversationId()).toBe("workflow-run:abc-123");
+    expect(deps.conversationId()).toBe("workflow-run:abc-123");
+  });
+
+  test("is undefined for an out-of-band dispatch with no tool context", () => {
+    toolContext = undefined;
+    expect(activeConversationId()).toBeUndefined();
   });
 });
 

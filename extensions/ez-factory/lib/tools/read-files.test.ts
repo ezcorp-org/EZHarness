@@ -283,6 +283,81 @@ describe("read_files — the world misbehaving is never a throw", () => {
   });
 });
 
+describe("read_files — callable from a workflow step", () => {
+  // Every value in a step's `input` mapping must be a string
+  // (`validateWorkflow`), and nothing applies `inputSchema.default` at run
+  // time. Without the coercions below the tool is uncallable from the
+  // templates it exists for.
+
+  test("globs accept a newline-separated string", async () => {
+    const out = await read(
+      { [p("a.md")]: "m", [p("b.ts")]: "t", [p("c.txt")]: "x" },
+      { globs: "**/*.md\n**/*.ts" },
+    );
+    expect(out.files.map((f) => f.path)).toEqual(["a.md", "b.ts"]);
+  });
+
+  test("maxFiles accepts a numeric string and is honoured", async () => {
+    const files: Record<string, string> = {};
+    for (let i = 0; i < 10; i += 1) files[p(`f${i}.md`)] = "x";
+
+    const out = await read(files, { globs: "**/*.md", maxFiles: "4" });
+
+    expect(out.files).toHaveLength(4);
+    expect(out.truncated.files).toBe(true);
+    expect(out.limits.maxFiles).toBe(4);
+  });
+
+  test("maxTotalBytes accepts a numeric string", async () => {
+    const out = await read({ [p("a.md")]: "x" }, { globs: "**/*.md", maxTotalBytes: "100000" });
+    expect(out.limits.maxTotalBytes).toBe(100000);
+  });
+
+  test("REJECTS a maxFiles over the hard cap rather than clamping", async () => {
+    const { deps } = makeFakeFs({});
+    const outcome = await createReadFiles(deps)({ globs: "**/*.md", maxFiles: "500" });
+    expect(outcome.ok).toBe(false);
+    expect(outcome.ok === false && outcome.code).toBe("over-cap");
+  });
+
+  test("an unset optional arg arrives as undefined and takes the tool's default", async () => {
+    // `inputSchema.default` is not applied at run time, so an unset
+    // `$input.x` is `undefined` with the key still present.
+    const out = await read(
+      { [p("a.md")]: "x" },
+      { globs: "**/*.md", maxFiles: undefined, maxTotalBytes: undefined, root: undefined },
+    );
+    expect(out.limits.maxFiles).toBe(MAX_FILES);
+    expect(out.limits.maxTotalBytes).toBe(DEFAULT_READ_TOTAL_BYTES);
+    expect(out.root).toBe(".");
+  });
+});
+
+describe("read_files — the scalar counts a workflow gate needs", () => {
+  test("fileCount and skippedCount mirror the arrays", async () => {
+    const out = await read(
+      { [p("a.md")]: "x", [p("big.md")]: "a".repeat(MAX_FILE_BYTES + 1) },
+      { globs: "**/*.md" },
+    );
+    expect(out.fileCount).toBe(out.files.length);
+    expect(out.skippedCount).toBe(out.skipped.length);
+    expect(out.fileCount).toBe(1);
+    expect(out.skippedCount).toBe(1);
+  });
+
+  test("skippedCount is 0 — not an empty array — when nothing was skipped", async () => {
+    // A gate cannot test "array is non-empty": conditions compare with
+    // `deepEq`, so `{ref: "…skipped", op: "neq", value: "[]"}` compares an
+    // ARRAY to the STRING "[]" and is therefore ALWAYS true, and `exists`
+    // is true for `[]`. The scalar is the only correct thing to gate on.
+    const out = await read({ [p("a.md")]: "x" }, { globs: "**/*.md" });
+    expect(out.skipped).toEqual([]);
+    expect(out.skippedCount).toBe(0);
+    // The trap, stated as an assertion so it cannot be re-derived wrongly.
+    expect(out.skipped as unknown).not.toBe("[]");
+  });
+});
+
 describe("read_files — invariant E on its own input", () => {
   test("rejects a missing globs list", async () => {
     const { deps } = makeFakeFs({});
@@ -308,6 +383,55 @@ describe("read_files — invariant E on its own input", () => {
     const outcome = await createReadFiles(deps)({ root: "../../etc", globs: ["**/*"] });
     expect(outcome.ok).toBe(false);
     expect(outcome.ok === false && outcome.code).toBe("invalid-path");
+  });
+});
+
+describe("read_files — the budget is never overshot, at any budget", () => {
+  test("the serialized payload stays within maxTotalBytes across a swept range", async () => {
+    // A property test, because the interesting case is a single byte
+    // wide. The budget baseline is measured BEFORE `fileCount` and
+    // `skippedCount` hold their real values, so measuring them at their
+    // initial `0` under-counts by one byte per digit they later grow by.
+    // That only bites when a packing happens to land in the last byte or
+    // two under the budget — invisible at any one budget, certain across
+    // a swept range.
+    //
+    // It matters because `runTool` REJECTS a payload over
+    // `MAX_TOOL_OUTPUT_BYTES`: a caller who sets `maxTotalBytes` to the
+    // ceiling and overshoots it by two bytes gets their whole legitimate
+    // call refused.
+    const files: Record<string, string> = {};
+    for (let i = 0; i < 60; i += 1) {
+      files[p(`f${String(i).padStart(2, "0")}.md`)] = "a".repeat(20 + (i % 7));
+    }
+
+    const overshoots: Array<{ budget: number; actual: number }> = [];
+    for (let budget = 2000; budget <= 3400; budget += 1) {
+      const { deps } = makeFakeFs(files);
+      const outcome = await createReadFiles(deps)({ globs: "**/*.md", maxTotalBytes: budget });
+      expect(outcome.ok).toBe(true);
+      const actual = new TextEncoder().encode(outcome.text).length;
+      if (actual > budget) overshoots.push({ budget, actual });
+    }
+
+    expect(overshoots).toEqual([]);
+  });
+
+  test("the sweep is not vacuous — those budgets really do pack files in", async () => {
+    // Guard against the sweep above passing because every budget was too
+    // small to include anything.
+    const files: Record<string, string> = {};
+    for (let i = 0; i < 60; i += 1) {
+      files[p(`f${String(i).padStart(2, "0")}.md`)] = "a".repeat(20 + (i % 7));
+    }
+    const low = await read(files, { globs: "**/*.md", maxTotalBytes: 2000 });
+    const high = await read(files, { globs: "**/*.md", maxTotalBytes: 3400 });
+
+    expect(low.fileCount).toBeGreaterThan(0);
+    expect(high.fileCount).toBeGreaterThan(low.fileCount);
+    // And the counters really do widen across the range, which is the
+    // whole reason the reserve exists.
+    expect(String(high.fileCount).length).toBeGreaterThan(1);
   });
 });
 

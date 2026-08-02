@@ -20,6 +20,9 @@ import type { FactoryFs, ToolDeps } from "../lib/tools/shared";
 export const PROJECT_ROOT = "/proj";
 
 export interface FakeFsOptions {
+  /** The host's conversation coordinate for the call. Inside a workflow
+   *  this is `workflow-run:<uuid>`; undefined for a chat-driven call. */
+  conversationId?: string;
   /** Absolute directory paths whose `list` throws (a host permission
    *  denial, or a directory that vanished mid-walk). */
   unreadableDirs?: string[];
@@ -113,7 +116,16 @@ export function makeFakeFs(
     },
   };
 
-  return { fs, deps: { fs, projectRoot: () => PROJECT_ROOT }, store, mkdirs };
+  return {
+    fs,
+    deps: {
+      fs,
+      projectRoot: () => PROJECT_ROOT,
+      conversationId: () => opts.conversationId,
+    },
+    store,
+    mkdirs,
+  };
 }
 
 /** Parse a successful tool outcome's JSON payload, failing loudly (rather

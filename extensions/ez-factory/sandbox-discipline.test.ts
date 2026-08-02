@@ -17,6 +17,13 @@
  * what closes the TOCTOU window a subprocess-side `Bun.file()` would
  * reopen. That is an architectural guarantee, and this is its guard.
  *
+ * **Scope is PRODUCTION files only** — see {@link isProductionFile}. Test
+ * files never enter the sandbox, and a structural assertion about a
+ * module's own source text has to read that source somehow. A sibling's
+ * `lib/jobs.test.ts` does exactly this to prove every `storage.set` sits
+ * inside a `withLock` critical section, and there is no other way to
+ * write that check.
+ *
  * `Bun.Glob` (capital G) is deliberately NOT forbidden: `new
  * Bun.Glob(p).match(s)` is pure string matching over a path the host
  * already returned, and the preload leaves it alone. So the patterns
@@ -148,6 +155,26 @@ function tsFilesUnder(dir: string): string[] {
   return found;
 }
 
+/**
+ * Is this a file that ships INTO the sandbox?
+ *
+ * The invariant is about the PRODUCTION path: the entrypoint and
+ * everything it transitively imports run inside the subprocess, where the
+ * primitives are poisoned and every fs call must be host-mediated. Test
+ * files and their helpers run host-side in the bun pool and are never
+ * imported by production code, so a structural assertion that reads its
+ * own module's source text — the only way to prove something like "every
+ * `storage.set` is inside a `withLock`" — is legitimate there and must
+ * not trip this sweep.
+ *
+ * The exclusion opens exactly one loophole: production logic smuggled
+ * into a `.test.ts`. `no production module imports a test file` below
+ * closes it.
+ */
+function isProductionFile(path: string): boolean {
+  return !path.endsWith(".test.ts") && !path.includes("/__tests__/");
+}
+
 interface Violation {
   file: string;
   line: number;
@@ -171,6 +198,8 @@ function scan(files: string[]): Violation[] {
 }
 
 const files = tsFilesUnder(EXT_DIR);
+const productionFiles = files.filter(isProductionFile);
+const testFiles = files.filter((f) => !isProductionFile(f));
 
 describe("the scanner itself discriminates", () => {
   // Guards against the failure mode this whole file exists to avoid: a
@@ -224,22 +253,47 @@ describe("the scanner itself discriminates", () => {
     expect(stripped).not.toContain("a comment");
   });
 
-  test("it is scanning a non-trivial number of real files", () => {
-    // Vacuous-pass guard: if the walker breaks, the sweep below passes
-    // over an empty list and proves nothing.
-    expect(files.length).toBeGreaterThanOrEqual(8);
-    expect(files.some((f) => f.endsWith("lib/tools/read-files.ts"))).toBe(true);
-    expect(files.some((f) => f.endsWith("index.ts"))).toBe(true);
+  test("it is scanning a non-trivial number of real production files", () => {
+    // Vacuous-pass guard: if the walker or the production filter breaks,
+    // the sweep below passes over an empty list and proves nothing.
+    expect(productionFiles.length).toBeGreaterThanOrEqual(6);
+    expect(productionFiles.some((f) => f.endsWith("lib/tools/read-files.ts"))).toBe(true);
+    expect(productionFiles.some((f) => f.endsWith("lib/sanitize.ts"))).toBe(true);
+    expect(productionFiles.some((f) => f.endsWith("/index.ts"))).toBe(true);
+    // And the filter is really excluding something, not a no-op.
+    expect(testFiles.length).toBeGreaterThanOrEqual(6);
+    expect(productionFiles.every(isProductionFile)).toBe(true);
   });
 });
 
 describe("extensions/ez-factory/** touches no filesystem or process primitive", () => {
   test("zero node:fs, Bun.file, Bun.write, Bun.glob, Bun.spawn, Bun.$ or child_process", () => {
-    // `sandbox-discipline.test.ts` is itself excluded: it must read the
-    // tree to scan it, and it runs host-side in the bun pool, never in a
-    // sandbox.
-    const scanned = files.filter((f) => !f.endsWith("sandbox-discipline.test.ts"));
-    expect(scan(scanned)).toEqual([]);
+    // PRODUCTION files only. Test files run host-side in the bun pool and
+    // are never loaded into the sandbox; a structural assertion over a
+    // module's own source text legitimately reads it with `Bun.file`.
+    expect(scan(productionFiles)).toEqual([]);
+  });
+
+  test("no production module imports a test file", () => {
+    // The loophole the exclusion above opens, closed. Only what the
+    // entrypoint transitively imports reaches the sandbox, so production
+    // logic parked in a `.test.ts` would be both unscanned AND unreachable
+    // — but an import would make it reachable while staying unscanned.
+    // Plain string matching rather than a regex: a character class holding
+    // both quote characters confuses the Gate integrity check's own
+    // string-literal scanner, which then reads the rest of this block as
+    // one long string and reports the test as assertion-free.
+    const offenders: string[] = [];
+    for (const file of productionFiles) {
+      for (const line of stripComments(readFileSync(file, "utf8")).split("\n")) {
+        const isModuleRef = line.includes("from ") || line.includes("import(") || line.includes("require(");
+        if (!isModuleRef) continue;
+        if (line.includes(".test") || line.includes("__tests__")) {
+          offenders.push(`${file.slice(EXT_DIR.length + 1)}: ${line.trim()}`);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
   });
 
   test("every fs call goes through the SDK's host-mediated helpers", () => {

@@ -12,6 +12,62 @@ import { MAX_TOOL_OUTPUT_BYTES, MAX_WRITE_BYTES, sha256Hex } from "./shared";
 
 const MAX_STEP_OUTPUT_BYTES = 256 * 1024;
 
+describe("emit_artifact — the run id is DERIVED, not an argument", () => {
+  // There is no `$run.*` root in the workflow ref language, so a template
+  // cannot name its own run id. Requiring one would have made the tool
+  // uncallable from the templates it exists for. It comes from the host's
+  // conversation coordinate, which a run cannot forge.
+
+  test("derives the run id from the workflow scope key", async () => {
+    const { deps, store } = makeFakeFs({}, { conversationId: "workflow-run:abc-123" });
+    const outcome = await createEmitArtifact(deps)({ name: "report.md", content: "body" });
+
+    expect(payloadOf(outcome).path).toBe(
+      ".ezcorp/extension-data/ez-factory/artifacts/abc-123/report.md",
+    );
+    expect(
+      store.get(`${PROJECT_ROOT}/.ezcorp/extension-data/ez-factory/artifacts/abc-123/report.md`),
+    ).toBe("body");
+  });
+
+  test("an explicit runId overrides, for a chat-driven call", async () => {
+    const { deps } = makeFakeFs({}, { conversationId: "workflow-run:abc-123" });
+    const outcome = await createEmitArtifact(deps)({
+      runId: "manual-1",
+      name: "report.md",
+      content: "body",
+    });
+    expect(payloadOf(outcome).path).toBe(
+      ".ezcorp/extension-data/ez-factory/artifacts/manual-1/report.md",
+    );
+  });
+
+  test("a derived run id is slug-validated like any other path segment", async () => {
+    // Host-supplied is not the same as trusted-blindly.
+    const { deps, store } = makeFakeFs({}, { conversationId: "workflow-run:../../escape" });
+    const outcome = await createEmitArtifact(deps)({ name: "x.md", content: "x" });
+
+    expect(outcome.ok).toBe(false);
+    expect(outcome.ok === false && outcome.code).toBe("invalid-name");
+    expect(store.size).toBe(0);
+  });
+
+  test.each([
+    ["an ordinary chat conversation", "conv-abc"],
+    ["no conversation at all", undefined],
+    ["an empty run id", "workflow-run:"],
+  ])("refuses rather than inventing a shared directory when there is %s", async (_l, cid) => {
+    // Falling back to a shared directory would let two runs silently
+    // overwrite each other's artifacts.
+    const { deps, store } = makeFakeFs({}, cid === undefined ? {} : { conversationId: cid });
+    const outcome = await createEmitArtifact(deps)({ name: "x.md", content: "x" });
+
+    expect(outcome.ok).toBe(false);
+    expect(outcome.ok === false && outcome.code).toBe("no-run-context");
+    expect(store.size).toBe(0);
+  });
+});
+
 describe("emit_artifact — the destination", () => {
   test("writes under .ezcorp/extension-data/ez-factory/artifacts/<runId>/<name>", async () => {
     const { deps, store, mkdirs } = makeFakeFs({});
@@ -94,13 +150,6 @@ describe("emit_artifact — invariant E", () => {
     expect(outcome.ok).toBe(false);
     expect(outcome.ok === false && outcome.code).toBe("over-cap");
     expect(store.size).toBe(0);
-  });
-
-  test("rejects a missing runId", async () => {
-    const { deps } = makeFakeFs({});
-    const outcome = await createEmitArtifact(deps)({ name: "x.md", content: "x" });
-    expect(outcome.ok).toBe(false);
-    expect(outcome.ok === false && outcome.code).toBe("invalid-input");
   });
 
   test("rejects a non-object input", async () => {
