@@ -341,11 +341,65 @@ describe("PUT /api/workflows/[name]", () => {
 	// A second owner-or-admin rule over a `created_by` column used to run
 	// after it; it is gone, and these cover the ladder's own refusals.
 
-	test("returns 403 when the caller may not edit a system workflow", async () => {
-		// The deliberate tightening: every pre-existing row is `system`, and
-		// `system` is admin-only to edit. A 403 (not 404) because the caller
-		// can already see it — there is nothing left to conceal.
+	test("the CREATOR of a default-visibility (`system`) workflow may update it", async () => {
+		// The bug, at the route that has to answer for it. `POST
+		// /api/workflows` defaults `visibility` to `system` and stamps the
+		// creator, and this PUT used to 403 on that exact row — the ladder
+		// refused the tier before it consulted the owner, so a non-admin
+		// could not edit the workflow they had just created.
+		ctx.getCachedWorkflows.mockReturnValue([
+			{ ...ownedEntry(), visibility: "system", userId: "u1" },
+		]);
+		queries.getWorkflowByName.mockResolvedValue({ id: "wf-1" });
+		queries.updateWorkflow.mockResolvedValue({ id: "wf-1", name: "w1", description: "d" });
+		const res = await PUT(makeEvent({ locals: authedUser, method: "PUT", body: { description: "d" } }));
+		expect(res.status).toBe(200);
+		expect(queries.updateWorkflow).toHaveBeenCalledWith("wf-1", { description: "d" });
+	});
+
+	test("the creator of a `system` row still may not re-stamp `system` on it", async () => {
+		// The bound on the grant above. Clearing `edit` is not clearing
+		// assignment: the same owner, on the same row they just proved they
+		// may update, is refused a body that names `system`. Otherwise
+		// "the owner may edit their system row" would quietly become "the
+		// owner may mint system rows".
+		ctx.getCachedWorkflows.mockReturnValue([
+			{ ...ownedEntry(), visibility: "system", userId: "u1" },
+		]);
+		queries.getWorkflowByName.mockResolvedValue({ id: "wf-1" });
+		const res = await PUT(
+			makeEvent({ locals: authedUser, method: "PUT", body: { visibility: "system" } }),
+		);
+		expect(res.status).toBe(403);
+		expect((await res.json()) as { error?: string }).toMatchObject({
+			error: "Only an admin can make a workflow system-owned",
+		});
+		expect(queries.updateWorkflow).not.toHaveBeenCalled();
+	});
+
+	test("returns 403 when a NON-owner tries to update a system workflow", async () => {
+		// The tier still bites for everyone but the owner. `userId: null`
+		// is the legacy shape — every row that predates the ownership
+		// columns has it, and there is no owner for the ladder to match, so
+		// it stays admin-only. A 403 (not 404) because the caller can
+		// already see it — there is nothing left to conceal.
 		ctx.getCachedWorkflows.mockReturnValue([{ ...ownedEntry(), visibility: "system", userId: null }]);
+		const res = await PUT(makeEvent({ locals: authedUser, method: "PUT", body: { description: "d" } }));
+		expect(res.status).toBe(403);
+		expect((await res.json()) as { error?: string }).toMatchObject({
+			error: expect.stringContaining("admin"),
+		});
+		expect(queries.updateWorkflow).not.toHaveBeenCalled();
+	});
+
+	test("returns 403 when someone ELSE owns the system workflow", async () => {
+		// Discrimination for the grant: a `system` row with a real owner
+		// who is not this caller is refused for the tier's reason, not the
+		// owner's. Without this the ownership rung could be "any row with
+		// a non-null user_id" and every test above would still pass.
+		ctx.getCachedWorkflows.mockReturnValue([
+			{ ...ownedEntry(), visibility: "system", userId: "someone-else" },
+		]);
 		const res = await PUT(makeEvent({ locals: authedUser, method: "PUT", body: { description: "d" } }));
 		expect(res.status).toBe(403);
 		expect((await res.json()) as { error?: string }).toMatchObject({
@@ -469,6 +523,32 @@ describe("DELETE /api/workflows/[name]", () => {
 		// employee's private workflow world-writable.
 		ctx.getCachedWorkflows.mockReturnValue([
 			{ ...ownedEntry(), visibility: "private", userId: null },
+		]);
+		const res = await DELETE(makeEvent({ locals: authedUser, method: "DELETE" }));
+		expect(res.status).toBe(403);
+		expect(queries.deleteWorkflow).not.toHaveBeenCalled();
+	});
+
+	test("the CREATOR of a default-visibility (`system`) workflow may delete it", async () => {
+		// DELETE resolves through the same `edit` rung as PUT, so the fix
+		// has to reach both. Asserted separately rather than trusted to
+		// the shared helper: "the ladder is the one gate" is a claim about
+		// this route, and a route that grew its own second check would
+		// still pass the PUT case.
+		ctx.getCachedWorkflows.mockReturnValue([
+			{ ...ownedEntry(), visibility: "system", userId: "u1" },
+		]);
+		queries.getWorkflowByName.mockResolvedValue({ id: "wf-1" });
+		const res = await DELETE(makeEvent({ locals: authedUser, method: "DELETE" }));
+		expect(res.status).toBe(200);
+		expect(queries.deleteWorkflow).toHaveBeenCalledWith("wf-1");
+	});
+
+	test("a legacy OWNERLESS system row is not deletable by a non-admin", async () => {
+		// Same tier, no owner: the row every pre-ownership workflow
+		// migrated to stays admin-only, on the destructive path too.
+		ctx.getCachedWorkflows.mockReturnValue([
+			{ ...ownedEntry(), visibility: "system", userId: null },
 		]);
 		const res = await DELETE(makeEvent({ locals: authedUser, method: "DELETE" }));
 		expect(res.status).toBe(403);

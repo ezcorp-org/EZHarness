@@ -157,12 +157,27 @@ describe("GET /api/workflows", () => {
     expect(workflow.canEdit).toBe(true);
   });
 
-  test("a legacy system row is admin-only to edit, though anyone may run it", async () => {
-    // The deliberate tightening: every row that existed before the ladder
-    // is `system`, and `system` is admin-only to EDIT. The previous rule
-    // read an unowned row as editable by anyone, which is the behaviour
-    // this replaces.
+  test("marks the caller's OWN default-visibility (`system`) workflow as editable", async () => {
+    // The bug this pins. `POST /api/workflows` defaults `visibility` to
+    // `system` and stamps the creator, so this is the row an ordinary
+    // member create produces. The flag said `false` on it — the ladder
+    // refused the tier before it ever consulted the owner — so the UI
+    // hid Edit/Delete on the workflow the caller had just made.
+    ctx.getCachedWorkflows.mockReturnValue([{ ...systemEntry("mine"), userId: "u1" }]);
+    const res = await GET(makeEvent({ locals: authedUser }));
+    const [workflow] = (await res.json()) as { canEdit: boolean; visibility: string }[];
+    expect(workflow.visibility).toBe("system");
+    expect(workflow.canEdit).toBe(true);
+  });
+
+  test("a legacy OWNERLESS system row is admin-only to edit, though anyone may run it", async () => {
+    // `systemEntry` carries `userId: null` — the shape the ownership
+    // migration gave every pre-existing row. There is no owner to match,
+    // so the tier answers and the answer is still admin-only. This is
+    // the row the test above must NOT be confused with: same tier,
+    // opposite verdict, and the only difference is `user_id`.
     ctx.getCachedWorkflows.mockReturnValue([systemEntry("legacy")]);
+    expect(systemEntry("legacy").userId).toBeNull();
     const res = await GET(makeEvent({ locals: authedUser }));
     const [workflow] = (await res.json()) as { canEdit: boolean }[];
     expect(workflow.canEdit).toBe(false);

@@ -215,13 +215,30 @@ describe("canManageWorkflow", () => {
     expect(canManageWorkflow(privateEntry(), stranger)).toBe(false);
   });
 
-  test("a system workflow is admin-only to EDIT, though anyone may run it", () => {
-    // The one deliberate tightening the ladder ships: every pre-existing
-    // row is `system`, so a non-admin loses edit access to rows they
-    // created. The audited admin claim action is the remedy.
+  test("a LEGACY ownerless system row is admin-only to EDIT, though anyone may run it", () => {
+    // `entry()` defaults to `userId: null` — the shape the C6 migration
+    // gave every pre-existing row, and the shape `ON DELETE SET NULL`
+    // mints when an owner is deleted. There is no owner to match, so
+    // the tier answers and the answer is admin-only. The audited admin
+    // claim action is the remedy for a row someone still needs.
     const system = entry({ name: "legacy" });
+    expect(system.userId).toBeNull();
     expect(canManageWorkflow(system, stranger)).toBe(false);
     expect(canManageWorkflow(system, admin)).toBe(true);
+  });
+
+  test("the OWNER of a system workflow MAY manage it — the flag matches the route", () => {
+    // `POST /api/workflows` defaults `visibility` to `system` and stamps
+    // the creator, so this is the row an ordinary non-admin create
+    // produces. The UI paints Edit/Delete off this predicate, and
+    // PUT/DELETE enforce the same `edit` rung — before the ladder asked
+    // ownership first, both agreed on "no" and a member could not touch
+    // the workflow they had just made.
+    const owned = entry({ name: "mine-system", visibility: "system", userId: "u-owner" });
+    expect(canManageWorkflow(owned, owner)).toBe(true);
+    // Bounded: the grant is the owner's alone.
+    expect(canManageWorkflow(owned, stranger)).toBe(false);
+    expect(canManageWorkflow(owned, admin)).toBe(true);
   });
 
   test("an ORPHANED private row is admin-only here too", () => {

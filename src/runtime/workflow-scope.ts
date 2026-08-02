@@ -213,29 +213,52 @@ export function readRunAudience(visibility: WorkflowVisibility): WorkflowAudienc
  * The authorization ladder. Pure — no I/O, no DB, no clock — so the
  * matrix that covers it is cheap enough to be exhaustive.
  *
- * | visibility | read + run                  | edit              | who may assign |
+ * | visibility | read + run                  | edit                     | who may assign |
  * |---|---|---|---|
- * | `system`   | anyone (no login needed)    | admin only        | **admin only** |
- * | `project`  | any authenticated principal | creator, or admin | anyone         |
- * | `private`  | owner or admin              | owner or admin    | anyone         |
+ * | `system`   | anyone (no login needed)    | **owner**, or admin      | **admin only** |
+ * | `project`  | any authenticated principal | creator, or admin        | anyone         |
+ * | `private`  | owner or admin              | owner or admin           | owner + admins |
  *
  * All three are reachable. Read the read/run column as the audience it
  * is: `system` and `project` both admit every user on the instance,
  * differing only on whether a login is required. `project` is not
  * narrower than `system` for any principal that has logged in — it is
- * narrower only for the userless CLI. That tier's real content is its
- * EDIT column, where it holds a creator that `system` does not.
- * `private` is the only row of the three that narrows read/run.
+ * narrower only for the userless CLI. `private` is the only row of the
+ * three that narrows read/run.
  *
- * The assign column is a SEPARATE question from this ladder and is not
- * answered here — see {@link denyVisibilityAssignment}. It is in the
- * table because leaving it out is what makes `system` look like a tier
- * anyone may opt into.
+ * ## OWNERSHIP is asked before VISIBILITY, on the edit rung
+ *
+ * The `system` refusal used to come FIRST, before `isOwner` was ever
+ * consulted, so a `system` row was admin-only to edit no matter who
+ * owned it. That is not a tier rule, it is a bug with a tier's shape:
+ * `POST /api/workflows` defaults a new row to `system` and stamps the
+ * creator as its owner, so a non-admin could not edit or delete the
+ * workflow they had just made. The row HAD an owner; the ladder never
+ * looked.
+ *
+ * So the order is: source, then admin, then **owner**, then the tier.
+ * The consequence stated plainly, because it is the whole of the
+ * change: **the owner of a `system` row may edit it.** A non-owner
+ * still gets `requires-admin`, and an OWNERLESS `system` row — every
+ * row that predates the ownership columns carries `user_id` NULL, and
+ * so does every YAML/extension entry — still has no owner to match, so
+ * it stays admin-only exactly as before. Pinned by "a legacy ownerless
+ * system row stays admin-only, whoever asks" in `workflow-scope.test.ts`.
+ *
+ * What this does NOT do is make `system` a tier a member can opt into,
+ * or a lever for touching someone else's row. Both are the assign
+ * column's business, and the assign column is a SEPARATE question this
+ * ladder does not answer — see {@link denyVisibilityAssignment}. It is
+ * in the table because leaving it out is what makes `system` look like
+ * a tier anyone may promote into. Clearing `edit` on your own `system`
+ * row buys you nothing there: assignment is asked again, per write,
+ * about the tier being STAMPED.
  *
  * `system` → run-by-anyone is not a new grant: every row that exists at
  * migration time is `system`, and that is exactly who could run it
- * before this ladder existed. The tightening is on EDIT, where `system`
- * becomes admin-only.
+ * before this ladder existed. What survives of the EDIT tightening is
+ * narrower than it was: `system` is admin-only for everyone EXCEPT the
+ * row's own owner.
  */
 export function authorizeWorkflow(
   entry: CachedWorkflow,
@@ -251,15 +274,22 @@ export function authorizeWorkflow(
     // of the entry, so the fork flow can ask the same question.
     if (entry.source !== "db") return { ok: false, reason: "not-editable-source" };
     if (isAdmin) return { ok: true, entry };
+    // OWNERSHIP OUTRANKS THE TIER, and is asked before it on every tier
+    // — see the header. `isOwner` demands `entry.userId !== null`, so an
+    // ownerless row (pre-ownership-columns, or an orphan left by
+    // `ON DELETE SET NULL`) matches nobody and falls through to the tier
+    // rules below, which is what keeps a legacy `system` row admin-only.
+    if (isOwner) return { ok: true, entry };
+    // Everything from here down is a NON-owner, non-admin.
     if (entry.visibility === "system") return { ok: false, reason: "requires-admin" };
-    if (entry.visibility === "private") {
-      return isOwner ? { ok: true, entry } : { ok: false, reason: "not-owner" };
-    }
+    if (entry.visibility === "private") return { ok: false, reason: "not-owner" };
     // `project`: the creator may edit, nobody else. Editing is the
     // narrower right — anyone can RUN a project workflow without being
-    // able to rewrite what it does for everyone else.
+    // able to rewrite what it does for everyone else. A userless
+    // principal is refused for the reason that actually applies to it:
+    // it could not have been the owner in the first place.
     if (caller.userId === null) return { ok: false, reason: "not-authenticated" };
-    return isOwner ? { ok: true, entry } : { ok: false, reason: "not-owner" };
+    return { ok: false, reason: "not-owner" };
   }
 
   // read / run share a ladder today, but they are asked separately so C3
@@ -301,13 +331,22 @@ export const VISIBILITY_ASSIGNMENT_DENIAL =
  *
  * The one rule: **`system` is admin-only, `project` and `private` are
  * not.** `system` means "ships with the install" — it is the tier the
- * ladder lets anyone read and run, and the tier only an admin may
- * subsequently edit. So a non-admin promoting a row into it both dresses
- * their workflow up as a first-party asset and locks themselves out of
- * their own row. Tightening down to `project` or `private` does neither,
- * and needs no extra gate: the `edit` ladder above already refuses a
- * non-admin who is not the owner, so the only caller who ever reaches
- * this question for someone else's workflow is an admin.
+ * ladder lets anyone read and run without a login, and the tier no
+ * non-owner but an admin may edit. A non-admin promoting a row into it
+ * dresses their workflow up as a first-party asset. Tightening down to
+ * `project` or `private` does not, and needs no extra gate: the `edit`
+ * ladder above already refuses a non-admin who is not the owner, so the
+ * only caller who ever reaches this question for someone else's
+ * workflow is an admin.
+ *
+ * This rule is what stops the ladder's owner-may-edit-`system` rung
+ * from becoming a promotion path. The two questions compose in one
+ * direction only: an owner clears `edit` on their own `system` row and
+ * still cannot stamp `system` onto anything — not that row on a
+ * re-write, and not anyone else's, which they cannot clear `edit` on to
+ * begin with. Pinned by "assignment is asked SEPARATELY from edit" and
+ * "editing your own `system` row is not a licence to assign `system`"
+ * in `workflow-scope.test.ts`.
  */
 export function denyVisibilityAssignment(
   caller: WorkflowCaller,
