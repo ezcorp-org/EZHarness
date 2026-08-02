@@ -9,14 +9,12 @@ import { defineExtension } from "../../../../src/extensions/sdk/define";
 //
 // ── Capability posture ───────────────────────────────────────────────
 //
-// `network` is the ONLY runtime permission, allowlisted to the three
-// keyless Open-Meteo hosts plus the Atlanta NAB-certified station page.
-// No shell, filesystem, env, or storage: the extension holds no
-// credential and keeps no state, so there is nothing for a compromise to
-// reach or leak.
-// Because it takes no credential it also never approaches the
-// env-key-leak install gate (which refuses any `permissions.env` name
-// ending in `_API_KEY` / `TOKEN` / `SECRET`).
+// Runtime I/O is limited to network plus Storage. Network is allowlisted to
+// the three Open-Meteo hosts, Google Pollen, and the Atlanta NAB-certified
+// station page. Storage holds only the per-user Google key written by the
+// manifest's secret setting; it is encrypted and never enters tool args or
+// settings JSON. No shell, filesystem, or env grant. In particular, the key
+// does not use the credential-shaped env escape hatch.
 //
 // `workflows.names: ["conditions"]` is what makes the shipped asset
 // TRIGGERABLE from extension code. Shipping the YAML is just an asset;
@@ -26,12 +24,12 @@ import { defineExtension } from "../../../../src/extensions/sdk/define";
 export default defineExtension({
   schemaVersion: 2,
   name: "city-conditions",
-  version: "0.2.0",
+  version: "0.3.0",
   description:
     "Current time, weather, pollen, and available mold activity for any city, rendered as a " +
-    "city-conditions card. Uses Open-Meteo generally and a NAB-certified reporting station in " +
-    "the Atlanta metro, with source, timestamp, unit, and honest unavailable reasons. Ships a " +
-    "`conditions` workflow that performs the same aggregation as a declarative graph.",
+    "city-conditions card. Uses a NAB-certified Atlanta reporting station, optional Google " +
+    "Pollen API coverage (including the U.S.), and Open-Meteo fallback, with source, timestamp, " +
+    "unit, and honest unavailable reasons. Ships a `conditions` workflow with the same flow.",
   author: { name: "EZCorp" },
   entrypoint: "./index.ts",
   category: "Utilities",
@@ -100,10 +98,11 @@ export default defineExtension({
     {
       name: "air_quality",
       description:
-        "Read the best available pollen and mold data for a latitude/longitude. In the Atlanta " +
-        "metro this uses a NAB-certified reporting station with observed total/category pollen " +
-        "and mold activity; elsewhere it uses Open-Meteo's Europe-only modeled pollen coverage. " +
-        "Every field includes units, provenance, timestamp, or a precise unavailable reason.",
+        "Read the best available pollen and mold data for a latitude/longitude. The Atlanta " +
+        "metro uses a NAB-certified observed station; configured users get Google Pollen's " +
+        "modeled UPI coverage (including the U.S.), then Open-Meteo's Europe-only fallback. " +
+        "Mold is reported only where a configured station publishes it. Every field includes " +
+        "units, provenance, timestamp, or a precise unavailable reason.",
       inputSchema: {
         type: "object",
         properties: {
@@ -115,12 +114,25 @@ export default defineExtension({
     },
   ],
 
+  settings: {
+    google_pollen_api_key: {
+      type: "secret",
+      label: "Google Pollen API key",
+      description:
+        "Enables broad modeled pollen coverage, including the United States. Create a key in " +
+        "Google Cloud with the Pollen API enabled and billing configured. Stored encrypted; " +
+        "never shown again.",
+      storageKey: "google-pollen-api-key",
+    },
+  },
+
   agent: {
     prompt: [
       "You can look up live conditions for a city with `city_conditions`.",
       "Use it whenever the user names a place and asks about weather, local time, pollen,",
       "mold, or allergies. Call it once per city and follow with one short summary.",
       "Use the card's source, report date, units, and availability state exactly as returned.",
+      "Google's 0–5 UPI is a modeled index, not a grains/m³ concentration; keep its unit.",
       "A mold activity band is not a numeric spore count; never turn one into a count.",
       "If a health field is unavailable, repeat its provider-specific reason rather than saying zero.",
       "`geocode`, `current_weather` and `air_quality` are granular workflow steps.",
@@ -147,10 +159,12 @@ export default defineExtension({
   },
 
   permissions: {
+    storage: true,
     network: [
       "geocoding-api.open-meteo.com",
       "api.open-meteo.com",
       "air-quality-api.open-meteo.com",
+      "pollen.googleapis.com",
       "www.atlantaallergy.com",
     ],
     workflows: { names: ["conditions"], maxRunsPerHour: 12 },

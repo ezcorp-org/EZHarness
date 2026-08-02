@@ -4,58 +4,63 @@ Ask about a city in chat and get its **local time, current weather, pollen,
 and available mold activity** in a `city-conditions` card. The extension also
 ships a `conditions` workflow with the same data flow.
 
-Version 0.2 fixes two important coverage problems:
+Version 0.3 adds broad modeled pollen coverage without weakening the existing
+observed-data path:
 
-- Open-Meteo pollen is documented as **Europe-only and seasonal**. A successful
-  response containing all `null` values is now an explicit unavailable state,
-  not a zero and not a generic failure.
-- Atlanta-metro lookups use **Atlanta Allergy & Asthma's National Allergy
-  Bureau-certified reporting station**, which publishes an observed daily
-  pollen total/category report and a mold activity band.
+- A configured **Google Pollen API** key supplies daily 0–5 Universal Pollen
+  Index (UPI) values for trees, grass, and weeds, including broad U.S. coverage.
+  UPI remains labeled as an index; it is never presented as grains/m³.
+- Atlanta-metro lookups still prefer **Atlanta Allergy & Asthma's National
+  Allergy Bureau-certified reporting station**, which publishes an observed
+  daily pollen total/category report and a mold activity band.
+- Open-Meteo remains the keyless, Europe-only seasonal pollen fallback. Missing
+  data stays unavailable rather than becoming zero.
 
-No API key or user configuration is required. Existing installations do need a
-one-time extension re-approval after upgrading because v0.2 adds the narrowly
-scoped `www.atlantaallergy.com` network permission; the bundled update gate will
-otherwise keep the extension disabled, as designed.
+## Google Pollen setup
 
-Deployment checklist:
+The Google key is optional and bring-your-own-key:
 
-- No `*_API_KEY`, token, secret, or per-user setting is needed.
-- Ensure the install grant and bundled ceiling both include
-  `www.atlantaallergy.com` alongside the three Open-Meteo hosts.
-- Re-approve existing bundled installs after the v0.2 permission change; the
-  extension detail page shows the current Website access list (including
-  `www.atlantaallergy.com`) and provides the approval action. Fresh installs
-  receive the clamped grant automatically.
+1. Enable the Pollen API and billing in Google Cloud.
+2. Create an API key and restrict it to the Pollen API where possible.
+3. Open the `city-conditions` extension detail page and save the key under
+   **Settings → Google Pollen API key**.
+
+The host stores the value encrypted in per-user extension Storage. It never
+enters settings JSON, tool inputs, logs, or a credential-shaped environment
+grant. Without a key, the Atlanta station and Open-Meteo fallback still work.
+
+Existing installs require re-approval because v0.3 adds
+`pollen.googleapis.com` and Storage. Fresh installs receive the clamped grant
+automatically.
 
 ## Provider strategy
+
+Providers are selected in this order:
+
+1. Within 80 km of central Atlanta, use the local NAB-certified observed
+   station for pollen and mold activity.
+2. If a Google key is configured, use Google Pollen's modeled UPI.
+3. Fall back to Open-Meteo's keyless Europe-only pollen model.
 
 | Data | Source | Coverage / freshness | Credential | Notes |
 | --- | --- | --- | --- | --- |
 | Geocoding | Open-Meteo | Global | None | Resolves the requested city and timezone. |
 | Weather | Open-Meteo | Global current model/observation blend | None | Temperatures remain Celsius in the envelope; the card handles display conversion. |
-| Pollen, Atlanta metro | [Atlanta Allergy & Asthma](https://www.atlantaallergy.com/pollen_counts) | Reporting station within 80 km of central Atlanta; daily report representing the previous 24 hours | None | NAB-certified station; total is grains/m³, with tree/grass/weed bands and top contributors. |
-| Mold, Atlanta metro | Atlanta Allergy & Asthma | Same daily station report | None | Publishes an **activity band**, not a numeric spore count. The card preserves that distinction. |
-| Pollen, other locations | [Open-Meteo Air Quality API](https://open-meteo.com/en/docs/air-quality-api) | Europe only, in pollen season; modeled current/forecast data | None | Six grains: alder, birch, grass, mugwort, olive, ragweed. |
-| Mold, other locations | None configured | — | — | Returns a precise unavailable reason; no count is fabricated. |
+| Pollen, Atlanta metro | [Atlanta Allergy & Asthma](https://www.atlantaallergy.com/pollen_counts) | Local daily report representing the previous 24 hours | None | Preferred observed source. Total is grains/m³, with tree/grass/weed bands and contributors. |
+| Mold, Atlanta metro | Atlanta Allergy & Asthma | Same daily station report | None | Publishes an **activity band**, not a numeric spore count. |
+| Pollen, configured coverage | [Google Pollen API](https://developers.google.com/maps/documentation/pollen/overview) | Broad country coverage, including the U.S.; modeled daily forecast | Per-user Google API key | Tree/grass/weed 0–5 UPI. Billing and API enablement are required. |
+| Pollen fallback | [Open-Meteo Air Quality API](https://open-meteo.com/en/docs/air-quality-api) | Europe only, in pollen season | None | Six grain concentrations: alder, birch, grass, mugwort, olive, ragweed. |
+| Mold, other locations | No configured NAB station | — | — | Google Pollen and Open-Meteo do not provide mold-spore data. No count is fabricated. |
 
-### Sources considered but not selected as the zero-setup default
+### Mold coverage limitation
 
-- [Google Pollen API](https://developers.google.com/maps/documentation/pollen/overview)
-  has broad country coverage and five-day forecasts, but every request requires
-  billing plus an API key or OAuth token. It does not solve measured mold.
-- [Ambee Pollen API](https://www.getambee.com/api/pollen) offers global,
-  species-level pollen data but requires a key.
-- Tomorrow.io exposes keyed pollen forecast fields, but its published pollen
-  layer does not provide a measured mold-spore field.
-- The [AAAAI National Allergy Bureau](https://pollen.aaaai.org/) provides the
-  right station-quality observations, but not one normalized, keyless public
-  API. The Atlanta station page is therefore integrated as a narrowly scoped
-  local provider rather than scraped as if it were a global feed.
-
-A future host-brokered secrets surface could add Google or Ambee as an optional
-provider without putting credentials in tool inputs. This release deliberately
-stays keyless.
+The [AAAAI National Allergy Bureau](https://pollen.aaaai.org/) provides the
+right station-quality observations, but not one normalized nationwide public
+API. This extension integrates the Atlanta station only within its stated
+local scope rather than pretending one station represents the country. Google
+solves broad modeled **pollen** coverage; it does not provide mold. A future
+commercial mold integration should be added only after its location coverage,
+units, licensing, timestamps, and credential handling are verified.
 
 ## Tools
 
@@ -70,11 +75,13 @@ The chat tool geocodes first, then requests weather and allergen data in
 parallel. The workflow expresses the same shape declaratively. Both paths use
 the same provider functions.
 
-## Result envelope (v2, Atlanta example)
+## Result envelope v3
+
+An Atlanta station result keeps observed concentration and band-only mold data:
 
 ```jsonc
 {
-  "v": 2,
+  "v": 3,
   "ok": true,
   "place": {
     "name": "Atlanta",
@@ -84,7 +91,7 @@ the same provider functions.
     "longitude": -84.388,
     "timezone": "America/New_York"
   },
-  "unit": "fahrenheit", // requested display unit
+  "unit": "fahrenheit",
   "observedAt": "2026-07-29T15:04:00-04:00",
   "localTime": "3:04 PM",
   "weather": {
@@ -103,9 +110,7 @@ the same provider functions.
     "unit": "grains/m³",
     "band": "low",
     "categories": [
-      { "key": "trees", "label": "Trees", "band": "low", "contributors": ["MULBERRY"] },
-      { "key": "grass", "label": "Grass", "band": "low", "contributors": ["GRASS"] },
-      { "key": "weeds", "label": "Weeds", "band": "low", "contributors": ["PIGWEED", "RAGWEED", "PLANTAIN"] }
+      { "key": "trees", "label": "Trees", "band": "low", "contributors": ["MULBERRY"] }
     ],
     "observedAt": "2026-07-29",
     "source": {
@@ -135,58 +140,64 @@ the same provider functions.
 }
 ```
 
-`weather.tempC` and `weather.feelsLikeC` are always Celsius. The requested
-`unit` controls card display only. Pollen concentrations are **grains/m³**;
-the old card's `µg/m³` label was incorrect and has been removed. Mold counts,
-if a future provider supplies them, use **spores/m³**.
-
-The card remains backward-compatible with persisted v1 envelopes: it accepts
-`pollen.totalIndex` as a legacy alias for v2's `pollen.total`.
-
-## Availability and failure behavior
-
-Weather/geocoding failures still produce a structured top-level failure:
-
-```jsonc
-{ "v": 2, "ok": false, "code": "CITY_NOT_FOUND", "error": "No place matched \"Atlantis\"." }
-```
-
-Allergen failures are now field-level. A slow or unavailable allergen provider
-must not erase valid weather:
+A Google pollen block instead carries provider-native UPI values:
 
 ```jsonc
 {
-  "pollen": {
-    "available": false,
-    "total": null,
-    "band": "none",
-    "reason": "Pollen provider unavailable: air-quality returned HTTP 503"
+  "available": true,
+  "grains": null,
+  "total": 4,
+  "unit": "UPI",
+  "band": "high",
+  "categories": [
+    { "key": "trees", "label": "Tree", "value": 4, "band": "high", "contributors": [] },
+    { "key": "grass", "label": "Grass", "value": 2, "band": "low", "contributors": [] },
+    { "key": "weeds", "label": "Weed", "value": 3, "band": "moderate", "contributors": [] }
+  ],
+  "observedAt": "2026-07-28",
+  "source": {
+    "id": "google-pollen",
+    "name": "Google Pollen API",
+    "kind": "modeled"
   },
-  "mold": {
-    "available": false,
-    "count": null,
-    "band": null,
-    "reason": "No reporting-station mold source is configured for this location..."
-  }
+  "reason": null
 }
 ```
 
-For Atlanta, station transport or parse failure falls back to Open-Meteo
-pollen. If both providers fail, both health fields remain present and carry the
-combined reason. Missing values never become zero.
+`weather.tempC` and `weather.feelsLikeC` are always Celsius. The requested
+`unit` controls card display only. Station/Open-Meteo pollen values are
+**grains/m³**; Google values are **UPI**, not concentrations. Mold counts, if a
+future provider supplies them, use **spores/m³**.
+
+The card remains backward-compatible with persisted v1/v2 envelopes: it accepts
+`pollen.totalIndex` as a legacy alias for `pollen.total`, and category `value`
+is optional.
+
+## Availability and failure behavior
+
+Weather/geocoding failures produce a structured top-level failure:
+
+```jsonc
+{ "v": 3, "ok": false, "code": "CITY_NOT_FOUND", "error": "No place matched \"Atlantis\"." }
+```
+
+Allergen failures are field-level, so they do not erase valid weather. If every
+applicable pollen provider fails or has no value, the field carries the
+combined provider reasons. Mold availability remains independent. Missing
+values never become zero.
 
 ## Permissions
 
-`network` is the only I/O permission, restricted to:
+Runtime I/O is restricted to:
 
-- `geocoding-api.open-meteo.com`
-- `api.open-meteo.com`
-- `air-quality-api.open-meteo.com`
-- `www.atlantaallergy.com`
+- Network: `geocoding-api.open-meteo.com`, `api.open-meteo.com`,
+  `air-quality-api.open-meteo.com`, `pollen.googleapis.com`, and
+  `www.atlantaallergy.com`.
+- Storage: per-user encrypted Google Pollen key at `google-pollen-api-key`.
 
 The extension also declares
-`workflows: { names: ["conditions"], maxRunsPerHour: 12 }` so its shipped
-workflow can run. It has no shell, filesystem, environment, or storage access.
+`workflows: { names: ["conditions"], maxRunsPerHour: 12 }` so its workflow can
+run. It has no shell, filesystem, or environment access.
 
 ## Verifying
 
@@ -196,11 +207,7 @@ bun test ./docs/extensions/examples/city-conditions/boot.test.ts
 bun test ./src/__tests__/city-conditions-extension.test.ts
 (cd web && bunx --bun vitest run \
   src/lib/components/tool-cards/city-conditions-card-logic.unit.test.ts)
-(cd web && bunx playwright test e2e/city-conditions-card.spec.ts \
-  --config playwright.config.ts)
+bun run scripts/regenerate-manifest-lock.ts --check
 ```
 
 Unit and host tests use injected fetch responses and never require internet.
-The live parser was also checked against the Atlanta station page; that check
-is intentionally not part of CI, so a third-party outage cannot make the test
-suite flaky.

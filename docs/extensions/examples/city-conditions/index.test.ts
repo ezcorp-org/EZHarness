@@ -6,7 +6,14 @@
 // down, all-null pollen) are asserted here.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import manifest from "./ezcorp.config";
-import { ENVELOPE_VERSION, failureParts, tools } from "./index";
+import {
+  ENVELOPE_VERSION,
+  _resetGooglePollenKeyResolverForTests,
+  _setGooglePollenKeyResolverForTests,
+  failureParts,
+  resolveGooglePollenApiKey,
+  tools,
+} from "./index";
 import {
   ConditionsError,
   MOLD_UNAVAILABLE,
@@ -14,10 +21,12 @@ import {
   _setFetchImplForTests,
   fetchAirQuality,
   fetchCurrentWeather,
+  fetchGooglePollen,
   fetchOpenMeteoAirQuality,
   geocodeCity,
   offsetSuffix,
   parseAtlantaStationReport,
+  parseGooglePollenResponse,
   toLocalTime,
   toObservedAt,
   usesAtlantaStation,
@@ -82,6 +91,18 @@ const AIR_BODY = {
   },
 };
 
+const GOOGLE_POLLEN_BODY = {
+  regionCode: "US",
+  dailyInfo: [{
+    date: { year: 2026, month: 7, day: 28 },
+    pollenTypeInfo: [
+      { code: "TREE", displayName: "Tree", indexInfo: { code: "UPI", value: 4, category: "High" } },
+      { code: "GRASS", displayName: "Grass", indexInfo: { code: "UPI", value: 2, category: "Low" } },
+      { code: "WEED", displayName: "Weed", indexInfo: { code: "UPI", value: 3, category: "Moderate" } },
+    ],
+  }],
+};
+
 const ATLANTA_GEO_BODY = {
   results: [{
     name: "Atlanta",
@@ -124,6 +145,7 @@ function route(overrides: {
   geo?: () => Response;
   forecast?: () => Response;
   air?: () => Response;
+  google?: () => Response;
   station?: () => Response;
 } = {}): void {
   _setFetchImplForTests((async (input: string | URL | Request) => {
@@ -132,13 +154,22 @@ function route(overrides: {
     if (url.includes("atlantaallergy.com")) {
       return (overrides.station ?? (() => html(ATLANTA_STATION_HTML)))();
     }
+    if (url.includes("pollen.googleapis.com")) {
+      return (overrides.google ?? (() => json(GOOGLE_POLLEN_BODY)))();
+    }
     if (url.includes("air-quality-api")) return (overrides.air ?? (() => json(AIR_BODY)))();
     return (overrides.forecast ?? (() => json(FORECAST_BODY)))();
   }) as typeof fetch);
 }
 
-beforeEach(() => _resetBindingsForTests());
-afterEach(() => _resetBindingsForTests());
+beforeEach(() => {
+  _resetBindingsForTests();
+  _resetGooglePollenKeyResolverForTests();
+});
+afterEach(() => {
+  _resetBindingsForTests();
+  _resetGooglePollenKeyResolverForTests();
+});
 
 // ── lib/pollen-bands.ts ──────────────────────────────────────────────
 
@@ -345,7 +376,100 @@ describe("fetchCurrentWeather", () => {
   });
 });
 
+describe("Google Pollen API key resolution", () => {
+  test("reads and trims the encrypted per-user Storage value", async () => {
+    const key = await resolveGooglePollenApiKey({
+      get: async () => ({ exists: true, value: "  google-key  " }),
+    });
+    expect(key).toBe("google-key");
+  });
+
+  test("missing, blank, or inaccessible Storage returns no configured key", async () => {
+    expect(await resolveGooglePollenApiKey({
+      get: async () => ({ exists: false, value: null }),
+    })).toBeNull();
+    expect(await resolveGooglePollenApiKey({
+      get: async () => ({ exists: true, value: "   " }),
+    })).toBeNull();
+    expect(await resolveGooglePollenApiKey({
+      get: async () => { throw new Error("storage denied"); },
+    })).toBeNull();
+  });
+});
+
 describe("allergen providers", () => {
+  test("parses Google UPI categories without labeling the index as grains/m³", () => {
+    const air = parseGooglePollenResponse(GOOGLE_POLLEN_BODY);
+    expect(air.pollen).toMatchObject({
+      available: true,
+      total: 4,
+      unit: "UPI",
+      band: "high",
+      grains: null,
+      observedAt: "2026-07-28",
+      source: { id: "google-pollen", kind: "modeled" },
+    });
+    expect(air.pollen.categories).toEqual([
+      { key: "trees", label: "Tree", value: 4, band: "high", contributors: [] },
+      { key: "grass", label: "Grass", value: 2, band: "low", contributors: [] },
+      { key: "weeds", label: "Weed", value: 3, band: "moderate", contributors: [] },
+    ]);
+  });
+
+  test("requests Google with coordinates, one day, and the configured key", async () => {
+    let seen = "";
+    _setFetchImplForTests((async (input: string | URL | Request) => {
+      seen = String(input);
+      return json(GOOGLE_POLLEN_BODY);
+    }) as typeof fetch);
+    await fetchGooglePollen(30.267, -97.743, "secret-key");
+    const url = new URL(seen);
+    expect(url.hostname).toBe("pollen.googleapis.com");
+    expect(url.searchParams.get("key")).toBe("secret-key");
+    expect(url.searchParams.get("location.latitude")).toBe("30.267");
+    expect(url.searchParams.get("location.longitude")).toBe("-97.743");
+    expect(url.searchParams.get("days")).toBe("1");
+  });
+
+  test("an empty Google forecast is unavailable rather than zero", () => {
+    const air = parseGooglePollenResponse({ dailyInfo: [] });
+    expect(air.pollen).toMatchObject({
+      available: false,
+      total: null,
+      unit: "UPI",
+      band: "none",
+      source: { id: "google-pollen" },
+    });
+    expect(air.pollen.reason).toContain("no Universal Pollen Index value");
+  });
+
+  test("a configured key selects Google before Open-Meteo", async () => {
+    let openMeteoCalled = false;
+    route({ air: () => { openMeteoCalled = true; return json(AIR_BODY); } });
+    const air = await fetchAirQuality(30.267, -97.743, "google-key");
+    expect(air.pollen.source?.id).toBe("google-pollen");
+    expect(air.pollen.unit).toBe("UPI");
+    expect(openMeteoCalled).toBe(false);
+  });
+
+  test("a Google outage falls back to available Open-Meteo pollen", async () => {
+    route({ google: () => json({}, 503) });
+    const air = await fetchAirQuality(30.267, -97.743, "google-key");
+    expect(air.pollen.available).toBe(true);
+    expect(air.pollen.source?.id).toBe("open-meteo");
+  });
+
+  test("Google and Open-Meteo gaps preserve both reasons", async () => {
+    route({
+      google: () => json({ dailyInfo: [] }),
+      air: () => json({ current: { time: "2026-07-28T15:00" } }),
+    });
+    const air = await fetchAirQuality(30.267, -97.743, "google-key");
+    expect(air.pollen.available).toBe(false);
+    expect(air.pollen.reason).toContain("Google Pollen API reported no Universal Pollen Index");
+    expect(air.pollen.reason).toContain("Open-Meteo pollen is available only in Europe");
+  });
+
   test("keeps missing Open-Meteo grains null, uses grains/m³, and records provenance", async () => {
     route();
     const air = await fetchAirQuality(30.267, -97.743);
@@ -375,7 +499,7 @@ describe("allergen providers", () => {
     expect(air.mold).toEqual(MOLD_UNAVAILABLE);
     expect(air.mold.available).toBe(false);
     expect(air.mold.count).toBeNull();
-    expect(air.mold.reason).toContain("No reporting-station mold source");
+    expect(air.mold.reason).toContain("No configured National Allergy Bureau reporting station");
   });
 
   test("the raw Open-Meteo reader fails loudly on a malformed response", async () => {
@@ -495,12 +619,12 @@ describe("allergen providers", () => {
     expect(air.mold.reason).toContain("Website access to www.atlantaallergy.com is not approved");
   });
 
-  test("dual provider failure returns explicit unavailable fields instead of rejecting", async () => {
+  test("station plus unconfigured Google plus Open-Meteo failure stays explicit", async () => {
     route({ station: () => html("down", 503), air: () => json({}, 502) });
     const air = await fetchAirQuality(33.749, -84.388);
     expect(air.pollen.available).toBe(false);
     expect(air.mold.available).toBe(false);
-    expect(air.pollen.reason).toContain("Allergen providers unavailable");
+    expect(air.pollen.reason).toContain("Pollen providers unavailable");
     expect(air.pollen.reason).toContain("HTTP 503");
     expect(air.pollen.reason).toContain("HTTP 502");
   });
@@ -556,7 +680,40 @@ describe("city_conditions", () => {
     });
   });
 
-  test("Atlanta gets observed station pollen and mold activity instead of all-null CAMS", async () => {
+  test("a configured Google key gives a U.S. city modeled UPI categories", async () => {
+    route();
+    _setGooglePollenKeyResolverForTests(async () => "google-key");
+    const env = envelope(await tools.city_conditions!({ city: "Austin" }));
+    expect(env.ok).toBe(true);
+    expect(env.pollen).toMatchObject({
+      available: true,
+      total: 4,
+      unit: "UPI",
+      band: "high",
+      source: { id: "google-pollen", kind: "modeled" },
+    });
+    expect((env.pollen as { categories: unknown[] }).categories).toHaveLength(3);
+  });
+
+  test("a throwing key resolver degrades pollen instead of failing the whole card", async () => {
+    // A revoked or unapproved Storage grant makes the resolver throw. That
+    // must not erase valid weather — the card falls through to the keyless
+    // provider and reports why Google was skipped.
+    route();
+    _setGooglePollenKeyResolverForTests(async () => {
+      throw new Error("storage grant revoked");
+    });
+    const env = envelope(await tools.city_conditions!({ city: "Austin" }));
+    expect(env.ok).toBe(true);
+    expect(env.weather).toMatchObject({ tempC: expect.any(Number) });
+    expect(env.pollen).toMatchObject({
+      available: true,
+      unit: "grains/m³",
+      source: { id: "open-meteo" },
+    });
+  });
+
+  test("Atlanta gets observed station pollen and mold activity instead of Google/CAMS", async () => {
     let airGridCalled = false;
     route({
       geo: () => json(ATLANTA_GEO_BODY),
@@ -767,21 +924,26 @@ describe("manifest", () => {
     expect(Object.keys(tools).sort()).toEqual(declared);
   });
 
-  test("allowlists only the three Open-Meteo hosts and the Atlanta station", () => {
+  test("allowlists only Open-Meteo, Google Pollen, and the Atlanta station", () => {
     expect([...(manifest.permissions?.network ?? [])].sort()).toEqual([
       "air-quality-api.open-meteo.com",
       "api.open-meteo.com",
       "geocoding-api.open-meteo.com",
+      "pollen.googleapis.com",
       "www.atlantaallergy.com",
     ]);
   });
 
-  test("takes no shell, filesystem, env or storage", () => {
+  test("uses Storage for the encrypted Google key, with no shell/filesystem/env", () => {
     const perms = manifest.permissions ?? {};
+    expect(perms.storage).toBe(true);
     expect(perms.shell).toBeUndefined();
     expect(perms.filesystem).toBeUndefined();
     expect(perms.env).toBeUndefined();
-    expect(perms.storage).toBeUndefined();
+    expect(manifest.settings?.google_pollen_api_key).toMatchObject({
+      type: "secret",
+      storageKey: "google-pollen-api-key",
+    });
   });
 
   test("declares the shipped workflow so it is triggerable", () => {

@@ -114,6 +114,37 @@ const ATLANTA_ENVELOPE = {
 	},
 };
 
+/** v3 — Google's modeled 0–5 Universal Pollen Index. `grains` is null and
+ *  `unit` is UPI, so the card must render CATEGORY INDEX VALUES and must not
+ *  claim a grains/m³ concentration. Mold is unavailable: Google has none. */
+const GOOGLE_ENVELOPE = {
+	...ENVELOPE,
+	v: 3,
+	pollen: {
+		available: true,
+		grains: null,
+		total: 4,
+		unit: "UPI",
+		band: "high",
+		categories: [
+			{ key: "trees", label: "Tree", band: "high", value: 4, contributors: [] },
+			{ key: "grass", label: "Grass", band: "low", value: 2, contributors: [] },
+			{ key: "weeds", label: "Weed", band: "moderate", value: 3, contributors: [] },
+		],
+		observedAt: "2026-07-28",
+		source: { id: "google-pollen", name: "Google Pollen API", kind: "modeled" },
+		reason: null,
+	},
+	mold: {
+		available: false,
+		count: null,
+		band: null,
+		reason:
+			"No configured National Allergy Bureau reporting station covers this location; " +
+			"Google Pollen and Open-Meteo do not provide mold-spore data.",
+	},
+};
+
 /** A persisted tool call in the shape `withToolCalls=true` returns. */
 function persistedCall(over: {
 	id: string;
@@ -297,6 +328,10 @@ test.describe("city-conditions card in the transcript", () => {
 		await expect(pollenSource).toContainText("National Allergy Bureau-certified station");
 		await expect(pollenSource).toContainText("Reported 07/29/2026");
 
+		// The station publishes bands, not a per-category index — so no
+		// category value may appear. (Google's UPI path below is the contrast.)
+		await expect(page.getByTestId("city-conditions-category-value")).toHaveCount(0);
+
 		await expect(page.getByTestId("city-conditions-mold-unavailable")).toHaveCount(0);
 		await expect(page.getByTestId("city-conditions-mold-count")).toHaveText(
 			"Count not published",
@@ -324,6 +359,90 @@ test.describe("city-conditions card in the transcript", () => {
 					(attachment) => attachment.name === "city-conditions-atlanta-station",
 				),
 			).toBe(false);
+		}
+	});
+
+	test("Google's modeled UPI renders as an index, never as a grain concentration @evidence", async ({
+		page,
+		mockApi,
+	}, testInfo) => {
+		// The unit confusion this guards against is a health claim: a 0–5
+		// index shown under a grains/m³ label reads as a near-zero pollen
+		// count to an allergy sufferer, when 4 UPI is actually "high".
+		const convId = "conv-city-conditions-google";
+		await seedConditions(
+			mockApi,
+			convId,
+			persistedCall({
+				id: "tc-city-google",
+				input: { city: "Austin" },
+				messageId: `${convId}-a1`,
+				cardType: "city-conditions",
+				output: JSON.stringify(GOOGLE_ENVELOPE),
+			}),
+		);
+		await page.goto(`/project/${PROJECT_ID}/chat/${convId}`);
+
+		const card = page.getByTestId("city-conditions-card");
+		await expect(card).toBeVisible({ timeout: 10_000 });
+
+		// UPI is labelled as UPI — and grains/m³ appears nowhere on the card.
+		await expect(page.getByText("UPI", { exact: true })).toBeVisible();
+		await expect(page.getByText("grains/m³", { exact: true })).toHaveCount(0);
+		await expect(page.getByTestId("city-conditions-pollen-total")).toHaveText("4.0");
+		const band = page.getByTestId("city-conditions-pollen-band");
+		await expect(band).toHaveText("High");
+		await expect(band).toHaveAttribute("data-band", "high");
+
+		// `grains: null` ⇒ the six-grain list gives way to categories, each
+		// carrying its own index value beside its band.
+		await expect(page.getByTestId("city-conditions-grain")).toHaveCount(0);
+		await expect(page.getByTestId("city-conditions-pollen-category")).toHaveCount(3);
+		const values = page.getByTestId("city-conditions-category-value");
+		await expect(values).toHaveCount(3);
+		await expect(values).toHaveText(["4.0", "2.0", "3.0"]);
+		await expect(
+			card.locator('[data-category="trees"] [data-testid="city-conditions-category-band"]'),
+		).toHaveText("High");
+		await expect(
+			card.locator('[data-category="grass"] [data-testid="city-conditions-category-band"]'),
+		).toHaveText("Low");
+
+		// The value must sit beside its band on one line, not overlap it.
+		const treeValue = card.locator(
+			'[data-category="trees"] [data-testid="city-conditions-category-value"]',
+		);
+		const treeBand = card.locator(
+			'[data-category="trees"] [data-testid="city-conditions-category-band"]',
+		);
+		const valueBox = await treeValue.boundingBox();
+		const bandBox = await treeBand.boundingBox();
+		expect(valueBox).not.toBeNull();
+		expect(bandBox).not.toBeNull();
+		expect(valueBox!.x + valueBox!.width).toBeLessThanOrEqual(bandBox!.x + 1);
+
+		// Provenance says MODELED by Google, with the report date.
+		await expect(page.getByTestId("city-conditions-pollen-source")).toHaveText(
+			"Modeled by Google Pollen API · Reported 07/28/2026",
+		);
+
+		// Google publishes no mold, so the figure stays an explicit reason.
+		await expect(page.getByTestId("city-conditions-mold-count")).toHaveCount(0);
+		await expect(page.getByTestId("city-conditions-mold-reason")).toContainText(
+			"do not provide mold-spore data",
+		);
+
+		await captureEvidence(page, testInfo, "city-conditions-google-upi");
+		if (process.env.EZCORP_E2E_EVIDENCE === "1") {
+			expect(
+				testInfo.attachments.some(
+					(a) => a.name === "city-conditions-google-upi" && a.contentType === "image/png",
+				),
+			).toBe(true);
+		} else {
+			expect(testInfo.attachments.some((a) => a.name === "city-conditions-google-upi")).toBe(
+				false,
+			);
 		}
 	});
 

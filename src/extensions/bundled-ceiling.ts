@@ -251,14 +251,11 @@ export const BUNDLED_CEILING: Record<string, ExtensionPermissions> = {
     grantedAt: {},
   },
 
-  // city-conditions — keyless Open-Meteo lookups (time + weather +
-  // pollen) behind one chat tool and three granular tools, plus a shipped
-  // `conditions` workflow. Mirrors the install grant in `bundled.ts`
-  // VERBATIM. Network is the only I/O tier: exactly the three Open-Meteo
-  // hosts plus the Atlanta NAB-certified station page, nothing wildcarded.
-  // NO filesystem / env / shell / storage — the extension holds no
-  // credential and keeps no state, so there is nothing for a compromise to
-  // reach.
+  // city-conditions — Open-Meteo weather/fallback pollen, optional Google
+  // Pollen UPI, and the Atlanta NAB station behind one chat tool and three
+  // granular tools, plus a shipped `conditions` workflow. Mirrors the install
+  // grant in `bundled.ts` VERBATIM. Network is restricted to those five hosts;
+  // Storage holds the encrypted per-user Google key. NO filesystem/env/shell.
   //
   // FULL-FIELD-SET RULE (see the module header): `workflows` is a
   // structured permission and `intersectPermissions` does
@@ -266,10 +263,12 @@ export const BUNDLED_CEILING: Record<string, ExtensionPermissions> = {
   // `maxRunsPerHour` here would produce `Math.min(NaN, …)` and silently
   // kill the grant at boot, so it carries the same 12 as the grant.
   "city-conditions": {
+    storage: true,
     network: [
       "geocoding-api.open-meteo.com",
       "api.open-meteo.com",
       "air-quality-api.open-meteo.com",
+      "pollen.googleapis.com",
       "www.atlantaallergy.com",
     ],
     workflows: { names: ["conditions"], maxRunsPerHour: 12 },

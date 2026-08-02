@@ -343,6 +343,36 @@ describe("CityConditionsCard — a reporting station's shape", () => {
 		expect(queryByTestId("city-conditions-mold-unavailable")).toBeNull();
 	});
 
+	test("a provider index renders beside the band; a band-only station shows none", () => {
+		// Google supplies a per-category UPI; the Atlanta station supplies
+		// only a band. The value element must appear in the first case and
+		// be absent — not blank, not "0" — in the second.
+		const { queryAllByTestId } = renderCard(STATION_ENVELOPE);
+		expect(queryAllByTestId("city-conditions-category-value")).toHaveLength(0);
+
+		cleanup();
+		const { getAllByTestId } = renderCard({
+			...STATION_ENVELOPE,
+			pollen: {
+				...STATION_ENVELOPE.pollen,
+				total: 4,
+				unit: "UPI",
+				band: "high",
+				categories: [
+					{ key: "trees", label: "Tree", band: "high", value: 4, contributors: [] },
+					{ key: "grass", label: "Grass", band: "low", value: 2, contributors: [] },
+				],
+				source: { id: "google-pollen", name: "Google Pollen API", kind: "modeled" },
+			},
+		});
+		const values = getAllByTestId("city-conditions-category-value");
+		expect(values.map((v) => v.textContent)).toEqual(["4.0", "2.0"]);
+		// The band still renders alongside it — the index does not replace it.
+		const bands = getAllByTestId("city-conditions-category-band");
+		expect(bands[0]).toHaveTextContent("High");
+		expect(bands[1]).toHaveTextContent("Low");
+	});
+
 	test("modeled data is labelled modeled, not observed", () => {
 		const { getByTestId } = renderCard({
 			...STATION_ENVELOPE,

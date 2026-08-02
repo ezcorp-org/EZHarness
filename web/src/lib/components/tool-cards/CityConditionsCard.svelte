@@ -2,7 +2,7 @@
   CityConditionsCard — renders the city-conditions extension's aggregated
   result (`cardType: "city-conditions"`): place + place-LOCAL time, the
   current reading (temperature honouring the requested unit, feels-like,
-  humidity, wind), the six pollen grains with their total index and band,
+  humidity, wind), provider-native pollen grains or category/index readings,
   and mold.
 
   This file is TEMPLATE ONLY. Every parse, conversion, and format lives in
@@ -113,7 +113,12 @@
 						<li class="category" data-testid="city-conditions-pollen-category" data-category={category.key}>
 							<div class="category-head">
 								<span class="grain-label">{category.label}</span>
-								<span class="band band-{category.bandId}" data-testid="city-conditions-category-band">{category.bandLabel}</span>
+								<div class="category-reading">
+									{#if category.valueText}
+										<span class="category-value" data-testid="city-conditions-category-value">{category.valueText}</span>
+									{/if}
+									<span class="band band-{category.bandId}" data-testid="city-conditions-category-band">{category.bandLabel}</span>
+								</div>
 							</div>
 							{#if category.contributorsText}
 								<span class="contributors">{category.contributorsText}</span>
@@ -442,6 +447,17 @@
 		align-items: baseline;
 		justify-content: space-between;
 		gap: 0.25rem;
+	}
+	.category-reading {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: baseline;
+		gap: 0.375rem;
+	}
+	.category-value {
+		font-size: 0.8125rem;
+		font-weight: 700;
+		font-variant-numeric: tabular-nums;
 	}
 	.contributors {
 		font-size: 0.75rem;
