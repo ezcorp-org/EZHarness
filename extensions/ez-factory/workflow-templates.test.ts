@@ -35,7 +35,12 @@
 import { describe, expect, test } from "bun:test";
 import { parse } from "yaml";
 
-import type { WorkflowDefinition, WorkflowStep } from "../../src/types";
+import type {
+  AgentResult,
+  WorkflowCondition,
+  WorkflowDefinition,
+  WorkflowStep,
+} from "../../src/types";
 import { validateWorkflow } from "../../src/runtime/workflow-validator";
 import { loadExtensionWorkflows } from "../../src/runtime/workflow-extension-loader";
 import { namespacedWorkflowName } from "../../src/runtime/workflow-name";
@@ -46,7 +51,8 @@ import {
 import { MAX_STEP_OUTPUT_BYTES } from "../../src/runtime/workflow-step-output";
 import { VALID_MODEL_EFFORTS } from "../../src/runtime/workflow-model";
 import { hasTemplate, templateRefs } from "../../src/runtime/workflow-refs";
-import { conditionRefs } from "../../src/runtime/workflow-condition";
+import { conditionRefs, evaluateCondition } from "../../src/runtime/workflow-condition";
+import type { RefContext } from "../../src/runtime/workflow-refs";
 import {
   dryRunWorkflow,
   DRY_RUN_UNVERIFIED,
@@ -996,6 +1002,97 @@ describe("ez-factory templates — dry run (the graph actually executes)", () =>
     const report = await dryRunWorkflow(def, inputs["etl-factory"]!);
     expect(report.status).toBe("error");
     expect(report.error).toContain("doesnotexist");
+  });
+});
+
+describe("ez-factory templates — the anomaly guard vs REAL read_files output", () => {
+  /**
+   * The gap this block closes.
+   *
+   * The dry-run branch tests SUBSTITUTE the guard with a literal
+   * comparison, because `ingest` is stubbed there and `gt` on a stub is
+   * always false. That proves the skip TOPOLOGY and says nothing whatever
+   * about the guard — a guard that could never take the clean side would
+   * pass every one of them.
+   *
+   * So this block takes the guard **as written in the YAML**, never
+   * retyped, and runs the production `evaluateCondition` over payloads
+   * shaped like `read_files`' confirmed result. A guard that stops being
+   * able to fire, or starts firing on every run, fails here.
+   */
+  const readFilesOutput = (skippedCount: number): AgentResult => ({
+    success: true,
+    output: {
+      root: ".",
+      files: [{ path: "data/a.csv", bytes: 12, content: "col\n1\n" }],
+      skipped: Array.from({ length: skippedCount }, (_, i) => ({
+        path: `data/big-${i}.csv`,
+        reason: "file-too-large",
+      })),
+      fileCount: 1,
+      skippedCount,
+      truncated: { depth: false, dirs: false, files: false, budget: false },
+    },
+  });
+
+  const evaluateGuard = (guard: WorkflowCondition, skippedCount: number): boolean => {
+    const ctx: RefContext = {
+      input: {},
+      stepResults: new Map([["ingest", readFilesOutput(skippedCount)]]),
+    };
+    return evaluateCondition(guard, ctx).passed;
+  };
+
+  /** The guard as SHIPPED — read out of the parsed template. */
+  const shippedGuard = (stepName: string): WorkflowCondition =>
+    stepNamed(byBareName.get("etl-factory")!, stepName).when!;
+
+  test("a CLEAN read fires neither branch step", () => {
+    // The failure this exists for: a clean run that still stops to ask a
+    // human. Silent — nothing errors, the gate just always parks.
+    for (const step of ["anomaly-gate", "consent"]) {
+      expect({ step, fires: evaluateGuard(shippedGuard(step), 0) }).toEqual({
+        step,
+        fires: false,
+      });
+    }
+  });
+
+  test("a read that skipped something fires both", () => {
+    for (const step of ["anomaly-gate", "consent"]) {
+      expect({ step, fires: evaluateGuard(shippedGuard(step), 2) }).toEqual({
+        step,
+        fires: true,
+      });
+    }
+  });
+
+  test("discrimination — the array-vs-string form fires on a CLEAN read", () => {
+    // `neq` is `!deepEq(actual, value)`, and a real ARRAY is never
+    // deep-equal to the STRING "[]" — so this shape is unconditionally
+    // true and the gate asks a human on every single run. This is the
+    // exact form the guard must never take, and the assertion below is
+    // what would have caught it.
+    const trap: WorkflowCondition = {
+      ref: "$steps.ingest.output.skipped",
+      op: "neq",
+      value: "[]",
+    };
+    expect(evaluateGuard(trap, 0)).toBe(true);
+    expect(evaluateGuard(shippedGuard("anomaly-gate"), 0)).toBe(false);
+  });
+
+  test("discrimination — `exists` is no substitute; it holds for an empty array", () => {
+    // The other tempting shape. `exists` is `!== undefined && !== null`,
+    // and `[]` is neither — so it too fires on every run.
+    const weak: WorkflowCondition = { ref: "$steps.ingest.output.skipped", op: "exists" };
+    expect(evaluateGuard(weak, 0)).toBe(true);
+  });
+
+  test("the guard survives a read where everything was skipped", () => {
+    // `fileCount: 1` in the fixture is incidental; the guard must key on
+    // what was MISSED, not on what was read.
+    expect(evaluateGuard(shippedGuard("anomaly-gate"), 5)).toBe(true);
   });
 });
 
