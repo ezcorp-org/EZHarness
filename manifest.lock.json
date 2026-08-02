@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-08-01T23:15:52.672Z",
+  "generatedAt": "2026-08-02T00:47:14.443Z",
   "extensions": {
     "ai-kit": {
       "version": "0.1.0",
@@ -39,8 +39,8 @@
     },
     "ez-factory": {
       "version": "0.1.0",
-      "entrypoint": "",
-      "toolsHash": "sha256-T1PNoYwrqgwDVLtfmj7L5e0Sq02OEbqHPC8RFhICuUU="
+      "entrypoint": "./index.ts",
+      "toolsHash": "sha256-1fwsvrA5h6UiBpNthJ8mEMFuKM2yWOXTZuDYqOaCk9A="
     },
     "file-organizer": {
       "version": "1.0.0",
