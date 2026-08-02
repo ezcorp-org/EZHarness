@@ -379,12 +379,16 @@ describe("reverse-RPC delegate bodies (downstream handlers mocked)", () => {
     } finally {
       releaseCallProvenance(tok);
     }
+    // Read through a local: the `= undefined` reset above is the last
+    // assignment TS can see (the real one happens inside the mocked module),
+    // so it narrows the binding to `undefined` and `?.` degrades to `never`.
+    const seen = workflowsCtx as Record<string, unknown> | undefined;
     // Reached the handler — the contrast with `toBeUndefined()` above IS the
     // assertion — and arrived with an explicit null owner, never an invented one.
-    expect(workflowsCtx).toBeDefined();
-    expect(workflowsCtx?.userId).toBeNull();
-    expect(workflowsCtx?.extensionName).toBe("ext");
-    expect(workflowsCtx?.extensionId).toBe("ext-1");
+    expect(seen).toBeDefined();
+    expect(seen?.userId).toBeNull();
+    expect(seen?.extensionName).toBe("ext");
+    expect(seen?.extensionId).toBe("ext-1");
   });
 
   test("handlePiWorkflowsDelegated still carries an OWNED fire's user through", async () => {
@@ -409,8 +413,9 @@ describe("reverse-RPC delegate bodies (downstream handlers mocked)", () => {
     } finally {
       releaseCallProvenance(tok);
     }
-    expect(workflowsCtx?.userId).toBe("user-1");
-    expect(workflowsCtx?.conversationId).toBe("conv-1");
+    const seen = workflowsCtx as Record<string, unknown> | undefined;
+    expect(seen?.userId).toBe("user-1");
+    expect(seen?.conversationId).toBe("conv-1");
   });
 });
 
