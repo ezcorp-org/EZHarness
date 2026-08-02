@@ -46,11 +46,14 @@ const {
   suspendWorkflowRun,
   WORKFLOW_LEASE_MS,
 } = await import("../db/queries/workflow-runs");
-const { getWorkflowApprovalById, parkWorkflowApproval } = await import(
+const { getWorkflowApproval, getWorkflowApprovalById, parkWorkflowApproval } = await import(
   "../db/queries/workflow-approvals"
 );
 const { WorkflowRunner } = await import("../runtime/workflow-runner");
-const { resumeArgsFromRow, WorkflowExecutor } = await import("../runtime/workflow-executor");
+const { nestedRunKey, resumeArgsFromRow, WorkflowExecutor } = await import(
+  "../runtime/workflow-executor"
+);
+const { answerApproval } = await import("../runtime/workflow-answer-approval");
 const { EventBus } = await import("../runtime/events");
 const { AgentExecutor } = await import("../runtime/executor");
 const { loadAgentsStatic } = await import("../runtime/loader");
@@ -155,12 +158,64 @@ async function approvalParkedRun(id: string): Promise<string> {
  */
 function liveRuntime(): WorkflowRuntime {
   const bus = new EventBus<AgentEvents>();
+  const defs = [definition, gatedDefinition, gateChild, loopParent];
   return {
-    getWorkflows: () => [definition, gatedDefinition],
+    getWorkflows: () => defs,
     workflowExecutor: new WorkflowExecutor(new AgentExecutor(loadAgentsStatic([]), bus), bus, {
       persist: true,
+      // Nesting is WIRED, never assumed — the executor holds no registry of
+      // its own, so without this a `kind: "workflow"` step fails loudly.
+      workflowResolver: (name) => defs.find((d) => d.name === name),
     }),
   };
+}
+
+// ── The `docs-factory` shape: a loop over a nested run that parks ──────
+//
+// The child owns the consent gate; the parent parks alongside it as
+// `nested-suspended` with NO approval row of its own. Each loop iteration
+// is its own child run keyed by `nestedRunKey`, which is what lets a
+// replayed loop serve its earlier iterations from their recorded rows
+// instead of re-dispatching them.
+
+/** The child: one consent gate, then a step that reads its answer. */
+const gateChild: WorkflowDefinition = {
+  name: "kid-gate",
+  description: "",
+  steps: [
+    { name: "ok", kind: "approval", prompt: "Ship it?", choices: ["go"] },
+    {
+      name: "done",
+      kind: "transform",
+      output: { choice: "$steps.ok.output.choice" },
+      dependsOn: ["ok"],
+    },
+  ],
+};
+
+/** The parent: TWO iterations of that child, each its own run. */
+const LOOP_ITERATIONS = 2;
+const loopParent: WorkflowDefinition = {
+  name: "mum-loop",
+  description: "",
+  steps: [
+    {
+      name: "attempt",
+      kind: "workflow",
+      workflow: "kid-gate",
+      loop: { maxIterations: LOOP_ITERATIONS },
+    },
+  ],
+};
+
+/** Child runs of a parent, ordered by iteration key. */
+async function childrenOf(parentRunId: string): Promise<Array<{ id: string; key: string }>> {
+  const rows = (await db.execute(sql`
+    SELECT id, idempotency_key FROM workflow_runs
+     WHERE parent_run_id = ${parentRunId}
+     ORDER BY idempotency_key
+  `)) as { rows: Array<{ id: string; idempotency_key: string }> };
+  return rows.rows.map((r) => ({ id: r.id, key: r.idempotency_key }));
 }
 
 /** A promise a test can hold open, so resumes really do overlap. */
@@ -979,6 +1034,118 @@ describe("releaseWorkflowRunClaim releases exactly one run", () => {
 
     expect(await releaseWorkflowRunClaim("r1", "A")).toBe(0);
     expect((await getWorkflowRunRow("r1"))?.status).toBe("running");
+  });
+});
+
+describe("a loop over a nested run that parks on an approval", () => {
+  /**
+   * Answer the pending gate on a child, through the ONE sanctioned path.
+   *
+   * `answerApproval`, not a raw `recordWorkflowApprovalAnswer`: the
+   * question is whether a HUMAN can still unblock this run after the
+   * daemon has been at it, and the human's path includes the run-status
+   * check that a held claim used to fail.
+   */
+  async function answerChildGate(runtime: WorkflowRuntime, childId: string): Promise<void> {
+    const approval = await getWorkflowApproval(childId, "ok");
+    expect(approval?.status).toBe("pending");
+    const res = await answerApproval(
+      approval!.id,
+      { choice: "go" },
+      // The run carries no `user_id`, which is admin-only by the same rule
+      // `workflow-run-control.ts` uses: "unowned" must never read as
+      // "anyone's".
+      { userId: null, isAdmin: true },
+      { runtime },
+    );
+    expect(res.ok).toBe(true);
+  }
+
+  test("parent and child both survive the daemon, then the loop replays to completion", async () => {
+    const runtime = liveRuntime();
+    const d = runner(runtime);
+
+    // ── Park: iteration 1's child stops on its gate, parent stops with it
+    const parked = await runtime.workflowExecutor.runWorkflow(loopParent, {});
+    expect(parked.status).toBe("suspended");
+    const parentRow = await getWorkflowRunRow(parked.id);
+    // The parent's OWN reason. It holds no `workflow_approvals` row, which
+    // is why no amount of reordering the consent check could have saved it.
+    expect(parentRow?.suspendedReason).toBe("nested-suspended");
+    const afterPark = await childrenOf(parked.id);
+    expect(afterPark.map((c) => c.key)).toEqual([nestedRunKey(parked.id, "attempt", 1)]);
+    const child1 = afterPark[0]!.id;
+
+    // ── Q1 + Q2: one tick with BOTH parked destroys neither ────────────
+    await d.tick();
+    await d.drain();
+
+    expect((await getWorkflowRunRow(parked.id))?.status).toBe("suspended");
+    expect((await getWorkflowRunRow(child1))?.status).toBe("suspended");
+    expect((await getWorkflowApproval(child1, "ok"))?.status).toBe("pending");
+    // The parent re-entered its loop step and found the SAME child rather
+    // than dispatching a second one for iteration 1.
+    expect(await childrenOf(parked.id)).toHaveLength(1);
+    expect((await childrenOf(parked.id))[0]!.id).toBe(child1);
+
+    // ── Q3: answer iteration 1, let the daemon carry the parent forward ─
+    await answerChildGate(runtime, child1);
+    expect((await getWorkflowRunRow(child1))?.status).toBe("success");
+
+    await d.tick();
+    await d.drain();
+
+    // Iteration 1 was served from child1's recorded row — same id, not
+    // re-executed — and iteration 2 dispatched a NEW child, which parked.
+    const afterSecond = await childrenOf(parked.id);
+    expect(afterSecond).toHaveLength(2);
+    expect(afterSecond[0]!.id).toBe(child1);
+    expect(afterSecond.map((c) => c.key)).toEqual([
+      nestedRunKey(parked.id, "attempt", 1),
+      nestedRunKey(parked.id, "attempt", 2),
+    ]);
+    const child2 = afterSecond[1]!.id;
+    expect((await getWorkflowRunRow(child2))?.status).toBe("suspended");
+    expect((await getWorkflowRunRow(parked.id))?.status).toBe("suspended");
+
+    // ── Answer iteration 2; the loop budget is spent, so the parent ends
+    await answerChildGate(runtime, child2);
+
+    await d.tick();
+    await d.drain();
+
+    expect((await getWorkflowRunRow(parked.id))?.status).toBe("success");
+    // THE replay property, stated as a count: exactly one child per
+    // iteration across three parks and three resumes. A parent that
+    // re-executed a finished iteration instead of reading its row would
+    // have duplicated every side effect that child applied.
+    const final = await childrenOf(parked.id);
+    expect(final).toHaveLength(LOOP_ITERATIONS);
+    expect(final.map((c) => c.id)).toEqual([child1, child2]);
+  });
+
+  test("the parent is never terminalized while its child waits, tick after tick", async () => {
+    // The daemon wakes every 5s forever. The parent has no approval of its
+    // own, so nothing about the consent gate protects it — only the status
+    // guard reading `running` as "claimed by me" keeps it alive.
+    const runtime = liveRuntime();
+    const d = runner(runtime);
+    const parked = await runtime.workflowExecutor.runWorkflow(loopParent, {});
+    const child1 = (await childrenOf(parked.id))[0]!.id;
+
+    for (let i = 0; i < 3; i++) {
+      await d.tick();
+      await d.drain();
+    }
+
+    const row = await getWorkflowRunRow(parked.id);
+    expect(row?.status).toBe("suspended");
+    expect(row?.suspendedReason).toBe("nested-suspended");
+    expect(row?.claimedBy).toBeNull();
+    // And the child is still answerable, which is the point of all of it.
+    expect((await getWorkflowApproval(child1, "ok"))?.status).toBe("pending");
+    // Still one child — three ticks did not dispatch three more.
+    expect(await childrenOf(parked.id)).toHaveLength(1);
   });
 });
 
