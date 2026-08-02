@@ -65,6 +65,7 @@
       "web/e2e/pending-permission-tray.spec.ts",
       "web/e2e/preprocess-grade-delta.spec.ts",
       "web/e2e/project-active-context-logo.spec.ts",
+      "web/e2e/project-context-non-project-routes.spec.ts",
       "web/e2e/project-hub.spec.ts",
       "web/e2e/rbac-permissions.spec.ts",
       "web/e2e/resume-last-path.spec.ts",

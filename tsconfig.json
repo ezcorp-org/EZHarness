@@ -31,5 +31,8 @@
       "@ezcorp/sdk/*": ["./packages/@ezcorp/sdk/src/*"]
     }
   },
-  "exclude": ["web", "**/node_modules/**", "**/.svelte-kit/**"]
+  // `tasks/` is gitignored per-developer scratch (plans, demos, notes). CI
+  // never sees it, but including it here means any local scratch file breaks
+  // `bun run typecheck` for that developer — so the local gate stops matching CI.
+  "exclude": ["web", "tasks", "**/node_modules/**", "**/.svelte-kit/**"]
 }
