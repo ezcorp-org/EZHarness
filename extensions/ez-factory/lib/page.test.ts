@@ -1019,6 +1019,37 @@ describe("invariant K — the shared tree carries no user identity or run conten
     }
   });
 
+  test("run-derived PROSE never renders — not even the one free-text field the record carries", () => {
+    // The identity assertions above do NOT reach invariant K's second half.
+    // `suspendedReason` is the only free-text field on a `JobRunRecord`, and
+    // the RUN writes it — an awaiting-approval reason names what is about to
+    // be done. Rendering it would bake one run's prose into a tree that is
+    // cached and served to every viewer, which is the same leak the
+    // approvals inbox was cut for.
+    //
+    // Proven necessary by mutation: adding a "Reason" column carrying this
+    // field passed every other test in this file.
+    const REASON = "awaiting approval: publish CONFIDENTIAL-Q3 to the customer wiki";
+    const suspended = runRecord({ status: "awaiting_approval", suspendedReason: REASON });
+    // Discrimination: the record really does carry it, so the absence below
+    // is the builder's doing and not the fixture's.
+    expect(suspended.suspendedReason).toBe(REASON);
+
+    const tree = buildFactoryPage({ view: { kind: "runs" }, jobs: [job()], runs: [suspended] });
+    expect(treeContent(tree)).not.toContain(REASON);
+    // And the column set is PINNED, so a future column cannot quietly open a
+    // new channel for run content. A legitimately new column should fail
+    // here and be added deliberately, having been checked against this rule.
+    expect(firstTable(tree).columns).toEqual([
+      "Job",
+      "Workflow",
+      "Status",
+      "Started",
+      "Finished",
+      "Resumable",
+    ]);
+  });
+
   test("the approvals inbox is a LINK, never a rendered list", () => {
     // `pendingApprovals()` is per-acting-user by construction and each
     // entry names what is about to be done. Rendering it into this shared
