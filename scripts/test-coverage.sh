@@ -41,7 +41,15 @@
 #   legs-only (CI; COVERAGE_LEGS_ONLY=1):
 #       Run ONLY the SDK + harness-client + suggest + ai-kit + node-vitest
 #       coverage legs and emit their lcov into $COV_OUT. No host files, no
-#       merge, no check.
+#       merge, no threshold check.
+#
+# PRODUCER INTEGRITY (all three modes): a producer that runs must emit an
+# lcov. Shard mode guards its pool (the N_LCOV check); the two leg-running
+# modes call check_leg_lcov, which walks the LEG_COV_DIR registry in
+# lib/test-file-sets.sh and FAILS NAMING each leg that produced nothing.
+# Before that guard a dead leg vanished from the merge glob in silence, and
+# the only symptom was a blizzard of downstream "no lcov data" violations
+# against files the change never touched.
 #
 # $COV_OUT — directory the CI modes copy per-shard lcov into (uploaded as an
 # artifact). Unused in full mode.
@@ -128,6 +136,18 @@ run_legs() {
   local legs="$TMPDIR/legs"
   mkdir -p "$legs"
 
+  # Register every leg this mode runs with the lcov registry in
+  # lib/test-file-sets.sh. The producers below take their --coverage-dir from
+  # LEG_COV_DIR, and check_leg_lcov (called by BOTH mode dispatches at the
+  # bottom of this file) walks the same registry — so a leg that dies without
+  # writing an lcov is named, instead of silently vanishing from the merge
+  # glob. See the registry's header for why the silent skip was so expensive.
+  register_leg sdk cov_sdk
+  register_leg harness-client cov_hc
+  register_leg suggest cov_suggest
+  register_leg ai-kit cov_aikit
+  register_leg web-vitest cov_vitest
+
   # Leg file lists come from lib/test-file-sets.sh (sdk_leg_files & co) —
   # ONE definition shared with the orphan-drift meta-test, so a leg's set
   # can never drift from what the meta-test credits it with running.
@@ -143,7 +163,7 @@ run_legs() {
   # mirrors exactly these dirs for the drift meta-test's crediting.
   (
     set +e
-    bun test --coverage --coverage-reporter=lcov --coverage-dir="$TMPDIR/cov_sdk" \
+    bun test --coverage --coverage-reporter=lcov --coverage-dir="${LEG_COV_DIR[sdk]}" \
       ./packages/@ezcorp/sdk/test/ ./packages/@ezcorp/sdk/src/entities/__tests__/ \
       > "$legs/sdk.out" 2>&1
     echo "$?" > "$legs/sdk.code"
@@ -157,7 +177,7 @@ run_legs() {
   # harness_client_leg_files() for the drift meta-test.
   (
     set +e
-    bun test --coverage --coverage-reporter=lcov --coverage-dir="$TMPDIR/cov_hc" \
+    bun test --coverage --coverage-reporter=lcov --coverage-dir="${LEG_COV_DIR[harness-client]}" \
       ./packages/@ezcorp/harness-client/ \
       > "$legs/hc.out" 2>&1
     echo "$?" > "$legs/hc.code"
@@ -179,7 +199,7 @@ run_legs() {
       echo 1 > "$legs/suggest.code"
       exit 1
     fi
-    bun test --coverage --coverage-reporter=lcov --coverage-dir="$TMPDIR/cov_suggest" \
+    bun test --coverage --coverage-reporter=lcov --coverage-dir="${LEG_COV_DIR[suggest]}" \
       "${LEG_FILES[@]/#/./}" \
       > "$legs/suggest.out" 2>&1
     echo "$?" > "$legs/suggest.code"
@@ -201,7 +221,7 @@ run_legs() {
       echo 1 > "$legs/aikit.code"
       exit 1
     fi
-    bun test --coverage --coverage-reporter=lcov --coverage-dir="$TMPDIR/cov_aikit" \
+    bun test --coverage --coverage-reporter=lcov --coverage-dir="${LEG_COV_DIR[ai-kit]}" \
       "${LEG_FILES[@]/#/./}" \
       > "$legs/aikit.out" 2>&1
     echo "$?" > "$legs/aikit.code"
@@ -212,7 +232,7 @@ run_legs() {
   # leg MUST run under node (CI provisions node 22). --coverage.include is scoped
   # to JUST the target lib paths so the leg doesn't pull all of web/src/lib/**
   # into the gate. Subshell so `cd web` never leaks.
-  VITEST_COV="$TMPDIR/cov_vitest"
+  VITEST_COV="${LEG_COV_DIR[web-vitest]}"
   (
   set +e
   ( cd web && npx vitest run \
@@ -598,14 +618,18 @@ run_legs() {
 # transitively imported by other measured modules, so only the lines reachable
 # through that indirect path were counted — 15%-66%). The gate then failed all
 # nine locally on a green main. This runs the same producer into
-# $TMPDIR/cov_security/lcov.info so the local merge sees exactly what CI's gate
-# does.
+# the registry's cov_security dir so the local merge sees exactly what CI's
+# gate does.
 #
 # Deliberately NOT run in the CI legs-only / host-shard modes: the dedicated
 # job already produces this lcov there, and merging it twice would double every
 # hit count for no gain.
 run_security_leg() {
-  mkdir -p "$TMPDIR/cov_security"
+  # Registered HERE, not alongside the run_legs legs, so the lcov guard expects
+  # this leg in exactly the mode that runs it — legs-only mode calls run_legs
+  # but never this, and must not be told the security lcov is "missing".
+  register_leg web-security cov_security
+  mkdir -p "${LEG_COV_DIR[web-security]}"
   (
     set +e
     COV_OUT="$TMPDIR/sec_out" PARALLEL="$PARALLEL" \
@@ -626,7 +650,7 @@ collect_security_leg() {
   # security-coverage.sh already re-roots SF paths to web/src/... and filters
   # to exactly the 9 files, so this is a straight copy into the merge glob.
   if [ -f "$TMPDIR/sec_out/lcov_security.info" ]; then
-    cp "$TMPDIR/sec_out/lcov_security.info" "$TMPDIR/cov_security/lcov.info"
+    cp "$TMPDIR/sec_out/lcov_security.info" "${LEG_COV_DIR[web-security]}/lcov.info"
   fi
   if [ "$SECURITY_EXIT" != "0" ]; then
     FAILED_FILES+=("web security coverage leg")
@@ -653,13 +677,24 @@ emit_lcov() {
 if [ -n "$COVERAGE_LEGS_ONLY" ]; then
   echo "== coverage legs-only mode =="
   run_legs
+  # Every leg that ran must have produced an lcov. This matters MOST for the
+  # two pass/fail-TOLERATED legs (sdk, suggest): a gating leg that dies also
+  # reds via its exit code below, but a tolerated one used to exit 0 with no
+  # lcov — cov-extras went green, the `Per-file coverage gate` job then merged
+  # an artifact silently missing that leg's files, and blamed the PR with one
+  # "listed in thresholds but no lcov data" violation per orphaned file.
+  LEG_LCOV_EXIT=0
+  check_leg_lcov || LEG_LCOV_EXIT=1
   emit_lcov
   echo "  ${TOTAL_PASS} pass | ${TOTAL_FAIL} fail | legs"
   # The harness-client (HC_EXIT), ai-kit (AIKIT_EXIT) and node-vitest
   # (VITEST_EXIT) legs GATE here — the SDK + suggest legs stay
   # pass/fail-tolerant (coverage-only; suggest also gates via the residual
-  # job). This is the exit status the cov-extras CI job reports.
-  if [ "$VITEST_EXIT" != "0" ] || [ "$HC_EXIT" != "0" ] || [ "$AIKIT_EXIT" != "0" ]; then exit 1; fi
+  # job). A MISSING LCOV gates for every leg regardless: pass/fail tolerance
+  # is about assertions, never about a producer that didn't produce. This is
+  # the exit status the cov-extras CI job reports.
+  if [ "$VITEST_EXIT" != "0" ] || [ "$HC_EXIT" != "0" ] || [ "$AIKIT_EXIT" != "0" ] || \
+     [ "$LEG_LCOV_EXIT" != "0" ]; then exit 1; fi
   exit 0
 fi
 
@@ -837,6 +872,33 @@ if [ "${#FAILED_FILES[@]}" -gt 0 ]; then
   echo ""
   echo "Failed files (visibility only — coverage gate below is authoritative):"
   for f in "${FAILED_FILES[@]}"; do echo "  - $f"; done
+fi
+
+# PRODUCER INTEGRITY — checked BEFORE the merge, so a dead producer is the
+# LAST thing printed instead of being buried under the gate's fallout.
+#
+# The merge below globs "$TMPDIR"/cov_*/lcov.info: a producer that wrote no
+# lcov is simply absent from the union, and check-coverage then reports every
+# file it was the only measurer of as "listed in thresholds but no lcov data".
+# Measured on a real run: one dead leg dropped 173 files from the merge, 146
+# with no other producer, and the gate emitted 126 such violations — none of
+# them the actual fault. This never read GREEN (the leg exit codes and the
+# gate both still failed the run), so what follows buys DIAGNOSABILITY, not
+# correctness: the same run now fails naming the leg that died.
+check_leg_lcov || exit 1
+
+# Host-pool counterpart of the shard branch's N_LCOV guard. Deliberately a
+# ZERO check and not a per-file one: full local mode TOLERATES host pass/fail
+# (the CI shards own it), so a single killed file must stay a visibility-only
+# entry in FAILED_FILES above — but a pool that produced NOTHING is an
+# infrastructure failure, exactly as it is in a shard.
+N_HOST_LCOV=0
+for ((i = 0; i < HOST_COUNT; i++)); do
+  if [ -s "$TMPDIR/cov_$i/lcov.info" ]; then N_HOST_LCOV=$((N_HOST_LCOV + 1)); fi
+done
+if [ "$N_HOST_LCOV" -eq 0 ]; then
+  echo "::error::host pool produced no per-file lcov output (infrastructure failure)"
+  exit 1
 fi
 
 mkdir -p coverage

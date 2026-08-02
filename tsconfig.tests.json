@@ -40,6 +40,7 @@
   },
   "include": [
     "src/**/*.test.ts",
+    "extensions/**/*.test.ts",
     "web/.svelte-kit/ambient.d.ts",
     "web/.svelte-kit/non-ambient.d.ts",
     "web/.svelte-kit/types/**/$types.d.ts",
@@ -49,6 +50,8 @@
     "**/node_modules/**",
     "**/worktrees/**"
   ],
+  "// extension tests": "extensions/**/*.test.ts was typechecked by NOTHING for the same reason src tests were: tsconfig.typecheck.json excludes **/*.test.ts and this include used to be src-only, so extension test files compiled only at runtime under bun — a `@ts-expect-error` in one was purely decorative. It belongs in THIS program, not tsconfig.typecheck.json, because it needs the DOM lib + the web aliases below. It is clean (0 errors), so it joins with no ratchet entries.",
+  "// docs/extensions/examples NOT included": "Deliberate, measured 2026-08-02: docs/extensions/examples/**/*.test.ts (178 files) has the SAME gap but carries 27 pre-existing errors across 9 files. Widening is a ONE-WAY DOOR — scripts/typecheck-tests.ts freezes BACKEND_RATCHET_BASELINE and permits removals only, so an include that surfaces errors must fix them, never defer them. A third of those errors sit in docs/extensions/examples/ez-code-factory/, which is scheduled for deletion (replaced by extensions/ez-factory/), so they are throwaway. Tracked as a follow-up, to be picked up after that deletion lands. FYI for whoever does: docs/extensions/examples/graded-card-scanner/** typechecks CLEAN here — this config already carries the DOM lib and there are no tests under its app/ SPA dir, so tsconfig.typecheck.json's app/** carve-out does not need replicating.",
   "// purpose": "Wave-3 typecheck leg for backend test files (tsconfig.typecheck.json excludes them; they were typechecked by NOTHING). Run via scripts/typecheck-tests.ts, which composes the dirty-file ratchet (scripts/typecheck-tests-ratchet.json) into a temp child config. paths+rootDirs replicate web/.svelte-kit/tsconfig.json so tests' transitive imports of web modules ($lib/$server/./$types) resolve \u2014 without them ~1183 spurious errors. Requires `svelte-kit sync` first (typecheck.sh does).",
   "// noUncheckedIndexedAccess": "false = web-flag parity. This program spans src tests AND transitively-imported web product files; web's own program doesn't set the flag, so keeping it on erred web files that are clean in their home leg (agent-color, resource-quotas). Production src stays strict via tsconfig.typecheck.json."
 }
