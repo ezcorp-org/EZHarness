@@ -17,10 +17,11 @@
 	let workflow = $derived(store.workflows.find((w) => w.name === workflowName));
 	let runs = $derived(store.workflowRuns.filter((r) => r.workflowName === workflowName));
 
-	// Server-resolved: `source === "db"` AND owner-or-admin. Gating on it
-	// means Edit/Delete are never painted on a request that would 403 (someone
-	// else's workflow) or 404 (a YAML/extension asset — a file on disk, with
-	// nothing to write).
+	// Server-resolved by the ownership ladder's `edit` rung — `source === "db"`
+	// AND (admin, or the owner of a `private`/`project` row). A `system` row is
+	// admin-only. Gating on it means Edit/Delete are never painted on a request
+	// that would 403 (someone else's workflow) or 404 (a YAML/extension asset —
+	// a file on disk, with nothing to write).
 	let canEdit = $derived(workflow?.canEdit === true);
 
 	let inputText = $state("{}");
@@ -86,6 +87,12 @@
 
 	let forking = $state(false);
 	let forkErrorMsg = $state("");
+
+	// One class for every non-destructive action pill. Repeated inline five
+	// times before, which is how the row drifted into five identical-looking
+	// buttons with no way to keep them consistent when one changed.
+	const ACTION_BTN =
+		"rounded-md bg-[var(--color-surface-tertiary)] px-3 py-1 text-sm text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-border)] disabled:opacity-50";
 
 	async function handleFork() {
 		if (!workflowName) return;
@@ -169,31 +176,42 @@
 						<p class="mb-4 text-[var(--color-text-secondary)]">{workflow.description}</p>
 					{/if}
 				</div>
-				<!-- Two editors reach this workflow and both are deliberate: the
-				     INLINE one below for a quick step tweak without leaving the
-				     page, and the standalone /edit route for the YAML tab and dry
-				     run. Fork and Duplicate are both copy affordances that differ
-				     in where the copy is made (server-side clone vs. a prefilled
-				     create form); collapsing that pair is a product decision, not
-				     a merge one, and is left as follow-up.
+				<!-- Five affordances share this row, so it is GROUPED rather than
+				     flat: edit actions, then copy actions, then the destructive
+				     one behind a divider. Flat, they read as five interchangeable
+				     pills and the red Delete sits flush against a benign button.
+
+				     The two editors are both deliberate — the INLINE one for a
+				     quick step tweak without leaving the page, and the standalone
+				     /edit route for the YAML tab and dry run — so the inline one
+				     says "Edit steps" rather than a bare "Edit", which was
+				     indistinguishable from "Full editor" beside it. Fork and
+				     Duplicate are likewise two copy affordances differing only in
+				     WHERE the copy is made (server-side clone vs. a prefilled
+				     create form); `title` says which is which. Collapsing that
+				     pair is a product decision, not a merge one, and is left as
+				     follow-up.
+
 				     Every WRITE affordance gates on the same server-computed flag —
 				     an ungated Edit on a read-only YAML demo is a button whose only
 				     outcome is a 404. Copy affordances stay ungated: cloning
 				     something you can read is exactly what they are for. -->
 				{#if !editing}
-					<div class="flex flex-wrap items-center justify-end gap-2">
+					<div class="flex flex-wrap items-center justify-end gap-x-2 gap-y-2">
 						{#if canEdit}
 							<button
 								onclick={startEditing}
 								data-testid="workflow-edit"
-								class="rounded-md bg-[var(--color-surface-tertiary)] px-3 py-1 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-border)]"
+								title="Edit the steps inline, without leaving this page"
+								class={ACTION_BTN}
 							>
-								Edit
+								Edit steps
 							</button>
 							<a
 								href="/workflows/{workflowName}/edit"
 								data-testid="edit-workflow"
-								class="rounded-md bg-[var(--color-surface-tertiary)] px-3 py-1 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-border)]"
+								title="Open the standalone editor — YAML view and dry run"
+								class={ACTION_BTN}
 							>
 								Full editor
 							</a>
@@ -202,22 +220,32 @@
 							onclick={handleFork}
 							disabled={forking}
 							data-testid="fork-workflow"
-							class="rounded-md bg-[var(--color-surface-tertiary)] px-3 py-1 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-border)] disabled:opacity-50"
+							title="Copy this workflow into your project on the server, then open it"
+							class={ACTION_BTN}
 						>
 							{forking ? "Forking…" : "Fork"}
 						</button>
 						<button
 							onclick={handleDuplicate}
 							data-testid="workflow-duplicate"
-							class="rounded-md bg-[var(--color-surface-tertiary)] px-3 py-1 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-border)]"
+							title="Start a new workflow in the create form, prefilled from this one"
+							class={ACTION_BTN}
 						>
 							Duplicate
 						</button>
 						{#if canEdit}
+							<!-- Divider + wider gap: the only destructive control in the
+							     row must not be one slipped click away from Duplicate. -->
+							<span
+								aria-hidden="true"
+								data-testid="workflow-actions-divider"
+								class="mx-1 hidden h-5 w-px bg-[var(--color-border)] sm:block"
+							></span>
 							<button
 								onclick={handleDeleteClick}
 								data-confirming={deleteConfirming}
 								data-testid="workflow-delete"
+								title="Delete this workflow — click twice to confirm"
 								class="rounded-md bg-red-600/80 px-3 py-1 text-sm font-medium text-white transition-colors hover:bg-red-500"
 							>
 								{deleteConfirming ? "Confirm delete?" : "Delete"}

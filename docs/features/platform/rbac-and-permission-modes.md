@@ -142,7 +142,7 @@ await requireTeamRole(locals, teamId, "editor"); // team ladder; admins bypass
 - [[marketplace]] — flags/delete/install are admin-gated via `requireRole("admin")`.
 - [[sandbox-and-isolation]] — extension sensitive-cap prompts (`shell`/`fs.write`) complement OS-level jail isolation.
 - [[projects]] — permission mode is a per-project setting (`project:${id}:tool_permission_mode`).
-- [[workflows]] — run/update/delete apply a per-resource owner-or-admin rule (`workflow_definitions.created_by`) on top of the `chat` scope check. It compares `user.role === "admin"` directly rather than calling `checkRole`, which would also demand the `admin` API-key scope and so reject a cookie-authed admin on a `chat`-scoped route.
+- [[workflows]] — read/run/update/delete apply the per-resource ownership ladder over `workflow_definitions.user_id` + `visibility` (`src/runtime/workflow-scope.ts`) on top of the `chat` scope check. `system` is readable and runnable by anyone but editable only by an admin; `private` is owner-or-admin throughout, so an ORPHANED private row (owner deleted, `user_id` `SET NULL`) is admin-only rather than public. The ladder compares `user.role === "admin"` directly rather than calling `checkRole`, which would also demand the `admin` API-key scope and so reject a cookie-authed admin on a `chat`-scoped route. A second owner column, `created_by`, briefly existed alongside it and is dropped — it read a NULL owner as "anyone may act", the exact inverse of the ladder.
 
 ## Related docs
 
