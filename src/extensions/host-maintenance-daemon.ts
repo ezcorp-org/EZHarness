@@ -58,6 +58,11 @@ import {
   type ApplyError,
 } from "./perm-expiry-sweep";
 import { acquireLockfile, releaseLockfile, isProcessAlive } from "../startup/process-lockfile";
+import { sweepWorkflowDefinitionVersions } from "../db/queries/workflow-versions";
+import {
+  sweepExpiredWorkflowApprovals,
+  type ApprovalTimeoutSweepResult,
+} from "../runtime/workflow-approval-timeout-sweep";
 
 /**
  * Sub-tick cadence — every 6th `tickOnce()` fires
@@ -69,6 +74,15 @@ import { acquireLockfile, releaseLockfile, isProcessAlive } from "../startup/pro
  */
 const GIN_SWEEP_TICK_MODULO = 6;
 const GIN_TRGM_INDEX_NAME = "idx_marketplace_listings_trgm";
+
+/**
+ * Cadence for the workflow-definition-version retention sweep — every
+ * 24th tick, i.e. daily on the default 1h wake. Versions are a small
+ * `steps` blob and are the audit trail for what actually ran, so this is
+ * housekeeping, not pressure relief; a slower cadence than the GIN sweep
+ * is correct.
+ */
+const VERSION_SWEEP_TICK_MODULO = 24;
 
 const log = logger.child("perm-expiry.daemon");
 
@@ -163,7 +177,18 @@ export interface TickOutcome {
   audits: number;
   /** Per-extension hard errors (DB connection, FK violation, …). */
   errors: ApplyError[];
+  /** What the approval-timeout sub-tick did this pass. */
+  approvalTimeouts: ApprovalTimeoutSweepResult;
 }
+
+/** Zeroed sub-tick result — the shape a tick that swept nothing reports. */
+const NO_APPROVAL_TIMEOUTS: ApprovalTimeoutSweepResult = {
+  scanned: 0,
+  answered: 0,
+  aborted: 0,
+  deferred: 0,
+  raced: 0,
+};
 
 export class HostMaintenanceDaemon {
   private readonly opts: {
@@ -278,6 +303,7 @@ export class HostMaintenanceDaemon {
       skippedConcurrent: 0,
       audits: 0,
       errors: [],
+      approvalTimeouts: NO_APPROVAL_TIMEOUTS,
     };
     try {
       const db = getDb();
@@ -317,6 +343,7 @@ export class HostMaintenanceDaemon {
           skippedConcurrent: applied.skippedConcurrent,
           audits: applied.audits,
           errors: applied.errors,
+          approvalTimeouts: NO_APPROVAL_TIMEOUTS,
         };
       }
 
@@ -346,7 +373,68 @@ export class HostMaintenanceDaemon {
         }
       }
 
-      return outcome;
+      // Sub-tick: daily on the default cadence, reap unreferenced
+      // workflow-definition versions.
+      //
+      // `pinnedVersionIds` is where C3 (phase 7) supplies the version ids
+      // held by non-revoked delegations. The sweep EXCLUDES pins from its
+      // delete set rather than attempting a delete and catching the FK's
+      // ON DELETE RESTRICT — catching the violation would make the error
+      // the control, which is backwards. C3 adds its ids here; the sweep
+      // itself does not change.
+      //
+      // The empty set is stated explicitly, and the field is REQUIRED, for
+      // this call site specifically: the `catch` below logs `warn` and
+      // carries on, so a C3 that forgot to supply its pins would turn a
+      // RESTRICT violation into a log line and stop the sweep reaping
+      // forever, from a line no test can observe. `[]` is the truth today
+      // — no delegations exist — and the compile error is the reminder
+      // when they do.
+      if (this.tickCount % VERSION_SWEEP_TICK_MODULO === 0) {
+        try {
+          const swept = await sweepWorkflowDefinitionVersions({ pinnedVersionIds: [] });
+          if (swept.deleted > 0) {
+            log.info("tick: workflow version retention sweep", {
+              scanned: swept.scanned,
+              deleted: swept.deleted,
+              retained: swept.retained,
+            });
+          }
+        } catch (err) {
+          // Housekeeping must never take the daemon down.
+          log.warn("tick: workflow version sweep skipped", {
+            error: String((err as Error)?.message ?? err),
+            tickCount: this.tickCount,
+          });
+        }
+      }
+
+      // Sub-tick: apply `onTimeout` to every parked approval whose
+      // deadline has passed.
+      //
+      // No modulo, unlike its two siblings above, and the difference is
+      // deliberate. Those are HOUSEKEEPING — a GIN pending list and an
+      // unreferenced-version reap — where a slower cadence costs nothing
+      // a human can perceive. A timeout is a PROMISE made to the person
+      // staring at "Expires in 30 min" in the approvals inbox, so its
+      // resolution is bounded by the wake interval and nothing else.
+      // C4 §4.4: "the daemon sweeps expired approvals on each tick".
+      //
+      // The daemon's injected clock is what the sweep selects on, so a
+      // test drives a deadline by passing `now` rather than by waiting.
+      // Wrapped like its siblings: a parked run nobody can resume must
+      // never take the host's maintenance daemon down with it.
+      let approvalTimeouts = NO_APPROVAL_TIMEOUTS;
+      try {
+        approvalTimeouts = await sweepExpiredWorkflowApprovals({ now: new Date(now) });
+      } catch (err) {
+        log.warn("tick: approval timeout sweep skipped", {
+          error: String((err as Error)?.message ?? err),
+          tickCount: this.tickCount,
+        });
+      }
+
+      return { ...outcome, approvalTimeouts };
     } catch (err) {
       log.warn("tick: sweep crashed — daemon continues", {
         error: String((err as Error)?.message ?? err),

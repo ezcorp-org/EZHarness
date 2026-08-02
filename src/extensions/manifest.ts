@@ -812,6 +812,14 @@ export function validateRoutingBlock(routing: unknown, errors: string[]): void {
  *  no path traversal or route confusion). */
 export const WEBHOOK_SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
+/** The slug NAMESPACE a `permissions.triggers` extension mints dynamic hooks
+ *  under (C2), e.g. `"factory-"`. Lives here beside `WEBHOOK_SLUG_RE` so the
+ *  manifest validator, the clamp and the minter all agree on one definition.
+ *
+ *  Must end in `-` so a minted slug is visibly namespaced, and is capped at
+ *  17 chars so `prefix + 12-hex digest` always satisfies `WEBHOOK_SLUG_RE`. */
+export const WEBHOOK_PREFIX_RE = /^[a-z0-9][a-z0-9-]{0,15}-$/;
+
 function validateStringArrayPerm(
   field: string,
   value: unknown,
@@ -937,6 +945,37 @@ function validatePermissionsBlock(perms: unknown, errors: string[]): void {
           w.maxRunsPerHour <= 0)
       ) {
         errors.push("permissions.workflows.maxRunsPerHour must be a positive number");
+      }
+    }
+  }
+
+  // triggers (C2): the DYNAMIC cron/webhook envelope,
+  // `{maxCron?, maxWebhooks?, webhookPrefix, maxRunsPerDay?}`.
+  //
+  // `webhookPrefix` is the only REQUIRED field: it is the slug namespace
+  // every host-minted dynamic slug is derived under, and it is read from
+  // the manifest ONLY (the clamp ignores any submitted value), so a
+  // malformed one has no fallback that would be safe to substitute. It must
+  // end in `-` so a minted slug can never collide with a bare manifest slug
+  // shape, and is length-bounded so `prefix + digest` always satisfies
+  // WEBHOOK_SLUG_RE.
+  if (p.triggers !== undefined) {
+    if (!p.triggers || typeof p.triggers !== "object" || Array.isArray(p.triggers)) {
+      errors.push(
+        "permissions.triggers must be an object {maxCron?, maxWebhooks?, webhookPrefix, maxRunsPerDay?}",
+      );
+    } else {
+      const t = p.triggers as Record<string, unknown>;
+      if (typeof t.webhookPrefix !== "string" || !WEBHOOK_PREFIX_RE.test(t.webhookPrefix)) {
+        errors.push(
+          `permissions.triggers.webhookPrefix must be a slug namespace matching ${WEBHOOK_PREFIX_RE.source} (e.g. "factory-")`,
+        );
+      }
+      for (const field of ["maxCron", "maxWebhooks", "maxRunsPerDay"] as const) {
+        const v = t[field];
+        if (v !== undefined && (typeof v !== "number" || !Number.isFinite(v) || v < 0)) {
+          errors.push(`permissions.triggers.${field} must be a non-negative number`);
+        }
       }
     }
   }

@@ -18,6 +18,7 @@
  */
 import { test, expect, captureEvidence } from "./fixtures/test-base.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
+import { expectReadable, expectWarningTinted, useLightTheme } from "./fixtures/readable.js";
 import type { Page } from "@playwright/test";
 
 const PROJECT_ID = "proj-tc";
@@ -396,5 +397,62 @@ test.describe("Topic Contexts", () => {
 		await expect(section.getByTestId("model-selector")).toBeVisible();
 		await expect(page.getByTestId("contexts-model-reset")).toBeVisible();
 		await captureEvidence(page, testInfo, "topic-contexts-settings");
+	});
+
+	/**
+	 * F: the chat empty-state's no-provider banner is READABLE on the light
+	 * theme.
+	 *
+	 * This spec is the covering `@evidence` spec for
+	 * `web/src/lib/components/chat/**` (see `web/e2e/evidence-covers.json`),
+	 * which is where `NoProviderBanner.svelte` lives.
+	 *
+	 * The banner already took its BODY text from the theme tokens and used
+	 * amber only for the headline, so the single most important line —
+	 * the one naming what the user has to do before anything works — was
+	 * the least readable line in its own panel on the default (light)
+	 * theme: amber-300 over `bg-amber-900/20`, which is a near-transparent
+	 * wash on a white surface. The behavioural half of this banner (when it
+	 * shows, the CTA target, no dismiss control) lives in
+	 * `chat-no-provider-banner.spec.ts`; what is only assertable HERE is
+	 * how it renders.
+	 */
+	test("F: the no-provider banner's headline is legible on the light theme @evidence", async ({
+		page,
+		mockApi,
+	}, testInfo) => {
+		await useLightTheme(page);
+		await mockApi({
+			projects: [project],
+			conversations: [],
+			routes: {
+				"/api/quickstart": () => ({
+					steps: { provider: false, chat: false, extension: false, agent: false },
+				}),
+			},
+		});
+
+		await page.goto(`/project/${PROJECT_ID}/chat`, { waitUntil: "networkidle" });
+
+		// The chat index mounts BOTH a desktop (`hidden md:flex`) and a mobile
+		// (`flex md:hidden`) copy of the empty state, so the testid alone is
+		// ambiguous — scope to the one this viewport actually shows.
+		const banner = page.locator('[data-testid="no-provider-banner"]:visible');
+		await expect(banner).toBeVisible({ timeout: 5000 });
+
+		// The headline was the regression: amber prose on a pale panel.
+		const headline = banner.locator("p").first();
+		await expect(headline).toHaveText("Connect a provider to start chatting");
+		const m = await expectReadable(headline, "NoProviderBanner headline");
+		expect(m.dark, "the regression only shows on light surfaces").toBe(false);
+
+		// The body copy was already theme-token'd — pinned so a future
+		// "consistency" pass can't drag it back onto the accent colour.
+		await expectReadable(banner.locator("p").nth(1), "NoProviderBanner body copy");
+
+		// Still a warning panel, not a plain card.
+		await expectWarningTinted(banner, "NoProviderBanner");
+
+		await captureEvidence(page, testInfo, "chat-no-provider-banner");
 	});
 });

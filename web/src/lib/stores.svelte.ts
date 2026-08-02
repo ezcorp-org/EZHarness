@@ -28,6 +28,7 @@ import {
 	type RoutingState,
 } from "./sub-agent-routing.js";
 import { readTeamPanel, writeTeamPanel } from "./panel-persistence.js";
+import type { PendingApprovalNotice } from "./workflow-approvals-logic.js";
 import {
 	applyAssignmentUpdate as reduceAssignmentUpdate,
 	applyHydratedSnapshot as reduceHydratedSnapshot,
@@ -283,6 +284,18 @@ class AppStore {
 	// user can still approve/deny. Keyed by toolCallId (the promptId the
 	// backend gate resolves via POST /api/tool-calls/:id/permission).
 	pendingPermissions = $state<ToolCallState[]>([]);
+
+	// ── Pending workflow approvals ──
+	// A workflow run that parked on an `approval` step. Same problem shape
+	// as the tray above and solved the same way: the decision arrives
+	// asynchronously — routinely minutes after whatever tool call started
+	// the run — on no conversation the client can map, so there is no
+	// inline slot to mount it in. A durable run also outlives the tab, so
+	// "render it where the request came from" is not a thing that exists.
+	// Keyed by approvalId; answering POSTs to
+	// /api/workflows/approvals/:id, which is the same `answerApproval`
+	// chokepoint the inbox and the Hub action clear.
+	pendingApprovals = $state<PendingApprovalNotice[]>([]);
 }
 
 function _initDockSizePx(): number {
@@ -545,6 +558,29 @@ export function registerPendingPermission(toolCall: ToolCallState): void {
 /** Remove a resolved (or superseded) prompt from the fallback tray. */
 export function dismissPendingPermission(toolCallId: string): void {
 	store.pendingPermissions = store.pendingPermissions.filter((p) => p.id !== toolCallId);
+}
+
+/** Put a parked approval on the pending-decisions tray. Idempotent by
+ *  `approvalId` — a duplicate `workflow:approval_request` (SSE resume
+ *  replays every buffered event after the cursor) REPLACES the entry
+ *  rather than stacking a second card for one decision. An entry with no
+ *  id is ignored: the answer route is keyed by it, so a card without one
+ *  could never be resolved. */
+export function registerPendingApproval(notice: PendingApprovalNotice): void {
+	if (!notice.approvalId) return;
+	const idx = store.pendingApprovals.findIndex((a) => a.approvalId === notice.approvalId);
+	if (idx >= 0) {
+		const next = [...store.pendingApprovals];
+		next[idx] = notice;
+		store.pendingApprovals = next;
+	} else {
+		store.pendingApprovals = [...store.pendingApprovals, notice];
+	}
+}
+
+/** Remove an answered (or otherwise resolved) approval from the tray. */
+export function dismissPendingApproval(approvalId: string): void {
+	store.pendingApprovals = store.pendingApprovals.filter((a) => a.approvalId !== approvalId);
 }
 
 /** Send kill signal for a running tool call */
@@ -1008,6 +1044,14 @@ export function initStores() {
 			case "workflow:error": {
 				const { workflowRun } = event.data as { workflowRun: WorkflowRun };
 				store.workflowRuns = store.workflowRuns.map((r) => (r.id === workflowRun.id ? workflowRun : r));
+				break;
+			}
+
+			case "workflow:approval_request": {
+				// The server filter already scoped this to the run's owner and
+				// drops it outright when the run has none, so anything that
+				// arrives here is this user's to answer.
+				registerPendingApproval(event.data as unknown as PendingApprovalNotice);
 				break;
 			}
 

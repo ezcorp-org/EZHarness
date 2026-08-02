@@ -6,6 +6,13 @@
  * but for the client-side form UX (immediate feedback before POST).
  */
 
+/**
+ * `tool` is included because the EDITOR round-trips a saved definition
+ * through this shape. A form that could not represent a `tool` step would
+ * silently DELETE every tool step in a workflow the moment the user
+ * pressed Save from the form tab — the builder previously modelled only
+ * three kinds because it could only ever CREATE, never load.
+ */
 export type StepKind = "agent" | "transform" | "gate" | "tool";
 
 export interface Pair {
@@ -29,6 +36,13 @@ export interface StepDraft {
   untilText: string;
   onExhausted: "fail" | "pass";
   retries: number;
+  /**
+   * Per-step model binding as raw JSON text. Carried verbatim rather than
+   * decomposed into fields for the same round-trip reason as `tool`:
+   * `validateModelOverride` owns the vocabulary, and a form that modelled
+   * only the fields it knew about would drop the rest on save.
+   */
+  modelText: string;
 }
 
 /** The kinds that accept an `input` mapping. Both dispatch the same ref
@@ -71,6 +85,7 @@ export function blankStep(index: number): StepDraft {
     untilText: "",
     onExhausted: "fail",
     retries: 0,
+    modelText: "",
   };
 }
 
@@ -105,8 +120,16 @@ export function stepToPayload(step: StepDraft): Record<string, unknown> {
   const out: Record<string, unknown> = { name: step.name };
   if (step.kind !== "agent") out.kind = step.kind;
 
+  // Each branch emits ONLY the field that distinguishes its kind.
+  // `input`, `retries` and `loop` are emitted once, below, through the
+  // `acceptsX` predicates — a per-branch copy is how the two drifted.
   if (step.kind === "agent") {
     out.agent = step.agent;
+    // Only an agent step runs an LLM, and the server rejects a `model` on
+    // any other kind — so the binding is emitted here and nowhere else.
+    const model = parseJsonField(step.modelText);
+    if (!model.ok) throw `Step "${step.name}": model binding is not valid JSON`;
+    if (model.value !== undefined) out.model = model.value;
   } else if (step.kind === "tool") {
     // A tool step carries `tool` and never `agent` — the validator rejects
     // a step that specifies both.
@@ -164,20 +187,6 @@ export interface StoredStep {
   loop?: { maxIterations?: number; until?: unknown; onExhausted?: string };
 }
 
-/** Expand a mapping record back into ordered editor pairs. */
-function recordToPairs(record: Record<string, string> | undefined): Pair[] {
-  if (!record) return [];
-  return Object.entries(record).map(([key, value]) => ({ key, value }));
-}
-
-/** Render a stored condition/until object back into editable JSON text.
- *  `undefined` ⇒ empty (the field was absent, not `"undefined"`). Indented
- *  because a one-line condition tree is unreadable in a 2-row textarea. */
-function jsonToText(value: unknown): string {
-  if (value === undefined) return "";
-  return JSON.stringify(value, null, 2);
-}
-
 /** Narrow an arbitrary stored `kind` to one the builder can render.
  *  `kind` is optional in the schema and defaults to `"agent"`; anything
  *  unrecognized also lands there rather than producing an unrenderable
@@ -188,41 +197,20 @@ function toStepKind(kind: string | undefined): StepKind {
 }
 
 /**
- * Inflate a stored workflow's steps into editable drafts — the exact
- * inverse of {@link stepToPayload}, and what makes editing an existing
- * workflow possible at all.
+ * Inflate a stored workflow's steps into editable drafts — the FORM's entry
+ * point, and what makes editing an existing workflow possible at all.
  *
- * The two functions are a round-trip pair and must stay one: feeding this
- * output back through `stepToPayload` has to reproduce the input steps, or
- * opening the editor and pressing Save silently rewrites the definition.
- * That property is asserted directly in the tests.
- *
- * Every field is defaulted rather than assumed present: these objects come
- * off the wire, `kind` is optional, and a YAML-authored workflow may omit
- * anything the executor treats as optional.
+ * The only thing this adds over {@link definitionToDrafts} is the empty
+ * case: a form with zero rows renders nothing the user can type into and no
+ * way to add a row, so an absent or empty step list opens on one blank
+ * step. Everything else delegates, because two independent inverses of
+ * `stepToPayload` is precisely how one of them ends up quietly dropping a
+ * field the other carries — the per-step `model` binding was already lost
+ * that way once.
  */
 export function workflowToDrafts(steps: StoredStep[] | undefined): StepDraft[] {
-  if (!steps || steps.length === 0) return [blankStep(0)];
-
-  return steps.map((step, index) => {
-    const kind = toStepKind(step.kind);
-    const loop = step.loop;
-    return {
-      name: step.name ?? `step-${index + 1}`,
-      kind,
-      agent: step.agent ?? "",
-      tool: step.tool ?? "",
-      inputPairs: recordToPairs(step.input),
-      outputPairs: recordToPairs(step.output),
-      conditionText: jsonToText(step.condition),
-      dependsOn: step.dependsOn ? [...step.dependsOn] : [],
-      loopEnabled: Boolean(loop),
-      maxIterations: loop?.maxIterations ?? DEFAULT_MAX_ITERATIONS,
-      untilText: jsonToText(loop?.until),
-      onExhausted: loop?.onExhausted === "pass" ? "pass" : "fail",
-      retries: step.retries ?? 0,
-    };
-  });
+  const drafts = definitionToDrafts(steps);
+  return drafts.length > 0 ? drafts : [blankStep(0)];
 }
 
 /**
@@ -275,6 +263,8 @@ export function buildWorkflowPayload(
   name: string,
   description: string,
   steps: StepDraft[],
+  /** Workflow-level model binding as raw JSON text (editor only). */
+  defaultModelText = "",
 ): { error: string } | { error: null; payload: Record<string, unknown> } {
   if (!name.trim()) return { error: "Workflow name is required" };
   if (steps.length === 0) return { error: "At least one step is required" };
@@ -287,7 +277,9 @@ export function buildWorkflowPayload(
     if (step.kind === "agent" && !step.agent) {
       return { error: `Step "${step.name}" (agent) needs an agent` };
     }
-    if (step.kind === "tool" && !step.tool) {
+    // `.trim()`, so a whitespace-only selection is rejected too — the
+    // dispatch key must be a real `<ext>__<tool>`.
+    if (step.kind === "tool" && !step.tool.trim()) {
       return { error: `Step "${step.name}" (tool) needs a tool` };
     }
     if (step.kind === "transform" && Object.keys(pairsToRecord(step.outputPairs)).length === 0) {
@@ -305,12 +297,86 @@ export function buildWorkflowPayload(
     return { error: typeof e === "string" ? e : "Invalid step configuration" };
   }
 
+  const defaultModel = parseJsonField(defaultModelText);
+  if (!defaultModel.ok) return { error: "Workflow default model is not valid JSON" };
+
   return {
     error: null,
     payload: {
       name: name.trim(),
       description: description.trim(),
       steps: stepPayloads,
+      ...(defaultModel.value !== undefined ? { defaultModel: defaultModel.value } : {}),
     },
   };
+}
+
+/** Render a value back into the raw-JSON text a draft field carries.
+ *  `undefined` / `null` become the empty string, which is how the draft
+ *  spells "absent" — never the literal `"null"`. */
+function jsonFieldText(value: unknown): string {
+  if (value === undefined || value === null) return "";
+  return JSON.stringify(value, null, 2);
+}
+
+/** Turn a `Record<string, string>` mapping back into ordered pairs. */
+function recordToPairs(value: unknown): Pair[] {
+  if (value === null || typeof value !== "object") return [];
+  return Object.entries(value as Record<string, unknown>).map(([key, v]) => ({
+    key,
+    value: typeof v === "string" ? v : String(v),
+  }));
+}
+
+/**
+ * The INVERSE of {@link stepToPayload} — load a saved definition into
+ * form drafts.
+ *
+ * This function is why the draft carries `tool` and `modelText` at all.
+ * The builder previously only ever CREATED, so it could model three step
+ * kinds and ignore model bindings with no consequence. The editor LOADS,
+ * and a form that silently dropped what it could not represent would
+ * delete a user's tool steps and model bindings the first time they
+ * pressed Save from the form tab — with no error anywhere.
+ *
+ * `stepToPayload(definitionToDrafts(def)[i])` must reproduce `def.steps[i]`
+ * for every step the API accepts. Pinned by the round-trip test in
+ * `workflow-builder-logic.test.ts`.
+ */
+export function definitionToDrafts(steps: unknown): StepDraft[] {
+  if (!Array.isArray(steps)) return [];
+  return steps.map((raw, index) => {
+    const step = (raw ?? {}) as Record<string, unknown>;
+    // Narrowed, not cast: `kind` is optional in the schema and arrives off
+    // the wire, and an unrecognized value would bind the form to no branch
+    // at all — an unrenderable row the user cannot fix.
+    const kind = toStepKind(typeof step.kind === "string" ? step.kind : undefined);
+    const loop = (step.loop ?? undefined) as Record<string, unknown> | undefined;
+    return {
+      ...blankStep(index),
+      name: typeof step.name === "string" ? step.name : `step-${index + 1}`,
+      kind,
+      agent: typeof step.agent === "string" ? step.agent : "",
+      tool: typeof step.tool === "string" ? step.tool : "",
+      inputPairs: recordToPairs(step.input),
+      outputPairs: recordToPairs(step.output),
+      conditionText: jsonFieldText(step.condition),
+      // COPIED, never aliased: the draft is edited in place by the form, and
+      // sharing the array would let a dependsOn toggle mutate the store's
+      // own copy of the workflow behind its back.
+      dependsOn: Array.isArray(step.dependsOn) ? [...(step.dependsOn as string[])] : [],
+      loopEnabled: loop !== undefined,
+      maxIterations:
+        typeof loop?.maxIterations === "number" ? loop.maxIterations : DEFAULT_MAX_ITERATIONS,
+      untilText: jsonFieldText(loop?.until),
+      onExhausted: loop?.onExhausted === "pass" ? "pass" : "fail",
+      retries: typeof step.retries === "number" ? step.retries : 0,
+      modelText: jsonFieldText(step.model),
+    };
+  });
+}
+
+/** Render a workflow-level `defaultModel` into its editor text field. */
+export function defaultModelToText(value: unknown): string {
+  return jsonFieldText(value);
 }

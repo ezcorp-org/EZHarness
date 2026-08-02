@@ -8,6 +8,14 @@
  *     so `extension_schedule_fires` history stays intact.
  *   - Existing crons → no-op (preserves `next_fire_at`,
  *     `last_fire_at`, etc.).
+ *
+ * DYNAMIC ROWS ARE NOT THIS FUNCTION'S BUSINESS (C2). The manifest is the
+ * source of truth for MANIFEST rows only. A dynamic row (`ctx.triggers`) is
+ * by construction absent from the manifest, so every query below filters on
+ * `dynamic = false` — the snapshot, the sweep, and the disable-all branch
+ * alike. Without that filter, the first user-created job would be silently
+ * disabled by the next install, update, or permission change: the row
+ * survives, its history survives, and it simply stops firing.
  */
 import { logger } from "../logger";
 import { getDb } from "../db/connection";
@@ -25,13 +33,28 @@ export async function reconcileSchedules(
   const valid = manifestCrons.filter((c) => validateCron(c).ok).slice(0, 8);
   const db = getDb();
 
+  // MANIFEST rows only — see the module header. This snapshot feeds both
+  // the re-enable map and the `disabled` count, so filtering here is what
+  // keeps a dynamic row out of BOTH.
   const existing: ExtensionSchedule[] = await db.select().from(extensionSchedules)
-    .where(eq(extensionSchedules.extensionId, extensionId));
+    .where(and(
+      eq(extensionSchedules.extensionId, extensionId),
+      eq(extensionSchedules.dynamic, false),
+    ));
   const existingByCron = new Map<string, ExtensionSchedule>(
     existing.map((row) => [row.cron, row] as const),
   );
+  const validSet = new Set(valid);
 
-  let added = 0, disabled = 0, preserved = 0;
+  let added = 0, preserved = 0;
+  // Deterministic `disabled` count from the pre-fetch snapshot, mirroring
+  // reconcileWebhooks. The previous `rowCount` read is unreliable on PGlite
+  // (it is why the webhook reconciler counts this way), and a dynamic row
+  // must be excluded from the count as well as from the UPDATE — otherwise
+  // the audited number lies even once the disable itself is correct. This
+  // set is disjoint from the re-enable loop below, which only touches crons
+  // IN `valid`.
+  const disabled = existing.filter((row) => row.enabled && !validSet.has(row.cron)).length;
 
   // Add new crons.
   for (const cron of valid) {
@@ -51,25 +74,27 @@ export async function reconcileSchedules(
     }
   }
 
-  // Soft-disable removed crons.
+  // Soft-disable removed crons. `dynamic = false` on both branches: a
+  // user-created row is never "removed from the manifest" because it was
+  // never in it.
   if (valid.length > 0) {
-    const result = await db.update(extensionSchedules)
+    await db.update(extensionSchedules)
       .set({ enabled: false, updatedAt: new Date() })
       .where(and(
         eq(extensionSchedules.extensionId, extensionId),
+        eq(extensionSchedules.dynamic, false),
         notInArray(extensionSchedules.cron, valid),
         eq(extensionSchedules.enabled, true),
       ));
-    disabled = (result as unknown as { rowCount?: number }).rowCount ?? 0;
   } else if (existing.length > 0) {
-    // Manifest declared no crons — disable them all.
-    const result = await db.update(extensionSchedules)
+    // Manifest declared no crons — disable all the MANIFEST ones.
+    await db.update(extensionSchedules)
       .set({ enabled: false, updatedAt: new Date() })
       .where(and(
         eq(extensionSchedules.extensionId, extensionId),
+        eq(extensionSchedules.dynamic, false),
         eq(extensionSchedules.enabled, true),
       ));
-    disabled = (result as unknown as { rowCount?: number }).rowCount ?? 0;
   }
 
   log.debug("reconciled", { extensionId, added, disabled, preserved, totalManifest: valid.length });

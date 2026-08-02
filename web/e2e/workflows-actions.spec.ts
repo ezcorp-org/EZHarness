@@ -349,7 +349,7 @@ test.describe("Workflows — interactions and rendering gaps", () => {
 	});
 });
 
-// ── Inline editing, duplicate, and the canManage gate ──────────────
+// ── Inline editing, duplicate, and the canEdit gate ────────────────
 //
 // Editing lives ON the detail page rather than a separate route: authoring
 // is a fix→save→run loop (refs resolve strictly and throw on a miss), so
@@ -407,7 +407,7 @@ test.describe("Workflows — inline editing", () => {
 		expect(putBody.steps[0].input).toEqual({ q: "$input.topic" });
 		// Provenance fields are server-derived and the body schema is strict —
 		// sending them back would 400.
-		expect(putBody).not.toHaveProperty("canManage");
+		expect(putBody).not.toHaveProperty("canEdit");
 		expect(putBody).not.toHaveProperty("source");
 	});
 
@@ -466,7 +466,7 @@ test.describe("Workflows — inline editing", () => {
 		// A YAML demo is a file on disk: PUT/DELETE 404. Painting the buttons
 		// would only teach the user to discover that by clicking.
 		await mockApi({
-			workflows: [makeWorkflow({ name: "demo-mixed", source: "yaml", canManage: false })],
+			workflows: [makeWorkflow({ name: "demo-mixed", source: "yaml", canEdit: false })],
 			agents: [makeAgent({ name: "alpha" })],
 		});
 		await gotoDetail(page, "demo-mixed");
@@ -484,7 +484,7 @@ test.describe("Workflows — inline editing", () => {
 				makeWorkflow({
 					name: "demo-mixed",
 					source: "yaml",
-					canManage: false,
+					canEdit: false,
 					description: "shipped demo",
 					steps: [
 						{ name: "compose", kind: "transform", output: { headline: "Report on {{$input.topic}}" } },

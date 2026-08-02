@@ -18,7 +18,7 @@
 	let source = $derived(
 		sourceName ? store.workflows.find((w) => w.name === sourceName) : undefined,
 	);
-	// `source` carries server-derived `source`/`canManage`; neither is a
+	// `source` carries server-derived `source`/`canEdit`; neither is a
 	// builder field and `workflowBodySchema` is `.strict()`, so only the three
 	// authored fields are forwarded — sending the rest would 400 on create.
 	let initial = $derived(

@@ -28,6 +28,8 @@ import {
   _resetWorkflowTriggerQuotaForTests,
   _resetWorkflowRateLimitForTests,
   MAX_WORKFLOW_INPUT_BYTES,
+  RUNS_PAGE_DEFAULT,
+  RUNS_PAGE_MAX,
   type WorkflowsHandlerContext,
 } from "../workflows-handler";
 import {
@@ -39,6 +41,7 @@ import { addConversationExtensions } from "../../db/queries/conversation-extensi
 import {
   extensions, conversations, projects, conversationExtensions,
   sdkCapabilityCalls, messages, errorLogs, auditLog,
+  workflowApprovals, workflowRuns,
 } from "../../db/schema";
 import { eq } from "drizzle-orm";
 import type {
@@ -79,6 +82,12 @@ const HOST_WORKFLOW: WorkflowDefinition = {
 function registerRuntime(workflows: WorkflowDefinition[] = [SHIPPED, HOST_WORKFLOW]) {
   registerWorkflowRuntime({
     workflowExecutor: {
+      // Type-only: these doubles exercise the trigger path, which never
+      // resumes. Throws rather than returning a value so an accidental
+      // call fails loudly instead of silently passing.
+      async resumeWorkflow() {
+      throw new Error("resumeWorkflow is not exercised by this double");
+      },
       async runWorkflow(workflow, input, proj, uid) {
         started.push({
           workflow,
@@ -250,6 +259,12 @@ describe("accept path", () => {
     const blocked = new Promise<void>((r) => { release = r; });
     registerWorkflowRuntime({
       workflowExecutor: {
+        // Type-only: these doubles exercise the trigger path, which never
+        // resumes. Throws rather than returning a value so an accidental
+        // call fails loudly instead of silently passing.
+        async resumeWorkflow() {
+        throw new Error("resumeWorkflow is not exercised by this double");
+        },
         async runWorkflow(workflow) {
           await blocked;
           return {
@@ -306,6 +321,12 @@ describe("namespacing — an extension cannot reach the host's workflow", () => 
     let cache: WorkflowDefinition[] = [];
     registerWorkflowRuntime({
       workflowExecutor: {
+        // Type-only: these doubles exercise the trigger path, which never
+        // resumes. Throws rather than returning a value so an accidental
+        // call fails loudly instead of silently passing.
+        async resumeWorkflow() {
+        throw new Error("resumeWorkflow is not exercised by this double");
+        },
         async runWorkflow(workflow, input) {
           started.push({ workflow, input });
           return { id: "r", workflowName: workflow.name, status: "success", startedAt: 0, steps: [] };
@@ -616,6 +637,12 @@ describe("enforcement ladder — rejections", () => {
     // logged without changing the (already-sent) response.
     registerWorkflowRuntime({
       workflowExecutor: {
+        // Type-only: these doubles exercise the trigger path, which never
+        // resumes. Throws rather than returning a value so an accidental
+        // call fails loudly instead of silently passing.
+        async resumeWorkflow() {
+        throw new Error("resumeWorkflow is not exercised by this double");
+        },
         runWorkflow: () => Promise.reject(new Error("executor bug")),
       } as never,
       getWorkflows: () => [SHIPPED],
@@ -638,6 +665,12 @@ describe("enforcement ladder — rejections", () => {
   test("13. a synchronous dispatch failure is reported, not thrown", async () => {
     registerWorkflowRuntime({
       workflowExecutor: {
+        // Type-only: these doubles exercise the trigger path, which never
+        // resumes. Throws rather than returning a value so an accidental
+        // call fails loudly instead of silently passing.
+        async resumeWorkflow() {
+        throw new Error("resumeWorkflow is not exercised by this double");
+        },
         runWorkflow() {
           throw new Error("executor exploded");
         },
@@ -686,5 +719,557 @@ describe("audit", () => {
     const rows = await auditRows();
     expect(rows).toHaveLength(1);
     expect(rows[0]?.success).toBe(false);
+  });
+});
+
+describe("op: approvals — the LLM-facing read", () => {
+  beforeEach(async () => {
+    // The outer beforeEach does not know about workflow rows, and every
+    // test here asserts on the EXACT set returned — a leftover park from
+    // a neighbour would make "reports nothing" pass or fail for reasons
+    // that have nothing to do with the scoping under test.
+    await getTestDb().delete(workflowApprovals);
+    await getTestDb().delete(workflowRuns);
+  });
+
+  /** Park an approval on a run of `workflowName`, owned by `owner`. */
+  async function park(opts: {
+    workflowName: string;
+    stepName?: string;
+    owner?: string | null;
+    prompt?: string;
+    itemIds?: string[];
+    requireItemConsent?: boolean;
+  }): Promise<string> {
+    const { insertWorkflowRun } = await import("../../db/queries/workflow-runs");
+    const { parkWorkflowApproval } = await import("../../db/queries/workflow-approvals");
+    const runId = crypto.randomUUID();
+    await insertWorkflowRun({
+      id: runId,
+      workflowName: opts.workflowName,
+      input: {},
+      startedAt: new Date(),
+      userId: opts.owner === undefined ? userId : opts.owner,
+    });
+    return parkWorkflowApproval({
+      workflowRunId: runId,
+      stepName: opts.stepName ?? "gate",
+      prompt: opts.prompt ?? "Ship it?",
+      choices: ["approve", "reject"],
+      requireItemConsent: opts.requireItemConsent ?? false,
+      itemIds: opts.itemIds ?? [],
+    });
+  }
+
+  function readReq(): JsonRpcRequest {
+    return {
+      jsonrpc: "2.0",
+      id: 9,
+      method: "ezcorp/workflows",
+      params: { v: 1, op: "approvals" },
+    };
+  }
+
+  test("reports this extension's parked approval WITH the verbatim relay", async () => {
+    // The relay is the whole reason the read exists: an LLM cannot be
+    // handed the items without also being handed the instruction not to
+    // decide on the user's behalf.
+    const approvalId = await park({
+      workflowName: `${EXT_NAME}:deploy`,
+      requireItemConsent: true,
+      itemIds: ["a.ts", "b.ts"],
+      prompt: "Delete these?",
+    });
+
+    const resp = await handleWorkflowsRpc(readReq(), ctx());
+
+    expect(resp.error).toBeUndefined();
+    const body = resp.result as {
+      v: number;
+      approvals: Array<Record<string, unknown>>;
+    };
+    expect(body.v).toBe(1);
+    expect(body.approvals).toHaveLength(1);
+    const first = body.approvals[0]!;
+    expect(first.approvalId).toBe(approvalId);
+    expect(first.stepName).toBe("gate");
+    expect(first.requireItemConsent).toBe(true);
+    expect(first.itemIds).toEqual(["a.ts", "b.ts"]);
+
+    const relay = first.relay as { stop: boolean; directive: string | null; text: string; items: string[] };
+    expect(relay.stop).toBe(true);
+    expect(relay.directive).toContain("VERBATIM");
+    expect(relay.text.startsWith(relay.directive!)).toBe(true);
+    // Verbatim means verbatim — the prompt and every item, unaltered and
+    // in the order the run produced them.
+    expect(relay.text).toContain("Delete these?");
+    expect(relay.items).toEqual(["a.ts", "b.ts"]);
+  });
+
+  test("never reports another user's parked decision", async () => {
+    // The prompt names what is about to be done and to what.
+    const other = await createUser({
+      email: "wf-other@example.com", passwordHash: "h", name: "O",
+      role: "member", status: "active",
+    });
+    await park({ workflowName: `${EXT_NAME}:deploy`, owner: other.id, prompt: "Secret" });
+
+    const body = (await handleWorkflowsRpc(readReq(), ctx())).result as {
+      approvals: unknown[];
+    };
+    expect(body.approvals).toEqual([]);
+  });
+
+  test("never reports a workflow this extension was not granted", async () => {
+    // The host workflow shares the bare name `deploy`; only the
+    // namespaced one is this extension's.
+    await park({ workflowName: "deploy", prompt: "Host workflow" });
+    await park({ workflowName: "other-ext:deploy", prompt: "Someone else's" });
+
+    const body = (await handleWorkflowsRpc(readReq(), ctx())).result as {
+      approvals: unknown[];
+    };
+    expect(body.approvals).toEqual([]);
+  });
+
+  test("an UNOWNED run's approval is admin-only and is not reported", async () => {
+    await park({ workflowName: `${EXT_NAME}:deploy`, owner: null });
+
+    const body = (await handleWorkflowsRpc(readReq(), ctx())).result as {
+      approvals: unknown[];
+    };
+    expect(body.approvals).toEqual([]);
+  });
+
+  test("clears the same wiring gate the trigger does", async () => {
+    await getTestDb().delete(conversationExtensions);
+    const resp = await handleWorkflowsRpc(readReq(), ctx());
+    expect(resp.error?.data).toMatchObject({ reason: "WORKFLOWS_NOT_WIRED" });
+  });
+
+  test("refuses an ownerless read — there is no owner whose decisions to list", async () => {
+    const resp = await handleWorkflowsRpc(readReq(), ctx({ userId: "" }));
+    expect(resp.error?.code).toBe(-32106);
+    expect(resp.error?.data).toMatchObject({ reason: "WORKFLOWS_NO_OWNER" });
+  });
+
+  test("refuses without a workflows grant, like every other op", async () => {
+    const resp = await handleWorkflowsRpc(
+      readReq(),
+      ctx({ grantedPermissions: { grantedAt: {} } as never }),
+    );
+    expect(resp.error?.data).toMatchObject({ reason: "WORKFLOWS_NOT_GRANTED" });
+  });
+
+  test("does NOT consume the hourly RUN quota", async () => {
+    // A status poll that burned the run budget would take away the
+    // capability it is reporting on. One run's worth of quota, then reads
+    // until the cows come home, then the run still works.
+    await park({ workflowName: `${EXT_NAME}:deploy` });
+    for (let i = 0; i < 30; i++) {
+      _resetWorkflowRateLimitForTests(extensionId);
+      const resp = await handleWorkflowsRpc(readReq(), ctx({ grantedPermissions: granted({ maxRunsPerHour: 1 }) }));
+      expect(resp.error).toBeUndefined();
+    }
+    _resetWorkflowRateLimitForTests(extensionId);
+    const triggered = await handleWorkflowsRpc(req(), ctx({ grantedPermissions: granted({ maxRunsPerHour: 1 }) }));
+    expect(triggered.error).toBeUndefined();
+    expect(started).toHaveLength(1);
+  });
+
+  test("an unknown op is refused rather than silently treated as a run", async () => {
+    const resp = await handleWorkflowsRpc(
+      { jsonrpc: "2.0", id: 3, method: "ezcorp/workflows", params: { v: 1, op: "delete" } },
+      ctx(),
+    );
+    expect(resp.error?.data).toMatchObject({ reason: "WORKFLOWS_BAD_OP" });
+    expect(started).toHaveLength(0);
+  });
+
+  test("an ABSENT op still runs — every existing caller is untouched", async () => {
+    const resp = await handleWorkflowsRpc(req(), ctx());
+    expect(resp.result).toMatchObject({ started: true });
+    expect(started).toHaveLength(1);
+  });
+
+  test("audits the read, like every other outcome", async () => {
+    await park({ workflowName: `${EXT_NAME}:deploy` });
+    await handleWorkflowsRpc(readReq(), ctx());
+    const rows = await auditRows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.success).toBe(true);
+  });
+
+  test("is rate limited — a read is cheap, not free", async () => {
+    let refused: unknown;
+    for (let i = 0; i < 200; i++) {
+      const resp = await handleWorkflowsRpc(readReq(), ctx());
+      if (resp.error) { refused = resp.error.data; break; }
+    }
+    expect(refused).toMatchObject({ reason: "WORKFLOWS_RATE_LIMITED" });
+  });
+});
+
+describe("op: runs — the ONLY correlation path from a trigger to its run", () => {
+  // `run()` returns no run id, and the `workflow:*` bus events are
+  // structurally undeliverable to an extension (the dispatcher drops any
+  // payload without a top-level string `conversationId`, and `WorkflowRun`
+  // has none). Without this read a trigger is fire-and-FORGET in the
+  // literal sense — the extension can never learn what happened.
+  beforeEach(async () => {
+    await getTestDb().delete(workflowApprovals);
+    await getTestDb().delete(workflowRuns);
+  });
+
+  /** Insert a run row, optionally already terminal. The status is written
+   *  directly rather than through `finalizeWorkflowRunRow` so a test can
+   *  seed ANY status (that helper only accepts the terminal subset). */
+  async function seedRun(opts: {
+    workflowName: string;
+    owner?: string | null;
+    status?: string;
+    startedAt?: Date;
+  }): Promise<string> {
+    const { insertWorkflowRun } = await import("../../db/queries/workflow-runs");
+    const runId = crypto.randomUUID();
+    await insertWorkflowRun({
+      id: runId,
+      workflowName: opts.workflowName,
+      input: {},
+      startedAt: opts.startedAt ?? new Date(),
+      userId: opts.owner === undefined ? userId : opts.owner,
+    });
+    if (opts.status !== undefined && opts.status !== "running") {
+      await getTestDb()
+        .update(workflowRuns)
+        .set({ status: opts.status as never, finishedAt: new Date() })
+        .where(eq(workflowRuns.id, runId));
+    }
+    return runId;
+  }
+
+  function runsReq(params: Record<string, unknown> = {}): JsonRpcRequest {
+    return {
+      jsonrpc: "2.0",
+      id: 11,
+      method: "ezcorp/workflows",
+      params: { v: 1, op: "runs", ...params },
+    };
+  }
+
+  /** The `runs` array off a successful response. */
+  function runsOf(resp: Awaited<ReturnType<typeof handleWorkflowsRpc>>) {
+    return (resp.result as { v: number; runs: Array<Record<string, unknown>> }).runs;
+  }
+
+  test("reports this extension's run with the id, status and timestamps", async () => {
+    const runId = await seedRun({ workflowName: `${EXT_NAME}:deploy`, status: "success" });
+
+    const resp = await handleWorkflowsRpc(runsReq(), ctx());
+
+    expect(resp.error).toBeUndefined();
+    expect((resp.result as { v: number }).v).toBe(1);
+    const runs = runsOf(resp);
+    expect(runs).toHaveLength(1);
+    expect(runs[0]!.workflowRunId).toBe(runId);
+    expect(runs[0]!.workflowName).toBe(`${EXT_NAME}:deploy`);
+    expect(runs[0]!.status).toBe("success");
+    expect(typeof runs[0]!.startedAt).toBe("string");
+    expect(runs[0]!.finishedAt).not.toBeNull();
+    expect(runs[0]!.resumable).toBe(false);
+  });
+
+  test("carries NO `input` and NO `result` — unbounded, and input is the untrusted surface", async () => {
+    await seedRun({ workflowName: `${EXT_NAME}:deploy` });
+
+    const runs = runsOf(await handleWorkflowsRpc(runsReq(), ctx()));
+
+    expect(runs[0]).not.toHaveProperty("input");
+    expect(runs[0]).not.toHaveProperty("result");
+  });
+
+  test("orders newest-first", async () => {
+    const old = await seedRun({
+      workflowName: `${EXT_NAME}:deploy`,
+      startedAt: new Date(Date.now() - 60_000),
+    });
+    const fresh = await seedRun({ workflowName: `${EXT_NAME}:deploy` });
+
+    const runs = runsOf(await handleWorkflowsRpc(runsReq(), ctx()));
+
+    expect(runs.map((r) => r.workflowRunId)).toEqual([fresh, old]);
+  });
+
+  test("reports an empty list when nothing has run — never an error", async () => {
+    const resp = await handleWorkflowsRpc(runsReq(), ctx());
+    expect(resp.error).toBeUndefined();
+    expect(runsOf(resp)).toEqual([]);
+  });
+
+  // ── Scoping: the two structural filters ──────────────────────────────
+
+  test("never reports another user's run", async () => {
+    const other = await createUser({
+      email: "wf-runs-other@example.com", passwordHash: "h", name: "O",
+      role: "member", status: "active",
+    });
+    await seedRun({ workflowName: `${EXT_NAME}:deploy`, owner: other.id });
+
+    expect(runsOf(await handleWorkflowsRpc(runsReq(), ctx()))).toEqual([]);
+  });
+
+  test("an UNOWNED run is admin-only and is not reported", async () => {
+    // The extension holds no role; `isAdmin` is passed false unconditionally.
+    await seedRun({ workflowName: `${EXT_NAME}:deploy`, owner: null });
+
+    expect(runsOf(await handleWorkflowsRpc(runsReq(), ctx()))).toEqual([]);
+  });
+
+  test("never reports the HOST's identically-named workflow", async () => {
+    // `deploy` exists both bare (the host's) and namespaced (ours). The
+    // wire cannot express the bare one: the filter is built host-side from
+    // the granted names.
+    await seedRun({ workflowName: "deploy" });
+
+    expect(runsOf(await handleWorkflowsRpc(runsReq(), ctx()))).toEqual([]);
+  });
+
+  test("never reports another extension's workflow", async () => {
+    await seedRun({ workflowName: "other-ext:deploy" });
+
+    expect(runsOf(await handleWorkflowsRpc(runsReq(), ctx()))).toEqual([]);
+  });
+
+  test("reports only the GRANTED names, not everything the manifest declares", async () => {
+    // The admin granted `deploy` but not `other`; a run of `other` is out
+    // of scope even though the manifest names it.
+    await seedRun({ workflowName: `${EXT_NAME}:deploy` });
+    await seedRun({ workflowName: `${EXT_NAME}:other` });
+
+    const runs = runsOf(
+      await handleWorkflowsRpc(runsReq(), ctx({ manifest: manifest(["deploy", "other"]) })),
+    );
+
+    expect(runs.map((r) => r.workflowName)).toEqual([`${EXT_NAME}:deploy`]);
+  });
+
+  test("a MULTI-name grant reports every granted workflow", async () => {
+    await seedRun({ workflowName: `${EXT_NAME}:deploy` });
+    await seedRun({ workflowName: `${EXT_NAME}:other` });
+
+    const runs = runsOf(
+      await handleWorkflowsRpc(
+        runsReq(),
+        ctx({
+          manifest: manifest(["deploy", "other"]),
+          grantedPermissions: granted({ names: ["deploy", "other"] }),
+        }),
+      ),
+    );
+
+    expect(new Set(runs.map((r) => r.workflowName))).toEqual(
+      new Set([`${EXT_NAME}:deploy`, `${EXT_NAME}:other`]),
+    );
+  });
+
+  // ── Optional filters ────────────────────────────────────────────────
+
+  test("`workflow` narrows to one of the granted names", async () => {
+    await seedRun({ workflowName: `${EXT_NAME}:deploy` });
+    await seedRun({ workflowName: `${EXT_NAME}:other` });
+    const c = ctx({
+      manifest: manifest(["deploy", "other"]),
+      grantedPermissions: granted({ names: ["deploy", "other"] }),
+    });
+
+    const runs = runsOf(await handleWorkflowsRpc(runsReq({ workflow: "other" }), c));
+
+    expect(runs.map((r) => r.workflowName)).toEqual([`${EXT_NAME}:other`]);
+  });
+
+  test("`workflow` NARROWING can never WIDEN — an ungranted name is refused", async () => {
+    await seedRun({ workflowName: `${EXT_NAME}:other` });
+
+    const resp = await handleWorkflowsRpc(
+      runsReq({ workflow: "other" }),
+      ctx({ manifest: manifest(["deploy", "other"]) }),
+    );
+
+    expect(resp.error?.code).toBe(-32602);
+    expect(resp.error?.data).toMatchObject({ reason: "WORKFLOW_NOT_GRANTED" });
+  });
+
+  test("a `workflow` carrying the `:` separator is refused, not namespaced twice", async () => {
+    const resp = await handleWorkflowsRpc(runsReq({ workflow: "other-ext:deploy" }), ctx());
+    expect(resp.error?.data).toMatchObject({ reason: "WORKFLOW_NOT_GRANTED" });
+  });
+
+  test("a non-string `workflow` is refused", async () => {
+    const resp = await handleWorkflowsRpc(runsReq({ workflow: 42 }), ctx());
+    expect(resp.error?.data).toMatchObject({ reason: "WORKFLOW_NOT_GRANTED" });
+  });
+
+  test("`status` filters, and the filter reaches the query", async () => {
+    await seedRun({ workflowName: `${EXT_NAME}:deploy`, status: "success" });
+    const errored = await seedRun({ workflowName: `${EXT_NAME}:deploy`, status: "error" });
+
+    const runs = runsOf(await handleWorkflowsRpc(runsReq({ status: "error" }), ctx()));
+
+    expect(runs.map((r) => r.workflowRunId)).toEqual([errored]);
+  });
+
+  test("an out-of-vocabulary `status` is REFUSED, not silently an empty page", async () => {
+    const resp = await handleWorkflowsRpc(runsReq({ status: "nonesuch" }), ctx());
+
+    expect(resp.error?.code).toBe(-32602);
+    expect(resp.error?.data).toMatchObject({ reason: "WORKFLOWS_BAD_PAYLOAD" });
+  });
+
+  test("`skipped` is refused — it is a STEP state no run terminalizes into", async () => {
+    const resp = await handleWorkflowsRpc(runsReq({ status: "skipped" }), ctx());
+    expect(resp.error?.data).toMatchObject({ reason: "WORKFLOWS_BAD_PAYLOAD" });
+  });
+
+  test("a non-string `status` is refused", async () => {
+    const resp = await handleWorkflowsRpc(runsReq({ status: 7 }), ctx());
+    expect(resp.error?.data).toMatchObject({ reason: "WORKFLOWS_BAD_PAYLOAD" });
+  });
+
+  test("`limit` bounds the page", async () => {
+    await seedRun({ workflowName: `${EXT_NAME}:deploy` });
+    await seedRun({ workflowName: `${EXT_NAME}:deploy` });
+    await seedRun({ workflowName: `${EXT_NAME}:deploy` });
+
+    expect(runsOf(await handleWorkflowsRpc(runsReq({ limit: 2 }), ctx()))).toHaveLength(2);
+  });
+
+  test("a `limit` over the ceiling is refused rather than clamped", async () => {
+    // Clamping would let a caller believe it asked for and received 500.
+    const resp = await handleWorkflowsRpc(runsReq({ limit: RUNS_PAGE_MAX + 1 }), ctx());
+
+    expect(resp.error?.code).toBe(-32602);
+    expect(resp.error?.data).toMatchObject({ reason: "WORKFLOWS_BAD_PAYLOAD" });
+    expect(resp.error?.message).toContain(String(RUNS_PAGE_MAX));
+  });
+
+  test.each([0, -1, 1.5, "20", null])("a bad `limit` (%p) is refused", async (bad) => {
+    const resp = await handleWorkflowsRpc(runsReq({ limit: bad }), ctx());
+    expect(resp.error?.data).toMatchObject({ reason: "WORKFLOWS_BAD_PAYLOAD" });
+  });
+
+  test("an absent `limit` defaults, and the default is the documented one", async () => {
+    for (let i = 0; i < RUNS_PAGE_DEFAULT + 3; i++) {
+      await seedRun({ workflowName: `${EXT_NAME}:deploy` });
+    }
+
+    expect(runsOf(await handleWorkflowsRpc(runsReq(), ctx()))).toHaveLength(RUNS_PAGE_DEFAULT);
+  });
+
+  // ── The enforcement envelope ────────────────────────────────────────
+
+  test("refuses an OWNERLESS (cron/webhook) read with -32106", async () => {
+    // The result set is defined by who is asking; an ownerless read is not
+    // a narrower read, it is a different question with no answer.
+    const resp = await handleWorkflowsRpc(runsReq(), ctx({ userId: "unknown" }));
+
+    expect(resp.error?.code).toBe(-32106);
+    expect(resp.error?.data).toMatchObject({ reason: "WORKFLOWS_NO_OWNER" });
+    expect(resp.result).toBeUndefined();
+  });
+
+  test("an empty userId is refused the same way", async () => {
+    const resp = await handleWorkflowsRpc(runsReq(), ctx({ userId: "" }));
+    expect(resp.error?.code).toBe(-32106);
+    expect(resp.error?.data).toMatchObject({ reason: "WORKFLOWS_NO_OWNER" });
+  });
+
+  test("clears the same wiring gate the trigger does", async () => {
+    await getTestDb().delete(conversationExtensions);
+
+    const resp = await handleWorkflowsRpc(runsReq(), ctx());
+
+    expect(resp.error?.data).toMatchObject({ reason: "WORKFLOWS_NOT_WIRED" });
+  });
+
+  test("a conversation-less (but owned) read skips the wiring gate", async () => {
+    await getTestDb().delete(conversationExtensions);
+    await seedRun({ workflowName: `${EXT_NAME}:deploy` });
+
+    const resp = await handleWorkflowsRpc(runsReq(), ctx({ conversationId: null }));
+
+    expect(resp.error).toBeUndefined();
+    expect(runsOf(resp)).toHaveLength(1);
+  });
+
+  test("refuses without a workflows grant, like every other op", async () => {
+    const resp = await handleWorkflowsRpc(
+      runsReq(),
+      ctx({ grantedPermissions: { grantedAt: {} } as never }),
+    );
+    expect(resp.error?.data).toMatchObject({ reason: "WORKFLOWS_NOT_GRANTED" });
+  });
+
+  test("is refused by the kill-switch, like every other op", async () => {
+    process.env.EZCORP_DISABLE_CAPABILITY_TOOLS = "1";
+    const resp = await handleWorkflowsRpc(runsReq(), ctx());
+    expect(resp.error?.data).toMatchObject({ reason: "WORKFLOWS_DISABLED" });
+  });
+
+  test("does NOT consume the hourly RUN quota", async () => {
+    // A correlation poll that burned the run budget would take away the
+    // capability it exists to report on — and this op is designed to be
+    // polled, so it would do it fast.
+    await seedRun({ workflowName: `${EXT_NAME}:deploy` });
+    const c = ctx({ grantedPermissions: granted({ maxRunsPerHour: 1 }) });
+
+    for (let i = 0; i < 30; i++) {
+      _resetWorkflowRateLimitForTests(extensionId);
+      expect((await handleWorkflowsRpc(runsReq(), c)).error).toBeUndefined();
+    }
+
+    _resetWorkflowRateLimitForTests(extensionId);
+    const triggered = await handleWorkflowsRpc(req(), c);
+    expect(triggered.error).toBeUndefined();
+    expect(started).toHaveLength(1);
+  });
+
+  test("is rate limited — a read is cheap, not free", async () => {
+    let refused: unknown;
+    for (let i = 0; i < 200; i++) {
+      const resp = await handleWorkflowsRpc(runsReq(), ctx());
+      if (resp.error) { refused = resp.error.data; break; }
+    }
+    expect(refused).toMatchObject({ reason: "WORKFLOWS_RATE_LIMITED" });
+  });
+
+  test("audits the read, like every other outcome", async () => {
+    await seedRun({ workflowName: `${EXT_NAME}:deploy` });
+
+    await handleWorkflowsRpc(runsReq(), ctx());
+
+    const rows = await auditRows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.success).toBe(true);
+    expect(rows[0]?.capability).toBe("workflows");
+    expect(rows[0]?.after).toMatchObject({ op: "runs", count: 1 });
+  });
+
+  test("starts NO run — it is a read", async () => {
+    await handleWorkflowsRpc(runsReq(), ctx());
+    expect(started).toHaveLength(0);
+  });
+
+  test("an ABSENT op still runs — `runs` did not change the default", async () => {
+    // The whole point of branching on `op` rather than adding a required
+    // discriminator: every existing caller takes the identical path.
+    const resp = await handleWorkflowsRpc(req(), ctx());
+
+    expect(resp.result).toMatchObject({ v: 1, workflow: `${EXT_NAME}:deploy`, started: true });
+    expect(started).toHaveLength(1);
+  });
+
+  test("an unknown op is still refused — `runs` did not open the union", async () => {
+    const resp = await handleWorkflowsRpc(runsReq({ op: "delete" }), ctx());
+    expect(resp.error?.data).toMatchObject({ reason: "WORKFLOWS_BAD_OP" });
   });
 });

@@ -146,6 +146,15 @@ export async function migrate(db: any): Promise<void> {
       updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
     )
   `);
+  // Definition-level model binding inherited by steps that declare none.
+  // Nullable with no default: NULL means "every step keeps its agent's own
+  // binding", which is exactly what every pre-existing row meant.
+  await db.execute(sql`ALTER TABLE workflow_definitions ADD COLUMN IF NOT EXISTS default_model JSONB`);
+  // NOTE: the C6 ownership columns and `workflow_definition_versions` do
+  // NOT live here, even though this is where the rest of this table's DDL
+  // is. They reference `users`, which is not created until much further
+  // down — so they are grouped with the `workflow_runs` block near the end
+  // of this file, next to the other FK-deferred workflow DDL.
 
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS conversations (
@@ -2210,23 +2219,74 @@ export async function migrate(db: any): Promise<void> {
       ON saved_contexts(user_id, conversation_id, topic_label)
   `);
 
-  // ── Workflow ownership ───────────────────────────────────────────
+  // ── Workflow ownership (C6) ──────────────────────────────────────
   //
-  // `workflow_definitions` is created far above (before `users` exists), so
-  // the ALTER lives down here where the FK target is already present — the
-  // same reason the run-history block below sits at the end.
+  // Placed here, NOT beside the `workflow_definitions` CREATE TABLE far
+  // above, for the same reason the run-history block below is: `user_id`
+  // references `users`, which is not created until later in this file. An
+  // ALTER next to the original DDL would fail on a FRESH install (and only
+  // there — an existing DB already has `users`, so the bug would ship
+  // green and break the first new deployment).
   //
-  // NULLABLE and deliberately NOT backfilled. NULL means "unowned legacy /
-  // global workflow": every existing row keeps today's behaviour (any
-  // `chat` caller may run, update and delete it), so this is not a breaking
-  // change. Copying the first-admin backfill CTE used for
-  // conversations/memories would instead retroactively hand every existing
-  // workflow to one admin and lock everyone else out.
+  // NO BACKFILL, and that is the whole safety argument. `visibility TEXT
+  // NOT NULL DEFAULT 'system'` makes every pre-existing row system-owned
+  // in one statement with `project_id` / `user_id` NULL — which IS what
+  // system-owned means — and `system` authorizes exactly the callers who
+  // were authorized before the ladder existed. A CTE backfill inferring
+  // ownership (e.g. from `workflow_runs.user_id`) would be a re-runnable
+  // statement that could REATTRIBUTE rows on a later boot, and guessing
+  // ownership is how you hand someone's workflow to the wrong person.
+  // Non-admins do lose edit access to rows they created; the deliberate,
+  // audited admin "claim" action is the answer, not a guess.
   //
-  // Enforcement lives at the call sites (`src/runtime/workflow-authz.ts`),
-  // never inside `WorkflowExecutor.runWorkflow` — the CLI runs workflows
-  // with no principal at all and must keep working.
-  await db.execute(sql`ALTER TABLE workflow_definitions ADD COLUMN IF NOT EXISTS created_by TEXT REFERENCES users(id) ON DELETE SET NULL`);
+  // The unique index on `name` is untouched: ownership authorizes a
+  // workflow, it never namespaces one.
+  await db.execute(sql`ALTER TABLE workflow_definitions ADD COLUMN IF NOT EXISTS project_id TEXT REFERENCES projects(id) ON DELETE CASCADE`);
+  await db.execute(sql`ALTER TABLE workflow_definitions ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES users(id) ON DELETE SET NULL`);
+  await db.execute(sql`ALTER TABLE workflow_definitions ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'system'`);
+  // Fork provenance: the SOURCE's fully qualified name as a string
+  // snapshot, never an FK — the source is often an extension asset with no
+  // row, and the extension may later be uninstalled.
+  await db.execute(sql`ALTER TABLE workflow_definitions ADD COLUMN IF NOT EXISTS forked_from TEXT`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_workflow_definitions_scope ON workflow_definitions(visibility, project_id)`);
+
+  // ── Definition versions (C6) ─────────────────────────────────────
+  //
+  // The record of WHAT a run executed — intended to be authoritative over
+  // `workflow_runs.definition_hash`, which is defined over the same `steps`
+  // material so the two agree whenever a version is claimed. That
+  // precedence is a contract nothing implements yet; `workflow-versions.ts`
+  // states it once.
+  // CASCADE on the definition: a snapshot without its definition is dead
+  // weight, not evidence.
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS workflow_definition_versions (
+      id TEXT PRIMARY KEY,
+      workflow_definition_id TEXT NOT NULL REFERENCES workflow_definitions(id) ON DELETE CASCADE,
+      version INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      input_schema JSONB,
+      default_model JSONB,
+      steps JSONB NOT NULL,
+      steps_hash TEXT NOT NULL,
+      created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+    )
+  `);
+  await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uniq_workflow_definition_version ON workflow_definition_versions(workflow_definition_id, version)`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_workflow_definition_versions_author ON workflow_definition_versions(created_by_user_id)`);
+
+  // `workflow_definitions.created_by` was a SECOND owner column, from a
+  // parallel authorization model that briefly co-existed with the
+  // `user_id`/`visibility` ladder above. The two disagreed about what NULL
+  // meant — that rule read NULL as "unowned, anyone may act", while an
+  // orphaned `private` row here is admin-only — so they could not share a
+  // table. Dropped rather than migrated: nothing ever wrote it (the create
+  // path has always set `user_id`), so every value in it is NULL and there
+  // is no ownership to carry across. `IF EXISTS` because an install that
+  // never saw the intermediate commit never had the column.
+  await db.execute(sql`ALTER TABLE workflow_definitions DROP COLUMN IF EXISTS created_by`);
 
   // ── Workflow run history ─────────────────────────────────────────
   //
@@ -2273,6 +2333,217 @@ export async function migrate(db: any): Promise<void> {
     )
   `);
   await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uniq_workflow_step_run ON workflow_step_runs(workflow_run_id, step_name)`);
+  // Per-step model telemetry (per-step model overrides). Nullable with no
+  // default: NULL means "this step ran no LLM" (transform / gate / tool) or
+  // "the LLM had not resolved yet", which is exactly true of every row
+  // written before this migration. ADD COLUMN IF NOT EXISTS upgrades a DB
+  // created before the change without touching its history.
+  await db.execute(sql`ALTER TABLE workflow_step_runs ADD COLUMN IF NOT EXISTS provider TEXT`);
+  await db.execute(sql`ALTER TABLE workflow_step_runs ADD COLUMN IF NOT EXISTS model TEXT`);
+
+  // ── Durable / resumable workflow runs ────────────────────────────
+  // A resumed run rehydrates `stepResults` from here: any later step can
+  // address ANY completed step via `$steps.<name>`, so the whole map has
+  // to come back, and before this column there was nowhere to read a
+  // completed step's result from. NULL on every pre-existing row, which
+  // is correct — those runs are terminal and will never resume.
+  await db.execute(sql`ALTER TABLE workflow_step_runs ADD COLUMN IF NOT EXISTS output JSONB`);
+
+  // ── C5: per-step telemetry ───────────────────────────────────────
+  //
+  // All nullable, all without a default, and deliberately NOT backfilled.
+  // Every one of these facts is genuinely absent for a historical row, and
+  // NULL is the only honest value: inventing zeros would corrupt the first
+  // aggregate anyone runs over this table, and a zero token count or a
+  // zero cost reads as a measurement rather than as a gap.
+  //
+  // `cost_usd` is NUMERIC, not DOUBLE PRECISION — a dashboard that sums
+  // floats accumulates error, and C3's per-job spend cap reads it.
+  await db.execute(sql`ALTER TABLE workflow_step_runs ADD COLUMN IF NOT EXISTS attempt INTEGER`);
+  await db.execute(sql`ALTER TABLE workflow_step_runs ADD COLUMN IF NOT EXISTS input_tokens INTEGER`);
+  await db.execute(sql`ALTER TABLE workflow_step_runs ADD COLUMN IF NOT EXISTS output_tokens INTEGER`);
+  await db.execute(sql`ALTER TABLE workflow_step_runs ADD COLUMN IF NOT EXISTS cost_usd NUMERIC(12,6)`);
+  await db.execute(sql`ALTER TABLE workflow_step_runs ADD COLUMN IF NOT EXISTS duration_ms INTEGER`);
+  await db.execute(sql`ALTER TABLE workflow_step_runs ADD COLUMN IF NOT EXISTS error_code TEXT`);
+  await db.execute(sql`ALTER TABLE workflow_step_runs ADD COLUMN IF NOT EXISTS resolved_input JSONB`);
+  await db.execute(sql`ALTER TABLE workflow_step_runs ADD COLUMN IF NOT EXISTS skipped_reason TEXT`);
+
+  // Per-iteration detail for a looped step. A child table rather than a
+  // widened `uniq_workflow_step_run`, because the arbiter is
+  // `(workflow_run_id, step_name)` — a looped step has exactly ONE parent
+  // row, so per-iteration facts have nowhere to live there, and widening
+  // a live unique index means DROP INDEX plus a backfill in service of a
+  // purely additive need. CASCADE on the step: an iteration without its
+  // step is meaningless, unlike run HISTORY which is preserved via SET
+  // NULL. Bounded by the loop ceiling × the retry ceiling, so no sweep.
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS workflow_step_iterations (
+      id TEXT PRIMARY KEY,
+      workflow_step_run_id TEXT NOT NULL REFERENCES workflow_step_runs(id) ON DELETE CASCADE,
+      iteration INTEGER NOT NULL,
+      attempt INTEGER NOT NULL,
+      status TEXT NOT NULL,
+      run_id TEXT REFERENCES runs(id) ON DELETE SET NULL,
+      provider TEXT,
+      model TEXT,
+      input_tokens INTEGER,
+      output_tokens INTEGER,
+      cost_usd NUMERIC(12,6),
+      duration_ms INTEGER,
+      error_code TEXT,
+      created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+    )
+  `);
+  // `attempt` is in the arbiter because a retried iteration is a distinct
+  // event, not an overwrite of the try that failed.
+  await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uniq_workflow_step_iteration ON workflow_step_iterations(workflow_step_run_id, iteration, attempt)`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_workflow_step_iterations_step ON workflow_step_iterations(workflow_step_run_id)`);
+
+  // `run_phase` is NOT NULL DEFAULT 'boundary' and that default is what
+  // makes this migration backward-safe: every pre-existing row reads as
+  // "parked at a boundary", and since they are all already terminal (or
+  // get drained by the existing orphan sweep) none is misclassified.
+  // Every other column is nullable with no default — NULL means "this run
+  // predates durable resume", which is exactly true.
+  await db.execute(sql`ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS cursor JSONB`);
+  await db.execute(sql`ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS run_phase TEXT NOT NULL DEFAULT 'boundary'`);
+  await db.execute(sql`ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS suspended_reason TEXT`);
+  await db.execute(sql`ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS resumable BOOLEAN NOT NULL DEFAULT FALSE`);
+  await db.execute(sql`ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS claimed_by TEXT`);
+  await db.execute(sql`ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS lease_expires_at TIMESTAMP WITH TIME ZONE`);
+  await db.execute(sql`ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS definition_hash TEXT`);
+  // Intended to be authoritative over `definition_hash` above — a contract
+  // nothing implements yet; `workflow-versions.ts` states it once and says
+  // what guards drift meanwhile. SET NULL matches the
+  // `workflow_definition_id` treatment — the run row outlives a reaped
+  // version, the pointer does not. Deliberately NOT backfilled for
+  // historical runs: we genuinely do not know which version they executed,
+  // and inventing one would be a lie in an audit surface. The trace renders
+  // NULL as "version unknown (pre-versioning)".
+  await db.execute(sql`ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS definition_version_id TEXT REFERENCES workflow_definition_versions(id) ON DELETE SET NULL`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_workflow_runs_definition_version ON workflow_runs(definition_version_id)`);
+  await db.execute(sql`ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS job_ref TEXT`);
+  await db.execute(sql`ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS idempotency_key TEXT`);
+  // Shared by the daemon's claim scan and the recovery sweep — both read
+  // `status` + `lease_expires_at` and both only ever care about the two
+  // live statuses, so the partial index stays small on a table that grows
+  // without bound.
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_workflow_runs_claimable ON workflow_runs(status, lease_expires_at) WHERE status IN ('running','suspended')`);
+  // PARTIAL unique — a run with no idempotency key must never collide
+  // with another keyless run, and the index stays off every such row.
+  await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uniq_workflow_runs_idem ON workflow_runs(workflow_name, idempotency_key) WHERE idempotency_key IS NOT NULL`);
+
+  // ── C7: composition — a run dispatched by another run's step ─────
+  //
+  // Additive and un-backfilled: `parent_run_id` is genuinely NULL for
+  // every historical run, and inventing a parent would be a lie in a trace.
+  await db.execute(sql`ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS parent_run_id TEXT`);
+  // The FK is added SEPARATELY from the column, and guarded, for the
+  // reasons the `sdk_capability_calls` FK block above records: Postgres has
+  // no `ADD CONSTRAINT IF NOT EXISTS`, and an unconditional DROP + ADD
+  // re-validates the whole table on every boot while holding a lock on it —
+  // and leaves the constraint absent if the process dies between the two.
+  // Probing `pg_constraint` first makes every boot after the first a pure
+  // catalog read. Single-line `sql` templates deliberately: a multi-line
+  // tagged template leaves its interpolation-free lines as orphan coverable
+  // lines that never receive a hit (documented at `:125-131`).
+  {
+    const parentFk = (await db.execute(sql`SELECT 1 AS present FROM pg_constraint WHERE conname = 'workflow_runs_parent_run_id_fkey' AND conrelid = 'workflow_runs'::regclass LIMIT 1`)) as { rows: Array<{ present: number }> };
+    if (parentFk.rows.length === 0) {
+      await db.execute(sql`ALTER TABLE workflow_runs ADD CONSTRAINT workflow_runs_parent_run_id_fkey FOREIGN KEY (parent_run_id) REFERENCES workflow_runs(id) ON DELETE SET NULL`);
+    }
+  }
+  // Required, not nice-to-have: ON DELETE SET NULL scans this column on
+  // every parent delete, and the child lookup reads it directly.
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_workflow_runs_parent ON workflow_runs(parent_run_id)`);
+
+  // Parked `approval` steps. CASCADE on the run because an approval
+  // without its run is meaningless — unlike run HISTORY, which is
+  // deliberately preserved via SET NULL. `answered_by` is SET NULL for
+  // the same IDOR-guard reason as runs.user_id: deleting a user
+  // un-attributes the answer, it does not erase that one happened.
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS workflow_approvals (
+      id TEXT PRIMARY KEY,
+      workflow_run_id TEXT NOT NULL REFERENCES workflow_runs(id) ON DELETE CASCADE,
+      step_name TEXT NOT NULL,
+      prompt TEXT NOT NULL DEFAULT '',
+      choices JSONB NOT NULL,
+      rbac_scope TEXT,
+      form_schema JSONB,
+      require_item_consent BOOLEAN NOT NULL DEFAULT FALSE,
+      item_ids JSONB,
+      status TEXT NOT NULL DEFAULT 'pending',
+      answered_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+      answer_choice TEXT,
+      answer_form JSONB,
+      answered_item_ids JSONB,
+      consent_all_used BOOLEAN NOT NULL DEFAULT FALSE,
+      expires_at TIMESTAMP WITH TIME ZONE,
+      created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+    )
+  `);
+  // One live approval per step: a resumed-then-re-suspended step updates
+  // in place instead of accumulating rows the inbox would double-render.
+  await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uniq_workflow_approval ON workflow_approvals(workflow_run_id, step_name)`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_workflow_approvals_pending ON workflow_approvals(status, expires_at) WHERE status = 'pending'`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_workflow_approvals_answered_by ON workflow_approvals(answered_by)`);
+
+  // ── C2: dynamic cron + webhook triggers (`ctx.triggers`) ─────────
+  //
+  // `dynamic` is the discriminator between a MANIFEST-declared row (every
+  // row that exists today) and a USER-created one. `NOT NULL DEFAULT FALSE`
+  // is what makes this backward-safe: every pre-existing row reads as
+  // manifest-declared, so the reconcilers keep managing them exactly as
+  // before and the partial indexes below cover them identically to the
+  // total indexes they replace. No backfill — the default is already the
+  // correct value for every existing row.
+  //
+  // `key` is the extension-supplied trigger identity for a dynamic row and
+  // is NULL on every manifest row. It is what makes two dynamic jobs that
+  // share a cron expression distinguishable — both in the DB (the partial
+  // unique index below) and at dispatch (`ezcorp/trigger-fire`).
+  //
+  // `max_runs_per_day` is the PER-KEY daily cap. The extension-wide
+  // envelope alone lets one busy job starve every other job under the same
+  // install, and the only signal would be a quota audit row naming no job.
+  await db.execute(sql`ALTER TABLE extension_schedules ADD COLUMN IF NOT EXISTS dynamic BOOLEAN NOT NULL DEFAULT FALSE`);
+  await db.execute(sql`ALTER TABLE extension_schedules ADD COLUMN IF NOT EXISTS key TEXT`);
+  await db.execute(sql`ALTER TABLE extension_schedules ADD COLUMN IF NOT EXISTS timezone TEXT`);
+  await db.execute(sql`ALTER TABLE extension_schedules ADD COLUMN IF NOT EXISTS max_runs_per_day INTEGER`);
+  await db.execute(sql`ALTER TABLE extension_webhooks ADD COLUMN IF NOT EXISTS dynamic BOOLEAN NOT NULL DEFAULT FALSE`);
+  await db.execute(sql`ALTER TABLE extension_webhooks ADD COLUMN IF NOT EXISTS key TEXT`);
+
+  // The ONLY non-additive statements in C2. `(extension_id, cron)` unique
+  // blocks two dynamic jobs sharing a cron expression, which is the normal
+  // case, not an edge case. Each total index is replaced by two partials in
+  // this same pass:
+  //   - the MANIFEST partial preserves today's dedupe EXACTLY for every
+  //     existing row (all of which are `dynamic = FALSE`);
+  //   - the DYNAMIC partial makes `key` the identity for user-created rows,
+  //     so a cron expression may repeat freely.
+  // Together they cover a strict superset of the dropped constraint's rows,
+  // which is why the DROP is safe. Idempotent: `DROP … IF EXISTS` +
+  // `CREATE … IF NOT EXISTS` re-runs cleanly.
+  //
+  // Keyed on `dynamic` rather than on a trigger KIND deliberately — a later
+  // phase can add a second dynamic kind (`event`, …) additively, with no
+  // second DROP INDEX.
+  await db.execute(sql`DROP INDEX IF EXISTS uniq_ext_schedule`);
+  await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uniq_ext_schedule_manifest ON extension_schedules(extension_id, cron) WHERE dynamic = FALSE`);
+  await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uniq_ext_schedule_dynamic ON extension_schedules(extension_id, key) WHERE key IS NOT NULL`);
+  // Webhooks are NOT symmetric with schedules, and the total index STAYS.
+  // Schedules needed widening because two dynamic jobs sharing `0 9 * * 1` is
+  // the normal case. Webhooks have no equivalent: a dynamic slug is
+  // host-minted as `<prefix><sha256(extensionName \0 key)[0..12]>` and keys
+  // are unique per extension, so two dynamic rows CANNOT share a slug by
+  // construction. The only collision `uniq_ext_webhook` ever blocked was
+  // manifest-vs-dynamic — precisely the one worth blocking, because
+  // `getEnabledWebhook` returns `rows[0] ?? null` with no ORDER BY, so two
+  // matching rows would let a public inbound route resolve non-
+  // deterministically. Dropping it would remove a real constraint for nothing.
+  await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uniq_ext_webhook_dynamic ON extension_webhooks(extension_id, key) WHERE key IS NOT NULL`);
 
   // One-shot, idempotent backfill: move any pre-existing github-projects PATs
   // out of the broadly-readable `settings` table into the scope-isolated,
@@ -2293,4 +2564,11 @@ export async function migrate(db: any): Promise<void> {
   // 'backfillMcpManifestSecrets' not found" on this module.
   const { backfillMcpManifestSecrets } = await import("./queries/extensions");
   await backfillMcpManifestSecrets(db);
+
+  // Seed version 1 for every definition that has none — the ONE backfill
+  // this phase adds, and guarded so a re-run selects zero rows and writes
+  // nothing. Same lazy-import rationale as the line above: the module
+  // reaches `./connection`, which imports this file.
+  const { backfillWorkflowDefinitionVersions } = await import("./queries/workflow-versions");
+  await backfillWorkflowDefinitionVersions(db);
 }

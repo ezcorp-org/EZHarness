@@ -18,12 +18,15 @@ import { test, expect, describe } from "vitest";
 import {
 	isExplainableStatus,
 	kindLabel,
+	modelBindingLabel,
+	resolvedModelLabel,
 	runErrorText,
 	statusColor,
+	stepModelBinding,
 } from "./workflow-run-display.js";
 
 /** Every step kind the server's `WorkflowStepKind` union can emit. */
-const STEP_KINDS = ["agent", "transform", "gate", "tool"] as const;
+const STEP_KINDS = ["agent", "transform", "gate", "tool", "approval", "workflow"] as const;
 
 /** Every run/step status the page can be handed. */
 const STATUSES = [
@@ -33,11 +36,19 @@ const STATUSES = [
 	"error",
 	"cancelled",
 	"awaiting_approval",
+	"suspended",
+	"skipped",
 ] as const;
 
 describe("kindLabel — never renders an empty badge", () => {
 	test.each(STEP_KINDS)("%s has a non-empty label", (kind) => {
-		expect(kindLabel(kind)).toBe(kind);
+		expect(kindLabel(kind).length).toBeGreaterThan(0);
+	});
+
+	test("a sub-workflow step is labelled by what it DOES, not by its kind", () => {
+		// On a workflow's own page a badge reading `workflow` says nothing;
+		// the point of the step is that it runs another one.
+		expect(kindLabel("workflow")).toBe("sub-workflow");
 	});
 
 	test("an unmapped kind falls back to the raw value, not an empty string", () => {
@@ -73,6 +84,20 @@ describe("statusColor — every status is visually resolvable", () => {
 			statusColor("running"),
 		];
 		expect(new Set(colors).size).toBe(colors.length);
+	});
+
+	test("a skipped step is neither failed nor in-progress", () => {
+		// The two readings that send an operator hunting a problem that is
+		// not there. `skipped` shares the muted treatment with `cancelled`
+		// deliberately — both mean "this did not run" — and the page adds a
+		// reason line beside it.
+		expect(statusColor("skipped")).not.toBe(statusColor("error"));
+		expect(statusColor("skipped")).not.toBe(statusColor("running"));
+		expect(statusColor("skipped")).toBe(statusColor("cancelled"));
+	});
+
+	test("a suspended run is not mistakable for a failed one", () => {
+		expect(statusColor("suspended")).not.toBe(statusColor("error"));
 	});
 
 	test("an unknown status reads as in-progress, never blank", () => {
@@ -144,5 +169,95 @@ describe("runErrorText — tolerates every payload shape the backend emits", () 
 		// The specific ones that must be EMPTY (nothing usable to show).
 		expect(runErrorText({ status: "error" } as never)).toBe("");
 		expect(runErrorText({ status: "error", result: { error: 7 } } as never)).toBe("");
+	});
+});
+
+describe("modelBindingLabel", () => {
+	test("returns empty for no binding — the caller skips the chip entirely", () => {
+		expect(modelBindingLabel(undefined)).toBe("");
+		expect(modelBindingLabel({})).toBe("");
+	});
+
+	test("renders only the fields the author actually set", () => {
+		expect(modelBindingLabel({ model: "claude-opus-5" })).toBe("claude-opus-5");
+		expect(modelBindingLabel({ provider: "anthropic", model: "claude-opus-5" })).toBe(
+			"anthropic/claude-opus-5",
+		);
+		expect(modelBindingLabel({ provider: "anthropic" })).toBe("anthropic");
+		expect(modelBindingLabel({ maxTokens: 8000 })).toBe("8000 tok");
+		expect(modelBindingLabel({ temperature: 0 })).toBe("temp 0");
+		expect(modelBindingLabel({ effort: "high" })).toBe("high");
+	});
+
+	test("composes every field in a stable order", () => {
+		expect(
+			modelBindingLabel({
+				provider: "anthropic",
+				model: "claude-opus-5",
+				temperature: 0.2,
+				maxTokens: 8000,
+				effort: "high",
+			}),
+		).toBe("anthropic/claude-opus-5 · temp 0.2 · 8000 tok · high");
+	});
+
+	test("shows a ref verbatim — the ref IS what the definition says", () => {
+		expect(modelBindingLabel({ model: "$input.verifyModel" })).toBe("$input.verifyModel");
+	});
+
+	test("never renders a dangling separator, for any subset of fields", () => {
+		const fields = [
+			{ provider: "p" },
+			{ model: "m" },
+			{ temperature: 1 },
+			{ maxTokens: 5 },
+			{ effort: "low" },
+		];
+		for (let mask = 0; mask < 1 << fields.length; mask++) {
+			const binding: Record<string, unknown> = {};
+			fields.forEach((f, i) => {
+				if (mask & (1 << i)) Object.assign(binding, f);
+			});
+			const label = modelBindingLabel(binding);
+			expect(label.startsWith(" ·")).toBe(false);
+			expect(label.endsWith("· ")).toBe(false);
+			expect(label.includes("· ·")).toBe(false);
+		}
+	});
+});
+
+describe("stepModelBinding", () => {
+	test("prefers the step's own binding over the workflow default", () => {
+		expect(
+			stepModelBinding({ model: { model: "step" } }, { defaultModel: { model: "default" } }),
+		).toEqual({ model: "step" });
+	});
+
+	test("falls back to the workflow default, and to nothing at all", () => {
+		expect(stepModelBinding({}, { defaultModel: { model: "default" } })).toEqual({
+			model: "default",
+		});
+		expect(stepModelBinding({}, {})).toBeUndefined();
+		expect(stepModelBinding({}, undefined)).toBeUndefined();
+	});
+
+	test("does NOT merge — it must not advertise a model the run never uses", () => {
+		expect(
+			stepModelBinding({ model: { model: "step" } }, { defaultModel: { maxTokens: 999 } }),
+		).toEqual({ model: "step" });
+	});
+});
+
+describe("resolvedModelLabel", () => {
+	test("is empty for a step that ran no LLM", () => {
+		expect(resolvedModelLabel({})).toBe("");
+	});
+
+	test("joins provider and model, tolerating either half alone", () => {
+		expect(resolvedModelLabel({ provider: "anthropic", model: "claude-opus-5" })).toBe(
+			"anthropic/claude-opus-5",
+		);
+		expect(resolvedModelLabel({ model: "claude-opus-5" })).toBe("claude-opus-5");
+		expect(resolvedModelLabel({ provider: "anthropic" })).toBe("anthropic");
 	});
 });

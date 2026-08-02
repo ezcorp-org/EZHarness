@@ -164,22 +164,38 @@ export function createRunWorkflowTool(ctx: RunWorkflowToolContext): BuiltinToolD
           return errorResult("workflows are not available in this process");
         }
 
-        const workflow = runtime.getWorkflows().find((w) => w.name === workflowName);
-        if (!workflow) return errorResult(`no workflow named "${workflowName}"`);
+        // Resolved out of the PROVENANCE-carrying cache: the ladder
+        // authorizes an owner and a visibility, and a bare definition
+        // carries neither. Same lookup order the REST path resolves
+        // through, so the two cannot disagree about which object runs.
+        //
+        // Fails CLOSED when the registration cannot supply it — a process
+        // that cannot say who owns a workflow does not get to run one on
+        // an LLM's say-so.
+        const cached = runtime.getCachedWorkflows?.();
+        if (!cached) {
+          return errorResult("workflow authorization is unavailable in this process");
+        }
+        const entry = cached.find((e) => e.definition.name === workflowName);
+        if (!entry) return errorResult(`no workflow named "${workflowName}"`);
 
         // The role is read from the DB, not carried on the turn: the
-        // owner-or-admin rule needs it and nothing LLM-reachable may
-        // supply it. A vanished user row fails CLOSED.
+        // ladder needs it and nothing LLM-reachable may supply it. A
+        // vanished user row fails CLOSED.
         const user = await getUserById(ctx.userId);
         if (!user) {
           return errorResult("the acting user could not be resolved, so the run was not authorized");
         }
 
-        const decision = await canRunWorkflow(workflow, { id: user.id, role: user.role });
+        const decision = await canRunWorkflow(
+          entry,
+          { id: user.id, role: user.role },
+          ctx.projectId,
+        );
         if (!decision.allowed) return errorResult(decision.reason);
 
         const run = await runtime.workflowExecutor.runWorkflow(
-          workflow,
+          entry.definition,
           input ?? {},
           ctx.projectId,
           ctx.userId,

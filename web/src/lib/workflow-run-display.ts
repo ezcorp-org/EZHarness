@@ -9,7 +9,7 @@
  *
  * Same role as `workflow-builder-logic.ts` plays for the create form.
  */
-import type { WorkflowRun, WorkflowStepKind } from "./api.js";
+import type { Workflow, WorkflowModelOverride, WorkflowRun, WorkflowStep, WorkflowStepKind } from "./api.js";
 
 /** Tailwind text colour per run/step status. */
 const STATUS_COLOR: Record<string, string> = {
@@ -19,6 +19,14 @@ const STATUS_COLOR: Record<string, string> = {
   // Blocked on a human, not failed and not running — amber, distinct
   // from the yellow used for the in-progress fallback below.
   awaiting_approval: "text-amber-400",
+  // Parked and answerable: the same "waiting on something" family as
+  // awaiting_approval, and deliberately not red.
+  suspended: "text-amber-400",
+  // Never ran, and that is FINE. A skipped step must not read as failed
+  // (red) and must not read as still-going (the yellow fallback) — both
+  // send an operator hunting a problem that is not there. Muted, the same
+  // weight as `cancelled`, and the page adds a reason beside it.
+  skipped: "text-[var(--color-text-muted)]",
 };
 
 /** Colour for a run/step status; unknown statuses read as in-progress. */
@@ -31,6 +39,11 @@ const KIND_LABEL: Record<WorkflowStepKind, string> = {
   transform: "transform",
   gate: "gate",
   tool: "tool",
+  approval: "approval",
+  // "sub-workflow", not "workflow": on a workflow's own page a badge
+  // reading `workflow` says nothing, while the point of the step is that
+  // it runs ANOTHER one.
+  workflow: "sub-workflow",
 };
 
 /**
@@ -69,4 +82,52 @@ export function runErrorText(run: Pick<WorkflowRun, "status" | "result">): strin
     return String((err as { message: unknown }).message);
   }
   return "";
+}
+
+/**
+ * One-line summary of a DECLARED model binding, for the step list on the
+ * definition card — e.g. `anthropic/claude-haiku-4-5 · 8000 tok · high`.
+ *
+ * Renders only the fields the author actually set, so a binding that names
+ * a model alone does not sprout invented defaults, and returns `""` for
+ * "nothing declared" so the caller can skip the element entirely rather
+ * than render an empty chip. Values may be refs (`$input.tier`) — they are
+ * shown verbatim, because the ref IS what the definition says.
+ */
+export function modelBindingLabel(binding: WorkflowModelOverride | undefined): string {
+  if (!binding) return "";
+  const parts: string[] = [];
+  const id = [binding.provider, binding.model].filter(Boolean).join("/");
+  if (id) parts.push(id);
+  if (binding.temperature !== undefined) parts.push(`temp ${binding.temperature}`);
+  if (binding.maxTokens !== undefined) parts.push(`${binding.maxTokens} tok`);
+  if (binding.effort) parts.push(binding.effort);
+  return parts.join(" · ");
+}
+
+/**
+ * The binding a step will actually run on: its own, else the definition's
+ * `defaultModel`. Whole-bundle fallback, mirroring the server's
+ * `effectiveModelOverride` — the page must not invent a merge the executor
+ * does not perform, or it would advertise a model the run never uses.
+ */
+export function stepModelBinding(
+  step: Pick<WorkflowStep, "model">,
+  workflow: Pick<Workflow, "defaultModel"> | undefined,
+): WorkflowModelOverride | undefined {
+  return step.model ?? workflow?.defaultModel;
+}
+
+/**
+ * The model a COMPLETED step ran on, for the run-history line — e.g.
+ * `anthropic/claude-haiku-4-5`. Distinct from {@link modelBindingLabel}:
+ * that one shows what the definition asked for (possibly a ref), this one
+ * shows what the provider actually served. Empty when the step ran no LLM
+ * (transform / gate / tool), which is the common case and must render
+ * nothing at all rather than a dangling separator.
+ */
+export function resolvedModelLabel(
+  step: Pick<WorkflowRun["steps"][number], "provider" | "model">,
+): string {
+  return [step.provider, step.model].filter(Boolean).join("/");
 }

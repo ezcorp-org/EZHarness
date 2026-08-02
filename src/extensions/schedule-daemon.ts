@@ -48,6 +48,7 @@ import { EXT_AUDIT_ACTIONS } from "./audit-actions";
 import { registerFireCallProvenance } from "./call-provenance";
 import { acquireLockfile, releaseLockfile, isProcessAlive } from "../startup/process-lockfile";
 import { loopsKillSwitchEngaged } from "./loops-kill-switch";
+import { todaysFireCountForSchedule } from "./triggers-store";
 
 const log = logger.child("ext.schedule-daemon");
 
@@ -99,6 +100,62 @@ interface DaemonGrant {
   maxRunDurationMs: number;
   missedRunPolicy: "skip" | "fire-once" | "fire-all";
   tz?: string;
+}
+
+/**
+ * The stored `granted_permissions` slice `readGrant` reads, from EITHER
+ * source. Named rather than written inline at both call sites: the registry
+ * read and the extensions-table read must agree on this shape by
+ * construction — a `triggers` key added to one copy and not the other would
+ * silently change which envelope the daemon enforces depending on whether a
+ * registry happened to be wired.
+ */
+interface StoredScheduleGrant {
+  schedule?: {
+    maxRetries?: number;
+    maxRunsPerDay?: number;
+    maxRunDurationMs?: number;
+    missedRunPolicy?: "skip" | "fire-once" | "fire-all";
+    tz?: string;
+  };
+  triggers?: { maxRunsPerDay?: number };
+}
+
+/**
+ * The IANA zone a row's cron is evaluated in. A DYNAMIC row carries its own
+ * (the user picked it when creating the job); a manifest row reads the
+ * grant's, exactly as before C2.
+ */
+function zoneFor(
+  row: { dynamic: boolean; timezone: string | null },
+  grant: DaemonGrant,
+): string | undefined {
+  if (row.dynamic && row.timezone) return row.timezone;
+  return grant.tz;
+}
+
+/**
+ * Resolve the effective daily envelope for an extension (C2).
+ *
+ * An extension may hold `permissions.triggers` WITHOUT holding
+ * `permissions.schedule` — declaring an envelope for dynamic jobs while
+ * declaring no manifest crons at all. `clampSchedulePermission` returns
+ * `undefined` when the manifest lists no crons, so in that shape
+ * `granted.schedule` is absent and the daemon would silently fall back to
+ * `DEFAULT_MAX_RUNS_PER_DAY` — making `triggers.maxRunsPerDay` a number
+ * nothing ever reads.
+ *
+ * `schedule` wins when both are present (it is the narrower, manifest-tier
+ * bound); `triggers` fills in when it is the only envelope on offer.
+ */
+function envelopeFrom(
+  schedule: { maxRunsPerDay?: number } | undefined,
+  triggers: { maxRunsPerDay?: number } | undefined,
+  fallback: number,
+): number {
+  if (typeof schedule?.maxRunsPerDay === "number") return schedule.maxRunsPerDay;
+  if (typeof triggers?.maxRunsPerDay === "number") return triggers.maxRunsPerDay;
+  return fallback;
 }
 
 export class ScheduleDaemon {
@@ -260,26 +317,48 @@ export class ScheduleDaemon {
       if (liveExt >= this.opts.maxConcurrentPerExt) continue;
 
       const grant = await this.readGrant(row.extensionId);
+      const tz = zoneFor(row, grant);
+
+      // PER-KEY quota (C2) — checked BEFORE the extension-wide gate.
+      //
+      // `maxRunsPerDay` is an ENVELOPE, not a per-job allowance. With 25
+      // dynamic crons under one install they all draw on one budget, so a
+      // single job firing every 5 minutes exhausts it before lunch and
+      // starves the other 24 — and the starved jobs' only signal would be a
+      // quota audit row naming no job at all. The per-key cap is what makes
+      // the envelope survivable; the extension-wide gate below remains the
+      // spend bound.
+      //
+      // A quota denial deliberately does NOT touch `consecutive_errors`:
+      // being rate-limited is not the extension misbehaving, and counting it
+      // would let 5 quota-limited days auto-disable a perfectly healthy job.
+      // Same distinction the daemon already draws for delivery misses.
+      if (row.dynamic && row.key !== null && row.maxRunsPerDay !== null) {
+        const keyCount = await todaysFireCountForSchedule(row.id, now);
+        if (keyCount >= row.maxRunsPerDay) {
+          await this.auditQuotaExceeded(
+            row.extensionId, row.id, keyCount, row.maxRunsPerDay, row.key,
+          );
+          this.advancePastQuota(row, tz, now);
+          continue;
+        }
+      }
 
       // maxRunsPerDay quota check (count today's `running` + completed
       // fires for this schedule's extension).
       const dailyCount = await this.todaysFireCount(row.extensionId);
       if (dailyCount >= grant.maxRunsPerDay) {
-        await this.auditQuotaExceeded(row.extensionId, row.id, dailyCount, grant.maxRunsPerDay);
-        // Advance next_fire_at so we don't re-pick this row 30s later.
-        try {
-          const next = parseCron(row.cron, grant.tz).next(now);
-          await db.update(extensionSchedules)
-            .set({ nextFireAt: next, updatedAt: now })
-            .where(eq(extensionSchedules.id, row.id));
-        } catch (err) {
-          log.warn("advance-after-quota-failed", { scheduleId: row.id, error: String(err) });
-        }
+        // Name the KEY on a dynamic row, so the job that was refused is
+        // identifiable rather than just "something under this extension".
+        await this.auditQuotaExceeded(
+          row.extensionId, row.id, dailyCount, grant.maxRunsPerDay, row.key,
+        );
+        this.advancePastQuota(row, tz, now);
         continue;
       }
 
       try {
-        const nextNext = parseCron(row.cron, grant.tz).next(now);
+        const nextNext = parseCron(row.cron, tz).next(now);
         // Determine catch-up (and apply jitter).
         const isCatchUp = row.nextFireAt.getTime() < now.getTime() - 60_000;
         const jitterMs = isCatchUp
@@ -434,16 +513,43 @@ export class ScheduleDaemon {
           "scheduled cron fire has no resolvable owner — owner-scoped capability calls will be skipped (clean soft-fail); global-scope storage still resolves",
           { extensionId: schedule.extensionId, cron: schedule.cron, fireId },
         );
-        proc.sendNotification("ezcorp/schedule-fire", {
-          cron: schedule.cron,
-          scheduledAt: schedule.nextFireAt.toISOString(),
-          firedAt: firedAt.toISOString(),
-          fireId,
-          catchUp,
-          retry: attempt > 0,
-          attempt,
-          _meta: { ezCallId },
-        });
+        // ── The dispatch split (C2) ──────────────────────────────
+        //
+        // A DYNAMIC row goes out on `ezcorp/trigger-fire`, keyed on its
+        // `key`. A MANIFEST row goes out on `ezcorp/schedule-fire` with a
+        // byte-identical payload to before C2.
+        //
+        // They cannot share a notification: the SDK's `Schedule` receiver
+        // resolves its handler with `handlers.get(ctx.cron)`, and
+        // `ScheduleHandlerContext` carries no job identity at all. Two
+        // dynamic jobs sharing `0 9 * * 1` would therefore land on the same
+        // handler with no way to tell which fired — a system that STORES
+        // them correctly and RUNS them identically, which is worse than the
+        // unique-index violation it replaced because it fails silently.
+        if (schedule.dynamic && schedule.key !== null) {
+          proc.sendNotification("ezcorp/trigger-fire", {
+            v: 1,
+            key: schedule.key,
+            kind: "cron",
+            cron: schedule.cron,
+            firedAt: firedAt.toISOString(),
+            fireId,
+            catchUp,
+            attempt,
+            _meta: { ezCallId },
+          });
+        } else {
+          proc.sendNotification("ezcorp/schedule-fire", {
+            cron: schedule.cron,
+            scheduledAt: schedule.nextFireAt.toISOString(),
+            firedAt: firedAt.toISOString(),
+            fireId,
+            catchUp,
+            retry: attempt > 0,
+            attempt,
+            _meta: { ezCallId },
+          });
+        }
         if (fireNow) {
           await insertAuditEntry(
             null,
@@ -604,17 +710,15 @@ export class ScheduleDaemon {
     };
     const reg = this.opts.registry;
     if (reg && typeof reg.getGrantedPermissions === "function") {
-      const granted = reg.getGrantedPermissions(extensionId) as
-        { schedule?: { maxRetries?: number; maxRunsPerDay?: number; maxRunDurationMs?: number; missedRunPolicy?: "skip" | "fire-once" | "fire-all"; tz?: string } }
-        | undefined;
+      const granted = reg.getGrantedPermissions(extensionId) as StoredScheduleGrant | undefined;
       const sched = granted?.schedule;
-      if (sched) {
+      if (sched || granted?.triggers) {
         return {
-          maxRetries: sched.maxRetries ?? fallback.maxRetries,
-          maxRunsPerDay: sched.maxRunsPerDay ?? fallback.maxRunsPerDay,
-          maxRunDurationMs: sched.maxRunDurationMs ?? fallback.maxRunDurationMs,
-          missedRunPolicy: sched.missedRunPolicy ?? fallback.missedRunPolicy,
-          ...(sched.tz !== undefined ? { tz: sched.tz } : {}),
+          maxRetries: sched?.maxRetries ?? fallback.maxRetries,
+          maxRunsPerDay: envelopeFrom(sched, granted?.triggers, fallback.maxRunsPerDay),
+          maxRunDurationMs: sched?.maxRunDurationMs ?? fallback.maxRunDurationMs,
+          missedRunPolicy: sched?.missedRunPolicy ?? fallback.missedRunPolicy,
+          ...(sched?.tz !== undefined ? { tz: sched.tz } : {}),
         };
       }
     }
@@ -625,15 +729,15 @@ export class ScheduleDaemon {
       const rows = await getDb().select({ granted: extensions.grantedPermissions })
         .from(extensions)
         .where(eq(extensions.id, extensionId));
-      const granted = rows[0]?.granted as { schedule?: { maxRetries?: number; maxRunsPerDay?: number; maxRunDurationMs?: number; missedRunPolicy?: "skip" | "fire-once" | "fire-all"; tz?: string } } | undefined;
+      const granted = rows[0]?.granted as StoredScheduleGrant | undefined;
       const sched = granted?.schedule;
-      if (sched) {
+      if (sched || granted?.triggers) {
         return {
-          maxRetries: sched.maxRetries ?? fallback.maxRetries,
-          maxRunsPerDay: sched.maxRunsPerDay ?? fallback.maxRunsPerDay,
-          maxRunDurationMs: sched.maxRunDurationMs ?? fallback.maxRunDurationMs,
-          missedRunPolicy: sched.missedRunPolicy ?? fallback.missedRunPolicy,
-          ...(sched.tz !== undefined ? { tz: sched.tz } : {}),
+          maxRetries: sched?.maxRetries ?? fallback.maxRetries,
+          maxRunsPerDay: envelopeFrom(sched, granted?.triggers, fallback.maxRunsPerDay),
+          maxRunDurationMs: sched?.maxRunDurationMs ?? fallback.maxRunDurationMs,
+          missedRunPolicy: sched?.missedRunPolicy ?? fallback.missedRunPolicy,
+          ...(sched?.tz !== undefined ? { tz: sched.tz } : {}),
         };
       }
     } catch {
@@ -643,9 +747,13 @@ export class ScheduleDaemon {
   }
 
   /** Count today's (UTC calendar day) fires for an extension across all
-   *  its schedules. Used to enforce `maxRunsPerDay`. */
+   *  its schedules. Used to enforce the extension-wide `maxRunsPerDay`.
+   *
+   *  The day boundary comes from the INJECTED clock, not the wall clock: a
+   *  test driving `now` across a UTC midnight would otherwise count against
+   *  the real today and flake. */
   private async todaysFireCount(extensionId: string): Promise<number> {
-    const startOfDay = new Date();
+    const startOfDay = new Date(this.opts.now());
     startOfDay.setUTCHours(0, 0, 0, 0);
     const rows = await getDb().select({ id: extensionScheduleFires.id })
       .from(extensionScheduleFires)
@@ -662,6 +770,7 @@ export class ScheduleDaemon {
     scheduleId: string,
     used: number,
     cap: number,
+    key?: string | null,
   ): Promise<void> {
     await insertAuditEntry(
       null,
@@ -670,11 +779,35 @@ export class ScheduleDaemon {
       {
         capability: "schedule",
         oldValue: { used },
-        newValue: { cap, scheduleId },
+        // The KEY is what makes a starved dynamic job diagnosable — without
+        // it the operator sees only that "something under this extension"
+        // hit the cap.
+        newValue: { cap, scheduleId, ...(key ? { key } : {}) },
         actor: "system",
         reason: `maxRunsPerDay exceeded (${used}/${cap})`,
       },
     ).catch(() => {});
+  }
+
+  /** Advance `next_fire_at` past a quota-refused slot so the row is not
+   *  re-picked 30s later. Fire-and-forget: a failure here just means one
+   *  wasted re-check on the next tick. */
+  private advancePastQuota(
+    row: typeof extensionSchedules.$inferSelect,
+    tz: string | undefined,
+    now: Date,
+  ): void {
+    try {
+      const next = parseCron(row.cron, tz).next(now);
+      void getDb().update(extensionSchedules)
+        .set({ nextFireAt: next, updatedAt: now })
+        .where(eq(extensionSchedules.id, row.id))
+        .catch((err: unknown) => {
+          log.warn("advance-after-quota-failed", { scheduleId: row.id, error: String(err) });
+        });
+    } catch (err) {
+      log.warn("advance-after-quota-failed", { scheduleId: row.id, error: String(err) });
+    }
   }
 
   /** Crash-mid-fire reaping. A `running` row older than
@@ -752,10 +885,12 @@ export class ScheduleDaemon {
     ));
     for (const row of overdue) {
       const grant = await this.readGrant(row.extensionId);
+      // A dynamic row's own zone; a manifest row's grant zone (unchanged).
+      const tz = zoneFor(row, grant);
       try {
         if (grant.missedRunPolicy === "skip") {
           // Bump next_fire_at to the next slot from now.
-          const next = parseCron(row.cron, grant.tz).next(now);
+          const next = parseCron(row.cron, tz).next(now);
           await db.update(extensionSchedules)
             .set({ nextFireAt: next, lastFireStatus: "ok", updatedAt: now })
             .where(eq(extensionSchedules.id, row.id));
@@ -767,7 +902,7 @@ export class ScheduleDaemon {
           // recorded.
           const last = row.lastFireAt ?? row.nextFireAt;
           const dailyUsed = await this.todaysFireCount(row.extensionId);
-          let cursor = parseCron(row.cron, grant.tz).next(last);
+          let cursor = parseCron(row.cron, tz).next(last);
           let firedAny = false;
           let usedToday = dailyUsed;
           while (cursor.getTime() <= now.getTime() && usedToday < grant.maxRunsPerDay) {
@@ -785,10 +920,10 @@ export class ScheduleDaemon {
             await this.dispatchFire(row, fire!.id, fa, true, 0, grant.maxRunDurationMs);
             firedAny = true;
             usedToday++;
-            cursor = parseCron(row.cron, grant.tz).next(cursor);
+            cursor = parseCron(row.cron, tz).next(cursor);
           }
           // Advance schedule.next_fire_at past all enumerated slots.
-          const next = parseCron(row.cron, grant.tz).next(now);
+          const next = parseCron(row.cron, tz).next(now);
           await db.update(extensionSchedules)
             .set({ nextFireAt: next, ...(firedAny ? { lastFireAt: now } : {}), updatedAt: now })
             .where(eq(extensionSchedules.id, row.id));
@@ -806,7 +941,7 @@ export class ScheduleDaemon {
           this.inFlightHost++;
           this.inFlight.set(row.extensionId, (this.inFlight.get(row.extensionId) ?? 0) + 1);
           await this.dispatchFire(row, fire!.id, fa, true, 0, grant.maxRunDurationMs);
-          const next = parseCron(row.cron, grant.tz).next(now);
+          const next = parseCron(row.cron, tz).next(now);
           await db.update(extensionSchedules)
             .set({ nextFireAt: next, lastFireAt: fa, lastFireId: fire!.id, updatedAt: now })
             .where(eq(extensionSchedules.id, row.id));

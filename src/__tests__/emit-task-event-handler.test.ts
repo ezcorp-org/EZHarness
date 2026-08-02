@@ -9,7 +9,8 @@
 //   - snapshot + assignment_update happy path — bus.emit called with
 //     the host's conversationId and the well-typed payload
 //   - malformed payload → -32602 + audit (reason:"schema-mismatch")
-//   - rate limit: 60 tight-loop calls → at least 45 accepted, remainder -32029
+//   - rate limit: 60 tight-loop calls under a frozen clock → the bucket's
+//     50 accepted, the remaining 10 rejected -32029
 //
 // Pattern mirrors storage-handler-coverage.test.ts — real PGlite +
 // drizzle, mock only db/connection.
@@ -463,25 +464,42 @@ describe("emit-task-event — payload validation", () => {
 // ── Rate limit ───────────────────────────────────────────────────────
 
 describe("emit-task-event — rate limit", () => {
-  test("60 tight-loop snapshots → many accepted, remainder -32029", async () => {
-    // Use a unique extensionId so the bucket starts full.
+  test("60 tight-loop snapshots → the bucket's 50, then -32029 for the rest", async () => {
+    // `createRateLimiter` refills on the WALL CLOCK (`Date.now()`), so on a
+    // loaded host these 60 awaited DB round trips can span more than a
+    // second, the bucket refills mid-loop and NOTHING is limited. That is a
+    // reproduced flake, not a hypothetical: this test failed exactly that
+    // way in a full-suite run and passed 3/3 in isolation straight after.
+    //
+    // Freezing the clock keeps `elapsed` at 0, so no token is ever put back
+    // and the split is EXACT — 50 (the handler's MAX_OPS_PER_SECOND, the
+    // bucket's initial fill) then 10 — instead of a tolerance band that a
+    // slow host walks straight out of.
     const ext = `rl-ext-${crypto.randomUUID().slice(0, 8)}`;
-    // Wire it.
     await wireConversation(CONV_WIRED, ext);
     const { bus } = makeBus();
     let accepted = 0;
     let limited = 0;
-    for (let i = 0; i < 60; i++) {
-      const resp = await handleEmitTaskEventRpc(
-        ext,
-        rpc({ v: 1, type: "snapshot", payload: { tasks: [] } }, `rl-${i}`),
-        makeCtx(bus, { conversationId: CONV_WIRED }),
-      );
-      if (resp.error?.code === -32029) limited++;
-      else if (!resp.error) accepted++;
+
+    const realNow = Date.now;
+    const frozen = realNow();
+    Date.now = () => frozen;
+    try {
+      for (let i = 0; i < 60; i++) {
+        const resp = await handleEmitTaskEventRpc(
+          ext,
+          rpc({ v: 1, type: "snapshot", payload: { tasks: [] } }, `rl-${i}`),
+          makeCtx(bus, { conversationId: CONV_WIRED }),
+        );
+        if (resp.error?.code === -32029) limited++;
+        else if (!resp.error) accepted++;
+      }
+    } finally {
+      Date.now = realNow;
     }
-    expect(accepted).toBeGreaterThanOrEqual(45);
-    expect(limited).toBeGreaterThan(0);
+
+    expect(accepted).toBe(50);
+    expect(limited).toBe(10);
   });
 });
 

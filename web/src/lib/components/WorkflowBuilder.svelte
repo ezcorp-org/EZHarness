@@ -6,6 +6,7 @@
 	import {
 		blankStep,
 		buildWorkflowPayload,
+		defaultModelToText,
 		pruneDependsOn,
 		remapDependsOn,
 		workflowToDrafts,
@@ -41,13 +42,16 @@
 	let description = $state(untrack(() => (initial.description as string) ?? ""));
 
 	// `initial` carries STORED steps (an `input` record, a `condition` object,
-	// a `loop` object) — not drafts. `workflowToDrafts` is the inverse of the
-	// `stepToPayload` used on submit; casting straight to `StepDraft[]` here
-	// (as this did before editing existed) yields a form bound to fields that
-	// do not exist, which renders blank and saves an erased definition.
+	// a `loop` object, a per-step `model` binding) — not drafts.
+	// `workflowToDrafts` is the inverse of the `stepToPayload` used on submit;
+	// casting straight to `StepDraft[]` here (as this did before editing
+	// existed) yields a form bound to fields that do not exist, which renders
+	// blank and saves an erased definition. It also supplies the one blank
+	// row an empty step list opens on.
 	let steps = $state<StepDraft[]>(
 		untrack(() => workflowToDrafts(initial.steps as StoredStep[] | undefined)),
 	);
+	let defaultModelText = $state(untrack(() => defaultModelToText(initial.defaultModel)));
 
 	// Fetched once for the whole form rather than per step: a 6-step workflow
 	// would otherwise issue 6 identical requests.
@@ -87,7 +91,7 @@
 	function handleSubmit(e: Event) {
 		e.preventDefault();
 		errorMsg = "";
-		const result = buildWorkflowPayload(name, description, steps);
+		const result = buildWorkflowPayload(name, description, steps, defaultModelText);
 		// `!== null` (not truthiness): `error` is typed `string | null` and a
 		// bare `if (result.error)` can't discriminate the union for TS (an
 		// empty-string error would also be falsy). Every producer returns a
@@ -109,6 +113,17 @@
 	<div>
 		<label for="wf-desc" class="mb-1 block text-sm font-medium text-[var(--color-text-secondary)]">Description</label>
 		<input id="wf-desc" type="text" bind:value={description} class={inputClass} placeholder="What does this workflow do?" />
+	</div>
+
+	<div>
+		<label for="wf-default-model" class="mb-1 block text-sm font-medium text-[var(--color-text-secondary)]">Default model (JSON, optional)</label>
+		<textarea
+			id="wf-default-model"
+			bind:value={defaultModelText}
+			rows="2"
+			placeholder={'{ "provider": "anthropic", "model": "claude-sonnet-5" }'}
+			class="{inputClass} font-mono"
+		></textarea>
 	</div>
 
 	<div>

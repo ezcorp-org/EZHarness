@@ -123,6 +123,11 @@ describe("capability-flags — kill-switch gate", () => {
         // three-state policy override, so it belongs here and NOT in
         // CAPABILITY_POLICY_FIELDS.
         "workflows",
+        // C2 — the `ezcorp/triggers` dynamic cron/webhook envelope. Same
+        // classification as `workflows` for the same reason: a discrete
+        // reverse-RPC verb behind an install-time grant, with no
+        // instance-wide default to inherit from.
+        "triggers",
       ]),
     );
   });

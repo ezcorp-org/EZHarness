@@ -813,10 +813,11 @@ describe("SCOPED_RUNTIME_EVENT_TYPES", () => {
     "run:turn_text_reset",
     "agent:spawn", "agent:status", "agent:complete",
     "workflow:start", "workflow:step", "workflow:complete", "workflow:error",
+    "workflow:approval_request",
   ] as const;
 
-  test("enumerates the 13 scoped runtime events", () => {
-    expect(SCOPED_RUNTIME_EVENT_TYPES.size).toBe(13);
+  test("enumerates the 14 scoped runtime events", () => {
+    expect(SCOPED_RUNTIME_EVENT_TYPES.size).toBe(14);
     for (const name of MEMBERS) {
       expect(SCOPED_RUNTIME_EVENT_TYPES.has(name as never)).toBe(true);
     }
@@ -894,6 +895,32 @@ describe("shouldDeliverEvent — scoped runtime events (Wave 0)", () => {
     expect(await shouldDeliverEvent("workflow:start", payload, { userId: "other" }, get)).toBe(false);
     // CLI-triggered workflow (no userId) → dropped, never broadcast.
     expect(await shouldDeliverEvent("workflow:complete", { workflowRun: { id: "p2" } }, { userId: "runner" }, get)).toBe(false);
+  });
+
+  test("workflow:approval_request reaches ONLY the run's owner, and nobody at all when the run is unowned", async () => {
+    // The payload carries the step's prompt and its consent item ids —
+    // which name what is about to be done and to what. A broadcast here
+    // would leak one user's pending decision, with its detail, to every
+    // connected client.
+    const get = makeGetConversation({});
+    const payload = {
+      approvalId: "ap-1",
+      workflowRunId: "run-1",
+      workflowName: "ship",
+      stepName: "gate",
+      prompt: "Delete /etc/secrets?",
+      choices: ["approve", "reject"],
+      requireItemConsent: true,
+      itemIds: ["/etc/secrets"],
+      expiresAt: null,
+      userId: "owner",
+    };
+    expect(await shouldDeliverEvent("workflow:approval_request", payload, { userId: "owner" }, get)).toBe(true);
+    expect(await shouldDeliverEvent("workflow:approval_request", payload, { userId: "nosy" }, get)).toBe(false);
+    // Unowned run (CLI / extension trigger with no acting user): there is
+    // nobody whose decision this is, so it goes to NOBODY.
+    const { userId: _dropped, ...unowned } = payload;
+    expect(await shouldDeliverEvent("workflow:approval_request", unowned, { userId: "owner" }, get)).toBe(false);
   });
 
   test("agent:status without parent carrier is scoped via subConversationId, walking to the parent owner", async () => {

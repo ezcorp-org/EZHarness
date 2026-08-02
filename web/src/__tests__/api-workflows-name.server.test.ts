@@ -11,7 +11,9 @@
 import { test, expect, describe, vi, beforeEach } from "vitest";
 
 const ctx = vi.hoisted(() => ({
-  getWorkflows: vi.fn(() => [] as Array<{ name: string }>),
+  // The cache now carries provenance — a bare `WorkflowDefinition` has
+  // nothing to authorize against, so the routes read this instead.
+  getCachedWorkflows: vi.fn(() => [] as unknown[]),
   reloadWorkflows: vi.fn(async () => {}),
 }));
 const queries = vi.hoisted(() => ({
@@ -20,27 +22,37 @@ const queries = vi.hoisted(() => ({
   ),
   updateWorkflow: vi.fn(async (_id: string, _data: unknown) => undefined as unknown),
   deleteWorkflow: vi.fn(async (_id: string) => true),
-  getWorkflowOwnersByName: vi.fn(async () => new Map<string, string | null>()),
+  WorkflowNameConflictError: class extends Error {},
 }));
-const authz = vi.hoisted(() => ({
-  canActOnWorkflow: vi.fn(() => true),
-  canManageWorkflow: vi.fn(() => false),
+const versions = vi.hoisted(() => ({
+  ensureWorkflowVersion: vi.fn(async () => ({ version: { version: 1 }, minted: false })),
 }));
 vi.mock("$lib/server/context", () => ctx);
 vi.mock("$server/db/queries/workflows", () => queries);
-vi.mock("$server/runtime/workflow-authz", () => authz);
+vi.mock("$server/db/queries/workflow-versions", () => versions);
 
 import { GET, PUT, DELETE } from "../routes/api/workflows/[name]/+server";
 
+/** A cache entry the authed member below OWNS, so it is editable. */
+function ownedEntry(name = "w1") {
+	return {
+		definition: { name, description: "", steps: [] },
+		source: "db",
+		id: "wf-1",
+		projectId: null,
+		userId: "u1",
+		visibility: "project",
+		forkedFrom: null,
+	};
+}
+
 beforeEach(() => {
-  ctx.getWorkflows.mockReset().mockReturnValue([]);
+  ctx.getCachedWorkflows.mockReset().mockReturnValue([]);
   ctx.reloadWorkflows.mockReset().mockResolvedValue(undefined);
   queries.getWorkflowByName.mockReset().mockResolvedValue(undefined);
   queries.updateWorkflow.mockReset().mockResolvedValue(undefined);
   queries.deleteWorkflow.mockReset().mockResolvedValue(true);
-  queries.getWorkflowOwnersByName.mockReset().mockResolvedValue(new Map());
-  authz.canActOnWorkflow.mockReset().mockReturnValue(true);
-  authz.canManageWorkflow.mockReset().mockReturnValue(false);
+  versions.ensureWorkflowVersion.mockReset().mockResolvedValue({ version: { version: 1 }, minted: false });
 });
 
 function makeEvent(opts: {
@@ -98,29 +110,50 @@ describe("GET /api/workflows/[name]", () => {
 		expect(res.status).toBe(401);
 	});
 
-	test("returns the workflow when it exists, stamped with canManage", async () => {
-		// The detail route must serve the SAME shape as the list — a workflow
-		// must not gain or lose `canManage` depending on which route returned it.
-		ctx.getWorkflows.mockReturnValue([{ name: "w1" }]);
+	test("returns the workflow when it exists", async () => {
+		ctx.getCachedWorkflows.mockReturnValue([ownedEntry("w1")]);
 		const res = await GET(makeEvent({ name: "w1", locals: { ...authedUser, apiKeyScopes: ["read"] } }));
 		expect(res.status).toBe(200);
-		expect((await res.json()) as { name?: string }).toEqual({ name: "w1", canManage: false });
+		// Additively wrapped: the definition plus the provenance the editor
+		// needs to decide whether to offer Edit. The detail route serves the
+		// SAME shape as the list — a workflow must not gain or lose a field
+		// depending on which route returned it.
+		expect((await res.json()) as { name?: string }).toMatchObject({
+			name: "w1",
+			source: "db",
+			visibility: "project",
+			canEdit: true,
+		});
 	});
 
-	test("reports canManage true for a workflow this caller may write", async () => {
-		ctx.getWorkflows.mockReturnValue([{ name: "w1" }]);
-		authz.canManageWorkflow.mockReturnValue(true);
+	test("reports canEdit false for a workflow this caller may see but not write", async () => {
+		// `system` is readable by anyone and admin-only to EDIT, so this is
+		// the case where the two answers diverge — exactly what the flag is for.
+		ctx.getCachedWorkflows.mockReturnValue([
+			{ ...ownedEntry("w1"), visibility: "system", userId: null },
+		]);
 		const res = await GET(makeEvent({ name: "w1", locals: authedUser }));
-		expect((await res.json()) as { canManage?: boolean }).toEqual({
+		expect((await res.json()) as { canEdit?: boolean }).toMatchObject({
 			name: "w1",
-			canManage: true,
+			canEdit: false,
 		});
 	});
 
 	test("returns 404 when the workflow is not in the registry", async () => {
-		ctx.getWorkflows.mockReturnValue([]);
+		ctx.getCachedWorkflows.mockReturnValue([]);
 		const res = await GET(makeEvent({ name: "missing", locals: authedUser }));
 		expect(res.status).toBe(404);
+	});
+
+	test("returns 404 — not 403 — for a workflow the caller may not see", async () => {
+		// The endpoint must not be an existence oracle: an unauthorized read
+		// is indistinguishable from a missing workflow.
+		ctx.getCachedWorkflows.mockReturnValue([
+			{ ...ownedEntry("secret"), visibility: "private", userId: "someone-else" },
+		]);
+		const res = await GET(makeEvent({ name: "secret", locals: authedUser }));
+		expect(res.status).toBe(404);
+		expect((await res.json()) as { error?: string }).toEqual({ error: "Not found" });
 	});
 });
 
@@ -146,6 +179,133 @@ describe("PUT /api/workflows/[name]", () => {
 		expect(res.status).toBe(401);
 	});
 
+	test("returns 400 for a malformed defaultModel, even with no steps in the body", async () => {
+		// This route is a PARTIAL update, so a defaultModel-only body has no
+		// step list to hand the whole-definition validator — it is checked on
+		// its own, or it would slip through unvalidated.
+		const res = await PUT(
+			makeEvent({
+				locals: authedUser,
+				method: "PUT",
+				body: { defaultModel: { effort: "turbo" } },
+			}),
+		);
+		expect(res.status).toBe(400);
+		const body = (await res.json()) as { error?: string };
+		expect(body.error).toContain('Workflow "defaultModel" "effort" must be one of');
+		// Rejected before any DB work.
+		expect(queries.getWorkflowByName).not.toHaveBeenCalled();
+	});
+
+	test("forwards a valid defaultModel to the update", async () => {
+		ctx.getCachedWorkflows.mockReturnValue([ownedEntry()]);
+		queries.getWorkflowByName.mockResolvedValue({ id: "wf-1" });
+		queries.updateWorkflow.mockResolvedValue({ id: "wf-1", name: "w1" });
+		const res = await PUT(
+			makeEvent({
+				locals: authedUser,
+				method: "PUT",
+				body: { defaultModel: { provider: "anthropic", model: "claude-haiku-4-5-20251001" } },
+			}),
+		);
+		expect(res.status).toBe(200);
+		expect(queries.updateWorkflow).toHaveBeenCalledWith("wf-1", {
+			defaultModel: { provider: "anthropic", model: "claude-haiku-4-5-20251001" },
+		});
+	});
+
+	// ── Re-classification (Ruling 1, update path) ──────────────────────
+	//
+	// Changing an existing workflow's visibility is a re-classification, so
+	// the question "who may do it" is asked in two halves. The `edit` gate
+	// asks it about the row AS IT STANDS — and for `project` and `private`
+	// that already means owner-or-admin, which is what makes tightening
+	// safe to allow with no extra rule. The second half is the one value
+	// `edit` does not imply: promotion into `system`.
+
+	test("the owner may TIGHTEN their own workflow to private", async () => {
+		ctx.getCachedWorkflows.mockReturnValue([ownedEntry()]);
+		queries.getWorkflowByName.mockResolvedValue({ id: "wf-1" });
+		queries.updateWorkflow.mockResolvedValue({ id: "wf-1", name: "w1" });
+		const res = await PUT(
+			makeEvent({ locals: authedUser, method: "PUT", body: { visibility: "private" } }),
+		);
+		expect(res.status).toBe(200);
+		expect(queries.updateWorkflow).toHaveBeenCalledWith("wf-1", { visibility: "private" });
+	});
+
+	test("a member may NOT broaden a workflow they do not own", async () => {
+		// The denial that matters most: the `edit` ladder refuses before the
+		// visibility rule is ever consulted, so someone else's `private` row
+		// cannot be broadened to `project` no matter what the body says.
+		//
+		// 403, not 404 — `denialStatus` returns 403 for every EDIT denial
+		// (pre-existing, and pinned by the DELETE case below). Worth being
+		// explicit about because the reasoning it rests on — "the caller can
+		// already see the workflow by then" — does not hold for `private`,
+		// which Ruling 1 has just made reachable for the first time. The
+		// authorization is correct; the STATUS is an existence oracle for
+		// private workflow names. Out of scope here, flagged deliberately.
+		ctx.getCachedWorkflows.mockReturnValue([
+			{ ...ownedEntry("secret"), visibility: "private", userId: "someone-else" },
+		]);
+		const res = await PUT(
+			makeEvent({
+				name: "secret",
+				locals: authedUser,
+				method: "PUT",
+				body: { visibility: "project" },
+			}),
+		);
+		expect(res.status).toBe(403);
+		expect(queries.updateWorkflow).not.toHaveBeenCalled();
+	});
+
+	test("the owner may NOT promote their own workflow to system", async () => {
+		// Tightening is free; promoting into the everyone-can-run,
+		// admin-only-to-edit tier is not. Discriminates against a rule that
+		// merely allowed whatever cleared `edit`: this caller IS the owner
+		// and DID clear `edit`, and is still refused.
+		ctx.getCachedWorkflows.mockReturnValue([ownedEntry()]);
+		queries.getWorkflowByName.mockResolvedValue({ id: "wf-1" });
+		const res = await PUT(
+			makeEvent({ locals: authedUser, method: "PUT", body: { visibility: "system" } }),
+		);
+		expect(res.status).toBe(403);
+		expect((await res.json()) as { error?: string }).toMatchObject({
+			error: "Only an admin can make a workflow system-owned",
+		});
+		expect(queries.updateWorkflow).not.toHaveBeenCalled();
+	});
+
+	test("an admin MAY promote a workflow to system", async () => {
+		// Discrimination for the test above — the 403 is keyed on role.
+		ctx.getCachedWorkflows.mockReturnValue([ownedEntry()]);
+		queries.getWorkflowByName.mockResolvedValue({ id: "wf-1" });
+		queries.updateWorkflow.mockResolvedValue({ id: "wf-1", name: "w1" });
+		const res = await PUT(
+			makeEvent({
+				locals: { user: { ...authedUser.user, id: "admin1", role: "admin" } },
+				method: "PUT",
+				body: { visibility: "system" },
+			}),
+		);
+		expect(res.status).toBe(200);
+		expect(queries.updateWorkflow).toHaveBeenCalledWith("wf-1", { visibility: "system" });
+	});
+
+	test("an update that omits visibility does not re-classify the row", async () => {
+		// `updateWorkflow` writes `visibility` only when the key is present,
+		// so an ordinary description edit must not carry one. Without this,
+		// a route that defaulted the field would silently re-tier every row
+		// it touched.
+		ctx.getCachedWorkflows.mockReturnValue([ownedEntry()]);
+		queries.getWorkflowByName.mockResolvedValue({ id: "wf-1" });
+		queries.updateWorkflow.mockResolvedValue({ id: "wf-1", name: "w1" });
+		await PUT(makeEvent({ locals: authedUser, method: "PUT", body: { description: "d" } }));
+		expect(queries.updateWorkflow).toHaveBeenCalledWith("wf-1", { description: "d" });
+	});
+
 	test("returns 400 when replacement steps fail definition-time validation", async () => {
 		const res = await PUT(
 			makeEvent({
@@ -169,6 +329,7 @@ describe("PUT /api/workflows/[name]", () => {
 	});
 
 	test("returns 404 when the named workflow is not a DB workflow", async () => {
+		ctx.getCachedWorkflows.mockReturnValue([ownedEntry()]);
 		queries.getWorkflowByName.mockResolvedValue(undefined);
 		const res = await PUT(makeEvent({ locals: authedUser, method: "PUT", body: { description: "d" } }));
 		expect(res.status).toBe(404);
@@ -176,24 +337,71 @@ describe("PUT /api/workflows/[name]", () => {
 		expect(body.error).toBe("Not found (only DB workflows can be updated)");
 	});
 
-	test("returns 403 when the caller does not own the row", async () => {
-		queries.getWorkflowByName.mockResolvedValue({ id: "wf-1", createdBy: "someone-else" });
-		authz.canActOnWorkflow.mockReturnValue(false);
+	// PUT authorizes through ONE gate: the ladder, via `resolveWorkflowOr`.
+	// A second owner-or-admin rule over a `created_by` column used to run
+	// after it; it is gone, and these cover the ladder's own refusals.
+
+	test("returns 403 when the caller may not edit a system workflow", async () => {
+		// The deliberate tightening: every pre-existing row is `system`, and
+		// `system` is admin-only to edit. A 403 (not 404) because the caller
+		// can already see it — there is nothing left to conceal.
+		ctx.getCachedWorkflows.mockReturnValue([{ ...ownedEntry(), visibility: "system", userId: null }]);
 		const res = await PUT(makeEvent({ locals: authedUser, method: "PUT", body: { description: "d" } }));
 		expect(res.status).toBe(403);
-		const body = (await res.json()) as { error?: string };
-		expect(body.error).toBe("Only the workflow's owner or an admin can update it");
+		expect((await res.json()) as { error?: string }).toMatchObject({
+			error: expect.stringContaining("admin"),
+		});
 		expect(queries.updateWorkflow).not.toHaveBeenCalled();
 	});
 
-	test("applies the ownership rule to the row's created_by and the caller", async () => {
-		queries.getWorkflowByName.mockResolvedValue({ id: "wf-1", createdBy: "u1" });
-		queries.updateWorkflow.mockResolvedValue({ id: "wf-1", name: "w1" });
-		await PUT(makeEvent({ locals: authedUser, method: "PUT", body: { description: "d" } }));
-		expect(authz.canActOnWorkflow).toHaveBeenCalledWith("u1", authedUser.user);
+	test("returns 409 when a rename collides with an existing name", async () => {
+		// Unreachable before the editor made renaming ordinary; it used to
+		// surface as an unhandled 500 from the unique index.
+		ctx.getCachedWorkflows.mockReturnValue([ownedEntry()]);
+		queries.getWorkflowByName.mockResolvedValue({ id: "wf-1" });
+		queries.updateWorkflow.mockRejectedValue(new queries.WorkflowNameConflictError("taken"));
+		const res = await PUT(
+			makeEvent({ locals: authedUser, method: "PUT", body: { name: "taken" } }),
+		);
+		expect(res.status).toBe(409);
+	});
+
+	test("an unrelated update failure is re-thrown, never mislabelled a 409", async () => {
+		ctx.getCachedWorkflows.mockReturnValue([ownedEntry()]);
+		queries.getWorkflowByName.mockResolvedValue({ id: "wf-1" });
+		queries.updateWorkflow.mockRejectedValue(new Error("disk full"));
+		await expect(
+			PUT(makeEvent({ locals: authedUser, method: "PUT", body: { description: "d" } })),
+		).rejects.toThrow("disk full");
+	});
+
+	test("returns 403 when the caller does not own the row", async () => {
+		// The ladder's own refusal: a `private` row owned by someone else.
+		// A 403 rather than a 404 because an EDIT denial has nothing left
+		// to conceal — the caller could already see it.
+		ctx.getCachedWorkflows.mockReturnValue([
+			{ ...ownedEntry(), visibility: "private", userId: "someone-else" },
+		]);
+		const res = await PUT(makeEvent({ locals: authedUser, method: "PUT", body: { description: "d" } }));
+		expect(res.status).toBe(403);
+		expect(queries.updateWorkflow).not.toHaveBeenCalled();
+	});
+
+	test("an ORPHANED private row is admin-only, not writable by anyone", async () => {
+		// `user_id` is ON DELETE SET NULL, so deleting the owner leaves a
+		// private row with a NULL owner. The rule this replaced read that
+		// NULL as "unowned — anyone may act", which made a departed
+		// employee's private workflow world-writable.
+		ctx.getCachedWorkflows.mockReturnValue([
+			{ ...ownedEntry(), visibility: "private", userId: null },
+		]);
+		const res = await PUT(makeEvent({ locals: authedUser, method: "PUT", body: { description: "d" } }));
+		expect(res.status).toBe(403);
+		expect(queries.updateWorkflow).not.toHaveBeenCalled();
 	});
 
 	test("returns 404 when the update itself resolves to nothing", async () => {
+		ctx.getCachedWorkflows.mockReturnValue([ownedEntry()]);
 		queries.getWorkflowByName.mockResolvedValue({ id: "wf-1" });
 		queries.updateWorkflow.mockResolvedValue(undefined);
 		const res = await PUT(makeEvent({ locals: authedUser, method: "PUT", body: { description: "d" } }));
@@ -201,6 +409,7 @@ describe("PUT /api/workflows/[name]", () => {
 	});
 
 	test("updates a DB workflow, reloads, and returns the updated row", async () => {
+		ctx.getCachedWorkflows.mockReturnValue([ownedEntry()]);
 		queries.getWorkflowByName.mockResolvedValue({ id: "wf-1" });
 		queries.updateWorkflow.mockResolvedValue({ id: "wf-1", name: "w1", description: "new" });
 		const res = await PUT(
@@ -233,6 +442,7 @@ describe("DELETE /api/workflows/[name]", () => {
 	});
 
 	test("returns 404 when the named workflow is not a DB workflow", async () => {
+		ctx.getCachedWorkflows.mockReturnValue([ownedEntry()]);
 		queries.getWorkflowByName.mockResolvedValue(undefined);
 		const res = await DELETE(makeEvent({ locals: authedUser, method: "DELETE" }));
 		expect(res.status).toBe(404);
@@ -241,22 +451,32 @@ describe("DELETE /api/workflows/[name]", () => {
 	});
 
 	test("returns 403 when the caller does not own the row", async () => {
-		queries.getWorkflowByName.mockResolvedValue({ id: "wf-1", createdBy: "someone-else" });
-		authz.canActOnWorkflow.mockReturnValue(false);
+		// The ladder's own refusal: a `private` row owned by someone else.
+		// A 403 rather than a 404 because an EDIT denial has nothing left
+		// to conceal — the caller could already see it.
+		ctx.getCachedWorkflows.mockReturnValue([
+			{ ...ownedEntry(), visibility: "private", userId: "someone-else" },
+		]);
 		const res = await DELETE(makeEvent({ locals: authedUser, method: "DELETE" }));
 		expect(res.status).toBe(403);
-		const body = (await res.json()) as { error?: string };
-		expect(body.error).toBe("Only the workflow's owner or an admin can delete it");
 		expect(queries.deleteWorkflow).not.toHaveBeenCalled();
 	});
 
-	test("applies the ownership rule to the row's created_by and the caller", async () => {
-		queries.getWorkflowByName.mockResolvedValue({ id: "wf-1", createdBy: "u1" });
-		await DELETE(makeEvent({ locals: authedUser, method: "DELETE" }));
-		expect(authz.canActOnWorkflow).toHaveBeenCalledWith("u1", authedUser.user);
+	test("an ORPHANED private row is admin-only, not writable by anyone", async () => {
+		// `user_id` is ON DELETE SET NULL, so deleting the owner leaves a
+		// private row with a NULL owner. The rule this replaced read that
+		// NULL as "unowned — anyone may act", which made a departed
+		// employee's private workflow world-writable.
+		ctx.getCachedWorkflows.mockReturnValue([
+			{ ...ownedEntry(), visibility: "private", userId: null },
+		]);
+		const res = await DELETE(makeEvent({ locals: authedUser, method: "DELETE" }));
+		expect(res.status).toBe(403);
+		expect(queries.deleteWorkflow).not.toHaveBeenCalled();
 	});
 
 	test("deletes a DB workflow, reloads, and returns ok", async () => {
+		ctx.getCachedWorkflows.mockReturnValue([ownedEntry()]);
 		queries.getWorkflowByName.mockResolvedValue({ id: "wf-1" });
 		const res = await DELETE(makeEvent({ locals: authedUser, method: "DELETE" }));
 		expect(res.status).toBe(200);

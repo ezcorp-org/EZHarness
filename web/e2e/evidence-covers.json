@@ -24,6 +24,12 @@
   "web/e2e/chat-prompt-arrow-nav-cards.spec.ts": [
     "web/src/lib/components/ChatThread.svelte"
   ],
+  "web/e2e/city-conditions-card.spec.ts": [
+    "web/src/lib/components/tool-cards/CityConditionsCard.svelte",
+    "web/src/lib/components/tool-cards/city-conditions-card-logic.ts",
+    "web/src/lib/components/tool-cards/ToolCardRouter.svelte",
+    "web/src/lib/components/tool-cards/DefaultCard.svelte"
+  ],
   "web/e2e/code-review-panel-evidence.spec.ts": [
     "web/src/lib/components/DiffSummaryPanel.svelte",
     "web/src/lib/components/review/DiffStatBar.svelte",
@@ -157,12 +163,6 @@
     "web/src/lib/components/settings/PreferenceOrderSection.svelte",
     "web/src/routes/(app)/settings/models/+page.svelte"
   ],
-  "web/e2e/city-conditions-card.spec.ts": [
-    "web/src/lib/components/tool-cards/CityConditionsCard.svelte",
-    "web/src/lib/components/tool-cards/city-conditions-card-logic.ts",
-    "web/src/lib/components/tool-cards/ToolCardRouter.svelte",
-    "web/src/lib/components/tool-cards/DefaultCard.svelte"
-  ],
   "web/e2e/pending-permission-tray.spec.ts": [
     "web/src/lib/components/tool-cards/PendingPermissionTray.svelte",
     "web/src/lib/components/tool-cards/PermissionGate.svelte",
@@ -261,16 +261,45 @@
     "web/src/app.css",
     "web/src/routes/(app)/hub/+page.svelte"
   ],
+  "web/e2e/workflow-approval-tray.spec.ts": [
+    "web/src/lib/components/tool-cards/PendingDecisionsTray.svelte",
+    "web/src/lib/components/tool-cards/PendingApprovalCard.svelte",
+    "web/src/lib/components/tool-cards/PendingPermissionTray.svelte",
+    "web/src/lib/workflow-approvals-logic.ts"
+  ],
   "web/e2e/workflow-mention.spec.ts": [
     "web/src/lib/components/MentionChip.svelte",
     "web/src/lib/components/MentionPopover.svelte",
     "web/src/lib/components/ChatInput.svelte",
     "web/src/lib/components/ChatMessage.svelte"
   ],
+  "web/e2e/workflows-approvals.spec.ts": [
+    "web/src/routes/(app)/workflows/approvals/+page.svelte",
+    "web/src/lib/workflow-approvals-logic.ts"
+  ],
+  "web/e2e/workflows-action-bar.spec.ts": [
+    "web/src/routes/(app)/workflows/[name]/+page.svelte"
+  ],
+  "web/e2e/workflows-conditional.spec.ts": [
+    "web/src/routes/(app)/workflows/[name]/+page.svelte",
+    "web/src/lib/workflow-run-display.ts"
+  ],
   "web/e2e/workflows-demos.spec.ts": [
     "web/src/routes/(app)/workflows/**",
     "web/src/lib/components/WorkflowBuilder.svelte",
     "web/src/lib/components/WorkflowStepForm.svelte",
     "web/src/routes/(app)/+layout.svelte"
+  ],
+  "web/e2e/workflows-editor.spec.ts": [
+    "web/src/routes/(app)/workflows/[name]/edit/**",
+    "web/src/lib/components/WorkflowBuilder.svelte",
+    "web/src/lib/components/WorkflowStepForm.svelte"
+  ],
+  "web/e2e/workflows-fork.spec.ts": [
+    "web/src/routes/(app)/workflows/[name]/+page.svelte"
+  ],
+  "web/e2e/workflows-run-trace.spec.ts": [
+    "web/src/routes/(app)/workflows/runs/[id]/+page.svelte",
+    "web/src/lib/workflow-trace-logic.ts"
   ]
 }

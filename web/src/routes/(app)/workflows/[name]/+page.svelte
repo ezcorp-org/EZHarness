@@ -2,19 +2,27 @@
 	import { page } from "$app/state";
 	import { goto } from "$app/navigation";
 	import { store, refreshWorkflows } from "$lib/stores.svelte.js";
-	import { triggerWorkflowRun, deleteWorkflow, updateWorkflow, type Workflow } from "$lib/api.js";
-	import { statusColor, kindLabel, runErrorText } from "$lib/workflow-run-display.js";
+	import { triggerWorkflowRun, deleteWorkflow, updateWorkflow, forkWorkflow } from "$lib/api.js";
+	import {
+		statusColor,
+		kindLabel,
+		runErrorText,
+		modelBindingLabel,
+		stepModelBinding,
+		resolvedModelLabel,
+	} from "$lib/workflow-run-display.js";
 	import WorkflowBuilder from "$lib/components/WorkflowBuilder.svelte";
 
 	let workflowName = $derived(page.params.name);
 	let workflow = $derived(store.workflows.find((w) => w.name === workflowName));
 	let runs = $derived(store.workflowRuns.filter((r) => r.workflowName === workflowName));
 
-	// Server-resolved: `source === "db"` AND owner-or-admin. Gating on it
-	// means Edit/Delete are never painted on a request that would 403 (someone
-	// else's workflow) or 404 (a YAML/extension asset — a file on disk, with
-	// nothing to write).
-	let canManage = $derived(workflow?.canManage === true);
+	// Server-resolved by the ownership ladder's `edit` rung — `source === "db"`
+	// AND (admin, or the owner of a `private`/`project` row). A `system` row is
+	// admin-only. Gating on it means Edit/Delete are never painted on a request
+	// that would 403 (someone else's workflow) or 404 (a YAML/extension asset —
+	// a file on disk, with nothing to write).
+	let canEdit = $derived(workflow?.canEdit === true);
 
 	let inputText = $state("{}");
 	let submitting = $state(false);
@@ -44,7 +52,7 @@
 		editSubmitting = true;
 		editErrorMsg = "";
 		try {
-			const saved = await updateWorkflow(workflowName, data as unknown as Workflow);
+			const saved = await updateWorkflow(workflowName, data);
 			await refreshWorkflows();
 			editing = false;
 			// A rename moves the resource: this page is keyed by name, so
@@ -76,6 +84,33 @@
 	let deleteConfirming = $state(false);
 	let deleteConfirmTimer: ReturnType<typeof setTimeout> | undefined;
 	let deleteErrorMsg = $state("");
+
+	let forking = $state(false);
+	let forkErrorMsg = $state("");
+
+	// One class for every non-destructive action pill. Repeated inline five
+	// times before, which is how the row drifted into five identical-looking
+	// buttons with no way to keep them consistent when one changed.
+	const ACTION_BTN =
+		"rounded-md bg-[var(--color-surface-tertiary)] px-3 py-1 text-sm text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-border)] disabled:opacity-50";
+
+	async function handleFork() {
+		if (!workflowName) return;
+		forking = true;
+		forkErrorMsg = "";
+		try {
+			// The route returns the FINAL name: `workflow_definitions.name` is
+			// globally unique, so a fork of an already-taken name is suffixed
+			// server-side and the user is taken to whatever it ended up called.
+			const forked = await forkWorkflow(workflowName, store.activeProjectId);
+			refreshWorkflows();
+			await goto(`/workflows/${encodeURIComponent(forked.name)}/edit`);
+		} catch (e) {
+			forkErrorMsg = e instanceof Error ? e.message : "Failed to fork workflow";
+		} finally {
+			forking = false;
+		}
+	}
 
 	async function handleRun() {
 		if (!workflowName) return;
@@ -141,29 +176,76 @@
 						<p class="mb-4 text-[var(--color-text-secondary)]">{workflow.description}</p>
 					{/if}
 				</div>
+				<!-- Five affordances share this row, so it is GROUPED rather than
+				     flat: edit actions, then copy actions, then the destructive
+				     one behind a divider. Flat, they read as five interchangeable
+				     pills and the red Delete sits flush against a benign button.
+
+				     The two editors are both deliberate — the INLINE one for a
+				     quick step tweak without leaving the page, and the standalone
+				     /edit route for the YAML tab and dry run — so the inline one
+				     says "Edit steps" rather than a bare "Edit", which was
+				     indistinguishable from "Full editor" beside it. Fork and
+				     Duplicate are likewise two copy affordances differing only in
+				     WHERE the copy is made (server-side clone vs. a prefilled
+				     create form); `title` says which is which. Collapsing that
+				     pair is a product decision, not a merge one, and is left as
+				     follow-up.
+
+				     Every WRITE affordance gates on the same server-computed flag —
+				     an ungated Edit on a read-only YAML demo is a button whose only
+				     outcome is a 404. Copy affordances stay ungated: cloning
+				     something you can read is exactly what they are for. -->
 				{#if !editing}
-					<div class="flex flex-wrap items-center justify-end gap-2">
-						{#if canManage}
+					<div class="flex flex-wrap items-center justify-end gap-x-2 gap-y-2">
+						{#if canEdit}
 							<button
 								onclick={startEditing}
 								data-testid="workflow-edit"
-								class="rounded-md bg-[var(--color-surface-tertiary)] px-3 py-1 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-border)]"
+								title="Edit the steps inline, without leaving this page"
+								class={ACTION_BTN}
 							>
-								Edit
+								Edit steps
 							</button>
+							<a
+								href="/workflows/{workflowName}/edit"
+								data-testid="edit-workflow"
+								title="Open the standalone editor — YAML view and dry run"
+								class={ACTION_BTN}
+							>
+								Full editor
+							</a>
 						{/if}
+						<button
+							onclick={handleFork}
+							disabled={forking}
+							data-testid="fork-workflow"
+							title="Copy this workflow into your project on the server, then open it"
+							class={ACTION_BTN}
+						>
+							{forking ? "Forking…" : "Fork"}
+						</button>
 						<button
 							onclick={handleDuplicate}
 							data-testid="workflow-duplicate"
-							class="rounded-md bg-[var(--color-surface-tertiary)] px-3 py-1 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-border)]"
+							title="Start a new workflow in the create form, prefilled from this one"
+							class={ACTION_BTN}
 						>
 							Duplicate
 						</button>
-						{#if canManage}
+						{#if canEdit}
+							<!-- Divider + wider gap: the only destructive control in the
+							     row must not be one slipped click away from Duplicate. -->
+							<span
+								aria-hidden="true"
+								data-testid="workflow-actions-divider"
+								class="mx-1 hidden h-5 w-px bg-[var(--color-border)] sm:block"
+							></span>
 							<button
 								onclick={handleDeleteClick}
 								data-confirming={deleteConfirming}
 								data-testid="workflow-delete"
+								title="Delete this workflow — click twice to confirm"
 								class="rounded-md bg-red-600/80 px-3 py-1 text-sm font-medium text-white transition-colors hover:bg-red-500"
 							>
 								{deleteConfirming ? "Confirm delete?" : "Delete"}
@@ -175,6 +257,9 @@
 
 			{#if deleteErrorMsg}
 				<p class="mb-3 text-sm text-red-400" data-testid="delete-error">{deleteErrorMsg}</p>
+			{/if}
+			{#if forkErrorMsg}
+				<p class="mb-3 text-sm text-red-400" data-testid="fork-error">{forkErrorMsg}</p>
 			{/if}
 
 			{#if editing}
@@ -194,8 +279,9 @@
 			<div class="space-y-2" data-testid="workflow-steps-view">
 				{#each workflow.steps as step, idx}
 					{@const kind = step.kind ?? "agent"}
+					{@const modelLabel = kind === "agent" ? modelBindingLabel(stepModelBinding(step, workflow)) : ""}
 					<div class="rounded border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
-						<div class="flex items-center gap-2">
+						<div class="flex flex-wrap items-center gap-2">
 							<span class="text-xs text-[var(--color-text-muted)]">{idx + 1}.</span>
 							<span class="font-medium text-[var(--color-text-primary)]">{step.name}</span>
 							<span class="rounded bg-[var(--color-surface-tertiary)] px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-[var(--color-text-muted)]">{kindLabel(kind)}</span>
@@ -206,6 +292,30 @@
 							{#if kind === "tool"}
 								<span class="text-[var(--color-text-muted)]">&rarr;</span>
 								<span class="font-mono text-xs text-teal-400">{step.tool}</span>
+							{/if}
+							{#if kind === "workflow"}
+								<span class="text-[var(--color-text-muted)]">&rarr;</span>
+								<a
+									class="text-blue-400 underline decoration-dotted underline-offset-2 hover:text-blue-300"
+									data-testid="step-nested-workflow"
+									href="/workflows/{encodeURIComponent(step.workflow ?? '')}"
+								>{step.workflow}</a>
+							{/if}
+							{#if step.when}
+								<span
+									class="rounded bg-[var(--color-surface-tertiary)] px-1.5 py-0.5 text-[10px] text-[var(--color-text-muted)]"
+									data-testid="step-when"
+									title={step.skipDependents === false
+										? "Conditional — skipped if the condition is false; its dependents still run"
+										: "Conditional — skipped if the condition is false, along with its dependents"}
+								>conditional{step.skipDependents === false ? " (dependents still run)" : ""}</span>
+							{/if}
+							{#if modelLabel}
+								<span
+									class="rounded bg-[var(--color-surface-tertiary)] px-1.5 py-0.5 text-[10px] text-teal-300"
+									data-testid="step-model"
+									title={step.model ? "Per-step model override" : "Inherited from the workflow default model"}
+								>{modelLabel}</span>
 							{/if}
 							{#if step.loop}
 								<span class="text-xs text-purple-400">loop &times;{step.loop.maxIterations}{step.loop.until ? " (until)" : ""}</span>
@@ -276,8 +386,16 @@
 							{#if run.steps.length > 0}
 								<div class="mt-2 space-y-1">
 									{#each run.steps as step}
-										<div class="text-xs text-[var(--color-text-secondary)]">
-											{step.stepName}: <span class="{statusColor(step.status)}">{step.status}</span>{#if step.iterations} <span class="text-[var(--color-text-muted)]">({step.iterations} iteration{step.iterations !== 1 ? "s" : ""})</span>{/if}
+										{@const ranOn = resolvedModelLabel(step)}
+										<!-- A skipped step is dimmed and struck through, so the eye
+										     separates "never ran" from "ran and failed" before it
+										     reads a single word. Failure is the only thing that
+										     should ever look alarming here. -->
+										<div
+											class="text-xs text-[var(--color-text-secondary)]{step.status === 'skipped' ? ' opacity-60' : ''}"
+											data-testid={step.status === "skipped" ? "run-step-skipped" : "run-step"}
+										>
+											<span class={step.status === "skipped" ? "line-through" : ""}>{step.stepName}</span>: <span class="{statusColor(step.status)}">{step.status}</span>{#if step.skippedReason} <span class="text-[var(--color-text-muted)]" data-testid="step-skipped-reason">— {step.skippedReason}</span>{/if}{#if step.iterations} <span class="text-[var(--color-text-muted)]">({step.iterations} iteration{step.iterations !== 1 ? "s" : ""})</span>{/if}{#if ranOn} <span class="text-teal-300" data-testid="step-ran-on">on {ranOn}</span>{/if}
 										</div>
 									{/each}
 								</div>

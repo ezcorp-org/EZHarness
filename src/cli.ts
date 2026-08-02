@@ -452,6 +452,18 @@ export async function cli(args: string[]): Promise<void> {
       // "Step \"…\" requires interactive approval …"}`, which names the
       // blocking step and the capability.
       console.log(JSON.stringify(run.result, null, 2));
+      // `suspended` DOES need it. Unlike every other non-success status the
+      // run is ALIVE and answerable, and `run.result` alone does not say
+      // so — an operator would read the exit code as a failure and never
+      // learn there is a parked run waiting on them. Exit code stays 1
+      // (loud-failure semantics are unchanged); only the printed payload
+      // gains these lines.
+      if (run.status === "suspended") {
+        console.log(`\nRun ${run.id} is SUSPENDED, not failed — it is waiting to be continued.`);
+        console.log(`  Answer an approval:  POST /api/workflows/approvals/<approvalId>`);
+        console.log(`  Or continue it:      POST /api/workflows/runs/${run.id}/resume`);
+        console.log(`  Or abandon it:       POST /api/workflows/runs/${run.id}/cancel`);
+      }
       // Exit with a meaningful code — 0 on success, 1 on
       // error/cancelled/awaiting_approval (loud-failure semantics; an
       // approval-blocked run is NOT a success). This also releases the run

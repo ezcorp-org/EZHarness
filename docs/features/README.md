@@ -55,7 +55,7 @@ Docs are grouped into six domain folders:
 - [Agents (Agent Configs)](orchestration/agents.md) — Reusable, persisted LLM templates (prompt, model, sampling, capabilities, input schema, attached extensions) that can be `![agent:Name]`-mentioned to spin up a scoped helper inside any chat.
 - [Teams & Multi-Agent Orchestration](orchestration/teams.md) — A team `agentConfig` that, when `![team:Name]`-mentioned, becomes an orchestrator: it resolves member agents, injects a coordinator prompt, and exposes `invoke_agent` to spawn members as sub-conversations.
 - [Modes](orchestration/modes.md) — Preset conversation "flavors": a system-prompt instruction (prepend / append / replace) plus a tool-access scope, selected per-conversation and applied server-side before every turn.
-- [Workflows](orchestration/workflows.md) — Declarative graphs mixing agent, transform, and gate steps (with bounded per-step loops); the executor topo-sorts steps into parallel batches with fail-fast, loud-failure semantics.
+- [Workflows](orchestration/workflows.md) — Declarative graphs mixing agent, tool, transform, gate, and human-approval steps (with bounded per-step loops); the executor topo-sorts steps into parallel batches with fail-fast, loud-failure semantics, and parked runs are durable — resumed by a leased daemon once a human answers.
 
 ### extensions
 

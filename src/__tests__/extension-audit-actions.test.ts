@@ -134,6 +134,14 @@ describe("extension audit action constants", () => {
       "SDK_SEARCH_EGRESS_BLOCKED",
       // Shared-search Phase 2 — policy resolver quota / provider denial
       "SDK_SEARCH_QUOTA_EXCEEDED",
+      // C2 — dynamic cron/webhook triggers (ctx.triggers). The last two are
+      // OWNERLESS sweeps, which is why they exist as audit_log actions at
+      // all: sdk_capability_calls.on_behalf_of is NOT NULL.
+      "SDK_TRIGGER_REGISTERED",
+      "SDK_TRIGGER_UNREGISTERED",
+      "SDK_TRIGGER_REJECTED",
+      "SDK_TRIGGER_ORPHANED",
+      "SDK_TRIGGER_CAPABILITY_REVOKED",
       // Loops EZ Mode — gated emit-loop-event (audit-mirror + rejection)
       "LOOP_EVENT_EMITTED",
       "LOOP_EVENT_REJECTED",

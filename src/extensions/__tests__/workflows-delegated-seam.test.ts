@@ -139,6 +139,12 @@ function registerRuntime() {
         };
         return run;
       },
+      // Required by the registry since C4. A delegated fire only ever
+      // STARTS a run; resuming a parked one is the approval path, which
+      // never routes through this seam.
+      resumeWorkflow: (async () => {
+        throw new Error("resumeWorkflow must NEVER be called from a delegated fire");
+      }) as never,
     },
     getWorkflows: () => [SHIPPED],
   });

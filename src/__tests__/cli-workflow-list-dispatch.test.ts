@@ -25,6 +25,34 @@ mock.module("../runtime/workflow-loader", () => ({
 mock.module("../db/queries/workflows", () => ({
   loadDbWorkflows: async () => dbWorkflows,
 }));
+// Persistence stubbed to SUCCEED. `getDb: () => ({})` above is not a DB
+// double — every call on it throws — and that was invisible only while
+// every persistence write was swallowed by contract. The executor now has
+// a strict path (the run-position bookkeeping, whose loss would let a
+// resume re-execute a completed batch), so an empty object models a
+// totally dead DB and the run fails closed on it. This suite is about CLI
+// dispatch and exit codes, not durability, so it gets a DB that works.
+mock.module("../db/queries/workflow-runs", () => ({
+  insertWorkflowRun: async () => {},
+  upsertWorkflowStepRun: async () => {},
+  finalizeWorkflowRunRow: async () => 1,
+  markWorkflowRunInBatch: async () => {},
+  advanceWorkflowRunCursor: async () => {},
+  // The suspend write is on the executor's STRICT path — a swallowed
+  // failure there yields `cursor-write-failed`, not `suspended`, so the
+  // parked-run dispatch below would never be reached.
+  suspendWorkflowRun: async () => 1,
+}));
+// An `approval` step parks the run: the executor writes the approval row,
+// then throws `WorkflowSuspendedError`, which settles the run `suspended`.
+// Stubbed rather than DB-backed because this suite is about what the CLI
+// PRINTS for a parked run; the approval row's own coverage is
+// src/__tests__/workflow-approval-*.test.ts.
+mock.module("../db/queries/workflow-approvals", () => ({
+  getWorkflowApproval: async () => undefined,
+  hasPendingApproval: async () => false,
+  parkWorkflowApproval: async () => "ap-cli-1",
+}));
 
 const { cli } = await import("../cli");
 
@@ -145,5 +173,74 @@ describe("cli workflow:run dispatch", () => {
     const code = await captureExit(() => cli(["workflow", "run", "ghost"]));
     expect(code).toBe(1);
     expect(errs.join("\n")).toContain('workflow "ghost" not found');
+  });
+
+  // ── A SUSPENDED run is alive, and the CLI has to say so ──────────────
+  //
+  // Every other non-success status is a dead run, and the exit code alone
+  // tells the operator that. `suspended` is the one status where exit 1 is
+  // MISLEADING: the run is parked on an approval and is waiting for a human,
+  // and `run.result` (`{"code":"suspended", ...}`) does not say that it can
+  // be answered or how. Without the notice an operator reads exit 1 as a
+  // failure, walks away, and the run waits forever.
+  describe("a run that parks on an approval", () => {
+    const parking = [
+      {
+        name: "gated",
+        description: "parks on a human",
+        steps: [
+          {
+            name: "gate",
+            kind: "approval",
+            prompt: "Ship it?",
+            choices: ["approve", "reject"],
+          } as unknown,
+        ],
+      },
+    ];
+
+    test("still exits 1 — loud-failure semantics are unchanged", async () => {
+      dbWorkflows = parking;
+      const code = await captureExit(() => cli(["workflow", "run", "gated"]));
+      expect(code).toBe(1);
+    });
+
+    test("says the run is SUSPENDED, not failed", async () => {
+      dbWorkflows = parking;
+      await captureExit(() => cli(["workflow", "run", "gated"]));
+      const out = logs.join("\n");
+      expect(out).toContain("is SUSPENDED, not failed — it is waiting to be continued.");
+    });
+
+    test("names all three ways out, each with the run's own id", async () => {
+      dbWorkflows = parking;
+      await captureExit(() => cli(["workflow", "run", "gated"]));
+      const out = logs.join("\n");
+      // The run id is the whole point of printing these: an operator with a
+      // parked run and no id has nothing to call.
+      const idMatch = out.match(/Run ([0-9a-f-]{8,}) is SUSPENDED/);
+      expect(idMatch).not.toBeNull();
+      const id = idMatch![1]!;
+      expect(out).toContain("Answer an approval:  POST /api/workflows/approvals/<approvalId>");
+      expect(out).toContain(`Or continue it:      POST /api/workflows/runs/${id}/resume`);
+      expect(out).toContain(`Or abandon it:       POST /api/workflows/runs/${id}/cancel`);
+    });
+
+    test("a run that is NOT suspended gets no parked-run notice", async () => {
+      // The guard, not the body: an ordinary failure must not tell the
+      // operator there is something to answer.
+      dbWorkflows = [
+        {
+          name: "boom2",
+          description: "fails",
+          steps: [{ name: "bad", kind: "transform", output: { x: "$steps.nope.output" } } as unknown],
+        },
+      ];
+      const code = await captureExit(() => cli(["workflow", "run", "boom2"]));
+      expect(code).toBe(1);
+      const out = logs.join("\n");
+      expect(out).not.toContain("is SUSPENDED");
+      expect(out).not.toContain("Answer an approval");
+    });
   });
 });

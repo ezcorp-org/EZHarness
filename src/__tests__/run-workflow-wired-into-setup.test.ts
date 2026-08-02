@@ -171,6 +171,20 @@ describe("wireRunWorkflowForTurn — pending-permission bridge", () => {
     let captured: Record<string, unknown> = {};
     registerWorkflowRuntime({
       getWorkflows: () => [workflow],
+      // The tool authorizes against the provenance-carrying cache, and
+      // fails CLOSED without it — a `system` YAML asset is the ordinary
+      // case and keeps this test about the permission bridge.
+      getCachedWorkflows: () => [
+        {
+          definition: workflow,
+          source: "yaml" as const,
+          id: null,
+          projectId: null,
+          userId: null,
+          visibility: "system" as const,
+          forkedFrom: null,
+        },
+      ],
       workflowExecutor: {
         runWorkflow: async (_w, _i, _p, _u, _s, opts): Promise<WorkflowRun> => {
           captured = (opts ?? {}) as Record<string, unknown>;
@@ -183,6 +197,10 @@ describe("wireRunWorkflowForTurn — pending-permission bridge", () => {
             result: { success: true, output: null },
           };
         },
+        // Required by the registry since C4; this wire only ever starts runs.
+        resumeWorkflow: (async () => {
+          throw new Error("run_workflow must never resume a run");
+        }) as never,
       },
     });
 

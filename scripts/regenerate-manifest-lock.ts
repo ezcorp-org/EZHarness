@@ -77,6 +77,9 @@ const BUNDLED: readonly BundledEntry[] = [
   // review.
   { name: "lessons-distiller", path: "extensions/lessons-distiller" },
   { name: "memory-extractor", path: "extensions/memory-extractor" },
+  // Phase 8 — ez-factory. Same `extensions/<name>/` siting; bundled is a
+  // hard requirement for it (see the entry comment in `bundled.ts`).
+  { name: "ez-factory", path: "extensions/ez-factory" },
 ];
 
 interface LockfileEntry {

@@ -113,6 +113,7 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "POST", path: "/api/extensions/:id/confirm", description: "Confirm extension installation", category: "extensions" },
   { method: "GET", path: "/api/extensions/:id/permissions", description: "Get extension permissions", category: "extensions" },
   { method: "PUT", path: "/api/extensions/:id/permissions", description: "Update extension permissions — clamped to the manifest (requires an admin-role key)", category: "extensions", scope: "admin", harness: { controllable: true } },
+  { method: "GET", path: "/api/extensions/:id/triggers", description: "List an extension's DYNAMIC cron + webhook triggers (created at runtime via ctx.triggers; invisible to the manifest and both reconcilers)", category: "extensions", scope: "admin" },
   { method: "GET", path: "/api/extensions/:id/reapprove-drift", description: "Preview a bundled extension's current on-disk, ceiling-clamped permissions and how they differ from the stored grant (requires an admin-role key)", category: "extensions", scope: "admin", responseDescription: "{ version, permissions, diffs: [{ field, oldValue, newValue }], ceilingClamped }" },
   { method: "POST", path: "/api/extensions/:id/reapprove-drift", description: "Re-approve a bundled extension's permission drift from its current on-disk manifest, clamped to the bundled ceiling (requires an admin-role key)", category: "extensions", scope: "admin", responseDescription: "{ extension, diffs: [{ field, oldValue, newValue }] }" },
   { method: "GET", path: "/api/extensions/:name/tools", description: "List tools provided by extension", category: "extensions", scope: "read" },
@@ -195,9 +196,27 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "POST", path: "/api/teams/:id/members", description: "Add member to team", category: "teams" },
 
   // Workflows
-  { method: "GET", path: "/api/workflows", description: "List workflows", category: "workflows" },
-  { method: "GET", path: "/api/workflows/:name", description: "Get workflow by name", category: "workflows" },
+  { method: "GET", path: "/api/workflows", description: "List workflows the caller may see — filtered by ownership, so a read-scoped key with no project sees system workflows only (shorter array than pre-C6, same shape)", category: "workflows" },
+  { method: "GET", path: "/api/workflows/:name", description: "Get workflow by name (404, not 403, when unauthorized — the endpoint is not an existence oracle)", category: "workflows" },
   { method: "POST", path: "/api/workflows/:name/run", description: "Execute a workflow", category: "workflows" },
+  // NOT `controllable` yet: that flag asserts a matching
+  // `@ezcorp/harness-client` method exists, and the parity meta-test
+  // correctly fails without one. Claiming it while shipping no client
+  // method would make the registry lie about the remote surface.
+  { method: "GET", path: "/api/workflows/approvals", description: "List pending workflow approvals this caller may answer", category: "workflows", scope: "read", responseDescription: "{ approvals: PendingApproval[] }" },
+  { method: "POST", path: "/api/workflows/approvals/:id", description: "Answer a parked workflow approval and resume its run", category: "workflows", scope: "chat", responseDescription: "{ run: WorkflowRun, consentAllUsed: boolean }" },
+  // Operator control over a durable run. NOT an approval-answering path:
+  // resume takes no choice and cannot clear a pending consent gate — a run
+  // parked on an unanswered approval comes back 409 and stays answerable.
+  // See `workflow-run-control.ts` and ported invariant 7.
+  { method: "GET", path: "/api/workflows/runs", description: "Workflow run history, newest first — keyset paginated on (started_at, id); a non-admin sees only runs they initiated", category: "workflows", scope: "read", responseDescription: "{ runs: WorkflowRunSummary[], nextCursor?: { startedAt, id } }" },
+  { method: "GET", path: "/api/workflows/runs/:id", description: "One run's trace: the run, its steps with per-step model/tokens/duration/resolved input/output, and each step's loop iterations (404, not 403, when unauthorized — a trace carries redacted-but-untrusted payloads)", category: "workflows", scope: "read", responseDescription: "{ run, steps: WorkflowTraceStep[], totals }" },
+  { method: "POST", path: "/api/workflows/runs/:id/resume", description: "Continue a suspended workflow run", category: "workflows", scope: "chat", responseDescription: "{ run: WorkflowRun }" },
+  { method: "POST", path: "/api/workflows/runs/:id/cancel", description: "Cancel a running or suspended workflow run", category: "workflows", scope: "chat", responseDescription: "{ cancelled: true }" },
+  { method: "POST", path: "/api/workflows/:name/dry-run", description: "Simulate a workflow — transform/gate steps evaluated, everything else stubbed; zero LLM, zero side effects, no run row", category: "workflows" },
+  { method: "POST", path: "/api/workflows/:name/fork", description: "Clone a workflow into an editable project-scoped copy owned by the caller", category: "workflows" },
+  { method: "GET", path: "/api/workflows/:name/versions", description: "Version history for a workflow", category: "workflows" },
+  { method: "POST", path: "/api/workflows/:name/claim", description: "Assign an owner to a system-owned workflow (admin)", category: "workflows", scope: "admin" },
 
   // Tools
   { method: "GET", path: "/api/tools", description: "List available tools", category: "tools" },

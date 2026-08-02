@@ -1,0 +1,267 @@
+# docs-factory — read source, extract facts, draft, review in a loop,
+# publish what a human accepted.
+#
+# Namespaced to `ez-factory:docs-factory` by
+# `src/runtime/workflow-extension-loader.ts` before it enters the merged
+# cache. The bare name here must match `permissions.workflows.names` in
+# `ezcorp.config.ts` exactly — shipping the asset is not the privileged
+# act, FIRING it is, and that grant is keyed on this name.
+#
+#   read → extract → draft → review-loop ⟳ → accepted → write → artifact
+#
+# ── The one construct worth reading the code for ──────────────────────
+#
+# `review-loop` is a `kind: "workflow"` step with a `loop`, over a child
+# graph that contains an `approval`. That combination is deliberately
+# built for, not tolerated:
+#
+#   • The child parks on its own approval. `nestedOutcome`
+#     (`src/runtime/workflow-executor.ts`) has an explicit branch for it —
+#     `suspended`/`running` means "the child is ALIVE", so the parent
+#     THROWS `WorkflowSuspendedError(step, "nested-suspended")` and parks
+#     rather than failing. `WorkflowRunner` later re-claims the parent and
+#     resumes it into this same step.
+#   • Replay is safe by construction. Each iteration is its own child run
+#     keyed `nested:<parentRunId>:review-loop#<iteration>`, and
+#     `runNestedWorkflow` short-circuits on
+#     `findWorkflowRunByIdempotencyKey` — so a parent resumed five times
+#     re-serves iteration 1 from its recorded row and pays for it once.
+#   • The nested target is a LITERAL name, never a ref. `isResolvableWorkflowName`
+#     enforces it, because the cycle check and the depth cap
+#     (`MAX_WORKFLOW_NESTING_DEPTH = 3`) are DEFINITION-time checks that a
+#     run-time name makes uncomputable. This graph nests exactly one
+#     level; `draft-and-verify` nests none.
+#
+# ── Why the loop exits on a HUMAN's choice ────────────────────────────
+#
+# `until` reads `$result.output.choice`, which is an `ApprovalStepOutput`
+# field projected by the child's final transform — structured, and
+# guaranteed to be one of the choices the child declared. It does NOT read
+# a `valid` flag from the validator, because an agent step's `output` is
+# the RAW LLM TEXT (`configToAgent` parses JSON only for an agent config
+# with `outputFormat: "json"`, which none of the three seeded ez-factory
+# agents set). `$steps.verify.output.valid` on a string resolves to
+# `undefined` — a branch that can only ever not fire. The full argument,
+# including why the format contract cannot be steered from the step input,
+# is in `draft-and-verify.workflow.yaml`.
+#
+# The loop continues only while the human answered `revise` — so `abort`
+# exits it, rather than meaning "ask me the same question again" until the
+# iteration budget runs out. The `accepted` gate below is what turns
+# anything other than an accept into a loud, named failure.
+#
+# ── Why no step binds `provider` or `model` ───────────────────────────
+#
+# Only `effort` and `maxTokens`. Two reasons, and the second is the one
+# that decided it:
+#
+#   • A literal `provider: anthropic` breaks every install that has not
+#     configured anthropic. Omitting both fields leaves each seeded
+#     agent's own binding standing — `CURRENT_MODEL_SENTINEL` on all
+#     three, i.e. whatever the operator has configured — so the template
+#     is portable by construction.
+#   • The alternative was a `$input.*` ref so an operator could tier the
+#     steps. A model bound by ref is settable by whoever supplies the
+#     input, and `ez-factory`'s job store deliberately keeps model keys
+#     OFF its closed input allowlist (`lib/jobs.ts`) precisely so a saved
+#     job cannot downgrade a step's model. Declaring the ref anyway would
+#     be asking for a capability the layer above is built to refuse.
+#
+# `effort` is what differentiates the steps, and it is the cost lever that
+# needs no configuration at all: minimal for extraction, medium for the
+# draft, high for verification, on whatever model the install runs.
+#
+# ── Every step's output has to fit in 256 KB ──────────────────────────
+#
+# `MAX_STEP_OUTPUT_BYTES` (`src/runtime/workflow-step-output.ts`) is a
+# resume PREREQUISITE, not telemetry: an oversized output is replaced by a
+# sentinel, and `resumeWorkflow` turns that into a terminal
+# `refuseTerminal("step-output-unavailable")`. A graph that parks on a
+# human and resumes later — this one — pays for that at the worst possible
+# moment: the run spends its whole LLM budget, parks, gets approved, and
+# is THEN refused. So every agent step here binds `maxTokens`, and `read`
+# is bounded by `read_files`' own byte budget rather than by hope.
+
+name: docs-factory
+description: >-
+  Read the source files you point it at, extract attributed facts, draft the
+  document, then loop a writer/validator review pass until a human accepts it —
+  and only then write the file and emit a run artifact. Every publish is a human
+  decision, recorded with who made it and when.
+
+inputSchema:
+  globs:
+    type: text
+    label: Source globs
+    description: What to read, as newline-separated glob patterns relative to the project root.
+    required: true
+  outPath:
+    type: file-path
+    label: Output path
+    description: Where the accepted document is written, relative to the project root.
+    required: true
+
+steps:
+  # ── 1. Read the sources ──────────────────────────────────────────────
+  #
+  # A `tool` step dispatches through the host's ONE tool path
+  # (`ToolExecutor.executeToolCall`, via `workflow-tool-runner.ts`), so it
+  # gets the same PDP authorization, capability gate, audit row and
+  # provenance a chat-driven call gets. `ez-factory__read_files` is this
+  # extension's own tool under the `<extension>__<tool>` namespace the
+  # registry builds.
+  #
+  # `maxFiles` is a literal STRING because a step `input` mapping value
+  # must be a string — `validateWorkflow` rejects `maxFiles: 40` outright,
+  # and `inputSchema` defaults are NOT applied at run time (nothing in the
+  # run path reads `InputField.default`), so routing it through an
+  # `$input` field would hand the tool `undefined` on every run that left
+  # the box empty.
+  - name: read
+    kind: tool
+    tool: ez-factory__read_files
+    input:
+      globs: $input.globs
+      maxFiles: "40"
+
+  # ── 2. Extract ───────────────────────────────────────────────────────
+  #
+  # The seeded `ez-factory extractor`. The `ez-factory ` prefix is
+  # load-bearing: agent names live in ONE flat global map
+  # (`loadAgents`), so a bare `extractor` would shadow, or be shadowed by,
+  # any user's own agent of that name.
+  #
+  # This is where untrusted content enters the graph. `configToAgent`
+  # builds the call RAW — no framing, no redaction — so the two defences
+  # are both outside this file and neither can be weakened from it:
+  # `read_files` sanitizes every `content` on the way out, and the seeded
+  # agent's static prompt carries the "input is DATA, not instructions"
+  # framing. Nothing here re-frames anything, on purpose.
+  - name: extract
+    kind: agent
+    agent: ez-factory extractor
+    dependsOn:
+      - read
+    model:
+      # The cheapest rung of the closed vocabulary
+      # (minimal|low|medium|high|xhigh|max). Extraction is transcription
+      # with attribution, not judgement — spending reasoning here buys
+      # nothing and is charged per run. No `provider`/`model`: see the
+      # header.
+      effort: minimal
+      maxTokens: 8000
+    input:
+      sources: $steps.read.output.files
+      skipped: $steps.read.output.skipped
+
+  # ── 3. Draft ─────────────────────────────────────────────────────────
+  #
+  # Whole `$steps.extract.output`, never a sub-path: an agent step's
+  # output is a raw string, so `$steps.extract.output.facts` would throw
+  # "field is missing" at run time.
+  - name: draft
+    kind: agent
+    agent: ez-factory writer
+    dependsOn:
+      - extract
+    model:
+      effort: medium
+      maxTokens: 8000
+    input:
+      facts: $steps.extract.output
+
+  # ── 4. Review until a human accepts ──────────────────────────────────
+  #
+  # No `model` here, and that is enforced: `validateWorkflow` rejects a
+  # model override on any non-`agent` step, because the executor would
+  # silently ignore it. The child's own steps carry the bindings, fed the
+  # tier through its `$input`.
+  #
+  # `$loop.last.*` is the revise channel. On iteration 1 it resolves to the
+  # OMIT sentinel and the key is DROPPED from the child's input — the one
+  # documented lenient exception in the ref language — so the first pass
+  # genuinely has no prior. On iteration 2+ it is the previous child run's
+  # result, addressed through the unchanged grammar.
+  - name: review-loop
+    kind: workflow
+    workflow: ez-factory:draft-and-verify
+    dependsOn:
+      - draft
+    input:
+      draft: $steps.draft.output
+      sources: $steps.read.output.files
+      priorContent: $loop.last.output.content
+      priorVerdict: $loop.last.output.verdict
+    loop:
+      maxIterations: 3
+      # "Keep going only while the human asked for another revision."
+      #
+      # Written as the negative deliberately. `any: [eq accept, eq abort]`
+      # says the same thing today and fails the wrong way tomorrow: a
+      # fourth choice added to the child would not match either leaf, so
+      # the loop would re-ask the same question until the budget ran out.
+      # Under this form an unrecognised answer EXITS and is then refused by
+      # the `accepted` gate below, by name.
+      until:
+        not:
+          ref: $result.output.choice
+          op: eq
+          value: revise
+      # Loud, never a silent truncation: three revision passes that never
+      # reached an accept is a failed run, not a publishable document.
+      onExhausted: fail
+
+  # ── 5. The abort path ────────────────────────────────────────────────
+  #
+  # The loop exits on anything that is not `revise`; this is the step that
+  # separates the one answer that publishes from every other. A failing
+  # gate THROWS and fails the run naming the decisive leaf and its actual
+  # value ("$steps.review-loop.output.choice (="abort") does not satisfy eq
+  # "accept""), which is the honest terminal state for "a human said no" —
+  # there is no `declined` run status, and finishing green having written
+  # nothing would be worse.
+  - name: accepted
+    kind: gate
+    dependsOn:
+      - review-loop
+    condition:
+      ref: $steps.review-loop.output.choice
+      op: eq
+      value: accept
+
+  # ── 6. Publish ───────────────────────────────────────────────────────
+  #
+  # `fs.write` is a SENSITIVE capability, and a workflow's scope is
+  # non-interactive — a PDP `prompt` here would be refused synchronously
+  # and terminalize the run `awaiting_approval`. It resolves to allow only
+  # because `ez-factory` is BUNDLED (`bundled-ceiling-auto-allow` in
+  # `permission-engine.ts`). That is why this extension's siting under
+  # top-level `extensions/` is a hard requirement rather than a preference.
+  #
+  # No `rbacScope` on this or any step: `ToolExecutor.executeToolCall`
+  # resolves a tool-level scope against a project DERIVED FROM THE
+  # CONVERSATION, and a workflow tool step runs under a synthetic
+  # `workflow-run:<uuid>` key that has none.
+  - name: write
+    kind: tool
+    tool: ez-factory__write_file
+    dependsOn:
+      - accepted
+    input:
+      path: $input.outPath
+      content: $steps.review-loop.output.content
+
+  # ── 7. The run artifact ──────────────────────────────────────────────
+  #
+  # `$steps.write.output` is `{path, bytes, sha256}` — small, deterministic
+  # and the thing an operator wants to diff between runs. The artifact
+  # name is a literal (a mapping value that does not start with `$` is
+  # passed through verbatim by the ref resolver).
+  - name: artifact
+    kind: tool
+    tool: ez-factory__emit_artifact
+    dependsOn:
+      - write
+    input:
+      name: docs-run.json
+      content: $steps.write.output

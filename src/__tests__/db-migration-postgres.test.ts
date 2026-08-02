@@ -7,7 +7,7 @@ import { sql } from "drizzle-orm";
 import * as schema from "../db/schema";
 import { migrate } from "../db/migrate";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
-import { isUniqueViolation } from "../db/session-backfill";
+import { isUniqueViolation } from "../db/unique-violation";
 
 /**
  * Migration tests for external Postgres mode (PGDB-04).
@@ -159,13 +159,13 @@ describe("migration on Postgres-compatible backend", () => {
     expect((colResult.rows[0] as any).data_type).toBe("USER-DEFINED"); // vector type
   });
 
-  test("workflow_definitions.created_by exists, is nullable, and FKs to users", async () => {
+  test("workflow_definitions.user_id exists, is nullable, and FKs to users", async () => {
     // The ALTER lives near the END of migrate() on purpose: the table is
     // created long before `users`, so an inline FK there would have no
     // target. Assert both the column and the constraint so a regression
     // that moves it back is caught here rather than at install time.
     const col = await pg.query(
-      "SELECT is_nullable FROM information_schema.columns WHERE table_name = 'workflow_definitions' AND column_name = 'created_by'",
+      "SELECT is_nullable FROM information_schema.columns WHERE table_name = 'workflow_definitions' AND column_name = 'user_id'",
     );
     expect(col.rows.length).toBe(1);
     expect((col.rows[0] as any).is_nullable).toBe("YES");
@@ -178,25 +178,39 @@ describe("migration on Postgres-compatible backend", () => {
       JOIN information_schema.referential_constraints rc ON rc.constraint_name = tc.constraint_name
       WHERE tc.table_name = 'workflow_definitions'
         AND tc.constraint_type = 'FOREIGN KEY'
-        AND kcu.column_name = 'created_by'
+        AND kcu.column_name = 'user_id'
     `);
     expect(fk.rows.length).toBe(1);
     expect((fk.rows[0] as any).referenced).toBe("users");
+    // SET NULL, not CASCADE: deleting a user must never destroy workflows.
+    // The orphaned row degrades to admin-only, which is what the ladder
+    // reads a NULL owner on a `private` row as.
     expect((fk.rows[0] as any).delete_rule).toBe("SET NULL");
   });
 
-  test("the created_by migration does not backfill existing rows", async () => {
-    // NULL is what keeps every pre-existing workflow global (runnable and
-    // editable by anyone). A first-admin backfill would silently lock them
+  test("the superseded created_by column is not present", async () => {
+    // A second authorization model briefly added it. It disagreed with
+    // `user_id`/`visibility` about what a NULL owner means, so it was
+    // dropped rather than carried.
+    const col = await pg.query(
+      "SELECT 1 FROM information_schema.columns WHERE table_name = 'workflow_definitions' AND column_name = 'created_by'",
+    );
+    expect(col.rows.length).toBe(0);
+  });
+
+  test("the ownership migration does not backfill existing rows", async () => {
+    // NULL owner + `system` is what keeps every pre-existing workflow
+    // runnable by anyone. A first-admin backfill would silently lock them
     // all to one user.
     await pg.query(
       "INSERT INTO workflow_definitions (id, name, description, steps) VALUES ('wf-legacy', 'legacy-wf', '', '[]'::jsonb)",
     );
     await migrate(db);
     const rows = await pg.query(
-      "SELECT created_by FROM workflow_definitions WHERE id = 'wf-legacy'",
+      "SELECT user_id, visibility FROM workflow_definitions WHERE id = 'wf-legacy'",
     );
-    expect((rows.rows[0] as any).created_by).toBeNull();
+    expect((rows.rows[0] as any).user_id).toBeNull();
+    expect((rows.rows[0] as any).visibility).toBe("system");
   });
 });
 

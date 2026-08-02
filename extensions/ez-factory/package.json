@@ -1,0 +1,7 @@
+{
+  "name": "ez-factory",
+  "version": "0.1.0",
+  "description": "A job console for workflows — saved job definitions over the shipped factory templates, run by hand or from chat, with real approval gates and links out to core run traces.",
+  "private": true,
+  "type": "module"
+}

@@ -994,12 +994,28 @@ export async function updateAgentConfig(
 
 // ── Workflows ───────────────────────────────────────────────────────
 
-export type WorkflowStepKind = "agent" | "transform" | "gate" | "tool";
+export type WorkflowStepKind =
+	| "agent"
+	| "transform"
+	| "gate"
+	| "tool"
+	| "approval"
+	| "workflow";
 
 export interface WorkflowLoopConfig {
 	maxIterations: number;
 	until?: unknown;
 	onExhausted?: "fail" | "pass";
+}
+
+/** Model binding an agent step (or the whole definition) runs on. Mirrors
+ *  `ModelOverride` in `src/types.ts`. */
+export interface WorkflowModelOverride {
+	provider?: string;
+	model?: string;
+	temperature?: number;
+	maxTokens?: number;
+	effort?: string;
 }
 
 export interface WorkflowStep {
@@ -1012,8 +1028,18 @@ export interface WorkflowStep {
 	condition?: unknown;
 	/** Runtime-namespaced extension tool for a `kind: "tool"` step. */
 	tool?: string;
+	/** Nested definition name for a `kind: "workflow"` step. */
+	workflow?: string;
+	/** Guard evaluated before dispatch; false ⇒ the step is `skipped` and
+	 *  the run CONTINUES (unlike a gate, which fails it). */
+	when?: unknown;
+	/** Skip this step's declared dependents too when it is skipped.
+	 *  Defaults to true. */
+	skipDependents?: boolean;
 	dependsOn?: string[];
 	loop?: WorkflowLoopConfig;
+	/** Per-step model binding (agent steps only). */
+	model?: WorkflowModelOverride;
 }
 
 export interface Workflow {
@@ -1021,16 +1047,27 @@ export interface Workflow {
 	description: string;
 	steps: WorkflowStep[];
 	inputSchema?: Record<string, unknown>;
-	/** Which loader produced this definition. Server-derived provenance,
-	 *  served by GET and never accepted on a write (`workflowBodySchema` is
-	 *  `.strict()`). */
-	source?: "db" | "yaml" | "extension";
-	/** Whether THIS caller may edit or delete it — `source === "db"` AND
-	 *  owner-or-admin, resolved server-side. Gates the Edit/Delete
-	 *  affordances so they are never painted on a request that would 403 or
-	 *  404. Optional because a hand-built fixture may omit it; absent is
-	 *  treated as not manageable. */
-	canManage?: boolean;
+	/** Binding inherited by agent steps that declare no `model`. */
+	defaultModel?: WorkflowModelOverride;
+
+	// ── Provenance (server-computed, additive) ──────────────────────
+	// Present on every workflow the API returns since C6. Optional here
+	// because the same interface is used as a REQUEST body by
+	// `createWorkflow`, where these fields are neither sent nor accepted.
+	/** `extension` / `yaml` / `db`. Only `db` workflows are editable. */
+	source?: "extension" | "yaml" | "db";
+	visibility?: "system" | "project" | "private";
+	projectId?: string | null;
+	userId?: string | null;
+	/** Fully qualified name this was forked from, as a string snapshot. */
+	forkedFrom?: string | null;
+	/** Whether THIS caller may edit or delete it. Computed server-side from
+	 *  the one shared ladder — never re-derived in the browser. Gates the
+	 *  Edit/Delete affordances so they are never painted on a request that
+	 *  would 403 (someone else's workflow) or 404 (a YAML/extension asset,
+	 *  which is a file on disk with nothing to write). Optional because a
+	 *  hand-built fixture may omit it; absent is treated as not editable. */
+	canEdit?: boolean;
 }
 
 export interface WorkflowRun {
@@ -1039,7 +1076,18 @@ export interface WorkflowRun {
 	status: string;
 	startedAt: number;
 	finishedAt?: number;
-	steps: { stepName: string; runId: string; status: string; iterations?: number }[];
+	steps: {
+		stepName: string;
+		runId: string;
+		status: string;
+		iterations?: number;
+		/** Binding the step's LLM call resolved to (absent for steps that ran no LLM). */
+		provider?: string;
+		model?: string;
+		/** Why a `skipped` step was skipped — its own `when`, or the skipped
+		 *  dependency that suppressed it. Absent for every other status. */
+		skippedReason?: string;
+	}[];
 	result?: AgentResult;
 }
 
@@ -1059,10 +1107,34 @@ export async function createWorkflow(data: Workflow): Promise<Workflow> {
 	return res.json();
 }
 
+export async function deleteWorkflow(name: string): Promise<void> {
+	// Encoded: an extension-shipped workflow is namespaced `<ext>:<name>`,
+	// and the separator must survive as one path segment.
+	const res = await fetch(`${BASE}/api/workflows/${encodeURIComponent(name)}`, { method: "DELETE" });
+	await checkResponse(res);
+}
+
+/** One workflow with the provenance the editor needs. `canEdit` is
+ *  computed SERVER-side — the client must never re-derive the ladder. */
+export async function fetchWorkflow(name: string): Promise<Workflow> {
+	const res = await fetch(`${BASE}/api/workflows/${encodeURIComponent(name)}`);
+	await checkResponse(res);
+	return res.json();
+}
+
 /** Replace a DB workflow's definition. Server-side this is owner-or-admin
- *  and DB-only; the UI gates on `Workflow.canManage` so it is not called
- *  speculatively. A rename is expressed by sending a different `name`. */
-export async function updateWorkflow(name: string, data: Workflow): Promise<Workflow> {
+ *  and DB-only; the UI gates on the server-computed edit flag so it is not
+ *  called speculatively. A rename is expressed by sending a different
+ *  `name`.
+ *
+ *  Takes an open record, not a `Workflow`: the builder emits one, and the
+ *  PUT body is a PARTIAL definition with provenance stripped
+ *  (`definitionFields`) — the strict server schema rejects the extra
+ *  members a whole `Workflow` carries. */
+export async function updateWorkflow(
+	name: string,
+	data: Record<string, unknown>,
+): Promise<Workflow> {
 	const res = await fetch(`${BASE}/api/workflows/${encodeURIComponent(name)}`, {
 		method: "PUT",
 		headers: { "content-type": "application/json" },
@@ -1072,11 +1144,79 @@ export async function updateWorkflow(name: string, data: Workflow): Promise<Work
 	return res.json();
 }
 
-export async function deleteWorkflow(name: string): Promise<void> {
-	// Encoded: an extension-shipped workflow is namespaced `<ext>:<name>`,
-	// and the separator must survive as one path segment.
-	const res = await fetch(`${BASE}/api/workflows/${encodeURIComponent(name)}`, { method: "DELETE" });
+/** Clone a workflow into an editable copy the caller owns. Returns the
+ *  FINAL name — the route auto-suffixes on collision with the global
+ *  unique index, and the UI shows the result. */
+export async function forkWorkflow(
+	name: string,
+	projectId?: string,
+): Promise<{ name: string; id: string; forkedFrom: string }> {
+	const res = await fetch(`${BASE}/api/workflows/${encodeURIComponent(name)}/fork`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify(projectId ? { projectId } : {}),
+	});
 	await checkResponse(res);
+	return res.json();
+}
+
+/** A gate the dry run evaluated against fabricated operands. The verdict
+ *  is reported and deliberately NOT enforced — a stub satisfies `exists`,
+ *  `truthy` and `neq`, so either answer would be about data nobody
+ *  produced. */
+export interface WorkflowDryRunGateVerdict {
+	name: string;
+	passed: boolean;
+	reason: string;
+}
+
+export interface WorkflowDryRunReport {
+	/** `success`, `error`, `cancelled`, or `unverified` — the run completed
+	 *  but at least one gate went unenforced, so it is not a pass. */
+	status: string;
+	steps: {
+		name: string;
+		kind: string;
+		mode: "evaluated" | "stubbed" | "evaluated-on-stubs";
+		status: string;
+	}[];
+	stubbed: string[];
+	gatesOnStubs: WorkflowDryRunGateVerdict[];
+	error?: string;
+	output?: unknown;
+}
+
+/** Simulate a run. `definition` dry-runs the UNSAVED draft on screen —
+ *  requiring a save first would make the feature useless for the
+ *  edit-check-edit loop it exists to serve. */
+export async function dryRunWorkflow(
+	name: string,
+	body: { input?: Record<string, unknown>; definition?: Record<string, unknown>; projectId?: string },
+): Promise<WorkflowDryRunReport> {
+	const res = await fetch(`${BASE}/api/workflows/${encodeURIComponent(name)}/dry-run`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify(body),
+	});
+	await checkResponse(res);
+	return res.json();
+}
+
+export interface WorkflowVersionSummary {
+	id: string;
+	version: number;
+	name: string;
+	description: string;
+	stepsHash: string;
+	stepCount: number;
+	createdByUserId: string | null;
+	createdAt: string;
+}
+
+export async function fetchWorkflowVersions(name: string): Promise<WorkflowVersionSummary[]> {
+	const res = await fetch(`${BASE}/api/workflows/${encodeURIComponent(name)}/versions`);
+	await checkResponse(res);
+	return res.json();
 }
 
 export async function triggerWorkflowRun(

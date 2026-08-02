@@ -152,6 +152,14 @@ export const SCOPED_RUNTIME_EVENT_TYPES: ReadonlySet<keyof AgentEvents> = new Se
   "workflow:step",
   "workflow:complete",
   "workflow:error",
+  // The parked-approval notice. Fail-closed on `payload.userId` like its
+  // siblings, and that is load-bearing rather than incidental: the payload
+  // carries the step's PROMPT and its consent item ids, which routinely
+  // name what is about to be done and to what. An unowned run (CLI,
+  // extension trigger) emits no userId and the event is therefore DROPPED
+  // — nobody is notified, which is the correct reading of "this run has no
+  // owner to ask".
+  "workflow:approval_request",
 ]);
 
 // ── Extension-declared event registry ───────────────────────────────

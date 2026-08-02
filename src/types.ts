@@ -128,6 +128,20 @@ export interface AgentRun {
   agentName: string;
   projectId?: string;
   provider?: string;
+  /** Model id the run's LLM call actually resolved to. Populated on the
+   *  `runAgent` path from the pi-ai adapter's last resolution (see
+   *  `createPiLlmAdapter`); undefined for a run that never called an LLM.
+   *  `provider` is the matching half. */
+  model?: string;
+  /** Tokens this run's LLM call(s) reported, summed across every call.
+   *  Populated on the `runAgent` path from the pi-llm adapter's running
+   *  total; **undefined — never 0 — when nothing reported usage** (a run
+   *  that never touched `ctx.llm`, a cached response, a stream that
+   *  errored before its `done` frame). Zero is a claim that deflates
+   *  every aggregate summing it; undefined becomes SQL NULL, which every
+   *  SQL aggregate already ignores. */
+  inputTokens?: number;
+  outputTokens?: number;
   status: AgentStatus;
   startedAt: number;
   finishedAt?: number;
@@ -197,7 +211,98 @@ export interface LoopConfig {
   onExhausted?: "fail" | "pass";
 }
 
-export type WorkflowStepKind = "agent" | "transform" | "gate" | "tool";
+/**
+ * `workflow` runs a NESTED definition as one step of this graph. It is the
+ * only kind whose body is another workflow, which is why it is also the
+ * only kind added to the `loop` allow-list: looping a graph that contains
+ * an LLM or a gate is bounded re-execution, while looping a raw
+ * side-effecting `tool` call is not — and that ban is unchanged.
+ */
+export type WorkflowStepKind =
+  | "agent"
+  | "transform"
+  | "gate"
+  | "tool"
+  | "approval"
+  | "workflow";
+
+/**
+ * What happens to an `approval` step whose `timeoutMs` elapses.
+ *
+ * `abort` is the default and the only safe one to default to: an approval
+ * that silently became `approve` because nobody looked at it is a consent
+ * bypass, and defaults are exactly where those hide. The other two exist
+ * because some gates genuinely are advisory, but an author has to say so.
+ */
+export type ApprovalTimeoutPolicy = "abort" | "approve" | "skip";
+
+/**
+ * The result an answered `approval` step contributes to `$steps`.
+ *
+ * The shape is FIXED and every field is always present, because
+ * `workflow-refs.ts` resolves refs strictly: a downstream
+ * `$steps.gate.output.form` against an answer that happened to omit a
+ * form would throw at run time, long after the definition was written.
+ * `form` is `{}` and `itemIds` is `[]` rather than absent.
+ */
+export interface ApprovalStepOutput {
+  /** The choice the human picked. Always one the definition declared. */
+  choice: string;
+  /** Structured answer fields, `{}` when the step declared no form. */
+  form: Record<string, unknown>;
+  /** The items the answer named, `[]` when none were required. */
+  itemIds: string[];
+  /** User id of the answerer; null for a timeout-synthesized answer. */
+  answeredBy: string | null;
+  /** ISO-8601. Set for a timeout answer too — something did decide. */
+  answeredAt: string;
+}
+
+/**
+ * Reasoning-effort level a model binding may request. Mirrors pi-ai's
+ * `ThinkingLevel` verbatim — the value is handed to `completeSimple` /
+ * `streamSimple`, which normalize it into each provider's own knob
+ * (`reasoningEffort` on OpenAI, a thinking budget on Anthropic, …).
+ *
+ * There is deliberately no `"off"`: the `runAgent` LLM path sends no
+ * reasoning option at all unless one is asked for, so "off" IS the
+ * default and a value for it would only be a second way to spell it.
+ */
+export type ModelEffort = "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+
+/**
+ * A RESOLVED model binding that overrides whatever the callee would
+ * otherwise use. Every value here is concrete — refs are already gone.
+ *
+ * Every field is optional and independently applied: an override naming
+ * only `model` keeps the agent's own `provider`, and an ABSENT override
+ * (undefined) leaves the callee's binding untouched — including the
+ * {@link CURRENT_MODEL_SENTINEL} inherit sentinel — so today's behaviour
+ * is unchanged wherever no override is supplied.
+ */
+export interface ModelOverride {
+  provider?: string;
+  model?: string;
+  temperature?: number;
+  maxTokens?: number;
+  effort?: ModelEffort;
+}
+
+/**
+ * A model binding as WRITTEN IN A WORKFLOW DEFINITION — the same fields,
+ * except that the string ones may be refs (`{ effort: "$input.tier" }`)
+ * whose value does not exist until the run resolves them. That is the one
+ * and only difference from {@link ModelOverride}, and it is why `effort`
+ * widens to `string` here: a ref is not an effort level, and typing it as
+ * one would make the ref language unusable in a binding.
+ *
+ * `resolveModelOverride` is the crossing point: a `WorkflowModelBinding`
+ * goes in, a fully-concrete `ModelOverride` comes out (or a loud throw).
+ * `temperature` / `maxTokens` are numbers and therefore never refs.
+ */
+export interface WorkflowModelBinding extends Omit<ModelOverride, "effort"> {
+  effort?: string;
+}
 
 /**
  * State of a workflow run. Extends the agent `AgentStatus`
@@ -211,8 +316,78 @@ export type WorkflowStepKind = "agent" | "transform" | "gate" | "tool";
  *   (nothing went wrong — the run is simply blocked on a human). Callers
  *   that branch on `=== "success"` (the CLI's exit code, the run route's
  *   consumers) therefore treat it as a non-success outcome for free.
+ *
+ *   `suspended` — the run PARKED at a step boundary and is safe to
+ *   resume. The ONLY non-terminal, non-`running` state: no process owns
+ *   the run, its {@link WorkflowCursor} records where to pick up, and a
+ *   resume continues it in place.
+ *
+ * `suspended` deliberately does NOT reuse `awaiting_approval`, whose
+ * meaning is unchanged: parked AND dead. Reusing it would retroactively
+ * make every historical `awaiting_approval` row look resumable.
+ *
+ *   `skipped` — **a STEP status only.** The step's `when` evaluated false,
+ *   or a step it depends on was skipped. Nothing ran, nothing failed, and
+ *   the RUN keeps going: that is the entire distinction from `gate`, which
+ *   throws. A *run* never terminalizes `skipped` — the union is shared by
+ *   {@link WorkflowRun} and {@link WorkflowStepRun}, and
+ *   `TerminalWorkflowRunStatus` (`db/queries/workflow-runs.ts`) is the
+ *   narrower type that says so for runs.
  */
-export type WorkflowRunStatus = AgentStatus | "awaiting_approval";
+export type WorkflowRunStatus =
+  | AgentStatus
+  | "awaiting_approval"
+  | "suspended"
+  | "skipped";
+
+/**
+ * Which side of a step boundary the executor was on when it last wrote.
+ *
+ * Written synchronously and STRICTLY (never through the error-swallowing
+ * telemetry path) around the batch dispatch, so crash recovery never has
+ * to guess:
+ *
+ *   `boundary`  — between batches. Nothing is in flight; the cursor is
+ *                 authoritative and the run can be resumed from it.
+ *   `in-batch`  — a batch is mid-flight. An LLM call or a side-effecting
+ *                 `tool` dispatch may be half-applied, so a crash here
+ *                 FAILS CLOSED rather than re-entering a half-executed
+ *                 step.
+ *
+ * The recovery sweep selects on one predicate (an expired lease) and
+ * branches its ACTION on this column — that is what keeps the sweep dumb
+ * without lying about the run's status.
+ */
+export type WorkflowRunPhase = "boundary" | "in-batch";
+
+/**
+ * Where a suspended/orphaned run resumes from.
+ *
+ * `batchIndex` is a stable coordinate because `resolveExecutionOrder` is
+ * pure and deterministic: the no-deps path emits one step per batch in
+ * declaration order, and the topo path iterates `steps` in declaration
+ * order within each batch. Recomputing it on resume from the same
+ * definition yields byte-identical batches — which is also why a resume
+ * against a CHANGED definition must fail closed (`definition_hash`).
+ */
+export interface WorkflowCursor {
+  /** Index of the next batch to execute. */
+  batchIndex: number;
+  /** Every step name completed so far, in completion order. */
+  completedSteps: string[];
+  /**
+   * The step whose result is `$prev` for `batchIndex`.
+   *
+   * Recorded rather than recomputed on purpose. Today `$prev` is
+   * `results[results.length - 1]` — the LAST step of the previous batch
+   * in declaration order, which is documented as order-fragile in
+   * parallel batches. Reproducing that exactly is the point: making
+   * `$prev` graph-deterministic on resume would give a resumed run a
+   * different `$prev` than the same run straight through, which is a far
+   * worse bug than the documented fragility.
+   */
+  prevStepName: string | null;
+}
 
 export interface WorkflowStep {
   name: string;
@@ -255,8 +430,103 @@ export interface WorkflowStep {
    */
   tool?: string;
 
+  /**
+   * Per-step model binding (agent kind only) — the step's agent runs on
+   * THIS model instead of the one its config declares, so one workflow
+   * can mix a cheap extractor with an expensive validator. Overrides the
+   * definition's {@link WorkflowDefinition.defaultModel}; absent on both
+   * ⇒ the agent's own binding, byte-for-byte as before.
+   *
+   * Values may be refs (`{ model: "$input.verifyModel" }`), resolved with
+   * the same ref context as the step's `input`. Rejected at definition
+   * time on any non-agent step.
+   */
+  model?: WorkflowModelBinding;
+
+  // ── approval kind ──
+  /** What the human is being asked. Required on an `approval` step. */
+  prompt?: string;
+  /**
+   * The answers the definition allows. Required and non-empty on an
+   * `approval` step; an answer outside this set is rejected, never
+   * coerced, so the set is also the contract downstream `$steps` refs
+   * read against.
+   */
+  choices?: string[];
+  /** RBAC scope gating who may answer. Absent ⇒ project members. The
+   *  check is fail-closed: a throw is a DENY. */
+  rbacScope?: string;
+  /** Optional structured fields collected alongside the choice. */
+  formSchema?: Record<string, unknown>;
+  /**
+   * Require the answer to NAME the items it acts on. Paired with
+   * {@link itemsRef}: with nothing to consent to the requirement is
+   * vacuous, which is deliberate — a clean gate answers ids-free.
+   */
+  requireItemConsent?: boolean;
+  /**
+   * Ref to the items REQUIRING CONSENT (e.g. `$steps.review.output.asks`),
+   * resolved AT SUSPEND TIME so the answer is checked against what the
+   * run actually produced rather than what the definition hoped for.
+   */
+  itemsRef?: string;
+  /** Park for at most this long before {@link onTimeout} applies. */
+  timeoutMs?: number;
+  /** Default `abort` — see {@link ApprovalTimeoutPolicy}. */
+  onTimeout?: ApprovalTimeoutPolicy;
+
+  // ── workflow kind ──
+  /**
+   * Name of the NESTED definition this step runs — resolved through the
+   * same merged cache the top-level run route uses, so an extension
+   * workflow is addressed by its namespaced `<ext>:<name>`.
+   *
+   * **A LITERAL name, never a ref.** `$input.child` and
+   * `$steps.pick.output.name` are rejected at definition time
+   * (`isResolvableWorkflowName`, enforced in `validateWorkflow`), and the
+   * executor uses this string verbatim as its lookup key. The ref language
+   * could resolve one — refusing is the choice, because the nesting cycle
+   * check and the depth cap are definition-time checks that a run-time name
+   * makes uncomputable, and because C3's delegated-execution consent hashes
+   * the transitive closure of nested workflows: a graph that picks its own
+   * children cannot be consented to.
+   *
+   * The child is a first-class run: its own `workflow_runs` row, its own
+   * cursor, its own `definition_hash`, and its own `parent_run_id`
+   * pointing here. That independence is what lets a nested graph containing
+   * an `approval` step park on its own while the parent parks alongside it.
+   */
+  workflow?: string;
+
+  // ── control flow (any kind) ──
+  /**
+   * Guard evaluated BEFORE the step dispatches. False ⇒ the step is
+   * `skipped` and **the run continues**.
+   *
+   * The whole distinction from `condition` (gate): a false gate THROWS and
+   * fails the run — there was no way to say "skip this branch" before this.
+   * Same {@link WorkflowCondition} grammar and the same `evaluateCondition`,
+   * against the same ref context the step's `input` would have used.
+   *
+   * On a step that also declares `loop`, evaluated ONCE, before the loop —
+   * a per-iteration guard is `loop.until`, not this.
+   */
+  when?: WorkflowCondition;
+  /**
+   * Skip this step's declared dependents too when it is skipped. Default
+   * **true**, because that is the only reading that keeps a graph
+   * consistent: a step exists to consume what its dependency produced, and
+   * running it against a value nobody produced is the silent-wrong-answer
+   * outcome this subsystem refuses everywhere else.
+   *
+   * `false` opts a step out — its dependents run anyway — which is only
+   * safe when they do not read `$steps.<this step>`. `validateWorkflow`
+   * enforces exactly that at definition time.
+   */
+  skipDependents?: boolean;
+
   dependsOn?: string[];
-  /** Bounded loop (agent | transform kinds only). */
+  /** Bounded loop (agent | transform | workflow kinds only). */
   loop?: LoopConfig;
 }
 
@@ -264,6 +534,12 @@ export interface WorkflowDefinition {
   name: string;
   description: string;
   inputSchema?: InputSchema;
+  /** Model binding applied to every `agent` step that does not declare its
+   *  own {@link WorkflowStep.model}. Whole-bundle fallback, NOT a
+   *  field-by-field merge: a step that names `model` replaces this
+   *  entirely, so a step can drop back to the provider default without
+   *  inheriting a definition-level `maxTokens` it never asked for. */
+  defaultModel?: WorkflowModelBinding;
   steps: WorkflowStep[];
   /**
    * Which loader produced this definition. Stamped by the loader itself —
@@ -284,6 +560,41 @@ export interface WorkflowDefinition {
   source?: "extension" | "yaml" | "db";
 }
 
+/**
+ * Who a DB-backed workflow belongs to.
+ *
+ * Deliberately NOT a field on {@link WorkflowDefinition}, which is the
+ * shape of the GRAPH and is shared by YAML- and extension-shipped
+ * workflows that have no owner, by `runWorkflow`, by the CLI and by
+ * `validateWorkflow`. Provenance travels alongside the definition on
+ * `CachedWorkflow` instead (`src/runtime/workflow-scope.ts`).
+ *
+ *   `system`  — ships with the install. No project, no owner. Any `chat`
+ *               caller may run it; only an admin may edit it. Every row
+ *               that predates C6 is this, which is why adding the ladder
+ *               changed no existing caller's access. Written by the
+ *               ordinary create route and by `systemCachedWorkflow`.
+ *   `project` — carries a project id and a creator. The platform has no
+ *               project-membership model, so on the read/run axis this
+ *               admits EVERY AUTHENTICATED PRINCIPAL — see
+ *               `WorkflowAudience` in `src/runtime/workflow-scope.ts`.
+ *               Its real content is the EDIT boundary it holds (the
+ *               creator, which `system` has no room for). Written by
+ *               fork, by the admin claim route, and by an author who
+ *               names it on create.
+ *   `private` — owner and admins only, and the one tier narrower than
+ *               "everyone with a login": the platform's only workflow
+ *               confidentiality boundary. Reachable since `visibility`
+ *               became a selectable key on the create/update body — the
+ *               author names it, and no extra right is needed, because
+ *               choosing a NARROWER audience for your own row grants
+ *               nobody anything. (`system`, which does, is admin-only to
+ *               assign: `denyVisibilityAssignment`.) Which tiers are
+ *               reachable and what each is worth is pinned by
+ *               `src/__tests__/workflow-visibility-reach.test.ts`.
+ */
+export type WorkflowVisibility = "system" | "project" | "private";
+
 export interface WorkflowRun {
   id: string;
   workflowName: string;
@@ -303,7 +614,75 @@ export interface WorkflowStepRun {
   status: WorkflowRunStatus;
   /** Final iteration count for a looped step (omitted for non-loop steps). */
   iterations?: number;
+  /**
+   * Why a `skipped` step was skipped — its own `when`, or the name of the
+   * skipped dependency that suppressed it.
+   *
+   * Carried on the step run (and therefore on the `workflow:step` SSE
+   * frame) rather than left to the reader to infer, because a trace showing
+   * a skipped step with no explanation is indistinguishable from a step
+   * that was never reached. Omitted for every other status.
+   *
+   * NOTE: `workflow_step_runs.skipped_reason` is C5's column and does not
+   * exist on this branch, so this value is in-memory + SSE only today; the
+   * persisted step row carries `status = 'skipped'` alone. See the C7
+   * section of `docs/features/orchestration/workflows.md`.
+   */
+  skippedReason?: string;
+  /** Provider / model the step's agent run RESOLVED to — what actually
+   *  served the call, not what was requested (a `$input` ref, an
+   *  agent-config binding and a bare model id all land here identically).
+   *  Undefined for a step that ran no LLM (transform / gate / tool, or an
+   *  agent whose `execute` never touched `ctx.llm`). */
+  provider?: string;
+  model?: string;
+  /** Agent invocations this step consumed. Counts retries AND loop
+   *  iterations, so for a looped step it is the total number of LLM
+   *  calls, not the iteration count — `iterations` is that. Undefined
+   *  for a step that invokes no agent. */
+  attempt?: number;
+  /** Tokens this step consumed, SUMMED across its retries and loop
+   *  iterations — overwriting per attempt would undercount a step that
+   *  retried. Contrast `provider`/`model`, which are deliberately
+   *  last-write: "what served the call" has one answer, "what did this
+   *  step cost" is a total.
+   *
+   *  Undefined — never 0 — when nothing reported usage. See
+   *  `AgentRun.inputTokens`. */
+  inputTokens?: number;
+  outputTokens?: number;
+  /** Typed failure reason, stable enough to GROUP BY — unlike a message.
+   *  Derived from the exception CLASS the step threw, so it says which
+   *  kind of ending this was (`cancelled`, `approval-required`,
+   *  `suspended`, `step-failed`) rather than restating the text. */
+  errorCode?: string;
 }
+
+/**
+ * Out-of-band sink for a step's RESOLVED INPUT, on its way to
+ * `workflow_step_runs.resolved_input`.
+ *
+ * **Deliberately not a field on {@link WorkflowStepRun}.** That object is
+ * a published SSE payload, and this value is the raw mapping the ref
+ * language produced — whatever the author threaded through `$input`,
+ * credentials included. It is redacted and capped by
+ * `prepareResolvedInput` on the way into the row; putting it on the event
+ * stream would publish it unredacted to every subscribed client.
+ *
+ * The same reasoning already keeps a step's `output` off the payload.
+ */
+export interface WorkflowStepInputSink {
+  resolvedInput?: Record<string, unknown>;
+}
+
+/* NOTE: a step's `durationMs` is deliberately NOT a field on
+ * {@link WorkflowStepRun} either, for a second and independent reason: it
+ * is a CLOCK READING, and this object is compared byte-for-byte by the
+ * demo-workflow determinism test ("a transform/gate-only workflow is a
+ * pure function — no LLM, no I/O, no clock"). Putting a wall-clock value
+ * on a published payload makes two identical runs differ whenever they
+ * straddle a millisecond. It lives in the executor's per-step closure and
+ * goes straight to the column. */
 
 // ── Team Member Types ────────────────────────────────────────────────
 
@@ -379,6 +758,33 @@ export interface AgentEvents {
   "workflow:step": { workflowRun: WorkflowRun; step: WorkflowStepRun; userId?: string };
   "workflow:complete": { workflowRun: WorkflowRun; userId?: string };
   "workflow:error": { workflowRun: WorkflowRun; error: string; userId?: string };
+  /**
+   * A run just parked on an `approval` step and a human has to decide.
+   *
+   * Emitted alongside the `workflow:error` suspend signal rather than
+   * folded into it, because the two answer different questions: that one
+   * says "this run stopped", this one says "and YOU can unblock it".
+   * Everything the tray card renders rides here, so the surface can paint
+   * the moment the run parks without a round-trip.
+   *
+   * `userId` is the run's owner and is what the fail-closed SSE filter
+   * scopes on. It is OPTIONAL because an unowned run (CLI, extension
+   * trigger with no acting user) has nobody to notify — the filter drops
+   * an event with no user rather than broadcasting a prompt that names
+   * what is about to be done and to what.
+   */
+  "workflow:approval_request": {
+    approvalId: string;
+    workflowRunId: string;
+    workflowName: string;
+    stepName: string;
+    prompt: string;
+    choices: string[];
+    requireItemConsent: boolean;
+    itemIds: string[];
+    expiresAt: string | null;
+    userId?: string;
+  };
   "tool:start": { conversationId: string; extensionId: string; toolName: string; input: unknown; timestamp: number; source?: 'inline' | 'agent-run'; invocationId?: string; cardType?: string; cardLayout?: string; category?: string };
   "tool:complete": { conversationId: string; extensionId: string; toolName: string; output: unknown; duration: number; success: boolean; source?: 'inline' | 'agent-run'; invocationId?: string; cardType?: string; cardLayout?: string };
   "tool:error": { conversationId: string; extensionId: string; toolName: string; error: string; duration: number; source?: 'inline' | 'agent-run'; invocationId?: string; cardType?: string; cardLayout?: string };

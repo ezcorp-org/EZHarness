@@ -36,7 +36,11 @@ describe("EXT_AUDIT_ACTIONS — all SDK_* values share the ext:sdk- prefix", () 
     // + the Loops Phase 4 webhook tier:
     //   SDK_WEBHOOK_ACCEPTED, SDK_WEBHOOK_REJECTED, SDK_WEBHOOK_DISPATCHED,
     //   SDK_WEBHOOK_SECRET_ROTATED.
-    expect(sdkEntries.length).toBe(27);
+    // + the C2 dynamic-trigger tier:
+    //   SDK_TRIGGER_REGISTERED, SDK_TRIGGER_UNREGISTERED,
+    //   SDK_TRIGGER_REJECTED, SDK_TRIGGER_ORPHANED,
+    //   SDK_TRIGGER_CAPABILITY_REVOKED.
+    expect(sdkEntries.length).toBe(32);
     for (const [, v] of sdkEntries) {
       expect(v.startsWith("ext:sdk-")).toBe(true);
     }

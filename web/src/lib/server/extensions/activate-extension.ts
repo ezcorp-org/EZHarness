@@ -24,6 +24,7 @@ import { clampExtensionPermissions } from "$lib/server/extension-helpers";
 import { emitEnvKeyLeakWarnings } from "$server/extensions/clamp-permissions";
 import { reconcileSchedules } from "$server/extensions/schedule-reconcile";
 import { reconcileWebhooks } from "$server/extensions/webhook-reconcile";
+import { revokeDynamicTriggers } from "$server/extensions/triggers-sweep";
 import { formatNpmDepError, verifyNpmDependencies } from "$server/extensions/npm-deps";
 import type { ExtensionManifestV2, ExtensionPermissions } from "$server/extensions/types";
 import type { Extension } from "$server/db/schema";
@@ -148,6 +149,22 @@ export async function activateExtension(
 		await reconcileWebhooks(ext.name, grantedWebhooks);
 	} catch {
 		/* swallow — webhook reconcile is non-fatal */
+	}
+	// C2 — the `triggers` capability disappearing from the manifest is the
+	// ONE case where soft-disabling user-created triggers is correct: the
+	// capability that authorized them is gone. It has to be an EXPLICIT
+	// sweep, because the reconcilers above deliberately no longer touch
+	// dynamic rows at all — that filter is what keeps a routine manifest
+	// edit from looking like a revocation.
+	//
+	// Narrowing a cap is NOT a revocation: existing rows keep running and
+	// only NEW registrations are refused. Only total removal sweeps.
+	try {
+		if (!ext.manifest?.permissions?.triggers) {
+			await revokeDynamicTriggers(id, ext.name);
+		}
+	} catch {
+		/* swallow — the trigger sweep is non-fatal, like the two above */
 	}
 
 	// Best-effort audit log — do not fail on logging errors.

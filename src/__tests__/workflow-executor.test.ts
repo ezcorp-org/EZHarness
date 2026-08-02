@@ -3,7 +3,7 @@ import { WorkflowExecutor } from "../runtime/workflow-executor";
 import { AgentExecutor } from "../runtime/executor";
 import { EventBus } from "../runtime/events";
 import { loadAgentsStatic } from "../runtime/loader";
-import type { AgentDefinition, AgentEvents, WorkflowDefinition } from "../types";
+import type { AgentDefinition, AgentEvents, AgentRun, WorkflowDefinition } from "../types";
 
 function makeAgent(name: string, fn: AgentDefinition["execute"]): AgentDefinition {
   return { name, description: `${name} agent`, capabilities: ["llm"], execute: fn };
@@ -952,5 +952,252 @@ describe("WorkflowExecutor — terminal step status on failure", () => {
     expect(run.status).toBe("cancelled");
     expect(aborted).toBe(true);
     expect(run.steps[0]!.status).toBe("cancelled");
+  });
+});
+
+/**
+ * Per-step model bindings. The compatibility contract is asserted at the
+ * seam that matters: what `runAgent` is handed as its 5th argument.
+ */
+type RunAgentCall = { agent: string; override: unknown };
+
+function spyOnRunAgent(
+  executor: AgentExecutor,
+  result?: Partial<AgentRun>,
+): RunAgentCall[] {
+  const calls: RunAgentCall[] = [];
+  const original = executor.runAgent.bind(executor);
+  executor.runAgent = (async (
+    name: string,
+    input: Record<string, unknown>,
+    projectId?: string,
+    userId?: string,
+    modelOverride?: unknown,
+  ) => {
+    calls.push({ agent: name, override: modelOverride });
+    const run = await original(name, input, projectId, userId, modelOverride as never);
+    return { ...run, ...result };
+  }) as typeof executor.runAgent;
+  return calls;
+}
+
+describe("WorkflowExecutor — per-step model bindings", () => {
+  const okAgent = (name: string): AgentDefinition =>
+    makeAgent(name, async () => ({ success: true, output: `${name}-out` }));
+
+  test("a workflow with NO bindings passes undefined — byte-identical to before", async () => {
+    // THE compatibility guarantee. Covers a plain step, a retrying step and
+    // a looped step, because each reaches runAgent by a different path.
+    const { workflow, executor } = setup([okAgent("a"), okAgent("b"), okAgent("c")]);
+    const calls = spyOnRunAgent(executor);
+
+    const run = await workflow.runWorkflow(
+      {
+        name: "no-bindings",
+        description: "",
+        steps: [
+          { name: "plain", agent: "a" },
+          { name: "retrying", agent: "b", retries: 2 },
+          { name: "looped", agent: "c", loop: { maxIterations: 2 } },
+        ],
+      },
+      {},
+    );
+
+    expect(run.status).toBe("success");
+    expect(calls).toHaveLength(4); // plain + retrying + 2 loop iterations
+    expect(calls.every((c) => c.override === undefined)).toBe(true);
+  });
+
+  test("a step's binding is passed to its agent, and only to its agent", async () => {
+    const { workflow, executor } = setup([okAgent("a"), okAgent("b")]);
+    const calls = spyOnRunAgent(executor);
+
+    await workflow.runWorkflow(
+      {
+        name: "mixed",
+        description: "",
+        steps: [
+          { name: "cheap", agent: "a", model: { model: "claude-haiku-4-5-20251001" } },
+          { name: "default", agent: "b" },
+        ],
+      },
+      {},
+    );
+
+    expect(calls).toEqual([
+      { agent: "a", override: { model: "claude-haiku-4-5-20251001" } },
+      { agent: "b", override: undefined },
+    ]);
+  });
+
+  test("defaultModel applies to steps that declare none, and a step overrides it wholesale", async () => {
+    const { workflow, executor } = setup([okAgent("a"), okAgent("b")]);
+    const calls = spyOnRunAgent(executor);
+
+    await workflow.runWorkflow(
+      {
+        name: "with-default",
+        description: "",
+        defaultModel: { provider: "anthropic", model: "claude-haiku-4-5-20251001", maxTokens: 2000 },
+        steps: [
+          { name: "inherits", agent: "a" },
+          { name: "replaces", agent: "b", model: { model: "claude-opus-5" } },
+        ],
+      },
+      {},
+    );
+
+    expect(calls[0]!.override).toEqual({
+      provider: "anthropic",
+      model: "claude-haiku-4-5-20251001",
+      maxTokens: 2000,
+    });
+    // Wholesale replacement — the definition's maxTokens is NOT merged in.
+    expect(calls[1]!.override).toEqual({ model: "claude-opus-5" });
+  });
+
+  test("binding values resolve through the workflow ref language", async () => {
+    const { workflow, executor } = setup([okAgent("a")]);
+    const calls = spyOnRunAgent(executor);
+
+    await workflow.runWorkflow(
+      {
+        name: "ref-bound",
+        description: "",
+        steps: [{ name: "verify", agent: "a", model: { model: "$input.verifyModel", effort: "$input.tier" } }],
+      },
+      { verifyModel: "claude-opus-5", tier: "high" },
+    );
+
+    expect(calls[0]!.override).toEqual({ model: "claude-opus-5", effort: "high" });
+  });
+
+  test("an unsupplied $input ref leaves the agent's own binding standing", async () => {
+    const { workflow, executor } = setup([okAgent("a")]);
+    const calls = spyOnRunAgent(executor);
+
+    await workflow.runWorkflow(
+      {
+        name: "ref-unset",
+        description: "",
+        steps: [{ name: "verify", agent: "a", model: { model: "$input.verifyModel" } }],
+      },
+      {},
+    );
+
+    expect(calls[0]!.override).toBeUndefined();
+  });
+
+  test("a binding is resolved ONCE per step, not re-picked on each retry", async () => {
+    let attempts = 0;
+    const { workflow, executor } = setup([
+      makeAgent("flaky", async () => {
+        attempts += 1;
+        return attempts < 3
+          ? { success: false, output: null, error: "nope" }
+          : { success: true, output: "eventually" };
+      }),
+    ]);
+    const calls = spyOnRunAgent(executor);
+
+    const run = await workflow.runWorkflow(
+      {
+        name: "retry-bound",
+        description: "",
+        steps: [{ name: "s", agent: "flaky", retries: 2, model: { model: "$input.m" } }],
+      },
+      { m: "claude-opus-5" },
+    );
+
+    expect(run.status).toBe("success");
+    expect(calls).toHaveLength(3);
+    expect(calls.every((c) => JSON.stringify(c.override) === '{"model":"claude-opus-5"}')).toBe(true);
+  });
+
+  test("a looped step re-resolves its binding per iteration, so it can escalate", async () => {
+    const { workflow, executor } = setup([
+      makeAgent("a", async (ctx) => ({
+        success: true,
+        output: { n: ctx.input.n ?? 0, next: "claude-opus-5" },
+      })),
+    ]);
+    const calls = spyOnRunAgent(executor);
+
+    const run = await workflow.runWorkflow(
+      {
+        name: "loop-bound",
+        description: "",
+        steps: [
+          {
+            name: "s",
+            agent: "a",
+            input: { n: "$loop.iteration" },
+            // `$loop.last` is OMITTED on iteration 1 (the documented lenient
+            // exception), so iteration 1 runs on the agent's own binding and
+            // iteration 2 escalates to the model the first pass named.
+            model: { model: "$loop.last.output.next" },
+            loop: { maxIterations: 2 },
+          },
+        ],
+      },
+      {},
+    );
+
+    expect(run.status).toBe("success");
+    expect(calls).toHaveLength(2);
+    expect(calls[0]!.override).toBeUndefined();
+    expect(calls[1]!.override).toEqual({ model: "claude-opus-5" });
+  });
+
+  test("a binding that resolves to a non-string fails the run loudly", async () => {
+    const { workflow } = setup([okAgent("a")]);
+    const run = await workflow.runWorkflow(
+      {
+        name: "bad-ref",
+        description: "",
+        steps: [{ name: "verify", agent: "a", model: { model: "$input.n" } }],
+      },
+      { n: 42 },
+    );
+
+    expect(run.status).toBe("error");
+    expect(String((run.result?.error as string) ?? "")).toContain(
+      'Step "verify" model override "model" resolved to a non-string value',
+    );
+  });
+
+  test("the step run records the provider/model the agent RESOLVED to", async () => {
+    const { workflow, executor } = setup([okAgent("a")]);
+    spyOnRunAgent(executor, { provider: "anthropic", model: "claude-haiku-4-5-20251001" });
+
+    const run = await workflow.runWorkflow(
+      {
+        name: "records",
+        description: "",
+        steps: [{ name: "s", agent: "a", model: { model: "claude-haiku-4-5-20251001" } }],
+      },
+      {},
+    );
+
+    expect(run.steps[0]!.provider).toBe("anthropic");
+    expect(run.steps[0]!.model).toBe("claude-haiku-4-5-20251001");
+  });
+
+  test("non-agent steps carry no provider/model — they run no LLM", async () => {
+    const { workflow } = setup([]);
+    const run = await workflow.runWorkflow(
+      {
+        name: "no-llm",
+        description: "",
+        defaultModel: { model: "claude-opus-5" },
+        steps: [{ name: "t", kind: "transform", output: { a: "x" } }],
+      },
+      {},
+    );
+
+    expect(run.status).toBe("success");
+    expect(run.steps[0]!.provider).toBeUndefined();
+    expect(run.steps[0]!.model).toBeUndefined();
   });
 });

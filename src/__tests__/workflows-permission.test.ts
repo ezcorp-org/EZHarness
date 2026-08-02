@@ -8,7 +8,7 @@
  * explicit test rather than relying on the happy path passing through.
  */
 import { test, expect, describe } from "bun:test";
-import { validateManifestV2 } from "../extensions/manifest";
+import { validateManifestV2, WEBHOOK_PREFIX_RE } from "../extensions/manifest";
 import {
   clampWorkflowsPermission,
   clampExtensionPermissions,
@@ -314,6 +314,36 @@ describe("bundled ceiling — the full-field-set invariant", () => {
       expect(Number.isFinite(s.maxRunDurationMs), label).toBe(true);
       expect(Number.isFinite(s.maxRetries), label).toBe(true);
       expect(typeof s.missedRunPolicy, label).toBe("string");
+    }
+  });
+
+  test("every ceiling row declaring `triggers` carries all four fields AND a usable prefix", () => {
+    // The C2 trap, added when `ez-factory` became the first bundled row
+    // to declare `triggers`. Two failure modes, both silent at boot:
+    //
+    //   - a missing numeric ⇒ `Math.min(NaN, …)`, same as workflows /
+    //     schedule above;
+    //   - a `webhookPrefix` that is empty or fails `WEBHOOK_PREFIX_RE`.
+    //     That one is worse than the numerics: `intersectPermissions`
+    //     DROPS the whole `triggers` grant when the two sides' prefixes
+    //     disagree, and `clampTriggersPermission` refuses to grant at all
+    //     on a malformed manifest prefix rather than defaulting one. A
+    //     ceiling row is only useful if it can actually match a legal
+    //     manifest prefix.
+    //
+    // Per-extension byte-matching against the owning manifest lives with
+    // that extension (ez-factory's is in
+    // `ez-factory-bundled-install.test.ts`); this is the cross-row floor
+    // every future `triggers` row inherits for free.
+    for (const [name, ceiling] of Object.entries(BUNDLED_CEILING)) {
+      const t = ceiling.triggers;
+      if (!t) continue;
+      const label = `BUNDLED_CEILING["${name}"].triggers`;
+      expect(Number.isFinite(t.maxCron), label).toBe(true);
+      expect(Number.isFinite(t.maxWebhooks), label).toBe(true);
+      expect(Number.isFinite(t.maxRunsPerDay), label).toBe(true);
+      expect(typeof t.webhookPrefix, label).toBe("string");
+      expect(WEBHOOK_PREFIX_RE.test(t.webhookPrefix), label).toBe(true);
     }
   });
 });

@@ -6,6 +6,7 @@ import { registerGithubProjectsEmit } from "$server/integrations/github-projects
 import { registerWorkflowRuntime } from "$server/runtime/workflow/runtime-registry";
 import { ensureBriefingAgentConfig } from "$server/runtime/briefing/agent-config";
 import { registerBriefingHubPage } from "$server/runtime/briefing/hub-page";
+import { registerWorkflowApprovalsHubPage } from "$server/runtime/workflow-approvals-hub-page";
 import { triggerBriefingRunNow } from "$lib/server/briefing-run-now";
 import { AgentExecutor } from "$server/runtime/executor";
 import { WorkflowExecutor } from "$server/runtime/workflow-executor";
@@ -16,7 +17,12 @@ import {
 } from "$server/runtime/workflow-extension-loader";
 import { initDb, closeDb } from "$server/db/connection";
 import { validateEnv } from "$server/env-validation";
-import { loadDbWorkflows } from "$server/db/queries/workflows";
+import { loadDbCachedWorkflows } from "$server/db/queries/workflows";
+import {
+  resolveWorkflowForCaller,
+  systemCachedWorkflow,
+  type CachedWorkflow,
+} from "$server/runtime/workflow-scope";
 import { terminalizeOrphanedWorkflowRuns } from "$server/db/queries/workflow-runs";
 import { startBackups, stopBackups } from "$server/db/backup";
 import {
@@ -104,7 +110,7 @@ let lifecycleDispatcher: LifecycleHookDispatcher | null = null;
 let eventSubscriptionDispatcher: EventSubscriptionDispatcher | null = null;
 let commandRegistry: CommandRegistry | null = null;
 let goalHost: GoalHost | null = null;
-let workflows: WorkflowDefinition[] = [];
+let workflows: CachedWorkflow[] = [];
 let initialized = false;
 
 export async function ensureInitialized(): Promise<void> {
@@ -157,7 +163,34 @@ export async function ensureInitialized(): Promise<void> {
   // (crash / OOM / restart): a fresh process owns zero in-flight workflow
   // runs, so every such row is orphaned by definition. Fire-and-forget +
   // self-catching so a slow or failing sweep never delays or fails boot.
-  workflowExecutor = new WorkflowExecutor(executor, bus, { persist: true });
+  workflowExecutor = new WorkflowExecutor(executor, bus, {
+    persist: true,
+    // C7 composition: a `kind: "workflow"` step resolves its child HERE,
+    // through the same ladder the run route uses, because nesting IS a run
+    // of another workflow. A bare name lookup would let anyone who can
+    // author a workflow nest someone else's `private` one and read its
+    // behaviour back through `$steps`.
+    //
+    // `role: "member"` is deliberate and conservative: a run carries a
+    // principal id, not a role (a CLI or scheduled run has neither), and
+    // the safe reading of "we do not know" is the lower privilege. The
+    // practical effect is that nesting reaches `system` workflows always,
+    // `project` ones for any run with a user, and `private` ones only for
+    // their owner.
+    //
+    // Reads the live `workflows` binding rather than a captured array, for
+    // the same reason `getWorkflows` is registered as a thunk below:
+    // `reloadWorkflows()` REASSIGNS it on every CRUD write.
+    workflowResolver: (name, ctx) => {
+      const resolved = resolveWorkflowForCaller(
+        workflows,
+        name,
+        { userId: ctx.userId ?? null, role: "member", projectId: ctx.projectId ?? null },
+        "run",
+      );
+      return resolved.ok ? resolved.entry.definition : undefined;
+    },
+  });
   // The `ezcorp/workflows` reverse-RPC handler lives in src/ and cannot
   // import this module (import direction), so register the live executor +
   // a LIVE READER of the merged workflow cache here — same indirection as
@@ -165,7 +198,7 @@ export async function ensureInitialized(): Promise<void> {
   // passed as a THUNK on purpose: `reloadWorkflows()` REASSIGNS the
   // module-level `workflows` binding on every CRUD write, so handing over
   // the array by value would freeze a stale list for the process lifetime.
-  registerWorkflowRuntime({ workflowExecutor, getWorkflows });
+  registerWorkflowRuntime({ workflowExecutor, getWorkflows, getCachedWorkflows });
   void terminalizeOrphanedWorkflowRuns()
     .then((count) => {
       if (count > 0) console.warn(`[workflow] terminalized ${count} orphaned workflow run(s)`);
@@ -204,6 +237,10 @@ export async function ensureInitialized(): Promise<void> {
   // layer so the Hub action and POST /api/briefing/run-now share ONE
   // rate bucket ($lib/server/briefing-run-now.ts).
   registerBriefingHubPage({ triggerRunNow: triggerBriefingRunNow });
+  // The Hub's approvals tab — the second answer surface. Needs no deps:
+  // it answers through `answerApproval`, which resolves the live executor
+  // from the runtime registry registered just above.
+  registerWorkflowApprovalsHubPage();
   // Teardown order matters here: the executor owns the watchdog interval
   // + in-flight tool runs; it must stop BEFORE the dispatchers it can
   // emit events on, and BEFORE the registry that owns its extension
@@ -451,7 +488,27 @@ function getStateMediator(): ExtensionStateMediator | null {
   return stateMediator;
 }
 
+/**
+ * The merged cache as bare definitions.
+ *
+ * Unchanged in shape and order for every pre-C6 caller — the executor,
+ * the reverse-RPC handler's thunk, the run path. Authorization consumes
+ * {@link getCachedWorkflows} instead, because a bare `WorkflowDefinition`
+ * carries no provenance to authorize against.
+ */
 export function getWorkflows(): WorkflowDefinition[] {
+  return workflows.map((entry) => entry.definition);
+}
+
+/**
+ * The merged cache WITH provenance — the input to
+ * `resolveWorkflowForCaller`.
+ *
+ * Same order as {@link getWorkflows}, so a caller that resolves a name
+ * here and a caller that resolves it there can never land on different
+ * workflows.
+ */
+export function getCachedWorkflows(): CachedWorkflow[] {
   return workflows;
 }
 
@@ -468,13 +525,20 @@ export function getWorkflows(): WorkflowDefinition[] {
  * Extension entries can't shadow anything in the other direction either —
  * their names always carry a `:` and host names never do.
  */
-async function buildWorkflowCache(): Promise<WorkflowDefinition[]> {
+async function buildWorkflowCache(): Promise<CachedWorkflow[]> {
   const extensionWorkflows = await loadExtensionWorkflows(
     collectExtensionWorkflowSources(ExtensionRegistry.getInstance()),
   );
   const yamlWorkflows = await loadYamlWorkflows(agentsDir);
-  const dbWorkflows = await loadDbWorkflows();
-  return [...extensionWorkflows, ...yamlWorkflows, ...dbWorkflows];
+  // Only DB rows carry ownership. YAML and extension assets ship with the
+  // INSTALL, not with a project or a user, so they are `system` — the same
+  // authorization they have had all along.
+  const dbWorkflows = await loadDbCachedWorkflows();
+  return [
+    ...extensionWorkflows.map((w) => systemCachedWorkflow(w, "extension")),
+    ...yamlWorkflows.map((w) => systemCachedWorkflow(w, "yaml")),
+    ...dbWorkflows,
+  ];
 }
 
 export async function reloadWorkflows(): Promise<void> {

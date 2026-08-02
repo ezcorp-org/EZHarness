@@ -239,6 +239,15 @@ run_legs() {
       src/__tests__/api-workflows.server.test.ts \
       src/__tests__/api-workflows-name.server.test.ts \
       src/__tests__/api-workflows-name-run.server.test.ts \
+      src/__tests__/api-workflows-run-control.server.test.ts \
+      src/__tests__/api-workflows-run-trace.server.test.ts \
+      src/__tests__/api-workflows-approvals-list.server.test.ts \
+      src/__tests__/api-workflows-approvals-answer.server.test.ts \
+      src/__tests__/workflow-approvals-logic.unit.test.ts \
+      src/__tests__/api-workflows-fork.server.test.ts \
+      src/__tests__/api-workflows-dry-run.server.test.ts \
+      src/__tests__/api-workflows-claim-versions.server.test.ts \
+      src/__tests__/workflow-route-ladder.server.test.ts \
       src/__tests__/pipelines-redirect.server.test.ts \
       src/lib/components/WorkflowStepForm.component.test.ts \
       src/lib/components/WorkflowBuilder.component.test.ts \
@@ -298,6 +307,7 @@ run_legs() {
       src/lib/components/__tests__/CapabilitiesPanel.component.test.ts \
       src/lib/ezcorp-config-edit.unit.test.ts \
       src/lib/workflow-run-display.unit.test.ts \
+      src/lib/workflow-trace-logic.unit.test.ts \
       src/lib/components/__tests__/AuthorCompositionPanel.component.test.ts \
       src/lib/components/__tests__/UsesList.component.test.ts \
       "src/routes/(app)/extensions/author/__tests__/page.component.test.ts" \
@@ -349,6 +359,9 @@ run_legs() {
       src/lib/components/tool-cards/CityConditionsCard.component.test.ts \
       src/__tests__/pending-permission-tray.component.test.ts \
       src/__tests__/stores-pending-permission-tray.integration.component.test.ts \
+      src/__tests__/pending-decisions-tray.component.test.ts \
+      src/__tests__/stores-pending-approval-tray.integration.component.test.ts \
+      src/lib/components/tool-cards/PendingApprovalCard.component.test.ts \
       src/__tests__/stores-ask-user-dedup.integration.component.test.ts \
       src/__tests__/composer-suggest-logic.unit.test.ts \
       src/__tests__/api-composer-suggest.server.test.ts \
@@ -428,6 +441,13 @@ run_legs() {
       --coverage.include='src/routes/api/extensions/[id]/reapprove-drift/+server.ts' \
       --coverage.include='src/routes/api/projects/[id]/features/scan/+server.ts' \
       --coverage.include='src/routes/api/conversations/[id]/tree/+server.ts' \
+      --coverage.include='src/routes/api/workflows/runs/+server.ts' \
+      --coverage.include='src/routes/api/workflows/runs/[id]/+server.ts' \
+      --coverage.include='src/routes/api/workflows/runs/[id]/resume/+server.ts' \
+      --coverage.include='src/routes/api/workflows/runs/[id]/cancel/+server.ts' \
+      --coverage.include='src/routes/api/workflows/approvals/+server.ts' \
+      --coverage.include='src/routes/api/workflows/approvals/[id]/+server.ts' \
+      --coverage.include='src/lib/workflow-approvals-logic.ts' \
       --coverage.include='src/routes/api/conversations/[id]/graph/+server.ts' \
       --coverage.include='src/lib/components/chat/GraphCanvas.svelte' \
       --coverage.include='src/lib/components/chat/ChatGraphPanel.svelte' \
@@ -446,6 +466,7 @@ run_legs() {
       --coverage.include='src/lib/ezcorp-config-edit.ts' \
       --coverage.include='src/lib/dependency-picker.ts' \
       --coverage.include='src/lib/workflow-run-display.ts' \
+      --coverage.include='src/lib/workflow-trace-logic.ts' \
       --coverage.include='src/lib/components/extensions/AuthorCompositionPanel.svelte' \
       --coverage.include='src/lib/components/extensions/UsesList.svelte' \
       --coverage.include='src/routes/api/users/+server.ts' \
@@ -499,6 +520,8 @@ run_legs() {
       --coverage.include='src/lib/components/tool-cards/city-conditions-card-logic.ts' \
       --coverage.include='src/lib/components/tool-cards/CityConditionsCard.svelte' \
       --coverage.include='src/lib/components/tool-cards/PendingPermissionTray.svelte' \
+      --coverage.include='src/lib/components/tool-cards/PendingDecisionsTray.svelte' \
+      --coverage.include='src/lib/components/tool-cards/PendingApprovalCard.svelte' \
       --coverage.include='src/lib/stores.svelte.ts' \
       --coverage.include='src/lib/composer-suggest-logic.ts' \
       --coverage.include='src/lib/components/SuggestionPopover.svelte' \
@@ -535,6 +558,11 @@ run_legs() {
       --coverage.include='src/routes/api/workflows/schema.ts' \
       --coverage.include='src/routes/api/workflows/[name]/+server.ts' \
       --coverage.include='src/routes/api/workflows/[name]/run/+server.ts' \
+      --coverage.include='src/routes/api/workflows/[name]/fork/+server.ts' \
+      --coverage.include='src/routes/api/workflows/[name]/dry-run/+server.ts' \
+      --coverage.include='src/routes/api/workflows/[name]/claim/+server.ts' \
+      --coverage.include='src/routes/api/workflows/[name]/versions/+server.ts' \
+      --coverage.include='src/lib/server/workflow-access.ts' \
       --coverage.include='src/routes/**/pipelines/+page.server.ts' \
       --coverage.include='src/lib/components/WorkflowStepForm.svelte' \
       --coverage.include='src/lib/components/WorkflowBuilder.svelte' \

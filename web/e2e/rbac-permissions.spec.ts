@@ -16,6 +16,11 @@
 import { test, expect, captureEvidence } from "./fixtures/test-base.js";
 import { makeProject, makeExtension } from "./fixtures/data.js";
 import type { Page } from "@playwright/test";
+// Imported, not restated: the page bounces a non-admin to this exact
+// constant (`settings/permissions/+page.svelte:83`), and hard-coding its
+// value here is what let the assertion below go stale — see the redirect
+// test. `settings-nav.ts` is pure logic with no Svelte imports.
+import { SETTINGS_DEFAULT_ROUTE } from "../src/lib/settings-nav.js";
 
 const proj = makeProject({ id: "proj-1", name: "My Project" });
 const adminMe = {
@@ -244,7 +249,11 @@ test.describe("RBAC permissions settings page", () => {
 
 		await page.goto("/settings/permissions");
 
-		await expect(page).toHaveURL(/\/settings\/models$/);
+		// The member landing page, whatever it currently is. This asserted the
+		// literal "/settings/models" until #42 gated that page to admins and
+		// moved SETTINGS_DEFAULT_ROUTE to the first member-visible nav entry;
+		// the assertion kept naming the old target and went red.
+		await expect(page).toHaveURL(new RegExp(`${SETTINGS_DEFAULT_ROUTE}$`));
 		await expect(page.getByTestId("settings-nav-permissions")).toHaveCount(0);
 	});
 

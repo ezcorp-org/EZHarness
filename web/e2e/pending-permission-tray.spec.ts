@@ -21,6 +21,7 @@
 import { test, expect, captureEvidence } from "./fixtures/test-base.js";
 import type { Page } from "@playwright/test";
 import { makeProject } from "./fixtures/data.js";
+import { expectReadable, expectWarningTinted, useLightTheme } from "./fixtures/readable.js";
 
 const PROMPT_ID = "prompt-init-gate-e2e";
 
@@ -110,5 +111,66 @@ test.describe("Fallback pending-permission tray", () => {
 		} else {
 			expect(testInfo.attachments.some((a) => a.name === "pending-permission-tray")).toBe(false);
 		}
+	});
+
+	/**
+	 * The consent prompt's SECURITY NOTE has to be readable.
+	 *
+	 * `PermissionGate` is the per-tool-call consent prompt: the note under
+	 * the tool name is the sentence telling the user what they are about to
+	 * authorise ("This tool will run a shell command"). It was
+	 * `text-amber-300/80` inside a `bg-amber-900/10` container — a pairing
+	 * tuned for a dark surface. On the default light theme that renders pale
+	 * amber at 80% opacity over a near-white wash, so the one line that makes
+	 * the consent INFORMED was effectively invisible. An unreadable security
+	 * note is precisely the failure mode this gate exists to prevent, which
+	 * is why it is asserted numerically here rather than left to a reviewer
+	 * noticing a washed-out screenshot.
+	 */
+	test("the consent prompt's security note is legible on the light theme @evidence", async ({
+		page,
+		mockApi,
+		emitSse,
+	}, testInfo) => {
+		await useLightTheme(page);
+		await mockApi({ projects: [proj] });
+		await installPermissionMock(page);
+
+		await page.goto("/extensions");
+		await page.waitForFunction(() => {
+			const es = (window as unknown as { __fakeEventSources?: unknown[] }).__fakeEventSources;
+			return Array.isArray(es) && es.length > 0;
+		});
+		// `category: "execute"` is what makes `getSecurityNote` produce the
+		// note; the tray's other cases don't need it, so it is set here
+		// rather than on the shared event.
+		await emitSse(
+			{
+				type: "tool:permission_request",
+				data: { ...PERMISSION_EVENT.data, category: "execute" },
+			},
+			"runtime-events",
+		);
+
+		const card = page.getByTestId("tool-card-permission");
+		await expect(card).toBeVisible({ timeout: 5000 });
+
+		const note = card.getByText("This tool will run a shell command");
+		await expect(note).toBeVisible();
+		const m = await expectReadable(note, "PermissionGate security note");
+		expect(m.dark, "the regression only shows on light surfaces").toBe(false);
+
+		// The capability chip carries the same risk signal and had the same
+		// amber-on-pale problem.
+		await expectReadable(
+			card.getByText("execute", { exact: true }),
+			"PermissionGate category chip",
+		);
+
+		// The card must still READ as a caution surface — legibility achieved
+		// by deleting the tint would be a different bug with a green test.
+		await expectWarningTinted(card, "PermissionGate container");
+
+		await captureEvidence(page, testInfo, "permission-gate-security-note");
 	});
 });

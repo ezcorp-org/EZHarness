@@ -53,6 +53,13 @@ export type CapabilityKind =
   // namespaces the name to `<extensionName>:<name>` before resolving, so
   // the cap value can only ever address the extension's own asset.
   | "ezcorp:workflows:run"
+  // Register a DYNAMIC cron or webhook trigger at runtime (C2). One cap
+  // PER KIND (value = "cron" | "webhook"), so an install can grant an
+  // extension the right to mint schedules without also granting it inbound
+  // HTTP hooks — the two carry very different exposure. Unlike
+  // `ezcorp:webhooks:receive`, the value is NOT a slug: dynamic slugs are
+  // host-minted at registration time and cannot be enumerated at grant time.
+  | "ezcorp:triggers:register"
   // Install an authored extension draft. Sensitive + ALWAYS prompts
   // (even for the bundled extension-author) and is NEVER persisted as
   // an always-allow grant — see the carve-outs in
@@ -484,6 +491,23 @@ export function intersectPermissions(
     }
   }
 
+  // triggers (C2) — the NARROWER of every bound. Survives only when both
+  // sides declare it. `webhookPrefix` is NOT intersected or merged: it is a
+  // namespace claim, so when the two sides disagree the grant is dropped
+  // outright rather than picking a winner — silently minting future slugs
+  // under the other side's namespace is the failure this avoids. Every
+  // numeric field is REQUIRED on the granted type, so `Math.min` here can
+  // never see `undefined` (the `Math.min(NaN, …)` trap documented on
+  // `schedule` in `bundled-ceiling.ts`, closed at the type level).
+  if (a.triggers && b.triggers && a.triggers.webhookPrefix === b.triggers.webhookPrefix) {
+    out.triggers = {
+      maxCron: Math.min(a.triggers.maxCron, b.triggers.maxCron),
+      maxWebhooks: Math.min(a.triggers.maxWebhooks, b.triggers.maxWebhooks),
+      webhookPrefix: a.triggers.webhookPrefix,
+      maxRunsPerDay: Math.min(a.triggers.maxRunsPerDay, b.triggers.maxRunsPerDay),
+    };
+  }
+
   // ── Phase 53 capability tiers (`llm`, `memory`, `lessons`, `schedule`).
   // These survive when both sides declare them. Bundled extension
   // ceilings are written in `bundled-ceiling.ts` to mirror the install
@@ -609,6 +633,7 @@ export function intersectPermissions(
       (key === "eventSubscriptions" && out.eventSubscriptions) ||
       (key === "webhooks" && out.webhooks) ||
       (key === "workflows" && out.workflows) ||
+      (key === "triggers" && out.triggers) ||
       (key === "llm" && out.llm) ||
       (key === "memory" && out.memory) ||
       (key === "lessons" && out.lessons) ||
@@ -791,6 +816,20 @@ export function grantsToCapabilitySet(
     }
   }
 
+  // One cap PER TRIGGER KIND (C2), and only for a kind whose cap is
+  // actually positive. A `maxCron: 0` envelope must not hand out
+  // `{kind:"ezcorp:triggers:register", value:"cron"}` — the PDP would then
+  // allow a registration that the handler's cap check would reject anyway,
+  // splitting one decision across two layers that can disagree.
+  if (grants.triggers) {
+    if (grants.triggers.maxCron > 0) {
+      caps.push({ kind: "ezcorp:triggers:register", value: "cron" });
+    }
+    if (grants.triggers.maxWebhooks > 0) {
+      caps.push({ kind: "ezcorp:triggers:register", value: "webhook" });
+    }
+  }
+
   if (grants.appendMessages) {
     caps.push({ kind: "ezcorp:chat:append" });
   }
@@ -875,6 +914,9 @@ function customToKind(key: string): CapabilityKind | null {
     case "workflows":
     case "ezcorp:workflows:run":
       return "ezcorp:workflows:run";
+    case "triggers":
+    case "ezcorp:triggers:register":
+      return "ezcorp:triggers:register";
     default:
       return null;
   }

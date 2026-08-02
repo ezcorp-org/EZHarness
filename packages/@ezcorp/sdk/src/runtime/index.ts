@@ -76,6 +76,12 @@ export type {
   PageActionEvent,
   PageActionDescriptor,
   PagePromptDescriptor,
+  // The inline `form` node's field shape. `PageBuilder.form()` takes
+  // `PageFormFieldDescriptor[]`, so without these an author cannot type the
+  // array they are required to pass — the method was reachable and its
+  // parameter type was not.
+  PageFormFieldDescriptor,
+  PageFormDescriptor,
   PageProjectRef,
   PageRenderContext,
   PageStatItem,
@@ -194,7 +200,28 @@ export { Webhook } from "./webhook";
 export type { WebhookHandler, WebhookFireContext } from "./webhook";
 
 export { Workflows } from "./workflows";
-export type { WorkflowRunAccepted } from "./workflows";
+export type {
+  WorkflowRunAccepted,
+  WorkflowRunList,
+  WorkflowRunSummary,
+  WorkflowRunsQuery,
+} from "./workflows";
+
+// Dynamic (runtime-registered) cron + webhook triggers — the tier above
+// `Schedule`/`Webhook`, which are manifest-declared. Keyed on `key`, so two
+// jobs may share a cron expression and stay distinguishable.
+export { Triggers, __resetTriggersForTests } from "./triggers";
+export type {
+  TriggerKind,
+  TriggerHandler,
+  TriggerFireContext,
+  RegisterOpts,
+  RegisterCronOpts,
+  RegisterWebhookOpts,
+  RegisteredTrigger,
+  CronTrigger,
+  WebhookTrigger,
+} from "./triggers";
 
 // ── Loop primitive (defineLoop) ─────────────────────────────────────
 

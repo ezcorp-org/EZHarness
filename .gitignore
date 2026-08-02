@@ -124,3 +124,8 @@ deploy/preview-dns/Corefile
 # host-specific value became an env knob with a safe default
 # (EZCORP_TEST_BIND_IP defaults to loopback), so it is shareable.
 # See docs/local-prod-test-stack.md.
+
+# Scratch a merge tool drops when resolving conflicts (patches, a binary
+# index backup, MERGE_HEAD copies). 1.1MB of it was committed by accident
+# once already — see the ez-factory integration merge.
+.merge-snapshot/

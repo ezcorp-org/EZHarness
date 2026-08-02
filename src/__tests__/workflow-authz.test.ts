@@ -1,23 +1,33 @@
 /**
- * Unit tests for the shared workflow run/manage authorization rules.
+ * Unit tests for the shared workflow run/manage authorization entry points.
  *
- * Driven against a real migrated PGlite so the extension-liveness re-check
- * and the `created_by` ownership read exercise the actual columns the
- * migration adds — a mocked query layer would pass even if the ALTER never
- * landed.
+ * These used to drive a SECOND authorization model — a `created_by` column
+ * whose NULL meant "unowned, anyone may act". That column is gone, and the
+ * entry points here are now adapters over the one ladder in
+ * `workflow-scope.ts` (`user_id` + `visibility`), where a NULL owner on a
+ * `private` row means the opposite: admin-only. The rewritten assertions
+ * below are the ladder's answers, not the old rule's.
+ *
+ * The ladder's own matrix is exhaustively covered in `workflow-scope.test.ts`;
+ * what is specific to THIS module, and is what these pin, is:
+ *   - the extension-liveness re-check, which the ladder has no notion of;
+ *   - that it runs FIRST, so a dead extension beats even an admin;
+ *   - that both entry points reach the ladder rather than re-deciding.
+ *
+ * Driven against a real migrated PGlite so the liveness re-check reads the
+ * actual `extensions` table — a mocked query layer would pass even if the
+ * migration never landed.
  */
 import { test, expect, describe, beforeEach, afterAll } from "bun:test";
 import { setupTestDb, getTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglite";
 
 mockDbConnection();
 
-const { extensions, users, workflowDefinitions } = await import("../db/schema");
-const { canRunWorkflow, canActOnWorkflow, canManageWorkflow } = await import(
-  "../runtime/workflow-authz",
-);
-const { createWorkflow } = await import("../db/queries/workflows");
+const { extensions, users } = await import("../db/schema");
+const { canRunWorkflow, canManageWorkflow } = await import("../runtime/workflow-authz");
 
-import type { WorkflowDefinition } from "../types";
+import type { WorkflowVisibility } from "../types";
+import type { CachedWorkflow } from "../runtime/workflow-scope";
 import type { WorkflowPrincipal } from "../runtime/workflow-authz";
 
 const steps = [{ name: "s1", agent: "writer", input: {} as Record<string, string> }];
@@ -26,8 +36,28 @@ const owner: WorkflowPrincipal = { id: "u-owner", role: "member" };
 const stranger: WorkflowPrincipal = { id: "u-stranger", role: "member" };
 const admin: WorkflowPrincipal = { id: "u-admin", role: "admin" };
 
-function def(over: Partial<WorkflowDefinition>): WorkflowDefinition {
-  return { name: "w", description: "", steps: steps as never, ...over };
+/**
+ * A cache entry. Defaults to the `system` shape every pre-C6 row migrates
+ * to — open to read and run, admin-only to edit.
+ */
+function entry(over: Partial<CachedWorkflow> & { name?: string } = {}): CachedWorkflow {
+  const { name = "w", ...rest } = over;
+  return {
+    definition: { name, description: "", steps: steps as never },
+    source: "db",
+    id: "wf-1",
+    projectId: null,
+    userId: null,
+    visibility: "system" as WorkflowVisibility,
+    forkedFrom: null,
+    ...rest,
+  };
+}
+
+/** An entry `u-owner` owns privately — readable and runnable by them and
+ *  by an admin, by nobody else. */
+function privateEntry(name = "mine"): CachedWorkflow {
+  return entry({ name, visibility: "private", userId: "u-owner" });
 }
 
 async function seedUser(id: string, role: "admin" | "member"): Promise<void> {
@@ -59,27 +89,6 @@ async function seedExtension(name: string, enabled: boolean): Promise<void> {
   });
 }
 
-describe("canActOnWorkflow", () => {
-  test("an unowned (NULL created_by) row is actionable by anyone", () => {
-    expect(canActOnWorkflow(null, stranger)).toBe(true);
-    expect(canActOnWorkflow(undefined, stranger)).toBe(true);
-    // Empty string is the same "no owner recorded" state, not a user id.
-    expect(canActOnWorkflow("", stranger)).toBe(true);
-  });
-
-  test("an owned row is actionable by its owner", () => {
-    expect(canActOnWorkflow("u-owner", owner)).toBe(true);
-  });
-
-  test("an owned row is actionable by an instance admin", () => {
-    expect(canActOnWorkflow("u-owner", admin)).toBe(true);
-  });
-
-  test("an owned row is NOT actionable by another member", () => {
-    expect(canActOnWorkflow("u-owner", stranger)).toBe(false);
-  });
-});
-
 describe("canRunWorkflow", () => {
   beforeEach(async () => {
     await setupTestDb();
@@ -89,108 +98,76 @@ describe("canRunWorkflow", () => {
   });
   afterAll(async () => await closeTestDb());
 
-  // ── Rule 4: the permissive default ──────────────────────────────
+  // ── The ladder's `run` rung ─────────────────────────────────────
 
-  test("allows a YAML workflow for any caller", async () => {
-    const decision = await canRunWorkflow(def({ name: "demo", source: "yaml" }), stranger);
-    expect(decision).toEqual({ allowed: true });
+  test("allows any caller to run a system workflow", async () => {
+    // Every row that existed before the ladder is `system`, which is what
+    // makes adding it non-breaking for RUN.
+    expect(await canRunWorkflow(entry({ name: "demo" }), stranger)).toEqual({ allowed: true });
   });
 
-  test("allows a hand-built definition with no source at all", async () => {
-    const decision = await canRunWorkflow(def({ name: "adhoc" }), stranger);
-    expect(decision).toEqual({ allowed: true });
+  test("allows a YAML asset, which ships with the install", async () => {
+    const yaml = entry({ name: "demo", source: "yaml", id: null });
+    expect(await canRunWorkflow(yaml, stranger)).toEqual({ allowed: true });
   });
 
-  test("a leading separator names no extension and stays permissive", async () => {
-    const decision = await canRunWorkflow(def({ name: ":odd" }), stranger);
-    expect(decision).toEqual({ allowed: true });
+  test("allows the owner to run their own private workflow", async () => {
+    expect(await canRunWorkflow(privateEntry(), owner)).toEqual({ allowed: true });
   });
 
-  test("allows a DB workflow whose row has no owner (legacy / global)", async () => {
-    await createWorkflow({ name: "legacy", description: "", steps: steps as never });
-    const decision = await canRunWorkflow(def({ name: "legacy", source: "db" }), stranger);
-    expect(decision).toEqual({ allowed: true });
-  });
-
-  test("allows a source:db definition whose row has since been deleted", async () => {
-    const decision = await canRunWorkflow(def({ name: "vanished", source: "db" }), stranger);
-    expect(decision).toEqual({ allowed: true });
-  });
-
-  // ── Rule 2: DB ownership ────────────────────────────────────────
-
-  test("allows the owner to run their own DB workflow", async () => {
-    await createWorkflow({ name: "mine", description: "", steps: steps as never }, "u-owner");
-    const decision = await canRunWorkflow(def({ name: "mine", source: "db" }), owner);
-    expect(decision).toEqual({ allowed: true });
-  });
-
-  test("allows an admin to run someone else's DB workflow", async () => {
-    await createWorkflow({ name: "mine", description: "", steps: steps as never }, "u-owner");
-    const decision = await canRunWorkflow(def({ name: "mine", source: "db" }), admin);
-    expect(decision).toEqual({ allowed: true });
+  test("allows an admin to run someone else's private workflow", async () => {
+    expect(await canRunWorkflow(privateEntry(), admin)).toEqual({ allowed: true });
   });
 
   test("denies another member, naming the workflow", async () => {
-    await createWorkflow({ name: "mine", description: "", steps: steps as never }, "u-owner");
-    const decision = await canRunWorkflow(def({ name: "mine", source: "db" }), stranger);
-    expect(decision).toEqual({
+    expect(await canRunWorkflow(privateEntry(), stranger)).toEqual({
       allowed: false,
-      reason: 'Workflow "mine" is owned by another user',
+      reason: 'Workflow "mine" is not available to this user',
     });
   });
 
-  test("ownership is read LIVE from the row, not from the cached definition", async () => {
-    await createWorkflow({ name: "mine", description: "", steps: steps as never }, "u-owner");
-    // The caller hands over a stale definition; the row is what decides.
-    const decision = await canRunWorkflow(
-      def({ name: "mine", description: "stale copy", source: "db" }),
-      stranger,
-    );
-    expect(decision.allowed).toBe(false);
+  test("an ORPHANED private row is admin-only, not public", async () => {
+    // The load-bearing difference from the rule this module used to hold.
+    // `user_id` is `ON DELETE SET NULL`, so deleting the owner leaves a
+    // private row with a NULL owner. The old `created_by` rule read NULL as
+    // "unowned — anyone may act", which would hand a departed employee's
+    // private workflow to every authenticated caller. The ladder reads the
+    // same NULL as "no owner left to match", so only an admin gets in.
+    const orphaned = entry({ name: "orphan", visibility: "private", userId: null });
+    expect(await canRunWorkflow(orphaned, stranger)).toEqual({
+      allowed: false,
+      reason: 'Workflow "orphan" is not available to this user',
+    });
+    expect(await canRunWorkflow(orphaned, admin)).toEqual({ allowed: true });
   });
 
-  test("a source:yaml definition is NOT gated by a same-named DB row", async () => {
-    // YAML wins execution on a name collision, so authz must decide about
-    // the YAML entry — gating it on the DB row's owner would deny a run of
-    // an object that row has nothing to do with.
-    await createWorkflow({ name: "collide", description: "", steps: steps as never }, "u-owner");
-    const decision = await canRunWorkflow(def({ name: "collide", source: "yaml" }), stranger);
-    expect(decision).toEqual({ allowed: true });
+  test("a project workflow is runnable by any member", async () => {
+    const scoped = entry({ name: "team-flow", visibility: "project", userId: "u-owner" });
+    expect(await canRunWorkflow(scoped, stranger)).toEqual({ allowed: true });
   });
 
   // ── Rule 1: extension liveness ──────────────────────────────────
 
   test("allows an extension workflow while its extension is installed and enabled", async () => {
     await seedExtension("my-ext", true);
-    const decision = await canRunWorkflow(
-      def({ name: "my-ext:deploy", source: "extension" }),
-      stranger,
-    );
-    expect(decision).toEqual({ allowed: true });
+    const ext = entry({ name: "my-ext:deploy", source: "extension", id: null });
+    expect(await canRunWorkflow(ext, stranger)).toEqual({ allowed: true });
   });
 
   test("denies an extension workflow when the extension is disabled", async () => {
     await seedExtension("my-ext", false);
-    const decision = await canRunWorkflow(
-      def({ name: "my-ext:deploy", source: "extension" }),
-      admin,
-    );
-    expect(decision).toEqual({
+    const ext = entry({ name: "my-ext:deploy", source: "extension", id: null });
+    expect(await canRunWorkflow(ext, stranger)).toEqual({
       allowed: false,
       reason: 'Workflow "my-ext:deploy" belongs to extension "my-ext", which is disabled',
     });
   });
 
   test("denies an extension workflow when the extension is not installed", async () => {
-    const decision = await canRunWorkflow(
-      def({ name: "ghost-ext:deploy", source: "extension" }),
-      admin,
-    );
-    expect(decision).toEqual({
+    const ext = entry({ name: "gone:deploy", source: "extension", id: null });
+    expect(await canRunWorkflow(ext, stranger)).toEqual({
       allowed: false,
-      reason:
-        'Workflow "ghost-ext:deploy" belongs to extension "ghost-ext", which is not installed',
+      reason: 'Workflow "gone:deploy" belongs to extension "gone", which is not installed',
     });
   });
 
@@ -198,81 +175,75 @@ describe("canRunWorkflow", () => {
     // A `chat`-scoped user creates `my-ext:deploy` in workflow_definitions.
     // The merged cache puts real extension assets first, but once that
     // extension is uninstalled the squatter surfaces — and must not run.
-    await createWorkflow(
-      { name: "my-ext:deploy", description: "", steps: steps as never },
-      "u-owner",
-    );
-    const decision = await canRunWorkflow(
-      def({ name: "my-ext:deploy", source: "db" }),
-      owner,
-    );
-    expect(decision.allowed).toBe(false);
+    const squatter = entry({ name: "my-ext:deploy", visibility: "private", userId: "u-owner" });
+    expect((await canRunWorkflow(squatter, owner)).allowed).toBe(false);
   });
 
-  test("the extension check precedes the ownership check", async () => {
-    // Disabled extension + a row the caller owns: the extension rule wins,
-    // mirroring the cache's [...extension, ...yaml, ...db] precedence.
+  test("the extension check precedes the ladder", async () => {
+    // Disabled extension + an ADMIN, who the ladder waves through on any
+    // row. The liveness rule wins, mirroring the cache's
+    // [...extension, ...yaml, ...db] precedence: a dead extension's
+    // workflow is unrunnable by anyone.
     await seedExtension("my-ext", false);
-    await createWorkflow(
-      { name: "my-ext:deploy", description: "", steps: steps as never },
-      "u-owner",
-    );
-    const decision = await canRunWorkflow(def({ name: "my-ext:deploy", source: "db" }), owner);
-    expect(decision).toEqual({
+    expect(await canRunWorkflow(entry({ name: "my-ext:deploy" }), admin)).toEqual({
       allowed: false,
       reason: 'Workflow "my-ext:deploy" belongs to extension "my-ext", which is disabled',
     });
   });
 
-  test("deleting the owner un-owns the workflow rather than orphaning the FK", async () => {
-    const { eq } = await import("drizzle-orm");
-    await createWorkflow({ name: "mine", description: "", steps: steps as never }, "u-owner");
-    await getTestDb().delete(users).where(eq(users.id, "u-owner"));
-
-    const rows = await getTestDb()
-      .select()
-      .from(workflowDefinitions)
-      .where(eq(workflowDefinitions.name, "mine"));
-    expect(rows[0]!.createdBy).toBeNull();
-
-    // ON DELETE SET NULL ⇒ the row degrades to global, still runnable.
-    const decision = await canRunWorkflow(def({ name: "mine", source: "db" }), stranger);
-    expect(decision).toEqual({ allowed: true });
+  test("a leading separator names no extension and is not liveness-checked", async () => {
+    // `:odd` has an EMPTY prefix, which names no extension —
+    // `namespacedWorkflowName` can never produce one.
+    expect(await canRunWorkflow(entry({ name: ":odd" }), stranger)).toEqual({ allowed: true });
   });
 });
 
 describe("canManageWorkflow", () => {
-  // The predicate `GET /api/workflows` serves as `canManage`. It must be
-  // exactly the conjunction PUT/DELETE enforce, or the UI paints an Edit
-  // button that only ever 403s (or 404s).
-  test("allows the owner of a DB workflow", () => {
-    expect(canManageWorkflow({ source: "db" }, "u-owner", owner)).toBe(true);
+  // The predicate `GET /api/workflows` serves as `canEdit`. It must be
+  // exactly what PUT/DELETE enforce, or the UI paints an Edit button that
+  // only ever 403s (or 404s).
+
+  test("allows the owner of a private DB workflow", () => {
+    expect(canManageWorkflow(privateEntry(), owner)).toBe(true);
   });
 
   test("allows an admin over another user's DB workflow", () => {
-    expect(canManageWorkflow({ source: "db" }, "u-owner", admin)).toBe(true);
+    expect(canManageWorkflow(privateEntry(), admin)).toBe(true);
   });
 
   test("denies a stranger", () => {
-    expect(canManageWorkflow({ source: "db" }, "u-owner", stranger)).toBe(false);
+    expect(canManageWorkflow(privateEntry(), stranger)).toBe(false);
   });
 
-  test("allows anyone on an unowned legacy row", () => {
-    // NULL created_by predates the column; those stay editable by anyone,
-    // which is what makes the migration non-breaking.
-    expect(canManageWorkflow({ source: "db" }, null, stranger)).toBe(true);
-    expect(canManageWorkflow({ source: "db" }, undefined, stranger)).toBe(true);
+  test("a system workflow is admin-only to EDIT, though anyone may run it", () => {
+    // The one deliberate tightening the ladder ships: every pre-existing
+    // row is `system`, so a non-admin loses edit access to rows they
+    // created. The audited admin claim action is the remedy.
+    const system = entry({ name: "legacy" });
+    expect(canManageWorkflow(system, stranger)).toBe(false);
+    expect(canManageWorkflow(system, admin)).toBe(true);
+  });
+
+  test("an ORPHANED private row is admin-only here too", () => {
+    // Same NULL-owner inversion as the run path, asserted separately
+    // because this is the flag the UI paints a Delete button from.
+    const orphaned = entry({ name: "orphan", visibility: "private", userId: null });
+    expect(canManageWorkflow(orphaned, stranger)).toBe(false);
+    expect(canManageWorkflow(orphaned, admin)).toBe(true);
   });
 
   test("denies YAML and extension-shipped workflows outright", () => {
     // Files on disk — PUT/DELETE resolve through getWorkflowByName and 404.
     // Even the admin cannot write them through the API.
-    expect(canManageWorkflow({ source: "yaml" }, null, admin)).toBe(false);
-    expect(canManageWorkflow({ source: "extension" }, null, admin)).toBe(false);
+    expect(canManageWorkflow(entry({ source: "yaml", id: null }), admin)).toBe(false);
+    expect(canManageWorkflow(entry({ source: "extension", id: null }), admin)).toBe(false);
   });
 
-  test("denies a definition with no source", () => {
-    // Hand-built definitions have no row to update; fail closed.
-    expect(canManageWorkflow({}, null, admin)).toBe(false);
+  test("the creator of a project workflow may edit it; another member may not", () => {
+    // Editing is the narrower right: a member can RUN a project workflow
+    // without being able to rewrite what it does for everyone else.
+    const scoped = entry({ name: "team-flow", visibility: "project", userId: "u-owner" });
+    expect(canManageWorkflow(scoped, owner)).toBe(true);
+    expect(canManageWorkflow(scoped, stranger)).toBe(false);
   });
 });

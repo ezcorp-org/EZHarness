@@ -1,0 +1,284 @@
+# etl-factory — ingest, assert, classify, ask a human ONLY when the ingest
+# was incomplete, then write.
+#
+# Namespaced to `ez-factory:etl-factory` by the extension workflow loader;
+# the bare name must match `permissions.workflows.names` in
+# `ezcorp.config.ts` byte for byte.
+#
+#   ingest → schema-ok → classify → report → [anomaly-gate → consent] → write → artifact
+#
+# This is the DETERMINISTIC template. `docs-factory` proves nesting, loops
+# and a human-in-the-loop revision cycle; this one proves the other half of
+# the engine — a tool feeding a strict transform, a gate that fails loudly
+# on a malformed ingest, per-step model tiering, and a conditional approval
+# that a clean run never even asks. It deliberately contains no LLM
+# judgement on its control flow.
+#
+# ── The conditional-approval shape, and why it is three steps ─────────
+#
+# The naive version is one approval with a `when`, and a `write` that reads
+# `$steps.anomaly-gate.output.choice`. It does not work, in BOTH directions:
+#
+#   • With the default `skipDependents: true`, a skipped gate skips its
+#     dependents transitively — so a CLEAN run (the common case, the whole
+#     point of the `when`) would skip `write` and `artifact` too and
+#     produce nothing at all.
+#   • With `skipDependents: false`, `write` runs — and its `when` resolves
+#     `$steps.anomaly-gate.…` against a step that produced no result. That
+#     is a STRICT ref: `resolveConditionRef` throws, naming the skip. The
+#     run dies on the clean path.
+#
+# So the branch is split. `anomaly-gate` asks. `consent` — carrying THE SAME
+# `when`, which is what makes it skip in lockstep with the gate it reads —
+# converts an `abort` into a failed run. Both set `skipDependents: false` so
+# the terminal steps below them are never suppressed by a question that was
+# never asked. `write` and `artifact` then reference neither, which is what
+# keeps them resolvable on every path.
+#
+# The duplicated `when` is not a copy-paste smell; it is the only way to say
+# "this consent check exists exactly when that question was asked".
+# `skipDependents` is a property of the PRODUCER, not of an edge, so a step
+# cannot suppress one dependent and not another.
+#
+# ── The anomaly signal is a TOOL's, never an agent's ─────────────────
+#
+# `read_files` reports what it could not take — over-budget, unreadable,
+# past a bound — in `skipped[]`, and it never throws for it. A derived
+# artifact written from a PARTIAL ingest is exactly the thing a human
+# should be asked about, so that is the anomaly signal.
+#
+# The guard reads the SCALAR `skippedCount`, never the array, and that is
+# not a style preference. There is no "array is non-empty" operator:
+# `exists` is true for `[]`, and `contains` needs a member to look for.
+# The tempting `{ref: …skipped, op: neq, value: "[]"}` is a trap — `neq` is
+# `!deepEq(actual, value)`, comparing a real ARRAY against a STRING, so it
+# is unconditionally TRUE and the gate fires on every run including the
+# clean ones. `skippedCount` is set from `skipped.length` inside the tool,
+# so the two cannot disagree.
+#
+# Deliberately NOT derived from the classifier: an agent step's output is
+# raw LLM text, so `$steps.classify.output.anomalyCount` would resolve to
+# `undefined` and the gate would never fire — a branch that silently
+# cannot happen is worse than no branch.
+#
+# `schema-ok` asserts `skippedCount` is present before anything reads it,
+# so a tool that stopped returning it fails the run by name rather than
+# leaving a guard that quietly stops guarding (`gt` on a non-number is
+# false, which would look exactly like a clean ingest).
+
+name: etl-factory
+description: >-
+  Ingest the data files you point it at, assert the ingest is well formed,
+  classify it with the cheap tier, and write a report — pausing for a human only
+  when some of the input could not be read. Proves the deterministic half of the
+  engine: tool, strict transform, gate, per-step model tier, conditional approval.
+
+inputSchema:
+  globs:
+    type: text
+    label: Source globs
+    description: What to ingest, as newline-separated glob patterns relative to the project root.
+    required: true
+  outPath:
+    type: file-path
+    label: Output path
+    description: Where the report is written, relative to the project root.
+    required: true
+
+steps:
+  # ── 1. Ingest ────────────────────────────────────────────────────────
+  #
+  # A literal STRING for `maxFiles`: a step `input` mapping value must be a
+  # string (`validateWorkflow` rejects a number), and `inputSchema`
+  # defaults are not applied at run time, so routing a bound through
+  # `$input` would hand the tool `undefined` whenever the box was left
+  # empty. A bound that only holds when someone remembers is not a bound.
+  - name: ingest
+    kind: tool
+    tool: ez-factory__read_files
+    input:
+      globs: $input.globs
+      maxFiles: "5"
+
+  # ── 2. Assert the ingest before spending an LLM on it ────────────────
+  #
+  # Condition refs are lenient on a DEEPER missing field (they resolve to
+  # `undefined` so `exists` can report absence without throwing), which is
+  # what makes this a real assertion rather than a crash: a tool that came
+  # back without `files` fails here, named, instead of failing downstream
+  # with a missing-field error three steps later.
+  - name: schema-ok
+    kind: gate
+    dependsOn:
+      - ingest
+    condition:
+      all:
+        - ref: $steps.ingest.output.files
+          op: exists
+        - ref: $steps.ingest.output.skipped
+          op: exists
+        # The guard operand, asserted BEFORE anything branches on it.
+        # `gt` on a non-number is false, so a missing `skippedCount` would
+        # be indistinguishable from a clean ingest — the gate would stop
+        # gating and nothing would say so. `exists` passes for 0.
+        - ref: $steps.ingest.output.skippedCount
+          op: exists
+
+  # ── 3. Classify ──────────────────────────────────────────────────────
+  #
+  # The seeded `ez-factory extractor` — prefixed, because agent names are a
+  # single global unnamespaced map. Cheapest rung of the closed effort
+  # vocabulary: this step describes the data, it does not decide anything.
+  # Nothing in this graph's control flow reads its output.
+  #
+  # `maxTokens` bounds the STORED step output. Every step's result must
+  # serialize under `MAX_STEP_OUTPUT_BYTES` (256 KB) or a resume refuses
+  # the run terminally — and this graph parks on a human, so it does
+  # resume.
+  - name: classify
+    kind: agent
+    agent: ez-factory extractor
+    dependsOn:
+      - schema-ok
+    model:
+      # No `provider`/`model` — only `effort` and `maxTokens`. A literal
+      # provider id breaks every install that has not configured it, and
+      # the `$input.*` ref that would fix that makes the step's model
+      # settable by whoever supplies the input, which is the capability
+      # `ez-factory`'s job store keeps off its closed input allowlist.
+      # Omitting both leaves the seeded agent's own binding standing.
+      effort: minimal
+      maxTokens: 8000
+    input:
+      files: $steps.ingest.output.files
+      skipped: $steps.ingest.output.skipped
+
+  # ── 4. The report ────────────────────────────────────────────────────
+  #
+  # The document is composed HERE rather than in `write`, because `{{…}}`
+  # interpolation runs only in a transform's `output` mapping — a tool
+  # step's `input` goes through `resolveMapping`, which never interpolates.
+  #
+  # The ingest line is unconditional on purpose. A report generated from a
+  # partial ingest that does not say so is exactly the failure the gate
+  # below exists to prevent, and a caveat that shows up only sometimes is
+  # one a reader learns to stop looking for. On a clean run it reads
+  # `0 skipped` over an empty list, which is the claim being made.
+  #
+  # Carries no branch operand: the gates below read
+  # `$steps.ingest.output.skippedCount` from the tool directly, so there is
+  # no second copy of the signal that could disagree with the first.
+  #
+  # Deliberately does NOT copy `$steps.ingest.output.files` through: that
+  # is the whole ingested corpus, and duplicating it into a second step's
+  # output would double the bytes measured against the 256 KB cap for no
+  # gain. A later step can address the original by its own ref.
+  #
+  # Transform refs are STRICT, so this re-asserts what `schema-ok` gated —
+  # a field that vanished between the two fails the run by name.
+  - name: report
+    kind: transform
+    dependsOn:
+      - classify
+    output:
+      document: >-
+        {{$steps.classify.output}}
+
+
+        ---
+
+
+        Ingest: {{$steps.ingest.output.fileCount}} file(s) read,
+        {{$steps.ingest.output.skippedCount}} skipped.
+        {{$steps.ingest.output.skipped}}
+
+  # ── 5. Ask, but only about an incomplete ingest ──────────────────────
+  #
+  # NO `rbacScope`. Declaring one REPLACES the owner check
+  # (`workflow-answer-approval.ts`), so the person who fired this job could
+  # no longer answer their own gate — and `answerApproval` resolves a
+  # declared scope at `{projectId: null, extensionId: null}`, which
+  # `grantCovers` (`src/auth/extension-rbac.ts`) will not satisfy from an
+  # ez-factory-scoped grant. "Tightening" this makes every gate admin-only.
+  # The extension's `approve-gate` scope is for console buttons, which
+  # resolve the extension from the subprocess identity instead.
+  #
+  # `prompt` is stored VERBATIM — it is not interpolated — so it names what
+  # is being decided and points at the trace for the list itself.
+  - name: anomaly-gate
+    kind: approval
+    dependsOn:
+      - report
+    when:
+      ref: $steps.ingest.output.skippedCount
+      op: gt
+      value: 0
+    skipDependents: false
+    prompt: >-
+      Some of the requested input could not be read, so this report describes a
+      partial ingest. Open this run's trace to see which files were skipped and
+      why, then approve writing the report anyway, or abort.
+    choices:
+      - approve
+      - abort
+    timeoutMs: 86400000
+    onTimeout: abort
+
+  # ── 6. Convert an abort into a failed run ────────────────────────────
+  #
+  # Carries the SAME `when` as the gate above so it is skipped on exactly
+  # the runs where the gate was never asked — see the header. It is the
+  # only step that reads the answer, which is what leaves `write` and
+  # `artifact` free of any reference to a step that can be skipped.
+  #
+  # A failing gate throws, naming the decisive leaf and its value. That is
+  # the honest terminal state for "a human said no": there is no `declined`
+  # run status, and finishing green having written nothing would be worse.
+  - name: consent
+    kind: gate
+    dependsOn:
+      - anomaly-gate
+    when:
+      ref: $steps.ingest.output.skippedCount
+      op: gt
+      value: 0
+    skipDependents: false
+    condition:
+      ref: $steps.anomaly-gate.output.choice
+      op: neq
+      value: abort
+
+  # ── 7. Write ─────────────────────────────────────────────────────────
+  #
+  # References only `$input` and `report`, neither of which can be skipped,
+  # so this resolves on the clean path and the reviewed path alike.
+  #
+  # `fs.write` is a SENSITIVE capability and a workflow's scope is
+  # non-interactive; it resolves to allow only because `ez-factory` is
+  # BUNDLED (`bundled-ceiling-auto-allow`). And no `rbacScope` on any tool
+  # step: `ToolExecutor.executeToolCall` resolves a tool-level scope against
+  # a project derived from the CONVERSATION, and a workflow tool step runs
+  # under a synthetic `workflow-run:<uuid>` key that has none.
+  - name: write
+    kind: tool
+    tool: ez-factory__write_file
+    dependsOn:
+      - consent
+    input:
+      path: $input.outPath
+      content: $steps.report.output.document
+
+  # ── 8. The run artifact ──────────────────────────────────────────────
+  #
+  # `$steps.write.output` is `{path, bytes, sha256}` — small, deterministic,
+  # and the thing an operator diffs between runs. `etl-run.json` is a
+  # literal: a mapping value that does not start with `$` is passed through
+  # verbatim by the ref resolver.
+  - name: artifact
+    kind: tool
+    tool: ez-factory__emit_artifact
+    dependsOn:
+      - write
+    input:
+      name: etl-run.json
+      content: $steps.write.output

@@ -1098,10 +1098,75 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 		if (path.match(/^\/api\/workflows\/[^/]+$/) && method === "DELETE") {
 			return route.fulfill({ json: { success: true } });
 		}
+		// Single-workflow read. Since C6 the response is the definition PLUS
+		// the caller's provenance — `canEdit` is computed server-side and the
+		// editor renders it rather than re-deriving the ladder in the browser.
+		if (path.match(/^\/api\/workflows\/[^/]+$/) && method === "GET") {
+			const name = decodeURIComponent(path.split("/").pop() ?? "");
+			const found = workflows.find((w) => w.name === name);
+			if (!found) return route.fulfill({ status: 404, json: { error: "Not found" } });
+			return route.fulfill({
+				json: {
+					source: "db",
+					visibility: "project",
+					projectId: null,
+					userId: "u1",
+					forkedFrom: null,
+					canEdit: true,
+					...found,
+				},
+			});
+		}
 		if (path.match(/^\/api\/workflows\/[^/]+$/) && method === "PUT") {
-			// Echo the submitted definition back, as the real route does — the
-			// rename redirect reads `name` off this response.
-			return route.fulfill({ json: route.request().postDataJSON() });
+			const name = decodeURIComponent(path.split("/").pop() ?? "");
+			const body = route.request().postDataJSON() as Record<string, unknown>;
+			// `...body` LAST, so a submitted `name` overrides the one in the
+			// path — as the real route does. The editor's rename redirect reads
+			// `name` off this response, and echoing the path name instead would
+			// silently strand it on the old URL.
+			return route.fulfill({ json: { id: "wf-1", name, ...body, version: 2, versionMinted: true } });
+		}
+		if (path.match(/^\/api\/workflows\/[^/]+\/versions$/) && method === "GET") {
+			return route.fulfill({
+				json: [
+					{
+						id: "v1",
+						version: 1,
+						name: decodeURIComponent(path.split("/")[3] ?? ""),
+						description: "",
+						stepsHash: "abc12345def",
+						stepCount: 1,
+						createdByUserId: "u1",
+						createdAt: "2026-01-01T00:00:00.000Z",
+					},
+				],
+			});
+		}
+		if (path.match(/^\/api\/workflows\/[^/]+\/fork$/) && method === "POST") {
+			const source = decodeURIComponent(path.split("/")[3] ?? "");
+			// The route returns the FINAL name — `name` is globally unique, so
+			// a fork of a taken name is suffixed server-side.
+			const bare = source.includes(":") ? source.slice(source.indexOf(":") + 1) : source;
+			return route.fulfill({
+				status: 201,
+				json: { name: `${bare}-2`, id: "wf-fork-1", forkedFrom: source },
+			});
+		}
+		if (path.match(/^\/api\/workflows\/[^/]+\/dry-run$/) && method === "POST") {
+			return route.fulfill({
+				json: {
+					status: "success",
+					stubbed: ["step-1"],
+					steps: [
+						{ name: "step-1", kind: "agent", mode: "stubbed", status: "success" },
+						{ name: "summary", kind: "transform", mode: "evaluated", status: "success" },
+					],
+					// No gate in this graph, so nothing was left unenforced — the
+					// plain `success` above is only honest with this empty.
+					gatesOnStubs: [],
+					output: { note: "«step-1.output»" },
+				},
+			});
 		}
 		if (path.match(/^\/api\/workflows\/[^/]+\/run$/) && method === "POST") {
 			return route.fulfill({

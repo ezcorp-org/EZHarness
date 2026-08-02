@@ -1,6 +1,14 @@
-import { pgTable, text, timestamp, jsonb, integer, real, serial, bigserial, bigint, boolean, index, primaryKey, uniqueIndex, date, vector } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, jsonb, integer, numeric, real, serial, bigserial, bigint, boolean, index, primaryKey, uniqueIndex, date, vector } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
-import type { AgentResult, WorkflowRunStatus, WorkflowStep } from "../types";
+import type {
+  AgentResult,
+  WorkflowCursor,
+  WorkflowModelBinding,
+  WorkflowRunPhase,
+  WorkflowRunStatus,
+  WorkflowStep,
+  WorkflowVisibility,
+} from "../types";
 import type { MemoryProvenance } from "../memory/types";
 import { EMBEDDING_DIMENSIONS } from "../memory/types";
 // Tier vocabulary lives in the pure routing classifier (single source of
@@ -410,19 +418,89 @@ export const agentConfigs = pgTable("agent_configs", {
 
 export const workflowDefinitions = pgTable("workflow_definitions", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  // GLOBALLY unique, and deliberately NOT composite with `project_id`.
+  // The workflow cache is a flat array and every lookup is
+  // `find(w => w.name === name)`; a composite key would let two rows share
+  // a name, and the caller in project B asking for `deploy` would silently
+  // receive project A's graph. Ownership below AUTHORIZES a workflow, it
+  // never namespaces one — so the second project to want `deploy` gets a
+  // 409 and the fork flow auto-suffixes.
   name: text("name").notNull().unique(),
   description: text("description").notNull().default(""),
   inputSchema: jsonb("input_schema").$type<Record<string, unknown>>(),
+  // Model binding inherited by every `agent` step that declares no `model`
+  // of its own. NULL ⇒ each step keeps its agent's own binding, which is
+  // what every pre-existing row means.
+  defaultModel: jsonb("default_model").$type<WorkflowModelBinding>(),
   steps: jsonb("steps").notNull().$type<WorkflowStep[]>(),
-  /** Authoring user. NULLABLE and never backfilled: a NULL row is an
-   *  unowned legacy/global workflow that anyone with `chat` may run, edit
-   *  and delete — today's behaviour. A non-NULL row is owner-or-admin only
-   *  (`src/runtime/workflow-authz.ts`). SET NULL on user delete so a
-   *  departed author's workflow degrades to global rather than vanishing. */
-  createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+
+  // ── Ownership ────────────────────────────────────────────────────
+  // CASCADE: a project-scoped workflow is part of the project and dies
+  // with it. NULL for `system` and for a `private` workflow bound to no
+  // project.
+  projectId: text("project_id").references(() => projects.id, { onDelete: "cascade" }),
+  // SET NULL, the same IDOR-guard rationale as `workflow_runs.user_id`: an
+  // orphaned private workflow becomes admin-only, it never disappears.
+  userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+  // NOT NULL DEFAULT 'system' is what makes the migration backward-safe.
+  // Every pre-existing row reads `system` with NULL owner columns — which
+  // IS what system-owned means — so `POST …/run` authorizes exactly the
+  // callers it authorized before C6. See `workflow-scope.ts` for the
+  // ladder each value selects.
+  visibility: text("visibility").notNull().default("system").$type<WorkflowVisibility>(),
+  // Provenance for a forked workflow: the source's fully qualified name as
+  // a STRING SNAPSHOT, never an FK. The source may be an extension asset
+  // with no row at all, and the extension may later be uninstalled.
+  forkedFrom: text("forked_from"),
+
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => [
+  index("idx_workflow_definitions_scope").on(table.visibility, table.projectId),
+]);
+
+/**
+ * Immutable snapshot of a definition's EXECUTABLE content, minted only
+ * when that content changes (`steps` / `input_schema` / `default_model` —
+ * never a description or a rename; see `workflow-versions.ts`).
+ *
+ * This is the intended authoritative answer to "which definition did this
+ * run execute", and `workflow_runs.definition_hash` is defined as a
+ * function of this row's `steps` so the two cannot disagree WITH EACH
+ * OTHER. Being authoritative is a CONTRACT, not yet a mechanism: no code
+ * reads the version id in preference to the hash today. The ordering, and
+ * what does enforce drift meanwhile, is stated once in
+ * `workflow-versions.ts` — do not re-derive it here.
+ *
+ * CASCADE on the definition: a version snapshot without its definition is
+ * dead weight, not evidence.
+ */
+export const workflowDefinitionVersions = pgTable("workflow_definition_versions", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  workflowDefinitionId: text("workflow_definition_id")
+    .notNull()
+    .references(() => workflowDefinitions.id, { onDelete: "cascade" }),
+  /** Monotonic per definition, starting at 1. */
+  version: integer("version").notNull(),
+  // The name and description AT THAT VERSION, so a rename reads correctly
+  // in history even though renaming mints no version of its own.
+  name: text("name").notNull(),
+  description: text("description").notNull().default(""),
+  inputSchema: jsonb("input_schema").$type<Record<string, unknown>>(),
+  defaultModel: jsonb("default_model").$type<WorkflowModelBinding>(),
+  steps: jsonb("steps").notNull().$type<WorkflowStep[]>(),
+  /** Canonical hash of `steps` — the same function `workflow_runs.definition_hash` uses. */
+  stepsHash: text("steps_hash").notNull(),
+  createdByUserId: text("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("uniq_workflow_definition_version").on(table.workflowDefinitionId, table.version),
+  // FK index — user delete fires ON DELETE SET NULL across this column.
+  index("idx_workflow_definition_versions_author").on(table.createdByUserId),
+]);
+
+export type WorkflowDefinitionVersionRow = typeof workflowDefinitionVersions.$inferSelect;
+export type NewWorkflowDefinitionVersionRow = typeof workflowDefinitionVersions.$inferInsert;
 
 // ── Workflow run history ───────────────────────────────────────────
 //
@@ -458,17 +536,110 @@ export const workflowRuns = pgTable("workflow_runs", {
   // NULL: deleting a user un-attributes their historical workflow runs
   // (then admin-only) rather than cascading them away.
   userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
-  // `WorkflowRunStatus` — the AgentStatus union plus `awaiting_approval`.
+  // `WorkflowRunStatus` — the AgentStatus union plus `awaiting_approval`
+  // and `suspended` (the one non-terminal, non-`running` state).
   status: text("status").notNull().$type<WorkflowRunStatus>(),
   input: jsonb("input").$type<Record<string, unknown>>(),
   result: jsonb("result").$type<AgentResult>(),
   startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
   finishedAt: timestamp("finished_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+
+  // ── Durable resume state ─────────────────────────────────────────
+  // Where the run picks up. NULL for a run that never reached a
+  // boundary (and for every row written before this column existed).
+  cursor: jsonb("cursor").$type<WorkflowCursor>(),
+  // Which side of a step boundary the executor was last on. NOT NULL
+  // DEFAULT 'boundary' is what makes the migration backward-safe: every
+  // pre-existing row reads as "at a boundary", and they are all already
+  // terminal or drained by the existing sweep, so nothing is
+  // misclassified.
+  runPhase: text("run_phase").notNull().default("boundary").$type<WorkflowRunPhase>(),
+  // Why the run parked (`approval`, `orphaned-resumable`,
+  // `approval-timeout`, …). Free text for the trace, never branched on.
+  suspendedReason: text("suspended_reason"),
+  // Written by the recovery SWEEP, not the executor. At suspend time the
+  // executor is at a boundary by construction, so the flag would always
+  // be `true` and carry no information; the interesting case is a crash,
+  // which only the sweep can classify (from `run_phase`).
+  resumable: boolean("resumable").notNull().default(false),
+  // Lease held by the daemon instance executing this run. A dead process
+  // stops renewing, which is how recovery detects it. Claim is a CAS on
+  // (status, claimed_by, lease_expires_at) — never FOR UPDATE SKIP
+  // LOCKED, which PGlite does not honor identically.
+  claimedBy: text("claimed_by"),
+  leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+  // The exact snapshot this run executed — written only when the graph the
+  // run was HANDED matches this version's `steps_hash`, so it can never
+  // name a snapshot the run did not execute. Intended to be authoritative
+  // over `definition_hash` below; that precedence is a contract nothing
+  // implements yet (stated once in `workflow-versions.ts`).
+  // SET NULL (not CASCADE) matches the `workflow_definition_id` treatment:
+  // the run row survives a reaped version, the pointer goes NULL.
+  //
+  // NULL means one of three different things, and the difference matters:
+  // a run created BEFORE C6 (never versioned — the trace renders "version
+  // unknown"); a run of a YAML/extension workflow, which has no
+  // `workflow_definitions` row to version in the first place; or a run
+  // whose graph did not match the row's newest version — a YAML/extension
+  // entry shadowing the row's NAME, or a row left ahead of its newest
+  // version by a torn `updateWorkflow`/`ensureWorkflowVersion` pair. All
+  // three are the same honest answer: we cannot name the snapshot that ran.
+  definitionVersionId: text("definition_version_id").references(
+    () => workflowDefinitionVersions.id,
+    { onDelete: "set null" },
+  ),
+  // Hash of the graph this run STARTED against, always — the drift guard
+  // that actually FIRES: C4's resume compares this unconditionally and
+  // never reads `definition_version_id`. When a version was claimed above
+  // it is that version's own `steps_hash`, so the two cannot disagree with
+  // each other. Reading the version id first and this only when it is NULL
+  // is the intended precedence and is not implemented — see
+  // `workflow-versions.ts`, which states it once. Hash function:
+  // `workflow-definition-hash.ts`.
+  definitionHash: text("definition_hash"),
+  // Caller-supplied correlation handles. No FK on `job_ref`: jobs live in
+  // extension `Storage`, not a table.
+  jobRef: text("job_ref"),
+  // Also the re-entrancy handle for a nested run: a `kind: "workflow"`
+  // step derives `nested:<parentRunId>:<stepName>#<iteration>` for its
+  // child, so a parent that parks and later resumes FINDS the child it
+  // already dispatched instead of starting a second one. The partial
+  // unique index below is what makes that an invariant rather than a
+  // convention. See `nestedRunKey` in `runtime/workflow-executor.ts`.
+  idempotencyKey: text("idempotency_key"),
+  // The run whose `kind: "workflow"` step dispatched this one; NULL for
+  // every top-level run (and for every row written before C7).
+  //
+  // Declared as PLAIN TEXT with no drizzle self-reference — the real FK
+  // (ON DELETE SET NULL) is added in `migrate.ts`, mirroring
+  // `sdkCapabilityCalls.parentCallId` above, which took this route for the
+  // same same-table-reference ergonomics.
+  //
+  // SET NULL, never CASCADE: a child run's history is independently
+  // valuable — it records what a nested attempt cost and why it failed —
+  // and deleting a parent must not erase it.
+  parentRunId: text("parent_run_id"),
 }, (table) => [
   index("idx_workflow_runs_name_started").on(table.workflowName, table.startedAt),
   // FK index — user delete fires ON DELETE SET NULL across this column.
   index("idx_workflow_runs_user").on(table.userId),
+  // The retention sweep's "is this version still referenced by a run?"
+  // probe, and the FK's own SET NULL scan when a version is reaped.
+  index("idx_workflow_runs_definition_version").on(table.definitionVersionId),
+  // The daemon's claim scan and the recovery sweep share this one.
+  index("idx_workflow_runs_claimable")
+    .on(table.status, table.leaseExpiresAt)
+    .where(sql`status IN ('running','suspended')`),
+  // PARTIAL unique: a NULL idempotency key must never collide with
+  // another NULL (in SQL it would not, but the partial index also keeps
+  // the index off every non-idempotent run).
+  uniqueIndex("uniq_workflow_runs_idem")
+    .on(table.workflowName, table.idempotencyKey)
+    .where(sql`idempotency_key IS NOT NULL`),
+  // Required, not optional: ON DELETE SET NULL scans this column on every
+  // parent delete, and the trace view reads a run's children by it.
+  index("idx_workflow_runs_parent").on(table.parentRunId),
 ]);
 
 export type WorkflowRunRow = typeof workflowRuns.$inferSelect;
@@ -487,6 +658,77 @@ export const workflowStepRuns = pgTable("workflow_step_runs", {
   status: text("status").notNull().$type<WorkflowRunStatus>(),
   /** Final iteration count for a looped step; NULL for non-loop steps. */
   iterations: integer("iterations"),
+  // The binding the step's LLM call RESOLVED to — a per-step `model`
+  // override, the agent config's own binding and the router's pick all
+  // land here identically, because they are recorded after resolution.
+  // Both NULL for a step that ran no LLM (transform / gate / tool) and for
+  // the "running" write, which happens before the agent has resolved
+  // anything. Denormalized text, not an FK: the model catalog is not a
+  // table, and history must survive a model being retired.
+  provider: text("provider"),
+  model: text("model"),
+  // The step's `AgentResult`, size-capped and secret-redacted.
+  //
+  // This is a RESUME PREREQUISITE, not telemetry: `stepResults` is an
+  // in-memory map that ANY later step can address via `$steps.<name>`, so
+  // a resumed run must rehydrate the whole map — and before this column
+  // there was nowhere to read a completed step's result from.
+  //
+  // On overflow the value is replaced by `{ __truncated: true, bytes }`
+  // and a resume against it fails closed, rather than resuming with a
+  // silently-different `$steps` value.
+  output: jsonb("output").$type<AgentResult | TruncatedStepOutput>(),
+
+  // ── Telemetry (C5) ───────────────────────────────────────────────
+  // Every column nullable with no default. "Absent" is a real answer
+  // here and it is the honest one for every row written before this
+  // migration — a zero would be a CLAIM ("this step made no LLM call
+  // and cost nothing") that silently deflates the first aggregate
+  // anyone runs over the table.
+  //
+  /** Attempts the step consumed, 1-based: 1 means it succeeded first try.
+   *  NULL for a step that runs no retry loop (transform / gate / tool). */
+  attempt: integer("attempt"),
+  /** Tokens the step's LLM call(s) reported, summed across retries and
+   *  loop iterations. NULL — never 0 — when the step ran no LLM, or when
+   *  the provider reported no usage (a cached response, a stream that
+   *  errored mid-flight). NULL is "not reported" and every SQL aggregate
+   *  already ignores it; 0 would be a lie that SUM believes. */
+  inputTokens: integer("input_tokens"),
+  outputTokens: integer("output_tokens"),
+  /** `NUMERIC`, not `DOUBLE PRECISION`: a cost dashboard that sums floats
+   *  accumulates error, and C3's per-job spend cap reads this column.
+   *
+   *  **NULL in this phase, by design.** There is no host-side price table
+   *  — no per-token price map anywhere in `src/providers/` or
+   *  `src/runtime/` — so nothing can compute a cost honestly yet. The
+   *  column lands now so the trace, the dashboard and C3's cap all have
+   *  one place to read from the day a price source exists; until then the
+   *  trace renders "—", not a fabricated number. */
+  costUsd: numeric("cost_usd", { precision: 12, scale: 6 }),
+  /** Wall-clock for the whole step INCLUDING its retries and loop
+   *  iterations — the number an operator asking "why was this run slow"
+   *  wants. Per-iteration timings live on the child table. */
+  durationMs: integer("duration_ms"),
+  /** The typed reason a step failed, not its message: `error`,
+   *  `cancelled`, `approval-required`, `suspended`. Stable enough to
+   *  GROUP BY, which a message is not. */
+  errorCode: text("error_code"),
+  /** What the ref language actually resolved the step's `input` mapping
+   *  to — the single most useful thing when a run did something
+   *  unexpected, because it is the difference between "the graph is
+   *  wrong" and "the graph got the wrong data".
+   *
+   *  Redacted then size-capped by `prepareResolvedInput`, sharing
+   *  `output`'s redactor and sentinel shape. Not needed for resume (a
+   *  resume recomputes it from `cursor` + `stepResults`), so a truncated
+   *  value here costs an operator detail and costs correctness nothing. */
+  resolvedInput: jsonb("resolved_input").$type<Record<string, unknown> | TruncatedStepOutput>(),
+  /** Why a step did not run at all. Written by C7's `when` conditions;
+   *  inert until then. NULL means "this step was not skipped", which is
+   *  true of every row today. */
+  skippedReason: text("skipped_reason"),
+
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
@@ -494,11 +736,157 @@ export const workflowStepRuns = pgTable("workflow_step_runs", {
   // rejects duplicates), so this is a valid ON CONFLICT arbiter for the
   // "a step is written once at start, then updated on every status /
   // iteration change" upsert.
+  //
+  // DO NOT widen this to include `iteration` to make room for per-loop
+  // rows. That is a DROP INDEX plus a backfill against live history, to
+  // serve a purely additive need — and narrowing a live unique index can
+  // silently remove a constraint that was doing useful work. Per-iteration
+  // facts go in `workflow_step_iterations` instead, which costs one join
+  // and risks nothing.
   uniqueIndex("uniq_workflow_step_run").on(table.workflowRunId, table.stepName),
 ]);
 
 export type WorkflowStepRunRow = typeof workflowStepRuns.$inferSelect;
 export type NewWorkflowStepRunRow = typeof workflowStepRuns.$inferInsert;
+
+/** Stand-in written to `workflow_step_runs.output` when a step's result
+ *  exceeds the per-step size cap. Deliberately NOT shaped like an
+ *  `AgentResult`: a resume must be able to tell "this is not the value"
+ *  apart from "this step produced nothing". */
+export interface TruncatedStepOutput {
+  __truncated: true;
+  bytes: number;
+}
+
+/**
+ * Per-iteration detail for a looped step.
+ *
+ * ## Why this is a table and not columns on `workflow_step_runs`
+ *
+ * `upsertWorkflowStepRun` conflicts on `(workflow_run_id, step_name)`, so
+ * a looped step has exactly **one** parent row and an `iteration` column
+ * there could only ever hold the LAST value. The trace view's requirement
+ * is "every step, every iteration", which that shape cannot express.
+ *
+ * The alternative — widening the arbiter to include `iteration` — is a
+ * `DROP INDEX` plus a backfill of `iteration = 1` across live history, in
+ * service of a need that is purely additive. This table needs no backfill,
+ * leaves the existing upsert and its tests untouched, and cannot remove a
+ * constraint that was doing useful work.
+ *
+ * `workflow_step_runs.iterations` (the COUNT) stays and is not duplicated
+ * here: it is the summary the SSE payload already carries, and this is the
+ * detail behind it.
+ *
+ * **Retention needs no sweep.** A step is bounded by the loop ceiling
+ * (`MAX_ITERATIONS_CEILING`) times the retry ceiling (`RETRIES_CEILING`),
+ * so it can produce at most a few dozen rows, and they CASCADE with the
+ * step — an iteration without its step is meaningless. Contrast run
+ * HISTORY, which is deliberately preserved via SET NULL.
+ */
+export const workflowStepIterations = pgTable("workflow_step_iterations", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  workflowStepRunId: text("workflow_step_run_id")
+    .notNull()
+    .references(() => workflowStepRuns.id, { onDelete: "cascade" }),
+  /** 1-based, matching what `$loop.iteration` sees inside the step. */
+  iteration: integer("iteration").notNull(),
+  /** Retry attempt within this iteration; 0 for the first try. */
+  attempt: integer("attempt").notNull(),
+  status: text("status").notNull().$type<WorkflowRunStatus>(),
+  /** The `AgentRun` this iteration minted. NULL for a `transform` loop,
+   *  which mints none, and SET NULL so reaping a run does not erase the
+   *  record that an iteration happened. */
+  runId: text("run_id").references(() => runs.id, { onDelete: "set null" }),
+  /** May legitimately DIFFER per iteration: a `$loop.*` model binding is
+   *  re-resolved each pass, so a workflow can escalate cheap → strong on
+   *  the retry. Recording only the parent's last value would hide that. */
+  provider: text("provider"),
+  model: text("model"),
+  inputTokens: integer("input_tokens"),
+  outputTokens: integer("output_tokens"),
+  /** NULL until a price table exists — see `workflowStepRuns.costUsd`. */
+  costUsd: numeric("cost_usd", { precision: 12, scale: 6 }),
+  durationMs: integer("duration_ms"),
+  errorCode: text("error_code"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  // The upsert arbiter. `attempt` is in the key because a retried
+  // iteration is a distinct event, not an overwrite of the try that
+  // failed — collapsing them would hide exactly the retry an operator is
+  // reading the trace to find.
+  uniqueIndex("uniq_workflow_step_iteration").on(
+    table.workflowStepRunId,
+    table.iteration,
+    table.attempt,
+  ),
+  // Serves the trace query, and the FK's own delete scan when a step row
+  // cascades away.
+  index("idx_workflow_step_iterations_step").on(table.workflowStepRunId),
+]);
+
+export type WorkflowStepIterationRow = typeof workflowStepIterations.$inferSelect;
+export type NewWorkflowStepIterationRow = typeof workflowStepIterations.$inferInsert;
+
+/**
+ * A parked `approval` step awaiting a human answer.
+ *
+ * One live row per (run, step) — a resumed-then-re-suspended step updates
+ * in place rather than accumulating duplicates. CASCADE on the run,
+ * because an approval without its run is meaningless; contrast run
+ * HISTORY, which is deliberately preserved via SET NULL.
+ */
+export const workflowApprovals = pgTable("workflow_approvals", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  workflowRunId: text("workflow_run_id")
+    .notNull()
+    .references(() => workflowRuns.id, { onDelete: "cascade" }),
+  stepName: text("step_name").notNull(),
+  prompt: text("prompt").notNull().default(""),
+  /** The declared answer set. An answer outside it is rejected, never
+   *  coerced — validated at definition time AND at answer time. */
+  choices: jsonb("choices").notNull().$type<string[]>(),
+  /** Optional RBAC scope gating who may answer. Absent ⇒ project members.
+   *  The check is fail-closed: a throw is a DENY. */
+  rbacScope: text("rbac_scope"),
+  formSchema: jsonb("form_schema").$type<Record<string, unknown>>(),
+  /** When true, an ids-free approve over a non-empty `item_ids` is
+   *  refused — the ported no-blanket-approval guard. */
+  requireItemConsent: boolean("require_item_consent").notNull().default(false),
+  /** The items this answer is accountable for, resolved AT SUSPEND TIME
+   *  from the step's declared ref — so the answer is checked against what
+   *  the run actually produced, not what the definition hoped for. */
+  itemIds: jsonb("item_ids").$type<string[]>(),
+  status: text("status").notNull().default("pending").$type<WorkflowApprovalStatus>(),
+  // SET NULL mirrors `runs.user_id` / `workflow_runs.user_id`: deleting a
+  // user un-attributes the answer, it never erases that one happened.
+  answeredBy: text("answered_by").references(() => users.id, { onDelete: "set null" }),
+  answerChoice: text("answer_choice"),
+  answerForm: jsonb("answer_form").$type<Record<string, unknown>>(),
+  answeredItemIds: jsonb("answered_item_ids").$type<string[]>(),
+  /** Audit marker for an ids-free bulk clear. A blanket clear is allowed
+   *  but NEVER silent. */
+  consentAllUsed: boolean("consent_all_used").notNull().default(false),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("uniq_workflow_approval").on(table.workflowRunId, table.stepName),
+  // The inbox and the timeout sweep both scan pending rows by expiry.
+  index("idx_workflow_approvals_pending")
+    .on(table.status, table.expiresAt)
+    .where(sql`status = 'pending'`),
+  // FK index — user delete fires ON DELETE SET NULL across this column.
+  index("idx_workflow_approvals_answered_by").on(table.answeredBy),
+]);
+
+/** Lifecycle of a `workflow_approvals` row. `expired` is distinct from
+ *  `answered` so the trace shows whether a human decided or the clock
+ *  did. */
+export type WorkflowApprovalStatus = "pending" | "answered" | "expired" | "cancelled";
+
+export type WorkflowApprovalRow = typeof workflowApprovals.$inferSelect;
+export type NewWorkflowApprovalRow = typeof workflowApprovals.$inferInsert;
 
 // ── Memory System ──────────────────────────────────────────────────
 
@@ -1318,7 +1706,7 @@ export const sdkCapabilityCalls = pgTable("sdk_capability_calls", {
    *  MUST stay in sync with `SdkCapability` in
    *  `src/extensions/recordCapabilityCall.ts` (the column is plain text, so
    *  drift is silent). */
-  capability: text("capability").notNull().$type<"llm" | "memory" | "lessons" | "schedule" | "events" | "search" | "workflows">(),
+  capability: text("capability").notNull().$type<"llm" | "memory" | "lessons" | "schedule" | "events" | "search" | "workflows" | "triggers">(),
   /** 'complete' | 'read' | 'write' | 'update' | 'delete' | 'fire' | 'register' | 'subscribe' | 'run' */
   action: text("action").notNull(),
   resourceType: text("resource_type"),
@@ -1455,10 +1843,35 @@ export const extensionSchedules = pgTable("extension_schedules", {
   lastFireId: text("last_fire_id"),
   enabled: boolean("enabled").notNull().default(true),
   consecutiveErrors: integer("consecutive_errors").notNull().default(0),
+  // ── C2: dynamic triggers ─────────────────────────────────────────
+  // `false` = manifest-declared (every row that predates C2, via the
+  // column default). `true` = user-created through `ctx.triggers`. The
+  // reconcilers key on this: they own manifest rows and must leave dynamic
+  // rows completely alone, or every install/update silently disables every
+  // user-created job.
+  dynamic: boolean("dynamic").notNull().default(false),
+  // Extension-supplied trigger identity; NULL on manifest rows. This — not
+  // the cron expression — is a dynamic row's identity, which is what lets
+  // two jobs share `0 9 * * 1` and stay distinguishable at dispatch.
+  key: text("key"),
+  // IANA zone for a dynamic row's cron. Manifest rows read their zone from
+  // the grant (`schedule.tz`) instead.
+  timezone: text("timezone"),
+  // Per-key daily fire cap. NULL = fall back to the extension-wide
+  // envelope. Without this, one busy dynamic job starves every sibling.
+  maxRunsPerDay: integer("max_runs_per_day"),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 }, (table) => [
-  uniqueIndex("uniq_ext_schedule").on(table.extensionId, table.cron),
+  // Two partials replace the old total `(extension_id, cron)` unique. The
+  // manifest partial preserves that constraint exactly for every row that
+  // predates C2; the dynamic partial moves identity to `key` so a cron
+  // expression may repeat across user-created jobs. See migrate.ts for why
+  // the DROP INDEX is safe.
+  uniqueIndex("uniq_ext_schedule_manifest").on(table.extensionId, table.cron)
+    .where(sql`dynamic = FALSE`),
+  uniqueIndex("uniq_ext_schedule_dynamic").on(table.extensionId, table.key)
+    .where(sql`key IS NOT NULL`),
   index("idx_schedule_ready").on(table.enabled, table.nextFireAt),
 ]);
 
@@ -1504,10 +1917,28 @@ export const extensionWebhooks = pgTable("extension_webhooks", {
   enabled: boolean("enabled").notNull().default(true),
   lastDeliveryAt: timestamp("last_delivery_at", { withTimezone: true, mode: "date" }),
   lastDeliveryStatus: text("last_delivery_status").$type<"ok" | "error" | null>(),
+  // ── C2: dynamic triggers ─────────────────────────────────────────
+  // See `extensionSchedules` above — same discriminator, same reason. A
+  // dynamic slug is HOST-MINTED under the manifest's declared prefix, so it
+  // is by construction absent from the clamped grant; without the
+  // reconciler's `dynamic = false` filter every enable would disable it.
+  dynamic: boolean("dynamic").notNull().default(false),
+  // Extension-supplied trigger identity; NULL on manifest rows. Unregister
+  // clears it (soft-delete) to free the dynamic partial unique index while
+  // preserving the row and its delivery history.
+  key: text("key"),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 }, (table) => [
+  // TOTAL, deliberately — not partial like the schedule twin. A dynamic slug
+  // is host-minted from `hash(extensionName, key)` and keys are unique per
+  // extension, so two dynamic rows cannot collide by construction; the only
+  // collision this ever blocked is manifest-vs-dynamic, which `getEnabledWebhook`
+  // (`rows[0] ?? null`, no ORDER BY) would otherwise resolve non-deterministically
+  // on a public inbound route. See the matching note in `migrate.ts`.
   uniqueIndex("uniq_ext_webhook").on(table.extensionId, table.slug),
+  uniqueIndex("uniq_ext_webhook_dynamic").on(table.extensionId, table.key)
+    .where(sql`key IS NOT NULL`),
   index("idx_webhook_enabled").on(table.enabled),
 ]);
 

@@ -389,3 +389,163 @@ describe("validateWorkflow — condition + loop-until shape (repro: empty condit
     );
   });
 });
+
+describe("validateWorkflow — per-step model bindings", () => {
+  test("an agent step may carry a well-formed model binding", () => {
+    expect(
+      validateWorkflow(
+        def([{ name: "verify", agent: "a", model: { model: "claude-opus-5", maxTokens: 8000 } }]),
+      ),
+    ).toEqual([]);
+  });
+
+  test.each(["transform", "gate", "tool"] as const)(
+    "a %s step cannot carry a model binding (it runs no LLM)",
+    (kind) => {
+      const step: Record<string, unknown> = { name: "s", kind, model: { model: "m" } };
+      if (kind === "transform") step.output = { a: "x" };
+      if (kind === "gate") step.condition = { ref: "$input.n", op: "truthy" };
+      if (kind === "tool") step.tool = "demo__x";
+      const errs = validateWorkflow(def([step]));
+      // Silently ignoring it would be the classic "I set it and nothing
+      // happened" bug — it must be rejected at definition time.
+      expect(
+        errs.some((e) => e === `Step "s" (kind "${kind}") cannot specify a "model" override — only agent steps run an LLM`),
+      ).toBe(true);
+    },
+  );
+
+  test("a malformed agent-step binding is rejected with the step named", () => {
+    const errs = validateWorkflow(def([{ name: "verify", agent: "a", model: { temperature: 9 } }]));
+    expect(errs.some((e) => e.startsWith('Step "verify" model "temperature"'))).toBe(true);
+  });
+
+  test("a definition-level defaultModel is validated", () => {
+    const d = def([{ name: "s", agent: "a" }]);
+    d.defaultModel = { effort: "nope" } as never;
+    const errs = validateWorkflow(d);
+    expect(errs.some((e) => e.startsWith('Workflow "defaultModel" "effort" must be one of'))).toBe(true);
+  });
+
+  test("a valid defaultModel passes", () => {
+    const d = def([{ name: "s", agent: "a" }]);
+    d.defaultModel = { provider: "anthropic", model: "claude-haiku-4-5-20251001" };
+    expect(validateWorkflow(d)).toEqual([]);
+  });
+
+  test("a bad defaultModel is reported even when the step list is also invalid", () => {
+    // Checked BEFORE the steps early-return, so it is not hidden behind an
+    // unrelated fix.
+    const d: WorkflowDefinition = { name: "wf", description: "", steps: [] };
+    d.defaultModel = { maxTokens: -1 };
+    const errs = validateWorkflow(d);
+    expect(errs.some((e) => e.startsWith('Workflow "defaultModel" "maxTokens"'))).toBe(true);
+    expect(errs).toContain("Workflow must have at least one step");
+  });
+});
+
+describe("validateWorkflow — approval steps", () => {
+  const approval = (extra: Partial<WorkflowStep> = {}): WorkflowDefinition => ({
+    name: "wf",
+    description: "",
+    steps: [
+      {
+        name: "gate",
+        kind: "approval",
+        prompt: "Ship it?",
+        choices: ["approve", "reject"],
+        ...extra,
+      } as WorkflowStep,
+    ],
+  });
+
+  test("a well-formed approval step validates", () => {
+    expect(validateWorkflow(approval())).toEqual([]);
+  });
+
+  test("requires a prompt and a non-empty choices array", () => {
+    // The executor would only discover these at run time — by which point
+    // it has parked a human on a question with no answers, or suspended
+    // with nothing to render.
+    expect(validateWorkflow(approval({ prompt: undefined }))[0]).toContain('requires a "prompt"');
+    expect(validateWorkflow(approval({ choices: [] }))[0]).toContain("non-empty");
+    expect(validateWorkflow(approval({ choices: undefined }))[0]).toContain("non-empty");
+  });
+
+  test("rejects empty and duplicate choices", () => {
+    expect(validateWorkflow(approval({ choices: ["approve", ""] }))[0]).toContain(
+      "empty or non-string choice",
+    );
+    // A duplicate is ambiguous the moment anyone picks it, and resolves
+    // into `$steps.gate.output.choice` indistinguishably.
+    expect(validateWorkflow(approval({ choices: ["a", "a"] }))[0]).toContain("duplicate choices");
+  });
+
+  test("rejects an approval that also names an agent or tool", () => {
+    expect(validateWorkflow(approval({ agent: "writer" }))[0]).toContain("cannot also specify");
+    expect(validateWorkflow(approval({ tool: "x__y" }))[0]).toContain("cannot also specify");
+  });
+
+  test("rejects requireItemConsent with no itemsRef", () => {
+    // With no items the guard reads a clean gate and waves every answer
+    // through ids-free — the exact opposite of what was asked for.
+    const errs = validateWorkflow(approval({ requireItemConsent: true }));
+    expect(errs[0]).toContain("would silently pass");
+  });
+
+  test("rejects a non-positive or non-integer timeout", () => {
+    expect(validateWorkflow(approval({ timeoutMs: 0 }))[0]).toContain("positive integer");
+    expect(validateWorkflow(approval({ timeoutMs: -1 }))[0]).toContain("positive integer");
+    expect(validateWorkflow(approval({ timeoutMs: 1.5 }))[0]).toContain("positive integer");
+    expect(validateWorkflow(approval({ timeoutMs: 1000 }))).toEqual([]);
+  });
+
+  test("rejects an unknown onTimeout policy", () => {
+    const errs = validateWorkflow(approval({ onTimeout: "yolo" as never }));
+    expect(errs[0]).toContain("abort | approve | skip");
+  });
+
+  test("rejects onTimeout:approve without a timeout", () => {
+    // Deciding on a human's behalf may only be reached deliberately —
+    // never as a side effect of a default filling in a missing timeout.
+    const errs = validateWorkflow(approval({ onTimeout: "approve" }));
+    expect(errs[0]).toContain('"onTimeout: approve" without a "timeoutMs"');
+    expect(validateWorkflow(approval({ onTimeout: "approve", timeoutMs: 5000 }))).toEqual([]);
+  });
+
+  test("rejects onTimeout:approve|skip whose policy name is not a declared choice", () => {
+    // The sweep answers with the POLICY NAME, and the consent guard
+    // rejects an undeclared choice rather than coercing it. Without this
+    // rule the failure surfaces at 3am as a cancelled run.
+    const errs = validateWorkflow(
+      approval({ onTimeout: "approve", timeoutMs: 5000, choices: ["ship", "hold"] }),
+    );
+    expect(errs[0]).toContain('does not declare "approve" in its "choices"');
+
+    expect(
+      validateWorkflow(approval({ onTimeout: "skip", choices: ["ship", "hold"] }))[0],
+    ).toContain('does not declare "skip" in its "choices"');
+
+    // Declared ⇒ valid. `abort` never answers, so it needs no choice.
+    expect(validateWorkflow(approval({ onTimeout: "skip", choices: ["skip", "go"] }))).toEqual(
+      [],
+    );
+    expect(validateWorkflow(approval({ onTimeout: "abort", choices: ["ship"] }))).toEqual([]);
+  });
+
+  test("rejects loop and retries on an approval", () => {
+    // A human decision is not a retryable computation: re-asking would
+    // either re-park the same question or silently reuse the first answer.
+    expect(validateWorkflow(approval({ retries: 2 }))[0]).toContain('cannot specify "retries"');
+    expect(
+      validateWorkflow(approval({ loop: { maxIterations: 2 } }))[0],
+    ).toContain('cannot have a "loop"');
+  });
+
+  test("abort is the default policy — omitting onTimeout is valid", () => {
+    // An approval that silently became `approve` because nobody looked at
+    // it is a consent bypass, so the safe policy must be the one you get
+    // by not thinking about it.
+    expect(validateWorkflow(approval({ timeoutMs: 5000 }))).toEqual([]);
+  });
+});

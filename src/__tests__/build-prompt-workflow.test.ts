@@ -88,6 +88,10 @@ function registerCache(initial: WorkflowDefinition[]): { replace: (next: Workflo
         executorCalls.push(String(args[0]));
         throw new Error("runWorkflow must NEVER be called from a mention");
       }) as never,
+      // Required by the registry since C4; a mention never resumes either.
+      resumeWorkflow: (async () => {
+        throw new Error("resumeWorkflow must NEVER be called from a mention");
+      }) as never,
     },
     getWorkflows: () => current,
   });
@@ -162,7 +166,10 @@ describe("buildPromptInput — ![workflow:…] expansion", () => {
 
   test("a throwing getWorkflows is non-fatal — the turn still builds", async () => {
     registerWorkflowRuntime({
-      workflowExecutor: { runWorkflow: (async () => {}) as never },
+      workflowExecutor: {
+        runWorkflow: (async () => {}) as never,
+        resumeWorkflow: (async () => {}) as never,
+      },
       getWorkflows: () => { throw new Error("cache exploded"); },
     });
 

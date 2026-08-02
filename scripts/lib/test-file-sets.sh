@@ -15,7 +15,11 @@
 #                             that CI gates pass/fail on. A FULL `src` SWEEP
 #                             (wave 3): every src/**/*.test.ts is pass/fail-
 #                             gated somewhere — shards for P∩C, the residual
-#                             job for P\C.
+#                             job for P\C. ALSO a full `extensions` sweep
+#                             (the first-party BUNDLED extensions registered
+#                             in src/extensions/bundled.ts): that tree shipped
+#                             in the product but sat in NO pool, so its test
+#                             files ran in no CI job at all.
 #   C (coverage_host_files) — the per-file --coverage pool. The same `src`
 #                             sweep minus NAMED exclusions (documented at the
 #                             find): the github-projects/extensions
@@ -68,6 +72,14 @@ passfail_files() {
     # env-dependent future suite must be excluded HERE by name, with its
     # reason — never by silently shrinking back to a dir allowlist.
     find src -name "*.test.ts"
+    # First-party BUNDLED extensions (src/extensions/bundled.ts). This tree was
+    # in NO pool: its three test files (memory-extractor index + manifest-load,
+    # lessons-distiller index) ran in no CI job at all. Deterministic under
+    # per-file isolation (no Docker/env), so per the header rules the whole
+    # tree belongs in P. node_modules is pruned defensively — these dirs carry
+    # their own package.json, so a future dependency install must not sweep
+    # vendored *.test.ts into the pool.
+    find extensions -name "*.test.ts" ! -path "*/node_modules/*"
     # import-wizard endpoint tests live beside their SvelteKit routes (bun:test).
     find web/src/routes/api/import -name "*.test.ts"
     # github-projects web route tests.
@@ -140,6 +152,10 @@ coverage_host_files() {
     find src -name "*.test.ts" \
       ! \( -path "src/extensions/__tests__/*" -name "*integration*" \) \
       ! \( -path "src/integrations/github-projects/__tests__/*" -name "*integration*" \)
+    # Bundled extensions — same sweep as P (no exclusions), so `extensions/**`
+    # is BOTH pass/fail-gated and coverage-measured. P∩C membership also
+    # hard-gates these inside the coverage shards.
+    find extensions -name "*.test.ts" ! -path "*/node_modules/*"
     find docs/extensions/examples -name "*.test.ts"
     find web/src/routes/api/import -name "*.test.ts"
     find web/src/routes/api/integrations/github-projects/__tests__ -name "*.test.ts"
@@ -160,6 +176,7 @@ coverage_host_files() {
     printf '%s\n' \
       web/src/__tests__/snippet-sanitize.test.ts \
       web/src/__tests__/workflow-builder-logic.test.ts \
+      web/src/__tests__/workflow-editor-logic.test.ts \
       web/src/__tests__/extension-tool-options.test.ts \
       web/src/lib/__tests__/rbac-grants-view.test.ts \
       web/src/__tests__/permission-mode-indicator.test.ts \

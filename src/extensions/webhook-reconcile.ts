@@ -15,6 +15,20 @@
  * is already `submitted ∩ manifest` (see clamp-permissions.ts). An undeclared /
  * unauthorized slug never reaches here, so a registry row can only exist for a
  * slug the user actually authorized.
+ *
+ * DYNAMIC ROWS ARE NOT THIS FUNCTION'S BUSINESS (C2). A `ctx.triggers` slug is
+ * HOST-MINTED at registration time and is by construction absent from the
+ * manifest, hence absent from the clamped grant — so to this reconciler every
+ * dynamic row looks exactly like a slug the author just deleted. Every query
+ * below therefore filters on `dynamic = false`: the snapshot, the sweep, and
+ * the disable-all branch.
+ *
+ * That filter is load-bearing, not defensive. `activateExtension` calls this
+ * on EVERY enable with a `?? []` fallback, so the disable-all branch runs for
+ * every extension that declares no manifest webhooks — which is precisely the
+ * shape of an extension whose hooks are all dynamic. Without the filter, one
+ * enable silently kills every user-created hook: the row survives, the secret
+ * survives, the delivery history survives, and the hook just stops firing.
  */
 import { logger } from "../logger";
 import { getDb } from "../db/connection";
@@ -39,8 +53,14 @@ export async function reconcileWebhooks(
   const valid = [...new Set(grantedSlugs.filter((s) => WEBHOOK_SLUG_RE.test(s)))];
   const db = getDb();
 
+  // MANIFEST rows only — see the module header. This snapshot feeds both the
+  // re-enable map and the `disabled` count, so filtering here keeps a dynamic
+  // row out of BOTH.
   const existing: ExtensionWebhook[] = await db.select().from(extensionWebhooks)
-    .where(eq(extensionWebhooks.extensionId, extensionId));
+    .where(and(
+      eq(extensionWebhooks.extensionId, extensionId),
+      eq(extensionWebhooks.dynamic, false),
+    ));
   const existingBySlug = new Map<string, ExtensionWebhook>(
     existing.map((row) => [row.slug, row] as const),
   );
@@ -81,20 +101,24 @@ export async function reconcileWebhooks(
   }
 
   // Soft-disable removed slugs (preserve rows + secrets + delivery history).
+  // `dynamic = false` on both branches: a user-created hook was never in the
+  // grant, so "not in the grant" cannot mean "revoked" for it.
   if (valid.length > 0) {
     await db.update(extensionWebhooks)
       .set({ enabled: false, updatedAt: now() })
       .where(and(
         eq(extensionWebhooks.extensionId, extensionId),
+        eq(extensionWebhooks.dynamic, false),
         notInArray(extensionWebhooks.slug, valid),
         eq(extensionWebhooks.enabled, true),
       ));
   } else if (existing.length > 0) {
-    // Grant declared no slugs — disable them all.
+    // Grant declared no slugs — disable all the MANIFEST ones.
     await db.update(extensionWebhooks)
       .set({ enabled: false, updatedAt: now() })
       .where(and(
         eq(extensionWebhooks.extensionId, extensionId),
+        eq(extensionWebhooks.dynamic, false),
         eq(extensionWebhooks.enabled, true),
       ));
   }
