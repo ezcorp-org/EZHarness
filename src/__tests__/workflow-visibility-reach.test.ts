@@ -2,28 +2,38 @@
  * What a workflow's visibility actually buys you, pinned as a fact rather
  * than claimed in a comment.
  *
- * The gap this file exists to keep visible: `visibility: "private"` is the
- * only tier whose read/run audience is narrower than "every user on the
- * instance", and **nothing in the tree writes it**. So every workflow that
- * can exist is readable and runnable by every authenticated principal, and
- * the ladder — real as it is on the EDIT axis — has no confidentiality
- * boundary on the read/run axis at all.
+ * The gap this file was written for: `visibility: "private"` is the only
+ * tier whose read/run audience is narrower than "every user on the
+ * instance", and for a while **nothing in the tree wrote it**. Every
+ * workflow that could exist was readable and runnable by every
+ * authenticated principal, and the ladder — real as it is on the EDIT
+ * axis — had no confidentiality boundary on the read/run axis at all.
+ * That was written down in `workflow-scope.ts`'s own header the whole
+ * time, and a comment still did not stop a delegated-execution feature
+ * (C3) being planned on a bound of "could the owner run it?" — a bound
+ * that excludes nothing when the answer is always yes.
  *
- * That was true before this file existed, and was written down in
- * `workflow-scope.ts`'s own header the whole time. It still nearly shipped
- * a delegated-execution feature (C3) resting on a bound of "could the
- * owner run it?" — a bound that excludes nothing when the answer is always
- * yes. A comment did not stop that. A red test will.
+ * `visibility` is now a selectable key on the create/update body, so the
+ * gap is closed and this file's job changes rather than ends: it pins
+ * WHICH tiers a caller can actually reach and what each one is worth,
+ * so the next such claim is a red test rather than stale prose.
  *
  * The two halves are deliberately different KINDS of check and neither is
  * sufficient alone:
  *
- *  - The producer sweep is STRUCTURAL. It reads the tree for visibility
- *    literals, so it fails when someone adds a writer — including a writer
- *    of `private`, which would make confidentiality reachable and every
- *    "reach is total" statement below stale.
+ *  - The producer sweep is STRUCTURAL. It reads the tree for the two ways
+ *    a tier gets written — a literal assignment in source, and a tier the
+ *    request schema lets a CALLER name — so it fails when either set
+ *    changes.
  *  - The reach assertions are BEHAVIOURAL. They drive the real ladder and
  *    fail if the audience of a producible tier ever changes.
+ *
+ * The second kind of producer is here because of a near miss: the change
+ * that made `private` selectable added an enum member and a pass-through
+ * (`visibility: body.visibility`) and changed no assignment anywhere. A
+ * sweep that read only literals stayed green on it, still asserting the
+ * tier had no producer — the precise failure this file exists to prevent,
+ * committed by this file.
  */
 import { test, expect, describe } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -96,17 +106,43 @@ function assignmentOn(line: string): WorkflowVisibility | null {
   return match[1] as WorkflowVisibility;
 }
 
+/** The body schema every workflow create/update is parsed against. */
+const SCHEMA_PATH = "web/src/routes/api/workflows/schema.ts";
+/** The create route, which forwards the caller's choice to the writer. */
+const CREATE_ROUTE_PATH = "web/src/routes/api/workflows/+server.ts";
+/** The pass-through that makes the schema's enum an actual producer. */
+const FORWARDS_CHOICE = "visibility: body.visibility";
+
+/**
+ * The tiers a CALLER may name, read off the request schema's enum.
+ *
+ * The producer a literal sweep cannot see. `.strict()` on the body schema
+ * means this enum is the whole of what a caller can send, so its members
+ * are exactly the tiers reachable from outside — no matter that the
+ * string never appears as an assignment anywhere in the tree.
+ */
+function schemaAdmitted(): WorkflowVisibility[] {
+  const src = readFileSync(join(REPO_ROOT, SCHEMA_PATH), "utf8");
+  const enumBody = /visibility:\s*z\.enum\(\[([^\]]*)\]\)/.exec(src)?.[1];
+  if (enumBody === undefined) return [];
+  return ALL_VISIBILITIES.filter((tier) => enumBody.includes(`"${tier}"`));
+}
+
 function producedVisibilities(): Map<WorkflowVisibility, string[]> {
   const found = new Map<WorkflowVisibility, string[]>();
+  const record = (tier: WorkflowVisibility, where: string) => {
+    const at = found.get(tier) ?? [];
+    at.push(where);
+    found.set(tier, at);
+  };
   for (const file of FILES) {
     for (const line of readFileSync(file, "utf8").split("\n")) {
       const tier = assignmentOn(line);
       if (tier === null) continue;
-      const at = found.get(tier) ?? [];
-      at.push(file.slice(REPO_ROOT.length + 1));
-      found.set(tier, at);
+      record(tier, file.slice(REPO_ROOT.length + 1));
     }
   }
+  for (const tier of schemaAdmitted()) record(tier, SCHEMA_PATH);
   return found;
 }
 
@@ -164,19 +200,32 @@ describe("which visibilities any code path can actually produce", () => {
     expect(at).toContain("src/db/queries/workflows.ts");
   });
 
-  test("`private` has NO producer — the one confidential tier is unreachable", () => {
-    // If this fails, someone made `private` writable. Good — but every
-    // "reach is total" claim below and in `workflow-scope.ts`'s header is
-    // now stale and must be re-derived, and C3's owner-bound may finally
-    // exclude something.
-    expect(PRODUCED.get("private")).toBeUndefined();
+  test("`private` IS produced — the author names it on the request", () => {
+    // The confidential tier is reachable, and this is the ONLY route to
+    // it: no source line assigns the literal, so the schema is load-
+    // bearing rather than a second way of saying the same thing.
+    expect(PRODUCED.get("private")).toEqual([SCHEMA_PATH]);
+  });
+
+  test("the schema is not inert — the create route forwards what it admits", () => {
+    // Discrimination for the producer above. An enum a caller can send
+    // but no writer reads would produce nothing, and counting it would
+    // report a reach that does not exist.
+    expect(readFileSync(join(REPO_ROOT, CREATE_ROUTE_PATH), "utf8")).toContain(FORWARDS_CHOICE);
+  });
+
+  test("the schema sweep reads the real enum, not any `visibility:` line", () => {
+    // Proves the finding above comes from parsing the enum members. If
+    // the regex silently stopped matching, `schemaAdmitted` would return
+    // [] and `private` would go back to looking unreachable.
+    expect(schemaAdmitted()).toEqual(["system", "project", "private"]);
   });
 
   test("the sweep has an opinion about every tier the type admits", () => {
     // Guards against a fourth visibility landing in `WorkflowVisibility`
     // and silently escaping this file's analysis.
     expect(ALL_VISIBILITIES).toEqual(["system", "project", "private"]);
-    expect(ALL_VISIBILITIES.filter((v) => PRODUCED.has(v))).toEqual(["system", "project"]);
+    expect(ALL_VISIBILITIES.filter((v) => PRODUCED.has(v))).toEqual(ALL_VISIBILITIES);
   });
 });
 
@@ -206,46 +255,56 @@ const STRANGER: WorkflowCaller = {
   projectId: "some-other-project",
 };
 
+/**
+ * The reachable set split by what its audience actually admits — derived
+ * from the ladder, never hardcoded. If a tier's audience changes, the
+ * split moves with it and the assertions below keep meaning what they
+ * say instead of quietly testing the wrong tier.
+ */
+const CONFIDENTIAL = REACHABLE.filter((e) => readRunAudience(e.visibility) === "owner-and-admins");
+const OPEN = REACHABLE.filter((e) => readRunAudience(e.visibility) !== "owner-and-admins");
+
 describe("what a read/run grant is actually worth today", () => {
-  test("the reachable set under test is non-empty and excludes `private`", () => {
-    expect(REACHABLE.map((e) => e.visibility)).toEqual(["system", "project"]);
+  test("the reachable set under test is every tier, and the split is non-vacuous", () => {
+    expect(REACHABLE.map((e) => e.visibility)).toEqual(["system", "project", "private"]);
+    // Both arms of every loop below have something in them. A split that
+    // emptied one side would pass those loops by testing nothing.
+    expect(OPEN.map((e) => e.visibility)).toEqual(["system", "project"]);
+    expect(CONFIDENTIAL.map((e) => e.visibility)).toEqual(["private"]);
   });
 
-  test("a stranger may RUN every workflow that can exist", () => {
-    // This is the R-1 finding stated as an executable fact. It is the
-    // answer to "what would a delegated fire bounded by the owner's own
-    // run rights reach?" — everything.
-    for (const e of REACHABLE) {
+  test("a stranger may still RUN every workflow that is not `private`", () => {
+    // The R-1 finding, now bounded. Two of the three tiers still admit
+    // every user on the instance — so a delegated fire bounded by the
+    // owner's own run rights is only as narrow as the author's choice.
+    for (const e of OPEN) {
       expect(authorizeWorkflow(e, STRANGER, "run")).toEqual({ ok: true, entry: e });
     }
   });
 
-  test("...and may READ every one of them", () => {
-    for (const e of REACHABLE) {
+  test("...and may READ every one of those", () => {
+    for (const e of OPEN) {
       expect(authorizeWorkflow(e, STRANGER, "read")).toEqual({ ok: true, entry: e });
     }
   });
 
-  test("no reachable tier resolves to the confidential audience", () => {
-    for (const e of REACHABLE) {
-      expect(readRunAudience(e.visibility)).not.toBe("owner-and-admins");
+  test("`private` is the confidentiality boundary, and it is reachable", () => {
+    // The half of this file that used to say "no reachable tier is
+    // confidential". A stranger is refused a private row on BOTH axes,
+    // and — unlike before — a caller can actually produce one.
+    for (const e of CONFIDENTIAL) {
+      expect(authorizeWorkflow(e, STRANGER, "run")).toEqual({ ok: false, reason: "not-owner" });
+      expect(authorizeWorkflow(e, STRANGER, "read")).toEqual({ ok: false, reason: "not-owner" });
     }
-    // Discrimination: the assertion above is not vacuously true of every
-    // input. `private` DOES resolve to it — it is merely unreachable.
-    expect(readRunAudience("private")).toBe("owner-and-admins");
   });
 
-  test("the unreachable tier is the only one that would deny that stranger", () => {
-    // Proves the grants above come from the audience and not from a
-    // ladder that says yes to everything.
-    expect(authorizeWorkflow(entry("private"), STRANGER, "run")).toEqual({
-      ok: false,
-      reason: "not-owner",
-    });
-    expect(authorizeWorkflow(entry("private"), STRANGER, "read")).toEqual({
-      ok: false,
-      reason: "not-owner",
-    });
+  test("the refusal is the tier's, not the stranger's — its owner is admitted", () => {
+    // Discrimination: proves the denials above come from the audience
+    // rather than from a ladder that refuses this caller everything.
+    for (const e of CONFIDENTIAL) {
+      expect(authorizeWorkflow(e, { userId: e.userId, role: "member" }, "run").ok).toBe(true);
+      expect(authorizeWorkflow(e, { userId: "someone-else", role: "admin" }, "run").ok).toBe(true);
+    }
   });
 
   test("EDIT is where a reachable tier genuinely refuses that stranger", () => {

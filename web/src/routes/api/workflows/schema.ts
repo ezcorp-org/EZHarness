@@ -58,5 +58,17 @@ export const workflowBodySchema = z
     // `model` above: shape is validated by `validateWorkflow`.
     defaultModel: z.unknown().optional(),
     steps: z.array(workflowStepSchema).optional(),
+    // The confidentiality tier, chosen by the author. Before this key
+    // existed the schema's `.strict()` rejected any body carrying one, so
+    // no caller could reach `private` at all and every workflow that could
+    // exist was readable and runnable by every authenticated principal.
+    //
+    // Listing the three literals here rather than leaving the field loose
+    // is the point: `.strict()` makes this an explicit opt-in, and the
+    // enum makes a typo a 400 instead of a row with a visibility the
+    // ladder has no branch for. WHO may assign which value is a separate,
+    // authorization question — `denyVisibilityAssignment` in the ladder
+    // module owns it, never this schema.
+    visibility: z.enum(["system", "project", "private"]).optional(),
   })
   .strict();

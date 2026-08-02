@@ -214,6 +214,98 @@ describe("PUT /api/workflows/[name]", () => {
 		});
 	});
 
+	// ── Re-classification (Ruling 1, update path) ──────────────────────
+	//
+	// Changing an existing workflow's visibility is a re-classification, so
+	// the question "who may do it" is asked in two halves. The `edit` gate
+	// asks it about the row AS IT STANDS — and for `project` and `private`
+	// that already means owner-or-admin, which is what makes tightening
+	// safe to allow with no extra rule. The second half is the one value
+	// `edit` does not imply: promotion into `system`.
+
+	test("the owner may TIGHTEN their own workflow to private", async () => {
+		ctx.getCachedWorkflows.mockReturnValue([ownedEntry()]);
+		queries.getWorkflowByName.mockResolvedValue({ id: "wf-1" });
+		queries.updateWorkflow.mockResolvedValue({ id: "wf-1", name: "w1" });
+		const res = await PUT(
+			makeEvent({ locals: authedUser, method: "PUT", body: { visibility: "private" } }),
+		);
+		expect(res.status).toBe(200);
+		expect(queries.updateWorkflow).toHaveBeenCalledWith("wf-1", { visibility: "private" });
+	});
+
+	test("a member may NOT broaden a workflow they do not own", async () => {
+		// The denial that matters most: the `edit` ladder refuses before the
+		// visibility rule is ever consulted, so someone else's `private` row
+		// cannot be broadened to `project` no matter what the body says.
+		//
+		// 403, not 404 — `denialStatus` returns 403 for every EDIT denial
+		// (pre-existing, and pinned by the DELETE case below). Worth being
+		// explicit about because the reasoning it rests on — "the caller can
+		// already see the workflow by then" — does not hold for `private`,
+		// which Ruling 1 has just made reachable for the first time. The
+		// authorization is correct; the STATUS is an existence oracle for
+		// private workflow names. Out of scope here, flagged deliberately.
+		ctx.getCachedWorkflows.mockReturnValue([
+			{ ...ownedEntry("secret"), visibility: "private", userId: "someone-else" },
+		]);
+		const res = await PUT(
+			makeEvent({
+				name: "secret",
+				locals: authedUser,
+				method: "PUT",
+				body: { visibility: "project" },
+			}),
+		);
+		expect(res.status).toBe(403);
+		expect(queries.updateWorkflow).not.toHaveBeenCalled();
+	});
+
+	test("the owner may NOT promote their own workflow to system", async () => {
+		// Tightening is free; promoting into the everyone-can-run,
+		// admin-only-to-edit tier is not. Discriminates against a rule that
+		// merely allowed whatever cleared `edit`: this caller IS the owner
+		// and DID clear `edit`, and is still refused.
+		ctx.getCachedWorkflows.mockReturnValue([ownedEntry()]);
+		queries.getWorkflowByName.mockResolvedValue({ id: "wf-1" });
+		const res = await PUT(
+			makeEvent({ locals: authedUser, method: "PUT", body: { visibility: "system" } }),
+		);
+		expect(res.status).toBe(403);
+		expect((await res.json()) as { error?: string }).toMatchObject({
+			error: "Only an admin can make a workflow system-owned",
+		});
+		expect(queries.updateWorkflow).not.toHaveBeenCalled();
+	});
+
+	test("an admin MAY promote a workflow to system", async () => {
+		// Discrimination for the test above — the 403 is keyed on role.
+		ctx.getCachedWorkflows.mockReturnValue([ownedEntry()]);
+		queries.getWorkflowByName.mockResolvedValue({ id: "wf-1" });
+		queries.updateWorkflow.mockResolvedValue({ id: "wf-1", name: "w1" });
+		const res = await PUT(
+			makeEvent({
+				locals: { user: { ...authedUser.user, id: "admin1", role: "admin" } },
+				method: "PUT",
+				body: { visibility: "system" },
+			}),
+		);
+		expect(res.status).toBe(200);
+		expect(queries.updateWorkflow).toHaveBeenCalledWith("wf-1", { visibility: "system" });
+	});
+
+	test("an update that omits visibility does not re-classify the row", async () => {
+		// `updateWorkflow` writes `visibility` only when the key is present,
+		// so an ordinary description edit must not carry one. Without this,
+		// a route that defaulted the field would silently re-tier every row
+		// it touched.
+		ctx.getCachedWorkflows.mockReturnValue([ownedEntry()]);
+		queries.getWorkflowByName.mockResolvedValue({ id: "wf-1" });
+		queries.updateWorkflow.mockResolvedValue({ id: "wf-1", name: "w1" });
+		await PUT(makeEvent({ locals: authedUser, method: "PUT", body: { description: "d" } }));
+		expect(queries.updateWorkflow).toHaveBeenCalledWith("wf-1", { description: "d" });
+	});
+
 	test("returns 400 when replacement steps fail definition-time validation", async () => {
 		const res = await PUT(
 			makeEvent({

@@ -580,12 +580,18 @@ export interface WorkflowDefinition {
  *               `WorkflowAudience` in `src/runtime/workflow-scope.ts`.
  *               Its real content is the EDIT boundary it holds (the
  *               creator, which `system` has no room for). Written by
- *               fork and by the admin claim route.
+ *               fork, by the admin claim route, and by an author who
+ *               names it on create.
  *   `private` — owner and admins only, and the one tier narrower than
- *               "everyone with a login". **Nothing writes it**, so no
- *               workflow that can exist today is confidential. Pinned by
- *               `src/__tests__/workflow-visibility-reach.test.ts`, which
- *               fails the moment a producer appears.
+ *               "everyone with a login": the platform's only workflow
+ *               confidentiality boundary. Reachable since `visibility`
+ *               became a selectable key on the create/update body — the
+ *               author names it, and no extra right is needed, because
+ *               choosing a NARROWER audience for your own row grants
+ *               nobody anything. (`system`, which does, is admin-only to
+ *               assign: `denyVisibilityAssignment`.) Which tiers are
+ *               reachable and what each is worth is pinned by
+ *               `src/__tests__/workflow-visibility-reach.test.ts`.
  */
 export type WorkflowVisibility = "system" | "project" | "private";
 

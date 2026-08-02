@@ -43,16 +43,20 @@
  * cannot read as "a member".
  *
  * **What is reachable today** (pinned behaviourally, not asserted, in
- * `workflow-visibility-reach.test.ts`): nothing in the tree writes
- * `visibility: "private"`, so `"owner-and-admins"` — the only audience
- * narrower than "everyone with a login" — is unreachable. Every workflow
- * that can exist is `system` or `project`, and both are runnable by every
- * authenticated principal. The ladder is an EDIT ladder today; on the
- * read/run axis it has no confidentiality boundary at all.
+ * `workflow-visibility-reach.test.ts`): all three tiers. `private` used
+ * to have no writer, which made `"owner-and-admins"` — the only audience
+ * narrower than "everyone with a login" — unreachable, and left the
+ * ladder with no confidentiality boundary at all on the read/run axis.
+ * `visibility` is now a key on the create/update body, so an author can
+ * name it and that gap is closed.
  *
- * That is the answer C3 (delegated execution) needs: a bound of "could
- * the owner run it?" excludes nothing, because for every workflow that
- * can exist the answer is yes for every user.
+ * Two consequences worth stating together, because they pull opposite
+ * ways. For C3 (delegated execution): a bound of "could the owner run
+ * it?" now excludes something — a `private` row is refused to everyone
+ * but its owner and the admins, so the bound is real rather than
+ * decorative. But it is still weak for the other two tiers, which remain
+ * runnable by every authenticated principal; `private` is opt-in, and
+ * the default a create produces is `system`.
  */
 import type { WorkflowDefinition, WorkflowVisibility } from "../types";
 
@@ -177,9 +181,10 @@ export type WorkflowAudience =
    */
   | "any-authenticated-principal"
   /**
-   * The one audience narrower than "everyone with a login" — and today
-   * **unreachable**, because nothing in the tree writes
-   * `visibility: "private"`. See `workflow-visibility-reach.test.ts`.
+   * The one audience narrower than "everyone with a login", and the
+   * platform's only workflow confidentiality boundary. Reachable: an
+   * author names `visibility: "private"` on create or update. See
+   * `workflow-visibility-reach.test.ts`.
    */
   | "owner-and-admins";
 
@@ -208,18 +213,24 @@ export function readRunAudience(visibility: WorkflowVisibility): WorkflowAudienc
  * The authorization ladder. Pure — no I/O, no DB, no clock — so the
  * matrix that covers it is cheap enough to be exhaustive.
  *
- * | visibility | read + run                  | edit              | reachable? |
+ * | visibility | read + run                  | edit              | who may assign |
  * |---|---|---|---|
- * | `system`   | anyone (no login needed)    | admin only        | yes        |
- * | `project`  | any authenticated principal | creator, or admin | yes        |
- * | `private`  | owner or admin              | owner or admin    | **no**     |
+ * | `system`   | anyone (no login needed)    | admin only        | **admin only** |
+ * | `project`  | any authenticated principal | creator, or admin | anyone         |
+ * | `private`  | owner or admin              | owner or admin    | anyone         |
  *
- * Read the read/run column as the audience it is: the two REACHABLE
- * tiers admit every user on the instance, differing only on whether a
- * login is required. `project` is not narrower than `system` for any
- * principal that has logged in — it is narrower only for the userless
- * CLI. The tier's real content is its EDIT column, where it holds a
- * creator that `system` does not.
+ * All three are reachable. Read the read/run column as the audience it
+ * is: `system` and `project` both admit every user on the instance,
+ * differing only on whether a login is required. `project` is not
+ * narrower than `system` for any principal that has logged in — it is
+ * narrower only for the userless CLI. That tier's real content is its
+ * EDIT column, where it holds a creator that `system` does not.
+ * `private` is the only row of the three that narrows read/run.
+ *
+ * The assign column is a SEPARATE question from this ladder and is not
+ * answered here — see {@link denyVisibilityAssignment}. It is in the
+ * table because leaving it out is what makes `system` look like a tier
+ * anyone may opt into.
  *
  * `system` → run-by-anyone is not a new grant: every row that exists at
  * migration time is `system`, and that is exactly who could run it
@@ -271,6 +282,40 @@ export function authorizeWorkflow(
       if (isAdmin || caller.userId !== null) return { ok: true, entry };
       return { ok: false, reason: "not-authenticated" };
   }
+}
+
+/** The refusal when a non-admin tries to mint or promote to `system`. */
+export const VISIBILITY_ASSIGNMENT_DENIAL =
+  "Only an admin can make a workflow system-owned";
+
+/**
+ * May `caller` STAMP `visibility` on a workflow — on create, or as a
+ * re-classification of one they already passed the `edit` ladder for?
+ * Returns the refusal message, or `null` to allow.
+ *
+ * Assignment is a separate question from {@link authorizeWorkflow}, and
+ * the ladder cannot answer it: `edit` asks about the visibility a row
+ * ALREADY has, this asks about the one it is being given. Collapsing them
+ * would let the owner of a `private` row promote it to `system` purely
+ * because they cleared `edit` on it as it stands.
+ *
+ * The one rule: **`system` is admin-only, `project` and `private` are
+ * not.** `system` means "ships with the install" — it is the tier the
+ * ladder lets anyone read and run, and the tier only an admin may
+ * subsequently edit. So a non-admin promoting a row into it both dresses
+ * their workflow up as a first-party asset and locks themselves out of
+ * their own row. Tightening down to `project` or `private` does neither,
+ * and needs no extra gate: the `edit` ladder above already refuses a
+ * non-admin who is not the owner, so the only caller who ever reaches
+ * this question for someone else's workflow is an admin.
+ */
+export function denyVisibilityAssignment(
+  caller: WorkflowCaller,
+  visibility: WorkflowVisibility | undefined,
+): string | null {
+  if (visibility === undefined) return null;
+  if (visibility !== "system") return null;
+  return caller.role === "admin" ? null : VISIBILITY_ASSIGNMENT_DENIAL;
 }
 
 /**

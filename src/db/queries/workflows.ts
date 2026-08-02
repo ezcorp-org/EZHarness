@@ -146,9 +146,17 @@ export async function updateWorkflow(
   if (data.inputSchema !== undefined) updates.inputSchema = data.inputSchema;
   if (data.defaultModel !== undefined) updates.defaultModel = data.defaultModel;
   if (data.steps !== undefined) updates.steps = data.steps;
-  // Ownership moves only through the admin claim action and the fork
-  // route, never through an ordinary definition edit — but both go
+  // An OWNER (`userId`) moves only through the admin claim action and the
+  // fork route, never through an ordinary definition edit — and both go
   // through this one writer rather than a second UPDATE path.
+  //
+  // The TIER does move through an ordinary edit: an author may
+  // re-classify their own workflow, so `PUT /api/workflows/[name]` passes
+  // a `visibility` straight through to here. That route gates the value
+  // first — `edit` on the row as it stands, then
+  // `denyVisibilityAssignment` for the one tier (`system`) the edit right
+  // does not imply. This writer is not the gate and must not be mistaken
+  // for one; it writes what it is given.
   if (data.visibility !== undefined) updates.visibility = data.visibility;
   if (data.projectId !== undefined) updates.projectId = data.projectId;
 
