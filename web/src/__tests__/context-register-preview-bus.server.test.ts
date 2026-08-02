@@ -20,7 +20,7 @@
  * so the assertion exercises a genuine bus instance.
  */
 
-import { test, expect, describe, vi, beforeEach } from "vitest";
+import { test, expect, describe, vi } from "vitest";
 
 // The one collaborator under observation.
 const registerPreviewBus = vi.fn();
@@ -129,16 +129,29 @@ vi.mock("$server/runtime/workflow-executor", () => ({
 // NB: $server/runtime/events (EventBus) is deliberately NOT mocked — we
 // want a real bus instance so the non-null assertion is meaningful.
 
-describe("ensureInitialized — registers the live preview bus (gap #3)", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    // ensureInitialized is a once-only singleton guarded by an internal
-    // `initialized` flag; reset the module between tests so it re-runs.
-    vi.resetModules();
-  });
+// Imported at module scope, NOT with `await import()` inside the test.
+// `context.ts` statically pulls the entire server boot graph, so loading it is
+// the single most expensive thing this file does — and it is FIXTURE cost, not
+// behaviour under test. Inside the test body it was billed to vitest's 5000ms
+// per-test budget: 0.51s when this file runs alone, but 4.45s inside the
+// 169-file coverage leg, where the fork pool saturates the CPU (v8
+// instrumentation itself costs ~8%; the 8x is contention). At 89% of budget it
+// timed out on any loaded machine. At module scope the cost lands in the
+// collection phase, which carries no per-test timeout, leaving the 5s budget to
+// cover what it is meant to cover: ensureInitialized() plus the assertions.
+// vi.mock() is hoisted above imports, so every stub above is already installed
+// when this evaluates.
+import * as ctx from "$lib/server/context";
 
+// The former beforeEach (vi.clearAllMocks + vi.resetModules) is gone with the
+// dynamic import: a module-scope binding cannot be re-resolved by
+// resetModules(), and clearAllMocks() before the only test that populates the
+// spy was a no-op. ensureInitialized() is a once-only singleton, so this file
+// deliberately holds exactly ONE test — a second one would observe
+// `initialized === true` and see no fresh wiring. Add further cases as their
+// own file (see context-state-mediator-wiring.server.test.ts), not here.
+describe("ensureInitialized — registers the live preview bus (gap #3)", () => {
   test("calls registerPreviewBus exactly once with a non-null bus === getBus()", async () => {
-    const ctx = await import("$lib/server/context");
     await ctx.ensureInitialized();
 
     // Wiring fired exactly once.
