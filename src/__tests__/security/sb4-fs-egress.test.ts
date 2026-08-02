@@ -2,8 +2,8 @@
 // inside the extension subprocess, even when filesystem permission is
 // granted. Granted access flows through the host-mediated `ezcorp/fs.*`
 // reverse-RPC (see `src/extensions/fs-handler.ts`); raw `Bun.file`,
-// `Bun.write`, `Bun.glob`, `node:fs`, and `node:fs/promises` are all
-// poisoned by the sandbox-preload.
+// `Bun.write`, `Bun.Glob#scan`, `bun:ffi`, `node:fs`, and `node:fs/promises`
+// are all poisoned by the sandbox-preload.
 //
 // This test mirrors `sb2-network-egress.test.ts`'s pattern: spawn a real
 // `bun` subprocess with `--preload <sandbox-preload>`, run a tiny `-e`
@@ -58,7 +58,7 @@ const FS_DENY = /requires 'filesystem' permission|filesystem.*blocked/;
 
 // ── Bun-namespace fs primitives — always denied ──────────────────
 
-describe("sec-SB4/Phase3: Bun.file / Bun.write / Bun.glob always denied", () => {
+describe("sec-SB4/Phase3: Bun.file / Bun.write always denied", () => {
   test("Bun.file('/etc/passwd') throws filesystem denier (no fs permission)", async () => {
     const out = await runUnderPreload(
       probeSync(`Bun.file('/etc/passwd').text()`),
@@ -236,7 +236,13 @@ describe("sec-SB4: every poisoned Bun property actually exists", () => {
       (await runUnderPreload(list)).stdout.trim(),
     ) as string[];
 
+    // Non-vacuity FIRST. `after.filter(...)` is empty both when the preload
+    // added nothing (pass) and when `after` itself is empty because the probe
+    // never really ran (no signal). Those are indistinguishable downstream —
+    // the same shape as the bug this suite exists to catch, one level up — so
+    // assert both lists are real before comparing them.
     expect(before.length).toBeGreaterThan(10);
+    expect(after.length).toBeGreaterThan(10);
     expect(after.filter((k) => !before.includes(k))).toEqual([]);
   });
 });
