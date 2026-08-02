@@ -441,7 +441,7 @@ test.describe("Workflow editing — visual", () => {
 		// The four shipped demos are files on disk — Edit/Delete would 404,
 		// so the header must offer the one action that does work.
 		await mockApi({
-			workflows: [makeWorkflow({ ...demoDeterministic, source: "yaml", canManage: false })],
+			workflows: [makeWorkflow({ ...demoDeterministic, source: "yaml", canEdit: false })],
 			agents: [makeAgent({ name: "summarizer" })],
 		});
 		const resp = await page.goto("/workflows/demo-deterministic");

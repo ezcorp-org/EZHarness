@@ -45,7 +45,6 @@
   "web/src/lib/workflow-trace-logic.ts": 100,
   "web/src/lib/workflow-yaml.ts": 100,
   "web/src/lib/extension-tool-options.ts": 100,
-  "web/src/lib/server/workflow-can-manage.ts": 100,
   "web/src/lib/rbac-grants-view.ts": 100,
   "src/extensions/mcp-sandbox.ts": 91,
   "src/extensions/file-organizer-applier.ts": 100,

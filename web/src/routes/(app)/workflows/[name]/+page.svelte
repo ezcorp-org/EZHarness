@@ -21,7 +21,7 @@
 	// means Edit/Delete are never painted on a request that would 403 (someone
 	// else's workflow) or 404 (a YAML/extension asset — a file on disk, with
 	// nothing to write).
-	let canManage = $derived(workflow?.canManage === true);
+	let canEdit = $derived(workflow?.canEdit === true);
 
 	let inputText = $state("{}");
 	let submitting = $state(false);
@@ -182,7 +182,7 @@
 				     something you can read is exactly what they are for. -->
 				{#if !editing}
 					<div class="flex flex-wrap items-center justify-end gap-2">
-						{#if canManage}
+						{#if canEdit}
 							<button
 								onclick={startEditing}
 								data-testid="workflow-edit"
@@ -213,7 +213,7 @@
 						>
 							Duplicate
 						</button>
-						{#if canManage}
+						{#if canEdit}
 							<button
 								onclick={handleDeleteClick}
 								data-confirming={deleteConfirming}

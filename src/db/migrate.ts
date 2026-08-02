@@ -2277,12 +2277,16 @@ export async function migrate(db: any): Promise<void> {
   await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uniq_workflow_definition_version ON workflow_definition_versions(workflow_definition_id, version)`);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_workflow_definition_versions_author ON workflow_definition_versions(created_by_user_id)`);
 
-  // Upstream's owner column, superseded by `user_id` + `visibility` above
-  // and dropped in the follow-up commit — kept here so this merge stays a
-  // pure integration and the two migrations can be reviewed apart. Safe to
-  // co-exist: it is additive, idempotent, and nothing reads it as of this
-  // commit.
-  await db.execute(sql`ALTER TABLE workflow_definitions ADD COLUMN IF NOT EXISTS created_by TEXT REFERENCES users(id) ON DELETE SET NULL`);
+  // `workflow_definitions.created_by` was a SECOND owner column, from a
+  // parallel authorization model that briefly co-existed with the
+  // `user_id`/`visibility` ladder above. The two disagreed about what NULL
+  // meant — that rule read NULL as "unowned, anyone may act", while an
+  // orphaned `private` row here is admin-only — so they could not share a
+  // table. Dropped rather than migrated: nothing ever wrote it (the create
+  // path has always set `user_id`), so every value in it is NULL and there
+  // is no ownership to carry across. `IF EXISTS` because an install that
+  // never saw the intermediate commit never had the column.
+  await db.execute(sql`ALTER TABLE workflow_definitions DROP COLUMN IF EXISTS created_by`);
 
   // ── Workflow run history ─────────────────────────────────────────
   //

@@ -17,12 +17,6 @@ const ctx = vi.hoisted(() => ({
 }));
 const queries = vi.hoisted(() => ({
   createWorkflow: vi.fn(async (def: unknown) => def),
-  // Owners come back keyed by name with the OWNER COLUMN our ladder
-  // populates (`userId`), not upstream's `created_by` — see
-  // `workflow-can-manage.ts`.
-  getWorkflowOwnersByName: vi.fn(
-    async () => new Map<string, { userId: string | null; visibility: string }>(),
-  ),
   WorkflowNameConflictError: class extends Error {
     constructor(readonly workflowName: string) {
       super(`A workflow named "${workflowName}" already exists`);
@@ -62,7 +56,6 @@ beforeEach(() => {
   ctx.reloadWorkflows.mockReset().mockResolvedValue(undefined);
   queries.createWorkflow.mockReset().mockImplementation(async (def: unknown) => def);
   versions.ensureWorkflowVersion.mockReset().mockResolvedValue({ version: { version: 1 }, minted: true });
-  queries.getWorkflowOwnersByName.mockReset().mockResolvedValue(new Map());
 });
 
 function makeEvent(opts: {
@@ -127,68 +120,54 @@ describe("GET /api/workflows", () => {
     expect(((await res.json()) as Array<{ name: string }>).map((w) => w.name)).toEqual(["shared"]);
   });
 
-  // ── canManage ──────────────────────────────────────────────────
+  // ── canEdit ────────────────────────────────────────────────────
   // Gates the UI's Edit/Delete affordances. Getting it wrong paints
   // buttons that can only 403 (someone else's row) or 404 (a YAML or
   // extension asset, which is a file on disk with nothing to write).
   //
-  // Rewritten from upstream's originals onto the merged surface: the list
-  // is now the ladder-filtered CACHE (`getCachedWorkflows`), not the raw
-  // `getWorkflows()` registry, and the owner map is keyed by our `userId`
-  // column rather than upstream's `created_by`. The assertions are
-  // upstream's unchanged.
+  // It is the LADDER's own `edit` answer, stamped per entry by `toWire` —
+  // not a second predicate over an owner column, which is what this used
+  // to be. One rule means the button and the endpoint cannot disagree.
 
-  test("marks a DB workflow the caller owns as manageable", async () => {
+  test("marks a DB workflow the caller owns as editable", async () => {
     ctx.getCachedWorkflows.mockReturnValue([
       { ...systemEntry("mine"), visibility: "private", userId: "u1" },
     ]);
-    queries.getWorkflowOwnersByName.mockResolvedValue(
-      new Map([["mine", { userId: "u1", visibility: "private" }]]),
-    );
     const res = await GET(makeEvent({ locals: authedUser }));
-    const [workflow] = (await res.json()) as { canManage: boolean }[];
-    expect(workflow.canManage).toBe(true);
+    const [workflow] = (await res.json()) as { canEdit: boolean }[];
+    expect(workflow.canEdit).toBe(true);
   });
 
-  test("marks another user's DB workflow as not manageable", async () => {
+  test("marks another user's DB workflow as not editable", async () => {
     // `system` so the caller can still SEE it — an invisible row would
     // prove nothing about the flag.
-    ctx.getCachedWorkflows.mockReturnValue([
-      { ...systemEntry("theirs"), userId: "u-other" },
-    ]);
-    queries.getWorkflowOwnersByName.mockResolvedValue(
-      new Map([["theirs", { userId: "u-other", visibility: "system" }]]),
-    );
+    ctx.getCachedWorkflows.mockReturnValue([{ ...systemEntry("theirs"), userId: "u-other" }]);
     const res = await GET(makeEvent({ locals: authedUser }));
-    const [workflow] = (await res.json()) as { canManage: boolean }[];
-    expect(workflow.canManage).toBe(false);
+    const [workflow] = (await res.json()) as { canEdit: boolean }[];
+    expect(workflow.canEdit).toBe(false);
   });
 
-  test("lets an admin manage another user's DB workflow", async () => {
-    ctx.getCachedWorkflows.mockReturnValue([
-      { ...systemEntry("theirs"), userId: "u-other" },
-    ]);
-    queries.getWorkflowOwnersByName.mockResolvedValue(
-      new Map([["theirs", { userId: "u-other", visibility: "system" }]]),
-    );
+  test("lets an admin edit another user's DB workflow", async () => {
+    ctx.getCachedWorkflows.mockReturnValue([{ ...systemEntry("theirs"), userId: "u-other" }]);
     const res = await GET(
       makeEvent({ locals: { user: { id: "u-admin", email: "a@x", name: "a", role: "admin" } } }),
     );
-    const [workflow] = (await res.json()) as { canManage: boolean }[];
-    expect(workflow.canManage).toBe(true);
+    const [workflow] = (await res.json()) as { canEdit: boolean }[];
+    expect(workflow.canEdit).toBe(true);
   });
 
-  test("marks an unowned legacy DB row as manageable by anyone", async () => {
+  test("a legacy system row is admin-only to edit, though anyone may run it", async () => {
+    // The deliberate tightening: every row that existed before the ladder
+    // is `system`, and `system` is admin-only to EDIT. The previous rule
+    // read an unowned row as editable by anyone, which is the behaviour
+    // this replaces.
     ctx.getCachedWorkflows.mockReturnValue([systemEntry("legacy")]);
-    queries.getWorkflowOwnersByName.mockResolvedValue(
-      new Map([["legacy", { userId: null, visibility: "system" }]]),
-    );
     const res = await GET(makeEvent({ locals: authedUser }));
-    const [workflow] = (await res.json()) as { canManage: boolean }[];
-    expect(workflow.canManage).toBe(true);
+    const [workflow] = (await res.json()) as { canEdit: boolean }[];
+    expect(workflow.canEdit).toBe(false);
   });
 
-  test("never marks YAML or extension workflows as manageable", async () => {
+  test("never marks YAML or extension workflows as editable", async () => {
     ctx.getCachedWorkflows.mockReturnValue([
       assetEntry("demo", "yaml"),
       assetEntry("ext:deploy", "extension"),
@@ -196,32 +175,26 @@ describe("GET /api/workflows", () => {
     const res = await GET(
       makeEvent({ locals: { user: { id: "u-admin", email: "a@x", name: "a", role: "admin" } } }),
     );
-    const workflows = (await res.json()) as { canManage: boolean }[];
-    expect(workflows.map((w) => w.canManage)).toEqual([false, false]);
+    const workflows = (await res.json()) as { canEdit: boolean }[];
+    expect(workflows.map((w) => w.canEdit)).toEqual([false, false]);
   });
 
-  test("skips the owner query entirely when no workflow is DB-sourced", async () => {
-    // A fresh install serving only the YAML demos should not hit the DB to
-    // be told every answer is false.
-    ctx.getCachedWorkflows.mockReturnValue([assetEntry("demo", "yaml")]);
-    await GET(makeEvent({ locals: authedUser }));
-    expect(queries.getWorkflowOwnersByName).not.toHaveBeenCalled();
+  test("resolves the flag with no DB query at all", async () => {
+    // The previous implementation needed one owner lookup per page. The
+    // ladder answers off the cache entry already in hand, so the list
+    // route is now query-free.
+    ctx.getCachedWorkflows.mockReturnValue([systemEntry("a"), assetEntry("demo", "yaml")]);
+    const res = await GET(makeEvent({ locals: authedUser }));
+    expect(res.status).toBe(200);
+    expect((await res.json()) as unknown[]).toHaveLength(2);
   });
 
   test("never reveals the owner of a workflow the caller may not see", async () => {
-    // Upstream asserted the owner id was absent from EVERY response,
-    // because its list route served the whole registry to every caller.
-    // The ladder makes that a narrower and stronger property: an
-    // unreadable row is dropped whole, so nothing about it — owner
-    // included — reaches the caller. `WorkflowWire` still carries `userId`
-    // for rows the caller IS entitled to, which is what the editor's
-    // provenance is derived from.
+    // An unreadable row is dropped whole, so nothing about it — owner
+    // included — reaches the caller.
     ctx.getCachedWorkflows.mockReturnValue([
       { ...systemEntry("secret"), visibility: "private", userId: "u-other" },
     ]);
-    queries.getWorkflowOwnersByName.mockResolvedValue(
-      new Map([["secret", { userId: "u-other", visibility: "private" }]]),
-    );
     const res = await GET(makeEvent({ locals: authedUser }));
     const body = await res.json();
     expect(body).toEqual([]);

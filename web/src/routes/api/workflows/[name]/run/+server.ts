@@ -58,6 +58,7 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
       "Workflow not found",
     );
     if (resolved instanceof Response) return resolved;
+    const scopedProjectId = typeof projectId === "string" ? projectId : undefined;
 
     // Authorize the definition the executor will ACTUALLY run — the same
     // object, not a re-lookup by name. Shared with the `run_workflow` tool
@@ -69,7 +70,7 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
     // ladder cannot be asked that early — it needs `projectId`, which
     // only exists once the body is parsed — so that property is already
     // spent by the 404 above, and this ordering spends nothing further.
-    const decision = await canRunWorkflow(resolved.entry.definition, user);
+    const decision = await canRunWorkflow(resolved.entry, user, scopedProjectId);
     if (!decision.allowed) return errorJson(403, decision.reason);
 
     const workflowExec = getWorkflowExecutor();
@@ -79,7 +80,6 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
     // re-resolved one, or it would bypass the ladder for exactly the
     // callers that opted out of waiting.
     const definition = resolved.entry.definition;
-    const scopedProjectId = typeof projectId === "string" ? projectId : undefined;
 
     if (wantsAsync(request)) {
       // The id is minted HERE so the 202 can name the run. Deriving it

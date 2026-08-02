@@ -19,6 +19,7 @@ import { test, expect, describe, afterAll, afterEach, beforeEach, mock } from "b
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { WorkflowDefinition, WorkflowRun } from "../types";
+import type { CachedWorkflow } from "../runtime/workflow-scope";
 
 // ── Module mocks (all three targets are in MODULE_PATHS) ───────────────
 
@@ -28,8 +29,6 @@ const realExtensionQueries = { ...(await import("../db/queries/extensions")) };
 
 /** What `getUserById` serves. `null` = the row vanished. */
 let stubUser: { id: string; role: string } | null = { id: "user-1", role: "member" };
-/** What `getWorkflowByName` serves (only consulted for `source: "db"`). */
-let stubWorkflowRow: { createdBy: string | null } | null = null;
 
 mock.module("../db/queries/users", () => ({
   ...realUsers,
@@ -37,7 +36,6 @@ mock.module("../db/queries/users", () => ({
 }));
 mock.module("../db/queries/workflows", () => ({
   ...realWorkflowQueries,
-  getWorkflowByName: async () => stubWorkflowRow ?? undefined,
 }));
 mock.module("../db/queries/extensions", () => ({
   ...realExtensionQueries,
@@ -62,7 +60,6 @@ afterAll(() => restoreModuleMocks());
 
 beforeEach(() => {
   stubUser = { id: "user-1", role: "member" };
-  stubWorkflowRow = null;
   _resetWorkflowRuntimeForTests();
 });
 
@@ -101,14 +98,39 @@ function successRun(overrides: Partial<WorkflowRun> = {}): WorkflowRun {
   };
 }
 
+/**
+ * Wrap a definition as a cache entry. Defaults to `system` — what every
+ * pre-ladder row is, and what a YAML asset is — so the ordinary tests read
+ * as "an ordinary workflow" and only the authorization ones say more.
+ */
+function asEntry(
+  definition: WorkflowDefinition,
+  over: Partial<CachedWorkflow> = {},
+): CachedWorkflow {
+  return {
+    definition,
+    source: (definition.source ?? "yaml") as CachedWorkflow["source"],
+    id: null,
+    projectId: null,
+    userId: null,
+    visibility: "system",
+    forkedFrom: null,
+    ...over,
+  };
+}
+
 /** Register a fake live runtime and capture what the tool passes it. */
 function registerRuntime(
   workflows: WorkflowDefinition[],
   run: WorkflowRun | (() => Promise<WorkflowRun>),
+  entryOver: Partial<CachedWorkflow> = {},
 ): RecordedRun[] {
   const calls: RecordedRun[] = [];
   registerWorkflowRuntime({
     getWorkflows: () => workflows,
+    // The tool authorizes against the PROVENANCE-carrying cache; a bare
+    // definition carries no owner for the ladder to read.
+    getCachedWorkflows: () => workflows.map((w) => asEntry(w, entryOver)),
     workflowExecutor: {
       runWorkflow: async (workflow, input, projectId, userId, signal, opts) => {
         calls.push({ workflow, input, projectId, userId, signal, opts });
@@ -191,20 +213,24 @@ describe("run_workflow — the LLM cannot choose its own RBAC coordinates", () =
 describe("run_workflow — authorization", () => {
   test("a denial surfaces as a tool error result, not a throw, and the run never starts", async () => {
     const dbWorkflow: WorkflowDefinition = { ...YAML_WORKFLOW, source: "db" };
-    const calls = registerRuntime([dbWorkflow], successRun());
-    stubWorkflowRow = { createdBy: "someone-else" };
+    const calls = registerRuntime([dbWorkflow], successRun(), {
+      visibility: "private",
+      userId: "someone-else",
+    });
 
     const result = await makeTool().execute("tc-1", { name: "deploy" });
 
     expect(result.details).toMatchObject({ isError: true });
-    expect(textOf(result)).toBe('Error: Workflow "deploy" is owned by another user');
+    expect(textOf(result)).toBe('Error: Workflow "deploy" is not available to this user');
     expect(calls).toHaveLength(0);
   });
 
   test("an admin may run another user's workflow (role read from the DB, not the turn)", async () => {
     const dbWorkflow: WorkflowDefinition = { ...YAML_WORKFLOW, source: "db" };
-    const calls = registerRuntime([dbWorkflow], successRun());
-    stubWorkflowRow = { createdBy: "someone-else" };
+    const calls = registerRuntime([dbWorkflow], successRun(), {
+      visibility: "private",
+      userId: "someone-else",
+    });
     stubUser = { id: "user-1", role: "admin" };
 
     const result = await makeTool().execute("tc-1", { name: "deploy" });

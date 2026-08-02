@@ -11,7 +11,6 @@ const {
   updateWorkflow,
   deleteWorkflow,
   loadDbWorkflows,
-  getWorkflowOwnersByName,
 } = await import("../db/queries/workflows");
 
 const { users } = await import("../db/schema");
@@ -35,11 +34,13 @@ describe("workflows queries", () => {
     expect(p.steps).toEqual(sampleSteps as any);
     expect(p.inputSchema).toBeNull();
     expect(p.createdAt).toBeInstanceOf(Date);
-    // No principal supplied ⇒ unowned (global) row, the pre-column default.
-    expect(p.createdBy).toBeNull();
+    // No ownership supplied ⇒ a `system` row, which is exactly what every
+    // pre-ladder row is.
+    expect(p.userId).toBeNull();
+    expect(p.visibility).toBe("system");
   });
 
-  test("createWorkflow records the authoring user when one is supplied", async () => {
+  test("createWorkflow stamps the ownership it is given", async () => {
     await getTestDb().insert(users).values({
       id: "u-author",
       email: "author@example.com",
@@ -47,10 +48,6 @@ describe("workflows queries", () => {
       name: "Author",
       role: "member",
     });
-    // Upstream asserted this against `created_by`. The merged create path
-    // writes ownership to `user_id` instead — the column the ladder reads —
-    // and leaves `created_by` NULL, so the assertion moves to the column
-    // that is actually populated.
     const p = await createWorkflow(
       { name: "owned", description: "", steps: sampleSteps as any },
       { userId: "u-author" },
@@ -156,7 +153,7 @@ describe("workflows queries", () => {
     expect(defs[0]!.source).toBe("db");
   });
 
-  test("loadDbWorkflows does NOT project createdBy into the served cache", async () => {
+  test("loadDbWorkflows does NOT project the owner into the served cache", async () => {
     // The cache is returned verbatim by GET /api/workflows — a user id has
     // no business reaching every read-scoped caller. The authz helper reads
     // the owner from the row instead.
@@ -191,36 +188,6 @@ describe("workflows queries", () => {
     const defs = await loadDbWorkflows();
     const rich = defs.find((d) => d.name === "rich");
     expect(rich!.steps).toEqual(richSteps as any);
-  });
-  // ── getWorkflowOwnersByName ──────────────────────────────────────
-  // Backs the `canManage` flag GET /api/workflows serves: one query for
-  // every owner, so the list route does not issue a lookup per workflow.
-
-  test("getWorkflowOwnersByName maps every workflow name to its owner", async () => {
-    await getTestDb().insert(users).values({
-      id: "u-owner", email: "o@x", name: "o", role: "member", passwordHash: "x",
-    });
-    await createWorkflow(
-      { name: "owned", description: "", steps: sampleSteps as any },
-      { userId: "u-owner", visibility: "private" },
-    );
-    await createWorkflow({ name: "unowned", description: "", steps: sampleSteps as any });
-
-    const owners = await getWorkflowOwnersByName();
-    // The map carries the whole ownership pair, not a bare id: `canManage`
-    // needs the owner and the ladder needs the visibility, and one query
-    // answering half the question would force a second.
-    expect(owners.get("owned")).toEqual({ userId: "u-owner", visibility: "private" });
-    // A NULL owner is an unowned legacy/global row — present in the map
-    // with a null `userId`, NOT absent (absent and null must read the same
-    // to the caller, but the row genuinely exists).
-    expect(owners.get("unowned")).toEqual({ userId: null, visibility: "system" });
-    expect(owners.has("unowned")).toBe(true);
-  });
-
-  test("getWorkflowOwnersByName returns an empty map when there are no workflows", async () => {
-    const owners = await getWorkflowOwnersByName();
-    expect(owners.size).toBe(0);
   });
 });
 

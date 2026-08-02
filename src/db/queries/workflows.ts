@@ -92,38 +92,6 @@ function asNameConflict(err: unknown, name: string): never {
   throw err;
 }
 
-/**
- * Every DB workflow's owner, keyed by name, in ONE query.
- *
- * Exists so `GET /api/workflows` can stamp `canManage` onto a merged cache
- * of N definitions without N `getWorkflowByName` round-trips. Deliberately
- * NOT folded into `toDefinition`: that projection stays owner-free (see its
- * doc) because the cache it feeds is served verbatim to every read-scoped
- * caller. Here the owner is consumed server-side and only the resulting
- * boolean is serialized, so no user id leaves the process.
- *
- * Projects OUR owner columns (`user_id` + `visibility`), not upstream's
- * `created_by`: the ladder in `workflow-scope.ts` needs both to answer
- * `edit`, since an orphaned `private` row (NULL owner) is admin-only
- * rather than public.
- */
-export async function getWorkflowOwnersByName(): Promise<
-  Map<string, { userId: string | null; visibility: WorkflowVisibility }>
-> {
-  // Annotated explicitly: the drizzle handle is held as broadly-typed `any`
-  // (see `getDb`), so a projected select infers nothing on its own — the
-  // same reason `audit-global.ts` annotates its projected rows.
-  const rows: Array<{ name: string; userId: string | null; visibility: WorkflowVisibility }> =
-    await getDb()
-      .select({
-        name: workflowDefinitions.name,
-        userId: workflowDefinitions.userId,
-        visibility: workflowDefinitions.visibility,
-      })
-      .from(workflowDefinitions);
-  return new Map(rows.map((row) => [row.name, { userId: row.userId, visibility: row.visibility }]));
-}
-
 export async function createWorkflow(
   data: WorkflowDefinition,
   ownership: WorkflowOwnership = {},
@@ -142,12 +110,6 @@ export async function createWorkflow(
     // does not care about ownership produces exactly a pre-C6 row.
     visibility: ownership.visibility ?? ("system" as WorkflowVisibility),
     forkedFrom: ownership.forkedFrom ?? null,
-    // Upstream's owner column, which this path deliberately never
-    // populates — ownership lives in `userId`/`visibility` above. Written
-    // as an explicit NULL rather than omitted so the row satisfies the
-    // schema; the column itself is dropped in the follow-up commit that
-    // unifies the two rule sets.
-    createdBy: null,
     createdAt: now,
     updatedAt: now,
   };

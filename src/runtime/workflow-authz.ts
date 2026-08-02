@@ -3,9 +3,38 @@
  *
  * ONE rule set, shared by every caller that can trigger or mutate a
  * workflow — `POST /api/workflows/[name]/run`, `PUT`/`DELETE
- * /api/workflows/[name]`, and the `run_workflow` built-in tool. A second
- * copy of these rules anywhere is how the REST path and the chat path end
- * up disagreeing about who may run what.
+ * /api/workflows/[name]`, the list route's `canEdit` flag, and the
+ * `run_workflow` built-in tool. A second copy of these rules anywhere is
+ * how the REST path and the chat path end up disagreeing about who may run
+ * what.
+ *
+ * ── This module owns the ENTRY POINTS, not the rules ───────────────────
+ *
+ * The rules themselves live in `workflow-scope.ts`. Everything here is a
+ * thin adapter over `authorizeWorkflow`, because for a while there were
+ * genuinely TWO authorization models over `workflow_definitions` and they
+ * disagreed about the same rows:
+ *
+ * - This module used to read a `created_by` column, treating NULL as
+ *   "unowned, anyone with the scope may act" — which is what made the
+ *   original migration non-breaking.
+ * - The ladder uses `user_id` + `visibility`, and treats an orphaned
+ *   `private` row (`user_id` NULL after the owner is deleted, via
+ *   `ON DELETE SET NULL`) as ADMIN-ONLY.
+ *
+ * The two readings of NULL are exact opposites, and keeping both was a
+ * privilege hole rather than defence in depth: the create path sets
+ * `user_id` and left `created_by` NULL, so every workflow this platform
+ * wrote was "unowned" to the old rule — `private` workflows were
+ * world-editable through any path that asked this module instead of the
+ * ladder. Mapping one column onto the other would have inverted the
+ * deliberate `SET NULL` design in the other direction. So there is now one
+ * model, and it is the ladder.
+ *
+ * ── What survived from the old rule set ────────────────────────────────
+ *
+ * The extension-liveness check in {@link canRunWorkflow}, which the ladder
+ * did not have and which closes a real staleness hole — see rule 1 below.
  *
  * ── Where this is enforced ─────────────────────────────────────────────
  *
@@ -14,26 +43,22 @@
  * as auth-free; an authz check in the executor breaks it instantly. The
  * executor's contract is "run this definition", not "decide who may".
  *
- * ── Deliberately registry-free ─────────────────────────────────────────
- *
- * This module talks to the DB directly and knows nothing about the live
- * executor or the in-memory workflow cache, so it is unit-testable and can
- * be imported from both a SvelteKit route (via the `$server` alias) and a
- * built-in tool (relatively) without dragging the runtime in.
- *
  * Extension liveness is read from `getExtensionByName` (the DB), NOT from
  * `ExtensionRegistry.getAllManifests()` — the registry is an in-memory
  * snapshot with exactly the staleness problem this check exists to close.
  */
-import type { WorkflowDefinition } from "../types";
 import { getExtensionByName } from "../db/queries/extensions";
-import { getWorkflowByName } from "../db/queries/workflows";
+import { authorizeWorkflow, type CachedWorkflow, type WorkflowCaller } from "./workflow-scope";
 import { EXTENSION_WORKFLOW_SEPARATOR } from "./workflow-name";
 
 /**
  * The principal a workflow action is attributed to. Structurally a subset
  * of `AuthUser`, declared locally so this module stays importable from the
  * runtime without pulling the auth tree in.
+ *
+ * Kept as `{ id, role }` rather than replaced by `WorkflowCaller` because
+ * the tool call site reads exactly this shape off the DB user row;
+ * {@link callerOf} does the one conversion.
  */
 export interface WorkflowPrincipal {
   id: string;
@@ -52,53 +77,40 @@ function deny(reason: string): WorkflowAuthzDecision {
 }
 
 /**
- * The owner-or-admin rule, in one place.
+ * Adapt a principal to the ladder's caller struct.
  *
- * `createdBy` NULL/undefined ⇒ an unowned legacy or global row: anyone with
- * the scope may act, which is what makes the migration non-breaking. A
- * non-NULL owner narrows the row to that user plus instance admins.
- *
- * Admin is `role === "admin"` compared directly, NOT `checkRole` — that
- * helper also demands the `admin` API-key SCOPE, so it would reject a
- * cookie-authed admin on these `chat`-scoped routes, and it returns an HTTP
- * `Response`, which is meaningless to the tool call site.
+ * `role` is compared to the literal `"admin"` rather than run through
+ * `checkRole` — that helper also demands the `admin` API-key SCOPE, so it
+ * would reject a cookie-authed admin on these `chat`-scoped routes, and it
+ * returns an HTTP `Response`, which is meaningless to the tool call site.
  */
-export function canActOnWorkflow(
-  createdBy: string | null | undefined,
-  user: WorkflowPrincipal,
-): boolean {
-  if (!createdBy) return true;
-  return createdBy === user.id || user.role === "admin";
+function callerOf(user: WorkflowPrincipal, projectId?: string | null): WorkflowCaller {
+  return {
+    userId: user.id,
+    role: user.role === "admin" ? "admin" : "member",
+    projectId: projectId ?? null,
+  };
 }
 
 /**
- * May `user` EDIT or DELETE the workflow this definition describes?
+ * May `user` EDIT or DELETE this workflow?
  *
- * The predicate `GET /api/workflows` serves as `canManage`, so the UI can
+ * The predicate `GET /api/workflows` serves as `canEdit`, so the UI can
  * hide an Edit/Delete affordance that would only 403 or 404. It is the
- * exact conjunction the write routes enforce, expressed once:
+ * ladder's own `edit` rung, asked directly — the same question the write
+ * routes ask, so the button and the endpoint cannot disagree.
  *
- * 1. **`source` must be `"db"`** — `PUT`/`DELETE /api/workflows/[name]`
- *    resolve the target through `getWorkflowByName`, so a YAML or
- *    extension-shipped definition 404s ("only DB workflows can be
- *    updated"). Those are files on disk; there is nothing to write.
- * 2. **owner-or-admin** — the same {@link canActOnWorkflow} call the write
- *    routes make, so the button and the endpoint can never disagree.
+ * The `source !== "db"` refusal that used to live here is not repeated:
+ * the ladder already denies `edit` on a YAML or extension asset with
+ * `not-editable-source`, because those are files on disk with nothing to
+ * write.
  *
- * Deliberately synchronous and owner-taking rather than name-taking: the
- * list route resolves every owner in ONE query and maps over the cache,
- * instead of issuing a `getWorkflowByName` per workflow. `canRunWorkflow`
- * re-reads the row because it guards an actual side effect and wants the
- * freshest answer; this one only decides whether to paint a button, and a
- * stale `true` degrades to the write route's own 403.
+ * Synchronous and entry-taking: the list route maps over the cache it
+ * already holds, so this costs no query at all — where the previous
+ * implementation needed one owner lookup for the whole page.
  */
-export function canManageWorkflow(
-  workflow: Pick<WorkflowDefinition, "source">,
-  createdBy: string | null | undefined,
-  user: WorkflowPrincipal,
-): boolean {
-  if (workflow.source !== "db") return false;
-  return canActOnWorkflow(createdBy, user);
+export function canManageWorkflow(entry: CachedWorkflow, user: WorkflowPrincipal): boolean {
+  return authorizeWorkflow(entry, callerOf(user), "edit").ok;
 }
 
 /**
@@ -114,22 +126,25 @@ function extensionPrefix(name: string): string | null {
 }
 
 /**
- * May `user` run `workflow`?
+ * May `user` run this workflow?
  *
- * `workflow` must be the definition the executor will ACTUALLY run (the one
+ * `entry` must be the cache entry the executor will ACTUALLY run (the one
  * resolved out of the merged cache), not a re-lookup by name — otherwise a
  * YAML/DB name collision has authz deciding about a different object than
  * the one that executes.
  *
- * Check order mirrors `buildWorkflowCache`'s `[...extension, ...yaml,
- * ...db]` precedence:
+ * Two rules, in the order `buildWorkflowCache`'s `[...extension, ...yaml,
+ * ...db]` precedence implies:
  *
  * 1. **Extension-namespaced** — the owning extension must still be
  *    installed AND enabled. This is load-bearing, not a formality:
  *    `reloadWorkflows()` fires only on workflow CRUD, never on extension
  *    install/uninstall/disable, so disabling an extension leaves its
  *    workflows runnable off the stale cache until a workflow is written or
- *    the process restarts. This live re-check is the actual fix.
+ *    the process restarts. This live re-check is the actual fix, and it is
+ *    the one rule the ladder does not express — the ladder authorizes a
+ *    PRINCIPAL against a row, and this asks whether the owning code is
+ *    still installed at all.
  *
  *    The namespace is derived from the NAME, not from `source`, and that is
  *    strictly the stronger test: `source === "extension"` implies a
@@ -138,42 +153,36 @@ function extensionPrefix(name: string): string | null {
  *    row squatting on `some-extension:deploy`, which would otherwise slide
  *    through as an ordinary DB workflow the moment that extension is
  *    uninstalled.
- * 2. **DB workflow** — owner-or-admin, read live from the row. Only
- *    consulted when the definition says `source: "db"`; the owner is read
- *    here rather than carried on the definition so a user id never leaks
- *    through `GET /api/workflows`.
- * 3. **YAML / host / hand-built / unowned** — unchanged: any caller that
- *    got past the route's scope gate.
+ *
+ *    It runs FIRST, and deliberately: a dead extension's workflow is
+ *    unrunnable by anyone, including the admin the ladder would wave
+ *    through.
+ * 2. **The ladder's `run` rung** — `system` is open, `project` needs a
+ *    member, `private` needs the owner or an admin.
  */
 export async function canRunWorkflow(
-  workflow: WorkflowDefinition,
+  entry: CachedWorkflow,
   user: WorkflowPrincipal,
+  projectId?: string | null,
 ): Promise<WorkflowAuthzDecision> {
-  const prefix = extensionPrefix(workflow.name);
+  const name = entry.definition.name;
+  const prefix = extensionPrefix(name);
 
   if (prefix) {
     const extension = await getExtensionByName(prefix);
     if (!extension) {
       return deny(
-        `Workflow "${workflow.name}" belongs to extension "${prefix}", which is not installed`,
+        `Workflow "${name}" belongs to extension "${prefix}", which is not installed`,
       );
     }
     if (extension.enabled !== true) {
-      return deny(
-        `Workflow "${workflow.name}" belongs to extension "${prefix}", which is disabled`,
-      );
-    }
-    return ALLOW;
-  }
-
-  if (workflow.source === "db") {
-    const row = await getWorkflowByName(workflow.name);
-    // A row that vanished between cache build and this check has no owner
-    // left to protect — fall through rather than invent a denial.
-    if (row && !canActOnWorkflow(row.createdBy, user)) {
-      return deny(`Workflow "${workflow.name}" is owned by another user`);
+      return deny(`Workflow "${name}" belongs to extension "${prefix}", which is disabled`);
     }
   }
 
+  const decision = authorizeWorkflow(entry, callerOf(user, projectId), "run");
+  if (!decision.ok) {
+    return deny(`Workflow "${name}" is not available to this user`);
+  }
   return ALLOW;
 }

@@ -7,7 +7,6 @@ import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
 import { listVisibleWorkflows } from "$lib/server/workflow-access";
-import { withCanManage } from "$lib/server/workflow-can-manage";
 import type { RequestHandler } from "./$types";
 import type { WorkflowDefinition } from "$server/types";
 import { workflowBodySchema } from "./schema";
@@ -30,12 +29,12 @@ export const GET: RequestHandler = async ({ locals, url }) => {
   const scopeErr = requireScope(locals, "read");
   if (scopeErr) return scopeErr;
   const user = requireAuth(locals);
-  // The ladder decides WHICH workflows this caller may see; `canManage` is
-  // then derived per caller so the UI can hide Edit/Delete on the ones it
-  // would only get a 403/404 for (YAML + extension assets, and other
-  // users' rows). Filter first, stamp second — stamping the whole cache
-  // would compute a flag for rows the caller is not allowed to know exist.
-  return json(await withCanManage(listVisibleWorkflows(user, url.searchParams.get("projectId")), user));
+  // The ladder decides WHICH workflows this caller may see, and stamps
+  // each with its own `canEdit` answer so the UI can hide Edit/Delete on
+  // the ones it would only get a 403/404 for (YAML + extension assets, and
+  // other users' rows). One pass, one rule — the flag is the ladder's
+  // verdict, never a second predicate that could drift from it.
+  return json(listVisibleWorkflows(user, url.searchParams.get("projectId")));
 };
 
 export const POST: RequestHandler = async ({ request, locals }) => {

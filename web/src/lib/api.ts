@@ -1061,19 +1061,13 @@ export interface Workflow {
 	userId?: string | null;
 	/** Fully qualified name this was forked from, as a string snapshot. */
 	forkedFrom?: string | null;
-	/** Whether THIS caller may edit it. Computed server-side from the one
-	 *  shared ladder — never re-derived in the browser. */
+	/** Whether THIS caller may edit or delete it. Computed server-side from
+	 *  the one shared ladder — never re-derived in the browser. Gates the
+	 *  Edit/Delete affordances so they are never painted on a request that
+	 *  would 403 (someone else's workflow) or 404 (a YAML/extension asset,
+	 *  which is a file on disk with nothing to write). Optional because a
+	 *  hand-built fixture may omit it; absent is treated as not editable. */
 	canEdit?: boolean;
-	/** Whether THIS caller may edit or delete it — `source === "db"` AND
-	 *  owner-or-admin, resolved server-side. Gates the Edit/Delete
-	 *  affordances so they are never painted on a request that would 403 or
-	 *  404. Optional because a hand-built fixture may omit it; absent is
-	 *  treated as not manageable.
-	 *
-	 *  Answers the same question as `canEdit` above and is collapsed into
-	 *  it in the follow-up commit; both are served today so neither side's
-	 *  components had to be rewritten inside the merge. */
-	canManage?: boolean;
 }
 
 export interface WorkflowRun {

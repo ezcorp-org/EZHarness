@@ -118,27 +118,59 @@ Each file is validated with the same shared `validateWorkflow`; invalid files, u
 
 ### Run & manage authorization (`workflow-authz.ts`)
 
-One module holds the rules for every caller that can trigger or mutate a workflow, so the REST path and any future caller cannot drift into two different answers for the same action. It exports two things:
+The entry points every caller that can trigger or mutate a workflow goes
+through, so the REST path and the chat path cannot drift into two different
+answers for the same action. It exports two:
 
-- `canRunWorkflow(workflow, principal)` → `Promise<{ allowed: true } | { allowed: false; reason: string }>` — the full decision for a run.
-- `canActOnWorkflow(createdBy, principal)` → `boolean` — the owner-or-admin primitive, called directly by `PUT`/`DELETE` (which already hold the row) and delegated to by rule 2 below. The *rule* is shared; each call site phrases its own denial message, because "can update it" and "can delete it" are not the same sentence.
+- `canRunWorkflow(entry, principal, projectId?)` → `Promise<{ allowed: true } | { allowed: false; reason: string }>` — the full decision for a run.
+- `canManageWorkflow(entry, principal)` → `boolean` — may this caller EDIT or DELETE it. Served to the client as `canEdit`.
 
-**The three rules**, checked in an order that mirrors `buildWorkflowCache`'s `[...extension, ...yaml, ...db]` precedence. The order is load-bearing where the rules overlap: a `workflow_definitions` row named `some-extension:deploy` matches both rule 1 and rule 2, and extension-first is the only order consistent with how the cache resolves that name — so a disabled extension denies the run even when the caller owns the row.
+**This module holds no rules of its own.** Both delegate to
+`authorizeWorkflow` in `workflow-scope.ts` — the ladder is the single source
+of truth. The one thing added here is rule 1 below, which the ladder has no
+notion of.
 
-1. **Extension-namespaced** — a name carrying the `:` separator with a non-empty prefix claims an extension namespace, and that extension must still be installed **and** `enabled === true`, read live from `extensions` via `getExtensionByName`. Ownership does not apply; an extension asset has no `created_by`. (A leading separator names no extension and falls through — `namespacedWorkflowName` can never produce one, since extension names are admit-time-validated non-empty.)
-2. **DB workflow** (`source === "db"`) — owner-or-admin. `created_by` is read live from the row: `createdBy === user.id || user.role === "admin"`. A NULL owner is unowned and allows.
-3. **Everything else** — YAML, host, hand-built, unknown source — unchanged: any caller that got past the route's scope gate.
+> **There were briefly TWO authorization models over this table**, and they
+> disagreed about the same rows. This module used to read a `created_by`
+> column whose NULL meant *"unowned — anyone with the scope may act"*, which
+> is what made its migration non-breaking. The ladder reads `user_id` +
+> `visibility`, where an ORPHANED `private` row — `user_id` NULL after the
+> owner is deleted, via `ON DELETE SET NULL` — is **admin-only**. Those two
+> readings of NULL are exact opposites, and keeping both was a privilege
+> hole rather than defence in depth: the create path sets `user_id` and left
+> `created_by` NULL, so every workflow this platform wrote looked *unowned*
+> to the old rule, and `private` workflows were world-editable through any
+> path that asked it instead of the ladder. Mapping one column onto the
+> other would have inverted the deliberate `SET NULL` design in the other
+> direction. So `created_by` is dropped (`ALTER TABLE … DROP COLUMN IF
+> EXISTS`, no data to carry — nothing ever wrote it) and there is one model.
 
-Four details are load-bearing:
+**The two rules**, checked in an order that mirrors `buildWorkflowCache`'s
+`[...extension, ...yaml, ...db]` precedence. The order is load-bearing where
+they overlap: a `workflow_definitions` row named `some-extension:deploy`
+matches both, and extension-first is the only order consistent with how the
+cache resolves that name — so a disabled extension denies the run even for
+an admin, whom the ladder would otherwise wave through.
 
-- **Rule 1 is not a formality — it closes a real staleness window.** `reloadWorkflows()` fires only on workflow CRUD; it is never called on extension install, uninstall, or disable. So disabling an extension leaves its workflows sitting in the in-memory cache, fully runnable, until somebody happens to write a workflow or the process restarts. The live DB re-check is what actually stops them. For the same reason the check reads the `extensions` table and **not** `ExtensionRegistry.getAllManifests()` — the registry is an in-memory snapshot with exactly the staleness problem this check exists to close. Note also that `getExtensionByName` does not filter on `enabled`, so the helper tests that field explicitly.
+1. **Extension-namespaced** — a name carrying the `:` separator with a
+   non-empty prefix claims an extension namespace, and that extension must
+   still be installed **and** `enabled === true`, read live from `extensions`
+   via `getExtensionByName`. (A leading separator names no extension and
+   falls through — `namespacedWorkflowName` can never produce one, since
+   extension names are admit-time-validated non-empty.)
+2. **The ladder's `run` rung** — `system` is open, `project` needs a member,
+   `private` needs the owner or an admin.
+
+Details that are load-bearing:
+
+- **Rule 1 is not a formality — it closes a real staleness window.** `reloadWorkflows()` fires only on workflow CRUD; it is never called on extension install, uninstall, or disable. So disabling an extension leaves its workflows sitting in the in-memory cache, fully runnable, until somebody happens to write a workflow or the process restarts. The live DB re-check is what actually stops them. For the same reason the check reads the `extensions` table and **not** `ExtensionRegistry.getAllManifests()` — the registry is an in-memory snapshot with exactly the staleness problem this check exists to close. Note also that `getExtensionByName` does not filter on `enabled`, so the helper tests that field explicitly. This rule is the one piece of the superseded model that was kept, because the ladder cannot express it: the ladder authorizes a PRINCIPAL against a row, and this asks whether the owning code is still installed at all.
 - **Rule 1 dispatches on the NAME, not on `source`.** That is strictly the stronger test: `source === "extension"` implies a separator (`namespacedWorkflowName` always inserts one), so the name test subsumes it — and it additionally catches a `workflow_definitions` row squatting on `some-extension:deploy`, which would otherwise slide through as an ordinary DB workflow the moment that extension is uninstalled. Cache ordering stops such a row from *shadowing* the real asset; this stops it from *outliving* it.
-- **Pass the RESOLVED definition, never a re-lookup by name.** Callers hand `canRunWorkflow` the object they pulled out of the merged cache — the one the executor will actually run. Re-looking the name up in the DB would be wrong: on a YAML/DB name collision both entries exist and YAML wins execution, so a by-name lookup would gate the DB row while the executor ran the YAML one. This is also why `source` had to be a stamped field rather than something inferred from a DB query.
+- **Pass the RESOLVED cache ENTRY, never a re-lookup by name.** Callers hand these the `CachedWorkflow` they pulled out of the merged cache — the one the executor will actually run. Re-looking the name up would be wrong: on a YAML/DB name collision both entries exist and YAML wins execution, so a by-name lookup would gate the DB row while the executor ran the YAML one. It must be the entry rather than the bare definition because a `WorkflowDefinition` carries no owner for the ladder to read. This is why `WorkflowRuntime` exposes `getCachedWorkflows` alongside `getWorkflows`: the chat path needs provenance to ask the same question the REST path does, and it **fails closed** when a registration cannot supply it.
 - **Admin is `role === "admin"`, compared directly — deliberately not `checkRole`.** That middleware helper also demands the `admin` API-key *scope*, so it would reject a cookie-authed admin on these `chat`-scoped routes, and it returns an HTTP `Response`, which is meaningless to a non-HTTP caller.
 
-**Enforcement lives at the call sites, never inside `WorkflowExecutor.runWorkflow`.** The CLI (`src/cli.ts`) runs workflows with no principal at all and is documented as auth-free (a local operator tool); an authorization check in the executor would break it instantly. The executor's contract is "run this definition", not "decide who may". The module is likewise registry-free — it knows nothing about the live executor or the workflow cache — so it stays unit-testable and importable from both a SvelteKit route (via the `$server` alias) and the runtime.
+**Enforcement lives at the call sites, never inside `WorkflowExecutor.runWorkflow`.** The CLI (`src/cli.ts`) runs workflows with no principal at all and is documented as auth-free (a local operator tool); an authorization check in the executor would break it instantly. The executor's contract is "run this definition", not "decide who may".
 
-**`created_by` and why the migration is not breaking.** The column is nullable, added by `ALTER TABLE … ADD COLUMN IF NOT EXISTS` near the end of `migrate()` — `workflow_definitions` is created long before `users` exists, so an inline FK at the CREATE would have no target. There is **no backfill**: NULL means "unowned legacy / global workflow", so every row that predates the column keeps exactly today's behaviour (any `chat` caller may run, update and delete it). Copying the first-admin backfill CTE used for conversations and memories would instead have retroactively handed every existing workflow to one admin and locked everyone else out. `ON DELETE SET NULL` means a departed author's workflow degrades to global rather than vanishing. Only `POST /api/workflows` records an owner, from the already-required principal.
+**`canEdit` costs no query.** It is the ladder's own answer over an entry the route already holds, stamped by `toWire`. The predicate it replaced needed one owner lookup per page.
 
 ### The chat path — `!workflow:` + `run_workflow`
 

@@ -154,8 +154,8 @@ describe("WorkflowStepForm", () => {
         extension: "ext",
         label: "Ext",
         options: [
-          { value: "ext__write_file", extension: "ext", tool: "write_file" },
-          { value: "ext__read_file", extension: "ext", tool: "read_file" },
+          { value: "ext__write_file", extension: "ext", extensionLabel: "Ext", tool: "write_file" },
+          { value: "ext__read_file", extension: "ext", extensionLabel: "Ext", tool: "read_file" },
         ],
       },
     ];

@@ -129,14 +129,17 @@ describe("POST /api/workflows/[name]/run", () => {
 		expect(ctx.runWorkflow).not.toHaveBeenCalled();
 	});
 
-	test("authorizes the resolved definition, not a re-lookup by name", async () => {
+	test("authorizes the resolved ENTRY, not a re-lookup by name", async () => {
 		// The object handed to the gate must be the one the executor will
 		// run — on a YAML/DB name collision a re-lookup would authorize a
-		// different graph than the one that executes.
+		// different graph than the one that executes. It is the cache ENTRY,
+		// not the bare definition: the ladder reads the owner and visibility
+		// that only the entry carries.
 		const resolved = { name: "w1", description: "", steps: [], source: "yaml" };
-		ctx.getCachedWorkflows.mockReturnValue([systemEntry(resolved)]);
+		const cacheEntry = systemEntry(resolved);
+		ctx.getCachedWorkflows.mockReturnValue([cacheEntry]);
 		await POST(makeEvent({ name: "w1", locals: authedUser, body: {} }));
-		expect(authz.canRunWorkflow).toHaveBeenCalledWith(resolved, authedUser.user);
+		expect(authz.canRunWorkflow).toHaveBeenCalledWith(cacheEntry, authedUser.user, undefined);
 	});
 
 	test("a refused run never reaches the executor", async () => {

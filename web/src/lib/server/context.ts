@@ -198,7 +198,7 @@ export async function ensureInitialized(): Promise<void> {
   // passed as a THUNK on purpose: `reloadWorkflows()` REASSIGNS the
   // module-level `workflows` binding on every CRUD write, so handing over
   // the array by value would freeze a stale list for the process lifetime.
-  registerWorkflowRuntime({ workflowExecutor, getWorkflows });
+  registerWorkflowRuntime({ workflowExecutor, getWorkflows, getCachedWorkflows });
   void terminalizeOrphanedWorkflowRuns()
     .then((count) => {
       if (count > 0) console.warn(`[workflow] terminalized ${count} orphaned workflow run(s)`);
