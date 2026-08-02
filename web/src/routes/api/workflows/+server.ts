@@ -6,7 +6,7 @@ import { validateWorkflow } from "$server/runtime/workflow-validator";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
-import { listVisibleWorkflows } from "$lib/server/workflow-access";
+import { denyVisibilityOr, listVisibleWorkflows } from "$lib/server/workflow-access";
 import type { RequestHandler } from "./$types";
 import type { WorkflowDefinition } from "$server/types";
 import { workflowBodySchema } from "./schema";
@@ -57,22 +57,37 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     return errorJson(400, errors[0]!);
   }
 
+  // A visibility is the author's to choose, but not every value is:
+  // `system` is admin-only. One shared adapter over the ladder's rule, so
+  // create and update cannot disagree about who may assign what.
+  const visibilityDenial = denyVisibilityOr(user, body.visibility);
+  if (visibilityDenial) return visibilityDenial;
+
   let workflow: workflowQueries.DbWorkflow;
   try {
-    // Ownership is NOT stamped here. A workflow created through this
-    // route is `system`, exactly as every row created before C6 was —
-    // scoping arrives deliberately, through fork (which sets a project)
-    // or the admin claim action, never as a silent side effect of an
-    // ordinary create.
+    // The authenticated creator IS the owner. C6 deliberately left
+    // `userId` null here, on the reasoning that ownership should never
+    // arrive as a side effect of an ordinary create; the product owner has
+    // since ruled the other way, and this is that ruling.
     //
-    // This deliberately SUPERSEDES upstream's `createWorkflow(body,
-    // user.id)`, which stamped the caller as author on every create. The
-    // two cannot both hold: that rule makes an ordinary create
-    // owner-scoped, which is the exact silent side effect C6 ruled out.
-    // The affordance upstream wanted it for — Edit/Delete on your own
-    // rows — is served by the ladder, which already grants `edit` on a
-    // `system` workflow to any `chat` caller.
-    workflow = await workflowQueries.createWorkflow(body as WorkflowDefinition);
+    // The reason the old rule could not stand: the ladder checks
+    // `visibility` BEFORE it checks ownership, and returns
+    // `requires-admin` for `system` + non-admin edit. An ownerless
+    // `system` row is therefore editable by admins and by nobody else, so
+    // a non-admin who created a workflow through this route could never
+    // edit or delete it. Stamping the creator is what makes the row
+    // reachable by its author at all.
+    //
+    // `visibility` still DEFAULTS to `system` (`createWorkflow` applies
+    // it), which is the pre-C6 behaviour and is not this change's to
+    // alter. Note the consequence: the stamp above only becomes load-
+    // bearing once the author picks `project` or `private`, because the
+    // `system` branch never reads `userId`. A default-visibility create by
+    // a non-admin is still an uneditable row.
+    workflow = await workflowQueries.createWorkflow(body as WorkflowDefinition, {
+      userId: user.id,
+      visibility: body.visibility,
+    });
   } catch (err) {
     // `name` is globally unique on purpose (ownership authorizes, it does
     // not namespace), so a duplicate is an ordinary, expected outcome —

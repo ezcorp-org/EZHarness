@@ -16,7 +16,8 @@ const ctx = vi.hoisted(() => ({
   reloadWorkflows: vi.fn(async () => {}),
 }));
 const queries = vi.hoisted(() => ({
-  createWorkflow: vi.fn(async (def: unknown) => def),
+  // Two parameters: the route stamps ownership alongside the definition.
+  createWorkflow: vi.fn(async (def: unknown, _ownership?: unknown) => def),
   WorkflowNameConflictError: class extends Error {
     constructor(readonly workflowName: string) {
       super(`A workflow named "${workflowName}" already exists`);
@@ -385,10 +386,13 @@ describe("POST /api/workflows", () => {
     queries.createWorkflow.mockResolvedValue({ id: "wf-1", ...def, description: "" });
     const res = await POST(makeEvent({ locals: authedUser, body: def }));
     expect(res.status).toBe(201);
-    expect(queries.createWorkflow).toHaveBeenCalledWith(expect.objectContaining({
-      defaultModel: { model: "claude-haiku-4-5-20251001" },
-      steps: [expect.objectContaining({ model: { model: "claude-opus-5", effort: "high" } })],
-    }));
+    expect(queries.createWorkflow).toHaveBeenCalledWith(
+      expect.objectContaining({
+        defaultModel: { model: "claude-haiku-4-5-20251001" },
+        steps: [expect.objectContaining({ model: { model: "claude-opus-5", effort: "high" } })],
+      }),
+      expect.anything(),
+    );
   });
 
   test("accepts every step kind the executor dispatches, and their control-flow fields", async () => {
@@ -422,16 +426,19 @@ describe("POST /api/workflows", () => {
     expect(res.status).toBe(201);
     // And the control-flow fields survive to the DB — a field the route
     // accepted and then stripped would be a silently ignored knob.
-    expect(queries.createWorkflow).toHaveBeenCalledWith(expect.objectContaining({
-      steps: expect.arrayContaining([
-        expect.objectContaining({
-          kind: "workflow",
-          workflow: "verify-suite",
-          when: { ref: "$input.v", op: "truthy" },
-          skipDependents: false,
-        }),
-      ]),
-    }));
+    expect(queries.createWorkflow).toHaveBeenCalledWith(
+      expect.objectContaining({
+        steps: expect.arrayContaining([
+          expect.objectContaining({
+            kind: "workflow",
+            workflow: "verify-suite",
+            when: { ref: "$input.v", op: "truthy" },
+            skipDependents: false,
+          }),
+        ]),
+      }),
+      expect.anything(),
+    );
   });
 
   test("a bad skipDependents gets the VALIDATOR's message, not the generic boundary one", async () => {
@@ -492,24 +499,120 @@ describe("POST /api/workflows", () => {
     expect(ctx.reloadWorkflows).not.toHaveBeenCalled();
   });
 
-  test("does NOT stamp the caller as the row's owner", async () => {
-    // Replaces upstream's "records the authoring user as created_by",
-    // which asserted the opposite. The two rules cannot both hold, and
-    // this one is deliberate: a workflow created through this route is
-    // `system`, exactly as every row created before C6 was. Ownership
-    // arrives through fork (which sets a project) or the admin claim
-    // action — never as a silent side effect of an ordinary create.
-    //
-    // Upstream wanted the stamp so the author could Edit and Delete their
-    // own rows. The ladder already grants that: `edit` on a `system`
-    // workflow is open to any `chat`-scoped caller, which is who just
-    // created it.
+  test("stamps the authenticated caller as the row's owner", async () => {
+    // REVERSES the previous "does NOT stamp the caller as the row's
+    // owner", on a product-owner ruling. That test's justification was
+    // also factually wrong: it claimed the ladder "grants `edit` on a
+    // `system` workflow to any `chat`-scoped caller". It does the
+    // opposite — `authorizeWorkflow` returns `requires-admin` for
+    // `system` + non-admin edit, which is why an ownerless create left a
+    // non-admin author unable to edit or delete what they just made.
     const def = { name: "w1", steps: [{ name: "s1", agent: "a" }] };
     queries.createWorkflow.mockResolvedValue({ id: "wf-1", ...def, description: "" });
     await POST(makeEvent({ locals: authedUser, body: def }));
     expect(queries.createWorkflow).toHaveBeenCalledTimes(1);
-    // One argument only — no owner threaded in behind the definition.
-    expect(queries.createWorkflow.mock.calls[0]).toHaveLength(1);
-    expect(queries.createWorkflow).toHaveBeenCalledWith(expect.objectContaining(def));
+    // The id comes from `locals.user`, never from the body — a caller
+    // cannot create a row owned by someone else.
+    expect(queries.createWorkflow.mock.calls[0]?.[1]).toMatchObject({ userId: "u1" });
+  });
+
+  test("owner is taken from locals, not from a userId in the body", async () => {
+    // Discrimination: the previous test would still pass if the route
+    // echoed a body field that happened to say "u1". `.strict()` is what
+    // stops that, and this proves the strictness is real rather than
+    // assumed — the body is REJECTED, so no row is created at all.
+    const res = await POST(
+      makeEvent({
+        locals: authedUser,
+        body: { name: "w1", steps: [{ name: "s1", agent: "a" }], userId: "victim" },
+      }),
+    );
+    expect(res.status).toBe(400);
+    expect(queries.createWorkflow).not.toHaveBeenCalled();
+  });
+
+  test("visibility defaults to unset — the route does not pick one", async () => {
+    // Ruling 1 made `visibility` SELECTABLE; it did not change the
+    // default. `createWorkflow` applies `?? "system"` itself, so the
+    // route passing `undefined` is what preserves pre-C6 behaviour.
+    // Asserting `undefined` rather than `"system"` pins WHERE the default
+    // lives: a route that started stamping its own would silently move it.
+    const def = { name: "w1", steps: [{ name: "s1", agent: "a" }] };
+    queries.createWorkflow.mockResolvedValue({ id: "wf-1", ...def, description: "" });
+    await POST(makeEvent({ locals: authedUser, body: def }));
+    expect(queries.createWorkflow.mock.calls[0]?.[1]).toEqual({
+      userId: "u1",
+      visibility: undefined,
+    });
+  });
+
+  test("a member may create a `private` workflow — the tier is now reachable", async () => {
+    // The whole point of Ruling 1. Before it, `.strict()` rejected any
+    // body carrying `visibility`, so `private` could not be written by
+    // anything in the tree and every workflow was readable and runnable
+    // by every authenticated principal.
+    const def = { name: "w1", steps: [{ name: "s1", agent: "a" }], visibility: "private" };
+    queries.createWorkflow.mockResolvedValue({ id: "wf-1", ...def, description: "" });
+    const res = await POST(makeEvent({ locals: authedUser, body: def }));
+    expect(res.status).toBe(201);
+    expect(queries.createWorkflow.mock.calls[0]?.[1]).toMatchObject({
+      userId: "u1",
+      visibility: "private",
+    });
+  });
+
+  test("a member may create a `project` workflow", async () => {
+    const def = { name: "w1", steps: [{ name: "s1", agent: "a" }], visibility: "project" };
+    queries.createWorkflow.mockResolvedValue({ id: "wf-1", ...def, description: "" });
+    const res = await POST(makeEvent({ locals: authedUser, body: def }));
+    expect(res.status).toBe(201);
+    expect(queries.createWorkflow.mock.calls[0]?.[1]).toMatchObject({ visibility: "project" });
+  });
+
+  test("a member may NOT create a `system` workflow", async () => {
+    // The denial, not the grant. `system` is the tier anyone may read and
+    // run and only an admin may edit — a member minting one would dress
+    // their workflow as a first-party install asset AND lock themselves
+    // out of it. 403, and nothing is written.
+    const res = await POST(
+      makeEvent({
+        locals: authedUser,
+        body: { name: "w1", steps: [{ name: "s1", agent: "a" }], visibility: "system" },
+      }),
+    );
+    expect(res.status).toBe(403);
+    expect((await res.json()) as { error?: string }).toMatchObject({
+      error: "Only an admin can make a workflow system-owned",
+    });
+    expect(queries.createWorkflow).not.toHaveBeenCalled();
+  });
+
+  test("an admin MAY create a `system` workflow", async () => {
+    // Discrimination for the test above: proves the 403 is keyed on ROLE,
+    // not on the literal `"system"` being rejected outright.
+    const def = { name: "w1", steps: [{ name: "s1", agent: "a" }], visibility: "system" };
+    queries.createWorkflow.mockResolvedValue({ id: "wf-1", ...def, description: "" });
+    const res = await POST(
+      makeEvent({
+        locals: { user: { ...authedUser.user, id: "admin1", role: "admin" } },
+        body: def,
+      }),
+    );
+    expect(res.status).toBe(201);
+    expect(queries.createWorkflow.mock.calls[0]?.[1]).toMatchObject({
+      userId: "admin1",
+      visibility: "system",
+    });
+  });
+
+  test("an unknown visibility is a 400, not a row with a tier the ladder cannot read", async () => {
+    const res = await POST(
+      makeEvent({
+        locals: authedUser,
+        body: { name: "w1", steps: [{ name: "s1", agent: "a" }], visibility: "public" },
+      }),
+    );
+    expect(res.status).toBe(400);
+    expect(queries.createWorkflow).not.toHaveBeenCalled();
   });
 });
