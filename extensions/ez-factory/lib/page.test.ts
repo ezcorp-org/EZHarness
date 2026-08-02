@@ -845,57 +845,82 @@ describe("invariant J — job/run strings never reach the markdown ({@html}) sin
     return allNodes(tree.nodes).filter((n) => ownContent(n).includes(PROBE));
   }
 
-  /** The shared assertion, applied to each surface. */
-  function assertSinkFree(tree: { nodes: unknown[] }, label: string): void {
-    const hit = carriers(tree);
-    // Guard against a vacuous pass: the payload MUST actually be present,
-    // else "only in escaped nodes" is trivially and misleadingly true.
-    expect({ label, carried: hit.length > 0 }).toEqual({ label, carried: true });
-    // The load-bearing invariant. This flips to FAIL the instant a builder
-    // routes any of these fields through `page.markdownBlock(...)`.
-    expect({ label, inSink: hit.some((n) => n.type === "markdown") }).toEqual({
-      label,
-      inSink: false,
-    });
-    // Defence in depth: every carrier is a host-escaped node type, which
-    // also catches a brand-new sink type nobody has thought of yet.
-    for (const n of hit) {
-      expect({ label, type: n.type, escaped: ESCAPED_PAGE_TYPES.has(n.type as string) }).toEqual({
-        label,
-        type: n.type,
-        escaped: true,
-      });
-    }
-    // The negative above is only real if markdown nodes EXIST in this tree.
-    const markdown = nodesOfType(tree, "markdown");
-    expect({ label, markdownNodes: markdown.length > 0 }).toEqual({ label, markdownNodes: true });
-    expect(markdown.every((n) => !ownContent(n).includes(PROBE))).toBe(true);
+  /**
+   * The shared WALK — it computes, it does not assert. Each test asserts on
+   * the returned verdict itself, which is what makes a failure name the
+   * property that broke instead of a line inside a helper, and keeps every
+   * test's proof visible in its own body.
+   */
+  interface SinkVerdict {
+    /** Vacuous-pass guard: the probe must actually BE somewhere, else
+     *  "only in escaped nodes" is trivially and misleadingly true. */
+    probeIsCarried: boolean;
+    /** The load-bearing count. Non-zero the instant a builder routes one of
+     *  these fields through `page.markdownBlock(...)`. */
+    carriersInSink: number;
+    /** Defence in depth — carrier node types outside the host-escaped set,
+     *  which also catches a brand-new sink type nobody has thought of yet. */
+    carriersNotEscaped: string[];
+    /** The `carriersInSink` negative is only real if markdown nodes EXIST
+     *  in this tree; on a tree with none it is true by construction. */
+    markdownNodesExist: boolean;
+    markdownCarryingProbe: number;
   }
 
+  function sinkVerdict(tree: { nodes: unknown[] }): SinkVerdict {
+    const hit = carriers(tree);
+    const markdown = nodesOfType(tree, "markdown");
+    return {
+      probeIsCarried: hit.length > 0,
+      carriersInSink: hit.filter((n) => n.type === "markdown").length,
+      carriersNotEscaped: hit
+        .map((n) => String(n.type))
+        .filter((t) => !ESCAPED_PAGE_TYPES.has(t)),
+      markdownNodesExist: markdown.length > 0,
+      markdownCarryingProbe: markdown.filter((n) => ownContent(n).includes(PROBE)).length,
+    };
+  }
+
+  /** The verdict a `factory` surface must produce: the probe is carried, and
+   *  every carrier is an escaped node on a tree that really does emit
+   *  markdown. */
+  const SINK_FREE: SinkVerdict = {
+    probeIsCarried: true,
+    carriersInSink: 0,
+    carriersNotEscaped: [],
+    markdownNodesExist: true,
+    markdownCarryingProbe: 0,
+  };
+
   test("the jobs view routes name/description/inputs only into escaped nodes", () => {
-    assertSinkFree(
-      buildFactoryPage({ view: { kind: "jobs" }, jobs: [probeJob], runs: [probeRun] }),
-      "jobs",
-    );
+    expect(
+      sinkVerdict(buildFactoryPage({ view: { kind: "jobs" }, jobs: [probeJob], runs: [probeRun] })),
+    ).toEqual(SINK_FREE);
   });
 
   test("the runs view routes workflow name and status only into escaped nodes", () => {
-    assertSinkFree(
-      buildFactoryPage({ view: { kind: "runs" }, jobs: [probeJob], runs: [probeRun] }),
-      "runs",
-    );
+    expect(
+      sinkVerdict(buildFactoryPage({ view: { kind: "runs" }, jobs: [probeJob], runs: [probeRun] })),
+    ).toEqual(SINK_FREE);
   });
 
   test("the job editor routes prefills and the section title only into escaped nodes", () => {
     // The editor is the worst case: it renders every field VERBATIM as a
     // form prefill, which is exactly the content an attacker controls.
     const tree = buildJobPage({ view: { kind: "edit", jobId: probeJob.id }, job: probeJob });
-    const hit = carriers(tree);
-    expect(hit.length).toBeGreaterThan(0);
-    expect(hit.some((n) => n.type === "markdown")).toBe(false);
-    for (const n of hit) expect(ESCAPED_PAGE_TYPES.has(n.type as string)).toBe(true);
+    // It emits NO markdown node, so `carriersInSink: 0` is true by
+    // construction here and `carriersNotEscaped` is what does the work:
+    // route `job.name` through `markdownBlock` and `"markdown"` lands in
+    // that list, because it is not one of the escaped types.
+    expect(sinkVerdict(tree)).toEqual({
+      probeIsCarried: true,
+      carriersInSink: 0,
+      carriersNotEscaped: [],
+      markdownNodesExist: false,
+      markdownCarryingProbe: 0,
+    });
     // The editor carries the payload in the form node specifically.
-    expect(hit.some((n) => n.type === "form")).toBe(true);
+    expect(carriers(tree).some((n) => n.type === "form")).toBe(true);
   });
 
   test("PROOF THE PROBE IS DANGEROUS: it is markdown that DOMPurify keeps", () => {
