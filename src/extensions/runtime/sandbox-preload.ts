@@ -274,6 +274,7 @@ if (typeof (globalThis as { Bun?: unknown }).Bun !== "undefined") {
 // spawn fresh module graphs that may not run --preload, breaking the
 // sandbox's invariants. If/when extensions need worker-style parallelism
 // or FFI, a host-mediated alternative will land in a future phase.
+//
 // FFI is reached as `import { dlopen } from "bun:ffi"` — NOT as `Bun.dlopen`,
 // which has never existed. The denier that used to sit on `BunNs.dlopen` was
 // the same mistake as the `Bun.glob` one above (a phantom property), and it
