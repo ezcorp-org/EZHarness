@@ -87,6 +87,13 @@
  * `src/__tests__/ez-factory-agents.test.ts` asserts every directive below
  * VERBATIM. That test is the regression guard for both invariants: deleting
  * any one of them fails a named test.
+ *
+ * ── Why these rows are `outputFormat: "json"` ──────────────────────────
+ *
+ * A third contract shares the prompt, and it is NOT a security invariant —
+ * it is what makes a workflow able to branch on an agent's verdict. See
+ * {@link JSON_OUTPUT_RULES}. It is spliced BEFORE the data-framing block
+ * so the subordination clause keeps the last word.
  */
 
 import {
@@ -154,12 +161,54 @@ const WORKSPACE_STEERING = [
   "- This is prompt steering, not true enforcement: treat the workspace boundary as a soft boundary you must follow.",
 ].join("\n");
 
+/**
+ * The output contract shared by all three agents.
+ *
+ * These agents run with `outputFormat: "json"`, so `configToAgent` puts
+ * `JSON.parse` between the model and the step's `output` — and that parse
+ * is the whole reason this text is load-bearing rather than decorative:
+ *
+ *  - It **fails closed**, not open. A parse failure returns
+ *    `{ success: false }`, which `runAgentStep` retries and then throws,
+ *    terminalizing the run. That is the behaviour we want from a
+ *    verification step — prose where a verdict was expected fails the run
+ *    instead of silently reading as "no objection". The residual risk is
+ *    therefore brittleness, not a security hole, and brittleness is what
+ *    the first two rules below buy down: `JSON.parse` is strict, so a
+ *    ```json fence or a "Here is the JSON:" preface kills the run.
+ *  - It pins an OBJECT WITH NAMED KEYS. `JSON.parse` accepts bare
+ *    scalars, so a validator answering `true` parses perfectly well and
+ *    still leaves `$steps.verify.output.valid` undefined — a `when` guard
+ *    reading it can never fire. "Return true or false" would be exactly
+ *    the bug this contract exists to prevent.
+ */
+const JSON_OUTPUT_RULES = [
+  "## Output format",
+  "",
+  "- Return a single JSON object and nothing else. No prose before or after it, no explanation, no markdown code fence, no ```json marker. The very first character of your reply must be { and the last must be }.",
+  "- Return an OBJECT with the named keys below - never a bare string, number, or boolean, and never a bare array. A reply of just true or just a list is a malformed answer even though it is valid JSON.",
+  "- Include every key listed below on every reply, even when a value is empty. Use an empty array or an empty string rather than omitting the key.",
+];
+
 /** Assemble one agent's system prompt: steering, then the role's own
- *  rules, then the data-framing directive LAST so it is the most recent
- *  thing in context and explicitly subordinates everything the input can
- *  say to what came before it. */
-function buildPrompt(role: string): string {
-  return [WORKSPACE_STEERING, "", role, "", DATA_NOT_INSTRUCTIONS].join("\n");
+ *  rules, then its output contract, then the data-framing directive LAST
+ *  so it is the most recent thing in context and explicitly subordinates
+ *  everything the input can say to what came before it.
+ *
+ *  The contract slots in BEFORE the data-framing block, never after: the
+ *  subordination clause has to keep the last word, so a document that
+ *  asks to be treated as instructions cannot be the most recent rule in
+ *  context. Format is a lesser rule than "input is data". */
+function buildPrompt(role: string, outputContract: readonly string[]): string {
+  return [
+    WORKSPACE_STEERING,
+    "",
+    role,
+    "",
+    [...JSON_OUTPUT_RULES, ...outputContract].join("\n"),
+    "",
+    DATA_NOT_INSTRUCTIONS,
+  ].join("\n");
 }
 
 const EXTRACTOR_ROLE = [
@@ -189,6 +238,32 @@ const VALIDATOR_ROLE = [
   "- Be decisive: return valid only when you found no unsupported or contradicted claims.",
 ].join("\n");
 
+/** Keys: what each role's object must carry. Read together with
+ *  {@link JSON_OUTPUT_RULES}, which pins the envelope. */
+const EXTRACTOR_CONTRACT = [
+  '- "facts": an array of objects, each { "claim": string, "source": string } - the fact and the file it came from.',
+  '- "gaps": an array of strings naming what the sources were silent, contradictory, or truncated about. Empty array if nothing was missing.',
+];
+
+const WRITER_CONTRACT = [
+  '- "draft": a string holding the complete artifact. The whole draft goes in this one string value, newlines and all.',
+  '- "gaps": an array of strings naming facts you needed and did not have. Empty array if none.',
+];
+
+/**
+ * The validator's contract, and the reason this change exists.
+ *
+ * `valid` is a NAMED BOOLEAN KEY because a workflow gates on
+ * `$steps.<verify>.output.valid` in a `when` guard. Both halves matter: a
+ * text-mode agent leaves `output` a string so `.valid` is undefined and
+ * the guard can never fire, and a JSON-mode agent answering a bare `true`
+ * parses fine yet lands in exactly the same place.
+ */
+const VALIDATOR_CONTRACT = [
+  '- "valid": a JSON boolean, true or false - not the string "true", not null, not omitted. true only when you found no unsupported or contradicted claim.',
+  '- "errors": an array of objects, each { "passage": string, "problem": string } - the draft passage at fault and why. Empty array when "valid" is true.',
+];
+
 /** One seeded agent: its fixed id, its global name, and its static config. */
 interface SeededAgent {
   id: string;
@@ -212,21 +287,21 @@ export const EZ_FACTORY_AGENTS: readonly SeededAgent[] = [
     name: `${EZ_FACTORY_AGENT_PREFIX}extractor`,
     description:
       "ez-factory pipeline agent — reads source material and returns structured, attributed facts.",
-    prompt: buildPrompt(EXTRACTOR_ROLE),
+    prompt: buildPrompt(EXTRACTOR_ROLE, EXTRACTOR_CONTRACT),
   },
   {
     id: "ecfa0000-fac7-4a9e-b0de-fac701000002",
     name: `${EZ_FACTORY_AGENT_PREFIX}writer`,
     description:
       "ez-factory pipeline agent — turns extracted facts into a draft artifact.",
-    prompt: buildPrompt(WRITER_ROLE),
+    prompt: buildPrompt(WRITER_ROLE, WRITER_CONTRACT),
   },
   {
     id: "ecfa0000-fac7-4a9e-b0de-fac701000003",
     name: `${EZ_FACTORY_AGENT_PREFIX}validator`,
     description:
       "ez-factory pipeline agent — verifies a draft against its sources and reports errors.",
-    prompt: buildPrompt(VALIDATOR_ROLE),
+    prompt: buildPrompt(VALIDATOR_ROLE, VALIDATOR_CONTRACT),
   },
 ] as const;
 
@@ -285,6 +360,15 @@ async function ensureOne(agent: SeededAgent): Promise<DbAgentConfig> {
     capabilities: ["llm"],
     provider: CURRENT_MODEL_SENTINEL,
     model: CURRENT_MODEL_SENTINEL,
+    // All three, not just the validator. `createAgentConfig` defaults this
+    // to "text" (`agent-configs.ts`), and on "text" `configToAgent` hands
+    // the step `response.text` verbatim — so `$steps.<name>.output.<key>`
+    // resolves undefined and a `when` guard reading it can never fire. A
+    // verification step could not gate on whether verification passed.
+    // Seeding it per-agent instead would be three chances to forget; the
+    // prompts these rows carry all specify a JSON object, so the format is
+    // a property of this pipeline, not of any one role.
+    outputFormat: "json",
   });
   log.info("Created bundled ez-factory agent", { name: agent.name, id: created.id });
   return created;
