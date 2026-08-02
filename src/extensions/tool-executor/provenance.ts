@@ -205,28 +205,33 @@ export function resolveHandlerScope(
   };
 }
 
+/** What an ownerless-TOLERANT resolver hands back: the same trust-boundary
+ *  guarantees as `resolveReverseRpcMeta`, minus its blanket refusal — so
+ *  `onBehalfOf` is nullable and the CALLER owns the ownerless policy. */
+export type OwnerlessTolerantProvenance =
+  | { ok: true; onBehalfOf: string | null; conversationId: string | null }
+  | { ok: false; errorResponse: JsonRpcResponse };
+
 /**
- * Resolve reverse-RPC provenance for `ezcorp/storage` (parity with
- * `handlePiFs`/`resolveReverseRpcMeta`). Sources the acting user +
- * conversation from the per-call snapshot the subprocess echoed back —
- * NOT the racy process-wide `currentUserId`/`currentConversationId`
- * singletons, which observe the wrong (or another conversation's) scope
- * under concurrency and are unset for background fires.
+ * Shared core of the ownerless-TOLERANT resolvers
+ * (`resolveStorageProvenance`, `resolveDelegatedProvenance`).
  *
- * UNLIKE `resolveReverseRpcMeta`, an OWNERLESS background fire is NOT an
- * error here: storage's `global` scope is deliberately ownerless-reachable
- * (cron fires write install-wide state — see `storage-handler.ts`
- * `resolveScopeId`). An ownerless fire is passed through with a `null`
- * user; `handleStorageRpc` then enforces the per-scope rules itself
- * (rejecting `user`/`conversation` scope when no scopeId resolves). An
- * UNRESOLVED token still fail-fasts (`-32602`), exactly like fs.
+ * Identical trust boundary to `resolveReverseRpcMeta` — identity comes
+ * from the per-call snapshot the host minted, resolved from the opaque
+ * host-issued `ezCallId` the subprocess echoed back, never the wire —
+ * but WITHOUT its blanket ownerless refusal. An UNRESOLVED token still
+ * fail-fasts (`-32602`) for every caller; an OWNERLESS snapshot passes
+ * through with `onBehalfOf: null` and the caller decides what that means.
+ *
+ * Deliberately NOT exported. Each public resolver keeps its own name and
+ * its own doc so the two policies can diverge later without either one
+ * silently inheriting the other's rules. That they agree today is a fact
+ * about today, not a contract between them.
  */
-export function resolveStorageProvenance(
+function resolveOwnerlessTolerantProvenance(
   extensionId: string,
   req: JsonRpcRequest,
-):
-  | { ok: true; onBehalfOf: string | null; conversationId: string | null }
-  | { ok: false; errorResponse: JsonRpcResponse } {
+): OwnerlessTolerantProvenance {
   const token = resolveCallToken(extensionId, req);
   if (!token.ok) return token;
   const prov = token.prov;
@@ -250,4 +255,66 @@ export function resolveStorageProvenance(
     onBehalfOf: prov.ownerless ? null : prov.onBehalfOf,
     conversationId: prov.conversationId,
   };
+}
+
+/**
+ * Resolve reverse-RPC provenance for `ezcorp/storage` (parity with
+ * `handlePiFs`/`resolveReverseRpcMeta`). Sources the acting user +
+ * conversation from the per-call snapshot the subprocess echoed back —
+ * NOT the racy process-wide `currentUserId`/`currentConversationId`
+ * singletons, which observe the wrong (or another conversation's) scope
+ * under concurrency and are unset for background fires.
+ *
+ * UNLIKE `resolveReverseRpcMeta`, an OWNERLESS background fire is NOT an
+ * error here: storage's `global` scope is deliberately ownerless-reachable
+ * (cron fires write install-wide state — see `storage-handler.ts`
+ * `resolveScopeId`). An ownerless fire is passed through with a `null`
+ * user; `handleStorageRpc` then enforces the per-scope rules itself
+ * (rejecting `user`/`conversation` scope when no scopeId resolves). An
+ * UNRESOLVED token still fail-fasts (`-32602`), exactly like fs.
+ */
+export function resolveStorageProvenance(
+  extensionId: string,
+  req: JsonRpcRequest,
+): OwnerlessTolerantProvenance {
+  return resolveOwnerlessTolerantProvenance(extensionId, req);
+}
+
+/**
+ * Resolve reverse-RPC provenance for `ezcorp/workflows-delegated` — the
+ * seam a DELEGATED workflow fire needs, and nothing more.
+ *
+ * ── Why a third resolver exists ────────────────────────────────────────
+ *
+ * `resolveReverseRpcMeta` refuses EVERY ownerless fire outright
+ * (`-32106`) before its caller builds a handler context. A cron / webhook
+ * fire IS ownerless (`event-subscription-dispatcher.ts` stamps
+ * `ownerless: true` when owner resolution finds nobody), so a background
+ * trigger asking to run a workflow dies at rung 0 of
+ * `workflows-handler.ts`'s ladder and never reaches a single one of its
+ * authorization rungs. That refusal is a REAL control for
+ * `ezcorp/workflows` and it is left byte-identical — this resolver is
+ * additive, reached only by the distinct `ezcorp/workflows-delegated`
+ * method, and `resolveReverseRpcMeta` is not loosened by so much as a
+ * character.
+ *
+ * ── What this DOES NOT do ──────────────────────────────────────────────
+ *
+ * Passing ownerless through is NOT authorizing it. It moves the ownerless
+ * decision from rung 0 (pre-handler, unaudited, un-appealable) to rung 7
+ * of `handleWorkflowsRpc`, which refuses an ownerless fire with the same
+ * `-32106` and, unlike rung 0, writes an `audit_log` row for it. There is
+ * no delegation model in the tree yet — no `workflow_delegations` table,
+ * no consent record, no owner to act as — so today an ownerless delegated
+ * call is still REFUSED, just visibly. This resolver is the door frame;
+ * the door stays shut until a delegation grant exists to open it.
+ *
+ * Same trust boundary as every sibling: an UNRESOLVED token fail-fasts
+ * (`-32602`), identity comes from the host-issued token, never the wire.
+ */
+export function resolveDelegatedProvenance(
+  extensionId: string,
+  req: JsonRpcRequest,
+): OwnerlessTolerantProvenance {
+  return resolveOwnerlessTolerantProvenance(extensionId, req);
 }

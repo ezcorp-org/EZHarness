@@ -73,6 +73,7 @@ import {
   handlePiSchedule as rpcHandlePiSchedule,
   handlePiDrafts as rpcHandlePiDrafts,
   handlePiWorkflows as rpcHandlePiWorkflows,
+  handlePiWorkflowsDelegated as rpcHandlePiWorkflowsDelegated,
   handlePiGithubProjects as rpcHandlePiGithubProjects,
   handlePiRbacCheck as rpcHandlePiRbacCheck,
   handlePiAppendMessage as rpcHandlePiAppendMessage,
@@ -1232,6 +1233,15 @@ export class ToolExecutor {
     req: JsonRpcRequest,
   ): Promise<JsonRpcResponse> {
     return rpcHandlePiWorkflows(this.rpcDeps(), extensionId, req);
+  }
+
+  /** `ezcorp/workflows-delegated` reverse-RPC — see
+   *  {@link rpcHandlePiWorkflowsDelegated}. */
+  async handlePiWorkflowsDelegated(
+    extensionId: string,
+    req: JsonRpcRequest,
+  ): Promise<JsonRpcResponse> {
+    return rpcHandlePiWorkflowsDelegated(this.rpcDeps(), extensionId, req);
   }
 
   /** `ezcorp/GithubProjects` reverse-RPC — see {@link rpcHandlePiGithubProjects}. */

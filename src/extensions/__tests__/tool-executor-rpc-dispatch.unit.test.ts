@@ -52,6 +52,7 @@ const HANDLER_NAMES = [
   "handlePiSchedule",
   "handlePiDrafts",
   "handlePiWorkflows",
+  "handlePiWorkflowsDelegated",
   "handlePiRbacCheck",
   "handlePiGithubProjects",
 ] as const;
@@ -92,6 +93,38 @@ describe("routeReverseRpc dispatch table", () => {
     const resp = (await routeReverseRpc(self, "ext-1", req)) as JsonRpcResponse;
     expect(resp.error?.code).not.toBe(-32601);
     expect(lastCalled()).toBe("handlePiGithubProjects");
+  });
+
+  // C3 Phase 0b — the delegated workflow seam is a DISTINCT method, so the
+  // ownerless-tolerant rung 0 is reachable only by a caller that named it.
+  // These two tests are what stops a "simplification" from collapsing the
+  // two methods back into one and silently loosening `ezcorp/workflows`.
+  test("`ezcorp/workflows-delegated` is registered exactly once, to its OWN handler", async () => {
+    const methods = Object.keys(REVERSE_RPC_ROUTES);
+    expect(methods.filter((m) => m === "ezcorp/workflows-delegated")).toHaveLength(1);
+
+    const { self, lastCalled } = makeStubExecutor();
+    const req: JsonRpcRequest = {
+      jsonrpc: "2.0",
+      id: 10,
+      method: "ezcorp/workflows-delegated",
+      params: {},
+    };
+    const resp = (await routeReverseRpc(self, "ext-1", req)) as JsonRpcResponse;
+    expect(resp.error?.code).not.toBe(-32601);
+    expect(lastCalled()).toBe("handlePiWorkflowsDelegated");
+  });
+
+  test("`ezcorp/workflows` still routes to the STRICT handler, not the delegated one", async () => {
+    const { self, lastCalled } = makeStubExecutor();
+    const req: JsonRpcRequest = {
+      jsonrpc: "2.0",
+      id: 11,
+      method: "ezcorp/workflows",
+      params: {},
+    };
+    await routeReverseRpc(self, "ext-1", req);
+    expect(lastCalled()).toBe("handlePiWorkflows");
   });
 
   test("an unknown method yields -32601 Method not found", async () => {

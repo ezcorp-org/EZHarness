@@ -44,6 +44,7 @@ import {
   resolveReverseRpcMeta,
   resolveHandlerScope,
   resolveStorageProvenance,
+  resolveDelegatedProvenance,
 } from "./provenance";
 
 const log = logger.child("ext.tool-executor");
@@ -588,9 +589,80 @@ export async function handlePiWorkflows(
   extensionId: string,
   req: JsonRpcRequest,
 ): Promise<JsonRpcResponse> {
+  return dispatchWorkflowsRpc(deps, extensionId, req, resolveReverseRpcMeta);
+}
+
+/**
+ * Handle an `ezcorp/workflows-delegated` reverse-RPC request — the
+ * ownerless-TOLERANT twin of {@link handlePiWorkflows}.
+ *
+ * Everything downstream is the SAME: the same `requireGrantedAndManifest`
+ * gate, the same registry-resolved extension name as namespace prefix, and
+ * the same `handleWorkflowsRpc` enforcement ladder. The ONLY difference is
+ * which provenance resolver runs at rung 0 —
+ * {@link resolveDelegatedProvenance} instead of `resolveReverseRpcMeta`.
+ *
+ * ── Why a distinct method rather than loosening the existing one ───────
+ *
+ * `resolveReverseRpcMeta`'s ownerless refusal is a real control that other
+ * capabilities depend on, so `ezcorp/workflows` keeps it byte-identical.
+ * A separate method name means the looser rung 0 is reachable ONLY by a
+ * caller that asked for it by name, and the two policies can never be
+ * confused for one another at a call site.
+ *
+ * ── This grants no new capability today ────────────────────────────────
+ *
+ * An OWNERLESS call still fails: rung 7 of the ladder refuses it with the
+ * same `-32106`, and additionally writes the `audit_log` row that a rung-0
+ * refusal never produced. There is no delegation model in the tree — no
+ * `workflow_delegations` table, no consent record, no principal to run as
+ * — so nothing here can execute a workflow on a missing owner's behalf.
+ *
+ * An OWNED call resolves exactly as `ezcorp/workflows` would and is bound
+ * by the identical ladder (grant → manifest allowlist → grant allowlist →
+ * PDP → wiring → rate limit → quota), so it reaches nothing the caller
+ * could not already reach through `ezcorp/workflows`. This is a seam, not
+ * a privilege.
+ */
+export async function handlePiWorkflowsDelegated(
+  deps: RpcHandlerDeps,
+  extensionId: string,
+  req: JsonRpcRequest,
+): Promise<JsonRpcResponse> {
+  return dispatchWorkflowsRpc(deps, extensionId, req, resolveDelegatedProvenance);
+}
+
+/** The one shape both workflow provenance resolvers satisfy. Widened to a
+ *  nullable `onBehalfOf` so the strict resolver (which returns a non-null
+ *  `string`) and the tolerant one share a call site — the tolerance lives
+ *  in the resolver, never in this dispatcher. */
+type WorkflowsProvenanceResolver = (
+  extensionId: string,
+  req: JsonRpcRequest,
+) =>
+  | { ok: true; onBehalfOf: string | null; conversationId: string | null }
+  | { ok: false; errorResponse: JsonRpcResponse };
+
+/**
+ * The shared body of {@link handlePiWorkflows} and
+ * {@link handlePiWorkflowsDelegated}: gate on grant + manifest, resolve
+ * provenance with the CALLER-CHOSEN resolver, build the handler context,
+ * hand off to the single enforcement ladder.
+ *
+ * Factored out so the two entry points cannot drift. The provenance
+ * resolver is the ONLY axis of variation, and it is a parameter rather
+ * than a branch so that adding a third policy later cannot accidentally
+ * change the other two.
+ */
+async function dispatchWorkflowsRpc(
+  deps: RpcHandlerDeps,
+  extensionId: string,
+  req: JsonRpcRequest,
+  resolveProvenance: WorkflowsProvenanceResolver,
+): Promise<JsonRpcResponse> {
   const base = requireGrantedAndManifest(deps.registry, extensionId, req);
   if (!base.ok) return base.errorResponse;
-  const resolved = resolveReverseRpcMeta(extensionId, req);
+  const resolved = resolveProvenance(extensionId, req);
   if (!resolved.ok) return resolved.errorResponse;
   const ctx: WorkflowsHandlerContext = {
     extensionName: base.manifest.name,
@@ -840,6 +912,7 @@ export interface ReverseRpcDispatch {
   handlePiSchedule(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse>;
   handlePiDrafts(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse>;
   handlePiWorkflows(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse>;
+  handlePiWorkflowsDelegated(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse>;
   handlePiRbacCheck(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse>;
   handlePiGithubProjects(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse>;
 }
@@ -883,6 +956,12 @@ export const REVERSE_RPC_ROUTES: Record<string, RouteFn> = {
   // `ezcorp/workflows` — trigger a run of a workflow this extension ships.
   // Namespace-scoped host-side; see workflows-handler.ts.
   "ezcorp/workflows": (s, e, r) => s.handlePiWorkflows(e, r),
+  // `ezcorp/workflows-delegated` — the SAME ladder with an ownerless-
+  // tolerant rung 0, so a background (cron/webhook) fire reaches rung 7's
+  // audited refusal instead of dying before the ladder. A DISTINCT method
+  // on purpose: `ezcorp/workflows` above keeps its rung-0 refusal
+  // byte-identical. See handlePiWorkflowsDelegated.
+  "ezcorp/workflows-delegated": (s, e, r) => s.handlePiWorkflowsDelegated(e, r),
   // `ezcorp/rbac-check` — brokered extension-RBAC scope check
   // (`ctx.rbac.check` in the SDK). Identity is provenance/registry-derived.
   "ezcorp/rbac-check": (s, e, r) => s.handlePiRbacCheck(e, r),

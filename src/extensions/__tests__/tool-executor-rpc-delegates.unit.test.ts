@@ -352,6 +352,71 @@ describe("reverse-RPC delegate bodies (downstream handlers mocked)", () => {
     // No run was dispatched and no owner was invented for it.
     expect(workflowsCtx).toBeUndefined();
   });
+
+  test("handlePiWorkflowsDelegated PASSES an ownerless fire to the handler as userId: null", async () => {
+    // The C3 Phase 0b seam, at the ToolExecutor boundary. Same token, same
+    // extension, same everything as the test above — only the METHOD differs,
+    // and that alone decides whether the ladder is reached. The handler then
+    // refuses it at rung 7; this test pins the HANDOFF, not the verdict.
+    const exec: ExecLike = new ToolExecutor(registry(), createStubPermissionEngine("allow-all"));
+    workflowsCtx = undefined;
+    const tok = registerCallProvenance({
+      onBehalfOf: null,
+      conversationId: null,
+      runId: null,
+      parentCallId: null,
+      actorExtensionId: "ext-1",
+      kind: "schedule",
+      ownerless: true,
+    });
+    try {
+      await exec.handlePiWorkflowsDelegated("ext-1", {
+        jsonrpc: "2.0",
+        id: 11,
+        method: "ezcorp/workflows-delegated",
+        params: { v: 1, workflow: "deploy", _meta: { ezCallId: tok } },
+      });
+    } finally {
+      releaseCallProvenance(tok);
+    }
+    // Read through a local: the `= undefined` reset above is the last
+    // assignment TS can see (the real one happens inside the mocked module),
+    // so it narrows the binding to `undefined` and `?.` degrades to `never`.
+    const seen = workflowsCtx as Record<string, unknown> | undefined;
+    // Reached the handler — the contrast with `toBeUndefined()` above IS the
+    // assertion — and arrived with an explicit null owner, never an invented one.
+    expect(seen).toBeDefined();
+    expect(seen?.userId).toBeNull();
+    expect(seen?.extensionName).toBe("ext");
+    expect(seen?.extensionId).toBe("ext-1");
+  });
+
+  test("handlePiWorkflowsDelegated still carries an OWNED fire's user through", async () => {
+    const exec: ExecLike = new ToolExecutor(registry(), createStubPermissionEngine("allow-all"));
+    workflowsCtx = undefined;
+    const tok = registerCallProvenance({
+      onBehalfOf: "user-1",
+      conversationId: "conv-1",
+      runId: null,
+      parentCallId: null,
+      actorExtensionId: "ext-1",
+      kind: "tool",
+      ownerless: false,
+    });
+    try {
+      await exec.handlePiWorkflowsDelegated("ext-1", {
+        jsonrpc: "2.0",
+        id: 12,
+        method: "ezcorp/workflows-delegated",
+        params: { v: 1, workflow: "deploy", _meta: { ezCallId: tok } },
+      });
+    } finally {
+      releaseCallProvenance(tok);
+    }
+    const seen = workflowsCtx as Record<string, unknown> | undefined;
+    expect(seen?.userId).toBe("user-1");
+    expect(seen?.conversationId).toBe("conv-1");
+  });
 });
 
 afterAll(() => {
