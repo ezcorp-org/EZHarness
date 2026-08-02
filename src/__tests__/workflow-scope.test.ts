@@ -4,6 +4,8 @@ import {
   callerFromUser,
   denialMessage,
   denialStatus,
+  denyVisibilityAssignment,
+  VISIBILITY_ASSIGNMENT_DENIAL,
   isProjectMember,
   resolveWorkflowForCaller,
   systemCachedWorkflow,
@@ -12,7 +14,7 @@ import {
   type WorkflowAction,
   type WorkflowCaller,
 } from "../runtime/workflow-scope";
-import type { WorkflowDefinition } from "../types";
+import type { WorkflowDefinition, WorkflowVisibility } from "../types";
 
 const definition = (name: string): WorkflowDefinition => ({
   name,
@@ -369,5 +371,75 @@ describe("callerFromUser", () => {
 
   test("an absent project becomes null, never undefined", () => {
     expect(callerFromUser({ id: "u1" }).projectId).toBeNull();
+  });
+});
+
+describe("denyVisibilityAssignment — who may STAMP a tier", () => {
+  const member: WorkflowCaller = { userId: "u1", role: "member", projectId: null };
+  const admin: WorkflowCaller = { userId: "a1", role: "admin", projectId: null };
+
+  /**
+   * The reachable set, stated once.
+   *
+   * A `Record<WorkflowVisibility, …>` rather than a literal array on
+   * purpose: adding a fourth tier to the union fails TYPECHECK here until
+   * someone decides who may assign it. This replaces the structural sweep
+   * that used to assert the writable set was exactly `{system, project}` —
+   * that assertion was true only because `private` was unwritable, and
+   * Ruling 1 is precisely the change that makes it false.
+   */
+  const MAY_A_MEMBER_ASSIGN: Record<WorkflowVisibility, boolean> = {
+    system: false,
+    project: true,
+    private: true,
+  };
+  const TIERS = Object.keys(MAY_A_MEMBER_ASSIGN) as WorkflowVisibility[];
+
+  test("all three tiers are covered, and the sweep is not vacuous", () => {
+    expect(TIERS).toHaveLength(3);
+    expect(TIERS).toContain("private");
+  });
+
+  test.each(TIERS)("a member assigning %s matches the declared table", (tier) => {
+    const allowed = denyVisibilityAssignment(member, tier) === null;
+    expect(allowed).toBe(MAY_A_MEMBER_ASSIGN[tier]);
+  });
+
+  test.each(TIERS)("an admin may assign %s", (tier) => {
+    expect(denyVisibilityAssignment(admin, tier)).toBeNull();
+  });
+
+  test("the member's refusal names the actual rule", () => {
+    // Not just "some string" — the message a user reads has to say which
+    // tier was refused and who could grant it.
+    expect(denyVisibilityAssignment(member, "system")).toBe(VISIBILITY_ASSIGNMENT_DENIAL);
+    expect(VISIBILITY_ASSIGNMENT_DENIAL).toContain("admin");
+    expect(VISIBILITY_ASSIGNMENT_DENIAL).toContain("system");
+  });
+
+  test("an absent visibility is not an assignment — the caller is not choosing", () => {
+    // An ordinary edit that carries no `visibility` must not be refused,
+    // and must not be read as a request for the default either.
+    expect(denyVisibilityAssignment(member, undefined)).toBeNull();
+    expect(denyVisibilityAssignment(admin, undefined)).toBeNull();
+  });
+
+  test("assignment is asked SEPARATELY from edit — clearing edit does not imply it", () => {
+    // The discrimination that keeps this function from being redundant.
+    // This caller owns a `private` DB row, so the ladder grants them
+    // `edit` on it as it stands — and they still may not promote it to
+    // `system`. A rule that merely deferred to `authorizeWorkflow` would
+    // let them.
+    const owned: CachedWorkflow = {
+      definition: { name: "w", description: "", steps: [] } as WorkflowDefinition,
+      source: "db",
+      id: "wf-1",
+      projectId: null,
+      userId: "u1",
+      visibility: "private",
+      forkedFrom: null,
+    };
+    expect(authorizeWorkflow(owned, member, "edit").ok).toBe(true);
+    expect(denyVisibilityAssignment(member, "system")).not.toBeNull();
   });
 });

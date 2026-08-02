@@ -7,7 +7,7 @@ import { validateWorkflow } from "$server/runtime/workflow-validator";
 import { validateModelOverride } from "$server/runtime/workflow-model";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
-import { resolveWorkflowOr, toWire } from "$lib/server/workflow-access";
+import { denyVisibilityOr, resolveWorkflowOr, toWire } from "$lib/server/workflow-access";
 import type { RequestHandler } from "./$types";
 import type { WorkflowDefinition } from "$server/types";
 import { workflowBodySchema } from "../schema";
@@ -69,6 +69,15 @@ export const PUT: RequestHandler = async ({ request, params, locals }) => {
 
   const resolved = resolveWorkflowOr(user, params.name, "edit");
   if (resolved instanceof Response) return resolved;
+  // Re-classification. Checked AFTER the `edit` gate on purpose: that gate
+  // is what makes this safe to allow at all, because for `project` and
+  // `private` it already demands the caller be the owner (or an admin), so
+  // no caller can re-classify a workflow that is not theirs. What is left
+  // for this check is the one value the edit gate does not imply —
+  // promoting into `system`, which stays admin-only. Same adapter the
+  // create route uses; a second rule here would be a rule to keep in sync.
+  const visibilityDenial = denyVisibilityOr(user, parsed.data.visibility);
+  if (visibilityDenial) return visibilityDenial;
   const dbWorkflow = await workflowQueries.getWorkflowByName(params.name);
   if (!dbWorkflow) return errorJson(404, "Not found (only DB workflows can be updated)");
 

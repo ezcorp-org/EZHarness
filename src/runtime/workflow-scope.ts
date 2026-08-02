@@ -186,6 +186,40 @@ export function authorizeWorkflow(
   return { ok: false, reason: "not-project-member" };
 }
 
+/** The refusal when a non-admin tries to mint or promote to `system`. */
+export const VISIBILITY_ASSIGNMENT_DENIAL =
+  "Only an admin can make a workflow system-owned";
+
+/**
+ * May `caller` STAMP `visibility` on a workflow — on create, or as a
+ * re-classification of one they already passed the `edit` ladder for?
+ * Returns the refusal message, or `null` to allow.
+ *
+ * Assignment is a separate question from {@link authorizeWorkflow}, and
+ * the ladder cannot answer it: `edit` asks about the visibility a row
+ * ALREADY has, this asks about the one it is being given. Collapsing them
+ * would let the owner of a `private` row promote it to `system` purely
+ * because they cleared `edit` on it as it stands.
+ *
+ * The one rule: **`system` is admin-only, `project` and `private` are
+ * not.** `system` means "ships with the install" — it is the tier the
+ * ladder lets anyone read and run, and the tier only an admin may
+ * subsequently edit. So a non-admin promoting a row into it both dresses
+ * their workflow up as a first-party asset and locks themselves out of
+ * their own row. Tightening down to `project` or `private` does neither,
+ * and needs no extra gate: the `edit` ladder above already refuses a
+ * non-admin who is not the owner, so the only caller who ever reaches
+ * this question for someone else's workflow is an admin.
+ */
+export function denyVisibilityAssignment(
+  caller: WorkflowCaller,
+  visibility: WorkflowVisibility | undefined,
+): string | null {
+  if (visibility === undefined) return null;
+  if (visibility !== "system") return null;
+  return caller.role === "admin" ? null : VISIBILITY_ASSIGNMENT_DENIAL;
+}
+
 /**
  * Look up a workflow by name and authorize the caller for `action` in one
  * step.

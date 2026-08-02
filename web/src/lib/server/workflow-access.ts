@@ -22,6 +22,7 @@ import {
   callerFromUser,
   denialMessage,
   denialStatus,
+  denyVisibilityAssignment,
   resolveWorkflowForCaller,
   visibleWorkflows,
   type CachedWorkflow,
@@ -29,7 +30,7 @@ import {
   type WorkflowCaller,
 } from "$server/runtime/workflow-scope";
 import type { AuthUser } from "$server/auth/types";
-import type { WorkflowDefinition } from "$server/types";
+import type { WorkflowDefinition, WorkflowVisibility } from "$server/types";
 
 /**
  * The JSON a workflow is serialized as.
@@ -104,6 +105,26 @@ export function resolveWorkflowOr(
     return errorJson(status, message);
   }
   return { entry: result.entry, caller };
+}
+
+/**
+ * Refuse a visibility the caller may not assign, or `null` to proceed.
+ *
+ * The create and update routes both hand a caller-supplied `visibility`
+ * through this one adapter, for the same reason they resolve through
+ * {@link resolveWorkflowOr}: the rule is
+ * `denyVisibilityAssignment` in the ladder module, and a route that
+ * compared a visibility itself would be a second copy of it. A 403 rather
+ * than a 404 — by the time a body is being written the caller can already
+ * see the workflow (update) or is naming a row that does not exist yet
+ * (create), so there is nothing left to conceal.
+ */
+export function denyVisibilityOr(
+  user: AuthUser,
+  visibility: WorkflowVisibility | undefined,
+): Response | null {
+  const message = denyVisibilityAssignment(callerFor(user), visibility);
+  return message === null ? null : errorJson(403, message);
 }
 
 /** Everything this caller may see, already serialized. */
