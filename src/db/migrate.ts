@@ -469,6 +469,15 @@ export async function migrate(db: any): Promise<void> {
   // column is a no-op, and widening a constraint can never invalidate an
   // existing row. See `src/db/schema.ts` (`observabilityEvents`) for why
   // no reader regresses.
+  //
+  // DELIBERATELY REDUNDANT with the `CREATE TABLE` above, which also omits
+  // `NOT NULL`. A fresh install gets a nullable column without this ALTER;
+  // an install created BEFORE the change gets it only from here. Because
+  // each covers the other on a fresh database, a mutation that reverts the
+  // CREATE TABLE half alone is not observable through `migrate()` — the
+  // two are belt and braces, not one mechanism written twice. The upgrade
+  // half IS pinned, by the "migration upgrades a pre-existing
+  // observability_events" test.
   await db.execute(
     sql`ALTER TABLE observability_events ALTER COLUMN conversation_id DROP NOT NULL`,
   );

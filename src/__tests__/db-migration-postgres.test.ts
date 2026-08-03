@@ -100,10 +100,16 @@ describe("migration on Postgres-compatible backend", () => {
     // just logged `Failed to persist tool:complete` once per call.
     //
     // Asserted against the LIVE migrated schema (same shape as the
-    // `workflow_definitions.user_id` check below), so the idempotent
-    // `ALTER … DROP NOT NULL` is pinned for both fresh CREATE TABLE and
-    // upgrade-in-place paths — a revert would fail here rather than at
-    // install time.
+    // `workflow_definitions.user_id` check below).
+    //
+    // SCOPE, precisely: this pins the END STATE on a FRESH database, and
+    // that is all it can pin. `migrate()` both creates the table without
+    // `NOT NULL` and runs an idempotent `ALTER … DROP NOT NULL`, so here
+    // either mechanism alone would satisfy it — a mutation removing just
+    // one survives this test, correctly. The UPGRADE path (a database
+    // created before the change, i.e. every existing install) is pinned
+    // separately by the "migration upgrades a pre-existing
+    // observability_events" describe at the bottom of this file.
     const col = await pg.query(
       "SELECT is_nullable FROM information_schema.columns WHERE table_name = 'observability_events' AND column_name = 'conversation_id'",
     );
@@ -340,5 +346,80 @@ describe.skipIf(!PG_URL)("external Postgres via Bun.sql (real server)", () => {
     }
     expect(caught).toBeDefined();
     expect(isUniqueViolation(caught)).toBe(true);
+  });
+});
+
+/**
+ * The UPGRADE path for `observability_events.conversation_id`.
+ *
+ * The describe above proves the END STATE on a fresh database, and that
+ * is genuinely all it can prove: `migrate()` both creates the table
+ * without `NOT NULL` and runs an idempotent `ALTER … DROP NOT NULL`, so
+ * on a fresh DB either mechanism alone produces a nullable column. A
+ * mutation that removed the ALTER survived that test — correctly, because
+ * on a fresh DB the ALTER is redundant.
+ *
+ * It is NOT redundant for a database created BEFORE the change, which is
+ * every existing install. This drives exactly that: stand up the LEGACY
+ * shape (`conversation_id TEXT NOT NULL`), run the real `migrate()`, and
+ * assert the column came out nullable. Without the ALTER this fails, and
+ * every upgraded install would keep silently rejecting workflow tool
+ * calls on the FK.
+ */
+describe("migration upgrades a pre-existing observability_events", () => {
+  let pg: PGlite;
+
+  beforeAll(async () => {
+    pg = new PGlite({ extensions: { vector, pg_trgm } });
+    await pg.waitReady;
+    // The legacy shape, as it stood before the change. No FK — the point
+    // is the NOT NULL, and `conversations` does not exist yet at this
+    // point in a hand-built fixture.
+    await pg.query(`
+      CREATE TABLE observability_events (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL,
+        message_id TEXT,
+        event_type TEXT NOT NULL,
+        data JSONB NOT NULL,
+        duration_ms INTEGER,
+        created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+      )
+    `);
+    const before = await pg.query(
+      "SELECT is_nullable FROM information_schema.columns WHERE table_name = 'observability_events' AND column_name = 'conversation_id'",
+    );
+    // Guard the fixture itself: if this ever came out 'YES' the test below
+    // would pass without the migration having done anything.
+    if ((before.rows[0] as { is_nullable: string }).is_nullable !== "NO") {
+      throw new Error("fixture did not create a NOT NULL column");
+    }
+    await migrate(drizzle(pg, { schema }));
+  });
+
+  afterAll(async () => {
+    await pg.close();
+  });
+
+  test("DROP NOT NULL is applied to the existing column", async () => {
+    const col = await pg.query(
+      "SELECT is_nullable FROM information_schema.columns WHERE table_name = 'observability_events' AND column_name = 'conversation_id'",
+    );
+    expect(col.rows.length).toBe(1);
+    expect((col.rows[0] as { is_nullable: string }).is_nullable).toBe("YES");
+  });
+
+  test("the upgraded column actually accepts a NULL row", async () => {
+    // `is_nullable` is the catalog's opinion; this is the behaviour that
+    // matters — the insert the FK used to reject.
+    await pg.query(
+      "INSERT INTO observability_events (id, conversation_id, event_type, data) VALUES ('obs-1', NULL, 'tool_call', '{\"workflowRunId\":\"r1\"}'::jsonb)",
+    );
+    const row = await pg.query(
+      "SELECT conversation_id, data->>'workflowRunId' AS run FROM observability_events WHERE id = 'obs-1'",
+    );
+    expect(row.rows.length).toBe(1);
+    expect((row.rows[0] as { conversation_id: string | null }).conversation_id).toBeNull();
+    expect((row.rows[0] as { run: string }).run).toBe("r1");
   });
 });
