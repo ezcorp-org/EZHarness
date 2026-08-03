@@ -25,12 +25,15 @@
  * migrated snapshot exceeds bun's 5s default and reports a bare 0 pass/1 fail).
  */
 import { test, expect, describe, beforeEach, afterAll } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { sql } from "drizzle-orm";
 import { setupTestDb, closeTestDb, getTestDb, mockDbConnection } from "./helpers/test-pglite";
 
 mockDbConnection();
 
 const {
+  ALL_VISIBILITIES,
   DELEGATION_OWNER_CALLER,
   SERVICE_ACCOUNT_CALLER,
   SERVICE_ACCOUNT_REACH_CODE,
@@ -193,6 +196,20 @@ describe("service-accounts query layer", () => {
           (v) => authorizeWorkflow(probe(v), SERVICE_ACCOUNT_CALLER, "run").ok,
         ),
       );
+    });
+
+    test("every tier the TYPE admits is actually probed", () => {
+      // `satisfies readonly WorkflowVisibility[]` checks each entry is a valid
+      // tier; it does NOT check that every tier is an entry. A fourth
+      // visibility would compile and silently never be probed, so the reach
+      // answer would be right about three tiers and blind to the fourth.
+      // Parsed from the union's own declaration — the only independent source.
+      const types = readFileSync(join(import.meta.dir, "../types.ts"), "utf8");
+      const decl = /export type WorkflowVisibility =([^;]+);/.exec(types);
+      expect(decl).not.toBeNull();
+      const admitted = [...decl![1]!.matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+      expect(admitted.length).toBeGreaterThan(0);
+      expect([...ALL_VISIBILITIES]).toEqual(admitted);
     });
 
     test("the warning ships on the CREATE result, not only on the consent path", async () => {

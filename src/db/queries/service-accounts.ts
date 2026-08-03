@@ -98,21 +98,25 @@ export const DELEGATION_OWNER_CALLER = {
  */
 export const SERVICE_ACCOUNT_CALLER: WorkflowCaller = { userId: null, role: "member" };
 
-/** Every workflow visibility tier, in ladder order. Local to this module
- *  because it exists only to be probed — `WorkflowVisibility`
- *  (`src/types.ts:596`) is a union with no runtime enumeration, and a
- *  `satisfies` over the union makes adding a tier a compile error here. */
-const ALL_VISIBILITIES = ["system", "project", "private"] as const satisfies readonly WorkflowVisibility[];
+/**
+ * Every workflow visibility tier, probed one by one below.
+ *
+ * `WorkflowVisibility` (`src/types.ts:596`) is a bare union with no runtime
+ * enumeration, so this list is written out — and `satisfies` does NOT make it
+ * exhaustive: it checks each entry is a valid tier, not that every tier is an
+ * entry. A fourth tier would compile fine here and silently never be probed,
+ * so exhaustiveness is pinned at TEST time instead, by parsing the union out
+ * of `src/types.ts` and comparing (`service-accounts-queries.test.ts`).
+ * Exported for exactly that test — there is nothing else to compare against.
+ */
+export const ALL_VISIBILITIES = ["system", "project", "private"] as const satisfies readonly WorkflowVisibility[];
 
 /** A workflow the caller does NOT own, at `visibility`. `systemCachedWorkflow`
  *  builds the ownerless shape (`workflow-scope.ts:88-106`); the visibility is
  *  then varied, which is exactly the axis being probed. */
 function probeEntry(visibility: WorkflowVisibility): CachedWorkflow {
   return {
-    ...systemCachedWorkflow(
-      { name: "__reach_probe__", steps: [] } as unknown as CachedWorkflow["definition"],
-      "yaml",
-    ),
+    ...systemCachedWorkflow({ name: "__reach_probe__", description: "", steps: [] }, "yaml"),
     visibility,
   };
 }
