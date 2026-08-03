@@ -34,10 +34,10 @@ Mirrors install: admin-gated, `updateMcpServerSchema`, throwaway-client verify (
 
 Admin-gated. Calls `ExtensionRegistry.refreshMcpTools(id)`, which `getMcpClient(...)` (connecting through the full sandbox path for stdio), re-runs `listTools()`, rewrites the in-memory `toolMap` / `extensionTools` under the `<name>__<tool>` namespace, and persists the new manifest. Returns `{ id, tools }`; connection failure → 502.
 
-### Namespacing & dispatch (`src/extensions/registry.ts`, `src/extensions/tool-executor.ts`)
+### Namespacing & dispatch (`src/extensions/registry.ts`, `src/extensions/tool-executor/executor.ts`)
 
 - At `loadFromDb()`, every manifest tool is registered as `` `${manifest.name}__${t.name}` `` (double-underscore — Anthropic's tool-name pattern `^[a-zA-Z0-9_-]+$` rejects dots) with `originalName` retained. MCP tools share this namespace with hand-rolled and entity tools, so the LLM and composer treat them identically.
-- When the LLM calls one, `tool-executor.ts:executeToolCall` runs the **per-tool-call PDP gate** (`engine.authorize(...)`, fail-closed) first, then branches on `manifest.kind === "mcp"`: it lazily resolves the `McpClient` via `registry.getMcpClient(extensionId)` and calls `client.callTool(originalName, resolvedInput)`. The same `recordToolCall` audit path runs as for subprocess tools.
+- When the LLM calls one, `tool-executor/executor.ts:executeToolCall` runs the **per-tool-call PDP gate** (`engine.authorize(...)`, fail-closed) first, then branches on `manifest.kind === "mcp"`: it lazily resolves the `McpClient` via `registry.getMcpClient(extensionId)` and calls `client.callTool(originalName, resolvedInput)`. The same `recordToolCall` audit path runs as for subprocess tools.
 
 ### stdio sandbox envelope (`src/extensions/mcp-sandbox.ts`, `src/extensions/mcp-proxy.ts`)
 
@@ -98,7 +98,7 @@ There is **no** `GET` or `DELETE` on `/api/mcp-servers/[id]`. MCP extensions are
 - `src/extensions/mcp-sandbox.ts` — `buildSandboxedMcpSpec` (prlimit + namespace + proxy + jail + seccomp + Stage-2 veth) and `runMcpSeccompSoakReader`.
 - `src/extensions/mcp-proxy.ts` — `createMcpProxy`: loopback CONNECT proxy with bearer auth, internal-host deny, DNS-rebind recheck, per-host PDP, quotas.
 - `src/extensions/registry.ts` — `getMcpClient`, `refreshMcpTools`, `<name>__<tool>` namespacing, proxy/veth/soak lifecycle.
-- `src/extensions/tool-executor.ts` — `executeToolCall` MCP branch: per-call PDP gate → `getMcpClient` → `callTool`.
+- `src/extensions/tool-executor/executor.ts` — `executeToolCall` MCP branch: per-call PDP gate → `getMcpClient` → `callTool`.
 - `src/db/queries/extensions.ts` — `installMcpExtension` / `updateMcpExtension` (build the `kind:"mcp"` manifest, store `cachedTools`).
 - `src/extensions/types.ts` — `McpServerStdio`/`Http`/`Sse`, `McpServerDefinition`, `ExtensionManifestV2.kind`/`mcpServers`.
 - `web/src/routes/(app)/extensions/+page.svelte` — MCP install form, MCP filter tab, refresh action.

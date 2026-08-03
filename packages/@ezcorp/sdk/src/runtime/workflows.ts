@@ -43,6 +43,29 @@ export interface WorkflowRunAccepted {
   started: true;
 }
 
+/** Options for {@link Workflows.run}. */
+export interface WorkflowRunOptions {
+  /**
+   * YOUR correlation handle for this run — a saved job's id, a ticket
+   * number, whatever identifies the thing that asked for the work.
+   *
+   * **This is how you find the run again.** `run()` returns no run id
+   * (the host would have to await the whole graph to learn it), so
+   * without a handle the only way to match a trigger to a
+   * `workflow_runs` row is to guess by timestamp — which is wrong the
+   * first time two runs start together. Pass one here and read it back
+   * off {@link WorkflowRunSummary.jobRef} in {@link Workflows.runs}.
+   *
+   * The host stores it verbatim and NEVER resolves or interprets it: it
+   * grants nothing, and a run's authorization was decided before this
+   * value was read. Id-shaped only — letters, digits, `_ . : -`, first
+   * character alphanumeric, at most 128 characters. Anything else is
+   * REJECTED, never trimmed: a rewritten handle correlates to the wrong
+   * thing.
+   */
+  jobRef?: string;
+}
+
 /** One run, as `runs()` reports it. */
 export interface WorkflowRunSummary {
   /** The `workflow_runs` row id — what the trace UI and the run-control
@@ -62,6 +85,11 @@ export interface WorkflowRunSummary {
   /** Whether the run can be resumed. A run parked on an approval becomes
    *  resumable once somebody answers the gate. */
   resumable: boolean;
+  /** The handle YOU passed as {@link WorkflowRunOptions.jobRef} when you
+   *  started this run, or `null` for a run started without one (or by
+   *  some other surface entirely — the REST route, the CLI). This is the
+   *  join key between your own records and the host's run history. */
+  jobRef: string | null;
 }
 
 export interface WorkflowRunList {
@@ -132,11 +160,16 @@ export class Workflows {
   async run(
     name: string,
     input: Record<string, unknown> = {},
+    opts: WorkflowRunOptions = {},
   ): Promise<WorkflowRunAccepted> {
     return getChannel().request<WorkflowRunAccepted>("ezcorp/workflows", {
       v: 1,
       workflow: name,
       input,
+      // Omitted rather than sent as `undefined`: the host distinguishes
+      // "absent" (no handle) from a present-but-invalid value, which it
+      // rejects outright instead of silently dropping.
+      ...(opts.jobRef !== undefined ? { jobRef: opts.jobRef } : {}),
     });
   }
 

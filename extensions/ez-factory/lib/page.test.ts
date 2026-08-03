@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { HubPageTree } from "@ezcorp/sdk/runtime";
 
 import manifest from "../ezcorp.config";
 import {
@@ -23,9 +24,13 @@ import {
   JOB_FORM_FIELDS,
   JOB_FULL_PAGE_ID,
   JOB_PAGE_ID,
+  JOB_RUN_EVENT,
   JOB_SAVE_EVENT,
   jobFormFields,
+  jobIdFromActionPayload,
+  jobRunAction,
   jobViewValue,
+  MULTILINE_INPUT_KEYS,
   parseFactoryView,
   parseJobView,
   RUNS_HELP,
@@ -266,13 +271,32 @@ describe("page ids", () => {
 // ── Display helpers ─────────────────────────────────────────────────
 
 describe("runStatusCell", () => {
-  test("known statuses carry a tone", () => {
-    expect(runStatusCell("completed")).toEqual({ text: "completed", tone: "success" });
-    expect(runStatusCell("failed")).toEqual({ text: "failed", tone: "danger" });
+  test("the tones are keyed on core's RUN vocabulary, not the agent one", () => {
+    // The whole six-value set core can put in `workflow_runs.status`
+    // (`RUN_STATUS_FILTERS`). This table used to be keyed on `completed` /
+    // `failed` / `aborted` — the AGENT statuses, which a workflow run
+    // never carries — so `success` and `error` matched nothing and a
+    // failed run rendered exactly like a successful one. Asserting the
+    // whole vocabulary is what makes that unrepeatable.
+    expect(runStatusCell("success")).toEqual({ text: "success", tone: "success" });
+    expect(runStatusCell("error")).toEqual({ text: "error", tone: "danger" });
+    expect(runStatusCell("cancelled")).toEqual({ text: "cancelled", tone: "danger" });
     expect(runStatusCell("awaiting_approval")).toEqual({
       text: "awaiting_approval",
       tone: "warning",
     });
+    expect(runStatusCell("suspended")).toEqual({ text: "suspended", tone: "warning" });
+    // In progress is not a verdict — toning it would make a live run read
+    // as an outcome.
+    expect(runStatusCell("running")).toBe("running");
+  });
+
+  test("the OLD agent-run keys are gone, not merely joined", () => {
+    // Discrimination: leaving them in would have let the fix pass while
+    // the table still claimed to understand statuses it never receives.
+    expect(runStatusCell("completed")).toBe("completed");
+    expect(runStatusCell("failed")).toBe("failed");
+    expect(runStatusCell("aborted")).toBe("aborted");
   });
 
   test("an unrecognised status renders VERBATIM rather than being dropped", () => {
@@ -1076,6 +1100,135 @@ describe("invariant K — the shared tree carries no user identity or run conten
         const type = n.type as string;
         expect(ESCAPED_PAGE_TYPES.has(type) || type === "markdown").toBe(true);
       }
+    }
+  });
+});
+
+// ── The Run action (8.7) ────────────────────────────────────────────
+
+describe("jobRunAction", () => {
+  const job = (over: Partial<FactoryJob> = {}): FactoryJob => ({
+    id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+    name: "Nightly",
+    description: "",
+    workflow: "etl-factory",
+    input: {},
+    trigger: { kind: "manual" },
+    enabled: true,
+    runAs: { kind: "user", id: "u1" },
+    consentHash: null,
+    createdBy: "u1",
+    createdAt: "2026-08-01T00:00:00.000Z",
+    updatedBy: "u1",
+    updatedAt: "2026-08-01T00:00:00.000Z",
+    ...over,
+  });
+
+  test("carries the job id under the SAME payload key the save action uses", () => {
+    // One key, one reader (`jobIdFromActionPayload`). A second key here
+    // would refuse every click in silence — the Hub answers `{ok:true}`
+    // whatever the handler does with the payload.
+    const action = jobRunAction(job());
+    expect(action.event).toBe(JOB_RUN_EVENT);
+    expect(action.payload).toEqual({ [JOB_FORM_FIELDS.jobId]: job().id });
+    expect(jobIdFromActionPayload(action.payload)).toBe(job().id);
+  });
+
+  test("names the workflow in the confirm, because the console is SHARED", () => {
+    // Invariant K: anyone with Hub access can edit this job list, so the
+    // person clicking Run may not be the person who wrote the inputs.
+    const action = jobRunAction(job({ workflow: "docs-factory" }));
+    expect(action.confirm).toContain("docs-factory");
+    expect(action.confirm).toMatch(/credits|spend/i);
+  });
+});
+
+describe("the job editor's Run button", () => {
+  const stored = (over: Partial<FactoryJob> = {}): FactoryJob => ({
+    id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+    name: "Nightly",
+    description: "",
+    workflow: "etl-factory",
+    input: {},
+    trigger: { kind: "manual" },
+    enabled: true,
+    runAs: { kind: "user", id: "u1" },
+    consentHash: null,
+    createdBy: "u1",
+    createdAt: "2026-08-01T00:00:00.000Z",
+    updatedBy: "u1",
+    updatedAt: "2026-08-01T00:00:00.000Z",
+    ...over,
+  });
+
+  const buttons = (tree: HubPageTree): Array<Record<string, unknown>> => {
+    const out: Array<Record<string, unknown>> = [];
+    const walk = (nodes: unknown[]): void => {
+      for (const n of nodes) {
+        if (typeof n !== "object" || n === null) continue;
+        const node = n as Record<string, unknown>;
+        if (node.type === "button") out.push(node);
+        if (Array.isArray(node.nodes)) walk(node.nodes);
+      }
+    };
+    walk(tree.nodes);
+    return out;
+  };
+
+  test("an ENABLED job gets one Run button wired to the run event", () => {
+    const tree = buildJobPage({
+      view: { kind: "edit", jobId: stored().id },
+      job: stored(),
+    });
+    const found = buttons(tree);
+    expect(found).toHaveLength(1);
+    expect(found[0]?.label).toBe("Run now");
+    expect((found[0]?.action as { event: string }).event).toBe(JOB_RUN_EVENT);
+  });
+
+  test("a DISABLED job gets NO button — `enabled:false` is this console's retire", () => {
+    const tree = buildJobPage({
+      view: { kind: "edit", jobId: stored().id },
+      job: stored({ enabled: false }),
+    });
+    expect(buttons(tree)).toEqual([]);
+  });
+
+  test("the CREATE form has no Run button — there is nothing saved to run", () => {
+    expect(buttons(buildJobPage({ view: { kind: "new" }, job: null }))).toEqual([]);
+  });
+});
+
+describe("input fields render as the right control", () => {
+  const fieldsByName = (): Map<string, Record<string, unknown>> =>
+    new Map(
+      jobFormFields(null).map((f) => [
+        f.field,
+        f as unknown as Record<string, unknown>,
+      ]),
+    );
+
+  test("a single-value path is a single line, not a 3-row textarea", () => {
+    // Every input used to be `multiline: true`, so "Output path" — one
+    // filesystem path, where a newline is never correct — rendered as a
+    // textarea that invited one.
+    expect(fieldsByName().get(inputFieldId("outPath"))?.multiline).toBeUndefined();
+  });
+
+  test("the genuinely multi-line values stay textareas", () => {
+    // `globs` is newline-separated by the tool's own schema; `draft` and
+    // `sources` are documents.
+    for (const key of ["globs", "draft", "sources"]) {
+      expect(fieldsByName().get(inputFieldId(key))?.multiline).toBe(true);
+    }
+  });
+
+  test("the allowlist and the rendered fields agree", () => {
+    // Discrimination: a key added to `ALL_INPUT_KEYS` without a decision
+    // about its control gets a single line, which is the safe default —
+    // but the two lists must still describe the same set of keys.
+    for (const key of MULTILINE_INPUT_KEYS) {
+      expect(ALL_INPUT_KEYS).toContain(key);
     }
   });
 });

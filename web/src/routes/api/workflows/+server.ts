@@ -70,20 +70,23 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     // arrive as a side effect of an ordinary create; the product owner has
     // since ruled the other way, and this is that ruling.
     //
-    // The reason the old rule could not stand: the ladder checks
-    // `visibility` BEFORE it checks ownership, and returns
-    // `requires-admin` for `system` + non-admin edit. An ownerless
-    // `system` row is therefore editable by admins and by nobody else, so
-    // a non-admin who created a workflow through this route could never
-    // edit or delete it. Stamping the creator is what makes the row
-    // reachable by its author at all.
-    //
     // `visibility` still DEFAULTS to `system` (`createWorkflow` applies
-    // it), which is the pre-C6 behaviour and is not this change's to
-    // alter. Note the consequence: the stamp above only becomes load-
-    // bearing once the author picks `project` or `private`, because the
-    // `system` branch never reads `userId`. A default-visibility create by
-    // a non-admin is still an uneditable row.
+    // it), which is the pre-C6 behaviour and is not this route's to
+    // alter. The stamp is what makes that default usable: the ladder's
+    // `edit` rung asks OWNERSHIP before it asks the tier, so the author
+    // of a default-visibility row can edit and delete it, while a
+    // non-owner still gets `requires-admin` and a legacy row with no
+    // owner stays admin-only. The stamp used to be inert on this path —
+    // the tier answered first and refused everyone but an admin, so a
+    // non-admin's own workflow was uneditable the moment it was created.
+    // The rung itself is in `src/runtime/workflow-scope.ts`, which this
+    // route reaches only through `$lib/server/workflow-access` — naming
+    // the ladder's own functions here is a grep-contract violation, not
+    // a style preference (`workflow-route-ladder.server.test.ts`).
+    //
+    // Choosing `system` is still admin-only, and is refused above by
+    // `denyVisibilityOr` — the tier a create DEFAULTS to and the tier a
+    // caller may NAME are different questions.
     workflow = await workflowQueries.createWorkflow(body as WorkflowDefinition, {
       userId: user.id,
       visibility: body.visibility,

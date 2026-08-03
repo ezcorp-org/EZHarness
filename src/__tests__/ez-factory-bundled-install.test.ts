@@ -163,14 +163,17 @@ describe("bundled registry — ez-factory entry", () => {
     expect(p.schedule).toBeUndefined();
   });
 
-  test("the install grant's ONLY event is the console's own page action", () => {
+  test("the install grant's ONLY events are the console's own page actions", () => {
     // The grant is what `hub-render-pull.ts` turns into `allowedEvents`, so
     // this list is exactly the set of page actions the host will render and
     // deliver. Anything outside the extension's own namespace could not
     // register anyway (the dispatcher's namespace check), and a `workflow:*`
     // name would register and then never fire.
+    //
+    // `job-run` is the one that makes the console able to START work.
+    // It widens nothing: firing is authorized by the `workflows` grant.
     const p = bundledEntry().permissions;
-    expect(p.eventSubscriptions).toEqual(["ez-factory:job-save"]);
+    expect(p.eventSubscriptions).toEqual(["ez-factory:job-save", "ez-factory:job-run"]);
     expect(p.grantedAt.eventSubscriptions).toBeGreaterThan(0);
   });
 
@@ -327,16 +330,17 @@ describe("ensureBundledExtensions — ez-factory first-boot install", () => {
     expect(granted.schedule).toBeUndefined();
   });
 
-  test("the page action SURVIVES intersectPermissions — the grant, not just the manifest", async () => {
+  test("BOTH page actions SURVIVE intersectPermissions — the grant, not just the manifest", async () => {
     // The one that matters at render time. `intersectPermissions` clamps the
     // install grant against the bundled ceiling, and a name missing from the
     // ceiling row is dropped HERE, silently — after which `allowedEvents`
-    // loses it and `validatePageTree` deletes the job editor's form node
-    // from the tree. Asserting the manifest alone would not have caught a
-    // ceiling row that forgot the name.
+    // loses it and `validatePageTree` deletes that control from the tree.
+    // Asserting the manifest alone would not have caught a ceiling row that
+    // forgot the name: a console that renders, looks finished, and whose
+    // Run button simply is not there.
     await ensureBundledExtensions();
     const granted = store.get("ez-factory")!.grantedPermissions;
-    expect(granted.eventSubscriptions).toEqual(["ez-factory:job-save"]);
+    expect(granted.eventSubscriptions).toEqual(["ez-factory:job-save", "ez-factory:job-run"]);
   });
 
   test("appears in the bundled (isBundled=true) list", async () => {

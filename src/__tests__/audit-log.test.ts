@@ -110,6 +110,39 @@ describe("insertAuditEntry", () => {
     expect(entries[0]!.target).toBe("/api/resource/123");
     expect(entries[0]!.metadata).toBeNull();
   });
+
+  test("a failed audit write resolves instead of throwing, so it can never abort its caller", async () => {
+    // The invariant every `await insertAuditEntry(...)` call site rests on
+    // — 20+ of them sit mid-business-flow (the permission endpoints, the
+    // workflow claim/update/delete handlers) and none wraps this in a
+    // try/catch, deliberately: the policy is single-homed HERE so no call
+    // site can implement a second, weaker version of it.
+    //
+    // Driven through a REAL failure rather than a mock: `audit_log.user_id`
+    // is a foreign key to `users`, so an id that names nobody makes the
+    // INSERT fail in the driver. That is the shape of the outage this
+    // guards (an FK violation, a table missing in a migration window) and
+    // it is not reachable by stubbing the function under test.
+    const result = await insertAuditEntry(
+      "user-that-does-not-exist",
+      "workflow.update",
+      "wf-nonexistent",
+      { workflowName: "w1" },
+    );
+    // The sentinel, not a thrown error: callers chaining on the returned
+    // id get something they can ignore.
+    expect(result).toBe("");
+
+    // Discrimination: the exact same call with a REAL user id succeeds, so
+    // the resolution above is the catch handling a genuine failure — not a
+    // write that quietly worked, and not a function that returns "" always.
+    const ok = await insertAuditEntry(userId, "workflow.update", "wf-1", { workflowName: "w1" });
+    expect(ok).not.toBe("");
+    // And nothing was written for the failing call.
+    const entries = await listAuditLog({ action: "workflow.update" });
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.userId).toBe(userId);
+  });
 });
 
 // ── listAuditLog ──────────────────────────────────────────────────────

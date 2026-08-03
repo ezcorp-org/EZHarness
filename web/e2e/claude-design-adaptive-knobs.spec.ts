@@ -61,10 +61,12 @@ test.describe("claude-design — adaptive knob sidebar", () => {
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
 		await page.locator("textarea").fill("Open canvas");
-		await page.locator("textarea").press("Enter");
-		await page.waitForResponse(
-			(r) => r.url().includes("/messages") && r.request().method() === "POST",
-		);
+		await Promise.all([
+			page.waitForResponse(
+				(r) => r.url().includes("/messages") && r.request().method() === "POST",
+			),
+			page.locator("textarea").press("Enter"),
+		]);
 
 		// Tool result carries a 3-knob descriptor array — primary color,
 		// accent color, heading-size range with px unit.

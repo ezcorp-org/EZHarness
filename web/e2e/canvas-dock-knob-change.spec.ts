@@ -62,10 +62,12 @@ test.describe("Canvas Dock — knob-change round-trip", () => {
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
 		await page.locator("textarea").fill("Open canvas");
-		await page.locator("textarea").press("Enter");
-		await page.waitForResponse(
-			(r) => r.url().includes("/messages") && r.request().method() === "POST",
-		);
+		await Promise.all([
+			page.waitForResponse(
+				(r) => r.url().includes("/messages") && r.request().method() === "POST",
+			),
+			page.locator("textarea").press("Enter"),
+		]);
 
 		// Stream a `tool:complete` for `claude-design__open-canvas` —
 		// shape mirrors `canvas-dock-open-close.spec.ts`. We use the

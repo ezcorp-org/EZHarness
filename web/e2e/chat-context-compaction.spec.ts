@@ -45,6 +45,24 @@
  * so this guards the actual reported bug. The body is kept complete +
  * valid so the un-skip is a one-token change (repo convention).
  * Verified-blocked-on: 2026-05-18 (context-compaction e2e).
+ *
+ * RE-VERIFIED 2026-08-03 under the Docker harness, and the un-blocker
+ * condition above is NOT sufficient — the un-skip is not a one-token
+ * change today. With `.skip` flipped locally and DOCKER_TEST=1 against a
+ * live app on :3000, both tests RAN and both FAILED, and not on
+ * compaction: the hand-injected `emitSse` `run:token` never renders
+ * against the real backend, so `getByText(ANSWER)` finds nothing (:109),
+ * and the overflow-card assertion fails the same way (:160). The bodies
+ * still depend on SSE injection that the real stack contradicts — that
+ * has to be reworked before the flip means anything. `.skip` retained.
+ * (Caveat: the container serves the primary working tree, not this
+ * branch, so the app under test carries unrelated local changes.)
+ *
+ * A SECOND, independent blocker at the same site is now FIXED: the
+ * link-reload waiter in `setupAndSend` was armed after its own keypress
+ * and died with `page.waitForResponse: Test timeout of 30000ms exceeded`
+ * (pre-fix :93). Post-fix both tests get PAST it to the failures above —
+ * measured, not inferred.
  * ─────────────────────────────────────────────────────────────────────
  */
 
@@ -89,10 +107,12 @@ test.describe.skip("Long conversation no longer dead-ends on context_length_exce
 
 		const textarea = page.locator("textarea");
 		await textarea.fill("Given everything above, summarize.");
-		await textarea.press("Enter");
-		await page.waitForResponse(
-			(r: any) => r.url().includes("/messages") && r.request().method() === "POST",
-		);
+		await Promise.all([
+			page.waitForResponse(
+				(r: any) => r.url().includes("/messages") && r.request().method() === "POST",
+			),
+			textarea.press("Enter"),
+		]);
 	}
 
 	test("huge thread → normal streamed reply, no Codex overflow card, composer stays usable", async ({

@@ -19,6 +19,7 @@
 		parseWorkflowYaml,
 		workflowToYaml,
 	} from "$lib/workflow-yaml.js";
+	import { workflowProvenanceBadge } from "$lib/workflow-provenance.js";
 
 	// `?? ""` because SvelteKit types every route param as `string |
 	// undefined`, and the four call sites below all take a `string`. The
@@ -28,6 +29,14 @@
 	let workflowName = $derived(page.params.name ?? "");
 
 	let workflow = $state<Workflow | null>(null);
+	// Provenance, not the raw tier. `system` collapses three different
+	// rows — an install-shipped file, an ownerless legacy row, and one a
+	// member here created and still owns — and rendering the tier
+	// verbatim told every reader the first thing about all three. The
+	// wording and the colour live in `workflow-provenance.ts`; the markup
+	// below only paints them. `?? {}` keeps this total while the fetch is
+	// in flight; the badge is only rendered once `workflow` is loaded.
+	let provenance = $derived(workflowProvenanceBadge(workflow ?? {}));
 	let versions = $state<WorkflowVersionSummary[]>([]);
 	let loading = $state(true);
 	let loadError = $state("");
@@ -182,8 +191,9 @@
 				<h2 class="text-2xl font-bold text-[var(--color-text-primary)]">Edit {workflow.name}</h2>
 				<div class="mt-1 flex flex-wrap items-center gap-2 text-xs text-[var(--color-text-muted)]">
 					<span
-						class="rounded bg-[var(--color-surface-tertiary)] px-1.5 py-0.5 uppercase tracking-wide"
-						data-testid="workflow-visibility">{workflow.visibility ?? "system"}</span
+						class="rounded px-1.5 py-0.5 uppercase tracking-wide {provenance.className}"
+						title={provenance.title}
+						data-testid="workflow-visibility">{provenance.label}</span
 					>
 					{#if versions.length > 0}
 						<span data-testid="workflow-version">v{versions[versions.length - 1].version}</span>
