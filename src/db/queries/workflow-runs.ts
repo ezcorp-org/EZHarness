@@ -288,15 +288,19 @@ export async function upsertWorkflowStepRun(
   const errorCode = row.errorCode ?? null;
   const resolvedInput = row.resolvedInput ?? null;
   const skippedReason = row.skippedReason ?? null;
-  // Derived from the three columns above rather than passed in, so the
-  // cost is always a function of the tokens actually recorded and cannot
-  // be set independently of them.
+  // Derived from `row`'s own `provider` / `model` / `inputTokens` /
+  // `outputTokens` rather than passed in, so the cost is always a function
+  // of the tokens actually recorded and cannot be set independently of
+  // them. Advisory: it is for display and analysis, never a bound.
   //
   // NULL here means the cost could not be MEASURED — it never means
   // "free". A `tool` / `transform` / `gate` step reports no tokens, so it
   // prices as NULL while its real-world cost is simply unmeasured; an
-  // unpriced (OAuth-subscription) model prices as NULL too. Anything
-  // summing this column therefore bounds LLM spend and nothing else. See
+  // unpriced (OAuth-subscription) model prices as NULL too. Tokens reach
+  // this function only from an `agentRun`
+  // (`runtime/workflow-executor.ts:1747-1764`), so `SUM(cost_usd)`
+  // describes LLM spend and nothing else — least of all `tool` steps, the
+  // one kind that reaches an external side effect with a real bill. See
   // {@link stepCostUsd}, which owns that distinction.
   const costUsd = stepCostUsd(row);
   await getDb()

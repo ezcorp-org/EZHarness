@@ -2,12 +2,14 @@
  * `stepCostUsd` — the composition that turns a step row's
  * provider/model/tokens into the `cost_usd` column.
  *
- * The property this file exists to protect is the one a spend cap depends
- * on: **NULL and "0.000000" are different answers.** NULL says a cost
- * could not be measured (no LLM ran, no usage reported, or the model is
- * unpriced); "0.000000" says it was measured and was free. Collapsing them
- * either way makes `SUM(cost_usd)` lie — in one direction it invents spend
- * that never happened, in the other it silently drops a bound.
+ * The property this file exists to protect: **NULL and "0.000000" are
+ * different answers.** NULL says a cost could not be measured (no LLM ran,
+ * no usage reported, or the model is unpriced); "0.000000" says it was
+ * measured and was free. Collapsing them either way makes `SUM(cost_usd)`
+ * lie — in one direction it invents spend that never happened, in the
+ * other it erases a real measurement. The value is advisory (display and
+ * analysis); that is precisely why it has to be honest, since no
+ * enforcement path will ever catch it being wrong.
  *
  * Rates are INJECTED rather than read from the live catalog for the
  * arithmetic cases, so a pi-ai price change cannot turn a correctness test
@@ -61,8 +63,8 @@ describe("a cost is only produced when one could be measured", () => {
   test("an unpriced model yields null, NOT a zero cost", () => {
     // THE row this file exists for. An OAuth-subscription model has no
     // per-token price at all, so "$0.00" would be a fabricated
-    // measurement. A spend cap reading 0 here would believe the step was
-    // free; reading NULL it knows it cannot bound this step.
+    // measurement. A reader seeing 0 would believe the step was free;
+    // seeing NULL it knows the step was never priceable.
     const cost = stepCostUsd(
       { provider: "openai-codex", model: "m", inputTokens: 5000, outputTokens: 900 },
       UNPRICED,
@@ -85,8 +87,9 @@ describe("a cost is only produced when one could be measured", () => {
 
   test("no reported tokens at all yields null — a tool/transform/gate step", () => {
     // These steps run no LLM. Their real-world cost is not zero, it is
-    // unmeasured, and pricing them as 0 would let a cap that sums this
-    // column report a bound it does not actually enforce.
+    // unmeasured — and a `tool` step is exactly the kind that reaches an
+    // external side effect with a real bill. Pricing them as 0 would let
+    // `SUM(cost_usd)` read as total spend when it is only LLM spend.
     expect(stepCostUsd({ provider: "anthropic", model: "m" }, PRICED)).toBeNull();
     expect(
       stepCostUsd({ provider: "anthropic", model: "m", inputTokens: null, outputTokens: null }, PRICED),

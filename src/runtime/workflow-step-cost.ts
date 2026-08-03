@@ -16,6 +16,14 @@
  * next to `priceSegment` is how two answers to "what did this cost" get
  * born, and they only ever disagree in production.
  *
+ * ## What this value is FOR
+ *
+ * Display and analysis. It is **advisory** — delegated execution enforces
+ * on TOKENS, and cost is derived from them. Nothing should refuse work on
+ * `SUM(cost_usd)`; the NULL cases below are structural, not transient, so
+ * a limit built on this column would be quietly unenforceable rather than
+ * loudly wrong. Nothing here is named as a bound for that reason.
+ *
  * ## NULL is a real answer and it is NOT zero
  *
  * This returns `null` — never `"0"` — whenever a cost could not be
@@ -24,10 +32,12 @@
  *
  *   1. **No LLM ran.** `tool` / `transform` / `gate` steps report no
  *      tokens at all, so there is nothing to price. **Their real-world
- *      cost is not zero — it is unmeasured.** A spend cap summing this
- *      column bounds LLM spend and nothing else; anything that treats
- *      `SUM(cost_usd)` as total spend is wrong about tool steps, and
- *      coercing this to 0 would hide that instead of surfacing it.
+ *      cost is not zero — it is unmeasured.** Tokens reach a step row
+ *      only from an `agentRun` (`workflow-executor.ts:1747-1764`), so
+ *      `SUM(cost_usd)` describes LLM spend and nothing else — least of
+ *      all `tool` steps, the one kind that reaches an external side
+ *      effect with a real bill. Coercing this to 0 would hide that
+ *      instead of surfacing it.
  *   2. **The provider reported no usage** — a cached response, a stream
  *      that errored mid-flight. The call happened; the measurement did
  *      not.

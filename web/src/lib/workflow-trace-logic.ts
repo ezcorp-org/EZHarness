@@ -129,6 +129,18 @@ export const COST_UNAVAILABLE_HINT =
   "A dash means the cost could not be measured — a step that ran no model, a provider that reported no usage, or a subscription model with no per-token price. It does not mean the step was free.";
 
 /**
+ * The tooltip for ONE cost cell: the hint on a dash, nothing on a figure.
+ *
+ * Now that real costs land in this column, hanging "a dash means…" off a
+ * cell reading `$0.1235` would describe a state that cell is not in. The
+ * column header keeps the hint unconditionally, which is where a reader
+ * looks for what the column means.
+ */
+export function costCellHint(costUsd: string | null): string | undefined {
+  return formatCost(costUsd) === NOT_REPORTED ? COST_UNAVAILABLE_HINT : undefined;
+}
+
+/**
  * Whether a run is still going, in any sense.
  *
  * `suspended` counts: a parked run is alive and answerable, and the trace

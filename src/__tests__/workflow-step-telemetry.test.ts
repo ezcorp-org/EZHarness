@@ -364,9 +364,12 @@ describe("cost_usd is written, and NULL still means unmeasurable", () => {
     // The row this change exists to get right. An OAuth-subscription
     // model is rate-limited rather than billed per token, so it arrives
     // with an all-zero rate table and there is no cost to record. A "0"
-    // here would tell a spend cap the step was free; NULL tells it the
-    // step cannot be bounded. `claude-opus-5` is genuinely unpriced in the
-    // catalog this repo resolves against.
+    // here would report the step as measured-and-free; NULL reports it as
+    // never priceable. `claude-opus-5` is genuinely unpriced in the
+    // catalog this repo resolves against (`modelPrices("anthropic",
+    // "claude-opus-5")` is all zeros) — if pi-ai ever prices it, THIS
+    // assertion is the one that goes red, and the fix is a different
+    // unpriced id, not a weakened assertion.
     const { wf } = scriptedExecutor([
       { inputTokens: 1_000_000, outputTokens: 500_000, provider: "anthropic", model: "claude-opus-5" },
     ]);
@@ -382,8 +385,9 @@ describe("cost_usd is written, and NULL still means unmeasurable", () => {
   test("a tool step leaves cost_usd NULL — unmeasured, not free", async () => {
     // A tool step runs no LLM, so it reports no tokens and prices as
     // NULL. Its real-world cost is NOT zero; it is simply not measured
-    // here. Anything summing this column therefore bounds LLM spend and
-    // nothing else, and this row is what keeps that visible.
+    // here — and a tool step is the one kind that reaches an external side
+    // effect with a real bill. `SUM(cost_usd)` therefore describes LLM
+    // spend and nothing else, and this row is what keeps that visible.
     const { wf } = scriptedExecutor([], {
       toolHandler: () => ({ content: [{ type: "text", text: "{}" }], isError: false }),
     });

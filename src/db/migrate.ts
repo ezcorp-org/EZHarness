@@ -2358,7 +2358,10 @@ export async function migrate(db: any): Promise<void> {
   // zero cost reads as a measurement rather than as a gap.
   //
   // `cost_usd` is NUMERIC, not DOUBLE PRECISION — a dashboard that sums
-  // floats accumulates error, and C3's per-job spend cap reads it.
+  // floats accumulates error, and this column is summed for display. The
+  // value is ADVISORY (delegated execution enforces on tokens); see
+  // `workflowStepRuns.costUsd` in `schema.ts` for why NULL here can never
+  // be read as "free".
   await db.execute(sql`ALTER TABLE workflow_step_runs ADD COLUMN IF NOT EXISTS attempt INTEGER`);
   await db.execute(sql`ALTER TABLE workflow_step_runs ADD COLUMN IF NOT EXISTS input_tokens INTEGER`);
   await db.execute(sql`ALTER TABLE workflow_step_runs ADD COLUMN IF NOT EXISTS output_tokens INTEGER`);

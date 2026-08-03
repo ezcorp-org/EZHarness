@@ -3,7 +3,7 @@
  *
  * The theme of this file is the NULL/zero distinction. Every telemetry
  * column is nullable and NULL means "not measured" — a provider that
- * omitted usage, a step that ran no LLM, a cost nothing can compute yet.
+ * omitted usage, a step that ran no LLM, a model with no per-token price.
  * A formatter that rendered those as `0` would turn a gap into a
  * measurement with no way for the reader to tell, so each one is asserted
  * against BOTH null and a genuine zero.
@@ -11,6 +11,8 @@
 import { test, expect, describe } from "vitest";
 import {
 	canRetryFrom,
+	COST_UNAVAILABLE_HINT,
+	costCellHint,
 	dagRanks,
 	formatCost,
 	formatDuration,
@@ -112,13 +114,23 @@ describe("formatDuration", () => {
 });
 
 describe("formatCost", () => {
-	test("renders a dash for NULL — which is every row today", () => {
-		// There is no price table, so nothing can compute a cost honestly.
-		// A "$0.0000" here would be a claim that the run was free.
+	test("renders a dash for NULL — 'not measured', never 'free'", () => {
+		// NULL is what `stepCostUsd` returns when no cost could be MEASURED:
+		// a step that ran no LLM, a provider that reported no usage, or an
+		// unpriced subscription model. A "$0.0000" here would be a claim
+		// that the step was measured and was free.
 		expect(formatCost(null)).toBe(NOT_REPORTED);
 	});
 
-	test("formats a real numeric cost when one eventually exists", () => {
+	test("a measured zero renders as a real $0.0000, distinct from the dash", () => {
+		// The other side of the same coin: a PRICED model that consumed
+		// nothing records "0.000000", and that zero is data. Collapsing it
+		// into the dash would erase the distinction the column exists for.
+		expect(formatCost("0.000000")).toBe("$0.0000");
+		expect(formatCost("0.000000")).not.toBe(formatCost(null));
+	});
+
+	test("formats a real numeric cost", () => {
 		// NUMERIC arrives from the driver as a string, so this must not
 		// assume a number.
 		expect(formatCost("0.123456")).toBe("$0.1235");
@@ -127,6 +139,24 @@ describe("formatCost", () => {
 
 	test("falls back to the dash rather than rendering NaN", () => {
 		expect(formatCost("not-a-number")).toBe(NOT_REPORTED);
+	});
+});
+
+describe("costCellHint", () => {
+	test("hints only on the dash, never on a rendered figure", () => {
+		// "A dash means the cost could not be measured" hanging off a cell
+		// reading $0.1235 describes a state that cell is not in. Now that
+		// real costs land in this column, that is a live wrong tooltip.
+		expect(costCellHint(null)).toBe(COST_UNAVAILABLE_HINT);
+		expect(costCellHint("not-a-number")).toBe(COST_UNAVAILABLE_HINT);
+		expect(costCellHint("0.123456")).toBeUndefined();
+	});
+
+	test("a MEASURED zero gets no hint — it is a figure, not a gap", () => {
+		// The whole NULL/zero distinction, expressed in the UI: "$0.0000"
+		// must not carry the "could not be measured" tooltip that NULL does.
+		expect(costCellHint("0.000000")).toBeUndefined();
+		expect(costCellHint("0.000000")).not.toBe(costCellHint(null));
 	});
 });
 
