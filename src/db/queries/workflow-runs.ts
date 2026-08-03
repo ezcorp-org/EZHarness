@@ -15,7 +15,12 @@
  */
 import { and, desc, eq, gte, inArray, isNull, lt, lte, or, sql, type SQL } from "drizzle-orm";
 import { getDb } from "../connection";
-import { workflowRuns, workflowStepRuns, type TruncatedStepOutput } from "../schema";
+import {
+  workflowDelegations,
+  workflowRuns,
+  workflowStepRuns,
+  type TruncatedStepOutput,
+} from "../schema";
 import type { AgentResult, WorkflowCursor, WorkflowRunStatus } from "../../types";
 import {
   isTruncatedStepOutput,
@@ -97,6 +102,28 @@ export interface NewWorkflowRunInput {
    * never be able to reopen that question.
    */
   jobRef?: string | null;
+  /**
+   * The `workflow_delegations` row this run executes under — C3, and the
+   * ONE scope gate for the step-boundary token check.
+   *
+   * NULL for every run that is not delegated, which is every run on the
+   * tree today. That is not a placeholder: the executor's boundary hook
+   * fires only when this is non-null, so a normal run takes ZERO extra
+   * queries per boundary.
+   *
+   * Unlike {@link NewWorkflowRunInput.jobRef} this is NOT inert — it is
+   * read back (by id) at every boundary of the run it starts, and at
+   * resume time by the `budget-exceeded` / `consent-stale` rows of
+   * `runtime/workflow-resume-reasons.ts`. It is still not a claim of
+   * authority: the delegation was resolved host-side before the run
+   * started, and pointing at one cannot grant what the ladder that
+   * started the run did not.
+   *
+   * `run_as_kind` / `run_as` are deliberately NOT written here. They are
+   * the audit snapshot of the principal, they belong to the handler that
+   * resolves it, and nothing in the executor reads them.
+   */
+  delegationId?: string | null;
 }
 
 /**
@@ -121,6 +148,7 @@ export async function insertWorkflowRun(row: NewWorkflowRunInput): Promise<void>
     parentRunId: row.parentRunId ?? null,
     idempotencyKey: row.idempotencyKey ?? null,
     jobRef: row.jobRef ?? null,
+    delegationId: row.delegationId ?? null,
   });
 }
 
@@ -188,6 +216,139 @@ export async function workflowRunNestingDepth(
     cursor = rows[0]?.parentRunId ?? null;
   }
   return depth;
+}
+
+/**
+ * Total LLM tokens (input + output) recorded against one run's step rows.
+ *
+ * ## Why this exists at all, when the trace already computes a total
+ *
+ * `runtime/workflow-run-trace.ts` already sums these columns per run
+ * (`totals.inputTokens` / `totals.outputTokens`, via its `sumOrNull`), and
+ * NOT storing that rollup is a deliberate decision recorded there: *"a
+ * stored rollup drifts the moment a step row is corrected"*. Nothing here
+ * revisits that — there is still no stored total and no generated column,
+ * and this function computes the same thing from the same rows.
+ *
+ * It is a separate function on **performance grounds only**. The trace's
+ * path is `listWorkflowStepRunRows`, a bare `SELECT *` that ships every
+ * column of every step row — including `output` and `resolved_input`,
+ * which are capped at 128 KiB apiece — and the C3 budget check fires at
+ * EVERY step boundary of a delegated run rather than once per page view.
+ * Reading a whole run's outputs back over the wire to add two integers,
+ * once per batch, is the regression this avoids. If that argument ever
+ * stops holding, delete this and call the trace's path: what must NOT
+ * happen is a second aggregation that disagrees with the trace about the
+ * same run's totals.
+ *
+ * ## `workflow_step_iterations` is deliberately NOT summed
+ *
+ * `runLoop` accumulates each iteration's usage ONTO the parent step row
+ * (`runtime/workflow-executor.ts`, `stepRun.inputTokens = (stepRun.inputTokens ?? 0) + …`),
+ * and then ALSO writes the per-iteration child row. The two tables are a
+ * rollup and its detail, not two disjoint sets — so summing both
+ * double-counts every looped agent step. Pinned by a looped-workflow test.
+ *
+ * ## Returns 0, where the trace returns null
+ *
+ * The trace preserves "nothing reported" as `null` so it can render "not
+ * reported" instead of claiming a run was free. A CEILING has no use for
+ * that distinction — "no tokens reported" and "zero tokens" are the same
+ * answer to "is this run over its budget?" — and a nullable return would
+ * push a `?? 0` onto every caller, which is where a fail-OPEN would
+ * eventually be written by accident. The SQL `COALESCE`s per column so a
+ * step that reported only input tokens still contributes them.
+ *
+ * Served by `uniq_workflow_step_run` on `(workflow_run_id, step_name)`,
+ * whose leading column is this WHERE — no second index is needed.
+ */
+export async function sumWorkflowRunTokens(workflowRunId: string): Promise<number> {
+  const rows = await getDb()
+    .select({
+      total: sql<string | number | null>`COALESCE(SUM(COALESCE(${workflowStepRuns.inputTokens}, 0) + COALESCE(${workflowStepRuns.outputTokens}, 0)), 0)`,
+    })
+    .from(workflowStepRuns)
+    .where(eq(workflowStepRuns.workflowRunId, workflowRunId));
+  // `SUM()` over `integer` is `bigint` in Postgres, which both drivers
+  // hand back as a STRING to avoid a lossy 53-bit cast. `Number(null)` is
+  // 0 and `Number("")` is 0, so the fallback below is for a zero-row read
+  // (impossible for an aggregate without GROUP BY, but this function is a
+  // ceiling and must not return NaN if that ever changes).
+  const total = Number(rows[0]?.total ?? 0);
+  return Number.isFinite(total) ? total : 0;
+}
+
+/**
+ * The delegation a run executes under, as the two facts a run-scoped
+ * ceiling needs: what it may spend, and whether the authority still
+ * stands.
+ *
+ * Returns `null` when the run has no delegation (every run today), when
+ * the run does not exist, and when the delegation it pointed at has been
+ * deleted — `workflow_runs.delegation_id` is `ON DELETE SET NULL`, so
+ * "deleted" and "never had one" are the same read, and both mean "this
+ * table can say nothing about that run's budget".
+ *
+ * ## Read at the decision point, never carried
+ *
+ * This is the nesting-depth precedent ({@link workflowRunNestingDepth}),
+ * not the tool-call one. The tool-call ceiling
+ * (`extensions/tool-executor/limits.ts`) counts in an in-memory Map, so a
+ * suspend/resume refunds it — which is fine for "stop a runaway loop" and
+ * useless as a SPEND bound: a cron job that parks and resumes every cycle
+ * would get its budget back every cycle. Both values here come out of the
+ * database every time they are consulted, so a resume cannot reset them
+ * and raising the cap takes effect on the next boundary.
+ */
+export interface WorkflowRunDelegationBudget {
+  delegationId: string;
+  /**
+   * `workflow_delegations.max_tokens_per_run` — TOKENS, never cents. Cost
+   * is derived, displayed and advisory; an unpriced (OAuth-subscription)
+   * model reports a null price and would spend without bound under a cost
+   * cap. `NOT NULL` in the schema: there is deliberately no "unlimited".
+   */
+  maxTokensPerRun: number;
+  /** `enabled AND revoked_at IS NULL` — the same liveness every other
+   *  delegation lookup filters on, surfaced rather than filtered so a
+   *  caller can tell "revoked" from "never had one". */
+  live: boolean;
+  /** When the human last consented. Compared against {@link runStartedAt}
+   *  by the `consent-stale` resume rule. */
+  consentedAt: Date;
+  /** The run's own `started_at`, read in the same round trip because the
+   *  `consent-stale` predicate needs both and its context carries only a
+   *  run id. */
+  runStartedAt: Date;
+}
+
+export async function readWorkflowRunDelegationBudget(
+  workflowRunId: string,
+): Promise<WorkflowRunDelegationBudget | null> {
+  const rows = await getDb()
+    .select({
+      delegationId: workflowDelegations.id,
+      maxTokensPerRun: workflowDelegations.maxTokensPerRun,
+      enabled: workflowDelegations.enabled,
+      revokedAt: workflowDelegations.revokedAt,
+      consentedAt: workflowDelegations.consentedAt,
+      runStartedAt: workflowRuns.startedAt,
+    })
+    .from(workflowRuns)
+    // INNER join, deliberately: a run whose `delegation_id` is NULL must
+    // produce no row at all rather than a row full of nulls that a caller
+    // could mistake for "delegated, no cap".
+    .innerJoin(workflowDelegations, eq(workflowRuns.delegationId, workflowDelegations.id))
+    .where(eq(workflowRuns.id, workflowRunId));
+  const row = rows[0];
+  if (row === undefined) return null;
+  return {
+    delegationId: row.delegationId,
+    maxTokensPerRun: row.maxTokensPerRun,
+    live: row.enabled && row.revokedAt === null,
+    consentedAt: row.consentedAt,
+    runStartedAt: row.runStartedAt,
+  };
 }
 
 /**
