@@ -33,8 +33,10 @@ test.describe("Canvas Dock — responsive <main> width", () => {
 		expect(widthBefore).toBeGreaterThan(0);
 
 		await page.locator("textarea").fill("Open canvas");
-		await page.locator("textarea").press("Enter");
-		await page.waitForResponse((r) => r.url().includes("/messages") && r.request().method() === "POST");
+		await Promise.all([
+			page.waitForResponse((r) => r.url().includes("/messages") && r.request().method() === "POST"),
+			page.locator("textarea").press("Enter"),
+		]);
 
 		await emitWs({
 			type: "tool:complete",
@@ -78,8 +80,10 @@ test.describe("Canvas Dock — responsive <main> width", () => {
 		const main = page.locator("main").first();
 
 		await page.locator("textarea").fill("Open canvas");
-		await page.locator("textarea").press("Enter");
-		await page.waitForResponse((r) => r.url().includes("/messages") && r.request().method() === "POST");
+		await Promise.all([
+			page.waitForResponse((r) => r.url().includes("/messages") && r.request().method() === "POST"),
+			page.locator("textarea").press("Enter"),
+		]);
 
 		await emitWs({
 			type: "tool:complete",

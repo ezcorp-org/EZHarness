@@ -72,8 +72,10 @@ test.describe(
       // to rebuild the branch, then streams a turn.
       const textarea = page.locator("textarea");
       await textarea.fill("Say it one more time.");
-      await textarea.press("Enter");
-      await page.waitForResponse((r: any) => r.url().includes("/messages") && r.request().method() === "POST");
+      await Promise.all([
+        page.waitForResponse((r: any) => r.url().includes("/messages") && r.request().method() === "POST"),
+        textarea.press("Enter"),
+      ]);
 
       await emitSse({ type: "run:token", data: { runId: "run-shp", token: REPLY, kind: "text" } });
       await expect(page.getByText(REPLY)).toBeVisible({ timeout: 8000 });

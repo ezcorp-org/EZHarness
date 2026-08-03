@@ -89,10 +89,12 @@ test.describe.skip("Long conversation no longer dead-ends on context_length_exce
 
 		const textarea = page.locator("textarea");
 		await textarea.fill("Given everything above, summarize.");
-		await textarea.press("Enter");
-		await page.waitForResponse(
-			(r: any) => r.url().includes("/messages") && r.request().method() === "POST",
-		);
+		await Promise.all([
+			page.waitForResponse(
+				(r: any) => r.url().includes("/messages") && r.request().method() === "POST",
+			),
+			textarea.press("Enter"),
+		]);
 	}
 
 	test("huge thread → normal streamed reply, no Codex overflow card, composer stays usable", async ({

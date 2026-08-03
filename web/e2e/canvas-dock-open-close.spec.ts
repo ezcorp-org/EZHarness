@@ -35,8 +35,10 @@ test.describe("Canvas Dock — open/close + sidebar restore", () => {
 
 		const textarea = page.locator("textarea");
 		await textarea.fill("Open the canvas");
-		await textarea.press("Enter");
-		await page.waitForResponse((r: any) => r.url().includes("/messages") && r.request().method() === "POST");
+		await Promise.all([
+			page.waitForResponse((r: any) => r.url().includes("/messages") && r.request().method() === "POST"),
+			textarea.press("Enter"),
+		]);
 
 		await emitWs({
 			type: "tool:start",

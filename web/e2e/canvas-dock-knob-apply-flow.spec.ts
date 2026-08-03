@@ -99,10 +99,12 @@ test.describe("Canvas Dock — knob Apply flow", () => {
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
 		await page.locator("textarea").fill("Open canvas");
-		await page.locator("textarea").press("Enter");
-		await page.waitForResponse(
-			(r) => r.url().includes("/messages") && r.request().method() === "POST",
-		);
+		await Promise.all([
+			page.waitForResponse(
+				(r) => r.url().includes("/messages") && r.request().method() === "POST",
+			),
+			page.locator("textarea").press("Enter"),
+		]);
 
 		// Stream the open-canvas completion. The new payload includes the
 		// fields the apply-banner UI consumes (originalTokensBlock,
@@ -259,10 +261,12 @@ test.describe("Canvas Dock — knob Apply flow", () => {
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
 		await page.locator("textarea").fill("Open canvas");
-		await page.locator("textarea").press("Enter");
-		await page.waitForResponse(
-			(r) => r.url().includes("/messages") && r.request().method() === "POST",
-		);
+		await Promise.all([
+			page.waitForResponse(
+				(r) => r.url().includes("/messages") && r.request().method() === "POST",
+			),
+			page.locator("textarea").press("Enter"),
+		]);
 
 		await emitWs({
 			type: "tool:complete",

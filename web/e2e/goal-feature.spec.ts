@@ -111,10 +111,12 @@ test.describe.skip("/goal Phase 2 — chip + cards + SSE-driven loop", () => {
 		// non-null runId (skeleton appears) AND a goal:update frame.
 		const textarea = page.locator("textarea");
 		await textarea.fill("/goal ship the chip");
-		await textarea.press("Enter");
-		await page.waitForResponse(
-			(r: any) => r.url().includes("/messages") && r.request().method() === "POST",
-		);
+		await Promise.all([
+			page.waitForResponse(
+				(r: any) => r.url().includes("/messages") && r.request().method() === "POST",
+			),
+			textarea.press("Enter"),
+		]);
 
 		// SSE: the goal-host emitted goal:update{active}. The chip
 		// appears via the window CustomEvent re-dispatch.
@@ -149,8 +151,10 @@ test.describe.skip("/goal Phase 2 — chip + cards + SSE-driven loop", () => {
 		// reason from the second one surfaces in the inline status card
 		// (the user explicitly fetches one via /goal at the end).
 		await page.locator("textarea").fill("/goal keep refactoring");
-		await page.locator("textarea").press("Enter");
-		await page.waitForResponse((r: any) => r.url().includes("/messages") && r.request().method() === "POST");
+		await Promise.all([
+			page.waitForResponse((r: any) => r.url().includes("/messages") && r.request().method() === "POST"),
+			page.locator("textarea").press("Enter"),
+		]);
 
 		// First turn's run:complete + evaluator reason.
 		await emitSse({
@@ -195,8 +199,10 @@ test.describe.skip("/goal Phase 2 — chip + cards + SSE-driven loop", () => {
 		await gotoChat(page, mockApi);
 
 		await page.locator("textarea").fill("/goal short and sweet");
-		await page.locator("textarea").press("Enter");
-		await page.waitForResponse((r: any) => r.url().includes("/messages") && r.request().method() === "POST");
+		await Promise.all([
+			page.waitForResponse((r: any) => r.url().includes("/messages") && r.request().method() === "POST"),
+			page.locator("textarea").press("Enter"),
+		]);
 
 		// Chip armed.
 		await emitSse({
@@ -244,8 +250,10 @@ test.describe.skip("/goal Phase 2 — chip + cards + SSE-driven loop", () => {
 		// no streaming turn fires. We assert the absence of the
 		// skeleton plus the presence of the status card.
 		await page.locator("textarea").fill("/goal");
-		await page.locator("textarea").press("Enter");
-		await page.waitForResponse((r: any) => r.url().includes("/messages") && r.request().method() === "POST");
+		await Promise.all([
+			page.waitForResponse((r: any) => r.url().includes("/messages") && r.request().method() === "POST"),
+			page.locator("textarea").press("Enter"),
+		]);
 
 		await expect(page.locator('[data-goal-kind="status"]')).toBeVisible({ timeout: 4000 });
 		// The streaming-turn skeleton MUST NOT appear.
@@ -261,8 +269,10 @@ test.describe.skip("/goal Phase 2 — chip + cards + SSE-driven loop", () => {
 
 		// Arm first so we have something to clear.
 		await page.locator("textarea").fill("/goal x");
-		await page.locator("textarea").press("Enter");
-		await page.waitForResponse((r: any) => r.url().includes("/messages") && r.request().method() === "POST");
+		await Promise.all([
+			page.waitForResponse((r: any) => r.url().includes("/messages") && r.request().method() === "POST"),
+			page.locator("textarea").press("Enter"),
+		]);
 		await emitSse({
 			type: "goal:update",
 			data: { conversationId: "conv-goal", state: "active", condition: "x", armedAt: Date.now() },
@@ -271,8 +281,10 @@ test.describe.skip("/goal Phase 2 — chip + cards + SSE-driven loop", () => {
 
 		// Clear via the canonical command.
 		await page.locator("textarea").fill("/goal clear");
-		await page.locator("textarea").press("Enter");
-		await page.waitForResponse((r: any) => r.url().includes("/messages") && r.request().method() === "POST");
+		await Promise.all([
+			page.waitForResponse((r: any) => r.url().includes("/messages") && r.request().method() === "POST"),
+			page.locator("textarea").press("Enter"),
+		]);
 		await emitSse({
 			type: "goal:update",
 			data: { conversationId: "conv-goal", state: "off" },
@@ -283,8 +295,10 @@ test.describe.skip("/goal Phase 2 — chip + cards + SSE-driven loop", () => {
 
 		// Re-arm so we can test the `stop` alias separately.
 		await page.locator("textarea").fill("/goal y");
-		await page.locator("textarea").press("Enter");
-		await page.waitForResponse((r: any) => r.url().includes("/messages") && r.request().method() === "POST");
+		await Promise.all([
+			page.waitForResponse((r: any) => r.url().includes("/messages") && r.request().method() === "POST"),
+			page.locator("textarea").press("Enter"),
+		]);
 		await emitSse({
 			type: "goal:update",
 			data: { conversationId: "conv-goal", state: "active", condition: "y", armedAt: Date.now() },
@@ -292,8 +306,10 @@ test.describe.skip("/goal Phase 2 — chip + cards + SSE-driven loop", () => {
 		await expect(page.locator('[data-testid="goal-pill"]')).toBeVisible();
 
 		await page.locator("textarea").fill("/goal stop");
-		await page.locator("textarea").press("Enter");
-		await page.waitForResponse((r: any) => r.url().includes("/messages") && r.request().method() === "POST");
+		await Promise.all([
+			page.waitForResponse((r: any) => r.url().includes("/messages") && r.request().method() === "POST"),
+			page.locator("textarea").press("Enter"),
+		]);
 		await emitSse({
 			type: "goal:update",
 			data: { conversationId: "conv-goal", state: "off" },
@@ -311,8 +327,10 @@ test.describe.skip("/goal Phase 2 — chip + cards + SSE-driven loop", () => {
 		await gotoChat(page, mockApi);
 
 		await page.locator("textarea").fill("/goal long task");
-		await page.locator("textarea").press("Enter");
-		await page.waitForResponse((r: any) => r.url().includes("/messages") && r.request().method() === "POST");
+		await Promise.all([
+			page.waitForResponse((r: any) => r.url().includes("/messages") && r.request().method() === "POST"),
+			page.locator("textarea").press("Enter"),
+		]);
 		await emitSse({
 			type: "goal:update",
 			data: { conversationId: "conv-goal", state: "active", condition: "long task", armedAt: Date.now() },
@@ -392,11 +410,14 @@ test.describe.skip("/goal Phase 2 — chip + cards + SSE-driven loop", () => {
 		await gotoChat(page, mockApi);
 
 		await page.locator("textarea").fill("/goal stream me");
-		await page.locator("textarea").press("Enter");
-
-		// The POST resolved with a non-null runId (the mockApi default
-		// returns one for any plain content POST — see fixtures).
-		await page.waitForResponse((r: any) => r.url().includes("/messages") && r.request().method() === "POST");
+		// The POST resolves with a non-null runId (the mockApi default
+		// returns one for any plain content POST — see fixtures). The waiter
+		// is armed WITH the keypress: registered after it, it can miss its own
+		// response and then block for the full test timeout.
+		await Promise.all([
+			page.waitForResponse((r: any) => r.url().includes("/messages") && r.request().method() === "POST"),
+			page.locator("textarea").press("Enter"),
+		]);
 
 		// A token frame arrives — the streaming skeleton gives way
 		// to actual text. This is the proof set fell through to
