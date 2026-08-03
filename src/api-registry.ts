@@ -260,5 +260,25 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "GET", path: "/api/favicon", description: "Get application favicon", category: "system" },
   { method: "GET", path: "/api/audit-log", description: "List audit log entries (admin)", category: "admin" },
   { method: "GET", path: "/api/admin/analytics/routing", description: "Routing + cost analytics: routed-vs-pinned share, tier mix, failover rate, mid-conversation model switches, A/B retry rate, and priced spend per provider+model (admin)", category: "admin", scope: "admin", responseDescription: "{ days, turns: { total, routed, pinned, legacy }, routedShare, tierMix, failover, switches, retries, spend: { segments, routedUsd, pinnedUsd, legacyUsd, totalUsd, unpricedTurns, unpricedTokens, conversations, usdPerConversation } }" },
+
+  // ── Admin console + audit feeds ───────────────────────────────────────
+  // All eight gate on BOTH axes: `requireScope(locals,"admin")` followed by
+  // `requireRole(locals,"admin")`, so a member cookie and a non-admin key are
+  // both rejected. Registered from the handlers, not from intent.
+  { method: "GET", path: "/api/admin/sessions", description: "List every live session across all users (admin), optionally filtered by ?userId — carries userAgent + ipAddress per row", category: "admin", scope: "admin", responseDescription: "{ sessions: [{ id, userId, userName, userEmail, userAgent, ipAddress, lastActiveAt, createdAt }] }" },
+  { method: "DELETE", path: "/api/admin/sessions", description: "Force-logout: revoke one session by { sessionId } or every session of a user by { userId } (admin)", category: "admin", scope: "admin", responseDescription: "{ success: true, revokedCount? }" },
+  { method: "GET", path: "/api/admin/analytics", description: "Admin dashboard aggregates over the last ?days (clamped 1–365): chat activity, model usage, agent/extension/user stats, and tool usage by tool/agent/user/model", category: "admin", scope: "admin" },
+  { method: "GET", path: "/api/admin/system", description: "Admin dashboard system panel: health, activity feed, and error summary", category: "admin", scope: "admin", responseDescription: "{ health, activityFeed, errorSummary }" },
+  { method: "GET", path: "/api/admin/errors", description: "Paginated error-log feed (?limit clamped 1–500, ?offset ≥ 0) for the admin dashboard", category: "admin", scope: "admin", responseDescription: "{ errors, total }" },
+  { method: "GET", path: "/api/admin/embed-progress", description: "Read-only message-embedding backfill progress — the same source the backfill CLI's --status flag reads", category: "admin", scope: "admin" },
+  { method: "GET", path: "/api/audit", description: "Global cross-extension audit feed (sdk_capability_calls + governance rows), cursor-paginated; filters ?extensionId ?capability ?action ?onBehalfOf ?denialOnly ?search ?limit (clamped 1–200)", category: "admin", scope: "admin", responseDescription: "{ entries, nextCursor }" },
+  { method: "GET", path: "/api/audit/stats", description: "Headline audit aggregates for ?range=24h|7d|30d (unknown values fall back to 24h): denial count, total calls, total cost, top-3 chattiest extensions, top-3 LLM spenders", category: "admin", scope: "admin" },
+
   { method: "GET", path: "/api/fs/list", description: "List files in a directory", category: "system" },
+  // Gate is `requireScope(locals,"read")` + an INLINE `user.role !== "admin"`
+  // check — NOT requireAdmin/requireRole, so the admin-gate pairing scan in
+  // route-contract.test.ts cannot see it. Declared scope mirrors the handler:
+  // "read" is genuinely what the key axis demands, even though the call
+  // MUTATES the filesystem. See the reconciliation findings.
+  { method: "POST", path: "/api/fs/mkdir", description: "Create a directory (recursive) inside the project sandbox — admin ROLE required, but the API-key scope gate is only `read`; the target's nearest existing ancestor is realpath-checked against EZCORP_PROJECT_ROOT to block symlink escapes", category: "system", scope: "read", responseDescription: "{ path } (201)" },
 ];
