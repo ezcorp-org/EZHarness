@@ -77,6 +77,97 @@ describe("test-surface gating", () => {
   });
 });
 
+// ───────────────────────────────────────────────────────────────────────────
+// F4 — inline admin gates, the blind spot in the scan above.
+//
+// The pairing scan only ever OPENS files matching `requireScope(_,"admin")` —
+// 28 of 209. A route that enforces admin with a bare `if (user.role !==
+// "admin") return 403` and carries some OTHER scope is invisible to it, so
+// DELETING that `if` would land green. `POST /api/fs/mkdir` and
+// `GET /api/fs/list` are exactly that shape.
+//
+// The hard part is not finding `role` comparisons — 38 files have one. It is
+// telling a GATE from the sec-H3 OWNERSHIP BYPASS idiom, which is 34 of them.
+// A scan that confuses the two drowns in false positives and gets weakened or
+// ignored, which is worse than the gap.
+//
+// THE RULE — a condition is an inline admin GATE iff BOTH hold:
+//   1. it is SOLE: the `if (...)` contains no `&&` / `||`. A compound
+//      condition is the ownership idiom — `row.userId !== user.id &&
+//      user.role !== "admin"` — where admin is an escape hatch from an
+//      ownership check, not the thing being demanded.
+//   2. it is NEGATED: `.role !== "admin"`, the DENY direction. A sole but
+//      POSITIVE `if (user.role === "admin") return true` is an allow/bypass
+//      branch (e.g. `callerOwnsRun` in `api/runs/[id]/+server.ts`), not a gate.
+//
+// Both halves are load-bearing and both are proven, in both directions, by the
+// tests below: the rule must FLAG fs/mkdir and fs/list and must NOT flag any
+// of the ownership-bypass sites.
+// ───────────────────────────────────────────────────────────────────────────
+
+/** Strip comments so prose about `user.role !== "admin"` is never a match. */
+function stripComments(src: string): string {
+  return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
+}
+
+/** Every `if (...)` condition in `src`, paren-balanced. */
+function ifConditions(src: string): string[] {
+  const out: string[] = [];
+  const re = /\bif\s*\(/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(src)) !== null) {
+    let depth = 1;
+    let i = m.index + m[0].length;
+    const start = i;
+    while (i < src.length && depth > 0) {
+      if (src[i] === "(") depth++;
+      else if (src[i] === ")") depth--;
+      i++;
+    }
+    if (depth === 0) out.push(src.slice(start, i - 1));
+  }
+  return out;
+}
+
+const ROLE_VS_ADMIN = /\.role\s*(===|!==|==|!=)\s*["']admin["']/;
+
+/** Does this single `if` condition express a standalone admin DENY gate? */
+function isInlineAdminGate(condition: string): boolean {
+  const m = ROLE_VS_ADMIN.exec(condition);
+  if (!m) return false;
+  if (/&&|\|\|/.test(condition)) return false; // (1) compound ⇒ ownership idiom
+  return m[1] === "!==" || m[1] === "!="; //     (2) negated ⇒ deny direction
+}
+
+/** Route files enforcing admin through an inline gate. */
+function inlineAdminGates(): string[] {
+  const out: string[] = [];
+  for (const rel of new Glob("api/**/+server.ts").scanSync(routesDir)) {
+    const src = stripComments(readFileSync(`${routesDir}/${rel}`, "utf8"));
+    if (ifConditions(src).some(isInlineAdminGate)) out.push(rel);
+  }
+  return out.sort();
+}
+
+/** Route files that compare a role against "admin" ANYWHERE but are NOT
+ *  inline-gated — the ownership-bypass population the rule must leave alone.
+ *
+ *  Deliberately broader than `ifConditions`: a comparison in a ternary, a
+ *  boolean expression or a `.filter()` predicate is still something a sloppier
+ *  rule ("mentions role and admin") would trip over, so it belongs in the
+ *  population this scan is measured against. */
+function ownershipBypassFiles(): string[] {
+  const gates = new Set(inlineAdminGates());
+  const out: string[] = [];
+  for (const rel of new Glob("api/**/+server.ts").scanSync(routesDir)) {
+    const src = stripComments(readFileSync(`${routesDir}/${rel}`, "utf8"));
+    if (!ROLE_VS_ADMIN.test(src)) continue;
+    if (gates.has(rel)) continue;
+    out.push(rel);
+  }
+  return out.sort();
+}
+
 describe("admin-gate pairing (FINDING A regression guard)", () => {
   // requireScope(locals,"admin") is allow-all for cookie sessions (it only
   // gates API-key principals, since locals.apiKeyScopes is undefined for a
@@ -93,15 +184,18 @@ describe("admin-gate pairing (FINDING A regression guard)", () => {
   // counts as a role gate here — a route pairing requireScope(admin) with
   // checkRole(admin) is correctly gated, not a scope-only offender.
   const CHECK_ROLE = /checkRole\s*\(\s*\w+\s*,\s*["']admin["']\s*\)/;
+  /** Files whose role gate is written inline — see the F4 rule above. */
+  const inlineGated = new Set(inlineAdminGates());
 
   // Pre-existing routes that gate on the admin SCOPE without a role check.
   // Surfaced by this very scan. Most are user SELF-SERVICE writes
   // (/api/account*, own developer keys, own team membership) where the
   // scope-admin is a write-gate for API-key principals and the cookie
   // allow-all is intentional — forcing requireRole(admin) there would lock
-  // every member out of their own data. `extensions/[id]/violations` stays
+  // every member out of their own data. `extensions/[id]/violations` USED to sit
   // here because it enforces admin via an INLINE `locals.user?.role !== "admin"`
-  // check the role-regex below can't see (verified safe, not exploitable).
+  // check the role-regexes can't see; `inlineAdminGates()` below now recognises
+  // that shape, so the entry was removed rather than carried as permanent debt.
   // The instance-state routes that genuinely needed role-gating
   // (providers/[provider]/{test,refresh-models}) have been fixed with
   // requireAdmin and removed from this list. FROZEN so a NEW offender fails the
@@ -111,7 +205,6 @@ describe("admin-gate pairing (FINDING A regression guard)", () => {
     "api/account/+server.ts",
     "api/account/password/+server.ts",
     "api/account/sessions/+server.ts",
-    "api/extensions/[id]/violations/+server.ts",
     "api/settings/developer/+server.ts",
     "api/settings/developer/api-keys/+server.ts",
     "api/teams/[id]/members/+server.ts",
@@ -124,6 +217,13 @@ describe("admin-gate pairing (FINDING A regression guard)", () => {
       const src = readFileSync(`${routesDir}/${rel}`, "utf8");
       if (!SCOPE_ADMIN.test(src)) continue;
       if (ROLE_ADMIN.test(src) || REQUIRE_ADMIN.test(src) || CHECK_ROLE.test(src)) continue;
+      // F4: an INLINE `if (user.role !== "admin")` is a real role gate. Before
+      // this clause the scan could not see one, which is why
+      // `extensions/[id]/violations` needed a carve-out and why `fs/mkdir`
+      // would have registered as an offender the moment it gained the admin
+      // scope. `inlineAdminGates()` distinguishes it from the ownership-bypass
+      // idiom; see the rule above.
+      if (inlineGated.has(rel)) continue;
       if (KNOWN_SCOPE_ONLY_ADMIN.has(rel)) continue;
       offenders.push(rel);
     }
@@ -141,10 +241,28 @@ describe("admin-gate pairing (FINDING A regression guard)", () => {
       const src = readFileSync(`${routesDir}/${rel}`, "utf8");
       if (!SCOPE_ADMIN.test(src)) continue;
       if (ROLE_ADMIN.test(src) || REQUIRE_ADMIN.test(src) || CHECK_ROLE.test(src)) continue;
+      // F4: an INLINE `if (user.role !== "admin")` is a real role gate. Before
+      // this clause the scan could not see one, which is why
+      // `extensions/[id]/violations` needed a carve-out and why `fs/mkdir`
+      // would have registered as an offender the moment it gained the admin
+      // scope. `inlineAdminGates()` distinguishes it from the ownership-bypass
+      // idiom; see the rule above.
+      if (inlineGated.has(rel)) continue;
       scopeOnly.add(rel);
     }
     const extra = [...scopeOnly].filter((r) => !KNOWN_SCOPE_ONLY_ADMIN.has(r)).sort();
     expect(extra).toEqual([]);
+  });
+
+  test("an INLINE admin gate counts as a role gate (F4)", () => {
+    // `extensions/[id]/violations` sat in KNOWN_SCOPE_ONLY_ADMIN purely because
+    // its role gate is written inline (`locals.user?.role !== "admin"`) and the
+    // three regexes above cannot see that shape. Now that `inlineAdminGates()`
+    // recognises it, the route is correctly gated on both axes and needs no
+    // carve-out. Asserted rather than just deleted from the list, so the reason
+    // the entry left is recorded.
+    expect(inlineAdminGates()).toContain("api/extensions/[id]/violations/+server.ts");
+    expect(KNOWN_SCOPE_ONLY_ADMIN.has("api/extensions/[id]/violations/+server.ts")).toBe(false);
   });
 
   test("the scan actually matches the patterns it relies on (self-check)", () => {
@@ -162,6 +280,79 @@ describe("admin-gate pairing (FINDING A regression guard)", () => {
     // plain requireScope offender (else scope-only routes would pass).
     expect(CHECK_ROLE.test(safeCheckRole)).toBe(true);
     expect(CHECK_ROLE.test(offending)).toBe(false);
+  });
+});
+
+describe("inline admin gates (F4 — the pairing scan's blind spot)", () => {
+  // FROZEN. Deleting an inline `if (user.role !== "admin")` drops its file from
+  // this list and fails the test BY NAME — which is the whole point: that
+  // deletion is invisible to every other guard in this file.
+  const KNOWN_INLINE_ADMIN_GATES: readonly string[] = [
+    "api/extensions/[id]/violations/+server.ts",
+    "api/fs/list/+server.ts",
+    "api/fs/mkdir/+server.ts",
+  ];
+
+  test("the set of inline-admin-gated routes is EXACTLY the frozen list", () => {
+    expect(inlineAdminGates()).toEqual([...KNOWN_INLINE_ADMIN_GATES]);
+  });
+
+  test("the rule FLAGS the two fs routes (positive direction)", () => {
+    // The named F4 instances. Both carry a NON-admin scope, so the pairing scan
+    // above never opens them.
+    expect(inlineAdminGates()).toContain("api/fs/mkdir/+server.ts");
+    expect(inlineAdminGates()).toContain("api/fs/list/+server.ts");
+  });
+
+  test("the rule flags NONE of the ownership-bypass sites (negative direction)", () => {
+    // The discrimination that makes this scan usable. If the rule degraded to
+    // "mentions role and admin", every one of these would be a false positive.
+    const bypass = ownershipBypassFiles();
+    const gates = new Set(inlineAdminGates());
+    expect(bypass.filter((f) => gates.has(f))).toEqual([]);
+    // …and the bypass population is large, so the assertion above is not
+    // passing merely because there is nothing to confuse the rule with. The
+    // DISCRIMINATION is the number that matters: of every route file that
+    // compares a role against "admin", only a small minority are gates.
+    const population = bypass.length + gates.size;
+    expect(gates.size).toBe(3);
+    expect(population).toBeGreaterThanOrEqual(35);
+    expect(bypass.length).toBe(population - 3);
+  });
+
+  test("known bypass sites are classified as bypasses, by name", () => {
+    const bypass = ownershipBypassFiles();
+    // The sec-H3 compound idiom.
+    expect(bypass).toContain("api/memories/[id]/+server.ts");
+    expect(bypass).toContain("api/conversations/[id]/+server.ts");
+    // The SOLE-but-POSITIVE shape: `if (user.role === "admin") return true`
+    // inside `callerOwnsRun`. Rule half (2) is the only thing separating this
+    // from a gate — half (1) alone would misclassify it.
+    expect(bypass).toContain("api/runs/[id]/+server.ts");
+  });
+
+  test("the rule's two halves are each necessary (self-check)", () => {
+    // GATE: sole + negated.
+    expect(isInlineAdminGate(`user.role !== "admin"`)).toBe(true);
+    expect(isInlineAdminGate(`locals.user?.role !== "admin"`)).toBe(true);
+    // Half (1): compound ⇒ ownership idiom, not a gate.
+    expect(isInlineAdminGate(`m.userId !== user.id && user.role !== "admin"`)).toBe(false);
+    expect(isInlineAdminGate(`user.role !== "admin" || x`)).toBe(false);
+    // Half (2): sole but POSITIVE ⇒ allow branch, not a gate.
+    expect(isInlineAdminGate(`user.role === "admin"`)).toBe(false);
+    // Unrelated conditions.
+    expect(isInlineAdminGate(`user.role !== "editor"`)).toBe(false);
+    expect(isInlineAdminGate(`!user`)).toBe(false);
+  });
+
+  test("the condition extractor handles nested parens and comments", () => {
+    // A naive `/if\s*\(([^)]*)\)/` would truncate at the FIRST `)` and read
+    // this condition as `(a.b ?? c` — losing the role test entirely.
+    expect(ifConditions(`if ((user.role ?? "x") !== "admin") {}`)).toEqual([
+      `(user.role ?? "x") !== "admin"`,
+    ]);
+    expect(ifConditions(stripComments(`// if (user.role !== "admin")\nif (a) {}`))).toEqual(["a"]);
+    expect(ifConditions(stripComments(`/* if (user.role !== "admin") */ if (b) {}`))).toEqual(["b"]);
   });
 });
 
