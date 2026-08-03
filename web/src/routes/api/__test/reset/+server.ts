@@ -37,7 +37,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   if (!conv) return json({ ok: true, deleted: false });
 
   // Ownership: only the owner (or an admin) may reset.
-  if (conv.userId && conv.userId !== user.id && user.role !== "admin") {
+  // sec-H3: fail-closed — the old leading `conv.userId &&` short-circuited on
+  // a null owner, so an unowned conversation was resettable (deletable) by any
+  // caller. Lower severity than the production routes because this whole route
+  // is fail-closed behind `isTestSurfaceEnabled()` above, but it is the same
+  // defect and takes the same fix.
+  if (conv.userId !== user.id && user.role !== "admin") {
     return errorJson(403, "Forbidden");
   }
 
