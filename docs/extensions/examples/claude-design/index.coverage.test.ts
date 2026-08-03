@@ -754,6 +754,62 @@ describe("globAsync — skips a subdir whose list throws mid-walk", () => {
   });
 });
 
+describe("compileGlob — `**` spans zero or more WHOLE segments", () => {
+  // Regression: the old three-pass implementation expanded `**/` to
+  // `(?:.*/)?` and then let a blanket `*` → `[^/]*` pass rewrite the `*`
+  // inside that very expansion, yielding `(?:.[^/]*/)?` — exactly ONE
+  // segment. It passed at depth 1, so a two-level fixture could not
+  // discriminate; the three-and-deeper cases below are what actually
+  // catch it.
+  const match = (pattern: string, input: string): boolean =>
+    _internals.compileGlob(pattern).test(input);
+
+  test("`**/` matches ZERO segments", () => {
+    expect(match("**/components/*.svelte", "components/T.svelte")).toBe(true);
+    expect(match("**/*.css", "app.css")).toBe(true);
+  });
+
+  test("`**/` matches ONE segment (the depth the old bug passed at)", () => {
+    expect(match("**/components/*.svelte", "src/components/B.svelte")).toBe(true);
+    expect(match("**/*.css", "src/app.css")).toBe(true);
+  });
+
+  test("`**/` matches TWO segments", () => {
+    expect(match("**/components/*.svelte", "src/data/components/N.svelte")).toBe(true);
+    expect(match("**/*.css", "src/lib/app.css")).toBe(true);
+  });
+
+  test("`**/` matches THREE OR MORE segments (the discriminating case)", () => {
+    expect(match("**/components/*.svelte", "a/b/c/components/D.svelte")).toBe(true);
+    expect(match("**/components/*.svelte", "a/b/c/d/e/components/D.svelte")).toBe(true);
+    expect(match("**/*.css", "a/b/c/d/e/f/deep.css")).toBe(true);
+  });
+
+  test("a single `*` never crosses `/`", () => {
+    // The other half of the contract: widening `**` must not widen `*`.
+    expect(match("*.css", "app.css")).toBe(true);
+    expect(match("*.css", "src/app.css")).toBe(false);
+    expect(match("src/*.ts", "src/x.ts")).toBe(true);
+    expect(match("src/*.ts", "src/a/x.ts")).toBe(false);
+    // …including the trailing segment of a `**/` pattern.
+    expect(match("**/components/*.svelte", "src/components/sub/T.svelte")).toBe(false);
+  });
+
+  test("segment boundaries are respected (no partial-name match)", () => {
+    expect(match("**/components/*.svelte", "componentsX/T.svelte")).toBe(false);
+    expect(match("**/components/*.svelte", "src/xcomponents/T.svelte")).toBe(false);
+  });
+
+  test("regex metacharacters in a pattern are escaped, not interpreted", () => {
+    // `.` was the only character the old version escaped.
+    expect(match("**/*.css", "app.css")).toBe(true);
+    expect(match("**/*.css", "appXcss")).toBe(false);
+    expect(match("foo(1)/*.ts", "foo(1)/x.ts")).toBe(true);
+    expect(match("a+b/*.ts", "a+b/x.ts")).toBe(true);
+    expect(match("a+b/*.ts", "aab/x.ts")).toBe(false);
+  });
+});
+
 describe("globAsync — host-reserved carve-out (the Docker layout)", () => {
   // In the shipped image the PGlite datadir is `<projectRoot>/data/ezcorp`
   // and the secret dir is `<projectRoot>/.ezcorp/data` (Dockerfile:
@@ -789,18 +845,24 @@ describe("globAsync — host-reserved carve-out (the Docker layout)", () => {
     expect(names).toContain("OrdinarySource");
   });
 
-  // NOTE — why the "a nested data/ is still walked" guarantee is asserted
-  // in todo-tracker's and file-refactor's tests, not here: `compileGlob`
-  // (index.ts:952) expands `**/` to `(?:.*/)?` and THEN rewrites every
-  // remaining `*` to `[^/]*`, which rewrites the `*` inside that very
-  // expansion — producing `(?:.[^/]*/)?`. So `**/` matches at most ONE
-  // directory segment: `src/components/X.svelte` is catalogued but
-  // `src/data/components/X.svelte` is not, regardless of any skip list.
-  // A "nested data is still catalogued" assertion here would therefore
-  // fail for a reason that has nothing to do with the skip lists. The
-  // walker itself IS root-anchored (globAsync only consults
-  // GLOB_SKIP_ROOT_DIRS when `rel === ""`); the pre-existing glob defect
-  // is reported separately, not fixed here.
+  test("a NESTED data/ is still walked (skip is root-anchored, not blanket)", async () => {
+    // Only assertable since the compileGlob fix: `**/components/*.svelte`
+    // now spans two segments, so `src/data/components/` is reachable at
+    // all. Guards the over-block failure mode — skipping every directory
+    // named `data` at any depth would silently drop real source.
+    writeFileSync(join(tmpRoot, "top.css"), ":root{ --x: 1px; }");
+    mkdirSync(join(tmpRoot, "data", "components"), { recursive: true });
+    writeFileSync(join(tmpRoot, "data", "components", "ReservedDb.svelte"), "<i/>");
+    mkdirSync(join(tmpRoot, "src", "data", "components"), { recursive: true });
+    writeFileSync(join(tmpRoot, "src", "data", "components", "NestedOk.svelte"), "<i/>");
+
+    const out = await _internals.tools["extract-design-system"]!({}, undefined as never);
+    expect(expectIsError(out)).toBe(false);
+    const ds = JSON.parse(expectText(out)) as DesignSystem;
+    const names = ds.components.map((c) => c.name);
+    expect(names).toContain("NestedOk");
+    expect(names).not.toContain("ReservedDb");
+  });
 
   test("extraction SURVIVES a host denial on the reserved dir (defence in depth)", async () => {
     // Even if a future reserved path the skip list doesn't know about were

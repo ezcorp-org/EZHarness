@@ -949,14 +949,54 @@ async function globAsync(root: string, pattern: string): Promise<string[]> {
   return out;
 }
 
+// Compile a glob to an anchored RegExp.
+//
+//   double-star + slash  ->  (?:[^/]+/)*   ZERO OR MORE whole segments
+//   double-star          ->  .*            anything, slash included
+//   single star          ->  [^/]*         anything WITHIN one segment
+//
+// Single-pass (a character walk) ON PURPOSE. The previous version chained
+// three `String.replace` passes: double-star-slash to "(?:.<star>/)?",
+// then double-star to ".<star>", then a BLANKET single-star to "[^/]<star>".
+// That last pass rewrote the star INSIDE the "(?:.<star>/)?" the first
+// pass had just emitted, degrading it to "(?:.[^/]<star>/)?" — one
+// arbitrary character plus non-slash characters, i.e. exactly ONE
+// directory segment.
+//
+// Consequence: "double-star/components/single-star.svelte" matched
+// `src/components/B.svelte` but NOT `src/data/components/N.svelte`, so
+// `catalogComponents` and the "double-star/single-star.css" token scan
+// silently saw only the top two levels of any project. It passed at depth
+// one, which is why it survived so long — see the depth-3 cases in
+// index.coverage.test.ts.
+//
+// The rule this encodes: a rewrite pass must never be able to touch a
+// previous pass's output. "(?:[^/]+/)*" is used rather than "(?:.<star>/)?"
+// so the zero-segment case and the many-segment case are both covered
+// without ".<star>" swallowing segment boundaries the caller meant to keep.
 function compileGlob(pattern: string): { test: (s: string) => boolean } {
-  const escaped = pattern.replace(/\./g, "\\.");
-  // Pattern with `**/` prefix → also accept zero-segment match.
-  const expanded = escaped
-    .replace(/\*\*\//g, "(?:.*/)?")
-    .replace(/\*\*/g, ".*")
-    .replace(/\*/g, "[^/]*");
-  const re = new RegExp("^" + expanded + "$");
+  const out: string[] = [];
+  for (let i = 0; i < pattern.length; i++) {
+    const c = pattern[i]!;
+    if (c === "*") {
+      if (pattern[i + 1] === "*") {
+        if (pattern[i + 2] === "/") {
+          out.push("(?:[^/]+/)*");
+          i += 2;
+        } else {
+          out.push(".*");
+          i += 1;
+        }
+        continue;
+      }
+      out.push("[^/]*");
+      continue;
+    }
+    // Escape every other regex metacharacter, not just `.` — a directory
+    // named `foo(1)` used to produce an invalid or wrong pattern.
+    out.push(c.replace(/[.+?^${}()|[\]\\]/g, "\\$&"));
+  }
+  const re = new RegExp("^" + out.join("") + "$");
   return { test: (s: string) => re.test(s) };
 }
 
@@ -982,4 +1022,8 @@ export const _internals = {
   extractCssVarsFromBody,
   analyzePromptSpecificity,
   descriptorsCoverVars,
+  // Glob compiler — exposed so the `**` depth semantics are pinned
+  // directly rather than inferred from what a walk happened to catalogue
+  // (the multi-pass bug was invisible at one directory level).
+  compileGlob,
 };
