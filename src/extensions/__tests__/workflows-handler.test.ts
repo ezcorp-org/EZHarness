@@ -52,6 +52,10 @@ import type {
   JsonRpcRequest,
 } from "../types";
 import type { WorkflowDefinition, WorkflowRun } from "../../types";
+import {
+  systemCachedWorkflow,
+  type CachedWorkflow,
+} from "../../runtime/workflow-scope";
 
 let userId: string;
 let extensionId: string;
@@ -1456,5 +1460,106 @@ describe("rung 12b — canRunWorkflow, the same predicate the REST route asks", 
       "WORKFLOWS_NO_OWNER",
     );
     expect(started).toEqual([]);
+  });
+});
+
+describe("rung 12b — which cache entry gets authorized", () => {
+  /** Re-register the runtime WITH the provenance reader production wires. */
+  function registerWithCache(entries: CachedWorkflow[]) {
+    registerWorkflowRuntime({
+      workflowExecutor: {
+        async resumeWorkflow() {
+          throw new Error("resumeWorkflow is not exercised by this double");
+        },
+        async runWorkflow(workflow, input, proj, uid, _signal, opts) {
+          started.push({
+            workflow,
+            input,
+            ...(proj !== undefined ? { projectId: proj } : {}),
+            ...(uid !== undefined ? { userId: uid } : {}),
+            ...(opts !== undefined ? { opts: opts as Record<string, unknown> } : {}),
+          });
+          return {
+            id: "run-1",
+            workflowName: workflow.name,
+            status: "success",
+            startedAt: Date.now(),
+            steps: [],
+          } as WorkflowRun;
+        },
+      },
+      getWorkflows: () => entries.map((e) => e.definition),
+      getCachedWorkflows: () => entries,
+    });
+  }
+
+  test("the REGISTERED entry is used when the runtime exposes one", async () => {
+    // Production registers `getCachedWorkflows` (web/src/lib/server/context.ts),
+    // so this — not the fallback — is the path that actually runs. An
+    // extension-shipped workflow is a `system` entry, so it authorizes.
+    registerWithCache([systemCachedWorkflow(SHIPPED, "extension")]);
+    const res = await handleWorkflowsRpc(req(), ctx());
+    expect("result" in res).toBe(true);
+    expect(started).toHaveLength(1);
+  });
+
+  test("a PRIVATE entry owned by someone else is REFUSED", async () => {
+    // The fallback constructs a `system` entry, which authorizes everyone.
+    // If the real reader were ignored, a `workflow_definitions` row squatting
+    // an extension-namespaced name would be runnable by any caller. This is
+    // the case that proves the registered entry wins.
+    registerWithCache([
+      {
+        definition: SHIPPED,
+        source: "db",
+        id: "row-1",
+        projectId: null,
+        userId: "somebody-else",
+        visibility: "private",
+        forkedFrom: null,
+      },
+    ]);
+    const res = await handleWorkflowsRpc(req(), ctx());
+    expect("error" in res).toBe(true);
+    expect((res as { error: { data: { reason: string } } }).error.data.reason).toBe(
+      "WORKFLOWS_PERM_DENIED",
+    );
+    expect(started).toEqual([]);
+  });
+
+  test("a cache that does not carry the name at all falls back and still runs", async () => {
+    // Rung 12 already proved the name resolves, so a reader that answers
+    // without it is a runtime that registered a narrower view — the
+    // reconstructed `system` entry is the same value `buildWorkflowCache`
+    // would have produced for an extension asset.
+    registerWithCache([systemCachedWorkflow(HOST_WORKFLOW, "yaml")]);
+    // `getWorkflows` must still resolve the namespaced name for rung 12.
+    registerWorkflowRuntime({
+      workflowExecutor: {
+        async resumeWorkflow() {
+          throw new Error("resumeWorkflow is not exercised by this double");
+        },
+        async runWorkflow(workflow, input, proj, uid, _signal, opts) {
+          started.push({
+            workflow,
+            input,
+            ...(proj !== undefined ? { projectId: proj } : {}),
+            ...(uid !== undefined ? { userId: uid } : {}),
+            ...(opts !== undefined ? { opts: opts as Record<string, unknown> } : {}),
+          });
+          return {
+            id: "run-1",
+            workflowName: workflow.name,
+            status: "success",
+            startedAt: Date.now(),
+            steps: [],
+          } as WorkflowRun;
+        },
+      },
+      getWorkflows: () => [SHIPPED, HOST_WORKFLOW],
+      getCachedWorkflows: () => [systemCachedWorkflow(HOST_WORKFLOW, "yaml")],
+    });
+    const res = await handleWorkflowsRpc(req(), ctx());
+    expect("result" in res).toBe(true);
   });
 });
