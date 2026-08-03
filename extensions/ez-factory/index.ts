@@ -46,7 +46,6 @@ import { createAuditLog, auditableJobDiff, type AuditLog } from "./lib/audit";
 import {
   createJobStore,
   latestRunPerJob,
-  parseJobIdPayload,
   runRecordsFromHostRuns,
   validateJobDraft,
   type FactoryJob,
@@ -59,6 +58,7 @@ import {
   buildJobPage,
   draftFromFormPayload,
   FACTORY_PAGE_ID,
+  jobIdFromActionPayload,
   JOB_PAGE_ID,
   JOB_RUN_EVENT,
   JOB_SAVE_EVENT,
@@ -399,9 +399,10 @@ export async function handleJobSave(event: PageActionEvent): Promise<void> {
  * ## The ladder, in order, and why each rung is here
  *
  *   1. **The job id comes off the ACTION payload**, through the same
- *      `parseJobIdPayload` the save path uses — never off a form field an
- *      operator can retype. An id that fails `isValidJobId` is refused
- *      before it can be spliced into a storage key.
+ *      `jobIdFromActionPayload` the save path uses — never off a form
+ *      field an operator can retype, and never through a second reader
+ *      that could guess a different key. An id that fails `isValidJobId`
+ *      is refused before it can be spliced into a storage key.
  *   2. **The job must exist**, and it is re-read from the store rather
  *      than reconstructed from the wire. Nothing about WHAT runs comes
  *      from the click.
@@ -440,7 +441,7 @@ export async function handleJobSave(event: PageActionEvent): Promise<void> {
 export async function handleJobRun(event: PageActionEvent): Promise<void> {
   const actor = event.userId;
   const now = new Date().toISOString();
-  const jobId = parseJobIdPayload(event.payload);
+  const jobId = jobIdFromActionPayload(event.payload);
 
   const reject = async (reason: string): Promise<void> => {
     await auditLog().append({

@@ -202,14 +202,30 @@ export function hubHref(fullPageId: string, projectId?: string, view?: string): 
 
 // ── Display helpers (pure, all output escaped-node-bound) ────────────
 
-/** Human badge + tone per run status. Core's `workflow_runs.status` is an open
- *  string at this boundary, so an unrecognised value renders verbatim and
- *  neutral rather than being dropped — an honest "I do not know this status"
- *  beats a blank cell. */
+/**
+ * Tone per run status.
+ *
+ * **Keyed on core's RUN vocabulary**, which is the six values in
+ * `RUN_STATUS_FILTERS` (`src/runtime/workflow-run-trace.ts`): `running`,
+ * `success`, `error`, `cancelled`, `awaiting_approval`, `suspended`.
+ *
+ * It used to be keyed on `completed` / `failed` / `aborted` — the AGENT
+ * run vocabulary, which a `workflow_runs` row never uses. The effect was
+ * silent and total: the three statuses this table actually receives most
+ * often (`success`, `error`, `cancelled`) matched nothing and rendered
+ * neutral, so a failed run looked exactly like a successful one. Caught by
+ * firing a real job and reading the cell the console produced.
+ *
+ * Core's `workflow_runs.status` is still an open string at this boundary,
+ * so an unrecognised value renders verbatim and neutral rather than being
+ * dropped — an honest "I do not know this status" beats a blank cell.
+ * `running` is deliberately absent: in progress is not a verdict, and
+ * toning it would make a live run read as an outcome.
+ */
 const RUN_STATUS_TONE: Record<string, "success" | "danger" | "warning"> = {
-  completed: "success",
-  failed: "danger",
-  aborted: "danger",
+  success: "success",
+  error: "danger",
+  cancelled: "danger",
   awaiting_approval: "warning",
   suspended: "warning",
 };
@@ -684,6 +700,33 @@ export interface SubmittedJobForm {
   draft: Record<string, unknown>;
 }
 
+/**
+ * The job id a page-action payload carries, or `null`.
+ *
+ * **The single reader of that key, and that is the point.** Both actions
+ * put the id on the ACTION PAYLOAD under {@link JOB_FORM_FIELDS.jobId} —
+ * `job_id`, the slug the host's field-id regex forces — and a second
+ * reader that guessed `jobId` would return `null` for every real payload.
+ * The failure is silent by construction: `handleJobRun` would refuse
+ * every click with "no valid job id", the Hub would still answer
+ * `{ok:true}`, and the button would look like it did nothing. That is
+ * exactly what happened before this function existed, and it took a real
+ * server to see it.
+ *
+ * Attacker-reachable: it never throws and never yields a string that
+ * could escape its storage key ({@link isValidJobId} enforces the same
+ * charset the store does).
+ */
+export function jobIdFromActionPayload(payload: unknown): string | null {
+  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) {
+    return null;
+  }
+  const raw = (payload as Record<string, unknown>)[JOB_FORM_FIELDS.jobId];
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  return isValidJobId(trimmed) ? trimmed : null;
+}
+
 export function draftFromFormPayload(payload: unknown): SubmittedJobForm {
   const raw: Record<string, unknown> =
     typeof payload === "object" && payload !== null && !Array.isArray(payload)
@@ -702,10 +745,10 @@ export function draftFromFormPayload(payload: unknown): SubmittedJobForm {
     input[key] = value;
   }
 
-  const rawId = str(JOB_FORM_FIELDS.jobId)?.trim();
-
   return {
-    jobId: rawId !== undefined && isValidJobId(rawId) ? rawId : null,
+    // Shared with the run action, so the two can never disagree about
+    // where the id lives.
+    jobId: jobIdFromActionPayload(payload),
     draft: {
       name: str(JOB_FORM_FIELDS.name) ?? "",
       description: str(JOB_FORM_FIELDS.description) ?? "",

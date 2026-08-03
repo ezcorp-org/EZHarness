@@ -708,20 +708,20 @@ export function diffJob(
   return diff;
 }
 
-/**
- * Pull a `jobId` out of an attacker-reachable page-action payload. Returns
- * the id or `null` — never throws, and never yields a string that could
- * escape its storage key (see {@link JOB_ID_RE}).
- */
-export function parseJobIdPayload(payload: unknown): string | null {
-  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) {
-    return null;
-  }
-  const jobId = (payload as { jobId?: unknown }).jobId;
-  if (typeof jobId !== "string") return null;
-  const trimmed = jobId.trim();
-  return isValidJobId(trimmed) ? trimmed : null;
-}
+// REMOVED: `parseJobIdPayload`, which read `payload.jobId`.
+//
+// It had no production caller, and the key it read is not one any page
+// action carries: a form field id must match `/^[a-z0-9][a-z0-9_]{0,31}$/`
+// or the host DROPS it, so the console's id travels as `job_id`
+// (`JOB_FORM_FIELDS.jobId`). A reader keyed on `jobId` returns `null` for
+// every real payload, and the failure is silent — the action refuses,
+// the Hub still answers `{ok:true}`, and the button looks like it did
+// nothing.
+//
+// That is not hypothetical: the Run action was written against it and
+// refused every single click on a live server. `lib/page.ts` now owns the
+// ONE reader (`jobIdFromActionPayload`), next to the field-id constant it
+// has to agree with, and both actions use it.
 
 // ── Storage layout ──────────────────────────────────────────────────
 //
