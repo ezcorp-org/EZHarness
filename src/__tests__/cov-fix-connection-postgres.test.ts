@@ -42,34 +42,51 @@ restoreModuleMocks();
 // ── Fake Bun.sql driver ────────────────────────────────────────────────────
 // Records the advisory-lock SQL the migrate guard issues and the pool close.
 const sqlCalls: string[] = [];
-let closeCalls = 0;
 let migrateCalls = 0;
 
-// `$client` is a callable tagged template (advisory lock/unlock) that also
-// exposes .close() for the pool-drain branch. No `reserve` → the lock is taken
-// on this bare client (the reserve-absent fallback).
-const fakeClient: {
-  (strings: TemplateStringsArray, ...v: unknown[]): Promise<unknown[]>;
-  close: () => Promise<void>;
-} = Object.assign(
-  (strings: TemplateStringsArray, ..._v: unknown[]): Promise<unknown[]> => {
-    sqlCalls.push(strings.join("?"));
-    return Promise.resolve([]);
-  },
-  {
-    close: async (): Promise<void> => {
-      closeCalls += 1;
-    },
-  },
-);
+interface FakePool {
+  execute: (...a: unknown[]) => Promise<unknown[]>;
+  $client: {
+    (strings: TemplateStringsArray, ...v: unknown[]): Promise<unknown[]>;
+    close: () => Promise<void>;
+  };
+  /** How many times THIS pool was drained. */
+  closed: number;
+}
 
-const fakeDb: { execute: (...a: unknown[]) => Promise<unknown[]>; $client: typeof fakeClient } = {
-  // Returns an array so initPostgres's execute() wrapper normalizes it to
-  // { rows: [] } — enough for CREATE EXTENSION + repairDoubleEncodedJsonb's
-  // marker/column scans to no-op.
-  execute: async (..._a: unknown[]): Promise<unknown[]> => [],
-  $client: fakeClient,
-};
+/**
+ * A fresh fake pool per `drizzle()` call. Distinct instances (rather than one
+ * shared singleton) are what make the stale-pool reclaim observable: the guard
+ * must close the pool opened by the PREVIOUS boot, not the current one.
+ *
+ * `$client` is a callable tagged template (advisory lock/unlock) that also
+ * exposes .close() for the pool-drain branch. No `reserve` → the lock is taken
+ * on this bare client (the reserve-absent fallback).
+ */
+function createFakePool(): FakePool {
+  const pool: FakePool = {
+    // Returns an array so initPostgres's execute() wrapper normalizes it to
+    // { rows: [] } — enough for CREATE EXTENSION + repairDoubleEncodedJsonb's
+    // marker/column scans to no-op.
+    execute: async (..._a: unknown[]): Promise<unknown[]> => [],
+    $client: Object.assign(
+      (strings: TemplateStringsArray, ..._v: unknown[]): Promise<unknown[]> => {
+        sqlCalls.push(strings.join("?"));
+        return Promise.resolve([]);
+      },
+      {
+        close: async (): Promise<void> => {
+          pool.closed += 1;
+        },
+      },
+    ),
+    closed: 0,
+  };
+  return pool;
+}
+
+/** Every pool the driver has handed out, in open order. */
+const openedPools: FakePool[] = [];
 
 // Snapshot the real jsonb mappers so afterAll can undo applyBunSqlJsonbFix's
 // global identity patch.
@@ -82,7 +99,13 @@ const origJsonMapper = (PgJson.prototype as any).mapToDriverValue;
 // advisory-locked call is an observable no-op. mock.module rebinds the already
 // loaded connection module's `./migrate` import and its lazy
 // `import("drizzle-orm/bun-sql")`.
-mock.module("drizzle-orm/bun-sql", () => ({ drizzle: () => fakeDb }));
+mock.module("drizzle-orm/bun-sql", () => ({
+  drizzle: () => {
+    const pool = createFakePool();
+    openedPools.push(pool);
+    return pool;
+  },
+}));
 mock.module("../db/migrate", () => ({
   migrate: async (): Promise<void> => {
     migrateCalls += 1;
@@ -129,9 +152,66 @@ describe("initPostgres — external Postgres boot path (unit, mocked driver)", (
 
   test("closeDb() drains the Bun.sql pool via $client.close()", async () => {
     // Continues from the initialized external db above (_pglite null, _db set).
+    const only = openedPools[0];
     await conn.closeDb();
-    expect(closeCalls).toBe(1);
+    expect(only.closed).toBe(1);
     // State cleared: getDb() now throws.
     expect(() => conn.getDb()).toThrow("Database not initialized");
+  });
+});
+
+/**
+ * Regression: the external-Postgres pool must not survive a module
+ * re-instantiation.
+ *
+ * A vite dev-server SSR reload rebuilds `connection.ts` with fresh
+ * `let _db`/`_initPromise` bindings while the previous Bun.sql pool is still
+ * open in the same process. Nothing references that pool afterwards, but
+ * Bun.sql keeps its sockets open, so every reload strands another `DB_POOL_MAX`
+ * backends in state `idle` until Postgres answers new clients with "sorry, too
+ * many clients already". Measured on the dev stack: ~97 idle backends against
+ * `max_connections = 100`.
+ *
+ * Calling `initPostgres()` again without an intervening `closeDb()` reproduces
+ * exactly that state — the globalThis-anchored holder registry is the only
+ * thing that spans the two boots, which is why the guard has to live there
+ * (`initPglite()` has used it for the same reason since the double-open fix).
+ */
+describe("initPostgres — stale pool reclaim across a module re-instantiation", () => {
+  test("re-booting without closeDb() drains the previous pool, not the new one", async () => {
+    // Boot #1 — the pool a subsequent reload must reclaim.
+    await conn.__test.initPostgres();
+    const first = openedPools.at(-1)!;
+    expect(first.closed).toBe(0);
+
+    // Boot #2 — stands in for the re-instantiated module. No closeDb() between:
+    // that is precisely the path that leaked.
+    await conn.__test.initPostgres();
+    const second = openedPools.at(-1)!;
+
+    expect(second).not.toBe(first);
+    // The stranded pool from boot #1 was drained...
+    expect(first.closed).toBe(1);
+    // ...and the live one was left alone.
+    expect(second.closed).toBe(0);
+    // The live handle is boot #2's pool.
+    expect(conn.getDb()).toBe(second);
+  });
+
+  test("closeDb() clears the in-process claim so the next boot can't double-close", async () => {
+    // Continues from the test above: boot #2's pool is live and unclosed.
+    const previous = openedPools.at(-1)!;
+    await conn.closeDb();
+    expect(previous.closed).toBe(1);
+
+    // A later boot must NOT re-close the pool closeDb() already drained — a
+    // stale registry entry would hand it a callback onto a dead pool.
+    await conn.__test.initPostgres();
+    expect(previous.closed).toBe(1);
+
+    // Clean up so the registry is empty for any later file in this process.
+    const live = openedPools.at(-1)!;
+    await conn.closeDb();
+    expect(live.closed).toBe(1);
   });
 });
