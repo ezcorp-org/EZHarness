@@ -83,14 +83,32 @@ describe("parseArgs: key mint", () => {
 });
 
 describe("parseKeyScopes", () => {
-  test("undefined / empty → default read,chat", () => {
-    expect(parseKeyScopes(undefined)).toEqual(["read", "chat"]);
-    expect(parseKeyScopes("")).toEqual(["read", "chat"]);
-    expect(parseKeyScopes("  ,  ")).toEqual(["read", "chat"]);
+  test("undefined / empty → default read,write,chat", () => {
+    // `write` joined the default in 2026-08 when the mutating handlers moved
+    // off `read`. Scopes are FLAT, so a default of `read,chat` would have
+    // silently lost the ability to save a memory — an authority the previous
+    // default did carry. See docs/audit/2026-08-read-scope-mutation-inventory.md.
+    expect(parseKeyScopes(undefined)).toEqual(["read", "write", "chat"]);
+    expect(parseKeyScopes("")).toEqual(["read", "write", "chat"]);
+    expect(parseKeyScopes("  ,  ")).toEqual(["read", "write", "chat"]);
+  });
+
+  test("the default is a fresh array each call (no shared mutable state)", () => {
+    // The default is a module-level constant; returning it by reference would
+    // let one caller's mutation leak into the next mint.
+    const a = parseKeyScopes(undefined);
+    a.push("admin");
+    expect(parseKeyScopes(undefined)).toEqual(["read", "write", "chat"]);
   });
 
   test("all valid scopes pass through", () => {
-    expect(parseKeyScopes("read,chat,extensions,admin")).toEqual(["read", "chat", "extensions", "admin"]);
+    expect(parseKeyScopes("read,write,chat,extensions,admin")).toEqual([
+      "read",
+      "write",
+      "chat",
+      "extensions",
+      "admin",
+    ]);
   });
 
   test("trims + de-dupes preserving order", () => {

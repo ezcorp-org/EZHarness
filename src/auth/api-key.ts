@@ -11,10 +11,29 @@
  */
 import crypto from "node:crypto";
 
-export type ApiKeyScope = "read" | "chat" | "extensions" | "admin";
+/**
+ * The surfaces an API key may touch.
+ *
+ * `write` was added 2026-08 because the other four are SURFACE names and none
+ * of them meant "may modify data". `read` was doing that job for 18 handlers —
+ * including `DELETE /api/memories/:id` — while the shipped operator docs called
+ * it "no writes". See docs/audit/2026-08-read-scope-mutation-inventory.md.
+ *
+ * These are FLAT: `hasRequiredScope` is an `includes()`, so nothing here
+ * subsumes anything else. `write` does NOT imply `read`, and holding `admin`
+ * grants none of the others. A key that both reads and mutates its own data
+ * carries `["read","write"]` — which is what the CLI now mints by default.
+ */
+export type ApiKeyScope = "read" | "write" | "chat" | "extensions" | "admin";
 
 /** Canonical scope list — the source of truth for CLI/route validation. */
-export const API_KEY_SCOPES: readonly ApiKeyScope[] = ["read", "chat", "extensions", "admin"];
+export const API_KEY_SCOPES: readonly ApiKeyScope[] = [
+  "read",
+  "write",
+  "chat",
+  "extensions",
+  "admin",
+];
 
 export function isApiKeyScope(value: string): value is ApiKeyScope {
   return (API_KEY_SCOPES as readonly string[]).includes(value);

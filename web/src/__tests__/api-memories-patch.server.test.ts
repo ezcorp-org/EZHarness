@@ -3,7 +3,7 @@
  *
  * v1.4 — Memory injection-eligibility admin UI. Coverage targets each
  * branch of the handler:
- *   - 403 (API-key scope missing 'read')
+ *   - 403 (API-key scope missing 'write')
  *   - 401 (unauthenticated cookie + no api key)
  *   - 404 (memory id not found)
  *   - 404 (cross-user access — sec-H3 collapse, no enumeration leak)
@@ -122,7 +122,7 @@ beforeEach(() => {
 });
 
 describe("PATCH /api/memories/[id] — auth gates", () => {
-	test("returns 403 when API-key scope missing 'read'", async () => {
+	test("returns 403 when API-key scope missing 'write'", async () => {
 		const res = await PATCH(
 			makePatchEvent({
 				locals: { user: USER, apiKeyScopes: ["chat"] },

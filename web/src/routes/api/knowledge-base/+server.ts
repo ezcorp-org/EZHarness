@@ -31,7 +31,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 };
 
 export const POST: RequestHandler = async ({ request, locals }) => {
-  const scopeErr = requireScope(locals, "read");
+  const scopeErr = requireScope(locals, "write");
   if (scopeErr) return scopeErr;
   const user = requireAuth(locals);
   const formData = await request.formData();

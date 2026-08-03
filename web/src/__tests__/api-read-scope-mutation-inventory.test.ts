@@ -1,18 +1,24 @@
 /**
- * PINNING TEST — asserts what IS, not what SHOULD BE.
+ * PINNING TEST for the API-key scope ⇄ mutation mapping.
  *
- * The `read` API-key scope currently authorizes MUTATION and DESTRUCTION on 18
- * handlers (`DELETE /api/projects/:id`, `DELETE /api/memories/:id`, …). Scopes
- * are FLAT — `src/auth/api-key.ts:32-38` (`hasRequiredScope`) is a plain
- * `includes()`, so `read` admitting a delete is a deliberate route-by-route
- * choice, not an implication of some ordering.
+ * The `read` scope used to authorize MUTATION and DESTRUCTION on 18 handlers
+ * (`DELETE /api/projects/:id`, `DELETE /api/memories/:id`, …) while the shipped
+ * operator doc called `read` "no writes". The 2026-08 re-scope moved 12 of them
+ * onto the new `write` scope (plus `admin` / `chat` for two), backfilled `write`
+ * onto every issued `read` key so nothing broke, and left 6 — three read-shaped
+ * by design, three blocked by a concurrent branch. Full reasoning and the
+ * "could not touch" list: `docs/audit/2026-08-read-scope-mutation-inventory.md`.
  *
- * Whether that is a bug or a naming problem is an OPEN decision (see
- * `docs/audit/2026-08-read-scope-mutation-inventory.md`). This test takes no
- * side. It freezes today's behaviour so that whichever way the decision goes,
- * it starts from a measured baseline rather than an assumption — and so that
- * an accidental drift in EITHER direction (a 19th route quietly gating a
- * delete on `read`, or one silently re-scoped) fails loudly and by name.
+ * Scopes are FLAT — `hasRequiredScope` (`src/auth/api-key.ts`) is a plain
+ * `includes()`, so `read` admitting a delete was a deliberate route-by-route
+ * choice, not an implication of some ordering; and `write` does not imply
+ * `read` now either. That flatness is asserted below so nobody later
+ * "simplifies" it into a hierarchy.
+ *
+ * This test freezes the mapping in BOTH halves — what still takes `read` and
+ * what takes `write` — so drift in either direction (a new route quietly gating
+ * a delete on `read`, or a re-scoped one loosened back) fails loudly and by
+ * name.
  *
  * ── DETECTION METHOD (this is the part that matters) ───────────────────────
  * The audit that produced the original "at least 17" scanned only the text
@@ -51,7 +57,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { Glob } from "bun";
-import { hasRequiredScope } from "../../../src/auth/api-key";
+import { API_KEY_SCOPES, hasRequiredScope, isApiKeyScope } from "../../../src/auth/api-key";
 
 const routesDir = `${import.meta.dir}/../routes`;
 const webSrcDir = `${import.meta.dir}/..`;
@@ -175,35 +181,72 @@ function scanHandlers(): Handler[] {
 const handlers = scanHandlers();
 
 /**
- * FROZEN: every mutating handler that gates on the `read` scope, as of
- * 2026-08-02. This is a PIN, not a debt list — it must be edited (with the
- * doc) whenever the semantics are deliberately changed, in EITHER direction.
- * Sorted; keep it sorted.
+ * FROZEN: every mutating handler that STILL gates on the `read` scope.
+ *
+ * Was 18 on 2026-08-02. The 2026-08 re-scope moved 12 of them onto `write` /
+ * `admin` / `chat` (see WRITE_SCOPED_MUTATIONS below and the doc's mapping
+ * table). What remains is deliberate, in two groups:
+ *
+ *   - **Read-shaped by design** — `POST /api/ez/conversation` (idempotent
+ *     find-or-create keyed by the caller's own id), `POST /api/composer/suggest`
+ *     (returns suggestions; POST is for body size) and `POST /api/warmup`
+ *     (idempotent cache warm). Nothing is destroyed and the caller chooses
+ *     nothing, so `write` would be noise.
+ *   - **Blocked by a concurrent branch** — the three `projects/[id]` and
+ *     `knowledge-base/[id]` handlers. Those two files are owned by the
+ *     cross-tenant ownership fix and could not be edited here without a
+ *     collision. They are listed in the doc's "could not touch" section with
+ *     the exact one-line change each needs. This is the ONE incoherent edge
+ *     of the current state: `POST /api/projects` takes `write` while
+ *     `DELETE /api/projects/:id` still takes `read`.
+ *
+ * A PIN, not a debt list — this list and the doc are edited together whenever
+ * the semantics deliberately change, in EITHER direction. Sorted; keep sorted.
  */
 const READ_SCOPED_MUTATIONS: readonly string[] = [
+  "DELETE /api/knowledge-base/:id", // blocked: cross-tenant-fix branch owns the file
+  "DELETE /api/projects/:id", //       blocked: cross-tenant-fix branch owns the file
+  "POST /api/composer/suggest",
+  "POST /api/ez/conversation",
+  "POST /api/warmup",
+  "PUT /api/projects/:id", //          blocked: cross-tenant-fix branch owns the file
+];
+
+/**
+ * FROZEN: the mutating handlers moved onto the new `write` scope in 2026-08.
+ *
+ * Frozen for the same reason as the list above — this is the half that must
+ * not silently erode back. A handler dropping off this list has had its
+ * mutation gate loosened, which is precisely the regression the whole
+ * investigation was about.
+ */
+const WRITE_SCOPED_MUTATIONS: readonly string[] = [
   "DELETE /api/contexts/:id",
-  "DELETE /api/knowledge-base/:id",
   "DELETE /api/lessons/:id",
   "DELETE /api/memories/:id",
-  "DELETE /api/projects/:id",
   "PATCH /api/lessons/:id",
   "PATCH /api/memories/:id",
-  "POST /api/composer/suggest",
-  "POST /api/ez-actions/:name",
-  "POST /api/ez/conversation",
-  "POST /api/fs/mkdir",
   "POST /api/import/preview",
   "POST /api/knowledge-base",
   "POST /api/memories",
   "POST /api/projects",
-  "POST /api/warmup",
   "PUT /api/memories/:id",
-  "PUT /api/projects/:id",
 ];
 
-function liveReadScopedMutations(): string[] {
+/** The two handlers that moved to a scope other than `write`. */
+const REHOMED_ELSEWHERE: ReadonlyArray<[string, string]> = [
+  // Enforced admin INLINE (`fs/mkdir/+server.ts:22`) while advertising `read`
+  // — the F4 blind spot. The scope now says what the gate does.
+  ["POST /api/fs/mkdir", "admin"],
+  // Dispatches a bundled-extension tool and persists a message row: that is
+  // the `chat` surface, and `chat` gains nothing it lacked (the same tools are
+  // reachable via POST /api/conversations/:id/messages).
+  ["POST /api/ez-actions/:name", "chat"],
+];
+
+function liveMutationsWithScope(scope: string): string[] {
   return handlers
-    .filter((h) => MUTATING.has(h.key.split(" ")[0]!) && h.scopes.includes("read"))
+    .filter((h) => MUTATING.has(h.key.split(" ")[0]!) && h.scopes.includes(scope))
     .map((h) => h.key)
     .sort();
 }
@@ -213,15 +256,51 @@ describe("read-scope mutation inventory (frozen baseline)", () => {
     // toEqual on sorted arrays fails in BOTH directions: a new read-gated
     // mutation is an unlisted addition, a re-scoped one is a missing entry.
     // Either way the diff names the route, so nobody has to guess.
-    expect(liveReadScopedMutations()).toEqual([...READ_SCOPED_MUTATIONS]);
+    expect(liveMutationsWithScope("read")).toEqual([...READ_SCOPED_MUTATIONS]);
   });
 
-  test("the frozen list is non-empty and sorted (guards a vacuous pass)", () => {
-    // An emptied list would make the equality above pass only when the live
-    // set is ALSO empty — but an unsorted list would make a real diff
-    // unreadable, and a shrinking one must be a deliberate edit.
-    expect(READ_SCOPED_MUTATIONS.length).toBe(18);
+  test("the set of write-gated mutating handlers is EXACTLY the frozen list", () => {
+    // The other half of the same pin. A handler falling off this list has had
+    // its mutation gate loosened.
+    expect(liveMutationsWithScope("write")).toEqual([...WRITE_SCOPED_MUTATIONS]);
+  });
+
+  test("the two rehomed handlers gate on the scope they were moved to", () => {
+    for (const [key, scope] of REHOMED_ELSEWHERE) {
+      const h = handlers.find((x) => x.key === key);
+      expect(h).toBeDefined();
+      expect(h!.scopes).toEqual([scope]);
+    }
+  });
+
+  test("the frozen lists are non-empty and sorted (guards a vacuous pass)", () => {
+    // An emptied list would make the equalities above pass only when the live
+    // set is ALSO empty — but an unsorted list makes a real diff unreadable,
+    // and a shrinking one must be a deliberate edit.
+    expect(READ_SCOPED_MUTATIONS.length).toBe(6);
+    expect(WRITE_SCOPED_MUTATIONS.length).toBe(10);
+    expect(REHOMED_ELSEWHERE.length).toBe(2);
+    // 6 + 10 + 2 = the 18 the investigation found. Nothing was dropped on the
+    // floor by the re-scope; every handler is still accounted for.
+    expect(
+      READ_SCOPED_MUTATIONS.length + WRITE_SCOPED_MUTATIONS.length + REHOMED_ELSEWHERE.length,
+    ).toBe(18);
     expect([...READ_SCOPED_MUTATIONS]).toEqual([...READ_SCOPED_MUTATIONS].sort());
+    expect([...WRITE_SCOPED_MUTATIONS]).toEqual([...WRITE_SCOPED_MUTATIONS].sort());
+  });
+
+  test("the GET siblings of the re-scoped routes still take `read`", () => {
+    // The split is per-VERB. If a re-scope accidentally moved a whole file,
+    // read-only integrations would break for no reason — the opposite failure
+    // from the one being fixed, and just as invisible without this.
+    for (const key of [
+      "GET /api/memories/:id",
+      "GET /api/memories",
+      "GET /api/projects",
+      "GET /api/knowledge-base",
+    ]) {
+      expect(handlers.find((h) => h.key === key)?.scopes).toEqual(["read"]);
+    }
   });
 
   test("the scan found the whole route surface (guards a broken glob)", () => {
@@ -293,26 +372,47 @@ describe("the detection method itself (this is what the audit got wrong)", () =>
   });
 });
 
-describe("scopes are FLAT — `read` does not imply, and is not implied by, anything", () => {
-  test("a read-only key satisfies a read gate, so it reaches all 18 mutations", () => {
-    // The semantic under the inventory, asserted against the shared predicate
-    // rather than restated in prose: nothing about `read` marks it read-only.
-    expect(hasRequiredScope(["read"], "read")).toBe(true);
+describe("scopes are FLAT — `write` does not imply, and is not implied by, `read`", () => {
+  test("a read-only key does NOT satisfy a write gate", () => {
+    // The semantic the whole re-scope buys, asserted against the shared
+    // predicate rather than restated in prose.
+    expect(hasRequiredScope(["read"], "write")).toBe(false);
   });
 
-  test("a chat-only key is REFUSED by those same 18 handlers", () => {
-    // The counter-intuitive half, and the reason re-scoping is a real breaking
-    // change: today `chat` cannot delete a memory or a project — only `read`
-    // can. Pinned so that inverting it is a visible decision.
+  test("a write-only key does NOT satisfy a read gate either", () => {
+    // Flatness cuts both ways, which is why the CLI mints `read,write,chat`
+    // rather than assuming `write` covers reads (src/cli.ts DEFAULT_KEY_SCOPES).
+    expect(hasRequiredScope(["write"], "read")).toBe(false);
+  });
+
+  test("the pair a migrated key carries satisfies both", () => {
+    // What backfill-api-key-write-scope.ts leaves an existing `read` key with.
+    expect(hasRequiredScope(["read", "write"], "read")).toBe(true);
+    expect(hasRequiredScope(["read", "write"], "write")).toBe(true);
+  });
+
+  test("a chat-only key is still refused by every read- and write-gated route", () => {
+    // The counter-intuitive fact the investigation surfaced, unchanged by the
+    // re-scope: `chat` never subsumed `read`, and it does not subsume `write`.
+    // Pinned so the re-scope cannot be "simplified" into a hierarchy later.
     expect(hasRequiredScope(["chat"], "read")).toBe(false);
+    expect(hasRequiredScope(["chat"], "write")).toBe(false);
   });
 
   test("no scope subsumes another (there is no hierarchy to lean on)", () => {
-    for (const held of ["read", "chat", "extensions", "admin"] as const) {
-      for (const needed of ["read", "chat", "extensions", "admin"] as const) {
+    for (const held of API_KEY_SCOPES) {
+      for (const needed of API_KEY_SCOPES) {
         expect(hasRequiredScope([held], needed)).toBe(held === needed);
       }
     }
+  });
+
+  test("`write` is a real member of the canonical vocabulary", () => {
+    // Guards the loop above against passing vacuously if `write` were dropped
+    // from API_KEY_SCOPES while the routes still demanded it — which would
+    // make every mutating route unreachable by any mintable key.
+    expect([...API_KEY_SCOPES]).toEqual(["read", "write", "chat", "extensions", "admin"]);
+    expect(isApiKeyScope("write")).toBe(true);
   });
 
   test("a cookie session is not scope-gated at all (undefined => allow)", () => {

@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { backfillGithubProjectsApiTokens } from "../extensions/secrets-store";
 import { seedSelfProject } from "./seed-self-project";
 import { up as upUserCommandsUnique } from "./migrations/add-user-commands-unique-name";
+import { up as upApiKeyWriteScope } from "./migrations/backfill-api-key-write-scope";
 // Value import is safe: this module imports only `drizzle-orm`. Its
 // project-root ARGUMENT comes from a dynamic import at the call site —
 // see the comment there for why that one cannot be static.
@@ -1230,6 +1231,17 @@ export async function migrate(db: any): Promise<void> {
   // over created_at) so no row is dropped, then adds the unique index. Both
   // statements are idempotent — re-running on a clean DB is a no-op.
   await upUserCommandsUnique(db);
+
+  // ── 2026-08: `write` scope backfill for already-issued API keys ────
+  //
+  // The 18 handlers that used to gate mutation on `read` now gate on `write`
+  // (docs/audit/2026-08-read-scope-mutation-inventory.md). Scopes live in a
+  // MUTABLE jsonb settings row and are not covered by the key hash, so an
+  // existing key can be granted `write` without re-issuing its secret — which
+  // matters because there is no update-scopes endpoint and the raw key is
+  // shown exactly once. Additive, `read`-triggered only (never escalates a
+  // chat-only key), and idempotent. See the module header.
+  await upApiKeyWriteScope(db);
 
   // ── Phase 48: Ez Mode + Conversation Kind + Ez Drafts ─────────────
   //
