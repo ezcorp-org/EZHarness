@@ -139,10 +139,17 @@ describe("examples tree pass/fail gating", () => {
     // 178 files when this gate landed; a ratchet floor in the same style as
     // CRITICAL_ONLY's 25-file floor. A drop below it means the tree was
     // gutted or the find rotted.
+    //
+    // 2026-08-03, phase 9: `ez-code-factory` was retired (superseded by the
+    // bundled `extensions/ez-factory`), taking 39 test files with it —
+    // 178 → 139. The floor moves with the deliberate deletion, and it moves
+    // TIGHTER, not looser: 135 leaves a 4-file margin where the old 150 left
+    // 28. Nothing else may lower it; a fall below 135 still means the sweep
+    // rotted or a tree was gutted by accident.
     expect(
       examplesOnDisk.length,
       `only ${examplesOnDisk.length} example test file(s) found — did the sweep rot?`,
-    ).toBeGreaterThanOrEqual(150);
+    ).toBeGreaterThanOrEqual(135);
   });
 
   test("every examples test file is in the pass/fail set P", () => {
