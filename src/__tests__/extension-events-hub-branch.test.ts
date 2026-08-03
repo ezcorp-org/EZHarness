@@ -19,6 +19,7 @@ import { EventBus } from "../runtime/events";
 import type { AgentEvents } from "../types";
 import { getPageCache } from "../extensions/page-cache";
 import {
+  callProvenanceSize,
   resolveCallProvenance,
   _resetCallProvenanceForTests,
 } from "../extensions/call-provenance";
@@ -49,9 +50,18 @@ let serviceConvWiring: Array<{ conversationId: string; extensionId: string }> = 
 let serviceConvThrows = false;
 let alreadyWiredExtIds: string[] = [];
 
+// When false, the fake reports the frame as UNDELIVERED — the cold-spawn
+// case the route must surface rather than answer `{ok:true}` to.
+let notificationDelivered = true;
+
 const fakeProc = {
-  sendNotification(method: string, params?: Record<string, unknown>) {
+  // Mirrors the REAL signature: `sendNotification` returns whether the
+  // frame reached stdin (`src/extensions/subprocess.ts`). A fake that
+  // returned `undefined` would model a permanently-dropped notification,
+  // which is exactly what this route now (correctly) rejects.
+  sendNotification(method: string, params?: Record<string, unknown>): boolean {
     sendCalls.push({ method, params: params ?? {} });
+    return notificationDelivered;
   },
 };
 
@@ -229,9 +239,44 @@ beforeEach(() => {
   serviceConvWiring = [];
   alreadyWiredExtIds = [];
   serviceConvThrows = false;
+  notificationDelivered = true;
 });
 
 describe("hub-source branch", () => {
+  test("503 when the notification is NOT delivered — never a false {ok:true}", async () => {
+    // The cold-spawn defect. `sendNotification` used to no-op on a
+    // process nothing had spawned, and NOTHING on this path spawns:
+    // `getProcess` only constructs an `ExtensionProcess` and
+    // `ensureSubprocessRpcWired` only installs handlers on it. So the
+    // FIRST Hub action after a server restart vanished while this route
+    // answered 200 `{ok:true}` — no error, no change, no trace.
+    notificationDelivered = false;
+    const res = await POST(makeEvent({ source: "hub", pageId: "dashboard" }));
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({
+      error: "Extension is not accepting actions right now — try again",
+    });
+  });
+
+  test("an undelivered fire RELEASES its provenance token", async () => {
+    // A hub fire mints a 4-HOUR provenance token. Leaking one per dropped
+    // action would keep a resolvable owner scope alive for a call that
+    // never happened, and the registry only reclaims it via the TTL sweep.
+    notificationDelivered = false;
+    await POST(makeEvent({ source: "hub", pageId: "dashboard" }));
+    expect(callProvenanceSize()).toBe(0);
+  });
+
+  test("a DELIVERED fire is still 200 — the check is a bound, not a wall", async () => {
+    // Discrimination for both cases above: a route that answered 503
+    // unconditionally, or released every token, would pass them.
+    notificationDelivered = true;
+    const res = await POST(makeEvent({ source: "hub", pageId: "dashboard" }));
+    expect(res.status).toBe(200);
+    expect(sendCalls.length).toBe(1);
+    expect(callProvenanceSize()).toBe(1);
+  });
+
   test("200: spawns + wires, sends the namespaced notification with host-stamped userId + a resolvable provenance token", async () => {
     const res = await POST(makeEvent({ source: "hub", pageId: "dashboard", payload: { all: true } }));
     expect(res.status).toBe(200);

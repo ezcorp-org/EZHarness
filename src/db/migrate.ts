@@ -450,7 +450,7 @@ export async function migrate(db: any): Promise<void> {
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS observability_events (
       id TEXT PRIMARY KEY,
-      conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+      conversation_id TEXT REFERENCES conversations(id) ON DELETE CASCADE,
       message_id TEXT REFERENCES messages(id) ON DELETE SET NULL,
       event_type TEXT NOT NULL,
       data JSONB NOT NULL,
@@ -458,6 +458,29 @@ export async function migrate(db: any): Promise<void> {
       created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
     )
   `);
+  // Relax the pre-existing NOT NULL on an already-created table. A tool
+  // call made from inside a WORKFLOW has no conversation — it runs under
+  // the synthetic `workflow-run:<id>` scope key, which matches no
+  // `conversations` row — so under NOT NULL the FK rejected every such
+  // insert and the tool call was recorded nowhere. NULL is the honest
+  // value; the run travels in `data.workflowRunId`.
+  //
+  // Idempotent and safe to re-run: DROP NOT NULL on an already-nullable
+  // column is a no-op, and widening a constraint can never invalidate an
+  // existing row. See `src/db/schema.ts` (`observabilityEvents`) for why
+  // no reader regresses.
+  //
+  // DELIBERATELY REDUNDANT with the `CREATE TABLE` above, which also omits
+  // `NOT NULL`. A fresh install gets a nullable column without this ALTER;
+  // an install created BEFORE the change gets it only from here. Because
+  // each covers the other on a fresh database, a mutation that reverts the
+  // CREATE TABLE half alone is not observable through `migrate()` — the
+  // two are belt and braces, not one mechanism written twice. The upgrade
+  // half IS pinned, by the "migration upgrades a pre-existing
+  // observability_events" test.
+  await db.execute(
+    sql`ALTER TABLE observability_events ALTER COLUMN conversation_id DROP NOT NULL`,
+  );
 
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_obs_events_conversation ON observability_events(conversation_id)`);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_obs_events_type ON observability_events(event_type)`);
@@ -2358,7 +2381,10 @@ export async function migrate(db: any): Promise<void> {
   // zero cost reads as a measurement rather than as a gap.
   //
   // `cost_usd` is NUMERIC, not DOUBLE PRECISION — a dashboard that sums
-  // floats accumulates error, and C3's per-job spend cap reads it.
+  // floats accumulates error, and this column is summed for display. The
+  // value is ADVISORY (delegated execution enforces on tokens); see
+  // `workflowStepRuns.costUsd` in `schema.ts` for why NULL here can never
+  // be read as "free".
   await db.execute(sql`ALTER TABLE workflow_step_runs ADD COLUMN IF NOT EXISTS attempt INTEGER`);
   await db.execute(sql`ALTER TABLE workflow_step_runs ADD COLUMN IF NOT EXISTS input_tokens INTEGER`);
   await db.execute(sql`ALTER TABLE workflow_step_runs ADD COLUMN IF NOT EXISTS output_tokens INTEGER`);
@@ -2571,4 +2597,18 @@ export async function migrate(db: any): Promise<void> {
   // reaches `./connection`, which imports this file.
   const { backfillWorkflowDefinitionVersions } = await import("./queries/workflow-versions");
   await backfillWorkflowDefinitionVersions(db);
+
+  // Data repair for runs the workflow daemon terminalized by claiming them:
+  // the claim CAS took the row `suspended → running`, and `resumeWorkflow`'s
+  // status guard then wrote `error`/`not-resumable` over a perfectly healthy
+  // parked run, leaving its approval prompt unanswerable forever.
+  //
+  // Ships WITH the code fix and never before it — repairing first would just
+  // hand the rows back to a daemon that re-bricks them on its next 5s tick.
+  //
+  // Narrowly targeted at that exact signature and never at a genuinely failed
+  // run; see the function's docblock for what each conjunct is protecting.
+  // Same lazy-import rationale as the two backfills above.
+  const { repairDaemonBrickedWorkflowRuns } = await import("./queries/workflow-runs");
+  await repairDaemonBrickedWorkflowRuns(db);
 }

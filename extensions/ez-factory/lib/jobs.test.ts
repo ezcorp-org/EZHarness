@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { __resetChannelForTests, getChannel } from "@ezcorp/sdk/runtime";
 import type { HostChannel } from "@ezcorp/sdk/runtime";
 import manifest from "../ezcorp.config";
+import { JOB_FORM_FIELDS, jobIdFromActionPayload } from "./page";
 import {
   createJobStore,
   diffJob,
@@ -20,7 +21,6 @@ import {
   MAX_JOB_NAME_LEN,
   MAX_RUNS_PER_JOB,
   newJobId,
-  parseJobIdPayload,
   RESERVED_CONTROL_FLOW_FIELDS,
   validateJobDraft,
   type FactoryJob,
@@ -509,15 +509,24 @@ describe("job ids", () => {
     expect(newJobId()).not.toBe(id);
   });
 
-  test("parseJobIdPayload extracts a legal id and refuses everything else", () => {
-    expect(parseJobIdPayload({ jobId: " j1 " })).toBe("j1");
-    expect(parseJobIdPayload({ jobId: "job:other" })).toBeNull();
-    expect(parseJobIdPayload({ jobId: "  " })).toBeNull();
-    expect(parseJobIdPayload({ jobId: 7 })).toBeNull();
-    expect(parseJobIdPayload({})).toBeNull();
-    expect(parseJobIdPayload(null)).toBeNull();
-    expect(parseJobIdPayload([])).toBeNull();
-    expect(parseJobIdPayload("j1")).toBeNull();
+  test("the page-action id reader lives in lib/page.ts, keyed on the real field", () => {
+    // `parseJobIdPayload` used to live here and read `payload.jobId` — a
+    // key no page action carries, because a form field id must match the
+    // host's lowercase slug rule and the console's is `job_id`. It had no
+    // production caller, and the day one arrived it refused every click
+    // in silence. The reader now sits beside the field-id constant it
+    // must agree with, and this asserts the PAIRING rather than keeping a
+    // second copy of the charset rule.
+    expect(jobIdFromActionPayload({ [JOB_FORM_FIELDS.jobId]: " j1 " })).toBe("j1");
+    // The exact mistake, pinned: the camelCase key is not the wire key.
+    expect(jobIdFromActionPayload({ jobId: "j1" })).toBeNull();
+    expect(jobIdFromActionPayload({ [JOB_FORM_FIELDS.jobId]: "job:other" })).toBeNull();
+    expect(jobIdFromActionPayload({ [JOB_FORM_FIELDS.jobId]: "  " })).toBeNull();
+    expect(jobIdFromActionPayload({ [JOB_FORM_FIELDS.jobId]: 7 })).toBeNull();
+    expect(jobIdFromActionPayload({})).toBeNull();
+    expect(jobIdFromActionPayload(null)).toBeNull();
+    expect(jobIdFromActionPayload([])).toBeNull();
+    expect(jobIdFromActionPayload("j1")).toBeNull();
   });
 });
 

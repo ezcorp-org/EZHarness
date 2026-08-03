@@ -89,8 +89,11 @@ export interface WorkflowTraceStep {
   iterations: number | null;
   inputTokens: number | null;
   outputTokens: number | null;
-  /** Always null in this phase — there is no host-side price table, so
-   *  nothing can compute a cost honestly. The trace renders "—". */
+  /** Fixed-point USD, or null when the cost could not be MEASURED —
+   *  a step that ran no LLM, a provider that reported no usage, or an
+   *  unpriced (OAuth-subscription) model. Null is never "free", so the
+   *  trace must render "—" for it rather than "$0.00"; a priced step that
+   *  really cost nothing arrives as `"0.000000"` instead. */
   costUsd: string | null;
   durationMs: number | null;
   errorCode: string | null;

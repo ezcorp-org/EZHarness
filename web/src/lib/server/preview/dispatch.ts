@@ -40,8 +40,13 @@ import { getPreviewQuota } from "$server/runtime/preview/preview-rate-limit";
  * accidentally serves untrusted content on an unexpected origin.
  * Operators set `EZCORP_PREVIEW_APP_HOST` to e.g. `localhost` (dev,
  * `*.localhost` auto-resolves), `ezcorp.example.com` (prod, behind a
- * wildcard TLS cert — see docs/preview-hosting.md), or `auto` to track
- * `EZCORP_PUBLIC_URL`.
+ * wildcard TLS cert), or `auto` to track `EZCORP_PUBLIC_URL`.
+ *
+ * Wildcard DNS + TLS setup: `deploy/preview-dns/Corefile.example` (the
+ * env-driven CoreDNS sidecar and the split-DNS wiring for dnsmasq /
+ * systemd-resolved / Tailscale) and docs/local-prod-test-stack.md for
+ * the end-to-end flow. Feature reference:
+ * docs/features/tools/preview-port-exposure.md.
  */
 function appHost(): string | null {
   return resolvePreviewAppHost();

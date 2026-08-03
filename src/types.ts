@@ -623,10 +623,9 @@ export interface WorkflowStepRun {
    * a skipped step with no explanation is indistinguishable from a step
    * that was never reached. Omitted for every other status.
    *
-   * NOTE: `workflow_step_runs.skipped_reason` is C5's column and does not
-   * exist on this branch, so this value is in-memory + SSE only today; the
-   * persisted step row carries `status = 'skipped'` alone. See the C7
-   * section of `docs/features/orchestration/workflows.md`.
+   * Persisted to `workflow_step_runs.skipped_reason` by
+   * `upsertWorkflowStepRun` and read back by the run trace, so a reloaded
+   * trace explains a skip rather than showing a bare `status = 'skipped'`.
    */
   skippedReason?: string;
   /** Provider / model the step's agent run RESOLVED to — what actually

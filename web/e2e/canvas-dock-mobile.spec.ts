@@ -17,8 +17,10 @@ test.describe("Canvas Dock — mobile fixed-inset", () => {
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
 		await page.locator("textarea").fill("Open");
-		await page.locator("textarea").press("Enter");
-		await page.waitForResponse((r: any) => r.url().includes("/messages") && r.request().method() === "POST");
+		await Promise.all([
+			page.waitForResponse((r: any) => r.url().includes("/messages") && r.request().method() === "POST"),
+			page.locator("textarea").press("Enter"),
+		]);
 
 		await emitWs({
 			type: "tool:complete",

@@ -980,15 +980,21 @@ const BUNDLED_EXTENSIONS: BundledExtension[] = [
         maxRunsPerHour: 60,
       },
       filesystem: ["$CWD"],
-      // The console's ONE Hub page action (8.6). NOT a platform-event
-      // subscription — a `workflow:*` event can never reach an extension
-      // (no `conversationId` on `WorkflowRun`), which is why none is
-      // declared. This name travels a different path entirely, and it is
-      // the grant `hub-render-pull.ts` reads as `allowedEvents`: without
-      // it `validatePageTree` DELETES the job editor's form node from the
-      // tree and the events route 404s the submit. Must stay byte-equal
+      // The console's TWO Hub page actions — `job-save` (write a job) and
+      // `job-run` (fire one). NOT platform-event subscriptions: a
+      // `workflow:*` event can never reach an extension (no
+      // `conversationId` on `WorkflowRun`), which is why none is declared.
+      // These names travel a different path entirely, and this is the
+      // grant `hub-render-pull.ts` reads as `allowedEvents`: a name
+      // missing here means `validatePageTree` DELETES that control from
+      // the tree and the events route 404s the click. Must stay byte-equal
       // to the manifest and the `bundled-ceiling.ts` row.
-      eventSubscriptions: ["ez-factory:job-save"],
+      //
+      // `job-run` widens NOTHING. Firing is authorized by the `workflows`
+      // grant above, unchanged; this only lets the console dispatch an
+      // action the host then puts through the same ladder as every other
+      // trigger.
+      eventSubscriptions: ["ez-factory:job-save", "ez-factory:job-run"],
       grantedAt: {
         storage: Date.now(),
         triggers: Date.now(),

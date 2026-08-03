@@ -1183,8 +1183,44 @@ describe("durable position — run_phase, cursor, definition_hash", () => {
     const loaded = await loadStepResults(run.id);
     if (!loaded.ok) throw new Error(loaded.reason);
     expect(loaded.stepResults.has("dropped")).toBe(false);
-    expect(loaded.skippedSteps.get("dropped")).toBe(REHYDRATED_SKIP_REASON);
+    // The row carries the reason the first process recorded, so a resumed
+    // run reports the SAME explanation rather than a generic placeholder.
+    expect(loaded.skippedSteps.get("dropped")).toContain("when");
+    expect(loaded.skippedSteps.get("dropped")).not.toBe(REHYDRATED_SKIP_REASON);
     expect(loaded.stepResults.get("kept")).toEqual({ success: true, output: { v: "K" } });
+  });
+
+  test("a skipped row with no recorded reason falls back to the generic one", async () => {
+    // Rows written before `skipped_reason` had a writer carry NULL. They
+    // must still rehydrate as skipped — the STATUS is what drives the
+    // cascade — with an honest generic reason rather than an invented
+    // specific one.
+    const legacyWf = makeExecutor({});
+    const run = await legacyWf.runWorkflow(
+      {
+        name: `wf-legacy-skip-${crypto.randomUUID().slice(0, 8)}`,
+        description: "",
+        steps: [
+          {
+            name: "dropped",
+            kind: "transform",
+            output: { v: "D" },
+            when: { ref: "$input.go", op: "truthy" },
+          },
+        ],
+      },
+      { go: false },
+      undefined,
+      undefined,
+    );
+    // Simulate the pre-writer row shape.
+    await db.execute(
+      sql`UPDATE workflow_step_runs SET skipped_reason = NULL WHERE workflow_run_id = ${run.id}`,
+    );
+
+    const loaded = await loadStepResults(run.id);
+    if (!loaded.ok) throw new Error(loaded.reason);
+    expect(loaded.skippedSteps.get("dropped")).toBe(REHYDRATED_SKIP_REASON);
   });
 
   test("a run mid-tool-step is running/in-batch — never suspended", async () => {

@@ -67,14 +67,24 @@ describe("an approval carrying blocking items renders the stop directive and the
     expect(relay.text).not.toContain("per-item consent");
   });
 
-  test("the directive names all three prohibitions", () => {
+  test("the directive PROHIBITS all three, not merely mentions them", () => {
     // Each was added because the previous wording was read around:
     // "relay verbatim" alone became "summarise faithfully", and
     // "do not answer" alone left paraphrasing open.
-    expect(RELAY_DIRECTIVE).toContain("VERBATIM");
-    expect(RELAY_DIRECTIVE).toContain("paraphrase");
-    expect(RELAY_DIRECTIVE).toContain("pre-judge");
-    expect(RELAY_DIRECTIVE).toContain("STOP");
+    //
+    // These assertions must carry the NEGATION, not the bare verb. Asserting
+    // `toContain("paraphrase")` is satisfied just as well by a directive that
+    // PERMITS paraphrasing, so the guard against being read around could
+    // itself be read around: rewriting "Do not paraphrase it, do not
+    // pre-judge" to "You may paraphrase it, you may pre-judge" inverts the
+    // whole invariant and left all 10 tests in this file green. Verified by
+    // mutation, which is the only way this class of hole is ever visible —
+    // an assertion that cannot fail looks exactly like one that passes.
+    expect(RELAY_DIRECTIVE).toContain("RELAY THIS TO THE USER VERBATIM");
+    expect(RELAY_DIRECTIVE).toContain("Do not paraphrase it");
+    expect(RELAY_DIRECTIVE).toContain("do not pre-judge");
+    expect(RELAY_DIRECTIVE).toContain("do not answer on the user's behalf");
+    expect(RELAY_DIRECTIVE).toContain("STOP after");
   });
 });
 

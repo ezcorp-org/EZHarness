@@ -31,9 +31,9 @@ Every decision writes exactly one `auditLog` row (`AUDIT_PERM_ALLOWED` / `_DENIE
 
 ### Where the PDP is called
 
-`engine.authorize` is the single gate consulted by every host-side handler: `tool-executor.ts` (forward tool dispatch), `fs-handler.ts` (read/write/list/stat), `network-handler.ts`, `storage-handler.ts`, `mcp-proxy.ts`, `append-message-handler.ts`, `agent-configs-handler.ts`, `task-events-handler.ts`, `spawn-assignment-handler.ts`, `cancel-run-handler.ts`, `finalize-tool-call-handler.ts`, and `file-organizer-applier.ts`.
+`engine.authorize` is the single gate consulted by every host-side handler: `tool-executor/executor.ts` (forward tool dispatch), `fs-handler.ts` (read/write/list/stat), `network-handler.ts`, `storage-handler.ts`, `mcp-proxy.ts`, `append-message-handler.ts`, `agent-configs-handler.ts`, `task-events-handler.ts`, `spawn-assignment-handler.ts`, `cancel-run-handler.ts`, `finalize-tool-call-handler.ts`, and `file-organizer-applier.ts`.
 
-### Sensitive-cap prompt flow (`tool-executor.ts` → gate → resolve route)
+### Sensitive-cap prompt flow (`tool-executor/executor.ts` → gate → resolve route)
 
 When `authorize` returns `prompt`, `ToolExecutor`:
 
@@ -114,7 +114,7 @@ Extension capability calls (`ctx.llm`, `ctx.memory`, `ctx.schedule`, `ctx.drafts
 - `src/extensions/call-provenance.ts` — `registerCallProvenance`/`registerFireCallProvenance`/`resolveCallProvenance`/`releaseCallProvenance`.
 - `src/extensions/audit-actions.ts` — `EXT_AUDIT_ACTIONS` + `AUDIT_PERM_*` constants.
 - `src/extensions/fs-handler.ts` — host read/write/list/stat gates; calls `engine.authorize` + `isReservedSensitivePath`.
-- `src/extensions/tool-executor.ts` — forward-dispatch gate: `authorize` → prompt → `createExtensionPermissionGate` → `resolvePrompt`.
+- `src/extensions/tool-executor/executor.ts` — forward-dispatch gate: `authorize` → prompt → `createExtensionPermissionGate` → `resolvePrompt`.
 - `src/routes/tool-permission.ts` — gate-answer handler (ownership + `forever` admin gate + TTL validation).
 - `src/db/queries/audit-log.ts` — `insertAuditEntry` (redacts metadata; on failure fire-and-forgets to `error_logs` via `persistError`, returns `""`).
 - `web/src/routes/api/tool-calls/[id]/permission/+server.ts` — thin route → `handleToolPermission`.

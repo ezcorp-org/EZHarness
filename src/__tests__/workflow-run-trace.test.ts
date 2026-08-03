@@ -190,7 +190,9 @@ describe("trace payload shape", () => {
     expect(draft.durationMs).toBe(4200);
     expect(draft.resolvedInput).toEqual({ topic: "release notes" });
     expect(draft.output).toEqual({ success: true, output: "done" });
-    // No price table exists, so this is "not computed", rendered as "—".
+    // `claude-opus-5` is an unpriced (subscription) model in the catalog
+    // this resolves against, so there is no per-token cost to record.
+    // NULL is "not measurable", rendered as "—" — never "free".
     expect(draft.costUsd).toBeNull();
   });
 

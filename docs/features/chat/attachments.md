@@ -117,6 +117,7 @@ Attachments let a user upload files alongside a chat message — images, text/co
 - [[api-security]] — every route is `requireScope` + `requireAuth`; attachment serving is fail-closed ownership (owner-or-admin) with admin-read auditing.
 - [[projects]] — files live under the active project's `.ezcorp/attachments/` tree; the project path resolves storage.
 - [[message-toolbar]] / [[canvas-cards]] — display cards + lightbox surface attachments under each message.
+- [[deterministic-preprocess]] — a wired extension declaring `preprocessors` runs a tool against matching attachments before the assistant turn, with no LLM decision.
 
 ## Related docs
 

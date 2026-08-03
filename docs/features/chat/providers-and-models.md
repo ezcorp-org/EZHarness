@@ -69,6 +69,17 @@ All stored secrets (API keys, OAuth blobs) round-trip through `encrypt`/`decrypt
 
 The `requestedTier` comes from the heuristic quality-tier classifier (`src/runtime/tier-classifier.ts`) — it fires only when a thread has **no** established model, routing once at thread start (see [LLM routing & failover](../../llm-routing-and-failover.md)).
 
+### What feeds `resolveModel` (`src/runtime/routing/`)
+
+The resolver above is the bottom of the stack. Four pure modules sit on top of it; the deep spec is [LLM routing & failover](../../llm-routing-and-failover.md) — this is the map.
+
+- **Model binding** (`mode-binding.ts`) — `resolveTurnModelBinding` collapses the precedence chain *above* the classifier: turn pin → caller provider → the mode's `preferredModel` → the mode's `preferredTier` → classifier. It reports which level decided as `source`. See [[modes]].
+- **Tier ladder** (`tier-ladder.ts`) — settings key `provider:tierModels`, an **ordered** `{provider, model}` preference list per tier, so an operator says *which* model a tier actually gets instead of taking the registry's first match. `validateTierLadder` gates the write (a bad ladder is a 400); `parseTierLadder` is tolerant on read (a bad stored ladder is ignored, never thrown) — read and write live in one module so they cannot drift.
+- **Default selection** (`default-selection.ts`) — settings key `provider:defaultSelection`, either `auto` (a fresh thread's first turn is routed) or `first` (pin the first available model, the pre-routing behaviour). This is the revert knob for routed-by-default traffic, which is why it is read back through the `read`-scoped `GET /api/models/default-selection` rather than the admin-only settings GET: an operator's revert must reach **every** user, not just admins.
+- **Experiments** (`exploration.ts`, `shadow.ts`) — two independent, default-off knobs for measuring routing rather than guessing at it. `provider:explorationRate` (default `0`) is the probability a routed turn is deliberately served **one rung below** the classifier's tier, to gather unbiased counterfactual data — it trades a little answer quality for that data. `provider:routingShadow` names a candidate `{fastMaxTokens, powerfulMinTokens}` pair that is evaluated on every routed turn it *could* have moved and recorded into `usage.routingSignals.shadow`, but **never served**. Both validate on write and are treated as OFF on read.
+
+Routing provenance is recorded per turn on the message `usage` blob (`routedTier`, `failover`, `routingSignals` in `src/db/schema.ts`) — the classifier's inputs *and* its verdict, so thresholds can be re-swept offline against real traffic. When `exploration` is true the classifier's `tier` is **not** the tier that served the turn (`routedTier` is); both are kept deliberately.
+
 `suggestFallback(failedProvider, tier, credentialScope?)` returns the next healthy provider's tier-peer model. The `CircuitBreaker` is a standard closed/open/half-open machine (3 failures → open, 60 s reset), keyed per `(provider, scope)` — the scope is the conversation owner's user id in prod, so one user's rate-limit failures never open the breaker for other users; context-free callers share the `"shared"` scope. `friendlyProviderError(err, { provider, model, baseUrl })` detects connection-class failures (by message pattern, since `.code`/`.name` are lost across the executor's error rethrow) and rewrites Bun's cryptic `"typo in the url or port?"` text into an actionable "Couldn't reach the `<provider>` endpoint at `<baseUrl>`…" message; it's invoked in `src/runtime/stream-chat/finalize.ts`.
 
 ## Usage
@@ -79,7 +90,9 @@ The `requestedTier` comes from the heuristic quality-tier classifier (`src/runti
 |---|---|---|
 | `GET /api/models` | scope `read` | Full registry (built-ins + discovered + custom), each tagged `available` (creds present, or local `baseUrl`). OAuth providers are filtered to their OAuth-variant ids + any refreshed-in models. |
 | `GET /api/models/capabilities?provider=&model=&conversationId=&extensions=` | scope `read` | Per-model attachment caps (`kinds`, `acceptedMimeTypes`, `maxBytesPerFile`, `maxFilesPerMessage`); unions conversation-wired + pending `!ext:` MIMEs. Delivery-strategy enum is **not** leaked. |
+| `GET /api/models/default-selection` | scope `read` | Read `provider:defaultSelection` (`auto` / `first`). Deliberately **not** admin-only — an operator's revert must reach every user. |
 | `GET /api/providers` | scope `read` | Per-provider status: `hasKey`, `source` (`byok`/`env`/`none`), `oauthConnected`/`oauthExpired`/`oauthSupported`, `expiresAt`. |
+| `GET /api/admin/analytics/routing?days=<1–365>` | `admin` **scope + role** | Routing + cost analytics for the admin dashboard's Routing panel (`getRoutingStats`). Split out of `/api/admin/analytics` so the routing tab neither pays for nor is blocked by that route's nine sequential aggregations. `days` defaults to 30 and is clamped twice (here for payload sanity, again in the query layer for safety). |
 | `POST /api/providers` | **admin role** | Upsert an encrypted BYOK key (`{ provider, apiKey }`). Audited (`provider:key_upsert`). |
 | `DELETE /api/providers` | **admin role** | Delete a BYOK key (`{ provider }`). Audited (`provider:key_delete`). |
 | `POST /api/providers/[provider]/test` | **admin** | Live one-token `complete()` against the provider's fast-tier model. |
@@ -91,13 +104,15 @@ The `requestedTier` comes from the heuristic quality-tier classifier (`src/runti
 
 ### UI entry points
 
-- **Settings → Models** (`web/src/routes/(app)/settings/models/+page.svelte`): `ProvidersSection.svelte` (BYOK keys, OAuth connect, test, refresh-models) + `CustomModelsSection.svelte` (add a local/OpenAI-compatible model; writes `provider:customModels`; "Test connection" / "List models" hit the SSRF-guarded local routes).
+- **Settings → Models** (`web/src/routes/(app)/settings/models/+page.svelte`) — **admin-only**, eight stacked sections in order: `ProvidersSection.svelte` (BYOK keys, OAuth connect, test, refresh-models), `DefaultSelectionSection.svelte` (New Chat Model Default — `auto` / `first`), `DefaultTierSection.svelte` (`provider:defaultTier`), `PreferenceOrderSection.svelte` (`provider:preferenceOrder`), `TierLadderSection.svelte` (the per-tier ordered model ladder), `RoutingExperimentsSection.svelte` (exploration rate — the box is a percentage and raising it requires acknowledging the quality cost — plus the shadow-threshold pair; clearing both boxes turns shadow off), `ToolResultCapSection.svelte` (stale tool-result cap — see [[context-compaction]]), and `CustomModelsSection.svelte` (add a local/OpenAI-compatible model; writes `provider:customModels`; "Test connection" / "List models" hit the SSRF-guarded local routes).
+- **Admin dashboard → Routing** (`web/src/routes/(app)/admin/dashboard/+page.svelte`) — the routing + spend panel over `GET /api/admin/analytics/routing`.
 - **Model picker** in the composer — `ModelSelector.svelte` (imported by `web/src/lib/components/ChatInput.svelte`) fetches `/api/models` and filters by `available`. (`ModelSearchPicker.svelte` is a separate searchable picker used by agent/team/briefing forms, **not** the composer.)
 - **Last-model persistence** — `web/src/lib/last-model.ts`: `restoreLastModel` / `persistLastModel` keep the pick in `localStorage` under `ezcorp-last-model`. The DB conversation row is only a per-conversation override.
 
 ### Settings keys & env vars
 
 - Settings: `provider:apiKey:<p>`, `provider:oauth:<p>`, `provider:accessMode:<p>`, `conversation:<id>:accessMode:<p>`, `provider:discoveredModels:<p>`, `provider:customModels`, `provider:defaultTier`, `provider:preferenceOrder`, `oauth:pending:<state>`.
+- Routing settings (all validated on write — an unrecognised value is a **400**, not a silent no-op — and read tolerantly): `provider:defaultSelection` (default `auto`), `provider:tierModels` (the tier ladder, unset by default), `provider:explorationRate` (default `0` = off), `provider:routingShadow` (unset = off). Full semantics in [LLM routing & failover](../../llm-routing-and-failover.md).
 - Env: `EZCORP_ENCRYPTION_SECRET`, `EZCORP_ENCRYPTION_SALT`, `EZCORP_SECRETS_DIR`, `EZCORP_DB_PATH`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY`, `GOOGLE_CLOUD_PROJECT`.
 
 ## Key files
@@ -108,6 +123,14 @@ The `requestedTier` comes from the heuristic quality-tier classifier (`src/runti
 - `src/providers/model-discovery.ts` — `fetchProviderModels` (direct `/v1/models` + models.dev catalog enrichment/fallback).
 - `src/providers/model-capabilities.ts` — per-model attachment caps + extension-MIME union; `classifyMime`, `getCapabilitiesWithExtensions`.
 - `src/providers/router.ts` — `resolveModel` (3-level, tier-aware), `suggestFallback`, `ProviderUnavailableError`, `mergePreferenceOrder`.
+- `src/runtime/routing/mode-binding.ts` — `resolveTurnModelBinding`: turn-pin → mode-model → mode-tier → classifier precedence, with a named `source`.
+- `src/runtime/routing/tier-ladder.ts` — `validateTierLadder` (write gate), `parseTierLadder` (tolerant read), `resolveLadderEntry`, `ladderCandidates`, `DEFAULT_TIER_LADDER`.
+- `src/runtime/routing/default-selection.ts` — the `auto`/`first` modes plus `parseDefaultSelection` + `validateDefaultSelection` in one module so read and write cannot drift.
+- `src/runtime/routing/exploration.ts`, `src/runtime/routing/shadow.ts` — bounded exploration and never-served shadow evaluation.
+- `src/runtime/routing/auto-capabilities.ts`, `src/runtime/routing/labels.ts` — the Auto sentinel's capability set and the human-facing routing labels.
+- `web/src/routes/api/models/default-selection/+server.ts` — `read`-scoped read of `provider:defaultSelection` so a revert reaches every user, not just admins.
+- `web/src/routes/api/admin/analytics/routing/+server.ts` — routing + cost analytics; gated on the admin **scope and role**.
+- `web/src/lib/tier-ladder-view.ts`, `web/src/lib/routing-experiments-view.ts` — pure view models behind the two settings sections.
 - `src/providers/circuit-breaker.ts` — closed/open/half-open breaker keyed per `(provider, scope)` (per-user in prod); bounded map.
 - `src/providers/provider-error.ts` — `isProviderConnectionError` / `friendlyProviderError` translation.
 - `src/providers/local-model-check.ts` — pure fetch-based local endpoint reachability / availability / inference + `listModels` (shared by discovery).
@@ -133,6 +156,7 @@ The `requestedTier` comes from the heuristic quality-tier classifier (`src/runti
 - [[audit-and-observability]] — BYOK key upsert/delete write audit-log entries.
 - [[api-security]] — admin routes gate on `requireRole`/`requireAdmin` (not the cookie-no-op `requireScope("admin")`); local probes are SSRF-guarded.
 - [[mcp-servers]] — MCP tool models also resolve through `resolveModel`/`getCredential` (see `src/extensions/llm-handler.ts`).
+- [[modes]] — a mode's `preferredProvider`/`preferredModel`/`preferredTier` feed `resolveTurnModelBinding`, the level directly above the tier classifier.
 
 ## Related docs
 

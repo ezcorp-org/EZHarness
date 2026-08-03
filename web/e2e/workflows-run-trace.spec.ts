@@ -99,8 +99,25 @@ const TRACE = {
 			startedAt: "2026-07-30T09:00:07.300Z",
 			updatedAt: "2026-07-30T09:00:07.340Z",
 		},
+		{
+			// A PRICED model, so a real cost was measured and lands in the
+			// column. This is the row that keeps the trace honest about the
+			// difference between "—" (not measurable) and a figure.
+			...STEP_DEFAULTS,
+			stepName: "publish",
+			status: "success",
+			provider: "anthropic",
+			model: "claude-sonnet-4-5",
+			attempt: 1,
+			inputTokens: 1000,
+			outputTokens: 200,
+			costUsd: "0.006000",
+			durationMs: 600,
+			startedAt: "2026-07-30T09:00:07.340Z",
+			updatedAt: "2026-07-30T09:00:07.940Z",
+		},
 	],
-	totals: { inputTokens: 13300, outputTokens: 950, durationMs: 7340, steps: 3 },
+	totals: { inputTokens: 13300, outputTokens: 950, durationMs: 7340, steps: 4 },
 };
 
 const PARKED = {
@@ -155,21 +172,29 @@ test.describe("Workflow run trace", () => {
 		await expect(page.getByTestId("trace-total-duration")).toHaveText("7.3s");
 
 		// The DAG has one node per step, and the timeline one bar per step.
-		await expect(page.getByTestId("dag-node")).toHaveCount(3);
-		await expect(page.getByTestId("timeline-bar")).toHaveCount(3);
+		await expect(page.getByTestId("dag-node")).toHaveCount(4);
+		await expect(page.getByTestId("timeline-bar")).toHaveCount(4);
 
 		// Per-step model and tokens.
 		const rows = page.getByTestId("step-row");
-		await expect(rows).toHaveCount(3);
+		await expect(rows).toHaveCount(4);
 		await expect(page.getByTestId("step-model").first()).toHaveText("claude-opus-5");
 		await expect(page.getByTestId("step-input-tokens").first()).toHaveText("12,400");
 
-		// Cost is a dash everywhere, with the reason on the cell rather than
-		// left as a mystery — there is no price table, so a number here
-		// would be invented.
+		// The distinction the column exists to preserve, rendered. The
+		// first three steps could not be PRICED — an unpriced subscription
+		// model, then a transform that ran no LLM — so each is a dash
+		// carrying a tooltip that says "not measured", never "free".
 		const costs = page.getByTestId("step-cost");
 		for (let i = 0; i < 3; i++) await expect(costs.nth(i)).toHaveText("—");
-		await expect(costs.first()).toHaveAttribute("title", /no price table/i);
+		await expect(costs.first()).toHaveAttribute("title", /could not be measured/i);
+		await expect(costs.first()).toHaveAttribute("title", /not mean the step was free/i);
+
+		// ...and the priced step shows its measured figure with NO such
+		// tooltip. A "could not be measured" hint on a cell reading $0.0060
+		// would describe a state that cell is not in.
+		await expect(costs.nth(3)).toHaveText("$0.0060");
+		await expect(costs.nth(3)).not.toHaveAttribute("title", /could not be measured/i);
 
 		await captureEvidence(page, testInfo, "workflow-run-trace", { fullPage: true });
 	});

@@ -617,15 +617,20 @@ test.describe("GitHub Projects connect sub-route", () => {
 		// Rotate the token via "Replace token" (routes through /connect).
 		await page.getByTestId("gh-projects-replace-token-link-1").click();
 		await page.getByTestId("gh-projects-replace-input-link-1").fill("github_pat_rotated");
+		// The link-reload waiter is armed with the click, not after the awaited
+		// request — same reason as the connect tests below. This one has a wider
+		// window (waitForRequest resolves when the POST is SENT, not answered) and
+		// was not observed failing, but the shape is the same and arming early
+		// costs nothing.
 		const [connectReq] = await Promise.all([
 			page.waitForRequest(
 				(r) => r.url().includes("/api/integrations/github-projects/connect") && r.method() === "POST",
 			),
+			// The page reloads the links after a successful replace.
+			page.waitForResponse((r) => r.url().includes("/api/integrations/github-projects/link") && r.request().method() === "GET"),
 			page.getByTestId("gh-projects-replace-submit-link-1").click(),
 		]);
 		expect((connectReq.postDataJSON() as { tokenScope?: string }).tokenScope).toBe("board");
-		// The page reloads the links after a successful replace.
-		await page.waitForResponse((r) => r.url().includes("/api/integrations/github-projects/link") && r.request().method() === "GET");
 
 		// The mapping SURVIVED the rotate (server preserves config on re-connect;
 		// the mock mirrors that — connect never touches columnActionMap).
@@ -742,13 +747,19 @@ test.describe("GitHub Projects connect sub-route", () => {
 		// Wait for the POST connect + the subsequent GET link reload to complete,
 		// then assert. Using waitForResponse guards against Svelte rendering the
 		// state update before both requests settle.
+		//
+		// BOTH waiters are armed BEFORE the click. `waitForResponse` only sees
+		// responses that arrive after it is called, so registering the GET
+		// waiter after awaiting the POST loses the race whenever loadLinks()
+		// answers before the next statement runs — the test then waits 30s for
+		// a response already delivered and times out. Observed in a full
+		// `evidence-soft` lane; the specs pass in isolation.
 		const [connectRes] = await Promise.all([
 			page.waitForResponse((r) => r.url().includes("/api/integrations/github-projects/connect") && r.request().method() === "POST"),
+			page.waitForResponse((r) => r.url().includes("/api/integrations/github-projects/link") && r.request().method() === "GET"),
 			page.getByTestId("gh-projects-connect").click(),
 		]);
 		expect(connectRes.status()).toBe(200);
-		// Wait for the link-list reload triggered by loadLinks() to complete.
-		await page.waitForResponse((r) => r.url().includes("/api/integrations/github-projects/link") && r.request().method() === "GET");
 
 		// The warning banner must appear.
 		const banner = page.getByTestId("gh-comment-scope-warning");
@@ -812,12 +823,15 @@ test.describe("GitHub Projects connect sub-route", () => {
 		await page.getByTestId("gh-projects-board-url").fill("https://github.com/orgs/acme/projects/7");
 		await page.getByTestId("gh-projects-token").fill("github_pat_full");
 
+		// Both waiters armed before the click — see the note on the
+		// canComment=false test above. Registering the GET waiter after
+		// awaiting the POST loses the race and hangs for the full 30s timeout.
 		const [connectRes] = await Promise.all([
 			page.waitForResponse((r) => r.url().includes("/api/integrations/github-projects/connect") && r.request().method() === "POST"),
+			page.waitForResponse((r) => r.url().includes("/api/integrations/github-projects/link") && r.request().method() === "GET"),
 			page.getByTestId("gh-projects-connect").click(),
 		]);
 		expect(connectRes.status()).toBe(200);
-		await page.waitForResponse((r) => r.url().includes("/api/integrations/github-projects/link") && r.request().method() === "GET");
 
 		// Neither the warning banner nor the info note should appear.
 		await expect(page.getByTestId("gh-comment-scope-warning")).toHaveCount(0);
@@ -836,12 +850,15 @@ test.describe("GitHub Projects connect sub-route", () => {
 		await page.getByTestId("gh-projects-board-url").fill("https://github.com/orgs/acme/projects/7");
 		await page.getByTestId("gh-projects-token").fill("github_pat_fine_grained");
 
+		// Both waiters armed before the click — see the note on the
+		// canComment=false test above. Registering the GET waiter after
+		// awaiting the POST loses the race and hangs for the full 30s timeout.
 		const [connectRes] = await Promise.all([
 			page.waitForResponse((r) => r.url().includes("/api/integrations/github-projects/connect") && r.request().method() === "POST"),
+			page.waitForResponse((r) => r.url().includes("/api/integrations/github-projects/link") && r.request().method() === "GET"),
 			page.getByTestId("gh-projects-connect").click(),
 		]);
 		expect(connectRes.status()).toBe(200);
-		await page.waitForResponse((r) => r.url().includes("/api/integrations/github-projects/link") && r.request().method() === "GET");
 
 		// The info note appears; the warning banner does not.
 		const note = page.getByTestId("gh-comment-scope-note");
