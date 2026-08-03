@@ -1,11 +1,17 @@
 /**
  * The suspension-reason table (`src/runtime/workflow-resume-reasons.ts`).
  *
- * The table is the extension point C3 adds `budget-exceeded` and
- * `consent-stale` to, so what is asserted here is mostly SHAPE: that the
- * enumeration matches the writers in the tree, that every reason is
- * classified, that unknown values degrade the way the module claims, and
- * that a predicate — once a row has one — is awaited and refuses.
+ * What is asserted here is SHAPE: that the enumeration matches the writers
+ * in the tree, that every reason is classified, that unknown values degrade
+ * the way the module claims, and that a predicate is awaited and refuses.
+ *
+ * C3's `budget-exceeded` and `consent-stale` rows have now landed, and they
+ * are the first rows with a real `satisfied` predicate. Their BEHAVIOUR is
+ * pinned in `workflow-budget-boundary.test.ts`, against real delegation and
+ * step rows — their predicates re-read from the database, so they cannot be
+ * exercised from this file, which has none. What is pinned here is that
+ * they exist, that they are classified, and that the narrowing in front of
+ * them still holds.
  *
  * The compile-time half (adding a reason without a table row fails the
  * build) cannot be asserted from a passing test file: it is a type error,
@@ -25,13 +31,19 @@ import {
 } from "../runtime/workflow-resume-reasons";
 
 describe("the enumeration matches what production actually writes", () => {
-  test("exactly four reasons, and every one has a table row", () => {
+  test("exactly six reasons, and every one has a table row", () => {
     // Enumerated from the writers, cited in the module doc:
-    // workflow-executor.ts:2353 / :2151, workflow-runs.ts:612,
-    // workflow-approval-timeout-sweep.ts:217.
+    // workflow-executor.ts's approval park, its nested park and its C3
+    // boundary check, workflow-runs.ts's recovery sweep, and
+    // workflow-approval-timeout-sweep.ts. `consent-stale` is the one
+    // member with no writer yet, and the module doc says why it is here
+    // ahead of one: shipping the writer first would leave a window in
+    // which the value parses to null and therefore ALLOWS.
     expect([...WORKFLOW_SUSPEND_REASONS].sort()).toEqual([
       "approval",
       "approval-timeout",
+      "budget-exceeded",
+      "consent-stale",
       "nested-suspended",
       "orphaned-resumable",
     ]);
@@ -48,11 +60,27 @@ describe("the enumeration matches what production actually writes", () => {
 
   test("only `approval-timeout` is barred from a live suspended row", () => {
     // It is written exclusively as a run terminalizes, so a live
-    // suspended row carrying it is out-of-band. The other three are
-    // ordinary parked states.
+    // suspended row carrying it is out-of-band. Every other reason,
+    // C3's two included, is an ordinary parked state.
     const live = WORKFLOW_SUSPEND_REASONS.filter((r) => RESUME_RULES[r].liveOnSuspendedRow);
-    expect([...live].sort()).toEqual(["approval", "nested-suspended", "orphaned-resumable"]);
+    expect([...live].sort()).toEqual([
+      "approval",
+      "budget-exceeded",
+      "consent-stale",
+      "nested-suspended",
+      "orphaned-resumable",
+    ]);
     expect(RESUME_RULES["approval-timeout"].liveOnSuspendedRow).toBe(false);
+  });
+
+  test("exactly C3's two rows carry a predicate; the rest defer to step re-entry", () => {
+    // The claim the `satisfied: null` rows make, stated as a list so
+    // giving one of them a predicate — or quietly dropping one of C3's —
+    // fails here rather than in production.
+    const withPredicate = WORKFLOW_SUSPEND_REASONS.filter(
+      (r) => RESUME_RULES[r].satisfied !== null,
+    );
+    expect([...withPredicate].sort()).toEqual(["budget-exceeded", "consent-stale"]);
   });
 });
 
@@ -70,7 +98,10 @@ describe("parseSuspendReason narrows the free-text column", () => {
     expect(parseSuspendReason(undefined)).toBeNull();
     expect(parseSuspendReason("")).toBeNull();
     expect(parseSuspendReason("awaiting-human")).toBeNull();
-    expect(parseSuspendReason("budget-exceeded")).toBeNull();
+    // `quota` is the value the plan documents used and the tree never
+    // adopted — the module doc calls it out by name. It stands in here
+    // for exactly what this test is about: a reason no build knows.
+    expect(parseSuspendReason("quota")).toBeNull();
   });
 
   test("resumeRuleFor returns null for an unknown reason and a rule for a known one", () => {
@@ -80,12 +111,19 @@ describe("parseSuspendReason narrows the free-text column", () => {
 });
 
 describe("resumeReasonRefusal — today allows everything, and will not once a row has a predicate", () => {
-  test("every reason on this tree allows, because each is re-checked by the step", () => {
-    // The claim the `satisfied: null` rows make. If a future edit gives
-    // one of these a predicate without also wiring what satisfies it,
-    // this test fails loudly rather than parked runs silently stalling.
+  test("every `satisfied: null` reason allows, because each is re-checked by the step", () => {
+    // The claim those rows make. If a future edit gives one of them a
+    // predicate without also wiring what satisfies it, this fails loudly
+    // rather than leaving parked runs to stall silently.
+    //
+    // C3's two are excluded BY THEIR OWN PROPERTY rather than by name, so
+    // a third predicate row added later is covered without editing this
+    // filter. Their behaviour is pinned against a real database in
+    // `workflow-budget-boundary.test.ts`.
+    const deferred = WORKFLOW_SUSPEND_REASONS.filter((r) => RESUME_RULES[r].satisfied === null);
+    expect(deferred.length).toBeGreaterThan(0);
     return Promise.all(
-      WORKFLOW_SUSPEND_REASONS.map(async (reason) => {
+      deferred.map(async (reason) => {
         expect(await resumeReasonRefusal(reason, { workflowRunId: "run-1" })).toBeNull();
       }),
     );
@@ -133,7 +171,7 @@ describe("resumeReasonRefusal — today allows everything, and will not once a r
     let called = false;
     const rules: Record<string, ResumeRule> = {
       ...RESUME_RULES,
-      "budget-exceeded": {
+      quota: {
         satisfied: async () => {
           called = true;
           return false;
@@ -142,9 +180,7 @@ describe("resumeReasonRefusal — today allows everything, and will not once a r
         liveOnSuspendedRow: true,
       },
     };
-    expect(
-      await resumeReasonRefusal("budget-exceeded", { workflowRunId: "run-9" }, rules),
-    ).toBeNull();
+    expect(await resumeReasonRefusal("quota", { workflowRunId: "run-9" }, rules)).toBeNull();
     expect(called).toBe(false);
   });
 

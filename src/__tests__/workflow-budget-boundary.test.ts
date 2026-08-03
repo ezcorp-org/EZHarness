@@ -166,7 +166,12 @@ interface ScriptedRun {
  * re-enters a completed batch calls the agent again, and no cursor
  * assertion alone would notice.
  */
-function scriptedExecutor(script: ScriptedRun[]) {
+function scriptedExecutor(
+  script: ScriptedRun[],
+  /** Run something between agent invocations — the only deterministic
+   *  interleave point a test has for "the world changed mid-run". */
+  onInvocation?: (n: number) => Promise<void>,
+) {
   const bus = new EventBus<AgentEvents>();
   const events: Array<{ name: string; payload: unknown }> = [];
   for (const name of ["workflow:error", "workflow:approval_request", "workflow:complete"] as const) {
@@ -180,6 +185,7 @@ function scriptedExecutor(script: ScriptedRun[]) {
     async runAgent(): Promise<AgentRun> {
       const s = script[Math.min(i, script.length - 1)] ?? {};
       i++;
+      if (onInvocation) await onInvocation(i);
       const runId = crypto.randomUUID();
       // `workflow_step_runs.run_id` is a real FK, and the persistence
       // contract never throws — so without a real `runs` row every step
@@ -316,7 +322,7 @@ describe("sumWorkflowRunTokens", () => {
     const run = await wf.runWorkflow(def, {});
     await settle();
 
-    const trace = await getWorkflowRunTrace(run.id, { id: null, role: "admin" });
+    const trace = await getWorkflowRunTrace(run.id, { userId: "u-consent", isAdmin: true });
     const traceTotal = (trace?.totals.inputTokens ?? 0) + (trace?.totals.outputTokens ?? 0);
     expect(traceTotal).toBe(146);
     expect(await sumWorkflowRunTokens(run.id)).toBe(traceTotal);
@@ -470,19 +476,36 @@ describe("the step-boundary token ceiling", () => {
     expect((await parkedRow(run.id))?.cursor?.batchIndex).toBe(2);
   });
 
-  test("a delegation deleted mid-run does not park the run in flight", async () => {
-    // `workflow_runs.delegation_id` is ON DELETE SET NULL, so the run can
-    // no longer name a cap. The run was authorized when it started; the
-    // refusal belongs to the handler that fires the NEXT one.
+  test("a delegation DELETED mid-run does not park the run in flight", async () => {
+    // `workflow_runs.delegation_id` is ON DELETE SET NULL, so after the
+    // delete the row can no longer name a cap while the executor still
+    // carries the id in memory — the one way the boundary reaches a
+    // non-null delegation with no budget behind it. The run was
+    // authorized when it started, and refusing the NEXT fire belongs to
+    // the handler, not to a run already in flight.
+    //
+    // Deleted from inside the FIRST agent invocation, so the delete
+    // lands before the first boundary rather than racing it.
     const delegationId = await makeDelegation({ maxTokensPerRun: 1 });
-    const { wf } = scriptedExecutor([{ inputTokens: 90, outputTokens: 10 }]);
+    const { wf } = scriptedExecutor([{ inputTokens: 90, outputTokens: 10 }], async (n) => {
+      if (n === 1) {
+        await db.execute(sql`DELETE FROM workflow_delegations WHERE id = ${delegationId}`);
+      }
+    });
     const def = chain(`wf-gone-${crypto.randomUUID().slice(0, 8)}`);
-    await db.execute(sql`DELETE FROM workflow_delegations WHERE id = ${delegationId}`);
     const run = await wf.runWorkflow(def, {}, undefined, undefined, undefined, { delegationId });
     await settle();
 
+    // A cap of 1 token would have parked this at every boundary if the
+    // budget read had fallen back to anything other than "no opinion".
     expect(run.status).toBe("success");
-    expect((await parkedRow(run.id))?.suspended_reason).toBeNull();
+    const row = await parkedRow(run.id);
+    expect(row?.suspended_reason).toBeNull();
+    // The FK did what the schema says: the pointer is gone, the run is not.
+    const after = (await db.execute(sql`
+      SELECT delegation_id FROM workflow_runs WHERE id = ${run.id}
+    `)) as Rows<{ delegation_id: string | null }>;
+    expect(after.rows[0]?.delegation_id).toBeNull();
   });
 });
 
