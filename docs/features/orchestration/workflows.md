@@ -595,7 +595,14 @@ cheap extractor with an expensive validator instead of paying top-tier
 prices for every step:
 
 ```yaml
-name: docs-factory
+# ILLUSTRATIVE, not a shipped asset. The real `ez-factory:docs-factory`
+# (`extensions/ez-factory/docs-factory.workflow.yaml`) binds `effort` and
+# `maxTokens` ONLY and names no provider or model at all — a literal
+# `provider: anthropic` breaks every install that has not configured
+# anthropic, and omitting both leaves each agent's own binding standing.
+# Its agent names also carry the `ez-factory ` prefix (`ez-factory extractor`),
+# because agent names are one flat global map.
+name: docs-example
 defaultModel: { provider: anthropic, model: claude-sonnet-5 }
 steps:
   - { name: extract, agent: factory-extractor, model: { model: claude-haiku-4-5-20251001 } }
@@ -834,6 +841,7 @@ The extension-authoring chain shipped as a real workflow — the reference examp
 
 ## Features it touches
 
+- [[ez-factory]] — the bundled **job console** over this engine, and the only shipped consumer of the harder constructs. Its `docs-factory` template is the reference for a `kind: "workflow"` step carrying a `loop` over a child graph that contains an `approval`; its three tools are the `kind: "tool"` steps the templates dispatch to; and its `jobRef` handle is what puts a saved job's name on a `workflow_runs` row. The engine's own worked example lives there rather than here, because a template that nothing fires is a template nobody notices breaking. (The former git-gate example, `ez-code-factory`, was retired 2026-08-03 and is not a workflows consumer at all — it never used this engine.)
 - [[agents]] — every `agent` step invokes one agent by name via `AgentExecutor.runAgent`; agent orchestration is one of the three step kinds.
 - [[runs-lifecycle]] — each agent step produces a real `AgentRun` (its `runId`/status copied onto the step run); transform/gate steps mint no run. The `AgentStatus` union is shared.
 - [[streaming-runtime]] — the `workflow:*` events ride the same `AgentEvents` bus / SSE channel that streams agent runs to the browser.

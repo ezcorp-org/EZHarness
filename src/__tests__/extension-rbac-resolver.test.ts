@@ -328,7 +328,7 @@ describe("canManageGrant delegation matrix (real PGlite)", () => {
 
 // ── Ported invariant 18 — least privilege across the triage verbs ─────
 //
-// Re-homed here from `docs/extensions/examples/ez-code-factory/lib/rbac.test.ts`
+// Re-homed here from `ez-code-factory/lib/rbac.test.ts`
 // as part of phase 9 (that tree is deleted). In the reference the three verbs
 // were `respond-gate` / `yolo` / `manage-jobs` and `MANAGE_JOBS_SCOPE` was
 // asserted NOWHERE — redefining it to `"respond-gate"` failed nothing, so the

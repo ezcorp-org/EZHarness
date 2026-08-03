@@ -1170,7 +1170,7 @@ describe("ez-factory templates — nesting", () => {
 
 // ── Ported invariant 8 — an unrecognised decision FAILS CLOSED ────────
 //
-// Re-homed here from `docs/extensions/examples/ez-code-factory/lib/runs.test.ts`
+// Re-homed here from `ez-code-factory/lib/runs.test.ts`
 // as part of phase 9 (that tree is deleted). The reference stated it over a
 // FINDINGS record: `deserializeFinding` coerced a missing / empty /
 // unrecognised `action` to `ask-user`, the value that always BLOCKS, at the

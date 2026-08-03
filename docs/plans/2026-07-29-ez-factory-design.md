@@ -3,7 +3,21 @@
 **Status:** Binding contract for phases 1–9
 **Date:** 2026-07-29
 **Implements:** `tasks/2026-07-29-ez-factory-replan.md`
-**Supersedes:** the `ez-code-factory` extension (deleted in phase 9)
+**Supersedes:** the `ez-code-factory` extension — **deleted 2026-08-03 in phase 9**
+
+> **§4's "Lives today" column is now HISTORY, not a map.** Every
+> `docs/extensions/examples/ez-code-factory/...` path in the invariant table
+> below stopped resolving when that tree was removed; read them in git history.
+> The **"Lands in"** and **"Regression test"** columns are the live half, and
+> they were reconciled against the shipped code at deletion time — the outcome,
+> row by row, is recorded in the phase-9 PR. Two corrections that table itself
+> needed: row 8's claimed home ("the `emit_artifact` / validator finding schema
+> parses through the identical fail-closed coercion") is **false** — `ez-factory`
+> v1 ships no findings model, and the invariant was re-homed onto the surface
+> that does exist, the approval decision vocabulary in
+> `extensions/ez-factory/workflow-templates.test.ts`. Row 18's named test file
+> was never written; the invariant lives in
+> `src/__tests__/extension-rbac-resolver.test.ts` instead.
 
 > **Citation anchor.** Every `file.ts:line` in this document was read and
 > verified against **`5b33d731`**, whose `src/**` tree includes **phase 1

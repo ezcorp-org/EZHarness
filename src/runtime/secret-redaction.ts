@@ -2,7 +2,7 @@
  * Credential redaction for values on their way into durable storage.
  *
  * Ported into core from the reference extension's prompt hygiene
- * (`docs/extensions/examples/ez-code-factory/lib/prompts.ts` —
+ * (`ez-code-factory/lib/prompts.ts`, retired 2026-08-03 in phase 9 —
  * `SECRET_PATTERNS` / `redactSecrets`), which in turn took the patterns
  * verbatim from `internal/intent/redact.go`. The patterns are reproduced
  * unchanged so the two implementations cannot drift into disagreeing

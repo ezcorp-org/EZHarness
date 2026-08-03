@@ -35,7 +35,8 @@
 //
 // ── INVARIANT B — A JOB CANNOT CONFIGURE AWAY A PROTECTED STEP ──────
 //
-// Ported from `docs/extensions/examples/ez-code-factory/lib/jobs.ts`
+// Ported from `ez-code-factory/lib/jobs.ts` (that reference extension was
+// retired 2026-08-03 in phase 9 — read it in git history)
 // (`PROTECTED_STEPS`, enforced at `:214-215` and `:489-490`). There the unit
 // was a step NAME an operator could add to `skipSteps`; here the graph is a
 // shipped YAML asset the operator never edits, so the attack surface moved —

@@ -1,8 +1,9 @@
 // ── ez-factory audit trail — append-only, id-only (invariant I) ──────
 //
 // Every console mutation gets one line: who, when, which job, which fields
-// moved. Nothing else. Ported from `docs/extensions/examples/ez-code-factory/
-// lib/audit.ts` with one deliberate tightening, described below.
+// moved. Nothing else. Ported from `ez-code-factory/lib/audit.ts` — that
+// reference extension was retired 2026-08-03 in phase 9 and lives in git
+// history — with one deliberate tightening, described below.
 //
 // ── THE FOUR PROPERTIES (invariant I) ───────────────────────────────
 //

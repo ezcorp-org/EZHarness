@@ -26,14 +26,19 @@
 # exits on it". That is unbuildable here, and the reason is worth stating
 # because it constrains every template this extension ships:
 #
-#   1. A workflow `agent` step's result is `{success, output}` where
-#      `output` is the RAW LLM TEXT — `configToAgent`
-#      (`src/runtime/config-to-agent.ts`) only parses JSON when the agent
-#      config sets `outputFormat: "json"`, and the three seeded ez-factory
-#      agents (`src/extensions/ez-factory-agents.ts`) do not. So
-#      `$steps.verify.output.valid` resolves `getNestedValue(<string>,
-#      "valid")` → `undefined`: never an error, always false. A condition
-#      written that way is a branch that can only ever not fire.
+#   1. The validator's verdict is the MODEL's opinion of its own work, and
+#      the model is reading the document under review. Gating a human's
+#      involvement on it means a draft that talks the validator into
+#      `valid: true` publishes without anyone looking.
+#
+#      (This bullet used to read "`$steps.verify.output.valid` is
+#      structurally unreadable, because an agent step's `output` is the RAW
+#      LLM TEXT and none of the three seeded agents sets
+#      `outputFormat: "json"`". That is NO LONGER TRUE — all three are
+#      seeded `outputFormat: "json"`
+#      (`src/extensions/ez-factory-agents.ts`), so `configToAgent` parses
+#      and the flag DOES resolve. The decision did not change with it: it
+#      was never only about what resolves.)
 #
 #   2. Steering the model into a parseable token from the step INPUT is
 #      barred by the seeded prompt itself. Invariant 14 says, verbatim:
