@@ -611,8 +611,27 @@ export interface ExtensionManifestV2 {
      *  shape (the clamp supplies the bound) — a workflow run can invoke
      *  agent steps that cost real LLM spend, so the grant always carries
      *  a rate ceiling. Undeclared names are dropped at clamp time
-     *  (mirrors cron/event/webhook — the grant is never widened). */
-    workflows?: { names: string[]; maxRunsPerHour?: number };
+     *  (mirrors cron/event/webhook — the grant is never widened).
+     *
+     *  `allowDelegated` (C3) opts the extension into `ctx.workflows.runFor`
+     *  — firing a workflow the extension does NOT ship, as a human who
+     *  created a `workflow_delegations` row for it. It is INDEPENDENT of
+     *  `names`: an extension that only ever triggers user-authored
+     *  workflows declares `{allowDelegated: true}` with no `names` at all,
+     *  and the clamp keeps that grant instead of dropping it as a husk
+     *  (D-3). The bit is an opt-in switch, not an authorization — every
+     *  delegated fire is bound by the delegation row, which a human
+     *  created, which names one workflow, and which the handler re-reads
+     *  on every call.
+     *
+     *  `names` stays REQUIRED even for a delegated-only author, who
+     *  writes `{names: [], allowDelegated: true}`. An explicit empty list
+     *  is a better consent artefact than an absent key — a reviewer sees
+     *  "ships nothing of its own" rather than having to infer it — and it
+     *  keeps every existing `manifest.permissions.workflows.names` reader
+     *  total. Manifest validation still rejects an empty list for anyone
+     *  who did NOT ask for delegation. */
+    workflows?: { names: string[]; maxRunsPerHour?: number; allowDelegated?: boolean };
     /** Author turns directly via the `ezcorp/append-message` reverse RPC.
      *  Conversation scope is forced by the host (the extension cannot
      *  target another conversation). The host always forces the new
@@ -980,8 +999,17 @@ export interface ExtensionPermissions {
    *  `maxRunsPerHour` is REQUIRED here (unlike the manifest, where it is
    *  optional) — the clamp always supplies a bound, and
    *  `intersectPermissions` does `Math.min` on it, so a ceiling row that
-   *  omitted it would produce `NaN`. See the matching manifest field. */
-  workflows?: { names: string[]; maxRunsPerHour: number };
+   *  omitted it would produce `NaN`. See the matching manifest field.
+   *
+   *  `names` MAY be empty here, but ONLY when `allowDelegated` is true
+   *  (C3 / D-3). Before C3 an empty list was always a husk — it read as
+   *  "granted" to a presence check while authorizing nothing — so the
+   *  clamp dropped the whole grant. A delegated-only extension ships no
+   *  workflows of its own, so `{names: [], allowDelegated: true}` is the
+   *  ONLY shape in which an empty list means something. Every other
+   *  empty-list path still collapses to `undefined`; see the three
+   *  branches of `clampWorkflowsPermission`. */
+  workflows?: { names: string[]; maxRunsPerHour: number; allowDelegated?: boolean };
   /** Grants the `ezcorp/append-message` reverse RPC. See the matching
    *  field on `ExtensionManifestV2.permissions`. */
   appendMessages?: { excludedDefault: boolean };

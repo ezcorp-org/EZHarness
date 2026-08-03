@@ -65,10 +65,14 @@
 //     claim rather than earn it. The real spend bound on the path that
 //     exists is `workflows.maxRunsPerHour`.
 //
-//   • `workflows.allowDelegated` — does not exist. The type is
-//     `{ names: string[]; maxRunsPerHour?: number }`
-//     (`src/extensions/types.ts`), zero hits repo-wide. It belongs to C3
-//     (delegated execution / `runAs` / consent hashes), which is unbuilt.
+//   • `workflows.allowDelegated` — EXISTS since C3 phase 5, and this
+//     extension deliberately does not declare it. The flag opts an
+//     extension into `ctx.workflows.runFor`: firing a workflow it does
+//     NOT ship, as a human who created a delegation for it. ez-factory
+//     ships all three of its workflows and fires nothing else, so the
+//     per-name grant below is a strictly tighter bound than a delegation
+//     would be. Declaring the flag would widen the extension's reach to
+//     "any workflow some user delegates" in exchange for nothing it uses.
 //
 //   • `eventSubscriptions` FOR PLATFORM EVENTS — specifically the
 //     `workflow:*` family. Such an event can never reach an extension:

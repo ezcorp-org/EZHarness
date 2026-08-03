@@ -406,8 +406,19 @@ export interface ExtensionManifestV2 {
      *  workflow. `maxRunsPerHour` is optional here; the host's clamp always
      *  supplies one (default 20, ceiling 500) because a run can fan out
      *  into agent steps that cost real LLM spend. Undeclared names are
-     *  dropped at install. */
-    workflows?: { names: string[]; maxRunsPerHour?: number };
+     *  dropped at install.
+     *
+     *  `allowDelegated` (C3) additionally opts you into
+     *  `ctx.workflows.runFor` — firing a workflow you do NOT ship, as the
+     *  human who created a delegation for it. It is independent of
+     *  `names`: an extension that only ever fires user-authored workflows
+     *  declares `{names: [], allowDelegated: true}`, which is the one
+     *  shape in which an empty `names` list is accepted. The flag by
+     *  itself authorizes no job — every delegated fire is bound by a
+     *  delegation record a human created for one named workflow, which
+     *  the host re-reads on every call and which is revocable
+     *  independently of this grant. */
+    workflows?: { names: string[]; maxRunsPerHour?: number; allowDelegated?: boolean };
     /** Brokered web search + URL read via `ctx.search` (shared-search
      *  Phase 1). The provider chain + SSRF guard run host-side. A bundled
      *  extension may declare `"inherit"` (full grant, tracks instance

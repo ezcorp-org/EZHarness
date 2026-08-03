@@ -40,11 +40,24 @@
  *   • `schedule` — see the SCHEDULE TRAP note on the `ez-code` row below.
  *     All five fields (`crons`, `maxRunsPerDay`, `maxRunDurationMs`,
  *     `missedRunPolicy`, `maxRetries`) are required by the granted type.
- *   • `workflows` (W2) — `{names, maxRunsPerHour}`. `maxRunsPerHour` is
- *     REQUIRED on `ExtensionPermissions["workflows"]` (deliberately, unlike
- *     the manifest declaration where it is optional), so TypeScript refuses
- *     a half-written row here. `bundled-ceiling-full-field-set.test.ts`
- *     asserts the runtime invariant too, in case the type is ever loosened.
+ *   • `workflows` (W2) — `{names, maxRunsPerHour, allowDelegated?}`.
+ *     `maxRunsPerHour` is REQUIRED on `ExtensionPermissions["workflows"]`
+ *     (deliberately, unlike the manifest declaration where it is optional),
+ *     so TypeScript refuses a half-written row here. The runtime invariant
+ *     is asserted too, in case the type is ever loosened — see
+ *     `describe("bundled ceiling — the full-field-set invariant")` in
+ *     `src/__tests__/workflows-permission.test.ts`.
+ *
+ *     `allowDelegated` (C3) is the ONE field on a structured permission
+ *     that is deliberately OPTIONAL here, and it is safe to omit for a
+ *     reason that does not generalize: `intersectPermissions` folds it
+ *     with `&&`, not `Math.min`. `undefined && x` is falsy, not `NaN`, so
+ *     an omitted ceiling field DENIES delegation rather than nuking the
+ *     whole grant — the correct failure direction, and the opposite of
+ *     what omitting a numeric does. The cost is that omission is SILENT:
+ *     a row that should permit delegation must say `allowDelegated: true`
+ *     explicitly, and TypeScript will not remind you. Same class of trap
+ *     as `webhookPrefix` below. No bundled row declares it today.
  *   • `triggers` (C2) — `{maxCron, maxWebhooks, webhookPrefix,
  *     maxRunsPerDay}`. All four are REQUIRED on
  *     `ExtensionPermissions["triggers"]` for exactly this reason. Note the

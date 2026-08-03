@@ -279,15 +279,76 @@ export const WORKFLOW_RUNS_PER_HOUR_CEILING = 500;
  * separator can never reach the grant even if it somehow got past
  * `validatePermissionsBlock` (defense in depth: the handler namespaces
  * host-side, and a stale grant must not be exploitable).
+ *
+ * ── C3 / D-3 — the ONE case where an empty `names` survives ────────────
+ *
+ * `allowDelegated` opts the extension into `ctx.workflows.runFor`, which
+ * fires a workflow the extension does NOT ship. A delegated-only
+ * extension therefore has NOTHING to put in `names`, and before C3 all
+ * three empty-name paths below collapsed the whole grant to `undefined`
+ * — so `granted.workflows` was absent, rung 2 of the workflows handler
+ * refused, and the feature was unreachable by construction.
+ *
+ * The fix is deliberately NARROW. Empty stays fail-closed everywhere; the
+ * single case opened is "empty names AND the delegated bit survived on
+ * BOTH sides". `allowDelegated` itself clamps like every other elevation
+ * in this file: the manifest is the ceiling and an install can only ever
+ * decline it, never introduce it. So an extension whose manifest is
+ * silent about `allowDelegated` gets EXACTLY the pre-C3 result on every
+ * path — the added condition reduces to `false` and each branch's
+ * predicate is the original expression unchanged.
  */
 export function clampWorkflowsPermission(
   submitted: ExtensionPermissions["workflows"] | undefined,
   manifest: ExtensionManifestV2["permissions"]["workflows"] | undefined,
 ): ExtensionPermissions["workflows"] {
-  if (!manifest || !Array.isArray(manifest.names)) return undefined;
+  if (!manifest) return undefined;
 
+  // The delegated bit, clamped first because all three empty-name branches
+  // below consult it. Manifest is the ceiling (`=== true` required), and
+  // the submitted side must also say yes — except when there is no
+  // submitted grant at all, which by this file's standing convention means
+  // "the admin approved the declaration as-is" (same as `submittedNames`
+  // below and `clampSchedulePermission`). An extension can never turn this
+  // on for itself: a manifest that omits it makes `allowDelegated` false
+  // no matter what the install submits.
+  const allowDelegated =
+    manifest.allowDelegated === true &&
+    (submitted === undefined || submitted.allowDelegated === true);
+
+  // The rate ceiling is computed once and shared by every exit: it is a
+  // pure function of the two inputs, and a delegated-only grant needs one
+  // just as much as a named one — `intersectPermissions` does `Math.min`
+  // over it, and rung 2 of the handler refuses a non-positive value.
+  const maxRunsPerHour = Math.min(
+    clampNumber(
+      submitted?.maxRunsPerHour,
+      1,
+      WORKFLOW_RUNS_PER_HOUR_CEILING,
+      WORKFLOW_RUNS_PER_HOUR_DEFAULT,
+    ),
+    clampNumber(
+      manifest.maxRunsPerHour,
+      1,
+      WORKFLOW_RUNS_PER_HOUR_CEILING,
+      WORKFLOW_RUNS_PER_HOUR_DEFAULT,
+    ),
+  );
+
+  /** What an empty NAME set collapses to. `undefined` — the pre-C3
+   *  fail-closed drop — unless the delegated bit survived, which is the
+   *  only shape in which a name-less grant authorizes anything. */
+  const withoutNames = (): ExtensionPermissions["workflows"] =>
+    allowDelegated ? { names: [], maxRunsPerHour, allowDelegated: true } : undefined;
+
+  // BRANCH 1 — the manifest declared `workflows` with no usable `names`
+  // array at all. That is precisely a delegated-only declaration
+  // (`{allowDelegated: true}`); for anyone else it is a malformed block.
+  if (!Array.isArray(manifest.names)) return withoutNames();
+
+  // BRANCH 2 — every declared name was malformed, or the list was empty.
   const manifestNames = manifest.names.filter(isValidWorkflowName);
-  if (manifestNames.length === 0) return undefined;
+  if (manifestNames.length === 0) return withoutNames();
 
   // No submitted grant → the admin approved the declaration as-is (same
   // convention as clampSchedulePermission).
@@ -300,24 +361,13 @@ export function clampWorkflowsPermission(
     seen.add(n);
     names.push(n);
   }
-  if (names.length === 0) return undefined;
+  // BRANCH 3 — the submitted ∩ manifest intersection came out empty.
+  if (names.length === 0) return withoutNames();
 
   return {
     names,
-    maxRunsPerHour: Math.min(
-      clampNumber(
-        submitted?.maxRunsPerHour,
-        1,
-        WORKFLOW_RUNS_PER_HOUR_CEILING,
-        WORKFLOW_RUNS_PER_HOUR_DEFAULT,
-      ),
-      clampNumber(
-        manifest.maxRunsPerHour,
-        1,
-        WORKFLOW_RUNS_PER_HOUR_CEILING,
-        WORKFLOW_RUNS_PER_HOUR_DEFAULT,
-      ),
-    ),
+    maxRunsPerHour,
+    ...(allowDelegated ? { allowDelegated: true } : {}),
   };
 }
 
