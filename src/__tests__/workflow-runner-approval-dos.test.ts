@@ -297,6 +297,63 @@ describe("REPRO: the destruction is not specific to approvals", () => {
   });
 });
 
+describe("a bricked run is REPAIRABLE — the damage is one column, not the position", () => {
+  test("cursor, phase and step outputs survive, so an UPDATE fully restores it", async () => {
+    // Matters for every install that already has bricked rows: is data
+    // repair possible at all, or is the run's position gone? Proved by
+    // repairing one and driving the human's answer through to completion.
+    const twoStep: WorkflowDefinition = {
+      name: "gate-then-work",
+      description: "",
+      steps: [
+        { name: "gate", kind: "approval", prompt: "Ship it?", choices: ["approve"] } as WorkflowStep,
+        { name: "after", kind: "transform", output: { done: "yes" } } as WorkflowStep,
+      ],
+    };
+    const wf = realExecutor();
+    const parked = await wf.runWorkflow(twoStep, {}, undefined, undefined);
+    expect(parked.status).toBe("suspended");
+
+    const runner = daemon(wf, [twoStep]);
+    await runner.tick();
+    await runner.drain();
+    const bricked = await getWorkflowRunRow(parked.id);
+    expect(bricked?.status).toBe("error");
+
+    // `finalizeWorkflowRunRow` (`workflow-runs.ts:465-474`) writes only
+    // `status`, `finished_at` and `result`. Everything the resume needs is
+    // still on the row, and the stale claim the daemon left is the only
+    // other thing a repair has to clear.
+    expect(bricked?.cursor).not.toBeNull();
+    expect(bricked?.runPhase).toBe("boundary");
+    expect(bricked?.suspendedReason).toBe("approval");
+    expect(bricked?.claimedBy).toBe("inst-A");
+    expect((await getWorkflowApproval(parked.id, "gate"))?.status).toBe("pending");
+
+    // The repair an operator would run.
+    await db.execute(sql`
+      UPDATE workflow_runs
+         SET status = 'suspended', finished_at = NULL, result = NULL,
+             claimed_by = NULL, lease_expires_at = NULL
+       WHERE id = ${parked.id} AND status = 'error'
+    `);
+
+    const answered = await answerApproval(
+      (await getWorkflowApproval(parked.id, "gate"))!.id,
+      { choice: "approve" },
+      { userId: null, isAdmin: true },
+      { runtime: { getWorkflows: () => [twoStep], workflowExecutor: wf } },
+    );
+    // THE property: the run really does continue past the gate and finish.
+    // No work is lost — the bricking is recoverable, given the row is put
+    // back before the daemon's next tick claims and re-bricks it.
+    expect(answered.ok).toBe(true);
+    expect(answered.ok === true ? answered.run.status : "").toBe("success");
+    expect((await getWorkflowRunRow(parked.id))?.status).toBe("success");
+    expect((await getWorkflowApproval(parked.id, "gate"))?.status).toBe("answered");
+  });
+});
+
 describe("CONTROL: the same run survives when the claim is not in the path", () => {
   test("resumeWorkflow on a still-suspended row refuses TRANSIENTLY and touches nothing", async () => {
     // The control that proves the boundary this file crosses is the
