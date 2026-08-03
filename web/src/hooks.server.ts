@@ -625,6 +625,13 @@ const handleApp: Handle = async ({ event, resolve }) => {
         name: payload.name,
         role: payload.role,
       };
+      // The ONE place `session` is stamped. This is the only branch in the
+      // whole request pipeline that authenticates a human at a browser (a
+      // verified session-cookie JWT), and `requireSessionAuth` allowlists
+      // exactly this value — so consent gates are reachable from here and
+      // from nowhere else. Any other auth site must stamp its OWN method;
+      // leaving it unstamped fails closed, not open.
+      event.locals.authMethod = "session";
     }
   }
 

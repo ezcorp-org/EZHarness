@@ -126,6 +126,10 @@ describe("attachBearerAuth — internal keys", () => {
       role: "member",
     });
     expect(evt.locals.apiKeyScopes).toEqual(["chat", "read"]);
+    // Positively declares HOW this request authenticated, so a consent gate
+    // can allowlist `"session"` instead of inferring one from the absence of
+    // `apiKeyScopes`. A loopback subprocess is not a human at a browser.
+    expect(evt.locals.authMethod).toBe("internal");
     // Critical: user-key verifier must NOT have been consulted.
     expect(verifyApiKeyCalls).toHaveLength(0);
   });
@@ -193,6 +197,11 @@ describe("attachBearerAuth — user keys", () => {
     expect(await attachBearerAuth(evt, "Bearer ezk_valid")).toBe(true);
     expect(evt.locals.user).toMatchObject({ id: "user-1", name: "Test" });
     expect(evt.locals.apiKeyScopes).toEqual(["chat"]);
+    // The stamp that makes a leaked key REFUSABLE at a consent boundary
+    // (`requireSessionAuth`, `src/auth/middleware.ts`). Dropping it here
+    // would silently re-open R-4 at every such gate, so it is pinned at the
+    // producer, not only at the consumers.
+    expect(evt.locals.authMethod).toBe("api-key");
     expect(verifyApiKeyCalls).toEqual(["ezk_valid"]);
   });
 
@@ -248,6 +257,11 @@ describe("attachBearerAuth — user keys", () => {
     const evt = makeEvent("127.0.0.1");
     expect(await attachBearerAuth(evt, "Bearer ezk_nope")).toBe(false);
     expect(evt.locals.user).toBeUndefined();
+    // A failed auth must not stamp a method either — an unstamped principal
+    // is refused by `requireSessionAuth`, but a stray `"api-key"` on a
+    // request that never authenticated would still be a lie in the audit
+    // trail every other gate reads.
+    expect(evt.locals.authMethod).toBeUndefined();
   });
 
   test("user-key verifyApiKey throw (DB unavailable) is swallowed", async () => {

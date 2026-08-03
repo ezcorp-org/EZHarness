@@ -794,16 +794,17 @@ See [Reverse RPC: `ezcorp/append-message`](api-reference.md#reverse-rpc-ezcorpap
 
 ---
 
-### `workflows` -- `{ names: string[]; maxRunsPerHour?: number }`
+### `workflows` -- `{ names: string[]; maxRunsPerHour?: number; allowDelegated?: boolean }`
 
 Grants the `ezcorp/workflows` reverse RPC (`Workflows.run(name, input)` from `@ezcorp/sdk/runtime`), which lets your extension **trigger runs of workflows it ships itself**. Ship the definitions as `*.workflow.yaml` files at the root of your extension directory; the host loads them at boot and registers each as **`<your-extension-name>:<name>`**, listed alongside the host's own workflows at `/workflows`.
 
 | Detail | |
 |--------|---|
-| **Type** | `{ names: string[]; maxRunsPerHour?: number }` |
+| **Type** | `{ names: string[]; maxRunsPerHour?: number; allowDelegated?: boolean }` |
 | **What it controls** | Which of your shipped workflows your code may start, and how often |
-| **`names`** | **Bare** workflow names — the `name:` field inside your YAML. Must match `/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/`; a name containing `:` is **rejected at admit time** |
+| **`names`** | **Bare** workflow names — the `name:` field inside your YAML. Must match `/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/`; a name containing `:` is **rejected at admit time**. Must be non-empty **unless** `allowDelegated` is true |
 | **`maxRunsPerHour`** | Optional. The host's clamp always supplies one — default **20**, hard ceiling **500** |
+| **`allowDelegated`** | Optional (C3). Opts you into firing workflows you do **not** ship. See below |
 | **Default** | not granted (RPC returns `-32001`) |
 
 ```typescript
@@ -828,6 +829,19 @@ await new Workflows().run("nightly-digest", { since: "2026-07-01" });
 **Background fires are refused.** A cron- or webhook-driven call has no acting user, and a workflow run with no owner is both unattributed and invisible (SSE delivery is fail-closed on `userId`). The host returns `-32106` rather than inventing an owner and billing somebody else's provider credits. Trigger workflows from a user-initiated path.
 
 **Steps that need consent still ask.** A `tool` step inside the run that requires a sensitive capability (`shell`, file writes, extension install) hits the same permission gate as anywhere else and — because a workflow has no conversation to render a card in — terminalizes the run `awaiting_approval`. Holding `workflows` grants nothing your extension could not already reach; it only sequences calls that are each independently gated.
+
+**`allowDelegated` — firing a workflow you did not write.** Everything above bounds you to your own assets. `allowDelegated: true` opts you into the separate delegated path, where a *user* creates a delegation record naming one of **their** workflows and authorizing your extension to fire it as them. The flag is an opt-in switch, not an authorization: on its own it starts nothing. Every delegated fire is bound by the delegation record — one named workflow, created by a human, re-read by the host on every call, and revocable independently of this grant.
+
+Because a delegated-only extension ships no workflows of its own, `{ names: [], allowDelegated: true }` is the one shape in which an **empty `names` list is accepted**. For anyone who has not asked for delegation, an empty list is still rejected — it would be a grant that reads as "granted" while authorizing nothing.
+
+```typescript
+permissions: {
+  // Ships nothing itself; only ever fires workflows users delegate.
+  workflows: { names: [], allowDelegated: true },
+},
+```
+
+The two are independent and combine: an extension may ship workflows *and* accept delegations. The flag is clamped like every other elevation — your manifest is the ceiling, and an install can only ever decline it, never introduce it.
 
 See [Workflows](../features/orchestration/workflows.md) for the full subsystem reference.
 

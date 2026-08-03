@@ -68,6 +68,12 @@ export interface MockEventOptions {
   body?: unknown;
   params?: Record<string, string>;
   user?: AuthUser;
+  /** HOW the caller authenticated. Omitted = unstamped, which
+   *  `requireSessionAuth` refuses — so a test that means "a human at a
+   *  browser" must say `"session"` explicitly, exactly as `hooks.server.ts`
+   *  does. Typed loosely so a suite can pass a not-yet-real method to probe
+   *  the allowlist's fail-closed behaviour. */
+  authMethod?: string;
   cookies?: Record<string, string>;
 }
 
@@ -90,7 +96,7 @@ export function createMockEvent(opts: MockEventOptions = {}) {
     request,
     url,
     params: opts.params ?? {},
-    locals: { user: opts.user } as App.Locals,
+    locals: { user: opts.user, authMethod: opts.authMethod } as App.Locals,
     cookies: {
       get: (name: string) => cookieStore.get(name) ?? null,
       getAll: () =>

@@ -129,12 +129,13 @@ describe("ez-factory manifest — the exact permission key set", () => {
     });
   });
 
-  test("workflows does NOT carry allowDelegated — the field does not exist", () => {
-    // The design sketch had `allowDelegated: true`. The granted type is
-    // `{names, maxRunsPerHour}` and there are zero references to
-    // `allowDelegated` repo-wide: it belongs to C3 (delegated execution),
-    // which is unbuilt. Declaring it would read as a bound that nothing
-    // enforces.
+  test("workflows does NOT carry allowDelegated — this extension ships what it fires", () => {
+    // The field EXISTS since C3 phase 5; this row declines it on purpose.
+    // `allowDelegated` opts an extension into firing workflows it does not
+    // ship. ez-factory ships all three of the workflows it fires, so the
+    // per-name list below is a strictly tighter bound. Declaring the flag
+    // would widen its reach to "any workflow some user delegates" and buy
+    // nothing this extension uses.
     const workflows = perms.workflows as Record<string, unknown>;
     expect(workflows.allowDelegated).toBeUndefined();
     expect(Object.keys(workflows).sort()).toEqual(["maxRunsPerHour", "names"]);
