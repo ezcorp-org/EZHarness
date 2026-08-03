@@ -201,13 +201,17 @@ describe("POST /api/workflows/approvals/:id — the actor the chokepoint is hand
     // `isAdmin: true` here would let any authenticated caller answer an
     // approval on a run they do not own — the exact bypass the chokepoint's
     // ownership branch exists to close.
-    expect(actor).toEqual({ userId: "u1", isAdmin: false });
+    //
+    // `kind: "user"` is asserted too: this is the ONE surface that mints a
+    // human actor, and it is also the only one supplying `checkScope` —
+    // which the kind is now what makes reachable at all.
+    expect(actor).toEqual({ kind: "user", userId: "u1", isAdmin: false });
   });
 
   test("an admin is answered as admin", async () => {
     await POST(makeEvent(admin));
     const [, , actor] = chokepoint.answerApproval.mock.calls[0]!;
-    expect(actor).toEqual({ userId: "a1", isAdmin: true });
+    expect(actor).toEqual({ kind: "user", userId: "a1", isAdmin: true });
   });
 
   test("the id comes from the PATH, never from the body", async () => {

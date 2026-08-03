@@ -194,8 +194,13 @@ describe("a leaked API key cannot mint consent", () => {
     expect(await res.json()).toEqual({ run: OK_RUN, consentAllUsed: false });
     expect(chokepoint.answerApproval).toHaveBeenCalledTimes(1);
     // Answered as the human, under their own id and their own (non-admin)
-    // authority — not as some ambient system actor.
+    // authority — not as some ambient system actor. `kind: "user"` is what
+    // makes that last clause literal rather than rhetorical: the two
+    // non-human kinds are different shapes, so "this route answered as the
+    // clock" is now a failing assertion instead of a null userId nobody
+    // would have looked at.
     expect(chokepoint.answerApproval.mock.calls[0]![2]).toEqual({
+      kind: "user",
       userId: OWNER.id,
       isAdmin: false,
     });
