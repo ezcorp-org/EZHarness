@@ -236,16 +236,16 @@ function scriptedExecutor(
   return { wf, bus, events, invocations: () => i };
 }
 
-/** A 3-step chain — one step per batch, so every boundary is a real one. */
-function chain(name: string): WorkflowDefinition {
+/** An n-step chain — one step per batch, so every boundary is a real one. */
+function chain(name: string, n = 3): WorkflowDefinition {
   return {
     name,
     description: "",
-    steps: [
-      { name: "s1", agent: "stub" },
-      { name: "s2", agent: "stub", dependsOn: ["s1"] },
-      { name: "s3", agent: "stub", dependsOn: ["s2"] },
-    ],
+    steps: Array.from({ length: n }, (_unused, i) => ({
+      name: `s${i + 1}`,
+      agent: "stub",
+      ...(i === 0 ? {} : { dependsOn: [`s${i}`] }),
+    })),
   };
 }
 
@@ -513,6 +513,32 @@ describe("the step-boundary token ceiling", () => {
     expect(await sumWorkflowRunTokens(run.id)).toBe(200);
   });
 
+  test("a run that exhausts its cap on the FINAL batch still completes", async () => {
+    // The ceiling bounds FUTURE spend, and after the last batch there is
+    // none. Parking here would leave a run with nothing left to do
+    // waiting for a human to raise a cap so it can report a result it has
+    // already produced — and the resume rule would refuse it meanwhile.
+    // That is permanent denial of service arriving through the check
+    // meant to protect the run.
+    //
+    // Cap 250 against 3 batches of 100: under at boundary 0 (100) and
+    // boundary 1 (200), over at the final boundary (300).
+    const delegationId = await makeDelegation({ maxTokensPerRun: 250 });
+    const { wf, invocations } = scriptedExecutor([{ inputTokens: 90, outputTokens: 10 }]);
+    const def = chain(`wf-final-${crypto.randomUUID().slice(0, 8)}`);
+    const run = await wf.runWorkflow(def, {}, undefined, undefined, undefined, { delegationId });
+    await settle();
+
+    expect(run.status).toBe("success");
+    expect(invocations()).toBe(3);
+    const row = await parkedRow(run.id);
+    expect(row?.status).toBe("success");
+    expect(row?.suspended_reason).toBeNull();
+    // The overspend is not hidden — it is on the step rows, which is where
+    // the trace and the next fire's quota read it from.
+    expect(await sumWorkflowRunTokens(run.id)).toBe(300);
+  });
+
   test("a delegation DELETED mid-run does not park the run in flight", async () => {
     // `workflow_runs.delegation_id` is ON DELETE SET NULL, so after the
     // delete the row can no longer name a cap while the executor still
@@ -587,9 +613,10 @@ describe("scope — a run with no delegation takes zero extra queries", () => {
     expect(plainDelegationReads).toBe(0);
     expect(plainSums).toBe(0);
     // The spy can see these statements when they happen — one pair per
-    // boundary of a 3-batch run.
-    expect(delegatedDelegationReads).toBe(3);
-    expect(delegatedSums).toBe(3);
+    // boundary that CAN park, which is every boundary but the last (a run
+    // with nothing left to spend is not parked).
+    expect(delegatedDelegationReads).toBe(2);
+    expect(delegatedSums).toBe(2);
   });
 });
 
@@ -753,9 +780,12 @@ describe("a budget-parked run and the resume path", () => {
     // Dropping it here would silently un-bound every resumed delegated
     // run — it would come back with no cap, take no boundary queries, and
     // look perfectly healthy.
+    // FOUR steps, so the resumed half still has a boundary that is not the
+    // last one — the ceiling deliberately does not fire at the final
+    // boundary, and this test is about the ceiling, not about that.
     const delegationId = await makeDelegation({ maxTokensPerRun: 150 });
     const { wf, invocations } = scriptedExecutor([{ inputTokens: 90, outputTokens: 10 }]);
-    const def = chain(`wf-rearm-${crypto.randomUUID().slice(0, 8)}`);
+    const def = chain(`wf-rearm-${crypto.randomUUID().slice(0, 8)}`, 4);
     const run = await wf.runWorkflow(def, {}, undefined, undefined, undefined, { delegationId });
     await settle();
 

@@ -580,6 +580,22 @@ export class WorkflowExecutor {
    * this file, because a limitation that lives only in a dialog is one
    * refactor from being lost.
    *
+   * ## It does not fire at the LAST boundary
+   *
+   * The ceiling bounds FUTURE spend, and after the final batch there is
+   * none: every step has run and the only thing left is to finalize. A
+   * park there would convert a run that has nothing left to do into one
+   * that needs a human to raise a cap before it can report the result it
+   * already produced — and, because the resume rule then refuses it, it
+   * would stay parked indefinitely. That is the permanent-denial-of-
+   * service shape this file has been burned by once already, arriving
+   * through a check meant to protect the run.
+   *
+   * The overspend is not hidden by this: it is in the step rows, in the
+   * trace's totals, and in the warning below on every boundary that DID
+   * fire. What bounds the next fire is the delegation's own daily limits,
+   * which are the handler's business rather than the executor's.
+   *
    * A NESTED child run is likewise outside it: the child is its own row
    * with its own step rows, and it does not inherit `delegation_id`, so
    * its tokens are counted against neither cap. Nesting is bounded by
@@ -594,12 +610,14 @@ export class WorkflowExecutor {
     workflowRunId: string;
     prevStepName: string | null;
     pendingStepWrites: Array<Promise<void>>;
+    /** False at the final boundary of the run — see the docblock. */
+    hasNextBatch: boolean;
   }): Promise<void> {
     // The scope gate, and the reason a non-delegated run costs nothing.
     // `persist` is checked with it because a DB-less harness has no rows
     // to sum and no connection to sum them over — the same guard
     // `persistWrite` and `persistCritical` open with.
-    if (opts.delegationId === null || !this.persist) return;
+    if (opts.delegationId === null || !this.persist || !opts.hasNextBatch) return;
 
     // Drain THIS run's outstanding step writes before summing. They are
     // fire-and-forget, so without this the batch that just spent the
@@ -1650,6 +1668,9 @@ export class WorkflowExecutor {
           workflowRunId: workflowRun.id,
           prevStepName,
           pendingStepWrites,
+          // There is no point parking a run with nothing left to spend —
+          // see the method's docblock.
+          hasNextBatch: batchIndex + 1 < batches.length,
         });
       }
 
