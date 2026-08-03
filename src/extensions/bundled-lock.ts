@@ -275,7 +275,7 @@ export function canonicalizeAndHash(tools: ToolDefinition[]): string {
  * (`canonicalizeAndHash`, used by `verifyManifestAgainstLock`) keeps
  * full fidelity — tamper detection should still notice every byte.
  */
-const NON_SEMANTIC_TOOL_FIELDS = ["suggestExamples"] as const;
+export const NON_SEMANTIC_TOOL_FIELDS = ["suggestExamples"] as const;
 
 /**
  * Canonical-JSON SHA-256 of the SECURITY-RELEVANT tool surface — the
