@@ -54,6 +54,24 @@ export interface HubPageProvider {
    *  May return a fresh tree to render immediately. The action names
    *  double as the page's `allowedEvents` for tree validation. */
   actions?: Record<string, HubPageActionHandler>;
+  /**
+   * Actions that require an INTERACTIVE HUMAN SESSION, refused for every
+   * API-key principal by the Hub actions route (`requireSessionAuth`).
+   *
+   * The actions route is otherwise `chat`-scoped and `harness: controllable`
+   * — deliberately, because triggering work programmatically is a real
+   * capability. But an action that spends a HUMAN DECISION is not work: the
+   * workflow-approvals `answer` action reaches `answerApproval`, so without
+   * this a leaked `chat` key answered approvals through the Hub even after
+   * the REST answer route was closed (R-4). One bypass is all a consent
+   * boundary needs.
+   *
+   * Declared here rather than known by the route: the route is generic
+   * infrastructure and must not learn what any particular action MEANS. The
+   * provider knows. `registerHubPageProvider` rejects a name that is not a
+   * real action, so a typo cannot silently leave one unprotected.
+   */
+  sessionOnlyActions?: readonly string[];
 }
 
 /** Provider ids (and action names) are URL path segments — keep them
@@ -76,6 +94,18 @@ export function registerHubPageProvider(provider: HubPageProvider): void {
     if (!HUB_PROVIDER_ID_REGEX.test(action)) {
       throw new Error(
         `Invalid hub page action name ${JSON.stringify(action)} on provider "${provider.id}"`,
+      );
+    }
+  }
+  // A `sessionOnlyActions` entry that names nothing is INERT — it reads like
+  // a protected action and protects nothing, which is the worst failure mode
+  // a security declaration has. Caught at registration (boot) rather than by
+  // a meta-test, so the drift is impossible rather than merely noticed.
+  for (const action of provider.sessionOnlyActions ?? []) {
+    if (!provider.actions || !(action in provider.actions)) {
+      throw new Error(
+        `sessionOnlyActions names ${JSON.stringify(action)} on provider "${provider.id}", ` +
+          `which is not one of its actions`,
       );
     }
   }

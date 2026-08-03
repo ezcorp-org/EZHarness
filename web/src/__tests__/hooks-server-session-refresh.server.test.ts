@@ -183,6 +183,47 @@ describe("hooks.server.ts — sliding session refresh", () => {
     expect(event.cookies.set).not.toHaveBeenCalled();
   });
 
+  test("a verified session cookie stamps locals.authMethod = 'session'", async () => {
+    // This branch is the ONLY producer of `"session"` in the whole request
+    // pipeline, and `requireSessionAuth` (src/auth/middleware.ts) allowlists
+    // exactly that value to protect the workflow-approval consent boundary.
+    // If this stamp goes missing, every consent gate refuses every human —
+    // fail-closed, but comprehensively broken — so it is pinned here, at the
+    // producer, rather than only at the routes that consume it.
+    vi.mocked(verifyJWT).mockResolvedValue({
+      ...BASE_PAYLOAD,
+      iat: nowSeconds() - 60,
+      exp: nowSeconds() + 30 * 24 * 3600,
+    } as any);
+
+    const event = makeEvent();
+    const resolve = vi.fn(async () => new Response("ok", { status: 200 }));
+    await handle({ event, resolve } as any);
+
+    expect(event.locals.user).toMatchObject({ id: "u-1", role: "member" });
+    expect(event.locals.authMethod).toBe("session");
+    // And NOT the key-principal field: a cookie session is authorized by
+    // role alone, which is what makes `requireScope` a no-op for it.
+    expect(event.locals.apiKeyScopes).toBeUndefined();
+  });
+
+  test("an UNVERIFIABLE cookie stamps nothing — no user, no method", async () => {
+    // The mutation this kills: stamping `"session"` before, or outside, the
+    // `verifyJWT` success branch would hand session authority to anyone
+    // presenting a garbage cookie. The hook bounces the request to /login
+    // (a thrown SvelteKit Redirect), and `locals` must come back untouched.
+    vi.mocked(verifyJWT).mockResolvedValue(null as any);
+
+    const event = makeEvent();
+    const resolve = vi.fn(async () => new Response("ok", { status: 200 }));
+    await expect(handle({ event, resolve } as any)).rejects.toMatchObject({
+      status: 302,
+    });
+
+    expect(event.locals.user).toBeUndefined();
+    expect(event.locals.authMethod).toBeUndefined();
+  });
+
   test("non-data route keeps the global Permissions-Policy camera deny", async () => {
     // The extension data route opts camera back IN (camera=(self)); every
     // OTHER route keeps hooks.server.ts's global deny, which is applied only

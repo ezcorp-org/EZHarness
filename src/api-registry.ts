@@ -301,7 +301,13 @@ export const apiRegistry: ApiRouteEntry[] = [
   // correctly fails without one. Claiming it while shipping no client
   // method would make the registry lie about the remote surface.
   { method: "GET", path: "/api/workflows/approvals", description: "List pending workflow approvals this caller may answer", category: "workflows", scope: "read", responseDescription: "{ approvals: PendingApproval[] }" },
-  { method: "POST", path: "/api/workflows/approvals/:id", description: "Answer a parked workflow approval and resume its run", category: "workflows", scope: "chat", responseDescription: "{ run: WorkflowRun, consentAllUsed: boolean }" },
+  // NO `scope`, deliberately — and this is the one entry where the absence
+  // is the point. `scope` renders as `security: [{ bearerAuth: [scope] }]`
+  // (src/openapi.ts:40), i.e. "call this with a key holding that scope".
+  // Answering an approval is the CONSENT boundary and is session-only
+  // (`requireSessionAuth`): NO key of any scope can reach it, so declaring
+  // one would publish a lie about a security boundary in the OpenAPI spec.
+  { method: "POST", path: "/api/workflows/approvals/:id", description: "Answer a parked workflow approval and resume its run. SESSION-ONLY: refuses every API key (403) — a run parks on an approval so that a person decides, so a leaked key must not be able to spend one. Body { choice, form?, itemIds?, consentAll? }", category: "workflows", responseDescription: "{ run: WorkflowRun, consentAllUsed: boolean }" },
   // Operator control over a durable run. NOT an approval-answering path:
   // resume takes no choice and cannot clear a pending consent gate — a run
   // parked on an unanswered approval comes back 409 and stays answerable.
