@@ -36,6 +36,16 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "GET", path: "/api/auth/me", description: "Get current authenticated user", category: "auth", responseDescription: "User object with id, name, email, role" },
   { method: "POST", path: "/api/auth/setup", description: "Initial admin setup (first-run only)", category: "auth", schemaKey: "setupSchema" },
   { method: "POST", path: "/api/auth/invite", description: "Create user invitation link", category: "auth", schemaKey: "createInviteSchema" },
+  // Gate: `requireRole(locals,"admin")` only — no `requireScope`, so no scope
+  // is declared. Reachability caveat for both methods on this exact path:
+  // `/api/auth/invite` is in the hooks PUBLIC_PATHS allowlist
+  // (web/src/hooks.server.ts:364), and `event.locals.user` is only ever
+  // assigned INSIDE the `if (!isPublic)` block (assignment at :622, block
+  // opens at :370). So neither a cookie session nor a Bearer key ever
+  // populates `locals.user` here and the role gate denies every caller. Only
+  // the `/:token` sub-path needs to be public. Reported as a finding; fixing
+  // the allowlist is a separate change.
+  { method: "GET", path: "/api/auth/invite", description: "List outstanding user invitations. Gate: requireRole(locals,\"admin\") only — no API-key scope gate", category: "auth", responseDescription: "{ invites }" },
   { method: "POST", path: "/api/auth/invite/:token", description: "Accept invitation and create account", category: "auth" },
   { method: "POST", path: "/api/auth/reset-password", description: "Generate password reset token (admin)", category: "auth", schemaKey: "generateResetSchema" },
   { method: "POST", path: "/api/auth/reset-password/:token", description: "Consume reset token and set new password", category: "auth", schemaKey: "consumeResetSchema" },
@@ -46,6 +56,13 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "GET", path: "/api/account", description: "Get current user account details", category: "account" },
   { method: "PUT", path: "/api/account", description: "Update account name or email", category: "account" },
   { method: "PUT", path: "/api/account/password", description: "Change account password", category: "account" },
+  { method: "GET", path: "/api/account/sessions", description: "List the caller's OWN active sessions with the current one flagged", category: "account", scope: "read", responseDescription: "{ sessions: [{ id, userAgent, ipAddress, lastActiveAt, createdAt, isCurrent }] }" },
+  // Self-service revoke: the `admin` SCOPE is a key write-gate, and the row is
+  // re-checked against the caller's own session list (404 otherwise) — hence
+  // no role check, and hence this file's presence in
+  // route-contract.test.ts's KNOWN_SCOPE_ONLY_ADMIN list.
+  { method: "DELETE", path: "/api/account/sessions", description: "Revoke one of the caller's OWN sessions by { sessionId } — 404 for a session the caller does not own, 400 for the current session (log out instead)", category: "account", scope: "admin", responseDescription: "{ success: true }" },
+  { method: "GET", path: "/api/account/login-history", description: "The caller's last 10 `auth:login` audit entries", category: "account", scope: "read", responseDescription: "{ entries }" },
 
   // Conversations
   { method: "GET", path: "/api/conversations", description: "List conversations for active project", category: "conversations", responseDescription: "Array of conversation objects" },
@@ -64,6 +81,7 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "POST", path: "/api/conversations/:id/rewind", description: "Rewind/checkpoint the conversation to a message (moves the durable leaf pointer; 409 when the flag is off or a run is active)", category: "conversations", scope: "chat", harness: { controllable: true }, schemaKey: "rewindConversationSchema", responseDescription: "{ conversationId, currentLeaf, nodes } (the refreshed tree)" },
   { method: "POST", path: "/api/conversations/:id/messages/:mid/retry", description: "Clean A/B retry — re-run the target assistant message's parent user turn as a same-role sibling (no duplicate user row; 409 when the flag is off or a run is active)", category: "conversations", scope: "chat", harness: { controllable: true }, schemaKey: "retryMessageSchema", responseDescription: "{ userMessage, retriedMessageId, runId }" },
   { method: "GET", path: "/api/search/messages", description: "Hybrid/keyword/semantic message search (RRF)", category: "conversations", responseDescription: "{ hits, degraded, requestedMode, servedMode }" },
+  { method: "GET", path: "/api/conversations/:id/audit", description: "Per-conversation audit timeline (sdk_capability_calls scoped to the conversation), cursor-paginated with ?capability ?status=denial ?since ?until ?limit. Owner-only with an admin fallback for unowned rows; 404 (not 403) so the endpoint is not a conversation-id oracle", category: "conversations", scope: "read", responseDescription: "{ entries, nextCursor }" },
 
   // Topic Contexts
   { method: "GET", path: "/api/conversations/:id/topics", description: "Cached topic pills for a conversation (no LLM)", category: "contexts", scope: "read", responseDescription: "{ topics: [{ id, label, typeId, messageIds }], stale, analyzedAt }" },
@@ -128,6 +146,32 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "GET", path: "/api/extensions/:id/violations", description: "List the filesystem/capability security violations recorded against an extension by the host gates (requires an admin-role key)", category: "extensions", scope: "admin", responseDescription: "{ violations: [{ extensionId, reason, path, timestamp }] }" },
   { method: "DELETE", path: "/api/extensions/:id/violations", description: "Clear an extension's recorded security violations — the prerequisite for re-enabling it via POST /api/extensions/:id/activate, which refuses while any violation stands (requires an admin-role key)", category: "extensions", scope: "admin", responseDescription: "{ cleared: true }" },
 
+  // ── Per-extension audit drill-down ────────────────────────────────────
+  // Both pair requireScope("admin") with requireRole(locals,"admin").
+  { method: "GET", path: "/api/extensions/:id/audit", description: "Unified audit timeline for one extension — governance rows, SDK capability calls, and memory/lesson mutations fanned in and cursor-paginated (?capability ?status=denial ?since ?until ?limit); ?legacy=1 serves the pre-merge governance-only shape (requires an admin-role key)", category: "extensions", scope: "admin", responseDescription: "{ entries, nextCursor }" },
+  { method: "GET", path: "/api/extensions/:id/audit/stats", description: "Stats strip for one extension over ?range=24h|7d|30d (unknown values fall back to 24h) — cost is an estimate, not provider billing (requires an admin-role key)", category: "extensions", scope: "admin", responseDescription: "{ totalCalls, totalCostUsd, successRate, denialCount }" },
+
+  // ── defineEntity record CRUD (SDK phase 5) ────────────────────────────
+  // Every handler binds the store to the CALLING user (`scopeId: user.id`),
+  // so there is no cross-user read. Reads take "read", writes take
+  // "extensions" — mirroring the settings PUT gate.
+  { method: "GET", path: "/api/extensions/:id/entities/:type", description: "List an extension's entity records for the calling user; each row carries `_validationWarning` when its body no longer matches the manifest schema (soft read)", category: "extensions", scope: "read", responseDescription: "{ items: [{ slug, data, _validationWarning? }] }" },
+  { method: "POST", path: "/api/extensions/:id/entities/:type", description: "Create one entity record — server-side slug + JSON-Schema validation (the client form is untrusted); 404 unknown extension/type, 409 duplicate slug", category: "extensions", scope: "extensions", responseDescription: "{ slug, data } (201)" },
+  { method: "GET", path: "/api/extensions/:id/entities/:type/:slug", description: "Read one entity record (soft read — `_validationWarning` on schema drift)", category: "extensions", scope: "read", responseDescription: "{ slug, data, _validationWarning? }" },
+  { method: "PUT", path: "/api/extensions/:id/entities/:type/:slug", description: "Shallow-merge update of one entity record — accepts { patch } or { data }; slug is immutable and a `slug` key in the body is a 400", category: "extensions", scope: "extensions", responseDescription: "{ slug, data }" },
+  { method: "DELETE", path: "/api/extensions/:id/entities/:type/:slug", description: "Delete one entity record and drop it from the type index", category: "extensions", scope: "extensions", responseDescription: "{ deleted: boolean }" },
+
+  { method: "GET", path: "/api/extensions/:id/expired-grants", description: "The capability grants that expired for this extension in the last 7 days, enriched with the user's sticky per-kind re-approval TTL — feeds the settings-page ExpiredGrantsBanner. Any authenticated caller: the rows are the caller's OWN permission state, unlike the admin-only /audit drill-down", category: "extensions", scope: "extensions", responseDescription: "{ grants: [{ …, capabilityKind, stickyTtlMs }] }" },
+
+  // The three routes below apply NO `requireScope` call at all, so no
+  // `scope` is declared — inventing one here would document an enforcement
+  // the handler does not perform. What each DOES enforce is in its
+  // description. Flagged in the registry-reconciliation findings.
+  { method: "GET", path: "/api/extensions/:id/settings", description: "Per-user settings schema, declared defaults, the caller's values, the resolved blob, write-only secret presence probes, and held host capabilities. Gate: requireAuth only — no API-key scope gate, so a read-scoped key reaches it", category: "extensions", responseDescription: "{ schema, declaredDefaults, userValues, resolved, secrets, capabilities }" },
+  { method: "PUT", path: "/api/extensions/:id/settings/user", description: "Write the caller's per-extension settings — secret-typed fields are encrypted into extension storage (empty string clears) and never echoed; the mutation is audited name-only. Gate: requireAuth only — no API-key scope gate, so a read-scoped key can perform this WRITE (and set/clear secrets)", category: "extensions", responseDescription: "{ ok: true, userValues, secrets }" },
+  { method: "DELETE", path: "/api/extensions/:id/settings/user", description: "Reset the caller's per-extension settings to declared defaults (409 when the extension declares no settings schema). Gate: requireAuth only — no API-key scope gate", category: "extensions", responseDescription: "{ ok: true }" },
+  { method: "POST", path: "/api/extensions/:id/modifiable", description: "Flip the per-extension `modifiable` flag that authorizes its CREATOR to re-open and edit it; refused for bundled extensions, idempotent, audited. Gate: requireRole(locals,\"admin\") only — no API-key scope gate, so any scope on an admin-role key reaches it", category: "extensions" },
+
   // Loops EZ Mode Phase 4 — inbound webhook trigger. Public data-plane: auth is
   // the per-hook token (NOT a session), so scope "public". Persists a delivery
   // onto the claim-before-dispatch queue; the WebhookDeliveryDaemon fires it.
@@ -145,11 +189,13 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "GET", path: "/api/marketplace", description: "Browse marketplace listings", category: "marketplace" },
   { method: "POST", path: "/api/marketplace", description: "Publish agent to marketplace", category: "marketplace", schemaKey: "publishListingSchema" },
   { method: "GET", path: "/api/marketplace/:id", description: "Get marketplace listing details", category: "marketplace" },
+  { method: "DELETE", path: "/api/marketplace/:id", description: "Soft-remove a listing (status → \"removed\"), audited as marketplace:remove — distinct from the legacy DELETE /api/marketplace/:id/delete path (requires an admin-role key)", category: "marketplace", scope: "admin", responseDescription: "{ ok: true }" },
   { method: "DELETE", path: "/api/marketplace/:id/delete", description: "Remove marketplace listing", category: "marketplace" },
   { method: "POST", path: "/api/marketplace/:id/install", description: "Install agent from marketplace", category: "marketplace" },
   { method: "POST", path: "/api/marketplace/:id/rate", description: "Rate a marketplace listing", category: "marketplace" },
   { method: "POST", path: "/api/marketplace/:id/flag", description: "Flag listing for moderation", category: "marketplace" },
   { method: "GET", path: "/api/marketplace/:id/flags", description: "Get flags for a listing (admin)", category: "marketplace" },
+  { method: "PATCH", path: "/api/marketplace/:id/flags", description: "Resolve a pending moderation flag: { flagId, action: \"dismissed\" | \"removed\" }, audited as marketplace:flag:<action> (requires an admin-role key)", category: "marketplace", scope: "admin", responseDescription: "{ ok: true }" },
   { method: "GET", path: "/api/marketplace/:id/versions", description: "List versions of a listing", category: "marketplace" },
   { method: "GET", path: "/api/marketplace/flags", description: "List all flagged listings (admin)", category: "marketplace" },
   { method: "GET", path: "/api/marketplace/updates", description: "Check for available updates", category: "marketplace" },
@@ -181,8 +227,19 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "GET", path: "/api/settings", description: "Get application settings", category: "settings" },
   { method: "GET", path: "/api/settings/:key", description: "Get single setting by key (requires an admin-role key)", category: "settings", scope: "admin", harness: { controllable: true } },
   { method: "PUT", path: "/api/settings/:key", description: "Update a setting value (requires an admin-role key)", category: "settings", scope: "admin", harness: { controllable: true } },
+  { method: "DELETE", path: "/api/settings/:key", description: "Delete a setting value; internally-managed keys (the sensitive deny-list) are refused with 403 (requires an admin-role key)", category: "settings", scope: "admin", responseDescription: "{ ok: true }" },
   { method: "GET", path: "/api/settings/developer", description: "Get developer settings and API keys", category: "settings" },
   { method: "POST", path: "/api/settings/developer/api-keys", description: "Create API key", category: "settings", schemaKey: "createApiKeySchema" },
+  // Self-service key management. The `admin` SCOPE on the write paths is a
+  // write-gate for KEY principals only — there is no role check, and none is
+  // wanted: every row is filtered to the CALLING user, so forcing an admin
+  // role would lock members out of their own keys. This is why
+  // `settings/developer{,/api-keys}` sit in route-contract.test.ts's
+  // KNOWN_SCOPE_ONLY_ADMIN list.
+  { method: "GET", path: "/api/settings/developer/api-keys", description: "List the caller's OWN API keys — keyId, name, scopes, role (legacy rows default to \"member\"), createdAt. Never the hash or the raw key", category: "settings", scope: "read", responseDescription: "{ keys: [{ keyId, name, scopes, role, createdAt }] }" },
+  { method: "DELETE", path: "/api/settings/developer/api-keys", description: "Revoke one of the caller's OWN API keys by { keyId } — drops both the canonical row and its hash-index pointer so the key cannot re-authenticate via the fast path; 404 when the key is not the caller's", category: "settings", scope: "admin", responseDescription: "204 No Content" },
+  { method: "POST", path: "/api/settings/developer", description: "Mint the caller's marketplace publish token — only its SHA-256 hash is stored, and the raw value is returned exactly once", category: "settings", scope: "admin", responseDescription: "{ token }" },
+  { method: "DELETE", path: "/api/settings/developer", description: "Revoke the caller's marketplace publish token", category: "settings", scope: "admin", responseDescription: "204 No Content" },
 
   // Providers & Models
   { method: "GET", path: "/api/providers", description: "List configured AI providers", category: "providers" },
@@ -191,9 +248,36 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "GET", path: "/api/models", description: "List available AI models", category: "providers" },
   { method: "GET", path: "/api/models/default-selection", description: "Default model selection for a user with no saved pick — `provider:defaultSelection`, \"auto\" (route the first turn) or \"first\" (pin models[0]). Read-scoped, not admin-only, so an operator's revert reaches every user", category: "providers", scope: "read", responseDescription: '{ value: "auto" | "first" }' },
 
+  // ── Instance-state writes gated on ROLE ONLY ──────────────────────────
+  // Everything in this block calls `requireRole(locals,"admin")` and NOTHING
+  // else — no `requireScope`. That is deliberate history (sec-C5 / sec-H1
+  // replaced a cookie-no-op `requireScope("admin")` with the role gate) but it
+  // left the KEY axis ungated: an admin-role key minted `--scopes read`
+  // satisfies these. No `scope` is declared because none is enforced;
+  // documenting one would describe a gate that does not exist. See the
+  // registry-reconciliation findings — changing the gate is a separate,
+  // reviewable security change, not part of a registration pass.
+  { method: "POST", path: "/api/providers", description: "Store (encrypted) the instance's BYOK API key for anthropic|openai|google|openrouter, audited as provider:key_upsert. Gate: requireRole(locals,\"admin\") only — no API-key scope gate", category: "providers" },
+  { method: "DELETE", path: "/api/providers", description: "Delete the instance's stored BYOK API key for one provider, audited as provider:key_delete. Gate: requireRole(locals,\"admin\") only — no API-key scope gate", category: "providers" },
+  { method: "POST", path: "/api/providers/local/models", description: "List models offered by a caller-supplied local OpenAI-compatible baseUrl. Server-side fetch behind the sec-H1 SSRF guard: http(s) only, private/loopback rejected, and every resolved A/AAAA re-checked (DNS-rebinding pin). Gate: requireRole(locals,\"admin\") only — no API-key scope gate", category: "providers" },
+  { method: "POST", path: "/api/providers/local/test", description: "Probe one { baseUrl, modelId } on a local OpenAI-compatible server, behind the same sec-H1 SSRF guard as /local/models. Gate: requireRole(locals,\"admin\") only — no API-key scope gate", category: "providers" },
+
+  // MCP server lifecycle. Same role-only shape as the block above; each of
+  // these opens an outbound connection to an operator-supplied MCP server.
+  { method: "POST", path: "/api/mcp-servers", description: "Install an MCP server as an extension — a throwaway client must connect and return tools/list before anything is persisted (502 on failure, no mutation). Gate: requireRole(locals,\"admin\") only — no API-key scope gate", category: "extensions", responseDescription: "the installed extension row (201)" },
+  { method: "PUT", path: "/api/mcp-servers/:id", description: "Edit an installed MCP server's config and re-snapshot its tools; a blank header value keeps the stored secret, and connectivity is verified before any write (502 leaves the config untouched). Gate: requireRole(locals,\"admin\") only — no API-key scope gate", category: "extensions" },
+  { method: "POST", path: "/api/mcp-servers/:id/refresh", description: "Re-pull an installed MCP server's tool list into the registry cache (502 when the server is unreachable). Gate: requireRole(locals,\"admin\") only — no API-key scope gate", category: "extensions", responseDescription: "{ id, tools }" },
+
+  // Search backend config — reuses the encrypted, deny-listed
+  // `provider:apiKey:*` store, so keys are never readable back out.
+  { method: "GET", path: "/api/search/backend", description: "Presence-only search-backend status: hasKey per BYOK provider (tavily|brave|exa|serpapi|jina) plus the SearXNG base URL. Keys are never returned. Gate: requireRole(locals,\"admin\") only — no API-key scope gate", category: "settings", responseDescription: "{ providers: [{ provider, hasKey }], searxngUrl }" },
+  { method: "POST", path: "/api/search/backend", description: "Upsert either a BYOK search key (encrypted into provider:apiKey:*) or the SearXNG base URL (http(s) validated), audited as search:backend_upsert. Gate: requireRole(locals,\"admin\") only — no API-key scope gate", category: "settings" },
+  { method: "DELETE", path: "/api/search/backend", description: "Delete one BYOK search key, audited as search:backend_delete. Gate: requireRole(locals,\"admin\") only — no API-key scope gate", category: "settings" },
+
   // Users & Teams
   { method: "GET", path: "/api/users", description: "List users (admin)", category: "users" },
   { method: "GET", path: "/api/users/:id", description: "Get user by ID", category: "users" },
+  { method: "PUT", path: "/api/users/:id", description: "Activate or deactivate a user ({ status: \"active\" | \"inactive\" }); deactivation atomically transfers the user's agents to the acting admin and refuses self-deactivation (requires an admin-role key)", category: "users", scope: "admin", responseDescription: "{ user } (password hash stripped)" },
   { method: "GET", path: "/api/users/search", description: "Search users by name or email", category: "users" },
   { method: "GET", path: "/api/teams", description: "List teams", category: "teams" },
   { method: "POST", path: "/api/teams", description: "Create a team", category: "teams" },
@@ -202,6 +286,11 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "DELETE", path: "/api/teams/:id", description: "Delete team", category: "teams" },
   { method: "GET", path: "/api/teams/:id/members", description: "List team members", category: "teams" },
   { method: "POST", path: "/api/teams/:id/members", description: "Add member to team", category: "teams" },
+  // Authorization here is the TEAM role (`requireTeamRole(locals, id, "owner")`,
+  // which instance admins bypass), not the instance role — so the `admin`
+  // SCOPE is a key write-gate only. That is why this file sits in
+  // route-contract.test.ts's KNOWN_SCOPE_ONLY_ADMIN list.
+  { method: "DELETE", path: "/api/teams/:id/members", description: "Remove a member from a team by { userId } — team OWNER (or an instance admin) only; refuses to remove the last owner", category: "teams", scope: "admin", responseDescription: "{ success: true }" },
 
   // Workflows
   { method: "GET", path: "/api/workflows", description: "List workflows the caller may see — filtered by ownership, so a read-scoped key with no project sees system workflows only (shorter array than pre-C6, same shape)", category: "workflows" },
@@ -254,11 +343,42 @@ export const apiRegistry: ApiRouteEntry[] = [
 
   // System
   { method: "GET", path: "/api/health", description: "Health check endpoint", category: "system" },
-  { method: "GET", path: "/api/warmup", description: "Pre-warm application caches", category: "system" },
+  // Was registered as GET (and carried in route-contract.test.ts's KNOWN_STALE
+  // for exactly that reason); the handler on disk only exports POST.
+  { method: "POST", path: "/api/warmup", description: "Pre-warm the embedding model so the first memory/search turn doesn't pay the load cost — best-effort, always 200", category: "system", scope: "read", responseDescription: "{ ok: true }" },
+  // Both of these are in the hooks PUBLIC_PATHS allowlist
+  // (web/src/hooks.server.ts:364) AND apply no gate of their own, so they are
+  // genuinely reachable unauthenticated — hence scope "public".
+  { method: "GET", path: "/api/ready", description: "Readiness probe — orthogonal to /api/health (liveness). 200 once migrate() has succeeded and the image is safe to route traffic to, 503 otherwise; orchestrators gate rollouts on this", category: "system", scope: "public" },
+  { method: "GET", path: "/api/version", description: "Running version plus the cached upstream update check", category: "system", scope: "public" },
+  { method: "GET", path: "/api/auth/ping", description: "No-op keepalive for the client-side session refresher — the real work is the sliding JWT rotation hooks.server.ts performs on the way through. 401 when unauthenticated (inline `locals.user` check; no scope gate)", category: "auth", responseDescription: "{ ok: boolean }" },
+  { method: "GET", path: "/api/docs", description: "Self-describing API index: every apiRegistry entry with its JSON Schema request body where a schemaKey resolves", category: "system", scope: "read" },
+  { method: "GET", path: "/api/models/capabilities", description: "Capability intersection for a ?provider/?model pick (or the auto-routing ladder), widened by the extensions wired to ?conversationId plus any ?extensions= drafted via !ext: mentions", category: "providers", scope: "read" },
+  { method: "GET", path: "/api/active-agents", description: "In-flight agent runs, optionally filtered by ?projectId. Non-admins see only runs in conversations they own — the ownership filter is what stops a read-scoped key enumerating every tenant's runIds, agent names and conversation titles", category: "agents", scope: "read", responseDescription: "[{ runId, agentName, conversationId, parentConversationId, projectId, conversationTitle, startedAt }]" },
   { method: "GET", path: "/api/quickstart", description: "Get quickstart checklist status", category: "system" },
   { method: "POST", path: "/api/quickstart", description: "Update quickstart step completion", category: "system" },
   { method: "GET", path: "/api/favicon", description: "Get application favicon", category: "system" },
   { method: "GET", path: "/api/audit-log", description: "List audit log entries (admin)", category: "admin" },
   { method: "GET", path: "/api/admin/analytics/routing", description: "Routing + cost analytics: routed-vs-pinned share, tier mix, failover rate, mid-conversation model switches, A/B retry rate, and priced spend per provider+model (admin)", category: "admin", scope: "admin", responseDescription: "{ days, turns: { total, routed, pinned, legacy }, routedShare, tierMix, failover, switches, retries, spend: { segments, routedUsd, pinnedUsd, legacyUsd, totalUsd, unpricedTurns, unpricedTokens, conversations, usdPerConversation } }" },
+
+  // ── Admin console + audit feeds ───────────────────────────────────────
+  // All eight gate on BOTH axes: `requireScope(locals,"admin")` followed by
+  // `requireRole(locals,"admin")`, so a member cookie and a non-admin key are
+  // both rejected. Registered from the handlers, not from intent.
+  { method: "GET", path: "/api/admin/sessions", description: "List every live session across all users (admin), optionally filtered by ?userId — carries userAgent + ipAddress per row", category: "admin", scope: "admin", responseDescription: "{ sessions: [{ id, userId, userName, userEmail, userAgent, ipAddress, lastActiveAt, createdAt }] }" },
+  { method: "DELETE", path: "/api/admin/sessions", description: "Force-logout: revoke one session by { sessionId } or every session of a user by { userId } (admin)", category: "admin", scope: "admin", responseDescription: "{ success: true, revokedCount? }" },
+  { method: "GET", path: "/api/admin/analytics", description: "Admin dashboard aggregates over the last ?days (clamped 1–365): chat activity, model usage, agent/extension/user stats, and tool usage by tool/agent/user/model", category: "admin", scope: "admin" },
+  { method: "GET", path: "/api/admin/system", description: "Admin dashboard system panel: health, activity feed, and error summary", category: "admin", scope: "admin", responseDescription: "{ health, activityFeed, errorSummary }" },
+  { method: "GET", path: "/api/admin/errors", description: "Paginated error-log feed (?limit clamped 1–500, ?offset ≥ 0) for the admin dashboard", category: "admin", scope: "admin", responseDescription: "{ errors, total }" },
+  { method: "GET", path: "/api/admin/embed-progress", description: "Read-only message-embedding backfill progress — the same source the backfill CLI's --status flag reads", category: "admin", scope: "admin" },
+  { method: "GET", path: "/api/audit", description: "Global cross-extension audit feed (sdk_capability_calls + governance rows), cursor-paginated; filters ?extensionId ?capability ?action ?onBehalfOf ?denialOnly ?search ?limit (clamped 1–200)", category: "admin", scope: "admin", responseDescription: "{ entries, nextCursor }" },
+  { method: "GET", path: "/api/audit/stats", description: "Headline audit aggregates for ?range=24h|7d|30d (unknown values fall back to 24h): denial count, total calls, total cost, top-3 chattiest extensions, top-3 LLM spenders", category: "admin", scope: "admin" },
+
   { method: "GET", path: "/api/fs/list", description: "List files in a directory", category: "system" },
+  // Gate is `requireScope(locals,"read")` + an INLINE `user.role !== "admin"`
+  // check — NOT requireAdmin/requireRole, so the admin-gate pairing scan in
+  // route-contract.test.ts cannot see it. Declared scope mirrors the handler:
+  // "read" is genuinely what the key axis demands, even though the call
+  // MUTATES the filesystem. See the reconciliation findings.
+  { method: "POST", path: "/api/fs/mkdir", description: "Create a directory (recursive) inside the project sandbox — admin ROLE required, but the API-key scope gate is only `read`; the target's nearest existing ancestor is realpath-checked against EZCORP_PROJECT_ROOT to block symlink escapes", category: "system", scope: "read", responseDescription: "{ path } (201)" },
 ];
