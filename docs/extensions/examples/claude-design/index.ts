@@ -909,7 +909,19 @@ const GLOB_SKIP_DIRS = new Set([
   ".cache",
   ".vercel",
   ".netlify",
+  // The platform's own state directory. Its `data`/`backups` children are
+  // host-RESERVED and denied to every extension regardless of the `$CWD`
+  // grant (src/extensions/permissions.ts); descending it only buys a
+  // denied RPC and an audit row.
+  ".ezcorp",
 ]);
+
+/** Skipped ONLY directly under the walk root. In the shipped Docker image
+ *  the PGlite datadir is `<root>/data/ezcorp` and its snapshot sibling
+ *  `<root>/data/backups` (Dockerfile: `EZCORP_DB_PATH=/app/data/ezcorp`,
+ *  project root `/app`) — both host-reserved. Root-anchored on purpose: a
+ *  nested `src/data/` may legitimately hold stylesheets. */
+const GLOB_SKIP_ROOT_DIRS = new Set(["data"]);
 
 async function globAsync(root: string, pattern: string): Promise<string[]> {
   const compiled = compileGlob(pattern);
@@ -924,6 +936,7 @@ async function globAsync(root: string, pattern: string): Promise<string[]> {
     }
     for (const entry of entries) {
       if (GLOB_SKIP_DIRS.has(entry.name)) continue;
+      if (rel === "" && entry.isDirectory && GLOB_SKIP_ROOT_DIRS.has(entry.name)) continue;
       const relPath = rel ? `${rel}/${entry.name}` : entry.name;
       if (entry.isDirectory) {
         await walk(join(dir, entry.name), relPath);

@@ -754,6 +754,70 @@ describe("globAsync — skips a subdir whose list throws mid-walk", () => {
   });
 });
 
+describe("globAsync — host-reserved carve-out (the Docker layout)", () => {
+  // In the shipped image the PGlite datadir is `<projectRoot>/data/ezcorp`
+  // and the secret dir is `<projectRoot>/.ezcorp/data` (Dockerfile:
+  // `EZCORP_DB_PATH=/app/data/ezcorp`, project root `/app`). Both sit
+  // INSIDE the `$CWD` grant, so a `**/*.css` walk from the project root
+  // reaches them and the host denies the list. A fixture using the dev
+  // default (`$HOME/ez-corp/.data`) would prove nothing — that path is
+  // outside the project root and is never walked.
+  test("top-level data/ and .ezcorp/ are not catalogued; ordinary source still is", async () => {
+    writeFileSync(join(tmpRoot, "top.css"), ":root{ --x: 1px; }");
+
+    // RESERVED — must never be descended. Both fixtures sit one directory
+    // below the root, which is exactly the depth `catalogComponents`'
+    // `**/components/*.svelte` pattern reaches (see the compileGlob note
+    // below), so absence here is a REAL assertion: drop the root-skip and
+    // `ReservedDb` is catalogued.
+    mkdirSync(join(tmpRoot, "data", "components"), { recursive: true });
+    writeFileSync(join(tmpRoot, "data", "components", "ReservedDb.svelte"), "<i/>");
+    mkdirSync(join(tmpRoot, ".ezcorp", "components"), { recursive: true });
+    writeFileSync(join(tmpRoot, ".ezcorp", "components", "ReservedState.svelte"), "<i/>");
+
+    // Ordinary source at the same depth — proves the two skips are
+    // targeted, not a blanket "stop walking the project".
+    mkdirSync(join(tmpRoot, "src", "components"), { recursive: true });
+    writeFileSync(join(tmpRoot, "src", "components", "OrdinarySource.svelte"), "<i/>");
+
+    const out = await _internals.tools["extract-design-system"]!({}, undefined as never);
+    expect(expectIsError(out)).toBe(false);
+    const ds = JSON.parse(expectText(out)) as DesignSystem;
+    const names = ds.components.map((c) => c.name);
+    expect(names).not.toContain("ReservedDb");
+    expect(names).not.toContain("ReservedState");
+    expect(names).toContain("OrdinarySource");
+  });
+
+  // NOTE — why the "a nested data/ is still walked" guarantee is asserted
+  // in todo-tracker's and file-refactor's tests, not here: `compileGlob`
+  // (index.ts:952) expands `**/` to `(?:.*/)?` and THEN rewrites every
+  // remaining `*` to `[^/]*`, which rewrites the `*` inside that very
+  // expansion — producing `(?:.[^/]*/)?`. So `**/` matches at most ONE
+  // directory segment: `src/components/X.svelte` is catalogued but
+  // `src/data/components/X.svelte` is not, regardless of any skip list.
+  // A "nested data is still catalogued" assertion here would therefore
+  // fail for a reason that has nothing to do with the skip lists. The
+  // walker itself IS root-anchored (globAsync only consults
+  // GLOB_SKIP_ROOT_DIRS when `rel === ""`); the pre-existing glob defect
+  // is reported separately, not fixed here.
+
+  test("extraction SURVIVES a host denial on the reserved dir (defence in depth)", async () => {
+    // Even if a future reserved path the skip list doesn't know about were
+    // reached, the walk's catch must degrade to "skip this subtree".
+    writeFileSync(join(tmpRoot, "top.css"), ":root{ --x: 1px; }");
+    mkdirSync(join(tmpRoot, "srv", "components"), { recursive: true });
+    writeFileSync(join(tmpRoot, "srv", "components", "Unreachable.svelte"), "<i/>");
+    installFsStubWithListThrow((path) => path.endsWith("/srv"));
+
+    const out = await _internals.tools["extract-design-system"]!({}, undefined as never);
+    expect(expectIsError(out)).toBe(false);
+    const ds = JSON.parse(expectText(out)) as DesignSystem;
+    expect(ds.schemaVersion).toBe(1);
+    expect(ds.components.map((c) => c.name)).not.toContain("Unreachable");
+  });
+});
+
 describe("listBundleFilesRelative — degrades to [] when bundle dir list throws", () => {
   test("fsList(bundleDir) throwing → handoff still succeeds with empty files", async () => {
     seedDesignSystem();

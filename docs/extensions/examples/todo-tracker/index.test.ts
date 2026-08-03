@@ -194,9 +194,21 @@ describe("scanTodos filter integration", () => {
       { name: ".git", isFile: false, isDirectory: true },
       { name: "dist", isFile: false, isDirectory: true },
       { name: ".svelte-kit", isFile: false, isDirectory: true },
+      // Host-RESERVED, and both reachable from a `$CWD` grant. `.ezcorp`
+      // is skipped at any depth; top-level `data` is skipped because the
+      // Docker image puts the PGlite datadir at `<root>/data/ezcorp`
+      // (Dockerfile: EZCORP_DB_PATH=/app/data/ezcorp, project root /app).
+      { name: ".ezcorp", isFile: false, isDirectory: true },
+      { name: "data", isFile: false, isDirectory: true },
     ],
     [`${cwd}/sub`]: [
       { name: "file-e.svelte", isFile: true, isDirectory: false },
+      // A NESTED `data/` — ordinary source. SKIP_ROOT_DIRS is
+      // root-anchored, so this one MUST still be walked.
+      { name: "data", isFile: false, isDirectory: true },
+    ],
+    [`${cwd}/sub/data`]: [
+      { name: "file-f.ts", isFile: true, isDirectory: false },
     ],
   };
 
@@ -211,6 +223,8 @@ describe("scanTodos filter integration", () => {
       "// TODO(deadline:2027-12-31): future cleanup\n",
     [`${cwd}/sub/file-e.svelte`]:
       "// FIXME(priority:critical, tags:bug): the beta crash\n",
+    [`${cwd}/sub/data/file-f.ts`]:
+      "// TODO(priority:low, tags:nested): nested data dir is real source\n",
   };
 
   const ORIG_FS_ALLOWED = process.env.EZCORP_FS_ALLOWED;
@@ -227,10 +241,13 @@ describe("scanTodos filter integration", () => {
     else process.env.EZCORP_FS_ALLOWED = ORIG_FS_ALLOWED;
   });
 
-  beforeEach(() => {
-    // Re-install the stub on every test — preload's afterEach drops the
-    // channel singleton (see src/__tests__/preload.ts:74 +
-    // task-stack/index.test.ts:30 for the full rationale).
+  /**
+   * Install the synthetic-host stub. `denyList` names paths whose
+   * `fs.list` rejects the way the REAL host rejects a reserved
+   * carve-out, so a test can prove the walk degrades to "skip this
+   * subtree" instead of failing the tool.
+   */
+  function installStub(denyList: ReadonlySet<string> = new Set()): void {
     const ch = getChannel();
     spyOn(ch, "request").mockImplementation((async (
       method: string,
@@ -239,6 +256,11 @@ describe("scanTodos filter integration", () => {
       const p = (params ?? {}) as Record<string, unknown>;
       const path = p.path as string;
       if (method === "ezcorp/fs.list") {
+        if (denyList.has(path)) {
+          throw new Error(
+            "Filesystem access denied: reserved by the EZCorp platform (database / secret store)",
+          );
+        }
         const entries = FILES[path];
         if (entries === undefined) {
           throw new Error(`todo-tracker test stub: unexpected fs.list path ${path}`);
@@ -260,6 +282,13 @@ describe("scanTodos filter integration", () => {
       }
       throw new Error(`todo-tracker test stub: unexpected RPC method ${method}`);
     }) as ReturnType<typeof getChannel>["request"]);
+  }
+
+  beforeEach(() => {
+    // Re-install the stub on every test — preload's afterEach drops the
+    // channel singleton (see src/__tests__/preload.ts:74 +
+    // task-stack/index.test.ts:30 for the full rationale).
+    installStub();
   });
 
   // The handler's success result is `toolResult(text)` →
@@ -278,17 +307,63 @@ describe("scanTodos filter integration", () => {
     return first.text;
   }
 
-  test("no filters: reports all 5 TODOs (and ignores SKIP_DIRS)", async () => {
+  test("no filters: reports all 6 TODOs (and ignores SKIP_DIRS)", async () => {
     const text = await runScan();
-    // All 5 synthetic todos should be present (file-a..d + file-e).
-    expect(text).toContain("Found 5 TODO(s)");
+    // All 6 synthetic todos should be present (file-a..d + file-e + file-f).
+    expect(text).toContain("Found 6 TODO(s)");
     expect(text).toContain("file-a.ts");
     expect(text).toContain("file-b.ts");
     expect(text).toContain("file-c.ts");
     expect(text).toContain("file-d.ts");
     expect(text).toContain("file-e.svelte");
+    expect(text).toContain("file-f.ts");
     // SKIP_DIRS were never descended — proven by the stub not
     // throwing "unexpected fs.list path" for them.
+  });
+
+  // ── Host-reserved carve-out (the Docker layout) ────────────────────
+  //
+  // The bug this pins: `<root>/data/ezcorp` is the PGlite datadir in the
+  // shipped image (Dockerfile: EZCORP_DB_PATH=/app/data/ezcorp, project
+  // root /app). It sits INSIDE the `$CWD` grant, so the walk reaches it
+  // and the host denies the `fs.list`. Before the host fix that denial
+  // was treated as a grant escape and permanently disabled the
+  // extension; the walk must instead complete. A fixture using the dev
+  // default (`$HOME/ez-corp/.data`) would prove nothing — that path is
+  // outside the project root, so it is never walked in the first place.
+
+  test("top-level `data` (Docker datadir parent) is never listed", async () => {
+    // `${cwd}/data` has NO stub entry: descending it throws "unexpected
+    // fs.list path", so a passing scan proves the walk skipped it.
+    const text = await runScan();
+    expect(text).toContain("Found 6 TODO(s)");
+  });
+
+  test("`.ezcorp` is never listed", async () => {
+    // Same proof shape — `${cwd}/.ezcorp` has no stub entry.
+    const text = await runScan();
+    expect(text).toContain("Found 6 TODO(s)");
+  });
+
+  test("a NESTED data/ is still walked (skip is root-anchored, not blanket)", async () => {
+    // Guards the over-block failure mode: skipping every directory named
+    // `data` at any depth would silently drop real source from the scan.
+    const text = await runScan({ tags: ["nested"] });
+    expect(text).toContain("Found 1 TODO");
+    expect(text).toContain("file-f.ts");
+  });
+
+  test("the scan SURVIVES a host denial mid-walk and still reports the rest", async () => {
+    // Belt-and-braces: even if a reserved dir WERE reached (a future
+    // reserved path the skip list doesn't know about), the walk's
+    // catch must degrade to "skip this subtree", never fail the tool.
+    installStub(new Set([`${cwd}/sub`]));
+
+    const text = await runScan();
+    // `sub/` (file-e + sub/data/file-f) dropped; file-a..d survive.
+    expect(text).toContain("Found 4 TODO(s)");
+    expect(text).toContain("file-a.ts");
+    expect(text).not.toContain("file-e.svelte");
   });
 
   test("searchQuery narrows to text-substring matches (case-insensitive)", async () => {
