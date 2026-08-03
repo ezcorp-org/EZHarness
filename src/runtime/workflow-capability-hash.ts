@@ -262,7 +262,7 @@ function stepMaterial(step: WorkflowStep): ConsentStepMaterial {
     name: step.name,
     kind: step.kind ?? "agent",
     // `when` and `skipDependents` are hash inputs IN THEIR OWN RIGHT, not
-    // as a side effect of the identity above.
+    // as a side effect of {@link identityKey}.
     //
     // `skipDependents` is the sharp one. It defaults to `true`
     // (`types.ts:515-526`), and flipping it `true → false` UN-SKIPS
