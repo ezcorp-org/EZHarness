@@ -26,7 +26,13 @@ const h = vi.hoisted(() => {
       inProcessEvents: new Set<string>(["accept", "select-segment", "reject", "set-mode"]),
     },
     invalidate: vi.fn((..._a: unknown[]) => {}),
-    getProcess: vi.fn(async (_id: string) => ({ sendNotification: vi.fn(() => {}) })),
+    // `sendNotification` REPORTS DELIVERY (`subprocess.ts`). A mock that
+    // returned undefined would model a dropped frame, which the route now
+    // (correctly) turns into a 503 — so the happy path has to say `true`.
+    notificationDelivered: true,
+    getProcess: vi.fn(async function (this: void, _id: string) {
+      return { sendNotification: vi.fn(() => h.notificationDelivered) };
+    }),
     ensureWired: vi.fn(async (..._a: unknown[]) => {}),
   };
 });
@@ -59,6 +65,10 @@ vi.mock("$server/extensions/bundled", () => ({ getProjectRoot: () => "/proj" }))
 // the route doesn't touch the real provenance registry under vitest.
 vi.mock("$server/extensions/call-provenance", () => ({
   registerFireCallProvenance: () => "ezcall-test",
+  // The route releases the fire token when the notification was NOT
+  // delivered — the fire never happened, so a 4h token would otherwise
+  // sit in the registry until the sweep reaped it.
+  releaseCallProvenance: () => {},
 }));
 vi.mock("$server/extensions/file-organizer-events", () => ({
   dispatchFileOrganizerEvent: async (event: string, payload: unknown, deps: Record<string, unknown>) => {
@@ -103,6 +113,7 @@ describe("file-organizer hub in-process branch", () => {
     h.state.dispatchCalls.length = 0;
     h.invalidate.mockClear();
     h.getProcess.mockClear();
+    h.notificationDelivered = true;
   });
 
   test("accept dispatched in-process w/ SESSION userId + cache invalidate", async () => {
@@ -145,6 +156,29 @@ describe("file-organizer hub in-process branch", () => {
     expect(res.status).toBe(200);
     expect(h.state.dispatchCalls).toHaveLength(0); // never dispatched in-process
     expect(h.getProcess).toHaveBeenCalled(); // spawned + notified instead
+  });
+
+  test("a DROPPED notification is a 503, never a false {ok:true}", async () => {
+    // The cold-spawn defect in one assertion. `sendNotification` used to
+    // no-op on a process nothing had spawned — and neither `getProcess`
+    // nor `ensureSubprocessRpcWired` spawns — so the FIRST Hub action
+    // after a server restart vanished while this route answered 200
+    // `{ok:true}`. The operator saw no error and no change.
+    h.notificationDelivered = false;
+    const res = await POST(hubReq("teach-rule", { rule: "x" }) as never);
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({
+      error: "Extension is not accepting actions right now — try again",
+    });
+  });
+
+  test("a DELIVERED notification is still a 200 — the check is not a wall", async () => {
+    // Discrimination for the case above: a route that answered 503
+    // unconditionally would pass it.
+    h.notificationDelivered = true;
+    const res = await POST(hubReq("teach-rule", { rule: "x" }) as never);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
   });
 
   test("undeclared page ⇒ 404 (no dispatch)", async () => {

@@ -17,7 +17,10 @@ import {
 import { ExtensionRegistry } from "$server/extensions/registry";
 import { ToolExecutor } from "$server/extensions/tool-executor";
 import { getPermissionEngine } from "$server/extensions/permission-engine";
-import { registerFireCallProvenance } from "$server/extensions/call-provenance";
+import {
+  registerFireCallProvenance,
+  releaseCallProvenance,
+} from "$server/extensions/call-provenance";
 import { handleAppendMessageRpc } from "$server/extensions/append-message-handler";
 import { handleFinalizeToolCallRpc } from "$server/extensions/finalize-tool-call-handler";
 import { getPageCache } from "$server/extensions/page-cache";
@@ -247,8 +250,15 @@ export const POST: RequestHandler = async ({ request, locals, params }) => {
       }
     }
 
-    // Spawn + wire: `sendNotification` no-ops on a dead process, so a
-    // failed spawn here must surface (the action would silently vanish).
+    // Resolve + wire, then dispatch.
+    //
+    // NOTE: neither `getProcess` nor `ensureSubprocessRpcWired` SPAWNS —
+    // the first only constructs an `ExtensionProcess`, the second only
+    // installs handlers on it. The spawn happens inside
+    // `sendNotification` (`subprocess.ts`), which is where `call()` has
+    // always done it. This comment used to claim the spawn happened here
+    // and that a failure would surface; both halves were untrue, and the
+    // first Hub action after a server restart was silently discarded.
     try {
       const registry = ExtensionRegistry.getInstance();
       const proc = await registry.getProcess(ext.id);
@@ -333,13 +343,29 @@ export const POST: RequestHandler = async ({ request, locals, params }) => {
         kind: "event",
         ownerless: false,
       }, { autoReleaseMs: HUB_EVENT_FIRE_TOKEN_MS });
-      proc.sendNotification(`ezcorp/event/${fullEventName}`, {
+      const delivered = proc.sendNotification(`ezcorp/event/${fullEventName}`, {
         source: "hub",
         pageId,
         userId: user.id,
         ...(payload !== undefined ? { payload } : {}),
         _meta: { ezCallId },
       });
+      // A dropped notification USED TO BE REPORTED AS SUCCESS. The action
+      // vanished, this route answered `{ok:true}` with a 200, and the Hub
+      // showed no error — so an operator's save was silently lost and the
+      // only way to notice was that the page never changed. `delivered`
+      // is the whole reason `sendNotification` returns a boolean; not
+      // checking it here would leave the silence exactly where it was.
+      if (!delivered) {
+        releaseCallProvenance(ezCallId);
+        log.warn("hub action notification was not delivered to the subprocess", {
+          extensionId: ext.id,
+          name,
+          event,
+          pageId,
+        });
+        return errorJson(503, "Extension is not accepting actions right now — try again");
+      }
     } catch (err) {
       log.warn("hub action subprocess dispatch failed", {
         extensionId: ext.id,
