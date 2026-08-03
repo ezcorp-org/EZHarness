@@ -2,18 +2,23 @@ import { json } from "@sveltejs/kit";
 import { installMcpExtension } from "$server/db/queries/extensions";
 import { ExtensionRegistry } from "$server/extensions/registry";
 import { McpClient } from "$server/mcp/client";
-import { requireAdmin } from "$lib/server/security/api-keys";
+import { requireAdmin, requireScope } from "$lib/server/security/api-keys";
 import { validationError } from "$lib/server/security/validation";
 import { errorJson } from "$lib/server/http-errors";
 import { installMcpServerSchema } from "./schema";
 import type { RequestHandler } from "./$types";
 
 export const POST: RequestHandler = async ({ request, locals }) => {
-  // requireAdmin RETURNS the 403 Response; requireRole THREW one, which
-  // SvelteKit surfaces as a 500 from a route handler. Role-only, so the
-  // route's "no API-key scope gate" contract is unchanged.
+  // F2: BOTH axes — `requireAdmin` for the ROLE, `requireScope("admin")` for
+  // the API-key SCOPE. An MCP server config is instance state (command lines,
+  // URLs, auth headers), so a key minted `--scopes read --role admin` must not
+  // install one. Cookie sessions carry no `apiKeyScopes` and pass on role
+  // alone. Both RETURN their denial (#84); role first so a non-admin gets the
+  // uniform 403 "Admin role required".
   const adminErr = requireAdmin(locals);
   if (adminErr) return adminErr;
+  const scopeErr = requireScope(locals, "admin");
+  if (scopeErr) return scopeErr;
 
   const parsed = installMcpServerSchema.safeParse(await request.json());
   if (!parsed.success) return validationError(parsed.error);

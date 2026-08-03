@@ -8,7 +8,7 @@
 
 import { json } from "@sveltejs/kit";
 import { z } from "zod";
-import { requireRole } from "$server/auth/middleware";
+import { requireAdmin, requireScope } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
 import {
 	getExtension,
@@ -21,15 +21,16 @@ import type { RequestHandler } from "./$types";
 const postSchema = z.object({ modifiable: z.boolean() });
 
 export const POST: RequestHandler = async ({ request, params, locals }) => {
-	// requireRole throws a raw Response; SvelteKit surfaces that as a
-	// 500 unless caught — return it so non-admins see the intended 403.
-	let admin;
-	try {
-		admin = requireRole(locals, "admin");
-	} catch (e) {
-		if (e instanceof Response) return e;
-		throw e;
-	}
+	// F2: replaces the local try/catch around `requireRole` (which THREW, and
+	// SvelteKit renders a thrown Response as a 500). `requireAdmin` returns the
+	// denial; `requireScope("admin")` adds the second authorization axis, so an
+	// API-key principal needs the `admin` SCOPE and not just the admin role.
+	// Cookie sessions carry no `apiKeyScopes` and pass on role alone.
+	const adminErr = requireAdmin(locals);
+	if (adminErr) return adminErr;
+	const scopeErr = requireScope(locals, "admin");
+	if (scopeErr) return scopeErr;
+	const admin = locals.user!;
 
 	const parsed = postSchema.safeParse(await request.json().catch(() => ({})));
 	if (!parsed.success) {

@@ -25,7 +25,8 @@ function installUserMocks(): void {
 installUserMocks();
 
 const { parseArgs, parseKeyScopes, parseKeyRole, resolveKeyMintUser } = await import("../cli");
-const { scopesOverCeiling, canMintRole, isApiKeyRole } = await import("../auth/api-key");
+const { scopesOverCeiling, canMintRole, isApiKeyRole, adminRoleScopeWarning } =
+  await import("../auth/api-key");
 
 beforeEach(() => {
   users = [];
@@ -217,5 +218,38 @@ describe("canMintRole (role anti-escalation)", () => {
   test("a non-admin actor may NOT mint an admin-role key", () => {
     expect(canMintRole("member", "admin")).toBe(false);
     expect(canMintRole(undefined, "admin")).toBe(false);
+  });
+});
+
+// F2 follow-up: admin routes now authorize on BOTH axes, so
+// `--scopes read --role admin` mints a key its own role implies can
+// administer the instance but that every admin route refuses. The pair is
+// still LEGAL (a deliberately narrow admin-role key is a real want) — it just
+// must never be minted silently.
+describe("adminRoleScopeWarning (mint-time role/scope footgun)", () => {
+  test("admin role WITHOUT the admin scope warns", () => {
+    const msg = adminRoleScopeWarning("admin", ["read"]);
+    expect(msg).not.toBeNull();
+    // Names the exact symptom the operator will otherwise meet as a 403.
+    expect(msg).toContain("Insufficient scope");
+    expect(msg).toContain('required":"admin"');
+    // …and the exact command that fixes it.
+    expect(msg).toContain("--scopes admin --role admin");
+  });
+
+  test("admin role WITH the admin scope is silent", () => {
+    expect(adminRoleScopeWarning("admin", ["read", "admin"])).toBeNull();
+    expect(adminRoleScopeWarning("admin", ["admin"])).toBeNull();
+  });
+
+  test("member role never warns, with or without the admin scope", () => {
+    expect(adminRoleScopeWarning("member", ["read"])).toBeNull();
+    // A member-role key holding the admin SCOPE is not the footgun: it is
+    // refused on the ROLE axis, which is the pre-existing, documented posture.
+    expect(adminRoleScopeWarning("member", ["admin"])).toBeNull();
+  });
+
+  test("an admin-role key with an empty scope set warns", () => {
+    expect(adminRoleScopeWarning("admin", [])).not.toBeNull();
   });
 });

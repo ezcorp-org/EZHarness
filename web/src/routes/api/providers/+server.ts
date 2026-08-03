@@ -95,11 +95,26 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	// requireScope(locals, "admin") which is a no-op for cookie auth, so any
 	// authenticated member could overwrite the organization's LLM API key —
 	// redirecting billing to an attacker-controlled key.
-	// requireAdmin RETURNS the 403 Response; requireRole THREW one, which
-	// SvelteKit surfaces as a 500 from a route handler. Role-only, so the
-	// route's "no API-key scope gate" contract is unchanged.
+	//
+	// F2: BOTH authorization axes, as the explicit `requireAdmin` +
+	// `requireScope("admin")` pairing that route-contract.test.ts sanctions.
+	//
+	// sec-C5 closed the cookie hole but opened a key one: role alone proves the
+	// PRINCIPAL is an admin and ignores what the key was SCOPED for, so a key
+	// minted `--scopes read --role admin` still reached this write — which sets
+	// the organization's LLM API key. The scope check closes that, and
+	// deliberately narrows this route's former "no API-key scope gate"
+	// contract. A cookie session carries no `apiKeyScopes`, so `requireScope`
+	// is a no-op for it and browser admins are unaffected.
+	//
+	// Both helpers RETURN their denial (#84) — a thrown Response is what
+	// SvelteKit renders as a 500. Role is checked FIRST so an unauthenticated
+	// or non-admin caller gets #84's uniform 403 "Admin role required" rather
+	// than leaking that scope was also missing.
 	const adminErr = requireAdmin(locals);
 	if (adminErr) return adminErr;
+	const scopeErr = requireScope(locals, "admin");
+	if (scopeErr) return scopeErr;
 	const admin = locals.user!;
 	const parsed = postBodySchema.safeParse(await request.json().catch(() => ({})));
 	if (!parsed.success) {
@@ -128,11 +143,11 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 export const DELETE: RequestHandler = async ({ request, locals }) => {
 	// sec-C5: admin role required. Pre-fix, any authenticated member could
 	// delete the organization's LLM API key — DoS for every other user.
-	// requireAdmin RETURNS the 403 Response; requireRole THREW one, which
-	// SvelteKit surfaces as a 500 from a route handler. Role-only, so the
-	// route's "no API-key scope gate" contract is unchanged.
+	// F2: role AND admin scope, both returning their denial — see POST above.
 	const adminErr = requireAdmin(locals);
 	if (adminErr) return adminErr;
+	const scopeErr = requireScope(locals, "admin");
+	if (scopeErr) return scopeErr;
 	const admin = locals.user!;
 	const parsed = deleteBodySchema.safeParse(await request.json().catch(() => ({})));
 	if (!parsed.success) {

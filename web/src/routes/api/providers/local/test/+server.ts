@@ -2,7 +2,7 @@ import { json } from "@sveltejs/kit";
 import { z } from "zod";
 import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
-import { requireAdmin } from "$lib/server/security/api-keys";
+import { requireAdmin, requireScope } from "$lib/server/security/api-keys";
 import { checkLocalModel } from "$server/providers/local-model-check";
 import {
 	isPrivateOrLoopback,
@@ -23,11 +23,13 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	// requireScope(locals, "admin") which is a no-op for cookie auth, so any
 	// authenticated member could drive server-side fetch() to arbitrary URLs
 	// (cloud metadata, internal services, …) — SSRF.
-	// requireAdmin RETURNS the 403 Response; requireRole THREW one, which
-	// SvelteKit surfaces as a 500 from a route handler. Role-only, so the
-	// route's "no API-key scope gate" contract is unchanged.
+	//
+	// F2: role AND admin scope — see the sibling models route. Both helpers
+	// RETURN their denial; a read-scoped admin-role key is refused on scope.
 	const adminErr = requireAdmin(locals);
 	if (adminErr) return adminErr;
+	const scopeErr = requireScope(locals, "admin");
+	if (scopeErr) return scopeErr;
 
 	const raw = await request.json().catch(() => null);
 	if (!raw || typeof raw !== "object") {

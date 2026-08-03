@@ -361,8 +361,27 @@ const handleApp: Handle = async ({ event, resolve }) => {
   }
 
   // ── Auth enforcement ──────────────────────────────────────────────
-  const PUBLIC_PATHS = ["/login", "/setup", "/signup", "/reset-password", "/api/auth/login", "/api/auth/setup", "/api/auth/invite", "/api/auth/reset-password", "/api/health", "/api/ready", "/api/version"];
+  // Public on the exact path AND on every sub-path (`p + "/"`).
+  const PUBLIC_PATHS = ["/login", "/setup", "/signup", "/reset-password", "/api/auth/login", "/api/auth/setup", "/api/auth/reset-password", "/api/health", "/api/ready", "/api/version"];
+  // Public on SUB-PATHS ONLY — the bare path stays authenticated.
+  //
+  // F5: `/api/auth/invite` used to sit in PUBLIC_PATHS above, and the
+  // prefix match made the BARE path public too. That matters because
+  // `event.locals.user` is only ever assigned inside the `if (!isPublic)`
+  // block below (cookie path at the end of it; `attachBearerAuth` near its
+  // top). A public path skips the whole block, so locals.user stayed
+  // undefined and the ADMIN invite create/list handlers — which call
+  // `requireRole(locals, "admin")` — always 401'd. The feature was
+  // unreachable over real HTTP. It failed CLOSED, so this was a broken
+  // feature, not a bypass.
+  //
+  // Only `/api/auth/invite/:token` is genuinely anonymous (GET validates a
+  // token, POST redeems it into a new account). Keeping the bare entry was
+  // not an option: the matcher above cannot express "sub-paths but not the
+  // path itself", which is exactly what this second list is for.
+  const PUBLIC_SUBPATHS_ONLY = ["/api/auth/invite"];
   const isPublic = PUBLIC_PATHS.some(p => url.pathname === p || url.pathname.startsWith(p + "/"))
+    || PUBLIC_SUBPATHS_ONLY.some(p => url.pathname.startsWith(p + "/"))
     || url.pathname.startsWith("/_app/")
     || url.pathname.startsWith("/favicon")
 ;

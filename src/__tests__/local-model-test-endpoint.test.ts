@@ -6,6 +6,16 @@ import { mockServerAlias, createMockEvent, jsonFromResponse, ADMIN_USER, MEMBER_
 
 // updated for sec-H1: baseUrl validation (localhost → non-loopback mock URL,
 // requireAuth → requireRole, and requireRole-aware role gating)
+// updated for F2: the route now gates on BOTH axes — `requireAdmin` for the
+// ROLE and `requireScope(locals,"admin")` for the API-key SCOPE. The REAL
+// `requireScope` is passed through below instead of the permissive
+// `() => null` stub: the whole point of the "read-scoped admin key" test is to
+// exercise the genuine gate, and a stub would make it assert nothing. It is a
+// pure predicate over `locals.apiKeyScopes`, so no DB is involved.
+const { requireScope: realRequireScope } = await import(
+  "../../web/src/lib/server/security/api-keys"
+);
+
 const mockRequireAuth = mock(() => ADMIN_USER);
 const mockRequireRole = mock((_locals: any, _role: string) => ADMIN_USER);
 
@@ -38,9 +48,11 @@ mock.module("$server/providers/local-model-check", () => ({
   checkLocalModel: mockCheckLocalModel,
 }));
 
-// Mock $lib/server/security/api-keys to allow admin scope by default
+// F2: the REAL `requireScope` — not a `() => null` stub — so the scope axis is
+// genuinely under test. Cookie principals (no `apiKeyScopes`) still pass it,
+// which is why every pre-existing test in this file is unaffected.
 mock.module("$lib/server/security/api-keys", () => ({
-  requireScope: () => null,
+  requireScope: realRequireScope,
   // Real contract: null when the principal IS an admin, else a 403 Response.
   // RETURNED, never thrown — a thrown Response 500s via SvelteKit.
   requireAdmin: (locals: { user?: { role?: string } }) =>
@@ -173,9 +185,6 @@ describe("POST /api/providers/local/test", () => {
   });
 
   test("non-admin API key returns 403", async () => {
-    // Re-mock requireScope to enforce scope check for this test
-    const { requireScope: realRequireScope } = await import("../../web/src/lib/server/security/api-keys");
-
     const event = createMockEvent({
       method: "POST",
       url: "http://localhost/api/providers/local/test",
@@ -186,10 +195,49 @@ describe("POST /api/providers/local/test", () => {
     // Simulate API key auth with read-only scope
     (event.locals as any).apiKeyScopes = ["read"];
 
-    // Call requireScope directly since the mock returns null
-    const scopeErr = realRequireScope(event.locals, "admin");
-    expect(scopeErr).not.toBeNull();
-    expect(scopeErr!.status).toBe(403);
+    // F2: this used to call `requireScope` directly, because the ROUTE never
+    // checked scope — the assertion proved only that the helper worked. Drive
+    // the handler instead, so the gate itself is what's under test.
+    const res = await POST(event as any);
+    expect(res.status).toBe(403);
+    expect(mockCheckLocalModel).not.toHaveBeenCalled();
+  });
+
+  // F2 (the attack): an ADMIN-role key minted `--scopes read` is an admin
+  // principal, so the old `requireRole` gate let it drive this SSRF primitive.
+  // The scope axis is what stops it now.
+  test("admin-ROLE key without the 'admin' scope returns 403", async () => {
+    mockCheckLocalModel.mockClear();
+    const event = createMockEvent({
+      method: "POST",
+      url: "http://localhost/api/providers/local/test",
+      body: { baseUrl: "http://mock-llm.example.invalid:11434", modelId: "llama3" },
+      user: ADMIN_USER,
+    });
+    (event.locals as any).apiKeyScopes = ["read"];
+
+    const res = await POST(event as any);
+    expect(res.status).toBe(403);
+    const data = await jsonFromResponse(res);
+    expect(data.error).toBe("Insufficient scope");
+    expect(mockCheckLocalModel).not.toHaveBeenCalled();
+  });
+
+  // The paired control: the same admin principal with a correctly-scoped key
+  // still gets through, so the fix isn't just "deny everyone".
+  test("admin-ROLE key WITH the 'admin' scope still succeeds", async () => {
+    mockCheckLocalModel.mockClear();
+    const event = createMockEvent({
+      method: "POST",
+      url: "http://localhost/api/providers/local/test",
+      body: { baseUrl: "http://mock-llm.example.invalid:11434", modelId: "llama3" },
+      user: ADMIN_USER,
+    });
+    (event.locals as any).apiKeyScopes = ["read", "admin"];
+
+    const res = await POST(event as any);
+    expect(res.status).toBe(200);
+    expect(mockCheckLocalModel).toHaveBeenCalled();
   });
 });
 

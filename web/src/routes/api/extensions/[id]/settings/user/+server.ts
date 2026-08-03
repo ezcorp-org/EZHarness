@@ -1,7 +1,22 @@
+/**
+ * PUT / DELETE /api/extensions/:id/settings/user
+ *
+ * Owner-scoped per-user settings for an extension. PUT partitions
+ * secret-typed fields out of the blob and ENCRYPTS them into extension
+ * storage; DELETE wipes every stored user value.
+ *
+ * AUTHZ: `extensions` scope + a real session/key user (BOTH required).
+ * F1: `requireAuth` used to be the entire gate — this file never imported
+ * `requireScope` — so a key minted `--scopes read`, a nominally read-only
+ * credential, performed both writes. The scope matches the sibling
+ * extension routes that write secrets (`[id]/secrets/+server.ts`), not a
+ * new one. A cookie session carries no `apiKeyScopes` and is unaffected.
+ */
 import { json } from "@sveltejs/kit";
 import { z } from "zod";
 import { getExtension } from "$server/db/queries/extensions";
 import { requireAuth } from "$server/auth/middleware";
+import { requireScope } from "$lib/server/security/api-keys";
 import {
   clearUserSettings,
   getUserSettings,
@@ -34,6 +49,11 @@ interface SecretOp {
 }
 
 export const PUT: RequestHandler = async ({ request, params, locals }) => {
+  // F1: scope gate BEFORE the auth gate and before any lookup, mirroring
+  // the sibling secrets route — a read-only key must not even learn whether
+  // the extension exists.
+  const scopeErr = requireScope(locals, "extensions");
+  if (scopeErr) return scopeErr;
   const user = requireAuth(locals);
 
   const ext = await getExtension(params.id);
@@ -125,6 +145,9 @@ export const PUT: RequestHandler = async ({ request, params, locals }) => {
 };
 
 export const DELETE: RequestHandler = async ({ params, locals }) => {
+  // F1: same gate as PUT — this wipes every stored user value.
+  const scopeErr = requireScope(locals, "extensions");
+  if (scopeErr) return scopeErr;
   const user = requireAuth(locals);
 
   const ext = await getExtension(params.id);

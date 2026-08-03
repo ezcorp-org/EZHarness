@@ -15,6 +15,7 @@ import { getUserByEmail, getUserById, listUsers } from "./db/queries/users";
 import {
   API_KEY_ROLES,
   API_KEY_SCOPES,
+  adminRoleScopeWarning,
   canMintRole,
   isApiKeyRole,
   isApiKeyScope,
@@ -233,7 +234,9 @@ function printUsage(): void {
       "  ezcorp ext test [dir] [--filter <name>]               Run extension tests in sandbox",
       "  ezcorp ext publish [--token <token>]                  Publish extension to marketplace",
       "  ezcorp serve [--port 3001]                           Start API server",
-      "  ezcorp key mint [--scopes read,write,chat] [--user <email|id>] [--name <label>]  Mint a remote-control API key",
+      "  ezcorp key mint [--scopes read,write,chat] [--role member|admin] [--user <email|id>] [--name <label>]  Mint a remote-control API key",
+      "      Scope and role are INDEPENDENT axes and admin routes require BOTH:",
+      "      use --scopes admin --role admin for a key that can administer the instance.",
       "  ezcorp help                                          Show this help",
     ].join("\n"),
   );
@@ -819,6 +822,14 @@ export async function cli(args: string[]): Promise<void> {
         );
         process.exit(1);
       }
+      // Role/scope footgun: `--scopes read --role admin` mints a key whose
+      // ROLE implies instance administration but which every admin route now
+      // refuses on the SCOPE axis. Warn — never refuse: a deliberately narrow
+      // admin-role key is legitimate now that the scope is actually enforced.
+      // stderr (console.warn) so stdout stays clean for scripts scraping the key.
+      const roleScopeWarning = adminRoleScopeWarning(role, scopes);
+      if (roleScopeWarning) console.warn(`\n${roleScopeWarning}`);
+
       const name = parsed.keyName ?? "cli-minted";
       const { raw, keyId } = await mintApiKeyForUser(user.id, scopes, name, role);
       console.log(`\nMinted API key for ${user.email} (${user.id})`);

@@ -41,14 +41,17 @@ const { cli } = await import("../cli");
 
 let logs: string[] = [];
 let errs: string[] = [];
+let warns: string[] = [];
 const origLog = console.log;
 const origErr = console.error;
+const origWarn = console.warn;
 beforeEach(() => {
-  logs = []; errs = []; settings.length = 0; initDbError = null;
+  logs = []; errs = []; warns = []; settings.length = 0; initDbError = null;
   console.log = (...a: unknown[]) => { logs.push(a.join(" ")); };
   console.error = (...a: unknown[]) => { errs.push(a.join(" ")); };
+  console.warn = (...a: unknown[]) => { warns.push(a.join(" ")); };
 });
-afterEach(() => { console.log = origLog; console.error = origErr; });
+afterEach(() => { console.log = origLog; console.error = origErr; console.warn = origWarn; });
 afterAll(() => restoreModuleMocks());
 
 /** Run cli(...), capturing a process.exit(code) as a thrown sentinel. */
@@ -94,6 +97,38 @@ describe("cli key:mint dispatch", () => {
   test("help lists the key mint command", async () => {
     await cli(["help"]);
     expect(logs.join("\n")).toContain("key mint");
+  });
+
+  // F2 follow-up: admin routes authorize on BOTH axes, so an admin-ROLE key
+  // minted without the admin SCOPE is refused by every admin surface. That is
+  // intended, but it must not be minted SILENTLY — the operator would only
+  // discover it from a 403 later.
+  test("warns (but still mints) when --role admin lacks the admin scope", async () => {
+    await cli(["key", "mint", "--user", "admin@x.test", "--scopes", "read", "--role", "admin"]);
+    const warned = warns.join("\n");
+    expect(warned).toContain('role "admin" but NOT the "admin" scope');
+    // Names the symptom the operator will otherwise meet…
+    expect(warned).toContain("Insufficient scope");
+    // …and the exact fix.
+    expect(warned).toContain("--scopes admin --role admin");
+    // NOT a refusal: the key is still minted and printed.
+    expect(logs.join("\n")).toMatch(/ezk_[A-Za-z0-9_-]+/);
+    expect(settings.find(([k]) => k.startsWith("apikey:u-admin:"))).toBeDefined();
+    // Warning goes to stderr so stdout stays scrapeable for the raw key.
+    expect(logs.join("\n")).not.toContain("WARNING");
+  });
+
+  test("does NOT warn when --role admin carries the admin scope", async () => {
+    await cli([
+      "key", "mint", "--user", "admin@x.test", "--scopes", "read,admin", "--role", "admin",
+    ]);
+    expect(warns.join("\n")).toBe("");
+    expect(logs.join("\n")).toContain("role:   admin");
+  });
+
+  test("does NOT warn for a plain member-role key", async () => {
+    await cli(["key", "mint", "--user", "admin@x.test", "--scopes", "read"]);
+    expect(warns.join("\n")).toBe("");
   });
 
   // FINDING B: a non-admin-bound key may NOT carry the admin scope.
