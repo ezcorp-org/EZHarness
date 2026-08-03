@@ -29,7 +29,7 @@
  */
 
 import { test, expect, describe, beforeEach, afterAll, beforeAll, mock } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, realpathSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, realpathSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
@@ -370,6 +370,60 @@ describe("reserved carve-out denial is NOT a security violation", () => {
     expect(await getSecurityViolations(extensionId)).toHaveLength(0);
   });
 
+  test("unlink of a file inside the reserved dir denies, leaves the file, and does not disable", async () => {
+    // `handleFsUnlinkRpc` does NOT go through `gatePath`/`gateWritePath`
+    // — it gates on the parent's realpath itself (`fs-handler.ts:456`)
+    // so a symlink leaf is never resolved to its target — and then
+    // routes its own refusal through `refuseFs` (`fs-handler.ts:458`).
+    // That makes it the one fs op with a SECOND, independent call site
+    // into the deny-and-disable decision; a `denial`-blind refusal there
+    // would brick a project-root-walking extension that tidies up files
+    // (file-organizer's whole job) the moment its walk reached
+    // `/app/data/ezcorp`.
+    const registry = ExtensionRegistry.getInstance();
+    await registry.loadFromDb();
+    const executor = new ToolExecutor(registry, createStubPermissionEngine());
+
+    // A file of our own inside the reserved dir, so the assertion that
+    // it SURVIVES is about this call and not about fixture ordering.
+    const victim = join(RESERVED_DB_DIR, "unlink-me.db");
+    writeFileSync(victim, "rows");
+    try {
+      const res = (await withProvenance((tok) =>
+        executor.handlePiFsUnlink(extensionId, {
+          jsonrpc: "2.0",
+          id: 10,
+          method: "ezcorp/fs.unlink",
+          params: { path: victim, _meta: { ezCallId: tok } },
+        }),
+      )) as JsonRpcResponse;
+
+      // Denied, with the reserved wording — not the escape wording.
+      expect(res.error!.code).toBe(-32001);
+      expect(res.error!.message).toContain("reserved by the EZCorp platform");
+      expect(res.error!.message).not.toContain("disabled");
+      // The deny is REAL: the platform's file is still on disk. Without
+      // this the test would pass against a handler that refused on paper
+      // and unlinked anyway.
+      expect(existsSync(victim)).toBe(true);
+
+      // …and it is an ordinary denial, not a violation.
+      expect(await isEnabled()).toBe(true);
+      expect(await getSecurityViolations(extensionId)).toHaveLength(0);
+
+      // Still observable — same audit contract as the read-side gates.
+      const db = getTestDb();
+      const rows = await db.select().from(auditLog).where(eq(auditLog.action, "ext:perm:denied"));
+      expect(rows).toHaveLength(1);
+      const meta = rows[0]!.metadata as Record<string, unknown>;
+      expect(meta.reason).toBe("reserved-path");
+      expect(meta.capabilityKind).toBe("unlink");
+      expect(meta.capabilityValue).toBe(victim);
+    } finally {
+      rmSync(victim, { force: true });
+    }
+  });
+
   test("exists probe on the reserved dir denies without disabling", async () => {
     const registry = ExtensionRegistry.getInstance();
     await registry.loadFromDb();
@@ -515,6 +569,46 @@ describe("a genuine out-of-grant escape STILL disables (the control's whole purp
     expect(res.error!.code).toBe(-32001);
     expect(await isEnabled()).toBe(false);
     expect(await getSecurityViolations(extensionId)).toHaveLength(1);
+  });
+
+  test("unlink outside the project root disables the extension and records a violation", async () => {
+    // The control for the reserved-dir unlink above: the SAME line
+    // (`fs-handler.ts:458`) must still escalate when the denial really
+    // is an escape. An extension deleting files outside its grant is
+    // the destructive end of the threat model.
+    const registry = ExtensionRegistry.getInstance();
+    await registry.loadFromDb();
+    const executor = new ToolExecutor(registry, createStubPermissionEngine());
+
+    // Deliberately NOT named "unlink-*": the violation `reason` embeds the
+    // requested path, so a filename containing the op label would satisfy
+    // the `toContain("unlink on ")` assertion below no matter what label
+    // the handler actually passed.
+    const victim = join(OUTSIDE_ROOT, "external-target.txt");
+    writeFileSync(victim, "external");
+    try {
+      const res = (await withProvenance((tok) =>
+        executor.handlePiFsUnlink(extensionId, {
+          jsonrpc: "2.0",
+          id: 11,
+          method: "ezcorp/fs.unlink",
+          params: { path: victim, _meta: { ezCallId: tok } },
+        }),
+      )) as JsonRpcResponse;
+
+      expect(res.error!.code).toBe(-32001);
+      expect(res.error!.message).toContain("Extension has been disabled");
+      // The file outside the grant is untouched.
+      expect(existsSync(victim)).toBe(true);
+
+      expect(await isEnabled()).toBe(false);
+      const violations = await getSecurityViolations(extensionId);
+      expect(violations).toHaveLength(1);
+      expect(violations[0]!.reason).toContain("unlink on ");
+      expect(violations[0]!.reason).toContain(victim);
+    } finally {
+      rmSync(victim, { force: true });
+    }
   });
 
   test("a symlink escape out of the grant still disables (realpath is not bypassed)", async () => {
