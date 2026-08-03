@@ -236,6 +236,53 @@ test.describe("Workflow editor", () => {
 		await openEditor(page);
 		await expect(page.getByTestId("editor-readonly")).toBeVisible();
 		await expect(page.getByTestId("editor-readonly")).toContainText("fork it");
+		// And the badge agrees with the banner: no owner on record, so an
+		// admin is the only one who can change it. It must NOT read
+		// `built-in` — nobody shipped this row, it is a legacy DB row.
+		await expect(page.getByTestId("workflow-visibility")).toHaveText("unowned");
+	});
+
+	test("@evidence a `built-in` asset and a member's own `instance-wide` row are told apart", async ({
+		page,
+	}, testInfo) => {
+		// Both rows are `visibility: "system"` on the wire, and the editor
+		// used to render that word for both — so a workflow a member had
+		// created thirty seconds earlier was labelled exactly like one that
+		// ships with EZCorp. Same tier, different provenance, different
+		// badge; captured side by side so the difference is visible and not
+		// just asserted.
+		const wire = (over: Record<string, unknown>) => ({
+			...WORKFLOW,
+			visibility: "system",
+			canEdit: false,
+			...over,
+		});
+		let payload: Record<string, unknown> = wire({ source: "yaml", userId: null });
+		await page.route(`**/api/workflows/${WORKFLOW.name}`, (route) => {
+			if (route.request().method() === "GET") return route.fulfill({ json: payload });
+			return route.fallback();
+		});
+
+		// 1. Ships with the install: a file on disk, editable by nobody.
+		await openEditor(page);
+		await expect(page.getByRole("heading", { name: `Edit ${WORKFLOW.name}` })).toBeVisible();
+		const badge = page.getByTestId("workflow-visibility");
+		await expect(badge).toHaveText("built-in");
+		await expect(badge).toHaveAttribute("title", /Ships with EZCorp/);
+		await captureEvidence(page, testInfo, "workflow-editor-badge-built-in", { fullPage: true });
+
+		// 2. Same tier, but somebody here made it and still owns it.
+		payload = wire({ source: "db", userId: "the-caller", canEdit: true });
+		await openEditor(page);
+		await expect(page.getByRole("heading", { name: `Edit ${WORKFLOW.name}` })).toBeVisible();
+		await expect(badge).toHaveText("instance-wide");
+		await expect(badge).toHaveAttribute("title", /Made here/);
+		// The distinction is not tooltip-only — the two pills differ on
+		// sight, which is the half a screenshot can actually show.
+		await expect(badge).not.toHaveClass(/text-teal-300/);
+		await captureEvidence(page, testInfo, "workflow-editor-badge-instance-wide", {
+			fullPage: true,
+		});
 	});
 
 	test("@evidence the OWNER of a `system` workflow gets the editor, not the read-only banner", async ({
@@ -272,7 +319,9 @@ test.describe("Workflow editor", () => {
 		// `{#if workflow}` block, which is the same block the banner lives
 		// in, and only then assert the banner is not in it.
 		await expect(page.getByRole("heading", { name: `Edit ${WORKFLOW.name}` })).toBeVisible();
-		await expect(page.getByTestId("workflow-visibility")).toHaveText("system");
+		// `instance-wide`, not `system`: the tier on the wire is still
+		// `system`, but the badge names the provenance the user needs.
+		await expect(page.getByTestId("workflow-visibility")).toHaveText("instance-wide");
 		await expect(page.getByTestId("editor-readonly")).toHaveCount(0);
 		await expect(page.getByRole("button", { name: "Save changes" })).toBeVisible();
 
