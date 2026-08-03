@@ -82,6 +82,23 @@ async function settle(): Promise<void> {
 const seenSql: string[] = [];
 let recording = false;
 
+/**
+ * Delay every `workflow_step_runs` INSERT by a few macrotasks.
+ *
+ * PGlite runs one connection and serializes, so a fire-and-forget write
+ * issued before an awaited read has always landed by the time the read
+ * runs — which makes the boundary's drain of `pendingStepWrites`
+ * unobservable here, and it stays unobservable however many assertions are
+ * added. It is NOT unobservable in production: `DATABASE_URL` Postgres
+ * goes through a `Bun.sql` POOL, where an unawaited INSERT can still be in
+ * flight on one connection while the boundary's SELECT runs on another.
+ *
+ * This reproduces that ordering rather than arguing about it. Without the
+ * drain the ceiling reads a total one batch stale and the run overshoots
+ * its cap by a whole batch.
+ */
+let stallStepWrites = false;
+
 type Rows<T> = { rows: T[] };
 type CursorValue = { batchIndex: number; completedSteps: string[]; prevStepName: string | null };
 type ParkedRow = {
@@ -104,7 +121,14 @@ beforeAll(async () => {
   // Cast through `unknown`: the overloads on `query`/`exec` are generic and
   // a faithful re-declaration would be a copy of PGlite's own types.
   (pglite as unknown as { query: unknown }).query = (...args: unknown[]) => {
-    if (recording) seenSql.push(String(args[0]));
+    const text = String(args[0]);
+    if (recording) seenSql.push(text);
+    if (stallStepWrites && /insert\s+into\s+"workflow_step_runs"/i.test(text)) {
+      return (async () => {
+        for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0));
+        return (origQuery as (...a: unknown[]) => unknown)(...args);
+      })();
+    }
     return (origQuery as (...a: unknown[]) => unknown)(...args);
   };
   (pglite as unknown as { exec: unknown }).exec = (...args: unknown[]) => {
@@ -466,14 +490,27 @@ describe("the step-boundary token ceiling", () => {
     // them the sum trails the spend by a batch and the run overshoots. Cap
     // 150 with 100 per step: the park MUST happen after batch 1 (200
     // spent), not after batch 2 (300 spent).
+    //
+    // Run with the step-write stall ON, because PGlite would otherwise
+    // have landed the write anyway and this would pass with the drain
+    // deleted — see `stallStepWrites`.
     const delegationId = await makeDelegation({ maxTokensPerRun: 150 });
     const { wf } = scriptedExecutor([{ inputTokens: 90, outputTokens: 10 }]);
     const def = chain(`wf-lag-${crypto.randomUUID().slice(0, 8)}`);
-    const run = await wf.runWorkflow(def, {}, undefined, undefined, undefined, { delegationId });
+    stallStepWrites = true;
+    const run = await wf
+      .runWorkflow(def, {}, undefined, undefined, undefined, { delegationId })
+      .finally(() => {
+        stallStepWrites = false;
+      });
     await settle();
 
+    // 200, not 300: the park happened at the boundary of batch 1, so
+    // batch 2 never dispatched. Deliberately NOT an assertion on the
+    // cursor — that is the hazard test's subject, and keeping the two
+    // separate means a mutation kills one of them, not both.
+    expect((await parkedRow(run.id))?.suspended_reason).toBe("budget-exceeded");
     expect(await sumWorkflowRunTokens(run.id)).toBe(200);
-    expect((await parkedRow(run.id))?.cursor?.batchIndex).toBe(2);
   });
 
   test("a delegation DELETED mid-run does not park the run in flight", async () => {
