@@ -100,4 +100,96 @@ test.describe("role-carrying API keys — requireRole route access", () => {
     expect(memberMint.status, mintedText).toBe(201);
     expect((JSON.parse(mintedText) as { role: string }).role).toBe("member");
   });
+
+  /**
+   * F1 + F2: the SECOND axis. The test above varies ROLE while holding the
+   * admin SCOPE fixed. This one varies SCOPE while holding the admin ROLE
+   * fixed — the case that was exploitable: a key minted
+   * `--scopes read --role admin` is a full admin principal, so a
+   * `requireRole`-only route let it perform admin writes.
+   *
+   * Cookie sessions are covered by the mock tier; the real tier is the only
+   * place a bearer principal actually crosses `hooks.server.ts` →
+   * `attachBearerAuth` → `locals.apiKeyScopes`, which is the seam under test.
+   */
+  test("admin-ROLE key without the admin SCOPE is refused on admin writes", async ({
+    request,
+    baseURL,
+  }) => {
+    // Same principal (admin role) in both keys; only the SCOPE set differs.
+    const narrowRes = await request.post("/api/settings/developer/api-keys", {
+      data: { name: "e2e-admin-narrow", scopes: ["read", "extensions"], role: "admin" },
+    });
+    expect(narrowRes.status(), await narrowRes.text()).toBe(201);
+    const narrow = (await narrowRes.json()) as { key: string; role: string };
+    expect(narrow.role).toBe("admin");
+
+    const wideRes = await request.post("/api/settings/developer/api-keys", {
+      data: { name: "e2e-admin-wide", scopes: ["read", "admin", "extensions"], role: "admin" },
+    });
+    expect(wideRes.status(), await wideRes.text()).toBe(201);
+    const wide = (await wideRes.json()) as { key: string };
+
+    const call = (key: string, path: string, init: RequestInit = {}) =>
+      fetch(`${baseURL}${path}`, {
+        ...init,
+        headers: { ...(init.headers ?? {}), Authorization: `Bearer ${key}` },
+      });
+
+    // Both keys resolve to an ADMIN principal — so role is NOT what separates
+    // them below. Scope is.
+    for (const key of [narrow.key, wide.key]) {
+      const me = await call(key, "/api/auth/me");
+      expect(((await me.json()) as { user: { role: string } }).user.role).toBe("admin");
+    }
+
+    // F2 — a GET that reads admin-only BYOK search config.
+    const narrowGet = await call(narrow.key, "/api/search/backend");
+    expect(narrowGet.status).toBe(403);
+    expect(await narrowGet.text()).toContain("Insufficient scope");
+
+    const wideGet = await call(wide.key, "/api/search/backend");
+    expect(wideGet.status).toBe(200);
+
+    // F2 — the write that redirects the organization's LLM billing. A 400
+    // (invalid provider) proves the wide key got PAST the gate without
+    // actually storing a key; the narrow key never gets that far.
+    const post = (key: string) =>
+      call(key, "/api/providers", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ provider: "not-a-provider", apiKey: "sk-e2e" }),
+      });
+
+    const narrowPost = await post(narrow.key);
+    expect(narrowPost.status).toBe(403);
+    // Not a 500 — a thrown Response would render as one (F6).
+    expect(await narrowPost.text()).toContain("Insufficient scope");
+
+    const widePost = await post(wide.key);
+    expect(widePost.status).toBe(400);
+
+    // F1 — the extension settings/user write is gated on `extensions`, which
+    // BOTH keys hold, so neither is refused on scope. `read`-only is the
+    // refused case; a 404 for an unknown extension proves the gate was passed.
+    const settingsPut = (key: string) =>
+      call(key, "/api/extensions/00000000-0000-0000-0000-000000000000/settings/user", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ values: {} }),
+      });
+
+    const narrowPut = await settingsPut(narrow.key);
+    expect(narrowPut.status).toBe(404);
+
+    const readOnlyRes = await request.post("/api/settings/developer/api-keys", {
+      data: { name: "e2e-read-only", scopes: ["read"] },
+    });
+    expect(readOnlyRes.status(), await readOnlyRes.text()).toBe(201);
+    const readOnly = (await readOnlyRes.json()) as { key: string };
+
+    const readOnlyPut = await settingsPut(readOnly.key);
+    expect(readOnlyPut.status).toBe(403);
+    expect(await readOnlyPut.text()).toContain("Insufficient scope");
+  });
 });
