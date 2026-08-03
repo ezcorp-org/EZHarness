@@ -24,8 +24,10 @@
  *
  * ── The pipeline, in the reference's exact order ───────────────────────
  *
- * Ported from the audited reference at
- * `docs/extensions/examples/ez-code-factory/lib/prompts.ts`, whose
+ * Ported from the audited reference at `ez-code-factory/lib/prompts.ts`.
+ * THAT EXTENSION IS GONE — `docs/extensions/examples/ez-code-factory/**`
+ * was retired 2026-08-03 (phase 9) once every invariant it carried had a
+ * proven home here or in `src/`; read it in git history. Its
  * `cleanedUserIntent` composes them as
  * `redactSecrets(stripAdversarial(sanitizePromptMultilineText(raw)))`.
  * That order is preserved verbatim and pinned by a named test — see
@@ -87,7 +89,7 @@ export const UNTRUSTED_END_MARKER = "-----END UNTRUSTED INPUT-----";
  * is the "data, not instructions" framing around the wrapped text.
  *
  * Verbatim port of `stripAdversarial`
- * (`docs/extensions/examples/ez-code-factory/lib/prompts.ts`), itself
+ * (`ez-code-factory/lib/prompts.ts`), itself
  * verbatim from the upstream `internal/intent/redact.go StripAdversarial`.
  */
 export function stripAdversarial(text: string): string {

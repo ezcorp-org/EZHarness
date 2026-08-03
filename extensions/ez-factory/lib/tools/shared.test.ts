@@ -3,7 +3,8 @@
  * REJECTED, never truncated) and the primitives the three tools share.
  *
  * Ported from the audited reference's `parseRespondPayload` suite
- * (`docs/extensions/examples/ez-code-factory/lib/runs.test.ts`), which
+ * (`ez-code-factory/lib/runs.test.ts` — retired 2026-08-03 in phase 9,
+ * readable in git history), which
  * asserts one rejection per bound. The shape of every test below is the
  * same: hand it a value one step over a named bound and assert the call is
  * REFUSED — not that the result came back smaller. A clamping

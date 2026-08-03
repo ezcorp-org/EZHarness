@@ -192,7 +192,9 @@ test.describe("Project-scoped Hub route", () => {
 
 		// Match the render endpoint via the decoded pathname (the pageId's
 		// colons are percent-encoded in the URL) and branch on the `project`
-		// query param, mirroring ez-code-factory-hub.spec.ts.
+		// query param. (This pattern used to be shared with
+		// ez-code-factory-hub.spec.ts, deleted with that extension in phase 9;
+		// this spec is now the one that carries it.)
 		const projectPulls: string[] = [];
 		await page.route(
 			(url) => decodeURIComponent(url.pathname).endsWith(`/api/hub/pages/${EXT_ID}`),

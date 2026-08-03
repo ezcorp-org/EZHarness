@@ -37,13 +37,14 @@
 # `until` reads `$result.output.choice`, which is an `ApprovalStepOutput`
 # field projected by the child's final transform — structured, and
 # guaranteed to be one of the choices the child declared. It does NOT read
-# a `valid` flag from the validator, because an agent step's `output` is
-# the RAW LLM TEXT (`configToAgent` parses JSON only for an agent config
-# with `outputFormat: "json"`, which none of the three seeded ez-factory
-# agents set). `$steps.verify.output.valid` on a string resolves to
-# `undefined` — a branch that can only ever not fire. The full argument,
-# including why the format contract cannot be steered from the step input,
-# is in `draft-and-verify.workflow.yaml`.
+# a `valid` flag from the validator, and the reason survived that flag
+# becoming readable: all three seeded agents now carry
+# `outputFormat: "json"` (`src/extensions/ez-factory-agents.ts`), so
+# `$steps.verify.output.valid` DOES resolve. Reading it here would still be
+# wrong — it makes the model's self-assessment the thing that decides
+# whether a human is asked, and the model is reading the document under
+# review. The full argument, including why the format contract cannot be
+# steered from the step input, is in `draft-and-verify.workflow.yaml`.
 #
 # The loop continues only while the human answered `revise` — so `abort`
 # exits it, rather than meaning "ask me the same question again" until the

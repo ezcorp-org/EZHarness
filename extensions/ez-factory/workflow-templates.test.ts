@@ -1167,3 +1167,155 @@ describe("ez-factory templates — nesting", () => {
     expect(validateWorkflow(def, { resolve }).join("\n")).toContain("Nested workflow cycle");
   });
 });
+
+// ── Ported invariant 8 — an unrecognised decision FAILS CLOSED ────────
+//
+// Re-homed here from `ez-code-factory/lib/runs.test.ts`
+// as part of phase 9 (that tree is deleted). The reference stated it over a
+// FINDINGS record: `deserializeFinding` coerced a missing / empty /
+// unrecognised `action` to `ask-user`, the value that always BLOCKS, at the
+// deserialization boundary rather than in app logic.
+//
+// **`ez-factory` v1 ships no findings model**, so the row cannot be ported
+// field-for-field — `emit_artifact` takes `{name, content, runId}` and the
+// validator agent returns `{valid, errors}`. What v1 DOES have is the same
+// boundary wearing different clothes: a human's `choice` off an
+// `ApprovalStepOutput` is the decision vocabulary, and the question is
+// identical — does a value outside the vocabulary publish, or block?
+//
+// The shipped answer is "block", and it is bought by the SHAPE of two
+// conditions in `docs-factory.workflow.yaml`:
+//
+//   · `review-loop.loop.until` is the NEGATIVE (`not eq revise`), so an
+//     unrecognised answer EXITS the loop instead of re-asking until the
+//     iteration budget runs out (`docs-factory.workflow.yaml:199-212`).
+//   · `accepted` is a POSITIVE allowlist (`eq accept`), so the value that
+//     just exited the loop only publishes if it is literally `accept`
+//     (`:223-231`).
+//
+// Both are read out of the parsed YAML and evaluated with the production
+// `evaluateCondition` — never retyped — so a future editor who rewrites
+// either into a denylist fails a named test here rather than shipping a
+// graph that writes a document nobody accepted.
+describe("ez-factory templates — the decision vocabulary fails closed", () => {
+  const docsFactory = byBareName.get("docs-factory")!;
+
+  /** The `accepted` gate's condition AS SHIPPED. */
+  const acceptedGate = stepNamed(docsFactory, "accepted").condition!;
+  /** The `review-loop`'s `until` AS SHIPPED. */
+  const loopUntil = stepNamed(docsFactory, "review-loop").loop!.until!;
+
+  /** The choices the child approval actually declares — the whole legal
+   *  vocabulary, read from the sibling template rather than retyped. */
+  const declaredChoices = stepNamed(byBareName.get("draft-and-verify")!, "review").choices!;
+
+  /** `$steps.review-loop.output.choice` = `value`, as the executor sees it
+   *  once the loop has exited. `undefined` models the key being absent. */
+  const afterLoop = (value: unknown): RefContext => ({
+    input: {},
+    stepResults: new Map([
+      [
+        "review-loop",
+        {
+          success: true,
+          output: value === undefined ? {} : { choice: value },
+        } as AgentResult,
+      ],
+    ]),
+  });
+
+  /** `$result.output.choice` = `value`, as the loop's `until` sees it. */
+  const loopResult = (value: unknown): RefContext => ({
+    input: {},
+    stepResults: new Map(),
+    result: {
+      success: true,
+      output: value === undefined ? {} : { choice: value },
+    } as AgentResult,
+  });
+
+  /** Values that are NOT in the declared vocabulary, including the two
+   *  shapes a missing projection produces. */
+  const OUTSIDE_THE_VOCABULARY: unknown[] = [
+    undefined, // the key never arrived
+    null, // it arrived empty
+    "", // the empty string — the reference's "empty action" case
+    "ACCEPT", // case variant; ref resolution is case-sensitive
+    " accept", // whitespace-padded
+    "approve", // a plausible synonym that is NOT a declared choice
+    "publish", // a fourth choice a future edit might add to the child
+    true, // a mistyped boolean
+    { choice: "accept" }, // double-wrapped — a projection bug
+  ];
+
+  test("the vocabulary under test is the one the child actually declares", () => {
+    // Anti-vacuity for everything below: if `choices` ever went empty the
+    // positive case would have nothing to assert and the negatives would
+    // pass for free.
+    expect(declaredChoices).toEqual(["accept", "revise", "abort"]);
+    for (const bad of OUTSIDE_THE_VOCABULARY) {
+      expect(declaredChoices).not.toContain(bad as string);
+    }
+  });
+
+  test("ONLY `accept` opens the publish gate", () => {
+    // The positive first, so the negatives below are a real separation and
+    // not a gate that can never pass.
+    expect(evaluateCondition(acceptedGate, afterLoop("accept")).passed).toBe(true);
+    for (const declined of ["revise", "abort"]) {
+      expect({ choice: declined, publishes: evaluateCondition(acceptedGate, afterLoop(declined)).passed }).toEqual({
+        choice: declined,
+        publishes: false,
+      });
+    }
+  });
+
+  test("every value OUTSIDE the vocabulary is refused by the publish gate", () => {
+    // The invariant proper. An unrecognised decision must land on the
+    // blocking side — the run fails naming the decisive leaf, which is the
+    // honest terminal state for "nobody said yes".
+    for (const bad of OUTSIDE_THE_VOCABULARY) {
+      expect({ value: bad, publishes: evaluateCondition(acceptedGate, afterLoop(bad)).passed }).toEqual({
+        value: bad,
+        publishes: false,
+      });
+    }
+  });
+
+  test("an unrecognised answer EXITS the loop rather than re-asking", () => {
+    // Without this half the invariant is unreachable: a value that keeps
+    // the loop spinning never gets as far as the gate, and the run dies on
+    // `onExhausted: fail` after paying for three more LLM passes.
+    expect(evaluateCondition(loopUntil, loopResult("revise")).passed).toBe(false); // keep looping
+    for (const exits of ["accept", "abort", ...OUTSIDE_THE_VOCABULARY]) {
+      expect({ value: exits, exitsLoop: evaluateCondition(loopUntil, loopResult(exits)).passed }).toEqual({
+        value: exits,
+        exitsLoop: true,
+      });
+    }
+  });
+
+  test("discrimination — a DENYLIST gate publishes on an unrecognised answer", () => {
+    // The exact fail-open shape this rule exists to refuse, and the reason
+    // the two tests above are not tautologies. `not eq abort` reads as "any
+    // answer that is not a refusal", which is how the reference's
+    // `action` field would have failed open had it defaulted to `no-op`
+    // instead of `ask-user`.
+    const denylist: WorkflowCondition = {
+      not: { ref: "$steps.review-loop.output.choice", op: "eq", value: "abort" },
+    };
+    expect(evaluateCondition(denylist, afterLoop("publish")).passed).toBe(true);
+    expect(evaluateCondition(denylist, afterLoop(undefined)).passed).toBe(true);
+    // The shipped form refuses both.
+    expect(evaluateCondition(acceptedGate, afterLoop("publish")).passed).toBe(false);
+    expect(evaluateCondition(acceptedGate, afterLoop(undefined)).passed).toBe(false);
+  });
+
+  test("discrimination — an `exists` gate publishes on any answer at all", () => {
+    // The other tempting shape: "did the human answer?" is not the same
+    // question as "did the human say yes?".
+    const weak: WorkflowCondition = { ref: "$steps.review-loop.output.choice", op: "exists" };
+    expect(evaluateCondition(weak, afterLoop("abort")).passed).toBe(true);
+    expect(evaluateCondition(acceptedGate, afterLoop("abort")).passed).toBe(false);
+  });
+});

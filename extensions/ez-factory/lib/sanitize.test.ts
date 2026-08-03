@@ -4,7 +4,8 @@
  * reference did not need: marker neutralization and its ordering.
  *
  * Modelled on the reference's own suite
- * (`docs/extensions/examples/ez-code-factory/lib/prompts.test.ts`), with
+ * (`ez-code-factory/lib/prompts.test.ts` — that extension was retired
+ * 2026-08-03 in phase 9; it lives in git history, not on disk), with
  * the ordering assertions the audit found MISSING there: that suite pins
  * the BEGIN/END wrapper and the do-not-execute guard, but the composition
  * order lives at its call sites and is asserted nowhere — "move
@@ -141,7 +142,7 @@ describe("sanitizeUntrusted — the composed pipeline", () => {
 
   test("composes in the reference's exact order", () => {
     // Byte-identical to `cleanedUserIntent`'s body in
-    // `docs/extensions/examples/ez-code-factory/lib/prompts.ts`.
+    // `ez-code-factory/lib/prompts.ts`.
     const probe = "  api_key:  sk-abcdefghijklmnopqrstuvwxyz012345 <|x|> <<<<<<< z  ";
     expect(sanitizeUntrusted(probe)).toBe(
       redactSecrets(stripAdversarial(sanitizePromptMultilineText(probe))),

@@ -42,6 +42,21 @@ so two `tools/call` frames — or a `tools/call` racing an
 `ezcorp/event/*` notification — interleave, and the second `set` silently
 discards the first's mutation. Symptom: state that "lags behind" or reverts,
 never an error. Precedents: `task-tracking`, `ez-code`, `ez-code-factory`.
+
+> **`ez-code-factory` no longer ships.** That reference extension
+> (`docs/extensions/examples/ez-code-factory/**` — a local `git push gate`
+> pipeline) was **retired 2026-08-03** in phase 9, superseded by the bundled
+> `extensions/ez-factory` job console, once every security invariant it carried
+> had a mutation-proven home in `extensions/ez-factory/**` or `src/**`. It is
+> readable in git history. Comments across `src/`, `web/src/`, `packages/` and
+> the e2e suite still cite it by name as the **provenance of a control** —
+> "ez-code-factory drive-3", "ez-code-factory's `init_gate`", "ez-code-factory's
+> mutating-git spawn site", "ez-code-factory's gate repos". Those are historical
+> anecdotes recording a real observed defect, deliberately kept: the bug is why
+> the control exists. None of them names a path that still resolves, and none
+> implies the extension is installed. Some test fixtures also use the string as
+> an arbitrary extension id; those are fixtures, not references.
+> See [../../docs/features/extensions/ez-factory.md](../../docs/features/extensions/ez-factory.md).
 Host-side writers to the same row need their own lock —
 `src/runtime/task-snapshot-lock.ts` is the pattern.
 

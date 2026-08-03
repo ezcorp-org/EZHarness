@@ -4,8 +4,8 @@
  *
  * ── Invariant E: over-cap or malformed input is REJECTED, never truncated
  *
- * Ported from the audited reference at
- * `docs/extensions/examples/ez-code-factory/lib/runs.ts`
+ * Ported from the audited reference at `ez-code-factory/lib/runs.ts`
+ * (retired 2026-08-03 in phase 9; read it in git history)
  * (`parseRespondPayload` and the `MAX_*` block above it), whose comment
  * states the reason: *"a silently truncated findingIds/addedFindings list
  * could drop the very finding a user meant to fix, which is worse than a

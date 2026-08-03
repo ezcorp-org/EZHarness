@@ -8,7 +8,8 @@
  * ports from originally had two answer paths, and the second could
  * sidestep consent entirely.
  *
- * Ported from `docs/extensions/examples/ez-code-factory/lib/chat-contract.ts`
+ * Ported from `ez-code-factory/lib/chat-contract.ts` (that reference
+ * extension was retired 2026-08-03 in phase 9 — git history)
  * — `enforceNamedApproval`, `crossCheckFindingIds`, and the
  * `enforceRespondContract` composition that runs them IN ORDER.
  *

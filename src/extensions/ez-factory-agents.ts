@@ -75,7 +75,8 @@
  *   - **Writes are steered into the workspace.**
  *
  * Modelled on the audited reference implementation at
- * `docs/extensions/examples/ez-code-factory/lib/prompts.ts`
+ * `ez-code-factory/lib/prompts.ts` — that extension was retired 2026-08-03
+ * in phase 9 and is readable in git history
  * (`userIntentPromptSection` / `jobInstructionsPromptSection` /
  * `worktreeSteeringPreamble`).
  *

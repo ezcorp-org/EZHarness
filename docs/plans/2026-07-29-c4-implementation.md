@@ -11,6 +11,16 @@
 > **re-anchored on 2026-07-29** — 39 updates, each spot-checked to land on its
 > named symbol. Anchor on the **symbol name**, not the number. §8 lists the
 > phase-1 deltas C4 inherits.
+>
+> **The `docs/extensions/examples/ez-code-factory/...` citations below no longer
+> resolve.** That reference extension was **retired 2026-08-03 in phase 9**,
+> after its invariants had proven homes in `src/**` and
+> `extensions/ez-factory/**`; read it in git history. The three cited here —
+> `recovery.ts`'s fail-closed resume rule, `chat-contract.ts`'s named-approval
+> rule, and `rbac.ts`'s `guardScope` — all landed, pinned respectively by
+> `src/__tests__/workflow-run-persistence.test.ts`,
+> `src/__tests__/workflow-approval-guard.test.ts` and
+> `src/__tests__/workflow-answer-approval.test.ts`.
 
 **Read §1 first.** The design record's stated suspend-before-await rule is
 **wrong**, and §1 replaces it. §9 lists everything else C4's detail proves wrong
