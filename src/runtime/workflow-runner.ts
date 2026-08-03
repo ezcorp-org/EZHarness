@@ -37,6 +37,14 @@
  *     `in-batch` means side effects may be mid-flight, and the recovery
  *     sweep owns that judgement.
  *
+ *   - **A claim it could not use is handed back at once**, on the same
+ *     terms. A resume that comes back `suspended` — most often a run
+ *     parked on an unanswered approval, which `resumeWorkflow` refuses
+ *     TRANSIENTLY without writing anything — leaves the row `running`
+ *     under this instance's claim, and `answerApproval` refuses a run
+ *     that is not `suspended`. Holding it would lock the human out of
+ *     the very decision this daemon is waiting on.
+ *
  * ## Why resume goes through the runtime registry
  *
  * The live `WorkflowExecutor` and the merged workflow cache are built in
@@ -59,7 +67,7 @@ import {
   WORKFLOW_LEASE_RENEW_MS,
 } from "../db/queries/workflow-runs";
 import { getWorkflowRunRow } from "../db/queries/workflow-runs";
-import { resumeArgsFromRow } from "./workflow-executor";
+import { resumeClaimedRun } from "./workflow-executor";
 import {
   getWorkflowRuntime,
   type WorkflowRuntime,
@@ -357,7 +365,20 @@ export class WorkflowRunner {
     // refusal (drift, a pending approval, unavailable step output) rather
     // than throwing, so this is not written around exceptions. A throw
     // here is a genuine bug and propagates to `tick`'s caller.
-    const run = await runtime.workflowExecutor.resumeWorkflow(workflow, resumeArgsFromRow(row));
+    //
+    // The shared sequence re-reads the row under the claim, names this
+    // instance as `resumedBy` — without which the executor's status guard
+    // cannot tell this resume from one aimed at a run another process is
+    // driving, and refused TERMINALLY every run this daemon ever claimed —
+    // and hands the claim back if the run comes back parked. Every resume
+    // path in the codebase runs this same sequence; see
+    // {@link resumeClaimedRun} for what each step is protecting.
+    const run = await resumeClaimedRun(
+      runtime.workflowExecutor,
+      workflow,
+      runId,
+      this.instanceId,
+    );
     log.info("resumed a parked run", { runId, status: run.status });
   }
 

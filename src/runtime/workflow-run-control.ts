@@ -30,10 +30,11 @@
  */
 import { logger } from "../logger";
 import {
+  claimWorkflowRun,
   finalizeWorkflowRunRow,
   getWorkflowRunRow,
 } from "../db/queries/workflow-runs";
-import { resumeArgsFromRow } from "./workflow-executor";
+import { resumeClaimedRun } from "./workflow-executor";
 import {
   getWorkflowRuntime,
   type WorkflowRuntime,
@@ -147,7 +148,27 @@ export async function resumeParkedRun(
     };
   }
 
-  const run = await runtime.workflowExecutor.resumeWorkflow(workflow, resumeArgsFromRow(row));
+  // ── Take authority over the run (CAS) ──────────────────────────────
+  //
+  // The status check above is a snapshot, and the executor's status guard
+  // consults the row it is HANDED — so resuming off that snapshot let a
+  // daemon claim landing in between produce a second driver for one run.
+  // Winning `claimWorkflowRun` is the ONE way to begin driving a run, and
+  // it is atomic: losing is a clean refusal that has written nothing.
+  const claimedBy = `resume:${runId}`;
+  const claimed = await claimWorkflowRun({ workflowRunId: runId, claimedBy, now: new Date() });
+  if (!claimed) {
+    return {
+      ok: false,
+      code: "not-resumable",
+      message: `Workflow run ${runId} is being driven by another process right now; try again in a moment`,
+    };
+  }
+
+  // Re-reads the row under the claim and hands the claim back if the run
+  // comes back parked — which is the NORMAL outcome here, because this is
+  // not an approval-answering path and relies on the transient refusal.
+  const run = await resumeClaimedRun(runtime.workflowExecutor, workflow, runId, claimedBy);
   // Branch on the ERROR, not on the status.
   //
   // `resumeWorkflow` has two refusal shapes and only one of them is

@@ -26,7 +26,11 @@ import {
   getWorkflowApprovalById,
   parkWorkflowApproval,
 } from "../db/queries/workflow-approvals";
-import { getWorkflowRunRow, insertWorkflowRun } from "../db/queries/workflow-runs";
+import {
+  finalizeWorkflowRunRow,
+  getWorkflowRunRow,
+  insertWorkflowRun,
+} from "../db/queries/workflow-runs";
 import {
   registerWorkflowRuntime,
   _resetWorkflowRuntimeForTests,
@@ -90,15 +94,29 @@ function runtimeFor(
           row: { id: string },
         ): Promise<WorkflowRun> {
           resumed.push(row.id);
+          const status = opts.resumeStatus ?? "success";
+          const result = opts.resumeError
+            ? { success: false, output: null, error: opts.resumeError }
+            : undefined;
+          // Write the terminal row, exactly as the real executor does on
+          // its way out (`workflow-executor.ts`'s `!suspended` finalize).
+          //
+          // A double that returned `success` and wrote NOTHING left the row
+          // wherever the caller had put it, which quietly made every
+          // assertion below a statement about the double rather than about
+          // the sweep. It also hid the fact that a resume now runs under a
+          // CLAIM: the row is `running` from the claim until the finalize,
+          // and only a faithful double closes that.
+          if (status !== "suspended") {
+            await finalizeWorkflowRunRow(row.id, status as "success" | "error" | "cancelled", result);
+          }
           return {
             id: row.id,
             workflowName: definition.name,
-            status: opts.resumeStatus ?? "success",
+            status,
             startedAt: NOW.getTime(),
             steps: [],
-            ...(opts.resumeError
-              ? { result: { success: false, output: null, error: opts.resumeError } }
-              : {}),
+            ...(result ? { result } : {}),
           } as WorkflowRun;
         },
       },
@@ -184,8 +202,12 @@ describe("the three policies each change a ROW and a RUN", () => {
     expect(approval?.answeredBy).toBeNull();
     expect(approval?.consentAllUsed).toBe(false);
     expect(resumed).toEqual([runId]);
-    // The run was resumed, not terminalized behind its back.
-    expect((await getWorkflowRunRow(runId))?.status).toBe("suspended");
+    // The run was RESUMED and ran to completion — not cancelled behind its
+    // back, which is what `abort` would have done. `success` (rather than
+    // the `suspended` this once asserted) is the faithful double finalizing
+    // the row the way the real executor does; a run left `suspended` after a
+    // successful resume would mean the resume never persisted anything.
+    expect((await getWorkflowRunRow(runId))?.status).toBe("success");
   });
 
   test("skip answers with the skip choice and resumes the run", async () => {
@@ -521,7 +543,10 @@ describe("the daemon sub-tick is actually wired", () => {
       raced: 0,
     });
     expect((await getWorkflowApprovalById(approvalId))?.status).toBe("answered");
-    expect((await getWorkflowRunRow(runId))?.status).toBe("suspended");
+    // Resumed to completion by the policy — see the sibling assertion in
+    // "approve answers as approved and resumes the run" for why this is
+    // `success` rather than `suspended`.
+    expect((await getWorkflowRunRow(runId))?.status).toBe("success");
   });
 
   test("a tick with nothing expired reports a zeroed sweep, not an error", async () => {
