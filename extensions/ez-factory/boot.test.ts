@@ -249,27 +249,71 @@ describe("activeProjectRoot", () => {
     // A workflow tool step carries a synthetic conversation with no
     // project to resolve, so this is the branch that actually runs there.
     toolContext = undefined;
-    const previous = process.env.EZCORP_PROJECT_ROOT;
-    process.env.EZCORP_PROJECT_ROOT = "/env-project";
-    try {
+    withEnv({ EZCORP_PROJECT_ROOT: "/env-project" }, () => {
       expect(activeProjectRoot()).toBe("/env-project");
-    } finally {
-      if (previous === undefined) delete process.env.EZCORP_PROJECT_ROOT;
-      else process.env.EZCORP_PROJECT_ROOT = previous;
-    }
+    });
+  });
+
+  test("falls back to EZCORP_EXTENSION_DATA_ROOT before ever reaching cwd", () => {
+    // THE branch that runs in production. `registry.ts` leaves
+    // `EZCORP_PROJECT_ROOT` unset whenever `findProjectRoot()` throws — and
+    // that same absence leaves `getSpawnCwd()` undefined, so the subprocess
+    // inherits the host's cwd, which is `web/` (dev) / `/app/web` (prod).
+    // Reaching `process.cwd()` there makes `read_files` walk the SvelteKit
+    // frontend and report its files as project-root-relative, authorized
+    // the whole way because `web/` is inside the `$CWD` grant.
+    //
+    // `EZCORP_EXTENSION_DATA_ROOT` is always injected, and from the SAME
+    // `getProjectRoot()` that `grantCwdBase()` expands `$CWD` through.
+    toolContext = undefined;
+    withEnv(
+      { EZCORP_PROJECT_ROOT: undefined, EZCORP_EXTENSION_DATA_ROOT: "/data-root" },
+      () => {
+        expect(activeProjectRoot()).toBe("/data-root");
+        expect(activeProjectRoot()).not.toBe(process.cwd());
+      },
+    );
+  });
+
+  test("EZCORP_PROJECT_ROOT still wins over the data root when both are set", () => {
+    toolContext = undefined;
+    withEnv(
+      { EZCORP_PROJECT_ROOT: "/env-project", EZCORP_EXTENSION_DATA_ROOT: "/data-root" },
+      () => {
+        expect(activeProjectRoot()).toBe("/env-project");
+      },
+    );
   });
 
   test("falls back to the process cwd as a last resort", () => {
     toolContext = undefined;
-    const previous = process.env.EZCORP_PROJECT_ROOT;
-    delete process.env.EZCORP_PROJECT_ROOT;
-    try {
-      expect(activeProjectRoot()).toBe(process.cwd());
-    } finally {
-      if (previous !== undefined) process.env.EZCORP_PROJECT_ROOT = previous;
-    }
+    withEnv(
+      { EZCORP_PROJECT_ROOT: undefined, EZCORP_EXTENSION_DATA_ROOT: undefined },
+      () => {
+        expect(activeProjectRoot()).toBe(process.cwd());
+      },
+    );
   });
 });
+
+/** Run `fn` with `vars` applied to `process.env`, restoring every key
+ *  afterwards. `undefined` means "delete for the duration". */
+function withEnv(vars: Record<string, string | undefined>, fn: () => void): void {
+  const previous: Record<string, string | undefined> = {};
+  for (const [key, value] of Object.entries(vars)) {
+    previous[key] = process.env[key];
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+  try {
+    fn();
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
 
 // ── Hub page wiring (8.6) ───────────────────────────────────────────
 //

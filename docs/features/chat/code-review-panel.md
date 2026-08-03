@@ -58,6 +58,26 @@ Dark mode keys off the app's `.dark` class, not `prefers-color-scheme`, so it fo
 
 `$lib/diff-review/viewed-files.ts` persists the ticked set **per conversation** under `ezcorp-diff-viewed:<conversationId>` — unlike the split/unified preference (`$lib/diff-view-mode.ts`), which is one global personal habit. Reads are defensive: a missing, corrupt or non-array entry means "nothing viewed", and `viewedCount` ignores stale keys so `3 / 4 files viewed` can never exceed the file count.
 
+## Usage
+
+### UI entry points
+
+- **Chat header → diff button** (`data-testid="diff-panel-btn"`) — toggles the panel on any project chat (`web/src/routes/(app)/project/[id]/chat/[convId]/+page.svelte`). The open/closed flag is persisted per conversation, so a reload reopens the review where you left it.
+- **File tree rail** — click a file row to jump its card into view; collapse the rail itself to widen the cards.
+- **Split / Unified control** — a global personal preference (`$lib/diff-view-mode.ts`), not per conversation.
+- **Viewed checkbox** — per file, persisted **per conversation**.
+
+### REST API
+
+None. The panel is entirely client-side: it derives its changeset from tool calls and assistant messages already loaded into the chat page. No route, no scope, nothing to register in `src/api-registry.ts`.
+
+### Env vars / settings
+
+No env vars and no `settings` KV keys. Two `localStorage` keys back the persisted state:
+
+- `ezcorp-diff-viewed:<conversationId>` — the ticked "Viewed" set for one conversation.
+- The split/unified preference key owned by `$lib/diff-view-mode.ts` — one global habit, shared across conversations.
+
 ## Key files
 
 | Path | Role |
@@ -82,3 +102,26 @@ Dark mode keys off the app's `.dark` class, not `prefers-color-scheme`, so it fo
 | `web/e2e/diff-panel.spec.ts` | Browser behaviour: geometry, cards, filter, Viewed, split/unified, GitHub tints |
 | `web/e2e/diff-panel-subagent.spec.ts` | Sub-agent edits reaching the parent's review |
 | `web/e2e/code-review-panel-evidence.spec.ts` | `@evidence` captures (split, unified, mid-review, dark) |
+
+## Features it touches
+
+- [[conversations]] — the changeset is scoped to one conversation; the message tree supplies the settled assistant messages the `diff` blocks come from.
+- [[builtin-file-tools]] — `edit_file` / write-shaped tool calls are the primary diff source; their recorded inputs are what `aggregateToolCallDiffs` extracts.
+- [[streaming-runtime]] — while a run streams, the last message is excluded from the changeset so a half-written hunk never renders.
+- [[teams]] — sub-agent edits hydrated into the parent conversation appear in the parent's review (`diff-panel-subagent.spec.ts` pins this).
+- [[runs-lifecycle]] — a run's completed tool calls are what settle into reviewable diffs.
+- [[dev-lifecycle-and-gates]] — the panel is a frontend-visual surface, so it carries an `@evidence`-tagged e2e spec per the feature contract.
+
+## Related docs
+
+No standalone spec exists; this file is the primary reference.
+
+## Notes & gotchas
+
+- **Tree node keys are `dir:<path>` / `file:<file.key>`, never the raw path.** One conversation can legitimately touch the same file twice. Keying the `{#each}` on path raises Svelte's `each_key_duplicate`, which **throws and blanks the whole panel** — a total failure, not a cosmetic one.
+- **Message-diff keys are scoped to the owning message** (`code:<messageId>#<nth-in-message>`), never a flat index. A new diff arriving in an *earlier* message would otherwise shift an already-ticked file's identity onto its neighbour.
+- **`LARGE_DIFF_LINES` (500) is a rendering budget, not just a UI preference.** Each open card parses through diff2html and then walks every line through highlight.js; without the collapse-by-default strip, a conversation that rewrote a lock file would block the panel's first paint.
+- **Viewed state is per conversation; split/unified is global.** Deliberately asymmetric — what you have read is conversation-specific, how you like to read it is a personal habit. Don't "fix" one to match the other.
+- **Viewed reads are defensive by design.** A missing, corrupt, or non-array `localStorage` entry means "nothing viewed", and `viewedCount` ignores stale keys, so `3 / 4 files viewed` can never exceed the file count.
+- **Dark mode keys off the app's `.dark` class, not `prefers-color-scheme`** — it follows the in-app theme toggle, not the OS.
+- **The Primer skin is scoped under `.gh-review`.** The inline `DiffCard` and chat-markdown diffs deliberately keep their existing look; widening the selector would repaint surfaces that were never meant to look like a PR.

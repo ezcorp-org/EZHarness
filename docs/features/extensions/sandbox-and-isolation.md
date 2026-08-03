@@ -68,11 +68,11 @@ When network IS granted, `installFetchWrapper()` wraps `globalThis.fetch`; `clas
 
 ### 6. Three spawn seams
 
-- **Seam A — extension subprocess** (`extensions/subprocess.ts`): inner command is `prlimit --rss=<bytes> bun run --preload <preload> <entrypoint>`. `resolveSandboxWrap()` calls `buildSandboxArgv` (workspace = `.ezcorp/extension-data/<id>`; rw also includes the per-ext `TMPDIR`; the extension *code* dir + preload dir are added read-only or `bun` couldn't read its own entrypoint). Fail-SAFE: a jail-build error logs and runs un-jailed (the preload still applies).
-- **Seam B — per-run agent shell** (`runtime/tools/shell.ts`): jails every `/bin/sh -c` spawn to the per-run `workspaceDir` (rw) on the same tier; `spawnCwd` is the workspace when jailed.
-- **Seam C — MCP servers** (`extensions/mcp-sandbox.ts`): the heaviest stack, below.
+- **Seam A — extension subprocess** (`src/extensions/subprocess.ts`): inner command is `prlimit --rss=<bytes> bun run --preload <preload> <entrypoint>`. `resolveSandboxWrap()` calls `buildSandboxArgv` (workspace = `.ezcorp/extension-data/<id>`; rw also includes the per-ext `TMPDIR`; the extension *code* dir + preload dir are added read-only or `bun` couldn't read its own entrypoint). Fail-SAFE: a jail-build error logs and runs un-jailed (the preload still applies).
+- **Seam B — per-run agent shell** (`src/runtime/tools/shell.ts`): jails every `/bin/sh -c` spawn to the per-run `workspaceDir` (rw) on the same tier; `spawnCwd` is the workspace when jailed.
+- **Seam C — MCP servers** (`src/extensions/mcp-sandbox.ts`): the heaviest stack, below.
 
-### 7. MCP server isolation (`extensions/mcp-sandbox.ts`)
+### 7. MCP server isolation (`src/extensions/mcp-sandbox.ts`)
 
 MCP `stdio` servers are arbitrary external binaries (Python/Go/Rust) — the SDK module-poisoning does **not** apply to them — so they get a separate, deeper stack built by `buildSandboxedMcpSpec()`:
 
@@ -102,7 +102,7 @@ This is infrastructure — there is no API route or UI page. It is exercised by 
 - `EZCORP_FS_ALLOWED` — informational only (SDK fast-fail; does NOT unblock fs primitives).
 - `EZCORP_LANDLOCK_SPEC` — the serialized `LandlockJailSpec` consumed by the landlock shim.
 
-`buildAllowedEnv()` (`extensions/registry.ts`) is the env whitelist: only **PATH, HOME, NODE_ENV, and a per-extension TMPDIR** pass by default; granted `manifest.permissions.env` keys + the conditional flags above are added on top. The child never sees the host `process.env`.
+`buildAllowedEnv()` (`src/extensions/registry.ts`) is the env whitelist: only **PATH, HOME, NODE_ENV, and a per-extension TMPDIR** pass by default; granted `manifest.permissions.env` keys + the conditional flags above are added on top. The child never sees the host `process.env`.
 
 ### Manifest
 
