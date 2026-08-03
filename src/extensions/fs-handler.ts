@@ -49,9 +49,14 @@ import {
   expandGrantPrefix,
   resolveGrantPrefixCanonical,
   isReservedSensitivePath,
+  isGrantEscape,
+  type FilesystemDenialKind,
   type FilesystemMode,
+  type FilesystemPrefixCheck,
 } from "./permissions";
 import { denyAndDisable } from "./security";
+import { AUDIT_PERM_DENIED } from "./audit-actions";
+import { insertAuditEntry } from "../db/queries/audit-log";
 
 // ── Constants (locked per spec) ────────────────────────────────────
 
@@ -448,18 +453,10 @@ export async function handleFsUnlinkRpc(
   if (!granted || !installPath) {
     return jsonError(req.id, -32603, "Extension not found in registry");
   }
-  const allowed = await checkPrefixForWrite(linkTarget, granted.filesystem ?? [], installPath, ctx.userId);
-  if (!allowed) {
-    await denyAndDisable(
-      ctx.extensionId,
-      `Filesystem access denied: unlink on ${requestedPath} (target: ${linkTarget})`,
-      linkTarget,
-    );
-    return jsonError(
-      req.id,
-      -32001,
-      `Filesystem access denied: ${requestedPath} is outside declared permission paths. Extension has been disabled.`,
-    );
+  const check = await checkPrefixForWrite(linkTarget, granted.filesystem ?? [], installPath, ctx.userId);
+  if (!check.allowed) {
+    const refusal = await refuseFs(ctx, check.denial, "unlink", requestedPath, linkTarget);
+    return jsonError(req.id, refusal.error.code, refusal.error.message);
   }
 
   // PDP gate — kind=fs.write (unlink is a write-side op).
@@ -487,6 +484,107 @@ export async function handleFsUnlinkRpc(
 }
 
 // ── Internal: path gating ───────────────────────────────────────────
+
+/** JSON-RPC error envelope every gate returns on refusal. */
+type GateError = { error: { code: number; message: string } };
+
+/**
+ * THE single place a filesystem refusal becomes a response — and the
+ * ONLY place `denyAndDisable` is reachable from the fs gates.
+ *
+ * Routing is driven by {@link isGrantEscape}, never by `!allowed` and
+ * never by matching on the message:
+ *
+ *   • `not-found`         → -32000 ENOENT. Not a security event.
+ *   • `reserved-carveout` → -32001, extension STAYS ENABLED, one
+ *     `ext:perm:denied` audit row with `reason: "reserved-path"`. The
+ *     platform is carving its own DB/secret dir out of a grant the user
+ *     legitimately gave; an extension walking the project root hits
+ *     this on its first correct run under the Docker layout
+ *     (`Dockerfile:253`). `read_files` already handles it — it reports
+ *     `skipped[{reason:"unreadable"}]` and keeps walking.
+ *   • `out-of-grant`      → -32001 + `denyAndDisable`. This is the
+ *     escape the control exists for; unchanged.
+ */
+async function refuseFs(
+  ctx: FsHandlerContext,
+  denial: FilesystemDenialKind,
+  /** Cap kind / op label for the audit + violation record. */
+  opLabel: string,
+  requestedPath: string,
+  resolvedPath: string,
+): Promise<GateError> {
+  if (denial === "not-found") {
+    return {
+      error: {
+        code: -32000,
+        message: `ENOENT: no such file or directory: ${requestedPath}`,
+      },
+    };
+  }
+
+  if (isGrantEscape(denial)) {
+    await denyAndDisable(
+      ctx.extensionId,
+      `Filesystem access denied: ${opLabel} on ${requestedPath} (resolved: ${resolvedPath})`,
+      resolvedPath,
+    );
+    return {
+      error: {
+        code: -32001,
+        message: `Filesystem access denied: ${requestedPath} is outside declared permission paths. Extension has been disabled.`,
+      },
+    };
+  }
+
+  await auditReservedDenial(ctx, opLabel, resolvedPath);
+  return {
+    error: {
+      code: -32001,
+      message:
+        `Filesystem access denied: ${requestedPath} is reserved by the EZCorp platform ` +
+        "(database / secret store) and is never readable or writable by an extension.",
+    },
+  };
+}
+
+/**
+ * Keep a reserved-carve-out denial OBSERVABLE now that it no longer
+ * writes a `SecurityViolation` via `denyAndDisable`. An extension must
+ * not be able to probe the platform's DB dir with no trace.
+ *
+ * Reuses `ext:perm:denied` with a structured `metadata.reason` rather
+ * than minting a new action code — the same taxonomy-preserving pattern
+ * as the per-conversation call-depth cap
+ * (`tool-executor/invoke.ts:71-88`) and the MCP DNS-rebind block
+ * (`mcp-proxy.ts:325-331`). SIEM/audit consumers filter on
+ * `metadata.reason`.
+ *
+ * Best-effort: an audit-write failure must never convert a denial into
+ * an allow, and the denial itself is already decided by the caller.
+ */
+async function auditReservedDenial(
+  ctx: FsHandlerContext,
+  opLabel: string,
+  resolvedPath: string,
+): Promise<void> {
+  await insertAuditEntry(
+    ctx.userId && ctx.userId !== "unknown" ? ctx.userId : null,
+    AUDIT_PERM_DENIED,
+    ctx.extensionId,
+    {
+      reason: "reserved-path",
+      capabilityKind: opLabel,
+      capabilityValue: resolvedPath,
+      conversationId:
+        ctx.conversationId && ctx.conversationId !== "unknown"
+          ? ctx.conversationId
+          : null,
+    },
+  ).catch(() => {
+    /* audit best-effort — never block or weaken the deny */
+  });
+}
 
 /**
  * Gate for read-style ops where the path MUST exist (read/list/stat).
@@ -524,31 +622,13 @@ async function gatePath(
   );
 
   if (!result.allowed) {
-    // Distinguish "doesn't exist" (realpath threw inside
-    // `checkFilesystemPermission`) from "exists but outside the grant".
-    // We re-realpath separately rather than using a stringy heuristic
-    // — Linux paths can be canonical-equal to input, breaking the old
-    // resolvedPath-vs-input check.
-    let exists = true;
-    try {
-      await realpath(requestedPath);
-    } catch {
-      exists = false;
-    }
-    if (!exists) {
-      return { error: { code: -32000, message: `ENOENT: no such file or directory: ${requestedPath}` } };
-    }
-    await denyAndDisable(
-      ctx.extensionId,
-      `Filesystem access denied: ${capKind} on ${requestedPath} (resolved: ${result.resolvedPath})`,
-      result.resolvedPath,
-    );
-    return {
-      error: {
-        code: -32001,
-        message: `Filesystem access denied: ${requestedPath} is outside declared permission paths. Extension has been disabled.`,
-      },
-    };
+    // `result.denial` already distinguishes "doesn't exist" from
+    // "reserved carve-out" from "outside the grant". Before, all three
+    // collapsed into `!allowed` and this block re-ran `realpath` to
+    // recover the first case with a second syscall (and had no way at
+    // all to recover the second) — so a denied read of the platform's
+    // OWN DB dir tripped `denyAndDisable`.
+    return refuseFs(ctx, result.denial, capKind, requestedPath, result.resolvedPath);
   }
 
   // PDP gate — kind matches the operation.
@@ -613,24 +693,14 @@ async function gateWritePath(
   // directly (it realpaths internally and fails on missing paths), so
   // we re-implement the prefix check inline using the parent-resolved
   // path. Keeps the realpath+prefix check in one mental model.
-  const allowed = await checkPrefixForWrite(
+  const check = await checkPrefixForWrite(
     targetPath,
     granted.filesystem ?? [],
     installPath,
     ctx.userId,
   );
-  if (!allowed) {
-    await denyAndDisable(
-      ctx.extensionId,
-      `Filesystem access denied: write on ${requestedPath} (target: ${targetPath})`,
-      targetPath,
-    );
-    return {
-      error: {
-        code: -32001,
-        message: `Filesystem access denied: ${requestedPath} is outside declared permission paths. Extension has been disabled.`,
-      },
-    };
+  if (!check.allowed) {
+    return refuseFs(ctx, check.denial, "write", requestedPath, targetPath);
   }
 
   // PDP gate — kind=fs.write.
@@ -692,29 +762,19 @@ async function gateExistsPath(
     resolvedParent = ancestor.resolvedAncestor;
   }
 
-  const allowed = await checkPrefixForWrite(
+  const check = await checkPrefixForWrite(
     targetPath,
     granted.filesystem ?? [],
     installPath,
     ctx.userId,
   );
-  if (!allowed) {
-    // M4: trip denyAndDisable on out-of-grant existence probes —
+  if (!check.allowed) {
+    // M4: an OUT-OF-GRANT existence probe still trips denyAndDisable —
     // consistency with gatePath/gateWritePath. Repeated probes (a
-    // common reconnaissance technique) now disable the extension on
-    // the same threshold as other ops, instead of silently returning
-    // -32001 forever.
-    await denyAndDisable(
-      ctx.extensionId,
-      `Filesystem access denied: exists on ${requestedPath} (target: ${targetPath})`,
-      targetPath,
-    );
-    return {
-      error: {
-        code: -32001,
-        message: `Filesystem access denied: ${requestedPath} is outside declared permission paths. Extension has been disabled.`,
-      },
-    };
+    // common reconnaissance technique) disable the extension on the
+    // same threshold as other ops. A reserved-carve-out probe does NOT:
+    // a project-root walk legitimately calls `exists` on the DB dir.
+    return refuseFs(ctx, check.denial, "exists", requestedPath, targetPath);
   }
 
   // PDP gate — kind=fs.read for existence.
@@ -801,7 +861,7 @@ export async function checkPrefixForWrite(
    *  `checkFilesystemPermission`'s parameter: omit it and a `$USER`
    *  prefix matches nothing. */
   actingUserId?: string | null,
-): Promise<boolean> {
+): Promise<FilesystemPrefixCheck> {
   // Hard-deny reserved sensitive paths (DB + secret dir) BEFORE any
   // allow — including the implicit install-dir allow below and every
   // granted prefix. Grant-independent defense-in-depth, mirrors the
@@ -809,8 +869,12 @@ export async function checkPrefixForWrite(
   // already realpath'd / lowest-existing-ancestor-resolved by the
   // caller, so the segment-bounded compare can't be bypassed by `..` /
   // symlink / trailing-slash.
+  //
+  // `reserved-carveout`, not `out-of-grant` — see the discussion on
+  // `FilesystemDenialKind`. Still a hard DENY; only the deny-and-
+  // disable escalation differs.
   if (await isReservedSensitivePath(targetPath)) {
-    return false;
+    return { allowed: false, denial: "reserved-carveout" };
   }
   let resolvedInstall: string;
   try {
@@ -822,7 +886,7 @@ export async function checkPrefixForWrite(
     targetPath === resolvedInstall ||
     targetPath.startsWith(resolvedInstall + "/")
   ) {
-    return true;
+    return { allowed: true };
   }
   for (const rawPrefix of prefixes) {
     // Tolerate a granted dir that hasn't been created yet (the
@@ -838,10 +902,10 @@ export async function checkPrefixForWrite(
       targetPath === resolvedPrefix ||
       targetPath.startsWith(resolvedPrefix + "/")
     ) {
-      return true;
+      return { allowed: true };
     }
   }
-  return false;
+  return { allowed: false, denial: "out-of-grant" };
 }
 
 // ── Streaming frame builders ───────────────────────────────────────

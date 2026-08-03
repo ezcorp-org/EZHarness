@@ -1,8 +1,10 @@
 import type { JsonRpcRequest, JsonRpcResponse } from "../types";
 import type { ExtensionRegistry } from "../registry";
 import type { PermissionEngine } from "../permission-engine";
-import { checkFilesystemPermission } from "../permissions";
+import { checkFilesystemPermission, isGrantEscape } from "../permissions";
 import { denyAndDisable } from "../security";
+import { AUDIT_PERM_DENIED } from "../audit-actions";
+import { insertAuditEntry } from "../../db/queries/audit-log";
 import {
   handleFsReadRpc,
   handleFsWriteRpc,
@@ -104,6 +106,36 @@ export async function handlePiFs(
   const result = await checkFilesystemPermission(path, granted, installPath);
 
   if (!result.allowed) {
+    // Same discrimination as the Phase-3 handlers (`../fs-handler.ts`):
+    // ONLY a genuine out-of-grant escape may disable. A denied probe of
+    // the platform's own reserved DB/secret dir is an ordinary denial —
+    // leaving it here would have kept a second, older code path with
+    // the exact bug the new handlers fixed.
+    //
+    // `not-found` deliberately keeps its legacy behavior here (it also
+    // disabled pre-fix). This shim is a *path check*, not an IO call,
+    // and its semantics are frozen until the v2 removal — widening the
+    // fix beyond the reserved carve-out is a separate change.
+    if (result.denial === "reserved-carveout" && !isGrantEscape(result.denial)) {
+      await insertAuditEntry(null, AUDIT_PERM_DENIED, extensionId, {
+        reason: "reserved-path",
+        capabilityKind: `fs.${operation}`,
+        capabilityValue: result.resolvedPath,
+        conversationId: null,
+      }).catch(() => {
+        /* audit best-effort — never block or weaken the deny */
+      });
+      return {
+        jsonrpc: "2.0",
+        id: req.id,
+        error: {
+          code: -32001,
+          message:
+            `Filesystem access denied: ${path} is reserved by the EZCorp platform ` +
+            "(database / secret store) and is never readable or writable by an extension.",
+        },
+      };
+    }
     await denyAndDisable(extensionId, `Filesystem access denied: ${operation} on ${path} (resolved: ${result.resolvedPath})`, result.resolvedPath);
     return {
       jsonrpc: "2.0",

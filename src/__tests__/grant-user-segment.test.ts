@@ -134,7 +134,7 @@ describe("write gate honours the $USER partition", () => {
       join(draftsRoot, ALICE, "draft-a", "new-file.ts"),
       prefixes(), installDir, ALICE,
     );
-    expect(ok).toBe(true);
+    expect(ok.allowed).toBe(true);
   });
 
   test("DENIES a write into another user's draft", async () => {
@@ -142,7 +142,10 @@ describe("write gate honours the $USER partition", () => {
       join(draftsRoot, BOB, "draft-b", "evil.ts"),
       prefixes(), installDir, ALICE,
     );
-    expect(ok).toBe(false);
+    expect(ok.allowed).toBe(false);
+    // Reaching another user's partition is an ESCAPE, not a platform
+    // carve-out — it must stay on the deny-and-disable branch.
+    expect(ok.allowed === false && ok.denial).toBe("out-of-grant");
   });
 
   test("DENIES when no acting user is supplied", async () => {
@@ -150,7 +153,8 @@ describe("write gate honours the $USER partition", () => {
       join(draftsRoot, ALICE, "draft-a", "new-file.ts"),
       prefixes(), installDir, null,
     );
-    expect(ok).toBe(false);
+    expect(ok.allowed).toBe(false);
+    expect(ok.allowed === false && ok.denial).toBe("out-of-grant");
   });
 });
 

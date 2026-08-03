@@ -132,6 +132,33 @@ describe("checkFilesystemPermission — reserved hard-deny (read gate)", () => {
       "read",
     );
     expect(res.allowed).toBe(false);
+    // The denial is a platform CARVE-OUT, not a grant escape: the path
+    // is inside `$CWD`, and the platform is protecting its own state.
+    // `denyAndDisable` must never fire for this (see
+    // fs-reserved-carveout-not-a-violation.test.ts).
+    expect(res.allowed === false && res.denial).toBe("reserved-carveout");
+  });
+
+  test("a path outside every grant is denied as an ESCAPE, not a carve-out", async () => {
+    const res = await checkFilesystemPermission(
+      join(installDir),
+      { filesystem: [join(projectRoot, ".ezcorp", "extension-data")], grantedAt: {} },
+      join(projectRoot, "no-such-install-dir"),
+      "read",
+    );
+    expect(res.allowed).toBe(false);
+    expect(res.allowed === false && res.denial).toBe("out-of-grant");
+  });
+
+  test("a path that does not exist is denied as not-found, not an escape", async () => {
+    const res = await checkFilesystemPermission(
+      join(projectRoot, "definitely", "not", "here.txt"),
+      coveringGrant,
+      installDir,
+      "read",
+    );
+    expect(res.allowed).toBe(false);
+    expect(res.allowed === false && res.denial).toBe("not-found");
   });
 
   test("reading a file under the reserved dir is DENIED despite $CWD grant", async () => {
@@ -201,49 +228,64 @@ describe("checkPrefixForWrite — reserved hard-deny (write gate)", () => {
   // fs-handler realpaths / resolves the lowest existing ancestor before
   // calling it), so we pass resolved paths here to mirror production.
   test("writing the reserved dir is DENIED despite a covering $CWD grant", async () => {
-    const allowed = await checkPrefixForWrite(
+    const res = await checkPrefixForWrite(
       join(projectRoot, ".ezcorp", "data"),
       ["$CWD"],
       installDir,
     );
-    expect(allowed).toBe(false);
+    expect(res.allowed).toBe(false);
+    expect(res.allowed === false && res.denial).toBe("reserved-carveout");
   });
 
   test("creating a NEW file under the reserved dir is DENIED ($CWD grant)", async () => {
     // Bootstrap case: target doesn't exist; resolved ancestor is the
     // reserved `.ezcorp/data` dir + tail — still inside the reserved dir.
-    const allowed = await checkPrefixForWrite(
+    const res = await checkPrefixForWrite(
       join(projectRoot, ".ezcorp", "data", "stolen.json"),
       ["$CWD"],
       installDir,
     );
-    expect(allowed).toBe(false);
+    expect(res.allowed).toBe(false);
+    expect(res.allowed === false && res.denial).toBe("reserved-carveout");
   });
 
   test("an explicit reserved-dir grant is STILL denied on write", async () => {
-    const allowed = await checkPrefixForWrite(
+    const res = await checkPrefixForWrite(
       join(projectRoot, ".ezcorp", "data", "ezcorp-db"),
       [join(projectRoot, ".ezcorp", "data")],
       installDir,
     );
-    expect(allowed).toBe(false);
+    expect(res.allowed).toBe(false);
+    expect(res.allowed === false && res.denial).toBe("reserved-carveout");
+  });
+
+  test("a target OUTSIDE the grant is denied as an ESCAPE, not a carve-out", async () => {
+    // The discrimination that decides `denyAndDisable`: same
+    // `allowed:false`, categorically different `denial`.
+    const res = await checkPrefixForWrite(
+      join(installDir, "..", "somewhere-else", "loot.json"),
+      [join(projectRoot, ".ezcorp", "extension-data")],
+      join(projectRoot, "no-such-install-dir"),
+    );
+    expect(res.allowed).toBe(false);
+    expect(res.allowed === false && res.denial).toBe("out-of-grant");
   });
 
   test("writing under .ezcorp/extension-data is ALLOWED ($CWD grant) — no over-block", async () => {
-    const allowed = await checkPrefixForWrite(
+    const res = await checkPrefixForWrite(
       join(projectRoot, ".ezcorp", "extension-data", "file-organizer", "new-state.json"),
       ["$CWD"],
       installDir,
     );
-    expect(allowed).toBe(true);
+    expect(res.allowed).toBe(true);
   });
 
   test("writing the segment-boundary sibling .ezcorp/data-export is ALLOWED", async () => {
-    const allowed = await checkPrefixForWrite(
+    const res = await checkPrefixForWrite(
       join(projectRoot, ".ezcorp", "data-export", "new.csv"),
       ["$CWD"],
       installDir,
     );
-    expect(allowed).toBe(true);
+    expect(res.allowed).toBe(true);
   });
 });

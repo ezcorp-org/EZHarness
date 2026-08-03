@@ -100,13 +100,17 @@ import {
   _resetCallProvenanceForTests,
   type CallProvenance,
 } from "../extensions/call-provenance";
-import { extensions, toolCalls, settings, auditLog } from "../db/schema";
+import { extensions, toolCalls, settings, auditLog, users } from "../db/schema";
 import { eq } from "drizzle-orm";
 import type { ExtensionManifestV2, JsonRpcRequest, JsonRpcResponse } from "../extensions/types";
 
 const EXT_NAME = "project-walker";
 let installDir: string;
 let extensionId: string;
+/** A REAL users row — `audit_log.user_id` is FK-constrained to it, and
+ *  `insertAuditEntry` swallows its own write failures, so a synthetic id
+ *  would silently produce zero audit rows and pass a weaker assertion. */
+let userId: string;
 
 function buildManifest(): ExtensionManifestV2 {
   return {
@@ -129,7 +133,7 @@ function buildManifest(): ExtensionManifestV2 {
 
 function prov(): CallProvenance {
   return {
-    onBehalfOf: "user-A",
+    onBehalfOf: userId,
     conversationId: "conv-A",
     runId: null,
     parentCallId: null,
@@ -186,6 +190,17 @@ beforeEach(async () => {
   await db.delete(extensions);
   await db.delete(settings);
   await db.delete(auditLog);
+  await db.delete(users);
+
+  const userRows = await db
+    .insert(users)
+    .values({
+      email: `walker-${Date.now()}-${Math.random()}@example.test`,
+      passwordHash: "x",
+      name: "Walker",
+    })
+    .returning({ id: users.id });
+  userId = userRows[0]!.id;
 
   // The extension installs under `/app/data/extensions/<name>` — the
   // production Docker install base, a SIBLING of the reserved DB dir.
@@ -285,6 +300,9 @@ describe("reserved carve-out denial is NOT a security violation", () => {
     expect(meta.capabilityKind).toBe("fs.list");
     expect(meta.capabilityValue).toBe(RESERVED_DB_DIR);
     expect(rows[0]!.target).toBe(extensionId);
+    // Attributed to the real caller, not "unknown" — the row is usable
+    // for forensics.
+    expect(rows[0]!.userId).toBe(userId);
   });
 
   test("write-side: mkdir inside the reserved dir denies without disabling", async () => {

@@ -243,16 +243,96 @@ export async function isReservedSensitivePath(
 
 export type FilesystemMode = "read" | "write";
 
-export interface FilesystemPermissionResult {
-  allowed: boolean;
-  resolvedPath: string;
-  /**
-   * The mode the caller requested. Mirrors the input for callers that
-   * persist the result and need a self-describing record (e.g. audit).
-   * Phase 3: introduced alongside the explicit-mode signature.
-   */
-  mode: FilesystemMode;
+/**
+ * WHY a filesystem gate refused. Three semantically different answers
+ * that used to collapse into one `{allowed: false}`:
+ *
+ *   • `not-found`         — `realpath()` failed; nothing is at that
+ *     path. A plain ENOENT with no security meaning.
+ *   • `reserved-carveout` — the path IS covered by a granted prefix (or
+ *     the implicit install-dir allow) but lands in a platform reserved
+ *     dir: the PGlite datadir / JWT-secret store and its `backups`
+ *     sibling (see {@link isReservedSensitivePath}). This is the
+ *     sandbox working AS DESIGNED — the platform protecting its own
+ *     state from code it otherwise trusts with the whole project root.
+ *     It is NOT an escape attempt. Under the shipped Docker layout
+ *     (`Dockerfile:253` — `EZCORP_DB_PATH=/app/data/ezcorp` with
+ *     project root `/app`) the datadir sits INSIDE the project root, so
+ *     ANY extension that walks the project (ez-factory's `read_files`,
+ *     file-organizer, …) hits this on its first CORRECT run.
+ *   • `out-of-grant`      — the path is outside every granted prefix
+ *     AND outside the install dir. THIS is a grant escape.
+ *
+ * Ask "was this an escape?" via {@link isGrantEscape} — never by
+ * comparing strings and never by `!allowed`.
+ */
+export type FilesystemDenialKind =
+  | "not-found"
+  | "reserved-carveout"
+  | "out-of-grant";
+
+/**
+ * The single classification table for {@link FilesystemDenialKind}.
+ *
+ * `satisfies Record<FilesystemDenialKind, boolean>` is the guardrail:
+ * adding a new denial kind without classifying it here is a COMPILE
+ * error, so a future caller cannot silently fold a new refusal into the
+ * deny-and-disable branch the way `reserved-carveout` was folded in.
+ */
+const GRANT_ESCAPE_BY_DENIAL = {
+  "not-found": false,
+  "reserved-carveout": false,
+  "out-of-grant": true,
+} as const satisfies Record<FilesystemDenialKind, boolean>;
+
+/**
+ * True when the denial means the extension reached OUTSIDE its grant —
+ * the only condition that may trip `denyAndDisable`. False for the
+ * platform's own reserved carve-out and for plain ENOENT: those are
+ * ordinary denials the extension is expected to handle (ez-factory's
+ * `read_files` reports them as `skipped[{reason:"unreadable"}]`).
+ */
+export function isGrantEscape(denial: FilesystemDenialKind): boolean {
+  return GRANT_ESCAPE_BY_DENIAL[denial];
 }
+
+/**
+ * Result of a filesystem permission check. Discriminated on `allowed`
+ * (same shape family as the PDP's `Decision` union in
+ * `./permission-engine.ts`): the `denial` field exists ONLY on the
+ * refused arm, so a caller that wants to know why must narrow first.
+ */
+export type FilesystemPermissionResult =
+  | {
+      allowed: true;
+      resolvedPath: string;
+      /**
+       * The mode the caller requested. Mirrors the input for callers
+       * that persist the result and need a self-describing record (e.g.
+       * audit). Phase 3: introduced alongside the explicit-mode
+       * signature.
+       */
+      mode: FilesystemMode;
+    }
+  | {
+      allowed: false;
+      /** Why. See {@link FilesystemDenialKind} / {@link isGrantEscape}. */
+      denial: FilesystemDenialKind;
+      resolvedPath: string;
+      mode: FilesystemMode;
+    };
+
+/**
+ * Result of the write-side prefix check (`checkPrefixForWrite` in
+ * `./fs-handler.ts`). Same discrimination as
+ * {@link FilesystemPermissionResult} minus the resolved-path echo — the
+ * caller already holds the resolved target. `not-found` never occurs
+ * here: the caller resolves the lowest existing ancestor first, so a
+ * not-yet-created target is a legitimate write.
+ */
+export type FilesystemPrefixCheck =
+  | { allowed: true }
+  | { allowed: false; denial: FilesystemDenialKind };
 
 /**
  * Check filesystem access using realpath resolution to prevent traversal and symlink escapes.
@@ -288,8 +368,9 @@ export async function checkFilesystemPermission(
   try {
     resolvedPath = await realpath(requestedPath);
   } catch {
-    // Path doesn't exist -- deny
-    return { allowed: false, resolvedPath: requestedPath, mode };
+    // Path doesn't exist -- deny. NOT a security event; the caller
+    // surfaces a plain ENOENT.
+    return { allowed: false, denial: "not-found", resolvedPath: requestedPath, mode };
   }
 
   // Hard-deny reserved sensitive paths (DB + secret dir) BEFORE any
@@ -297,8 +378,13 @@ export async function checkFilesystemPermission(
   // granted prefix. Grant-independent defense-in-depth; see
   // `isReservedSensitivePath`. `resolvedPath` is already realpath'd, so
   // the segment-bounded compare can't be bypassed by `..` / symlink.
+  //
+  // Tagged `reserved-carveout`, NOT `out-of-grant`: the path is inside
+  // what the user granted, and the platform is carving its own state
+  // back out. Conflating the two bricked every project-root-walking
+  // extension on its first correct run under the Docker layout.
   if (await isReservedSensitivePath(resolvedPath)) {
-    return { allowed: false, resolvedPath, mode };
+    return { allowed: false, denial: "reserved-carveout", resolvedPath, mode };
   }
 
   // Resolve install dir via realpath
@@ -332,7 +418,8 @@ export async function checkFilesystemPermission(
     }
   }
 
-  return { allowed: false, resolvedPath, mode };
+  // Outside every grant AND the install dir — a genuine escape attempt.
+  return { allowed: false, denial: "out-of-grant", resolvedPath, mode };
 }
 
 // ── Permission Display ──────────────────────────────────────────────
