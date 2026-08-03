@@ -64,6 +64,7 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "POST", path: "/api/conversations/:id/rewind", description: "Rewind/checkpoint the conversation to a message (moves the durable leaf pointer; 409 when the flag is off or a run is active)", category: "conversations", scope: "chat", harness: { controllable: true }, schemaKey: "rewindConversationSchema", responseDescription: "{ conversationId, currentLeaf, nodes } (the refreshed tree)" },
   { method: "POST", path: "/api/conversations/:id/messages/:mid/retry", description: "Clean A/B retry — re-run the target assistant message's parent user turn as a same-role sibling (no duplicate user row; 409 when the flag is off or a run is active)", category: "conversations", scope: "chat", harness: { controllable: true }, schemaKey: "retryMessageSchema", responseDescription: "{ userMessage, retriedMessageId, runId }" },
   { method: "GET", path: "/api/search/messages", description: "Hybrid/keyword/semantic message search (RRF)", category: "conversations", responseDescription: "{ hits, degraded, requestedMode, servedMode }" },
+  { method: "GET", path: "/api/conversations/:id/audit", description: "Per-conversation audit timeline (sdk_capability_calls scoped to the conversation), cursor-paginated with ?capability ?status=denial ?since ?until ?limit. Owner-only with an admin fallback for unowned rows; 404 (not 403) so the endpoint is not a conversation-id oracle", category: "conversations", scope: "read", responseDescription: "{ entries, nextCursor }" },
 
   // Topic Contexts
   { method: "GET", path: "/api/conversations/:id/topics", description: "Cached topic pills for a conversation (no LLM)", category: "contexts", scope: "read", responseDescription: "{ topics: [{ id, label, typeId, messageIds }], stale, analyzedAt }" },
@@ -127,6 +128,32 @@ export const apiRegistry: ApiRouteEntry[] = [
   // harness client. Admin-role gated inline (`locals.user?.role !== "admin"`).
   { method: "GET", path: "/api/extensions/:id/violations", description: "List the filesystem/capability security violations recorded against an extension by the host gates (requires an admin-role key)", category: "extensions", scope: "admin", responseDescription: "{ violations: [{ extensionId, reason, path, timestamp }] }" },
   { method: "DELETE", path: "/api/extensions/:id/violations", description: "Clear an extension's recorded security violations — the prerequisite for re-enabling it via POST /api/extensions/:id/activate, which refuses while any violation stands (requires an admin-role key)", category: "extensions", scope: "admin", responseDescription: "{ cleared: true }" },
+
+  // ── Per-extension audit drill-down ────────────────────────────────────
+  // Both pair requireScope("admin") with requireRole(locals,"admin").
+  { method: "GET", path: "/api/extensions/:id/audit", description: "Unified audit timeline for one extension — governance rows, SDK capability calls, and memory/lesson mutations fanned in and cursor-paginated (?capability ?status=denial ?since ?until ?limit); ?legacy=1 serves the pre-merge governance-only shape (requires an admin-role key)", category: "extensions", scope: "admin", responseDescription: "{ entries, nextCursor }" },
+  { method: "GET", path: "/api/extensions/:id/audit/stats", description: "Stats strip for one extension over ?range=24h|7d|30d (unknown values fall back to 24h) — cost is an estimate, not provider billing (requires an admin-role key)", category: "extensions", scope: "admin", responseDescription: "{ totalCalls, totalCostUsd, successRate, denialCount }" },
+
+  // ── defineEntity record CRUD (SDK phase 5) ────────────────────────────
+  // Every handler binds the store to the CALLING user (`scopeId: user.id`),
+  // so there is no cross-user read. Reads take "read", writes take
+  // "extensions" — mirroring the settings PUT gate.
+  { method: "GET", path: "/api/extensions/:id/entities/:type", description: "List an extension's entity records for the calling user; each row carries `_validationWarning` when its body no longer matches the manifest schema (soft read)", category: "extensions", scope: "read", responseDescription: "{ items: [{ slug, data, _validationWarning? }] }" },
+  { method: "POST", path: "/api/extensions/:id/entities/:type", description: "Create one entity record — server-side slug + JSON-Schema validation (the client form is untrusted); 404 unknown extension/type, 409 duplicate slug", category: "extensions", scope: "extensions", responseDescription: "{ slug, data } (201)" },
+  { method: "GET", path: "/api/extensions/:id/entities/:type/:slug", description: "Read one entity record (soft read — `_validationWarning` on schema drift)", category: "extensions", scope: "read", responseDescription: "{ slug, data, _validationWarning? }" },
+  { method: "PUT", path: "/api/extensions/:id/entities/:type/:slug", description: "Shallow-merge update of one entity record — accepts { patch } or { data }; slug is immutable and a `slug` key in the body is a 400", category: "extensions", scope: "extensions", responseDescription: "{ slug, data }" },
+  { method: "DELETE", path: "/api/extensions/:id/entities/:type/:slug", description: "Delete one entity record and drop it from the type index", category: "extensions", scope: "extensions", responseDescription: "{ deleted: boolean }" },
+
+  { method: "GET", path: "/api/extensions/:id/expired-grants", description: "The capability grants that expired for this extension in the last 7 days, enriched with the user's sticky per-kind re-approval TTL — feeds the settings-page ExpiredGrantsBanner. Any authenticated caller: the rows are the caller's OWN permission state, unlike the admin-only /audit drill-down", category: "extensions", scope: "extensions", responseDescription: "{ grants: [{ …, capabilityKind, stickyTtlMs }] }" },
+
+  // The three routes below apply NO `requireScope` call at all, so no
+  // `scope` is declared — inventing one here would document an enforcement
+  // the handler does not perform. What each DOES enforce is in its
+  // description. Flagged in the registry-reconciliation findings.
+  { method: "GET", path: "/api/extensions/:id/settings", description: "Per-user settings schema, declared defaults, the caller's values, the resolved blob, write-only secret presence probes, and held host capabilities. Gate: requireAuth only — no API-key scope gate, so a read-scoped key reaches it", category: "extensions", responseDescription: "{ schema, declaredDefaults, userValues, resolved, secrets, capabilities }" },
+  { method: "PUT", path: "/api/extensions/:id/settings/user", description: "Write the caller's per-extension settings — secret-typed fields are encrypted into extension storage (empty string clears) and never echoed; the mutation is audited name-only. Gate: requireAuth only — no API-key scope gate, so a read-scoped key can perform this WRITE (and set/clear secrets)", category: "extensions", responseDescription: "{ ok: true, userValues, secrets }" },
+  { method: "DELETE", path: "/api/extensions/:id/settings/user", description: "Reset the caller's per-extension settings to declared defaults (409 when the extension declares no settings schema). Gate: requireAuth only — no API-key scope gate", category: "extensions", responseDescription: "{ ok: true }" },
+  { method: "POST", path: "/api/extensions/:id/modifiable", description: "Flip the per-extension `modifiable` flag that authorizes its CREATOR to re-open and edit it; refused for bundled extensions, idempotent, audited. Gate: requireRole(locals,\"admin\") only — no API-key scope gate, so any scope on an admin-role key reaches it", category: "extensions" },
 
   // Loops EZ Mode Phase 4 — inbound webhook trigger. Public data-plane: auth is
   // the per-hook token (NOT a session), so scope "public". Persists a delivery
