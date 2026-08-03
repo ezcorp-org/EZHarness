@@ -124,8 +124,9 @@ test.describe("the delegation consent surface is session-only", () => {
     // has to be an extension the host actually has.
     const extensionsRes = await request.get("/api/extensions");
     expect(extensionsRes.status(), await extensionsRes.text()).toBe(200);
-    const installed = (await extensionsRes.json()) as { extensions?: Array<{ id: string }> };
-    const extensionId = installed.extensions?.[0]?.id;
+    // `GET /api/extensions` serves a bare array of rows.
+    const installed = (await extensionsRes.json()) as Array<{ id: string }>;
+    const extensionId = installed[0]?.id;
     expect(extensionId, "the real tier must bootstrap at least one extension").toBeTruthy();
 
     const jobRef = `e2e-job-${Date.now()}`;
@@ -158,18 +159,26 @@ test.describe("the delegation consent surface is session-only", () => {
       data: consentBody(extensionId!, workflowName, jobRef),
     });
     expect(again.status(), await again.text()).toBe(201);
-    expect(((await again.json()) as { supersededId: string }).supersededId).toBe(
-      body.delegation.id,
-    );
+    const second = (await again.json()) as {
+      delegation: { id: string };
+      supersededId: string;
+    };
+    expect(second.supersededId).toBe(body.delegation.id);
 
-    // Revoking is a tombstone: the row leaves the live list, and a
-    // second revoke reports that it was already gone.
-    const secondId = body.delegation.id;
-    const revoke = await request.delete(`/api/workflows/delegations/${secondId}`);
+    // The superseded row is already a tombstone, so revoking it is a
+    // no-op — reported honestly rather than claimed as a fresh
+    // revocation.
+    const stale = await request.delete(`/api/workflows/delegations/${body.delegation.id}`);
+    expect(stale.status(), await stale.text()).toBe(200);
+    expect(await stale.json()).toEqual({ revoked: false });
+
+    // The LIVE row revokes for real, and leaves the list.
+    const revoke = await request.delete(`/api/workflows/delegations/${second.delegation.id}`);
     expect(revoke.status(), await revoke.text()).toBe(200);
-    // The FIRST row was already superseded, so this revoke is a no-op —
-    // reported honestly rather than claimed as a fresh revocation.
-    expect((await revoke.json()) as { revoked: boolean }).toEqual({ revoked: false });
+    expect(await revoke.json()).toEqual({ revoked: true });
+    const after = await request.get("/api/workflows/delegations");
+    const remaining = (await after.json()) as { delegations: Array<{ id: string }> };
+    expect(remaining.delegations.map((d) => d.id)).not.toContain(second.delegation.id);
 
     const unknown = await request.delete(`/api/workflows/delegations/${ABSENT_DELEGATION}`);
     expect(unknown.status(), await unknown.text()).toBe(404);
