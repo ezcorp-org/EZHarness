@@ -172,6 +172,8 @@ function makeEvent(
   method: string,
   body: unknown,
   id = "ext-1",
+  /** API-key scopes for the principal. `undefined` = cookie session. */
+  apiKeyScopes?: string[],
 ): RequestEventLike {
   return {
     request: new Request(`http://localhost/api/extensions/${id}/settings`, {
@@ -184,10 +186,16 @@ function makeEvent(
             ? body
             : JSON.stringify(body),
     }),
-    locals: { user: mockUser },
+    locals: apiKeyScopes ? { user: mockUser, apiKeyScopes } : { user: mockUser },
     params: { id },
   };
 }
+
+/** A secret-typed field, so the PUT below really does encrypt-and-store. */
+const SECRET_SCHEMA = {
+  ...SETTINGS_SCHEMA,
+  apiKey: { type: "secret", label: "API key", storageKey: "api_key" },
+};
 
 describe("extension settings API", () => {
   beforeEach(() => {
@@ -214,6 +222,80 @@ describe("extension settings API", () => {
     mockGetHeldCapabilities.mockClear();
     // Default ext carries an (empty) grant so the route passes it through.
     (mockExt as { grantedPermissions?: unknown }).grantedPermissions = { grantedAt: {} };
+  });
+
+  // ── F1: the settings/user WRITE was gated by requireAuth alone ──────
+  //
+  // PUT encrypts and stores secret-typed fields; DELETE clears every stored
+  // user value. `requireScope` was never even imported by that route, so a
+  // key minted `--scopes read` — a nominally read-only credential —
+  // performed both writes. The sibling extension routes gate secret writes
+  // on the `extensions` scope (`[id]/secrets/+server.ts:76`), so these match
+  // it rather than inventing a new one.
+  //
+  // Owner-scoped, so there is no cross-user reach either way; the defect is
+  // that a read-only key wrote encrypted secrets at all.
+  describe("F1 — settings/user writes require the 'extensions' scope", () => {
+    beforeEach(() => {
+      mockExt = { id: "ext-1", manifest: { settings: SECRET_SCHEMA } };
+      (mockExt as { grantedPermissions?: unknown }).grantedPermissions = { grantedAt: {} };
+    });
+
+    test("PUT with a read-only key → 403, and no secret is stored", async () => {
+      const res = await call(
+        userRoute.PUT,
+        makeEvent("PUT", { values: { apiKey: "sk-attacker" } }, "ext-1", ["read"]),
+      );
+      expect(res.status).toBe(403);
+      const body = (await res.json()) as { error?: string; required?: string };
+      expect(body.error).toBe("Insufficient scope");
+      expect(body.required).toBe("extensions");
+      expect(mockSetSecret).not.toHaveBeenCalled();
+      expect(mockSetUser).not.toHaveBeenCalled();
+    });
+
+    test("DELETE with a read-only key → 403, and nothing is cleared", async () => {
+      const res = await call(
+        userRoute.DELETE,
+        makeEvent("DELETE", undefined, "ext-1", ["read"]),
+      );
+      expect(res.status).toBe(403);
+      expect(mockClearUser).not.toHaveBeenCalled();
+    });
+
+    // Paired controls — a fix that denies everyone is not a fix.
+    test("PUT from a COOKIE session still succeeds and stores the secret", async () => {
+      const res = await call(
+        userRoute.PUT,
+        makeEvent("PUT", { values: { apiKey: "sk-legit" } }),
+      );
+      expect(res.status).toBe(200);
+      expect(mockSetSecret).toHaveBeenCalled();
+    });
+
+    test("PUT from a correctly-scoped key still succeeds", async () => {
+      const res = await call(
+        userRoute.PUT,
+        makeEvent("PUT", { values: { apiKey: "sk-legit" } }, "ext-1", ["extensions"]),
+      );
+      expect(res.status).toBe(200);
+      expect(mockSetSecret).toHaveBeenCalled();
+    });
+
+    test("DELETE from a COOKIE session still succeeds", async () => {
+      const res = await call(userRoute.DELETE, makeEvent("DELETE", undefined));
+      expect(res.status).toBe(200);
+      expect(mockClearUser).toHaveBeenCalled();
+    });
+
+    test("DELETE from a correctly-scoped key still succeeds", async () => {
+      const res = await call(
+        userRoute.DELETE,
+        makeEvent("DELETE", undefined, "ext-1", ["extensions"]),
+      );
+      expect(res.status).toBe(200);
+      expect(mockClearUser).toHaveBeenCalled();
+    });
   });
 
   describe("auth gate (logged-out 401 on all 3 routes)", () => {
