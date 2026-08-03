@@ -52,7 +52,10 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
   const result = await answerApproval(
     params.id,
     parsed.data,
-    { userId: user.id, isAdmin: user.role === "admin" },
+    // The only surface that mints a `user` actor with a real role behind
+    // it, and the only one that supplies `checkScope` — which the actor
+    // kind is now what makes reachable.
+    { kind: "user", userId: user.id, isAdmin: user.role === "admin" },
     {
       // Fail-closed by construction: a throw inside this check is caught
       // by the chokepoint and treated as a DENY, never as an allow. The

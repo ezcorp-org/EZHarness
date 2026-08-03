@@ -131,9 +131,18 @@ export function createWorkflowApprovalsHubPageProvider(): HubPageProvider {
         // would be asserting consent nobody gave. An item-consent approval
         // targeted through this action therefore reaches the guard with no
         // selection and is refused, which is the fail-closed outcome.
-        const result = await answerApproval(approvalId, { choice }, { userId: ctx.userId });
-        // No `isAdmin` — `HubPageContext` carries a userId and nothing
-        // else, so this surface answers strictly as the run's owner.
+        // `isAdmin: false`, STATED rather than omitted. `HubPageContext`
+        // carries a userId and nothing else, so this surface genuinely
+        // cannot know a role and answers strictly as the run's owner —
+        // which is a decision, and now reads as one. Under the old
+        // optional flag the same intent was expressed by leaving a field
+        // out, where "deliberately not an admin" and "nobody filled this
+        // in" were the same absent value.
+        const result = await answerApproval(
+          approvalId,
+          { choice },
+          { kind: "user", userId: ctx.userId, isAdmin: false },
+        );
         if (!result.ok) {
           throw new HubPageActionError(workflowRefusalStatus(result.code), result.message);
         }
