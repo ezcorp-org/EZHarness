@@ -5,9 +5,10 @@
 **Implements:** `tasks/2026-07-29-ez-factory-replan.md`
 **Supersedes:** the `ez-code-factory` extension — **deleted 2026-08-03 in phase 9**
 
-> **§4's "Lives today" column is now HISTORY, not a map.** Every
-> `docs/extensions/examples/ez-code-factory/...` path in the invariant table
-> below stopped resolving when that tree was removed; read them in git history.
+> **Every `docs/extensions/examples/ez-code-factory/...` path in this document
+> is now HISTORY, not a map** — §4's "Lives today" column and the scattered
+> citations elsewhere alike. They stopped resolving when that tree was removed;
+> read them in git history.
 > The **"Lands in"** and **"Regression test"** columns are the live half, and
 > they were reconciled against the shipped code at deletion time — the outcome,
 > row by row, is recorded in the phase-9 PR. Two corrections that table itself
