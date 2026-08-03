@@ -42,9 +42,11 @@ import {
   advanceWorkflowRunCursor,
   finalizeWorkflowRunRow,
   findWorkflowRunByIdempotencyKey,
+  getWorkflowRunRow,
   insertWorkflowRun,
   loadStepResults,
   markWorkflowRunInBatch,
+  releaseWorkflowRunClaim,
   suspendWorkflowRun,
   upsertWorkflowStepRun,
   workflowRunNestingDepth,
@@ -2435,4 +2437,56 @@ export function resumeArgsFromRow(row: {
     // exactly the class of omission the one-projection rule exists for.
     claimedBy: row.claimedBy,
   };
+}
+
+/**
+ * Drive a run whose claim this caller already holds.
+ *
+ * ## Why every resume path goes through here
+ *
+ * Winning {@link claimWorkflowRun}'s CAS is the ONLY way to begin driving
+ * a run, and this is the sequence that follows it. It exists as one
+ * function because the sequence has three steps and getting any of them
+ * wrong is silent:
+ *
+ *   1. **RE-READ the row.** The claim just moved it `suspended → running`,
+ *      so a row read BEFORE the claim is stale in exactly the field the
+ *      status guard consults. `answerApproval` and `resumeParkedRun` both
+ *      used to pre-check a status and then resume off that same snapshot;
+ *      a daemon claim landing in between let them drive a run another
+ *      process already owned, which is the double execution the guard is
+ *      there to stop. The guard reads its ARGUMENT, so the argument has to
+ *      be the truth.
+ *   2. **Name the claim.** `resumedBy` is checked against the row's
+ *      `claimed_by`, so this is a proof of authority rather than an
+ *      assertion of it.
+ *   3. **Hand the claim back if the run comes back parked.** A transient
+ *      refusal — the pending-approval gate above all — writes NOTHING, so
+ *      without this the row sits at `running` under a lease that
+ *      {@link renewWorkflowRunLeases} renews forever, and every answer
+ *      surface refuses a run that is not `suspended`. A run that came back
+ *      `success` or `error` is deliberately NOT released: its terminal
+ *      write did not land, and re-claiming it would re-execute a batch.
+ *
+ * Returns `null` when the row vanished between the claim and the read —
+ * there is then nothing to release and nothing to resume.
+ */
+export async function resumeClaimedRun(
+  executor: Pick<WorkflowExecutor, "resumeWorkflow">,
+  workflow: WorkflowDefinition,
+  runId: string,
+  claimedBy: string,
+  signal?: AbortSignal,
+): Promise<WorkflowRun | null> {
+  const row = await getWorkflowRunRow(runId);
+  if (!row) return null;
+
+  const run = await executor.resumeWorkflow(workflow, resumeArgsFromRow(row), signal, {
+    resumedBy: claimedBy,
+  });
+
+  if (run.status === "suspended") {
+    await releaseWorkflowRunClaim(runId, claimedBy);
+  }
+  return run;
 }
