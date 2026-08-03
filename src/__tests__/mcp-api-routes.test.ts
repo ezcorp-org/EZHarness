@@ -58,12 +58,11 @@ describe("POST /api/mcp-servers", () => {
         server: { transport: "stdio", name: "role-check", command: fixture.command, args: fixture.args },
       },
     });
-    try {
-      await installPOST(event);
-      throw new Error("expected to throw");
-    } catch (e) {
-      expect((e as Response).status).toBe(403);
-    }
+    // RETURNED, not thrown. The old try/catch asserted a THROWN Response,
+    // which SvelteKit renders as a 500 "Internal Error" — so it pinned the
+    // bug rather than the 403 it looked like it was checking.
+    const res = await installPOST(event);
+    expect(res.status).toBe(403);
   });
 
   test("rejects missing body fields with validation error", async () => {
@@ -184,12 +183,9 @@ describe("POST /api/mcp-servers/[id]/refresh", () => {
       user: MEMBER_USER,
       params: { id: "x" },
     });
-    try {
-      await refreshPOST(event);
-      throw new Error("expected to throw");
-    } catch (e) {
-      expect((e as Response).status).toBe(403);
-    }
+    // RETURNED, not thrown — see the install case above.
+    const res = await refreshPOST(event);
+    expect(res.status).toBe(403);
   });
 
   test("returns 502 when registry.refreshMcpTools throws (unknown id)", async () => {

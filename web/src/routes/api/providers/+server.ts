@@ -3,9 +3,9 @@ import { z } from "zod";
 import type { RequestHandler } from "./$types";
 import { encrypt, decrypt } from "$server/providers/encryption";
 import { getSetting, upsertSetting, deleteSetting } from "$server/db/queries/settings";
-import { requireAuth, requireRole } from "$server/auth/middleware";
+import { requireAuth } from "$server/auth/middleware";
 import { insertAuditEntry } from "$server/db/queries/audit-log";
-import { requireScope } from "$lib/server/security/api-keys";
+import { requireAdmin, requireScope } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
 
 const PROVIDERS = ["anthropic", "openai", "google", "openrouter"] as const;
@@ -95,7 +95,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	// requireScope(locals, "admin") which is a no-op for cookie auth, so any
 	// authenticated member could overwrite the organization's LLM API key —
 	// redirecting billing to an attacker-controlled key.
-	const admin = requireRole(locals, "admin");
+	// requireAdmin RETURNS the 403 Response; requireRole THREW one, which
+	// SvelteKit surfaces as a 500 from a route handler. Role-only, so the
+	// route's "no API-key scope gate" contract is unchanged.
+	const adminErr = requireAdmin(locals);
+	if (adminErr) return adminErr;
+	const admin = locals.user!;
 	const parsed = postBodySchema.safeParse(await request.json().catch(() => ({})));
 	if (!parsed.success) {
 		return errorJson(400, "Invalid provider. Must be one of: anthropic, openai, google, openrouter");
@@ -123,7 +128,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 export const DELETE: RequestHandler = async ({ request, locals }) => {
 	// sec-C5: admin role required. Pre-fix, any authenticated member could
 	// delete the organization's LLM API key — DoS for every other user.
-	const admin = requireRole(locals, "admin");
+	// requireAdmin RETURNS the 403 Response; requireRole THREW one, which
+	// SvelteKit surfaces as a 500 from a route handler. Role-only, so the
+	// route's "no API-key scope gate" contract is unchanged.
+	const adminErr = requireAdmin(locals);
+	if (adminErr) return adminErr;
+	const admin = locals.user!;
 	const parsed = deleteBodySchema.safeParse(await request.json().catch(() => ({})));
 	if (!parsed.success) {
 		return errorJson(400, "Invalid provider. Must be one of: anthropic, openai, google, openrouter");

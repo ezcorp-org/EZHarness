@@ -221,12 +221,16 @@ describe("createFlag threshold", () => {
 // ── GET /api/marketplace/flags (admin pending flags) ────────────────
 
 describe("GET /api/marketplace/flags", () => {
-  test("returns 403 for non-admin user", () => {
+  test("returns 403 for non-admin user", async () => {
     const event = createMockEvent({
       url: "http://localhost/api/marketplace/flags",
       user: MEMBER,
     });
-    expect(() => pendingFlagsGET(event)).toThrow();
+    // RETURNED, not thrown: SvelteKit renders a Response thrown from a
+    // handler as a 500 "Internal Error", so `.toThrow()` asserted the bug
+    // rather than the 403 this test is named for.
+    const res = await pendingFlagsGET(event);
+    expect(res.status).toBe(403);
   });
 
   test("returns pending flags array for admin", async () => {
@@ -376,14 +380,16 @@ describe("DELETE /api/marketplace/[id]/delete", () => {
     deleteListingId = listing.id;
   });
 
-  test("returns 403 for non-admin", () => {
+  test("returns 403 for non-admin", async () => {
     const event = createMockEvent({
       method: "DELETE",
       url: `http://localhost/api/marketplace/${deleteListingId}/delete`,
       params: { id: deleteListingId },
       user: MEMBER,
     });
-    expect(() => hardDELETE(event)).toThrow();
+    // RETURNED, not thrown — see the pending-flags case above.
+    const res = await hardDELETE(event);
+    expect(res.status).toBe(403);
   });
 
   test("hard-deletes listing for admin, returns 200", async () => {

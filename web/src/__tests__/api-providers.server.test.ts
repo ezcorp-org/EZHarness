@@ -8,6 +8,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { expectDenied } from "./fixtures/expect-denied";
 
 vi.mock("$server/db/queries/settings", () => ({
   getSetting: vi.fn(),
@@ -62,16 +63,21 @@ describe("GET /api/providers", () => {
     delete process.env.OPENROUTER_API_KEY;
   });
 
-  test("rejects 401 when locals.user is missing", async () => {
-    let res: Response | undefined;
+  // GET is gated by the THROWING `requireAuth`, deliberately left alone by the
+  // returned-denial sweep: unlike the admin ROLE gates, a `requireAuth` denial
+  // is not reachable by a real caller. `hooks.server.ts` answers every
+  // unauthenticated `/api/*` request with 401 BEFORE the handler runs, so
+  // `locals.user` is always populated here in production. This case is
+  // therefore synthetic, and the throw it asserts never reaches a client.
+  test("throws 401 when locals.user is missing (hook-unreachable path)", async () => {
+    let thrown: unknown;
     try {
       await GET(makeEvent({ method: "GET" }));
-      expect.fail("should have thrown");
-    } catch (thrown) {
-      expect(thrown).toBeInstanceOf(Response);
-      res = thrown as Response;
+    } catch (e) {
+      thrown = e;
     }
-    expect(res!.status).toBe(401);
+    expect(thrown).toBeInstanceOf(Response);
+    expect((thrown as Response).status).toBe(401);
   });
 
   test("rejects 403 when apiKeyScopes lacks 'read'", async () => {
@@ -148,39 +154,30 @@ describe("POST /api/providers", () => {
     vi.mocked(encrypt).mockClear();
   });
 
-  test("rejects 401 when locals.user is missing", async () => {
-    let res: Response | undefined;
-    try {
-      await POST(
-        makeEvent({
-          method: "POST",
-          body: { provider: "openai", apiKey: "sk-x" },
-        }),
-      );
-      expect.fail("should have thrown");
-    } catch (thrown) {
-      expect(thrown).toBeInstanceOf(Response);
-      res = thrown as Response;
-    }
-    expect(res!.status).toBe(401);
+  // 403, not 401: the gate is now `requireAdmin`, which answers "not an admin
+  // principal" uniformly (a missing principal is not an admin either). The old
+  // 401 came from `requireRole`'s inner `requireAuth` — but it was THROWN, so
+  // the caller actually received a 500. This path is hook-unreachable anyway
+  // (`hooks.server.ts` 401s unauthenticated `/api/*` before the handler).
+  test("rejects 403 when locals.user is missing", async () => {
+    const res = await expectDenied(() => POST(
+            makeEvent({
+              method: "POST",
+              body: { provider: "openai", apiKey: "sk-x" },
+            }),
+          ), 403);
+    expect(res.status).toBe(403);
   });
 
   test("rejects 403 when caller is not admin", async () => {
-    let res: Response | undefined;
-    try {
-      await POST(
-        makeEvent({
-          method: "POST",
-          locals: memberUser,
-          body: { provider: "openai", apiKey: "sk-x" },
-        }),
-      );
-      expect.fail("should have thrown");
-    } catch (thrown) {
-      expect(thrown).toBeInstanceOf(Response);
-      res = thrown as Response;
-    }
-    expect(res!.status).toBe(403);
+    const res = await expectDenied(() => POST(
+            makeEvent({
+              method: "POST",
+              locals: memberUser,
+              body: { provider: "openai", apiKey: "sk-x" },
+            }),
+          ), 403);
+    expect(res.status).toBe(403);
   });
 
   test("rejects 400 for unknown provider", async () => {
@@ -281,36 +278,24 @@ describe("DELETE /api/providers", () => {
     vi.mocked(insertAuditEntry).mockClear();
   });
 
-  test("rejects 401 when locals.user is missing", async () => {
-    let res: Response | undefined;
-    try {
-      await DELETE(
-        makeEvent({ method: "DELETE", body: { provider: "openai" } }),
-      );
-      expect.fail("should have thrown");
-    } catch (thrown) {
-      expect(thrown).toBeInstanceOf(Response);
-      res = thrown as Response;
-    }
-    expect(res!.status).toBe(401);
+  // 403, not 401 — see the POST case above for why `requireAdmin` collapses
+  // "no principal" and "not an admin" into one denial.
+  test("rejects 403 when locals.user is missing", async () => {
+    const res = await expectDenied(() => DELETE(
+            makeEvent({ method: "DELETE", body: { provider: "openai" } }),
+          ), 403);
+    expect(res.status).toBe(403);
   });
 
   test("rejects 403 when caller is not admin", async () => {
-    let res: Response | undefined;
-    try {
-      await DELETE(
-        makeEvent({
-          method: "DELETE",
-          locals: memberUser,
-          body: { provider: "openai" },
-        }),
-      );
-      expect.fail("should have thrown");
-    } catch (thrown) {
-      expect(thrown).toBeInstanceOf(Response);
-      res = thrown as Response;
-    }
-    expect(res!.status).toBe(403);
+    const res = await expectDenied(() => DELETE(
+            makeEvent({
+              method: "DELETE",
+              locals: memberUser,
+              body: { provider: "openai" },
+            }),
+          ), 403);
+    expect(res.status).toBe(403);
   });
 
   test("rejects 400 for unknown provider", async () => {

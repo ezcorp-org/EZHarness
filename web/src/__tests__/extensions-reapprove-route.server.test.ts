@@ -38,9 +38,10 @@
 import { test, expect, describe, vi, beforeEach } from "vitest";
 
 // ── Mock auth + scope middleware ──────────────────────────────────
-// `requireAuth(locals)` returns the user. `requireRole(locals, "admin")`
-// throws a 403 Response when the user lacks the role — mirror that
-// contract in the mock so the defense-in-depth admin gate fires.
+// `requireAuth(locals)` returns the user. The `scope: "forever"` admin gate
+// now uses `requireAdmin(locals)` (mocked alongside `requireScope` below),
+// which RETURNS its 403 instead of throwing it — a thrown Response is what
+// SvelteKit turns into a 500, which is the bug this suite's case 6 covers.
 
 vi.mock("$server/auth/middleware", () => ({
 	requireAuth: (locals: Record<string, unknown>) => {
@@ -63,6 +64,12 @@ vi.mock("$server/auth/middleware", () => ({
 
 vi.mock("$lib/server/security/api-keys", () => ({
 	requireScope: () => null,
+	// Real contract: null when the principal IS an admin, else a 403 Response.
+	// RETURNED, never thrown — see the middleware mock note above.
+	requireAdmin: (locals: { user?: { role?: string } }) =>
+		locals.user?.role === "admin"
+			? null
+			: Response.json({ error: "Admin role required" }, { status: 403 }),
 }));
 
 vi.mock("$lib/server/http-errors", () => ({
