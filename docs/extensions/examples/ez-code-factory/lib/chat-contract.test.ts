@@ -52,8 +52,13 @@ describe("RELAY_DIRECTIVE — the directive's CONTENT, not just its attachment",
     // equivalent guard on its own relay directive
     // (src/__tests__/workflow-approval-relay.test.ts:74-77).
     expect(RELAY_DIRECTIVE).toContain("VERBATIM");
-    expect(RELAY_DIRECTIVE).toContain("paraphrase");
-    expect(RELAY_DIRECTIVE).toContain("pre-judge");
+    // The PROHIBITION, asserted CONTIGUOUSLY — not as bare keywords.
+    // `toContain("paraphrase")` is satisfied just as well by "You may
+    // paraphrase": flipping "Do not" → "You may" on this one clause inverts
+    // the whole invariant while preserving every keyword, and the bare-word
+    // form stays green (proven by mutation). The platform's own guard at
+    // src/__tests__/workflow-approval-relay.test.ts:74-77 has this same gap.
+    expect(RELAY_DIRECTIVE).toContain("Do not paraphrase, summarize, soften, re-order, or pre-judge them");
     expect(RELAY_DIRECTIVE).toContain("STOP");
     // …and that it hands the decision back rather than taking it.
     expect(RELAY_DIRECTIVE).toContain("do not decide on the");
