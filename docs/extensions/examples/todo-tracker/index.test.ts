@@ -210,6 +210,18 @@ describe("scanTodos filter integration", () => {
     [`${cwd}/sub/data`]: [
       { name: "file-f.ts", isFile: true, isDirectory: false },
     ],
+    // The reserved dirs ARE registered, and each holds a source file with
+    // a TODO. That is deliberate: `walk` swallows every `fsList` error, so
+    // leaving them unregistered would make "the stub threw" and "the walk
+    // skipped" indistinguishable — the skip assertions would pass whether
+    // or not the skip existed. With a real TODO inside, descending them is
+    // OBSERVABLE as an inflated count.
+    [`${cwd}/data`]: [
+      { name: "reserved-db.ts", isFile: true, isDirectory: false },
+    ],
+    [`${cwd}/.ezcorp`]: [
+      { name: "reserved-state.ts", isFile: true, isDirectory: false },
+    ],
   };
 
   const CONTENTS: Record<string, string> = {
@@ -225,6 +237,15 @@ describe("scanTodos filter integration", () => {
       "// FIXME(priority:critical, tags:bug): the beta crash\n",
     [`${cwd}/sub/data/file-f.ts`]:
       "// TODO(priority:low, tags:nested): nested data dir is real source\n",
+    // NOTE: ASCII only. The stub encodes with `btoa`, which THROWS on any
+    // non-Latin1 codepoint (an em dash is enough); the throw is swallowed
+    // by scanTodos' per-file catch, so a fixture with fancy punctuation
+    // would be silently skipped and these assertions would pass for the
+    // wrong reason.
+    [`${cwd}/data/reserved-db.ts`]:
+      "// TODO(tags:reserved): must never be scanned - Docker datadir parent\n",
+    [`${cwd}/.ezcorp/reserved-state.ts`]:
+      "// TODO(tags:reserved): must never be scanned - platform state dir\n",
   };
 
   const ORIG_FS_ALLOWED = process.env.EZCORP_FS_ALLOWED;
@@ -332,17 +353,25 @@ describe("scanTodos filter integration", () => {
   // default (`$HOME/ez-corp/.data`) would prove nothing — that path is
   // outside the project root, so it is never walked in the first place.
 
-  test("top-level `data` (Docker datadir parent) is never listed", async () => {
-    // `${cwd}/data` has NO stub entry: descending it throws "unexpected
-    // fs.list path", so a passing scan proves the walk skipped it.
+  test("top-level `data` (Docker datadir parent) is never scanned", async () => {
     const text = await runScan();
-    expect(text).toContain("Found 6 TODO(s)");
+    expect(text).not.toContain("reserved-db.ts");
+    expect(text).toContain("Found 6 TODO(s)"); // 6, not 7
   });
 
-  test("`.ezcorp` is never listed", async () => {
-    // Same proof shape — `${cwd}/.ezcorp` has no stub entry.
+  test("`.ezcorp` is never scanned", async () => {
     const text = await runScan();
-    expect(text).toContain("Found 6 TODO(s)");
+    expect(text).not.toContain("reserved-state.ts");
+    expect(text).toContain("Found 6 TODO(s)"); // 6, not 7
+  });
+
+  test("neither reserved TODO reaches a tag filter either", async () => {
+    // Independent of the count assertion above: a filter that would match
+    // both reserved entries returns nothing at all.
+    const text = await runScan({ tags: ["reserved"] });
+    expect(text).not.toContain("reserved-db.ts");
+    expect(text).not.toContain("reserved-state.ts");
+    expect(text).toContain("No TODOs match the filters");
   });
 
   test("a NESTED data/ is still walked (skip is root-anchored, not blanket)", async () => {

@@ -56,6 +56,14 @@ const FILES: Record<string, Entry[]> = {
   [`${cwd}/src`]: [file("NestedThing.ts"), dir("data")],
   [`${cwd}/src/data`]: [file("Keep.ts")],
   [`${cwd}/lib`]: [file("Alpha.ts")],
+  // The reserved dirs ARE registered, each holding a renameable file.
+  // Deliberate: `collectFiles` swallows every `fsList` rejection, so
+  // leaving them unregistered would make "the stub threw" and "the walk
+  // skipped" indistinguishable and the skip assertions would pass whether
+  // or not the skip existed. With a renameable file inside, descending
+  // them is OBSERVABLE in the preview text.
+  [`${cwd}/data`]: [file("ReservedDb.ts")],
+  [`${cwd}/.ezcorp`]: [file("ReservedState.ts")],
 };
 
 const ORIG_FS_ALLOWED = process.env.EZCORP_FS_ALLOWED;
@@ -247,16 +255,20 @@ describe("rename-files — the walk", () => {
 });
 
 describe("rename-files — host-reserved carve-out (the Docker layout)", () => {
-  test("top-level `data` (Docker datadir parent) is never listed", async () => {
-    // `${cwd}/data` has NO stub entry, so descending it would throw
-    // "unexpected fs.list path". A clean run proves the walk skipped it.
+  test("top-level `data` (Docker datadir parent) is never walked", async () => {
     const text = await renameFiles({ sourcePath: ".", convention: "kebab-case" });
+    expect(text).not.toContain("ReservedDb");
+    // …and the walk is otherwise intact, so the absence isn't a dead walk.
     expect(text).toContain("MyFile.ts -> my-file.ts");
+    // Nothing was reported as unreadable: it was SKIPPED, not denied.
+    expect(text).not.toContain("Skipped");
   });
 
-  test("`.ezcorp` is never listed", async () => {
+  test("`.ezcorp` is never walked", async () => {
     const text = await renameFiles({ sourcePath: ".", convention: "kebab-case" });
+    expect(text).not.toContain("ReservedState");
     expect(text).toContain("MyFile.ts -> my-file.ts");
+    expect(text).not.toContain("Skipped");
   });
 
   test("a host DENIAL mid-walk is reported as skipped, NOT a tool failure", async () => {
