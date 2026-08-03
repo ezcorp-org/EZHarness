@@ -124,6 +124,7 @@ All branches cap at `MAX_RESULTS = 10`. Query params: `q`, `type`, `projectId`, 
 - [[streaming-runtime]] — all expansion passes run inside `build-prompt.ts` on the way to `streamChat`.
 - [[projects]] — `@`/`$`/`%` searches are scoped to the active project (`projectId` required).
 - [[api-security]] — `/api/mentions/search` is gated by `requireScope("read")` + `requireAuth`.
+- [[suggestions]] — the composer's suggestion popover proposes tools and extensions by appending the standard `![ext:<name>]` token; it never invents a syntax of its own.
 
 ## Related docs
 

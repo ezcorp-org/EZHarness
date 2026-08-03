@@ -1,0 +1,51 @@
+# Podman override for the dev stack. Layer it ON TOP of docker-compose.yml —
+# it is not a standalone stack:
+#
+#   bun run podman up -d          # preferred; sets DOCKER_HOST + COMPOSE_FILE
+#   # equivalently:
+#   DOCKER_HOST=unix:///run/user/$(id -u)/podman/podman.sock \
+#     docker compose -f docker-compose.yml -f compose.podman.yml up -d
+#
+# Use the real Docker Compose CLI against the rootless Podman socket rather
+# than podman-compose: `depends_on: condition: service_healthy` is what
+# ollama-init waits on, and podman-compose has historically been unreliable
+# there. The socket is a systemd user unit (`systemctl --user enable --now
+# podman.socket`).
+#
+# ── Why this file exists ────────────────────────────────────────────────────
+#
+# Exactly one thing in the dev stack behaves differently on Podman: `tmpfs:`.
+#
+# Docker mounts an EMPTY tmpfs. Podman defaults to `tmpcopyup`, which seeds the
+# tmpfs with the contents of the directory it covers — so the two masks in
+# docker-compose.yml, whose entire job is to HIDE the prod PGlite DB/keys
+# (.ezcorp) and the agent-scratch worktrees tree from the container, instead
+# publish them into it. Measured on the primary dev box: .ezcorp is 260 MB and
+# worktrees is 13 GB, and tmpfs is RAM-backed, so the copy-up is both a
+# secret-exposure and a memory event at container start.
+#
+# `notmpcopyup` restores Docker's semantics. It cannot live in
+# docker-compose.yml because the Docker daemon rejects the option outright
+# ("Error response from daemon: invalid tmpfs option [notmpcopyup]") and the
+# container never starts. Hence: opt-in override, plus a boot-time guard in the
+# app `command:` that fails the container if the masks did not take effect —
+# a blacklist fails open, so forgetting this file must be loud, not silent.
+#
+# ── Why `!override` ─────────────────────────────────────────────────────────
+#
+# Compose APPENDS sequence fields across -f files rather than replacing them.
+# Without the tag you get all four entries and compose then rejects the config:
+#   services.app.tmpfs[2]: target /repo/.ezcorp already mounted as ...tmpfs[0]
+# `!override` replaces the list outright.
+#
+# CONSEQUENCE: this list is the whole list under Podman. Every option set on a
+# mask in docker-compose.yml must be repeated here or it is silently dropped —
+# notably the size= caps, which bound a mask that would otherwise default to
+# half of host RAM. src/__tests__/compose-podman-masks.test.ts holds the two
+# files against each other so a mask added, resized, or renamed on one side
+# cannot quietly diverge from the other.
+services:
+  app:
+    tmpfs: !override
+      - /repo/.ezcorp:size=16m,notmpcopyup
+      - /repo/worktrees:size=64m,notmpcopyup
