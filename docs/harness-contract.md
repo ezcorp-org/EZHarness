@@ -28,8 +28,12 @@ Playwright harness sets all three in its preview server's env (see
 API keys are bearer tokens (`ezk_*`) authorized along **two independent
 axes**:
 
-- **Scope** (`read`, `chat`, `extensions`, `admin`) — gates WHICH surfaces a
-  key can touch, via `requireScope`. Works in production.
+- **Scope** (`read`, `write`, `chat`, `extensions`, `admin`) — gates WHICH surfaces a
+  key can touch, via `requireScope`. Works in production. Scopes are **FLAT**:
+  none implies another, so `read` does not admit a `write` route and `admin`
+  admits none of the others. `write` was added 2026-08 — before it, `read` was
+  the gate on 18 mutating handlers including several deletes
+  ([audit](audit/2026-08-read-scope-mutation-inventory.md)).
 - **Role** (`member` | `admin`, default `member`) — gates whether the key is
   a full **admin principal**, via `requireRole`/`checkRole`. An `admin`-role
   key is an explicit opt-in.
@@ -74,7 +78,7 @@ from the generic `/api/settings/:key` API so a key row can't be forged there.
 Cold-start without a UI session:
 
 ```sh
-ezcorp key mint --scopes read,chat                          # member key, prints raw once
+ezcorp key mint --scopes read,write,chat                     # member key, prints raw once
 ezcorp key mint --scopes admin --role admin --user me@x.com --name ci  # admin-role key
 ```
 
@@ -242,7 +246,7 @@ A CI meta-test ([`web/src/__tests__/route-contract.test.ts`](../web/src/__tests_
 enforces these. When you add to the app:
 
 1. **New `/api/*` route** → add it to [`src/api-registry.ts`](../src/api-registry.ts)
-   with a `scope` (`read` / `chat` / `extensions` / `admin` / `public`). The
+   with a `scope` (`read` / `write` / `chat` / `extensions` / `admin` / `public`). The
    meta-test ratchets the count of unregistered routes — a new one fails until
    registered. Registering it documents it and puts it in the OpenAPI spec.
 2. **New `/api/__test/**` route** → gate it with `isTestSurfaceEnabled()` from

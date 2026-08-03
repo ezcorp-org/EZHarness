@@ -1,12 +1,13 @@
-# The `read` API-key scope authorizes mutation and destruction
+# The `read` API-key scope authorized mutation and destruction
 
-**Status: investigation. No authorization was changed.** This document proposes;
-it decides nothing. The one thing it ships is a pinning regression test
-(`web/src/__tests__/api-read-scope-mutation-inventory.test.ts`) that freezes
-today's behaviour so whatever is decided later starts from a measurement instead
-of an assumption.
+**Status: RESOLVED — Option A shipped 2026-08-03.** A `write` scope was added,
+12 of the 18 handlers were re-scoped, and a boot migration granted `write` to
+every already-issued `read` key so nothing had to be re-minted. Three handlers
+remain on `read` by design and three are blocked on a concurrent branch (§8).
 
-Date: 2026-08-02. Base: `19057cd6`.
+Investigated 2026-08-02 against `19057cd6`; implemented 2026-08-03 against
+`ed7744d4`. §§1–5 are the original investigation, preserved as the evidence for
+the decision. §6 is the ruling, §7 what shipped, §8 what is still owed.
 
 ---
 
@@ -393,67 +394,161 @@ files are owned by the concurrent `authz-two-axis` work and were not touched.
 
 ---
 
-## 6. Recommendation
+## 6. The ruling
 
-**Default: do the re-scope — Option A — but only because the docs already promise
-read-only and the migration is cheap. If either of those were false, Option C
-would be right.**
+**Option A — add `write`, migrate, re-scope.** Taken because the product had
+already made the promise: `ezcorp-auth/SKILL.md:34` shipped "`read` — list
+projects, agents, messages (no writes)" and the mint UI defaulted to exactly
+that scope. An operator following the documented path got a key they were told
+was read-only which deleted their memories, projects, lessons and knowledge-base
+files. That is a promise the code broke, not a naming preference.
 
-### Option A (recommended) — add `write`, migrate, re-scope
+The counter-argument — that flat owner-gated scopes are a coherent model where
+`read` means *"access your own data"* — was considered and is genuinely
+defensible. It loses only because nothing in the product said so, and because
+the migration in §4.2 makes the fix free for existing keys. Had either been
+false, Option C (document the semantics) would have been right.
 
-1. Add `"write"` to `ApiKeyScope` / `API_KEY_SCOPES` (`src/auth/api-key.ts:14,17`).
-2. Backfill: append `write` to every stored `ApiKeyEntry` that holds `read`
-   (§4.2 — a settings-row rewrite; **no secret is re-issued**).
-3. Re-scope the 14 handlers per §3.2.
-4. Update the 13 test files, `parseKeyScopes` (`src/cli.ts:293-296`),
-   `ApiKeyManager.svelte`, and the docs in §5.1.
-5. Update the frozen list in
-   `web/src/__tests__/api-read-scope-mutation-inventory.test.ts` — the test is
-   designed to fail until that edit is deliberate.
+The maintainer additionally ruled that the other two false claims in the same
+doc be fixed, and the mint UI made to tell the truth. Both are in §7.
 
-**Why this over "just document it":** the honest counter-argument is that flat,
-owner-gated scopes are a coherent model where `read` means *"access your own
-data"*. That argument would win **if the product said so**. It does not — the
-shipped skill doc says "`read` — no writes"
-(`ezcorp-auth/SKILL.md:34`) and the mint UI defaults to exactly that scope
-(`ApiKeyManager.svelte:10`). An operator following the documented path today gets
-a key they were told is read-only and which deletes their memories, projects,
-lessons and knowledge-base files. That is a promise the code breaks, not a naming
-preference.
+---
 
-**Cost is genuinely low:** zero external breakage (§4.2), zero UI breakage
-(cookie sessions are not scope-gated), zero harness-client/SDK/e2e breakage, and
-13 test files whose edits are mechanical.
+## 7. What shipped
 
-### Option C (the honest alternative) — document the semantics instead
+### 7.1 The re-scope
 
-Rewrite `ezcorp-auth/SKILL.md:33-36` and the mint UI to say `read` means *"access
-your own data — including creating, updating and deleting it"*, add per-scope
-help text in `ApiKeyManager.svelte`, and change the UI default off bare `read`.
-Fix the `chat`-includes-`read` and `admin`-is-full-access falsehoods either way.
+| Handler | Was | Now | Why |
+|---|---|---|---|
+| `DELETE /api/contexts/:id` | `read` | **`write`** | Destroys a saved context |
+| `DELETE /api/lessons/:id` | `read` | **`write`** | Destroys a lesson |
+| `PATCH /api/lessons/:id` | `read` | **`write`** | Changes lesson visibility |
+| `DELETE /api/memories/:id` | `read` | **`write`** | Destroys a memory |
+| `PUT /api/memories/:id` | `read` | **`write`** | Rewrites a memory |
+| `PATCH /api/memories/:id` | `read` | **`write`** | Flips injection eligibility |
+| `POST /api/memories` | `read` | **`write`** | Creates a memory |
+| `POST /api/knowledge-base` | `read` | **`write`** | Uploads a KB file |
+| `POST /api/projects` | `read` | **`write`** | Creates a project |
+| `POST /api/import/preview` | `read` | **`write`** | Writes FS staging dirs |
+| `POST /api/fs/mkdir` | `read` | **`admin`** | Enforced admin INLINE at `:22` while advertising `read` — the F4 blind spot (§5.2) |
+| `POST /api/ez-actions/:name` | `read` | **`chat`** | Dispatches a bundled-extension tool and persists a message row: the `chat` surface |
+| `POST /api/ez/conversation` | `read` | `read` | Idempotent find-or-create keyed by the caller's own id |
+| `POST /api/composer/suggest` | `read` | `read` | Returns suggestions; POST is for body size |
+| `POST /api/warmup` | `read` | `read` | Idempotent cache warm |
+| `PUT` / `DELETE /api/projects/:id` | `read` | `read` | **Blocked** — see §8 |
+| `DELETE /api/knowledge-base/:id` | `read` | `read` | **Blocked** — see §8 |
 
-**Take Option C if** the maintainer's position is that scopes are surfaces, not
-verbs (which `docs/harness-contract.md:31` already says), and that adding a fifth
-scope is worse than a naming correction. It is a defensible answer and costs a
-day. It leaves an operator who wants a genuinely read-only key with no way to
-mint one — that is the trade.
+GET siblings keep `read`; the split is per-verb, pinned by a test so a
+whole-file re-scope cannot break read-only integrations for no reason.
 
-### Both options: file these separately, they are more urgent
+**`chat` gained no destructive reach.** It never subsumed `read` (scopes are
+flat), so it could not delete a memory before and cannot now. The one route
+moved *onto* `chat` dispatches bundled-extension tools that a `chat` key could
+already reach via `POST /api/conversations/:id/messages`.
 
-1. `DELETE`/`PUT /api/projects/:id` have **no ownership check**
-   (`projects/[id]/+server.ts:41-48`) — cross-tenant, unaffected by scope.
-2. `DELETE /api/knowledge-base/:id` **fails open on unowned rows**
-   (`knowledge-base/[id]/+server.ts:24`).
-3. F4: extend `route-contract.test.ts`'s admin scan to inline gates (§5.2).
-4. F6: convert the 12 `requireRole` throwers to `checkRole` (§5.4) — coordinate
+### 7.2 The backfill, proven by execution
+
+`src/db/migrations/backfill-api-key-write-scope.ts` appends `write` to every
+settings row whose `scopes` array contains `read`. `read` is the ONLY trigger:
+granting `write` to a `chat`-only key would be a privilege escalation performed
+by a migration.
+
+`src/__tests__/db-migration-api-key-write-scope.test.ts` seeds a pre-change key
+against a **real PGlite** `settings` table, runs the migration, then feeds the
+**original raw token** to the **real `verifyApiKey`** and shows it still
+resolves, now carries `write`, and is admitted by the write gate — same secret,
+no re-issue. Four mutations of the migration SQL were each killed by a distinct
+test:
+
+| Mutation | Killed by |
+|---|---|
+| drop the `@> "read"` predicate | "a chat-only key is NOT granted write" (+2 more) |
+| drop the `NOT @> "write"` guard | "idempotent — a second run appends nothing" |
+| widen the key prefix to `apikey` | "unrelated settings rows are untouched" |
+| drop the `jsonb_typeof = 'array'` guard | "a malformed scopes field is skipped" |
+
+One over-claim was corrected on that evidence: the module header originally said
+the `apikey:` prefix is what excludes the `apikeyhash:` index rows. The shape
+guard excludes them too, so the two are defence in depth; what the prefix
+*uniquely* protects is an unrelated row whose key merely starts with `apikey`
+and which does carry a `scopes` array.
+
+### 7.3 Operator-facing copy
+
+`packages/@ezcorp/ai-kit/skills/ezcorp-auth/SKILL.md` — all three false claims
+fixed, not just the one that prompted this:
+
+| Was | Now |
+|---|---|
+| "`read` — … (no writes)" | "`read` — list and fetch … **Never modifies.**" + a `write` entry naming DELETE |
+| "`chat` — **everything in `read` plus** …" | "**They are FLAT — none includes another.**" + a gotcha showing `chat` 403s on `list_projects` |
+| "`admin` — **full access** …" | "instance settings, users/teams, MCP servers, extension lifecycle. Also needs an admin-ROLE key" |
+| "`admin` scope is required for … project creation" | "project creation … needs `write`" |
+
+`web/src/lib/components/settings/ApiKeyManager.svelte` — every scope now carries
+a one-line description next to its toggle, with the flatness stated above the
+list. The default selection **stays `["read"]`** and is now honest: a key minted
+with the default can no longer mutate anything. `write` is a deliberate click.
+
+`src/cli.ts` — `parseKeyScopes` defaults to `read,write,chat` (was `read,chat`).
+Without `write` the default key would have silently lost an authority the
+previous default did carry.
+
+### 7.4 Registry reconciliation
+
+`src/api-registry.ts` — the 15 memories/projects/knowledge-base/contexts entries
+now declare the scope they actually enforce (most declared none, which is how
+the drift went unnoticed). `POST /api/fs/mkdir` moved `read` → `admin` and its
+description no longer says "the API-key scope gate is only `read`".
+
+### 7.5 The F4 admin scan
+
+See §5.2 for the analysis. `web/src/__tests__/route-contract.test.ts` now also
+flags **inline** admin gates, with the ownership-bypass idiom distinguished by
+rule rather than by allowlist — the discrimination is proven in both directions.
+
+---
+
+## 8. What is still owed
+
+Three handlers could not be re-scoped here: their files are owned by the
+concurrent cross-tenant ownership fix and editing them would collide.
+
+| File | Line | Change needed |
+|---|---|---|
+| `web/src/routes/api/projects/[id]/+server.ts` | `:29` (PUT) | `requireScope(locals, "read")` → `"write"` |
+| `web/src/routes/api/projects/[id]/+server.ts` | `:42` (DELETE) | `requireScope(locals, "read")` → `"write"` |
+| `web/src/routes/api/knowledge-base/[id]/+server.ts` | `:19` (DELETE) | `requireScope(locals, "read")` → `"write"` |
+
+Apply to that agent's branch or as a follow-up. Then move the three entries from
+`READ_SCOPED_MUTATIONS` to `WRITE_SCOPED_MUTATIONS` in
+`web/src/__tests__/api-read-scope-mutation-inventory.test.ts` (the test fails
+until that edit is made, which is the point), and update
+`src/api-registry.ts` lines for those three from `scope: "read"` to `"write"`.
+
+**This leaves one incoherent edge in the meantime:** `POST /api/projects`
+requires `write` while `DELETE /api/projects/:id` still accepts `read`. That is
+strictly better than before (creating is gated) but it is not the end state, and
+it is called out in the pinning test's frozen list so it cannot be forgotten.
+
+Also still open, filed separately and unaffected by the scope change:
+
+1. `DELETE`/`PUT /api/projects/:id` have **no ownership check** (§2.1) —
+   cross-tenant, and the more urgent of the two.
+2. `DELETE /api/knowledge-base/:id` **fails open on unowned rows** (§2.1).
+3. F6: convert the 12 `requireRole` throwers to `checkRole` (§5.4) — coordinate
    with `authz-two-axis`.
 
 ---
 
-## 7. What was NOT verified
+## 9. What was NOT verified
 
-- Whether any deployed instance has issued `read`-only keys (no in-repo telemetry).
+- Whether any deployed instance has issued `read`-only keys (no in-repo
+  telemetry). The backfill is a no-op if none exist.
 - Non-HTTP surfaces: WebSocket upgrades, preview dispatch, extension host calls.
 - F6's true total — 12 is a floor; the probe stopped at the first denial.
-- The 30 no-scope-gate mutating handlers were classified from probe status codes
-  and route names, not by reading all 30 handlers end to end.
+- The 30 no-scope-gate mutating handlers (§2.2) were classified from probe
+  status codes and route names, not by reading all 30 handlers end to end.
+- The backfill was proven against **PGlite**. The external-Postgres path
+  (`DATABASE_URL` + `Bun.sql`) uses the same standard jsonb operators, but was
+  not executed.
