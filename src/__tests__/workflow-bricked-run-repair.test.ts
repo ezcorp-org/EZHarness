@@ -219,6 +219,25 @@ describe("a legitimately-failed run is NOT repaired", () => {
     expect(await statusOf("real-failure")).toBe("error");
   });
 
+  test("a DIFFERENT terminal refusal code is left alone, message notwithstanding", async () => {
+    // Differs from a bricked row in the CODE alone — every other field of
+    // the signature matches, including the message. Without this the code
+    // conjunct is untestable: the realistic negatives all differ in the
+    // message too, so deleting `code = 'not-resumable'` changes nothing
+    // any of them can see.
+    //
+    // `definition-changed` is a real sibling refusal from the same
+    // `refuseTerminal`, and it is genuinely not resumable: the graph moved
+    // under the run, so its recorded position no longer names the same
+    // steps. Reviving one would resume against a definition nobody
+    // authorized. The code is what keeps that true if the message is ever
+    // reworded.
+    await brickedRow("drifted", { code: "definition-changed" });
+
+    expect(await repairDaemonBrickedWorkflowRuns(db)).toBe(0);
+    expect(await statusOf("drifted")).toBe("error");
+  });
+
   test("a run refused because it was genuinely TERMINAL is left alone", async () => {
     // The same guard correctly refuses a resume aimed at a run that had
     // already succeeded or been cancelled. Those refusals carry the same
