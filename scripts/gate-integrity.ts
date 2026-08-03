@@ -160,17 +160,20 @@ export function parseUnifiedDiff(diff: string): Map<string, DiffFile> {
   let cur: DiffFile | null = null;
   let oldPath: string | null = null;
   let newLine = 0;
-  const startFile = (file: string): void => {
-    cur = { file, addedLines: new Set(), addedTexts: [], removedTexts: [] };
-    files.set(file, cur);
+  // Returns the entry so the caller ASSIGNS `cur` — assigning inside the
+  // helper would leave TS narrowing `cur` to `never` at the branches below.
+  const startFile = (file: string): DiffFile => {
+    const entry: DiffFile = { file, addedLines: new Set(), addedTexts: [], removedTexts: [] };
+    files.set(file, entry);
+    return entry;
   };
   for (const line of diff.split("\n")) {
     if (line.startsWith("+++ b/")) {
-      startFile(line.slice(6));
+      cur = startFile(line.slice(6));
     } else if (line === "+++ /dev/null") {
       // Deleted file: the new side is /dev/null, so the OLD path names it.
       // Without its own entry, everything below lands on the previous file.
-      startFile(oldPath ?? "/dev/null");
+      cur = startFile(oldPath ?? "/dev/null");
     } else if (line.startsWith("@@")) {
       // @@ -a,b +c,d @@  → new-side starts at c
       const m = line.match(/\+(\d+)/);
