@@ -204,12 +204,9 @@ const handlers = scanHandlers();
  * the semantics deliberately change, in EITHER direction. Sorted; keep sorted.
  */
 const READ_SCOPED_MUTATIONS: readonly string[] = [
-  "DELETE /api/knowledge-base/:id", // blocked: cross-tenant-fix branch owns the file
-  "DELETE /api/projects/:id", //       blocked: cross-tenant-fix branch owns the file
   "POST /api/composer/suggest",
   "POST /api/ez/conversation",
   "POST /api/warmup",
-  "PUT /api/projects/:id", //          blocked: cross-tenant-fix branch owns the file
 ];
 
 /**
@@ -222,8 +219,10 @@ const READ_SCOPED_MUTATIONS: readonly string[] = [
  */
 const WRITE_SCOPED_MUTATIONS: readonly string[] = [
   "DELETE /api/contexts/:id",
+  "DELETE /api/knowledge-base/:id",
   "DELETE /api/lessons/:id",
   "DELETE /api/memories/:id",
+  "DELETE /api/projects/:id",
   "PATCH /api/lessons/:id",
   "PATCH /api/memories/:id",
   "POST /api/import/preview",
@@ -231,6 +230,7 @@ const WRITE_SCOPED_MUTATIONS: readonly string[] = [
   "POST /api/memories",
   "POST /api/projects",
   "PUT /api/memories/:id",
+  "PUT /api/projects/:id",
 ];
 
 /** The two handlers that moved to a scope other than `write`. */
@@ -277,10 +277,10 @@ describe("read-scope mutation inventory (frozen baseline)", () => {
     // An emptied list would make the equalities above pass only when the live
     // set is ALSO empty — but an unsorted list makes a real diff unreadable,
     // and a shrinking one must be a deliberate edit.
-    expect(READ_SCOPED_MUTATIONS.length).toBe(6);
-    expect(WRITE_SCOPED_MUTATIONS.length).toBe(10);
+    expect(READ_SCOPED_MUTATIONS.length).toBe(3);
+    expect(WRITE_SCOPED_MUTATIONS.length).toBe(13);
     expect(REHOMED_ELSEWHERE.length).toBe(2);
-    // 6 + 10 + 2 = the 18 the investigation found. Nothing was dropped on the
+    // 3 + 13 + 2 = the 18 the investigation found. Nothing was dropped on the
     // floor by the re-scope; every handler is still accounted for.
     expect(
       READ_SCOPED_MUTATIONS.length + WRITE_SCOPED_MUTATIONS.length + REHOMED_ELSEWHERE.length,

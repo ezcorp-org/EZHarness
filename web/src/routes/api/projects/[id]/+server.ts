@@ -61,7 +61,7 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 };
 
 export const PUT: RequestHandler = async ({ request, params, locals }) => {
-  const scopeErr = requireScope(locals, "read");
+  const scopeErr = requireScope(locals, "write");
   if (scopeErr) return scopeErr;
   const user = requireAuth(locals);
   const adminErr = requireAdmin(user);
@@ -76,7 +76,7 @@ export const PUT: RequestHandler = async ({ request, params, locals }) => {
 };
 
 export const DELETE: RequestHandler = async ({ params, locals }) => {
-  const scopeErr = requireScope(locals, "read");
+  const scopeErr = requireScope(locals, "write");
   if (scopeErr) return scopeErr;
   const user = requireAuth(locals);
   const adminErr = requireAdmin(user);

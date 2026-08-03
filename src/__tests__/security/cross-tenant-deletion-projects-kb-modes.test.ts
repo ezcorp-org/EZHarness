@@ -227,13 +227,21 @@ describe("source: projects mutating routes are role-gated", () => {
     expect(callSites.length).toBe(2);
   });
 
-  test(`${REL} — the scope gate is untouched (not re-scoped)`, () => {
+  test(`${REL} — the mutators are \`write\`-scoped, GET stays \`read\``, () => {
     const src = read(REL);
-    // Whether `read` should authorize deletion is a SEPARATE open question
-    // owned elsewhere. This change must not silently resolve it by bumping
-    // the scope — pin that all three handlers still ask for `read`.
-    const scopeHits = src.match(/requireScope\(locals,\s*"read"\)/g) ?? [];
-    expect(scopeHits.length).toBe(3);
+    // This pin originally asserted all three handlers still asked for `read`,
+    // deliberately, so that the separate open question — whether `read` should
+    // authorize destruction — could not be resolved SILENTLY by this branch.
+    // It has since been resolved deliberately: the `write` scope landed and
+    // PUT/DELETE moved onto it, leaving GET on `read`. The pin now guards the
+    // new shape in both directions, which is the same job it always had.
+    const readHits = src.match(/requireScope\(locals,\s*"read"\)/g) ?? [];
+    const writeHits = src.match(/requireScope\(locals,\s*"write"\)/g) ?? [];
+    expect(readHits.length).toBe(1);
+    expect(writeHits.length).toBe(2);
+    // The ownership gate is a SEPARATE axis and must not be traded for the
+    // scope one: `admin` scope here would let a role-only check masquerade as
+    // authorization. Ownership stays on `requireAdmin`, asserted above.
     expect(src).not.toMatch(/requireScope\(locals,\s*"admin"\)/);
   });
 });

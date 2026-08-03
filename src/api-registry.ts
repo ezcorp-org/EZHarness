@@ -206,7 +206,7 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "GET", path: "/api/knowledge-base", description: "List knowledge base files for project", category: "knowledge-base", scope: "read" },
   { method: "POST", path: "/api/knowledge-base", description: "Upload file to knowledge base (multipart)", category: "knowledge-base", scope: "write" },
   { method: "GET", path: "/api/knowledge-base/:id", description: "Get knowledge base file details", category: "knowledge-base", scope: "read" },
-  { method: "DELETE", path: "/api/knowledge-base/:id", description: "Delete knowledge base file", category: "knowledge-base", scope: "read" },
+  { method: "DELETE", path: "/api/knowledge-base/:id", description: "Delete knowledge base file", category: "knowledge-base", scope: "write" },
 
   // Memories
   { method: "GET", path: "/api/memories", description: "Search and list memories", category: "memories", scope: "read" },
@@ -219,8 +219,8 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "GET", path: "/api/projects", description: "List projects for current user", category: "projects", scope: "read" },
   { method: "POST", path: "/api/projects", description: "Create a new project", category: "projects", scope: "write" },
   { method: "GET", path: "/api/projects/:id", description: "Get project by ID", category: "projects", scope: "read" },
-  { method: "PUT", path: "/api/projects/:id", description: "Update project settings", category: "projects", scope: "read" },
-  { method: "DELETE", path: "/api/projects/:id", description: "Delete a project", category: "projects", scope: "read" },
+  { method: "PUT", path: "/api/projects/:id", description: "Update project settings (admin only)", category: "projects", scope: "write" },
+  { method: "DELETE", path: "/api/projects/:id", description: "Delete a project (admin only)", category: "projects", scope: "write" },
   { method: "PUT", path: "/api/projects/:id/tool-permission-mode", description: "Set tool permission mode for project", category: "projects" },
 
   // Settings
