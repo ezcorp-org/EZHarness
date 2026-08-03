@@ -376,6 +376,17 @@ Its refusals come in **two kinds, and conflating them destroys runs** (`src/runt
 
 **Drift** is guarded by `definition_hash`, compared **unconditionally** against a fresh `workflowDefinitionHash(workflow)`; the refusal names both truncated hashes so it is actionable rather than a bare "changed".
 
+**Winning the claim CAS is the ONE way to begin driving a run**, and every resume path runs the same sequence through `resumeClaimedRun` (`src/runtime/workflow-executor.ts`): claim, **re-read the row**, resume naming the claim as `resumedBy`, hand the claim back if the run comes back `suspended`.
+
+The re-read is the load-bearing step. `resumeWorkflow`'s status guard reads `row.status` **off its argument, never from the database**, so a caller that pre-checked a status and then resumed off that same snapshot was answering a question about a snapshot: a daemon claim landing in between took the row to `running` under its lease while the caller still believed it was `suspended`, and two processes drove one run off one cursor. Holding a claim proves nobody *else* is driving the run; only the re-read proves the run is still alive — an operator cancelling in that window must win.
+
+Ordering differs by caller, deliberately:
+
+- `answerApproval` claims **after** the answer CAS. The decision is durable first, so losing the claim is harmless — `hasPendingApproval` is now false for whoever *does* hold it, and they carry the run forward with this answer applied. Reported as `resume-failed` ("recorded, but could not continue here"), which the timeout sweep already maps to `answered`. Claiming first would turn every concurrent answer into a "busy, try again" that hid a decision someone had already made.
+- `resumeParkedRun` claims **first**; it has no answer to spend, so a lost CAS is a plain retryable `not-resumable` that writes nothing.
+
+**Data repair.** `repairDaemonBrickedWorkflowRuns` (`src/db/queries/workflow-runs.ts`, called last in `migrate.ts`) puts back runs the pre-fix daemon terminalized. Only `status`/`finished_at`/`result` were ever overwritten, so the cursor, phase, step rows and pending approval survived and the run continues where the human left it. Its selection is the defect's exact signature — `not-resumable` **and** a message naming `is running, not suspended` **and** `run_phase = 'boundary'` (the safety conjunct: nothing was in flight) **and** a non-null cursor and `suspended_reason` — because reviving a genuinely failed run would be worse than the bug. Safe on every boot: after the fix nothing produces that signature.
+
 `workflow-run-control.ts` is the operator lever on top: `resumeParkedRun` and `cancelParkedRun`.
 
 - They are **not** an approval-answering path. `resumeParkedRun` takes no choice, never touches `workflow_approvals`, and relies on `resumeWorkflow`'s guard rather than re-deriving it — a second opinion about when consent is satisfied is exactly the drift the chokepoint exists to prevent.
