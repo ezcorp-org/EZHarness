@@ -513,7 +513,7 @@ the app, which is host-root-equivalent exposure to save ~140 MB.
 
 | Stack | App networking | SearXNG reachability | `SEARXNG_BASE_URL` default |
 |---|---|---|---|
-| dev (`docker-compose.yml`) | `network_mode: host` | publishes `127.0.0.1:8889` (loopback only) | `http://localhost:8889` |
+| dev (`docker-compose.yml`) | `network_mode: host` | publishes `127.0.0.1:8889` (loopback only) | `http://127.0.0.1:8889` |
 | prod (`compose.prod.yml`) | compose bridge | service DNS, **no published port** | `http://searxng:8080` |
 
 **Soft dependency:** the app never hard-depends on the sidecar. If

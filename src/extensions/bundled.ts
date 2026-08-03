@@ -12,7 +12,7 @@ import { migrateManifestV2ToV3 } from "./manifest";
 import { insertAuditEntry } from "../db/queries/audit-log";
 import { EXT_AUDIT_ACTIONS, type ExtensionAuditMetadata } from "./audit-actions";
 import { clampToBundledCeiling, getCeiling } from "./bundled-ceiling";
-import { canonicalizeAndHash, verifyManifestAgainstLock } from "./bundled-lock";
+import { canonicalizeAndHashForReapproval, verifyManifestAgainstLock } from "./bundled-lock";
 import { computeManifestChecksums, type ManifestChecksumFields } from "./checksum";
 import { join, dirname } from "node:path";
 import { existsSync } from "node:fs";
@@ -2120,8 +2120,16 @@ async function detectVersionBumpRequiringReapproval(
   // just below) and never overwrites an authored per-tool declaration,
   // so a real tool add/remove/schema-edit — or a v3 author widening one
   // tool's caps — still flips this hash.
-  const dbToolHash = canonicalizeAndHash(migrateManifestV2ToV3(dbManifest).tools ?? []);
-  const diskToolHash = canonicalizeAndHash(migrateManifestV2ToV3(diskManifest).tools ?? []);
+  //
+  // `…ForReapproval` additionally drops presentation-only tool fields
+  // (`suggestExamples` — composer retrieval anchors that never reach the
+  // model). Authoring them is not a capability change, but hashing them
+  // stranded `web-search` disabled-pending-re-approval on every boot:
+  // this branch `continue`s before BOTH the manifest refresh and the
+  // re-enable branch, so the stored manifest never caught up and its
+  // tools never reached any agent. See `canonicalizeAndHashForReapproval`.
+  const dbToolHash = canonicalizeAndHashForReapproval(migrateManifestV2ToV3(dbManifest).tools ?? []);
+  const diskToolHash = canonicalizeAndHashForReapproval(migrateManifestV2ToV3(diskManifest).tools ?? []);
   const toolListChanged = dbToolHash !== diskToolHash;
 
   // Version + permissions trigger (legacy S9).

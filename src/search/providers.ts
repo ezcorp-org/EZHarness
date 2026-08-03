@@ -188,11 +188,33 @@ export class JinaReader implements UrlReader {
     // Jina's host. `mode:"read"` is reserved for direct URL fetches if a
     // future BYOK reader fetches the target host-side (then the private-IP
     // rejection matters). Today Jina is the only reader → backend mode.
-    const text = await doFetch<string>(this.transport, "Jina", target, {
-      headers,
-      as: "text",
-      allowedHosts: [hostnameOf(target)],
-    });
+    let text: string;
+    try {
+      text = await doFetch<string>(this.transport, "Jina", target, {
+        headers,
+        as: "text",
+        allowedHosts: [hostnameOf(target)],
+      });
+    } catch (err) {
+      // Keyless `r.jina.ai` is rate-limited BY NETWORK REPUTATION, not
+      // just by volume: upstream answers 401 ("blocked from performing
+      // anonymous queries due to bad network reputation") for whole ASNs,
+      // so a deployment can be permanently keyless-blocked through no
+      // fault of its own. Without this, every `read-url` call surfaced a
+      // bare "Jina HTTP 401" and the operator had no idea a free API key
+      // fixes it. Same failure mode that retired keyless Jina SEARCH in
+      // 2026-06 (see the module header).
+      const msg = (err as Error).message;
+      if (!this.apiKey && /\b(401|403)\b/.test(msg)) {
+        throw new Error(
+          "Jina rejected the keyless request (" +
+            msg +
+            "). The keyless reader is gated on network reputation — set a " +
+            "JINA_API_KEY (free tier) in Settings → Search to restore read-url.",
+        );
+      }
+      throw err;
+    }
     if (text.length === 0) throw new Error("Jina returned empty body (binary or unreachable URL)");
     return text;
   }
