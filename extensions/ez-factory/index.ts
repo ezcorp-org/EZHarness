@@ -275,9 +275,38 @@ export function registerPages(): void {
  * shape as `extensions/memory-extractor/index.ts`.
  */
 export function start(): void {
+  // ── ORDER IS LOAD-BEARING: `getChannel()` FIRST ────────────────────
+  //
+  // `createToolDispatcher` does not own any wiring; it forwards the handler
+  // map to a module-level `_register` hook in `rpc.ts` whose DEFAULT value
+  // throws "channel not ready" (`packages/@ezcorp/sdk/src/runtime/rpc.ts`
+  // `_defaultRegister`). The real hook is installed by
+  // `ensureDispatcherRegistered()`, which `channel.ts` calls from
+  // `getChannel()` and NOWHERE else — deliberately deferred so that merely
+  // importing `@ezcorp/sdk/runtime` has no side effect on `rpc.ts`.
+  //
+  // So a `start()` whose FIRST SDK call is `createToolDispatcher` throws and
+  // the subprocess exits 1 before it can serve anything — no tool call, no
+  // Hub page render ("This page failed to render"), on every single boot.
+  // The other bundled entrypoints survive the same textual order only by
+  // accident: `memory-extractor` / `lessons-distiller` call
+  // `defineMemoryLoops()` / `register()` first, and those touch
+  // `getChannel()` on the way through.
+  //
+  // Materialising the channel is NOT the same as starting it:
+  // `createProductionChannel()` only builds the impl, and the stdin read
+  // loop opens at `.start()`. Taking the handle here and starting it LAST
+  // therefore installs the hook before it is needed while still mounting
+  // every handler and page before the first inbound frame can be read.
+  //
+  // `extensions/ez-factory/__tests__/boot-real-subprocess.test.ts` pins this
+  // against a REAL `bun` subprocess. `boot.test.ts` cannot: it replaces both
+  // `createToolDispatcher` and `getChannel` with inert spies, so the
+  // ordering constraint does not exist inside it.
+  const channel = getChannel();
   createToolDispatcher(createFactoryToolHandlers(deps));
   registerPages();
-  getChannel().start();
+  channel.start();
 }
 
 /** @internal — test-only: drop the lazily-created singletons so each test
