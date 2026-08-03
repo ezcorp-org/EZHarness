@@ -14,6 +14,9 @@ import type { RbacUser } from "../auth/extension-rbac";
 import { upsertGrant } from "../db/queries/extension-rbac";
 import { extensions, projects, users } from "../db/schema";
 import { sql } from "drizzle-orm";
+// The SHIPPED manifest, not a copy — see the invariant-18 describe at the
+// bottom of this file for why the scope names must be read and not retyped.
+import ezFactoryManifest from "../../extensions/ez-factory/ezcorp.config";
 
 const EXT_A = "rbac-res-ext-a";
 const EXT_B = "rbac-res-ext-b";
@@ -320,5 +323,132 @@ describe("canManageGrant delegation matrix (real PGlite)", () => {
     // are out of coverage even though the scope name matches.
     expect(await canManageGrant(managerPE, target(memberNN.id, projectB, EXT_A, ["use"]))).toBe(false);
     expect(await canManageGrant(managerPE, target(memberNN.id, projectA, EXT_B, ["use"]))).toBe(false);
+  });
+});
+
+// ── Ported invariant 18 — least privilege across the triage verbs ─────
+//
+// Re-homed here from `docs/extensions/examples/ez-code-factory/lib/rbac.test.ts`
+// as part of phase 9 (that tree is deleted). In the reference the three verbs
+// were `respond-gate` / `yolo` / `manage-jobs` and `MANAGE_JOBS_SCOPE` was
+// asserted NOWHERE — redefining it to `"respond-gate"` failed nothing, so the
+// separation the design claimed was never proven. `ez-factory` ships the same
+// three-way split as `manage-jobs` / `run-job` / `approve-gate`
+// (`extensions/ez-factory/ezcorp.config.ts`).
+//
+// TWO halves, and BOTH are needed. Neither implies the other:
+//
+//   1. **Distinctness, by NAME.** The scopes are read out of the shipped
+//      manifest, so this moves when the manifest moves. A by-VALUE matrix
+//      (`expect(A).not.toBe(B)` over imported constants) would collapse
+//      silently along with the constants it compares — which is precisely how
+//      the reference's gap survived review.
+//   2. **Non-implication, at the REAL resolver.** Granting exactly one verb
+//      must leave the other two false. The generic mechanism is already
+//      covered above; what is NOT covered above is that these three specific
+//      verbs are three grants and not one. `hasExtensionScope` is exact-match
+//      today, so a collapse can only arrive as a manifest edit — and then
+//      half 1 fires. Together they close both doors.
+describe("ez-factory's three triage verbs are three separate grants", () => {
+  const EZ_FACTORY = "ez-factory";
+  /** Read out of the shipped manifest, never retyped — a rename in
+   *  `ezcorp.config.ts` has to move this test with it. */
+  const VERBS = (ezFactoryManifest.permissions?.rbacScopes ?? []).map((s) => s.name);
+
+  // Indexed, NOT keyed by verb name. A manifest that collapsed two verbs
+  // into one name would otherwise duplicate a fixture email and crash this
+  // beforeAll — reporting the mutation as a broken suite instead of as the
+  // named distinctness failure it is.
+  let holders: RbacUser[];
+  const holderOf = (verb: string): RbacUser => holders[VERBS.indexOf(verb)]!;
+
+  beforeAll(async () => {
+    // The DB is already up (the describe above ran `setupTestDb`), but the
+    // grant table FKs `extension_id → extensions.name`, so the row has to
+    // exist before a grant naming it can be written.
+    await getTestDb()
+      .insert(extensions)
+      .values({
+        name: EZ_FACTORY,
+        version: "0.1.0",
+        source: "test:fixture",
+        manifest: sql`${JSON.stringify({
+          schemaVersion: 2,
+          name: EZ_FACTORY,
+          version: "0.1.0",
+          description: "",
+          author: { name: "test" },
+          kind: "subprocess",
+          entrypoint: { command: ["true"] },
+        })}::jsonb`,
+      });
+    holders = [];
+    for (let i = 0; i < VERBS.length; i++) {
+      const user = await createMember(`only-verb-${i}@ez-factory.test`);
+      await upsertGrant({
+        userId: user.id,
+        projectId: null,
+        extensionId: EZ_FACTORY,
+        scopes: [VERBS[i]!],
+        grantedByUserId: adminGrantee.id,
+      });
+      holders.push(user);
+    }
+  }, 30_000);
+
+  test("the manifest declares exactly the three verbs, all distinct BY NAME", () => {
+    // Anti-vacuity: the loop below iterates VERBS, so an empty or collapsed
+    // list would make every non-implication case pass without checking
+    // anything. Pin the set first.
+    expect(VERBS).toEqual(["manage-jobs", "run-job", "approve-gate"]);
+    expect(new Set(VERBS).size).toBe(VERBS.length);
+  });
+
+  test("holding ONE verb confers exactly that verb — never another", async () => {
+    for (const [i, held] of VERBS.entries()) {
+      const user = holders[i]!;
+      for (const probed of VERBS) {
+        expect({
+          held,
+          probed,
+          granted: await hasExtensionScope(user, {
+            projectId: null,
+            extensionId: EZ_FACTORY,
+            scope: probed,
+          }),
+        }).toEqual({ held, probed, granted: held === probed });
+      }
+    }
+  });
+
+  test("approve-gate does NOT imply manage-jobs — the named case from the reference", async () => {
+    // The reference's exact scenario: an operator who may answer a parked
+    // gate must not thereby be able to shape which runs exist at all.
+    const approver = holderOf("approve-gate");
+    expect(
+      await hasExtensionScope(approver, {
+        projectId: null,
+        extensionId: EZ_FACTORY,
+        scope: "manage-jobs",
+      }),
+    ).toBe(false);
+    // Non-vacuous: the same principal DOES hold its own verb, so the false
+    // above is a real separation and not a broken fixture.
+    expect(
+      await hasExtensionScope(approver, {
+        projectId: null,
+        extensionId: EZ_FACTORY,
+        scope: "approve-gate",
+      }),
+    ).toBe(true);
+  });
+
+  test("a verb granted for ez-factory does not leak to another extension", async () => {
+    // Scope names are a per-extension namespace; `manage-jobs` held against
+    // ez-factory says nothing about anybody else's `manage-jobs`.
+    const manager = holderOf("manage-jobs");
+    expect(
+      await hasExtensionScope(manager, { projectId: null, extensionId: EXT_A, scope: "manage-jobs" }),
+    ).toBe(false);
   });
 });
