@@ -80,7 +80,7 @@ Routing is by **wildcard subdomain `<id>.preview.<appHost>`** (LOCKED decision D
 
 | Var | Effect |
 |---|---|
-| `EZCORP_PREVIEW_APP_HOST` | Bare app host owning `*.preview.<host>` (e.g. `localhost`, `ezcorp.example.com`). **Unset ⇒ preview origin disabled.** |
+| `EZCORP_PREVIEW_APP_HOST` | Bare app host owning `*.preview.<host>` — e.g. `localhost` (dev; `*.localhost` auto-resolves), `ezcorp.example.com` (prod, behind a wildcard TLS cert), or the literal **`auto`** to track `EZCORP_PUBLIC_URL`'s host. **Unset ⇒ preview origin disabled.** Under `auto`, an unset or unparseable `EZCORP_PUBLIC_URL` also fails closed to disabled rather than guessing. |
 | `EZCORP_PREVIEW_SPAWN_HELPER` | Override path to the setuid helper (default `/app/bin/preview-spawn`). |
 | `EZCORP_DISABLE_PREVIEW_WATCHER=1` | Kill switch for the port-watcher daemon. |
 | `EZCORP_PREVIEW_WATCHER_POLL_MS` | Watcher poll cadence (default 2000ms, floor 250ms). |
@@ -130,7 +130,14 @@ Routing is by **wildcard subdomain `<id>.preview.<appHost>`** (LOCKED decision D
 
 ## Related docs
 
-None yet — this is the primary reference. The full spec / locked decisions live in `tasks/preview-port-exposure.md` (referenced throughout the source as "§3.x" / "D2"–"D4" / "Phase 3 REDESIGN"). The source comments also point operators at `docs/preview-hosting.md` for wildcard-DNS / TLS setup, but that doc has not been written yet (the path is a forward reference, not an existing file).
+This is the primary **feature** reference. The full spec / locked decisions live in `tasks/preview-port-exposure.md` (referenced throughout the source as "§3.x" / "D2"–"D4" / "Phase 3 REDESIGN").
+
+Operator setup for the wildcard origin:
+
+- [`deploy/preview-dns/Corefile.example`](../../../deploy/preview-dns/Corefile.example) — the env-driven CoreDNS sidecar that answers `*.preview.<host>`, plus the split-DNS wiring for dnsmasq / systemd-resolved / Tailscale / corporate DNS. Self-documenting; copy to `Corefile` (gitignored) and run. Deliberately non-recursive — it `REFUSE`s everything outside the preview zone, so it can never become an open resolver or a DNS amplification reflector.
+- [docs/local-prod-test-stack.md](../../local-prod-test-stack.md) — the end-to-end flow that stands the sidecar up alongside the prod stack.
+
+(Earlier source comments pointed at a `docs/preview-hosting.md` that was never written; the two references above are the real ones and the comment in `web/src/lib/server/preview/dispatch.ts` now names them.)
 
 ## Notes & gotchas
 

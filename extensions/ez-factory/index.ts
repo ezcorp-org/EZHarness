@@ -88,17 +88,49 @@ export const hostFs: FactoryFs = {
  * Filesystem root of the ACTIVE project.
  *
  * Per-call first: one persistent subprocess serves every conversation, so
- * the process-wide `EZCORP_PROJECT_ROOT` names only ever ONE project and
- * is a last resort for out-of-band dispatches (a workflow tool step
- * carries a synthetic conversation with no project to resolve).
+ * a process-wide env var names only ever ONE project and is a fallback for
+ * out-of-band dispatches (a workflow tool step carries a synthetic
+ * conversation with no project to resolve).
  *
- * This value is a CONVENIENCE, not a boundary. The host expands the
- * `filesystem: ["$CWD"]` grant through `grantCwdBase()` → `getProjectRoot()`
- * and authorizes against that, so a wrong value here produces a permission
- * denial, never an escape.
+ * ── WHY `EZCORP_EXTENSION_DATA_ROOT` AND NOT `process.cwd()` ──────────
+ *
+ * The old chain ended at `process.cwd()`, and on the only path that ever
+ * reaches the end of it — every workflow tool step — that is the WRONG
+ * TREE. `src/extensions/registry.ts` says so in as many words: `cwd` is
+ * `/app/web` under the vite-SSR dev server, and `getProjectRoot()`
+ * "resolves the container root (`/app`) in dev and prod alike".
+ *
+ * The failure is silent and total rather than loud, which is why it
+ * survived to here:
+ *
+ *   · `EZCORP_PROJECT_ROOT` is only injected when `findProjectRoot()`
+ *     resolves; `registry.ts` swallows the throw and leaves it unset,
+ *     which ALSO leaves `getSpawnCwd()` undefined, so the subprocess
+ *     inherits the host's `web/` cwd. Both fallbacks miss together.
+ *   · `web/` is INSIDE the project root, so the `$CWD` grant authorizes
+ *     every read and write against it. Nothing is denied. `read_files`
+ *     walks `web/`, reports `CLAUDE.md` for `web/CLAUDE.md`, and returns
+ *     `files: []` for a glob naming a real file — with `skippedCount: 0`,
+ *     so `etl-factory`'s `anomaly-gate` does not fire either.
+ *
+ * `EZCORP_EXTENSION_DATA_ROOT` is the host's own answer to this question:
+ * `registry.ts` sets it to `getProjectRoot()` unconditionally, and that is
+ * the SAME function `grantCwdBase()` (`src/extensions/permissions.ts`)
+ * expands `$CWD` through. Preferring it makes the tool's notion of "the
+ * project" agree with the grant it was issued, instead of disagreeing with
+ * it in a direction nothing reports.
+ *
+ * This value is a CONVENIENCE, not a boundary — a wrong value produces a
+ * permission denial, never an escape. That is exactly why it needed a real
+ * run to catch: wrong-but-authorized reads the wrong files in silence.
  */
 export function activeProjectRoot(): string {
-  return getToolContext()?.projectRoot ?? process.env.EZCORP_PROJECT_ROOT ?? process.cwd();
+  return (
+    getToolContext()?.projectRoot ??
+    process.env.EZCORP_PROJECT_ROOT ??
+    process.env.EZCORP_EXTENSION_DATA_ROOT ??
+    process.cwd()
+  );
 }
 
 /**
@@ -275,9 +307,38 @@ export function registerPages(): void {
  * shape as `extensions/memory-extractor/index.ts`.
  */
 export function start(): void {
+  // ── ORDER IS LOAD-BEARING: `getChannel()` FIRST ────────────────────
+  //
+  // `createToolDispatcher` does not own any wiring; it forwards the handler
+  // map to a module-level `_register` hook in `rpc.ts` whose DEFAULT value
+  // throws "channel not ready" (`packages/@ezcorp/sdk/src/runtime/rpc.ts`
+  // `_defaultRegister`). The real hook is installed by
+  // `ensureDispatcherRegistered()`, which `channel.ts` calls from
+  // `getChannel()` and NOWHERE else — deliberately deferred so that merely
+  // importing `@ezcorp/sdk/runtime` has no side effect on `rpc.ts`.
+  //
+  // So a `start()` whose FIRST SDK call is `createToolDispatcher` throws and
+  // the subprocess exits 1 before it can serve anything — no tool call, no
+  // Hub page render ("This page failed to render"), on every single boot.
+  // The other bundled entrypoints survive the same textual order only by
+  // accident: `memory-extractor` / `lessons-distiller` call
+  // `defineMemoryLoops()` / `register()` first, and those touch
+  // `getChannel()` on the way through.
+  //
+  // Materialising the channel is NOT the same as starting it:
+  // `createProductionChannel()` only builds the impl, and the stdin read
+  // loop opens at `.start()`. Taking the handle here and starting it LAST
+  // therefore installs the hook before it is needed while still mounting
+  // every handler and page before the first inbound frame can be read.
+  //
+  // `extensions/ez-factory/__tests__/boot-real-subprocess.test.ts` pins this
+  // against a REAL `bun` subprocess. `boot.test.ts` cannot: it replaces both
+  // `createToolDispatcher` and `getChannel` with inert spies, so the
+  // ordering constraint does not exist inside it.
+  const channel = getChannel();
   createToolDispatcher(createFactoryToolHandlers(deps));
   registerPages();
-  getChannel().start();
+  channel.start();
 }
 
 /** @internal — test-only: drop the lazily-created singletons so each test

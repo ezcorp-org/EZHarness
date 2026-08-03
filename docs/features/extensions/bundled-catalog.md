@@ -1,6 +1,6 @@
 # Bundled Extension Catalog
 
-> _The 27 first-party extensions EZCorp auto-installs on first boot — the default tool/agent/canvas surface that ships in-repo, gated by a hardcoded per-extension capability ceiling._
+> _The 28 first-party extensions EZCorp auto-installs on first boot — the default tool/agent/canvas surface that ships in-repo, gated by a hardcoded per-extension capability ceiling._
 
 ## Intent
 
@@ -27,7 +27,7 @@ EZCorp's extension ecosystem is the primary way the platform grows new tools, ag
 
 `BUNDLED_CEILING` is a hardcoded max-grant table keyed by extension name. It is a **code-review-time** artifact, NOT derived from `manifest.permissions`, so a compromised manifest cannot generate a self-matching ceiling. `clampToBundledCeiling(name, requested)` returns `intersectPermissions(requested, ceiling)` — install grants can only ever be **narrowed**. Numeric caps (`spawnAgents.maxPerHour/maxConcurrent`, schedule fields) clamp via `Math.min`; the `schedule` shape must carry all five fields on both sides or the `Math.min` intersection yields `NaN` and silently breaks the cron grant (the documented "schedule trap"). The ceiling composes with `manifest.lock.json` (tool-list / entrypoint / version drift). For non-bundled names `getCeiling` returns `null` and the clamp is a passthrough.
 
-### The 27 bundled extensions
+### The 28 bundled extensions
 
 | Name | Path | One-line purpose | Flags / notable grant |
 |---|---|---|---|
@@ -49,7 +49,7 @@ EZCorp's extension ecosystem is the primary way the platform grows new tools, ag
 | `openai-image-gen-2` | `docs/extensions/examples/openai-image-gen-2` | OpenAI-only image generation (`gpt-image-*`) | `envEscapeHatch`; `network:api.openai.com`+`chatgpt.com`, `env:OPENAI_*`, `filesystem:$CWD` |
 | `claude-design` | `docs/extensions/examples/claude-design` | Extracts a design system + generates HTML drafts; canvas knob round-trip | `filesystem:$CWD`, `storage`, knob-change subs, `cdn.jsdelivr.net` |
 | `price-chart` | `docs/extensions/examples/price-chart` | Client-rendered price chart (Yahoo Finance / CoinGecko) | `network` data hosts; no fs in `bundled.ts` |
-| `city-conditions` | `docs/extensions/examples/city-conditions` | Time + weather + pollen for a city as a `city-conditions` card; ships a `conditions` workflow | `network` 3 Open-Meteo hosts, `workflows` `["conditions"]` 12/h; **no fs/env/shell/storage** |
+| `city-conditions` | `docs/extensions/examples/city-conditions` | Time + weather + pollen for a city as a `city-conditions` card; ships a `conditions` workflow | `storage`, `network` (3 Open-Meteo hosts + `pollen.googleapis.com` + `www.atlantaallergy.com`), `workflows` `["conditions"]` 12/h; **no fs/env/shell** |
 | `kokoro-tts` | `docs/extensions/examples/kokoro-tts` | In-browser Kokoro-TTS via `messageToolbar` + append-message reverse-RPC | `appendMessages` (excluded), `kokoro-tts:*` subs |
 | `lessons-distiller` | `extensions/lessons-distiller` | Distills lessons from completed runs (bundled port) | `bootSpawn`; `llm`, `lessons:write`, `run:complete` sub |
 | `extension-author` | `docs/extensions/examples/extension-author` | LLM scaffolds new extensions on request (drafts reverse-RPC) | `critical`; `custom.drafts`, `filesystem` (own data dir) |
@@ -58,6 +58,7 @@ EZCorp's extension ecosystem is the primary way the platform grows new tools, ag
 | `file-organizer` | `docs/extensions/examples/file-organizer` | 100%-local file organization; host-side watcher daemon + Hub pages | `filesystem:$CWD`, large event-sub list; **no network/shell/schedule** |
 | `ping-loop` | `docs/extensions/examples/ping-loop` | Manual-trigger Loop SDK demo — "Ping now" on the Hub page appends a deterministic run row | `bootSpawn`; `storage`, `filesystem:$CWD`, `ping-loop:run` sub; **no llm/network/shell** |
 | `github-projects` | `docs/extensions/examples/github-projects` | Connect a GitHub Projects v2 board and plan/execute its tickets from a Hub dashboard | `bootSpawn`; **no network/shell/env** — all GitHub I/O is host-side via `BUNDLED_GITHUB_PROJECTS_ALLOWLIST` |
+| `ez-factory` | `extensions/ez-factory` | The workflow **job console**: named, saved job definitions over the three `*.workflow.yaml` files it ships, run by hand or from chat, with real approval gates | `storage`, `filesystem:$CWD`, `triggers` (25 cron / 25 webhook, prefix `factory-`, 500 runs/day), `workflows` `["docs-factory","etl-factory","draft-and-verify"]` 60/h, `ez-factory:job-save` sub |
 
 > `critical`: task-tracking, ask-user, extension-author. `bootSpawn`: lessons-distiller, memory-extractor, ping-loop, github-projects. `envEscapeHatch`: ai-kit, openai-image-gen-2.
 
@@ -138,10 +139,12 @@ Exported helpers from `src/extensions/bundled.ts`: `isBundledExtensionName(name)
 
 ## Notes & gotchas
 
-- **27 bundled, ~38 on disk.** `BUNDLED_EXTENSIONS` wires exactly 27 extensions at boot; `docs/extensions/examples/` holds many more example-only dirs plus `test-*`/`harness-smoke-test` fixtures. Read `bundled.ts` for the authoritative list — never infer it from the directory listing.
+- **28 bundled, ~38 on disk.** `BUNDLED_EXTENSIONS` wires exactly 28 extensions at boot; `docs/extensions/examples/` holds many more example-only dirs plus `test-*`/`harness-smoke-test` fixtures. Read `bundled.ts` for the authoritative list — never infer it from the directory listing.
+- **`ez-factory` must be bundled, and that is load-bearing.** Its `write_file` / `emit_artifact` tools only authorize because the sensitive-capability gate in `src/extensions/permission-engine.ts` short-circuits to allow for bundled extensions (the `bundled-ceiling-auto-allow` branch). `fs.write` is a sensitive capability, so for a non-bundled extension the PDP would return `prompt`, a workflow's non-interactive scope rejects a prompt synchronously, and the run terminalizes `awaiting_approval`. Sited under `docs/extensions/examples/` these tools would be structurally unusable inside a workflow — the siting is a requirement, not a preference. See [[ez-factory]].
 - **`substack-pilot` / `substack-pipeline` are NOT bundled.** Both appear in `BUNDLED_CEILING`, but only `substack-pilot` triggers the `legacyEntityMappings` rename branch in the install loop (`entry.name === "substack-pilot"`). Neither is in the boot array, so neither is installed — the ceiling entries are dormant.
 - **Path roots differ.** Most entries are under `docs/extensions/examples/<name>`, but `ai-kit` lives at `packages/@ezcorp/ai-kit` and `lessons-distiller` / `memory-extractor` at `extensions/<name>`. `getProjectRoot()` joins whatever relative `entry.path` is declared — don't assume the examples dir.
 - **`bootSpawn` is mandatory for event-only extensions.** Without it, `EventSubscriptionDispatcher.dispatch` silently drops every wired event because the subprocess never starts. Set it for extensions with no tools, no agent mentions, and no manual trigger (`lessons-distiller`, `memory-extractor`), and for extensions whose live UX path is a Hub **page-action event** rather than a tool call (`ping-loop`, `github-projects`) — those have tools, but the button click is an event, so a lazily-spawned subprocess would miss it.
+- **The S9 tool-hash must compare one manifest shape (FIXED).** `loadManifestFresh` always returns v3 and stamps a host-derived per-tool `capabilities` block onto tools that never authored one, while the stored manifest keeps the v2 arrays as written. Hashing the two shapes against each other reported *phantom* tool-list drift, and because the disable path `continue`s before the manifest-refresh block, the stored manifest never caught up — so every later boot re-detected the same drift. 14 bundled extensions were stranded this way on the live instance. Both sides now run through `migrateManifestV2ToV3` before hashing (`src/extensions/bundled.ts`; regression-pinned by `src/__tests__/bundled-v2-tools-hash-shape.test.ts`). If you touch the S9 gate, keep both sides shape-normalized or the bug returns silently at the *next* boot, not this one.
 - **`critical` auto-reapproval can mask a tool-list change.** A `critical` entry whose tool list churns every boot (e.g. `extension-author` gaining `install_draft`) auto-reapproves within ceiling and `continue`s past the normal refresh — the critical branch must itself refresh the manifest + reconcile the grant, or the new tool stays invisible / the grant stays stale.
 - **`memory-extractor` runs `selfOnly: false` intentionally** — cross-extension memory dedup must mediate every write regardless of authoring extension. Bundled-trust (code review) is the approval gate; this is the documented exception.
 - **Bundled integrity-skip is name-based and sticky.** `isBundledExtensionName` skips the spawn-time checksum check for every bundled name because the files legitimately change with the repo. The opt-out flag does NOT remove a name from this set — disabling `ai-kit` after install keeps its integrity-skip semantics until it's uninstalled.

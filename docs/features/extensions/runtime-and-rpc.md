@@ -10,7 +10,7 @@ Extensions are untrusted code. EZCorp never loads them in-process; each extensio
 
 ### The two directions of RPC
 
-1. **Forward (host → child): `tools/call`.** `ToolExecutor.executeToolCall` (`src/extensions/tool-executor.ts`) is the single entry point for every extension tool. It looks the namespaced tool name up in the registry, enforces the per-turn cap, runs the PDP gate, then calls `ExtensionProcess.callTool(originalName, args, meta)` (`src/extensions/subprocess.ts`), which frames a `tools/call` JSON-RPC request and awaits the child's response (default 30s per-call timeout).
+1. **Forward (host → child): `tools/call`.** `ToolExecutor.executeToolCall` (`src/extensions/tool-executor/executor.ts`) is the single entry point for every extension tool. It looks the namespaced tool name up in the registry, enforces the per-turn cap, runs the PDP gate, then calls `ExtensionProcess.callTool(originalName, args, meta)` (`src/extensions/subprocess.ts`), which frames a `tools/call` JSON-RPC request and awaits the child's response (default 30s per-call timeout).
 2. **Reverse (child → host): `ezcorp/*`.** The subprocess emits JSON-RPC *requests* back up the same stdio channel. `ToolExecutor.ensureSubprocessRpcWired` installs the `setRequestHandler` that routes those by exact method string to a handler (`handlePiFsRead`, `handlePiStorage`, `handlePiInvoke`, …). The wired handler is wrapped in `dispatchReverseRpcWithTimeout` so a stalled host op fails fast instead of wedging the chat.
 
 ### Forward dispatch — `executeToolCall`
@@ -96,7 +96,15 @@ Operator / developer knobs:
 
 ## Key files
 
-- `src/extensions/tool-executor.ts` — `ToolExecutor`: forward `executeToolCall` (caps, PDP gate, dispatch, audit) + the `ensureSubprocessRpcWired` reverse-RPC router and all `handlePi*` handlers + `resolveReverseRpcMeta` (provenance).
+- `src/extensions/tool-executor/executor.ts` — the `ToolExecutor` class: forward `executeToolCall` (caps, PDP gate, dispatch, audit) + `ensureSubprocessRpcWired` (the reverse-RPC router) + thin `handlePi*` methods that delegate to the modules below.
+- `src/extensions/tool-executor/rpc-handlers.ts` — the reverse-RPC method table and the free-function `handlePi*` implementations (`ezcorp/storage`, `ezcorp/memory`, `ezcorp/lessons`, `ezcorp/search`, `ezcorp/schedule`, `ezcorp/spawn-assignment`, `ezcorp/cancel-run`, `ezcorp/llm-complete`, …).
+- `src/extensions/tool-executor/provenance.ts` — `resolveCallToken` / `resolveReverseRpcMeta` / `resolveStorageProvenance` / `resolveDelegatedProvenance`: host-derived caller identity for every reverse-RPC call.
+- `src/extensions/tool-executor/agent-tool.ts` — `extensionToAgentTool`: wraps a registered extension tool as an agent tool and stamps the per-call `toolCallId` into `invocationMetadata`.
+- `src/extensions/tool-executor/invoke.ts` — `handlePiInvoke`: extension-to-extension tool invocation.
+- `src/extensions/tool-executor/limits.ts` — `MAX_TOOL_CALLS_PER_TURN` / `MaxToolCallsExceededError` + the per-conversation call-depth ceiling.
+- `src/extensions/tool-executor/fs-rpc.ts` — the `ezcorp/fs*` reverse-RPC family and its deprecation warnings.
+- `src/extensions/tool-executor/reverse-rpc-timeout.ts` — `dispatchReverseRpcWithTimeout` + `HOST_REVERSE_RPC_HANDLER_TIMEOUT_MS`.
+- `src/extensions/tool-executor/index.ts` — the barrel every consumer imports (`src/extensions/tool-executor` resolves here).
 - `src/extensions/subprocess.ts` — `ExtensionProcess`: spawn args, sandbox-preload resolution, JSON-RPC transport, idle/call timeouts, crash→auto-disable, `setRequestHandler` re-wiring.
 - `src/extensions/registry.ts` — `ExtensionRegistry` singleton: tool/manifest/grant maps, `getProcess` (lazy spawn + integrity check), `buildAllowedEnv`, dep-route resolution, MCP client + per-MCP proxy lifecycle.
 - `src/extensions/bundled.ts` — `BUNDLED_EXTENSIONS` (24 entries), `ensureBundledExtensions` (install/refresh/ceiling-clamp/drift/S9 gate), `getProjectRoot`, `bootSpawnFlaggedBundledExtensions`.
