@@ -21,6 +21,8 @@ import {
   TIER_LADDER_SETTING_KEY,
   type TierLadder,
 } from "../runtime/routing/tier-ladder";
+// `src/types.ts` has no imports of its own, so this cannot cycle.
+import { CURRENT_MODEL_SENTINEL } from "../types";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -106,14 +108,46 @@ async function getPreferenceOrder(): Promise<string[]> {
 // ── Model Resolution ─────────────────────────────────────────────────
 
 export async function resolveModel(
-  provider?: string,
-  modelId?: string,
+  rawProvider?: string,
+  rawModelId?: string,
   requestedTier?: RoutingTier,
   // Circuit-breaker credential scope (the acting user's id). Defaults to
   // the process-wide "shared" breaker so context-free callers are
   // behavior-identical to the old provider-only keying.
   credentialScope = "shared",
 ): Promise<{ provider: string; model: string; piModel: Model<any> }> {
+  // ── `__current__` IS AN INHERIT SENTINEL, NOT A PROVIDER ID ────────
+  //
+  // `CURRENT_MODEL_SENTINEL` means "use whatever model is in force", and
+  // the ONE place that ever substituted it (`runtime/start-assignment.ts`)
+  // reads the parent CONVERSATION. Anything with no conversation to inherit
+  // from — every `agent` step in every workflow — therefore handed the
+  // sentinel straight down: Level 1 below saw two truthy strings, took the
+  // pinned passthrough, and `getCredential("__current__")` died with
+  // `No credentials available for __current__`.
+  //
+  // That is not a niche path. Every config-based agent stored with the
+  // sentinel (`ez-factory extractor|writer|validator`, `ez-code coder`) is
+  // unrunnable from a workflow because of it, which is exactly the shape
+  // the shipped ez-factory templates take: they bind `effort`/`maxTokens`
+  // only and deliberately leave each agent's own binding standing, on the
+  // documented promise that it means "whatever the operator configured".
+  //
+  // Resolving it HERE and not in `createPiLlmAdapter` is deliberate and
+  // pinned by `src/__tests__/pi-llm-adapter-model-override.test.ts` — "the
+  // agent-config inherit sentinel is the router's problem, not the
+  // adapter's". Collapsing to `undefined` reproduces exactly what
+  // `start-assignment.ts` does when its fallback is absent (`value ===
+  // CURRENT_MODEL_SENTINEL ? fallback : value ?? undefined`), so the two
+  // resolution sites agree instead of disagreeing.
+  //
+  // Half a sentinel is normalised the same way: `{provider: "__current__",
+  // model: "gpt-5"}` becomes a provider-less pin and falls to Level 3's
+  // credential-aware pick rather than searching for a provider named
+  // `__current__`.
+  const provider = rawProvider === CURRENT_MODEL_SENTINEL ? undefined : rawProvider;
+  const modelId = rawModelId === CURRENT_MODEL_SENTINEL ? undefined : rawModelId;
+
   // WS3 quality-tier routing. When the caller passes a tier (the heuristic
   // classifier picked it for a thread with NO established model — see
   // stream-chat/setup-tools.ts), route by that tier; otherwise fall back to

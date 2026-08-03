@@ -34,6 +34,7 @@ import {
 } from "../providers/router";
 import { getApiKey } from "../providers/credentials";
 import { resolveModelForCredential } from "../providers/registry";
+import { CURRENT_MODEL_SENTINEL } from "../types";
 
 describe("getDefaultTier", () => {
   // The onboarding wizard historically stored quality/budget — the router
@@ -400,6 +401,56 @@ describe("resolveModel", () => {
       expect(result.model).toBe("some-model");
       // No custom models found, so baseUrl is undefined -> falls back to default
       expect(result.piModel.baseUrl).toBe("https://api.openai.com/v1");
+    });
+  });
+
+  // ── The `__current__` inherit sentinel ────────────────────────────
+  //
+  // Bug reproduction, found by actually running an ez-factory workflow:
+  // every `agent` step died with `No credentials available for
+  // __current__`. `CURRENT_MODEL_SENTINEL` means "use the model in force",
+  // and the only site that ever substituted it reads the parent
+  // CONVERSATION — which a workflow step does not have. The sentinel then
+  // reached Level 1 as two truthy strings, took the pinned passthrough, and
+  // `getCredential("__current__")` threw.
+  //
+  // Every config-based agent stored with the sentinel (all three seeded
+  // `ez-factory` agents, `ez-code coder`) was unrunnable from a workflow
+  // because of it. The adapter deliberately does not interpret the sentinel
+  // ("the router's problem" — `pi-llm-adapter-model-override.test.ts`), so
+  // the resolution belongs here.
+  describe("CURRENT_MODEL_SENTINEL", () => {
+    test("a fully-sentinel binding routes by tier instead of pinning `__current__`", async () => {
+      const result = await resolveModel(CURRENT_MODEL_SENTINEL, CURRENT_MODEL_SENTINEL);
+      // The decisive assertion: the sentinel is NEVER the resolved provider.
+      // Pre-fix this returned `{provider: "__current__", model: "__current__"}`
+      // and the caller's `getCredential` threw on it.
+      expect(result.provider).not.toBe(CURRENT_MODEL_SENTINEL);
+      expect(result.model).not.toBe(CURRENT_MODEL_SENTINEL);
+      // …and it lands on a real, credentialed provider from the order.
+      expect(result.provider).toBe("anthropic");
+      expect(result.model).toBeDefined();
+    });
+
+    test("a sentinel PROVIDER with a real model still refuses to pin the sentinel", async () => {
+      // Half a sentinel is normalised the same way, so nothing downstream
+      // ever searches for a provider literally named `__current__`.
+      const result = await resolveModel(CURRENT_MODEL_SENTINEL, "claude-sonnet-4-20250514");
+      expect(result.provider).not.toBe(CURRENT_MODEL_SENTINEL);
+    });
+
+    test("a sentinel MODEL under a real provider picks that provider's tier model", async () => {
+      const result = await resolveModel("anthropic", CURRENT_MODEL_SENTINEL);
+      expect(result.provider).toBe("anthropic");
+      expect(result.model).not.toBe(CURRENT_MODEL_SENTINEL);
+    });
+
+    test("a real provider+model pin is untouched by the normalisation", async () => {
+      // Guards the normalisation against over-reach: only the exact sentinel
+      // string is collapsed, never a legitimate binding.
+      const result = await resolveModel("anthropic", "claude-sonnet-4-20250514");
+      expect(result.provider).toBe("anthropic");
+      expect(result.model).toBe("claude-sonnet-4-20250514");
     });
   });
 });
