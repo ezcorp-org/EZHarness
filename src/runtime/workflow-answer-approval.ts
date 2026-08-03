@@ -32,9 +32,9 @@ import {
   getWorkflowApprovalById,
   recordWorkflowApprovalAnswer,
 } from "../db/queries/workflow-approvals";
-import { getWorkflowRunRow } from "../db/queries/workflow-runs";
+import { claimWorkflowRun, getWorkflowRunRow } from "../db/queries/workflow-runs";
 import { requireItemConsent } from "./workflow-approval-guard";
-import { resumeArgsFromRow } from "./workflow-executor";
+import { resumeClaimedRun } from "./workflow-executor";
 import {
   getWorkflowRuntime,
   type WorkflowRuntime,
@@ -204,6 +204,11 @@ export async function answerApproval(
   // and false: a run terminalized while its approval was still pending
   // would have its answer recorded and spent, then fail to resume, and
   // the caller would be told it succeeded.
+  //
+  // It is a fast, friendly refusal that names WHY, and nothing more. It is
+  // NOT the authority to resume — this read is a snapshot, and the claim
+  // CAS below is what actually decides. Keeping it means a run that is
+  // plainly terminal gets a precise message instead of a bare "busy".
   if (runRow && runRow.status !== "suspended") {
     return {
       ok: false,
@@ -262,10 +267,53 @@ export async function answerApproval(
     });
   }
 
+  // ── Take authority over the run (CAS) ──────────────────────────────
+  //
+  // Winning `claimWorkflowRun` is the ONE way to begin driving a run, and
+  // it is atomic: of the daemon, this call, and anyone else, exactly one
+  // proceeds. The status read above is a SNAPSHOT and cannot carry that
+  // weight — between it and here the daemon can claim the run, and the
+  // executor's status guard consults the row it is HANDED. Resuming off
+  // that snapshot is exactly how two processes ended up driving one run
+  // off one cursor.
+  //
+  // Deliberately AFTER the answer CAS, which is what makes losing here
+  // harmless rather than a lost decision. The answer is already durable,
+  // so `hasPendingApproval` is now false for whoever does hold the claim:
+  // they will carry this run forward with this answer applied. Claiming
+  // first would instead have turned every concurrent answer into a
+  // "busy, try again" that hid a decision someone had already made.
+  const claimedBy = `answer:${approval.id}`;
+  const claimed = await claimWorkflowRun({
+    workflowRunId: runRow.id,
+    claimedBy,
+    now: new Date(),
+  });
+  if (!claimed) {
+    // Reported as `resume-failed`, not `run-unavailable`: the answer LANDED
+    // and is not retryable, and every surface already renders that code as
+    // "recorded, but the run could not continue here". The timeout sweep
+    // maps it to `answered` for the same reason — re-offering a decision
+    // that is already recorded would be the actual error.
+    return {
+      ok: false,
+      code: "resume-failed",
+      message:
+        `Your answer was recorded. Run ${runRow.id} is being driven by another ` +
+        `process right now, which will apply it.`,
+    };
+  }
+
   // ── Resume ─────────────────────────────────────────────────────────
-  const run = await runtime.workflowExecutor.resumeWorkflow(
+  //
+  // Through the shared sequence, which RE-READS the row under the claim
+  // rather than resuming off the snapshot taken before it. See
+  // {@link resumeClaimedRun}.
+  const run = await resumeClaimedRun(
+    runtime.workflowExecutor,
     workflow,
-    resumeArgsFromRow(runRow),
+    runRow.id,
+    claimedBy,
   );
   // A resume that came back `error` is NOT a successful answer. Returning
   // `ok: true` here mapped to HTTP 200, telling the user their approval

@@ -12,6 +12,7 @@
     "build": "cd web && bun run build",
     "serve": "bun run index.ts serve",
     "preview": "cd web && bun run preview",
+    "podman": "bash scripts/podman-compose.sh",
     "test": "bash scripts/test.sh",
     "test:file": "bun test",
     "test:e2e": "bash scripts/test-e2e.sh",

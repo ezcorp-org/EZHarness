@@ -4,7 +4,7 @@
 
 ## Intent
 
-A "run" is the unit of execution behind every assistant response. `executor.streamChat` (chat turns) and `executor.runAgent` (code-based agents / workflows / CLI) both mint an `AgentRun` and drive it through one status machine. The lifecycle layer exists to make that execution **durable and controllable**: the live partial response and any open permission/ask-user gates survive a page reload, a stuck or leaked run is killed by an activity watchdog (with a wider idle window for reasoning models), orphaned runs are reconciled at boot, and a harness can post a message then block on the terminal state in a single call. Run ownership is enforced per-user on `/api/runs/*` to close cross-tenant IDOR — but **not** on the conversation-scoped `active-run` route (see gotchas).
+A "run" is the unit of execution behind every assistant response. `executor.streamChat` (chat turns) and `executor.runAgent` (code-based agents / workflows / CLI) both mint an `AgentRun` and drive it through one status machine. The lifecycle layer exists to make that execution **durable and controllable**: the live partial response and any open permission/ask-user gates survive a page reload, a stuck or leaked run is killed by an activity watchdog (with a wider idle window for reasoning models), orphaned runs are reconciled at boot, and a harness can post a message then block on the terminal state in a single call. Run ownership is enforced per-user on `/api/runs/*` **and**, since `20adfe86`, on the conversation-scoped `active-run` route (root-walk gated, fail-closed 404).
 
 ## How it works
 
@@ -84,8 +84,8 @@ All three call sites share one `backgroundFetch` key (`active-run:<convId>`) so 
 | `GET /api/runs/[id]` | `read` | Fetch one run (ownership-gated → 404 on non-owner). |
 | `GET /api/runs/[id]?wait=1&timeoutMs=…` | `read` | Block until terminal. `200` (done), `408` (timeout), `499` (client closed), `429` (wait cap), `404`. |
 | `DELETE /api/runs/[id]` | `chat` | Cancel a run (ownership-gated). 404 if not found/not running. |
-| `GET /api/conversations/[id]/active-run` | `read` | Poll the conversation's active run (runId, status, `partialResponse`, pending gates, `stalenessMs`). **No ownership check — see gotchas.** |
-| `POST /api/conversations/[id]/active-run` | `chat` | `{ action: "cancel" \| "force-cancel" }` — cancel in-memory (`path: "memory"`) or DB-fallback force-cancel (`path: "db-fallback"`). **No ownership check — see gotchas.** |
+| `GET /api/conversations/[id]/active-run` | `read` | Poll the conversation's active run (runId, status, `partialResponse`, pending gates, `stalenessMs`). Root-walk ownership-gated; fail-closed **404**. |
+| `POST /api/conversations/[id]/active-run` | `chat` | `{ action: "cancel" \| "force-cancel" }` — cancel in-memory (`path: "memory"`) or DB-fallback force-cancel (`path: "db-fallback"`). Root-walk ownership-gated; fail-closed **404**. Body is `.strict()`, so an unknown action is a **400**. |
 
 ### UI entry points
 
@@ -110,7 +110,8 @@ All three call sites share one `backgroundFetch` key (`active-run:<convId>`) so 
 - `src/types.ts` — `AgentStatus`, `AgentRun`, `AgentEvents` (`run:start`/`complete`/`error`/`cancel`/`status`/`token`/`usage`).
 - `web/src/routes/api/runs/+server.ts` — `GET` list (per-user IDOR scope).
 - `web/src/routes/api/runs/[id]/+server.ts` — `GET` (fetch / `?wait=1`) + `DELETE` (cancel); `callerOwnsRun` ownership.
-- `web/src/routes/api/conversations/[id]/active-run/+server.ts` — `GET` poll + `POST` cancel/force-cancel (no ownership check).
+- `web/src/routes/api/conversations/[id]/active-run/+server.ts` — `GET` poll + `POST` cancel/force-cancel, both root-walk ownership-gated.
+- `web/src/lib/server/conversation-ownership.ts` — `resolveRootConversationForOwnership`: the shared parent-walk ownership resolver (`MAX_PARENT_DEPTH`, admin bypass, fail-closed `null` → 404).
 - `web/src/lib/chat/page-handlers/stream-resume.svelte.ts` — `attachStreamResume`: resume, WS-reconnect re-check, zombie/staleness timers.
 - `web/src/lib/chat/reconcile-stream.ts` — pure snapshot helpers (`recordSnapshot`, `patchAssistantContentFromStream`, `snapshotToMaps`, `clearSnapshot`).
 - `web/src/lib/chat/reconcile-after-stream.ts` — `runReconcileAfterStream`: refetch + back-fill the last empty assistant row.
@@ -137,7 +138,7 @@ None yet — this is the primary reference. (See [harness-contract](../../harnes
 
 ## Notes & gotchas
 
-- **Active-run IDOR (OPEN).** `GET`/`POST /api/conversations/[id]/active-run` only call `requireScope` + `requireAuth` — there is **no** conversation-ownership check. SvelteKit does not wrap a child `+server.ts` in a parent guard, so any authenticated user can poll another tenant's live run (leaking `partialResponse` + pending gates) or cancel/force-cancel it cross-tenant. Contrast `/api/runs/[id]`, which **does** gate ownership via `callerOwnsRun`. Treat this as a known open finding, not fixed.
+- **Active-run IDOR — FIXED (was OPEN).** `GET`/`POST /api/conversations/[id]/active-run` now call `resolveRootConversationForOwnership(params.id, user)` after `requireScope` + `requireAuth`, returning a fail-closed **404** on an unowned conversation (fixed in `20adfe86`, PR #12). The guard **walks to the root conversation**, so a sub-conversation authorizes against its owning root rather than its own `userId` — which is what makes agent/team sub-runs pollable by the owner and nobody else. Unowned rows (`userId = null`) are admin-only, and a dangling parent ref stops the walk and authorizes against the furthest resolvable ancestor (no access leaked). The reason this needed an explicit guard at all still holds and is worth remembering: **SvelteKit does not wrap a child `+server.ts` in a parent guard**, so every child route under `/api/conversations/[id]/` must gate ownership itself.
 - **Two tables can diverge; `finalizeRunRow` is the convergence point.** A wedged/leaked promise skips `finalizeCleanup` (the chat path's terminal `updateRun` caller), so without `finalizeRunRow` the `runs` row stays `running` forever while `active_runs` is interrupted. Every kill path (watchdog, `cancelRun`, setup error, boot reconciliation) funnels through it; it's idempotent (`WHERE status='running'`).
 - **One error bubble per run.** The `errorMessagePersisted` set is shared between the watchdog trip and the `finalizeError`/`finalizeSetupError` paths. The first writer claims the runId synchronously; the others skip — without it a watchdog kill whose await later unblocks renders two error bubbles.
 - **Idle window is model-aware and tick-resolved.** Never assume 90s. Reasoning models silently think far longer; the threshold is resolved from `Agent.state.model.reasoning` + thinking level on **every tick**, so a mid-run model switch is honored. There is no hardcoded model list — new reasoning models inherit the wide window automatically.

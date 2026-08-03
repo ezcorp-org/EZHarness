@@ -38,14 +38,14 @@ Extensions are EZCorp's primary extensibility surface — user-built packages th
 
 `packages/@ezcorp/sdk/package.json` exports four subpaths (Bun resolves `./src/*.ts` directly; published consumers get `./dist`):
 
-- **`.`** — manifest types, `defineExtension`, `scaffoldExtension`/`EXT_TYPES` (`src/index.ts`).
-- **`./runtime`** — host-mediated runtime helpers used inside a tool subprocess (`src/runtime/index.ts`): `getChannel`/`JsonRpcError`, `createToolDispatcher`/`toolResult`/`toolError`, host-mediated fs (`fsRead`/`fsWrite`/`fsList`/…), `withLock`, `fetchPermitted`, `Storage`, `Memory`, `Lessons`, `Llm`, `Search`, `Schedule`, `AgentConfigs`, `TaskEvents`, `Events`, `spawnAssignment`, `cancelRun`, `PageBuilder`/`PanelBuilder`/`createCanvas`, `getSetting`, `registerLifecycleHook`, and the `defineLoop` loop primitive.
+- **`.`** — manifest types, `defineExtension`, `scaffoldExtension`/`EXT_TYPES` (`packages/@ezcorp/sdk/src/index.ts`).
+- **`./runtime`** — host-mediated runtime helpers used inside a tool subprocess (`packages/@ezcorp/sdk/src/runtime/index.ts`): `getChannel`/`JsonRpcError`, `createToolDispatcher`/`toolResult`/`toolError`, host-mediated fs (`fsRead`/`fsWrite`/`fsList`/…), `withLock`, `fetchPermitted`, `Storage`, `Memory`, `Lessons`, `Llm`, `Search`, `Schedule`, `AgentConfigs`, `TaskEvents`, `Events`, `spawnAssignment`, `cancelRun`, `PageBuilder`/`PanelBuilder`/`createCanvas`, `getSetting`, `registerLifecycleHook`, and the `defineLoop` loop primitive.
 - **`./entities`** — entity declaration/validation + auto-CRUD tool generation (`buildEntityToolMap`, `buildEntityToolDefinitions`, `validateRecord`, slug helpers). There is **no `defineEntity` function** — entity types are declared declaratively via the manifest's `entities[]` array, and the host auto-generates 5 CRUD tools per declaration (`list_<plural>`, `get_<sing>`, `create_<sing>`, `update_<sing>`, `delete_<sing>`).
 - **`./test`** — a placeholder barrel today (empty export); the published `./test` map entry is reserved for the test harness.
 
 ### Capabilities & reverse-RPC
 
-A tool subprocess never gets raw OS access. It calls host services back over the **same stdio channel** via reverse-RPC methods the host routes in `src/extensions/tool-executor.ts` (`ezcorp/storage`, `ezcorp/memory`, `ezcorp/lessons`, `ezcorp/append-message`, `ezcorp/spawn-assignment`, `ezcorp/llm-complete`, `ezcorp/drafts`, …). Each method is gated by a declared permission (`storage: true`, `spawnAgents: { maxPerHour }`, etc.). The SDK runtime wrappers (`Storage`, `Memory`, `spawnAssignment`, …) are thin clients over these methods.
+A tool subprocess never gets raw OS access. It calls host services back over the **same stdio channel** via reverse-RPC methods the host routes in `src/extensions/tool-executor/rpc-handlers.ts` (`ezcorp/storage`, `ezcorp/memory`, `ezcorp/lessons`, `ezcorp/append-message`, `ezcorp/spawn-assignment`, `ezcorp/llm-complete`, `ezcorp/drafts`, …). Each method is gated by a declared permission (`storage: true`, `spawnAgents: { maxPerHour }`, etc.). The SDK runtime wrappers (`Storage`, `Memory`, `spawnAssignment`, …) are thin clients over these methods.
 
 ### The deterministic acceptance gate (`verify`)
 
@@ -123,7 +123,7 @@ Tool servers read newline-delimited JSON-RPC 2.0 on stdin and write one JSON obj
 - `src/extensions/loader.ts` — `loadManifest`/`loadManifestFresh`.
 - `src/extensions/installer.ts` — `installFromLocal`, `installWithDependencies`, update/remove.
 - `src/extensions/clamp-permissions.ts` — `checkEnvKeyLeakInstallGate` (the `_API_KEY|TOKEN|SECRET` gate) + permission clamping.
-- `src/extensions/tool-executor.ts` — host-side reverse-RPC router (`ezcorp/storage`, `ezcorp/spawn-assignment`, …).
+- `src/extensions/tool-executor/rpc-handlers.ts` — host-side reverse-RPC method table + handlers (`ezcorp/storage`, `ezcorp/spawn-assignment`, …); wired onto the child channel by `ensureSubprocessRpcWired` in `src/extensions/tool-executor/executor.ts`.
 - `src/extensions/bundled.ts` — `BUNDLED_EXTENSIONS` (24 boot-wired entries).
 - `docs/extensions/AUTHORING.md` — the canonical authoring contract (consulted by the `extension-author` tools).
 

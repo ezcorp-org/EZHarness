@@ -13,7 +13,7 @@
  *     (`running`, `suspended`)
  *   • {@link terminalizeOrphanedWorkflowRuns} — boot sweep
  */
-import { and, desc, eq, gte, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, lt, lte, or, sql, type SQL } from "drizzle-orm";
 import { getDb } from "../connection";
 import { workflowRuns, workflowStepRuns, type TruncatedStepOutput } from "../schema";
 import type { AgentResult, WorkflowCursor, WorkflowRunStatus } from "../../types";
@@ -21,7 +21,10 @@ import {
   isTruncatedStepOutput,
   MAX_STEP_OUTPUT_BYTES,
 } from "../../runtime/workflow-step-output";
+import { logger } from "../../logger";
 import { stepCostUsd } from "../../runtime/workflow-step-cost";
+
+const log = logger.child("workflow.runs");
 
 /**
  * Terminal statuses a workflow run may be finalized into.
@@ -882,6 +885,49 @@ export async function renewWorkflowRunLeases(
  * Returns the number of claims released.
  */
 export async function releaseWorkflowRunClaims(claimedBy: string): Promise<number> {
+  return releaseBoundaryClaims(claimedBy);
+}
+
+/**
+ * Hand back ONE claim, by run id.
+ *
+ * The single-run twin of {@link releaseWorkflowRunClaims}, for a daemon
+ * that claimed a run and then could not take it anywhere — a resume
+ * refused TRANSIENTLY, the pending-approval gate above all. Holding the
+ * claim after that would leave the row at `running` for a full lease
+ * period, and `answerApproval` refuses a run that is not `suspended`: the
+ * daemon would have locked the human out of the very decision it was
+ * waiting for.
+ *
+ * Scoped to one id rather than reusing the plural form, which would yank
+ * the claims of every OTHER resume this instance has in flight — they
+ * sit at `boundary` between batches, so they match its WHERE exactly.
+ *
+ * Every other guarantee is the plural one's, because it is the same
+ * predicate: only this instance's claims, only a run still `running`,
+ * only at a `boundary`.
+ *
+ * Returns 1 if the claim was released, 0 if there was nothing to release.
+ */
+export async function releaseWorkflowRunClaim(
+  workflowRunId: string,
+  claimedBy: string,
+): Promise<number> {
+  return releaseBoundaryClaims(claimedBy, workflowRunId);
+}
+
+/**
+ * The one predicate both release forms use — see
+ * {@link releaseWorkflowRunClaims} for what each conjunct is protecting.
+ *
+ * Shared rather than duplicated because the `run_phase='boundary'`
+ * condition is the load-bearing one: a copy that lost it would hand a run
+ * with side effects in flight to a second process.
+ */
+async function releaseBoundaryClaims(
+  claimedBy: string,
+  workflowRunId?: string,
+): Promise<number> {
   const rows = await getDb()
     .update(workflowRuns)
     .set({ status: "suspended", claimedBy: null, leaseExpiresAt: null })
@@ -890,8 +936,81 @@ export async function releaseWorkflowRunClaims(claimedBy: string): Promise<numbe
         eq(workflowRuns.claimedBy, claimedBy),
         eq(workflowRuns.status, "running"),
         eq(workflowRuns.runPhase, "boundary"),
+        ...(workflowRunId !== undefined ? [eq(workflowRuns.id, workflowRunId)] : []),
       ),
     )
     .returning({ id: workflowRuns.id });
   return rows.length;
+}
+
+/**
+ * One-shot, idempotent repair for runs the daemon bricked.
+ *
+ * ## What went wrong, and why these rows are recoverable
+ *
+ * Winning {@link claimWorkflowRun}'s CAS is the `suspended → running`
+ * transition, and `WorkflowRunner` re-reads the row after claiming it. So
+ * every run the daemon claimed reached `resumeWorkflow` reading `running`,
+ * and a bare `status !== "suspended"` guard terminalized it `error` with
+ * `not-resumable` before the pending-approval check could protect it. The
+ * daemon wakes every ~5s, so approval-parked runs died within one wake
+ * interval and their prompts became unanswerable forever.
+ *
+ * Only three columns were overwritten — `finalizeWorkflowRunRow` writes
+ * `status`, `finished_at` and `result` and nothing else. The `cursor`,
+ * `run_phase`, `suspended_reason`, every `workflow_step_runs` row and the
+ * still-`pending` `workflow_approvals` row all survived, which is what
+ * makes this a repair rather than a resurrection: the run's position is
+ * intact and it continues from exactly where the human left it.
+ *
+ * ## The selection, and why each conjunct is load-bearing
+ *
+ * A migration that revived a genuinely failed run would be a worse bug
+ * than the one it fixes, so this matches the defect's signature and
+ * nothing else:
+ *
+ *   - `status = 'error'` — what the guard wrote.
+ *   - `result->'error'->>'code' = 'not-resumable'` — the PRIMARY
+ *     discriminator. That code reaches a run row from exactly one place,
+ *     `refuseTerminal("not-resumable", …)` in `workflow-executor.ts`.
+ *     `workflow-run-control.ts` also names the string, but only as a
+ *     `RunControlCode` RETURNED to its caller; it never writes it to a
+ *     row. No real workflow failure carries it.
+ *   - the message mentions `is running, not suspended` — narrows to the
+ *     claim race specifically. The same guard also (correctly) refuses a
+ *     run that was genuinely `success`/`cancelled`/`awaiting_approval`,
+ *     and those must stay exactly as they are.
+ *   - `run_phase = 'boundary'` — the SAFETY conjunct, and the same
+ *     judgement {@link terminalizeOrphanedWorkflowRuns} makes. It means
+ *     nothing was in flight, so returning the run to `suspended` cannot
+ *     re-enter a half-executed step. An `in-batch` row is never touched.
+ *   - `cursor IS NOT NULL` and `suspended_reason IS NOT NULL` — it really
+ *     was parked, and there is a position to resume from. A run that
+ *     failed before ever parking has neither.
+ *
+ * Safe to re-run: after the code fix nothing produces this signature
+ * again, and a second pass matches zero rows.
+ *
+ * Returns the number of runs repaired.
+ */
+export async function repairDaemonBrickedWorkflowRuns(
+  executor: { execute: (q: SQL) => Promise<unknown> } = getDb(),
+): Promise<number> {
+  const rows = (await executor.execute(sql`
+    UPDATE workflow_runs
+       SET status = 'suspended', finished_at = NULL, result = NULL,
+           claimed_by = NULL, lease_expires_at = NULL
+     WHERE status = 'error'
+       AND result -> 'error' ->> 'code' = 'not-resumable'
+       AND result -> 'error' ->> 'message' LIKE '%is running, not suspended%'
+       AND run_phase = 'boundary'
+       AND cursor IS NOT NULL
+       AND suspended_reason IS NOT NULL
+     RETURNING id
+  `)) as { rows?: unknown[] } | unknown[];
+  const repaired = Array.isArray(rows) ? rows.length : (rows.rows?.length ?? 0);
+  if (repaired > 0) {
+    log.warn("repaired workflow runs terminalized by the daemon claim race", { repaired });
+  }
+  return repaired;
 }
