@@ -7,6 +7,7 @@
 
 import type { ApiKeyScope } from "$lib/server/security/api-keys";
 import { verifyApiKey } from "$lib/server/security/api-keys";
+import type { AuthMethod } from "$server/auth/types";
 import {
   INTERNAL_KEY_PREFIX,
   verifyInternalKey,
@@ -29,6 +30,11 @@ export interface BearerAuthEvent {
   locals: {
     user?: { id: string; email: string; name: string; role: string };
     apiKeyScopes?: ApiKeyScope[];
+    /** Stamped by this module on success so downstream gates can allowlist
+     *  the auth METHOD rather than infer it. Neither branch here is ever a
+     *  human at a browser, so neither may clear a consent gate — see
+     *  `requireSessionAuth` in `src/auth/middleware.ts`. */
+    authMethod?: AuthMethod;
   };
   /** Remote IP as reported by the adapter; SvelteKit's `getClientAddress()`
    *  on the Bun adapter returns the direct socket peer. Critically: when
@@ -144,6 +150,7 @@ export async function attachBearerAuth(
       role: "member",
     };
     event.locals.apiKeyScopes = [...principal.scopes];
+    event.locals.authMethod = "internal";
     return true;
   }
 
@@ -180,6 +187,7 @@ export async function attachBearerAuth(
       role: effectiveRole,
     };
     event.locals.apiKeyScopes = keyData.scopes;
+    event.locals.authMethod = "api-key";
     return true;
   } catch {
     // DB not available (e.g., PI_SKIP_INIT for unit tests) — fall through.
