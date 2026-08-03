@@ -79,7 +79,10 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     // owner stays admin-only. The stamp used to be inert on this path —
     // the tier answered first and refused everyone but an admin, so a
     // non-admin's own workflow was uneditable the moment it was created.
-    // See `authorizeWorkflow` in `src/runtime/workflow-scope.ts`.
+    // The rung itself is in `src/runtime/workflow-scope.ts`, which this
+    // route reaches only through `$lib/server/workflow-access` — naming
+    // the ladder's own functions here is a grep-contract violation, not
+    // a style preference (`workflow-route-ladder.server.test.ts`).
     //
     // Choosing `system` is still admin-only, and is refused above by
     // `denyVisibilityOr` — the tier a create DEFAULTS to and the tier a
