@@ -305,6 +305,36 @@ describe("reserved carve-out denial is NOT a security violation", () => {
     expect(rows[0]!.userId).toBe(userId);
   });
 
+  test("a missing path inside the grant is plain ENOENT — not reserved, not a violation", async () => {
+    // The third denial kind. It must NOT borrow the carve-out's -32001
+    // "reserved by the platform" message (that would break the ENOENT
+    // contract callers expect AND write a bogus audit row), and it must
+    // NOT disable.
+    const registry = ExtensionRegistry.getInstance();
+    await registry.loadFromDb();
+    const executor = new ToolExecutor(registry, createStubPermissionEngine());
+
+    const missing = join(APP_SRC, "no-such-file.ts");
+    const res = (await withProvenance((tok) =>
+      executor.handlePiFsRead(extensionId, {
+        jsonrpc: "2.0",
+        id: 7,
+        method: "ezcorp/fs.read",
+        params: { path: missing, _meta: { ezCallId: tok } },
+      }),
+    )) as JsonRpcResponse;
+
+    expect(res.error!.code).toBe(-32000);
+    expect(res.error!.message).toContain("ENOENT");
+    expect(res.error!.message).not.toContain("reserved");
+
+    expect(await isEnabled()).toBe(true);
+    expect(await getSecurityViolations(extensionId)).toHaveLength(0);
+    const db = getTestDb();
+    const rows = await db.select().from(auditLog).where(eq(auditLog.action, "ext:perm:denied"));
+    expect(rows).toHaveLength(0);
+  });
+
   test("write-side: mkdir inside the reserved dir denies without disabling", async () => {
     const registry = ExtensionRegistry.getInstance();
     await registry.loadFromDb();
@@ -345,6 +375,52 @@ describe("reserved carve-out denial is NOT a security violation", () => {
     expect(res.error!.code).toBe(-32001);
     expect(await isEnabled()).toBe(true);
     expect(await getSecurityViolations(extensionId)).toHaveLength(0);
+  });
+});
+
+describe("the deprecated `ezcorp/fs` path-check shim makes the same distinction", () => {
+  // The shim is a SECOND, older code path to `denyAndDisable`. Leaving
+  // the conflation there would keep the bug alive for any extension
+  // still on the pre-Phase-3 API.
+  const shimReq = (operation: string, path: string): JsonRpcRequest => ({
+    jsonrpc: "2.0",
+    id: 9,
+    method: "ezcorp/fs",
+    params: { operation, path },
+  });
+
+  test("a reserved-dir check denies without disabling, and is audited", async () => {
+    const registry = ExtensionRegistry.getInstance();
+    await registry.loadFromDb();
+    const executor = new ToolExecutor(registry, createStubPermissionEngine());
+
+    const res = await executor.handlePiFs(extensionId, shimReq("read", RESERVED_DB_DIR));
+
+    expect(res.error!.code).toBe(-32001);
+    expect(res.error!.message).not.toContain("disabled");
+    expect(await isEnabled()).toBe(true);
+    expect(await getSecurityViolations(extensionId)).toHaveLength(0);
+
+    const db = getTestDb();
+    const rows = await db.select().from(auditLog).where(eq(auditLog.action, "ext:perm:denied"));
+    expect(rows).toHaveLength(1);
+    expect((rows[0]!.metadata as Record<string, unknown>).reason).toBe("reserved-path");
+  });
+
+  test("an out-of-grant check still disables", async () => {
+    const registry = ExtensionRegistry.getInstance();
+    await registry.loadFromDb();
+    const executor = new ToolExecutor(registry, createStubPermissionEngine());
+
+    const res = await executor.handlePiFs(
+      extensionId,
+      shimReq("read", join(OUTSIDE_ROOT, "secret.txt")),
+    );
+
+    expect(res.error!.code).toBe(-32001);
+    expect(res.error!.message).toContain("disabled");
+    expect(await isEnabled()).toBe(false);
+    expect(await getSecurityViolations(extensionId)).toHaveLength(1);
   });
 });
 
