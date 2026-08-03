@@ -63,9 +63,9 @@ const { claimWorkflowRun, getWorkflowRunRow, listWorkflowStepRunRows } = await i
   "../db/queries/workflow-runs"
 );
 const { getWorkflowApproval } = await import("../db/queries/workflow-approvals");
-const { WorkflowExecutor } = await import("../runtime/workflow-executor");
+const { WorkflowExecutor, resumeClaimedRun } = await import("../runtime/workflow-executor");
 const { answerApproval } = await import("../runtime/workflow-answer-approval");
-const { resumeParkedRun } = await import("../runtime/workflow-run-control");
+const { cancelParkedRun, resumeParkedRun } = await import("../runtime/workflow-run-control");
 
 beforeAll(async () => {
   pglite = new PGlite({ extensions: { vector, pg_trgm } });
@@ -250,6 +250,57 @@ describe("resumeParkedRun takes authority before it resumes", () => {
     expect(res.ok).toBe(false);
     expect(res).toMatchObject({ code: "not-resumable" });
     expect((await getWorkflowRunRow(parked.id))?.claimedBy).toBe("inst-DAEMON");
+  });
+});
+
+describe("the re-read under the claim is what the guard actually sees", () => {
+  test("a run cancelled after the claim is refused, not resumed", async () => {
+    // Holding a claim is not the same as the run still wanting to run. The
+    // claim proves nobody ELSE is driving it; the re-read is what proves it
+    // is still alive. An operator cancelling in that window must win.
+    //
+    // This is the assertion that fails if `resumeClaimedRun` ever resumes
+    // off the row its caller already had instead of the row it re-reads —
+    // the guard consults its argument, so a stale-but-plausible
+    // `suspended` sails straight through and a cancelled run keeps
+    // executing.
+    const wf = realExecutor();
+    const parked = await wf.runWorkflow(plainWorkflow, {}, undefined, "user-1");
+    await db.execute(sql`
+      UPDATE workflow_runs
+         SET status = 'suspended', finished_at = NULL, result = NULL,
+             run_phase = 'boundary', suspended_reason = 'nested-suspended',
+             cursor = ${JSON.stringify({ batchIndex: 0, completedSteps: [], prevStepName: null })}::jsonb
+       WHERE id = ${parked.id}
+    `);
+    // Clear the step rows the setup run wrote, so anything present at the
+    // end was written by the resume under test and nothing else.
+    await db.execute(sql`DELETE FROM workflow_step_runs WHERE workflow_run_id = ${parked.id}`);
+    expect(
+      await claimWorkflowRun({ workflowRunId: parked.id, claimedBy: "inst-A", now: T0 }),
+    ).toBe(true);
+
+    // The operator cancels between the claim and the resume.
+    const cancelled = await cancelParkedRun(parked.id, { userId: "user-1" });
+    expect(cancelled.ok).toBe(true);
+    expect((await getWorkflowRunRow(parked.id))?.status).toBe("cancelled");
+
+    const run = await resumeClaimedRun(wf, plainWorkflow, parked.id, "inst-A");
+
+    // Refused — `holdsClaim` requires the row to actually read `running`,
+    // and this one reads `cancelled`.
+    expect(run?.result?.error).toMatchObject({ code: "not-resumable" });
+    // And the cancellation stands: no step ran, the row is still cancelled.
+    expect(await listWorkflowStepRunRows(parked.id)).toHaveLength(0);
+    expect((await getWorkflowRunRow(parked.id))?.status).toBe("cancelled");
+  });
+
+  test("a run deleted after the claim reports nothing to resume", async () => {
+    const wf = realExecutor();
+    const parked = await wf.runWorkflow(plainWorkflow, {}, undefined, "user-1");
+    await db.execute(sql`DELETE FROM workflow_runs WHERE id = ${parked.id}`);
+
+    expect(await resumeClaimedRun(wf, plainWorkflow, parked.id, "inst-A")).toBeNull();
   });
 });
 
