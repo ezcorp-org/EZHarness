@@ -4,8 +4,19 @@ import { observabilityEvents, type ObservabilityEvent } from "../schema";
 
 // ── Insert ──────────────────────────────────────────────────────────
 
+/**
+ * Record one observability event.
+ *
+ * `conversationId` is nullable and callers MUST pass it through
+ * {@link persistableConversationId} rather than forwarding a raw scope
+ * key: a workflow tool step's coordinate is the synthetic
+ * `workflow-run:<id>`, which matches no `conversations` row and used to
+ * make this insert fail the FK on every single call. The run it belongs
+ * to is folded into `data.workflowRunId` instead, which is a column that
+ * can actually hold it.
+ */
 export async function insertObservabilityEvent(data: {
-  conversationId: string;
+  conversationId: string | null;
   messageId?: string;
   eventType: string;
   data: Record<string, unknown>;
