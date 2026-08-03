@@ -165,6 +165,86 @@ describe("admin-gate pairing (FINDING A regression guard)", () => {
   });
 });
 
+describe("thrown-Response denials (500-instead-of-403 regression guard)", () => {
+  // `requireRole`/`requireAuth` signal denial by THROWING a `Response`.
+  // SvelteKit does not recognise a thrown Response from a `+server.ts`
+  // handler: it treats it as an unhandled error, runs `handleError`, and
+  // answers the caller with a generic 500 `{"message":"Internal Error"}`.
+  // So a handler that calls the throwing role gate directly returns 500 to
+  // every caller that trips it — never the intended 401/403.
+  //
+  // That shipped: `POST /api/extensions/[id]/reapprove-drift` answered 500 to
+  // an API key minted without `--role admin`, and 20 more routes had the same
+  // defect. It survived review because the route suites asserted denial with
+  // `try { await POST(e); expect.fail("should have thrown") } catch { … }`,
+  // which PINS the bug as the contract (see `fixtures/expect-denied.ts`).
+  //
+  // The sanctioned non-throwing gates all RETURN their denial Response:
+  //   - `checkRole(locals,"admin")`  → AuthUser | Response  (role + admin scope)
+  //   - `requireAdmin(locals)`       → Response | null      (role only)
+  // A route may still call the throwing `requireRole` PROVIDED it converts the
+  // throw itself, which is the pre-existing
+  // `catch (e) { if (e instanceof Response) return e; }` idiom.
+  //
+  // This is a static scan, so it fails the whole CLASS rather than one
+  // instance. `requireAuth` is deliberately NOT scanned: its denial fires only
+  // when `locals.user` is unset, and `hooks.server.ts` answers every
+  // unauthenticated `/api/*` request with 401 before the handler runs — so
+  // unlike the role gates it is not reachable by a real caller.
+  const ROLE_THROW = /requireRole\s*\(\s*\w+\s*,/;
+  const CONVERTS_THROW = /if\s*\(\s*\w+\s+instanceof\s+Response\s*\)\s*return\s+\w+/;
+
+  /** Drop block + line comments so a mention in prose isn't read as a call. */
+  function stripComments(src: string): string {
+    return src
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .split("\n")
+      .map((l) => l.replace(/(^|[^:"'`])\/\/.*$/, "$1"))
+      .join("\n");
+  }
+
+  test("no +server.ts throws its role-gate denial without converting it", () => {
+    const offenders: string[] = [];
+    const glob = new Glob("api/**/+server.ts");
+    for (const rel of glob.scanSync(routesDir)) {
+      const src = stripComments(readFileSync(`${routesDir}/${rel}`, "utf8"));
+      if (!ROLE_THROW.test(src)) continue;
+      if (CONVERTS_THROW.test(src)) continue;
+      offenders.push(rel);
+    }
+    // No frozen baseline on purpose: the sweep that added this guard fixed
+    // every offender, so the correct value is EMPTY. A baseline here would be
+    // a standing licence to ship 500s where a 403 was meant.
+    expect(offenders).toEqual([]);
+  });
+
+  test("the scan matches the shapes it relies on (self-check)", () => {
+    // Guards against a regex typo silently passing the test above by never
+    // matching anything — the same vacuous-pass hazard the admin-gate scan
+    // above defends with its own self-check.
+    const offending = `const admin = requireRole(locals, "admin");`;
+    const converted =
+      `try { requireRole(locals, "admin"); } catch (e) { if (e instanceof Response) return e; throw e; }`;
+    const nonThrowing = `const admin = checkRole(locals, "admin"); if (admin instanceof Response) return admin;`;
+    expect(ROLE_THROW.test(offending)).toBe(true);
+    expect(CONVERTS_THROW.test(offending)).toBe(false);
+    expect(ROLE_THROW.test(converted)).toBe(true);
+    expect(CONVERTS_THROW.test(converted)).toBe(true);
+    // checkRole is not the throwing gate, so it must not trip ROLE_THROW at all.
+    expect(ROLE_THROW.test(nonThrowing)).toBe(false);
+    expect(CONVERTS_THROW.test(nonThrowing)).toBe(true);
+    // Prose mentioning the gate in a comment must not count as a call site.
+    expect(ROLE_THROW.test(stripComments(`// gate: requireRole(locals, "admin")`))).toBe(false);
+    expect(ROLE_THROW.test(stripComments(`/** requireRole(locals, "admin") */`))).toBe(false);
+  });
+
+  test("the scan actually visits route files (guards a vacuous pass)", () => {
+    // An empty/failed glob would make the offenders test pass for every route.
+    const seen = [...new Glob("api/**/+server.ts").scanSync(routesDir)];
+    expect(seen.length).toBeGreaterThan(100);
+  });
+});
+
 describe("registry ⇄ filesystem parity", () => {
   const controlDisk = disk.filter((r) => !r.path.startsWith("/api/__test/"));
   const diskKeys = new Set(controlDisk.map((r) => `${r.method} ${r.path}`));

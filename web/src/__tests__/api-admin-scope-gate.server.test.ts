@@ -287,6 +287,16 @@ describe("F2 — admin routes enforce the SCOPE axis, not just ROLE", () => {
 
   // F6: `requireRole` throws a raw Response, which SvelteKit renders as a
   // 500 rather than the intended 403. `checkRole` returns it instead.
+  //
+  // POST-MERGE NOTE: #84 swept these routes to `requireAdmin`, which also
+  // returns, so the THROW half of this assertion is now guaranteed by main —
+  // and additionally by main's static scan in `route-contract.test.ts`
+  // ("no +server.ts throws its role-gate denial without converting it").
+  // Measured: against the post-#84 baseline this test still fails, but at
+  // `expect([401,403]).toContain(200)` — the SCOPE dimension — not at
+  // `lastCallThrew`. It is kept as a runtime cross-check of the returned-shape
+  // invariant that the static scan can only assert textually; the scope axis
+  // is what it now discriminates.
   test.each(ROUTE_NAMES)("%s — denials are RETURNED, never thrown (403 not 500)", async (name) => {
     const probe = ROUTES[name];
     // Unauthenticated (401), wrong scope (403), wrong role (403) — every

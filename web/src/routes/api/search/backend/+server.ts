@@ -18,6 +18,11 @@
  * the `admin` SCOPE, so a key minted `--scopes read --role admin` cannot
  * reach these writes. Cookie sessions carry no `apiKeyScopes` and pass on
  * role alone.
+ *
+ * Like #84's `requireAdmin` the gate RETURNS its denial rather than throwing
+ * it (SvelteKit renders a thrown Response as a 500); it differs only by also
+ * demanding the `admin` scope, which deliberately narrows this route's former
+ * "no API-key scope gate" contract.
  */
 import { json } from "@sveltejs/kit";
 import { z } from "zod";

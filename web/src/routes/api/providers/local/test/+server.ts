@@ -24,8 +24,9 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	// authenticated member could drive server-side fetch() to arbitrary URLs
 	// (cloud metadata, internal services, …) — SSRF.
 	//
-	// F2: `checkRole` — see the sibling models route. Adds the `admin` SCOPE
-	// axis for key principals so a read-scoped admin-role key is refused.
+	// F2: `checkRole` — see the sibling models route. Returns its denial like
+	// #84's `requireAdmin`, and additionally demands the `admin` SCOPE so a
+	// read-scoped admin-role key is refused.
 	const admin = checkRole(locals, "admin");
 	if (admin instanceof Response) return admin;
 

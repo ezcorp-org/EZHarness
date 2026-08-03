@@ -8,6 +8,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { expectDenied } from "./fixtures/expect-denied";
 
 // McpClient mock — constructor captures args, instance methods are spied.
 const mcpConnect = vi.fn(async () => undefined);
@@ -84,17 +85,19 @@ describe("POST /api/mcp-servers", () => {
     registryReload.mockResolvedValue(undefined);
   });
 
-  // F2/F6: the gate is `checkRole`, which RETURNS its denial. A thrown
-  // Response is rendered by SvelteKit as a 500, so returning is the contract.
+  // Keeps #84's `expectDenied` contract (handler must RETURN its denial).
+  // 401 rather than #84's uniform 403 for the missing-principal case: the gate
+  // is `checkRole`, which delegates to `requireRole` and so surfaces
+  // `requireAuth`'s 401 — returned, not thrown. `requireAdmin` could not tell
+  // the two apart; `checkRole` can. Unreachable in production regardless:
+  // hooks.server.ts 401s unauthenticated /api/* before the handler runs.
   test("rejects 401 when locals.user is missing", async () => {
-    const res = await POST(makeEvent({ body: validStdioBody() }));
-    expect(res).toBeInstanceOf(Response);
+    const res = await expectDenied(() => POST(makeEvent({ body: validStdioBody() })), 401);
     expect(res.status).toBe(401);
   });
 
   test("rejects 403 when caller is not admin", async () => {
-    const res = await POST(makeEvent({ locals: memberUser, body: validStdioBody() }));
-    expect(res).toBeInstanceOf(Response);
+    const res = await expectDenied(() => POST(makeEvent({ locals: memberUser, body: validStdioBody() })), 403);
     expect(res.status).toBe(403);
   });
 

@@ -206,6 +206,7 @@
   "docs/extensions/examples/task-tracking/task-dependencies.ts": 100,
   "src/search/egress.ts": 100,
   "src/search/providers.ts": 100,
+  "src/search/html-markdown.ts": 100,
   "src/search/cache.ts": 100,
   "src/search/markdown.ts": 100,
   "src/search/index.ts": 100,

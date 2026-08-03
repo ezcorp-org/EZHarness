@@ -48,10 +48,22 @@ mock.module("../../../web/src/routes/api/providers/$types", () => ({}));
 mock.module("$lib/server/security/api-keys", () => ({
   requireScope: () => null,
   verifyApiKey: async () => null,
+  // Real contract: null when the principal IS an admin, else a 403 Response.
+  // RETURNED, never thrown — a thrown Response 500s via SvelteKit.
+  requireAdmin: (locals: { user?: { role?: string } }) =>
+    locals.user?.role === "admin"
+      ? null
+      : Response.json({ error: "Admin role required" }, { status: 403 }),
 }));
 mock.module("../../../web/src/lib/server/security/api-keys", () => ({
   requireScope: () => null,
   verifyApiKey: async () => null,
+  // Real contract: null when the principal IS an admin, else a 403 Response.
+  // RETURNED, never thrown — a thrown Response 500s via SvelteKit.
+  requireAdmin: (locals: { user?: { role?: string } }) =>
+    locals.user?.role === "admin"
+      ? null
+      : Response.json({ error: "Admin role required" }, { status: 403 }),
 }));
 
 // ── Capture settings writes/deletes ──────────────────────────────
@@ -141,6 +153,14 @@ describe("sec-C5: POST /api/providers role gate", () => {
     expect(auditCalls.length).toBe(0);
   });
 
+  // 401 again, and still RETURNED (never thrown — a thrown Response is what
+  // SvelteKit renders as a 500). #84 moved this to the role-only
+  // `requireAdmin`, which cannot distinguish "no principal" from "not an
+  // admin" and so answered 403 for both. F2 moves it to `checkRole`, which
+  // delegates to `requireRole` → `requireAuth` and therefore recovers the
+  // precise 401, while ADDING the admin-scope axis `requireAdmin` lacks.
+  // Hook-unreachable either way: hooks.server.ts 401s unauthenticated
+  // /api/* before the handler runs.
   test("unauthenticated → 401, upsertSetting NOT called", async () => {
     const event = createMockEvent({
       method: "POST",
@@ -207,6 +227,7 @@ describe("sec-C5: DELETE /api/providers role gate", () => {
     expect(auditCalls.length).toBe(0);
   });
 
+  // 401, not #84's uniform 403 — see the POST case above.
   test("unauthenticated → 401, deleteSetting NOT called", async () => {
     const event = createMockEvent({
       method: "DELETE",

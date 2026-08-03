@@ -58,10 +58,11 @@ describe("POST /api/mcp-servers", () => {
         server: { transport: "stdio", name: "role-check", command: fixture.command, args: fixture.args },
       },
     });
-    // F2/F6: the gate is `checkRole`, which RETURNS its denial. A thrown
-    // Response is rendered by SvelteKit as a 500, so returning is the contract.
-    const res = (await installPOST(event)) as Response;
-    expect(res).toBeInstanceOf(Response);
+    // RETURNED, not thrown. The old try/catch asserted a THROWN Response,
+    // which SvelteKit renders as a 500 "Internal Error" — so it pinned the
+    // bug rather than the 403 it looked like it was checking. The gate here
+    // is `checkRole` (role + admin scope), which also returns.
+    const res = await installPOST(event);
     expect(res.status).toBe(403);
   });
 
@@ -183,10 +184,8 @@ describe("POST /api/mcp-servers/[id]/refresh", () => {
       user: MEMBER_USER,
       params: { id: "x" },
     });
-    // F2/F6: the gate is `checkRole`, which RETURNS its denial (see the
-    // install route above).
-    const res = (await refreshPOST(event)) as Response;
-    expect(res).toBeInstanceOf(Response);
+    // RETURNED, not thrown — see the install case above.
+    const res = await refreshPOST(event);
     expect(res.status).toBe(403);
   });
 

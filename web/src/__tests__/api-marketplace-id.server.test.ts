@@ -10,6 +10,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { expectDenied } from "./fixtures/expect-denied";
 
 vi.mock("$server/db/queries/marketplace", () => ({
 	getListingById: vi.fn(),
@@ -175,35 +176,21 @@ describe("DELETE /api/marketplace/[id]", () => {
 		vi.mocked(insertAuditEntry).mockReset();
 	});
 
-	test("unauthenticated request throws 401 Response", async () => {
-		let res: Response | undefined;
-		try {
-			await DELETE(makeEvent({ method: "DELETE", locals: {} }));
-			expect.fail("should have thrown");
-		} catch (thrown) {
-			expect(thrown).toBeInstanceOf(Response);
-			res = thrown as Response;
-		}
-		expect(res!.status).toBe(401);
+	test("unauthenticated request RETURNS 401 (not thrown → no 500)", async () => {
+		const res = await expectDenied(() => DELETE(makeEvent({ method: "DELETE", locals: {} })), 401);
+		expect(res.status).toBe(401);
 		const body = (await res!.json()) as { error?: string };
 		expect(body.error).toBe("Authentication required");
 	});
 
-	test("non-admin authenticated request throws 403 Response", async () => {
-		let res: Response | undefined;
-		try {
-			await DELETE(
-				makeEvent({
-					method: "DELETE",
-					locals: { user },
-				}),
-			);
-			expect.fail("should have thrown");
-		} catch (thrown) {
-			expect(thrown).toBeInstanceOf(Response);
-			res = thrown as Response;
-		}
-		expect(res!.status).toBe(403);
+	test("non-admin authenticated request RETURNS 403 (not thrown → no 500)", async () => {
+		const res = await expectDenied(() => DELETE(
+						makeEvent({
+							method: "DELETE",
+							locals: { user },
+						}),
+					), 403);
+		expect(res.status).toBe(403);
 		const body = (await res!.json()) as { error?: string };
 		expect(body.error).toBe("Insufficient permissions");
 	});

@@ -50,6 +50,12 @@ mock.module("$server/providers/local-model-check", () => ({
 // Mock $lib/server/security/api-keys to allow admin scope by default
 mock.module("$lib/server/security/api-keys", () => ({
   requireScope: () => null,
+  // Real contract: null when the principal IS an admin, else a 403 Response.
+  // RETURNED, never thrown — a thrown Response 500s via SvelteKit.
+  requireAdmin: (locals: { user?: { role?: string } }) =>
+    locals.user?.role === "admin"
+      ? null
+      : Response.json({ error: "Admin role required" }, { status: 403 }),
 }));
 
 // Mock $types for the route

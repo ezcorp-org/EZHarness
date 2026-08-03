@@ -12,11 +12,17 @@
 // collide, and `searchWithOutcome` (the connection-error fallback
 // wrapper) reports which provider actually served — so fallback results
 // cache under the FALLBACK's namespace and never poison the primary's.
+// `performRead` applies the SAME rule to its own chain (jina → direct via
+// `readWithOutcome`): a read served by the host-side direct reader caches
+// under `direct:*`, so the moment Jina works again the primary namespace
+// is clean rather than full of lower-quality extractions.
 
 import {
   hasOutcome,
+  hasReadOutcome,
   makeGuardedTransport,
   resolveProviders,
+  type ReadOutcome,
   type ResolvedProviders,
   type SearchOutcome,
   type SearchResult,
@@ -64,8 +70,8 @@ export interface SearchModuleOpts {
   /** Policy provider allowlist (Phase 2). When supplied, the resolved
    *  provider's name is checked BEFORE any fetch; a disallowed provider
    *  throws `ProviderNotAllowedError`. Omitted / `"all"` → no
-   *  restriction. The READER (URL fetch) is always Jina and is not
-   *  gated here — `read` egress is bounded by the SSRF guard. */
+   *  restriction. The READER CHAIN (`jina` → `direct`) is NOT gated here —
+   *  `read` egress is bounded by the SSRF guard instead. */
   allowedProviders?: string[] | "all";
 }
 
@@ -178,6 +184,12 @@ export interface ReadModuleResult {
 /**
  * Fetch a URL and return clean markdown via the resolved reader, with
  * shared caching. The reader's transport carries the SSRF guard.
+ *
+ * Mirrors `performSearch`'s fallback handling exactly: the reader chain is
+ * Jina (primary) → the host-side direct reader, `readWithOutcome` reports
+ * which one actually served, and the cache key embeds THAT name — so a
+ * fallback read is cached under `direct:*` and never poisons `jina:*`. A
+ * primary-namespace miss probes the fallback namespace before re-fetching.
  */
 export async function performRead(
   url: string,
@@ -190,19 +202,34 @@ export async function performRead(
   const { providers, cache } = await resolve(opts);
   const { reader } = providers;
 
-  const key = SearchCache.key(reader.name, "read", url, "raw");
-  const hit = cache.get(key);
-  if (hit !== undefined) {
-    return { markdown: truncate(hit, cap), providerName: reader.name, cached: true };
+  const keyFor = (provider: string): string => SearchCache.key(provider, "read", url, "raw");
+
+  const primaryHit = cache.get(keyFor(reader.name));
+  if (primaryHit !== undefined) {
+    return { markdown: truncate(primaryHit, cap), providerName: reader.name, cached: true };
   }
-  let md: string;
+  // While the primary reader is unavailable (a keyless-Jina ASN block can
+  // last indefinitely) reads land under the FALLBACK's namespace. Probe it
+  // on a primary miss so repeated reads inside the TTL are served from
+  // cache instead of re-fetching the target host every call.
+  const fallbackName = hasReadOutcome(reader) ? reader.fallbackName : undefined;
+  if (fallbackName !== undefined) {
+    const fbHit = cache.get(keyFor(fallbackName));
+    if (fbHit !== undefined) {
+      return { markdown: truncate(fbHit, cap), providerName: fallbackName, cached: true };
+    }
+  }
+
+  let outcome: ReadOutcome;
   try {
-    md = await reader.read(url);
+    outcome = hasReadOutcome(reader)
+      ? await reader.readWithOutcome(url)
+      : { providerName: reader.name, markdown: await reader.read(url) };
   } catch (err) {
     throw new Error(`Read failed via ${reader.name}: ${(err as Error).message}`);
   }
-  cache.set(key, md, READ_TTL_MS);
-  return { markdown: truncate(md, cap), providerName: reader.name, cached: false };
+  cache.set(keyFor(outcome.providerName), outcome.markdown, READ_TTL_MS);
+  return { markdown: truncate(outcome.markdown, cap), providerName: outcome.providerName, cached: false };
 }
 
 export type { SearchResult };

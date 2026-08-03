@@ -8,6 +8,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { expectDenied } from "./fixtures/expect-denied";
 
 vi.mock("$server/db/queries/marketplace-ratings", () => ({
 	getFlagHistory: vi.fn(),
@@ -54,28 +55,14 @@ describe("GET /api/marketplace/[id]/flags", () => {
 		vi.mocked(getFlagHistory).mockReset();
 	});
 
-	test("unauthenticated request throws 401 Response", async () => {
-		let res: Response | undefined;
-		try {
-			await GET(makeEvent({ locals: {} }));
-			expect.fail("should have thrown");
-		} catch (thrown) {
-			expect(thrown).toBeInstanceOf(Response);
-			res = thrown as Response;
-		}
-		expect(res!.status).toBe(401);
+	test("unauthenticated request RETURNS 401 (not thrown → no 500)", async () => {
+		const res = await expectDenied(() => GET(makeEvent({ locals: {} })), 401);
+		expect(res.status).toBe(401);
 	});
 
-	test("non-admin authenticated request throws 403 Response", async () => {
-		let res: Response | undefined;
-		try {
-			await GET(makeEvent({ locals: { user } }));
-			expect.fail("should have thrown");
-		} catch (thrown) {
-			expect(thrown).toBeInstanceOf(Response);
-			res = thrown as Response;
-		}
-		expect(res!.status).toBe(403);
+	test("non-admin authenticated request RETURNS 403 (not thrown → no 500)", async () => {
+		const res = await expectDenied(() => GET(makeEvent({ locals: { user } })), 403);
+		expect(res.status).toBe(403);
 		const body = (await res!.json()) as { error?: string };
 		expect(body.error).toBe("Insufficient permissions");
 	});
@@ -128,22 +115,15 @@ describe("PATCH /api/marketplace/[id]/flags", () => {
 		expect(vi.mocked(resolveFlag)).not.toHaveBeenCalled();
 	});
 
-	test("non-admin PATCH throws 403 Response", async () => {
-		let res: Response | undefined;
-		try {
-			await PATCH(
-				makeEvent({
-					method: "PATCH",
-					body: { flagId: "f1", action: "dismissed" },
-					locals: { user },
-				}),
-			);
-			expect.fail("should have thrown");
-		} catch (thrown) {
-			expect(thrown).toBeInstanceOf(Response);
-			res = thrown as Response;
-		}
-		expect(res!.status).toBe(403);
+	test("non-admin PATCH RETURNS 403 (not thrown → no 500)", async () => {
+		const res = await expectDenied(() => PATCH(
+						makeEvent({
+							method: "PATCH",
+							body: { flagId: "f1", action: "dismissed" },
+							locals: { user },
+						}),
+					), 403);
+		expect(res.status).toBe(403);
 	});
 
 	test("happy path action=dismissed: resolves flag and writes audit entry", async () => {

@@ -10,6 +10,7 @@
  */
 
 import { test, expect, describe } from "vitest";
+import { expectDenied } from "./fixtures/expect-denied";
 import { POST } from "../routes/api/providers/local/models/+server.ts";
 
 function makeEvent(opts: {
@@ -32,22 +33,22 @@ function makeEvent(opts: {
 const adminUser = { user: { id: "u1", email: "u@x", name: "u", role: "admin" } };
 
 describe("POST /api/providers/local/models", () => {
-  // F2/F6: the gate is `checkRole`, which RETURNS its denial. A thrown
-  // Response is rendered by SvelteKit as a 500, so returning is the contract.
+  // Keeps #84's `expectDenied` contract (handler must RETURN its denial).
+  // 401 rather than #84's uniform 403 for the missing-principal case — the
+  // gate is `checkRole`, which surfaces `requireAuth`'s 401 by returning it.
+  // Unreachable in production either way (hooks.server.ts 401s first).
   test("rejects unauthenticated callers with 401", async () => {
-    const res = await POST(makeEvent({ locals: {}, body: {} }));
-    expect(res).toBeInstanceOf(Response);
+    const res = await expectDenied(() => POST(makeEvent({ locals: {}, body: {} })), 401);
     expect(res.status).toBe(401);
   });
 
   test("rejects non-admin authenticated user with 403", async () => {
-    const res = await POST(
+    const res = await expectDenied(() => POST(
       makeEvent({
         locals: { user: { id: "u1", email: "u@x", name: "u", role: "user" } },
         body: { baseUrl: "https://api.example.com" },
       }),
-    );
-    expect(res).toBeInstanceOf(Response);
+    ), 403);
     expect(res.status).toBe(403);
   });
 

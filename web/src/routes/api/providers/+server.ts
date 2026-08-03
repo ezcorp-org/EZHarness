@@ -96,13 +96,18 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	// authenticated member could overwrite the organization's LLM API key —
 	// redirecting billing to an attacker-controlled key.
 	//
-	// F2: `checkRole`, not `requireRole`. sec-C5 closed the cookie hole but
-	// opened a key one — `requireRole` proves the PRINCIPAL is an admin and
-	// ignores what the key was SCOPED for, so a key minted
-	// `--scopes read --role admin` still reached this write. `checkRole`
-	// enforces BOTH axes (and returns the denial instead of throwing it,
-	// which SvelteKit would render as a 500). A cookie session carries no
-	// `apiKeyScopes`, so it is unaffected and still passes on role alone.
+	// F2: `checkRole`, not `requireRole` and not #84's `requireAdmin`. sec-C5
+	// closed the cookie hole but opened a key one — role alone proves the
+	// PRINCIPAL is an admin and ignores what the key was SCOPED for, so a key
+	// minted `--scopes read --role admin` still reached this write. `checkRole`
+	// enforces BOTH axes. A cookie session carries no `apiKeyScopes`, so it is
+	// unaffected and still passes on role alone.
+	//
+	// Like `requireAdmin` (#84) it RETURNS its denial rather than throwing —
+	// SvelteKit renders a thrown Response as a 500, never the intended 401/403.
+	// It differs only by ALSO demanding the `admin` scope, which deliberately
+	// narrows this route's former "no API-key scope gate" contract: this write
+	// sets the organization's LLM API key.
 	const admin = checkRole(locals, "admin");
 	if (admin instanceof Response) return admin;
 	const parsed = postBodySchema.safeParse(await request.json().catch(() => ({})));
@@ -132,8 +137,9 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 export const DELETE: RequestHandler = async ({ request, locals }) => {
 	// sec-C5: admin role required. Pre-fix, any authenticated member could
 	// delete the organization's LLM API key — DoS for every other user.
-	// F2: `checkRole` also enforces the `admin` SCOPE for key principals —
-	// see the POST handler above for the full rationale.
+	// F2: `checkRole` returns its denial (never throws → never a 500, same as
+	// #84's `requireAdmin`) AND enforces the `admin` SCOPE for key
+	// principals — see the POST handler above for the full rationale.
 	const admin = checkRole(locals, "admin");
 	if (admin instanceof Response) return admin;
 	const parsed = deleteBodySchema.safeParse(await request.json().catch(() => ({})));

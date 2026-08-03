@@ -8,6 +8,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { expectDenied } from "./fixtures/expect-denied";
 
 vi.mock("$server/db/queries/settings", () => ({
   getSetting: vi.fn(),
@@ -62,16 +63,21 @@ describe("GET /api/providers", () => {
     delete process.env.OPENROUTER_API_KEY;
   });
 
-  test("rejects 401 when locals.user is missing", async () => {
-    let res: Response | undefined;
+  // GET is gated by the THROWING `requireAuth`, deliberately left alone by the
+  // returned-denial sweep: unlike the admin ROLE gates, a `requireAuth` denial
+  // is not reachable by a real caller. `hooks.server.ts` answers every
+  // unauthenticated `/api/*` request with 401 BEFORE the handler runs, so
+  // `locals.user` is always populated here in production. This case is
+  // therefore synthetic, and the throw it asserts never reaches a client.
+  test("throws 401 when locals.user is missing (hook-unreachable path)", async () => {
+    let thrown: unknown;
     try {
       await GET(makeEvent({ method: "GET" }));
-      expect.fail("should have thrown");
-    } catch (thrown) {
-      expect(thrown).toBeInstanceOf(Response);
-      res = thrown as Response;
+    } catch (e) {
+      thrown = e;
     }
-    expect(res!.status).toBe(401);
+    expect(thrown).toBeInstanceOf(Response);
+    expect((thrown as Response).status).toBe(401);
   });
 
   test("rejects 403 when apiKeyScopes lacks 'read'", async () => {
@@ -148,28 +154,33 @@ describe("POST /api/providers", () => {
     vi.mocked(encrypt).mockClear();
   });
 
-  // F2/F6: the gate is `checkRole`, which RETURNS its denial. A thrown
-  // Response is rendered by SvelteKit as a 500, so returning is the contract.
+  // Keeps #84's `expectDenied` contract — the handler must RETURN its denial,
+  // and the helper fails loudly naming the 500 symptom if it throws.
+  //
+  // 401, not #84's uniform 403, for the missing-principal case: this branch
+  // now gates on `checkRole`, which delegates to `requireRole` and therefore
+  // surfaces `requireAuth`'s 401 — but RETURNS it instead of throwing. #84
+  // collapsed the two because `requireAdmin` cannot tell them apart; `checkRole`
+  // can, and the finer answer is the more accurate one. Hook-unreachable
+  // either way (`hooks.server.ts` 401s unauthenticated `/api/*` first).
   test("rejects 401 when locals.user is missing", async () => {
-    const res = await POST(
+    const res = await expectDenied(() => POST(
       makeEvent({
         method: "POST",
         body: { provider: "openai", apiKey: "sk-x" },
       }),
-    );
-    expect(res).toBeInstanceOf(Response);
+    ), 401);
     expect(res.status).toBe(401);
   });
 
   test("rejects 403 when caller is not admin", async () => {
-    const res = await POST(
+    const res = await expectDenied(() => POST(
       makeEvent({
         method: "POST",
         locals: memberUser,
         body: { provider: "openai", apiKey: "sk-x" },
       }),
-    );
-    expect(res).toBeInstanceOf(Response);
+    ), 403);
     expect(res.status).toBe(403);
   });
 
@@ -271,24 +282,24 @@ describe("DELETE /api/providers", () => {
     vi.mocked(insertAuditEntry).mockClear();
   });
 
-  // F2/F6: `checkRole` RETURNS its denial (a thrown Response would 500).
+  // 401, not #84's uniform 403 — see the POST case above: `checkRole` can tell
+  // "no principal" from "not an admin", so it reports the finer status, and
+  // RETURNS it (which is what `expectDenied` pins).
   test("rejects 401 when locals.user is missing", async () => {
-    const res = await DELETE(
+    const res = await expectDenied(() => DELETE(
       makeEvent({ method: "DELETE", body: { provider: "openai" } }),
-    );
-    expect(res).toBeInstanceOf(Response);
+    ), 401);
     expect(res.status).toBe(401);
   });
 
   test("rejects 403 when caller is not admin", async () => {
-    const res = await DELETE(
+    const res = await expectDenied(() => DELETE(
       makeEvent({
         method: "DELETE",
         locals: memberUser,
         body: { provider: "openai" },
       }),
-    );
-    expect(res).toBeInstanceOf(Response);
+    ), 403);
     expect(res.status).toBe(403);
   });
 

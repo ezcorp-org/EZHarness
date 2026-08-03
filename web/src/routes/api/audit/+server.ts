@@ -1,6 +1,6 @@
 import type { RequestHandler } from "./$types";
 import { json } from "@sveltejs/kit";
-import { requireAuth, requireRole } from "$server/auth/middleware";
+import { checkRole } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import { listGlobalAudit } from "$server/db/queries/audit-global";
 
@@ -27,8 +27,10 @@ import { listGlobalAudit } from "$server/db/queries/audit-global";
 export const GET: RequestHandler = async ({ url, locals }) => {
   const scopeErr = requireScope(locals, "admin");
   if (scopeErr) return scopeErr;
-  requireAuth(locals);
-  requireRole(locals, "admin");
+  // checkRole RETURNS the 401/403 Response so non-admin callers see the
+  // intended status (a thrown Response would 500 via SvelteKit).
+  const admin = checkRole(locals, "admin");
+  if (admin instanceof Response) return admin;
 
   const KNOWN_CAPS = new Set(["llm", "memory", "lessons", "schedule", "events"]);
   const cap = url.searchParams.get("capability");

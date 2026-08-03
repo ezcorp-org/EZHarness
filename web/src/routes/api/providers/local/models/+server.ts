@@ -23,11 +23,13 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	// authenticated member could drive server-side fetch() to arbitrary URLs
 	// (cloud metadata, internal services, …) — SSRF.
 	//
-	// F2: `checkRole`, not `requireRole` — the sec-H1 fix closed the cookie
-	// hole but left the key axis open, so a key minted `--scopes read --role
-	// admin` still reached this SSRF primitive. `checkRole` demands the
-	// `admin` SCOPE too (cookie sessions carry none and are unaffected) and
-	// RETURNS the denial, which SvelteKit renders as 403 rather than 500.
+	// F2: `checkRole`, not `requireRole` and not #84's `requireAdmin` — the
+	// sec-H1 fix closed the cookie hole but left the key axis open, so a key
+	// minted `--scopes read --role admin` still reached this SSRF primitive.
+	// `checkRole` demands the `admin` SCOPE too (cookie sessions carry none and
+	// are unaffected). Like `requireAdmin` it RETURNS the denial so SvelteKit
+	// renders 401/403 rather than 500; the added scope axis deliberately
+	// narrows this route's former "no API-key scope gate" contract.
 	const admin = checkRole(locals, "admin");
 	if (admin instanceof Response) return admin;
 

@@ -8,6 +8,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { expectDenied } from "./fixtures/expect-denied";
 
 vi.mock("$lib/server/security/url-validation", async () => {
   const actual = await vi.importActual<
@@ -63,24 +64,24 @@ describe("POST /api/providers/local/test", () => {
     vi.mocked(resolveAndValidateHostname).mockResolvedValue({ ok: true });
   });
 
-  // F2/F6: the gate is `checkRole`, which RETURNS its denial. A thrown
-  // Response is rendered by SvelteKit as a 500, so returning is the contract.
+  // Keeps #84's `expectDenied` contract (handler must RETURN its denial).
+  // 401 rather than #84's uniform 403 for the missing-principal case — the
+  // gate is `checkRole`, which surfaces `requireAuth`'s 401 by returning it.
+  // Unreachable in production either way (hooks.server.ts 401s first).
   test("rejects 401 when locals.user is missing", async () => {
-    const res = await POST(
+    const res = await expectDenied(() => POST(
       makeEvent({ body: { baseUrl: "https://api.example.com", modelId: "m" } }),
-    );
-    expect(res).toBeInstanceOf(Response);
+    ), 401);
     expect(res.status).toBe(401);
   });
 
   test("rejects 403 when caller is not admin", async () => {
-    const res = await POST(
+    const res = await expectDenied(() => POST(
       makeEvent({
         locals: memberUser,
         body: { baseUrl: "https://api.example.com", modelId: "m" },
       }),
-    );
-    expect(res).toBeInstanceOf(Response);
+    ), 403);
     expect(res.status).toBe(403);
   });
 

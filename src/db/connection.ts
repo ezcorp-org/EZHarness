@@ -508,6 +508,38 @@ async function withPostgresMigrateLock<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
+/** drizzle's bun-sql driver exposes the Bun.SQL client as `$client`; it closes
+ *  via `.close()` (alias `.end()`). Hoisted to a module-level type so the casts
+ *  below stay single executable lines (no multi-line type-annotation
+ *  continuation that coverage tooling attributes a spurious uncovered record). */
+type BunSqlPoolClient = { close?: () => Promise<void>; end?: () => Promise<void> };
+
+/**
+ * Drain a Bun.sql connection pool, tolerating a driver that exposes only one of
+ * the two close aliases. Best-effort by design: a close failure must never
+ * block a boot (stale-pool reclaim) or a shutdown (`closeDb`) — the worst case
+ * is the sockets die with the process, which is where we started.
+ *
+ * Shared by `closeDb()` and the stale-pool reclaim in `initPostgres()` so the
+ * two paths can never drift on which alias they try.
+ */
+async function closeBunSqlPool(client: BunSqlPoolClient | undefined): Promise<void> {
+  try {
+    if (typeof client?.close === "function") await client.close();
+    else if (typeof client?.end === "function") await client.end();
+  } catch (err) {
+    log.warn("Bun.sql pool close failed", { error: String(err) });
+  }
+}
+
+/**
+ * Registry key for the external-Postgres pool in the globalThis-anchored
+ * process-holder registry. A constant rather than the URL because
+ * `DATABASE_URL` is a module-load const — one process only ever holds one
+ * external pool — and because a registry key must not carry the DB password.
+ */
+const EXTERNAL_PG_HOLDER_KEY = "external-postgres";
+
 async function initPostgres(): Promise<void> {
   const { drizzle } = await import("drizzle-orm/bun-sql");
   const { sql } = await import("drizzle-orm");
@@ -528,8 +560,30 @@ async function initPostgres(): Promise<void> {
     if (!Number.isFinite(raw)) return 20;
     return Math.max(1, Math.min(100, Math.floor(raw)));
   })();
+  // Reclaim a pool stranded by a PRIOR instance of this module. A vite
+  // dev-server SSR reload re-instantiates `connection.ts` with fresh
+  // `let _db`/`_initPromise` bindings while the previous Bun.sql pool is still
+  // open in the SAME process. Nothing references that pool any more, but
+  // Bun.sql keeps its sockets open, so the server sees `DB_POOL_MAX` backends
+  // stuck in state `idle` forever — one stranded pool per reload, until
+  // Postgres refuses every new client with "sorry, too many clients already".
+  //
+  // `initPglite()` already closes its stale prior instance through the
+  // globalThis-anchored holder registry (globalThis survives a vite reload,
+  // module state does not); the external-Postgres path was simply never wired
+  // to the same guard. Drain BEFORE opening the replacement so peak usage
+  // stays at one pool rather than briefly two.
+  await closeStaleProcessHolder(EXTERNAL_PG_HOLDER_KEY);
+
   const db = drizzle({ connection: { url: DATABASE_URL!, max: poolMax }, schema });
   _pglite = null;
+
+  // Publish the just-opened pool so the NEXT module instance can find and drain
+  // it. The callback closes THIS `db`'s client rather than reading `_db`, so a
+  // later reassignment can never make it close the wrong pool.
+  recordProcessHolder(EXTERNAL_PG_HOLDER_KEY, async () => {
+    await closeBunSqlPool((db as { $client?: BunSqlPoolClient }).$client);
+  });
 
   // Wrap execute() so raw SQL results always return { rows: [...] }
   // bun-sql returns arrays directly, but PGlite returns { rows: [...] }.
@@ -690,12 +744,6 @@ export function getDbPath(): string {
   return DB_PATH;
 }
 
-/** drizzle's bun-sql driver exposes the Bun.SQL client as `$client`; it closes
- *  via `.close()` (alias `.end()`). Hoisted to a module-level type so the cast
- *  in closeDb() stays a single executable line (no multi-line type-annotation
- *  continuation that coverage tooling attributes a spurious uncovered record). */
-type BunSqlPoolClient = { close?: () => Promise<void>; end?: () => Promise<void> };
-
 export async function closeDb(): Promise<void> {
   if (_pglite) {
     await _pglite.close();
@@ -711,13 +759,12 @@ export async function closeDb(): Promise<void> {
     // process don't leak a full pool each time (exhausting max_connections).
     // drizzle's bun-sql driver exposes the Bun SQL client as `$client`; Bun.SQL
     // closes via `.close()` (alias `.end()`).
-    const client = (_db as { $client?: BunSqlPoolClient }).$client;
-    try {
-      if (typeof client?.close === "function") await client.close();
-      else if (typeof client?.end === "function") await client.end();
-    } catch (err) {
-      log.warn("Bun.sql pool close failed", { error: String(err) });
-    }
+    await closeBunSqlPool((_db as { $client?: BunSqlPoolClient }).$client);
+    // We just drained it ourselves, so drop the in-process claim WITHOUT
+    // closing again — mirrors the PGlite branch's clearProcessHolder(). Leaving
+    // it would hand the next initPostgres() a callback onto an already-dead
+    // pool.
+    clearProcessHolder(EXTERNAL_PG_HOLDER_KEY);
   }
   _pglite = null;
   _db = null;

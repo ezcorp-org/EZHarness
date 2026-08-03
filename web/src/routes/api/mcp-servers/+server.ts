@@ -13,8 +13,10 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   // principals, the `admin` SCOPE. An MCP server config is instance state
   // (command lines, URLs, auth headers), so a key minted `--scopes read
   // --role admin` must not be able to install one. Cookie sessions carry no
-  // `apiKeyScopes` and still pass on role alone. It also RETURNS the denial:
-  // a thrown Response is rendered by SvelteKit as a 500, not a 403.
+  // `apiKeyScopes` and still pass on role alone. Like #84's `requireAdmin` it
+  // RETURNS the denial (a thrown Response renders as a 500, not a 403) and
+  // differs only by ALSO demanding the `admin` scope — a deliberate narrowing
+  // of this route's former "no API-key scope gate" contract.
   const admin = checkRole(locals, "admin");
   if (admin instanceof Response) return admin;
 

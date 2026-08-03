@@ -8,6 +8,7 @@
  * so no PGlite / on-disk secret is touched.
  */
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { expectDenied } from "./fixtures/expect-denied";
 
 vi.mock("$server/db/queries/settings", () => ({
 	getSetting: vi.fn(),
@@ -51,17 +52,20 @@ describe("GET /api/search/backend", () => {
 		vi.mocked(getSetting).mockReset();
 	});
 
-	// F2/F6: the gate is `checkRole`, which RETURNS its denial. A thrown
-	// Response is rendered by SvelteKit as a 500, so returning is the contract.
+	// Keeps #84's `expectDenied` contract (the handler must RETURN its denial;
+	// a throw fails loudly naming the 500 symptom). 401 rather than #84's
+	// uniform 403 for the missing-principal case: the gate here is `checkRole`,
+	// which delegates to `requireRole` and so surfaces `requireAuth`'s 401 —
+	// returned, not thrown. `requireAdmin` could not distinguish the two;
+	// `checkRole` can. Unreachable in production regardless: hooks.server.ts
+	// 401s unauthenticated /api/* before the handler runs.
 	test("rejects 401 when locals.user is missing", async () => {
-		const res = await GET(makeEvent({ method: "GET" }));
-		expect(res).toBeInstanceOf(Response);
+		const res = await expectDenied(() => GET(makeEvent({ method: "GET" })), 401);
 		expect(res.status).toBe(401);
 	});
 
 	test("rejects 403 when caller is not admin", async () => {
-		const res = await GET(makeEvent({ method: "GET", locals: memberUser }));
-		expect(res).toBeInstanceOf(Response);
+		const res = await expectDenied(() => GET(makeEvent({ method: "GET", locals: memberUser })), 403);
 		expect(res.status).toBe(403);
 	});
 
@@ -104,10 +108,7 @@ describe("POST /api/search/backend", () => {
 
 	// F2/F6: `checkRole` RETURNS its denial (a thrown Response would 500).
 	test("rejects 403 when caller is not admin", async () => {
-		const res = await POST(
-			makeEvent({ method: "POST", locals: memberUser, body: { provider: "tavily", apiKey: "k" } }),
-		);
-		expect(res).toBeInstanceOf(Response);
+		const res = await expectDenied(() => POST(makeEvent({ method: "POST", locals: memberUser, body: { provider: "tavily", apiKey: "k" } })), 403);
 		expect(res.status).toBe(403);
 	});
 
@@ -191,10 +192,7 @@ describe("DELETE /api/search/backend", () => {
 
 	// F2/F6: `checkRole` RETURNS its denial (a thrown Response would 500).
 	test("rejects 403 when caller is not admin", async () => {
-		const res = await DELETE(
-			makeEvent({ method: "DELETE", locals: memberUser, body: { provider: "tavily" } }),
-		);
-		expect(res).toBeInstanceOf(Response);
+		const res = await expectDenied(() => DELETE(makeEvent({ method: "DELETE", locals: memberUser, body: { provider: "tavily" } })), 403);
 		expect(res.status).toBe(403);
 	});
 

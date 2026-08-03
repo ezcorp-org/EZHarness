@@ -12,6 +12,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { expectDenied } from "./fixtures/expect-denied";
 
 let lastClientSpec: any;
 const mcpConnect = vi.fn(async () => undefined);
@@ -108,17 +109,17 @@ describe("PUT /api/mcp-servers/[id]", () => {
     registryReload.mockResolvedValue(undefined);
   });
 
-  // F2/F6: the gate is `checkRole`, which RETURNS its denial. A thrown
-  // Response is rendered by SvelteKit as a 500, so returning is the contract.
+  // Keeps #84's `expectDenied` contract (handler must RETURN its denial).
+  // 401 rather than #84's uniform 403 for the missing-principal case — the
+  // gate is `checkRole`, which surfaces `requireAuth`'s 401 by returning it.
+  // Unreachable in production either way (hooks.server.ts 401s first).
   test("rejects 401 when locals.user is missing", async () => {
-    const res = await PUT(makeEvent({ body: validStdioBody() }));
-    expect(res).toBeInstanceOf(Response);
+    const res = await expectDenied(() => PUT(makeEvent({ body: validStdioBody() })), 401);
     expect(res.status).toBe(401);
   });
 
   test("rejects 403 when caller is not admin", async () => {
-    const res = await PUT(makeEvent({ locals: memberUser, body: validStdioBody() }));
-    expect(res).toBeInstanceOf(Response);
+    const res = await expectDenied(() => PUT(makeEvent({ locals: memberUser, body: validStdioBody() })), 403);
     expect(res.status).toBe(403);
   });
 

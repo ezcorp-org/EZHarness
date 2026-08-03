@@ -24,7 +24,8 @@ import type { RequestHandler } from "./$types";
 export const PUT: RequestHandler = async ({ params, request, locals }) => {
   // F2: admin ROLE *and* (for key principals) the `admin` SCOPE — see the
   // install route. This handler rehydrates stored auth headers, so a
-  // read-scoped key must never reach it.
+  // read-scoped key must never reach it. Returns its denial like #84's
+  // `requireAdmin`; the added scope axis is the deliberate difference.
   const admin = checkRole(locals, "admin");
   if (admin instanceof Response) return admin;
   const id = params.id;
