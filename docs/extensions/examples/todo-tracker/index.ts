@@ -23,7 +23,19 @@ const cwd = process.cwd();
 // Source-file extensions and directory exclusions, mirroring the
 // pre-migration `find` shell-out (see ezcorp.config.ts history).
 const SOURCE_EXTS = [".ts", ".js", ".svelte"] as const;
-const SKIP_DIRS = new Set(["node_modules", ".git", "dist", ".svelte-kit"]);
+// `.ezcorp` is the platform's own state directory; its `data`/`backups`
+// children are host-RESERVED and denied to every extension regardless of
+// the `$CWD` grant (src/extensions/permissions.ts). Descending it only
+// buys a denied RPC and an audit row.
+const SKIP_DIRS = new Set(["node_modules", ".git", "dist", ".svelte-kit", ".ezcorp"]);
+
+/** Skipped ONLY directly under the walk root. In the shipped Docker image
+ *  the PGlite datadir is `<root>/data/ezcorp` and its snapshot sibling
+ *  `<root>/data/backups` (Dockerfile: `EZCORP_DB_PATH=/app/data/ezcorp`,
+ *  project root `/app`) — both host-reserved. Root-anchored on purpose: a
+ *  nested `src/data/` holds ordinary source whose TODOs must still be
+ *  found. */
+const SKIP_ROOT_DIRS = new Set(["data"]);
 
 interface TodoEntry {
   file: string;
@@ -97,6 +109,7 @@ async function findSourceFiles(root: string = cwd): Promise<string[]> {
     for (const entry of entries) {
       if (entry.isDirectory) {
         if (SKIP_DIRS.has(entry.name)) continue;
+        if (dir === root && SKIP_ROOT_DIRS.has(entry.name)) continue;
         await walk(join(dir, entry.name));
       } else if (entry.isFile) {
         if (SOURCE_EXTS.some((ext) => entry.name.endsWith(ext))) {

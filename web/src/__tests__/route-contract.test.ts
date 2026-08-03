@@ -190,35 +190,200 @@ describe("registry ⇄ filesystem parity", () => {
   });
 
   // The registry is a curated (currently partial) mirror of the HTTP surface.
-  // Rather than freeze ~135 pre-existing gaps, ratchet the count: a NEW
-  // unregistered control route pushes it over the line and fails, forcing the
-  // author to register it (and so document it + expose it in OpenAPI). Lower
-  // this number as gaps close; never raise it without registering the route.
-  const BASELINE_UNREGISTERED = 130;
+  // CLAUDE.md makes registration binding for EVERY `/api/*` route, so each
+  // entry below is a STANDING VIOLATION of that invariant — frozen so the debt
+  // is individually visible and strictly bounded, rather than aggregated into a
+  // number nobody can act on.
+  //
+  // This was a COUNT ratchet (`BASELINE_UNREGISTERED`) and it failed twice in
+  // the way this guard keeps failing — something that looks like a check and
+  // isn't:
+  //   1. The baseline sat at 130 while the live count was 129, so the gate
+  //      carried a FREE SLOT: one new unregistered route could land silently
+  //      green.
+  //   2. When it did trip it could not name the offender — it dumped all ~130
+  //      unregistered routes sorted and asked the author to spot their own.
+  //   3. Earlier still, its "newly unregistered" filter was the tautology
+  //      `!diskKeys.has(k) ? false : true` (every key is built FROM
+  //      `controlDisk`, so the guard was always true), which listed everything
+  //      under a misleading label.
+  // A frozen SET closes all three: a new offender is named exactly, and the set
+  // has no slack to absorb one.
+  //
+  // TO REGISTER A ROUTE: add it to `src/api-registry.ts` AND delete its line
+  // here. Deleting the line is not optional bookkeeping — the staleness test
+  // below FAILS if an entry no longer describes an unregistered route, so this
+  // list cannot rot into a second stale artifact (which is the exact failure
+  // mode it replaces).
+  //
+  // This list may only SHRINK. Sorted; keep it sorted.
+  const KNOWN_UNREGISTERED: ReadonlySet<string> = new Set([
+    "DELETE /api/account/sessions",
+    "DELETE /api/admin/sessions",
+    "DELETE /api/agents/:id/share",
+    "DELETE /api/agents/:name/test-conversations",
+    "DELETE /api/auth/oauth/callback",
+    "DELETE /api/conversations/:id/tasks/:taskId/assign",
+    "DELETE /api/extensions/:id/entities/:type/:slug",
+    "DELETE /api/extensions/:id/settings/user",
+    "DELETE /api/extensions/author/draft/:id",
+    "DELETE /api/ez/conversation/messages",
+    "DELETE /api/lessons/:id",
+    "DELETE /api/marketplace/:id",
+    "DELETE /api/modes/:id",
+    "DELETE /api/projects/:id/features/:featureId",
+    "DELETE /api/providers",
+    "DELETE /api/search/backend",
+    "DELETE /api/settings/:key",
+    "DELETE /api/settings/developer",
+    "DELETE /api/settings/developer/api-keys",
+    "DELETE /api/teams/:id/members",
+    "DELETE /api/user-commands/:name",
+    "DELETE /api/workflows/:name",
+    "GET /api/account/login-history",
+    "GET /api/account/sessions",
+    "GET /api/active-agents",
+    "GET /api/admin/analytics",
+    "GET /api/admin/embed-progress",
+    "GET /api/admin/errors",
+    "GET /api/admin/sessions",
+    "GET /api/admin/system",
+    "GET /api/agents/:id/share",
+    "GET /api/attachments/:id",
+    "GET /api/audit",
+    "GET /api/audit/stats",
+    "GET /api/auth/invite",
+    "GET /api/auth/invite/:token",
+    "GET /api/auth/ping",
+    "GET /api/conversations/:id/active-run",
+    "GET /api/conversations/:id/audit",
+    "GET /api/conversations/:id/extension-toolbar",
+    "GET /api/conversations/:id/sub-conversations",
+    "GET /api/conversations/:id/tasks",
+    "GET /api/conversations/:id/tasks/:taskId/messages",
+    "GET /api/conversations/:id/team/:agentConfigId/messages",
+    "GET /api/docs",
+    "GET /api/ext-files/:name/:path",
+    "GET /api/extensions/:id/audit",
+    "GET /api/extensions/:id/audit/stats",
+    "GET /api/extensions/:id/entities/:type",
+    "GET /api/extensions/:id/entities/:type/:slug",
+    "GET /api/extensions/:id/expired-grants",
+    "GET /api/extensions/:id/settings",
+    "GET /api/extensions/:name/data/:path",
+    "GET /api/ez/conversation",
+    "GET /api/ez/drafts/:id",
+    "GET /api/hub/pages",
+    "GET /api/hub/pages/:id",
+    "GET /api/lessons",
+    "GET /api/marketplace/categories",
+    "GET /api/models/capabilities",
+    "GET /api/modes",
+    "GET /api/modes/:id",
+    "GET /api/projects/:id/features",
+    "GET /api/projects/:id/features/:featureId",
+    "GET /api/projects/:id/tool-permission-mode",
+    "GET /api/ready",
+    "GET /api/search/backend",
+    "GET /api/settings/developer/api-keys",
+    "GET /api/user-commands",
+    "GET /api/user-commands/:name",
+    "GET /api/user/agent-picker",
+    "GET /api/version",
+    "PATCH /api/conversations/:id/messages/:mid",
+    "PATCH /api/lessons/:id",
+    "PATCH /api/marketplace/:id/flags",
+    "PATCH /api/memories/:id",
+    "PATCH /api/projects/:id/features/:featureId",
+    "PATCH /api/user-commands/:name",
+    "POST /api/ask-user/answer",
+    "POST /api/auth/oauth/callback",
+    "POST /api/conversations/:id/agent-chat",
+    "POST /api/conversations/:id/clone-turns",
+    "POST /api/conversations/:id/tasks/:taskId/assign",
+    "POST /api/conversations/:id/tasks/:taskId/assignments/:assignmentId/start",
+    "POST /api/conversations/:id/tasks/:taskId/assignments/:assignmentId/stop",
+    "POST /api/conversations/:id/tasks/:taskId/retry",
+    "POST /api/conversations/:id/tool-results",
+    "POST /api/extensions/:id/entities/:type",
+    "POST /api/extensions/:id/modifiable",
+    "POST /api/extensions/:id/reapprove",
+    "POST /api/extensions/:id/reopen",
+    "POST /api/extensions/:name/events/:event",
+    "POST /api/extensions/:name/uploads",
+    "POST /api/extensions/author/draft/:id/validate",
+    "POST /api/extensions/author/install",
+    "POST /api/ez-actions/:name",
+    "POST /api/ez/conversation",
+    "POST /api/ez/drafts/:id",
+    "POST /api/ez/drafts/:id/consume",
+    "POST /api/fs/mkdir",
+    "POST /api/import/commit",
+    "POST /api/import/preview",
+    "POST /api/mcp-servers",
+    "POST /api/mcp-servers/:id/refresh",
+    "POST /api/modes",
+    "POST /api/onboarding/complete",
+    "POST /api/preview/:id/token",
+    "POST /api/preview/consent",
+    "POST /api/projects/:id/features",
+    "POST /api/projects/:id/features/scan",
+    "POST /api/providers",
+    "POST /api/providers/local/models",
+    "POST /api/providers/local/test",
+    "POST /api/search/backend",
+    "POST /api/settings/developer",
+    "POST /api/user-commands",
+    "POST /api/warmup",
+    "POST /api/workflows",
+    "PUT /api/conversations/:id",
+    "PUT /api/extensions/:id/entities/:type/:slug",
+    "PUT /api/extensions/:id/settings/user",
+    "PUT /api/extensions/author/draft/:id",
+    "PUT /api/mcp-servers/:id",
+    "PUT /api/modes/:id",
+    "PUT /api/user/agent-picker",
+    "PUT /api/users/:id",
+    "PUT /api/workflows/:name",
+  ]);
 
-  test("unregistered control-route count does not grow (ratchet)", () => {
+  /** Every control route on disk that the registry does not describe. */
+  function currentlyUnregistered(): Set<string> {
     const registered = new Set(registeredKeys);
-    const unregistered = controlDisk
-      .map((r) => `${r.method} ${r.path}`)
-      .filter((k) => !registered.has(k));
-    if (unregistered.length > BASELINE_UNREGISTERED) {
-      // Only a COUNT baseline is stored (not a frozen set), so the specific new
-      // offender can't be isolated by name — surface every currently
-      // unregistered control route (sorted) plus how many the count rose by, so
-      // the author can spot the one they just added. The previous
-      // `!diskKeys.has(k) ? false : true` filter was a tautology (every
-      // `unregistered` key is built from `controlDisk`, so `diskKeys.has(k)` is
-      // always true) that silently listed everything under a misleading "newly".
-      const overBy = unregistered.length - BASELINE_UNREGISTERED;
-      const listing = [...unregistered].sort();
-      throw new Error(
-        `Unregistered control routes rose to ${unregistered.length} ` +
-        `(baseline ${BASELINE_UNREGISTERED}, ${overBy} over). Register new /api/* routes ` +
-        `in src/api-registry.ts (see docs/harness-contract.md).\n` +
-        `Currently-unregistered control routes (the new one is among these):\n${listing.join("\n")}`,
-      );
-    }
-    expect(unregistered.length).toBeLessThanOrEqual(BASELINE_UNREGISTERED);
+    return new Set(
+      controlDisk
+        .map((r) => `${r.method} ${r.path}`)
+        .filter((k) => !registered.has(k)),
+    );
+  }
+
+  test("no NEW unregistered control route (frozen set names the offender)", () => {
+    // Exact diff: the route(s) that are unregistered AND absent from the frozen
+    // debt list. The author sees their own route and nothing else — the whole
+    // point of moving off the count baseline.
+    const novel = [...currentlyUnregistered()]
+      .filter((k) => !KNOWN_UNREGISTERED.has(k))
+      .sort();
+    expect(novel).toEqual([]);
+  });
+
+  test("the frozen set does not rot (every entry is STILL unregistered)", () => {
+    // Registering a route while leaving its line here would turn this list into
+    // stale documentation that silently re-permits the route if it is ever
+    // un-registered again. An entry that no longer describes an unregistered
+    // route — because it was registered, renamed, or deleted from disk — fails
+    // LOUDLY and must be removed.
+    const live = currentlyUnregistered();
+    const stale = [...KNOWN_UNREGISTERED].filter((k) => !live.has(k)).sort();
+    expect(stale).toEqual([]);
+  });
+
+  test("the frozen set is non-empty and sorted (guards a vacuous pass)", () => {
+    // An empty (or accidentally-cleared) set would make the offender test pass
+    // for every route; an unsorted one makes review diffs unreadable.
+    expect(KNOWN_UNREGISTERED.size).toBeGreaterThan(0);
+    const listed = [...KNOWN_UNREGISTERED];
+    expect(listed).toEqual([...listed].sort());
   });
 });
 

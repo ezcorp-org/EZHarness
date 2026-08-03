@@ -754,6 +754,166 @@ describe("globAsync — skips a subdir whose list throws mid-walk", () => {
   });
 });
 
+describe("compileGlob — `**` spans zero or more WHOLE segments", () => {
+  // Regression: the old three-pass implementation expanded `**/` to
+  // `(?:.*/)?` and then let a blanket `*` → `[^/]*` pass rewrite the `*`
+  // inside that very expansion, yielding `(?:.[^/]*/)?` — exactly ONE
+  // segment. It passed at depth 1, so a two-level fixture could not
+  // discriminate; the three-and-deeper cases below are what actually
+  // catch it.
+  const match = (pattern: string, input: string): boolean =>
+    _internals.compileGlob(pattern).test(input);
+
+  test("`**/` matches ZERO segments", () => {
+    expect(match("**/components/*.svelte", "components/T.svelte")).toBe(true);
+    expect(match("**/*.css", "app.css")).toBe(true);
+  });
+
+  test("`**/` matches ONE segment (the depth the old bug passed at)", () => {
+    expect(match("**/components/*.svelte", "src/components/B.svelte")).toBe(true);
+    expect(match("**/*.css", "src/app.css")).toBe(true);
+  });
+
+  test("`**/` matches TWO segments", () => {
+    expect(match("**/components/*.svelte", "src/data/components/N.svelte")).toBe(true);
+    expect(match("**/*.css", "src/lib/app.css")).toBe(true);
+  });
+
+  test("`**/` matches THREE OR MORE segments (the discriminating case)", () => {
+    expect(match("**/components/*.svelte", "a/b/c/components/D.svelte")).toBe(true);
+    expect(match("**/components/*.svelte", "a/b/c/d/e/components/D.svelte")).toBe(true);
+    expect(match("**/*.css", "a/b/c/d/e/f/deep.css")).toBe(true);
+  });
+
+  test("a single `*` never crosses `/`", () => {
+    // The other half of the contract: widening `**` must not widen `*`.
+    expect(match("*.css", "app.css")).toBe(true);
+    expect(match("*.css", "src/app.css")).toBe(false);
+    expect(match("src/*.ts", "src/x.ts")).toBe(true);
+    expect(match("src/*.ts", "src/a/x.ts")).toBe(false);
+    // …including the trailing segment of a `**/` pattern.
+    expect(match("**/components/*.svelte", "src/components/sub/T.svelte")).toBe(false);
+  });
+
+  test("segment boundaries are respected (no partial-name match)", () => {
+    expect(match("**/components/*.svelte", "componentsX/T.svelte")).toBe(false);
+    expect(match("**/components/*.svelte", "src/xcomponents/T.svelte")).toBe(false);
+  });
+
+  test("a bare `**` (no trailing `/`) spans slashes — `.*`, not `[^/]*`", () => {
+    // The OTHER arm of the `**` branch (index.ts:986-988). `**/` is
+    // segment-structured — `(?:[^/]+/)*`, which can only ever end on a
+    // `/` boundary. A `**` with no trailing slash means "anything at
+    // all, `/` included", so it must compile to `.*`.
+    //
+    // The `src/a/b/c.css` case is the discriminating one: it is the only
+    // assertion here that separates `.*` from BOTH plausible mutants —
+    // `[^/]*` (the single-star expansion) stops at the first `/`, and
+    // `(?:[^/]+/)*` (the `**/` expansion) cannot match a tail that does
+    // not end in `/`.
+    expect(match("src/**", "src/a")).toBe(true);
+    expect(match("src/**", "src/a/b/c.css")).toBe(true);
+    expect(match("**", "a/b/c")).toBe(true);
+    // Still ANCHORED — widening `**` must not unmoor the literal prefix.
+    expect(match("src/**", "lib/a/b.css")).toBe(false);
+    // …and it must not leak back into the single-star expansion.
+    expect(match("src/*", "src/a/b")).toBe(false);
+  });
+
+  test("`**` followed by a literal consumes exactly the two stars", () => {
+    // `i += 1` on the no-slash arm (plus the loop's own `i++`) advances
+    // past the SECOND `*` and no further. Over-advancing would silently
+    // drop the next literal character from the compiled pattern, so
+    // `**.css` would degrade to `^.*css$` and match a name with no dot
+    // at all.
+    expect(match("**.css", "theme.css")).toBe(true);
+    expect(match("**.css", "a/b/theme.css")).toBe(true);
+    // The dot is a real, escaped literal — not a swallowed character and
+    // not a regex wildcard.
+    expect(match("**.css", "a/bXcss")).toBe(false);
+    expect(match("**.css", "a/b.csx")).toBe(false);
+  });
+
+  test("regex metacharacters in a pattern are escaped, not interpreted", () => {
+    // `.` was the only character the old version escaped.
+    expect(match("**/*.css", "app.css")).toBe(true);
+    expect(match("**/*.css", "appXcss")).toBe(false);
+    expect(match("foo(1)/*.ts", "foo(1)/x.ts")).toBe(true);
+    expect(match("a+b/*.ts", "a+b/x.ts")).toBe(true);
+    expect(match("a+b/*.ts", "aab/x.ts")).toBe(false);
+  });
+});
+
+describe("globAsync — host-reserved carve-out (the Docker layout)", () => {
+  // In the shipped image the PGlite datadir is `<projectRoot>/data/ezcorp`
+  // and the secret dir is `<projectRoot>/.ezcorp/data` (Dockerfile:
+  // `EZCORP_DB_PATH=/app/data/ezcorp`, project root `/app`). Both sit
+  // INSIDE the `$CWD` grant, so a `**/*.css` walk from the project root
+  // reaches them and the host denies the list. A fixture using the dev
+  // default (`$HOME/ez-corp/.data`) would prove nothing — that path is
+  // outside the project root and is never walked.
+  test("top-level data/ and .ezcorp/ are not catalogued; ordinary source still is", async () => {
+    writeFileSync(join(tmpRoot, "top.css"), ":root{ --x: 1px; }");
+
+    // RESERVED — must never be descended. Both fixtures sit one directory
+    // below the root, which is exactly the depth `catalogComponents`'
+    // `**/components/*.svelte` pattern reaches (see the compileGlob note
+    // below), so absence here is a REAL assertion: drop the root-skip and
+    // `ReservedDb` is catalogued.
+    mkdirSync(join(tmpRoot, "data", "components"), { recursive: true });
+    writeFileSync(join(tmpRoot, "data", "components", "ReservedDb.svelte"), "<i/>");
+    mkdirSync(join(tmpRoot, ".ezcorp", "components"), { recursive: true });
+    writeFileSync(join(tmpRoot, ".ezcorp", "components", "ReservedState.svelte"), "<i/>");
+
+    // Ordinary source at the same depth — proves the two skips are
+    // targeted, not a blanket "stop walking the project".
+    mkdirSync(join(tmpRoot, "src", "components"), { recursive: true });
+    writeFileSync(join(tmpRoot, "src", "components", "OrdinarySource.svelte"), "<i/>");
+
+    const out = await _internals.tools["extract-design-system"]!({}, undefined as never);
+    expect(expectIsError(out)).toBe(false);
+    const ds = JSON.parse(expectText(out)) as DesignSystem;
+    const names = ds.components.map((c) => c.name);
+    expect(names).not.toContain("ReservedDb");
+    expect(names).not.toContain("ReservedState");
+    expect(names).toContain("OrdinarySource");
+  });
+
+  test("a NESTED data/ is still walked (skip is root-anchored, not blanket)", async () => {
+    // Only assertable since the compileGlob fix: `**/components/*.svelte`
+    // now spans two segments, so `src/data/components/` is reachable at
+    // all. Guards the over-block failure mode — skipping every directory
+    // named `data` at any depth would silently drop real source.
+    writeFileSync(join(tmpRoot, "top.css"), ":root{ --x: 1px; }");
+    mkdirSync(join(tmpRoot, "data", "components"), { recursive: true });
+    writeFileSync(join(tmpRoot, "data", "components", "ReservedDb.svelte"), "<i/>");
+    mkdirSync(join(tmpRoot, "src", "data", "components"), { recursive: true });
+    writeFileSync(join(tmpRoot, "src", "data", "components", "NestedOk.svelte"), "<i/>");
+
+    const out = await _internals.tools["extract-design-system"]!({}, undefined as never);
+    expect(expectIsError(out)).toBe(false);
+    const ds = JSON.parse(expectText(out)) as DesignSystem;
+    const names = ds.components.map((c) => c.name);
+    expect(names).toContain("NestedOk");
+    expect(names).not.toContain("ReservedDb");
+  });
+
+  test("extraction SURVIVES a host denial on the reserved dir (defence in depth)", async () => {
+    // Even if a future reserved path the skip list doesn't know about were
+    // reached, the walk's catch must degrade to "skip this subtree".
+    writeFileSync(join(tmpRoot, "top.css"), ":root{ --x: 1px; }");
+    mkdirSync(join(tmpRoot, "srv", "components"), { recursive: true });
+    writeFileSync(join(tmpRoot, "srv", "components", "Unreachable.svelte"), "<i/>");
+    installFsStubWithListThrow((path) => path.endsWith("/srv"));
+
+    const out = await _internals.tools["extract-design-system"]!({}, undefined as never);
+    expect(expectIsError(out)).toBe(false);
+    const ds = JSON.parse(expectText(out)) as DesignSystem;
+    expect(ds.schemaVersion).toBe(1);
+    expect(ds.components.map((c) => c.name)).not.toContain("Unreachable");
+  });
+});
+
 describe("listBundleFilesRelative — degrades to [] when bundle dir list throws", () => {
   test("fsList(bundleDir) throwing → handoff still succeeds with empty files", async () => {
     seedDesignSystem();

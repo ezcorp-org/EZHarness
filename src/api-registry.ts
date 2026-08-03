@@ -119,6 +119,14 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "GET", path: "/api/extensions/:name/tools", description: "List tools provided by extension", category: "extensions", scope: "read" },
   { method: "POST", path: "/api/extensions/:id/secrets", description: "Set (or rotate) an extension secret — encrypted, scope-isolated, AAD-bound; value never echoed back", category: "extensions", scope: "extensions", harness: { controllable: true } },
   { method: "DELETE", path: "/api/extensions/:id/secrets", description: "Delete an extension secret", category: "extensions", scope: "extensions", harness: { controllable: true } },
+  // The ONLY recovery path for an extension the host disabled on a filesystem
+  // security violation: `activateExtension` refuses to re-enable while
+  // `hasSecurityViolation(id)` holds ("Clear violations first."), and DELETE
+  // here is what clears it. It went unregistered, so the one route an operator
+  // needs to un-brick an extension was absent from the OpenAPI spec and the
+  // harness client. Admin-role gated inline (`locals.user?.role !== "admin"`).
+  { method: "GET", path: "/api/extensions/:id/violations", description: "List the filesystem/capability security violations recorded against an extension by the host gates (requires an admin-role key)", category: "extensions", scope: "admin", responseDescription: "{ violations: [{ extensionId, reason, path, timestamp }] }" },
+  { method: "DELETE", path: "/api/extensions/:id/violations", description: "Clear an extension's recorded security violations — the prerequisite for re-enabling it via POST /api/extensions/:id/activate, which refuses while any violation stands (requires an admin-role key)", category: "extensions", scope: "admin", responseDescription: "{ cleared: true }" },
 
   // Loops EZ Mode Phase 4 — inbound webhook trigger. Public data-plane: auth is
   // the per-hook token (NOT a session), so scope "public". Persists a delivery

@@ -909,7 +909,19 @@ const GLOB_SKIP_DIRS = new Set([
   ".cache",
   ".vercel",
   ".netlify",
+  // The platform's own state directory. Its `data`/`backups` children are
+  // host-RESERVED and denied to every extension regardless of the `$CWD`
+  // grant (src/extensions/permissions.ts); descending it only buys a
+  // denied RPC and an audit row.
+  ".ezcorp",
 ]);
+
+/** Skipped ONLY directly under the walk root. In the shipped Docker image
+ *  the PGlite datadir is `<root>/data/ezcorp` and its snapshot sibling
+ *  `<root>/data/backups` (Dockerfile: `EZCORP_DB_PATH=/app/data/ezcorp`,
+ *  project root `/app`) — both host-reserved. Root-anchored on purpose: a
+ *  nested `src/data/` may legitimately hold stylesheets. */
+const GLOB_SKIP_ROOT_DIRS = new Set(["data"]);
 
 async function globAsync(root: string, pattern: string): Promise<string[]> {
   const compiled = compileGlob(pattern);
@@ -924,6 +936,7 @@ async function globAsync(root: string, pattern: string): Promise<string[]> {
     }
     for (const entry of entries) {
       if (GLOB_SKIP_DIRS.has(entry.name)) continue;
+      if (rel === "" && entry.isDirectory && GLOB_SKIP_ROOT_DIRS.has(entry.name)) continue;
       const relPath = rel ? `${rel}/${entry.name}` : entry.name;
       if (entry.isDirectory) {
         await walk(join(dir, entry.name), relPath);
@@ -936,14 +949,54 @@ async function globAsync(root: string, pattern: string): Promise<string[]> {
   return out;
 }
 
+// Compile a glob to an anchored RegExp.
+//
+//   double-star + slash  ->  (?:[^/]+/)*   ZERO OR MORE whole segments
+//   double-star          ->  .*            anything, slash included
+//   single star          ->  [^/]*         anything WITHIN one segment
+//
+// Single-pass (a character walk) ON PURPOSE. The previous version chained
+// three `String.replace` passes: double-star-slash to "(?:.<star>/)?",
+// then double-star to ".<star>", then a BLANKET single-star to "[^/]<star>".
+// That last pass rewrote the star INSIDE the "(?:.<star>/)?" the first
+// pass had just emitted, degrading it to "(?:.[^/]<star>/)?" — one
+// arbitrary character plus non-slash characters, i.e. exactly ONE
+// directory segment.
+//
+// Consequence: "double-star/components/single-star.svelte" matched
+// `src/components/B.svelte` but NOT `src/data/components/N.svelte`, so
+// `catalogComponents` and the "double-star/single-star.css" token scan
+// silently saw only the top two levels of any project. It passed at depth
+// one, which is why it survived so long — see the depth-3 cases in
+// index.coverage.test.ts.
+//
+// The rule this encodes: a rewrite pass must never be able to touch a
+// previous pass's output. "(?:[^/]+/)*" is used rather than "(?:.<star>/)?"
+// so the zero-segment case and the many-segment case are both covered
+// without ".<star>" swallowing segment boundaries the caller meant to keep.
 function compileGlob(pattern: string): { test: (s: string) => boolean } {
-  const escaped = pattern.replace(/\./g, "\\.");
-  // Pattern with `**/` prefix → also accept zero-segment match.
-  const expanded = escaped
-    .replace(/\*\*\//g, "(?:.*/)?")
-    .replace(/\*\*/g, ".*")
-    .replace(/\*/g, "[^/]*");
-  const re = new RegExp("^" + expanded + "$");
+  const out: string[] = [];
+  for (let i = 0; i < pattern.length; i++) {
+    const c = pattern[i]!;
+    if (c === "*") {
+      if (pattern[i + 1] === "*") {
+        if (pattern[i + 2] === "/") {
+          out.push("(?:[^/]+/)*");
+          i += 2;
+        } else {
+          out.push(".*");
+          i += 1;
+        }
+        continue;
+      }
+      out.push("[^/]*");
+      continue;
+    }
+    // Escape every other regex metacharacter, not just `.` — a directory
+    // named `foo(1)` used to produce an invalid or wrong pattern.
+    out.push(c.replace(/[.+?^${}()|[\]\\]/g, "\\$&"));
+  }
+  const re = new RegExp("^" + out.join("") + "$");
   return { test: (s: string) => re.test(s) };
 }
 
@@ -969,4 +1022,8 @@ export const _internals = {
   extractCssVarsFromBody,
   analyzePromptSpecificity,
   descriptorsCoverVars,
+  // Glob compiler — exposed so the `**` depth semantics are pinned
+  // directly rather than inferred from what a walk happened to catalogue
+  // (the multi-pass bug was invisible at one directory level).
+  compileGlob,
 };

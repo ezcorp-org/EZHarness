@@ -1274,7 +1274,10 @@ describe("ToolExecutor", () => {
 
     test("returns error and calls denyAndDisable when permission denied", async () => {
       const permSpy = spyOn(permissionsModule, "checkFilesystemPermission").mockResolvedValue({
-        allowed: false, resolvedPath: "/etc/passwd", mode: "read",
+        // `out-of-grant` is the ESCAPE denial — the only kind that may
+        // trip denyAndDisable. A `reserved-carveout` denial must not
+        // (see fs-reserved-carveout-not-a-violation.test.ts).
+        allowed: false, denial: "out-of-grant", resolvedPath: "/etc/passwd", mode: "read",
       });
       const secSpy = spyOn(securityModule, "denyAndDisable").mockResolvedValue({
         extensionId: "ext-1", reason: "denied", path: "/etc/passwd", timestamp: Date.now(),
