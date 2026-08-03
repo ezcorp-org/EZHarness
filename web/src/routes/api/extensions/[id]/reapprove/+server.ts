@@ -1,8 +1,8 @@
 import { json } from "@sveltejs/kit";
 import { getExtension, updateExtension } from "$server/db/queries/extensions";
 import { ExtensionRegistry } from "$server/extensions/registry";
-import { requireAuth, requireRole } from "$server/auth/middleware";
-import { requireScope } from "$lib/server/security/api-keys";
+import { requireAuth } from "$server/auth/middleware";
+import { requireAdmin, requireScope } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
 import { insertAuditEntry } from "$server/db/queries/audit-log";
 import { EXT_AUDIT_ACTIONS } from "$server/extensions/audit-actions";
@@ -159,7 +159,11 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
   // applies the same check. Picker `Never` (ttlOverrideMs: null) does
   // NOT escalate scope — only `scope: "forever"` is admin-gated.
   if (scope === "forever") {
-    requireRole(locals, "admin");
+    // requireAdmin RETURNS the 403 Response; requireRole THREW one, which
+    // SvelteKit surfaces as a 500 from a route handler — so a member asking
+    // for `forever` saw "Internal Error" instead of the intended 403.
+    const adminErr = requireAdmin(locals);
+    if (adminErr) return adminErr;
   }
 
   const ext = await getExtension(params.id);

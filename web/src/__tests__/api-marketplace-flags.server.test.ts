@@ -5,6 +5,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { expectDenied } from "./fixtures/expect-denied";
 
 vi.mock("$server/db/queries/marketplace-ratings", () => ({
   listFlags: vi.fn(),
@@ -35,28 +36,14 @@ describe("GET /api/marketplace/flags", () => {
     vi.mocked(getListingById).mockReset();
   });
 
-  test("unauthenticated request throws 401", async () => {
-    let res: Response | undefined;
-    try {
-      await GET(makeEvent({ locals: {} }));
-      expect.fail("should have thrown");
-    } catch (thrown) {
-      expect(thrown).toBeInstanceOf(Response);
-      res = thrown as Response;
-    }
-    expect(res!.status).toBe(401);
+  test("unauthenticated request RETURNS 401 (not thrown → no 500)", async () => {
+    const res = await expectDenied(() => GET(makeEvent({ locals: {} })), 401);
+    expect(res.status).toBe(401);
   });
 
-  test("non-admin authenticated user throws 403", async () => {
-    let res: Response | undefined;
-    try {
-      await GET(makeEvent({ locals: { user: regularUser } }));
-      expect.fail("should have thrown");
-    } catch (thrown) {
-      expect(thrown).toBeInstanceOf(Response);
-      res = thrown as Response;
-    }
-    expect(res!.status).toBe(403);
+  test("non-admin authenticated user RETURNS 403 (not thrown → no 500)", async () => {
+    const res = await expectDenied(() => GET(makeEvent({ locals: { user: regularUser } })), 403);
+    expect(res.status).toBe(403);
   });
 
   test("API-key scope check returns 403 when scope missing", async () => {

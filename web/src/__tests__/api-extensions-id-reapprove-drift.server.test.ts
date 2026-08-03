@@ -17,20 +17,26 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { expectDenied } from "./fixtures/expect-denied";
 
-// ── Auth middleware (real contract: requireRole throws a 403 Response) ─
+// ── Auth middleware ───────────────────────────────────────────────────
+// Real contract of `checkRole`: it RETURNS the denial Response (401 with no
+// principal, 403 for a non-admin role or an API-key principal lacking the
+// `admin` scope) and returns the AuthUser on success. It never throws — that
+// is the whole point of it existing alongside the throwing `requireRole`,
+// whose thrown Response SvelteKit turns into a 500.
 vi.mock("$server/auth/middleware", () => ({
-	requireAuth: (locals: Record<string, unknown>) => {
+	checkRole: (locals: Record<string, unknown>, role: string) => {
 		const user = locals.user as { id: string; role: string } | undefined;
-		if (!user) throw new Response("Unauthorized", { status: 401 });
-		return user;
-	},
-	requireRole: (locals: Record<string, unknown>, role: string) => {
-		const user = locals.user as { id: string; role: string } | undefined;
-		if (!user || user.role !== role) {
-			throw new Response(JSON.stringify({ error: "Insufficient permissions" }), {
-				status: 403,
-			});
+		if (!user) {
+			return Response.json({ error: "Authentication required" }, { status: 401 });
+		}
+		if (user.role !== role) {
+			return Response.json({ error: "Insufficient permissions" }, { status: 403 });
+		}
+		const scopes = locals.apiKeyScopes as string[] | undefined;
+		if (scopes && !scopes.includes("admin")) {
+			return Response.json({ error: "Insufficient scope", required: "admin" }, { status: 403 });
 		}
 		return user;
 	},
@@ -135,15 +141,16 @@ function makeEvent(
 	};
 }
 
-async function expectThrownOrResponse(
+/**
+ * Non-denial invocations. Kept as a plain await — the old helper here
+ * swallowed a THROWN Response and asserted on it, which is precisely why the
+ * "member → 403" case below passed while production answered 500. Denials now
+ * go through `expectDenied`, which fails on a throw.
+ */
+async function invoke(
 	fn: () => Promise<Response> | Response,
 ): Promise<Response> {
-	try {
-		return await fn();
-	} catch (thrown) {
-		expect(thrown).toBeInstanceOf(Response);
-		return thrown as Response;
-	}
+	return await fn();
 }
 
 beforeEach(() => {
@@ -178,7 +185,7 @@ beforeEach(() => {
 
 describe("POST /api/extensions/[id]/reapprove-drift", () => {
 	test("admin + bundled → 200 with { extension, diffs }; core called with row + admin id; registry reloaded", async () => {
-		const res = await expectThrownOrResponse(() => POST(makeEvent() as never));
+		const res = await invoke(() => POST(makeEvent() as never));
 		expect(res.status).toBe(200);
 
 		const body = (await res.json()) as { extension: { enabled: boolean }; diffs: unknown[] };
@@ -190,31 +197,48 @@ describe("POST /api/extensions/[id]/reapprove-drift", () => {
 		expect(reload).toHaveBeenCalledTimes(1);
 	});
 
-	test("member (non-admin) → 403; core never called", async () => {
-		const res = await expectThrownOrResponse(() => POST(makeEvent("member") as never));
-		expect(res.status).toBe(403);
+	// REGRESSION (the reported bug): a non-admin principal must RECEIVE 403.
+	// Before the fix this route called the THROWING `requireRole`, so SvelteKit
+	// answered 500 {"message":"Internal Error"} — reproduced live with an API
+	// key minted without `--role admin`. `expectDenied` fails on a throw, so
+	// this test cannot pass again while the handler throws its denial.
+	test("member (non-admin) → RETURNS 403 (never throws); core never called", async () => {
+		const res = await expectDenied(() => POST(makeEvent("member") as never), 403);
+		const body = (await res.json()) as { error: string };
+		expect(body.error).toBe("Insufficient permissions");
 		expect(reapproveBundledDrift).not.toHaveBeenCalled();
 		expect(reload).not.toHaveBeenCalled();
 	});
 
-	test("API key without the extensions scope → 403; core never called", async () => {
-		const res = await expectThrownOrResponse(() =>
-			POST(makeEvent("admin", { apiKeyScopes: ["chat"] }) as never),
+	test("API key principal without the admin scope → RETURNS 403; core never called", async () => {
+		const res = await expectDenied(
+			() => POST(makeEvent("admin", { apiKeyScopes: ["chat"] }) as never),
+			403,
 		);
+		expect(reapproveBundledDrift).not.toHaveBeenCalled();
 		expect(res.status).toBe(403);
+	});
+
+	test("no principal at all → RETURNS 401 (never throws)", async () => {
+		const res = await expectDenied(
+			() => POST({ ...makeEvent(), locals: {} } as never),
+			401,
+		);
+		const body = (await res.json()) as { error: string };
+		expect(body.error).toBe("Authentication required");
 		expect(reapproveBundledDrift).not.toHaveBeenCalled();
 	});
 
 	test("unknown extension id → 404", async () => {
 		extensionRow = null;
-		const res = await expectThrownOrResponse(() => POST(makeEvent() as never));
+		const res = await invoke(() => POST(makeEvent() as never));
 		expect(res.status).toBe(404);
 		expect(reapproveBundledDrift).not.toHaveBeenCalled();
 	});
 
 	test("non-bundled extension → 400; core never called", async () => {
 		extensionRow = { ...extensionRow!, name: "user-installed-thing" };
-		const res = await expectThrownOrResponse(() => POST(makeEvent() as never));
+		const res = await invoke(() => POST(makeEvent() as never));
 		expect(res.status).toBe(400);
 		const body = (await res.json()) as { error: string };
 		expect(body.error).toMatch(/bundled/i);
@@ -227,7 +251,7 @@ describe("POST /api/extensions/[id]/reapprove-drift", () => {
 			code: "lockfile-mismatch",
 			message: "On-disk manifest fails the manifest.lock.json check (tool-list drift)",
 		};
-		const res = await expectThrownOrResponse(() => POST(makeEvent() as never));
+		const res = await invoke(() => POST(makeEvent() as never));
 		expect(res.status).toBe(409);
 		const body = (await res.json()) as { error: string };
 		expect(body.error).toMatch(/manifest\.lock\.json/);
@@ -240,20 +264,20 @@ describe("POST /api/extensions/[id]/reapprove-drift", () => {
 			code: "manifest-unreadable",
 			message: "Could not load on-disk manifest",
 		};
-		const res = await expectThrownOrResponse(() => POST(makeEvent() as never));
+		const res = await invoke(() => POST(makeEvent() as never));
 		expect(res.status).toBe(500);
 		expect(reload).not.toHaveBeenCalled();
 	});
 
 	test("core not-found (row raced away) → 404", async () => {
 		coreResult = { ok: false, code: "not-found", message: "Extension 'ext-1' no longer exists" };
-		const res = await expectThrownOrResponse(() => POST(makeEvent() as never));
+		const res = await invoke(() => POST(makeEvent() as never));
 		expect(res.status).toBe(404);
 	});
 
 	test("core not-bundled (defensive re-check) → 400", async () => {
 		coreResult = { ok: false, code: "not-bundled", message: "'web-search' is not a bundled extension" };
-		const res = await expectThrownOrResponse(() => POST(makeEvent() as never));
+		const res = await invoke(() => POST(makeEvent() as never));
 		expect(res.status).toBe(400);
 	});
 });
@@ -266,7 +290,7 @@ describe("POST /api/extensions/[id]/reapprove-drift", () => {
  */
 describe("GET /api/extensions/[id]/reapprove-drift", () => {
 	test("admin + bundled → 200 with { version, permissions, diffs, ceilingClamped }; nothing mutated", async () => {
-		const res = await expectThrownOrResponse(() => GET(makeEvent() as never));
+		const res = await invoke(() => GET(makeEvent() as never));
 		expect(res.status).toBe(200);
 
 		const body = (await res.json()) as {
@@ -294,36 +318,49 @@ describe("GET /api/extensions/[id]/reapprove-drift", () => {
 			diffs: [],
 			ceilingClamped: true,
 		};
-		const res = await expectThrownOrResponse(() => GET(makeEvent() as never));
+		const res = await invoke(() => GET(makeEvent() as never));
 		expect(res.status).toBe(200);
 		const body = (await res.json()) as { ceilingClamped: boolean };
 		expect(body.ceilingClamped).toBe(true);
 	});
 
-	test("member (non-admin) → 403; preview never called", async () => {
-		const res = await expectThrownOrResponse(() => GET(makeEvent("member") as never));
-		expect(res.status).toBe(403);
+	// Same regression as POST — the GET half had the identical throwing gate.
+	test("member (non-admin) → RETURNS 403 (never throws); preview never called", async () => {
+		const res = await expectDenied(() => GET(makeEvent("member") as never), 403);
+		const body = (await res.json()) as { error: string };
+		expect(body.error).toBe("Insufficient permissions");
 		expect(previewBundledDrift).not.toHaveBeenCalled();
 	});
 
-	test("API key without the extensions scope → 403; preview never called", async () => {
-		const res = await expectThrownOrResponse(() =>
-			GET(makeEvent("admin", { apiKeyScopes: ["chat"] }) as never),
+	test("API key principal without the admin scope → RETURNS 403; preview never called", async () => {
+		const res = await expectDenied(
+			() => GET(makeEvent("admin", { apiKeyScopes: ["chat"] }) as never),
+			403,
 		);
 		expect(res.status).toBe(403);
 		expect(previewBundledDrift).not.toHaveBeenCalled();
 	});
 
+	test("no principal at all → RETURNS 401 (never throws)", async () => {
+		const res = await expectDenied(
+			() => GET({ ...makeEvent(), locals: {} } as never),
+			401,
+		);
+		const body = (await res.json()) as { error: string };
+		expect(body.error).toBe("Authentication required");
+		expect(previewBundledDrift).not.toHaveBeenCalled();
+	});
+
 	test("unknown extension id → 404", async () => {
 		extensionRow = null;
-		const res = await expectThrownOrResponse(() => GET(makeEvent() as never));
+		const res = await invoke(() => GET(makeEvent() as never));
 		expect(res.status).toBe(404);
 		expect(previewBundledDrift).not.toHaveBeenCalled();
 	});
 
 	test("non-bundled extension → 400; preview never called", async () => {
 		extensionRow = { ...extensionRow!, name: "user-installed-thing" };
-		const res = await expectThrownOrResponse(() => GET(makeEvent() as never));
+		const res = await invoke(() => GET(makeEvent() as never));
 		expect(res.status).toBe(400);
 		const body = (await res.json()) as { error: string };
 		expect(body.error).toMatch(/bundled/i);
@@ -336,7 +373,7 @@ describe("GET /api/extensions/[id]/reapprove-drift", () => {
 			code: "lockfile-mismatch",
 			message: "On-disk manifest fails the manifest.lock.json check (tool-list drift)",
 		};
-		const res = await expectThrownOrResponse(() => GET(makeEvent() as never));
+		const res = await invoke(() => GET(makeEvent() as never));
 		expect(res.status).toBe(409);
 		const body = (await res.json()) as { error: string };
 		expect(body.error).toMatch(/manifest\.lock\.json/);
@@ -348,7 +385,7 @@ describe("GET /api/extensions/[id]/reapprove-drift", () => {
 			code: "manifest-unreadable",
 			message: "Could not load on-disk manifest",
 		};
-		const res = await expectThrownOrResponse(() => GET(makeEvent() as never));
+		const res = await invoke(() => GET(makeEvent() as never));
 		expect(res.status).toBe(500);
 	});
 
@@ -358,7 +395,7 @@ describe("GET /api/extensions/[id]/reapprove-drift", () => {
 			code: "not-bundled",
 			message: "'web-search' is not a bundled extension",
 		};
-		const res = await expectThrownOrResponse(() => GET(makeEvent() as never));
+		const res = await invoke(() => GET(makeEvent() as never));
 		expect(res.status).toBe(400);
 	});
 });

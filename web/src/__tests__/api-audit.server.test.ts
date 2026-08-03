@@ -3,6 +3,7 @@
  * and /api/audit/stats. Both admin-only.
  */
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { expectDenied } from "./fixtures/expect-denied";
 
 vi.mock("$server/db/queries/audit-global", () => ({
 	listGlobalAudit: vi.fn(),
@@ -38,25 +39,13 @@ describe("GET /api/audit", () => {
 	});
 
 	test("unauthenticated → 401", async () => {
-		let res: Response | undefined;
-		try {
-			await feedGet(makeEvent({ locals: {} }));
-			expect.fail("should throw");
-		} catch (thrown) {
-			res = thrown as Response;
-		}
-		expect(res!.status).toBe(401);
+		const res = await expectDenied(() => feedGet(makeEvent({ locals: {} })), 401);
+		expect(res.status).toBe(401);
 	});
 
 	test("non-admin → 403", async () => {
-		let res: Response | undefined;
-		try {
-			await feedGet(makeEvent({ locals: { user: regularUser } }));
-			expect.fail("should throw");
-		} catch (thrown) {
-			res = thrown as Response;
-		}
-		expect(res!.status).toBe(403);
+		const res = await expectDenied(() => feedGet(makeEvent({ locals: { user: regularUser } })), 403);
+		expect(res.status).toBe(403);
 	});
 
 	test("API-key without admin scope → 403", async () => {
@@ -110,25 +99,13 @@ describe("GET /api/audit/stats", () => {
 	});
 
 	test("unauthenticated → 401", async () => {
-		let res: Response | undefined;
-		try {
-			await statsGet(makeEvent({ locals: {}, path: "/api/audit/stats" }));
-			expect.fail("should throw");
-		} catch (thrown) {
-			res = thrown as Response;
-		}
-		expect(res!.status).toBe(401);
+		const res = await expectDenied(() => statsGet(makeEvent({ locals: {}, path: "/api/audit/stats" })), 401);
+		expect(res.status).toBe(401);
 	});
 
 	test("non-admin → 403", async () => {
-		let res: Response | undefined;
-		try {
-			await statsGet(makeEvent({ locals: { user: regularUser }, path: "/api/audit/stats" }));
-			expect.fail("should throw");
-		} catch (thrown) {
-			res = thrown as Response;
-		}
-		expect(res!.status).toBe(403);
+		const res = await expectDenied(() => statsGet(makeEvent({ locals: { user: regularUser }, path: "/api/audit/stats" })), 403);
+		expect(res.status).toBe(403);
 	});
 
 	test("default range = 24h", async () => {

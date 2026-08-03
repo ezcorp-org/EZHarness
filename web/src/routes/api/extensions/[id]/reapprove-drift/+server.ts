@@ -1,7 +1,7 @@
 import { json } from "@sveltejs/kit";
 import { getExtension } from "$server/db/queries/extensions";
 import { ExtensionRegistry } from "$server/extensions/registry";
-import { requireRole } from "$server/auth/middleware";
+import { checkRole } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
 import { isBundledExtensionName } from "$server/extensions/bundled";
@@ -33,10 +33,14 @@ import type { RequestHandler } from "./$types";
  * manifest failing the lockfile check is refused with 409 (this
  * endpoint heals grant drift, not tampering).
  *
- * Auth model: `requireRole(admin)` — re-approving a permission
+ * Auth model: `checkRole(admin)` — re-approving a permission
  * WIDENING is admin policy, exactly like the peer
  * `PUT .../permissions`. (The stored-manifest `reapprove` route stays
  * requireAuth because it can only restore what was already approved.)
+ * `checkRole`, not `requireRole`: the latter THROWS its denial
+ * Response, which SvelteKit does not recognise from a route handler and
+ * surfaces as a 500 — so every non-admin caller saw "Internal Error"
+ * instead of 403. See `src/auth/middleware.ts` for the full rationale.
  *
  * Response: `{ extension: <updated row>, diffs: [{field, oldValue,
  * newValue}] }` — the diff mirrors the boot gate's UPDATE_BLOCKED
@@ -54,7 +58,10 @@ import type { RequestHandler } from "./$types";
 export const GET: RequestHandler = async ({ params, locals }) => {
   const scopeErr = requireScope(locals, "extensions");
   if (scopeErr) return scopeErr;
-  requireRole(locals, "admin");
+  // checkRole RETURNS the 401/403 Response so non-admin callers see the
+  // intended status (a thrown Response would 500 via SvelteKit).
+  const admin = checkRole(locals, "admin");
+  if (admin instanceof Response) return admin;
 
   const ext = await getExtension(params.id);
   if (!ext) return errorJson(404, "Not found");
@@ -88,7 +95,10 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 export const POST: RequestHandler = async ({ params, locals }) => {
   const scopeErr = requireScope(locals, "extensions");
   if (scopeErr) return scopeErr;
-  const admin = requireRole(locals, "admin");
+  // checkRole RETURNS the 401/403 Response so non-admin callers see the
+  // intended status (a thrown Response would 500 via SvelteKit).
+  const admin = checkRole(locals, "admin");
+  if (admin instanceof Response) return admin;
 
   const ext = await getExtension(params.id);
   if (!ext) return errorJson(404, "Not found");

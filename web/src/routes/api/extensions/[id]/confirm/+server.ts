@@ -1,15 +1,18 @@
 import { json } from "@sveltejs/kit";
 import { getExtension } from "$server/db/queries/extensions";
 import { setSensitiveAlwaysAllow } from "$server/extensions/permissions";
-import { requireRole } from "$server/auth/middleware";
-import { requireScope } from "$lib/server/security/api-keys";
+import { requireAdmin, requireScope } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
 
 export const POST: RequestHandler = async ({ request, params, locals }) => {
   const scopeErr = requireScope(locals, "extensions");
   if (scopeErr) return scopeErr;
-  requireRole(locals, "admin");
+  // requireAdmin RETURNS the 403 Response; requireRole THREW one, which
+  // SvelteKit surfaces as a 500 from a route handler. Role-only, so the
+  // route's existing `extensions`-scope gate is unchanged.
+  const adminErr = requireAdmin(locals);
+  if (adminErr) return adminErr;
   const ext = await getExtension(params.id);
   if (!ext) return errorJson(404, "Not found");
 

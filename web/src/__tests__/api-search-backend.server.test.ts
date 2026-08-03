@@ -8,6 +8,7 @@
  * so no PGlite / on-disk secret is touched.
  */
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { expectDenied } from "./fixtures/expect-denied";
 
 vi.mock("$server/db/queries/settings", () => ({
 	getSetting: vi.fn(),
@@ -51,26 +52,19 @@ describe("GET /api/search/backend", () => {
 		vi.mocked(getSetting).mockReset();
 	});
 
-	test("rejects 401 when locals.user is missing", async () => {
-		let res: Response | undefined;
-		try {
-			await GET(makeEvent({ method: "GET" }));
-			expect.fail("should have thrown");
-		} catch (thrown) {
-			res = thrown as Response;
-		}
-		expect(res!.status).toBe(401);
+	// 403, not 401: this route's gate is now the role-only `requireAdmin`,
+	// which RETURNS its denial (requireRole THREW one, so the caller actually
+	// got a 500). requireAdmin answers "not an admin principal" uniformly — a
+	// missing principal is not an admin either. Unreachable in production
+	// regardless: hooks.server.ts 401s unauthenticated /api/* before the handler.
+	test("rejects 403 when locals.user is missing", async () => {
+		const res = await expectDenied(() => GET(makeEvent({ method: "GET" })), 403);
+		expect(res.status).toBe(403);
 	});
 
 	test("rejects 403 when caller is not admin", async () => {
-		let res: Response | undefined;
-		try {
-			await GET(makeEvent({ method: "GET", locals: memberUser }));
-			expect.fail("should have thrown");
-		} catch (thrown) {
-			res = thrown as Response;
-		}
-		expect(res!.status).toBe(403);
+		const res = await expectDenied(() => GET(makeEvent({ method: "GET", locals: memberUser })), 403);
+		expect(res.status).toBe(403);
 	});
 
 	test("returns presence-only status; the key VALUE is never in the body", async () => {
@@ -111,14 +105,8 @@ describe("POST /api/search/backend", () => {
 	});
 
 	test("rejects 403 when caller is not admin", async () => {
-		let res: Response | undefined;
-		try {
-			await POST(makeEvent({ method: "POST", locals: memberUser, body: { provider: "tavily", apiKey: "k" } }));
-			expect.fail("should have thrown");
-		} catch (thrown) {
-			res = thrown as Response;
-		}
-		expect(res!.status).toBe(403);
+		const res = await expectDenied(() => POST(makeEvent({ method: "POST", locals: memberUser, body: { provider: "tavily", apiKey: "k" } })), 403);
+		expect(res.status).toBe(403);
 	});
 
 	test("encrypts + stores a BYOK key under provider:apiKey:* and audits", async () => {
@@ -200,14 +188,8 @@ describe("DELETE /api/search/backend", () => {
 	});
 
 	test("rejects 403 when caller is not admin", async () => {
-		let res: Response | undefined;
-		try {
-			await DELETE(makeEvent({ method: "DELETE", locals: memberUser, body: { provider: "tavily" } }));
-			expect.fail("should have thrown");
-		} catch (thrown) {
-			res = thrown as Response;
-		}
-		expect(res!.status).toBe(403);
+		const res = await expectDenied(() => DELETE(makeEvent({ method: "DELETE", locals: memberUser, body: { provider: "tavily" } })), 403);
+		expect(res.status).toBe(403);
 	});
 
 	test("removes the BYOK key + audits", async () => {

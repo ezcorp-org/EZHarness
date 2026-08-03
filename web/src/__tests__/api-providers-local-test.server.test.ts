@@ -8,6 +8,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { expectDenied } from "./fixtures/expect-denied";
 
 vi.mock("$lib/server/security/url-validation", async () => {
   const actual = await vi.importActual<
@@ -63,33 +64,24 @@ describe("POST /api/providers/local/test", () => {
     vi.mocked(resolveAndValidateHostname).mockResolvedValue({ ok: true });
   });
 
-  test("rejects 401 when locals.user is missing", async () => {
-    let res: Response | undefined;
-    try {
-      await POST(makeEvent({ body: { baseUrl: "https://api.example.com", modelId: "m" } }));
-      expect.fail("should have thrown");
-    } catch (thrown) {
-      expect(thrown).toBeInstanceOf(Response);
-      res = thrown as Response;
-    }
-    expect(res!.status).toBe(401);
+  // 403, not 401: this route's gate is now the role-only `requireAdmin`,
+  // which RETURNS its denial (requireRole THREW one, so the caller actually
+  // got a 500). requireAdmin answers "not an admin principal" uniformly — a
+  // missing principal is not an admin either. Unreachable in production
+  // regardless: hooks.server.ts 401s unauthenticated /api/* before the handler.
+  test("rejects 403 when locals.user is missing", async () => {
+    const res = await expectDenied(() => POST(makeEvent({ body: { baseUrl: "https://api.example.com", modelId: "m" } })), 403);
+    expect(res.status).toBe(403);
   });
 
   test("rejects 403 when caller is not admin", async () => {
-    let res: Response | undefined;
-    try {
-      await POST(
-        makeEvent({
-          locals: memberUser,
-          body: { baseUrl: "https://api.example.com", modelId: "m" },
-        }),
-      );
-      expect.fail("should have thrown");
-    } catch (thrown) {
-      expect(thrown).toBeInstanceOf(Response);
-      res = thrown as Response;
-    }
-    expect(res!.status).toBe(403);
+    const res = await expectDenied(() => POST(
+            makeEvent({
+              locals: memberUser,
+              body: { baseUrl: "https://api.example.com", modelId: "m" },
+            }),
+          ), 403);
+    expect(res.status).toBe(403);
   });
 
   test("rejects 400 when body is not valid JSON", async () => {
