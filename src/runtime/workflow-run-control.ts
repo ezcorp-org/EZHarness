@@ -169,9 +169,6 @@ export async function resumeParkedRun(
   // comes back parked — which is the NORMAL outcome here, because this is
   // not an approval-answering path and relies on the transient refusal.
   const run = await resumeClaimedRun(runtime.workflowExecutor, workflow, runId, claimedBy);
-  if (!run) {
-    return { ok: false, code: "not-found", message: `Workflow run ${runId} not found` };
-  }
   // Branch on the ERROR, not on the status.
   //
   // `resumeWorkflow` has two refusal shapes and only one of them is

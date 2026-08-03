@@ -379,10 +379,6 @@ export class WorkflowRunner {
       runId,
       this.instanceId,
     );
-    if (!run) {
-      log.warn("claimed run vanished before resume", { runId });
-      return;
-    }
     log.info("resumed a parked run", { runId, status: run.status });
   }
 

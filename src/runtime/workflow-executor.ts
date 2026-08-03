@@ -2468,8 +2468,11 @@ export function resumeArgsFromRow(row: {
  *      `success` or `error` is deliberately NOT released: its terminal
  *      write did not land, and re-claiming it would re-execute a batch.
  *
- * Returns `null` when the row vanished between the claim and the read —
- * there is then nothing to release and nothing to resume.
+ * A row that vanished between the claim and the read comes back as an
+ * ordinary run-shaped refusal rather than a separate `null` case, so every
+ * caller handles exactly ONE result shape — the same `result.error` they
+ * already branch on for drift and lost step output. Nothing is written:
+ * there is no row left to write to.
  */
 export async function resumeClaimedRun(
   executor: Pick<WorkflowExecutor, "resumeWorkflow">,
@@ -2477,9 +2480,23 @@ export async function resumeClaimedRun(
   runId: string,
   claimedBy: string,
   signal?: AbortSignal,
-): Promise<WorkflowRun | null> {
+): Promise<WorkflowRun> {
   const row = await getWorkflowRunRow(runId);
-  if (!row) return null;
+  if (!row) {
+    return {
+      id: runId,
+      workflowName: workflow.name,
+      status: "error",
+      startedAt: Date.now(),
+      finishedAt: Date.now(),
+      steps: [],
+      result: {
+        success: false,
+        output: null,
+        error: { code: "not-resumable", message: `Workflow run ${runId} no longer exists` },
+      },
+    };
+  }
 
   const run = await executor.resumeWorkflow(workflow, resumeArgsFromRow(row), signal, {
     resumedBy: claimedBy,

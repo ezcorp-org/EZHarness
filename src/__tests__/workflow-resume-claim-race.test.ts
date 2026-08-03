@@ -253,6 +253,113 @@ describe("resumeParkedRun takes authority before it resumes", () => {
   });
 });
 
+describe("losing the claim INSIDE the window is reported honestly", () => {
+  /**
+   * A runtime that lets a rival claim the run from inside `getWorkflows()`.
+   *
+   * That thunk is called AFTER the status read and BEFORE the claim, which
+   * is the real window — so this drives the branch a caller reaches when
+   * its status read said `suspended` and the CAS still loses. Nothing else
+   * can reach it: the status pre-check turns every already-`running` row
+   * away long before the claim.
+   */
+  function rivalClaimsDuringLookup(
+    executor: InstanceType<typeof WorkflowExecutor>,
+    workflows: WorkflowDefinition[],
+  ): WorkflowRuntime {
+    let claimedOnce = false;
+    return {
+      getWorkflows: () => {
+        if (!claimedOnce) {
+          claimedOnce = true;
+          // Fire-and-forget is not an option — the CAS must land before the
+          // caller's own claim. `getWorkflows` is synchronous by contract,
+          // so the claim is issued through the same PGlite FIFO queue and
+          // is ahead of the caller's next statement.
+          void claimWorkflowRun({
+            workflowRunId: pendingRunId,
+            claimedBy: "inst-RIVAL",
+            now: T0,
+          });
+        }
+        return workflows;
+      },
+      workflowExecutor: executor,
+    };
+  }
+  let pendingRunId = "";
+
+  test("answerApproval records the answer and says the run continues elsewhere", async () => {
+    // Losing the claim here is HARMLESS, and that is the whole reason the
+    // claim sits after the answer CAS. The decision is already durable, so
+    // `hasPendingApproval` is false for whoever does hold the claim: they
+    // will carry this run forward with this answer applied.
+    const wf = realExecutor();
+    const parked = await wf.runWorkflow(approvalWorkflow, {}, undefined, "user-1");
+    pendingRunId = parked.id;
+
+    const approval = await getWorkflowApproval(parked.id, "gate");
+    const answered = await answerApproval(
+      approval!.id,
+      { choice: "approve" },
+      { userId: "user-1" },
+      { runtime: rivalClaimsDuringLookup(wf, [approvalWorkflow]) },
+    );
+
+    expect(answered.ok).toBe(false);
+    // NOT `run-unavailable`: that would invite a retry for a decision that
+    // is already recorded. Every surface renders `resume-failed` as
+    // "recorded, but could not continue here", and the timeout sweep maps
+    // it to `answered` rather than re-offering the gate.
+    expect(answered).toMatchObject({ code: "resume-failed" });
+    // The answer really did land, and the rival really does hold the run.
+    expect((await getWorkflowApproval(parked.id, "gate"))?.status).toBe("answered");
+    const row = await getWorkflowRunRow(parked.id);
+    expect(row?.claimedBy).toBe("inst-RIVAL");
+    // THE assertion that makes this test about the CLAIM rather than about
+    // the refusal message. Backing off on a lost CAS writes nothing, so the
+    // rival's run is left exactly as it was, still running, still theirs.
+    //
+    // Skip the claim check and the call sails on to `resumeWorkflow` with a
+    // `resumedBy` that does not match the rival's `claimed_by` — the status
+    // guard then refuses TERMINALLY and writes `error` over a run somebody
+    // else is actively driving. Same refusal code to the caller, a wrecked
+    // run in the database.
+    expect(row?.status).toBe("running");
+    expect(row?.finishedAt).toBeNull();
+    expect(row?.result).toBeNull();
+  });
+
+  test("resumeParkedRun refuses without writing anything", async () => {
+    // No answer to spend here, so losing is a plain retryable refusal.
+    const wf = realExecutor();
+    const parked = await wf.runWorkflow(plainWorkflow, {}, undefined, "user-1");
+    pendingRunId = parked.id;
+    await db.execute(sql`
+      UPDATE workflow_runs
+         SET status = 'suspended', finished_at = NULL, result = NULL,
+             run_phase = 'boundary', suspended_reason = 'nested-suspended',
+             cursor = ${JSON.stringify({ batchIndex: 0, completedSteps: [], prevStepName: null })}::jsonb
+       WHERE id = ${parked.id}
+    `);
+
+    const res = await resumeParkedRun(
+      parked.id,
+      { userId: "user-1" },
+      { runtime: rivalClaimsDuringLookup(wf, [plainWorkflow]) },
+    );
+
+    expect(res.ok).toBe(false);
+    expect(res).toMatchObject({ code: "not-resumable" });
+    const row = await getWorkflowRunRow(parked.id);
+    expect(row?.claimedBy).toBe("inst-RIVAL");
+    // Same property as the sibling test: a lost CAS backs off without
+    // writing, leaving the rival's live run untouched.
+    expect(row?.status).toBe("running");
+    expect(row?.finishedAt).toBeNull();
+  });
+});
+
 describe("the re-read under the claim is what the guard actually sees", () => {
   test("a run cancelled after the claim is refused, not resumed", async () => {
     // Holding a claim is not the same as the run still wanting to run. The
@@ -295,12 +402,18 @@ describe("the re-read under the claim is what the guard actually sees", () => {
     expect((await getWorkflowRunRow(parked.id))?.status).toBe("cancelled");
   });
 
-  test("a run deleted after the claim reports nothing to resume", async () => {
+  test("a run deleted after the claim comes back as an ordinary refusal", async () => {
+    // Shaped like every other refusal on purpose, so no caller needs a
+    // second result shape for it — the branch that would have carried is
+    // one nobody could reach in a test, and an unreachable branch is one
+    // nobody has checked.
     const wf = realExecutor();
     const parked = await wf.runWorkflow(plainWorkflow, {}, undefined, "user-1");
     await db.execute(sql`DELETE FROM workflow_runs WHERE id = ${parked.id}`);
 
-    expect(await resumeClaimedRun(wf, plainWorkflow, parked.id, "inst-A")).toBeNull();
+    const run = await resumeClaimedRun(wf, plainWorkflow, parked.id, "inst-A");
+    expect(run.status).toBe("error");
+    expect(run.result?.error).toMatchObject({ code: "not-resumable" });
   });
 });
 

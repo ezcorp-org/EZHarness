@@ -315,13 +315,6 @@ export async function answerApproval(
     runRow.id,
     claimedBy,
   );
-  if (!run) {
-    return {
-      ok: false,
-      code: "run-unavailable",
-      message: `Workflow run ${runRow.id} disappeared before it could be resumed`,
-    };
-  }
   // A resume that came back `error` is NOT a successful answer. Returning
   // `ok: true` here mapped to HTTP 200, telling the user their approval
   // landed while the workflow was dead and their answer already spent.
