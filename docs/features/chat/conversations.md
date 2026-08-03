@@ -143,6 +143,7 @@ The composer recognizes **five** sigils (`web/src/lib/mention-logic.ts`), all sh
 - [[message-toolbar]] — edit / regenerate / retry / save-memory actions originate from per-message UI.
 - [[api-security]] — every route is gated by `requireScope` + `requireAuth`; ownership is fail-closed 404.
 - [[preview-port-exposure]] — deleting a conversation reaps its per-conversation preview process + uid.
+- [[code-review-panel]] — the "Files changed" drawer renders every file the conversation touched as one GitHub-shaped review, derived client-side from its tool calls and settled messages.
 
 ## Related docs
 

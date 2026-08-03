@@ -8,7 +8,7 @@ A Mode is a reusable behavioral preset attached to a conversation. Picking a mod
 
 ## How it works
 
-A mode is a row in the `modes` table (`src/db/schema.ts`). Its fields split into three groups: identity (`name`, `slug`, `icon`, `description`, `builtin`, `userId`), **system-prompt** (`systemPromptInstruction`, `instructionPosition`), and **tool scope** (`toolRestriction`, `allowedTools`, `extensionIds`, `extensionTools`). A conversation references one via `conversations.modeId` (`on delete set null`).
+A mode is a row in the `modes` table (`src/db/schema.ts`). Its fields split into four groups: identity (`name`, `slug`, `icon`, `description`, `builtin`, `userId`), **system-prompt** (`systemPromptInstruction`, `instructionPosition`), **tool scope** (`toolRestriction`, `allowedTools`, `extensionIds`, `extensionTools`), and **model preference** (`preferredProvider`, `preferredModel`, `preferredTier` — all nullable `TEXT`). A conversation references one via `conversations.modeId` (`on delete set null`).
 
 Selecting a mode is purely a `modeId` write — nothing about the mode is copied onto the conversation:
 
@@ -24,6 +24,18 @@ The runtime then applies the mode in two independent places:
   - **otherwise** → the legacy `mode.toolRestriction` (`all`/`read-only`/`none`/`allowlist` + `allowedTools`) governs. This path is what the built-in `Ez` mode uses.
   - **per-conversation toggles** narrow further on top of either path. The conversation's `extensionTools` map can only **remove** tools (narrow-only — a tool outside the mode's allowlist can never be re-added), and its exclusions ride the `forceDeniedTools` layer, the one layer in `applyToolFilters` allowed to switch off even orchestration tools (e.g. ask-user) for a single chat.
 - The **same** `computeModeToolScope` + `applyToolFilters` pair powers `GET /api/tools` (`web/src/routes/api/tools/+server.ts`), so the chat header's tool-count badge can never advertise a surface different from what the runtime grants.
+
+### Model binding (`src/runtime/routing/mode-binding.ts`)
+
+A mode can also express *which model the turn should run on*. `resolveTurnModelBinding(pin, mode, availableModels)` is a pure, total function (never throws, always returns a binding) that collapses the whole precedence chain and names the level that decided, as `source`:
+
+1. **`turn-pin` — the turn already carries a model.** `pin.model` folds in both the composer's per-turn picker and the conversation's established model. It returns verbatim and **the mode is not read at all**. This is the cache anchor: an established thread is never re-routed, not even by a mode preference and not even to a "better" model.
+2. **caller-supplied provider wins over the mode's pair.** A `pin.provider` with no model is more specific than the mode's own provider/model, so it returns with the mode's tier as a hint only. Returning here also keeps the pair atomic — `resolveModel` never sees a caller's provider glued to a model the mode named for a *different* provider.
+3. **`mode-model` — the mode's `preferredModel`.** Honored only if the deployment still serves it, and only on `preferredProvider` when the mode named one. The provider comes back from the **matched catalog entry**, not from the column, because `resolveModel` ignores a model id passed without a provider — a model-only pin would silently fall through to tier routing instead.
+4. **`mode-tier` — the mode's `preferredTier`.** Pins the *class* of model rather than a model, and is handed to the classifier as a hint. The column is plain `TEXT` with no CHECK constraint, so a row written by hand or by an older build can hold anything; `isRoutingTier` validates it here rather than trusting it.
+5. **`classifier`** — no mode preference applies; the heuristic tier classifier decides as before.
+
+Blank/whitespace preferences are treated as unset — an empty string in a nullable `TEXT` column means "no preference", not "pin the model named `''`". `model` and `tier` are mutually exclusive on the returned binding by construction: a pinned turn has nothing left to classify, and an unpinned turn has no model yet. The `source` field is provenance only, but naming it is what turns "my mode's model did nothing" into a one-log-line diagnosis.
 
 The built-in `Ez` mode is seeded once by the Phase-48 migration block in `src/db/migrate.ts` (`INSERT INTO modes (...) ... 'builtin-ez' ... ON CONFLICT (slug) DO NOTHING`) with `instruction_position = 'replace'`, `tool_restriction = 'allowlist'`, a fixed `allowed_tools` array, and `builtin = true`. It is one of **three** built-in modes (alongside `Plan` and `Code Review`, both seeded earlier in the same file as `read-only` modes); everything else is user-authored.
 
@@ -53,7 +65,9 @@ The built-in `Ez` mode is seeded once by the Phase-48 migration block in `src/db
 
 ## Key files
 
-- `src/db/schema.ts` — `modes` table (system-prompt + tool-scope columns) and `conversations.modeId` FK.
+- `src/db/schema.ts` — `modes` table (system-prompt, tool-scope, and `preferred_provider`/`preferred_model`/`preferred_tier` columns) and `conversations.modeId` FK.
+- `src/runtime/routing/mode-binding.ts` — `resolveTurnModelBinding`: the pure turn-pin → mode-model → mode-tier → classifier precedence chain, with a named `source`.
+- `src/runtime/stream-chat/setup-tools.ts` — calls `resolveTurnModelBinding` per turn and hands the binding to `resolveModel`.
 - `src/db/queries/modes.ts` — `listModes` (builtin OR own), `getMode`, `getModeBySlug`, `createMode`, `updateMode`, `deleteMode`. `updateMode`/`deleteMode` no-op on built-in rows.
 - `src/db/migrate.ts` — earlier "Custom Modes" block seeds the `builtin-plan` + `builtin-code-review` built-in modes; the Phase-48 block adds schema deltas + the `builtin-ez` mode seed (all idempotent, `ON CONFLICT (slug) DO NOTHING`).
 - `src/db/queries/conversations.ts` — `resolveSystemPrompt(conversationId, projectId, modeId)`: base-prompt resolution + `instructionPosition` layering.
@@ -82,7 +96,7 @@ The built-in `Ez` mode is seeded once by the Phase-48 migration block in `src/db
 - [[bundled-catalog]] — `mode.extensionIds` reference extensions the registry resolves into tool names for the allowlist.
 - [[agents]] — `agentConfigs` carry their own attached-extension tool scoping; mode scope is the conversation-level analog.
 - [[teams]] — team member overrides can carry a `modeId`; invocation-level `toolRestriction`/`allowedTools` (member/team scope) layer on **after** mode scope in `streamChat`.
-- [[providers-and-models]] — a mode stores `preferredModel`/`preferredProvider` columns, but the main chat composer does not apply them (see gotchas).
+- [[providers-and-models]] — a mode's `preferredProvider`/`preferredModel`/`preferredTier` feed `resolveTurnModelBinding`, which sits directly above the tier classifier in the routing chain (see gotchas for when it actually fires).
 - [[context-compaction]] — the resolved system prompt (with the mode instruction layered in) is part of the per-turn input window.
 - [[settings]] — custom modes are managed under `/settings/personalization#modes`.
 
@@ -92,7 +106,8 @@ None yet — this is the primary reference. (See [providers-and-models](../chat/
 
 ## Notes & gotchas
 
-- **Stored model/provider/temperature preferences are mostly inert.** The `modes` table and `Mode` type carry `preferredModel`, `preferredProvider`, `temperature`, and `preferredThinkingLevel`, and `createModeSchema` validates them — but the runtime never reads `preferredModel`/`preferredProvider`/`temperature`. `resolveSystemPrompt` and `computeModeToolScope` only consume the system-prompt and tool-scope fields; the provider/model/thinking level handed to `streamChat` come from the composer's own state. The **only** consumer of `preferredThinkingLevel` is `MetaAgentChat.svelte` (the Ez meta-agent chat), which seeds the thinking-level on mode-change if the model supports reasoning. In the main project chat, picking a mode does **not** switch the model, provider, temperature, or thinking level. Treat these columns as forward-looking/partially-wired, not as enforced behavior.
+- **`preferredModel`/`preferredProvider`/`preferredTier` are LIVE (was: inert).** They are consumed by `resolveTurnModelBinding` (`src/runtime/routing/mode-binding.ts`), called from `src/runtime/stream-chat/setup-tools.ts`. But the binding only fires on a turn that arrives **unpinned** — `pin.model` (the composer's picker *or* the conversation's established model) short-circuits at level 1 and the mode is never read. So on an established thread, switching mode does **not** switch the model; the preference decides the *first* routed turn of a fresh thread. See *Model binding* above.
+- **`temperature` is still inert; `preferredThinkingLevel` is Ez-only.** The `modes` table and `Mode` type carry both and `createModeSchema` validates them, but nothing in the runtime reads `mode.temperature`. The **only** consumer of `preferredThinkingLevel` is `MetaAgentChat.svelte` (the Ez meta-agent chat), which seeds the thinking level on mode-change if the model supports reasoning. In the main project chat, picking a mode does not change temperature or thinking level. Treat these two columns as forward-looking, not as enforced behavior.
 - **Schema vs. column drift on tool scope.** The DB column and the executor support `toolRestriction = 'allowlist'` + `allowedTools`, but `createModeSchema`/`updateModeSchema` (the public API) only accept `toolRestriction ∈ {all, read-only, none}` and don't expose `allowedTools`. So user-authored modes cannot set a bare `allowlist` over the API — that path is reserved for the seeded `builtin-ez` mode (set directly via SQL). User-authored allowlisting is expressed instead through `extensionIds` + `extensionTools`.
 - **Built-in modes are immutable by construction.** `updateMode`/`deleteMode` short-circuit to `undefined`/`false` for `builtin = true` rows in the query layer, and the `[id]` route returns **403** before even reaching them. `listModes` always includes built-ins regardless of `userId`.
 - **`listModes` is the only ownership filter.** `GET /api/modes/[id]` (single fetch) has **no** owner check — any authenticated user with `read` scope can fetch any mode by id, including another user's custom mode. Mutating routes (`PUT`/`DELETE`) do enforce `existing.userId !== user.id → 404`, but the read-by-id does not. This leaks a mode's system-prompt instruction + tool config across tenants if the id is known.
