@@ -230,7 +230,39 @@ export function authorizeDelegationConsent(
 /** The pinnable snapshot of the definition a delegation names. */
 export interface DelegationVersionCandidate {
   id: string;
+  version: number;
   stepsHash: string;
+}
+
+/**
+ * The version identity of a definition, computed by the **same test the
+ * executor uses** — `version.stepsHash === workflowDefinitionHash(<the
+ * definition that was handed to the run>)` (`workflow-executor.ts:629`).
+ *
+ * Shared by {@link resolveDelegationVersionPin} (which turns a mismatch
+ * into a refusal for the ROOT) and by the consent hash's
+ * `WorkflowIdentityResolver` (which turns it into `unversioned` for a
+ * CHILD). Those are different consequences of one fact, and computing the
+ * fact twice is how they would eventually disagree — at which point a
+ * delegation could pin a version while the hash it stores says the same
+ * definition has none.
+ *
+ * A child that diverges falls back to `unversioned` rather than being
+ * refused, deliberately: the consent hash's fallback path already covers
+ * every definition with no version row at all (a YAML or extension
+ * workflow), so a diverged child is fingerprinted by CONTENT and any
+ * later change to it still invalidates consent. Nothing is lost. The root
+ * is stricter only because the root is the one whose id gets written to
+ * the delegation row.
+ */
+export function delegationVersionIdentity(
+  definition: WorkflowDefinition,
+  latest: DelegationVersionCandidate | undefined,
+): { kind: "version"; versionId: string; version: number } | { kind: "unversioned" } {
+  if (latest !== undefined && latest.stepsHash === workflowDefinitionHash(definition)) {
+    return { kind: "version", versionId: latest.id, version: latest.version };
+  }
+  return { kind: "unversioned" };
 }
 
 export type DelegationVersionPin =
@@ -295,9 +327,9 @@ export function resolveDelegationVersionPin(
   // No row, no version, nothing to pin. The FK is nullable for exactly
   // this and the run will record NULL too, so the two agree.
   if (latestVersion === undefined) return { ok: true, definitionVersionId: null };
-  const servedHash = workflowDefinitionHash(entry.definition);
-  if (latestVersion.stepsHash === servedHash) {
-    return { ok: true, definitionVersionId: latestVersion.id };
+  const identity = delegationVersionIdentity(entry.definition, latestVersion);
+  if (identity.kind === "version") {
+    return { ok: true, definitionVersionId: identity.versionId };
   }
   return {
     ok: false,
@@ -307,6 +339,33 @@ export function resolveDelegationVersionPin(
       `so a run started from this delegation could not record which version it executed. ` +
       `Save the workflow again, then re-consent.`,
   };
+}
+
+/**
+ * Who may read or revoke a delegation: **the human who consented, or an
+ * admin.**
+ *
+ * The single-homed consent-owner authority, the delegation-shaped twin of
+ * `mayControlRun` for a run. Deliberately keyed on
+ * `consented_by_user_id` and NOT on the owner columns, and that is the
+ * whole of Ruling 1's answer to "who is answerable for a service-account
+ * job": the ACCOUNT owns the run, the HUMAN WHO CONSENTED answers for it
+ * (`db/schema.ts:659-668`). Keying on the owner instead would leave a
+ * `service`-kind delegation with no session that can revoke it — an
+ * authority nobody can withdraw, which is strictly worse than one nobody
+ * can exercise.
+ *
+ * Admins are included because a delegation whose consenting human has
+ * left is otherwise unrevokable, and `consented_by_user_id` is
+ * `ON DELETE RESTRICT` (`db/schema.ts:688`) precisely so that user cannot
+ * be deleted out from under it — the two together mean an admin always
+ * has a way to end the authority.
+ */
+export function mayManageDelegation(
+  delegation: { consentedByUserId: string },
+  actor: { id: string; role: string },
+): boolean {
+  return actor.role === "admin" || delegation.consentedByUserId === actor.id;
 }
 
 /**
