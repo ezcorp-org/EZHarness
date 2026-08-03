@@ -417,6 +417,11 @@ run_legs() {
       src/lib/chat/page-handlers/__tests__/send-message.test.ts \
       src/lib/command-registry.unit.test.ts \
       src/lib/components/DiffSummaryPanel.component.test.ts \
+      src/__tests__/api-audit.server.test.ts \
+      src/__tests__/api-extensions-id-audit-stats.server.test.ts \
+      src/__tests__/api-extensions-id-confirm.server.test.ts \
+      src/__tests__/extensions-reapprove-route.server.test.ts \
+      src/__tests__/api-settings.server.test.ts \
       --coverage --coverage.provider=v8 --coverage.reporter=lcovonly \
       --coverage.reportsDirectory="$VITEST_COV" \
       --coverage.include='src/lib/search/*.ts' \
@@ -451,6 +456,12 @@ run_legs() {
       --coverage.include='src/lib/chat/page-handlers/inherit-mode.ts' \
       --coverage.include='src/routes/api/tools/+server.ts' \
       --coverage.include='src/routes/api/extensions/[id]/reapprove-drift/+server.ts' \
+      --coverage.include='src/routes/api/audit/+server.ts' \
+      --coverage.include='src/routes/api/audit/stats/+server.ts' \
+      --coverage.include='src/routes/api/extensions/[id]/audit/stats/+server.ts' \
+      --coverage.include='src/routes/api/extensions/[id]/confirm/+server.ts' \
+      --coverage.include='src/routes/api/extensions/[id]/reapprove/+server.ts' \
+      --coverage.include='src/routes/api/settings/+server.ts' \
       --coverage.include='src/routes/api/projects/[id]/features/scan/+server.ts' \
       --coverage.include='src/routes/api/conversations/[id]/tree/+server.ts' \
       --coverage.include='src/routes/api/workflows/runs/+server.ts' \
