@@ -49,6 +49,35 @@ async function commit(dir: string, file: string, content: string, message: strin
   return (await sh(["git", "rev-parse", "HEAD"], dir)).stdout.trim();
 }
 
+/**
+ * `git rebase --continue` the way the real agent runs it — but HERMETIC.
+ *
+ * Unlike every other git call in this fixture, `--continue` re-opens the
+ * replayed commit's message in git's editor. With no GIT_EDITOR/EDITOR/VISUAL
+ * exported, git falls back to `vi`, and what happens next is a property of the
+ * HOST, not of the code under test:
+ *   - dev box with an editor installed → `vi` blocks forever on the runner's
+ *     non-TTY stdin, and bun kills the test at its timeout;
+ *   - CI runner with no usable `vi` → the editor exits non-zero, `--continue`
+ *     fails, and the rebase is left in progress, so rebaseWithAgent throws
+ *     "agent did not complete the rebase".
+ * Neither is the behaviour these tests name. Pin GIT_EDITOR=true (accept the
+ * existing message, edit nothing) through the runner's env seam — see
+ * `productionHostRunner` in ./shell, which merges `opts.env` OVER process.env,
+ * so the pin holds no matter what the ambient shell exports. This is the same
+ * class of hermeticity as that runner's GIT_CONFIG_GLOBAL=/dev/null pin and the
+ * repo-local user.name/user.email/commit.gpgsign this fixture already sets.
+ */
+async function agentContinuesRebase(cwd: string): Promise<void> {
+  const r = await productionHostRunner(["git", "rebase", "--continue"], cwd, { env: { GIT_EDITOR: "true" } });
+  // Fail loud and in-place. Swallowing a non-zero here leaves the rebase in
+  // progress, and the failure resurfaces downstream as a confusing assertion
+  // about the step's outcome instead of "the fixture's git call broke".
+  if (r.exitCode !== 0) {
+    throw new Error(`fixture: git rebase --continue failed (${r.exitCode}): ${r.stderr.trim() || r.stdout.trim()}`);
+  }
+}
+
 /** A dispatcher whose behaviour each test controls; records the prompts it saw. */
 interface FakeDispatcher extends AgentDispatcher {
   calls: DispatchOptions[];
@@ -485,7 +514,7 @@ describe("rebaseStep (real remotes)", () => {
       // Resolve the conflict + continue the rebase, as the real agent would.
       writeFileSync(join(o.cwd, "README.md"), "# merged\n");
       await sh(["git", "add", "README.md"], o.cwd);
-      await productionHostRunner(["git", "rebase", "--continue"], o.cwd, {});
+      await agentContinuesRebase(o.cwd);
       return { output: { summary: "merged readme" }, text: "" };
     });
     const { ctx, headUpdates } = makeCtx(wt, b, { run: { baseSha: b }, fixing: true, dispatcher });
@@ -650,7 +679,7 @@ describe("rebaseStep edge + error branches", () => {
     const dispatcher = fakeDispatcher(async (o) => {
       writeFileSync(join(o.cwd, "README.md"), "# merged\n");
       await sh(["git", "add", "README.md"], o.cwd);
-      await productionHostRunner(["git", "rebase", "--continue"], o.cwd, {});
+      await agentContinuesRebase(o.cwd);
       return { output: { summary: "merged" }, text: "" };
     });
     // `rev-parse --git-path` fails → rebaseInProgress catches and treats each dir

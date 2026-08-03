@@ -29,10 +29,13 @@
 #       fails both runs and REDS the shard (exit 1); an instrumentation/
 #       contention flake (several backend suites are timing/rate-limit
 #       sensitive under --coverage on the slow CI runner) passes the clean
-#       re-run and is tolerated. Failures OUTSIDE P (e.g. the
-#       docs/extensions/examples suites, which fail by design without Docker)
-#       are never pass/fail-gated — they are listed as non-gating files and
-#       the Per-file coverage gate's thresholds remain their only gate. A
+#       re-run and is tolerated. Failures OUTSIDE P are never pass/fail-gated
+#       — they are listed as non-gating files and the Per-file coverage gate's
+#       thresholds remain their only gate. C\P is now just the scoped web
+#       bun:test files (whose pass/fail home is `web-bun-tests` / vitest): the
+#       docs/extensions/examples suites used to sit here as the canonical
+#       "tolerated" example and are now IN P, so a red assertion in that tree
+#       REDS the shard instead of exiting 0 (it previously did the latter). A
 #       missing per-file result ("no result recorded", e.g. an OOM-killed
 #       subshell) counts as a failure and enters the same P-gate + retry
 #       path. A shard also still exits non-zero on an INFRASTRUCTURE failure
@@ -71,16 +74,26 @@ trap 'rm -rf "$TMPDIR"' EXIT
 
 [ -n "$COV_OUT" ] && mkdir -p "$COV_OUT"
 
-# Per-file --coverage flags. Example e2e shards keep bun's 5s fast-fail (their
-# real-subprocess cases genuinely time out without Docker; a long timeout would
-# balloon the job). DB-heavy suites get 30s headroom so setupTestDb() in a
-# beforeAll doesn't crash the shard as "(unnamed)" under instrumentation.
-timeout_flag_for() {
-  case "$1" in
-    docs/extensions/examples/*) echo "" ;;
-    *) echo "--timeout 30000" ;;
-  esac
-}
+# Per-file --coverage timeout — ONE value for every file, matching
+# scripts/test.sh:109 exactly. DB-heavy suites need the 30s headroom so
+# setupTestDb() in a beforeAll doesn't crash the shard as "(unnamed)" under
+# instrumentation; a genuine hang still fails at 30s.
+#
+# docs/extensions/examples/** USED to be carved out to bun's 5s fast-fail, on
+# the theory that "their real-subprocess cases genuinely time out without
+# Docker" and a long timeout would balloon the job. That carve-out was safe
+# only while those files were coverage-only: their failures were TOLERATED by
+# the P-membership classifier below. They are now in P (see the examples sweep
+# in lib/test-file-sets.sh), so the carve-out became a false-RED source — and
+# a divergence, since test.sh already gives the very same files 30s.
+#
+# Measured, not guessed: run per-file under --coverage locally, the slowest
+# single test in the 178-file examples tree is 1278ms (the real-subprocess
+# `*.integration` / `mcp-real-spawn` suites). ci.yml's own measured CI/dev
+# per-file ratio is p90 4.6x — 1278ms x 4.6 ~= 5.9s, i.e. OVER bun's 5s
+# default. The 30s ceiling is never reached by a healthy run (0 timeouts
+# across all 178 under --coverage), so nothing balloons.
+TEST_TIMEOUT_FLAG="--timeout 30000"
 
 # ── host pool ───────────────────────────────────────────────────────────────
 run_host_pool() {
@@ -88,7 +101,6 @@ run_host_pool() {
   local running=0 idx=0
   for f in "${_files[@]}"; do
     local outfile="$TMPDIR/result_$idx" codefile="$TMPDIR/code_$idx" covdir="$TMPDIR/cov_$idx"
-    local tflag; tflag=$(timeout_flag_for "$f")
     (
       # set +e: the script runs under set -e, so a failing `bun test` would
       # abort this subshell at the command-substitution assignment before the
@@ -99,7 +111,7 @@ run_host_pool() {
       # Wall-clock ms per file — feeds the LPT shard planner's timings
       # manifest (emitted as $COV_OUT/timings-shard-N.json below).
       START_MS=$(date +%s%3N)
-      OUTPUT=$(bun test $tflag --coverage --coverage-reporter=lcov --coverage-dir="$covdir" "./$f" 2>&1)
+      OUTPUT=$(bun test $TEST_TIMEOUT_FLAG --coverage --coverage-reporter=lcov --coverage-dir="$covdir" "./$f" 2>&1)
       CODE=$?
       echo $(( $(date +%s%3N) - START_MS )) > "$TMPDIR/time_$idx"
       echo "$CODE" > "$codefile"
@@ -787,10 +799,10 @@ if [ -n "$SHARD_TOTAL" ]; then
   #     siblings). Real breakage fails both runs; an instrumentation/
   #     contention flake passes the clean re-run and is tolerated.
   #   - a P-member still failing after the isolated re-run REDS the shard.
-  #   - failures OUTSIDE P (e.g. the docs/extensions/examples suites that
-  #     fail by design without Docker) are never pass/fail-gated — listed as
-  #     non-gating files; the Per-file coverage gate's thresholds remain
-  #     their only gate.
+  #   - failures OUTSIDE P are never pass/fail-gated — listed as non-gating
+  #     files; the Per-file coverage gate's thresholds remain their only gate.
+  #     C\P is now only the scoped web bun:test files; the
+  #     docs/extensions/examples suites joined P and DO gate here.
   #
   # PRE-MERGE: the shard's ~200 per-file lcovs are merged into ONE artifact
   # file here (~110MB → <1MB; the gate then merges 8 files, not ~1000).

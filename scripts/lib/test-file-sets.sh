@@ -19,7 +19,11 @@
 #                             (the first-party BUNDLED extensions registered
 #                             in src/extensions/bundled.ts): that tree shipped
 #                             in the product but sat in NO pool, so its test
-#                             files ran in no CI job at all.
+#                             files ran in no CI job at all. AND (wave 4) a
+#                             full `docs/extensions/examples` sweep — the
+#                             reference extensions, which were coverage-
+#                             MEASURED but pass/fail-gated NOWHERE, so a red
+#                             assertion in that tree exited 0.
 #   C (coverage_host_files) — the per-file --coverage pool. The same `src`
 #                             sweep minus NAMED exclusions (documented at the
 #                             find): the github-projects/extensions
@@ -28,8 +32,7 @@
 #                             and false-drops unit-measured files — Bun's
 #                             per-line attribution drift) and the cov-extras
 #                             suggest-leg files (dedicated coverage home). It
-#                             ADDS the example suites and the scoped web
-#                             search-helper bun:test files.
+#                             ADDS the scoped web search-helper bun:test files.
 #
 # The set difference is small and intentional:
 #   P \ C = the excluded *integration* variants + the suggest-leg files +
@@ -41,11 +44,15 @@
 #           purpose). (P∩C files hard-gate INSIDE the coverage shards via
 #           test-coverage.sh's P-membership gate + isolated retry sweep; P\C
 #           files are the ones the shards never run, so the residual job is
-#           their only pass/fail home.)
-#   C \ P = the example suites + the scoped web bun:test files (measured for
-#           coverage; the example e2e cases fail-by-timeout without Docker, so
-#           they are NEVER pass/fail-gated — see the host-shard classifier in
-#           test-coverage.sh, which gates pass/fail on P-membership only).
+#           their only pass/fail home.) The examples sweep added NOTHING here:
+#           it is a subset of C, so the residual set is unchanged at 14 files.
+#   C \ P = the scoped web bun:test files only (measured for coverage; their
+#           pass/fail home is the `web-bun-tests` job / vitest). The example
+#           suites USED to live here on the theory that "the example e2e cases
+#           fail-by-timeout without Docker" — measured and false: no example
+#           test references Docker, and the full 1280-file host pool under
+#           --coverage reports 0 fail. They are now P∩C and hard-gate inside
+#           the shards.
 #
 # Also defined: the cov-extras LEG sets (suggest / sdk / harness-client /
 # ai-kit) — the exact file lists scripts/test-coverage.sh's run_legs executes.
@@ -80,6 +87,25 @@ passfail_files() {
     # their own package.json, so a future dependency install must not sweep
     # vendored *.test.ts into the pool.
     find extensions -name "*.test.ts" ! -path "*/node_modules/*"
+    # Reference EXAMPLE extensions (docs/extensions/examples/**). This tree was
+    # in C but NOT in P: its 182 test files were coverage-MEASURED yet
+    # pass/fail-gated NOWHERE, so a red assertion there exited 0 and the build
+    # stayed green (proven empirically: 3 real failures, exit code 0). The
+    # header's old C\P rationale — "the example e2e cases fail-by-timeout
+    # without Docker, so they are NEVER pass/fail-gated" — was measured and
+    # found FALSE: no example test file references Docker at all, and the full
+    # 1280-file coverage host pool (which includes every one of these 182
+    # files, run under --coverage with bun's 5s default timeout) reports
+    # `0 fail`. Per the header rules the whole tree therefore belongs in P.
+    # node_modules is pruned defensively for the same reason as `extensions`
+    # above — several examples carry their own package.json.
+    #
+    # P∩C membership is what gates them: the cov shards' P-membership check
+    # (scripts/test-coverage.sh host-shard mode) now hard-gates these files
+    # with its isolated plain retry sweep, and `bun run test` runs them too.
+    # A genuinely env-dependent future example suite must be excluded HERE by
+    # name, with its reason — never by dropping the sweep.
+    find docs/extensions/examples -name "*.test.ts" ! -path "*/node_modules/*"
     # import-wizard endpoint tests live beside their SvelteKit routes (bun:test).
     find web/src/routes/api/import -name "*.test.ts"
     # github-projects web route tests.
@@ -156,7 +182,13 @@ coverage_host_files() {
     # is BOTH pass/fail-gated and coverage-measured. P∩C membership also
     # hard-gates these inside the coverage shards.
     find extensions -name "*.test.ts" ! -path "*/node_modules/*"
-    find docs/extensions/examples -name "*.test.ts"
+    # Reference examples — the SAME sweep (and the same defensive node_modules
+    # prune) as P above, so this tree is now BOTH pass/fail-gated and
+    # coverage-measured and P\C for it is empty BY CONSTRUCTION. The prune is
+    # a verified no-op today (0 matches under docs/extensions/examples/**/
+    # node_modules); it exists so a future `bun install` inside an example
+    # can't sweep vendored *.test.ts into either pool.
+    find docs/extensions/examples -name "*.test.ts" ! -path "*/node_modules/*"
     find web/src/routes/api/import -name "*.test.ts"
     find web/src/routes/api/integrations/github-projects/__tests__ -name "*.test.ts"
     find web/src/routes/api/extensions/__tests__ -name "*.test.ts"
