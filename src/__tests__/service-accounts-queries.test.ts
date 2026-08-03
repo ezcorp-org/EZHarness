@@ -362,9 +362,13 @@ describe("service-accounts query layer", () => {
     // this pins the absence at the column level rather than by asserting that
     // some login route happens to 401 today. Adding `apiKeyHash` here to make
     // them loggable-in fails this test by name.
+    // `maxTokensPerDay` is the LLM-SPEND budget (schema.ts:552), not an auth
+    // token. Excluded BY NAME rather than by narrowing the pattern, so a new
+    // column containing "token" — `apiToken`, `refreshToken` — still fires.
+    const NON_CREDENTIAL = new Set(["maxTokensPerDay"]);
     const columnNames = Object.keys(serviceAccounts).filter((k) => !k.startsWith("_"));
-    const credentialish = columnNames.filter((c) =>
-      /password|passwd|secret|token|credential|apikey|api_key/i.test(c),
+    const credentialish = columnNames.filter(
+      (c) => !NON_CREDENTIAL.has(c) && /password|passwd|secret|token|credential|key|hash/i.test(c),
     );
     expect(credentialish).toEqual([]);
     expect(columnNames).toContain("createdByUserId");
