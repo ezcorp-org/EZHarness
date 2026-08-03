@@ -125,7 +125,7 @@ describe("answerApproval — the happy path", () => {
     const res = await answerApproval(
       approvalId,
       { choice: "approve", form: { note: "ok" } },
-      { userId: "answerer" },
+      { kind: "user", userId: "answerer", isAdmin: false },
       { runtime },
     );
 
@@ -149,7 +149,7 @@ describe("answerApproval — the happy path", () => {
     const res = await answerApproval(
       approvalId,
       { choice: "approve", consentAll: true },
-      { userId: "answerer" },
+      { kind: "user", userId: "answerer", isAdmin: false },
       { runtime },
     );
 
@@ -176,7 +176,7 @@ describe("answerApproval — refusals never mutate", () => {
     const res = await answerApproval(
       crypto.randomUUID(),
       { choice: "approve" },
-      { userId: "answerer" },
+      { kind: "user", userId: "answerer", isAdmin: false },
       { runtime },
     );
     expect(res.ok).toBe(false);
@@ -188,12 +188,12 @@ describe("answerApproval — refusals never mutate", () => {
   test("an already-answered approval is not-pending, reported distinctly", async () => {
     const { approvalId } = await seed();
     const { runtime } = stubRuntime();
-    await answerApproval(approvalId, { choice: "approve" }, { userId: "answerer" }, { runtime });
+    await answerApproval(approvalId, { choice: "approve" }, { kind: "user", userId: "answerer", isAdmin: false }, { runtime });
 
     const second = await answerApproval(
       approvalId,
       { choice: "reject" },
-      { userId: "answerer" },
+      { kind: "user", userId: "answerer", isAdmin: false },
       { runtime },
     );
     expect(second.ok).toBe(false);
@@ -212,7 +212,7 @@ describe("answerApproval — refusals never mutate", () => {
     const res = await answerApproval(
       approvalId,
       { choice: "approve" },
-      { userId: "answerer" },
+      { kind: "user", userId: "answerer", isAdmin: false },
       { runtime, checkScope: async () => false },
     );
 
@@ -232,7 +232,13 @@ describe("answerApproval — refusals never mutate", () => {
     const res = await answerApproval(
       approvalId,
       { choice: "approve" },
-      { userId: null },
+      // A `user` actor, deliberately, and NOT one of the non-human kinds:
+      // those are refused on the scoped branch BY KIND, before
+      // `checkScope` is reached. Handing this case a `system-timeout`
+      // actor would still produce `ok: false` while never invoking the
+      // resolver — the test would pass without exercising the
+      // throw-is-a-deny path it exists for.
+      { kind: "user", userId: "answerer", isAdmin: false },
       {
         runtime,
         checkScope: async () => {
@@ -255,7 +261,7 @@ describe("answerApproval — refusals never mutate", () => {
     const res = await answerApproval(
       approvalId,
       { choice: "approve" },
-      { userId: "answerer" },
+      { kind: "user", userId: "answerer", isAdmin: false },
       { runtime },
     );
     expect(res.ok).toBe(false);
@@ -270,7 +276,7 @@ describe("answerApproval — refusals never mutate", () => {
     const res = await answerApproval(
       approvalId,
       { choice: "approve" },
-      { userId: "answerer" },
+      { kind: "user", userId: "answerer", isAdmin: false },
       { runtime, checkScope: async () => true },
     );
     expect(res.ok).toBe(true);
@@ -283,7 +289,7 @@ describe("answerApproval — refusals never mutate", () => {
     const res = await answerApproval(
       approvalId,
       { choice: "approve" },
-      { userId: "answerer" },
+      { kind: "user", userId: "answerer", isAdmin: false },
       { runtime },
     );
 
@@ -301,7 +307,7 @@ describe("answerApproval — refusals never mutate", () => {
     const res = await answerApproval(
       approvalId,
       { choice: "maybe" },
-      { userId: "answerer" },
+      { kind: "user", userId: "answerer", isAdmin: false },
       { runtime },
     );
     expect(res.ok).toBe(false);
@@ -320,7 +326,7 @@ describe("answerApproval — refusals never mutate", () => {
     const res = await answerApproval(
       approvalId,
       { choice: "approve" },
-      { userId: "answerer" },
+      { kind: "user", userId: "answerer", isAdmin: false },
       { runtime },
     );
 
@@ -335,7 +341,7 @@ describe("answerApproval — refusals never mutate", () => {
     const res = await answerApproval(
       approvalId,
       { choice: "approve" },
-      { userId: "answerer" },
+      { kind: "user", userId: "answerer", isAdmin: false },
       { runtime: null },
     );
     expect(res.ok).toBe(false);
@@ -353,7 +359,7 @@ describe("answerApproval — refusals never mutate", () => {
     const res = await answerApproval(
       approvalId,
       { choice: "approve" },
-      { userId: "answerer" },
+      { kind: "user", userId: "answerer", isAdmin: false },
       { runtime },
     );
     expect(res.ok).toBe(false);
@@ -370,8 +376,8 @@ describe("answerApproval — concurrency", () => {
     const { runtime, resumed } = stubRuntime();
 
     const [a, b] = await Promise.all([
-      answerApproval(approvalId, { choice: "approve" }, { userId: "answerer" }, { runtime }),
-      answerApproval(approvalId, { choice: "reject" }, { userId: "answerer" }, { runtime }),
+      answerApproval(approvalId, { choice: "approve" }, { kind: "user", userId: "answerer", isAdmin: false }, { runtime }),
+      answerApproval(approvalId, { choice: "reject" }, { kind: "user", userId: "answerer", isAdmin: false }, { runtime }),
     ]);
 
     const winners = [a, b].filter((r) => r.ok);
@@ -420,7 +426,7 @@ describe("answerApproval — never reports success for a dead run", () => {
     const res = await answerApproval(
       approvalId,
       { choice: "approve" },
-      { userId: "answerer" },
+      { kind: "user", userId: "answerer", isAdmin: false },
       { runtime },
     );
 
@@ -465,7 +471,7 @@ describe("answerApproval — never reports success for a dead run", () => {
     const res = await answerApproval(
       approvalId,
       { choice: "approve" },
-      { userId: "answerer" },
+      { kind: "user", userId: "answerer", isAdmin: false },
       { runtime: failing },
     );
 
@@ -492,7 +498,7 @@ describe("authorization — who may answer", () => {
     const res = await answerApproval(
       approvalId,
       { choice: "approve" },
-      { userId: "someone-else" },
+      { kind: "user", userId: "someone-else", isAdmin: false },
       { runtime: stubRuntime().runtime },
     );
 
@@ -509,7 +515,7 @@ describe("authorization — who may answer", () => {
     const res = await answerApproval(
       approvalId,
       { choice: "approve" },
-      { userId: "answerer" },
+      { kind: "user", userId: "answerer", isAdmin: false },
       { runtime: stubRuntime().runtime },
     );
     expect(res.ok).toBe(true);
@@ -518,7 +524,7 @@ describe("authorization — who may answer", () => {
   test("an UNOWNED run (CLI, extension trigger) is admin-only", async () => {
     const a = await seed({ ownerUserId: null });
     expect(
-      await answerApproval(a.approvalId, { choice: "approve" }, { userId: "answerer" }, { runtime: stubRuntime().runtime }),
+      await answerApproval(a.approvalId, { choice: "approve" }, { kind: "user", userId: "answerer", isAdmin: false }, { runtime: stubRuntime().runtime }),
     ).toMatchObject({ ok: false, code: "forbidden" });
 
     const b = await seed({ ownerUserId: null });
@@ -526,7 +532,7 @@ describe("authorization — who may answer", () => {
       await answerApproval(
         b.approvalId,
         { choice: "approve" },
-        { userId: "answerer", isAdmin: true },
+        { kind: "user", userId: "answerer", isAdmin: true },
         { runtime: stubRuntime().runtime },
       ),
     ).toMatchObject({ ok: true });
@@ -541,7 +547,7 @@ describe("authorization — who may answer", () => {
     const res = await answerApproval(
       approvalId,
       { choice: "approve" },
-      { userId: "a-reviewer" },
+      { kind: "user", userId: "a-reviewer", isAdmin: false },
       { runtime: stubRuntime().runtime, checkScope: async () => true },
     );
 
@@ -555,7 +561,7 @@ describe("authorization — who may answer", () => {
       { choice: "approve" },
       // Even the OWNER is refused when the scope is declared and unmet —
       // a declared scope raises the bar, it does not lower it.
-      { userId: "answerer" },
+      { kind: "user", userId: "answerer", isAdmin: false },
       { runtime: stubRuntime().runtime, checkScope: async () => false },
     );
     expect(res).toMatchObject({ ok: false, code: "forbidden" });

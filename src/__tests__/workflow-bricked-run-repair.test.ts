@@ -184,7 +184,12 @@ describe("a bricked run IS repaired", () => {
     const before = await answerApproval(
       approvalId,
       { choice: "approve" },
-      { userId: null, isAdmin: true },
+      // The run carries no `user_id`, and this file is about the REPAIR,
+      // not about who may answer. `system-timeout` is the one actor kind
+      // that answers an unowned run without a `users` row behind it —
+      // which is exactly what `{ userId: null, isAdmin: true }` used to
+      // mean here, now said in the type instead of implied by a null.
+      { kind: "system-timeout" },
       { runtime: { getWorkflows: () => [approvalWorkflow], workflowExecutor: wf } },
     );
     expect(before.ok).toBe(false);
@@ -195,7 +200,12 @@ describe("a bricked run IS repaired", () => {
     const after = await answerApproval(
       approvalId,
       { choice: "approve" },
-      { userId: null, isAdmin: true },
+      // The run carries no `user_id`, and this file is about the REPAIR,
+      // not about who may answer. `system-timeout` is the one actor kind
+      // that answers an unowned run without a `users` row behind it —
+      // which is exactly what `{ userId: null, isAdmin: true }` used to
+      // mean here, now said in the type instead of implied by a null.
+      { kind: "system-timeout" },
       { runtime: { getWorkflows: () => [approvalWorkflow], workflowExecutor: wf } },
     );
     expect(after.ok).toBe(true);

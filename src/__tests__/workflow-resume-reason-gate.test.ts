@@ -296,7 +296,9 @@ describe("R-3: the sanctioned path is untouched — an ANSWERED approval still r
     const answered = await answerApproval(
       approval!.id,
       { choice: "approve" },
-      { userId: null, isAdmin: true },
+      // Unowned run, and this file is about the resume-reason gate. The
+      // system actor answers it without needing a `users` row.
+      { kind: "system-timeout" },
       { runtime: { getWorkflows: () => [approvalWorkflow], workflowExecutor: wf } },
     );
     expect(answered.ok).toBe(true);

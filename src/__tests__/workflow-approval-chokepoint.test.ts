@@ -128,7 +128,7 @@ describe("every answer path routes through the one guard", () => {
     const res = await answerApproval(
       approvalId,
       { choice: "approve" },
-      { userId: "u1" },
+      { kind: "user", userId: "u1", isAdmin: false },
       { runtime: stubRuntime() },
     );
 
@@ -151,7 +151,7 @@ describe("every answer path routes through the one guard", () => {
     const res = await answerApproval(
       approvalId,
       { choice: "not-a-declared-choice" },
-      { userId: "u1" },
+      { kind: "user", userId: "u1", isAdmin: false },
       { runtime: stubRuntime() },
     );
 

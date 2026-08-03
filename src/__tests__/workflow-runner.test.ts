@@ -1052,10 +1052,12 @@ describe("a loop over a nested run that parks on an approval", () => {
     const res = await answerApproval(
       approval!.id,
       { choice: "go" },
-      // The run carries no `user_id`, which is admin-only by the same rule
-      // `workflow-run-control.ts` uses: "unowned" must never read as
-      // "anyone's".
-      { userId: null, isAdmin: true },
+      // The run carries no `user_id`. "Unowned" must never read as
+      // "anyone's" — a `user` actor is admin-only here, by the same rule
+      // `workflow-run-control.ts` uses. This file is not about that rule,
+      // so it answers as the system actor, the one kind that legitimately
+      // has no `users` row behind it.
+      { kind: "system-timeout" },
       { runtime },
     );
     expect(res.ok).toBe(true);

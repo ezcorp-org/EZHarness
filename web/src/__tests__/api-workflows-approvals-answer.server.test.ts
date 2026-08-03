@@ -239,7 +239,10 @@ describe("POST /api/workflows/approvals/:id — the rbacScope check the route wi
 
   test("an admin session resolves as role 'admin'; every other role as 'member'", async () => {
     await POST(makeEvent(admin));
-    await lastDeps().checkScope!("deploy:prod", null);
+    // A userId the route must IGNORE — it resolves the principal from the
+    // session, never from this argument. (The parameter is `string` now:
+    // only a `kind: "user"` actor can reach this callback at all.)
+    await lastDeps().checkScope!("deploy:prod", "not-the-session-user");
     expect(rbac.hasExtensionScope.mock.calls[0]![0]).toEqual({ id: "a1", role: "admin" });
   });
 

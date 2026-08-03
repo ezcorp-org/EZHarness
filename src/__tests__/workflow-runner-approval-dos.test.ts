@@ -267,7 +267,8 @@ describe("a daemon tick leaves an approval-parked run alive and answerable", () 
     const answered = await answerApproval(
       approval!.id,
       { choice: "approve" },
-      { userId: null, isAdmin: true },
+      // Unowned run; this file is about the DoS window, not authorization.
+      { kind: "system-timeout" },
       { runtime: { getWorkflows: () => [approvalWorkflow], workflowExecutor: wf } },
     );
 
