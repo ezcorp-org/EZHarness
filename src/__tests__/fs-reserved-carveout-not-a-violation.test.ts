@@ -164,11 +164,23 @@ async function withProvenance<T>(fn: (tok: string) => Promise<T>): Promise<T> {
 
 const savedProjectRoot = process.env.EZCORP_PROJECT_ROOT;
 
+/**
+ * Explicit hook timeout. `scripts/test.sh:109` runs the pool with
+ * `--timeout 30000` because a DB-heavy file shares the host with parallel
+ * PGlite siblings, but a bare targeted `bun test ./this-file` gets bun's
+ * 5s default — and `setupTestDb()` replays the migrated-snapshot build on
+ * a cold process. When that hook times out the file reports a bare
+ * `0 pass / 1 fail` with no test name, which reads as a broken suite
+ * rather than a timeout. Pinning it here makes the targeted run behave
+ * like the pool run.
+ */
+const DB_HOOK_TIMEOUT_MS = 30_000;
+
 beforeAll(async () => {
   process.env.EZCORP_PROJECT_ROOT = APP_ROOT;
   __resetProjectRootCacheForTests();
   await setupTestDb();
-});
+}, DB_HOOK_TIMEOUT_MS);
 
 afterAll(async () => {
   if (savedProjectRoot === undefined) delete process.env.EZCORP_PROJECT_ROOT;
@@ -180,7 +192,7 @@ afterAll(async () => {
   await closeTestDb();
   rmSync(APP_ROOT, { recursive: true, force: true });
   rmSync(OUTSIDE_ROOT, { recursive: true, force: true });
-});
+}, DB_HOOK_TIMEOUT_MS);
 
 beforeEach(async () => {
   _resetCallProvenanceForTests();
@@ -222,7 +234,7 @@ beforeEach(async () => {
     })
     .returning({ id: extensions.id });
   extensionId = rows[0]!.id;
-});
+}, DB_HOOK_TIMEOUT_MS);
 
 async function isEnabled(): Promise<boolean> {
   const db = getTestDb();
