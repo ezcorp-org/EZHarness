@@ -21,7 +21,16 @@ export const DELETE: RequestHandler = async ({ params, locals }) => {
   const user = requireAuth(locals);
   const file = await getKBFile(params.id);
   if (!file) return errorJson(404, "Knowledge base file not found");
-  if (file.userId && file.userId !== user.id) return errorJson(404, "Knowledge base file not found");
+  // sec-H3: fail-closed — unowned rows (null userId) are admin-only. The
+  // previous `file.userId && …` short-circuited on a null owner, so ANY
+  // authenticated user could delete an unowned file. 404 (not 403) is
+  // deliberate and matches /api/memories/[id]: a forbidden id must be
+  // indistinguishable from a missing one so the route is not an existence
+  // oracle. `POST /api/knowledge-base` always stamps `userId` (../+server.ts:80),
+  // so null-owner rows are legacy/system rows only.
+  if (file.userId !== user.id && user.role !== "admin") {
+    return errorJson(404, "Knowledge base file not found");
+  }
 
   const deleted = await deleteKBFile(params.id);
   if (!deleted) return errorJson(404, "Knowledge base file not found");

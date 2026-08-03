@@ -217,12 +217,14 @@ describe("source: projects mutating routes are role-gated", () => {
 
   test(`${REL} — PUT and DELETE gate on admin role`, () => {
     const src = read(REL);
-    // Pre-fix this file contained no role check whatsoever.
-    expect(src).toMatch(/user\.role\s*!==\s*"admin"/);
-    // Both mutating verbs must carry it — count the occurrences so a fix
-    // applied to only one verb fails here.
-    const hits = src.match(/user\.role\s*!==\s*"admin"/g) ?? [];
-    expect(hits.length).toBeGreaterThanOrEqual(2);
+    // Pre-fix this file contained no role check whatsoever, so the mere
+    // presence of a role comparison is the regression signal.
+    expect(src).toMatch(/user\.role\s*===\s*"admin"/);
+    // …and BOTH mutating verbs must invoke the gate. Counting the call sites
+    // makes a fix applied to only one verb fail here. GET is excluded on
+    // purpose (reads stay instance-global), so the expected count is exactly 2.
+    const callSites = src.match(/requireAdmin\(user\)/g) ?? [];
+    expect(callSites.length).toBe(2);
   });
 
   test(`${REL} — the scope gate is untouched (not re-scoped)`, () => {
@@ -237,26 +239,68 @@ describe("source: projects mutating routes are role-gated", () => {
 });
 
 describe("source: fail-closed ownership on the swept routes", () => {
-  const CASES: Array<{ rel: string; varName: string }> = [
-    { rel: "web/src/routes/api/knowledge-base/[id]/+server.ts", varName: "file" },
+  // `sliceFrom` narrows the assertion to the handler that was actually in
+  // scope. It matters for knowledge-base: its GET is DELIBERATELY left on the
+  // old shape (see the carve-out test below), so a whole-file assertion there
+  // would either fail or have to be weakened. Narrowing keeps the regression
+  // signal sharp on the path that was fixed.
+  const CASES: Array<{ rel: string; varName: string; sliceFrom?: string }> = [
+    {
+      rel: "web/src/routes/api/knowledge-base/[id]/+server.ts",
+      varName: "file",
+      sliceFrom: "export const DELETE",
+    },
     { rel: "web/src/routes/api/modes/[id]/+server.ts", varName: "existing" },
     { rel: "web/src/routes/api/__test/reset/+server.ts", varName: "conv" },
   ];
 
-  for (const { rel, varName } of CASES) {
+  for (const { rel, varName, sliceFrom } of CASES) {
+    const scoped = () => {
+      const src = read(rel);
+      if (!sliceFrom) return src;
+      const at = src.indexOf(sliceFrom);
+      // A missing anchor would silently make the assertion vacuous.
+      expect(at).toBeGreaterThan(-1);
+      return src.slice(at);
+    };
+
     test(`${rel} — has the fail-closed admin escape hatch`, () => {
-      expect(read(rel)).toMatch(/user\.role\s*!==\s*"admin"/);
+      expect(scoped()).toMatch(/user\.role\s*!==\s*"admin"/);
     });
 
-    test(`${rel} — no truthiness short-circuit on the DELETE path`, () => {
+    test(`${rel} — no truthiness short-circuit on the fixed path`, () => {
       // The exploitable shape: `x.userId && x.userId !== user.id`. Its
       // absence is the regression signal — it flips together with the fix.
       const shortCircuit = new RegExp(
         `${varName}\\.userId\\s*&&\\s*${varName}\\.userId\\s*!==\\s*user\\.id`,
       );
-      expect(read(rel)).not.toMatch(shortCircuit);
+      expect(scoped()).not.toMatch(shortCircuit);
     });
   }
+});
+
+describe("source: knowledge-base GET carve-out is deliberate, not missed", () => {
+  const REL = "web/src/routes/api/knowledge-base/[id]/+server.ts";
+
+  test("GET still carries the old shape — and this is a KNOWN open gap", () => {
+    // Recording the decision rather than hiding it. GET was NOT tightened
+    // because the list route deliberately shows null-userId files to every
+    // user (web/src/routes/api/knowledge-base/+server.ts:29,
+    // `files.filter(f => !f.userId || f.userId === user.id)`). Tightening the
+    // single-file GET alone would make a file appear in the list but 404 on
+    // fetch. The read side needs list + detail changed together, which is a
+    // wider decision than this deletion fix.
+    //
+    // If this assertion ever fails, someone fixed the read side: delete this
+    // test and move GET into the CASES table above. It is written to fail
+    // LOUDLY on that change rather than to bless the current shape forever.
+    const src = read(REL);
+    const getSlice = src.slice(
+      src.indexOf("export const GET"),
+      src.indexOf("export const DELETE"),
+    );
+    expect(getSlice).toMatch(/file\.userId\s*&&\s*file\.userId\s*!==\s*user\.id/);
+  });
 });
 
 // ── (B) Behavioral probes ─────────────────────────────────────────
