@@ -81,7 +81,7 @@ Pure, rune-free helpers:
 | `POST /api/conversations/[id]/clone-turns` | `chat` | Bulk-select turns → new conversation (`messageIds` 1–500, optional `title`). 201. |
 | `GET /api/conversations/[id]/sub-conversations` | `read` | Enumerate sub-conversations (ownership-gated). |
 | `GET /api/conversations/[id]/export?format=…` | `read` | Download `markdown` (default) or `json`; `?leafMessageId=` picks the branch. |
-| `GET / POST /api/conversations/[id]/active-run` | `read` / `chat` | Poll / cancel the active run. **No ownership check — see gotchas.** |
+| `GET / POST /api/conversations/[id]/active-run` | `read` / `chat` | Poll / cancel the active run. Root-walk ownership-gated; fail-closed **404**. |
 
 ### UI entry points
 
@@ -116,7 +116,7 @@ The composer recognizes **five** sigils (`web/src/lib/mention-logic.ts`), all sh
 - `web/src/routes/api/conversations/[id]/clone-turns/+server.ts` — bulk-clone selected turns into a new conversation.
 - `web/src/routes/api/conversations/[id]/sub-conversations/+server.ts` — enumerate sub-conversations (ownership-gated).
 - `web/src/routes/api/conversations/[id]/export/+server.ts` — markdown/json export, branch-aware.
-- `web/src/routes/api/conversations/[id]/active-run/+server.ts` — poll/cancel active run (IDOR — see gotchas).
+- `web/src/routes/api/conversations/[id]/active-run/+server.ts` — poll/cancel active run; root-walk ownership-gated.
 - `web/src/routes/api/conversations/schema.ts` — Zod schemas: create/update conversation + clone-turns.
 - `web/src/lib/server/conversation-ownership.ts` — `resolveRootConversationForOwnership` root-walk, fail-closed 404.
 - `web/src/lib/conversation-grouping.ts` — pure sidebar fork-family + recency-bucket helpers.
@@ -153,7 +153,7 @@ The composer recognizes **five** sigils (`web/src/lib/mention-logic.ts`), all sh
 
 ## Notes & gotchas
 
-- **Active-run IDOR (OPEN).** `GET`/`POST /api/conversations/[id]/active-run` only call `requireAuth` + `requireScope` — there is **no** conversation-ownership check. SvelteKit does not wrap child `+server.ts` handlers in a parent guard, so this child route is unprotected: any authenticated user can poll another user's live run (leaking `partialResponse`) or cancel it cross-tenant. Every other per-message route (`messages`, `messages/[mid]`, `sub-conversations`, `clone-turns`, `export`) does gate ownership. Treat this as a known open finding, not fixed.
+- **Active-run IDOR — FIXED (was OPEN).** `GET`/`POST /api/conversations/[id]/active-run` now gate on `resolveRootConversationForOwnership` after `requireAuth` + `requireScope`, returning a fail-closed **404** (fixed in `20adfe86`, PR #12). It is now consistent with every other per-conversation route (`messages`, `messages/[mid]`, `sub-conversations`, `clone-turns`, `export`). **The underlying hazard is not fixed and cannot be:** SvelteKit does not wrap child `+server.ts` handlers in a parent guard, so a *new* child route under `/api/conversations/[id]/` starts life unprotected and must add its own ownership check. Treat that as the standing invariant this incident bought.
 - **No `/goal-state` route.** `/goal` is intercepted inline in `messages/+server.ts`; state lives in `conversations.metadata.goal` JSONB + an in-memory `Map` in `goal-host.ts` + a `goal:update` SSE event. Don't look for a dedicated route.
 - **`editOf` is request-only.** There is no `editOf` column on `messages`. The server resolves `editOf` to a sibling `parentMessageId`; the branch tree is purely `parentMessageId` edges.
 - **`excluded` toggles are run-gated.** `PATCH /messages/[mid]` returns **409** while a run is active — a mid-flight context swap would change the window pi-ai already snapshotted. The PATCH schema is a single object with an XOR refine (`content` XOR `excluded`), not a `z.union`, to avoid silently dropping a field.
