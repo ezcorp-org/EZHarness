@@ -80,7 +80,7 @@ Use it for hacking; don't run it as a production instance.
 | `EZCORP_CHECK_UPDATES`      | `true`                        | Set `false` to hide the update banner and stop polling GitHub Releases         |
 | `EZCORP_UPDATE_REPO`        | `ezcorp-org/EZcorp`           | Owner/repo for the update check                                                |
 | `EZCORP_SCAN_GLOBAL_COMMANDS` | `1`                         | Set `0` for multi-tenant deploys — disables scanning `~/.claude/` etc. on the server |
-| `SEARXNG_BASE_URL`          | `http://searxng:8080` (prod) / `http://localhost:8889` (dev) | Where the web-search extension finds the SearXNG sidecar             |
+| `SEARXNG_BASE_URL`          | `http://searxng:8080` (prod) / `http://127.0.0.1:8889` (dev) | Where the web-search extension finds the SearXNG sidecar             |
 | `SEARXNG_SECRET`            | internal-only default         | SearXNG instance secret; set a real value only if you expose the sidecar      |
 
 Full env var reference: [production-guide.md §1](production-guide.md#1-quick-start-embedded-pglite).

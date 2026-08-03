@@ -108,6 +108,16 @@ export function createWorkflowApprovalsHubPageProvider(): HubPageProvider {
     id: WORKFLOW_APPROVALS_HUB_PAGE_ID,
     title: "Approvals",
     render: (ctx) => renderApprovalsPage(ctx.userId),
+    // The consent boundary, on this surface. `answer` reaches
+    // `answerApproval`, and a run parks on an approval precisely so that a
+    // PERSON decides — so no API key may drive it, whatever its scope or
+    // role. Closing only the REST answer route would have moved R-4 here:
+    // the Hub actions route is `chat`-scoped and harness-controllable, so a
+    // leaked key could have answered through this action instead.
+    // RENDER is deliberately NOT restricted — reading your own inbox is not
+    // deciding anything, matching `GET /api/workflows/approvals` being
+    // `read`-scoped rather than session-only.
+    sessionOnlyActions: [WORKFLOW_APPROVALS_ANSWER_ACTION],
     actions: {
       [WORKFLOW_APPROVALS_ANSWER_ACTION]: async (ctx, payload) => {
         const approvalId = typeof payload?.approvalId === "string" ? payload.approvalId : "";

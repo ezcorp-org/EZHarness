@@ -3,7 +3,13 @@ import { setupTestDb, closeTestDb, mockDbConnection, getTestDb } from "./helpers
 
 mockDbConnection(); // Must be at module level BEFORE imports that use db
 
-import { requireAuth, requireRole, checkRole, requireTeamRole } from "../auth/middleware";
+import {
+  requireAuth,
+  requireRole,
+  checkRole,
+  requireSessionAuth,
+  requireTeamRole,
+} from "../auth/middleware";
 import { hasRequiredScope } from "../auth/api-key";
 import { createUser } from "../db/queries/users";
 import { createTeam, addTeamMember } from "../db/queries/teams";
@@ -65,6 +71,124 @@ describe("requireRole", () => {
       expect(e).toBeInstanceOf(Response);
       expect((e as Response).status).toBe(401);
     }
+  });
+});
+
+// ── requireSessionAuth (the consent-boundary gate, R-4) ─────────────
+//
+// One property per test, each killing a distinct mutation of the helper.
+// The gate exists because `requireScope(locals,"chat")` — the thing the
+// approval-answer route used to use — passes for an API key, which made a
+// leaked `chat` key a consent-MINTING key.
+
+describe("requireSessionAuth", () => {
+  /** Locals as an auth site would leave them. `authMethod` is deliberately
+   *  `string` so a test can pass a value that is not (yet) in `AuthMethod` —
+   *  the "future auth mode nobody has thought of" case is the whole point of
+   *  an allowlist and must be expressible. */
+  function sessionLocals(user: AuthUser | undefined, authMethod?: string) {
+    return { user, authMethod } as unknown as App.Locals;
+  }
+
+  test("returns the user for a cookie SESSION — the one allowed method", () => {
+    const result = requireSessionAuth(sessionLocals(memberUser, "session"));
+    expect(result).not.toBeInstanceOf(Response);
+    expect(result).toEqual(memberUser);
+  });
+
+  test("RETURNS a 403 for an `api-key` principal — the R-4 hole itself", () => {
+    // A `chat`-scoped key reaches every other gate on this route. This is
+    // the only one that stops it.
+    const result = requireSessionAuth(sessionLocals(memberUser, "api-key"));
+    expect(result).toBeInstanceOf(Response);
+    expect((result as Response).status).toBe(403);
+  });
+
+  test("RETURNS a 403 for an `internal` (bundled-extension) principal", () => {
+    // Loopback and system-owned is not the same as human-and-present.
+    const result = requireSessionAuth(sessionLocals(memberUser, "internal"));
+    expect((result as Response).status).toBe(403);
+  });
+
+  test("RETURNS a 403 when the auth method was never stamped", () => {
+    // Fail-closed on the UNKNOWN case. A denylist (`!== "api-key"`) would
+    // ALLOW here, which is exactly how this gate would rot: the next auth
+    // site to forget a stamp would silently inherit session authority.
+    const result = requireSessionAuth(sessionLocals(memberUser));
+    expect((result as Response).status).toBe(403);
+  });
+
+  test("RETURNS a 403 for an auth method that does not exist yet", () => {
+    // The allowlist's reason for being: a value nobody has thought of is
+    // refused by DEFAULT, without anyone remembering to deny it.
+    const result = requireSessionAuth(sessionLocals(memberUser, "oauth-device-code"));
+    expect((result as Response).status).toBe(403);
+  });
+
+  test("an ADMIN with an api-key is still refused — method beats role", () => {
+    // Role is a different axis. `answerApproval`'s ownership branch
+    // short-circuits on `isAdmin`, so an admin-role key that got past here
+    // could clear any user's gate on any run.
+    const result = requireSessionAuth(sessionLocals(adminUser, "api-key"));
+    expect((result as Response).status).toBe(403);
+  });
+
+  test("a SESSION admin is allowed, so the refusal above is about the method", () => {
+    // Control for the previous test: same user, same role, different method.
+    expect(requireSessionAuth(sessionLocals(adminUser, "session"))).toEqual(adminUser);
+  });
+
+  test("RETURNS a 401 (not 403) when there is no principal at all", () => {
+    // Distinct status: "log in" and "you may not do this" are different
+    // instructions, and only the second implies the caller authenticated.
+    const result = requireSessionAuth(sessionLocals(undefined, "session"));
+    expect((result as Response).status).toBe(401);
+  });
+
+  test("the 401 body is byte-identical to requireAuth's", async () => {
+    // So swapping `requireAuth` for this helper at a call site changes
+    // nothing an unauthenticated client can observe except the 500→401 fix.
+    const result = requireSessionAuth(sessionLocals(undefined)) as Response;
+    expect(await result.json()).toEqual({ error: "Authentication required" });
+  });
+
+  test("the 403 body names the requirement", async () => {
+    const result = requireSessionAuth(sessionLocals(memberUser, "api-key")) as Response;
+    expect(await result.json()).toEqual({ error: "Interactive session required" });
+  });
+
+  test("NEVER throws — a thrown Response is a 500 from a +server.ts handler", () => {
+    // The bug `checkRole`'s docblock exists to prevent. The route this gate
+    // replaced called `requireAuth`, which throws: an unauthenticated
+    // caller was told "server error" instead of "log in".
+    expect(() => requireSessionAuth(sessionLocals(undefined))).not.toThrow();
+    expect(() => requireSessionAuth(sessionLocals(memberUser, "api-key"))).not.toThrow();
+  });
+
+  test("api-key SCOPES are irrelevant — every scope set is still refused", () => {
+    // Proves the gate is not secretly the scope check wearing a new name. A
+    // key holding literally every scope is refused for the same reason a
+    // read-only one is: it is not a person.
+    for (const scopes of [[], ["read"], ["chat"], ["read", "chat", "extensions", "admin"]]) {
+      const locals = {
+        user: memberUser,
+        authMethod: "api-key",
+        apiKeyScopes: scopes,
+      } as unknown as App.Locals;
+      expect((requireSessionAuth(locals) as Response).status).toBe(403);
+    }
+  });
+
+  test("a session with NO apiKeyScopes and one WITH them both resolve on method", () => {
+    // The discriminator is `authMethod`, not `apiKeyScopes === undefined`.
+    // An (impossible today) session that carried scopes must still pass, or
+    // the implementation is sniffing the wrong field.
+    const withScopes = {
+      user: memberUser,
+      authMethod: "session",
+      apiKeyScopes: ["read"],
+    } as unknown as App.Locals;
+    expect(requireSessionAuth(withScopes)).toEqual(memberUser);
   });
 });
 

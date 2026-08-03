@@ -14,6 +14,7 @@ import type {
 } from "../types";
 import type { AgentExecutor } from "./executor";
 import type { EventBus } from "./events";
+import { resumeReasonRefusal } from "./workflow-resume-reasons";
 import {
   resolveMapping,
   resolveOutputMapping,
@@ -839,6 +840,39 @@ export class WorkflowExecutor {
         `Workflow run ${row.id} is parked on an unanswered approval; ` +
           `it can only be resumed by answering that approval`,
       );
+    }
+
+    // ── WHY the run parked, asked as a table rather than a branch ──────
+    //
+    // `suspended_reason` is RE-READ from the row here, never taken off
+    // the `row` argument — a caller that could name its own park reason
+    // could name the one with no predicate, which is the proof-not-
+    // assertion principle `holdsClaim` above applies to `claimed_by`.
+    //
+    // Every reason on this tree resolves to "no resume-time predicate",
+    // because each one's condition is re-verified by the STEP the cursor
+    // re-enters (see `workflow-resume-reasons.ts` for the row-by-row
+    // argument, pinned by mutation in
+    // `__tests__/workflow-resume-reason-gate.test.ts`). So this is a live
+    // SEAM, not a live gate — today it always allows.
+    //
+    // It exists now because C3's `budget-exceeded` and `consent-stale`
+    // are NOT step-re-checkable: nothing consults a spend cap when a run
+    // re-enters an approval step, so a run whose cap tripped would be
+    // admitted by answering the approval. Adding that row to the table
+    // closes it here, with no edit to this file — and a reason nobody
+    // classifies fails the BUILD rather than falling through.
+    //
+    // TRANSIENT on purpose. A run whose reason is still outstanding is
+    // healthy and waiting; `refuseTerminal` writes `status="error"`, and
+    // routing parked runs there is what destroyed every approval-parked
+    // run for days.
+    const reasonRefusal = await resumeReasonRefusal(
+      (await getWorkflowRunRow(row.id))?.suspendedReason,
+      { workflowRunId: row.id },
+    );
+    if (reasonRefusal !== null) {
+      return refuseTransient("suspend-reason-unsatisfied", reasonRefusal);
     }
 
     // Drift. Until definitions are versioned this hash is the only guard,
