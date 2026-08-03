@@ -217,7 +217,7 @@ export function readRunAudience(visibility: WorkflowVisibility): WorkflowAudienc
  * |---|---|---|---|
  * | `system`   | anyone (no login needed)    | **owner**, or admin      | **admin only** |
  * | `project`  | any authenticated principal | creator, or admin        | anyone         |
- * | `private`  | owner or admin              | owner or admin           | owner + admins |
+ * | `private`  | owner or admin              | owner or admin           | anyone         |
  *
  * All three are reachable. Read the read/run column as the audience it
  * is: `system` and `project` both admit every user on the instance,
