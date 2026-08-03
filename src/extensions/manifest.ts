@@ -913,20 +913,40 @@ function validatePermissionsBlock(perms: unknown, errors: string[]): void {
     }
   }
 
-  // workflows (W2): `{names: string[], maxRunsPerHour?: number}`. Each name
-  // is the BARE name declared inside one of the extension's own
+  // workflows (W2): `{names: string[], maxRunsPerHour?: number,
+  // allowDelegated?: boolean}`. Each name is the BARE name declared inside
+  // one of the extension's own
   // `*.workflow.yaml` assets, so it must satisfy the SAME grammar the
   // extension-workflow loader enforces (`WORKFLOW_NAME_RE`) — in particular
   // it must NOT contain the `:` namespace separator, which would let a
   // manifest name another extension's (or a host) workflow. Rejecting here
   // is defense-in-depth: the handler re-namespaces host-side, and the clamp
   // drops anything undeclared.
+  //
+  // `allowDelegated` (C3) is the opt-in for `ctx.workflows.runFor`, which
+  // fires a workflow the extension does NOT ship. It is the ONLY thing that
+  // makes an empty `names` list legal: a delegated-only extension has no
+  // assets of its own to list, and before C3 that manifest was rejected
+  // here and its grant dropped by the clamp, which made the feature
+  // unreachable (D-3). An author who did NOT ask for delegation still gets
+  // the original non-empty rule — the empty list stays an error for them,
+  // because for them it is still a husk that authorizes nothing.
   if (p.workflows !== undefined) {
     if (!p.workflows || typeof p.workflows !== "object" || Array.isArray(p.workflows)) {
-      errors.push("permissions.workflows must be an object {names, maxRunsPerHour?}");
+      errors.push(
+        "permissions.workflows must be an object {names, maxRunsPerHour?, allowDelegated?}",
+      );
     } else {
       const w = p.workflows as Record<string, unknown>;
-      if (!Array.isArray(w.names) || w.names.length === 0) {
+      // Validated BEFORE it is consulted below: a non-boolean here is a
+      // typo, and treating a typo as "not delegated" would reject the
+      // author's empty `names` with a message about names — pointing at
+      // the wrong line.
+      if (w.allowDelegated !== undefined && typeof w.allowDelegated !== "boolean") {
+        errors.push("permissions.workflows.allowDelegated must be a boolean");
+      }
+      const delegatedOnly = w.allowDelegated === true;
+      if (!Array.isArray(w.names) || (w.names.length === 0 && !delegatedOnly)) {
         errors.push("permissions.workflows.names must be a non-empty array of workflow names");
       } else {
         for (let i = 0; i < w.names.length; i++) {

@@ -306,11 +306,30 @@ export async function handleWorkflowsRpc(
   // 2. Grant check — structural. A grant with an empty name list or a
   //    non-positive rate ceiling authorizes nothing; the clamp never
   //    produces one, so reaching here means a hand-edited / legacy row.
+  //
+  //    ONE exception, and only one (C3 / D-3): a DELEGATED-ONLY grant.
+  //    `allowDelegated` opts the extension into firing workflows it does
+  //    not ship, so it has no names to list — and dropping it here would
+  //    make the whole delegated feature unreachable, which is the defect
+  //    this branch exists to fix. The bit is not a bypass: it lets the
+  //    grant clear this STRUCTURAL rung and nothing else. Every rung
+  //    below is unchanged and still per-name, so an `op: "run"` on such a
+  //    grant is refused at rung 4 (nothing declared) and the two READ ops
+  //    fail closed on the empty list — `readApprovals` filters against an
+  //    empty `mine` set (nothing matches) and `readRuns` passes an empty
+  //    array to `listWorkflowRunsPage`, whose documented contract is that
+  //    an empty array matches nothing rather than widening to unscoped
+  //    (`src/db/queries/workflow-runs.ts` — `workflowNames`).
+  //
+  //    For any grant written before C3, `allowDelegated` is absent, so
+  //    `!allowDelegated` is true and the predicate below is the original
+  //    expression, character for character.
   const granted = ctx.grantedPermissions.workflows;
+  const allowDelegated = granted?.allowDelegated === true;
   if (
     !granted ||
     !Array.isArray(granted.names) ||
-    granted.names.length === 0 ||
+    (granted.names.length === 0 && !allowDelegated) ||
     typeof granted.maxRunsPerHour !== "number" ||
     !Number.isFinite(granted.maxRunsPerHour) ||
     granted.maxRunsPerHour <= 0
