@@ -214,13 +214,20 @@ test.describe("Workflow editor", () => {
 	test("a workflow the caller cannot edit says so, rather than failing on save", async ({
 		page,
 	}) => {
-		// `canEdit` is the server's answer. Every row that existed before
-		// ownership shipped is `system`, and `system` is admin-only to edit —
-		// so a non-admin sees this on most workflows immediately after upgrade.
+		// `canEdit` is the server's answer. A `system` row the caller does
+		// NOT own — every row that predates the ownership columns carries no
+		// owner at all — is admin-only to edit, and the editor says so up
+		// front instead of letting the user type and then 403 on save.
 		await page.route(`**/api/workflows/${WORKFLOW.name}`, (route) => {
 			if (route.request().method() === "GET") {
 				return route.fulfill({
-					json: { ...WORKFLOW, source: "db", visibility: "system", canEdit: false },
+					json: {
+						...WORKFLOW,
+						source: "db",
+						visibility: "system",
+						userId: null,
+						canEdit: false,
+					},
 				});
 			}
 			return route.fallback();
@@ -229,5 +236,48 @@ test.describe("Workflow editor", () => {
 		await openEditor(page);
 		await expect(page.getByTestId("editor-readonly")).toBeVisible();
 		await expect(page.getByTestId("editor-readonly")).toContainText("fork it");
+	});
+
+	test("@evidence the OWNER of a `system` workflow gets the editor, not the read-only banner", async ({
+		page,
+	}, testInfo) => {
+		// The regression this guards. `POST /api/workflows` defaults
+		// `visibility` to `system` and stamps the creator, and the ladder
+		// used to refuse the tier before it consulted ownership — so the
+		// author of a brand-new workflow landed on this page and was told
+		// they could only fork their own work. Same tier as the case above;
+		// the only difference is that the row has an owner and the server's
+		// `canEdit` now says so.
+		await page.route(`**/api/workflows/${WORKFLOW.name}`, (route) => {
+			if (route.request().method() === "GET") {
+				return route.fulfill({
+					json: {
+						...WORKFLOW,
+						source: "db",
+						visibility: "system",
+						userId: "the-caller",
+						canEdit: true,
+					},
+				});
+			}
+			return route.fallback();
+		});
+
+		await openEditor(page);
+		// ORDER IS LOAD-BEARING. `data-testid="workflow-editor"` is the outer
+		// shell and renders while the fetch is still in flight, so asserting
+		// the banner's ABSENCE first would pass against a page that had not
+		// rendered the workflow yet — and would pass just as happily if the
+		// banner were about to appear. Wait for something inside the loaded
+		// `{#if workflow}` block, which is the same block the banner lives
+		// in, and only then assert the banner is not in it.
+		await expect(page.getByRole("heading", { name: `Edit ${WORKFLOW.name}` })).toBeVisible();
+		await expect(page.getByTestId("workflow-visibility")).toHaveText("system");
+		await expect(page.getByTestId("editor-readonly")).toHaveCount(0);
+		await expect(page.getByRole("button", { name: "Save changes" })).toBeVisible();
+
+		await captureEvidence(page, testInfo, "workflow-editor-owned-system-editable", {
+			fullPage: true,
+		});
 	});
 });
