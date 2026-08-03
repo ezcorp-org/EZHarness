@@ -1,6 +1,34 @@
-import type { AuthMethod, AuthUser } from "./types";
+import type { AuthUser } from "./types";
 import { type ApiKeyScope, hasRequiredScope } from "./api-key";
 import { getTeamMembership } from "../db/queries/teams";
+
+/**
+ * HOW a request authenticated — stamped POSITIVELY at each auth site, so a
+ * gate can ask "is this an interactive human session?" without inferring it
+ * from the ABSENCE of something else.
+ *
+ * There is exactly one producer per value and they are all in the request
+ * pipeline:
+ *   - `session`  — a verified session-cookie JWT (`web/src/hooks.server.ts`).
+ *                  The only value that represents a human at a browser.
+ *   - `api-key`  — a user-issued `ezk_*` bearer key
+ *                  (`web/src/lib/server/security/bearer-auth.ts`).
+ *   - `internal` — a loopback-only `ezkint_*` bundled-extension subprocess
+ *                  key (same module).
+ *
+ * `undefined` means NO auth site claimed the request. A gate that allowlists
+ * a value therefore refuses both "not authenticated" and "authenticated by
+ * some future mechanism that has not been taught to stamp itself" — which is
+ * the whole point of stamping rather than sniffing. Do NOT add a value here
+ * without deciding, at every {@link requireSessionAuth} call site, whether
+ * that new principal may spend a consent gate.
+ *
+ * Declared HERE rather than in `./types` because this union is the vocabulary
+ * of `requireSessionAuth`'s allowlist and has no meaning apart from it — and
+ * because `./types` is declaration-only, so a change there carries no
+ * executable line for the patch-coverage gate to measure.
+ */
+export type AuthMethod = "session" | "api-key" | "internal";
 
 // Structural shape of SvelteKit's `App.Locals` that these helpers rely on.
 // Declared locally so this module typechecks in the backend build where the

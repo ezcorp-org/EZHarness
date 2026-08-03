@@ -7,7 +7,7 @@
 
 import type { ApiKeyScope } from "$lib/server/security/api-keys";
 import { verifyApiKey } from "$lib/server/security/api-keys";
-import type { AuthMethod } from "$server/auth/types";
+import type { AuthMethod } from "$server/auth/middleware";
 import {
   INTERNAL_KEY_PREFIX,
   verifyInternalKey,

@@ -14,7 +14,7 @@ declare global {
 			 * infer the auth method from the absence of `apiKeyScopes` — see
 			 * `src/auth/middleware.ts`.
 			 */
-			authMethod?: import("../../src/auth/types").AuthMethod;
+			authMethod?: import("../../src/auth/middleware").AuthMethod;
 			/**
 			 * First-time onboarding stamp, populated by hooks.server.ts on
 			 * page navigations after auth succeeds. Null = not yet
