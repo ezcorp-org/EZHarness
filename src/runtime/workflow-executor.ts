@@ -752,10 +752,10 @@ export class WorkflowExecutor {
     // ── "not suspended" and "not resumable" are different questions ────
     //
     // Winning the claim CAS **is** the `suspended → running` transition
-    // (`db/queries/workflow-runs.ts:786-801`), and `WorkflowRunner`
-    // deliberately re-reads the row AFTER claiming it
-    // (`workflow-runner.ts:342`). So every run the daemon brings here
-    // reads `running`, and a bare `status !== "suspended"` test
+    // (`db/queries/workflow-runs.ts:796-818`, the `status: "running"` at
+    // `:805`), and `WorkflowRunner` deliberately re-reads the row AFTER
+    // claiming it (`workflow-runner.ts:351`). So every run the daemon
+    // brings here reads `running`, and a bare `status !== "suspended"` test
     // terminalized ALL of them — including the approval-parked runs the
     // transient refusal twenty lines below exists to protect, which is
     // the denial of service the `refuseTransient` docblock above warns
@@ -774,7 +774,7 @@ export class WorkflowExecutor {
     //   • "running because something else owns it" — a synchronous run
     //     mid-flight, or a sibling instance's claim. Resuming that would
     //     execute a batch twice, which is the double-execution guard
-    //     named at `workflow-runner.ts:17-21`.
+    //     named at `workflow-runner.ts:18-21`.
     //
     // A caller that names no `resumedBy`, or the wrong one, is refused
     // exactly as before. The guard keeps every bit of its force against
