@@ -53,12 +53,66 @@ export interface ApprovalAnswerInput {
   consentAll?: boolean;
 }
 
-/** Who is answering. `userId` is null for a system/timeout answer. */
-export interface ApprovalActor {
-  userId: string | null;
-  /** Admins may answer any approval, including one on an unowned run. */
-  isAdmin?: boolean;
-}
+/**
+ * Who is answering — a DISCRIMINATED union, and the discriminant is the
+ * security property.
+ *
+ * ## What the undiscriminated struct made representable
+ *
+ * This was `{ userId: string | null; isAdmin?: boolean }`, and the timeout
+ * sweep answered as `{ userId: null, isAdmin: true }`. At the no-scope
+ * decision point that made **the clock and a real admin the same value**:
+ * both arrived as `isAdmin === true`, and the only thing that told them
+ * apart was `answeredBy` being NULL on the row *afterwards* — evidence
+ * recovered after the decision, not an input to it.
+ *
+ * The sweep's own module doc was careful and correct about why it must
+ * not be handed a `checkScope`, but the mechanism it relied on was
+ * `isAdmin: true` plus the absence of a dep: documentation doing work the
+ * type refused to do. Anyone who later passed the sweep a `checkScope` —
+ * a reasonable-looking change — would have handed the clock every
+ * permission in the system, and nothing would have failed.
+ *
+ * ## What the discriminant makes INEXPRESSIBLE
+ *
+ * `{ userId: null, isAdmin: true }` no longer type-checks. A `user` now
+ * carries a non-null `userId` and a **stated** `isAdmin` — an omitted
+ * flag can no longer read as "unknown, treat as not-admin by accident" —
+ * and the two non-human kinds carry no user identity at all, so they
+ * cannot reach {@link AnswerApprovalDeps.checkScope}, whose `userId`
+ * parameter is now `string`. "A non-human satisfies a human's grant" is
+ * therefore not denied, it is unsayable.
+ *
+ * ## Proof, not assertion
+ *
+ * `delegation` follows PR #58's `holdsClaim` (`workflow-executor.ts`):
+ * *naming an identity that does not hold the lease proves nothing*.
+ * Authority for this kind is something that must be PROVED against
+ * `workflow_delegations` at the moment of the answer, so until that proof
+ * exists the kind holds no authority at all — see
+ * {@link mayAnswerUnscopedApproval}.
+ */
+export type ApprovalActor =
+  /** A real, authenticated human. `isAdmin` is required: stated, never inferred. */
+  | { kind: "user"; userId: string; isAdmin: boolean }
+  /**
+   * The approval timeout sweep, answering on the clock's behalf.
+   *
+   * Never satisfies an `rbacScope`: applying an author's `onTimeout:` is
+   * housekeeping the author already asked for, while satisfying a
+   * declared scope would be the clock awarding itself a permission a
+   * human was required to hold. The first is a deadline; the second is a
+   * privilege escalation.
+   */
+  | { kind: "system-timeout" }
+  /**
+   * A delegated (C3 `runFor`) run, answered on behalf of a delegation.
+   *
+   * Carries the two facts its authority must be proved FROM — never the
+   * authority itself. See {@link mayAnswerUnscopedApproval} for what is
+   * and is not granted today.
+   */
+  | { kind: "delegation"; delegationId: string; runId: string };
 
 export type AnswerApprovalResult =
   | { ok: true; run: WorkflowRun; consentAllUsed: boolean }
@@ -85,10 +139,73 @@ export interface AnswerApprovalDeps {
    * **A throw is a DENY**, never a silent allow — ported invariant 17.
    * An identity the host cannot resolve must not satisfy a grant, and
    * the refusal is shaped like a 403 rather than surfacing as a 500.
+   *
+   * `userId` is `string`, not `string | null`: this callback is now
+   * reachable ONLY for a `kind: "user"` actor. A null identity can no
+   * longer be *asked* whether it holds a grant, which is a stronger
+   * statement than answering "no" — see {@link ApprovalActor}.
    */
-  checkScope?: (scope: string, userId: string | null) => Promise<boolean>;
+  checkScope?: (scope: string, userId: string) => Promise<boolean>;
   /** Test seam. Defaults to the registered live runtime. */
   runtime?: WorkflowRuntime | null;
+}
+
+/**
+ * May this actor answer an approval that declares NO `rbacScope`?
+ *
+ * The one place the discriminant decides anything. Exhaustive on purpose,
+ * matching `workflow-scope.ts`'s audience switch: adding an
+ * {@link ApprovalActor} kind without deciding what it may answer is a
+ * TYPE ERROR here, not a silent fall-through to whichever branch happened
+ * to be last. That compile error is the mechanism — it is why a fourth
+ * kind cannot inherit an authority nobody granted it.
+ *
+ * Non-exported, so no surface can reach this rule without going through
+ * {@link answerApproval} (ported invariant 7).
+ */
+function mayAnswerUnscopedApproval(
+  actor: ApprovalActor,
+  runOwnerUserId: string | null,
+): boolean {
+  switch (actor.kind) {
+    case "user":
+      // Unchanged rule: the run's owner decides, and an admin may answer
+      // any approval including one on an unowned run (CLI, extension
+      // trigger). A NULL `user_id` must never read as "anyone's".
+      return (
+        actor.isAdmin || (runOwnerUserId !== null && runOwnerUserId === actor.userId)
+      );
+
+    case "system-timeout":
+      // The sweep's whole purpose, and now the ONLY thing this kind can
+      // do. It deliberately bypasses "who owns this run" — applying
+      // `onTimeout:` is a housekeeping decision the workflow author
+      // already made — while the scoped branch above refuses it outright.
+      // Previously this arrived as `isAdmin: true`, indistinguishable
+      // from a real admin at exactly this line.
+      return true;
+
+    case "delegation":
+      // FAIL CLOSED, and this is a scope boundary, not an oversight.
+      //
+      // Phase R2 grants this kind its authority, and that authority must
+      // be PROVED at answer time, not carried: re-read
+      // `workflow_delegations`, require the row to be live and unrevoked
+      // (`revoked_at IS NULL`, `enabled`), require
+      // `workflow_runs.delegation_id` to name THIS run, and require the
+      // answering session's user to be the row's `consented_by_user_id`.
+      // R2 also owns the matching approvals-inbox disjunct, without which
+      // the authority would exist and be unreachable.
+      //
+      // Until every one of those holds, the kind is representable and
+      // powerless. That ordering is deliberate: the union member has to
+      // exist before the surfaces that mint it can be typed, and a kind
+      // that exists without a proof must deny — "not yet implemented"
+      // fails closed here, never open. Nothing constructs this kind
+      // today; the tests pin the refusal so R2 cannot widen it by
+      // accident.
+      return false;
+  }
 }
 
 /**
@@ -141,10 +258,7 @@ export async function answerApproval(
   // read as "anyone's".
   if (!approval.rbacScope) {
     const runRow = await getWorkflowRunRow(approval.workflowRunId);
-    const owns =
-      actor.isAdmin === true ||
-      (runRow?.userId != null && actor.userId != null && runRow.userId === actor.userId);
-    if (!owns) {
+    if (!mayAnswerUnscopedApproval(actor, runRow?.userId ?? null)) {
       return {
         ok: false,
         code: "forbidden",
@@ -153,6 +267,22 @@ export async function answerApproval(
     }
   }
   if (approval.rbacScope) {
+    // Only a HUMAN can be asked whether they hold a grant. A
+    // `system-timeout` or `delegation` actor is refused here without
+    // `checkScope` ever being consulted — so a future caller that hands
+    // the sweep a `checkScope` (the exact reasonable-looking change the
+    // old shape left open) still cannot let the clock satisfy a scope.
+    // The refusal is the same `forbidden` code every surface already
+    // maps, so the sweep still falls through to its fail-closed `abort`.
+    if (actor.kind !== "user") {
+      return {
+        ok: false,
+        code: "forbidden",
+        message:
+          `Answering this approval requires the "${approval.rbacScope}" permission, ` +
+          `which only a person can hold`,
+      };
+    }
     let granted: boolean;
     try {
       granted = (await deps.checkScope?.(approval.rbacScope, actor.userId)) ?? false;
@@ -238,12 +368,19 @@ export async function answerApproval(
   }
 
   // ── Record (CAS) ───────────────────────────────────────────────────
+  //
+  // `answered_by` is FK `users.id`, so it records a PERSON or nobody.
+  // Derived from the discriminant rather than from a nullable field: an
+  // answer no human made is now structurally unattributable, instead of
+  // being un-attributed because the one caller that could have supplied
+  // an identity happened to pass null.
   const consentAllUsed = guard.consentAllUsed === true;
+  const answeredBy = actor.kind === "user" ? actor.userId : null;
   const recorded = await recordWorkflowApprovalAnswer(approval.id, {
     choice: answer.choice,
     form: answer.form ?? null,
     itemIds: answer.itemIds ?? null,
-    answeredBy: actor.userId,
+    answeredBy,
     consentAllUsed,
   });
   if (recorded === 0) {
@@ -263,7 +400,8 @@ export async function answerApproval(
       approvalId,
       workflowRunId: approval.workflowRunId,
       stepName: approval.stepName,
-      answeredBy: actor.userId,
+      answeredBy,
+      actorKind: actor.kind,
     });
   }
 
