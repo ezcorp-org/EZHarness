@@ -407,6 +407,8 @@ run_legs() {
       src/__tests__/security-web-active-run-idor.server.test.ts \
       src/__tests__/security-web-tool-call-output-idor.server.test.ts \
       src/__tests__/api-mcp-servers-id-put.server.test.ts \
+      src/__tests__/api-extensions-id-modifiable.server.test.ts \
+      src/__tests__/api-extensions-id-settings-user.server.test.ts \
       src/__tests__/security-web-invite-claim-order.server.test.ts \
       src/__tests__/security-web-conversations-parent-idor.server.test.ts \
       src/__tests__/api-extensions.server.test.ts \
@@ -451,6 +453,8 @@ run_legs() {
       --coverage.include='src/lib/chat/page-handlers/inherit-mode.ts' \
       --coverage.include='src/routes/api/tools/+server.ts' \
       --coverage.include='src/routes/api/extensions/[id]/reapprove-drift/+server.ts' \
+      --coverage.include='src/routes/api/extensions/[id]/modifiable/+server.ts' \
+      --coverage.include='src/routes/api/extensions/[id]/settings/user/+server.ts' \
       --coverage.include='src/routes/api/projects/[id]/features/scan/+server.ts' \
       --coverage.include='src/routes/api/conversations/[id]/tree/+server.ts' \
       --coverage.include='src/routes/api/workflows/runs/+server.ts' \
