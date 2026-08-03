@@ -28,7 +28,7 @@ declared default  <  user override
 
 ### Injection into tool calls
 
-`src/extensions/tool-executor.ts` (around line 1148) is where resolved settings reach the subprocess. When a tool's manifest declares a `settings` block, the executor:
+`src/extensions/tool-executor/executor.ts` (inside `executeToolCall`, at the `resolveExtensionSettings` call) is where resolved settings reach the subprocess. When a tool's manifest declares a `settings` block, the executor:
 
 - Calls `resolveExtensionSettings(extensionId, this.currentUserId ?? null, manifest.settings)` — passing the in-memory schema so the resolver skips the per-call `extensions.manifest` DB lookup (N+1 fix; only the `extension_settings_user` row is queried).
 - Merges `{ ...resolved, ...(callerSettings ?? {}) }` under `invocationMetadata.settings`, where `callerSettings` is any `invocationMetadata.settings` the caller passed. **Caller-supplied settings win** — a cross-extension `ezcorp/invoke` orchestrator can pre-bind overrides at wire time.
@@ -97,7 +97,7 @@ The reference implementation is `kokoro-tts` (`docs/extensions/examples/kokoro-t
 - `src/db/queries/extension-settings.ts` — `getDeclaredDefaults`, `clampSettings`, `getUserSettings`, `setUserSettings`, `clearUserSettings`, `resolveExtensionSettings` (the merge `default < override` + clamp logic; secret keys dropped unconditionally).
 - `src/db/schema.ts` — `extension_settings_user` table (`userId` + `extensionId` composite PK, `values` JSONB, cascade-delete on both FKs).
 - `src/extensions/manifest.ts` — `isValidForField` per-value validity predicate used by both clamp and admit-time checks.
-- `src/extensions/tool-executor.ts` — resolves + merges settings into `_meta.invocationMetadata.settings` per tool call (caller overrides win).
+- `src/extensions/tool-executor/executor.ts` — resolves + merges settings into `_meta.invocationMetadata.settings` per tool call (caller overrides win).
 - `src/extensions/audit-actions.ts` — `EXT_AUDIT_ACTIONS.SETTINGS_USER_UPDATED` (`ext:settings.user.update`) / `SETTINGS_USER_RESET` (`ext:settings.user.reset`).
 - `packages/@ezcorp/sdk/src/runtime/settings.ts` — `getSetting` / `getAllSettings` SDK handler helpers.
 - `web/src/routes/api/extensions/[id]/settings/+server.ts` — `GET` schema + resolved values + held capabilities.

@@ -17,6 +17,121 @@ isolated networking, not against it. The container's outbound network
 goes through whatever firewall / egress proxy your platform uses; the
 per-MCP forward proxy operates entirely inside the container.
 
+## Running under Podman
+
+The dev stack runs on rootless Podman. Use the wrapper — it is the
+supported entry point and it exists because the two things it sets are
+both silent failures when forgotten:
+
+```sh
+bun run podman up -d
+bun run podman logs -f app
+bun run podman down
+```
+
+It points `DOCKER_HOST` at the rootless Podman socket and layers
+`compose.podman.yml` on top of `docker-compose.yml`. Start the socket
+once per host:
+
+```sh
+systemctl --user enable --now podman.socket
+```
+
+**Use the Docker Compose CLI against the Podman socket, not
+`podman-compose`.** `ollama-init` waits on `depends_on: condition:
+service_healthy`, which podman-compose has historically handled
+unreliably. The Compose CLI talking to the Podman socket runs it
+correctly — `docker version` against that socket reports `Podman Engine`
+as the server.
+
+### The one behavioural difference: `tmpfs:`
+
+`docker-compose.yml` masks two directories out of the `.:/repo` bind —
+`/repo/.ezcorp` (the prod stack's live PGlite DB and keys) and
+`/repo/worktrees` (agent scratch). Docker mounts an empty tmpfs over
+each. **Podman does not.** Its tmpfs default is `tmpcopyup`, which seeds
+the tmpfs with the contents of the directory underneath, publishing into
+the container exactly what the mask exists to hide — and copying it into
+RAM, since tmpfs is memory-backed.
+
+`compose.podman.yml` re-declares both masks with `notmpcopyup`, which
+restores Docker's semantics. It has to be a separate file because the
+Docker daemon rejects the option outright (`invalid tmpfs option
+[notmpcopyup]`) and the container then never starts.
+
+A mask is a blacklist, so forgetting the override must be loud rather
+than silent. The app's boot script re-checks that both paths are empty
+inside the container and exits non-zero if they are not:
+
+```
+FATAL: /repo/.ezcorp is not empty inside the container.
+       Its tmpfs mask is not in effect ...
+```
+
+If you see that, you started the stack without the override.
+
+> **Do not set `COMPOSE_FILE` in `.env` on a host that also runs
+> Docker.** Compose reads `COMPOSE_FILE` from `.env` for every runtime,
+> so a plain `docker compose up` would then also load the Podman
+> override and die on `invalid tmpfs option`. On a Podman-only host it
+> is safe, and replaces the wrapper:
+> `COMPOSE_FILE=docker-compose.yml:compose.podman.yml`.
+
+### `restart: unless-stopped` and reboots
+
+Podman has no always-running daemon, so restart policies do not survive
+a reboot on their own. Two things are needed:
+
+```sh
+loginctl enable-linger "$USER"              # user units run without a login session
+systemctl --user enable podman-restart.service   # replays restart policies at boot
+```
+
+Lingering alone is not enough — `podman-restart.service` is what
+actually restarts the containers. Neither policy in the compose files is
+changed by this; they are host-side prerequisites.
+
+### Resource caps need cgroup delegation
+
+`searxng` and `ollama` carry deliberate `mem_limit` / `cpus` caps (see
+the 2026-06-12 note in `compose.prod.yml`). Rootless Podman can only
+enforce them if the controllers are delegated to your user slice:
+
+```sh
+cat /sys/fs/cgroup/user.slice/user-$(id -u).slice/cgroup.controllers
+```
+
+`cpu` must appear in that list. **If it does not, Podman ignores the cpu
+cap silently** — the container runs uncapped and nothing is logged. Fix
+the delegation rather than dropping the caps:
+
+```sh
+sudo mkdir -p /etc/systemd/system/user@.service.d
+printf '[Service]\nDelegate=cpu cpuset io memory pids\n' | \
+  sudo tee /etc/systemd/system/user@.service.d/delegate.conf
+sudo systemctl daemon-reload
+# log out and back in, then re-check the file above
+```
+
+### Other rootless differences worth knowing
+
+- **`network_mode: host` still means the real host network namespace.**
+  The app reaches the sidecars on `localhost:8889` (SearXNG) and
+  `localhost:11434` (Ollama) exactly as under Docker, because rootless
+  Podman does not create a new netns for host-network containers.
+- **File ownership is inverted.** Container uid 0 maps to the uid that
+  invoked Podman, so files the container creates in the bind mounts land
+  owned by *you*, not by root. Under Docker they land root-owned and
+  need sudo. Nothing in the stack depends on which way this falls, so no
+  `--userns=keep-id` is needed.
+- **`safe.directory=/repo` is redundant but harmless.** Because the host
+  tree appears as uid 0 inside the container, git's dubious-ownership
+  check never fires under Podman. It is load-bearing under Docker, so
+  the entry stays.
+- **Image names are fully qualified** (`docker.io/...`) so they resolve
+  without relying on `unqualified-search-registries` in the host's
+  `containers/registries.conf`.
+
 ## MCP isolation — kernel + capabilities
 
 Phase 7 isolates every stdio MCP server in its own user+net+mount

@@ -43,7 +43,24 @@ The enhancement half is **not** fed extension candidates in v1 — a rewrite wou
 2. `src/suggest/enhance.ts` calls the configured OpenAI-compatible endpoint (`/v1/chat/completions`) with a JSON-schema `response_format` (retrying once without it for servers that reject the param), temperature 0.3, `/no_think` + defensive `<think>` stripping, 12 s timeout, and a TTL-cached availability probe. Every failure path returns null — the row simply doesn't render.
 3. The rewrite renders with **Apply** (never auto-applies; keeps intent/language per the system prompt) and flips to **Undo** after applying. Stale responses are dropped via a normalized draft-key guard, and in-flight requests abort on further typing — no answer for a prompt that no longer exists.
 
-### Configuration
+## Usage
+
+### REST API
+
+| Method & path | Scope | Purpose |
+|---|---|---|
+| `POST /api/composer/suggest` | `read` | Rank the active mode/toolset's tools against a draft (embedding retrieval + per-user prior), optionally rank whole unwired extensions, and optionally generate a local-LLM rewrite. Body `{draft, conversationId?, projectId?, modeId, include: ("tools"\|"extensions"\|"enhance")[]}`. Returns `{ enabled, degraded?, tools?, extensions?, enhancement?, llmAvailable?, latencyMs }`. Unowned/missing conversation → **404**. |
+| `POST /api/composer/suggest/feedback` | `chat` | Record telemetry `{kind, action, toolName?, latencyMs?}` into `suggestion_feedback`. Zod `.strict()` — a `draft` field is rejected outright. 201. |
+
+Both are registered in `src/api-registry.ts` with the scopes above, per the [remote testability contract](../../harness-contract.md).
+
+### UI entry points
+
+- **Composer popover** — pauses in `ChatInput.svelte` on the project chat page open a non-modal `SuggestionPopover` above the composer: indigo tool chips, violet 🧩 extension chips, and the ✨ rewrite row. Esc or × dismisses without re-nagging for the same draft.
+- **Settings → Personalization → Composer suggestions** — the global on/off (`ComposerSuggestSection.svelte`).
+- **Project → Settings → Composer suggestions** — the per-project toggle.
+
+### Env vars / settings
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -70,6 +87,27 @@ The base model works cold. When an install has real usage, the operator can fine
 2. **Train** (any GPU box or a free Colab T4, with [Unsloth](https://unsloth.ai/docs)): load `unsloth/Qwen3-1.7B` in 4-bit, attach a LoRA, train on the JSONL with the **same chat template** as inference, then `model.save_pretrained_gguf("out", tokenizer, quantization_method="q4_k_m")`.
 3. **Serve:** copy the GGUF back, `ollama create ezcorp-suggest -f Modelfile` (a two-line Modelfile: `FROM ./out.gguf`), set `EZCORP_SUGGEST_MODEL=ezcorp-suggest`, restart. The runtime picks it up through the normal config path — no code changes.
 
+## Key files
+
+- `web/src/routes/api/composer/suggest/+server.ts` — the one fast endpoint: scope + ownership gates, `include` split, tool + extension ranking, optional enhancement.
+- `web/src/routes/api/composer/suggest/feedback/+server.ts` — strict-schema telemetry insert.
+- `web/src/lib/server/scoped-tools.ts` — `resolveScopedTools` (the extracted `computeModeToolScope` + `applyToolFilters` core shared with `/api/tools`), `resolveSuggestableExtensions`, `isModeToolRestricted`.
+- `src/suggest/intent-rank.ts` — the scorer: cosine + prior blend, relevance gates, `rankScopedExtensions`, `EXTENSION_SUGGEST_DEFAULTS`.
+- `src/suggest/user-tool-priors.ts` — recency-decayed per-user tool-usage prior from `tool_calls`; `deriveExtensionPriors` (max over an extension's tools).
+- `src/suggest/embedding-cache.ts` — content-keyed LRU over tool/extension description embeddings (a changed description is a new key ⇒ lazy reindex).
+- `src/suggest/enhance.ts` — the OpenAI-compatible sidecar client: JSON-schema `response_format` with one retry without it, `/no_think` + `<think>` stripping, 12 s timeout, TTL-cached availability probe, 5-minute unavailable backoff.
+- `src/suggest/config.ts` — settings-over-env resolution for the URL/model/enabled keys.
+- `src/suggest/training-export.ts` — prompt→tool pair extraction for the offline LoRA path.
+- `scripts/suggest/export-training-data.ts` — the operator-run export CLI.
+- `src/memory/embeddings.ts` — the in-process MiniLM embedder (`generateEmbedding`, `isEmbeddingReady`, `warmupEmbeddings`), shared with memory/KB.
+- `src/startup/background-timers.ts` — fire-and-forget `warmupEmbeddings()` at boot.
+- `src/db/schema.ts` — the `suggestion_feedback` table + its `(kind, action, created_at)` rollup index.
+- `web/src/lib/components/SuggestionPopover.svelte` — the popover: tool chips, extension chips, ✨ Apply/Undo row.
+- `web/src/lib/composer-suggest-logic.ts` — pure client logic: eligibility, debounce/staleness guards, backoff, mention-token append.
+- `web/src/lib/components/ChatInput.svelte` — the debounce + request driver on the chat composer.
+- `web/src/lib/components/settings/ComposerSuggestSection.svelte` — the global and per-project toggles.
+- `src/api-registry.ts` — both routes registered with their scopes.
+
 ## Testing
 
 - **Pure logic:** `src/suggest/__tests__/*` (bun; ranking, cache/LRU, priors incl. PGlite, enhance parsing/probe/backoff, config precedence, training export) and `web/src/__tests__/composer-suggest-logic.unit.test.ts` (vitest; eligibility, staleness, backoff, token append).
@@ -83,3 +121,36 @@ The base model works cold. When an install has real usage, the operator can fine
 - **Embeddings-only:** rejected — can't generate rewrites.
 - **Default OFF:** review panel argued for it (Clippy risk); shipped ON per product owner's platform-wide yolo-default convention, with the mitigations that make ON tolerable: relevance threshold + min-draft gate (no popover without something relevant to say), per-draft Esc dismiss, one-click platform kill switch, and acceptance telemetry to re-litigate with data.
 - **Suggestions in `PanelChatInput` (Ez panel):** deferred — the chat page is the target surface; the panel composer stays clean.
+
+## Features it touches
+
+- [[mention-grammar]] — a clicked chip appends the standard `![ext:<name>]` token; the existing mention pipeline takes over from there. Suggestions never invent a syntax of their own.
+- [[modes]] — `resolveScopedTools` runs the same `computeModeToolScope` the executor runs, so a suggestion can never name a tool the mode wouldn't grant; a *curating* mode (pinned `extensionIds`, or a narrowing `toolRestriction`) suppresses extension chips entirely.
+- [[builtin-file-tools]] — built-in tools rank alongside extension tools, but their chips are informational (there is no mention token to insert).
+- [[bundled-catalog]] — enabled bundled extensions are the bulk of the extension-chip candidate pool.
+- [[persistent-memory]] — shares the in-process MiniLM embedder (`src/memory/embeddings.ts`) and therefore its ~2-minute cold-start window.
+- [[knowledge-base]] — same embedder, same warm-up path.
+- [[conversations]] — the scoping conversation decides the authoritative project and gates ownership (unowned → 404).
+- [[settings-system]] — the global/per-project toggles and the sidecar URL/model are settings keys, with settings winning over env.
+- [[audit-and-observability]] — `suggestion_feedback` is a separate telemetry plane from the governance audit trail; it never stores draft text.
+- [[remote-testability]] — both routes are registered in `src/api-registry.ts` with scopes.
+- [[deployment-and-releases]] — the `ollama`/`ollama-init` compose services follow the SearXNG contract (always-on, hard caps, no `depends_on`, deletable).
+
+## Related docs
+
+No standalone spec exists; this file is the primary reference. See [docs/harness-contract.md](../../harness-contract.md) for the API-registry requirement both routes satisfy.
+
+## Notes & gotchas
+
+- **The consent contract is binding: suggestions never modify the draft on their own.** Tool chips insert a mention only when clicked; the ✨ rewrite renders as a preview and replaces the draft only on an explicit **Apply**, always followed by an **Undo**. There is no auto-apply path — do not add one.
+- **Nothing you type is stored.** The draft embedding is transient and never persisted, and the telemetry schema is Zod `.strict()` so a `draft` field is *rejected*, not ignored. Deleting a user cascades their telemetry away.
+- **The embedder blocks on cold start — the degraded path is load-bearing.** `generateEmbedding()` blocks for the ~2 minutes MiniLM takes to initialize after a restart, so an ungated request would hang for the whole window. Boot warm-up plus the lexical-only `degraded: true` fallback are what prevent that. If you touch the ranking path, keep the `isEmbeddingReady()` check and the mid-flight throw handler — losing either turns a restart into a hung composer.
+- **The relevance threshold applies to the RAW cosine, not the prior-blended score.** This is the spam guard: a popular tool can only be boosted *among already-relevant* candidates, never ride its usage prior into an unrelated draft. A never-used tool with a strong match still surfaces (cold start works). Blending before the gate would quietly break both properties.
+- **Extension chips use a higher bar (0.35) than tool chips**, deliberately above the 0.32 noise cosine measured live — accepting an extension chip is a heavier commitment than accepting one tool.
+- **One extension never yields both chip kinds.** Any extension already represented by a ranked tool chip is deduped out of the extension list **server-side**.
+- **Extension-chip candidates are matched on extension IDs, not names**, and the read is fail-closed: it runs only after `resolveScopedTools` has confirmed conversation ownership.
+- **`toolRestriction: "all"` is the stored default on every mode row and means "no filter".** Only a *narrowing* value (`read-only`/`none`/`allowlist`) or pinned `extensionIds` counts as curating — don't treat the presence of the column as a restriction.
+- **The enhancement half is strictly optional.** Sidecar down ⇒ chips keep working and the ✨ row simply hides. Every failure path in `enhance.ts` returns null; nothing surfaces a broken-model error to the user.
+- **Enhancement is skipped when the draft carries mention chips** — a rewrite would clobber them.
+- **Extension candidates are deliberately not fed to the enhancement half in v1** — a rewrite would lean on tools that aren't wired yet.
+- **Default ON was a contested call.** The review panel argued for default-OFF on Clippy risk; it shipped ON per the platform-wide yolo-default convention, with the relevance threshold, min-draft gate, per-draft Esc dismiss, one-click kill switch, and acceptance telemetry as the mitigations that make ON tolerable. That telemetry exists specifically so the decision can be re-litigated with data.
