@@ -234,7 +234,7 @@ function printUsage(): void {
       "  ezcorp ext test [dir] [--filter <name>]               Run extension tests in sandbox",
       "  ezcorp ext publish [--token <token>]                  Publish extension to marketplace",
       "  ezcorp serve [--port 3001]                           Start API server",
-      "  ezcorp key mint [--scopes read,chat] [--role member|admin] [--user <email|id>] [--name <label>]  Mint a remote-control API key",
+      "  ezcorp key mint [--scopes read,write,chat] [--role member|admin] [--user <email|id>] [--name <label>]  Mint a remote-control API key",
       "      Scope and role are INDEPENDENT axes and admin routes require BOTH:",
       "      use --scopes admin --role admin for a key that can administer the instance.",
       "  ezcorp help                                          Show this help",
@@ -293,13 +293,20 @@ async function findDependents(targetName: string, allExts?: Awaited<ReturnType<t
 
 /**
  * Parse + validate a `--scopes a,b,c` flag into typed API-key scopes.
- * Defaults to `["read","chat"]` (enough to drive + observe a conversation)
- * when the flag is omitted. Exits(1) on any unknown scope.
+ *
+ * Defaults to `["read","write","chat"]` — enough to drive + observe a
+ * conversation AND to manage the caller's own memories/projects/lessons.
+ * `write` joined the default in 2026-08 when the mutating handlers moved off
+ * `read`; without it the default key would silently lose the ability to save
+ * a memory, which is what the previous default could do all along. Exits(1)
+ * on any unknown scope.
  */
+const DEFAULT_KEY_SCOPES: ApiKeyScope[] = ["read", "write", "chat"];
+
 export function parseKeyScopes(raw: string | undefined): ApiKeyScope[] {
-  if (!raw) return ["read", "chat"];
+  if (!raw) return [...DEFAULT_KEY_SCOPES];
   const parts = raw.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
-  if (parts.length === 0) return ["read", "chat"];
+  if (parts.length === 0) return [...DEFAULT_KEY_SCOPES];
   const invalid = parts.filter((p) => !isApiKeyScope(p));
   if (invalid.length > 0) {
     console.error(

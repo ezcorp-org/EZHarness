@@ -5,7 +5,7 @@ import { errorJson } from "$lib/server/http-errors";
 import { getSavedContext, deleteSavedContext } from "$server/db/queries/contexts";
 
 export const DELETE: RequestHandler = async ({ params, locals }) => {
-  const scopeErr = requireScope(locals, "read");
+  const scopeErr = requireScope(locals, "write");
   if (scopeErr) return scopeErr;
   const user = requireAuth(locals);
 

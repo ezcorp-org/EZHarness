@@ -16,7 +16,7 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 };
 
 export const DELETE: RequestHandler = async ({ params, locals }) => {
-  const scopeErr = requireScope(locals, "read");
+  const scopeErr = requireScope(locals, "write");
   if (scopeErr) return scopeErr;
   const user = requireAuth(locals);
   const file = await getKBFile(params.id);

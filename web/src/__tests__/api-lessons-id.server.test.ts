@@ -82,7 +82,7 @@ beforeEach(() => {
 });
 
 describe("DELETE /api/lessons/[id]", () => {
-	test("returns 403 when API-key scope missing 'read'", async () => {
+	test("returns 403 when API-key scope missing 'write'", async () => {
 		const res = await DELETE(
 			makeDeleteEvent({ locals: { user: USER, apiKeyScopes: ["chat"] } }),
 		);
@@ -127,7 +127,7 @@ describe("DELETE /api/lessons/[id]", () => {
 });
 
 describe("PATCH /api/lessons/[id]", () => {
-	test("returns 403 when API-key scope missing 'read'", async () => {
+	test("returns 403 when API-key scope missing 'write'", async () => {
 		const res = await PATCH(
 			makePatchEvent({
 				locals: { user: USER, apiKeyScopes: ["chat"] },

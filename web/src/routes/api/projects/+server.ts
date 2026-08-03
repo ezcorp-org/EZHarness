@@ -26,7 +26,7 @@ export const GET: RequestHandler = async ({ locals }) => {
 };
 
 export const POST: RequestHandler = async ({ request, locals }) => {
-  const scopeErr = requireScope(locals, "read");
+  const scopeErr = requireScope(locals, "write");
   if (scopeErr) return scopeErr;
   requireAuth(locals);
   const parsed = createProjectSchema.safeParse(await request.json().catch(() => ({})));

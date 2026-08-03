@@ -419,6 +419,21 @@ run_legs() {
       src/lib/chat/page-handlers/__tests__/send-message.test.ts \
       src/lib/command-registry.unit.test.ts \
       src/lib/components/DiffSummaryPanel.component.test.ts \
+      src/__tests__/api-write-scope-gates.server.test.ts \
+      src/__tests__/api-memories.server.test.ts \
+      src/__tests__/api-memories-id.server.test.ts \
+      src/__tests__/api-memories-patch.server.test.ts \
+      src/__tests__/api-memories-list-scope.server.test.ts \
+      src/__tests__/api-projects.server.test.ts \
+      src/__tests__/api-projects-id.server.test.ts \
+      src/__tests__/api-knowledge-base.server.test.ts \
+      src/__tests__/api-knowledge-base-id.server.test.ts \
+      src/__tests__/api-lessons.server.test.ts \
+      src/__tests__/api-lessons-id.server.test.ts \
+      src/__tests__/api-fs-mkdir.server.test.ts \
+      src/__tests__/api-ez-actions.server.test.ts \
+      src/__tests__/api-ez-actions-distill.server.test.ts \
+      src/__tests__/api-ez-actions-generic.server.test.ts \
       src/__tests__/api-audit.server.test.ts \
       src/__tests__/api-extensions-id-audit-stats.server.test.ts \
       src/__tests__/api-extensions-id-confirm.server.test.ts \
@@ -580,6 +595,13 @@ run_legs() {
       --coverage.include='src/routes/api/conversations/[id]/topics/[topicId]/extract/schema.ts' \
       --coverage.include='src/routes/api/contexts/+server.ts' \
       --coverage.include='src/routes/api/contexts/[id]/+server.ts' \
+      --coverage.include='src/routes/api/memories/+server.ts' \
+      --coverage.include='src/routes/api/memories/[id]/+server.ts' \
+      --coverage.include='src/routes/api/projects/+server.ts' \
+      --coverage.include='src/routes/api/knowledge-base/+server.ts' \
+      --coverage.include='src/routes/api/lessons/[id]/+server.ts' \
+      --coverage.include='src/routes/api/fs/mkdir/+server.ts' \
+      --coverage.include='src/routes/api/ez-actions/[name]/+server.ts' \
       --coverage.include='src/routes/api/context-types/+server.ts' \
       --coverage.include='src/routes/api/workflows/+server.ts' \
       --coverage.include='src/routes/api/workflows/schema.ts' \
