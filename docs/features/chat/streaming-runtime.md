@@ -72,7 +72,7 @@ Sub-agent bus events (`agent:spawn`/`agent:status`/`agent:complete`) for this `r
 ### Consuming the stream
 
 - The browser opens `GET /api/runtime-events?conversationId=…` (the `conversationId` query param is a connect-time scoping hint; authorization is enforced per-event regardless).
-- `GET /api/conversations/[id]/active-run` polls the live run (status, `partialResponse`, `pendingPermissions`, `pendingAskUser`, `stalenessMs`); `POST` cancels it (`action: "cancel" | "force-cancel"`). See gotchas — this route has no ownership check.
+- `GET /api/conversations/[id]/active-run` polls the live run (status, `partialResponse`, `pendingPermissions`, `pendingAskUser`, `stalenessMs`); `POST` cancels it (`action: "cancel" | "force-cancel"`). Both are root-walk ownership-gated (fail-closed 404).
 
 ### Settings & env vars
 
@@ -131,7 +131,7 @@ Sub-agent bus events (`agent:spawn`/`agent:status`/`agent:complete`) for this `r
 
 ## Notes & gotchas
 
-- **Active-run IDOR (OPEN).** `GET`/`POST /api/conversations/[id]/active-run` call only `requireScope` + `requireAuth` — **no conversation-ownership check**. SvelteKit does not wrap a child `+server.ts` in a parent guard, so any authenticated user can poll another user's live run (leaking `partialResponse` + pending prompts) or cancel it cross-tenant. Treat this as a known open finding, not fixed.
+- **Active-run IDOR — FIXED (was OPEN).** `GET`/`POST /api/conversations/[id]/active-run` now add a root-walk ownership gate (`resolveRootConversationForOwnership`) on top of `requireScope` + `requireAuth`, failing closed with **404** (fixed in `20adfe86`, PR #12). The structural reason it was missing still applies to any *new* route: SvelteKit does not wrap a child `+server.ts` in a parent guard.
 - **SSE conversation filter fails OPEN on DB error.** `isAuthorizedForConversation` returns `true` if the membership lookup throws (logged), and its decision is cached 30s — so a revoked share keeps receiving events for up to 30s. The fail-open is deliberate (a UI blackout is worse than a momentary leak), but it is *not* a hard tenant boundary; user-scoped events fail closed instead.
 - **`streamChat` is fire-and-forget.** The messages route does not await it; errors that escape are caught by the outer `finalizeSetupError` and surfaced as a `run:error` bus event, not as an HTTP error. The HTTP response only confirms the `runId`.
 - **Exactly one error bubble per run.** `claimErrorPersistSlot` (a shared `errorMessagePersisted` set) is claimed synchronously by both the finalize path and the watchdog-trip branch, so a watchdog kill followed by the unblocked await's `finalizeError` writes only one visible assistant error message.

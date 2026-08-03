@@ -45,13 +45,33 @@ Precedence is **form → prompt → confirm → dispatch** (a form's Save is the
 | Method & path | Scope | Purpose |
 |---|---|---|
 | `GET /api/hub/pages` | `read` | List the user's Hub tabs (core + enabled-extension pages). |
-| `GET /api/hub/pages/[id]` | `read` | Render one page (`core:<id>` or `ext:<name>:<pageId>`). 200+`{error}` on render failure; 404 unknown id; 429 over 12/min/user/page. |
+| `GET /api/hub/pages/[id]` | `read` | Render one page (`core:<id>` or `ext:<name>:<pageId>`). 200+`{error}` on render failure; 404 unknown id; 429 over 12/min/user/page. Four optional render-scope query params — `?project=<id>`, `?run=<id>`, `?step=<name>`, `?view=<value>` — see *Per-project pages & render variants*. |
 | `POST /api/hub/pages/[id]/actions/[action]` | `chat` | Dispatch a named action on a **core** page. Body `{ payload? }` ≤ 2KB, scalar-only. 10/min/user. **Extension actions do NOT use this route.** |
 | `POST /api/extensions/[name]/events/[event]` | — | Extension page-action sink, body `{ source:"hub", pageId, payload? }`. Gated by `eventSubscriptions` + 10/min/user. |
 
 ### UI entry point
 
-- `/hub` and `/hub/<pageId>` — the page route (`web/src/routes/(app)/hub/[pageId]/+page.svelte`, a thin wrapper over the shared `HubPageView.svelte`) loads the tab list once, renders the active tree, and wires confirm/prompt/form dialogs + the Refresh button + live `ext:page-state` re-pull. The Daily Briefing tab is `/hub/core:briefing`.
+- `/hub` and `/hub/<pageId>` — the global page route (`web/src/routes/(app)/hub/[pageId]/+page.svelte`, a thin wrapper over the shared `HubPageView.svelte`) loads the tab list once, renders the active tree, and wires confirm/prompt/form dialogs + the Refresh button + live `ext:page-state` re-pull. The Daily Briefing tab is `/hub/core:briefing`.
+- `/project/<id>/hub/<pageId>` — the **project** page route (`web/src/routes/(app)/project/[id]/hub/[pageId]/+page.svelte`), the same `HubPageView.svelte` with the active project threaded in. Only meaningful for a page declared `perProject: true`.
+
+### Per-project pages & render variants
+
+A manifest page may declare **`perProject: true`**. The host then threads project context into the render, and the *same* page id renders two ways:
+
+- **Project hub** (`/project/<id>/hub/<pageId>`, or `?project=<id>` on the API) → the render receives `{ project: { id, name, path } }` — one project.
+- **Global hub** (`/hub/<pageId>`) → the render receives `{ projects: [...] }` — the **full** project list, so the page can render an all-projects home view.
+
+A page **without** the flag (and any page on an older host) renders with **no** context, so a zero-arg `render()` keeps working unchanged. The author-side shapes are `PageRenderContext` / `PageProjectRef` in `packages/@ezcorp/sdk/src/runtime/page.ts`; the host-side mirror is `PageRenderScope` / `HubProjectRef` in `web/src/lib/server/hub-render-pull.ts`.
+
+Three further scope params ride **alongside** project context rather than replacing it, so a page can deep-link into a sub-surface from either hub:
+
+| Param | Render ctx field | Meaning |
+|---|---|---|
+| `?run=<id>` | `run` | Render ONE run's detail instead of the dashboard. Orthogonal to project context. |
+| `?step=<name>` | `step` | One step's detail **within** `run`. Forwarded only alongside `run` — the host drops a stray `step`. |
+| `?view=<value>` | `view` | An alternate page surface (config / job-editor / audit). Independent of `run`, forwarded whenever present. |
+
+**Cache & push interaction.** `ExtensionPageCache` is keyed `(extensionId, pageId, variant)`, where the variant is the project id for a `perProject` page and empty for the global render. Because one pushed tree cannot cover the global *and* every per-project variant, an `ezcorp/page-state` push for a `perProject` page is treated as **invalidate-only** even when a tree is attached (`perProjectPageIds` in `src/extensions/state-mediator.ts`) — caching it as the global render would poison the all-projects home view. A push always drops *every* cached variant, since it cannot know which project views went stale.
 
 ### SDK (`@ezcorp/sdk/runtime`)
 
@@ -82,9 +102,11 @@ getChannel().start();
 ### Manifest declaration
 
 ```ts
-pages: [{ id: "dashboard", title: "My Dashboard", icon: "Clock", description: "…" }],
+pages: [{ id: "dashboard", title: "My Dashboard", icon: "Clock", description: "…", perProject: true }],
 permissions: { eventSubscriptions: ["my-ext:clear-log"] },  // action events double-gated here
 ```
+
+`perProject` is optional and must be a boolean (`validatePagesArray`, `src/extensions/manifest.ts`).
 
 `validatePagesArray` (`src/extensions/manifest.ts`) enforces **≤ 3 pages** per extension at install.
 
@@ -99,11 +121,11 @@ The `form` node's fields share the dialog form's shape (`field` slug key — a n
 - `web/src/routes/api/hub/pages/+server.ts` — `GET` tab list (core providers + enabled-extension pages).
 - `web/src/routes/api/hub/pages/[id]/+server.ts` — `GET` render one page; core inline-render vs extension render-pull; 12/min/user/page limiter.
 - `web/src/routes/api/hub/pages/[id]/actions/[action]/+server.ts` — `POST` core-page action; scalar-only 2KB payload gate; 10/min/user.
-- `web/src/lib/components/hub/HubPageView.svelte` — the shared Hub view (global + project routes): tab bar, render fetch + fetch-race guard, confirm/prompt/form dialogs, live `ext:page-state` re-pull. `web/src/routes/(app)/hub/[pageId]/+page.svelte` is a thin wrapper over it.
+- `web/src/lib/components/hub/HubPageView.svelte` — the shared Hub view (global + project routes): tab bar, render fetch + fetch-race guard, confirm/prompt/form dialogs, live `ext:page-state` re-pull. `web/src/routes/(app)/hub/[pageId]/+page.svelte` and `web/src/routes/(app)/project/[id]/hub/[pageId]/+page.svelte` are thin wrappers over it.
 - `web/src/lib/components/hub/HubInlineForm.svelte` — the inline `form` node renderer: cascading `visibleWhen`, omit-hidden submit, select/textarea/text inputs.
 - `src/extensions/page-schema.ts` — `validatePageTree` + the full node vocabulary, limits, `isSafeInternalHref`, and `validatePrompt`/`validateForm`/`validateFormNode`/`validateAction`. **Source of truth** for the tree/prompt/form shapes.
 - `web/src/lib/hub.ts` — pure shared logic: `parseHubPageId`, `buildActionRequest`, client `isSafeInternalHref`, and the mirrored page types.
-- `web/src/lib/server/hub-render-pull.ts` — `renderExtensionPage`: cache check, subprocess spawn/wire, non-lethal 10s pull, render-provenance token mint, validate + cache; generation-keyed single-flight dedup + the bus-armed `ext:page-state` → cache invalidation.
+- `web/src/lib/server/hub-render-pull.ts` — `renderExtensionPage`: cache check, subprocess spawn/wire, non-lethal 10s pull, render-provenance token mint, validate + cache; generation-keyed single-flight dedup + the bus-armed `ext:page-state` → cache invalidation. Also `PageRenderScope`/`HubProjectRef` — the `perProject` + `run`/`step`/`view` render-scope shapes threaded into `ezcorp/page.render`.
 - `web/src/lib/server/hub-extension-pages.ts` — `readManifestPages`, `listEnabledExtensionPages`, `findEnabledExtensionPage` (no-enumeration-oracle lookup).
 - `src/runtime/hub-pages.ts` — core `HubPageProvider` registry (`registerHubPageProvider`/`getHubPageProvider`/`listHubPageProviders`) + `HubPageActionError`.
 - `src/extensions/page-cache.ts` — `ExtensionPageCache` (60s TTL; `get`/`set`/`invalidate`/`invalidateExtension`; per-page invalidation generations discard overtaken render-pull writes).

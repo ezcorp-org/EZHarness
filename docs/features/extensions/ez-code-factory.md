@@ -8,7 +8,7 @@ extension — nothing is bundled into the platform (`BUNDLED_EXTENSIONS` is
 untouched, no `manifest.lock.json`). The extension's own `README.md` is the
 operator setup guide; this doc is the feature-level reference.
 
-## What it is
+## Intent
 
 `git push gate <branch>` lands objects in a **local bare gate repo**
 (`<projectRoot>/.ezcorp/extension-data/ez-code-factory/repos/<sha256(abspath)[:12]>.git`).
@@ -19,7 +19,9 @@ records a **run**, materializes a **detached worktree** at the pushed SHA, and
 executes the pipeline in it. Only after every local step passes does the pipeline
 guarded-force-push to the real upstream, open a PR, and babysit CI.
 
-## The fixed 9-step pipeline
+## How it works
+
+### The fixed 9-step pipeline
 
 The order is **not** configurable (`PIPELINE_STEPS` in `lib/config.ts`; the step
 registry is `STEP_REGISTRY` in `lib/executor.ts`). Each step runs an auto-fix
@@ -50,7 +52,7 @@ not, unless its action is `ask-user`.
 Park statuses are `awaiting_approval` and `fix_review`; the user answers with
 **approve / fix / skip / abort**.
 
-## Security invariants (ported field-for-field)
+### Security invariants (ported field-for-field)
 
 1. **Trusted-branch config reads** (`lib/repo-config.ts`) — executing keys
    (`commands.*`, `agent`, `document.instructions`, `disable_project_settings`,
@@ -75,7 +77,7 @@ Park statuses are `awaiting_approval` and `fix_review`; the user answers with
    does not name explicit `findingIds` (or carry standing consent) over a gate
    with ask-user findings is rejected.
 
-## Chat entry point (contract-in-code tools)
+### Chat entry point (contract-in-code tools)
 
 Four LLM-callable tools (docstrings in `ezcorp.config.ts`; wiring in `index.ts`;
 logic in `lib/chat-tools.ts`):
@@ -90,7 +92,7 @@ logic in `lib/chat-tools.ts`):
   tool's `rbacScope`).
 - **`code_factory_doctor()`** — read-only health report (see below).
 
-## RBAC on the triage actions
+### RBAC on the triage actions
 
 The gate-triage verbs are gated behind two custom `permissions.rbacScopes` +
 `extension_rbac_grants` (the github-projects `write-tickets` pattern; deny-by-
@@ -108,7 +110,7 @@ mutated. The `reconcile` action is **not** RBAC-gated: it is read-only (it only
 completes a run when external truth says the PR merged/closed) and is also driven
 by the background sweep, which has no acting user.
 
-## Yolo autopilot (fix-once)
+### Yolo autopilot (fix-once)
 
 `decideYoloAction` (`lib/yolo.ts`): for each remaining parked gate the autopilot
 FIXES its actionable `auto-fix` findings **once**, then APPROVES — but STOPS the
@@ -117,7 +119,7 @@ human to see). It drives the SAME approve/fix respond path the Hub buttons use
 (no gate-semantics bypass) and is bounded so a pathological re-park can never
 spin.
 
-## Jobs & the Hub job editor
+### Jobs & the Hub job editor
 
 Multiple named pipeline jobs per project (`lib/jobs.ts`), each independently
 triggered by **push** (branch pattern — literal or ONE trailing `*` glob),
@@ -147,7 +149,7 @@ values substituted) and points at the Edit form's intent + instruction fields
 as the editable prompt parts — the base prompt skeleton is fixed on purpose
 (it carries the structured-output contract the pipeline parses).
 
-## Background reconcile sweep
+### Background reconcile sweep
 
 A run rests at `checks_passed` (or is parked at CI on an idle timeout) until its
 PR merges/closes. A `Schedule` cron (`*/15 * * * *`, declared in
@@ -157,7 +159,7 @@ resolved. It is read-only per run, bounded (`maxPerSweep`), deterministic (an
 injected clock — no wall-clock), and records a heartbeat that
 `code_factory_doctor` reports.
 
-## Crash recovery
+### Crash recovery
 
 On (re)start, `recoverRuns` (`lib/recovery.ts`) re-derives every run's state from
 Storage:
@@ -170,7 +172,7 @@ Storage:
 - **orphaned worktrees** of terminal/failed runs are reaped — a live parked run's
   worktree (the human's review copy) is never touched.
 
-## Supersede-on-new-push
+### Supersede-on-new-push
 
 A new push to a branch with an in-flight prior run (parked or resting) cancels it
 (`supersedePriorRuns` in `lib/runs.ts`): the prior run is marked `aborted` with a
@@ -181,7 +183,7 @@ genuinely running prior segment until it reaches its next park/finish yield poin
 before superseding it — so a running agent is never killed mid-execution; only a
 prior run that has already parked/rested is aborted.
 
-## Diagnostics — `code_factory_doctor`
+### Diagnostics — `code_factory_doctor`
 
 A read-only report (`lib/doctor.ts`) with one line per check — `ok`
 (nominal), `warn` (degraded but usable), or `fail` (broken):
@@ -197,7 +199,9 @@ A read-only report (`lib/doctor.ts`) with one line per check — `ok`
 
 `report.ok` is true iff nothing `fail`ed.
 
-## Setup
+## Usage
+
+### Setup
 
 1. Run **`init_gate`** on the active project (idempotent) — creates the bare gate
    repo + managed hook, points the gate's `origin` at your upstream, adds the
@@ -214,7 +218,7 @@ A read-only report (`lib/doctor.ts`) with one line per check — `ok`
    PRs read+write / Checks read / Actions read).
 4. `git push gate <branch>`.
 
-## v1 trims + follow-ups
+### v1 trims + follow-ups
 
 Accepted v1 scope reductions (all reversible):
 
@@ -231,3 +235,65 @@ Accepted v1 scope reductions (all reversible):
 
 Full 9-step pipeline, full findings taxonomy, and all six security invariants
 ship in v1.
+
+## Key files
+
+All paths are relative to `docs/extensions/examples/ez-code-factory/`.
+
+- `ezcorp.config.ts` — the manifest: tools, permissions, Hub page, event subscriptions.
+- `index.ts` — wiring: tool dispatcher, page renderers, event handlers, daemon start.
+- `README.md` — the operator setup guide (this doc is the feature-level reference).
+- `lib/config.ts` — `PIPELINE_STEPS` (the fixed, non-configurable order) + per-step caps.
+- `lib/executor.ts` — `STEP_REGISTRY` and the step-running loop with its auto-fix bound.
+- `lib/steps/` — one module per pipeline step.
+- `lib/runs.ts` — run records, the `Findings` taxonomy, `supersedePriorRuns`.
+- `lib/gate.ts` — the bare gate repo, the managed `post-receive` hook, guarded force-push.
+- `lib/repo-config.ts` — trusted-branch config reads (invariant 1).
+- `lib/chat-contract.ts` — verbatim ask-user relay + the no-blanket-approval rule (invariants 2 and 6).
+- `lib/chat-tools.ts` — the contract-in-code chat entry point.
+- `lib/jail.ts` — the nested jail every `git`/`gh` shellout runs inside.
+- `lib/git.ts`, `lib/shell.ts` — argv-array shellouts (never string interpolation).
+- `lib/github.ts`, `lib/gh-runner.ts` — PR open + CI babysitting via `gh`.
+- `lib/rbac.ts` — the triage-action scope checks.
+- `lib/yolo.ts` — `decideYoloAction`, the fix-once autopilot.
+- `lib/jobs.ts` — named per-project pipeline jobs; `applyJobEdit`.
+- `lib/page.ts` — the Hub dashboard + `buildJobView` job editor.
+- `lib/sweep.ts` — the background reconcile sweep.
+- `lib/recovery.ts` — `recoverRuns`, crash-recovery state re-derivation.
+- `lib/heartbeat.ts` — liveness for long-running steps.
+- `lib/doctor.ts` — the `code_factory_doctor` read-only health report.
+- `lib/audit.ts`, `lib/log.ts` — audit trail and run logs.
+- `lib/findings.ts`, `lib/step-io.ts`, `lib/prompts.ts`, `lib/agent.ts` — findings shaping, step I/O contracts, agent prompts, native sub-agent dispatch.
+- `lib/intent-infer.ts` — EZCorp-conversation intent inference.
+- `lib/conventional.ts`, `lib/pr-body.ts` — commit-message and PR-body generation.
+
+## Features it touches
+
+- [[overview-and-authoring]] — it is an installable **example** extension, authored against the standard SDK surface; nothing about it is special-cased in the host.
+- [[hub-pages]] — the dashboard and the `?view=job:<id>` job editor are declarative Hub pages.
+- [[sandbox-and-isolation]] — every `git` / `gh` shellout runs inside a nested jail; the disposable worktree is the blast radius.
+- [[permissions-and-grants]] — its `shell` / `filesystem` / `network` grants are ordinary extension grants with no bundled-ceiling exemption.
+- [[rbac-and-permission-modes]] — the triage actions gate on per-extension RBAC scopes.
+- [[ask-user]] — a parked gate relays its question through the standard human-in-the-loop tool, verbatim.
+- [[agents]] — every pipeline agent turn is a native sub-agent through the host-brokered provider layer, not an external CLI.
+- [[scheduling-and-loops]] — the background reconcile sweep and CI babysitting run on the extension's own daemon.
+- [[data-and-entities]] — runs, jobs, and the bare gate repo all live under `.ezcorp/extension-data/ez-code-factory/`.
+- [[developer-api-keys]] — the `post-receive` hook authenticates with a minted `ezk_*` key read from a file at push time.
+- [[ez-factory]] — the *other* factory: a bundled workflow job console. Different extension, no shared code.
+- [[bundled-catalog]] — explicitly **not** in it; `BUNDLED_EXTENSIONS` is untouched.
+
+## Related docs
+
+No standalone spec exists under `docs/`; this file is the feature-level reference and `docs/extensions/examples/ez-code-factory/README.md` is the operator setup guide. Upstream inspiration: [no-mistakes](https://github.com/kunchenguid/no-mistakes).
+
+## Notes & gotchas
+
+- **`ez-code-factory` ≠ `ez-factory`.** Two different extensions with confusingly similar names. This one is an **example** extension gating `git push`. [[ez-factory]] is **bundled** and is a job console over workflows. They share no code — check which one a stack trace or a settings row actually names.
+- **Not bundled, and that has consequences.** `BUNDLED_EXTENSIONS` is untouched and there is no `manifest.lock.json` row, so it gets no bundled-ceiling auto-allow: its sensitive capabilities go through the ordinary PDP prompt path. Installing it is an explicit operator act.
+- **The push always succeeds; `origin` is never touched by the push itself.** `git push gate` lands objects locally and the managed `post-receive` hook always exits 0. Upstream is only written after every local step passes, via a guarded force-push. A failing pipeline leaves your remote exactly as it was.
+- **The 9-step order is not configurable.** `PIPELINE_STEPS` is a fixed list. Per-step auto-fix caps are the tuning surface; the sequence is not.
+- **Config is read from the trusted branch, not the pushed one.** Executing keys come from `lib/repo-config.ts` reading the trusted branch — otherwise a pushed branch could rewrite the pipeline that is about to judge it.
+- **A chat `approve`/`fix` is never a blanket approval.** `lib/chat-contract.ts` scopes each decision to the specific parked gate; there is no "approve everything" path.
+- **The hook credential is path-to-credential, never inline.** The key lives in a `umask 077` file the hook reads at push time. Don't inline it into the hook body.
+- **`gh` must be on the daemon's PATH, not just yours.** PR and CI steps shell out to `gh` from the extension daemon's environment; authenticate it there (`gh auth login`) or set the encrypted `GitHub token` secret setting, which is passed as `GH_TOKEN`.
+- **v1 is GitHub-only and web-UI-only.** GitLab/Bitbucket/Azure, external coding-agent CLIs, and a terminal TUI are all deliberate, reversible v1 trims — not gaps to route around.
