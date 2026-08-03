@@ -38,7 +38,10 @@ const DELETE_ACTION: Record<string, string> = {
   d: "SET DEFAULT",
 };
 
-interface FkRow { col: string; reftable: string; confdeltype: string }
+// Type ALIASES, not interfaces: `db.execute` resolves to
+// `Results<Record<string, unknown>>`, and only an alias picks up the
+// implicit index signature that makes the row cast legal.
+type FkRow = { col: string; reftable: string; confdeltype: string };
 
 /**
  * Every single-column FK on `table`, as `column → { action, references }`.
@@ -68,7 +71,7 @@ async function indexDefs(db: Db): Promise<Map<string, string>> {
   return new Map(res.rows.map((r) => [r.indexname, r.indexdef]));
 }
 
-interface ColRow { column_name: string; data_type: string; is_nullable: string; column_default: string | null }
+type ColRow = { column_name: string; data_type: string; is_nullable: string; column_default: string | null };
 
 async function columns(db: Db, table: string): Promise<ColRow[]> {
   const res = (await db.execute(sql`
