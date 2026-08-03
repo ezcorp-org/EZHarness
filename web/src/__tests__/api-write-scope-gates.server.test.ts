@@ -1,24 +1,29 @@
 /**
  * The `write` scope gate, asserted on every handler the 2026-08 re-scope moved.
  *
- * One probe, repeated across seven routes, rather than seven bespoke suites:
- * invoke the REAL handler with an API-key principal holding ONLY `read`, and
- * assert it answers `403 {"error":"Insufficient scope","required":"<scope>"}`.
+ * One shared PROBE, but every assertion inline. `probe()` is a pure verdict
+ * function — it drives a handler and RETURNS `{status, error, required}`,
+ * asserting nothing. Each `test()` then states its own claim about that value.
  *
- * Why this shape works without stubbing a single query: `requireScope` is the
- * FIRST statement in each handler, so a refused request returns before any DB
- * call. That is also what makes the assertion strong — a 403 carrying the
- * `required` field can only come from the scope gate, not from ownership, not
- * from validation, not from a missing row.
+ * That split is deliberate. A helper that both drives AND asserts reads as an
+ * assertion-free test to `scripts/gate-integrity.ts` — and the check is right
+ * to complain, because a reader scanning the file could not see what any
+ * individual case claimed either. One place knows how to drive a handler;
+ * thirteen places say what they expect.
  *
- * The paired positive case matters as much as the negative one. Asserting only
- * "read is refused" would still pass if the route demanded some scope nobody
- * can mint; asserting the correct scope is ADMITTED (it proceeds past the gate
- * and fails later, in the DB layer this suite deliberately does not stub)
- * pins which scope it actually wants.
+ * Why the probe needs no query stubs: `requireScope` is the FIRST statement in
+ * each handler, so a refused request returns before any DB call. That also
+ * makes the assertion strong — a 403 carrying a `required` field can only have
+ * come from the scope gate, never from ownership, validation, or a missing row.
  *
- * See docs/audit/2026-08-read-scope-mutation-inventory.md for why these
- * handlers took `read` in the first place.
+ * Every case asserts BOTH halves:
+ *   - the wrong scope is REFUSED, naming the scope the route wants;
+ *   - the intended scope is ADMITTED.
+ * The second half is not decoration. "read is refused" alone would still pass
+ * if a route demanded a scope nobody can mint, which is indistinguishable from
+ * correct gating without it.
+ *
+ * See docs/audit/2026-08-read-scope-mutation-inventory.md.
  */
 import { describe, expect, test } from "vitest";
 
@@ -42,7 +47,7 @@ const ezActions = await import("../routes/api/ez-actions/[name]/+server");
 const USER = { id: "u1", email: "u@x.test", name: "u", role: "member" };
 
 /** A minimal SvelteKit RequestEvent — enough to reach the scope gate. */
-function makeEvent(scopes: string[], method: string, body: unknown = {}) {
+function makeEvent(scopes: string[], method: string) {
 	const url = new URL("http://localhost/api/probe");
 	return {
 		locals: { user: USER, apiKeyScopes: scopes },
@@ -51,7 +56,7 @@ function makeEvent(scopes: string[], method: string, body: unknown = {}) {
 		request: new Request(url, {
 			method,
 			headers: { "content-type": "application/json" },
-			body: method === "GET" || method === "DELETE" ? undefined : JSON.stringify(body),
+			body: method === "GET" || method === "DELETE" ? undefined : "{}",
 		}),
 		cookies: { get: () => undefined, set: () => {}, delete: () => {}, getAll: () => [] },
 		fetch: globalThis.fetch,
@@ -63,135 +68,127 @@ function makeEvent(scopes: string[], method: string, body: unknown = {}) {
 	} as never;
 }
 
-/** Run a handler and normalise "threw a Response" into "returned it". */
-async function invoke(
-	handler: (e: never) => unknown,
-	scopes: string[],
-	method: string,
-): Promise<Response | Error> {
-	try {
-		return (await handler(makeEvent(scopes, method))) as Response;
-	} catch (e) {
-		if (e instanceof Response) return e;
-		return e as Error;
-	}
-}
-
-/** Assert the handler REFUSES a read-only key, naming the scope it wants. */
-async function expectRefusesRead(
-	handler: (e: never) => unknown,
-	required: string,
-	method: string,
-) {
-	const res = await invoke(handler, ["read"], method);
-	expect(res).toBeInstanceOf(Response);
-	const r = res as Response;
-	expect(r.status).toBe(403);
-	const body = (await r.json()) as { error?: string; required?: string };
-	expect(body.error).toBe("Insufficient scope");
-	expect(body.required).toBe(required);
+/** What a handler did, reduced to the three facts a scope test cares about. */
+interface Verdict {
+	/** HTTP status, or `null` when the handler threw a non-Response error —
+	 *  which only happens AFTER the gate, down in the DB layer this suite
+	 *  deliberately leaves unstubbed, and is therefore itself evidence of
+	 *  admission. */
+	status: number | null;
+	error?: string;
+	required?: string;
 }
 
 /**
- * Assert the handler ADMITS the required scope — it gets PAST the gate and
- * fails downstream instead (no DB is stubbed here, so "not a scope 403" is
- * the signal). Without this half, a route demanding an unmintable scope would
- * look identical to a correctly-gated one.
+ * Drive a handler and report what happened. ASSERTS NOTHING — every claim
+ * belongs to the test that calls this. A thrown `Response` is normalised into
+ * a returned one so no test has to care which style a route uses.
  */
-async function expectAdmits(
+async function probe(
 	handler: (e: never) => unknown,
 	scopes: string[],
 	method: string,
-) {
-	const res = await invoke(handler, scopes, method);
-	// Reduce both outcomes to ONE assertable fact — "was this a scope refusal?"
-	// A thrown non-Response error means the handler reached real work, which is
-	// itself proof it was admitted; collapsing it here keeps the branch that
-	// asserts nothing from existing.
-	const refusal =
-		res instanceof Response
-			? ((await res.clone().json().catch(() => ({}))) as { error?: string }).error
-			: undefined;
-	expect(refusal).not.toBe("Insufficient scope");
+): Promise<Verdict> {
+	let res: unknown;
+	try {
+		res = await handler(makeEvent(scopes, method));
+	} catch (e) {
+		if (!(e instanceof Response)) return { status: null };
+		res = e;
+	}
+	if (!(res instanceof Response)) return { status: null };
+	const body = (await res.clone().json().catch(() => ({}))) as {
+		error?: string;
+		required?: string;
+	};
+	return { status: res.status, error: body.error, required: body.required };
+}
+
+/** The exact shape a scope refusal takes. Spelled once; asserted inline. */
+function refusal(required: string): Verdict {
+	return { status: 403, error: "Insufficient scope", required };
 }
 
 describe("routes moved onto the `write` scope", () => {
 	test("POST /api/memories refuses read, admits write", async () => {
-		const { POST } = memories;
-		await expectRefusesRead(POST, "write", "POST");
-		await expectAdmits(POST, ["write"], "POST");
+		expect(await probe(memories.POST, ["read"], "POST")).toEqual(refusal("write"));
+		expect((await probe(memories.POST, ["write"], "POST")).error).not.toBe("Insufficient scope");
 	});
 
 	test("PUT /api/memories/:id refuses read, admits write", async () => {
-		const { PUT } = memoriesId;
-		await expectRefusesRead(PUT, "write", "PUT");
+		expect(await probe(memoriesId.PUT, ["read"], "PUT")).toEqual(refusal("write"));
+		expect((await probe(memoriesId.PUT, ["write"], "PUT")).error).not.toBe("Insufficient scope");
 	});
 
 	test("PATCH /api/memories/:id refuses read, admits write", async () => {
 		// The line the patch-coverage gate flagged (`+server.ts:128`): PATCH's
 		// scope gate had no test reaching it under coverage.
-		const { PATCH } = memoriesId;
-		await expectRefusesRead(PATCH, "write", "PATCH");
-		await expectAdmits(PATCH, ["write"], "PATCH");
+		expect(await probe(memoriesId.PATCH, ["read"], "PATCH")).toEqual(refusal("write"));
+		expect((await probe(memoriesId.PATCH, ["write"], "PATCH")).error).not.toBe("Insufficient scope");
 	});
 
 	test("DELETE /api/memories/:id refuses read, admits write", async () => {
-		const { DELETE } = memoriesId;
-		await expectRefusesRead(DELETE, "write", "DELETE");
+		expect(await probe(memoriesId.DELETE, ["read"], "DELETE")).toEqual(refusal("write"));
+		expect((await probe(memoriesId.DELETE, ["write"], "DELETE")).error).not.toBe("Insufficient scope");
 	});
 
 	test("POST /api/projects refuses read, admits write", async () => {
-		const { POST } = projects;
-		await expectRefusesRead(POST, "write", "POST");
-		await expectAdmits(POST, ["write"], "POST");
+		expect(await probe(projects.POST, ["read"], "POST")).toEqual(refusal("write"));
+		expect((await probe(projects.POST, ["write"], "POST")).error).not.toBe("Insufficient scope");
 	});
 
 	test("POST /api/knowledge-base refuses read, admits write", async () => {
-		const { POST } = knowledgeBase;
-		await expectRefusesRead(POST, "write", "POST");
+		expect(await probe(knowledgeBase.POST, ["read"], "POST")).toEqual(refusal("write"));
+		expect((await probe(knowledgeBase.POST, ["write"], "POST")).error).not.toBe("Insufficient scope");
 	});
 
 	test("DELETE /api/lessons/:id refuses read, admits write", async () => {
-		const { DELETE } = lessonsId;
-		await expectRefusesRead(DELETE, "write", "DELETE");
+		expect(await probe(lessonsId.DELETE, ["read"], "DELETE")).toEqual(refusal("write"));
+		expect((await probe(lessonsId.DELETE, ["write"], "DELETE")).error).not.toBe("Insufficient scope");
 	});
 
 	test("PATCH /api/lessons/:id refuses read, admits write", async () => {
-		const { PATCH } = lessonsId;
-		await expectRefusesRead(PATCH, "write", "PATCH");
+		expect(await probe(lessonsId.PATCH, ["read"], "PATCH")).toEqual(refusal("write"));
+		expect((await probe(lessonsId.PATCH, ["write"], "PATCH")).error).not.toBe("Insufficient scope");
 	});
 });
 
 describe("routes moved elsewhere by the same pass", () => {
 	test("POST /api/fs/mkdir now demands `admin`, not `read`", async () => {
 		// It enforced admin INLINE (`+server.ts:22`) while advertising `read` —
-		// the F4 blind spot. The scope now says what the gate does.
-		const { POST } = fsMkdir;
-		await expectRefusesRead(POST, "admin", "POST");
+		// the F4 blind spot. The scope now says what the gate does. Admitting the
+		// admin SCOPE then hits the ROLE wall (this principal is a member), which
+		// is the two-axis model working: a different 403, carrying no `required`.
+		expect(await probe(fsMkdir.POST, ["read"], "POST")).toEqual(refusal("admin"));
+		expect(await probe(fsMkdir.POST, ["admin"], "POST")).toEqual({
+			status: 403,
+			error: "Access denied: admin role required",
+			required: undefined,
+		});
 	});
 
 	test("POST /api/ez-actions/:name now demands `chat`, not `read`", async () => {
-		const { POST } = ezActions;
-		await expectRefusesRead(POST, "chat", "POST");
+		expect(await probe(ezActions.POST, ["read"], "POST")).toEqual(refusal("chat"));
+		expect((await probe(ezActions.POST, ["chat"], "POST")).error).not.toBe("Insufficient scope");
 	});
 });
 
 describe("the read scope still opens the read-shaped verbs", () => {
-	test("GET /api/memories/:id admits a read-only key", async () => {
-		// The split is per-VERB. If the re-scope had moved a whole file, every
-		// read-only integration would break — the opposite failure, equally
-		// invisible without this.
-		const { GET } = memoriesId;
-		await expectAdmits(GET, ["read"], "GET");
+	// The split is per-VERB. If the re-scope had moved a whole file, every
+	// read-only integration would break — the opposite failure, equally
+	// invisible without these.
+	test("GET /api/memories/:id admits read, refuses chat", async () => {
+		expect((await probe(memoriesId.GET, ["read"], "GET")).error).not.toBe("Insufficient scope");
+		expect(await probe(memoriesId.GET, ["chat"], "GET")).toEqual(refusal("read"));
 	});
 
-	test("GET /api/projects admits a read-only key", async () => {
-		const { GET } = projects;
-		await expectAdmits(GET, ["read"], "GET");
+	test("GET /api/projects admits read, refuses chat", async () => {
+		expect((await probe(projects.GET, ["read"], "GET")).error).not.toBe("Insufficient scope");
+		expect(await probe(projects.GET, ["chat"], "GET")).toEqual(refusal("read"));
 	});
 
-	test("GET /api/knowledge-base admits a read-only key", async () => {
-		const { GET } = knowledgeBase;
-		await expectAdmits(GET, ["read"], "GET");
+	test("GET /api/knowledge-base admits read, refuses chat", async () => {
+		expect((await probe(knowledgeBase.GET, ["read"], "GET")).error).not.toBe("Insufficient scope");
+		expect(await probe(knowledgeBase.GET, ["chat"], "GET")).toEqual(refusal("read"));
 	});
 });
