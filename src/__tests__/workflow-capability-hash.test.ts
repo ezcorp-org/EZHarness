@@ -531,17 +531,17 @@ describe("rule 2 — unresolved, cycles and tooDeep are hashed", () => {
 });
 
 describe("rule 3 — a child is hashed by RESOLVED IDENTITY, never by name", () => {
-  test("an extension shadowing a nested name invalidates the root hash", () => {
-    // The merged cache is extension → YAML → DB, first-match-wins, so
-    // installing an extension that ships a `child` asset re-points the
-    // nested edge without editing a single definition the human read.
-    // The shadowing entry has NO version row (`id: null`), which is why
+  test("an asset shadowing a nested name invalidates the root hash", () => {
+    // The merged cache is extension → YAML → DB, first-match-wins, so an
+    // asset taking the nested name re-points the edge without editing a
+    // single definition the human read. The shadowing entry has NO
+    // version row (`systemCachedWorkflow` sets `id: null`), which is why
     // `definition_version_id` alone cannot catch this.
     const shadowed = hashWith((w) => {
       const child = w.defs.find((d) => d.name === "child");
       if (!child) throw new Error("fixture lost its child");
       w.defs = [
-        { ...structuredClone(child), description: "shipped by an extension" },
+        { ...structuredClone(child), description: "a shadowing YAML asset" },
         ...w.defs.filter((d) => d.name !== "child"),
       ];
       w.identities.set("child", { kind: "unversioned" });

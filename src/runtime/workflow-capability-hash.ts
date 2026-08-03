@@ -285,10 +285,24 @@ function stepMaterial(step: WorkflowStep): ConsentStepMaterial {
  *
  * The merged cache is extension → YAML → DB and the lookup is
  * FIRST-MATCH-WINS (`workflow-scope.ts:364-366`, lookup `:377`; build
- * order `web/src/lib/server/context.ts:537-541`, rule `:520-521`). So
- * installing an extension that ships a `deploy` asset RE-POINTS every
- * nested edge naming `deploy`, at every depth, without editing a single
- * definition the human read. Hashing the name would see nothing.
+ * order `web/src/lib/server/context.ts:537-541`, rule `:520-521`). So a
+ * name can be RE-POINTED at a different graph, at every depth, without
+ * editing a single definition the human read. Hashing the name would see
+ * nothing. Two vectors exist, and it is worth being precise about which,
+ * because the loose version of this claim is false:
+ *
+ *   1. A YAML asset dropped into the agents dir shadows a DB row of the
+ *      same bare name — YAML is concatenated ahead of DB
+ *      (`context.ts:538-540`). The executor names exactly this case
+ *      (`workflow-executor.ts:615-618`).
+ *   2. An extension asset shadows a DB row whose name was deliberately
+ *      written `<ext>:<name>` (`context.ts:522-524`).
+ *
+ * An extension CANNOT shadow a bare host name: every extension workflow
+ * is renamed `<extensionName>:<declaredName>` before it enters the cache
+ * and a declared name containing `:` is rejected
+ * (`workflow-extension-loader.ts:17-35`, rename `:150`, refusal `:142-148`).
+ * The consent hash does not depend on which vector it was.
  *
  * `definition_version_id` alone cannot catch it either: the shadowing
  * entry has no version row at all (`systemCachedWorkflow` sets `id: null`,
