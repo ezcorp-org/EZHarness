@@ -42,6 +42,7 @@
   "web/src/lib/rbac-grants-logic.ts": 100,
   "web/src/lib/workflow-builder-logic.ts": 100,
   "web/src/lib/workflow-run-display.ts": 100,
+  "web/src/lib/workflow-provenance.ts": 100,
   "web/src/lib/workflow-trace-logic.ts": 100,
   "web/src/lib/workflow-yaml.ts": 100,
   "web/src/lib/extension-tool-options.ts": 100,

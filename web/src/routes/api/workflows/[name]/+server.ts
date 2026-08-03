@@ -7,6 +7,7 @@ import { validateWorkflow } from "$server/runtime/workflow-validator";
 import { validateModelOverride } from "$server/runtime/workflow-model";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
+import { insertAuditEntry } from "$server/db/queries/audit-log";
 import { denyVisibilityOr, resolveWorkflowOr, toWire } from "$lib/server/workflow-access";
 import type { RequestHandler } from "./$types";
 import type { WorkflowDefinition } from "$server/types";
@@ -26,6 +27,34 @@ import { workflowBodySchema } from "../schema";
 //
 // Note the `.strict()` body schema has no `source` key on purpose: `source`
 // is server-derived provenance served by GET, never accepted on a write.
+//
+// ── Why PUT and DELETE are audited ────────────────────────────────────
+//
+// A `system` workflow is runnable by EVERY principal on the instance,
+// including the userless CLI, and its owner may now rewrite or delete it
+// with no admin in the loop. Nothing else records that:
+//
+//   - `ensureWorkflowVersion` mints a version ONLY when the executable
+//     content changes, so a description-only edit (or a rename) leaves no
+//     row anywhere — that is the gap these entries close, and it has its
+//     own named test.
+//   - DELETE left no trace at all: the row is gone and the versions go
+//     with it.
+//
+// Both entries are written AFTER the mutation succeeds, so the log records
+// what happened rather than what was attempted — a refused write (the
+// ladder's 403, or a 404) audits nothing.
+//
+// **An audit failure is deliberately NON-FATAL, and this route does not
+// implement that itself.** `insertAuditEntry` is the single chokepoint
+// (`src/db/queries/audit-log.ts`): it catches its own insert failure,
+// routes it to `persistError` so an admin can see the hiccup, and
+// resolves `""`. So the bare `await` below cannot abort the request. A
+// local try/catch here would be a SECOND copy of that policy, and worse:
+// it would silently absorb the day the chokepoint's contract changes.
+// The invariant is pinned where it lives, by "a failed audit write
+// resolves instead of throwing, so it can never abort its caller" in
+// `src/__tests__/audit-log.test.ts`.
 
 export const GET: RequestHandler = async ({ params, locals, url }) => {
   const scopeErr = requireScope(locals, "read");
@@ -103,6 +132,23 @@ export const PUT: RequestHandler = async ({ request, params, locals }) => {
   // C3's consent hash is not invalidated by prose — see
   // `ensureWorkflowVersion`.
   const { version, minted } = await ensureWorkflowVersion(updated, user.id);
+  // The before-values come off `dbWorkflow` (the row as it stood) so a
+  // mistaken edit can be read back against what it replaced, mirroring
+  // the claim route. `versionMinted: false` is the case that motivated
+  // this entry: no version was cut, so this row is the only record.
+  // Field NAMES, not values — the values are already in the version when
+  // there is one, and dumping a whole step graph into `metadata` would
+  // bury the trail it is supposed to be.
+  await insertAuditEntry(user.id, "workflow.update", dbWorkflow.id, {
+    workflowName: dbWorkflow.name,
+    newName: updated.name,
+    previousVisibility: dbWorkflow.visibility,
+    previousUserId: dbWorkflow.userId,
+    previousProjectId: dbWorkflow.projectId,
+    fields: Object.keys(parsed.data).sort(),
+    version: version.version,
+    versionMinted: minted,
+  });
   await reloadWorkflows();
   return json({ ...updated, version: version.version, versionMinted: minted });
 };
@@ -117,6 +163,18 @@ export const DELETE: RequestHandler = async ({ params, locals }) => {
   if (!dbWorkflow) return errorJson(404, "Not found (only DB workflows can be deleted)");
 
   await workflowQueries.deleteWorkflow(dbWorkflow.id);
+  // The only surviving record of the row. `target` is the id of a row
+  // that no longer exists, which is the point — it is what correlates
+  // this entry with the `workflow.update` entries that preceded it.
+  // `stepCount` so the entry says how much was destroyed without
+  // embedding the graph.
+  await insertAuditEntry(user.id, "workflow.delete", dbWorkflow.id, {
+    workflowName: dbWorkflow.name,
+    previousVisibility: dbWorkflow.visibility,
+    previousUserId: dbWorkflow.userId,
+    previousProjectId: dbWorkflow.projectId,
+    stepCount: Array.isArray(dbWorkflow.steps) ? dbWorkflow.steps.length : null,
+  });
   await reloadWorkflows();
   return json({ ok: true });
 };
