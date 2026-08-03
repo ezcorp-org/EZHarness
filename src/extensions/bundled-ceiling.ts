@@ -543,15 +543,21 @@ export const BUNDLED_CEILING: Record<string, ExtensionPermissions> = {
   // workflow tool steps run under a synthetic `workflow-run:<uuid>` key
   // that has none.
   //
-  // `eventSubscriptions` carries exactly ONE name, and it is a HUB PAGE
-  // ACTION, not a platform event: the ceiling for the console's Save.
-  // `intersectPermissions` intersects this list with the install grant, so
-  // a name missing HERE is dropped from the grant, `allowedEvents` loses
-  // it, and `validatePageTree` deletes the form node from the rendered
-  // tree — a console that looks finished and cannot be written to. No
+  // `eventSubscriptions` carries exactly TWO names, and both are HUB PAGE
+  // ACTIONS, not platform events: the ceiling for the console's Save and
+  // its Run. `intersectPermissions` intersects this list with the install
+  // grant, so a name missing HERE is dropped from the grant,
+  // `allowedEvents` loses it, and `validatePageTree` deletes that control
+  // from the rendered tree — a console that looks finished and cannot be
+  // written to, or one whose Run button silently is not there. No
   // `workflow:*` name appears here or in the manifest: those are accepted
   // at registration and then never fire, because `WorkflowRun` has no
   // `conversationId` for the dispatcher to route on.
+  //
+  // `job-run` raises no ceiling. What it permits is DISPATCHING an action
+  // whose effect is `ctx.workflows.run()`, and the ceiling for THAT is the
+  // `workflows` row above — three named workflows, 60 runs an hour —
+  // which is unchanged.
   //
   // `permissions.rbacScopes` (manage-jobs / run-job / approve-gate) is
   // deliberately absent, like every other row: declarations are inert and
@@ -569,7 +575,7 @@ export const BUNDLED_CEILING: Record<string, ExtensionPermissions> = {
       maxRunsPerHour: 60,
     },
     filesystem: ["$CWD"],
-    eventSubscriptions: ["ez-factory:job-save"],
+    eventSubscriptions: ["ez-factory:job-save", "ez-factory:job-run"],
     grantedAt: {},
   },
 };

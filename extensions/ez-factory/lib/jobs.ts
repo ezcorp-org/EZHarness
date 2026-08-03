@@ -349,6 +349,103 @@ export interface JobRunRecord {
   resumable: boolean;
 }
 
+/**
+ * One run as the HOST reports it — the subset of the SDK's
+ * `WorkflowRunSummary` this console reads.
+ *
+ * Declared structurally rather than imported so the mapper below is a pure
+ * function over data with no SDK surface in its signature, and so a host
+ * that adds a field cannot silently change what this module accepts.
+ */
+export interface HostWorkflowRun {
+  workflowRunId: string;
+  workflowName: string;
+  status: string;
+  startedAt: string;
+  finishedAt: string | null;
+  suspendedReason: string | null;
+  resumable: boolean;
+  /** The handle this console passed as `jobRef` when it fired the run —
+   *  `null` for a run started any other way (the REST route, the CLI, a
+   *  chat `run_workflow`). */
+  jobRef: string | null;
+}
+
+/**
+ * Turn the host's run list into the records this store keeps, keeping ONLY
+ * runs that are attributable to a job it knows about.
+ *
+ * ## This is the correlation, and it is exact
+ *
+ * `ctx.workflows.run()` returns no run id, so before `jobRef` existed the
+ * only way to say "that run came from this job" was to match on start
+ * time — which is wrong the first time two jobs fire in the same second,
+ * and wrong in a way nobody notices, because both answers look plausible.
+ * `jobRef` is the id this console itself supplied, echoed back off the
+ * `workflow_runs` row. There is no guessing left in it.
+ *
+ * ## Three refusals, all fail-closed
+ *
+ *   - `jobRef === null` — the run was started by some OTHER surface (a
+ *     hand-fired REST run, the CLI). It is a real run of a real workflow
+ *     and it is not this job's; claiming it would put a run in the
+ *     console that the console did not start.
+ *   - `jobRef` names a job that is not in `knownJobIds` — deleted since,
+ *     or never ours. `deleteJob` drops a job's run records with it, so
+ *     re-recording one would resurrect an index entry pointing at a job
+ *     that no longer exists.
+ *   - either id fails {@link isValidJobId} — the ids are spliced into
+ *     storage keys, and the store would reject them anyway. Refusing here
+ *     keeps the store from having to defend the same thing twice.
+ *
+ * Pure: no storage, no clock. The caller writes what comes back.
+ */
+export function runRecordsFromHostRuns(
+  runs: readonly HostWorkflowRun[],
+  knownJobIds: ReadonlySet<string>,
+): JobRunRecord[] {
+  const records: JobRunRecord[] = [];
+  for (const run of runs) {
+    const jobId = run.jobRef;
+    if (jobId === null || !isValidJobId(jobId) || !knownJobIds.has(jobId)) continue;
+    if (!isValidJobId(run.workflowRunId)) continue;
+    records.push({
+      jobId,
+      workflowRunId: run.workflowRunId,
+      workflowName: run.workflowName,
+      status: run.status,
+      startedAt: run.startedAt,
+      finishedAt: run.finishedAt,
+      suspendedReason: run.suspendedReason,
+      resumable: run.resumable,
+    });
+  }
+  return records;
+}
+
+/**
+ * The bookkeeping {@link JobStore.touchJob} should write for each job, given
+ * the run records just reconciled: the NEWEST run per job.
+ *
+ * Newest by `startedAt`, not by list position — the host returns newest
+ * first today, but a job's `lastRunAt` must not silently invert if that
+ * ever changes, and a string compare on ISO instants is total and cheap.
+ *
+ * Pure, for the same reason the mapper is.
+ */
+export function latestRunPerJob(
+  records: readonly JobRunRecord[],
+): Map<string, JobRunRecord> {
+  const latest = new Map<string, JobRunRecord>();
+  for (const record of records) {
+    const current = latest.get(record.jobId);
+    if (current === undefined || record.startedAt > current.startedAt) {
+      latest.set(record.jobId, record);
+    }
+  }
+  return latest;
+}
+
 /** Store-layout marker, so a v2 key layout can migrate rather than guess. */
 export interface JobStoreMeta {
   version: number;
@@ -611,20 +708,20 @@ export function diffJob(
   return diff;
 }
 
-/**
- * Pull a `jobId` out of an attacker-reachable page-action payload. Returns
- * the id or `null` — never throws, and never yields a string that could
- * escape its storage key (see {@link JOB_ID_RE}).
- */
-export function parseJobIdPayload(payload: unknown): string | null {
-  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) {
-    return null;
-  }
-  const jobId = (payload as { jobId?: unknown }).jobId;
-  if (typeof jobId !== "string") return null;
-  const trimmed = jobId.trim();
-  return isValidJobId(trimmed) ? trimmed : null;
-}
+// REMOVED: `parseJobIdPayload`, which read `payload.jobId`.
+//
+// It had no production caller, and the key it read is not one any page
+// action carries: a form field id must match `/^[a-z0-9][a-z0-9_]{0,31}$/`
+// or the host DROPS it, so the console's id travels as `job_id`
+// (`JOB_FORM_FIELDS.jobId`). A reader keyed on `jobId` returns `null` for
+// every real payload, and the failure is silent — the action refuses,
+// the Hub still answers `{ok:true}`, and the button looks like it did
+// nothing.
+//
+// That is not hypothetical: the Run action was written against it and
+// refused every single click on a live server. `lib/page.ts` now owns the
+// ONE reader (`jobIdFromActionPayload`), next to the field-id constant it
+// has to agree with, and both actions use it.
 
 // ── Storage layout ──────────────────────────────────────────────────
 //

@@ -39,12 +39,15 @@ import type { AgentEvents } from "../types";
 // bad JSON coercion — anything). We don't distinguish sync vs async throw
 // because both must be tolerated.
 
-let insertCalls: Array<{ conversationId: string; eventType: string }> = [];
+// `conversationId` is `string | null` on the real signature — a workflow
+// tool step has no conversation. A mock narrower than the module it
+// stands in for is a mock that can stop matching reality silently.
+let insertCalls: Array<{ conversationId: string | null; eventType: string }> = [];
 let shouldThrow = true;
 let throwMode: "reject" | "throw" = "reject";
 
 mock.module("../db/queries/observability", () => ({
-  insertObservabilityEvent: async (data: { conversationId: string; eventType: string }) => {
+  insertObservabilityEvent: async (data: { conversationId: string | null; eventType: string }) => {
     insertCalls.push({ conversationId: data.conversationId, eventType: data.eventType });
     if (!shouldThrow) return { id: "ok" };
     if (throwMode === "throw") throw new Error("DB connection refused");

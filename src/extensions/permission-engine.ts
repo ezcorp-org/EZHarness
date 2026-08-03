@@ -40,6 +40,11 @@ import {
   AUDIT_PERM_PROMPTED,
 } from "./audit-actions";
 import { insertAuditEntry } from "../db/queries/audit-log";
+import {
+  createPermAuditCoalescer,
+  type AllowAuditKey,
+  type PermAuditCoalescer,
+} from "./perm-audit-coalescer";
 import { logger } from "../logger";
 import {
   alwaysAllowSettingKey,
@@ -216,6 +221,35 @@ export function createPermissionEngine(deps: PermissionEngineDeps): PermissionEn
     { extensionId: string; userId: string; capability: Capability }
   >();
 
+  // Burst-folding for the step-4 allow row ONLY. Per-engine, not
+  // module-global, so an engine built for a test cannot inherit another
+  // one's open windows.
+  const allowCoalescer: PermAuditCoalescer = createPermAuditCoalescer(
+    (summary) => {
+      // Fire-and-forget: the timer that triggers this has no caller to
+      // await it, and `writeAuditRow` already swallows its own failures.
+      void writeAuditRow(
+        AUDIT_PERM_ALLOWED,
+        crypto.randomUUID(),
+        {
+          extensionId: summary.key.extensionId,
+          userId: summary.key.userId,
+          conversationId: summary.key.conversationId,
+          ...(summary.key.toolName !== null ? { toolName: summary.key.toolName } : {}),
+          ...(summary.key.callerExtensionId !== null
+            ? { callerExtensionId: summary.key.callerExtensionId }
+            : {}),
+        },
+        undefined,
+        // Self-describing, in the same spirit as the dispatcher's
+        // `sampled-1-in-N`: a reader must be able to tell a folded tail
+        // from an ordinary allow without knowing this code exists.
+        `coalesced-allow-tail (${summary.suppressed} suppressed in ${summary.windowMs}ms)`,
+        { suppressedAllows: summary.suppressed, headAuditId: summary.firstAuditId },
+      );
+    },
+  );
+
   async function authorize(
     ctx: AuthorizeContext,
     needed: CapabilitySet,
@@ -360,7 +394,19 @@ export function createPermissionEngine(deps: PermissionEngineDeps): PermissionEn
     }
 
     // 4. Allow.
-    await writeAuditRow(AUDIT_PERM_ALLOWED, auditId, ctxWithChain, undefined);
+    //
+    // The ONE audit row that is coalesced, and the only one that can be:
+    // this call site passes `cap: undefined`, so the row carries no
+    // capability kind and no value — a burst of them is one fact with a
+    // count, not N facts. `read_files` walking a project emitted up to
+    // 700 of them per tool call and evicted every other governance event
+    // from `/api/audit`'s first page. First-in-window is written
+    // verbatim; the tail becomes a single counted summary. Denials,
+    // prompts and the sensitive `bundled-ceiling-auto-allow` above are
+    // NEVER folded — see `perm-audit-coalescer.ts`.
+    if (allowCoalescer.shouldWrite(allowKeyOf(ctxWithChain), auditId)) {
+      await writeAuditRow(AUDIT_PERM_ALLOWED, auditId, ctxWithChain, undefined);
+    }
     return { decision: "allow", auditId };
   }
 
@@ -445,6 +491,11 @@ export function createPermissionEngine(deps: PermissionEngineDeps): PermissionEn
   function _resetCacheForTests(): void {
     allowCache.clear();
     pendingPrompts.clear();
+    // Drop any open coalescing window WITHOUT emitting its summary — a
+    // leftover window would otherwise make the next test's first allow
+    // look like a folded tail, and a leftover timer would write an audit
+    // row into whatever suite runs next.
+    allowCoalescer.dropAll();
   }
 
   return { authorize, resolvePrompt, _resetCacheForTests };
@@ -691,6 +742,39 @@ function sanitize(s: string): string {
   return out;
 }
 
+/**
+ * The burst identity of a step-4 allow.
+ *
+ * Mirrors EXACTLY the fields that row's metadata would have carried
+ * (`writeAuditRow` passes `cap: undefined` there), minus `auditId` and
+ * `parentAuditId` — the two that are per-call by construction. That is
+ * what makes folding the tail lossless: two allows with the same key
+ * produce byte-identical rows apart from a random id and a timestamp.
+ *
+ * `conversationId` is normalised the same way `writeAuditRow` normalises
+ * it, so a burst cannot be split across the sentinel values by accident.
+ */
+function allowKeyOf(ctx: AuthorizeContext): AllowAuditKey {
+  return {
+    extensionId: ctx.extensionId,
+    userId: ctx.userId && ctx.userId !== "unknown" ? ctx.userId : null,
+    conversationId: auditConversationId(ctx),
+    toolName: ctx.toolName ?? null,
+    callerExtensionId: ctx.callerExtensionId ?? null,
+  };
+}
+
+/** The `conversationId` an audit row records — the sentinels the host
+ *  uses for "no scope" collapse to null. One reader so the audit row and
+ *  the coalescing key can never disagree about which burst a call is in. */
+function auditConversationId(ctx: AuthorizeContext): string | null {
+  return ctx.conversationId &&
+    ctx.conversationId !== "unknown" &&
+    ctx.conversationId !== "cross-ext"
+    ? ctx.conversationId
+    : null;
+}
+
 async function writeAuditRow(
   action: string,
   auditId: string,
@@ -705,12 +789,7 @@ async function writeAuditRow(
   // null contract). The audit_log column accepts null on both fields,
   // so analytics consumers see clean nulls rather than sentinel
   // strings.
-  const conversationId =
-    ctx.conversationId &&
-    ctx.conversationId !== "unknown" &&
-    ctx.conversationId !== "cross-ext"
-      ? ctx.conversationId
-      : null;
+  const conversationId = auditConversationId(ctx);
 
   const metadata: Record<string, unknown> = {
     auditId,

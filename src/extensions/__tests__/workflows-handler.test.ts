@@ -27,6 +27,8 @@ import {
   handleWorkflowsRpc,
   _resetWorkflowTriggerQuotaForTests,
   _resetWorkflowRateLimitForTests,
+  isValidJobRef,
+  MAX_JOB_REF_LEN,
   MAX_WORKFLOW_INPUT_BYTES,
   RUNS_PAGE_DEFAULT,
   RUNS_PAGE_MAX,
@@ -50,6 +52,10 @@ import type {
   JsonRpcRequest,
 } from "../types";
 import type { WorkflowDefinition, WorkflowRun } from "../../types";
+import {
+  systemCachedWorkflow,
+  type CachedWorkflow,
+} from "../../runtime/workflow-scope";
 
 let userId: string;
 let extensionId: string;
@@ -64,6 +70,10 @@ let started: Array<{
   input: Record<string, unknown>;
   projectId?: string;
   userId?: string;
+  /** The trailing options bag, verbatim. `jobRef` rides here, and the
+   *  double has to capture it or a test could not tell "forwarded" from
+   *  "silently dropped". */
+  opts?: Record<string, unknown>;
 }>;
 
 const SHIPPED: WorkflowDefinition = {
@@ -88,12 +98,13 @@ function registerRuntime(workflows: WorkflowDefinition[] = [SHIPPED, HOST_WORKFL
       async resumeWorkflow() {
       throw new Error("resumeWorkflow is not exercised by this double");
       },
-      async runWorkflow(workflow, input, proj, uid) {
+      async runWorkflow(workflow, input, proj, uid, _signal, opts) {
         started.push({
           workflow,
           input,
           ...(proj !== undefined ? { projectId: proj } : {}),
           ...(uid !== undefined ? { userId: uid } : {}),
+          ...(opts !== undefined ? { opts: opts as Record<string, unknown> } : {}),
         });
         const run: WorkflowRun = {
           id: "run-1",
@@ -1271,5 +1282,284 @@ describe("op: runs — the ONLY correlation path from a trigger to its run", () 
   test("an unknown op is still refused — `runs` did not open the union", async () => {
     const resp = await handleWorkflowsRpc(runsReq({ op: "delete" }), ctx());
     expect(resp.error?.data).toMatchObject({ reason: "WORKFLOWS_BAD_OP" });
+  });
+});
+
+// ── `jobRef` — the durable half of the job -> run correlation ────────
+//
+// `run()` returns no run id on purpose (rung 13), and the `workflow:*`
+// bus events cannot reach an extension at all. So the only way a caller
+// can ever say "that run came from this job" is a handle it supplies
+// going in and reads back out of `op: "runs"`. Without it the answer is
+// a timestamp match, which is wrong the first time two jobs fire in the
+// same second — and wrong in a way nobody notices.
+
+describe("op: run — the jobRef correlation handle", () => {
+  test("a valid handle is forwarded to the executor VERBATIM", async () => {
+    const res = await handleWorkflowsRpc(req({ jobRef: "job-42_a.b:c" }), ctx());
+    expect("result" in res).toBe(true);
+    expect(started).toHaveLength(1);
+    // The whole point. A handle the executor never receives is a handle
+    // that never reaches `workflow_runs.job_ref`.
+    expect(started[0]?.opts).toEqual({ jobRef: "job-42_a.b:c" });
+  });
+
+  test("no handle ⇒ the options bag is OMITTED, not `{jobRef: undefined}`", async () => {
+    // `undefined` reaching the column writes the string "undefined" in the
+    // wrong hands; the executor's `?? null` only helps if the key is absent.
+    await handleWorkflowsRpc(req(), ctx());
+    expect(started[0]?.opts).toBeUndefined();
+  });
+
+  test("the successful trigger's audit row carries the handle too", async () => {
+    await handleWorkflowsRpc(req({ jobRef: "job-42" }), ctx());
+    const rows = await auditRows();
+    const ok = rows.find((r) => r.success === true);
+    expect((ok?.after as { jobRef?: string })?.jobRef).toBe("job-42");
+  });
+
+  describe("shape is checked; nothing else about it is", () => {
+    const bad: Array<[string, unknown]> = [
+      ["a non-string", 42],
+      ["an empty string", ""],
+      ["a leading separator", "-job"],
+      ["whitespace", "job 42"],
+      ["a newline", "job\n42"],
+      ["a path traversal", "../../etc/passwd"],
+      ["markup", "<img src=x onerror=1>"],
+      ["over the length cap", "j".repeat(MAX_JOB_REF_LEN + 1)],
+    ];
+
+    for (const [what, value] of bad) {
+      test(`${what} is REJECTED, and nothing starts`, async () => {
+        const res = await handleWorkflowsRpc(req({ jobRef: value }), ctx());
+        expect("error" in res).toBe(true);
+        expect((res as { error: { data: { reason: string } } }).error.data.reason).toBe(
+          "WORKFLOWS_BAD_PAYLOAD",
+        );
+        // Rejected, never sanitized: a silently-rewritten handle
+        // correlates to the wrong job, which is worse than none.
+        expect(started).toEqual([]);
+      });
+    }
+
+    test("exactly at the length cap is accepted", async () => {
+      // Discrimination for the cap: off-by-one in the other direction
+      // would refuse a legal handle.
+      const res = await handleWorkflowsRpc(
+        req({ jobRef: "j".repeat(MAX_JOB_REF_LEN) }),
+        ctx(),
+      );
+      expect("result" in res).toBe(true);
+    });
+
+    test("a UUID — what the console actually sends — is accepted", async () => {
+      const res = await handleWorkflowsRpc(
+        req({ jobRef: "c5c41a16-ec9b-4b5e-82d6-04b28f7aeff4" }),
+        ctx(),
+      );
+      expect("result" in res).toBe(true);
+      expect(started[0]?.opts).toEqual({ jobRef: "c5c41a16-ec9b-4b5e-82d6-04b28f7aeff4" });
+    });
+  });
+
+  test("isValidJobRef agrees with the handler", () => {
+    expect(isValidJobRef("c5c41a16-ec9b-4b5e-82d6-04b28f7aeff4")).toBe(true);
+    expect(isValidJobRef("A0")).toBe(true);
+    expect(isValidJobRef("")).toBe(false);
+    expect(isValidJobRef("_leading")).toBe(false);
+    expect(isValidJobRef(null)).toBe(false);
+    expect(isValidJobRef("x".repeat(MAX_JOB_REF_LEN + 1))).toBe(false);
+  });
+});
+
+describe("op: runs — the handle comes back", () => {
+  test("each row carries the jobRef the run was started with", async () => {
+    const { insertWorkflowRun } = await import("../../db/queries/workflow-runs");
+    await insertWorkflowRun({
+      id: crypto.randomUUID(),
+      workflowName: `${EXT_NAME}:deploy`,
+      userId,
+      input: {},
+      startedAt: new Date(),
+      jobRef: "job-abc",
+    });
+    const res = await handleWorkflowsRpc(
+      { jsonrpc: "2.0", id: 9, method: "ezcorp/workflows", params: { v: 1, op: "runs" } },
+      ctx(),
+    );
+    const runs = (res as { result: { runs: Array<{ jobRef: string | null }> } }).result.runs;
+    expect(runs).toHaveLength(1);
+    // Without this the extension gets a run list it cannot attribute —
+    // the read exists precisely to close that gap.
+    expect(runs[0]?.jobRef).toBe("job-abc");
+  });
+
+  test("a run started WITHOUT a handle reports null, not a guess", async () => {
+    const { insertWorkflowRun } = await import("../../db/queries/workflow-runs");
+    await insertWorkflowRun({
+      id: crypto.randomUUID(),
+      workflowName: `${EXT_NAME}:deploy`,
+      userId,
+      input: {},
+      startedAt: new Date(),
+    });
+    const res = await handleWorkflowsRpc(
+      { jsonrpc: "2.0", id: 9, method: "ezcorp/workflows", params: { v: 1, op: "runs" } },
+      ctx(),
+    );
+    const runs = (res as { result: { runs: Array<{ jobRef: string | null }> } }).result.runs;
+    expect(runs[0]?.jobRef).toBeNull();
+  });
+});
+
+// ── Rung 12b — the SHARED run ladder ────────────────────────────────
+
+describe("rung 12b — canRunWorkflow, the same predicate the REST route asks", () => {
+  test("a DISABLED owning extension refuses the trigger", async () => {
+    // The rule the rungs above cannot express. `reloadWorkflows()` fires
+    // only on workflow CRUD, never on extension disable, so without this
+    // live re-check a disabled extension's workflows stay runnable off the
+    // stale merged cache until something writes a workflow or the process
+    // restarts.
+    await getTestDb()
+      .update(extensions)
+      .set({ enabled: false })
+      .where(eq(extensions.id, extensionId));
+    try {
+      const res = await handleWorkflowsRpc(req(), ctx());
+      expect("error" in res).toBe(true);
+      expect((res as { error: { data: { reason: string } } }).error.data.reason).toBe(
+        "WORKFLOWS_PERM_DENIED",
+      );
+      expect(started).toEqual([]);
+      // Audited like every other refusal — a denial that leaves no trail
+      // is the class that most needs one.
+      const rows = await auditRows();
+      expect(rows.some((r) => r.errorCode === "WORKFLOWS_PERM_DENIED")).toBe(true);
+    } finally {
+      await getTestDb()
+        .update(extensions)
+        .set({ enabled: true })
+        .where(eq(extensions.id, extensionId));
+    }
+  });
+
+  test("an ENABLED owning extension still runs — the rung is a bound, not a wall", async () => {
+    // Discrimination for the test above: without it, a rung that denied
+    // unconditionally would pass just as well.
+    const res = await handleWorkflowsRpc(req(), ctx());
+    expect("result" in res).toBe(true);
+    expect(started).toHaveLength(1);
+  });
+
+  test("it is asked BELOW the ownerless bound — no run without an owner", async () => {
+    const res = await handleWorkflowsRpc(req(), ctx({ userId: null }));
+    expect("error" in res).toBe(true);
+    expect((res as { error: { data: { reason: string } } }).error.data.reason).toBe(
+      "WORKFLOWS_NO_OWNER",
+    );
+    expect(started).toEqual([]);
+  });
+});
+
+describe("rung 12b — which cache entry gets authorized", () => {
+  /** Re-register the runtime WITH the provenance reader production wires. */
+  function registerWithCache(entries: CachedWorkflow[]) {
+    registerWorkflowRuntime({
+      workflowExecutor: {
+        async resumeWorkflow() {
+          throw new Error("resumeWorkflow is not exercised by this double");
+        },
+        async runWorkflow(workflow, input, proj, uid, _signal, opts) {
+          started.push({
+            workflow,
+            input,
+            ...(proj !== undefined ? { projectId: proj } : {}),
+            ...(uid !== undefined ? { userId: uid } : {}),
+            ...(opts !== undefined ? { opts: opts as Record<string, unknown> } : {}),
+          });
+          return {
+            id: "run-1",
+            workflowName: workflow.name,
+            status: "success",
+            startedAt: Date.now(),
+            steps: [],
+          } as WorkflowRun;
+        },
+      },
+      getWorkflows: () => entries.map((e) => e.definition),
+      getCachedWorkflows: () => entries,
+    });
+  }
+
+  test("the REGISTERED entry is used when the runtime exposes one", async () => {
+    // Production registers `getCachedWorkflows` (web/src/lib/server/context.ts),
+    // so this — not the fallback — is the path that actually runs. An
+    // extension-shipped workflow is a `system` entry, so it authorizes.
+    registerWithCache([systemCachedWorkflow(SHIPPED, "extension")]);
+    const res = await handleWorkflowsRpc(req(), ctx());
+    expect("result" in res).toBe(true);
+    expect(started).toHaveLength(1);
+  });
+
+  test("a PRIVATE entry owned by someone else is REFUSED", async () => {
+    // The fallback constructs a `system` entry, which authorizes everyone.
+    // If the real reader were ignored, a `workflow_definitions` row squatting
+    // an extension-namespaced name would be runnable by any caller. This is
+    // the case that proves the registered entry wins.
+    registerWithCache([
+      {
+        definition: SHIPPED,
+        source: "db",
+        id: "row-1",
+        projectId: null,
+        userId: "somebody-else",
+        visibility: "private",
+        forkedFrom: null,
+      },
+    ]);
+    const res = await handleWorkflowsRpc(req(), ctx());
+    expect("error" in res).toBe(true);
+    expect((res as { error: { data: { reason: string } } }).error.data.reason).toBe(
+      "WORKFLOWS_PERM_DENIED",
+    );
+    expect(started).toEqual([]);
+  });
+
+  test("a cache that does not carry the name at all falls back and still runs", async () => {
+    // Rung 12 already proved the name resolves, so a reader that answers
+    // without it is a runtime that registered a narrower view — the
+    // reconstructed `system` entry is the same value `buildWorkflowCache`
+    // would have produced for an extension asset.
+    registerWithCache([systemCachedWorkflow(HOST_WORKFLOW, "yaml")]);
+    // `getWorkflows` must still resolve the namespaced name for rung 12.
+    registerWorkflowRuntime({
+      workflowExecutor: {
+        async resumeWorkflow() {
+          throw new Error("resumeWorkflow is not exercised by this double");
+        },
+        async runWorkflow(workflow, input, proj, uid, _signal, opts) {
+          started.push({
+            workflow,
+            input,
+            ...(proj !== undefined ? { projectId: proj } : {}),
+            ...(uid !== undefined ? { userId: uid } : {}),
+            ...(opts !== undefined ? { opts: opts as Record<string, unknown> } : {}),
+          });
+          return {
+            id: "run-1",
+            workflowName: workflow.name,
+            status: "success",
+            startedAt: Date.now(),
+            steps: [],
+          } as WorkflowRun;
+        },
+      },
+      getWorkflows: () => [SHIPPED, HOST_WORKFLOW],
+      getCachedWorkflows: () => [systemCachedWorkflow(HOST_WORKFLOW, "yaml")],
+    });
+    const res = await handleWorkflowsRpc(req(), ctx());
+    expect("result" in res).toBe(true);
   });
 });

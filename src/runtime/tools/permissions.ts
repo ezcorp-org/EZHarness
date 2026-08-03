@@ -7,6 +7,7 @@
 
 import { AsyncLocalStorage } from "node:async_hooks";
 import { getSetting } from "../../db/queries/settings";
+import { WORKFLOW_SCOPE_KEY_PREFIX } from "../workflow-scope-key";
 import type { ToolCategory } from "./types";
 
 // ── Types ───────────────────────────────────────────────────────────
@@ -292,11 +293,16 @@ export class PermissionGateTimeoutError extends Error {
 
 /**
  * Reserved `conversationId` prefix for ids that are NOT conversations.
- * `workflowScopeKey()` (workflow-executor.ts) is the sole minter; the
- * constant lives here so the gate can enforce the invariant without
- * importing the runtime (which would be a cycle).
+ * `workflowScopeKey()` is the sole minter.
+ *
+ * The VALUE now has exactly one definition, in `../workflow-scope-key.ts`
+ * — a leaf module that imports nothing, so the two persistence boundaries
+ * under `src/db/queries/` can share it without this module's DB imports
+ * riding along. This alias stays because it is the name every permission
+ * call site already uses, and because the constant being re-exported here
+ * is what stops a future edit re-typing the literal a third time.
  */
-export const NON_INTERACTIVE_KEY_PREFIX = "workflow-run:";
+export const NON_INTERACTIVE_KEY_PREFIX = WORKFLOW_SCOPE_KEY_PREFIX;
 
 interface NonInteractiveScope {
   /** Capability kind of the most recent refused gate, consumed by

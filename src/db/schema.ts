@@ -1099,7 +1099,21 @@ export type NewSuggestionFeedbackRow = typeof suggestionFeedback.$inferInsert;
 
 export const observabilityEvents = pgTable("observability_events", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  conversationId: text("conversation_id").notNull().references(() => conversations.id, { onDelete: "cascade" }),
+  // NULLABLE since the workflow-observability fix. It was NOT NULL, which
+  // made a tool call made from inside a WORKFLOW impossible to record at
+  // all: a workflow step runs under the synthetic `workflow-run:<id>`
+  // scope key, that matches no `conversations` row, and the FK rejected
+  // every insert — so the collector logged `Failed to persist
+  // tool:complete` once per tool call and the call itself went unrecorded
+  // anywhere. NULL is the honest value for an event with no conversation;
+  // the run it DOES belong to travels in `data.workflowRunId`.
+  //
+  // No reader regresses: `getConversationObservability` /
+  // `getConversationStats` filter with `conversation_id = $1`, which never
+  // matches NULL, so the per-conversation panel is byte-identical. The
+  // global aggregates group by extension and gain the rows they were
+  // silently missing.
+  conversationId: text("conversation_id").references(() => conversations.id, { onDelete: "cascade" }),
   messageId: text("message_id").references(() => messages.id, { onDelete: "set null" }),
   eventType: text("event_type").notNull(),
   data: jsonb("data").notNull(),

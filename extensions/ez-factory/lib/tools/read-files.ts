@@ -77,6 +77,12 @@ export const EXCLUDED_DIR_NAMES: ReadonlySet<string> = new Set([
   ".ezcorp",
 ]);
 
+/** Root-anchored: Docker puts the PGlite datadir at `<root>/data/ezcorp`
+ *  and backups at `<root>/data/backups` (EZCORP_DB_PATH=/app/data/ezcorp,
+ *  project root /app) — both host-reserved. NOT blanket: a nested
+ *  `src/data/` is ordinary source. */
+export const EXCLUDED_ROOT_DIR_NAMES: ReadonlySet<string> = new Set(["data"]);
+
 export type SkipReason =
   | "file-too-large"
   | "budget-exhausted"
@@ -252,6 +258,7 @@ export function createReadFiles(deps: ToolDeps) {
           const abs = `${current.abs}/${entry.name}`;
           if (entry.isDirectory) {
             if (EXCLUDED_DIR_NAMES.has(entry.name)) continue;
+            if (current.rel === "" && EXCLUDED_ROOT_DIR_NAMES.has(entry.name)) continue;
             if (current.depth + 1 > MAX_DEPTH) {
               payload.truncated.depth = true;
               continue;

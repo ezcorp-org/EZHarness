@@ -38,6 +38,7 @@ import { toolCallsThisTurn } from "../extensions/tool-executor/limits";
 import { MAX_WORKFLOW_NESTING_DEPTH } from "./workflow-closure";
 import { getWorkflowByName } from "../db/queries/workflows";
 import { getLatestWorkflowVersion } from "../db/queries/workflow-versions";
+import { workflowScopeKey } from "./workflow-scope-key";
 import {
   advanceWorkflowRunCursor,
   finalizeWorkflowRunRow,
@@ -403,9 +404,13 @@ interface AgentAttemptOutcome {
   attemptStatus: WorkflowRunStatus;
 }
 
-export function workflowScopeKey(workflowRunId: string): string {
-  return `workflow-run:${workflowRunId}`;
-}
+/**
+ * Re-exported from `./workflow-scope-key`, which is where the prefix and
+ * its readers now live — a leaf module, so the persistence boundaries in
+ * `src/db/queries/` can recognise the key without importing this executor.
+ * The name and behaviour are unchanged for every existing caller.
+ */
+export { workflowScopeKey };
 
 export class WorkflowExecutor {
   private readonly persist: boolean;
@@ -550,6 +555,24 @@ export class WorkflowExecutor {
       parentRunId?: string;
       /** Re-entrancy handle — see {@link nestedRunKey}. */
       idempotencyKey?: string;
+      /**
+       * The saved job this run was fired from, persisted verbatim to
+       * `workflow_runs.job_ref`.
+       *
+       * PURELY A CORRELATION HANDLE. The executor never reads it, never
+       * branches on it and never resolves it — it cannot, because jobs
+       * live in an extension's `Storage` rather than a table. It exists
+       * so that "which job started this run?" survives in the durable
+       * record instead of being guessed at afterwards by matching
+       * timestamps, which is the heuristic this column exists to make
+       * unnecessary.
+       *
+       * A NESTED run does not inherit it: `runNestedWorkflow` passes only
+       * `parentRunId` / `idempotencyKey`, so a child run's `job_ref` is
+       * NULL and the chain back to the job is the parent pointer. Copying
+       * it down would make a child look independently job-fired.
+       */
+      jobRef?: string;
       /** Nesting level; 0 (the default) for a top-level run. Threaded so a
        *  child's OWN nested steps are bounded by the same cap. */
       depth?: number;
@@ -633,6 +656,9 @@ export class WorkflowExecutor {
         definitionHash: ranHash,
         parentRunId: opts?.parentRunId ?? null,
         idempotencyKey: opts?.idempotencyKey ?? null,
+        // Written, never read. See the option's doc for why the executor
+        // must not branch on a caller-supplied correlation handle.
+        jobRef: opts?.jobRef ?? null,
       });
     });
 

@@ -4,7 +4,7 @@ import { restoreModuleMocks } from "./helpers/mock-cleanup";
 // ── Mock insertObservabilityEvent before any imports that use it ──────
 
 const insertedEvents: Array<{
-  conversationId: string;
+  conversationId: string | null;
   messageId?: string;
   eventType: string;
   data: Record<string, unknown>;
@@ -13,7 +13,7 @@ const insertedEvents: Array<{
 
 mock.module("../db/queries/observability", () => ({
   insertObservabilityEvent: async (data: {
-    conversationId: string;
+    conversationId: string | null;
     messageId?: string;
     eventType: string;
     data: Record<string, unknown>;
@@ -47,7 +47,7 @@ mock.module("../logger", () => {
   };
 });
 
-import { ObservabilityCollector, startCollector } from "../observability/collector";
+import { ObservabilityCollector, startCollector, toolEventScope } from "../observability/collector";
 import { EventBus } from "../runtime/events";
 import type { AgentEvents } from "../types";
 
@@ -702,6 +702,113 @@ describe("ObservabilityCollector — run:error", () => {
     await new Promise((r) => setTimeout(r, 20));
 
     expect(insertedEvents).toHaveLength(0);
+    collector.stop();
+  });
+});
+
+// ── Workflow-scoped tool calls (the FK bug) ─────────────────────────
+//
+// A tool step inside a workflow is dispatched with the synthetic
+// `workflow-run:<id>` scope key in the conversation slot. That key
+// matches no `conversations` row, so while
+// `observability_events.conversation_id` was NOT NULL the FK rejected
+// EVERY such insert — the collector logged `Failed to persist
+// tool:complete` once per tool call and the call itself was recorded
+// nowhere at all.
+//
+// The fix is not to stop writing. It is to stop pretending the run had a
+// conversation: no conversation (`null`, now a legal value) plus the run
+// id in the payload, where the global dashboard already looks.
+
+const WF_RUN_ID = "8b2f4d1c-77aa-4e39-9b02-5c1e6a3f0d44";
+const WF_SCOPE = `workflow-run:${WF_RUN_ID}`;
+
+describe("toolEventScope", () => {
+  test("splits a synthetic key into (no conversation, the run id)", () => {
+    expect(toolEventScope(WF_SCOPE)).toEqual({
+      conversationId: null,
+      workflowRunId: WF_RUN_ID,
+    });
+  });
+
+  test("leaves a real conversation id ALONE and reports no run", () => {
+    // The load-bearing negative: nulling this would blank every
+    // conversation's observability panel and error nowhere.
+    expect(toolEventScope("conv-abc")).toEqual({
+      conversationId: "conv-abc",
+      workflowRunId: null,
+    });
+  });
+});
+
+describe("a workflow tool call is recorded rather than FK-rejected", () => {
+  beforeEach(clearEvents);
+
+  test("tool:complete lands with a null conversation and the run id", () => {
+    const bus = makeBus();
+    const collector = new ObservabilityCollector(bus);
+    collector.start();
+
+    bus.emit("tool:complete", {
+      conversationId: WF_SCOPE,
+      toolName: "ez-factory__read_files",
+      extensionId: "ext-1",
+      duration: 620,
+      success: true,
+    } as never);
+
+    expect(insertedEvents).toHaveLength(1);
+    const row = insertedEvents[0]!;
+    expect(row.conversationId).toBeNull();
+    expect(row.eventType).toBe("tool_call");
+    // The correlation moves to a field that can actually hold it.
+    expect(row.data.workflowRunId).toBe(WF_RUN_ID);
+    // Everything the row always carried is still there — this is a
+    // recorded call, not a placeholder.
+    expect(row.data.toolName).toBe("ez-factory__read_files");
+    expect(row.data.extensionId).toBe("ext-1");
+    expect(row.data.success).toBe(true);
+    collector.stop();
+  });
+
+  test("tool:error does the same", () => {
+    const bus = makeBus();
+    const collector = new ObservabilityCollector(bus);
+    collector.start();
+
+    bus.emit("tool:error", {
+      conversationId: WF_SCOPE,
+      toolName: "ez-factory__write_file",
+      extensionId: "ext-1",
+      error: "denied",
+      duration: 5,
+    } as never);
+
+    const row = insertedEvents[0]!;
+    expect(row.conversationId).toBeNull();
+    expect(row.eventType).toBe("tool_error");
+    expect(row.data.workflowRunId).toBe(WF_RUN_ID);
+    collector.stop();
+  });
+
+  test("a CHAT tool call keeps its conversation and carries NO run id", () => {
+    // Discrimination: a fix that stamped `workflowRunId` on everything, or
+    // that nulled every conversation, would pass the two tests above.
+    const bus = makeBus();
+    const collector = new ObservabilityCollector(bus);
+    collector.start();
+
+    bus.emit("tool:complete", {
+      conversationId: "conv-real",
+      toolName: "read_file",
+      extensionId: "ext-2",
+      duration: 3,
+      success: true,
+    } as never);
+
+    const row = insertedEvents[0]!;
+    expect(row.conversationId).toBe("conv-real");
+    expect("workflowRunId" in row.data).toBe(false);
     collector.stop();
   });
 });
