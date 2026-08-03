@@ -2594,4 +2594,18 @@ export async function migrate(db: any): Promise<void> {
   // reaches `./connection`, which imports this file.
   const { backfillWorkflowDefinitionVersions } = await import("./queries/workflow-versions");
   await backfillWorkflowDefinitionVersions(db);
+
+  // Data repair for runs the workflow daemon terminalized by claiming them:
+  // the claim CAS took the row `suspended → running`, and `resumeWorkflow`'s
+  // status guard then wrote `error`/`not-resumable` over a perfectly healthy
+  // parked run, leaving its approval prompt unanswerable forever.
+  //
+  // Ships WITH the code fix and never before it — repairing first would just
+  // hand the rows back to a daemon that re-bricks them on its next 5s tick.
+  //
+  // Narrowly targeted at that exact signature and never at a genuinely failed
+  // run; see the function's docblock for what each conjunct is protecting.
+  // Same lazy-import rationale as the two backfills above.
+  const { repairDaemonBrickedWorkflowRuns } = await import("./queries/workflow-runs");
+  await repairDaemonBrickedWorkflowRuns(db);
 }

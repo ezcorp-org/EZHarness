@@ -257,12 +257,20 @@ exemplar docs already exist.)
   (`docs/features/<folder>/x.md` → `../../slug.md`).
 
 - **Record known gotchas and open issues honestly — these are live examples:**
-  - **Active-run IDOR (OPEN).** `GET`/`POST /api/conversations/[id]/active-run`
-    has no conversation-ownership check (SvelteKit doesn't wrap child
-    `+server.ts` in a parent guard), so any authenticated user can poll another
-    tenant's live `partialResponse` or cancel their run. Documented as OPEN in
-    `chat/conversations.md` and `platform/projects.md`; keep it marked OPEN
-    until the route actually gates ownership.
+  - **Active-run IDOR — now FIXED, and a worked example of closing one out.**
+    `GET`/`POST /api/conversations/[id]/active-run` once had no
+    conversation-ownership check (SvelteKit doesn't wrap child `+server.ts` in
+    a parent guard), so any authenticated user could poll another tenant's live
+    `partialResponse` or cancel their run. It was gated in `20adfe86` (PR #12)
+    via `resolveRootConversationForOwnership`, fail-closed 404. **This finding
+    was marked `(OPEN)` in ten separate docs and stayed stale for months after
+    the fix landed** — which is the lesson: a finding recorded in N docs has to
+    be *retired* in N docs. When you close one out, `grep -rn` the whole
+    `docs/features/` tree for it rather than editing the doc you happen to be
+    in. A doc that cries wolf about a closed hole costs as much trust as one
+    that hides an open one, and invites someone to "re-fix" what is already
+    fixed. Keep the structural hazard (a new child route starts life
+    unprotected) even when retiring the instance — that part never expires.
   - **Five sigils — keep CLAUDE.md and the composer docs in lockstep.**
     `web/src/lib/mention-logic.ts` defines **five** mention sigils (`!`, `@`,
     `/`, `$`, **`%`** for `lesson` / Lessons-Keeper), and the `!` sigil nests
