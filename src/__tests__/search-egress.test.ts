@@ -266,6 +266,160 @@ describe("guardedFetch — IP pinning + DNS rebind", () => {
   });
 });
 
+// ── Multi-address failover ──────────────────────────────────────────
+//
+// `dnsLookup(…, {all:true})` returns `::1` before `127.0.0.1` for
+// `localhost` on a dual-stack host. Pinning ips[0] made a sidecar
+// published on IPv4 only unreachable: the guard dialed `[::1]`, got
+// connection-refused, and the caller silently fell back to its secondary
+// provider (the compose SearXNG service was never used). A plain `fetch`
+// hides this by happy-eyeballing; pinning removed that, so the guard
+// re-implements it over the SAME validated address set.
+
+describe("guardedFetch — resolved-address failover", () => {
+  test("falls over to the next resolved address when the first refuses", async () => {
+    const dialed: string[] = [];
+    const fetchImpl: FetchLike = async (url) => {
+      const h = new URL(url).hostname;
+      dialed.push(h);
+      if (h === "[::1]") throw new Error("ConnectionRefused: Unable to connect");
+      return okResponse("searxng-json");
+    };
+    const res = await guardedFetch("http://localhost:8889/search?q=x", {}, {
+      mode: "backend",
+      allowedHosts: ["localhost"],
+      resolveHost: staticResolver({ localhost: ["::1", "127.0.0.1"] }),
+      fetchImpl,
+    });
+    expect(await res.text()).toBe("searxng-json");
+    // Tried IPv6 first (resolution order preserved), then IPv4.
+    expect(dialed).toEqual(["[::1]", "127.0.0.1"]);
+  });
+
+  test("read mode fails over too — every candidate was already proven public", async () => {
+    const dialed: string[] = [];
+    const fetchImpl: FetchLike = async (url) => {
+      const h = new URL(url).hostname;
+      dialed.push(h);
+      if (h === PUBLIC_IP) throw new Error("ECONNREFUSED");
+      return okResponse("second");
+    };
+    const res = await guardedFetch("https://dual.test/x", {}, {
+      mode: "read",
+      resolveHost: staticResolver({ "dual.test": [PUBLIC_IP, "8.8.8.8"] }),
+      fetchImpl,
+    });
+    expect(await res.text()).toBe("second");
+    expect(dialed).toEqual([PUBLIC_IP, "8.8.8.8"]);
+  });
+
+  test("failover NEVER reaches an address the block-list rejects", async () => {
+    // A mixed public/private answer is refused wholesale BEFORE any
+    // connect — failover must not become a way to dial the private one.
+    const dialed: string[] = [];
+    let caught: unknown;
+    try {
+      await guardedFetch("https://mixed.test/x", {}, {
+        mode: "read",
+        resolveHost: staticResolver({ "mixed.test": [PUBLIC_IP, "169.254.169.254"] }),
+        fetchImpl: async (url) => {
+          dialed.push(new URL(url).hostname);
+          return okResponse();
+        },
+      });
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(EgressBlockedError);
+    expect((caught as EgressBlockedError).reason).toBe("private-ip");
+    expect(dialed).toEqual([]);
+  });
+
+  test("an HTTP error response stops failover — the host was reached", async () => {
+    const dialed: string[] = [];
+    const fetchImpl: FetchLike = async (url) => {
+      dialed.push(new URL(url).hostname);
+      return new Response("nope", { status: 503 });
+    };
+    const res = await guardedFetch("https://dual.test/x", {}, {
+      mode: "read",
+      resolveHost: staticResolver({ "dual.test": [PUBLIC_IP, "8.8.8.8"] }),
+      fetchImpl,
+    });
+    expect(res.status).toBe(503);
+    expect(dialed).toEqual([PUBLIC_IP]);
+  });
+
+  test("rethrows the last connection error when every address fails", async () => {
+    const dialed: string[] = [];
+    const fetchImpl: FetchLike = async (url) => {
+      dialed.push(new URL(url).hostname);
+      throw new Error("ECONNREFUSED");
+    };
+    let caught: unknown;
+    try {
+      await guardedFetch("https://dual.test/x", {}, {
+        mode: "read",
+        resolveHost: staticResolver({ "dual.test": [PUBLIC_IP, "8.8.8.8"] }),
+        fetchImpl,
+      });
+    } catch (e) {
+      caught = e;
+    }
+    expect((caught as Error).message).toContain("ECONNREFUSED");
+    expect(dialed).toEqual([PUBLIC_IP, "8.8.8.8"]);
+  });
+
+  test("a streaming body is not replayed — only the first address is tried", async () => {
+    const dialed: string[] = [];
+    const fetchImpl: FetchLike = async (url) => {
+      dialed.push(new URL(url).hostname);
+      throw new Error("ECONNREFUSED");
+    };
+    const body = new ReadableStream({
+      start(c) {
+        c.enqueue(new TextEncoder().encode("x"));
+        c.close();
+      },
+    });
+    let caught: unknown;
+    try {
+      await guardedFetch("https://dual.test/x", { method: "POST", body }, {
+        mode: "read",
+        resolveHost: staticResolver({ "dual.test": [PUBLIC_IP, "8.8.8.8"] }),
+        fetchImpl,
+      });
+    } catch (e) {
+      caught = e;
+    }
+    expect((caught as Error).message).toContain("ECONNREFUSED");
+    expect(dialed).toEqual([PUBLIC_IP]);
+  });
+
+  test("a string body (the JSON POST providers send) IS replayed across addresses", async () => {
+    const dialed: string[] = [];
+    const seenBodies: unknown[] = [];
+    const fetchImpl: FetchLike = async (url, init) => {
+      dialed.push(new URL(url).hostname);
+      seenBodies.push(init.body);
+      if (dialed.length === 1) throw new Error("ECONNREFUSED");
+      return okResponse("ok");
+    };
+    const res = await guardedFetch(
+      "https://dual.test/search",
+      { method: "POST", body: JSON.stringify({ query: "q" }) },
+      {
+        mode: "read",
+        resolveHost: staticResolver({ "dual.test": [PUBLIC_IP, "8.8.8.8"] }),
+        fetchImpl,
+      },
+    );
+    expect(await res.text()).toBe("ok");
+    expect(dialed).toEqual([PUBLIC_IP, "8.8.8.8"]);
+    expect(seenBodies).toEqual([JSON.stringify({ query: "q" }), JSON.stringify({ query: "q" })]);
+  });
+});
+
 // ── Redirect handling ───────────────────────────────────────────────
 
 describe("guardedFetch — redirects", () => {

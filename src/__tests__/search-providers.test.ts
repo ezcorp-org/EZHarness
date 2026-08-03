@@ -287,6 +287,28 @@ describe("JinaReader", () => {
     expect((calls[0]!.init.headers as Record<string, string>).authorization).toBe("Bearer sk-2");
   });
 
+  // Keyless r.jina.ai is gated on NETWORK REPUTATION — upstream answers
+  // 401 for whole ASNs, so a deployment can be permanently blocked. The
+  // bare "Jina HTTP 401" gave the operator nothing to act on.
+  test.each([401, 403])("keyless %i names the JINA_API_KEY remedy", async (status) => {
+    nextResponse = () => new Response("AuthenticationRequiredError", { status });
+    await expect(new JinaReader(transport).read("https://x")).rejects.toThrow(
+      /JINA_API_KEY.*Settings → Search/s,
+    );
+  });
+
+  test("keyed 401 passes through unchanged (a bad key is a different fix)", async () => {
+    nextResponse = () => new Response("nope", { status: 401 });
+    await expect(new JinaReader(transport, "sk-bad").read("https://x")).rejects.toThrow(
+      "Jina HTTP 401",
+    );
+  });
+
+  test("keyless non-auth failures are untouched", async () => {
+    nextResponse = () => new Response("nope", { status: 500 });
+    await expect(new JinaReader(transport).read("https://x")).rejects.toThrow("Jina HTTP 500");
+  });
+
   test("uses JINA_READER_BASE_URL override when present", async () => {
     process.env.JINA_READER_BASE_URL = "http://127.0.0.1:7";
     try {

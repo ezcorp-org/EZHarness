@@ -260,17 +260,20 @@ export const defaultResolveHost: ResolveHost = async (hostname) => {
 
 /**
  * Resolve `hostname` to IPs and ensure ALL of them are public. Returns
- * the first validated IP to pin the connection to. Throws
+ * EVERY validated IP, in resolution order — the caller pins the first
+ * and fails over to the rest (see `connectPinned`). Throws
  * `EgressBlockedError` (reason `private-ip` or `no-address`) otherwise.
  *
  * We require EVERY resolved address to be public (not just the one we
  * pin) so a hostname that resolves to a mix of public + private can't be
- * used to smuggle an internal target through round-robin DNS.
+ * used to smuggle an internal target through round-robin DNS. That same
+ * all-must-be-public rule is what makes failing over to a later address
+ * safe: every candidate has already cleared the block-list.
  */
 async function resolveAndValidate(
   hostname: string,
   resolve: ResolveHost,
-): Promise<string> {
+): Promise<string[]> {
   let ips: string[];
   try {
     ips = await resolve(hostname);
@@ -285,7 +288,7 @@ async function resolveAndValidate(
       throw new EgressBlockedError("private-ip", `${hostname} → ${ip}`);
     }
   }
-  return ips[0]!;
+  return ips;
 }
 
 // ── Main guarded fetch ──────────────────────────────────────────────
@@ -352,10 +355,12 @@ export async function guardedFetch(
     // `allowedHosts` AND we skip the private-IP rejection for backend
     // mode (the host string is the trust anchor); we still PIN so the
     // fetch can't be rebound away from the resolved address mid-flight.
-    let pinnedIp: string;
+    // Candidate addresses, in resolution order. We pin the first and fail
+    // over to the rest if it won't connect — see `connectPinned`.
+    let pinnedIps: string[];
     if (opts.mode === "read") {
       try {
-        pinnedIp = await resolveAndValidate(host, resolve);
+        pinnedIps = await resolveAndValidate(host, resolve);
       } catch (err) {
         if (err instanceof EgressBlockedError) {
           return block(err.reason, err.target, err.message);
@@ -372,39 +377,31 @@ export async function guardedFetch(
         return block("no-address", host, `DNS resolution failed for ${host}`);
       }
       if (ips.length === 0) return block("no-address", host, `No address for ${host}`);
-      pinnedIp = ips[0]!;
+      pinnedIps = ips;
     }
 
     if (Date.now() >= deadline) {
       return block("timeout", currentUrl, `Egress timed out before connect`);
     }
 
-    // Pin: connect to the validated IP, preserve the Host header so TLS
-    // SNI + virtual hosting still work. Bracket IPv6 literals.
-    const ipLiteral = isIP(pinnedIp) === 6 ? `[${pinnedIp}]` : pinnedIp;
-    const pinnedUrl = new URL(parsed.toString());
-    pinnedUrl.hostname = ipLiteral;
     const headers = new Headers(init.headers ?? {});
     headers.set("host", parsed.host);
 
-    const controller = new AbortController();
-    const remaining = deadline - Date.now();
-    const timer = setTimeout(() => controller.abort(), Math.max(0, remaining));
     let res: Response;
     try {
-      res = await fetchImpl(pinnedUrl.toString(), {
-        ...init,
+      res = await connectPinned({
+        parsed,
+        pinnedIps,
+        init,
         headers,
-        redirect: "manual",
-        signal: controller.signal,
+        fetchImpl,
+        deadline,
       });
     } catch (err) {
-      if (controller.signal.aborted) {
+      if (err instanceof EgressTimeoutError) {
         return block("timeout", currentUrl, `Egress timed out`);
       }
       throw err;
-    } finally {
-      clearTimeout(timer);
     }
 
     // Redirect? Re-validate the next hop (defeats redirect-to-internal).
@@ -431,6 +428,86 @@ export async function guardedFetch(
 
   // Unreachable: the loop either returns or blocks on redirect-limit.
   return block("redirect-limit", currentUrl, `Redirect limit (${maxRedirects}) exceeded`);
+}
+
+/** Internal marker: the shared egress deadline elapsed mid-connect.
+ *  Translated by the caller into a `timeout` block (which is what fires
+ *  the `onBlocked` audit hook) — never escapes this module. */
+class EgressTimeoutError extends Error {}
+
+/**
+ * Whether `init.body` can be re-sent on a failover attempt. Strings and
+ * byte buffers can; a ReadableStream is consumed by the first attempt
+ * and must not be retried. Search providers send JSON strings (or no
+ * body at all), so failover is available on every real call path.
+ */
+function isReplayableBody(body: RequestInit["body"]): boolean {
+  if (body === null || body === undefined) return true;
+  return typeof body === "string" || ArrayBuffer.isView(body) || body instanceof ArrayBuffer;
+}
+
+/**
+ * Connect to the first candidate address that accepts the connection,
+ * preserving the Host header so TLS SNI + virtual hosting still work.
+ *
+ * Why failover instead of pinning `ips[0]` only: `dnsLookup(…, {all:true})`
+ * on a dual-stack host returns `::1` before `127.0.0.1` for `localhost`,
+ * so a sidecar published on IPv4 only (the compose SearXNG service) was
+ * unreachable — the guard pinned `[::1]`, got connection-refused, and the
+ * caller silently fell back to its secondary provider. A plain `fetch`
+ * hides this by happy-eyeballing to the next address; pinning removed
+ * that, so we re-implement it explicitly over the SAME validated set.
+ *
+ * Security: every candidate came from `resolveAndValidate` (read mode —
+ * all addresses proven public) or the allowlisted backend host, so trying
+ * a later address can never reach a target the first one couldn't. The
+ * connection is still pinned to a resolved IP, so DNS rebinding between
+ * validation and connect remains impossible.
+ *
+ * Only CONNECTION failures advance to the next candidate. A timeout
+ * (shared deadline) and any HTTP response — including 4xx/5xx — stop
+ * immediately: those mean we reached the host.
+ */
+async function connectPinned(args: {
+  parsed: URL;
+  pinnedIps: string[];
+  init: RequestInit;
+  headers: Headers;
+  fetchImpl: FetchLike;
+  deadline: number;
+}): Promise<Response> {
+  const { parsed, pinnedIps, init, headers, fetchImpl, deadline } = args;
+  const candidates = isReplayableBody(init.body)
+    ? pinnedIps
+    : pinnedIps.slice(0, 1);
+
+  let lastErr: unknown;
+  for (let i = 0; i < candidates.length; i++) {
+    const ip = candidates[i]!;
+    const ipLiteral = isIP(ip) === 6 ? `[${ip}]` : ip;
+    const pinnedUrl = new URL(parsed.toString());
+    pinnedUrl.hostname = ipLiteral;
+
+    const controller = new AbortController();
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) throw new EgressTimeoutError();
+    const timer = setTimeout(() => controller.abort(), remaining);
+    try {
+      return await fetchImpl(pinnedUrl.toString(), {
+        ...init,
+        headers,
+        redirect: "manual",
+        signal: controller.signal,
+      });
+    } catch (err) {
+      if (controller.signal.aborted) throw new EgressTimeoutError();
+      lastErr = err;
+      // Connection failure — try the next resolved address, if any.
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  throw lastErr;
 }
 
 /**

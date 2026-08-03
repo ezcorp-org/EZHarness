@@ -63,7 +63,16 @@ services:
       # Zero-setup web search: points the bundled web-search extension at
       # the SearXNG sidecar below. The app is host-network, so Docker DNS
       # names don't resolve for it — use the localhost-published port.
-      - SEARXNG_BASE_URL=${SEARXNG_BASE_URL:-http://localhost:8889}
+      #
+      # `127.0.0.1`, NOT `localhost`: the sidecar publishes on IPv4 only
+      # (`127.0.0.1:8889:8080` below), but `localhost` resolves to `::1`
+      # first on a dual-stack host. Unlike a plain `fetch` (which happy-
+      # eyeballs to the next address), the SSRF guard resolve-and-PINS one
+      # address — it pinned `[::1]:8889`, got connection-refused, and every
+      # search silently fell back to DuckDuckGo, so the sidecar was never
+      # used. `EZCORP_SUGGEST_OLLAMA_URL` below is a plain fetch and is
+      # unaffected. See src/search/egress.ts#pickPinnedAddress.
+      - SEARXNG_BASE_URL=${SEARXNG_BASE_URL:-http://127.0.0.1:8889}
       # Composer suggestions: local model endpoint for the prompt-enhancement
       # half (the tool-suggestion half is in-process embeddings and needs no
       # sidecar). Same host-network reasoning as SEARXNG_BASE_URL — use the
