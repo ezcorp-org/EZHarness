@@ -697,14 +697,31 @@ export const workflowStepRuns = pgTable("workflow_step_runs", {
   inputTokens: integer("input_tokens"),
   outputTokens: integer("output_tokens"),
   /** `NUMERIC`, not `DOUBLE PRECISION`: a cost dashboard that sums floats
-   *  accumulates error, and C3's per-job spend cap reads this column.
+   *  accumulates error, and this column is summed for display.
    *
-   *  **NULL in this phase, by design.** There is no host-side price table
-   *  — no per-token price map anywhere in `src/providers/` or
-   *  `src/runtime/` — so nothing can compute a cost honestly yet. The
-   *  column lands now so the trace, the dashboard and C3's cap all have
-   *  one place to read from the day a price source exists; until then the
-   *  trace renders "—", not a fabricated number. */
+   *  **Advisory, not an enforcement bound.** Delegated execution enforces
+   *  on TOKENS; cost is derived from them for display and analysis. Do not
+   *  build a limit that refuses work on `SUM(cost_usd)` — the reasons are
+   *  in the NULL paragraph below, and they are structural.
+   *
+   *  Written by `upsertWorkflowStepRun` via `stepCostUsd`
+   *  (`runtime/workflow-step-cost.ts`), which composes the rates
+   *  `modelPrices` (`providers/registry.ts`) already resolves with the
+   *  arithmetic `priceSegment` (`runtime/usage/cache-stats.ts`) already
+   *  owns — the same pair `db/queries/analytics.ts` composes.
+   *
+   *  **NULL means the cost could not be MEASURED. It never means free.**
+   *  A `tool` / `transform` / `gate` step reports no tokens, so it stays
+   *  NULL while its real-world cost is merely unmeasured; a provider that
+   *  reported no usage stays NULL; and an unpriced OAuth-subscription
+   *  model stays NULL because no per-token price exists for it. A PRICED
+   *  model that consumed zero tokens records `0.000000` instead — that
+   *  zero is a measurement.
+   *
+   *  Tokens only ever reach a step row from an `agentRun`
+   *  (`runtime/workflow-executor.ts:1747-1764`), so `SUM(cost_usd)`
+   *  describes LLM spend and NOTHING else — least of all `tool` steps,
+   *  the one kind that reaches an external side effect with a real bill. */
   costUsd: numeric("cost_usd", { precision: 12, scale: 6 }),
   /** Wall-clock for the whole step INCLUDING its retries and loop
    *  iterations — the number an operator asking "why was this run slow"
@@ -724,9 +741,13 @@ export const workflowStepRuns = pgTable("workflow_step_runs", {
    *  resume recomputes it from `cursor` + `stepResults`), so a truncated
    *  value here costs an operator detail and costs correctness nothing. */
   resolvedInput: jsonb("resolved_input").$type<Record<string, unknown> | TruncatedStepOutput>(),
-  /** Why a step did not run at all. Written by C7's `when` conditions;
-   *  inert until then. NULL means "this step was not skipped", which is
-   *  true of every row today. */
+  /** Why a step did not run at all — its own `when`, or the name of the
+   *  skipped dependency that suppressed it. Written by
+   *  `upsertWorkflowStepRun` from the value C7's skip path produces, and
+   *  read back by `loadStepResults` so a resumed run reports the SAME
+   *  reason the first process did. NULL means "this step was not
+   *  skipped" — or that the row predates the writer, which
+   *  `REHYDRATED_SKIP_REASON` covers. */
   skippedReason: text("skipped_reason"),
 
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -805,7 +826,10 @@ export const workflowStepIterations = pgTable("workflow_step_iterations", {
   model: text("model"),
   inputTokens: integer("input_tokens"),
   outputTokens: integer("output_tokens"),
-  /** NULL until a price table exists — see `workflowStepRuns.costUsd`. */
+  /** Priced from THIS row's own `provider`/`model`, not the parent's — a
+   *  `$loop.*` binding re-resolves each pass, so an escalate-on-retry
+   *  iteration is priced at what actually served it. NULL means "not
+   *  measurable", never "free" — see `workflowStepRuns.costUsd`. */
   costUsd: numeric("cost_usd", { precision: 12, scale: 6 }),
   durationMs: integer("duration_ms"),
   errorCode: text("error_code"),

@@ -5,6 +5,7 @@
 	import {
 		canRetryFrom,
 		COST_UNAVAILABLE_HINT,
+		costCellHint,
 		dagRanks,
 		formatCost,
 		formatDuration,
@@ -265,9 +266,13 @@
 								<td class="px-3 py-2 text-right tabular-nums" data-testid="step-output-tokens"
 									>{formatTokens(step.outputTokens)}</td
 								>
+								<!-- Muted + hinted only when the cell is the dash: a real
+								     measured cost is data and must not read as absent. -->
 								<td
-									class="px-3 py-2 text-right tabular-nums text-[var(--color-text-muted)]"
-									title={COST_UNAVAILABLE_HINT}
+									class="px-3 py-2 text-right tabular-nums {costCellHint(step.costUsd)
+										? 'text-[var(--color-text-muted)]'
+										: ''}"
+									title={costCellHint(step.costUsd)}
 									data-testid="step-cost">{formatCost(step.costUsd)}</td
 								>
 								<td class="px-3 py-2 text-right tabular-nums" data-testid="step-duration"

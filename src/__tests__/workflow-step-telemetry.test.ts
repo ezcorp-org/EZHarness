@@ -35,10 +35,13 @@ mock.module("../db/connection", () => ({
 }));
 
 const { WorkflowExecutor } = await import("../runtime/workflow-executor");
-const { listWorkflowStepRunRows } = await import("../db/queries/workflow-runs");
+const { listWorkflowStepRunRows, upsertWorkflowStepRun } = await import(
+  "../db/queries/workflow-runs"
+);
 const { listWorkflowStepIterations, upsertWorkflowStepIteration } = await import(
   "../db/queries/workflow-step-iterations"
 );
+const { getWorkflowRunTrace } = await import("../runtime/workflow-run-trace");
 
 /**
  * Let the executor's fire-and-forget telemetry writes land.
@@ -132,6 +135,19 @@ function scriptedExecutor(script: ScriptedRun[], opts: { toolHandler?: () => Too
     }),
   });
   return { wf, bus, seen, invocations: () => i };
+}
+
+/** Insert a bare `workflow_runs` row and return its id, for the cases
+ *  that exercise a query-layer writer directly rather than through a run.
+ *  `workflow_step_runs.workflow_run_id` is a real FK, so the parent has to
+ *  exist or the write fails the constraint. */
+async function seedRun(): Promise<string> {
+  const id = crypto.randomUUID();
+  await db.execute(sql`
+    INSERT INTO workflow_runs (id, workflow_name, status, started_at)
+    VALUES (${id}, 'seeded', 'running', NOW())
+  `);
+  return id;
 }
 
 /** Read the one step row a single-step workflow produced. */
@@ -320,31 +336,99 @@ describe("the workflow:step SSE payload carries no clock", () => {
   });
 });
 
-describe("cost_usd is never written", () => {
-  test("a fully-instrumented agent step still leaves cost_usd NULL", async () => {
-    // Acceptance criterion 2. There is no host-side price table, so
-    // nothing can compute a cost honestly; the column exists so the
-    // trace, the dashboard and C3's spend cap have ONE place to read from
-    // the day a price source lands. A fabricated number would be worse
-    // than a dash.
+describe("cost_usd is written, and NULL still means unmeasurable", () => {
+  // The rates and the arithmetic are `modelPrices` + `priceSegment`, both
+  // already used in production by `db/queries/analytics.ts`; the exact
+  // figures are pinned with injected rates in
+  // `workflow-step-cost.test.ts`. What THIS block proves is the plumbing —
+  // that the composition reaches the column at all, and that the three
+  // "not measurable" cases still arrive as NULL rather than as a
+  // fabricated zero.
+
+  test("a priced agent step records a real cost", async () => {
     const { wf } = scriptedExecutor([
-      { inputTokens: 1000, outputTokens: 500, provider: "anthropic", model: "claude-opus-5" },
+      // A model the live catalog really prices. Asserted as "> 0" rather
+      // than as a figure, so a pi-ai price change cannot make a
+      // correctness test red.
+      { inputTokens: 1_000_000, outputTokens: 500, provider: "anthropic", model: "claude-sonnet-4-5" },
     ]);
     const run = await wf.runWorkflow(agentStep("draft"), {});
     const row = await stepRow(run.id, "draft");
 
-    expect(row.inputTokens).toBe(1000);
+    expect(row.inputTokens).toBe(1_000_000);
+    expect(row.costUsd).not.toBeNull();
+    expect(Number(row.costUsd)).toBeGreaterThan(0);
+  });
+
+  test("an UNPRICED model leaves cost_usd NULL, not 0", async () => {
+    // The row this change exists to get right. An OAuth-subscription
+    // model is rate-limited rather than billed per token, so it arrives
+    // with an all-zero rate table and there is no cost to record. A "0"
+    // here would report the step as measured-and-free; NULL reports it as
+    // never priceable. `claude-opus-5` is genuinely unpriced in the
+    // catalog this repo resolves against (`modelPrices("anthropic",
+    // "claude-opus-5")` is all zeros) — if pi-ai ever prices it, THIS
+    // assertion is the one that goes red, and the fix is a different
+    // unpriced id, not a weakened assertion.
+    const { wf } = scriptedExecutor([
+      { inputTokens: 1_000_000, outputTokens: 500_000, provider: "anthropic", model: "claude-opus-5" },
+    ]);
+    const run = await wf.runWorkflow(agentStep("draft"), {});
+    const row = await stepRow(run.id, "draft");
+
+    // Tokens WERE reported — so this is not "nothing happened", it is
+    // "this model has no per-token price".
+    expect(row.inputTokens).toBe(1_000_000);
     expect(row.costUsd).toBeNull();
   });
 
-  test("no source file writes cost_usd", async () => {
-    // The structural half: the test above proves one path leaves it NULL,
-    // this proves there is no other path. `?? null` in the upsert is not
-    // enough on its own — a second writer could appear anywhere.
-    const res = (await db.execute(sql`
-      SELECT COUNT(*)::int AS n FROM workflow_step_runs WHERE cost_usd IS NOT NULL
-    `)) as { rows: Array<{ n: number }> };
-    expect(Number(res.rows[0]!.n)).toBe(0);
+  test("a tool step leaves cost_usd NULL — unmeasured, not free", async () => {
+    // A tool step runs no LLM, so it reports no tokens and prices as
+    // NULL. Its real-world cost is NOT zero; it is simply not measured
+    // here — and a tool step is the one kind that reaches an external side
+    // effect with a real bill. `SUM(cost_usd)` therefore describes LLM
+    // spend and nothing else, and this row is what keeps that visible.
+    const { wf } = scriptedExecutor([], {
+      toolHandler: () => ({ content: [{ type: "text", text: "{}" }], isError: false }),
+    });
+    const def: WorkflowDefinition = {
+      name: `wf-tool-${crypto.randomUUID().slice(0, 8)}`,
+      description: "",
+      steps: [{ name: "fetch", kind: "tool", tool: "ext__do", input: {} }],
+    };
+    const run = await wf.runWorkflow(def, {});
+    const row = await stepRow(run.id, "fetch");
+
+    expect(row.status).toBe("success");
+    expect(row.inputTokens).toBeNull();
+    expect(row.costUsd).toBeNull();
+  });
+
+  test("a provider that reported no usage leaves cost_usd NULL", async () => {
+    // The third unmeasurable case: the call happened on a PRICED model,
+    // but nothing came back to price (a cached response, a stream that
+    // errored mid-flight).
+    const { wf } = scriptedExecutor([{ provider: "anthropic", model: "claude-sonnet-4-5" }]);
+    const run = await wf.runWorkflow(agentStep("draft"), {});
+    const row = await stepRow(run.id, "draft");
+
+    expect(row.inputTokens).toBeNull();
+    expect(row.costUsd).toBeNull();
+  });
+
+  test("the 'running' write, before any binding resolves, leaves cost_usd NULL", async () => {
+    // A step's first row is written before the agent has resolved a
+    // provider or model, so there is nothing to look a price up with.
+    await upsertWorkflowStepRun({
+      workflowRunId: await seedRun(),
+      stepName: "pending",
+      runId: "",
+      status: "running",
+    });
+    const rows = (await db.execute(sql`
+      SELECT cost_usd FROM workflow_step_runs WHERE step_name = 'pending'
+    `)) as { rows: Array<{ cost_usd: string | null }> };
+    expect(rows.rows[0]!.cost_usd).toBeNull();
   });
 });
 
@@ -626,17 +710,130 @@ describe("per-iteration child rows", () => {
     expect(await listWorkflowStepIterations(run.id)).toHaveLength(2);
   });
 
-  test("iteration rows never carry a cost", async () => {
-    const { wf } = scriptedExecutor([{ inputTokens: 9, outputTokens: 9 }]);
+  test("an iteration is priced from ITS OWN model, not the parent's", async () => {
+    // The whole reason the child table records provider/model: a `$loop.*`
+    // binding is re-resolved each pass, so an escalate-on-retry loop can
+    // run a priced model and then an unpriced one. Pricing both from the
+    // parent's LAST binding would misprice exactly that case — here it
+    // would erase the first iteration's real cost.
+    const { wf } = scriptedExecutor([
+      { model: "claude-sonnet-4-5", provider: "anthropic", inputTokens: 1_000_000, outputTokens: 0 },
+      { model: "claude-opus-5", provider: "anthropic", inputTokens: 1_000_000, outputTokens: 0 },
+    ]);
     const def: WorkflowDefinition = {
-      name: `wf-nocost-${crypto.randomUUID().slice(0, 8)}`,
+      name: `wf-itercost-${crypto.randomUUID().slice(0, 8)}`,
       description: "",
-      steps: [{ name: "revise", agent: "stub", loop: { maxIterations: 2 } }],
+      steps: [{ name: "escalate", agent: "stub", loop: { maxIterations: 2 } }],
     };
     const run = await wf.runWorkflow(def, {});
     await settle();
+
     const iters = await listWorkflowStepIterations(run.id);
-    expect(iters).toHaveLength(2);
-    expect(iters.every((r) => r.costUsd === null)).toBe(true);
+    expect(iters.map((r) => r.model)).toEqual(["claude-sonnet-4-5", "claude-opus-5"]);
+    // Priced model → a real cost. Unpriced model → NULL, not 0.
+    expect(Number(iters[0]!.costUsd)).toBeGreaterThan(0);
+    expect(iters[1]!.costUsd).toBeNull();
+    // And the parent, which summed BOTH iterations' tokens, is priced at
+    // its own last-resolved (unpriced) binding — so it is NULL too. That
+    // is the honest answer: the run's total cannot be measured once part
+    // of it ran unpriced.
+    expect((await stepRow(run.id, "escalate")).costUsd).toBeNull();
+  });
+});
+
+describe("skipped_reason survives a reload", () => {
+  test("a step skipped by its own `when` persists WHY, not just that it was", async () => {
+    // Before this was persisted, a reloaded trace showed
+    // `status = 'skipped'` and nothing else — indistinguishable from a
+    // step that was never reached. The reason lived only in memory and on
+    // the SSE frame, so it was gone the moment anyone reopened the run.
+    const { wf } = scriptedExecutor([{ inputTokens: 1, outputTokens: 1 }]);
+    const def: WorkflowDefinition = {
+      name: `wf-skip-${crypto.randomUUID().slice(0, 8)}`,
+      description: "",
+      steps: [
+        { name: "always", agent: "stub" },
+        { name: "never", agent: "stub", when: { ref: "$input.go", op: "truthy" } },
+      ],
+    };
+    const run = await wf.runWorkflow(def, {});
+    await settle();
+
+    const row = await stepRow(run.id, "never");
+    expect(row.status).toBe("skipped");
+    expect(row.skippedReason).not.toBeNull();
+    expect(row.skippedReason).toContain("when");
+  });
+
+  test("a step skipped by a SKIPPED DEPENDENCY names that dependency", async () => {
+    // The other skip cause, and the one whose reason is least
+    // reconstructible after the fact: without the persisted string a
+    // reader cannot tell which upstream step suppressed this one.
+    const { wf } = scriptedExecutor([{ inputTokens: 1, outputTokens: 1 }]);
+    const def: WorkflowDefinition = {
+      name: `wf-skipdep-${crypto.randomUUID().slice(0, 8)}`,
+      description: "",
+      steps: [
+        { name: "gatekeeper", agent: "stub", when: { ref: "$input.go", op: "truthy" } },
+        { name: "downstream", agent: "stub", dependsOn: ["gatekeeper"] },
+      ],
+    };
+    const run = await wf.runWorkflow(def, {});
+    await settle();
+
+    const row = await stepRow(run.id, "downstream");
+    expect(row.status).toBe("skipped");
+    expect(row.skippedReason).toContain("gatekeeper");
+  });
+
+  test("both columns reach the TRACE, which is the surface a reload reads", async () => {
+    // The end of the plumbing. A value that lands in a column but is not
+    // surfaced by `getWorkflowRunTrace` is invisible to every reader that
+    // matters — the run page reads this, not the row.
+    const { wf } = scriptedExecutor([
+      { inputTokens: 1_000_000, outputTokens: 0, provider: "anthropic", model: "claude-sonnet-4-5" },
+    ]);
+    const def: WorkflowDefinition = {
+      name: `wf-trace-${crypto.randomUUID().slice(0, 8)}`,
+      description: "",
+      steps: [
+        { name: "priced", agent: "stub" },
+        { name: "dodged", agent: "stub", when: { ref: "$input.go", op: "truthy" } },
+      ],
+    };
+    // `workflow_runs.user_id` is a real FK, and the persistence contract
+    // swallows a failed write — so without a real user row the run would
+    // simply not exist and this test would fail for the wrong reason.
+    const owner = crypto.randomUUID();
+    await db.execute(sql`
+      INSERT INTO users (id, email, password_hash, name)
+      VALUES (${owner}, ${`${owner}@t.test`}, 'x', 'Owner')
+    `);
+    const run = await wf.runWorkflow(def, {}, undefined, owner);
+    await settle();
+
+    const trace = (await getWorkflowRunTrace(run.id, { userId: owner }))!;
+    expect(trace).toBeDefined();
+    const priced = trace.steps.find((s) => s.stepName === "priced")!;
+    const dodged = trace.steps.find((s) => s.stepName === "dodged")!;
+
+    expect(Number(priced.costUsd)).toBeGreaterThan(0);
+    expect(dodged.status).toBe("skipped");
+    expect(dodged.skippedReason).toContain("when");
+    // A skipped step ran no model, so it has no cost to report — and that
+    // is NULL, not zero.
+    expect(dodged.costUsd).toBeNull();
+  });
+
+  test("a step that ran records no skip reason", async () => {
+    // The discriminating half: a column written unconditionally would put
+    // a reason on every row, which is the same as having none.
+    const { wf } = scriptedExecutor([{ inputTokens: 1, outputTokens: 1 }]);
+    const run = await wf.runWorkflow(agentStep("draft"), {});
+    await settle();
+
+    const row = await stepRow(run.id, "draft");
+    expect(row.status).toBe("success");
+    expect(row.skippedReason).toBeNull();
   });
 });

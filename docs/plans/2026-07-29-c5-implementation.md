@@ -78,6 +78,17 @@ precedent is exact, but it is not free and should be sized as such.
 
 ### 1.3 There is no host-side price table, so `cost_usd` cannot be computed in phase 3
 
+> **SUPERSEDED — this section's premise was false when written.** A host-side
+> price source did exist in both searched directories: `modelPrices`
+> (`src/providers/registry.ts`) is the per-model USD rate lookup and
+> `priceSegment` (`src/runtime/usage/cache-stats.ts`) is the arithmetic, and
+> `src/db/queries/analytics.ts` was already composing them in production.
+> `cost_usd` is now written by `stepCostUsd` (`src/runtime/workflow-step-cost.ts`).
+> The §1.3 conclusion below is kept as the historical record of the search that
+> missed them. The C3 knock-on stands for a different reason: cost is
+> **advisory**, tokens are the enforced bound — see
+> `docs/features/orchestration/workflows.md`.
+
 I searched `src/providers/` and `src/runtime/` for a cost/pricing source and
 found **none** — no `costCents`, no per-token price map, nothing. The SDK's
 `LlmUsage.estCostCents` (`packages/@ezcorp/sdk/src/runtime/llm.ts`) is the

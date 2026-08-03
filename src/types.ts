@@ -623,19 +623,9 @@ export interface WorkflowStepRun {
    * a skipped step with no explanation is indistinguishable from a step
    * that was never reached. Omitted for every other status.
    *
-   * NOTE: `workflow_step_runs.skipped_reason` now EXISTS — C5 merged and
-   * added it (`db/schema.ts:730`) — but nothing writes it:
-   * `upsertWorkflowStepRun` (`db/queries/workflow-runs.ts:266-313`) sets
-   * status, iterations, provider, model, output, attempt, the two token
-   * counts, durationMs, errorCode and resolvedInput, and no path passes a
-   * `skippedReason`. The only assignment anywhere is the in-memory
-   * `stepRun.skippedReason` at `runtime/workflow-executor.ts:1133`. So this
-   * value is still in-memory + SSE only, and a reloaded trace shows
-   * `status = 'skipped'` with no reason. The column is a landing site, the
-   * same shape as its neighbour `workflow_step_runs.cost_usd`
-   * (`db/schema.ts:708`, also never written); wiring it is one line in the
-   * upsert plus a read in the trace. See the C7 section of
-   * `docs/features/orchestration/workflows.md`.
+   * Persisted to `workflow_step_runs.skipped_reason` by
+   * `upsertWorkflowStepRun` and read back by the run trace, so a reloaded
+   * trace explains a skip rather than showing a bare `status = 'skipped'`.
    */
   skippedReason?: string;
   /** Provider / model the step's agent run RESOLVED to — what actually

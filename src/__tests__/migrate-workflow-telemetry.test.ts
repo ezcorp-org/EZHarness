@@ -86,9 +86,9 @@ describe("migrate() — C5 step telemetry and per-iteration rows", () => {
   });
 
   test("cost_usd is NUMERIC(12,6), not a float", async () => {
-    // A dashboard that sums floats accumulates error, and C3's per-job
-    // spend cap reads this column. `double precision` would type-check,
-    // pass every behavioural test, and quietly drift.
+    // A dashboard that sums floats accumulates error, and this column is
+    // summed for display. `double precision` would type-check, pass every
+    // behavioural test, and quietly drift.
     const col = (await columns("workflow_step_runs")).find((c) => c.column_name === "cost_usd");
     expect(col!.data_type).toBe("numeric");
     expect(col!.numeric_precision).toBe(12);
