@@ -21,6 +21,7 @@
       "web/e2e/task-panel-cold-start.spec.ts"
     ],
     "real-auth": [
+      "web/e2e/real-auth/approval-consent-boundary.spec.ts",
       "web/e2e/real-auth/auth-fixture.spec.ts",
       "web/e2e/real-auth/extension-author-flow.spec.ts",
       "web/e2e/real-auth/extension-control-flow.spec.ts",
