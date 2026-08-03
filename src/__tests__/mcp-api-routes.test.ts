@@ -60,8 +60,7 @@ describe("POST /api/mcp-servers", () => {
     });
     // RETURNED, not thrown. The old try/catch asserted a THROWN Response,
     // which SvelteKit renders as a 500 "Internal Error" — so it pinned the
-    // bug rather than the 403 it looked like it was checking. The gate here
-    // is `checkRole` (role + admin scope), which also returns.
+    // bug rather than the 403 it looked like it was checking.
     const res = await installPOST(event);
     expect(res.status).toBe(403);
   });

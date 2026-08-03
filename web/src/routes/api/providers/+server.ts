@@ -3,9 +3,9 @@ import { z } from "zod";
 import type { RequestHandler } from "./$types";
 import { encrypt, decrypt } from "$server/providers/encryption";
 import { getSetting, upsertSetting, deleteSetting } from "$server/db/queries/settings";
-import { requireAuth, checkRole } from "$server/auth/middleware";
+import { requireAuth } from "$server/auth/middleware";
 import { insertAuditEntry } from "$server/db/queries/audit-log";
-import { requireScope } from "$lib/server/security/api-keys";
+import { requireAdmin, requireScope } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
 
 const PROVIDERS = ["anthropic", "openai", "google", "openrouter"] as const;
@@ -96,20 +96,26 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	// authenticated member could overwrite the organization's LLM API key —
 	// redirecting billing to an attacker-controlled key.
 	//
-	// F2: `checkRole`, not `requireRole` and not #84's `requireAdmin`. sec-C5
-	// closed the cookie hole but opened a key one — role alone proves the
-	// PRINCIPAL is an admin and ignores what the key was SCOPED for, so a key
-	// minted `--scopes read --role admin` still reached this write. `checkRole`
-	// enforces BOTH axes. A cookie session carries no `apiKeyScopes`, so it is
-	// unaffected and still passes on role alone.
+	// F2: BOTH authorization axes, as the explicit `requireAdmin` +
+	// `requireScope("admin")` pairing that route-contract.test.ts sanctions.
 	//
-	// Like `requireAdmin` (#84) it RETURNS its denial rather than throwing —
-	// SvelteKit renders a thrown Response as a 500, never the intended 401/403.
-	// It differs only by ALSO demanding the `admin` scope, which deliberately
-	// narrows this route's former "no API-key scope gate" contract: this write
-	// sets the organization's LLM API key.
-	const admin = checkRole(locals, "admin");
-	if (admin instanceof Response) return admin;
+	// sec-C5 closed the cookie hole but opened a key one: role alone proves the
+	// PRINCIPAL is an admin and ignores what the key was SCOPED for, so a key
+	// minted `--scopes read --role admin` still reached this write — which sets
+	// the organization's LLM API key. The scope check closes that, and
+	// deliberately narrows this route's former "no API-key scope gate"
+	// contract. A cookie session carries no `apiKeyScopes`, so `requireScope`
+	// is a no-op for it and browser admins are unaffected.
+	//
+	// Both helpers RETURN their denial (#84) — a thrown Response is what
+	// SvelteKit renders as a 500. Role is checked FIRST so an unauthenticated
+	// or non-admin caller gets #84's uniform 403 "Admin role required" rather
+	// than leaking that scope was also missing.
+	const adminErr = requireAdmin(locals);
+	if (adminErr) return adminErr;
+	const scopeErr = requireScope(locals, "admin");
+	if (scopeErr) return scopeErr;
+	const admin = locals.user!;
 	const parsed = postBodySchema.safeParse(await request.json().catch(() => ({})));
 	if (!parsed.success) {
 		return errorJson(400, "Invalid provider. Must be one of: anthropic, openai, google, openrouter");
@@ -137,11 +143,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 export const DELETE: RequestHandler = async ({ request, locals }) => {
 	// sec-C5: admin role required. Pre-fix, any authenticated member could
 	// delete the organization's LLM API key — DoS for every other user.
-	// F2: `checkRole` returns its denial (never throws → never a 500, same as
-	// #84's `requireAdmin`) AND enforces the `admin` SCOPE for key
-	// principals — see the POST handler above for the full rationale.
-	const admin = checkRole(locals, "admin");
-	if (admin instanceof Response) return admin;
+	// F2: role AND admin scope, both returning their denial — see POST above.
+	const adminErr = requireAdmin(locals);
+	if (adminErr) return adminErr;
+	const scopeErr = requireScope(locals, "admin");
+	if (scopeErr) return scopeErr;
+	const admin = locals.user!;
 	const parsed = deleteBodySchema.safeParse(await request.json().catch(() => ({})));
 	if (!parsed.success) {
 		return errorJson(400, "Invalid provider. Must be one of: anthropic, openai, google, openrouter");

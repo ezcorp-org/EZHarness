@@ -202,15 +202,12 @@ for (const probe of probes) {
       expect(probe.getCalls().length).toBe(0);
     });
 
-    // 401 again, and still RETURNED (a thrown Response is what SvelteKit
-    // renders as a 500). #84 moved this to the role-only `requireAdmin`,
-    // which cannot tell "no principal" from "not an admin" and answered 403
-    // for both. F2 moves it to `checkRole`, which delegates to `requireRole`
-    // → `requireAuth` and recovers the precise 401 while ADDING the
-    // admin-scope axis `requireAdmin` lacks. Hook-unreachable either way —
-    // hooks.server.ts 401s unauthenticated /api/* first. What matters for
-    // sec-H1 is unchanged: the upstream fetch is never reached.
-    test("unauthenticated → 401, upstream fetch NOT reached", async () => {
+    // 403, not 401: the gate is now the role-only `requireAdmin`, which
+    // RETURNS its denial (requireRole THREW one, so the caller actually got a
+    // 500) and treats "no principal" as "not an admin". Hook-unreachable
+    // either way — hooks.server.ts 401s unauthenticated /api/* first. What
+    // matters for sec-H1 is unchanged: the upstream fetch is never reached.
+    test("unauthenticated → 403, upstream fetch NOT reached", async () => {
       const event = createMockEvent({
         method: "POST",
         url: probe.url,
@@ -218,7 +215,7 @@ for (const probe of probes) {
         // no user
       });
       const res = await call(probe.handler, event);
-      expect(res.status).toBe(401);
+      expect(res.status).toBe(403);
       expect(probe.getCalls().length).toBe(0);
     });
   });

@@ -52,16 +52,14 @@ describe("GET /api/search/backend", () => {
 		vi.mocked(getSetting).mockReset();
 	});
 
-	// Keeps #84's `expectDenied` contract (the handler must RETURN its denial;
-	// a throw fails loudly naming the 500 symptom). 401 rather than #84's
-	// uniform 403 for the missing-principal case: the gate here is `checkRole`,
-	// which delegates to `requireRole` and so surfaces `requireAuth`'s 401 —
-	// returned, not thrown. `requireAdmin` could not distinguish the two;
-	// `checkRole` can. Unreachable in production regardless: hooks.server.ts
-	// 401s unauthenticated /api/* before the handler runs.
-	test("rejects 401 when locals.user is missing", async () => {
-		const res = await expectDenied(() => GET(makeEvent({ method: "GET" })), 401);
-		expect(res.status).toBe(401);
+	// 403, not 401: this route's gate is now the role-only `requireAdmin`,
+	// which RETURNS its denial (requireRole THREW one, so the caller actually
+	// got a 500). requireAdmin answers "not an admin principal" uniformly — a
+	// missing principal is not an admin either. Unreachable in production
+	// regardless: hooks.server.ts 401s unauthenticated /api/* before the handler.
+	test("rejects 403 when locals.user is missing", async () => {
+		const res = await expectDenied(() => GET(makeEvent({ method: "GET" })), 403);
+		expect(res.status).toBe(403);
 	});
 
 	test("rejects 403 when caller is not admin", async () => {
@@ -106,7 +104,6 @@ describe("POST /api/search/backend", () => {
 		vi.mocked(encrypt).mockClear();
 	});
 
-	// F2/F6: `checkRole` RETURNS its denial (a thrown Response would 500).
 	test("rejects 403 when caller is not admin", async () => {
 		const res = await expectDenied(() => POST(makeEvent({ method: "POST", locals: memberUser, body: { provider: "tavily", apiKey: "k" } })), 403);
 		expect(res.status).toBe(403);
@@ -190,7 +187,6 @@ describe("DELETE /api/search/backend", () => {
 		vi.mocked(insertAuditEntry).mockClear();
 	});
 
-	// F2/F6: `checkRole` RETURNS its denial (a thrown Response would 500).
 	test("rejects 403 when caller is not admin", async () => {
 		const res = await expectDenied(() => DELETE(makeEvent({ method: "DELETE", locals: memberUser, body: { provider: "tavily" } })), 403);
 		expect(res.status).toBe(403);

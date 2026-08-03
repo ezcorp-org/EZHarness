@@ -2,23 +2,23 @@ import { json } from "@sveltejs/kit";
 import { installMcpExtension } from "$server/db/queries/extensions";
 import { ExtensionRegistry } from "$server/extensions/registry";
 import { McpClient } from "$server/mcp/client";
-import { checkRole } from "$server/auth/middleware";
+import { requireAdmin, requireScope } from "$lib/server/security/api-keys";
 import { validationError } from "$lib/server/security/validation";
 import { errorJson } from "$lib/server/http-errors";
 import { installMcpServerSchema } from "./schema";
 import type { RequestHandler } from "./$types";
 
 export const POST: RequestHandler = async ({ request, locals }) => {
-  // F2: `checkRole` gates BOTH axes — the admin ROLE and, for API-key
-  // principals, the `admin` SCOPE. An MCP server config is instance state
-  // (command lines, URLs, auth headers), so a key minted `--scopes read
-  // --role admin` must not be able to install one. Cookie sessions carry no
-  // `apiKeyScopes` and still pass on role alone. Like #84's `requireAdmin` it
-  // RETURNS the denial (a thrown Response renders as a 500, not a 403) and
-  // differs only by ALSO demanding the `admin` scope — a deliberate narrowing
-  // of this route's former "no API-key scope gate" contract.
-  const admin = checkRole(locals, "admin");
-  if (admin instanceof Response) return admin;
+  // F2: BOTH axes — `requireAdmin` for the ROLE, `requireScope("admin")` for
+  // the API-key SCOPE. An MCP server config is instance state (command lines,
+  // URLs, auth headers), so a key minted `--scopes read --role admin` must not
+  // install one. Cookie sessions carry no `apiKeyScopes` and pass on role
+  // alone. Both RETURN their denial (#84); role first so a non-admin gets the
+  // uniform 403 "Admin role required".
+  const adminErr = requireAdmin(locals);
+  if (adminErr) return adminErr;
+  const scopeErr = requireScope(locals, "admin");
+  if (scopeErr) return scopeErr;
 
   const parsed = installMcpServerSchema.safeParse(await request.json());
   if (!parsed.success) return validationError(parsed.error);

@@ -12,23 +12,23 @@
  *   POST   → upsert a BYOK key (encrypted) or the SearXNG URL.
  *   DELETE → remove a BYOK key.
  *
- * All three require admin (`checkRole(locals, "admin")`) — a member could
- * otherwise redirect search egress or exfiltrate billing. `checkRole` gates
- * BOTH authorization axes: the admin ROLE, and (for API-key principals only)
- * the `admin` SCOPE, so a key minted `--scopes read --role admin` cannot
- * reach these writes. Cookie sessions carry no `apiKeyScopes` and pass on
- * role alone.
+ * All three require admin on BOTH authorization axes — `requireAdmin(locals)`
+ * for the ROLE, then `requireScope(locals, "admin")` for the API-key SCOPE.
+ * A member could otherwise redirect search egress or exfiltrate billing, and
+ * (F2) a key minted `--scopes read --role admin` could reach these writes on
+ * a role-only gate. Cookie sessions carry no `apiKeyScopes`, so the scope
+ * check is a no-op for them and they pass on role alone.
  *
- * Like #84's `requireAdmin` the gate RETURNS its denial rather than throwing
- * it (SvelteKit renders a thrown Response as a 500); it differs only by also
- * demanding the `admin` scope, which deliberately narrows this route's former
- * "no API-key scope gate" contract.
+ * Both helpers RETURN their denial (#84) — a thrown Response is what SvelteKit
+ * renders as a 500. Role first, so an unauthenticated or non-admin caller gets
+ * #84's uniform 403 "Admin role required". The added scope axis deliberately
+ * narrows this route's former "no API-key scope gate" contract.
  */
 import { json } from "@sveltejs/kit";
 import { z } from "zod";
 import { encrypt } from "$server/providers/encryption";
 import { getSetting, upsertSetting, deleteSetting } from "$server/db/queries/settings";
-import { checkRole } from "$server/auth/middleware";
+import { requireAdmin, requireScope } from "$lib/server/security/api-keys";
 import { insertAuditEntry } from "$server/db/queries/audit-log";
 import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
@@ -61,8 +61,10 @@ const postBodySchema = z
 const deleteBodySchema = z.object({ provider: z.string().optional() }).strict();
 
 export const GET: RequestHandler = async ({ locals }) => {
-	const admin = checkRole(locals, "admin");
-	if (admin instanceof Response) return admin;
+	const adminErr = requireAdmin(locals);
+	if (adminErr) return adminErr;
+	const scopeErr = requireScope(locals, "admin");
+	if (scopeErr) return scopeErr;
 	const providers = await Promise.all(
 		BYOK_PROVIDERS.map(async (provider) => ({
 			provider,
@@ -79,8 +81,11 @@ export const GET: RequestHandler = async ({ locals }) => {
 };
 
 export const POST: RequestHandler = async ({ request, locals }) => {
-	const admin = checkRole(locals, "admin");
-	if (admin instanceof Response) return admin;
+	const adminErr = requireAdmin(locals);
+	if (adminErr) return adminErr;
+	const scopeErr = requireScope(locals, "admin");
+	if (scopeErr) return scopeErr;
+	const admin = locals.user!;
 	const parsed = postBodySchema.safeParse(await request.json().catch(() => ({})));
 	if (!parsed.success) {
 		return errorJson(400, "Invalid request body");
@@ -129,8 +134,11 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 };
 
 export const DELETE: RequestHandler = async ({ request, locals }) => {
-	const admin = checkRole(locals, "admin");
-	if (admin instanceof Response) return admin;
+	const adminErr = requireAdmin(locals);
+	if (adminErr) return adminErr;
+	const scopeErr = requireScope(locals, "admin");
+	if (scopeErr) return scopeErr;
+	const admin = locals.user!;
 	const parsed = deleteBodySchema.safeParse(await request.json().catch(() => ({})));
 	if (!parsed.success) {
 		return errorJson(400, "Invalid request body");

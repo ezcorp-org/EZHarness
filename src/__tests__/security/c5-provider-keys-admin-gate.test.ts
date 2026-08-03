@@ -153,15 +153,10 @@ describe("sec-C5: POST /api/providers role gate", () => {
     expect(auditCalls.length).toBe(0);
   });
 
-  // 401 again, and still RETURNED (never thrown — a thrown Response is what
-  // SvelteKit renders as a 500). #84 moved this to the role-only
-  // `requireAdmin`, which cannot distinguish "no principal" from "not an
-  // admin" and so answered 403 for both. F2 moves it to `checkRole`, which
-  // delegates to `requireRole` → `requireAuth` and therefore recovers the
-  // precise 401, while ADDING the admin-scope axis `requireAdmin` lacks.
-  // Hook-unreachable either way: hooks.server.ts 401s unauthenticated
-  // /api/* before the handler runs.
-  test("unauthenticated → 401, upsertSetting NOT called", async () => {
+  // 403, not 401: the gate is now the role-only `requireAdmin`, which RETURNS
+  // its denial (requireRole THREW one, so the caller actually got a 500) and
+  // treats "no principal" as "not an admin". Hook-unreachable either way.
+  test("unauthenticated → 403, upsertSetting NOT called", async () => {
     const event = createMockEvent({
       method: "POST",
       url: "http://localhost/api/providers",
@@ -169,7 +164,7 @@ describe("sec-C5: POST /api/providers role gate", () => {
       // no user
     });
     const res = await call(POST, event);
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(403);
     expect(upsertCalls.length).toBe(0);
     expect(auditCalls.length).toBe(0);
   });
@@ -227,8 +222,8 @@ describe("sec-C5: DELETE /api/providers role gate", () => {
     expect(auditCalls.length).toBe(0);
   });
 
-  // 401, not #84's uniform 403 — see the POST case above.
-  test("unauthenticated → 401, deleteSetting NOT called", async () => {
+  // 403, not 401 — see the POST case above.
+  test("unauthenticated → 403, deleteSetting NOT called", async () => {
     const event = createMockEvent({
       method: "DELETE",
       url: "http://localhost/api/providers",
@@ -236,7 +231,7 @@ describe("sec-C5: DELETE /api/providers role gate", () => {
       // no user
     });
     const res = await call(DELETE, event);
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(403);
     expect(deleteCalls.length).toBe(0);
     expect(auditCalls.length).toBe(0);
   });

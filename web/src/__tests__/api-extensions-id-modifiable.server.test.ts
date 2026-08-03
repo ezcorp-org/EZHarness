@@ -52,9 +52,14 @@ describe("POST /api/extensions/[id]/modifiable", () => {
     vi.mocked(insertAuditEntry).mockClear();
   });
 
-  test("unauthenticated → 401", async () => {
+  // 403, matching #84's uniform answer across the admin-gated routes:
+  // `requireAdmin` treats "no principal" as "not an admin principal" rather
+  // than distinguishing 401. Returned, never thrown (a thrown Response is what
+  // SvelteKit renders as a 500). Hook-unreachable anyway — hooks.server.ts
+  // 401s unauthenticated /api/* before the handler runs.
+  test("unauthenticated → 403", async () => {
     const res = await POST(makeEvent({ locals: {}, body: { modifiable: true } }));
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(403);
   });
 
   test("non-admin → 403", async () => {

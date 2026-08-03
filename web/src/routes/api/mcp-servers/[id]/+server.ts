@@ -2,7 +2,7 @@ import { json } from "@sveltejs/kit";
 import { getExtension, rehydrateMcpServerSecrets, updateMcpExtension } from "$server/db/queries/extensions";
 import { ExtensionRegistry } from "$server/extensions/registry";
 import { McpClient } from "$server/mcp/client";
-import { checkRole } from "$server/auth/middleware";
+import { requireAdmin, requireScope } from "$lib/server/security/api-keys";
 import { validationError } from "$lib/server/security/validation";
 import { errorJson } from "$lib/server/http-errors";
 import type { ExtensionManifestV2, McpServerDefinition } from "$server/extensions/types";
@@ -24,10 +24,11 @@ import type { RequestHandler } from "./$types";
 export const PUT: RequestHandler = async ({ params, request, locals }) => {
   // F2: admin ROLE *and* (for key principals) the `admin` SCOPE — see the
   // install route. This handler rehydrates stored auth headers, so a
-  // read-scoped key must never reach it. Returns its denial like #84's
-  // `requireAdmin`; the added scope axis is the deliberate difference.
-  const admin = checkRole(locals, "admin");
-  if (admin instanceof Response) return admin;
+  // read-scoped key must never reach it.
+  const adminErr = requireAdmin(locals);
+  if (adminErr) return adminErr;
+  const scopeErr = requireScope(locals, "admin");
+  if (scopeErr) return scopeErr;
   const id = params.id;
   if (!id) return errorJson(400, "id required");
 

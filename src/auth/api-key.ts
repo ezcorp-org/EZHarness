@@ -144,6 +144,41 @@ export function canMintRole(
   return actorRole === "admin";
 }
 
+/**
+ * Mint-time footgun guard for the ROLE↔SCOPE pair.
+ *
+ * The two axes are orthogonal, and `--scopes read --role admin` is accepted
+ * by every mint path. Before F2 that combination silently WORKED on the admin
+ * write routes, because they gated on role alone — which is the hole F2
+ * closed. Now the same combination mints a key that its own role implies can
+ * administer the instance but that every admin route refuses, and the operator
+ * only finds out from a 403 later.
+ *
+ * This is a WARNING, not a refusal, on purpose: an admin-role key deliberately
+ * scoped narrowly is a legitimate thing to want now that the scope is actually
+ * enforced (e.g. an admin-owned key restricted to `read` for a dashboard). The
+ * requirement is only that it never be minted SILENTLY. Callers print the
+ * returned text; `null` means the pair is unremarkable.
+ *
+ * Pure + shared so the CLI and the HTTP mint route cannot drift on the advice,
+ * exactly like `scopesOverCeiling` and `canMintRole` above.
+ */
+export function adminRoleScopeWarning(
+  role: ApiKeyRole,
+  scopes: readonly ApiKeyScope[],
+): string | null {
+  if (role !== "admin" || scopes.includes("admin")) return null;
+  return [
+    'WARNING: this key carries role "admin" but NOT the "admin" scope.',
+    "  Admin routes authorize on BOTH axes, so it will be refused with",
+    '  403 {"error":"Insufficient scope","required":"admin"} on every admin',
+    "  surface — provider keys, search backend, MCP servers, instance settings.",
+    "  It still works for whatever its other scopes allow.",
+    "  For a key that can actually administer the instance, add the scope:",
+    "    ezcorp key mint --user <email> --scopes admin --role admin",
+  ].join("\n");
+}
+
 export function generateApiKey(): GeneratedKey {
   const raw = "ezk_" + crypto.randomBytes(32).toString("base64url");
   return { raw, hash: hashApiKey(raw), keyId: crypto.randomUUID() };

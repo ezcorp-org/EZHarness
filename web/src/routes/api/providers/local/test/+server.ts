@@ -2,7 +2,7 @@ import { json } from "@sveltejs/kit";
 import { z } from "zod";
 import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
-import { checkRole } from "$server/auth/middleware";
+import { requireAdmin, requireScope } from "$lib/server/security/api-keys";
 import { checkLocalModel } from "$server/providers/local-model-check";
 import {
 	isPrivateOrLoopback,
@@ -24,11 +24,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	// authenticated member could drive server-side fetch() to arbitrary URLs
 	// (cloud metadata, internal services, …) — SSRF.
 	//
-	// F2: `checkRole` — see the sibling models route. Returns its denial like
-	// #84's `requireAdmin`, and additionally demands the `admin` SCOPE so a
-	// read-scoped admin-role key is refused.
-	const admin = checkRole(locals, "admin");
-	if (admin instanceof Response) return admin;
+	// F2: role AND admin scope — see the sibling models route. Both helpers
+	// RETURN their denial; a read-scoped admin-role key is refused on scope.
+	const adminErr = requireAdmin(locals);
+	if (adminErr) return adminErr;
+	const scopeErr = requireScope(locals, "admin");
+	if (scopeErr) return scopeErr;
 
 	const raw = await request.json().catch(() => null);
 	if (!raw || typeof raw !== "object") {

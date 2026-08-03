@@ -64,6 +64,16 @@ still mint member-role keys). The CLI (`--role admin --user <email>`) applies
 the same ceiling to the target OWNER: an admin-role key can only be minted for
 a currently-admin user.
 
+**Mint-time warning (role without scope):** because the axes are independent,
+`--scopes read --role admin` is accepted — and produces a key whose ROLE
+implies instance administration but which every admin route refuses on the
+SCOPE axis. `ezcorp key mint` prints a warning to stderr naming that exact
+consequence and the fixing command. It is a warning, not a refusal: a
+deliberately narrow admin-role key is legitimate now that the scope is
+enforced. The predicate is `adminRoleScopeWarning`
+([src/auth/api-key.ts](../src/auth/api-key.ts)), shared so the CLI and HTTP
+mint paths cannot drift.
+
 **Live re-validation (keys die with their owner).** Role is snapshotted at
 mint, but it is re-checked on **every** request: the owner is re-loaded and
 - if the owner is missing or not `active` (disabled/deleted), the key is

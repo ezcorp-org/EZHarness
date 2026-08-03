@@ -154,33 +154,29 @@ describe("POST /api/providers", () => {
     vi.mocked(encrypt).mockClear();
   });
 
-  // Keeps #84's `expectDenied` contract — the handler must RETURN its denial,
-  // and the helper fails loudly naming the 500 symptom if it throws.
-  //
-  // 401, not #84's uniform 403, for the missing-principal case: this branch
-  // now gates on `checkRole`, which delegates to `requireRole` and therefore
-  // surfaces `requireAuth`'s 401 — but RETURNS it instead of throwing. #84
-  // collapsed the two because `requireAdmin` cannot tell them apart; `checkRole`
-  // can, and the finer answer is the more accurate one. Hook-unreachable
-  // either way (`hooks.server.ts` 401s unauthenticated `/api/*` first).
-  test("rejects 401 when locals.user is missing", async () => {
+  // 403, not 401: the gate is now `requireAdmin`, which answers "not an admin
+  // principal" uniformly (a missing principal is not an admin either). The old
+  // 401 came from `requireRole`'s inner `requireAuth` — but it was THROWN, so
+  // the caller actually received a 500. This path is hook-unreachable anyway
+  // (`hooks.server.ts` 401s unauthenticated `/api/*` before the handler).
+  test("rejects 403 when locals.user is missing", async () => {
     const res = await expectDenied(() => POST(
-      makeEvent({
-        method: "POST",
-        body: { provider: "openai", apiKey: "sk-x" },
-      }),
-    ), 401);
-    expect(res.status).toBe(401);
+            makeEvent({
+              method: "POST",
+              body: { provider: "openai", apiKey: "sk-x" },
+            }),
+          ), 403);
+    expect(res.status).toBe(403);
   });
 
   test("rejects 403 when caller is not admin", async () => {
     const res = await expectDenied(() => POST(
-      makeEvent({
-        method: "POST",
-        locals: memberUser,
-        body: { provider: "openai", apiKey: "sk-x" },
-      }),
-    ), 403);
+            makeEvent({
+              method: "POST",
+              locals: memberUser,
+              body: { provider: "openai", apiKey: "sk-x" },
+            }),
+          ), 403);
     expect(res.status).toBe(403);
   });
 
@@ -282,24 +278,23 @@ describe("DELETE /api/providers", () => {
     vi.mocked(insertAuditEntry).mockClear();
   });
 
-  // 401, not #84's uniform 403 — see the POST case above: `checkRole` can tell
-  // "no principal" from "not an admin", so it reports the finer status, and
-  // RETURNS it (which is what `expectDenied` pins).
-  test("rejects 401 when locals.user is missing", async () => {
+  // 403, not 401 — see the POST case above for why `requireAdmin` collapses
+  // "no principal" and "not an admin" into one denial.
+  test("rejects 403 when locals.user is missing", async () => {
     const res = await expectDenied(() => DELETE(
-      makeEvent({ method: "DELETE", body: { provider: "openai" } }),
-    ), 401);
-    expect(res.status).toBe(401);
+            makeEvent({ method: "DELETE", body: { provider: "openai" } }),
+          ), 403);
+    expect(res.status).toBe(403);
   });
 
   test("rejects 403 when caller is not admin", async () => {
     const res = await expectDenied(() => DELETE(
-      makeEvent({
-        method: "DELETE",
-        locals: memberUser,
-        body: { provider: "openai" },
-      }),
-    ), 403);
+            makeEvent({
+              method: "DELETE",
+              locals: memberUser,
+              body: { provider: "openai" },
+            }),
+          ), 403);
     expect(res.status).toBe(403);
   });
 

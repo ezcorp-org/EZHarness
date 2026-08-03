@@ -6,12 +6,15 @@ import { mockServerAlias, createMockEvent, jsonFromResponse, ADMIN_USER, MEMBER_
 
 // updated for sec-H1: baseUrl validation (localhost → non-loopback mock URL,
 // requireAuth → requireRole, and requireRole-aware role gating)
-// updated for F2: the route's gate is now `checkRole`, which enforces BOTH
-// the admin ROLE and (for API-key principals) the `admin` SCOPE. We deliberately
-// pass the REAL `checkRole` through instead of a permissive stub — the whole
-// point of the "read-scoped admin key" test below is to exercise the genuine
-// gate, and a stub would make it assert nothing.
-const { checkRole: realCheckRole } = await import("../auth/middleware");
+// updated for F2: the route now gates on BOTH axes — `requireAdmin` for the
+// ROLE and `requireScope(locals,"admin")` for the API-key SCOPE. The REAL
+// `requireScope` is passed through below instead of the permissive
+// `() => null` stub: the whole point of the "read-scoped admin key" test is to
+// exercise the genuine gate, and a stub would make it assert nothing. It is a
+// pure predicate over `locals.apiKeyScopes`, so no DB is involved.
+const { requireScope: realRequireScope } = await import(
+  "../../web/src/lib/server/security/api-keys"
+);
 
 const mockRequireAuth = mock(() => ADMIN_USER);
 const mockRequireRole = mock((_locals: any, _role: string) => ADMIN_USER);
@@ -27,7 +30,6 @@ const mockCheckLocalModel = mock(async () => ({
 mock.module("../auth/middleware", () => ({
   requireAuth: mockRequireAuth,
   requireRole: mockRequireRole,
-  checkRole: realCheckRole,
 }));
 
 mock.module("../providers/local-model-check", () => ({
@@ -41,15 +43,16 @@ mockServerAlias();
 mock.module("$server/auth/middleware", () => ({
   requireAuth: mockRequireAuth,
   requireRole: mockRequireRole,
-  checkRole: realCheckRole,
 }));
 mock.module("$server/providers/local-model-check", () => ({
   checkLocalModel: mockCheckLocalModel,
 }));
 
-// Mock $lib/server/security/api-keys to allow admin scope by default
+// F2: the REAL `requireScope` — not a `() => null` stub — so the scope axis is
+// genuinely under test. Cookie principals (no `apiKeyScopes`) still pass it,
+// which is why every pre-existing test in this file is unaffected.
 mock.module("$lib/server/security/api-keys", () => ({
-  requireScope: () => null,
+  requireScope: realRequireScope,
   // Real contract: null when the principal IS an admin, else a 403 Response.
   // RETURNED, never thrown — a thrown Response 500s via SvelteKit.
   requireAdmin: (locals: { user?: { role?: string } }) =>

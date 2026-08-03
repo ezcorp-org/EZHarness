@@ -37,21 +37,22 @@ describe("POST /api/mcp-servers/[id]/refresh", () => {
     refreshMcpTools.mockReset();
   });
 
-  // Keeps #84's `expectDenied` contract (handler must RETURN its denial).
-  // 401 rather than #84's uniform 403 for the missing-principal case — the
-  // gate is `checkRole`, which surfaces `requireAuth`'s 401 by returning it.
-  // Unreachable in production either way (hooks.server.ts 401s first).
-  test("rejects unauthenticated callers with 401", async () => {
-    const res = await expectDenied(() => POST(makeEvent({})), 401);
-    expect(res.status).toBe(401);
+  // 403, not 401: this route's gate is now the role-only `requireAdmin`,
+  // which RETURNS its denial (requireRole THREW one, so the caller actually
+  // got a 500). requireAdmin answers "not an admin principal" uniformly — a
+  // missing principal is not an admin either. Unreachable in production
+  // regardless: hooks.server.ts 401s unauthenticated /api/* before the handler.
+  test("rejects unauthenticated callers with 403", async () => {
+    const res = await expectDenied(() => POST(makeEvent({})), 403);
+    expect(res.status).toBe(403);
   });
 
   test("rejects non-admin authenticated user with 403", async () => {
     const res = await expectDenied(() => POST(
-      makeEvent({
-        locals: { user: { id: "u1", email: "u@x", name: "u", role: "user" } },
-      }),
-    ), 403);
+            makeEvent({
+              locals: { user: { id: "u1", email: "u@x", name: "u", role: "user" } },
+            }),
+          ), 403);
     expect(res.status).toBe(403);
   });
 
