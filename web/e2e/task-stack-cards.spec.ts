@@ -30,8 +30,10 @@ test.describe("Task Stack Card Rendering", () => {
 		// Trigger streaming
 		const textarea = page.locator("textarea");
 		await textarea.fill("Add a task");
-		await textarea.press("Enter");
-		await page.waitForResponse((r) => r.url().includes("/messages") && r.request().method() === "POST");
+		await Promise.all([
+			page.waitForResponse((r) => r.url().includes("/messages") && r.request().method() === "POST"),
+			textarea.press("Enter"),
+		]);
 
 		await emitWs({
 			type: "run:token",
@@ -86,8 +88,10 @@ test.describe("Task Stack Card Rendering", () => {
 
 		const textarea = page.locator("textarea");
 		await textarea.fill("List tasks");
-		await textarea.press("Enter");
-		await page.waitForResponse((r) => r.url().includes("/messages") && r.request().method() === "POST");
+		await Promise.all([
+			page.waitForResponse((r) => r.url().includes("/messages") && r.request().method() === "POST"),
+			textarea.press("Enter"),
+		]);
 
 		await emitWs({
 			type: "run:token",
@@ -143,8 +147,10 @@ test.describe("Task Stack Card Rendering", () => {
 
 		const textarea = page.locator("textarea");
 		await textarea.fill("List stacks");
-		await textarea.press("Enter");
-		await page.waitForResponse((r) => r.url().includes("/messages") && r.request().method() === "POST");
+		await Promise.all([
+			page.waitForResponse((r) => r.url().includes("/messages") && r.request().method() === "POST"),
+			textarea.press("Enter"),
+		]);
 
 		await emitWs({
 			type: "run:token",
@@ -195,8 +201,10 @@ test.describe("Task Stack Card Rendering", () => {
 
 		const textarea = page.locator("textarea");
 		await textarea.fill("Finish task");
-		await textarea.press("Enter");
-		await page.waitForResponse((r) => r.url().includes("/messages") && r.request().method() === "POST");
+		await Promise.all([
+			page.waitForResponse((r) => r.url().includes("/messages") && r.request().method() === "POST"),
+			textarea.press("Enter"),
+		]);
 
 		await emitWs({
 			type: "run:token",
@@ -249,8 +257,10 @@ test.describe("Task Stack Card Rendering", () => {
 
 		const textarea = page.locator("textarea");
 		await textarea.fill("Update task");
-		await textarea.press("Enter");
-		await page.waitForResponse((r) => r.url().includes("/messages") && r.request().method() === "POST");
+		await Promise.all([
+			page.waitForResponse((r) => r.url().includes("/messages") && r.request().method() === "POST"),
+			textarea.press("Enter"),
+		]);
 
 		await emitWs({
 			type: "run:token",

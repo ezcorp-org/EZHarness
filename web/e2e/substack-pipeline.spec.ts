@@ -38,10 +38,12 @@ test.describe("substack-pipeline — ask-user card render → click → resume",
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 		const textarea = page.locator("textarea");
 		await textarea.fill("Turn https://example.com/post into a post");
-		await textarea.press("Enter");
-		await page.waitForResponse(
-			(r: any) => r.url().includes("/messages") && r.request().method() === "POST",
-		);
+		await Promise.all([
+			page.waitForResponse(
+				(r: any) => r.url().includes("/messages") && r.request().method() === "POST",
+			),
+			textarea.press("Enter"),
+		]);
 	}
 
 	async function streamAsk(

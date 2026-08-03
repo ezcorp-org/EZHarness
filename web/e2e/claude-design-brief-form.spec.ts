@@ -70,10 +70,12 @@ test.describe("claude-design — clarify-brief form-card flow", () => {
 
 		const textarea = page.locator("textarea");
 		await textarea.fill("brief");
-		await textarea.press("Enter");
-		await page.waitForResponse(
-			(r) => r.url().includes("/messages") && r.request().method() === "POST",
-		);
+		await Promise.all([
+			page.waitForResponse(
+				(r) => r.url().includes("/messages") && r.request().method() === "POST",
+			),
+			textarea.press("Enter"),
+		]);
 
 		// Stream a `tool:start` for clarify-brief — this is a card whose
 		// renderer reads `toolCall.input.fields` directly. Unlike dock
@@ -177,10 +179,12 @@ test.describe("claude-design — clarify-brief form-card flow", () => {
 		// territory (mocked — no real agent runs in e2e).
 		const composer = page.locator("textarea");
 		await composer.fill("make me a page");
-		await composer.press("Enter");
-		await page.waitForResponse(
-			(r) => r.url().includes("/messages") && r.request().method() === "POST",
-		);
+		await Promise.all([
+			page.waitForResponse(
+				(r) => r.url().includes("/messages") && r.request().method() === "POST",
+			),
+			composer.press("Enter"),
+		]);
 
 		// Stream clarify-brief tool start.
 		await emitWs({
