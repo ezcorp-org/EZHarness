@@ -49,7 +49,7 @@ import {
   type DelegationOwnerKind,
   type ServiceAccountRow,
 } from "../schema";
-import { resolveEffectiveScopes } from "../../auth/extension-rbac";
+import { resolveEffectiveScopes, type RbacUser } from "../../auth/extension-rbac";
 import { isValidRbacScopeName } from "../../extensions/rbac-scopes";
 import {
   authorizeWorkflow,
@@ -61,13 +61,12 @@ import type { WorkflowVisibility } from "../../types";
 
 export type { ServiceAccountRow };
 
-/** The principal shape {@link createServiceAccount} clamps against. Structural
- *  (id + role) rather than the full `AuthUser` so a route can pass its session
- *  user and a test can pass a two-field literal. */
-export interface ServiceAccountCreator {
-  id: string;
-  role: string;
-}
+/** The principal {@link createServiceAccount} clamps against — `RbacUser`
+ *  (`src/auth/extension-rbac.ts:37`), NOT a local copy of it: the ceiling is
+ *  whatever the RBAC resolver says it is, so the type that names the input
+ *  must be the one the resolver accepts. Structurally satisfied by `AuthUser`
+ *  and by a full `users` row. */
+export type { RbacUser };
 
 // ── owner-kind resolution ──────────────────────────────────────────────────
 
@@ -165,6 +164,60 @@ export function serviceAccountReach(): ServiceAccountReach {
   };
 }
 
+// ── wire view + audit vocabulary (shared by both route files) ──────────────
+
+/**
+ * The wire shape of an account.
+ *
+ * EXPLICIT field copies, not `...row`, and the reason is not that this table
+ * has a secret column — it has none. It is that spreading a row makes the API
+ * shape a function of the schema, so the day someone adds `apiKeyHash` here
+ * to make service accounts loggable-in after all, it ships to every client in
+ * the same commit. Same discipline as `toPublicGrantView`
+ * (`web/src/lib/rbac-grants-view.ts`); it lives beside the row type rather
+ * than in `web/` because both route files need it and neither owns it.
+ */
+export interface ServiceAccountView {
+  id: string;
+  name: string;
+  description: string;
+  createdByUserId: string;
+  projectId: string | null;
+  scopes: string[];
+  maxTokensPerDay: number;
+  enabled: boolean;
+  disabledReason: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export function toServiceAccountView(row: ServiceAccountRow): ServiceAccountView {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    createdByUserId: row.createdByUserId,
+    projectId: row.projectId,
+    scopes: row.scopes,
+    maxTokensPerDay: row.maxTokensPerDay,
+    enabled: row.enabled,
+    disabledReason: row.disabledReason,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+/** Audit actions for the admin surface. Free-form strings rather than entries
+ *  in `EXT_AUDIT_ACTIONS` (`src/extensions/audit-actions.ts`) on purpose: that
+ *  namespace is `ext:*` and is filtered by the per-extension audit view
+ *  (`action LIKE 'ext:%'`), and a service account is not an extension. */
+export const SERVICE_ACCOUNT_AUDIT_ACTIONS = {
+  CREATED: "service-account:created",
+  ENABLED: "service-account:enabled",
+  DISABLED: "service-account:disabled",
+  DELETED: "service-account:deleted",
+} as const;
+
 // ── scope clamping ─────────────────────────────────────────────────────────
 
 /** Requested scopes minus everything the creator does not hold. Pure, so the
@@ -190,7 +243,7 @@ export interface CreateServiceAccountInput {
   name: string;
   description?: string;
   /** The admin minting the account. Their effective scopes are the ceiling. */
-  createdBy: ServiceAccountCreator;
+  createdBy: RbacUser;
   projectId?: string | null;
   /** Requested scopes. Silently CLAMPED, and what was dropped is reported. */
   scopes?: readonly string[];
