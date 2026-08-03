@@ -203,6 +203,7 @@ export { Workflows } from "./workflows";
 export type {
   WorkflowRunAccepted,
   WorkflowRunList,
+  WorkflowRunOptions,
   WorkflowRunSummary,
   WorkflowRunsQuery,
 } from "./workflows";
