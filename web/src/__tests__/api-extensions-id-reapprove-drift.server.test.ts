@@ -20,30 +20,17 @@ import { test, expect, describe, vi, beforeEach } from "vitest";
 import { expectDenied } from "./fixtures/expect-denied";
 
 // ── Auth middleware ───────────────────────────────────────────────────
-// Real contract of `checkRole`: it RETURNS the denial Response (401 with no
-// principal, 403 for a non-admin role or an API-key principal lacking the
-// `admin` scope) and returns the AuthUser on success. It never throws — that
-// is the whole point of it existing alongside the throwing `requireRole`,
-// whose thrown Response SvelteKit turns into a 500.
-vi.mock("$server/auth/middleware", () => ({
-	checkRole: (locals: Record<string, unknown>, role: string) => {
-		const user = locals.user as { id: string; role: string } | undefined;
-		if (!user) {
-			return Response.json({ error: "Authentication required" }, { status: 401 });
-		}
-		if (user.role !== role) {
-			return Response.json({ error: "Insufficient permissions" }, { status: 403 });
-		}
-		const scopes = locals.apiKeyScopes as string[] | undefined;
-		if (scopes && !scopes.includes("admin")) {
-			return Response.json({ error: "Insufficient scope", required: "admin" }, { status: 403 });
-		}
-		return user;
-	},
-}));
-
-// Real contract: null for cookie auth / matching scope; 403 Response otherwise.
+// Real contract of `requireAdmin` (api-keys.ts): ROLE-ONLY. Returns a 403
+// Response for a non-admin (or absent) principal, else null. Deliberately NOT
+// `checkRole` — that one also demands the `admin` SCOPE, and this route's
+// scope gate is `extensions`. Using it here would silently require BOTH
+// scopes and reject the `--scopes extensions --role admin` key that is the
+// documented way to drive this endpoint.
 vi.mock("$lib/server/security/api-keys", () => ({
+	requireAdmin: (locals: { user?: { role?: string } }): Response | null =>
+		locals.user?.role === "admin"
+			? null
+			: Response.json({ error: "Admin role required" }, { status: 403 }),
 	requireScope: (
 		locals: { apiKeyScopes?: string[] },
 		scope: string,
@@ -205,12 +192,24 @@ describe("POST /api/extensions/[id]/reapprove-drift", () => {
 	test("member (non-admin) → RETURNS 403 (never throws); core never called", async () => {
 		const res = await expectDenied(() => POST(makeEvent("member") as never), 403);
 		const body = (await res.json()) as { error: string };
-		expect(body.error).toBe("Insufficient permissions");
+		expect(body.error).toBe("Admin role required");
 		expect(reapproveBundledDrift).not.toHaveBeenCalled();
 		expect(reload).not.toHaveBeenCalled();
 	});
 
-	test("API key principal without the admin scope → RETURNS 403; core never called", async () => {
+	// REGRESSION GUARD: an admin-role key scoped `extensions` is the documented
+	// way to drive this endpoint (it is how the three stranded bundled
+	// extensions were re-approved on the live host). A gate that also demanded
+	// the `admin` scope would 403 this and break that workflow silently.
+	test("admin-role key scoped `extensions` (no admin scope) → 200", async () => {
+		const res = await invoke(
+			() => POST(makeEvent("admin", { apiKeyScopes: ["extensions"] }) as never),
+		);
+		expect(res.status).toBe(200);
+		expect(reapproveBundledDrift).toHaveBeenCalledTimes(1);
+	});
+
+	test("API key principal lacking the `extensions` scope → RETURNS 403; core never called", async () => {
 		const res = await expectDenied(
 			() => POST(makeEvent("admin", { apiKeyScopes: ["chat"] }) as never),
 			403,
@@ -328,11 +327,19 @@ describe("GET /api/extensions/[id]/reapprove-drift", () => {
 	test("member (non-admin) → RETURNS 403 (never throws); preview never called", async () => {
 		const res = await expectDenied(() => GET(makeEvent("member") as never), 403);
 		const body = (await res.json()) as { error: string };
-		expect(body.error).toBe("Insufficient permissions");
+		expect(body.error).toBe("Admin role required");
 		expect(previewBundledDrift).not.toHaveBeenCalled();
 	});
 
-	test("API key principal without the admin scope → RETURNS 403; preview never called", async () => {
+	test("admin-role key scoped `extensions` (no admin scope) → 200", async () => {
+		const res = await invoke(
+			() => GET(makeEvent("admin", { apiKeyScopes: ["extensions"] }) as never),
+		);
+		expect(res.status).toBe(200);
+		expect(previewBundledDrift).toHaveBeenCalledTimes(1);
+	});
+
+	test("API key principal lacking the `extensions` scope → RETURNS 403; preview never called", async () => {
 		const res = await expectDenied(
 			() => GET(makeEvent("admin", { apiKeyScopes: ["chat"] }) as never),
 			403,

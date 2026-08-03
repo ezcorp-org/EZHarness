@@ -1,8 +1,7 @@
 import { json } from "@sveltejs/kit";
 import { getExtension } from "$server/db/queries/extensions";
 import { ExtensionRegistry } from "$server/extensions/registry";
-import { checkRole } from "$server/auth/middleware";
-import { requireScope } from "$lib/server/security/api-keys";
+import { requireAdmin, requireScope } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
 import { isBundledExtensionName } from "$server/extensions/bundled";
 import {
@@ -33,11 +32,11 @@ import type { RequestHandler } from "./$types";
  * manifest failing the lockfile check is refused with 409 (this
  * endpoint heals grant drift, not tampering).
  *
- * Auth model: `checkRole(admin)` — re-approving a permission
+ * Auth model: `requireScope(extensions)` + `requireAdmin` — re-approving a permission
  * WIDENING is admin policy, exactly like the peer
  * `PUT .../permissions`. (The stored-manifest `reapprove` route stays
  * requireAuth because it can only restore what was already approved.)
- * `checkRole`, not `requireRole`: the latter THROWS its denial
+ * `requireAdmin`, not `requireRole`: the latter THROWS its denial
  * Response, which SvelteKit does not recognise from a route handler and
  * surfaces as a 500 — so every non-admin caller saw "Internal Error"
  * instead of 403. See `src/auth/middleware.ts` for the full rationale.
@@ -58,10 +57,20 @@ import type { RequestHandler } from "./$types";
 export const GET: RequestHandler = async ({ params, locals }) => {
   const scopeErr = requireScope(locals, "extensions");
   if (scopeErr) return scopeErr;
-  // checkRole RETURNS the 401/403 Response so non-admin callers see the
-  // intended status (a thrown Response would 500 via SvelteKit).
-  const admin = checkRole(locals, "admin");
-  if (admin instanceof Response) return admin;
+  // `requireAdmin`, NOT `checkRole`: this route's scope gate is
+  // `extensions` (above), and `checkRole` bundles an admin-SCOPE check —
+  // using it here would silently require BOTH scopes, rejecting the
+  // `--scopes extensions --role admin` key that is the documented way to
+  // drive this endpoint. `requireAdmin` is role-only, so the authorization
+  // semantics stay byte-identical; only the failure MODE changes (a returned
+  // Response instead of a thrown one that SvelteKit renders as 500).
+  //
+  // The explicit no-principal branch preserves the pre-existing 401 —
+  // `requireAdmin` alone answers 403 for an absent user, which would have
+  // downgraded an authentication failure into an authorization one.
+  if (!locals.user) return errorJson(401, "Authentication required");
+  const roleErr = requireAdmin(locals);
+  if (roleErr) return roleErr;
 
   const ext = await getExtension(params.id);
   if (!ext) return errorJson(404, "Not found");
@@ -95,10 +104,21 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 export const POST: RequestHandler = async ({ params, locals }) => {
   const scopeErr = requireScope(locals, "extensions");
   if (scopeErr) return scopeErr;
-  // checkRole RETURNS the 401/403 Response so non-admin callers see the
-  // intended status (a thrown Response would 500 via SvelteKit).
-  const admin = checkRole(locals, "admin");
-  if (admin instanceof Response) return admin;
+  // `requireAdmin`, NOT `checkRole`: this route's scope gate is
+  // `extensions` (above), and `checkRole` bundles an admin-SCOPE check —
+  // using it here would silently require BOTH scopes, rejecting the
+  // `--scopes extensions --role admin` key that is the documented way to
+  // drive this endpoint. `requireAdmin` is role-only, so the authorization
+  // semantics stay byte-identical; only the failure MODE changes (a returned
+  // Response instead of a thrown one that SvelteKit renders as 500).
+  //
+  // The explicit no-principal branch preserves the pre-existing 401 —
+  // `requireAdmin` alone answers 403 for an absent user, which would have
+  // downgraded an authentication failure into an authorization one.
+  if (!locals.user) return errorJson(401, "Authentication required");
+  const roleErr = requireAdmin(locals);
+  if (roleErr) return roleErr;
+  const admin = locals.user;
 
   const ext = await getExtension(params.id);
   if (!ext) return errorJson(404, "Not found");
