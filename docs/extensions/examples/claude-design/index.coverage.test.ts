@@ -800,6 +800,40 @@ describe("compileGlob — `**` spans zero or more WHOLE segments", () => {
     expect(match("**/components/*.svelte", "src/xcomponents/T.svelte")).toBe(false);
   });
 
+  test("a bare `**` (no trailing `/`) spans slashes — `.*`, not `[^/]*`", () => {
+    // The OTHER arm of the `**` branch (index.ts:986-988). `**/` is
+    // segment-structured — `(?:[^/]+/)*`, which can only ever end on a
+    // `/` boundary. A `**` with no trailing slash means "anything at
+    // all, `/` included", so it must compile to `.*`.
+    //
+    // The `src/a/b/c.css` case is the discriminating one: it is the only
+    // assertion here that separates `.*` from BOTH plausible mutants —
+    // `[^/]*` (the single-star expansion) stops at the first `/`, and
+    // `(?:[^/]+/)*` (the `**/` expansion) cannot match a tail that does
+    // not end in `/`.
+    expect(match("src/**", "src/a")).toBe(true);
+    expect(match("src/**", "src/a/b/c.css")).toBe(true);
+    expect(match("**", "a/b/c")).toBe(true);
+    // Still ANCHORED — widening `**` must not unmoor the literal prefix.
+    expect(match("src/**", "lib/a/b.css")).toBe(false);
+    // …and it must not leak back into the single-star expansion.
+    expect(match("src/*", "src/a/b")).toBe(false);
+  });
+
+  test("`**` followed by a literal consumes exactly the two stars", () => {
+    // `i += 1` on the no-slash arm (plus the loop's own `i++`) advances
+    // past the SECOND `*` and no further. Over-advancing would silently
+    // drop the next literal character from the compiled pattern, so
+    // `**.css` would degrade to `^.*css$` and match a name with no dot
+    // at all.
+    expect(match("**.css", "theme.css")).toBe(true);
+    expect(match("**.css", "a/b/theme.css")).toBe(true);
+    // The dot is a real, escaped literal — not a swallowed character and
+    // not a regex wildcard.
+    expect(match("**.css", "a/bXcss")).toBe(false);
+    expect(match("**.css", "a/b.csx")).toBe(false);
+  });
+
   test("regex metacharacters in a pattern are escaped, not interpreted", () => {
     // `.` was the only character the old version escaped.
     expect(match("**/*.css", "app.css")).toBe(true);
