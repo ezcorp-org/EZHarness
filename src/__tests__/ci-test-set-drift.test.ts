@@ -141,10 +141,12 @@ describe("examples tree pass/fail gating", () => {
     // gutted or the find rotted.
     //
     // 2026-08-03, phase 9: `ez-code-factory` was retired (superseded by the
-    // bundled `extensions/ez-factory`), taking 39 test files with it —
-    // 178 → 139. The floor moves with the deliberate deletion, and it moves
+    // bundled `extensions/ez-factory`), taking 40 test files with it.
+    // Measured, not assumed: the sweep saw 179 at the branch point, not the
+    // 178 the line above records — that count was already off by one — so
+    // 179 → 139. The floor moves with the deliberate deletion, and it moves
     // TIGHTER, not looser: 135 leaves a 4-file margin where the old 150 left
-    // 28. Nothing else may lower it; a fall below 135 still means the sweep
+    // 29. Nothing else may lower it; a fall below 135 still means the sweep
     // rotted or a tree was gutted by accident.
     expect(
       examplesOnDisk.length,
