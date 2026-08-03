@@ -68,6 +68,24 @@
  * `chat-context-compaction.spec.ts` and
  * `extension-author-stuck-chat.spec.ts`).
  *
+ * RE-VERIFIED 2026-08-03 under the Docker harness, and the un-blocker
+ * condition above is NOT sufficient — the un-skip is not a one-token
+ * change today. With `.skip` flipped locally and DOCKER_TEST=1 against a
+ * live app on :3000, all 9 scenarios RAN and all 9 FAILED: seven timed
+ * out after 30s waiting for the `/messages` POST that a `/goal ...`
+ * submission never issued, and two failed with the goal affordances
+ * simply absent (the ◎ chip, and the built-in `/goal` entry in the
+ * command palette). So the real backend did not drive the slash-prefix
+ * interceptor in this stack at all. Flipping the token yields nine red
+ * tests, not coverage. `.skip` retained.
+ *
+ * Control: the identical run against the PRE-fix waiter form failed 9/9
+ * at the same statements, so the arm-before-act change is not implicated
+ * either way. (Caveat: the container serves the primary working tree,
+ * not this branch, so the app under test carries unrelated local
+ * changes; and a rate limiter on /api/auth/login throttles repeated
+ * harness logins — 429 with retryAfter ~10min.)
+ *
  * Mirrors project memory `project_chat_e2e_docker_harness`.
  * ─────────────────────────────────────────────────────────────────
  */
