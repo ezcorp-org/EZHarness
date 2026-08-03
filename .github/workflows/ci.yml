@@ -425,8 +425,10 @@ jobs:
   # residual set succeeded. The shards run the backend suite under --coverage
   # and gate pass/fail on P-membership with an isolated plain retry sweep for
   # instrumentation flakes (see scripts/test-coverage.sh host-shard mode);
-  # non-P files (the example suites) stay coverage-only, enforced by the
-  # Per-file coverage gate's thresholds. A red here therefore means a real
+  # non-P files stay coverage-only, enforced by the Per-file coverage gate's
+  # thresholds. The docs/extensions/examples suites used to be the canonical
+  # non-P case — they are now IN P (178 files), so this check is where a red
+  # assertion in that tree finally reds CI. A red here therefore means a real
   # pass/fail-set test failure OR an infrastructure failure (runner couldn't
   # execute) — both must block. Aggregated so the pinned required-check name
   # keeps reporting.

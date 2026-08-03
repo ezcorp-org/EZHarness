@@ -112,3 +112,56 @@ describe("CI test-set drift", () => {
     }
   });
 });
+
+/**
+ * The examples tree specifically (wave 4). `docs/extensions/examples/**` is
+ * outside the src+packages sweep above, and it spent its whole life in C but
+ * not in P: coverage-MEASURED, pass/fail-gated NOWHERE. A red assertion there
+ * printed, was tolerated by the host-shard classifier, and the build exited 0
+ * — the exact "looks like a check, isn't" failure mode this file exists to
+ * stop. Membership is now asserted so the sweep in scripts/lib/test-file-sets.sh
+ * cannot be narrowed (or rot on a rename) back into a silent false green.
+ *
+ * P AND C are both required, deliberately: CI never runs the full
+ * `scripts/test.sh`, so a P-only membership would move all 178 files into the
+ * single-runner `residual-tests` job (P\C) instead of the 12 parallel cov
+ * shards. P∩C is the intended home — it hard-gates inside the shards via
+ * test-coverage.sh's P-membership check + isolated plain retry sweep.
+ */
+describe("examples tree pass/fail gating", () => {
+  const EXAMPLES_SWEEP =
+    "find docs/extensions/examples -name '*.test.ts' ! -path '*/node_modules/*' | sort -u";
+  const examplesOnDisk = bashLines(EXAMPLES_SWEEP);
+  const inP = new Set(setMembers("passfail_files"));
+  const inC = new Set(setMembers("coverage_host_files"));
+
+  test("sweep floor — the examples tree still has its known population", () => {
+    // 178 files when this gate landed; a ratchet floor in the same style as
+    // CRITICAL_ONLY's 25-file floor. A drop below it means the tree was
+    // gutted or the find rotted.
+    expect(
+      examplesOnDisk.length,
+      `only ${examplesOnDisk.length} example test file(s) found — did the sweep rot?`,
+    ).toBeGreaterThanOrEqual(150);
+  });
+
+  test("every examples test file is in the pass/fail set P", () => {
+    const ungated = examplesOnDisk.filter((f) => !inP.has(f));
+    expect(
+      ungated,
+      `${ungated.length} example test file(s) are NOT pass/fail-gated — a red ` +
+        `assertion in them would exit 0:\n  ${ungated.join("\n  ")}\n` +
+        `Check the docs/extensions/examples sweep in ${SETS_LIB}.`,
+    ).toEqual([]);
+  });
+
+  test("...and in the coverage set C, so the cov shards are their gating home (P∩C)", () => {
+    const unmeasured = examplesOnDisk.filter((f) => !inC.has(f));
+    expect(
+      unmeasured,
+      `${unmeasured.length} example test file(s) left the coverage set C — they ` +
+        `would fall into the single-runner residual job instead of the 12 ` +
+        `parallel cov shards:\n  ${unmeasured.join("\n  ")}`,
+    ).toEqual([]);
+  });
+});
