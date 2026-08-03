@@ -18,7 +18,10 @@
  *      `::1` first, the sidecar publishes IPv4-only, and the egress guard
  *      pinned a single address — so every search silently degraded to the
  *      DuckDuckGo fallback.
- *   3. `read-url` failed on a keyless-Jina 401.
+ *   3. `read-url` failed on a keyless-Jina 401. The fix adds a host-side
+ *      `DirectReader` fallback — the FIRST production code path that
+ *      fetches an agent-supplied URL from inside our network, which is why
+ *      the SSRF case below is part of this file.
  *
  * Design notes:
  *   - The backend is a LOCAL stub speaking SearXNG's JSON API, bound
@@ -180,6 +183,74 @@ test.describe("web search — real end-to-end", () => {
         .post("/api/search/backend", { data: { searxngUrl: SEARXNG_SETTING_RESET } })
         .catch(() => {});
       await stub.close();
+    }
+  });
+
+  test("read-url can never be turned into an SSRF against an internal host", async ({
+    request,
+    baseURL,
+  }) => {
+    // `read-url` used to be pure passthrough to Jina — the host never dialed
+    // the agent's URL itself, so `mode:"read"`'s private-IP rejection had no
+    // production caller. The keyless-401 fix changes that: `DirectReader`
+    // now fetches the target host-side whenever Jina is unavailable, which
+    // is a textbook SSRF surface (the URL comes straight from the LLM).
+    //
+    // This drives the FULL real path — tool invoke → reverse RPC → grant /
+    // policy / quota → reader chain → egress guard — against a loopback
+    // server holding a secret, and asserts the secret is unreachable AND
+    // that nothing ever knocked on the door. Deterministic without any
+    // external network: neither Jina (it cannot route to our loopback) nor
+    // the direct reader (the guard rejects 127.0.0.1 before connect) can
+    // reach the stub, so the hit count is always 0.
+    test.skip(
+      !sandboxSpawnAvailable(),
+      "extension sandbox needs kernel caps (prlimit/Landlock) not available on this runner",
+    );
+
+    const secret = `ezcorp-internal-secret-${Date.now()}`;
+    const hits: string[] = [];
+    const server: Server = createServer((req, res) => {
+      hits.push(req.url ?? "/");
+      res.writeHead(200, { "content-type": "text/html" });
+      res.end(`<html><body><main><h1>${secret}</h1></main></body></html>`);
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const { port } = server.address() as AddressInfo;
+
+    try {
+      const keyRes = await request.post("/api/settings/developer/api-keys", {
+        data: { name: `e2e-readurl-ssrf-${Date.now()}`, scopes: ["read", "extensions"] },
+      });
+      expect(keyRes.status(), await keyRes.text()).toBe(201);
+      const { key } = (await keyRes.json()) as { key: string };
+
+      const seedRes = await request.post("/api/__test/seed", { data: { title: "e2e-read-url" } });
+      expect(seedRes.status(), await seedRes.text()).toBe(201);
+      const { conversationId } = (await seedRes.json()) as { conversationId: string };
+
+      const ez = new HarnessClient({ baseUrl: baseURL!, apiKey: key });
+      await ez.wireExtensions(conversationId, ["web-search"]);
+
+      for (const target of [
+        `http://127.0.0.1:${port}/secret`,
+        `http://localhost:${port}/secret`,
+        `http://169.254.169.254/latest/meta-data/`,
+      ]) {
+        const out = await ez.invokeExtensionTool(conversationId, "web-search", "read-url", {
+          url: target,
+        });
+        // Whatever the outcome shape, the internal page's content must
+        // never appear in what the LLM gets back.
+        expect(JSON.stringify(out), `read-url leaked internal content for ${target}`).not.toContain(
+          secret,
+        );
+      }
+
+      // The strongest assertion: the loopback server was never contacted.
+      expect(hits, "the host connected to a loopback target on the LLM's behalf").toEqual([]);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
     }
   });
 });

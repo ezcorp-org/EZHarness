@@ -25,7 +25,7 @@ On first launch this extension is installed automatically via `BUNDLED_EXTENSION
 
 HTTP errors from a *reachable* SearXNG (e.g. 403 because the JSON format is disabled) do **not** fall back — they surface directly so misconfiguration isn't silently masked.
 
-> Keyless **Jina search** was removed (2026-06): `s.jina.ai` now returns 401 without an API key. The Jina **reader** (`r.jina.ai`) still works keyless and remains the `read-url` backend.
+> Keyless **Jina search** was removed (2026-06): `s.jina.ai` now returns 401 without an API key. The Jina **reader** (`r.jina.ai`) still works keyless and remains the *primary* `read-url` backend — with a host-side direct reader behind it (below).
 
 ## BYOK for higher quality / higher limits
 
@@ -41,7 +41,15 @@ Set any one of these env vars and the extension switches providers on the next c
 
 Precedence: **Tavily > Brave > Exa > SerpAPI > keyed Jina > SearXNG (`SEARXNG_BASE_URL`) > DuckDuckGo**.
 
-URL reading always goes through Jina Reader — it's the only keyless HTML-to-markdown service we rely on. Set `JINA_API_KEY` to raise Jina's per-key rate limit.
+### URL reading: Jina, with a host-side fallback
+
+`read-url` tries **Jina Reader** first — it produces the best markdown, keyless or keyed. Set `JINA_API_KEY` to raise its per-key rate limit.
+
+When Jina is *unavailable for your deployment*, the host falls back to a **direct reader**: EZCorp fetches the URL itself (through the SSRF egress guard) and converts it with Bun's built-in `HTMLRewriter` — again, no extra dependencies. This exists because the keyless `r.jina.ai` tier is gated on **network reputation**, not volume: it answers `401 … blocked from performing anonymous queries due to bad network reputation (AS…)` for entire ASNs, so a perfectly well-behaved deployment can be permanently locked out and `read-url` used to fail on every single call.
+
+- Fallback triggers only on *unavailability* — a keyless 401/403 or a connection-level failure. An ordinary 404 (or a **keyed** 401, i.e. a bad key) surfaces unchanged.
+- The direct reader's extraction is good, not great: it drops chrome, prefers `<main>`/`<article>`, and keeps headings, lists, tables, code blocks and links — but it doesn't run JavaScript, so a client-rendered SPA yields little. **Setting `JINA_API_KEY` (free tier) restores the better output.**
+- Non-HTML responses: text/JSON/XML pass through; images, audio, video, fonts and PDFs are refused with a readable message instead of garbage.
 
 ## Bring your own SearXNG
 
@@ -75,6 +83,6 @@ The DuckDuckGo tests parse real captured (sanitized) pages from `testdata/` — 
 
 - One-click summarize slash command (no extension → slash-command wiring today).
 - Streaming results.
-- Binary/PDF URL handling — Jina Reader returns markdown for HTML only; binaries surface a friendly error.
+- Binary/PDF URL handling — both readers are HTML/text only; binaries surface a friendly error.
 - Cross-provider re-ranking / dedup.
-- Fully-local readability reader (offline `read-url`) — stretch item.
+- A *readability-grade* local extractor — the direct fallback reader is deliberately a simple `HTMLRewriter` pass, not a scoring engine.

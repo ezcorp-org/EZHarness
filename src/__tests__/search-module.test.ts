@@ -15,6 +15,8 @@ import type {
   SearchResult,
   UrlReader,
   FallbackSearchProvider,
+  FallbackUrlReader,
+  ReadOutcome,
   SearchOutcome,
   Transport,
 } from "../search/providers";
@@ -272,5 +274,90 @@ describe("performRead", () => {
     await expect(
       performRead("https://x", { cache, providers: providers(stubSearch("ddg", async () => []), reader) }),
     ).rejects.toThrow("Read failed via jina: Jina HTTP 404");
+  });
+
+  // The reader chain is jina → direct (host-side fallback). Its cache
+  // namespacing must behave exactly like the search chain's: a fallback
+  // read caches under `direct:*` and never poisons `jina:*`, so the moment
+  // Jina works again the primary namespace is clean.
+  describe("fallback-namespace caching", () => {
+    function fallbackReader(outcome: ReadOutcome, onRead?: () => void): FallbackUrlReader {
+      return {
+        name: "jina",
+        fallbackName: "direct",
+        read: async () => {
+          onRead?.();
+          return outcome.markdown;
+        },
+        readWithOutcome: async () => {
+          onRead?.();
+          return outcome;
+        },
+      };
+    }
+
+    function withReader(reader: UrlReader): ResolvedProviders {
+      return providers(stubSearch("ddg", async () => []), reader);
+    }
+
+    test("caches under the FALLBACK namespace when the direct reader served", async () => {
+      const reader = fallbackReader({ providerName: "direct", markdown: "# From direct" });
+      const out = await performRead("https://x", { cache, providers: withReader(reader) });
+      expect(out).toEqual({ markdown: "# From direct", providerName: "direct", cached: false });
+      expect(cache.get(SearchCache.key("direct", "read", "https://x", "raw"))).toBe("# From direct");
+      expect(cache.get(SearchCache.key("jina", "read", "https://x", "raw"))).toBeUndefined();
+    });
+
+    test("a primary-namespace miss probes the fallback namespace before fetching", async () => {
+      cache.set(SearchCache.key("direct", "read", "https://x", "raw"), "CACHED-DIRECT", 60_000);
+      let fetched = false;
+      const reader = fallbackReader(
+        { providerName: "jina", markdown: "fresh" },
+        () => {
+          fetched = true;
+        },
+      );
+      const out = await performRead("https://x", { cache, providers: withReader(reader) });
+      expect(out).toEqual({ markdown: "CACHED-DIRECT", providerName: "direct", cached: true });
+      expect(fetched).toBe(false);
+    });
+
+    test("primary-namespace hit wins over the fallback namespace", async () => {
+      cache.set(SearchCache.key("jina", "read", "https://x", "raw"), "PRIMARY", 60_000);
+      cache.set(SearchCache.key("direct", "read", "https://x", "raw"), "FALLBACK", 60_000);
+      const out = await performRead("https://x", {
+        cache,
+        providers: withReader(fallbackReader({ providerName: "jina", markdown: "fresh" })),
+      });
+      expect(out).toEqual({ markdown: "PRIMARY", providerName: "jina", cached: true });
+    });
+
+    test("a fallback-namespace cache hit is still clamped to maxChars", async () => {
+      cache.set(SearchCache.key("direct", "read", "https://x", "raw"), "y".repeat(900), 60_000);
+      const out = await performRead("https://x", {
+        cache,
+        providers: withReader(fallbackReader({ providerName: "direct", markdown: "unused" })),
+        maxChars: 600,
+      });
+      expect(out.markdown.length).toBe(600);
+      expect(out.markdown.endsWith("…")).toBe(true);
+      expect(out.providerName).toBe("direct");
+    });
+
+    test("the whole-chain error still names the PRIMARY reader", async () => {
+      const reader: FallbackUrlReader = {
+        name: "jina",
+        fallbackName: "direct",
+        read: async () => {
+          throw new Error("boom");
+        },
+        readWithOutcome: async () => {
+          throw new Error("jina unavailable (keyless 401); direct fallback failed: HTTP 500");
+        },
+      };
+      await expect(performRead("https://x", { cache, providers: withReader(reader) })).rejects.toThrow(
+        "Read failed via jina: jina unavailable (keyless 401); direct fallback failed: HTTP 500",
+      );
+    });
   });
 });
