@@ -8,7 +8,9 @@
  * mistake here is a consent bypass that no test of the chokepoint itself
  * would see:
  *
- *   - answering without the `chat` scope, or without a session at all;
+ *   - answering with an API key instead of a session, or without a principal
+ *     at all — answering is the consent boundary, so a key that could spend
+ *     it would make the whole approval mechanism decorative (R-4);
  *   - handing the chokepoint `isAdmin: true` (or a request-supplied identity)
  *     instead of the session's own role/id — a stranger clearing someone
  *     else's gate;
@@ -20,8 +22,8 @@
  *
  * So the chokepoint is mocked and the assertions are about what the route
  * hands it and what it does with the answer. `workflowRefusalStatus`,
- * `requireScope`, `requireAuth` and `errorJson` stay REAL — the code→status
- * mapping is exactly what a fake would get to invent.
+ * `requireSessionAuth` and `errorJson` stay REAL — the code→status mapping is
+ * exactly what a fake would get to invent.
  */
 import { test, expect, describe, vi, beforeEach } from "vitest";
 import type { AnswerApprovalDeps } from "$server/runtime/workflow-answer-approval";
@@ -47,8 +49,18 @@ beforeEach(() => {
   rbac.hasExtensionScope.mockReset().mockResolvedValue(true);
 });
 
-const member = { user: { id: "u1", email: "u@x", name: "u", role: "user" } };
-const admin = { user: { id: "a1", email: "a@x", name: "a", role: "admin" } };
+// `authMethod: "session"` is what `hooks.server.ts` stamps on a verified
+// session-cookie request, and it is the ONLY value `requireSessionAuth`
+// allows. Baking it into the shared fixtures keeps every non-auth test below
+// describing a REAL caller rather than an impossible one.
+const member = {
+  user: { id: "u1", email: "u@x", name: "u", role: "user" },
+  authMethod: "session",
+};
+const admin = {
+  user: { id: "a1", email: "a@x", name: "a", role: "admin" },
+  authMethod: "session",
+};
 
 function makeEvent(
   locals: Record<string, unknown> = {},
@@ -67,21 +79,6 @@ function makeEvent(
   } as never;
 }
 
-async function expectThrownResponse(
-  fn: () => Promise<Response> | Response,
-  status: number,
-): Promise<Response> {
-  let res: Response | undefined;
-  try {
-    res = await fn();
-  } catch (thrown) {
-    expect(thrown).toBeInstanceOf(Response);
-    res = thrown as Response;
-  }
-  expect(res!.status).toBe(status);
-  return res!;
-}
-
 /** The `deps` object the route handed the chokepoint on its last call. */
 function lastDeps(): AnswerApprovalDeps {
   const call = chokepoint.answerApproval.mock.calls.at(-1);
@@ -90,23 +87,65 @@ function lastDeps(): AnswerApprovalDeps {
 }
 
 describe("POST /api/workflows/approvals/:id — gates before the chokepoint", () => {
-  test("403 when the API key lacks 'chat', and NOTHING is answered", async () => {
-    const res = await POST(makeEvent({ ...member, apiKeyScopes: ["read"] }));
+  // R-4. Each row is a principal that authenticated SUCCESSFULLY and is
+  // still refused, because answering an approval is a human decision rather
+  // than a capability. The `chat` row is the vulnerability itself: this
+  // route used to gate on `requireScope(locals,"chat")`, so a leaked
+  // `chat`-scoped key answered approvals — it MINTED consent, which is the
+  // one thing the approval mechanism exists to make impossible.
+  test.each([
+    ["a 'chat'-scoped API key — the R-4 consent-minting key", "api-key", ["chat"]],
+    ["a read-only API key", "api-key", ["read"]],
+    ["an all-scopes API key, admin scope included", "api-key", ["read", "chat", "extensions", "admin"]],
+    ["a loopback bundled-extension (internal) key", "internal", ["chat"]],
+  ] as const)("403 for %s, and NOTHING is answered", async (_label, authMethod, scopes) => {
+    const res = await POST(
+      makeEvent({ user: member.user, authMethod, apiKeyScopes: [...scopes] }),
+    );
     expect(res.status).toBe(403);
-    expect(await res.json()).toEqual({ error: "Insufficient scope", required: "chat" });
-    // The load-bearing half: a read-only key must not be able to spend a
-    // consent gate, so the chokepoint is never even reached.
+    expect(await res.json()).toEqual({ error: "Interactive session required" });
+    // The load-bearing half. A 403 that still ran the chokepoint would have
+    // spent the gate and then lied about it.
     expect(chokepoint.answerApproval).not.toHaveBeenCalled();
   });
 
-  test("a 'chat'-scoped key IS allowed through", async () => {
-    const res = await POST(makeEvent({ ...member, apiKeyScopes: ["chat"] }));
+  test("403 for an ADMIN-role API key — role does not buy interactivity", async () => {
+    // The nastiest near-miss: an admin-role key satisfies every role and
+    // scope gate in the tree, and `answerApproval`'s ownership branch
+    // short-circuits on `isAdmin`. If the method axis did not exist, this
+    // key could clear ANY user's gate on ANY run.
+    const res = await POST(
+      makeEvent({ user: admin.user, authMethod: "api-key", apiKeyScopes: ["admin", "chat"] }),
+    );
+    expect(res.status).toBe(403);
+    expect(chokepoint.answerApproval).not.toHaveBeenCalled();
+  });
+
+  test("403 for an authenticated principal whose auth method was never stamped", async () => {
+    // Fail-closed on the UNKNOWN case, which is the whole reason the gate
+    // allowlists a stamped value instead of sniffing `apiKeyScopes`. A
+    // future auth mode that populates `locals.user` and forgets to declare
+    // itself lands here — refused — rather than silently inheriting the
+    // session's authority.
+    const res = await POST(makeEvent({ user: member.user }));
+    expect(res.status).toBe(403);
+    expect(chokepoint.answerApproval).not.toHaveBeenCalled();
+  });
+
+  test("a real session IS allowed through", async () => {
+    const res = await POST(makeEvent(member));
     expect(res.status).toBe(200);
     expect(chokepoint.answerApproval).toHaveBeenCalledTimes(1);
   });
 
-  test("401 when unauthenticated, and NOTHING is answered", async () => {
-    await expectThrownResponse(() => POST(makeEvent()), 401);
+  test("401 (not 500) when unauthenticated, and NOTHING is answered", async () => {
+    // Returned, not thrown. `requireAuth` — what this route used to call —
+    // THROWS a raw Response, which SvelteKit surfaces from a `+server.ts`
+    // handler as a 500; an unauthenticated caller was told "server error"
+    // rather than "log in". `requireSessionAuth` returns, like `checkRole`.
+    const res = await POST(makeEvent());
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ error: "Authentication required" });
     expect(chokepoint.answerApproval).not.toHaveBeenCalled();
   });
 });

@@ -3,7 +3,7 @@ import { z } from "zod";
 // Inlined (not imported from $server/auth/api-key) so this boundary-validation
 // schema stays free of server-only imports — mirrors the existing pattern.
 // Kept in lock-step with API_KEY_SCOPES / API_KEY_ROLES there.
-const apiKeyScopes = ["read", "chat", "extensions", "admin"] as const;
+const apiKeyScopes = ["read", "write", "chat", "extensions", "admin"] as const;
 const apiKeyRoles = ["member", "admin"] as const;
 
 export const createApiKeySchema = z.object({

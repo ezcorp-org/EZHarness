@@ -1563,3 +1563,193 @@ describe("rung 12b — which cache entry gets authorized", () => {
     expect("result" in res).toBe(true);
   });
 });
+
+// ── C3 / D-3 — rung 2 and the delegated-only grant ────────────────────
+//
+// `allowDelegated` opts an extension into firing workflows it does NOT
+// ship, so it has no `names` to list. Rung 2's structural check dropped
+// exactly that grant, which made the whole delegated feature unreachable.
+//
+// The branch lets a delegated-only grant clear that ONE rung. Everything
+// below rung 2 is unchanged and still per-name, so the tests here come in
+// pairs: the delegated grant gets FURTHER (a different, later deny code),
+// and the identical grant without the bit is refused at rung 2 exactly as
+// it always was. The empty `names` must also stay fail-closed on the two
+// READ ops — "scoped to no names" must never widen to "unscoped".
+describe("rung 2 — a delegated-only grant clears the structural check", () => {
+  /** The grant a delegated-only extension holds: no names, the bit on. */
+  function delegatedOnlyGrant(
+    overrides: Partial<NonNullable<ExtensionPermissions["workflows"]>> = {},
+  ): ExtensionPermissions {
+    return {
+      grantedAt: { workflows: Date.now() },
+      workflows: { names: [], maxRunsPerHour: 20, allowDelegated: true, ...overrides },
+    };
+  }
+
+  /** The matching manifest — an extension that ships nothing. */
+  function delegatedOnlyManifest(): ExtensionManifestV2 {
+    return {
+      schemaVersion: 2,
+      name: EXT_NAME,
+      version: "0.0.1",
+      description: "",
+      author: { name: "t" },
+      permissions: { workflows: { names: [], maxRunsPerHour: 20, allowDelegated: true } },
+    } as unknown as ExtensionManifestV2;
+  }
+
+  function reasonOfResp(resp: Awaited<ReturnType<typeof handleWorkflowsRpc>>) {
+    return (resp.error?.data as { reason?: string } | undefined)?.reason;
+  }
+
+  test("it gets PAST rung 2 — the refusal moves down the ladder", async () => {
+    // The discriminating assertion. Rung 2 would say WORKFLOWS_NOT_GRANTED;
+    // rung 4 (manifest allowlist) says WORKFLOW_NOT_DECLARED. A different
+    // code proves the grant cleared the structural rung rather than merely
+    // being denied by a different spelling of the same check.
+    const resp = await handleWorkflowsRpc(
+      req(),
+      ctx({
+        grantedPermissions: delegatedOnlyGrant(),
+        manifest: delegatedOnlyManifest(),
+      }),
+    );
+    expect(reasonOfResp(resp)).toBe("WORKFLOW_NOT_DECLARED");
+    expect(started).toHaveLength(0);
+  });
+
+  test("PAIRED NEGATIVE — the identical grant without the bit dies at rung 2", async () => {
+    const resp = await handleWorkflowsRpc(
+      req(),
+      ctx({
+        grantedPermissions: delegatedOnlyGrant({ allowDelegated: false }),
+        manifest: delegatedOnlyManifest(),
+      }),
+    );
+    expect(reasonOfResp(resp)).toBe("WORKFLOWS_NOT_GRANTED");
+  });
+
+  test("PAIRED NEGATIVE — an ABSENT bit dies at rung 2, as every pre-C3 grant does", async () => {
+    const noBit = delegatedOnlyGrant();
+    delete (noBit.workflows as Record<string, unknown>).allowDelegated;
+    const resp = await handleWorkflowsRpc(
+      req(),
+      ctx({ grantedPermissions: noBit, manifest: delegatedOnlyManifest() }),
+    );
+    expect(reasonOfResp(resp)).toBe("WORKFLOWS_NOT_GRANTED");
+  });
+
+  test("the bit does NOT bypass the rest of rung 2 — a dead rate ceiling still refuses", async () => {
+    // The branch relaxes ONE conjunct. The others are untouched, so a
+    // delegated grant with a non-positive ceiling is still nothing.
+    for (const bad of [0, -1, Number.NaN]) {
+      const resp = await handleWorkflowsRpc(
+        req(),
+        ctx({
+          grantedPermissions: delegatedOnlyGrant({ maxRunsPerHour: bad }),
+          manifest: delegatedOnlyManifest(),
+        }),
+      );
+      expect(reasonOfResp(resp)).toBe("WORKFLOWS_NOT_GRANTED");
+    }
+  });
+
+  test("the bit does NOT let it run a workflow it DOES declare but was not granted", async () => {
+    // Rung 5 is per-name and untouched: a manifest that declares `deploy`
+    // while the grant lists nothing is still refused.
+    const resp = await handleWorkflowsRpc(
+      req(),
+      ctx({ grantedPermissions: delegatedOnlyGrant(), manifest: manifest(["deploy"]) }),
+    );
+    expect(reasonOfResp(resp)).toBe("WORKFLOW_NOT_GRANTED");
+    expect(started).toHaveLength(0);
+  });
+
+  test("`op: approvals` stays FAIL-CLOSED on the empty list", async () => {
+    // The trap this whole area is famous for: an empty allowlist that
+    // reads as "no filter" instead of "matches nothing". Seed an approval
+    // the NAMED grant can see, then prove the delegated-only grant — which
+    // reaches the same code with `names: []` — sees zero.
+    const { parkWorkflowApproval } = await import("../../db/queries/workflow-approvals");
+    const { insertWorkflowRun } = await import("../../db/queries/workflow-runs");
+    await getTestDb().delete(workflowApprovals);
+    await getTestDb().delete(workflowRuns);
+    const runId = crypto.randomUUID();
+    await insertWorkflowRun({
+      id: runId,
+      workflowName: `${EXT_NAME}:deploy`,
+      input: {},
+      startedAt: new Date(),
+      userId,
+    });
+    await parkWorkflowApproval({
+      workflowRunId: runId,
+      stepName: "gate",
+      prompt: "Ship it?",
+      choices: ["approve", "reject"],
+      requireItemConsent: false,
+      itemIds: [],
+    });
+    const readReq: JsonRpcRequest = {
+      jsonrpc: "2.0", id: 21, method: "ezcorp/workflows", params: { v: 1, op: "approvals" },
+    };
+
+    // CONTROL — the named grant sees it, so the fixture is real.
+    const named = await handleWorkflowsRpc(readReq, ctx());
+    expect((named.result as { approvals: unknown[] }).approvals).toHaveLength(1);
+
+    _resetWorkflowRateLimitForTests(extensionId);
+    const resp = await handleWorkflowsRpc(
+      readReq,
+      ctx({ grantedPermissions: delegatedOnlyGrant(), manifest: delegatedOnlyManifest() }),
+    );
+    expect(resp.error).toBeUndefined();
+    expect((resp.result as { approvals: unknown[] }).approvals).toEqual([]);
+  });
+
+  test("`op: runs` stays FAIL-CLOSED on the empty list", async () => {
+    const { insertWorkflowRun } = await import("../../db/queries/workflow-runs");
+    await getTestDb().delete(workflowApprovals);
+    await getTestDb().delete(workflowRuns);
+    await insertWorkflowRun({
+      id: crypto.randomUUID(),
+      workflowName: `${EXT_NAME}:deploy`,
+      input: {},
+      startedAt: new Date(),
+      userId,
+    });
+    const readReq: JsonRpcRequest = {
+      jsonrpc: "2.0", id: 22, method: "ezcorp/workflows", params: { v: 1, op: "runs" },
+    };
+
+    // CONTROL — the named grant sees it.
+    const named = await handleWorkflowsRpc(readReq, ctx());
+    expect((named.result as { runs: unknown[] }).runs).toHaveLength(1);
+
+    _resetWorkflowRateLimitForTests(extensionId);
+    const resp = await handleWorkflowsRpc(
+      readReq,
+      ctx({ grantedPermissions: delegatedOnlyGrant(), manifest: delegatedOnlyManifest() }),
+    );
+    expect(resp.error).toBeUndefined();
+    expect((resp.result as { runs: unknown[] }).runs).toEqual([]);
+  });
+
+  test("a NAMED grant that also holds the bit keeps every name it had", async () => {
+    // The bit is additive, not a replacement: the ordinary path through
+    // rungs 3-13 is unchanged for a grant that carries both.
+    const resp = await handleWorkflowsRpc(
+      req(),
+      ctx({
+        grantedPermissions: {
+          grantedAt: { workflows: Date.now() },
+          workflows: { names: ["deploy"], maxRunsPerHour: 20, allowDelegated: true },
+        },
+      }),
+    );
+    expect(resp.error).toBeUndefined();
+    expect(started).toHaveLength(1);
+    expect(started[0]?.workflow.name).toBe(`${EXT_NAME}:deploy`);
+  });
+});

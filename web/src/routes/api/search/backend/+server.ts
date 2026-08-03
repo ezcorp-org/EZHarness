@@ -19,7 +19,7 @@ import { json } from "@sveltejs/kit";
 import { z } from "zod";
 import { encrypt } from "$server/providers/encryption";
 import { getSetting, upsertSetting, deleteSetting } from "$server/db/queries/settings";
-import { requireRole } from "$server/auth/middleware";
+import { requireAdmin } from "$lib/server/security/api-keys";
 import { insertAuditEntry } from "$server/db/queries/audit-log";
 import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
@@ -52,7 +52,11 @@ const postBodySchema = z
 const deleteBodySchema = z.object({ provider: z.string().optional() }).strict();
 
 export const GET: RequestHandler = async ({ locals }) => {
-	requireRole(locals, "admin");
+	// requireAdmin RETURNS the 403 Response; requireRole THREW one, which
+	// SvelteKit surfaces as a 500 from a route handler. Role-only, so the
+	// route's "no API-key scope gate" contract is unchanged.
+	const adminErr = requireAdmin(locals);
+	if (adminErr) return adminErr;
 	const providers = await Promise.all(
 		BYOK_PROVIDERS.map(async (provider) => ({
 			provider,
@@ -69,7 +73,12 @@ export const GET: RequestHandler = async ({ locals }) => {
 };
 
 export const POST: RequestHandler = async ({ request, locals }) => {
-	const admin = requireRole(locals, "admin");
+	// requireAdmin RETURNS the 403 Response; requireRole THREW one, which
+	// SvelteKit surfaces as a 500 from a route handler. Role-only, so the
+	// route's "no API-key scope gate" contract is unchanged.
+	const adminErr = requireAdmin(locals);
+	if (adminErr) return adminErr;
+	const admin = locals.user!;
 	const parsed = postBodySchema.safeParse(await request.json().catch(() => ({})));
 	if (!parsed.success) {
 		return errorJson(400, "Invalid request body");
@@ -118,7 +127,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 };
 
 export const DELETE: RequestHandler = async ({ request, locals }) => {
-	const admin = requireRole(locals, "admin");
+	// requireAdmin RETURNS the 403 Response; requireRole THREW one, which
+	// SvelteKit surfaces as a 500 from a route handler. Role-only, so the
+	// route's "no API-key scope gate" contract is unchanged.
+	const adminErr = requireAdmin(locals);
+	if (adminErr) return adminErr;
+	const admin = locals.user!;
 	const parsed = deleteBodySchema.safeParse(await request.json().catch(() => ({})));
 	if (!parsed.success) {
 		return errorJson(400, "Invalid request body");

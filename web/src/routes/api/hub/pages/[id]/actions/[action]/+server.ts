@@ -5,16 +5,26 @@
  * (`/api/extensions/[name]/events/[event]`) with the hub-source body
  * shape, keeping the manifest-event security ladder in one place.
  *
- * Security: session-authed (`chat` scope, same as every
- * work-triggering endpoint), action-name regex, 404 for unknown
- * page/action (no enumeration oracle), 10 actions/min/user, body
- * `{ payload? }` capped at 2KB. Handlers may return a fresh tree —
- * validated before serving, exactly like the render route.
+ * Security: authenticated + `chat` scope (same as every work-triggering
+ * endpoint — this route IS `harness: controllable`, so an API key driving it
+ * is intended), action-name regex, 404 for unknown page/action (no
+ * enumeration oracle), 10 actions/min/user, body `{ payload? }` capped at
+ * 2KB. Handlers may return a fresh tree — validated before serving, exactly
+ * like the render route.
+ *
+ * PLUS one narrower gate: an action a provider lists in `sessionOnlyActions`
+ * additionally requires an INTERACTIVE HUMAN SESSION. That is for actions
+ * that spend a human DECISION rather than trigger work — today the
+ * workflow-approvals `answer` action, which reaches `answerApproval`. Without
+ * it, closing the REST answer route would merely have relocated R-4 to this
+ * one: a leaked `chat` key would answer approvals through the Hub instead.
+ * (This docblock used to claim the whole route was "session-authed". It was
+ * not, and that mismatch is exactly how the bypass survived review.)
  */
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "./$types";
 import { errorJson } from "$lib/server/http-errors";
-import { requireAuth } from "$server/auth/middleware";
+import { requireAuth, requireSessionAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import { RateLimiter } from "$lib/server/security/rate-limiter";
 import { getHubPageProvider, HubPageActionError } from "$server/runtime/hub-pages";
@@ -44,6 +54,16 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
   const provider = getHubPageProvider(parsed.providerId);
   const handler = provider?.actions?.[actionName];
   if (!provider || !handler) return errorJson(404, "Not found");
+
+  // Ordered AFTER the 404s so a refusal never confirms that an action
+  // exists (the same discipline the checks above follow), and BEFORE the
+  // rate limiter so a principal that can NEVER succeed cannot burn the
+  // human's 10/min budget — which for the approvals action would mean a
+  // leaked key could lock its owner out of answering their own gates.
+  if (provider.sessionOnlyActions?.includes(actionName)) {
+    const session = requireSessionAuth(locals);
+    if (session instanceof Response) return session;
+  }
 
   const limit = __rateLimiter.check(`hub-action:${user.id}`);
   if (!limit.allowed) {

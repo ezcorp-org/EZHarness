@@ -183,7 +183,12 @@ describe("every answer path routes through the one guard", () => {
         body: JSON.stringify({ choice: "approve" }),
       }),
       params: { id: approvalId },
-      locals: { user: { id: "u1", role: "member" } },
+      // `authMethod: "session"` is what `hooks.server.ts` stamps on a
+      // verified session cookie, and the answer route is session-ONLY
+      // (`requireSessionAuth`) — answering is the consent boundary, so an
+      // API-key principal is refused before the chokepoint. These tests are
+      // about what happens AFTER auth, so they must describe a real human.
+      locals: { user: { id: "u1", role: "member" }, authMethod: "session" },
       // Cast through `unknown`: a full SvelteKit RequestEvent carries a
       // dozen fields the handler never reads, and stubbing them would
       // add noise without adding coverage.
@@ -216,7 +221,7 @@ describe("every answer path routes through the one guard", () => {
           body: JSON.stringify({ choice: "approve" }),
         }),
         params: { id },
-        locals: { user: { id: "u1", role } },
+        locals: { user: { id: "u1", role }, authMethod: "session" },
       } as unknown as Parameters<typeof POST>[0])) as Response;
 
     // A member holding NO grant at (NULL project, NULL extension) is
@@ -255,7 +260,7 @@ describe("every answer path routes through the one guard", () => {
           body: JSON.stringify({ choice: "approve" }),
         }),
         params: { id },
-        locals: { user: { id: "u1", role: "member" } },
+        locals: { user: { id: "u1", role: "member" }, authMethod: "session" },
       } as unknown as Parameters<typeof POST>[0])) as Response;
 
     // `not-found` → 404. No runtime is registered here on purpose: both

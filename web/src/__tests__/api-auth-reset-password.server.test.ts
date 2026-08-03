@@ -8,6 +8,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { expectDenied } from "./fixtures/expect-denied";
 
 vi.mock("$server/db/queries/users", () => ({
   getUserById: vi.fn(),
@@ -58,29 +59,15 @@ describe("POST /api/auth/reset-password", () => {
 
   test("rejects 401 when locals.user is missing", async () => {
     // requireRole throws Response; this handler's catch rethrows it.
-    let res: Response | undefined;
-    try {
-      await POST(makeEvent({ body: { userId: "u2" } }));
-      expect.fail("should have thrown");
-    } catch (thrown) {
-      expect(thrown).toBeInstanceOf(Response);
-      res = thrown as Response;
-    }
-    expect(res!.status).toBe(401);
+    const res = await expectDenied(() => POST(makeEvent({ body: { userId: "u2" } })), 401);
+    expect(res.status).toBe(401);
   });
 
   test("rejects 403 when user is not admin", async () => {
-    let res: Response | undefined;
-    try {
-      await POST(
-        makeEvent({ locals: memberUser, body: { userId: "u2" } }),
-      );
-      expect.fail("should have thrown");
-    } catch (thrown) {
-      expect(thrown).toBeInstanceOf(Response);
-      res = thrown as Response;
-    }
-    expect(res!.status).toBe(403);
+    const res = await expectDenied(() => POST(
+            makeEvent({ locals: memberUser, body: { userId: "u2" } }),
+          ), 403);
+    expect(res.status).toBe(403);
   });
 
   test("rejects 400 when userId is missing", async () => {

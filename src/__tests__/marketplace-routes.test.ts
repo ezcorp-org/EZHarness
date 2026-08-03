@@ -343,7 +343,11 @@ describe("DELETE /api/marketplace/[id]", () => {
       params: { id: removableListingId },
       user: AUTHOR,
     });
-    expect(() => removeDELETE(event)).toThrow();
+    // RETURNED, not thrown: a Response thrown from a `+server.ts` handler is
+    // rendered by SvelteKit as a 500 "Internal Error", so the old
+    // `.toThrow()` assertion pinned the bug rather than the 403 it implied.
+    const res = await removeDELETE(event);
+    expect(res.status).toBe(403);
   });
 
   test("admin can delete listing", async () => {

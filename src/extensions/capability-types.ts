@@ -53,6 +53,23 @@ export type CapabilityKind =
   // namespaces the name to `<extensionName>:<name>` before resolving, so
   // the cap value can only ever address the extension's own asset.
   | "ezcorp:workflows:run"
+  // Fire a workflow the extension does NOT ship, as the human who
+  // delegated it (C3, `ctx.workflows.runFor`). A SEPARATE kind from
+  // `ezcorp:workflows:run` on purpose: that one is clamped to an
+  // admin-approved list of the extension's OWN assets, and reusing it
+  // for a delegated fire would mean relaxing exactly the per-name clamp
+  // it exists to enforce.
+  //
+  // KIND-ONLY — deliberately carries NO value. The thing a delegated fire
+  // is bound by is a `workflow_delegations` row keyed by `job_ref`, and
+  // job refs are minted AFTER install by a human consent action, so an
+  // install-time grant cannot enumerate them — the same reason
+  // `ezcorp:triggers:register` is valued by the trigger KIND and not by
+  // the host-minted slug. The install grant therefore answers exactly one
+  // question ("may this extension use delegated runs at all?") and the
+  // per-job bound is the delegation row, re-read on every fire and
+  // revocable independently of the grant.
+  | "ezcorp:workflows:run-delegated"
   // Register a DYNAMIC cron or webhook trigger at runtime (C2). One cap
   // PER KIND (value = "cron" | "webhook"), so an install can grant an
   // extension the right to mint schedules without also granting it inbound
@@ -125,6 +142,42 @@ export const SENSITIVE_KINDS: ReadonlySet<CapabilityKind> = new Set<CapabilityKi
 // The bound that DOES exist is the per-hour rate limit on the grant, which
 // caps LLM spend from `agent` steps. If a future step kind can reach a side
 // effect that is NOT independently PDP-gated, revisit this decision first.
+//
+// ── P2 · C3 CHECKED THE REVISIT CONDITION ABOVE. The answer HELD. ──────
+//
+// C3 (delegated execution) adds `ezcorp:workflows:run-delegated`, which is
+// ALSO deliberately absent from `SENSITIVE_KINDS`. That is a decision, not
+// an oversight, and the standing instruction on the line above is what
+// obliged this note. Recorded here so a future reader never has to
+// re-derive it — and grep-tested, so the check cannot be quietly dropped.
+//
+// The trigger condition is "a step kind that reaches a side effect that is
+// NOT independently PDP-gated". C3 introduces NO step kind at all. A
+// delegated run is the same executor over the same step kinds; the only
+// thing C3 changes is WHOSE identity the run carries. Reason 1 above is
+// therefore untouched: the run still registers its own non-interactive
+// scope, so a `tool` step inside it that needs `shell` / `fs.write` /
+// `ezcorp:extension:install` still hits the PDP and still fails CLOSED.
+//
+// Reason 2 (consent collected per-name at install) does NOT survive
+// unchanged — a delegated fire reaches a workflow the extension never
+// shipped, so no manifest name list can bound it. It is REPLACED, and by
+// something narrower on every axis that matters: one workflow rather than
+// a list, pinned to a definition version, bound to a capability-set hash,
+// revocable, and attached to a named human who consented. The install
+// grant contributes only the boolean opt-in
+// (`permissions.workflows.allowDelegated`); it authorizes no job by
+// itself.
+//
+// Reason 3 (prompting is structurally impossible) is STRONGER here, not
+// weaker: a delegated fire is a background cron/webhook tick by
+// construction, so an always-prompt kind would be an unanswerable modal
+// with nobody present to answer it.
+//
+// WHAT WOULD REOPEN THIS: a delegated run that does NOT register the
+// non-interactive scope, or any path that lets a delegated run's `tool`
+// step skip the PDP. Either one breaks reason 1, and reason 1 is the only
+// thing holding this up.
 
 /** Lowercase, trimmed key for set-keyed comparison. */
 function keyOf(c: Capability): string {
@@ -483,10 +536,19 @@ export function intersectPermissions(
         names.push(n);
       }
     }
-    if (names.length > 0) {
+    // C3 — the delegated opt-in survives only when BOTH sides carry it,
+    // exactly like every name above. It is what lets a NAME-LESS grant
+    // survive the intersection: without this the empty-name drop below
+    // would delete a delegated-only grant on every ceiling clamp and
+    // every parent→child narrowing, which is the same D-3 defect the
+    // clamp had.
+    const allowDelegated =
+      a.workflows.allowDelegated === true && b.workflows.allowDelegated === true;
+    if (names.length > 0 || allowDelegated) {
       out.workflows = {
         names,
         maxRunsPerHour: Math.min(a.workflows.maxRunsPerHour, b.workflows.maxRunsPerHour),
+        ...(allowDelegated ? { allowDelegated: true } : {}),
       };
     }
   }
@@ -811,8 +873,20 @@ export function grantsToCapabilitySet(
   // admin-reviewed list. The value is the BARE name; the handler namespaces
   // it host-side before resolving.
   if (grants.workflows) {
-    for (const name of grants.workflows.names) {
+    // `?? []` rather than a bare iteration: an empty `names` is now a LEGAL
+    // grant shape (delegated-only, C3), so a hand-edited row that omits the
+    // key entirely is a realistic input, and `for…of undefined` throws
+    // inside the PDP's grant translation — which would turn a malformed row
+    // into a 500 instead of a denial.
+    for (const name of grants.workflows.names ?? []) {
       caps.push({ kind: "ezcorp:workflows:run", value: name });
+    }
+    // C3 — the delegated opt-in. Kind-only, no value (see the kind's
+    // declaration for why job refs cannot be enumerated at grant time).
+    // Emitted ONLY on an explicit `=== true`, so every grant written before
+    // C3 produces a byte-identical capability set.
+    if (grants.workflows.allowDelegated === true) {
+      caps.push({ kind: "ezcorp:workflows:run-delegated" });
     }
   }
 

@@ -2,6 +2,34 @@ import type { AuthUser } from "./types";
 import { type ApiKeyScope, hasRequiredScope } from "./api-key";
 import { getTeamMembership } from "../db/queries/teams";
 
+/**
+ * HOW a request authenticated — stamped POSITIVELY at each auth site, so a
+ * gate can ask "is this an interactive human session?" without inferring it
+ * from the ABSENCE of something else.
+ *
+ * There is exactly one producer per value and they are all in the request
+ * pipeline:
+ *   - `session`  — a verified session-cookie JWT (`web/src/hooks.server.ts`).
+ *                  The only value that represents a human at a browser.
+ *   - `api-key`  — a user-issued `ezk_*` bearer key
+ *                  (`web/src/lib/server/security/bearer-auth.ts`).
+ *   - `internal` — a loopback-only `ezkint_*` bundled-extension subprocess
+ *                  key (same module).
+ *
+ * `undefined` means NO auth site claimed the request. A gate that allowlists
+ * a value therefore refuses both "not authenticated" and "authenticated by
+ * some future mechanism that has not been taught to stamp itself" — which is
+ * the whole point of stamping rather than sniffing. Do NOT add a value here
+ * without deciding, at every {@link requireSessionAuth} call site, whether
+ * that new principal may spend a consent gate.
+ *
+ * Declared HERE rather than in `./types` because this union is the vocabulary
+ * of `requireSessionAuth`'s allowlist and has no meaning apart from it — and
+ * because `./types` is declaration-only, so a change there carries no
+ * executable line for the patch-coverage gate to measure.
+ */
+export type AuthMethod = "session" | "api-key" | "internal";
+
 // Structural shape of SvelteKit's `App.Locals` that these helpers rely on.
 // Declared locally so this module typechecks in the backend build where the
 // SvelteKit `App` namespace is not in scope (see `scripts/typecheck.sh` —
@@ -10,7 +38,11 @@ import { getTeamMembership } from "../db/queries/teams";
 // `web/src/routes/**` pass without casts. `apiKeyScopes` is present only on
 // API-key-authed requests (undefined for a cookie session) and lets the role
 // gate also enforce the SCOPE axis for key principals.
-type AuthLocals = { user?: AuthUser; apiKeyScopes?: ApiKeyScope[] };
+type AuthLocals = {
+  user?: AuthUser;
+  apiKeyScopes?: ApiKeyScope[];
+  authMethod?: AuthMethod;
+};
 
 export function requireAuth(locals: AuthLocals): AuthUser {
   const user = locals.user;
@@ -77,6 +109,76 @@ export function checkRole(locals: AuthLocals, role: "admin"): AuthUser | Respons
     if (e instanceof Response) return e;
     throw e;
   }
+}
+
+/**
+ * The auth methods that count as an INTERACTIVE HUMAN SESSION.
+ *
+ * An ALLOWLIST, deliberately, and deliberately a `Set<string>` rather than a
+ * `Set<AuthMethod>`: the thing being tested is `AuthMethod | undefined`, and
+ * a set typed to the union would force a cast at the one place where the
+ * `undefined` case is the security-relevant one. Membership is checked, not
+ * absence — so adding a new `AuthMethod` (or forgetting to stamp one at all)
+ * lands on the DENY side by default, which is the only way this gate can
+ * survive an auth mode nobody has thought of yet.
+ */
+const SESSION_AUTH_METHODS: ReadonlySet<string> = new Set<AuthMethod>(["session"]);
+
+/**
+ * Gate a route on the caller being a REAL, INTERACTIVE HUMAN SESSION.
+ *
+ * `requireScope(locals, "chat")` is not this. It passes for every cookie
+ * session AND for every `chat`-scoped API key — `hasRequiredScope` treats
+ * undefined scopes ("cookie session") as allow-all, and a key that HOLDS
+ * `chat` satisfies it outright. That is correct for chatting. It is wrong
+ * anywhere the act being authorized is a HUMAN DECISION rather than a
+ * capability: answering a workflow approval is the load-bearing case, since
+ * a run parks on an approval precisely so that a person decides. If a leaked
+ * `chat` key can answer one, the key mints consent and the entire approval
+ * mechanism is decorative against that threat.
+ *
+ * ## Fail-closed by construction
+ *
+ * The discriminator is `locals.authMethod`, stamped POSITIVELY by each auth
+ * site (see {@link AuthMethod}), and matched against an ALLOWLIST. It is NOT
+ * `locals.apiKeyScopes === undefined`. That inference happens to be true
+ * today — every bearer path in `bearer-auth.ts` sets `apiKeyScopes`, and the
+ * cookie path in `hooks.server.ts` does not — but it is an inference from an
+ * ABSENCE, so it silently flips to ALLOW the first time some future auth mode
+ * populates `locals.user` without also populating `apiKeyScopes`. A gate that
+ * fails open when someone forgets an unrelated field is not a gate.
+ *
+ * Unstamped (`undefined`) is refused, `api-key` is refused, `internal` is
+ * refused, and any value added to `AuthMethod` later is refused until someone
+ * deliberately adds it here.
+ *
+ * ## Shape
+ *
+ * Returns `AuthUser | Response`, matching {@link checkRole} rather than
+ * {@link requireAuth}: a `+server.ts` handler that THROWS a `Response` gets
+ * a 500, not the status it meant (see checkRole's note). Call sites read
+ *
+ *   const user = requireSessionAuth(locals);
+ *   if (user instanceof Response) return user;
+ *
+ * 401 when there is no principal at all (byte-identical body to
+ * `requireAuth`, so swapping one for the other does not change what an
+ * unauthenticated caller sees); 403 when there IS a principal but it is not
+ * a session — a distinction the caller has already earned by authenticating.
+ */
+export function requireSessionAuth(locals: AuthLocals): AuthUser | Response {
+  const user = locals.user;
+  if (!user) {
+    return Response.json({ error: "Authentication required" }, { status: 401 });
+  }
+  const method = locals.authMethod;
+  if (method === undefined || !SESSION_AUTH_METHODS.has(method)) {
+    return Response.json(
+      { error: "Interactive session required" },
+      { status: 403 },
+    );
+  }
+  return user;
 }
 
 const ROLE_LEVELS: Record<string, number> = { viewer: 0, editor: 1, owner: 2 };

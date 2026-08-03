@@ -70,7 +70,7 @@ describe("GET /api/memories", () => {
 });
 
 describe("POST /api/memories", () => {
-	test("returns 403 when API-key scope missing 'read'", async () => {
+	test("returns 403 when API-key scope missing 'write'", async () => {
 		const res = await POST(
 			makePostEvent({
 				locals: { ...authedUser, apiKeyScopes: ["chat"] },

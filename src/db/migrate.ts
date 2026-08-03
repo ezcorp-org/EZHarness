@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { backfillGithubProjectsApiTokens } from "../extensions/secrets-store";
 import { seedSelfProject } from "./seed-self-project";
 import { up as upUserCommandsUnique } from "./migrations/add-user-commands-unique-name";
+import { up as upApiKeyWriteScope } from "./migrations/backfill-api-key-write-scope";
 // Value import is safe: this module imports only `drizzle-orm`. Its
 // project-root ARGUMENT comes from a dynamic import at the call site —
 // see the comment there for why that one cannot be static.
@@ -1231,6 +1232,17 @@ export async function migrate(db: any): Promise<void> {
   // statements are idempotent — re-running on a clean DB is a no-op.
   await upUserCommandsUnique(db);
 
+  // ── 2026-08: `write` scope backfill for already-issued API keys ────
+  //
+  // The 18 handlers that used to gate mutation on `read` now gate on `write`
+  // (docs/audit/2026-08-read-scope-mutation-inventory.md). Scopes live in a
+  // MUTABLE jsonb settings row and are not covered by the key hash, so an
+  // existing key can be granted `write` without re-issuing its secret — which
+  // matters because there is no update-scopes endpoint and the raw key is
+  // shown exactly once. Additive, `read`-triggered only (never escalates a
+  // chat-only key), and idempotent. See the module header.
+  await upApiKeyWriteScope(db);
+
   // ── Phase 48: Ez Mode + Conversation Kind + Ez Drafts ─────────────
   //
   // Schema deltas + Ez mode seed + ez_drafts table + unique partial index
@@ -2311,6 +2323,145 @@ export async function migrate(db: any): Promise<void> {
   // never saw the intermediate commit never had the column.
   await db.execute(sql`ALTER TABLE workflow_definitions DROP COLUMN IF EXISTS created_by`);
 
+  // ── C3: delegated execution (service accounts + delegations) ─────
+  //
+  // Ordered `service_accounts` → `workflow_delegations` → the
+  // `workflow_runs` columns (further down, with the other run ALTERs),
+  // because each step is an FK target of the next. Placed HERE rather than
+  // at the end because `workflow_definition_versions` (created directly
+  // above) is a RESTRICT target of `workflow_delegations`, and `users` /
+  // `projects` / `extensions` all exist by now.
+  //
+  // Entirely ADDITIVE: two new tables and three new nullable columns.
+  // Nothing existing changes shape, no column is dropped or narrowed, and
+  // there is NO BACKFILL — every new column is genuinely meaningless for a
+  // pre-C3 row and NULL is the honest value.
+  //
+  // A non-human principal for org-level jobs. `created_by_user_id` is
+  // NOT NULL + ON DELETE RESTRICT — the same pairing (and the same reason)
+  // as `sdk_capability_calls.on_behalf_of`: this column names the
+  // accountable human, so no state may exist in which the account is live
+  // and names nobody. `ON DELETE SET NULL` is not an option on a NOT NULL
+  // column — Postgres accepts the constraint at DDL time and then fails
+  // every parent delete with a 23502. That is the pairing
+  // `sdk_capability_calls.on_behalf_of` was originally specified with, and
+  // the guarded FK swap further up this file exists to repair the databases
+  // it produced.
+  //
+  // `max_tokens_per_day` is TOKENS, not cents, and mandatory. An unpriced
+  // model (OAuth-subscription) reports a null price, so a cost cap would
+  // let it spend without bound; tokens have no such case.
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS service_accounts (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      created_by_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+      scopes JSONB NOT NULL DEFAULT '[]',
+      max_tokens_per_day INTEGER NOT NULL,
+      enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      disabled_reason TEXT,
+      created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+    )
+  `);
+  await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uniq_service_account_name ON service_accounts(name)`);
+  // FK index — ON DELETE RESTRICT scans this on every user delete to
+  // decide whether to refuse. Required, not nice-to-have.
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_service_accounts_created_by ON service_accounts(created_by_user_id)`);
+
+  // The authority for a delegated run. Every FK choice here is a security
+  // decision; the full reasoning lives beside each column in schema.ts.
+  //
+  //   extension_id             CASCADE  — uninstalling the extension
+  //                                       destroys the authority granted
+  //                                       to it, so a same-named reinstall
+  //                                       cannot inherit it.
+  //   owner_user_id            CASCADE  — SET NULL on the column that IS
+  //   owner_service_account_id CASCADE    the authority would leave an
+  //                                       `enabled` row with a valid
+  //                                       consent hash naming NOBODY.
+  //                                       Deleting the owner deletes the
+  //                                       authority; the next fire finds
+  //                                       no row and is refused.
+  //   consented_by_user_id     RESTRICT — NOT NULL, so SET NULL is
+  //                                       impossible (23502 on every
+  //                                       delete). RESTRICT over CASCADE
+  //                                       because CASCADE would kill a
+  //                                       service-account delegation when
+  //                                       the consenting admin leaves,
+  //                                       destroying the exact durability
+  //                                       property service accounts exist
+  //                                       for. It does NOT deadlock with
+  //                                       the owner CASCADE above: Postgres
+  //                                       runs the CASCADE first and the
+  //                                       RESTRICT check then sees no
+  //                                       referencing row.
+  //   definition_version_id    RESTRICT — the consent hash pins this exact
+  //                                       snapshot; the retention sweep
+  //                                       must not reap it out from under
+  //                                       a live delegation.
+  //   project_id               CASCADE  — a project-scoped delegation is
+  //                                       part of the project.
+  //
+  // `owner_kind` is LOAD-BEARING with two live values, not a reserved
+  // placeholder. Exactly one owner column is populated per kind; that is
+  // enforced in the query layer through a keyed lookup
+  // (`DELEGATION_OWNER_COLUMN` in schema.ts) rather than by a CHECK
+  // constraint, consistent with the rest of this schema and so a third
+  // kind is purely additive.
+  //
+  // `max_tokens_per_run` — TOKENS, deliberately. There is no
+  // `max_cost_cents_per_run`; cost is derived, displayed and advisory.
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS workflow_delegations (
+      id TEXT PRIMARY KEY,
+      extension_id TEXT NOT NULL REFERENCES extensions(id) ON DELETE CASCADE,
+      job_ref TEXT NOT NULL,
+      owner_kind TEXT NOT NULL,
+      owner_user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+      owner_service_account_id TEXT REFERENCES service_accounts(id) ON DELETE CASCADE,
+      workflow_name TEXT NOT NULL,
+      definition_version_id TEXT REFERENCES workflow_definition_versions(id) ON DELETE RESTRICT,
+      project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+      trigger_kind TEXT NOT NULL,
+      trigger_spec JSONB,
+      consent_hash TEXT NOT NULL,
+      capability_set JSONB NOT NULL DEFAULT '[]',
+      max_tokens_per_run INTEGER NOT NULL,
+      max_runs_per_day INTEGER NOT NULL,
+      consecutive_failures INTEGER NOT NULL DEFAULT 0,
+      enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      disabled_reason TEXT,
+      consented_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+      consented_by_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      revoked_at TIMESTAMP WITH TIME ZONE,
+      created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+    )
+  `);
+  // PARTIAL unique — one LIVE delegation per (extension, job). Revoked
+  // rows are tombstones kept as history and must be free to accumulate, so
+  // a total unique index would make re-consenting a revoked job impossible.
+  await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uniq_workflow_delegation ON workflow_delegations(extension_id, job_ref) WHERE revoked_at IS NULL`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_workflow_delegations_owner_user ON workflow_delegations(owner_user_id)`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_workflow_delegations_owner_service ON workflow_delegations(owner_service_account_id)`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_workflow_delegations_enabled ON workflow_delegations(extension_id, enabled) WHERE revoked_at IS NULL`);
+  // Not in the original spec's index list and required twice over: the
+  // RESTRICT above scans this column on every user delete, and it is the
+  // driving predicate of the approvals-inbox disjunct that lets the
+  // consenting human answer a service-account run's approval. Without the
+  // disjunct that authority exists and can never be exercised — so without
+  // the index it exists and is a sequential scan.
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_workflow_delegations_consented_by ON workflow_delegations(consented_by_user_id)`);
+  // Likewise absent from the spec and required by the RESTRICT: the
+  // version retention sweep asks "is this version pinned by a live
+  // delegation?" on every reap, and the FK scans this column to decide
+  // whether to refuse. The same argument already justifies
+  // `idx_workflow_runs_definition_version`, whose action is only SET NULL.
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_workflow_delegations_version ON workflow_delegations(definition_version_id)`);
+
   // ── Workflow run history ─────────────────────────────────────────
   //
   // Placed here (near the end) purely because every FK target it needs —
@@ -2482,6 +2633,39 @@ export async function migrate(db: any): Promise<void> {
   // Required, not nice-to-have: ON DELETE SET NULL scans this column on
   // every parent delete, and the child lookup reads it directly.
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_workflow_runs_parent ON workflow_runs(parent_run_id)`);
+
+  // ── C3: which principal a run executed as ────────────────────────
+  //
+  // Additive, nullable, and deliberately un-backfilled: every one of these
+  // is genuinely absent for a pre-C3 run (they all executed as their
+  // initiating `user_id`), and inventing a value would be a lie in an
+  // audit surface.
+  //
+  // `run_as_kind` + `run_as` are a plain-text SNAPSHOT with NO FK — they
+  // are the record of who a run executed as and must outlive both
+  // revocation of the delegation and deletion of the owner.
+  // `delegation_id` carries the live FK and goes NULL; the snapshot never
+  // does. Same denormalization rationale as `workflow_runs.workflow_name`.
+  //
+  // SET NULL (not CASCADE) on `delegation_id` for the same reason
+  // `user_id` is SET NULL: deleting the authority must not erase the
+  // history of what it ran.
+  //
+  // `ADD COLUMN IF NOT EXISTS … REFERENCES …` is idempotent as one unit —
+  // on a re-run the column already exists so the whole clause, FK
+  // included, is skipped. Same shape as `definition_version_id` above.
+  // `workflow_delegations` is created earlier in this function, so the
+  // reference resolves on a fresh install and on an upgrade alike.
+  await db.execute(sql`ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS run_as_kind TEXT`);
+  await db.execute(sql`ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS run_as TEXT`);
+  await db.execute(sql`ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS delegation_id TEXT REFERENCES workflow_delegations(id) ON DELETE SET NULL`);
+  // Backs the "jobs running as me" page.
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_workflow_runs_run_as ON workflow_runs(run_as_kind, run_as, started_at DESC)`);
+  // Required for the same reason `idx_workflow_runs_parent` is — ON DELETE
+  // SET NULL scans this column on every delegation delete. Composite with
+  // `started_at` so the same index also serves the per-job daily quota
+  // count (`delegation_id = $1 AND started_at >= startOfUtcDay(now())`).
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_workflow_runs_delegation ON workflow_runs(delegation_id, started_at DESC)`);
 
   // Parked `approval` steps. CASCADE on the run because an approval
   // without its run is meaningless — unlike run HISTORY, which is

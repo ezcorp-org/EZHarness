@@ -13,23 +13,30 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   Brave,
+  classifyReadContentType,
+  DirectReader,
   DuckDuckGo,
   Exa,
   hasOutcome,
+  hasReadOutcome,
   isConnectionError,
+  isReaderUnavailable,
   JinaReader,
   JinaSearch,
   makeGuardedTransport,
+  ReaderUnavailableError,
   resolveProviders,
   SearXNG,
   SerpApi,
   Tavily,
   unwrapDdgRedirect,
   withFallback,
+  withReaderFallback,
   type SearchProvider,
   type SearchResult,
   type Transport,
   type TransportRequest,
+  type UrlReader,
 } from "../search/providers";
 import type { FetchLike, ResolveHost } from "../search/egress";
 
@@ -109,6 +116,18 @@ describe("resolveProviders", () => {
     expect(search.name).toBe("duckduckgo");
     expect(search).toBeInstanceOf(DuckDuckGo);
     expect(reader.name).toBe("jina");
+  });
+
+  test("the reader is ALWAYS the jina→direct chain, keyed or not", () => {
+    // Jina stays primary (better markdown); the host-side direct reader is
+    // the fallback that keeps `read-url` alive when a deployment's ASN is
+    // blocked from the keyless tier.
+    for (const env of [{}, { JINA_API_KEY: "jk" }, { TAVILY_API_KEY: "t" }]) {
+      const { reader } = resolveProviders(transport, env as NodeJS.ProcessEnv);
+      expect(hasReadOutcome(reader)).toBe(true);
+      expect(reader.name).toBe("jina");
+      expect((reader as ReturnType<typeof withReaderFallback>).fallbackName).toBe("direct");
+    }
   });
 
   test("PIN: keyless Jina search is GONE — no env never resolves JinaSearch", () => {
@@ -287,6 +306,28 @@ describe("JinaReader", () => {
     expect((calls[0]!.init.headers as Record<string, string>).authorization).toBe("Bearer sk-2");
   });
 
+  // Keyless r.jina.ai is gated on NETWORK REPUTATION — upstream answers
+  // 401 for whole ASNs, so a deployment can be permanently blocked. The
+  // bare "Jina HTTP 401" gave the operator nothing to act on.
+  test.each([401, 403])("keyless %i names the JINA_API_KEY remedy", async (status) => {
+    nextResponse = () => new Response("AuthenticationRequiredError", { status });
+    await expect(new JinaReader(transport).read("https://x")).rejects.toThrow(
+      /JINA_API_KEY.*Settings → Search/s,
+    );
+  });
+
+  test("keyed 401 passes through unchanged (a bad key is a different fix)", async () => {
+    nextResponse = () => new Response("nope", { status: 401 });
+    await expect(new JinaReader(transport, "sk-bad").read("https://x")).rejects.toThrow(
+      "Jina HTTP 401",
+    );
+  });
+
+  test("keyless non-auth failures are untouched", async () => {
+    nextResponse = () => new Response("nope", { status: 500 });
+    await expect(new JinaReader(transport).read("https://x")).rejects.toThrow("Jina HTTP 500");
+  });
+
   test("uses JINA_READER_BASE_URL override when present", async () => {
     process.env.JINA_READER_BASE_URL = "http://127.0.0.1:7";
     try {
@@ -296,6 +337,297 @@ describe("JinaReader", () => {
     } finally {
       delete process.env.JINA_READER_BASE_URL;
     }
+  });
+
+  // The keyless block is a fact about THIS DEPLOYMENT's network, not about
+  // the URL — that's what licenses falling back to another reader, so the
+  // error must carry the machine-readable marker, not just prose.
+  test("a keyless reputation block is typed ReaderUnavailableError", async () => {
+    nextResponse = () => new Response("AuthenticationRequiredError", { status: 401 });
+    const err = await new JinaReader(transport).read("https://x").catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ReaderUnavailableError);
+    expect(isReaderUnavailable(err)).toBe(true);
+  });
+
+  test("an ordinary 404 is NOT reader-unavailable (the page is the problem)", async () => {
+    nextResponse = () => new Response("nope", { status: 404 });
+    const err = await new JinaReader(transport).read("https://x").catch((e: unknown) => e);
+    expect(err).not.toBeInstanceOf(ReaderUnavailableError);
+    expect(isReaderUnavailable(err)).toBe(false);
+  });
+});
+
+// ── classifyReadContentType ─────────────────────────────────────────
+
+describe("classifyReadContentType", () => {
+  test.each([
+    ["text/html", "html"],
+    ["text/html; charset=utf-8", "html"],
+    ["TEXT/HTML", "html"],
+    ["application/xhtml+xml", "html"],
+    [null, "html"],
+    [undefined, "html"],
+    ["", "html"],
+    ["text/plain", "text"],
+    ["text/markdown; charset=utf-8", "text"],
+    ["text/xml", "text"],
+    ["application/json", "text"],
+    ["application/ld+json", "text"],
+    ["application/atom+xml", "text"],
+    ["application/yaml", "text"],
+    ["image/png", "binary"],
+    ["image/svg+xml", "binary"],
+    ["audio/mpeg", "binary"],
+    ["video/mp4", "binary"],
+    ["font/woff2", "binary"],
+    ["model/gltf-binary", "binary"],
+    ["application/pdf", "binary"],
+    ["application/octet-stream", "binary"],
+    ["application/zip", "binary"],
+  ])("%p → %s", (raw, kind) => {
+    expect(classifyReadContentType(raw as string | null | undefined)).toBe(
+      kind as "html" | "text" | "binary",
+    );
+  });
+});
+
+// ── DirectReader (host-side fallback) ───────────────────────────────
+
+describe("DirectReader", () => {
+  const PAGE =
+    "<html><head><title>T</title></head><body><nav>chrome</nav>" +
+    "<main><h1>Head</h1><p>Body with <a href='/rel'>a link</a>.</p></main></body></html>";
+
+  test("fetches the target in mode:'read' — the SSRF guard's strict tier", async () => {
+    // This is the ONLY provider that dials an agent-supplied host from
+    // inside our network. `mode:"read"` is what makes the guard resolve
+    // every address, reject private/loopback/metadata targets, pin the
+    // connection and re-validate each redirect. Never `backend`, and never
+    // with an `allowedHosts` escape hatch.
+    nextResponse = () => new Response(PAGE, { headers: { "content-type": "text/html" } });
+    await new DirectReader(transport).read("https://example.com/docs");
+    expect(calls[0]!.url).toBe("https://example.com/docs");
+    expect(calls[0]!.mode).toBe("read");
+    expect(calls[0]!.allowedHosts).toBeUndefined();
+  });
+
+  test("converts HTML to markdown, dropping chrome and resolving relative links", async () => {
+    nextResponse = () => new Response(PAGE, { headers: { "content-type": "text/html" } });
+    const out = await new DirectReader(transport).read("https://example.com/docs/page");
+    expect(out).toBe("# Head\n\nBody with [a link](https://example.com/rel).");
+    expect(out).not.toContain("chrome");
+  });
+
+  test("sends a browser User-Agent and an html-first accept header", async () => {
+    nextResponse = () => new Response(PAGE, { headers: { "content-type": "text/html" } });
+    await new DirectReader(transport).read("https://example.com/");
+    const headers = calls[0]!.init.headers as Record<string, string>;
+    expect(headers["user-agent"]).toContain("Mozilla/5.0");
+    expect(headers.accept).toContain("text/html");
+  });
+
+  test("text/plain is returned verbatim (trimmed), not run through the extractor", async () => {
+    nextResponse = () =>
+      new Response("  line one\nline two  ", { headers: { "content-type": "text/plain" } });
+    expect(await new DirectReader(transport).read("https://x.test/robots.txt")).toBe(
+      "line one\nline two",
+    );
+  });
+
+  test("an absent content-type is treated as HTML", async () => {
+    nextResponse = () => new Response("<p>no content type</p>");
+    expect(await new DirectReader(transport).read("https://x.test/")).toBe("no content type");
+  });
+
+  test("binary content types are refused with a readable message, not rendered", async () => {
+    nextResponse = () => new Response("ÿØÿ", { headers: { "content-type": "image/jpeg" } });
+    await expect(new DirectReader(transport).read("https://x.test/a.jpg")).rejects.toThrow(
+      /cannot render "image\/jpeg" as text/,
+    );
+  });
+
+  test("a binary payload behind a lying content-type is caught by the NUL guard", async () => {
+    nextResponse = () =>
+      new Response("PK\u0003\u0004\u0000 zip bytes", { headers: { "content-type": "text/html" } });
+    await expect(new DirectReader(transport).read("https://x.test/a.zip")).rejects.toThrow(
+      /received binary content/,
+    );
+  });
+
+  test("non-2xx throws with the provider-tagged status", async () => {
+    nextResponse = () => new Response("nope", { status: 403 });
+    await expect(new DirectReader(transport).read("https://x.test/")).rejects.toThrow(
+      "Direct reader HTTP 403",
+    );
+  });
+
+  test("markup with no readable text errors instead of returning an empty read", async () => {
+    nextResponse = () =>
+      new Response("<html><body><script>x()</script></body></html>", {
+        headers: { "content-type": "text/html" },
+      });
+    await expect(new DirectReader(transport).read("https://x.test/")).rejects.toThrow(
+      /extracted no readable text from https:\/\/x\.test\//,
+    );
+  });
+
+  test("output is capped at the 200k read ceiling so the shared cache stays bounded", async () => {
+    const huge = `<p>${"x".repeat(250_000)}</p>`;
+    nextResponse = () => new Response(huge, { headers: { "content-type": "text/html" } });
+    const out = await new DirectReader(transport).read("https://x.test/");
+    expect(out.length).toBe(200_000);
+    expect(out.endsWith("…")).toBe(true);
+  });
+});
+
+// ── isReaderUnavailable ─────────────────────────────────────────────
+
+describe("isReaderUnavailable", () => {
+  test("true for ReaderUnavailableError", () => {
+    expect(isReaderUnavailable(new ReaderUnavailableError("keyless blocked"))).toBe(true);
+  });
+
+  test("true for connection-class failures (shared with the search chain)", () => {
+    expect(isReaderUnavailable(new Error("ConnectionRefused: Unable to connect"))).toBe(true);
+    expect(isReaderUnavailable(new Error("Egress blocked (private-ip): a → 10.0.0.1"))).toBe(true);
+  });
+
+  test("false for ordinary HTTP statuses and non-Errors", () => {
+    expect(isReaderUnavailable(new Error("Jina HTTP 404"))).toBe(false);
+    expect(isReaderUnavailable(new Error("Jina HTTP 401"))).toBe(false); // keyed 401 = bad key
+    expect(isReaderUnavailable("ECONNREFUSED")).toBe(false);
+    expect(isReaderUnavailable(undefined)).toBe(false);
+  });
+});
+
+// ── withReaderFallback ──────────────────────────────────────────────
+
+describe("withReaderFallback", () => {
+  function fakeReader(name: string, impl: () => Promise<string>): UrlReader & { calls: number } {
+    const r = {
+      name,
+      calls: 0,
+      async read(): Promise<string> {
+        r.calls++;
+        return impl();
+      },
+    };
+    return r;
+  }
+
+  test("wrapper keeps the PRIMARY's name (the cache GET namespace)", () => {
+    const wrapped = withReaderFallback(
+      fakeReader("jina", async () => "md"),
+      fakeReader("direct", async () => "fb"),
+    );
+    expect(wrapped.name).toBe("jina");
+    expect(wrapped.fallbackName).toBe("direct");
+  });
+
+  test("primary success → primary's outcome, fallback untouched", async () => {
+    const fallback = fakeReader("direct", async () => "fb");
+    const outcome = await withReaderFallback(
+      fakeReader("jina", async () => "md"),
+      fallback,
+    ).readWithOutcome("https://x");
+    expect(outcome).toEqual({ providerName: "jina", markdown: "md" });
+    expect(fallback.calls).toBe(0);
+  });
+
+  // THE production breakage: keyless r.jina.ai answers 401 for a whole ASN,
+  // so every read-url call died. The direct reader now serves it.
+  test("a keyless-reputation block falls back; the outcome names the FALLBACK", async () => {
+    const primary = fakeReader("jina", async () => {
+      throw new ReaderUnavailableError(
+        "Jina rejected the keyless request (Jina HTTP 401). … set a JINA_API_KEY …",
+      );
+    });
+    const fallback = fakeReader("direct", async () => "# Page");
+    const outcome = await withReaderFallback(primary, fallback).readWithOutcome("https://x");
+    expect(outcome).toEqual({ providerName: "direct", markdown: "# Page" });
+    expect(primary.calls).toBe(1);
+    expect(fallback.calls).toBe(1);
+  });
+
+  test("a connection-level failure also falls back", async () => {
+    const outcome = await withReaderFallback(
+      fakeReader("jina", async () => {
+        throw new Error("ECONNREFUSED");
+      }),
+      fakeReader("direct", async () => "md"),
+    ).readWithOutcome("https://x");
+    expect(outcome.providerName).toBe("direct");
+  });
+
+  test("an ordinary HTTP error does NOT fall back — it surfaces as-is", async () => {
+    const fallback = fakeReader("direct", async () => "md");
+    await expect(
+      withReaderFallback(
+        fakeReader("jina", async () => {
+          throw new Error("Jina HTTP 404");
+        }),
+        fallback,
+      ).readWithOutcome("https://x"),
+    ).rejects.toThrow("Jina HTTP 404");
+    expect(fallback.calls).toBe(0);
+  });
+
+  test("both failing → one error naming both readers and both causes", async () => {
+    await expect(
+      withReaderFallback(
+        fakeReader("jina", async () => {
+          throw new ReaderUnavailableError("keyless 401");
+        }),
+        fakeReader("direct", async () => {
+          throw new Error("Direct reader HTTP 403");
+        }),
+      ).readWithOutcome("https://x"),
+    ).rejects.toThrow("jina unavailable (keyless 401); direct fallback failed: Direct reader HTTP 403");
+  });
+
+  test("plain UrlReader.read() delegates through the same path", async () => {
+    const out = await withReaderFallback(
+      fakeReader("jina", async () => {
+        throw new ReaderUnavailableError("keyless 401");
+      }),
+      fakeReader("direct", async () => "fallback md"),
+    ).read("https://x");
+    expect(out).toBe("fallback md");
+  });
+
+  test("hasReadOutcome distinguishes wrapped from bare readers", () => {
+    const bare = fakeReader("jina", async () => "md");
+    expect(hasReadOutcome(bare)).toBe(false);
+    expect(hasReadOutcome(withReaderFallback(bare, bare))).toBe(true);
+  });
+});
+
+// ── end-to-end reader chain over the transport ──────────────────────
+
+describe("reader chain (Jina → direct) over a canned transport", () => {
+  test("a keyless 401 from r.jina.ai is served by the direct reader", async () => {
+    // Reproduces the live outage byte-for-byte at the fetch boundary: the
+    // Jina hop 401s with the reputation message, the direct hop returns the
+    // real page. Reverting the fallback makes this fail with `Jina HTTP 401`.
+    nextResponse = (c) =>
+      c.url.startsWith("https://r.jina.ai/")
+        ? new Response(
+            "AuthenticationRequiredError: You have been blocked from performing anonymous " +
+              "queries due to bad network reputation (AS7018). Please authenticate.",
+            { status: 401 },
+          )
+        : new Response("<html><body><main><h1>Example Domain</h1></main></body></html>", {
+            headers: { "content-type": "text/html" },
+          });
+    const { reader } = resolveProviders(transport, {} as NodeJS.ProcessEnv);
+    expect(hasReadOutcome(reader)).toBe(true);
+    const outcome = await (reader as ReturnType<typeof withReaderFallback>).readWithOutcome(
+      "https://example.com",
+    );
+    expect(outcome).toEqual({ providerName: "direct", markdown: "# Example Domain" });
+    // Jina hop first (backend mode), then the direct hop in read mode.
+    expect(calls.map((c) => c.mode)).toEqual(["backend", "read"]);
+    expect(calls[1]!.url).toBe("https://example.com");
   });
 });
 

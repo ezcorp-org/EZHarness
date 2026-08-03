@@ -6,21 +6,30 @@
 // transport swaps the extension's `fetchPermitted` (@ezcorp/sdk, sandbox
 // PDP) for `src/search/egress.ts#guardedFetch` (the host SSRF guard).
 //
-// Search backends (SearXNG / DDG / BYOK) fetch in `mode:"backend"`
-// (host allowlist — the sanctioned-internal SearXNG host included). The
-// Jina URL reader fetches in `mode:"read"` (fully untrusted, private-IP
-// rejecting). Transport is injectable so tests drive a mocked fetch with
-// zero live network.
+// Search backends (SearXNG / DDG / BYOK) fetch in `mode:"backend"` (host
+// allowlist — the sanctioned-internal SearXNG host included), and so does
+// the Jina URL reader (the OUTER hop is to Jina, which sandboxes the inner
+// fetch). The host-side `DirectReader` is the one provider that dials the
+// agent-supplied target itself, so it fetches in `mode:"read"` — fully
+// untrusted: every resolved address must be public, the connection is
+// IP-pinned, and each redirect is re-validated. Transport is injectable so
+// tests drive a mocked fetch with zero live network.
 //
 // Default path (keyless) is SearXNG (when `SEARXNG_BASE_URL` is set) with
-// DuckDuckGo as the universal keyless fallback. URL reading stays on
-// Jina's keyless `r.jina.ai`. BYOK providers take over at call time when
-// their env var is set. `resolveProviders` is the single selection seam.
+// DuckDuckGo as the universal keyless fallback. URL reading prefers Jina
+// (`r.jina.ai` — better markdown) and falls back to `DirectReader` when
+// Jina is UNAVAILABLE for this deployment. BYOK providers take over at call
+// time when their env var is set. `resolveProviders` is the single
+// selection seam.
 //
 // Keyless Jina *search* (`s.jina.ai` without a key) was removed 2026-06:
-// the upstream now returns 401 without a key.
+// the upstream now returns 401 without a key. The keyless Jina *reader* is
+// gated on ASN REPUTATION and can be permanently 401 for a whole
+// deployment — which is why the direct fallback reader exists.
 
 import { guardedFetch, type EgressMode, type GuardedFetchOptions } from "./egress";
+import { decodeHtmlEntities, htmlToMarkdown } from "./html-markdown";
+import { truncate } from "./markdown";
 import { logger } from "../logger";
 
 const log = logger.child("search.providers");
@@ -171,6 +180,29 @@ export class JinaSearch implements SearchProvider {
   }
 }
 
+/**
+ * A reader backend is UNUSABLE for this deployment (as opposed to the target
+ * URL being bad). That distinction is what makes falling back to another
+ * reader correct: a 404 means "this page doesn't exist" and must surface,
+ * while a keyless-reputation 401 means "this backend will never work here"
+ * and must be retried elsewhere.
+ */
+export class ReaderUnavailableError extends Error {
+  readonly code = "READER_UNAVAILABLE";
+  constructor(message: string) {
+    super(message);
+    this.name = "ReaderUnavailableError";
+  }
+}
+
+/** Should a reader failure trigger the fallback reader? Backend-unusable
+ *  (above) or connection-level — never an ordinary HTTP status. */
+export function isReaderUnavailable(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  if ((err as Error & { code?: unknown }).code === "READER_UNAVAILABLE") return true;
+  return isConnectionError(err);
+}
+
 export class JinaReader implements UrlReader {
   readonly name = "jina";
   constructor(
@@ -182,19 +214,150 @@ export class JinaReader implements UrlReader {
     const target = `${base}/${url}`;
     const headers: Record<string, string> = { accept: "text/markdown" };
     if (this.apiKey) headers.authorization = `Bearer ${this.apiKey}`;
-    // The reader fetches Jina, which itself fetches the user URL. The
-    // OUTER fetch (host → Jina) is backend-mode (Jina is a trusted,
-    // allowlisted host); Jina sandboxes the inner fetch. We still pin
-    // Jina's host. `mode:"read"` is reserved for direct URL fetches if a
-    // future BYOK reader fetches the target host-side (then the private-IP
-    // rejection matters). Today Jina is the only reader → backend mode.
-    const text = await doFetch<string>(this.transport, "Jina", target, {
-      headers,
-      as: "text",
-      allowedHosts: [hostnameOf(target)],
-    });
+    // This hop fetches JINA, which itself fetches the user URL. The OUTER
+    // fetch (host → Jina) is backend-mode: Jina is a trusted, allowlisted
+    // host and it sandboxes the inner fetch, so the private-IP rejection
+    // would be checking the wrong thing here. We still pin Jina's host.
+    // `mode:"read"` belongs to `DirectReader` below — the fallback that
+    // dials the agent-supplied host from inside OUR network, where the
+    // private-IP rejection is the whole point.
+    let text: string;
+    try {
+      text = await doFetch<string>(this.transport, "Jina", target, {
+        headers,
+        as: "text",
+        allowedHosts: [hostnameOf(target)],
+      });
+    } catch (err) {
+      // Keyless `r.jina.ai` is rate-limited BY NETWORK REPUTATION, not
+      // just by volume: upstream answers 401 ("blocked from performing
+      // anonymous queries due to bad network reputation") for whole ASNs,
+      // so a deployment can be permanently keyless-blocked through no
+      // fault of its own. Without this, every `read-url` call surfaced a
+      // bare "Jina HTTP 401" and the operator had no idea a free API key
+      // fixes it. Same failure mode that retired keyless Jina SEARCH in
+      // 2026-06 (see the module header).
+      //
+      // `ReaderUnavailableError` (not a plain Error) is what tells
+      // `withReaderFallback` this backend is dead FOR THIS DEPLOYMENT and
+      // the host-side `DirectReader` should serve instead. The message is
+      // still the actionable one: a key restores the better markdown.
+      const msg = (err as Error).message;
+      if (!this.apiKey && /\b(401|403)\b/.test(msg)) {
+        throw new ReaderUnavailableError(
+          "Jina rejected the keyless request (" +
+            msg +
+            "). The keyless reader is gated on network reputation — set a " +
+            "JINA_API_KEY (free tier) in Settings → Search to restore read-url.",
+        );
+      }
+      throw err;
+    }
     if (text.length === 0) throw new Error("Jina returned empty body (binary or unreachable URL)");
     return text;
+  }
+}
+
+// ── Direct host-side reader (fallback) ──────────────────────────────
+// Fetches the target URL OURSELVES and converts it to markdown with Bun's
+// built-in HTMLRewriter (see ./html-markdown.ts — locked decision: no new
+// HTML-parsing dependencies). This is the reader that makes `read-url`
+// survive a keyless-Jina block; it is deliberately the FALLBACK because
+// Jina's hosted extraction is better.
+
+/** Browser-ish UA — a default/absent agent gets 403'd or challenge-paged by
+ *  a meaningful slice of the web. Shared with the DuckDuckGo scraper. */
+const BROWSER_USER_AGENT =
+  "Mozilla/5.0 (X11; Linux x86_64; rv:127.0) Gecko/20100101 Firefox/127.0";
+
+/**
+ * Hard ceiling on what a reader hands back. `performRead` clamps per call to
+ * at most 200 000 chars, so nothing beyond this can ever reach a caller —
+ * capping HERE additionally bounds what the shared cache retains (the guard
+ * already caps the wire body at 5 MiB).
+ */
+const MAX_READ_CHARS = 200_000;
+
+export type ReadContentKind = "html" | "text" | "binary";
+
+const BINARY_TYPE_PREFIXES = ["image/", "audio/", "video/", "font/", "model/"];
+const TEXTUAL_APPLICATION_TYPES = new Set([
+  "application/json",
+  "application/xml",
+  "application/javascript",
+  "application/x-javascript",
+  "application/yaml",
+  "application/x-yaml",
+  "application/x-ndjson",
+  "application/ld+json",
+]);
+
+/**
+ * Decide how to treat a response body from its `Content-Type`.
+ *
+ * An ABSENT content type is treated as HTML: servers that omit it are
+ * overwhelmingly serving HTML, and a genuinely binary body yields no
+ * extractable text, which surfaces as a clear error instead of mojibake.
+ * `image/svg+xml` classifies binary (the `image/` prefix wins over the
+ * `+xml` suffix) — it is markup, but never article content.
+ */
+export function classifyReadContentType(raw: string | null | undefined): ReadContentKind {
+  const ct = (raw ?? "").split(";")[0]!.trim().toLowerCase();
+  if (ct.length === 0) return "html";
+  if (ct === "text/html" || ct === "application/xhtml+xml") return "html";
+  if (BINARY_TYPE_PREFIXES.some((p) => ct.startsWith(p))) return "binary";
+  if (ct.startsWith("text/")) return "text";
+  if (TEXTUAL_APPLICATION_TYPES.has(ct) || ct.endsWith("+json") || ct.endsWith("+xml")) {
+    return "text";
+  }
+  return "binary";
+}
+
+export class DirectReader implements UrlReader {
+  readonly name = "direct";
+  constructor(private readonly transport: Transport) {}
+
+  async read(url: string): Promise<string> {
+    // `mode:"read"` is NON-NEGOTIABLE here. Unlike every other provider,
+    // this one dials a host chosen by the agent/LLM from inside our
+    // network, so the guard must: resolve ALL addresses and reject any
+    // private / loopback / link-local / cloud-metadata / CGNAT one, pin the
+    // connection to a validated IP (defeating DNS rebinding), re-validate
+    // every redirect hop (defeating redirect-to-internal), and cap
+    // redirects / body / timeout. No `allowedHosts` — read mode ignores the
+    // allowlist and relies on the address checks instead.
+    const res = await this.transport({
+      url,
+      init: {
+        method: "GET",
+        headers: {
+          accept: "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.5",
+          "user-agent": BROWSER_USER_AGENT,
+        },
+      },
+      mode: "read",
+    });
+    if (!res.ok) throw new Error(`Direct reader HTTP ${res.status}`);
+
+    const contentType = res.headers.get("content-type");
+    const kind = classifyReadContentType(contentType);
+    if (kind === "binary") {
+      throw new Error(
+        `Direct reader cannot render "${(contentType ?? "").split(";")[0]!.trim()}" as text ` +
+          "— only HTML and text responses are supported.",
+      );
+    }
+    const body = await res.text();
+    // A lying/absent content type on a truly binary payload: NUL bytes
+    // never occur in HTML or text, so refuse rather than emit garbage.
+    if (body.includes("\u0000")) {
+      throw new Error("Direct reader received binary content (not HTML or text).");
+    }
+    const md = kind === "html" ? await htmlToMarkdown(body, url) : body.trim();
+    if (md.length === 0) {
+      throw new Error(`Direct reader extracted no readable text from ${url}`);
+    }
+    return truncate(md, MAX_READ_CHARS);
   }
 }
 
@@ -345,9 +508,6 @@ export class SearXNG implements SearchProvider {
 // primary; `html.duckduckgo.com` is the in-class fallback. Without a
 // browsery User-Agent DDG serves a challenge page → 0 results (no throw).
 
-const DDG_USER_AGENT =
-  "Mozilla/5.0 (X11; Linux x86_64; rv:127.0) Gecko/20100101 Firefox/127.0";
-
 interface DdgSelectors {
   link: string;
   snippet: string;
@@ -355,21 +515,6 @@ interface DdgSelectors {
 
 const DDG_LITE_SELECTORS: DdgSelectors = { link: "a.result-link", snippet: "td.result-snippet" };
 const DDG_HTML_SELECTORS: DdgSelectors = { link: "a.result__a", snippet: ".result__snippet" };
-
-/**
- * Minimal HTML-entity decode for the handful of entities DDG's markup
- * emits. `&amp;` LAST so `&amp;lt;` decodes to the literal `&lt;`.
- */
-function decodeEntities(s: string): string {
-  return s
-    .replace(/&#x([0-9a-f]+);/gi, (_, h: string) => String.fromCodePoint(Number.parseInt(h, 16)))
-    .replace(/&#(\d+);/g, (_, d: string) => String.fromCodePoint(Number(d)))
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&");
-}
 
 /**
  * DDG wraps result hrefs in a redirect:
@@ -407,7 +552,7 @@ async function parseDdgResults(html: string, sel: DdgSelectors): Promise<SearchR
     .on(sel.link, {
       element(el) {
         flush(); // a new result anchor closes the previous result
-        const href = decodeEntities(el.getAttribute("href") ?? "");
+        const href = decodeHtmlEntities(el.getAttribute("href") ?? "");
         current = { title: "", url: unwrapDdgRedirect(href), snippet: "" };
       },
       text(t) {
@@ -422,9 +567,9 @@ async function parseDdgResults(html: string, sel: DdgSelectors): Promise<SearchR
   await rewriter.transform(new Response(html)).text();
   flush();
   return collected.map((r) => ({
-    title: decodeEntities(r.title).replace(/\s+/g, " ").trim(),
+    title: decodeHtmlEntities(r.title).replace(/\s+/g, " ").trim(),
     url: r.url,
-    snippet: decodeEntities(r.snippet).replace(/\s+/g, " ").trim(),
+    snippet: decodeHtmlEntities(r.snippet).replace(/\s+/g, " ").trim(),
   }));
 }
 
@@ -433,7 +578,7 @@ export class DuckDuckGo implements SearchProvider {
   constructor(private readonly transport: Transport) {}
   async search(query: string, maxResults: number): Promise<SearchResult[]> {
     const q = encodeURIComponent(query);
-    const headers = { accept: "text/html", "user-agent": DDG_USER_AGENT };
+    const headers = { accept: "text/html", "user-agent": BROWSER_USER_AGENT };
     let html: string;
     let selectors = DDG_LITE_SELECTORS;
     try {
@@ -506,6 +651,65 @@ export function withFallback(primary: SearchProvider, fallback: SearchProvider):
   };
 }
 
+// ── Reader fallback wrapper ─────────────────────────────────────────
+// Same shape as `withFallback` above — deliberately, so `performRead`'s
+// cache namespacing works exactly like `performSearch`'s: the wrapper keeps
+// the PRIMARY's name (the cache GET namespace) while the outcome reports
+// which reader actually served, so a fallback result caches under the
+// FALLBACK's namespace and never poisons the primary's.
+
+export interface ReadOutcome {
+  providerName: string;
+  markdown: string;
+}
+
+export interface FallbackUrlReader extends UrlReader {
+  readonly fallbackName?: string;
+  readWithOutcome(url: string): Promise<ReadOutcome>;
+}
+
+export function hasReadOutcome(r: UrlReader): r is FallbackUrlReader {
+  return typeof (r as FallbackUrlReader).readWithOutcome === "function";
+}
+
+/**
+ * Serve `read` from `primary`, falling back to `fallback` ONLY when the
+ * primary is unusable for this deployment (`isReaderUnavailable`: a keyless
+ * reputation block, or a connection-level failure). An ordinary HTTP status
+ * — 404, 410, a keyed 401 — is a fact about the TARGET or the credential
+ * and surfaces unchanged; retrying it against another reader would just
+ * double the egress and hide the real answer.
+ */
+export function withReaderFallback(primary: UrlReader, fallback: UrlReader): FallbackUrlReader {
+  const readWithOutcome = async (url: string): Promise<ReadOutcome> => {
+    let primaryErr: Error;
+    try {
+      return { providerName: primary.name, markdown: await primary.read(url) };
+    } catch (err) {
+      if (!isReaderUnavailable(err)) throw err;
+      primaryErr = err as Error;
+    }
+    log.warn("primary url reader unavailable; falling back", {
+      primary: primary.name,
+      fallback: fallback.name,
+      error: primaryErr.message,
+    });
+    try {
+      return { providerName: fallback.name, markdown: await fallback.read(url) };
+    } catch (fbErr) {
+      throw new Error(
+        `${primary.name} unavailable (${primaryErr.message}); ${fallback.name} fallback failed: ${(fbErr as Error).message}`,
+      );
+    }
+  };
+  return {
+    name: primary.name,
+    fallbackName: fallback.name,
+    read: async (url) => (await readWithOutcome(url)).markdown,
+    readWithOutcome,
+  };
+}
+
 // ── Resolver ────────────────────────────────────────────────────────
 
 export interface ResolvedProviders {
@@ -519,15 +723,19 @@ export interface ResolvedProviders {
  *   JINA_API_KEY (keyed Jina search) > SEARXNG_BASE_URL (SearXNG with a
  *   one-shot DuckDuckGo fallback) > DuckDuckGo (keyless default).
  *
- * URL reading always uses Jina (the only keyless HTML-to-markdown
- * service we trust). The injected `transport` carries the SSRF guard.
+ * URL reading prefers Jina (`r.jina.ai` — the best HTML-to-markdown we can
+ * reach, keyless or keyed) with the host-side `DirectReader` behind it. The
+ * fallback exists because Jina's keyless tier is gated on ASN reputation:
+ * a deployment can be permanently 401'd through no fault of its own, and
+ * before this `read-url` simply died. The injected `transport` carries the
+ * SSRF guard — the direct reader fetches in `mode:"read"`.
  */
 export function resolveProviders(
   transport: Transport,
   env: NodeJS.ProcessEnv = process.env,
 ): ResolvedProviders {
   const jinaKey = env.JINA_API_KEY;
-  const reader = new JinaReader(transport, jinaKey);
+  const reader = withReaderFallback(new JinaReader(transport, jinaKey), new DirectReader(transport));
   if (env.TAVILY_API_KEY)  return { search: new Tavily(transport, env.TAVILY_API_KEY),   reader };
   if (env.BRAVE_API_KEY)   return { search: new Brave(transport, env.BRAVE_API_KEY),    reader };
   if (env.EXA_API_KEY)     return { search: new Exa(transport, env.EXA_API_KEY),        reader };

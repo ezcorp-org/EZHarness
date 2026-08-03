@@ -41,7 +41,7 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 };
 
 export const PUT: RequestHandler = async ({ params, request, locals }) => {
-  const scopeErr = requireScope(locals, "read");
+  const scopeErr = requireScope(locals, "write");
   if (scopeErr) return scopeErr;
   const user = requireAuth(locals);
   const memory = await getMemoryById(params.id);
@@ -108,8 +108,9 @@ export const PUT: RequestHandler = async ({ params, request, locals }) => {
  * Body: `{ injectionEligible: boolean }` (validated via
  * `patchMemorySchema`; unknown keys 400, missing field 400).
  *
- * Auth mirrors GET/PUT: must hold the `read` scope on an API key
- * (cookie auth bypasses), must be authenticated, must own the row
+ * Auth mirrors PUT/DELETE: must hold the `write` scope on an API key
+ * (cookie auth bypasses; GET alone takes `read`), must be
+ * authenticated, must own the row
  * (or be admin) — ownership-mismatch and missing-row both 404 to
  * prevent id enumeration (sec-H3 fail-closed).
  *
@@ -124,7 +125,7 @@ export const PUT: RequestHandler = async ({ params, request, locals }) => {
  *     so the client can confirm without a second round-trip.
  */
 export const PATCH: RequestHandler = async ({ params, request, locals }) => {
-  const scopeErr = requireScope(locals, "read");
+  const scopeErr = requireScope(locals, "write");
   if (scopeErr) return scopeErr;
   const user = requireAuth(locals);
 
@@ -187,7 +188,7 @@ export const PATCH: RequestHandler = async ({ params, request, locals }) => {
 };
 
 export const DELETE: RequestHandler = async ({ params, locals }) => {
-  const scopeErr = requireScope(locals, "read");
+  const scopeErr = requireScope(locals, "write");
   if (scopeErr) return scopeErr;
   const user = requireAuth(locals);
   const memory = await getMemoryById(params.id);

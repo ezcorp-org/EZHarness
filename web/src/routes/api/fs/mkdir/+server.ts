@@ -16,7 +16,7 @@ const postBodySchema = z.object({
 }).strict();
 
 export const POST: RequestHandler = async ({ request, locals }) => {
-  const scopeErr = requireScope(locals, "read");
+  const scopeErr = requireScope(locals, "admin");
   if (scopeErr) return scopeErr;
   const user = requireAuth(locals);
   if (user.role !== "admin") {

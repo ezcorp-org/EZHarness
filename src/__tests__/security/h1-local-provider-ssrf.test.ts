@@ -89,9 +89,21 @@ mock.module("node:dns/promises", () => ({
 // requireRole gate, not an api-key scope check.
 mock.module("$lib/server/security/api-keys", () => ({
   requireScope: () => null,
+  // Real contract: null when the principal IS an admin, else a 403 Response.
+  // RETURNED, never thrown — a thrown Response 500s via SvelteKit.
+  requireAdmin: (locals: { user?: { role?: string } }) =>
+    locals.user?.role === "admin"
+      ? null
+      : Response.json({ error: "Admin role required" }, { status: 403 }),
 }));
 mock.module("../../../web/src/lib/server/security/api-keys", () => ({
   requireScope: () => null,
+  // Real contract: null when the principal IS an admin, else a 403 Response.
+  // RETURNED, never thrown — a thrown Response 500s via SvelteKit.
+  requireAdmin: (locals: { user?: { role?: string } }) =>
+    locals.user?.role === "admin"
+      ? null
+      : Response.json({ error: "Admin role required" }, { status: 403 }),
 }));
 
 // ── Capture upstream fetch calls ─────────────────────────────────
@@ -190,7 +202,12 @@ for (const probe of probes) {
       expect(probe.getCalls().length).toBe(0);
     });
 
-    test("unauthenticated → 401, upstream fetch NOT reached", async () => {
+    // 403, not 401: the gate is now the role-only `requireAdmin`, which
+    // RETURNS its denial (requireRole THREW one, so the caller actually got a
+    // 500) and treats "no principal" as "not an admin". Hook-unreachable
+    // either way — hooks.server.ts 401s unauthenticated /api/* first. What
+    // matters for sec-H1 is unchanged: the upstream fetch is never reached.
+    test("unauthenticated → 403, upstream fetch NOT reached", async () => {
       const event = createMockEvent({
         method: "POST",
         url: probe.url,
@@ -198,7 +215,7 @@ for (const probe of probes) {
         // no user
       });
       const res = await call(probe.handler, event);
-      expect(res.status).toBe(401);
+      expect(res.status).toBe(403);
       expect(probe.getCalls().length).toBe(0);
     });
   });

@@ -510,11 +510,23 @@ describe("GET /api/hub/pages/[id]", () => {
 
 // ── POST /api/hub/pages/[id]/actions/[action] ─────────────────────
 
-function actionEvent(opts: { id?: string; action?: string; body?: unknown; user?: AuthUser } = {}) {
+function actionEvent(
+  opts: {
+    id?: string;
+    action?: string;
+    body?: unknown;
+    user?: AuthUser;
+    authMethod?: string;
+  } = {},
+) {
   return createMockEvent({
     method: "POST",
     body: opts.body ?? {},
     user: opts.user ?? userA,
+    // Ordinary actions do not care how the caller authenticated — this route
+    // is `harness: controllable` on purpose — so the default stays unstamped
+    // and every pre-existing test below keeps describing the same caller.
+    authMethod: opts.authMethod,
     params: { id: opts.id ?? "core:demo", action: opts.action ?? "go" },
   });
 }
@@ -673,6 +685,146 @@ describe("POST /api/hub/pages/[id]/actions/[action]", () => {
     }
     const blocked = await call(actionPost, actionEvent());
     expect(blocked.status).toBe(429);
+  });
+
+  // ── sessionOnlyActions: the SECOND arm of the consent boundary (R-4) ──
+  //
+  // The workflow-approvals `answer` action reaches `answerApproval`. This
+  // route is `chat`-scoped and `harness: controllable`, so closing only the
+  // REST answer route would have MOVED the hole here rather than shut it. An
+  // opt-in per action keeps the harness able to drive everything else.
+
+  /** A provider whose `spend` action is session-only and `read` is not — so
+   *  every assertion below is about the DECLARATION, not about the route
+   *  having been closed wholesale. */
+  function registerConsentProvider(): { spent: string[] } {
+    const spent: string[] = [];
+    registerHubPageProvider({
+      id: "consent",
+      title: "Consent",
+      render: async () => ({ title: "Consent", nodes: [] }),
+      sessionOnlyActions: ["spend"],
+      actions: {
+        spend: async (ctx) => {
+          spent.push(ctx.userId);
+          return undefined;
+        },
+        read: async () => undefined,
+      },
+    });
+    return { spent };
+  }
+
+  test("a session-only action REFUSES an api-key principal, and spends nothing", async () => {
+    const { spent } = registerConsentProvider();
+    const res = await call(
+      actionPost,
+      actionEvent({ id: "core:consent", action: "spend", authMethod: "api-key" }),
+    );
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: "Interactive session required" });
+    // The load-bearing half: refused BEFORE the handler, so no consent was
+    // spent and then apologised for.
+    expect(spent).toEqual([]);
+  });
+
+  test("a session-only action refuses an UNSTAMPED principal too", async () => {
+    const { spent } = registerConsentProvider();
+    const res = await call(actionPost, actionEvent({ id: "core:consent", action: "spend" }));
+    expect(res.status).toBe(403);
+    expect(spent).toEqual([]);
+  });
+
+  test("a session-only action ALLOWS a real session", async () => {
+    const { spent } = registerConsentProvider();
+    const res = await call(
+      actionPost,
+      actionEvent({ id: "core:consent", action: "spend", authMethod: "session" }),
+    );
+    expect(res.status).toBe(200);
+    expect(spent).toEqual([userA.id]);
+  });
+
+  test("a NON-session-only action on the same provider still takes an api key", async () => {
+    // Proves the gate is the per-action declaration and not the route: this
+    // route is harness-controllable and must stay that way.
+    registerConsentProvider();
+    const res = await call(
+      actionPost,
+      actionEvent({ id: "core:consent", action: "read", authMethod: "api-key" }),
+    );
+    expect(res.status).toBe(200);
+  });
+
+  test("the refusal comes AFTER the 404s — it is not an enumeration oracle", async () => {
+    // An unknown action on the consent page must still look exactly like an
+    // unknown action anywhere else, or the 403 tells an attacker which
+    // action names are real.
+    registerConsentProvider();
+    const res = await call(
+      actionPost,
+      actionEvent({ id: "core:consent", action: "nosuch", authMethod: "api-key" }),
+    );
+    expect(res.status).toBe(404);
+  });
+
+  test("a refused key cannot burn the human's 10/min action budget", async () => {
+    // Ordering property, stated as behaviour: if the session gate ran after
+    // the rate limiter, a leaked key could lock its own owner out of
+    // answering their approvals — a denial-of-consent from the outside.
+    const { spent } = registerConsentProvider();
+    for (let i = 0; i < 15; i++) {
+      const blocked = await call(
+        actionPost,
+        actionEvent({ id: "core:consent", action: "spend", authMethod: "api-key" }),
+      );
+      expect(blocked.status).toBe(403);
+    }
+    const human = await call(
+      actionPost,
+      actionEvent({ id: "core:consent", action: "spend", authMethod: "session" }),
+    );
+    expect(human.status).toBe(200);
+    expect(spent).toEqual([userA.id]);
+  });
+});
+
+describe("registerHubPageProvider — sessionOnlyActions integrity", () => {
+  test("rejects a sessionOnlyActions entry that names no real action", () => {
+    // An inert declaration reads like protection and provides none. Caught
+    // at registration so the drift cannot exist at runtime.
+    expect(() =>
+      registerHubPageProvider({
+        id: "typo",
+        title: "T",
+        render: async () => ({ title: "T", nodes: [] }),
+        actions: { answer: async () => undefined },
+        sessionOnlyActions: ["anwser"],
+      }),
+    ).toThrow(/not one of its actions/);
+  });
+
+  test("rejects it even when the provider declares NO actions at all", () => {
+    expect(() =>
+      registerHubPageProvider({
+        id: "noactions",
+        title: "N",
+        render: async () => ({ title: "N", nodes: [] }),
+        sessionOnlyActions: ["spend"],
+      }),
+    ).toThrow(/not one of its actions/);
+  });
+
+  test("accepts a correct declaration", () => {
+    expect(() =>
+      registerHubPageProvider({
+        id: "correct",
+        title: "C",
+        render: async () => ({ title: "C", nodes: [] }),
+        actions: { answer: async () => undefined },
+        sessionOnlyActions: ["answer"],
+      }),
+    ).not.toThrow();
   });
 });
 

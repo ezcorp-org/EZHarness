@@ -264,6 +264,55 @@ export function canonicalizeAndHash(tools: ToolDefinition[]): string {
 }
 
 /**
+ * Tool fields that carry NO capability and NO LLM-facing contract —
+ * pure presentation/retrieval metadata. `suggestExamples` is authored
+ * phrasing consumed ONLY by the composer's suggestion ranker
+ * (`src/suggest/` — embedding anchors + training export); it is never
+ * sent to the model as part of the tool definition and cannot widen
+ * what a tool is able to do.
+ *
+ * Excluded from the S9 RE-APPROVAL signature only. The lockfile hash
+ * (`canonicalizeAndHash`, used by `verifyManifestAgainstLock`) keeps
+ * full fidelity — tamper detection should still notice every byte.
+ */
+export const NON_SEMANTIC_TOOL_FIELDS = ["suggestExamples"] as const;
+
+/**
+ * Canonical-JSON SHA-256 of the SECURITY-RELEVANT tool surface — the
+ * signal the S9 re-approval gate compares (`bundled.ts
+ * #detectVersionBumpRequiringReapproval`).
+ *
+ * Identical to `canonicalizeAndHash` except presentation-only fields
+ * (`NON_SEMANTIC_TOOL_FIELDS`) are dropped first, because S9 asks "did
+ * this tool's capability/contract surface change enough to need admin
+ * consent?" — not "did any byte change".
+ *
+ * Why this exists: adding `suggestExamples` to a bundled manifest flipped
+ * the tool hash, so S9 disabled the extension "pending re-approval". That
+ * exit `continue`s BEFORE both the manifest refresh and the re-enable
+ * branch, so the stored manifest could never catch up and the extension
+ * was stranded disabled on EVERY subsequent boot — with no tool ever
+ * reaching the LLM. `web-search` was stranded this way on the live host
+ * (its `search-web` / `read-url` tools vanished from every agent), which
+ * is the same stranding class as the v2→v3 `capabilities` phantom drift
+ * fixed by normalizing both sides in `detectVersionBumpRequiringReapproval`.
+ *
+ * This does NOT blunt the gate: a real tool add/remove/rename, an
+ * `inputSchema` edit, a `description` change, or a `capabilities`
+ * widening all still flip this hash and still require re-approval.
+ */
+export function canonicalizeAndHashForReapproval(tools: ToolDefinition[]): string {
+  return canonicalizeAndHash(tools.map(stripNonSemanticFields));
+}
+
+/** Drop presentation-only fields; everything else passes through. */
+function stripNonSemanticFields(tool: ToolDefinition): ToolDefinition {
+  const out: ToolDefinition = { ...tool };
+  for (const field of NON_SEMANTIC_TOOL_FIELDS) delete out[field];
+  return out;
+}
+
+/**
  * Canonical form of a single ToolDefinition: top-level keys sorted,
  * `inputSchema` deeply-sorted, function-valued fields stripped.
  */
