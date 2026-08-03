@@ -71,15 +71,38 @@ Empty stdout means "nothing dropped" **only at exit 0**. The scope line
 so stdout stays paste-clean while "how many branches did you actually look at"
 is never invisible — a pattern that matches nothing exits 2, never 0.
 
-**Point it at a history-preserving tip.** Patch-id equivalence is per-commit; a
-squash replaces N commits with one combined patch-id that matches none of them.
-Against a squash-merged trunk `git cherry` therefore marks *every* branch commit
-`+`, landed and dropped alike. Use the **integration branch** — the ref the
-release was squashed from — which is the useful question during an integration
-anyway ("what is not in *this* branch yet"). If one commit shows up unlanded on
-half or more of the examined branches, the script recognises the squash
-signature and exits 3 as an instrument failure rather than emitting a wall of
-false positives; `--allow-all-unlanded` overrides it.
+**Point it at a history-preserving tip — the default will refuse.** Patch-id
+equivalence is per-commit; a squash replaces N commits with one combined
+patch-id that matches none of them. Against a squash-merged trunk `git cherry`
+therefore marks *every* branch commit `+`, landed and dropped alike. Because
+this repo squash-merges everything, **`origin/main` can never answer this
+question**, so running with no arguments is expected to exit 3 rather than
+print a wall of false positives. Measured on the ez-factory program: at
+`tip=origin/main` 33 of 34 branches flagged, *including* four known-landed
+control branches; at the integration tip, all four came back clean and only the
+real drops flagged.
+
+Exit 3 is a normal, useful outcome, not a crash. The message is the product: it
+names the tip as the thing at fault, explains the patch-id mechanism, and lists
+the local branches that **contain** the shared commit `origin/main` cannot see —
+ranked most-integrated first, as ready-to-run commands. Follow one of them:
+
+```
+$ bun run branches:unlanded
+FATAL: 'origin/main' cannot answer this question — it looks SQUASH-MERGED.
+  …
+  TRY ONE OF THESE. They are the local branches that CONTAIN 40d57aae,
+  most-integrated first …
+    bun run branches:unlanded feat/ez-factory-onto-main
+```
+
+The right tip is the **integration branch** — the ref the release was squashed
+from — which is the useful question during an integration anyway ("what is not
+in *this* branch yet"). Confirm a candidate with
+`git rev-parse <candidate>^{tree} origin/main^{tree}`: two identical lines means
+same content, real history. `--allow-all-unlanded` accepts a flagged result
+as-is when the branches genuinely do share unlanded work. The wording of this
+message is pinned by tests — it is the only thing most callers will ever read.
 
 Deliberately **not** a CI job: it reads local branches, which a CI checkout does
 not have. Run it before you declare a multi-branch program finished.

@@ -107,7 +107,20 @@ export interface GitPort {
   cherry(tip: string, branch: string): string;
   /** `sha -> subject` for the given shas. */
   subjects(shas: string[]): Map<string, string>;
+  /**
+   * Local branches that CONTAIN `sha`, most-integrated first.
+   *
+   * Used only to make the degenerate-tip error actionable. Containing the
+   * shared commit is the necessary condition for a usable tip — such a ref
+   * has that commit as a real ancestor, so `git cherry` can see it
+   * per-commit. Ranked by total commit count, so the branch that absorbed
+   * the most work is suggested first.
+   */
+  candidateTips(sha: string): string[];
 }
+
+/** How many candidate tips the degenerate-tip message lists. */
+export const MAX_CANDIDATE_TIPS = 4;
 
 export interface BranchVerdict {
   branch: string;
@@ -253,22 +266,48 @@ export function render(s: Scan, git: GitPort, allowAllUnlanded = false): Rendere
   // ── One commit flagged across half the tree: the tip is collapsed. ───
   const degenerate = allowAllUnlanded ? null : degenerateTipEvidence(s);
   if (degenerate !== null) {
+    const short = degenerate.sha.slice(0, 8);
+    const candidates = git.candidateTips(degenerate.sha).slice(0, MAX_CANDIDATE_TIPS);
+    const suggestion =
+      candidates.length > 0
+        ? `  TRY ONE OF THESE. They are the local branches that CONTAIN ${short},\n` +
+          `  most-integrated first — containing it is exactly what '${s.tip}' fails to do:\n` +
+          candidates.map((c) => `    bun run branches:unlanded ${c}\n`).join("") +
+          `  Check the one you pick is the right integration branch: its tree should\n` +
+          `  match the release it was squashed into —\n` +
+          `    git rev-parse <candidate>^{tree} ${s.tip}^{tree}   # two identical lines\n`
+        : `  No local branch contains ${short}, so this repo has no usable tip on disk.\n` +
+          `  Fetch or recreate the integration branch the release was squashed from;\n` +
+          `  its tree will match the release —\n` +
+          `    git rev-parse <candidate>^{tree} ${s.tip}^{tree}   # two identical lines\n`;
     return {
       stdout: "",
       stderr:
         `${scope}  flagged=${flagged.length}\n` +
-        `FATAL: commit ${degenerate.sha.slice(0, 8)} is reported unlanded on ` +
-        `${degenerate.branches} of ${s.verdicts.length} examined branches.\n` +
-        `  Those branches SHARE that commit, so the tip cannot see it per-commit —\n` +
-        `  the signature of a SQUASH-COLLAPSED tip. A squash replaces N commits with\n` +
-        `  one combined patch-id matching none of them, so \`git cherry\` marks every\n` +
-        `  commit '+' and landed work is indistinguishable from dropped work.\n` +
-        `  This result is an INSTRUMENT FAILURE, not a finding.\n` +
-        `  Re-run against a tip with REAL merge history — the integration branch the\n` +
-        `  release was squashed from:\n` +
-        `    bun run branches:unlanded <integration-branch>\n` +
-        `  (find one by tree: \`git rev-parse <ref>^{tree}\` should equal the release's.)\n` +
-        `  If these branches genuinely share unlanded work, pass --allow-all-unlanded.\n`,
+        `FATAL: '${s.tip}' cannot answer this question — it looks SQUASH-MERGED.\n` +
+        `  This is an INSTRUMENT FAILURE, not a finding. Do not read the ${flagged.length}\n` +
+        `  flagged branches as dropped work.\n` +
+        `\n` +
+        `  EVIDENCE: commit ${short} is reported unlanded on ${degenerate.branches} of ` +
+        `${s.verdicts.length} examined\n` +
+        `  branches. They SHARE that commit, so a tip that genuinely lacked it would\n` +
+        `  mean ${degenerate.branches} independent branches each dropped the same work. The tip\n` +
+        `  simply cannot see it.\n` +
+        `\n` +
+        `  WHY: \`git cherry\` matches commits by PATCH-ID. A squash merge replaces a\n` +
+        `  branch's N commits with ONE commit whose combined patch-id equals none of\n` +
+        `  the N, so every branch commit reads '+' — landed and dropped alike. This is\n` +
+        `  why ${DEFAULT_TIP} (the default) can NEVER answer this in a squash-merge repo,\n` +
+        `  and why ancestry (\`git merge-base --is-ancestor\`) cannot either.\n` +
+        `\n` +
+        `  A USABLE TIP is a ref with REAL merge history — the integration branch the\n` +
+        `  release was squashed FROM. Same tree as the release, but it still holds the\n` +
+        `  individual commits, so their patch-ids still match.\n` +
+        `\n` +
+        suggestion +
+        `\n` +
+        `  If these branches genuinely do share unlanded work, pass --allow-all-unlanded\n` +
+        `  to accept the result as-is.\n`,
       exitCode: EXIT_DEGENERATE_TIP,
     };
   }
@@ -367,6 +406,18 @@ export function realGit(cwd: string): GitPort {
         if (tab > 0) out.set(line.slice(0, tab), line.slice(tab + 1));
       }
       return out;
+    },
+    candidateTips(sha) {
+      const r = run(["for-each-ref", "--contains", sha, "--format=%(refname:short)", "refs/heads"], cwd);
+      if (!r.ok) return []; // a suggestion is cosmetic; the diagnosis above is not
+      const named = r.stdout.split("\n").filter((l) => l !== "");
+      return named
+        .map((name) => {
+          const c = run(["rev-list", "--count", name], cwd);
+          return { name, commits: c.ok ? Number(c.stdout.trim()) : 0 };
+        })
+        .sort((a, b) => b.commits - a.commits || a.name.localeCompare(b.name))
+        .map((c) => c.name);
     },
   };
 }

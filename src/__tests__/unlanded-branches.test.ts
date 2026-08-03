@@ -37,6 +37,7 @@ import {
   EXIT_UNLANDED,
   EXIT_UNUSABLE,
   type GitPort,
+  MAX_CANDIDATE_TIPS,
   degenerateTipEvidence,
   main,
   matchBranches,
@@ -53,6 +54,7 @@ function fakeGit(opts: {
   cherry?: Record<string, string>;
   subjects?: Record<string, string>;
   unresolvable?: boolean;
+  candidates?: string[];
 }): GitPort {
   return {
     listBranches: () => opts.branches,
@@ -63,6 +65,7 @@ function fakeGit(opts: {
       return out;
     },
     subjects: (shas) => new Map(shas.map((s) => [s, opts.subjects?.[s] ?? `subject for ${s}`])),
+    candidateTips: () => opts.candidates ?? [],
   };
 }
 
@@ -261,8 +264,74 @@ describe("degenerate-tip guard", () => {
     expect(r.exitCode).toBe(EXIT_DEGENERATE_TIP);
     expect(r.stdout).toBe("");
     expect(r.stderr).toContain(`${SHA_A.slice(0, 8)} is reported unlanded on 3 of 3`);
-    expect(r.stderr).toContain("SQUASH-COLLAPSED");
+    expect(r.stderr).toContain("SQUASH-MERGED");
     expect(r.stderr).toContain("INSTRUMENT FAILURE");
+  });
+
+  // ── The exit-3 path is the DEFAULT path in a squash-merge repo (running
+  // with no arguments lands here), so the message is the product. It has to
+  // teach the reader what went wrong and what a usable tip is, from the
+  // message alone. These pin that it does.
+  describe("the exit-3 message is self-teaching", () => {
+    const msg = () => {
+      const git = fakeGit({ ...collapsed, candidates: ["feat/integration", "feat/older"] });
+      return render(scan(git, "origin/main", ["feat/*"]), git).stderr;
+    };
+
+    test("names the tip as the thing at fault, not the branches", () => {
+      expect(msg()).toContain("'origin/main' cannot answer this question");
+      expect(msg()).toContain("Do not read the 3");
+      expect(msg()).toContain("flagged branches as dropped work");
+    });
+
+    test("explains the MECHANISM — patch-ids, and why a squash defeats them", () => {
+      const m = msg();
+      expect(m).toContain("PATCH-ID");
+      expect(m).toContain("replaces a");
+      expect(m).toContain("combined patch-id equals none of");
+      expect(m).toContain("landed and dropped alike");
+    });
+
+    test("says the DEFAULT tip can never answer, and that ancestry cannot either", () => {
+      const m = msg();
+      expect(m).toContain(`why ${DEFAULT_TIP} (the default) can NEVER answer this`);
+      expect(m).toContain("git merge-base --is-ancestor");
+    });
+
+    test("defines what a usable tip IS, in terms the reader can check", () => {
+      const m = msg();
+      expect(m).toContain("A USABLE TIP is a ref with REAL merge history");
+      expect(m).toContain("squashed FROM");
+      expect(m).toContain("Same tree as the release");
+    });
+
+    test("offers runnable candidate commands and a way to confirm the choice", () => {
+      const m = msg();
+      expect(m).toContain("bun run branches:unlanded feat/integration");
+      expect(m).toContain("bun run branches:unlanded feat/older");
+      expect(m).toContain("git rev-parse <candidate>^{tree} origin/main^{tree}");
+      expect(m).toContain("--allow-all-unlanded");
+    });
+
+    test("caps the candidate list rather than dumping every branch", () => {
+      const many = Array.from({ length: 30 }, (_, i) => `feat/cand-${i}`);
+      const git = fakeGit({ ...collapsed, candidates: many });
+      const m = render(scan(git, "origin/main", ["feat/*"]), git).stderr;
+      const shown = many.filter((c) => m.includes(`branches:unlanded ${c}\n`));
+      expect(shown.length).toBe(MAX_CANDIDATE_TIPS);
+      expect(shown).toEqual(many.slice(0, MAX_CANDIDATE_TIPS));
+    });
+
+    test("with NO candidate on disk it still says what to look for, not just 'none'", () => {
+      const git = fakeGit({ ...collapsed, candidates: [] });
+      const m = render(scan(git, "origin/main", ["feat/*"]), git).stderr;
+      expect(m).toContain("no usable tip on disk");
+      expect(m).toContain("Fetch or recreate the integration branch");
+      expect(m).toContain("git rev-parse <candidate>^{tree} origin/main^{tree}");
+      // The diagnosis must survive the loss of the suggestion.
+      expect(m).toContain("INSTRUMENT FAILURE");
+      expect(m).toContain("PATCH-ID");
+    });
   });
 
   test("--allow-all-unlanded downgrades it to an ordinary UNLANDED report", () => {
@@ -405,6 +474,18 @@ describe("real git — squash-immunity and the known-good split", () => {
     expect(r.exitCode).toBe(EXIT_DEGENERATE_TIP);
     expect(r.stdout).toBe("");
     expect(r.stderr).toContain(`${SHARED.slice(0, 8)} is reported unlanded on 4 of 4`);
+  });
+
+  test("…and its candidate search names the REAL integration branch first", () => {
+    // The suggestion has to be right, not merely present: on a real repo the
+    // top candidate must be the branch that actually answers the question.
+    const r = main([MAIN, "--pattern=feat/*"], REPO);
+    const first = r.stderr.slice(r.stderr.indexOf("bun run branches:unlanded "));
+    expect(first.split("\n")[0]).toBe("bun run branches:unlanded integration");
+    // …and following that advice must clear the degenerate verdict.
+    const followed = main(["integration", "--pattern=feat/*"], REPO);
+    expect(followed.exitCode).toBe(EXIT_UNLANDED);
+    expect(followed.stdout).toContain("feat/dropped");
   });
 
   test("--allow-all-unlanded on the squashed trunk shows all four, proving the guard is what suppressed them", () => {
