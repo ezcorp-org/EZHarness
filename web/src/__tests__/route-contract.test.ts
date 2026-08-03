@@ -194,7 +194,15 @@ describe("registry ⇄ filesystem parity", () => {
   // unregistered control route pushes it over the line and fails, forcing the
   // author to register it (and so document it + expose it in OpenAPI). Lower
   // this number as gaps close; never raise it without registering the route.
-  const BASELINE_UNREGISTERED = 130;
+  //
+  // 130 → 127: registering GET + DELETE /api/extensions/:id/violations took
+  // the live count from 129 to 127. The baseline was ONE above the live count,
+  // i.e. the ratchet had a free slot a new unregistered route could have taken
+  // silently. Pulled flush so it has none. See the count-vs-set caveat in the
+  // failure message below: this gate bounds the TOTAL, it does not require any
+  // particular route to be registered, so 127 routes are still in violation of
+  // the "every /api/* route registers" invariant in CLAUDE.md.
+  const BASELINE_UNREGISTERED = 127;
 
   test("unregistered control-route count does not grow (ratchet)", () => {
     const registered = new Set(registeredKeys);
