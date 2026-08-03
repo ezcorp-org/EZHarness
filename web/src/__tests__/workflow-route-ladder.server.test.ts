@@ -74,7 +74,18 @@ describe("the workflow ownership ladder lives in exactly one place", () => {
     (_label, file) => {
       const source = readFileSync(file, "utf8");
       const usesResolver =
-        source.includes("resolveWorkflowOr") || source.includes("listVisibleWorkflows");
+        source.includes("resolveWorkflowOr") ||
+        source.includes("listVisibleWorkflows") ||
+        // C3's consent route resolves a workflow by NAME like the six
+        // above, but authorizes as the principal the DELEGATION will
+        // carry rather than as the caller — a distinction
+        // `resolveWorkflowOr` structurally cannot express, because it
+        // takes an `AuthUser` and a service-account principal has none.
+        // Still one adapter in `workflow-access.ts` over one rule in
+        // `runtime/workflow-delegation-consent.ts`, which is the property
+        // this file is defending; the entry point is new, the ladder is
+        // not.
+        source.includes("resolveDelegationConsentOr");
       // The claim route is the ONE deliberate exception: it is an
       // admin-only ownership MOVE, gated on the role/scope axes rather
       // than on a workflow's current owner (whose whole problem is that
@@ -102,7 +113,21 @@ describe("the workflow ownership ladder lives in exactly one place", () => {
         // from `workflow-run-control.ts` so there is one opinion about
         // who a run belongs to rather than two that agree today.
         source.includes("getWorkflowRunTrace") ||
-        source.includes("listWorkflowRunsForCaller");
+        source.includes("listWorkflowRunsForCaller") ||
+        // C3's revoke route is keyed by a DELEGATION id and resolves no
+        // workflow by name, so the name-ladder decides nothing for it.
+        // Its axis is the delegation's CONSENTING HUMAN, single-homed in
+        // `mayManageDelegation` — the delegation-shaped twin of
+        // `mayControlRun`. Keyed on `consented_by_user_id` rather than on
+        // the owner columns on purpose: a service-account delegation has
+        // no session of its own, so keying on the owner would leave an
+        // authority nobody could withdraw.
+        source.includes("mayManageDelegation") ||
+        // …and the delegation LIST route, whose whole query is scoped to
+        // the consenting human by `consented_by_user_id`. Same axis, same
+        // single home; named separately so a list that stopped scoping
+        // itself fails here rather than riding on the revoke's name.
+        source.includes("listWorkflowDelegationsConsentedBy");
 
       expect(usesResolver || isAdminGated || delegatesToRunAuthority).toBe(true);
     },
@@ -116,7 +141,7 @@ describe("the workflow ownership ladder lives in exactly one place", () => {
     // caller, which is precisely the hole the ladder closed for the
     // name-scoped ones.
     const AUTHORITIES =
-      /answerApproval|resumeParkedRun|cancelParkedRun|listPendingWorkflowApprovalsForUser|getWorkflowRunTrace|listWorkflowRunsForCaller/;
+      /answerApproval|resumeParkedRun|cancelParkedRun|listPendingWorkflowApprovalsForUser|getWorkflowRunTrace|listWorkflowRunsForCaller|mayManageDelegation|listWorkflowDelegationsConsentedBy/;
     for (const file of files) {
       const source = readFileSync(file, "utf8");
       if (source.includes("resolveWorkflowOr") || source.includes("listVisibleWorkflows")) continue;

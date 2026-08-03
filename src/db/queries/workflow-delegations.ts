@@ -307,7 +307,7 @@ export async function revokeWorkflowDelegation(id: string): Promise<boolean> {
  * to this braces.
  */
 export async function listPinnedDelegationVersionIds(): Promise<string[]> {
-  const rows = await getDb()
+  const rows: Array<{ id: string | null }> = await getDb()
     .selectDistinct({ id: workflowDelegations.definitionVersionId })
     .from(workflowDelegations)
     .where(
@@ -316,5 +316,8 @@ export async function listPinnedDelegationVersionIds(): Promise<string[]> {
         isNotNull(workflowDelegations.definitionVersionId),
       ),
     );
+  // The `IS NOT NULL` above already excludes them; the narrowing filter
+  // is what makes that a TYPE fact rather than a promise about a
+  // predicate written elsewhere in the same call.
   return rows.map((r) => r.id).filter((id): id is string => id !== null);
 }
