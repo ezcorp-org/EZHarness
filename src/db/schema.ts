@@ -532,8 +532,10 @@ export const serviceAccounts = pgTable("service_accounts", {
   // until those accounts are removed — a loud, explicit act rather than a
   // silent orphaning. (SET NULL is impossible here anyway: the column is
   // NOT NULL, and `NOT NULL` + `ON DELETE SET NULL` is accepted at DDL
-  // time and then fails every delete with a 23502 — a defect this repo has
-  // already shipped and fixed once, see the guarded FK swap in migrate.ts.)
+  // time and then fails every delete with a 23502 — verified by execution.
+  // `sdk_capability_calls.on_behalf_of` was originally specified with that
+  // exact pairing; the guarded FK swap in migrate.ts exists to repair the
+  // databases it produced.)
   createdByUserId: text("created_by_user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
   // CASCADE: a project-scoped account is part of the project and dies with
   // it, so it can never outlive its scope and reach another project.
@@ -669,9 +671,9 @@ export const workflowDelegations = pgTable("workflow_delegations", {
   // column is NOT NULL, and `NOT NULL` + `ON DELETE SET NULL` is a
   // constraint Postgres accepts at DDL time and then fails on every parent
   // delete with a 23502 — verified by execution, not by reading. This repo
-  // has shipped that exact pairing once already (on
-  // `sdk_capability_calls.on_behalf_of`) and carries a guarded FK swap in
-  // migrate.ts to repair it.
+  // specified that exact pairing once already, on
+  // `sdk_capability_calls.on_behalf_of`, and carries a guarded FK swap in
+  // migrate.ts to repair the databases it produced.
   //
   // RESTRICT rather than CASCADE, deliberately, and the discriminator is
   // the `service` arm: CASCADE would mean a service-account delegation

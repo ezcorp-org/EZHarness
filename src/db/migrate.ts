@@ -2331,8 +2331,10 @@ export async function migrate(db: any): Promise<void> {
   // accountable human, so no state may exist in which the account is live
   // and names nobody. `ON DELETE SET NULL` is not an option on a NOT NULL
   // column — Postgres accepts the constraint at DDL time and then fails
-  // every parent delete with a 23502, which is the defect the guarded FK
-  // swap further up this file exists to repair.
+  // every parent delete with a 23502. That is the pairing
+  // `sdk_capability_calls.on_behalf_of` was originally specified with, and
+  // the guarded FK swap further up this file exists to repair the databases
+  // it produced.
   //
   // `max_tokens_per_day` is TOKENS, not cents, and mandatory. An unpriced
   // model (OAuth-subscription) reports a null price, so a cost cap would
