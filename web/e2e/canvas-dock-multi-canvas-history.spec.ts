@@ -35,8 +35,10 @@ test.describe("Canvas Dock — multi-canvas history (no ping-pong)", () => {
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
 		await page.locator("textarea").fill("Open twice");
-		await page.locator("textarea").press("Enter");
-		await page.waitForResponse((r) => r.url().includes("/messages") && r.request().method() === "POST");
+		await Promise.all([
+			page.waitForResponse((r) => r.url().includes("/messages") && r.request().method() === "POST"),
+			page.locator("textarea").press("Enter"),
+		]);
 
 		// Stream BOTH dock-mode completions back-to-back.
 		await emitWs({

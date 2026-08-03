@@ -2,6 +2,7 @@ import { and, eq, gte, inArray } from "drizzle-orm";
 import { getDb } from "../connection";
 import { toolCalls } from "../schema";
 import { redactToolCallOutputContent } from "../../extensions/audit-redaction";
+import { persistableConversationId } from "../../runtime/workflow-scope-key";
 import { persistError } from "./error-logs";
 import type { ToolCallResult } from "../../extensions/types";
 
@@ -157,11 +158,36 @@ export async function listToolCallExtensionIdsForMessage(
   return [...new Set(rows.map((r) => r.extensionId))];
 }
 
+/**
+ * Insert one `tool_calls` row.
+ *
+ * ## The synthetic-scope normalisation is load-bearing
+ *
+ * A tool step inside a WORKFLOW is dispatched with the synthetic
+ * `workflow-run:<id>` scope key in the `conversationId` slot, because
+ * every host-mediated surface it touches is conversation-keyed. That key
+ * matches no `conversations` row, so `conversation_id`'s FK REJECTED the
+ * insert — and this function's never-throw contract turned the rejection
+ * into an `error_logs` row nobody reads. The result: every tool call a
+ * workflow ever made was missing from `tool_calls`, and therefore from
+ * every analytics surface built on it.
+ *
+ * {@link persistableConversationId} maps the synthetic key to `null`
+ * (this column, unlike `observability_events`', has always been nullable)
+ * so the row LANDS, carrying the tool name, extension, input, output,
+ * success and duration it always should have. It is normalised HERE, at
+ * the single writer, rather than at the two call sites: a caller that
+ * forgets is a silent regression of exactly this bug.
+ *
+ * The run correlation is not lost by the null — `workflow_step_runs`
+ * records the step, and the observability event for the same call carries
+ * `data.workflowRunId`.
+ */
 export async function persistToolCall(row: ToolCallRow): Promise<void> {
   try {
     await getDb().insert(toolCalls).values({
       ...(row.id ? { id: row.id } : {}),
-      conversationId: row.conversationId,
+      conversationId: persistableConversationId(row.conversationId),
       messageId: row.messageId,
       extensionId: row.extensionId,
       toolName: row.toolName,

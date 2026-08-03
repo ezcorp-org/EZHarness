@@ -38,6 +38,75 @@ feat/… fix/… ci/… docs/… chore/… security/…   ← short-lived, branc
 - Branches are short-lived, rebased on `main`, deleted after merge.
 - No long-lived `develop` branch. No direct pushes to `main`.
 
+### Multi-branch programs: `bun run branches:unlanded`
+
+Squash-merge is what keeps `main` linear, and it is also what makes "did this
+branch land?" unanswerable by ancestry. A squash rewrites history, so **no
+merged branch is ever an ancestor of `main`** — `git merge-base --is-ancestor`
+says "not on main" for branches that fully landed and for branches that were
+silently dropped, identically. A program that ran across ~30 branches lost four
+finished pieces of work to exactly that false signal.
+
+`bun run branches:unlanded` is the check (`scripts/unlanded-branches.ts`,
+pinned by `src/__tests__/unlanded-branches.test.ts`). It runs
+`git cherry <integration-tip> <branch>` per branch and reports the `+` commits.
+`git cherry` compares **patch-ids**, not ancestry, so it survives rebases and
+re-authoring — but see the tip rule below.
+
+```
+bun run branches:unlanded                              # tip: origin/main, program prefixes
+bun run branches:unlanded feat/my-integration          # tip: your integration branch
+bun run branches:unlanded feat/x --pattern='feat/x-*'  # --pattern REPLACES the default scope
+```
+
+| exit | meaning | stdout |
+|---|---|---|
+| 0 | every matched branch fully landed | empty |
+| 1 | unlanded commits found — paste stdout into the PR | branch + sha + subject |
+| 2 | unusable: bad args, unresolvable tip, `git` failure, or the pattern matched **zero** branches | empty |
+| 3 | degenerate tip (see below) | empty |
+
+Empty stdout means "nothing dropped" **only at exit 0**. The scope line
+(`tip=… patterns=… examined=N branch(es) flagged=N`) always goes to **stderr**,
+so stdout stays paste-clean while "how many branches did you actually look at"
+is never invisible — a pattern that matches nothing exits 2, never 0.
+
+**Point it at a history-preserving tip — the default will refuse.** Patch-id
+equivalence is per-commit; a squash replaces N commits with one combined
+patch-id that matches none of them. Against a squash-merged trunk `git cherry`
+therefore marks *every* branch commit `+`, landed and dropped alike. Because
+this repo squash-merges everything, **`origin/main` can never answer this
+question**, so running with no arguments is expected to exit 3 rather than
+print a wall of false positives. Measured on the ez-factory program: at
+`tip=origin/main` 33 of 34 branches flagged, *including* four known-landed
+control branches; at the integration tip, all four came back clean and only the
+real drops flagged.
+
+Exit 3 is a normal, useful outcome, not a crash. The message is the product: it
+names the tip as the thing at fault, explains the patch-id mechanism, and lists
+the local branches that **contain** the shared commit `origin/main` cannot see —
+ranked most-integrated first, as ready-to-run commands. Follow one of them:
+
+```
+$ bun run branches:unlanded
+FATAL: 'origin/main' cannot answer this question — it looks SQUASH-MERGED.
+  …
+  TRY ONE OF THESE. They are the local branches that CONTAIN 40d57aae,
+  most-integrated first …
+    bun run branches:unlanded feat/ez-factory-onto-main
+```
+
+The right tip is the **integration branch** — the ref the release was squashed
+from — which is the useful question during an integration anyway ("what is not
+in *this* branch yet"). Confirm a candidate with
+`git rev-parse <candidate>^{tree} origin/main^{tree}`: two identical lines means
+same content, real history. `--allow-all-unlanded` accepts a flagged result
+as-is when the branches genuinely do share unlanded work. The wording of this
+message is pinned by tests — it is the only thing most callers will ever read.
+
+Deliberately **not** a CI job: it reads local branches, which a CI checkout does
+not have. Run it before you declare a multi-branch program finished.
+
 ## The gate (required checks on `main`)
 
 Every PR must pass these before it can merge. Names are the GitHub check

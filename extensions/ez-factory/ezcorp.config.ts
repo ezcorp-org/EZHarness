@@ -217,14 +217,35 @@ export default defineExtension({
     // extension can only ever declare its OWN actions — a cross-namespace
     // subscription is inexpressible, not merely denied.
     //
-    // DELIBERATELY ONE. Every page action is attack surface on a tree
-    // that is SHARED across users, so v1 buys exactly the one that makes
-    // the console writable. Retire a job with `enabled: false` rather
-    // than deleting it; fire one from chat or core's workflow UI. Adding
-    // a second here means adding it to the bundled-ceiling row and the
-    // install grant in `src/extensions/bundled.ts` too — all three, or
-    // `intersectPermissions` drops what the two disagree on.
-    eventSubscriptions: ["ez-factory:job-save"],
+    // TWO, and no more. Every page action is attack surface on a tree
+    // that is SHARED across users, so each one has to earn its place.
+    //
+    //   `job-save` makes the console WRITABLE.
+    //   `job-run`  makes it a console at all.
+    //
+    // `job-run` was the missing half. Without it a saved job was a note
+    // to self: the console could describe work and had no way to start
+    // it, so `recordRun` / `touchJob` had no callers on any real path and
+    // the Recent-runs tab read "No runs recorded" after eight real runs.
+    // "Fire one from chat or core's workflow UI" was the old answer, and
+    // it is not one — core's UI cannot see a job, so a run started there
+    // carries no `jobRef` and correlates to nothing.
+    //
+    // It buys NO new authority. The handler dispatches
+    // `ctx.workflows.run()`, whose full 13-rung ladder (now including
+    // core's shared `canRunWorkflow`) decides everything, attributed to
+    // the clicking user by the host-issued provenance token. The grant
+    // that authorizes firing is `permissions.workflows` above, and it is
+    // unchanged.
+    //
+    // Retire a job with `enabled: false` rather than deleting it — there
+    // is still no delete action, deliberately.
+    //
+    // ADDING A NAME HERE MEANS ADDING IT TO THE `bundled-ceiling.ts` ROW
+    // AND THE INSTALL GRANT IN `src/extensions/bundled.ts` TOO — all
+    // three, or `intersectPermissions` drops what any two disagree on and
+    // `validatePageTree` then DELETES the control from the rendered tree.
+    eventSubscriptions: ["ez-factory:job-save", "ez-factory:job-run"],
 
     // DECLARATIONS, not privileges. Each names a per-extension scope an
     // admin can grant (`extension_rbac_grants`) and console code can query

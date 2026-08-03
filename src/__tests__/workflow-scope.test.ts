@@ -46,7 +46,17 @@ const admin: WorkflowCaller = { userId: "user-admin", role: "admin", projectId: 
  *  and it carries a user identity, but it named no project. */
 const keyNoProject: WorkflowCaller = { userId: "user-key", role: "member", projectId: null };
 
-const systemEntry = dbEntry({ visibility: "system" });
+/**
+ * A `system` row WITH an owner — what `POST /api/workflows` produces,
+ * since `visibility` defaults to `system` and the creator is stamped.
+ *
+ * It used to be `dbEntry({ visibility: "system" })`, inheriting the
+ * fixture's `userId: null`, which meant the matrix's `owner` row was not
+ * actually the owner of anything and the `system` × `owner` × `edit`
+ * cell proved nothing about ownership. The ownerless case has its own
+ * describe block below — it is a DIFFERENT row, not this one's default.
+ */
+const systemEntry = dbEntry({ visibility: "system", projectId: PROJECT, userId: OWNER });
 const projectEntry = dbEntry({ visibility: "project", projectId: PROJECT, userId: OWNER });
 const privateEntry = dbEntry({ visibility: "private", projectId: PROJECT, userId: OWNER });
 
@@ -62,10 +72,19 @@ describe("the authorization matrix", () => {
     action: WorkflowAction;
     expected: true | string;
   }> = [
-    // ── system: any caller may read and run; only an admin may edit ──
+    // ── system: any caller may read and run; the OWNER or an admin edits ──
     { entry: systemEntry, caller: owner, who: "owner", action: "read", expected: true },
     { entry: systemEntry, caller: owner, who: "owner", action: "run", expected: true },
-    { entry: systemEntry, caller: owner, who: "owner", action: "edit", expected: "requires-admin" },
+    // DELIBERATELY INVERTED. This cell used to expect `requires-admin`,
+    // because the ladder refused `system` before it ever consulted
+    // ownership. That made the create route's own default unusable: a
+    // new workflow is `system` and stamped with its creator, so a
+    // non-admin could not edit or delete what they had just made. The
+    // fix moves the tier check BELOW the ownership check, and this row
+    // is where that reads as a behaviour change rather than a comment.
+    // The three non-owner `system` × edit cells below must NOT move —
+    // they are what keeps the tier meaningful.
+    { entry: systemEntry, caller: owner, who: "owner", action: "edit", expected: true },
     { entry: systemEntry, caller: member, who: "member", action: "read", expected: true },
     { entry: systemEntry, caller: member, who: "member", action: "run", expected: true },
     { entry: systemEntry, caller: member, who: "member", action: "edit", expected: "requires-admin" },
@@ -128,6 +147,131 @@ describe("the authorization matrix", () => {
 
   test("the matrix covers every visibility × caller × action combination", () => {
     expect(cases).toHaveLength(3 * 5 * 3);
+  });
+});
+
+describe("who may EDIT a `system` row — ownership is asked before the tier", () => {
+  /**
+   * The ruling: the OWNER of a `system` workflow may edit it. It is not
+   * a loosening of the tier so much as the tier finally being asked in
+   * the right order — `POST /api/workflows` defaults `visibility` to
+   * `system` AND stamps `userId`, so before this the create route
+   * produced a row its own author could not touch.
+   *
+   * Everything below exists to bound that: the grant is exactly "the
+   * row's own owner", and every other principal is where it was.
+   */
+
+  /** The row a non-admin's ordinary create produces: `system` + owner. */
+  const ownedSystem = dbEntry({ visibility: "system", userId: OWNER });
+  /**
+   * A row that predates the ownership columns. The C6 migration made
+   * every pre-existing row `system` with `user_id` NULL, and
+   * `ON DELETE SET NULL` mints new ones whenever an owner is deleted.
+   */
+  const legacySystem = dbEntry({ visibility: "system", userId: null });
+
+  test("the owner of a system workflow may edit it", () => {
+    expect(authorizeWorkflow(ownedSystem, owner, "edit")).toEqual({
+      ok: true,
+      entry: ownedSystem,
+    });
+  });
+
+  test("a legacy ownerless system row stays admin-only, whoever asks", () => {
+    // THE property that makes the reorder safe. `isOwner` requires
+    // `entry.userId !== null`, so a NULL owner matches no caller — not
+    // even one whose own id is null. If ownership were ever compared
+    // with `==`, or the null guard dropped, the userless CLI principal
+    // would match a legacy row and every pre-C6 workflow on the
+    // instance would become world-editable in one step.
+    const cli: WorkflowCaller = { userId: null, role: "member" };
+    for (const caller of [owner, member, stranger, keyNoProject, cli]) {
+      expect(authorizeWorkflow(legacySystem, caller, "edit")).toEqual({
+        ok: false,
+        reason: "requires-admin",
+      });
+    }
+    // Discrimination: the row is not simply unreachable — an admin gets in.
+    expect(authorizeWorkflow(legacySystem, admin, "edit").ok).toBe(true);
+    // And it is the NULL that does it, not the tier: the same tier with
+    // an owner admits that owner.
+    expect(authorizeWorkflow(ownedSystem, owner, "edit").ok).toBe(true);
+    expect(legacySystem.userId).toBeNull();
+  });
+
+  test("a system row is still refused to every principal who does not own it", () => {
+    // The tier is not decorative after the reorder. Same row the owner
+    // just edited, asked by everyone else.
+    for (const caller of [member, stranger, keyNoProject]) {
+      expect(authorizeWorkflow(ownedSystem, caller, "edit")).toEqual({
+        ok: false,
+        reason: "requires-admin",
+      });
+    }
+  });
+
+  test("read and run on a system row are untouched — anyone, still", () => {
+    // Only the `edit` rung moved. A regression here would mean the
+    // reorder leaked into the audience switch.
+    const cli: WorkflowCaller = { userId: null, role: "member" };
+    for (const caller of [owner, member, stranger, admin, keyNoProject, cli]) {
+      expect(authorizeWorkflow(ownedSystem, caller, "read").ok).toBe(true);
+      expect(authorizeWorkflow(ownedSystem, caller, "run").ok).toBe(true);
+      expect(authorizeWorkflow(legacySystem, caller, "run").ok).toBe(true);
+    }
+  });
+
+  test("the source rung still refuses FIRST — an owned YAML asset is not editable", () => {
+    // Fault injection: a YAML entry that claims an owner is a row shape
+    // production cannot produce (`systemCachedWorkflow` hardcodes
+    // `userId: null`), constructed here precisely so the ownership rung
+    // WOULD admit it if it ran first. It must not — a YAML or extension
+    // workflow is a file on disk with nothing to write.
+    const ownedYaml: CachedWorkflow = { ...ownedSystem, source: "yaml", id: null };
+    expect(authorizeWorkflow(ownedYaml, owner, "edit")).toEqual({
+      ok: false,
+      reason: "not-editable-source",
+    });
+    const ownedExtension: CachedWorkflow = { ...ownedSystem, source: "extension", id: null };
+    expect(authorizeWorkflow(ownedExtension, owner, "edit")).toEqual({
+      ok: false,
+      reason: "not-editable-source",
+    });
+    // Discrimination: the identical entry as a DB row IS editable, so
+    // the refusal above is the source and nothing else.
+    expect(authorizeWorkflow(ownedSystem, owner, "edit").ok).toBe(true);
+  });
+
+  test("editing your own `system` row is not a licence to assign `system`", () => {
+    // The second-order risk of the ruling, closed by the separate
+    // assignment question. This caller now clears `edit` on a `system`
+    // row — and still may not STAMP `system`, on that row or any other.
+    expect(authorizeWorkflow(ownedSystem, owner, "edit").ok).toBe(true);
+    expect(denyVisibilityAssignment(owner, "system")).toBe(VISIBILITY_ASSIGNMENT_DENIAL);
+    // Tightening their own row is still free, as it always was.
+    expect(denyVisibilityAssignment(owner, "private")).toBeNull();
+    expect(denyVisibilityAssignment(owner, "project")).toBeNull();
+    // And someone else's `system` row is not reachable to edit at all,
+    // so there is no row for the promotion to be attempted ON.
+    expect(authorizeWorkflow(ownedSystem, stranger, "edit").ok).toBe(false);
+  });
+
+  test("a userless principal is refused a private row as not-owner, not not-authenticated", () => {
+    // The `not-authenticated` reason belongs to `project`, whose edit
+    // rung is the only one that asks about a login. Pinned because the
+    // reorder rewrote the fallthrough these two share, and a reason
+    // that silently swapped would still deny — the failure mode this
+    // whole matrix asserts reasons rather than booleans to catch.
+    const cli: WorkflowCaller = { userId: null, role: "member" };
+    expect(authorizeWorkflow(privateEntry, cli, "edit")).toEqual({
+      ok: false,
+      reason: "not-owner",
+    });
+    expect(authorizeWorkflow(projectEntry, cli, "edit")).toEqual({
+      ok: false,
+      reason: "not-authenticated",
+    });
   });
 });
 

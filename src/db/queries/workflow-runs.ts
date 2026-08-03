@@ -82,6 +82,21 @@ export interface NewWorkflowRunInput {
    * dispatching a second child for the same slot.
    */
   idempotencyKey?: string | null;
+  /**
+   * The SAVED JOB this run was fired from — the durable half of the
+   * job→run correlation.
+   *
+   * Opaque to the host by construction: jobs live in an extension's
+   * `Storage`, not in a table, so there is nothing to FK against and
+   * nothing here resolves it. It is written, read back on the run
+   * summary, and otherwise inert.
+   *
+   * It is a HANDLE, not a claim of authority. Nothing branches on it and
+   * nothing may: a run's authorization was decided before it started, by
+   * the ladder that started it, and a column an extension supplies must
+   * never be able to reopen that question.
+   */
+  jobRef?: string | null;
 }
 
 /**
@@ -105,6 +120,7 @@ export async function insertWorkflowRun(row: NewWorkflowRunInput): Promise<void>
     definitionVersionId: row.definitionVersionId ?? null,
     parentRunId: row.parentRunId ?? null,
     idempotencyKey: row.idempotencyKey ?? null,
+    jobRef: row.jobRef ?? null,
   });
 }
 

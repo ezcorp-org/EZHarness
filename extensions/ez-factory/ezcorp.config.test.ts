@@ -32,7 +32,7 @@ import { describe, expect, test } from "bun:test";
 import type { ToolDefinition } from "@ezcorp/sdk";
 
 import config from "./ezcorp.config";
-import { JOB_SAVE_EVENT } from "./lib/page";
+import { JOB_RUN_EVENT, JOB_SAVE_EVENT, PAGE_EVENTS } from "./lib/page";
 
 /** The manifest's permission block, read as a bag so absence assertions
  *  can name keys the type does not declare (`allowDelegated`). */
@@ -213,7 +213,17 @@ describe("ez-factory manifest — the capabilities deliberately NOT requested", 
     // One list, two files: the manifest declares what the host will deliver,
     // `lib/page.ts` decides what the tree asks for. A name in one and not the
     // other is a control that either cannot fire or is granted for nothing.
-    expect(perms.eventSubscriptions).toEqual([JOB_SAVE_EVENT]);
+    //
+    // Compared against `PAGE_EVENTS` rather than a literal, so adding a
+    // third action to `page.ts` fails HERE — pointing at the manifest that
+    // needs the name — instead of shipping a button `validatePageTree`
+    // silently deletes from the tree.
+    expect(perms.eventSubscriptions).toEqual([...PAGE_EVENTS]);
+    // Not vacuous: both names are real and distinct, so an accidental
+    // `PAGE_EVENTS = []` cannot make the assertion above pass.
+    expect(PAGE_EVENTS).toContain(JOB_SAVE_EVENT);
+    expect(PAGE_EVENTS).toContain(JOB_RUN_EVENT);
+    expect(JOB_SAVE_EVENT).not.toBe(JOB_RUN_EVENT);
   });
 
   test("no `shell` — run_command was cut from the tool list", () => {

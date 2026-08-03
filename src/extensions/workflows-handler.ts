@@ -106,6 +106,8 @@ import {
 } from "../runtime/workflow/runtime-registry";
 import type { WorkflowDefinition, WorkflowRunStatus } from "../types";
 import { isValidWorkflowName, namespacedWorkflowName } from "../runtime/workflow-name";
+import { canRunWorkflow } from "../runtime/workflow-authz";
+import { systemCachedWorkflow, type CachedWorkflow } from "../runtime/workflow-scope";
 import { listWorkflowRunsForCaller, RUN_STATUS_FILTERS } from "../runtime/workflow-run-trace";
 import { listPendingWorkflowApprovalsForUser } from "../db/queries/workflow-approvals";
 import { formatGateRelay } from "../runtime/workflow-approval-relay";
@@ -123,6 +125,42 @@ export const MAX_WORKFLOW_INPUT_BYTES = 16_384;
 
 /** Sliding-window length for the per-hour trigger quota. */
 const QUOTA_WINDOW_MS = 60 * 60 * 1000;
+
+/**
+ * Ceiling on a caller-supplied `jobRef` correlation handle.
+ *
+ * Sized to hold a UUID with room to spare and nothing like a document.
+ * The value is stored verbatim in `workflow_runs.job_ref` and rendered
+ * on the run trace, so it is bounded like every other rendered string
+ * rather than trusted for being "just an id".
+ */
+export const MAX_JOB_REF_LEN = 128;
+
+/**
+ * The charset a `jobRef` may use.
+ *
+ * Deliberately narrow — id-shaped only. The host never resolves this
+ * value (jobs live in an extension's `Storage`, not a table), so its ONLY
+ * consumers are a text column and a UI cell; a handle that can carry
+ * whitespace, control characters or markup buys nothing and costs a
+ * rendering question on every surface it reaches. A strict subset of the
+ * shapes real callers use — a UUID, a slug — so tightening it later
+ * cannot orphan a legal id that already exists.
+ *
+ * REJECTED, never truncated or sanitized: a silently-rewritten
+ * correlation handle correlates to the wrong thing, which is worse than
+ * carrying none.
+ */
+export const JOB_REF_RE = /^[A-Za-z0-9][A-Za-z0-9_.:-]*$/;
+
+/** True when `value` is a legal `jobRef`. */
+export function isValidJobRef(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length <= MAX_JOB_REF_LEN &&
+    JOB_REF_RE.test(value)
+  );
+}
 
 
 /** Typed rejection reasons — the `errorCode` on the audit row, so analytics
@@ -407,6 +445,29 @@ export async function handleWorkflowsRpc(
     }
     input = raw as Record<string, unknown>;
   }
+  //     `jobRef` — the caller's OWN correlation handle, persisted verbatim
+  //     to `workflow_runs.job_ref`. It is the durable half of "which saved
+  //     job fired this run?": without it a console can only guess by
+  //     matching timestamps, which is wrong the first time two jobs fire
+  //     together.
+  //
+  //     It grants NOTHING and is checked for SHAPE only. Every rung above
+  //     has already decided whether this caller may start this workflow;
+  //     a handle supplied by the same caller cannot be allowed to reopen
+  //     that question, so nothing below branches on it. Rejected rather
+  //     than sanitized: a silently-rewritten handle correlates to the
+  //     wrong job, which is worse than carrying none.
+  let jobRef: string | undefined;
+  if (params.jobRef !== undefined) {
+    if (!isValidJobRef(params.jobRef)) {
+      return deny(
+        "WORKFLOWS_BAD_PAYLOAD",
+        `'jobRef' must be an id-shaped string of at most ${MAX_JOB_REF_LEN} characters`,
+        -32602,
+      );
+    }
+    jobRef = params.jobRef;
+  }
 
   // 11. Hourly quota — the real spend bound on this capability.
   const quota = checkHourlyQuota(ctx.extensionId, granted.maxRunsPerHour);
@@ -444,8 +505,43 @@ export async function handleWorkflowsRpc(
     ? ((await getConversation(ctx.conversationId))?.projectId ?? undefined)
     : undefined;
 
+  // 12b. The SHARED run ladder — the same `canRunWorkflow` the REST route
+  //      and the `run_workflow` built-in ask, so this path cannot become
+  //      the one way to start a workflow the caller could not otherwise
+  //      start. Every rung above bounds the EXTENSION (its grant, its
+  //      manifest, its quota); this one bounds the WORKFLOW, and its live
+  //      extension-liveness re-check is the rule the rungs above do not
+  //      express: `reloadWorkflows()` fires only on workflow CRUD, so a
+  //      DISABLED extension's workflows stay runnable off the stale merged
+  //      cache until something writes a workflow or the process restarts.
+  //
+  //      Ordered here, after rung 12, because it must authorize the entry
+  //      the executor will ACTUALLY run rather than a re-lookup by name —
+  //      the same requirement `canRunWorkflow`'s own doc states.
+  //
+  //      A STRICT TIGHTENING, never a widening: an extension-shipped
+  //      workflow is a `system` cache entry, whose run audience is
+  //      "anyone", so the ladder rung itself refuses nobody this handler
+  //      already admitted. What it adds is the liveness check.
+  const decisionEntry = cachedEntryFor(runtime, fullName, definition);
+  const runnable = await canRunWorkflow(
+    decisionEntry,
+    // `role: "member"` — the LOWER privilege, deliberately. A reverse-RPC
+    // provenance token carries a user id, not a role, and `context.ts`
+    // takes exactly this reading for nested runs: "the safe reading of
+    // 'we do not know' is the lower privilege". It costs nothing on the
+    // entries this handler can address (all `system`), and it means a
+    // future `private` row squatting an extension-namespaced name is
+    // refused here rather than waved through on an assumed role.
+    { id: ownedCtx.userId, role: "member" },
+    projectId ?? null,
+  );
+  if (!runnable.allowed) {
+    return deny("WORKFLOWS_PERM_DENIED", runnable.reason);
+  }
+
   try {
-    startWorkflowRun(runtime, definition, input, projectId, ownedCtx);
+    startWorkflowRun(runtime, definition, input, projectId, ownedCtx, jobRef);
   } catch (err) {
     return deny(
       "WORKFLOWS_DISPATCH_FAILED",
@@ -456,7 +552,10 @@ export async function handleWorkflowsRpc(
 
   await audit(ctx, startedAt, deps, {
     success: true,
-    after: { workflow: fullName },
+    // The handle is on the audit row too, so the capability trail and the
+    // `workflow_runs` row name the same job without a join through the
+    // extension's private storage.
+    after: { workflow: fullName, ...(jobRef !== undefined ? { jobRef } : {}) },
     resourceId: fullName,
   });
 
@@ -722,6 +821,13 @@ async function readRuns(
     finishedAt: r.finishedAt,
     suspendedReason: r.suspendedReason,
     resumable: r.resumable,
+    // THE CORRELATION. `run()` returns no run id (rung 13), so this is
+    // how a caller learns which of its own runs came from which of its
+    // own jobs. It is the caller's own handle coming back — the host
+    // stored it verbatim and resolves nothing — so returning it leaks
+    // nothing the caller did not already know, and the read is already
+    // scoped to this extension's workflows and this user's runs.
+    jobRef: r.jobRef,
   }));
 
   await audit(ctx, startedAt, deps, {
@@ -729,6 +835,40 @@ async function readRuns(
     after: { op: "runs", count: runs.length },
   });
   return rpcResult(req.id, { v: 1, runs });
+}
+
+/**
+ * The cache entry rung 12b authorizes — the one carrying the provenance
+ * the ladder reads, for the definition rung 12 already resolved.
+ *
+ * Prefers the runtime's own `getCachedWorkflows()` reader, which is what
+ * production registers (`web/src/lib/server/context.ts`) and is therefore
+ * byte-identical to what the REST route authorizes against.
+ *
+ * The fallback is NOT a permissive default and is not a guess. It is
+ * reached only when the runtime was registered WITHOUT the provenance
+ * reader — a backend-only boot, or a unit context — and it reconstructs
+ * the value `buildWorkflowCache` builds for exactly this class of entry:
+ * an extension-shipped workflow is wrapped by `systemCachedWorkflow(w,
+ * "extension")` there, unconditionally. Rung 12 has already proved the
+ * name resolves to an extension asset in the merged cache, and extension
+ * entries are concatenated FIRST in that cache, so the two agree by
+ * construction rather than by luck.
+ *
+ * A `system` entry is the WEAKEST authorization outcome available here,
+ * so if the two ever disagreed, the fallback is the one that authorizes
+ * LESS — it cannot admit a caller the real entry would refuse for
+ * ownership, only for liveness, and liveness is checked either way.
+ */
+function cachedEntryFor(
+  runtime: WorkflowRuntime,
+  fullName: string,
+  definition: WorkflowDefinition,
+): CachedWorkflow {
+  const cached = runtime.getCachedWorkflows?.().find(
+    (w) => w.definition.name === fullName,
+  );
+  return cached ?? systemCachedWorkflow(definition, "extension");
 }
 
 /**
@@ -745,12 +885,20 @@ function startWorkflowRun(
   input: Record<string, unknown>,
   projectId: string | undefined,
   ctx: OwnedWorkflowsHandlerContext,
+  jobRef: string | undefined,
 ): void {
   const promise = runtime.workflowExecutor.runWorkflow(
     definition,
     input,
     projectId,
     ctx.userId,
+    // No signal — this dispatch is deliberately un-awaited (see rung 13),
+    // so there is nothing here to abort it with.
+    undefined,
+    // The key is OMITTED, not set to `undefined`, when the caller supplied
+    // no handle: the executor's `?? null` then writes SQL NULL rather than
+    // letting a stray `undefined` reach the column.
+    jobRef !== undefined ? { jobRef } : undefined,
   );
   // A rejection here would be an executor bug (`runWorkflow` terminalizes
   // internally and resolves), but an unhandled rejection can take the

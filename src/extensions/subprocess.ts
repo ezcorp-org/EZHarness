@@ -847,15 +847,67 @@ export class ExtensionProcess {
 
   /**
    * Send a fire-and-forget JSON-RPC notification to the subprocess stdin.
-   * No-ops if the process isn't running (will NOT start it).
+   *
+   * SPAWNS THE SUBPROCESS IF IT IS NOT RUNNING, exactly as {@link call}
+   * does. It used to begin `if (!this.proc || this.killed) return;` and
+   * document itself as "will NOT start it", which made every notification
+   * to a COLD extension vanish without a trace:
+   *
+   *   - `ExtensionRegistry.getProcess()` only CONSTRUCTS an
+   *     `ExtensionProcess`; it does not spawn.
+   *   - `ToolExecutor.ensureSubprocessRpcWired()` only installs handlers
+   *     on that object; it does not spawn either.
+   *   - so the first Hub page action after a server restart hit this
+   *     early return, the events route still answered `{ok:true}` with
+   *     HTTP 200, and the operator's save was gone. Any prior render or
+   *     tool call made it work, because `call()` warms the process —
+   *     which is exactly what made it look intermittent.
+   *
+   * The events route's own comment already asserted "sendNotification
+   * no-ops on a dead process, so a failed spawn here must surface". That
+   * was the intent; nothing implemented it. This does.
+   *
+   * NEVER THROWS, so every existing fire-and-forget caller (the schedule
+   * daemon, the lifecycle and event dispatchers, the webhook daemon) is
+   * unaffected — `ensureRunning()` can throw on the npm-dependency
+   * pre-check, and a background fire must not take its caller down.
+   *
+   * @returns whether the frame was handed to stdin. A `false` is the
+   *   drop this method used to hide; callers that can tell a human
+   *   (the events route) MUST surface it rather than reporting success.
    */
-  sendNotification(method: string, params?: Record<string, unknown>): void {
-    if (!this.proc || this.killed) return;
+  sendNotification(method: string, params?: Record<string, unknown>): boolean {
+    try {
+      this.ensureRunning();
+    } catch (err) {
+      log.warn("notification dropped — subprocess could not be started", {
+        extensionId: this.extensionId,
+        method,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return false;
+    }
+    if (!this.proc || this.killed) {
+      log.warn("notification dropped — no subprocess after ensureRunning", {
+        extensionId: this.extensionId,
+        method,
+      });
+      return false;
+    }
     try {
       const data = JSON.stringify({ jsonrpc: "2.0", method, params }) + "\n";
       (this.proc.stdin as { write(d: string): number }).write(data);
-    } catch {
-      // Process stdin may be closed — silently ignore
+      // A notification is real traffic — without this an idle-timeout
+      // extension could be reaped between the write and the read.
+      this.resetIdleTimer();
+      return true;
+    } catch (err) {
+      log.warn("notification dropped — stdin write failed", {
+        extensionId: this.extensionId,
+        method,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return false;
     }
   }
 

@@ -16,7 +16,12 @@ import { describe, expect, test } from "bun:test";
 
 import { PROJECT_ROOT, makeFakeFs, payloadOf } from "../../__tests__/fake-fs";
 import { REDACTED, UNTRUSTED_BEGIN_MARKER, UNTRUSTED_END_MARKER } from "../sanitize";
-import { EXCLUDED_DIR_NAMES, createReadFiles, type ReadFilesPayload } from "./read-files";
+import {
+  EXCLUDED_DIR_NAMES,
+  EXCLUDED_ROOT_DIR_NAMES,
+  createReadFiles,
+  type ReadFilesPayload,
+} from "./read-files";
 import {
   DEFAULT_READ_TOTAL_BYTES,
   MAX_DEPTH,
@@ -259,6 +264,45 @@ describe("read_files — the world misbehaving is never a throw", () => {
       { globs: ["**/*.md"] },
     );
     expect(out.files.map((f) => f.path)).toEqual(["src/a.md"]);
+  });
+
+  test.each([...EXCLUDED_ROOT_DIR_NAMES])(
+    "never descends into a ROOT-LEVEL %s",
+    async (excluded) => {
+      // Docker puts the PGlite datadir at `<root>/data/ezcorp` and backups
+      // at `<root>/data/backups`. Both are host-reserved, so walking them
+      // spends an RPC and an audit row per entry to be denied.
+      const out = await read(
+        { [p("src/a.md")]: "yes", [p(`${excluded}/b.md`)]: "no" },
+        { globs: ["**/*.md"] },
+      );
+      expect(out.files.map((f) => f.path)).toEqual(["src/a.md"]);
+    },
+  );
+
+  test.each([...EXCLUDED_ROOT_DIR_NAMES])(
+    "a NESTED %s directory is ordinary source and IS walked",
+    async (excluded) => {
+      // The skip is root-ANCHORED, deliberately. A blanket name match
+      // would silently narrow every scan that has a `src/data/` — which is
+      // ordinary source, not a host-reserved path. This is the assertion
+      // that keeps the anchor from being "simplified" away.
+      const out = await read(
+        { [p(`src/${excluded}/b.md`)]: "yes" },
+        { globs: ["**/*.md"] },
+      );
+      expect(out.files.map((f) => f.path)).toEqual([`src/${excluded}/b.md`]);
+    },
+  );
+
+  test("the root skip is a SEPARATE list from the blanket one", () => {
+    // Discrimination: folding `data` into EXCLUDED_DIR_NAMES would make
+    // the root case above pass and the nested case fail. Keeping the two
+    // sets disjoint is what makes the anchor meaningful.
+    for (const name of EXCLUDED_ROOT_DIR_NAMES) {
+      expect(EXCLUDED_DIR_NAMES.has(name)).toBe(false);
+    }
+    expect(EXCLUDED_ROOT_DIR_NAMES.size).toBeGreaterThan(0);
   });
 
   test("an explicit root INSIDE an excluded directory still works", async () => {

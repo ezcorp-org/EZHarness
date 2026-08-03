@@ -61,10 +61,12 @@ test.describe("claude-design — legacy knob fallback", () => {
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
 		await page.locator("textarea").fill("Open canvas");
-		await page.locator("textarea").press("Enter");
-		await page.waitForResponse(
-			(r) => r.url().includes("/messages") && r.request().method() === "POST",
-		);
+		await Promise.all([
+			page.waitForResponse(
+				(r) => r.url().includes("/messages") && r.request().method() === "POST",
+			),
+			page.locator("textarea").press("Enter"),
+		]);
 
 		// open-canvas returns a payload WITHOUT a `knobs` array. The
 		// canvas card must fall back to LEGACY_DESCRIPTORS.

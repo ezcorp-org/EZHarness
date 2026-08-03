@@ -45,6 +45,35 @@ let invalidated: string[] = [];
  *  the audit log run for real against an in-memory bucket. */
 let storage = new Map<string, unknown>();
 
+// ── The mocked `ezcorp/workflows` half of the channel ──────────────
+//
+// The console's Run action and its run reconcile are BOTH reverse-RPCs
+// on this method, so a channel that only understood `ezcorp/storage`
+// could not exercise either. These stand in for the host's `op: "run"`
+// and `op: "runs"`.
+
+/** Every `op: "run"` payload the console sent, in order. */
+let triggered: Array<Record<string, unknown>> = [];
+/** What the mocked host answers `op: "runs"` with. */
+let hostRunList: unknown[] = [];
+/** When set, `op: "run"` rejects with this — the host's typed refusal. */
+let triggerRejection: Error | null = null;
+/** When set, `op: "runs"` rejects with this. */
+let runsRejection: Error | null = null;
+/** When true, `op: "runs"` answers with a body carrying NO `runs` array. */
+let runsBodyMalformed = false;
+
+const workflowsRequest = (params: unknown): unknown => {
+  const p = (params ?? {}) as Record<string, unknown>;
+  if (p.op === "runs") {
+    if (runsRejection) throw runsRejection;
+    return runsBodyMalformed ? { v: 1 } : { v: 1, runs: hostRunList };
+  }
+  if (triggerRejection) throw triggerRejection;
+  triggered.push(p);
+  return { v: 1, workflow: `ez-factory:${String(p.workflow)}`, started: true };
+};
+
 const record = (method: string, ...args: unknown[]): void => {
   rpc.push({ method, args });
 };
@@ -86,7 +115,8 @@ mock.module("@ezcorp/sdk/runtime", () => ({
     start: () => {
       channelStarted = true;
     },
-    request: async (_method: string, params: unknown) => storageRequest(params),
+    request: async (method: string, params: unknown) =>
+      method === "ezcorp/workflows" ? workflowsRequest(params) : storageRequest(params),
     onRequest: () => {},
     notify: () => {},
   }),
@@ -123,9 +153,11 @@ const {
   activeProjectRoot,
   auditLog,
   deps,
+  handleJobRun,
   handleJobSave,
   hostFs,
   jobStore,
+  reconcileRuns,
   recentRuns,
   registerPages,
   renderFactoryPage,
@@ -142,6 +174,11 @@ beforeEach(() => {
   pages = [];
   invalidated = [];
   storage = new Map();
+  triggered = [];
+  hostRunList = [];
+  triggerRejection = null;
+  runsRejection = null;
+  runsBodyMalformed = false;
   __resetStateForTests();
 });
 
@@ -324,12 +361,18 @@ function withEnv(vars: Record<string, string | undefined>, fn: () => void): void
 // builders directly.
 
 describe("page registration", () => {
-  test("both pages carry the SAME single save action, namespaced", () => {
-    // One handler, two mount points: the editor is reachable from either
-    // page id, and a second action name would need a second grant.
+  test("both pages carry the SAME action set, namespaced", () => {
+    // Two handlers, two mount points, mounted on BOTH page ids. That is
+    // not tidiness: the Hub POSTs an action tagged with the page it was
+    // rendered on, so an action reachable from one page and handled only
+    // on the other is a silent no-op. Every name here also needs a grant
+    // — `ezcorp.config.test.ts` pins the manifest against `PAGE_EVENTS`.
     registerPages();
+    expect(pages.length).toBeGreaterThan(0);
     for (const page of pages) {
-      expect(Object.keys(page.actions ?? {})).toEqual(["ez-factory:job-save"]);
+      expect(Object.keys(page.actions ?? {}).sort()).toEqual(
+        ["ez-factory:job-run", "ez-factory:job-save"],
+      );
     }
   });
 });
@@ -515,5 +558,279 @@ describe("handleJobSave", () => {
   test("the store and audit log are singletons across calls", async () => {
     expect(jobStore()).toBe(jobStore());
     expect(auditLog()).toBe(auditLog());
+  });
+});
+
+// ── The Run action, and the correlation it makes possible ────────────
+//
+// This is the half the console shipped without: everything above could
+// DESCRIBE work, and nothing could start it. What is covered here is the
+// glue no pure-builder test can reach — that a click reaches the host's
+// trigger with the right handle on it, that a refusal is written down
+// rather than swallowed, and that the host's answer to `op: "runs"` folds
+// back into the store the runs view reads.
+
+/** Create one job through the real save path and return it. */
+async function seedJob(
+  payload: Record<string, unknown> = { name: "Nightly", workflow: "docs-factory" },
+): Promise<{ id: string; name: string }> {
+  await handleJobSave({ source: "hub", pageId: "job", userId: "user-1", payload });
+  const job = (await jobStore().listJobs())[0]!;
+  return { id: job.id, name: job.name };
+}
+
+/** Every audit entry recorded, oldest first. */
+async function auditEntries(): Promise<Array<Record<string, unknown>>> {
+  const out: Array<Record<string, unknown>> = [];
+  for (const day of await auditLog().listDays()) {
+    // A bucket holds `AuditEntry | AuditTruncationMarker`; the tests below
+    // read them structurally, so widen through `unknown` rather than
+    // asserting an overlap the union does not have.
+    for (const e of await auditLog().readDay(day)) {
+      out.push(e as unknown as Record<string, unknown>);
+    }
+  }
+  return out;
+}
+
+/** The reason on the most recent entry of `kind`, or undefined. */
+async function reasonFor(kind: string): Promise<string | undefined> {
+  const entry = (await auditEntries()).reverse().find((e) => e.kind === kind);
+  const detail = entry?.detail as { reason?: string } | undefined;
+  return detail?.reason;
+}
+
+const runAction = (payload: Record<string, unknown>) =>
+  handleJobRun({ source: "hub", pageId: "job", userId: "user-7", payload });
+
+describe("handleJobRun", () => {
+  test("fires the job's workflow with its saved input AND its id as jobRef", async () => {
+    const job = await seedJob({
+      name: "Nightly",
+      workflow: "docs-factory",
+      input_globs: "src/**/*.ts",
+      input_outpath: "docs/api.md",
+    });
+
+    // `job_id` — the key the ACTION PAYLOAD actually carries (the host's
+    // field-id rule forbids `jobId`). A reader keyed on the camelCase form
+    // refuses every real click in silence, which is exactly what shipped
+    // until a live server caught it.
+    await runAction({ job_id: job.id });
+
+    expect(triggered).toHaveLength(1);
+    expect(triggered[0]).toMatchObject({
+      v: 1,
+      workflow: "docs-factory",
+      input: { globs: "src/**/*.ts", outPath: "docs/api.md" },
+      // The whole point: the host is told WHICH JOB this run belongs to.
+      // Without it the run is unattributable and `op: "runs"` can only be
+      // matched by timestamp, which is wrong the moment two jobs fire
+      // together.
+      jobRef: job.id,
+    });
+  });
+
+  test("the camelCase key fires NOTHING — the wire key is job_id", async () => {
+    const job = await seedJob();
+    await runAction({ jobId: job.id });
+    expect(triggered).toEqual([]);
+    expect(await reasonFor("job-run-rejected")).toContain("no valid job id");
+  });
+
+  test("records a `job-run` audit line naming the workflow and no input values", async () => {
+    const job = await seedJob({
+      name: "Nightly",
+      workflow: "docs-factory",
+      input_outpath: "docs/secret-layout.md",
+    });
+    await runAction({ job_id: job.id });
+
+    const entry = (await auditEntries()).find((e) => e.kind === "job-run");
+    expect(entry).toBeDefined();
+    expect(entry?.jobId).toBe(job.id);
+    expect(entry?.detail).toEqual({ workflow: "docs-factory" });
+    // Invariant I: a path describing someone's project layout is content,
+    // and content never enters the trail.
+    expect(JSON.stringify(entry)).not.toContain("secret-layout");
+  });
+
+  test("invalidates both pages so the next pull re-renders", async () => {
+    const job = await seedJob();
+    invalidated = [];
+    await runAction({ job_id: job.id });
+    expect(invalidated.sort()).toEqual(["factory", "job"]);
+  });
+
+  test("does NOT stamp lastRunAt — the run has no start time yet", async () => {
+    // The trigger RPC returns BEFORE `insertWorkflowRun`, so the only
+    // honest start time is the host's. Writing the click time would put a
+    // timestamp on the job that no run ever had.
+    const job = await seedJob();
+    await runAction({ job_id: job.id });
+    expect((await jobStore().getJob(job.id))?.lastRunAt).toBeUndefined();
+  });
+
+  describe("refusals — each audited by reason, each firing nothing", () => {
+    test("a payload with no valid job id", async () => {
+      await runAction({ job_id: "not a job id!" });
+      expect(triggered).toEqual([]);
+      expect(await reasonFor("job-run-rejected")).toContain("no valid job id");
+    });
+
+    test("a job id that resolves to nothing", async () => {
+      await runAction({ job_id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee" });
+      expect(triggered).toEqual([]);
+      expect(await reasonFor("job-run-rejected")).toBe("job not found");
+    });
+
+    test("a DISABLED job — `enabled:false` is this console's retire", async () => {
+      const job = await seedJob({ name: "Retired", workflow: "docs-factory", enabled: "no" });
+      await runAction({ job_id: job.id });
+      expect(triggered).toEqual([]);
+      expect(await reasonFor("job-run-rejected")).toBe("job is disabled");
+    });
+
+    test("a stored job the validator no longer accepts", async () => {
+      // The per-workflow input allowlist is a SECURITY control — a job must
+      // not be able to set a key a template's gate reads in a `when`. The
+      // store only accepts branded drafts, so this row is reachable only by
+      // writing storage directly; re-validating at the point of SPEND is
+      // what makes writing storage insufficient.
+      const job = await seedJob();
+      const stored = storage.get(`job:${job.id}`) as Record<string, unknown>;
+      storage.set(`job:${job.id}`, { ...stored, input: { skipDependents: "false" } });
+
+      await runAction({ job_id: job.id });
+
+      expect(triggered).toEqual([]);
+      const reason = await reasonFor("job-run-rejected");
+      expect(reason).toContain("no longer valid");
+      expect(reason).toContain("skipDependents");
+    });
+
+    test("the host's own refusal is recorded, not swallowed", async () => {
+      // A hub action has no error channel back to the clicker — the route
+      // answers `{ok:true}` the moment the notification is sent. An
+      // unrecorded refusal is one nobody can ever learn about.
+      const job = await seedJob();
+      triggerRejection = new Error("workflow trigger quota exceeded");
+      await runAction({ job_id: job.id });
+      const reason = await reasonFor("job-run-rejected");
+      expect(reason).toContain("host refused");
+      expect(reason).toContain("quota exceeded");
+    });
+  });
+});
+
+describe("reconcileRuns", () => {
+  const hostRun = (over: Record<string, unknown> = {}) => ({
+    workflowRunId: "11111111-2222-3333-4444-555555555555",
+    workflowName: "ez-factory:docs-factory",
+    status: "running",
+    startedAt: "2026-08-02T10:00:00.000Z",
+    finishedAt: null,
+    suspendedReason: null,
+    resumable: false,
+    jobRef: null,
+    ...over,
+  });
+
+  test("folds a host run back into the store when it names a known job", async () => {
+    const job = await seedJob();
+    hostRunList = [hostRun({ jobRef: job.id })];
+
+    const records = await reconcileRuns(await jobStore().listJobs());
+
+    expect(records).toHaveLength(1);
+    // `recordRun` finally has a caller on the real path.
+    const stored = await jobStore().listRuns(job.id);
+    expect(stored).toHaveLength(1);
+    expect(stored[0]?.workflowRunId).toBe("11111111-2222-3333-4444-555555555555");
+  });
+
+  test("writes the job's bookkeeping from the HOST's start time", async () => {
+    const job = await seedJob();
+    hostRunList = [hostRun({ jobRef: job.id })];
+    await reconcileRuns(await jobStore().listJobs());
+    const after = await jobStore().getJob(job.id);
+    expect(after?.lastRunAt).toBe("2026-08-02T10:00:00.000Z");
+    expect(after?.lastWorkflowRunId).toBe("11111111-2222-3333-4444-555555555555");
+  });
+
+  test("keeps the NEWEST run per job, whatever order the host returned", async () => {
+    const job = await seedJob();
+    hostRunList = [
+      hostRun({
+        jobRef: job.id,
+        workflowRunId: "11111111-1111-1111-1111-111111111111",
+        startedAt: "2026-08-02T09:00:00.000Z",
+      }),
+      hostRun({
+        jobRef: job.id,
+        workflowRunId: "22222222-2222-2222-2222-222222222222",
+        startedAt: "2026-08-02T11:00:00.000Z",
+      }),
+    ];
+    await reconcileRuns(await jobStore().listJobs());
+    expect((await jobStore().getJob(job.id))?.lastWorkflowRunId).toBe(
+      "22222222-2222-2222-2222-222222222222",
+    );
+  });
+
+  test("ignores a run this console did not start", async () => {
+    // No `jobRef` ⇒ a hand-fired REST run or a CLI run. Claiming it would
+    // put a run in the console the console never started.
+    await seedJob();
+    hostRunList = [hostRun({ jobRef: null })];
+    expect(await reconcileRuns(await jobStore().listJobs())).toEqual([]);
+  });
+
+  test("ignores a run naming a job that is gone", async () => {
+    await seedJob();
+    hostRunList = [hostRun({ jobRef: "99999999-9999-9999-9999-999999999999" })];
+    expect(await reconcileRuns(await jobStore().listJobs())).toEqual([]);
+  });
+
+  test("no jobs ⇒ no host read at all", async () => {
+    runsRejection = new Error("should never be asked");
+    expect(await reconcileRuns([])).toEqual([]);
+  });
+
+  test("a refused read degrades to the last known state and is audited", async () => {
+    const job = await seedJob();
+    runsRejection = new Error("Rate limited");
+    expect(await reconcileRuns(await jobStore().listJobs())).toEqual([]);
+    expect(await reasonFor("runs-read-failed")).toContain("Rate limited");
+    // The job survived untouched — a failed poll is not a state change.
+    expect((await jobStore().getJob(job.id))?.lastRunAt).toBeUndefined();
+  });
+
+  test("a malformed response body degrades instead of throwing out of a render", async () => {
+    // A `runs()` body with no array would otherwise throw through
+    // `renderFactoryPage` and turn the whole console into "This page
+    // failed to render".
+    await seedJob();
+    runsBodyMalformed = true;
+    expect(await reconcileRuns(await jobStore().listJobs())).toEqual([]);
+  });
+
+  test("the runs VIEW reconciles before it reads, so one look is enough", async () => {
+    const job = await seedJob();
+    hostRunList = [hostRun({ jobRef: job.id, status: "success" })];
+    const tree = await renderFactoryPage({ view: "runs" });
+    // Reconcile-then-read: reading first would show "No runs recorded" on
+    // the first look and the run on the second, which reads as a bug.
+    const json = JSON.stringify(tree.nodes);
+    expect(json).not.toContain("No runs recorded");
+    expect(json).toContain(job.name);
+    expect(json).toContain("success");
+  });
+
+  test("the templates view does no host read at all", async () => {
+    await seedJob();
+    runsRejection = new Error("should never be asked");
+    const tree = await renderFactoryPage({ view: "templates" });
+    expect(JSON.stringify(tree.nodes)).toContain("draft-and-verify");
   });
 });

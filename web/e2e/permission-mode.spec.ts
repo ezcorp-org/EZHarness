@@ -125,10 +125,13 @@ test.describe("Permission Mode", () => {
 		// Send a message to trigger streaming (sets up streamingRunToConversation)
 		const textarea = page.locator("textarea");
 		await textarea.fill("Do something");
-		await textarea.press("Enter");
-
-		// Wait for the message POST to complete, which returns runId "run-stream"
-		await page.waitForResponse((r) => r.url().includes("/messages") && r.request().method() === "POST");
+		// Wait for the message POST to complete, which returns runId "run-stream".
+		// Armed WITH the keypress: a waiter registered after it can miss its own
+		// response and then block for the full test timeout.
+		await Promise.all([
+			page.waitForResponse((r) => r.url().includes("/messages") && r.request().method() === "POST"),
+			textarea.press("Enter"),
+		]);
 
 		// Emit run:start to set up the streaming run-to-conversation mapping
 		await emitWs({
@@ -178,8 +181,10 @@ test.describe("Permission Mode", () => {
 		// Trigger streaming
 		const textarea = page.locator("textarea");
 		await textarea.fill("Do something");
-		await textarea.press("Enter");
-		await page.waitForResponse((r) => r.url().includes("/messages") && r.request().method() === "POST");
+		await Promise.all([
+			page.waitForResponse((r) => r.url().includes("/messages") && r.request().method() === "POST"),
+			textarea.press("Enter"),
+		]);
 
 		await emitWs({
 			type: "run:token",
@@ -334,8 +339,10 @@ test.describe("Permission Mode", () => {
 		// Trigger streaming
 		const textarea = page.locator("textarea");
 		await textarea.fill("Do something");
-		await textarea.press("Enter");
-		await page.waitForResponse((r) => r.url().includes("/messages") && r.request().method() === "POST");
+		await Promise.all([
+			page.waitForResponse((r) => r.url().includes("/messages") && r.request().method() === "POST"),
+			textarea.press("Enter"),
+		]);
 
 		await emitWs({
 			type: "run:token",
