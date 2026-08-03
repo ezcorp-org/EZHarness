@@ -25,7 +25,7 @@
 
 import { afterAll, beforeAll, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { getChannel } from "@ezcorp/sdk/runtime";
-import { _internals, SKIP_DIRS, SKIP_ROOT_DIRS } from "./index";
+import { _internals, main, SKIP_DIRS, SKIP_ROOT_DIRS } from "./index";
 import type { JsonRpcRequest, JsonRpcResponse } from "@ezcorp/sdk";
 
 const cwd = _internals.cwd;
@@ -320,6 +320,73 @@ describe("skip lists", () => {
 
   test("SKIP_ROOT_DIRS is exactly the Docker datadir parent", () => {
     expect([...SKIP_ROOT_DIRS]).toEqual(["data"]);
+  });
+});
+
+describe("main() — the stdin JSON-RPC loop", () => {
+  // Reachable only because `main()` now creates its reader lazily and is
+  // gated on `import.meta.main`. Driven by swapping `Bun.stdin.stream()`
+  // for a controlled ReadableStream; the input is split ACROSS CHUNKS at
+  // a non-line boundary so the `buffer +=` / partial-line path is real,
+  // not incidental.
+  async function runMain(input: string, splitAt: number): Promise<string[]> {
+    const enc = new TextEncoder();
+    const parts = [enc.encode(input.slice(0, splitAt)), enc.encode(input.slice(splitAt))];
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const p of parts) controller.enqueue(p);
+        controller.close();
+      },
+    });
+    const streamSpy = spyOn(Bun.stdin, "stream").mockReturnValue(
+      stream as unknown as ReturnType<typeof Bun.stdin.stream>,
+    );
+    const written: string[] = [];
+    const writeSpy = spyOn(process.stdout, "write").mockImplementation(((s: string) => {
+      written.push(s);
+      return true;
+    }) as typeof process.stdout.write);
+    try {
+      await main();
+    } finally {
+      streamSpy.mockRestore();
+      writeSpy.mockRestore();
+    }
+    return written;
+  }
+
+  test("answers a well-formed request, skips blanks, swallows malformed lines", async () => {
+    const req = JSON.stringify({
+      jsonrpc: "2.0",
+      id: 11,
+      method: "tools/call",
+      params: { name: "nope", arguments: {} },
+    });
+    const input = `${req}\n\n   \n{not json\n`;
+    // Split mid-request so the loop must buffer a partial line.
+    const written = await runMain(input, 20);
+
+    // Exactly one response: the blank lines are skipped and the malformed
+    // line is swallowed by the loop's catch.
+    expect(written).toHaveLength(1);
+    const res = JSON.parse(written[0]!.trim()) as JsonRpcResponse;
+    expect(res.id).toBe(11);
+    expect(res.error!.code).toBe(-32601);
+  });
+
+  test("answers two requests in one chunk", async () => {
+    const mk = (id: number) =>
+      JSON.stringify({ jsonrpc: "2.0", id, method: "nope/nope" });
+    const written = await runMain(`${mk(21)}\n${mk(22)}\n`, 5);
+    expect(written).toHaveLength(2);
+    expect((JSON.parse(written[0]!.trim()) as JsonRpcResponse).id).toBe(21);
+    expect((JSON.parse(written[1]!.trim()) as JsonRpcResponse).id).toBe(22);
+  });
+
+  test("a trailing line with no newline is NOT answered (needs its terminator)", async () => {
+    const req = JSON.stringify({ jsonrpc: "2.0", id: 31, method: "nope/nope" });
+    const written = await runMain(req, 4); // no trailing "\n"
+    expect(written).toHaveLength(0);
   });
 });
 
