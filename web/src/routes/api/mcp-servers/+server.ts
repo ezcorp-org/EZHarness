@@ -2,14 +2,21 @@ import { json } from "@sveltejs/kit";
 import { installMcpExtension } from "$server/db/queries/extensions";
 import { ExtensionRegistry } from "$server/extensions/registry";
 import { McpClient } from "$server/mcp/client";
-import { requireRole } from "$server/auth/middleware";
+import { checkRole } from "$server/auth/middleware";
 import { validationError } from "$lib/server/security/validation";
 import { errorJson } from "$lib/server/http-errors";
 import { installMcpServerSchema } from "./schema";
 import type { RequestHandler } from "./$types";
 
 export const POST: RequestHandler = async ({ request, locals }) => {
-  requireRole(locals, "admin");
+  // F2: `checkRole` gates BOTH axes — the admin ROLE and, for API-key
+  // principals, the `admin` SCOPE. An MCP server config is instance state
+  // (command lines, URLs, auth headers), so a key minted `--scopes read
+  // --role admin` must not be able to install one. Cookie sessions carry no
+  // `apiKeyScopes` and still pass on role alone. It also RETURNS the denial:
+  // a thrown Response is rendered by SvelteKit as a 500, not a 403.
+  const admin = checkRole(locals, "admin");
+  if (admin instanceof Response) return admin;
 
   const parsed = installMcpServerSchema.safeParse(await request.json());
   if (!parsed.success) return validationError(parsed.error);

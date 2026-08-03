@@ -84,28 +84,18 @@ describe("POST /api/mcp-servers", () => {
     registryReload.mockResolvedValue(undefined);
   });
 
+  // F2/F6: the gate is `checkRole`, which RETURNS its denial. A thrown
+  // Response is rendered by SvelteKit as a 500, so returning is the contract.
   test("rejects 401 when locals.user is missing", async () => {
-    let res: Response | undefined;
-    try {
-      await POST(makeEvent({ body: validStdioBody() }));
-      expect.fail("should have thrown");
-    } catch (thrown) {
-      expect(thrown).toBeInstanceOf(Response);
-      res = thrown as Response;
-    }
-    expect(res!.status).toBe(401);
+    const res = await POST(makeEvent({ body: validStdioBody() }));
+    expect(res).toBeInstanceOf(Response);
+    expect(res.status).toBe(401);
   });
 
   test("rejects 403 when caller is not admin", async () => {
-    let res: Response | undefined;
-    try {
-      await POST(makeEvent({ locals: memberUser, body: validStdioBody() }));
-      expect.fail("should have thrown");
-    } catch (thrown) {
-      expect(thrown).toBeInstanceOf(Response);
-      res = thrown as Response;
-    }
-    expect(res!.status).toBe(403);
+    const res = await POST(makeEvent({ locals: memberUser, body: validStdioBody() }));
+    expect(res).toBeInstanceOf(Response);
+    expect(res.status).toBe(403);
   });
 
   test("rejects 400 when name is missing (zod validation)", async () => {

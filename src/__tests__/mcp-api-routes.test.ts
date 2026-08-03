@@ -58,12 +58,11 @@ describe("POST /api/mcp-servers", () => {
         server: { transport: "stdio", name: "role-check", command: fixture.command, args: fixture.args },
       },
     });
-    try {
-      await installPOST(event);
-      throw new Error("expected to throw");
-    } catch (e) {
-      expect((e as Response).status).toBe(403);
-    }
+    // F2/F6: the gate is `checkRole`, which RETURNS its denial. A thrown
+    // Response is rendered by SvelteKit as a 500, so returning is the contract.
+    const res = (await installPOST(event)) as Response;
+    expect(res).toBeInstanceOf(Response);
+    expect(res.status).toBe(403);
   });
 
   test("rejects missing body fields with validation error", async () => {
@@ -184,12 +183,11 @@ describe("POST /api/mcp-servers/[id]/refresh", () => {
       user: MEMBER_USER,
       params: { id: "x" },
     });
-    try {
-      await refreshPOST(event);
-      throw new Error("expected to throw");
-    } catch (e) {
-      expect((e as Response).status).toBe(403);
-    }
+    // F2/F6: the gate is `checkRole`, which RETURNS its denial (see the
+    // install route above).
+    const res = (await refreshPOST(event)) as Response;
+    expect(res).toBeInstanceOf(Response);
+    expect(res.status).toBe(403);
   });
 
   test("returns 502 when registry.refreshMcpTools throws (unknown id)", async () => {

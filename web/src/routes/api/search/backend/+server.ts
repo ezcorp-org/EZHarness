@@ -12,14 +12,18 @@
  *   POST   → upsert a BYOK key (encrypted) or the SearXNG URL.
  *   DELETE → remove a BYOK key.
  *
- * All three require admin (`requireRole(locals, "admin")`) — a member
- * could otherwise redirect search egress or exfiltrate billing.
+ * All three require admin (`checkRole(locals, "admin")`) — a member could
+ * otherwise redirect search egress or exfiltrate billing. `checkRole` gates
+ * BOTH authorization axes: the admin ROLE, and (for API-key principals only)
+ * the `admin` SCOPE, so a key minted `--scopes read --role admin` cannot
+ * reach these writes. Cookie sessions carry no `apiKeyScopes` and pass on
+ * role alone.
  */
 import { json } from "@sveltejs/kit";
 import { z } from "zod";
 import { encrypt } from "$server/providers/encryption";
 import { getSetting, upsertSetting, deleteSetting } from "$server/db/queries/settings";
-import { requireRole } from "$server/auth/middleware";
+import { checkRole } from "$server/auth/middleware";
 import { insertAuditEntry } from "$server/db/queries/audit-log";
 import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
@@ -52,7 +56,8 @@ const postBodySchema = z
 const deleteBodySchema = z.object({ provider: z.string().optional() }).strict();
 
 export const GET: RequestHandler = async ({ locals }) => {
-	requireRole(locals, "admin");
+	const admin = checkRole(locals, "admin");
+	if (admin instanceof Response) return admin;
 	const providers = await Promise.all(
 		BYOK_PROVIDERS.map(async (provider) => ({
 			provider,
@@ -69,7 +74,8 @@ export const GET: RequestHandler = async ({ locals }) => {
 };
 
 export const POST: RequestHandler = async ({ request, locals }) => {
-	const admin = requireRole(locals, "admin");
+	const admin = checkRole(locals, "admin");
+	if (admin instanceof Response) return admin;
 	const parsed = postBodySchema.safeParse(await request.json().catch(() => ({})));
 	if (!parsed.success) {
 		return errorJson(400, "Invalid request body");
@@ -118,7 +124,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 };
 
 export const DELETE: RequestHandler = async ({ request, locals }) => {
-	const admin = requireRole(locals, "admin");
+	const admin = checkRole(locals, "admin");
+	if (admin instanceof Response) return admin;
 	const parsed = deleteBodySchema.safeParse(await request.json().catch(() => ({})));
 	if (!parsed.success) {
 		return errorJson(400, "Invalid request body");

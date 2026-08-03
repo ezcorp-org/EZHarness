@@ -44,12 +44,17 @@ servers, users/teams, and audit** — mint with `--scopes admin --role admin` to
 reach them.
 
 The refusal *shape* differs by handler. The routes converted to `checkRole`
-(`/api/settings/:key` and the extension install/activate/permission-editing
-routes) return a **clean 403** on either axis. The routes still gated by
-`requireRole` (users/teams, audit, MCP servers, …) return a clean 403 when the
-**scope** is missing, but a **500** when only the **role** is missing —
-SvelteKit surfaces a handler-thrown `Response` as a 500 (a known rough edge,
-not a leak). Providing both axes avoids it.
+return a **clean 403** on either axis. That set is `/api/settings/:key`, the
+extension install/activate/permission-editing routes, the webhook-rotate
+route, and (as of F2) `POST`/`DELETE /api/providers`, all of
+`/api/search/backend`, `POST`/`PUT /api/mcp-servers[/:id]` +
+`POST /api/mcp-servers/:id/refresh`, `POST /api/providers/local/{models,test}`
+and `POST /api/extensions/:id/modifiable`.
+
+Routes still gated by bare `requireRole` (users/teams, audit, …) enforce only
+the **role** axis and **throw** their denial, which SvelteKit surfaces as a
+**500** rather than the intended 403 (a known rough edge, not a leak).
+Providing both axes avoids it.
 
 **Anti-escalation:** minting an `admin`-role key requires the actor/owner to
 already hold admin role. Over HTTP the actor mints for itself, so an

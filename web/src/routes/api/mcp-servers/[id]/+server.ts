@@ -2,7 +2,7 @@ import { json } from "@sveltejs/kit";
 import { getExtension, rehydrateMcpServerSecrets, updateMcpExtension } from "$server/db/queries/extensions";
 import { ExtensionRegistry } from "$server/extensions/registry";
 import { McpClient } from "$server/mcp/client";
-import { requireRole } from "$server/auth/middleware";
+import { checkRole } from "$server/auth/middleware";
 import { validationError } from "$lib/server/security/validation";
 import { errorJson } from "$lib/server/http-errors";
 import type { ExtensionManifestV2, McpServerDefinition } from "$server/extensions/types";
@@ -22,7 +22,11 @@ import type { RequestHandler } from "./$types";
  *   back to the client, so the edit form sends blank to mean "unchanged").
  */
 export const PUT: RequestHandler = async ({ params, request, locals }) => {
-  requireRole(locals, "admin");
+  // F2: admin ROLE *and* (for key principals) the `admin` SCOPE — see the
+  // install route. This handler rehydrates stored auth headers, so a
+  // read-scoped key must never reach it.
+  const admin = checkRole(locals, "admin");
+  if (admin instanceof Response) return admin;
   const id = params.id;
   if (!id) return errorJson(400, "id required");
 

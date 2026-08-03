@@ -2,7 +2,7 @@ import { json } from "@sveltejs/kit";
 import { z } from "zod";
 import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
-import { requireRole } from "$server/auth/middleware";
+import { checkRole } from "$server/auth/middleware";
 import { checkLocalModel } from "$server/providers/local-model-check";
 import {
 	isPrivateOrLoopback,
@@ -23,7 +23,11 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	// requireScope(locals, "admin") which is a no-op for cookie auth, so any
 	// authenticated member could drive server-side fetch() to arbitrary URLs
 	// (cloud metadata, internal services, …) — SSRF.
-	requireRole(locals, "admin");
+	//
+	// F2: `checkRole` — see the sibling models route. Adds the `admin` SCOPE
+	// axis for key principals so a read-scoped admin-role key is refused.
+	const admin = checkRole(locals, "admin");
+	if (admin instanceof Response) return admin;
 
 	const raw = await request.json().catch(() => null);
 	if (!raw || typeof raw !== "object") {

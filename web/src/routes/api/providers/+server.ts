@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { RequestHandler } from "./$types";
 import { encrypt, decrypt } from "$server/providers/encryption";
 import { getSetting, upsertSetting, deleteSetting } from "$server/db/queries/settings";
-import { requireAuth, requireRole } from "$server/auth/middleware";
+import { requireAuth, checkRole } from "$server/auth/middleware";
 import { insertAuditEntry } from "$server/db/queries/audit-log";
 import { requireScope } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
@@ -95,7 +95,16 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	// requireScope(locals, "admin") which is a no-op for cookie auth, so any
 	// authenticated member could overwrite the organization's LLM API key —
 	// redirecting billing to an attacker-controlled key.
-	const admin = requireRole(locals, "admin");
+	//
+	// F2: `checkRole`, not `requireRole`. sec-C5 closed the cookie hole but
+	// opened a key one — `requireRole` proves the PRINCIPAL is an admin and
+	// ignores what the key was SCOPED for, so a key minted
+	// `--scopes read --role admin` still reached this write. `checkRole`
+	// enforces BOTH axes (and returns the denial instead of throwing it,
+	// which SvelteKit would render as a 500). A cookie session carries no
+	// `apiKeyScopes`, so it is unaffected and still passes on role alone.
+	const admin = checkRole(locals, "admin");
+	if (admin instanceof Response) return admin;
 	const parsed = postBodySchema.safeParse(await request.json().catch(() => ({})));
 	if (!parsed.success) {
 		return errorJson(400, "Invalid provider. Must be one of: anthropic, openai, google, openrouter");
@@ -123,7 +132,10 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 export const DELETE: RequestHandler = async ({ request, locals }) => {
 	// sec-C5: admin role required. Pre-fix, any authenticated member could
 	// delete the organization's LLM API key — DoS for every other user.
-	const admin = requireRole(locals, "admin");
+	// F2: `checkRole` also enforces the `admin` SCOPE for key principals —
+	// see the POST handler above for the full rationale.
+	const admin = checkRole(locals, "admin");
+	if (admin instanceof Response) return admin;
 	const parsed = deleteBodySchema.safeParse(await request.json().catch(() => ({})));
 	if (!parsed.success) {
 		return errorJson(400, "Invalid provider. Must be one of: anthropic, openai, google, openrouter");

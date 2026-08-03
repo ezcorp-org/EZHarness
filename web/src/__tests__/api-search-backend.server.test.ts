@@ -51,26 +51,18 @@ describe("GET /api/search/backend", () => {
 		vi.mocked(getSetting).mockReset();
 	});
 
+	// F2/F6: the gate is `checkRole`, which RETURNS its denial. A thrown
+	// Response is rendered by SvelteKit as a 500, so returning is the contract.
 	test("rejects 401 when locals.user is missing", async () => {
-		let res: Response | undefined;
-		try {
-			await GET(makeEvent({ method: "GET" }));
-			expect.fail("should have thrown");
-		} catch (thrown) {
-			res = thrown as Response;
-		}
-		expect(res!.status).toBe(401);
+		const res = await GET(makeEvent({ method: "GET" }));
+		expect(res).toBeInstanceOf(Response);
+		expect(res.status).toBe(401);
 	});
 
 	test("rejects 403 when caller is not admin", async () => {
-		let res: Response | undefined;
-		try {
-			await GET(makeEvent({ method: "GET", locals: memberUser }));
-			expect.fail("should have thrown");
-		} catch (thrown) {
-			res = thrown as Response;
-		}
-		expect(res!.status).toBe(403);
+		const res = await GET(makeEvent({ method: "GET", locals: memberUser }));
+		expect(res).toBeInstanceOf(Response);
+		expect(res.status).toBe(403);
 	});
 
 	test("returns presence-only status; the key VALUE is never in the body", async () => {
@@ -110,15 +102,13 @@ describe("POST /api/search/backend", () => {
 		vi.mocked(encrypt).mockClear();
 	});
 
+	// F2/F6: `checkRole` RETURNS its denial (a thrown Response would 500).
 	test("rejects 403 when caller is not admin", async () => {
-		let res: Response | undefined;
-		try {
-			await POST(makeEvent({ method: "POST", locals: memberUser, body: { provider: "tavily", apiKey: "k" } }));
-			expect.fail("should have thrown");
-		} catch (thrown) {
-			res = thrown as Response;
-		}
-		expect(res!.status).toBe(403);
+		const res = await POST(
+			makeEvent({ method: "POST", locals: memberUser, body: { provider: "tavily", apiKey: "k" } }),
+		);
+		expect(res).toBeInstanceOf(Response);
+		expect(res.status).toBe(403);
 	});
 
 	test("encrypts + stores a BYOK key under provider:apiKey:* and audits", async () => {
@@ -199,15 +189,13 @@ describe("DELETE /api/search/backend", () => {
 		vi.mocked(insertAuditEntry).mockClear();
 	});
 
+	// F2/F6: `checkRole` RETURNS its denial (a thrown Response would 500).
 	test("rejects 403 when caller is not admin", async () => {
-		let res: Response | undefined;
-		try {
-			await DELETE(makeEvent({ method: "DELETE", locals: memberUser, body: { provider: "tavily" } }));
-			expect.fail("should have thrown");
-		} catch (thrown) {
-			res = thrown as Response;
-		}
-		expect(res!.status).toBe(403);
+		const res = await DELETE(
+			makeEvent({ method: "DELETE", locals: memberUser, body: { provider: "tavily" } }),
+		);
+		expect(res).toBeInstanceOf(Response);
+		expect(res.status).toBe(403);
 	});
 
 	test("removes the BYOK key + audits", async () => {
