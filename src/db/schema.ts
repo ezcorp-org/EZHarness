@@ -502,6 +502,230 @@ export const workflowDefinitionVersions = pgTable("workflow_definition_versions"
 export type WorkflowDefinitionVersionRow = typeof workflowDefinitionVersions.$inferSelect;
 export type NewWorkflowDefinitionVersionRow = typeof workflowDefinitionVersions.$inferInsert;
 
+// ── C3: delegated execution — service accounts ─────────────────────
+//
+// An opt-in, admin-created, NON-HUMAN principal for org-level jobs whose
+// owner should not be a person who might leave. It CANNOT authenticate:
+// there is no `users` row, no password hash, no session and no API key,
+// so compromising the identity yields nothing beyond the jobs already
+// delegated to it. It exists solely as a `run_as` target.
+//
+// REACH WARNING, and it is a property of the read/run ladder, not of this
+// table: a service account carries `userId: null`, so it satisfies only
+// `visibility: 'system'` ("anyone"). `project` requires a non-null
+// caller.userId and `private` requires ownership — see
+// `runtime/workflow-scope.ts` (`readRunAudience` / `authorizeWorkflow`).
+// A forked workflow is stamped `project`, so a service account cannot run
+// one. The consent route refuses that combination up front rather than
+// letting it fail at fire time.
+export const serviceAccounts = pgTable("service_accounts", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  // Globally unique — this is the human-facing handle an admin picks the
+  // account by, and two accounts sharing a name would make the picker
+  // ambiguous exactly where authority is being assigned.
+  name: text("name").notNull(),
+  description: text("description").notNull().default(""),
+  // RESTRICT, and it is the same choice `sdk_capability_calls.on_behalf_of`
+  // makes for the same reason: this column names the accountable human, so
+  // there must exist NO state in which the account is live and names
+  // nobody. Deleting an admin who still has service accounts is refused
+  // until those accounts are removed — a loud, explicit act rather than a
+  // silent orphaning. (SET NULL is impossible here anyway: the column is
+  // NOT NULL, and `NOT NULL` + `ON DELETE SET NULL` is accepted at DDL
+  // time and then fails every delete with a 23502 — a defect this repo has
+  // already shipped and fixed once, see the guarded FK swap in migrate.ts.)
+  createdByUserId: text("created_by_user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  // CASCADE: a project-scoped account is part of the project and dies with
+  // it, so it can never outlive its scope and reach another project.
+  projectId: text("project_id").references(() => projects.id, { onDelete: "cascade" }),
+  // Clamped to the CREATING ADMIN's scopes at creation — the bound that
+  // closes "an admin mints a principal broader than themselves". Admins
+  // hold every extension RBAC scope today, so this bites only once
+  // narrower roles exist; it is written now rather than later.
+  scopes: jsonb("scopes").notNull().$type<string[]>().default([]),
+  // TOKENS, not cents. Cost is derived at read time, displayed, and
+  // ADVISORY — an unpriced model (OAuth-subscription) reports a null price
+  // and would silently spend without bound under a cost cap. Tokens have
+  // no such case. Mandatory: there is deliberately no "unlimited" value.
+  maxTokensPerDay: integer("max_tokens_per_day").notNull(),
+  enabled: boolean("enabled").notNull().default(true),
+  disabledReason: text("disabled_reason"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("uniq_service_account_name").on(table.name),
+  // FK index — ON DELETE RESTRICT scans this column on EVERY user delete
+  // to decide whether to refuse, so it is required, not nice-to-have.
+  index("idx_service_accounts_created_by").on(table.createdByUserId),
+]);
+
+export type ServiceAccountRow = typeof serviceAccounts.$inferSelect;
+export type NewServiceAccountRow = typeof serviceAccounts.$inferInsert;
+
+/**
+ * The two principals a delegated run may execute as.
+ *
+ * `owner_kind` is LOAD-BEARING, not a reserved placeholder: both arms are
+ * built and are selectable per delegation, and they differ in what they
+ * can reach (see `serviceAccounts` above).
+ */
+export type DelegationOwnerKind = "user" | "service";
+
+/**
+ * `owner_kind` → the column that carries the owner for that kind.
+ *
+ * A KEYED LOOKUP, deliberately, and never a two-armed `switch`: adding a
+ * third principal kind must be one new entry here plus one new column, and
+ * every consumer that resolves through this map picks it up. A `switch`
+ * over a two-value union compiles today and silently falls through the day
+ * a third value exists. Exactly one of the mapped columns is populated per
+ * row; that is enforced in the query layer, not by a CHECK constraint,
+ * consistent with the rest of this schema.
+ */
+export const DELEGATION_OWNER_COLUMN = {
+  user: "ownerUserId",
+  service: "ownerServiceAccountId",
+} as const satisfies Record<DelegationOwnerKind, keyof typeof workflowDelegations.$inferSelect>;
+
+// ── C3: delegated execution — the delegation row ───────────────────
+//
+// The authority for `ctx.workflows.runFor`. The wire carries a `job_ref`
+// and NEVER a principal, so "invent an owner" is not denied, it is
+// INEXPRESSIBLE — the owner is resolved host-side from this table, keyed
+// on the registry-resolved `extension_id`. A forged ref matches zero rows.
+export const workflowDelegations = pgTable("workflow_delegations", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  // CASCADE: uninstalling the extension destroys every authority granted
+  // to it. A delegation naming a dead extension is a latent grant waiting
+  // for a same-named reinstall to pick it up.
+  extensionId: text("extension_id").notNull().references(() => extensions.id, { onDelete: "cascade" }),
+  // The extension-supplied job handle. Jobs live in extension `Storage`,
+  // not in a table, so there is deliberately no FK — same rationale as
+  // `workflow_runs.job_ref`.
+  jobRef: text("job_ref").notNull(),
+  ownerKind: text("owner_kind").notNull().$type<DelegationOwnerKind>(),
+  // CASCADE, and this is the whole §2.1 argument: SET NULL on the column
+  // that IS the authority would leave a row that is `enabled`, carries a
+  // valid `consent_hash`, and names NOBODY — a latent ownerless grant,
+  // precisely the state `-32106` exists to prevent. Deleting the user
+  // deletes the authority; the job's next fire finds no delegation and is
+  // refused. NULL for `owner_kind = 'service'`.
+  ownerUserId: text("owner_user_id").references(() => users.id, { onDelete: "cascade" }),
+  // Same argument, other arm. NULL for `owner_kind = 'user'`.
+  ownerServiceAccountId: text("owner_service_account_id").references(() => serviceAccounts.id, { onDelete: "cascade" }),
+  // Taken from THIS ROW at fire time, never from the wire — a delegation
+  // for workflow A cannot be presented to run workflow B, because the
+  // value has no wire representation to disagree with.
+  workflowName: text("workflow_name").notNull(),
+  // RESTRICT, and it is the ONLY restrict-on-delete among the workflow
+  // tables: the consent record pins the exact snapshot the human agreed
+  // to, so the retention sweep must not be able to reap it out from under
+  // a live delegation and leave the hash referencing a snapshot that no
+  // longer exists. The sweep honours this through
+  // `VersionSweepOptions.pinnedVersionIds`, which is REQUIRED (not
+  // optional) so omitting it is a compile error rather than a log line.
+  // NULL for a YAML/extension workflow, which has no definition row to
+  // version in the first place.
+  definitionVersionId: text("definition_version_id").references(() => workflowDefinitionVersions.id, { onDelete: "restrict" }),
+  // CASCADE: a project-scoped delegation is part of the project. The run's
+  // project comes from HERE and never from params — the same
+  // confused-deputy fix the github-projects handler documents.
+  projectId: text("project_id").references(() => projects.id, { onDelete: "cascade" }),
+  // How the job fires (`cron` / `webhook` / `event`). Part of what was
+  // authorized — "runs on every push to main" is a consent input, so both
+  // this and the canonical `trigger_spec` feed the hash.
+  triggerKind: text("trigger_kind").notNull(),
+  triggerSpec: jsonb("trigger_spec").$type<Record<string, unknown>>(),
+  // What the human actually saw, hashed. Recomputed from live state on
+  // EVERY fire and compared — never read back and compared to itself.
+  consentHash: text("consent_hash").notNull(),
+  // The capability set as consented, kept alongside the hash so the
+  // re-consent dialog can render a DIFF rather than "something changed".
+  capabilitySet: jsonb("capability_set").notNull().$type<Array<{ kind: string; value: string | null }>>().default([]),
+  // TOKENS, not cents — see `serviceAccounts.maxTokensPerDay`. This is the
+  // ENFORCED bound, checked at dispatch and again at every step boundary.
+  // It covers LLM spend and NOT `tool` steps: tokens reach a step row from
+  // exactly one place (the agent-attempt path), so a `tool` step — the one
+  // kind that reaches an external side effect — contributes nothing. The
+  // consent dialog must say so in plain words.
+  maxTokensPerRun: integer("max_tokens_per_run").notNull(),
+  maxRunsPerDay: integer("max_runs_per_day").notNull(),
+  consecutiveFailures: integer("consecutive_failures").notNull().default(0),
+  enabled: boolean("enabled").notNull().default(true),
+  disabledReason: text("disabled_reason"),
+  consentedAt: timestamp("consented_at", { withTimezone: true }).notNull().defaultNow(),
+  // The ANSWERING HUMAN, and the reason this column is NOT NULL.
+  //
+  // A service account has no `users` row, so a run it owns writes
+  // `workflow_runs.user_id = NULL` and the approval path's ownership test
+  // collapses to admin-only while the inbox hides the row entirely. The
+  // resolution is that the *account* owns the run and the *human who
+  // consented* answers for it: a `delegation` approval actor is minted
+  // only for a session whose user is this column, and the approvals inbox
+  // gains the matching disjunct. Without a value here that authority
+  // exists and can never be exercised.
+  //
+  // RESTRICT, NOT the `SET NULL` the original spec table named: this
+  // column is NOT NULL, and `NOT NULL` + `ON DELETE SET NULL` is a
+  // constraint Postgres accepts at DDL time and then fails on every parent
+  // delete with a 23502 — verified by execution, not by reading. This repo
+  // has shipped that exact pairing once already (on
+  // `sdk_capability_calls.on_behalf_of`) and carries a guarded FK swap in
+  // migrate.ts to repair it.
+  //
+  // RESTRICT rather than CASCADE, deliberately, and the discriminator is
+  // the `service` arm: CASCADE would mean a service-account delegation
+  // dies when the admin who consented to it is deleted, which destroys the
+  // exact durability property service accounts exist to provide ("an owner
+  // who should not be a person who might leave"). RESTRICT instead refuses
+  // the delete until the delegation is revoked or re-consented. It does
+  // NOT deadlock with the `owner_user_id` CASCADE arm above when both name
+  // the same user: Postgres runs the CASCADE first and the RESTRICT check
+  // then finds no referencing row, so deleting a user still removes their
+  // own user-kind delegations. Verified by execution.
+  consentedByUserId: text("consented_by_user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  // Revocation is a TOMBSTONE, not a delete: the row stays as history and
+  // drops out of every live index below. A revoked or expired delegation
+  // is therefore representable, and every live lookup is filtered on
+  // `revoked_at IS NULL`, so the default for a row that fell out of the
+  // partial indexes is "no authority".
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  // PARTIAL unique: exactly one LIVE delegation per (extension, job), while
+  // revoked rows accumulate freely as history. A total unique index would
+  // make re-consenting a revoked job impossible.
+  uniqueIndex("uniq_workflow_delegation")
+    .on(table.extensionId, table.jobRef)
+    .where(sql`revoked_at IS NULL`),
+  // FK index — ON DELETE CASCADE scans this on every user delete.
+  index("idx_workflow_delegations_owner_user").on(table.ownerUserId),
+  // FK index — ON DELETE CASCADE scans this on every service-account delete.
+  index("idx_workflow_delegations_owner_service").on(table.ownerServiceAccountId),
+  // The delegation lookup on a fire, narrowed to live rows.
+  index("idx_workflow_delegations_enabled")
+    .on(table.extensionId, table.enabled)
+    .where(sql`revoked_at IS NULL`),
+  // NOT in the original spec's index list, and required twice over:
+  // ON DELETE RESTRICT scans this column on every user delete to decide
+  // whether to refuse, and it is the driving predicate of the approvals
+  // inbox disjunct ("runs whose delegation names ME as the consenting
+  // human"). Without it both are sequential scans of a table that grows
+  // with every revocation.
+  index("idx_workflow_delegations_consented_by").on(table.consentedByUserId),
+  // Also not in the original list, and required by the RESTRICT above:
+  // the version retention sweep asks "is this version pinned by a live
+  // delegation?" on every reap, and the FK itself scans this column to
+  // decide whether to refuse the delete. The same argument already
+  // justifies `idx_workflow_runs_definition_version`, where the action is
+  // only SET NULL.
+  index("idx_workflow_delegations_version").on(table.definitionVersionId),
+]);
+
+export type WorkflowDelegationRow = typeof workflowDelegations.$inferSelect;
+export type NewWorkflowDelegationRow = typeof workflowDelegations.$inferInsert;
+
 // ── Workflow run history ───────────────────────────────────────────
 //
 // Workflow runs used to be ephemeral: `runWorkflow` returned the object
@@ -620,6 +844,30 @@ export const workflowRuns = pgTable("workflow_runs", {
   // valuable — it records what a nested attempt cost and why it failed —
   // and deleting a parent must not erase it.
   parentRunId: text("parent_run_id"),
+
+  // ── C3: which principal this run executed as ─────────────────────
+  //
+  // `run_as_kind` + `run_as` are a PLAIN TEXT SNAPSHOT with NO FK, and
+  // that is deliberate: this pair is the audit record of who a run
+  // executed as, and it must survive both revocation of the delegation
+  // and deletion of the owner. `delegation_id` below carries the live FK
+  // and goes NULL; these two never do. Same denormalization rationale as
+  // `workflow_name` above.
+  //
+  // NULL on every non-delegated run — which is every run that exists
+  // today — and NULL is the honest value, not a gap: those runs executed
+  // as their initiating `user_id`.
+  runAsKind: text("run_as_kind").$type<DelegationOwnerKind>(),
+  runAs: text("run_as"),
+  // SET NULL, not CASCADE: deleting a delegation must not erase the
+  // history of what it ran, exactly as `user_id` above is SET NULL rather
+  // than cascading a user's run history away. The `run_as` snapshot is
+  // what keeps the row readable afterwards.
+  //
+  // This column is also the C3 scope gate: the step-boundary token check
+  // fires ONLY for runs where it is non-null, so a run with no delegation
+  // takes zero extra queries.
+  delegationId: text("delegation_id").references(() => workflowDelegations.id, { onDelete: "set null" }),
 }, (table) => [
   index("idx_workflow_runs_name_started").on(table.workflowName, table.startedAt),
   // FK index — user delete fires ON DELETE SET NULL across this column.
@@ -640,6 +888,15 @@ export const workflowRuns = pgTable("workflow_runs", {
   // Required, not optional: ON DELETE SET NULL scans this column on every
   // parent delete, and the trace view reads a run's children by it.
   index("idx_workflow_runs_parent").on(table.parentRunId),
+  // C3 — backs the "jobs running as me" page. Composite so the page can
+  // page a single principal's runs newest-first without a sort.
+  index("idx_workflow_runs_run_as").on(table.runAsKind, table.runAs, table.startedAt),
+  // C3 — required, not optional, for the same reason `idx_workflow_runs_parent`
+  // is: ON DELETE SET NULL scans this column on every delegation delete.
+  // Composite with `started_at` because the per-job daily quota counts
+  // `delegation_id = $1 AND started_at >= startOfUtcDay(now())`, so one
+  // index serves the FK scan (leading column) and the quota range.
+  index("idx_workflow_runs_delegation").on(table.delegationId, table.startedAt),
 ]);
 
 export type WorkflowRunRow = typeof workflowRuns.$inferSelect;
