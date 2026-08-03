@@ -18,7 +18,8 @@ There are three authorization layers, each with its own enforcement point.
 
 ### 2. API-key scopes — a second authorization axis
 
-- Bearer / API-key principals carry `locals.apiKeyScopes` (`ApiKeyScope = "read" | "chat" | "extensions" | "admin"`, from `src/auth/api-key.ts`). `requireScope(locals, scope)` (`web/src/lib/server/security/api-keys.ts`) returns a `403` Response if the key lacks the scope — **but is a no-op (allow-all) for cookie sessions**, because `locals.apiKeyScopes` is `undefined` there.
+- Bearer / API-key principals carry `locals.apiKeyScopes` (`ApiKeyScope = "read" | "write" | "chat" | "extensions" | "admin"`, from `src/auth/api-key.ts`). `requireScope(locals, scope)` (`web/src/lib/server/security/api-keys.ts`) returns a `403` Response if the key lacks the scope — **but is a no-op (allow-all) for cookie sessions**, because `locals.apiKeyScopes` is `undefined` there.
+- The scopes are **FLAT** — `hasRequiredScope` is a plain `includes()`, so there is no hierarchy: `chat` does not subsume `read`, and `admin` subsumes nothing. `write` was added 2026-08 because none of the original four meant "may modify data" and `read` had been doing that job for 18 mutating handlers; a boot migration (`src/db/migrations/backfill-api-key-write-scope.ts`) granted `write` to every already-issued `read` key so no secret had to be re-minted. See [the audit](../../audit/2026-08-read-scope-mutation-inventory.md).
 - That no-op is the footgun: `requireScope(locals, "admin")` alone lets any cookie-authed *member* through. The role axis is the real authority. Two defenses exist:
   - **API-key principals are always minted with `role: "member"`** (`web/src/lib/server/security/bearer-auth.ts`), so a key can never be an admin *by role* even if it holds the `admin` *scope*.
   - `requireAdmin(locals)` checks `locals.user.role === "admin"` directly, and admin routes are expected to pair `requireScope("admin")` with `requireRole("admin")` — a route-contract meta-test enforces the pairing.
@@ -110,7 +111,7 @@ await requireTeamRole(locals, teamId, "editor"); // team ladder; admins bypass
 
 - `src/auth/middleware.ts` — `requireAuth`, `requireRole(admin)`, `requireTeamRole(viewer|editor|owner)` (admins bypass team checks).
 - `src/auth/types.ts` — `AuthUser` / `JWTPayload`; the `role: "admin" | "member"` principal shape.
-- `src/auth/api-key.ts` — `ApiKeyScope` union + `API_KEY_SCOPES` (`read`/`chat`/`extensions`/`admin`).
+- `src/auth/api-key.ts` — `ApiKeyScope` union + `API_KEY_SCOPES` (`read`/`write`/`chat`/`extensions`/`admin`).
 - `web/src/lib/server/security/api-keys.ts` — `requireScope` (no-op for cookie auth), `requireAdmin` (role-based), `verifyApiKey`.
 - `web/src/lib/server/security/bearer-auth.ts` — API-key principals minted with `role: "member"`.
 - `src/runtime/tools/permissions.ts` — `PermissionMode`, `DEFAULT_PERMISSION_MODE = "yolo"`, `AUTO_APPROVE` matrix, `needsApproval`, `getPermissionMode`, built-in `createPermissionGate` + extension `createExtensionPermissionGate`, `resolvePermission`, the `pendingApprovals` Map + sec-H2 `getPendingApprovalConversation`.

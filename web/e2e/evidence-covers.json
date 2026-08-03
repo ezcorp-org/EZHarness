@@ -2,6 +2,9 @@
   "web/e2e/admin-routing-cost.spec.ts": [
     "web/src/routes/(app)/admin/dashboard/+page.svelte"
   ],
+  "web/e2e/api-key-scopes-evidence.spec.ts": [
+    "web/src/lib/components/settings/ApiKeyManager.svelte"
+  ],
   "web/e2e/auto-model-routing.spec.ts": [
     "web/src/lib/components/ChatMessage.svelte",
     "web/src/lib/components/ModelSelector.svelte",
@@ -273,12 +276,12 @@
     "web/src/lib/components/ChatInput.svelte",
     "web/src/lib/components/ChatMessage.svelte"
   ],
+  "web/e2e/workflows-action-bar.spec.ts": [
+    "web/src/routes/(app)/workflows/[name]/+page.svelte"
+  ],
   "web/e2e/workflows-approvals.spec.ts": [
     "web/src/routes/(app)/workflows/approvals/+page.svelte",
     "web/src/lib/workflow-approvals-logic.ts"
-  ],
-  "web/e2e/workflows-action-bar.spec.ts": [
-    "web/src/routes/(app)/workflows/[name]/+page.svelte"
   ],
   "web/e2e/workflows-conditional.spec.ts": [
     "web/src/routes/(app)/workflows/[name]/+page.svelte",

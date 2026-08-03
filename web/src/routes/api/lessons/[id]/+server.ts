@@ -20,7 +20,7 @@ import type { RequestHandler } from "./$types";
  * shows users want restore.
  */
 export const DELETE: RequestHandler = async ({ params, locals }) => {
-	const scopeErr = requireScope(locals, "read");
+	const scopeErr = requireScope(locals, "write");
 	if (scopeErr) return scopeErr;
 	const user = requireAuth(locals);
 	const id = params.id;
@@ -51,7 +51,7 @@ export const DELETE: RequestHandler = async ({ params, locals }) => {
  * to decide between the two responses.
  */
 export const PATCH: RequestHandler = async ({ params, request, locals }) => {
-	const scopeErr = requireScope(locals, "read");
+	const scopeErr = requireScope(locals, "write");
 	if (scopeErr) return scopeErr;
 	const user = requireAuth(locals);
 	const id = params.id;

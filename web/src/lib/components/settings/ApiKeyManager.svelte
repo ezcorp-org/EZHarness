@@ -1,5 +1,20 @@
 <script lang="ts">
-	const SCOPES = ["read", "chat", "extensions", "admin"] as const;
+	// Scopes are FLAT — none of these implies another (src/auth/api-key.ts
+	// `hasRequiredScope` is an `includes`). The descriptions say so, because
+	// their absence is how this UI came to promise a read-only key that could
+	// delete the owner's memories: `read` was the default, unlabelled, and
+	// gated 18 mutating handlers. See
+	// docs/audit/2026-08-read-scope-mutation-inventory.md.
+	const SCOPES = [
+		{ id: "read", label: "Read your data — never modifies anything" },
+		{ id: "write", label: "Create, update and DELETE your memories, projects, lessons and files" },
+		{ id: "chat", label: "Start conversations and send messages" },
+		{ id: "extensions", label: "Wire and invoke extension tools" },
+		{ id: "admin", label: "Instance settings, users and extension lifecycle (admin-role keys only)" },
+	] as const;
+
+	/** Read-only by default. Picking `write` is now a deliberate act. */
+	const DEFAULT_SCOPES = ["read"];
 
 	type ApiKeyEntry = { keyId: string; name: string; scopes: string[]; createdAt: number };
 
@@ -7,7 +22,7 @@
 	let loading = $state(true);
 	let creating = $state(false);
 	let newKeyName = $state("");
-	let selectedScopes = $state<Set<string>>(new Set(["read"]));
+	let selectedScopes = $state<Set<string>>(new Set(DEFAULT_SCOPES));
 	let revealedKey = $state<string | null>(null);
 	let confirmRevokeId = $state<string | null>(null);
 	let copied = $state(false);
@@ -37,7 +52,7 @@
 				const data = await res.json();
 				revealedKey = data.key;
 				newKeyName = "";
-				selectedScopes = new Set(["read"]);
+				selectedScopes = new Set(DEFAULT_SCOPES);
 				await loadKeys();
 			}
 		} catch { /* silent */ }
@@ -134,16 +149,23 @@
 		</div>
 		<div>
 			<div class="mb-1 block text-xs text-[var(--color-text-secondary)]">Scopes</div>
-			<div class="flex flex-wrap gap-2">
+			<p class="mb-2 text-xs text-[var(--color-text-muted)]">
+				Each scope is granted independently — none includes another.
+			</p>
+			<div class="flex flex-col gap-1.5">
 				{#each SCOPES as scope}
 					<button
-						onclick={() => toggleScope(scope)}
-						class="rounded-md px-3 py-1 text-xs font-medium transition-colors
-							{selectedScopes.has(scope)
+						onclick={() => toggleScope(scope.id)}
+						aria-pressed={selectedScopes.has(scope.id)}
+						class="flex items-baseline gap-2 rounded-md px-3 py-1.5 text-left text-xs transition-colors
+							{selectedScopes.has(scope.id)
 								? 'bg-blue-600 text-white'
 								: 'bg-[var(--color-surface-tertiary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-border)]'}"
 					>
-						{scope}
+						<span class="w-20 shrink-0 font-medium">{scope.id}</span>
+						<span class="{selectedScopes.has(scope.id) ? 'text-blue-100' : 'text-[var(--color-text-muted)]'}">
+							{scope.label}
+						</span>
 					</button>
 				{/each}
 			</div>

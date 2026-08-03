@@ -64,7 +64,7 @@ describe("POST /api/projects", () => {
 		expect(res.status).toBe(401);
 	});
 
-	test("returns 403 when API-key scope missing 'read'", async () => {
+	test("returns 403 when API-key scope missing 'write'", async () => {
 		const user = { id: "u1", email: "u@x", name: "u", role: "user" };
 		const res = await POST(
 			makePostEvent(
@@ -74,7 +74,18 @@ describe("POST /api/projects", () => {
 		);
 		expect(res.status).toBe(403);
 		const body = (await res.json()) as { required?: string };
-		expect(body.required).toBe("read");
+		expect(body.required).toBe("write");
+	});
+
+	test("a read-only key can no longer create a project", async () => {
+		// The whole point of the 2026-08 re-scope: `read` used to create
+		// projects. GET below still takes `read` — the split is per-verb.
+		const user = { id: "u1", email: "u@x", name: "u", role: "user" };
+		const res = await POST(
+			makePostEvent({ name: "x", path: "/x" }, { user, apiKeyScopes: ["read"] }),
+		);
+		expect(res.status).toBe(403);
+		expect(((await res.json()) as { required?: string }).required).toBe("write");
 	});
 
 	test("rejects 400 when name or path missing (auth'd user)", async () => {

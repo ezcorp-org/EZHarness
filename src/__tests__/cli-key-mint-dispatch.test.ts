@@ -80,11 +80,15 @@ describe("cli key:mint dispatch", () => {
     expect(JSON.stringify(row?.[1])).not.toMatch(/ezk_/);
   });
 
-  test("defaults user to the admin and scopes to read,chat", async () => {
+  test("defaults user to the admin and scopes to read,write,chat", async () => {
+    // `write` joined the default in 2026-08 when the mutating handlers moved
+    // off `read` — without it the default key could observe a conversation but
+    // not save a memory, an authority the old default did carry. See
+    // docs/audit/2026-08-read-scope-mutation-inventory.md.
     await cli(["key", "mint"]);
     const out = logs.join("\n");
     expect(out).toContain("admin@x.test");
-    expect(out).toContain("read, chat");
+    expect(out).toContain("read, write, chat");
   });
 
   test("help lists the key mint command", async () => {

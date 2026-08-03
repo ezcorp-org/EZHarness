@@ -29,7 +29,7 @@ import { resolveProjectRoot, commandId, STALE_STAGING_MS } from "../common";
 
 export const POST: RequestHandler = async ({ request, locals }) => {
   try {
-    const scopeErr = requireScope(locals, "read");
+    const scopeErr = requireScope(locals, "write");
     if (scopeErr) return scopeErr;
     requireAuth(locals);
 

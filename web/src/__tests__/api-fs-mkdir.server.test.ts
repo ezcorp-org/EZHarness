@@ -77,7 +77,7 @@ describe("POST /api/fs/mkdir", () => {
 		expect(body.error).toContain("admin role required");
 	});
 
-	test("rejects 403 when API-key lacks 'read' scope", async () => {
+	test("rejects 403 when API-key lacks 'admin' scope", async () => {
 		const res = await POST(
 			makeEvent({
 				body: { path: "/tmp/x" },
@@ -86,7 +86,21 @@ describe("POST /api/fs/mkdir", () => {
 		);
 		expect(res.status).toBe(403);
 		const body = (await res.json()) as { required?: string };
-		expect(body.required).toBe("read");
+		expect(body.required).toBe("admin");
+	});
+
+	test("a read-only key can no longer create a directory", async () => {
+		// This route took `read` until 2026-08 while enforcing admin INLINE
+		// (`user.role !== "admin"` at +server.ts:22) — a shape the route-contract
+		// admin-pairing scan could not see. The scope now matches the gate.
+		const res = await POST(
+			makeEvent({
+				body: { path: "/tmp/x" },
+				locals: { ...adminLocals, apiKeyScopes: ["read"] },
+			}),
+		);
+		expect(res.status).toBe(403);
+		expect(((await res.json()) as { required?: string }).required).toBe("admin");
 	});
 
 	test("rejects 400 when path is missing", async () => {

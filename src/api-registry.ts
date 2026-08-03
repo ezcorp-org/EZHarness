@@ -88,7 +88,7 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "POST", path: "/api/conversations/:id/topics", description: "Detect topics for a conversation (stage-1 LLM); 503 when no model is available", category: "contexts", scope: "chat", responseDescription: "{ topics, stale, analyzedAt }" },
   { method: "POST", path: "/api/conversations/:id/topics/:topicId/extract", description: "Extract + save a topic's context (stage-2 LLM); 503 when no model is available", category: "contexts", scope: "chat", responseDescription: "{ context: { id, topicLabel, typeId, title, content, model, updatedAt } }" },
   { method: "GET", path: "/api/contexts", description: "Search saved topic contexts (library): ?projectId=&search=&typeId=&limit=&offset=", category: "contexts", scope: "read", responseDescription: "{ contexts, total }" },
-  { method: "DELETE", path: "/api/contexts/:id", description: "Delete a saved context (owner or admin; 404 otherwise)", category: "contexts", scope: "read" },
+  { method: "DELETE", path: "/api/contexts/:id", description: "Delete a saved context (owner or admin; 404 otherwise)", category: "contexts", scope: "write" },
   { method: "GET", path: "/api/context-types", description: "List the DB-resident topic classification types", category: "contexts", scope: "read", responseDescription: "{ types: [{ id, label, description, sortOrder }] }" },
 
   // Daily Briefing
@@ -203,24 +203,24 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "POST", path: "/api/marketplace/import", description: "Import agent from manifest", category: "marketplace", schemaKey: "importManifestSchema" },
 
   // Knowledge Base
-  { method: "GET", path: "/api/knowledge-base", description: "List knowledge base files for project", category: "knowledge-base" },
-  { method: "POST", path: "/api/knowledge-base", description: "Upload file to knowledge base (multipart)", category: "knowledge-base" },
-  { method: "GET", path: "/api/knowledge-base/:id", description: "Get knowledge base file details", category: "knowledge-base" },
-  { method: "DELETE", path: "/api/knowledge-base/:id", description: "Delete knowledge base file", category: "knowledge-base" },
+  { method: "GET", path: "/api/knowledge-base", description: "List knowledge base files for project", category: "knowledge-base", scope: "read" },
+  { method: "POST", path: "/api/knowledge-base", description: "Upload file to knowledge base (multipart)", category: "knowledge-base", scope: "write" },
+  { method: "GET", path: "/api/knowledge-base/:id", description: "Get knowledge base file details", category: "knowledge-base", scope: "read" },
+  { method: "DELETE", path: "/api/knowledge-base/:id", description: "Delete knowledge base file", category: "knowledge-base", scope: "read" },
 
   // Memories
-  { method: "GET", path: "/api/memories", description: "Search and list memories", category: "memories" },
-  { method: "POST", path: "/api/memories", description: "Create a memory", category: "memories" },
-  { method: "GET", path: "/api/memories/:id", description: "Get memory by ID", category: "memories" },
-  { method: "PUT", path: "/api/memories/:id", description: "Update a memory", category: "memories" },
-  { method: "DELETE", path: "/api/memories/:id", description: "Delete a memory", category: "memories" },
+  { method: "GET", path: "/api/memories", description: "Search and list memories", category: "memories", scope: "read" },
+  { method: "POST", path: "/api/memories", description: "Create a memory", category: "memories", scope: "write" },
+  { method: "GET", path: "/api/memories/:id", description: "Get memory by ID", category: "memories", scope: "read" },
+  { method: "PUT", path: "/api/memories/:id", description: "Update a memory", category: "memories", scope: "write" },
+  { method: "DELETE", path: "/api/memories/:id", description: "Delete a memory", category: "memories", scope: "write" },
 
   // Projects
-  { method: "GET", path: "/api/projects", description: "List projects for current user", category: "projects" },
-  { method: "POST", path: "/api/projects", description: "Create a new project", category: "projects" },
-  { method: "GET", path: "/api/projects/:id", description: "Get project by ID", category: "projects" },
-  { method: "PUT", path: "/api/projects/:id", description: "Update project settings", category: "projects" },
-  { method: "DELETE", path: "/api/projects/:id", description: "Delete a project", category: "projects" },
+  { method: "GET", path: "/api/projects", description: "List projects for current user", category: "projects", scope: "read" },
+  { method: "POST", path: "/api/projects", description: "Create a new project", category: "projects", scope: "write" },
+  { method: "GET", path: "/api/projects/:id", description: "Get project by ID", category: "projects", scope: "read" },
+  { method: "PUT", path: "/api/projects/:id", description: "Update project settings", category: "projects", scope: "read" },
+  { method: "DELETE", path: "/api/projects/:id", description: "Delete a project", category: "projects", scope: "read" },
   { method: "PUT", path: "/api/projects/:id/tool-permission-mode", description: "Set tool permission mode for project", category: "projects" },
 
   // Settings
@@ -394,5 +394,5 @@ export const apiRegistry: ApiRouteEntry[] = [
   // route-contract.test.ts cannot see it. Declared scope mirrors the handler:
   // "read" is genuinely what the key axis demands, even though the call
   // MUTATES the filesystem. See the reconciliation findings.
-  { method: "POST", path: "/api/fs/mkdir", description: "Create a directory (recursive) inside the project sandbox — admin ROLE required, but the API-key scope gate is only `read`; the target's nearest existing ancestor is realpath-checked against EZCORP_PROJECT_ROOT to block symlink escapes", category: "system", scope: "read", responseDescription: "{ path } (201)" },
+  { method: "POST", path: "/api/fs/mkdir", description: "Create a directory (recursive) inside the project sandbox — admin ROLE required AND the `admin` scope (until 2026-08 the scope gate was only `read`, so a nominally read-only key reached it); the target's nearest existing ancestor is realpath-checked against EZCORP_PROJECT_ROOT to block symlink escapes", category: "system", scope: "admin", responseDescription: "{ path } (201)" },
 ];

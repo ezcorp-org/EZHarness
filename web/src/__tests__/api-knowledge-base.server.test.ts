@@ -85,7 +85,7 @@ describe("GET /api/knowledge-base", () => {
 });
 
 describe("POST /api/knowledge-base", () => {
-	test("returns 403 when API-key scope is missing 'read'", async () => {
+	test("returns 403 when API-key scope is missing 'write'", async () => {
 		const res = await POST(
 			makePostEvent({
 				locals: { ...authedUser, apiKeyScopes: ["chat"] },

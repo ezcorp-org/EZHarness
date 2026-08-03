@@ -7,9 +7,14 @@
  * result as a synthetic `messages` row with `role: "ez-action-result"`
  * (JSON-encoded `EzActionResult` payload in `content`).
  *
- * Auth: `requireAuth + requireScope("read")` — same pattern as
- * `/api/lessons` (the EZ Actions auth surface mirrors lessons because
- * the v1 set of actions all read or write user-scoped resources). The
+ * Auth: `requireAuth + requireScope("chat")`. It was `read` until
+ * 2026-08, which was wrong in both directions: an action DISPATCHES a
+ * bundled-extension tool and PERSISTS a message row, so a nominally
+ * read-only key could drive it; and `chat` — the surface that actually
+ * owns "do a thing inside my conversation" — was refused, because
+ * scopes are flat and `chat` does not subsume `read`. `chat` gains no
+ * reach it lacked: the same tools are already reachable by posting to
+ * `/api/conversations/:id/messages`, which `chat` has always held. The
  * conversation ownership check is the second gate; we collapse "not
  * found" + "not owned" into 404 per the project's id-enumeration
  * defense pattern.
@@ -61,7 +66,7 @@ import { getPermissionEngine } from "$server/extensions/permission-engine";
  *     v1.5+ design conversation per the spec.
  *
  * Auth chain stays as-is — the route's `requireAuth +
- * requireScope("read")` + conversation-ownership gate runs BEFORE
+ * requireScope("chat")` + conversation-ownership gate runs BEFORE
  * this forwarder; the per-tool PermissionEngine gate runs INSIDE
  * `executeToolCall`. No new gate is added here.
  */
@@ -314,7 +319,7 @@ async function forwardToBundled(
 }
 
 export const POST: RequestHandler = async ({ params, request, locals }) => {
-	const scopeErr = requireScope(locals, "read");
+	const scopeErr = requireScope(locals, "chat");
 	if (scopeErr) return scopeErr;
 	const user = requireAuth(locals);
 
