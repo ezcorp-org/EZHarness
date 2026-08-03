@@ -92,6 +92,25 @@ describe("migration on Postgres-compatible backend", () => {
     expect(names).toContain("error_logs");
   });
 
+  test("observability_events.conversation_id is NULLABLE", async () => {
+    // A tool call made inside a WORKFLOW has no conversation — it runs
+    // under the synthetic `workflow-run:<id>` scope key, which matches no
+    // `conversations` row. While this column was NOT NULL the FK rejected
+    // every such insert and the call was recorded nowhere; the collector
+    // just logged `Failed to persist tool:complete` once per call.
+    //
+    // Asserted against the LIVE migrated schema (same shape as the
+    // `workflow_definitions.user_id` check below), so the idempotent
+    // `ALTER … DROP NOT NULL` is pinned for both fresh CREATE TABLE and
+    // upgrade-in-place paths — a revert would fail here rather than at
+    // install time.
+    const col = await pg.query(
+      "SELECT is_nullable FROM information_schema.columns WHERE table_name = 'observability_events' AND column_name = 'conversation_id'",
+    );
+    expect(col.rows.length).toBe(1);
+    expect((col.rows[0] as { is_nullable: string }).is_nullable).toBe("YES");
+  });
+
   test("analytics performance indexes are created", async () => {
     const result = await pg.query(
       "SELECT indexname FROM pg_indexes WHERE schemaname = 'public' ORDER BY indexname"

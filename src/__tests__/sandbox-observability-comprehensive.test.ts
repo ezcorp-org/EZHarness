@@ -5,7 +5,7 @@ import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglit
 mockDbConnection();
 
 import { getDb } from "../db/connection";
-import { projects, agentConfigs, conversations } from "../db/schema";
+import { projects, agentConfigs, conversations, observabilityEvents } from "../db/schema";
 import {
   createConversation,
   createMessage,
@@ -57,7 +57,16 @@ afterAll(async () => {
 });
 
 afterEach(async () => {
-  // Clean up conversations (cascades to observability_events)
+  // Delete the observability rows OUTRIGHT, then the conversations.
+  //
+  // The cascade alone is no longer sufficient: `conversation_id` is
+  // nullable, and a row with no conversation has nothing to cascade FROM
+  // — it would survive every `afterEach` and accumulate. `getGlobalStats`
+  // is deliberately unfiltered by conversation, so the exact-count
+  // assertions in this file (`totalToolCalls`, `topExtensions.length`)
+  // would silently inflate the first time anything in the shared test DB
+  // wrote a workflow-scoped tool call.
+  await getDb().delete(observabilityEvents);
   await getDb().delete(conversations);
 });
 
