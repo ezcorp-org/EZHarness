@@ -102,6 +102,20 @@ export const DELEGATION_CONSENT_DENIALS = {
    * {@link resolveDelegationVersionPin}.
    */
   VERSION_DIVERGENCE: "DELEGATION_VERSION_DIVERGENCE",
+  /**
+   * A LIVE delegation already exists for this (extension, job) and a
+   * DIFFERENT human consented to it.
+   *
+   * Re-consent supersedes: the live row is tombstoned and a fresh one
+   * written, because that is what "the workflow changed, approve it
+   * again" means. But superseding somebody else's consent is not
+   * re-consent, it is replacing their decision with yours — and
+   * `consented_by_user_id` is load-bearing beyond bookkeeping (it is the
+   * human who may answer a service-account run's approvals,
+   * `db/schema.ts:659-668`), so quietly reassigning it would hand one
+   * user's answering authority to another.
+   */
+  NOT_CONSENTER: "DELEGATION_CONSENT_NOT_YOURS",
 } as const;
 
 export type DelegationConsentDenialCode =

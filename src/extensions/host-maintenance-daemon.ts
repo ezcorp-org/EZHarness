@@ -59,6 +59,7 @@ import {
 } from "./perm-expiry-sweep";
 import { acquireLockfile, releaseLockfile, isProcessAlive } from "../startup/process-lockfile";
 import { sweepWorkflowDefinitionVersions } from "../db/queries/workflow-versions";
+import { listPinnedDelegationVersionIds } from "../db/queries/workflow-delegations";
 import {
   sweepExpiredWorkflowApprovals,
   type ApprovalTimeoutSweepResult,
@@ -376,23 +377,27 @@ export class HostMaintenanceDaemon {
       // Sub-tick: daily on the default cadence, reap unreferenced
       // workflow-definition versions.
       //
-      // `pinnedVersionIds` is where C3 (phase 7) supplies the version ids
-      // held by non-revoked delegations. The sweep EXCLUDES pins from its
-      // delete set rather than attempting a delete and catching the FK's
+      // `pinnedVersionIds` is where C3 supplies the version ids held by
+      // non-revoked delegations. The sweep EXCLUDES pins from its delete
+      // set rather than attempting a delete and catching the FK's
       // ON DELETE RESTRICT — catching the violation would make the error
       // the control, which is backwards. C3 adds its ids here; the sweep
       // itself does not change.
       //
-      // The empty set is stated explicitly, and the field is REQUIRED, for
-      // this call site specifically: the `catch` below logs `warn` and
-      // carries on, so a C3 that forgot to supply its pins would turn a
-      // RESTRICT violation into a log line and stop the sweep reaping
-      // forever, from a line no test can observe. `[]` is the truth today
-      // — no delegations exist — and the compile error is the reminder
-      // when they do.
+      // SUPPLIED as of C3 phase 4, which is also the change that first
+      // makes `workflow_delegations` writable. The empty literal that
+      // stood here was the truth only while no delegation could exist;
+      // leaving it would have turned every pinned snapshot into a
+      // RESTRICT violation, and this `catch` logs `warn` and carries on,
+      // so the sweep would have stopped reaping permanently, silently,
+      // from a line no test can observe. The required field is what made
+      // that a compile-time reminder instead of a discovery in
+      // production.
       if (this.tickCount % VERSION_SWEEP_TICK_MODULO === 0) {
         try {
-          const swept = await sweepWorkflowDefinitionVersions({ pinnedVersionIds: [] });
+          const swept = await sweepWorkflowDefinitionVersions({
+            pinnedVersionIds: await listPinnedDelegationVersionIds(),
+          });
           if (swept.deleted > 0) {
             log.info("tick: workflow version retention sweep", {
               scanned: swept.scanned,
