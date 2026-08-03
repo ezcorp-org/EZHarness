@@ -112,15 +112,21 @@ describe("auth", () => {
     expect(storeCalls).toHaveLength(0);
   });
 
-  test("an unauthenticated caller is rejected", async () => {
-    await expect(call(undefined)).rejects.toBeDefined();
+  // Rejection is RETURNED, not thrown. The route used to gate on the throwing
+  // `requireRole`, and SvelteKit renders a Response thrown from a handler as a
+  // 500 "Internal Error" — so asserting `.rejects` here pinned the bug instead
+  // of the intended status. The gate is now `checkRole`, which returns it.
+  test("an unauthenticated caller is rejected with 401", async () => {
+    const res = await call(undefined);
+    expect(res.status).toBe(401);
     expect(storeCalls).toHaveLength(0);
   });
 
-  test("a non-admin member is rejected", async () => {
+  test("a non-admin member is rejected with 403", async () => {
     // The rows expose every user's hook URLs and schedules for this
     // extension — operator information, not end-user information.
-    await expect(call(MEMBER_USER)).rejects.toBeDefined();
+    const res = await call(MEMBER_USER);
+    expect(res.status).toBe(403);
     expect(storeCalls).toHaveLength(0);
   });
 });

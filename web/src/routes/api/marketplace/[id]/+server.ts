@@ -1,5 +1,5 @@
 import { json } from "@sveltejs/kit";
-import { requireRole } from "$server/auth/middleware";
+import { checkRole } from "$server/auth/middleware";
 import { getListingById, updateListingStatus } from "$server/db/queries/marketplace";
 import { getLatestVersion, listVersions } from "$server/db/queries/marketplace-versions";
 import { getUserRating } from "$server/db/queries/marketplace-ratings";
@@ -40,7 +40,10 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 export const DELETE: RequestHandler = async ({ params, locals }) => {
   const scopeErr = requireScope(locals, "admin");
   if (scopeErr) return scopeErr;
-  const user = requireRole(locals, "admin");
+  // checkRole RETURNS the 401/403 Response so non-admin callers see the
+  // intended status (a thrown Response would 500 via SvelteKit).
+  const user = checkRole(locals, "admin");
+  if (user instanceof Response) return user;
 
   await updateListingStatus(params.id, "removed");
   await insertAuditEntry(user.id, "marketplace:remove", params.id);

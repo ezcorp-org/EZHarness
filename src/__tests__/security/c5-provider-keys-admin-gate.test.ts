@@ -48,10 +48,22 @@ mock.module("../../../web/src/routes/api/providers/$types", () => ({}));
 mock.module("$lib/server/security/api-keys", () => ({
   requireScope: () => null,
   verifyApiKey: async () => null,
+  // Real contract: null when the principal IS an admin, else a 403 Response.
+  // RETURNED, never thrown — a thrown Response 500s via SvelteKit.
+  requireAdmin: (locals: { user?: { role?: string } }) =>
+    locals.user?.role === "admin"
+      ? null
+      : Response.json({ error: "Admin role required" }, { status: 403 }),
 }));
 mock.module("../../../web/src/lib/server/security/api-keys", () => ({
   requireScope: () => null,
   verifyApiKey: async () => null,
+  // Real contract: null when the principal IS an admin, else a 403 Response.
+  // RETURNED, never thrown — a thrown Response 500s via SvelteKit.
+  requireAdmin: (locals: { user?: { role?: string } }) =>
+    locals.user?.role === "admin"
+      ? null
+      : Response.json({ error: "Admin role required" }, { status: 403 }),
 }));
 
 // ── Capture settings writes/deletes ──────────────────────────────
@@ -141,7 +153,10 @@ describe("sec-C5: POST /api/providers role gate", () => {
     expect(auditCalls.length).toBe(0);
   });
 
-  test("unauthenticated → 401, upsertSetting NOT called", async () => {
+  // 403, not 401: the gate is now the role-only `requireAdmin`, which RETURNS
+  // its denial (requireRole THREW one, so the caller actually got a 500) and
+  // treats "no principal" as "not an admin". Hook-unreachable either way.
+  test("unauthenticated → 403, upsertSetting NOT called", async () => {
     const event = createMockEvent({
       method: "POST",
       url: "http://localhost/api/providers",
@@ -149,7 +164,7 @@ describe("sec-C5: POST /api/providers role gate", () => {
       // no user
     });
     const res = await call(POST, event);
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(403);
     expect(upsertCalls.length).toBe(0);
     expect(auditCalls.length).toBe(0);
   });
@@ -207,7 +222,8 @@ describe("sec-C5: DELETE /api/providers role gate", () => {
     expect(auditCalls.length).toBe(0);
   });
 
-  test("unauthenticated → 401, deleteSetting NOT called", async () => {
+  // 403, not 401 — see the POST case above.
+  test("unauthenticated → 403, deleteSetting NOT called", async () => {
     const event = createMockEvent({
       method: "DELETE",
       url: "http://localhost/api/providers",
@@ -215,7 +231,7 @@ describe("sec-C5: DELETE /api/providers role gate", () => {
       // no user
     });
     const res = await call(DELETE, event);
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(403);
     expect(deleteCalls.length).toBe(0);
     expect(auditCalls.length).toBe(0);
   });

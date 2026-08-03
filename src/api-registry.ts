@@ -45,7 +45,7 @@ export const apiRegistry: ApiRouteEntry[] = [
   // populates `locals.user` here and the role gate denies every caller. Only
   // the `/:token` sub-path needs to be public. Reported as a finding; fixing
   // the allowlist is a separate change.
-  { method: "GET", path: "/api/auth/invite", description: "List outstanding user invitations. Gate: requireRole(locals,\"admin\") only — no API-key scope gate", category: "auth", responseDescription: "{ invites }" },
+  { method: "GET", path: "/api/auth/invite", description: "List outstanding user invitations. Gate: requireAdmin(locals) only — no API-key scope gate", category: "auth", responseDescription: "{ invites }" },
   { method: "POST", path: "/api/auth/invite/:token", description: "Accept invitation and create account", category: "auth" },
   { method: "POST", path: "/api/auth/reset-password", description: "Generate password reset token (admin)", category: "auth", schemaKey: "generateResetSchema" },
   { method: "POST", path: "/api/auth/reset-password/:token", description: "Consume reset token and set new password", category: "auth", schemaKey: "consumeResetSchema" },
@@ -147,7 +147,7 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "DELETE", path: "/api/extensions/:id/violations", description: "Clear an extension's recorded security violations — the prerequisite for re-enabling it via POST /api/extensions/:id/activate, which refuses while any violation stands (requires an admin-role key)", category: "extensions", scope: "admin", responseDescription: "{ cleared: true }" },
 
   // ── Per-extension audit drill-down ────────────────────────────────────
-  // Both pair requireScope("admin") with requireRole(locals,"admin").
+  // Both pair requireScope("admin") with checkRole(locals,"admin").
   { method: "GET", path: "/api/extensions/:id/audit", description: "Unified audit timeline for one extension — governance rows, SDK capability calls, and memory/lesson mutations fanned in and cursor-paginated (?capability ?status=denial ?since ?until ?limit); ?legacy=1 serves the pre-merge governance-only shape (requires an admin-role key)", category: "extensions", scope: "admin", responseDescription: "{ entries, nextCursor }" },
   { method: "GET", path: "/api/extensions/:id/audit/stats", description: "Stats strip for one extension over ?range=24h|7d|30d (unknown values fall back to 24h) — cost is an estimate, not provider billing (requires an admin-role key)", category: "extensions", scope: "admin", responseDescription: "{ totalCalls, totalCostUsd, successRate, denialCount }" },
 
@@ -170,7 +170,7 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "GET", path: "/api/extensions/:id/settings", description: "Per-user settings schema, declared defaults, the caller's values, the resolved blob, write-only secret presence probes, and held host capabilities. Gate: requireAuth only — no API-key scope gate, so a read-scoped key reaches it", category: "extensions", responseDescription: "{ schema, declaredDefaults, userValues, resolved, secrets, capabilities }" },
   { method: "PUT", path: "/api/extensions/:id/settings/user", description: "Write the caller's per-extension settings — secret-typed fields are encrypted into extension storage (empty string clears) and never echoed; the mutation is audited name-only. Gate: requireAuth only — no API-key scope gate, so a read-scoped key can perform this WRITE (and set/clear secrets)", category: "extensions", responseDescription: "{ ok: true, userValues, secrets }" },
   { method: "DELETE", path: "/api/extensions/:id/settings/user", description: "Reset the caller's per-extension settings to declared defaults (409 when the extension declares no settings schema). Gate: requireAuth only — no API-key scope gate", category: "extensions", responseDescription: "{ ok: true }" },
-  { method: "POST", path: "/api/extensions/:id/modifiable", description: "Flip the per-extension `modifiable` flag that authorizes its CREATOR to re-open and edit it; refused for bundled extensions, idempotent, audited. Gate: requireRole(locals,\"admin\") only — no API-key scope gate, so any scope on an admin-role key reaches it", category: "extensions" },
+  { method: "POST", path: "/api/extensions/:id/modifiable", description: "Flip the per-extension `modifiable` flag that authorizes its CREATOR to re-open and edit it; refused for bundled extensions, idempotent, audited. Gate: requireAdmin(locals) only — no API-key scope gate, so any scope on an admin-role key reaches it", category: "extensions" },
 
   // Loops EZ Mode Phase 4 — inbound webhook trigger. Public data-plane: auth is
   // the per-hook token (NOT a session), so scope "public". Persists a delivery
@@ -249,30 +249,36 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "GET", path: "/api/models/default-selection", description: "Default model selection for a user with no saved pick — `provider:defaultSelection`, \"auto\" (route the first turn) or \"first\" (pin models[0]). Read-scoped, not admin-only, so an operator's revert reaches every user", category: "providers", scope: "read", responseDescription: '{ value: "auto" | "first" }' },
 
   // ── Instance-state writes gated on ROLE ONLY ──────────────────────────
-  // Everything in this block calls `requireRole(locals,"admin")` and NOTHING
-  // else — no `requireScope`. That is deliberate history (sec-C5 / sec-H1
-  // replaced a cookie-no-op `requireScope("admin")` with the role gate) but it
-  // left the KEY axis ungated: an admin-role key minted `--scopes read`
-  // satisfies these. No `scope` is declared because none is enforced;
-  // documenting one would describe a gate that does not exist. See the
-  // registry-reconciliation findings — changing the gate is a separate,
-  // reviewable security change, not part of a registration pass.
-  { method: "POST", path: "/api/providers", description: "Store (encrypted) the instance's BYOK API key for anthropic|openai|google|openrouter, audited as provider:key_upsert. Gate: requireRole(locals,\"admin\") only — no API-key scope gate", category: "providers" },
-  { method: "DELETE", path: "/api/providers", description: "Delete the instance's stored BYOK API key for one provider, audited as provider:key_delete. Gate: requireRole(locals,\"admin\") only — no API-key scope gate", category: "providers" },
-  { method: "POST", path: "/api/providers/local/models", description: "List models offered by a caller-supplied local OpenAI-compatible baseUrl. Server-side fetch behind the sec-H1 SSRF guard: http(s) only, private/loopback rejected, and every resolved A/AAAA re-checked (DNS-rebinding pin). Gate: requireRole(locals,\"admin\") only — no API-key scope gate", category: "providers" },
-  { method: "POST", path: "/api/providers/local/test", description: "Probe one { baseUrl, modelId } on a local OpenAI-compatible server, behind the same sec-H1 SSRF guard as /local/models. Gate: requireRole(locals,\"admin\") only — no API-key scope gate", category: "providers" },
+  // Everything in this block calls `requireAdmin(locals)` and NOTHING else —
+  // no `requireScope`. That is deliberate history (sec-C5 / sec-H1 replaced a
+  // cookie-no-op `requireScope("admin")` with the role gate) but it leaves the
+  // KEY axis ungated: an admin-role key minted `--scopes read` satisfies
+  // these. No `scope` is declared because none is enforced; documenting one
+  // would describe a gate that does not exist. See the registry-reconciliation
+  // findings — changing the gate is a separate, reviewable security change,
+  // not part of a registration pass.
+  //
+  // The gate was `requireRole(locals,"admin")` until the thrown-Response sweep:
+  // `requireRole` THROWS its denial and SvelteKit renders a thrown Response as
+  // a 500, so these routes answered "Internal Error" instead of 403.
+  // `requireAdmin` RETURNS the same denial and gates on the SAME single axis,
+  // so the "no API-key scope gate" contract above is unchanged.
+  { method: "POST", path: "/api/providers", description: "Store (encrypted) the instance's BYOK API key for anthropic|openai|google|openrouter, audited as provider:key_upsert. Gate: requireAdmin(locals) only — no API-key scope gate", category: "providers" },
+  { method: "DELETE", path: "/api/providers", description: "Delete the instance's stored BYOK API key for one provider, audited as provider:key_delete. Gate: requireAdmin(locals) only — no API-key scope gate", category: "providers" },
+  { method: "POST", path: "/api/providers/local/models", description: "List models offered by a caller-supplied local OpenAI-compatible baseUrl. Server-side fetch behind the sec-H1 SSRF guard: http(s) only, private/loopback rejected, and every resolved A/AAAA re-checked (DNS-rebinding pin). Gate: requireAdmin(locals) only — no API-key scope gate", category: "providers" },
+  { method: "POST", path: "/api/providers/local/test", description: "Probe one { baseUrl, modelId } on a local OpenAI-compatible server, behind the same sec-H1 SSRF guard as /local/models. Gate: requireAdmin(locals) only — no API-key scope gate", category: "providers" },
 
   // MCP server lifecycle. Same role-only shape as the block above; each of
   // these opens an outbound connection to an operator-supplied MCP server.
-  { method: "POST", path: "/api/mcp-servers", description: "Install an MCP server as an extension — a throwaway client must connect and return tools/list before anything is persisted (502 on failure, no mutation). Gate: requireRole(locals,\"admin\") only — no API-key scope gate", category: "extensions", responseDescription: "the installed extension row (201)" },
-  { method: "PUT", path: "/api/mcp-servers/:id", description: "Edit an installed MCP server's config and re-snapshot its tools; a blank header value keeps the stored secret, and connectivity is verified before any write (502 leaves the config untouched). Gate: requireRole(locals,\"admin\") only — no API-key scope gate", category: "extensions" },
-  { method: "POST", path: "/api/mcp-servers/:id/refresh", description: "Re-pull an installed MCP server's tool list into the registry cache (502 when the server is unreachable). Gate: requireRole(locals,\"admin\") only — no API-key scope gate", category: "extensions", responseDescription: "{ id, tools }" },
+  { method: "POST", path: "/api/mcp-servers", description: "Install an MCP server as an extension — a throwaway client must connect and return tools/list before anything is persisted (502 on failure, no mutation). Gate: requireAdmin(locals) only — no API-key scope gate", category: "extensions", responseDescription: "the installed extension row (201)" },
+  { method: "PUT", path: "/api/mcp-servers/:id", description: "Edit an installed MCP server's config and re-snapshot its tools; a blank header value keeps the stored secret, and connectivity is verified before any write (502 leaves the config untouched). Gate: requireAdmin(locals) only — no API-key scope gate", category: "extensions" },
+  { method: "POST", path: "/api/mcp-servers/:id/refresh", description: "Re-pull an installed MCP server's tool list into the registry cache (502 when the server is unreachable). Gate: requireAdmin(locals) only — no API-key scope gate", category: "extensions", responseDescription: "{ id, tools }" },
 
   // Search backend config — reuses the encrypted, deny-listed
   // `provider:apiKey:*` store, so keys are never readable back out.
-  { method: "GET", path: "/api/search/backend", description: "Presence-only search-backend status: hasKey per BYOK provider (tavily|brave|exa|serpapi|jina) plus the SearXNG base URL. Keys are never returned. Gate: requireRole(locals,\"admin\") only — no API-key scope gate", category: "settings", responseDescription: "{ providers: [{ provider, hasKey }], searxngUrl }" },
-  { method: "POST", path: "/api/search/backend", description: "Upsert either a BYOK search key (encrypted into provider:apiKey:*) or the SearXNG base URL (http(s) validated), audited as search:backend_upsert. Gate: requireRole(locals,\"admin\") only — no API-key scope gate", category: "settings" },
-  { method: "DELETE", path: "/api/search/backend", description: "Delete one BYOK search key, audited as search:backend_delete. Gate: requireRole(locals,\"admin\") only — no API-key scope gate", category: "settings" },
+  { method: "GET", path: "/api/search/backend", description: "Presence-only search-backend status: hasKey per BYOK provider (tavily|brave|exa|serpapi|jina) plus the SearXNG base URL. Keys are never returned. Gate: requireAdmin(locals) only — no API-key scope gate", category: "settings", responseDescription: "{ providers: [{ provider, hasKey }], searxngUrl }" },
+  { method: "POST", path: "/api/search/backend", description: "Upsert either a BYOK search key (encrypted into provider:apiKey:*) or the SearXNG base URL (http(s) validated), audited as search:backend_upsert. Gate: requireAdmin(locals) only — no API-key scope gate", category: "settings" },
+  { method: "DELETE", path: "/api/search/backend", description: "Delete one BYOK search key, audited as search:backend_delete. Gate: requireAdmin(locals) only — no API-key scope gate", category: "settings" },
 
   // Users & Teams
   { method: "GET", path: "/api/users", description: "List users (admin)", category: "users" },
@@ -368,9 +374,11 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "GET", path: "/api/admin/analytics/routing", description: "Routing + cost analytics: routed-vs-pinned share, tier mix, failover rate, mid-conversation model switches, A/B retry rate, and priced spend per provider+model (admin)", category: "admin", scope: "admin", responseDescription: "{ days, turns: { total, routed, pinned, legacy }, routedShare, tierMix, failover, switches, retries, spend: { segments, routedUsd, pinnedUsd, legacyUsd, totalUsd, unpricedTurns, unpricedTokens, conversations, usdPerConversation } }" },
 
   // ── Admin console + audit feeds ───────────────────────────────────────
-  // All eight gate on BOTH axes: `requireScope(locals,"admin")` followed by
-  // `requireRole(locals,"admin")`, so a member cookie and a non-admin key are
-  // both rejected. Registered from the handlers, not from intent.
+  // All eight gate on BOTH axes: `requireScope(locals,"admin")` followed by a
+  // role gate, so a member cookie and a non-admin key are both rejected. The
+  // /api/admin/* six use `requireRole` inside a try/catch that converts the
+  // thrown denial; /api/audit + /api/audit/stats use `checkRole`, which
+  // returns it. Registered from the handlers, not from intent.
   { method: "GET", path: "/api/admin/sessions", description: "List every live session across all users (admin), optionally filtered by ?userId — carries userAgent + ipAddress per row", category: "admin", scope: "admin", responseDescription: "{ sessions: [{ id, userId, userName, userEmail, userAgent, ipAddress, lastActiveAt, createdAt }] }" },
   { method: "DELETE", path: "/api/admin/sessions", description: "Force-logout: revoke one session by { sessionId } or every session of a user by { userId } (admin)", category: "admin", scope: "admin", responseDescription: "{ success: true, revokedCount? }" },
   { method: "GET", path: "/api/admin/analytics", description: "Admin dashboard aggregates over the last ?days (clamped 1–365): chat activity, model usage, agent/extension/user stats, and tool usage by tool/agent/user/model", category: "admin", scope: "admin" },

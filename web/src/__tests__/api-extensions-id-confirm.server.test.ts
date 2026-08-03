@@ -8,6 +8,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { expectDenied } from "./fixtures/expect-denied";
 
 vi.mock("$server/db/queries/extensions", () => ({
   getExtension: vi.fn(),
@@ -52,35 +53,29 @@ describe("POST /api/extensions/[id]/confirm", () => {
     vi.mocked(setSensitiveAlwaysAllow).mockReset();
   });
 
-  test("unauthenticated request throws 401", async () => {
-    let res: Response | undefined;
-    try {
-      await POST(makeEvent({ locals: {} }));
-      expect.fail("should have thrown");
-    } catch (thrown) {
-      expect(thrown).toBeInstanceOf(Response);
-      res = thrown as Response;
-    }
-    expect(res!.status).toBe(401);
+  // 403, not 401: this route's gate is now the role-only `requireAdmin`,
+  // which RETURNS its denial (requireRole THREW one, so the caller actually
+  // got a 500). requireAdmin answers "not an admin principal" uniformly — a
+  // missing principal is not an admin either. Unreachable in production
+  // regardless: hooks.server.ts 401s unauthenticated /api/* before the handler.
+  test("unauthenticated request RETURNS 403 (not thrown → no 500)", async () => {
+    const res = await expectDenied(() => POST(makeEvent({ locals: {} })), 403);
+    expect(res.status).toBe(403);
   });
 
-  test("non-admin user throws 403", async () => {
-    let res: Response | undefined;
-    try {
-      await POST(
-        makeEvent({
-          locals: { user: nonAdminUser },
-          body: { operationType: "shell", action: "allow_once" },
-        }),
-      );
-      expect.fail("should have thrown");
-    } catch (thrown) {
-      expect(thrown).toBeInstanceOf(Response);
-      res = thrown as Response;
-    }
-    expect(res!.status).toBe(403);
+  test("non-admin user RETURNS 403 (not thrown → no 500)", async () => {
+    const res = await expectDenied(() => POST(
+            makeEvent({
+              locals: { user: nonAdminUser },
+              body: { operationType: "shell", action: "allow_once" },
+            }),
+          ), 403);
+    expect(res.status).toBe(403);
     const body = (await res!.json()) as { error?: string };
-    expect(body.error).toBe("Insufficient permissions");
+    // requireAdmin's message; requireRole said "Insufficient permissions" but
+    // THREW it, so a caller never actually read that body — it got the 500
+    // "Internal Error" page instead.
+    expect(body.error).toBe("Admin role required");
   });
 
   test("unknown extension returns 404", async () => {

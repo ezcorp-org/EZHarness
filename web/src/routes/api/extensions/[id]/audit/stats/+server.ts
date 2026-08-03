@@ -1,6 +1,6 @@
 import type { RequestHandler } from "./$types";
 import { json } from "@sveltejs/kit";
-import { requireAuth, requireRole } from "$server/auth/middleware";
+import { checkRole } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import { statsForExtension } from "$server/db/queries/audit-merge";
 import { getExtension } from "$server/db/queries/extensions";
@@ -25,8 +25,10 @@ import { errorJson } from "$lib/server/http-errors";
 export const GET: RequestHandler = async ({ params, locals, url }) => {
   const scopeErr = requireScope(locals, "admin");
   if (scopeErr) return scopeErr;
-  requireAuth(locals);
-  requireRole(locals, "admin");
+  // checkRole RETURNS the 401/403 Response so non-admin callers see the
+  // intended status (a thrown Response would 500 via SvelteKit).
+  const admin = checkRole(locals, "admin");
+  if (admin instanceof Response) return admin;
 
   const ext = await getExtension(params.id);
   if (!ext) return errorJson(404, "Not found");

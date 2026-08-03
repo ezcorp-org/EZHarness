@@ -55,7 +55,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     const masked = token.slice(0, 4) + "..." + token.slice(-4);
     return json({ ok: true, masked });
   } catch (e) {
-    if (e instanceof Response) throw e;
+    // RETURN, don't re-throw: SvelteKit doesn't recognise a thrown Response
+    // from a route handler and surfaces it as a 500, so re-throwing turned
+    // requireRole's 401/403 into "Internal Error". This route is on the
+    // PUBLIC_PATHS allowlist, so an UNAUTHENTICATED caller reaches it and
+    // must get 401 — not a 500.
+    if (e instanceof Response) return e;
     return errorJson(500, "Failed to generate reset token");
   }
 };

@@ -1,6 +1,6 @@
 import { json } from "@sveltejs/kit";
 import { z } from "zod";
-import { requireRole } from "$server/auth/middleware";
+import { checkRole } from "$server/auth/middleware";
 import { getFlagHistory, resolveFlag } from "$server/db/queries/marketplace-ratings";
 import { insertAuditEntry } from "$server/db/queries/audit-log";
 import { requireScope } from "$lib/server/security/api-keys";
@@ -19,7 +19,10 @@ const flagsPatchSchema = z.object({
 export const GET: RequestHandler = async ({ params, locals }) => {
   const scopeErr = requireScope(locals, "admin");
   if (scopeErr) return scopeErr;
-  requireRole(locals, "admin");
+  // checkRole RETURNS the 401/403 Response so non-admin callers see the
+  // intended status (a thrown Response would 500 via SvelteKit).
+  const admin = checkRole(locals, "admin");
+  if (admin instanceof Response) return admin;
   const flags = await getFlagHistory(params.id);
   return json({ flags });
 };
@@ -27,7 +30,10 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 export const PATCH: RequestHandler = async ({ params, request, locals }) => {
   const scopeErr = requireScope(locals, "admin");
   if (scopeErr) return scopeErr;
-  const admin = requireRole(locals, "admin");
+  // checkRole RETURNS the 401/403 Response so non-admin callers see the
+  // intended status (a thrown Response would 500 via SvelteKit).
+  const admin = checkRole(locals, "admin");
+  if (admin instanceof Response) return admin;
   const parsed = flagsPatchSchema.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) {
     return errorJson(400, "flagId and action ('dismissed' | 'removed') are required");

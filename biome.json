@@ -17,7 +17,7 @@
 			"!**/test-results",
 			"!**/.ezcorp",
 			"!**/.planning",
-			"!**/.claude",
+			"!.claude",
 			"!worktrees",
 			"!**/TESTENV",
 			"!**/projects",
