@@ -23,7 +23,13 @@ export const PUT: RequestHandler = async ({ request, params, locals }) => {
   const existing = await modeQueries.getMode(params.id);
   if (!existing) return errorJson(404, "Not found");
   if (existing.builtin) return errorJson(403, "Cannot edit built-in modes");
-  if (existing.userId && existing.userId !== user.id) return errorJson(404, "Not found");
+  // sec-H3: fail-closed — unowned rows (null userId) are admin-only. The
+  // `builtin` guard above does NOT cover this: `builtin` and `userId` are
+  // independent columns (src/db/schema.ts:1459+) and `createMode` writes
+  // `builtin: false, userId: data.userId ?? null` (src/db/queries/modes.ts:74-75),
+  // so a non-builtin null-owner mode is representable — and was editable by
+  // any authenticated user through the old `existing.userId &&` short-circuit.
+  if (existing.userId !== user.id && user.role !== "admin") return errorJson(404, "Not found");
 
   const result = updateModeSchema.safeParse(await request.json());
   if (!result.success) return validationError(result.error);
@@ -40,7 +46,8 @@ export const DELETE: RequestHandler = async ({ params, locals }) => {
   const existing = await modeQueries.getMode(params.id);
   if (!existing) return errorJson(404, "Not found");
   if (existing.builtin) return errorJson(403, "Cannot delete built-in modes");
-  if (existing.userId && existing.userId !== user.id) return errorJson(404, "Not found");
+  // sec-H3: fail-closed — unowned rows (null userId) are admin-only (see PUT).
+  if (existing.userId !== user.id && user.role !== "admin") return errorJson(404, "Not found");
 
   await modeQueries.deleteMode(params.id);
   return json({ ok: true });
