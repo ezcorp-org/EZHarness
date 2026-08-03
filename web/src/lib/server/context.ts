@@ -33,6 +33,7 @@ import {
   bootSpawnFlaggedBundledExtensions,
   ensureBundledExtensions,
 } from "$server/extensions/bundled";
+import { assertBundledNotStranded } from "$server/startup/assert-bundled-not-stranded";
 import { ExtensionRegistry } from "$server/extensions/registry";
 import { ToolExecutor } from "$server/extensions/tool-executor";
 import { getPermissionEngine } from "$server/extensions/permission-engine";
@@ -147,6 +148,14 @@ export async function ensureInitialized(): Promise<void> {
   // settings or the OpenAI OAuth sign-in flow.
   wireOpenAIExtensionCredentials(registry);
   await ensureBundledExtensions();
+  // Boot health signal: report any bundled extension left DISABLED by the
+  // S9 / tamper gate. That state is permanent without an admin (the
+  // disable exit skips both the manifest refresh and the re-enable
+  // branch) and silent — the extension registers no tools, so agents just
+  // never see them. `web-search` sat like that for days. Reports only;
+  // auto-enabling would defeat a fail-closed gate awaiting human consent.
+  // Never throws, but keep boot non-fatal regardless.
+  await assertBundledNotStranded().catch(() => {});
   await registry.loadFromDb();
   const agents = await loadAgents(agentsDir, { includeDb: true });
   bus = new EventBus<AgentEvents>();
