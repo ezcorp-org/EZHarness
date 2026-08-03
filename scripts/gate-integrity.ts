@@ -44,6 +44,7 @@
  * The pure detection helpers are exported for unit testing; main() only wires
  * git + the filesystem.
  */
+import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { REPO_ROOT } from "./coverage-config.ts";
 
@@ -134,23 +135,53 @@ export type DiffFile = {
  * Parse `git diff --unified=0` output into per-file added line numbers
  * (new-side), the added text lines, and the removed text lines (old-side,
  * consumed by the in-place-gutting check).
+ *
+ * A DELETED file's new-side header is `+++ /dev/null`, NOT `+++ b/<path>`.
+ * Keying only off `+++ b/` therefore left `cur` pointing at the PREVIOUS
+ * file in the diff and shovelled every deleted line into ITS `removedTexts`
+ * — so any PR that deleted a test file accused whichever modified test file
+ * happened to sort just before it of being "GUTTED in place". Observed
+ * 2026-08-03 retiring `ez-code-factory`: five deleted
+ * `web/e2e/ez-code-factory-*.spec.ts` specs landed 172 removed assertion
+ * lines on `src/__tests__/extension-rbac-resolver.test.ts`, a file the same
+ * diff only ADDS 130 lines to (+130 / -0).
+ *
+ * That false positive is a gate WEAKENING, not a nuisance: the only way past
+ * it is `gate-change-approved`, which bypasses ALL SEVEN other checks. A
+ * routine deletion should not be the thing that buys a PR a blanket bypass.
+ *
+ * The old side is tracked so a deleted file gets its OWN entry, keyed by its
+ * old path. `deletedOrRenamedTests` (check 7) already flags the deletion
+ * itself; keeping the lines attributed correctly just stops them being
+ * counted against a bystander.
  */
 export function parseUnifiedDiff(diff: string): Map<string, DiffFile> {
   const files = new Map<string, DiffFile>();
   let cur: DiffFile | null = null;
+  let oldPath: string | null = null;
   let newLine = 0;
+  const startFile = (file: string): void => {
+    cur = { file, addedLines: new Set(), addedTexts: [], removedTexts: [] };
+    files.set(file, cur);
+  };
   for (const line of diff.split("\n")) {
     if (line.startsWith("+++ b/")) {
-      const file = line.slice(6);
-      cur = { file, addedLines: new Set(), addedTexts: [], removedTexts: [] };
-      files.set(file, cur);
+      startFile(line.slice(6));
+    } else if (line === "+++ /dev/null") {
+      // Deleted file: the new side is /dev/null, so the OLD path names it.
+      // Without its own entry, everything below lands on the previous file.
+      startFile(oldPath ?? "/dev/null");
     } else if (line.startsWith("@@")) {
       // @@ -a,b +c,d @@  → new-side starts at c
       const m = line.match(/\+(\d+)/);
       newLine = m?.[1] ? Number(m[1]) : 0;
-    } else if (line.startsWith("--- a/") || line === "--- /dev/null") {
+    } else if (line.startsWith("--- a/")) {
       // old-side file header — not a removed line (a REAL removed line whose
       // content begins with "-- " would be "--- " but never "--- a/")
+      oldPath = line.slice(6);
+    } else if (line === "--- /dev/null") {
+      // Added file — the `+++ b/<path>` on the next line names it.
+      oldPath = null;
     } else if (cur && line.startsWith("+") && !line.startsWith("+++")) {
       cur.addedLines.add(newLine);
       cur.addedTexts.push(line.slice(1));
@@ -536,8 +567,14 @@ async function main(): Promise<void> {
     if (content) {
       for (const v of unassertedAddedBlocks(content, info.addedLines)) violations.push(`${file}: ${v}`);
     }
-    // 8. In-place gutting — only meaningful for files that EXISTED at the
-    // merge-base (a brand-new file has no base assertions to gut).
+    // 8. In-place gutting — only meaningful for a file that EXISTED at the
+    // merge-base (a brand-new file has no base assertions to gut) and STILL
+    // EXISTS on the new side. Check 8's whole reason to exist is the M-status
+    // dodge check 7 cannot see: "delete the bodies, keep the file". A file
+    // that is genuinely GONE is check 7's finding, and reporting it twice
+    // buries the real signal — retiring `ez-code-factory` produced 44
+    // duplicate lines of it before this guard.
+    if (!existsSync(resolve(REPO_ROOT, file))) continue;
     const baseContent = await showAtBase(mergeBase, file);
     if (baseContent !== null) {
       const v = testGuttingViolation(info.addedTexts, info.removedTexts, baseContent);
