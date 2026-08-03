@@ -177,7 +177,6 @@ describe("registry ⇄ filesystem parity", () => {
   const KNOWN_STALE = new Set<string>([
     "GET /api/auth/oauth/callback", // disk: POST + DELETE
     "GET /api/users/:id",           // disk: PUT only
-    "GET /api/warmup",              // disk: POST
     "PATCH /api/conversations/:id", // disk: PUT
     "POST /api/quickstart",         // disk: GET
   ]);
@@ -229,18 +228,15 @@ describe("registry ⇄ filesystem parity", () => {
     "DELETE /api/projects/:id/features/:featureId",
     "DELETE /api/user-commands/:name",
     "DELETE /api/workflows/:name",
-    "GET /api/active-agents",
     "GET /api/agents/:id/share",
     "GET /api/attachments/:id",
     "GET /api/auth/invite/:token",
-    "GET /api/auth/ping",
     "GET /api/conversations/:id/active-run",
     "GET /api/conversations/:id/extension-toolbar",
     "GET /api/conversations/:id/sub-conversations",
     "GET /api/conversations/:id/tasks",
     "GET /api/conversations/:id/tasks/:taskId/messages",
     "GET /api/conversations/:id/team/:agentConfigId/messages",
-    "GET /api/docs",
     "GET /api/ext-files/:name/:path",
     "GET /api/extensions/:name/data/:path",
     "GET /api/ez/conversation",
@@ -249,17 +245,14 @@ describe("registry ⇄ filesystem parity", () => {
     "GET /api/hub/pages/:id",
     "GET /api/lessons",
     "GET /api/marketplace/categories",
-    "GET /api/models/capabilities",
     "GET /api/modes",
     "GET /api/modes/:id",
     "GET /api/projects/:id/features",
     "GET /api/projects/:id/features/:featureId",
     "GET /api/projects/:id/tool-permission-mode",
-    "GET /api/ready",
     "GET /api/user-commands",
     "GET /api/user-commands/:name",
     "GET /api/user/agent-picker",
-    "GET /api/version",
     "PATCH /api/conversations/:id/messages/:mid",
     "PATCH /api/lessons/:id",
     "PATCH /api/memories/:id",
@@ -293,7 +286,6 @@ describe("registry ⇄ filesystem parity", () => {
     "POST /api/projects/:id/features",
     "POST /api/projects/:id/features/scan",
     "POST /api/user-commands",
-    "POST /api/warmup",
     "POST /api/workflows",
     "PUT /api/conversations/:id",
     "PUT /api/extensions/author/draft/:id",

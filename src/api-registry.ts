@@ -343,7 +343,18 @@ export const apiRegistry: ApiRouteEntry[] = [
 
   // System
   { method: "GET", path: "/api/health", description: "Health check endpoint", category: "system" },
-  { method: "GET", path: "/api/warmup", description: "Pre-warm application caches", category: "system" },
+  // Was registered as GET (and carried in route-contract.test.ts's KNOWN_STALE
+  // for exactly that reason); the handler on disk only exports POST.
+  { method: "POST", path: "/api/warmup", description: "Pre-warm the embedding model so the first memory/search turn doesn't pay the load cost — best-effort, always 200", category: "system", scope: "read", responseDescription: "{ ok: true }" },
+  // Both of these are in the hooks PUBLIC_PATHS allowlist
+  // (web/src/hooks.server.ts:364) AND apply no gate of their own, so they are
+  // genuinely reachable unauthenticated — hence scope "public".
+  { method: "GET", path: "/api/ready", description: "Readiness probe — orthogonal to /api/health (liveness). 200 once migrate() has succeeded and the image is safe to route traffic to, 503 otherwise; orchestrators gate rollouts on this", category: "system", scope: "public" },
+  { method: "GET", path: "/api/version", description: "Running version plus the cached upstream update check", category: "system", scope: "public" },
+  { method: "GET", path: "/api/auth/ping", description: "No-op keepalive for the client-side session refresher — the real work is the sliding JWT rotation hooks.server.ts performs on the way through. 401 when unauthenticated (inline `locals.user` check; no scope gate)", category: "auth", responseDescription: "{ ok: boolean }" },
+  { method: "GET", path: "/api/docs", description: "Self-describing API index: every apiRegistry entry with its JSON Schema request body where a schemaKey resolves", category: "system", scope: "read" },
+  { method: "GET", path: "/api/models/capabilities", description: "Capability intersection for a ?provider/?model pick (or the auto-routing ladder), widened by the extensions wired to ?conversationId plus any ?extensions= drafted via !ext: mentions", category: "providers", scope: "read" },
+  { method: "GET", path: "/api/active-agents", description: "In-flight agent runs, optionally filtered by ?projectId. Non-admins see only runs in conversations they own — the ownership filter is what stops a read-scoped key enumerating every tenant's runIds, agent names and conversation titles", category: "agents", scope: "read", responseDescription: "[{ runId, agentName, conversationId, parentConversationId, projectId, conversationTitle, startedAt }]" },
   { method: "GET", path: "/api/quickstart", description: "Get quickstart checklist status", category: "system" },
   { method: "POST", path: "/api/quickstart", description: "Update quickstart step completion", category: "system" },
   { method: "GET", path: "/api/favicon", description: "Get application favicon", category: "system" },
