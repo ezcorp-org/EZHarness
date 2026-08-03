@@ -324,12 +324,18 @@ function withEnv(vars: Record<string, string | undefined>, fn: () => void): void
 // builders directly.
 
 describe("page registration", () => {
-  test("both pages carry the SAME single save action, namespaced", () => {
-    // One handler, two mount points: the editor is reachable from either
-    // page id, and a second action name would need a second grant.
+  test("both pages carry the SAME action set, namespaced", () => {
+    // Two handlers, two mount points, mounted on BOTH page ids. That is
+    // not tidiness: the Hub POSTs an action tagged with the page it was
+    // rendered on, so an action reachable from one page and handled only
+    // on the other is a silent no-op. Every name here also needs a grant
+    // — `ezcorp.config.test.ts` pins the manifest against `PAGE_EVENTS`.
     registerPages();
+    expect(pages.length).toBeGreaterThan(0);
     for (const page of pages) {
-      expect(Object.keys(page.actions ?? {})).toEqual(["ez-factory:job-save"]);
+      expect(Object.keys(page.actions ?? {}).sort()).toEqual(
+        ["ez-factory:job-run", "ez-factory:job-save"],
+      );
     }
   });
 });

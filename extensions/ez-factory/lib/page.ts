@@ -97,20 +97,35 @@ export const FACTORY_FULL_PAGE_ID = `ext:${EXTENSION_NAME}:${FACTORY_PAGE_ID}`;
 export const JOB_FULL_PAGE_ID = `ext:${EXTENSION_NAME}:${JOB_PAGE_ID}`;
 
 /**
- * The ONE page action this console dispatches.
+ * The page actions this console dispatches.
  *
- * It must be declared in `permissions.eventSubscriptions` or it does not
+ * Each must be declared in `permissions.eventSubscriptions` or it does not
  * exist: `validatePageTree` DROPS any button/form/row whose event is outside
  * the granted list (`allowedEvents`, from the runtime grant), and the events
  * route 404s an unregistered event. A form node with an ungranted action is
- * not rendered read-only — it is deleted from the tree, silently.
+ * not rendered read-only — it is deleted from the tree, silently. Adding a
+ * name here means adding it to the MANIFEST, the `bundled.ts` install grant
+ * AND the `bundled-ceiling.ts` row — `intersectPermissions` drops whatever
+ * any two of the three disagree on.
  *
- * Deliberately singular. Every additional event is additional attack surface
- * reachable from a page that is shared across users, so v1 buys exactly one:
- * retire a job with `enabled: false` rather than deleting it, and fire one
- * from chat or core's workflow UI.
+ * TWO, and the second one was the whole point of the console.
+ *
+ * `job-save` writes a job. `job-run` FIRES one, and until it existed a saved
+ * job was a note to self: the console could describe work it had no way to
+ * start, so `recordRun` / `touchJob` had no callers outside their own tests
+ * and the Recent-runs tab read "No runs recorded" after eight real runs.
+ *
+ * `job-run` buys no new authority. It dispatches `ctx.workflows.run()`,
+ * whose 13-rung host ladder — including core's shared `canRunWorkflow` —
+ * decides everything, attributed to the CLICKING user via the host-issued
+ * provenance token on the fire. It is a button on a path that already
+ * existed, not a new path.
  */
 export const JOB_SAVE_EVENT = `${EXTENSION_NAME}:job-save`;
+export const JOB_RUN_EVENT = `${EXTENSION_NAME}:job-run`;
+
+/** Every event this console can dispatch, for the manifest-parity test. */
+export const PAGE_EVENTS: readonly string[] = [JOB_SAVE_EVENT, JOB_RUN_EVENT];
 
 /** Core's approvals inbox — where a parked gate is answered. A LINK, never a
  *  rendered list (invariant K; see the module header). */
@@ -283,16 +298,16 @@ export function inputSummary(job: FactoryJob): string {
 // `{@html}` sink.
 
 export const CONSOLE_HELP =
-  "Jobs are **install-wide**: everyone with access to this Hub sees, and can edit, the same list. " +
-  "A job names one of the shipped workflow templates and the inputs to run it with — " +
-  "firing it, and answering any approval gate it parks on, happen in the workflow UI.";
+  "Jobs are **install-wide**: everyone with access to this Hub sees, edits, and can run the same list. " +
+  "A job names one of the shipped workflow templates and the inputs to run it with. " +
+  "Open a job to run it; answering any approval gate it parks on happens in the workflow UI.";
 
 export const TEMPLATES_HELP =
   "These three workflows ship with the extension. They are **assets, not code you can edit here** — " +
   "open one in the workflow UI to read its steps, or fork it there to make your own.";
 
 export const RUNS_HELP =
-  "The most recent runs started from a job on this install. " +
+  "The most recent runs started from a job on this install, refreshed each time this view is opened. " +
   "Each row opens that run's full trace — step outputs and artifacts live there, never on this shared page.";
 
 // ── Templates ───────────────────────────────────────────────────────
@@ -410,7 +425,7 @@ function appendRunsView(page: PageBuilder, input: FactoryPageInput): void {
   if (runs.length === 0) {
     page.emptyState(
       "No runs recorded",
-      "A run appears here once a job has been fired and the console has seen its result.",
+      "Open a job and press Run now. Its run appears here as soon as this view refreshes.",
     );
     return;
   }
@@ -542,6 +557,25 @@ const INPUT_LABELS: Record<string, string> = {
   sources: "Sources to verify against",
 };
 
+/**
+ * Which input fields render as a TEXTAREA rather than a single line.
+ *
+ * An allowlist, not a blanket `multiline: true`. Every input field used to
+ * get a textarea, which made "Output path" — a single filesystem path,
+ * where a newline is never correct — a three-row box that invited one.
+ * The three listed here genuinely hold multi-line values: `globs` is
+ * newline-separated by contract (the tool's own schema says so), and
+ * `draft` / `sources` are documents.
+ *
+ * A key absent from this set gets a single-line input, which is also the
+ * right default for any key added later without thinking about it.
+ */
+export const MULTILINE_INPUT_KEYS: ReadonlySet<string> = new Set([
+  "globs",
+  "draft",
+  "sources",
+]);
+
 /** Everything the `job` page renders. */
 export interface JobPageInput {
   view: JobView;
@@ -601,7 +635,9 @@ export function jobFormFields(job: FactoryJob | null): PageFormFieldDescriptor[]
     fields.push({
       field: inputFieldId(key),
       label: INPUT_LABELS[key] ?? key,
-      multiline: true,
+      // Textarea only where the value is genuinely multi-line — see
+      // {@link MULTILINE_INPUT_KEYS}.
+      ...(MULTILINE_INPUT_KEYS.has(key) ? { multiline: true } : {}),
       // Shown only while `workflow` names a workflow whose allowlist carries
       // this key — and a hidden field is omitted from the payload, so the UI
       // cannot submit an out-of-allowlist input.
@@ -695,6 +731,42 @@ function jobStats(job: FactoryJob): PageStatItem[] {
   ];
 }
 
+/**
+ * The Run action for one job.
+ *
+ * ## Why it lives on the JOB page and not as a jobs-table row action
+ *
+ * A `PageTableRowInput` carries EITHER an `href` or an `action`, never
+ * both, and the jobs table's `href` is how you open a job at all. More
+ * to the point: this button starts real agent spend, and a table row is a
+ * navigation affordance people click without reading. Firing belongs one
+ * deliberate step in, next to the inputs it will run with — which the
+ * editor is already showing.
+ *
+ * ## The confirm is not decoration
+ *
+ * The Hub renders `confirm` as a blocking dialog before it POSTs, and it
+ * names the workflow. The console is a SHARED page (invariant K) whose
+ * job list anyone with Hub access can edit, so the person clicking Run
+ * may not be the person who wrote the inputs. Naming the target is the
+ * cheapest way to make "I did not realise it would do that" a decision
+ * rather than an accident.
+ *
+ * The payload carries the job id under the same field the save action
+ * uses, so one `parseJobIdPayload` validates both.
+ */
+export function jobRunAction(job: FactoryJob): {
+  event: string;
+  payload: Record<string, string>;
+  confirm: string;
+} {
+  return {
+    event: JOB_RUN_EVENT,
+    payload: { [JOB_FORM_FIELDS.jobId]: job.id },
+    confirm: `Run "${job.workflow}" now with this job's saved inputs? It starts a real workflow run and may spend model credits.`,
+  };
+}
+
 /** Build the `job` editor page. Pure. */
 export function buildJobPage(input: JobPageInput): HubPageTree {
   const { view, job, projectId } = input;
@@ -723,6 +795,17 @@ export function buildJobPage(input: JobPageInput): HubPageTree {
   page.section(editing ? editing.name : "New job", (section) => {
     if (editing) {
       section.stats(jobStats(editing));
+      // Run FIRST, then the link to its history — the two things an
+      // operator opening a saved job actually came for. Both sit above
+      // the form so neither is below the fold on a job with four inputs.
+      //
+      // A DISABLED job gets no button at all rather than a disabled one:
+      // `enabled: false` is this console's "retire" (there is no delete),
+      // and a greyed control invites a second click. The handler refuses
+      // it independently — the button's absence is UI, not the check.
+      if (editing.enabled) {
+        section.button("Run now", jobRunAction(editing), "primary");
+      }
       section.link(
         "Runs of this job",
         hubHref(FACTORY_FULL_PAGE_ID, projectId, "runs"),
