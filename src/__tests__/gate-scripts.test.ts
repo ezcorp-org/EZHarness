@@ -184,6 +184,62 @@ describe("gate-integrity: parseUnifiedDiff", () => {
     expect(f.removedTexts).toEqual(["  expect(a).toBe(1);", "  expect(b).toBe(2);"]);
     expect(f.addedTexts).toEqual(["  expect(ab).toBe(3);"]);
   });
+
+  test("a DELETED file's lines land on ITSELF, never on the file before it", () => {
+    // The bug this pins (found 2026-08-03 retiring `ez-code-factory`): a
+    // deleted file's new-side header is `+++ /dev/null`, not `+++ b/<path>`.
+    // Keying only off `+++ b/` left the parser pointing at the PREVIOUS file
+    // and shovelled every deleted line into its `removedTexts` — so the
+    // gutting check (8) accused whichever modified test file happened to sort
+    // just before the deletion of being hollowed out. Five deleted specs put
+    // 172 phantom removals on a file the same diff only ADDED 130 lines to.
+    //
+    // Why that matters more than a wrong message: the only way past check 8
+    // is the `gate-change-approved` label, which bypasses ALL the other
+    // checks. A routine deletion must not be what buys a PR a blanket bypass.
+    const diff = [
+      "diff --git a/keep.test.ts b/keep.test.ts",
+      "--- a/keep.test.ts",
+      "+++ b/keep.test.ts",
+      "@@ -1,0 +2,1 @@",
+      "+  expect(added).toBe(true);",
+      "diff --git a/gone.test.ts b/gone.test.ts",
+      "deleted file mode 100644",
+      "--- a/gone.test.ts",
+      "+++ /dev/null",
+      "@@ -1,2 +0,0 @@",
+      "-  expect(x).toBe(1);",
+      "-  expect(y).toBe(2);",
+    ].join("\n");
+    const map = parseUnifiedDiff(diff);
+    // The survivor is untouched by the deletion that followed it.
+    expect(map.get("keep.test.ts")!.removedTexts).toEqual([]);
+    expect(map.get("keep.test.ts")!.addedTexts).toEqual(["  expect(added).toBe(true);"]);
+    // The deleted file gets its OWN entry, keyed by its old path.
+    expect(map.get("gone.test.ts")!.removedTexts).toEqual([
+      "  expect(x).toBe(1);",
+      "  expect(y).toBe(2);",
+    ]);
+    expect(map.get("gone.test.ts")!.addedTexts).toEqual([]);
+  });
+
+  test("an ADDED file (`--- /dev/null`) still keys off its `+++ b/` path", () => {
+    // The mirror case: the old-side header of a new file is `/dev/null`, and
+    // it must not be mistaken for the previous file's old path or for a
+    // removed line.
+    const diff = [
+      "diff --git a/new.test.ts b/new.test.ts",
+      "new file mode 100644",
+      "--- /dev/null",
+      "+++ b/new.test.ts",
+      "@@ -0,0 +1,1 @@",
+      "+  expect(fresh).toBe(1);",
+    ].join("\n");
+    const map = parseUnifiedDiff(diff);
+    expect([...map.keys()]).toEqual(["new.test.ts"]);
+    expect(map.get("new.test.ts")!.addedTexts).toEqual(["  expect(fresh).toBe(1);"]);
+    expect(map.get("new.test.ts")!.removedTexts).toEqual([]);
+  });
 });
 
 // ── gate-integrity: in-place test gutting (check 8) ─────────────────────────
