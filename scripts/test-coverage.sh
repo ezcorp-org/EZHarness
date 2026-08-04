@@ -259,6 +259,9 @@ run_legs() {
       src/__tests__/api-workflows-fork.server.test.ts \
       src/__tests__/api-workflows-dry-run.server.test.ts \
       src/__tests__/api-workflows-claim-versions.server.test.ts \
+      src/__tests__/api-workflows-delegations.server.test.ts \
+      src/__tests__/delegation-consent.server.test.ts \
+      src/__tests__/workflow-access-delegation.server.test.ts \
       src/__tests__/workflow-route-ladder.server.test.ts \
       src/__tests__/pipelines-redirect.server.test.ts \
       src/lib/components/WorkflowStepForm.component.test.ts \
@@ -613,6 +616,9 @@ run_legs() {
       --coverage.include='src/routes/api/workflows/[name]/dry-run/+server.ts' \
       --coverage.include='src/routes/api/workflows/[name]/claim/+server.ts' \
       --coverage.include='src/routes/api/workflows/[name]/versions/+server.ts' \
+      --coverage.include='src/routes/api/workflows/delegations/+server.ts' \
+      --coverage.include='src/routes/api/workflows/delegations/[[]id]/+server.ts' \
+      --coverage.include='src/lib/server/delegation-consent.ts' \
       --coverage.include='src/lib/server/workflow-access.ts' \
       --coverage.include='src/routes/**/pipelines/+page.server.ts' \
       --coverage.include='src/lib/components/WorkflowStepForm.svelte' \
