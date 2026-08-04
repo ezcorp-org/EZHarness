@@ -33,7 +33,8 @@
       "web/e2e/real-auth/role-carrying-key-flow.spec.ts",
       "web/e2e/real-auth/task-panel-durability.spec.ts",
       "web/e2e/real-auth/tier-routing-flow.spec.ts",
-      "web/e2e/real-auth/web-search-flow.spec.ts"
+      "web/e2e/real-auth/web-search-flow.spec.ts",
+      "web/e2e/real-auth/workflow-existence-oracle-flow.spec.ts"
     ],
     "evidence-soft": [
       "web/e2e/admin-routing-cost.spec.ts",
