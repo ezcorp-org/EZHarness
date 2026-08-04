@@ -14,8 +14,31 @@ import { __resetChannelForTests } from "@ezcorp/sdk/runtime";
 // throwaway dir per test process BEFORE the snapshot freezes DB_PATH. Tests
 // that mock db/connection (the common case, via test-pglite's mockDbConnection)
 // ignore this; an explicit EZCORP_DB_PATH or external Postgres still wins.
+//
+// The temp ROOT this block mints is published on `EZCORP_TEST_DB_TEMP_ROOT`,
+// and that variable is the ONLY thing any suite is allowed to delete.
+//
+// WHY THAT MATTERS — a worktree was destroyed by its absence
+// ─────────────────────────────────────────────────────────────
+// `db-connection-real-init.test.ts` cleans up after the real init path by
+// removing the temp tree. It used to compute that tree as
+// `dirname(getDbPath())` and `rmSync` it with `{recursive: true, force: true}`,
+// on the assumption — stated in its own docblock — that "preload owns the DB
+// path". The `if` above is exactly why that assumption is false: an explicit
+// `EZCORP_DB_PATH` WINS, deliberately, so an operator or a CI lane that pins
+// the variable silently becomes the owner of the path, and the cleanup then
+// recursively deletes a directory the suite never created.
+//
+// Pin `EZCORP_DB_PATH=<worktree>/db` and the cleanup deletes `<worktree>`.
+// That is not hypothetical: it is how an agent's git worktree was erased
+// mid-run, and the loss was diagnosed as "something deleted the worktree"
+// rather than "the test suite did", because nothing connected the env var to
+// the `rmSync`. Publishing the minted root makes ownership explicit instead of
+// inferred: a suite deletes what preload says preload created, or nothing.
 if (!process.env.EZCORP_DB_PATH && !process.env.DATABASE_URL) {
-  process.env.EZCORP_DB_PATH = join(mkdtempSync(join(tmpdir(), "ezcorp-test-db-")), "db");
+  const root = mkdtempSync(join(tmpdir(), "ezcorp-test-db-"));
+  process.env.EZCORP_TEST_DB_TEMP_ROOT = root;
+  process.env.EZCORP_DB_PATH = join(root, "db");
 }
 
 // `bun test` inside the dev container inherits the compose env, where
