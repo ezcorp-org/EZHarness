@@ -1062,6 +1062,24 @@ async function readRuns(
 // ── C3 · `op: "runFor"` — the delegated ladder (D1–D9) ────────────────
 
 /**
+ * Deny a delegated rung: the typed code, the message, an optional JSON-RPC
+ * code and an optional audit `after` blob.
+ *
+ * Named rather than written inline at each of its four sites so that the
+ * rungs, {@link lostAccess} and {@link parkConsentStaleRun} provably take
+ * the SAME closure — the one that already knows the proven attribution
+ * and therefore the audit destination. A helper that accepted a
+ * structurally-similar function would let a future rung pass one that
+ * audits somewhere else.
+ */
+type DelegatedDenyFn = (
+  reason: WorkflowTriggerDenyReason,
+  message: string,
+  code?: number,
+  after?: Record<string, unknown>,
+) => Promise<JsonRpcResponse>;
+
+/**
  * A live delegation plus the principal it was PROVED to carry.
  *
  * "Proved" is the load-bearing word and it is the same principle PR #58's
@@ -1094,24 +1112,25 @@ type OwnerResolution = { ok: true } | { ok: false; message: string };
  * `DELEGATION_PRINCIPAL`, this): a third principal kind is one entry here
  * and a compile error until it is written.
  *
- * `user` demands `status === "active"`, not merely existence. A
- * deactivated user is precisely the case this rung exists for — the FK is
- * `ON DELETE CASCADE`, so a DELETED user takes the delegation with them
- * and never reaches here, while a DEACTIVATED one leaves a live row whose
- * owner may no longer act. `service` demands `enabled`, which is what
- * {@link findLiveServiceAccount} already filters on for the consent
- * route, so the two agree by sharing the reader rather than by luck.
+ * `user` asks ONE question — `status === "active"` — rather than
+ * separating "gone" from "deactivated", and the reason is that only one
+ * of those can arrive here. `owner_user_id` is `ON DELETE CASCADE`
+ * (`db/schema.ts:615`), so a DELETED user takes the delegation with them
+ * and the fire dies at D2 with `DELEGATION_NOT_FOUND`. What survives a
+ * user going away is a DEACTIVATED row, which is live, FK-valid, and
+ * belongs to somebody who may no longer act — precisely this rung. A
+ * second branch for the deleted case would be a message no user can ever
+ * read, and an untestable line pretending otherwise.
+ *
+ * `service` demands `enabled`, which is what {@link findLiveServiceAccount}
+ * already filters on for the consent route, so the two agree by sharing
+ * the reader rather than by luck.
  */
 const RESOLVE_DELEGATION_OWNER = {
   user: async (ownerId: string): Promise<OwnerResolution> => {
     const user = await getUserById(ownerId);
-    if (user === undefined) {
-      return { ok: false, message: "the user who delegated this job no longer exists" };
-    }
-    if (user.status !== "active") {
-      return { ok: false, message: "the user who delegated this job is deactivated" };
-    }
-    return { ok: true };
+    if (user?.status === "active") return { ok: true };
+    return { ok: false, message: "the user who delegated this job can no longer act" };
   },
   service: async (ownerId: string): Promise<OwnerResolution> => {
     const account = await findLiveServiceAccount(ownerId);
@@ -1201,12 +1220,7 @@ async function runForDelegation(
   startedAt: number,
   deps: WorkflowsHandlerDeps,
   granted: NonNullable<ExtensionPermissions["workflows"]>,
-  deny: (
-    reason: WorkflowTriggerDenyReason,
-    message: string,
-    code?: number,
-    after?: Record<string, unknown>,
-  ) => Promise<JsonRpcResponse>,
+  deny: DelegatedDenyFn,
 ): Promise<JsonRpcResponse> {
   const params = (req.params ?? {}) as Record<string, unknown>;
 
@@ -1356,12 +1370,7 @@ async function runForDelegation(
     ownerlessAction,
   };
   /** Every rung from here down audits against the PROVEN attribution. */
-  const denyAs = (
-    reason: WorkflowTriggerDenyReason,
-    message: string,
-    code?: number,
-    after?: Record<string, unknown>,
-  ): Promise<JsonRpcResponse> =>
+  const denyAs: DelegatedDenyFn = (reason, message, code, after) =>
     denyDelegated(req, ctx, startedAt, deps, proven.onBehalfOf, proven.ownerlessAction, row, {
       reason,
       message,
@@ -1551,12 +1560,7 @@ async function runForDelegation(
  * therefore recoverable by exactly the person who granted the authority.
  */
 async function lostAccess(
-  denyAs: (
-    reason: WorkflowTriggerDenyReason,
-    message: string,
-    code?: number,
-    after?: Record<string, unknown>,
-  ) => Promise<JsonRpcResponse>,
+  denyAs: DelegatedDenyFn,
   row: WorkflowDelegationRow,
   reason: string,
 ): Promise<JsonRpcResponse> {
@@ -1613,12 +1617,7 @@ async function parkConsentStaleRun(
   proven: ProvenDelegation,
   definition: WorkflowDefinition,
   input: Record<string, unknown>,
-  denyAs: (
-    reason: WorkflowTriggerDenyReason,
-    message: string,
-    code?: number,
-    after?: Record<string, unknown>,
-  ) => Promise<JsonRpcResponse>,
+  denyAs: DelegatedDenyFn,
 ): Promise<JsonRpcResponse> {
   const workflowRunId = crypto.randomUUID();
   const message =
@@ -1741,6 +1740,26 @@ async function auditDelegated(
 }
 
 /**
+ * The most recent delegated dispatch's settled handle.
+ *
+ * The dispatch is deliberately UN-awaited (rung 13 — `runWorkflow` awaits
+ * the whole graph and would blow the reverse-RPC budget), but its
+ * `.then()` is where the failure counter is folded in, and that write is
+ * the only durable evidence a delegated run's outcome was ever recorded.
+ * A test that slept a few macrotasks and hoped would be exactly the kind
+ * of timing-dependent assertion that passes on a fast machine and hides a
+ * dropped write on a slow one.
+ *
+ * Never awaited by production code, and never read by it either.
+ */
+let lastDelegatedDispatch: Promise<void> = Promise.resolve();
+
+/** Test-only: settle the last delegated dispatch's outcome fold. */
+export function _awaitDelegatedDispatchForTests(): Promise<void> {
+  return lastDelegatedDispatch;
+}
+
+/**
  * Start a delegated run WITHOUT awaiting it, and fold its outcome back
  * into the delegation's failure counter.
  *
@@ -1774,7 +1793,7 @@ function startDelegatedRun(
       runAs: proven.ownerId,
     },
   );
-  void promise
+  lastDelegatedDispatch = promise
     .then(async (run) => {
       log.info("delegated workflow finished", {
         extension: ctx.extensionName,

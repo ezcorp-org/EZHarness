@@ -45,6 +45,7 @@ import {
   DELEGATED_WORKFLOWS_METHOD,
   _resetWorkflowTriggerQuotaForTests,
   _resetWorkflowRateLimitForTests,
+  _awaitDelegatedDispatchForTests,
   type WorkflowsHandlerContext,
 } from "../workflows-handler";
 import {
@@ -94,6 +95,10 @@ let started: Array<{
  *  can be driven without a real graph. */
 let runStatus: WorkflowRun["status"] = "success";
 let runWorkflowThrows = false;
+/** Return a REJECTED promise rather than throwing synchronously — the
+ *  "executor bug" shape, which must be absorbed and logged rather than
+ *  taking the process down with an unhandled rejection. */
+let runWorkflowRejects = false;
 
 // ── The workflow population ──────────────────────────────────────────
 //
@@ -159,6 +164,7 @@ function registerRuntime(): void {
       // synchronously.
       runWorkflow(workflow, input, proj, uid, _signal, opts) {
         if (runWorkflowThrows) throw new Error("executor refused");
+        if (runWorkflowRejects) return Promise.reject(new Error("executor bug"));
         started.push({
           workflow,
           input,
@@ -354,6 +360,7 @@ beforeEach(async () => {
   started = [];
   runStatus = "success";
   runWorkflowThrows = false;
+  runWorkflowRejects = false;
   cachedEntries = [
     dbEntry(SYSTEM_WF, "system", ownerUserId),
     dbEntry(PROJECT_WF, "project", ownerUserId),
@@ -722,6 +729,10 @@ describe("rung D4 — DELEGATION_OWNER_UNRESOLVED, audit_log for BOTH kinds", ()
 
     expect(resp.error?.code).toBe(-32106);
     expect(resp.error?.data).toEqual({ reason: "DELEGATION_OWNER_UNRESOLVED" });
+    // The message names the FACT, and the fact is the only one that can
+    // reach this rung: `owner_user_id` is ON DELETE CASCADE, so a deleted
+    // user dies at D2 instead.
+    expect(resp.error?.message).toContain("can no longer act");
     const { sdk, log } = await auditDestinations();
     // NOT sdk_capability_calls: the FK would reject an unproven owner and
     // the insert is swallowed, so the denial would VANISH.
@@ -1201,8 +1212,11 @@ describe("rung 13 — dispatch, and the failure counter", () => {
       _resetWorkflowRateLimitForTests(extensionId);
       await handleWorkflowsRpc(req(), ctx());
       // The counter is folded in from the run's terminal status, which
-      // arrives on the fire-and-forget promise.
-      for (let t = 0; t < 20; t++) await new Promise((r) => setTimeout(r, 0));
+      // arrives on the fire-and-forget promise. Awaited through the
+      // module's own handle rather than by sleeping — a tick loop is the
+      // assertion that passes on a fast machine and hides a dropped write
+      // on a slow one.
+      await _awaitDelegatedDispatchForTests();
     }
 
     const [row] = await getTestDb().select().from(workflowDelegations)
@@ -1221,11 +1235,34 @@ describe("rung 13 — dispatch, and the failure counter", () => {
       .where(eq(workflowDelegations.id, id));
 
     await handleWorkflowsRpc(req(), ctx());
-    for (let t = 0; t < 20; t++) await new Promise((r) => setTimeout(r, 0));
+    await _awaitDelegatedDispatchForTests();
 
     const [row] = await getTestDb().select().from(workflowDelegations)
       .where(eq(workflowDelegations.id, id));
     expect(row?.consecutiveFailures).toBe(0);
+    expect(row?.enabled).toBe(true);
+  });
+
+  test("a REJECTED dispatch promise is absorbed, logged, and counts NOTHING", async () => {
+    // An executor that rejects is a BUG, not a run outcome. Absorbing it
+    // keeps an unhandled rejection from taking the process down; counting
+    // it would auto-disable a healthy job because the host misbehaved.
+    const id = await delegate({
+      ownerKind: "user", ownerId: ownerUserId, workflowName: "org-nightly",
+    });
+    await getTestDb().update(workflowDelegations)
+      .set({ consecutiveFailures: 2 })
+      .where(eq(workflowDelegations.id, id));
+    runWorkflowRejects = true;
+
+    // The RPC still succeeds — the dispatch is un-awaited by design.
+    const resp = await handleWorkflowsRpc(req(), ctx());
+    expect(resp.error).toBeUndefined();
+    await _awaitDelegatedDispatchForTests();
+
+    const [row] = await getTestDb().select().from(workflowDelegations)
+      .where(eq(workflowDelegations.id, id));
+    expect(row?.consecutiveFailures).toBe(2);
     expect(row?.enabled).toBe(true);
   });
 
@@ -1239,7 +1276,7 @@ describe("rung 13 — dispatch, and the failure counter", () => {
     runStatus = "suspended";
 
     await handleWorkflowsRpc(req(), ctx());
-    for (let t = 0; t < 20; t++) await new Promise((r) => setTimeout(r, 0));
+    await _awaitDelegatedDispatchForTests();
 
     const [row] = await getTestDb().select().from(workflowDelegations)
       .where(eq(workflowDelegations.id, id));
