@@ -207,9 +207,9 @@ describe("service-accounts query layer", () => {
       const types = readFileSync(join(import.meta.dir, "../types.ts"), "utf8");
       const decl = /export type WorkflowVisibility =([^;]+);/.exec(types);
       expect(decl).not.toBeNull();
-      const admitted = [...decl![1]!.matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+      const admitted = [...decl![1]!.matchAll(/"([^"]+)"/g)].map((m) => m[1]!);
       expect(admitted.length).toBeGreaterThan(0);
-      expect([...ALL_VISIBILITIES]).toEqual(admitted);
+      expect(admitted).toEqual([...ALL_VISIBILITIES]);
     });
 
     test("the warning ships on the CREATE result, not only on the consent path", async () => {

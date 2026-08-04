@@ -295,11 +295,7 @@ export async function createServiceAccount(
   }
 
   const projectId = input.projectId ?? null;
-  const creatorScopes = await resolveEffectiveScopes(
-    { id: input.createdBy.id, role: input.createdBy.role },
-    projectId,
-    null,
-  );
+  const creatorScopes = await resolveEffectiveScopes(input.createdBy, projectId, null);
   const scopes = clampScopesToCreator(requested, creatorScopes);
   const droppedScopes = requested.filter((scope) => !scopes.includes(scope));
 
