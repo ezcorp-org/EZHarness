@@ -61,6 +61,9 @@ const MODULE_PATHS = [
   "../../db/queries/workflows",
   "../../db/queries/workflow-runs",
   "../../db/queries/workflow-approvals",
+  // C3 phase 6: the shared consent-record assembly resolves a definition's
+  // version identity through this module, and its suite stubs it.
+  "../../db/queries/workflow-versions",
   "../../db/queries/users",
   "../../db/queries/attachments",
   "../../db/queries/modes",
