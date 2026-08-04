@@ -1,0 +1,2 @@
+$ bash scripts/test-coverage.sh
+== full local coverage mode: 1275 host files ==
