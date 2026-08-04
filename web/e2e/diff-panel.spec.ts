@@ -109,7 +109,26 @@ test.describe("Code review panel", () => {
 		await expect(panel).not.toBeVisible();
 	});
 
-	test("panel spans 75% of the viewport, right-anchored and full height", async ({
+	/**
+	 * Tailwind's `md` breakpoint. `DiffSummaryPanel.svelte` passes
+	 * `width="w-full md:w-[75vw]"` to SwipeDrawer, so 75vw is the DESKTOP half
+	 * of a deliberately responsive rule and full-bleed is the mobile half.
+	 *
+	 * This test used to assert 75% unconditionally, which made it a guaranteed
+	 * red under the `mobile-chromium` project (Pixel 5, 393px < 768px): the
+	 * panel is full width THERE BY DESIGN. Measured on unmodified `main`
+	 * (bc56cfc7) with both projects in one run — this case passes under
+	 * `chromium` and fails under `mobile-chromium`, and it is the only
+	 * diff-panel case that does.
+	 *
+	 * Branching on the VIEWPORT rather than on `testInfo.project.name` keeps
+	 * the assertion correct for any future project or `--viewport-size` run,
+	 * and — the point — asserts something real on BOTH sides instead of
+	 * skipping one.
+	 */
+	const MD_BREAKPOINT = 768;
+
+	test("panel is right-anchored and full height: 75vw at ≥md, full-bleed below", async ({
 		page,
 		mockApi,
 	}) => {
@@ -128,7 +147,17 @@ test.describe("Code review panel", () => {
 			.toBe(viewport.width);
 
 		const box = (await panel.boundingBox())!;
-		expect(box.width).toBeCloseTo(viewport.width * 0.75, -1);
+		if (viewport.width >= MD_BREAKPOINT) {
+			expect(box.width).toBeCloseTo(viewport.width * 0.75, -1);
+			// …and it is genuinely a drawer, not a full-bleed sheet: a strip of
+			// backdrop stays exposed on the left (the strip the dismissal case
+			// above clicks at x=8).
+			expect(box.x).toBeGreaterThan(0);
+		} else {
+			// Below `md` the drawer is full-bleed — `w-full`, flush to x=0.
+			expect(box.width).toBe(viewport.width);
+			expect(box.x).toBe(0);
+		}
 		expect(box.y).toBe(0);
 		expect(box.height).toBe(viewport.height);
 	});
