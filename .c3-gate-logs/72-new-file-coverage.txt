@@ -1,2 +1,0 @@
-New-file coverage gate PASSED: 15 new source file(s) gated.
-EXIT_CODE=0

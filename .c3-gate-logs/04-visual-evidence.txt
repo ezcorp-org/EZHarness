@@ -1,2 +1,0 @@
-Visual-evidence gate PASSED: 3 visual surface file(s), 6 Playwright spec(s) in this diff.
-VISUAL_EVIDENCE_EXIT=0

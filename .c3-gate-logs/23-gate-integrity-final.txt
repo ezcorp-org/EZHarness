@@ -1,2 +1,0 @@
-Gate integrity PASSED: no gate-weakening or test-cheating changes detected.
-GATE_INTEGRITY_FINAL_EXIT=0
