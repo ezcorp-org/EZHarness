@@ -1,5 +1,12 @@
 /**
- * C3 phase 6 — `op: "runFor"`, the D1–D9 ladder.
+ * C3 phase 6 — `op: "runFor"`, the D1–D10 ladder.
+ *
+ * (Phase 8a added rung D10, `service_accounts.max_tokens_per_day` — the
+ * column phase 2 shipped and nothing read. Its block is at the end,
+ * followed by the three-bounds separation: D8 counts RUNS for one
+ * delegation, D9 asks whether the per-RUN token cap admits any work, D10
+ * sums TOKENS for one ACCOUNT across every delegation it owns. Three
+ * conditions, three codes, three remedies.)
  *
  * ## What every test here asserts, and why it is two things
  *
@@ -62,7 +69,7 @@ import { computeDelegationConsentRecord } from "../../runtime/workflow-delegatio
 import { delegationPrincipal } from "../../runtime/workflow-delegation-consent";
 import {
   extensions, projects, sdkCapabilityCalls, auditLog, users,
-  serviceAccounts, workflowDelegations, workflowRuns, messages, errorLogs,
+  serviceAccounts, workflowDelegations, workflowRuns, workflowStepRuns, messages, errorLogs,
 } from "../../db/schema";
 import { eq } from "drizzle-orm";
 import type {
@@ -365,6 +372,7 @@ beforeEach(async () => {
   await getTestDb().delete(sdkCapabilityCalls);
   await getTestDb().delete(errorLogs);
   await getTestDb().delete(auditLog);
+  await getTestDb().delete(workflowStepRuns);
   await getTestDb().delete(workflowRuns);
   await getTestDb().delete(workflowDelegations);
   _resetWorkflowTriggerQuotaForTests();
@@ -1193,6 +1201,254 @@ describe("rung D9 — DELEGATION_SPEND_EXCEEDED at dispatch", () => {
       ownerKind: "user", ownerId: ownerUserId, workflowName: "org-nightly",
       maxTokensPerRun: 1,
     });
+
+    const resp = await handleWorkflowsRpc(req(), ctx());
+
+    expect(resp.error).toBeUndefined();
+    expect(started[0]?.opts?.delegationId).toBe(id);
+  });
+});
+
+// ══ rung D10 — service_accounts.max_tokens_per_day ═══════════════════
+//
+// Phase 2 shipped the column and NOTHING read it: a control that was not
+// one. This is the rung that reads it, and every test below asserts the
+// deny code AND the audit destination, because a `service` outcome
+// carries a NULL user and `sdk_capability_calls.on_behalf_of` is NOT NULL
+// with an FK to `users` — get the destination wrong and the denial is not
+// merely misfiled, it is SWALLOWED.
+
+/** A settled day of spend attributed to one service account: a run row
+ *  carrying the `run_as` snapshot, plus a step row carrying the tokens. */
+async function seedServiceSpend(spec: {
+  accountId: string;
+  tokens: number;
+  runId: string;
+  startedAt?: Date;
+}): Promise<void> {
+  await getTestDb().insert(workflowRuns).values({
+    id: spec.runId,
+    workflowName: "org-nightly",
+    status: "success",
+    input: {},
+    startedAt: spec.startedAt ?? new Date(),
+    // The SNAPSHOT, not `delegation_id`. That is what the aggregate keys
+    // on, precisely so a revoke or a supersede cannot refund a day.
+    runAsKind: "service",
+    runAs: spec.accountId,
+  });
+  await getTestDb().insert(workflowStepRuns).values({
+    workflowRunId: spec.runId,
+    stepName: "s1",
+    status: "success",
+    inputTokens: spec.tokens,
+    outputTokens: 0,
+  });
+}
+
+/** A fresh service account with a chosen daily cap. Named uniquely
+ *  because `uniq_service_account_name` is global and `beforeEach` does
+ *  not clear this table. */
+async function account(maxTokensPerDay: number): Promise<string> {
+  const created = await createServiceAccount({
+    name: `d10-${crypto.randomUUID()}`,
+    description: "",
+    createdBy: { id: adminUserId, role: "admin" },
+    projectId: null,
+    scopes: [],
+    maxTokensPerDay,
+  });
+  return created.account.id;
+}
+
+describe("rung D10 — DELEGATION_DAILY_TOKENS_EXCEEDED, and it audits to audit_log", () => {
+  test("an account that has spent its day is refused, and the denial lands in audit_log", async () => {
+    const accountId = await account(500);
+    await delegate({
+      ownerKind: "service", ownerId: accountId, workflowName: "org-nightly",
+    });
+    await seedServiceSpend({ accountId, tokens: 500, runId: "spent-1" });
+
+    const resp = await handleWorkflowsRpc(req(), ctx());
+
+    expect(resp.error?.data).toEqual({ reason: "DELEGATION_DAILY_TOKENS_EXCEEDED" });
+    // The message names both halves, because the remedy (an admin raising
+    // the ACCOUNT's cap) is a different object from the delegation.
+    expect(resp.error?.message).toContain("500/500");
+    expect(started).toHaveLength(0);
+
+    const { sdk, log } = await auditDestinations();
+    // THE destination assertion. A `service` outcome has no `users` row,
+    // so an attempt to file it here would be swallowed by the FK and the
+    // denial would vanish.
+    expect(sdk).toHaveLength(0);
+    expect(log).toHaveLength(1);
+    expect(log[0]?.action).toBe("ext:workflow-delegation-service");
+    expect(log[0]?.userId).toBeNull();
+    expect((log[0]?.metadata as { reason?: string })?.reason).toBe(
+      "DELEGATION_DAILY_TOKENS_EXCEEDED",
+    );
+  });
+
+  test("…and the SAME account one token under its cap fires", async () => {
+    // The pair. Without it, "it refused" is satisfied by a rung that
+    // refuses every service-kind delegation outright.
+    const accountId = await account(500);
+    const id = await delegate({
+      ownerKind: "service", ownerId: accountId, workflowName: "org-nightly",
+    });
+    await seedServiceSpend({ accountId, tokens: 499, runId: "spent-2" });
+
+    const resp = await handleWorkflowsRpc(req(), ctx());
+
+    expect(resp.error).toBeUndefined();
+    expect(started[0]?.opts?.delegationId).toBe(id);
+    // A service-owned run streams to nobody — no session to stream to.
+    expect(started[0]?.userId).toBeUndefined();
+  });
+
+  test("YESTERDAY's tokens do not count — a calendar day, not a rolling window", async () => {
+    const accountId = await account(500);
+    await delegate({
+      ownerKind: "service", ownerId: accountId, workflowName: "org-nightly",
+    });
+    await seedServiceSpend({
+      accountId,
+      tokens: 5_000,
+      runId: "spent-old",
+      startedAt: new Date(Date.now() - 36 * 60 * 60 * 1000),
+    });
+
+    const resp = await handleWorkflowsRpc(req(), ctx());
+
+    expect(resp.error).toBeUndefined();
+  });
+
+  test("ANOTHER account's spend does not count against this one", async () => {
+    const mine = await account(500);
+    const theirs = await account(500);
+    await delegate({ ownerKind: "service", ownerId: mine, workflowName: "org-nightly" });
+    await seedServiceSpend({ accountId: theirs, tokens: 9_000, runId: "spent-theirs" });
+
+    const resp = await handleWorkflowsRpc(req(), ctx());
+
+    expect(resp.error).toBeUndefined();
+  });
+
+  test("spend attributed to a USER-kind run does not count against an account", async () => {
+    // Both columns are filtered, not just `run_as`. The two ids live in
+    // different namespaces and are both bare text; matching on the id
+    // alone would let a user run drain an account's day if the two ever
+    // collided.
+    const accountId = await account(500);
+    await delegate({ ownerKind: "service", ownerId: accountId, workflowName: "org-nightly" });
+    await getTestDb().insert(workflowRuns).values({
+      id: "user-kind-run",
+      workflowName: "org-nightly",
+      status: "success",
+      input: {},
+      startedAt: new Date(),
+      runAsKind: "user",
+      // Deliberately the ACCOUNT's id on the `user` arm — the exact
+      // collision the discriminator exists to reject.
+      runAs: accountId,
+    });
+    await getTestDb().insert(workflowStepRuns).values({
+      workflowRunId: "user-kind-run",
+      stepName: "s1",
+      status: "success",
+      inputTokens: 9_000,
+      outputTokens: 0,
+    });
+
+    const resp = await handleWorkflowsRpc(req(), ctx());
+
+    expect(resp.error).toBeUndefined();
+  });
+
+  test("a USER-kind delegation is not subject to this rung at all", async () => {
+    // `users` carries no daily token column, and D4's `user` arm returns
+    // `dailyTokenCap: null` rather than inventing a default. A user
+    // delegation whose owner has spent an enormous amount today still
+    // fires — it is bounded by its own two caps, which is what the human
+    // agreed to.
+    await delegate({
+      ownerKind: "user", ownerId: ownerUserId, workflowName: "org-nightly",
+    });
+    await getTestDb().insert(workflowRuns).values({
+      id: "user-spend", workflowName: "org-nightly", status: "success",
+      input: {}, startedAt: new Date(), runAsKind: "user", runAs: ownerUserId,
+    });
+    await getTestDb().insert(workflowStepRuns).values({
+      workflowRunId: "user-spend", stepName: "s1", status: "success",
+      inputTokens: 1_000_000, outputTokens: 1_000_000,
+    });
+
+    const resp = await handleWorkflowsRpc(req(), ctx());
+
+    expect(resp.error).toBeUndefined();
+  });
+});
+
+describe("the three token/run bounds are SEPARATE, and each says which one it was", () => {
+  // D8 counts RUNS for one delegation. D9 asks whether the per-RUN token
+  // cap admits any work. D10 sums TOKENS for one ACCOUNT across every
+  // delegation it owns. Three conditions, three codes, three remedies —
+  // and a caller must be able to tell them apart from the audit row
+  // alone, because "my cron job stopped" looks identical from outside.
+
+  test("D10 fires while D8 and D9 are both generous", async () => {
+    const accountId = await account(100);
+    await delegate({
+      ownerKind: "service", ownerId: accountId, workflowName: "org-nightly",
+      // Both of the OTHER bounds wide open.
+      maxRunsPerDay: 1000, maxTokensPerRun: 1_000_000,
+    });
+    await seedServiceSpend({ accountId, tokens: 100, runId: "sep-1" });
+
+    const resp = await handleWorkflowsRpc(req(), ctx());
+
+    expect(resp.error?.data).toEqual({ reason: "DELEGATION_DAILY_TOKENS_EXCEEDED" });
+  });
+
+  test("D8 fires while D10 is generous — a RUN count, not a token count", async () => {
+    const accountId = await account(1_000_000);
+    const id = await delegate({
+      ownerKind: "service", ownerId: accountId, workflowName: "org-nightly",
+      maxRunsPerDay: 1, maxTokensPerRun: 1_000_000,
+    });
+    // One prior run TODAY against this delegation, spending nothing. D10
+    // sees zero tokens; D8 sees one run.
+    await getTestDb().insert(workflowRuns).values({
+      id: "sep-2", workflowName: "org-nightly", status: "success",
+      input: {}, startedAt: new Date(), delegationId: id,
+      runAsKind: "service", runAs: accountId,
+    });
+
+    const resp = await handleWorkflowsRpc(req(), ctx());
+
+    expect(resp.error?.data).toEqual({ reason: "DELEGATION_QUOTA_EXCEEDED" });
+  });
+
+  test("D9 fires while D8 and D10 are both generous — a PER-RUN cap", async () => {
+    const accountId = await account(1_000_000);
+    await delegate({
+      ownerKind: "service", ownerId: accountId, workflowName: "org-nightly",
+      maxRunsPerDay: 1000, maxTokensPerRun: 0,
+    });
+
+    const resp = await handleWorkflowsRpc(req(), ctx());
+
+    expect(resp.error?.data).toEqual({ reason: "DELEGATION_SPEND_EXCEEDED" });
+  });
+
+  test("…and with all three satisfied the fire goes through", async () => {
+    const accountId = await account(1_000_000);
+    const id = await delegate({
+      ownerKind: "service", ownerId: accountId, workflowName: "org-nightly",
+      maxRunsPerDay: 1000, maxTokensPerRun: 1_000_000,
+    });
+    await seedServiceSpend({ accountId, tokens: 10, runId: "sep-4" });
 
     const resp = await handleWorkflowsRpc(req(), ctx());
 
