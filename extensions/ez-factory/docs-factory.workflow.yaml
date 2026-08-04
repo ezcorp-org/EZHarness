@@ -157,9 +157,21 @@ steps:
 
   # ── 3. Draft ─────────────────────────────────────────────────────────
   #
-  # Whole `$steps.extract.output`, never a sub-path: an agent step's
-  # output is a raw string, so `$steps.extract.output.facts` would throw
-  # "field is missing" at run time.
+  # Whole `$steps.extract.output`, and that is now a CHOICE rather than the
+  # only option.
+  #
+  # This note used to read "never a sub-path: an agent step's output is a
+  # raw string, so `$steps.extract.output.facts` would throw 'field is
+  # missing' at run time". That has not been true since all three seeded
+  # agents were given `outputFormat: "json"`
+  # (`src/extensions/ez-factory-agents.ts`): `configToAgent` parses, the
+  # output is an OBJECT, and `.facts` resolves. Kept whole anyway — the
+  # extractor's contract is `{facts, gaps}` and the writer is meant to see
+  # the gaps too, not just the claims.
+  #
+  # Where the same drift was a real defect rather than a stale comment is
+  # `draft-and-verify`'s `verdict.content`, which fed the writer's whole
+  # `{draft, gaps}` envelope to `write_file`; see the note there.
   - name: draft
     kind: agent
     agent: ez-factory writer
