@@ -1,2 +1,252 @@
 $ bash scripts/test-coverage.sh
 == full local coverage mode: 1275 host files ==
+
+── leg output: sdk ──
+bun test v1.3.14 (0d9b296a)
+
+ 938 pass
+ 0 fail
+ 1930 expect() calls
+Ran 938 tests across 44 files. [4.94s]
+
+── leg output: hc ──
+bun test v1.3.14 (0d9b296a)
+
+ 64 pass
+ 0 fail
+ 190 expect() calls
+Ran 64 tests across 1 file. [505.00ms]
+
+── leg output: suggest ──
+bun test v1.3.14 (0d9b296a)
+
+ 102 pass
+ 0 fail
+ 186 expect() calls
+Ran 102 tests across 8 files. [12.84s]
+
+── leg output: aikit ──
+bun test v1.3.14 (0d9b296a)
+
+packages/@ezcorp/ai-kit/test/unit/cli-install.test.ts:
+Installed: claude-code MCP config written.
+Installed: claude-code MCP config written.
+Installed: claude-code MCP config written.
+Installed: claude-code MCP config written.
+[dry-run] Would write /tmp/ai-kit-test-Ra2M2o/.claude.json:
+{
+  "mcpServers": {
+    "ezcorp-ai-kit": {
+      "command": "bunx",
+      "args": [
+        "@ezcorp/ai-kit",
+        "mcp"
+      ],
+      "env": {
+        "EZCORP_BASE_URL": "http://localhost:5173",
+        "EZCORP_API_KEY": "<your-api-key>"
+      }
+    }
+  }
+}
+
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/packages/@ezcorp/ai-kit/skills/ezcorp-auth/SKILL.md -> /tmp/ai-kit-test-Ra2M2o/.claude/skills/ezcorp-auth/SKILL.md
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/packages/@ezcorp/ai-kit/skills/ezcorp-orchestrate/SKILL.md -> /tmp/ai-kit-test-Ra2M2o/.claude/skills/ezcorp-orchestrate/SKILL.md
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/packages/@ezcorp/ai-kit/skills/ezcorp-chat/SKILL.md -> /tmp/ai-kit-test-Ra2M2o/.claude/skills/ezcorp-chat/SKILL.md
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/packages/@ezcorp/ai-kit/skills/ezcorp-projects/SKILL.md -> /tmp/ai-kit-test-Ra2M2o/.claude/skills/ezcorp-projects/SKILL.md
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/packages/@ezcorp/ai-kit/skills/ezcorp-agents/SKILL.md -> /tmp/ai-kit-test-Ra2M2o/.claude/skills/ezcorp-agents/SKILL.md
+Installed: claude-code MCP config written.
+Installed: claude-code MCP config written.
+Installed: claude-code MCP config written.
+Installed: claude-code MCP config written.
+[dry-run] Would write /tmp/ai-kit-test-aJTKUa/.claude.json:
+{
+  "mcpServers": {
+    "ezcorp-ai-kit": {
+      "command": "bunx",
+      "args": [
+        "@ezcorp/ai-kit",
+        "mcp"
+      ],
+      "env": {
+        "EZCORP_BASE_URL": "http://localhost:5173",
+        "EZCORP_API_KEY": "<your-api-key>"
+      }
+    }
+  }
+}
+
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/packages/@ezcorp/ai-kit/skills/ezcorp-auth/SKILL.md -> /tmp/ai-kit-test-aJTKUa/.claude/skills/ezcorp-auth/SKILL.md
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/packages/@ezcorp/ai-kit/skills/ezcorp-orchestrate/SKILL.md -> /tmp/ai-kit-test-aJTKUa/.claude/skills/ezcorp-orchestrate/SKILL.md
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/packages/@ezcorp/ai-kit/skills/ezcorp-chat/SKILL.md -> /tmp/ai-kit-test-aJTKUa/.claude/skills/ezcorp-chat/SKILL.md
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/packages/@ezcorp/ai-kit/skills/ezcorp-projects/SKILL.md -> /tmp/ai-kit-test-aJTKUa/.claude/skills/ezcorp-projects/SKILL.md
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/packages/@ezcorp/ai-kit/skills/ezcorp-agents/SKILL.md -> /tmp/ai-kit-test-aJTKUa/.claude/skills/ezcorp-agents/SKILL.md
+Installed: claude-code MCP config written.
+Installed: cursor MCP config written.
+Installed: cursor MCP config written.
+Installed: cursor MCP config written.
+[dry-run] Would write /tmp/ai-kit-test-Mkdvul/.cursor/mcp.json:
+{
+  "mcpServers": {
+    "ezcorp-ai-kit": {
+      "command": "bunx",
+      "args": [
+        "@ezcorp/ai-kit",
+        "mcp"
+      ],
+      "env": {
+        "EZCORP_BASE_URL": "http://localhost:5173",
+        "EZCORP_API_KEY": "<your-api-key>"
+      }
+    }
+  }
+}
+
+Installed: cursor MCP config written.
+Installed: zed context_servers config written.
+Installed: zed context_servers config written.
+Installed: zed context_servers config written.
+[dry-run] Would write /tmp/ai-kit-test-k3ctZZ/.config/zed/settings.json:
+{
+  "context_servers": {
+    "ezcorp-ai-kit": {
+      "command": "bunx",
+      "args": [
+        "@ezcorp/ai-kit",
+        "mcp"
+      ],
+      "env": {
+        "EZCORP_BASE_URL": "http://localhost:5173",
+        "EZCORP_API_KEY": "<your-api-key>"
+      }
+    }
+  }
+}
+
+Installed: zed context_servers config written.
+Installed: zed context_servers config written.
+Installed: windsurf MCP config written.
+Installed: windsurf MCP config written.
+Installed: windsurf MCP config written.
+[dry-run] Would write /tmp/ai-kit-test-Hpz7oS/.codeium/windsurf/mcp_config.json:
+{
+  "mcpServers": {
+    "ezcorp-ai-kit": {
+      "command": "bunx",
+      "args": [
+        "@ezcorp/ai-kit",
+        "mcp"
+      ],
+      "env": {
+        "EZCORP_BASE_URL": "http://localhost:5173",
+        "EZCORP_API_KEY": "<your-api-key>"
+      }
+    }
+  }
+}
+
+Installed: windsurf MCP config written.
+ai-kit: data directory initialized at /tmp/ai-kit-test-hccFBy/.ezcorp/extension-data/ai-kit
+  (project root: /tmp/ai-kit-test-hccFBy)
+Installed: ezcorp extension symlinked at /tmp/ai-kit-test-hccFBy/.ezcorp/extensions/ai-kit
+ai-kit: data directory initialized at /tmp/ai-kit-test-8LbXus/.ezcorp/extension-data/ai-kit
+  (project root: /tmp/ai-kit-test-8LbXus)
+Installed: ezcorp extension symlinked at /tmp/ai-kit-test-8LbXus/.ezcorp/extensions/ai-kit
+ai-kit: data directory initialized at /tmp/ai-kit-test-8LbXus/.ezcorp/extension-data/ai-kit
+  (project root: /tmp/ai-kit-test-8LbXus)
+Installed: ezcorp extension symlinked at /tmp/ai-kit-test-8LbXus/.ezcorp/extensions/ai-kit
+[dry-run] Would create symlink: /tmp/ai-kit-test-Hq8Ab1/.ezcorp/extensions/ai-kit -> /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/packages/@ezcorp/ai-kit
+[dry-run] Would run: bun /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/packages/@ezcorp/ai-kit/scripts/postinstall.ts
+Installed: claude-code MCP config written.
+Installed: cursor MCP config written.
+Installed: zed context_servers config written.
+Installed: windsurf MCP config written.
+
+ 213 pass
+ 22 skip
+ 0 fail
+ 522 expect() calls
+Ran 235 tests across 23 files. [4.83s]
+
+── leg output: vitest ──
+
+ RUN  v4.1.6 /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/web
+      Coverage enabled with v8
+
+{"ts":"2026-08-04T18:55:07.336Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"test","teardownCount":3}
+{"ts":"2026-08-04T18:55:07.336Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"c","ms":0}
+{"ts":"2026-08-04T18:55:07.336Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"b","ms":0}
+{"ts":"2026-08-04T18:55:07.336Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"a","ms":0}
+{"ts":"2026-08-04T18:55:07.336Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"test"}
+{"ts":"2026-08-04T18:55:07.338Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"test","teardownCount":1}
+{"ts":"2026-08-04T18:55:07.338Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"dup","ms":0}
+{"ts":"2026-08-04T18:55:07.338Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"test"}
+{"ts":"2026-08-04T18:55:07.338Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"test","teardownCount":1}
+{"ts":"2026-08-04T18:55:07.340Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"async","ms":2}
+{"ts":"2026-08-04T18:55:07.340Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"test"}
+{"ts":"2026-08-04T18:55:07.340Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"test","teardownCount":1}
+{"ts":"2026-08-04T18:55:07.340Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"observe","ms":0}
+{"ts":"2026-08-04T18:55:07.340Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"test"}
+{"ts":"2026-08-04T18:55:07.340Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"test","teardownCount":0}
+{"ts":"2026-08-04T18:55:07.340Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"test"}
+{"ts":"2026-08-04T18:55:07.340Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"first","teardownCount":1}
+{"ts":"2026-08-04T18:55:07.340Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"once","ms":0}
+{"ts":"2026-08-04T18:55:07.340Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"first"}
+{"ts":"2026-08-04T18:55:07.340Z","level":"info","msg":"shutdown already in progress — ignoring re-trigger","subsystem":"shutdown","reason":"second"}
+{"ts":"2026-08-04T18:55:07.341Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"test","teardownCount":3}
+{"ts":"2026-08-04T18:55:07.341Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"late","ms":0}
+{"ts":"2026-08-04T18:55:07.341Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"db","ms":0}
+{"ts":"2026-08-04T18:55:07.341Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"test"}
+{"ts":"2026-08-04T18:55:07.341Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"test","teardownCount":2}
+{"ts":"2026-08-04T18:55:07.341Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"ok","ms":0}
+{"ts":"2026-08-04T18:55:07.341Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"test"}
+{"ts":"2026-08-04T18:55:07.341Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"timeout-test","teardownCount":1}
+{"ts":"2026-08-04T18:55:07.341Z","level":"error","msg":"teardown failed","subsystem":"shutdown","name":"boom","error":"Error: kaboom"}
+{"ts":"2026-08-04T18:55:07.341Z","level":"error","msg":"teardown failed","subsystem":"shutdown","name":"reject","error":"Error: async-fail"}
+{"ts":"2026-08-04T18:55:32.341Z","level":"error","msg":"forced-exit — shutdown teardown exceeded hard timeout","subsystem":"shutdown","timeoutMs":25000,"pending":1}
+{"ts":"2026-08-04T18:55:32.342Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"hang","ms":25001}
+{"ts":"2026-08-04T18:55:32.342Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"timeout-test"}
+{"ts":"2026-08-04T18:55:07.345Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"SIGTERM","teardownCount":1}
+{"ts":"2026-08-04T18:55:07.345Z","level":"info","msg":"shutdown already in progress — ignoring re-trigger","subsystem":"shutdown","reason":"SIGTERM"}
+{"ts":"2026-08-04T18:55:07.346Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"t","ms":0}
+{"ts":"2026-08-04T18:55:07.346Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"SIGTERM"}
+{"ts":"2026-08-04T18:55:07.356Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"sveltekit:shutdown:deploy","teardownCount":1}
+{"ts":"2026-08-04T18:55:07.356Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"t","ms":0}
+{"ts":"2026-08-04T18:55:07.356Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"sveltekit:shutdown:deploy"}
+{"ts":"2026-08-04T18:55:08.449Z","level":"error","msg":"installAuthoredDraft: registry reload failed after install","subsystem":"ext.extension-author.author-install","extensionId":"ext-installed","error":"registry boom"}
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+2:55:09 PM [vite-plugin-svelte] src/routes/(app)/extensions/author/+page.svelte:20:50 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+https://svelte.dev/e/state_referenced_locally
+2:55:09 PM [vite-plugin-svelte] src/routes/(app)/extensions/author/+page.svelte:22:32 This reference only captures the initial value of `fileNames`. Did you mean to reference it inside a derived instead?
+https://svelte.dev/e/state_referenced_locally
+2:55:09 PM [vite-plugin-svelte] src/routes/(app)/extensions/author/+page.svelte:251:8 A form label must be associated with a control
+https://svelte.dev/e/a11y_label_has_associated_control
+{"ts":"2026-08-04T18:55:12.379Z","level":"warn","msg":"page-state invalidation wiring failed — will retry on the next render","subsystem":"hub.render-pull","error":"Server not initialized"}
+{"ts":"2026-08-04T18:55:12.385Z","level":"error","msg":"memory disappeared between read and write","subsystem":"api.memories","memoryId":"mem-1"}
+{"ts":"2026-08-04T18:55:12.685Z","level":"error","msg":"retry streamChat error","subsystem":"api.retry","error":"boom"}
+
+ Test Files  198 passed (198)
+      Tests  3379 passed (3379)
+   Start at  14:55:05
+   Duration  20.27s (transform 52.98s, setup 96.07s, import 103.83s, tests 20.18s, environment 124.72s)
+
+tolerated leg exit codes (not gated): sdk=0 suggest=0
+
+── leg output: security ──
+Running 16 security bun:test suites under --coverage (6 parallel)...
+merged 148 source files → /tmp/tmp.9JcRL2RkF8/merged.lcov
+wrote 9 security source record(s) → /tmp/tmp.O2YLYZ7GUd/sec_out/lcov_security.info
+
+================================
+  22448 pass | 0 fail | 1276 shards
+================================
+merged 1335 source files → coverage/lcov.info
+Coverage gate FAILED (3 file(s) below threshold):
+  src/db/queries/workflow-runs.ts: 96.17% < 100% — missed lines: 1029,1032,1033,1034,1035,1036,1038,1039,1040,1044,1045,1046,1047,1049,1050,1051
+  web/src/lib/workflow-delegations-logic.ts: 73.94% < 100% — missed lines: 190,193,233,237,241,247,262,271,302,316,324,325,364,374,390,391,394,418,421,440,445,459,492,506,512,520,521,540,634,650,653,669,683,684,687,704,708,712,713,721,...
+  web/src/routes/api/workflows/delegations/[id]/+server.ts: 97.73% < 100% — missed lines: 168
+error: script "test:coverage" exited with code 1
+TEST_COVERAGE_EXIT=1

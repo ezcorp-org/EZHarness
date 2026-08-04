@@ -12,6 +12,9 @@
  *   - the approve button's blocked reason is a sentence, never a boolean.
  */
 import { test, expect, describe, afterEach } from "vitest";
+// The CANONICAL suspend-reason vocabulary, imported rather than retyped: a
+// copy here would drift exactly the way the classifier drifted from the wire.
+import { WORKFLOW_SUSPEND_REASONS } from "$server/runtime/workflow-resume-reasons";
 import {
 	OWNER_KIND_CHOICES,
 	buildConsentBody,
@@ -737,6 +740,41 @@ describe("describeRunStopReason — keyed on suspended_reason, the value that ar
 		// would be worse than repeating what the server actually said.
 		expect(describeRunStopReason("some-future-reason")).toBeNull();
 		expect(describeRunStopReason(null)).toBeNull();
+	});
+
+	// ── The pin that makes the dead-classifier defect unrepeatable ────────
+	//
+	// Every test above still hands this function a string chosen by hand,
+	// which is EXACTLY how the previous implementation stayed green for
+	// eight phases while being unreachable in production. These three do not
+	// invent an input: they derive it from WORKFLOW_SUSPEND_REASONS, the
+	// canonical vocabulary that `satisfies Record<WorkflowSuspendReason,
+	// ResumeRule>` already forces to stay total. Add a seventh reason
+	// without teaching the UI about it and these fail.
+
+	test("every canonical suspend reason gets a sentence — none falls through", () => {
+		const unexplained = WORKFLOW_SUSPEND_REASONS.filter(
+			(reason) => describeRunStopReason(reason) === null,
+		);
+		expect(unexplained).toEqual([]);
+	});
+
+	test("each reason's sentence is DISTINCT — two reasons never read alike", () => {
+		// `budget-exceeded` and `consent-stale` have opposite remedies, and
+		// telling them apart is the whole reason this function exists.
+		const sentences = WORKFLOW_SUSPEND_REASONS.map((r) => describeRunStopReason(r));
+		expect(new Set(sentences).size).toBe(WORKFLOW_SUSPEND_REASONS.length);
+	});
+
+	test("every sentence is prose a person can act on, not a slug echo", () => {
+		// Guards the lazy fix for the test above: returning the reason itself
+		// would make every sentence distinct and non-null while explaining
+		// nothing to anybody.
+		const slugEchoes = WORKFLOW_SUSPEND_REASONS.filter((reason) => {
+			const text = describeRunStopReason(reason) ?? "";
+			return text.length < 30 || text === reason;
+		});
+		expect(slugEchoes).toEqual([]);
 	});
 });
 
