@@ -372,6 +372,37 @@ async function capOf(delegationId: string): Promise<number> {
 }
 
 /**
+ * The three columns a PATCH must be judged against, read off the real row.
+ *
+ * `consent_hash` is in here rather than in a separate helper because it is
+ * the ONE value that decides whether this route stayed on the in-place path:
+ * Ruling 2 makes it the version id of what the human approved, so a PATCH
+ * that moved it would have re-approved something on the human's behalf.
+ */
+async function boundsOf(
+  delegationId: string,
+): Promise<{ tokens: number; runs: number; hash: string; consentedAt: string }> {
+  const res = (await db.execute(sql`
+    SELECT max_tokens_per_run, max_runs_per_day, consent_hash, consented_at
+    FROM workflow_delegations WHERE id = ${delegationId}
+  `)) as unknown as {
+    rows: Array<{
+      max_tokens_per_run: number;
+      max_runs_per_day: number;
+      consent_hash: string;
+      consented_at: string;
+    }>;
+  };
+  const row = res.rows[0]!;
+  return {
+    tokens: row.max_tokens_per_run,
+    runs: row.max_runs_per_day,
+    hash: row.consent_hash,
+    consentedAt: String(row.consented_at),
+  };
+}
+
+/**
  * Every delegation row for one `job_ref`, live or tombstoned, oldest
  * first — the proof that a PATCH minted no new row and revoked no old
  * one.
@@ -619,13 +650,16 @@ describe("the token ceiling, reached through the runFor handler", () => {
     expect(invocations).toBe(2);
   });
 
-  test("a body naming a SECOND field is a 400, and the cap does not move", async () => {
-    // Ruling 2 on a real row. The body schema is `.strict()` because
-    // `maxTokensPerRun` is the only thing adjustable without re-asking
-    // consent — so a caller who sends `{maxTokensPerRun, maxRunsPerDay}`
-    // must be REFUSED, not quietly given half of what they asked for. A 200
-    // that ignored the second field is the dangerous outcome: the caller
-    // has every reason to believe both landed.
+  test("a body naming APPROVED MATERIAL is a 400, and nothing moves", async () => {
+    // Ruling 2 on a real row. The body schema is `.strict()` because the two
+    // SPEND BOUNDS are the only things adjustable without re-asking consent
+    // — so a caller who also names `ownerKind` must be REFUSED, not quietly
+    // given half of what they asked for. A 200 that ignored the owner is the
+    // dangerous outcome: the caller has every reason to believe it changed.
+    //
+    // The field asserted here used to be `maxRunsPerDay`, which is now
+    // legal — see the test below. `ownerKind` is the right stand-in because
+    // it is the field whose silent acceptance would be worst.
     //
     // The mocked route test covers this branch too; this one covers it
     // against the real PGlite row, which is what proves nothing was
@@ -638,9 +672,10 @@ describe("the token ceiling, reached through the runFor handler", () => {
     await settle();
     const parked = (await runsFor(delegationId))[0]!;
     expect(parked.status).toBe("suspended");
+    const before = await boundsOf(delegationId);
 
     const res = (await PATCH(
-      patchEvent(delegationId, OWNER, { maxTokensPerRun: 100_000, maxRunsPerDay: 999 }),
+      patchEvent(delegationId, OWNER, { maxTokensPerRun: 100_000, ownerKind: "service" }),
     )) as Response;
     expect(res.status).toBe(400);
     // The refusal names the remedy rather than saying "invalid body".
@@ -648,7 +683,7 @@ describe("the token ceiling, reached through the runFor handler", () => {
 
     // NOTHING was written: not the cap it did name, not the field it may
     // not name, and the run is still parked on the original ceiling.
-    expect(await capOf(delegationId)).toBe(150);
+    expect(await boundsOf(delegationId)).toEqual(before);
     expect(await resumeReasonRefusal("budget-exceeded", { workflowRunId: parked.id })).toContain(
       "max_tokens_per_run",
     );
@@ -656,11 +691,62 @@ describe("the token ceiling, reached through the runFor handler", () => {
     expect(run.status).toBe("suspended");
 
     // …and the legal single-key body against the SAME row still succeeds,
-    // so the 400 above is the schema refusing a second field rather than
+    // so the 400 above is the schema refusing a forbidden field rather than
     // this route being broken.
     const ok = (await PATCH(patchEvent(delegationId, OWNER))) as Response;
     expect(ok.status).toBe(200);
     expect(await capOf(delegationId)).toBe(100_000);
+  });
+
+  test("BOTH spend bounds move on a real row, and the consent hash does not", async () => {
+    // `maxRunsPerDay` (D8's daily fire quota) used to be a 400 here, so
+    // adjusting a throttle meant a full re-consent: a new row, the old one
+    // tombstoned, and a dialog re-asking for approval of a capability set
+    // that had not moved. It is a SPEND bound, not approved material, so it
+    // belongs on the in-place path with the token ceiling.
+    //
+    // The assertions that matter are the ones about what did NOT happen: one
+    // row, the same id, the same consent hash, the same `consented_at`. Any
+    // of those moving would mean this route had quietly re-consented on the
+    // human's behalf.
+    registerRuntime(100);
+    invocations = 0;
+    const delegationId = await makeDelegation("job-both-bounds", 150);
+    const before = await boundsOf(delegationId);
+    expect(before.runs).toBe(100);
+
+    const res = (await PATCH(
+      patchEvent(delegationId, OWNER, { maxTokensPerRun: 100_000, maxRunsPerDay: 7 }),
+    )) as Response;
+    expect(res.status, JSON.stringify(await res.clone().json())).toBe(200);
+    const body = (await res.json()) as {
+      delegation: { id: string; maxTokensPerRun: number; maxRunsPerDay: number };
+    };
+    expect(body.delegation.id).toBe(delegationId);
+    expect(body.delegation.maxTokensPerRun).toBe(100_000);
+    expect(body.delegation.maxRunsPerDay).toBe(7);
+
+    const after = await boundsOf(delegationId);
+    expect(after.tokens).toBe(100_000);
+    expect(after.runs).toBe(7);
+    // Ruling 2, on the real column: the version id of what the human
+    // approved is untouched, and so is when they approved it.
+    expect(after.hash).toBe(before.hash);
+    expect(after.consentedAt).toBe(before.consentedAt);
+    // No supersede: still exactly ONE row for this job, still live. Two
+    // rows here is the shape that stranded every parked run before phase 6.
+    expect(await delegationRowsFor("job-both-bounds")).toEqual([[delegationId, true]]);
+
+    // …and the quota alone, on the same row, is equally in place.
+    const quotaOnly = (await PATCH(
+      patchEvent(delegationId, OWNER, { maxRunsPerDay: 3 }),
+    )) as Response;
+    expect(quotaOnly.status).toBe(200);
+    const final = await boundsOf(delegationId);
+    expect(final.runs).toBe(3);
+    // The bound it did NOT name kept the value the previous PATCH gave it.
+    expect(final.tokens).toBe(100_000);
+    expect(final.hash).toBe(before.hash);
   });
 
   test("PATCHing a DISABLED delegation is refused, and the run stays parked", async () => {

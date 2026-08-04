@@ -1,0 +1,17 @@
+$ bash scripts/test.sh
+--- FAIL: src/__tests__/scope-enforcement.test.ts ---
+(fail) scope enforcement coverage > all non-auth API routes contain a scope, role, or auth gate [11.68ms]
+
+--- FAIL: src/__tests__/workflow-delegated-ceiling-e2e.test.ts ---
+(fail) the token ceiling, reached through the runFor handler > a body naming a SECOND field is a 400, and the cap does not move [245.60ms]
+
+
+================================
+  20842 pass | 2 fail | 1263 files
+================================
+
+Failed files:
+  - src/__tests__/scope-enforcement.test.ts
+  - src/__tests__/workflow-delegated-ceiling-e2e.test.ts
+error: script "test" exited with code 1
+EXIT_CODE=1

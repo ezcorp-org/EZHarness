@@ -133,6 +133,16 @@ describe("scope enforcement coverage", () => {
         // Deleting a comment would have made a correctly-gated route read as
         // ungated. Naming the gate fixes both directions.
         !content.includes("requireSessionAuth") &&
+        // `requireAdminSession(locals)` (`src/auth/middleware.ts`) is
+        // `requireSessionAuth` THEN `checkRole(locals,"admin")`, in that
+        // order, as one call — so it is strictly stronger than either of the
+        // two names above and accepting it cannot widen what this scan
+        // tolerates. It exists because the two calls were being copy-pasted
+        // per route file, and this scan is exactly the reason that mattered:
+        // a textual scan cannot tell a route that kept both halves from one
+        // that kept only `checkRole`, and the second is a route every
+        // admin-scoped API key reaches. One name, one meaning.
+        !content.includes("requireAdminSession") &&
         // `authGithubRoute` (web/.../github-projects/_shared.ts) is the
         // github-projects routes' gate: it calls `requireScope(locals,
         // "extensions")` + resolves the session/key user before any handler
