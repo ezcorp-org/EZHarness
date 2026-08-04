@@ -882,6 +882,94 @@ export interface WorkflowRunPage {
 }
 
 /**
+ * The keyset boundary, as ONE expression shared by every pager over this
+ * table.
+ *
+ * Extracted rather than repeated because the two halves are only correct
+ * together: "strictly older, OR the same instant with a smaller id". A
+ * copy that lost the `id` tiebreak would duplicate or drop a row whenever
+ * two runs started in the same millisecond, and it would do so rarely
+ * enough to reach production.
+ */
+function runKeysetBefore(cursor: { startedAt: Date; id: string }): SQL | undefined {
+  return or(
+    lt(workflowRuns.startedAt, cursor.startedAt),
+    and(eq(workflowRuns.startedAt, cursor.startedAt), lt(workflowRuns.id, cursor.id)),
+  );
+}
+
+/** Slice the over-fetched row off and turn it into a cursor. Shared so a
+ *  second pager cannot disagree about what "has more" means. */
+function toRunPage(
+  rows: Array<typeof workflowRuns.$inferSelect>,
+  limit: number,
+): WorkflowRunPage {
+  const page = rows.slice(0, limit);
+  const last = page[page.length - 1];
+  const hasMore = rows.length > limit;
+  return {
+    runs: page,
+    ...(hasMore && last !== undefined
+      ? { nextCursor: { startedAt: last.startedAt.toISOString(), id: last.id } }
+      : {}),
+  };
+}
+
+/**
+ * Runs fired by a delegation THIS HUMAN consented to — the "jobs running
+ * as me" page.
+ *
+ * ## Keyed on `consented_by_user_id`, not on `run_as`
+ *
+ * `run_as` names the PRINCIPAL a run executed as, and for a `service`-kind
+ * delegation that is a service account, not a person. Keying the page on
+ * it would show a user their own user-kind jobs and hide every
+ * service-account job they authorized — the ones with no session anywhere
+ * that can account for them. Ruling 1's split is that the ACCOUNT owns the
+ * run and the HUMAN WHO CONSENTED answers for it, so this is the same key
+ * {@link mayManageDelegation} and `listWorkflowDelegationsConsentedBy` use.
+ * One notion of "my jobs" across the list, the page, and the revoke.
+ *
+ * ## Revoked delegations are INCLUDED, deliberately
+ *
+ * There is no `revoked_at IS NULL` term. "What did that extension do as
+ * me?" is the question you ask immediately AFTER revoking, and a history
+ * that vanishes at revocation cannot answer it. The delegation row is a
+ * tombstone rather than a delete for exactly this reason
+ * (`workflow-delegations.ts`), and this read is the consumer that makes
+ * that choice pay.
+ *
+ * Served by `idx_workflow_runs_delegation` for the join
+ * (`db/schema.ts:901`) and `idx_workflow_delegations_consented_by` for the
+ * filter.
+ */
+export async function listDelegatedRunsForConsenter(
+  consentedByUserId: string,
+  q: { cursor?: { startedAt: Date; id: string }; limit: number },
+): Promise<WorkflowRunPage> {
+  const filters = [
+    eq(workflowDelegations.consentedByUserId, consentedByUserId),
+    q.cursor !== undefined ? runKeysetBefore(q.cursor) : undefined,
+  ].filter((f) => f !== undefined);
+
+  const rows = await getDb()
+    .select({ run: workflowRuns })
+    .from(workflowRuns)
+    // INNER join: a run with no `delegation_id` is not a delegated run, and
+    // a run whose delegation row was hard-deleted has no consenter to
+    // attribute it to. Both are correctly invisible here.
+    .innerJoin(workflowDelegations, eq(workflowRuns.delegationId, workflowDelegations.id))
+    .where(and(...filters))
+    .orderBy(desc(workflowRuns.startedAt), desc(workflowRuns.id))
+    .limit(q.limit + 1);
+
+  return toRunPage(
+    rows.map((r: { run: typeof workflowRuns.$inferSelect }) => r.run),
+    q.limit,
+  );
+}
+
+/**
  * List runs newest-first, with keyset pagination.
  *
  * **Keyset, not OFFSET, and that is the point.** This list is ordered by
@@ -910,14 +998,7 @@ export async function listWorkflowRunsPage(
     q.since !== undefined ? gte(workflowRuns.startedAt, q.since) : undefined,
     q.until !== undefined ? lte(workflowRuns.startedAt, q.until) : undefined,
     q.userId !== undefined ? eq(workflowRuns.userId, q.userId) : undefined,
-    // The keyset predicate, as one expression so it cannot be split by a
-    // later edit: strictly older, OR the same instant with a smaller id.
-    q.cursor !== undefined
-      ? or(
-          lt(workflowRuns.startedAt, q.cursor.startedAt),
-          and(eq(workflowRuns.startedAt, q.cursor.startedAt), lt(workflowRuns.id, q.cursor.id)),
-        )
-      : undefined,
+    q.cursor !== undefined ? runKeysetBefore(q.cursor) : undefined,
   ].filter((f) => f !== undefined);
 
   // One extra row, discarded, purely to learn whether a next page exists
@@ -929,15 +1010,7 @@ export async function listWorkflowRunsPage(
     .orderBy(desc(workflowRuns.startedAt), desc(workflowRuns.id))
     .limit(q.limit + 1);
 
-  const page = rows.slice(0, q.limit);
-  const last = page[page.length - 1];
-  const hasMore = rows.length > q.limit;
-  return {
-    runs: page,
-    ...(hasMore && last !== undefined
-      ? { nextCursor: { startedAt: last.startedAt.toISOString(), id: last.id } }
-      : {}),
-  };
+  return toRunPage(rows, q.limit);
 }
 
 /** Read a run's step rows. Order is unspecified — callers that care sort

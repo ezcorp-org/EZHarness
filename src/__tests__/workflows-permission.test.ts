@@ -374,9 +374,24 @@ describe("clampWorkflowsPermission — `allowDelegated` cannot be self-granted",
  * the server's reading of it cannot drift apart again.
  */
 describe("clampWorkflowsPermission — the husk the consent dialog sends to DENY", () => {
-  /** Byte-for-byte what `confirmActivate` posts when the toggle is off
-   *  (`web/src/routes/(app)/extensions/+page.svelte`). */
-  const DENIAL_HUSK = { names: [] as string[], allowDelegated: false };
+  /**
+   * Byte-for-byte what `confirmActivate` posts when the toggle is off
+   * (`web/src/routes/(app)/extensions/+page.svelte`).
+   *
+   * The cast is the point, not a shortcut: a submitted grant arrives as
+   * untrusted JSON off the wire, so it is NOT an `ExtensionPermissions`
+   * yet — `maxRunsPerHour` is required on that type and the browser never
+   * sends one, because supplying the ceiling is the clamp's job. Typing
+   * the fixture faithfully would mean typing a thing the client does not
+   * send, and the whole point of these tests is what the client sends.
+   */
+  const submitted = (grant: {
+    names: string[];
+    allowDelegated?: boolean;
+  }): NonNullable<Parameters<typeof clampWorkflowsPermission>[0]> =>
+    grant as NonNullable<Parameters<typeof clampWorkflowsPermission>[0]>;
+
+  const DENIAL_HUSK = submitted({ names: [], allowDelegated: false });
 
   test("a NAMED manifest: the husk denies, while silence would have granted", () => {
     const manifest = { names: ["deploy", "rollback"] };
@@ -408,14 +423,14 @@ describe("clampWorkflowsPermission — the husk the consent dialog sends to DENY
     // Paired with the refusals above: a denial channel that also denied the
     // legitimate path would look identical in a one-sided test.
     expect(
-      clampWorkflowsPermission({ names: ["deploy"] }, { names: ["deploy"] }),
+      clampWorkflowsPermission(submitted({ names: ["deploy"] }), { names: ["deploy"] }),
     ).toEqual({ names: ["deploy"], maxRunsPerHour: WORKFLOW_RUNS_PER_HOUR_DEFAULT });
 
     expect(
-      clampWorkflowsPermission(
-        { names: [], allowDelegated: true },
-        { names: [], allowDelegated: true },
-      ),
+      clampWorkflowsPermission(submitted({ names: [], allowDelegated: true }), {
+        names: [],
+        allowDelegated: true,
+      }),
     ).toEqual({
       names: [],
       maxRunsPerHour: WORKFLOW_RUNS_PER_HOUR_DEFAULT,
@@ -433,7 +448,7 @@ describe("clampWorkflowsPermission — the husk the consent dialog sends to DENY
     expect(denied.workflows).toBeUndefined();
 
     const accepted = clampExtensionPermissions(
-      { workflows: { names: [], allowDelegated: true } },
+      { workflows: submitted({ names: [], allowDelegated: true }) },
       manifest,
       {},
     );
