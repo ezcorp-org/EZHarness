@@ -68,12 +68,25 @@ export interface ServiceAccountReach {
 	message: string;
 }
 
+/**
+ * A service account as the OWNER PICKER sees it.
+ *
+ * `id` and `name` are required because they are what the narrow read
+ * (`GET /api/service-accounts` for a non-admin) returns and all the picker
+ * needs: an id to send as `ownerServiceAccountId`, a name to render.
+ *
+ * `enabled` is OPTIONAL and its absence is meaningful rather than sloppy.
+ * The narrow read withholds it AND filters the list to live accounts, so a
+ * row without the flag is live by construction; the admin read carries the
+ * full view, including disabled accounts, so an admin's picker can mark them
+ * unselectable. Consumers must therefore test `enabled === false`, never
+ * `!enabled` — the latter reads an absent field as "disabled" and would grey
+ * out every option for exactly the non-admins this widening was for.
+ */
 export interface ServiceAccountOption {
 	id: string;
 	name: string;
-	description: string;
-	enabled: boolean;
-	disabledReason: string | null;
+	enabled?: boolean;
 }
 
 export type DelegationOwnerKind = "user" | "service";
@@ -733,23 +746,34 @@ export function revokeDelegation(id: string): Promise<Result<{ revoked: boolean 
 }
 
 /**
- * Adjust a live delegation's token ceiling in place.
+ * Adjust a live delegation's spend bounds in place.
  *
  * Bound to the `PATCH /api/workflows/delegations/:id` contract owned by
  * phase 8a — session-only, authorized to the consenting human, adjusts
- * `max_tokens_per_run` and nothing else. Deliberately NOT re-consent:
- * the consent hash covers what the job may DO, and lowering a spend
- * ceiling changes no capability, so re-asking for the whole grant to
- * change one number would train people to click through consent dialogs.
+ * `max_tokens_per_run` and `max_runs_per_day` and NOTHING else.
+ * Deliberately NOT re-consent: the consent hash covers what the job may
+ * DO, and moving a spend bound changes no capability, so re-asking for
+ * the whole grant to change one number would train people to click
+ * through consent dialogs.
+ *
+ * The body is built by OMISSION, not by sending `undefined`: the route's
+ * schema is `.strict()` and refuses a body naming a field it does not
+ * own, so an unset bound must not appear as a key at all. `JSON.stringify`
+ * drops `undefined` values, but relying on that puts the request shape at
+ * the mercy of a serializer detail, and this is the one place a wrong
+ * shape turns every save into a 400 in production only.
  */
-export function patchDelegationTokens(
+export function patchDelegationBounds(
 	id: string,
-	maxTokensPerRun: number,
+	bounds: { maxTokensPerRun?: number; maxRunsPerDay?: number },
 ): Promise<Result<{ delegation: Delegation }>> {
+	const body: Record<string, number> = {};
+	if (bounds.maxTokensPerRun !== undefined) body.maxTokensPerRun = bounds.maxTokensPerRun;
+	if (bounds.maxRunsPerDay !== undefined) body.maxRunsPerDay = bounds.maxRunsPerDay;
 	return send(`/api/workflows/delegations/${id}`, {
 		method: "PATCH",
 		headers: JSON_HEADERS,
-		body: JSON.stringify({ maxTokensPerRun }),
+		body: JSON.stringify(body),
 	});
 }
 
@@ -761,6 +785,19 @@ export function loadDelegatedRuns(): Promise<Result<{ runs: DelegatedRun[] }>> {
 	return send("/api/workflows/delegated-runs");
 }
 
+/**
+ * The service accounts this caller may name as a delegation owner.
+ *
+ * Reachable by ANY authenticated session since the read was widened: an
+ * admin gets the full row, everybody else gets `{id, name}` per live
+ * account plus the same server-derived `reach`. That is what makes Ruling
+ * 1's "both owner kinds, selectable per delegation" true for the people
+ * who are not admins, which is most of them.
+ *
+ * A failure is still tolerated by every caller — a 500 or an offline
+ * browser must not take the revoke button down with it — so this returns
+ * a `Result` and the page falls back to an empty list.
+ */
 export function loadServiceAccounts(): Promise<
 	Result<{ accounts: ServiceAccountOption[]; reach: ServiceAccountReach }>
 > {

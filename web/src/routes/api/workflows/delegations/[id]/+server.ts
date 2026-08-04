@@ -6,7 +6,7 @@ import { mayManageDelegation } from "$server/runtime/workflow-delegation-consent
 import {
   getWorkflowDelegation,
   revokeWorkflowDelegation,
-  setDelegationTokenCeiling,
+  setDelegationRunBounds,
   toWorkflowDelegationView,
 } from "$server/db/queries/workflow-delegations";
 import type { RequestHandler } from "./$types";
@@ -65,36 +65,59 @@ export const DELETE: RequestHandler = async ({ params, locals }) => {
  * The body, and it is `.strict()` for a security reason rather than a
  * tidiness one.
  *
- * `maxTokensPerRun` is the ONLY adjustable field on a live delegation.
- * Everything else a caller might think to send — `workflowName`,
- * `ownerKind`, `ownerServiceAccountId`, `consentHash`, `projectId`, the
- * trigger pair, even `maxRunsPerDay` — is part of, or is bounded by, what
- * the human APPROVED, and Ruling 2 says the consent hash is the version
- * id of that approval: any edit to it re-asks. `.strict()` turns each of
- * those into a 400 that names the field, instead of a 200 that silently
- * ignored it. Ignoring is the dangerous half: a caller who sends
- * `{maxTokensPerRun, ownerKind:"service"}` and gets a 200 back has every
- * reason to believe the owner changed.
+ * The two SPEND BOUNDS are the only adjustable fields on a live
+ * delegation: `maxTokensPerRun` (D9 / the step-boundary ceiling) and
+ * `maxRunsPerDay` (D8's daily fire quota). Everything else a caller might
+ * think to send — `workflowName`, `ownerKind`, `ownerServiceAccountId`,
+ * `consentHash`, `projectId`, the trigger pair, `enabled`,
+ * `disabledReason` — is part of what the human APPROVED, and Ruling 2 says
+ * the consent hash is the version id of that approval: any edit to it
+ * re-asks. `.strict()` turns each of those into a 400 that names the
+ * field, instead of a 200 that silently ignored it. Ignoring is the
+ * dangerous half: a caller who sends `{maxTokensPerRun,
+ * ownerKind:"service"}` and gets a 200 back has every reason to believe
+ * the owner changed.
  *
- * `maxRunsPerDay` is refused for the narrower reason that it is a
- * DIFFERENT bound (D8 — how many times this job may fire today) and
- * changing it cannot unblock a parked run, which is what this route
- * exists for. Adding it later is additive and safe; shipping it now would
- * make the surface larger than the deadlock it closes.
+ * ## `maxRunsPerDay` was refused here, and that was the wrong line
  *
- * Positive integer, no "unlimited" sentinel, matching the consent route's
- * schema exactly — a cap of 0 is refused there and must be refused here,
- * or PATCH becomes a way to write a value POST forbids. (Rung D9 would
- * refuse the fire anyway; that is defence in depth, not a licence to
- * write the row.)
+ * It shipped as a 400 on the argument that it is a DIFFERENT bound whose
+ * exhaustion cannot park a run, so it was outside the deadlock this route
+ * was built to close. True, and beside the point: the alternative for
+ * somebody who simply wants their nightly job to run twice was a full
+ * re-consent — a new row, the old one tombstoned, and a dialog asking them
+ * to re-approve a capability set that had not changed. Ruling 2 governs
+ * approved MATERIAL, and neither of these numbers is material; they bound
+ * what the approved thing may SPEND, not what it may DO. Routing one
+ * through consent and not the other taught people to click through consent
+ * dialogs, which is the cost Ruling 2 exists to avoid paying.
+ *
+ * ## …but at least one of them, or it is a 400
+ *
+ * `{}` is refused rather than treated as a no-op 200. An empty PATCH that
+ * answers 200 tells a caller its change landed; the only honest answers
+ * are "here is what I changed" or "you asked for nothing".
+ *
+ * Both are positive integers with no "unlimited" sentinel, matching the
+ * consent route's schema exactly — a cap of 0 is refused there and must be
+ * refused here, or PATCH becomes a way to write a value POST forbids.
+ * (Rungs D8/D9 would refuse the fire anyway; that is defence in depth, not
+ * a licence to write the row.)
  */
 const patchBodySchema = z
-  .object({ maxTokensPerRun: z.number().int().positive() })
-  .strict();
+  .object({
+    maxTokensPerRun: z.number().int().positive().optional(),
+    maxRunsPerDay: z.number().int().positive().optional(),
+  })
+  .strict()
+  .refine(
+    (body) => body.maxTokensPerRun !== undefined || body.maxRunsPerDay !== undefined,
+    { message: "at least one of maxTokensPerRun or maxRunsPerDay is required" },
+  );
 
 /**
- * Adjust a LIVE delegation's token ceiling IN PLACE — the route that
- * makes a parked run resumable.
+ * Adjust a LIVE delegation's SPEND BOUNDS in place — the route that makes
+ * a parked run resumable, and that lets a daily throttle be tuned without
+ * re-asking for consent nobody's approval changed.
  *
  * ## The deadlock this closes
  *
@@ -166,8 +189,9 @@ export const PATCH: RequestHandler = async ({ params, request, locals }) => {
   if (!parsed.success) {
     return errorJson(
       400,
-      "Only maxTokensPerRun (a positive integer) can be adjusted in place; " +
-        "changing the workflow, the owner or the approved capabilities requires re-consent",
+      "Only maxTokensPerRun and maxRunsPerDay (positive integers, at least one) can be " +
+        "adjusted in place; changing the workflow, the owner or the approved capabilities " +
+        "requires re-consent",
     );
   }
 
@@ -189,7 +213,15 @@ export const PATCH: RequestHandler = async ({ params, request, locals }) => {
   // The same two conditions again, this time as a CAS inside the UPDATE.
   // Not redundant: a revoke landing between the read above and this write
   // must not be overwritten by a cap raise that re-reads nothing.
-  const updated = await setDelegationTokenCeiling(delegation.id, parsed.data.maxTokensPerRun);
+  //
+  // `parsed.data` is handed over whole. Rebuilding it field by field here
+  // would be a second place that decides which fields are patchable, and
+  // the schema above is already `.strict()` — nothing can reach this line
+  // that the schema did not name.
+  const updated = await setDelegationRunBounds(
+    delegation.id,
+    parsed.data as Parameters<typeof setDelegationRunBounds>[1],
+  );
   if (updated === undefined) {
     return errorJson(409, "This delegation is no longer live; consent again to restore it");
   }

@@ -526,7 +526,7 @@ export async function setServiceAccountEnabled(
  *
  * ## `enabled` is NOT touched, and not for symmetry
  *
- * The identical rule {@link setDelegationTokenCeiling} states one level down.
+ * The identical rule {@link setDelegationRunBounds} states one level down.
  * A disabled account was switched off by an admin WITH A REASON
  * (`disabled_reason`), and no size of budget answers that reason. Clearing it
  * here would re-arm a principal through a route whose subject is a number.

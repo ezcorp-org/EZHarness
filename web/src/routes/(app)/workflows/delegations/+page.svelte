@@ -26,7 +26,7 @@
 		loadDelegatedRuns,
 		loadDelegations,
 		loadServiceAccounts,
-		patchDelegationTokens,
+		patchDelegationBounds,
 		revokeDelegation,
 		type Delegation,
 		type DelegatedRun,
@@ -41,6 +41,8 @@
 
 	/** delegationId → the edited token ceiling, while it is being edited. */
 	let editingTokens = $state<Record<string, number | null>>({});
+	/** delegationId → the edited daily run quota, while it is being edited. */
+	let editingRuns = $state<Record<string, number | null>>({});
 	/** delegationId → in flight, so a double-click cannot act twice. */
 	let busy = $state<Record<string, boolean>>({});
 	/** delegationId → what happened, kept after the row changes. */
@@ -116,9 +118,10 @@
 		// and it must never be unreachable because a history read broke.
 		runs = ran.ok ? ran.value.runs : [];
 
-		// Admin-only, and that is fine — the names are used to label a
-		// service-account run, and an ordinary user simply sees the generic
-		// label instead of a bare id.
+		// Reachable by any session now: an admin gets the full rows, everyone
+		// else gets `{id, name}` per live account. Used for two things — the
+		// label on a service-account run, and the owner picker inside the
+		// consent dialog, which had nothing to offer a non-admin before.
 		const accounts = await loadServiceAccounts();
 		serviceAccounts = accounts.ok ? accounts.value.accounts : [];
 		await loadDelegatableExtensions();
@@ -147,17 +150,47 @@
 		delegations = delegations.filter((d) => d.id !== delegation.id);
 	}
 
-	async function saveTokens(delegation: Delegation) {
-		const next = editingTokens[delegation.id];
-		if (next === null || next === undefined || !Number.isInteger(next) || next <= 0) {
+	/** A positive whole number, or `null` for "the user did not change this". */
+	function editedBound(edited: number | null | undefined, current: number): number | null {
+		if (edited === null || edited === undefined) return null;
+		return edited === current ? null : edited;
+	}
+
+	/**
+	 * Save whichever of the two spend bounds the user actually moved.
+	 *
+	 * Only the CHANGED fields are sent. The route's schema is `.strict()` and
+	 * needs at least one, so echoing an untouched bound back would be a
+	 * pointless write with a real cost: `updated_at` moves and the audit trail
+	 * says somebody adjusted a number they did not touch. If nothing moved, no
+	 * request is made at all — a no-op that reported "updated" would be a lie
+	 * about a standing authority.
+	 */
+	async function saveLimits(delegation: Delegation) {
+		const tokens = editedBound(editingTokens[delegation.id], delegation.maxTokensPerRun);
+		const runs = editedBound(editingRuns[delegation.id], delegation.maxRunsPerDay);
+		const invalid = [tokens, runs].some(
+			(n) => n !== null && (!Number.isInteger(n) || n <= 0),
+		);
+		if (invalid) {
 			rowMessage = {
 				...rowMessage,
 				[delegation.id]: { tone: "error", text: "Enter a whole number above zero." },
 			};
 			return;
 		}
+		if (tokens === null && runs === null) {
+			rowMessage = {
+				...rowMessage,
+				[delegation.id]: { tone: "error", text: "Change a limit first." },
+			};
+			return;
+		}
 		busy = { ...busy, [delegation.id]: true };
-		const result = await patchDelegationTokens(delegation.id, next);
+		const result = await patchDelegationBounds(delegation.id, {
+			...(tokens === null ? {} : { maxTokensPerRun: tokens }),
+			...(runs === null ? {} : { maxRunsPerDay: runs }),
+		});
 		busy = { ...busy, [delegation.id]: false };
 		if (!result.ok) {
 			rowMessage = { ...rowMessage, [delegation.id]: { tone: "error", text: result.message } };
@@ -167,9 +200,10 @@
 			d.id === delegation.id ? result.value.delegation : d,
 		);
 		editingTokens = { ...editingTokens, [delegation.id]: null };
+		editingRuns = { ...editingRuns, [delegation.id]: null };
 		rowMessage = {
 			...rowMessage,
-			[delegation.id]: { tone: "ok", text: "Token limit updated." },
+			[delegation.id]: { tone: "ok", text: "Limits updated." },
 		};
 	}
 </script>
@@ -371,15 +405,38 @@
 										data-testid="delegation-tokens-input"
 									/>
 								</div>
+								<div>
+									<label
+										class="block text-[10px] uppercase tracking-wide text-[var(--color-text-muted)]"
+										for="runs-{delegation.id}">Runs per day</label
+									>
+									<input
+										id="runs-{delegation.id}"
+										type="number"
+										min="1"
+										step="1"
+										inputmode="numeric"
+										value={editingRuns[delegation.id] ?? delegation.maxRunsPerDay}
+										oninput={(e) => {
+											const raw = e.currentTarget.value;
+											editingRuns = {
+												...editingRuns,
+												[delegation.id]: raw === "" ? null : Number(raw),
+											};
+										}}
+										class="mt-1 w-36 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-sm text-[var(--color-text-primary)]"
+										data-testid="delegation-runs-input"
+									/>
+								</div>
+								<!-- ONE button for both bounds. Two would suggest two acts, and
+								     they are one: the route takes either or both in a single
+								     PATCH, and neither re-asks for consent. -->
 								<button
 									type="button"
-									onclick={() => saveTokens(delegation)}
+									onclick={() => saveLimits(delegation)}
 									disabled={busy[delegation.id] === true}
 									class="rounded-md border border-[var(--color-border)] px-3 py-1.5 text-xs text-[var(--color-text-secondary)] transition-colors hover:border-[var(--color-text-muted)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 disabled:opacity-40"
-									data-testid="delegation-save-tokens">Save limit</button
-								>
-								<span class="text-[10px] text-[var(--color-text-muted)]"
-									>{delegation.maxRunsPerDay} runs/day (set at consent)</span
+									data-testid="delegation-save-tokens">Save limits</button
 								>
 								<button
 									type="button"

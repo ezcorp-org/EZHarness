@@ -312,7 +312,7 @@ export async function createWorkflowDelegation(
       // not by reading:
       //
       //   - Re-consent is THIS function, and it tombstones. (Phase 8a
-      //     later added {@link setDelegationTokenCeiling} and its
+      //     later added {@link setDelegationRunBounds} and its
       //     `PATCH /api/workflows/delegations/:id` route, which raises
       //     the cap WITHOUT superseding — the other way out of the same
       //     deadlock, and deliberately not a replacement for this block:
@@ -518,7 +518,36 @@ export async function disableWorkflowDelegation(
 }
 
 /**
- * Raise or lower a LIVE delegation's `max_tokens_per_run`, IN PLACE.
+ * The two bounds this function may write, and at least one of them.
+ *
+ * A union rather than `{a?: number; b?: number}` so "call it with nothing"
+ * is a COMPILE error instead of a silent `UPDATE` that moves only
+ * `updated_at`. The route validates the same rule on the wire; this makes
+ * the second caller — a CLI, a migration — unable to get it wrong either.
+ */
+export type DelegationRunBounds =
+  | { maxTokensPerRun: number; maxRunsPerDay?: number }
+  | { maxTokensPerRun?: number; maxRunsPerDay: number };
+
+/**
+ * Raise or lower a LIVE delegation's SPEND BOUNDS, IN PLACE —
+ * `max_tokens_per_run`, `max_runs_per_day`, or both.
+ *
+ * ## Both, and why the second one belongs here
+ *
+ * This started as a token-ceiling writer, because the token ceiling was the
+ * bound that had a deadlock. `max_runs_per_day` (rung D8) had no deadlock —
+ * a job over its daily run quota is un-stuck by tomorrow — so it was left
+ * out on the narrower argument that the surface should be no bigger than the
+ * problem. That argument does not survive contact with the alternative:
+ * adjusting D8's throttle meant a full re-consent, which mints a NEW row,
+ * tombstones the old one and asks a human to re-approve a capability set
+ * that did not change. Ruling 2 makes the consent hash the version id of
+ * approved MATERIAL; neither of these numbers is material — they bound what
+ * the approved thing may SPEND, not what it may DO — so both belong on the
+ * in-place path for exactly the same reason, and putting one there while
+ * routing the other through consent trains people to click through consent
+ * dialogs.
  *
  * ## Why this exists at all — the deadlock it closes
  *
@@ -541,16 +570,21 @@ export async function disableWorkflowDelegation(
  *
  * ## What it deliberately does NOT touch
  *
- * The `.set()` names exactly two columns. `consent_hash`,
- * `capability_set`, `workflow_name`, `owner_kind`, both owner columns,
- * `definition_version_id`, `project_id`, the trigger pair,
- * `consented_at` and `consented_by_user_id` are all untouched, and that
- * is Ruling 2 expressed as code rather than as a comment: the consent
- * hash IS the version id of what the human approved, so ANY edit to the
- * approved material must go back through consent. A token ceiling is not
- * part of that material — it bounds what the approved thing may spend,
- * not what it may do — which is exactly why it is adjustable here and
- * nothing else is.
+ * The `.set()` can name at most three columns and the third is
+ * `updated_at`. `consent_hash`, `capability_set`, `workflow_name`,
+ * `owner_kind`, both owner columns, `definition_version_id`, `project_id`,
+ * the trigger pair, `enabled`, `disabled_reason`, `consented_at` and
+ * `consented_by_user_id` are all untouched, and that is Ruling 2 expressed
+ * as code rather than as a comment: the consent hash IS the version id of
+ * what the human approved, so ANY edit to the approved material must go
+ * back through consent. Neither spend bound is part of that material —
+ * they bound what the approved thing may spend, not what it may do — which
+ * is exactly why they are adjustable here and nothing else is.
+ *
+ * `consented_at` in particular is NOT re-stamped. It records when a human
+ * last looked at the material; moving it because somebody changed a number
+ * would make a grant look freshly reviewed when it was not, and the
+ * consent-staleness answer is read off it.
  *
  * ## Live rows only, and the filter is the whole point
  *
@@ -577,13 +611,23 @@ export async function disableWorkflowDelegation(
  * (it has to, to authorize the actor) and reports the reason from that;
  * this filter is the belt for a revoke that lands between the two.
  */
-export async function setDelegationTokenCeiling(
+export async function setDelegationRunBounds(
   id: string,
-  maxTokensPerRun: number,
+  bounds: DelegationRunBounds,
 ): Promise<WorkflowDelegationRow | undefined> {
+  // Built key by key rather than spread: a spread of the argument would put
+  // `maxRunsPerDay: undefined` into the `.set()` for a tokens-only patch, and
+  // whether that writes NULL or is skipped is the driver's business, not a
+  // thing this file should be betting a NOT NULL column on.
+  const patch: Partial<Pick<WorkflowDelegationRow, "maxTokensPerRun" | "maxRunsPerDay">> & {
+    updatedAt: Date;
+  } = { updatedAt: new Date() };
+  if (bounds.maxTokensPerRun !== undefined) patch.maxTokensPerRun = bounds.maxTokensPerRun;
+  if (bounds.maxRunsPerDay !== undefined) patch.maxRunsPerDay = bounds.maxRunsPerDay;
+
   const rows = await getDb()
     .update(workflowDelegations)
-    .set({ maxTokensPerRun, updatedAt: new Date() })
+    .set(patch)
     .where(
       and(
         eq(workflowDelegations.id, id),

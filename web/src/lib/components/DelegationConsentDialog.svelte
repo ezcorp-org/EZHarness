@@ -46,9 +46,15 @@
 		workflowName: string;
 		triggerKind: string;
 		projectId?: string | null;
-		/** Populated only for an admin — `GET /api/service-accounts` is
-		 *  admin-gated, so an ordinary user legitimately sees an empty list
-		 *  and is told why rather than shown a broken picker. */
+		/** Every service account this session may name as an owner.
+		 *
+		 *  `GET /api/service-accounts` used to be admin-gated, which left an
+		 *  ordinary user with an empty list and an "ask an administrator"
+		 *  sentence where Ruling 1 promises a choice. The read is now
+		 *  session-only and answers a non-admin with `{id, name}` per LIVE
+		 *  account, so the picker is real for everyone. An empty list now
+		 *  means what it says — this instance has no service account — and
+		 *  the sentence below says that instead. */
 		serviceAccounts?: ServiceAccountOption[];
 		/** Present when this replaces an existing consent, so the diff can
 		 *  show what CHANGED rather than restating everything. */
@@ -278,9 +284,8 @@
 								class="rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] p-3 text-xs text-[var(--color-text-secondary)]"
 								data-testid="no-service-accounts"
 							>
-								No service account is available to you. Only an administrator can create one,
-								and only an administrator can list them — ask one to set an account up, or
-								choose “Run as me”.
+								This instance has no service account switched on. Only an administrator can
+								create one — ask one to set an account up, or choose “Run as me”.
 							</p>
 						{:else}
 							<label
@@ -294,9 +299,13 @@
 								data-testid="service-account-select"
 							>
 								<option value={null}>Choose an account…</option>
+								<!-- `enabled === false`, NOT `!enabled`. The narrow read a
+								     non-admin gets withholds the flag and ships only live
+								     accounts, so `!undefined` would grey out every option
+								     for exactly the callers this picker was widened for. -->
 								{#each serviceAccounts as account (account.id)}
-									<option value={account.id} disabled={!account.enabled}>
-										{account.name}{account.enabled ? "" : " (disabled)"}
+									<option value={account.id} disabled={account.enabled === false}>
+										{account.name}{account.enabled === false ? " (disabled)" : ""}
 									</option>
 								{/each}
 							</select>
