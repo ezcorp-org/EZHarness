@@ -25,7 +25,40 @@ export const GET: RequestHandler = async ({ url, locals }) => {
   }
 
   const files = await listKBFiles(projectId);
-  // Filter to user's files (KB files with userId set must match)
+  // ── KB-SHARED-NULL-OWNER — canonical rationale; do NOT "fail closed" here ──
+  //
+  // `userId IS NULL` means SHARED, not orphaned. An ownerless KB file is
+  // readable by every authenticated caller **on purpose**, and that is the
+  // platform's only sharing mechanism for the knowledge base.
+  //
+  // This predicate is one half of a TWO-SIDED contract. The other half is the
+  // identical check in `[id]/+server.ts` (GET). They are ONE invariant and must
+  // move together or not at all:
+  //   - tightening detail alone → a row the user sees in the list and cannot
+  //     open (list-but-404);
+  //   - tightening list alone → a row that is fetchable by id but invisible.
+  // `src/__tests__/security/kb-ownerless-rows-are-shared.test.ts` asserts
+  // list-visibility and detail-reachability agree row-for-row, for every
+  // caller, so the two sides cannot drift apart.
+  //
+  // Why NULL is read as "shared" rather than "orphaned":
+  //   1. It cannot arise by accident. `POST` (below) always stamps
+  //      `userId: user.id`, so a null owner is either a pre-`user_id` row
+  //      backfilled by `src/db/migrate.ts` or a deliberate system/seed ingest —
+  //      in both cases a project-wide corpus, not one person's private file.
+  //   2. There is nothing else to say it with. The platform has no
+  //      project-membership model, so per-file `userId` is the ONLY access axis
+  //      KB reads have; a null owner IS "shared with the project".
+  //   3. Retrieval already reads it that way. `searchKBChunks`
+  //      (`src/db/queries/knowledge-base.ts`) filters only on `project_id` +
+  //      `status = 'ready'` — never on `user_id` — so an ownerless file's chunks
+  //      are already injected into every project member's chat turn. Hiding the
+  //      row from the API would not hide the content; it would only make the UI
+  //      disagree with the prompt the model actually sees.
+  //
+  // Sharing is READ-ONLY. Writes stay fail-closed on the same rows: `DELETE`
+  // of a null-owner file is admin-only (sec-H3, `[id]/+server.ts`). "Everyone
+  // may read it" must never be widened into "anyone may destroy it".
   const userFiles = files.filter(f => !f.userId || f.userId === user.id);
   return json(userFiles);
 };
