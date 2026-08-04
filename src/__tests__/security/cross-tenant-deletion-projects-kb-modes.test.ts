@@ -12,20 +12,36 @@
 // Scope, auth, then straight to the delete. Any authenticated principal
 // destroyed (or silently rewrote, via PUT) ANY project by id.
 //
-// The complication: `projects` (src/db/schema.ts:24-32) has NO owner column
-// — no `userId`, no `createdBy` — and there is no `project_members` table.
-// `src/runtime/workflow-scope.ts:173-181` documents this directly: the
-// platform "has no project-membership model", and `GET /api/projects`
-// returns every project to every authenticated caller unfiltered
-// (web/src/routes/api/projects/+server.ts:25). So "check the owner" is not
-// expressible — there is no owner to check.
+// The complication AT THE TIME: `projects` had NO owner column — no
+// `userId`, no `createdBy` — and there was no `project_members` table. So
+// "check the owner" was not expressible; there was no owner to check. The
+// narrowest authorization that WAS expressible was role-based, and PR #82
+// shipped it: mutating an instance-global object is an admin action. It
+// closed the hole and broke a real case — the non-admin who created a
+// project could not rename or delete it.
 //
-// The narrowest safe authorization that IS expressible today is therefore
-// role-based: mutating or destroying an instance-global object is an admin
-// action. That is what these tests pin. Read stays instance-global (GET and
-// the list route are deliberately unfiltered and are NOT changed here) — so
-// unlike the sec-H3 routes there is no existence secret to protect, and the
-// denial is an honest 403 rather than a 404 existence-oracle dodge.
+// ── That complication is GONE. `project_members` exists. ──
+//
+// `src/db/schema.ts` now carries a project ↔ user join table with a role,
+// `createProject` stamps its creator as an `owner`, and `migrate()`
+// attributes every pre-existing project to the first admin. So these tests
+// pin the rule the product actually wanted, not the stop-gap:
+//
+//   PUT / DELETE /api/projects/[id]  →  any MEMBER of that project,
+//                                       or an instance admin.
+//
+// The admin cases below are unchanged and still pass — the override
+// survived — but the "even the member who created it cannot delete it" case
+// INVERTED, and that inversion is the whole point of this branch.
+//
+// Read stays instance-global (GET and the list route are deliberately
+// unfiltered and are NOT changed here) — so unlike the sec-H3 routes there
+// is no existence secret to protect, and the denial is an honest 403 rather
+// than a 404 existence-oracle dodge. Why the read side was not narrowed with
+// the write side is recorded in `web/src/routes/api/projects/+server.ts` and
+// pinned by the "reads stay instance-global" block at the end of this file:
+// after the ownerless backfill, a membership filter on the LIST would show
+// every non-admin an empty project list on any upgraded instance.
 //
 // ── Bug 2: DELETE /api/knowledge-base/[id] failed OPEN on unowned rows ──
 //
@@ -92,6 +108,7 @@ import {
 
 mockServerAlias();
 
+mock.module("../../../web/src/routes/api/projects/$types", () => ({}));
 mock.module("../../../web/src/routes/api/projects/[id]/$types", () => ({}));
 mock.module("../../../web/src/routes/api/knowledge-base/[id]/$types", () => ({}));
 mock.module("../../../web/src/routes/api/modes/[id]/$types", () => ({}));
@@ -107,14 +124,14 @@ mock.module("$lib/server/security/validation", () =>
   require("../../../web/src/lib/server/security/validation"),
 );
 
-const authMiddlewareMock = () => ({
-  requireAuth: (locals: any) => {
-    if (!locals?.user) throw new Response("Unauthorized", { status: 401 });
-    return locals.user;
-  },
-});
-mock.module("$server/auth/middleware", authMiddlewareMock);
-mock.module("../../auth/middleware", authMiddlewareMock);
+// `$server/auth/middleware` is deliberately NOT stubbed. It used to be —
+// a two-line `requireAuth` replacement — and that was fine while the
+// projects gate was a role comparison inside the route. It is not fine now:
+// the gate is `checkProjectRole` IN that module, so stubbing the module
+// would replace the very thing these probes exist to exercise, and they
+// would pass against a hand-written copy of the rule. `mockServerAlias()`
+// points the alias at the real implementation; only the DB read underneath
+// it is stubbed, below.
 
 // ── In-memory stores ─────────────────────────────────────────────
 
@@ -125,6 +142,24 @@ type Mode = { id: string; userId: string | null; name: string; slug: string; bui
 let projectStore: Map<string, Project>;
 let kbStore: Map<string, KBFile>;
 let modeStore: Map<string, Mode>;
+
+/**
+ * Membership rows, keyed `${projectId}:${userId}`.
+ *
+ * Stubbed at the QUERY layer rather than at the gate, so the real
+ * `checkProjectRole` — admin bypass, missing-row 403, role ladder — is what
+ * runs during every probe below.
+ */
+let membershipStore: Map<string, { role: "owner" | "member" }>;
+
+const projectMembersMock = () => ({
+  getProjectMembership: async (userId: string, projectId: string) => {
+    const row = membershipStore.get(`${projectId}:${userId}`);
+    return row ? { id: "pm-1", projectId, userId, role: row.role, createdAt: new Date() } : undefined;
+  },
+});
+mock.module("$server/db/queries/project-members", projectMembersMock);
+mock.module("../../db/queries/project-members", projectMembersMock);
 
 const projectsMock = () => ({
   listProjects: async () => [...projectStore.values()],
@@ -169,6 +204,7 @@ import {
   PUT as projectPut,
   DELETE as projectDelete,
 } from "../../../web/src/routes/api/projects/[id]/+server";
+import { GET as projectList } from "../../../web/src/routes/api/projects/+server";
 import {
   DELETE as kbDelete,
 } from "../../../web/src/routes/api/knowledge-base/[id]/+server";
@@ -190,9 +226,10 @@ afterAll(() => {
   restoreModuleMocks();
 });
 
-// USER_A stands in for "the person who created the project". The DB does not
-// record that fact — which is exactly the finding — so A has no more claim to
-// it than B does. Both are plain members.
+// USER_A is "the person who created the project" and the DB now RECORDS
+// that: `createProject` stamps its creator as an `owner` row, so A holds a
+// claim B does not. Both are plain instance members — the difference is
+// membership, not role, which is the whole point of the model.
 const USER_A = { id: "user-a", email: "a@test.local", name: "User A", role: "member" } as const;
 const USER_B = { id: "user-b", email: "b@test.local", name: "User B", role: "member" } as const;
 
@@ -200,6 +237,10 @@ beforeEach(() => {
   projectStore = new Map<string, Project>([
     ["proj-1", { id: "proj-1", name: "A's project", path: "/srv/a", icon: null }],
   ]);
+  // A created proj-1. B is a member of nothing. ADMIN_USER is deliberately
+  // given NO row either — every admin success below therefore proves the
+  // role override, not a membership.
+  membershipStore = new Map([["proj-1:user-a", { role: "owner" as const }]]);
   kbStore = new Map<string, KBFile>([
     ["kb-owned-a", { id: "kb-owned-a", userId: "user-a", filename: "a-private.md" }],
     ["kb-null-owner", { id: "kb-null-owner", userId: null, filename: "unowned-legacy.md" }],
@@ -215,19 +256,34 @@ beforeEach(() => {
 const REPO_ROOT = resolve(import.meta.dir, "../../..");
 const read = (rel: string) => readFileSync(resolve(REPO_ROOT, rel), "utf8");
 
-describe("source: projects mutating routes are role-gated", () => {
+describe("source: projects mutating routes are membership-gated", () => {
   const REL = "web/src/routes/api/projects/[id]/+server.ts";
 
-  test(`${REL} — PUT and DELETE gate on admin role`, () => {
+  test(`${REL} — PUT and DELETE gate on project membership`, () => {
     const src = read(REL);
-    // Pre-fix this file contained no role check whatsoever, so the mere
-    // presence of a role comparison is the regression signal.
-    expect(src).toMatch(/user\.role\s*===\s*"admin"/);
-    // …and BOTH mutating verbs must invoke the gate. Counting the call sites
-    // makes a fix applied to only one verb fail here. GET is excluded on
-    // purpose (reads stay instance-global), so the expected count is exactly 2.
-    const callSites = src.match(/requireAdmin\(user\)/g) ?? [];
+    // Pre-#82 this file contained NO authorization whatsoever past
+    // `requireAuth`; #82 added a bare `user.role === "admin"` comparison.
+    // Both shapes are now wrong, and the regression signal is that the
+    // route delegates to the shared gate instead of comparing anything
+    // itself — a route that re-derived the rule is how the API and the
+    // ladder drift apart.
+    expect(src).toContain("checkProjectRole");
+    // Asserted over the HANDLERS only. The file's header comment quotes the
+    // old `user.role === "admin"` shape while explaining why it is gone, and
+    // a whole-file assertion would be satisfied by that prose — the exact
+    // way a source-level gate stops testing anything.
+    const handlers = src.slice(src.indexOf("export const GET"));
+    expect(handlers.indexOf("export const GET")).toBe(0);
+    expect(handlers).not.toMatch(/user\.role\s*===\s*"admin"/);
+    // BOTH mutating verbs must invoke it. Counting the call sites makes a
+    // fix applied to only one verb fail here. GET is excluded on purpose
+    // (reads stay instance-global), so the expected count is exactly 2.
+    const callSites = src.match(/checkProjectRole\(locals, params\.id, "member"\)/g) ?? [];
     expect(callSites.length).toBe(2);
+    // …and the denial must be RETURNED, never thrown: SvelteKit surfaces a
+    // thrown Response from a handler as a 500, which is how an intended
+    // 403 becomes an unintended 500.
+    expect(src.match(/if \(gate instanceof Response\) return gate;/g) ?? []).toHaveLength(2);
   });
 
   test(`${REL} — the mutators are \`write\`-scoped, GET stays \`read\``, () => {
@@ -244,7 +300,7 @@ describe("source: projects mutating routes are role-gated", () => {
     expect(writeHits.length).toBe(2);
     // The ownership gate is a SEPARATE axis and must not be traded for the
     // scope one: `admin` scope here would let a role-only check masquerade as
-    // authorization. Ownership stays on `requireAdmin`, asserted above.
+    // authorization. Ownership stays on `checkProjectRole`, asserted above.
     expect(src).not.toMatch(/requireScope\(locals,\s*"admin"\)/);
   });
 });
@@ -341,10 +397,16 @@ describe("ATTACK: DELETE /api/projects/[id] — cross-tenant project destruction
     expect(projectStore.has("proj-1")).toBe(true);
   });
 
-  test("even the member who created it cannot delete it (no owner column exists)", async () => {
-    // Not a typo. `projects` records no creator, so the platform genuinely
-    // cannot tell A from B here. Pinning this makes the product gap explicit
-    // rather than letting a future reader assume owner-delete works.
+  test("the member who created it CAN delete it — this cell inverted", async () => {
+    // This assertion used to be `403`, with a comment explaining that
+    // `projects` recorded no creator so the platform genuinely could not
+    // tell A from B. It records one now (`project_members`), so the
+    // product gap PR #82 documented is closed, and this is the line where
+    // that reads as a behaviour change rather than as a comment.
+    //
+    // A is a plain instance `member` — the grant comes from the membership
+    // row, not from a role.
+    expect(USER_A.role).toBe("member");
     const res = await call(
       projectDelete as any,
       createMockEvent({
@@ -354,11 +416,32 @@ describe("ATTACK: DELETE /api/projects/[id] — cross-tenant project destruction
         user: USER_A as any,
       }),
     );
+    expect(res.status).toBe(200);
+    expect(projectStore.has("proj-1")).toBe(false);
+  });
+
+  test("a member of a DIFFERENT project is still refused", async () => {
+    // Discrimination for the two cells above: the gate is not "has any
+    // membership row at all". B belongs to proj-2 and is still refused
+    // proj-1, so the projectId is actually compared.
+    membershipStore.set("proj-2:user-b", { role: "owner" });
+    const res = await call(
+      projectDelete as any,
+      createMockEvent({
+        method: "DELETE",
+        url: "http://localhost/api/projects/proj-1",
+        params: { id: "proj-1" },
+        user: USER_B as any,
+      }),
+    );
     expect(res.status).toBe(403);
     expect(projectStore.has("proj-1")).toBe(true);
   });
 
-  test("admin CAN still delete the project", async () => {
+  test("admin CAN still delete the project — the override survived", async () => {
+    // ADMIN_USER has no membership row (see `beforeEach`), so this can only
+    // pass through `checkProjectRole`'s role bypass.
+    expect(membershipStore.has(`proj-1:${ADMIN_USER.id}`)).toBe(false);
     const res = await call(
       projectDelete as any,
       createMockEvent({
@@ -419,13 +502,42 @@ describe("ATTACK: PUT /api/projects/[id] — cross-tenant project rewrite", () =
     expect(res.status).toBe(200);
     expect(projectStore.get("proj-1")!.name).toBe("Renamed by admin");
   });
+
+  test("the member who created it CAN rename it — the case #82 broke", async () => {
+    // The concrete user-visible regression PR #82 accepted: a non-admin
+    // could not rename the project they had just made from
+    // `/project/[id]/settings`. This is that page's request.
+    const res = await call(
+      projectPut as any,
+      createMockEvent({
+        method: "PUT",
+        url: "http://localhost/api/projects/proj-1",
+        params: { id: "proj-1" },
+        body: { name: "Renamed by its creator" },
+        user: USER_A as any,
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(projectStore.get("proj-1")!.name).toBe("Renamed by its creator");
+  });
 });
 
-describe("GET /api/projects/[id] stays instance-global (deliberately unchanged)", () => {
-  test("any member can still read any project", async () => {
-    // Reads are NOT narrowed by this change. Pinned so a later reader sees
-    // the asymmetry is deliberate, not an oversight: the list route is
-    // unfiltered too, so hiding a single project would be theatre.
+describe("reads stay instance-global (deliberately unchanged)", () => {
+  test("a NON-MEMBER can still read any project", async () => {
+    // Reads are NOT narrowed by this change, and the asymmetry with
+    // PUT/DELETE above is deliberate rather than an oversight. Two reasons,
+    // both recorded in `web/src/routes/api/projects/+server.ts`:
+    //   1. the LIST route is unfiltered, so hiding a single project here
+    //      would be theatre — the same caller finds it a request later; and
+    //   2. `migrate()` attributes every pre-existing project to the first
+    //      admin, so a membership filter on the list would hand every
+    //      non-admin on an upgraded instance an EMPTY project list.
+    //
+    // If this assertion ever fails, someone narrowed the read side: that is
+    // a legitimate change, but it needs the list route and a backfill story
+    // to move WITH it. Written to fail LOUDLY on that change rather than to
+    // bless the current shape forever.
+    expect(membershipStore.has(`proj-1:${USER_B.id}`)).toBe(false);
     const res = await call(
       projectGet as any,
       createMockEvent({
@@ -436,6 +548,17 @@ describe("GET /api/projects/[id] stays instance-global (deliberately unchanged)"
     );
     expect(res.status).toBe(200);
     expect((await jsonFromResponse(res)).id).toBe("proj-1");
+  });
+
+  test("the LIST route returns projects the caller is not a member of", async () => {
+    // The other half, asserted directly rather than inferred: this is the
+    // route whose behaviour makes hiding a single project pointless.
+    const res = await call(
+      projectList as any,
+      createMockEvent({ url: "http://localhost/api/projects", user: USER_B as any }),
+    );
+    expect(res.status).toBe(200);
+    expect((await jsonFromResponse(res)).map((p: Project) => p.id)).toEqual(["proj-1"]);
   });
 });
 
