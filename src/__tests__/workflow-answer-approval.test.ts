@@ -776,6 +776,66 @@ describe("the actor discriminant — per-kind authority", () => {
     expect((await getWorkflowApprovalById(approvalId))?.status).toBe("pending");
   });
 
+  test("a DELEGATION actor whose delegation is right but whose runId names ANOTHER run is refused", async () => {
+    // A claim the row could ALMOST satisfy: the delegation really did
+    // start this approval's run and the answering human really is its
+    // consenter, so the substance of the authority is there — but the
+    // actor names a different run than the one it is being spent on.
+    //
+    // Refused, and deliberately so. `holdsClaim`'s principle is that a
+    // claim is checked, not repaired: an actor whose own fields disagree
+    // with the row has not proved anything about the run it is actually
+    // touching, and quietly answering the run it MEANT is how a caller
+    // ends up spending a consent gate it never named.
+    const target = await seed({ ownerUserId: null });
+    const decoy = await seed({ ownerUserId: null });
+    const delegationId = await seedDelegation({ ownsRunId: target.runId });
+
+    const res = await answerApproval(
+      target.approvalId,
+      { choice: "approve" },
+      // Right delegation, right human, WRONG run.
+      { kind: "delegation", delegationId, runId: decoy.runId, answeringUserId: "answerer" },
+      { runtime: stubRuntime().runtime },
+    );
+
+    expect(res).toMatchObject({ ok: false, code: "forbidden" });
+    expect((await getWorkflowApprovalById(target.approvalId))?.status).toBe("pending");
+  });
+
+  test("a DELEGATION actor naming THIS run but SOMEBODY ELSE'S delegation is refused", async () => {
+    // The sharper half of the binding, and the one the "different run"
+    // test above cannot reach: here the actor names the approval's OWN
+    // run correctly, so the run-identity leg passes, and only
+    // `workflow_runs.delegation_id` stands between a second delegation
+    // this caller genuinely holds and a run it did not start.
+    //
+    // Everything else lines up on purpose — both delegations are live and
+    // both name the same consenting human — so the ONLY thing that can
+    // refuse this is reading the delegation off the RUN rather than
+    // trusting the one the caller named. Deleting that comparison makes
+    // this test, and only this test, fail.
+    const target = await seed({ ownerUserId: null });
+    const elsewhere = await seed({ ownerUserId: null });
+    await seedDelegation({ ownsRunId: target.runId });
+    const otherDelegation = await seedDelegation({ ownsRunId: elsewhere.runId });
+
+    const res = await answerApproval(
+      target.approvalId,
+      { choice: "approve" },
+      {
+        kind: "delegation",
+        delegationId: otherDelegation,
+        runId: target.runId,
+        answeringUserId: "answerer",
+      },
+      { runtime: stubRuntime().runtime },
+    );
+
+    expect(res).toMatchObject({ ok: false, code: "forbidden" });
+    expect((await getWorkflowApprovalById(target.approvalId))?.status).toBe("pending");
+  });
+
   test("a DELEGATION actor answered by someone the row does not name is refused", async () => {
     // The impersonation shape, and the reason the actor carries an
     // answering human at all. The delegation is live and really does own
