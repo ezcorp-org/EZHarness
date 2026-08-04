@@ -171,3 +171,97 @@ describe("what `$steps.<name>.output.valid` actually resolves to", () => {
     expect(result.error).toContain("Failed to parse");
   });
 });
+
+/**
+ * The json-mode failure must stay LEGIBLE.
+ *
+ * The tokens are already spent by the time `JSON.parse` throws, so the
+ * response text is the only evidence anyone will ever get about WHY a run
+ * terminalized. A bare `catch` that returns one fixed sentence makes "the
+ * model returned prose", "the model returned a fenced code block" and "the
+ * model returned nothing at all" indistinguishable after the fact — three
+ * different bugs (bad prompt / bad output-format contract / dead provider)
+ * with three different fixes, collapsed into one unactionable string.
+ *
+ * These tests pin the DIAGNOSTIC content only. The verdict is unchanged:
+ * every one of these still fails closed (see the fenced-reply invariant
+ * above) — this file is deliberately asserting `success === false` in each
+ * case so a future "just parse the fence" change has to face that test.
+ */
+describe("json-mode parse failure preserves the evidence", () => {
+  async function errorFor(text: string): Promise<string> {
+    const agent = configToAgent(makeConfig({ outputFormat: "json" }));
+    const ctx = makeMockCtx();
+    (ctx.llm.complete as unknown as { mockImplementation: (f: () => unknown) => void })
+      .mockImplementation(async () => ({ text }));
+    const result = await agent.execute(ctx);
+    expect(result.success).toBe(false);
+    expect(result.output).toBeNull();
+    return String(result.error);
+  }
+
+  test("an EMPTY response is named as empty and carries no snippet to mislead", async () => {
+    const error = await errorFor("");
+    expect(error).toContain("Failed to parse");
+    expect(error).toContain("empty");
+    expect(error).toContain("0 chars");
+  });
+
+  test("a whitespace-only response counts as empty, not as prose", async () => {
+    const error = await errorFor("   \n\t  ");
+    expect(error).toContain("empty");
+    // The raw length is still reported — "empty" here means "no content",
+    // not "zero bytes", and conflating them hides a whitespace-spewing model.
+    expect(error).toContain("7 chars");
+  });
+
+  test("a FENCED code block is named as fenced — the fix is the prompt, not the provider", async () => {
+    const error = await errorFor('```json\n{"valid": true}\n```');
+    expect(error).toContain("fenced");
+    // The evidence itself survives, so an operator can see the fence.
+    expect(error).toContain("```json");
+  });
+
+  test("PROSE is named as prose and quoted back", async () => {
+    const error = await errorFor("I'm sorry, I can't help with that request.");
+    expect(error).toContain("prose");
+    expect(error).toContain("I'm sorry, I can't help");
+  });
+
+  test("a JSON-SHAPED but broken reply is named as malformed, not as prose", async () => {
+    // "the model tried and fumbled the syntax" and "the model answered in
+    // English" have different fixes (bigger model vs. better prompt).
+    const error = await errorFor('{"valid": tru}');
+    expect(error).toContain("malformed JSON");
+    expect(error).not.toContain("prose");
+  });
+
+  test("the three shapes produce three DIFFERENT errors (the whole point)", async () => {
+    const empty = await errorFor("");
+    const fenced = await errorFor('```json\n{"ok":1}\n```');
+    const prose = await errorFor("no thanks");
+    expect(new Set([empty, fenced, prose]).size).toBe(3);
+  });
+
+  test("the underlying JSON.parse message is preserved, not swallowed", async () => {
+    const error = await errorFor("{unquoted: 1}");
+    // Whatever the engine calls it, the parser's own complaint is in there.
+    expect(error.toLowerCase()).toContain("json");
+    expect(error.length).toBeGreaterThan("Failed to parse LLM response as JSON".length);
+  });
+
+  test("a huge response is TRUNCATED — evidence, not a log bomb", async () => {
+    const huge = `x${"y".repeat(50_000)}`;
+    const error = await errorFor(huge);
+    expect(error.length).toBeLessThan(1_000);
+    expect(error).toContain("50001 chars");
+    expect(error).toContain("truncated");
+  });
+
+  test("a response at/below the snippet limit is quoted whole, untruncated", async () => {
+    const short = `"unterminated`;
+    const error = await errorFor(short);
+    expect(error).toContain(short);
+    expect(error).not.toContain("truncated");
+  });
+});
