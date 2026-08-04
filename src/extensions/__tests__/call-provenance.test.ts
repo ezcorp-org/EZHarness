@@ -246,19 +246,59 @@ describe("leak safety: hard cap bounds the live set + evicts the OLDEST", () => 
   });
 });
 
+/**
+ * `BASE` is an arbitrary fixed instant. Every test below that pins a TTL
+ * boundary EXACTLY passes it as `registerCallProvenance(prov, { now })`
+ * rather than reading the wall clock, because those assertions are
+ * one-millisecond-wide and the wall clock is not.
+ */
+const BASE = 1_700_000_000_000;
+
 describe("TTL boundary: entry exactly at TTL is kept, at TTL+1 is evicted", () => {
   test("eviction predicate is strictly `> TTL`, not `>=`", () => {
-    const base = Date.now();
-    const id = registerCallProvenance(sample());
-    // Sweep at exactly base + TTL → age == TTL → NOT evicted
+    // `createdAt` is INJECTED, not read off the clock mid-test. Reading
+    // `Date.now()` into a `base` and letting `registerCallProvenance`
+    // stamp its own `createdAt` a statement later makes these two
+    // assertions mutually unsatisfiable: `createdAt >= base` is what
+    // keeps the first one honest, `createdAt <= base` is what makes the
+    // second one fire, and only a clock that did not tick between the two
+    // statements gives you both. That is a coin flip on suite load, not a
+    // test — reproduced deterministically by stubbing `Date.now` to
+    // advance 1ms per read, which fails the TTL+1 assertion here and the
+    // TTL assertion under the reorder-`base`-afterwards variant.
+    const id = registerCallProvenance(sample(), { now: BASE });
+    // Sweep at exactly BASE + TTL → age == TTL → NOT evicted
     // (predicate is `now - createdAt > TTL`).
-    __sweepForTests(base + CALL_PROVENANCE_TTL_MS);
+    __sweepForTests(BASE + CALL_PROVENANCE_TTL_MS);
     expect(resolveCallProvenance(id)).toEqual(sample());
     expect(callProvenanceSize()).toBe(1);
     // One ms past the TTL → evicted.
-    __sweepForTests(base + CALL_PROVENANCE_TTL_MS + 1);
+    __sweepForTests(BASE + CALL_PROVENANCE_TTL_MS + 1);
     expect(resolveCallProvenance(id)).toBeUndefined();
     expect(callProvenanceSize()).toBe(0);
+  });
+
+  test("an injected `now` is what lands in createdAt — the seam is real, not decorative", () => {
+    // Guard against the injection silently regressing to `Date.now()`:
+    // BASE is ~2023, so a token registered at BASE is already many TTLs
+    // stale by any real clock, and a sweep at "BASE + TTL" would keep it
+    // if `createdAt` had come from the wall clock instead.
+    const id = registerCallProvenance(sample(), { now: BASE });
+    __sweepForTests(BASE + CALL_PROVENANCE_TTL_MS);
+    expect(resolveCallProvenance(id)).toBeDefined();
+    // …and a real-clock sweep reaps it, because it really is stamped in 2023.
+    __sweepForTests(Date.now());
+    expect(resolveCallProvenance(id)).toBeUndefined();
+  });
+
+  test("omitting `now` still stamps the wall clock (production path unchanged)", () => {
+    const id = registerCallProvenance(sample());
+    // A sweep one full TTL in the PAST cannot reap a token stamped now.
+    __sweepForTests(Date.now() - CALL_PROVENANCE_TTL_MS);
+    expect(resolveCallProvenance(id)).toBeDefined();
+    // A sweep a full TTL into the future does.
+    __sweepForTests(Date.now() + CALL_PROVENANCE_TTL_MS + 1_000);
+    expect(resolveCallProvenance(id)).toBeUndefined();
   });
 });
 
@@ -295,10 +335,18 @@ describe("D2 hardening: kind-aware TTL — tool tokens outlive fire tokens", () 
   });
 
   test("event-kind tokens use the fire TTL too (not the tool TTL)", () => {
-    const base = Date.now();
-    const eventId = registerCallProvenance(sample({ kind: "event" }));
-    __sweepForTests(base + FIRE_TOKEN_TTL_MS + 1);
+    // Same one-millisecond-wide boundary as the tool/fire test above, and
+    // the same fix: inject `createdAt` instead of racing the clock for it.
+    // `base + FIRE_TTL + 1` only evicts when `createdAt <= base`, which a
+    // clock tick between the two statements quietly makes false.
+    const eventId = registerCallProvenance(sample({ kind: "event" }), { now: BASE });
+    __sweepForTests(BASE + FIRE_TOKEN_TTL_MS + 1);
     expect(resolveCallProvenance(eventId)).toBeUndefined();
+    // …and it is NOT evicted a millisecond earlier, which is what makes
+    // this an assertion about the FIRE ttl rather than about any eviction.
+    const other = registerCallProvenance(sample({ kind: "event" }), { now: BASE });
+    __sweepForTests(BASE + FIRE_TOKEN_TTL_MS);
+    expect(resolveCallProvenance(other)).toBeDefined();
   });
 });
 
