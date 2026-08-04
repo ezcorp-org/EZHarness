@@ -1,0 +1,26 @@
+
+ RUN  v4.1.6 /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/web
+      Coverage enabled with v8
+
+
+ Test Files  3 passed (3)
+      Tests  80 passed (80)
+   Start at  17:32:59
+   Duration  1.44s (transform 1.19s, setup 910ms, import 1.30s, tests 262ms, environment 1.08s)
+
+ % Coverage report from v8
+-------------------|---------|----------|---------|---------|-------------------
+File               | % Stmts | % Branch | % Funcs | % Lines | Uncovered Line #s 
+-------------------|---------|----------|---------|---------|-------------------
+All files          |     100 |    89.85 |     100 |     100 |                   
+ lib/components    |     100 |    87.93 |     100 |     100 |                   
+  ...Dialog.svelte |     100 |    87.93 |     100 |     100 | ...21,436,490,513 
+-------------------|---------|----------|---------|---------|-------------------
+
+=============================== Coverage summary ===============================
+Statements   : 100% ( 296/296 )
+Branches     : 89.85% ( 124/138 )
+Functions    : 100% ( 55/55 )
+Lines        : 100% ( 184/184 )
+================================================================================
+exit=0

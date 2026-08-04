@@ -446,6 +446,8 @@ run_legs() {
       src/__tests__/api-settings.server.test.ts \
       src/__tests__/api-service-accounts.server.test.ts \
       src/__tests__/api-service-accounts-id.server.test.ts \
+      src/__tests__/api-service-accounts-daily-cap.server.test.ts \
+      src/lib/components/DelegationConsentDialog.component.test.ts \
       --coverage --coverage.provider=v8 --coverage.reporter=lcovonly \
       --coverage.reportsDirectory="$VITEST_COV" \
       --coverage.include='src/lib/search/*.ts' \
@@ -633,6 +635,8 @@ run_legs() {
       --coverage.include='**/active-run/+server.ts' \
       --coverage.include='src/routes/api/service-accounts/+server.ts' \
       --coverage.include='src/routes/api/service-accounts/[id]/+server.ts' \
+      --coverage.include='src/routes/api/service-accounts/[id]/daily-cap/+server.ts' \
+      --coverage.include='src/lib/components/DelegationConsentDialog.svelte' \
       --coverage.include='**/tool-calls/**/output/+server.ts' \
       --coverage.include='**/mcp-servers/*/+server.ts' \
       --coverage.include='**/auth/invite/*/+server.ts' \
