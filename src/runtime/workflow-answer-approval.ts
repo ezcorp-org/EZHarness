@@ -256,6 +256,12 @@ export async function answerApproval(
   // A NULL `user_id` (CLI, extension trigger) is admin-only, matching
   // `workflow-run-control.ts` and the inbox query: "unowned" must never
   // read as "anyone's".
+  //
+  // Both rules are now stated PER ACTOR KIND rather than over a nullable
+  // userId — the ownership rule in {@link mayAnswerUnscopedApproval}, the
+  // scope rule in the `actor.kind !== "user"` guard below. The two
+  // paragraphs above describe the `user` kind, which is the only one
+  // either rule was ever written for.
   if (!approval.rbacScope) {
     const runRow = await getWorkflowRunRow(approval.workflowRunId);
     if (!mayAnswerUnscopedApproval(actor, runRow?.userId ?? null)) {
