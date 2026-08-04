@@ -25,10 +25,13 @@
  */
 import { test, expect } from "@playwright/test";
 
-const PRIVATE_NAME = "e2e-oracle-private";
-const PROJECT_NAME = "e2e-oracle-project";
+// `workflow_definitions.name` is globally unique and a create is refused on a
+// collision, so the run stamps its own names rather than assuming a fresh DB.
+const RUN = Date.now();
+const PRIVATE_NAME = `e2e-oracle-private-${RUN}`;
+const PROJECT_NAME = `e2e-oracle-project-${RUN}`;
 /** A name that is definitely not a workflow — the control response. */
-const MISSING_NAME = "e2e-oracle-no-such-workflow";
+const MISSING_NAME = `e2e-oracle-no-such-workflow-${RUN}`;
 
 const definition = (name: string, visibility: "private" | "project") => ({
   name,
@@ -58,7 +61,7 @@ test.describe("workflows — a private row hides its existence from every verb",
     // 2. Mint a SECOND real account. An invite + accept is the only path that
     //    produces a distinct `users.id`, which is what the ownership rung
     //    actually compares.
-    const email = `e2e-oracle-${Date.now()}@example.com`;
+    const email = `e2e-oracle-${RUN}@example.com`;
     const invited = await request.post("/api/auth/invite", {
       data: { email, role: "member" },
     });
@@ -70,7 +73,7 @@ test.describe("workflows — a private row hides its existence from every verb",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ name: "Oracle Probe", email, password: "ProbeUser1" }),
     });
-    expect(accepted.status, await accepted.clone().text()).toBe(200);
+    expect(accepted.status, await accepted.clone().text()).toBe(201);
     // The accept response sets the new user's session cookie. Forwarding it
     // by hand (rather than reusing Playwright's `request`) keeps the admin's
     // cookie provably absent from every probe below.
@@ -102,37 +105,31 @@ test.describe("workflows — a private row hides its existence from every verb",
     //    because either one alone still separates the two cases.
     const body = JSON.stringify({ description: "probed" });
     const jsonHeaders = { "content-type": "application/json" };
+    /** Status + body together — comparing either alone still leaks. */
+    const probe = async (name: string, method: "PUT" | "DELETE") => {
+      const res = await asOther(`/api/workflows/${name}`, {
+        method,
+        ...(method === "PUT" ? { headers: jsonHeaders, body } : {}),
+      });
+      return { status: res.status, text: await res.text() };
+    };
 
-    const putPrivate = await asOther(`/api/workflows/${PRIVATE_NAME}`, {
-      method: "PUT",
-      headers: jsonHeaders,
-      body,
-    });
-    const putMissing = await asOther(`/api/workflows/${MISSING_NAME}`, {
-      method: "PUT",
-      headers: jsonHeaders,
-      body,
-    });
+    const putPrivate = await probe(PRIVATE_NAME, "PUT");
+    const putMissing = await probe(MISSING_NAME, "PUT");
     expect(putPrivate.status).toBe(404);
-    expect(putPrivate.status).toBe(putMissing.status);
-    expect(await putPrivate.text()).toBe(await putMissing.text());
+    expect(putPrivate).toEqual(putMissing);
 
-    const delPrivate = await asOther(`/api/workflows/${PRIVATE_NAME}`, { method: "DELETE" });
-    const delMissing = await asOther(`/api/workflows/${MISSING_NAME}`, { method: "DELETE" });
+    const delPrivate = await probe(PRIVATE_NAME, "DELETE");
+    const delMissing = await probe(MISSING_NAME, "DELETE");
     expect(delPrivate.status).toBe(404);
-    expect(delPrivate.status).toBe(delMissing.status);
-    expect(await delPrivate.text()).toBe(await delMissing.text());
+    expect(delPrivate).toEqual(delMissing);
 
     // 5. Discrimination: the concealment is `private`-only. A `project` row
     //    the probe cannot edit still says 403 and says why — it is in their
     //    own list, so there is nothing left to hide.
-    const putProject = await asOther(`/api/workflows/${PROJECT_NAME}`, {
-      method: "PUT",
-      headers: jsonHeaders,
-      body,
-    });
+    const putProject = await probe(PROJECT_NAME, "PUT");
     expect(putProject.status).toBe(403);
-    expect(await putProject.text()).not.toBe(await putMissing.text());
+    expect(putProject).not.toEqual(putMissing);
 
     // 6. Discrimination: the 404s were CONCEALMENT, not absence, and not a
     //    delete that quietly succeeded. The owner still has both rows.
