@@ -70,9 +70,24 @@ test.describe("the service-account admin route is session-only", () => {
     expect(keyCreate.status, keyCreateText).toBe(403);
     expect(keyCreateText).toContain("Interactive session required");
 
-    // Reading the list is refused on the same axis — enumerating the
-    // instance's non-human principals is itself admin-console information.
+    // Reading the list is refused on the SESSION axis, and that is worth
+    // saying since the read was widened: it now answers any authenticated
+    // SESSION with a two-field projection, and it still answers no KEY at
+    // all. Widening the read to non-admin humans did not widen it to bearer
+    // tokens — a leaked read-scoped key still cannot enumerate the
+    // instance's non-human principals.
     expect((await call("/api/service-accounts")).status).toBe(403);
+
+    // The daily-cap route is on the same axis. It writes the number that
+    // bounds how much unattended LLM spend a whole family of jobs may make
+    // in a day, so a leaked key must not reach it either.
+    const keyCap = await call("/api/service-accounts/whatever/daily-cap", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ maxTokensPerDay: 999_999 }),
+    });
+    expect(keyCap.status).toBe(403);
+    expect(await keyCap.text()).toContain("Interactive session required");
 
     // An unauthenticated caller is 401, not 403 — so the 403s above are a
     // decision about the PRINCIPAL, not the generic "no auth" response.
@@ -121,6 +136,54 @@ test.describe("the service-account admin route is session-only", () => {
     };
     expect(listed.accounts.map((a) => a.name)).toContain(ACCOUNT_NAME);
     expect(listed.reach.runnableVisibilities).toEqual(["system"]);
+
+    // ── the D10 remedy, end to end ───────────────────────────────────────
+    //
+    // Rung D10 refuses a delegated fire once the owning account has spent
+    // `max_tokens_per_day` and names raising that cap as the remedy. Until
+    // this route existed the remedy was unreachable: POST wrote the number
+    // once at mint time and nothing moved it.
+    const raised = await request.patch(
+      `/api/service-accounts/${created.account.id}/daily-cap`,
+      { data: { maxTokensPerDay: 250_000 } },
+    );
+    expect(raised.status(), await raised.text()).toBe(200);
+    const afterRaise = (await raised.json()) as {
+      account: { maxTokensPerDay: number; enabled: boolean; scopes: string[] };
+    };
+    expect(afterRaise.account.maxTokensPerDay).toBe(250_000);
+    // It moved ONE number: the account is still live and its ceiling is
+    // untouched.
+    expect(afterRaise.account.enabled).toBe(true);
+    expect(afterRaise.account.scopes).toEqual([]);
+
+    // Strict body, on the wire: RULING 3's cents cap is a 400 here too, and
+    // so is smuggling `enabled` through a route whose subject is a number.
+    for (const bad of [
+      { maxTokensPerDay: 10, maxCostCentsPerDay: 500 },
+      { maxTokensPerDay: 10, enabled: false },
+      { maxTokensPerDay: 0 },
+      {},
+    ]) {
+      const res = await request.patch(
+        `/api/service-accounts/${created.account.id}/daily-cap`,
+        { data: bad },
+      );
+      expect(res.status(), JSON.stringify(bad)).toBe(400);
+    }
+    // …and the cap really is unchanged by all four refusals.
+    const stillRaised = await request.get("/api/service-accounts");
+    const row = ((await stillRaised.json()) as {
+      accounts: Array<{ id: string; maxTokensPerDay: number }>;
+    }).accounts.find((a) => a.id === created.account.id);
+    expect(row?.maxTokensPerDay).toBe(250_000);
+
+    // An unknown account is a 404, not a silent 200.
+    const missing = await request.patch(
+      "/api/service-accounts/00000000-0000-4000-8000-000000000000/daily-cap",
+      { data: { maxTokensPerDay: 1 } },
+    );
+    expect(missing.status()).toBe(404);
 
     // Disable, then remove — the lifecycle an admin actually has. No live
     // delegation names this account, so the delete is permitted (409 is the

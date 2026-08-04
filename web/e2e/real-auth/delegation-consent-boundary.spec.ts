@@ -105,17 +105,23 @@ test.describe("the delegation consent surface is session-only", () => {
       expect(revoked.status, revokedText).toBe(403);
       expect(revokedText).toContain("Interactive session required");
 
-      // The token ceiling is the number that decides how much unattended
-      // LLM spend somebody's job may make. A key that could raise it
-      // would be a key that lifts a spend bound it never consented to.
-      const patched = await call(key, `/api/workflows/delegations/${ABSENT_DELEGATION}`, {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ maxTokensPerRun: 999_999 }),
-      });
-      const patchedText = await patched.text();
-      expect(patched.status, patchedText).toBe(403);
-      expect(patchedText).toContain("Interactive session required");
+      // The spend bounds are the numbers that decide how much unattended
+      // LLM spend somebody's job may make, and how often it may make it. A
+      // key that could move either would be a key that lifts a bound it
+      // never consented to. BOTH are asserted: `maxRunsPerDay` joined this
+      // route later than `maxTokensPerRun`, and a field added to a schema
+      // without its own boundary assertion is a field whose gate nobody
+      // re-checked.
+      for (const body of [{ maxTokensPerRun: 999_999 }, { maxRunsPerDay: 999 }]) {
+        const patched = await call(key, `/api/workflows/delegations/${ABSENT_DELEGATION}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const patchedText = await patched.text();
+        expect(patched.status, patchedText).toBe(403);
+        expect(patchedText).toContain("Interactive session required");
+      }
     }
 
     // An unauthenticated caller is 401, so the 403s above are about the

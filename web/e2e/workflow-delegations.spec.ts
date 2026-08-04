@@ -167,6 +167,22 @@ const RUNS = [
 	},
 ];
 
+/**
+ * The NARROW service-account list a non-admin now receives.
+ *
+ * `GET /api/service-accounts` used to be admin-only, and this spec's stub
+ * answered it 403 to model that. Ruling 1 makes both owner kinds selectable
+ * PER DELEGATION, so the read is now session-only and answers a non-admin
+ * with `{id, name}` per LIVE account — two fields, no `enabled`, nothing
+ * else. Pinned HERE as well as in the unit tests because this is the shape
+ * the real picker has to render: a UI that tested `!account.enabled` would
+ * grey out every one of these and no unit test of the route would notice.
+ */
+const NARROW_ACCOUNTS = [
+	{ id: "svc-1", name: "nightly-runner" },
+	{ id: "svc-2", name: "reporting" },
+];
+
 interface Options {
 	delegations?: unknown[];
 	runs?: unknown[];
@@ -176,6 +192,10 @@ interface Options {
 	/** When set, `PATCH /api/workflows/delegations/:id` refuses with this
 	 *  status and message instead of echoing the updated row. */
 	patchRefusal?: { status: number; error: string };
+	/** The `accounts` array `GET /api/service-accounts` answers with.
+	 *  Defaults to the narrow non-admin shape; `[]` models an instance with
+	 *  no service account at all. */
+	serviceAccounts?: unknown[];
 }
 
 /** Stub the C3 surface. Installed AFTER `mockApi` so these win over its
@@ -236,9 +256,23 @@ async function stubDelegationApi(
 				json: { error: opts.patchRefusal.error },
 			});
 		}
-		const body = route.request().postDataJSON() as { maxTokensPerRun: number };
+		// Echo back only what was ASKED for, exactly as the route does: an
+		// unnamed bound keeps its old value. A stub that echoed both would
+		// hide a UI sending a field it should have omitted.
+		const body = route.request().postDataJSON() as {
+			maxTokensPerRun?: number;
+			maxRunsPerDay?: number;
+		};
 		return route.fulfill({
-			json: { delegation: { ...DELEGATION, maxTokensPerRun: body.maxTokensPerRun } },
+			json: {
+				delegation: {
+					...DELEGATION,
+					...(body.maxTokensPerRun === undefined
+						? {}
+						: { maxTokensPerRun: body.maxTokensPerRun }),
+					...(body.maxRunsPerDay === undefined ? {} : { maxRunsPerDay: body.maxRunsPerDay }),
+				},
+			},
 		});
 	});
 
@@ -252,10 +286,16 @@ async function stubDelegationApi(
 		route.fulfill({ json: { runs: opts.runs ?? [] } }),
 	);
 
-	// Admin-only in production; an ordinary user gets a 403 here and the
-	// dialog must degrade to a sentence rather than a broken picker.
+	// Session-only, NOT admin-only. A non-admin gets `{id, name}` per live
+	// account plus the reach object — which is what makes the owner-kind
+	// picker a real choice for somebody who is not an administrator.
 	await page.route("**/api/service-accounts", (route) =>
-		route.fulfill({ status: 403, json: { error: "Admin only" } }),
+		route.fulfill({
+			json: {
+				accounts: opts.serviceAccounts ?? NARROW_ACCOUNTS,
+				reach: PREVIEW.reach,
+			},
+		}),
 	);
 
 	return { posted: () => posted, patched: () => patched };
@@ -287,9 +327,11 @@ test.describe("Delegations page", () => {
 		await expect(page.getByTestId("delegated-run-row")).toHaveCount(3);
 		await expect(page.getByTestId("delegated-run-principal").first()).toHaveText("as you");
 		// A service-account run appears here too: the account owns the run,
-		// the human who consented answers for it.
+		// the human who consented answers for it. It is named, not described
+		// generically — a non-admin can read the list now, so "as a service
+		// account" is only the fallback for an id no list explains.
 		await expect(page.getByTestId("delegated-run-principal").nth(1)).toHaveText(
-			"as a service account",
+			"as nightly-runner",
 		);
 
 		// The two parks that leave a row, rendered as sentences with remedies
@@ -340,7 +382,7 @@ test.describe("Delegations page", () => {
 	// branch) and phase 8a's PATCH coverage is REAL-TIER only, so this
 	// binding was unproven in the blocking lane. These three cover it.
 
-	test("saving a limit sends a SINGLE-KEY body — the schema is strict", async ({
+	test("saving a limit sends ONLY the bound that moved — the schema is strict", async ({
 		page,
 		mockApi,
 	}) => {
@@ -353,12 +395,64 @@ test.describe("Delegations page", () => {
 
 		await expect.poll(() => patched().length).toBe(1);
 		// EXACTLY one key. The route's body schema is `.strict()`, so a UI
-		// that helpfully echoed `maxRunsPerDay` or `consentHash` alongside it
-		// would turn every save into a 400 — and the failure would surface
-		// only in production, since nothing else asserts the request shape.
+		// that helpfully echoed `consentHash` alongside it would turn every
+		// save into a 400 — and the failure would surface only in production,
+		// since nothing else asserts the request shape. `maxRunsPerDay` is
+		// patchable NOW, and is still absent here: it did not move, and
+		// re-writing an untouched bound moves `updated_at` and puts an
+		// adjustment nobody made into the record.
 		expect(Object.keys(patched()[0] as object)).toEqual(["maxTokensPerRun"]);
 		expect(patched()[0]).toEqual({ maxTokensPerRun: 500000 });
-		await expect(page.getByTestId("delegation-message")).toHaveText("Token limit updated.");
+		await expect(page.getByTestId("delegation-message")).toHaveText("Limits updated.");
+	});
+
+	test("the DAILY RUN quota is adjustable in place — no re-consent dialog", async ({
+		page,
+		mockApi,
+	}) => {
+		// It used to be a 400 on the route and a 'set at consent' label here,
+		// so changing D8's throttle meant a full re-consent: a new row, the old
+		// one tombstoned, and a dialog asking the human to re-approve a
+		// capability set that had not moved.
+		await mockApi({ projects: [proj], workflows: [makeWorkflow({ name: "ship-it" })] });
+		const { patched } = await stubDelegationApi(page, { delegations: [DELEGATION] });
+
+		await page.goto("/workflows/delegations");
+		await page.getByTestId("delegation-runs-input").fill("96");
+		await page.getByTestId("delegation-save-tokens").click();
+
+		await expect.poll(() => patched().length).toBe(1);
+		expect(Object.keys(patched()[0] as object)).toEqual(["maxRunsPerDay"]);
+		expect(patched()[0]).toEqual({ maxRunsPerDay: 96 });
+		await expect(page.getByTestId("delegation-runs-input")).toHaveValue("96");
+		// The consent dialog never opened. That is the whole point.
+		await expect(page.getByTestId("delegation-consent")).toHaveCount(0);
+	});
+
+	test("both bounds moved together are ONE request", async ({ page, mockApi }) => {
+		await mockApi({ projects: [proj], workflows: [makeWorkflow({ name: "ship-it" })] });
+		const { patched } = await stubDelegationApi(page, { delegations: [DELEGATION] });
+
+		await page.goto("/workflows/delegations");
+		await page.getByTestId("delegation-tokens-input").fill("1000");
+		await page.getByTestId("delegation-runs-input").fill("3");
+		await page.getByTestId("delegation-save-tokens").click();
+
+		await expect.poll(() => patched().length).toBe(1);
+		expect(patched()[0]).toEqual({ maxTokensPerRun: 1000, maxRunsPerDay: 3 });
+	});
+
+	test("saving with nothing changed sends NO request and says so", async ({ page, mockApi }) => {
+		// An empty PATCH is a 400 on the route, and reporting "updated" for a
+		// write that never happened would be a lie about a standing authority.
+		await mockApi({ projects: [proj], workflows: [makeWorkflow({ name: "ship-it" })] });
+		const { patched } = await stubDelegationApi(page, { delegations: [DELEGATION] });
+
+		await page.goto("/workflows/delegations");
+		await page.getByTestId("delegation-save-tokens").click();
+
+		await expect(page.getByTestId("delegation-message")).toHaveText("Change a limit first.");
+		expect(patched()).toHaveLength(0);
 	});
 
 	test("a limit can be LOWERED, not only raised", async ({ page, mockApi }) => {
@@ -375,7 +469,7 @@ test.describe("Delegations page", () => {
 
 		await expect.poll(() => patched().length).toBe(1);
 		expect(patched()[0]).toEqual({ maxTokensPerRun: 1000 });
-		await expect(page.getByTestId("delegation-message")).toHaveText("Token limit updated.");
+		await expect(page.getByTestId("delegation-message")).toHaveText("Limits updated.");
 		// And the row re-renders at the lower number rather than the old one.
 		await expect(page.getByTestId("delegation-tokens-input")).toHaveValue("1000");
 	});
@@ -424,9 +518,58 @@ test.describe("Delegation consent dialog", () => {
 		await page.getByTestId("owner-kind-service").check();
 		// The server's sentence, VERBATIM — not a paraphrase composed here.
 		await expect(page.getByTestId("reach-warning")).toHaveText(REACH_MESSAGE);
-		// A non-admin cannot list service accounts, so the picker says why
-		// rather than rendering an empty dropdown.
-		await expect(page.getByTestId("no-service-accounts")).toBeVisible();
+		// …and the picker is a REAL choice, not an "ask an administrator"
+		// sentence. This is Ruling 1 reaching the person it was written for.
+		await expect(page.getByTestId("no-service-accounts")).toHaveCount(0);
+		const picker = page.getByTestId("service-account-select");
+		await expect(picker).toBeVisible();
+		await expect(picker.locator("option")).toHaveCount(3);
+	});
+
+	test("a narrow account row — no `enabled` field — is SELECTABLE", async ({ page, mockApi }) => {
+		// THE regression the widening can produce. Every row a non-admin
+		// receives omits `enabled`, so a picker testing `!account.enabled`
+		// would disable all of them and the choice would be dead on arrival
+		// for exactly the callers it was widened for.
+		await mockApi({ projects: [proj], workflows: [makeWorkflow({ name: "ship-it" })] });
+		const { posted } = await stubDelegationApi(page);
+		await openConsentDialog(page);
+		await page.getByTestId("owner-kind-service").check();
+
+		await expect(
+			page.getByTestId("service-account-select").locator('option[value="svc-1"]'),
+		).toBeEnabled();
+		await page.getByTestId("service-account-select").selectOption("svc-1");
+		await page.getByTestId("max-tokens-per-run").fill("200000");
+		await page.getByTestId("max-runs-per-day").fill("24");
+		await page.getByTestId("consent-approve").click();
+
+		await expect.poll(() => posted().length).toBe(1);
+		// The chosen account reaches the wire — the picker is not decorative.
+		expect(posted()[0]).toMatchObject({
+			ownerKind: "service",
+			ownerServiceAccountId: "svc-1",
+		});
+	});
+
+	test("an instance with NO service account says so rather than showing an empty select", async ({
+		page,
+		mockApi,
+	}) => {
+		// The empty list now means what it says. Before the widening it meant
+		// "you are not an administrator", which was a different sentence for a
+		// different problem.
+		await mockApi({ projects: [proj], workflows: [makeWorkflow({ name: "ship-it" })] });
+		await stubDelegationApi(page, { serviceAccounts: [] });
+		await openConsentDialog(page);
+		await page.getByTestId("owner-kind-service").check();
+
+		await expect(page.getByTestId("no-service-accounts")).toContainText(
+			"no service account switched on",
+		);
+		await expect(page.getByTestId("service-account-select")).toHaveCount(0);
+		// The reach warning still shows: it describes the ladder, not the list.
+		await expect(page.getByTestId("reach-warning")).toHaveText(REACH_MESSAGE);
 	});
 
 	test("discloses all THREE things the token limit does not cover", async ({ page, mockApi }) => {
