@@ -31,7 +31,7 @@
  * as history and fall out of all of them, so the default for anything
  * that misses the filter is "no authority".
  */
-import { and, desc, eq, isNull, isNotNull } from "drizzle-orm";
+import { and, desc, eq, isNull, isNotNull, type SQL } from "drizzle-orm";
 import { getDb } from "../connection";
 import {
   DELEGATION_OWNER_COLUMN,
@@ -48,6 +48,69 @@ import {
 
 /** Every owner column the discriminator can name, derived from the map. */
 const OWNER_COLUMNS = Object.values(DELEGATION_OWNER_COLUMN);
+
+/**
+ * The predicate that says a delegation still CARRIES AUTHORITY:
+ * `revoked_at IS NULL AND enabled`.
+ *
+ * ## Why this is exported rather than written twice
+ *
+ * Two consumers ask the same question from different layers, and they
+ * must never be able to disagree:
+ *
+ *  - the approvals **inbox** decides whether to SHOW a delegated run's
+ *    parked decision to the human who consented to it
+ *    (`workflow-approvals.ts`), and
+ *  - `answerApproval` decides whether that human may ANSWER it
+ *    (`runtime/workflow-answer-approval.ts`).
+ *
+ * A row the inbox shows and the chokepoint then refuses is the exact
+ * "looks fixed" failure amended spec §6.3 names — worse than not
+ * building the authority at all, because the user can see the decision
+ * and cannot make it. One predicate, two call sites.
+ *
+ * ## Why `enabled`, when {@link findLiveWorkflowDelegation} omits it
+ *
+ * That reader is the FIRE path, and it deliberately sees disabled rows so
+ * it can refuse with `disabled_reason` instead of an indistinguishable
+ * "no such delegation". This one is the ANSWER path, where there is
+ * nothing to explain to: a delegation is disabled precisely when the
+ * platform has decided its authority is broken (a re-tiered workflow, five
+ * consecutive failures — `extensions/schedule-daemon.ts:88`), and letting
+ * its consenting human keep clearing consent gates on its behalf would be
+ * exercising the authority that was just withdrawn. It fails CLOSED: an
+ * admin (`kind: "user"`, `isAdmin`) still answers, and an `onTimeout:`
+ * policy still applies, so a parked run is never stranded with nobody.
+ */
+export function delegationHoldsAuthority(): SQL | undefined {
+  return and(
+    isNull(workflowDelegations.revokedAt),
+    eq(workflowDelegations.enabled, true),
+  );
+}
+
+/**
+ * The delegation with this id, **only if it still holds authority**.
+ *
+ * The re-read behind `answerApproval`'s `delegation` actor kind. Keyed by
+ * id and filtered by {@link delegationHoldsAuthority}, so a revoked or
+ * disabled row is not "found and then judged" — it is not found, and the
+ * default for anything that misses the filter is "no authority".
+ *
+ * Distinct from {@link getWorkflowDelegation}, which returns history and
+ * must: this one is asked at a decision point, where a tombstone that
+ * came back as a row would be one `if` away from granting the authority
+ * revocation exists to end.
+ */
+export async function findDelegationHoldingAuthority(
+  id: string,
+): Promise<WorkflowDelegationRow | undefined> {
+  const rows = await getDb()
+    .select()
+    .from(workflowDelegations)
+    .where(and(eq(workflowDelegations.id, id), delegationHoldsAuthority()));
+  return rows[0];
+}
 
 /**
  * The owner columns for one `(kind, id)` pair: the mapped column carries
