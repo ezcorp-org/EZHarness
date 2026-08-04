@@ -22,7 +22,9 @@
  * job is to read rows and write rows, and a mocked query layer would
  * prove the ladder against a world that agrees with it.
  */
-import { test, expect, describe, beforeAll, beforeEach, afterAll, mock } from "bun:test";
+import {
+  test, expect, describe, beforeAll, beforeEach, afterAll, afterEach, mock, spyOn,
+} from "bun:test";
 import { restoreModuleMocks } from "../../__tests__/helpers/mock-cleanup";
 import {
   setupTestDb, closeTestDb, mockDbConnection, getTestDb,
@@ -69,6 +71,16 @@ import type {
 } from "../types";
 import type { AgentDefinition, WorkflowDefinition, WorkflowRun } from "../../types";
 import { systemCachedWorkflow, type CachedWorkflow } from "../../runtime/workflow-scope";
+// The SDK surface under test in phase 7. Imported from source (the package
+// is a bun workspace) so these run against the file the gate measures, not
+// against a built artifact that could lag it.
+import { Workflows } from "../../../packages/@ezcorp/sdk/src/runtime/workflows";
+import {
+  __resetChannelForTests,
+  getChannel,
+  JsonRpcError,
+  type HostChannel,
+} from "../../../packages/@ezcorp/sdk/src/runtime/channel";
 
 const EXT_NAME = "delegated-ext";
 
@@ -1407,5 +1419,197 @@ describe("the ordinary `run` op is untouched by any of this", () => {
 
     expect(resp.error).toBeUndefined();
     expect(started[0]?.workflow.name).toBe(`${EXT_NAME}:own`);
+  });
+});
+
+// ══ PHASE 7 — the SDK surface that speaks to this ladder ══════════════
+//
+// `packages/@ezcorp/sdk/src/runtime/workflows.ts` is the only `runFor`
+// caller a third-party author will ever write. These tests drive the REAL
+// `Workflows` class — no hand-built frame — and route whatever it emits
+// into the REAL handler above, translating the response the way
+// `HostChannel` itself does (`channel.ts`: a JSON-RPC `error` envelope
+// with a numeric `code` becomes a rejected `JsonRpcError`).
+//
+// That transport double is the whole point. The SDK's own unit tests can
+// only assert about the frame it chooses to send, and this file's other
+// tests can only assert about frames a test author chose to build. Between
+// the two there is exactly one gap — an SDK that sends a frame this ladder
+// does not answer the way the SDK's docs claim — and it is the gap an
+// extension author falls into.
+describe("the SDK surface — Workflows.runFor", () => {
+  /** Route the SDK's outbound frame into the real handler, optionally
+   *  overriding the METHOD to prove the op is not admitted on the other
+   *  one. Returns the frames it saw, for the caller to assert on inline. */
+  function wireSdkToHost(
+    opts: { ctx?: Partial<WorkflowsHandlerContext>; method?: string } = {},
+  ): {
+    seen: Array<{ method: string; params: Record<string, unknown> }>;
+    spy: ReturnType<typeof spyOn>;
+  } {
+    const ch: HostChannel = getChannel();
+    const spy = spyOn(ch, "request");
+    const seen: Array<{ method: string; params: Record<string, unknown> }> = [];
+    spy.mockImplementation((async (method: string, params: unknown) => {
+      const frameParams = (params ?? {}) as Record<string, unknown>;
+      seen.push({ method, params: frameParams });
+      const frame: JsonRpcRequest = {
+        jsonrpc: "2.0",
+        id: 1,
+        method: opts.method ?? method,
+        params: frameParams,
+      };
+      const resp = await handleWorkflowsRpc(frame, ctx(opts.ctx ?? {}));
+      if (resp.error) {
+        throw new JsonRpcError(resp.error.code, resp.error.message, resp.error.data);
+      }
+      return resp.result;
+    }) as HostChannel["request"]);
+    return { seen, spy };
+  }
+
+  /** The rejection the SDK caller actually sees, as a verdict to assert on
+   *  inline — `.rejects.toThrow` matches a MESSAGE, and every one of these
+   *  rungs is distinguished by its `data.reason`, not by its wording. */
+  async function refusal(promise: Promise<unknown>): Promise<JsonRpcError> {
+    const err = await promise.then(() => null).catch((e: unknown) => e);
+    if (!(err instanceof JsonRpcError)) {
+      throw new Error(`expected a JsonRpcError, got: ${String(err)}`);
+    }
+    return err;
+  }
+
+  afterEach(() => {
+    __resetChannelForTests();
+  });
+
+  test("THE LEGITIMATE CALLER — the SDK fires a real delegation and gets the envelope its type promises", async () => {
+    await delegate({
+      ownerKind: "user", ownerId: ownerUserId, workflowName: "org-nightly",
+    });
+    const { seen, spy } = wireSdkToHost();
+
+    const res = await new Workflows().runFor({ jobRef: "job-1", input: { ref: "main" } });
+
+    expect(res).toEqual({ v: 1, workflow: "org-nightly", runAs: "user", started: true });
+    // It reached the executor as the OWNER, not as the (ownerless) caller.
+    expect(started).toHaveLength(1);
+    expect(started[0]?.userId).toBe(ownerUserId);
+    expect(started[0]?.input).toEqual({ ref: "main" });
+    // And the frame that got it there named no principal and no workflow.
+    expect(seen[0]?.method).toBe(DELEGATED_WORKFLOWS_METHOD);
+    expect(Object.keys(seen[0]!.params).sort()).toEqual(["input", "jobRef", "op", "v"]);
+    spy.mockRestore();
+  });
+
+  test("without `allowDelegated` it is DELEGATION_NOT_GRANTED — rung 2b, not some other refusal", async () => {
+    // The pair for the accept above: same delegation, same call, one bit
+    // off a grant that still clears rung 2 structurally (non-empty
+    // `names`, matching the rung-2b fixture higher up this file).
+    // `WORKFLOWS_BAD_OP` here would mean the op never got routed at all —
+    // which reads as "it denied" to a test that only asserted a rejection.
+    await delegate({
+      ownerKind: "user", ownerId: ownerUserId, workflowName: "org-nightly",
+    });
+    const { spy } = wireSdkToHost({
+      ctx: { grantedPermissions: granted({ names: ["something"], allowDelegated: false }) },
+    });
+
+    const err = await refusal(new Workflows().runFor({ jobRef: "job-1" }));
+
+    expect(err.data).toEqual({ reason: "DELEGATION_NOT_GRANTED" });
+    expect(started).toHaveLength(0);
+    spy.mockRestore();
+  });
+
+  test("…but a DELEGATED-ONLY grant that lost the bit dies one rung earlier, as WORKFLOWS_NOT_GRANTED", async () => {
+    // The shape a real delegated-only extension actually has — `names: []`
+    // — and the reason the SDK's docs name BOTH codes rather than just the
+    // delegated one. Dropping `allowDelegated` from such a manifest takes
+    // the empty-`names` carve-out away with it, so the grant stops being
+    // structurally usable at rung 2 and never reaches 2b. Same author
+    // mistake, different code: an author who only handled
+    // `DELEGATION_NOT_GRANTED` would see an unrecognised failure for the
+    // most likely way of making it.
+    await delegate({
+      ownerKind: "user", ownerId: ownerUserId, workflowName: "org-nightly",
+    });
+    const { spy } = wireSdkToHost({
+      ctx: { grantedPermissions: granted({ names: [], allowDelegated: false }) },
+    });
+
+    const err = await refusal(new Workflows().runFor({ jobRef: "job-1" }));
+
+    expect(err.data).toEqual({ reason: "WORKFLOWS_NOT_GRANTED" });
+    expect(started).toHaveLength(0);
+    spy.mockRestore();
+  });
+
+  test("the SAME frame on `ezcorp/workflows` is WORKFLOWS_BAD_OP — the method is the control", async () => {
+    // The SDK targets `ezcorp/workflows-delegated` because that method's
+    // rung 0 tolerates an ownerless fire. If a future edit "simplified"
+    // the SDK onto the one method the other three ops use, this is the
+    // wall it hits — and it hits it with a live delegation in the table,
+    // so the refusal is about the method and nothing else.
+    await delegate({
+      ownerKind: "user", ownerId: ownerUserId, workflowName: "org-nightly",
+    });
+    const { spy } = wireSdkToHost({ method: "ezcorp/workflows" });
+
+    const err = await refusal(new Workflows().runFor({ jobRef: "job-1" }));
+
+    expect(err.data).toEqual({ reason: "WORKFLOWS_BAD_OP" });
+    expect(err.code).toBe(-32602);
+    expect(started).toHaveLength(0);
+    spy.mockRestore();
+  });
+
+  test("under the kill switch it is DELEGATION_DISABLED, and the delegation row is untouched", async () => {
+    // What the SDK's docblock tells an author: transient, instance-wide,
+    // operator-controlled, and NOT a statement about their job — so they
+    // must not disable or delete anything of their own in response. That
+    // advice is only safe if the host really does leave the row alone,
+    // which is what the row comparison below is for. (Rung 1b sits above
+    // every database rung, so "untouched" is also the observable half of
+    // "refused before any database work".)
+    const delegationId = await delegate({
+      ownerKind: "user", ownerId: ownerUserId, workflowName: "org-nightly",
+    });
+    const before = await getTestDb()
+      .select().from(workflowDelegations).where(eq(workflowDelegations.id, delegationId));
+    process.env.EZCORP_DISABLE_DELEGATED_WORKFLOWS = "1";
+    const { spy } = wireSdkToHost();
+
+    const err = await refusal(new Workflows().runFor({ jobRef: "job-1" }));
+
+    expect(err.data).toEqual({ reason: "DELEGATION_DISABLED" });
+    expect(started).toHaveLength(0);
+    const after = await getTestDb()
+      .select().from(workflowDelegations).where(eq(workflowDelegations.id, delegationId));
+    expect(after).toEqual(before);
+    // Scoped to this VERB: the same extension's status poll still answers
+    // while the switch is set, which is the other half of the claim.
+    const runs = await handleWorkflowsRpc(
+      { jsonrpc: "2.0", id: 9, method: DELEGATED_WORKFLOWS_METHOD, params: { v: 1, op: "runs" } },
+      ctx({ userId: ownerUserId }),
+    );
+    expect(runs.error).toBeUndefined();
+    spy.mockRestore();
+  });
+
+  test("a forged ref from the SDK matches zero rows — DELEGATION_NOT_FOUND, nothing started", async () => {
+    // The client-side half of §4: the SDK gives an author no way to name a
+    // principal, so the most they can do is guess a ref. A guess is not a
+    // weaker authorization, it is no row.
+    await delegate({
+      ownerKind: "user", ownerId: ownerUserId, workflowName: "org-nightly",
+    });
+    const { spy } = wireSdkToHost();
+
+    const err = await refusal(new Workflows().runFor({ jobRef: "not-a-real-job" }));
+
+    expect(err.data).toEqual({ reason: "DELEGATION_NOT_FOUND" });
+    expect(started).toHaveLength(0);
+    spy.mockRestore();
   });
 });

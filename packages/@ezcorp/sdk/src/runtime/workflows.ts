@@ -336,6 +336,13 @@ export class Workflows {
    *
    * - `DELEGATION_NOT_GRANTED` — you do not hold `allowDelegated`. A
    *   permanent, install-shaped problem: stop retrying, tell the user.
+   * - `WORKFLOWS_NOT_GRANTED` — the SAME author mistake in its most
+   *   likely shape, one rung earlier. `allowDelegated` is what makes an
+   *   empty `names` list legal at all, so a delegated-only extension that
+   *   drops the bit does not merely lose the delegated tier, its grant
+   *   stops being structurally usable and never reaches the rung that
+   *   would have said `DELEGATION_NOT_GRANTED`. Handle both, or you will
+   *   not recognise the failure you are most likely to cause.
    * - `DELEGATION_BAD_REF` — the ref is not id-shaped. Your bug.
    * - `DELEGATION_NOT_FOUND` — no live delegation for (you, this ref).
    *   Revoked, never created, or the ref is wrong. Permanent until a
