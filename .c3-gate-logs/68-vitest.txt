@@ -1,0 +1,122 @@
+
+ RUN  v4.1.6 /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/web
+
+5:53:48 PM [vite-plugin-svelte] src/routes/(app)/extensions/author/+page.svelte:20:50 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+https://svelte.dev/e/state_referenced_locally
+5:53:48 PM [vite-plugin-svelte] src/routes/(app)/extensions/author/+page.svelte:22:32 This reference only captures the initial value of `fileNames`. Did you mean to reference it inside a derived instead?
+https://svelte.dev/e/state_referenced_locally
+5:53:48 PM [vite-plugin-svelte] src/routes/(app)/extensions/author/+page.svelte:251:8 A form label must be associated with a control
+https://svelte.dev/e/a11y_label_has_associated_control
+5:53:49 PM [vite-plugin-svelte] src/lib/components/ChatThread.svelte:382:18 This reference only captures the initial value of `seedMessages`. Did you mean to reference it inside a closure instead?
+https://svelte.dev/e/state_referenced_locally
+{"ts":"2026-08-04T21:53:49.968Z","level":"error","msg":"installAuthoredDraft: registry reload failed after install","subsystem":"ext.extension-author.author-install","extensionId":"ext-installed","error":"registry boom"}
+Not implemented: navigation to another Document
+{"ts":"2026-08-04T21:53:51.937Z","level":"error","msg":"EZ action handler threw","subsystem":"api.messages","name":"explode","error":"Error: boom"}
+{"ts":"2026-08-04T21:53:51.939Z","level":"error","msg":"streamChat error","subsystem":"api.messages","error":"stream boom"}
+5:53:51 PM [vite-plugin-svelte] src/lib/components/ChatThreadBehaviorHarness.svelte:59:9 This reference only captures the initial value of `initialMessages`. Did you mean to reference it inside a closure instead?
+https://svelte.dev/e/state_referenced_locally
+5:53:51 PM [vite-plugin-svelte] src/lib/components/ChatThreadBehaviorHarness.svelte:59:28 This reference only captures the initial value of `onInvalidate`. Did you mean to reference it inside a closure instead?
+https://svelte.dev/e/state_referenced_locally
+5:53:51 PM [vite-plugin-svelte] src/lib/components/ChatThreadBehaviorHarness.svelte:59:42 This reference only captures the initial value of `onLoadMessages`. Did you mean to reference it inside a closure instead?
+https://svelte.dev/e/state_referenced_locally
+5:53:51 PM [vite-plugin-svelte] src/lib/components/ChatThreadBehaviorHarness.svelte:59:58 This reference only captures the initial value of `onHydrate`. Did you mean to reference it inside a closure instead?
+https://svelte.dev/e/state_referenced_locally
+{"ts":"2026-08-04T21:53:53.030Z","level":"warn","msg":"goal-host rehydrate failed (continuing)","subsystem":"api.messages","error":"read explosion"}
+{"ts":"2026-08-04T21:53:53.057Z","level":"warn","msg":"route-once model pin failed (conversation stays unpinned)","subsystem":"api.messages","conversationId":"c1","error":"db gone"}
+{"ts":"2026-08-04T21:53:53.066Z","level":"warn","msg":"fork attachment inheritance failed (continuing without image)","subsystem":"api.messages","conversationId":"c1","sourceMessageId":"a1a1a1a1-aaaa-4aaa-8aaa-aaaaaaaaaaaa","error":"disk gone"}
+{"ts":"2026-08-04T21:53:53.428Z","level":"error","msg":"memory disappeared between read and write","subsystem":"api.memories","memoryId":"mem-1"}
+{"ts":"2026-08-04T21:53:53.745Z","level":"warn","msg":"session refresh failed","subsystem":"hooks.server","error":"Error: DB blew up"}
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+{"ts":"2026-08-04T21:53:56.761Z","level":"error","msg":"retry streamChat error","subsystem":"api.retry","error":"boom"}
+{"ts":"2026-08-04T21:53:57.010Z","level":"error","msg":"EZ action handler threw","subsystem":"api.messages","name":"distill","error":"Error: kaboom"}
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+{"ts":"2026-08-04T21:53:59.029Z","level":"warn","msg":"page-state invalidation wiring failed — will retry on the next render","subsystem":"hub.render-pull","error":"Server not initialized — call ensureInitialized() first"}
+{"ts":"2026-08-04T21:54:01.523Z","level":"info","msg":"callback server started","subsystem":"api.auth.oauth","port":1455,"appCallbackUrl":"http://localhost/auth/callback"}
+{"ts":"2026-08-04T21:54:01.530Z","level":"info","msg":"callback server started","subsystem":"api.auth.oauth","port":1456,"appCallbackUrl":"http://localhost/auth/callback"}
+{"ts":"2026-08-04T21:54:01.531Z","level":"info","msg":"callback server started","subsystem":"api.auth.oauth","port":1455,"appCallbackUrl":"http://localhost/auth/callback"}
+{"ts":"2026-08-04T21:54:01.533Z","level":"info","msg":"callback server started","subsystem":"api.auth.oauth","port":1455,"appCallbackUrl":"http://localhost/auth/callback"}
+{"ts":"2026-08-04T21:54:01.535Z","level":"info","msg":"callback server started","subsystem":"api.auth.oauth","port":1455,"appCallbackUrl":"http://localhost/auth/callback"}
+{"ts":"2026-08-04T21:54:01.531Z","level":"warn","msg":"rejected untrusted app_origin; falling back to request origin","subsystem":"api.auth.oauth","rawAppOrigin":"https://evil.example.com","fallbackOrigin":"http://localhost"}
+{"ts":"2026-08-04T21:54:01.534Z","level":"warn","msg":"rejected untrusted app_origin; falling back to request origin","subsystem":"api.auth.oauth","rawAppOrigin":"not-a-url","fallbackOrigin":"http://localhost"}
+{"ts":"2026-08-04T21:54:03.040Z","level":"warn","msg":"getOrCreateEzConversation failed","subsystem":"api.ez.conversation.messages","userId":"u1","error":"Error: DB down"}
+{"ts":"2026-08-04T21:54:03.042Z","level":"error","msg":"deleteAllMessagesForConversation failed","subsystem":"api.ez.conversation.messages","userId":"u1","conversationId":"ez-conv-u1","error":"Error: delete failed"}
+{"ts":"2026-08-04T21:54:03.045Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"test","teardownCount":3}
+{"ts":"2026-08-04T21:54:03.047Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"c","ms":0}
+{"ts":"2026-08-04T21:54:03.047Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"b","ms":0}
+{"ts":"2026-08-04T21:54:03.047Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"a","ms":0}
+{"ts":"2026-08-04T21:54:03.047Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"test"}
+{"ts":"2026-08-04T21:54:03.049Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"test","teardownCount":1}
+{"ts":"2026-08-04T21:54:03.049Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"dup","ms":0}
+{"ts":"2026-08-04T21:54:03.049Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"test"}
+{"ts":"2026-08-04T21:54:03.050Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"test","teardownCount":1}
+{"ts":"2026-08-04T21:54:03.051Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"async","ms":1}
+{"ts":"2026-08-04T21:54:03.051Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"test"}
+{"ts":"2026-08-04T21:54:03.052Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"test","teardownCount":1}
+{"ts":"2026-08-04T21:54:03.052Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"observe","ms":0}
+{"ts":"2026-08-04T21:54:03.052Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"test"}
+{"ts":"2026-08-04T21:54:03.052Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"test","teardownCount":0}
+{"ts":"2026-08-04T21:54:03.052Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"test"}
+{"ts":"2026-08-04T21:54:03.053Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"first","teardownCount":1}
+{"ts":"2026-08-04T21:54:03.053Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"once","ms":0}
+{"ts":"2026-08-04T21:54:03.053Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"first"}
+{"ts":"2026-08-04T21:54:03.053Z","level":"info","msg":"shutdown already in progress — ignoring re-trigger","subsystem":"shutdown","reason":"second"}
+{"ts":"2026-08-04T21:54:03.053Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"test","teardownCount":3}
+{"ts":"2026-08-04T21:54:03.053Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"late","ms":0}
+{"ts":"2026-08-04T21:54:03.053Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"db","ms":0}
+{"ts":"2026-08-04T21:54:03.053Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"test"}
+{"ts":"2026-08-04T21:54:03.054Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"test","teardownCount":2}
+{"ts":"2026-08-04T21:54:03.054Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"ok","ms":0}
+{"ts":"2026-08-04T21:54:03.054Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"test"}
+{"ts":"2026-08-04T21:54:03.055Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"timeout-test","teardownCount":1}
+{"ts":"2026-08-04T21:54:03.053Z","level":"error","msg":"teardown failed","subsystem":"shutdown","name":"boom","error":"Error: kaboom"}
+{"ts":"2026-08-04T21:54:03.054Z","level":"error","msg":"teardown failed","subsystem":"shutdown","name":"reject","error":"Error: async-fail"}
+{"ts":"2026-08-04T21:54:28.055Z","level":"error","msg":"forced-exit — shutdown teardown exceeded hard timeout","subsystem":"shutdown","timeoutMs":25000,"pending":1}
+{"ts":"2026-08-04T21:54:28.056Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"hang","ms":25001}
+{"ts":"2026-08-04T21:54:28.056Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"timeout-test"}
+{"ts":"2026-08-04T21:54:03.276Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"SIGTERM","teardownCount":1}
+{"ts":"2026-08-04T21:54:03.276Z","level":"info","msg":"shutdown already in progress — ignoring re-trigger","subsystem":"shutdown","reason":"SIGTERM"}
+{"ts":"2026-08-04T21:54:03.277Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"t","ms":0}
+{"ts":"2026-08-04T21:54:03.277Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"SIGTERM"}
+{"ts":"2026-08-04T21:54:03.288Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"sveltekit:shutdown:deploy","teardownCount":1}
+{"ts":"2026-08-04T21:54:03.288Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"t","ms":0}
+{"ts":"2026-08-04T21:54:03.288Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"sveltekit:shutdown:deploy"}
+{"ts":"2026-08-04T21:54:04.012Z","level":"error","msg":"provider model fetch failed","subsystem":"api.refresh-models","provider":"anthropic","error":"models.dev returned 503"}
+Not implemented: navigation to another Document
+5:54:05 PM [vite-plugin-svelte] src/routes/(app)/extensions/+page.svelte:91:5 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+https://svelte.dev/e/state_referenced_locally
+5:54:05 PM [vite-plugin-svelte] src/routes/(app)/extensions/+page.svelte:92:5 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+https://svelte.dev/e/state_referenced_locally
+{"ts":"2026-08-04T21:54:05.150Z","level":"warn","msg":"page-state invalidation wiring failed — will retry on the next render","subsystem":"hub.render-pull","error":"Server not initialized"}
+5:54:08 PM [vite-plugin-svelte] src/routes/(app)/+layout.svelte:447:1 noninteractive element cannot have nonnegative tabIndex value
+https://svelte.dev/e/a11y_no_noninteractive_tabindex
+{"ts":"2026-08-04T21:54:09.387Z","level":"warn","msg":"getOrCreateEzConversation failed","subsystem":"api.ez.conversation","userId":"u1","error":"Error: DB down"}
+{"ts":"2026-08-04T21:54:11.532Z","level":"info","msg":"draining in-flight requests before teardown","subsystem":"shutdown","inFlight":1,"timeoutMs":5000}
+{"ts":"2026-08-04T21:54:11.534Z","level":"info","msg":"draining in-flight requests before teardown","subsystem":"shutdown","inFlight":1,"timeoutMs":10000}
+{"ts":"2026-08-04T21:54:21.534Z","level":"warn","msg":"in-flight drain timed out — proceeding with teardown","subsystem":"shutdown","stillInFlight":1}
+{"ts":"2026-08-04T21:54:11.536Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"drain-test","teardownCount":1}
+{"ts":"2026-08-04T21:54:11.537Z","level":"info","msg":"draining in-flight requests before teardown","subsystem":"shutdown","inFlight":1,"timeoutMs":10000}
+{"ts":"2026-08-04T21:54:11.537Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"db","ms":0}
+{"ts":"2026-08-04T21:54:11.537Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"drain-test"}
+{"ts":"2026-08-04T21:54:11.537Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"wedged-test","teardownCount":1}
+{"ts":"2026-08-04T21:54:11.537Z","level":"info","msg":"draining in-flight requests before teardown","subsystem":"shutdown","inFlight":1,"timeoutMs":10000}
+{"ts":"2026-08-04T21:54:21.537Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"db","ms":0}
+{"ts":"2026-08-04T21:54:21.537Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"wedged-test"}
+{"ts":"2026-08-04T21:54:21.537Z","level":"warn","msg":"in-flight drain timed out — proceeding with teardown","subsystem":"shutdown","stillInFlight":1}
+
+ Test Files  490 passed (490)
+      Tests  6148 passed (6148)
+   Start at  17:53:46
+   Duration  29.09s (transform 80.95s, setup 199.78s, import 248.69s, tests 65.31s, environment 291.37s)
+
+EXIT_CODE=0

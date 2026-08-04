@@ -1,0 +1,2 @@
+Gate integrity PASSED: no gate-weakening or test-cheating changes detected.
+EXIT_CODE=0

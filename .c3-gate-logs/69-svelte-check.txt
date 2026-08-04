@@ -1,0 +1,22 @@
+$ svelte-kit sync && svelte-check --tsconfig ./tsconfig.json
+1785880476447 START "/home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/web"
+1785880476454 WARNING "src/lib/components/ChatThread.svelte" 382:19 "This reference only captures the initial value of `seedMessages`. Did you mean to reference it inside a closure instead?\nhttps://svelte.dev/e/state_referenced_locally"
+1785880476455 WARNING "src/routes/(app)/extensions/author/+page.svelte" 20:51 "This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?\nhttps://svelte.dev/e/state_referenced_locally"
+1785880476455 WARNING "src/routes/(app)/extensions/author/+page.svelte" 22:33 "This reference only captures the initial value of `fileNames`. Did you mean to reference it inside a derived instead?\nhttps://svelte.dev/e/state_referenced_locally"
+1785880476455 WARNING "src/routes/(app)/extensions/author/+page.svelte" 251:9 "A form label must be associated with a control\nhttps://svelte.dev/e/a11y_label_has_associated_control"
+1785880476455 WARNING "src/routes/(app)/extensions/+page.svelte" 91:6 "This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?\nhttps://svelte.dev/e/state_referenced_locally"
+1785880476455 WARNING "src/routes/(app)/extensions/+page.svelte" 92:6 "This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?\nhttps://svelte.dev/e/state_referenced_locally"
+1785880476456 WARNING "src/lib/components/ChatThreadBehaviorHarness.svelte" 59:10 "This reference only captures the initial value of `initialMessages`. Did you mean to reference it inside a closure instead?\nhttps://svelte.dev/e/state_referenced_locally"
+1785880476456 WARNING "src/lib/components/ChatThreadBehaviorHarness.svelte" 59:29 "This reference only captures the initial value of `onInvalidate`. Did you mean to reference it inside a closure instead?\nhttps://svelte.dev/e/state_referenced_locally"
+1785880476456 WARNING "src/lib/components/ChatThreadBehaviorHarness.svelte" 59:43 "This reference only captures the initial value of `onLoadMessages`. Did you mean to reference it inside a closure instead?\nhttps://svelte.dev/e/state_referenced_locally"
+1785880476456 WARNING "src/lib/components/ChatThreadBehaviorHarness.svelte" 59:59 "This reference only captures the initial value of `onHydrate`. Did you mean to reference it inside a closure instead?\nhttps://svelte.dev/e/state_referenced_locally"
+1785880476456 WARNING "src/routes/(app)/+layout.svelte" 447:2 "noninteractive element cannot have nonnegative tabIndex value\nhttps://svelte.dev/e/a11y_no_noninteractive_tabindex"
+1785880476456 WARNING "src/routes/(app)/audit/+page.svelte" 19:32 "This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?\nhttps://svelte.dev/e/state_referenced_locally"
+1785880476456 WARNING "src/routes/(app)/audit/+page.svelte" 20:41 "This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?\nhttps://svelte.dev/e/state_referenced_locally"
+1785880476456 WARNING "src/routes/(app)/audit/+page.svelte" 21:21 "This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?\nhttps://svelte.dev/e/state_referenced_locally"
+1785880476456 WARNING "src/routes/(app)/audit/+page.svelte" 23:24 "This reference only captures the initial value of `data`. Did you mean to reference it inside a closure instead?\nhttps://svelte.dev/e/state_referenced_locally"
+1785880476456 WARNING "src/routes/(app)/extensions/[id]/audit/+page.svelte" 19:23 "This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?\nhttps://svelte.dev/e/state_referenced_locally"
+1785880476456 WARNING "src/routes/(app)/extensions/[id]/audit/+page.svelte" 20:41 "This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?\nhttps://svelte.dev/e/state_referenced_locally"
+1785880476456 WARNING "src/routes/(app)/extensions/[id]/audit/+page.svelte" 21:21 "This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?\nhttps://svelte.dev/e/state_referenced_locally"
+1785880476457 COMPLETED 4207 FILES 0 ERRORS 18 WARNINGS 7 FILES_WITH_PROBLEMS
+EXIT_CODE=0

@@ -1,0 +1,2 @@
+Patch coverage gate PASSED: all changed executable lines covered (35 file(s)).
+EXIT_CODE=0

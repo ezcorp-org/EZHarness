@@ -1,0 +1,248 @@
+$ bash scripts/test-coverage.sh
+== full local coverage mode: 1274 host files ==
+
+── leg output: sdk ──
+bun test v1.3.14 (0d9b296a)
+
+ 938 pass
+ 0 fail
+ 1930 expect() calls
+Ran 938 tests across 44 files. [5.16s]
+
+── leg output: hc ──
+bun test v1.3.14 (0d9b296a)
+
+ 64 pass
+ 0 fail
+ 190 expect() calls
+Ran 64 tests across 1 file. [516.00ms]
+
+── leg output: suggest ──
+bun test v1.3.14 (0d9b296a)
+
+ 102 pass
+ 0 fail
+ 186 expect() calls
+Ran 102 tests across 8 files. [12.50s]
+
+── leg output: aikit ──
+bun test v1.3.14 (0d9b296a)
+
+packages/@ezcorp/ai-kit/test/unit/cli-install.test.ts:
+Installed: claude-code MCP config written.
+Installed: claude-code MCP config written.
+Installed: claude-code MCP config written.
+Installed: claude-code MCP config written.
+[dry-run] Would write /tmp/ai-kit-test-7KWvSR/.claude.json:
+{
+  "mcpServers": {
+    "ezcorp-ai-kit": {
+      "command": "bunx",
+      "args": [
+        "@ezcorp/ai-kit",
+        "mcp"
+      ],
+      "env": {
+        "EZCORP_BASE_URL": "http://localhost:5173",
+        "EZCORP_API_KEY": "<your-api-key>"
+      }
+    }
+  }
+}
+
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/packages/@ezcorp/ai-kit/skills/ezcorp-auth/SKILL.md -> /tmp/ai-kit-test-7KWvSR/.claude/skills/ezcorp-auth/SKILL.md
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/packages/@ezcorp/ai-kit/skills/ezcorp-orchestrate/SKILL.md -> /tmp/ai-kit-test-7KWvSR/.claude/skills/ezcorp-orchestrate/SKILL.md
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/packages/@ezcorp/ai-kit/skills/ezcorp-chat/SKILL.md -> /tmp/ai-kit-test-7KWvSR/.claude/skills/ezcorp-chat/SKILL.md
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/packages/@ezcorp/ai-kit/skills/ezcorp-projects/SKILL.md -> /tmp/ai-kit-test-7KWvSR/.claude/skills/ezcorp-projects/SKILL.md
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/packages/@ezcorp/ai-kit/skills/ezcorp-agents/SKILL.md -> /tmp/ai-kit-test-7KWvSR/.claude/skills/ezcorp-agents/SKILL.md
+Installed: claude-code MCP config written.
+Installed: claude-code MCP config written.
+Installed: claude-code MCP config written.
+Installed: claude-code MCP config written.
+[dry-run] Would write /tmp/ai-kit-test-4rtgBx/.claude.json:
+{
+  "mcpServers": {
+    "ezcorp-ai-kit": {
+      "command": "bunx",
+      "args": [
+        "@ezcorp/ai-kit",
+        "mcp"
+      ],
+      "env": {
+        "EZCORP_BASE_URL": "http://localhost:5173",
+        "EZCORP_API_KEY": "<your-api-key>"
+      }
+    }
+  }
+}
+
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/packages/@ezcorp/ai-kit/skills/ezcorp-auth/SKILL.md -> /tmp/ai-kit-test-4rtgBx/.claude/skills/ezcorp-auth/SKILL.md
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/packages/@ezcorp/ai-kit/skills/ezcorp-orchestrate/SKILL.md -> /tmp/ai-kit-test-4rtgBx/.claude/skills/ezcorp-orchestrate/SKILL.md
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/packages/@ezcorp/ai-kit/skills/ezcorp-chat/SKILL.md -> /tmp/ai-kit-test-4rtgBx/.claude/skills/ezcorp-chat/SKILL.md
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/packages/@ezcorp/ai-kit/skills/ezcorp-projects/SKILL.md -> /tmp/ai-kit-test-4rtgBx/.claude/skills/ezcorp-projects/SKILL.md
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/packages/@ezcorp/ai-kit/skills/ezcorp-agents/SKILL.md -> /tmp/ai-kit-test-4rtgBx/.claude/skills/ezcorp-agents/SKILL.md
+Installed: claude-code MCP config written.
+Installed: cursor MCP config written.
+Installed: cursor MCP config written.
+Installed: cursor MCP config written.
+[dry-run] Would write /tmp/ai-kit-test-lP1eVp/.cursor/mcp.json:
+{
+  "mcpServers": {
+    "ezcorp-ai-kit": {
+      "command": "bunx",
+      "args": [
+        "@ezcorp/ai-kit",
+        "mcp"
+      ],
+      "env": {
+        "EZCORP_BASE_URL": "http://localhost:5173",
+        "EZCORP_API_KEY": "<your-api-key>"
+      }
+    }
+  }
+}
+
+Installed: cursor MCP config written.
+Installed: zed context_servers config written.
+Installed: zed context_servers config written.
+Installed: zed context_servers config written.
+[dry-run] Would write /tmp/ai-kit-test-g8qIqG/.config/zed/settings.json:
+{
+  "context_servers": {
+    "ezcorp-ai-kit": {
+      "command": "bunx",
+      "args": [
+        "@ezcorp/ai-kit",
+        "mcp"
+      ],
+      "env": {
+        "EZCORP_BASE_URL": "http://localhost:5173",
+        "EZCORP_API_KEY": "<your-api-key>"
+      }
+    }
+  }
+}
+
+Installed: zed context_servers config written.
+Installed: zed context_servers config written.
+Installed: windsurf MCP config written.
+Installed: windsurf MCP config written.
+Installed: windsurf MCP config written.
+[dry-run] Would write /tmp/ai-kit-test-UmrCbV/.codeium/windsurf/mcp_config.json:
+{
+  "mcpServers": {
+    "ezcorp-ai-kit": {
+      "command": "bunx",
+      "args": [
+        "@ezcorp/ai-kit",
+        "mcp"
+      ],
+      "env": {
+        "EZCORP_BASE_URL": "http://localhost:5173",
+        "EZCORP_API_KEY": "<your-api-key>"
+      }
+    }
+  }
+}
+
+Installed: windsurf MCP config written.
+ai-kit: data directory initialized at /tmp/ai-kit-test-l2GQCl/.ezcorp/extension-data/ai-kit
+  (project root: /tmp/ai-kit-test-l2GQCl)
+Installed: ezcorp extension symlinked at /tmp/ai-kit-test-l2GQCl/.ezcorp/extensions/ai-kit
+ai-kit: data directory initialized at /tmp/ai-kit-test-AWyBfN/.ezcorp/extension-data/ai-kit
+  (project root: /tmp/ai-kit-test-AWyBfN)
+Installed: ezcorp extension symlinked at /tmp/ai-kit-test-AWyBfN/.ezcorp/extensions/ai-kit
+ai-kit: data directory initialized at /tmp/ai-kit-test-AWyBfN/.ezcorp/extension-data/ai-kit
+  (project root: /tmp/ai-kit-test-AWyBfN)
+Installed: ezcorp extension symlinked at /tmp/ai-kit-test-AWyBfN/.ezcorp/extensions/ai-kit
+[dry-run] Would create symlink: /tmp/ai-kit-test-Mfcdjb/.ezcorp/extensions/ai-kit -> /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/packages/@ezcorp/ai-kit
+[dry-run] Would run: bun /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/packages/@ezcorp/ai-kit/scripts/postinstall.ts
+Installed: claude-code MCP config written.
+Installed: cursor MCP config written.
+Installed: zed context_servers config written.
+Installed: windsurf MCP config written.
+
+ 213 pass
+ 22 skip
+ 0 fail
+ 522 expect() calls
+Ran 235 tests across 23 files. [5.31s]
+
+── leg output: vitest ──
+
+ RUN  v4.1.6 /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/web
+      Coverage enabled with v8
+
+{"ts":"2026-08-04T22:00:09.009Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"test","teardownCount":3}
+{"ts":"2026-08-04T22:00:09.010Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"c","ms":0}
+{"ts":"2026-08-04T22:00:09.010Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"b","ms":0}
+{"ts":"2026-08-04T22:00:09.010Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"a","ms":0}
+{"ts":"2026-08-04T22:00:09.010Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"test"}
+{"ts":"2026-08-04T22:00:09.012Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"test","teardownCount":1}
+{"ts":"2026-08-04T22:00:09.012Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"dup","ms":0}
+{"ts":"2026-08-04T22:00:09.012Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"test"}
+{"ts":"2026-08-04T22:00:09.012Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"test","teardownCount":1}
+{"ts":"2026-08-04T22:00:09.013Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"async","ms":1}
+{"ts":"2026-08-04T22:00:09.013Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"test"}
+{"ts":"2026-08-04T22:00:09.013Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"test","teardownCount":1}
+{"ts":"2026-08-04T22:00:09.013Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"observe","ms":0}
+{"ts":"2026-08-04T22:00:09.013Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"test"}
+{"ts":"2026-08-04T22:00:09.013Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"test","teardownCount":0}
+{"ts":"2026-08-04T22:00:09.013Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"test"}
+{"ts":"2026-08-04T22:00:09.014Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"first","teardownCount":1}
+{"ts":"2026-08-04T22:00:09.014Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"once","ms":0}
+{"ts":"2026-08-04T22:00:09.014Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"first"}
+{"ts":"2026-08-04T22:00:09.014Z","level":"info","msg":"shutdown already in progress — ignoring re-trigger","subsystem":"shutdown","reason":"second"}
+{"ts":"2026-08-04T22:00:09.014Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"test","teardownCount":3}
+{"ts":"2026-08-04T22:00:09.014Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"late","ms":0}
+{"ts":"2026-08-04T22:00:09.014Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"db","ms":0}
+{"ts":"2026-08-04T22:00:09.014Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"test"}
+{"ts":"2026-08-04T22:00:09.014Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"test","teardownCount":2}
+{"ts":"2026-08-04T22:00:09.014Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"ok","ms":0}
+{"ts":"2026-08-04T22:00:09.014Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"test"}
+{"ts":"2026-08-04T22:00:09.015Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"timeout-test","teardownCount":1}
+{"ts":"2026-08-04T22:00:34.016Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"hang","ms":25001}
+{"ts":"2026-08-04T22:00:34.016Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"timeout-test"}
+{"ts":"2026-08-04T22:00:09.018Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"SIGTERM","teardownCount":1}
+{"ts":"2026-08-04T22:00:09.018Z","level":"info","msg":"shutdown already in progress — ignoring re-trigger","subsystem":"shutdown","reason":"SIGTERM"}
+{"ts":"2026-08-04T22:00:09.018Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"t","ms":0}
+{"ts":"2026-08-04T22:00:09.018Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"SIGTERM"}
+{"ts":"2026-08-04T22:00:09.014Z","level":"error","msg":"teardown failed","subsystem":"shutdown","name":"boom","error":"Error: kaboom"}
+{"ts":"2026-08-04T22:00:09.014Z","level":"error","msg":"teardown failed","subsystem":"shutdown","name":"reject","error":"Error: async-fail"}
+{"ts":"2026-08-04T22:00:34.015Z","level":"error","msg":"forced-exit — shutdown teardown exceeded hard timeout","subsystem":"shutdown","timeoutMs":25000,"pending":1}
+{"ts":"2026-08-04T22:00:09.029Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"sveltekit:shutdown:deploy","teardownCount":1}
+{"ts":"2026-08-04T22:00:09.029Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"t","ms":0}
+{"ts":"2026-08-04T22:00:09.029Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"sveltekit:shutdown:deploy"}
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+6:00:10 PM [vite-plugin-svelte] src/routes/(app)/extensions/author/+page.svelte:20:50 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+https://svelte.dev/e/state_referenced_locally
+6:00:10 PM [vite-plugin-svelte] src/routes/(app)/extensions/author/+page.svelte:22:32 This reference only captures the initial value of `fileNames`. Did you mean to reference it inside a derived instead?
+https://svelte.dev/e/state_referenced_locally
+6:00:10 PM [vite-plugin-svelte] src/routes/(app)/extensions/author/+page.svelte:251:8 A form label must be associated with a control
+https://svelte.dev/e/a11y_label_has_associated_control
+{"ts":"2026-08-04T22:00:11.946Z","level":"error","msg":"installAuthoredDraft: registry reload failed after install","subsystem":"ext.extension-author.author-install","extensionId":"ext-installed","error":"registry boom"}
+{"ts":"2026-08-04T22:00:13.586Z","level":"error","msg":"memory disappeared between read and write","subsystem":"api.memories","memoryId":"mem-1"}
+{"ts":"2026-08-04T22:00:15.545Z","level":"warn","msg":"page-state invalidation wiring failed — will retry on the next render","subsystem":"hub.render-pull","error":"Server not initialized"}
+{"ts":"2026-08-04T22:00:17.177Z","level":"error","msg":"retry streamChat error","subsystem":"api.retry","error":"boom"}
+
+ Test Files  200 passed (200)
+      Tests  3457 passed (3457)
+   Start at  18:00:06
+   Duration  20.61s (transform 53.21s, setup 95.42s, import 106.40s, tests 20.50s, environment 125.58s)
+
+tolerated leg exit codes (not gated): sdk=0 suggest=0
+
+── leg output: security ──
+Running 16 security bun:test suites under --coverage (6 parallel)...
+merged 148 source files → /tmp/tmp.CuNTTXQoRH/merged.lcov
+wrote 9 security source record(s) → /tmp/tmp.yIwepvf29o/sec_out/lcov_security.info
+
+================================
+  22467 pass | 0 fail | 1275 shards
+================================
+merged 1337 source files → coverage/lcov.info
+Coverage gate PASSED: 982 enforced file(s) at or above threshold.
+EXIT_CODE=0

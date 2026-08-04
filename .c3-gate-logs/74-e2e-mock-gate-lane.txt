@@ -1,0 +1,761 @@
+[1A[2K[2m[WebServer] [22m[0m[2m[35m$[0m [2m[1mbunx --bun vite build[0m
+
+[1A[2K[2m[WebServer] [22m[33m6:05:48 PM [vite-plugin-svelte] src/routes/(app)/extensions/[id]/audit/+page.svelte:19:22 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[2m[WebServer] [22mhttps://svelte.dev/e/state_referenced_locally[39m
+[2m[WebServer] [22m17:   type CapabilityFilter = "all" | "llm" | "memory" | "lessons" | "schedule" | "events" | "denials";
+[2m[WebServer] [22m18: 
+[2m[WebServer] [22m19:   let entries = $state(data.entries);
+[2m[WebServer] [22m                               ^
+[2m[WebServer] [22m20:   let nextCursor = $state<string | null>(data.nextCursor);
+[2m[WebServer] [22m21:   let stats = $state(data.stats);
+[2m[WebServer] [22m[33m6:05:48 PM [vite-plugin-svelte] src/routes/(app)/extensions/[id]/audit/+page.svelte:20:40 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[2m[WebServer] [22mhttps://svelte.dev/e/state_referenced_locally[39m
+[2m[WebServer] [22m18: 
+[2m[WebServer] [22m19:   let entries = $state(data.entries);
+[2m[WebServer] [22m20:   let nextCursor = $state<string | null>(data.nextCursor);
+[2m[WebServer] [22m                                                 ^
+[2m[WebServer] [22m21:   let stats = $state(data.stats);
+[2m[WebServer] [22m22:   let loading = $state(false);
+[2m[WebServer] [22m[33m6:05:48 PM [vite-plugin-svelte] src/routes/(app)/extensions/[id]/audit/+page.svelte:21:20 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[2m[WebServer] [22mhttps://svelte.dev/e/state_referenced_locally[39m
+[2m[WebServer] [22m19:   let entries = $state(data.entries);
+[2m[WebServer] [22m20:   let nextCursor = $state<string | null>(data.nextCursor);
+[2m[WebServer] [22m21:   let stats = $state(data.stats);
+[2m[WebServer] [22m                             ^
+[2m[WebServer] [22m22:   let loading = $state(false);
+[2m[WebServer] [22m23:   let activeFilter = $state<CapabilityFilter>("all");
+
+[1A[2K[2m[WebServer] [22m[33m6:05:49 PM [vite-plugin-svelte] src/routes/(app)/extensions/author/+page.svelte:20:50 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[2m[WebServer] [22mhttps://svelte.dev/e/state_referenced_locally[39m
+[2m[WebServer] [22m18: 
+[2m[WebServer] [22m19:   // Reactive copy of the file map. Keys are sorted for stable display.
+[2m[WebServer] [22m20:   let files = $state<Record<string, string>>({ ...data.files });
+[2m[WebServer] [22m                                                          ^
+[2m[WebServer] [22m21:   let fileNames = $derived(Object.keys(files).sort());
+[2m[WebServer] [22m22:   let selected = $state<string>(fileNames[0] ?? "");
+[2m[WebServer] [22m[33m6:05:49 PM [vite-plugin-svelte] src/routes/(app)/extensions/author/+page.svelte:22:32 This reference only captures the initial value of `fileNames`. Did you mean to reference it inside a derived instead?
+[2m[WebServer] [22mhttps://svelte.dev/e/state_referenced_locally[39m
+[2m[WebServer] [22m20:   let files = $state<Record<string, string>>({ ...data.files });
+[2m[WebServer] [22m21:   let fileNames = $derived(Object.keys(files).sort());
+[2m[WebServer] [22m22:   let selected = $state<string>(fileNames[0] ?? "");
+[2m[WebServer] [22m                                             ^
+[2m[WebServer] [22m23:   let saving = $state(false);
+[2m[WebServer] [22m24:   let validating = $state(false);
+[2m[WebServer] [22m[33m6:05:49 PM [vite-plugin-svelte] src/routes/(app)/extensions/author/+page.svelte:251:8 A form label must be associated with a control
+[2m[WebServer] [22mhttps://svelte.dev/e/a11y_label_has_associated_control[39m
+[2m[WebServer] [22m249:     <main class="code">
+[2m[WebServer] [22m250:       {#if selected}
+[2m[WebServer] [22m251:         <label class="file-header">
+[2m[WebServer] [22m                     ^
+[2m[WebServer] [22m252:           <span>{selected}</span>
+[2m[WebServer] [22m253:           {#if saving}<span class="saving">saving…</span>{/if}
+
+[1A[2K[2m[WebServer] [22m[33m6:05:49 PM [vite-plugin-svelte] src/routes/(app)/audit/+page.svelte:19:31 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[2m[WebServer] [22mhttps://svelte.dev/e/state_referenced_locally[39m
+[2m[WebServer] [22m17:   type Entry = (typeof data.entries)[number];
+[2m[WebServer] [22m18: 
+[2m[WebServer] [22m19:   let entries = $state<Entry[]>(data.entries);
+[2m[WebServer] [22m                                        ^
+[2m[WebServer] [22m20:   let nextCursor = $state<string | null>(data.nextCursor);
+[2m[WebServer] [22m21:   let stats = $state(data.stats);
+[2m[WebServer] [22m[33m6:05:49 PM [vite-plugin-svelte] src/routes/(app)/audit/+page.svelte:20:40 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[2m[WebServer] [22mhttps://svelte.dev/e/state_referenced_locally[39m
+[2m[WebServer] [22m18: 
+[2m[WebServer] [22m19:   let entries = $state<Entry[]>(data.entries);
+[2m[WebServer] [22m20:   let nextCursor = $state<string | null>(data.nextCursor);
+[2m[WebServer] [22m                                                 ^
+[2m[WebServer] [22m21:   let stats = $state(data.stats);
+[2m[WebServer] [22m22:   let loading = $state(false);
+[2m[WebServer] [22m[33m6:05:49 PM [vite-plugin-svelte] src/routes/(app)/audit/+page.svelte:21:20 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[2m[WebServer] [22mhttps://svelte.dev/e/state_referenced_locally[39m
+[2m[WebServer] [22m19:   let entries = $state<Entry[]>(data.entries);
+[2m[WebServer] [22m20:   let nextCursor = $state<string | null>(data.nextCursor);
+[2m[WebServer] [22m21:   let stats = $state(data.stats);
+[2m[WebServer] [22m                             ^
+[2m[WebServer] [22m22:   let loading = $state(false);
+[2m[WebServer] [22m23:   let extensionFacets = data.extensionFacets;
+[2m[WebServer] [22m[33m6:05:49 PM [vite-plugin-svelte] src/routes/(app)/audit/+page.svelte:23:23 This reference only captures the initial value of `data`. Did you mean to reference it inside a closure instead?
+[2m[WebServer] [22mhttps://svelte.dev/e/state_referenced_locally[39m
+[2m[WebServer] [22m21:   let stats = $state(data.stats);
+[2m[WebServer] [22m22:   let loading = $state(false);
+[2m[WebServer] [22m23:   let extensionFacets = data.extensionFacets;
+[2m[WebServer] [22m                                ^
+[2m[WebServer] [22m24: 
+[2m[WebServer] [22m25:   // Filter state
+
+[1A[2K[2m[WebServer] [22m[33m6:05:49 PM [vite-plugin-svelte] src/routes/(app)/extensions/+page.svelte:91:5 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[2m[WebServer] [22mhttps://svelte.dev/e/state_referenced_locally[39m
+[2m[WebServer] [22m89:   // `isBundled`.
+[2m[WebServer] [22m90:   let extensions = $state<ExtensionRecord[]>([
+[2m[WebServer] [22m91:     ...data.bundledExtensions,
+[2m[WebServer] [22m               ^
+[2m[WebServer] [22m92:     ...data.installedExtensions,
+[2m[WebServer] [22m93:   ]);
+[2m[WebServer] [22m[33m6:05:49 PM [vite-plugin-svelte] src/routes/(app)/extensions/+page.svelte:92:5 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[2m[WebServer] [22mhttps://svelte.dev/e/state_referenced_locally[39m
+[2m[WebServer] [22m90:   let extensions = $state<ExtensionRecord[]>([
+[2m[WebServer] [22m91:     ...data.bundledExtensions,
+[2m[WebServer] [22m92:     ...data.installedExtensions,
+[2m[WebServer] [22m               ^
+[2m[WebServer] [22m93:   ]);
+[2m[WebServer] [22m94:   let loading = $state(false);
+
+[1A[2K[2m[WebServer] [22m[33m6:05:49 PM [vite-plugin-svelte] src/routes/(app)/+layout.svelte:447:1 noninteractive element cannot have nonnegative tabIndex value
+[2m[WebServer] [22mhttps://svelte.dev/e/a11y_no_noninteractive_tabindex[39m
+[2m[WebServer] [22m445:     drops to 0 on mobile where the dock takes the full viewport.
+[2m[WebServer] [22m446:   -->
+[2m[WebServer] [22m447:   <main
+[2m[WebServer] [22m            ^
+[2m[WebServer] [22m448:     class="relative flex-1 overflow-y-auto {isChatRoute ? 'flex flex-col' : ''}"
+[2m[WebServer] [22m449:     style="padding-right: {reservedDockPx}px; transition: padding-right 200ms ease-in-out;"
+
+[1A[2K[2m[WebServer] [22m[33m6:05:49 PM [vite-plugin-svelte] src/lib/components/ChatThread.svelte:382:18 This reference only captures the initial value of `seedMessages`. Did you mean to reference it inside a closure instead?
+[2m[WebServer] [22mhttps://svelte.dev/e/state_referenced_locally[39m
+[2m[WebServer] [22m380:   // normal async load. `__seeded` also gates the async loader so the
+[2m[WebServer] [22m381:   // seed isn't clobbered by a `computeLatestLeaf` overwrite.
+[2m[WebServer] [22m382:   const __seeded = seedMessages !== undefined;
+[2m[WebServer] [22m                                    ^
+[2m[WebServer] [22m383:   // svelte-ignore state_referenced_locally
+[2m[WebServer] [22m384:   let allMessages = $state<Message[]>(
+
+[1A[2K[2m[WebServer] [22m[33m"ReadableStream" is imported from external module "node:stream/web" but never used in "src/routes/api/extensions/[name]/data/[...path]/+server.ts".[39m
+
+[1A[2K[2m[WebServer] [22m[33mExport "ToolExecutor" of module "../src/extensions/tool-executor/executor.ts" was reexported through module "../src/extensions/tool-executor/index.ts" while both modules are dependencies of each other and will end up in different chunks by current Rollup settings. This scenario is not well supported at the moment as it will produce a circular dependency between chunks and will likely lead to broken execution order.
+[2m[WebServer] [22mEither change the import in "src/routes/api/extensions/[name]/events/[event]/+server.ts" to point directly to the exporting module or reconfigure "output.manualChunks" to ensure these modules end up in the same chunk.[39m
+
+[1A[2K[2m[WebServer] [22m[33mExport "ToolExecutor" of module "../src/extensions/tool-executor/executor.ts" was reexported through module "../src/extensions/tool-executor/index.ts" while both modules are dependencies of each other and will end up in different chunks by current Rollup settings. This scenario is not well supported at the moment as it will produce a circular dependency between chunks and will likely lead to broken execution order.
+[2m[WebServer] [22mEither change the import in "src/routes/api/tool-invoke/+server.ts" to point directly to the exporting module or reconfigure "output.manualChunks" to ensure these modules end up in the same chunk.[39m
+
+[1A[2K[2m[WebServer] [22m[33mExport "ToolExecutor" of module "../src/extensions/tool-executor/executor.ts" was reexported through module "../src/extensions/tool-executor/index.ts" while both modules are dependencies of each other and will end up in different chunks by current Rollup settings. This scenario is not well supported at the moment as it will produce a circular dependency between chunks and will likely lead to broken execution order.
+[2m[WebServer] [22mEither change the import in "../src/runtime/ask-user-host.ts" to point directly to the exporting module or reconfigure "output.manualChunks" to ensure these modules end up in the same chunk.[39m
+
+[1A[2K[2m[WebServer] [22m[33mExport "ToolExecutor" of module "../src/extensions/tool-executor/executor.ts" was reexported through module "../src/extensions/tool-executor/index.ts" while both modules are dependencies of each other and will end up in different chunks by current Rollup settings. This scenario is not well supported at the moment as it will produce a circular dependency between chunks and will likely lead to broken execution order.
+[2m[WebServer] [22mEither change the import in "../src/runtime/orchestration-host.ts" to point directly to the exporting module or reconfigure "output.manualChunks" to ensure these modules end up in the same chunk.[39m
+
+[1A[2K[2m[WebServer] [22m[33mExport "ToolExecutor" of module "../src/extensions/tool-executor/executor.ts" was reexported through module "../src/extensions/tool-executor/index.ts" while both modules are dependencies of each other and will end up in different chunks by current Rollup settings. This scenario is not well supported at the moment as it will produce a circular dependency between chunks and will likely lead to broken execution order.
+[2m[WebServer] [22mEither change the import in "src/routes/api/ez-actions/[name]/+server.ts" to point directly to the exporting module or reconfigure "output.manualChunks" to ensure these modules end up in the same chunk.[39m
+
+[1A[2K[2m[WebServer] [22m[33mExport "ToolExecutor" of module "../src/extensions/tool-executor/executor.ts" was reexported through module "../src/extensions/tool-executor/index.ts" while both modules are dependencies of each other and will end up in different chunks by current Rollup settings. This scenario is not well supported at the moment as it will produce a circular dependency between chunks and will likely lead to broken execution order.
+[2m[WebServer] [22mEither change the import in "../src/runtime/stream-chat/setup-tools.ts" to point directly to the exporting module or reconfigure "output.manualChunks" to ensure these modules end up in the same chunk.[39m
+
+[1A[2K[2m[WebServer] [22m[33mExport "ToolExecutor" of module "../src/extensions/tool-executor/executor.ts" was reexported through module "../src/extensions/tool-executor/index.ts" while both modules are dependencies of each other and will end up in different chunks by current Rollup settings. This scenario is not well supported at the moment as it will produce a circular dependency between chunks and will likely lead to broken execution order.
+[2m[WebServer] [22mEither change the import in "../src/runtime/executor.ts" to point directly to the exporting module or reconfigure "output.manualChunks" to ensure these modules end up in the same chunk.[39m
+
+[1A[2K[2m[WebServer] [22m[33mExport "ToolExecutor" of module "../src/extensions/tool-executor/executor.ts" was reexported through module "../src/extensions/tool-executor/index.ts" while both modules are dependencies of each other and will end up in different chunks by current Rollup settings. This scenario is not well supported at the moment as it will produce a circular dependency between chunks and will likely lead to broken execution order.
+[2m[WebServer] [22mEither change the import in "src/lib/server/context.ts" to point directly to the exporting module or reconfigure "output.manualChunks" to ensure these modules end up in the same chunk.[39m
+
+[1A[2K[2m[WebServer] [22m[33m[esbuild css minify]
+[2m[WebServer] [22m▲ [WARNING] "file" is not a known CSS property [unsupported-css-property]
+[2m[WebServer] [22m
+[2m[WebServer] [22m    <stdin>:2:83115:
+[2m[WebServer] [22m      2 │ ...important}.\!\[file\:\.\.\.\]{file:...!important}.\!\[file\:a\.t...
+[2m[WebServer] [22m        │                                  ~~~~
+[2m[WebServer] [22m        ╵                                  flex
+[2m[WebServer] [22m
+[2m[WebServer] [22m  Did you mean "flex" instead?
+[2m[WebServer] [22m
+[2m[WebServer] [22m
+[2m[WebServer] [22m▲ [WARNING] "file" is not a known CSS property [unsupported-css-property]
+[2m[WebServer] [22m
+[2m[WebServer] [22m    <stdin>:2:83153:
+[2m[WebServer] [22m      2 │ ...!important}.\!\[file\:a\.ts\]{file:a.ts!important}.\!\[file\:foo...
+[2m[WebServer] [22m        │                                  ~~~~
+[2m[WebServer] [22m        ╵                                  flex
+[2m[WebServer] [22m
+[2m[WebServer] [22m  Did you mean "flex" instead?
+[2m[WebServer] [22m
+[2m[WebServer] [22m
+[2m[WebServer] [22m▲ [WARNING] "file" is not a known CSS property [unsupported-css-property]
+[2m[WebServer] [22m
+[2m[WebServer] [22m    <stdin>:2:83194:
+[2m[WebServer] [22m      2 │ ...mportant}.\!\[file\:foo\.ts\]{file:foo.ts!important}.\!\[kind\:n...
+[2m[WebServer] [22m        │                                  ~~~~
+[2m[WebServer] [22m        ╵                                  flex
+[2m[WebServer] [22m
+[2m[WebServer] [22m  Did you mean "flex" instead?
+[2m[WebServer] [22m
+[2m[WebServer] [22m[39m
+
+[1A[2K[2m[WebServer] [22m[33m[plugin vite:reporter] 
+[2m[WebServer] [22m(!) /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/src/db/queries/error-logs.ts is dynamically imported by /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/src/logger.ts but also statically imported by /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/src/db/queries/analytics.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/src/db/queries/audit-log.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/src/db/queries/tool-calls.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/src/extensions/recordCapabilityCall.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/src/startup/background-timers.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/web/src/routes/api/admin/errors/+server.ts, dynamic import will not move module into another chunk.
+[2m[WebServer] [22m[39m
+
+[1A[2K[2m[WebServer] [22m[33m[plugin vite:reporter] 
+[2m[WebServer] [22m(!) /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/src/extensions/registry.ts is dynamically imported by /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/src/extensions/subprocess.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/src/extensions/webhook-delivery-daemon.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/src/runtime/stream-chat/setup-tools.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/web/src/lib/server/hub-render-pull.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/web/src/routes/api/mentions/search/+server.ts but also statically imported by /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/src/db/queries/conversation-extensions.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/src/extensions/author-install.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/src/extensions/installer.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/src/extensions/mcp-sandbox.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/src/extensions/sdk/test-helpers.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/src/runtime/executor.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/src/runtime/stream-chat/setup-tools.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/src/runtime/stream-chat/subscribe-bridge.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/src/runtime/workflow-delegation-record.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/src/runtime/workflow-tool-runner.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/src/startup/background-timers.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/web/src/lib/server/context.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/web/src/lib/server/extensions/activate-extension.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/web/src/lib/server/scoped-tools.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/web/src/lib/server/security/bundled-creds.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/web/src/lib/server/security/openai-extension-creds.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/web/src/routes/api/extensions/+server.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/web/src/routes/api/extensions/[id]/+server.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/web/src/routes/api/extensions/[id]/permissions/+server.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/web/src/routes/api/extensions/[id]/reapprove-drift/+server.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/web/src/routes/api/extensions/[id]/reapprove/+server.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/web/src/routes/api/extensions/[name]/events/[event]/+server.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/web/src/routes/api/extensions/[name]/tools/+server.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/web/src/routes/api/ez-actions/[name]/+server.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/web/src/routes/api/import/commit/+server.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/web/src/routes/api/mcp-servers/+server.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/web/src/routes/api/mcp-servers/[id]/+server.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/web/src/routes/api/mcp-servers/[id]/refresh/+server.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/web/src/routes/api/tool-invoke/+server.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/web/src/routes/api/workflows/delegations/+server.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/web/src/routes/api/workflows/delegations/preview/+server.ts, dynamic import will not move module into another chunk.
+[2m[WebServer] [22m[39m
+
+[1A[2K[2m[WebServer] [22m[33m6:05:55 PM [vite-plugin-svelte] src/routes/(app)/audit/+page.svelte:19:31 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[2m[WebServer] [22mhttps://svelte.dev/e/state_referenced_locally[39m
+[2m[WebServer] [22m17:   type Entry = (typeof data.entries)[number];
+[2m[WebServer] [22m18: 
+[2m[WebServer] [22m19:   let entries = $state<Entry[]>(data.entries);
+[2m[WebServer] [22m                                        ^
+[2m[WebServer] [22m20:   let nextCursor = $state<string | null>(data.nextCursor);
+[2m[WebServer] [22m21:   let stats = $state(data.stats);
+[2m[WebServer] [22m[33m6:05:55 PM [vite-plugin-svelte] src/routes/(app)/audit/+page.svelte:20:40 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[2m[WebServer] [22mhttps://svelte.dev/e/state_referenced_locally[39m
+[2m[WebServer] [22m18: 
+[2m[WebServer] [22m19:   let entries = $state<Entry[]>(data.entries);
+[2m[WebServer] [22m20:   let nextCursor = $state<string | null>(data.nextCursor);
+[2m[WebServer] [22m                                                 ^
+[2m[WebServer] [22m21:   let stats = $state(data.stats);
+[2m[WebServer] [22m22:   let loading = $state(false);
+[2m[WebServer] [22m[33m6:05:55 PM [vite-plugin-svelte] src/routes/(app)/audit/+page.svelte:21:20 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[2m[WebServer] [22mhttps://svelte.dev/e/state_referenced_locally[39m
+[2m[WebServer] [22m19:   let entries = $state<Entry[]>(data.entries);
+[2m[WebServer] [22m20:   let nextCursor = $state<string | null>(data.nextCursor);
+[2m[WebServer] [22m21:   let stats = $state(data.stats);
+[2m[WebServer] [22m                             ^
+[2m[WebServer] [22m22:   let loading = $state(false);
+[2m[WebServer] [22m23:   let extensionFacets = data.extensionFacets;
+[2m[WebServer] [22m[33m6:05:55 PM [vite-plugin-svelte] src/routes/(app)/audit/+page.svelte:23:23 This reference only captures the initial value of `data`. Did you mean to reference it inside a closure instead?
+[2m[WebServer] [22mhttps://svelte.dev/e/state_referenced_locally[39m
+[2m[WebServer] [22m21:   let stats = $state(data.stats);
+[2m[WebServer] [22m22:   let loading = $state(false);
+[2m[WebServer] [22m23:   let extensionFacets = data.extensionFacets;
+[2m[WebServer] [22m                                ^
+[2m[WebServer] [22m24: 
+[2m[WebServer] [22m25:   // Filter state
+
+[1A[2K[2m[WebServer] [22m[33m6:05:55 PM [vite-plugin-svelte] src/routes/(app)/extensions/+page.svelte:91:5 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[2m[WebServer] [22mhttps://svelte.dev/e/state_referenced_locally[39m
+[2m[WebServer] [22m89:   // `isBundled`.
+[2m[WebServer] [22m90:   let extensions = $state<ExtensionRecord[]>([
+[2m[WebServer] [22m91:     ...data.bundledExtensions,
+[2m[WebServer] [22m               ^
+[2m[WebServer] [22m92:     ...data.installedExtensions,
+[2m[WebServer] [22m93:   ]);
+[2m[WebServer] [22m[33m6:05:55 PM [vite-plugin-svelte] src/routes/(app)/extensions/+page.svelte:92:5 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[2m[WebServer] [22mhttps://svelte.dev/e/state_referenced_locally[39m
+[2m[WebServer] [22m90:   let extensions = $state<ExtensionRecord[]>([
+[2m[WebServer] [22m91:     ...data.bundledExtensions,
+[2m[WebServer] [22m92:     ...data.installedExtensions,
+[2m[WebServer] [22m               ^
+[2m[WebServer] [22m93:   ]);
+[2m[WebServer] [22m94:   let loading = $state(false);
+
+[1A[2K[2m[WebServer] [22m[33m6:05:55 PM [vite-plugin-svelte] src/routes/(app)/extensions/author/+page.svelte:20:50 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[2m[WebServer] [22mhttps://svelte.dev/e/state_referenced_locally[39m
+[2m[WebServer] [22m18: 
+[2m[WebServer] [22m19:   // Reactive copy of the file map. Keys are sorted for stable display.
+[2m[WebServer] [22m20:   let files = $state<Record<string, string>>({ ...data.files });
+[2m[WebServer] [22m                                                          ^
+[2m[WebServer] [22m21:   let fileNames = $derived(Object.keys(files).sort());
+[2m[WebServer] [22m22:   let selected = $state<string>(fileNames[0] ?? "");
+[2m[WebServer] [22m[33m6:05:55 PM [vite-plugin-svelte] src/routes/(app)/extensions/author/+page.svelte:22:32 This reference only captures the initial value of `fileNames`. Did you mean to reference it inside a derived instead?
+[2m[WebServer] [22mhttps://svelte.dev/e/state_referenced_locally[39m
+[2m[WebServer] [22m20:   let files = $state<Record<string, string>>({ ...data.files });
+[2m[WebServer] [22m21:   let fileNames = $derived(Object.keys(files).sort());
+[2m[WebServer] [22m22:   let selected = $state<string>(fileNames[0] ?? "");
+[2m[WebServer] [22m                                             ^
+[2m[WebServer] [22m23:   let saving = $state(false);
+[2m[WebServer] [22m24:   let validating = $state(false);
+[2m[WebServer] [22m[33m6:05:55 PM [vite-plugin-svelte] src/routes/(app)/extensions/author/+page.svelte:251:8 A form label must be associated with a control
+[2m[WebServer] [22mhttps://svelte.dev/e/a11y_label_has_associated_control[39m
+[2m[WebServer] [22m249:     <main class="code">
+[2m[WebServer] [22m250:       {#if selected}
+[2m[WebServer] [22m251:         <label class="file-header">
+[2m[WebServer] [22m                     ^
+[2m[WebServer] [22m252:           <span>{selected}</span>
+[2m[WebServer] [22m253:           {#if saving}<span class="saving">saving…</span>{/if}
+
+[1A[2K[2m[WebServer] [22m[33m6:05:55 PM [vite-plugin-svelte] src/routes/(app)/extensions/[id]/audit/+page.svelte:19:22 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[2m[WebServer] [22mhttps://svelte.dev/e/state_referenced_locally[39m
+[2m[WebServer] [22m17:   type CapabilityFilter = "all" | "llm" | "memory" | "lessons" | "schedule" | "events" | "denials";
+[2m[WebServer] [22m18: 
+[2m[WebServer] [22m19:   let entries = $state(data.entries);
+[2m[WebServer] [22m                               ^
+[2m[WebServer] [22m20:   let nextCursor = $state<string | null>(data.nextCursor);
+[2m[WebServer] [22m21:   let stats = $state(data.stats);
+[2m[WebServer] [22m[33m6:05:55 PM [vite-plugin-svelte] src/routes/(app)/extensions/[id]/audit/+page.svelte:20:40 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[2m[WebServer] [22mhttps://svelte.dev/e/state_referenced_locally[39m
+[2m[WebServer] [22m18: 
+[2m[WebServer] [22m19:   let entries = $state(data.entries);
+[2m[WebServer] [22m20:   let nextCursor = $state<string | null>(data.nextCursor);
+[2m[WebServer] [22m                                                 ^
+[2m[WebServer] [22m21:   let stats = $state(data.stats);
+[2m[WebServer] [22m22:   let loading = $state(false);
+[2m[WebServer] [22m[33m6:05:55 PM [vite-plugin-svelte] src/routes/(app)/extensions/[id]/audit/+page.svelte:21:20 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[2m[WebServer] [22mhttps://svelte.dev/e/state_referenced_locally[39m
+[2m[WebServer] [22m19:   let entries = $state(data.entries);
+[2m[WebServer] [22m20:   let nextCursor = $state<string | null>(data.nextCursor);
+[2m[WebServer] [22m21:   let stats = $state(data.stats);
+[2m[WebServer] [22m                             ^
+[2m[WebServer] [22m22:   let loading = $state(false);
+[2m[WebServer] [22m23:   let activeFilter = $state<CapabilityFilter>("all");
+
+[1A[2K[2m[WebServer] [22m[33m6:05:55 PM [vite-plugin-svelte] src/routes/(app)/+layout.svelte:447:1 noninteractive element cannot have nonnegative tabIndex value
+[2m[WebServer] [22mhttps://svelte.dev/e/a11y_no_noninteractive_tabindex[39m
+[2m[WebServer] [22m445:     drops to 0 on mobile where the dock takes the full viewport.
+[2m[WebServer] [22m446:   -->
+[2m[WebServer] [22m447:   <main
+[2m[WebServer] [22m            ^
+[2m[WebServer] [22m448:     class="relative flex-1 overflow-y-auto {isChatRoute ? 'flex flex-col' : ''}"
+[2m[WebServer] [22m449:     style="padding-right: {reservedDockPx}px; transition: padding-right 200ms ease-in-out;"
+
+[1A[2K[2m[WebServer] [22m[33m6:05:56 PM [vite-plugin-svelte] src/lib/components/ChatThread.svelte:382:18 This reference only captures the initial value of `seedMessages`. Did you mean to reference it inside a closure instead?
+[2m[WebServer] [22mhttps://svelte.dev/e/state_referenced_locally[39m
+[2m[WebServer] [22m380:   // normal async load. `__seeded` also gates the async loader so the
+[2m[WebServer] [22m381:   // seed isn't clobbered by a `computeLatestLeaf` overwrite.
+[2m[WebServer] [22m382:   const __seeded = seedMessages !== undefined;
+[2m[WebServer] [22m                                    ^
+[2m[WebServer] [22m383:   // svelte-ignore state_referenced_locally
+[2m[WebServer] [22m384:   let allMessages = $state<Message[]>(
+
+[1A[2K[2m[WebServer] [22m[33m[esbuild css minify]
+[2m[WebServer] [22m▲ [WARNING] "file" is not a known CSS property [unsupported-css-property]
+[2m[WebServer] [22m
+[2m[WebServer] [22m    <stdin>:2:83115:
+[2m[WebServer] [22m      2 │ ...important}.\!\[file\:\.\.\.\]{file:...!important}.\!\[file\:a\.t...
+[2m[WebServer] [22m        │                                  ~~~~
+[2m[WebServer] [22m        ╵                                  flex
+[2m[WebServer] [22m
+[2m[WebServer] [22m  Did you mean "flex" instead?
+[2m[WebServer] [22m
+[2m[WebServer] [22m
+[2m[WebServer] [22m▲ [WARNING] "file" is not a known CSS property [unsupported-css-property]
+[2m[WebServer] [22m
+[2m[WebServer] [22m    <stdin>:2:83153:
+[2m[WebServer] [22m      2 │ ...!important}.\!\[file\:a\.ts\]{file:a.ts!important}.\!\[file\:foo...
+[2m[WebServer] [22m        │                                  ~~~~
+[2m[WebServer] [22m        ╵                                  flex
+[2m[WebServer] [22m
+[2m[WebServer] [22m  Did you mean "flex" instead?
+[2m[WebServer] [22m
+[2m[WebServer] [22m
+[2m[WebServer] [22m▲ [WARNING] "file" is not a known CSS property [unsupported-css-property]
+[2m[WebServer] [22m
+[2m[WebServer] [22m    <stdin>:2:83194:
+[2m[WebServer] [22m      2 │ ...mportant}.\!\[file\:foo\.ts\]{file:foo.ts!important}.\!\[kind\:n...
+[2m[WebServer] [22m        │                                  ~~~~
+[2m[WebServer] [22m        ╵                                  flex
+[2m[WebServer] [22m
+[2m[WebServer] [22m  Did you mean "flex" instead?
+[2m[WebServer] [22m
+[2m[WebServer] [22m[39m
+
+[1A[2K[2m[WebServer] [22m[33m
+[2m[WebServer] [22m(!) Some chunks are larger than 500 kB after minification. Consider:
+[2m[WebServer] [22m- Using dynamic import() to code-split the application
+[2m[WebServer] [22m- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+[2m[WebServer] [22m- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.[39m
+
+[1A[2K[2m[WebServer] [22m.svelte-kit/adapter-bun/chunks/bundled.js (11:52) [33m[UNRESOLVED_IMPORT] Warning:[0m Could not resolve 'bun:ffi' in .svelte-kit/adapter-bun/chunks/bundled.js
+[2m[WebServer] [22m    [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m .svelte-kit/adapter-bun/chunks/bundled.js:11:53 [38;5;246m][0m
+[2m[WebServer] [22m    [38;5;246m│[0m
+[2m[WebServer] [22m [38;5;246m11 │[0m [38;5;249mi[0m[38;5;249mm[0m[38;5;249mp[0m[38;5;249mo[0m[38;5;249mr[0m[38;5;249mt[0m[38;5;249m [0m[38;5;249m{[0m[38;5;249m [0m[38;5;249mF[0m[38;5;249mF[0m[38;5;249mI[0m[38;5;249mT[0m[38;5;249my[0m[38;5;249mp[0m[38;5;249me[0m[38;5;249m,[0m[38;5;249m [0m[38;5;249md[0m[38;5;249ml[0m[38;5;249mo[0m[38;5;249mp[0m[38;5;249me[0m[38;5;249mn[0m[38;5;249m,[0m[38;5;249m [0m[38;5;249mp[0m[38;5;249mt[0m[38;5;249mr[0m[38;5;249m,[0m[38;5;249m [0m[38;5;249mt[0m[38;5;249mo[0m[38;5;249mA[0m[38;5;249mr[0m[38;5;249mr[0m[38;5;249ma[0m[38;5;249my[0m[38;5;249mB[0m[38;5;249mu[0m[38;5;249mf[0m[38;5;249mf[0m[38;5;249me[0m[38;5;249mr[0m[38;5;249m [0m[38;5;249m}[0m[38;5;249m [0m[38;5;249mf[0m[38;5;249mr[0m[38;5;249mo[0m[38;5;249mm[0m[38;5;249m [0m"bun:ffi"[38;5;249m;[0m
+[2m[WebServer] [22m [38;5;240m   │[0m                                                     ────┬────  
+[2m[WebServer] [22m [38;5;240m   │[0m                                                         ╰────── Module not found, treating it as an external dependency
+[2m[WebServer] [22m[38;5;246m────╯[0m
+[2m[WebServer] [22m
+
+[1A[2K[2m[WebServer] [22m../node_modules/.bun/drizzle-orm@0.45.2+12e193dad3561cdc/node_modules/drizzle-orm/bun-sql/driver.js (1:20) [33m[UNRESOLVED_IMPORT] Warning:[0m Could not resolve 'bun' in ../node_modules/.bun/drizzle-orm@0.45.2+12e193dad3561cdc/node_modules/drizzle-orm/bun-sql/driver.js
+[2m[WebServer] [22m   [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m ../node_modules/.bun/drizzle-orm@0.45.2+12e193dad3561cdc/node_modules/drizzle-orm/bun-sql/driver.js:1:21 [38;5;246m][0m
+[2m[WebServer] [22m   [38;5;246m│[0m
+[2m[WebServer] [22m [38;5;246m1 │[0m [38;5;249mi[0m[38;5;249mm[0m[38;5;249mp[0m[38;5;249mo[0m[38;5;249mr[0m[38;5;249mt[0m[38;5;249m [0m[38;5;249m{[0m[38;5;249m [0m[38;5;249mS[0m[38;5;249mQ[0m[38;5;249mL[0m[38;5;249m [0m[38;5;249m}[0m[38;5;249m [0m[38;5;249mf[0m[38;5;249mr[0m[38;5;249mo[0m[38;5;249mm[0m[38;5;249m [0m"bun"[38;5;249m;[0m
+[2m[WebServer] [22m [38;5;240m  │[0m                     ──┬──  
+[2m[WebServer] [22m [38;5;240m  │[0m                       ╰──── Module not found, treating it as an external dependency
+[2m[WebServer] [22m[38;5;246m───╯[0m
+[2m[WebServer] [22m
+[2m[WebServer] [22m../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/index.js (3:19) [33m[UNRESOLVED_IMPORT] Warning:[0m Could not resolve 'child_process' in ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/index.js
+[2m[WebServer] [22m   [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/index.js:3:20 [38;5;246m][0m
+[2m[WebServer] [22m   [38;5;246m│[0m
+[2m[WebServer] [22m [38;5;246m3 │[0m [38;5;249mc[0m[38;5;249mo[0m[38;5;249mn[0m[38;5;249ms[0m[38;5;249mt[0m[38;5;249m [0m[38;5;249mc[0m[38;5;249mp[0m[38;5;249m [0m[38;5;249m=[0m[38;5;249m [0m[38;5;249mr[0m[38;5;249me[0m[38;5;249mq[0m[38;5;249mu[0m[38;5;249mi[0m[38;5;249mr[0m[38;5;249me[0m[38;5;249m([0m'child_process'[38;5;249m)[0m[38;5;249m;[0m
+[2m[WebServer] [22m [38;5;240m  │[0m                    ───────┬───────  
+[2m[WebServer] [22m [38;5;240m  │[0m                           ╰───────── Module not found, treating it as an external dependency
+[2m[WebServer] [22m[38;5;246m───╯[0m
+[2m[WebServer] [22m
+
+[1A[2K[2m[WebServer] [22m../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/parse.js (3:21) [33m[UNRESOLVED_IMPORT] Warning:[0m Could not resolve 'path' in ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/parse.js
+[2m[WebServer] [22m   [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/parse.js:3:22 [38;5;246m][0m
+[2m[WebServer] [22m   [38;5;246m│[0m
+[2m[WebServer] [22m [38;5;246m3 │[0m [38;5;249mc[0m[38;5;249mo[0m[38;5;249mn[0m[38;5;249ms[0m[38;5;249mt[0m[38;5;249m [0m[38;5;249mp[0m[38;5;249ma[0m[38;5;249mt[0m[38;5;249mh[0m[38;5;249m [0m[38;5;249m=[0m[38;5;249m [0m[38;5;249mr[0m[38;5;249me[0m[38;5;249mq[0m[38;5;249mu[0m[38;5;249mi[0m[38;5;249mr[0m[38;5;249me[0m[38;5;249m([0m'path'[38;5;249m)[0m[38;5;249m;[0m
+[2m[WebServer] [22m [38;5;240m  │[0m                      ───┬──  
+[2m[WebServer] [22m [38;5;240m  │[0m                         ╰──── Module not found, treating it as an external dependency
+[2m[WebServer] [22m[38;5;246m───╯[0m
+[2m[WebServer] [22m
+
+[1A[2K[2m[WebServer] [22m../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/util/readShebang.js (3:19) [33m[UNRESOLVED_IMPORT] Warning:[0m Could not resolve 'fs' in ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/util/readShebang.js
+[2m[WebServer] [22m   [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/util/readShebang.js:3:20 [38;5;246m][0m
+[2m[WebServer] [22m   [38;5;246m│[0m
+[2m[WebServer] [22m [38;5;246m3 │[0m [38;5;249mc[0m[38;5;249mo[0m[38;5;249mn[0m[38;5;249ms[0m[38;5;249mt[0m[38;5;249m [0m[38;5;249mf[0m[38;5;249ms[0m[38;5;249m [0m[38;5;249m=[0m[38;5;249m [0m[38;5;249mr[0m[38;5;249me[0m[38;5;249mq[0m[38;5;249mu[0m[38;5;249mi[0m[38;5;249mr[0m[38;5;249me[0m[38;5;249m([0m'fs'[38;5;249m)[0m[38;5;249m;[0m
+[2m[WebServer] [22m [38;5;240m  │[0m                    ──┬─  
+[2m[WebServer] [22m [38;5;240m  │[0m                      ╰─── Module not found, treating it as an external dependency
+[2m[WebServer] [22m[38;5;246m───╯[0m
+[2m[WebServer] [22m
+
+[1A[2K[2m[WebServer] [22m../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/util/resolveCommand.js (3:21) [33m[UNRESOLVED_IMPORT] Warning:[0m Could not resolve 'path' in ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/util/resolveCommand.js
+[2m[WebServer] [22m   [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/util/resolveCommand.js:3:22 [38;5;246m][0m
+[2m[WebServer] [22m   [38;5;246m│[0m
+[2m[WebServer] [22m [38;5;246m3 │[0m [38;5;249mc[0m[38;5;249mo[0m[38;5;249mn[0m[38;5;249ms[0m[38;5;249mt[0m[38;5;249m [0m[38;5;249mp[0m[38;5;249ma[0m[38;5;249mt[0m[38;5;249mh[0m[38;5;249m [0m[38;5;249m=[0m[38;5;249m [0m[38;5;249mr[0m[38;5;249me[0m[38;5;249mq[0m[38;5;249mu[0m[38;5;249mi[0m[38;5;249mr[0m[38;5;249me[0m[38;5;249m([0m'path'[38;5;249m)[0m[38;5;249m;[0m
+[2m[WebServer] [22m [38;5;240m  │[0m                      ───┬──  
+[2m[WebServer] [22m [38;5;240m  │[0m                         ╰──── Module not found, treating it as an external dependency
+[2m[WebServer] [22m[38;5;246m───╯[0m
+[2m[WebServer] [22m
+
+[1A[2K[2m[WebServer] [22m../node_modules/.bun/which@2.0.2/node_modules/which/which.js (5:21) [33m[UNRESOLVED_IMPORT] Warning:[0m Could not resolve 'path' in ../node_modules/.bun/which@2.0.2/node_modules/which/which.js
+[2m[WebServer] [22m   [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m ../node_modules/.bun/which@2.0.2/node_modules/which/which.js:5:22 [38;5;246m][0m
+[2m[WebServer] [22m   [38;5;246m│[0m
+[2m[WebServer] [22m [38;5;246m5 │[0m [38;5;249mc[0m[38;5;249mo[0m[38;5;249mn[0m[38;5;249ms[0m[38;5;249mt[0m[38;5;249m [0m[38;5;249mp[0m[38;5;249ma[0m[38;5;249mt[0m[38;5;249mh[0m[38;5;249m [0m[38;5;249m=[0m[38;5;249m [0m[38;5;249mr[0m[38;5;249me[0m[38;5;249mq[0m[38;5;249mu[0m[38;5;249mi[0m[38;5;249mr[0m[38;5;249me[0m[38;5;249m([0m'path'[38;5;249m)[0m
+[2m[WebServer] [22m [38;5;240m  │[0m                      ───┬──  
+[2m[WebServer] [22m [38;5;240m  │[0m                         ╰──── Module not found, treating it as an external dependency
+[2m[WebServer] [22m[38;5;246m───╯[0m
+[2m[WebServer] [22m
+
+[1A[2K[2m[WebServer] [22m../node_modules/.bun/isexe@2.0.0/node_modules/isexe/index.js (1:17) [33m[UNRESOLVED_IMPORT] Warning:[0m Could not resolve 'fs' in ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/index.js
+[2m[WebServer] [22m   [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/index.js:1:18 [38;5;246m][0m
+[2m[WebServer] [22m   [38;5;246m│[0m
+[2m[WebServer] [22m [38;5;246m1 │[0m [38;5;249mv[0m[38;5;249ma[0m[38;5;249mr[0m[38;5;249m [0m[38;5;249mf[0m[38;5;249ms[0m[38;5;249m [0m[38;5;249m=[0m[38;5;249m [0m[38;5;249mr[0m[38;5;249me[0m[38;5;249mq[0m[38;5;249mu[0m[38;5;249mi[0m[38;5;249mr[0m[38;5;249me[0m[38;5;249m([0m'fs'[38;5;249m)[0m
+[2m[WebServer] [22m [38;5;240m  │[0m                  ──┬─  
+[2m[WebServer] [22m [38;5;240m  │[0m                    ╰─── Module not found, treating it as an external dependency
+[2m[WebServer] [22m[38;5;246m───╯[0m
+[2m[WebServer] [22m
+
+[1A[2K[2m[WebServer] [22m../node_modules/.bun/isexe@2.0.0/node_modules/isexe/mode.js (4:17) [33m[UNRESOLVED_IMPORT] Warning:[0m Could not resolve 'fs' in ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/mode.js
+[2m[WebServer] [22m   [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/mode.js:4:18 [38;5;246m][0m
+[2m[WebServer] [22m   [38;5;246m│[0m
+[2m[WebServer] [22m [38;5;246m4 │[0m [38;5;249mv[0m[38;5;249ma[0m[38;5;249mr[0m[38;5;249m [0m[38;5;249mf[0m[38;5;249ms[0m[38;5;249m [0m[38;5;249m=[0m[38;5;249m [0m[38;5;249mr[0m[38;5;249me[0m[38;5;249mq[0m[38;5;249mu[0m[38;5;249mi[0m[38;5;249mr[0m[38;5;249me[0m[38;5;249m([0m'fs'[38;5;249m)[0m
+[2m[WebServer] [22m [38;5;240m  │[0m                  ──┬─  
+[2m[WebServer] [22m [38;5;240m  │[0m                    ╰─── Module not found, treating it as an external dependency
+[2m[WebServer] [22m[38;5;246m───╯[0m
+[2m[WebServer] [22m
+
+[1A[2K[2m[WebServer] [22m../node_modules/.bun/isexe@2.0.0/node_modules/isexe/windows.js (4:17) [33m[UNRESOLVED_IMPORT] Warning:[0m Could not resolve 'fs' in ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/windows.js
+[2m[WebServer] [22m   [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/windows.js:4:18 [38;5;246m][0m
+[2m[WebServer] [22m   [38;5;246m│[0m
+[2m[WebServer] [22m [38;5;246m4 │[0m [38;5;249mv[0m[38;5;249ma[0m[38;5;249mr[0m[38;5;249m [0m[38;5;249mf[0m[38;5;249ms[0m[38;5;249m [0m[38;5;249m=[0m[38;5;249m [0m[38;5;249mr[0m[38;5;249me[0m[38;5;249mq[0m[38;5;249mu[0m[38;5;249mi[0m[38;5;249mr[0m[38;5;249me[0m[38;5;249m([0m'fs'[38;5;249m)[0m
+[2m[WebServer] [22m [38;5;240m  │[0m                  ──┬─  
+[2m[WebServer] [22m [38;5;240m  │[0m                    ╰─── Module not found, treating it as an external dependency
+[2m[WebServer] [22m[38;5;246m───╯[0m
+[2m[WebServer] [22m
+
+[1A[2K[2m[WebServer] [22m[0m[2m[35m$[0m [2m[1mbunx --bun vite preview[0m
+
+
+Running 142 tests using 16 workers
+
+[1A[2K[1/142] [chromium] › e2e/chat-graph.spec.ts:408:2 › Chat DAG graph panel › an unknown duration renders an em dash, never 0ms
+[1A[2K[2/142] [chromium] › e2e/chat-graph.spec.ts:142:2 › Chat DAG graph panel › a label too wide for its box fades out and keeps its full text reachable
+[1A[2K[3/142] [chromium] › e2e/chat-graph.spec.ts:221:2 › Chat DAG graph panel › a rewind fork renders two paths with the rewound-away one greyed
+[1A[2K[chromium] › e2e/chat-graph.spec.ts:408:2 › Chat DAG graph panel › an unknown duration renders an em dash, never 0ms
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+[1A[2K[4/142] [chromium] › e2e/chat-graph.spec.ts:472:2 › Chat DAG graph panel › the panel closes from its own button and from Escape
+[1A[2K[chromium] › e2e/chat-graph.spec.ts:142:2 › Chat DAG graph panel › a label too wide for its box fades out and keeps its full text reachable
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+[1A[2K[5/142] [chromium] › e2e/chat-graph.spec.ts:361:2 › Chat DAG graph panel › a sub-agent node is present on both levels and drills into its own graph
+[1A[2K[chromium] › e2e/chat-graph.spec.ts:221:2 › Chat DAG graph panel › a rewind fork renders two paths with the rewound-away one greyed
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+[1A[2K[6/142] [chromium] › e2e/chat-graph.spec.ts:489:1 › the legend explains the colours and link styles, and collapses
+[1A[2K[7/142] [chromium] › e2e/chat-graph.spec.ts:104:2 › Chat DAG graph panel › header button opens the panel and level 1 renders one node per prompt
+[1A[2K[chromium] › e2e/chat-graph.spec.ts:472:2 › Chat DAG graph panel › the panel closes from its own button and from Escape
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+[1A[2K[8/142] [chromium] › e2e/chat-graph.spec.ts:528:1 › hovering a node opens a card at the cursor that follows it between nodes
+[1A[2K[chromium] › e2e/chat-graph.spec.ts:361:2 › Chat DAG graph panel › a sub-agent node is present on both levels and drills into its own graph
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+[1A[2K[9/142] [chromium] › e2e/chat-graph.spec.ts:169:2 › Chat DAG graph panel › clicking a prompt node drills into THAT turn's trace, and the breadcrumb comes back
+[1A[2K[chromium] › e2e/chat-graph.spec.ts:489:1 › the legend explains the colours and link styles, and collapses
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+[1A[2K[chromium] › e2e/chat-graph.spec.ts:104:2 › Chat DAG graph panel › header button opens the panel and level 1 renders one node per prompt
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+[1A[2K[chromium] › e2e/chat-graph.spec.ts:528:1 › hovering a node opens a card at the cursor that follows it between nodes
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+[1A[2K[10/142] [chromium] › e2e/chat-prompt-arrow-nav-cards.spec.ts:230:2 › chat prompt arrow-key navigation around cards › a card growing after the nav parked a prompt does not strand the walk
+[1A[2K[11/142] [chromium] › e2e/chat-prompt-arrow-nav.spec.ts:233:2 › chat prompt arrow-key navigation › arrows inside the composer keep native caret behaviour (no nav)
+[1A[2K[12/142] [chromium] › e2e/chat-graph.spec.ts:301:2 › Chat DAG graph panel › the graph is reachable and walkable by keyboard alone, across a level switch
+[1A[2K[13/142] [chromium] › e2e/chat-prompt-arrow-nav.spec.ts:171:2 › chat prompt arrow-key navigation › Left scrolls up to the previous prompt; Right scrolls back down
+[1A[2K[14/142] [chromium] › e2e/chat-prompt-arrow-nav-cards.spec.ts:340:2 › chat prompt arrow-key navigation around cards › the lightbox a card opens owns the arrows — the thread stays put @evidence
+[1A[2K[chromium] › e2e/chat-graph.spec.ts:169:2 › Chat DAG graph panel › clicking a prompt node drills into THAT turn's trace, and the breadcrumb comes back
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+[1A[2K[chromium] › e2e/chat-prompt-arrow-nav.spec.ts:233:2 › chat prompt arrow-key navigation › arrows inside the composer keep native caret behaviour (no nav)
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+[1A[2K[chromium] › e2e/chat-prompt-arrow-nav-cards.spec.ts:230:2 › chat prompt arrow-key navigation around cards › a card growing after the nav parked a prompt does not strand the walk
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+[1A[2K[15/142] [chromium] › e2e/chat-graph.spec.ts:453:2 › Chat DAG graph panel › a degraded graph shows the quiet notice, not an error
+[1A[2K[chromium] › e2e/chat-prompt-arrow-nav-cards.spec.ts:340:2 › chat prompt arrow-key navigation around cards › the lightbox a card opens owns the arrows — the thread stays put @evidence
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+[1A[2K[chromium] › e2e/chat-graph.spec.ts:301:2 › Chat DAG graph panel › the graph is reachable and walkable by keyboard alone, across a level switch
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+[1A[2K[chromium] › e2e/chat-prompt-arrow-nav.spec.ts:171:2 › chat prompt arrow-key navigation › Left scrolls up to the previous prompt; Right scrolls back down
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+[1A[2K[16/142] [chromium] › e2e/chat-prompt-arrow-nav-cards.spec.ts:281:2 › chat prompt arrow-key navigation around cards › every ArrowRight parks the next prompt or reaches the bottom — never freezes
+[1A[2K[chromium] › e2e/chat-graph.spec.ts:453:2 › Chat DAG graph panel › a degraded graph shows the quiet notice, not an error
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+[1A[2K[chromium] › e2e/chat-prompt-arrow-nav-cards.spec.ts:281:2 › chat prompt arrow-key navigation around cards › every ArrowRight parks the next prompt or reaches the bottom — never freezes
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:29.093Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:29.492Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:29.493Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:29.495Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:29.496Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:29.497Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:29.498Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:29.500Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:29.501Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:29.502Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:29.503Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:29.504Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:29.505Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:29.506Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:29.507Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:29.508Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[17/142] [chromium] › e2e/chat-prompt-arrow-nav.spec.ts:273:2 › chat prompt arrow-key navigation › ArrowRight on the last prompt falls through to the bottom of the thread
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:31.701Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[18/142] [chromium] › e2e/chat-prompt-arrow-nav.spec.ts:384:2 › chat prompt arrow-key navigation › a modifier+arrow is ignored (no scroll)
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:31.925Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[19/142] [chromium] › e2e/chat-prompt-arrow-nav.spec.ts:432:2 › chat prompt arrow-key navigation › ArrowLeft at the very top stops (no wrap to the bottom)
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:32.119Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[20/142] [chromium] › e2e/chat-prompt-arrow-nav.spec.ts:505:2 › chat prompt arrow-key navigation › a one-turn conversation pages the turn: Right to the bottom, Left back to the top
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:32.350Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[21/142] [chromium] › e2e/diff-panel-subagent.spec.ts:58:2 › Diff Summary Panel — sub-agent edits › sub-agent edit to a file renders as a file card in the parent's review panel
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:32.455Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[22/142] [chromium] › e2e/diff-panel-subagent.spec.ts:97:2 › Diff Summary Panel — sub-agent edits › edits from multiple sub-agents on different files produce multiple file cards
+[1A[2K[23/142] [chromium] › e2e/diff-panel-subagent.spec.ts:123:2 › Diff Summary Panel — sub-agent edits › sub-agent edit content renders inside the expanded file card
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:32.608Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[24/142] [chromium] › e2e/diff-panel-subagent.spec.ts:152:2 › Diff Summary Panel — sub-agent edits › empty state when there are NO parent edits AND no sub-agent edits
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:32.717Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[25/142] [chromium] › e2e/diff-panel.spec.ts:89:2 › Code review panel › panel toggle: click opens panel, close dismisses it
+[1A[2K[26/142] [chromium] › e2e/diff-panel.spec.ts:98:2 › Code review panel › panel toggle: backdrop dismisses panel
+[1A[2K[27/142] [chromium] › e2e/diff-panel.spec.ts:112:2 › Code review panel › panel spans 75% of the viewport, right-anchored and full height
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:32.841Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:32.845Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[28/142] [chromium] › e2e/diff-panel.spec.ts:136:2 › Code review panel › header reads 'Files changed' with the count and +/- totals
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:32.876Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:32.881Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:32.949Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[29/142] [chromium] › e2e/diff-panel.spec.ts:151:2 › Code review panel › empty state: shows message when no diffs exist
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:33.066Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[30/142] [chromium] › e2e/diff-panel.spec.ts:163:2 › Code review panel › one file card per changed file, showing the path
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:33.433Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[31/142] [chromium] › e2e/diff-panel.spec.ts:174:2 › Code review panel › multiple diffs render multiple cards
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:33.584Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[32/142] [chromium] › e2e/diff-panel.spec.ts:186:2 › Code review panel › files open expanded and the chevron collapses one
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:33.838Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[33/142] [chromium] › e2e/diff-panel.spec.ts:199:2 › Code review panel › Collapse all / Expand all drives every card at once
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:33.964Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[34/142] [chromium] › e2e/diff-panel.spec.ts:220:2 › Code review panel › file tree lists the changed files and collapses a directory
+[1A[2K[35/142] [chromium] › e2e/diff-panel.spec.ts:239:2 › Code review panel › the file tree rail hides and comes back
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:34.316Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[36/142] [chromium] › e2e/diff-panel.spec.ts:251:2 › Code review panel › filter narrows the file list and the count follows it
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:34.383Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:34.436Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[37/142] [chromium] › e2e/diff-panel.spec.ts:270:2 › Code review panel › a filter matching nothing offers a Clear filter escape hatch
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:34.588Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[38/142] [chromium] › e2e/diff-panel.spec.ts:285:2 › Code review panel › Viewed collapses the file, advances progress, and survives a reload
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:34.757Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[39/142] [chromium] › e2e/diff-panel.spec.ts:306:2 › Code review panel › un-ticking Viewed re-opens the file
+[1A[2K[40/142] [chromium] › e2e/diff-panel.spec.ts:322:2 › Code review panel › user messages are ignored, only assistant diffs are reviewed
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:35.047Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[41/142] [chromium] › e2e/diff-panel.spec.ts:349:2 › Code review panel › a diff with no filename falls back to the unnamed placeholder
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:35.147Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:35.187Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[42/142] [chromium] › e2e/diff-panel.spec.ts:367:2 › Code review panel › file headers stick to the top of the diff column while scrolling
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:35.287Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[43/142] [chromium] › e2e/diff-panel.spec.ts:385:2 › Code review panel › diff rows use GitHub's add/delete tints
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:35.447Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[44/142] [chromium] › e2e/diff-panel.spec.ts:414:2 › Code review panel › view toggle: Split and Unified are both offered, Split is the default
+[1A[2K[45/142] [chromium] › e2e/diff-panel.spec.ts:434:2 › Code review panel › view toggle: Unified switches to one column and back to Split
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:35.615Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:35.619Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[46/142] [chromium] › e2e/diff-panel.spec.ts:456:2 › Code review panel › view toggle: Unified choice persists across reload
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:36.056Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[47/142] [chromium] › e2e/diff-panel.spec.ts:472:2 › Code review panel › diff badge is hidden when no file changes exist
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:36.343Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[48/142] [chromium] › e2e/diff-panel.spec.ts:480:2 › Code review panel › diff panel button reports the panel's open state
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:36.468Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[49/142] [chromium] › e2e/diff-panel.spec.ts:494:2 › Code review panel › every settled assistant diff is reviewable
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:36.566Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[50/142] [chromium] › e2e/diff-panel.spec.ts:532:2 › Code review panel › backdrop covers full viewport behind panel
+[1A[2K[51/142] [chromium] › e2e/diff-panel.spec.ts:548:2 › Code review panel › no raw tool name leaks into the review surface
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:36.766Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:36.833Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:36.837Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[52/142] [chromium] › e2e/extension-author-provenance.spec.ts:104:2 › extension-author provenance — create_extension tool call completes (no 90s hang) › create_extension streams running → tool:complete (success draft), no error / no stuck Working state
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:36.958Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[53/142] [chromium] › e2e/extension-author-stuck-chat.spec.ts:107:2 › extension-author stuck-chat — stalled create_extension fails FAST and VISIBLY (no 90s frozen bubble) › stalled ezcorp/drafts → FAST tool:error card + visible run:error within seconds, composer re-enabled (NOT a frozen bubble)
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:37.097Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[54/142] [chromium] › e2e/extension-author-stuck-chat.spec.ts:196:2 › extension-author stuck-chat — stalled create_extension fails FAST and VISIBLY (no 90s frozen bubble) › a re-fired tool:error for the same call updates the ONE card instead of stacking a duplicate
+[1A[2K[55/142] [chromium] › e2e/extension-deep-links.spec.ts:137:2 › extension detail page — resolving the route reference, canonicalising on the row id › @evidence given a server that resolves the reference, arriving by name renders and every action targets the resolved id
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:37.261Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[56/142] [chromium] › e2e/extension-deep-links.spec.ts:161:2 › extension detail page — resolving the route reference, canonicalising on the row id › given the pre-fix id-only server, the same URL renders the not-found branch
+[1A[2K[57/142] [chromium] › e2e/extension-deep-links.spec.ts:176:2 › extension detail page — resolving the route reference, canonicalising on the row id › the library's card link shape resolves to a rendered detail page
+[1A[2K[58/142] [chromium] › e2e/extension-deep-links.spec.ts:193:2 › extension detail page — resolving the route reference, canonicalising on the row id › links the detail page mints carry the resolved id, not the route reference
+[1A[2K[59/142] [chromium] › e2e/extension-detail-pages.spec.ts:69:2 › Extension detail — Hub Pages section › enabled extension with manifest.pages: whole card deep-links into the project hub
+[1A[2K[60/142] [chromium] › e2e/extension-detail-pages.spec.ts:99:2 › Extension detail — Hub Pages section › disabled extension: pages stay listed but the card is not a link
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:38.092Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[61/142] [chromium] › e2e/extension-detail-pages.spec.ts:112:2 › Extension detail — Hub Pages section › extension without manifest.pages: no Hub Pages section at all
+[1A[2K[62/142] [chromium] › e2e/extensions-library-tabs.spec.ts:40:2 › Extensions Library tabs › defaults to Installed tab and renders only non-bundled cards
+[1A[2K[63/142] [chromium] › e2e/extensions-library-tabs.spec.ts:65:2 › Extensions Library tabs › switching to Built-ins shows only bundled cards
+[1A[2K[64/142] [chromium] › e2e/extensions-library-tabs.spec.ts:89:2 › Extensions Library tabs › Built-ins empty state copy when no bundled rows
+[1A[2K[65/142] [chromium] › e2e/extensions-library-tabs.spec.ts:103:2 › Extensions Library tabs › active tab persists across reload via localStorage
+[1A[2K[66/142] [chromium] › e2e/extensions-library-tabs.spec.ts:132:2 › Extensions Library tabs › bundled cards hide the Uninstall button
+[1A[2K[67/142] [chromium] › e2e/ez-factory-console.spec.ts:237:3 › ez-factory console › jobs view: stats, the install-wide warning, and one row per job
+[1A[2K[68/142] [chromium] › e2e/ez-factory-console.spec.ts:255:3 › ez-factory console › an empty install renders the empty state and NO table
+[1A[2K[69/142] [chromium] › e2e/ez-factory-console.spec.ts:267:3 › ez-factory console › a job row links into that job's editor
+[1A[2K[70/142] [chromium] › e2e/ez-factory-console.spec.ts:279:3 › ez-factory console › `?view=` reaches the render pull and selects the surface
+[1A[2K[71/142] [chromium] › e2e/ez-factory-console.spec.ts:291:3 › ez-factory console › templates link out to core's workflow UI under the NAMESPACED name
+[1A[2K[72/142] [chromium] › e2e/ez-factory-console.spec.ts:305:3 › ez-factory console › runs view: each row deep-links to core's run trace
+[1A[2K[73/142] [chromium] › e2e/ez-factory-console.spec.ts:317:3 › ez-factory console › the shell renders a run row as its cells plus a trace link, and nothing more
+[1A[2K[74/142] [chromium] › e2e/ez-factory-console.spec.ts:356:3 › ez-factory console › the approvals inbox and workflows are LINKS OUT, not rendered lists
+[1A[2K[75/142] [chromium] › e2e/ez-factory-console.spec.ts:378:3 › ez-factory console › an unrecognised ?view= renders an honest empty state, not an error card
+[1A[2K[76/142] [chromium] › e2e/ez-factory-job-editor.spec.ts:198:3 › ez-factory job editor › a create renders ONE form with an empty name and a Create button
+[1A[2K[77/142] [chromium] › e2e/ez-factory-job-editor.spec.ts:213:3 › ez-factory job editor › an edit prefills every field and offers Save
+[1A[2K[78/142] [chromium] › e2e/ez-factory-job-editor.spec.ts:234:3 › ez-factory job editor › visibleWhen hides the other workflow's inputs LIVE as the select changes
+[1A[2K[79/142] [chromium] › e2e/ez-factory-job-editor.spec.ts:254:3 › ez-factory job editor › INVARIANT B: a hidden field is OMITTED from the submitted payload
+[1A[2K[80/142] [chromium] › e2e/ez-factory-job-editor.spec.ts:287:3 › ez-factory job editor › an edit's save carries the job id from the ACTION payload, not a typed field
+[1A[2K[81/142] [chromium] › e2e/ez-factory-job-editor.spec.ts:308:3 › ez-factory job editor › a stale link to a deleted job renders 'not found' and NO form
+[1A[2K[82/142] [chromium] › e2e/ez-factory-job-editor.spec.ts:321:3 › ez-factory job editor › the editor links back to the console
+[1A[2K[83/142] [chromium] › e2e/file-organizer-hub.spec.ts:161:3 › file-organizer Hub › overview: status + stats + the unclassified alert table render
+[1A[2K[84/142] [chromium] › e2e/file-organizer-hub.spec.ts:175:3 › file-organizer Hub › review: accept a move → POST events/accept {payload} → re-pull fresh tree
+[1A[2K[85/142] [chromium] › e2e/file-organizer-hub.spec.ts:197:3 › file-organizer Hub › review: reject a move POSTs events/reject
+[1A[2K[86/142] [chromium] › e2e/file-organizer-hub.spec.ts:214:3 › file-organizer Hub › review: batch-confirm deletes is confirm-gated then POSTs
+[1A[2K[87/142] [chromium] › e2e/file-organizer-hub.spec.ts:233:3 › file-organizer Hub › review: undo last auto-batch POSTs the batchId
+[1A[2K[88/142] [chromium] › e2e/file-organizer-hub.spec.ts:250:3 › file-organizer Hub › review: restore from quarantine POSTs events/restore → re-pull empty tree
+[1A[2K[89/142] [chromium] › e2e/file-organizer-hub.spec.ts:271:3 › file-organizer Hub › folders: BROWSE + select in the file-path picker yields an ABSOLUTE path → POST events/add-folder
+[1A[2K[90/142] [chromium] › e2e/file-organizer-hub.spec.ts:339:3 › file-organizer Hub › folders: typing an ABSOLUTE path still passes through unmodified
+[1A[2K[91/142] [chromium] › e2e/file-organizer-hub.spec.ts:361:3 › file-organizer Hub › folders: a refused add (HTTP 200 {ok:false}) surfaces the EXACT validator error instead of silently doing nothing
+[1A[2K[92/142] [chromium] › e2e/file-organizer-hub.spec.ts:394:3 › file-organizer Hub › folders: set mode (Auto) POSTs events/set-mode
+[1A[2K[93/142] [chromium] › e2e/file-organizer-hub.spec.ts:411:3 › file-organizer Hub › folders: toggle a preset POSTs events/toggle-preset → re-pull shows the check
+[1A[2K[94/142] [chromium] › e2e/file-organizer-hub.spec.ts:431:3 › file-organizer Hub › folders: add an ignore via the prompt
+[1A[2K[95/142] [chromium] › e2e/file-organizer-hub.spec.ts:450:3 › file-organizer Hub › unclassified: Teach-a-rule prompt POSTs the mini-DSL rule
+[1A[2K[96/142] [chromium] › e2e/file-organizer-hub.spec.ts:469:3 › file-organizer Hub › live invalidation: an ext:page-state signal re-pulls the review tree
+[1A[2K[97/142] [chromium] › e2e/file-organizer-hub.spec.ts:495:3 › file-organizer Hub › loading: the skeleton shows while the render is in flight, then resolves
+[1A[2K[98/142] [chromium] › e2e/file-organizer-hub.spec.ts:512:3 › file-organizer Hub › render error: a render failure shows the error card; Retry re-pulls and recovers
+[1A[2K[99/142] [chromium] › e2e/file-organizer-hub.spec.ts:532:3 › file-organizer Hub › 404 render: a disabled/unknown page shows the not-exist error card (no retry loop crash)
+[1A[2K[100/142] [chromium] › e2e/file-organizer-hub.spec.ts:543:3 › file-organizer Hub › overview empty: no pending + no unclassified renders the clean state (no attention section)
+[1A[2K[101/142] [chromium] › e2e/file-organizer-hub.spec.ts:555:3 › file-organizer Hub › folders empty: the No-folders-watched empty-state renders with the add affordance
+[1A[2K[102/142] [chromium] › e2e/file-organizer-hub.spec.ts:567:3 › file-organizer Hub › review empty: the quarantine empty-state renders
+[1A[2K[103/142] [chromium] › e2e/file-organizer-hub.spec.ts:578:3 › file-organizer Hub › confirm cancel: dismissing the delete confirm does NOT POST the action
+[1A[2K[104/142] [chromium] › e2e/file-organizer-hub.spec.ts:600:3 › file-organizer Hub › prompt cancel: dismissing the add-folder prompt does NOT POST
+[1A[2K[105/142] [chromium] › e2e/file-organizer-hub.spec.ts:622:3 › file-organizer Hub › prompt Escape: pressing Escape in the plain-text prompt cancels without POSTing
+[1A[2K[106/142] [chromium] › e2e/file-organizer-real.spec.ts:205:5 › file-organizer real-backend (skipped: set DOCKER_TEST=1) › add-folder: a TYPED ABSOLUTE path is accepted by the REAL validator and persisted
+[1A[2K[107/142] [chromium] › e2e/file-organizer-real.spec.ts:234:5 › file-organizer real-backend (skipped: set DOCKER_TEST=1) › add-folder: a RELATIVE path is refused by the REAL validator with the exact message
+[1A[2K[108/142] [chromium] › e2e/file-organizer-real.spec.ts:242:5 › file-organizer real-backend (skipped: set DOCKER_TEST=1) › add-folder: an UNREACHABLE absolute path is refused with the container-visibility message
+[1A[2K[109/142] [chromium] › e2e/file-organizer-real.spec.ts:255:5 › file-organizer real-backend (skipped: set DOCKER_TEST=1) › add-folder: a DESCENDANT of an already-watched folder is refused as already-covered
+[1A[2K[110/142] [chromium] › e2e/file-organizer-real.spec.ts:271:5 › file-organizer real-backend (skipped: set DOCKER_TEST=1) › add-rule: a malformed DSL rule is refused by the REAL parser with the exact parse error
+[1A[2K[111/142] [chromium] › e2e/file-organizer-real.spec.ts:287:5 › file-organizer real-backend (skipped: set DOCKER_TEST=1) › config mutations (set-mode/toggle-preset/add-ignore/set-backlog-policy/add-rule/remove-folder) persist to the REAL config
+[1A[2K[112/142] [chromium] › e2e/file-organizer-real.spec.ts:344:5 › file-organizer real-backend (skipped: set DOCKER_TEST=1) › proposal lifecycle: accept a REAL pending proposal moves the file on disk (skips when no proposals)
+[1A[2K[113/142] [chromium] › e2e/file-organizer-real.spec.ts:392:5 › file-organizer real-backend (skipped: set DOCKER_TEST=1) › picker: Browse → real GET /api/fs/list?dir=/ is 403 (sandbox-jailed, documents the limitation)
+[1A[2K[114/142] [chromium] › e2e/file-organizer-real.spec.ts:402:5 › file-organizer real-backend (skipped: set DOCKER_TEST=1) › UI: a refused add surfaces a real error toast in the browser
+[1A[2K[115/142] [chromium] › e2e/file-organizer-real.spec.ts:442:5 › file-organizer real-backend (skipped: set DOCKER_TEST=1) › add-folder: the added folder APPEARS in the Hub render (data dirs aligned)
+[1A[2K[116/142] [chromium] › e2e/file-organizer-real.spec.ts:458:5 › file-organizer real-backend (skipped: set DOCKER_TEST=1) › config mutation REFLECTS in the Folders Hub render (data dirs aligned)
+[1A[2K[117/142] [chromium] › e2e/file-organizer-real.spec.ts:483:5 › file-organizer real-backend (skipped: set DOCKER_TEST=1) › Review Hub render loads against the live backend (data dirs aligned)
+[1A[2K[118/142] [chromium] › e2e/hub.spec.ts:102:2 › Hub › nav entry → /hub redirects to the first tab and renders the tree
+[1A[2K[119/142] [chromium] › e2e/hub.spec.ts:127:2 › Hub › in-project nav entry → the sidebar Hub link opens the project hub and auto-lands on the scoped page
+[1A[2K[120/142] [chromium] › e2e/hub.spec.ts:164:2 › Hub › action button: confirm dialog gates the POST; fresh tree updates inline
+[1A[2K[121/142] [chromium] › e2e/hub.spec.ts:195:2 › Hub › render error envelope → error card → retry recovers
+[1A[2K[122/142] [chromium] › e2e/hub.spec.ts:216:2 › Hub › extension tab renders and re-pulls on the ext:page-state invalidation signal
+[1A[2K[123/142] [chromium] › e2e/hub.spec.ts:252:2 › Hub › invalidation signals for OTHER pages don't trigger a re-pull
+[1A[2K[124/142] [chromium] › e2e/hub.spec.ts:272:2 › Hub › /hub with no pages shows the empty explainer
+[1A[2K[125/142] [chromium] › e2e/hub.spec.ts:281:2 › Hub › tab switch: title swaps and the new page's render route is pulled ($effect param reload)
+[1A[2K[126/142] [chromium] › e2e/hub.spec.ts:337:2 › Hub › action failure (429 {error}) surfaces a toast; the tree stays unchanged
+[1A[2K[127/142] [chromium] › e2e/hub.spec.ts:312:2 › Hub › refresh button re-pulls the render endpoint and renders the updated tree
+[1A[2K[128/142] [chromium] › e2e/hub.spec.ts:375:2 › Hub › stale:true render shows the refreshing… indicator
+[1A[2K[129/142] [chromium] › e2e/hub.spec.ts:388:2 › Hub › loading skeleton shows while the render request is in flight; tab icon renders a lucide svg
+[1A[2K[130/142] [chromium] › e2e/hub.spec.ts:412:2 › Hub › a slow superseded render can't overwrite the newer tab (fetch-race guard)
+[1A[2K[131/142] [chromium] › e2e/hub.spec.ts:437:2 › Hub › watchlist: Add prompt dialog → type → Submit POSTs {payload:{topic}} → fresh tree shows the row
+[1A[2K[132/142] [chromium] › e2e/hub.spec.ts:500:2 › Hub › watchlist: Enter submits the prompt; Escape closes it with no POST
+[1A[2K[133/142] [chromium] › e2e/hub.spec.ts:475:2 › Hub › watchlist: Cancel (and empty value) fire no POST
+[1A[2K[134/142] [chromium] › e2e/hub.spec.ts:540:2 › Hub › watchlist: row remove → confirm dialog → Confirm POSTs remove-watchlist → row gone
+[1A[2K[135/142] [chromium] › e2e/hub.spec.ts:570:2 › Hub › Hub nav link renders on the Global project sidebar (global navLinks branch)
+[1A[2K[136/142] [chromium] › e2e/stuck-skeleton-self-heal.spec.ts:48:2 › Stuck skeleton self-heal (terminal event never arrives) › skeleton clears without a reload when the run ends silently
+[1A[2K[137/142] [chromium] › e2e/task-panel-cold-start.spec.ts:63:2 › Task Panel — cold start › @evidence renders persisted tasks on first load with no live event
+[1A[2K[138/142] [chromium] › e2e/task-panel-cold-start.spec.ts:103:2 › Task Panel — cold start › shows up in a second tab on the same conversation
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:43.944Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[139/142] [chromium] › e2e/task-panel-cold-start.spec.ts:129:2 › Task Panel — cold start › re-hydrates when the event stream reconnects
+[1A[2K[140/142] [chromium] › e2e/task-panel-cold-start.spec.ts:86:2 › Task Panel — cold start › survives a page reload
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:43.975Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:43.993Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[141/142] [chromium] › e2e/task-panel-cold-start.spec.ts:155:2 › Task Panel — cold start › a failing snapshot load leaves the rendered panel alone
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:44.018Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:44.021Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[142/142] [chromium] › e2e/task-panel-cold-start.spec.ts:183:2 › Task Panel — cold start › swaps snapshots when switching conversations
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:44.077Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:44.118Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:44.912Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:44.949Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K[2m[WebServer] [22m{"ts":"2026-08-04T22:06:45.057Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+
+[1A[2K  12 skipped
+  130 passed (1.1m)
+EXIT_CODE=0
