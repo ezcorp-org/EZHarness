@@ -248,11 +248,19 @@ const REACHABLE = (ALL_VISIBILITIES.filter((v) => PRODUCED.has(v)) as WorkflowVi
   entry,
 );
 
-/** A nobody: logged in, owns nothing, admins nothing, names a foreign project. */
+/**
+ * A nobody: logged in, owns nothing, admins nothing, and — since
+ * `project_members` landed — belongs to a DIFFERENT project than the one
+ * `entry()` scopes its rows to. That last field is what makes the
+ * project-tier assertions below mean something: a stranger with an empty
+ * membership set would be refused by any check that merely required the set
+ * to be non-empty.
+ */
 const STRANGER: WorkflowCaller = {
   userId: "stranger",
   role: "member",
   projectId: "some-other-project",
+  projectMemberships: ["some-other-project"],
 };
 
 /**
@@ -260,35 +268,71 @@ const STRANGER: WorkflowCaller = {
  * from the ladder, never hardcoded. If a tier's audience changes, the
  * split moves with it and the assertions below keep meaning what they
  * say instead of quietly testing the wrong tier.
+ *
+ * Three buckets since the membership split, not two. `project` used to sit
+ * in `OPEN` beside `system`; a project-SCOPED `project` row now has its own
+ * audience, and folding it back into either bucket would make one of these
+ * loops assert the opposite of what its name says.
  */
-const CONFIDENTIAL = REACHABLE.filter((e) => readRunAudience(e.visibility) === "owner-and-admins");
-const OPEN = REACHABLE.filter((e) => readRunAudience(e.visibility) !== "owner-and-admins");
+const byAudience = (want: string) =>
+  REACHABLE.filter((e) => readRunAudience(e.visibility, e.projectId) === want);
+const OPEN = byAudience("anyone");
+const PROJECT_SCOPED = byAudience("project-members-and-admins");
+const CONFIDENTIAL = byAudience("owner-and-admins");
 
 describe("what a read/run grant is actually worth today", () => {
   test("the reachable set under test is every tier, and the split is non-vacuous", () => {
     expect(REACHABLE.map((e) => e.visibility)).toEqual(["system", "project", "private"]);
-    // Both arms of every loop below have something in them. A split that
-    // emptied one side would pass those loops by testing nothing.
-    expect(OPEN.map((e) => e.visibility)).toEqual(["system", "project"]);
+    // Every loop below has something in it. A split that emptied one side
+    // would pass those loops by testing nothing.
+    expect(OPEN.map((e) => e.visibility)).toEqual(["system"]);
+    expect(PROJECT_SCOPED.map((e) => e.visibility)).toEqual(["project"]);
     expect(CONFIDENTIAL.map((e) => e.visibility)).toEqual(["private"]);
   });
 
-  test("a stranger may still RUN every workflow that is not `private`", () => {
-    // The R-1 finding, now bounded. Two of the three tiers still admit
-    // every user on the instance — so a delegated fire bounded by the
-    // owner's own run rights is only as narrow as the author's choice.
+  test("a stranger may still RUN and READ anything `system`", () => {
+    // What is LEFT of the R-1 finding. `system` is still the tier that
+    // admits every user on the instance — and it is still the tier a
+    // create DEFAULTS to, so a delegated fire bounded by the owner's own
+    // run rights is only as narrow as the author's choice.
     for (const e of OPEN) {
       expect(authorizeWorkflow(e, STRANGER, "run")).toEqual({ ok: true, entry: e });
-    }
-  });
-
-  test("...and may READ every one of those", () => {
-    for (const e of OPEN) {
       expect(authorizeWorkflow(e, STRANGER, "read")).toEqual({ ok: true, entry: e });
     }
   });
 
-  test("`private` is the confidentiality boundary, and it is reachable", () => {
+  test("a project-scoped row is now refused to a non-member on BOTH axes", () => {
+    // The half of the R-1 finding that CLOSED. This loop used to assert
+    // the opposite — that a stranger could run and read every `project`
+    // row — because there was no membership model to consult.
+    for (const e of PROJECT_SCOPED) {
+      expect(authorizeWorkflow(e, STRANGER, "run")).toEqual({
+        ok: false,
+        reason: "not-project-member",
+      });
+      expect(authorizeWorkflow(e, STRANGER, "read")).toEqual({
+        ok: false,
+        reason: "not-project-member",
+      });
+    }
+  });
+
+  test("...and admitted to a member of that project — the refusal is the scope's", () => {
+    // Discrimination for the loop above: the stranger is not simply
+    // refused everything, and the row is not simply unreachable.
+    for (const e of PROJECT_SCOPED) {
+      const insider: WorkflowCaller = {
+        userId: "some-member",
+        role: "member",
+        projectId: null,
+        projectMemberships: [e.projectId as string],
+      };
+      expect(authorizeWorkflow(e, insider, "run").ok).toBe(true);
+      expect(authorizeWorkflow(e, insider, "read").ok).toBe(true);
+    }
+  });
+
+  test("`private` is the per-USER confidentiality boundary, and it is reachable", () => {
     // The half of this file that used to say "no reachable tier is
     // confidential". A stranger is refused a private row on BOTH axes,
     // and — unlike before — a caller can actually produce one.
@@ -306,8 +350,20 @@ describe("what a read/run grant is actually worth today", () => {
     // Discrimination: proves the denials above come from the audience
     // rather than from a ladder that refuses this caller everything.
     for (const e of CONFIDENTIAL) {
-      expect(authorizeWorkflow(e, { userId: e.userId, role: "member" }, "run").ok).toBe(true);
-      expect(authorizeWorkflow(e, { userId: "someone-else", role: "admin" }, "run").ok).toBe(true);
+      expect(
+        authorizeWorkflow(
+          e,
+          { userId: e.userId, role: "member", projectMemberships: [] },
+          "run",
+        ).ok,
+      ).toBe(true);
+      expect(
+        authorizeWorkflow(
+          e,
+          { userId: "someone-else", role: "admin", projectMemberships: [] },
+          "run",
+        ).ok,
+      ).toBe(true);
     }
   });
 
@@ -327,47 +383,77 @@ describe("what a read/run grant is actually worth today", () => {
   });
 });
 
-describe("`project` visibility is not scoped by any project id", () => {
+describe("`project` visibility is scoped by the ROW's project id — never the caller's", () => {
   const projectEntry = entry("project");
 
   test("the caller's project id changes no read/run decision", () => {
     // A reader seeing `projectId` on both the caller and the entry will
-    // assume they are compared. They are not — and they must not be:
-    // `caller.projectId` arrives from the request, so a caller names
-    // their own project and any comparison is a boundary the attacker
-    // controls. Pinned so a future "tightening" that adds the comparison
-    // has to argue with a test rather than look like an improvement.
+    // assume they are compared. They are still NOT — and they still must
+    // not be: `caller.projectId` arrives from the request, so a caller
+    // names their own project and any comparison is a boundary the
+    // attacker controls. The membership model did not change this; it
+    // added a SECOND, server-resolved field that is compared instead.
+    //
+    // Every caller below carries the same memberships (none of the
+    // entry's project) and differs only in the id it CLAIMS. All three
+    // are refused, including the one whose claim matches exactly.
     const matching: WorkflowCaller = { ...STRANGER, projectId: projectEntry.projectId };
-    const absent: WorkflowCaller = { userId: "stranger", role: "member" };
+    const absent: WorkflowCaller = {
+      userId: "stranger",
+      role: "member",
+      projectMemberships: ["some-other-project"],
+    };
     for (const caller of [STRANGER, matching, absent]) {
-      expect(authorizeWorkflow(projectEntry, caller, "run").ok).toBe(true);
+      expect(authorizeWorkflow(projectEntry, caller, "run")).toEqual({
+        ok: false,
+        reason: "not-project-member",
+      });
     }
   });
 
-  test("the entry's project id changes no read/run decision", () => {
-    for (const projectId of ["some-other-project", "any-string-at-all", null]) {
-      expect(authorizeWorkflow({ ...projectEntry, projectId }, STRANGER, "run").ok).toBe(true);
-    }
+  test("the ENTRY's project id is what moves the decision", () => {
+    // The mirror of the test above, and the pair is the whole point: one
+    // id is decision-irrelevant, the other decides. Same caller
+    // throughout; only the row's scope moves.
+    const insider: WorkflowCaller = {
+      userId: "member-of-a",
+      role: "member",
+      projectId: null,
+      projectMemberships: ["project-a"],
+    };
+    expect(authorizeWorkflow({ ...projectEntry, projectId: "project-a" }, insider, "run").ok).toBe(
+      true,
+    );
+    expect(authorizeWorkflow({ ...projectEntry, projectId: "project-b" }, insider, "run").ok).toBe(
+      false,
+    );
+    // …and a row scoped to NO project has no membership question at all.
+    expect(authorizeWorkflow({ ...projectEntry, projectId: null }, insider, "run").ok).toBe(true);
   });
 
   test("a fork with no project is still `project`-visible to everyone", () => {
     // The fork route's `projectId` is optional, so a fork can be
     // `visibility: "project"` with `project_id = NULL` — a project
-    // workflow belonging to no project. It is readable by everyone, same
-    // as any other.
+    // workflow belonging to no project. It stays readable by everyone,
+    // because there is no project to be a member of; gating it would
+    // refuse every principal rather than narrow anything.
     const orphan = { ...projectEntry, projectId: null };
     expect(authorizeWorkflow(orphan, STRANGER, "read").ok).toBe(true);
   });
 
-  test("the userless CLI is the ONLY principal `project` excludes", () => {
-    // The entire difference between `system` and `project` on read/run.
-    // Not a confidentiality boundary: it separates "has a login" from
-    // "has no login", not one user from another.
-    const cli: WorkflowCaller = { userId: null, role: "member" };
+  test("the userless CLI is excluded from `project` on both shapes", () => {
+    // Refused for the reason that applies to IT — no identity to key a
+    // membership by — rather than for `not-project-member`, which would
+    // describe a lookup that could never have succeeded.
+    const cli: WorkflowCaller = { userId: null, role: "member", projectMemberships: [] };
     expect(authorizeWorkflow(projectEntry, cli, "run")).toEqual({
       ok: false,
       reason: "not-authenticated",
       visibility: "project",
+    });
+    expect(authorizeWorkflow({ ...projectEntry, projectId: null }, cli, "run")).toEqual({
+      ok: false,
+      reason: "not-authenticated",
     });
     expect(authorizeWorkflow(systemCachedWorkflow(DEFINITION, "yaml"), cli, "run").ok).toBe(true);
   });
