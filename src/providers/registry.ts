@@ -16,6 +16,13 @@ import {
   resolveLadderEntry,
   type TierLadder,
 } from "../runtime/routing/tier-ladder";
+// Custom/local models as routing candidates. Pure (no DB) for the same
+// coverage reason as tier-ladder — the caller passes the parsed setting in.
+import {
+  customModelsForProvider,
+  parseCustomModelEntries,
+  type CustomModelEntry,
+} from "../runtime/routing/custom-models";
 // Price-rate shape single source of truth (type-only — erased at build).
 import type { ModelPrices } from "../runtime/usage/cache-stats";
 
@@ -152,22 +159,13 @@ export async function getModelRegistry(): Promise<ModelEntry[]> {
     entries.push(piModelToEntry(model));
   }
 
-  // Append user-defined custom models from settings (normalize shape)
-  const rawCustom = (await getSetting("provider:customModels")) as any[] | undefined;
-  if (rawCustom && Array.isArray(rawCustom)) {
-    for (const cm of rawCustom) {
-      entries.push({
-        id: cm.id ?? cm.modelId,
-        provider: cm.provider ?? "ollama",
-        tier: cm.tier ?? "balanced",
-        contextWindow: cm.contextWindow ?? 128_000,
-        vision: cm.vision ?? false,
-        reasoning: cm.reasoning ?? false,
-        costTier: cm.costTier ?? "low",
-        displayName: cm.displayName ?? cm.id ?? cm.modelId,
-        baseUrl: cm.baseUrl,
-      });
-    }
+  // Append user-defined custom models from settings. Normalization is shared
+  // with tier ROUTING (`parseCustomModelEntries`) rather than re-inlined here:
+  // the picker showing a row as `balanced`/`ollama` while the router computed
+  // something else is exactly the class of bug that made custom models
+  // invisible to routing in the first place.
+  for (const entry of parseCustomModelEntries(await getSetting("provider:customModels"))) {
+    entries.push(entry);
   }
 
   return entries;
@@ -201,11 +199,33 @@ export function getModelsForTier(tier: "fast" | "balanced" | "powerful"): ModelE
  * A ladder entry naming a model this provider's catalog does not list is
  * skipped in favour of the next entry, then the scan — so a stale ladder
  * degrades, never fails.
+ *
+ * `customModels` is the parsed `provider:customModels` setting (loaded once by
+ * `router.ts` alongside the ladder). Consulting it here is what makes a
+ * local-only install routable at all: `getModels("ollama")` is `[]`, so
+ * without this every tier lookup for a local provider returned null and every
+ * tier-routed turn — which is every workflow agent step — was unanswerable.
+ *
+ * PRECEDENCE IS DELIBERATE, and it is the whole safety argument. Custom
+ * models enter at exactly two points, both of them AFTER the corresponding
+ * built-in step:
+ *   1. configured ladder over the CATALOG        (unchanged)
+ *   2. built-in ladder over the CATALOG          (unchanged, openrouter only)
+ *   3. configured ladder over CUSTOM MODELS      (new) — an operator naming a
+ *      custom model in a rung is an explicit request for it, so it outranks
+ *      the near-arbitrary alphabetical scan below, but never a rung or a
+ *      built-in rung that already resolved.
+ *   4. catalog tier scan                         (unchanged)
+ *   5. custom tier scan                          (new) — last. Reached only
+ *      when this provider's catalog has NOTHING in the tier, so a custom
+ *      model can never displace or shadow a built-in one, and a deployment
+ *      with no custom models routes byte-identically to before.
  */
 export function findModelForProviderInTier(
   provider: string,
   tier: "fast" | "balanced" | "powerful",
   ladder?: TierLadder,
+  customModels?: readonly CustomModelEntry[],
 ): ModelEntry | null {
   const models = getModels(provider as KnownProvider);
   const laddered =
@@ -214,11 +234,16 @@ export function findModelForProviderInTier(
       ? resolveLadderEntry(DEFAULT_TIER_LADDER, tier, provider, models)
       : undefined);
   if (laddered) return piModelToEntry(laddered);
+
+  const custom = customModelsForProvider(customModels ?? [], provider);
+  const customLaddered = resolveLadderEntry(ladder, tier, provider, custom);
+  if (customLaddered) return customLaddered;
+
   for (const model of models) {
     const entry = piModelToEntry(model);
     if (entry.tier === tier) return entry;
   }
-  return null;
+  return custom.find((c) => c.tier === tier) ?? null;
 }
 
 /**
@@ -241,10 +266,14 @@ export function findRunnableModelForProviderInTier(
   tier: "fast" | "balanced" | "powerful",
   credType: "oauth" | "apikey",
   ladder?: TierLadder,
+  customModels?: readonly CustomModelEntry[],
 ): ModelEntry | null {
   const oauthProvider = OAUTH_PROVIDER_MAP[provider];
   if (credType !== "oauth" || !oauthProvider) {
-    return findModelForProviderInTier(provider, tier, ladder);
+    // The custom/local path lands here: a local provider has no OAuth
+    // variant, and its credential is the synthetic `no-key-needed` apikey
+    // (providers/credentials.ts), so `credType` is never "oauth" for one.
+    return findModelForProviderInTier(provider, tier, ladder, customModels);
   }
 
   const candidates: ModelEntry[] = [];
