@@ -57,6 +57,19 @@ vi.mock("$server/runtime/workflow-answer-approval", () => ({
   answerApproval: chokepoint.answerApproval,
 }));
 
+// The capacity lookup C3 added behind `resolveApprovalActor`. Stubbed at the
+// QUERY, not at the resolver — there is no DB in this file, so this stands in
+// exactly as the settings/users stores above do, and the actor-minting rule
+// itself stays REAL. That matters: the control test below asserts which actor
+// the route hands the chokepoint, and mocking the resolver would have made
+// that assertion about the fake.
+//
+// `undefined` = "this caller holds no delegated capacity", which is true of
+// every principal in this file: none of them consented to anything.
+vi.mock("$server/db/queries/workflow-approvals", () => ({
+  findDelegatedAnswerAuthority: async () => undefined,
+}));
+
 vi.mock("$server/auth/extension-rbac", () => ({
   hasExtensionScope: vi.fn(async () => true),
 }));
