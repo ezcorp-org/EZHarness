@@ -30,8 +30,36 @@
 // Because those four names ARE direct-carrier event types, the host
 // ACCEPTS such a subscription at registration and it then never fires:
 // registered, silent, forever. `runs()` is the only correlation path.
+//
+// ── runFor() — the OTHER verb, on the OTHER method (C3) ────────────────
+//
+// `runFor()` fires a workflow you do NOT ship, as the principal a human
+// already consented to. It is a different reverse-RPC METHOD with a
+// different ladder behind it, and it is opted into by
+// `permissions.workflows.allowDelegated` rather than by `names`. See the
+// method's own docs — in particular what its `jobRef` means, which is the
+// opposite of what `run()`'s means.
 
 import { getChannel } from "./channel";
+
+/**
+ * The reverse-RPC method `runFor` — and ONLY `runFor` — is sent on.
+ *
+ * A DISTINCT method from `ezcorp/workflows`, host-side and here. The two
+ * differ at rung 0: `ezcorp/workflows` refuses an ownerless (cron /
+ * webhook) fire before its ladder starts, and a delegated fire is
+ * ownerless BY DEFINITION — the whole feature is that the owner comes off
+ * a consent record instead of off the caller. Sending `op: "runFor"` to
+ * `ezcorp/workflows` is not a slower path to the same place: the host
+ * treats it as an unknown op (`WORKFLOWS_BAD_OP`), deliberately, so the
+ * looser rung 0 is reachable only by a caller that asked for it by name.
+ */
+const DELEGATED_WORKFLOWS_METHOD = "ezcorp/workflows-delegated";
+
+/** The `op` discriminator for a delegated fire. The host also reads this
+ *  raw value for its kill switch, BEFORE any validation — see
+ *  {@link Workflows.runFor}. */
+const DELEGATED_OP = "runFor";
 
 export interface WorkflowRunAccepted {
   v: 1;
@@ -64,6 +92,96 @@ export interface WorkflowRunOptions {
    * thing.
    */
   jobRef?: string;
+}
+
+/**
+ * Everything {@link Workflows.runFor} may say. Two fields, and the two
+ * that are MISSING are the point of the type.
+ *
+ * **There is no owner / user / principal field, and there will not be
+ * one.** The owner comes off the `workflow_delegations` row the host
+ * looks up with your `jobRef`, keyed on the extension id the REGISTRY
+ * resolved for you — never off the wire. That is what makes "run this as
+ * somebody else" not merely *denied* but INEXPRESSIBLE: there is no field
+ * to put a principal in, so a forged or guessed ref matches zero rows
+ * instead of matching a row you talked your way into. A denial is a
+ * control that can be got wrong; an absent field cannot.
+ *
+ * **There is no workflow-name field either.** The name is on the
+ * delegation row too. A name on the wire would be a second, weaker source
+ * of truth for the exact thing the host's ladder authorizes — it would
+ * have to be reconciled against the row on every fire, and a reconciliation
+ * is another denial that can be got wrong. Deleting the field deletes the
+ * question.
+ *
+ * Both absences are pinned by tests that read this file's source text
+ * (`src/extensions/__tests__/workflows-sdk-runfor-shape.test.ts`), because
+ * no runtime behaviour can observe a field that was never added.
+ */
+export interface WorkflowRunForParams {
+  /**
+   * The delegation's job ref — YOUR handle for the saved job, the one a
+   * human named when they consented.
+   *
+   * **On this method the `jobRef` is NOT the inert correlation handle it
+   * is on {@link WorkflowRunOptions.jobRef}, and confusing the two is the
+   * one mistake this SDK cannot stop you making.** On `run()` the host's
+   * comment is that **ON THIS OP THE HANDLE GRANTS NOTHING** — every rung
+   * has already decided whether you may start the workflow and nothing
+   * branches on the handle. On `runFor()` the host's comment at the other
+   * site is that **here the `jobRef` selects the authority.** It still
+   * grants nothing by itself — it names a row that a human wrote, and
+   * every rung below re-asks that row's questions against live state —
+   * but it decides WHICH row, and therefore which principal, which
+   * workflow, and which project.
+   *
+   * Same shape as everywhere else: id-shaped only — letters, digits,
+   * `_ . : -`, first character alphanumeric, at most 128 characters.
+   * REJECTED, never trimmed. Required: there is no "default job".
+   */
+  jobRef: string;
+  /**
+   * Top-level workflow input (`$input.<field>` in the definition).
+   * Defaults to `{}`. A plain JSON object; the host caps the serialized
+   * size at 16KB, the same ceiling `run()` gets, from the same check.
+   *
+   * This is untrusted payload as far as the run is concerned — it is what
+   * the delegation's owner's principal will carry into every agent step's
+   * prompt — so keep it to the parameters of the job, not to anything you
+   * want the run to trust.
+   */
+  input?: Record<string, unknown>;
+}
+
+/**
+ * Which principal a delegated run executed as.
+ *
+ * `"user"` — a person's own delegation: the run is attributed to them,
+ * appears in their run history, and streams `workflow:*` events to their
+ * session. `"service"` — a service account: durable and unattended, with
+ * no session to stream to, so the run trace and the audit row are how it
+ * is observed instead. A service account can only reach `system`-visible
+ * workflows; a user delegation reaches everything that user can run.
+ *
+ * You do not choose this — the human did, at consent time. It is echoed
+ * back so a job console can show which one fired. Pinned against the
+ * host's `DELEGATION_OWNER_COLUMN` by a test, so a third principal kind
+ * cannot land host-side while this union still claims there are two.
+ */
+export type DelegatedRunAs = "user" | "service";
+
+/** What {@link Workflows.runFor} resolves to. */
+export interface DelegatedWorkflowRunAccepted {
+  v: 1;
+  /** The workflow the DELEGATION named — read off the row, echoed back so
+   *  you can log what actually fired without having stored it yourself. */
+  workflow: string;
+  /** The principal the run executes as. See {@link DelegatedRunAs}. */
+  runAs: DelegatedRunAs;
+  /** Always `true`. No run id, for the same reason {@link
+   *  WorkflowRunAccepted} carries none: the host would have to await the
+   *  whole graph to learn it. Correlate with {@link Workflows.runs}. */
+  started: true;
 }
 
 /** One run, as `runs()` reports it. */
@@ -170,6 +288,89 @@ export class Workflows {
       // "absent" (no handle) from a present-but-invalid value, which it
       // rejects outright instead of silently dropping.
       ...(opts.jobRef !== undefined ? { jobRef: opts.jobRef } : {}),
+    });
+  }
+
+  /**
+   * Fire a workflow you do NOT ship, as the principal a human already
+   * consented to (C3).
+   *
+   * ## What you send, and what you cannot
+   *
+   * A `jobRef` and an `input`. That is the whole wire — see
+   * {@link WorkflowRunForParams} for why the owner and the workflow name
+   * are absent rather than validated. Everything that decides what runs
+   * and as whom comes off the `workflow_delegations` row the host looks
+   * up with that ref, keyed on the extension id the registry resolved for
+   * you.
+   *
+   * ## What you must hold
+   *
+   * `permissions.workflows.allowDelegated: true` — a SEPARATE opt-in from
+   * `names`, and the one shape in which an empty `names` list is legal.
+   * The host authorizes it against its own capability kind
+   * (`ezcorp:workflows:run-delegated`), which is KIND-ONLY with no value:
+   * job refs are minted after install by a human consent action, so an
+   * install-time grant could not enumerate them. The per-job bound is the
+   * delegation record, which is revocable independently of your grant.
+   * Holding the bit authorizes no job by itself.
+   *
+   * ## Non-blocking, and NOT correlatable through `runs()`
+   *
+   * Returns the moment the run starts, with no run id, for the same
+   * reason {@link run} does. **Unlike `run()`, there is no polling path
+   * back to it:** {@link runs} lists runs of the workflows you are
+   * GRANTED by name, for the user who is asking, and a delegated fire is
+   * by definition neither (a delegated-only grant lists no names, and a
+   * cron fire has no asking user — that read refuses with `-32106`). So
+   * treat `runFor()` as fire-and-forget: the delegated run is observable
+   * on the host's run trace and in the audit trail, not from in here.
+   * Record what you fired against your own `jobRef` at the moment you
+   * fire it.
+   *
+   * ## How it fails, and which failures you should act on
+   *
+   * Rejects with the host's `JsonRpcError`; branch on `err.data.reason`
+   * rather than the message. The ones an extension can do something
+   * about:
+   *
+   * - `DELEGATION_NOT_GRANTED` — you do not hold `allowDelegated`. A
+   *   permanent, install-shaped problem: stop retrying, tell the user.
+   * - `DELEGATION_BAD_REF` — the ref is not id-shaped. Your bug.
+   * - `DELEGATION_NOT_FOUND` — no live delegation for (you, this ref).
+   *   Revoked, never created, or the ref is wrong. Permanent until a
+   *   human consents again.
+   * - `DELEGATION_DISABLED_ROW` — the row is switched off, and the
+   *   MESSAGE is the reason the host recorded. It is the only thing the
+   *   user will ever read about why their job stopped: surface it
+   *   verbatim, do not summarise it.
+   * - `DELEGATION_CONSENT_STALE` — the workflow changed since the human
+   *   consented. The run was **parked, not executed** (`data.workflowRunId`
+   *   names it); the way out is a fresh consent, not a retry.
+   * - `DELEGATION_QUOTA_EXCEEDED` / `WORKFLOWS_QUOTA_EXCEEDED` — the
+   *   job's daily cap / your hourly cap. Try again later; do not fan out.
+   * - `DELEGATION_DISABLED` — an operator has set
+   *   `EZCORP_DISABLE_DELEGATED_WORKFLOWS=1`, C3's own kill switch. It is
+   *   refused before ANY database work, so nothing was looked up, nothing
+   *   was started, and the delegation itself is untouched — it is an
+   *   instance-wide, operator-controlled, TRANSIENT refusal, not a
+   *   statement about this job. Surface it and let the next tick try; do
+   *   not disable or delete anything of your own in response, and do not
+   *   fall back to {@link run} (a workflow you do not ship is not yours
+   *   to trigger — that call would be refused too, and for a different
+   *   reason). Note it is scoped to this verb alone: `run`, `runs` and
+   *   `pendingApprovals` keep working while it is set.
+   */
+  async runFor(params: WorkflowRunForParams): Promise<DelegatedWorkflowRunAccepted> {
+    return getChannel().request<DelegatedWorkflowRunAccepted>(DELEGATED_WORKFLOWS_METHOD, {
+      v: 1,
+      op: DELEGATED_OP,
+      jobRef: params.jobRef,
+      // Always present, defaulted here rather than omitted — the host
+      // treats an absent `input` as `{}` anyway, and sending it makes the
+      // frame identical in shape to `run()`'s, which is one less thing
+      // for a reader comparing the two ops to have to explain.
+      input: params.input ?? {},
     });
   }
 
