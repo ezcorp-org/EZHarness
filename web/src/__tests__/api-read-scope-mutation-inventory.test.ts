@@ -233,6 +233,33 @@ const WRITE_SCOPED_MUTATIONS: readonly string[] = [
   "PUT /api/projects/:id",
 ];
 
+/**
+ * `write`-scoped mutating handlers added AFTER the 2026-08 investigation.
+ *
+ * A separate list, not extra entries in the frozen one, because the frozen
+ * one is a CENSUS: "3 + 13 + 2 = the 18 the investigation found, nothing
+ * dropped on the floor". Appending to it would make that arithmetic drift
+ * every time an unrelated feature ships a mutating route, and the first time
+ * someone had to change the number to make CI pass, the census would stop
+ * being evidence of anything.
+ *
+ * Kept under the same rules: sorted, disjoint from the frozen list, and part
+ * of the EXACTLY-equal live comparison — so a handler dropping off this list
+ * fails just as loudly. It is a new-arrivals ledger, not a waiver.
+ */
+const WRITE_SCOPED_ADDED_SINCE: readonly string[] = [
+  // The project-members API (round 4 — the `project_members` membership
+  // model). `write` from birth; neither ever held `read`.
+  "DELETE /api/projects/:id/members/:userId",
+  "POST /api/projects/:id/members",
+];
+
+/** Every handler expected to hold `write` today, sorted. */
+const ALL_WRITE_SCOPED: readonly string[] = [
+  ...WRITE_SCOPED_MUTATIONS,
+  ...WRITE_SCOPED_ADDED_SINCE,
+].sort();
+
 /** The two handlers that moved to a scope other than `write`. */
 const REHOMED_ELSEWHERE: ReadonlyArray<[string, string]> = [
   // Enforced admin INLINE (`fs/mkdir/+server.ts:22`) while advertising `read`
@@ -261,8 +288,21 @@ describe("read-scope mutation inventory (frozen baseline)", () => {
 
   test("the set of write-gated mutating handlers is EXACTLY the frozen list", () => {
     // The other half of the same pin. A handler falling off this list has had
-    // its mutation gate loosened.
-    expect(liveMutationsWithScope("write")).toEqual([...WRITE_SCOPED_MUTATIONS]);
+    // its mutation gate loosened. The comparison spans the frozen list AND
+    // the added-since ledger, so a route in neither still fails as an
+    // unlisted addition.
+    expect(liveMutationsWithScope("write")).toEqual([...ALL_WRITE_SCOPED]);
+  });
+
+  test("every frozen entry is still live — the ledger cannot mask a dropout", () => {
+    // Discrimination for the equality above: if a frozen handler lost its
+    // `write` gate and an added-since one covered for it, the sorted sets
+    // could still differ — but this asserts the frozen 13 SPECIFICALLY, so
+    // the ledger can never be a hiding place.
+    const live = new Set(liveMutationsWithScope("write"));
+    for (const key of WRITE_SCOPED_MUTATIONS) {
+      expect(live.has(key)).toBe(true);
+    }
   });
 
   test("the two rehomed handlers gate on the scope they were moved to", () => {
@@ -287,6 +327,16 @@ describe("read-scope mutation inventory (frozen baseline)", () => {
     ).toBe(18);
     expect([...READ_SCOPED_MUTATIONS]).toEqual([...READ_SCOPED_MUTATIONS].sort());
     expect([...WRITE_SCOPED_MUTATIONS]).toEqual([...WRITE_SCOPED_MUTATIONS].sort());
+  });
+
+  test("the added-since ledger is sorted and disjoint from the frozen list", () => {
+    // The ledger exists so the census above stays exact. It only holds if it
+    // cannot quietly become a second home for a frozen entry.
+    expect([...WRITE_SCOPED_ADDED_SINCE]).toEqual([...WRITE_SCOPED_ADDED_SINCE].sort());
+    const frozen = new Set(WRITE_SCOPED_MUTATIONS);
+    for (const key of WRITE_SCOPED_ADDED_SINCE) {
+      expect(frozen.has(key)).toBe(false);
+    }
   });
 
   test("the GET siblings of the re-scoped routes still take `read`", () => {
