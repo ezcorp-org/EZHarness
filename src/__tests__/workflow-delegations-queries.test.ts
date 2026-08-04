@@ -30,6 +30,7 @@ const {
   setDelegationTokenCeiling,
   toWorkflowDelegationView,
 } = await import("../db/queries/workflow-delegations");
+const { listDelegatedRunsForConsenter } = await import("../db/queries/workflow-runs");
 const { createUser } = await import("../db/queries/users");
 const { createWorkflow } = await import("../db/queries/workflows");
 const { ensureWorkflowVersion, sweepWorkflowDefinitionVersions, listWorkflowVersions } =
@@ -555,5 +556,134 @@ describe("pinnedVersionIds — the version sweep actually honours a live delegat
     });
     expect(result.retained).toBeGreaterThan(0);
     expect((await listWorkflowVersions(definitionId)).map((v) => v.id)).toContain(pinned);
+  });
+});
+
+/**
+ * `listDelegatedRunsForConsenter` — the read behind "jobs running as me".
+ *
+ * It shipped with NO backend test at all: the only file naming it mocked it
+ * (`web/src/__tests__/api-workflows-delegated-runs.server.test.ts`), so the
+ * real SQL — an INNER JOIN through `delegation_id` to `consented_by_user_id`
+ * — had never executed under test. The coverage gate caught it as
+ * `src/db/queries/workflow-runs.ts: 96.17% < 100%` with the whole function
+ * body missed. A mocked query proves the route calls something; it cannot
+ * prove the something scopes correctly, and the scope IS the authorization
+ * here.
+ */
+describe("listDelegatedRunsForConsenter — 'jobs running as me', scoped by CONSENTER", () => {
+  beforeEach(async () => await freshDb());
+  afterAll(async () => await closeTestDb());
+
+  /** A `workflow_runs` row, optionally delegated and optionally back-dated. */
+  async function run(
+    id: string,
+    delegationId: string | null,
+    startedAt = new Date(),
+    runAsKind: "user" | "service" = "user",
+  ): Promise<void> {
+    await getDb()
+      .insert(workflowRuns)
+      .values({
+        id,
+        workflowName: "w",
+        status: "success",
+        input: {},
+        startedAt,
+        delegationId,
+        runAsKind,
+        runAs: CONSENTER,
+      } as never);
+  }
+
+  test("returns the runs of a delegation THIS human consented to", async () => {
+    const created = await createWorkflowDelegation(consentInput());
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    await run("run-1", created.delegation.id);
+
+    const page = await listDelegatedRunsForConsenter(CONSENTER, { limit: 10 });
+    expect(page.runs.map((r) => r.id)).toEqual(["run-1"]);
+  });
+
+  test("another user's delegation is INVISIBLE — the scope is the consenter", async () => {
+    // The whole authorization property of the route that wraps this. Keyed
+    // on `consented_by_user_id`, the same key `mayManageDelegation` uses, so
+    // what a person can SEE is exactly what they can REVOKE.
+    const mine = await createWorkflowDelegation(consentInput());
+    const theirs = await createWorkflowDelegation(
+      consentInput({ jobRef: "job-2", ownerId: OTHER, consentedByUserId: OTHER }),
+    );
+    expect(mine.ok).toBe(true);
+    expect(theirs.ok).toBe(true);
+    if (!mine.ok || !theirs.ok) return;
+    await run("run-mine", mine.delegation.id);
+    await run("run-theirs", theirs.delegation.id);
+
+    const page = await listDelegatedRunsForConsenter(CONSENTER, { limit: 10 });
+    expect(page.runs.map((r) => r.id)).toEqual(["run-mine"]);
+  });
+
+  test("a SERVICE-owned run is listed too — the account owns it, the human answers for it", async () => {
+    // Ruling 1. Scoping on `run_as` instead would hide every service job a
+    // person authorized, and a service account has no session anywhere, so
+    // those runs would become unreadable by anybody at all.
+    const svc = await serviceAccount("svc-runs");
+    const created = await createWorkflowDelegation(
+      consentInput({ ownerKind: "service", ownerId: svc }),
+    );
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    await run("run-svc", created.delegation.id, new Date(), "service");
+
+    const page = await listDelegatedRunsForConsenter(CONSENTER, { limit: 10 });
+    expect(page.runs.map((r) => r.id)).toEqual(["run-svc"]);
+  });
+
+  test("an UNDELEGATED run is excluded — the join is INNER, deliberately", async () => {
+    // A run with no `delegation_id` is not a delegated run and has no
+    // consenter to attribute it to. Correctly invisible.
+    await run("run-plain", null);
+    const page = await listDelegatedRunsForConsenter(CONSENTER, { limit: 10 });
+    expect(page.runs).toEqual([]);
+  });
+
+  test("a REVOKED delegation still lists its runs — the history survives", async () => {
+    // The page says "including ones you have since revoked". Revocation is
+    // a tombstone, not a delete, so the join still finds the consenter.
+    const created = await createWorkflowDelegation(consentInput());
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    await run("run-revoked", created.delegation.id);
+    await revokeWorkflowDelegation(created.delegation.id);
+
+    const page = await listDelegatedRunsForConsenter(CONSENTER, { limit: 10 });
+    expect(page.runs.map((r) => r.id)).toEqual(["run-revoked"]);
+  });
+
+  test("newest first, and the keyset cursor walks the rest", async () => {
+    const created = await createWorkflowDelegation(consentInput());
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    await run("run-old", created.delegation.id, new Date("2026-01-01T00:00:00Z"));
+    await run("run-mid", created.delegation.id, new Date("2026-02-01T00:00:00Z"));
+    await run("run-new", created.delegation.id, new Date("2026-03-01T00:00:00Z"));
+
+    const first = await listDelegatedRunsForConsenter(CONSENTER, { limit: 2 });
+    expect(first.runs.map((r) => r.id)).toEqual(["run-new", "run-mid"]);
+    // `limit + 1` is fetched so "is there another page?" costs no extra
+    // query; the cursor is present precisely when there is one.
+    expect(first.nextCursor).toBeDefined();
+    if (first.nextCursor === undefined) return;
+
+    const second = await listDelegatedRunsForConsenter(CONSENTER, {
+      limit: 2,
+      cursor: {
+        startedAt: new Date(first.nextCursor.startedAt),
+        id: first.nextCursor.id,
+      },
+    });
+    expect(second.runs.map((r) => r.id)).toEqual(["run-old"]);
+    expect(second.nextCursor).toBeUndefined();
   });
 });

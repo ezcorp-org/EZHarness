@@ -337,7 +337,17 @@ async function settle(): Promise<void> {
  * verified session cookie and the ONLY one `requireSessionAuth` allows —
  * so an API key cannot be substituted here even in a test.
  */
-function patchEvent(delegationId: string, userId: string, maxTokensPerRun = 100_000) {
+function patchEvent(
+  delegationId: string,
+  userId: string,
+  /**
+   * The request body. Defaults to the legal single-key shape; a test that
+   * needs the schema's REFUSAL passes its own object, so the strict-body
+   * branch is reachable from this end-to-end harness and not only from the
+   * mocked route test.
+   */
+  body: Record<string, unknown> = { maxTokensPerRun: 100_000 },
+) {
   const url = `http://localhost/api/workflows/delegations/${delegationId}`;
   return {
     url: new URL(url),
@@ -349,7 +359,7 @@ function patchEvent(delegationId: string, userId: string, maxTokensPerRun = 100_
     request: new Request(url, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ maxTokensPerRun }),
+      body: JSON.stringify(body),
     }),
   } as never;
 }
@@ -607,6 +617,50 @@ describe("the token ceiling, reached through the runFor handler", () => {
     const run = await resume(parked.id);
     expect(run.status).toBe("suspended");
     expect(invocations).toBe(2);
+  });
+
+  test("a body naming a SECOND field is a 400, and the cap does not move", async () => {
+    // Ruling 2 on a real row. The body schema is `.strict()` because
+    // `maxTokensPerRun` is the only thing adjustable without re-asking
+    // consent — so a caller who sends `{maxTokensPerRun, maxRunsPerDay}`
+    // must be REFUSED, not quietly given half of what they asked for. A 200
+    // that ignored the second field is the dangerous outcome: the caller
+    // has every reason to believe both landed.
+    //
+    // The mocked route test covers this branch too; this one covers it
+    // against the real PGlite row, which is what proves nothing was
+    // written. It is also the only end-to-end caller of the refusal path,
+    // so without it the branch is unexecuted in this harness.
+    registerRuntime(100);
+    invocations = 0;
+    const delegationId = await makeDelegation("job-strict", 150);
+    await handleWorkflowsRpc(frame("job-strict"), handlerCtx());
+    await settle();
+    const parked = (await runsFor(delegationId))[0]!;
+    expect(parked.status).toBe("suspended");
+
+    const res = (await PATCH(
+      patchEvent(delegationId, OWNER, { maxTokensPerRun: 100_000, maxRunsPerDay: 999 }),
+    )) as Response;
+    expect(res.status).toBe(400);
+    // The refusal names the remedy rather than saying "invalid body".
+    expect(((await res.json()) as { error: string }).error).toContain("re-consent");
+
+    // NOTHING was written: not the cap it did name, not the field it may
+    // not name, and the run is still parked on the original ceiling.
+    expect(await capOf(delegationId)).toBe(150);
+    expect(await resumeReasonRefusal("budget-exceeded", { workflowRunId: parked.id })).toContain(
+      "max_tokens_per_run",
+    );
+    const run = await resume(parked.id);
+    expect(run.status).toBe("suspended");
+
+    // …and the legal single-key body against the SAME row still succeeds,
+    // so the 400 above is the schema refusing a second field rather than
+    // this route being broken.
+    const ok = (await PATCH(patchEvent(delegationId, OWNER))) as Response;
+    expect(ok.status).toBe(200);
+    expect(await capOf(delegationId)).toBe(100_000);
   });
 
   test("PATCHing a DISABLED delegation is refused, and the run stays parked", async () => {
