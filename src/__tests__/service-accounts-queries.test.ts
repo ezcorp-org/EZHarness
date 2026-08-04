@@ -43,6 +43,7 @@ const {
   countLiveDelegationsOwnedBy,
   createServiceAccount,
   deleteServiceAccount,
+  findLiveServiceAccount,
   getServiceAccount,
   getServiceAccountByName,
   listServiceAccounts,
@@ -335,6 +336,30 @@ describe("service-accounts query layer", () => {
       expect((await getServiceAccountByName("findme"))?.id).toBe(created.id);
       expect(await getServiceAccount("nope")).toBeUndefined();
       expect(await getServiceAccountByName("nope")).toBeUndefined();
+    });
+
+    // The liveness read the delegation consent gate calls before it writes
+    // an `owner_service_account_id`. It lives here — with the module that
+    // owns `service_accounts` — rather than beside delegation CRUD, so
+    // there is exactly one predicate for "is this account still a usable
+    // principal" instead of two that can drift.
+    test("findLiveServiceAccount returns an ENABLED account", async () => {
+      const created = (await mint({ name: "live-one" })).account;
+      expect((await findLiveServiceAccount(created.id))?.id).toBe(created.id);
+    });
+
+    test("findLiveServiceAccount refuses a DISABLED account the FK would have accepted", async () => {
+      const created = (await mint({ name: "off-one" })).account;
+      await setServiceAccountEnabled(created.id, false, "switched off");
+      // `getServiceAccount` still returns it — the row exists and is
+      // history. The consent gate's read must not, which is the whole
+      // reason the two are different functions.
+      expect((await getServiceAccount(created.id))?.enabled).toBe(false);
+      expect(await findLiveServiceAccount(created.id)).toBeUndefined();
+    });
+
+    test("findLiveServiceAccount misses an unknown id rather than throwing at insert time", async () => {
+      expect(await findLiveServiceAccount(crypto.randomUUID())).toBeUndefined();
     });
 
     test("listing is unfiltered by default and project-filtered on request", async () => {

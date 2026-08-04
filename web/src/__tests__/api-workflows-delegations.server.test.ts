@@ -52,10 +52,15 @@ vi.mock("$server/db/queries/workflow-delegations", () => ({
   createWorkflowDelegation: db.createWorkflowDelegation,
   delegationOwnerId: (row: { ownerKind: string; ownerUserId: string | null; ownerServiceAccountId: string | null }) =>
     row.ownerKind === "user" ? row.ownerUserId : row.ownerServiceAccountId,
-  findLiveServiceAccount: db.findLiveServiceAccount,
   getWorkflowDelegation: db.getWorkflowDelegation,
   listWorkflowDelegationsConsentedBy: db.listWorkflowDelegationsConsentedBy,
   revokeWorkflowDelegation: db.revokeWorkflowDelegation,
+}));
+// The service-account liveness read is the service-account module's, not
+// delegation CRUD's — mocked from where the route imports it so this file
+// fails if that ownership is quietly moved back.
+vi.mock("$server/db/queries/service-accounts", () => ({
+  findLiveServiceAccount: db.findLiveServiceAccount,
 }));
 
 const { GET, POST } = await import("../routes/api/workflows/delegations/+server");

@@ -21,7 +21,6 @@ mockDbConnection();
 const {
   createWorkflowDelegation,
   delegationOwnerId,
-  findLiveServiceAccount,
   findLiveWorkflowDelegation,
   getWorkflowDelegation,
   listPinnedDelegationVersionIds,
@@ -242,25 +241,6 @@ describe("revocation is a tombstone", () => {
     ]);
     await revokeWorkflowDelegation(mine.delegation.id);
     expect(await listWorkflowDelegationsConsentedBy(CONSENTER)).toEqual([]);
-  });
-});
-
-describe("the service-account liveness read the consent gate needs", () => {
-  beforeEach(async () => await freshDb());
-  afterAll(async () => await closeTestDb());
-
-  test("an enabled account is found", async () => {
-    const svc = await serviceAccount("svc-1");
-    expect((await findLiveServiceAccount(svc))?.id).toBe(svc);
-  });
-
-  test("a DISABLED account is not — the FK alone would have accepted it", async () => {
-    const svc = await serviceAccount("svc-off", false);
-    expect(await findLiveServiceAccount(svc)).toBeUndefined();
-  });
-
-  test("an unknown id is not found rather than throwing at insert time", async () => {
-    expect(await findLiveServiceAccount(crypto.randomUUID())).toBeUndefined();
   });
 });
 

@@ -35,10 +35,8 @@ import { and, desc, eq, isNull, isNotNull, type SQL } from "drizzle-orm";
 import { getDb } from "../connection";
 import {
   DELEGATION_OWNER_COLUMN,
-  serviceAccounts,
   workflowDelegations,
   type DelegationOwnerKind,
-  type ServiceAccountRow,
   type WorkflowDelegationRow,
 } from "../schema";
 import {
@@ -137,31 +135,6 @@ function ownerColumnValues(
  */
 export function delegationOwnerId(row: WorkflowDelegationRow): string | null {
   return row[DELEGATION_OWNER_COLUMN[row.ownerKind]];
-}
-
-/**
- * The one service-account read the consent gate needs: does this account
- * exist, and is it live?
- *
- * **Narrow on purpose, and it is not the service-account CRUD module.**
- * That module (`db/queries/service-accounts.ts`) is a separate phase and
- * a separate owner; this is a single existence-and-liveness read that the
- * consent path cannot do without, because the alternative is letting the
- * `owner_service_account_id` FK reject a bogus id at INSERT time. Catching
- * that violation would make the database error the control — the same
- * inversion `VersionSweepOptions.pinnedVersionIds` refuses
- * (`workflow-versions.ts:299-306`) — and it would surface as a 500 where
- * the caller deserves a named 400. Fold this into the CRUD module when it
- * lands; nothing outside this file calls it.
- */
-export async function findLiveServiceAccount(
-  id: string,
-): Promise<ServiceAccountRow | undefined> {
-  const rows = await getDb()
-    .select()
-    .from(serviceAccounts)
-    .where(and(eq(serviceAccounts.id, id), eq(serviceAccounts.enabled, true)));
-  return rows[0];
 }
 
 export interface CreateWorkflowDelegationInput {

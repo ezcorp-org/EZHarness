@@ -8,9 +8,13 @@ import { ExtensionRegistry } from "$server/extensions/registry";
 import {
   createWorkflowDelegation,
   delegationOwnerId,
-  findLiveServiceAccount,
   listWorkflowDelegationsConsentedBy,
 } from "$server/db/queries/workflow-delegations";
+// The existence-and-liveness read lives with the rest of the
+// service-account query layer, not with delegation CRUD: it is a
+// `service_accounts` read, and one module owning that table is what stops
+// two liveness predicates for it drifting apart.
+import { findLiveServiceAccount } from "$server/db/queries/service-accounts";
 import type { WorkflowDelegationRow } from "$server/db/schema";
 import type { RequestHandler } from "./$types";
 

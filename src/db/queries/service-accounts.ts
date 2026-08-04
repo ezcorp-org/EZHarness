@@ -330,6 +330,37 @@ export async function getServiceAccountByName(
   return rows[0];
 }
 
+/**
+ * This account, **only if it is still live** — the one read the delegation
+ * consent gate needs.
+ *
+ * Distinct from {@link getServiceAccount}, which returns the row whatever
+ * state it is in, and that distinction is the point: consent is a decision
+ * point, and a disabled account that came back as a row would be one `if`
+ * away from minting standing authority for a principal an admin has already
+ * switched off. Filtered rather than "found and then judged", so the default
+ * for anything that misses the predicate is "no such principal".
+ *
+ * It exists so the consent route does NOT let the `owner_service_account_id`
+ * FK reject a bogus id at INSERT time. Catching that violation would make the
+ * database error the control — the same inversion
+ * `VersionSweepOptions.pinnedVersionIds` refuses
+ * (`workflow-versions.ts:299-306`) — and it would surface as a 500 where the
+ * caller deserves a named 400.
+ *
+ * Liveness here is `enabled` alone. `service_accounts` has no `revoked_at`:
+ * an account is retired by {@link deleteServiceAccount}, which refuses while
+ * live delegations name it, so there is no tombstone state for this predicate
+ * to exclude the way {@link countLiveDelegationsOwnedBy} excludes one.
+ */
+export async function findLiveServiceAccount(id: string): Promise<ServiceAccountRow | undefined> {
+  const rows = await getDb()
+    .select()
+    .from(serviceAccounts)
+    .where(and(eq(serviceAccounts.id, id), eq(serviceAccounts.enabled, true)));
+  return rows[0];
+}
+
 /** Every account, or only those scoped to `projectId`. A NULL-project account
  *  is instance-wide and is deliberately NOT folded into a project's list —
  *  the caller decides which question it is asking. */
