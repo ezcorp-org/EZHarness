@@ -104,7 +104,7 @@ test.describe("Extensions review dialog — workflows grant", () => {
 		expect((granted.grantedAt as Record<string, number>).workflows).toBeGreaterThan(0);
 	});
 
-	test("unchecking the toggle OMITS workflows from the grant entirely", async ({
+	test("unchecking the toggle sends an EXPLICIT denial, not silence", async ({
 		page,
 		mockApi,
 	}) => {
@@ -119,9 +119,23 @@ test.describe("Extensions review dialog — workflows grant", () => {
 
 		await expect.poll(() => bodies().length).toBe(1);
 		const granted = bodies()[0]?.grantedPermissions as Record<string, unknown>;
-		// Absent, not `{names: []}` — a husk would read as "granted" to a
-		// presence check while authorizing nothing.
-		expect(granted.workflows).toBeUndefined();
+		// ── This assertion was INVERTED until phase 8b ────────────────────
+		//
+		// It used to require `granted.workflows` to be ABSENT, reasoning that
+		// a `{names: []}` husk "would read as granted to a presence check".
+		// The husk concern is real but it is a SERVER-side concern, and the
+		// clamp already handles it — every empty-name branch of
+		// `clampWorkflowsPermission` collapses to `undefined`.
+		//
+		// What the old assertion missed is what ABSENCE means to that same
+		// clamp: `src/extensions/clamp-permissions.ts:317-320` and `:358-359`
+		// read a missing submitted grant as "the admin approved the
+		// declaration as-is". So staying silent re-granted exactly what the
+		// admin had just unchecked, and this checkbox was decorative.
+		// `workflows-permission.test.ts` pins the server half — this husk
+		// clamps to `undefined` for BOTH manifest shapes.
+		expect(granted.workflows).toEqual({ names: [], allowDelegated: false });
+		// Still no `grantedAt` stamp: nothing was granted.
 		expect((granted.grantedAt as Record<string, unknown>).workflows).toBeUndefined();
 	});
 

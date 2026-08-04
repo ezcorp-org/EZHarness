@@ -52,7 +52,12 @@
 				spawnAgents?: { maxPerHour: number; maxConcurrent?: number };
 				agentConfig?: "read";
 				// W2 — trigger grants for workflows the extension itself ships.
-				workflows?: { names: string[]; maxRunsPerHour?: number };
+				// C3 — `allowDelegated` is the SEPARATE ask to run workflows the
+				// consenting USER owns, on their behalf. It ships no workflows,
+				// so it arrives with an empty `names`. Mirrors
+				// `src/extensions/types.ts:634`; while this type omitted it the
+				// consent UI could not see the ask at all.
+				workflows?: { names: string[]; maxRunsPerHour?: number; allowDelegated?: boolean };
 			};
 			lifecycleHooks?: string[];
 			// Extension Pages Hub — declared Hub tabs (declaring IS the grant).
@@ -394,6 +399,25 @@
 		}
 	}
 
+	/**
+	 * Does the manifest ask for the workflows capability at all?
+	 *
+	 * TWO shapes qualify, and the second is the C3 one:
+	 *  - `{names: [...]}`        — run the workflows this extension ships
+	 *  - `{allowDelegated: true}` — run a workflow the CONSENTING USER owns,
+	 *    on their behalf (`ctx.workflows.runFor`). Ships no workflows of its
+	 *    own, so `names` is legitimately empty.
+	 *
+	 * A single source of truth for the toggle default, the "declares no
+	 * permissions" line, and the consent block's render gate — those three
+	 * disagreeing is exactly how the delegated ask became invisible.
+	 */
+	function declaresWorkflows(
+		perms: ExtensionRecord["manifest"]["permissions"] | undefined,
+	): boolean {
+		return Boolean(perms?.workflows?.names?.length || perms?.workflows?.allowDelegated);
+	}
+
 	function openReview(ext: ExtensionRecord) {
 		const perms = ext.manifest.permissions ?? {};
 		reviewSelection = {
@@ -409,7 +433,12 @@
 			taskEvents: perms.taskEvents === true,
 			spawnAgents: !!perms.spawnAgents,
 			agentConfig: perms.agentConfig === "read",
-			workflows: !!perms.workflows?.names?.length,
+			// C3: a delegated-only manifest ships NO workflows of its own, so
+			// `names` is empty and only `allowDelegated` marks the ask. Gating
+			// this on `names.length` alone left the toggle off, the consent
+			// block unrendered, and — because the server reads an ABSENT
+			// grant as "approved as-is" — the capability granted anyway.
+			workflows: declaresWorkflows(perms),
 		};
 		reviewExt = ext;
 	}
@@ -431,7 +460,7 @@
 			p.taskEvents ||
 			p.spawnAgents ||
 			p.agentConfig ||
-			p.workflows?.names?.length,
+			declaresWorkflows(p),
 		);
 	}
 
@@ -485,18 +514,37 @@
 			granted.agentConfig = "read";
 			grantedAt.agentConfig = now;
 		}
-		if (reviewSelection.workflows && manifestPerms.workflows?.names?.length) {
-			// Send the manifest's declared names verbatim; the server's
-			// `clampWorkflowsPermission` re-intersects against the manifest and
-			// supplies the rate ceiling (default 20/hr) when the author omitted
-			// one, so a forged list here buys nothing.
-			granted.workflows = {
-				names: manifestPerms.workflows.names,
-				...(manifestPerms.workflows.maxRunsPerHour !== undefined
-					? { maxRunsPerHour: manifestPerms.workflows.maxRunsPerHour }
-					: {}),
-			};
-			grantedAt.workflows = now;
+		// Workflows — the ONE surface where "send nothing" does not mean
+		// "grant nothing". `clampWorkflowsPermission` treats an ABSENT
+		// submitted grant as "the admin approved the declaration as-is"
+		// (src/extensions/clamp-permissions.ts:317-320, :358-359), so
+		// staying silent re-grants precisely what the admin just declined.
+		// Every other branch here can fall through on a denial; this one
+		// must state the denial out loud.
+		if (declaresWorkflows(manifestPerms)) {
+			const mwf = manifestPerms.workflows;
+			if (reviewSelection.workflows) {
+				// Send the manifest's declared names verbatim; the server's
+				// `clampWorkflowsPermission` re-intersects against the manifest and
+				// supplies the rate ceiling (default 20/hr) when the author omitted
+				// one, so a forged list here buys nothing. `allowDelegated` is
+				// likewise manifest-clamped — it can only ever be echoed back.
+				granted.workflows = {
+					names: mwf?.names ?? [],
+					...(mwf?.maxRunsPerHour !== undefined
+						? { maxRunsPerHour: mwf.maxRunsPerHour }
+						: {}),
+					...(mwf?.allowDelegated ? { allowDelegated: true } : {}),
+				};
+				grantedAt.workflows = now;
+			} else {
+				// Explicit denial. An empty name list with the delegated bit
+				// switched OFF collapses to `undefined` down every branch of
+				// the clamp — branch 2 for a delegated-only manifest, branch 3
+				// for a named one — so the grant is dropped server-side rather
+				// than silently reinstated.
+				granted.workflows = { names: [], allowDelegated: false };
+			}
 		}
 		grantedAt.install = now;
 
@@ -1161,7 +1209,7 @@
 				</div>
 			{/if}
 
-			{#if perms.workflows?.names?.length}
+			{#if declaresWorkflows(perms)}
 				{@const wf = perms.workflows}
 				<div class="mt-4 rounded-md border border-yellow-800/60 bg-yellow-900/20 p-3" data-testid="review-workflows">
 					<label class="flex items-start gap-2 text-sm text-yellow-100">
@@ -1172,17 +1220,26 @@
 							data-testid="review-workflows-toggle"
 						/>
 						<span>
-							<span class="font-semibold">Run its own workflows</span>
-							<span class="mt-0.5 block text-xs text-yellow-200/80">
-								Lets this extension start runs of the {wf.names.length === 1 ? "workflow" : "workflows"} it ships, up to {wf.maxRunsPerHour ?? 20} per hour. Workflow steps that need shell, file writes or an install still ask you separately. It cannot start any other extension's workflows, or yours.
+							<span class="font-semibold">
+								{wf?.names?.length ? "Run its own workflows" : "Run your workflows on your behalf"}
 							</span>
-							<ul class="mt-1.5 flex flex-wrap gap-1.5">
-								{#each wf.names as workflowName}
-									<li>
-										<code class="rounded bg-[var(--color-surface-tertiary)] px-1.5 py-0.5 text-xs">{ext.name}:{workflowName}</code>
-									</li>
-								{/each}
-							</ul>
+							{#if wf?.names?.length}
+								<span class="mt-0.5 block text-xs text-yellow-200/80">
+									Lets this extension start runs of the {wf.names.length === 1 ? "workflow" : "workflows"} it ships, up to {wf.maxRunsPerHour ?? 20} per hour. Workflow steps that need shell, file writes or an install still ask you separately. It cannot start any other extension's workflows, or yours.
+								</span>
+								<ul class="mt-1.5 flex flex-wrap gap-1.5">
+									{#each wf.names as workflowName}
+										<li>
+											<code class="rounded bg-[var(--color-surface-tertiary)] px-1.5 py-0.5 text-xs">{ext.name}:{workflowName}</code>
+										</li>
+									{/each}
+								</ul>
+							{/if}
+							{#if wf?.allowDelegated}
+								<span class="mt-0.5 block text-xs text-yellow-200/80" data-testid="review-workflows-delegated">
+									Lets this extension ask to run workflows <em>you</em> own, as you, up to {wf.maxRunsPerHour ?? 20} per hour. It gets no workflow today — you approve each one separately, and you can revoke any of them at any time.
+								</span>
+							{/if}
 						</span>
 					</label>
 				</div>
