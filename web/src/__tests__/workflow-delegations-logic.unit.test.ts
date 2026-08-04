@@ -11,7 +11,7 @@
  *     that contributes it, including ones nested out of sight;
  *   - the approve button's blocked reason is a sentence, never a boolean.
  */
-import { test, expect, describe } from "vitest";
+import { test, expect, describe, afterEach } from "vitest";
 import {
 	OWNER_KIND_CHOICES,
 	buildConsentBody,
@@ -26,6 +26,13 @@ import {
 	describeRunStopReason,
 	describeRunTime,
 	diffCapabilities,
+	loadDelegatedRuns,
+	loadDelegations,
+	loadServiceAccounts,
+	patchDelegationTokens,
+	previewConsent,
+	revokeDelegation,
+	submitConsent,
 	parseCapabilityKey,
 	reachWarningFor,
 	summarizeCapabilities,
@@ -440,6 +447,15 @@ describe("describeRunStatus", () => {
 	test("an unknown status is shown as itself rather than hidden", () => {
 		expect(describeRunStatus("weird")).toEqual({ tone: "muted", text: "weird" });
 	});
+
+	test("every status the table knows gets its own reading", () => {
+		// Enumerated because a `case` that fell through to `default` would
+		// still render — as the raw enum value — and look merely untidy
+		// rather than broken.
+		expect(describeRunStatus("cancelled")).toEqual({ tone: "muted", text: "Cancelled" });
+		expect(describeRunStatus("running")).toEqual({ tone: "ok", text: "Running" });
+		expect(describeRunStatus("suspended")).toEqual({ tone: "warn", text: "Paused" });
+	});
 });
 
 describe("describeRunPrincipal", () => {
@@ -475,6 +491,180 @@ describe("describeRunPrincipal", () => {
 	});
 });
 
+// ── the HTTP wrappers ─────────────────────────────────────────────────
+
+describe("the HTTP layer — the server's sentence survives to the caller", () => {
+	const draft: ConsentDraft = {
+		extensionId: "ext-1",
+		jobRef: "job-1",
+		workflowName: "ship-it",
+		ownerKind: "user",
+		ownerServiceAccountId: null,
+		projectId: null,
+		triggerKind: "cron",
+		maxTokensPerRun: 5000,
+		maxRunsPerDay: 24,
+	};
+
+	/** Records every call and answers with a scripted response. */
+	function stubFetch(response: { ok: boolean; status?: number; body?: unknown }) {
+		const calls: Array<{ url: string; init?: RequestInit }> = [];
+		globalThis.fetch = ((url: string, init?: RequestInit) => {
+			calls.push({ url, init });
+			return Promise.resolve({
+				ok: response.ok,
+				status: response.status ?? (response.ok ? 200 : 400),
+				json: () => Promise.resolve(response.body ?? {}),
+			} as Response);
+		}) as typeof fetch;
+		return calls;
+	}
+
+	const realFetch = globalThis.fetch;
+	afterEach(() => {
+		globalThis.fetch = realFetch;
+	});
+
+	test("a refusal returns the route's OWN message, never a status line", () => {
+		// §6.1's refusal names the reason and the remedy. Replacing it with
+		// "403 Forbidden" is how a user ends up filing a bug against a
+		// message that was already written for them.
+		const named = "Choose “run as me”, or ask an admin to make the workflow system-visible.";
+		stubFetch({ ok: false, status: 403, body: { error: named } });
+		return submitConsent(draft).then((result) => {
+			expect(result).toEqual({ ok: false, message: named });
+		});
+	});
+
+	test("a refusal with NO message still says something useful", () => {
+		stubFetch({ ok: false, status: 500, body: {} });
+		return revokeDelegation("del-1").then((result) => {
+			expect(result.ok).toBe(false);
+			expect(result.ok === false && result.message).toContain("500");
+		});
+	});
+
+	test("a network failure is reported, not thrown", () => {
+		globalThis.fetch = (() => Promise.reject(new Error("offline"))) as unknown as typeof fetch;
+		return loadDelegations().then((result) => {
+			expect(result).toEqual({ ok: false, message: "offline" });
+		});
+	});
+
+	test("a non-Error rejection is still reported as a string", () => {
+		globalThis.fetch = (() => Promise.reject("boom")) as unknown as typeof fetch;
+		return loadDelegatedRuns().then((result) => {
+			expect(result).toEqual({ ok: false, message: "boom" });
+		});
+	});
+
+	test("a success carries the parsed body through", () => {
+		stubFetch({ ok: true, body: { delegations: [] } });
+		return loadDelegations().then((result) => {
+			expect(result).toEqual({ ok: true, value: { delegations: [] } });
+		});
+	});
+
+	test("a body that is not JSON degrades instead of throwing", () => {
+		globalThis.fetch = (() =>
+			Promise.resolve({
+				ok: false,
+				status: 502,
+				json: () => Promise.reject(new Error("not json")),
+			} as unknown as Response)) as unknown as typeof fetch;
+		return loadServiceAccounts().then((result) => {
+			expect(result.ok).toBe(false);
+			expect(result.ok === false && result.message).toContain("502");
+		});
+	});
+
+	test("PATCH sends ONLY maxTokensPerRun — the route's schema is strict", () => {
+		// Phase 8a's body schema is `.strict()`, so ANY extra key is a 400.
+		// A UI that posted a whole delegation object back would always fail.
+		const calls = stubFetch({ ok: true, body: { delegation: {} } });
+		return patchDelegationTokens("del-1", 1234).then(() => {
+			expect(calls[0]?.url).toBe("/api/workflows/delegations/del-1");
+			expect(calls[0]?.init?.method).toBe("PATCH");
+			expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({ maxTokensPerRun: 1234 });
+		});
+	});
+
+	test("PATCH may LOWER a cap, not only raise it", () => {
+		// The boundary ceiling re-reads from the DB every boundary, so a lower
+		// cap takes effect on a run already in flight. Nothing here may imply
+		// increase-only.
+		const calls = stubFetch({ ok: true, body: { delegation: {} } });
+		return patchDelegationTokens("del-1", 1).then(() => {
+			expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({ maxTokensPerRun: 1 });
+		});
+	});
+
+	test("PATCH surfaces a 409's message verbatim — it carries disabled_reason", () => {
+		const reason =
+			"This delegation is disabled and its budget cannot be adjusted: owner lost access. Consent again to restore it.";
+		stubFetch({ ok: false, status: 409, body: { error: reason } });
+		return patchDelegationTokens("del-1", 10).then((result) => {
+			expect(result).toEqual({ ok: false, message: reason });
+		});
+	});
+
+	test("the preview posts the owner selection and no bounds", () => {
+		const calls = stubFetch({ ok: true, body: {} });
+		return previewConsent({ ...draft, ownerKind: "service", ownerServiceAccountId: "svc-1" }).then(
+			() => {
+				const body = JSON.parse(String(calls[0]?.init?.body));
+				expect(body).toMatchObject({ ownerKind: "service", ownerServiceAccountId: "svc-1" });
+				// A preview asks what a delegation WOULD authorize; neither
+				// ceiling changes that, and the route's schema is strict.
+				expect(body).not.toHaveProperty("maxTokensPerRun");
+				expect(body).not.toHaveProperty("maxRunsPerDay");
+				expect(body).not.toHaveProperty("jobRef");
+			},
+		);
+	});
+
+	test("the preview's USER arm sends no account id", () => {
+		const calls = stubFetch({ ok: true, body: {} });
+		return previewConsent({ ...draft, ownerServiceAccountId: "svc-1" }).then(() => {
+			expect(JSON.parse(String(calls[0]?.init?.body))).not.toHaveProperty(
+				"ownerServiceAccountId",
+			);
+		});
+	});
+
+	test("consent POSTs to the delegations collection", () => {
+		const calls = stubFetch({ ok: true, body: { delegation: {}, supersededId: null } });
+		return submitConsent(draft).then(() => {
+			expect(calls[0]?.url).toBe("/api/workflows/delegations");
+			expect(calls[0]?.init?.method).toBe("POST");
+		});
+	});
+
+	test("revoke DELETEs the row's own URL", () => {
+		const calls = stubFetch({ ok: true, body: { revoked: true } });
+		return revokeDelegation("del-9").then(() => {
+			expect(calls[0]?.url).toBe("/api/workflows/delegations/del-9");
+			expect(calls[0]?.init?.method).toBe("DELETE");
+		});
+	});
+
+	test("the runs list reads its own route, not the SDK's", () => {
+		// `readRuns` scopes to granted names AND an acting user, so a
+		// delegated run is invisible there; this view has to be its own read.
+		const calls = stubFetch({ ok: true, body: { runs: [] } });
+		return loadDelegatedRuns().then(() => {
+			expect(calls[0]?.url).toBe("/api/workflows/delegated-runs");
+		});
+	});
+
+	test("service accounts are read from the admin-gated list", () => {
+		const calls = stubFetch({ ok: true, body: { accounts: [], reach: {} } });
+		return loadServiceAccounts().then(() => {
+			expect(calls[0]?.url).toBe("/api/service-accounts");
+		});
+	});
+});
+
 describe("describeRunStopReason — two ceilings, opposite remedies", () => {
 	test("the SERVICE ACCOUNT's daily cap says the per-run limit will not help", () => {
 		// D10. Nothing exposes a route to raise `max_tokens_per_day`, so the
@@ -503,6 +693,12 @@ describe("describeRunStopReason — two ceilings, opposite remedies", () => {
 		const text = describeRunStopReason("DELEGATION_CONSENT_STALE");
 		expect(text).toContain("Approve it again");
 		expect(text).toContain("adjusting the limit will not clear this");
+	});
+
+	test("the daily RUN quota is distinct from either token ceiling", () => {
+		expect(describeRunStopReason("DELEGATION_QUOTA_EXCEEDED")).toContain(
+			"used its runs for the day",
+		);
 	});
 
 	test("lost access says nothing the user did caused it", () => {

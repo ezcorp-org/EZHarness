@@ -358,6 +358,30 @@ describe("POST /api/workflows/delegations/preview — the effort no-op disclosur
     expect(body.effortNoops[0]?.provider).toBe("custom");
   });
 
+  test("an UNPARSEABLE binding is skipped, not 500-ed", async () => {
+    // `stableStringify` always emits JSON, so this should not happen — but
+    // the preview is a read that must never fail closed on a malformed
+    // row, because failing it would block consent entirely.
+    models.resolveModelObject.mockReturnValue({ reasoning: false });
+    consent.buildDelegationConsent.mockResolvedValue({
+      ...RECORD,
+      material: materialWith([{ ...PLAIN_STEP, model: "{not json" }], "{also not json"),
+    });
+    const res = await POST(previewEvent());
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { effortNoops: unknown[] }).effortNoops).toEqual([]);
+  });
+
+  test("a binding that is a bare JSON scalar is skipped", async () => {
+    models.resolveModelObject.mockReturnValue({ reasoning: false });
+    consent.buildDelegationConsent.mockResolvedValue({
+      ...RECORD,
+      material: materialWith([{ ...PLAIN_STEP, model: '"gpt-4"' }]),
+    });
+    const res = await POST(previewEvent());
+    expect(((await res.json()) as { effortNoops: unknown[] }).effortNoops).toEqual([]);
+  });
+
   test("a throwing resolver stays quiet rather than 500-ing the preview", async () => {
     models.resolveModelObject.mockImplementation(() => {
       throw new Error("no such provider");
