@@ -55,6 +55,10 @@
 //     widens it into "anyone may delete it". (The DELETE axis has its full home
 //     in `cross-tenant-deletion-projects-kb-modes.test.ts`; this is the single
 //     assertion that ties the two axes together at the point of confusion.)
+// (D) The PREMISE holds. `POST` stamping an owner is what keeps the shared rule
+//     from turning every upload world-readable; it was asserted in prose and
+//     pinned nowhere until now. The migrate.ts reclaim is pinned too, as a
+//     tripwire on the durability caveat rather than a blessing of it.
 
 import { test, expect, describe, afterAll, beforeEach, mock } from "bun:test";
 import { readFileSync } from "node:fs";
