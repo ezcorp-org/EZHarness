@@ -238,8 +238,11 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "GET", path: "/api/projects", description: "List projects for current user", category: "projects", scope: "read" },
   { method: "POST", path: "/api/projects", description: "Create a new project", category: "projects", scope: "write" },
   { method: "GET", path: "/api/projects/:id", description: "Get project by ID", category: "projects", scope: "read" },
-  { method: "PUT", path: "/api/projects/:id", description: "Update project settings (admin only)", category: "projects", scope: "write" },
-  { method: "DELETE", path: "/api/projects/:id", description: "Delete a project (admin only)", category: "projects", scope: "write" },
+  { method: "PUT", path: "/api/projects/:id", description: "Update project settings (project members and instance admins)", category: "projects", scope: "write" },
+  { method: "DELETE", path: "/api/projects/:id", description: "Delete a project (project members and instance admins)", category: "projects", scope: "write" },
+  { method: "GET", path: "/api/projects/:id/members", description: "List a project's members (project members and instance admins)", category: "projects", scope: "read", responseDescription: "[{ id, projectId, userId, role, createdAt, userName, userEmail }]" },
+  { method: "POST", path: "/api/projects/:id/members", description: "Add a member to a project, or change an existing member's role (project owners and instance admins)", category: "projects", scope: "write", responseDescription: "{ id, projectId, userId, role, createdAt }" },
+  { method: "DELETE", path: "/api/projects/:id/members/:userId", description: "Remove a member from a project; the LAST member is refused with 409 (project owners and instance admins)", category: "projects", scope: "write", responseDescription: "{ ok: true }" },
   { method: "PUT", path: "/api/projects/:id/tool-permission-mode", description: "Set tool permission mode for project", category: "projects" },
 
   // Settings
