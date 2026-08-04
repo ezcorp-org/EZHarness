@@ -57,6 +57,7 @@ import {
 import { createUser } from "../../db/queries/users";
 import { createServiceAccount } from "../../db/queries/service-accounts";
 import { createWorkflowDelegation } from "../../db/queries/workflow-delegations";
+import { insertWorkflowRun } from "../../db/queries/workflow-runs";
 import { computeDelegationConsentRecord } from "../../runtime/workflow-delegation-record";
 import { delegationPrincipal } from "../../runtime/workflow-delegation-consent";
 import {
@@ -1595,6 +1596,45 @@ describe("the SDK surface — Workflows.runFor", () => {
     );
     expect(runs.error).toBeUndefined();
     spy.mockRestore();
+  });
+
+  test("the delegated run is INVISIBLE to `ctx.workflows.runs()` — the SDK says so because it is true", async () => {
+    // The SDK's docblock tells an author `runFor()` is fire-and-forget and
+    // that polling `runs()` will never find the run. That is a claim about
+    // the READ path, so it is proved here rather than asserted there: an
+    // author who believed the opposite would poll an empty list forever,
+    // which is the same failure shape as the `workflow:*` subscription
+    // that registers and never fires.
+    //
+    // Paired with the first-party run in the SAME read, so this cannot
+    // pass merely because the fixture or the reader is broken.
+    // Written through the same query helper the park path uses, rather
+    // than a hand-built row: a fixture that drifted from the real writer
+    // would prove nothing about the real reader.
+    for (const workflowName of ["org-nightly", `${EXT_NAME}:own`]) {
+      await insertWorkflowRun({
+        id: crypto.randomUUID(),
+        workflowName,
+        userId: ownerUserId,
+        input: {},
+        startedAt: new Date(),
+        jobRef: "job-1",
+      });
+    }
+
+    const resp = await handleWorkflowsRpc(
+      { jsonrpc: "2.0", id: 7, method: DELEGATED_WORKFLOWS_METHOD, params: { v: 1, op: "runs" } },
+      // A grant naming the extension's OWN workflow — the most generous
+      // grant that could possibly see the delegated run, and it still
+      // cannot: `readRuns` namespaces every granted name under this
+      // extension, and the delegated workflow is not one of its assets.
+      ctx({ userId: ownerUserId, grantedPermissions: granted({ names: ["own"] }) }),
+    );
+
+    const names = (resp.result as { runs: Array<{ workflowName: string }> }).runs
+      .map((r) => r.workflowName);
+    expect(names).toEqual([`${EXT_NAME}:own`]);
+    expect(names).not.toContain("org-nightly");
   });
 
   test("a forged ref from the SDK matches zero rows — DELEGATION_NOT_FOUND, nothing started", async () => {
