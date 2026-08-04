@@ -27,7 +27,7 @@ const {
   listPinnedDelegationVersionIds,
   listWorkflowDelegationsConsentedBy,
   revokeWorkflowDelegation,
-  setDelegationTokenCeiling,
+  setDelegationRunBounds,
   toWorkflowDelegationView,
 } = await import("../db/queries/workflow-delegations");
 const { listDelegatedRunsForConsenter } = await import("../db/queries/workflow-runs");
@@ -285,7 +285,7 @@ describe("a supersede carries PARKED runs forward onto the new authority", () =>
     // remedies their own prose names ("only raising that cap lets it
     // continue", "only a fresh consent lets it continue") were
     // unreachable. Phase 8a added a second way out for the FIRST of those
-    // two — `setDelegationTokenCeiling`, pinned in its own block below —
+    // two — `setDelegationRunBounds`, pinned in its own block below —
     // and this carry-forward remains the only one for `consent-stale`,
     // whose predicate demands a fresh `consented_at`.
     const first = await createWorkflowDelegation(consentInput());
@@ -358,7 +358,7 @@ describe("a supersede carries PARKED runs forward onto the new authority", () =>
   });
 });
 
-describe("setDelegationTokenCeiling — adjust the cap, touch NOTHING else", () => {
+describe("setDelegationRunBounds — adjust the bounds, touch NOTHING else", () => {
   beforeEach(async () => await freshDb());
   afterAll(async () => await closeTestDb());
 
@@ -368,34 +368,38 @@ describe("setDelegationTokenCeiling — adjust the cap, touch NOTHING else", () 
    * table is covered the day it lands, instead of the day somebody
    * remembers to extend a hard-coded list.
    *
-   * `max_tokens_per_run` and `updated_at` are the two the update is
-   * ALLOWED to move, so they are the two removed.
+   * `updated_at` always moves; `moved` names the bound(s) the call under
+   * test was allowed to write. Everything else must survive.
    *
    * Returns the verdict; the caller asserts. A helper that asserted
    * internally would read as an assertion-free test to `Gate integrity`
    * and, worse, would let a caller "pass" by never reaching it.
    */
-  function frozenFields(row: Record<string, unknown>): Record<string, unknown> {
-    const { maxTokensPerRun: _cap, updatedAt: _ts, ...rest } = row;
+  function frozenFields(
+    row: Record<string, unknown>,
+    moved: readonly string[] = [],
+  ): Record<string, unknown> {
+    const rest = { ...row };
+    for (const key of ["updatedAt", ...moved]) delete rest[key];
     return rest;
   }
 
-  test("the cap moves and every other column is byte-identical", async () => {
+  test("the token cap moves and every other column is byte-identical", async () => {
     const created = await createWorkflowDelegation(consentInput());
     expect(created.ok).toBe(true);
     if (!created.ok) return;
     const before = created.delegation;
 
-    const updated = await setDelegationTokenCeiling(before.id, 99_000);
+    const updated = await setDelegationRunBounds(before.id, { maxTokensPerRun: 99_000 });
     expect(updated?.maxTokensPerRun).toBe(99_000);
 
     // THE proof that this cannot change the workflow, the owner kind or
     // the consent hash — not a comment saying so, and not a list of the
     // three fields anyone happened to think of. Everything but the cap
     // and the timestamp is compared as one object.
-    expect(frozenFields(updated as unknown as Record<string, unknown>)).toEqual(
-      frozenFields(before as unknown as Record<string, unknown>),
-    );
+    expect(
+      frozenFields(updated as unknown as Record<string, unknown>, ["maxTokensPerRun"]),
+    ).toEqual(frozenFields(before as unknown as Record<string, unknown>, ["maxTokensPerRun"]));
     // Named individually as well, because the three the brief singles out
     // are the ones a future refactor is most likely to "helpfully" widen
     // this function to accept, and a failure should say which broke.
@@ -404,8 +408,57 @@ describe("setDelegationTokenCeiling — adjust the cap, touch NOTHING else", () 
     expect(updated?.consentHash).toBe(before.consentHash);
     expect(updated?.consentedByUserId).toBe(before.consentedByUserId);
     expect(updated?.consentedAt).toEqual(before.consentedAt);
+    // A tokens-only patch leaves the OTHER bound alone — the branch that
+    // would break if the builder spread the argument wholesale.
     expect(updated?.maxRunsPerDay).toBe(before.maxRunsPerDay);
     expect(updated?.capabilitySet).toEqual(before.capabilitySet);
+  });
+
+  test("the DAILY RUN quota moves on its own, and the token cap does not", async () => {
+    // D8's throttle. Before this it was a 400 on the route and a full
+    // re-consent was the only way to change it — which tombstoned the row
+    // and re-asked for approval of a capability set that had not moved.
+    const created = await createWorkflowDelegation(consentInput());
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const before = created.delegation;
+
+    const updated = await setDelegationRunBounds(before.id, { maxRunsPerDay: 96 });
+    expect(updated?.maxRunsPerDay).toBe(96);
+    expect(updated?.maxTokensPerRun).toBe(before.maxTokensPerRun);
+    expect(
+      frozenFields(updated as unknown as Record<string, unknown>, ["maxRunsPerDay"]),
+    ).toEqual(frozenFields(before as unknown as Record<string, unknown>, ["maxRunsPerDay"]));
+  });
+
+  test("BOTH at once is one write, and still touches nothing else", async () => {
+    const created = await createWorkflowDelegation(consentInput());
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const before = created.delegation;
+
+    const updated = await setDelegationRunBounds(before.id, {
+      maxTokensPerRun: 7,
+      maxRunsPerDay: 3,
+    });
+    expect(updated?.maxTokensPerRun).toBe(7);
+    expect(updated?.maxRunsPerDay).toBe(3);
+    expect(updated?.consentHash).toBe(before.consentHash);
+    // `consented_at` is NOT re-stamped: it records when a human last looked
+    // at the material, and moving it would make a grant nobody re-read look
+    // freshly reviewed.
+    expect(updated?.consentedAt).toEqual(before.consentedAt);
+    expect(
+      frozenFields(updated as unknown as Record<string, unknown>, [
+        "maxTokensPerRun",
+        "maxRunsPerDay",
+      ]),
+    ).toEqual(
+      frozenFields(before as unknown as Record<string, unknown>, [
+        "maxTokensPerRun",
+        "maxRunsPerDay",
+      ]),
+    );
   });
 
   test("it does NOT supersede: the same row id, and still the live one", async () => {
@@ -416,7 +469,7 @@ describe("setDelegationTokenCeiling — adjust the cap, touch NOTHING else", () 
     expect(created.ok).toBe(true);
     if (!created.ok) return;
 
-    const updated = await setDelegationTokenCeiling(created.delegation.id, 42);
+    const updated = await setDelegationRunBounds(created.delegation.id, { maxTokensPerRun: 42 });
     expect(updated?.id).toBe(created.delegation.id);
     expect(updated?.revokedAt).toBeNull();
     expect((await findLiveWorkflowDelegation(EXT, "job-1"))?.id).toBe(created.delegation.id);
@@ -431,7 +484,7 @@ describe("setDelegationTokenCeiling — adjust the cap, touch NOTHING else", () 
     const created = await createWorkflowDelegation(consentInput());
     expect(created.ok).toBe(true);
     if (!created.ok) return;
-    expect((await setDelegationTokenCeiling(created.delegation.id, 1))?.maxTokensPerRun).toBe(1);
+    expect((await setDelegationRunBounds(created.delegation.id, { maxTokensPerRun: 1 }))?.maxTokensPerRun).toBe(1);
   });
 
   test("a REVOKED delegation is refused — a tombstone has no budget to adjust", async () => {
@@ -440,7 +493,7 @@ describe("setDelegationTokenCeiling — adjust the cap, touch NOTHING else", () 
     if (!created.ok) return;
     await revokeWorkflowDelegation(created.delegation.id);
 
-    expect(await setDelegationTokenCeiling(created.delegation.id, 99_000)).toBeUndefined();
+    expect(await setDelegationRunBounds(created.delegation.id, { maxTokensPerRun: 99_000 })).toBeUndefined();
     // …and the refusal wrote nothing.
     expect((await getWorkflowDelegation(created.delegation.id))?.maxTokensPerRun).toBe(5000);
   });
@@ -455,15 +508,19 @@ describe("setDelegationTokenCeiling — adjust the cap, touch NOTHING else", () 
     if (!created.ok) return;
     expect(await disableWorkflowDelegation(created.delegation.id, "the world moved")).toBe(true);
 
-    expect(await setDelegationTokenCeiling(created.delegation.id, 99_000)).toBeUndefined();
+    expect(await setDelegationRunBounds(created.delegation.id, { maxTokensPerRun: 99_000 })).toBeUndefined();
+    // The SECOND bound is refused by the same CAS. Adding a field to a
+    // writer is exactly how a liveness filter gets bypassed for one arm.
+    expect(await setDelegationRunBounds(created.delegation.id, { maxRunsPerDay: 96 })).toBeUndefined();
     const after = await getWorkflowDelegation(created.delegation.id);
     expect(after?.maxTokensPerRun).toBe(5000);
+    expect(after?.maxRunsPerDay).toBe(24);
     expect(after?.enabled).toBe(false);
     expect(after?.disabledReason).toBe("the world moved");
   });
 
   test("an unknown id is undefined, not a throw", async () => {
-    expect(await setDelegationTokenCeiling(crypto.randomUUID(), 10)).toBeUndefined();
+    expect(await setDelegationRunBounds(crypto.randomUUID(), { maxTokensPerRun: 10 })).toBeUndefined();
   });
 });
 

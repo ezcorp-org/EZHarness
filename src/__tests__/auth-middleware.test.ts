@@ -7,6 +7,7 @@ import {
   requireAuth,
   requireRole,
   checkRole,
+  requireAdminSession,
   requireSessionAuth,
   requireTeamRole,
 } from "../auth/middleware";
@@ -256,6 +257,70 @@ describe("checkRole", () => {
     const result = checkRole(locals, "admin");
     expect(result).toBeInstanceOf(Response);
     expect((result as Response).status).toBe(403);
+  });
+});
+
+// ── requireAdminSession (both axes, one call) ────────────────────────
+//
+// The pair the C3 service-account routes carried a private copy of. It is
+// worth its own tests rather than "it's just two calls" because the ORDER
+// is load-bearing and because a composition can lose a half silently: a
+// version that ran only `checkRole` would still look gated and would admit
+// every admin-scoped API key.
+
+describe("requireAdminSession", () => {
+  function locals(user: AuthUser | undefined, authMethod?: string, apiKeyScopes?: string[]) {
+    return { user, authMethod, apiKeyScopes } as unknown as App.Locals;
+  }
+
+  test("the legitimate caller — an admin AT A BROWSER — gets through", () => {
+    // Paired with every refusal below, so a deny-everyone mutation cannot
+    // pass this block.
+    const result = requireAdminSession(locals(adminUser, "session"));
+    expect(result).not.toBeInstanceOf(Response);
+    expect(result).toEqual(adminUser);
+  });
+
+  test("an admin-role API KEY WITH the admin scope is still refused (session axis)", async () => {
+    // The half that a `checkRole`-only composition would lose. This caller
+    // passes both of checkRole's axes and must still be refused.
+    const result = requireAdminSession(locals(adminUser, "api-key", ["admin"])) as Response;
+    expect(result).toBeInstanceOf(Response);
+    expect(result.status).toBe(403);
+    expect(((await result.json()) as { error: string }).error).toBe("Interactive session required");
+  });
+
+  test("a NON-admin session is refused (role axis)", async () => {
+    // The half a `requireSessionAuth`-only composition would lose.
+    const result = requireAdminSession(locals(memberUser, "session")) as Response;
+    expect(result.status).toBe(403);
+    expect(((await result.json()) as { error: string }).error).toBe("Insufficient permissions");
+  });
+
+  test("no principal at all is 401, not 403", async () => {
+    const result = requireAdminSession(locals(undefined)) as Response;
+    expect(result.status).toBe(401);
+    expect(((await result.json()) as { error: string }).error).toBe("Authentication required");
+  });
+
+  test("SESSION runs FIRST: a non-admin key hears about the session, not the role", async () => {
+    // The order, pinned. Reversed, this caller would be told "Insufficient
+    // permissions" — which confirms the key's ROLE to someone who should not
+    // have learned anything beyond "no key reaches this".
+    const result = requireAdminSession(locals(memberUser, "api-key", ["read"])) as Response;
+    expect(((await result.json()) as { error: string }).error).toBe("Interactive session required");
+  });
+
+  test("an UNSTAMPED principal is refused — the negative-inference killer", () => {
+    // No `authMethod` and no `apiKeyScopes`: the inference
+    // `apiKeyScopes === undefined` would read this as a session and ALLOW it.
+    expect(requireAdminSession(locals(adminUser))).toBeInstanceOf(Response);
+  });
+
+  test("every denial is RETURNED, never thrown (a thrown Response is a 500)", () => {
+    expect(() => requireAdminSession(locals(undefined))).not.toThrow();
+    expect(() => requireAdminSession(locals(adminUser, "api-key", ["admin"]))).not.toThrow();
+    expect(() => requireAdminSession(locals(memberUser, "session"))).not.toThrow();
   });
 });
 

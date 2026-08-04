@@ -48,7 +48,9 @@ const {
   getServiceAccountByName,
   listServiceAccounts,
   serviceAccountReach,
+  setServiceAccountDailyTokenCap,
   setServiceAccountEnabled,
+  toServiceAccountChoice,
   toServiceAccountView,
 } = await import("../db/queries/service-accounts");
 
@@ -416,6 +418,31 @@ describe("service-accounts query layer", () => {
       expect(view.id).toBe(row.id);
       expect(view.scopes).toEqual(["use"]);
     });
+
+    test("the NARROW view is exactly {id, name} — every other column withheld", async () => {
+      // The pin that matters for the widened read. `GET /api/service-accounts`
+      // answers any authenticated session with this shape, so a field added
+      // here reaches every logged-in user. Asserted as the EXACT key set, not
+      // as "does not contain scopes": a spot check passes for whatever the
+      // author happened to think of, and the failure mode of this projection
+      // is the field nobody thought of.
+      const row = (await mint({ name: "narrow", scopes: ["use"], projectId: "p-1" })).account;
+      const choice = toServiceAccountChoice(row);
+      expect(Object.keys(choice).sort()).toEqual(["id", "name"]);
+      expect(choice.id).toBe(row.id);
+      expect(choice.name).toBe("narrow");
+    });
+
+    test("the narrow view is a STRICT subset of the admin view's keys", async () => {
+      // Two projections of one row must not disagree about what a field is
+      // called. If `toServiceAccountChoice` ever grows a key the full view
+      // does not have, that key came from somewhere other than the row.
+      const row = (await mint({ name: "subset" })).account;
+      const wide = new Set(Object.keys(toServiceAccountView(row)));
+      for (const key of Object.keys(toServiceAccountChoice(row))) {
+        expect(wide.has(key)).toBe(true);
+      }
+    });
   });
 
   // ── "cannot log in", pinned ──────────────────────────────────────────
@@ -462,6 +489,65 @@ describe("service-accounts query layer", () => {
 
     test("an unknown id yields undefined, not a throw", async () => {
       expect(await setServiceAccountEnabled("nope", false, "x")).toBeUndefined();
+    });
+  });
+
+  describe("the daily token cap — rung D10's remedy", () => {
+    test("the cap moves and every other column is byte-identical", async () => {
+      // D10 refuses a fire once the account has spent `max_tokens_per_day`
+      // and its message names raising that cap as the remedy. Nothing could
+      // write it: POST set it once at mint time and no route moved it.
+      const before = (await mint({ name: "capped", scopes: ["use"] })).account;
+      const after = await setServiceAccountDailyTokenCap(before.id, 250_000);
+      expect(after?.maxTokensPerDay).toBe(250_000);
+
+      const frozen = (row: Record<string, unknown>) => {
+        const { maxTokensPerDay: _cap, updatedAt: _ts, ...rest } = row;
+        return rest;
+      };
+      expect(frozen(after as unknown as Record<string, unknown>)).toEqual(
+        frozen(before as unknown as Record<string, unknown>),
+      );
+      // Named as well, because these are the ones a "helpful" widening of
+      // this writer would reach for first.
+      expect(after?.scopes).toEqual(["use"]);
+      expect(after?.createdByUserId).toBe(before.createdByUserId);
+      expect(after?.enabled).toBe(true);
+    });
+
+    test("it LOWERS as readily as it raises", async () => {
+      // Tightening a standing budget must never be harder than widening it.
+      const created = (await mint({ name: "tighten" })).account;
+      expect((await setServiceAccountDailyTokenCap(created.id, 1))?.maxTokensPerDay).toBe(1);
+    });
+
+    test("a DISABLED account's cap is writable, and writing it does NOT re-enable", async () => {
+      // The asymmetry with the delegation bound, stated as a test. An admin
+      // fixing the budget before switching the account back on is the
+      // ordinary sequence; clearing `enabled` here would re-arm a principal
+      // through a route whose whole subject is a number.
+      const created = (await mint({ name: "off" })).account;
+      await setServiceAccountEnabled(created.id, false, "runaway spend");
+
+      const after = await setServiceAccountDailyTokenCap(created.id, 5);
+      expect(after?.maxTokensPerDay).toBe(5);
+      expect(after?.enabled).toBe(false);
+      expect(after?.disabledReason).toBe("runaway spend");
+    });
+
+    test("an unknown id yields undefined, not a throw", async () => {
+      expect(await setServiceAccountDailyTokenCap(crypto.randomUUID(), 10)).toBeUndefined();
+    });
+
+    test("the audit vocabulary names the cap change on its own", () => {
+      // Not folded into a generic `service-account:updated`: this is the row
+      // that answers "who widened the budget an unattended job spends".
+      expect(SERVICE_ACCOUNT_AUDIT_ACTIONS.DAILY_CAP_CHANGED).toBe(
+        "service-account:daily-cap-changed",
+      );
+      expect(new Set(Object.values(SERVICE_ACCOUNT_AUDIT_ACTIONS)).size).toBe(
+        Object.keys(SERVICE_ACCOUNT_AUDIT_ACTIONS).length,
+      );
     });
   });
 
