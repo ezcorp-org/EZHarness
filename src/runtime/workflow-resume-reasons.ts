@@ -35,12 +35,12 @@
  * strictly stronger check than anything this table could do — it reads
  * the authoritative object rather than a free-text column:
  *
- *   - `approval` — `runApprovalStep` (`workflow-executor.ts:2311-2353`)
+ *   - `approval` — `runApprovalStep` (`workflow-executor.ts:2604-2662`)
  *     re-reads the `workflow_approvals` row and re-parks unless it is
- *     `answered`. `expired` re-parks DELIBERATELY (`:2330-2333`), so an
+ *     `answered`. `expired` re-parks DELIBERATELY (`:2637-2640`), so an
  *     approval that merely timed out never admits the run.
  *   - `nested-suspended` — `runNestedWorkflow` re-finds the child by its
- *     idempotency key (`:1746-1749`) and `nestedOutcome` (`:2143-2157`)
+ *     idempotency key (`:2051-2056`) and `nestedOutcome` (`:2452-2460`)
  *     re-throws while that child reads `suspended` / `running`, so the
  *     parent cannot pass a child that is still waiting, and no duplicate
  *     child is dispatched.
@@ -69,28 +69,30 @@ import {
  * Every value production writes to `workflow_runs.suspended_reason`.
  *
  * Enumerated from the writers, not from the plan documents — the column
- * is free-text `TEXT` (`db/schema.ts:560`) and carries no DB-level enum,
- * so this union is the only place the set is stated:
+ * is free-text `TEXT` (`db/schema.ts:786`) and carries no DB-level enum,
+ * so this union is the only place the set is stated. Every writer below
+ * was re-verified against the tree at the C3 integration:
  *
- *   - `"approval"` — `workflow-executor.ts:2353`
- *   - `"nested-suspended"` — `workflow-executor.ts:2151`
- *   - `"orphaned-resumable"` — `db/queries/workflow-runs.ts:612`
- *   - `"approval-timeout"` — `workflow-approval-timeout-sweep.ts:217`
+ *   - `"approval"` — `workflow-executor.ts:2662`
+ *   - `"nested-suspended"` — `workflow-executor.ts:2460`
+ *   - `"orphaned-resumable"` — `db/queries/workflow-runs.ts:880`
+ *   - `"approval-timeout"` — `workflow-approval-timeout-sweep.ts:236`
+ *     (the value itself is the `TIMEOUT_REASON` const at `:107`)
+ *   - `"budget-exceeded"` — `workflow-executor.ts:664`, thrown by the
+ *     step-boundary token check `enforceDelegatedTokenBudget` (C3 phase B)
+ *   - `"consent-stale"` — `extensions/workflows-handler.ts:1765`, the
+ *     `parkConsentStaleRun` write on rung D6 of the delegated ladder
+ *     (C3 phase 6)
  *
- *   - `"budget-exceeded"` — `workflow-executor.ts`, the step-boundary
- *     token check (C3 phase B)
+ * `"consent-stale"` USED to be documented here as "the ONE member of this
+ * union with no writer on the tree yet", held ahead of its writer so that
+ * a `consent-stale` row could never parse to `null` and therefore
+ * **allow** during the window before phase 6 landed. Phase 6 landed it:
+ * the fire-time consent recompute detects the mismatch and parks the run,
+ * so the union no longer claims a value the column never carries and the
+ * rule above ("enumerated from the writers") now holds without exception.
  *
- * `"consent-stale"` is the ONE member of this union with no writer on the
- * tree yet, and it is here deliberately rather than by drift. The rule
- * above ("enumerated from the writers") exists so the union cannot claim
- * a value the column never carries; the cost of holding this one back is
- * higher than that. Its writer is the fire-time consent recompute, which
- * lands with the delegated handler — and the row it needs here is the
- * thing that stops "answer the approval and the consent check is never
- * consulted". Shipping the writer first would mean a window in which a
- * `consent-stale` row parses to `null` and therefore **allows**, which is
- * exactly the bypass this module exists to make unrepresentable. The
- * `quota` value in `docs/plans/*` is NOT here: it has no writer and no
+ * The `quota` value in `docs/plans/*` is NOT here: it has no writer and no
  * phase that needs it.
  */
 export type WorkflowSuspendReason =
