@@ -53,11 +53,10 @@ const OWNER_COLUMNS = Object.values(DELEGATION_OWNER_COLUMN);
  * The owner columns for one `(kind, id)` pair: the mapped column carries
  * the id and **every other owner column is explicitly NULL**.
  *
- * Explicit rather than omitted, because this shape is also used by
- * {@link supersedeAndCreate}'s insert where a missing key would leave a
- * stale value on a re-consent that switched arms — a row that names both
- * a user and a service account is exactly as ambiguous as one that names
- * neither.
+ * Explicit rather than omitted, because {@link createWorkflowDelegation}
+ * supersedes: a re-consent that SWITCHED arms would otherwise leave the
+ * previous arm's value behind, and a row naming both a user and a service
+ * account is exactly as ambiguous as one naming neither.
  */
 function ownerColumnValues(
   ownerKind: DelegationOwnerKind,
