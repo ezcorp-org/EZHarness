@@ -1,0 +1,54 @@
+
+ RUN  v4.1.6 /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/web
+
+ ❯ src/__tests__/api-workflows-delegations.server.test.ts (78 tests | 2 failed) 30ms
+     × an EMPTY body is a 400, not a 200 that changed nothing 3ms
+     × a body that is not JSON at all is a 400, not a 500 0ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/api-workflows-delegations.server.test.ts > PATCH — the workflow, the owner and the consent hash are NOT adjustable > an EMPTY body is a 400, not a 200 that changed nothing
+AssertionError: expected 200 to be 400 // Object.is equality
+
+- Expected
++ Received
+
+- 400
++ 200
+
+ ❯ src/__tests__/api-workflows-delegations.server.test.ts:568:24
+    566|     // landed when no change was named.
+    567|     const res = (await PATCH(patchEvent(member, {}))) as Response;
+    568|     expect(res.status).toBe(400);
+       |                        ^
+    569|     expect(db.setDelegationRunBounds).not.toHaveBeenCalled();
+    570|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  src/__tests__/api-workflows-delegations.server.test.ts > PATCH — the workflow, the owner and the consent hash are NOT adjustable > a body that is not JSON at all is a 400, not a 500
+AssertionError: expected 200 to be 400 // Object.is equality
+
+- Expected
++ Received
+
+- 400
++ 200
+
+ ❯ src/__tests__/api-workflows-delegations.server.test.ts:574:24
+    572|   test("a body that is not JSON at all is a 400, not a 500", async () …
+    573|     const res = (await PATCH(patchEvent(member, "{not json"))) as Resp…
+    574|     expect(res.status).toBe(400);
+       |                        ^
+    575|     expect(db.setDelegationRunBounds).not.toHaveBeenCalled();
+    576|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 76 passed (78)
+   Start at  17:39:55
+   Duration  1.31s (transform 446ms, setup 273ms, import 567ms, tests 30ms, environment 352ms)
+
+exit=1

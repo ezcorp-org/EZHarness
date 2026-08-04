@@ -1,0 +1,34 @@
+
+ RUN  v4.1.6 /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/web
+
+ ❯ src/lib/components/DelegationConsentDialog.component.test.ts (30 tests | 1 failed) 189ms
+     × a row with NO `enabled` field — the narrow read — is SELECTABLE 9ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/lib/components/DelegationConsentDialog.component.test.ts > the owner-kind picker (Ruling 1) > a row with NO `enabled` field — the narrow read — is SELECTABLE
+AssertionError: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ src/lib/components/DelegationConsentDialog.component.test.ts:299:29
+    297|     const select = getByTestId("service-account-select") as HTMLSelect…
+    298|     const option = [...select.options].find((o) => o.textContent?.incl…
+    299|     expect(option.disabled).toBe(false);
+       |                             ^
+    300|     expect(option.textContent).not.toContain("(disabled)");
+    301|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 29 passed (30)
+   Start at  17:38:57
+   Duration  962ms (transform 256ms, setup 284ms, import 84ms, tests 189ms, environment 327ms)
+
+exit=1

@@ -1,0 +1,53 @@
+bun test v1.3.14 (0d9b296a)
+
+src/__tests__/workflow-delegations-queries.test.ts:
+506 |     const created = await createWorkflowDelegation(consentInput());
+507 |     expect(created.ok).toBe(true);
+508 |     if (!created.ok) return;
+509 |     expect(await disableWorkflowDelegation(created.delegation.id, "the world moved")).toBe(true);
+510 | 
+511 |     expect(await setDelegationRunBounds(created.delegation.id, { maxTokensPerRun: 99_000 })).toBeUndefined();
+                                                                                                   ^
+error: expect(received).toBeUndefined()
+
+Received: {
+  id: "ec82f218-cf58-4b25-8d03-7e13a2fa20a7",
+  extensionId: "ext-1",
+  jobRef: "job-1",
+  ownerKind: "user",
+  ownerUserId: "user-consenter",
+  ownerServiceAccountId: null,
+  workflowName: "w",
+  definitionVersionId: null,
+  projectId: null,
+  triggerKind: "cron",
+  triggerSpec: {
+    expr: "0 * * * *",
+  },
+  consentHash: "hash-1",
+  capabilitySet: [
+    {
+      kind: "agent",
+      value: "writer",
+    }
+  ],
+  maxTokensPerRun: 99000,
+  maxRunsPerDay: 24,
+  consecutiveFailures: 0,
+  enabled: false,
+  disabledReason: "the world moved",
+  consentedAt: 2026-08-04T21:39:38.422Z,
+  consentedByUserId: "user-consenter",
+  revokedAt: null,
+  createdAt: 2026-08-04T21:39:38.422Z,
+  updatedAt: 2026-08-04T21:39:38.425Z,
+}
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/src/__tests__/workflow-delegations-queries.test.ts:511:94)
+(fail) setDelegationRunBounds — adjust the bounds, touch NOTHING else > a DISABLED delegation is refused, and its reason survives [185.11ms]
+
+ 34 pass
+ 1 fail
+ 119 expect() calls
+Ran 35 tests across 1 file. [7.94s]
+exit=1
