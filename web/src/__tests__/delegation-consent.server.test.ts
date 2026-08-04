@@ -45,9 +45,17 @@ vi.mock("$server/db/queries/workflow-versions", () => ({
   getLatestWorkflowVersion: db.getLatestWorkflowVersion,
 }));
 
-const { buildDelegationConsent, capabilitiesForAgent, capabilitiesForTool } = await import(
-  "$lib/server/delegation-consent"
+const { buildDelegationConsent } = await import("$lib/server/delegation-consent");
+// The four `ConsentHashSources` live in `src/` so that the fire-time
+// recompute (which cannot import `web/`) uses the SAME ones — see that
+// module's header. They are exercised HERE, through the same mocked
+// registry the assembly above sees, so the two halves cannot be proved
+// against different worlds.
+const { agentCapabilityLookup, capabilitiesForTool } = await import(
+  "$server/runtime/workflow-delegation-record"
 );
+const capabilitiesForAgent = (agent: string) =>
+  agentCapabilityLookup(cache.getExecutor().listAgents())(agent);
 
 function definition(name: string, child?: string) {
   return {

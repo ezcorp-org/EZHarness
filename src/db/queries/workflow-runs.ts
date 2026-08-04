@@ -19,6 +19,7 @@ import {
   workflowDelegations,
   workflowRuns,
   workflowStepRuns,
+  type DelegationOwnerKind,
   type TruncatedStepOutput,
 } from "../schema";
 import type { AgentResult, WorkflowCursor, WorkflowRunStatus } from "../../types";
@@ -119,11 +120,32 @@ export interface NewWorkflowRunInput {
    * started, and pointing at one cannot grant what the ladder that
    * started the run did not.
    *
-   * `run_as_kind` / `run_as` are deliberately NOT written here. They are
-   * the audit snapshot of the principal, they belong to the handler that
-   * resolves it, and nothing in the executor reads them.
+   * `run_as_kind` / `run_as` below are the audit SNAPSHOT of the same
+   * decision, and nothing in the executor reads either of them.
    */
   delegationId?: string | null;
+  /**
+   * WHICH PRINCIPAL this run executed as — the audit snapshot C3's
+   * delegated handler resolves before it dispatches.
+   *
+   * Written here rather than by a follow-up UPDATE because the alternative
+   * leaves a window in which a `running` row names a delegation and no
+   * principal, and a crash inside that window makes the window permanent.
+   * Written but never READ, exactly like {@link NewWorkflowRunInput.jobRef}
+   * — the executor forwards these two from its options bag and branches on
+   * neither. Authority was decided by the ladder that started the run; a
+   * column cannot reopen it.
+   *
+   * Plain text with NO foreign key, deliberately (`db/schema.ts:850-863`):
+   * the pair must survive both revocation of the delegation and deletion
+   * of the owner, which is exactly when someone asks who a run belonged
+   * to. `delegation_id` carries the live FK and goes NULL; these do not.
+   *
+   * NULL on every non-delegated run, and NULL is the honest value rather
+   * than a gap — such a run executed as its initiating `user_id`.
+   */
+  runAsKind?: DelegationOwnerKind | null;
+  runAs?: string | null;
 }
 
 /**
@@ -149,6 +171,8 @@ export async function insertWorkflowRun(row: NewWorkflowRunInput): Promise<void>
     idempotencyKey: row.idempotencyKey ?? null,
     jobRef: row.jobRef ?? null,
     delegationId: row.delegationId ?? null,
+    runAsKind: row.runAsKind ?? null,
+    runAs: row.runAs ?? null,
   });
 }
 

@@ -31,11 +31,12 @@
  * as history and fall out of all of them, so the default for anything
  * that misses the filter is "no authority".
  */
-import { and, desc, eq, isNull, isNotNull, type SQL } from "drizzle-orm";
+import { and, count, desc, eq, gte, isNull, isNotNull, sql, type SQL } from "drizzle-orm";
 import { getDb } from "../connection";
 import {
   DELEGATION_OWNER_COLUMN,
   workflowDelegations,
+  workflowRuns,
   type DelegationOwnerKind,
   type WorkflowDelegationRow,
 } from "../schema";
@@ -322,6 +323,141 @@ export async function revokeWorkflowDelegation(id: string): Promise<boolean> {
     .where(and(eq(workflowDelegations.id, id), isNull(workflowDelegations.revokedAt)))
     .returning({ id: workflowDelegations.id });
   return revoked.length > 0;
+}
+
+/**
+ * How many runs this delegation has started since `since` — the D8 daily
+ * quota's numerator.
+ *
+ * `since` is supplied by the caller (`startOfUtcDay(new Date())`) rather
+ * than computed here, for the same reason every other predicate in this
+ * file takes its facts as arguments: a query layer that reads the clock
+ * cannot be tested at a boundary, and "per day" has to mean the same
+ * thing here as it does in `webhook-store.ts`, which is where that helper
+ * already lives.
+ *
+ * CALENDAR day, never a rolling window. A rolling window is gameable at
+ * the edges (fire N at 23:59, N more at 00:01 costs nothing under a
+ * calendar day either — but a rolling window lets a caller drip-feed
+ * indefinitely and never refill), and two subsystems answering "per day"
+ * differently is a permanent support burden.
+ *
+ * DURABLE, unlike the extension's in-memory hourly window
+ * (`extensions/workflows-handler.ts`): a restart must not refund a spend
+ * bound on an unattended job. Served by
+ * `idx_workflow_runs_delegation` (`db/schema.ts:901`), whose leading
+ * column is `delegation_id` and whose second is `started_at`.
+ */
+export async function countDelegationRunsSince(
+  delegationId: string,
+  since: Date,
+): Promise<number> {
+  const rows: Array<{ n: number }> = await getDb()
+    .select({ n: count() })
+    .from(workflowRuns)
+    .where(
+      and(eq(workflowRuns.delegationId, delegationId), gte(workflowRuns.startedAt, since)),
+    );
+  return rows[0]?.n ?? 0;
+}
+
+/**
+ * Turn a delegation OFF with a stated reason, without revoking it.
+ *
+ * Disabling and revoking are different facts and the schema keeps them in
+ * different columns: revocation is the human withdrawing the authority
+ * (a tombstone, `revoked_at`), while `enabled = false` + `disabled_reason`
+ * is the PLATFORM saying "this authority can no longer be exercised, and
+ * here is why". Only the second is re-enablable, and only the second has
+ * anything to tell the user.
+ *
+ * The reason is the whole point of the call. C3's D7 rung exists because
+ * a workflow re-tiered out of the owner's reach must produce a visible
+ * "this job stopped and here is why" rather than silently accruing
+ * `consecutive_failures` toward the auto-disable threshold of 5
+ * (`extensions/schedule-daemon.ts:88`), where the user would eventually
+ * be told only that the job failed too often.
+ *
+ * Filtered on `enabled` so a repeat is a no-op rather than a rewrite: the
+ * FIRST reason is the one that explains the stop, and a later, vaguer one
+ * overwriting it would lose the diagnosis. Revoked rows are excluded
+ * because a tombstone holds no authority to withdraw.
+ */
+export async function disableWorkflowDelegation(
+  id: string,
+  reason: string,
+): Promise<boolean> {
+  const rows = await getDb()
+    .update(workflowDelegations)
+    .set({ enabled: false, disabledReason: reason, updatedAt: new Date() })
+    .where(
+      and(
+        eq(workflowDelegations.id, id),
+        eq(workflowDelegations.enabled, true),
+        isNull(workflowDelegations.revokedAt),
+      ),
+    )
+    .returning({ id: workflowDelegations.id });
+  return rows.length > 0;
+}
+
+/**
+ * The auto-disable threshold: consecutive failed runs after which a
+ * delegation switches itself off.
+ *
+ * Deliberately the SAME number as `AUTO_DISABLE_AFTER` in
+ * `extensions/schedule-daemon.ts:88`. Reusing the value matters more than
+ * the value: an operator who has learned what "disabled after 5 failures"
+ * means for a schedule should not have to learn a second number for a
+ * delegation.
+ */
+export const DELEGATION_AUTO_DISABLE_AFTER = 5;
+
+/** What {@link recordDelegationRunOutcome} did, so a caller can log or
+ *  audit the auto-disable without re-reading the row. */
+export interface DelegationOutcomeResult {
+  consecutiveFailures: number;
+  autoDisabled: boolean;
+}
+
+/**
+ * Fold one run outcome into the delegation's failure counter.
+ *
+ * Success RESETS to zero rather than decrementing: the counter answers
+ * "is this job broken right now?", and a job that succeeds is not
+ * partially broken. Failure increments, and at
+ * {@link DELEGATION_AUTO_DISABLE_AFTER} the row disables itself with a
+ * reason naming the count.
+ *
+ * `SET x = x + 1` in SQL rather than read-modify-write, so two fires
+ * landing together cannot both read 4 and both write 5.
+ *
+ * Returns `{consecutiveFailures: 0, autoDisabled: false}` for a row that
+ * no longer exists or is already revoked — there is no counter to move
+ * and no authority to disable, which is the same fact a caller acts on
+ * either way.
+ */
+export async function recordDelegationRunOutcome(
+  id: string,
+  success: boolean,
+): Promise<DelegationOutcomeResult> {
+  const rows: Array<{ consecutiveFailures: number }> = await getDb()
+    .update(workflowDelegations)
+    .set({
+      consecutiveFailures: success ? 0 : sql`${workflowDelegations.consecutiveFailures} + 1`,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(workflowDelegations.id, id), isNull(workflowDelegations.revokedAt)))
+    .returning({ consecutiveFailures: workflowDelegations.consecutiveFailures });
+  const consecutiveFailures = rows[0]?.consecutiveFailures ?? 0;
+  if (consecutiveFailures < DELEGATION_AUTO_DISABLE_AFTER) {
+    return { consecutiveFailures, autoDisabled: false };
+  }
+  const autoDisabled = await disableWorkflowDelegation(
+    id,
+    `Disabled automatically after ${consecutiveFailures} consecutive failed runs.`,
+  );
+  return { consecutiveFailures, autoDisabled };
 }
 
 /**

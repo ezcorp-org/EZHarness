@@ -13,6 +13,7 @@ import type {
   WorkflowStepRun,
 } from "../types";
 import type { AgentExecutor } from "./executor";
+import type { DelegationOwnerKind } from "../db/schema";
 import type { EventBus } from "./events";
 import { resumeReasonRefusal } from "./workflow-resume-reasons";
 import {
@@ -733,6 +734,19 @@ export class WorkflowExecutor {
        * see `enforceDelegatedTokenBudget`.
        */
       delegationId?: string;
+      /**
+       * The audit SNAPSHOT of the principal the delegated handler
+       * resolved — `workflow_runs.run_as_kind` / `run_as`.
+       *
+       * Forwarded verbatim and never read, exactly like {@link jobRef}.
+       * They ride the same bag as {@link delegationId} because they are
+       * one decision recorded three ways, and splitting the write would
+       * leave a window in which a `running` row names a delegation and no
+       * principal. Nested runs do not inherit them, for the same reason
+       * they inherit neither of the other two.
+       */
+      runAsKind?: DelegationOwnerKind;
+      runAs?: string | null;
       /** Nesting level; 0 (the default) for a top-level run. Threaded so a
        *  child's OWN nested steps are bounded by the same cap. */
       depth?: number;
@@ -825,6 +839,10 @@ export class WorkflowExecutor {
         // spend bound is refunded by every suspend, which is no bound at
         // all for a job that parks and resumes on a schedule.
         delegationId: opts?.delegationId ?? null,
+        // Written, never read — the audit snapshot of the principal. See
+        // the option's doc.
+        runAsKind: opts?.runAsKind ?? null,
+        runAs: opts?.runAs ?? null,
       });
     });
 
