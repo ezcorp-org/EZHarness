@@ -1,9 +1,13 @@
 /**
- * Server-handler unit tests for /api/workflows/[name]/fork.
+ * Server-handler unit tests for /api/workflows/[name]/fork — the
+ * platform's ONE copy verb, reached from the detail page's Duplicate.
  *
- * The properties worth pinning: a fork never widens the original, it
- * always lands as a project-scoped row owned by the caller, and it
- * absorbs the global name-uniqueness collision instead of surfacing it.
+ * The properties worth pinning: a copy never widens the original, it is
+ * always owned by the caller, it absorbs the global name-uniqueness
+ * collision instead of surfacing it, and — the part that used to be
+ * silent — the tier it lands on is either the author's explicit choice
+ * (gated by the shared assignment rule) or `private`, never an invisible
+ * `project`.
  */
 import { test, expect, describe, vi, beforeEach } from "vitest";
 
@@ -107,17 +111,105 @@ describe("POST /api/workflows/[name]/fork", () => {
     });
   });
 
-  test("the new row is project-scoped and owned by the caller, never widening the source", async () => {
+  test("a copy with no named tier lands PRIVATE, owned by the caller", async () => {
+    // The behaviour this whole change exists for. It used to be
+    // `visibility: "project"`, unconditionally — which the read/run ladder
+    // resolves to "any-authenticated-principal", i.e. every account on the
+    // instance. Copying a workflow to tinker with published it.
     await POST(makeEvent({ locals: authedUser, body: { projectId: "proj-1" } }));
     expect(queries.createWorkflow).toHaveBeenCalledWith(
       expect.objectContaining({ name: "docs-factory", steps: SOURCE.steps }),
       {
-        visibility: "project",
+        visibility: "private",
         projectId: "proj-1",
         userId: "u1",
         forkedFrom: "ez-factory:docs-factory",
       },
     );
+  });
+
+  test("the tier that LANDED rides back in the response, not the one asked for", async () => {
+    const res = await POST(makeEvent({ locals: authedUser }));
+    expect((await res.json()) as { visibility?: string }).toMatchObject({ visibility: "private" });
+  });
+
+  test("an author who names `project` gets `project` — the default is a default, not a ceiling", async () => {
+    await POST(makeEvent({ locals: authedUser, body: { visibility: "project" } }));
+    expect(queries.createWorkflow).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ visibility: "project" }),
+    );
+  });
+
+  test("a non-admin naming `system` is refused by the SHARED assignment rule", async () => {
+    // Not a rule this route owns: `denyVisibilityOr` is the same call
+    // `POST /api/workflows` makes, so the two cannot disagree about who
+    // may dress a row up as a first-party asset.
+    const res = await POST(makeEvent({ locals: authedUser, body: { visibility: "system" } }));
+    expect(res.status).toBe(403);
+    expect(queries.createWorkflow).not.toHaveBeenCalled();
+  });
+
+  test("an admin naming `system` is allowed through the same rule", async () => {
+    const res = await POST(
+      makeEvent({
+        locals: { user: { id: "a1", email: "a@x", name: "a", role: "admin" } },
+        body: { visibility: "system" },
+      }),
+    );
+    expect(res.status).toBe(201);
+    expect(queries.createWorkflow).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ visibility: "system" }),
+    );
+  });
+
+  test("a tier is refused only AFTER the read resolve, so it is never an existence oracle", async () => {
+    // A 403 on the assignment rule must not be reachable for a workflow
+    // the caller cannot see — that would separate "exists, and you may not
+    // assign system" from "no such name".
+    ctx.getCachedWorkflows.mockReturnValue([
+      { ...extensionEntry(), source: "db", visibility: "private", userId: "someone-else" },
+    ]);
+    const res = await POST(makeEvent({ locals: authedUser, body: { visibility: "system" } }));
+    expect(res.status).toBe(404);
+  });
+
+  test("an author-supplied name is used instead of the source's", async () => {
+    const res = await POST(
+      makeEvent({ locals: authedUser, body: { name: "docs-factory-copy" } }),
+    );
+    expect(res.status).toBe(201);
+    expect((await res.json()) as { name?: string }).toMatchObject({ name: "docs-factory-copy" });
+  });
+
+  test("a blank name falls back to the source rather than 400-ing", async () => {
+    const res = await POST(makeEvent({ locals: authedUser, body: { name: "   " } }));
+    expect((await res.json()) as { name?: string }).toMatchObject({ name: "docs-factory" });
+  });
+
+  test("an author-supplied name that is TAKEN is suffixed like any other", async () => {
+    queries.listWorkflows.mockResolvedValue([{ name: "docs-factory-copy" }]);
+    const res = await POST(
+      makeEvent({ locals: authedUser, body: { name: "docs-factory-copy" } }),
+    );
+    expect((await res.json()) as { name?: string }).toMatchObject({ name: "docs-factory-copy-2" });
+  });
+
+  test("a name the grammar can never accept is a 400, not a mystifying 409", async () => {
+    const res = await POST(makeEvent({ locals: authedUser, body: { name: "Bad Name!" } }));
+    expect(res.status).toBe(400);
+    expect(queries.createWorkflow).not.toHaveBeenCalled();
+  });
+
+  test("a non-string name is rejected by the body schema", async () => {
+    const res = await POST(makeEvent({ locals: authedUser, body: { name: 7 } }));
+    expect(res.status).toBe(400);
+  });
+
+  test("an unknown visibility literal is rejected by the body schema", async () => {
+    const res = await POST(makeEvent({ locals: authedUser, body: { visibility: "public" } }));
+    expect(res.status).toBe(400);
   });
 
   test("auto-suffixes on collision and reports the FINAL name", async () => {
