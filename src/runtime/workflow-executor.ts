@@ -729,8 +729,8 @@ export class WorkflowExecutor {
        * lift one, so a caller that lies about it can only restrict itself.
        *
        * A NESTED run does not inherit it, exactly as it does not inherit
-       * `jobRef`. See {@link WorkflowExecutor.runNestedWorkflow} for what
-       * that costs.
+       * `jobRef`. What that costs is written down where the check lives —
+       * see `enforceDelegatedTokenBudget`.
        */
       delegationId?: string;
       /** Nesting level; 0 (the default) for a top-level run. Threaded so a

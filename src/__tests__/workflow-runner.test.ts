@@ -1178,6 +1178,12 @@ describe("resumeArgsFromRow", () => {
       // dropped it would refuse the daemon on every run it claims, which
       // is the defect this column was threaded through to fix.
       claimedBy: null,
+      // C3. The delegation whose `max_tokens_per_run` bounds this run.
+      // Null here because this run is not delegated — and a projection
+      // that dropped it would silently un-bound every resumed delegated
+      // run: it would come back with no ceiling, take no boundary
+      // queries, and look perfectly healthy.
+      delegationId: null,
     });
   });
 });
