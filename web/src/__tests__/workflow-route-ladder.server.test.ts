@@ -35,6 +35,37 @@ function handlerFiles(dir: string): string[] {
 
 const files = handlerFiles(ROUTES_DIR);
 
+/**
+ * Every entry point that reaches the NAME ladder, in ONE list.
+ *
+ * The two tests below both need this set, and they used to carry two
+ * copies of it. They drifted at the C3 integration and the drift was a
+ * false RED: phase 4 added `resolveDelegationConsentOr` and taught the
+ * first test about it, while the second test's skip condition still named
+ * only the original two — so `delegations/preview/+server.ts`, which is
+ * correctly authorized through that resolver, was reported as a route
+ * that "delegates to nothing". Neither branch failed alone; the merge
+ * produced the combination.
+ *
+ * One list, both readers. A new resolver is now one edit, and a resolver
+ * this file does not know about fails BOTH tests together rather than
+ * making them disagree.
+ *
+ * `resolveDelegationConsentOr` resolves a workflow by NAME exactly like
+ * the other two, but authorizes as the principal the DELEGATION will
+ * carry rather than as the caller — a distinction `resolveWorkflowOr`
+ * structurally cannot express, since it takes an `AuthUser` and a
+ * service-account principal has none. Still one adapter in
+ * `workflow-access.ts:166` over one rule in
+ * `runtime/workflow-delegation-consent.ts`, which is the property this
+ * file defends: the entry point is new, the ladder is not.
+ */
+const NAME_LADDER_RESOLVERS = [
+  "resolveWorkflowOr",
+  "listVisibleWorkflows",
+  "resolveDelegationConsentOr",
+] as const;
+
 describe("the workflow ownership ladder lives in exactly one place", () => {
   test("every workflow route file is discovered (the sweep is not vacuous)", () => {
     // A test that walked an empty directory would pass forever.
@@ -73,19 +104,7 @@ describe("the workflow ownership ladder lives in exactly one place", () => {
     "%s reaches the ladder through the shared access module",
     (_label, file) => {
       const source = readFileSync(file, "utf8");
-      const usesResolver =
-        source.includes("resolveWorkflowOr") ||
-        source.includes("listVisibleWorkflows") ||
-        // C3's consent route resolves a workflow by NAME like the six
-        // above, but authorizes as the principal the DELEGATION will
-        // carry rather than as the caller — a distinction
-        // `resolveWorkflowOr` structurally cannot express, because it
-        // takes an `AuthUser` and a service-account principal has none.
-        // Still one adapter in `workflow-access.ts` over one rule in
-        // `runtime/workflow-delegation-consent.ts`, which is the property
-        // this file is defending; the entry point is new, the ladder is
-        // not.
-        source.includes("resolveDelegationConsentOr");
+      const usesResolver = NAME_LADDER_RESOLVERS.some((r) => source.includes(r));
       // The claim route is the ONE deliberate exception: it is an
       // admin-only ownership MOVE, gated on the role/scope axes rather
       // than on a workflow's current owner (whose whole problem is that
@@ -144,7 +163,7 @@ describe("the workflow ownership ladder lives in exactly one place", () => {
       /answerApproval|resumeParkedRun|cancelParkedRun|listPendingWorkflowApprovalsForUser|getWorkflowRunTrace|listWorkflowRunsForCaller|mayManageDelegation|listWorkflowDelegationsConsentedBy/;
     for (const file of files) {
       const source = readFileSync(file, "utf8");
-      if (source.includes("resolveWorkflowOr") || source.includes("listVisibleWorkflows")) continue;
+      if (NAME_LADDER_RESOLVERS.some((r) => source.includes(r))) continue;
       if (source.includes("requireAdmin")) continue;
       expect({ file: file.slice(ROUTES_DIR.length + 1), delegates: AUTHORITIES.test(source) }).toEqual(
         { file: file.slice(ROUTES_DIR.length + 1), delegates: true },
