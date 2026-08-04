@@ -195,13 +195,56 @@ steps:
   # documented lenient exception in the ref language — so the first pass
   # genuinely has no prior. On iteration 2+ it is the previous child run's
   # result, addressed through the unchanged grammar.
+  #
+  # ── `draft` addresses `.draft`; `sources` deliberately does not ───────
+  #
+  # `$steps.draft.output` is NOT the document. The `draft` step is the
+  # writer, seeded `outputFormat: "json"`
+  # (`src/extensions/ez-factory-agents.ts`), so `configToAgent` puts
+  # `JSON.parse` between the model and the step and its `output` is the
+  # `{draft, gaps}` envelope its contract declares. Passing that whole gave
+  # the child a doubly-nested `draft` — observed on run `1afb0d0a`, whose
+  # child's `revise.resolvedInput` read
+  # `"draft": {"gaps": [], "draft": "# Widget Service…"}`.
+  #
+  # Three things make that wrong rather than merely ugly, and the third is
+  # the one that decided it:
+  #
+  #   • The receiving step is the WRITER being asked to revise "the draft".
+  #     `configToAgent` renders a non-string input value with
+  #     `JSON.stringify`, so the model reads the markdown with every
+  #     newline collapsed to a literal `\n`, inside an object, under a key
+  #     it must also EMIT.
+  #   • `draft-and-verify` is separately runnable and its `inputSchema`
+  #     declares `draft` as `type: text` — "on a standalone run this is the
+  #     whole starting draft". A parent feeding an object made the two
+  #     callers disagree about the same field.
+  #   • Since `verdict.content` was corrected to `$steps.revise.output.draft`,
+  #     iteration 2+ handed the writer BOTH shapes on one call:
+  #     `priorRevision` a plain document, `draft` an envelope — two
+  #     representations of the same artifact, one line apart.
+  #
+  # `sources` stays whole on purpose, and so does `facts` at step 3. Neither
+  # is drift: `sources` is `read`'s structured file records, which the
+  # child's own schema documents as "supplied as structured file records
+  # when a parent workflow feeds this graph", and `facts` is the
+  # extractor's `{facts, gaps}` — the writer is meant to see the gaps too.
+  # "Object into a text field" is not by itself the defect; addressing a
+  # single-document field with the envelope that CONTAINS the document is.
+  #
+  # The cost is real and accepted: a `$steps.<step>.output.<field>` ref is
+  # STRICT (`workflow-refs.ts` — "field is missing on step …'s result"), so
+  # a writer reply that omitted `draft` now fails the step by name instead
+  # of silently forwarding a malformed object. That is the same bet
+  # `draft-and-verify`'s `verdict.content` already makes on the same key of
+  # the same agent, and the seeded contract requires the key on every reply.
   - name: review-loop
     kind: workflow
     workflow: ez-factory:draft-and-verify
     dependsOn:
       - draft
     input:
-      draft: $steps.draft.output
+      draft: $steps.draft.output.draft
       sources: $steps.read.output.files
       priorContent: $loop.last.output.content
       priorVerdict: $loop.last.output.verdict
