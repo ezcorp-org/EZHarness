@@ -43,6 +43,11 @@ const MODULE_PATHS = [
   "../../db/queries/knowledge-base",
   "../../db/queries/runs",
   "../../db/queries/projects",
+  // The project-membership reads the projects API and the workflow read/run
+  // ladder authorize against. Stubbed by the two security suites; snapshot
+  // so an in-memory membership store never leaks into a later file and
+  // silently authorizes something.
+  "../../db/queries/project-members",
   "../../db/queries/extensions",
   "../../db/queries/agent-configs",
   "../../db/queries/observability",

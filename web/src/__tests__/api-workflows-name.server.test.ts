@@ -34,10 +34,18 @@ const versions = vi.hoisted(() => ({
 const audit = vi.hoisted(() => ({
   insertAuditEntry: vi.fn(async () => "audit-1"),
 }));
+// `callerFor` resolves the caller's project memberships once per request,
+// so the read/run ladder can answer a project-SCOPED row. Every entry here
+// is `system` or `private`, so the set is never consulted — but the resolve
+// still happens and would otherwise reach a real `getDb()`.
+const members = vi.hoisted(() => ({
+  listProjectIdsForUser: vi.fn(async () => [] as string[]),
+}));
 vi.mock("$lib/server/context", () => ctx);
 vi.mock("$server/db/queries/workflows", () => queries);
 vi.mock("$server/db/queries/workflow-versions", () => versions);
 vi.mock("$server/db/queries/audit-log", () => audit);
+vi.mock("$server/db/queries/project-members", () => members);
 
 import { GET, PUT, DELETE } from "../routes/api/workflows/[name]/+server";
 
