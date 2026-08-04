@@ -84,6 +84,21 @@
  * ownerless bound for that method. Do not weaken it, and do not "simplify"
  * it away on the grounds that the caller already checks — one caller does,
  * one deliberately does not.
+ *
+ * ── C3 · the FOURTH op, and the one rung 7 does not bound ──────────────
+ *
+ * `op: "runFor"` fires a workflow the extension does NOT ship, as a
+ * principal a human already consented to. It is the one path where an
+ * ownerless CALLER is legitimate — that is the entire feature — so it
+ * does not reach rung 7 at all. What replaces rung 7 is not an absence:
+ * the owner comes off a `workflow_delegations` row keyed on the
+ * REGISTRY-resolved extension id, D4 proves that owner still resolves to
+ * a live principal before anything is audited against it, and D7 re-asks
+ * the read/run ladder as that principal on every single fire.
+ *
+ * It is admitted ONLY on `ezcorp/workflows-delegated`; on
+ * `ezcorp/workflows` it is an unknown op. Full ladder, rung order and
+ * audit-destination table: {@link runForDelegation}.
  */
 import type {
   ExtensionManifestV2,
@@ -106,12 +121,32 @@ import {
 } from "../runtime/workflow/runtime-registry";
 import type { WorkflowDefinition, WorkflowRunStatus } from "../types";
 import { isValidWorkflowName, namespacedWorkflowName } from "../runtime/workflow-name";
-import { canRunWorkflow } from "../runtime/workflow-authz";
+import { canRunWorkflow, workflowExtensionLiveness } from "../runtime/workflow-authz";
 import { systemCachedWorkflow, type CachedWorkflow } from "../runtime/workflow-scope";
 import { listWorkflowRunsForCaller, RUN_STATUS_FILTERS } from "../runtime/workflow-run-trace";
 import { listPendingWorkflowApprovalsForUser } from "../db/queries/workflow-approvals";
 import { formatGateRelay } from "../runtime/workflow-approval-relay";
 import { extensionLogger } from "../logger";
+// ── C3 · delegated execution ──────────────────────────────────────────
+import type { DelegationOwnerKind, WorkflowDelegationRow } from "../db/schema";
+import {
+  countDelegationRunsSince,
+  delegationOwnerId,
+  disableWorkflowDelegation,
+  findLiveWorkflowDelegation,
+  recordDelegationRunOutcome,
+} from "../db/queries/workflow-delegations";
+import { findLiveServiceAccount } from "../db/queries/service-accounts";
+import { getUserById } from "../db/queries/users";
+import { insertWorkflowRun, suspendWorkflowRun } from "../db/queries/workflow-runs";
+import {
+  authorizeDelegationConsent,
+  delegationPrincipal,
+  DELEGATION_CONSENT_DENIALS,
+} from "../runtime/workflow-delegation-consent";
+import { computeDelegationConsentRecord } from "../runtime/workflow-delegation-record";
+import { workflowDefinitionHash } from "../runtime/workflow-definition-hash";
+import { startOfUtcDay } from "./webhook-store";
 
 const log = extensionLogger("workflows", "handler");
 
@@ -162,6 +197,73 @@ export function isValidJobRef(value: unknown): value is string {
   );
 }
 
+/**
+ * The reverse-RPC method the delegated ladder is reachable on, and ONLY
+ * on. Must equal the key in `REVERSE_RPC_ROUTES`
+ * (`tool-executor/rpc-handlers.ts`) — the router exact-matches it, so the
+ * value this handler compares against is the one the host itself chose.
+ */
+export const DELEGATED_WORKFLOWS_METHOD = "ezcorp/workflows-delegated";
+
+/** The `op` that fires a workflow the extension does NOT ship, on behalf
+ *  of the human (or service account) who delegated it. */
+export const DELEGATED_OP = "runFor";
+
+/**
+ * C3's own kill-switch (rung 1b).
+ *
+ * Separate from `EZCORP_DISABLE_CAPABILITY_TOOLS` on purpose: an operator
+ * who needs delegated execution off in an incident should not have to
+ * take down every extension's task events, spawns and first-party
+ * workflow triggers to get it. Unset ⇒ no behaviour change, which is the
+ * same contract `capabilityToolsDisabled` carries.
+ */
+export function delegatedWorkflowsDisabled(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return env["EZCORP_DISABLE_DELEGATED_WORKFLOWS"] === "1";
+}
+
+/**
+ * `owner_kind` → the `sdk_capability_calls.on_behalf_of` value an outcome
+ * on that kind carries, or `null` when there is no user to carry.
+ *
+ * **This map IS the audit-destination decision**, and it is the reason
+ * that decision is per rung AND per owner kind rather than per rung:
+ * `null` routes the outcome to `audit_log` through {@link audit}'s
+ * ownerless branch, exactly as rung 7 does, because
+ * `sdk_capability_calls.on_behalf_of` is NOT NULL with an FK to `users`
+ * and a `service` principal has no `users` row by construction. Get this
+ * wrong in the permissive direction and a service-account denial does not
+ * merely land in the wrong table — the insert is swallowed and the denial
+ * VANISHES.
+ *
+ * A KEYED LOOKUP for the same reason `DELEGATION_OWNER_COLUMN` and
+ * `DELEGATION_PRINCIPAL` are: a two-armed `switch` compiles today and
+ * falls silently through the day a third principal kind exists, and the
+ * fallthrough value here would be "attribute it to somebody".
+ */
+const DELEGATION_AUDIT_ON_BEHALF_OF = {
+  user: (ownerId: string): string | null => ownerId,
+  service: (): string | null => null,
+} as const satisfies Record<DelegationOwnerKind, (ownerId: string) => string | null>;
+
+/**
+ * `owner_kind` → the `audit_log` action an outcome on that kind uses IF
+ * it routes there. Paired with {@link DELEGATION_AUDIT_ON_BEHALF_OF} so
+ * the destination and the action cannot disagree.
+ *
+ * The `user` arm is unreachable in practice — a `user`-kind outcome past
+ * rung D4 has a proven `users` row and therefore lands in
+ * `sdk_capability_calls` — and it is present anyway, keyed, so that the
+ * map stays total and a third kind is one entry rather than a search for
+ * every place a kind is assumed.
+ */
+const DELEGATION_AUDIT_LOG_ACTION = {
+  user: EXT_AUDIT_ACTIONS.WORKFLOW_DELEGATION_NO_OWNER,
+  service: EXT_AUDIT_ACTIONS.WORKFLOW_DELEGATION_SERVICE,
+} as const satisfies Record<DelegationOwnerKind, string>;
+
 
 /** Typed rejection reasons — the `errorCode` on the audit row, so analytics
  *  can tell "not granted" from "quota exhausted" from "no such workflow". */
@@ -180,7 +282,50 @@ export type WorkflowTriggerDenyReason =
   | "WORKFLOW_NOT_FOUND"
   | "WORKFLOWS_RUNTIME_UNAVAILABLE"
   | "WORKFLOWS_DISPATCH_FAILED"
-  | "WORKFLOWS_BAD_OP";
+  | "WORKFLOWS_BAD_OP"
+  // ── C3 · the delegated (`op: "runFor"`) rungs ──────────────────────
+  //
+  // Every one of these is its OWN code, and none collapses into a shared
+  // `DELEGATION_DENIED`. Two of them drive completely different human
+  // remedies from the same-looking symptom ("my cron job stopped"), and
+  // one — `DELEGATION_OWNER_LOST_WORKFLOW_ACCESS` — survives into
+  // `workflow_delegations.disabled_reason`, where it is the only thing a
+  // user will ever read about why it stopped.
+  /** 1b — `EZCORP_DISABLE_DELEGATED_WORKFLOWS=1`. C3's own kill switch. */
+  | "DELEGATION_DISABLED"
+  /** 2b — the install grant does not carry `allowDelegated`. */
+  | "DELEGATION_NOT_GRANTED"
+  /** D1 — the `jobRef` is not id-shaped. */
+  | "DELEGATION_BAD_REF"
+  /** D2 — no LIVE delegation for this (extension, job). This is the code
+   *  a FORGED ref produces, and it is the whole of §4: the wire has no
+   *  field that names a principal, so "invent an owner" matches zero rows
+   *  rather than being denied. */
+  | "DELEGATION_NOT_FOUND"
+  /** D3 — the row exists and is switched off. Carries `disabled_reason`. */
+  | "DELEGATION_DISABLED_ROW"
+  /** D4 — the owner the row names does not resolve to a live principal. */
+  | "DELEGATION_OWNER_UNRESOLVED"
+  /** D7 — the owner could run this workflow at consent time and cannot
+   *  now. Distinct from the consent-time
+   *  `DELEGATION_OWNER_CANNOT_RUN_WORKFLOW` because nothing the human did
+   *  was wrong: the world moved. */
+  | "DELEGATION_OWNER_LOST_WORKFLOW_ACCESS"
+  /** D7 — the delegation's `workflow_name` resolves to nothing the
+   *  principal can even see. */
+  | "DELEGATION_WORKFLOW_NOT_FOUND"
+  /** D6 — the recomputed consent hash differs from the stored one. The
+   *  run is PARKED, not refused: see {@link parkConsentStaleRun}. */
+  | "DELEGATION_CONSENT_STALE"
+  /** D8 — `max_runs_per_day`, counted over the UTC calendar day. */
+  | "DELEGATION_QUOTA_EXCEEDED"
+  /** D9 — the delegation's `max_tokens_per_run` cannot admit any work. */
+  | "DELEGATION_SPEND_EXCEEDED"
+  /** D6/D7 — the runtime is registered but WITHOUT the readers this
+   *  ladder authorizes and hashes against. Fail CLOSED: a registration
+   *  that cannot answer "who owns this?" or "which agents exist?" has not
+   *  earned a permissive default (`workflow/runtime-registry.ts`). */
+  | "DELEGATION_RUNTIME_UNAVAILABLE";
 
 export interface WorkflowsHandlerContext {
   /** Manifest NAME of the calling extension, resolved host-side from the
@@ -247,6 +392,33 @@ function checkHourlyQuota(
   return { ok: true, used: kept.length };
 }
 
+/**
+ * Rung 10's `input` validation, shared verbatim by `op: "run"` and
+ * `op: "runFor"`.
+ *
+ * One function because the two ops must bound the SAME payload surface:
+ * `input` rides into the ref resolver, the persisted `workflow_runs.input`
+ * column and every agent step's prompt on both paths, and a delegated
+ * fire is the one with an unattended principal behind it. A second copy
+ * of the ceiling would eventually be the larger one.
+ */
+function readWorkflowInput(
+  raw: unknown,
+): { ok: true; input: Record<string, unknown> } | { ok: false; message: string } {
+  if (raw === undefined) return { ok: true, input: {} };
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    return { ok: false, message: "'input' must be a JSON object" };
+  }
+  const serialized = JSON.stringify(raw);
+  if (serialized.length > MAX_WORKFLOW_INPUT_BYTES) {
+    return {
+      ok: false,
+      message: `'input' too large (${serialized.length} > ${MAX_WORKFLOW_INPUT_BYTES} bytes)`,
+    };
+  }
+  return { ok: true, input: raw as Record<string, unknown> };
+}
+
 /** Test-only: clear the in-memory hourly-quota window. */
 export function _resetWorkflowTriggerQuotaForTests(): void {
   triggerTimes.clear();
@@ -303,6 +475,20 @@ export async function handleWorkflowsRpc(
     return deny("WORKFLOWS_DISABLED", "workflows permission not granted");
   }
 
+  // 1b. C3's OWN kill-switch, scoped to the delegated verb and nothing
+  //     else. Read off the raw `op` — before validation, before the grant
+  //     check — so that turning C3 off in an incident is one env var and
+  //     costs no reasoning about which rung the switch sits above.
+  //
+  //     Deliberately NOT keyed on the METHOD: `ezcorp/workflows-delegated`
+  //     also serves the ordinary `run` / `runs` / `approvals` ops (it is
+  //     the same ladder with a tolerant rung 0), and an operator disabling
+  //     delegated FIRES has not asked to break an extension's status
+  //     polling.
+  if (params.op === DELEGATED_OP && delegatedWorkflowsDisabled()) {
+    return deny("DELEGATION_DISABLED", "delegated workflow runs are disabled");
+  }
+
   // 2. Grant check — structural. A grant with an empty name list or a
   //    non-positive rate ceiling authorizes nothing; the clamp never
   //    produces one, so reaching here means a hand-edited / legacy row.
@@ -349,8 +535,21 @@ export async function handleWorkflowsRpc(
   //     read does not have) or actively wrong (a poll burning the run
   //     budget until the extension can no longer do the thing it was
   //     granted).
+  //
+  //     `runFor` (C3) is the fourth op and the ONLY one that is not
+  //     reachable on both methods. It is admitted solely on
+  //     `ezcorp/workflows-delegated`, and on `ezcorp/workflows` it is an
+  //     unknown op like any other. That is not belt-and-braces: §4's
+  //     argument is "different method, different resolver, different
+  //     ladder", and a verb that skipped rung 7's ownerless bound would be
+  //     reachable from the resolver that exists to enforce it. The check
+  //     reads `req.method`, which is the string the reverse-RPC ROUTER
+  //     exact-matched to get here (`tool-executor/rpc-handlers.ts` —
+  //     `REVERSE_RPC_ROUTES`), so it is host-verified by construction
+  //     rather than a wire claim.
   const op = params.op === undefined ? "run" : params.op;
-  if (op !== "run" && op !== "approvals" && op !== "runs") {
+  const delegatedMethod = req.method === DELEGATED_WORKFLOWS_METHOD;
+  if (op !== "run" && op !== "approvals" && op !== "runs" && !(op === DELEGATED_OP && delegatedMethod)) {
     return deny("WORKFLOWS_BAD_OP", `Unknown 'op': ${String(op)}`, -32602);
   }
   if (op === "approvals") {
@@ -358,6 +557,9 @@ export async function handleWorkflowsRpc(
   }
   if (op === "runs") {
     return readRuns(req, ctx, startedAt, deps, granted.names, deny);
+  }
+  if (op === DELEGATED_OP) {
+    return runForDelegation(req, ctx, startedAt, deps, granted, deny);
   }
 
   // 3. The workflow NAME. Read before the PDP call because the capability
@@ -448,34 +650,35 @@ export async function handleWorkflowsRpc(
   if (params.v !== 1) {
     return deny("WORKFLOWS_BAD_PAYLOAD", "Missing or invalid 'v' (expected 1)", -32602);
   }
-  let input: Record<string, unknown> = {};
-  if (params.input !== undefined) {
-    const raw = params.input;
-    if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
-      return deny("WORKFLOWS_BAD_PAYLOAD", "'input' must be a JSON object", -32602);
-    }
-    const serialized = JSON.stringify(raw);
-    if (serialized.length > MAX_WORKFLOW_INPUT_BYTES) {
-      return deny(
-        "WORKFLOWS_BAD_PAYLOAD",
-        `'input' too large (${serialized.length} > ${MAX_WORKFLOW_INPUT_BYTES} bytes)`,
-        -32602,
-      );
-    }
-    input = raw as Record<string, unknown>;
+  const inputCheck = readWorkflowInput(params.input);
+  if (!inputCheck.ok) {
+    return deny("WORKFLOWS_BAD_PAYLOAD", inputCheck.message, -32602);
   }
+  const input = inputCheck.input;
   //     `jobRef` — the caller's OWN correlation handle, persisted verbatim
   //     to `workflow_runs.job_ref`. It is the durable half of "which saved
   //     job fired this run?": without it a console can only guess by
   //     matching timestamps, which is wrong the first time two jobs fire
   //     together.
   //
-  //     It grants NOTHING and is checked for SHAPE only. Every rung above
-  //     has already decided whether this caller may start this workflow;
-  //     a handle supplied by the same caller cannot be allowed to reopen
-  //     that question, so nothing below branches on it. Rejected rather
-  //     than sanitized: a silently-rewritten handle correlates to the
-  //     wrong job, which is worse than carrying none.
+  //     **ON THIS OP THE HANDLE GRANTS NOTHING**, and is checked for SHAPE
+  //     only. Every rung above has already decided whether this caller may
+  //     start this workflow; a handle supplied by the same caller cannot
+  //     be allowed to reopen that question, so nothing below branches on
+  //     it. Rejected rather than sanitized: a silently-rewritten handle
+  //     correlates to the wrong job, which is worse than carrying none.
+  //
+  //     **THE SAME-NAMED FIELD ON `op: "runFor"` IS DIFFERENT, AND IT IS
+  //     THE OTHER SITE A FUTURE READER MUST NOT CONFUSE WITH THIS ONE.**
+  //     There it is the LOOKUP KEY for the `workflow_delegations` row, so
+  //     it selects which authority is exercised — see
+  //     {@link runForDelegation}. That is defensible only because it is a
+  //     different op on a different METHOD with a different resolver and a
+  //     different ladder, and because the row it selects was written by a
+  //     human. A refactor that "unified the two handlers" on the strength
+  //     of the paragraph above, without reading this one, would make a
+  //     correlation handle authority-bearing on the trigger path — the
+  //     confused deputy in its textbook form.
   let jobRef: string | undefined;
   if (params.jobRef !== undefined) {
     if (!isValidJobRef(params.jobRef)) {
@@ -856,6 +1059,745 @@ async function readRuns(
   return rpcResult(req.id, { v: 1, runs });
 }
 
+// ── C3 · `op: "runFor"` — the delegated ladder (D1–D9) ────────────────
+
+/**
+ * A live delegation plus the principal it was PROVED to carry.
+ *
+ * "Proved" is the load-bearing word and it is the same principle PR #58's
+ * `holdsClaim` applies to a lease: naming an owner the platform cannot
+ * resolve proves nothing, so rung D4 re-reads the `users` /
+ * `service_accounts` row and this struct only exists downstream of it.
+ * Everything below D4 audits against `onBehalfOf`, and an unproven owner
+ * id there is an FK violation, a swallowed insert, and a denial with no
+ * trail.
+ */
+interface ProvenDelegation {
+  row: WorkflowDelegationRow;
+  ownerKind: DelegationOwnerKind;
+  ownerId: string;
+  /** `sdk_capability_calls.on_behalf_of`, or null ⇒ route to `audit_log`. */
+  onBehalfOf: string | null;
+  /** The `audit_log` action used when `onBehalfOf` is null. */
+  ownerlessAction: string;
+}
+
+/** D4's outcome. The message names the REMEDY, because the two arms have
+ *  completely different ones (re-invite the user vs re-enable the
+ *  account). */
+type OwnerResolution = { ok: true } | { ok: false; message: string };
+
+/**
+ * Rung D4, per owner kind — is the principal this row names still live?
+ *
+ * A KEYED LOOKUP, third and last of the trio (`DELEGATION_OWNER_COLUMN`,
+ * `DELEGATION_PRINCIPAL`, this): a third principal kind is one entry here
+ * and a compile error until it is written.
+ *
+ * `user` demands `status === "active"`, not merely existence. A
+ * deactivated user is precisely the case this rung exists for — the FK is
+ * `ON DELETE CASCADE`, so a DELETED user takes the delegation with them
+ * and never reaches here, while a DEACTIVATED one leaves a live row whose
+ * owner may no longer act. `service` demands `enabled`, which is what
+ * {@link findLiveServiceAccount} already filters on for the consent
+ * route, so the two agree by sharing the reader rather than by luck.
+ */
+const RESOLVE_DELEGATION_OWNER = {
+  user: async (ownerId: string): Promise<OwnerResolution> => {
+    const user = await getUserById(ownerId);
+    if (user === undefined) {
+      return { ok: false, message: "the user who delegated this job no longer exists" };
+    }
+    if (user.status !== "active") {
+      return { ok: false, message: "the user who delegated this job is deactivated" };
+    }
+    return { ok: true };
+  },
+  service: async (ownerId: string): Promise<OwnerResolution> => {
+    const account = await findLiveServiceAccount(ownerId);
+    if (account === undefined) {
+      return {
+        ok: false,
+        message: "the service account this job runs as is disabled or no longer exists",
+      };
+    }
+    return { ok: true };
+  },
+} as const satisfies Record<DelegationOwnerKind, (ownerId: string) => Promise<OwnerResolution>>;
+
+/**
+ * `op: "runFor"` — fire a workflow this extension does NOT ship, as the
+ * principal a human already consented to.
+ *
+ * ## The wire carries a job ref and NEVER a principal
+ *
+ * This is the strongest property in the feature and the reason D5 does
+ * not exist. `jobRef` is the ONLY caller-supplied value with any
+ * authority-adjacent role, and even that one is a lookup KEY rather than
+ * a claim: the owner, the workflow name and the project all come off the
+ * `workflow_delegations` row, keyed on the REGISTRY-resolved extension id.
+ * So "invent an owner" is not denied, it is INEXPRESSIBLE — there is no
+ * field for it, and a forged ref matches zero rows at D2.
+ *
+ * That also settles what {@link isValidJobRef} means on this op, and it
+ * is the opposite of what it means on the `run` op (see the comment at
+ * that site): **here the `jobRef` selects the authority.** It still
+ * grants nothing by itself — it names a row that a human wrote, and every
+ * rung below re-asks that row's questions against live state.
+ *
+ * ## The ladder, in order, with its audit destination
+ *
+ * | rung | check | deny code | audits to |
+ * |---|---|---|---|
+ * | 1   | capability tier off | `WORKFLOWS_DISABLED` | per caller |
+ * | 1b  | `EZCORP_DISABLE_DELEGATED_WORKFLOWS` | `DELEGATION_DISABLED` | per caller |
+ * | 2   | structural grant | `WORKFLOWS_NOT_GRANTED` | per caller |
+ * | 2b  | `allowDelegated` on the grant | `DELEGATION_NOT_GRANTED` | per caller |
+ * | 6   | PDP `ezcorp:workflows:run-delegated` | `WORKFLOWS_PERM_DENIED` | per caller |
+ * | D1  | `jobRef` shape | `DELEGATION_BAD_REF` | per caller |
+ * | 8   | wiring, when a conversation is present | `WORKFLOWS_NOT_WIRED` | per caller |
+ * | 9   | instantaneous rate limit | `WORKFLOWS_RATE_LIMITED` | per caller |
+ * | 10  | payload (`v`, `input`) | `WORKFLOWS_BAD_PAYLOAD` | per caller |
+ * | 11  | extension hourly quota | `WORKFLOWS_QUOTA_EXCEEDED` | per caller |
+ * | D2  | live delegation for (extension, job) | `DELEGATION_NOT_FOUND` | per caller |
+ * | D4  | owner resolves to a live principal | `DELEGATION_OWNER_UNRESOLVED` | **`audit_log`, both kinds** |
+ * | D3  | `enabled` | `DELEGATION_DISABLED_ROW` | per owner kind |
+ * | D7  | owner may still RUN it + extension live | `DELEGATION_OWNER_LOST_WORKFLOW_ACCESS` / `DELEGATION_WORKFLOW_NOT_FOUND` | per owner kind |
+ * | D6  | consent hash | `DELEGATION_CONSENT_STALE` (**parks the run**) | per owner kind |
+ * | D8  | `max_runs_per_day`, UTC calendar day | `DELEGATION_QUOTA_EXCEEDED` | per owner kind |
+ * | D9  | `max_tokens_per_run` admits work | `DELEGATION_SPEND_EXCEEDED` | per owner kind |
+ * | 13  | dispatch | `WORKFLOWS_DISPATCH_FAILED` | per owner kind |
+ *
+ * "per caller" is `ctx.userId`: `sdk_capability_calls` for an in-chat
+ * call, `audit_log` for the background fire this op almost always is.
+ * "per owner kind" is {@link DELEGATION_AUDIT_ON_BEHALF_OF}.
+ *
+ * ## Three deliberate deviations from the plan's rung order
+ *
+ *  1. **D4 runs before D3.** The plan orders them lookup → enabled →
+ *     owner. Attribution has to be PROVED before any outcome is audited
+ *     against it, because `sdk_capability_calls.on_behalf_of` is NOT NULL
+ *     with an FK to `users`; auditing a D3 denial against an owner id
+ *     nobody checked is a swallowed insert. The reorder costs one query
+ *     on a disabled row and buys a correct trail for every rung below it.
+ *  2. **D7 runs before D6.** D6 needs the ROOT DEFINITION to hash, and
+ *     the only ownership-aware way to get it is the resolution D7 already
+ *     performs. Hashing first would also mean computing a fingerprint of
+ *     a graph the owner is not allowed to run.
+ *  3. **8/9/10/11 run before D2.** They are the caller's own payload and
+ *     the extension's own budgets, and the `run` op asks them before its
+ *     own expensive resolution rung too. Ordering them after four
+ *     database round trips would make a malformed frame cost more than a
+ *     valid one.
+ *
+ * Rungs 3, 4, 5 and 12 have no delegated counterpart: 3/4/5 are per-NAME
+ * checks against a name the wire cannot express, and 12's resolution IS
+ * D7 (§1.3 — D7 is the replacement bound for 4–5, and its strength is
+ * exactly the strength of the read/run ladder).
+ */
+async function runForDelegation(
+  req: JsonRpcRequest,
+  ctx: WorkflowsHandlerContext,
+  startedAt: number,
+  deps: WorkflowsHandlerDeps,
+  granted: NonNullable<ExtensionPermissions["workflows"]>,
+  deny: (
+    reason: WorkflowTriggerDenyReason,
+    message: string,
+    code?: number,
+    after?: Record<string, unknown>,
+  ) => Promise<JsonRpcResponse>,
+): Promise<JsonRpcResponse> {
+  const params = (req.params ?? {}) as Record<string, unknown>;
+
+  // 2b. The delegated opt-in. Deliberately its own rung rather than a
+  //     widening of rung 2: rung 2 asks whether the grant is structurally
+  //     usable at all (and, since C3, tolerates an empty `names` list for
+  //     exactly this case), while this asks whether the extension was
+  //     admitted to the delegated tier. A grant that clears rung 2 on the
+  //     `allowDelegated` exception and does NOT hold the bit is a
+  //     hand-edited row, and it must not fire anything.
+  if (granted.allowDelegated !== true) {
+    return deny("DELEGATION_NOT_GRANTED", "delegated workflow runs not granted");
+  }
+
+  // 6. PDP — the canonical decision. KIND-ONLY, with no value: the cap
+  //    cannot be per-job because job refs are minted AFTER install by a
+  //    human consent action, so an install-time grant cannot enumerate
+  //    them (`capability-types.ts`). The per-job bound is the delegation
+  //    row, which every rung below re-reads. A SEPARATE kind from
+  //    `ezcorp:workflows:run`, because that one is clamped to the
+  //    extension's own assets and reusing it would relax exactly the
+  //    per-name clamp it exists to enforce.
+  if (ctx.engine) {
+    const decision = await ctx.engine.authorize(
+      {
+        extensionId: ctx.extensionId,
+        userId: ctx.userId || null,
+        conversationId: ctx.conversationId,
+        toolName: DELEGATED_WORKFLOWS_METHOD,
+      },
+      [{ kind: "ezcorp:workflows:run-delegated" }],
+    );
+    if (decision.decision === "deny") {
+      return deny("WORKFLOWS_PERM_DENIED", "delegated workflow runs not granted");
+    }
+  }
+
+  // D1. The job ref — SHAPE only, and the shape is the same one the `run`
+  //     op checks, from the same predicate. What differs is what a valid
+  //     one MEANS; see the header.
+  if (!isValidJobRef(params.jobRef)) {
+    return deny(
+      "DELEGATION_BAD_REF",
+      `'jobRef' must be an id-shaped string of at most ${MAX_JOB_REF_LEN} characters`,
+      -32602,
+    );
+  }
+  const jobRef = params.jobRef;
+
+  // 8. Wiring gate — shared verbatim with the `run` op. A delegated fire
+  //    normally carries no conversation at all (it is a cron/webhook
+  //    tick), so this is usually a no-op; it is asked anyway so that the
+  //    in-chat case cannot reach a conversation the extension is not
+  //    wired to.
+  if (ctx.conversationId) {
+    const wired = await getConversationExtensionIds(ctx.conversationId);
+    if (!wired.includes(ctx.extensionId)) {
+      return deny("WORKFLOWS_NOT_WIRED", "Extension not wired to this conversation");
+    }
+  }
+
+  // 9. Instantaneous rate limit — the same bucket, keyed on the same
+  //    extension id, so a delegated fire cannot be used to double an
+  //    extension's burst budget.
+  if (!consumeTokens(ctx.extensionId, 1)) {
+    return deny("WORKFLOWS_RATE_LIMITED", "Rate limited", -32029);
+  }
+
+  // 10. Payload. `workflow` is NOT read here and there is nothing to
+  //     read: R-5 removed the name from the wire, which is what makes a
+  //     "delegation for A presented to run B" denial unnecessary — the
+  //     value has no representation to disagree with.
+  if (params.v !== 1) {
+    return deny("WORKFLOWS_BAD_PAYLOAD", "Missing or invalid 'v' (expected 1)", -32602);
+  }
+  const inputCheck = readWorkflowInput(params.input);
+  if (!inputCheck.ok) {
+    return deny("WORKFLOWS_BAD_PAYLOAD", inputCheck.message, -32602);
+  }
+  const input = inputCheck.input;
+
+  // 11. The extension's hourly run quota — the same window the `run` op
+  //     consumes, deliberately shared: an extension holding both verbs
+  //     must not get two budgets.
+  const quota = checkHourlyQuota(ctx.extensionId, granted.maxRunsPerHour);
+  if (!quota.ok) {
+    return deny("WORKFLOWS_QUOTA_EXCEEDED", "workflow trigger quota exceeded", -32103, {
+      used: quota.used,
+      maxRunsPerHour: granted.maxRunsPerHour,
+    });
+  }
+
+  // D2. THE lookup. Keyed on the registry-resolved extension id and the
+  //     caller's ref, filtered to live (un-revoked) rows. A forged or
+  //     stale ref lands here with nothing to show for it.
+  //
+  //     `enabled` is deliberately NOT in this predicate
+  //     (`db/queries/workflow-delegations.ts` — the fire-path reader):
+  //     a disabled row must come back so D3 can refuse with its
+  //     `disabled_reason` instead of an indistinguishable "no such
+  //     delegation", which is the whole remedy path for a job the
+  //     platform switched off.
+  const row = await findLiveWorkflowDelegation(ctx.extensionId, jobRef);
+  if (row === undefined) {
+    return deny("DELEGATION_NOT_FOUND", "no live delegation for this job");
+  }
+
+  // D4. Owner resolution — BEFORE D3, see deviation 1 in the header.
+  const ownerKind = row.ownerKind;
+  const ownerId = delegationOwnerId(row);
+  const ownerlessAction = DELEGATION_AUDIT_LOG_ACTION[ownerKind];
+  if (ownerId === null) {
+    // A row on the mapped arm with a NULL id: the exact "enabled, valid
+    // consent hash, names NOBODY" state the CASCADE FKs and the query
+    // layer's `ownerColumnValues` exist to make unreachable. Refused
+    // rather than trusted, because a latent ownerless grant is what
+    // `-32106` exists to prevent.
+    return denyDelegated(req, ctx, startedAt, deps, null, ownerlessAction, row, {
+      reason: "DELEGATION_OWNER_UNRESOLVED",
+      message: "this delegation names no owner",
+    });
+  }
+  const owner = await RESOLVE_DELEGATION_OWNER[ownerKind](ownerId);
+  if (!owner.ok) {
+    // `audit_log` for BOTH kinds — an owner that does not resolve is
+    // exactly the value the `on_behalf_of` FK would reject.
+    return denyDelegated(
+      req,
+      ctx,
+      startedAt,
+      deps,
+      null,
+      EXT_AUDIT_ACTIONS.WORKFLOW_DELEGATION_NO_OWNER,
+      row,
+      {
+        reason: "DELEGATION_OWNER_UNRESOLVED",
+        message: `This job cannot run: ${owner.message}.`,
+        code: -32106,
+      },
+    );
+  }
+  const proven: ProvenDelegation = {
+    row,
+    ownerKind,
+    ownerId,
+    onBehalfOf: DELEGATION_AUDIT_ON_BEHALF_OF[ownerKind](ownerId),
+    ownerlessAction,
+  };
+  /** Every rung from here down audits against the PROVEN attribution. */
+  const denyAs = (
+    reason: WorkflowTriggerDenyReason,
+    message: string,
+    code?: number,
+    after?: Record<string, unknown>,
+  ): Promise<JsonRpcResponse> =>
+    denyDelegated(req, ctx, startedAt, deps, proven.onBehalfOf, proven.ownerlessAction, row, {
+      reason,
+      message,
+      ...(code !== undefined ? { code } : {}),
+      ...(after !== undefined ? { after } : {}),
+    });
+
+  // D3. The row is switched off. The reason is the payload: it is the
+  //     only thing a user ever reads about why their job stopped, and
+  //     phase 4 reserved a distinct code for the re-tiering case
+  //     precisely so this message is not generic.
+  if (!row.enabled) {
+    return denyAs(
+      "DELEGATION_DISABLED_ROW",
+      row.disabledReason ?? "this delegation is disabled",
+    );
+  }
+
+  // D7. THE replacement bound for rungs 4–5. Asked as the principal the
+  //     delegation CARRIES, which is a different principal from the human
+  //     who consented whenever `owner_kind = 'service'`.
+  const runtime = getWorkflowRuntime();
+  if (!runtime) {
+    return denyAs(
+      "WORKFLOWS_RUNTIME_UNAVAILABLE",
+      "Workflow runtime unavailable in this context",
+      -32603,
+    );
+  }
+  //     FAIL CLOSED on either reader being absent. `getCachedWorkflows`
+  //     is what carries the provenance D7 authorizes against, and
+  //     `listAgents` is what lets D6 hash an `agent` step as REACHABLE.
+  //     A registration that cannot answer either has not earned a
+  //     permissive default (`workflow/runtime-registry.ts`), and this
+  //     path must NOT fall back to `cachedEntryFor`'s
+  //     `systemCachedWorkflow` reconstruction the way rung 12b may: that
+  //     fallback is a `system` entry, whose run audience is "anyone", so
+  //     inheriting it here would turn "we cannot tell who owns this" into
+  //     "everyone may run it" for a principal that is not even in the
+  //     room.
+  const entries = runtime.getCachedWorkflows?.();
+  const agents = runtime.listAgents?.();
+  if (entries === undefined || agents === undefined) {
+    return denyAs(
+      "DELEGATION_RUNTIME_UNAVAILABLE",
+      "Workflow ownership is unreadable in this context, so a delegated run cannot be authorized",
+      -32603,
+    );
+  }
+  //     The SHARED consent policy, not a second copy of it. The consent
+  //     route asks `authorizeDelegationConsent` before writing the row;
+  //     this asks the identical function at every fire, because a
+  //     fire-time answer that disagreed with the consent-time one either
+  //     grants authority the human never saw or stales every fire of a
+  //     delegation nobody can fix.
+  const authz = authorizeDelegationConsent(entries, row.workflowName, ownerKind, ownerId);
+  if (!authz.ok) {
+    if (authz.code === DELEGATION_CONSENT_DENIALS.NOT_FOUND) {
+      return denyAs("DELEGATION_WORKFLOW_NOT_FOUND", authz.message, -32602);
+    }
+    return lostAccess(denyAs, row, authz.message);
+  }
+  //     Rule 1 of `canRunWorkflow`, which the ladder itself does not
+  //     express: is the extension that owns this name still installed and
+  //     enabled? `reloadWorkflows()` fires only on workflow CRUD, so a
+  //     disabled extension's workflows stay runnable off the stale merged
+  //     cache until something writes a workflow or the process restarts.
+  //     The whole of `canRunWorkflow` is unusable here — its
+  //     `WorkflowPrincipal.id` is a non-null `string`, which a `service`
+  //     delegation cannot satisfy — so the shared half is imported and
+  //     the ladder half comes from the consent policy above.
+  const live = await workflowExtensionLiveness(authz.entry.definition.name);
+  if (!live.allowed) {
+    return lostAccess(denyAs, row, live.reason);
+  }
+  const definition = authz.entry.definition;
+
+  // D6. The consent hash, recomputed from LIVE state and compared. The
+  //     stored value is never compared against itself.
+  //
+  //     Same assembly as the consent route, imported rather than
+  //     reimplemented, and handed the OWNER'S-AND-KIND'S resolver: a
+  //     `service` delegation walks a strictly smaller graph than a `user`
+  //     one and must hash to a different value.
+  const record = await computeDelegationConsentRecord({
+    entry: authz.entry,
+    extensionName: ctx.extensionName,
+    workflowName: row.workflowName,
+    projectId: row.projectId,
+    runAs: { kind: ownerKind, id: ownerId },
+    trigger: { kind: row.triggerKind, spec: row.triggerSpec },
+    principal: delegationPrincipal(ownerKind, ownerId),
+    entries,
+    agents,
+  });
+  if (record.consentHash !== row.consentHash) {
+    return parkConsentStaleRun(req, ctx, startedAt, deps, proven, definition, input, denyAs);
+  }
+
+  // D8. The per-job daily quota. DURABLE and a CALENDAR day, unlike the
+  //     extension-wide hourly window at rung 11 which is in-memory: a
+  //     restart must not refund the spend bound on an unattended job, and
+  //     `startOfUtcDay` is the same helper the webhook daemon's own daily
+  //     quota uses so two subsystems cannot mean two things by "per day".
+  const usedToday = await countDelegationRunsSince(row.id, startOfUtcDay(new Date()));
+  if (usedToday >= row.maxRunsPerDay) {
+    return denyAs("DELEGATION_QUOTA_EXCEEDED", "delegation daily run quota exceeded", -32103, {
+      used: usedToday,
+      maxRunsPerDay: row.maxRunsPerDay,
+    });
+  }
+
+  // D9. The token ceiling, at DISPATCH.
+  //
+  //     Be precise about what this rung can and cannot be. A run that has
+  //     not started has spent nothing, so there is exactly one
+  //     dispatch-time question `max_tokens_per_run` can answer: does the
+  //     cap admit ANY work at all? A non-positive cap would start a run
+  //     that parks at its very first boundary having produced nothing,
+  //     and the `budget-exceeded` resume rule would then refuse to
+  //     continue it — a run created solely to be permanently stuck. The
+  //     enforcement that has teeth is the STEP-BOUNDARY check
+  //     (`workflow-executor.ts` — `enforceDelegatedTokenBudget`), which
+  //     `delegationId` below is the one and only gate on.
+  if (row.maxTokensPerRun <= 0) {
+    return denyAs(
+      "DELEGATION_SPEND_EXCEEDED",
+      `this delegation's token budget (${row.maxTokensPerRun}) admits no work`,
+      -32103,
+    );
+  }
+
+  // 13. Dispatch AS THE OWNER, writing the three C3 columns.
+  //
+  //     `projectId` comes from the delegation row and never from params —
+  //     the same confused-deputy bound the github-projects handler
+  //     documents.
+  //
+  //     `userId` is the OWNER for a `user` delegation, which is what
+  //     scopes the `workflow:*` SSE stream to the person accountable for
+  //     the run, and `undefined` for a `service` one, which has no
+  //     session to stream to. That asymmetry is the documented trade in
+  //     the owner-kind table: a service account buys durability by giving
+  //     up live visibility, and the trace plus the audit row are how it
+  //     is observed instead.
+  try {
+    startDelegatedRun(runtime, definition, input, proven, jobRef, ctx);
+  } catch (err) {
+    await recordDelegationRunOutcome(row.id, false);
+    return denyAs(
+      "WORKFLOWS_DISPATCH_FAILED",
+      `Workflow dispatch failed: ${err instanceof Error ? err.message : String(err)}`,
+      -32603,
+    );
+  }
+
+  await auditDelegated(ctx, startedAt, deps, proven, {
+    success: true,
+    after: { workflow: row.workflowName, jobRef, runAs: ownerKind, delegationId: row.id },
+    resourceId: row.workflowName,
+  });
+  return rpcResult(req.id, {
+    v: 1,
+    workflow: row.workflowName,
+    runAs: ownerKind,
+    started: true,
+  });
+}
+
+/**
+ * D7's refusal: the owner could run this workflow when the human
+ * consented, and cannot now.
+ *
+ * **It DISABLES the delegation, and that is the point of the rung.**
+ * Phase 4 reserved `DELEGATION_OWNER_LOST_WORKFLOW_ACCESS` and
+ * deliberately left it unemitted precisely so that this behaviour would
+ * arrive with its emitter: a workflow re-tiered out of the principal's
+ * reach makes every subsequent fire fail, and without a stated
+ * `disabled_reason` the job would accrue `consecutive_failures` silently
+ * until the auto-disable threshold of 5 told the user only that it had
+ * failed too often. The remedy needs the reason, and the reason exists
+ * only here.
+ *
+ * Disabling is not destroying: `revoked_at` stays NULL, so the row is
+ * still the human's consent record, and re-consenting supersedes it with
+ * a fresh, enabled row (`createWorkflowDelegation`). The refusal is
+ * therefore recoverable by exactly the person who granted the authority.
+ */
+async function lostAccess(
+  denyAs: (
+    reason: WorkflowTriggerDenyReason,
+    message: string,
+    code?: number,
+    after?: Record<string, unknown>,
+  ) => Promise<JsonRpcResponse>,
+  row: WorkflowDelegationRow,
+  reason: string,
+): Promise<JsonRpcResponse> {
+  const message =
+    `This job stopped: ${reason} ` +
+    `It ran before, so nothing you did is wrong — the workflow's access changed. ` +
+    `Consent again to restart it.`;
+  await disableWorkflowDelegation(row.id, message);
+  return denyAs("DELEGATION_OWNER_LOST_WORKFLOW_ACCESS", message, -32001, {
+    disabled: true,
+  });
+}
+
+/**
+ * D6's refusal: PARK the run, do not fail it.
+ *
+ * A hard failure trains authors to disable the check; a suspension with a
+ * legible reason makes the security control the fastest path back to a
+ * working job. So the run row is written and immediately moved to
+ * `suspended` with `suspended_reason='consent-stale'`, at
+ * `cursor.batchIndex = 0` with nothing completed — **before the first
+ * step dispatches**, so nothing executes in the interim.
+ *
+ * ## Why a run row exists at all for a refusal
+ *
+ * Because it is the only thing a re-consent can resume. The row carries
+ * `delegation_id`, and `RESUME_RULES["consent-stale"]` allows a resume
+ * only once the delegation's `consented_at` is strictly after this run's
+ * `started_at` — i.e. only after a human has looked at the diff and said
+ * yes again. Refusing without a row would leave the human nothing to
+ * restart and the work would have to be re-triggered by the extension,
+ * which for a cron job means waiting for the next tick.
+ *
+ * ## No `workflow_approvals` row
+ *
+ * Deliberately, and it is not an omission for a later phase to fill.
+ * `consent-stale` is NOT resumable by answering an approval — the resume
+ * rule never reads `workflow_approvals` — so an approval row would be a
+ * decision the platform would then refuse to honour, which is the
+ * "looks fixed" failure mode in its purest form. The capability-set diff
+ * belongs on the consent dialog, where re-consent actually happens.
+ *
+ * A park that loses the race (someone cancelled the run between the two
+ * writes) leaves the run wherever the winner put it and still refuses the
+ * fire: `suspendWorkflowRun` CASes on `status='running'` and returns 0,
+ * and there is nothing this path could do with that which would not be
+ * dragging a run back from a fate another writer already decided.
+ */
+async function parkConsentStaleRun(
+  req: JsonRpcRequest,
+  ctx: WorkflowsHandlerContext,
+  startedAt: number,
+  deps: WorkflowsHandlerDeps,
+  proven: ProvenDelegation,
+  definition: WorkflowDefinition,
+  input: Record<string, unknown>,
+  denyAs: (
+    reason: WorkflowTriggerDenyReason,
+    message: string,
+    code?: number,
+    after?: Record<string, unknown>,
+  ) => Promise<JsonRpcResponse>,
+): Promise<JsonRpcResponse> {
+  const workflowRunId = crypto.randomUUID();
+  const message =
+    `What you consented to for "${proven.row.workflowName}" has changed, ` +
+    `so this run is parked instead of executing. Review the changes and consent again.`;
+  try {
+    await insertWorkflowRun({
+      id: workflowRunId,
+      workflowName: proven.row.workflowName,
+      projectId: proven.row.projectId,
+      // The OWNER, not the caller — a parked run belongs to the principal
+      // it would have executed as, so it appears where that principal's
+      // runs appear. NULL for a service account, as every service-owned
+      // run is.
+      userId: proven.ownerKind === "user" ? proven.ownerId : null,
+      input,
+      startedAt: new Date(startedAt),
+      // The graph this run was authorized against. Written even though
+      // nothing executes: the resume path compares it unconditionally, so
+      // a run parked against one definition cannot silently resume into
+      // another.
+      definitionHash: workflowDefinitionHash(definition),
+      jobRef: proven.row.jobRef,
+      delegationId: proven.row.id,
+      runAsKind: proven.ownerKind,
+      runAs: proven.ownerId,
+    });
+    await suspendWorkflowRun(workflowRunId, {
+      reason: "consent-stale",
+      // Batch 0, nothing completed, no `$prev` — the same shape a fresh
+      // run starts from, because that is exactly where this one will
+      // resume from once consent is refreshed.
+      cursor: { batchIndex: 0, completedSteps: [], prevStepName: null },
+    });
+  } catch (err) {
+    // The park could not be written. Refuse the fire anyway and say so —
+    // the alternative is executing under a consent the human has not
+    // given, which is the one outcome this rung exists to prevent.
+    log.error("consent-stale park failed; refusing the fire regardless", {
+      extension: ctx.extensionName,
+      delegationId: proven.row.id,
+      error: String(err),
+    });
+    return denyAs("DELEGATION_CONSENT_STALE", message, -32001, { parked: false });
+  }
+  await auditDelegated(ctx, startedAt, deps, proven, {
+    success: false,
+    errorCode: "DELEGATION_CONSENT_STALE",
+    errorMessage: message,
+    after: {
+      workflow: proven.row.workflowName,
+      jobRef: proven.row.jobRef,
+      delegationId: proven.row.id,
+      workflowRunId,
+      parked: true,
+    },
+  });
+  return rpcError(req.id, -32001, message, {
+    reason: "DELEGATION_CONSENT_STALE",
+    workflowRunId,
+  });
+}
+
+/** Audit one delegated outcome against the PROVEN attribution, then
+ *  return the RPC error. One function so a rung cannot pick a deny code
+ *  and an audit destination independently. */
+async function denyDelegated(
+  req: JsonRpcRequest,
+  ctx: WorkflowsHandlerContext,
+  startedAt: number,
+  deps: WorkflowsHandlerDeps,
+  onBehalfOf: string | null,
+  ownerlessAction: string,
+  row: WorkflowDelegationRow,
+  spec: {
+    reason: WorkflowTriggerDenyReason;
+    message: string;
+    code?: number;
+    after?: Record<string, unknown>;
+  },
+): Promise<JsonRpcResponse> {
+  await audit({ ...ctx, userId: onBehalfOf }, startedAt, deps, {
+    success: false,
+    errorCode: spec.reason,
+    errorMessage: spec.message,
+    action: DELEGATED_OP,
+    ownerlessAction,
+    resourceId: row.workflowName,
+    after: {
+      workflow: row.workflowName,
+      jobRef: row.jobRef,
+      delegationId: row.id,
+      runAs: row.ownerKind,
+      ...(spec.after ?? {}),
+    },
+  });
+  return rpcError(req.id, spec.code ?? -32001, spec.message, { reason: spec.reason });
+}
+
+/** The accept / park half of {@link denyDelegated} — same attribution
+ *  rule, same single writer. */
+async function auditDelegated(
+  ctx: WorkflowsHandlerContext,
+  startedAt: number,
+  deps: WorkflowsHandlerDeps,
+  proven: ProvenDelegation,
+  spec: {
+    success: boolean;
+    errorCode?: string;
+    errorMessage?: string;
+    after?: Record<string, unknown>;
+    resourceId?: string;
+  },
+): Promise<void> {
+  await audit({ ...ctx, userId: proven.onBehalfOf }, startedAt, deps, {
+    ...spec,
+    action: DELEGATED_OP,
+    ownerlessAction: proven.ownerlessAction,
+  });
+}
+
+/**
+ * Start a delegated run WITHOUT awaiting it, and fold its outcome back
+ * into the delegation's failure counter.
+ *
+ * The counter is the reason this is not `startWorkflowRun`: a delegated
+ * job is unattended, so "it has failed five times in a row" is the only
+ * signal anybody gets, and it must come from the run's real terminal
+ * status rather than from the dispatch returning. Success RESETS it, so a
+ * job that recovers is not one failure away from being switched off.
+ */
+function startDelegatedRun(
+  runtime: WorkflowRuntime,
+  definition: WorkflowDefinition,
+  input: Record<string, unknown>,
+  proven: ProvenDelegation,
+  jobRef: string,
+  ctx: WorkflowsHandlerContext,
+): void {
+  const promise = runtime.workflowExecutor.runWorkflow(
+    definition,
+    input,
+    proven.row.projectId ?? undefined,
+    // The OWNER scopes SSE delivery. A service account has none.
+    proven.ownerKind === "user" ? proven.ownerId : undefined,
+    undefined,
+    {
+      jobRef,
+      // THE gate on the step-boundary token ceiling. Without this key the
+      // ceiling never fires, which is why it is not merely bookkeeping.
+      delegationId: proven.row.id,
+      runAsKind: proven.ownerKind,
+      runAs: proven.ownerId,
+    },
+  );
+  void promise
+    .then(async (run) => {
+      log.info("delegated workflow finished", {
+        extension: ctx.extensionName,
+        workflow: definition.name,
+        workflowRunId: run.id,
+        status: run.status,
+        delegationId: proven.row.id,
+      });
+      // `suspended` is NOT a failure: a run parked on an approval or on
+      // its token ceiling is waiting, not broken, and counting it would
+      // auto-disable exactly the jobs that use approvals.
+      if (run.status === "error") await recordDelegationRunOutcome(proven.row.id, false);
+      else if (run.status === "success") await recordDelegationRunOutcome(proven.row.id, true);
+    })
+    .catch((err) => {
+      log.error("delegated workflow rejected (executor bug)", {
+        extension: ctx.extensionName,
+        workflow: definition.name,
+        error: String(err),
+      });
+    });
+}
+
 /**
  * The cache entry rung 12b authorizes — the one carrying the provenance
  * the ladder reads, for the definition rung 12 already resolved.
@@ -962,11 +1904,22 @@ async function auditOwnerless(
   extensionId: string,
   workflowName: unknown,
   reason: string,
+  /**
+   * Which `audit_log` action names this outcome. Defaults to the ownerless
+   * TRIGGER action, which is what rung 7 and the pre-delegation rungs are.
+   *
+   * C3's delegated ladder passes its own two: a `service`-kind outcome is
+   * not "no owner" (it has one — it just is not a user), and a D4 failure
+   * is not a trigger refusal. Reusing one action for all three would make
+   * the audit table unable to answer the only question anyone asks of it,
+   * which is which of those three happened.
+   */
+  action: string = EXT_AUDIT_ACTIONS.WORKFLOW_TRIGGER_NO_OWNER,
 ): Promise<void> {
   try {
     await insertAuditEntry(
       null,
-      EXT_AUDIT_ACTIONS.WORKFLOW_TRIGGER_NO_OWNER,
+      action,
       extensionId,
       {
         permission: "workflows",
@@ -994,6 +1947,13 @@ async function audit(
     errorMessage?: string;
     after?: Record<string, unknown>;
     resourceId?: string;
+    /** The `audit_log` action to use IF this outcome routes there. Ignored
+     *  when the call is attributable to a user. See {@link auditOwnerless}. */
+    ownerlessAction?: string;
+    /** The verb on the `sdk_capability_calls` row. `"run"` for the trigger
+     *  path; C3's delegated fire passes `"runFor"` so analytics can tell a
+     *  delegated outcome from a first-party one without joining anything. */
+    action?: string;
   },
 ): Promise<void> {
   // An OWNERLESS call cannot be recorded in `sdk_capability_calls` at all
@@ -1001,11 +1961,17 @@ async function audit(
   // here with no owner (its rung 0 is tolerant); `ezcorp/workflows` is
   // refused before the ladder starts. Without this branch the insert would
   // be silently swallowed by the NOT NULL FK and the deny would vanish.
+  //
+  // C3 reaches this branch on PURPOSE and by construction rather than by
+  // accident: a `owner_kind='service'` delegation has no `users` row, so
+  // the delegated ladder substitutes a null `userId` into the context it
+  // audits with, and every one of its outcomes lands here.
   if (!ctx.userId || ctx.userId === "unknown") {
     await auditOwnerless(
       ctx.extensionId,
       spec.after?.workflow ?? spec.resourceId,
       spec.errorCode ?? "ownerless",
+      spec.ownerlessAction,
     );
     return;
   }
@@ -1019,7 +1985,7 @@ async function audit(
         parentCallId: null,
       },
       capability: "workflows",
-      action: "run",
+      action: spec.action ?? "run",
       resourceType: "workflow",
       ...(spec.resourceId ? { resourceId: spec.resourceId } : {}),
       ...(spec.after ? { after: spec.after } : {}),

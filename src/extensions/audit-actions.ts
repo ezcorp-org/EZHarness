@@ -114,6 +114,42 @@ export const EXT_AUDIT_ACTIONS = {
    * actor: "system", reason: "no-owner"}`.
    */
   WORKFLOW_TRIGGER_NO_OWNER: "ext:workflow-trigger-no-owner",
+  /**
+   * C3 rung D4 — a delegated fire whose delegation row names an owner the
+   * platform cannot resolve: a `users` row that is gone or `inactive`, or
+   * a `service_accounts` row that is gone or disabled.
+   *
+   * `audit_log` for BOTH owner kinds, and that is not symmetry for its own
+   * sake: `sdk_capability_calls.on_behalf_of` is NOT NULL with an FK to
+   * `users`, so an unresolvable owner id is precisely the value that FK
+   * would reject — the insert would be swallowed and the rejection class
+   * that most needs a trail would be the only one with none. The same
+   * argument as {@link WORKFLOW_TRIGGER_NO_OWNER}, one rung further down.
+   *
+   * Its own action rather than reusing that one because the facts differ
+   * and the remedies differ: "a background fire has no owner at all" is
+   * answered by attaching one, while "this delegation's owner no longer
+   * resolves" is answered by re-consenting or re-enabling the account.
+   *
+   * Metadata: `{permission: "workflows", newValue: <workflow name>,
+   * actor: "system", reason: <deny code>}`.
+   */
+  WORKFLOW_DELEGATION_NO_OWNER: "ext:workflow-delegation-no-owner",
+  /**
+   * C3 — the outcome (accept OR reject) of a delegated fire owned by a
+   * SERVICE ACCOUNT.
+   *
+   * A service account has no `users` row by construction — that is the
+   * whole point of the principal — so every outcome it produces carries a
+   * NULL user and cannot be written to `sdk_capability_calls` at all. This
+   * is the destination half of "the audit destination is per rung AND per
+   * owner kind": the identical rung, on a `user`-kind delegation, writes
+   * `sdk_capability_calls` with the owner as `on_behalf_of`.
+   *
+   * Metadata: `{permission: "workflows", newValue: <workflow name>,
+   * actor: "system", reason: <deny code, or "accepted">}`.
+   */
+  WORKFLOW_DELEGATION_SERVICE: "ext:workflow-delegation-service",
   /** `ezcorp/emit-loop-event` successfully emitted a content-free loop
    *  approval nudge onto the host bus. This is the tamper-evident MIRROR
    *  of the LOCKED per-loop approval-label store (loop-types.ts): every
