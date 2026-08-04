@@ -439,7 +439,9 @@ test.describe("Workflow editing — visual", () => {
 
 	test("a read-only YAML workflow offers Duplicate only @evidence", async ({ page, mockApi }, testInfo) => {
 		// The four shipped demos are files on disk — Edit/Delete would 404,
-		// so the header must offer the one action that does work.
+		// so the header must offer the one action that does work. This is the
+		// ESCAPE HATCH, and it is why the copy verb is ungated: without it the
+		// page dead-ends on every shipped demo.
 		await mockApi({
 			workflows: [makeWorkflow({ ...demoDeterministic, source: "yaml", canEdit: false })],
 			agents: [makeAgent({ name: "summarizer" })],
@@ -451,5 +453,34 @@ test.describe("Workflow editing — visual", () => {
 		await expect(page.getByTestId("workflow-edit")).toHaveCount(0);
 		await expect(page.getByTestId("workflow-delete")).toHaveCount(0);
 		await captureEvidence(page, testInfo, "workflow-readonly-detail");
+
+		// And it actually opens — an ungated button that cannot be used is
+		// the same dead end with an extra click in it.
+		await page.getByTestId("workflow-duplicate").click();
+		await expect(page.getByTestId("workflow-duplicate-panel")).toBeVisible();
+		await expect(page.getByTestId("duplicate-name")).toHaveValue("demo-deterministic-copy");
+		await captureEvidence(page, testInfo, "workflow-readonly-duplicate-panel");
+	});
+
+	test("the create route builds from scratch and nothing else @evidence", async ({
+		page,
+		mockApi,
+	}, testInfo) => {
+		// `/workflows/new` used to answer `?from=<name>` and prefill itself —
+		// the client-side half of the two copy affordances. One verb now, and
+		// it lives on the detail page, so this route has a single job and a
+		// single heading. A stale `?from=` link must not resurrect a second
+		// copy path or leave a "Could not find … to copy" notice behind.
+		await mockApi({
+			workflows: [makeWorkflow({ ...demoDeterministic, source: "yaml", canEdit: false })],
+			agents: [makeAgent({ name: "summarizer" })],
+		});
+		const resp = await page.goto("/workflows/new?from=demo-deterministic");
+		expect(resp ? new URL(resp.url()).pathname : "").toBe("/workflows/new");
+
+		await expect(page.getByRole("heading", { name: "New Workflow" })).toBeVisible();
+		await expect(page.getByTestId("duplicate-source-missing")).toHaveCount(0);
+		await expect(page.getByLabel("Workflow Name")).toHaveValue("");
+		await captureEvidence(page, testInfo, "workflow-create-from-scratch");
 	});
 });
