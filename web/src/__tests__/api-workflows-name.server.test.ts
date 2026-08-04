@@ -253,13 +253,12 @@ describe("PUT /api/workflows/[name]", () => {
 		// visibility rule is ever consulted, so someone else's `private` row
 		// cannot be broadened to `project` no matter what the body says.
 		//
-		// 403, not 404 — `denialStatus` returns 403 for every EDIT denial
-		// (pre-existing, and pinned by the DELETE case below). Worth being
-		// explicit about because the reasoning it rests on — "the caller can
-		// already see the workflow by then" — does not hold for `private`,
-		// which Ruling 1 has just made reachable for the first time. The
-		// authorization is correct; the STATUS is an existence oracle for
-		// private workflow names. Out of scope here, flagged deliberately.
+		// 404, not 403. This cell used to be a 403 and the comment here
+		// said so, flagging it as an existence oracle for private workflow
+		// names and deferring the fix. `denialStatus` now hides a
+		// `private` row's existence on the write verbs the same way the
+		// read verbs already did — the authorization was always correct,
+		// the STATUS was the leak.
 		ctx.getCachedWorkflows.mockReturnValue([
 			{ ...ownedEntry("secret"), visibility: "private", userId: "someone-else" },
 		]);
@@ -271,7 +270,48 @@ describe("PUT /api/workflows/[name]", () => {
 				body: { visibility: "project" },
 			}),
 		);
+		expect(res.status).toBe(404);
+		expect((await res.json()) as { error?: string }).toEqual({ error: "Not found" });
+		expect(queries.updateWorkflow).not.toHaveBeenCalled();
+	});
+
+	test("a private workflow answers PUT exactly as a nonexistent name does", async () => {
+		// The oracle, closed end to end at the route. A caller probing
+		// PUT could previously tell "this private workflow exists and is
+		// not yours" (403) from "no such name" (404); the two responses
+		// are now byte-identical, which is the only form of the check
+		// worth having — status alone, or body alone, still leaks.
+		ctx.getCachedWorkflows.mockReturnValue([
+			{ ...ownedEntry("secret"), visibility: "private", userId: "someone-else" },
+		]);
+		const refused = await PUT(
+			makeEvent({ name: "secret", locals: authedUser, method: "PUT", body: { description: "d" } }),
+		);
+		ctx.getCachedWorkflows.mockReturnValue([]);
+		const missing = await PUT(
+			makeEvent({ name: "secret", locals: authedUser, method: "PUT", body: { description: "d" } }),
+		);
+		expect(refused.status).toBe(missing.status);
+		expect(await refused.text()).toBe(await missing.text());
+		expect(missing.status).toBe(404);
+		expect(queries.updateWorkflow).not.toHaveBeenCalled();
+	});
+
+	test("a `project` workflow the caller cannot edit still 403s — the 404 is private-only", async () => {
+		// Discrimination for the two tests above: the concealment is keyed
+		// on the tier, not applied to every edit denial. A `project` row
+		// is in this caller's own list, so a 404 would be a lie they could
+		// immediately disprove.
+		ctx.getCachedWorkflows.mockReturnValue([
+			{ ...ownedEntry("shared"), visibility: "project", userId: "someone-else" },
+		]);
+		const res = await PUT(
+			makeEvent({ name: "shared", locals: authedUser, method: "PUT", body: { description: "d" } }),
+		);
 		expect(res.status).toBe(403);
+		expect((await res.json()) as { error?: string }).toMatchObject({
+			error: expect.stringContaining("permission"),
+		});
 		expect(queries.updateWorkflow).not.toHaveBeenCalled();
 	});
 
@@ -443,15 +483,15 @@ describe("PUT /api/workflows/[name]", () => {
 		).rejects.toThrow("disk full");
 	});
 
-	test("returns 403 when the caller does not own the row", async () => {
+	test("returns 404 when the caller does not own the row", async () => {
 		// The ladder's own refusal: a `private` row owned by someone else.
-		// A 403 rather than a 404 because an EDIT denial has nothing left
-		// to conceal — the caller could already see it.
+		// A 404 rather than a 403 because the caller cannot READ this row
+		// either — telling them it exists is the whole of the oracle.
 		ctx.getCachedWorkflows.mockReturnValue([
 			{ ...ownedEntry(), visibility: "private", userId: "someone-else" },
 		]);
 		const res = await PUT(makeEvent({ locals: authedUser, method: "PUT", body: { description: "d" } }));
-		expect(res.status).toBe(403);
+		expect(res.status).toBe(404);
 		expect(queries.updateWorkflow).not.toHaveBeenCalled();
 	});
 
@@ -459,12 +499,13 @@ describe("PUT /api/workflows/[name]", () => {
 		// `user_id` is ON DELETE SET NULL, so deleting the owner leaves a
 		// private row with a NULL owner. The rule this replaced read that
 		// NULL as "unowned — anyone may act", which made a departed
-		// employee's private workflow world-writable.
+		// employee's private workflow world-writable. Refused, and refused
+		// as a 404: nobody but an admin may know it is there.
 		ctx.getCachedWorkflows.mockReturnValue([
 			{ ...ownedEntry(), visibility: "private", userId: null },
 		]);
 		const res = await PUT(makeEvent({ locals: authedUser, method: "PUT", body: { description: "d" } }));
-		expect(res.status).toBe(403);
+		expect(res.status).toBe(404);
 		expect(queries.updateWorkflow).not.toHaveBeenCalled();
 	});
 
@@ -599,7 +640,10 @@ describe("the governance trail on PUT / DELETE", () => {
 				{ ...ownedEntry(), visibility: "private", userId: "someone-else" },
 			]);
 			queries.getWorkflowByName.mockResolvedValue(dbRow());
-			expect((await call()).status).toBe(403);
+			// 404, not 403 — this row is `private` and this caller may not
+			// read it. What the test is about is the audit call, which a
+			// refusal must not make whatever status it wears.
+			expect((await call()).status).toBe(404);
 			expect(audit.insertAuditEntry).not.toHaveBeenCalled();
 		}
 	});
@@ -665,12 +709,26 @@ describe("DELETE /api/workflows/[name]", () => {
 		expect(body.error).toBe("Not found (only DB workflows can be deleted)");
 	});
 
-	test("returns 403 when the caller does not own the row", async () => {
+	test("returns 404 when the caller does not own the row", async () => {
 		// The ladder's own refusal: a `private` row owned by someone else.
-		// A 403 rather than a 404 because an EDIT denial has nothing left
-		// to conceal — the caller could already see it.
+		// A 404 rather than a 403 because the caller cannot READ this row
+		// either — DELETE must not become the oracle GET is not. Asserted
+		// on this verb separately from PUT: "the ladder is the one gate"
+		// is a claim about the route, and a route that grew a second
+		// status rule would still pass the PUT case.
 		ctx.getCachedWorkflows.mockReturnValue([
 			{ ...ownedEntry(), visibility: "private", userId: "someone-else" },
+		]);
+		const res = await DELETE(makeEvent({ locals: authedUser, method: "DELETE" }));
+		expect(res.status).toBe(404);
+		expect((await res.json()) as { error?: string }).toEqual({ error: "Not found" });
+		expect(queries.deleteWorkflow).not.toHaveBeenCalled();
+	});
+
+	test("a `project` workflow the caller cannot delete still 403s — the 404 is private-only", async () => {
+		// Discrimination: DELETE did not simply become 404-for-everything.
+		ctx.getCachedWorkflows.mockReturnValue([
+			{ ...ownedEntry(), visibility: "project", userId: "someone-else" },
 		]);
 		const res = await DELETE(makeEvent({ locals: authedUser, method: "DELETE" }));
 		expect(res.status).toBe(403);
@@ -681,12 +739,13 @@ describe("DELETE /api/workflows/[name]", () => {
 		// `user_id` is ON DELETE SET NULL, so deleting the owner leaves a
 		// private row with a NULL owner. The rule this replaced read that
 		// NULL as "unowned — anyone may act", which made a departed
-		// employee's private workflow world-writable.
+		// employee's private workflow world-writable. Refused, and refused
+		// as a 404: nobody but an admin may know it is there.
 		ctx.getCachedWorkflows.mockReturnValue([
 			{ ...ownedEntry(), visibility: "private", userId: null },
 		]);
 		const res = await DELETE(makeEvent({ locals: authedUser, method: "DELETE" }));
-		expect(res.status).toBe(403);
+		expect(res.status).toBe(404);
 		expect(queries.deleteWorkflow).not.toHaveBeenCalled();
 	});
 
