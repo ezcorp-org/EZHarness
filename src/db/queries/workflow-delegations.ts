@@ -452,6 +452,84 @@ export async function disableWorkflowDelegation(
 }
 
 /**
+ * Raise or lower a LIVE delegation's `max_tokens_per_run`, IN PLACE.
+ *
+ * ## Why this exists at all — the deadlock it closes
+ *
+ * `RESUME_RULES["budget-exceeded"]` says in its own prose that "only
+ * raising that cap lets it continue" (`runtime/workflow-resume-reasons.ts`).
+ * Before this function there was no way to raise it. The only writer of
+ * `max_tokens_per_run` was {@link createWorkflowDelegation}, which
+ * TOMBSTONES the row it supersedes — so the naive remedy (re-consent)
+ * revoked the very delegation the parked run's predicate then re-read,
+ * and the predicate fails closed on a revoked row. Every parked run was
+ * stuck forever: the permanent-denial-of-service shape.
+ *
+ * Phase 6 closed that on the re-consent path by carrying `suspended` runs
+ * forward inside the supersede transaction (see the block in
+ * {@link createWorkflowDelegation}). This closes it on the OTHER path —
+ * the one where the human does not want to re-approve a capability set
+ * they already approved, they just want the cap raised. Both are kept:
+ * the supersede carry-forward is the safety net for a path that mints a
+ * new row, and this is the intended adjustment for a live one.
+ *
+ * ## What it deliberately does NOT touch
+ *
+ * The `.set()` names exactly two columns. `consent_hash`,
+ * `capability_set`, `workflow_name`, `owner_kind`, both owner columns,
+ * `definition_version_id`, `project_id`, the trigger pair,
+ * `consented_at` and `consented_by_user_id` are all untouched, and that
+ * is Ruling 2 expressed as code rather than as a comment: the consent
+ * hash IS the version id of what the human approved, so ANY edit to the
+ * approved material must go back through consent. A token ceiling is not
+ * part of that material — it bounds what the approved thing may spend,
+ * not what it may do — which is exactly why it is adjustable here and
+ * nothing else is.
+ *
+ * ## Live rows only, and the filter is the whole point
+ *
+ * `revoked_at IS NULL AND enabled` — the same predicate
+ * {@link delegationHoldsAuthority} states for the answer path, and for
+ * two separate reasons:
+ *
+ *  - A REVOKED row is a tombstone. Its authority was withdrawn; giving it
+ *    a bigger budget is either meaningless or a resurrection, and the
+ *    `budget-exceeded` predicate fails closed on it anyway, so a caller
+ *    that "succeeded" here would have been lied to.
+ *  - A DISABLED row was switched off BY THE PLATFORM with a stated reason
+ *    (`disabled_reason` — {@link disableWorkflowDelegation}), and the two
+ *    writers of that state are a workflow re-tiered out of the owner's
+ *    reach (rung D7) and five consecutive failures. Neither is fixed by
+ *    raising a token cap, and clearing the flag here would re-grant the
+ *    answer-path authority `delegationHoldsAuthority` withdrew — BEFORE
+ *    any fire re-asks D7's question. Re-consent is the re-enable path,
+ *    and it is the correct one precisely because it re-asks that question
+ *    (`authorizeDelegationConsent`) before writing an enabled row.
+ *
+ * Returns the updated row, or `undefined` when the CAS found nothing —
+ * unknown id, revoked, or disabled. The caller has already read the row
+ * (it has to, to authorize the actor) and reports the reason from that;
+ * this filter is the belt for a revoke that lands between the two.
+ */
+export async function setDelegationTokenCeiling(
+  id: string,
+  maxTokensPerRun: number,
+): Promise<WorkflowDelegationRow | undefined> {
+  const rows = await getDb()
+    .update(workflowDelegations)
+    .set({ maxTokensPerRun, updatedAt: new Date() })
+    .where(
+      and(
+        eq(workflowDelegations.id, id),
+        isNull(workflowDelegations.revokedAt),
+        eq(workflowDelegations.enabled, true),
+      ),
+    )
+    .returning();
+  return rows[0];
+}
+
+/**
  * The auto-disable threshold: consecutive failed runs after which a
  * delegation switches itself off.
  *

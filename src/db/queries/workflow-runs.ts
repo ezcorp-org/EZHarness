@@ -243,6 +243,34 @@ export async function workflowRunNestingDepth(
 }
 
 /**
+ * The ONE token-sum expression, shared by every spend bound in this file.
+ *
+ * Written once because the alternative is two aggregates that disagree
+ * about the same rows — the hazard {@link sumWorkflowRunTokens}'s docblock
+ * names for the trace, and it applies just as hard between two ceilings.
+ * `COALESCE` per column so a step that reported only input tokens still
+ * contributes them, and `COALESCE` around the `SUM` so an empty set is 0
+ * rather than NULL.
+ *
+ * `workflow_step_iterations` is deliberately absent — see the double-count
+ * paragraph on {@link sumWorkflowRunTokens}; it applies identically to
+ * every consumer of this expression.
+ */
+const STEP_TOKEN_SUM = sql<string | number | null>`COALESCE(SUM(COALESCE(${workflowStepRuns.inputTokens}, 0) + COALESCE(${workflowStepRuns.outputTokens}, 0)), 0)`;
+
+/**
+ * `SUM()` over `integer` is `bigint` in Postgres, which both drivers hand
+ * back as a STRING to avoid a lossy 53-bit cast. `Number(null)` is 0 and
+ * `Number("")` is 0, so the `?? 0` is for a zero-row read (impossible for
+ * an aggregate without GROUP BY, but these are CEILINGS and must not
+ * return NaN if that ever changes).
+ */
+function tokenTotal(raw: string | number | null | undefined): number {
+  const total = Number(raw ?? 0);
+  return Number.isFinite(total) ? total : 0;
+}
+
+/**
  * Total LLM tokens (input + output) recorded against one run's step rows.
  *
  * ## Why this exists at all, when the trace already computes a total
@@ -288,18 +316,73 @@ export async function workflowRunNestingDepth(
  */
 export async function sumWorkflowRunTokens(workflowRunId: string): Promise<number> {
   const rows = await getDb()
-    .select({
-      total: sql<string | number | null>`COALESCE(SUM(COALESCE(${workflowStepRuns.inputTokens}, 0) + COALESCE(${workflowStepRuns.outputTokens}, 0)), 0)`,
-    })
+    .select({ total: STEP_TOKEN_SUM })
     .from(workflowStepRuns)
     .where(eq(workflowStepRuns.workflowRunId, workflowRunId));
-  // `SUM()` over `integer` is `bigint` in Postgres, which both drivers
-  // hand back as a STRING to avoid a lossy 53-bit cast. `Number(null)` is
-  // 0 and `Number("")` is 0, so the fallback below is for a zero-row read
-  // (impossible for an aggregate without GROUP BY, but this function is a
-  // ceiling and must not return NaN if that ever changes).
-  const total = Number(rows[0]?.total ?? 0);
-  return Number.isFinite(total) ? total : 0;
+  return tokenTotal(rows[0]?.total);
+}
+
+/**
+ * Every token a SERVICE ACCOUNT's runs have reported since `since` —
+ * `service_accounts.max_tokens_per_day`'s numerator.
+ *
+ * ## A THIRD bound, and the distinction is the whole reason it exists
+ *
+ * Three separate numbers gate a delegated fire and none is a substitute
+ * for another:
+ *
+ *  - `workflow_delegations.max_tokens_per_run` — ONE run's LLM spend,
+ *    enforced at every step boundary ({@link sumWorkflowRunTokens} →
+ *    `enforceDelegatedTokenBudget`). Per run, per delegation.
+ *  - `workflow_delegations.max_runs_per_day` — how many times ONE job may
+ *    fire today (`countDelegationRunsSince`, in the delegation query
+ *    layer). Counts RUNS, not tokens, and is scoped to a single
+ *    delegation.
+ *  - `service_accounts.max_tokens_per_day` — THIS. Every token every
+ *    delegation owned by one account has spent today, summed across all
+ *    of them. It is the only bound that sees an account whose ten jobs
+ *    are each individually well-behaved.
+ *
+ * ## Keyed on the `run_as` SNAPSHOT, never on `delegation_id`
+ *
+ * `workflow_runs.run_as_kind` / `run_as` are plain text with no FK,
+ * deliberately, precisely so they survive revocation of the delegation
+ * and deletion of the owner (`db/schema.ts` — the C3 column block).
+ * `delegation_id` is `ON DELETE SET NULL` and a supersede tombstones the
+ * row, so joining through it would REFUND a day's spend the moment a
+ * human re-consented or an admin deleted a delegation — a spend bound
+ * that a revoke resets is not a spend bound. Both columns are filtered:
+ * `run_as` alone is a bare text id that a `user`-kind run could in
+ * principle collide with, and `run_as_kind` is the discriminator that
+ * says which namespace it is in.
+ *
+ * Served by `idx_workflow_runs_run_as` on
+ * `(run_as_kind, run_as, started_at)` (`db/schema.ts`), whose three
+ * columns are exactly this WHERE.
+ *
+ * CALENDAR day, supplied by the caller as `since`, for the same two
+ * reasons `countDelegationRunsSince` states: a query layer that reads the
+ * clock cannot be tested at a boundary, and "per day" has to mean the
+ * same thing in every subsystem that says it.
+ */
+export async function sumServiceAccountTokensSince(
+  serviceAccountId: string,
+  since: Date,
+): Promise<number> {
+  const rows = await getDb()
+    .select({ total: STEP_TOKEN_SUM })
+    .from(workflowStepRuns)
+    // INNER join: a step row whose run has been deleted contributes
+    // nothing, and there is no such row anyway (`ON DELETE CASCADE`).
+    .innerJoin(workflowRuns, eq(workflowStepRuns.workflowRunId, workflowRuns.id))
+    .where(
+      and(
+        eq(workflowRuns.runAsKind, "service"),
+        eq(workflowRuns.runAs, serviceAccountId),
+        gte(workflowRuns.startedAt, since),
+      ),
+    );
+  return tokenTotal(rows[0]?.total);
 }
 
 /**
