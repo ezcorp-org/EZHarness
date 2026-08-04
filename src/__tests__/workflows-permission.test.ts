@@ -357,6 +357,90 @@ describe("clampWorkflowsPermission — `allowDelegated` cannot be self-granted",
   });
 });
 
+/**
+ * SILENCE IS CONSENT HERE — which is why the install dialog may not use it.
+ *
+ * `clampWorkflowsPermission` deliberately reads an ABSENT submitted grant as
+ * "the admin approved the declaration as-is" (the `submitted === undefined`
+ * arm of `allowDelegated`, and `submittedNames` falling back to
+ * `manifestNames`). That convention is right for a server-to-server caller
+ * that omits a key it has no opinion on.
+ *
+ * It is WRONG as a denial channel, and the install consent dialog used to
+ * use it as one: unchecking "Run its own workflows" simply omitted the key,
+ * so the clamp re-granted what the admin had just declined. Phase 8b changed
+ * the dialog to state a denial out loud instead. These tests pin the exact
+ * husk it now sends, for BOTH manifest shapes, so the client's denial and
+ * the server's reading of it cannot drift apart again.
+ */
+describe("clampWorkflowsPermission — the husk the consent dialog sends to DENY", () => {
+  /** Byte-for-byte what `confirmActivate` posts when the toggle is off
+   *  (`web/src/routes/(app)/extensions/+page.svelte`). */
+  const DENIAL_HUSK = { names: [] as string[], allowDelegated: false };
+
+  test("a NAMED manifest: the husk denies, while silence would have granted", () => {
+    const manifest = { names: ["deploy", "rollback"] };
+
+    // The denial the dialog now sends.
+    expect(clampWorkflowsPermission(DENIAL_HUSK, manifest)).toBeUndefined();
+
+    // The pre-8b behaviour, kept as the contrast that makes the fix legible:
+    // omitting the key grants the full declared set.
+    expect(clampWorkflowsPermission(undefined, manifest)).toEqual({
+      names: ["deploy", "rollback"],
+      maxRunsPerHour: WORKFLOW_RUNS_PER_HOUR_DEFAULT,
+    });
+  });
+
+  test("a DELEGATED-ONLY manifest: the husk denies, while silence would have granted", () => {
+    const manifest = { names: [] as string[], allowDelegated: true };
+
+    expect(clampWorkflowsPermission(DENIAL_HUSK, manifest)).toBeUndefined();
+
+    expect(clampWorkflowsPermission(undefined, manifest)).toEqual({
+      names: [],
+      maxRunsPerHour: WORKFLOW_RUNS_PER_HOUR_DEFAULT,
+      allowDelegated: true,
+    });
+  });
+
+  test("the ACCEPTANCE the dialog sends still grants — both shapes", () => {
+    // Paired with the refusals above: a denial channel that also denied the
+    // legitimate path would look identical in a one-sided test.
+    expect(
+      clampWorkflowsPermission({ names: ["deploy"] }, { names: ["deploy"] }),
+    ).toEqual({ names: ["deploy"], maxRunsPerHour: WORKFLOW_RUNS_PER_HOUR_DEFAULT });
+
+    expect(
+      clampWorkflowsPermission(
+        { names: [], allowDelegated: true },
+        { names: [], allowDelegated: true },
+      ),
+    ).toEqual({
+      names: [],
+      maxRunsPerHour: WORKFLOW_RUNS_PER_HOUR_DEFAULT,
+      allowDelegated: true,
+    });
+  });
+
+  test("the husk travels intact through the whole-permissions clamp", () => {
+    // The dialog does not call the helper directly — it posts a full
+    // `grantedPermissions` object to the activate route, which calls
+    // `clampExtensionPermissions`. Pinned end to end so a future refactor of
+    // the wrapper cannot quietly restore the fail-open.
+    const manifest = { workflows: { names: [], allowDelegated: true } };
+    const denied = clampExtensionPermissions({ workflows: DENIAL_HUSK }, manifest, {});
+    expect(denied.workflows).toBeUndefined();
+
+    const accepted = clampExtensionPermissions(
+      { workflows: { names: [], allowDelegated: true } },
+      manifest,
+      {},
+    );
+    expect(accepted.workflows?.allowDelegated).toBe(true);
+  });
+});
+
 describe("clampWorkflowsPermission — the NON-delegated path is byte-identical", () => {
   test("no input anywhere mentioning delegation gains the key", () => {
     // The single guard against the failure mode this whole carve-out
