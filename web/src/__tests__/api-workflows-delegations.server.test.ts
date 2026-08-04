@@ -47,14 +47,32 @@ const db = vi.hoisted(() => ({
   getWorkflowDelegation: vi.fn(),
   listWorkflowDelegationsConsentedBy: vi.fn(),
   revokeWorkflowDelegation: vi.fn(),
+  setDelegationTokenCeiling: vi.fn(),
 }));
 vi.mock("$server/db/queries/workflow-delegations", () => ({
   createWorkflowDelegation: db.createWorkflowDelegation,
-  delegationOwnerId: (row: { ownerKind: string; ownerUserId: string | null; ownerServiceAccountId: string | null }) =>
-    row.ownerKind === "user" ? row.ownerUserId : row.ownerServiceAccountId,
   getWorkflowDelegation: db.getWorkflowDelegation,
   listWorkflowDelegationsConsentedBy: db.listWorkflowDelegationsConsentedBy,
   revokeWorkflowDelegation: db.revokeWorkflowDelegation,
+  setDelegationTokenCeiling: db.setDelegationTokenCeiling,
+  // The shared row→wire mapper. Stubbed to the SAME keyed-owner rule the
+  // real one uses, so the routes' serialization is exercised without this
+  // file re-implementing the query layer it is not testing. (Its own
+  // behaviour — including that `consentHash` never reaches the wire — is
+  // pinned against the real rows in
+  // `src/__tests__/workflow-delegations-queries.test.ts`.)
+  toWorkflowDelegationView: (row: {
+    ownerKind: string;
+    ownerUserId: string | null;
+    ownerServiceAccountId: string | null;
+    consentHash?: string;
+  }) => {
+    const { consentHash: _hash, ...rest } = row;
+    return {
+      ...rest,
+      ownerId: row.ownerKind === "user" ? row.ownerUserId : row.ownerServiceAccountId,
+    };
+  },
 }));
 // The service-account liveness read is the service-account module's, not
 // delegation CRUD's — mocked from where the route imports it so this file
@@ -64,7 +82,7 @@ vi.mock("$server/db/queries/service-accounts", () => ({
 }));
 
 const { GET, POST } = await import("../routes/api/workflows/delegations/+server");
-const { DELETE } = await import("../routes/api/workflows/delegations/[id]/+server");
+const { DELETE, PATCH } = await import("../routes/api/workflows/delegations/[id]/+server");
 
 const ROW = {
   id: "del-1",
@@ -78,11 +96,13 @@ const ROW = {
   projectId: null,
   triggerKind: "cron",
   triggerSpec: { expr: "0 * * * *" },
+  consentHash: "hash-1",
   capabilitySet: [],
   maxTokensPerRun: 5000,
   maxRunsPerDay: 24,
   enabled: true,
   disabledReason: null,
+  revokedAt: null,
   consentedAt: new Date("2026-08-03T00:00:00Z"),
   consentedByUserId: "u1",
 };
@@ -106,6 +126,9 @@ beforeEach(() => {
   db.getWorkflowDelegation.mockReset().mockResolvedValue(ROW);
   db.listWorkflowDelegationsConsentedBy.mockReset().mockResolvedValue([ROW]);
   db.revokeWorkflowDelegation.mockReset().mockResolvedValue(true);
+  db.setDelegationTokenCeiling
+    .mockReset()
+    .mockResolvedValue({ ...ROW, maxTokensPerRun: 99_000 });
 });
 
 // `authMethod: "session"` is what `hooks.server.ts` stamps on a verified
@@ -149,6 +172,23 @@ function deleteEvent(locals: Record<string, unknown> = member, id = "del-1") {
   } as never;
 }
 
+function patchEvent(
+  locals: Record<string, unknown> = member,
+  body: unknown = { maxTokensPerRun: 99_000 },
+  id = "del-1",
+) {
+  return {
+    url: new URL(`http://localhost/api/workflows/delegations/${id}`),
+    locals,
+    params: { id },
+    request: new Request(`http://localhost/api/workflows/delegations/${id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: typeof body === "string" ? body : JSON.stringify(body),
+    }),
+  } as never;
+}
+
 // ── T14 — a key of any scope must not mint or revoke consent ────────
 
 describe("the whole surface is session-only", () => {
@@ -177,11 +217,21 @@ describe("the whole surface is session-only", () => {
     expect(db.revokeWorkflowDelegation).not.toHaveBeenCalled();
   });
 
-  test("…and a real session SUCCEEDS on all three", async () => {
+  // The cap is the number that decides how much unattended LLM spend
+  // somebody's job may make. A leaked `chat` key raising it is the same
+  // class of failure as one minting the delegation in the first place.
+  test.each(cases)("PATCH refuses %s", async (_label, locals, status) => {
+    const res = (await PATCH(patchEvent(locals))) as Response;
+    expect(res.status).toBe(status);
+    expect(db.setDelegationTokenCeiling).not.toHaveBeenCalled();
+  });
+
+  test("…and a real session SUCCEEDS on all four", async () => {
     // The paired success. Without it a refuse-everything bug passes the
-    // twelve rows above.
+    // sixteen rows above.
     expect(((await POST(postEvent())) as Response).status).toBe(201);
     expect(((await GET(listEvent())) as Response).status).toBe(200);
+    expect(((await PATCH(patchEvent())) as Response).status).toBe(200);
     expect(((await DELETE(deleteEvent())) as Response).status).toBe(200);
   });
 });
@@ -395,5 +445,170 @@ describe("DELETE — the consenting human or an admin", () => {
     const res = (await DELETE(deleteEvent(member))) as Response;
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ revoked: false });
+  });
+});
+
+// ── PATCH — the route that makes a parked run resumable ─────────────
+//
+// `RESUME_RULES["budget-exceeded"]` says "only raising that cap lets it
+// continue" and, before this route, nothing could raise it: the sole
+// writer of `max_tokens_per_run` was the consent route, and a supersede
+// tombstones the row the parked run's own predicate re-reads. So every
+// parked delegated run was permanently stuck.
+//
+// Everything this route can get wrong is therefore a WIRING mistake with
+// one of two shapes: letting a principal who may not manage the
+// delegation raise an unattended spend bound, or letting a field that is
+// NOT the cap through — because the consent hash is the version id of
+// what the human approved, and a 200 that quietly ignored `ownerKind` is
+// a caller who believes the owner changed.
+
+describe("PATCH — the consenting human or an admin", () => {
+  test("the consenting human adjusts the cap, in place", async () => {
+    const res = (await PATCH(patchEvent(member))) as Response;
+    expect(res.status).toBe(200);
+    expect(db.setDelegationTokenCeiling).toHaveBeenCalledWith("del-1", 99_000);
+    const body = await res.json();
+    // The SAME row id comes back — no supersede, no new authority.
+    expect(body.delegation.id).toBe("del-1");
+    expect(body.delegation.maxTokensPerRun).toBe(99_000);
+  });
+
+  test("an admin adjusts somebody else's", async () => {
+    const res = (await PATCH(patchEvent(admin))) as Response;
+    expect(res.status).toBe(200);
+    expect(db.setDelegationTokenCeiling).toHaveBeenCalledWith("del-1", 99_000);
+  });
+
+  test("a stranger gets 404, not 403 — byte-identical to the DELETE's answer", async () => {
+    const stranger = {
+      user: { id: "u9", email: "s@x", name: "s", role: "user" },
+      authMethod: "session",
+    };
+    const res = (await PATCH(patchEvent(stranger))) as Response;
+    expect(res.status).toBe(404);
+    expect((await res.json()).error).toBe("Delegation not found");
+    expect(db.setDelegationTokenCeiling).not.toHaveBeenCalled();
+  });
+
+  test("an unknown id is the SAME 404 as an unauthorized one", async () => {
+    db.getWorkflowDelegation.mockResolvedValue(undefined);
+    const res = (await PATCH(patchEvent(member, { maxTokensPerRun: 10 }, "nope"))) as Response;
+    expect(res.status).toBe(404);
+    expect((await res.json()).error).toBe("Delegation not found");
+    expect(db.setDelegationTokenCeiling).not.toHaveBeenCalled();
+  });
+});
+
+describe("PATCH — the workflow, the owner and the consent hash are NOT adjustable", () => {
+  // Ruling 2, proved by execution rather than asserted in a comment: any
+  // edit to the approved material re-asks consent, so the schema is
+  // `.strict()` and each of these is a 400 with NOTHING written — not a
+  // 200 that ignored half the body.
+  const forbidden: Array<[string, Record<string, unknown>]> = [
+    ["the workflow name", { maxTokensPerRun: 10, workflowName: "something-else" }],
+    ["the owner kind", { maxTokensPerRun: 10, ownerKind: "service" }],
+    ["a service-account owner", { maxTokensPerRun: 10, ownerServiceAccountId: "svc-9" }],
+    ["the consent hash", { maxTokensPerRun: 10, consentHash: "forged" }],
+    ["the capability set", { maxTokensPerRun: 10, capabilitySet: [] }],
+    ["the pinned version", { maxTokensPerRun: 10, definitionVersionId: "v9" }],
+    ["the project", { maxTokensPerRun: 10, projectId: "p9" }],
+    ["the trigger", { maxTokensPerRun: 10, triggerKind: "webhook" }],
+    ["the enabled flag", { maxTokensPerRun: 10, enabled: true }],
+    ["the disabled reason", { maxTokensPerRun: 10, disabledReason: null }],
+    // A DIFFERENT bound (D8 — daily RUNS, not tokens) and changing it
+    // cannot unblock a parked run, which is what this route is for.
+    ["the daily run quota", { maxTokensPerRun: 10, maxRunsPerDay: 999 }],
+  ];
+
+  test.each(forbidden)("naming %s is a 400 and writes nothing", async (_label, body) => {
+    const res = (await PATCH(patchEvent(member, body))) as Response;
+    expect(res.status).toBe(400);
+    expect(db.setDelegationTokenCeiling).not.toHaveBeenCalled();
+  });
+
+  test("…and the cap ALONE succeeds", async () => {
+    // The pair. Without it a schema that rejected every body would pass
+    // all eleven rows above.
+    const res = (await PATCH(patchEvent(member, { maxTokensPerRun: 10 }))) as Response;
+    expect(res.status).toBe(200);
+    expect(db.setDelegationTokenCeiling).toHaveBeenCalledWith("del-1", 10);
+  });
+
+  test("the refusal names the remedy rather than saying 'invalid body'", async () => {
+    const res = (await PATCH(patchEvent(member, { maxTokensPerRun: 10, ownerKind: "service" }))) as Response;
+    expect((await res.json()).error).toContain("re-consent");
+  });
+
+  const badCaps: Array<[string, unknown]> = [
+    ["zero — there is no unlimited value", 0],
+    ["negative", -1],
+    ["fractional", 1.5],
+    ["a string", "9000"],
+    ["absent", undefined],
+  ];
+
+  test.each(badCaps)("a %s cap is refused, exactly as the consent route refuses it", async (_l, cap) => {
+    const body = cap === undefined ? {} : { maxTokensPerRun: cap };
+    const res = (await PATCH(patchEvent(member, body))) as Response;
+    expect(res.status).toBe(400);
+    expect(db.setDelegationTokenCeiling).not.toHaveBeenCalled();
+  });
+
+  test("a body that is not JSON at all is a 400, not a 500", async () => {
+    const res = (await PATCH(patchEvent(member, "{not json"))) as Response;
+    expect(res.status).toBe(400);
+    expect(db.setDelegationTokenCeiling).not.toHaveBeenCalled();
+  });
+});
+
+describe("PATCH — it does not re-enable, and it does not resurrect", () => {
+  test("a DISABLED delegation is 409 carrying the platform's reason", async () => {
+    // The decision, pinned. `enabled = false` + `disabled_reason` is the
+    // platform saying the authority is broken (D7's re-tiering, or five
+    // consecutive failures). A bigger token budget repairs neither, and
+    // `delegationHoldsAuthority()` includes `enabled` — so clearing it
+    // here would restore approval-ANSWERING authority before any fire
+    // re-asks D7. Re-consent is the re-enable path because it re-asks.
+    db.getWorkflowDelegation.mockResolvedValue({
+      ...ROW,
+      enabled: false,
+      disabledReason: "This job stopped: the workflow is no longer visible to you.",
+    });
+    const res = (await PATCH(patchEvent(member))) as Response;
+    expect(res.status).toBe(409);
+    const { error } = await res.json();
+    expect(error).toContain("no longer visible to you");
+    expect(error).toContain("Consent again");
+    expect(db.setDelegationTokenCeiling).not.toHaveBeenCalled();
+  });
+
+  test("a disabled row with NO recorded reason still refuses, and says so", async () => {
+    db.getWorkflowDelegation.mockResolvedValue({
+      ...ROW,
+      enabled: false,
+      disabledReason: null,
+    });
+    const res = (await PATCH(patchEvent(member))) as Response;
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toContain("no reason was recorded");
+    expect(db.setDelegationTokenCeiling).not.toHaveBeenCalled();
+  });
+
+  test("a REVOKED delegation is 409 — a tombstone has no budget to adjust", async () => {
+    db.getWorkflowDelegation.mockResolvedValue({ ...ROW, revokedAt: new Date() });
+    const res = (await PATCH(patchEvent(member))) as Response;
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toContain("revoked");
+    expect(db.setDelegationTokenCeiling).not.toHaveBeenCalled();
+  });
+
+  test("a revoke landing BETWEEN the read and the write is 409, not a silent 200", async () => {
+    // The CAS inside the UPDATE is not redundant with the two checks
+    // above: those read a row that was live an instant ago.
+    db.setDelegationTokenCeiling.mockResolvedValue(undefined);
+    const res = (await PATCH(patchEvent(member))) as Response;
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toContain("no longer live");
   });
 });
