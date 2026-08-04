@@ -20,6 +20,7 @@
 	import {
 		describeDelegationState,
 		describeRunPrincipal,
+		describeRunStopReason,
 		describeRunTime,
 		describeRunStatus,
 		loadDelegatedRuns,
@@ -333,6 +334,19 @@
 								>
 							</div>
 
+							{#if !state.live}
+								<!-- PATCH adjusts the budget; it does NOT re-enable a
+								     disabled delegation and does not refresh consent. So a
+								     stopped job needs re-consent, and offering one button
+								     for both would be offering a remedy that cannot work. -->
+								<p
+									class="mt-2 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] p-2 text-xs text-[var(--color-text-secondary)]"
+									data-testid="delegation-stopped-remedy"
+								>
+									Changing the limit will not restart this job. Grant it again to restore it.
+								</p>
+							{/if}
+
 							<div class="mt-3 flex flex-wrap items-end gap-3">
 								<div>
 									<label
@@ -365,7 +379,7 @@
 									data-testid="delegation-save-tokens">Save limit</button
 								>
 								<span class="text-[10px] text-[var(--color-text-muted)]"
-									>{delegation.maxRunsPerDay} runs/day</span
+									>{delegation.maxRunsPerDay} runs/day (set at consent)</span
 								>
 								<button
 									type="button"
@@ -435,9 +449,21 @@
 								>
 							</div>
 							{#if run.error}
+								{@const why = describeRunStopReason(run.error)}
 								<p class="mt-1 text-xs font-medium text-[var(--color-text-primary)]" data-testid="delegated-run-error">
 									{run.error}
 								</p>
+								{#if why}
+									<!-- A per-run cap and a service account's DAILY cap look
+									     identical in a raw error and have opposite remedies,
+									     so the two are named apart here. -->
+									<p
+										class="mt-0.5 text-xs text-[var(--color-text-secondary)]"
+										data-testid="delegated-run-stop-reason"
+									>
+										{why}
+									</p>
+								{/if}
 							{:else if run.suspendedReason}
 								<p class="mt-1 text-xs font-medium text-[var(--color-text-secondary)]" data-testid="delegated-run-suspended">
 									{run.suspendedReason}

@@ -138,7 +138,7 @@ const RUNS = [
 		delegationId: "del-1",
 		startedAt: "2026-08-03T08:00:00.000Z",
 		finishedAt: "2026-08-03T08:01:00.000Z",
-		error: "the token ceiling for this run was reached",
+		error: "denied: DELEGATION_DAILY_TOKENS_EXCEEDED",
 		suspendedReason: null,
 	},
 ];
@@ -241,7 +241,15 @@ test.describe("Delegations page", () => {
 		await expect(page.getByTestId("delegated-run-principal").nth(1)).toHaveText(
 			"as a service account",
 		);
-		await expect(page.getByTestId("delegated-run-error")).toContainText("token ceiling");
+		// A run stopped by the SERVICE ACCOUNT's daily cap and one stopped by
+		// this delegation's per-run cap look identical in a raw error and have
+		// opposite remedies, so the page names them apart.
+		await expect(page.getByTestId("delegated-run-stop-reason")).toContainText(
+			"daily token limit",
+		);
+		await expect(page.getByTestId("delegated-run-stop-reason")).toContainText(
+			"will not change it",
+		);
 	});
 
 	test("an empty state says so on both lists", async ({ page, mockApi }) => {

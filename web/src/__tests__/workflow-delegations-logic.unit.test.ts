@@ -23,6 +23,7 @@ import {
 	describeEffortNoopSteps,
 	describeRunPrincipal,
 	describeRunStatus,
+	describeRunStopReason,
 	describeRunTime,
 	diffCapabilities,
 	parseCapabilityKey,
@@ -471,6 +472,50 @@ describe("describeRunPrincipal", () => {
 
 	test("a non-delegated run says so", () => {
 		expect(describeRunPrincipal({ ...run, runAsKind: null, runAs: null }, {})).toBe("not delegated");
+	});
+});
+
+describe("describeRunStopReason — two ceilings, opposite remedies", () => {
+	test("the SERVICE ACCOUNT's daily cap says the per-run limit will not help", () => {
+		// D10. Nothing exposes a route to raise `max_tokens_per_day`, so the
+		// remedy must not be a button — and it must not be confused with the
+		// per-run cap, which the consenter CAN raise.
+		const text = describeRunStopReason("denied: DELEGATION_DAILY_TOKENS_EXCEEDED");
+		expect(text).toContain("daily token limit");
+		expect(text).toContain("will not change it");
+	});
+
+	test("the delegation's PER-RUN cap points at the control that fixes it", () => {
+		const text = describeRunStopReason("denied: DELEGATION_SPEND_EXCEEDED");
+		expect(text).toContain("per-run token limit");
+		expect(text).toContain("raise it");
+	});
+
+	test("the two ceilings never produce the same sentence", () => {
+		expect(describeRunStopReason("DELEGATION_DAILY_TOKENS_EXCEEDED")).not.toBe(
+			describeRunStopReason("DELEGATION_SPEND_EXCEEDED"),
+		);
+	});
+
+	test("a stale consent says re-approve, and says the limit will NOT clear it", () => {
+		// PATCH does not write `consented_at`, so a budget change cannot
+		// recover a consent-stale park.
+		const text = describeRunStopReason("DELEGATION_CONSENT_STALE");
+		expect(text).toContain("Approve it again");
+		expect(text).toContain("adjusting the limit will not clear this");
+	});
+
+	test("lost access says nothing the user did caused it", () => {
+		expect(describeRunStopReason("DELEGATION_OWNER_LOST_WORKFLOW_ACCESS")).toContain(
+			"Nothing you did caused this",
+		);
+	});
+
+	test("an unrecognised error yields NULL, so the raw text is shown instead", () => {
+		// Guessing at an unknown failure would be worse than repeating what
+		// the server actually said.
+		expect(describeRunStopReason("segfault in step 3")).toBeNull();
+		expect(describeRunStopReason(null)).toBeNull();
 	});
 });
 

@@ -557,6 +557,45 @@ export function describeRunStatus(status: string): { tone: "ok" | "warn" | "erro
 }
 
 /**
+ * Why a delegated run stopped, when a deny code says so.
+ *
+ * Two different ceilings can end a delegated run and they look IDENTICAL
+ * in a raw error string, while having opposite remedies:
+ *
+ *  - the PER-RUN token cap is on the delegation, and the consenting human
+ *    can raise it themselves (`PATCH /api/workflows/delegations/:id`);
+ *  - the DAILY token cap is on the SERVICE ACCOUNT, fires only on the
+ *    `service` arm, and nothing exposes a route to raise it — so the
+ *    honest remedy is "wait, or ask an admin", never a button.
+ *
+ * Returns `null` for anything it does not recognise, and the caller shows
+ * the raw error instead. Guessing at an unrecognised failure would be
+ * worse than showing what the server actually said.
+ *
+ * Matched on the deny code as a SUBSTRING of the error, because the
+ * message around it is the handler's and may be reworded.
+ */
+export function describeRunStopReason(error: string | null): string | null {
+	if (error === null) return null;
+	if (error.includes("DELEGATION_DAILY_TOKENS_EXCEEDED")) {
+		return "Stopped by the service account's daily token limit. That limit belongs to the account, not to this delegation — raising the per-run limit below will not change it.";
+	}
+	if (error.includes("DELEGATION_SPEND_EXCEEDED")) {
+		return "Stopped by this delegation's per-run token limit. You can raise it above.";
+	}
+	if (error.includes("DELEGATION_QUOTA_EXCEEDED")) {
+		return "Stopped because this delegation had already used its runs for the day.";
+	}
+	if (error.includes("DELEGATION_CONSENT_STALE")) {
+		return "Stopped because the workflow changed since you approved it. Approve it again to restart the job — adjusting the limit will not clear this.";
+	}
+	if (error.includes("DELEGATION_OWNER_LOST_WORKFLOW_ACCESS")) {
+		return "Stopped because the principal it runs as can no longer reach this workflow. Nothing you did caused this — the workflow's visibility changed.";
+	}
+	return null;
+}
+
+/**
  * When a run started, as a person reads it.
  *
  * A raw ISO string is precise and unreadable, and this list is scanned

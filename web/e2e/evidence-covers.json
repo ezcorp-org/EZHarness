@@ -247,6 +247,10 @@
     "web/src/lib/components/tool-cards/PendingPermissionTray.svelte",
     "web/src/lib/workflow-approvals-logic.ts"
   ],
+  "web/e2e/workflow-delegations.spec.ts": [
+    "web/src/routes/(app)/workflows/delegations/+page.svelte",
+    "web/src/lib/components/DelegationConsentDialog.svelte"
+  ],
   "web/e2e/workflow-mention.spec.ts": [
     "web/src/lib/components/MentionChip.svelte",
     "web/src/lib/components/MentionPopover.svelte",
