@@ -1,0 +1,11 @@
+bun test v1.3.14 (0d9b296a)
+{"ts":"2026-08-04T18:35:17.320Z","level":"info","msg":"Database mode: embedded PGlite","subsystem":"db","path":"/tmp/ezcorp-test-db-gu3W7F/db"}
+{"ts":"2026-08-04T18:35:17.676Z","level":"info","msg":"Pre-boot snapshot taken","subsystem":"db","path":"/tmp/ezcorp-test-db-gu3W7F/backups/pre-boot-dev-2026-08-04T18-35-17-634Z"}
+{"ts":"2026-08-04T18:35:17.676Z","level":"info","msg":"Removed stale PGlite lock file","subsystem":"db","path":"/tmp/ezcorp-test-db-gu3W7F/db/postmaster.pid"}
+{"ts":"2026-08-04T18:35:17.774Z","level":"info","msg":"Database mode: embedded PGlite","subsystem":"db","path":"/tmp/ezcorp-test-db-gu3W7F/db"}
+
+ 7 pass
+ 0 fail
+ 14 expect() calls
+Ran 7 tests across 1 file. [1.61s]
+AFTER_FIX_EXIT=0

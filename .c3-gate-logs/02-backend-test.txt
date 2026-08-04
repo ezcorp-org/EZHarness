@@ -1,1 +1,14 @@
 $ bash scripts/test.sh
+--- FAIL: src/__tests__/db-connection-real-init.test.ts ---
+(fail) connection.ts — real PGlite init path > (unnamed) [121.58ms]
+(fail) connection.ts — real PGlite init path > (unnamed) [0.12ms]
+
+
+================================
+  20814 pass | 2 fail | 1263 files
+================================
+
+Failed files:
+  - src/__tests__/db-connection-real-init.test.ts
+error: script "test" exited with code 1
+BACKEND_TEST_EXIT=1
