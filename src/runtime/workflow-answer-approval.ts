@@ -270,7 +270,7 @@ function mayAnswerUnscopedApproval(
       // structurally unattributable.
       return { allowed: true, answeredBy: null };
 
-    case "delegation":
+    case "delegation": {
       // PROVED, never carried — PR #58's `holdsClaim`
       // (`workflow-executor.ts:811-815`) with a different lease:
       // *"naming an identity that does not hold the lease proves
@@ -295,16 +295,20 @@ function mayAnswerUnscopedApproval(
       //
       // A declared `rbacScope` never reaches here — the scoped branch
       // refuses this kind before `checkScope` is consulted at all.
-      return run !== undefined &&
+      //
+      // `answeredBy` below is equal to `delegation.consentedByUserId` by
+      // the last term, so the answer is attributed to the person the ROW
+      // named rather than to the one the caller claimed.
+      const proved =
+        run !== undefined &&
         run.id === actor.runId &&
         run.delegationId === actor.delegationId &&
         delegation !== undefined &&
-        delegation.consentedByUserId === actor.answeringUserId
-        ? // Equal to `delegation.consentedByUserId` by the line above, so
-          // this attributes the answer to the person the ROW named, not to
-          // the one the caller claimed.
-          { allowed: true, answeredBy: actor.answeringUserId }
+        delegation.consentedByUserId === actor.answeringUserId;
+      return proved
+        ? { allowed: true, answeredBy: actor.answeringUserId }
         : { allowed: false };
+    }
   }
 }
 
