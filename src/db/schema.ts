@@ -31,6 +31,66 @@ export const projects = pgTable("projects", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+/**
+ * WHO a project belongs to. The platform's project-membership model.
+ *
+ * `projects` deliberately has no `user_id` / `created_by` column and is not
+ * getting one. An owner COLUMN answers exactly one question ("who made it")
+ * and cannot answer the one the product needs ("who may act on it"), so a
+ * second person can never be given a project without widening the column
+ * into this table anyway. A join table from the start also keeps the NULL
+ * reading unambiguous: there is no NULL — a project either has a row for you
+ * or it does not.
+ *
+ * ## Roles
+ *
+ * - `member` — may READ, RENAME and DELETE the project. This is the round-4
+ *   ruling: the person who created a project must be able to rename or
+ *   delete it without being an instance admin.
+ * - `owner`  — everything a `member` may do, plus MANAGING MEMBERSHIP
+ *   (adding and removing other members).
+ *
+ * The asymmetry is deliberate and is the standard one: granting authority is
+ * the narrower right, not the more destructive one. A `member` deleting the
+ * project destroys one object they already had full control of; a `member`
+ * who could add members could add a confederate — or themselves elsewhere —
+ * and that escalates. Destructive ≠ privilege-granting, and only the second
+ * one compounds.
+ *
+ * Both roles have a WRITER, which is the point: `owner` is stamped by
+ * `createProject` on its creator and by the migration's ownerless backfill;
+ * `member` is written by `POST /api/projects/:id/members`. A role no code
+ * path can produce is a rung of the ladder nobody can stand on — see the
+ * `private`-visibility hole called out in `runtime/workflow-scope.ts`.
+ *
+ * Both FKs CASCADE: deleting a project takes its membership rows with it
+ * (they describe nothing once the project is gone), and deleting a user
+ * removes their memberships rather than leaving a row naming a principal
+ * that cannot log in. There is deliberately NO `SET NULL` variant here —
+ * both columns are NOT NULL, because a membership row missing either end is
+ * not a weaker grant, it is a meaningless one.
+ */
+export const projectMembers = pgTable("project_members", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  role: text("role").notNull().default("member").$type<"owner" | "member">(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type ProjectMember = typeof projectMembers.$inferSelect;
+export type NewProjectMember = typeof projectMembers.$inferInsert;
+/**
+ * The membership roles, ordered least → most authority.
+ *
+ * Exported as a VALUE so the API's boundary validation and the ladder read
+ * the same list. A `z.enum` hand-written at the route would be a second copy
+ * of the vocabulary, and the two would disagree the first time a role is
+ * added.
+ */
+export const PROJECT_MEMBER_ROLES = ["member", "owner"] as const;
+export type ProjectMemberRole = (typeof PROJECT_MEMBER_ROLES)[number];
+
 export const settings = pgTable("settings", {
   key: text("key").primaryKey(),
   value: jsonb("value").notNull().$type<unknown>(),
