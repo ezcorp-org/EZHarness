@@ -187,7 +187,7 @@ export const RESUME_RULES = {
   // and then had its `approval` answered would re-enter `runApprovalStep`,
   // find the approval `answered`, and proceed — with the cap never
   // consulted. That is why these rows carry a real predicate, and it is
-  // the whole justification for this table existing before C3 lands.
+  // the whole justification for this table having existed before them.
   "budget-exceeded": {
     /**
      * Re-read BOTH halves — what the run has spent and what it is allowed
