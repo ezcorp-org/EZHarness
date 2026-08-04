@@ -165,24 +165,46 @@ export async function canRunWorkflow(
   user: WorkflowPrincipal,
   projectId?: string | null,
 ): Promise<WorkflowAuthzDecision> {
-  const name = entry.definition.name;
-  const prefix = extensionPrefix(name);
-
-  if (prefix) {
-    const extension = await getExtensionByName(prefix);
-    if (!extension) {
-      return deny(
-        `Workflow "${name}" belongs to extension "${prefix}", which is not installed`,
-      );
-    }
-    if (extension.enabled !== true) {
-      return deny(`Workflow "${name}" belongs to extension "${prefix}", which is disabled`);
-    }
-  }
+  const live = await workflowExtensionLiveness(entry.definition.name);
+  if (!live.allowed) return live;
 
   const decision = authorizeWorkflow(entry, callerOf(user, projectId), "run");
   if (!decision.ok) {
-    return deny(`Workflow "${name}" is not available to this user`);
+    return deny(`Workflow "${entry.definition.name}" is not available to this user`);
+  }
+  return ALLOW;
+}
+
+/**
+ * Rule 1 of {@link canRunWorkflow}, ALONE: is the extension that owns this
+ * workflow name still installed and enabled?
+ *
+ * Exported because C3's delegated fire path needs exactly this half and
+ * cannot use the whole of `canRunWorkflow` — that function's
+ * {@link WorkflowPrincipal} carries a NON-NULL `id`, and a
+ * `owner_kind='service'` delegation runs as `{userId: null}`, which the
+ * type cannot express. The delegated ladder asks the ladder's own `run`
+ * rung through the shared consent policy
+ * (`workflow-delegation-consent.ts`, so the consent-time and fire-time
+ * answers cannot drift) and adds THIS on top.
+ *
+ * Split out rather than reimplemented: an extension-liveness rule that
+ * existed twice would eventually let a dead extension's workflow stay
+ * runnable down one path and not the other, and the whole reason this
+ * check exists is that `reloadWorkflows()` never fires on
+ * install/uninstall/disable, so the merged cache is stale by design.
+ */
+export async function workflowExtensionLiveness(
+  name: string,
+): Promise<WorkflowAuthzDecision> {
+  const prefix = extensionPrefix(name);
+  if (!prefix) return ALLOW;
+  const extension = await getExtensionByName(prefix);
+  if (!extension) {
+    return deny(`Workflow "${name}" belongs to extension "${prefix}", which is not installed`);
+  }
+  if (extension.enabled !== true) {
+    return deny(`Workflow "${name}" belongs to extension "${prefix}", which is disabled`);
   }
   return ALLOW;
 }

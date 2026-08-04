@@ -207,7 +207,17 @@ export async function ensureInitialized(): Promise<void> {
   // passed as a THUNK on purpose: `reloadWorkflows()` REASSIGNS the
   // module-level `workflows` binding on every CRUD write, so handing over
   // the array by value would freeze a stale list for the process lifetime.
-  registerWorkflowRuntime({ workflowExecutor, getWorkflows, getCachedWorkflows });
+  // `listAgents` is a thunk for the same reason, and it is what lets C3's
+  // fire-time consent recompute see the SAME agent list the consent route
+  // saw. Without it every `agent` step would hash as `agent:unreachable`
+  // and no stored consent could ever match, so the delegated fire path
+  // refuses rather than recomputing when it is absent.
+  registerWorkflowRuntime({
+    workflowExecutor,
+    getWorkflows,
+    getCachedWorkflows,
+    listAgents: () => getExecutor().listAgents(),
+  });
   void terminalizeOrphanedWorkflowRuns()
     .then((count) => {
       if (count > 0) console.warn(`[workflow] terminalized ${count} orphaned workflow run(s)`);

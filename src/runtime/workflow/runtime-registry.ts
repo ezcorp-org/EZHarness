@@ -20,7 +20,7 @@
  * freeze a stale list the moment anyone created, edited or deleted a
  * workflow. The thunk always reads the live binding.
  */
-import type { WorkflowDefinition } from "../../types";
+import type { AgentDefinition, WorkflowDefinition } from "../../types";
 import type { WorkflowExecutor } from "../workflow-executor";
 import type { CachedWorkflow } from "../workflow-scope";
 
@@ -61,6 +61,27 @@ export interface WorkflowRuntime {
    * reader they never call.
    */
   getCachedWorkflows?: () => CachedWorkflow[];
+  /**
+   * The live agent list, for C3's fire-time consent recompute.
+   *
+   * The consent hash marks an `agent` step whose agent the registry cannot
+   * REACH with `agent:unreachable`, which is a different value from the
+   * one an agent with no declared capabilities produces
+   * (`workflow-capability-hash.ts` — T11). That distinction is only
+   * meaningful against the same list the consent route saw, and the list
+   * lives on the web layer's `AgentExecutor`, which `src/` cannot import.
+   *
+   * OPTIONAL and FAIL CLOSED, exactly like {@link getCachedWorkflows} and
+   * for a sharper reason: an absent reader would make every agent look
+   * unreachable, which hashes to a value no stored consent can match — so
+   * a permissive default here would not merely under-check, it would
+   * silently stale every delegation on the instance. The delegated fire
+   * path refuses when this is absent rather than recomputing without it.
+   *
+   * Also a thunk: agents are reloaded on config CRUD, so a snapshot array
+   * would freeze a stale list.
+   */
+  listAgents?: () => AgentDefinition[];
 }
 
 let registered: WorkflowRuntime | null = null;
