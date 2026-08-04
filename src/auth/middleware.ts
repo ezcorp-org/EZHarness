@@ -181,6 +181,35 @@ export function requireSessionAuth(locals: AuthLocals): AuthUser | Response {
   return user;
 }
 
+/**
+ * BOTH axes of the admin-console gate, in the one order they may run:
+ * interactive session first, admin role second.
+ *
+ * It exists because the two calls were being copy-pasted per route file, and
+ * a copied gate is a gate that eventually ships with only half of itself —
+ * the failure is silent (a route that forgot `requireSessionAuth` still looks
+ * gated, and simply admits every admin-scoped API key). One function means a
+ * new admin-console route cannot get the pair wrong, and it means the ORDER
+ * is decided once: session first, so a key principal is refused as "not a
+ * session" rather than being told whether it holds the admin role — the
+ * narrower answer, and the one that leaks nothing about the key.
+ *
+ * Returns, never throws, for the reason {@link checkRole} documents at
+ * length: SvelteKit answers 500 to a thrown `Response` from a `+server.ts`
+ * handler, so the 401/403 the gate meant would never reach the caller. Both
+ * halves already return, and composing them cannot re-introduce the throw.
+ *
+ * NOT for a route that merely wants an admin: `checkRole` alone is right when
+ * an admin-scoped API key SHOULD reach the route. This one is for the acts
+ * that are HUMAN DECISIONS — minting a principal other people's jobs run as,
+ * or raising the budget one of them may spend.
+ */
+export function requireAdminSession(locals: AuthLocals): AuthUser | Response {
+  const session = requireSessionAuth(locals);
+  if (session instanceof Response) return session;
+  return checkRole(locals, "admin");
+}
+
 const ROLE_LEVELS: Record<string, number> = { viewer: 0, editor: 1, owner: 2 };
 
 export async function requireTeamRole(

@@ -417,17 +417,25 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "GET", path: "/api/audit/stats", description: "Headline audit aggregates for ?range=24h|7d|30d (unknown values fall back to 24h): denial count, total calls, total cost, top-3 chattiest extensions, top-3 LLM spenders", category: "admin", scope: "admin" },
 
   // ── C3 service accounts ───────────────────────────────────────────────
-  // NO `scope`, deliberately, on all four — the same reasoning as
+  // NO `scope`, deliberately, on all five — the same reasoning as
   // `POST /api/workflows/approvals/:id` above. `scope` renders as
   // `security: [{ bearerAuth: [scope] }]` (src/openapi.ts:39-41), i.e. "call
   // this with a key holding that scope". These routes gate on
   // `requireSessionAuth` FIRST, so NO key of any scope can reach them at all
   // and `scope: "admin"` would publish a lie about a security boundary. The
   // second gate is `checkRole(locals,"admin")`, which returns its denial
-  // rather than throwing it (a thrown Response is a 500, not a 403).
-  { method: "GET", path: "/api/service-accounts", description: "List service accounts (optionally ?projectId), plus the machine-readable reach warning. SESSION-ONLY + admin: refuses every API key (403). A service account is a non-human `run_as` principal with no users row — it cannot authenticate", category: "admin", responseDescription: "{ accounts: ServiceAccountView[], reach: { code, runnableVisibilities, message } }" },
+  // rather than throwing it (a thrown Response is a 500, not a 403) — the two
+  // together are `requireAdminSession` (src/auth/middleware.ts).
+  //
+  // GET is the one exception on the ROLE axis, and it is still session-only:
+  // it answers every authenticated session, with a two-field
+  // `{id,name}` projection for a non-admin. Ruling 1 makes both owner kinds
+  // selectable PER DELEGATION, and a consenter who cannot read the list cannot
+  // name a service account to consent to.
+  { method: "GET", path: "/api/service-accounts", description: "List service accounts (optionally ?projectId), plus the machine-readable reach warning. SESSION-ONLY: refuses every API key (403). An ADMIN gets the full ServiceAccountView per row; any other authenticated session gets `{ id, name }` ONLY, filtered to enabled accounts — scopes, createdBy, maxTokensPerDay, projectId and disabledReason are withheld. The narrow read exists so a non-admin consenting to a delegation can populate the owner-kind picker (Ruling 1). A service account is a non-human `run_as` principal with no users row — it cannot authenticate", category: "admin", responseDescription: "{ accounts: ServiceAccountView[] | { id, name }[], reach: { code, runnableVisibilities, message } }" },
   { method: "POST", path: "/api/service-accounts", description: "Mint a service account. SESSION-ONLY + admin. Scopes are CLAMPED to the creating admin's effective set and what was dropped is reported; `maxTokensPerDay` is mandatory (tokens are the enforced bound — a cents cap is refused, since an unpriced model would spend without bound under one). The response carries the reach warning: a service account has no user identity, so it can only be delegated system-visible workflows", category: "admin", responseDescription: "{ account, droppedScopes: string[], reach: { code, runnableVisibilities, message } } (201)" },
-  { method: "PATCH", path: "/api/service-accounts/:id", description: "Enable or disable a service account, recording `disabledReason` when disabling. SESSION-ONLY + admin", category: "admin", responseDescription: "{ account }" },
+  { method: "PATCH", path: "/api/service-accounts/:id", description: "Enable or disable a service account, recording `disabledReason` when disabling. SESSION-ONLY + admin. The body is strict and takes `enabled` only — the daily token cap has its own route, so an enable/disable can never be mistaken for a budget change in the audit log", category: "admin", responseDescription: "{ account }" },
+  { method: "PATCH", path: "/api/service-accounts/:id/daily-cap", description: "Set a service account's `max_tokens_per_day` — the remedy rung D10 names when a delegated fire is refused because the owning account spent its day, and which nothing exposed until now. SESSION-ONLY + admin. Body { maxTokensPerDay } (positive integer) and NOTHING else: strict, so a cents cap is a 400 rather than a silent no-op (Ruling 3 — tokens enforced, cost advisory). Lowers as readily as it raises. Does NOT re-enable a disabled account or clear its disabledReason; audited as `service-account:daily-cap-changed`", category: "admin", responseDescription: "{ account }" },
   { method: "DELETE", path: "/api/service-accounts/:id", description: "Delete a service account. SESSION-ONLY + admin. REFUSED with 409 + { delegationCount } while live delegations name it — the owner FK is ON DELETE CASCADE, so the delete would otherwise destroy those authorities silently", category: "admin", responseDescription: "204 No Content" },
 
   { method: "GET", path: "/api/fs/list", description: "List files in a directory", category: "system" },

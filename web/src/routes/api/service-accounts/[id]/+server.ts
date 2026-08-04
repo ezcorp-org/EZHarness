@@ -1,9 +1,11 @@
 /**
  * PATCH / DELETE /api/service-accounts/:id — lifecycle for one account.
  *
- * Same two gates, same order, same reasons as the collection route
+ * Same two gates, same order, same reasons as the collection route's WRITE
  * (`../+server.ts`): session-only via the positively-stamped
- * `locals.authMethod` allowlist, then admin role, both RETURNING their denial.
+ * `locals.authMethod` allowlist, then admin role, both RETURNING their denial
+ * — as the one shared `requireAdminSession`, so no route file here carries a
+ * private copy of the pair that could ship with half of it.
  *
  * PATCH  → flip `enabled`, recording WHY on the way down. Disabling is the
  *          reversible half of removal and is what an admin reaches for when a
@@ -22,7 +24,7 @@ import { z } from "zod";
 import type { RequestHandler } from "./$types";
 import { errorJson } from "$lib/server/http-errors";
 import { validationError } from "$lib/server/security/validation";
-import { requireSessionAuth, checkRole } from "$server/auth/middleware";
+import { requireAdminSession } from "$server/auth/middleware";
 import {
   deleteServiceAccount,
   getServiceAccount,
@@ -39,13 +41,6 @@ type ServiceAccountLocals = {
   authMethod?: import("$server/auth/middleware").AuthMethod;
 };
 
-/** Session-then-admin, as one call — see the collection route's header. */
-function gate(locals: ServiceAccountLocals): AuthUser | Response {
-  const session = requireSessionAuth(locals);
-  if (session instanceof Response) return session;
-  return checkRole(locals, "admin");
-}
-
 const patchSchema = z
   .object({
     enabled: z.boolean(),
@@ -54,7 +49,7 @@ const patchSchema = z
   .strict();
 
 export const PATCH: RequestHandler = async ({ locals, params, request }) => {
-  const admin = gate(locals as ServiceAccountLocals);
+  const admin = requireAdminSession(locals as ServiceAccountLocals);
   if (admin instanceof Response) return admin;
 
   const parsed = patchSchema.safeParse(await request.json().catch(() => null));
@@ -80,7 +75,7 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 };
 
 export const DELETE: RequestHandler = async ({ locals, params }) => {
-  const admin = gate(locals as ServiceAccountLocals);
+  const admin = requireAdminSession(locals as ServiceAccountLocals);
   if (admin instanceof Response) return admin;
 
   // Read BEFORE the delete: the audit row must name what was removed, and

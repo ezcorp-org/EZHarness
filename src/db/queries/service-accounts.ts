@@ -233,6 +233,59 @@ export function toServiceAccountView(row: ServiceAccountRow): ServiceAccountView
   };
 }
 
+/**
+ * The NARROW wire shape — what a caller who is not an admin may see.
+ *
+ * `GET /api/service-accounts` was admin-only, which made Ruling 1 ("both
+ * owner kinds, selectable per delegation") true only for admins: an ordinary
+ * user consenting to a delegation could not populate the owner picker, so the
+ * one choice the ruling guarantees was unreachable for everybody it was
+ * written for.
+ *
+ * Two fields, and the list is deliberately not "the view minus a column":
+ *
+ *  - `id`, because it is what the consent route wants as
+ *    `ownerServiceAccountId` and there is no other handle for it;
+ *  - `name`, because a picker of opaque uuids is not a choice.
+ *
+ * Everything else on the row is WITHHELD, and each for its own reason rather
+ * than as a blanket "less is safer". `scopes` is the account's authority
+ * ceiling and reading it tells a non-admin exactly what a compromise of the
+ * account would be worth. `createdByUserId` names which admin to
+ * social-engineer. `maxTokensPerDay` and `disabledReason` are operational
+ * state that belongs to whoever runs the instance. `projectId` says which
+ * projects exist. `enabled` is absent for a different reason — see
+ * {@link toServiceAccountChoice}.
+ *
+ * A SEPARATE type rather than `Partial<ServiceAccountView>` or a `Pick`: the
+ * day a column is added to the row, a `Pick` keeps compiling and an `Omit`
+ * ships the new column to every logged-in user in the same commit. This is
+ * the same argument the explicit copies in {@link toServiceAccountView} make,
+ * one step further out — here the wrong default is a privacy leak rather than
+ * a secret one, so it is stated as its own shape and pinned by a test that
+ * asserts the exact KEY SET rather than a spot check.
+ */
+export interface ServiceAccountChoice {
+  id: string;
+  name: string;
+}
+
+/**
+ * A row as a non-admin consenter sees it.
+ *
+ * `enabled` is NOT carried, and that is only honest because the list this
+ * feeds is FILTERED to live accounts (the route). A disabled account cannot
+ * be consented to at all — {@link findLiveServiceAccount} is what the consent
+ * route resolves the owner through, and it filters on `enabled` — so an
+ * unselectable entry in a picker is a dead option, not information. Carrying
+ * the flag instead would publish "this account exists but an admin switched
+ * it off", which is operational state, and would still need the row filtered
+ * out of the choice.
+ */
+export function toServiceAccountChoice(row: ServiceAccountRow): ServiceAccountChoice {
+  return { id: row.id, name: row.name };
+}
+
 /** Audit actions for the admin surface. Free-form strings rather than entries
  *  in `EXT_AUDIT_ACTIONS` (`src/extensions/audit-actions.ts`) on purpose: that
  *  namespace is `ext:*` and is filtered by the per-extension audit view
@@ -242,6 +295,11 @@ export const SERVICE_ACCOUNT_AUDIT_ACTIONS = {
   ENABLED: "service-account:enabled",
   DISABLED: "service-account:disabled",
   DELETED: "service-account:deleted",
+  /** The D10 remedy. Its own action, not folded into a generic
+   *  `service-account:updated`: this is the row that answers "who widened the
+   *  budget an unattended job spends, and when", and an audit reader must not
+   *  have to diff two metadata bags to find it. */
+  DAILY_CAP_CHANGED: "service-account:daily-cap-changed",
 } as const;
 
 // ── scope clamping ─────────────────────────────────────────────────────────
@@ -448,6 +506,53 @@ export async function setServiceAccountEnabled(
       disabledReason: enabled ? null : (disabledReason ?? null),
       updatedAt: new Date(),
     })
+    .where(eq(serviceAccounts.id, id))
+    .returning();
+  return rows[0];
+}
+
+/**
+ * Write the account's DAILY token budget — the remedy rung D10 names.
+ *
+ * D10 (`src/extensions/workflows-handler.ts:1609-1619`) refuses a fire once
+ * the owning account's runs have spent `max_tokens_per_day`, and its own
+ * docblock says the three token bounds have three different remedies: "wait
+ * for tomorrow / raise the delegation's cap / raise the ACCOUNT's cap, which
+ * is an admin action on a different object". That third remedy had no writer.
+ * `POST` set the value once at mint time and nothing could ever move it, so
+ * the deny message named an action nobody could take — the same
+ * named-a-remedy-that-does-not-exist shape phase 8a fixed one level down for
+ * `max_tokens_per_run`.
+ *
+ * ## `enabled` is NOT touched, and not for symmetry
+ *
+ * The identical rule {@link setDelegationTokenCeiling} states one level down.
+ * A disabled account was switched off by an admin WITH A REASON
+ * (`disabled_reason`), and no size of budget answers that reason. Clearing it
+ * here would re-arm a principal through a route whose subject is a number.
+ * Re-enabling is {@link setServiceAccountEnabled}'s job and is a deliberate,
+ * separately-audited act.
+ *
+ * ## …but a DISABLED account's cap is still writable, deliberately
+ *
+ * Unlike the delegation ceiling, which refuses a disabled row outright. The
+ * asymmetry is real: a delegation's cap raise exists to release a PARKED RUN,
+ * and a disabled delegation has no run to release, so writing it would be a
+ * lie. An account's daily cap is plain configuration — an admin fixing the
+ * budget before switching the account back on is the ordinary sequence, and
+ * forcing enable-then-raise would mean briefly re-arming an account at the
+ * budget that is about to be wrong.
+ *
+ * Returns the updated row, or `undefined` when no such account exists — the
+ * route needs that to answer 404 rather than a silent 200.
+ */
+export async function setServiceAccountDailyTokenCap(
+  id: string,
+  maxTokensPerDay: number,
+): Promise<ServiceAccountRow | undefined> {
+  const rows = await getDb()
+    .update(serviceAccounts)
+    .set({ maxTokensPerDay, updatedAt: new Date() })
     .where(eq(serviceAccounts.id, id))
     .returning();
   return rows[0];
