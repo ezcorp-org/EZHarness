@@ -952,6 +952,169 @@ describe("ez-factory templates — write_file publishes a document, not an envel
   });
 });
 
+// ── What a PARENT hands a CHILD across the nested-workflow boundary ──
+//
+// A `kind: "workflow"` step's `input` is the callee's `$input`, and the
+// callee publishes an `inputSchema` saying what each key is. A key the
+// child declares `type: text` is a SINGLE VALUE — for `draft-and-verify`,
+// "the material to revise … on a standalone run this is the whole starting
+// draft".
+//
+// An agent step cannot supply one. All three seeded agents are
+// `outputFormat: "json"` (`src/extensions/ez-factory-agents.ts`), so
+// `configToAgent` puts `JSON.parse` between the model and the step and
+// `$steps.<agentStep>.output` is an OBJECT — for the writer, the
+// `{draft, gaps}` envelope its contract declares.
+//
+// Nothing refuses the mismatch. The child forwards `$input.draft` into an
+// agent step, and `configToAgent` renders a non-string input value with
+// `JSON.stringify` — so the run does not fail, it just hands the model the
+// document with every newline collapsed to a literal `\n`, wrapped in an
+// object, under a key the model must also EMIT. `docs-factory` shipped
+// exactly that at `review-loop.draft` and it was observed live: run
+// `1afb0d0a`'s child had `revise.resolvedInput.draft =
+// {"gaps": [], "draft": "# Widget Service…"}`.
+//
+// The ref was CORRECT when written — an agent step's output was the raw LLM
+// text then — and was falsified by seeding the agents `outputFormat: "json"`,
+// an edit in a different file. This block is the tie that was missing, and
+// it is deliberately scoped to the CHILD-CONTRACT boundary rather than to
+// "never pass a whole object": `facts: $steps.extract.output` (step 3) is a
+// plain agent step, not a child boundary, and stays whole on purpose.
+describe("ez-factory templates — a nested workflow's text inputs get values, not envelopes", () => {
+  /** The callee of a `kind: "workflow"` step. The step names it namespaced
+   *  (`ez-factory:draft-and-verify`); the assets are indexed bare. */
+  function calleeOf(
+    lookup: ReadonlyMap<string, WorkflowDefinition>,
+    step: WorkflowStep,
+  ): WorkflowDefinition | undefined {
+    return lookup.get((step.workflow ?? "").split(":").pop() ?? "");
+  }
+
+  /** `$steps.<step>.output` with NO trailing field path → the step name.
+   *  `undefined` for a ref that addresses a sub-path, or is not a `$steps`
+   *  ref at all (`$input`, `$loop`, `$result`, a literal). */
+  function wholeOutputStepName(ref: unknown): string | undefined {
+    if (typeof ref !== "string") return undefined;
+    const parts = ref.split(".");
+    if (parts.length !== 3) return undefined;
+    if (parts[0] !== "$steps" || parts[2] !== "output") return undefined;
+    return parts[1];
+  }
+
+  /**
+   * Every nested-workflow input key that (a) the CALLEE declares
+   * `type: text` and (b) is fed the whole output of an `agent` step,
+   * reported as `"<def>.<step>.<key> -> <def>.<producer>"`.
+   *
+   * A verdict rather than an assertion, so the same predicate can be aimed
+   * at a deliberately-broken copy below and shown to answer differently.
+   */
+  const textChildInputsTakingAWholeAgentOutput = (defs: WorkflowDefinition[]): string[] => {
+    const lookup = new Map(defs.map((d) => [d.name, d]));
+    const offenders: string[] = [];
+    for (const def of defs) {
+      for (const step of def.steps) {
+        if (stepKindOf(step) !== "workflow") continue;
+        const callee = calleeOf(lookup, step);
+        if (callee === undefined) continue;
+        for (const [key, ref] of Object.entries(step.input ?? {})) {
+          if (callee.inputSchema?.[key]?.type !== "text") continue;
+          const producerName = wholeOutputStepName(ref);
+          if (producerName === undefined) continue;
+          const producer = def.steps.find((s) => s.name === producerName);
+          if (producer === undefined || stepKindOf(producer) !== "agent") continue;
+          offenders.push(`${def.name}.${step.name}.${key} -> ${def.name}.${producer.name}`);
+        }
+      }
+    }
+    return offenders;
+  };
+
+  test("no shipped template hands a child's text input a whole agent output", () => {
+    expect(textChildInputsTakingAWholeAgentOutput(templates)).toEqual([]);
+  });
+
+  test("the check discriminates — the pre-fix ref is reported by name", () => {
+    // Exactly what `docs-factory` shipped: the review loop handing the
+    // child the writer's whole `{draft, gaps}` as `draft`.
+    const mutant = mutantOf("docs-factory");
+    const loop = stepNamed(mutant, "review-loop");
+    loop.input = { ...loop.input, draft: "$steps.draft.output" };
+    const defs = templates.map((d) => (d.name === "docs-factory" ? mutant : d));
+    expect(textChildInputsTakingAWholeAgentOutput(defs)).toEqual([
+      "docs-factory.review-loop.draft -> docs-factory.draft",
+    ]);
+  });
+
+  test("`sources` is NOT reported, and would be if it came from an agent", () => {
+    // The rule is about agent ENVELOPES at a child boundary, not about
+    // objects. `sources` is `type: text` on the child and is deliberately
+    // fed structured file records — but from a TOOL step, with a field
+    // path, so it does not trip. Re-point it at a whole agent output and
+    // the same predicate has to say so; that is what proves the clean
+    // verdict above is not just "nothing ever matches".
+    const docs = byBareName.get("docs-factory")!;
+    const child = byBareName.get("draft-and-verify")!;
+    expect(child.inputSchema?.sources?.type).toBe("text");
+    expect(stepNamed(docs, "review-loop").input?.sources).toBe("$steps.read.output.files");
+    expect(stepKindOf(stepNamed(docs, "read"))).toBe("tool");
+
+    const mutant = mutantOf("docs-factory");
+    const loop = stepNamed(mutant, "review-loop");
+    loop.input = { ...loop.input, sources: "$steps.extract.output" };
+    const defs = templates.map((d) => (d.name === "docs-factory" ? mutant : d));
+    expect(textChildInputsTakingAWholeAgentOutput(defs)).toEqual([
+      "docs-factory.review-loop.sources -> docs-factory.extract",
+    ]);
+  });
+
+  test("the CALLEE's schema is really consulted — it is not matching on key names", () => {
+    // Drop `draft` from the child's inputSchema and the same broken ref
+    // stops being reported. Without this, a predicate that ignored the
+    // callee entirely would pass every case above identically.
+    const mutantParent = mutantOf("docs-factory");
+    const loop = stepNamed(mutantParent, "review-loop");
+    loop.input = { ...loop.input, draft: "$steps.draft.output" };
+    const mutantChild = mutantOf("draft-and-verify");
+    delete mutantChild.inputSchema?.draft;
+    const defs = templates.map((d) =>
+      d.name === "docs-factory" ? mutantParent : d.name === "draft-and-verify" ? mutantChild : d,
+    );
+    expect(textChildInputsTakingAWholeAgentOutput(defs)).toEqual([]);
+  });
+
+  test("docs-factory's `draft` addresses a field the WRITER's own contract declares", () => {
+    // The positive pin, and the cross-file tie that was missing when
+    // `outputFormat: "json"` was introduced: the ref names `.draft`, the
+    // producing step is the seeded writer, and that agent's stored prompt
+    // declares `draft` as a key of the object it must return. Rename the
+    // contract key in `ez-factory-agents.ts` and this fails here.
+    const docs = byBareName.get("docs-factory")!;
+    const loop = stepNamed(docs, "review-loop");
+    expect(loop.input?.draft).toBe("$steps.draft.output.draft");
+
+    const producer = stepNamed(docs, "draft");
+    expect(stepKindOf(producer)).toBe("agent");
+    const writer = EZ_FACTORY_AGENTS.find((a) => a.name === producer.agent);
+    expect(writer).toBeDefined();
+    expect(writer!.prompt).toContain('- "draft":');
+  });
+
+  test("the child forwards that input straight to an agent — which is why the shape matters", () => {
+    // `draft-and-verify.revise` is the seeded WRITER, and its `draft` input
+    // is `$input.draft` verbatim. So whatever the parent puts on that key
+    // is what a model reads as "the material to revise". If this ever stops
+    // being true the invariant above is arguing about nothing.
+    const child = byBareName.get("draft-and-verify")!;
+    const revise = stepNamed(child, "revise");
+    expect(stepKindOf(revise)).toBe("agent");
+    expect(revise.input?.draft).toBe("$input.draft");
+    expect(seededAgentNames).toContain(revise.agent);
+    expect(child.inputSchema?.draft?.type).toBe("text");
+  });
+});
+
 describe("ez-factory templates — dry run (the graph actually executes)", () => {
   /**
    * The strongest check in this file, and the only one that RUNS anything.
