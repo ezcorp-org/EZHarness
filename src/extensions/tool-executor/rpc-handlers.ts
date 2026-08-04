@@ -614,19 +614,30 @@ export async function handlePiWorkflows(
  * caller that asked for it by name, and the two policies can never be
  * confused for one another at a call site.
  *
- * ── This grants no new capability today ────────────────────────────────
+ * ── What this route carries — UPDATED BY C3, read this before trusting
+ *    any older description of it ──────────────────────────────────────
  *
- * An OWNERLESS call still fails: rung 7 of the ladder refuses it with the
- * same `-32106`, and additionally writes the `audit_log` row that a rung-0
- * refusal never produced. There is no delegation model in the tree — no
- * `workflow_delegations` table, no consent record, no principal to run as
- * — so nothing here can execute a workflow on a missing owner's behalf.
+ * When this seam landed (phase 0b) it granted nothing: there was no
+ * delegation model in the tree, so an ownerless call reached rung 7 and
+ * was refused with the same `-32106` plus the `audit_log` row a rung-0
+ * refusal never produced. **That is no longer the whole story.** C3
+ * landed `workflow_delegations` (`src/db/schema.ts`), the consent record
+ * (`src/runtime/workflow-delegation-record.ts`) and `op: "runFor"`, and
+ * `runFor` IS admitted here and NOWHERE ELSE — it is an unknown op on
+ * `ezcorp/workflows`. So this route now reaches a verb that executes a
+ * workflow as a principal the CALLER is not, on the strength of a
+ * consent row a human wrote. See `runForDelegation` in
+ * `../workflows-handler.ts` for the D1–D9 ladder that bounds it, and
+ * `EZCORP_DISABLE_DELEGATED_WORKFLOWS` for the kill switch that takes it
+ * out without taking the other three ops with it.
  *
- * An OWNED call resolves exactly as `ezcorp/workflows` would and is bound
- * by the identical ladder (grant → manifest allowlist → grant allowlist →
- * PDP → wiring → rate limit → quota), so it reaches nothing the caller
- * could not already reach through `ezcorp/workflows`. This is a seam, not
- * a privilege.
+ * What survives unchanged: an ownerless call on any OTHER op is still
+ * refused at rung 7, and an OWNED call on any other op resolves exactly
+ * as `ezcorp/workflows` would and is bound by the identical ladder
+ * (grant → manifest allowlist → grant allowlist → PDP → wiring → rate
+ * limit → quota), reaching nothing the caller could not already reach.
+ * For everything except `runFor`, this is still a seam and not a
+ * privilege.
  */
 export async function handlePiWorkflowsDelegated(
   deps: RpcHandlerDeps,
