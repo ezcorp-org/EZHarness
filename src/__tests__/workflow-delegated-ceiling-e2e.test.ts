@@ -109,7 +109,9 @@ const { computeDelegationConsentRecord } = await import(
   "../runtime/workflow-delegation-record"
 );
 const { delegationPrincipal } = await import("../runtime/workflow-delegation-consent");
-const { sumWorkflowRunTokens } = await import("../db/queries/workflow-runs");
+const { sumWorkflowRunTokens, sumServiceAccountTokensSince } = await import(
+  "../db/queries/workflow-runs"
+);
 const { getWorkflowRuntime } = await import("../runtime/workflow/runtime-registry");
 // The REAL route handler, not a call to the query function it wraps: the
 // thing under test is that a human with a session can unblock a parked
@@ -137,15 +139,39 @@ const CHAIN: WorkflowDefinition = {
   ],
 };
 
-const ENTRY = {
-  definition: CHAIN,
-  source: "db",
-  id: "def-nightly",
-  projectId: null,
-  userId: OWNER,
-  visibility: "system",
-  forkedFrom: null,
-} as unknown as CachedWorkflow;
+/**
+ * ONE agent step that loops three times — the double-count fixture.
+ *
+ * `runLoop` folds each iteration's tokens onto the single parent
+ * `workflow_step_runs` row AND writes a `workflow_step_iterations` child
+ * carrying the same numbers, which is exactly the shape a daily
+ * aggregate could charge twice.
+ *
+ * `system` visibility so a SERVICE account can run it: the whole point of
+ * this fixture is the account-scoped daily sum, and a service principal
+ * reaches `system` and nothing else.
+ */
+const LOOPED: WorkflowDefinition = {
+  name: "looped-report",
+  description: "",
+  steps: [{ name: "s1", agent: "stub", loop: { maxIterations: 3, onExhausted: "pass" } }],
+};
+
+function entryFor(definition: WorkflowDefinition): CachedWorkflow {
+  return {
+    definition,
+    source: "db",
+    id: `def-${definition.name}`,
+    projectId: null,
+    userId: OWNER,
+    visibility: "system",
+    forkedFrom: null,
+  } as unknown as CachedWorkflow;
+}
+
+const ENTRY = entryFor(CHAIN);
+const LOOPED_ENTRY = entryFor(LOOPED);
+const ENTRIES = [ENTRY, LOOPED_ENTRY];
 
 /** Agent invocations, so a resume that wrongly re-enters a completed
  *  batch is visible as an extra call rather than only as a cursor. */
@@ -186,8 +212,8 @@ function registerRuntime(tokensPerStep: number): void {
   const wf = scriptedExecutor(tokensPerStep);
   registerWorkflowRuntime({
     workflowExecutor: wf,
-    getWorkflows: () => [CHAIN],
-    getCachedWorkflows: () => [ENTRY],
+    getWorkflows: () => ENTRIES.map((e) => e.definition),
+    getCachedWorkflows: () => ENTRIES,
     listAgents: () => [],
   });
 }
@@ -229,26 +255,45 @@ function handlerCtx() {
 /** Write a live delegation whose `consent_hash` is what THIS build
  *  recomputes, so the ladder's D6 rung passes on its own terms rather
  *  than on a fixture's guess. */
-async function makeDelegation(jobRef: string, maxTokensPerRun: number): Promise<string> {
+async function makeDelegation(
+  jobRef: string,
+  maxTokensPerRun: number,
+  opts: {
+    definition?: WorkflowDefinition;
+    ownerKind?: "user" | "service";
+    /** The service-account id, for the `service` arm. */
+    ownerId?: string;
+  } = {},
+): Promise<string> {
+  const definition = opts.definition ?? CHAIN;
+  const ownerKind = opts.ownerKind ?? "user";
+  const ownerId = opts.ownerId ?? OWNER;
   const record = await computeDelegationConsentRecord({
-    entry: ENTRY,
+    entry: entryFor(definition),
     extensionName: EXT_NAME,
-    workflowName: CHAIN.name,
+    workflowName: definition.name,
     projectId: null,
-    runAs: { kind: "user", id: OWNER },
+    runAs: { kind: ownerKind, id: ownerId },
     trigger: { kind: "cron", spec: { expr: "0 3 * * *" } },
-    principal: delegationPrincipal("user", OWNER),
-    entries: [ENTRY],
+    principal: delegationPrincipal(ownerKind, ownerId),
+    entries: ENTRIES,
     agents: [],
   });
   const id = `d-${crypto.randomUUID().slice(0, 8)}`;
+  // The keyed owner columns, written explicitly on the arm the kind
+  // names and NULL on the other — the same rule `ownerColumnValues`
+  // enforces in the query layer.
   await db.execute(sql`
     INSERT INTO workflow_delegations (
-      id, extension_id, job_ref, owner_kind, owner_user_id, workflow_name,
+      id, extension_id, job_ref, owner_kind, owner_user_id,
+      owner_service_account_id, workflow_name,
       trigger_kind, trigger_spec, consent_hash, max_tokens_per_run,
       max_runs_per_day, consented_by_user_id
     ) VALUES (
-      ${id}, ${EXT_ID}, ${jobRef}, 'user', ${OWNER}, ${CHAIN.name},
+      ${id}, ${EXT_ID}, ${jobRef}, ${ownerKind},
+      ${ownerKind === "user" ? ownerId : null},
+      ${ownerKind === "service" ? ownerId : null},
+      ${definition.name},
       'cron', ${JSON.stringify({ expr: "0 3 * * *" })}::jsonb,
       ${record.consentHash}, ${maxTokensPerRun}, 100, ${OWNER}
     )
@@ -606,6 +651,67 @@ describe("the token ceiling, reached through the runFor handler", () => {
     expect(await resumeReasonRefusal("budget-exceeded", { workflowRunId: parked.id })).toContain(
       "max_tokens_per_run",
     );
+  });
+
+  test("a LOOPED step is counted ONCE — the daily sum must not double-count", async () => {
+    // ── The double-count hazard, on a real looped run ────────────────
+    //
+    // `runLoop` accumulates each iteration's usage ONTO the parent
+    // `workflow_step_runs` row with `+=`, AND writes a per-iteration
+    // child row carrying the same numbers. The two tables are a rollup
+    // and its detail, not two disjoint sets — so a daily aggregate that
+    // summed both would charge every looped agent step twice, and a
+    // service account would hit its cap at half the spend it actually
+    // made.
+    //
+    // Proved by executing a real loop and reading both tables, not by
+    // reading the executor: the assertion below is that the two are
+    // EQUAL and that the iteration rows are non-empty, so the test would
+    // fail either if the sum double-counted or if the loop had silently
+    // stopped writing children (which would make the equality vacuous).
+    registerRuntime(100);
+    invocations = 0;
+    const accountId = crypto.randomUUID();
+    await db.execute(sql`
+      INSERT INTO service_accounts (id, name, created_by_user_id, max_tokens_per_day)
+      VALUES (${accountId}, ${`loop-acct-${accountId}`}, ${OWNER}, 1000000)
+    `);
+    const delegationId = await makeDelegation("job-loop", 1_000_000, {
+      definition: LOOPED,
+      ownerKind: "service",
+      ownerId: accountId,
+    });
+
+    const resp = await handleWorkflowsRpc(frame("job-loop"), handlerCtx());
+    expect(resp.error).toBeUndefined();
+    await settle();
+
+    const rows = await runsFor(delegationId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.status).toBe("success");
+    // Three iterations of one agent step, 100 tokens each.
+    expect(invocations).toBe(3);
+
+    const parentTotal = await sumWorkflowRunTokens(rows[0]!.id);
+    expect(parentTotal).toBe(300);
+
+    // The detail rows exist and carry the SAME tokens — so summing both
+    // tables would return 600, not 300.
+    const iterations = (
+      (await db.execute(sql`
+        SELECT COALESCE(SUM(COALESCE(i.input_tokens,0) + COALESCE(i.output_tokens,0)), 0) AS total,
+               COUNT(*) AS n
+          FROM workflow_step_iterations i
+          JOIN workflow_step_runs s ON s.id = i.workflow_step_run_id
+         WHERE s.workflow_run_id = ${rows[0]!.id}
+      `)) as unknown as { rows: Array<{ total: string | number; n: string | number }> }
+    ).rows[0]!;
+    expect(Number(iterations.n)).toBe(3);
+    expect(Number(iterations.total)).toBe(300);
+
+    // THE assertion: the daily aggregate charges the account 300, not
+    // 600. It reads `workflow_step_runs` alone, deliberately.
+    expect(await sumServiceAccountTokensSince(accountId, new Date(0))).toBe(300);
   });
 
   test("a REVOKED delegation keeps the parked run parked — the cap fails closed", async () => {
