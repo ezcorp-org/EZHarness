@@ -296,7 +296,7 @@ describe("what a read/run grant is actually worth today", () => {
       // The denial names the tier it was refused on, because
       // `denialStatus` needs it to hide a `private` row's existence on
       // the write verbs too. See `workflow-scope.test.ts`.
-      const denied = { ok: false, reason: "not-owner", visibility: "private" };
+      const denied = { ok: false, reason: "not-owner", visibility: "private" } as const;
       expect(authorizeWorkflow(e, STRANGER, "run")).toEqual(denied);
       expect(authorizeWorkflow(e, STRANGER, "read")).toEqual(denied);
     }
