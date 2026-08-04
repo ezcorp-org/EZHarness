@@ -1110,7 +1110,8 @@ describe("ez-factory templates — a nested workflow's text inputs get values, n
     const revise = stepNamed(child, "revise");
     expect(stepKindOf(revise)).toBe("agent");
     expect(revise.input?.draft).toBe("$input.draft");
-    expect(seededAgentNames).toContain(revise.agent);
+    expect(revise.agent).toBeDefined();
+    expect(seededAgentNames).toContain(revise.agent ?? "");
     expect(child.inputSchema?.draft?.type).toBe("text");
   });
 });
