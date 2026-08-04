@@ -573,11 +573,12 @@ export type NewWorkflowDefinitionVersionRow = typeof workflowDefinitionVersions.
 // REACH WARNING, and it is a property of the read/run ladder, not of this
 // table: a service account carries `userId: null`, so it satisfies only
 // `visibility: 'system'` ("anyone"). `project` requires a non-null
-// caller.userId and `private` requires ownership — see
-// `runtime/workflow-scope.ts` (`readRunAudience` / `authorizeWorkflow`).
-// A forked workflow is stamped `project`, so a service account cannot run
-// one. The consent route refuses that combination up front rather than
-// letting it fail at fire time.
+// caller.userId — and, once the row names a project, MEMBERSHIP in it,
+// which is keyed by user id and so is doubly out of reach; `private`
+// requires ownership. See `runtime/workflow-scope.ts` (`readRunAudience` /
+// `authorizeWorkflow`). A forked workflow is stamped `project`, so a
+// service account cannot run one. The consent route refuses that
+// combination up front rather than letting it fail at fire time.
 export const serviceAccounts = pgTable("service_accounts", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   // Globally unique — this is the human-facing handle an admin picks the
