@@ -474,6 +474,32 @@ export function resolveModelObject(provider: string, modelId: string, baseUrl?: 
     api: "openai-completions" as any,
     provider: provider as any,
     baseUrl: resolvedUrl,
+    // A user-supplied baseUrl is a BYOK/local OpenAI-compatible server, and
+    // pi-ai's `detectCompat` (api/openai-completions) sends the output cap as
+    // `max_completion_tokens` for every baseUrl outside its short
+    // known-gateway list. Ollama, llama.cpp, vLLM and LM Studio all IGNORE
+    // that field and honour only `max_tokens`, so the declared cap was
+    // silently unenforced against every custom model. Measured against a live
+    // Ollama (qwen3:1.7b, identical request otherwise):
+    //     max_tokens: 40            -> completion_tokens 40,   finish "length"
+    //     max_completion_tokens: 40 -> completion_tokens 3694, finish "stop"
+    // i.e. a 92x overrun of a limit the caller asked for — and ez-factory's
+    // workflow templates treat that limit as a resume PREREQUISITE
+    // (extensions/ez-factory/docs-factory.workflow.yaml).
+    //
+    // `compat` is pi-ai's own documented override for exactly this ("If not
+    // set, auto-detected from baseUrl"), so this is a local override and NOT
+    // an upstream change: detectCompat cannot know whether an arbitrary URL
+    // is a local runtime or an OpenAI endpoint — the operator who typed it
+    // does.
+    //
+    // Applied ONLY when a baseUrl was actually supplied. Falling through to
+    // the `https://api.openai.com/v1` default above must keep pi-ai's
+    // detection: OpenAI's own newer models REJECT `max_tokens` and require
+    // `max_completion_tokens`, so forcing it there would break the fallback.
+    ...(baseUrl !== undefined
+      ? { compat: { maxTokensField: "max_tokens" as const } }
+      : {}),
     reasoning: false,
     input: ["text"] as ("text" | "image")[],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
