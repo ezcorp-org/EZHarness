@@ -1,7 +1,6 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "./$types";
-import { requireAuth } from "$server/auth/middleware";
-import { requireAdmin } from "$lib/server/security/api-keys";
+import { requireAdmin, requireScope } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
 import { fetchProviderModels } from "$server/providers/model-discovery";
 import { getCredential, type ProviderCredential } from "$server/providers/credentials";
@@ -17,9 +16,17 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 	// discovered-models setting — admin-only on BOTH axes. requireScope("admin")
 	// alone is a no-op for cookie sessions; requireAdmin gates on role so a
 	// non-admin member gets 403. Mirrors providers/[provider]/test (FINDING A).
-	requireAuth(locals);
+	//
+	// F6: the scope half of "BOTH axes" was missing — an admin-role key minted
+	// `--scopes read` could overwrite `provider:discoveredModels:*` (the model
+	// list every routing decision reads) while spending the instance BYOK
+	// credential. `requireAuth` is gone: it THREW its 401 (rendered as a 500 by
+	// SvelteKit) and `requireAdmin` already refuses a caller with no
+	// `locals.user`, returning its denial.
 	const adminErr = requireAdmin(locals);
 	if (adminErr) return adminErr;
+	const scopeErr = requireScope(locals, "admin");
+	if (scopeErr) return scopeErr;
 
 	const { provider } = params;
 	if (!provider || !VALID_PROVIDERS.has(provider)) {

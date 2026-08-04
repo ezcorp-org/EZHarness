@@ -45,13 +45,40 @@ const h = vi.hoisted(() => ({
   mcpClose: vi.fn(async () => undefined),
   listModels: vi.fn(async () => ({ models: [] })),
   checkLocalModel: vi.fn(async () => ({ ok: true })),
+  // ── F6 second wave: the five handlers that still gated on ROLE alone ──
+  getAllSettings: vi.fn(async () => ({ "provider:defaultSelection": "auto" }) as Record<string, unknown>),
+  listInvites: vi.fn(async () => [] as unknown[]),
+  createInvite: vi.fn(async () => ({
+    id: "inv-1",
+    token: "tok-1",
+    email: "x@y.z",
+    role: "admin",
+    expiresAt: new Date(0),
+  })),
+  getCredential: vi.fn(async () => ({ token: "sk-instance-byok" })),
+  findModelForProviderInTier: vi.fn(() => ({ id: "m-fast" })),
+  resolveModelObject: vi.fn(() => ({ id: "m-fast" })),
+  complete: vi.fn(async () => ({ content: "ok" })),
+  fetchProviderModels: vi.fn(async () => [{ id: "m-1" }]),
 }));
 
 vi.mock("$server/db/queries/settings", () => ({
   getSetting: h.getSetting,
   upsertSetting: h.upsertSetting,
   deleteSetting: h.deleteSetting,
+  getAllSettings: h.getAllSettings,
 }));
+vi.mock("$server/db/queries/invites", () => ({
+  listInvites: h.listInvites,
+  createInvite: h.createInvite,
+}));
+vi.mock("$server/providers/credentials", () => ({ getCredential: h.getCredential }));
+vi.mock("$server/providers/registry", () => ({
+  findModelForProviderInTier: h.findModelForProviderInTier,
+  resolveModelObject: h.resolveModelObject,
+}));
+vi.mock("@earendil-works/pi-ai/compat", () => ({ complete: h.complete }));
+vi.mock("$server/providers/model-discovery", () => ({ fetchProviderModels: h.fetchProviderModels }));
 vi.mock("$server/db/queries/audit-log", () => ({ insertAuditEntry: h.insertAuditEntry }));
 vi.mock("$server/providers/encryption", () => ({ encrypt: h.encrypt, decrypt: h.decrypt }));
 vi.mock("$server/db/queries/extensions", () => ({
@@ -97,6 +124,10 @@ const mcpRefresh = await import("../routes/api/mcp-servers/[id]/refresh/+server.
 const localModels = await import("../routes/api/providers/local/models/+server.ts");
 const localTest = await import("../routes/api/providers/local/test/+server.ts");
 const modifiable = await import("../routes/api/extensions/[id]/modifiable/+server.ts");
+const settingsRoot = await import("../routes/api/settings/+server.ts");
+const invite = await import("../routes/api/auth/invite/+server.ts");
+const providerTest = await import("../routes/api/providers/[provider]/test/+server.ts");
+const providerRefresh = await import("../routes/api/providers/[provider]/refresh-models/+server.ts");
 
 // ── Principals ───────────────────────────────────────────────────────
 const ADMIN = { id: "admin-1", email: "a@x", name: "a", role: "admin" };
@@ -231,6 +262,49 @@ const ROUTES: Record<string, Probe> = {
     },
     breached: () => h.setExtensionModifiable.mock.calls.length > 0,
   },
+
+  // ── F6 second wave ───────────────────────────────────────────────────
+  // Five handlers the first sweep left on the ROLE axis alone. Each one is
+  // reachable by an admin-role key minted `--scopes read`, and each one either
+  // spends an instance secret or hands out a privilege.
+  "GET /api/settings": {
+    call: (l) => invoke(settingsRoot.GET, evt("/api/settings", "GET"), l),
+    arm: () => {},
+    breached: () => h.getAllSettings.mock.calls.length > 0,
+  },
+  "GET /api/auth/invite": {
+    call: (l) => invoke(invite.GET, evt("/api/auth/invite", "GET"), l),
+    arm: () => {},
+    breached: () => h.listInvites.mock.calls.length > 0,
+  },
+  "POST /api/auth/invite": {
+    // The escalation this closes: `role` is part of the body, so an ungated
+    // call mints an ADMIN invite — account creation with a privilege grant.
+    call: (l) =>
+      invoke(invite.POST, evt("/api/auth/invite", "POST", { email: "pwn@example.com", role: "admin" }), l),
+    arm: () => {},
+    breached: () => h.createInvite.mock.calls.length > 0,
+  },
+  "POST /api/providers/:provider/test": {
+    call: (l) =>
+      invoke(providerTest.POST, evt("/api/providers/openai/test", "POST", undefined, { provider: "openai" }), l),
+    arm: () => {},
+    // Reaching `getCredential` IS the breach: it decrypts the instance BYOK
+    // key, and the handler then spends it on a live completion.
+    breached: () => h.getCredential.mock.calls.length > 0,
+  },
+  "POST /api/providers/:provider/refresh-models": {
+    call: (l) =>
+      invoke(
+        providerRefresh.POST,
+        evt("/api/providers/openai/refresh-models", "POST", undefined, { provider: "openai" }),
+        l,
+      ),
+    arm: () => {},
+    // Overwrites `provider:discoveredModels:openai` — the list every routing
+    // decision reads.
+    breached: () => h.upsertSetting.mock.calls.some(([k]) => k === "provider:discoveredModels:openai"),
+  },
 };
 
 const ROUTE_NAMES = Object.keys(ROUTES);
@@ -244,9 +318,13 @@ beforeEach(() => {
 });
 
 describe("F2 — admin routes enforce the SCOPE axis, not just ROLE", () => {
-  // The suite is only meaningful if it actually covers all 11 handlers.
+  // The suite is only meaningful if it actually covers every handler: the 11
+  // the audit flagged, plus the 5 the F6 second wave found still on the role
+  // axis alone (`GET /api/settings`, both `/api/auth/invite` methods, and the
+  // two per-provider routes whose own comments already CLAIMED "BOTH axes"
+  // while calling only `requireAdmin`).
   test("the table covers every handler the audit flagged", () => {
-    expect(ROUTE_NAMES).toHaveLength(11);
+    expect(ROUTE_NAMES).toHaveLength(16);
   });
 
   test.each(ROUTE_NAMES)(

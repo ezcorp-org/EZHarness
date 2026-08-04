@@ -35,16 +35,19 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "POST", path: "/api/auth/logout", description: "End current session", category: "auth" },
   { method: "GET", path: "/api/auth/me", description: "Get current authenticated user", category: "auth", responseDescription: "User object with id, name, email, role" },
   { method: "POST", path: "/api/auth/setup", description: "Initial admin setup (first-run only)", category: "auth", schemaKey: "setupSchema" },
-  { method: "POST", path: "/api/auth/invite", description: "Create user invitation link", category: "auth", schemaKey: "createInviteSchema" },
-  // Gate: `requireRole(locals,"admin")` only — no `requireScope`, so no scope
-  // is declared. The reachability caveat that used to be recorded here (the
-  // bare path sat in the hooks PUBLIC_PATHS allowlist, so `locals.user` was
-  // never populated and the role gate 401'd every caller) was FIXED by F5:
-  // `/api/auth/invite` moved to PUBLIC_SUBPATHS_ONLY, so only `/:token` is
-  // anonymous and both admin methods are reachable again.
-  { method: "GET", path: "/api/auth/invite", description: "List outstanding user invitations. Gate: requireAdmin(locals) only — no API-key scope gate", category: "auth", responseDescription: "{ invites }" },
+  // F5 moved the BARE `/api/auth/invite` path out of the hooks PUBLIC_PATHS
+  // allowlist into PUBLIC_SUBPATHS_ONLY (web/src/hooks.server.ts:383), so both
+  // methods are now genuinely reachable by an authenticated admin — before
+  // that, `locals.user` was never populated on a public path and the role gate
+  // denied every caller (a broken feature, failing closed).
+  // F6 then closed the KEY axis: both gate on `checkRole(locals,"admin")`,
+  // which demands the admin ROLE *and* — for a key principal — the `admin`
+  // SCOPE. Minting an invite carries a `role`, so a nominally read-only
+  // admin-role key could otherwise hand out an ADMIN invite.
+  { method: "POST", path: "/api/auth/invite", description: "Create user invitation link (admin role + admin scope)", category: "auth", scope: "admin", schemaKey: "createInviteSchema" },
+  { method: "GET", path: "/api/auth/invite", description: "List outstanding user invitations (admin role + admin scope)", category: "auth", scope: "admin", responseDescription: "{ invites }" },
   { method: "POST", path: "/api/auth/invite/:token", description: "Accept invitation and create account", category: "auth" },
-  // Had the SAME defect F5 fixed for invite, and is fixed here the same way:
+  // Had the SAME defect F5 fixed for invite, and is fixed the same way:
   // the bare path moved from PUBLIC_PATHS to PUBLIC_SUBPATHS_ONLY, so
   // `locals.user` is populated and `requireRole(locals,"admin")` can finally
   // pass. Before that this route — and the "Generate reset link" button in
@@ -243,7 +246,7 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "PUT", path: "/api/projects/:id/tool-permission-mode", description: "Set tool permission mode for project", category: "projects" },
 
   // Settings
-  { method: "GET", path: "/api/settings", description: "Get application settings", category: "settings" },
+  { method: "GET", path: "/api/settings", description: "Get every non-deny-listed instance setting. Gate: requireAdmin(locals) for the ROLE plus requireScope(locals,\"admin\") for the KEY axis (F6) — until 2026-08 the scope half was missing, so an admin-role key minted `--scopes read` read the whole settings blob", category: "settings", scope: "admin" },
   { method: "GET", path: "/api/settings/:key", description: "Get single setting by key (requires an admin-role key)", category: "settings", scope: "admin", harness: { controllable: true } },
   { method: "PUT", path: "/api/settings/:key", description: "Update a setting value (requires an admin-role key)", category: "settings", scope: "admin", harness: { controllable: true } },
   { method: "DELETE", path: "/api/settings/:key", description: "Delete a setting value; internally-managed keys (the sensitive deny-list) are refused with 403 (requires an admin-role key)", category: "settings", scope: "admin", responseDescription: "{ ok: true }" },
@@ -262,42 +265,45 @@ export const apiRegistry: ApiRouteEntry[] = [
 
   // Providers & Models
   { method: "GET", path: "/api/providers", description: "List configured AI providers", category: "providers" },
-  { method: "POST", path: "/api/providers/:provider/test", description: "Test provider connection", category: "providers" },
-  { method: "POST", path: "/api/providers/:provider/refresh-models", description: "Fetch latest models from the provider (direct /v1/models, enriched/backed by the models.dev catalog)", category: "providers" },
+  // Both spend the instance's BYOK provider credential, so both gate on the
+  // ROLE (requireAdmin) *and* the KEY axis (requireScope "admin") — the F6
+  // pairing their own comments already claimed but did not perform.
+  { method: "POST", path: "/api/providers/:provider/test", description: "Test provider connection with a live 1-token completion using the instance BYOK credential (admin role + admin scope)", category: "providers", scope: "admin" },
+  { method: "POST", path: "/api/providers/:provider/refresh-models", description: "Fetch latest models from the provider (direct /v1/models, enriched/backed by the models.dev catalog) and overwrite provider:discoveredModels:* (admin role + admin scope)", category: "providers", scope: "admin" },
   { method: "GET", path: "/api/models", description: "List available AI models", category: "providers" },
   { method: "GET", path: "/api/models/default-selection", description: "Default model selection for a user with no saved pick — `provider:defaultSelection`, \"auto\" (route the first turn) or \"first\" (pin models[0]). Read-scoped, not admin-only, so an operator's revert reaches every user", category: "providers", scope: "read", responseDescription: '{ value: "auto" | "first" }' },
 
-  // ── Instance-state writes gated on ROLE ONLY ──────────────────────────
-  // Everything in this block calls `requireAdmin(locals)` and NOTHING else —
-  // no `requireScope`. That is deliberate history (sec-C5 / sec-H1 replaced a
-  // cookie-no-op `requireScope("admin")` with the role gate) but it leaves the
-  // KEY axis ungated: an admin-role key minted `--scopes read` satisfies
-  // these. No `scope` is declared because none is enforced; documenting one
-  // would describe a gate that does not exist. See the registry-reconciliation
-  // findings — changing the gate is a separate, reviewable security change,
-  // not part of a registration pass.
+  // ── Instance-state writes gated on BOTH axes ──────────────────────────
+  // Every entry in this block now pairs `requireAdmin(locals)` (the ROLE) with
+  // `requireScope(locals,"admin")` (the KEY axis), role first so a non-admin
+  // gets the uniform 403 "Admin role required" instead of learning that scope
+  // was also short. Both helpers RETURN their denial — `requireRole` used to
+  // THROW it and SvelteKit renders a thrown Response as a 500, so these routes
+  // once answered "Internal Error" instead of 403.
   //
-  // The gate was `requireRole(locals,"admin")` until the thrown-Response sweep:
-  // `requireRole` THROWS its denial and SvelteKit renders a thrown Response as
-  // a 500, so these routes answered "Internal Error" instead of 403.
-  // `requireAdmin` RETURNS the same denial and gates on the SAME single axis,
-  // so the "no API-key scope gate" contract above is unchanged.
-  { method: "POST", path: "/api/providers", description: "Store (encrypted) the instance's BYOK API key for anthropic|openai|google|openrouter, audited as provider:key_upsert. Gate: requireAdmin(locals) only — no API-key scope gate", category: "providers" },
-  { method: "DELETE", path: "/api/providers", description: "Delete the instance's stored BYOK API key for one provider, audited as provider:key_delete. Gate: requireAdmin(locals) only — no API-key scope gate", category: "providers" },
-  { method: "POST", path: "/api/providers/local/models", description: "List models offered by a caller-supplied local OpenAI-compatible baseUrl. Server-side fetch behind the sec-H1 SSRF guard: http(s) only, private/loopback rejected, and every resolved A/AAAA re-checked (DNS-rebinding pin). Gate: requireAdmin(locals) only — no API-key scope gate", category: "providers" },
-  { method: "POST", path: "/api/providers/local/test", description: "Probe one { baseUrl, modelId } on a local OpenAI-compatible server, behind the same sec-H1 SSRF guard as /local/models. Gate: requireAdmin(locals) only — no API-key scope gate", category: "providers" },
+  // This block's comment used to say "ROLE ONLY … no `requireScope` … no
+  // `scope` is declared because none is enforced". That stopped being true
+  // when F2 landed the scope half (pinned for all eleven handlers by
+  // `web/src/__tests__/api-admin-scope-gate.server.test.ts`, which probes an
+  // admin-role key scoped `["read"]` and asserts 403 + no write). The stale
+  // prose survived because nothing cross-checks a registry DESCRIPTION against
+  // the handler — only `scope` and the method/path are machine-checked.
+  { method: "POST", path: "/api/providers", description: "Store (encrypted) the instance's BYOK API key for anthropic|openai|google|openrouter, audited as provider:key_upsert (admin role + admin scope)", category: "providers", scope: "admin" },
+  { method: "DELETE", path: "/api/providers", description: "Delete the instance's stored BYOK API key for one provider, audited as provider:key_delete (admin role + admin scope)", category: "providers", scope: "admin" },
+  { method: "POST", path: "/api/providers/local/models", description: "List models offered by a caller-supplied local OpenAI-compatible baseUrl. Server-side fetch behind the sec-H1 SSRF guard: http(s) only, private/loopback rejected, and every resolved A/AAAA re-checked (DNS-rebinding pin) (admin role + admin scope)", category: "providers", scope: "admin" },
+  { method: "POST", path: "/api/providers/local/test", description: "Probe one { baseUrl, modelId } on a local OpenAI-compatible server, behind the same sec-H1 SSRF guard as /local/models (admin role + admin scope)", category: "providers", scope: "admin" },
 
-  // MCP server lifecycle. Same role-only shape as the block above; each of
+  // MCP server lifecycle. Same two-axis shape as the block above; each of
   // these opens an outbound connection to an operator-supplied MCP server.
-  { method: "POST", path: "/api/mcp-servers", description: "Install an MCP server as an extension — a throwaway client must connect and return tools/list before anything is persisted (502 on failure, no mutation). Gate: requireAdmin(locals) only — no API-key scope gate", category: "extensions", responseDescription: "the installed extension row (201)" },
-  { method: "PUT", path: "/api/mcp-servers/:id", description: "Edit an installed MCP server's config and re-snapshot its tools; a blank header value keeps the stored secret, and connectivity is verified before any write (502 leaves the config untouched). Gate: requireAdmin(locals) only — no API-key scope gate", category: "extensions" },
-  { method: "POST", path: "/api/mcp-servers/:id/refresh", description: "Re-pull an installed MCP server's tool list into the registry cache (502 when the server is unreachable). Gate: requireAdmin(locals) only — no API-key scope gate", category: "extensions", responseDescription: "{ id, tools }" },
+  { method: "POST", path: "/api/mcp-servers", description: "Install an MCP server as an extension — a throwaway client must connect and return tools/list before anything is persisted (502 on failure, no mutation) (admin role + admin scope)", category: "extensions", scope: "admin", responseDescription: "the installed extension row (201)" },
+  { method: "PUT", path: "/api/mcp-servers/:id", description: "Edit an installed MCP server's config and re-snapshot its tools; a blank header value keeps the stored secret, and connectivity is verified before any write (502 leaves the config untouched) (admin role + admin scope)", category: "extensions", scope: "admin" },
+  { method: "POST", path: "/api/mcp-servers/:id/refresh", description: "Re-pull an installed MCP server's tool list into the registry cache (502 when the server is unreachable) (admin role + admin scope)", category: "extensions", scope: "admin", responseDescription: "{ id, tools }" },
 
   // Search backend config — reuses the encrypted, deny-listed
   // `provider:apiKey:*` store, so keys are never readable back out.
-  { method: "GET", path: "/api/search/backend", description: "Presence-only search-backend status: hasKey per BYOK provider (tavily|brave|exa|serpapi|jina) plus the SearXNG base URL. Keys are never returned. Gate: requireAdmin(locals) only — no API-key scope gate", category: "settings", responseDescription: "{ providers: [{ provider, hasKey }], searxngUrl }" },
-  { method: "POST", path: "/api/search/backend", description: "Upsert either a BYOK search key (encrypted into provider:apiKey:*) or the SearXNG base URL (http(s) validated), audited as search:backend_upsert. Gate: requireAdmin(locals) only — no API-key scope gate", category: "settings" },
-  { method: "DELETE", path: "/api/search/backend", description: "Delete one BYOK search key, audited as search:backend_delete. Gate: requireAdmin(locals) only — no API-key scope gate", category: "settings" },
+  { method: "GET", path: "/api/search/backend", description: "Presence-only search-backend status: hasKey per BYOK provider (tavily|brave|exa|serpapi|jina) plus the SearXNG base URL. Keys are never returned (admin role + admin scope)", category: "settings", scope: "admin", responseDescription: "{ providers: [{ provider, hasKey }], searxngUrl }" },
+  { method: "POST", path: "/api/search/backend", description: "Upsert either a BYOK search key (encrypted into provider:apiKey:*) or the SearXNG base URL (http(s) validated), audited as search:backend_upsert (admin role + admin scope)", category: "settings", scope: "admin" },
+  { method: "DELETE", path: "/api/search/backend", description: "Delete one BYOK search key, audited as search:backend_delete (admin role + admin scope)", category: "settings", scope: "admin" },
 
   // Users & Teams
   { method: "GET", path: "/api/users", description: "List users (admin)", category: "users" },
