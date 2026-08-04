@@ -293,8 +293,12 @@ describe("what a read/run grant is actually worth today", () => {
     // confidential". A stranger is refused a private row on BOTH axes,
     // and — unlike before — a caller can actually produce one.
     for (const e of CONFIDENTIAL) {
-      expect(authorizeWorkflow(e, STRANGER, "run")).toEqual({ ok: false, reason: "not-owner" });
-      expect(authorizeWorkflow(e, STRANGER, "read")).toEqual({ ok: false, reason: "not-owner" });
+      // The denial names the tier it was refused on, because
+      // `denialStatus` needs it to hide a `private` row's existence on
+      // the write verbs too. See `workflow-scope.test.ts`.
+      const denied = { ok: false, reason: "not-owner", visibility: "private" };
+      expect(authorizeWorkflow(e, STRANGER, "run")).toEqual(denied);
+      expect(authorizeWorkflow(e, STRANGER, "read")).toEqual(denied);
     }
   });
 
@@ -313,10 +317,12 @@ describe("what a read/run grant is actually worth today", () => {
     expect(authorizeWorkflow(entry("system"), STRANGER, "edit")).toEqual({
       ok: false,
       reason: "requires-admin",
+      visibility: "system",
     });
     expect(authorizeWorkflow(entry("project"), STRANGER, "edit")).toEqual({
       ok: false,
       reason: "not-owner",
+      visibility: "project",
     });
   });
 });
@@ -361,6 +367,7 @@ describe("`project` visibility is not scoped by any project id", () => {
     expect(authorizeWorkflow(projectEntry, cli, "run")).toEqual({
       ok: false,
       reason: "not-authenticated",
+      visibility: "project",
     });
     expect(authorizeWorkflow(systemCachedWorkflow(DEFINITION, "yaml"), cli, "run").ok).toBe(true);
   });

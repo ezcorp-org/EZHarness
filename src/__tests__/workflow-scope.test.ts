@@ -13,6 +13,7 @@ import {
   type CachedWorkflow,
   type WorkflowAction,
   type WorkflowCaller,
+  type WorkflowDenialReason,
 } from "../runtime/workflow-scope";
 import type { WorkflowDefinition, WorkflowVisibility } from "../types";
 
@@ -140,7 +141,16 @@ describe("the authorization matrix", () => {
       if (expected === true) {
         expect(result.ok).toBe(true);
       } else {
-        expect(result).toEqual({ ok: false, reason: expected as never });
+        // The denial names the TIER as well as the reason, on all 45
+        // cells. `denialStatus` is the consumer: it needs the visibility
+        // to hide a `private` row's existence, and reading it off the
+        // denial is what makes "the status caller has the tier"
+        // structural rather than a convention.
+        expect(result).toEqual({
+          ok: false,
+          reason: expected as never,
+          visibility: entry.visibility,
+        });
       }
     });
   }
@@ -190,6 +200,7 @@ describe("who may EDIT a `system` row — ownership is asked before the tier", (
       expect(authorizeWorkflow(legacySystem, caller, "edit")).toEqual({
         ok: false,
         reason: "requires-admin",
+        visibility: "system",
       });
     }
     // Discrimination: the row is not simply unreachable — an admin gets in.
@@ -207,6 +218,7 @@ describe("who may EDIT a `system` row — ownership is asked before the tier", (
       expect(authorizeWorkflow(ownedSystem, caller, "edit")).toEqual({
         ok: false,
         reason: "requires-admin",
+        visibility: "system",
       });
     }
   });
@@ -232,11 +244,13 @@ describe("who may EDIT a `system` row — ownership is asked before the tier", (
     expect(authorizeWorkflow(ownedYaml, owner, "edit")).toEqual({
       ok: false,
       reason: "not-editable-source",
+      visibility: "system",
     });
     const ownedExtension: CachedWorkflow = { ...ownedSystem, source: "extension", id: null };
     expect(authorizeWorkflow(ownedExtension, owner, "edit")).toEqual({
       ok: false,
       reason: "not-editable-source",
+      visibility: "system",
     });
     // Discrimination: the identical entry as a DB row IS editable, so
     // the refusal above is the source and nothing else.
@@ -267,10 +281,12 @@ describe("who may EDIT a `system` row — ownership is asked before the tier", (
     expect(authorizeWorkflow(privateEntry, cli, "edit")).toEqual({
       ok: false,
       reason: "not-owner",
+      visibility: "private",
     });
     expect(authorizeWorkflow(projectEntry, cli, "edit")).toEqual({
       ok: false,
       reason: "not-authenticated",
+      visibility: "project",
     });
   });
 });
@@ -312,6 +328,7 @@ describe("read and run are separate questions", () => {
     expect(authorizeWorkflow(projectEntry, member, "edit")).toEqual({
       ok: false,
       reason: "not-owner",
+      visibility: "project",
     });
   });
 
@@ -357,10 +374,12 @@ describe("ownerless sources are system-owned", () => {
     expect(authorizeWorkflow(yaml, admin, "edit")).toEqual({
       ok: false,
       reason: "not-editable-source",
+      visibility: "system",
     });
     expect(authorizeWorkflow(yaml, owner, "edit")).toEqual({
       ok: false,
       reason: "not-editable-source",
+      visibility: "system",
     });
   });
 });
@@ -376,6 +395,9 @@ describe("resolveWorkflowForCaller", () => {
     expect(resolveWorkflowForCaller(entries, "nope", admin, "read")).toEqual({
       ok: false,
       reason: "not-found",
+      // No row matched, so there is no tier to name. The ONE denial that
+      // carries a null visibility.
+      visibility: null,
     });
   });
 
@@ -390,6 +412,7 @@ describe("resolveWorkflowForCaller", () => {
     expect(resolveWorkflowForCaller(entries, "deploy", stranger, "run")).toEqual({
       ok: false,
       reason: "not-owner",
+      visibility: "private",
     });
   });
 
@@ -442,29 +465,146 @@ describe("list filtering agrees with the single-entry resolver", () => {
 });
 
 describe("denial status and message", () => {
-  test("an unauthorized READ is a 404, so the endpoint is not an existence oracle", () => {
-    expect(denialStatus("not-owner", "read")).toBe(404);
-    expect(denialStatus("not-authenticated", "read")).toBe(404);
-    expect(denialStatus("not-owner", "run")).toBe(404);
-    expect(denialMessage("not-owner", "read")).toBe("Not found");
+  /**
+   * The table, written out rather than recomputed.
+   *
+   * A `Record<WorkflowAction, Record<WorkflowVisibility, …>>` on purpose:
+   * a fourth tier or a fourth action fails TYPECHECK here until someone
+   * decides whether it conceals its rows' existence. Re-deriving the
+   * answer from the same `if` chain the function uses would assert
+   * nothing.
+   *
+   * The REASON is absent from the key deliberately. For everything but
+   * `not-found` the status is a property of the row and the verb, never
+   * of why the ladder said no — and the sweep below proves that across
+   * every reason instead of assuming it. Keying on the reason is how
+   * `private` + `not-editable-source` would quietly become a 403 and
+   * leak the existence the `not-owner` 404 conceals.
+   */
+  const EXPECTED: Record<WorkflowAction, Record<WorkflowVisibility, 403 | 404>> = {
+    // Read and run hide every tier: a 403 confirms the name exists.
+    read: { system: 404, project: 404, private: 404 },
+    run: { system: 404, project: 404, private: 404 },
+    // Edit hides `private` ONLY. `system` and `project` are readable by
+    // everyone who can reach the route, so a 403 tells them nothing they
+    // could not already see — and a 404 for a workflow sitting in their
+    // own list would just be confusing.
+    edit: { system: 403, project: 403, private: 404 },
+  };
+  const ACTIONS = Object.keys(EXPECTED) as WorkflowAction[];
+  const TIERS = Object.keys(EXPECTED.read) as WorkflowVisibility[];
+  /** Every reason that names a row. `not-found` has none, and is swept apart. */
+  const REASONS: WorkflowDenialReason[] = [
+    "not-authenticated",
+    "not-owner",
+    "not-editable-source",
+    "requires-admin",
+  ];
+
+  test("the sweep below is not vacuous", () => {
+    expect(ACTIONS).toEqual(["read", "run", "edit"]);
+    expect(TIERS.sort()).toEqual(["private", "project", "system"]);
+    expect(REASONS).toHaveLength(4);
   });
 
-  test("a denied EDIT is a 403 — the caller can already see it, so there is nothing to conceal", () => {
-    expect(denialStatus("requires-admin", "edit")).toBe(403);
-    expect(denialStatus("not-owner", "edit")).toBe(403);
-    expect(denialStatus("not-editable-source", "edit")).toBe(403);
+  for (const action of ACTIONS) {
+    for (const tier of TIERS) {
+      const status = EXPECTED[action][tier];
+      test(`${tier} × ${action} → ${status}, whatever the reason`, () => {
+        for (const reason of REASONS) {
+          expect(denialStatus(reason, action, tier)).toBe(status);
+        }
+      });
+    }
+  }
+
+  test("a `private` EDIT denial is indistinguishable from a name that does not exist", () => {
+    // THE ruling. Before it, a caller probing PUT/DELETE could tell
+    // "this private workflow exists and is not yours" (403) from "no
+    // such workflow" (404) — an existence oracle for private names on
+    // the write verbs, mirroring the one the read 404 already closed.
+    // Status AND body, because either alone re-opens it.
+    expect(denialStatus("not-owner", "edit", "private")).toBe(
+      denialStatus("not-found", "edit", null),
+    );
+    expect(denialMessage("not-owner", "edit", "private")).toBe(
+      denialMessage("not-found", "edit", null),
+    );
+    expect(denialMessage("not-owner", "edit", "private")).toBe("Not found");
   });
 
-  test("not-found is a 404 whatever the action", () => {
-    expect(denialStatus("not-found", "edit")).toBe(404);
-    expect(denialStatus("not-found", "run")).toBe(404);
+  test("the concealment is `private`-only — the other two tiers still 403", () => {
+    // Discrimination for the test above: the 404 is not blanket. A
+    // `system` or `project` edit denial still says "forbidden", and says
+    // WHY, because the caller can already see the row.
+    expect(denialStatus("requires-admin", "edit", "system")).toBe(403);
+    expect(denialStatus("not-owner", "edit", "project")).toBe(403);
+    expect(denialStatus("not-editable-source", "edit", "system")).toBe(403);
+    expect(denialMessage("requires-admin", "edit", "system")).not.toBe("Not found");
+    expect(denialMessage("not-owner", "edit", "project")).not.toBe("Not found");
   });
 
-  test("each edit denial carries its own message", () => {
-    expect(denialMessage("requires-admin", "edit")).toContain("admin");
-    expect(denialMessage("not-editable-source", "edit")).toContain("only DB workflows");
-    expect(denialMessage("not-owner", "edit")).toContain("permission");
-    expect(denialMessage("not-authenticated", "edit")).toContain("permission");
+  test("an unauthorized READ is a 404 on every tier, so the endpoint is not an existence oracle", () => {
+    // The claim the old comment made and nothing checked exhaustively.
+    for (const tier of TIERS) {
+      for (const reason of REASONS) {
+        expect(denialStatus(reason, "read", tier)).toBe(404);
+        expect(denialStatus(reason, "run", tier)).toBe(404);
+        expect(denialMessage(reason, "read", tier)).toBe("Not found");
+        expect(denialMessage(reason, "run", tier)).toBe("Not found");
+      }
+    }
+  });
+
+  test("not-found is a 404 whatever the action, and carries no tier", () => {
+    for (const action of ACTIONS) {
+      expect(denialStatus("not-found", action, null)).toBe(404);
+      expect(denialMessage("not-found", action, null)).toBe("Not found");
+    }
+  });
+
+  test("every 404 body is exactly `Not found` — no message outlives the status", () => {
+    // The half a status-only rule would miss: `denialMessage` branches on
+    // `denialStatus`, so a 404 that fell through to a reason-specific
+    // string ("only an admin can change it") would hand back the
+    // existence the status just withheld.
+    for (const action of ACTIONS) {
+      for (const tier of [...TIERS, null]) {
+        for (const reason of [...REASONS, "not-found" as const]) {
+          if (denialStatus(reason, action, tier) !== 404) continue;
+          expect(denialMessage(reason, action, tier)).toBe("Not found");
+        }
+      }
+    }
+  });
+
+  test("each edit denial that IS a 403 carries its own message", () => {
+    expect(denialMessage("requires-admin", "edit", "system")).toContain("admin");
+    expect(denialMessage("not-editable-source", "edit", "system")).toContain("only DB workflows");
+    expect(denialMessage("not-owner", "edit", "project")).toContain("permission");
+    expect(denialMessage("not-authenticated", "edit", "project")).toContain("permission");
+  });
+
+  test("the status caller cannot lose the tier — the denial carries it", () => {
+    // Why the signature changed rather than the call site guessing. The
+    // ladder is the only thing that knows which row was refused, so the
+    // denial hands the tier over; `resolveWorkflowForCaller` is where a
+    // route gets both, and the only `null` it can produce is the one
+    // that genuinely has no row.
+    const entries = [dbEntry({ definition: definition("secret"), visibility: "private", userId: OWNER })];
+    const refused = resolveWorkflowForCaller(entries, "secret", stranger, "edit");
+    const missing = resolveWorkflowForCaller(entries, "no-such-name", stranger, "edit");
+    expect(refused.ok).toBe(false);
+    expect(missing.ok).toBe(false);
+    if (refused.ok || missing.ok) throw new Error("expected both to deny");
+    expect(refused.visibility).toBe("private");
+    expect(missing.visibility).toBeNull();
+    // End to end through both functions: the two are the same response.
+    expect(denialStatus(refused.reason, "edit", refused.visibility)).toBe(404);
+    expect(denialStatus(missing.reason, "edit", missing.visibility)).toBe(404);
+    expect(denialMessage(refused.reason, "edit", refused.visibility)).toBe(
+      denialMessage(missing.reason, "edit", missing.visibility),
+    );
   });
 });
 
@@ -494,6 +634,7 @@ describe("readRunAudience names the set each tier admits", () => {
     expect(authorizeWorkflow(privateEntry, stranger, "run")).toEqual({
       ok: false,
       reason: "not-owner",
+      visibility: "private",
     });
   });
 
@@ -506,10 +647,12 @@ describe("readRunAudience names the set each tier admits", () => {
     expect(authorizeWorkflow(projectEntry, cli, "run")).toEqual({
       ok: false,
       reason: "not-authenticated",
+      visibility: "project",
     });
     expect(authorizeWorkflow(projectEntry, cli, "edit")).toEqual({
       ok: false,
       reason: "not-authenticated",
+      visibility: "project",
     });
   });
 });
