@@ -48,7 +48,14 @@
  * snapshot with exactly the staleness problem this check exists to close.
  */
 import { getExtensionByName } from "../db/queries/extensions";
-import { authorizeWorkflow, type CachedWorkflow, type WorkflowCaller } from "./workflow-scope";
+import { listProjectIdsForUser } from "../db/queries/project-members";
+import {
+  authorizeWorkflow,
+  NO_PROJECT_MEMBERSHIPS,
+  readRunAudience,
+  type CachedWorkflow,
+  type WorkflowCaller,
+} from "./workflow-scope";
 import { EXTENSION_WORKFLOW_SEPARATOR } from "./workflow-name";
 
 /**
@@ -84,11 +91,16 @@ function deny(reason: string): WorkflowAuthzDecision {
  * would reject a cookie-authed admin on these `chat`-scoped routes, and it
  * returns an HTTP `Response`, which is meaningless to the tool call site.
  */
-function callerOf(user: WorkflowPrincipal, projectId?: string | null): WorkflowCaller {
+function callerOf(
+  user: WorkflowPrincipal,
+  projectId: string | null | undefined,
+  projectMemberships: readonly string[],
+): WorkflowCaller {
   return {
     userId: user.id,
     role: user.role === "admin" ? "admin" : "member",
     projectId: projectId ?? null,
+    projectMemberships,
   };
 }
 
@@ -108,9 +120,16 @@ function callerOf(user: WorkflowPrincipal, projectId?: string | null): WorkflowC
  * Synchronous and entry-taking: the list route maps over the cache it
  * already holds, so this costs no query at all — where the previous
  * implementation needed one owner lookup for the whole page.
+ *
+ * It stays synchronous after the project-membership split because `edit`
+ * provably never reaches the read/run audience switch: `authorizeWorkflow`
+ * returns from the `action === "edit"` block before it. `NO_PROJECT_MEMBERSHIPS`
+ * is therefore not a weakened check here, it is a set whose contents cannot
+ * be read on this path — and passing it explicitly is what keeps that fact
+ * visible instead of hiding behind a defaulted parameter.
  */
 export function canManageWorkflow(entry: CachedWorkflow, user: WorkflowPrincipal): boolean {
-  return authorizeWorkflow(entry, callerOf(user), "edit").ok;
+  return authorizeWorkflow(entry, callerOf(user, null, NO_PROJECT_MEMBERSHIPS), "edit").ok;
 }
 
 /**
@@ -157,8 +176,24 @@ function extensionPrefix(name: string): string | null {
  *    It runs FIRST, and deliberately: a dead extension's workflow is
  *    unrunnable by anyone, including the admin the ladder would wave
  *    through.
- * 2. **The ladder's `run` rung** — `system` is open, `project` needs a
- *    member, `private` needs the owner or an admin.
+ * 2. **The ladder's `run` rung** — `system` is open, a project-scoped
+ *    `project` row needs a MEMBER of that project, a project-less one needs
+ *    only a login, and `private` needs the owner or an admin.
+ *
+ * ## Where the membership set comes from
+ *
+ * Resolved HERE rather than passed in, and that is the reason this function
+ * is async in the first place — it already awaits `getExtensionByName`, so
+ * the membership read costs a round trip on a path that was never
+ * synchronous. Passing it in would push the same query onto all four call
+ * sites (`POST /api/workflows/:name/run`, the `run_workflow` built-in, the
+ * extension reverse-RPC handler, the tests) and let any one of them forget.
+ *
+ * The read is CONDITIONAL on the entry's own audience: `system` and
+ * `private` rows, which are the overwhelming majority, never touch the DB
+ * for it. That is not an optimization dressed as a rule — asking
+ * `readRunAudience` first is what makes the dependency legible, since the
+ * only branch that reads the set is the only branch that pays for it.
  */
 export async function canRunWorkflow(
   entry: CachedWorkflow,
@@ -168,7 +203,12 @@ export async function canRunWorkflow(
   const live = await workflowExtensionLiveness(entry.definition.name);
   if (!live.allowed) return live;
 
-  const decision = authorizeWorkflow(entry, callerOf(user, projectId), "run");
+  const memberships =
+    readRunAudience(entry.visibility, entry.projectId) === "project-members-and-admins"
+      ? await listProjectIdsForUser(user.id)
+      : NO_PROJECT_MEMBERSHIPS;
+
+  const decision = authorizeWorkflow(entry, callerOf(user, projectId, memberships), "run");
   if (!decision.ok) {
     return deny(`Workflow "${entry.definition.name}" is not available to this user`);
   }

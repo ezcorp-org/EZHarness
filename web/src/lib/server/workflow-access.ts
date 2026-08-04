@@ -23,6 +23,7 @@ import {
   denialMessage,
   denialStatus,
   denyVisibilityAssignment,
+  NO_PROJECT_MEMBERSHIPS,
   resolveWorkflowForCaller,
   visibleWorkflows,
   type CachedWorkflow,
@@ -33,6 +34,7 @@ import {
   authorizeDelegationConsent,
   DELEGATION_CONSENT_DENIALS,
 } from "$server/runtime/workflow-delegation-consent";
+import { listProjectIdsForUser } from "$server/db/queries/project-members";
 import type { AuthUser } from "$server/auth/types";
 import type { DelegationOwnerKind } from "$server/db/schema";
 import type { WorkflowDefinition, WorkflowVisibility } from "$server/types";
@@ -71,9 +73,25 @@ export function toWire(entry: CachedWorkflow, caller: WorkflowCaller): WorkflowW
   };
 }
 
-/** Build the caller struct from an authenticated route context. */
-export function callerFor(user: AuthUser, projectId?: string | null): WorkflowCaller {
-  return callerFromUser(user, projectId);
+/**
+ * Build the caller struct from an authenticated route context.
+ *
+ * ASYNC since the project-membership split: the ladder's
+ * `project-members-and-admins` audience is checked against a set that has to
+ * be READ, and reading it here — once per request, in the one adapter every
+ * route already goes through — is what keeps the routes free of it. A route
+ * that resolved its own memberships would be a second copy of the same rule
+ * with its own chance to skip the lookup.
+ *
+ * The set is keyed by the AUTHENTICATED user id. `projectId`, which comes
+ * off the request, is still carried and still decision-irrelevant — see
+ * `WorkflowCaller.projectId`.
+ */
+export async function callerFor(
+  user: AuthUser,
+  projectId?: string | null,
+): Promise<WorkflowCaller> {
+  return callerFromUser(user, projectId, await listProjectIdsForUser(user.id));
 }
 
 /**
@@ -84,7 +102,7 @@ export function callerFor(user: AuthUser, projectId?: string | null): WorkflowCa
  * SvelteKit surfaces a thrown `Response` from a handler as a 500, which
  * is how an intended 403 becomes an unintended 500.
  */
-export function resolveWorkflowOr(
+export async function resolveWorkflowOr(
   user: AuthUser,
   name: string,
   action: WorkflowAction,
@@ -98,8 +116,8 @@ export function resolveWorkflowOr(
    * existence oracle the 404 exists to close.
    */
   notFoundMessage?: string,
-): { entry: CachedWorkflow; caller: WorkflowCaller } | Response {
-  const caller = callerFor(user, projectId);
+): Promise<{ entry: CachedWorkflow; caller: WorkflowCaller } | Response> {
+  const caller = await callerFor(user, projectId);
   const result = resolveWorkflowForCaller(getCachedWorkflows(), name, caller, action);
   if (!result.ok) {
     // `result.visibility` is the tier the ladder refused on (`null` for a
@@ -132,7 +150,16 @@ export function denyVisibilityOr(
   user: AuthUser,
   visibility: WorkflowVisibility | undefined,
 ): Response | null {
-  const message = denyVisibilityAssignment(callerFor(user), visibility);
+  // Stays SYNCHRONOUS across the project-membership split, and builds the
+  // caller inline rather than through `callerFor`, because
+  // `denyVisibilityAssignment` reads `caller.role` and nothing else — it
+  // never reaches the read/run audience. Awaiting `callerFor` here would buy
+  // a membership query whose result is provably unread, on the write path of
+  // every create and update.
+  const message = denyVisibilityAssignment(
+    callerFromUser(user, null, NO_PROJECT_MEMBERSHIPS),
+    visibility,
+  );
   return message === null ? null : errorJson(403, message);
 }
 
@@ -188,7 +215,10 @@ export function resolveDelegationConsentOr(
 }
 
 /** Everything this caller may see, already serialized. */
-export function listVisibleWorkflows(user: AuthUser, projectId?: string | null): WorkflowWire[] {
-  const caller = callerFor(user, projectId);
+export async function listVisibleWorkflows(
+  user: AuthUser,
+  projectId?: string | null,
+): Promise<WorkflowWire[]> {
+  const caller = await callerFor(user, projectId);
   return visibleWorkflows(getCachedWorkflows(), caller).map((entry) => toWire(entry, caller));
 }

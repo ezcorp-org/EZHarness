@@ -50,7 +50,7 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
     // without touching this handler. Every row that existed before C6 is
     // `system`, which authorizes exactly the callers this endpoint
     // authorized before the ladder: any `chat` caller.
-    const resolved = resolveWorkflowOr(
+    const resolved = await resolveWorkflowOr(
       user,
       params.name,
       "run",

@@ -19,10 +19,12 @@ import { initDb, closeDb } from "$server/db/connection";
 import { validateEnv } from "$server/env-validation";
 import { loadDbCachedWorkflows } from "$server/db/queries/workflows";
 import {
+  NO_PROJECT_MEMBERSHIPS,
   resolveWorkflowForCaller,
   systemCachedWorkflow,
   type CachedWorkflow,
 } from "$server/runtime/workflow-scope";
+import { listProjectIdsForUser } from "$server/db/queries/project-members";
 import { terminalizeOrphanedWorkflowRuns } from "$server/db/queries/workflow-runs";
 import { startBackups, stopBackups } from "$server/db/backup";
 import {
@@ -184,19 +186,29 @@ export async function ensureInitialized(): Promise<void> {
     // principal id, not a role (a CLI or scheduled run has neither), and
     // the safe reading of "we do not know" is the lower privilege. The
     // practical effect is that nesting reaches `system` workflows always,
-    // `project` ones for any run with a user, and `private` ones only for
+    // project-less `project` ones for any run with a user, project-SCOPED
+    // ones only for a member of that project, and `private` ones only for
     // their owner.
+    //
+    // ASYNC, and the memberships are read from the DB rather than defaulted
+    // to empty: a run whose principal genuinely belongs to the project must
+    // reach that project's workflows, and "we did not look" is not the same
+    // answer as "they are not a member". The lookup is skipped entirely for
+    // a run with no principal (a CLI or scheduled run), which cannot be a
+    // member of anything — membership is keyed by user id.
     //
     // Reads the live `workflows` binding rather than a captured array, for
     // the same reason `getWorkflows` is registered as a thunk below:
     // `reloadWorkflows()` REASSIGNS it on every CRUD write.
-    workflowResolver: (name, ctx) => {
-      const resolved = resolveWorkflowForCaller(
-        workflows,
-        name,
-        { userId: ctx.userId ?? null, role: "member", projectId: ctx.projectId ?? null },
-        "run",
-      );
+    workflowResolver: async (name, ctx) => {
+      const resolved = resolveWorkflowForCaller(workflows, name, {
+        userId: ctx.userId ?? null,
+        role: "member",
+        projectId: ctx.projectId ?? null,
+        projectMemberships: ctx.userId
+          ? await listProjectIdsForUser(ctx.userId)
+          : NO_PROJECT_MEMBERSHIPS,
+      }, "run");
       return resolved.ok ? resolved.entry.definition : undefined;
     },
   });

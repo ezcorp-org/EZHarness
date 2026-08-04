@@ -267,10 +267,21 @@ export interface ResumeWorkflowOptions {
 
 /** Resolve + authorize a nested workflow for the run's principal. See
  *  {@link WorkflowExecutorOptions.workflowResolver}. */
+/**
+ * Resolve a nested `kind: "workflow"` step's target for a principal.
+ *
+ * May return a promise. It became allowed to when project membership
+ * landed: the production implementation (`web/src/lib/server/context.ts`)
+ * has to READ the caller's memberships before the read/run ladder can
+ * authorize a project-scoped workflow, and there is nowhere earlier in a
+ * nested step to do that. The union (rather than a plain `Promise<…>`) keeps
+ * every synchronous test resolver assignable unchanged — the call site
+ * awaits, and awaiting a non-promise is a no-op.
+ */
 export type NestedWorkflowResolver = (
   name: string,
   ctx: { userId?: string; projectId?: string },
-) => WorkflowDefinition | undefined;
+) => WorkflowDefinition | undefined | Promise<WorkflowDefinition | undefined>;
 
 /**
  * The `idempotency_key` a `kind: "workflow"` step gives its child run.
@@ -2034,7 +2045,7 @@ export class WorkflowExecutor {
           `${depth}, over the maximum of ${MAX_WORKFLOW_NESTING_DEPTH}`,
       );
     }
-    const definition = this.workflowResolver?.(name, {
+    const definition = await this.workflowResolver?.(name, {
       ...(opts.userId !== undefined ? { userId: opts.userId } : {}),
       ...(opts.projectId !== undefined ? { projectId: opts.projectId } : {}),
     });

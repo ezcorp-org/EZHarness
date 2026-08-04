@@ -39,7 +39,7 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
   if (!parsed.success) return errorJson(400, "Invalid request body");
   const projectId = parsed.data.projectId ?? null;
 
-  const resolved = resolveWorkflowOr(user, params.name, "read", projectId);
+  const resolved = await resolveWorkflowOr(user, params.name, "read", projectId);
   if (resolved instanceof Response) return resolved;
   const source = resolved.entry.definition;
 

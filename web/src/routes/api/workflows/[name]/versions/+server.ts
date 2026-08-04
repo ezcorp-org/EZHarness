@@ -22,7 +22,7 @@ export const GET: RequestHandler = async ({ params, locals }) => {
   const scopeErr = requireScope(locals, "read");
   if (scopeErr) return scopeErr;
   const user = requireAuth(locals);
-  const resolved = resolveWorkflowOr(user, params.name, "read");
+  const resolved = await resolveWorkflowOr(user, params.name, "read");
   if (resolved instanceof Response) return resolved;
 
   const dbWorkflow = await getWorkflowByName(params.name);
