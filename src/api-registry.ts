@@ -420,7 +420,13 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "POST", path: "/api/composer/suggest/feedback", description: "Record composer-suggestion telemetry (shown/accepted/dismissed; never draft text)", category: "composer", scope: "chat", schemaKey: "suggestFeedbackSchema", responseDescription: "{ ok: true } (201)" },
 
   // System
-  { method: "GET", path: "/api/health", description: "Health check endpoint", category: "system" },
+  // Liveness probe, genuinely anonymous (hooks PUBLIC_PATHS). `?detail=true`
+  // asks for an ADMIN principal — and cannot get one: a public path never
+  // populates `locals.user`, so the detailed probe answers 401 to every
+  // caller including admins. Same PUBLIC_PATHS defect F5 fixed for
+  // /api/auth/invite, still live here and on POST /api/auth/reset-password.
+  // Until 2026-08 it answered 500 instead of 401 (a thrown `requireAuth`).
+  { method: "GET", path: "/api/health", description: "Liveness probe. `?detail=true` returns the component breakdown for an admin, but is UNREACHABLE: the path is in the hooks PUBLIC_PATHS allowlist so locals.user is never populated and the detail branch answers 401 to everyone", category: "system", scope: "public" },
   // Was registered as GET (and carried in route-contract.test.ts's KNOWN_STALE
   // for exactly that reason); the handler on disk only exports POST.
   { method: "POST", path: "/api/warmup", description: "Pre-warm the embedding model so the first memory/search turn doesn't pay the load cost — best-effort, always 200", category: "system", scope: "read", responseDescription: "{ ok: true }" },
