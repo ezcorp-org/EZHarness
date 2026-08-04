@@ -1,6 +1,7 @@
 import { json } from "@sveltejs/kit";
 import { z } from "zod";
 import { answerApproval } from "$server/runtime/workflow-answer-approval";
+import { resolveApprovalActor } from "$server/runtime/workflow-approval-actor";
 import { workflowRefusalStatus } from "$server/runtime/workflow-refusal-status";
 import { requireSessionAuth } from "$server/auth/middleware";
 import { errorJson } from "$lib/server/http-errors";
@@ -49,13 +50,24 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
     return errorJson(400, "choice is required");
   }
 
+  // The only surface that knows a real ROLE, and the only one that supplies
+  // `checkScope` — which the actor kind is now what makes reachable.
+  //
+  // The kind is RESOLVED rather than assumed: a service-account run has no
+  // `user_id` at all, so the human who consented to the delegation is the
+  // only person who can answer for it (amended spec §6.3). The resolver
+  // decides which question the chokepoint is asked and nothing more — every
+  // fact in a `delegation` actor is re-proved behind `answerApproval`, so
+  // this route still re-derives no consent rule.
+  const actor = await resolveApprovalActor(params.id, {
+    userId: user.id,
+    isAdmin: user.role === "admin",
+  });
+
   const result = await answerApproval(
     params.id,
     parsed.data,
-    // The only surface that mints a `user` actor with a real role behind
-    // it, and the only one that supplies `checkScope` — which the actor
-    // kind is now what makes reachable.
-    { kind: "user", userId: user.id, isAdmin: user.role === "admin" },
+    actor,
     {
       // Fail-closed by construction: a throw inside this check is caught
       // by the chokepoint and treated as a DENY, never as an allow. The

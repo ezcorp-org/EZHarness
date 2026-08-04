@@ -588,15 +588,22 @@ describe("authorization — who may answer", () => {
  */
 describe("the actor discriminant — per-kind authority", () => {
   /**
-   * A live `workflow_delegations` row plus, optionally, a run it owns.
+   * A `workflow_delegations` row plus, optionally, a run it owns.
    *
-   * Raw SQL on purpose: `src/db/queries/workflow-delegations.ts` does not
-   * exist yet (Phase R2 writes it), and these rows exist to make the
-   * CONDITIONS real — a genuinely revoked row, a genuinely mismatched
-   * run — rather than to exercise a reader that has not been written.
+   * Raw SQL on purpose: these rows exist to make the CONDITIONS real — a
+   * genuinely revoked row, a genuinely disabled one, a genuinely
+   * mismatched run — rather than to exercise the writer in
+   * `db/queries/workflow-delegations.ts`, which has its own tests and
+   * would refuse most of these states by design.
    */
   async function seedDelegation(
-    opts: { revoked?: boolean; ownsRunId?: string } = {},
+    opts: {
+      revoked?: boolean;
+      enabled?: boolean;
+      ownsRunId?: string;
+      /** The human who may answer for it. Defaults to the run's owner. */
+      consentedBy?: string;
+    } = {},
   ): Promise<string> {
     const extensionId = crypto.randomUUID();
     await db.execute(sql`
@@ -608,11 +615,12 @@ describe("the actor discriminant — per-kind authority", () => {
       INSERT INTO workflow_delegations (
         id, extension_id, job_ref, owner_kind, owner_user_id, workflow_name,
         trigger_kind, consent_hash, max_tokens_per_run, max_runs_per_day,
-        consented_by_user_id, revoked_at
+        consented_by_user_id, enabled, revoked_at
       ) VALUES (
         ${delegationId}, ${extensionId}, ${`job-${delegationId.slice(0, 8)}`},
         'user', 'answerer', ${DEF.name}, 'cron', 'hash-v1', 100000, 10,
-        'answerer', ${opts.revoked === true ? new Date() : null}
+        ${opts.consentedBy ?? "answerer"}, ${opts.enabled ?? true},
+        ${opts.revoked === true ? new Date() : null}
       )
     `);
     if (opts.ownsRunId !== undefined) {
@@ -700,28 +708,47 @@ describe("the actor discriminant — per-kind authority", () => {
 
   // ── kind: "delegation" ────────────────────────────────────────────
   //
-  // PHASE BOUNDARY, stated so nobody mistakes these for finished work.
+  // Phase A put `delegation` in the union and made it POWERLESS; phase R2
+  // grants it authority, and that authority is PROVED at answer time
+  // rather than carried — PR #58's `holdsClaim` with a different lease.
   //
-  // Phase A puts `delegation` in the union and makes it POWERLESS. Phase
-  // R2 grants it authority by re-reading `workflow_delegations` (live,
-  // unrevoked, `workflow_runs.delegation_id` naming this run, answering
-  // session = `consented_by_user_id`) and adding the approvals-inbox
-  // disjunct.
-  //
-  // So today all three refusals below share one cause — the fail-closed
-  // arm of `mayAnswerUnscopedApproval` — and the DB rows they seed are not
-  // yet what produces the DENY. They are here anyway because they are the
-  // exact regression net R2 has to keep green: R2 makes SOME delegation
-  // actors succeed, and these three must go on failing for the reasons
-  // their names give. A row seeded revoked must still be revoked after R2.
+  // Every refusal below therefore has to fail for the reason its NAME
+  // gives, not because the kind is blanket-denied. Under Phase A all four
+  // shared one cause; the pair of ALLOW tests at the end are what makes
+  // that distinction observable — a blanket refusal satisfies every DENY
+  // here and breaks both of those.
   test("a DELEGATION actor whose row is REVOKED is refused", async () => {
     const { runId, approvalId } = await seed({ ownerUserId: "answerer" });
+    // Everything else about this actor is genuine: the run really is
+    // owned by this delegation and the answering human really is its
+    // consenter. Only the tombstone stands between them and the answer.
     const delegationId = await seedDelegation({ revoked: true, ownsRunId: runId });
 
     const res = await answerApproval(
       approvalId,
       { choice: "approve" },
-      { kind: "delegation", delegationId, runId },
+      { kind: "delegation", delegationId, runId, answeringUserId: "answerer" },
+      { runtime: stubRuntime().runtime },
+    );
+
+    expect(res).toMatchObject({ ok: false, code: "forbidden" });
+    expect((await getWorkflowApprovalById(approvalId))?.status).toBe("pending");
+  });
+
+  test("a DELEGATION actor whose row is DISABLED is refused", async () => {
+    // The other half of the liveness predicate, and the one a `revoked`
+    // test alone would miss. A delegation is disabled precisely when the
+    // platform has decided its authority is broken — five consecutive
+    // failures, a re-tiered workflow — so its consenting human must not
+    // keep clearing gates on its behalf. Admins and `onTimeout:` still
+    // reach the run, so nothing is stranded.
+    const { runId, approvalId } = await seed({ ownerUserId: "answerer" });
+    const delegationId = await seedDelegation({ enabled: false, ownsRunId: runId });
+
+    const res = await answerApproval(
+      approvalId,
+      { choice: "approve" },
+      { kind: "delegation", delegationId, runId, answeringUserId: "answerer" },
       { runtime: stubRuntime().runtime },
     );
 
@@ -741,7 +768,30 @@ describe("the actor discriminant — per-kind authority", () => {
       approvalId,
       { choice: "approve" },
       // Names the run it genuinely owns — which is NOT this approval's run.
-      { kind: "delegation", delegationId, runId: other.runId },
+      { kind: "delegation", delegationId, runId: other.runId, answeringUserId: "answerer" },
+      { runtime: stubRuntime().runtime },
+    );
+
+    expect(res).toMatchObject({ ok: false, code: "forbidden" });
+    expect((await getWorkflowApprovalById(approvalId))?.status).toBe("pending");
+  });
+
+  test("a DELEGATION actor answered by someone the row does not name is refused", async () => {
+    // The impersonation shape, and the reason the actor carries an
+    // answering human at all. The delegation is live and really does own
+    // this run — but `consented_by_user_id` names somebody else, and T8
+    // ("only the consenting human answers for it") is exactly what would
+    // be lost if the row's word were taken for the caller's.
+    const { runId, approvalId } = await seed({ ownerUserId: null });
+    const delegationId = await seedDelegation({
+      ownsRunId: runId,
+      consentedBy: "a-reviewer",
+    });
+
+    const res = await answerApproval(
+      approvalId,
+      { choice: "approve" },
+      { kind: "delegation", delegationId, runId, answeringUserId: "answerer" },
       { runtime: stubRuntime().runtime },
     );
 
@@ -750,10 +800,13 @@ describe("the actor discriminant — per-kind authority", () => {
   });
 
   test("a DELEGATION actor cannot satisfy a declared rbacScope", async () => {
-    // A non-human never satisfies a human's grant — and, as with the
-    // clock, this holds even when a `checkScope` that grants everything
-    // is supplied, because the scoped branch refuses by KIND before the
-    // resolver is consulted.
+    // A delegated capacity never satisfies a human's grant — and, as with
+    // the clock, this holds even when a `checkScope` that grants
+    // everything is supplied, because the scoped branch refuses by KIND
+    // before the resolver is consulted. The actor here is otherwise
+    // PERFECT: live row, owns this run, named consenter answering. Only
+    // the declared scope refuses it, which is what makes this independent
+    // of every condition above.
     const { runId, approvalId } = await seed({
       ownerUserId: "answerer",
       rbacScope: "workflows:approve",
@@ -763,11 +816,79 @@ describe("the actor discriminant — per-kind authority", () => {
     const res = await answerApproval(
       approvalId,
       { choice: "approve" },
-      { kind: "delegation", delegationId, runId },
+      { kind: "delegation", delegationId, runId, answeringUserId: "answerer" },
       { runtime: stubRuntime().runtime, checkScope: async () => true },
     );
 
     expect(res).toMatchObject({ ok: false, code: "forbidden" });
     expect((await getWorkflowApprovalById(approvalId))?.status).toBe("pending");
+  });
+
+  test("R-2, closed: a DELEGATION actor answers a run with NO human owner, and the CONSENTER is recorded", async () => {
+    // The whole point of the kind, and the case the four refusals above
+    // would each pass under a blanket denial.
+    //
+    // `ownerUserId: null` is a service-account run: no `users` row, so
+    // `workflow_runs.user_id` is NULL (`db/schema.ts:538`) and every
+    // ownership test collapses to admin-only. The delegation's
+    // `consented_by_user_id` is the one named human, and this proves both
+    // halves — the answer LANDS, and `answered_by` records that person
+    // rather than NULL.
+    const { runId, approvalId } = await seed({ ownerUserId: null });
+    const delegationId = await seedDelegation({ ownsRunId: runId });
+    const { runtime, resumed } = stubRuntime();
+
+    const res = await answerApproval(
+      approvalId,
+      { choice: "approve" },
+      { kind: "delegation", delegationId, runId, answeringUserId: "answerer" },
+      { runtime },
+    );
+
+    expect(res.ok).toBe(true);
+    const row = await getWorkflowApprovalById(approvalId);
+    expect(row?.status).toBe("answered");
+    // NOT null. `answered_by` is FK `users.id`, and the account cannot
+    // fill it — the human who consented can, which is the whole of R2-c.
+    expect(row?.answeredBy).toBe("answerer");
+    // …and the run actually continued. An authorization that recorded the
+    // answer and left the run parked would satisfy every assertion above.
+    expect(resumed).toEqual([runId]);
+  });
+
+  test("the SAME actor is refused the moment its delegation is revoked", async () => {
+    // Differential proof that the liveness predicate is what decides,
+    // rather than some other property of these fixtures: one actor, one
+    // approval shape, two runs, and the ONLY difference is the tombstone.
+    const live = await seed({ ownerUserId: null });
+    const dead = await seed({ ownerUserId: null });
+    const liveDelegation = await seedDelegation({ ownsRunId: live.runId });
+    const deadDelegation = await seedDelegation({ revoked: true, ownsRunId: dead.runId });
+
+    const allowed = await answerApproval(
+      live.approvalId,
+      { choice: "approve" },
+      {
+        kind: "delegation",
+        delegationId: liveDelegation,
+        runId: live.runId,
+        answeringUserId: "answerer",
+      },
+      { runtime: stubRuntime().runtime },
+    );
+    const refused = await answerApproval(
+      dead.approvalId,
+      { choice: "approve" },
+      {
+        kind: "delegation",
+        delegationId: deadDelegation,
+        runId: dead.runId,
+        answeringUserId: "answerer",
+      },
+      { runtime: stubRuntime().runtime },
+    );
+
+    expect(allowed.ok).toBe(true);
+    expect(refused).toMatchObject({ ok: false, code: "forbidden" });
   });
 });
