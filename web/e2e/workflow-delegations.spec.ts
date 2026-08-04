@@ -129,17 +129,41 @@ const RUNS = [
 		error: null,
 		suspendedReason: null,
 	},
+	// A PARKED run, in the shape the server actually emits.
+	//
+	// This fixture used to read `error: "denied:
+	// DELEGATION_DAILY_TOKENS_EXCEEDED"`, which no code path can produce: the
+	// D10 rung is a dispatch-time `denyAs(...)` return that creates no
+	// `workflow_runs` row at all, so a run carrying that string cannot exist.
+	// The spec passed against it for eight phases and certified nothing —
+	// a mock pinning a non-existent wire shape is worse than no test.
+	//
+	// The two rows below are the two parks that DO leave a row, and they are
+	// the pair whose remedies differ: `budget-exceeded` is fixed by the
+	// number on this page, `consent-stale` only by re-consenting.
 	{
 		id: "run-2",
 		workflowName: "ship-it",
-		status: "error",
+		status: "suspended",
 		runAsKind: "service",
 		runAs: "svc-1",
 		delegationId: "del-1",
 		startedAt: "2026-08-03T08:00:00.000Z",
-		finishedAt: "2026-08-03T08:01:00.000Z",
-		error: "denied: DELEGATION_DAILY_TOKENS_EXCEEDED",
-		suspendedReason: null,
+		finishedAt: null,
+		error: null,
+		suspendedReason: "budget-exceeded",
+	},
+	{
+		id: "run-3",
+		workflowName: "ship-it",
+		status: "suspended",
+		runAsKind: "user",
+		runAs: "u1",
+		delegationId: "del-1",
+		startedAt: "2026-08-03T07:00:00.000Z",
+		finishedAt: null,
+		error: null,
+		suspendedReason: "consent-stale",
 	},
 ];
 
@@ -149,6 +173,9 @@ interface Options {
 	/** When set, the preview refuses with this message instead of answering. */
 	refuseWith?: string;
 	extensions?: unknown[];
+	/** When set, `PATCH /api/workflows/delegations/:id` refuses with this
+	 *  status and message instead of echoing the updated row. */
+	patchRefusal?: { status: number; error: string };
 }
 
 /** Stub the C3 surface. Installed AFTER `mockApi` so these win over its
@@ -156,8 +183,12 @@ interface Options {
 async function stubDelegationApi(
 	page: import("@playwright/test").Page,
 	opts: Options = {},
-): Promise<() => Array<Record<string, unknown>>> {
+): Promise<{
+	posted: () => Array<Record<string, unknown>>;
+	patched: () => Array<Record<string, unknown>>;
+}> {
 	const posted: Array<Record<string, unknown>> = [];
+	const patched: Array<Record<string, unknown>> = [];
 
 	await page.route("**/api/extensions", (route) =>
 		route.fulfill({
@@ -192,6 +223,25 @@ async function stubDelegationApi(
 		return route.fulfill({ json: { delegations: opts.delegations ?? [] } });
 	});
 
+	// `PATCH /api/workflows/delegations/:id` — phase 8a's in-place cap
+	// adjustment. Registered BEFORE the preview route on purpose: Playwright
+	// matches most-recent-first, so `/preview` (registered below) still wins
+	// for its own URL while this one takes every other `:id` path.
+	await page.route("**/api/workflows/delegations/*", async (route) => {
+		if (route.request().method() !== "PATCH") return route.fallback();
+		patched.push(route.request().postDataJSON() as Record<string, unknown>);
+		if (opts.patchRefusal) {
+			return route.fulfill({
+				status: opts.patchRefusal.status,
+				json: { error: opts.patchRefusal.error },
+			});
+		}
+		const body = route.request().postDataJSON() as { maxTokensPerRun: number };
+		return route.fulfill({
+			json: { delegation: { ...DELEGATION, maxTokensPerRun: body.maxTokensPerRun } },
+		});
+	});
+
 	await page.route("**/api/workflows/delegations/preview", (route) =>
 		opts.refuseWith
 			? route.fulfill({ status: 403, json: { error: opts.refuseWith } })
@@ -208,7 +258,7 @@ async function stubDelegationApi(
 		route.fulfill({ status: 403, json: { error: "Admin only" } }),
 	);
 
-	return () => posted;
+	return { posted: () => posted, patched: () => patched };
 }
 
 async function openConsentDialog(page: import("@playwright/test").Page) {
@@ -234,21 +284,31 @@ test.describe("Delegations page", () => {
 
 		// "Jobs running as me" — the read that the SDK's `runs()` cannot
 		// answer, because it scopes to granted names AND an acting user.
-		await expect(page.getByTestId("delegated-run-row")).toHaveCount(2);
+		await expect(page.getByTestId("delegated-run-row")).toHaveCount(3);
 		await expect(page.getByTestId("delegated-run-principal").first()).toHaveText("as you");
 		// A service-account run appears here too: the account owns the run,
 		// the human who consented answers for it.
 		await expect(page.getByTestId("delegated-run-principal").nth(1)).toHaveText(
 			"as a service account",
 		);
-		// A run stopped by the SERVICE ACCOUNT's daily cap and one stopped by
-		// this delegation's per-run cap look identical in a raw error and have
-		// opposite remedies, so the page names them apart.
-		await expect(page.getByTestId("delegated-run-stop-reason")).toContainText(
-			"daily token limit",
-		);
-		await expect(page.getByTestId("delegated-run-stop-reason")).toContainText(
-			"will not change it",
+
+		// The two parks that leave a row, rendered as sentences with remedies
+		// rather than as the raw `suspended_reason` slug the page used to show.
+		const parked = page.getByTestId("delegated-run-suspended");
+		await expect(parked).toHaveCount(2);
+		await expect(parked.nth(0)).toContainText("per-run token limit");
+		await expect(parked.nth(0)).toContainText("raise that limit");
+		await expect(parked.nth(1)).toContainText("Approve it again");
+		// The raw slug must NOT survive to the page — that was the visible
+		// symptom of the classifier being keyed on the wrong field.
+		await expect(parked.nth(0)).not.toContainText("budget-exceeded");
+		await expect(parked.nth(1)).not.toContainText("consent-stale");
+
+		// A fire blocked before dispatch leaves no row, so the list cannot
+		// show it. The page has to SAY that, or a job blocked every night
+		// reads as a job that was never triggered.
+		await expect(page.getByTestId("delegated-runs-blocked-note")).toContainText(
+			"blocked before it starts is not listed here",
 		);
 	});
 
@@ -272,6 +332,75 @@ test.describe("Delegations page", () => {
 		const options = await page.getByTestId("grant-extension").locator("option").allTextContents();
 		expect(options).toContain("nightly");
 		expect(options).not.toContain("plain");
+	});
+
+	// ── The UI ↔ PATCH binding ────────────────────────────────────────────
+	//
+	// Phase 8b's mock spec had no PATCH test (the route did not exist on its
+	// branch) and phase 8a's PATCH coverage is REAL-TIER only, so this
+	// binding was unproven in the blocking lane. These three cover it.
+
+	test("saving a limit sends a SINGLE-KEY body — the schema is strict", async ({
+		page,
+		mockApi,
+	}) => {
+		await mockApi({ projects: [proj], workflows: [makeWorkflow({ name: "ship-it" })] });
+		const { patched } = await stubDelegationApi(page, { delegations: [DELEGATION] });
+
+		await page.goto("/workflows/delegations");
+		await page.getByTestId("delegation-tokens-input").fill("500000");
+		await page.getByTestId("delegation-save-tokens").click();
+
+		await expect.poll(() => patched().length).toBe(1);
+		// EXACTLY one key. The route's body schema is `.strict()`, so a UI
+		// that helpfully echoed `maxRunsPerDay` or `consentHash` alongside it
+		// would turn every save into a 400 — and the failure would surface
+		// only in production, since nothing else asserts the request shape.
+		expect(Object.keys(patched()[0] as object)).toEqual(["maxTokensPerRun"]);
+		expect(patched()[0]).toEqual({ maxTokensPerRun: 500000 });
+		await expect(page.getByTestId("delegation-message")).toHaveText("Token limit updated.");
+	});
+
+	test("a limit can be LOWERED, not only raised", async ({ page, mockApi }) => {
+		await mockApi({ projects: [proj], workflows: [makeWorkflow({ name: "ship-it" })] });
+		const { patched } = await stubDelegationApi(page, { delegations: [DELEGATION] });
+
+		await page.goto("/workflows/delegations");
+		// The route exists to unblock a run parked at `budget-exceeded`, which
+		// makes RAISING the obvious case — and is exactly why lowering needs
+		// its own assertion. Tightening a standing authority must never be
+		// harder than widening it.
+		await page.getByTestId("delegation-tokens-input").fill("1000");
+		await page.getByTestId("delegation-save-tokens").click();
+
+		await expect.poll(() => patched().length).toBe(1);
+		expect(patched()[0]).toEqual({ maxTokensPerRun: 1000 });
+		await expect(page.getByTestId("delegation-message")).toHaveText("Token limit updated.");
+		// And the row re-renders at the lower number rather than the old one.
+		await expect(page.getByTestId("delegation-tokens-input")).toHaveValue("1000");
+	});
+
+	test("a 409 renders the server's disabled_reason VERBATIM", async ({ page, mockApi }) => {
+		await mockApi({ projects: [proj], workflows: [makeWorkflow({ name: "ship-it" })] });
+		// Rung D7's sentence, which is the only thing a user ever reads about
+		// why their job was switched off. The page must not replace it with a
+		// status line — the remedy is IN the sentence.
+		const REASON =
+			"This delegation is disabled and its budget cannot be adjusted: " +
+			"This job stopped: the workflow is no longer visible to its owner. " +
+			"It ran before, so nothing you did is wrong — the workflow's access changed. " +
+			"Consent again to restart it. Consent again to restore it.";
+		await stubDelegationApi(page, {
+			delegations: [DELEGATION],
+			patchRefusal: { status: 409, error: REASON },
+		});
+
+		await page.goto("/workflows/delegations");
+		await page.getByTestId("delegation-tokens-input").fill("500000");
+		await page.getByTestId("delegation-save-tokens").click();
+
+		// Byte-for-byte, not a paraphrase and not "Request failed (409)".
+		await expect(page.getByTestId("delegation-message")).toHaveText(REASON);
 	});
 });
 
@@ -357,7 +486,7 @@ test.describe("Delegation consent dialog", () => {
 		mockApi,
 	}) => {
 		await mockApi({ projects: [proj], workflows: [makeWorkflow({ name: "ship-it" })] });
-		const posted = await stubDelegationApi(page);
+		const { posted } = await stubDelegationApi(page);
 		await openConsentDialog(page);
 
 		const approve = page.getByTestId("consent-approve");

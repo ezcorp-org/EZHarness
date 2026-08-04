@@ -1,0 +1,489 @@
+[1A[2K[2m[WebServer] [22m[0m[2m[35m$[0m [2m[1mbunx --bun vite build[0m
+
+[1A[2K[2m[WebServer] [22m[33m2:43:59 PM [vite-plugin-svelte] src/routes/(app)/+layout.svelte:447:1 noninteractive element cannot have nonnegative tabIndex value
+[2m[WebServer] [22mhttps://svelte.dev/e/a11y_no_noninteractive_tabindex[39m
+[2m[WebServer] [22m445:     drops to 0 on mobile where the dock takes the full viewport.
+[2m[WebServer] [22m446:   -->
+[2m[WebServer] [22m447:   <main
+[2m[WebServer] [22m            ^
+[2m[WebServer] [22m448:     class="relative flex-1 overflow-y-auto {isChatRoute ? 'flex flex-col' : ''}"
+[2m[WebServer] [22m449:     style="padding-right: {reservedDockPx}px; transition: padding-right 200ms ease-in-out;"
+
+[1A[2K[2m[WebServer] [22m[33m2:43:59 PM [vite-plugin-svelte] src/routes/(app)/extensions/author/+page.svelte:20:50 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[2m[WebServer] [22mhttps://svelte.dev/e/state_referenced_locally[39m
+[2m[WebServer] [22m18: 
+[2m[WebServer] [22m19:   // Reactive copy of the file map. Keys are sorted for stable display.
+[2m[WebServer] [22m20:   let files = $state<Record<string, string>>({ ...data.files });
+[2m[WebServer] [22m                                                          ^
+[2m[WebServer] [22m21:   let fileNames = $derived(Object.keys(files).sort());
+[2m[WebServer] [22m22:   let selected = $state<string>(fileNames[0] ?? "");
+[2m[WebServer] [22m[33m2:43:59 PM [vite-plugin-svelte] src/routes/(app)/extensions/author/+page.svelte:22:32 This reference only captures the initial value of `fileNames`. Did you mean to reference it inside a derived instead?
+[2m[WebServer] [22mhttps://svelte.dev/e/state_referenced_locally[39m
+[2m[WebServer] [22m20:   let files = $state<Record<string, string>>({ ...data.files });
+[2m[WebServer] [22m21:   let fileNames = $derived(Object.keys(files).sort());
+[2m[WebServer] [22m22:   let selected = $state<string>(fileNames[0] ?? "");
+[2m[WebServer] [22m                                             ^
+[2m[WebServer] [22m23:   let saving = $state(false);
+[2m[WebServer] [22m24:   let validating = $state(false);
+[2m[WebServer] [22m[33m2:43:59 PM [vite-plugin-svelte] src/routes/(app)/extensions/author/+page.svelte:251:8 A form label must be associated with a control
+[2m[WebServer] [22mhttps://svelte.dev/e/a11y_label_has_associated_control[39m
+[2m[WebServer] [22m249:     <main class="code">
+[2m[WebServer] [22m250:       {#if selected}
+[2m[WebServer] [22m251:         <label class="file-header">
+[2m[WebServer] [22m                     ^
+[2m[WebServer] [22m252:           <span>{selected}</span>
+[2m[WebServer] [22m253:           {#if saving}<span class="saving">saving…</span>{/if}
+
+[1A[2K[2m[WebServer] [22m[33m2:43:59 PM [vite-plugin-svelte] src/routes/(app)/audit/+page.svelte:19:31 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[2m[WebServer] [22mhttps://svelte.dev/e/state_referenced_locally[39m
+[2m[WebServer] [22m17:   type Entry = (typeof data.entries)[number];
+[2m[WebServer] [22m18: 
+[2m[WebServer] [22m19:   let entries = $state<Entry[]>(data.entries);
+[2m[WebServer] [22m                                        ^
+[2m[WebServer] [22m20:   let nextCursor = $state<string | null>(data.nextCursor);
+[2m[WebServer] [22m21:   let stats = $state(data.stats);
+[2m[WebServer] [22m[33m2:43:59 PM [vite-plugin-svelte] src/routes/(app)/audit/+page.svelte:20:40 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[2m[WebServer] [22mhttps://svelte.dev/e/state_referenced_locally[39m
+[2m[WebServer] [22m18: 
+[2m[WebServer] [22m19:   let entries = $state<Entry[]>(data.entries);
+[2m[WebServer] [22m20:   let nextCursor = $state<string | null>(data.nextCursor);
+[2m[WebServer] [22m                                                 ^
+[2m[WebServer] [22m21:   let stats = $state(data.stats);
+[2m[WebServer] [22m22:   let loading = $state(false);
+[2m[WebServer] [22m[33m2:43:59 PM [vite-plugin-svelte] src/routes/(app)/audit/+page.svelte:21:20 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[2m[WebServer] [22mhttps://svelte.dev/e/state_referenced_locally[39m
+[2m[WebServer] [22m19:   let entries = $state<Entry[]>(data.entries);
+[2m[WebServer] [22m20:   let nextCursor = $state<string | null>(data.nextCursor);
+[2m[WebServer] [22m21:   let stats = $state(data.stats);
+[2m[WebServer] [22m                             ^
+[2m[WebServer] [22m22:   let loading = $state(false);
+[2m[WebServer] [22m23:   let extensionFacets = data.extensionFacets;
+[2m[WebServer] [22m[33m2:43:59 PM [vite-plugin-svelte] src/routes/(app)/audit/+page.svelte:23:23 This reference only captures the initial value of `data`. Did you mean to reference it inside a closure instead?
+[2m[WebServer] [22mhttps://svelte.dev/e/state_referenced_locally[39m
+[2m[WebServer] [22m21:   let stats = $state(data.stats);
+[2m[WebServer] [22m22:   let loading = $state(false);
+[2m[WebServer] [22m23:   let extensionFacets = data.extensionFacets;
+[2m[WebServer] [22m                                ^
+[2m[WebServer] [22m24: 
+[2m[WebServer] [22m25:   // Filter state
+
+[1A[2K[2m[WebServer] [22m[33m2:43:59 PM [vite-plugin-svelte] src/routes/(app)/extensions/[id]/audit/+page.svelte:19:22 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[2m[WebServer] [22mhttps://svelte.dev/e/state_referenced_locally[39m
+[2m[WebServer] [22m17:   type CapabilityFilter = "all" | "llm" | "memory" | "lessons" | "schedule" | "events" | "denials";
+[2m[WebServer] [22m18: 
+[2m[WebServer] [22m19:   let entries = $state(data.entries);
+[2m[WebServer] [22m                               ^
+[2m[WebServer] [22m20:   let nextCursor = $state<string | null>(data.nextCursor);
+[2m[WebServer] [22m21:   let stats = $state(data.stats);
+[2m[WebServer] [22m[33m2:43:59 PM [vite-plugin-svelte] src/routes/(app)/extensions/[id]/audit/+page.svelte:20:40 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[2m[WebServer] [22mhttps://svelte.dev/e/state_referenced_locally[39m
+[2m[WebServer] [22m18: 
+[2m[WebServer] [22m19:   let entries = $state(data.entries);
+[2m[WebServer] [22m20:   let nextCursor = $state<string | null>(data.nextCursor);
+[2m[WebServer] [22m                                                 ^
+[2m[WebServer] [22m21:   let stats = $state(data.stats);
+[2m[WebServer] [22m22:   let loading = $state(false);
+[2m[WebServer] [22m[33m2:43:59 PM [vite-plugin-svelte] src/routes/(app)/extensions/[id]/audit/+page.svelte:21:20 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[2m[WebServer] [22mhttps://svelte.dev/e/state_referenced_locally[39m
+[2m[WebServer] [22m19:   let entries = $state(data.entries);
+[2m[WebServer] [22m20:   let nextCursor = $state<string | null>(data.nextCursor);
+[2m[WebServer] [22m21:   let stats = $state(data.stats);
+[2m[WebServer] [22m                             ^
+[2m[WebServer] [22m22:   let loading = $state(false);
+[2m[WebServer] [22m23:   let activeFilter = $state<CapabilityFilter>("all");
+
+[1A[2K[2m[WebServer] [22m[33m2:43:59 PM [vite-plugin-svelte] src/routes/(app)/extensions/+page.svelte:91:5 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[2m[WebServer] [22mhttps://svelte.dev/e/state_referenced_locally[39m
+[2m[WebServer] [22m89:   // `isBundled`.
+[2m[WebServer] [22m90:   let extensions = $state<ExtensionRecord[]>([
+[2m[WebServer] [22m91:     ...data.bundledExtensions,
+[2m[WebServer] [22m               ^
+[2m[WebServer] [22m92:     ...data.installedExtensions,
+[2m[WebServer] [22m93:   ]);
+[2m[WebServer] [22m[33m2:43:59 PM [vite-plugin-svelte] src/routes/(app)/extensions/+page.svelte:92:5 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[2m[WebServer] [22mhttps://svelte.dev/e/state_referenced_locally[39m
+[2m[WebServer] [22m90:   let extensions = $state<ExtensionRecord[]>([
+[2m[WebServer] [22m91:     ...data.bundledExtensions,
+[2m[WebServer] [22m92:     ...data.installedExtensions,
+[2m[WebServer] [22m               ^
+[2m[WebServer] [22m93:   ]);
+[2m[WebServer] [22m94:   let loading = $state(false);
+
+[1A[2K[2m[WebServer] [22m[33m2:44:00 PM [vite-plugin-svelte] src/lib/components/ChatThread.svelte:382:18 This reference only captures the initial value of `seedMessages`. Did you mean to reference it inside a closure instead?
+[2m[WebServer] [22mhttps://svelte.dev/e/state_referenced_locally[39m
+[2m[WebServer] [22m380:   // normal async load. `__seeded` also gates the async loader so the
+[2m[WebServer] [22m381:   // seed isn't clobbered by a `computeLatestLeaf` overwrite.
+[2m[WebServer] [22m382:   const __seeded = seedMessages !== undefined;
+[2m[WebServer] [22m                                    ^
+[2m[WebServer] [22m383:   // svelte-ignore state_referenced_locally
+[2m[WebServer] [22m384:   let allMessages = $state<Message[]>(
+
+[1A[2K[2m[WebServer] [22m[33m"ReadableStream" is imported from external module "node:stream/web" but never used in "src/routes/api/extensions/[name]/data/[...path]/+server.ts".[39m
+
+[1A[2K[2m[WebServer] [22m[33mExport "ToolExecutor" of module "../src/extensions/tool-executor/executor.ts" was reexported through module "../src/extensions/tool-executor/index.ts" while both modules are dependencies of each other and will end up in different chunks by current Rollup settings. This scenario is not well supported at the moment as it will produce a circular dependency between chunks and will likely lead to broken execution order.
+[2m[WebServer] [22mEither change the import in "src/routes/api/extensions/[name]/events/[event]/+server.ts" to point directly to the exporting module or reconfigure "output.manualChunks" to ensure these modules end up in the same chunk.[39m
+
+[1A[2K[2m[WebServer] [22m[33mExport "ToolExecutor" of module "../src/extensions/tool-executor/executor.ts" was reexported through module "../src/extensions/tool-executor/index.ts" while both modules are dependencies of each other and will end up in different chunks by current Rollup settings. This scenario is not well supported at the moment as it will produce a circular dependency between chunks and will likely lead to broken execution order.
+[2m[WebServer] [22mEither change the import in "src/routes/api/tool-invoke/+server.ts" to point directly to the exporting module or reconfigure "output.manualChunks" to ensure these modules end up in the same chunk.[39m
+
+[1A[2K[2m[WebServer] [22m[33mExport "ToolExecutor" of module "../src/extensions/tool-executor/executor.ts" was reexported through module "../src/extensions/tool-executor/index.ts" while both modules are dependencies of each other and will end up in different chunks by current Rollup settings. This scenario is not well supported at the moment as it will produce a circular dependency between chunks and will likely lead to broken execution order.
+[2m[WebServer] [22mEither change the import in "../src/runtime/ask-user-host.ts" to point directly to the exporting module or reconfigure "output.manualChunks" to ensure these modules end up in the same chunk.[39m
+
+[1A[2K[2m[WebServer] [22m[33mExport "ToolExecutor" of module "../src/extensions/tool-executor/executor.ts" was reexported through module "../src/extensions/tool-executor/index.ts" while both modules are dependencies of each other and will end up in different chunks by current Rollup settings. This scenario is not well supported at the moment as it will produce a circular dependency between chunks and will likely lead to broken execution order.
+[2m[WebServer] [22mEither change the import in "../src/runtime/orchestration-host.ts" to point directly to the exporting module or reconfigure "output.manualChunks" to ensure these modules end up in the same chunk.[39m
+
+[1A[2K[2m[WebServer] [22m[33mExport "ToolExecutor" of module "../src/extensions/tool-executor/executor.ts" was reexported through module "../src/extensions/tool-executor/index.ts" while both modules are dependencies of each other and will end up in different chunks by current Rollup settings. This scenario is not well supported at the moment as it will produce a circular dependency between chunks and will likely lead to broken execution order.
+[2m[WebServer] [22mEither change the import in "src/routes/api/ez-actions/[name]/+server.ts" to point directly to the exporting module or reconfigure "output.manualChunks" to ensure these modules end up in the same chunk.[39m
+
+[1A[2K[2m[WebServer] [22m[33mExport "ToolExecutor" of module "../src/extensions/tool-executor/executor.ts" was reexported through module "../src/extensions/tool-executor/index.ts" while both modules are dependencies of each other and will end up in different chunks by current Rollup settings. This scenario is not well supported at the moment as it will produce a circular dependency between chunks and will likely lead to broken execution order.
+[2m[WebServer] [22mEither change the import in "../src/runtime/stream-chat/setup-tools.ts" to point directly to the exporting module or reconfigure "output.manualChunks" to ensure these modules end up in the same chunk.[39m
+
+[1A[2K[2m[WebServer] [22m[33mExport "ToolExecutor" of module "../src/extensions/tool-executor/executor.ts" was reexported through module "../src/extensions/tool-executor/index.ts" while both modules are dependencies of each other and will end up in different chunks by current Rollup settings. This scenario is not well supported at the moment as it will produce a circular dependency between chunks and will likely lead to broken execution order.
+[2m[WebServer] [22mEither change the import in "../src/runtime/executor.ts" to point directly to the exporting module or reconfigure "output.manualChunks" to ensure these modules end up in the same chunk.[39m
+
+[1A[2K[2m[WebServer] [22m[33mExport "ToolExecutor" of module "../src/extensions/tool-executor/executor.ts" was reexported through module "../src/extensions/tool-executor/index.ts" while both modules are dependencies of each other and will end up in different chunks by current Rollup settings. This scenario is not well supported at the moment as it will produce a circular dependency between chunks and will likely lead to broken execution order.
+[2m[WebServer] [22mEither change the import in "src/lib/server/context.ts" to point directly to the exporting module or reconfigure "output.manualChunks" to ensure these modules end up in the same chunk.[39m
+
+[1A[2K[2m[WebServer] [22m[33m[esbuild css minify]
+[2m[WebServer] [22m▲ [WARNING] "file" is not a known CSS property [unsupported-css-property]
+[2m[WebServer] [22m
+[2m[WebServer] [22m    <stdin>:2:83115:
+[2m[WebServer] [22m      2 │ ...important}.\!\[file\:\.\.\.\]{file:...!important}.\!\[file\:a\.t...
+[2m[WebServer] [22m        │                                  ~~~~
+[2m[WebServer] [22m        ╵                                  flex
+[2m[WebServer] [22m
+[2m[WebServer] [22m  Did you mean "flex" instead?
+[2m[WebServer] [22m
+[2m[WebServer] [22m
+[2m[WebServer] [22m▲ [WARNING] "file" is not a known CSS property [unsupported-css-property]
+[2m[WebServer] [22m
+[2m[WebServer] [22m    <stdin>:2:83153:
+[2m[WebServer] [22m      2 │ ...!important}.\!\[file\:a\.ts\]{file:a.ts!important}.\!\[file\:foo...
+[2m[WebServer] [22m        │                                  ~~~~
+[2m[WebServer] [22m        ╵                                  flex
+[2m[WebServer] [22m
+[2m[WebServer] [22m  Did you mean "flex" instead?
+[2m[WebServer] [22m
+[2m[WebServer] [22m
+[2m[WebServer] [22m▲ [WARNING] "file" is not a known CSS property [unsupported-css-property]
+[2m[WebServer] [22m
+[2m[WebServer] [22m    <stdin>:2:83194:
+[2m[WebServer] [22m      2 │ ...mportant}.\!\[file\:foo\.ts\]{file:foo.ts!important}.\!\[kind\:n...
+[2m[WebServer] [22m        │                                  ~~~~
+[2m[WebServer] [22m        ╵                                  flex
+[2m[WebServer] [22m
+[2m[WebServer] [22m  Did you mean "flex" instead?
+[2m[WebServer] [22m
+[2m[WebServer] [22m[39m
+
+[1A[2K[2m[WebServer] [22m[33m[plugin vite:reporter] 
+[2m[WebServer] [22m(!) /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/src/db/queries/error-logs.ts is dynamically imported by /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/src/logger.ts but also statically imported by /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/src/db/queries/analytics.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/src/db/queries/audit-log.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/src/db/queries/tool-calls.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/src/extensions/recordCapabilityCall.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/src/startup/background-timers.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/web/src/routes/api/admin/errors/+server.ts, dynamic import will not move module into another chunk.
+[2m[WebServer] [22m[39m
+
+[1A[2K[2m[WebServer] [22m[33m[plugin vite:reporter] 
+[2m[WebServer] [22m(!) /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/src/extensions/registry.ts is dynamically imported by /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/src/extensions/subprocess.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/src/extensions/webhook-delivery-daemon.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/src/runtime/stream-chat/setup-tools.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/web/src/lib/server/hub-render-pull.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/web/src/routes/api/mentions/search/+server.ts but also statically imported by /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/src/db/queries/conversation-extensions.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/src/extensions/author-install.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/src/extensions/installer.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/src/extensions/mcp-sandbox.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/src/extensions/sdk/test-helpers.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/src/runtime/executor.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/src/runtime/stream-chat/setup-tools.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/src/runtime/stream-chat/subscribe-bridge.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/src/runtime/workflow-delegation-record.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/src/runtime/workflow-tool-runner.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/src/startup/background-timers.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/web/src/lib/server/context.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/web/src/lib/server/extensions/activate-extension.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/web/src/lib/server/scoped-tools.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/web/src/lib/server/security/bundled-creds.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/web/src/lib/server/security/openai-extension-creds.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/web/src/routes/api/extensions/+server.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/web/src/routes/api/extensions/[id]/+server.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/web/src/routes/api/extensions/[id]/permissions/+server.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/web/src/routes/api/extensions/[id]/reapprove-drift/+server.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/web/src/routes/api/extensions/[id]/reapprove/+server.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/web/src/routes/api/extensions/[name]/events/[event]/+server.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/web/src/routes/api/extensions/[name]/tools/+server.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/web/src/routes/api/ez-actions/[name]/+server.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/web/src/routes/api/import/commit/+server.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/web/src/routes/api/mcp-servers/+server.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/web/src/routes/api/mcp-servers/[id]/+server.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/web/src/routes/api/mcp-servers/[id]/refresh/+server.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/web/src/routes/api/tool-invoke/+server.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/web/src/routes/api/workflows/delegations/+server.ts, /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-a33cfcfb432a6e7ac/web/src/routes/api/workflows/delegations/preview/+server.ts, dynamic import will not move module into another chunk.
+[2m[WebServer] [22m[39m
+
+[1A[2K[2m[WebServer] [22m[33m2:44:05 PM [vite-plugin-svelte] src/routes/(app)/+layout.svelte:447:1 noninteractive element cannot have nonnegative tabIndex value
+[2m[WebServer] [22mhttps://svelte.dev/e/a11y_no_noninteractive_tabindex[39m
+[2m[WebServer] [22m445:     drops to 0 on mobile where the dock takes the full viewport.
+[2m[WebServer] [22m446:   -->
+[2m[WebServer] [22m447:   <main
+[2m[WebServer] [22m            ^
+[2m[WebServer] [22m448:     class="relative flex-1 overflow-y-auto {isChatRoute ? 'flex flex-col' : ''}"
+[2m[WebServer] [22m449:     style="padding-right: {reservedDockPx}px; transition: padding-right 200ms ease-in-out;"
+
+[1A[2K[2m[WebServer] [22m[33m2:44:05 PM [vite-plugin-svelte] src/routes/(app)/extensions/[id]/audit/+page.svelte:19:22 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[2m[WebServer] [22mhttps://svelte.dev/e/state_referenced_locally[39m
+[2m[WebServer] [22m17:   type CapabilityFilter = "all" | "llm" | "memory" | "lessons" | "schedule" | "events" | "denials";
+[2m[WebServer] [22m18: 
+[2m[WebServer] [22m19:   let entries = $state(data.entries);
+[2m[WebServer] [22m                               ^
+[2m[WebServer] [22m20:   let nextCursor = $state<string | null>(data.nextCursor);
+[2m[WebServer] [22m21:   let stats = $state(data.stats);
+[2m[WebServer] [22m[33m2:44:05 PM [vite-plugin-svelte] src/routes/(app)/extensions/[id]/audit/+page.svelte:20:40 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[2m[WebServer] [22mhttps://svelte.dev/e/state_referenced_locally[39m
+[2m[WebServer] [22m18: 
+[2m[WebServer] [22m19:   let entries = $state(data.entries);
+[2m[WebServer] [22m20:   let nextCursor = $state<string | null>(data.nextCursor);
+[2m[WebServer] [22m                                                 ^
+[2m[WebServer] [22m21:   let stats = $state(data.stats);
+[2m[WebServer] [22m22:   let loading = $state(false);
+[2m[WebServer] [22m[33m2:44:05 PM [vite-plugin-svelte] src/routes/(app)/extensions/[id]/audit/+page.svelte:21:20 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[2m[WebServer] [22mhttps://svelte.dev/e/state_referenced_locally[39m
+[2m[WebServer] [22m19:   let entries = $state(data.entries);
+[2m[WebServer] [22m20:   let nextCursor = $state<string | null>(data.nextCursor);
+[2m[WebServer] [22m21:   let stats = $state(data.stats);
+[2m[WebServer] [22m                             ^
+[2m[WebServer] [22m22:   let loading = $state(false);
+[2m[WebServer] [22m23:   let activeFilter = $state<CapabilityFilter>("all");
+
+[1A[2K[2m[WebServer] [22m[33m2:44:05 PM [vite-plugin-svelte] src/routes/(app)/extensions/author/+page.svelte:20:50 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[2m[WebServer] [22mhttps://svelte.dev/e/state_referenced_locally[39m
+[2m[WebServer] [22m18: 
+[2m[WebServer] [22m19:   // Reactive copy of the file map. Keys are sorted for stable display.
+[2m[WebServer] [22m20:   let files = $state<Record<string, string>>({ ...data.files });
+[2m[WebServer] [22m                                                          ^
+[2m[WebServer] [22m21:   let fileNames = $derived(Object.keys(files).sort());
+[2m[WebServer] [22m22:   let selected = $state<string>(fileNames[0] ?? "");
+[2m[WebServer] [22m[33m2:44:05 PM [vite-plugin-svelte] src/routes/(app)/extensions/author/+page.svelte:22:32 This reference only captures the initial value of `fileNames`. Did you mean to reference it inside a derived instead?
+[2m[WebServer] [22mhttps://svelte.dev/e/state_referenced_locally[39m
+[2m[WebServer] [22m20:   let files = $state<Record<string, string>>({ ...data.files });
+[2m[WebServer] [22m21:   let fileNames = $derived(Object.keys(files).sort());
+[2m[WebServer] [22m22:   let selected = $state<string>(fileNames[0] ?? "");
+[2m[WebServer] [22m                                             ^
+[2m[WebServer] [22m23:   let saving = $state(false);
+[2m[WebServer] [22m24:   let validating = $state(false);
+
+[1A[2K[2m[WebServer] [22m[33m2:44:05 PM [vite-plugin-svelte] src/routes/(app)/extensions/author/+page.svelte:251:8 A form label must be associated with a control
+[2m[WebServer] [22mhttps://svelte.dev/e/a11y_label_has_associated_control[39m
+[2m[WebServer] [22m249:     <main class="code">
+[2m[WebServer] [22m250:       {#if selected}
+[2m[WebServer] [22m251:         <label class="file-header">
+[2m[WebServer] [22m                     ^
+[2m[WebServer] [22m252:           <span>{selected}</span>
+[2m[WebServer] [22m253:           {#if saving}<span class="saving">saving…</span>{/if}
+
+[1A[2K[2m[WebServer] [22m[33m2:44:06 PM [vite-plugin-svelte] src/routes/(app)/extensions/+page.svelte:91:5 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[2m[WebServer] [22mhttps://svelte.dev/e/state_referenced_locally[39m
+[2m[WebServer] [22m89:   // `isBundled`.
+[2m[WebServer] [22m90:   let extensions = $state<ExtensionRecord[]>([
+[2m[WebServer] [22m91:     ...data.bundledExtensions,
+[2m[WebServer] [22m               ^
+[2m[WebServer] [22m92:     ...data.installedExtensions,
+[2m[WebServer] [22m93:   ]);
+
+[1A[2K[2m[WebServer] [22m[33m2:44:06 PM [vite-plugin-svelte] src/routes/(app)/extensions/+page.svelte:92:5 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[2m[WebServer] [22mhttps://svelte.dev/e/state_referenced_locally[39m
+[2m[WebServer] [22m90:   let extensions = $state<ExtensionRecord[]>([
+[2m[WebServer] [22m91:     ...data.bundledExtensions,
+[2m[WebServer] [22m92:     ...data.installedExtensions,
+[2m[WebServer] [22m               ^
+[2m[WebServer] [22m93:   ]);
+[2m[WebServer] [22m94:   let loading = $state(false);
+
+[1A[2K[2m[WebServer] [22m[33m2:44:06 PM [vite-plugin-svelte] src/routes/(app)/audit/+page.svelte:19:31 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[2m[WebServer] [22mhttps://svelte.dev/e/state_referenced_locally[39m
+[2m[WebServer] [22m17:   type Entry = (typeof data.entries)[number];
+[2m[WebServer] [22m18: 
+[2m[WebServer] [22m19:   let entries = $state<Entry[]>(data.entries);
+[2m[WebServer] [22m                                        ^
+[2m[WebServer] [22m20:   let nextCursor = $state<string | null>(data.nextCursor);
+[2m[WebServer] [22m21:   let stats = $state(data.stats);
+
+[1A[2K[2m[WebServer] [22m[33m2:44:06 PM [vite-plugin-svelte] src/routes/(app)/audit/+page.svelte:20:40 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[2m[WebServer] [22mhttps://svelte.dev/e/state_referenced_locally[39m
+[2m[WebServer] [22m18: 
+[2m[WebServer] [22m19:   let entries = $state<Entry[]>(data.entries);
+[2m[WebServer] [22m20:   let nextCursor = $state<string | null>(data.nextCursor);
+[2m[WebServer] [22m                                                 ^
+[2m[WebServer] [22m21:   let stats = $state(data.stats);
+[2m[WebServer] [22m22:   let loading = $state(false);
+[2m[WebServer] [22m[33m2:44:06 PM [vite-plugin-svelte] src/routes/(app)/audit/+page.svelte:21:20 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[2m[WebServer] [22mhttps://svelte.dev/e/state_referenced_locally[39m
+[2m[WebServer] [22m19:   let entries = $state<Entry[]>(data.entries);
+[2m[WebServer] [22m20:   let nextCursor = $state<string | null>(data.nextCursor);
+[2m[WebServer] [22m21:   let stats = $state(data.stats);
+[2m[WebServer] [22m                             ^
+[2m[WebServer] [22m22:   let loading = $state(false);
+[2m[WebServer] [22m23:   let extensionFacets = data.extensionFacets;
+[2m[WebServer] [22m[33m2:44:06 PM [vite-plugin-svelte] src/routes/(app)/audit/+page.svelte:23:23 This reference only captures the initial value of `data`. Did you mean to reference it inside a closure instead?
+[2m[WebServer] [22mhttps://svelte.dev/e/state_referenced_locally[39m
+[2m[WebServer] [22m21:   let stats = $state(data.stats);
+[2m[WebServer] [22m22:   let loading = $state(false);
+[2m[WebServer] [22m23:   let extensionFacets = data.extensionFacets;
+[2m[WebServer] [22m                                ^
+[2m[WebServer] [22m24: 
+[2m[WebServer] [22m25:   // Filter state
+
+[1A[2K[2m[WebServer] [22m[33m2:44:06 PM [vite-plugin-svelte] src/lib/components/ChatThread.svelte:382:18 This reference only captures the initial value of `seedMessages`. Did you mean to reference it inside a closure instead?
+[2m[WebServer] [22mhttps://svelte.dev/e/state_referenced_locally[39m
+[2m[WebServer] [22m380:   // normal async load. `__seeded` also gates the async loader so the
+[2m[WebServer] [22m381:   // seed isn't clobbered by a `computeLatestLeaf` overwrite.
+[2m[WebServer] [22m382:   const __seeded = seedMessages !== undefined;
+[2m[WebServer] [22m                                    ^
+[2m[WebServer] [22m383:   // svelte-ignore state_referenced_locally
+[2m[WebServer] [22m384:   let allMessages = $state<Message[]>(
+
+[1A[2K[2m[WebServer] [22m[33m[esbuild css minify]
+[2m[WebServer] [22m▲ [WARNING] "file" is not a known CSS property [unsupported-css-property]
+[2m[WebServer] [22m
+[2m[WebServer] [22m    <stdin>:2:83115:
+[2m[WebServer] [22m      2 │ ...important}.\!\[file\:\.\.\.\]{file:...!important}.\!\[file\:a\.t...
+[2m[WebServer] [22m        │                                  ~~~~
+[2m[WebServer] [22m        ╵                                  flex
+[2m[WebServer] [22m
+[2m[WebServer] [22m  Did you mean "flex" instead?
+[2m[WebServer] [22m
+[2m[WebServer] [22m
+[2m[WebServer] [22m▲ [WARNING] "file" is not a known CSS property [unsupported-css-property]
+[2m[WebServer] [22m
+[2m[WebServer] [22m    <stdin>:2:83153:
+[2m[WebServer] [22m      2 │ ...!important}.\!\[file\:a\.ts\]{file:a.ts!important}.\!\[file\:foo...
+[2m[WebServer] [22m        │                                  ~~~~
+[2m[WebServer] [22m        ╵                                  flex
+[2m[WebServer] [22m
+[2m[WebServer] [22m  Did you mean "flex" instead?
+[2m[WebServer] [22m
+[2m[WebServer] [22m
+[2m[WebServer] [22m▲ [WARNING] "file" is not a known CSS property [unsupported-css-property]
+[2m[WebServer] [22m
+[2m[WebServer] [22m    <stdin>:2:83194:
+[2m[WebServer] [22m      2 │ ...mportant}.\!\[file\:foo\.ts\]{file:foo.ts!important}.\!\[kind\:n...
+[2m[WebServer] [22m        │                                  ~~~~
+[2m[WebServer] [22m        ╵                                  flex
+[2m[WebServer] [22m
+[2m[WebServer] [22m  Did you mean "flex" instead?
+[2m[WebServer] [22m
+[2m[WebServer] [22m[39m
+
+[1A[2K[2m[WebServer] [22m[33m
+[2m[WebServer] [22m(!) Some chunks are larger than 500 kB after minification. Consider:
+[2m[WebServer] [22m- Using dynamic import() to code-split the application
+[2m[WebServer] [22m- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+[2m[WebServer] [22m- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.[39m
+
+[1A[2K[2m[WebServer] [22m.svelte-kit/adapter-bun/chunks/bundled.js (11:52) [33m[UNRESOLVED_IMPORT] Warning:[0m Could not resolve 'bun:ffi' in .svelte-kit/adapter-bun/chunks/bundled.js
+[2m[WebServer] [22m    [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m .svelte-kit/adapter-bun/chunks/bundled.js:11:53 [38;5;246m][0m
+[2m[WebServer] [22m    [38;5;246m│[0m
+[2m[WebServer] [22m [38;5;246m11 │[0m [38;5;249mi[0m[38;5;249mm[0m[38;5;249mp[0m[38;5;249mo[0m[38;5;249mr[0m[38;5;249mt[0m[38;5;249m [0m[38;5;249m{[0m[38;5;249m [0m[38;5;249mF[0m[38;5;249mF[0m[38;5;249mI[0m[38;5;249mT[0m[38;5;249my[0m[38;5;249mp[0m[38;5;249me[0m[38;5;249m,[0m[38;5;249m [0m[38;5;249md[0m[38;5;249ml[0m[38;5;249mo[0m[38;5;249mp[0m[38;5;249me[0m[38;5;249mn[0m[38;5;249m,[0m[38;5;249m [0m[38;5;249mp[0m[38;5;249mt[0m[38;5;249mr[0m[38;5;249m,[0m[38;5;249m [0m[38;5;249mt[0m[38;5;249mo[0m[38;5;249mA[0m[38;5;249mr[0m[38;5;249mr[0m[38;5;249ma[0m[38;5;249my[0m[38;5;249mB[0m[38;5;249mu[0m[38;5;249mf[0m[38;5;249mf[0m[38;5;249me[0m[38;5;249mr[0m[38;5;249m [0m[38;5;249m}[0m[38;5;249m [0m[38;5;249mf[0m[38;5;249mr[0m[38;5;249mo[0m[38;5;249mm[0m[38;5;249m [0m"bun:ffi"[38;5;249m;[0m
+[2m[WebServer] [22m [38;5;240m   │[0m                                                     ────┬────  
+[2m[WebServer] [22m [38;5;240m   │[0m                                                         ╰────── Module not found, treating it as an external dependency
+[2m[WebServer] [22m[38;5;246m────╯[0m
+[2m[WebServer] [22m
+
+[1A[2K[2m[WebServer] [22m../node_modules/.bun/drizzle-orm@0.45.2+12e193dad3561cdc/node_modules/drizzle-orm/bun-sql/driver.js (1:20) [33m[UNRESOLVED_IMPORT] Warning:[0m Could not resolve 'bun' in ../node_modules/.bun/drizzle-orm@0.45.2+12e193dad3561cdc/node_modules/drizzle-orm/bun-sql/driver.js
+[2m[WebServer] [22m   [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m ../node_modules/.bun/drizzle-orm@0.45.2+12e193dad3561cdc/node_modules/drizzle-orm/bun-sql/driver.js:1:21 [38;5;246m][0m
+[2m[WebServer] [22m   [38;5;246m│[0m
+[2m[WebServer] [22m [38;5;246m1 │[0m [38;5;249mi[0m[38;5;249mm[0m[38;5;249mp[0m[38;5;249mo[0m[38;5;249mr[0m[38;5;249mt[0m[38;5;249m [0m[38;5;249m{[0m[38;5;249m [0m[38;5;249mS[0m[38;5;249mQ[0m[38;5;249mL[0m[38;5;249m [0m[38;5;249m}[0m[38;5;249m [0m[38;5;249mf[0m[38;5;249mr[0m[38;5;249mo[0m[38;5;249mm[0m[38;5;249m [0m"bun"[38;5;249m;[0m
+[2m[WebServer] [22m [38;5;240m  │[0m                     ──┬──  
+[2m[WebServer] [22m [38;5;240m  │[0m                       ╰──── Module not found, treating it as an external dependency
+[2m[WebServer] [22m[38;5;246m───╯[0m
+[2m[WebServer] [22m
+[2m[WebServer] [22m../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/index.js (3:19) [33m[UNRESOLVED_IMPORT] Warning:[0m Could not resolve 'child_process' in ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/index.js
+[2m[WebServer] [22m   [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/index.js:3:20 [38;5;246m][0m
+[2m[WebServer] [22m   [38;5;246m│[0m
+[2m[WebServer] [22m [38;5;246m3 │[0m [38;5;249mc[0m[38;5;249mo[0m[38;5;249mn[0m[38;5;249ms[0m[38;5;249mt[0m[38;5;249m [0m[38;5;249mc[0m[38;5;249mp[0m[38;5;249m [0m[38;5;249m=[0m[38;5;249m [0m[38;5;249mr[0m[38;5;249me[0m[38;5;249mq[0m[38;5;249mu[0m[38;5;249mi[0m[38;5;249mr[0m[38;5;249me[0m[38;5;249m([0m'child_process'[38;5;249m)[0m[38;5;249m;[0m
+[2m[WebServer] [22m [38;5;240m  │[0m                    ───────┬───────  
+[2m[WebServer] [22m [38;5;240m  │[0m                           ╰───────── Module not found, treating it as an external dependency
+[2m[WebServer] [22m[38;5;246m───╯[0m
+[2m[WebServer] [22m
+[2m[WebServer] [22m../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/parse.js (3:21) [33m[UNRESOLVED_IMPORT] Warning:[0m Could not resolve 'path' in ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/parse.js
+[2m[WebServer] [22m   [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/parse.js:3:22 [38;5;246m][0m
+[2m[WebServer] [22m   [38;5;246m│[0m
+[2m[WebServer] [22m [38;5;246m3 │[0m [38;5;249mc[0m[38;5;249mo[0m[38;5;249mn[0m[38;5;249ms[0m[38;5;249mt[0m[38;5;249m [0m[38;5;249mp[0m[38;5;249ma[0m[38;5;249mt[0m[38;5;249mh[0m[38;5;249m [0m[38;5;249m=[0m[38;5;249m [0m[38;5;249mr[0m[38;5;249me[0m[38;5;249mq[0m[38;5;249mu[0m[38;5;249mi[0m[38;5;249mr[0m[38;5;249me[0m[38;5;249m([0m'path'[38;5;249m)[0m[38;5;249m;[0m
+[2m[WebServer] [22m [38;5;240m  │[0m                      ───┬──  
+[2m[WebServer] [22m [38;5;240m  │[0m                         ╰──── Module not found, treating it as an external dependency
+[2m[WebServer] [22m[38;5;246m───╯[0m
+[2m[WebServer] [22m
+
+[1A[2K[2m[WebServer] [22m../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/util/resolveCommand.js (3:21) [33m[UNRESOLVED_IMPORT] Warning:[0m Could not resolve 'path' in ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/util/resolveCommand.js
+[2m[WebServer] [22m   [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/util/resolveCommand.js:3:22 [38;5;246m][0m
+[2m[WebServer] [22m   [38;5;246m│[0m
+[2m[WebServer] [22m [38;5;246m3 │[0m [38;5;249mc[0m[38;5;249mo[0m[38;5;249mn[0m[38;5;249ms[0m[38;5;249mt[0m[38;5;249m [0m[38;5;249mp[0m[38;5;249ma[0m[38;5;249mt[0m[38;5;249mh[0m[38;5;249m [0m[38;5;249m=[0m[38;5;249m [0m[38;5;249mr[0m[38;5;249me[0m[38;5;249mq[0m[38;5;249mu[0m[38;5;249mi[0m[38;5;249mr[0m[38;5;249me[0m[38;5;249m([0m'path'[38;5;249m)[0m[38;5;249m;[0m
+[2m[WebServer] [22m [38;5;240m  │[0m                      ───┬──  
+[2m[WebServer] [22m [38;5;240m  │[0m                         ╰──── Module not found, treating it as an external dependency
+[2m[WebServer] [22m[38;5;246m───╯[0m
+[2m[WebServer] [22m
+[2m[WebServer] [22m../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/util/readShebang.js (3:19) [33m[UNRESOLVED_IMPORT] Warning:[0m Could not resolve 'fs' in ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/util/readShebang.js
+[2m[WebServer] [22m   [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/util/readShebang.js:3:20 [38;5;246m][0m
+[2m[WebServer] [22m   [38;5;246m│[0m
+[2m[WebServer] [22m [38;5;246m3 │[0m [38;5;249mc[0m[38;5;249mo[0m[38;5;249mn[0m[38;5;249ms[0m[38;5;249mt[0m[38;5;249m [0m[38;5;249mf[0m[38;5;249ms[0m[38;5;249m [0m[38;5;249m=[0m[38;5;249m [0m[38;5;249mr[0m[38;5;249me[0m[38;5;249mq[0m[38;5;249mu[0m[38;5;249mi[0m[38;5;249mr[0m[38;5;249me[0m[38;5;249m([0m'fs'[38;5;249m)[0m[38;5;249m;[0m
+[2m[WebServer] [22m [38;5;240m  │[0m                    ──┬─  
+[2m[WebServer] [22m [38;5;240m  │[0m                      ╰─── Module not found, treating it as an external dependency
+[2m[WebServer] [22m[38;5;246m───╯[0m
+[2m[WebServer] [22m
+[2m[WebServer] [22m../node_modules/.bun/which@2.0.2/node_modules/which/which.js (5:21) [33m[UNRESOLVED_IMPORT] Warning:[0m Could not resolve 'path' in ../node_modules/.bun/which@2.0.2/node_modules/which/which.js
+[2m[WebServer] [22m   [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m ../node_modules/.bun/which@2.0.2/node_modules/which/which.js:5:22 [38;5;246m][0m
+[2m[WebServer] [22m   [38;5;246m│[0m
+[2m[WebServer] [22m [38;5;246m5 │[0m [38;5;249mc[0m[38;5;249mo[0m[38;5;249mn[0m[38;5;249ms[0m[38;5;249mt[0m[38;5;249m [0m[38;5;249mp[0m[38;5;249ma[0m[38;5;249mt[0m[38;5;249mh[0m[38;5;249m [0m[38;5;249m=[0m[38;5;249m [0m[38;5;249mr[0m[38;5;249me[0m[38;5;249mq[0m[38;5;249mu[0m[38;5;249mi[0m[38;5;249mr[0m[38;5;249me[0m[38;5;249m([0m'path'[38;5;249m)[0m
+[2m[WebServer] [22m [38;5;240m  │[0m                      ───┬──  
+[2m[WebServer] [22m [38;5;240m  │[0m                         ╰──── Module not found, treating it as an external dependency
+[2m[WebServer] [22m[38;5;246m───╯[0m
+[2m[WebServer] [22m
+
+[1A[2K[2m[WebServer] [22m../node_modules/.bun/isexe@2.0.0/node_modules/isexe/index.js (1:17) [33m[UNRESOLVED_IMPORT] Warning:[0m Could not resolve 'fs' in ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/index.js
+[2m[WebServer] [22m   [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/index.js:1:18 [38;5;246m][0m
+[2m[WebServer] [22m   [38;5;246m│[0m
+[2m[WebServer] [22m [38;5;246m1 │[0m [38;5;249mv[0m[38;5;249ma[0m[38;5;249mr[0m[38;5;249m [0m[38;5;249mf[0m[38;5;249ms[0m[38;5;249m [0m[38;5;249m=[0m[38;5;249m [0m[38;5;249mr[0m[38;5;249me[0m[38;5;249mq[0m[38;5;249mu[0m[38;5;249mi[0m[38;5;249mr[0m[38;5;249me[0m[38;5;249m([0m'fs'[38;5;249m)[0m
+[2m[WebServer] [22m [38;5;240m  │[0m                  ──┬─  
+[2m[WebServer] [22m [38;5;240m  │[0m                    ╰─── Module not found, treating it as an external dependency
+[2m[WebServer] [22m[38;5;246m───╯[0m
+[2m[WebServer] [22m
+[2m[WebServer] [22m../node_modules/.bun/isexe@2.0.0/node_modules/isexe/windows.js (4:17) [33m[UNRESOLVED_IMPORT] Warning:[0m Could not resolve 'fs' in ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/windows.js
+[2m[WebServer] [22m   [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/windows.js:4:18 [38;5;246m][0m
+[2m[WebServer] [22m   [38;5;246m│[0m
+[2m[WebServer] [22m [38;5;246m4 │[0m [38;5;249mv[0m[38;5;249ma[0m[38;5;249mr[0m[38;5;249m [0m[38;5;249mf[0m[38;5;249ms[0m[38;5;249m [0m[38;5;249m=[0m[38;5;249m [0m[38;5;249mr[0m[38;5;249me[0m[38;5;249mq[0m[38;5;249mu[0m[38;5;249mi[0m[38;5;249mr[0m[38;5;249me[0m[38;5;249m([0m'fs'[38;5;249m)[0m
+[2m[WebServer] [22m [38;5;240m  │[0m                  ──┬─  
+[2m[WebServer] [22m [38;5;240m  │[0m                    ╰─── Module not found, treating it as an external dependency
+[2m[WebServer] [22m[38;5;246m───╯[0m
+[2m[WebServer] [22m
+
+[1A[2K[2m[WebServer] [22m../node_modules/.bun/isexe@2.0.0/node_modules/isexe/mode.js (4:17) [33m[UNRESOLVED_IMPORT] Warning:[0m Could not resolve 'fs' in ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/mode.js
+[2m[WebServer] [22m   [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/mode.js:4:18 [38;5;246m][0m
+[2m[WebServer] [22m   [38;5;246m│[0m
+[2m[WebServer] [22m [38;5;246m4 │[0m [38;5;249mv[0m[38;5;249ma[0m[38;5;249mr[0m[38;5;249m [0m[38;5;249mf[0m[38;5;249ms[0m[38;5;249m [0m[38;5;249m=[0m[38;5;249m [0m[38;5;249mr[0m[38;5;249me[0m[38;5;249mq[0m[38;5;249mu[0m[38;5;249mi[0m[38;5;249mr[0m[38;5;249me[0m[38;5;249m([0m'fs'[38;5;249m)[0m
+[2m[WebServer] [22m [38;5;240m  │[0m                  ──┬─  
+[2m[WebServer] [22m [38;5;240m  │[0m                    ╰─── Module not found, treating it as an external dependency
+[2m[WebServer] [22m[38;5;246m───╯[0m
+[2m[WebServer] [22m
+
+[1A[2K[2m[WebServer] [22m[0m[2m[35m$[0m [2m[1mbunx --bun vite preview[0m
+
+
+Running 13 tests using 13 workers
+
+[1A[2K[1/13] [chromium] › e2e/workflow-delegations.spec.ts:315:2 › Delegations page › an empty state says so on both lists
+[1A[2K[chromium] › e2e/workflow-delegations.spec.ts:315:2 › Delegations page › an empty state says so on both lists
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+[1A[2K[2/13] [chromium] › e2e/workflow-delegations.spec.ts:432:2 › Delegation consent dialog › discloses all THREE things the token limit does not cover
+[1A[2K[3/13] [chromium] › e2e/workflow-delegations.spec.ts:461:2 › Delegation consent dialog › shows the capability diff, attributed, with when-guarded steps
+[1A[2K[4/13] [chromium] › e2e/workflow-delegations.spec.ts:364:2 › Delegations page › a limit can be LOWERED, not only raised
+[1A[2K[chromium] › e2e/workflow-delegations.spec.ts:432:2 › Delegation consent dialog › discloses all THREE things the token limit does not cover
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+[1A[2K[5/13] [chromium] › e2e/workflow-delegations.spec.ts:484:2 › Delegation consent dialog › approve stays disabled, with a visible reason, until both bounds are set
+[1A[2K[chromium] › e2e/workflow-delegations.spec.ts:461:2 › Delegation consent dialog › shows the capability diff, attributed, with when-guarded steps
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+[1A[2K[6/13] [chromium] › e2e/workflow-delegations.spec.ts:523:2 › Delegation consent dialog › a consent-time refusal reaches the human as the SERVER's sentence
+[1A[2K[7/13] [chromium] › e2e/workflow-delegations.spec.ts:383:2 › Delegations page › a 409 renders the server's disabled_reason VERBATIM
+[1A[2K[8/13] [chromium] › e2e/workflow-delegations.spec.ts:559:2 › Delegation consent dialog › renders the consent dialog and captures evidence @evidence
+[1A[2K[9/13] [chromium] › e2e/workflow-delegations.spec.ts:408:2 › Delegation consent dialog › offers BOTH owner kinds, and warns about a service account's reach
+[1A[2K[chromium] › e2e/workflow-delegations.spec.ts:484:2 › Delegation consent dialog › approve stays disabled, with a visible reason, until both bounds are set
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+[1A[2K[chromium] › e2e/workflow-delegations.spec.ts:364:2 › Delegations page › a limit can be LOWERED, not only raised
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+[1A[2K[chromium] › e2e/workflow-delegations.spec.ts:383:2 › Delegations page › a 409 renders the server's disabled_reason VERBATIM
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+[1A[2K[chromium] › e2e/workflow-delegations.spec.ts:523:2 › Delegation consent dialog › a consent-time refusal reaches the human as the SERVER's sentence
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+[1A[2K[10/13] [chromium] › e2e/workflow-delegations.spec.ts:276:2 › Delegations page › lists what has been granted, and what it has run
+[1A[2K[chromium] › e2e/workflow-delegations.spec.ts:559:2 › Delegation consent dialog › renders the consent dialog and captures evidence @evidence
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+[1A[2K[chromium] › e2e/workflow-delegations.spec.ts:408:2 › Delegation consent dialog › offers BOTH owner kinds, and warns about a service account's reach
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+[1A[2K[chromium] › e2e/workflow-delegations.spec.ts:276:2 › Delegations page › lists what has been granted, and what it has run
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+[1A[2K[11/13] [chromium] › e2e/workflow-delegations.spec.ts:343:2 › Delegations page › saving a limit sends a SINGLE-KEY body — the schema is strict
+[1A[2K[12/13] [chromium] › e2e/workflow-delegations.spec.ts:539:2 › Delegation consent dialog › the dialog's primary action and picker are keyboard reachable
+[1A[2K[chromium] › e2e/workflow-delegations.spec.ts:343:2 › Delegations page › saving a limit sends a SINGLE-KEY body — the schema is strict
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+[1A[2K[13/13] [chromium] › e2e/workflow-delegations.spec.ts:324:2 › Delegations page › only an extension GRANTED the delegated bit is offerable
+[1A[2K[chromium] › e2e/workflow-delegations.spec.ts:539:2 › Delegation consent dialog › the dialog's primary action and picker are keyboard reachable
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+[1A[2K[chromium] › e2e/workflow-delegations.spec.ts:324:2 › Delegations page › only an extension GRANTED the delegated bit is offerable
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+[1A[2K  13 passed (44.2s)
+E2E_DELEG_EXIT=0
