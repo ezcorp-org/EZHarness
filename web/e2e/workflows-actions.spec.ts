@@ -478,7 +478,13 @@ test.describe("Workflows — inline editing", () => {
 		await expect(page.getByTestId("workflow-duplicate")).toBeVisible();
 	});
 
-	test("Duplicate prefills the create form from the source workflow", async ({ page, mockApi }) => {
+	test("Duplicate copies a read-only demo into a workflow of your own", async ({ page, mockApi }) => {
+		// This used to navigate to `/workflows/new?from=demo-mixed` and prefill
+		// the create form — the client-side half of the two copy affordances.
+		// The single verb keeps the escape hatch (a YAML demo is copyable) and
+		// keeps the deciding (name + audience before the write), but the copy
+		// is now made server-side, where `forked_from` provenance and the
+		// global name-collision rule live.
 		await mockApi({
 			workflows: [
 				makeWorkflow({
@@ -496,25 +502,30 @@ test.describe("Workflows — inline editing", () => {
 		});
 
 		let postBody: any = null;
-		await page.route("**/api/workflows", (route) => {
-			if (route.request().method() !== "POST") return route.fallback();
+		await page.route("**/api/workflows/demo-mixed/fork", (route) => {
 			postBody = route.request().postDataJSON();
-			return route.fulfill({ status: 201, json: postBody });
+			return route.fulfill({
+				status: 201,
+				json: {
+					name: "demo-mixed-copy",
+					id: "wf-copy",
+					forkedFrom: "demo-mixed",
+					visibility: "private",
+				},
+			});
 		});
 
 		await gotoDetail(page, "demo-mixed");
 		await page.getByTestId("workflow-duplicate").click();
 
-		await expect(page).toHaveURL(/\/workflows\/new\?from=demo-mixed$/, { timeout: 5000 });
-		await expect(page.getByLabel("Workflow Name")).toHaveValue("demo-mixed-copy");
-		await expect(page.getByLabel("Description")).toHaveValue("shipped demo");
-		await expect(page.getByLabel("Step Name")).toHaveCount(2);
+		// Still on the detail page — the click asks, it does not write.
+		await expect(page).toHaveURL(/\/workflows\/demo-mixed$/);
+		await expect(page.getByTestId("duplicate-name")).toHaveValue("demo-mixed-copy");
 
-		// The copy saves as a new, editable DB workflow.
-		await page.getByRole("button", { name: "Save Workflow" }).click();
+		await page.getByTestId("duplicate-confirm").click();
 		await expect.poll(() => postBody).not.toBeNull();
 		expect(postBody.name).toBe("demo-mixed-copy");
-		expect(postBody.steps).toHaveLength(2);
-		expect(postBody.steps[0]).toMatchObject({ name: "compose", kind: "transform" });
+		expect(postBody.visibility).toBe("private");
+		await expect(page).toHaveURL(/\/workflows\/demo-mixed-copy\/edit$/, { timeout: 5000 });
 	});
 });

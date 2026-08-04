@@ -1144,12 +1144,28 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 		}
 		if (path.match(/^\/api\/workflows\/[^/]+\/fork$/) && method === "POST") {
 			const source = decodeURIComponent(path.split("/")[3] ?? "");
-			// The route returns the FINAL name — `name` is globally unique, so
-			// a fork of a taken name is suffixed server-side.
-			const bare = source.includes(":") ? source.slice(source.indexOf(":") + 1) : source;
+			const body = (route.request().postDataJSON() ?? {}) as {
+				name?: string;
+				visibility?: string;
+			};
+			// Mirrors the real route: the copy is named by the AUTHOR when
+			// they supply one (the Duplicate panel always does) and falls back
+			// to the source's bare half otherwise — `name` is globally unique,
+			// so ':' can never survive. The `-2` stands in for the server-side
+			// collision suffix, which is the property specs care about: the UI
+			// must navigate to the name that LANDED, never the one it asked
+			// for. Same for the tier — `private` is the route's default.
+			const requested = body.name?.trim();
+			const asked = requested || source;
+			const bare = asked.includes(":") ? asked.slice(asked.indexOf(":") + 1) : asked;
 			return route.fulfill({
 				status: 201,
-				json: { name: `${bare}-2`, id: "wf-fork-1", forkedFrom: source },
+				json: {
+					name: `${bare}-2`,
+					id: "wf-fork-1",
+					forkedFrom: source,
+					visibility: body.visibility ?? "private",
+				},
 			});
 		}
 		if (path.match(/^\/api\/workflows\/[^/]+\/dry-run$/) && method === "POST") {

@@ -235,7 +235,10 @@ test.describe("Workflow editor", () => {
 
 		await openEditor(page);
 		await expect(page.getByTestId("editor-readonly")).toBeVisible();
-		await expect(page.getByTestId("editor-readonly")).toContainText("fork it");
+		// "duplicate it", not "fork it": the platform has ONE copy verb now,
+		// and a banner that names a button which no longer exists is a
+		// dead end dressed up as guidance.
+		await expect(page.getByTestId("editor-readonly")).toContainText("duplicate it");
 		// And the badge agrees with the banner: no owner on record, so an
 		// admin is the only one who can change it. It must NOT read
 		// `built-in` — nobody shipped this row, it is a legacy DB row.
