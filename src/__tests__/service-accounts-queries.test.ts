@@ -53,6 +53,10 @@ const {
 } = await import("../db/queries/service-accounts");
 
 const { DELEGATION_OWNER_COLUMN, serviceAccounts } = await import("../db/schema");
+type DelegationOwnerKind = keyof typeof DELEGATION_OWNER_COLUMN;
+// The ENFORCING side of the principal question — imported so the map above
+// can be compared against it rather than against a copy of its answers.
+const { delegationPrincipal } = await import("../runtime/workflow-delegation-consent");
 const { authorizeWorkflow, systemCachedWorkflow } = await import("../runtime/workflow-scope");
 const { RBAC_ALL_SCOPES } = await import("../auth/extension-rbac");
 
@@ -137,6 +141,24 @@ describe("service-accounts query layer", () => {
       expect(SERVICE_ACCOUNT_CALLER.userId).toBeNull();
       // …and NOT admin: an admin created it, the account is not one.
       expect(SERVICE_ACCOUNT_CALLER.role).toBe("member");
+    });
+
+    test("the ADVERTISED principal is the one the consent gate ENFORCES with", () => {
+      // C3 composition hazard: this module derives the admin-facing reach
+      // warning from `DELEGATION_OWNER_CALLER`, while `authorizeDelegationConsent`
+      // refuses with `delegationPrincipal`. Two hand-written maps over the same
+      // union would agree today and diverge silently — and the direction that
+      // fails is an admin shown one reach while the gate enforces another.
+      // Pinned arm-for-arm over EVERY kind the discriminator has, so a third
+      // kind is covered the moment it exists.
+      for (const kind of Object.keys(DELEGATION_OWNER_COLUMN) as DelegationOwnerKind[]) {
+        expect(DELEGATION_OWNER_CALLER[kind]("owner-xyz")).toEqual(
+          delegationPrincipal(kind, "owner-xyz"),
+        );
+      }
+      // …and the constant the reach probe actually runs is the same object
+      // shape, not a parallel literal.
+      expect(SERVICE_ACCOUNT_CALLER).toEqual(delegationPrincipal("service", null));
     });
 
     test("the column map is what `countLiveDelegationsOwnedBy` indexes", async () => {

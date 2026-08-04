@@ -51,6 +51,7 @@ import {
 } from "../schema";
 import { resolveEffectiveScopes, type RbacUser } from "../../auth/extension-rbac";
 import { isValidRbacScopeName } from "../../extensions/rbac-scopes";
+import { delegationPrincipal } from "../../runtime/workflow-delegation-consent";
 import {
   authorizeWorkflow,
   systemCachedWorkflow,
@@ -79,13 +80,24 @@ export type { RbacUser };
  * …>` for the same reason — a third principal kind is one new entry, and
  * omitting it is a compile error rather than a fallthrough.
  *
+ * ## Every arm DELEGATES to `delegationPrincipal`, and that is the point
+ *
+ * This map is what the reach warning is DERIVED from; `delegationPrincipal`
+ * (`runtime/workflow-delegation-consent.ts`) is what the §6.1 consent gate
+ * actually refuses with. Two hand-written maps from the same union to the
+ * same codomain is precisely the shape both modules' docblocks argue
+ * against — and the direction it fails is the worst one available here: the
+ * admin is SHOWN one reach at creation time while the gate ENFORCES another,
+ * which is the "looks fixed" failure amended spec §6.3 names. So there is one
+ * definition of what a kind carries, and this is the keyed view of it.
+ *
  * `service` ignores the owner id on purpose: a service account has no `users`
  * row, so the principal it carries is `userId: null`. That single `null` is
  * the whole of the reach warning below — see {@link SERVICE_ACCOUNT_CALLER}.
  */
 export const DELEGATION_OWNER_CALLER = {
-  user: (ownerId: string): WorkflowCaller => ({ userId: ownerId, role: "member" }),
-  service: (_ownerId: string): WorkflowCaller => SERVICE_ACCOUNT_CALLER,
+  user: (ownerId: string): WorkflowCaller => delegationPrincipal("user", ownerId),
+  service: (ownerId: string): WorkflowCaller => delegationPrincipal("service", ownerId),
 } as const satisfies Record<DelegationOwnerKind, (ownerId: string) => WorkflowCaller>;
 
 /**
@@ -95,8 +107,18 @@ export const DELEGATION_OWNER_CALLER = {
  * is not one. `userId: null` because there is no `users` row to point at —
  * and that is not a gap to be filled later, it is the identity's defining
  * property (it cannot authenticate, so it cannot have a login).
+ *
+ * Asked of `delegationPrincipal` rather than written out, so the caller
+ * {@link serviceAccountReach} probes the ladder with is BY CONSTRUCTION the
+ * caller the consent gate authorizes with. A literal here would agree today
+ * and would stop agreeing silently — and the reach warning's whole job is to
+ * tell an admin, at creation time, what the gate will do at consent time.
+ *
+ * `null` for the id because the `service` arm discards it (there is no id to
+ * carry); passing an account id would suggest the principal varies per
+ * account, which is the misreading this constant exists to prevent.
  */
-export const SERVICE_ACCOUNT_CALLER: WorkflowCaller = { userId: null, role: "member" };
+export const SERVICE_ACCOUNT_CALLER: WorkflowCaller = delegationPrincipal("service", null);
 
 /**
  * Every workflow visibility tier, probed one by one below.
