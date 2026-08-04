@@ -491,7 +491,10 @@ describe("toWorkflowDelegationView — one shape, three routes", () => {
     const created = await createWorkflowDelegation(consentInput());
     expect(created.ok).toBe(true);
     if (!created.ok) return;
-    const view = toWorkflowDelegationView(created.delegation) as Record<string, unknown>;
+    const view = toWorkflowDelegationView(created.delegation) as unknown as Record<
+      string,
+      unknown
+    >;
     expect(Object.hasOwn(view, "consentHash")).toBe(false);
     expect(Object.hasOwn(view, "consecutiveFailures")).toBe(false);
     // …and the fields the UI genuinely needs ARE there, so the assertion

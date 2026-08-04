@@ -11,7 +11,7 @@
  *
  * This test starts the run the way production does — a `ezcorp/workflows-delegated`
  * reverse-RPC frame carrying nothing but `{v, op, jobRef}` — walks the
- * D1–D9 ladder, and then asserts the run parks. Every hop is real: real
+ * D1–D10 ladder, and then asserts the run parks. Every hop is real: real
  * PGlite, real `migrate()`, the real `WorkflowExecutor`, the real
  * `workflow_delegations` reader, the real resume table. The only double
  * is the `AgentExecutor`, which is scripted so the token spend is a
@@ -28,6 +28,31 @@
  *   3. the resume table then refuses to continue the parked run, and
  *      allows it once the cap is raised. That is the between-processes
  *      half of the same bound, and it re-reads both numbers itself.
+ *
+ * ## Phase 8a — and the parked run finally has a way OUT
+ *
+ * Property 3 above raised the cap with a hand-written `UPDATE`, because
+ * in phase 6 there was no route that could. That was the whole defect:
+ * `RESUME_RULES["budget-exceeded"]` names raising the cap as the only
+ * remedy, and the sole writer of `max_tokens_per_run` was the consent
+ * route, whose supersede TOMBSTONES the row the predicate re-reads. So
+ * the remedy existed in prose and nowhere else, and every parked
+ * delegated run was permanently stuck.
+ *
+ * Three more properties close it, and the last two are the controls that
+ * make the first an assertion rather than a hole:
+ *
+ *   4. the REAL `PATCH /api/workflows/delegations/:id` handler, called
+ *      with the consenting human's session against this same database,
+ *      raises the cap IN PLACE (one row, still live, no successor) — and
+ *      the real `resumeWorkflow` then finishes the graph, running only
+ *      the step that never ran;
+ *   5. a STRANGER's PATCH is a 404, the cap does not move, and the run
+ *      stays parked;
+ *   6. a PATCH against a delegation the PLATFORM disabled is a 409 that
+ *      carries the reason, does not re-enable the row, and leaves the run
+ *      parked — re-consent is the re-enable path, because it re-asks the
+ *      question that disabled it.
  */
 import { test, expect, describe, beforeAll, afterAll, mock } from "bun:test";
 import { PGlite } from "@electric-sql/pglite";
@@ -54,6 +79,24 @@ mock.module("../db/connection", () => ({
   rawQuery: async (s: string, params: (string | null)[] = []) => pglite.query(s, params),
 }));
 
+// ── The `$server` / `$lib` aliases the PATCH route imports ────────────
+//
+// SvelteKit resolves these through `svelte.config.js`; a bun test cannot,
+// so each is pointed at the very module the alias names. `require`
+// resolves relative to THIS file, and every target sits under the same
+// `src/db/connection` that is mocked above — which is the whole point:
+// the route must reach the SAME PGlite the ladder just parked a run in,
+// or the "PATCH unblocks it" claim would be about two different
+// databases.
+mock.module("$server/auth/middleware", () => require("../auth/middleware"));
+mock.module("$server/runtime/workflow-delegation-consent", () =>
+  require("../runtime/workflow-delegation-consent"),
+);
+mock.module("$server/db/queries/workflow-delegations", () =>
+  require("../db/queries/workflow-delegations"),
+);
+mock.module("$lib/server/http-errors", () => require("../../web/src/lib/server/http-errors"));
+
 const { WorkflowExecutor } = await import("../runtime/workflow-executor");
 const { resumeReasonRefusal } = await import("../runtime/workflow-resume-reasons");
 const { handleWorkflowsRpc, DELEGATED_OP, DELEGATED_WORKFLOWS_METHOD } = await import(
@@ -67,10 +110,20 @@ const { computeDelegationConsentRecord } = await import(
 );
 const { delegationPrincipal } = await import("../runtime/workflow-delegation-consent");
 const { sumWorkflowRunTokens } = await import("../db/queries/workflow-runs");
+const { getWorkflowRuntime } = await import("../runtime/workflow/runtime-registry");
+// The REAL route handler, not a call to the query function it wraps: the
+// thing under test is that a human with a session can unblock a parked
+// run, and the auth gate plus the strict body schema are half of that.
+const { PATCH } = await import(
+  "../../web/src/routes/api/workflows/delegations/[id]/+server"
+);
 
 const EXT_NAME = "ceiling-ext";
 const EXT_ID = "e-ceiling";
 const OWNER = "u-ceiling";
+/** A second real session that consented to NOTHING — the control for the
+ *  PATCH authorization. */
+const STRANGER = "u-stranger";
 
 /** A three-step chain — one step per batch, so every gap between them is
  *  a real boundary the ceiling can fire at. */
@@ -231,6 +284,98 @@ async function settle(): Promise<void> {
   for (let i = 0; i < 200; i++) await new Promise((r) => setTimeout(r, 0));
 }
 
+/**
+ * A SvelteKit `RequestEvent` for the PATCH route, carrying a real session
+ * principal.
+ *
+ * `authMethod: "session"` is the value `hooks.server.ts` stamps on a
+ * verified session cookie and the ONLY one `requireSessionAuth` allows —
+ * so an API key cannot be substituted here even in a test.
+ */
+function patchEvent(delegationId: string, userId: string, maxTokensPerRun = 100_000) {
+  const url = `http://localhost/api/workflows/delegations/${delegationId}`;
+  return {
+    url: new URL(url),
+    params: { id: delegationId },
+    locals: {
+      user: { id: userId, email: `${userId}@c3.test`, name: userId, role: "member" },
+      authMethod: "session",
+    },
+    request: new Request(url, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ maxTokensPerRun }),
+    }),
+  } as never;
+}
+
+async function capOf(delegationId: string): Promise<number> {
+  const res = (await db.execute(sql`
+    SELECT max_tokens_per_run FROM workflow_delegations WHERE id = ${delegationId}
+  `)) as unknown as { rows: Array<{ max_tokens_per_run: number }> };
+  return res.rows[0]!.max_tokens_per_run;
+}
+
+/**
+ * Every delegation row for one `job_ref`, live or tombstoned, oldest
+ * first — the proof that a PATCH minted no new row and revoked no old
+ * one.
+ *
+ * A supersede would show TWO here (a tombstone and its successor), which
+ * is exactly the shape that stranded parked runs before phase 6 carried
+ * them forward.
+ */
+async function delegationRowsFor(jobRef: string): Promise<Array<[string, boolean]>> {
+  const res = (await db.execute(sql`
+    SELECT id, (revoked_at IS NULL) AS live FROM workflow_delegations
+     WHERE job_ref = ${jobRef} ORDER BY consented_at
+  `)) as unknown as { rows: Array<{ id: string; live: boolean }> };
+  return res.rows.map((r) => [r.id, r.live]);
+}
+
+/**
+ * Resume a parked run through the REAL executor, handing it the row the
+ * daemon would hand it.
+ *
+ * `resumeWorkflow` re-reads `suspended_reason` from the database rather
+ * than taking it off this argument, and re-derives `delegationId` from
+ * the row — so a resume cannot shed the ceiling by parking, and this
+ * helper cannot smuggle a verdict past the gate under test.
+ */
+async function resume(workflowRunId: string) {
+  const res = (await db.execute(sql`
+    SELECT id, workflow_name, status, input, cursor, definition_hash,
+           project_id, user_id, started_at, delegation_id
+      FROM workflow_runs WHERE id = ${workflowRunId}
+  `)) as unknown as {
+    rows: Array<{
+      id: string;
+      workflow_name: string;
+      status: string;
+      input: Record<string, unknown> | null;
+      cursor: { batchIndex: number; completedSteps: string[]; prevStepName: string | null } | null;
+      definition_hash: string | null;
+      project_id: string | null;
+      user_id: string | null;
+      started_at: string;
+      delegation_id: string | null;
+    }>;
+  };
+  const row = res.rows[0]!;
+  return getWorkflowRuntime()!.workflowExecutor.resumeWorkflow(CHAIN, {
+    id: row.id,
+    workflowName: row.workflow_name,
+    status: row.status,
+    input: row.input,
+    cursor: row.cursor,
+    definitionHash: row.definition_hash,
+    projectId: row.project_id,
+    userId: row.user_id,
+    startedAt: new Date(row.started_at),
+    delegationId: row.delegation_id,
+  });
+}
+
 beforeAll(async () => {
   pglite = new PGlite({ extensions: { vector, pg_trgm } });
   await pglite.waitReady;
@@ -238,7 +383,8 @@ beforeAll(async () => {
   await migrate(db);
   await db.execute(sql`
     INSERT INTO users (id, email, password_hash, name, role, status)
-    VALUES (${OWNER}, 'ceiling@c3.test', 'h', 'Owner', 'member', 'active')
+    VALUES (${OWNER}, 'ceiling@c3.test', 'h', 'Owner', 'member', 'active'),
+           (${STRANGER}, 'stranger@c3.test', 'h', 'Stranger', 'member', 'active')
   `);
   await db.execute(sql`
     INSERT INTO extensions (id, name, version, manifest, source)
@@ -327,6 +473,139 @@ describe("the token ceiling, reached through the runFor handler", () => {
       workflowRunId: parked.id,
     });
     expect(allowed).toBeNull();
+  });
+
+  test("the PATCH route unblocks the parked run, and it runs to completion", async () => {
+    // ── THE point of phase 8a, proved end to end ────────────────────
+    //
+    // Every hop is real: the delegated frame walks the ladder, the
+    // executor parks the run on its own ceiling, a HUMAN AT A SESSION
+    // calls the real `PATCH` handler against the same PGlite, and the
+    // real `resumeWorkflow` then finishes the graph.
+    //
+    // Before this route the sequence was impossible. The only writer of
+    // `max_tokens_per_run` was the consent route, and a supersede
+    // tombstones the row `RESUME_RULES["budget-exceeded"]` re-reads — so
+    // the remedy that rule names in its own prose ("only raising that cap
+    // lets it continue") had no implementation, and this run would have
+    // stayed parked forever.
+    registerRuntime(100);
+    invocations = 0;
+    const delegationId = await makeDelegation("job-patch", 150);
+    await handleWorkflowsRpc(frame("job-patch"), handlerCtx());
+    await settle();
+
+    const parked = (await runsFor(delegationId))[0]!;
+    expect(parked.status).toBe("suspended");
+    expect(parked.suspended_reason).toBe("budget-exceeded");
+    expect(invocations).toBe(2);
+
+    // The route, with the session the consenting human actually has.
+    const res = (await PATCH(patchEvent(delegationId, OWNER))) as Response;
+    expect(res.status, await res.clone().text()).toBe(200);
+    const patched = (await res.json()) as {
+      delegation: { id: string; maxTokensPerRun: number };
+    };
+    // IN PLACE. The same row id — no supersede, so the parked run's own
+    // `delegation_id` still points at a live authority without anything
+    // having had to carry it forward.
+    expect(patched.delegation.id).toBe(delegationId);
+    expect(patched.delegation.maxTokensPerRun).toBe(100_000);
+    // Still exactly ONE row for this job, and it is still live. A
+    // supersede would show a tombstone plus a successor here.
+    expect(await delegationRowsFor("job-patch")).toEqual([[delegationId, true]]);
+
+    // The between-processes gate now allows, and it re-read both numbers
+    // itself rather than being told.
+    expect(await resumeReasonRefusal("budget-exceeded", { workflowRunId: parked.id })).toBeNull();
+
+    // …and the run actually finishes. This is the assertion the
+    // `resumeReasonRefusal` check alone cannot make: a predicate that
+    // returns null proves the gate opened, not that the work completed.
+    const run = await resume(parked.id);
+    expect(run.status).toBe("success");
+    // The THIRD agent step ran and the first two did not run again — the
+    // cursor did its job, so "resumable" did not mean "re-executed".
+    expect(invocations).toBe(3);
+    const after = (await runsFor(delegationId))[0]!;
+    expect(after.status).toBe("success");
+    expect(after.finished_at).not.toBeNull();
+    // `suspended_reason` deliberately SURVIVES the terminalization —
+    // `finalizeWorkflowRunRow` leaves it exactly as the park wrote it
+    // unless a caller overrides it, and only the approval-timeout sweep
+    // does. It is the trace's record of why this run once stopped, not a
+    // live flag, and the status is what says it is finished.
+    expect(after.suspended_reason).toBe("budget-exceeded");
+    expect(await sumWorkflowRunTokens(parked.id)).toBe(300);
+  });
+
+  test("a STRANGER's PATCH is a 404 and the run stays parked", async () => {
+    // The pair for the row above. Without it, "the PATCH unblocked it"
+    // is satisfied by a route that lets anyone raise anyone's cap — which
+    // would make the unblock a bug rather than the feature.
+    registerRuntime(100);
+    invocations = 0;
+    const delegationId = await makeDelegation("job-stranger", 150);
+    await handleWorkflowsRpc(frame("job-stranger"), handlerCtx());
+    await settle();
+    const parked = (await runsFor(delegationId))[0]!;
+    expect(parked.status).toBe("suspended");
+
+    const res = (await PATCH(patchEvent(delegationId, STRANGER))) as Response;
+    expect(res.status).toBe(404);
+
+    // Nothing moved: the cap, the gate and the run are all as they were.
+    expect(await capOf(delegationId)).toBe(150);
+    expect(await resumeReasonRefusal("budget-exceeded", { workflowRunId: parked.id })).toContain(
+      "max_tokens_per_run",
+    );
+    const run = await resume(parked.id);
+    expect(run.status).toBe("suspended");
+    expect(invocations).toBe(2);
+  });
+
+  test("PATCHing a DISABLED delegation is refused, and the run stays parked", async () => {
+    // The re-enable decision, proved on a real row rather than argued.
+    // A delegation the platform switched off is not repaired by a bigger
+    // budget, and clearing `enabled` here would restore the
+    // approval-ANSWERING authority `delegationHoldsAuthority()` withdrew
+    // before any fire re-asks D7's question. Re-consent is the re-enable
+    // path precisely because it re-asks.
+    registerRuntime(100);
+    invocations = 0;
+    const delegationId = await makeDelegation("job-disabled", 150);
+    await handleWorkflowsRpc(frame("job-disabled"), handlerCtx());
+    await settle();
+    const parked = (await runsFor(delegationId))[0]!;
+    expect(parked.status).toBe("suspended");
+
+    await db.execute(sql`
+      UPDATE workflow_delegations
+         SET enabled = false, disabled_reason = 'This job stopped: the workflow moved out of reach.'
+       WHERE id = ${delegationId}
+    `);
+
+    const res = (await PATCH(patchEvent(delegationId, OWNER))) as Response;
+    expect(res.status).toBe(409);
+    const { error } = (await res.json()) as { error: string };
+    // The reason reaches the human — it is the only thing they will ever
+    // read about why the job stopped.
+    expect(error).toContain("moved out of reach");
+    expect(error).toContain("Consent again");
+    expect(await capOf(delegationId)).toBe(150);
+
+    // Still disabled, still parked. And the run's resume gate agrees:
+    // `budget-exceeded` fails closed on a row that holds no authority.
+    const [row] = (
+      (await db.execute(sql`
+        SELECT enabled, disabled_reason FROM workflow_delegations WHERE id = ${delegationId}
+      `)) as unknown as { rows: Array<{ enabled: boolean; disabled_reason: string }> }
+    ).rows;
+    expect(row?.enabled).toBe(false);
+    expect(row?.disabled_reason).toContain("moved out of reach");
+    expect(await resumeReasonRefusal("budget-exceeded", { workflowRunId: parked.id })).toContain(
+      "max_tokens_per_run",
+    );
   });
 
   test("a REVOKED delegation keeps the parked run parked — the cap fails closed", async () => {
