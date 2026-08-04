@@ -295,7 +295,7 @@ describe("delegationHoldsAuthority — one predicate, and it is really shared", 
     const disabled = await seedRun({ ownerUserId: null, enabled: false });
 
     expect((await findDelegationHoldingAuthority(live.delegationId!))?.id).toBe(
-      live.delegationId,
+      live.delegationId!,
     );
     expect(await findDelegationHoldingAuthority(revoked.delegationId!)).toBeUndefined();
     expect(await findDelegationHoldingAuthority(disabled.delegationId!)).toBeUndefined();

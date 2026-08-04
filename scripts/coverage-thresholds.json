@@ -116,6 +116,7 @@
   "src/runtime/workflow-definition-hash.ts": 100,
   "src/runtime/workflow-approval-guard.ts": 100,
   "src/runtime/workflow-answer-approval.ts": 100,
+  "src/runtime/workflow-approval-actor.ts": 100,
   "src/runtime/workflow-runner.ts": 100,
   "src/runtime/workflow-run-control.ts": 100,
   "src/runtime/workflow-run-trace.ts": 100,
