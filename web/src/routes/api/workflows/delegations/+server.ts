@@ -7,15 +7,14 @@ import { buildDelegationConsent } from "$lib/server/delegation-consent";
 import { ExtensionRegistry } from "$server/extensions/registry";
 import {
   createWorkflowDelegation,
-  delegationOwnerId,
   listWorkflowDelegationsConsentedBy,
+  toWorkflowDelegationView,
 } from "$server/db/queries/workflow-delegations";
 // The existence-and-liveness read lives with the rest of the
 // service-account query layer, not with delegation CRUD: it is a
 // `service_accounts` read, and one module owning that table is what stops
 // two liveness predicates for it drifting apart.
 import { findLiveServiceAccount } from "$server/db/queries/service-accounts";
-import type { WorkflowDelegationRow } from "$server/db/schema";
 import type { RequestHandler } from "./$types";
 
 // Boundary validation only. Every consent rule lives behind
@@ -45,30 +44,6 @@ const consentBodySchema = z
   })
   .strict();
 
-function toWire(row: WorkflowDelegationRow) {
-  return {
-    id: row.id,
-    extensionId: row.extensionId,
-    jobRef: row.jobRef,
-    ownerKind: row.ownerKind,
-    // Read through the schema's keyed lookup, so a caller never has to
-    // know which column an owner kind uses.
-    ownerId: delegationOwnerId(row),
-    workflowName: row.workflowName,
-    definitionVersionId: row.definitionVersionId,
-    projectId: row.projectId,
-    triggerKind: row.triggerKind,
-    triggerSpec: row.triggerSpec,
-    capabilitySet: row.capabilitySet,
-    maxTokensPerRun: row.maxTokensPerRun,
-    maxRunsPerDay: row.maxRunsPerDay,
-    enabled: row.enabled,
-    disabledReason: row.disabledReason,
-    consentedAt: row.consentedAt,
-    consentedByUserId: row.consentedByUserId,
-  };
-}
-
 /**
  * The delegations THIS human consented to.
  *
@@ -80,7 +55,7 @@ export const GET: RequestHandler = async ({ locals }) => {
   const user = requireSessionAuth(locals);
   if (user instanceof Response) return user;
   const rows = await listWorkflowDelegationsConsentedBy(user.id);
-  return json({ delegations: rows.map(toWire) });
+  return json({ delegations: rows.map(toWorkflowDelegationView) });
 };
 
 /**
@@ -194,7 +169,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
   return json(
     {
-      delegation: toWire(created.delegation),
+      delegation: toWorkflowDelegationView(created.delegation),
       supersededId: created.supersededId,
       // The exact material the hash was taken over, so the dialog and a
       // later stale-consent diff read the same object rather than each

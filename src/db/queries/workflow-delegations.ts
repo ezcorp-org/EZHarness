@@ -138,6 +138,68 @@ export function delegationOwnerId(row: WorkflowDelegationRow): string | null {
   return row[DELEGATION_OWNER_COLUMN[row.ownerKind]];
 }
 
+/**
+ * The wire shape of a delegation.
+ *
+ * EXPLICIT field copies, not `...row`, for exactly the reason
+ * `toServiceAccountView` states next door
+ * (`db/queries/service-accounts.ts`): spreading a row makes the API shape
+ * a function of the schema, so the day someone adds a column here it
+ * ships to every client in the same commit. This table has more to lose
+ * by that than most — `consent_hash` is the fingerprint a stale-consent
+ * check compares, and publishing it would let a client assert its own
+ * freshness rather than being told.
+ *
+ * It lives beside the row type rather than in `web/` because THREE route
+ * handlers need it (the list, the consent, and the token-ceiling PATCH)
+ * and none of them owns it. Before this, the consent route held a private
+ * `toWire` and the PATCH would have been a second copy — which is how two
+ * endpoints for the same object start disagreeing about its shape.
+ */
+export interface WorkflowDelegationView {
+  id: string;
+  extensionId: string;
+  jobRef: string;
+  ownerKind: DelegationOwnerKind;
+  ownerId: string | null;
+  workflowName: string;
+  definitionVersionId: string | null;
+  projectId: string | null;
+  triggerKind: string;
+  triggerSpec: Record<string, unknown> | null;
+  capabilitySet: Array<{ kind: string; value: string | null }>;
+  maxTokensPerRun: number;
+  maxRunsPerDay: number;
+  enabled: boolean;
+  disabledReason: string | null;
+  consentedAt: Date;
+  consentedByUserId: string;
+}
+
+export function toWorkflowDelegationView(row: WorkflowDelegationRow): WorkflowDelegationView {
+  return {
+    id: row.id,
+    extensionId: row.extensionId,
+    jobRef: row.jobRef,
+    ownerKind: row.ownerKind,
+    // Read through the schema's keyed lookup, so a caller never has to
+    // know which column an owner kind uses.
+    ownerId: delegationOwnerId(row),
+    workflowName: row.workflowName,
+    definitionVersionId: row.definitionVersionId,
+    projectId: row.projectId,
+    triggerKind: row.triggerKind,
+    triggerSpec: row.triggerSpec,
+    capabilitySet: row.capabilitySet,
+    maxTokensPerRun: row.maxTokensPerRun,
+    maxRunsPerDay: row.maxRunsPerDay,
+    enabled: row.enabled,
+    disabledReason: row.disabledReason,
+    consentedAt: row.consentedAt,
+    consentedByUserId: row.consentedByUserId,
+  };
+}
+
 export interface CreateWorkflowDelegationInput {
   /** Registry-resolved, never off the wire. */
   extensionId: string;

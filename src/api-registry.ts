@@ -344,6 +344,14 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "GET", path: "/api/workflows/delegations", description: "List the live delegations this human consented to. SESSION-ONLY: refuses every API key (403)", category: "workflows", responseDescription: "{ delegations: WorkflowDelegation[] }" },
   { method: "POST", path: "/api/workflows/delegations", description: "Consent to a delegation: mint standing authority for an extension job to run one workflow as a chosen principal. SESSION-ONLY (403 for every API key). Authorizes AS THE PRINCIPAL THE DELEGATION WILL CARRY, so a service-account delegation for a non-system-visible workflow is refused here with the reason named, not silently at the first fire. Re-consenting supersedes your own live delegation for the same (extension, job); another user's is 409. Body { extensionId, jobRef, workflowName, ownerKind, ownerServiceAccountId?, projectId?, triggerKind, triggerSpec?, maxTokensPerRun, maxRunsPerDay }", category: "workflows", responseDescription: "{ delegation, supersededId, material } (201)" },
   { method: "DELETE", path: "/api/workflows/delegations/:id", description: "Revoke a delegation — a tombstone, not a delete, so the history survives and the (extension, job) can be consented to again. SESSION-ONLY (403 for every API key); the consenting human or an admin, 404 otherwise", category: "workflows", responseDescription: "{ revoked: boolean }" },
+  // The FOURTH verb, and the one that makes a parked run resumable.
+  // `RESUME_RULES["budget-exceeded"]` says "only raising that cap lets it
+  // continue"; before this there was no way to raise it, because the only
+  // writer of `max_tokens_per_run` was the consent route and a supersede
+  // tombstones the row the parked run's own predicate re-reads. Same
+  // no-`scope` rule as its three siblings above — session-only, so any
+  // declared scope would publish a boundary no key can actually reach.
+  { method: "PATCH", path: "/api/workflows/delegations/:id", description: "Adjust a LIVE delegation's max_tokens_per_run IN PLACE — no new row, no new consent hash, so a run parked at `budget-exceeded` becomes resumable without re-approving the capability set. SESSION-ONLY (403 for every API key); the consenting human or an admin, 404 otherwise. Body { maxTokensPerRun } and NOTHING else — the schema is strict, so naming the workflow, the owner kind, the consent hash or maxRunsPerDay is a 400 rather than a silent no-op (those require re-consent, Ruling 2). Refuses a revoked or a platform-DISABLED delegation with 409 + the disabled reason: re-consent is the only re-enable path, because it re-asks the question that disabled the row", category: "workflows", responseDescription: "{ delegation: WorkflowDelegation }" },
 
   // Tools
   { method: "GET", path: "/api/tools", description: "List available tools", category: "tools" },
