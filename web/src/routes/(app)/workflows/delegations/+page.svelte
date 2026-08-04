@@ -15,9 +15,12 @@
 -->
 <script lang="ts">
 	import { onMount } from "svelte";
+	import { store } from "$lib/stores.svelte.js";
+	import DelegationConsentDialog from "$lib/components/DelegationConsentDialog.svelte";
 	import {
 		describeDelegationState,
 		describeRunPrincipal,
+		describeRunTime,
 		describeRunStatus,
 		loadDelegatedRuns,
 		loadDelegations,
@@ -46,6 +49,56 @@
 		Object.fromEntries(serviceAccounts.map((a) => [a.id, a.name])) as Record<string, string>,
 	);
 
+	/**
+	 * Extensions that may hold a delegation at all.
+	 *
+	 * The gate is the GRANTED permission, not the manifest declaration: an
+	 * install can decline `allowDelegated`, and an extension the admin
+	 * declined must not be offerable here. Reading the grant is also what
+	 * makes this list agree with what the host will actually authorize at
+	 * fire time.
+	 */
+	interface DelegatableExtension {
+		id: string;
+		name: string;
+	}
+	let extensions = $state<DelegatableExtension[]>([]);
+
+	/** The "what to delegate" step, before the consent dialog opens. */
+	let granting = $state(false);
+	let draftExtensionId = $state("");
+	let draftWorkflowName = $state("");
+	let draftJobRef = $state("");
+	let draftTriggerKind = $state("cron");
+	let reviewing = $state(false);
+
+	const draftExtension = $derived(extensions.find((e) => e.id === draftExtensionId) ?? null);
+	const canReview = $derived(
+		draftExtension !== null && draftWorkflowName !== "" && draftJobRef.trim() !== "",
+	);
+
+	async function loadDelegatableExtensions() {
+		try {
+			const res = await fetch("/api/extensions");
+			if (!res.ok) return;
+			const data = (await res.json()) as {
+				extensions?: Array<{
+					id: string;
+					name: string;
+					enabled?: boolean;
+					grantedPermissions?: { workflows?: { allowDelegated?: boolean } };
+				}>;
+			};
+			extensions = (data.extensions ?? [])
+				.filter((e) => e.enabled !== false && e.grantedPermissions?.workflows?.allowDelegated)
+				.map((e) => ({ id: e.id, name: e.name }));
+		} catch {
+			// A failed read leaves the grant form empty and the rest of the
+			// page working. It must never take the revoke button down with it.
+			extensions = [];
+		}
+	}
+
 	async function load() {
 		loading = true;
 		loadError = null;
@@ -67,6 +120,7 @@
 		// label instead of a bare id.
 		const accounts = await loadServiceAccounts();
 		serviceAccounts = accounts.ok ? accounts.value.accounts : [];
+		await loadDelegatableExtensions();
 		loading = false;
 	}
 
@@ -122,13 +176,112 @@
 <div class="space-y-6" data-testid="delegations-page">
 	<div class="flex items-center justify-between">
 		<h2 class="text-2xl font-bold text-[var(--color-text-primary)]">Delegations</h2>
-		<button
-			type="button"
-			onclick={load}
+		<div class="flex gap-2">
+			<button
+				type="button"
+				onclick={() => (granting = !granting)}
+				class="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+				data-testid="delegations-grant">Grant a delegation</button
+			>
+			<button
+				type="button"
+				onclick={load}
 			class="rounded-md border border-[var(--color-border)] px-3 py-2 text-sm text-[var(--color-text-secondary)] transition-colors hover:border-[var(--color-text-muted)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
-			data-testid="delegations-refresh">Refresh</button
-		>
+				data-testid="delegations-refresh">Refresh</button
+			>
+		</div>
 	</div>
+
+	{#if granting}
+		<!-- The "what to delegate" step. Kept OUT of the consent dialog: the
+		     dialog's job is to show what a specific choice would authorize,
+		     and a dialog that also changed the subject would be re-previewing
+		     while someone reads it. -->
+		<div
+			class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-4"
+			data-testid="grant-form"
+		>
+			{#if extensions.length === 0}
+				<p class="text-sm text-[var(--color-text-secondary)]" data-testid="no-delegatable-extensions">
+					No installed extension is allowed to run workflows on your behalf. An extension has to
+					ask for that in its manifest, and an administrator has to approve it when enabling the
+					extension.
+				</p>
+			{:else}
+				<div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+					<div>
+						<label class="block text-xs font-medium text-[var(--color-text-secondary)]" for="grant-ext"
+							>Extension</label
+						>
+						<select
+							id="grant-ext"
+							bind:value={draftExtensionId}
+							class="mt-1 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)]"
+							data-testid="grant-extension"
+						>
+							<option value="">Choose an extension…</option>
+							{#each extensions as extension (extension.id)}
+								<option value={extension.id}>{extension.name}</option>
+							{/each}
+						</select>
+					</div>
+					<div>
+						<label class="block text-xs font-medium text-[var(--color-text-secondary)]" for="grant-wf"
+							>Workflow</label
+						>
+						<select
+							id="grant-wf"
+							bind:value={draftWorkflowName}
+							class="mt-1 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)]"
+							data-testid="grant-workflow"
+						>
+							<option value="">Choose a workflow…</option>
+							{#each store.workflows as workflow (workflow.name)}
+								<option value={workflow.name}>{workflow.name}</option>
+							{/each}
+						</select>
+					</div>
+					<div>
+						<label class="block text-xs font-medium text-[var(--color-text-secondary)]" for="grant-job"
+							>Job reference</label
+						>
+						<input
+							id="grant-job"
+							bind:value={draftJobRef}
+							placeholder="the extension's own name for this job"
+							class="mt-1 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)]"
+							data-testid="grant-job-ref"
+						/>
+					</div>
+					<div>
+						<label
+							class="block text-xs font-medium text-[var(--color-text-secondary)]"
+							for="grant-trigger">Trigger</label
+						>
+						<select
+							id="grant-trigger"
+							bind:value={draftTriggerKind}
+							class="mt-1 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)]"
+							data-testid="grant-trigger"
+						>
+							<option value="cron">On a schedule</option>
+							<option value="webhook">On a webhook</option>
+							<option value="event">On an event</option>
+						</select>
+					</div>
+				</div>
+				<div class="mt-3 flex justify-end">
+					<button
+						type="button"
+						disabled={!canReview}
+						onclick={() => (reviewing = true)}
+						class="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-blue-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
+						data-testid="grant-review">Review what this allows…</button
+					>
+				</div>
+			{/if}
+		</div>
+	{/if}
 
 	<p class="text-xs text-[var(--color-text-muted)]">
 		Standing authority you have granted: an extension may start these workflows on its own,
@@ -171,8 +324,8 @@
 								</span>
 								<span
 									class="rounded px-1.5 py-0.5 font-medium {state.live
-										? 'bg-green-900/40 text-green-200'
-										: 'bg-red-900/40 text-red-200'}"
+										? 'bg-green-500/15 text-[var(--color-text-primary)]'
+										: 'bg-red-500/15 text-[var(--color-text-primary)]'}"
 									data-testid="delegation-state">{state.text}</span
 								>
 								<span class="text-[var(--color-text-muted)]" data-testid="delegation-trigger"
@@ -218,7 +371,7 @@
 									type="button"
 									onclick={() => revoke(delegation)}
 									disabled={busy[delegation.id] === true}
-									class="ml-auto rounded-md border border-red-500/40 px-3 py-1.5 text-xs text-red-300 transition-colors hover:bg-red-500/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-500 disabled:opacity-40"
+									class="ml-auto rounded-md border border-red-500/40 px-3 py-1.5 text-xs text-[var(--color-text-primary)] transition-colors hover:bg-red-500/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-500 disabled:opacity-40"
 									data-testid="delegation-revoke">Revoke</button
 								>
 							</div>
@@ -227,8 +380,8 @@
 								{@const message = rowMessage[delegation.id]}
 								<p
 									class="mt-2 text-xs {message.tone === 'error'
-										? 'text-red-300'
-										: 'text-green-300'}"
+										? 'text-[var(--color-text-primary)] font-medium'
+										: 'text-[var(--color-text-secondary)]'}"
 									data-testid="delegation-message"
 								>
 									{message.text}
@@ -266,25 +419,27 @@
 								>
 								<span
 									class="rounded px-1.5 py-0.5 font-medium {status.tone === 'error'
-										? 'bg-red-900/40 text-red-200'
+										? 'bg-red-500/15 text-[var(--color-text-primary)]'
 										: status.tone === 'warn'
-											? 'bg-amber-900/40 text-amber-200'
+											? 'bg-amber-500/20 text-[var(--color-text-primary)]'
 											: status.tone === 'ok'
-												? 'bg-green-900/40 text-green-200'
+												? 'bg-green-500/15 text-[var(--color-text-primary)]'
 												: 'bg-[var(--color-surface-tertiary)] text-[var(--color-text-muted)]'}"
 									data-testid="delegated-run-status">{status.text}</span
 								>
 								<span class="text-[var(--color-text-muted)]" data-testid="delegated-run-principal"
 									>{describeRunPrincipal(run, accountsById)}</span
 								>
-								<span class="ml-auto text-[var(--color-text-muted)]">{run.startedAt}</span>
+								<span class="ml-auto text-[var(--color-text-muted)]" title={run.startedAt} data-testid="delegated-run-time"
+									>{describeRunTime(run.startedAt, new Date())}</span
+								>
 							</div>
 							{#if run.error}
-								<p class="mt-1 text-xs text-red-300" data-testid="delegated-run-error">
+								<p class="mt-1 text-xs font-medium text-[var(--color-text-primary)]" data-testid="delegated-run-error">
 									{run.error}
 								</p>
 							{:else if run.suspendedReason}
-								<p class="mt-1 text-xs text-amber-300" data-testid="delegated-run-suspended">
+								<p class="mt-1 text-xs font-medium text-[var(--color-text-secondary)]" data-testid="delegated-run-suspended">
 									{run.suspendedReason}
 								</p>
 							{/if}
@@ -295,3 +450,28 @@
 		</section>
 	{/if}
 </div>
+
+{#if reviewing && draftExtension}
+	<DelegationConsentDialog
+		extensionId={draftExtension.id}
+		extensionName={draftExtension.name}
+		jobRef={draftJobRef.trim()}
+		workflowName={draftWorkflowName}
+		triggerKind={draftTriggerKind}
+		{serviceAccounts}
+		onclose={() => (reviewing = false)}
+		ondone={(delegation) => {
+			reviewing = false;
+			granting = false;
+			draftJobRef = "";
+			// Prepended rather than refetched: the row the server just
+			// returned IS the authoritative one, and a refetch here would
+			// race the write it is confirming.
+			delegations = [delegation, ...delegations];
+			rowMessage = {
+				...rowMessage,
+				[delegation.id]: { tone: "ok", text: "Approved. This job can now start runs on its own." },
+			};
+		}}
+	/>
+{/if}

@@ -556,6 +556,32 @@ export function describeRunStatus(status: string): { tone: "ok" | "warn" | "erro
 	}
 }
 
+/**
+ * When a run started, as a person reads it.
+ *
+ * A raw ISO string is precise and unreadable, and this list is scanned
+ * rather than audited — "2 hours ago" answers "is this job still doing
+ * what I expect?" at a glance, which is the question the page exists for.
+ * Past a week the relative form stops helping, so it becomes a date.
+ *
+ * `now` is a parameter rather than a `Date.now()` call so the behaviour is
+ * testable without freezing the clock.
+ */
+export function describeRunTime(startedAt: string, now: Date): string {
+	const started = new Date(startedAt);
+	if (Number.isNaN(started.getTime())) return startedAt;
+	const seconds = Math.floor((now.getTime() - started.getTime()) / 1000);
+	if (seconds < 0) return started.toLocaleDateString();
+	if (seconds < 60) return "just now";
+	const minutes = Math.floor(seconds / 60);
+	if (minutes < 60) return `${minutes}m ago`;
+	const hours = Math.floor(minutes / 60);
+	if (hours < 24) return `${hours}h ago`;
+	const days = Math.floor(hours / 24);
+	if (days < 7) return `${days}d ago`;
+	return started.toLocaleDateString();
+}
+
 /** "as you" / "as <account>" — never a bare id. */
 export function describeRunPrincipal(
 	run: DelegatedRun,

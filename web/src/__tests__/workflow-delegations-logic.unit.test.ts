@@ -23,6 +23,7 @@ import {
 	describeEffortNoopSteps,
 	describeRunPrincipal,
 	describeRunStatus,
+	describeRunTime,
 	diffCapabilities,
 	parseCapabilityKey,
 	reachWarningFor,
@@ -470,6 +471,29 @@ describe("describeRunPrincipal", () => {
 
 	test("a non-delegated run says so", () => {
 		expect(describeRunPrincipal({ ...run, runAsKind: null, runAs: null }, {})).toBe("not delegated");
+	});
+});
+
+describe("describeRunTime", () => {
+	const now = new Date("2026-08-03T12:00:00.000Z");
+
+	test("scans as a relative age, not an ISO string", () => {
+		expect(describeRunTime("2026-08-03T11:59:30.000Z", now)).toBe("just now");
+		expect(describeRunTime("2026-08-03T11:30:00.000Z", now)).toBe("30m ago");
+		expect(describeRunTime("2026-08-03T09:00:00.000Z", now)).toBe("3h ago");
+		expect(describeRunTime("2026-08-01T12:00:00.000Z", now)).toBe("2d ago");
+	});
+
+	test("past a week it becomes a date — relative stops helping", () => {
+		expect(describeRunTime("2026-06-01T12:00:00.000Z", now)).not.toContain("ago");
+	});
+
+	test("an unparseable timestamp is shown VERBATIM rather than as `Invalid Date`", () => {
+		expect(describeRunTime("not-a-date", now)).toBe("not-a-date");
+	});
+
+	test("a clock skewed into the future does not render a negative age", () => {
+		expect(describeRunTime("2026-08-03T13:00:00.000Z", now)).not.toContain("-");
 	});
 });
 

@@ -95,9 +95,18 @@
 		maxRunsPerDay,
 	});
 
-	/** The picker's own reach warning: shown as soon as `service` is chosen,
-	 *  before a preview exists, because the choice is what triggers it. */
-	const reach = $derived<ServiceAccountReach | null>(preview?.reach ?? null);
+	/**
+	 * The reach object, held SEPARATELY from the preview and never cleared.
+	 *
+	 * It describes what a service account can reach ON THIS INSTANCE — a
+	 * property of the ladder, not of any one preview. Deriving it from
+	 * `preview` made the warning vanish in the one situation that needs it
+	 * most: choosing "service account" with none selected clears the
+	 * preview (there is no principal to preview yet), which took the
+	 * warning down with it. The first preview — which runs as `user` on
+	 * open, and succeeds — is what seeds this.
+	 */
+	let reach = $state<ServiceAccountReach | null>(null);
 	const reachWarning = $derived(reachWarningFor(ownerKind, reach));
 
 	const capabilities = $derived<CapabilityRow[]>(
@@ -116,13 +125,21 @@
 				}),
 	);
 
-	const blockedReason = $derived(
-		previewError !== null
-			? previewError
-			: preview === null
-				? "Loading what this job would be allowed to do…"
-				: consentBlockedReason(draft),
-	);
+	/**
+	 * Why approve is disabled, in the order a person can ACT on.
+	 *
+	 * The owner-selection gap is checked ahead of the preview's absence:
+	 * picking "service account" with none selected leaves nothing to
+	 * preview, and reporting that as "Loading…" describes a wait that is
+	 * never going to end instead of the choice that is missing.
+	 */
+	const blockedReason = $derived.by(() => {
+		if (previewError !== null) return previewError;
+		const draftReason = consentBlockedReason(draft);
+		if (ownerKind === "service" && !ownerServiceAccountId) return draftReason;
+		if (preview === null) return "Loading what this job would be allowed to do…";
+		return draftReason;
+	});
 
 	/**
 	 * Re-preview whenever the OWNER changes.
@@ -159,6 +176,8 @@
 			previewing = false;
 			if (result.ok) {
 				preview = result.value;
+				// Latched, not cleared: see the `reach` declaration.
+				reach = result.value.reach;
 				previewError = null;
 			} else {
 				preview = null;
@@ -290,7 +309,7 @@
 				     reason AND both remedies, so nothing is added here. -->
 				{#if reachWarning}
 					<p
-						class="mt-3 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-200"
+						class="mt-3 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-[var(--color-text-primary)]"
 						data-testid="reach-warning"
 					>
 						{reachWarning}
@@ -304,7 +323,7 @@
 				     already names the remedy ("choose run as me, or ask an
 				     admin to make the workflow system-visible"). -->
 				<p
-					class="rounded-md border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200"
+					class="rounded-md border border-red-500/40 bg-red-500/10 p-3 text-sm text-[var(--color-text-primary)]"
 					data-testid="consent-refused"
 				>
 					{previewError}
@@ -344,7 +363,7 @@
 										'remove'
 											? 'bg-[var(--color-surface)] text-[var(--color-text-muted)] line-through'
 											: row.sensitive
-												? 'bg-red-500/10 text-red-200'
+												? 'bg-red-500/10 text-[var(--color-text-primary)] font-medium'
 												: 'bg-[var(--color-surface)] text-[var(--color-text-secondary)]'}"
 										data-testid="capability-row"
 									>
@@ -391,7 +410,7 @@
 									<span class="text-[var(--color-text-muted)]"> ({step.kind}) runs when </span>
 									<code>{step.when}</code>
 									{#if !step.skipDependents}
-										<span class="ml-1 text-amber-300"
+										<span class="ml-1 font-medium text-[var(--color-brand)]"
 											>— steps that depend on it still run when it is skipped</span
 										>
 									{/if}
@@ -406,7 +425,7 @@
 						<ul class="space-y-1.5">
 							{#each warnings as warning (warning.id)}
 								<li
-									class="rounded-md border border-amber-500/40 bg-amber-500/10 p-2.5 text-xs text-amber-200"
+									class="rounded-md border border-amber-500/40 bg-amber-500/10 p-2.5 text-xs text-[var(--color-text-primary)]"
 									data-testid="closure-warning-{warning.id}"
 								>
 									{warning.text}
@@ -501,7 +520,7 @@
 
 			{#if submitError}
 				<p
-					class="rounded-md border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200"
+					class="rounded-md border border-red-500/40 bg-red-500/10 p-3 text-sm text-[var(--color-text-primary)]"
 					data-testid="consent-submit-error"
 				>
 					{submitError}
