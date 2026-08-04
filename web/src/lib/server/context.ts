@@ -18,13 +18,8 @@ import {
 import { initDb, closeDb } from "$server/db/connection";
 import { validateEnv } from "$server/env-validation";
 import { loadDbCachedWorkflows } from "$server/db/queries/workflows";
-import {
-  NO_PROJECT_MEMBERSHIPS,
-  resolveWorkflowForCaller,
-  systemCachedWorkflow,
-  type CachedWorkflow,
-} from "$server/runtime/workflow-scope";
-import { listProjectIdsForUser } from "$server/db/queries/project-members";
+import { systemCachedWorkflow, type CachedWorkflow } from "$server/runtime/workflow-scope";
+import { makeNestedWorkflowResolver } from "$server/runtime/nested-workflow-resolver";
 import { terminalizeOrphanedWorkflowRuns } from "$server/db/queries/workflow-runs";
 import { startBackups, stopBackups } from "$server/db/backup";
 import {
@@ -182,35 +177,19 @@ export async function ensureInitialized(): Promise<void> {
     // author a workflow nest someone else's `private` one and read its
     // behaviour back through `$steps`.
     //
-    // `role: "member"` is deliberate and conservative: a run carries a
-    // principal id, not a role (a CLI or scheduled run has neither), and
-    // the safe reading of "we do not know" is the lower privilege. The
-    // practical effect is that nesting reaches `system` workflows always,
-    // project-less `project` ones for any run with a user, project-SCOPED
-    // ones only for a member of that project, and `private` ones only for
-    // their owner.
+    // The rule itself lives in `src/runtime/nested-workflow-resolver.ts`,
+    // NOT here. It used to be an inline arrow, which put an authorization
+    // decision inside boot wiring — a function no test executes. That was
+    // survivable while it was one object literal; project membership made it
+    // three decisions (the conservative `role: "member"`, when to read the
+    // membership set, and what a principal-less run gets), and those belong
+    // somewhere they can be asserted. See that module for each.
     //
-    // ASYNC, and the memberships are read from the DB rather than defaulted
-    // to empty: a run whose principal genuinely belongs to the project must
-    // reach that project's workflows, and "we did not look" is not the same
-    // answer as "they are not a member". The lookup is skipped entirely for
-    // a run with no principal (a CLI or scheduled run), which cannot be a
-    // member of anything — membership is keyed by user id.
-    //
-    // Reads the live `workflows` binding rather than a captured array, for
-    // the same reason `getWorkflows` is registered as a thunk below:
-    // `reloadWorkflows()` REASSIGNS it on every CRUD write.
-    workflowResolver: async (name, ctx) => {
-      const resolved = resolveWorkflowForCaller(workflows, name, {
-        userId: ctx.userId ?? null,
-        role: "member",
-        projectId: ctx.projectId ?? null,
-        projectMemberships: ctx.userId
-          ? await listProjectIdsForUser(ctx.userId)
-          : NO_PROJECT_MEMBERSHIPS,
-      }, "run");
-      return resolved.ok ? resolved.entry.definition : undefined;
-    },
+    // A THUNK, not `workflows` by value: `reloadWorkflows()` REASSIGNS the
+    // binding on every CRUD write, so handing over the array would freeze a
+    // stale list for the process lifetime — the same reason `getWorkflows`
+    // is registered as a thunk below.
+    workflowResolver: makeNestedWorkflowResolver(() => workflows),
   });
   // The `ezcorp/workflows` reverse-RPC handler lives in src/ and cannot
   // import this module (import direction), so register the live executor +
