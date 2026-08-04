@@ -402,6 +402,28 @@ describe("THE QUESTION — runFor against a workflow the caller itself ships", (
     expect(delegationId).toBeTruthy();
   });
 
+  test("the version pin for an extension asset resolves to NULL, not a divergence refusal", async () => {
+    // Item 4's `definition_version_id` claim, executed. An extension
+    // workflow has no `workflow_definitions` row, so
+    // `latestWorkflowVersionFor` finds nothing and
+    // `resolveDelegationVersionPin` returns the documented unversioned
+    // path — NOT `DELEGATION_VERSION_DIVERGENCE`, which would make the
+    // consent route answer 409 and the row unmintable.
+    const record = await computeDelegationConsentRecord({
+      entry: cachedEntries.find((e) => e.definition.name === SELF_SHIPPED_WF.name)!,
+      extensionName: EXT_NAME,
+      workflowName: SELF_SHIPPED_WF.name,
+      projectId: null,
+      runAs: { kind: "user", id: ownerUserId },
+      trigger: { kind: "cron", spec: { expr: "0 3 * * *" } },
+      principal: delegationPrincipal("user", ownerUserId),
+      entries: cachedEntries,
+      agents,
+    });
+    expect(record.pin).toEqual({ ok: true, definitionVersionId: null });
+    expect(record.consentHash).toMatch(/^[0-9a-f]{16,}$/);
+  });
+
   test("the consent-time policy agrees — the SAME shared function admits the self-shipped name", async () => {
     // `authorizeDelegationConsent` is the one policy both the consent route
     // and rung D7 ask, so the route would mint this row too. If consent
