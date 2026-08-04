@@ -295,6 +295,23 @@ for (const probe of probes) {
       expect(probe.getCalls().length).toBe(0);
     });
 
+    test("admin + scheme-valid but unparseable URL → 400 Invalid baseUrl", async () => {
+      // "https://" clears the startsWith scheme check but `new URL()` throws
+      // on it, so this is the ONLY input that reaches the URL-parse catch —
+      // the "ht!tp:…" case above is refused one check earlier.
+      const event = createMockEvent({
+        method: "POST",
+        url: probe.url,
+        body: probe.bodyFor("https://"),
+        user: ADMIN_USER,
+      });
+      const res = await call(probe.handler, event);
+      const data = await jsonFromResponse(res);
+      expect(res.status).toBe(400);
+      expect(String(data.error)).toBe("Invalid baseUrl");
+      expect(probe.getCalls().length).toBe(0);
+    });
+
     test("admin + https:// non-loopback hostname also works", async () => {
       const event = createMockEvent({
         method: "POST",
