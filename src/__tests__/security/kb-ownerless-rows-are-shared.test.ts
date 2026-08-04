@@ -101,10 +101,9 @@ const quotaMock = () => ({
 mock.module("$lib/server/security/resource-quotas", quotaMock);
 mock.module("../../../web/src/lib/server/security/resource-quotas", quotaMock);
 
-const chunkingMock = () => require("../../memory/chunking");
-mock.module("$server/memory/chunking", chunkingMock);
-
-mock.module("$server/logger", () => require("../../logger"));
+// The real chunker — cheap, pure, and the upload probe below should exercise
+// the genuine `isAllowedFile` gate rather than a stub of it.
+mock.module("$server/memory/chunking", () => require("../../memory/chunking"));
 
 // ── In-memory KB store ───────────────────────────────────────────
 
