@@ -327,6 +327,24 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "GET", path: "/api/workflows/:name/versions", description: "Version history for a workflow", category: "workflows" },
   { method: "POST", path: "/api/workflows/:name/claim", description: "Assign an owner to a system-owned workflow (admin)", category: "workflows", scope: "admin" },
 
+  // C3 delegated execution — the consent surface.
+  //
+  // NO `scope` on any of the three, for the same reason
+  // POST /api/workflows/approvals/:id declares none: `scope` renders as
+  // `security: [{ bearerAuth: [scope] }]` (src/openapi.ts:40), i.e. "call
+  // this with a key holding that scope". All three are session-only
+  // (`requireSessionAuth`), so NO key of any scope reaches them and
+  // declaring one would publish a lie about a security boundary.
+  //
+  // Consent is a strictly stronger boundary than answering one approval:
+  // an approval spends authority once, a delegation mints STANDING,
+  // unattended authority over a workflow. The read and the revoke sit
+  // behind the same gate deliberately — a revoke gated more strictly than
+  // its consent would leave authority its owner cannot take back.
+  { method: "GET", path: "/api/workflows/delegations", description: "List the live delegations this human consented to. SESSION-ONLY: refuses every API key (403)", category: "workflows", responseDescription: "{ delegations: WorkflowDelegation[] }" },
+  { method: "POST", path: "/api/workflows/delegations", description: "Consent to a delegation: mint standing authority for an extension job to run one workflow as a chosen principal. SESSION-ONLY (403 for every API key). Authorizes AS THE PRINCIPAL THE DELEGATION WILL CARRY, so a service-account delegation for a non-system-visible workflow is refused here with the reason named, not silently at the first fire. Re-consenting supersedes your own live delegation for the same (extension, job); another user's is 409. Body { extensionId, jobRef, workflowName, ownerKind, ownerServiceAccountId?, projectId?, triggerKind, triggerSpec?, maxTokensPerRun, maxRunsPerDay }", category: "workflows", responseDescription: "{ delegation, supersededId, material } (201)" },
+  { method: "DELETE", path: "/api/workflows/delegations/:id", description: "Revoke a delegation — a tombstone, not a delete, so the history survives and the (extension, job) can be consented to again. SESSION-ONLY (403 for every API key); the consenting human or an admin, 404 otherwise", category: "workflows", responseDescription: "{ revoked: boolean }" },
+
   // Tools
   { method: "GET", path: "/api/tools", description: "List available tools", category: "tools" },
   { method: "POST", path: "/api/tool-invoke", description: "Invoke a tool directly", category: "tools", scope: "extensions", harness: { controllable: true } },

@@ -29,7 +29,12 @@ import {
   type WorkflowAction,
   type WorkflowCaller,
 } from "$server/runtime/workflow-scope";
+import {
+  authorizeDelegationConsent,
+  DELEGATION_CONSENT_DENIALS,
+} from "$server/runtime/workflow-delegation-consent";
 import type { AuthUser } from "$server/auth/types";
+import type { DelegationOwnerKind } from "$server/db/schema";
 import type { WorkflowDefinition, WorkflowVisibility } from "$server/types";
 
 /**
@@ -125,6 +130,57 @@ export function denyVisibilityOr(
 ): Response | null {
   const message = denyVisibilityAssignment(callerFor(user), visibility);
   return message === null ? null : errorJson(403, message);
+}
+
+/**
+ * C3: resolve a workflow **as the principal a delegation will carry**,
+ * or return the Response the consent route should send.
+ *
+ * ## Why this is a third entry point and not a `resolveWorkflowOr` flag
+ *
+ * Every other adapter here authorizes the CALLER. This one deliberately
+ * does not: a delegation with `owner_kind = 'service'` runs as a
+ * principal with no user identity at all, so the question "may this be
+ * delegated?" has an answer the consenting human's own session cannot
+ * produce. `resolveWorkflowOr` takes an `AuthUser` and could not express
+ * it — there is no `AuthUser` for a service account, which is the point
+ * of service accounts (`db/schema.ts:505-520`).
+ *
+ * The rule itself lives in `runtime/workflow-delegation-consent.ts`, not
+ * here, because C3's fire-time ladder asks the identical question from
+ * `src/` on every fire and two implementations of it would either grant
+ * authority the human never saw or stale every fire of a delegation
+ * nobody can then fix. This function is the adapter half only: read the
+ * cache, call the shared rule, turn a refusal into a Response.
+ *
+ * The refusal is a **403 carrying the rule's own message**, never a bare
+ * status. The message names the reason and the remedy ("choose run as
+ * me, or ask an admin to make the workflow system-visible") because the
+ * failure this exists to prevent is a user picking the service-account
+ * arm for a forked — therefore `project`-visible — workflow and getting
+ * a delegation that can never fire. There is no existence oracle to
+ * protect here the way `resolveWorkflowOr` protects one: the caller is a
+ * session, and the workflow they are trying to delegate is one they
+ * named themselves.
+ */
+export function resolveDelegationConsentOr(
+  workflowName: string,
+  ownerKind: DelegationOwnerKind,
+  ownerUserId: string | null,
+): { entry: CachedWorkflow } | Response {
+  const result = authorizeDelegationConsent(
+    getCachedWorkflows(),
+    workflowName,
+    ownerKind,
+    ownerUserId,
+  );
+  if (!result.ok) {
+    return errorJson(
+      result.code === DELEGATION_CONSENT_DENIALS.NOT_FOUND ? 404 : 403,
+      result.message,
+    );
+  }
+  return { entry: result.entry };
 }
 
 /** Everything this caller may see, already serialized. */

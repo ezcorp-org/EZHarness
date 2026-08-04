@@ -1,0 +1,186 @@
+/**
+ * e2e: C3's delegation consent surface is session-only, and a real
+ * consent round-trips (T14 + the CRUD).
+ *
+ * Consenting to a delegation mints STANDING, unattended authority: an
+ * extension job may run one workflow, as a chosen principal, on a
+ * schedule, until somebody revokes it. That is a strictly stronger act
+ * than answering one approval — which is already session-only for the
+ * same reason (`approval-consent-boundary.spec.ts`, R-4). A leaked
+ * `chat` key that could mint a delegation would be a key that runs a
+ * workflow forever rather than once.
+ *
+ * Proven against a real previewed server (playwright.real.config), with
+ * real keys minted over HTTP and driven cookielessly:
+ *
+ *   1. Mint a `chat` key and a maximum-authority (admin-role, every
+ *      scope) key as the bootstrapped admin.
+ *   2. As a PURE bearer client (raw `fetch`, NO cookie), call all three
+ *      verbs: every one is 403 `Interactive session required`.
+ *   3. Anonymous is 401, so the 403s are a decision about the PRINCIPAL
+ *      rather than the generic "no auth" answer.
+ *   4. The SAME admin, at a browser, gets past the gate on all three —
+ *      and the write half actually round-trips: consent → list → revoke.
+ *
+ * The control in step 4 is what makes this an assertion rather than a
+ * tautology. Without it a route that refused everyone would pass steps
+ * 1–3 perfectly.
+ */
+import { test, expect } from "@playwright/test";
+
+const ABSENT_DELEGATION = "e2e-no-such-delegation-0000";
+
+function consentBody(extensionId: string, workflowName: string, jobRef: string) {
+  return {
+    extensionId,
+    jobRef,
+    workflowName,
+    ownerKind: "user" as const,
+    triggerKind: "cron",
+    triggerSpec: { expr: "0 3 * * *" },
+    maxTokensPerRun: 5000,
+    maxRunsPerDay: 24,
+  };
+}
+
+test.describe("the delegation consent surface is session-only", () => {
+  test("no API key can mint, list or revoke a delegation", async ({ request, baseURL }) => {
+    const chatKeyRes = await request.post("/api/settings/developer/api-keys", {
+      data: { name: "e2e-deleg-chat", scopes: ["chat"] },
+    });
+    expect(chatKeyRes.status(), await chatKeyRes.text()).toBe(201);
+    const chatKey = ((await chatKeyRes.json()) as { key: string }).key;
+
+    // The maximum-authority key the system can mint. If any key were
+    // going to get through a consent gate, it would be this one.
+    const superKeyRes = await request.post("/api/settings/developer/api-keys", {
+      data: {
+        name: "e2e-deleg-super",
+        scopes: ["read", "write", "chat", "extensions", "admin"],
+        role: "admin",
+      },
+    });
+    expect(superKeyRes.status(), await superKeyRes.text()).toBe(201);
+    const superKey = ((await superKeyRes.json()) as { key: string }).key;
+
+    const call = (key: string, path: string, init: RequestInit = {}) =>
+      fetch(`${baseURL}${path}`, {
+        ...init,
+        headers: { ...(init.headers ?? {}), Authorization: `Bearer ${key}` },
+      });
+
+    // Sanity: both keys genuinely AUTHENTICATE. Without this the 403s
+    // below would be unfalsifiable — a key that failed to verify is also
+    // refused, and for entirely the wrong reason.
+    for (const key of [chatKey, superKey]) {
+      expect((await call(key, "/api/auth/me")).status).toBe(200);
+    }
+
+    for (const key of [chatKey, superKey]) {
+      const listed = await call(key, "/api/workflows/delegations");
+      const listedText = await listed.text();
+      expect(listed.status, listedText).toBe(403);
+      expect(listedText).toContain("Interactive session required");
+
+      const minted = await call(key, "/api/workflows/delegations", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(consentBody("ext-anything", "anything", "job-1")),
+      });
+      const mintedText = await minted.text();
+      expect(minted.status, mintedText).toBe(403);
+      expect(mintedText).toContain("Interactive session required");
+
+      const revoked = await call(key, `/api/workflows/delegations/${ABSENT_DELEGATION}`, {
+        method: "DELETE",
+      });
+      const revokedText = await revoked.text();
+      expect(revoked.status, revokedText).toBe(403);
+      expect(revokedText).toContain("Interactive session required");
+    }
+
+    // An unauthenticated caller is 401, so the 403s above are about the
+    // PRINCIPAL and not about the absence of one.
+    const anon = await fetch(`${baseURL}/api/workflows/delegations`);
+    expect(anon.status).toBe(401);
+  });
+
+  test("the human at a browser consents, sees it listed, and revokes it", async ({ request }) => {
+    // A workflow of the admin's own, so the delegation's principal (the
+    // admin, `ownerKind: "user"`) can genuinely run it. `POST
+    // /api/workflows` defaults a new row to `system` visibility.
+    const workflowName = `e2e-deleg-wf-${Date.now()}`;
+    const created = await request.post("/api/workflows", {
+      data: {
+        name: workflowName,
+        description: "delegation consent e2e",
+        steps: [{ name: "s1", kind: "transform", input: {}, output: { ok: "true" } }],
+      },
+    });
+    expect(created.status(), await created.text()).toBe(201);
+
+    // A real, registry-resolved extension id: the consent route takes the
+    // extension NAME from the registry and never from the body, so this
+    // has to be an extension the host actually has.
+    const extensionsRes = await request.get("/api/extensions");
+    expect(extensionsRes.status(), await extensionsRes.text()).toBe(200);
+    // `GET /api/extensions` serves a bare array of rows.
+    const installed = (await extensionsRes.json()) as Array<{ id: string }>;
+    const extensionId = installed[0]?.id;
+    expect(extensionId, "the real tier must bootstrap at least one extension").toBeTruthy();
+
+    const jobRef = `e2e-job-${Date.now()}`;
+    const consent = await request.post("/api/workflows/delegations", {
+      data: consentBody(extensionId!, workflowName, jobRef),
+    });
+    expect(consent.status(), await consent.text()).toBe(201);
+    const body = (await consent.json()) as {
+      delegation: { id: string; ownerId: string; workflowName: string };
+      supersededId: string | null;
+      material: { workflowName: string };
+    };
+    expect(body.delegation.workflowName).toBe(workflowName);
+    expect(body.supersededId).toBeNull();
+    // The owner came from the SESSION, never from the body — the body
+    // never named one.
+    expect(body.delegation.ownerId).toBeTruthy();
+    // The material is returned so a dialog reads the object the hash was
+    // taken over rather than deriving a second one.
+    expect(body.material.workflowName).toBe(workflowName);
+
+    const listed = await request.get("/api/workflows/delegations");
+    expect(listed.status(), await listed.text()).toBe(200);
+    const rows = (await listed.json()) as { delegations: Array<{ id: string }> };
+    expect(rows.delegations.map((d) => d.id)).toContain(body.delegation.id);
+
+    // Re-consenting the same (extension, job) supersedes rather than
+    // colliding with the partial unique index.
+    const again = await request.post("/api/workflows/delegations", {
+      data: consentBody(extensionId!, workflowName, jobRef),
+    });
+    expect(again.status(), await again.text()).toBe(201);
+    const second = (await again.json()) as {
+      delegation: { id: string };
+      supersededId: string;
+    };
+    expect(second.supersededId).toBe(body.delegation.id);
+
+    // The superseded row is already a tombstone, so revoking it is a
+    // no-op — reported honestly rather than claimed as a fresh
+    // revocation.
+    const stale = await request.delete(`/api/workflows/delegations/${body.delegation.id}`);
+    expect(stale.status(), await stale.text()).toBe(200);
+    expect(await stale.json()).toEqual({ revoked: false });
+
+    // The LIVE row revokes for real, and leaves the list.
+    const revoke = await request.delete(`/api/workflows/delegations/${second.delegation.id}`);
+    expect(revoke.status(), await revoke.text()).toBe(200);
+    expect(await revoke.json()).toEqual({ revoked: true });
+    const after = await request.get("/api/workflows/delegations");
+    const remaining = (await after.json()) as { delegations: Array<{ id: string }> };
+    expect(remaining.delegations.map((d) => d.id)).not.toContain(second.delegation.id);
+
+    const unknown = await request.delete(`/api/workflows/delegations/${ABSENT_DELEGATION}`);
+    expect(unknown.status(), await unknown.text()).toBe(404);
+  });
+});
