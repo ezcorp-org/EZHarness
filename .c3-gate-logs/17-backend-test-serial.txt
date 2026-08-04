@@ -1,0 +1,6 @@
+$ bash scripts/test.sh
+
+================================
+  20828 pass | 0 fail | 1263 files
+================================
+BACKEND_SERIAL_EXIT=0

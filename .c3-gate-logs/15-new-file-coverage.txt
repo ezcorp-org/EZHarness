@@ -1,0 +1,3 @@
+New-file coverage gate FAILED (1 file(s)):
+  web/src/lib/components/DelegationConsentDialog.svelte: new source file with no measured coverage — add a test that exercises it (or, if it genuinely can't be line-measured, add it to EXCLUDES in scripts/coverage-config.ts with justification).
+NEW_FILE_COV_EXIT=1
