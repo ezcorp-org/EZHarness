@@ -42,10 +42,13 @@ export const GET: RequestHandler = async ({ url, locals }) => {
   // caller, so the two sides cannot drift apart.
   //
   // Why NULL is read as "shared" rather than "orphaned":
-  //   1. It cannot arise by accident. `POST` (below) always stamps
-  //      `userId: user.id`, so a null owner is either a pre-`user_id` row
-  //      backfilled by `src/db/migrate.ts` or a deliberate system/seed ingest —
-  //      in both cases a project-wide corpus, not one person's private file.
+  //   1. It cannot arise by accident, and it does not linger by accident either.
+  //      `POST` (below) always stamps `userId: user.id`, so no upload can mint
+  //      an ownerless row — and `src/db/migrate.ts` actively RECLAIMS them:
+  //      every boot runs `UPDATE knowledge_base_files SET user_id = (first
+  //      admin) WHERE user_id IS NULL`. A row that is ownerless at read time is
+  //      therefore something an operator put there deliberately since the last
+  //      boot (or an instance with no admin user at all) — never drift.
   //   2. There is nothing else to say it with. The platform has no
   //      project-membership model, so per-file `userId` is the ONLY access axis
   //      KB reads have; a null owner IS "shared with the project".
@@ -55,6 +58,13 @@ export const GET: RequestHandler = async ({ url, locals }) => {
   //      are already injected into every project member's chat turn. Hiding the
   //      row from the API would not hide the content; it would only make the UI
   //      disagree with the prompt the model actually sees.
+  //
+  // KNOWN LIMIT (not a licence to tighten this predicate): because of the
+  // reclaim in (1), sharing does NOT survive a restart — the next boot adopts
+  // the row to the first admin and it silently stops being shared. The read
+  // rule below is correct; making shared files durable is a separate decision
+  // about that migration, and needs a human. Documented in
+  // docs/features/chat/knowledge-base.md.
   //
   // Sharing is READ-ONLY. Writes stay fail-closed on the same rows: `DELETE`
   // of a null-owner file is admin-only (sec-H3, `[id]/+server.ts`). "Everyone

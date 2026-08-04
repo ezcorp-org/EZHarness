@@ -26,10 +26,12 @@
 // `user_id IS NULL` is the knowledge base's sharing mechanism, not an orphan
 // marker. Three independent reasons, all checkable in-tree:
 //
-//   1. A null owner cannot arise by accident. `POST /api/knowledge-base` always
-//      stamps `userId: user.id`, so null-owner rows are either pre-`user_id`
-//      rows backfilled by `src/db/migrate.ts` or deliberate system/seed
-//      ingests — project-wide corpora, not one person's private file.
+//   1. A null owner cannot arise by accident, and cannot linger by accident.
+//      `POST /api/knowledge-base` always stamps `userId: user.id` (pinned
+//      below), and `src/db/migrate.ts` actively RECLAIMS null-owner rows to the
+//      first admin on every boot (also pinned below). So a row that is
+//      ownerless when read is a deliberate operator act, never drift.
+//      Consequence, documented not fixed: sharing does not survive a restart.
 //   2. There is no other way to express "shared". The platform has no
 //      project-membership model, so per-file `userId` is the only access axis
 //      KB reads have.
@@ -410,6 +412,20 @@ describe("source: both read predicates carry the KB-SHARED-NULL-OWNER anchor", (
     const suite = "kb-ownerless-rows-are-shared";
     expect(read(LIST)).toContain(suite);
     expect(read(DETAIL)).toContain(suite);
+  });
+
+  test("migrate.ts still RECLAIMS ownerless KB rows — the documented durability caveat", () => {
+    // Not a blessing of the reclaim, a tripwire on it. `migrate()` runs on
+    // every boot (src/db/connection.ts) and adopts null-owner KB rows to the
+    // first admin, so a shared file silently stops being shared after a
+    // restart. That limit is documented in
+    // docs/features/chat/knowledge-base.md; if this assertion fails the reclaim
+    // moved and the caveat must be re-checked (in either direction — removing
+    // it makes sharing durable, which is the open decision, not a bug fix).
+    const src = read("src/db/migrate.ts");
+    expect(src).toMatch(
+      /UPDATE knowledge_base_files SET user_id = \(SELECT id FROM users WHERE role = 'admin'[^)]*\)\s*WHERE user_id IS NULL/,
+    );
   });
 
   test("the DELETE handler is NOT annotated as shared — writes stay fail-closed", () => {

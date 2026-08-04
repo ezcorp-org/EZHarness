@@ -70,10 +70,11 @@ they cannot drift apart.
 
 Why `NULL` is read as *shared* and not *orphaned*:
 
-1. **It can't happen by accident.** `POST /api/knowledge-base` always stamps
-   `userId: user.id`, so an ownerless row is either a pre-`user_id` row
-   backfilled by `src/db/migrate.ts` or a deliberate system/seed ingest — in
-   both cases a project-wide corpus, not one person's private file.
+1. **It can't happen by accident, and it can't linger by accident.**
+   `POST /api/knowledge-base` always stamps `userId: user.id`, so no upload can
+   mint an ownerless row; and `src/db/migrate.ts` actively *reclaims* them (see
+   the caveat below). A row that is ownerless when it is read is therefore a
+   deliberate operator act, not drift.
 2. **There is nothing else to say it with.** The platform has no
    project-membership model, so per-file `userId` is the only access axis KB
    reads have. A null owner *is* the sharing mechanism.
@@ -83,8 +84,28 @@ Why `NULL` is read as *shared* and not *orphaned*:
    would not hide the content — it would only make the UI disagree with the
    prompt the model actually sees.
 
-There is no UI or API to *create* a shared file today: sharing is an operator
-act (insert/update a row with a `NULL` owner), not a product feature.
+**Caveat — sharing is not durable across restarts (open, needs a human).** There
+is no UI or API to *create* a shared file: sharing is an operator act (write a
+row with a `NULL` owner), not a product feature. And `src/db/migrate.ts` runs on
+**every boot** (unversioned, idempotent-by-construction — `src/db/connection.ts`
+calls `migrate()` on each open) and includes
+
+```sql
+UPDATE knowledge_base_files
+   SET user_id = (SELECT id FROM users WHERE role = 'admin' ORDER BY created_at LIMIT 1)
+ WHERE user_id IS NULL;
+```
+
+so a shared file is **adopted by the first admin at the next restart** and
+silently stops being shared. (It survives only on an instance that has no
+`admin`-role user, where the subquery yields `NULL` and the update is a no-op.)
+
+The read rule above is still the correct one — this caveat is about *durability*,
+not about who may read a row that is ownerless right now. Making shared files
+persist means changing that migration (e.g. excluding `knowledge_base_files` from
+the reclaim, or introducing an explicit `shared` flag), which is a data-migration
+decision, not a read-path one. Do **not** "fix" it by tightening the read
+predicates — that produces the *list-but-404* this section exists to prevent.
 
 ### Lifecycle UI feedback
 
