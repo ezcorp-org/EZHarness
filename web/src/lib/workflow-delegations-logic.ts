@@ -109,6 +109,7 @@ export interface DelegatedRun {
 	startedAt: string;
 	finishedAt: string | null;
 	error: string | null;
+	suspendedReason: string | null;
 }
 
 /**
@@ -136,6 +137,15 @@ export interface ConsentPreview {
 	maxToolCallsPerRun: number;
 	/** `MAX_WORKFLOW_NESTING_DEPTH`, read from the host's own constant. */
 	maxNestingDepth: number;
+	/**
+	 * Phase 2's server-derived reach object.
+	 *
+	 * Carried here because `GET /api/service-accounts` is admin-only, so a
+	 * non-admin consenting to a delegation could otherwise never read it —
+	 * and the alternative, re-stating what a service account can reach in
+	 * the browser, is the one thing this module refuses to do.
+	 */
+	reach: ServiceAccountReach;
 }
 
 // ── the owner-kind picker (Ruling 1) ──────────────────────────────────
@@ -242,11 +252,16 @@ export function tokenBoundExclusions(opts: {
 	];
 
 	if (opts.effortNoops.length > 0) {
+		// Worded to exactly what the server DERIVED — the resolved model's
+		// `reasoning` flag — with the local/custom case named because it is
+		// the one that surprises people. Claiming "this is a local model"
+		// outright would be a guess; a locally-served or custom model is the
+		// reason the flag is false, not the thing the flag reports.
 		out.push({
 			id: "effort-noop",
 			text:
 				`${describeEffortNoopSteps(opts.effortNoops)} ask for a reasoning effort that will be ignored: ` +
-				"the model bound to them is a local or custom model, which does not accept a reasoning setting.",
+				"the model bound to them does not accept a reasoning setting. Local and custom models never do.",
 		});
 	}
 	return out;
