@@ -29,6 +29,11 @@ The REST handlers (`web/src/routes/api/agent-configs/…`) keep the DB and the e
 
 `configToAgent` (`src/runtime/config-to-agent.ts`) wraps the config into an `AgentDefinition` whose `execute(ctx)` flattens `ctx.input` into `key: value` lines, calls `ctx.llm.complete(...)` with the config's `system`/`provider`/`model`/`temperature`/`maxTokens`, and — when `outputFormat === "json"` — `JSON.parse`s the response (returning a failure result if it doesn't parse). The same module also exports `composeAgent`, a depth-limited variant (`DEFAULT_MAX_DEPTH = 3`) used for nested composition.
 
+Two details of that call are load-bearing:
+
+- **`temperature`/`maxTokens` reach the provider** (`resolveTuning` in `src/runtime/executor-helpers.ts`). They did not until 2026-08-04 — the adapter read sampling knobs only off a caller-level `ModelOverride`, so the form fields were accepted and dropped. A workflow step's `model` binding still beats them; an override silent on one knob leaves the agent's value standing; a non-finite value (an unvalidated `maxTokens: ~` out of `*.agent.yaml`) is treated as absent rather than shipped.
+- **A json-mode parse failure names what came back.** The error reports the shape (`an empty response` / `a fenced code block` / `malformed JSON` / `prose`), the raw char count, the engine's own parse message, and a 300-char snippet of the response. It still **fails closed** in every one of those cases, fenced JSON included — a workflow gate reading `$steps.<x>.output.valid` must not begin passing because the parser got more permissive.
+
 ### Boot load
 
 On startup the executor is primed with **YAML/file agents plus DB agents**: `src/runtime/loader.ts` calls `loadDbAgents()` (`src/db/queries/agent-configs.ts`) when `includeDb` is set, which maps every `agent_configs` row through `configToAgent` into the executor's `Map<name, AgentDefinition>`. The CRUD register/unregister calls keep that map current without a restart.

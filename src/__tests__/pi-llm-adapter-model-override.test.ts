@@ -71,6 +71,7 @@ mock.module("../providers/credentials", () => ({
 }));
 
 const { createPiLlmAdapter } = await import("../runtime/executor-helpers");
+const { configToAgent } = await import("../runtime/config-to-agent");
 
 const messages = [{ role: "user" as const, content: "hello" }];
 
@@ -173,6 +174,123 @@ describe("createPiLlmAdapter — with an override", () => {
     }
     expect(calls[0]!.entry).toBe("stream");
     expect(calls[0]!.options.maxTokens).toBe(42);
+  });
+});
+
+/**
+ * The agent's OWN sampling knobs.
+ *
+ * `AgentConfig.temperature` / `AgentConfig.maxTokens` are user-facing
+ * config fields, and `configToAgent` has always put them on the per-call
+ * options object. The adapter used to read sampling knobs ONLY off the
+ * caller-level `overrides` binding, so the config fields were accepted,
+ * type-checked (`AgentContext.llm` is `any`, so nothing complained) and
+ * then silently dropped on the floor. A field that reads as functional
+ * and isn't is worse than one that errors.
+ *
+ * The precedence rule these tests pin: an explicit caller-level override
+ * (a workflow step's `model:` binding) still BEATS the agent's own ask —
+ * that was already the documented contract for provider/model, and
+ * sampling now follows the same rule instead of a different one.
+ */
+describe("createPiLlmAdapter — the agent's own sampling knobs", () => {
+  test("an agent-level maxTokens reaches the provider with no override present", async () => {
+    const adapter = createPiLlmAdapter();
+    await adapter.complete(messages, { model: "agent-model", maxTokens: 256 });
+    expect(calls[0]!.options.maxTokens).toBe(256);
+  });
+
+  test("an agent-level temperature reaches the provider with no override present", async () => {
+    const adapter = createPiLlmAdapter();
+    await adapter.complete(messages, { model: "agent-model", temperature: 0.2 });
+    expect(calls[0]!.options.temperature).toBe(0.2);
+  });
+
+  test("an override BEATS the agent's own ask (same rule as provider/model)", async () => {
+    const adapter = createPiLlmAdapter({ temperature: 0.9, maxTokens: 9000 });
+    await adapter.complete(messages, { temperature: 0.1, maxTokens: 10 });
+    expect(calls[0]!.options.temperature).toBe(0.9);
+    expect(calls[0]!.options.maxTokens).toBe(9000);
+  });
+
+  test("a partial override leaves the agent's other knob alone", async () => {
+    const adapter = createPiLlmAdapter({ maxTokens: 9000 });
+    await adapter.complete(messages, { temperature: 0.1, maxTokens: 10 });
+    expect(calls[0]!.options.maxTokens).toBe(9000);
+    expect(calls[0]!.options.temperature).toBe(0.1);
+  });
+
+  test("stream() forwards the agent's knobs on the raw entrypoint too", async () => {
+    const adapter = createPiLlmAdapter();
+    for await (const _ of adapter.stream(messages, { maxTokens: 77, temperature: 0.3 })) {
+      // drain
+    }
+    expect(calls[0]!.entry).toBe("stream");
+    expect(calls[0]!.options.maxTokens).toBe(77);
+    expect(calls[0]!.options.temperature).toBe(0.3);
+  });
+
+  test("a caller that asks for NOTHING still gets the byte-identical `{apiKey}` call", async () => {
+    // The compatibility floor: forwarding must not start emitting
+    // `temperature: undefined` keys onto the wire for agents that set none.
+    const adapter = createPiLlmAdapter();
+    await adapter.complete(messages, { system: "s" });
+    expect(Object.keys(calls[0]!.options)).toEqual(["apiKey"]);
+  });
+
+  test("temperature 0 is a real value, not an absent one", async () => {
+    // `0` is the one falsy temperature a user can legitimately mean.
+    const adapter = createPiLlmAdapter();
+    await adapter.complete(messages, { temperature: 0 });
+    expect(calls[0]!.options.temperature).toBe(0);
+  });
+
+  test("a YAML-shaped null/garbage knob is treated as absent, never shipped", async () => {
+    // `yaml-loader.ts` `parse()`s an untrusted *.agent.yaml and casts
+    // straight to AgentConfig with no validation, so `maxTokens: ~` and
+    // `temperature: "warm"` reach the adapter wearing a `number` type they
+    // do not have. Before forwarding existed they were inert; they must
+    // stay inert rather than go on the wire as null/"warm".
+    const adapter = createPiLlmAdapter();
+    await adapter.complete(messages, {
+      maxTokens: null as unknown as number,
+      temperature: "warm" as unknown as number,
+    });
+    expect(Object.keys(calls[0]!.options)).toEqual(["apiKey"]);
+  });
+
+  test("a NaN knob is skipped and the next candidate wins", async () => {
+    const adapter = createPiLlmAdapter({ maxTokens: Number.NaN });
+    await adapter.complete(messages, { maxTokens: 500 });
+    expect(calls[0]!.options.maxTokens).toBe(500);
+  });
+
+  test("end-to-end: an AgentConfig's maxTokens/temperature actually reach pi-ai", async () => {
+    // The whole point — through the real `configToAgent`, not a hand-built
+    // options object. This is the path a user setting `maxTokens:` in agent
+    // config actually takes.
+    const agent = configToAgent({
+      name: "a",
+      description: "d",
+      capabilities: ["llm"],
+      prompt: "p",
+      temperature: 0.42,
+      maxTokens: 1234,
+    });
+    const result = await agent.execute({
+      input: { q: "hi" },
+      llm: createPiLlmAdapter(),
+      shell: { run: async () => ({ stdout: "", stderr: "", exitCode: 0 }) },
+      file: { read: async () => "", write: async () => {}, exists: async () => false },
+      log: () => {},
+      signal: new AbortController().signal,
+      run: async () => ({ success: true, output: null }),
+    } as unknown as Parameters<typeof agent.execute>[0]);
+
+    expect(result.success).toBe(true);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.options.maxTokens).toBe(1234);
+    expect(calls[0]!.options.temperature).toBe(0.42);
   });
 });
 
