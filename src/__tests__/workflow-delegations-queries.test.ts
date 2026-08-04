@@ -32,7 +32,8 @@ const { createWorkflow } = await import("../db/queries/workflows");
 const { ensureWorkflowVersion, sweepWorkflowDefinitionVersions, listWorkflowVersions } =
   await import("../db/queries/workflow-versions");
 const { getDb } = await import("../db/connection");
-const { extensions, serviceAccounts } = await import("../db/schema");
+const { extensions, serviceAccounts, workflowRuns } = await import("../db/schema");
+const { eq } = await import("drizzle-orm");
 
 const CONSENTER = "user-consenter";
 const OTHER = "user-other";
@@ -241,6 +242,113 @@ describe("revocation is a tombstone", () => {
     ]);
     await revokeWorkflowDelegation(mine.delegation.id);
     expect(await listWorkflowDelegationsConsentedBy(CONSENTER)).toEqual([]);
+  });
+});
+
+describe("a supersede carries PARKED runs forward onto the new authority", () => {
+  beforeEach(async () => await freshDb());
+  afterAll(async () => await closeTestDb());
+
+  /** A `workflow_runs` row in one status, pointed at one delegation. */
+  async function run(id: string, status: string, delegationId: string): Promise<void> {
+    await getDb()
+      .insert(workflowRuns)
+      .values({
+        id,
+        workflowName: "w",
+        status,
+        input: {},
+        startedAt: new Date(),
+        delegationId,
+        runAsKind: "user",
+        runAs: CONSENTER,
+      } as never);
+  }
+
+  async function delegationOf(id: string): Promise<string | null> {
+    const [row] = await getDb()
+      .select({ delegationId: workflowRuns.delegationId })
+      .from(workflowRuns)
+      .where(eq(workflowRuns.id, id));
+    return row?.delegationId ?? null;
+  }
+
+  test("a SUSPENDED run moves; terminal and running rows do NOT", async () => {
+    // Without this the two C3 resume rules are unsatisfiable in practice
+    // and every parked delegated run is stuck forever. There is no update
+    // route on a delegation, so the ONLY way to raise `max_tokens_per_run`
+    // or refresh a stale consent is to re-consent — which is this
+    // function, which tombstones. Both `RESUME_RULES` predicates read the
+    // RUN's own `delegation_id` and refuse a revoked row, so the remedies
+    // their own prose names ("only raising that cap lets it continue",
+    // "only a fresh consent lets it continue") were unreachable.
+    const first = await createWorkflowDelegation(consentInput());
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    const old = first.delegation.id;
+    await run("r-parked", "suspended", old);
+    await run("r-done", "success", old);
+    await run("r-live", "running", old);
+
+    const second = await createWorkflowDelegation(consentInput({ consentHash: "hash-2" }));
+    expect(second.ok).toBe(true);
+    if (!second.ok) return;
+    expect(second.supersededId).toBe(old);
+
+    // The parked run now names the authority that can actually admit it.
+    expect(await delegationOf("r-parked")).toBe(second.delegation.id);
+    // History does not move: a terminal run names the authority it really
+    // executed under…
+    expect(await delegationOf("r-done")).toBe(old);
+    // …and a RUNNING run belongs to the process holding its lease, whose
+    // boundary check re-reads this column mid-flight.
+    expect(await delegationOf("r-live")).toBe(old);
+  });
+
+  test("the audit SNAPSHOT of the principal is untouched by the move", async () => {
+    // `delegation_id` is the live FK and is what moves; `run_as_kind` /
+    // `run_as` are the record of who the run executed as and must survive
+    // both revocation and owner deletion.
+    const first = await createWorkflowDelegation(consentInput());
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    await run("r-parked", "suspended", first.delegation.id);
+
+    await createWorkflowDelegation(consentInput({ consentHash: "hash-2" }));
+
+    const [row] = await getDb()
+      .select({ runAsKind: workflowRuns.runAsKind, runAs: workflowRuns.runAs })
+      .from(workflowRuns)
+      .where(eq(workflowRuns.id, "r-parked"));
+    expect(row).toEqual({ runAsKind: "user", runAs: CONSENTER });
+  });
+
+  test("a REVOKE leaves a parked run parked — there is no successor to move it to", async () => {
+    // Withdrawing authority must not free a run the authority was holding.
+    const first = await createWorkflowDelegation(consentInput());
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    await run("r-parked", "suspended", first.delegation.id);
+
+    expect(await revokeWorkflowDelegation(first.delegation.id)).toBe(true);
+
+    expect(await delegationOf("r-parked")).toBe(first.delegation.id);
+  });
+
+  test("another delegation's parked run is not dragged along", async () => {
+    const mine = await createWorkflowDelegation(consentInput());
+    const other = await createWorkflowDelegation(consentInput({ jobRef: "job-2" }));
+    expect(mine.ok && other.ok).toBe(true);
+    if (!mine.ok || !other.ok) return;
+    await run("r-mine", "suspended", mine.delegation.id);
+    await run("r-other", "suspended", other.delegation.id);
+
+    const again = await createWorkflowDelegation(consentInput({ consentHash: "hash-2" }));
+    expect(again.ok).toBe(true);
+    if (!again.ok) return;
+
+    expect(await delegationOf("r-mine")).toBe(again.delegation.id);
+    expect(await delegationOf("r-other")).toBe(other.delegation.id);
   });
 });
 

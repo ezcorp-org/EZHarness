@@ -242,6 +242,56 @@ export async function createWorkflowDelegation(
         consentedByUserId: input.consentedByUserId,
       })
       .returning();
+    if (existing) {
+      // ── Carry PARKED runs forward onto the new authority ────────────
+      //
+      // Without this both C3 resume rules are unsatisfiable and every
+      // parked delegated run is stuck forever. Verified by execution,
+      // not by reading:
+      //
+      //   - `workflow_delegations` has NO update route. The only way to
+      //     raise `max_tokens_per_run` or refresh a stale consent is to
+      //     re-consent, which is THIS function, which tombstones.
+      //   - Both `RESUME_RULES` predicates go through
+      //     `readWorkflowRunDelegationBudget`, which INNER-joins the
+      //     RUN's own `delegation_id` and reports `live: false` for a
+      //     revoked row. Both then refuse.
+      //   - So the remedies those rules name in their own prose —
+      //     "only raising that cap lets it continue" and "only a fresh
+      //     consent on the delegation lets it continue" — were both
+      //     unreachable, and a run parked by the budget ceiling or by a
+      //     stale consent could never be continued by anyone.
+      //
+      // Only `suspended` rows move. A TERMINAL run's record must not:
+      // it names the authority it actually executed under, and that is
+      // history. A `running` run is not moved either — it belongs to the
+      // process holding its lease, and its boundary check re-reads this
+      // column mid-flight.
+      //
+      // Inside the SAME transaction as the tombstone and the insert, so
+      // there is never an instant in which a parked run points at a
+      // revoked delegation while a live one exists.
+      //
+      // Revocation deliberately does NOT do this ({@link
+      // revokeWorkflowDelegation}): withdrawing authority must leave
+      // parked runs parked, and there is no successor row to point them
+      // at anyway.
+      //
+      // `run_as_kind` / `run_as` are untouched, and that is what keeps
+      // the history honest — they are the audit SNAPSHOT of the
+      // principal (`db/schema.ts:850-863`), while `delegation_id` is
+      // documented there as the live FK that goes NULL. Re-pointing the
+      // live FK is what that column is for.
+      await tx
+        .update(workflowRuns)
+        .set({ delegationId: inserted!.id })
+        .where(
+          and(
+            eq(workflowRuns.delegationId, existing.id),
+            eq(workflowRuns.status, "suspended"),
+          ),
+        );
+    }
     return { ok: true, delegation: inserted!, supersededId: existing?.id ?? null };
   });
 }
