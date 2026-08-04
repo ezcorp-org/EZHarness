@@ -135,7 +135,12 @@ mock.module("../../providers/local-model-check", localCheckMock);
 // ── Handler imports (AFTER mocks) ────────────────────────────────
 import { POST as POST_TEST } from "../../../web/src/routes/api/providers/local/test/+server";
 import { POST as POST_MODELS } from "../../../web/src/routes/api/providers/local/models/+server";
-import { isPrivateOrLoopback } from "../../../web/src/lib/server/security/url-validation";
+import {
+  isPrivateOrLoopback,
+  isLoopbackLiteral,
+  loopbackProvidersBlocked,
+  BLOCK_LOOPBACK_ENV,
+} from "../../../web/src/lib/server/security/url-validation";
 
 // SvelteKit handlers may throw a Response on auth failure; unwrap.
 async function call(
@@ -221,19 +226,25 @@ for (const probe of probes) {
   });
 
   describe(`sec-H1: ${probe.name} SSRF target validation`, () => {
+    // NOTE (fix/local-inference-usable): the four LOOPBACK entries that used
+    // to live in this list moved to the `loopbackTargets` describe below —
+    // they are now ALLOWED by the deliberate, documented carve-out in
+    // `checkLocalProviderTarget` (a local Ollama could otherwise not be
+    // registered through the UI at all, because the UI auto-fills
+    // `http://localhost:11434` and the server then refused its own
+    // suggestion). Nothing was deleted: every one of them is still asserted,
+    // as a 200 here and as a 400 again under the env kill-switch. Every
+    // NON-loopback target below is untouched and still refused.
     const ssrfTargets: Array<[string, string]> = [
       ["cloud metadata (169.254.169.254)", "http://169.254.169.254/latest/meta-data/"],
-      ["loopback IPv4 (127.0.0.1)", "http://127.0.0.1:11434"],
-      ["literal localhost", "http://localhost:11434"],
       ["private 10/8", "http://10.0.0.5:8080"],
       ["private 172.16/12 low edge", "http://172.16.0.1:8080"],
       ["private 172.16/12 high edge", "http://172.31.255.254:8080"],
       ["private 192.168/16", "http://192.168.1.1:8080"],
-      ["loopback IPv6 ::1", "http://[::1]:11434"],
       ["link-local IPv6 fe80", "http://[fe80::1]:11434"],
       ["ULA IPv6 fc00", "http://[fc00::1]:11434"],
-      ["IPv4-mapped loopback", "http://[::ffff:127.0.0.1]:11434"],
       ["0.0.0.0 wildcard", "http://0.0.0.0:11434"],
+      ["unspecified IPv6 ::", "http://[::]:11434"],
     ];
 
     for (const [label, baseUrl] of ssrfTargets) {
@@ -294,6 +305,101 @@ for (const probe of probes) {
       const res = await call(probe.handler, event);
       expect(res.status).toBe(200);
       expect(probe.getCalls().length).toBe(1);
+    });
+  });
+
+  // ── The loopback carve-out (fix/local-inference-usable) ─────────────
+  //
+  // Paired on purpose: every test here that proves "this now succeeds" has a
+  // sibling above proving a NON-loopback private address still fails, and a
+  // sibling below proving the same URL fails again under the kill-switch.
+  describe(`loopback carve-out: ${probe.name} allows literal loopback`, () => {
+    const loopbackTargets: Array<[string, string]> = [
+      // THE case this whole carve-out exists for: the exact string the
+      // settings UI auto-fills for a new Ollama provider
+      // (web/src/lib/components/settings/CustomModelsSection.svelte:156).
+      ["the UI's auto-filled Ollama URL", "http://localhost:11434"],
+      ["loopback IPv4 (127.0.0.1)", "http://127.0.0.1:11434"],
+      ["127/8 non-.1 host", "http://127.0.0.53:11434"],
+      ["loopback IPv6 ::1", "http://[::1]:11434"],
+      ["IPv4-mapped loopback", "http://[::ffff:127.0.0.1]:11434"],
+      ["ip6-localhost alias", "http://ip6-localhost:11434"],
+    ];
+
+    for (const [label, baseUrl] of loopbackTargets) {
+      test(`admin + ${label} → 200, upstream IS reached`, async () => {
+        const event = createMockEvent({
+          method: "POST",
+          url: probe.url,
+          body: probe.bodyFor(baseUrl),
+          user: ADMIN_USER,
+        });
+        const res = await call(probe.handler, event);
+        expect(res.status).toBe(200);
+        // Reaching upstream is the whole point — pre-carve-out this was a 400
+        // and `getCalls()` was 0. Note the DNS mock has no entry for
+        // "localhost"/"ip6-localhost" and throws ENOTFOUND for unknown names,
+        // so a 200 here also proves the DNS pin is SKIPPED for literals
+        // (there is nothing to rebind) rather than merely passing.
+        expect(probe.getCalls().length).toBe(1);
+        expect(probe.getCalls()[0]!.baseUrl).toBe(baseUrl);
+      });
+    }
+
+    test("member role is STILL refused on a loopback URL (carve-out is not an auth bypass)", async () => {
+      const event = createMockEvent({
+        method: "POST",
+        url: probe.url,
+        body: probe.bodyFor("http://localhost:11434"),
+        user: MEMBER_USER,
+      });
+      const res = await call(probe.handler, event);
+      expect(res.status).toBe(403);
+      expect(probe.getCalls().length).toBe(0);
+    });
+
+    test("a hostname that RESOLVES to 127.0.0.1 is still refused (rebinding defense intact)", async () => {
+      // The carve-out keys on the LITERAL hostname. `loopback.evil.test` is
+      // not a literal loopback form, so it takes the DNS-pinned path and is
+      // blocked exactly as before — this is the case that would prove the
+      // carve-out too wide if it ever passed.
+      dnsTable.set("loopback.evil.test", [{ address: "127.0.0.1", family: 4 }]);
+      try {
+        const event = createMockEvent({
+          method: "POST",
+          url: probe.url,
+          body: probe.bodyFor("http://loopback.evil.test:11434"),
+          user: ADMIN_USER,
+        });
+        const res = await call(probe.handler, event);
+        const data = await jsonFromResponse(res);
+        expect(res.status).toBe(400);
+        expect(String(data.error)).toContain("private/loopback");
+        expect(probe.getCalls().length).toBe(0);
+      } finally {
+        dnsTable.delete("loopback.evil.test");
+      }
+    });
+
+    test("EZCORP_BLOCK_LOOPBACK_PROVIDERS=1 restores the pre-carve-out refusal", async () => {
+      const saved = process.env.EZCORP_BLOCK_LOOPBACK_PROVIDERS;
+      process.env.EZCORP_BLOCK_LOOPBACK_PROVIDERS = "1";
+      try {
+        const event = createMockEvent({
+          method: "POST",
+          url: probe.url,
+          body: probe.bodyFor("http://localhost:11434"),
+          user: ADMIN_USER,
+        });
+        const res = await call(probe.handler, event);
+        const data = await jsonFromResponse(res);
+        expect(res.status).toBe(400);
+        expect(String(data.error)).toContain("private or loopback");
+        expect(probe.getCalls().length).toBe(0);
+      } finally {
+        if (saved === undefined) delete process.env.EZCORP_BLOCK_LOOPBACK_PROVIDERS;
+        else process.env.EZCORP_BLOCK_LOOPBACK_PROVIDERS = saved;
+      }
     });
   });
 
@@ -499,5 +605,104 @@ describe("sec-H1: isPrivateOrLoopback() unit tests", () => {
     // The fix deliberately does not resolve DNS — see commit message.
     expect(isPrivateOrLoopback("api.example.com")).toBe(false);
     expect(isPrivateOrLoopback("mock-llm.example.invalid")).toBe(false);
+  });
+});
+
+// ── The carve-out predicate, in isolation ────────────────────────
+//
+// `isLoopbackLiteral` must be a STRICT SUBSET of `isPrivateOrLoopback`: every
+// hostname it accepts must be one the general guard blocks (otherwise it is
+// carving out something that was never restricted), and it must accept none
+// of the private/link-local/ULA/unspecified space. Both directions asserted.
+describe("loopback carve-out: isLoopbackLiteral() unit tests", () => {
+  const LOOPBACK_FORMS = [
+    "localhost",
+    "LOCALHOST",
+    "LocalHost",
+    "ip6-localhost",
+    "ip6-loopback",
+    "127.0.0.1",
+    "127.0.0.53",
+    "127.1.2.3",
+    "127.255.255.255",
+    "::1",
+    "[::1]",
+    "::ffff:127.0.0.1",
+    "[::ffff:127.0.0.1]",
+  ];
+
+  // Everything the general guard blocks that the carve-out must NOT accept.
+  const STILL_REFUSED = [
+    "",
+    "10.0.0.1",
+    "10.255.255.255",
+    "172.16.0.1",
+    "172.31.255.254",
+    "192.168.0.1",
+    "192.168.255.255",
+    "169.254.169.254", // cloud metadata — the crown jewel
+    "169.254.0.1",
+    "0.0.0.0",
+    "0.1.2.3",
+    "::",
+    "[::]",
+    "fe80::1",
+    "feb0::1",
+    "fc00::1",
+    "fd12:3456::1",
+    "::ffff:10.0.0.1",
+    "::ffff:169.254.169.254",
+    "rebind.evil.test", // a name; only its RESOLUTION is loopback
+    "api.example.com",
+  ];
+
+  for (const host of LOOPBACK_FORMS) {
+    test(`"${host}" is a loopback literal AND was blocked by the general guard`, () => {
+      expect(isLoopbackLiteral(host)).toBe(true);
+      // Subset check: if this were false, the carve-out would be widening
+      // something the general guard already permitted.
+      expect(isPrivateOrLoopback(host)).toBe(true);
+    });
+  }
+
+  for (const host of STILL_REFUSED) {
+    test(`"${host}" is NOT a loopback literal (carve-out does not reach it)`, () => {
+      expect(isLoopbackLiteral(host)).toBe(false);
+    });
+  }
+
+  test("a public address is neither loopback-literal nor privately blocked", () => {
+    expect(isLoopbackLiteral("8.8.8.8")).toBe(false);
+    expect(isPrivateOrLoopback("8.8.8.8")).toBe(false);
+    expect(isLoopbackLiteral("2001:4860:4860::8888")).toBe(false);
+  });
+
+  test("an unparseable IPv6 literal is not accepted by the carve-out", () => {
+    expect(isLoopbackLiteral("[:::1]")).toBe(false);
+    expect(isLoopbackLiteral("[::ffff:999.0.0.1]")).toBe(false);
+  });
+});
+
+describe("loopback carve-out: loopbackProvidersBlocked() unit tests", () => {
+  test("unset → not blocked (carve-out active by default)", () => {
+    expect(loopbackProvidersBlocked({})).toBe(false);
+  });
+
+  test('"1" and "true" (any case, padded) → blocked', () => {
+    expect(loopbackProvidersBlocked({ [BLOCK_LOOPBACK_ENV]: "1" })).toBe(true);
+    expect(loopbackProvidersBlocked({ [BLOCK_LOOPBACK_ENV]: "true" })).toBe(true);
+    expect(loopbackProvidersBlocked({ [BLOCK_LOOPBACK_ENV]: "TRUE" })).toBe(true);
+    expect(loopbackProvidersBlocked({ [BLOCK_LOOPBACK_ENV]: " true " })).toBe(true);
+  });
+
+  test("other values → not blocked (fails OPEN, matching the shipped default)", () => {
+    expect(loopbackProvidersBlocked({ [BLOCK_LOOPBACK_ENV]: "0" })).toBe(false);
+    expect(loopbackProvidersBlocked({ [BLOCK_LOOPBACK_ENV]: "false" })).toBe(false);
+    expect(loopbackProvidersBlocked({ [BLOCK_LOOPBACK_ENV]: "" })).toBe(false);
+    expect(loopbackProvidersBlocked({ [BLOCK_LOOPBACK_ENV]: "yes" })).toBe(false);
+  });
+
+  test("the exported env name is the documented one", () => {
+    expect(BLOCK_LOOPBACK_ENV).toBe("EZCORP_BLOCK_LOOPBACK_PROVIDERS");
   });
 });

@@ -7,28 +7,42 @@
  * (so we don't hit the wire) to exercise every branch deterministically.
  */
 
-import { test, expect, describe, vi, beforeEach } from "vitest";
+import { test, expect, describe, vi, beforeEach, afterEach } from "vitest";
 import { expectDenied } from "./fixtures/expect-denied";
 
-vi.mock("$lib/server/security/url-validation", async () => {
-  const actual = await vi.importActual<
-    typeof import("$lib/server/security/url-validation")
-  >("$lib/server/security/url-validation");
-  return {
-    ...actual,
-    // Stub DNS pinning so test URLs with real-looking hostnames don't
-    // attempt an actual DNS lookup.
-    resolveAndValidateHostname: vi.fn(async () => ({ ok: true })),
+// Mock the RESOLVER, not the guard. Previously this file stubbed
+// `resolveAndValidateHostname` out of `$lib/server/security/url-validation`;
+// the route now calls the module's own `checkLocalProviderTarget`, whose
+// internal call to the resolver is a module-local binding a namespace mock
+// cannot intercept. Mocking `node:dns/promises` instead runs the REAL
+// validation end to end against a controlled resolver — same technique as the
+// bun-side sibling suite (src/__tests__/security/h1-local-provider-ssrf.test.ts).
+const dns = vi.hoisted(() => {
+  const table = new Map<string, Array<{ address: string; family: 4 | 6 }> | "throw">();
+  return { table };
+});
+
+vi.mock("node:dns/promises", () => {
+  const lookup = async (hostname: string) => {
+    // Real `dns.lookup` returns IP literals unchanged without a resolver.
+    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(hostname)) {
+      return [{ address: hostname, family: 4 as const }];
+    }
+    const hit = dns.table.get(hostname);
+    if (hit === undefined || hit === "throw") {
+      const err = new Error(`ENOTFOUND ${hostname}`) as Error & { code: string };
+      err.code = "ENOTFOUND";
+      throw err;
+    }
+    return hit;
   };
+  return { lookup, default: { lookup } };
 });
 
 vi.mock("$server/providers/local-model-check", () => ({
   checkLocalModel: vi.fn(),
 }));
 
-const { resolveAndValidateHostname } = await import(
-  "$lib/server/security/url-validation"
-);
 const { checkLocalModel } = await import("$server/providers/local-model-check");
 const { POST } = await import("../routes/api/providers/local/test/+server");
 
@@ -60,8 +74,13 @@ const memberUser = {
 describe("POST /api/providers/local/test", () => {
   beforeEach(() => {
     vi.mocked(checkLocalModel).mockReset();
-    vi.mocked(resolveAndValidateHostname).mockReset();
-    vi.mocked(resolveAndValidateHostname).mockResolvedValue({ ok: true });
+    dns.table.clear();
+    // Public resolution for the happy-path hostname used throughout.
+    dns.table.set("api.example.com", [{ address: "203.0.113.20", family: 4 }]);
+  });
+
+  afterEach(() => {
+    delete process.env.EZCORP_BLOCK_LOOPBACK_PROVIDERS;
   });
 
   // 403, not 401: this route's gate is now the role-only `requireAdmin`,
@@ -144,16 +163,45 @@ describe("POST /api/providers/local/test", () => {
     expect(body.error).toBe("Invalid baseUrl");
   });
 
-  test("rejects 400 when baseUrl points at loopback (SSRF guard)", async () => {
+  // Loopback is now ALLOWED by the documented carve-out — this is the path a
+  // self-hosted Ollama takes. Paired below with the RFC1918 refusal and the
+  // kill-switch, which together bound how far the carve-out reaches.
+  test("allows loopback and reaches checkLocalModel (local-inference carve-out)", async () => {
+    vi.mocked(checkLocalModel).mockResolvedValue({ reachable: true } as any);
     const res = await POST(
       makeEvent({
         locals: adminUser,
         body: { baseUrl: "http://127.0.0.1:8080", modelId: "m" },
       }),
     );
+    expect(res.status).toBe(200);
+    expect(checkLocalModel).toHaveBeenCalledWith("http://127.0.0.1:8080", "m");
+  });
+
+  test("allows the UI's auto-filled http://localhost:11434", async () => {
+    vi.mocked(checkLocalModel).mockResolvedValue({ reachable: true } as any);
+    const res = await POST(
+      makeEvent({
+        locals: adminUser,
+        body: { baseUrl: "http://localhost:11434", modelId: "llama3" },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(checkLocalModel).toHaveBeenCalledWith("http://localhost:11434", "llama3");
+  });
+
+  test("rejects 400 with EZCORP_BLOCK_LOOPBACK_PROVIDERS=1", async () => {
+    process.env.EZCORP_BLOCK_LOOPBACK_PROVIDERS = "1";
+    const res = await POST(
+      makeEvent({
+        locals: adminUser,
+        body: { baseUrl: "http://localhost:11434", modelId: "m" },
+      }),
+    );
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error?: string };
     expect(body.error).toContain("private or loopback");
+    expect(checkLocalModel).not.toHaveBeenCalled();
   });
 
   test("rejects 400 when baseUrl points at RFC1918 range (SSRF guard)", async () => {
@@ -166,13 +214,24 @@ describe("POST /api/providers/local/test", () => {
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error?: string };
     expect(body.error).toContain("private or loopback");
+    expect(checkLocalModel).not.toHaveBeenCalled();
+  });
+
+  test("rejects 400 when baseUrl points at cloud metadata (SSRF guard)", async () => {
+    const res = await POST(
+      makeEvent({
+        locals: adminUser,
+        body: { baseUrl: "http://169.254.169.254/latest/meta-data/", modelId: "m" },
+      }),
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toContain("private or loopback");
+    expect(checkLocalModel).not.toHaveBeenCalled();
   });
 
   test("rejects 400 when DNS resolution returns private address", async () => {
-    vi.mocked(resolveAndValidateHostname).mockResolvedValueOnce({
-      ok: false,
-      reason: "hostname resolves to private/loopback",
-    });
+    dns.table.set("sneaky.example.com", [{ address: "10.0.0.5", family: 4 }]);
     const res = await POST(
       makeEvent({
         locals: adminUser,
@@ -184,10 +243,21 @@ describe("POST /api/providers/local/test", () => {
     expect(body.error).toBe("hostname resolves to private/loopback");
   });
 
-  test("rejects 400 when DNS lookup throws", async () => {
-    vi.mocked(resolveAndValidateHostname).mockRejectedValueOnce(
-      new Error("ENOTFOUND"),
+  test("rejects 400 when a hostname RESOLVES to loopback (carve-out is literal-only)", async () => {
+    dns.table.set("rebind.example.com", [{ address: "127.0.0.1", family: 4 }]);
+    const res = await POST(
+      makeEvent({
+        locals: adminUser,
+        body: { baseUrl: "https://rebind.example.com", modelId: "m" },
+      }),
     );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toBe("hostname resolves to private/loopback");
+    expect(checkLocalModel).not.toHaveBeenCalled();
+  });
+
+  test("rejects 400 when DNS lookup throws", async () => {
     const res = await POST(
       makeEvent({
         locals: adminUser,

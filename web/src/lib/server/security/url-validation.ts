@@ -8,6 +8,11 @@
 //   2. resolveAndValidateHostname() — async DNS lookup that re-checks
 //      every resolved address against isPrivateOrLoopback(). Closes the
 //      DNS-rebinding window where "evil.example" → 127.0.0.1.
+//
+// Plus ONE deliberate carve-out, `checkLocalProviderTarget()` — see its
+// doc block. It is opt-in per call site: `isPrivateOrLoopback()` itself is
+// unchanged, so a future route that reaches for the general guard keeps the
+// strict sec-H1 posture with no carve-out at all.
 
 import { isIP } from "node:net";
 import { lookup as dnsLookup } from "node:dns/promises";
@@ -128,6 +133,139 @@ export function isPrivateOrLoopback(hostname: string): boolean {
 		return isPrivateIPv6(lower);
 	}
 	return false;
+}
+
+/**
+ * True when `hostname` is a LITERAL spelling of the loopback interface — the
+ * machine EZCorp itself runs on, and nothing else.
+ *
+ * Deliberately a strict subset of {@link isPrivateOrLoopback}:
+ *   ALLOWED  "localhost" / "ip6-localhost" / "ip6-loopback", 127.0.0.0/8,
+ *            ::1, and ::ffff:127.0.0.0/8 (the IPv4-mapped spelling of the
+ *            same interface).
+ *   REFUSED  everything else it blocks — 10/8, 172.16/12, 192.168/16,
+ *            169.254/16 (cloud metadata), 0.0.0.0/8, ::, fc00::/7, fe80::/10
+ *            — plus every non-IP hostname, INCLUDING one whose DNS record
+ *            points at 127.0.0.1. Rebinding is a resolution-time attack; a
+ *            literal is not resolved, so only literals qualify.
+ */
+export function isLoopbackLiteral(hostname: string): boolean {
+	if (!hostname) return false;
+	let lower = hostname.toLowerCase();
+	if (lower.startsWith("[") && lower.endsWith("]")) {
+		lower = lower.slice(1, -1);
+	}
+	if (LOOPBACK_HOSTNAMES.has(lower)) return true;
+	const version = isIP(lower);
+	if (version === 4) return lower.split(".")[0] === "127";
+	if (version === 6) {
+		const groups = expandIPv6(lower);
+		if (!groups) return false;
+		const [g0, g1, g2, g3, g4, g5, g6, g7] = groups as [
+			number, number, number, number, number, number, number, number
+		];
+		// ::1 — the IPv6 loopback. `::` (all-zero, "unspecified") is NOT it.
+		if (g0 === 0 && g1 === 0 && g2 === 0 && g3 === 0 && g4 === 0 && g5 === 0 && g6 === 0) {
+			return g7 === 1;
+		}
+		// ::ffff:127.a.b.c — IPv4-mapped loopback, same interface.
+		if (g0 === 0 && g1 === 0 && g2 === 0 && g3 === 0 && g4 === 0 && g5 === 0xffff) {
+			return ((g6 >> 8) & 0xff) === 127;
+		}
+	}
+	return false;
+}
+
+/**
+ * Env kill-switch restoring the pre-carve-out posture: with it set, the
+ * local-provider routes refuse loopback exactly as they did before, and
+ * `checkLocalProviderTarget` becomes byte-identical to the sec-H1 fix.
+ *
+ * For deployments where "the host EZCorp runs on" is NOT the admin's own box
+ * (shared/hosted EZCorp), an operator flips this and the carve-out is gone.
+ */
+export const BLOCK_LOOPBACK_ENV = "EZCORP_BLOCK_LOOPBACK_PROVIDERS";
+
+/** True when {@link BLOCK_LOOPBACK_ENV} is set to `1` or `true` (any case). */
+export function loopbackProvidersBlocked(
+	env: Record<string, string | undefined> = process.env,
+): boolean {
+	const raw = env[BLOCK_LOOPBACK_ENV];
+	if (raw === undefined) return false;
+	const lower = raw.trim().toLowerCase();
+	return lower === "1" || lower === "true";
+}
+
+/** {@link checkLocalProviderTarget}'s verdict: proceed, or the 400 to return. */
+export type LocalProviderTargetCheck = { ok: true } | { ok: false; error: string };
+
+/**
+ * The full SSRF decision for a user-supplied local-provider `baseUrl`, shared
+ * verbatim by POST /api/providers/local/models and POST /api/providers/local/test
+ * (they had 20 duplicated lines of it each).
+ *
+ * ── The loopback carve-out, and exactly how narrow it is ──
+ * Self-hosted local inference is a supported deployment: the settings UI
+ * auto-fills `http://localhost:11434` (Ollama's default) in three places, and
+ * the sec-H1 guard then refused the server's own suggestion, so a local Ollama
+ * could not be registered through the UI at all.
+ *
+ * So a LITERAL loopback host is accepted here — and nothing else changes:
+ *   • Address space: {@link isLoopbackLiteral} only, a strict subset of
+ *     {@link isPrivateOrLoopback}. Every private range, link-local (cloud
+ *     metadata), ULA and 0/8 target is still refused with the same 400.
+ *   • Rebinding: a literal is not resolved, so a hostname whose A record is
+ *     127.0.0.1 does NOT qualify — it falls through to the DNS pin below and
+ *     is still refused. The rebinding defense is untouched.
+ *   • Principal: unchanged. Both routes still require the admin ROLE and the
+ *     admin api-key SCOPE before this function is ever called.
+ *   • Blast radius: this function, and only this function. `isPrivateOrLoopback`
+ *     is unmodified, so every other (and future) consumer of the guard is
+ *     unaffected.
+ *   • Reversible: {@link BLOCK_LOOPBACK_ENV} restores the old behaviour.
+ *
+ * Residual risk accepted: an EZCorp admin can make the server probe loopback
+ * ports on its own host. That principal can already run host code through the
+ * extension/tool surface, so the carve-out grants no reach they lacked — which
+ * is precisely why it stops at loopback and does not extend one bit further.
+ */
+export async function checkLocalProviderTarget(
+	baseUrl: string,
+): Promise<LocalProviderTargetCheck> {
+	let parsed: URL;
+	try {
+		parsed = new URL(baseUrl);
+	} catch {
+		return { ok: false, error: "Invalid baseUrl" };
+	}
+
+	if (isLoopbackLiteral(parsed.hostname) && !loopbackProvidersBlocked()) {
+		return { ok: true };
+	}
+
+	// sec-H1: reject loopback/private/link-local targets to block SSRF
+	// against cloud metadata, local Redis/Postgres, internal k8s services, etc.
+	if (isPrivateOrLoopback(parsed.hostname)) {
+		return { ok: false, error: "baseUrl targets a private or loopback address" };
+	}
+
+	// sec-H1 DNS pinning: resolve the hostname and re-check every A/AAAA
+	// address. Blocks the rebinding case where "evil.example" → 127.0.0.1
+	// via attacker-controlled DNS. `lookup` throws for NXDOMAIN; treat any
+	// resolution failure as a block rather than leaking the error.
+	try {
+		const dnsCheck = await resolveAndValidateHostname(parsed.hostname);
+		if (!dnsCheck.ok) {
+			return {
+				ok: false,
+				error: dnsCheck.reason ?? "baseUrl targets a private or loopback address",
+			};
+		}
+	} catch {
+		return { ok: false, error: "hostname could not be resolved" };
+	}
+
+	return { ok: true };
 }
 
 /**
