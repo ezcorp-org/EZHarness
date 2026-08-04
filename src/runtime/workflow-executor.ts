@@ -975,8 +975,8 @@ export class WorkflowExecutor {
     // ── "not suspended" and "not resumable" are different questions ────
     //
     // Winning the claim CAS **is** the `suspended → running` transition
-    // (`db/queries/workflow-runs.ts:796-818`, the `status: "running"` at
-    // `:805`), and `WorkflowRunner` deliberately re-reads the row AFTER
+    // (`db/queries/workflow-runs.ts:1165-1178`, the `status: "running"` at
+    // `:1189`), and `WorkflowRunner` deliberately re-reads the row AFTER
     // claiming it (`workflow-runner.ts:351`). So every run the daemon
     // brings here reads `running`, and a bare `status !== "suspended"` test
     // terminalized ALL of them — including the approval-parked runs the

@@ -580,7 +580,7 @@ export function describeRunStatus(status: string): { tone: "ok" | "warn" | "erro
  *    (`src/runtime/workflow-executor.ts:664`).
  *
  * So the vocabulary that actually ARRIVES on this field is the six-value
- * `WorkflowSuspendReason` union in `src/runtime/workflow-resume-reasons.ts:96-102`,
+ * `WorkflowSuspendReason` union in `src/runtime/workflow-resume-reasons.ts:98-104`,
  * and that is what this now reads. The route already carried it
  * (`delegated-runs/+server.ts:79`).
  *

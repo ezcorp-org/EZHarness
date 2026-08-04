@@ -237,7 +237,7 @@ export interface DelegationVersionCandidate {
 /**
  * The version identity of a definition, computed by the **same test the
  * executor uses** — `version.stepsHash === workflowDefinitionHash(<the
- * definition that was handed to the run>)` (`workflow-executor.ts:629`).
+ * definition that was handed to the run>)` (`workflow-executor.ts:803`).
  *
  * Shared by {@link resolveDelegationVersionPin} (which turns a mismatch
  * into a refusal for the ROOT) and by the consent hash's
@@ -276,7 +276,7 @@ export type DelegationVersionPin =
  * `workflow-capability-hash.ts:20-31` leaves an explicit obligation:
  * `definition_version_id` is written onto a run **only on an exact
  * content match** — `const ranVersion = version?.stepsHash === ranHash ?
- * version : undefined;` (`workflow-executor.ts:629`, written `:642`). So
+ * version : undefined;` (`workflow-executor.ts:803`, written `:816`). So
  * a delegation can pin a version the run then does not record, and the
  * consent record and the audit trail disagree about which version
  * executed. The obligation is: *"Either write the pinned id onto the run
@@ -287,7 +287,7 @@ export type DelegationVersionPin =
  *
  *  1. Writing it regardless would make the column MEAN something else.
  *     Its documented meaning is "the snapshot this run executed"
- *     (`workflow-executor.ts:618-629`), NULL means "cannot name the
+ *     (`workflow-executor.ts:786-802`), NULL means "cannot name the
  *     snapshot this run executed", and the comment ends by forbidding
  *     exactly the widening we would be doing. That column is not
  *     decoration: `sweepWorkflowDefinitionVersions` excludes versions a
@@ -311,11 +311,11 @@ export type DelegationVersionPin =
  * the run it authorizes will record.** A null pin is not a divergence —
  * it is the documented unversioned path for a YAML or extension
  * workflow, which has no `workflow_definitions` row to version
- * (`db/schema.ts:629-631`, `workflow-executor.ts:602-608`).
+ * (`db/schema.ts:629-631`, `workflow-executor.ts:776-779`).
  *
  * The two divergent cases this refuses are the two the executor's own
- * comment names (`:614-628`): a YAML or extension entry winning the name
- * race against a DB row, and a definition whose content has run ahead of
+ * comment names (`workflow-executor.ts:789-796`): a YAML or extension entry
+ * winning the name race against a DB row, and a definition whose content has run ahead of
  * its newest version because `updateWorkflow` and `ensureWorkflowVersion`
  * are two writes.
  */

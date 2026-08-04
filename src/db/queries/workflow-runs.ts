@@ -585,7 +585,7 @@ export async function upsertWorkflowStepRun(
   // prices as NULL while its real-world cost is simply unmeasured; an
   // unpriced (OAuth-subscription) model prices as NULL too. Tokens reach
   // this function only from an `agentRun`
-  // (`runtime/workflow-executor.ts:1747-1764`), so `SUM(cost_usd)`
+  // (`runtime/workflow-executor.ts:2158-2165`), so `SUM(cost_usd)`
   // describes LLM spend and nothing else — least of all `tool` steps, the
   // one kind that reaches an external side effect with a real bill. See
   // {@link stepCostUsd}, which owns that distinction.
