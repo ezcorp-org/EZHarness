@@ -28,6 +28,43 @@ const WORKFLOW = makeWorkflow({
 	steps: [{ name: "step-1", agent: "summarizer" }],
 });
 
+/** `rgb(r, g, b)` → relative luminance, per WCAG 2.x. */
+function luminance(rgb: string): number {
+	const [r, g, b] = (rgb.match(/\d+(\.\d+)?/g) ?? ["0", "0", "0"]).slice(0, 3).map(Number) as [
+		number,
+		number,
+		number,
+	];
+	const channel = (v: number) => {
+		const s = v / 255;
+		return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+	};
+	return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+}
+
+/** WCAG contrast ratio between two `rgb()` strings. */
+function contrast(a: string, b: string): number {
+	const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x) as [number, number];
+	return (hi + 0.05) / (lo + 0.05);
+}
+
+/** The three colours the copy panel's legibility actually rests on. */
+async function readPanelColors(page: import("@playwright/test").Page) {
+	return page.evaluate(() => {
+		const at = (id: string) =>
+			document.querySelector(`[data-testid="${id}"]`) as HTMLElement | null;
+		const panel = at("workflow-duplicate-panel");
+		const note = at("duplicate-visibility-note");
+		const input = at("duplicate-name");
+		if (!panel || !note || !input) throw new Error("copy panel is not on the page");
+		return {
+			panelBg: getComputedStyle(panel).backgroundColor,
+			noteText: getComputedStyle(note).color,
+			inputText: getComputedStyle(input).color,
+		};
+	});
+}
+
 test.describe("Duplicate a workflow", () => {
 	test.beforeEach(async ({ mockApi }) => {
 		await mockApi({
@@ -89,6 +126,44 @@ test.describe("Duplicate a workflow", () => {
 
 		await expect(page.getByTestId("duplicate-visibility-note")).toContainText(/every account/i);
 		await captureEvidence(page, testInfo, "workflow-duplicate-wider-tier");
+	});
+
+	test("@evidence the panel is legible in LIGHT mode too", async ({ page }, testInfo) => {
+		// The panel is new markup on a route page, and every colour in it has
+		// to come from the semantic tokens rather than a fixed Tailwind ramp
+		// value — a ramp picked against the dark surface is what produces
+		// text nobody can read once the theme flips.
+		//
+		// MEASURED, not proxied. The first version of this test asserted
+		// `html` lacks the `.dark` class and called it done; that passes
+		// whether or not a single colour actually moved, which is a green
+		// test about nothing. Computed colours are the only thing that says
+		// the tokens flowed through.
+		await page.addInitScript(() => localStorage.setItem("ezcorp-theme", "light"));
+		await openDetail(page);
+		await page.getByTestId("workflow-duplicate").click();
+		await expect(page.getByTestId("workflow-duplicate-panel")).toBeVisible();
+
+		const light = await readPanelColors(page);
+		expect(luminance(light.panelBg)).toBeGreaterThan(0.8); // a light surface
+		expect(luminance(light.inputText)).toBeLessThan(0.2); // dark text on it
+		// The explanatory note is the smallest, dimmest text in the panel and
+		// therefore the first thing to become unreadable. WCAG AA for body
+		// text is 4.5:1.
+		expect(contrast(light.noteText, light.panelBg)).toBeGreaterThan(4.5);
+
+		await captureEvidence(page, testInfo, "workflow-duplicate-panel-light");
+	});
+
+	test("the same panel clears AA in dark mode, and is not the same colours", async ({ page }) => {
+		await page.addInitScript(() => localStorage.setItem("ezcorp-theme", "dark"));
+		await openDetail(page);
+		await page.getByTestId("workflow-duplicate").click();
+		await expect(page.getByTestId("workflow-duplicate-panel")).toBeVisible();
+
+		const dark = await readPanelColors(page);
+		expect(luminance(dark.panelBg)).toBeLessThan(0.2);
+		expect(contrast(dark.noteText, dark.panelBg)).toBeGreaterThan(4.5);
 	});
 
 	test("the copy is created with the name and tier the user chose", async ({ page }) => {
@@ -156,6 +231,26 @@ test.describe("Duplicate a workflow", () => {
 		await expect(page.getByTestId("workflow-duplicate-panel")).toHaveCount(0);
 		expect(posts).toBe(0);
 		await expect(page).toHaveURL(new RegExp(`/workflows/${WORKFLOW.name}$`));
+	});
+
+	test("the button is a disclosure toggle, never a greyed-out dead pill", async ({ page }) => {
+		// It used to `disabled` itself while its own panel was open, which
+		// paints "this action is unavailable" at the exact moment the user is
+		// using it. It owns the panel, so it closes it too.
+		await openDetail(page);
+		const button = page.getByTestId("workflow-duplicate");
+
+		await expect(button).toBeEnabled();
+		await expect(button).toHaveAttribute("aria-expanded", "false");
+
+		await button.click();
+		await expect(page.getByTestId("workflow-duplicate-panel")).toBeVisible();
+		await expect(button).toBeEnabled();
+		await expect(button).toHaveAttribute("aria-expanded", "true");
+
+		await button.click();
+		await expect(page.getByTestId("workflow-duplicate-panel")).toHaveCount(0);
+		await expect(button).toHaveAttribute("aria-expanded", "false");
 	});
 
 	test("a failed copy surfaces the error and leaves the panel open", async ({ page }) => {

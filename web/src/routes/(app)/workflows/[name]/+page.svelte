@@ -113,8 +113,18 @@
 	const ACTION_BTN =
 		"rounded-md bg-[var(--color-surface-tertiary)] px-3 py-1 text-sm text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-border)] disabled:opacity-50";
 
-	function startCopy() {
+	// A DISCLOSURE toggle, not a one-way door. The button was `disabled`
+	// while its own panel was open, which — looked at rather than reasoned
+	// about — paints a greyed-out pill that reads "this action is
+	// unavailable" at exactly the moment the user is using it. It is the
+	// control that owns the panel, so it closes it too, and `aria-expanded`
+	// says which state it is in.
+	function toggleCopy() {
 		if (!workflowName) return;
+		if (copying) {
+			cancelCopy();
+			return;
+		}
 		copyErrorMsg = "";
 		// The same `-copy` suffix the old create-form prefill used, so the
 		// proposed name does not collide in the ordinary case and the user
@@ -254,8 +264,7 @@
 							</a>
 						{/if}
 						<button
-							onclick={startCopy}
-							disabled={copying}
+							onclick={toggleCopy}
 							aria-expanded={copying}
 							data-testid="workflow-duplicate"
 							title="Make your own copy — you name it and choose who can see it before it is created"
