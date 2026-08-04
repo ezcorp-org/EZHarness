@@ -102,8 +102,17 @@ function clip(s: string, limit: number): string {
  *
  * The VERDICT is unchanged in every case: json mode still fails closed.
  * Only the legibility of that failure changes.
+ *
+ * `text` is typed `unknown` on purpose. `AgentContext.llm` is `any`, so
+ * `response.text` is whatever the wrapper handed back — a worker stub or
+ * an extension-supplied llm can return `undefined`. `JSON.parse` copes
+ * with that (it stringifies, then throws), and this must too: calling
+ * `.trim()` on it would turn a clean failure RESULT into a thrown
+ * TypeError escaping `execute`, which is a worse regression than the bug
+ * being fixed.
  */
-function describeJsonParseFailure(text: string, cause: unknown): string {
+function describeJsonParseFailure(rawText: unknown, cause: unknown): string {
+  const text = typeof rawText === "string" ? rawText : String(rawText ?? "");
   const trimmed = text.trim();
   let shape: string;
   if (trimmed.length === 0) shape = "an empty response";

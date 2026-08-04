@@ -258,6 +258,23 @@ describe("json-mode parse failure preserves the evidence", () => {
     expect(error).toContain("truncated");
   });
 
+  test("a non-string `text` still RETURNS a failure — it must never throw out of execute", async () => {
+    // `AgentContext.llm` is `any`, so a worker stub or an extension-supplied
+    // llm can hand back `{ text: undefined }`. `JSON.parse` copes (it
+    // stringifies, then throws) and the diagnostic must too — a TypeError
+    // escaping `execute` would be a worse regression than the anonymous
+    // error this whole change exists to remove.
+    const agent = configToAgent(makeConfig({ outputFormat: "json" }));
+    const ctx = makeMockCtx();
+    (ctx.llm.complete as unknown as { mockImplementation: (f: () => unknown) => void })
+      .mockImplementation(async () => ({ text: undefined }));
+
+    const result = await agent.execute(ctx);
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("Failed to parse");
+    expect(result.error).toContain("empty");
+  });
+
   test("a response at/below the snippet limit is quoted whole, untruncated", async () => {
     const short = `"unterminated`;
     const error = await errorFor(short);
