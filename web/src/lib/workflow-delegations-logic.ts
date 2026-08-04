@@ -557,42 +557,67 @@ export function describeRunStatus(status: string): { tone: "ok" | "warn" | "erro
 }
 
 /**
- * Why a delegated run stopped, when a deny code says so.
+ * Why a paused delegated run is paused, in a sentence with a remedy.
  *
- * Two different ceilings can end a delegated run and they look IDENTICAL
- * in a raw error string, while having opposite remedies:
+ * ## It keys on `suspended_reason`, and the reason that is a CORRECTION
  *
- *  - the PER-RUN token cap is on the delegation, and the consenting human
- *    can raise it themselves (`PATCH /api/workflows/delegations/:id`);
- *  - the DAILY token cap is on the SERVICE ACCOUNT, fires only on the
- *    `service` arm, and nothing exposes a route to raise it — so the
- *    honest remedy is "wait, or ask an admin", never a button.
+ * This function used to key on `run.error` and match `DELEGATION_*` deny
+ * codes as substrings. **Every one of those branches was unreachable on
+ * production data**, and the whole classifier was dead:
  *
- * Returns `null` for anything it does not recognise, and the caller shows
- * the raw error instead. Guessing at an unrecognised failure would be
- * worse than showing what the server actually said.
+ *  - `run.error` is fed from `run.result?.error`
+ *    (`web/src/routes/api/workflows/delegated-runs/+server.ts:76`);
+ *  - the rungs that emit `DELEGATION_OWNER_LOST_WORKFLOW_ACCESS` (D7),
+ *    `DELEGATION_QUOTA_EXCEEDED` (D8), `DELEGATION_SPEND_EXCEEDED` (D9)
+ *    and `DELEGATION_DAILY_TOKENS_EXCEEDED` (D10) are dispatch-time
+ *    `denyAs(...)` RETURNS — they create no `workflow_runs` row at all
+ *    (`src/extensions/workflows-handler.ts:1525`, `:1545`, `:1613`,
+ *    `:1688`), so there is nothing here to classify;
+ *  - the only two paths that DO leave a row write a SUSPEND REASON and
+ *    never an error: `parkConsentStaleRun` writes `"consent-stale"`
+ *    (`workflows-handler.ts:1765`) and the step-boundary ceiling throws
+ *    `WorkflowSuspendedError(…, "budget-exceeded")`
+ *    (`src/runtime/workflow-executor.ts:664`).
  *
- * Matched on the deny code as a SUBSTRING of the error, because the
- * message around it is the handler's and may be reworded.
+ * So the vocabulary that actually ARRIVES on this field is the six-value
+ * `WorkflowSuspendReason` union in `src/runtime/workflow-resume-reasons.ts:96-102`,
+ * and that is what this now reads. The route already carried it
+ * (`delegated-runs/+server.ts:79`).
+ *
+ * ## The distinction the old version existed to draw, kept
+ *
+ * A per-run ceiling and a re-consent look identical to a person whose
+ * cron job "just stopped", and they have opposite remedies — one is a
+ * number this page can raise, the other needs the consent dialog. Those
+ * two are named apart below, which was the original point.
+ *
+ * The DAILY account cap is deliberately absent: it denies at dispatch and
+ * leaves no run, so it can never be the reason a row on this page is
+ * paused. It is explained where it actually happens — see the
+ * non-firing-denial note on the page itself.
+ *
+ * Returns `null` for anything it does not recognise (a reason written by a
+ * newer instance mid-rolling-deploy), and the caller falls back to showing
+ * the raw value. Guessing at an unrecognised reason would be worse than
+ * showing what the server actually said.
  */
-export function describeRunStopReason(error: string | null): string | null {
-	if (error === null) return null;
-	if (error.includes("DELEGATION_DAILY_TOKENS_EXCEEDED")) {
-		return "Stopped by the service account's daily token limit. That limit belongs to the account, not to this delegation — raising the per-run limit below will not change it.";
+export function describeRunStopReason(suspendedReason: string | null): string | null {
+	switch (suspendedReason) {
+		case "budget-exceeded":
+			return "Paused: this run spent the whole per-run token limit on its delegation. You can raise that limit above, and the run continues from where it stopped.";
+		case "consent-stale":
+			return "Paused: the workflow changed since you approved it, so nothing ran. Approve it again to release it — raising a limit will not clear this.";
+		case "approval":
+			return "Paused: it is waiting for someone to answer an approval step.";
+		case "approval-timeout":
+			return "Stopped: nobody answered its approval in time, so the run was cancelled. It cannot be resumed — the job has to fire again.";
+		case "nested-suspended":
+			return "Paused: it is waiting on another workflow it started.";
+		case "orphaned-resumable":
+			return "Paused at a step boundary, most likely by a restart. Nothing is wrong with it and it is safe to continue.";
+		default:
+			return null;
 	}
-	if (error.includes("DELEGATION_SPEND_EXCEEDED")) {
-		return "Stopped by this delegation's per-run token limit. You can raise it above.";
-	}
-	if (error.includes("DELEGATION_QUOTA_EXCEEDED")) {
-		return "Stopped because this delegation had already used its runs for the day.";
-	}
-	if (error.includes("DELEGATION_CONSENT_STALE")) {
-		return "Stopped because the workflow changed since you approved it. Approve it again to restart the job — adjusting the limit will not clear this.";
-	}
-	if (error.includes("DELEGATION_OWNER_LOST_WORKFLOW_ACCESS")) {
-		return "Stopped because the principal it runs as can no longer reach this workflow. Nothing you did caused this — the workflow's visibility changed.";
-	}
-	return null;
 }
 
 /**

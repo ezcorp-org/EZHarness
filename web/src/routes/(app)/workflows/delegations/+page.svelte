@@ -414,6 +414,40 @@
 				Runs an extension started under one of your delegations, including ones you have since
 				revoked.
 			</p>
+			<!-- ── The non-firing denials, said out loud ────────────────────
+			     A fire blocked BEFORE dispatch returns a deny code and creates
+			     no `workflow_runs` row (rungs D7-D10,
+			     `src/extensions/workflows-handler.ts`), so it can never appear
+			     in the list below. Leaving that unsaid is the worst version of
+			     this page: a job that has been blocked every night for a week
+			     looks exactly like a job that was never triggered.
+
+			     This is a STATEMENT and not a feed on purpose. Surfacing those
+			     denials here is not possible on today's data for the arm that
+			     needs it most: a `service`-kind denial is audited through
+			     `auditOwnerless` (`workflows-handler.ts:2038-2070`), which
+			     writes `audit_log` with `user_id = NULL`, `target =
+			     <extensionId>` and a metadata bag carrying only the workflow
+			     NAME and the deny code — no `delegation_id` and no consenter.
+			     Two people who each consented to a job on the same extension
+			     and workflow produce indistinguishable rows, so a
+			     "denials for MY delegations" read cannot be built from it
+			     without inventing an attribution nobody recorded. D10 (the
+			     account's daily token cap) is `service`-ONLY by construction,
+			     so it is exactly the rung with the least attributable trail.
+			     The honest move is to name the gap and point at what IS
+			     reachable, not to render a feed that is silently wrong about
+			     whose job it is describing. -->
+			<p
+				class="mt-2 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-2 text-xs text-[var(--color-text-secondary)]"
+				data-testid="delegated-runs-blocked-note"
+			>
+				A job blocked before it starts is not listed here — it never ran, so there is no run to
+				show. That covers a job over its daily run limit, one whose service account has spent its
+				daily tokens, and one whose workflow the principal can no longer reach. The first sign is
+				a delegation above going quiet: if one stopped, the reason is on its own row. An
+				administrator can see every blocked attempt in the admin audit log.
+			</p>
 			{#if runs.length === 0}
 				<p class="mt-2 text-[var(--color-text-muted)]" data-testid="delegated-runs-empty">
 					Nothing has run on your behalf yet.
@@ -449,24 +483,22 @@
 								>
 							</div>
 							{#if run.error}
-								{@const why = describeRunStopReason(run.error)}
 								<p class="mt-1 text-xs font-medium text-[var(--color-text-primary)]" data-testid="delegated-run-error">
 									{run.error}
 								</p>
-								{#if why}
-									<!-- A per-run cap and a service account's DAILY cap look
-									     identical in a raw error and have opposite remedies,
-									     so the two are named apart here. -->
-									<p
-										class="mt-0.5 text-xs text-[var(--color-text-secondary)]"
-										data-testid="delegated-run-stop-reason"
-									>
-										{why}
-									</p>
-								{/if}
-							{:else if run.suspendedReason}
-								<p class="mt-1 text-xs font-medium text-[var(--color-text-secondary)]" data-testid="delegated-run-suspended">
-									{run.suspendedReason}
+							{/if}
+							{#if run.suspendedReason}
+								<!-- The classifier keys on `suspended_reason`, which is the
+								     vocabulary this field actually carries — the run row is
+								     the only thing a park leaves behind, and it never
+								     carries a DELEGATION_* deny code. An unrecognised
+								     reason falls back to the raw value rather than being
+								     guessed at. -->
+								<p
+									class="mt-1 text-xs text-[var(--color-text-secondary)]"
+									data-testid="delegated-run-suspended"
+								>
+									{describeRunStopReason(run.suspendedReason) ?? run.suspendedReason}
 								</p>
 							{/if}
 						</a>

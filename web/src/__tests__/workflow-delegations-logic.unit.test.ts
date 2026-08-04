@@ -665,52 +665,77 @@ describe("the HTTP layer — the server's sentence survives to the caller", () =
 	});
 });
 
-describe("describeRunStopReason — two ceilings, opposite remedies", () => {
-	test("the SERVICE ACCOUNT's daily cap says the per-run limit will not help", () => {
-		// D10. Nothing exposes a route to raise `max_tokens_per_day`, so the
-		// remedy must not be a button — and it must not be confused with the
-		// per-run cap, which the consenter CAN raise.
-		const text = describeRunStopReason("denied: DELEGATION_DAILY_TOKENS_EXCEEDED");
-		expect(text).toContain("daily token limit");
-		expect(text).toContain("will not change it");
+describe("describeRunStopReason — keyed on suspended_reason, the value that arrives", () => {
+	// REGRESSION GUARD. This classifier used to key on `run.error` and match
+	// `DELEGATION_*` deny codes as substrings, and every branch was dead:
+	// D7-D10 deny at dispatch and create no run row, and the two paths that
+	// DO leave a row write a SUSPEND REASON. The tests below therefore assert
+	// against `WorkflowSuspendReason` values, and a deny code must NOT be
+	// classified — matching one again would be the old bug returning.
+
+	test("a DELEGATION_* deny code is NOT classified — it never reaches this field", () => {
+		// The exact strings the old dead implementation matched. A run row is
+		// never created for any of them (workflows-handler.ts D7-D10), so if
+		// one of these ever produced a sentence again, the classifier would
+		// have been re-keyed onto a field the server does not populate.
+		for (const deadCode of [
+			"denied: DELEGATION_DAILY_TOKENS_EXCEEDED",
+			"denied: DELEGATION_SPEND_EXCEEDED",
+			"DELEGATION_QUOTA_EXCEEDED",
+			"DELEGATION_CONSENT_STALE",
+			"DELEGATION_OWNER_LOST_WORKFLOW_ACCESS",
+		]) {
+			expect(describeRunStopReason(deadCode)).toBeNull();
+		}
 	});
 
-	test("the delegation's PER-RUN cap points at the control that fixes it", () => {
-		const text = describeRunStopReason("denied: DELEGATION_SPEND_EXCEEDED");
+	test("the PER-RUN token ceiling points at the control that fixes it", () => {
+		const text = describeRunStopReason("budget-exceeded");
 		expect(text).toContain("per-run token limit");
-		expect(text).toContain("raise it");
+		expect(text).toContain("raise that limit");
 	});
 
-	test("the two ceilings never produce the same sentence", () => {
-		expect(describeRunStopReason("DELEGATION_DAILY_TOKENS_EXCEEDED")).not.toBe(
-			describeRunStopReason("DELEGATION_SPEND_EXCEEDED"),
-		);
-	});
-
-	test("a stale consent says re-approve, and says the limit will NOT clear it", () => {
+	test("a stale consent says re-approve, and says a limit change will NOT clear it", () => {
 		// PATCH does not write `consented_at`, so a budget change cannot
 		// recover a consent-stale park.
-		const text = describeRunStopReason("DELEGATION_CONSENT_STALE");
+		const text = describeRunStopReason("consent-stale");
 		expect(text).toContain("Approve it again");
-		expect(text).toContain("adjusting the limit will not clear this");
+		expect(text).toContain("raising a limit will not clear this");
 	});
 
-	test("the daily RUN quota is distinct from either token ceiling", () => {
-		expect(describeRunStopReason("DELEGATION_QUOTA_EXCEEDED")).toContain(
-			"used its runs for the day",
+	test("the two remedies never produce the same sentence", () => {
+		// The whole reason this function exists: one is a number on this
+		// page, the other is the consent dialog.
+		expect(describeRunStopReason("budget-exceeded")).not.toBe(
+			describeRunStopReason("consent-stale"),
 		);
 	});
 
-	test("lost access says nothing the user did caused it", () => {
-		expect(describeRunStopReason("DELEGATION_OWNER_LOST_WORKFLOW_ACCESS")).toContain(
-			"Nothing you did caused this",
-		);
+	test("a parked approval reads as waiting on a person, not as a failure", () => {
+		expect(describeRunStopReason("approval")).toContain("waiting for someone");
 	});
 
-	test("an unrecognised error yields NULL, so the raw text is shown instead", () => {
-		// Guessing at an unknown failure would be worse than repeating what
-		// the server actually said.
-		expect(describeRunStopReason("segfault in step 3")).toBeNull();
+	test("an expired approval says it cannot be resumed", () => {
+		// `liveOnSuspendedRow: false` — the sweep terminalizes the run, so
+		// offering a resume would be offering something that cannot happen.
+		const text = describeRunStopReason("approval-timeout");
+		expect(text).toContain("cannot be resumed");
+	});
+
+	test("a nested wait names the other workflow as the thing being waited on", () => {
+		expect(describeRunStopReason("nested-suspended")).toContain("another workflow");
+	});
+
+	test("an orphaned run says explicitly that nothing is wrong", () => {
+		// The recovery sweep sets this to mean "safe to continue". Rendering
+		// it as a fault would send someone hunting a bug that is not there.
+		expect(describeRunStopReason("orphaned-resumable")).toContain("Nothing is wrong");
+	});
+
+	test("an unrecognised reason yields NULL, so the raw value is shown instead", () => {
+		// A reason written by a newer instance mid-rolling-deploy. Guessing
+		// would be worse than repeating what the server actually said.
+		expect(describeRunStopReason("some-future-reason")).toBeNull();
 		expect(describeRunStopReason(null)).toBeNull();
 	});
 });
