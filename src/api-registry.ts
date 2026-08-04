@@ -145,7 +145,15 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "GET", path: "/api/agents", description: "List available agents", category: "agents" },
   { method: "POST", path: "/api/agents/:name/run", description: "Execute an agent by name", category: "agents", schemaKey: "runAgentSchema" },
   { method: "GET", path: "/api/agents/:name/test-conversations", description: "List test conversations for agent", category: "agents" },
-  { method: "POST", path: "/api/agents/:id/share", description: "Share agent to marketplace", category: "agents" },
+  // `POST /api/agents/:id/share` used to sit here described as "Share agent to
+  // marketplace". It does not touch the marketplace (that is
+  // `POST /api/marketplace`) — the handler imports `shareAgent` /
+  // `shareAgentWithUser` from `db/queries/agent-shares` and grants team/user
+  // access. Re-registered accurately, with its GET and DELETE siblings, in the
+  // backlog block at the bottom of this file. The `no duplicate method+path`
+  // assertion in `src/__tests__/api-docs.test.ts` is what caught the double
+  // entry — the route-vs-disk parity scan could not, because the path WAS
+  // registered; only the description was wrong.
 
   // Extensions
   { method: "GET", path: "/api/extensions", description: "List installed extensions", category: "extensions", scope: "read", harness: { controllable: true } },
