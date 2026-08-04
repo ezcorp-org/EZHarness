@@ -138,7 +138,11 @@ import {
 } from "../db/queries/workflow-delegations";
 import { findLiveServiceAccount } from "../db/queries/service-accounts";
 import { getUserById } from "../db/queries/users";
-import { insertWorkflowRun, suspendWorkflowRun } from "../db/queries/workflow-runs";
+import {
+  insertWorkflowRun,
+  suspendWorkflowRun,
+  sumServiceAccountTokensSince,
+} from "../db/queries/workflow-runs";
 import {
   authorizeDelegationConsent,
   delegationPrincipal,
@@ -321,6 +325,22 @@ export type WorkflowTriggerDenyReason =
   | "DELEGATION_QUOTA_EXCEEDED"
   /** D9 — the delegation's `max_tokens_per_run` cannot admit any work. */
   | "DELEGATION_SPEND_EXCEEDED"
+  /**
+   * D10 — the OWNING SERVICE ACCOUNT has spent its
+   * `max_tokens_per_day` across all of its delegations.
+   *
+   * Its own code, not a reuse of `DELEGATION_SPEND_EXCEEDED` (per-RUN
+   * tokens) or `DELEGATION_QUOTA_EXCEEDED` (per-delegation daily RUNS).
+   * Three bounds, three remedies: wait for tomorrow, raise this
+   * delegation's cap (`PATCH /api/workflows/delegations/:id`), or raise
+   * the ACCOUNT's cap — which is an admin action on a different object
+   * entirely. Collapsing any two would make the audit row unable to say
+   * which.
+   *
+   * Reachable only on the `service` arm, so every one of these lands in
+   * `audit_log` with a NULL user.
+   */
+  | "DELEGATION_DAILY_TOKENS_EXCEEDED"
   /** D6/D7 — the runtime is registered but WITHOUT the readers this
    *  ladder authorizes and hashes against. Fail CLOSED: a registration
    *  that cannot answer "who owns this?" or "which agents exist?" has not
@@ -1059,7 +1079,7 @@ async function readRuns(
   return rpcResult(req.id, { v: 1, runs });
 }
 
-// ── C3 · `op: "runFor"` — the delegated ladder (D1–D9) ────────────────
+// ── C3 · `op: "runFor"` — the delegated ladder (D1–D10) ────────────────
 
 /**
  * Deny a delegated rung: the typed code, the message, an optional JSON-RPC
@@ -1100,10 +1120,22 @@ interface ProvenDelegation {
   ownerlessAction: string;
 }
 
-/** D4's outcome. The message names the REMEDY, because the two arms have
- *  completely different ones (re-invite the user vs re-enable the
- *  account). */
-type OwnerResolution = { ok: true } | { ok: false; message: string };
+/**
+ * D4's outcome. The message names the REMEDY, because the two arms have
+ * completely different ones (re-invite the user vs re-enable the
+ * account).
+ *
+ * The success arm carries `dailyTokenCap` so that rung D10 reads the
+ * account's `max_tokens_per_day` off the SAME row that just proved the
+ * account is live, rather than issuing a second `service_accounts` read
+ * that could see a different row. `null` means "this principal kind has
+ * no daily token bound" and is the honest answer for `user`: there is no
+ * such column on `users`, and inventing a default here would be a number
+ * nobody chose.
+ */
+type OwnerResolution =
+  | { ok: true; dailyTokenCap: number | null }
+  | { ok: false; message: string };
 
 /**
  * Rung D4, per owner kind — is the principal this row names still live?
@@ -1125,11 +1157,20 @@ type OwnerResolution = { ok: true } | { ok: false; message: string };
  * `service` demands `enabled`, which is what {@link findLiveServiceAccount}
  * already filters on for the consent route, so the two agree by sharing
  * the reader rather than by luck.
+ *
+ * Each arm also states its own DAILY TOKEN BOUND, and stating it here is
+ * what makes rung D10 total: a third principal kind is a compile error
+ * until somebody decides whether it has one, instead of silently
+ * inheriting "unbounded" from a `switch` that fell through.
  */
 const RESOLVE_DELEGATION_OWNER = {
   user: async (ownerId: string): Promise<OwnerResolution> => {
     const user = await getUserById(ownerId);
-    if (user?.status === "active") return { ok: true };
+    // `users` carries no per-day token column and deliberately gets no
+    // invented default. A `user` delegation is bounded by its own
+    // `max_tokens_per_run` and `max_runs_per_day`, which is the product
+    // the human agreed to at consent time.
+    if (user?.status === "active") return { ok: true, dailyTokenCap: null };
     return { ok: false, message: "the user who delegated this job can no longer act" };
   },
   service: async (ownerId: string): Promise<OwnerResolution> => {
@@ -1140,7 +1181,10 @@ const RESOLVE_DELEGATION_OWNER = {
         message: "the service account this job runs as is disabled or no longer exists",
       };
     }
-    return { ok: true };
+    // `NOT NULL` in the schema with no "unlimited" value
+    // (`db/schema.ts` — `max_tokens_per_day`), so this is always a real
+    // number and D10 always has something to compare against.
+    return { ok: true, dailyTokenCap: account.maxTokensPerDay };
   },
 } as const satisfies Record<DelegationOwnerKind, (ownerId: string) => Promise<OwnerResolution>>;
 
@@ -1185,6 +1229,7 @@ const RESOLVE_DELEGATION_OWNER = {
  * | D6  | consent hash | `DELEGATION_CONSENT_STALE` (**parks the run**) | per owner kind |
  * | D8  | `max_runs_per_day`, UTC calendar day | `DELEGATION_QUOTA_EXCEEDED` | per owner kind |
  * | D9  | `max_tokens_per_run` admits work | `DELEGATION_SPEND_EXCEEDED` | per owner kind |
+ * | D10 | owner's `max_tokens_per_day` (**`service` only**) | `DELEGATION_DAILY_TOKENS_EXCEEDED` | **`audit_log`** |
  * | 13  | dispatch | `WORKFLOWS_DISPATCH_FAILED` | per owner kind |
  *
  * "per caller" is `ctx.userId`: `sdk_capability_calls` for an in-chat
@@ -1501,6 +1546,77 @@ async function runForDelegation(
       `this delegation's token budget (${row.maxTokensPerRun}) admits no work`,
       -32103,
     );
+  }
+
+  // D10. `service_accounts.max_tokens_per_day` — the OWNER's daily token
+  //      budget, across every delegation it owns.
+  //
+  //      ## Which of the two kinds of bound this is, said out loud
+  //
+  //      D9 above is explicit that a PER-RUN token bound asked at
+  //      dispatch is structurally vacuous: the run has not started, so it
+  //      has spent nothing, and the only question left is whether the cap
+  //      admits any work at all. **This rung is not that.** Its numerator
+  //      is every token this account's EARLIER runs reported today, which
+  //      is a real, already-settled number that a fire arriving now can
+  //      genuinely be over. The vacuity in D9 came from the run being
+  //      empty; there is no such emptiness in a day.
+  //
+  //      What it does NOT do, and this is the same honest scope
+  //      `enforceDelegatedTokenBudget` states for itself: it does not
+  //      bound the run it admits. Nothing re-checks the daily total
+  //      mid-run, so a single admitted run can carry the account past its
+  //      day. That overshoot is visible in the step rows and the trace,
+  //      and what it bounds is the NEXT fire — which is exactly the
+  //      division of labour the executor's docblock names ("what bounds
+  //      the next fire is the delegation's own daily limits, which are the
+  //      handler's business rather than the executor's").
+  //
+  //      ## Three separate bounds, and this is the third
+  //
+  //      D8 counts RUNS for ONE delegation. The step-boundary ceiling
+  //      counts TOKENS for ONE run. This counts TOKENS for ONE ACCOUNT
+  //      across ALL of its delegations — the only one that can see an
+  //      account whose ten jobs are each individually well-behaved. Its
+  //      own deny code for the same reason every other rung has one: the
+  //      three have three different remedies (wait for tomorrow / raise
+  //      the delegation's cap / raise the ACCOUNT's cap, which is an
+  //      admin action on a different object).
+  //
+  //      ## Last, and after D9
+  //
+  //      It is the broadest and the most expensive rung — an aggregate
+  //      over a day of `workflow_step_runs` — so it runs only once every
+  //      narrower question has passed. A job over its own per-run cap
+  //      should hear about its own cap, not about the account's day.
+  //
+  //      `user` delegations skip it entirely: `dailyTokenCap` is null,
+  //      because `users` has no such column and D4 says so rather than
+  //      guessing.
+  //
+  //      ## The audit destination follows, it is not re-decided
+  //
+  //      `denyAs` closes over the PROVEN attribution, and a `service`
+  //      outcome carries `onBehalfOf: null`
+  //      (`DELEGATION_AUDIT_ON_BEHALF_OF`), which routes to `audit_log`
+  //      with `ext:workflow-delegation-service` exactly as rung 7's
+  //      ownerless path does. That is not a nicety:
+  //      `sdk_capability_calls.on_behalf_of` is NOT NULL with an FK to
+  //      `users`, so an attempt to file this denial there would be a
+  //      swallowed insert and the refusal would VANISH. Since this rung is
+  //      reachable ONLY on the `service` arm, `audit_log` is its only
+  //      destination.
+  if (owner.dailyTokenCap !== null) {
+    const spentToday = await sumServiceAccountTokensSince(ownerId, startOfUtcDay(new Date()));
+    if (spentToday >= owner.dailyTokenCap) {
+      return denyAs(
+        "DELEGATION_DAILY_TOKENS_EXCEEDED",
+        `the service account this job runs as has spent its daily token budget ` +
+          `(${spentToday}/${owner.dailyTokenCap})`,
+        -32103,
+        { spentToday, maxTokensPerDay: owner.dailyTokenCap },
+      );
+    }
   }
 
   // 13. Dispatch AS THE OWNER, writing the three C3 columns.

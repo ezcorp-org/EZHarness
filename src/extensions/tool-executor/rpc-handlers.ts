@@ -627,7 +627,7 @@ export async function handlePiWorkflows(
  * `ezcorp/workflows`. So this route now reaches a verb that executes a
  * workflow as a principal the CALLER is not, on the strength of a
  * consent row a human wrote. See `runForDelegation` in
- * `../workflows-handler.ts` for the D1–D9 ladder that bounds it, and
+ * `../workflows-handler.ts` for the D1–D10 ladder that bounds it, and
  * `EZCORP_DISABLE_DELEGATED_WORKFLOWS` for the kill switch that takes it
  * out without taking the other three ops with it.
  *
