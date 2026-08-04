@@ -397,9 +397,12 @@ describe("answerApproval — concurrency", () => {
 describe("the chokepoint is structurally single", () => {
   test("the module exports exactly one callable — nothing to bypass it with", async () => {
     // The structural half of ported invariant 7. The behavioural half —
-    // asserting each of the three surfaces routes through this function
-    // by CALL-COUNT on a spy — lands with the surfaces themselves; there
-    // are no answer paths to count yet.
+    // asserting each surface routes through this function by CALL-COUNT
+    // on a spy — now lives in `workflow-approval-chokepoint.test.ts`,
+    // which drives the real REST handler and counts
+    // `requireItemConsent` invocations. (This comment used to say there
+    // were "no answer paths to count yet"; there are, and they are
+    // counted there.)
     //
     // What this pins today is that a future surface cannot reassemble
     // the sequence out of exported parts: authorization, the consent
