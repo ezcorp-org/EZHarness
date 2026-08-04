@@ -1,0 +1,10 @@
+
+ RUN  v4.1.6 /home/dev/work/EZCorp/EZHarness/.claude/worktrees/agent-adb50300ee709aa1d/web
+
+
+ Test Files  1 passed (1)
+      Tests  78 passed (78)
+   Start at  17:28:03
+   Duration  1.33s (transform 459ms, setup 292ms, import 563ms, tests 26ms, environment 359ms)
+
+exit=0

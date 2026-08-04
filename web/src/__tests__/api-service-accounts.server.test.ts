@@ -29,25 +29,31 @@ const queries = vi.hoisted(() => ({
   createServiceAccount: vi.fn(),
   listServiceAccounts: vi.fn(),
   serviceAccountReach: vi.fn(),
-  toServiceAccountView: vi.fn(),
 }));
 const audit = vi.hoisted(() => ({ insertAuditEntry: vi.fn() }));
 
 class FakeInvalidServiceAccountError extends Error {}
 
-vi.mock("$server/db/queries/service-accounts", () => ({
-  createServiceAccount: queries.createServiceAccount,
-  listServiceAccounts: queries.listServiceAccounts,
-  serviceAccountReach: queries.serviceAccountReach,
-  toServiceAccountView: queries.toServiceAccountView,
-  InvalidServiceAccountError: FakeInvalidServiceAccountError,
-  SERVICE_ACCOUNT_AUDIT_ACTIONS: {
-    CREATED: "service-account:created",
-    ENABLED: "service-account:enabled",
-    DISABLED: "service-account:disabled",
-    DELETED: "service-account:deleted",
-  },
-}));
+/**
+ * PARTIAL mock: the three functions that would touch a database are fakes,
+ * and the two PROJECTIONS are the REAL ones, pulled through `importActual`.
+ *
+ * That distinction is the whole value of the "what is withheld" test below.
+ * A faked `toServiceAccountChoice` would let this suite assert the exact key
+ * set of a shape the test itself invented — green while the real projection
+ * shipped every column on the row. Only the real function makes the response
+ * key set a fact about what a browser receives.
+ */
+vi.mock("$server/db/queries/service-accounts", async (importActual) => {
+  const actual = await importActual<typeof import("$server/db/queries/service-accounts")>();
+  return {
+    ...actual,
+    createServiceAccount: queries.createServiceAccount,
+    listServiceAccounts: queries.listServiceAccounts,
+    serviceAccountReach: queries.serviceAccountReach,
+    InvalidServiceAccountError: FakeInvalidServiceAccountError,
+  };
+});
 vi.mock("$server/db/queries/audit-log", () => ({ insertAuditEntry: audit.insertAuditEntry }));
 
 const { GET, POST } = await import("../routes/api/service-accounts/+server");
@@ -78,7 +84,6 @@ beforeEach(() => {
     .mockResolvedValue({ account: ROW, droppedScopes: [], reach: REACH });
   queries.listServiceAccounts.mockReset().mockResolvedValue([ROW]);
   queries.serviceAccountReach.mockReset().mockReturnValue(REACH);
-  queries.toServiceAccountView.mockReset().mockImplementation((row: typeof ROW) => ({ ...row }));
   audit.insertAuditEntry.mockReset().mockResolvedValue("audit-1");
 });
 
@@ -104,42 +109,46 @@ function makeEvent(locals: Record<string, unknown>, body: unknown = VALID_BODY, 
   } as never;
 }
 
-describe("gates — every caller that is not an admin AT A BROWSER is refused", () => {
+/**
+ * Callers that are refused by BOTH methods — every one of them because they
+ * are not an interactive session. Widening the read did not move this line:
+ * `requireSessionAuth` is still the first thing GET runs.
+ */
+const NOT_A_SESSION: Array<[string, Record<string, unknown>, number, string]> = [
+  ["no principal at all", {}, 401, "Authentication required"],
+  [
+    "an admin-role API KEY",
+    { user: admin.user, authMethod: "api-key", apiKeyScopes: ["admin"] },
+    403,
+    "Interactive session required",
+  ],
+  [
+    "a loopback INTERNAL extension key",
+    { user: admin.user, authMethod: "internal" },
+    403,
+    "Interactive session required",
+  ],
+  [
+    // The row that kills `apiKeyScopes === undefined`: this principal has NO
+    // apiKeyScopes, so the negative inference would read it as a session and
+    // ALLOW it. The positive allowlist refuses it.
+    "an UNSTAMPED principal (a future auth mode that forgot to stamp)",
+    { user: admin.user },
+    403,
+    "Interactive session required",
+  ],
+  [
+    "a hypothetical NEW auth method nobody has taught the gate",
+    { user: admin.user, authMethod: "oauth-device-code" },
+    403,
+    "Interactive session required",
+  ],
+];
+
+describe("gates — no API key of any kind reaches this route, by either method", () => {
   // Each row authenticated SUCCESSFULLY and is still refused. Paired with the
   // admit-the-admin test below, so a deny-everyone bug cannot pass this suite.
-  const denied: Array<[string, Record<string, unknown>, number, string]> = [
-    ["no principal at all", {}, 401, "Authentication required"],
-    [
-      "an admin-role API KEY",
-      { user: admin.user, authMethod: "api-key", apiKeyScopes: ["admin"] },
-      403,
-      "Interactive session required",
-    ],
-    [
-      "a loopback INTERNAL extension key",
-      { user: admin.user, authMethod: "internal" },
-      403,
-      "Interactive session required",
-    ],
-    [
-      // The row that kills `apiKeyScopes === undefined`: this principal has NO
-      // apiKeyScopes, so the negative inference would read it as a session and
-      // ALLOW it. The positive allowlist refuses it.
-      "an UNSTAMPED principal (a future auth mode that forgot to stamp)",
-      { user: admin.user },
-      403,
-      "Interactive session required",
-    ],
-    [
-      "a hypothetical NEW auth method nobody has taught the gate",
-      { user: admin.user, authMethod: "oauth-device-code" },
-      403,
-      "Interactive session required",
-    ],
-    ["a non-admin session", member, 403, "Insufficient permissions"],
-  ];
-
-  for (const [label, locals, status, message] of denied) {
+  for (const [label, locals, status, message] of NOT_A_SESSION) {
     test(`POST refuses ${label} with ${status}`, async () => {
       const res = await POST(makeEvent(locals));
       expect(res.status).toBe(status);
@@ -152,16 +161,25 @@ describe("gates — every caller that is not an admin AT A BROWSER is refused", 
     test(`GET refuses ${label} with ${status}`, async () => {
       const res = await GET(makeEvent(locals));
       expect(res.status).toBe(status);
+      // Widening the READ is not widening it to KEYS. A leaked read-scoped
+      // key must not be able to enumerate the instance's service accounts.
       expect(queries.listServiceAccounts).not.toHaveBeenCalled();
     });
   }
+
+  test("POST still refuses a non-admin SESSION with 403 — the mint is admin-only", async () => {
+    const res = await POST(makeEvent(member));
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toBe("Insufficient permissions");
+    expect(queries.createServiceAccount).not.toHaveBeenCalled();
+  });
 
   test("denials are RETURNED, never thrown (a thrown Response is a 500)", async () => {
     // The bug class PR #84 fixed. `expect(...).resolves` proves the handler
     // settled with a Response instead of rejecting with one.
     await expect(POST(makeEvent({}))).resolves.toBeInstanceOf(Response);
     await expect(POST(makeEvent(member))).resolves.toBeInstanceOf(Response);
-    await expect(GET(makeEvent(member))).resolves.toBeInstanceOf(Response);
+    await expect(GET(makeEvent({}))).resolves.toBeInstanceOf(Response);
   });
 
   test("…and the legitimate admin session still gets through", async () => {
@@ -259,8 +277,22 @@ describe("POST /api/service-accounts", () => {
   });
 
   test("the response goes through the explicit view, not the raw row", async () => {
-    await POST(makeEvent(admin));
-    expect(queries.toServiceAccountView).toHaveBeenCalledWith(ROW);
+    // The projection is the REAL one here, so this asserts the shape a
+    // browser receives rather than that some function was called.
+    const body = await (await POST(makeEvent(admin))).json();
+    expect(Object.keys(body.account).sort()).toEqual([
+      "createdAt",
+      "createdByUserId",
+      "description",
+      "disabledReason",
+      "enabled",
+      "id",
+      "maxTokensPerDay",
+      "name",
+      "projectId",
+      "scopes",
+      "updatedAt",
+    ]);
   });
 
   test("creation is audited against the acting admin, with scope NAMES only", async () => {
@@ -284,7 +316,7 @@ describe("POST /api/service-accounts", () => {
   });
 });
 
-describe("GET /api/service-accounts", () => {
+describe("GET /api/service-accounts — the ADMIN read", () => {
   test("lists every account, viewed, with the reach warning alongside", async () => {
     const res = await GET(makeEvent(admin));
     const body = await res.json();
@@ -297,6 +329,106 @@ describe("GET /api/service-accounts", () => {
 
   test("?projectId is passed through to the query layer", async () => {
     await GET(makeEvent(admin, VALID_BODY, "?projectId=p-1"));
+    expect(queries.listServiceAccounts).toHaveBeenCalledWith("p-1");
+  });
+
+  test("an admin still sees a DISABLED account — re-enabling it is their job", async () => {
+    queries.listServiceAccounts.mockResolvedValue([
+      { ...ROW, id: "sa-off", name: "off", enabled: false, disabledReason: "runaway spend" },
+    ]);
+    const body = await (await GET(makeEvent(admin))).json();
+    expect(body.accounts).toHaveLength(1);
+    expect(body.accounts[0].enabled).toBe(false);
+    expect(body.accounts[0].disabledReason).toBe("runaway spend");
+  });
+});
+
+// ── the WIDENED read, and the exact set of keys it may carry ──────────
+//
+// `GET` was admin-only, which made Ruling 1 ("both owner kinds, selectable
+// per delegation") true only for admins: a non-admin consenting to a
+// delegation could not populate the owner picker or read the reach warning.
+// Two tests, and the second is the one that matters more — a too-wide fix
+// here is worse than the gap it closes.
+
+describe("GET /api/service-accounts — the NON-ADMIN read", () => {
+  /** The ONLY keys a non-admin may receive per account. Named once, asserted
+   *  against the real projection, and deliberately a full set rather than a
+   *  list of forbidden fields: a `not.toHaveProperty` sweep only ever covers
+   *  what its author thought of, and the failure mode of a projection is the
+   *  field nobody thought of. */
+  const ALLOWED_KEYS = ["id", "name"];
+
+  test("a plain member session is ANSWERED, not refused", async () => {
+    const res = await GET(makeEvent(member));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(queries.listServiceAccounts).toHaveBeenCalledWith(undefined);
+    expect(body.accounts).toHaveLength(1);
+    expect(body.accounts[0].id).toBe("sa-1");
+    expect(body.accounts[0].name).toBe("nightly");
+    // The reach object is NOT withheld: it describes what the ladder does to
+    // a service-account principal on this instance, which is exactly what a
+    // consenter needs before choosing one — and it is the sentence the dialog
+    // renders verbatim rather than re-deriving.
+    expect(body.reach.code).toBe("SERVICE_ACCOUNT_SYSTEM_ONLY");
+    expect(body.reach.runnableVisibilities).toEqual(["system"]);
+    expect(body.reach.message).toBe(REACH.message);
+  });
+
+  test("every withheld field is STILL withheld — the exact key set, per row", async () => {
+    // `ROW` carries a populated value for every one of them, so a projection
+    // that leaked one would show up as a key rather than as an undefined.
+    queries.listServiceAccounts.mockResolvedValue([
+      { ...ROW, projectId: "p-secret", description: "internal only" },
+    ]);
+    const body = await (await GET(makeEvent(member))).json();
+
+    expect(Object.keys(body.accounts[0]).sort()).toEqual([...ALLOWED_KEYS].sort());
+    // The four the brief names, called out individually so a failure says
+    // WHICH one leaked rather than printing two key lists.
+    for (const withheld of [
+      "scopes",
+      "createdByUserId",
+      "maxTokensPerDay",
+      "projectId",
+      "description",
+      "enabled",
+      "disabledReason",
+      "createdAt",
+      "updatedAt",
+    ]) {
+      expect(body.accounts[0]).not.toHaveProperty(withheld);
+    }
+    // The TOP-LEVEL shape is pinned too: a route that answered
+    // `{accounts, reach, droppedScopes}` would pass every per-row check above.
+    expect(Object.keys(body).sort()).toEqual(["accounts", "reach"]);
+  });
+
+  test("the ADMIN arm is a strict superset — the widening did not narrow it", async () => {
+    // Paired with the test above so "withhold everything" cannot pass: the
+    // same row, read by an admin, still carries every field.
+    const wide = (await (await GET(makeEvent(admin))).json()).accounts[0];
+    const narrow = (await (await GET(makeEvent(member))).json()).accounts[0];
+    for (const key of Object.keys(narrow)) expect(wide).toHaveProperty(key);
+    expect(Object.keys(wide).length).toBeGreaterThan(Object.keys(narrow).length);
+    expect(wide.scopes).toEqual(["use"]);
+  });
+
+  test("a DISABLED account is filtered OUT of the narrow list", async () => {
+    // `enabled` is withheld, so a disabled row would be an unselectable
+    // option with no way to say so — and the consent route refuses it anyway
+    // (`findLiveServiceAccount`). Filtering leaks strictly less than the flag.
+    queries.listServiceAccounts.mockResolvedValue([
+      ROW,
+      { ...ROW, id: "sa-off", name: "off", enabled: false, disabledReason: "runaway spend" },
+    ]);
+    const body = await (await GET(makeEvent(member))).json();
+    expect(body.accounts.map((a: { id: string }) => a.id)).toEqual(["sa-1"]);
+  });
+
+  test("?projectId still reaches the query layer for a non-admin", async () => {
+    await GET(makeEvent(member, VALID_BODY, "?projectId=p-1"));
     expect(queries.listServiceAccounts).toHaveBeenCalledWith("p-1");
   });
 });

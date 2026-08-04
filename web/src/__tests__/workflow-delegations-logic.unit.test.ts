@@ -32,7 +32,7 @@ import {
 	loadDelegatedRuns,
 	loadDelegations,
 	loadServiceAccounts,
-	patchDelegationTokens,
+	patchDelegationBounds,
 	previewConsent,
 	revokeDelegation,
 	submitConsent,
@@ -581,24 +581,51 @@ describe("the HTTP layer — the server's sentence survives to the caller", () =
 		});
 	});
 
-	test("PATCH sends ONLY maxTokensPerRun — the route's schema is strict", () => {
+	test("PATCH sends ONLY the bound it was given — the route's schema is strict", () => {
 		// Phase 8a's body schema is `.strict()`, so ANY extra key is a 400.
 		// A UI that posted a whole delegation object back would always fail.
 		const calls = stubFetch({ ok: true, body: { delegation: {} } });
-		return patchDelegationTokens("del-1", 1234).then(() => {
+		return patchDelegationBounds("del-1", { maxTokensPerRun: 1234 }).then(() => {
 			expect(calls[0]?.url).toBe("/api/workflows/delegations/del-1");
 			expect(calls[0]?.init?.method).toBe("PATCH");
 			expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({ maxTokensPerRun: 1234 });
 		});
 	});
 
-	test("PATCH may LOWER a cap, not only raise it", () => {
+	test("an UNSET bound is OMITTED, not sent as a key", () => {
+		// `.strict()` refuses a key it does not own, so an unset bound must
+		// not appear at all. Building the body by omission rather than
+		// leaning on `JSON.stringify` dropping `undefined` is what keeps this
+		// true if the serializer ever changes.
+		const calls = stubFetch({ ok: true, body: { delegation: {} } });
+		return patchDelegationBounds("del-1", { maxRunsPerDay: 96 }).then(() => {
+			const body = JSON.parse(String(calls[0]?.init?.body));
+			expect(body).toEqual({ maxRunsPerDay: 96 });
+			expect(Object.keys(body)).toEqual(["maxRunsPerDay"]);
+		});
+	});
+
+	test("both bounds together are ONE request", () => {
+		const calls = stubFetch({ ok: true, body: { delegation: {} } });
+		return patchDelegationBounds("del-1", { maxTokensPerRun: 7, maxRunsPerDay: 3 }).then(() => {
+			expect(calls).toHaveLength(1);
+			expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({
+				maxTokensPerRun: 7,
+				maxRunsPerDay: 3,
+			});
+		});
+	});
+
+	test("PATCH may LOWER a bound, not only raise it", () => {
 		// The boundary ceiling re-reads from the DB every boundary, so a lower
 		// cap takes effect on a run already in flight. Nothing here may imply
 		// increase-only.
 		const calls = stubFetch({ ok: true, body: { delegation: {} } });
-		return patchDelegationTokens("del-1", 1).then(() => {
-			expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({ maxTokensPerRun: 1 });
+		return patchDelegationBounds("del-1", { maxTokensPerRun: 1, maxRunsPerDay: 1 }).then(() => {
+			expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({
+				maxTokensPerRun: 1,
+				maxRunsPerDay: 1,
+			});
 		});
 	});
 
@@ -606,7 +633,7 @@ describe("the HTTP layer — the server's sentence survives to the caller", () =
 		const reason =
 			"This delegation is disabled and its budget cannot be adjusted: owner lost access. Consent again to restore it.";
 		stubFetch({ ok: false, status: 409, body: { error: reason } });
-		return patchDelegationTokens("del-1", 10).then((result) => {
+		return patchDelegationBounds("del-1", { maxTokensPerRun: 10 }).then((result) => {
 			expect(result).toEqual({ ok: false, message: reason });
 		});
 	});
@@ -660,10 +687,26 @@ describe("the HTTP layer — the server's sentence survives to the caller", () =
 		});
 	});
 
-	test("service accounts are read from the admin-gated list", () => {
+	test("service accounts are read from the session-gated list", () => {
 		const calls = stubFetch({ ok: true, body: { accounts: [], reach: {} } });
 		return loadServiceAccounts().then(() => {
 			expect(calls[0]?.url).toBe("/api/service-accounts");
+			// A plain GET. No body, no method override — the read is widened
+			// on the server, not by asking for it differently here.
+			expect(calls[0]?.init).toBeUndefined();
+		});
+	});
+
+	test("the NARROW {id,name} shape a non-admin receives parses through unchanged", () => {
+		// The widened read answers a non-admin with two fields per row and no
+		// `enabled`. `send` must not invent the missing keys or drop the rows.
+		const narrow = [{ id: "svc-1", name: "nightly" }];
+		stubFetch({ ok: true, body: { accounts: narrow, reach: { code: "X" } } });
+		return loadServiceAccounts().then((result) => {
+			expect(result.ok).toBe(true);
+			if (!result.ok) return;
+			expect(result.value.accounts).toEqual(narrow);
+			expect(result.value.accounts[0]).not.toHaveProperty("enabled");
 		});
 	});
 });

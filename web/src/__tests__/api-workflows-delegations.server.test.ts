@@ -47,14 +47,14 @@ const db = vi.hoisted(() => ({
   getWorkflowDelegation: vi.fn(),
   listWorkflowDelegationsConsentedBy: vi.fn(),
   revokeWorkflowDelegation: vi.fn(),
-  setDelegationTokenCeiling: vi.fn(),
+  setDelegationRunBounds: vi.fn(),
 }));
 vi.mock("$server/db/queries/workflow-delegations", () => ({
   createWorkflowDelegation: db.createWorkflowDelegation,
   getWorkflowDelegation: db.getWorkflowDelegation,
   listWorkflowDelegationsConsentedBy: db.listWorkflowDelegationsConsentedBy,
   revokeWorkflowDelegation: db.revokeWorkflowDelegation,
-  setDelegationTokenCeiling: db.setDelegationTokenCeiling,
+  setDelegationRunBounds: db.setDelegationRunBounds,
   // The shared row→wire mapper. Stubbed to the SAME keyed-owner rule the
   // real one uses, so the routes' serialization is exercised without this
   // file re-implementing the query layer it is not testing. (Its own
@@ -126,7 +126,7 @@ beforeEach(() => {
   db.getWorkflowDelegation.mockReset().mockResolvedValue(ROW);
   db.listWorkflowDelegationsConsentedBy.mockReset().mockResolvedValue([ROW]);
   db.revokeWorkflowDelegation.mockReset().mockResolvedValue(true);
-  db.setDelegationTokenCeiling
+  db.setDelegationRunBounds
     .mockReset()
     .mockResolvedValue({ ...ROW, maxTokensPerRun: 99_000 });
 });
@@ -223,7 +223,7 @@ describe("the whole surface is session-only", () => {
   test.each(cases)("PATCH refuses %s", async (_label, locals, status) => {
     const res = (await PATCH(patchEvent(locals))) as Response;
     expect(res.status).toBe(status);
-    expect(db.setDelegationTokenCeiling).not.toHaveBeenCalled();
+    expect(db.setDelegationRunBounds).not.toHaveBeenCalled();
   });
 
   test("…and a real session SUCCEEDS on all four", async () => {
@@ -467,7 +467,7 @@ describe("PATCH — the consenting human or an admin", () => {
   test("the consenting human adjusts the cap, in place", async () => {
     const res = (await PATCH(patchEvent(member))) as Response;
     expect(res.status).toBe(200);
-    expect(db.setDelegationTokenCeiling).toHaveBeenCalledWith("del-1", 99_000);
+    expect(db.setDelegationRunBounds).toHaveBeenCalledWith("del-1", { maxTokensPerRun: 99_000 });
     const body = await res.json();
     // The SAME row id comes back — no supersede, no new authority.
     expect(body.delegation.id).toBe("del-1");
@@ -477,7 +477,7 @@ describe("PATCH — the consenting human or an admin", () => {
   test("an admin adjusts somebody else's", async () => {
     const res = (await PATCH(patchEvent(admin))) as Response;
     expect(res.status).toBe(200);
-    expect(db.setDelegationTokenCeiling).toHaveBeenCalledWith("del-1", 99_000);
+    expect(db.setDelegationRunBounds).toHaveBeenCalledWith("del-1", { maxTokensPerRun: 99_000 });
   });
 
   test("a stranger gets 404, not 403 — byte-identical to the DELETE's answer", async () => {
@@ -488,7 +488,7 @@ describe("PATCH — the consenting human or an admin", () => {
     const res = (await PATCH(patchEvent(stranger))) as Response;
     expect(res.status).toBe(404);
     expect((await res.json()).error).toBe("Delegation not found");
-    expect(db.setDelegationTokenCeiling).not.toHaveBeenCalled();
+    expect(db.setDelegationRunBounds).not.toHaveBeenCalled();
   });
 
   test("an unknown id is the SAME 404 as an unauthorized one", async () => {
@@ -496,7 +496,7 @@ describe("PATCH — the consenting human or an admin", () => {
     const res = (await PATCH(patchEvent(member, { maxTokensPerRun: 10 }, "nope"))) as Response;
     expect(res.status).toBe(404);
     expect((await res.json()).error).toBe("Delegation not found");
-    expect(db.setDelegationTokenCeiling).not.toHaveBeenCalled();
+    expect(db.setDelegationRunBounds).not.toHaveBeenCalled();
   });
 });
 
@@ -516,23 +516,22 @@ describe("PATCH — the workflow, the owner and the consent hash are NOT adjusta
     ["the trigger", { maxTokensPerRun: 10, triggerKind: "webhook" }],
     ["the enabled flag", { maxTokensPerRun: 10, enabled: true }],
     ["the disabled reason", { maxTokensPerRun: 10, disabledReason: null }],
-    // A DIFFERENT bound (D8 — daily RUNS, not tokens) and changing it
-    // cannot unblock a parked run, which is what this route is for.
-    ["the daily run quota", { maxTokensPerRun: 10, maxRunsPerDay: 999 }],
+    ["the consenting user", { maxTokensPerRun: 10, consentedByUserId: "u9" }],
+    ["the consent timestamp", { maxTokensPerRun: 10, consentedAt: "2020-01-01T00:00:00.000Z" }],
   ];
 
   test.each(forbidden)("naming %s is a 400 and writes nothing", async (_label, body) => {
     const res = (await PATCH(patchEvent(member, body))) as Response;
     expect(res.status).toBe(400);
-    expect(db.setDelegationTokenCeiling).not.toHaveBeenCalled();
+    expect(db.setDelegationRunBounds).not.toHaveBeenCalled();
   });
 
   test("…and the cap ALONE succeeds", async () => {
     // The pair. Without it a schema that rejected every body would pass
-    // all eleven rows above.
+    // every row above.
     const res = (await PATCH(patchEvent(member, { maxTokensPerRun: 10 }))) as Response;
     expect(res.status).toBe(200);
-    expect(db.setDelegationTokenCeiling).toHaveBeenCalledWith("del-1", 10);
+    expect(db.setDelegationRunBounds).toHaveBeenCalledWith("del-1", { maxTokensPerRun: 10 });
   });
 
   test("the refusal names the remedy rather than saying 'invalid body'", async () => {
@@ -540,25 +539,115 @@ describe("PATCH — the workflow, the owner and the consent hash are NOT adjusta
     expect((await res.json()).error).toContain("re-consent");
   });
 
-  const badCaps: Array<[string, unknown]> = [
+  const badBounds: Array<[string, unknown]> = [
     ["zero — there is no unlimited value", 0],
     ["negative", -1],
     ["fractional", 1.5],
     ["a string", "9000"],
-    ["absent", undefined],
   ];
 
-  test.each(badCaps)("a %s cap is refused, exactly as the consent route refuses it", async (_l, cap) => {
-    const body = cap === undefined ? {} : { maxTokensPerRun: cap };
-    const res = (await PATCH(patchEvent(member, body))) as Response;
+  test.each(badBounds)("a %s maxTokensPerRun is refused, exactly as the consent route refuses it", async (_l, cap) => {
+    const res = (await PATCH(patchEvent(member, { maxTokensPerRun: cap }))) as Response;
     expect(res.status).toBe(400);
-    expect(db.setDelegationTokenCeiling).not.toHaveBeenCalled();
+    expect(db.setDelegationRunBounds).not.toHaveBeenCalled();
+  });
+
+  test.each(badBounds)("a %s maxRunsPerDay is refused on the SAME boundary", async (_l, quota) => {
+    // The second bound gets the identical treatment. A field added to a
+    // schema without its boundary tests is a field that accepts 0.
+    const res = (await PATCH(patchEvent(member, { maxRunsPerDay: quota }))) as Response;
+    expect(res.status).toBe(400);
+    expect(db.setDelegationRunBounds).not.toHaveBeenCalled();
+  });
+
+  test("an EMPTY body is a 400, not a 200 that changed nothing", async () => {
+    // Both fields are optional now, so `{}` parses field-by-field. The
+    // `.refine` is what refuses it: a 200 would tell a caller its change
+    // landed when no change was named.
+    const res = (await PATCH(patchEvent(member, {}))) as Response;
+    expect(res.status).toBe(400);
+    expect(db.setDelegationRunBounds).not.toHaveBeenCalled();
   });
 
   test("a body that is not JSON at all is a 400, not a 500", async () => {
     const res = (await PATCH(patchEvent(member, "{not json"))) as Response;
     expect(res.status).toBe(400);
-    expect(db.setDelegationTokenCeiling).not.toHaveBeenCalled();
+    expect(db.setDelegationRunBounds).not.toHaveBeenCalled();
+  });
+});
+
+// ── D8's daily run quota, adjustable in place ───────────────────────
+//
+// It used to be a 400 here, on the argument that it is a different bound
+// whose exhaustion cannot park a run. True, and beside the point: the only
+// other way to change it was a full re-consent, which tombstones the row
+// and re-asks a human to approve a capability set that did not move.
+// Ruling 2 governs approved MATERIAL and neither number is material.
+
+describe("PATCH — maxRunsPerDay", () => {
+  test("the daily quota alone is adjustable, and reaches the writer alone", async () => {
+    db.setDelegationRunBounds.mockResolvedValue({ ...ROW, maxRunsPerDay: 96 });
+    const res = (await PATCH(patchEvent(member, { maxRunsPerDay: 96 }))) as Response;
+    expect(res.status).toBe(200);
+    // EXACTLY one key: the route must not helpfully echo the token cap it
+    // was not asked to change.
+    expect(db.setDelegationRunBounds).toHaveBeenCalledWith("del-1", { maxRunsPerDay: 96 });
+    expect((await res.json()).delegation.maxRunsPerDay).toBe(96);
+  });
+
+  test("both bounds in ONE body is one write", async () => {
+    db.setDelegationRunBounds.mockResolvedValue({
+      ...ROW,
+      maxTokensPerRun: 7,
+      maxRunsPerDay: 3,
+    });
+    const res = (await PATCH(patchEvent(member, { maxTokensPerRun: 7, maxRunsPerDay: 3 }))) as Response;
+    expect(res.status).toBe(200);
+    expect(db.setDelegationRunBounds).toHaveBeenCalledTimes(1);
+    expect(db.setDelegationRunBounds).toHaveBeenCalledWith("del-1", {
+      maxTokensPerRun: 7,
+      maxRunsPerDay: 3,
+    });
+  });
+
+  test("8a's contract is unchanged for it: a stranger is still 404", async () => {
+    const stranger = {
+      user: { id: "u9", email: "s@x", name: "s", role: "user" },
+      authMethod: "session",
+    };
+    const res = (await PATCH(patchEvent(stranger, { maxRunsPerDay: 96 }))) as Response;
+    expect(res.status).toBe(404);
+    expect((await res.json()).error).toBe("Delegation not found");
+    expect(db.setDelegationRunBounds).not.toHaveBeenCalled();
+  });
+
+  test("8a's contract is unchanged for it: a DISABLED row is still 409 with its reason", async () => {
+    // The new field must not have opened a second door into a delegation
+    // the platform switched off.
+    db.getWorkflowDelegation.mockResolvedValue({
+      ...ROW,
+      enabled: false,
+      disabledReason: "This job stopped: the workflow is no longer visible to you.",
+    });
+    const res = (await PATCH(patchEvent(member, { maxRunsPerDay: 96 }))) as Response;
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toContain("no longer visible to you");
+    expect(db.setDelegationRunBounds).not.toHaveBeenCalled();
+  });
+
+  test("8a's contract is unchanged for it: a REVOKED row is still 409", async () => {
+    db.getWorkflowDelegation.mockResolvedValue({ ...ROW, revokedAt: new Date() });
+    const res = (await PATCH(patchEvent(member, { maxRunsPerDay: 96 }))) as Response;
+    expect(res.status).toBe(409);
+    expect(db.setDelegationRunBounds).not.toHaveBeenCalled();
+  });
+
+  test("no consent hash is minted and no consent is re-recorded", async () => {
+    // The whole point of the in-place path. Nothing on this route may reach
+    // the consent builder or the create-delegation writer.
+    await PATCH(patchEvent(member, { maxRunsPerDay: 96 }));
+    expect(consent.buildDelegationConsent).not.toHaveBeenCalled();
+    expect(db.createWorkflowDelegation).not.toHaveBeenCalled();
   });
 });
 
@@ -580,7 +669,7 @@ describe("PATCH — it does not re-enable, and it does not resurrect", () => {
     const { error } = await res.json();
     expect(error).toContain("no longer visible to you");
     expect(error).toContain("Consent again");
-    expect(db.setDelegationTokenCeiling).not.toHaveBeenCalled();
+    expect(db.setDelegationRunBounds).not.toHaveBeenCalled();
   });
 
   test("a disabled row with NO recorded reason still refuses, and says so", async () => {
@@ -592,7 +681,7 @@ describe("PATCH — it does not re-enable, and it does not resurrect", () => {
     const res = (await PATCH(patchEvent(member))) as Response;
     expect(res.status).toBe(409);
     expect((await res.json()).error).toContain("no reason was recorded");
-    expect(db.setDelegationTokenCeiling).not.toHaveBeenCalled();
+    expect(db.setDelegationRunBounds).not.toHaveBeenCalled();
   });
 
   test("a REVOKED delegation is 409 — a tombstone has no budget to adjust", async () => {
@@ -600,13 +689,13 @@ describe("PATCH — it does not re-enable, and it does not resurrect", () => {
     const res = (await PATCH(patchEvent(member))) as Response;
     expect(res.status).toBe(409);
     expect((await res.json()).error).toContain("revoked");
-    expect(db.setDelegationTokenCeiling).not.toHaveBeenCalled();
+    expect(db.setDelegationRunBounds).not.toHaveBeenCalled();
   });
 
   test("a revoke landing BETWEEN the read and the write is 409, not a silent 200", async () => {
     // The CAS inside the UPDATE is not redundant with the two checks
     // above: those read a row that was live an instant ago.
-    db.setDelegationTokenCeiling.mockResolvedValue(undefined);
+    db.setDelegationRunBounds.mockResolvedValue(undefined);
     const res = (await PATCH(patchEvent(member))) as Response;
     expect(res.status).toBe(409);
     expect((await res.json()).error).toContain("no longer live");
