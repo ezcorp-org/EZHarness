@@ -11,6 +11,8 @@
 		stepModelBinding,
 		resolvedModelLabel,
 	} from "$lib/workflow-run-display.js";
+	import { duplicateName } from "$lib/workflow-builder-logic.js";
+	import { inputClass } from "$lib/styles.js";
 	import WorkflowBuilder from "$lib/components/WorkflowBuilder.svelte";
 
 	let workflowName = $derived(page.params.name);
@@ -66,13 +68,6 @@
 		}
 	}
 
-	// Duplicate is offered for EVERY workflow, manageable or not — it is the
-	// only productive action on a read-only YAML demo, which otherwise dead-ends.
-	function handleDuplicate() {
-		if (!workflowName) return;
-		goto(`/workflows/new?from=${encodeURIComponent(workflowName)}`);
-	}
-
 	// Inline click-to-confirm for the destructive delete. We deliberately do
 	// NOT use native `window.confirm()`: browsers silently suppress repeated
 	// page dialogs (and some embedded/webview contexts block them outright), so
@@ -85,8 +80,32 @@
 	let deleteConfirmTimer: ReturnType<typeof setTimeout> | undefined;
 	let deleteErrorMsg = $state("");
 
-	let forking = $state(false);
-	let forkErrorMsg = $state("");
+	// ── Duplicate: ONE copy affordance ──────────────────────────────
+	// There were two — a client-side "Duplicate" that navigated to a
+	// prefilled create form, and a server-side "Fork" that made the row
+	// immediately. The product owner ruled one verb, and this is it.
+	//
+	// The SERVER implementation survived because it is the one that carries
+	// things the client copy could not: `forked_from` provenance (rendered
+	// on the editor as "copied from …"), and the collision rule for the
+	// globally-unique `name`. What survived from Duplicate is its BEHAVIOUR
+	// — you decide before anything is written. That is why this is a panel
+	// and not a bare button: the row is still created server-side, but the
+	// name and the audience are chosen first.
+	//
+	// Offered for EVERY workflow, manageable or not. That is deliberate and
+	// load-bearing: it is the only productive action on a read-only YAML
+	// demo, which otherwise dead-ends. Copying something you may read is
+	// exactly what a copy verb is for, so it gates on nothing.
+	let copying = $state(false);
+	let copyName = $state("");
+	// `private` is the route's default too, and the two agree on purpose —
+	// a copy is yours until you widen it. `project` is offered beside it
+	// with what it ACTUALLY means spelled out: the platform has no
+	// membership model, so that tier is every account on this instance.
+	let copyVisibility = $state<"private" | "project">("private");
+	let copySubmitting = $state(false);
+	let copyErrorMsg = $state("");
 
 	// One class for every non-destructive action pill. Repeated inline five
 	// times before, which is how the row drifted into five identical-looking
@@ -94,21 +113,42 @@
 	const ACTION_BTN =
 		"rounded-md bg-[var(--color-surface-tertiary)] px-3 py-1 text-sm text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-border)] disabled:opacity-50";
 
-	async function handleFork() {
+	function startCopy() {
 		if (!workflowName) return;
-		forking = true;
-		forkErrorMsg = "";
+		copyErrorMsg = "";
+		// The same `-copy` suffix the old create-form prefill used, so the
+		// proposed name does not collide in the ordinary case and the user
+		// is not handed a server-chosen `-2` they never asked for.
+		copyName = duplicateName(workflowName);
+		copyVisibility = "private";
+		copying = true;
+	}
+
+	function cancelCopy() {
+		copying = false;
+		copyErrorMsg = "";
+	}
+
+	async function handleCopySubmit(event: SubmitEvent) {
+		event.preventDefault();
+		if (!workflowName) return;
+		copySubmitting = true;
+		copyErrorMsg = "";
 		try {
 			// The route returns the FINAL name: `workflow_definitions.name` is
-			// globally unique, so a fork of an already-taken name is suffixed
+			// globally unique, so a copy onto an already-taken name is suffixed
 			// server-side and the user is taken to whatever it ended up called.
-			const forked = await forkWorkflow(workflowName, store.activeProjectId);
+			const copy = await forkWorkflow(workflowName, {
+				projectId: store.activeProjectId,
+				name: copyName.trim(),
+				visibility: copyVisibility,
+			});
 			refreshWorkflows();
-			await goto(`/workflows/${encodeURIComponent(forked.name)}/edit`);
+			await goto(`/workflows/${encodeURIComponent(copy.name)}/edit`);
 		} catch (e) {
-			forkErrorMsg = e instanceof Error ? e.message : "Failed to fork workflow";
+			copyErrorMsg = e instanceof Error ? e.message : "Failed to duplicate workflow";
 		} finally {
-			forking = false;
+			copySubmitting = false;
 		}
 	}
 
@@ -176,26 +216,23 @@
 						<p class="mb-4 text-[var(--color-text-secondary)]">{workflow.description}</p>
 					{/if}
 				</div>
-				<!-- Five affordances share this row, so it is GROUPED rather than
-				     flat: edit actions, then copy actions, then the destructive
-				     one behind a divider. Flat, they read as five interchangeable
-				     pills and the red Delete sits flush against a benign button.
+				<!-- FOUR affordances share this row — it was five until Fork and
+				     Duplicate collapsed into one — so it stays GROUPED rather than
+				     flat: edit actions, then the copy action, then the destructive
+				     one behind a divider. Flat, they read as interchangeable pills
+				     and the red Delete sits flush against a benign button.
 
 				     The two editors are both deliberate — the INLINE one for a
 				     quick step tweak without leaving the page, and the standalone
 				     /edit route for the YAML tab and dry run — so the inline one
 				     says "Edit steps" rather than a bare "Edit", which was
-				     indistinguishable from "Full editor" beside it. Fork and
-				     Duplicate are likewise two copy affordances differing only in
-				     WHERE the copy is made (server-side clone vs. a prefilled
-				     create form); `title` says which is which. Collapsing that
-				     pair is a product decision, not a merge one, and is left as
-				     follow-up.
+				     indistinguishable from "Full editor" beside it.
 
 				     Every WRITE affordance gates on the same server-computed flag —
 				     an ungated Edit on a read-only YAML demo is a button whose only
-				     outcome is a 404. Copy affordances stay ungated: cloning
-				     something you can read is exactly what they are for. -->
+				     outcome is a 404. Duplicate stays ungated: copying something
+				     you can read is exactly what it is for, and on a read-only
+				     demo it is the ONLY thing that works. -->
 				{#if !editing}
 					<div class="flex flex-wrap items-center justify-end gap-x-2 gap-y-2">
 						{#if canEdit}
@@ -217,18 +254,11 @@
 							</a>
 						{/if}
 						<button
-							onclick={handleFork}
-							disabled={forking}
-							data-testid="fork-workflow"
-							title="Copy this workflow into your project on the server, then open it"
-							class={ACTION_BTN}
-						>
-							{forking ? "Forking…" : "Fork"}
-						</button>
-						<button
-							onclick={handleDuplicate}
+							onclick={startCopy}
+							disabled={copying}
+							aria-expanded={copying}
 							data-testid="workflow-duplicate"
-							title="Start a new workflow in the create form, prefilled from this one"
+							title="Make your own copy — you name it and choose who can see it before it is created"
 							class={ACTION_BTN}
 						>
 							Duplicate
@@ -255,11 +285,86 @@
 				{/if}
 			</div>
 
+			<!-- The copy is COMMITTED here, not by the button above. The old
+			     Fork wrote a row the instant it was clicked and stamped it
+			     `project` — readable and runnable by every account on the
+			     instance — before the user had decided anything. Naming the
+			     copy and choosing its audience are the two decisions worth
+			     stopping for, so they happen in front of the user and the
+			     write happens after. -->
+			{#if copying && !editing}
+				<form
+					class="mt-4 mb-4 space-y-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4"
+					data-testid="workflow-duplicate-panel"
+					onsubmit={handleCopySubmit}
+				>
+					<h3 class="text-sm font-semibold text-[var(--color-text-primary)]">
+						Duplicate {workflow.name}
+					</h3>
+					<div>
+						<label
+							class="mb-1 block text-sm text-[var(--color-text-secondary)]"
+							for="duplicate-name">Name</label
+						>
+						<input
+							id="duplicate-name"
+							bind:value={copyName}
+							data-testid="duplicate-name"
+							class={inputClass}
+							required
+						/>
+						<p class="mt-1 text-xs text-[var(--color-text-muted)]">
+							Workflow names are unique across the whole instance. If this one is taken, a number
+							is added and you land on the copy under its real name.
+						</p>
+					</div>
+					<div>
+						<label
+							class="mb-1 block text-sm text-[var(--color-text-secondary)]"
+							for="duplicate-visibility">Who can see and run it</label
+						>
+						<select
+							id="duplicate-visibility"
+							bind:value={copyVisibility}
+							data-testid="duplicate-visibility"
+							class={inputClass}
+						>
+							<option value="private">Only me (and admins)</option>
+							<option value="project">Everyone with an account here</option>
+						</select>
+						<p class="mt-1 text-xs text-[var(--color-text-muted)]" data-testid="duplicate-visibility-note">
+							{copyVisibility === "private"
+								? "Nobody else can see or run your copy. You can widen this later from the editor."
+								: "This instance has no per-project membership, so “project” means every account on it — not just your team."}
+						</p>
+					</div>
+					<div class="flex flex-wrap items-center gap-2">
+						<button
+							type="submit"
+							disabled={copySubmitting}
+							data-testid="duplicate-confirm"
+							class="rounded-md bg-blue-600 px-3 py-1 text-sm font-medium text-white transition-colors hover:bg-blue-500 disabled:opacity-50"
+						>
+							{copySubmitting ? "Duplicating…" : "Create copy"}
+						</button>
+						<button
+							type="button"
+							onclick={cancelCopy}
+							disabled={copySubmitting}
+							data-testid="duplicate-cancel"
+							class={ACTION_BTN}
+						>
+							Cancel
+						</button>
+					</div>
+					{#if copyErrorMsg}
+						<p class="text-sm text-red-400" data-testid="duplicate-error">{copyErrorMsg}</p>
+					{/if}
+				</form>
+			{/if}
+
 			{#if deleteErrorMsg}
 				<p class="mb-3 text-sm text-red-400" data-testid="delete-error">{deleteErrorMsg}</p>
-			{/if}
-			{#if forkErrorMsg}
-				<p class="mb-3 text-sm text-red-400" data-testid="fork-error">{forkErrorMsg}</p>
 			{/if}
 
 			{#if editing}
