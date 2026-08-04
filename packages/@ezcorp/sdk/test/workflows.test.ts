@@ -9,10 +9,15 @@
 
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 
-import { Workflows, type WorkflowRunAccepted } from "../src/runtime/workflows";
+import {
+  Workflows,
+  type DelegatedWorkflowRunAccepted,
+  type WorkflowRunAccepted,
+} from "../src/runtime/workflows";
 import {
   __resetChannelForTests,
   getChannel,
+  JsonRpcError,
   type HostChannel,
 } from "../src/runtime/channel";
 
@@ -84,6 +89,125 @@ describe("Workflows.run", () => {
     }) as HostChannel["request"]);
 
     await expect(new Workflows().run("deploy")).rejects.toThrow("workflow-not-granted");
+    spy.mockRestore();
+  });
+});
+
+// ── runFor (C3) — the delegated fire ─────────────────────────────────
+//
+// Two things matter from the client side and neither is observable from
+// the host: WHICH METHOD the frame goes to, and WHAT IS NOT IN IT.
+//
+// The method, because `op: "runFor"` is admitted only on
+// `ezcorp/workflows-delegated`; sending it to `ezcorp/workflows` is not a
+// slower route to the same place, it is `WORKFLOWS_BAD_OP`.
+//
+// The absent fields, because the whole security argument of the feature is
+// that "run this as somebody else" has no representation on the wire. A
+// host-side test cannot see an SDK that started volunteering an owner
+// field — the host would simply ignore it while the SDK's users learned to
+// pass it. These tests are the client-side half of that pin; the
+// source-text half lives in
+// `src/extensions/__tests__/workflows-sdk-runfor-shape.test.ts`.
+describe("Workflows.runFor", () => {
+  const ACCEPTED = { v: 1, workflow: "org-nightly", runAs: "user", started: true };
+
+  test("sends { v:1, op:'runFor', jobRef, input } over ezcorp/workflows-delegated", async () => {
+    const { calls, spy } = spyRequest(ACCEPTED);
+
+    await new Workflows().runFor({ jobRef: "job-1", input: { ref: "main" } });
+
+    expect(calls[0]?.method).toBe("ezcorp/workflows-delegated");
+    expect(calls[0]?.params).toEqual({
+      v: 1,
+      op: "runFor",
+      jobRef: "job-1",
+      input: { ref: "main" },
+    });
+    spy.mockRestore();
+  });
+
+  test("NEVER goes to ezcorp/workflows — that method answers this op with WORKFLOWS_BAD_OP", async () => {
+    const { calls, spy } = spyRequest(ACCEPTED);
+
+    await new Workflows().runFor({ jobRef: "job-1" });
+
+    expect(calls[0]?.method).not.toBe("ezcorp/workflows");
+    spy.mockRestore();
+  });
+
+  test("the frame carries NO owner/user/principal key and NO workflow key", async () => {
+    // `Object.keys`, not `toEqual`: a key present-and-undefined would pass
+    // an equality check (JSON erases it over the subprocess channel) while
+    // an in-process caller saw it. The key list is what catches a field
+    // that was added and then only sometimes populated.
+    const { calls, spy } = spyRequest(ACCEPTED);
+
+    await new Workflows().runFor({ jobRef: "job-1" });
+
+    expect(Object.keys(calls[0]!.params).sort()).toEqual(["input", "jobRef", "op", "v"]);
+    for (const forbidden of ["user", "userId", "owner", "ownerId", "runAs", "workflow"]) {
+      expect(forbidden in calls[0]!.params).toBe(false);
+    }
+    spy.mockRestore();
+  });
+
+  test("defaults input to an empty object rather than omitting it", async () => {
+    const { calls, spy } = spyRequest(ACCEPTED);
+
+    await new Workflows().runFor({ jobRef: "job-1" });
+
+    expect(calls[0]?.params.input).toEqual({});
+    spy.mockRestore();
+  });
+
+  test("sends the jobRef VERBATIM — a rewritten handle selects the wrong authority", async () => {
+    // The host rejects a malformed ref rather than trimming it, precisely
+    // so that a ref never quietly becomes a different, valid one. An SDK
+    // that normalised on the way out would defeat that.
+    const { calls, spy } = spyRequest(ACCEPTED);
+
+    await new Workflows().runFor({ jobRef: "Nightly.Report:2026-08" });
+
+    expect(calls[0]?.params.jobRef).toBe("Nightly.Report:2026-08");
+    spy.mockRestore();
+  });
+
+  test("returns the host's envelope, runAs intact", async () => {
+    const { spy } = spyRequest({
+      v: 1,
+      workflow: "org-nightly",
+      runAs: "service",
+      started: true,
+    });
+
+    const res: DelegatedWorkflowRunAccepted = await new Workflows().runFor({ jobRef: "j" });
+
+    expect(res).toEqual({ v: 1, workflow: "org-nightly", runAs: "service", started: true });
+    spy.mockRestore();
+  });
+
+  test("propagates a host refusal with its structured reason (never swallowed)", async () => {
+    // The reason is the whole remedy path: `DELEGATION_DISABLED_ROW` means
+    // "tell the user why it stopped", `DELEGATION_DISABLED` means "an
+    // operator turned the feature off, try the next tick". An SDK that
+    // flattened these to a boolean failure would make them the same event.
+    const ch: HostChannel = getChannel();
+    const spy = spyOn(ch, "request");
+    spy.mockImplementation((async () => {
+      throw new JsonRpcError(-32001, "delegated workflow runs are disabled", {
+        reason: "DELEGATION_DISABLED",
+      });
+    }) as HostChannel["request"]);
+
+    const err = await new Workflows()
+      .runFor({ jobRef: "job-1" })
+      .then(() => null)
+      .catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(JsonRpcError);
+    expect((err as JsonRpcError).code).toBe(-32001);
+    expect((err as JsonRpcError).data).toEqual({ reason: "DELEGATION_DISABLED" });
     spy.mockRestore();
   });
 });
