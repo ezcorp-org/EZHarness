@@ -49,15 +49,21 @@
  * `src/__tests__/workflow-resume-reason-gate.test.ts`: remove either
  * re-check and the bypass becomes real, and the suite fails.
  *
- * C3's two rows are different in kind, which is why this table has to
- * exist before they land: **nothing re-checks a spend cap when a run
+ * C3's two rows are different in kind, which is why this table had to
+ * exist before they landed: **nothing re-checks a spend cap when a run
  * re-enters an approval step.** A run parks on a normal `approval`, a cap
  * trips and rewrites the reason to `budget-exceeded`, the human answers
  * the approval — and the approval step is satisfied, so the run proceeds
  * with the cap never consulted. That is the R-3 escalation, and it is
  * closed by giving `budget-exceeded` a `satisfied` predicate here rather
- * than by hoping a step asks.
+ * than by hoping a step asks. Both C3 rows are now in the table below,
+ * and both re-read from the database at the decision point.
  */
+
+import {
+  readWorkflowRunDelegationBudget,
+  sumWorkflowRunTokens,
+} from "../db/queries/workflow-runs";
 
 /**
  * Every value production writes to `workflow_runs.suspended_reason`.
@@ -71,15 +77,29 @@
  *   - `"orphaned-resumable"` — `db/queries/workflow-runs.ts:612`
  *   - `"approval-timeout"` — `workflow-approval-timeout-sweep.ts:217`
  *
- * The `quota` / `consent-stale` values in `docs/plans/*` are NOT on this
- * tree yet; they arrive with C3 and belong in this union and the table
- * below when they do.
+ *   - `"budget-exceeded"` — `workflow-executor.ts`, the step-boundary
+ *     token check (C3 phase B)
+ *
+ * `"consent-stale"` is the ONE member of this union with no writer on the
+ * tree yet, and it is here deliberately rather than by drift. The rule
+ * above ("enumerated from the writers") exists so the union cannot claim
+ * a value the column never carries; the cost of holding this one back is
+ * higher than that. Its writer is the fire-time consent recompute, which
+ * lands with the delegated handler — and the row it needs here is the
+ * thing that stops "answer the approval and the consent check is never
+ * consulted". Shipping the writer first would mean a window in which a
+ * `consent-stale` row parses to `null` and therefore **allows**, which is
+ * exactly the bypass this module exists to make unrepresentable. The
+ * `quota` value in `docs/plans/*` is NOT here: it has no writer and no
+ * phase that needs it.
  */
 export type WorkflowSuspendReason =
   | "approval"
   | "nested-suspended"
   | "orphaned-resumable"
-  | "approval-timeout";
+  | "approval-timeout"
+  | "budget-exceeded"
+  | "consent-stale";
 
 /** The reasons, as a value, for tests and for exhaustiveness checks. */
 export const WORKFLOW_SUSPEND_REASONS = [
@@ -87,6 +107,8 @@ export const WORKFLOW_SUSPEND_REASONS = [
   "nested-suspended",
   "orphaned-resumable",
   "approval-timeout",
+  "budget-exceeded",
+  "consent-stale",
 ] as const satisfies readonly WorkflowSuspendReason[];
 
 /** Facts a resume-time predicate is allowed to consult. Deliberately just
@@ -155,6 +177,84 @@ export const RESUME_RULES = {
       "nothing may resume it — the clock ended this run and the sweep terminalizes it " +
       "as cancelled; the reason survives only as a trace",
     liveOnSuspendedRow: false,
+  },
+  // ── C3 ── The first two reasons NO step re-entry can defend ────────
+  //
+  // Everything above carries `satisfied: null` because the step the
+  // cursor re-enters re-verifies the condition against the authoritative
+  // object. These two have no such step: no step owns a run-scoped
+  // budget, and no step re-checks consent. A run that parked for either
+  // and then had its `approval` answered would re-enter `runApprovalStep`,
+  // find the approval `answered`, and proceed — with the cap never
+  // consulted. That is why these rows carry a real predicate, and it is
+  // the whole justification for this table having existed before them.
+  "budget-exceeded": {
+    /**
+     * Re-read BOTH halves — what the run has spent and what it is allowed
+     * to spend — from the database, and allow only while it is strictly
+     * under. Neither number is carried in from anywhere:
+     * {@link ResumeReasonContext} deliberately hands a predicate nothing
+     * but a run id, so a caller cannot assert its own budget is fine.
+     *
+     * Fails CLOSED when the delegation is gone or revoked. That is the
+     * opposite of {@link parseSuspendReason}'s "unknown allows", and the
+     * asymmetry is deliberate: an unknown reason is a rolling-deploy or
+     * legacy artefact on a HEALTHY run, while a run parked here is over
+     * budget by construction, so a missing cap is not evidence that it is
+     * under one. There is no denial-of-service in refusing — raising the
+     * cap or re-consenting is a live route out, and it is the only one.
+     *
+     * Answering an approval is deliberately NOT a route out: this
+     * predicate never looks at `workflow_approvals`.
+     */
+    satisfied: async ({ workflowRunId }) => {
+      const budget = await readWorkflowRunDelegationBudget(workflowRunId);
+      if (budget === null || !budget.live) return false;
+      return (await sumWorkflowRunTokens(workflowRunId)) < budget.maxTokensPerRun;
+    },
+    describe:
+      "the run has spent its delegation's whole max_tokens_per_run; only raising that " +
+      "cap lets it continue — answering an approval does not, and cannot",
+    liveOnSuspendedRow: true,
+  },
+  "consent-stale": {
+    /**
+     * Allow only once the delegation has been RE-CONSENTED during this
+     * run — `consented_at` strictly after the run's own `started_at`. A
+     * run is dispatched under a consent that was already current, so any
+     * later `consented_at` is a re-consent that happened while this run
+     * was parked or alive.
+     *
+     * ## What this predicate deliberately does NOT do
+     *
+     * It does not recompute the consent hash. That recompute needs the
+     * workflow definition and the OWNER'S-AND-KIND'S closure resolver
+     * (a `service` delegation sees a smaller graph than a `user` one),
+     * and {@link ResumeReasonContext} carries a run id and nothing else —
+     * on purpose, so that no predicate here can be handed a fact instead
+     * of reading one. Widening the context to smuggle a resolver in would
+     * trade this module's whole guarantee for a check that already exists
+     * somewhere better: the authoritative comparison is the fire-time /
+     * boundary recompute, which is where a mismatch is DETECTED and this
+     * reason is written.
+     *
+     * So this row is the resume-time FLOOR, and it is exact in the
+     * direction that matters: a run whose consent went stale and for
+     * which nobody re-consented can never be resumed, by anyone, through
+     * any path. The residue is one bounded imprecision — if the graph
+     * goes stale AGAIN after a re-consent, this allows the resume and the
+     * next boundary recompute re-parks the run. That costs one batch, and
+     * closing it would mean storing the park-time hash on the run row.
+     */
+    satisfied: async ({ workflowRunId }) => {
+      const budget = await readWorkflowRunDelegationBudget(workflowRunId);
+      if (budget === null || !budget.live) return false;
+      return budget.consentedAt.getTime() > budget.runStartedAt.getTime();
+    },
+    describe:
+      "what the human consented to has changed under the run; only a fresh consent on " +
+      "the delegation lets it continue, and only from the user who holds it",
+    liveOnSuspendedRow: true,
   },
 } as const satisfies Record<WorkflowSuspendReason, ResumeRule>;
 

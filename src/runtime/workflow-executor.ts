@@ -48,8 +48,10 @@ import {
   insertWorkflowRun,
   loadStepResults,
   markWorkflowRunInBatch,
+  readWorkflowRunDelegationBudget,
   releaseWorkflowRunClaim,
   suspendWorkflowRun,
+  sumWorkflowRunTokens,
   upsertWorkflowStepRun,
   workflowRunNestingDepth,
   type TerminalWorkflowRunStatus,
@@ -523,6 +525,144 @@ export class WorkflowExecutor {
     });
   }
 
+  /**
+   * C3 — park a DELEGATED run that has spent its token budget.
+   *
+   * Called at exactly one place: the step boundary, immediately after the
+   * cursor advance. It is a budget check and nothing else — not a general
+   * extension point — so it reads two numbers, compares them, and either
+   * returns or throws.
+   *
+   * ## It refuses by SUSPENDING, never by terminalizing
+   *
+   * A run that hit its budget has not failed. `refuseTerminal`'s path
+   * (`status="error"` + `finalizeWorkflowRunRow`) is the class of defect
+   * that once destroyed every approval-parked run on this tree, and the
+   * rule it left behind is in `resumeWorkflow`'s docblock: terminalizing a
+   * transient refusal turns a blocked bypass into permanent denial of
+   * service on the very run being protected. So this throws
+   * {@link WorkflowSuspendedError}, whose catch writes `status="suspended"`,
+   * `suspended_reason="budget-exceeded"`, a NULL `finished_at`,
+   * `run_phase="boundary"` and a released claim.
+   *
+   * `approval` is left UNDEFINED on the error, which is what stops
+   * `workflow:approval_request` firing. No human decision is pending: the
+   * job is over budget, and the way out is a larger
+   * `max_tokens_per_run`, not an answer. `workflow:error` still fires, so
+   * the run visibly stops.
+   *
+   * Resuming it is refused by the `budget-exceeded` row in
+   * `workflow-resume-reasons.ts`, which re-reads both numbers itself.
+   * That row is the enforcement between processes; this method is the
+   * enforcement within one.
+   *
+   * ## Scope — and the queries a normal run does NOT take
+   *
+   * `delegationId === null` returns before touching the database. That is
+   * every run on the tree today, and it is asserted by a spy rather than
+   * left to inspection: a per-boundary round trip on every workflow in
+   * the instance is a performance regression nobody would attribute to
+   * C3.
+   *
+   * ## What the ceiling does NOT cover — say this to users, too
+   *
+   * Tokens reach a step row from exactly ONE place: the agent-attempt
+   * path (`runAgentAttempt`, `stepRun.inputTokens = … + agentRun.inputTokens`).
+   * `tool`, `transform`, `gate` and `approval` steps dispatch elsewhere
+   * and report nothing, and `upsertWorkflowStepRun` maps absent to SQL
+   * NULL rather than 0 — deliberately. **So this bound covers LLM spend
+   * and NOT `tool` steps**, which are the ones that reach an external
+   * side effect. They are not unbounded: a non-interactive run has a hard
+   * run-scoped ceiling of 100 tool calls
+   * (`extensions/tool-executor/limits.ts`, `MAX_TOOL_CALLS_PER_TURN`),
+   * but that counts CALLS, is in-memory, and is refunded by a
+   * suspend/resume. The consent dialog carries this sentence; so does
+   * this file, because a limitation that lives only in a dialog is one
+   * refactor from being lost.
+   *
+   * ## It does not fire at the LAST boundary
+   *
+   * The ceiling bounds FUTURE spend, and after the final batch there is
+   * none: every step has run and the only thing left is to finalize. A
+   * park there would convert a run that has nothing left to do into one
+   * that needs a human to raise a cap before it can report the result it
+   * already produced — and, because the resume rule then refuses it, it
+   * would stay parked indefinitely. That is the permanent-denial-of-
+   * service shape this file has been burned by once already, arriving
+   * through a check meant to protect the run.
+   *
+   * The overspend is not hidden by this: it is in the step rows, in the
+   * trace's totals, and in the warning below on every boundary that DID
+   * fire. What bounds the next fire is the delegation's own daily limits,
+   * which are the handler's business rather than the executor's.
+   *
+   * A NESTED child run is likewise outside it: the child is its own row
+   * with its own step rows, and it does not inherit `delegation_id`, so
+   * its tokens are counted against neither cap. Nesting is bounded by
+   * `MAX_WORKFLOW_NESTING_DEPTH` instead. Widening the sum to the run
+   * TREE is a real option and deliberately not taken here — it would make
+   * every boundary of every delegated run walk `parent_run_id`, and the
+   * phase that gives a child a delegation is the one that should pay for
+   * it.
+   */
+  private async enforceDelegatedTokenBudget(opts: {
+    delegationId: string | null;
+    workflowRunId: string;
+    prevStepName: string | null;
+    pendingStepWrites: Array<Promise<void>>;
+    /** False at the final boundary of the run — see the docblock. */
+    hasNextBatch: boolean;
+  }): Promise<void> {
+    // The scope gate, and the reason a non-delegated run costs nothing.
+    // `persist` is checked with it because a DB-less harness has no rows
+    // to sum and no connection to sum them over — the same guard
+    // `persistWrite` and `persistCritical` open with.
+    if (opts.delegationId === null || !this.persist || !opts.hasNextBatch) return;
+
+    // Drain THIS run's outstanding step writes before summing. They are
+    // fire-and-forget, so without this the batch that just spent the
+    // tokens may not be in the table yet and the ceiling would trail the
+    // spend by a batch. `persistWrite` never throws, so nothing here can
+    // fail a run for a telemetry glitch — a write that was dropped is
+    // simply usage the sum never sees, which is the same durability
+    // contract the trace has.
+    if (opts.pendingStepWrites.length > 0) {
+      await Promise.all(opts.pendingStepWrites.splice(0));
+    }
+
+    // BOTH numbers out of the database, every boundary. Not cached, not
+    // carried on the run object: a cached cap ignores an operator raising
+    // it, and a carried total is refunded by every suspend — which is the
+    // in-memory tool-call ceiling's accepted weakness and would be fatal
+    // here, since a delegated job is precisely the thing that parks and
+    // resumes on a schedule.
+    const budget = await readWorkflowRunDelegationBudget(opts.workflowRunId);
+    // The delegation was deleted mid-run (`ON DELETE SET NULL` on the
+    // run's column, so the row can no longer name it). Nothing to enforce
+    // and nothing to enforce it against; the authority is gone and the
+    // handler that fires the NEXT run of this job is where that is
+    // refused. Deliberately not a park: the run in flight was authorized
+    // when it started.
+    if (budget === null) return;
+
+    const spent = await sumWorkflowRunTokens(opts.workflowRunId);
+    if (spent < budget.maxTokensPerRun) return;
+
+    log.warn("workflow run parked at boundary — delegated token budget spent", {
+      workflowRunId: opts.workflowRunId,
+      delegationId: budget.delegationId,
+      spent,
+      maxTokensPerRun: budget.maxTokensPerRun,
+    });
+    // `prevStepName` names the last step whose result is `$prev`, which is
+    // the most useful thing to point a reader at: the step the run got
+    // through before the money ran out. It is null when the run has
+    // executed nothing that produced a result (a wholly skipped first
+    // batch), and `<boundary>` says exactly that rather than inventing a
+    // step name that no `workflow_step_runs` row would match.
+    throw new WorkflowSuspendedError(opts.prevStepName ?? "<boundary>", "budget-exceeded");
+  }
+
   async runWorkflow(
     workflow: WorkflowDefinition,
     input: Record<string, unknown>,
@@ -574,6 +714,25 @@ export class WorkflowExecutor {
        * it down would make a child look independently job-fired.
        */
       jobRef?: string;
+      /**
+       * The `workflow_delegations` row this run executes under — C3, and
+       * the ONE gate on the step-boundary token check.
+       *
+       * Absent (every caller today) ⇒ the boundary check does not fire and
+       * the run takes ZERO extra queries per batch. Set ⇒ every boundary
+       * re-reads this delegation's `max_tokens_per_run` and the run's
+       * token total from the database and parks the run when it is over.
+       *
+       * Unlike {@link jobRef} above this one IS read — but it is still not
+       * a claim of authority. The delegation was resolved host-side before
+       * the run started; naming it here can only ever ADD a ceiling, never
+       * lift one, so a caller that lies about it can only restrict itself.
+       *
+       * A NESTED run does not inherit it, exactly as it does not inherit
+       * `jobRef`. What that costs is written down where the check lives —
+       * see `enforceDelegatedTokenBudget`.
+       */
+      delegationId?: string;
       /** Nesting level; 0 (the default) for a top-level run. Threaded so a
        *  child's OWN nested steps are bounded by the same cap. */
       depth?: number;
@@ -660,6 +819,12 @@ export class WorkflowExecutor {
         // Written, never read. See the option's doc for why the executor
         // must not branch on a caller-supplied correlation handle.
         jobRef: opts?.jobRef ?? null,
+        // Written AND read — by this run's own boundary check, and by the
+        // resume table after a park. Persisted rather than kept in memory
+        // because a resumed run must find its ceiling again: an in-memory
+        // spend bound is refunded by every suspend, which is no bound at
+        // all for a job that parks and resumes on a schedule.
+        delegationId: opts?.delegationId ?? null,
       });
     });
 
@@ -676,6 +841,7 @@ export class WorkflowExecutor {
       stepResults: new Map(),
       skippedSteps: new Map(),
       depth: opts?.depth ?? 0,
+      delegationId: opts?.delegationId ?? null,
       // The interactive-mode switch, forwarded verbatim. Absent ⇒
       // non-interactive, which is the fail-closed path every non-chat
       // caller (REST, CLI, extension, schedule) takes.
@@ -724,6 +890,16 @@ export class WorkflowExecutor {
       /** Who holds this run's claim, if anyone. Read ONLY by the status
        *  guard below, against {@link ResumeWorkflowOptions.resumedBy}. */
       claimedBy?: string | null;
+      /**
+       * C3's delegation, off the ROW rather than from the caller.
+       *
+       * Re-derived on resume for the same reason `depth` is derived from
+       * the parent chain rather than defaulted to 0: resuming without it
+       * would let a delegated run shed its token ceiling simply by
+       * parking, which is precisely the ceiling a parking job is most
+       * able to exploit.
+       */
+      delegationId?: string | null;
     },
     signal?: AbortSignal,
     opts?: ResumeWorkflowOptions,
@@ -914,6 +1090,9 @@ export class WorkflowExecutor {
       // DERIVED from the parent chain rather than defaulted to 0: resuming
       // at depth 0 would let a nested run escape the cap simply by parking.
       depth: await workflowRunNestingDepth(row.parentRunId, MAX_WORKFLOW_NESTING_DEPTH),
+      // Same argument, C3's ceiling: taken from the row so a resumed run
+      // is bounded by the same delegation the first process was.
+      delegationId: row.delegationId ?? null,
     });
   }
 
@@ -942,6 +1121,15 @@ export class WorkflowExecutor {
     skippedSteps: Map<string, string>;
     /** This run's nesting level; 0 for a top-level run. */
     depth: number;
+    /**
+     * C3: the delegation this run executes under, or null.
+     *
+     * The ONE gate on the step-boundary token check. Null ⇒ the boundary
+     * does exactly what it did before, with no extra query and no extra
+     * await. Fresh runs get it from the caller's options; resumed runs
+     * get it from their row.
+     */
+    delegationId?: string | null;
     /**
      * The REAL chat conversation this run belongs to, or undefined for the
      * non-interactive default — see {@link WorkflowRunOptions.conversationId}.
@@ -1101,7 +1289,46 @@ export class WorkflowExecutor {
     const completedSteps: string[] = [...ctx.cursor.completedSteps];
     const alreadyDone = new Set(ctx.cursor.completedSteps);
     let suspended = false;
+    // ── WHERE A SUSPEND SHOULD RESUME FROM — not "the batch we are in" ──
+    //
+    // Read ONLY by the `WorkflowSuspendedError` catch, which writes it
+    // back as the cursor. It is set to `batchIndex` at the top of each
+    // iteration and to `batchIndex + 1` the moment the boundary's cursor
+    // advance succeeds, so it means the resume POINT at every instant:
+    //
+    //   • parked mid-batch  ⇒ this batch, so resume re-enters it and
+    //     restores the siblings that already finished from their
+    //     persisted output (see the catch for the full argument);
+    //   • parked AT the boundary (C3's budget check) ⇒ the NEXT batch,
+    //     because this one is complete and its cursor was just published.
+    //
+    // Without the second assignment a boundary park would write the
+    // completed batch's index back over the advance below and RE-EXECUTE
+    // that whole batch on resume — every side effect twice, every LLM
+    // call re-billed. Pinned by "a boundary park resumes at the NEXT
+    // batch and does not re-execute the completed one".
     let currentBatchIndex = ctx.cursor.batchIndex;
+    // ── C3: the delegated token ceiling ──────────────────────────────
+    //
+    // Null for every run that is not delegated, which is every run on the
+    // tree today, and the whole hook is a null check away — no query, no
+    // await, nothing per boundary.
+    const delegationId = ctx.delegationId ?? null;
+    // Handles for this batch's step-row writes, kept ONLY when there is a
+    // budget to enforce.
+    //
+    // `persistStep()` is fire-and-forget by design (see the `$prev`
+    // invariant at its call site — awaiting it inside the step body would
+    // silently turn `$prev` into a per-step value). That makes the
+    // boundary's token sum racy: the write carrying this batch's usage
+    // may still be in flight when the aggregate runs, so the check would
+    // read a total one batch stale. Keeping the promises and draining
+    // them here — outside the step bodies, after `Promise.all`, where an
+    // await changes nothing — closes that without touching `$prev`.
+    //
+    // Collected only for a delegated run so a long non-delegated one does
+    // not accumulate thousands of settled promises for nobody.
+    const pendingStepWrites: Array<Promise<void>> = [];
 
     try {
       if (externallyAborted) throw new WorkflowAbortError();
@@ -1195,7 +1422,7 @@ export class WorkflowExecutor {
           // identical runs differ. Same reasoning as `stepOutput`.
           let stepDurationMs: number | undefined;
           const persistStep = (): void => {
-            void this.persistWrite("step", () =>
+            const written = this.persistWrite("step", () =>
               upsertWorkflowStepRun({
                 workflowRunId: workflowRun.id,
                 stepName: stepRun.stepName,
@@ -1231,6 +1458,13 @@ export class WorkflowExecutor {
                   : {}),
               }),
             );
+            // Still fire-and-forget for every caller — nothing awaits it
+            // HERE, which is the property the `$prev` invariant depends
+            // on. A delegated run additionally keeps the handle so the
+            // boundary's token sum can drain it before reading, since a
+            // write still in flight is usage the ceiling cannot see.
+            if (delegationId !== null) pendingStepWrites.push(written);
+            else void written;
           };
           const syncStep = (): void => {
             this.bus.emit("workflow:step", { workflowRun, step: stepRun, userId });
@@ -1415,6 +1649,29 @@ export class WorkflowExecutor {
             prevStepName,
           }),
         );
+        // The advance is DURABLE now, so the resume point is the next
+        // batch — including for a park thrown from the check below. See
+        // the declaration for what happens if this line is removed.
+        currentBatchIndex = batchIndex + 1;
+
+        // ── The one policy consumer of this boundary ────────────────
+        //
+        // Deliberately AFTER the cursor advance rather than before it.
+        // Every step of this batch has settled (`Promise.all` above), any
+        // failure already threw, `completedSteps` is current, and the
+        // cursor is durably past this batch — so a park here loses
+        // nothing and re-runs nothing. Before the advance it would park
+        // against a cursor that still points at the batch it just
+        // finished.
+        await this.enforceDelegatedTokenBudget({
+          delegationId,
+          workflowRunId: workflowRun.id,
+          prevStepName,
+          pendingStepWrites,
+          // There is no point parking a run with nothing left to spend —
+          // see the method's docblock.
+          hasNextBatch: batchIndex + 1 < batches.length,
+        });
       }
 
       workflowRun.status = "success";
@@ -2481,6 +2738,7 @@ export function resumeArgsFromRow(row: {
   startedAt: Date;
   parentRunId?: string | null;
   claimedBy?: string | null;
+  delegationId?: string | null;
 }): Parameters<WorkflowExecutor["resumeWorkflow"]>[1] {
   return {
     id: row.id,
@@ -2501,6 +2759,12 @@ export function resumeArgsFromRow(row: {
     // the daemon back to being refused on every run it claims — this is
     // exactly the class of omission the one-projection rule exists for.
     claimedBy: row.claimedBy,
+    // C3's ceiling. Dropping it here would silently un-bound every
+    // resumed delegated run — the run would come back with no cap, take
+    // no boundary queries, and look perfectly healthy. This projection
+    // exists so that is one line in one place rather than a thing each
+    // resume caller has to remember.
+    delegationId: row.delegationId,
   };
 }
 
