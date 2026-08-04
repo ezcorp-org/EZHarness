@@ -21,11 +21,14 @@ mockDbConnection();
 const {
   createWorkflowDelegation,
   delegationOwnerId,
+  disableWorkflowDelegation,
   findLiveWorkflowDelegation,
   getWorkflowDelegation,
   listPinnedDelegationVersionIds,
   listWorkflowDelegationsConsentedBy,
   revokeWorkflowDelegation,
+  setDelegationTokenCeiling,
+  toWorkflowDelegationView,
 } = await import("../db/queries/workflow-delegations");
 const { createUser } = await import("../db/queries/users");
 const { createWorkflow } = await import("../db/queries/workflows");
@@ -275,13 +278,15 @@ describe("a supersede carries PARKED runs forward onto the new authority", () =>
 
   test("a SUSPENDED run moves; terminal and running rows do NOT", async () => {
     // Without this the two C3 resume rules are unsatisfiable in practice
-    // and every parked delegated run is stuck forever. There is no update
-    // route on a delegation, so the ONLY way to raise `max_tokens_per_run`
-    // or refresh a stale consent is to re-consent — which is this
-    // function, which tombstones. Both `RESUME_RULES` predicates read the
-    // RUN's own `delegation_id` and refuse a revoked row, so the remedies
-    // their own prose names ("only raising that cap lets it continue",
-    // "only a fresh consent lets it continue") were unreachable.
+    // and every parked delegated run is stuck forever. Re-consent is this
+    // function, and it tombstones; both `RESUME_RULES` predicates read
+    // the RUN's own `delegation_id` and refuse a revoked row, so the
+    // remedies their own prose names ("only raising that cap lets it
+    // continue", "only a fresh consent lets it continue") were
+    // unreachable. Phase 8a added a second way out for the FIRST of those
+    // two — `setDelegationTokenCeiling`, pinned in its own block below —
+    // and this carry-forward remains the only one for `consent-stale`,
+    // whose predicate demands a fresh `consented_at`.
     const first = await createWorkflowDelegation(consentInput());
     expect(first.ok).toBe(true);
     if (!first.ok) return;
@@ -349,6 +354,151 @@ describe("a supersede carries PARKED runs forward onto the new authority", () =>
 
     expect(await delegationOf("r-mine")).toBe(again.delegation.id);
     expect(await delegationOf("r-other")).toBe(other.delegation.id);
+  });
+});
+
+describe("setDelegationTokenCeiling — adjust the cap, touch NOTHING else", () => {
+  beforeEach(async () => await freshDb());
+  afterAll(async () => await closeTestDb());
+
+  /**
+   * Every column this update must leave byte-identical, read straight off
+   * the row rather than re-listed here — so a NEW column added to the
+   * table is covered the day it lands, instead of the day somebody
+   * remembers to extend a hard-coded list.
+   *
+   * `max_tokens_per_run` and `updated_at` are the two the update is
+   * ALLOWED to move, so they are the two removed.
+   *
+   * Returns the verdict; the caller asserts. A helper that asserted
+   * internally would read as an assertion-free test to `Gate integrity`
+   * and, worse, would let a caller "pass" by never reaching it.
+   */
+  function frozenFields(row: Record<string, unknown>): Record<string, unknown> {
+    const { maxTokensPerRun: _cap, updatedAt: _ts, ...rest } = row;
+    return rest;
+  }
+
+  test("the cap moves and every other column is byte-identical", async () => {
+    const created = await createWorkflowDelegation(consentInput());
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const before = created.delegation;
+
+    const updated = await setDelegationTokenCeiling(before.id, 99_000);
+    expect(updated?.maxTokensPerRun).toBe(99_000);
+
+    // THE proof that this cannot change the workflow, the owner kind or
+    // the consent hash — not a comment saying so, and not a list of the
+    // three fields anyone happened to think of. Everything but the cap
+    // and the timestamp is compared as one object.
+    expect(frozenFields(updated as unknown as Record<string, unknown>)).toEqual(
+      frozenFields(before as unknown as Record<string, unknown>),
+    );
+    // Named individually as well, because the three the brief singles out
+    // are the ones a future refactor is most likely to "helpfully" widen
+    // this function to accept, and a failure should say which broke.
+    expect(updated?.workflowName).toBe(before.workflowName);
+    expect(updated?.ownerKind).toBe(before.ownerKind);
+    expect(updated?.consentHash).toBe(before.consentHash);
+    expect(updated?.consentedByUserId).toBe(before.consentedByUserId);
+    expect(updated?.consentedAt).toEqual(before.consentedAt);
+    expect(updated?.maxRunsPerDay).toBe(before.maxRunsPerDay);
+    expect(updated?.capabilitySet).toEqual(before.capabilitySet);
+  });
+
+  test("it does NOT supersede: the same row id, and still the live one", async () => {
+    // The whole difference from re-consent. A supersede would tombstone
+    // this id and mint another, which is precisely what left every parked
+    // run stranded.
+    const created = await createWorkflowDelegation(consentInput());
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+
+    const updated = await setDelegationTokenCeiling(created.delegation.id, 42);
+    expect(updated?.id).toBe(created.delegation.id);
+    expect(updated?.revokedAt).toBeNull();
+    expect((await findLiveWorkflowDelegation(EXT, "job-1"))?.id).toBe(created.delegation.id);
+    expect((await findLiveWorkflowDelegation(EXT, "job-1"))?.maxTokensPerRun).toBe(42);
+  });
+
+  test("LOWERING is allowed too — the boundary check re-reads it every time", async () => {
+    // Not merely symmetry. `enforceDelegatedTokenBudget` reads both
+    // numbers out of the database at every boundary precisely so a
+    // change takes effect on a run already in flight; a route that could
+    // only raise would be a one-way ratchet on unattended spend.
+    const created = await createWorkflowDelegation(consentInput());
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    expect((await setDelegationTokenCeiling(created.delegation.id, 1))?.maxTokensPerRun).toBe(1);
+  });
+
+  test("a REVOKED delegation is refused — a tombstone has no budget to adjust", async () => {
+    const created = await createWorkflowDelegation(consentInput());
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    await revokeWorkflowDelegation(created.delegation.id);
+
+    expect(await setDelegationTokenCeiling(created.delegation.id, 99_000)).toBeUndefined();
+    // …and the refusal wrote nothing.
+    expect((await getWorkflowDelegation(created.delegation.id))?.maxTokensPerRun).toBe(5000);
+  });
+
+  test("a DISABLED delegation is refused, and its reason survives", async () => {
+    // The decision, pinned: raising a token cap does not repair a
+    // delegation the PLATFORM switched off, and clearing `enabled` here
+    // would restore the answer-path authority `delegationHoldsAuthority`
+    // withdrew — before any fire re-asks D7's question.
+    const created = await createWorkflowDelegation(consentInput());
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    expect(await disableWorkflowDelegation(created.delegation.id, "the world moved")).toBe(true);
+
+    expect(await setDelegationTokenCeiling(created.delegation.id, 99_000)).toBeUndefined();
+    const after = await getWorkflowDelegation(created.delegation.id);
+    expect(after?.maxTokensPerRun).toBe(5000);
+    expect(after?.enabled).toBe(false);
+    expect(after?.disabledReason).toBe("the world moved");
+  });
+
+  test("an unknown id is undefined, not a throw", async () => {
+    expect(await setDelegationTokenCeiling(crypto.randomUUID(), 10)).toBeUndefined();
+  });
+});
+
+describe("toWorkflowDelegationView — one shape, three routes", () => {
+  beforeEach(async () => await freshDb());
+  afterAll(async () => await closeTestDb());
+
+  test("the owner is read through the keyed lookup on BOTH arms", async () => {
+    const mine = await createWorkflowDelegation(consentInput());
+    const svc = await serviceAccount("svc-view");
+    const theirs = await createWorkflowDelegation(
+      consentInput({ jobRef: "job-2", ownerKind: "service", ownerId: svc }),
+    );
+    expect(mine.ok && theirs.ok).toBe(true);
+    if (!mine.ok || !theirs.ok) return;
+
+    expect(toWorkflowDelegationView(mine.delegation).ownerId).toBe(CONSENTER);
+    expect(toWorkflowDelegationView(theirs.delegation).ownerId).toBe(svc);
+  });
+
+  test("the consent hash is NOT on the wire", async () => {
+    // The view is explicit field copies rather than a row spread for
+    // exactly this: `consent_hash` is the fingerprint a stale-consent
+    // check compares, and a client that could read it could assert its
+    // own freshness instead of being told.
+    const created = await createWorkflowDelegation(consentInput());
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const view = toWorkflowDelegationView(created.delegation) as Record<string, unknown>;
+    expect(Object.hasOwn(view, "consentHash")).toBe(false);
+    expect(Object.hasOwn(view, "consecutiveFailures")).toBe(false);
+    // …and the fields the UI genuinely needs ARE there, so the assertion
+    // above is not satisfied by an empty object.
+    expect(view["maxTokensPerRun"]).toBe(5000);
+    expect(view["workflowName"]).toBe("w");
+    expect(view["enabled"]).toBe(true);
   });
 });
 

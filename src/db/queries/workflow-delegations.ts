@@ -311,9 +311,13 @@ export async function createWorkflowDelegation(
       // parked delegated run is stuck forever. Verified by execution,
       // not by reading:
       //
-      //   - `workflow_delegations` has NO update route. The only way to
-      //     raise `max_tokens_per_run` or refresh a stale consent is to
-      //     re-consent, which is THIS function, which tombstones.
+      //   - Re-consent is THIS function, and it tombstones. (Phase 8a
+      //     later added {@link setDelegationTokenCeiling} and its
+      //     `PATCH /api/workflows/delegations/:id` route, which raises
+      //     the cap WITHOUT superseding — the other way out of the same
+      //     deadlock, and deliberately not a replacement for this block:
+      //     a re-consent still tombstones, and a `consent-stale` park
+      //     can be resolved ONLY by re-consenting, which is this path.)
       //   - Both `RESUME_RULES` predicates go through
       //     `readWorkflowRunDelegationBudget`, which INNER-joins the
       //     RUN's own `delegation_id` and reports `live: false` for a
