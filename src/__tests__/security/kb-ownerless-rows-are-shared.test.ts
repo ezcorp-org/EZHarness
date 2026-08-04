@@ -112,26 +112,35 @@ type Row = { id: string; projectId: string; userId: string | null; filename: str
 
 const PROJECT = "11111111-1111-4111-8111-111111111111";
 let kbStore: Map<string, Row>;
+let inserted: Array<Record<string, unknown>>;
 
 const kbMock = () => ({
   listKBFiles: async (projectId: string) =>
     [...kbStore.values()].filter(r => r.projectId === projectId),
   getKBFile: async (id: string) => kbStore.get(id) ?? undefined,
   deleteKBFile: async (id: string) => kbStore.delete(id),
-  insertKBFile: async () => {
-    throw new Error("not used by this suite");
+  insertKBFile: async (data: Record<string, unknown>) => {
+    inserted.push(data);
+    const row: Row = {
+      id: `kb-inserted-${inserted.length}`,
+      projectId: data.projectId as string,
+      // Record whatever the handler actually passed — including `undefined`,
+      // which is the regression this captures.
+      userId: (data.userId as string | null | undefined) ?? null,
+      filename: data.filename as string,
+    };
+    kbStore.set(row.id, row);
+    return row;
   },
   updateKBFile: async () => {},
-  insertKBChunk: async () => {
-    throw new Error("not used by this suite");
-  },
+  insertKBChunk: async () => ({}),
 });
 mock.module("$server/db/queries/knowledge-base", kbMock);
 mock.module("../../db/queries/knowledge-base", kbMock);
 
 // ── Handler imports (AFTER mocks) ────────────────────────────────
 
-import { GET as kbList } from "../../../web/src/routes/api/knowledge-base/+server";
+import { GET as kbList, POST as kbUpload } from "../../../web/src/routes/api/knowledge-base/+server";
 import {
   GET as kbDetail,
   DELETE as kbDelete,
@@ -157,6 +166,7 @@ const SHARED = "kb-shared-null-owner";
 const OWNED_BY_UPLOADER = "kb-owned-by-uploader";
 
 beforeEach(() => {
+  inserted = [];
   kbStore = new Map<string, Row>([
     [SHARED, { id: SHARED, projectId: PROJECT, userId: null, filename: "team-handbook.md" }],
     [
@@ -296,6 +306,52 @@ describe("BEHAVIOUR: an OWNED row is still private on both surfaces", () => {
     );
     expect(forbidden.status).toBe(404);
     expect(await forbidden.json()).toEqual(await missing.json());
+  });
+});
+
+// ── (A3) The PREMISE: uploads can never mint a shared row by accident ──
+//
+// "Ownerless means shared" is only safe because ownerless rows cannot be
+// produced through the API. If `POST` ever stopped stamping `userId`, every
+// upload would silently become world-readable under the very rule this suite
+// blesses. That premise was previously asserted in prose and pinned nowhere —
+// the integration suite (`src/__tests__/kb-upload-integration.test.ts`) calls
+// `insertKBFile` directly and never exercises the handler. Pinned here, next to
+// the rule that depends on it.
+
+describe("PREMISE: POST always stamps an owner, so the API cannot create a shared row", () => {
+  async function upload(user: unknown): Promise<Response> {
+    const fd = new FormData();
+    fd.append("projectId", PROJECT);
+    fd.append("file", new File(["# notes\n\nhello"], "notes.md", { type: "text/markdown" }));
+    const req = new Request("http://localhost/api/knowledge-base", { method: "POST", body: fd });
+    return call(kbUpload as any, {
+      url: new URL("http://localhost/api/knowledge-base"),
+      locals: { user },
+      request: req,
+    });
+  }
+
+  test("the inserted row carries the uploader's id, never null/undefined", async () => {
+    const res = await upload(UPLOADER);
+    expect(res.status).toBe(201);
+    expect(inserted).toHaveLength(1);
+    expect(inserted[0]!.userId).toBe(UPLOADER.id);
+  });
+
+  test("…so a freshly uploaded file is PRIVATE on both read surfaces", async () => {
+    // The end-to-end consequence, not just the column value: if the stamp were
+    // dropped, this row would fall into the shared bucket and `OTHER` would see
+    // it. Both surfaces are checked so the premise is guarded on the same two
+    // predicates as the invariant above.
+    const res = await upload(UPLOADER);
+    expect(res.status).toBe(201);
+    const id = ((await res.json()) as { id: string }).id;
+
+    expect(await listedFor(UPLOADER, id)).toBe(true);
+    expect(await detailReadableFor(UPLOADER, id)).toBe(true);
+    expect(await listedFor(OTHER, id)).toBe(false);
+    expect(await detailReadableFor(OTHER, id)).toBe(false);
   });
 });
 
