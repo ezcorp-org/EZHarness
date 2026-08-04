@@ -97,11 +97,15 @@ export function resolveWorkflowOr(
   const caller = callerFor(user, projectId);
   const result = resolveWorkflowForCaller(getCachedWorkflows(), name, caller, action);
   if (!result.ok) {
-    const status = denialStatus(result.reason, action);
+    // `result.visibility` is the tier the ladder refused on (`null` for a
+    // name that matched nothing). Read off the denial rather than
+    // re-found here: a second lookup in this adapter would be a second
+    // copy of the cache-order rule the module exists to keep singular.
+    const status = denialStatus(result.reason, action, result.visibility);
     const message =
       status === 404 && notFoundMessage !== undefined
         ? notFoundMessage
-        : denialMessage(result.reason, action);
+        : denialMessage(result.reason, action, result.visibility);
     return errorJson(status, message);
   }
   return { entry: result.entry, caller };
