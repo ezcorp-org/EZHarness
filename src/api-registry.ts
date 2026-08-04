@@ -406,6 +406,20 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "GET", path: "/api/audit", description: "Global cross-extension audit feed (sdk_capability_calls + governance rows), cursor-paginated; filters ?extensionId ?capability ?action ?onBehalfOf ?denialOnly ?search ?limit (clamped 1–200)", category: "admin", scope: "admin", responseDescription: "{ entries, nextCursor }" },
   { method: "GET", path: "/api/audit/stats", description: "Headline audit aggregates for ?range=24h|7d|30d (unknown values fall back to 24h): denial count, total calls, total cost, top-3 chattiest extensions, top-3 LLM spenders", category: "admin", scope: "admin" },
 
+  // ── C3 service accounts ───────────────────────────────────────────────
+  // NO `scope`, deliberately, on all four — the same reasoning as
+  // `POST /api/workflows/approvals/:id` above. `scope` renders as
+  // `security: [{ bearerAuth: [scope] }]` (src/openapi.ts:39-41), i.e. "call
+  // this with a key holding that scope". These routes gate on
+  // `requireSessionAuth` FIRST, so NO key of any scope can reach them at all
+  // and `scope: "admin"` would publish a lie about a security boundary. The
+  // second gate is `checkRole(locals,"admin")`, which returns its denial
+  // rather than throwing it (a thrown Response is a 500, not a 403).
+  { method: "GET", path: "/api/service-accounts", description: "List service accounts (optionally ?projectId), plus the machine-readable reach warning. SESSION-ONLY + admin: refuses every API key (403). A service account is a non-human `run_as` principal with no users row — it cannot authenticate", category: "admin", responseDescription: "{ accounts: ServiceAccountView[], reach: { code, runnableVisibilities, message } }" },
+  { method: "POST", path: "/api/service-accounts", description: "Mint a service account. SESSION-ONLY + admin. Scopes are CLAMPED to the creating admin's effective set and what was dropped is reported; `maxTokensPerDay` is mandatory (tokens are the enforced bound — a cents cap is refused, since an unpriced model would spend without bound under one). The response carries the reach warning: a service account has no user identity, so it can only be delegated system-visible workflows", category: "admin", responseDescription: "{ account, droppedScopes: string[], reach: { code, runnableVisibilities, message } } (201)" },
+  { method: "PATCH", path: "/api/service-accounts/:id", description: "Enable or disable a service account, recording `disabledReason` when disabling. SESSION-ONLY + admin", category: "admin", responseDescription: "{ account }" },
+  { method: "DELETE", path: "/api/service-accounts/:id", description: "Delete a service account. SESSION-ONLY + admin. REFUSED with 409 + { delegationCount } while live delegations name it — the owner FK is ON DELETE CASCADE, so the delete would otherwise destroy those authorities silently", category: "admin", responseDescription: "204 No Content" },
+
   { method: "GET", path: "/api/fs/list", description: "List files in a directory", category: "system" },
   // Gate is `requireScope(locals,"read")` + an INLINE `user.role !== "admin"`
   // check — NOT requireAdmin/requireRole, so the admin-gate pairing scan in

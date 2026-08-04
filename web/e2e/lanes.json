@@ -33,6 +33,7 @@
       "web/e2e/real-auth/harness-client-flow.spec.ts",
       "web/e2e/real-auth/project-mutation-authz-flow.spec.ts",
       "web/e2e/real-auth/role-carrying-key-flow.spec.ts",
+      "web/e2e/real-auth/service-account-admin-boundary.spec.ts",
       "web/e2e/real-auth/task-panel-durability.spec.ts",
       "web/e2e/real-auth/tier-routing-flow.spec.ts",
       "web/e2e/real-auth/web-search-flow.spec.ts"

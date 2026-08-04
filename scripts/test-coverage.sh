@@ -439,6 +439,8 @@ run_legs() {
       src/__tests__/api-extensions-id-confirm.server.test.ts \
       src/__tests__/extensions-reapprove-route.server.test.ts \
       src/__tests__/api-settings.server.test.ts \
+      src/__tests__/api-service-accounts.server.test.ts \
+      src/__tests__/api-service-accounts-id.server.test.ts \
       --coverage --coverage.provider=v8 --coverage.reporter=lcovonly \
       --coverage.reportsDirectory="$VITEST_COV" \
       --coverage.include='src/lib/search/*.ts' \
@@ -618,6 +620,8 @@ run_legs() {
       --coverage.include='src/routes/api/hooks/[extensionId]/[slug]/+server.ts' \
       --coverage.include='src/routes/api/extensions/[name]/webhooks/[slug]/rotate/+server.ts' \
       --coverage.include='**/active-run/+server.ts' \
+      --coverage.include='src/routes/api/service-accounts/+server.ts' \
+      --coverage.include='src/routes/api/service-accounts/[id]/+server.ts' \
       --coverage.include='**/tool-calls/**/output/+server.ts' \
       --coverage.include='**/mcp-servers/*/+server.ts' \
       --coverage.include='**/auth/invite/*/+server.ts' \
