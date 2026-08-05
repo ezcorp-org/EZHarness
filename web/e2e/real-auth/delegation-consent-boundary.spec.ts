@@ -209,7 +209,7 @@ test.describe("the delegation consent surface is session-only", () => {
     expect(unknown.status(), await unknown.text()).toBe(404);
   });
 
-  test("the human adjusts the token ceiling in place, and only that", async ({ request }) => {
+  test("the human adjusts the spend bounds in place, and only those", async ({ request }) => {
     // ── Phase 8a, over real HTTP ────────────────────────────────────
     //
     // `RESUME_RULES["budget-exceeded"]` names raising this cap as the
@@ -245,6 +245,7 @@ test.describe("the delegation consent surface is session-only", () => {
       delegation: { id: string; maxTokensPerRun: number; maxRunsPerDay: number };
     };
     expect(delegation.maxTokensPerRun).toBe(5000);
+    expect(delegation.maxRunsPerDay).toBe(24);
 
     const patch = await request.patch(`/api/workflows/delegations/${delegation.id}`, {
       data: { maxTokensPerRun: 250_000 },
@@ -270,13 +271,19 @@ test.describe("the delegation consent surface is session-only", () => {
     expect(mine[0]?.maxTokensPerRun).toBe(250_000);
 
     // Ruling 2 over the wire: anything that is part of what the human
-    // APPROVED is a 400, not a silently-ignored field.
+    // APPROVED is a 400, not a silently-ignored field. `maxRunsPerDay` is
+    // deliberately NOT in this list — see the positive case below.
     for (const forbidden of [
       { maxTokensPerRun: 10, workflowName: "something-else" },
       { maxTokensPerRun: 10, ownerKind: "service" },
       { maxTokensPerRun: 10, consentHash: "forged" },
-      { maxTokensPerRun: 10, maxRunsPerDay: 999 },
+      { maxTokensPerRun: 10, projectId: "some-project" },
+      { maxTokensPerRun: 10, enabled: true },
+      { maxTokensPerRun: 10, disabledReason: null },
+      { maxTokensPerRun: 10, triggerKind: "webhook" },
       { maxTokensPerRun: 0 },
+      { maxRunsPerDay: 0 },
+      {},
     ]) {
       const bad = await request.patch(`/api/workflows/delegations/${delegation.id}`, {
         data: forbidden,
@@ -286,9 +293,46 @@ test.describe("the delegation consent surface is session-only", () => {
     // …and nothing moved.
     const after = await request.get("/api/workflows/delegations");
     const afterRows = (await after.json()) as {
-      delegations: Array<{ jobRef: string; maxTokensPerRun: number }>;
+      delegations: Array<{ jobRef: string; maxTokensPerRun: number; maxRunsPerDay: number }>;
     };
     expect(afterRows.delegations.find((d) => d.jobRef === jobRef)?.maxTokensPerRun).toBe(250_000);
+    expect(afterRows.delegations.find((d) => d.jobRef === jobRef)?.maxRunsPerDay).toBe(24);
+
+    // The OTHER spend bound is adjustable in place too, and this is the
+    // line the route moved on purpose. `maxRunsPerDay` was a 400 here
+    // until `feat(c3): maxRunsPerDay joins the in-place delegation PATCH
+    // surface`: Ruling 2 governs approved MATERIAL, and neither bound is
+    // material — they cap what the approved job may SPEND, not what it may
+    // DO. Sending someone through a full re-consent (a new row, the old
+    // one tombstoned, a dialog re-approving an unchanged capability set)
+    // to make a nightly job run twice is what teaches people to click
+    // through consent dialogs.
+    //
+    // Asserted as ONE request carrying BOTH bounds, which is precisely the
+    // payload the forbidden list above used to contain.
+    const both = await request.patch(`/api/workflows/delegations/${delegation.id}`, {
+      data: { maxTokensPerRun: 300_000, maxRunsPerDay: 96 },
+    });
+    expect(both.status(), await both.text()).toBe(200);
+    const bothBody = (await both.json()) as {
+      delegation: { id: string; maxTokensPerRun: number; maxRunsPerDay: number };
+    };
+    // Still IN PLACE: the same row id, so raising a quota did not tombstone
+    // and re-mint the delegation a parked run re-reads.
+    expect(bothBody.delegation.id).toBe(delegation.id);
+    expect(bothBody.delegation.maxTokensPerRun).toBe(300_000);
+    expect(bothBody.delegation.maxRunsPerDay).toBe(96);
+
+    // …and GET serves both back, so the write reached the row rather than
+    // only the response body.
+    const widened = await request.get("/api/workflows/delegations");
+    const widenedRows = (await widened.json()) as {
+      delegations: Array<{ id: string; jobRef: string; maxRunsPerDay: number }>;
+    };
+    const stillOne = widenedRows.delegations.filter((d) => d.jobRef === jobRef);
+    expect(stillOne).toHaveLength(1);
+    expect(stillOne[0]?.id).toBe(delegation.id);
+    expect(stillOne[0]?.maxRunsPerDay).toBe(96);
 
     // Not an existence oracle — same 404 the DELETE gives.
     const missing = await request.patch(`/api/workflows/delegations/${ABSENT_DELEGATION}`, {

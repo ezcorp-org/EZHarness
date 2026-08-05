@@ -69,11 +69,20 @@ test.describe("the delegated fire has no HTTP surface, and consent refuses what 
     });
     expect(created.status(), await created.text()).toBe(201);
 
-    const forked = await request.post(`/api/workflows/${systemName}/fork`, {
-      data: { name: `e2e-runfor-fork-${STAMP}` },
-    });
+    // A fork is never NAMED by its caller: `workflow_definitions.name` is
+    // globally unique, and `pickForkName` absorbs the collision server-side
+    // so two callers cannot race for one name. The route's body is
+    // `.strict()` with `projectId` alone, and it RETURNS the name it chose.
+    const forked = await request.post(`/api/workflows/${systemName}/fork`, { data: {} });
     expect(forked.status(), await forked.text()).toBe(201);
-    const projectName = ((await forked.json()) as { name: string }).name;
+    const forkBody = (await forked.json()) as { name: string; forkedFrom: string };
+    // The premise of every refusal below is that `projectName` is a
+    // DIFFERENT, `project`-visibility row cloned from our `system` one. If
+    // the fork ever silently handed back the source, claim 2 would be
+    // asserting `system`-vs-`system` and would pass for the wrong reason.
+    expect(forkBody.forkedFrom).toBe(systemName);
+    expect(forkBody.name).not.toBe(systemName);
+    const projectName = forkBody.name;
 
     const extensionsRes = await request.get("/api/extensions");
     expect(extensionsRes.status(), await extensionsRes.text()).toBe(200);
