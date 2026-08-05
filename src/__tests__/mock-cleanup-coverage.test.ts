@@ -89,6 +89,14 @@ const SERVER_ALIAS_TOP_LEVELS = new Set([
   "routes",
   "runtime",
   "observability",
+  // `src/logger.ts` — a top-level MODULE rather than a directory, but served
+  // under `$server/*` exactly like the namespaces above. Route handlers import
+  // it (`web/src/routes/api/knowledge-base/+server.ts`), so any suite mounting
+  // one has to alias it. Safe to accept without a snapshot for the same reason
+  // the other `$server/*` entries are: the alias registrations are shims that
+  // re-export the REAL module (`() => require("../../logger")`), so there is no
+  // stub that could leak into a later file.
+  "logger",
 ]);
 
 function listTestFiles(dir: string): string[] {

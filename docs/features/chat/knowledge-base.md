@@ -108,9 +108,70 @@ The sibling backfills in `migrate.ts` (`conversations`, `memories`,
 `agent_configs`) are deliberately left running every boot: none of them uses a
 null owner to mean "shared", so their repetition costs nothing.
 
-Note there is still no UI or API to *create* a shared file — sharing is an
-operator act (write a row with a `NULL` owner), not a product feature. What
-changed is that the act now sticks.
+### Sharing is a product feature: `POST`/`DELETE /api/knowledge-base/[id]/share`
+
+Ownerless rows used to be reachable only by an operator writing SQL. They are
+now something a user creates, from the Knowledge Base tab, with one button.
+
+The verb changes **exactly one thing**: `POST` sets `user_id = NULL`, `DELETE`
+puts an owner back. No new access signal was introduced, so the list predicate,
+the detail predicate and `visibleReadyFileIds` are **untouched** — they already
+described these rows.
+
+**Who may do what** (the rule and its full reasoning live in
+`src/memory/kb-sharing.ts`; the route and the list route both call it, so the
+button the UI offers and the action the server permits are one sentence):
+
+| verb | who | why |
+|---|---|---|
+| `POST` (share) | the file's **current owner**, who is also a **member of its project** | it is their document; disclosure is theirs to make |
+| `DELETE` (un-share) | the user who **shared** it, **or an instance admin** | de-escalation, and it returns the file to its original owner |
+
+Three exclusions are deliberate:
+
+1. **Other project members may not share your file.** Sharing decides whose
+   chat turns a document is injected into; letting a member publish a document
+   they do not own would re-open the confidentiality defect that scoping
+   retrieval closed.
+2. **Instance admins get no share override.** An admin cannot *read* another
+   user's KB file (`GET [id]` 404s them, and retrieval gives them nothing), so
+   an admin share would publish, to the whole project, a document the admin is
+   not permitted to open and therefore cannot have reviewed. Admins keep the
+   power they had — `DELETE` (sec-H3) — because destroying discloses nothing.
+3. **A non-member owner may not share.** Neither read route checks membership,
+   so an outsider who can name a `projectId` can upload to it; without this term
+   they could then inject arbitrary text into every real member's prompt. The
+   gate is `checkProjectRole(locals, file.projectId, "member")` over
+   [[projects]]' `project_members`.
+
+Un-share admits admins where share does not, and the asymmetry is the point: it
+only ever *narrows* who can see a file, and it restores the file to `shared_by`
+— **never to the actor** — so it cannot be used to take anything.
+
+#### `shared_by`: provenance, and why a column was unavoidable
+
+`user_id IS NULL` is still the only sharing *signal*. But nulling the owner
+destroys the only record of whom the file came from, and un-sharing has to give
+it back to someone. Without provenance the only implementable un-share is
+"assign it to whoever clicked" — which is an **ownership takeover**: any member
+could un-share a file someone else shared, become its sole reader and sole
+deleter, and leave the real owner with a 404 on their own document.
+
+So `knowledge_base_files.shared_by` (nullable, `ON DELETE SET NULL`) records the
+sharer. It is read in exactly two places — to authorize un-share, and to render
+"Shared by you" — and **never** by an access or retrieval predicate. If it were
+wrong, sharing would behave identically; only un-sharing would be impossible.
+
+Consequences worth knowing:
+
+- **A shared file is admin-only to delete** (sec-H3, unchanged). The sharer's
+  path is **Unshare → Delete**; both steps are authorized by `shared_by`.
+- **Pre-existing ownerless rows are not backfilled** and so are un-shareable by
+  anyone, admins included. They have no recoverable owner, and inventing one
+  would repeat the un-sharing-by-restart mistake
+  `claim-ownerless-kb-files-once.ts` exists to stop. Fail-closed.
+- **A shared file counts against every member's quota**, since
+  `checkStorageQuota` is fed the `!f.userId || f.userId === user.id` count.
 
 ### Retrieval is user-scoped, and follows the API
 
@@ -166,6 +227,14 @@ predicate; widen the API's instead, and move all three together.
 | `POST /api/knowledge-base` | `write` | Upload. `multipart/form-data`: `file` + `projectId`. 10MB cap, extension whitelist, quota-gated. Always stamps `userId: user.id`. Returns `201 { id, status: "processing" }`. |
 | `GET /api/knowledge-base/[id]` | `read` | Fetch one file row. 404 if owned by someone else; **200 on an ownerless row** — same rule as the list. |
 | `DELETE /api/knowledge-base/[id]` | `write` | Delete a file (cascades its chunks). 404 if not the owner **and** not an admin — ownerless rows are admin-only. 204 on success. |
+| `POST /api/knowledge-base/[id]/share` | `write` | Share with the project (`user_id → NULL`, `shared_by → caller`). **Owner + project member only, no admin override.** 404 someone else's file / missing; 409 already shared or no project; 403 not a member. |
+| `DELETE /api/knowledge-base/[id]/share` | `write` | Un-share, restoring the file to `shared_by` (never to the caller). **Sharer or instance admin.** 403 if shared by someone else or with no recorded sharer; 409 your own un-shared file; 404 someone else's un-shared file. |
+
+The list route additionally returns, per row, the server-derived
+`shared` / `sharedByYou` / `canShare` / `canUnshare` booleans
+(`describeKBFileSharing`), which is what the UI draws its buttons from — the
+client cannot re-derive the rule, since it knows neither the caller's id nor
+their project membership.
 
 > Note: the read pair (list + detail) treats `user_id IS NULL` as *shared*; the
 > write pair (`POST`/`DELETE`) is fail-closed on the same rows. See
@@ -173,7 +242,7 @@ predicate; widen the API's instead, and move all three together.
 
 ### UI entry point
 
-- The **Memories** page (`web/src/routes/(app)/memories/+page.svelte`) has a **Knowledge Base** tab. It mounts `KnowledgeBaseTab.svelte`, which renders `FileUpload.svelte` (drag-drop / click) over the active project and a table of files with size / chunk count / status / delete (two-click confirm). The tab requires an active project (`store.activeProjectId`).
+- The **Memories** page (`web/src/routes/(app)/memories/+page.svelte`) has a **Knowledge Base** tab. It mounts `KnowledgeBaseTab.svelte`, which renders `FileUpload.svelte` (drag-drop / click) over the active project and a table of files with size / chunk count / status / **Share|Unshare** / delete (two-click confirm). A shared row carries a **Shared** (or **Shared by you**) pill; the Share/Unshare button appears only when the server said the action would succeed, so it is never a button that 403s. The tab requires an active project (`store.activeProjectId`) — note the store falls back to the `"global"` literal, so the "Select a project" state is reached only by an *empty* id, not a missing one.
 - Retrieval is **automatic** — there is no chat tool, slash command, or `@`/`!` mention to invoke the KB; it is injected silently per turn when the project has ready chunks.
 
 ### Settings / env
@@ -186,6 +255,11 @@ predicate; widen the API's instead, and move all three together.
 
 - `web/src/routes/api/knowledge-base/+server.ts` — list (GET) + upload (POST): validation, quota, eager `file.text()`, fire-and-forget chunk+embed pipeline. Hosts the canonical `KB-SHARED-NULL-OWNER` rationale at the list filter.
 - `web/src/routes/api/knowledge-base/[id]/+server.ts` — GET/DELETE one file. GET mirrors the list's shared-null-owner rule (404 only on someone else's file); DELETE is fail-closed with an admin-only escape hatch for ownerless rows.
+- `web/src/routes/api/knowledge-base/[id]/share/+server.ts` — POST (share) / DELETE (un-share). Applies the rule from `src/memory/kb-sharing.ts`; the two mutations are guarded UPDATEs so a stale ownership check cannot publish a row.
+- `src/memory/kb-sharing.ts` — the whole share/un-share rule as pure functions (`isKBFileShared`, `canShareKBFile`, `canUnshareKBFile`, `describeKBFileSharing`). One copy, called by BOTH the enforcing route and the advertising list route.
+- `src/__tests__/security/kb-file-sharing-api.test.ts` — the route against real PGlite: every refusal, the two lost-race branches, and an *advertised === enforced* invariant over every (caller × file) pair with both sides executed.
+- `src/__tests__/kb-sharing-rule.test.ts` — the rule in isolation, including the two properties (a non-owner can never share; un-share never makes the actor the owner).
+- `web/src/lib/components/__tests__/KnowledgeBaseTab.sharing.component.test.ts` — the tab's sharing DOM, plus the mount-effect fetch-loop regression pin.
 - `src/__tests__/security/kb-ownerless-rows-are-shared.test.ts` — pins list-visibility and detail-reachability as ONE invariant (per caller, per row) plus the read/write asymmetry; fails if either read side drifts.
 - `src/__tests__/security/kb-retrieval-is-user-scoped.test.ts` — pins *injected-into-the-prompt === readable-through-the-API* for every (caller × file) pair, both sides executed against one real database; fails if retrieval is widened back to project-wide.
 - `src/db/migrations/claim-ownerless-kb-files-once.ts` — the marker-guarded, one-shot adoption of ownerless KB rows to the first admin (replaces the every-boot reclaim that used to un-share files at restart). Replayed by `src/__tests__/db-migration-claim-ownerless-kb-once.test.ts`.
@@ -223,7 +297,8 @@ None yet — this is the primary reference. (See [conversations](conversations.m
 - **`kbSourcesUsed` is computed but never surfaced.** `buildSystemPromptWithMemories` returns a `kbSourcesUsed` array, and `ChatMessage.svelte` has a "sources used" popover that renders it (`{filename} [chunk N]`). But `setup-tools.ts` only assigns `injection.memoriesUsed` to `run.memoriesUsed` — `kbSourcesUsed` is **never** written to the run result, persisted, or streamed. The KB-source attribution UI is therefore effectively dead: the prop always arrives empty even when KB chunks were injected. (Memory attribution does flow, via `runs.result.output.memoriesUsed`.)
 - **`org_scoped` is display-only.** The `knowledge_base_files.org_scoped` column and its purple "Org" badge in `KnowledgeBaseTab` exist, but the upload route never sets it `true`, and `searchKBChunks` never reads it (its scope is `project_id` + `status='ready'` + the per-user file predicate). There is no org-scoped ingestion or cross-project/org retrieval path today.
 - **Ownerless rows are SHARED, deliberately — and list + detail are one contract.** `user_id IS NULL` is the knowledge base's only sharing mechanism, not an orphan marker; both read surfaces honour it and neither may be tightened alone (a *list-but-404* is the defect that creates). Full reasoning and the enforcing test are in [Sharing](#sharing-user_id-is-null-means-shared-with-the-project); the predicates carry the `KB-SHARED-NULL-OWNER` anchor in-source.
-- **Ownership is per-file, not project-RBAC.** Access is checked as `!file.userId || file.userId === user.id` on reads. There is no project-membership gate and **no admin read override** — a project collaborator who is not the uploader cannot see another user's KB files in the API, and neither can an admin. (Only `DELETE` has an admin escape hatch, for ownerless rows.)
+- **Ownership is per-file, not project-RBAC.** Access is checked as `!file.userId || file.userId === user.id` on reads. There is no project-membership gate on either READ route and **no admin read override** — a project collaborator who is not the uploader cannot see another user's KB files in the API, and neither can an admin. (Only `DELETE` has an admin escape hatch, for ownerless rows.) Membership is consulted in exactly one place: the **share** route, because that verb publishes into a project and so must know you are in it. A consequence worth noting: `GET`/`POST` do not check membership either, so an authenticated non-member who can name a `projectId` can list and upload to it — the share gate is what stops that becoming a prompt-injection path.
+- **The KB tab used to fetch in an unbounded loop.** `fetchFiles` reads `files.length` synchronously (before its first `await`) to decide whether to show the spinner, which made `files` a dependency of the mount `$effect`; the same call then assigned a fresh `files` array, re-invalidating the effect. Measured at ~1800 `GET /api/knowledge-base` calls in four seconds, for as long as the tab was open. Fixed with `untrack` around the call and pinned by the last test in `KnowledgeBaseTab.sharing.component.test.ts` (which, without the fix, OOM-kills the vitest worker).
 - **Retrieval is user-scoped, and it follows the API exactly.** `searchKBChunks` / `hasKBChunks` narrow to `user_id IS NULL OR user_id = <caller>` — own rows plus ownerless (shared) rows — the same predicate the two read surfaces apply, so what the model is fed matches what the caller could open. `userId` is a required argument at every level (`searchKBChunks`, `hasKBChunks`, `searchKBChunksForQuery`) and `setup-tools.ts` passes `convRecord?.userId ?? null`. This mirrors the memory path's `hybridSearch`. **It was not always so:** retrieval used to filter on `project_id` + `status='ready'` alone, injecting one member's upload into every member's chat turn while the API 404'd it — a live confidentiality defect, closed and pinned by `src/__tests__/security/kb-retrieval-is-user-scoped.test.ts`. The intended consequence: another member's owned file is no longer retrieved for you; share deliberately (ownerless row) instead.
 - **Processing is fire-and-forget — restarts orphan in-flight files.** Chunk+embed runs in an un-awaited IIFE after the `201` returns. If the process restarts (or the first embedding-model download is slow) mid-processing, the row is stranded at `status='processing'` with no retry/resume; it never reaches `ready` or `error`, and the UI polls forever. There is no re-index or re-process endpoint.
 - **Binary/unsupported content is whitelist-gated, not sniffed.** Eligibility is purely by file **extension** (`ALLOWED_EXTENSIONS`); content isn't inspected. A binary file renamed to `.txt` would be `file.text()`-decoded and embedded as garbage.

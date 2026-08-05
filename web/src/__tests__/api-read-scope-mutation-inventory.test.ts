@@ -250,7 +250,14 @@ const WRITE_SCOPED_MUTATIONS: readonly string[] = [
 const WRITE_SCOPED_ADDED_SINCE: readonly string[] = [
   // The project-members API (round 4 — the `project_members` membership
   // model). `write` from birth; neither ever held `read`.
+  // KB sharing (round 5 — the verb that creates the ownerless row
+  // `KB-SHARED-NULL-OWNER` always described). `write` from birth: both change
+  // who a document is disclosed to, so neither may sit behind `read`.
+  // (Sorted, per the ledger invariant below — hence the interleave with the
+  // round-4 entries rather than an append.)
+  "DELETE /api/knowledge-base/:id/share",
   "DELETE /api/projects/:id/members/:userId",
+  "POST /api/knowledge-base/:id/share",
   "POST /api/projects/:id/members",
 ];
 

@@ -406,6 +406,8 @@
   "src/runtime/nested-workflow-resolver.ts": 100,
   "web/src/routes/api/projects/[id]/members/+server.ts": 100,
   "web/src/routes/api/projects/[id]/members/[userId]/+server.ts": 100,
+  "src/memory/kb-sharing.ts": 100,
+  "web/src/routes/api/knowledge-base/[id]/share/+server.ts": 100,
   "src/extensions/rbac-scopes.ts": 100,
   "web/src/routes/api/integrations/github-projects/proposals/[id]/rerun/+server.ts": 100,
   "src/db/queries/extension-secrets.ts": 100,

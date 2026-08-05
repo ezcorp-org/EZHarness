@@ -32,7 +32,10 @@ const LANE_NAMES = ["mock-gate", "real-auth", "evidence-soft", "docker", "unwire
 // workflows-* specs, still unwired there (no @evidence, no DOCKER_TEST, in
 // no CI job) — net backlog 241. Wiring a spec means MOVING it to a real
 // lane and lowering this number.
-const UNWIRED_CEILING = 241;
+// 241 → 240: knowledge-base.spec.ts was WIRED (moved to `evidence-soft`) when
+// the KB sharing UI landed and the spec gained an @evidence test, so the
+// backlog shrinks by exactly the one spec that left it.
+const UNWIRED_CEILING = 240;
 
 function bashLines(cmd: string): string[] {
   const proc = Bun.spawnSync(["bash", "-c", cmd], { cwd: REPO_ROOT });

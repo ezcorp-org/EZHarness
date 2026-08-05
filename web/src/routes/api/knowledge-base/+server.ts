@@ -4,7 +4,8 @@ import type { RequestHandler } from "./$types";
 import { listKBFiles, insertKBFile, updateKBFile, insertKBChunk } from "$server/db/queries/knowledge-base";
 import { isAllowedFile, chunkText } from "$server/memory/chunking";
 import { generateEmbedding } from "$server/memory/embeddings";
-import { requireAuth } from "$server/auth/middleware";
+import { requireAuth, checkProjectRole } from "$server/auth/middleware";
+import { describeKBFileSharing } from "$server/memory/kb-sharing";
 import { uploadKBFileSchema } from "./schema";
 import { validationError } from "$lib/server/security/validation";
 import { checkStorageQuota } from "$lib/server/security/resource-quotas";
@@ -69,8 +70,32 @@ export const GET: RequestHandler = async ({ url, locals }) => {
   // Sharing is READ-ONLY. Writes stay fail-closed on the same rows: `DELETE`
   // of a null-owner file is admin-only (sec-H3, `[id]/+server.ts`). "Everyone
   // may read it" must never be widened into "anyone may destroy it".
+  //
+  // An ownerless row is now something a USER can create, not only an operator:
+  // `POST /api/knowledge-base/[id]/share` nulls the owner. That route changes
+  // nothing above — it produces exactly the rows this predicate already
+  // described — which is the whole reason it was built on `user_id` instead of
+  // a new column.
   const userFiles = files.filter(f => !f.userId || f.userId === user.id);
-  return json(userFiles);
+
+  // Membership is resolved ONCE for the page, not once per row: `canShare`
+  // needs it and it is the same answer for every file in one project. Not
+  // fetching it would mean the UI re-deriving the share rule client-side (which
+  // it cannot — it does not know the caller's id) or drawing buttons that 403.
+  //
+  // A non-member is NOT refused the list. Reading a project's KB has never
+  // required membership and tightening that here would be an unrelated
+  // behaviour change; the gate's answer is used only to decide whether to offer
+  // the Share button.
+  const gate = await checkProjectRole(locals, projectId, "member");
+  const isProjectMember = !(gate instanceof Response);
+
+  // The permission booleans come from the SAME functions the share route
+  // enforces with (`src/memory/kb-sharing.ts`), so the affordance and the gate
+  // cannot drift into a button that lies.
+  return json(
+    userFiles.map(f => ({ ...f, ...describeKBFileSharing(f, user, isProjectMember) })),
+  );
 };
 
 export const POST: RequestHandler = async ({ request, locals }) => {
