@@ -273,6 +273,7 @@ handleTriggersRpc = (await import("../../../src/extensions/triggers-handler"))
 
 const {
   __resetStateForTests,
+  auditLog,
   handleJobSave,
   handleTriggerFire,
   installTriggerReceivers,
@@ -817,9 +818,7 @@ describe("the fire's own rungs", () => {
     await fire("job:not a legal id");
     expect(agentInvocations).toBe(0);
     // No job to mark, so the trail is the only destination.
-    const trail = await (await import("../index")).auditLog().readDay(
-      new Date().toISOString().slice(0, 10),
-    );
+    const trail = await auditLog().readDay(new Date().toISOString().slice(0, 10));
     expect(
       trail.some(
         (e) => "kind" in e && e.kind === "job-fire-refused",
@@ -844,6 +843,136 @@ describe("the fire's own rungs", () => {
     expect(await runsFor(jobId)).toHaveLength(0);
     const job = await jobStore().getJob(jobId);
     expect(job?.lastFire?.reason).toBe("LOCAL_TRIGGER_KIND_MISMATCH");
+  });
+});
+
+describe("a registration that the host REFUSES", () => {
+  test("does not fail the save, and the job says it is not armed", async () => {
+    // C2's own kill switch, which an operator can set. The refusal is real
+    // — it comes out of `handleTriggersRpc` rung 1b — rather than a stubbed
+    // throw, so the shape this code branches on is the shape production
+    // produces.
+    process.env.EZCORP_DISABLE_DYNAMIC_TRIGGERS = "1";
+    const jobId = await saveCronJob("unarmable");
+    delete process.env.EZCORP_DISABLE_DYNAMIC_TRIGGERS;
+
+    // The SAVE landed — the operator's edit is not lost to a failed
+    // registration.
+    const job = await jobStore().getJob(jobId);
+    expect(job?.trigger.kind).toBe("cron");
+    // And nothing was armed.
+    expect(await cronRows()).toHaveLength(0);
+    // Which the console can see, rather than showing a schedule that will
+    // never fire.
+    expect(job?.lastFire?.ok).toBe(false);
+    expect(job?.lastFire?.reason).toBe("DYNAMIC_TRIGGERS_DISABLED");
+    expect(job?.lastFire?.kind).toBe("install");
+  });
+
+  test("an unregister for a row the host never held is a NO-OP, not a failure", async () => {
+    const jobId = await saveCronJob("cleanup");
+    // Delete the row behind the console's back — the state a swept or
+    // never-written registration leaves.
+    await db.execute(sql`DELETE FROM extension_schedules WHERE extension_id = ${EXT_ID}`);
+
+    await saveSchedule(jobId, { [JOB_FORM_FIELDS.triggerKind]: "manual" });
+
+    // The save landed and the job is manual. Without the not-found
+    // tolerance this job would be permanently un-editable: every later
+    // save would try to retire a row that does not exist.
+    const job = await jobStore().getJob(jobId);
+    expect(job?.trigger.kind).toBe("manual");
+    const trail = await auditLog().readDay(new Date().toISOString().slice(0, 10));
+    expect(
+      trail.some((e) => "kind" in e && e.kind === "trigger-already-gone"),
+    ).toBe(true);
+  });
+
+  test("an unregister refused for ANY OTHER reason is recorded as a failure", async () => {
+    const jobId = await saveCronJob("stuck");
+    process.env.EZCORP_DISABLE_DYNAMIC_TRIGGERS = "1";
+    await saveSchedule(jobId, { [JOB_FORM_FIELDS.triggerKind]: "manual" });
+    delete process.env.EZCORP_DISABLE_DYNAMIC_TRIGGERS;
+
+    const trail = await auditLog().readDay(new Date().toISOString().slice(0, 10));
+    expect(
+      trail.some((e) => "kind" in e && e.kind === "trigger-unregister-failed"),
+    ).toBe(true);
+    // The row is still live, so the fire path's own rungs are what stop it
+    // running — which is exactly why they exist.
+    expect(await cronRows()).toHaveLength(1);
+    await fire(triggerKeyForJob(jobId)!);
+    expect(await runsFor(jobId)).toHaveLength(0);
+  });
+
+  test("a job whose id cannot make a key is skipped rather than throwing", async () => {
+    // Only reachable for a row written by something other than this
+    // console's `crypto.randomUUID()` — `isValidJobId` admits uppercase and
+    // the host's key charset does not.
+    const { syncJobTrigger } = await import("../index");
+    callerOwner = OWNER;
+    await syncJobTrigger(
+      {
+        id: "Uppercase",
+        name: "n",
+        description: "",
+        workflow: "etl-factory",
+        input: {},
+        trigger: { kind: "manual" },
+        enabled: true,
+        runAs: { kind: "user", id: OWNER },
+        consentHash: null,
+        createdBy: OWNER,
+        createdAt: "2026-08-05T00:00:00.000Z",
+        updatedBy: OWNER,
+        updatedAt: "2026-08-05T00:00:00.000Z",
+      },
+      { kind: "cron", cron: "0 3 * * *", timezone: "UTC", maxRunsPerDay: 5, maxTokensPerRun: 10 },
+      OWNER,
+      "2026-08-05T00:00:00.000Z",
+    );
+    // Nothing was spent and nothing threw.
+    expect(await cronRows()).toHaveLength(0);
+  });
+});
+
+describe("the fire's remaining refusals", () => {
+  test("a key naming a job that does not exist runs nothing", async () => {
+    await fire("job:11111111-2222-4333-8444-555555555555");
+    expect(agentInvocations).toBe(0);
+  });
+
+  test("a leftover row firing at a job that went MANUAL runs nothing", async () => {
+    const jobId = await saveCronJob("demoted");
+    await consent(jobId);
+    await saveSchedule(jobId, { [JOB_FORM_FIELDS.triggerKind]: "manual" });
+
+    await fire(triggerKeyForJob(jobId)!);
+
+    expect(await runsFor(jobId)).toHaveLength(0);
+    const job = await jobStore().getJob(jobId);
+    expect(job?.lastFire?.reason).toBe("LOCAL_NOT_A_BACKGROUND_JOB");
+  });
+
+  test("a stored job that no longer passes the ALLOWLIST is refused at the point of spend", async () => {
+    // Invariant B, re-asserted where it matters most: nobody is watching.
+    // The row is written behind the store's back, which is the only way a
+    // job can hold a key the allowlist would now reject — a row written
+    // before the allowlist narrowed.
+    const jobId = await saveCronJob("drifted");
+    await consent(jobId);
+    const stored = storage.get(`job:${jobId}`) as Record<string, unknown>;
+    storage.set(`job:${jobId}`, {
+      ...stored,
+      input: { globs: "src/**", smuggled: "yes" },
+    });
+
+    await fire(triggerKeyForJob(jobId)!);
+
+    expect(await runsFor(jobId)).toHaveLength(0);
+    expect(agentInvocations).toBe(0);
+    const job = await jobStore().getJob(jobId);
+    expect(job?.lastFire?.reason).toBe("LOCAL_JOB_NO_LONGER_VALID");
   });
 });
 
