@@ -95,6 +95,54 @@ Three runners; use the wrapper scripts, not raw `bun test` at the root.
 Write backend/unit tests with `bun:test`. Lint and typecheck are separate:
 `bun run lint` (biome) and `bun run typecheck`.
 
+**What the gate costs — measured, so don't estimate it.** On a 32-core / 30 GB
+box with six other agents running (1273 backend files): `bun run test` is
+**~6 min** and `bun run test:coverage` is **10m39s**. Both are runnable in one
+sitting. Agents that priced them as "too slow to run" and pushed on a partial
+local check are the direct cause of red CI.
+
+**Raising `PARALLEL` is not the lever.** Measured back to back on that box:
+`bun run test` was 325s at the default width and 309s at `PARALLEL=12` — five
+percent. `bun run test:coverage` was **worse**: 639s green at the default,
+1121s at `PARALLEL=12` **and** it OOM-killed the suggest coverage leg. Each
+file is its own bun + PGlite process, so the pool runs out of memory and IO
+bandwidth long before it runs out of cores. That is what `default_parallel()`'s
+cap at 6 is for. If several agents share one box, they are already
+oversubscribing it between them — see the note on bun's default timeout below.
+
+**Never assert on wall clock.** A `performance.now()` budget, a `Date.now()`
+refill you race, a `setTimeout` deadline you `Promise.race` — under a parallel
+pool these measure the HOST, not the code, and they fail on a busy box while
+passing on a broken one. Pin the varying term instead: freeze `Date.now()` with
+`spyOn` (`src/extensions/__tests__/workflows-handler.test.ts`), or compare two
+interleaved arms in the same process so load cancels in the ratio
+(`src/__tests__/marketplace-search-perf.test.ts`). The pinned form is always
+the *stronger* assertion — bounds become equalities. Raising a threshold,
+adding a retry, or tagging the test slow is weakening the gate.
+
+**A bare `bun test <file>` gets bun's 5s hook budget; the pool gets 30s.**
+`scripts/test.sh` passes `--timeout 30000` because a DB suite's `beforeAll`
+restores a migrated PGlite datadir, and that is not a 5s operation on a shared
+box. Measured with 20 concurrent copies of one file: **20/20 red** under the
+bare default, **20/20 green** through the wrapper, same code. So when a
+targeted run reds in a hook (`(unnamed) [5xxx ms]`, or the file's *first* test
+timing out), suspect the box before the test — re-run it through `bun run test`
+or with `--timeout 30000` and see if it survives. Raising a hook timeout in a
+shared helper to make that green is treating a saturated machine as a code
+defect.
+
+**Coverage trap — a `bun:test` under `src/` must not import a `web/src/lib/**`
+module the vitest leg measures.** Bun's coverage emitter attributes zero-hit
+`DA` records to the DECLARATION lines of a multi-line function signature, which
+V8 — and so the vitest leg — never emits at all. `merge-lcov.ts` sums per
+`(SF, line)`, so those bun-only zero-hit lines survive the merge as genuine
+misses no test can ever reach, and the module's coverage DROPS. One such import
+took `web/src/lib/workflow-delegations-logic.ts` from 100% to 79.6% without a
+line of it becoming less tested. Assert from the vitest side instead (it
+resolves both trees), or parse the file rather than importing it. Worked
+examples: `web/src/__tests__/delegation-consent-handoff.unit.test.ts`,
+`src/__tests__/author-draft-allowlist-parity.test.ts`.
+
 ## Binding invariants (digest)
 
 Full rules live in the linked docs and nested CLAUDE.md files; these are the

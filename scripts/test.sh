@@ -36,6 +36,25 @@ source "$SCRIPT_DIR/lib/test-file-sets.sh"
 
 # Default pool width: min(nproc, 6) — see default_parallel in
 # lib/test-file-sets.sh. Explicit PARALLEL still overrides.
+#
+# WHAT THIS RUN COSTS, stated here so nobody prices it by guesswork and skips
+# the authoritative gate (that mis-estimate has already cost a red CI round).
+# Measured on a 32-core / 30 GB dev box with six sibling agents running,
+# 1273 files: this run is ~6 min, and `bun run test:coverage` — the gate that
+# actually decides — is 10m39s. Both fit in one sitting. Run them.
+#
+# AND DON'T REACH FOR `PARALLEL` TO SPEED THIS UP. Measured, not guessed, back
+# to back on that box:
+#
+#   bun run test          default(6) → 325s      PARALLEL=12 → 309s   (-5%)
+#   bun run test:coverage default(6) → 639s ✓    PARALLEL=12 → 1121s ✗
+#                                                (OOM-killed the suggest leg)
+#
+# Twelve wide buys five percent here and LOSES on coverage, because every file
+# is its own bun + PGlite process and the pool exhausts memory and IO bandwidth
+# long before it exhausts cores. That is what default_parallel's cap is for; it
+# is not what is costing you the wall clock. Widening it only adds contention
+# for the DB-heavy suites noted at the `--timeout 30000` below.
 PARALLEL=${PARALLEL:-$(default_parallel)}
 TOTAL_PASS=0
 TOTAL_FAIL=0
