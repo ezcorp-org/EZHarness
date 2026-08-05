@@ -362,7 +362,7 @@ const handleApp: Handle = async ({ event, resolve }) => {
 
   // ── Auth enforcement ──────────────────────────────────────────────
   // Public on the exact path AND on every sub-path (`p + "/"`).
-  const PUBLIC_PATHS = ["/login", "/setup", "/signup", "/reset-password", "/api/auth/login", "/api/auth/setup", "/api/auth/reset-password", "/api/health", "/api/ready", "/api/version"];
+  const PUBLIC_PATHS = ["/login", "/setup", "/signup", "/reset-password", "/api/auth/login", "/api/auth/setup", "/api/health", "/api/ready", "/api/version"];
   // Public on SUB-PATHS ONLY — the bare path stays authenticated.
   //
   // F5: `/api/auth/invite` used to sit in PUBLIC_PATHS above, and the
@@ -379,7 +379,22 @@ const handleApp: Handle = async ({ event, resolve }) => {
   // token, POST redeems it into a new account). Keeping the bare entry was
   // not an option: the matcher above cannot express "sub-paths but not the
   // path itself", which is exactly what this second list is for.
-  const PUBLIC_SUBPATHS_ONLY = ["/api/auth/invite"];
+  //
+  // `/api/auth/reset-password` is the SECOND instance of the identical
+  // defect, left behind by F5 and moved here for the identical reason.
+  // `POST /api/auth/reset-password` is the ADMIN "generate a reset link"
+  // API (the button in `UsersSection.svelte`); it calls
+  // `requireRole(locals, "admin")`, so while the bare path was public the
+  // handler never saw a principal and answered 401 to every caller,
+  // ADMINS INCLUDED. The feature was unreachable over real HTTP. Like
+  // invite, it failed CLOSED — a dead feature, not a bypass.
+  //
+  // Only `/api/auth/reset-password/:token` is genuinely anonymous: that is
+  // the locked-out user redeeming an emailed token, the one flow that by
+  // definition cannot authenticate first. NOTE the PAGE route
+  // `/reset-password` stays in PUBLIC_PATHS above on its bare path — a user
+  // who cannot log in still has to be able to open the form.
+  const PUBLIC_SUBPATHS_ONLY = ["/api/auth/invite", "/api/auth/reset-password"];
   const isPublic = PUBLIC_PATHS.some(p => url.pathname === p || url.pathname.startsWith(p + "/"))
     || PUBLIC_SUBPATHS_ONLY.some(p => url.pathname.startsWith(p + "/"))
     || url.pathname.startsWith("/_app/")

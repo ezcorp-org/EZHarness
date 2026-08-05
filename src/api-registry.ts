@@ -37,17 +37,21 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "POST", path: "/api/auth/setup", description: "Initial admin setup (first-run only)", category: "auth", schemaKey: "setupSchema" },
   { method: "POST", path: "/api/auth/invite", description: "Create user invitation link", category: "auth", schemaKey: "createInviteSchema" },
   // Gate: `requireRole(locals,"admin")` only — no `requireScope`, so no scope
-  // is declared. Reachability caveat for both methods on this exact path:
-  // `/api/auth/invite` is in the hooks PUBLIC_PATHS allowlist
-  // (web/src/hooks.server.ts:364), and `event.locals.user` is only ever
-  // assigned INSIDE the `if (!isPublic)` block (assignment at :622, block
-  // opens at :370). So neither a cookie session nor a Bearer key ever
-  // populates `locals.user` here and the role gate denies every caller. Only
-  // the `/:token` sub-path needs to be public. Reported as a finding; fixing
-  // the allowlist is a separate change.
+  // is declared. The reachability caveat that used to be recorded here (the
+  // bare path sat in the hooks PUBLIC_PATHS allowlist, so `locals.user` was
+  // never populated and the role gate 401'd every caller) was FIXED by F5:
+  // `/api/auth/invite` moved to PUBLIC_SUBPATHS_ONLY, so only `/:token` is
+  // anonymous and both admin methods are reachable again.
   { method: "GET", path: "/api/auth/invite", description: "List outstanding user invitations. Gate: requireAdmin(locals) only — no API-key scope gate", category: "auth", responseDescription: "{ invites }" },
   { method: "POST", path: "/api/auth/invite/:token", description: "Accept invitation and create account", category: "auth" },
-  { method: "POST", path: "/api/auth/reset-password", description: "Generate password reset token (admin)", category: "auth", schemaKey: "generateResetSchema" },
+  // Had the SAME defect F5 fixed for invite, and is fixed here the same way:
+  // the bare path moved from PUBLIC_PATHS to PUBLIC_SUBPATHS_ONLY, so
+  // `locals.user` is populated and `requireRole(locals,"admin")` can finally
+  // pass. Before that this route — and the "Generate reset link" button in
+  // UsersSection.svelte that calls it — 401'd every caller, admins included.
+  // Only `/:token` (the locked-out user redeeming an emailed token) is
+  // anonymous. Still no `requireScope`, hence no scope declared.
+  { method: "POST", path: "/api/auth/reset-password", description: "Generate password reset token (admin). Gate: requireRole(locals,\"admin\") only — no API-key scope gate", category: "auth", schemaKey: "generateResetSchema" },
   { method: "POST", path: "/api/auth/reset-password/:token", description: "Consume reset token and set new password", category: "auth", schemaKey: "consumeResetSchema" },
   { method: "GET", path: "/api/auth/oauth", description: "Initiate OAuth login flow", category: "auth" },
   { method: "GET", path: "/api/auth/oauth/callback", description: "Handle OAuth provider callback", category: "auth" },
