@@ -1646,9 +1646,22 @@ describe("the job editor's Run button", () => {
 // never runs. These tests are about carrying the id correctly, and about
 // the link carrying nothing ELSE.
 
+// Every background trigger arm carries `JobTriggerBounds` — a background job
+// without bounds is unconstructible, not merely rejected. These tests are
+// about the LINK and the editor, so the values only need to be valid, not
+// meaningful. Shared by the two describes below.
+const TRIGGER_BOUNDS = { maxRunsPerDay: 1, maxTokensPerRun: 50_000 } as const;
+const CRON_TRIGGER = {
+  kind: "cron",
+  cron: "0 3 * * *",
+  timezone: "UTC",
+  ...TRIGGER_BOUNDS,
+} as const;
+const WEBHOOK_TRIGGER = { kind: "webhook", ...TRIGGER_BOUNDS } as const;
+
 describe("delegationConsentHref", () => {
   const cron = (over: Partial<FactoryJob> = {}): FactoryJob =>
-    job({ trigger: { kind: "cron", cron: "0 3 * * *", timezone: "UTC" }, ...over });
+    job({ trigger: { ...CRON_TRIGGER }, ...over });
 
   test("names the extension, the job, the PREFIXED workflow and the trigger", () => {
     const href = delegationConsentHref(cron());
@@ -1690,7 +1703,7 @@ describe("delegationConsentHref", () => {
 
   test("every unattended trigger kind gets a link", () => {
     expect([...DELEGATABLE_TRIGGER_KINDS].sort()).toEqual(["cron", "event", "webhook"]);
-    expect(delegationConsentHref(job({ trigger: { kind: "webhook" } })) ?? "").toContain(
+    expect(delegationConsentHref(job({ trigger: { ...WEBHOOK_TRIGGER } })) ?? "").toContain(
       "triggerKind=webhook",
     );
     expect(
@@ -1740,7 +1753,7 @@ describe("the job editor's delegation link", () => {
   };
 
   test("an unattended job's editor links out to core's consent surface", () => {
-    const scheduled = job({ trigger: { kind: "cron", cron: "0 3 * * *", timezone: "UTC" } });
+    const scheduled = job({ trigger: { ...CRON_TRIGGER } });
     const tree = buildJobPage({ view: { kind: "edit", jobId: scheduled.id }, job: scheduled });
     expect(hrefs(tree)).toContain(hrefOf(scheduled));
     const link = nodesOfType(tree, "link").find(
@@ -1767,7 +1780,7 @@ describe("the job editor's delegation link", () => {
     // to prevent.
     const paused = job({
       enabled: false,
-      trigger: { kind: "cron", cron: "0 3 * * *", timezone: "UTC" },
+      trigger: { ...CRON_TRIGGER },
     });
     const tree = buildJobPage({ view: { kind: "edit", jobId: paused.id }, job: paused });
     expect(hrefs(tree)).toContain(hrefOf(paused));

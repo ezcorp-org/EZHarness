@@ -63,7 +63,16 @@ function scheduledJob(over: Partial<FactoryJob> = {}): FactoryJob {
     description: "",
     workflow: "docs-factory",
     input: {},
-    trigger: { kind: "cron", cron: "0 3 * * *", timezone: "UTC" },
+    trigger: {
+      kind: "cron",
+      cron: "0 3 * * *",
+      timezone: "UTC",
+      // Required on every background arm since the delegated-capability work:
+      // a background job without bounds is unconstructible, not merely
+      // rejected. See `JobTriggerBounds` in `extensions/ez-factory/lib/jobs.ts`.
+      maxRunsPerDay: 1,
+      maxTokensPerRun: 50_000,
+    },
     enabled: true,
     runAs: { kind: "user", id: "u1" },
     consentHash: null,
