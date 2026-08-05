@@ -8,6 +8,16 @@
  * Runs under vitest (not bun test) because `$server`/`$lib` aliases and
  * the SvelteKit `./$types` import need vite's resolver. The `.server.test.ts`
  * suffix is matched by `web/vitest.config.ts`'s `include` pattern.
+ *
+ * SCOPE: this file injects a synthetic `locals` and therefore proves only that
+ * the GATE is correct, never that a real admin can ARRIVE here with a
+ * principal — `/api/health` is on the hooks PUBLIC_PATHS allowlist, and for a
+ * long time nothing populated `locals.user` on such a path, so every
+ * assertion below passed while the feature was dead over HTTP. Reachability
+ * is proven where it actually lives:
+ *   - `src/__tests__/hooks-public-path-identity.test.ts` (the hook resolves a
+ *     presented cookie on public `/api/*` paths), and
+ *   - `web/e2e/real-auth/health-detail-reachable.spec.ts` (real HTTP).
  */
 
 import { test, expect, describe } from "vitest";

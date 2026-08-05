@@ -32,6 +32,7 @@
       "web/e2e/real-auth/extension-release-gate.spec.ts",
       "web/e2e/real-auth/ez-factory-job-run.spec.ts",
       "web/e2e/real-auth/harness-client-flow.spec.ts",
+      "web/e2e/real-auth/health-detail-reachable.spec.ts",
       "web/e2e/real-auth/local-provider-loopback.spec.ts",
       "web/e2e/real-auth/project-mutation-authz-flow.spec.ts",
       "web/e2e/real-auth/role-carrying-key-flow.spec.ts",
