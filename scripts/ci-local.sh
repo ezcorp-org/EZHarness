@@ -16,10 +16,11 @@
 #                                      # new-file/patch coverage). Default
 #                                      # origin/main — matches CI.
 #
-# Worktree caveat: `biome check .` resolves 0 files in a git WORKTREE
-# (vcs.useIgnoreFile + `.git`-is-a-file); the Lint step below reports this
-# instead of passing vacuously — lint from a primary checkout, or lint
-# explicit paths.
+# Worktree caveat (historical): `biome check .` used to resolve 0 files in an
+# agent worktree, because a `!**/<segment>` ignore glob matched a component of
+# the worktree's own absolute path. `bun run lint` now passes EXPLICIT paths,
+# which is immune to that; the Lint step still refuses to pass vacuously if
+# biome ever reports zero files again.
 #
 # Flake caveat: the "Backend + example tests" step is `bun run test`, whose
 # full pool includes a few timing/env-sensitive suites that CI runs under

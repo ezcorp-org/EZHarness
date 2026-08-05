@@ -28,7 +28,7 @@ Each is a GitHub check context pinned by branch protection (renaming/deleting a 
 | **Backend tests** | `bun run test` → `scripts/test.sh` (each `src/__tests__` file in its own bun process, `PARALLEL=6`). |
 | **Web tests (vitest)** | `cd web && bunx --bun vitest run` — `*.component.test.ts` (Svelte DOM) + `*.server.test.ts` (route-handler units). |
 | **E2E (mock, no Docker)** | Scoped Playwright run vs **mocked** backends (preview server on :4173, no Docker/seed). Gates UI render + action wiring. |
-| **Lint (biome)** | `bun run lint` → `biome check .` (hard gate; warnings/infos stay non-blocking). |
+| **Lint (biome)** | `bun run lint` → `biome check` over an EXPLICIT path list (not `.`, which an ignore glob can silently reduce to zero files inside an agent worktree). Hard gate; warnings/infos stay non-blocking. |
 | **Manifest lockfile drift check** | `scripts/regenerate-manifest-lock.ts --check` — re-derives `manifest.lock.json` from bundled extensions' `ezcorp.config.ts` and fails on drift. |
 | **Per-file coverage gate** | `bun run test:coverage` → `scripts/check-coverage.ts`; the **new-file** + **patch-coverage** gates ride in the same job (reusing the lcov it just built). |
 | **Gate integrity** | `scripts/gate-integrity.ts` — anti-tamper / anti-cheat meta-check (diff-scoped). |

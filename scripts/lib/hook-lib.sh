@@ -20,17 +20,24 @@ hook_step() {
 }
 
 # run_biome_full
-# Run `biome check .` over the whole tree and CLASSIFY the outcome so each
-# caller can apply its own policy to the git-worktree vacuous case. Echoes
-# biome's tail output. Returns:
+# Run the repo's full lint (`bun run lint` — the ONE definition of which paths
+# get linted, so the hooks can't drift from CI) and CLASSIFY the outcome.
+# Echoes biome's tail output. Returns:
 #   0 — checked >0 files, lint clean
 #   1 — checked >0 files, lint violations
-#   2 — "Checked 0 files": biome resolves nothing in a git WORKTREE
-#       (vcs.useIgnoreFile + `.git`-is-a-file). NOT a real pass — the caller
+#   2 — "Checked 0 files", i.e. a VACUOUS pass. NOT a real pass — the caller
 #       decides whether to WARN+skip (pre-push) or FAIL (ci-local).
+#
+# The historical trigger for rc=2 was linting `.` from a git worktree: a
+# `!**/<segment>` entry in biome.json's `files.includes` matches the ABSOLUTE
+# path, so `!**/.claude` swallowed every checkout under
+# `<repo>/.claude/worktrees/agent-*/`. Both halves of that are now fixed —
+# biome.json uses root-relative `!.claude`, and `bun run lint` passes EXPLICIT
+# paths, which biome resolves regardless of what the ignore globs match. This
+# guard stays as a cheap backstop against a third way of reaching zero.
 run_biome_full() {
   local out rc
-  out=$(bunx biome check . 2>&1)
+  out=$(bun run lint 2>&1)
   rc=$?
   echo "$out" | tail -n 3
   if echo "$out" | grep -q "Checked 0 files"; then
