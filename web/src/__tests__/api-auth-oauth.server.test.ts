@@ -46,7 +46,37 @@ function makeEvent(opts: {
 
 const adminLocals = {
   user: { id: "u1", email: "u@x", name: "u", role: "admin" },
+  authMethod: "session",
 };
+
+// The principals the gate must refuse, and the axis each one trips. Same
+// table shape as the callback suite, because it is the same gate.
+const REFUSED: [name: string, locals: Record<string, unknown>, error: string][] = [
+  ["an unauthenticated caller", {}, "Admin role required"],
+  [
+    "a member-role cookie session",
+    { user: { id: "u2", email: "m@x", name: "m", role: "member" }, authMethod: "session" },
+    "Admin role required",
+  ],
+  [
+    "a member-role API key holding the admin scope",
+    {
+      user: { id: "u2", email: "m@x", name: "m", role: "member" },
+      apiKeyScopes: ["admin"],
+      authMethod: "api-key",
+    },
+    "Admin role required",
+  ],
+  [
+    "an admin-role API key scoped only for read",
+    {
+      user: { id: "u1", email: "u@x", name: "u", role: "admin" },
+      apiKeyScopes: ["read"],
+      authMethod: "api-key",
+    },
+    "Insufficient scope",
+  ],
+];
 
 describe("GET /api/auth/oauth", () => {
   beforeEach(() => {
@@ -54,19 +84,29 @@ describe("GET /api/auth/oauth", () => {
     vi.mocked(startOAuthCallbackServer).mockClear();
   });
 
-  test("unauthenticated request throws 401 Response", async () => {
-    let res: Response | undefined;
-    try {
-      await GET(makeEvent({ provider: "google", locals: {} }));
-      expect.fail("should have thrown");
-    } catch (thrown) {
-      expect(thrown).toBeInstanceOf(Response);
-      res = thrown as Response;
-    }
-    expect(res!.status).toBe(401);
-    const body = (await res!.json()) as { error?: string };
-    expect(body.error).toBe("Authentication required");
-  });
+  // This initiator is the FIRST half of the same operation the callback
+  // completes: it writes an `oauth:pending:<state>` settings row and binds a
+  // loopback callback port, and the only thing it exists to do is connect the
+  // INSTANCE provider credential — which is now admin-only at the callback.
+  // Leaving it on `requireAuth` would have meant a member could still spend
+  // those resources and, worse, be walked all the way through a provider
+  // consent screen before being refused at the final submit. Gating it here
+  // turns that dead end into an immediate, self-explaining refusal
+  // (ProviderSettings.svelte surfaces the server's error text verbatim).
+  test.each(REFUSED)(
+    "%s is refused with 403, and no pending state or callback server is created",
+    async (_name, locals, error) => {
+      const res = await GET(makeEvent({ provider: "google", locals }));
+
+      // Returned, never thrown — a thrown Response is a 500 in SvelteKit.
+      expect(res).toBeInstanceOf(Response);
+      expect(res.status).toBe(403);
+      expect(((await res.json()) as { error?: string }).error).toBe(error);
+
+      expect(upsertSetting).not.toHaveBeenCalled();
+      expect(startOAuthCallbackServer).not.toHaveBeenCalled();
+    },
+  );
 
   test("missing provider returns 400", async () => {
     const res = await GET(makeEvent({ provider: null, locals: adminLocals }));

@@ -1,6 +1,6 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "./$types";
-import { requireAuth } from "$server/auth/middleware";
+import { requireAdmin, requireScope } from "$lib/server/security/api-keys";
 import { upsertSetting } from "$server/db/queries/settings";
 import { OAUTH_CONFIG } from "$lib/server/oauth-config";
 import { startOAuthCallbackServer } from "$server/auth/oauth-callback-server";
@@ -61,7 +61,28 @@ function buildAuthUrl(
 }
 
 export const GET: RequestHandler = async ({ url, locals }) => {
-	requireAuth(locals);
+	// Despite the `/api/auth/*` path this is NOT a user login flow: it is the
+	// FIRST half of connecting the INSTANCE provider credential, whose second
+	// half (`/api/auth/oauth/callback`) is admin-only on both axes. Gated
+	// identically, for two reasons:
+	//
+	//   1. It spends resources on an unauthorized caller's behalf — it writes
+	//      an `oauth:pending:<state>` settings row and binds a loopback
+	//      callback port, both from a bare GET.
+	//   2. Without it, a member clicking "Connect" in ProviderSettings would
+	//      be handed a real provider auth URL, sign in at the provider, paste
+	//      the code back, and only THEN be refused by the callback. Refusing
+	//      here turns that dead end into an immediate error the UI shows
+	//      verbatim ("Failed to start OAuth flow for openai: Admin role
+	//      required"), which is the honest thing to put in front of someone
+	//      who cannot complete the action.
+	//
+	// Role first, then scope, both RETURNING their denial — see the callback
+	// handler for the full rationale on the two axes.
+	const adminErr = requireAdmin(locals);
+	if (adminErr) return adminErr;
+	const scopeErr = requireScope(locals, "admin");
+	if (scopeErr) return scopeErr;
 
 	const provider = url.searchParams.get("provider");
 	if (!provider || !["openai", "google", "anthropic"].includes(provider)) {

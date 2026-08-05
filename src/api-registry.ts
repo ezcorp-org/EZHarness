@@ -53,7 +53,12 @@ export const apiRegistry: ApiRouteEntry[] = [
   // anonymous. Still no `requireScope`, hence no scope declared.
   { method: "POST", path: "/api/auth/reset-password", description: "Generate password reset token (admin). Gate: requireRole(locals,\"admin\") only — no API-key scope gate", category: "auth", schemaKey: "generateResetSchema" },
   { method: "POST", path: "/api/auth/reset-password/:token", description: "Consume reset token and set new password", category: "auth", schemaKey: "consumeResetSchema" },
-  { method: "GET", path: "/api/auth/oauth", description: "Initiate OAuth login flow", category: "auth" },
+  // Not a user "login" flow despite the path: this begins the INSTANCE
+  // provider BYOK-over-OAuth handshake, writes the `oauth:pending:<state>`
+  // PKCE row and binds the loopback callback port. Gated on the same two axes
+  // as the callback that completes it, so a member is refused HERE rather
+  // than after being walked through a provider consent screen.
+  { method: "GET", path: "/api/auth/oauth", description: "Begin the provider OAuth (PKCE) handshake for openai|google and stash the pending state. Gate: admin role + admin scope", category: "auth", scope: "admin" },
   { method: "GET", path: "/api/auth/oauth/callback", description: "Handle OAuth provider callback", category: "auth" },
   // The OTHER door to the instance LLM credential. POST/DELETE here write and
   // remove `provider:oauth:<provider>`, which `src/providers/credentials.ts`
