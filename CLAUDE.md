@@ -97,14 +97,14 @@ Write backend/unit tests with `bun:test`. Lint and typecheck are separate:
 
 **What the gate costs — measured, so don't estimate it.** On a 32-core / 30 GB
 box with six other agents running (1273 backend files): `bun run test` is
-**~6 min** and `bun run test:coverage` is **10m39s**. Both are runnable in one
+**~6 min** and `bun run test:coverage` is **6m38s**. Both are runnable in one
 sitting. Agents that priced them as "too slow to run" and pushed on a partial
 local check are the direct cause of red CI.
 
 **Raising `PARALLEL` is not the lever.** Measured back to back on that box:
 `bun run test` was 325s at the default width and 309s at `PARALLEL=12` — five
-percent. `bun run test:coverage` was **worse**: 639s green at the default,
-1121s at `PARALLEL=12` **and** it OOM-killed the suggest coverage leg. Each
+percent. `bun run test:coverage` was **worse**: 639s green at the default vs
+1121s at `PARALLEL=12`, which also OOM-killed the suggest coverage leg. Each
 file is its own bun + PGlite process, so the pool runs out of memory and IO
 bandwidth long before it runs out of cores. That is what `default_parallel()`'s
 cap at 6 is for. If several agents share one box, they are already

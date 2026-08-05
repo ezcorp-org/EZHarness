@@ -41,7 +41,7 @@ source "$SCRIPT_DIR/lib/test-file-sets.sh"
 # the authoritative gate (that mis-estimate has already cost a red CI round).
 # Measured on a 32-core / 30 GB dev box with six sibling agents running,
 # 1273 files: this run is ~6 min, and `bun run test:coverage` — the gate that
-# actually decides — is 10m39s. Both fit in one sitting. Run them.
+# actually decides — is 6m38s. Both fit in one sitting. Run them.
 #
 # AND DON'T REACH FOR `PARALLEL` TO SPEED THIS UP. Measured, not guessed, back
 # to back on that box:
