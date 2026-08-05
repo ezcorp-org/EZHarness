@@ -153,7 +153,23 @@ export type WorkflowDenialReason =
 
 export type WorkflowResolution =
   | { ok: true; entry: CachedWorkflow }
-  | { ok: false; reason: WorkflowDenialReason };
+  | {
+      ok: false;
+      reason: WorkflowDenialReason;
+      /**
+       * The tier of the row that was refused — `null` when there was no
+       * row to refuse (`not-found`).
+       *
+       * Carried because {@link denialStatus} needs it and the denial is
+       * the only thing that crosses back to a route. It used to be
+       * dropped here, so the one caller that turns a denial into a
+       * status STRUCTURALLY could not see the tier, and every edit
+       * denial got the same 403 — including on a `private` row the
+       * caller may not even read. Re-finding the entry at the call site
+       * would be a second copy of the lookup rule; carrying it is not.
+       */
+      visibility: WorkflowVisibility | null;
+    };
 
 /**
  * Who a visibility tier admits on the read/run axis, named for the set it
@@ -267,12 +283,18 @@ export function authorizeWorkflow(
 ): WorkflowResolution {
   const isAdmin = caller.role === "admin";
   const isOwner = entry.userId !== null && entry.userId === caller.userId;
+  /** Every denial names the tier it was refused on — see {@link WorkflowResolution}. */
+  const deny = (reason: WorkflowDenialReason): WorkflowResolution => ({
+    ok: false,
+    reason,
+    visibility: entry.visibility,
+  });
 
   if (action === "edit") {
     // YAML and extension assets are files on disk, not rows. Refusing
     // here rather than at the route keeps "what is editable" a property
     // of the entry, so the fork flow can ask the same question.
-    if (entry.source !== "db") return { ok: false, reason: "not-editable-source" };
+    if (entry.source !== "db") return deny("not-editable-source");
     if (isAdmin) return { ok: true, entry };
     // OWNERSHIP OUTRANKS THE TIER, and is asked before it on every tier
     // — see the header. `isOwner` demands `entry.userId !== null`, so an
@@ -281,15 +303,15 @@ export function authorizeWorkflow(
     // rules below, which is what keeps a legacy `system` row admin-only.
     if (isOwner) return { ok: true, entry };
     // Everything from here down is a NON-owner, non-admin.
-    if (entry.visibility === "system") return { ok: false, reason: "requires-admin" };
-    if (entry.visibility === "private") return { ok: false, reason: "not-owner" };
+    if (entry.visibility === "system") return deny("requires-admin");
+    if (entry.visibility === "private") return deny("not-owner");
     // `project`: the creator may edit, nobody else. Editing is the
     // narrower right — anyone can RUN a project workflow without being
     // able to rewrite what it does for everyone else. A userless
     // principal is refused for the reason that actually applies to it:
     // it could not have been the owner in the first place.
-    if (caller.userId === null) return { ok: false, reason: "not-authenticated" };
-    return { ok: false, reason: "not-owner" };
+    if (caller.userId === null) return deny("not-authenticated");
+    return deny("not-owner");
   }
 
   // read / run share a ladder today, but they are asked separately so C3
@@ -303,14 +325,14 @@ export function authorizeWorkflow(
       return { ok: true, entry };
     case "owner-and-admins":
       if (isAdmin || isOwner) return { ok: true, entry };
-      return { ok: false, reason: "not-owner" };
+      return deny("not-owner");
     case "any-authenticated-principal":
       // `isAdmin` is redundant with the userId test for every principal
       // that can reach a route — kept because the role is what a future
       // membership model would exempt, and losing it here is how an
       // admin later gets locked out of a project they do not belong to.
       if (isAdmin || caller.userId !== null) return { ok: true, entry };
-      return { ok: false, reason: "not-authenticated" };
+      return deny("not-authenticated");
   }
 }
 
@@ -375,7 +397,9 @@ export function resolveWorkflowForCaller(
   action: WorkflowAction,
 ): WorkflowResolution {
   const entry = entries.find((e) => e.definition.name === name);
-  if (!entry) return { ok: false, reason: "not-found" };
+  // No row, so no tier — the one denial whose `visibility` is `null`, and
+  // the one a `private` refusal has to be indistinguishable from.
+  if (!entry) return { ok: false, reason: "not-found", visibility: null };
   return authorizeWorkflow(entry, caller, action);
 }
 
@@ -397,23 +421,56 @@ export function visibleWorkflows(
 }
 
 /**
- * HTTP status for a denial.
+ * HTTP status for a denial. Pure, like the ladder it reports on, so the
+ * matrix that covers it stays cheap enough to be exhaustive.
  *
  * An unauthorized READ is a **404, not a 403**: a 403 confirms the
  * workflow exists, which turns the endpoint into an existence oracle for
- * names the caller may not see. A denied EDIT is a 403 — the caller can
- * already see the workflow by then, so there is nothing left to conceal
- * and a 404 would just be confusing.
+ * names the caller may not see.
+ *
+ * A denied EDIT is a 403 for `system` and `project`, and a **404 for
+ * `private`**. The 403 rests on "the caller can already see the workflow
+ * by then, so there is nothing left to conceal, and a 404 would just be
+ * confusing" — which is true of exactly the two tiers whose read audience
+ * is everyone ({@link readRunAudience} returns `anyone` /
+ * `any-authenticated-principal`), and false of `private`, the one tier
+ * that narrows read/run. Every `private` edit denial comes from a caller
+ * who is neither the owner nor an admin, i.e. precisely the caller the
+ * read ladder refuses, so a 403 there rebuilds on PUT/DELETE the oracle
+ * the read 404 exists to close: "403 vs 404" separates "this private
+ * workflow exists and is not yours" from "no such name".
+ *
+ * `visibility` is the tier of the row that was refused, or `null` when
+ * there was no row. It rides on the denial itself
+ * ({@link WorkflowResolution}) rather than being looked up again at the
+ * call site, so no caller can reach this function without it.
  */
-export function denialStatus(reason: WorkflowDenialReason, action: WorkflowAction): 403 | 404 {
+export function denialStatus(
+  reason: WorkflowDenialReason,
+  action: WorkflowAction,
+  visibility: WorkflowVisibility | null,
+): 403 | 404 {
   if (reason === "not-found") return 404;
-  return action === "edit" ? 403 : 404;
+  if (action !== "edit") return 404;
+  // Keyed on the TIER, not on the reason, and deliberately: `private` +
+  // `not-editable-source` is a shape production cannot build today
+  // (`systemCachedWorkflow` hardcodes `system`), but if it ever could,
+  // refusing it with a 403 would leak the same existence the `not-owner`
+  // 404 below conceals. Concealment is a property of the row, so it is
+  // asked about the row.
+  return visibility === "private" ? 404 : 403;
 }
 
 /** Human-readable denial message, keyed off the reason so the wording
- *  cannot drift between routes. */
-export function denialMessage(reason: WorkflowDenialReason, action: WorkflowAction): string {
-  if (denialStatus(reason, action) === 404) return "Not found";
+ *  cannot drift between routes. Every 404 says "Not found" and nothing
+ *  else — a message that named the tier, the owner or the reason would
+ *  hand back the existence the status just withheld. */
+export function denialMessage(
+  reason: WorkflowDenialReason,
+  action: WorkflowAction,
+  visibility: WorkflowVisibility | null,
+): string {
+  if (denialStatus(reason, action, visibility) === 404) return "Not found";
   if (reason === "not-editable-source") {
     return "Not editable (only DB workflows can be edited)";
   }

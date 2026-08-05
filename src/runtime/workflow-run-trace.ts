@@ -17,7 +17,10 @@
  * This is the OPPOSITE reading from `cancelParkedRun`, which returns 403,
  * and the difference is deliberate: by the time a caller cancels a run
  * they have already been told it exists. `denialStatus` in
- * `workflow-scope.ts` draws the same read/edit line for workflows.
+ * `workflow-scope.ts` draws the same line for workflows — with the
+ * refinement that its edit 403 holds only where the caller could already
+ * READ the row, so a `private` workflow answers the write verbs with the
+ * same 404 a missing name gets.
  *
  * ## Redaction is a floor, not a guarantee
  *
