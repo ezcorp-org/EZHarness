@@ -28,8 +28,12 @@ mockDbConnection();
 
 import {
   syncDynamicTriggers, revokeDynamicTriggers, parseClaimedKeys,
-  type SyncTarget,
+  sweepAllDynamicTriggers,
+  type SyncTarget, type SweepRegistry,
 } from "../triggers-sweep";
+import {
+  resolveCallProvenance, _resetCallProvenanceForTests,
+} from "../call-provenance";
 import {
   upsertDynamicCron, upsertDynamicWebhook, mintWebhookSlug,
   getDynamicCron, getDynamicWebhook,
@@ -85,6 +89,7 @@ beforeEach(async () => {
   await getTestDb().delete(extensionSchedules);
   await getTestDb().delete(extensionWebhooks);
   await getTestDb().delete(auditLog);
+  _resetCallProvenanceForTests();
 });
 
 afterAll(async () => {
@@ -250,6 +255,149 @@ describe("syncDynamicTriggers — the FAIL-OPEN rule", () => {
     await syncDynamicTriggers(extId, EXT_NAME, spy, NOW);
     expect(asked?.v).toBe(1);
     expect(new Set(asked?.keys as string[])).toEqual(new Set(["job:a", "hook:b"]));
+  });
+});
+
+describe("syncDynamicTriggers — the frame carries a resolvable OWNERLESS token", () => {
+  /**
+   * Without this the sweep is wired and permanently inert, and it fails in
+   * the direction that looks fine: an extension answers this frame by
+   * reading its own state, every host-mediated read resolves identity from
+   * `_meta.ezCallId`, and a read with no token is refused `-32602`. The
+   * handler then throws, the response is an error, and the sweep takes its
+   * FAIL-OPEN branch — every time, forever, with nothing in the result to
+   * say the token was the reason.
+   */
+  test("the sync frame carries `_meta.ezCallId`, and the host can resolve it", async () => {
+    await seedCron("job:a");
+    let asked: Record<string, unknown> | undefined;
+    const spy: SyncTarget = {
+      call: async (_m, params) => { asked = params; return { result: { keys: ["job:a"] } }; },
+    };
+    await syncDynamicTriggers(extId, EXT_NAME, spy, NOW);
+
+    const meta = asked?._meta as { ezCallId?: string } | undefined;
+    expect(typeof meta?.ezCallId).toBe("string");
+    const prov = resolveCallProvenance(meta!.ezCallId!);
+    expect(prov).toBeDefined();
+    // OWNERLESS: nobody initiated this sweep. That is what makes the
+    // extension's install-wide `global` storage bucket reachable and
+    // everything owner-scoped a clean soft-fail rather than a throw.
+    expect(prov!.ownerless).toBe(true);
+    expect(prov!.onBehalfOf).toBeNull();
+    expect(prov!.conversationId).toBeNull();
+    // Host-owned anti-spoofing anchor — the extension the frame is FOR.
+    expect(prov!.actorExtensionId).toBe(extId);
+  });
+
+  test("no token is minted when the sweep never asks", async () => {
+    // The short-circuit above the call: no dynamic rows means no frame,
+    // so a host with a hundred trigger-less extensions does not churn the
+    // provenance registry once an hour.
+    let asked = false;
+    const spy: SyncTarget = { call: async () => { asked = true; return {}; } };
+    await syncDynamicTriggers(extId, EXT_NAME, spy, NOW);
+    expect(asked).toBe(false);
+    // A token registered anyway would be a leak with no reader.
+    await seedCron("job:a");
+    let captured: string | undefined;
+    await syncDynamicTriggers(extId, EXT_NAME, {
+      call: async (_m, p) => {
+        captured = (p?._meta as { ezCallId?: string } | undefined)?.ezCallId;
+        return { result: { keys: ["job:a"] } };
+      },
+    }, NOW);
+    // Exactly ONE token exists — the one this second call minted.
+    expect(captured).toBeDefined();
+    expect(resolveCallProvenance(captured!)).toBeDefined();
+  });
+});
+
+describe("sweepAllDynamicTriggers — the host-wide pass", () => {
+  /** A registry over `[extensionId, {name}]` pairs and a proc lookup. */
+  function registryOf(
+    entries: Array<[string, string]>,
+    procs: Record<string, SyncTarget | null>,
+  ): SweepRegistry {
+    return {
+      getAllManifests: () =>
+        entries.map(([id, name]) => [id, { name }] as [string, { name: string }])[
+          Symbol.iterator
+        ](),
+      getProcessIfRunning: (id) => procs[id] ?? null,
+    };
+  }
+
+  test("retires an orphan through the loop, and counts the pass", async () => {
+    await seedCron("job:live");
+    await seedCron("job:deleted");
+
+    const res = await sweepAllDynamicTriggers(
+      registryOf([[extId, EXT_NAME]], { [extId]: target({ result: { keys: ["job:live"] } }) }),
+      NOW,
+    );
+
+    expect(res).toEqual({ scanned: 1, disabled: 1, skipped: 0, errored: 0 });
+    expect((await getDynamicCron(extId, "job:deleted"))!.enabled).toBe(false);
+    expect((await getDynamicCron(extId, "job:live"))!.enabled).toBe(true);
+    expect(await orphanAudits()).toHaveLength(1);
+  });
+
+  test("an extension with a sleeping subprocess is SKIPPED, not swept", async () => {
+    // The lazily-spawned case, which for `ez-factory` is most of the time.
+    // `getProcessIfRunning` is deliberate: a sweep that woke every
+    // extension once an hour would be a worse bug than the orphan it is
+    // chasing.
+    await seedCron("job:a");
+    const res = await sweepAllDynamicTriggers(
+      registryOf([[extId, EXT_NAME]], { [extId]: null }),
+      NOW,
+    );
+    expect(res).toEqual({ scanned: 1, disabled: 0, skipped: 1, errored: 0 });
+    expect((await getDynamicCron(extId, "job:a"))!.enabled).toBe(true);
+  });
+
+  test("an extension holding no dynamic rows is scanned and costs nothing", async () => {
+    let asked = false;
+    const res = await sweepAllDynamicTriggers(
+      registryOf([[extId, EXT_NAME]], {
+        [extId]: { call: async () => { asked = true; return {}; } },
+      }),
+      NOW,
+    );
+    expect(res).toEqual({ scanned: 1, disabled: 0, skipped: 0, errored: 0 });
+    expect(asked).toBe(false);
+  });
+
+  test("one extension's failure is counted and the NEXT one's orphan is still retired", async () => {
+    // The whole reason the loop owns a try/catch. A pass that aborted on
+    // the first failure would leave every extension after it in the
+    // iteration order unswept — silently, once an hour, forever — and the
+    // iteration order is the registry's insertion order, which nobody
+    // chose.
+    await seedCron("job:gone");
+    const base = registryOf(
+      [["boom", "boom-ext"], [extId, EXT_NAME]],
+      { [extId]: target({ result: { keys: [] } }) },
+    );
+    const throwingRegistry: SweepRegistry = {
+      getAllManifests: base.getAllManifests,
+      getProcessIfRunning: (id) => {
+        if (id === "boom") throw new Error("registry blew up");
+        return base.getProcessIfRunning(id);
+      },
+    };
+
+    const res = await sweepAllDynamicTriggers(throwingRegistry, NOW);
+    expect(res).toEqual({ scanned: 2, disabled: 1, skipped: 0, errored: 1 });
+    // The extension AFTER the failure was still reconciled.
+    expect((await getDynamicCron(extId, "job:gone"))!.enabled).toBe(false);
+  });
+
+  test("an empty registry is a clean no-op", async () => {
+    expect(await sweepAllDynamicTriggers(registryOf([], {}), NOW)).toEqual({
+      scanned: 0, disabled: 0, skipped: 0, errored: 0,
+    });
   });
 });
 

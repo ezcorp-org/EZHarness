@@ -437,7 +437,7 @@ describe("ez-factory templates — ref integrity (the validator does not check t
     expect(danglingStepRefs([def]).sort()).toEqual([
       "etl-factory.anomaly-gate.when -> $steps.ingest.output.skippedCount",
       "etl-factory.consent.when -> $steps.ingest.output.skippedCount",
-      "etl-factory.report.output -> $steps.classify.output",
+      "etl-factory.report.output -> $steps.compose.output.draft",
       "etl-factory.report.output -> $steps.ingest.output.fileCount",
       "etl-factory.report.output -> $steps.ingest.output.skipped",
       "etl-factory.report.output -> $steps.ingest.output.skippedCount",
@@ -800,16 +800,35 @@ describe("ez-factory templates — write_file publishes a document, not an envel
     return { step, fields: parts.slice(2) };
   }
 
+  /** One step that produces a value the `content` chain reaches. */
+  interface Producer {
+    def: WorkflowDefinition;
+    step: WorkflowStep;
+    fields: string[];
+  }
+
   /**
-   * Follow a ref back to the step that actually PRODUCES its value,
+   * Follow a ref back to the step(s) that actually PRODUCE its value,
    * hopping the two indirections the templates use: a `transform`'s
    * `output` mapping, and a `workflow` step (whose result is the nested
    * graph's last step — the same thing the executor serves for
    * `$result.output.…`).
    *
-   * Returns the producing step, the definition it lives in, and the field
+   * Returns each producing step, the definition it lives in, and the field
    * path still outstanding at that point. An empty `fields` at an `agent`
    * producer is the bug: it means the WHOLE parsed object was taken.
+   *
+   * PLURAL because a transform's mapping value is not always ONE ref. It
+   * may be a `{{…}}` TEMPLATE splicing several — and that form is where
+   * the fourth member of the envelope family hid: `etl-factory`'s `report`
+   * shipped `document: "{{$steps.classify.output}}\n\n---\n\n…"`, which
+   * `interpolateTemplate` `JSON.stringify`s into the operator's `.md`
+   * exactly like the bare form does. A resolver that only understood a
+   * bare ref bailed at the transform (`parseStepsRef` rejects a string
+   * that does not start with `$steps.`), reported the transform itself as
+   * the producer, and — a transform not being an agent step — said
+   * nothing. The guard that exists to catch this class missed the case in
+   * its own arm of the tree.
    */
   //
   // `lookup` is the set being CHECKED, never the module-level shipped map:
@@ -817,23 +836,24 @@ describe("ez-factory templates — write_file publishes a document, not an envel
   // mutation applied to the callee and report clean, which is precisely
   // how a discrimination case passes without discriminating. (It did, on
   // the first draft of this resolver.)
-  function resolveProducer(
+  function resolveProducers(
     lookup: ReadonlyMap<string, WorkflowDefinition>,
     def: WorkflowDefinition,
     ref: string,
     hops = 0,
-  ): { def: WorkflowDefinition; step: WorkflowStep; fields: string[] } | null {
-    if (hops > 8) return null; // cycle guard; these graphs nest one level
+  ): Producer[] {
+    if (hops > 8) return []; // cycle guard; these graphs nest one level
     const parsed = parseStepsRef(ref);
-    if (parsed === null) return null;
+    if (parsed === null) return [];
     const step = def.steps.find((s) => s.name === parsed.step);
-    if (step === undefined) return null;
+    if (step === undefined) return [];
     const kind = stepKindOf(step);
 
     if (kind === "transform") {
       const next = step.output?.[parsed.fields[0] ?? ""];
-      if (typeof next !== "string") return { def, step, fields: parsed.fields };
-      return resolveProducer(lookup, def, next, hops + 1) ?? { def, step, fields: parsed.fields };
+      const here: Producer[] = [{ def, step, fields: parsed.fields }];
+      if (typeof next !== "string") return here;
+      return follow(lookup, def, next, hops, here);
     }
 
     if (kind === "workflow") {
@@ -842,19 +862,41 @@ describe("ez-factory templates — write_file publishes a document, not an envel
       const bare = (step.workflow ?? "").split(":").pop() ?? "";
       const nested = lookup.get(bare);
       const last = nested?.steps.at(-1);
-      if (nested === undefined || last === undefined) return { def, step, fields: parsed.fields };
+      if (nested === undefined || last === undefined) return [{ def, step, fields: parsed.fields }];
       const next = last.output?.[parsed.fields[0] ?? ""];
-      if (typeof next !== "string") return { def: nested, step: last, fields: parsed.fields };
-      return (
-        resolveProducer(lookup, nested, next, hops + 1) ?? {
-          def: nested,
-          step: last,
-          fields: parsed.fields,
-        }
-      );
+      const here: Producer[] = [{ def: nested, step: last, fields: parsed.fields }];
+      if (typeof next !== "string") return here;
+      return follow(lookup, nested, next, hops, here);
     }
 
-    return { def, step, fields: parsed.fields };
+    return [{ def, step, fields: parsed.fields }];
+  }
+
+  /**
+   * Continue the walk through ONE mapping value, which is either a bare
+   * ref or a `{{…}}` template carrying several.
+   *
+   * `templateRefs` / `hasTemplate` are the PRODUCTION readers (the same
+   * pair `interpolateTemplate` and `validateWorkflow` use), never a second
+   * pattern — the DRY rule `workflow-refs.ts` states for itself. A private
+   * copy here would eventually disagree with the interpolator about what
+   * counts as a ref, and it would disagree in the direction of a guard
+   * that stays green.
+   *
+   * `fallback` (the indirection step itself) is returned only when NOTHING
+   * downstream resolved, preserving the pre-plural behaviour for a value
+   * that is a literal or an `$input.*` ref.
+   */
+  function follow(
+    lookup: ReadonlyMap<string, WorkflowDefinition>,
+    def: WorkflowDefinition,
+    value: string,
+    hops: number,
+    fallback: Producer[],
+  ): Producer[] {
+    const refs = hasTemplate(value) ? templateRefs(value) : [value];
+    const found = refs.flatMap((r) => resolveProducers(lookup, def, r, hops + 1));
+    return found.length > 0 ? found : fallback;
   }
 
   const lookupOf = (defs: WorkflowDefinition[]): ReadonlyMap<string, WorkflowDefinition> =>
@@ -877,12 +919,12 @@ describe("ez-factory templates — write_file publishes a document, not an envel
         if (step.tool !== `${EZ_FACTORY_EXTENSION_NAME}__write_file`) continue;
         const ref = step.input?.content;
         if (typeof ref !== "string" || !ref.startsWith("$steps.")) continue;
-        const producer = resolveProducer(lookup, def, ref);
-        if (producer === null) continue;
-        if (stepKindOf(producer.step) === "agent" && producer.fields.length === 0) {
-          offenders.push(
-            `${def.name}.${step.name}.content -> ${producer.def.name}.${producer.step.name}`,
-          );
+        for (const producer of resolveProducers(lookup, def, ref)) {
+          if (stepKindOf(producer.step) === "agent" && producer.fields.length === 0) {
+            offenders.push(
+              `${def.name}.${step.name}.content -> ${producer.def.name}.${producer.step.name}`,
+            );
+          }
         }
       }
     }
@@ -914,12 +956,65 @@ describe("ez-factory templates — write_file publishes a document, not an envel
     const docs = byBareName.get("docs-factory")!;
     const ref = stepNamed(docs, "write").input?.content;
     expect(ref).toBe("$steps.review-loop.output.content");
-    const producer = resolveProducer(lookupOf(templates), docs, ref as string);
-    expect(producer).not.toBeNull();
-    expect(producer!.def.name).toBe("draft-and-verify");
-    expect(producer!.step.name).toBe("revise");
-    expect(stepKindOf(producer!.step)).toBe("agent");
-    expect(producer!.fields).toEqual(["draft"]);
+    const producers = resolveProducers(lookupOf(templates), docs, ref as string);
+    expect(producers).toHaveLength(1);
+    const producer = producers[0]!;
+    expect(producer.def.name).toBe("draft-and-verify");
+    expect(producer.step.name).toBe("revise");
+    expect(stepKindOf(producer.step)).toBe("agent");
+    expect(producer.fields).toEqual(["draft"]);
+  });
+
+  test("etl-factory's published document resolves THROUGH the {{…}} template to a FIELD of the writer's output", () => {
+    // The positive pin for the fourth envelope sibling. `write` reads the
+    // transform's `document`, and that value is a TEMPLATE — so the walk
+    // only reaches an agent at all if it reads inside `{{…}}`. Every ref
+    // spliced into the operator's file is enumerated here, and the only
+    // agent among them addresses a sub-path.
+    const etl = byBareName.get("etl-factory")!;
+    const ref = stepNamed(etl, "write").input?.content;
+    expect(ref).toBe("$steps.report.output.document");
+    expect(hasTemplate(stepNamed(etl, "report").output!.document)).toBe(true);
+
+    const producers = resolveProducers(lookupOf(templates), etl, ref as string);
+    expect(producers.map((p) => `${p.step.name}:${p.fields.join(".")}`)).toEqual([
+      "compose:draft",
+      "ingest:fileCount",
+      "ingest:skippedCount",
+      "ingest:skipped",
+    ]);
+    // The prose comes from an AGENT, by sub-path; the provenance line from
+    // a TOOL. Neither is a whole agent envelope, which is the property.
+    const prose = producers[0]!;
+    expect(stepKindOf(prose.step)).toBe("agent");
+    expect(prose.step.agent).toBe(`${EZ_FACTORY_AGENT_PREFIX}writer`);
+    for (const p of producers.slice(1)) expect(stepKindOf(p.step)).toBe("tool");
+  });
+
+  test("the check discriminates INSIDE a {{…}} template — the fourth envelope sibling", () => {
+    // Exactly what `etl-factory` shipped: the report transform splicing
+    // the EXTRACTOR's whole `{facts, gaps}` envelope into the document
+    // with `{{$steps.classify.output}}`. `interpolateTemplate`
+    // `JSON.stringify`s a non-string, so the operator's `.md` opened with
+    // one line of JSON — the same file-shaped failure `docs-factory`'s
+    // bare `content` ref produced, wearing braces.
+    //
+    // This is the case the guard MISSED before the resolver learned to
+    // read inside a template, and it is why the sibling case below (a
+    // bare ref on the same transform) was not enough on its own.
+    const mutant = mutantOf("etl-factory");
+    const report = stepNamed(mutant, "report");
+    report.output = {
+      ...report.output,
+      document: "{{$steps.classify.output}}\n\n---\n\nIngest: {{$steps.ingest.output.fileCount}} file(s).",
+    };
+    const defs = templates.map((d) => (d.name === "etl-factory" ? mutant : d));
+    expect(publishedContentTakingAWholeAgentOutput(defs)).toEqual([
+      "etl-factory.write.content -> etl-factory.classify",
+    ]);
+    // And `validateWorkflow` is silent about it, which is why the guard
+    // has to exist here at all.
+    expect(validateWorkflow(asLoaderWouldName(mutant))).toEqual([]);
   });
 
   test("the check discriminates through a TRANSFORM too — etl-factory's composer", () => {
@@ -949,9 +1044,10 @@ describe("ez-factory templates — write_file publishes a document, not an envel
     const dav = byBareName.get("draft-and-verify")!;
     expect(stepKindOf(dav.steps.at(-1)!)).toBe("transform");
     // A ref resolved one hop at a time lands somewhere different each time.
-    const oneHop = resolveProducer(lookupOf(templates), docs, "$steps.draft.output.draft");
-    expect(oneHop!.step.name).toBe("draft");
-    expect(oneHop!.fields).toEqual(["draft"]);
+    const oneHop = resolveProducers(lookupOf(templates), docs, "$steps.draft.output.draft");
+    expect(oneHop).toHaveLength(1);
+    expect(oneHop[0]!.step.name).toBe("draft");
+    expect(oneHop[0]!.fields).toEqual(["draft"]);
   });
 });
 
@@ -1703,7 +1799,10 @@ describe("ez-factory templates — the decision vocabulary fails closed", () => 
 //   * `docs-factory`'s `facts: $steps.extract.output` stays whole. The
 //     extractor returns `{facts, gaps}`, and the WRITER's seeded role says
 //     verbatim "If a fact you need is missing, note the gap in the draft
-//     rather than inventing it" — it needs both keys.
+//     rather than inventing it" — it needs both keys. `etl-factory`'s
+//     `compose` is the same ref for the same reason, and reaching it is
+//     what the fourth envelope fix bought: with no writer in that graph
+//     the report was spliced straight from the extractor's envelope.
 //   * `draft-and-verify`'s `verify` was handed the writer's whole
 //     `{draft, gaps}`, and the VALIDATOR's seeded role names no use for
 //     `gaps` at all: it "checks a draft against its sources" and returns
@@ -1924,6 +2023,40 @@ describe("ez-factory templates — an agent step is handed what its RECEIVER's c
     );
     expect(contractKeysOf(seeded(narrowed, WRITER)!.prompt)).toEqual(["draft"]);
     expect(envelopeHopsTheReceiverDoesNotAskFor(defs, narrowed)).toEqual([]);
+  });
+
+  test("etl-factory's `compose` is the SAME documented-correct whole-envelope hop, and it clears", () => {
+    // The fourth envelope sibling's fix, pinned from the other side. The
+    // extractor has no prose field, so `etl-factory` composes its report
+    // with the WRITER — the one role whose contract carries one — fed the
+    // extractor's whole `{facts, gaps}` exactly as `docs-factory` feeds
+    // its own. That hop is inside this predicate's scope (agent -> agent,
+    // bare ref) and passes only because the writer's prompt asks for both
+    // keys, which is the same sentence that clears `docs-factory`'s.
+    const etl = byBareName.get("etl-factory")!;
+    const compose = stepNamed(etl, "compose");
+    expect(stepKindOf(compose)).toBe("agent");
+    expect(compose.agent).toBe(WRITER);
+    expect(compose.input!.facts).toBe("$steps.classify.output");
+    expect(bareStepOutput(compose.input!.facts)).toBe("classify");
+    expect(stepNamed(etl, "classify").agent).toBe(EXTRACTOR);
+    // The same SHAPE as the sibling that already carries a written
+    // rationale — writer, key `facts`, a bare whole-output ref off an
+    // extractor step — so this is reuse of a settled decision, not a new
+    // one. (The step names differ, which is the only reason the two refs
+    // are not the same string.)
+    const docsDraft = stepNamed(byBareName.get("docs-factory")!, "draft");
+    expect(docsDraft.agent).toBe(WRITER);
+    expect(Object.keys(docsDraft.input!)).toEqual(Object.keys(compose.input!));
+    expect(
+      stepNamed(byBareName.get("docs-factory")!, bareStepOutput(docsDraft.input!.facts)!).agent,
+    ).toBe(EXTRACTOR);
+    // …and the document published from it addresses the writer's own
+    // declared prose key, the cross-file tie `ez-factory-agents.ts` breaks.
+    expect(stepNamed(etl, "report").output!.document).toContain(
+      "{{$steps.compose.output.draft}}",
+    );
+    expect(contractKeysOf(seeded(shippedAgents, WRITER)!.prompt)).toContain("draft");
   });
 
   test("CROSS-FILE TIE — the shipped ref addresses a key the writer's stored contract declares", () => {

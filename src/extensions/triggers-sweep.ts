@@ -27,6 +27,21 @@
  * Sweeps are OWNERLESS (no user initiated them), so they audit to
  * `audit_log`, whose `user_id` is nullable — `sdk_capability_calls` has a
  * NOT NULL `on_behalf_of` and structurally cannot record them.
+ *
+ * ── Who calls this ───────────────────────────────────────────────────
+ *
+ * {@link sweepAllDynamicTriggers}, from `HostMaintenanceDaemon`'s hourly
+ * tick — the daemon that exists for "host-scoped maintenance sweeps that
+ * don't fit the per-extension `ScheduleDaemon` model", which this is.
+ *
+ * NOT "on extension start", which is how the C2 spec phrased it, and the
+ * difference is forced by how extensions actually start. The one extension
+ * that holds dynamic triggers today (`ez-factory`) has no `bootSpawn`
+ * flag — its subprocess is spawned lazily by a page render, a tool call or
+ * a fire — so a boot-time hook would have nothing running to ask. A
+ * periodic sweep asks whatever is up at the time and fails open for the
+ * rest, which is the same answer a start hook would give, minus the
+ * pretence that boot is when it happens.
  */
 import { insertAuditEntry } from "../db/queries/audit-log";
 import { EXT_AUDIT_ACTIONS } from "./audit-actions";
@@ -34,6 +49,7 @@ import {
   listDynamicCrons, listDynamicWebhooks,
   disableDynamicCrons, disableDynamicWebhooks,
 } from "./triggers-store";
+import { registerFireCallProvenance } from "./call-provenance";
 import { extensionLogger } from "../logger";
 
 const log = extensionLogger("triggers", "sweep");
@@ -87,11 +103,46 @@ export async function syncDynamicTriggers(
     return { disabled: 0, skipped: true, reason: "subprocess-not-running" };
   }
 
+  // ── The frame carries a provenance token, and that is load-bearing ──
+  //
+  // An extension answers this by reading its OWN state, and every
+  // host-mediated read it can make (`ezcorp/storage`, `ctx.triggers.list`)
+  // resolves identity from the host-issued `_meta.ezCallId` the SDK echoes
+  // back — the channel binds it for ANY inbound frame, request or
+  // notification (`packages/@ezcorp/sdk/src/runtime/channel.ts`). With no
+  // token the SDK sends none, `resolveStorageProvenance` fail-fasts
+  // `-32602`, the extension's handler throws, and the response comes back
+  // an error — so the sweep would fail OPEN on every single run. Wired,
+  // and permanently inert. `ez-factory` says exactly this about its own
+  // boot ordering (`extensions/ez-factory/index.ts`): its store is
+  // unreachable outside an inbound frame that carries a token.
+  //
+  // OWNERLESS, like a cron fire: nobody asked for this sweep. That
+  // resolves the install-wide `global` storage bucket and nothing else
+  // (`storage-handler.ts` — `global` is deliberately owner-free), which is
+  // precisely where a job console keeps jobs. `kind: "schedule"` because
+  // the rows being reconciled ARE the schedule/webhook rows, and it buys
+  // the same 10-minute registry backstop the daemon's own fires take.
+  //
+  // Not released here: the 2-minute auto-release IS the release path for
+  // every fire-shaped token (`registerFireCallProvenance`), and it
+  // comfortably outlives one request/reply.
+  const ezCallId = registerFireCallProvenance({
+    onBehalfOf: null,
+    conversationId: null,
+    runId: null,
+    parentCallId: null,
+    actorExtensionId: extensionId,
+    kind: "schedule",
+    ownerless: true,
+  });
+
   let response: { result?: unknown; error?: { code: number; message: string } };
   try {
     response = await proc.call("ezcorp/triggers-sync", {
       v: 1,
       keys: [...cronKeys, ...hookKeys],
+      _meta: { ezCallId },
     });
   } catch (err) {
     // Transport failure / timeout. Fail open.
@@ -137,6 +188,83 @@ export async function syncDynamicTriggers(
     extensionId, disabled, cron: orphanedCrons.length, webhook: orphanedHooks.length,
   });
   return { disabled, skipped: false };
+}
+
+/**
+ * The registry surface the host-wide sweep needs, and nothing else.
+ *
+ * Structural rather than `Pick<ExtensionRegistry, …>` for the same reason
+ * {@link SyncTarget} is: this module must stay free of the registry's
+ * import graph (subprocess spawn, sandbox, checksums), and a test has to
+ * be able to hand it two objects and a map.
+ */
+export interface SweepRegistry {
+  /** `[extensionId, manifest]` for every registered extension. */
+  getAllManifests(): IterableIterator<[string, { name: string }]>;
+  /** The live subprocess, or `null`. NEVER spawns one — a sweep that woke
+   *  every extension hourly would be a worse bug than the orphan. */
+  getProcessIfRunning(extensionId: string): SyncTarget | null;
+}
+
+/** What one host-wide pass did. */
+export interface SweepAllResult {
+  /** Extensions the sweep looked at. */
+  scanned: number;
+  /** Rows soft-disabled across all of them. */
+  disabled: number;
+  /** Extensions that declined to act — the fail-open branch, per extension. */
+  skipped: number;
+  /** Extensions whose sweep THREW. Fail-open too, but a bug rather than a
+   *  policy: an orphan sweep is housekeeping and must never take the
+   *  host's maintenance daemon down. */
+  errored: number;
+}
+
+/**
+ * Reconcile EVERY registered extension's dynamic rows against what its
+ * subprocess still claims.
+ *
+ * The loop is deliberately unfiltered — no "does this manifest declare
+ * `triggers`?" pre-check. The rows are the filter, and they are the honest
+ * one: {@link syncDynamicTriggers} returns without asking anything when an
+ * extension holds none, so an extension that never used the capability
+ * costs two indexed SELECTs an hour, and one whose manifest DROPPED the
+ * capability while rows survive is still reconciled instead of being
+ * skipped by a declaration that no longer matches reality. (Total removal
+ * of the capability is {@link revokeDynamicTriggers}'s job, on the
+ * activate path; this is not a second copy of that policy.)
+ *
+ * Never throws. Per-extension failures are counted and the pass continues:
+ * one extension's DB error must not stop the next extension's orphan from
+ * being retired.
+ */
+export async function sweepAllDynamicTriggers(
+  registry: SweepRegistry,
+  now: Date = new Date(),
+): Promise<SweepAllResult> {
+  const result: SweepAllResult = { scanned: 0, disabled: 0, skipped: 0, errored: 0 };
+  for (const [extensionId, manifest] of registry.getAllManifests()) {
+    result.scanned++;
+    try {
+      const outcome = await syncDynamicTriggers(
+        extensionId,
+        manifest.name,
+        registry.getProcessIfRunning(extensionId),
+        now,
+      );
+      result.disabled += outcome.disabled;
+      if (outcome.skipped) result.skipped++;
+    } catch (err) {
+      result.errored++;
+      log.warn("dynamic-trigger sweep failed for one extension — continuing", {
+        extensionId, error: String(err),
+      });
+    }
+  }
+  if (result.disabled > 0) {
+    log.info("host-wide dynamic-trigger sweep retired orphans", { ...result });
+  }
+  return result;
 }
 
 /**

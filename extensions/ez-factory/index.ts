@@ -745,7 +745,19 @@ export async function handleTriggerFire(fire: TriggerFireContext): Promise<void>
 
 /**
  * The live trigger keys this console still claims, for the host's orphan
- * sweep (`ezcorp/triggers-sync` → `syncDynamicTriggers`).
+ * sweep.
+ *
+ * The full path, now that it exists end to end: `HostMaintenanceDaemon`'s
+ * hourly tick → `sweepAllDynamicTriggers` → `syncDynamicTriggers`
+ * (`src/extensions/triggers-sweep.ts`) → `ezcorp/triggers-sync` → the
+ * receiver in {@link installTriggerReceivers} → this function. (Through
+ * most of phase 8 the first three hops did not exist and this doc named a
+ * caller that was never wired; the sweep asked nobody and no orphan was
+ * ever retired.)
+ *
+ * That frame arrives carrying a host-issued `_meta.ezCallId`, which is the
+ * only reason the store read below can succeed at all — see
+ * {@link installTriggerReceivers} on why boot cannot do this.
  *
  * Derived from the JOB STORE, which is the only honest source: a key whose
  * job is gone, disabled, or no longer background is a row that would fire
