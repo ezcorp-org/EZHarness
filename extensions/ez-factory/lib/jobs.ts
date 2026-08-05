@@ -82,6 +82,14 @@
 
 import { Storage, withLock } from "@ezcorp/sdk/runtime";
 
+// TYPE-ONLY, and deliberately so: `lib/triggers.ts` imports VALUES from
+// this module (`isBackgroundTrigger`, `isValidJobId`,
+// `BACKGROUND_TRIGGER_KINDS`), so a value import back the other way would
+// be a real runtime cycle. `import type` is erased at compile time, which
+// makes the dependency one-directional at runtime while still letting the
+// fire outcome's shape live next to the table that classifies it.
+import type { JobFireOutcome } from "./triggers";
+
 // ── The three shipped workflows ─────────────────────────────────────
 
 /**
@@ -459,6 +467,24 @@ export interface FactoryJob {
    *  Set by {@link JobStore.touchJob}, never by an operator edit. */
   lastRunAt?: string;
   lastWorkflowRunId?: string;
+  /**
+   * The outcome of this job's last UNATTENDED fire. Set by
+   * {@link JobStore.noteFire}, never by an operator edit.
+   *
+   * **Why the job carries this and `lastRunAt` cannot.** `lastRunAt` is
+   * written by `reconcileRuns`, which reads `ctx.workflows.runs()` — a
+   * read the host scopes to the ASKING USER with `eq(workflow_runs.user_id,
+   * …)`. A delegated run owned by a service account has `user_id IS NULL`
+   * and therefore matches no viewer at all, and a refused fire produces no
+   * run row in the first place. So without this field a cron job whose
+   * authority went stale is indistinguishable from one whose next tick has
+   * simply not come round: both show an old `lastRunAt` and nothing else.
+   *
+   * This value comes from the rejection of THIS console's own `runFor`
+   * call, so it does not depend on any run-visibility question being
+   * answered a particular way.
+   */
+  lastFire?: JobFireOutcome;
 }
 
 /** The editable subset of a job. Ids, timestamps, attribution and bookkeeping
@@ -1116,6 +1142,18 @@ export interface JobStore {
     id: string,
     bookkeeping: { lastRunAt: string; lastWorkflowRunId?: string },
   ): Promise<FactoryJob | null>;
+  /**
+   * Record the outcome of an UNATTENDED fire — see
+   * {@link FactoryJob.lastFire}.
+   *
+   * Narrow for the same reason {@link touchJob} is: it can reach exactly
+   * one field and nothing else, so "every semantic field goes through the
+   * validator" keeps having no back door. A SUCCESS overwrites a previous
+   * refusal rather than accumulating, because the question this field
+   * answers is "is this job firing right now", not "has it ever failed" —
+   * the history is the audit trail's job.
+   */
+  noteFire(id: string, outcome: JobFireOutcome): Promise<FactoryJob | null>;
   getJob(id: string): Promise<FactoryJob | null>;
   listJobs(): Promise<FactoryJob[]>;
   deleteJob(id: string): Promise<boolean>;
@@ -1259,6 +1297,10 @@ export function createJobStore(): JobStore {
           ? { lastWorkflowRunId: bookkeeping.lastWorkflowRunId }
           : {}),
       }));
+    },
+
+    async noteFire(id, outcome) {
+      return editJob(id, (job) => ({ ...job, lastFire: outcome }));
     },
 
     async getJob(id) {
