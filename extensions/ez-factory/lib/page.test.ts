@@ -8,6 +8,9 @@ import {
   buildFactoryPage,
   buildJobPage,
   CONSOLE_HELP,
+  DELEGATABLE_TRIGGER_KINDS,
+  DELEGATIONS_HREF,
+  delegationConsentHref,
   draftFromFormPayload,
   enabledCell,
   ENABLED_NO,
@@ -1196,6 +1199,136 @@ describe("the job editor's Run button", () => {
 
   test("the CREATE form has no Run button — there is nothing saved to run", () => {
     expect(buttons(buildJobPage({ view: { kind: "new" }, job: null }))).toEqual([]);
+  });
+});
+
+// ── the job → consent handoff ────────────────────────────────────────
+//
+// A delegation binds `(extension_id, job_ref)`. Before this link, the only
+// way to make one was to read a job's id off this console and retype it
+// into a free-text box on another page — and a single wrong character
+// produces `DELEGATION_NOT_FOUND` at the first cron tick, audited with no
+// `delegation_id`, on a surface that states it cannot show that denial.
+// The whole feedback loop for the typo is an unattended job that quietly
+// never runs. These tests are about carrying the id correctly, and about
+// the link carrying nothing ELSE.
+
+describe("delegationConsentHref", () => {
+  const cron = (over: Partial<FactoryJob> = {}): FactoryJob =>
+    job({ trigger: { kind: "cron", cron: "0 3 * * *", timezone: "UTC" }, ...over });
+
+  test("names the extension, the job, the PREFIXED workflow and the trigger", () => {
+    const href = delegationConsentHref(cron());
+    expect(href).toBe(
+      "/workflows/delegations?extensionId=ez-factory&jobRef=j1" +
+        "&workflowName=ez-factory%3Adocs-factory&triggerKind=cron",
+    );
+  });
+
+  test("the workflow name is PREFIXED — a bare template name matches nothing in core", () => {
+    // A job stores `docs-factory`; the host prefixes before resolving, so
+    // the bare form names no workflow core could ever select. Getting this
+    // wrong is silent: the link opens, the workflow field is refused, and
+    // the person is left wondering which of the two pages is broken.
+    const href = delegationConsentHref(cron()) ?? "";
+    expect(new URL(href, "https://x").searchParams.get("workflowName")).toBe(
+      `${EXTENSION_NAME}:docs-factory`,
+    );
+  });
+
+  test("carries the job's OWN id as the job reference", () => {
+    const href = delegationConsentHref(cron({ id: "aaaa-bbbb" })) ?? "";
+    expect(new URL(href, "https://x").searchParams.get("jobRef")).toBe("aaaa-bbbb");
+  });
+
+  test("a MANUAL job gets no link — a human-started run spends no standing authority", () => {
+    expect(delegationConsentHref(job({ trigger: { kind: "manual" } }))).toBeNull();
+  });
+
+  test("a `workflow`-triggered job gets no link — core's surface cannot grant it", () => {
+    // Emitting a link this builder KNOWS the far end will refuse would
+    // spend the reader's trust on a dead end.
+    expect(
+      delegationConsentHref(
+        job({ trigger: { kind: "workflow", onWorkflow: "other", onStatus: ["success"] } }),
+      ),
+    ).toBeNull();
+  });
+
+  test("every unattended trigger kind gets a link", () => {
+    expect([...DELEGATABLE_TRIGGER_KINDS].sort()).toEqual(["cron", "event", "webhook"]);
+    expect(delegationConsentHref(job({ trigger: { kind: "webhook" } }))).toContain(
+      "triggerKind=webhook",
+    );
+    expect(
+      delegationConsentHref(job({ trigger: { kind: "event", event: "thing.happened" } })),
+    ).toContain("triggerKind=event");
+  });
+
+  test("a hostile job id cannot break out of the query string", () => {
+    // The id is store-validated, but this href is spliced by hand and the
+    // host re-checks it with `isSafeInternalHref` on ingest — so the
+    // encoding is asserted here rather than assumed twice over.
+    const href = delegationConsentHref(cron({ id: "a&triggerKind=cron&x=/../evil" })) ?? "";
+    expect(href.startsWith("/workflows/delegations?")).toBe(true);
+    expect(href).not.toContain("/../");
+    // Exactly four parameters survive: an injected fifth would be a link
+    // that says one thing and prefills another.
+    const params = new URL(href, "https://x").searchParams;
+    expect([...params.keys()]).toEqual([
+      "extensionId",
+      "jobRef",
+      "workflowName",
+      "triggerKind",
+    ]);
+    expect(params.get("jobRef")).toBe("a&triggerKind=cron&x=/../evil");
+    expect(params.get("triggerKind")).toBe("cron");
+  });
+
+  test("the href is host-internal and carries no origin", () => {
+    const href = delegationConsentHref(cron()) ?? "";
+    expect(href.startsWith(`${DELEGATIONS_HREF}?`)).toBe(true);
+    expect(href.startsWith("//")).toBe(false);
+    expect(href).not.toContain("\\");
+  });
+});
+
+describe("the job editor's delegation link", () => {
+  const hrefs = (tree: HubPageTree): string[] =>
+    nodesOfType(tree, "link").map((n) => String((n as unknown as { href: string }).href));
+
+  test("an unattended job's editor links out to core's consent surface", () => {
+    const scheduled = job({ trigger: { kind: "cron", cron: "0 3 * * *", timezone: "UTC" } });
+    const tree = buildJobPage({ view: { kind: "edit", jobId: scheduled.id }, job: scheduled });
+    expect(hrefs(tree)).toContain(delegationConsentHref(scheduled));
+    const link = nodesOfType(tree, "link").find(
+      (n) => (n as unknown as { href: string }).href === delegationConsentHref(scheduled),
+    ) as unknown as { label: string };
+    expect(link.label).toBe("Let this run unattended…");
+  });
+
+  test("a MANUAL job's editor has no such link", () => {
+    const tree = buildJobPage({ view: { kind: "edit", jobId: "j1" }, job: job() });
+    expect(hrefs(tree).some((h) => h.startsWith(DELEGATIONS_HREF))).toBe(false);
+  });
+
+  test("the CREATE form has no such link — there is no job to delegate yet", () => {
+    const tree = buildJobPage({ view: { kind: "new" }, job: null });
+    expect(hrefs(tree).some((h) => h.startsWith(DELEGATIONS_HREF))).toBe(false);
+  });
+
+  test("a DISABLED unattended job still offers it — consent outlives a pause", () => {
+    // `enabled:false` is this console's retire and it suppresses the Run
+    // button, but consent is a separate axis: re-enabling a job whose
+    // delegation was never granted would produce an unattended job that
+    // silently never fires, which is the exact failure this link exists
+    // to prevent.
+    const paused = job({
+      enabled: false,
+      trigger: { kind: "cron", cron: "0 3 * * *", timezone: "UTC" },
+    });
+    const tree = buildJobPage({ view: { kind: "edit", jobId: paused.id }, job: paused });
+    expect(hrefs(tree)).toContain(delegationConsentHref(paused));
   });
 });
 
