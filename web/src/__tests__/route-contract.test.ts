@@ -490,7 +490,6 @@ describe("registry ⇄ filesystem parity", () => {
   const KNOWN_UNREGISTERED: ReadonlySet<string> = new Set([
     "DELETE /api/agents/:id/share",
     "DELETE /api/agents/:name/test-conversations",
-    "DELETE /api/auth/oauth/callback",
     "DELETE /api/conversations/:id/tasks/:taskId/assign",
     "DELETE /api/extensions/author/draft/:id",
     "DELETE /api/ez/conversation/messages",
@@ -530,7 +529,6 @@ describe("registry ⇄ filesystem parity", () => {
     "PATCH /api/projects/:id/features/:featureId",
     "PATCH /api/user-commands/:name",
     "POST /api/ask-user/answer",
-    "POST /api/auth/oauth/callback",
     "POST /api/conversations/:id/agent-chat",
     "POST /api/conversations/:id/clone-turns",
     "POST /api/conversations/:id/tasks/:taskId/assign",

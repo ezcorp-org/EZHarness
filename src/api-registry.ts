@@ -51,6 +51,16 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "POST", path: "/api/auth/reset-password/:token", description: "Consume reset token and set new password", category: "auth", schemaKey: "consumeResetSchema" },
   { method: "GET", path: "/api/auth/oauth", description: "Initiate OAuth login flow", category: "auth" },
   { method: "GET", path: "/api/auth/oauth/callback", description: "Handle OAuth provider callback", category: "auth" },
+  // The OTHER door to the instance LLM credential. POST/DELETE here write and
+  // remove `provider:oauth:<provider>`, which `src/providers/credentials.ts`
+  // resolves for every user's turns — the same room `provider:apiKey:*` (and
+  // therefore `POST`/`DELETE /api/providers`) lives in. Both were gated on
+  // `requireAuth` alone until this change, so any authenticated member could
+  // redirect or delete the organisation's provider credential. Now gated on
+  // BOTH axes, exactly as /api/providers is: `requireAdmin(locals)` for the
+  // role and `requireScope(locals,"admin")` for the API-key scope.
+  { method: "POST", path: "/api/auth/oauth/callback", description: "Exchange an OAuth authorization code (PKCE) and store the INSTANCE provider credential at provider:oauth:<provider>, encrypted. Gate: admin role + admin scope", category: "auth", scope: "admin" },
+  { method: "DELETE", path: "/api/auth/oauth/callback", description: "Disconnect a provider by deleting the instance credential at provider:oauth:<provider>. Gate: admin role + admin scope", category: "auth", scope: "admin" },
 
   // Account
   { method: "GET", path: "/api/account", description: "Get current user account details", category: "account" },
